@@ -37,6 +37,17 @@ class kernel_functor {
   kernel_functor(range_mapper, std::function<void(cl::sycl::nd_item)>){};
 };
 
+template <cl::sycl::access::mode Mode>
+class accessor {
+ public:
+  void operator=(float value) const {};
+
+  float& operator[](size_t i) const { return somefloat; }
+
+ private:
+  mutable float somefloat = 13.37f;
+};
+
 // We have to wrap the SYCL handler to support our count/kernel syntax
 // (as opposed to work group size/kernel)
 class handler {
@@ -44,16 +55,22 @@ class handler {
   // TODO naming: execution_handle vs handler?
   template <typename name = class unnamed_task>
   void parallel_for(size_t count, kernel_functor){
-      // Assign deterministic ID to this kernel execution
-      // Submit kernel functor access ranges to runtime now
+      // TODO: Handle access ranges
   };
-};
 
-template <cl::sycl::access::mode Mode>
-class accessor {
- public:
-  void operator=(float value) const {};
-  const accessor& operator[](size_t i) const { return *this; }
+  template <cl::sycl::access::mode Mode>
+  void require(accessor<Mode> a) {
+    queue.add_requirement();
+  }
+
+ private:
+  friend class distr_queue;
+  distr_queue& queue;
+
+  static inline size_t instance_count = 0;
+  size_t id;
+
+  handler(distr_queue& q) : id(instance_count++), queue(q) {}
 };
 
 // Presumably we will have to wrap SYCL buffers as well (as opposed to the code
@@ -71,6 +88,8 @@ class buffer {
 
   size_t get_id() { return id; }
 
+  float operator[](size_t idx) { return 1.f; }
+
  private:
   static inline size_t instance_count = 0;
   size_t id;
@@ -85,12 +104,22 @@ class branch_handle {
 
 class distr_queue {
  public:
-  void submit(std::function<void(handler& cgh)> cgf){};
+  void submit(std::function<void(handler& cgh)> cgf) {
+    handler h(*this);
+    cgf(h);
+  };
 
   // experimental
   // TODO: Can we derive 2nd lambdas args from requested values in 1st?
   void branch(std::function<void(branch_handle& bh)>,
               std::function<void(float)>){};
+
+ private:
+  friend handler;
+
+  std::map<size_t, size_t> buffer_last_writer;
+
+  void add_requirement();  // TODO
 };
 
 }  // namespace celerity
@@ -194,6 +223,53 @@ int main(int argc, char* argv[]) {
   // resort to B in case they identify a bottleneck.
   // ALSO: Do we need the same for loops? Can we unify branching & loops
   // somehow?
+  // TODO: Create another example using these kinds of control structures
+  // (E.g. some iterative algorithm minimizing an error)
+
+  //// ==============================================
+
+  queue.submit([&](celerity::handler& cgh) {
+    auto a = buf_a.get_access<cl::sycl::access::mode::read>(cgh);
+    auto b = buf_b.get_access<cl::sycl::access::mode::write>(cgh);
+    cgh.parallel_for<class compute_b>(
+        1024, celerity::kernel_functor(
+                  [&](celerity::range offset, celerity::range range) {
+                    // TODO
+                  },
+                  [=](cl::sycl::nd_item item) {
+                    auto i = item.get_global();
+                    b[i] = a[i] * 2.f;
+                  }));
+  });
+
+  queue.submit([&](celerity::handler& cgh) {
+    auto a = buf_a.get_access<cl::sycl::access::mode::read>(cgh);
+    auto c = buf_b.get_access<cl::sycl::access::mode::write>(cgh);
+    cgh.parallel_for<class compute_c>(
+        1024, celerity::kernel_functor(
+                  [&](celerity::range offset, celerity::range range) {
+                    // TODO
+                  },
+                  [=](cl::sycl::nd_item item) {
+                    auto i = item.get_global();
+                    c[i] = 2.f - a[i];
+                  }));
+  });
+
+  queue.submit([&](celerity::handler& cgh) {
+    auto b = buf_b.get_access<cl::sycl::access::mode::read>(cgh);
+    auto c = buf_c.get_access<cl::sycl::access::mode::read>(cgh);
+    auto d = buf_d.get_access<cl::sycl::access::mode::write>(cgh);
+    cgh.parallel_for<class compute_d>(
+        1024, celerity::kernel_functor(
+                  [&](celerity::range offset, celerity::range range) {
+                    // TODO
+                  },
+                  [=](cl::sycl::nd_item item) {
+                    auto i = item.get_global();
+                    d[i] = b[i] + c[i];
+                  }));
+  });
 
   //// ==============================================
 
