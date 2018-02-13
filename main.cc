@@ -21,59 +21,48 @@ int main(int argc, char* argv[]) {
   // TODO: How is device selected for distributed queue?
   // The choice of device is obviously important to the master node, so we have
   // to inform it about our choice somehow.
-  celerity::distr_queue queue;
-
-  // TODO: Do we support multiple queues per node? SYCL certainly does allow it
-  // => NO! The whole idea of CELERITY is that we don't have to address multiple
+  // NOTE: We only support a single queue per worker process!
+  // The whole idea of CELERITY is that we don't have to address multiple
   // devices (with multiple queues) manually. If a node has multiple devices
   // available, it can start multiple worker processes to make use of them.
+  celerity::distr_queue queue;
 
   // **** COMMAND GROUPS ****
   // The functor/lambda submitted to a SYCL queue is called a "command group".
   // Command groups specify a set of "requisites" (or sometimes called
   // "requirements") for a particular kernel, i.e. what buffers need to be
-  // available for reading/writing etc.
+  // available for reading/writing etc. It's (likely) designed that way so
+  // the kernel lambdas can capture the accessors from the command group scope.
   //
   // See spec sections 3.4.1.2 and 4.8.2 for more info
-  //
-  // TODO: Do we need the ability to reference command groups, or just kernels -
-  // i.e. what gets the global ID?
-  // If we don't re-run entire command groups on worker nodes, we have to
-  // additionally encode buffer access modes within the command DAG / per-worker
-  // command queues somehow - this might be unecessary overhead.
   queue.submit([&](celerity::handler& cgh) {
-    // TODO: We may want to abstract command groups away altogether
-    // According to spec, the command group is mainly intended as a
-    // place to specify data requirements for the wrapped kernel.
-    // 4.8.4 "SYCL functions for adding requirements" only lists one
-    // function require(accessor).
+    // Access-specifier scenario:
+    // We have 2 worker nodes available, and 1000 work items
+    // Then this functor is called twice:
+    //    fn(nd_subrange(0, 500, 1000)), fn(nd_subrange(501, 999, 1000))
+    // It returns the data range the kernel requires to compute it's result
+    //
+    // NOTE:
+    // If returned nd_subrange is out of buffer bounds (e.g. offset - 1 is
+    // undefined at first item in block [0, n]), it simply gets clamped to
+    // the valid range and it is assumed that the user handles edge cases
+    // correctly within the kernel.
+    auto a = buf_a.get_access<cl::sycl::access::mode::write>(
+        cgh, [](celerity::nd_subrange range) -> celerity::nd_subrange {
+          return range;
+        });
 
-    // Note that accessors can also be instantiated directly as
-    // cl::sycl::access::accessor()
-    auto a = buf_a.get_access<cl::sycl::access::mode::write>(cgh);
-
-    // TODO: Figure out whether it is allowed to submit more than one kernel
-    // per command group. ComputeCpp (v 0.5.1) doesn't allow it, TriSYCL does
-    // (at least when running kernels on host). The spec doesn't seem to mention
-    // it explicitly, but sec 3.2. mentions "all the requirements for *a* kernel
-    // to execute are defined in this command group scope [...]".
-    cgh.parallel_for<class produce_a>(
-        1024, celerity::kernel_functor(
-                  // General note on API: Why don't we specify access ranges
-                  // beforehand (outside kernel call)?
-
-                  // NOTE: "Range" is a bit of a misnomer here, as it actually
-                  // specifies a point within our ND-buffers (which is why we
-                  // need two different values, instead of a single "range").
-
-                  // TODO: Do we also support explicit work group size etc.?
-                  [&](celerity::range offset, celerity::range range) {
-                    // a.access_range(offset, range);
-                  },
-                  [=](cl::sycl::nd_item item) {
-                    auto i = item.get_global();
-                    a[i] = 1.f;
-                  }));
+    // NOTES:
+    // * We don't support explicit work group sizes etc., this should be handled
+    //   by the runtime. We only specify the global size.
+    // * We only support a single kernel call per command group (not sure if
+    //   this is also the case in SYCL; spec doesn't mention it explicitly).
+    // TODO: SYCL parallel_for allows specification of an offset - look into
+    // TODO: First parameter (count) should be nd_range in general case
+    cgh.parallel_for<class produce_a>(1024, [=](cl::sycl::nd_item item) {
+      auto i = item.get_global();
+      a[i] = 1.f;
+    });
   });
 
   // TODO: How do we deal with branching queues, depending on buffer contents?
@@ -107,62 +96,50 @@ int main(int argc, char* argv[]) {
   //// ==============================================
 
   queue.submit([&](celerity::handler& cgh) {
-    auto a = buf_a.get_access<cl::sycl::access::mode::read>(cgh);
-    auto b = buf_b.get_access<cl::sycl::access::mode::write>(cgh);
-    cgh.parallel_for<class compute_b>(
-        1024, celerity::kernel_functor(
-                  [&](celerity::range offset, celerity::range range) {
-                    // TODO
-                  },
-                  [=](cl::sycl::nd_item item) {
-                    auto i = item.get_global();
-                    b[i] = a[i] * 2.f;
-                  }));
+    auto a = buf_a.get_access<cl::sycl::access::mode::read>(
+        cgh, celerity::access::one_to_one());
+    auto b = buf_b.get_access<cl::sycl::access::mode::write>(
+        cgh, celerity::access::one_to_one());
+    cgh.parallel_for<class compute_b>(1024, [=](cl::sycl::nd_item item) {
+      auto i = item.get_global();
+      b[i] = a[i] * 2.f;
+    });
   });
 
   queue.submit([&](celerity::handler& cgh) {
-    auto a = buf_a.get_access<cl::sycl::access::mode::read>(cgh);
-    auto c = buf_c.get_access<cl::sycl::access::mode::write>(cgh);
-    cgh.parallel_for<class compute_c>(
-        1024, celerity::kernel_functor(
-                  [&](celerity::range offset, celerity::range range) {
-                    // TODO
-                  },
-                  [=](cl::sycl::nd_item item) {
-                    auto i = item.get_global();
-                    c[i] = 2.f - a[i];
-                  }));
+    auto a = buf_a.get_access<cl::sycl::access::mode::read>(
+        cgh, celerity::access::one_to_one());
+    auto c = buf_c.get_access<cl::sycl::access::mode::write>(
+        cgh, celerity::access::one_to_one());
+    cgh.parallel_for<class compute_c>(1204, [=](cl::sycl::nd_item item) {
+      auto i = item.get_global();
+      c[i] = 2.f - a[i];
+    });
   });
 
   queue.submit([&](celerity::handler& cgh) {
-    auto b = buf_b.get_access<cl::sycl::access::mode::read>(cgh);
-    auto c = buf_c.get_access<cl::sycl::access::mode::read>(cgh);
-    auto d = buf_d.get_access<cl::sycl::access::mode::write>(cgh);
-    cgh.parallel_for<class compute_d>(
-        1024, celerity::kernel_functor(
-                  [&](celerity::range offset, celerity::range range) {
-                    // TODO
-                  },
-                  [=](cl::sycl::nd_item item) {
-                    auto i = item.get_global();
-                    d[i] = b[i] + c[i];
-                  }));
+    auto b = buf_b.get_access<cl::sycl::access::mode::read>(
+        cgh, celerity::access::one_to_one());
+    auto c = buf_c.get_access<cl::sycl::access::mode::read>(
+        cgh, celerity::access::one_to_one());
+    auto d = buf_d.get_access<cl::sycl::access::mode::write>(
+        cgh, celerity::access::one_to_one());
+    cgh.parallel_for<class compute_d>(1024, [=](cl::sycl::nd_item item) {
+      auto i = item.get_global();
+      d[i] = b[i] + c[i];
+    });
   });
 
 #if 0
   for (auto i = 0; i < 4; ++i) {
     queue.submit([&](celerity::handler& cgh) {
-      auto c = buf_c.get_access<cl::sycl::access::mode::read>(cgh);
-      auto d = buf_d.get_access<cl::sycl::access::mode::write>(cgh);
-      cgh.parallel_for<class compute_some_more>(
-          1024, celerity::kernel_functor(
-                    [&](celerity::range offset, celerity::range range) {
-                      // TODO
-                    },
-                    [=](cl::sycl::nd_item item) {
-                      auto i = item.get_global();
-                      c[i] = 2.f - d[i];
-                    }));
+      auto c = buf_c.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one());
+      auto d = buf_d.get_access<cl::sycl::access::mode::write>(cgh, celerity::access::one_to_one());
+      cgh.parallel_for<class compute_some_more>(1024,
+                                                [=](cl::sycl::nd_item item) {
+                                                  auto i = item.get_global();
+                                                  c[i] = 2.f - d[i];
+                                                });
     });
   }
 #endif

@@ -24,6 +24,8 @@ using namespace boost_graph;
 namespace cl {
 namespace sycl {
 
+struct nd_range {};
+
 struct nd_item {
   size_t get_global() { return 0; }
 };
@@ -39,13 +41,22 @@ namespace celerity {
 
 class buffer;
 
-class range {};
-using range_mapper = std::function<void(range, range)>;
-
-class kernel_functor {
- public:
-  kernel_functor(range_mapper, std::function<void(cl::sycl::nd_item)>){};
+struct nd_point {};
+struct nd_subrange {
+  nd_point start;
+  nd_point range;
+  cl::sycl::nd_range global_size;
 };
+using range_mapper = std::function<nd_subrange(nd_subrange range)>;
+
+// Convenience range mappers
+namespace access {
+struct one_to_one {
+  nd_subrange operator()(nd_subrange range) const { return range; }
+};
+}  // namespace access
+
+using kernel_functor = std::function<void(cl::sycl::nd_item)>;
 
 template <cl::sycl::access::mode Mode>
 class accessor {
@@ -106,7 +117,7 @@ class buffer {
   explicit buffer(size_t size) : size(size), id(instance_count++){};
 
   template <cl::sycl::access::mode Mode>
-  accessor<Mode> get_access(celerity::handler handler) {
+  accessor<Mode> get_access(celerity::handler handler, range_mapper) {
     auto a = accessor<Mode>(*this);
     handler.require(a);
     return a;
