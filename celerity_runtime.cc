@@ -33,7 +33,9 @@ void distr_queue::submit(std::function<void(handler& cgh)> cgf) {
 void distr_queue::debug_print_task_graph() {
   std::vector<std::string> names;
   for (auto i = 0; i < task_graph.vertex_set().size(); ++i) {
-    names.push_back(handlers[i]->get_debug_name());
+    names.push_back(
+        (boost::format("Task %d (%s)") % i % handlers[i]->get_debug_name())
+            .str());
   }
   write_graphviz(std::cout, task_graph, boost::make_label_writer(&names[0]));
 }
