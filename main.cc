@@ -1,18 +1,6 @@
 #include <iostream>
 
-#include <boost/graph/adjacency_list.hpp>
-#include <boost/graph/graphviz.hpp>
-
 #include "celerity_runtime.h"
-
-namespace boost_graph {
-using boost::adjacency_list;
-using boost::bidirectionalS;
-using boost::vecS;
-}  // namespace boost_graph
-
-const char* name[] = {"Produce Numbers", "Multiply by 3", "Add 5",
-                      "Difference"};
 
 // General notes:
 // Spec version used: https://www.khronos.org/registry/SYCL/specs/sycl-1.2.1.pdf
@@ -134,7 +122,7 @@ int main(int argc, char* argv[]) {
 
   queue.submit([&](celerity::handler& cgh) {
     auto a = buf_a.get_access<cl::sycl::access::mode::read>(cgh);
-    auto c = buf_b.get_access<cl::sycl::access::mode::write>(cgh);
+    auto c = buf_c.get_access<cl::sycl::access::mode::write>(cgh);
     cgh.parallel_for<class compute_c>(
         1024, celerity::kernel_functor(
                   [&](celerity::range offset, celerity::range range) {
@@ -161,18 +149,25 @@ int main(int argc, char* argv[]) {
                   }));
   });
 
+#if 0
+  for (auto i = 0; i < 4; ++i) {
+    queue.submit([&](celerity::handler& cgh) {
+      auto c = buf_c.get_access<cl::sycl::access::mode::read>(cgh);
+      auto d = buf_d.get_access<cl::sycl::access::mode::write>(cgh);
+      cgh.parallel_for<class compute_some_more>(
+          1024, celerity::kernel_functor(
+                    [&](celerity::range offset, celerity::range range) {
+                      // TODO
+                    },
+                    [=](cl::sycl::nd_item item) {
+                      auto i = item.get_global();
+                      c[i] = 2.f - d[i];
+                    }));
+    });
+  }
+#endif
+
   //// ==============================================
 
-  using namespace boost_graph;
-
-  typedef adjacency_list<vecS, vecS, bidirectionalS> Graph;
-  typedef std::pair<int, int> Edge;
-
-  Graph g(0);
-  boost::add_edge(0, 1, g);
-  boost::add_edge(0, 2, g);
-  boost::add_edge(1, 3, g);
-  boost::add_edge(2, 3, g);
-
-  write_graphviz(std::cout, g, boost::make_label_writer(name));
+  queue.debug_print_task_graph();
 }
