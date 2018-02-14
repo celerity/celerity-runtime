@@ -5,7 +5,8 @@
 #include "celerity_runtime.h"
 
 // Prepend "//" to not break GraphViz format
-std::ostream& log() { return std::cout << "// "; }
+// ...or output it to stderr... or both!
+std::ostream& log() { return std::cerr << "// "; }
 
 // General notes:
 // Spec version used: https://www.khronos.org/registry/SYCL/specs/sycl-1.2.1.pdf
