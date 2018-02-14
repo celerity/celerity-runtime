@@ -3,12 +3,14 @@
 
 #include <functional>
 #include <memory>
+#include <regex>
+#include <string>
 #include <unordered_map>
 
+#include <SYCL/sycl.hpp>
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/graphviz.hpp>
 #include <boost/type_index.hpp>
-#include <regex>
 
 namespace boost_graph {
 using boost::adjacency_list;
@@ -21,31 +23,18 @@ typedef std::pair<int, int> Edge;
 
 using namespace boost_graph;
 
-namespace cl {
-namespace sycl {
-
-struct nd_range {};
-
-struct nd_item {
-  size_t get_global() { return 0; }
-};
-
-namespace access {
-
-enum class mode { read, write };
-}
-}  // namespace sycl
-}  // namespace cl
-
 namespace celerity {
 
 class buffer;
 
+// TODO: Naming. Check again what difference between "range" and a "nd_range" is
+// in SYCL
 struct nd_point {};
 struct nd_subrange {
   nd_point start;
   nd_point range;
-  cl::sycl::nd_range global_size;
+  // FIXME Dimensions
+  cl::sycl::nd_range<1> global_size;
 };
 using range_mapper = std::function<nd_subrange(nd_subrange range)>;
 
@@ -56,70 +45,64 @@ struct one_to_one {
 };
 }  // namespace access
 
-using kernel_functor = std::function<void(cl::sycl::nd_item)>;
+class distr_queue;
 
+// FIXME: Type, dimensions
 template <cl::sycl::access::mode Mode>
-class accessor {
- public:
-  accessor(buffer& buf) : buf(buf) {}
+using accessor =
+    cl::sycl::accessor<float, 1, Mode, cl::sycl::access::target::global_buffer>;
 
-  void operator=(float value) const {};
-  float& operator[](size_t i) const { return somefloat; }
-
-  buffer& get_buffer() { return buf; }
-
- private:
-  mutable float somefloat = 13.37f;
-  buffer& buf;
-};
-
-// We have to wrap the SYCL handler to support our count/kernel syntax
-// (as opposed to work group size/kernel)
 class handler {
  public:
   // TODO naming: execution_handle vs handler?
-  template <typename name = class unnamed_task>
-  void parallel_for(size_t count, kernel_functor) {
+  template <typename name = class unnamed_task, typename functorT>
+  void parallel_for(size_t count, const functorT& kernel) {
     // TODO: Handle access ranges
 
-    // DEBUG: Find nice name for kernel
+    sycl_handler.parallel_for<name>(
+        cl::sycl::nd_range<1>(cl::sycl::range<1>(count), cl::sycl::range<1>(1)),
+        kernel);
+
+    // DEBUG: Find nice name for kernel (regex is probably not super portable)
     auto qualified_name = boost::typeindex::type_id<name*>().pretty_name();
-    std::regex name_regex(R"(.*::(\w+)[\s\*]*)");
+    std::regex name_regex(R"(.*?(?:::)?([\w_]+)\s?\*.*)");
     std::smatch matches;
     std::regex_search(qualified_name, matches, name_regex);
     debug_name = matches.size() > 0 ? matches[1] : qualified_name;
   }
 
   template <cl::sycl::access::mode Mode>
-  void require(accessor<Mode> a);
+  void require(accessor<Mode> a, size_t buffer_id);
 
   size_t get_id() { return id; }
+  cl::sycl::handler& get_sycl_handler() { return sycl_handler; }
   std::string get_debug_name() const { return debug_name; };
 
  private:
   friend class distr_queue;
   distr_queue& queue;
+  cl::sycl::handler& sycl_handler;
 
-  static inline size_t instance_count = 0;
+  static size_t instance_count;
   size_t id;
 
   std::string debug_name;
 
-  handler(distr_queue& q);
+  handler(distr_queue& q, cl::sycl::handler& sycl_handler);
 };
 
-// Presumably we will have to wrap SYCL buffers as well (as opposed to the code
-// samples given in the proposal):
-// - We have to assign buffers a unique ID to identify them accross nodes
-// - We have to return custom accessors to support the CELERITY range specifiers
+// TODO: Templatize (data type, dimensions) - see sycl::buffer
 class buffer {
  public:
-  explicit buffer(size_t size) : size(size), id(instance_count++){};
+  buffer(float* host_ptr, size_t size)
+      : id(instance_count++),
+        size(size),
+        sycl_buffer(host_ptr, cl::sycl::range<1>(size)){};
 
   template <cl::sycl::access::mode Mode>
   accessor<Mode> get_access(celerity::handler handler, range_mapper) {
-    auto a = accessor<Mode>(*this);
-    handler.require(a);
+    auto a = accessor<Mode>(sycl_buffer, handler.get_sycl_handler());
+    handler.require(a, id);
     return a;
   };
 
@@ -128,9 +111,11 @@ class buffer {
   float operator[](size_t idx) { return 1.f; }
 
  private:
-  static inline size_t instance_count = 0;
+  static size_t instance_count;
   size_t id;
   size_t size;
+
+  cl::sycl::buffer<float, 1> sycl_buffer;
 };
 
 class branch_handle {
@@ -141,6 +126,8 @@ class branch_handle {
 
 class distr_queue {
  public:
+  // TODO: Device should be selected transparently
+  distr_queue(cl::sycl::device device);
   void submit(std::function<void(handler& cgh)> cgf);
 
   // experimental
@@ -152,10 +139,11 @@ class distr_queue {
 
  private:
   friend handler;
-  // We keep the handlers around to retrieve their name when debug printing
-  std::unordered_map<size_t, std::unique_ptr<handler>> handlers;
+  std::unordered_map<size_t, std::string> task_names;
   std::unordered_map<size_t, size_t> buffer_last_writer;
   Graph task_graph;
+
+  cl::sycl::queue sycl_queue;
 
   void add_requirement(size_t task_id, size_t buffer_id,
                        cl::sycl::access::mode mode);

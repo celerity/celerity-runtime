@@ -1,41 +1,54 @@
 #include "celerity_runtime.h"
 
 #include <iostream>
+#include <vector>
 
 #include <boost/format.hpp>
 
 namespace celerity {
 
+size_t buffer::instance_count = 0;
+size_t handler::instance_count = 0;
+
 // (Note: These are explicitly instantiated for now to fix the circular
 // dependency between handler and distr_queue)
 template <>
-void handler::require(accessor<cl::sycl::access::mode::read> a) {
-  queue.add_requirement(id, a.get_buffer().get_id(),
-                        cl::sycl::access::mode::read);
+void handler::require(accessor<cl::sycl::access::mode::read> a,
+                      size_t buffer_id) {
+  queue.add_requirement(id, buffer_id, cl::sycl::access::mode::read);
 }
 
 template <>
-void handler::require(accessor<cl::sycl::access::mode::write> a) {
-  queue.add_requirement(id, a.get_buffer().get_id(),
-                        cl::sycl::access::mode::write);
+void handler::require(accessor<cl::sycl::access::mode::write> a,
+                      size_t buffer_id) {
+  queue.add_requirement(id, buffer_id, cl::sycl::access::mode::write);
 }
 
-handler::handler(distr_queue& q) : id(instance_count++), queue(q) {
+handler::handler(distr_queue& q, cl::sycl::handler& sycl_handler)
+    : id(instance_count++), queue(q), sycl_handler(sycl_handler) {
   debug_name = (boost::format("task%d") % id).str();
 }
 
+distr_queue::distr_queue(cl::sycl::device device) : sycl_queue(device) {}
+
 void distr_queue::submit(std::function<void(handler& cgh)> cgf) {
-  auto h = std::unique_ptr<handler>(new handler(*this));
-  cgf(*h);
-  handlers[h->get_id()] = std::move(h);
+  sycl_queue.submit([this, &cgf](cl::sycl::handler& sycl_handler) {
+    auto h = std::unique_ptr<handler>(new handler(*this, sycl_handler));
+    cgf(*h);
+    task_names[h->get_id()] = h->get_debug_name();
+  });
 }
 
 void distr_queue::debug_print_task_graph() {
+  auto num_vertices = task_graph.vertex_set().size();
+  if (num_vertices == 0) {
+    // Write empty graph
+    write_graphviz(std::cout, task_graph);
+    return;
+  }
   std::vector<std::string> names;
-  for (size_t i = 0; i < task_graph.vertex_set().size(); ++i) {
-    names.push_back(
-        (boost::format("Task %d (%s)") % i % handlers[i]->get_debug_name())
-            .str());
+  for (size_t i = 0; i < num_vertices; ++i) {
+    names.push_back((boost::format("Task %d (%s)") % i % task_names[i]).str());
   }
   write_graphviz(std::cout, task_graph, boost::make_label_writer(&names[0]));
 }
