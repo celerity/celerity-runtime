@@ -186,23 +186,21 @@ int main(int argc, char* argv[]) {
           });
     });
 
-    /*
 #if 0
     for (auto i = 0; i < 4; ++i) {
-      queue.submit([&](celerity::handler& cgh) {
-        auto c = buf_c.get_access<cl::sycl::access::mode::read>(cgh,
-          celerity::access::one_to_one()); auto d =
-          buf_d.get_access<cl::sycl::access::mode::write>(cgh,
-            celerity::access::one_to_one()); cgh.parallel_for<class
-compute_some_more>(1024,
-              [=](cl::sycl::nd_item item) {
-          auto i = item.get_global();
-          c[i] = 2.f - d[i];
-        });
+      queue.submit([&](auto& cgh) {
+        auto c = buf_c.get_access<cl::sycl::access::mode::read>(
+            cgh, celerity::access::one_to_one());
+        auto d = buf_d.get_access<cl::sycl::access::mode::write>(
+            cgh, celerity::access::one_to_one());
+        cgh.template parallel_for<class compute_some_more>(
+            1024, [=](cl::sycl::nd_item<1> item) {
+              auto i = item.get_global();
+              d[i] = 2.f - c[i];
+            });
       });
     }
 #endif
-    */
 
     queue.debug_print_task_graph();
 
