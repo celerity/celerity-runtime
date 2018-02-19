@@ -2,6 +2,8 @@
 #include <CL/cl_ext.h>
 #include <SYCL/sycl.hpp>
 
+#define CELERITY_NUM_WORKER_NODES 2
+
 #include "celerity_runtime.h"
 
 // Prepend "//" to not break GraphViz format
@@ -38,7 +40,7 @@ int main(int argc, char* argv[]) {
       log() << "Platform " << i << ": " << platform_name << std::endl;
     }
 
-    const size_t USE_PLATFORM = 2;
+    const size_t USE_PLATFORM = 1;
     assert(USE_PLATFORM < num_platforms);
     cl_device_id devices[10];
     cl::sycl::cl_uint num_devices;
@@ -84,7 +86,7 @@ int main(int argc, char* argv[]) {
     // scope.
     //
     // See spec sections 3.4.1.2 and 4.8.2 for more info
-    queue.submit([&](celerity::handler& cgh) {
+    queue.submit([&](auto& cgh) {
       // Access-specifier scenario:
       // We have 2 worker nodes available, and 1000 work items
       // Then this functor is called twice:
@@ -108,10 +110,11 @@ int main(int argc, char* argv[]) {
       //   this is also the case in SYCL; spec doesn't mention it explicitly).
       // TODO: SYCL parallel_for allows specification of an offset - look into
       // TODO: First parameter (count) should be nd_range in general case
-      cgh.parallel_for<class produce_a>(1024, [=](cl::sycl::nd_item<1> item) {
-        auto i = item.get_global();
-        a[i] = 1.f;
-      });
+      cgh.template parallel_for<class produce_a>(
+          1024, [=](cl::sycl::nd_item<1> item) {
+            auto i = item.get_global();
+            a[i] = 1.f;
+          });
     });
 
     // TODO: How do we deal with branching queues, depending on buffer contents?
@@ -145,39 +148,42 @@ int main(int argc, char* argv[]) {
 
     //// ==============================================
 
-    queue.submit([&](celerity::handler& cgh) {
+    queue.submit([&](auto& cgh) {
       auto a = buf_a.get_access<cl::sycl::access::mode::read>(
           cgh, celerity::access::one_to_one());
       auto b = buf_b.get_access<cl::sycl::access::mode::write>(
           cgh, celerity::access::one_to_one());
-      cgh.parallel_for<class compute_b>(1024, [=](cl::sycl::nd_item<1> item) {
-        auto i = item.get_global();
-        b[i] = a[i] * 2.f;
-      });
+      cgh.template parallel_for<class compute_b>(
+          1024, [=](cl::sycl::nd_item<1> item) {
+            auto i = item.get_global();
+            b[i] = a[i] * 2.f;
+          });
     });
 
-    queue.submit([&](celerity::handler& cgh) {
+    queue.submit([&](auto& cgh) {
       auto a = buf_a.get_access<cl::sycl::access::mode::read>(
           cgh, celerity::access::one_to_one());
       auto c = buf_c.get_access<cl::sycl::access::mode::write>(
           cgh, celerity::access::one_to_one());
-      cgh.parallel_for<class compute_c>(1204, [=](cl::sycl::nd_item<1> item) {
-        auto i = item.get_global();
-        c[i] = 2.f - a[i];
-      });
+      cgh.template parallel_for<class compute_c>(
+          1204, [=](cl::sycl::nd_item<1> item) {
+            auto i = item.get_global();
+            c[i] = 2.f - a[i];
+          });
     });
 
-    queue.submit([&](celerity::handler& cgh) {
+    queue.submit([&](auto& cgh) {
       auto b = buf_b.get_access<cl::sycl::access::mode::read>(
           cgh, celerity::access::one_to_one());
       auto c = buf_c.get_access<cl::sycl::access::mode::read>(
           cgh, celerity::access::one_to_one());
       auto d = buf_d.get_access<cl::sycl::access::mode::write>(
           cgh, celerity::access::one_to_one());
-      cgh.parallel_for<class compute_d>(1024, [=](cl::sycl::nd_item<1> item) {
-        auto i = item.get_global();
-        d[i] = b[i] + c[i];
-      });
+      cgh.template parallel_for<class compute_d>(
+          1024, [=](cl::sycl::nd_item<1> item) {
+            auto i = item.get_global();
+            d[i] = b[i] + c[i];
+          });
     });
 
     /*
@@ -198,9 +204,14 @@ compute_some_more>(1024,
 #endif
     */
 
-    //// ================  DEBUG OUTPUT ====================
-
     queue.debug_print_task_graph();
+
+    log() << "EXECUTE DEFERRED" << std::endl;
+    queue.TEST_execute_deferred();
+
+    // In reality, this would be called periodically by a worker thread
+    queue.build_command_graph();
+
   } catch (std::exception e) {
     std::cerr << e.what();
     return EXIT_FAILURE;

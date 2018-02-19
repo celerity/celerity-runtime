@@ -1,13 +1,14 @@
 #ifndef CELERITY_RUNTIME
 #define CELERITY_RUNTIME
 
+#include <cassert>
 #include <functional>
-#include <memory>
 #include <regex>
 #include <string>
 #include <unordered_map>
 
 #include <SYCL/sycl.hpp>
+#include <boost/format.hpp>
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/graphviz.hpp>
 #include <boost/type_index.hpp>
@@ -52,17 +53,26 @@ template <cl::sycl::access::mode Mode>
 using accessor =
     cl::sycl::accessor<float, 1, Mode, cl::sycl::access::target::global_buffer>;
 
-class handler {
+// TODO: Looks like we will have to provide the full accessor API
+template <cl::sycl::access::mode Mode>
+class prepass_accessor {
  public:
-  // TODO naming: execution_handle vs handler?
-  template <typename name = class unnamed_task, typename functorT>
+  float& operator[](cl::sycl::id<1> index) const { return value; }
+
+ private:
+  mutable float value = 0.f;
+};
+
+enum class is_prepass { true_t, false_t };
+
+template <is_prepass IsPrepass>
+class handler {};
+
+template <>
+class handler<is_prepass::true_t> {
+ public:
+  template <typename name, typename functorT>
   void parallel_for(size_t count, const functorT& kernel) {
-    // TODO: Handle access ranges
-
-    sycl_handler.parallel_for<name>(
-        cl::sycl::nd_range<1>(cl::sycl::range<1>(count), cl::sycl::range<1>(1)),
-        kernel);
-
     // DEBUG: Find nice name for kernel (regex is probably not super portable)
     auto qualified_name = boost::typeindex::type_id<name*>().pretty_name();
     std::regex name_regex(R"(.*?(?:::)?([\w_]+)\s?\*.*)");
@@ -72,23 +82,48 @@ class handler {
   }
 
   template <cl::sycl::access::mode Mode>
-  void require(accessor<Mode> a, size_t buffer_id);
+  void require(prepass_accessor<Mode> a, size_t buffer_id);
 
-  size_t get_id() { return id; }
-  cl::sycl::handler& get_sycl_handler() { return sycl_handler; }
   std::string get_debug_name() const { return debug_name; };
 
  private:
   friend class distr_queue;
   distr_queue& queue;
-  cl::sycl::handler& sycl_handler;
-
-  static size_t instance_count;
-  size_t id;
-
+  size_t task_id;
   std::string debug_name;
 
-  handler(distr_queue& q, cl::sycl::handler& sycl_handler);
+  handler(distr_queue& q, size_t task_id) : queue(q), task_id(task_id) {
+    debug_name = (boost::format("task%d") % task_id).str();
+  }
+};
+
+template <>
+class handler<is_prepass::false_t> {
+ public:
+  template <typename name, typename functorT>
+  void parallel_for(size_t count, const functorT& kernel) {
+    sycl_handler->parallel_for<name>(
+        cl::sycl::nd_range<1>(cl::sycl::range<1>(count), cl::sycl::range<1>(1)),
+        kernel);
+  }
+
+  template <cl::sycl::access::mode Mode>
+  void require(accessor<Mode> a, size_t buffer_id);
+
+  cl::sycl::handler& get_sycl_handler() { return *sycl_handler; }
+
+ private:
+  friend class distr_queue;
+  distr_queue& queue;
+  cl::sycl::handler* sycl_handler;
+  size_t task_id;
+
+  // The handler does not take ownership of the sycl_handler, but expects it to
+  // exist for the duration of it's lifetime.
+  handler(distr_queue& q, size_t task_id, cl::sycl::handler* sycl_handler)
+      : queue(q), task_id(task_id), sycl_handler(sycl_handler) {
+    this->sycl_handler = sycl_handler;
+  }
 };
 
 // TODO: Templatize (data type, dimensions) - see sycl::buffer
@@ -100,11 +135,21 @@ class buffer {
         sycl_buffer(host_ptr, cl::sycl::range<1>(size)){};
 
   template <cl::sycl::access::mode Mode>
-  accessor<Mode> get_access(celerity::handler handler, range_mapper) {
+  prepass_accessor<Mode> get_access(handler<is_prepass::true_t> handler,
+                                    range_mapper) {
+    // TODO: Handle access ranges
+    prepass_accessor<Mode> a;
+    handler.require(a, id);
+    return a;
+  }
+
+  template <cl::sycl::access::mode Mode>
+  accessor<Mode> get_access(handler<is_prepass::false_t> handler,
+                            range_mapper) {
     auto a = accessor<Mode>(sycl_buffer, handler.get_sycl_handler());
     handler.require(a, id);
     return a;
-  };
+  }
 
   size_t get_id() { return id; }
 
@@ -124,11 +169,41 @@ class branch_handle {
   void get(buffer){};
 };
 
+namespace detail {
+// This is a workaround that let's us store a command group functor with auto&
+// parameter, which we require in order to be able to pass different
+// celerity::handlers (celerity::is_prepass::true_t/false_t) for prepass and
+// live invocations.
+struct cgf_storage_base {
+  virtual void operator()(handler<is_prepass::true_t>) = 0;
+  virtual void operator()(handler<is_prepass::false_t>) = 0;
+};
+
+template <typename CGF>
+struct cgf_storage : cgf_storage_base {
+  CGF cgf;
+
+  cgf_storage(CGF cgf) : cgf(cgf) {}
+
+  void operator()(handler<is_prepass::true_t> cgh) override { cgf(cgh); }
+  void operator()(handler<is_prepass::false_t> cgh) override { cgf(cgh); }
+};
+}  // namespace detail
+
 class distr_queue {
  public:
   // TODO: Device should be selected transparently
   distr_queue(cl::sycl::device device);
-  void submit(std::function<void(handler& cgh)> cgf);
+
+  template <typename CGF>
+  void submit(CGF cgf) {
+    auto task_id = task_count++;
+    handler<is_prepass::true_t> h(*this, task_id);
+    cgf(h);
+    task_names[task_id] = h.get_debug_name();
+    task_command_groups[task_id] =
+        std::make_unique<detail::cgf_storage<CGF>>(cgf);
+  }
 
   // experimental
   // TODO: Can we derive 2nd lambdas args from requested values in 1st?
@@ -136,11 +211,16 @@ class distr_queue {
               std::function<void(float)>){};
 
   void debug_print_task_graph();
+  void TEST_execute_deferred();
+  void build_command_graph();
 
  private:
-  friend handler;
+  friend handler<is_prepass::true_t>;
   std::unordered_map<size_t, std::string> task_names;
+  std::unordered_map<size_t, std::unique_ptr<detail::cgf_storage_base>>
+      task_command_groups;
   std::unordered_map<size_t, size_t> buffer_last_writer;
+  size_t task_count = 0;
   Graph task_graph;
 
   cl::sycl::queue sycl_queue;
