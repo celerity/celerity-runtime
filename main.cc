@@ -2,8 +2,6 @@
 #include <CL/cl_ext.h>
 #include <SYCL/sycl.hpp>
 
-#define CELERITY_NUM_WORKER_NODES 2
-
 #include "celerity_runtime.h"
 
 // Prepend "//" to not break GraphViz format
@@ -80,10 +78,10 @@ int main(int argc, char* argv[]) {
     celerity::distr_queue queue(myDevice);
 
     // TODO: Do we support SYCL sub-buffers & images? Section 4.7.2
-    celerity::buffer buf_a(host_data_a, 1024);
-    celerity::buffer buf_b(host_data_b, 1024);
-    celerity::buffer buf_c(host_data_c, 1024);
-    celerity::buffer buf_d(host_data_d, 1024);
+    celerity::buffer buf_a = queue.create_buffer(host_data_a, 1024);
+    celerity::buffer buf_b = queue.create_buffer(host_data_b, 1024);
+    celerity::buffer buf_c = queue.create_buffer(host_data_c, 1024);
+    celerity::buffer buf_d = queue.create_buffer(host_data_d, 1024);
 
     // **** COMMAND GROUPS ****
     // The functor/lambda submitted to a SYCL queue is called a "command group".

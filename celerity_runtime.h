@@ -1,9 +1,12 @@
 #ifndef CELERITY_RUNTIME
 #define CELERITY_RUNTIME
 
+#define CELERITY_NUM_WORKER_NODES 2
+
 #include <cassert>
 #include <functional>
 #include <regex>
+#include <set>
 #include <string>
 #include <unordered_map>
 
@@ -13,6 +16,8 @@
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/graphviz.hpp>
 #include <boost/type_index.hpp>
+
+using namespace allscale::api::user::data;
 
 namespace boost_graph {
 using boost::adjacency_list;
@@ -36,6 +41,11 @@ using namespace boost_graph;
 namespace celerity {
 
 class buffer;
+
+using task_id = size_t;
+using buffer_id = size_t;
+using node_id = size_t;
+using region_version = size_t;
 
 // TODO: Naming. Check again what difference between "range" and a "nd_range" is
 // in SYCL
@@ -91,7 +101,7 @@ class handler<is_prepass::true_t> {
   }
 
   template <cl::sycl::access::mode Mode>
-  void require(prepass_accessor<Mode> a, size_t buffer_id);
+  void require(prepass_accessor<Mode> a, size_t buffer_id, range_mapper rm);
 
   std::string get_debug_name() const { return debug_name; };
 
@@ -138,17 +148,11 @@ class handler<is_prepass::false_t> {
 // TODO: Templatize (data type, dimensions) - see sycl::buffer
 class buffer {
  public:
-  buffer(float* host_ptr, size_t size)
-      : id(instance_count++),
-        size(size),
-        sycl_buffer(host_ptr, cl::sycl::range<1>(size)){};
-
   template <cl::sycl::access::mode Mode>
   prepass_accessor<Mode> get_access(handler<is_prepass::true_t> handler,
-                                    range_mapper) {
-    // TODO: Handle access ranges
+                                    range_mapper rm) {
     prepass_accessor<Mode> a;
-    handler.require(a, id);
+    handler.require(a, id, rm);
     return a;
   }
 
@@ -165,11 +169,14 @@ class buffer {
   float operator[](size_t idx) { return 1.f; }
 
  private:
-  static size_t instance_count;
-  size_t id;
+  friend distr_queue;
+  buffer_id id;
   size_t size;
 
   cl::sycl::buffer<float, 1> sycl_buffer;
+
+  buffer(float* host_ptr, size_t size, buffer_id bid)
+      : id(bid), size(size), sycl_buffer(host_ptr, cl::sycl::range<1>(size)){};
 };
 
 class branch_handle {
@@ -186,6 +193,7 @@ namespace detail {
 struct cgf_storage_base {
   virtual void operator()(handler<is_prepass::true_t>) = 0;
   virtual void operator()(handler<is_prepass::false_t>) = 0;
+  virtual ~cgf_storage_base(){};
 };
 
 template <typename CGF>
@@ -197,9 +205,59 @@ struct cgf_storage : cgf_storage_base {
   void operator()(handler<is_prepass::true_t> cgh) override { cgf(cgh); }
   void operator()(handler<is_prepass::false_t> cgh) override { cgf(cgh); }
 };
-}  // namespace detail
 
-using task_id = size_t;
+inline GridPoint<1> sycl_range_to_grid_point(cl::sycl::range<1> range) {
+  return GridPoint<1>(range.get(0));
+}
+
+inline GridPoint<2> sycl_range_to_grid_point(cl::sycl::range<2> range) {
+  return GridPoint<2>(range.get(0), range.get(1));
+}
+
+inline GridPoint<3> sycl_range_to_grid_point(cl::sycl::range<3> range) {
+  return GridPoint<3>(range.get(0), range.get(1), range.get(2));
+}
+
+class buffer_state_base {
+ public:
+  virtual size_t get_dimensions() const = 0;
+  virtual ~buffer_state_base(){};
+};
+
+template <size_t Dims>
+class buffer_state : public buffer_state_base {
+ public:
+  buffer_state(cl::sycl::range<Dims> size) {
+    static_assert(Dims >= 1 && Dims <= 3, "Unsupported dimensionality");
+    region_versions.insert(
+        std::make_pair(0, GridRegion<Dims>(sycl_range_to_grid_point(size))));
+  }
+  size_t get_dimensions() const override { return Dims; }
+
+ private:
+  region_version latest = 0;
+  std::unordered_multimap<region_version, GridRegion<Dims>> region_versions;
+};
+
+class node {
+ public:
+  template <size_t Dims>
+  void bump_buffer_state(buffer_id bid, GridRegion<Dims> updated_region,
+                         bool has_updated_region) {
+    assert(Dims == buffer_states[bid]->get_dimensions());
+    // TODO
+  };
+
+  template <size_t Dims>
+  void add_buffer(buffer_id bid, cl::sycl::range<Dims> size) {
+    buffer_states[bid] = std::make_unique<buffer_state<Dims>>(size);
+  }
+
+ private:
+  std::unordered_map<buffer_id, std::unique_ptr<buffer_state_base>>
+      buffer_states;
+};
+}  // namespace detail
 
 class distr_queue {
  public:
@@ -208,12 +266,21 @@ class distr_queue {
 
   template <typename CGF>
   void submit(CGF cgf) {
-    auto task_id = task_count++;
-    handler<is_prepass::true_t> h(*this, task_id);
+    // Task ids start at 1
+    task_id tid = ++task_count;
+    handler<is_prepass::true_t> h(*this, tid);
     cgf(h);
-    task_names[task_id] = h.get_debug_name();
-    task_command_groups[task_id] =
-        std::make_unique<detail::cgf_storage<CGF>>(cgf);
+    task_names[tid] = h.get_debug_name();
+    task_command_groups[tid] = std::make_unique<detail::cgf_storage<CGF>>(cgf);
+  }
+
+  buffer create_buffer(float* host_ptr, size_t size) {
+    buffer_id bid = buffer_count++;
+    for (auto& it : nodes) {
+      // FIXME: Dimensions
+      it.second.add_buffer<1>(bid, cl::sycl::range<1>(size));
+    }
+    return buffer(host_ptr, size, bid);
   }
 
   // experimental
@@ -227,17 +294,23 @@ class distr_queue {
 
  private:
   friend handler<is_prepass::true_t>;
+  // TODO: We may want to move all these task maps into a dedicated struct
   std::unordered_map<task_id, std::string> task_names;
   std::unordered_map<task_id, std::unique_ptr<detail::cgf_storage_base>>
       task_command_groups;
-  std::unordered_map<task_id, size_t> buffer_last_writer;
+  std::unordered_map<task_id, std::unordered_multimap<buffer_id, range_mapper>>
+      task_range_mappers;
+  std::unordered_map<buffer_id, task_id> buffer_last_writer;
   size_t task_count = 0;
+  size_t buffer_count = 0;
   Graph task_graph;
+  std::set<task_id> active_tasks;
+  std::unordered_map<node_id, detail::node> nodes;
 
   cl::sycl::queue sycl_queue;
 
-  void add_requirement(task_id id, size_t buffer_id,
-                       cl::sycl::access::mode mode);
+  void add_requirement(task_id tid, buffer_id bid, cl::sycl::access::mode mode,
+                       range_mapper rm);
 };
 
 }  // namespace celerity
