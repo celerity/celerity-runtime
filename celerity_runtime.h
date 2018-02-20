@@ -15,11 +15,19 @@
 
 namespace boost_graph {
 using boost::adjacency_list;
-using boost::bidirectionalS;
+using boost::directedS;
 using boost::vecS;
 
-typedef adjacency_list<vecS, vecS, bidirectionalS> Graph;
-typedef std::pair<int, int> Edge;
+struct vertex_properties {
+  std::string label;
+};
+
+struct graph_properties {
+  std::string name;
+};
+
+using Graph = adjacency_list<vecS, vecS, directedS, vertex_properties,
+                             boost::no_property, graph_properties>;
 }  // namespace boost_graph
 
 using namespace boost_graph;
@@ -190,6 +198,8 @@ struct cgf_storage : cgf_storage_base {
 };
 }  // namespace detail
 
+using task_id = size_t;
+
 class distr_queue {
  public:
   // TODO: Device should be selected transparently
@@ -216,16 +226,16 @@ class distr_queue {
 
  private:
   friend handler<is_prepass::true_t>;
-  std::unordered_map<size_t, std::string> task_names;
-  std::unordered_map<size_t, std::unique_ptr<detail::cgf_storage_base>>
+  std::unordered_map<task_id, std::string> task_names;
+  std::unordered_map<task_id, std::unique_ptr<detail::cgf_storage_base>>
       task_command_groups;
-  std::unordered_map<size_t, size_t> buffer_last_writer;
+  std::unordered_map<task_id, size_t> buffer_last_writer;
   size_t task_count = 0;
   Graph task_graph;
 
   cl::sycl::queue sycl_queue;
 
-  void add_requirement(size_t task_id, size_t buffer_id,
+  void add_requirement(task_id id, size_t buffer_id,
                        cl::sycl::access::mode mode);
 };
 

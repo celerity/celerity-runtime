@@ -20,6 +20,14 @@ std::ostream& log() { return std::cerr << "// "; }
 // data overlap may be executed in parallel. Is this something we need to
 // consider for our distributed scheduler?
 int main(int argc, char* argv[]) {
+  //// ============= DEMO SETUP =================
+  // Pause execution so we can attach debugger (for stepping w/ live plotting)
+  if (argc > 1 && std::string("--pause") == argv[1]) {
+    std::cout << "(Paused. Press return key to continue)" << std::endl;
+    char a;
+    std::cin >> std::noskipws >> a;
+  }
+
   float host_data_a[1024];
   float host_data_b[1024];
   float host_data_c[1024];
@@ -40,7 +48,7 @@ int main(int argc, char* argv[]) {
       log() << "Platform " << i << ": " << platform_name << std::endl;
     }
 
-    const size_t USE_PLATFORM = 1;
+    const size_t USE_PLATFORM = 2;
     assert(USE_PLATFORM < num_platforms);
     cl_device_id devices[10];
     cl::sycl::cl_uint num_devices;
