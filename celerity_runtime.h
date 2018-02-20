@@ -7,6 +7,7 @@
 #include <string>
 #include <unordered_map>
 
+#include <allscale/api/user/data/grid.h>
 #include <SYCL/sycl.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/adjacency_list.hpp>

@@ -5,6 +5,12 @@ include(FindComputeCpp)
 find_package(Boost 1.66.0 REQUIRED)
 
 add_executable(full_stack_example main.cc celerity_runtime.h celerity_runtime.cc)
-target_include_directories(full_stack_example PUBLIC ${Boost_INCLUDE_DIRS} ${COMPUTECPP_INCLUDE_DIRECTORY})
+target_include_directories(
+	full_stack_example
+	PUBLIC
+	${CMAKE_CURRENT_SOURCE_DIR}/vendor
+	${Boost_INCLUDE_DIRS}
+	${COMPUTECPP_INCLUDE_DIRECTORY}
+)
 #set_property(TARGET full_stack_example PROPERTY CXX_STANDARD 17) # THIS MAY CAUSE ISSUES
 add_sycl_to_target(full_stack_example ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/main.cc)
