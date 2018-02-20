@@ -84,6 +84,9 @@ namespace utils {
 			return &Lambda::operator();
 		}
 
+		/*
+		psalz: MSVC2015 complains about multiple definitions here.
+		grid.h doesn't seem to need it => commented out.
 		template<typename Lambda>
 		decltype(&Lambda::template operator()<int>) getCallOperator() {
 			return &Lambda::template operator()<int>;
@@ -98,6 +101,7 @@ namespace utils {
 		decltype(&Lambda::template operator()<int,int,int>) getCallOperator() {
 			return &Lambda::template operator()<int,int,int>;
 		}
+		*/
 
 	} // end namespace detail
 

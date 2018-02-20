@@ -309,7 +309,12 @@ namespace reference {
 
 		~TaskDependencyManager() {
 			for(auto& cur : data) {
-				if (!isDone(cur)) delete cur;
+				if (!isDone(cur)) {
+					// psalz: MSVC 2015 doesn't like deleting atomic pointers
+					// directly
+					delete cur.load();
+					cur = nullptr;
+				}
 			}
 		}
 
