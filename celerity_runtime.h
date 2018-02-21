@@ -69,7 +69,7 @@ template <int Dims>
 class range_mapper : public range_mapper_base {
  public:
   range_mapper(range_mapper_fn<Dims> fn) : rmfn(fn) {}
-  size_t get_dimensions() const { return Dims; }
+  size_t get_dimensions() const override { return Dims; }
   subrange<Dims> operator()(subrange<Dims> range) override {
     return rmfn(range);
   }

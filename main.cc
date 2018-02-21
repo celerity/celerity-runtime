@@ -39,7 +39,7 @@ int main(int argc, char* argv[]) {
     assert(clGetPlatformIDs(10, platforms, &num_platforms) == CL_SUCCESS);
     log() << "Found " << num_platforms << " platforms:" << std::endl;
 
-    for (auto i = 0; i < num_platforms; ++i) {
+    for (auto i = 0u; i < num_platforms; ++i) {
       char platform_name[255];
       clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, sizeof(platform_name),
                         platform_name, nullptr);
@@ -55,7 +55,7 @@ int main(int argc, char* argv[]) {
     log() << "Found " << num_devices << " devices on platform #" << USE_PLATFORM
           << ":" << std::endl;
 
-    for (auto i = 0; i < num_devices; ++i) {
+    for (auto i = 0u; i < num_devices; ++i) {
       char device_name[255];
       clGetDeviceInfo(devices[i], CL_DEVICE_NAME, sizeof(device_name),
                       device_name, nullptr);
