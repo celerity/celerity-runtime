@@ -112,7 +112,6 @@ int main(int argc, char* argv[]) {
       // correctly within the kernel.
       auto a = buf_a.get_access<cl::sycl::access::mode::write>(
           cgh, [](celerity::subrange<1> range) -> celerity::subrange<1> {
-            std::cout << "Hi from produce_a range mapper!" << std::endl;
             return range;
           });
 

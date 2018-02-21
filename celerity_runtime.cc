@@ -53,12 +53,10 @@ void handler<is_prepass::false_t>::require(
 }
 
 // TODO: Initialize SYCL queue lazily
-distr_queue::distr_queue(cl::sycl::device device) : sycl_queue(device) {
-  // Include an additional node 0 (= master)
-  for (auto i = 0; i < CELERITY_NUM_WORKER_NODES + 1; ++i) {
-    nodes[i] = detail::node();
-  }
-}
+distr_queue::distr_queue(cl::sycl::device device)
+    : sycl_queue(device),
+      // Include an additional node 0 (= master)
+      num_nodes(CELERITY_NUM_WORKER_NODES + 1) {}
 
 void distr_queue::debug_print_task_graph() {
   auto num_vertices = task_graph.vertex_set().size();
@@ -67,7 +65,7 @@ void distr_queue::debug_print_task_graph() {
   }
   for (size_t i = 0; i < num_vertices; ++i) {
     task_graph[i].label =
-        (boost::format("Task %d (%s)") % (i + 1) % task_names[i + 1]).str();
+        (boost::format("Task %d (%s)") % i % task_names[i]).str();
   }
   task_graph[boost::graph_bundle].name = "TaskGraph";
   print_graph(task_graph);
@@ -81,7 +79,7 @@ void distr_queue::add_requirement(
   // TODO: If we have dependencies "A -> B, B -> C, A -> C", we could get rid of
   // "A -> C", as it is transitively implicit in "B -> C".
   if (buffer_last_writer.find(bid) != buffer_last_writer.end()) {
-    boost::add_edge(buffer_last_writer[bid] - 1, tid - 1, task_graph);
+    boost::add_edge(buffer_last_writer[bid], tid, task_graph);
   }
   if (mode == cl::sycl::access::mode::write) {
     buffer_last_writer[bid] = tid;
@@ -100,15 +98,25 @@ void distr_queue::TEST_execute_deferred() {
   }
 }
 
-void distr_queue::build_command_graph() {
-  // NOTE: This must work only with the information contained within the task
-  // graph!
+std::vector<subrange<1>> split_equal(const subrange<1>& sr, size_t num_splits) {
+  subrange<1> split;
+  split.global_size = sr.global_size;
+  split.start = cl::sycl::range<1>(0);
+  split.range = cl::sycl::range<1>(sr.range.size() / num_splits);
 
+  std::vector<subrange<1>> result;
+  for (auto i = 0u; i < num_splits; ++i) {
+    result.push_back(split);
+    split.start = split.start + split.range;
+  }
+  return result;
+}
+
+void distr_queue::build_command_graph() {
   // Potential commands:
   // - Move region (buffer_id, region, from_node_id, to_node_id)
   // - Compute subtask (task_id, work items (offset + size?), node_id)
   // - Complete task (task_id)
-  //      This will cause the buffer version bump of all affected buffers
 
   // => Is it a reasonable requirement to have only "Complete task" leaf-nodes
   // in command graph? These could then act as synchronization points with the
@@ -116,19 +124,56 @@ void distr_queue::build_command_graph() {
 
   if (active_tasks.size() == 0) {
     // TODO: Find all "root" tasks in task DAG
+    // (Assuming task 0 is root for now)
+    std::cout << "Constructing CMD-DAG for task 0" << std::endl;
+    auto& rms = task_range_mappers[0];
+    std::cout << "Task 0 has range mappers for " << rms.size() << " buffers"
+              << std::endl;
 
-    std::cout << "Constructing CMD-DAG for task 1" << std::endl;
-    auto& rms = task_range_mappers[1];
-    std::cout << "Found " << rms.size() << " range mappers" << std::endl;
+    for (auto& it : rms) {
+      buffer_id bid = it.first;
+      // TODO: We have to distinguish between read and write range mappers!
+      for (auto& rm : it.second) {
+        auto dims = rm->get_dimensions();
+        std::cout << "Range mapper for buffer " << bid << " has dims " << dims
+                  << std::endl;
 
-    for (auto& rm : rms[0]) {
-      auto dims = rm->get_dimensions();
-      std::cout << "Range mapper has dims " << dims << std::endl;
+        switch (dims) {
+          case 1: {
+            // FIXME: We need task size here!!
+            auto sr = subrange<1>();
+            sr.global_size = 1024;
+            sr.range = cl::sycl::range<1>(1024);
+            auto splits = split_equal(sr, num_nodes - 1);
+            std::vector<subrange<1>> reqs(splits.size());
+            /*
+          std::transform(splits.cbegin(), splits.cend(), reqs.begin(),
+                         [&rm](auto& split) { return (*rm)(split); });
+            */
 
-      if (dims == 1) {
-        (*rm)(subrange<1>());
+            for (auto& split : splits) {
+              auto req = (*rm)(split);
+              std::cout << detail::sycl_range_to_grid_point(req.range)
+                        << std::endl;
+            }
+
+            break;
+          }
+          case 2:
+            throw new std::runtime_error("2D splits NYI");
+            //(*rm)(subrange<2>());
+            break;
+          case 3:
+            throw new std::runtime_error("3D splits NYI");
+            //(*rm)(subrange<3>());
+            break;
+          default:
+            break;
+        }
       }
     }
+  } else {
+    // TODO: Start with tasks depending on active tasks
   }
 }
 }  // namespace celerity

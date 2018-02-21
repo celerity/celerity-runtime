@@ -247,36 +247,15 @@ class buffer_state_base {
 
 template <int Dims>
 class buffer_state : public buffer_state_base {
+  static_assert(Dims >= 1 && Dims <= 3, "Unsupported dimensionality");
+
  public:
-  buffer_state(cl::sycl::range<Dims> size) {
-    static_assert(Dims >= 1 && Dims <= 3, "Unsupported dimensionality");
-    region_versions.insert(
-        std::make_pair(0, GridRegion<Dims>(sycl_range_to_grid_point(size))));
-  }
+  buffer_state(cl::sycl::range<Dims> size)
+      : region(GridRegion<Dims>(sycl_range_to_grid_point(size))) {}
   size_t get_dimensions() const override { return Dims; }
 
  private:
-  region_version latest = 0;
-  std::unordered_multimap<region_version, GridRegion<Dims>> region_versions;
-};
-
-class node {
- public:
-  template <int Dims>
-  void bump_buffer_state(buffer_id bid, GridRegion<Dims> updated_region,
-                         bool has_updated_region) {
-    assert(Dims == buffer_states[bid]->get_dimensions());
-    // TODO
-  };
-
-  template <int Dims>
-  void add_buffer(buffer_id bid, cl::sycl::range<Dims> size) {
-    buffer_states[bid] = std::make_unique<buffer_state<Dims>>(size);
-  }
-
- private:
-  std::unordered_map<buffer_id, std::unique_ptr<buffer_state_base>>
-      buffer_states;
+  GridRegion<Dims> region;
 };
 }  // namespace detail
 
@@ -287,8 +266,7 @@ class distr_queue {
 
   template <typename CGF>
   void submit(CGF cgf) {
-    // Task ids start at 1
-    task_id tid = ++task_count;
+    task_id tid = task_count++;
     handler<is_prepass::true_t> h(*this, tid);
     cgf(h);
     task_names[tid] = h.get_debug_name();
@@ -299,9 +277,8 @@ class distr_queue {
   buffer<DataT, Dims> create_buffer(DataT* host_ptr,
                                     cl::sycl::range<Dims> size) {
     buffer_id bid = buffer_count++;
-    for (auto& it : nodes) {
-      it.second.add_buffer<Dims>(bid, size);
-    }
+    valid_buffer_regions[bid] =
+        std::make_unique<detail::buffer_state<Dims>>(size);
     return buffer<DataT, Dims>(host_ptr, size, bid);
   }
 
@@ -325,12 +302,23 @@ class distr_queue {
       std::unordered_map<
           buffer_id, std::vector<std::unique_ptr<detail::range_mapper_base>>>>
       task_range_mappers;
+
+  // This is a high-level view on buffer writers, for creating the task graph
   std::unordered_map<buffer_id, task_id> buffer_last_writer;
+
+  // This is a more granular view which encodes where (= on which node) valid
+  // regions of a buffer can be found. A valid region is any region that has not
+  // been written to on another node.
+  std::unordered_map<buffer_id, std::unique_ptr<detail::buffer_state_base>>
+      valid_buffer_regions;
+
   size_t task_count = 0;
   size_t buffer_count = 0;
   Graph task_graph;
   std::set<task_id> active_tasks;
-  std::unordered_map<node_id, detail::node> nodes;
+
+  // For now we don't store any additional data on nodes
+  const size_t num_nodes;
 
   cl::sycl::queue sycl_queue;
 
