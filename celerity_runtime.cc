@@ -27,15 +27,17 @@ namespace celerity {
 template <>
 void handler<is_prepass::true_t>::require(
     prepass_accessor<cl::sycl::access::mode::read> a, size_t buffer_id,
-    range_mapper rm) {
-  queue.add_requirement(task_id, buffer_id, cl::sycl::access::mode::read, rm);
+    std::unique_ptr<detail::range_mapper_base> rm) {
+  queue.add_requirement(task_id, buffer_id, cl::sycl::access::mode::read,
+                        std::move(rm));
 }
 
 template <>
 void handler<is_prepass::true_t>::require(
     prepass_accessor<cl::sycl::access::mode::write> a, size_t buffer_id,
-    range_mapper rm) {
-  queue.add_requirement(task_id, buffer_id, cl::sycl::access::mode::write, rm);
+    std::unique_ptr<detail::range_mapper_base> rm) {
+  queue.add_requirement(task_id, buffer_id, cl::sycl::access::mode::write,
+                        std::move(rm));
 }
 
 template <>
@@ -71,9 +73,9 @@ void distr_queue::debug_print_task_graph() {
   print_graph(task_graph);
 }
 
-void distr_queue::add_requirement(task_id tid, buffer_id bid,
-                                  cl::sycl::access::mode mode,
-                                  range_mapper rm) {
+void distr_queue::add_requirement(
+    task_id tid, buffer_id bid, cl::sycl::access::mode mode,
+    std::unique_ptr<detail::range_mapper_base> rm) {
   auto mode_str = mode == cl::sycl::access::mode::write ? "WRITE" : "READ";
   // TODO: Check if edge already exists (avoid double edges)
   // TODO: If we have dependencies "A -> B, B -> C, A -> C", we could get rid of
@@ -84,7 +86,7 @@ void distr_queue::add_requirement(task_id tid, buffer_id bid,
   if (mode == cl::sycl::access::mode::write) {
     buffer_last_writer[bid] = tid;
   }
-  task_range_mappers[tid].insert(std::make_pair(bid, rm));
+  task_range_mappers[tid][bid].push_back(std::move(rm));
 };
 
 void distr_queue::TEST_execute_deferred() {
@@ -118,6 +120,15 @@ void distr_queue::build_command_graph() {
     std::cout << "Constructing CMD-DAG for task 1" << std::endl;
     auto& rms = task_range_mappers[1];
     std::cout << "Found " << rms.size() << " range mappers" << std::endl;
+
+    for (auto& rm : rms[0]) {
+      auto dims = rm->get_dimensions();
+      std::cout << "Range mapper has dims " << dims << std::endl;
+
+      if (dims == 1) {
+        (*rm)(subrange<1>());
+      }
+    }
   }
 }
 }  // namespace celerity

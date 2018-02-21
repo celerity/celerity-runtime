@@ -78,10 +78,14 @@ int main(int argc, char* argv[]) {
     celerity::distr_queue queue(myDevice);
 
     // TODO: Do we support SYCL sub-buffers & images? Section 4.7.2
-    celerity::buffer buf_a = queue.create_buffer(host_data_a, 1024);
-    celerity::buffer buf_b = queue.create_buffer(host_data_b, 1024);
-    celerity::buffer buf_c = queue.create_buffer(host_data_c, 1024);
-    celerity::buffer buf_d = queue.create_buffer(host_data_d, 1024);
+    celerity::buffer<float, 1> buf_a =
+        queue.create_buffer(host_data_a, cl::sycl::range<1>(1024));
+    celerity::buffer<float, 1> buf_b =
+        queue.create_buffer(host_data_b, cl::sycl::range<1>(1024));
+    celerity::buffer<float, 1> buf_c =
+        queue.create_buffer(host_data_c, cl::sycl::range<1>(1024));
+    celerity::buffer<float, 1> buf_d =
+        queue.create_buffer(host_data_d, cl::sycl::range<1>(1024));
 
     // **** COMMAND GROUPS ****
     // The functor/lambda submitted to a SYCL queue is called a "command group".
@@ -92,6 +96,8 @@ int main(int argc, char* argv[]) {
     // scope.
     //
     // See spec sections 3.4.1.2 and 4.8.2 for more info
+    // TODO: This current approach requires C++14 (generic lambda)
+    // TODO: We lose autocomplete from IDEs for cgh
     queue.submit([&](auto& cgh) {
       // Access-specifier scenario:
       // We have 2 worker nodes available, and 1000 work items
@@ -100,12 +106,13 @@ int main(int argc, char* argv[]) {
       // It returns the data range the kernel requires to compute it's result
       //
       // NOTE:
-      // If returned nd_subrange is out of buffer bounds (e.g. offset - 1 is
+      // If returned subrange is out of buffer bounds (e.g. offset - 1 is
       // undefined at first item in block [0, n]), it simply gets clamped to
       // the valid range and it is assumed that the user handles edge cases
       // correctly within the kernel.
       auto a = buf_a.get_access<cl::sycl::access::mode::write>(
-          cgh, [](celerity::nd_subrange range) -> celerity::nd_subrange {
+          cgh, [](celerity::subrange<1> range) -> celerity::subrange<1> {
+            std::cout << "Hi from produce_a range mapper!" << std::endl;
             return range;
           });
 
@@ -115,12 +122,11 @@ int main(int argc, char* argv[]) {
       // * We only support a single kernel call per command group (not sure if
       //   this is also the case in SYCL; spec doesn't mention it explicitly).
       // TODO: SYCL parallel_for allows specification of an offset - look into
-      // TODO: First parameter (count) should be nd_range in general case
-      cgh.template parallel_for<class produce_a>(
-          1024, [=](cl::sycl::nd_item<1> item) {
-            auto i = item.get_global();
-            a[i] = 1.f;
-          });
+      cgh.template parallel_for<class produce_a>(cl::sycl::range<1>(1024),
+                                                 [=](cl::sycl::item<1> item) {
+                                                   auto i = item.get_id();
+                                                   a[i] = 1.f;
+                                                 });
     });
 
     // TODO: How do we deal with branching queues, depending on buffer contents?
@@ -139,12 +145,13 @@ int main(int argc, char* argv[]) {
     // Even more elaborate solution would make 2nd lambda a predicate, and
     // provide two additional lambdas containing the queue submit calls for both
     // branches.
-    queue.branch([&](celerity::branch_handle& bh) { bh.get<0>(buf_a); },
-                 [](float error) {
-                   if (error > EPSILON) {
-                     // queue.submit(...);
-                   }
-                 });
+    queue.branch(
+        [&](celerity::branch_handle& bh) { bh.get<float, 1>(buf_a, 256); },
+        [](float error) {
+          if (error > EPSILON) {
+            // queue.submit(...);
+          }
+        });
     // => Maybe provide both options? Users can go with A for simplicity, and
     // resort to B in case they identify a bottleneck.
     // ALSO: Do we need the same for loops? Can we unify branching & loops
@@ -156,52 +163,52 @@ int main(int argc, char* argv[]) {
 
     queue.submit([&](auto& cgh) {
       auto a = buf_a.get_access<cl::sycl::access::mode::read>(
-          cgh, celerity::access::one_to_one());
+          cgh, celerity::access::one_to_one<1>());
       auto b = buf_b.get_access<cl::sycl::access::mode::write>(
-          cgh, celerity::access::one_to_one());
-      cgh.template parallel_for<class compute_b>(
-          1024, [=](cl::sycl::nd_item<1> item) {
-            auto i = item.get_global();
-            b[i] = a[i] * 2.f;
-          });
+          cgh, celerity::access::one_to_one<1>());
+      cgh.template parallel_for<class compute_b>(cl::sycl::range<1>(1024),
+                                                 [=](cl::sycl::item<1> item) {
+                                                   auto i = item.get_id();
+                                                   b[i] = a[i] * 2.f;
+                                                 });
     });
 
     queue.submit([&](auto& cgh) {
       auto a = buf_a.get_access<cl::sycl::access::mode::read>(
-          cgh, celerity::access::one_to_one());
+          cgh, celerity::access::one_to_one<1>());
       auto c = buf_c.get_access<cl::sycl::access::mode::write>(
-          cgh, celerity::access::one_to_one());
-      cgh.template parallel_for<class compute_c>(
-          1204, [=](cl::sycl::nd_item<1> item) {
-            auto i = item.get_global();
-            c[i] = 2.f - a[i];
-          });
+          cgh, celerity::access::one_to_one<1>());
+      cgh.template parallel_for<class compute_c>(cl::sycl::range<1>(1024),
+                                                 [=](cl::sycl::item<1> item) {
+                                                   auto i = item.get_id();
+                                                   c[i] = 2.f - a[i];
+                                                 });
     });
 
     queue.submit([&](auto& cgh) {
       auto b = buf_b.get_access<cl::sycl::access::mode::read>(
-          cgh, celerity::access::one_to_one());
+          cgh, celerity::access::one_to_one<1>());
       auto c = buf_c.get_access<cl::sycl::access::mode::read>(
-          cgh, celerity::access::one_to_one());
+          cgh, celerity::access::one_to_one<1>());
       auto d = buf_d.get_access<cl::sycl::access::mode::write>(
-          cgh, celerity::access::one_to_one());
-      cgh.template parallel_for<class compute_d>(
-          1024, [=](cl::sycl::nd_item<1> item) {
-            auto i = item.get_global();
-            d[i] = b[i] + c[i];
-          });
+          cgh, celerity::access::one_to_one<1>());
+      cgh.template parallel_for<class compute_d>(cl::sycl::range<1>(1024),
+                                                 [=](cl::sycl::item<1> item) {
+                                                   auto i = item.get_id();
+                                                   d[i] = b[i] + c[i];
+                                                 });
     });
 
 #if 0
     for (auto i = 0; i < 4; ++i) {
       queue.submit([&](auto& cgh) {
         auto c = buf_c.get_access<cl::sycl::access::mode::read>(
-            cgh, celerity::access::one_to_one());
+            cgh, celerity::access::one_to_one<1>());
         auto d = buf_d.get_access<cl::sycl::access::mode::write>(
-            cgh, celerity::access::one_to_one());
+            cgh, celerity::access::one_to_one<1>());
         cgh.template parallel_for<class compute_some_more>(
-            1024, [=](cl::sycl::nd_item<1> item) {
-              auto i = item.get_global();
+            cl::sycl::range<1>(1024), [=](cl::sycl::item<1> item) {
+              auto i = item.get_id();
               d[i] = 2.f - c[i];
             });
       });

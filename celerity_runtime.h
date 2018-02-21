@@ -40,28 +40,50 @@ using namespace boost_graph;
 
 namespace celerity {
 
-class buffer;
-
 using task_id = size_t;
 using buffer_id = size_t;
 using node_id = size_t;
 using region_version = size_t;
 
-// TODO: Naming. Check again what difference between "range" and a "nd_range" is
-// in SYCL
-struct nd_point {};
-struct nd_subrange {
-  nd_point start;
-  nd_point range;
-  // FIXME Dimensions
-  cl::sycl::nd_range<1> global_size;
+template <int Dims>
+struct subrange {
+  cl::sycl::id<Dims> start;
+  cl::sycl::range<Dims> range;
+  cl::sycl::range<Dims> global_size;
 };
-using range_mapper = std::function<nd_subrange(nd_subrange range)>;
+
+namespace detail {
+template <int Dims>
+using range_mapper_fn = std::function<subrange<Dims>(subrange<Dims> range)>;
+
+class range_mapper_base {
+ public:
+  virtual size_t get_dimensions() const = 0;
+  virtual subrange<1> operator()(subrange<1> range) { return subrange<1>(); }
+  virtual subrange<2> operator()(subrange<2> range) { return subrange<2>(); }
+  virtual subrange<3> operator()(subrange<3> range) { return subrange<3>(); }
+  virtual ~range_mapper_base() {}
+};
+
+template <int Dims>
+class range_mapper : public range_mapper_base {
+ public:
+  range_mapper(range_mapper_fn<Dims> fn) : rmfn(fn) {}
+  size_t get_dimensions() const { return Dims; }
+  subrange<Dims> operator()(subrange<Dims> range) override {
+    return rmfn(range);
+  }
+
+ private:
+  range_mapper_fn<Dims> rmfn;
+};
+}  // namespace detail
 
 // Convenience range mappers
 namespace access {
+template <int Dims>
 struct one_to_one {
-  nd_subrange operator()(nd_subrange range) const { return range; }
+  subrange<Dims> operator()(subrange<Dims> range) const { return range; }
 };
 }  // namespace access
 
@@ -90,8 +112,8 @@ class handler {};
 template <>
 class handler<is_prepass::true_t> {
  public:
-  template <typename name, typename functorT>
-  void parallel_for(size_t count, const functorT& kernel) {
+  template <typename name, typename functorT, int Dims>
+  void parallel_for(cl::sycl::range<Dims> range, const functorT& kernel) {
     // DEBUG: Find nice name for kernel (regex is probably not super portable)
     auto qualified_name = boost::typeindex::type_id<name*>().pretty_name();
     std::regex name_regex(R"(.*?(?:::)?([\w_]+)\s?\*.*)");
@@ -101,7 +123,8 @@ class handler<is_prepass::true_t> {
   }
 
   template <cl::sycl::access::mode Mode>
-  void require(prepass_accessor<Mode> a, size_t buffer_id, range_mapper rm);
+  void require(prepass_accessor<Mode> a, size_t buffer_id,
+               std::unique_ptr<detail::range_mapper_base> rm);
 
   std::string get_debug_name() const { return debug_name; };
 
@@ -119,11 +142,9 @@ class handler<is_prepass::true_t> {
 template <>
 class handler<is_prepass::false_t> {
  public:
-  template <typename name, typename functorT>
-  void parallel_for(size_t count, const functorT& kernel) {
-    sycl_handler->parallel_for<name>(
-        cl::sycl::nd_range<1>(cl::sycl::range<1>(count), cl::sycl::range<1>(1)),
-        kernel);
+  template <typename name, typename functorT, int Dims>
+  void parallel_for(cl::sycl::range<Dims> range, const functorT& kernel) {
+    sycl_handler->parallel_for<name>(range, kernel);
   }
 
   template <cl::sycl::access::mode Mode>
@@ -145,20 +166,20 @@ class handler<is_prepass::false_t> {
   }
 };
 
-// TODO: Templatize (data type, dimensions) - see sycl::buffer
+template <typename DataT, int Dims>
 class buffer {
  public:
   template <cl::sycl::access::mode Mode>
   prepass_accessor<Mode> get_access(handler<is_prepass::true_t> handler,
-                                    range_mapper rm) {
+                                    detail::range_mapper_fn<Dims> rmfn) {
     prepass_accessor<Mode> a;
-    handler.require(a, id, rm);
+    handler.require(a, id, std::make_unique<detail::range_mapper<Dims>>(rmfn));
     return a;
   }
 
   template <cl::sycl::access::mode Mode>
   accessor<Mode> get_access(handler<is_prepass::false_t> handler,
-                            range_mapper) {
+                            detail::range_mapper_fn<Dims> rmfn) {
     auto a = accessor<Mode>(sycl_buffer, handler.get_sycl_handler());
     handler.require(a, id);
     return a;
@@ -166,23 +187,23 @@ class buffer {
 
   size_t get_id() { return id; }
 
-  float operator[](size_t idx) { return 1.f; }
+  // FIXME Host-size access should block
+  DataT operator[](size_t idx) { return 1.f; }
 
  private:
   friend distr_queue;
   buffer_id id;
-  size_t size;
-
+  cl::sycl::range<Dims> size;
   cl::sycl::buffer<float, 1> sycl_buffer;
 
-  buffer(float* host_ptr, size_t size, buffer_id bid)
-      : id(bid), size(size), sycl_buffer(host_ptr, cl::sycl::range<1>(size)){};
+  buffer(DataT* host_ptr, cl::sycl::range<Dims> size, buffer_id bid)
+      : id(bid), size(size), sycl_buffer(host_ptr, size){};
 };
 
 class branch_handle {
  public:
-  template <size_t idx>
-  void get(buffer){};
+  template <typename DataT, int Dims>
+  void get(buffer<DataT, Dims>, cl::sycl::range<Dims>){};
 };
 
 namespace detail {
@@ -207,15 +228,15 @@ struct cgf_storage : cgf_storage_base {
 };
 
 inline GridPoint<1> sycl_range_to_grid_point(cl::sycl::range<1> range) {
-  return GridPoint<1>(range.get(0));
+  return GridPoint<1>(range[0]);
 }
 
 inline GridPoint<2> sycl_range_to_grid_point(cl::sycl::range<2> range) {
-  return GridPoint<2>(range.get(0), range.get(1));
+  return GridPoint<2>(range[0], range[1]);
 }
 
 inline GridPoint<3> sycl_range_to_grid_point(cl::sycl::range<3> range) {
-  return GridPoint<3>(range.get(0), range.get(1), range.get(2));
+  return GridPoint<3>(range[0], range[1], range[2]);
 }
 
 class buffer_state_base {
@@ -224,7 +245,7 @@ class buffer_state_base {
   virtual ~buffer_state_base(){};
 };
 
-template <size_t Dims>
+template <int Dims>
 class buffer_state : public buffer_state_base {
  public:
   buffer_state(cl::sycl::range<Dims> size) {
@@ -241,14 +262,14 @@ class buffer_state : public buffer_state_base {
 
 class node {
  public:
-  template <size_t Dims>
+  template <int Dims>
   void bump_buffer_state(buffer_id bid, GridRegion<Dims> updated_region,
                          bool has_updated_region) {
     assert(Dims == buffer_states[bid]->get_dimensions());
     // TODO
   };
 
-  template <size_t Dims>
+  template <int Dims>
   void add_buffer(buffer_id bid, cl::sycl::range<Dims> size) {
     buffer_states[bid] = std::make_unique<buffer_state<Dims>>(size);
   }
@@ -274,13 +295,14 @@ class distr_queue {
     task_command_groups[tid] = std::make_unique<detail::cgf_storage<CGF>>(cgf);
   }
 
-  buffer create_buffer(float* host_ptr, size_t size) {
+  template <typename DataT, int Dims>
+  buffer<DataT, Dims> create_buffer(DataT* host_ptr,
+                                    cl::sycl::range<Dims> size) {
     buffer_id bid = buffer_count++;
     for (auto& it : nodes) {
-      // FIXME: Dimensions
-      it.second.add_buffer<1>(bid, cl::sycl::range<1>(size));
+      it.second.add_buffer<Dims>(bid, size);
     }
-    return buffer(host_ptr, size, bid);
+    return buffer<DataT, Dims>(host_ptr, size, bid);
   }
 
   // experimental
@@ -298,7 +320,10 @@ class distr_queue {
   std::unordered_map<task_id, std::string> task_names;
   std::unordered_map<task_id, std::unique_ptr<detail::cgf_storage_base>>
       task_command_groups;
-  std::unordered_map<task_id, std::unordered_multimap<buffer_id, range_mapper>>
+  std::unordered_map<
+      task_id,
+      std::unordered_map<
+          buffer_id, std::vector<std::unique_ptr<detail::range_mapper_base>>>>
       task_range_mappers;
   std::unordered_map<buffer_id, task_id> buffer_last_writer;
   size_t task_count = 0;
@@ -310,7 +335,7 @@ class distr_queue {
   cl::sycl::queue sycl_queue;
 
   void add_requirement(task_id tid, buffer_id bid, cl::sycl::access::mode mode,
-                       range_mapper rm);
+                       std::unique_ptr<detail::range_mapper_base> rm);
 };
 
 }  // namespace celerity
