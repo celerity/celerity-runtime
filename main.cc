@@ -112,7 +112,11 @@ int main(int argc, char* argv[]) {
       // correctly within the kernel.
       auto a = buf_a.get_access<cl::sycl::access::mode::write>(
           cgh, [](celerity::subrange<1> range) -> celerity::subrange<1> {
-            return range;
+            celerity::subrange<1> sr(range);
+            // 1-neighborhood
+            sr.start -= 1;
+            sr.range += 1;
+            return sr;
           });
 
       // NOTES:

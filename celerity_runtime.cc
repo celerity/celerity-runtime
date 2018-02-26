@@ -1,8 +1,10 @@
 #include "celerity_runtime.h"
 
 #include <iostream>
+#include <queue>
 #include <vector>
 
+#include <allscale/utils/string_utils.h>
 #include <boost/algorithm/string.hpp>
 
 void print_graph(boost_graph::Graph& g) {
@@ -40,6 +42,28 @@ void handler<is_prepass::true_t>::require(
                         std::move(rm));
 }
 
+handler<is_prepass::true_t>::~handler() {
+  int dimensions = global_size.which() + 1;
+  switch (dimensions) {
+    case 1:
+      queue.set_task_data(task_id, boost::get<cl::sycl::range<1>>(global_size),
+                          debug_name);
+      break;
+    case 2:
+      queue.set_task_data(task_id, boost::get<cl::sycl::range<2>>(global_size),
+                          debug_name);
+      break;
+    case 3:
+      queue.set_task_data(task_id, boost::get<cl::sycl::range<3>>(global_size),
+                          debug_name);
+      break;
+    default:
+      // Can't happen
+      assert(false);
+      break;
+  }
+}
+
 template <>
 void handler<is_prepass::false_t>::require(
     accessor<cl::sycl::access::mode::read> a, size_t buffer_id) {
@@ -56,25 +80,16 @@ void handler<is_prepass::false_t>::require(
 distr_queue::distr_queue(cl::sycl::device device)
     : sycl_queue(device),
       // Include an additional node 0 (= master)
-      num_nodes(CELERITY_NUM_WORKER_NODES + 1) {}
-
-void distr_queue::debug_print_task_graph() {
-  auto num_vertices = task_graph.vertex_set().size();
-  if (num_vertices == 0) {
-    return;
-  }
-  for (size_t i = 0; i < num_vertices; ++i) {
-    task_graph[i].label =
-        (boost::format("Task %d (%s)") % i % task_names[i]).str();
-  }
+      num_nodes(CELERITY_NUM_WORKER_NODES + 1) {
   task_graph[boost::graph_bundle].name = "TaskGraph";
-  print_graph(task_graph);
+  command_graph[boost::graph_bundle].name = "CommandGraph";
 }
+
+void distr_queue::debug_print_task_graph() { print_graph(task_graph); }
 
 void distr_queue::add_requirement(
     task_id tid, buffer_id bid, cl::sycl::access::mode mode,
     std::unique_ptr<detail::range_mapper_base> rm) {
-  auto mode_str = mode == cl::sycl::access::mode::write ? "WRITE" : "READ";
   // TODO: Check if edge already exists (avoid double edges)
   // TODO: If we have dependencies "A -> B, B -> C, A -> C", we could get rid of
   // "A -> C", as it is transitively implicit in "B -> C".
@@ -108,6 +123,9 @@ std::vector<subrange<1>> split_equal(const subrange<1>& sr, size_t num_splits) {
   for (auto i = 0u; i < num_splits; ++i) {
     result.push_back(split);
     split.start = split.start + split.range;
+    if (i == num_splits - 1) {
+      result[i].range += sr.range.size() % num_splits;
+    }
   }
   return result;
 }
@@ -115,6 +133,7 @@ std::vector<subrange<1>> split_equal(const subrange<1>& sr, size_t num_splits) {
 void distr_queue::build_command_graph() {
   // Potential commands:
   // - Move region (buffer_id, region, from_node_id, to_node_id)
+  // - Wait for pull (replace with PUSH later on?)
   // - Compute subtask (task_id, work items (offset + size?), node_id)
   // - Complete task (task_id)
 
@@ -122,58 +141,117 @@ void distr_queue::build_command_graph() {
   // in command graph? These could then act as synchronization points with the
   // task graph.
 
-  if (active_tasks.size() == 0) {
-    // TODO: Find all "root" tasks in task DAG
-    // (Assuming task 0 is root for now)
-    std::cout << "Constructing CMD-DAG for task 0" << std::endl;
-    auto& rms = task_range_mappers[0];
-    std::cout << "Task 0 has range mappers for " << rms.size() << " buffers"
-              << std::endl;
+  auto num_tasks = task_graph.vertex_set().size();
+  std::set<task_id> queued_tasks;
+  std::queue<task_id> task_queue;
+  // FIXME: Assuming single root task 0
+  task_queue.push(0);
+  queued_tasks.insert(0);
+
+  std::map<task_id, size_t> task_complete_vertices;
+
+  while (!task_queue.empty()) {
+    const task_id tid = task_queue.front();
+    task_queue.pop();
+    queued_tasks.erase(tid);
+    auto& rms = task_range_mappers[tid];
+    std::cout << "Task " << tid << " has range mappers for " << rms.size()
+              << " buffers" << std::endl;
+
+    auto begin_task_v = boost::add_vertex(command_graph);
+    command_graph[begin_task_v].label =
+        (boost::format("Begin Task %d") % tid).str();
+
+    {
+      // Find all tasks this task is dependending on
+      // TODO: Move into separate function
+      boost::graph_traits<Graph>::in_edge_iterator eit, eit_end;
+      for (std::tie(eit, eit_end) = boost::in_edges(tid, task_graph);
+           eit != eit_end; ++eit) {
+        auto dep = boost::source(*eit, task_graph);
+        boost::add_edge(task_complete_vertices[dep], begin_task_v,
+                        command_graph);
+      }
+    }
+
+    std::vector<size_t> split_compute_vertices;
+    for (auto i = 0u; i < num_nodes - 1; ++i) {
+      auto v = boost::add_vertex(command_graph);
+      split_compute_vertices.push_back(v);
+    }
 
     for (auto& it : rms) {
       buffer_id bid = it.first;
       // TODO: We have to distinguish between read and write range mappers!
       for (auto& rm : it.second) {
+        // Outline (TODO)
+        // For every requirement, determine the most suitable node
+        //    => Add data pulls for all missing regions
+        //    => Add wait-for-pulls on nodes that contain that data (but
+        //    where do we add those in the DAG??)
+        // For every split, add a execution command
+
         auto dims = rm->get_dimensions();
-        std::cout << "Range mapper for buffer " << bid << " has dims " << dims
-                  << std::endl;
+        if (dims != 1) {
+          throw new std::runtime_error("2D/3D splits NYI");
+        }
 
-        switch (dims) {
-          case 1: {
-            // FIXME: We need task size here!!
-            auto sr = subrange<1>();
-            sr.global_size = 1024;
-            sr.range = cl::sycl::range<1>(1024);
-            auto splits = split_equal(sr, num_nodes - 1);
-            std::vector<subrange<1>> reqs(splits.size());
-            /*
-          std::transform(splits.cbegin(), splits.cend(), reqs.begin(),
-                         [&rm](auto& split) { return (*rm)(split); });
-            */
+        auto sr = subrange<1>();
+        // FIXME: Assuming task has same dimensionality
+        sr.global_size = boost::get<cl::sycl::range<1>>(task_global_sizes[tid]);
+        sr.range = sr.global_size;
+        auto splits = split_equal(sr, num_nodes - 1);
+        std::vector<subrange<1>> reqs(splits.size());
+        std::transform(splits.cbegin(), splits.cend(), reqs.begin(),
+                       [&rm](auto& split) { return (*rm)(split); });
 
-            for (auto& split : splits) {
-              auto req = (*rm)(split);
-              std::cout << detail::sycl_range_to_grid_point(req.range)
-                        << std::endl;
-            }
+        for (auto i = 0u; i < splits.size(); ++i) {
+          auto v = boost::add_vertex(command_graph);
+          boost::add_edge(begin_task_v, v, command_graph);
+          boost::add_edge(v, split_compute_vertices[i], command_graph);
+          // TODO: Find suitable source(s) node for pull
+          //   => This may mean we'll have multiple pulls or non at all
+          // TODO: Add wait-for-pull command in source node
+          command_graph[v].label =
+              (boost::format("Node %d:\\nPULL %d\\n %s") % (i + 1) % bid %
+               toString(detail::subrange_to_grid_region(reqs[i])))
+                  .str();
 
-            break;
-          }
-          case 2:
-            throw new std::runtime_error("2D splits NYI");
-            //(*rm)(subrange<2>());
-            break;
-          case 3:
-            throw new std::runtime_error("3D splits NYI");
-            //(*rm)(subrange<3>());
-            break;
-          default:
-            break;
+          // FIXME: No need to set this on every range-mapper iteration
+          // (We just don't have the split available above)
+          command_graph[split_compute_vertices[i]].label =
+              (boost::format("Node %d:\\nCompute\\n%s") % (i + 1) %
+               toString(detail::subrange_to_grid_region(splits[i])))
+                  .str();
         }
       }
     }
-  } else {
-    // TODO: Start with tasks depending on active tasks
+
+    auto complete_task_v = boost::add_vertex(command_graph);
+    task_complete_vertices[tid] = complete_task_v;
+    command_graph[complete_task_v].label =
+        (boost::format("Complete Task %d") % tid).str();
+    for (auto& v : split_compute_vertices) {
+      boost::add_edge(v, complete_task_v, command_graph);
+    }
+
+    {
+      // Find all tasks depending on this task
+      // TODO: Move into separate function
+      boost::graph_traits<Graph>::out_edge_iterator eit, eit_end;
+      // FIXME: This doesn't check if the task has other unresolved
+      // dependencies!!
+      for (std::tie(eit, eit_end) = boost::out_edges(tid, task_graph);
+           eit != eit_end; ++eit) {
+        auto tid = boost::target(*eit, task_graph);
+        if (queued_tasks.find(tid) == queued_tasks.end()) {
+          task_queue.push(tid);
+          queued_tasks.insert(tid);
+        }
+      }
+    }
   }
-}
+
+  print_graph(command_graph);
+}  // namespace celerity
 }  // namespace celerity

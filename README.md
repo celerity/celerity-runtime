@@ -30,3 +30,10 @@ These dependencies are only required for live plotting of graphs.
 Assuming a debug binary is located in the `build` folder, simply run
 
 	node liveplot.js
+
+To continuously re-run the executable whenever it is updated, run
+
+	node liveplot.js --watch
+
+The `view_graphs.html` file can be used to display the newest graphs generated
+by `liveplot.js` automatically.

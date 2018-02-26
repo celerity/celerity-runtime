@@ -16,12 +16,13 @@
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/graphviz.hpp>
 #include <boost/type_index.hpp>
+#include <boost/variant.hpp>
 
 using namespace allscale::api::user::data;
 
 namespace boost_graph {
 using boost::adjacency_list;
-using boost::directedS;
+using boost::bidirectionalS;
 using boost::vecS;
 
 struct vertex_properties {
@@ -32,7 +33,7 @@ struct graph_properties {
   std::string name;
 };
 
-using Graph = adjacency_list<vecS, vecS, directedS, vertex_properties,
+using Graph = adjacency_list<vecS, vecS, bidirectionalS, vertex_properties,
                              boost::no_property, graph_properties>;
 }  // namespace boost_graph
 
@@ -45,9 +46,13 @@ using buffer_id = size_t;
 using node_id = size_t;
 using region_version = size_t;
 
+// FIXME: Naming; could be clearer
 template <int Dims>
 struct subrange {
-  cl::sycl::id<Dims> start;
+  // TODO: Should "start" be a cl::sycl::id instead? (What's the difference?)
+  // We'll leave it a range for now so we don't have to provide conversion
+  // overloads below
+  cl::sycl::range<Dims> start;
   cl::sycl::range<Dims> range;
   cl::sycl::range<Dims> global_size;
 };
@@ -113,7 +118,8 @@ template <>
 class handler<is_prepass::true_t> {
  public:
   template <typename name, typename functorT, int Dims>
-  void parallel_for(cl::sycl::range<Dims> range, const functorT& kernel) {
+  void parallel_for(cl::sycl::range<Dims> global_size, const functorT& kernel) {
+    this->global_size = global_size;
     // DEBUG: Find nice name for kernel (regex is probably not super portable)
     auto qualified_name = boost::typeindex::type_id<name*>().pretty_name();
     std::regex name_regex(R"(.*?(?:::)?([\w_]+)\s?\*.*)");
@@ -126,13 +132,15 @@ class handler<is_prepass::true_t> {
   void require(prepass_accessor<Mode> a, size_t buffer_id,
                std::unique_ptr<detail::range_mapper_base> rm);
 
-  std::string get_debug_name() const { return debug_name; };
+  ~handler();
 
  private:
   friend class distr_queue;
   distr_queue& queue;
   size_t task_id;
   std::string debug_name;
+  boost::variant<cl::sycl::range<1>, cl::sycl::range<2>, cl::sycl::range<3>>
+      global_size;
 
   handler(distr_queue& q, size_t task_id) : queue(q), task_id(task_id) {
     debug_name = (boost::format("task%d") % task_id).str();
@@ -239,6 +247,20 @@ inline GridPoint<3> sycl_range_to_grid_point(cl::sycl::range<3> range) {
   return GridPoint<3>(range[0], range[1], range[2]);
 }
 
+inline GridRegion<1> subrange_to_grid_region(const subrange<1>& sr) {
+  return GridRegion<1>(sycl_range_to_grid_point(sr.start),
+                       sycl_range_to_grid_point(sr.start + sr.range));
+}
+
+inline GridRegion<2> subrange_to_grid_region(const subrange<2>& sr) {
+  return GridRegion<2>(sycl_range_to_grid_point(sr.start),
+                       sycl_range_to_grid_point(sr.start + sr.range));
+}
+
+inline GridRegion<3> subrange_to_grid_region(const subrange<3>& sr) {
+  return GridRegion<3>(sycl_range_to_grid_point(sr.start),
+                       sycl_range_to_grid_point(sr.start + sr.range));
+}
 class buffer_state_base {
  public:
   virtual size_t get_dimensions() const = 0;
@@ -267,9 +289,9 @@ class distr_queue {
   template <typename CGF>
   void submit(CGF cgf) {
     task_id tid = task_count++;
+    boost::add_vertex(task_graph);
     handler<is_prepass::true_t> h(*this, tid);
     cgf(h);
-    task_names[tid] = h.get_debug_name();
     task_command_groups[tid] = std::make_unique<detail::cgf_storage<CGF>>(cgf);
   }
 
@@ -294,9 +316,12 @@ class distr_queue {
  private:
   friend handler<is_prepass::true_t>;
   // TODO: We may want to move all these task maps into a dedicated struct
-  std::unordered_map<task_id, std::string> task_names;
   std::unordered_map<task_id, std::unique_ptr<detail::cgf_storage_base>>
       task_command_groups;
+  std::unordered_map<task_id,
+                     boost::variant<cl::sycl::range<1>, cl::sycl::range<2>,
+                                    cl::sycl::range<3>>>
+      task_global_sizes;
   std::unordered_map<
       task_id,
       std::unordered_map<
@@ -304,17 +329,22 @@ class distr_queue {
       task_range_mappers;
 
   // This is a high-level view on buffer writers, for creating the task graph
+  // NOTE: This represents the state after the latest performed pre-pass, i.e.
+  // it corresponds to the leaf nodes of the current task graph.
   std::unordered_map<buffer_id, task_id> buffer_last_writer;
 
   // This is a more granular view which encodes where (= on which node) valid
   // regions of a buffer can be found. A valid region is any region that has not
   // been written to on another node.
+  // NOTE: This represents the buffer regions after all commands in the current
+  // command graph have been completed.
   std::unordered_map<buffer_id, std::unique_ptr<detail::buffer_state_base>>
       valid_buffer_regions;
 
   size_t task_count = 0;
   size_t buffer_count = 0;
   Graph task_graph;
+  Graph command_graph;
   std::set<task_id> active_tasks;
 
   // For now we don't store any additional data on nodes
@@ -324,6 +354,14 @@ class distr_queue {
 
   void add_requirement(task_id tid, buffer_id bid, cl::sycl::access::mode mode,
                        std::unique_ptr<detail::range_mapper_base> rm);
+
+  template <int Dims>
+  void set_task_data(task_id tid, cl::sycl::range<Dims> global_size,
+                     std::string debug_name) {
+    task_global_sizes[tid] = global_size;
+    task_graph[tid].label =
+        (boost::format("Task %d (%s)") % tid % debug_name).str();
+  }
 };
 
 }  // namespace celerity
