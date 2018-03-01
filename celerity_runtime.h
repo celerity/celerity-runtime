@@ -33,6 +33,12 @@ using vertex = size_t;
 
 struct tdag_vertex_properties {
   std::string label;
+
+  // Whether this task has been processed into the command dag
+  bool processed = false;
+
+  // The number of unsatisfied (= unprocessed) dependencies this task has
+  size_t num_unsatisfied = 0;
 };
 
 struct tdag_graph_properties {
