@@ -20,31 +20,43 @@
 
 using namespace allscale::api::user::data;
 
-namespace boost_graph {
-using boost::adjacency_list;
-using boost::bidirectionalS;
-using boost::vecS;
-
-struct vertex_properties {
-  std::string label;
-};
-
-struct graph_properties {
-  std::string name;
-};
-
-using Graph = adjacency_list<vecS, vecS, bidirectionalS, vertex_properties,
-                             boost::no_property, graph_properties>;
-}  // namespace boost_graph
-
-using namespace boost_graph;
-
 namespace celerity {
 
 using task_id = size_t;
 using buffer_id = size_t;
 using node_id = size_t;
 using region_version = size_t;
+
+// Graphs
+
+using vertex = size_t;
+
+struct tdag_vertex_properties {
+  std::string label;
+};
+
+struct tdag_graph_properties {
+  std::string name;
+};
+
+using task_dag =
+    boost::adjacency_list<boost::vecS, boost::vecS, boost::bidirectionalS,
+                          tdag_vertex_properties, boost::no_property,
+                          tdag_graph_properties>;
+
+struct cdag_vertex_properties {
+  std::string label;
+};
+
+struct cdag_graph_properties {
+  std::string name;
+  std::map<task_id, vertex> task_complete_vertices;
+};
+
+using command_dag =
+    boost::adjacency_list<boost::vecS, boost::vecS, boost::bidirectionalS,
+                          cdag_vertex_properties, boost::no_property,
+                          cdag_graph_properties>;
 
 // FIXME: Naming; could be clearer
 template <int Dims>
@@ -63,17 +75,24 @@ using range_mapper_fn = std::function<subrange<Dims>(subrange<Dims> range)>;
 
 class range_mapper_base {
  public:
+  range_mapper_base(cl::sycl::access::mode am) : access_mode(am) {}
+  cl::sycl::access::mode get_access_mode() const { return access_mode; }
+
   virtual size_t get_dimensions() const = 0;
   virtual subrange<1> operator()(subrange<1> range) { return subrange<1>(); }
   virtual subrange<2> operator()(subrange<2> range) { return subrange<2>(); }
   virtual subrange<3> operator()(subrange<3> range) { return subrange<3>(); }
   virtual ~range_mapper_base() {}
+
+ private:
+  cl::sycl::access::mode access_mode;
 };
 
 template <int Dims>
 class range_mapper : public range_mapper_base {
  public:
-  range_mapper(range_mapper_fn<Dims> fn) : rmfn(fn) {}
+  range_mapper(range_mapper_fn<Dims> fn, cl::sycl::access::mode am)
+      : range_mapper_base(am), rmfn(fn) {}
   size_t get_dimensions() const override { return Dims; }
   subrange<Dims> operator()(subrange<Dims> range) override {
     return rmfn(range);
@@ -181,7 +200,8 @@ class buffer {
   prepass_accessor<Mode> get_access(handler<is_prepass::true_t> handler,
                                     detail::range_mapper_fn<Dims> rmfn) {
     prepass_accessor<Mode> a;
-    handler.require(a, id, std::make_unique<detail::range_mapper<Dims>>(rmfn));
+    handler.require(a, id,
+                    std::make_unique<detail::range_mapper<Dims>>(rmfn, Mode));
     return a;
   }
 
@@ -343,8 +363,8 @@ class distr_queue {
 
   size_t task_count = 0;
   size_t buffer_count = 0;
-  Graph task_graph;
-  Graph command_graph;
+  task_dag task_graph;
+  command_dag command_graph;
   std::set<task_id> active_tasks;
 
   // For now we don't store any additional data on nodes

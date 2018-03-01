@@ -7,12 +7,12 @@
 #include <allscale/utils/string_utils.h>
 #include <boost/algorithm/string.hpp>
 
-void print_graph(boost_graph::Graph& g) {
-  using namespace boost_graph;
+template <typename Graph>
+void print_graph(const Graph& g) {
   std::stringstream ss;
-  write_graphviz(
-      ss, g,
-      boost::make_label_writer(boost::get(&vertex_properties::label, g)));
+  write_graphviz(ss, g,
+                 boost::make_label_writer(
+                     boost::get(&Graph::vertex_property_type::label, g)));
   auto str = ss.str();
   std::vector<std::string> lines;
   boost::split(lines, str, boost::is_any_of("\n"));
@@ -130,6 +130,85 @@ std::vector<subrange<1>> split_equal(const subrange<1>& sr, size_t num_splits) {
   return result;
 }
 
+// TODO: Move elsewhere
+namespace graph_utils {
+using task_vertices = std::pair<vertex, vertex>;
+
+template <typename Graph, typename Functor>
+void for_predecessors(const Graph& graph, vertex v, Functor f) {
+  boost::graph_traits<Graph>::in_edge_iterator eit, eit_end;
+  for (std::tie(eit, eit_end) = boost::in_edges(v, graph); eit != eit_end;
+       ++eit) {
+    vertex pre = boost::source(*eit, graph);
+    f(pre);
+  }
+}
+
+template <typename Graph, typename Functor>
+void for_successors(const Graph& graph, vertex v, Functor f) {
+  boost::graph_traits<Graph>::out_edge_iterator eit, eit_end;
+  for (std::tie(eit, eit_end) = boost::out_edges(v, graph); eit != eit_end;
+       ++eit) {
+    vertex suc = boost::target(*eit, graph);
+    f(suc);
+  }
+}
+
+// Note that we don't check whether the edge u->v actually existed
+template <typename Graph>
+vertex insert_vertex_on_edge(vertex u, vertex v, Graph& graph) {
+  auto e = boost::edge(u, v, graph);
+  auto w = boost::add_vertex(graph);
+  boost::remove_edge(u, v, graph);
+  boost::add_edge(u, w, graph);
+  boost::add_edge(w, v, graph);
+  return w;
+}
+
+task_vertices add_task(task_id tid, const task_dag& tdag, command_dag& cdag) {
+  vertex begin_task_v = boost::add_vertex(cdag);
+  cdag[begin_task_v].label = (boost::format("Begin Task %d") % tid).str();
+
+  // Add all task requirements
+  for_predecessors(tdag, tid, [&cdag, begin_task_v](vertex requirement) {
+    boost::add_edge(
+        cdag[boost::graph_bundle].task_complete_vertices[requirement],
+        begin_task_v, cdag);
+  });
+
+  vertex complete_task_v = boost::add_vertex(cdag);
+  cdag[boost::graph_bundle].task_complete_vertices[tid] = complete_task_v;
+  cdag[complete_task_v].label = (boost::format("Complete Task %d") % tid).str();
+
+  return task_vertices(begin_task_v, complete_task_v);
+}
+
+template <int Dims>
+vertex add_compute_cmd(node_id nid, const task_vertices& tv,
+                       const subrange<Dims>& sr, command_dag& cdag) {
+  auto v = boost::add_vertex(cdag);
+  boost::add_edge(tv.first, v, cdag);
+  boost::add_edge(v, tv.second, cdag);
+  cdag[v].label = (boost::format("Node %d:\\nCompute\\n%s") % nid %
+                   toString(detail::subrange_to_grid_region(sr)))
+                      .str();
+  return v;
+}
+
+template <int Dims>
+vertex add_pull_cmd(node_id nid, buffer_id bid, const task_vertices& tv,
+                    vertex compute_cmd, const subrange<Dims>& req,
+                    command_dag& cdag) {
+  // TODO: Once we have actual commands attached to vertices, assert compute_cmd
+  auto v = graph_utils::insert_vertex_on_edge(tv.first, compute_cmd, cdag);
+  cdag[v].label = (boost::format("Node %d:\\nPULL %d\\n %s") % nid % bid %
+                   toString(detail::subrange_to_grid_region(req)))
+                      .str();
+  return v;
+}
+
+}  // namespace graph_utils
+
 void distr_queue::build_command_graph() {
   // Potential commands:
   // - Move region (buffer_id, region, from_node_id, to_node_id)
@@ -148,108 +227,81 @@ void distr_queue::build_command_graph() {
   task_queue.push(0);
   queued_tasks.insert(0);
 
-  std::map<task_id, size_t> task_complete_vertices;
-
   while (!task_queue.empty()) {
     const task_id tid = task_queue.front();
     task_queue.pop();
     queued_tasks.erase(tid);
     auto& rms = task_range_mappers[tid];
-    std::cout << "Task " << tid << " has range mappers for " << rms.size()
-              << " buffers" << std::endl;
 
-    auto begin_task_v = boost::add_vertex(command_graph);
-    command_graph[begin_task_v].label =
-        (boost::format("Begin Task %d") % tid).str();
+    graph_utils::task_vertices taskv =
+        graph_utils::add_task(tid, task_graph, command_graph);
 
-    {
-      // Find all tasks this task is dependending on
-      // TODO: Move into separate function
-      boost::graph_traits<Graph>::in_edge_iterator eit, eit_end;
-      for (std::tie(eit, eit_end) = boost::in_edges(tid, task_graph);
-           eit != eit_end; ++eit) {
-        auto dep = boost::source(*eit, task_graph);
-        boost::add_edge(task_complete_vertices[dep], begin_task_v,
-                        command_graph);
-      }
-    }
+    // Split task into equal chunks for every compute node
+    // TODO: In the future, we may want to adjust our split based on the range
+    // mapper results and data location!
+    auto sr = subrange<1>();
+    // FIXME: We assume task dimensionality 1 here
+    sr.global_size = boost::get<cl::sycl::range<1>>(task_global_sizes[tid]);
+    sr.range = sr.global_size;
+    auto splits = split_equal(sr, num_nodes - 1);
 
-    std::vector<size_t> split_compute_vertices;
-    for (auto i = 0u; i < num_nodes - 1; ++i) {
-      auto v = boost::add_vertex(command_graph);
-      split_compute_vertices.push_back(v);
+    std::vector<vertex> split_compute_vertices;
+    for (auto i = 0u; i < splits.size(); ++i) {
+      auto cv =
+          graph_utils::add_compute_cmd(i + 1, taskv, splits[i], command_graph);
+      split_compute_vertices.push_back(cv);
     }
 
     for (auto& it : rms) {
       buffer_id bid = it.first;
-      // TODO: We have to distinguish between read and write range mappers!
-      for (auto& rm : it.second) {
-        // Outline (TODO)
-        // For every requirement, determine the most suitable node
-        //    => Add data pulls for all missing regions
-        //    => Add wait-for-pulls on nodes that contain that data (but
-        //    where do we add those in the DAG??)
-        // For every split, add a execution command
 
+      for (auto& rm : it.second) {
         auto dims = rm->get_dimensions();
         if (dims != 1) {
           throw new std::runtime_error("2D/3D splits NYI");
         }
 
-        auto sr = subrange<1>();
-        // FIXME: Assuming task has same dimensionality
-        sr.global_size = boost::get<cl::sycl::range<1>>(task_global_sizes[tid]);
-        sr.range = sr.global_size;
-        auto splits = split_equal(sr, num_nodes - 1);
         std::vector<subrange<1>> reqs(splits.size());
         std::transform(splits.cbegin(), splits.cend(), reqs.begin(),
                        [&rm](auto& split) { return (*rm)(split); });
 
+        // **************** NEXT STEPS **************
+        // [x] Distinguish read and write access
+        //     Write access is only relevant for "await pull" commands (these
+        //     should come before the write)
+        // [ ] Figure out from which node to pull
+        // [ ] Insert "await pull" commands
+        // [ ] Try to execute the sub-ranges only with data from the CMD-DA
+        //     (If it's not much work, consider using sub-buffers for the
+        //     per-node buffer ranges!) (pulls are no-ops obviously, but we need
+        //     for example the exact execution ranges within the DAG)
+
+        if (rm->get_access_mode() == cl::sycl::access::mode::write) continue;
+
         for (auto i = 0u; i < splits.size(); ++i) {
-          auto v = boost::add_vertex(command_graph);
-          boost::add_edge(begin_task_v, v, command_graph);
-          boost::add_edge(v, split_compute_vertices[i], command_graph);
           // TODO: Find suitable source(s) node for pull
-          //   => This may mean we'll have multiple pulls or non at all
+          //   => This may mean we'll have multiple pulls or none at all
           // TODO: Add wait-for-pull command in source node
-          command_graph[v].label =
-              (boost::format("Node %d:\\nPULL %d\\n %s") % (i + 1) % bid %
-               toString(detail::subrange_to_grid_region(reqs[i])))
-                  .str();
-
-          // FIXME: No need to set this on every range-mapper iteration
-          // (We just don't have the split available above)
-          command_graph[split_compute_vertices[i]].label =
-              (boost::format("Node %d:\\nCompute\\n%s") % (i + 1) %
-               toString(detail::subrange_to_grid_region(splits[i])))
-                  .str();
+          //   => How do we determine WHERE to add that command?
+          //      Source node might not (yet) have a command subgraph at this
+          //      point
+          graph_utils::add_pull_cmd(i + 1, bid, taskv,
+                                    split_compute_vertices[i], reqs[i],
+                                    command_graph);
         }
       }
     }
 
-    auto complete_task_v = boost::add_vertex(command_graph);
-    task_complete_vertices[tid] = complete_task_v;
-    command_graph[complete_task_v].label =
-        (boost::format("Complete Task %d") % tid).str();
-    for (auto& v : split_compute_vertices) {
-      boost::add_edge(v, complete_task_v, command_graph);
-    }
-
-    {
-      // Find all tasks depending on this task
-      // TODO: Move into separate function
-      boost::graph_traits<Graph>::out_edge_iterator eit, eit_end;
-      // FIXME: This doesn't check if the task has other unresolved
-      // dependencies!!
-      for (std::tie(eit, eit_end) = boost::out_edges(tid, task_graph);
-           eit != eit_end; ++eit) {
-        auto tid = boost::target(*eit, task_graph);
-        if (queued_tasks.find(tid) == queued_tasks.end()) {
-          task_queue.push(tid);
-          queued_tasks.insert(tid);
-        }
-      }
-    }
+    // Find all tasks depending on this task
+    graph_utils::for_successors(
+        task_graph, tid, [&task_queue, &queued_tasks](vertex successor) {
+          // FIXME: This doesn't check if the task has other unresolved
+          // dependencies!!
+          if (queued_tasks.find(successor) == queued_tasks.end()) {
+            task_queue.push(successor);
+            queued_tasks.insert(successor);
+          }
+        });
   }
 
   print_graph(command_graph);
