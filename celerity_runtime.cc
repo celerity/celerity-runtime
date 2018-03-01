@@ -113,18 +113,18 @@ void distr_queue::TEST_execute_deferred() {
   }
 }
 
-std::vector<subrange<1>> split_equal(const subrange<1>& sr, size_t num_splits) {
-  subrange<1> split;
-  split.global_size = sr.global_size;
-  split.start = cl::sycl::range<1>(0);
-  split.range = cl::sycl::range<1>(sr.range.size() / num_splits);
+std::vector<subrange<1>> split_equal(const subrange<1>& sr, size_t num_chunks) {
+  subrange<1> chunk;
+  chunk.global_size = sr.global_size;
+  chunk.start = cl::sycl::range<1>(0);
+  chunk.range = cl::sycl::range<1>(sr.range.size() / num_chunks);
 
   std::vector<subrange<1>> result;
-  for (auto i = 0u; i < num_splits; ++i) {
-    result.push_back(split);
-    split.start = split.start + split.range;
-    if (i == num_splits - 1) {
-      result[i].range += sr.range.size() % num_splits;
+  for (auto i = 0u; i < num_chunks; ++i) {
+    result.push_back(chunk);
+    chunk.start = chunk.start + chunk.range;
+    if (i == num_chunks - 1) {
+      result[i].range += sr.range.size() % num_chunks;
     }
   }
   return result;
@@ -185,12 +185,12 @@ task_vertices add_task(task_id tid, const task_dag& tdag, command_dag& cdag) {
 
 template <int Dims>
 vertex add_compute_cmd(node_id nid, const task_vertices& tv,
-                       const subrange<Dims>& sr, command_dag& cdag) {
+                       const subrange<Dims>& chunk, command_dag& cdag) {
   auto v = boost::add_vertex(cdag);
   boost::add_edge(tv.first, v, cdag);
   boost::add_edge(v, tv.second, cdag);
   cdag[v].label = (boost::format("Node %d:\\nCompute\\n%s") % nid %
-                   toString(detail::subrange_to_grid_region(sr)))
+                   toString(detail::subrange_to_grid_region(chunk)))
                       .str();
   return v;
 }
@@ -233,7 +233,7 @@ void distr_queue::build_command_graph() {
     queued_tasks.erase(tid);
     auto& rms = task_range_mappers[tid];
 
-    graph_utils::task_vertices taskv =
+    const graph_utils::task_vertices taskv =
         graph_utils::add_task(tid, task_graph, command_graph);
 
     // Split task into equal chunks for every compute node
@@ -243,14 +243,35 @@ void distr_queue::build_command_graph() {
     // FIXME: We assume task dimensionality 1 here
     sr.global_size = boost::get<cl::sycl::range<1>>(task_global_sizes[tid]);
     sr.range = sr.global_size;
-    auto splits = split_equal(sr, num_nodes - 1);
+    auto chunks = split_equal(sr, num_nodes - 1);
 
-    std::vector<vertex> split_compute_vertices;
-    for (auto i = 0u; i < splits.size(); ++i) {
+    std::vector<vertex> chunk_compute_vertices;
+    for (auto i = 0u; i < chunks.size(); ++i) {
       auto cv =
-          graph_utils::add_compute_cmd(i + 1, taskv, splits[i], command_graph);
-      split_compute_vertices.push_back(cv);
+          graph_utils::add_compute_cmd(i + 1, taskv, chunks[i], command_graph);
+      chunk_compute_vertices.push_back(cv);
     }
+
+    // Things to do / consider for buffer region handling:
+    // * For every buffer and chunk, make union region of all reads and writes
+    // * Use per-chunk read-region to determine most suitable node to compute on
+    //   (i.e., the node with the least amount of data transfers required)
+    //   Possible initial simplifications:
+    //    - First-come-first serve, i.e. assign a chunk to the most suitable
+    //      node even though a later chunk might be even better on that
+    //      particular node
+    //    - Distribute every task over all nodes (which isn't necessarily the
+    //      best strategy, e.g. it might be better to assign two entire tasks to
+    //      two nodes)
+    // * Update buffer regions based on per-chunk write-region
+    //   ISSUE: We cannot update the regions after processing a single task,
+    //   since sibling tasks might depend on previous data locations. This means
+    //   we can only update after a COMPLETE set of sibling tasks has been
+    //   processed. This in turn means that we can only start processing a set
+    //   of siblings, if we can ensure that all requirement tasks for those
+    //   siblings have already been fulfilled! So the choice of where to
+    //   continue processing the task graph (in case of multiple root nodes) can
+    //   certainly be important!
 
     for (auto& it : rms) {
       buffer_id bid = it.first;
@@ -258,12 +279,12 @@ void distr_queue::build_command_graph() {
       for (auto& rm : it.second) {
         auto dims = rm->get_dimensions();
         if (dims != 1) {
-          throw new std::runtime_error("2D/3D splits NYI");
+          throw std::runtime_error("2D/3D splits NYI");
         }
 
-        std::vector<subrange<1>> reqs(splits.size());
-        std::transform(splits.cbegin(), splits.cend(), reqs.begin(),
-                       [&rm](auto& split) { return (*rm)(split); });
+        std::vector<subrange<1>> reqs(chunks.size());
+        std::transform(chunks.cbegin(), chunks.cend(), reqs.begin(),
+                       [&rm](auto& chunk) { return (*rm)(chunk); });
 
         // **************** NEXT STEPS **************
         // [x] Distinguish read and write access
@@ -278,7 +299,7 @@ void distr_queue::build_command_graph() {
 
         if (rm->get_access_mode() == cl::sycl::access::mode::write) continue;
 
-        for (auto i = 0u; i < splits.size(); ++i) {
+        for (auto i = 0u; i < chunks.size(); ++i) {
           // TODO: Find suitable source(s) node for pull
           //   => This may mean we'll have multiple pulls or none at all
           // TODO: Add wait-for-pull command in source node
@@ -286,7 +307,7 @@ void distr_queue::build_command_graph() {
           //      Source node might not (yet) have a command subgraph at this
           //      point
           graph_utils::add_pull_cmd(i + 1, bid, taskv,
-                                    split_compute_vertices[i], reqs[i],
+                                    chunk_compute_vertices[i], reqs[i],
                                     command_graph);
         }
       }
