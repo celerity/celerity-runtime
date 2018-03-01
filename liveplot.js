@@ -7,11 +7,22 @@ const fs = require('fs');
 const EXE = './build/Debug/full_stack_example.exe';
 
 function run(args) {
-	const child = spawn(
-		EXE,
-		args,
-		{ stdio: ['inherit', 'pipe', 'inherit'] }
-	);
+	console.log(">> Running...");
+	let child;
+	try {
+		child = spawn(
+			EXE,
+			args,
+			{ stdio: ['inherit', 'pipe', 'inherit'] }
+		);
+	} catch(e) {
+		console.log('Failed to spawn process (' + e.code + ')');
+		return;
+	}
+
+	child.on('error', (err) => {
+		console.log('Error during execution');
+	});
 
 	child.on('exit', (code) => {
 		console.log('Process ended (' + code + ')');
