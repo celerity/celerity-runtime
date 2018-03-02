@@ -25,7 +25,6 @@ namespace celerity {
 using task_id = size_t;
 using buffer_id = size_t;
 using node_id = size_t;
-using region_version = size_t;
 
 // Graphs
 
@@ -56,7 +55,7 @@ struct cdag_vertex_properties {
 
 struct cdag_graph_properties {
   std::string name;
-  std::map<task_id, vertex> task_complete_vertices;
+  std::unordered_map<task_id, vertex> task_complete_vertices;
 };
 
 using command_dag =
@@ -298,12 +297,49 @@ class buffer_state : public buffer_state_base {
   static_assert(Dims >= 1 && Dims <= 3, "Unsupported dimensionality");
 
  public:
-  buffer_state(cl::sycl::range<Dims> size)
-      : region(GridRegion<Dims>(sycl_range_to_grid_point(size))) {}
+  buffer_state(cl::sycl::range<Dims> size, size_t num_nodes) {
+    std::unordered_set<node_id> all_nodes(num_nodes);
+    for (auto i = 0u; i < num_nodes; ++i) all_nodes.insert(i);
+    region_nodes.push_back(std::make_pair(
+        GridRegion<Dims>(sycl_range_to_grid_point(size)), all_nodes));
+  }
+
   size_t get_dimensions() const override { return Dims; }
 
+  std::vector<std::pair<GridBox<Dims>, std::unordered_set<node_id>>>
+  get_source_nodes(GridRegion<Dims> request) const {
+    std::vector<std::pair<GridBox<Dims>, std::unordered_set<node_id>>> result;
+
+    // Locate entire region by iteratively removing the largest overlaps
+    GridRegion<Dims> remaining = request;
+    while (remaining.area() > 0) {
+      size_t largest_overlap = 0;
+      size_t largest_overlap_i = -1;
+      for (auto i = 0u; i < region_nodes.size(); ++i) {
+        auto r = GridRegion<Dims>::intersect(region_nodes[i].first, remaining);
+        auto area = r.area();
+        if (area > largest_overlap) {
+          largest_overlap = area;
+          largest_overlap_i = i;
+        }
+      }
+
+      assert(largest_overlap > 0);
+      auto r = GridRegion<Dims>::intersect(
+          region_nodes[largest_overlap_i].first, remaining);
+      remaining = GridRegion<Dims>::difference(remaining, r);
+      r.scanByBoxes([this, &result, largest_overlap_i](const GridBox<Dims>& b) {
+        result.push_back(
+            std::make_pair(b, region_nodes[largest_overlap_i].second));
+      });
+    }
+
+    return result;
+  }
+
  private:
-  GridRegion<Dims> region;
+  std::vector<std::pair<GridRegion<Dims>, std::unordered_set<node_id>>>
+      region_nodes;
 };
 }  // namespace detail
 
@@ -326,7 +362,7 @@ class distr_queue {
                                     cl::sycl::range<Dims> size) {
     buffer_id bid = buffer_count++;
     valid_buffer_regions[bid] =
-        std::make_unique<detail::buffer_state<Dims>>(size);
+        std::make_unique<detail::buffer_state<Dims>>(size, num_nodes);
     return buffer<DataT, Dims>(host_ptr, size, bid);
   }
 
@@ -371,7 +407,6 @@ class distr_queue {
   size_t buffer_count = 0;
   task_dag task_graph;
   command_dag command_graph;
-  std::set<task_id> active_tasks;
 
   // For now we don't store any additional data on nodes
   const size_t num_nodes;

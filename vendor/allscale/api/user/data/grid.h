@@ -557,6 +557,17 @@ namespace data {
 		}
 
 		/**
+		 * Scans the covered boxes.
+		 * Added by psalz for CELERITY on 2018/03/02.
+		 */
+		template<typename Lambda>
+		void scanByBoxes(const Lambda& f) const {
+			for(const auto& cur : regions) {
+				f(cur);
+			}
+		}
+
+		/**
 		 * An operator to load an instance of this range from the given archive.
 		 */
 		static GridRegion load(utils::ArchiveReader& reader) {
