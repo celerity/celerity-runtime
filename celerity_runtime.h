@@ -272,20 +272,41 @@ inline GridPoint<3> sycl_range_to_grid_point(cl::sycl::range<3> range) {
   return GridPoint<3>(range[0], range[1], range[2]);
 }
 
+template <int Dims>
+void clamp_range(cl::sycl::range<Dims>& range,
+                 const cl::sycl::range<Dims>& max) {
+  if (range[0] > max[0]) {
+    range[0] = max[0];
+  }
+  if (range[1] > max[1]) {
+    range[1] = max[1];
+  }
+  if (range[2] > max[2]) {
+    range[2] = max[2];
+  }
+}
+
 inline GridRegion<1> subrange_to_grid_region(const subrange<1>& sr) {
+  auto end = sr.start + sr.range;
+  clamp_range(end, sr.global_size);
   return GridRegion<1>(sycl_range_to_grid_point(sr.start),
-                       sycl_range_to_grid_point(sr.start + sr.range));
+                       sycl_range_to_grid_point(end));
 }
 
 inline GridRegion<2> subrange_to_grid_region(const subrange<2>& sr) {
+  auto end = sr.start + sr.range;
+  clamp_range(end, sr.global_size);
   return GridRegion<2>(sycl_range_to_grid_point(sr.start),
-                       sycl_range_to_grid_point(sr.start + sr.range));
+                       sycl_range_to_grid_point(end));
 }
 
 inline GridRegion<3> subrange_to_grid_region(const subrange<3>& sr) {
+  auto end = sr.start + sr.range;
+  clamp_range(end, sr.global_size);
   return GridRegion<3>(sycl_range_to_grid_point(sr.start),
-                       sycl_range_to_grid_point(sr.start + sr.range));
+                       sycl_range_to_grid_point(end));
 }
+
 class buffer_state_base {
  public:
   virtual size_t get_dimensions() const = 0;
@@ -337,9 +358,57 @@ class buffer_state : public buffer_state_base {
     return result;
   }
 
+  void update_region(const GridRegion<Dims>& region,
+                     const std::unordered_set<node_id>& nodes) {
+    auto num_regions = region_nodes.size();
+    for (auto i = 0u; i < num_regions; ++i) {
+      const size_t overlap =
+          GridRegion<Dims>::intersect(region_nodes[i].first, region).area();
+      if (overlap == 0) continue;
+      const auto diff =
+          GridRegion<Dims>::difference(region_nodes[i].first, region);
+      if (diff.area() == 0) {
+        // New region is larger / equal to stored region - update it
+        region_nodes[i].first = region;
+        region_nodes[i].second = nodes;
+      } else {
+        // Stored region needs to be updated as well
+        region_nodes[i].first = diff;
+        region_nodes.push_back(std::make_pair(region, nodes));
+      }
+    }
+
+    collapse_regions();
+  }
+
  private:
+  // TODO: Look into using a different data structure for this.
+  // Maybe order descending by area?
   std::vector<std::pair<GridRegion<Dims>, std::unordered_set<node_id>>>
       region_nodes;
+
+  void collapse_regions() {
+    std::set<size_t> erase_indices;
+    for (auto i = 0u; i < region_nodes.size(); ++i) {
+      const auto& nodes_i = region_nodes[i].second;
+      for (auto j = i + 1; j < region_nodes.size(); ++j) {
+        const auto& nodes_j = region_nodes[j].second;
+        std::vector<node_id> intersection;
+        std::set_intersection(nodes_i.cbegin(), nodes_i.cend(),
+                              nodes_j.cbegin(), nodes_j.cend(),
+                              std::back_inserter(intersection));
+        if (intersection.size() == nodes_i.size()) {
+          region_nodes[i].first = GridRegion<Dims>::merge(
+              region_nodes[i].first, region_nodes[j].first);
+          erase_indices.insert(j);
+        }
+      }
+    }
+
+    for (auto it = erase_indices.rbegin(); it != erase_indices.rend(); ++it) {
+      region_nodes.erase(region_nodes.begin() + *it);
+    }
+  }
 };
 }  // namespace detail
 

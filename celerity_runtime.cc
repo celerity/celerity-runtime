@@ -233,13 +233,13 @@ vertex add_compute_cmd(node_id nid, const task_vertices& tv,
 }
 
 template <int Dims>
-vertex add_pull_cmd(node_id nid, buffer_id bid, const task_vertices& tv,
-                    vertex compute_cmd, const subrange<Dims>& req,
-                    command_dag& cdag) {
+vertex add_pull_cmd(node_id nid, node_id source_nid, buffer_id bid,
+                    const task_vertices& tv, vertex compute_cmd,
+                    const GridBox<Dims>& req, command_dag& cdag) {
   // TODO: Once we have actual commands attached to vertices, assert compute_cmd
   auto v = graph_utils::insert_vertex_on_edge(tv.first, compute_cmd, cdag);
-  cdag[v].label = (boost::format("Node %d:\\nPULL %d\\n %s") % nid % bid %
-                   toString(detail::subrange_to_grid_region(req)))
+  cdag[v].label = (boost::format("Node %d:\\nPULL %d from %d\\n %s") % nid %
+                   bid % source_nid % toString(req))
                       .str();
   return v;
 }
@@ -335,7 +335,7 @@ void distr_queue::build_command_graph() {
     const graph_utils::task_vertices taskv =
         graph_utils::add_task(tid, task_graph, command_graph);
 
-    // Split task into equal chunks for every compute node
+    // Split task into equal chunks for every worker node
     // TODO: In the future, we may want to adjust our split based on the range
     // mapper results and data location!
     auto sr = subrange<1>();
@@ -378,6 +378,10 @@ void distr_queue::build_command_graph() {
     for (auto& it : rms) {
       buffer_id bid = it.first;
 
+      // FIXME Dimensions
+      auto bs = static_cast<detail::buffer_state<1>*>(
+          valid_buffer_regions[bid].get());
+
       for (auto& rm : it.second) {
         auto dims = rm->get_dimensions();
         if (dims != 1) {
@@ -392,25 +396,43 @@ void distr_queue::build_command_graph() {
         // [x] Distinguish read and write access
         //     Write access is only relevant for "await pull" commands (these
         //     should come before the write)
-        // [ ] Figure out from which node to pull
+        // [x] Figure out from which node to pull
         // [ ] Insert "await pull" commands
+        // [ ] Determine most suitable node to compute task on
         // [ ] Try to execute the sub-ranges only with data from the CMD-DA
         //     (If it's not much work, consider using sub-buffers for the
         //     per-node buffer ranges!) (pulls are no-ops obviously, but we need
         //     for example the exact execution ranges within the DAG)
 
-        if (rm->get_access_mode() == cl::sycl::access::mode::write) continue;
-
         for (auto i = 0u; i < chunks.size(); ++i) {
-          // TODO: Find suitable source(s) node for pull
-          //   => This may mean we'll have multiple pulls or none at all
-          // TODO: Add wait-for-pull command in source node
-          //   => How do we determine WHERE to add that command?
-          //      Source node might not (yet) have a command subgraph at this
-          //      point
-          graph_utils::add_pull_cmd(i + 1, bid, taskv,
-                                    chunk_compute_vertices[i], reqs[i],
-                                    command_graph);
+          const node_id nid = i + 1;
+          if (rm->get_access_mode() == cl::sycl::access::mode::write) {
+            // Update buffer regions
+            // TODO: We may want to do this after all reads have been processed
+            // so we don't run into potential problems with RW access later on
+            // (i.e. a node trying to get data from itself that it doesn't have)
+            bs->update_region(detail::subrange_to_grid_region(reqs[i]), {nid});
+            continue;
+          }
+
+          // TODO: In case of multiple read-RMs for a single buffer merge
+          // everything into a region first
+          const auto sn =
+              bs->get_source_nodes(detail::subrange_to_grid_region(reqs[i]));
+
+          for (auto& p : sn) {
+            if (p.second.count(nid) == 1) {
+              // No need to pull
+              continue;
+            }
+
+            const node_id source_nid = *p.second.cbegin();
+            // We just pick the first source node for now
+            // TODO: Add wait-for-pull command in source node
+            graph_utils::add_pull_cmd(nid, source_nid, bid, taskv,
+                                      chunk_compute_vertices[i], p.first,
+                                      command_graph);
+          }
         }
       }
     }
