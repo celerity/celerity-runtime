@@ -7,6 +7,7 @@
 
 #include <allscale/utils/string_utils.h>
 #include <boost/algorithm/string.hpp>
+#include <boost/graph/breadth_first_search.hpp>
 
 template <typename Graph>
 void print_graph(const Graph& g) {
@@ -202,6 +203,43 @@ vertex insert_vertex_on_edge(vertex u, vertex v, Graph& graph) {
   return w;
 }
 
+class abort_search_exception : public std::runtime_error {
+ public:
+  abort_search_exception()
+      : std::runtime_error("Abort search (not an error)") {}
+};
+
+template <typename Functor>
+class bfs_visitor : public boost::default_bfs_visitor {
+ public:
+  bfs_visitor(Functor f) : f(f) {}
+
+  template <typename Graph>
+  void discover_vertex(vertex v, const Graph& graph) const {
+    if (f(v, graph) == true) {
+      throw abort_search_exception();
+    }
+  }
+
+ private:
+  Functor f;
+};
+
+/*
+ * Search vertices using a breadth-first-search.
+ * The functor receives the current vertex as well as the graph by reference.
+ * The search is aborted if the functor returns true.
+ */
+template <typename Graph, typename Functor>
+void search_vertex_bf(vertex start, const Graph& graph, Functor f) {
+  try {
+    bfs_visitor<Functor> vis(f);
+    boost::breadth_first_search(graph, start, boost::visitor(vis));
+  } catch (abort_search_exception&) {
+    // Nop
+  }
+}
+
 task_vertices add_task(task_id tid, const task_dag& tdag, command_dag& cdag) {
   vertex begin_task_v = boost::add_vertex(cdag);
   cdag[begin_task_v].label = (boost::format("Begin Task %d") % tid).str();
@@ -226,6 +264,8 @@ vertex add_compute_cmd(node_id nid, const task_vertices& tv,
   auto v = boost::add_vertex(cdag);
   boost::add_edge(tv.first, v, cdag);
   boost::add_edge(v, tv.second, cdag);
+  cdag[v].cmd = cdag_command::COMPUTE;
+  cdag[v].nid = nid;
   cdag[v].label = (boost::format("Node %d:\\nCompute\\n%s") % nid %
                    toString(detail::subrange_to_grid_region(chunk)))
                       .str();
@@ -234,13 +274,42 @@ vertex add_compute_cmd(node_id nid, const task_vertices& tv,
 
 template <int Dims>
 vertex add_pull_cmd(node_id nid, node_id source_nid, buffer_id bid,
-                    const task_vertices& tv, vertex compute_cmd,
-                    const GridBox<Dims>& req, command_dag& cdag) {
-  // TODO: Once we have actual commands attached to vertices, assert compute_cmd
+                    const task_vertices& tv, const task_vertices& source_tv,
+                    vertex compute_cmd, const GridBox<Dims>& req,
+                    command_dag& cdag) {
+  assert(cdag[compute_cmd].cmd == cdag_command::COMPUTE);
   auto v = graph_utils::insert_vertex_on_edge(tv.first, compute_cmd, cdag);
   cdag[v].label = (boost::format("Node %d:\\nPULL %d from %d\\n %s") % nid %
                    bid % source_nid % toString(req))
                       .str();
+
+  // Find the compute command for the source node in the writing task (or this
+  // task, if no writing task has been found)
+  vertex source_compute_v = 0;
+  search_vertex_bf(
+      source_tv.first, cdag,
+      [source_nid, source_tv, &source_compute_v](vertex v,
+                                                 const command_dag& cdag) {
+        if (cdag[v].cmd == cdag_command::COMPUTE && cdag[v].nid == source_nid) {
+          source_compute_v = v;
+          return true;
+        }
+        return false;
+      });
+  assert(source_compute_v != 0);
+
+  auto w = graph_utils::insert_vertex_on_edge(source_tv.first, source_compute_v,
+                                              cdag);
+  cdag[w].cmd = cdag_command::WAIT_FOR_PULL;
+  cdag[w].nid = source_nid;
+  cdag[w].label = (boost::format("Node %d:\\nWAIT FOR PULL %d by %d\\n %s") %
+                   source_nid % bid % nid % toString(req))
+                      .str();
+
+  // Add edges in both directions
+  boost::add_edge(w, v, cdag);
+  boost::add_edge(v, w, cdag);
+
   return v;
 }
 
@@ -323,17 +392,33 @@ void distr_queue::build_command_graph() {
   // in command graph? These could then act as synchronization points with the
   // task graph.
   auto sibling_set = graph_utils::get_satisfied_sibling_set(task_graph);
-  std::cout << "Found sibling set of size " << sibling_set.size() << ": [ ";
-  for (auto s : sibling_set) {
-    std::cout << s << " ";
-  }
-  std::cout << " ]" << std::endl;
+  std::sort(sibling_set.begin(), sibling_set.end());
 
-  for (task_id tid : sibling_set) {
+  // DEBUG OUTPUT
+  {
+    std::cout << "Found sibling set of size " << sibling_set.size() << ": [ ";
+    for (auto s : sibling_set) {
+      std::cout << s << " ";
+    }
+    std::cout << " ]" << std::endl;
+  }
+
+  std::unordered_map<task_id, graph_utils::task_vertices> taskvs;
+
+  // FIXME: Dimensions. Also, containers much??
+  std::unordered_map<
+      buffer_id, std::unordered_map<
+                     node_id, std::vector<std::pair<task_id, GridRegion<1>>>>>
+      buffer_writers;
+
+  // Iterate over tasks in reverse order so we can determine kernels which
+  // write to certain buffer ranges before generating the pull commands for
+  // those ranges, which allows us to insert "wait-for-pull"s before writes.
+  for (auto it = sibling_set.crbegin(); it != sibling_set.crend(); ++it) {
+    const task_id tid = *it;
     auto& rms = task_range_mappers[tid];
 
-    const graph_utils::task_vertices taskv =
-        graph_utils::add_task(tid, task_graph, command_graph);
+    taskvs[tid] = graph_utils::add_task(tid, task_graph, command_graph);
 
     // Split task into equal chunks for every worker node
     // TODO: In the future, we may want to adjust our split based on the range
@@ -346,8 +431,8 @@ void distr_queue::build_command_graph() {
 
     std::vector<vertex> chunk_compute_vertices;
     for (auto i = 0u; i < chunks.size(); ++i) {
-      auto cv =
-          graph_utils::add_compute_cmd(i + 1, taskv, chunks[i], command_graph);
+      auto cv = graph_utils::add_compute_cmd(i + 1, taskvs[tid], chunks[i],
+                                             command_graph);
       chunk_compute_vertices.push_back(cv);
     }
 
@@ -407,11 +492,9 @@ void distr_queue::build_command_graph() {
         for (auto i = 0u; i < chunks.size(); ++i) {
           const node_id nid = i + 1;
           if (rm->get_access_mode() == cl::sycl::access::mode::write) {
-            // Update buffer regions
-            // TODO: We may want to do this after all reads have been processed
-            // so we don't run into potential problems with RW access later on
-            // (i.e. a node trying to get data from itself that it doesn't have)
-            bs->update_region(detail::subrange_to_grid_region(reqs[i]), {nid});
+            // TODO: We could just store GridBoxes in here
+            buffer_writers[bid][nid].push_back(
+                std::make_pair(tid, detail::subrange_to_grid_region(reqs[i])));
             continue;
           }
 
@@ -426,11 +509,39 @@ void distr_queue::build_command_graph() {
               continue;
             }
 
-            const node_id source_nid = *p.second.cbegin();
             // We just pick the first source node for now
-            // TODO: Add wait-for-pull command in source node
-            graph_utils::add_pull_cmd(nid, source_nid, bid, taskv,
-                                      chunk_compute_vertices[i], p.first,
+            const node_id source_nid = *p.second.cbegin();
+            const auto& box = p.first;
+
+            // Figure out where/when (and if) source node writes to that buffer
+            // TODO: For now we just store the writer's task id since we assume
+            // that every node has exactly one compute command per task. In the
+            // future this may not be true.
+            bool has_writer = false;
+            task_id writer_tid = 0;
+            for (const auto& bw : buffer_writers[bid][source_nid]) {
+              if (GridRegion<1>::intersect(bw.second, GridRegion<1>(box))
+                      .area() > 0) {
+#ifdef _DEBUG
+                // We assume at most one sibling writes to that exact region
+                // TODO: Is there any (useful) scenario where this isn't true?
+                assert(!has_writer);
+#endif
+                has_writer = true;
+                writer_tid = bw.first;
+#ifndef _DEBUG
+                break;
+#endif
+              }
+            }
+
+            // If we haven't found a writer, simply add the "wait-for-pull" in
+            // the current task
+            const auto source_tv =
+                has_writer ? taskvs[writer_tid] : taskvs[tid];
+
+            graph_utils::add_pull_cmd(nid, source_nid, bid, taskvs[tid],
+                                      source_tv, chunk_compute_vertices[i], box,
                                       command_graph);
           }
         }
@@ -438,6 +549,25 @@ void distr_queue::build_command_graph() {
     }
 
     graph_utils::mark_as_processed(tid, task_graph);
+  }
+
+  // Update buffer regions
+  // FIXME Dimensions
+  for (auto it : buffer_writers) {
+    const buffer_id bid = it.first;
+    auto bs =
+        static_cast<detail::buffer_state<1>*>(valid_buffer_regions[bid].get());
+
+    for (auto jt : it.second) {
+      const node_id nid = jt.first;
+      GridRegion<1> region;
+
+      for (const auto& kt : jt.second) {
+        region = GridRegion<1>::merge(region, kt.second);
+      }
+
+      bs->update_region(region, {nid});
+    }
   }
 
   // HACK: We recursively call this until all tasks have been processed
