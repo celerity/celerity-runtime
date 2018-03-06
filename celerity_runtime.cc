@@ -9,12 +9,10 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/graph/breadth_first_search.hpp>
 
-template <typename Graph>
-void print_graph(const Graph& g) {
+template <typename Graph, typename VertexPropertiesWriter>
+void write_graph_mux(const Graph& g, VertexPropertiesWriter vpw) {
   std::stringstream ss;
-  write_graphviz(ss, g,
-                 boost::make_label_writer(
-                     boost::get(&Graph::vertex_property_type::label, g)));
+  write_graphviz(ss, g, vpw);
   auto str = ss.str();
   std::vector<std::string> lines;
   boost::split(lines, str, boost::is_any_of("\n"));
@@ -22,6 +20,43 @@ void print_graph(const Graph& g) {
   for (auto l : lines) {
     std::cout << "#G:" << graph_name << "#" << l << std::endl;
   }
+}
+
+void print_graph(const celerity::task_dag& tdag) {
+  write_graph_mux(tdag, boost::make_label_writer(boost::get(
+                            &celerity::tdag_vertex_properties::label, tdag)));
+}
+
+void print_graph(const celerity::command_dag& cdag) {
+  using namespace celerity;
+  write_graph_mux(cdag, [&](std::ostream& out, const auto& ve) {
+    const char* colors[] = {"black",     "crimson",    "dodgerblue4",
+                            "goldenrod", "maroon4",    "springgreen2",
+                            "tan1",      "chartreuse2"};
+
+    std::unordered_map<std::string, std::string> props;
+    props["label"] = boost::escape_dot_string(cdag[ve].label);
+
+    props["fontcolor"] = colors[cdag[ve].nid % sizeof(colors)];
+
+    switch (cdag[ve].cmd) {
+      case cdag_command::NOP:
+        props["color"] = "gray50";
+        props["fontcolor"] = "gray50";
+        break;
+      case cdag_command::COMPUTE:
+        props["shape"] = "square";
+        break;
+      default:
+        break;
+    }
+
+    out << "[";
+    for (auto it : props) {
+      out << " " << it.first << "=" << it.second;
+    }
+    out << "]";
+  });
 }
 
 namespace celerity {
@@ -279,6 +314,8 @@ vertex add_pull_cmd(node_id nid, node_id source_nid, buffer_id bid,
                     command_dag& cdag) {
   assert(cdag[compute_cmd].cmd == cdag_command::COMPUTE);
   auto v = graph_utils::insert_vertex_on_edge(tv.first, compute_cmd, cdag);
+  cdag[v].cmd = cdag_command::PULL;
+  cdag[v].nid = nid;
   cdag[v].label = (boost::format("Node %d:\\nPULL %d from %d\\n %s") % nid %
                    bid % source_nid % toString(req))
                       .str();
