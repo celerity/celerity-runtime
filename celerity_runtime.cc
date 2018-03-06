@@ -80,7 +80,7 @@ void handler<is_prepass::true_t>::require(
 }
 
 handler<is_prepass::true_t>::~handler() {
-  int dimensions = global_size.which() + 1;
+  const int dimensions = global_size.which() + 1;
   switch (dimensions) {
     case 1:
       queue.set_task_data(task_id, boost::get<cl::sycl::range<1>>(global_size),
@@ -99,18 +99,6 @@ handler<is_prepass::true_t>::~handler() {
       assert(false);
       break;
   }
-}
-
-template <>
-void handler<is_prepass::false_t>::require(
-    accessor<cl::sycl::access::mode::read> a, size_t buffer_id) {
-  // TODO: This is where data dependencies would be resolved (PULL)
-}
-
-template <>
-void handler<is_prepass::false_t>::require(
-    accessor<cl::sycl::access::mode::write> a, size_t buffer_id) {
-  // TODO: This is where data dependencies would be resolved (PULL)
 }
 
 // TODO: Initialize SYCL queue lazily
@@ -144,7 +132,7 @@ void distr_queue::add_requirement(
 
 void distr_queue::TEST_execute_deferred() {
   for (auto& it : task_command_groups) {
-    task_id tid = it.first;
+    const task_id tid = it.first;
     auto& cgf = it.second;
     sycl_queue.submit([this, &cgf, tid](cl::sycl::handler& sycl_handler) {
       handler<is_prepass::false_t> h(*this, tid, &sycl_handler);
@@ -230,8 +218,8 @@ bool for_successors(const Graph& graph, vertex v, const Functor& f) {
 // Note that we don't check whether the edge u->v actually existed
 template <typename Graph>
 vertex insert_vertex_on_edge(vertex u, vertex v, Graph& graph) {
-  auto e = boost::edge(u, v, graph);
-  auto w = boost::add_vertex(graph);
+  const auto e = boost::edge(u, v, graph);
+  const auto w = boost::add_vertex(graph);
   boost::remove_edge(u, v, graph);
   boost::add_edge(u, w, graph);
   boost::add_edge(w, v, graph);
@@ -276,7 +264,7 @@ void search_vertex_bf(vertex start, const Graph& graph, Functor f) {
 }
 
 task_vertices add_task(task_id tid, const task_dag& tdag, command_dag& cdag) {
-  vertex begin_task_v = boost::add_vertex(cdag);
+  const vertex begin_task_v = boost::add_vertex(cdag);
   cdag[begin_task_v].label = (boost::format("Begin Task %d") % tid).str();
 
   // Add all task requirements
@@ -286,7 +274,7 @@ task_vertices add_task(task_id tid, const task_dag& tdag, command_dag& cdag) {
         begin_task_v, cdag);
   });
 
-  vertex complete_task_v = boost::add_vertex(cdag);
+  const vertex complete_task_v = boost::add_vertex(cdag);
   cdag[boost::graph_bundle].task_complete_vertices[tid] = complete_task_v;
   cdag[complete_task_v].label = (boost::format("Complete Task %d") % tid).str();
 
@@ -296,7 +284,7 @@ task_vertices add_task(task_id tid, const task_dag& tdag, command_dag& cdag) {
 template <int Dims>
 vertex add_compute_cmd(node_id nid, const task_vertices& tv,
                        const subrange<Dims>& chunk, command_dag& cdag) {
-  auto v = boost::add_vertex(cdag);
+  const auto v = boost::add_vertex(cdag);
   boost::add_edge(tv.first, v, cdag);
   boost::add_edge(v, tv.second, cdag);
   cdag[v].cmd = cdag_command::COMPUTE;
@@ -313,7 +301,8 @@ vertex add_pull_cmd(node_id nid, node_id source_nid, buffer_id bid,
                     vertex compute_cmd, const GridBox<Dims>& req,
                     command_dag& cdag) {
   assert(cdag[compute_cmd].cmd == cdag_command::COMPUTE);
-  auto v = graph_utils::insert_vertex_on_edge(tv.first, compute_cmd, cdag);
+  const auto v =
+      graph_utils::insert_vertex_on_edge(tv.first, compute_cmd, cdag);
   cdag[v].cmd = cdag_command::PULL;
   cdag[v].nid = nid;
   cdag[v].label = (boost::format("Node %d:\\nPULL %d from %d\\n %s") % nid %
@@ -335,8 +324,8 @@ vertex add_pull_cmd(node_id nid, node_id source_nid, buffer_id bid,
       });
   assert(source_compute_v != 0);
 
-  auto w = graph_utils::insert_vertex_on_edge(source_tv.first, source_compute_v,
-                                              cdag);
+  const auto w = graph_utils::insert_vertex_on_edge(source_tv.first,
+                                                    source_compute_v, cdag);
   cdag[w].cmd = cdag_command::WAIT_FOR_PULL;
   cdag[w].nid = source_nid;
   cdag[w].label = (boost::format("Node %d:\\nWAIT FOR PULL %d by %d\\n %s") %
@@ -372,7 +361,7 @@ std::vector<task_id> get_satisfied_sibling_set(const task_dag& tdag) {
 
     bool abort = false;
     while (!abort && !unchecked_siblings.empty()) {
-      task_id sib = unchecked_siblings.front();
+      const task_id sib = unchecked_siblings.front();
       unchecked_siblings.pop();
 
       abort = !for_predecessors(tdag, sib, [&](vertex pre) {
@@ -419,15 +408,6 @@ void mark_as_processed(task_id tid, task_dag& tdag) {
 }  // namespace graph_utils
 
 void distr_queue::build_command_graph() {
-  // Potential commands:
-  // - Move region (buffer_id, region, from_node_id, to_node_id)
-  // - Wait for pull (replace with PUSH later on?)
-  // - Compute subtask (task_id, work items (offset + size?), node_id)
-  // - Complete task (task_id)
-
-  // => Is it a reasonable requirement to have only "Complete task" leaf-nodes
-  // in command graph? These could then act as synchronization points with the
-  // task graph.
   auto sibling_set = graph_utils::get_satisfied_sibling_set(task_graph);
   std::sort(sibling_set.begin(), sibling_set.end());
 
@@ -498,14 +478,14 @@ void distr_queue::build_command_graph() {
     //   be important!
 
     for (auto& it : rms) {
-      buffer_id bid = it.first;
+      const buffer_id bid = it.first;
 
       // FIXME Dimensions
       auto bs = static_cast<detail::buffer_state<1>*>(
           valid_buffer_regions[bid].get());
 
       for (auto& rm : it.second) {
-        auto dims = rm->get_dimensions();
+        const auto dims = rm->get_dimensions();
         if (dims != 1) {
           throw std::runtime_error("2D/3D splits NYI");
         }
@@ -519,7 +499,7 @@ void distr_queue::build_command_graph() {
         //     Write access is only relevant for "await pull" commands (these
         //     should come before the write)
         // [x] Figure out from which node to pull
-        // [ ] Insert "await pull" commands
+        // [x] Insert "await pull" commands
         // [ ] Determine most suitable node to compute task on
         // [ ] Try to execute the sub-ranges only with data from the CMD-DA
         //     (If it's not much work, consider using sub-buffers for the
@@ -577,6 +557,7 @@ void distr_queue::build_command_graph() {
             const auto source_tv =
                 has_writer ? taskvs[writer_tid] : taskvs[tid];
 
+            // TODO: Update buffer regions since we copied some stuff!!
             graph_utils::add_pull_cmd(nid, source_nid, bid, taskvs[tid],
                                       source_tv, chunk_compute_vertices[i], box,
                                       command_graph);

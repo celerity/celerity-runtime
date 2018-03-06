@@ -79,6 +79,7 @@ struct subrange {
 };
 
 namespace detail {
+// FIXME: The input dimensions must match the kernel size, not the buffer
 template <int Dims>
 using range_mapper_fn = std::function<subrange<Dims>(subrange<Dims> range)>;
 
@@ -145,11 +146,11 @@ class handler {};
 template <>
 class handler<is_prepass::true_t> {
  public:
-  template <typename name, typename functorT, int Dims>
-  void parallel_for(cl::sycl::range<Dims> global_size, const functorT& kernel) {
+  template <typename Name, typename Functor, int Dims>
+  void parallel_for(cl::sycl::range<Dims> global_size, const Functor& kernel) {
     this->global_size = global_size;
     // DEBUG: Find nice name for kernel (regex is probably not super portable)
-    auto qualified_name = boost::typeindex::type_id<name*>().pretty_name();
+    auto qualified_name = boost::typeindex::type_id<Name*>().pretty_name();
     std::regex name_regex(R"(.*?(?:::)?([\w_]+)\s?\*.*)");
     std::smatch matches;
     std::regex_search(qualified_name, matches, name_regex);
@@ -178,13 +179,15 @@ class handler<is_prepass::true_t> {
 template <>
 class handler<is_prepass::false_t> {
  public:
-  template <typename name, typename functorT, int Dims>
-  void parallel_for(cl::sycl::range<Dims> range, const functorT& kernel) {
-    sycl_handler->parallel_for<name>(range, kernel);
+  template <typename Name, typename Functor, int Dims>
+  void parallel_for(cl::sycl::range<Dims> range, const Functor& kernel) {
+    sycl_handler->parallel_for<Name>(range, kernel);
   }
 
   template <cl::sycl::access::mode Mode>
-  void require(accessor<Mode> a, size_t buffer_id);
+  void require(accessor<Mode> a, size_t buffer_id) {
+    // TODO: Is there any need for this?
+  }
 
   cl::sycl::handler& get_sycl_handler() { return *sycl_handler; }
 
@@ -423,7 +426,7 @@ class distr_queue {
 
   template <typename CGF>
   void submit(CGF cgf) {
-    task_id tid = task_count++;
+    const task_id tid = task_count++;
     boost::add_vertex(task_graph);
     handler<is_prepass::true_t> h(*this, tid);
     cgf(h);
@@ -433,7 +436,7 @@ class distr_queue {
   template <typename DataT, int Dims>
   buffer<DataT, Dims> create_buffer(DataT* host_ptr,
                                     cl::sycl::range<Dims> size) {
-    buffer_id bid = buffer_count++;
+    const buffer_id bid = buffer_count++;
     valid_buffer_regions[bid] =
         std::make_unique<detail::buffer_state<Dims>>(size, num_nodes);
     return buffer<DataT, Dims>(host_ptr, size, bid);
