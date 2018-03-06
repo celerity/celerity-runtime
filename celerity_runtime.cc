@@ -9,10 +9,12 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/graph/breadth_first_search.hpp>
 
-template <typename Graph, typename VertexPropertiesWriter>
-void write_graph_mux(const Graph& g, VertexPropertiesWriter vpw) {
+template <typename Graph, typename VertexPropertiesWriter,
+          typename EdgePropertiesWriter>
+void write_graph_mux(const Graph& g, VertexPropertiesWriter vpw,
+                     EdgePropertiesWriter epw) {
   std::stringstream ss;
-  write_graphviz(ss, g, vpw);
+  write_graphviz(ss, g, vpw, epw);
   auto str = ss.str();
   std::vector<std::string> lines;
   boost::split(lines, str, boost::is_any_of("\n"));
@@ -23,40 +25,54 @@ void write_graph_mux(const Graph& g, VertexPropertiesWriter vpw) {
 }
 
 void print_graph(const celerity::task_dag& tdag) {
-  write_graph_mux(tdag, boost::make_label_writer(boost::get(
-                            &celerity::tdag_vertex_properties::label, tdag)));
+  write_graph_mux(tdag,
+                  boost::make_label_writer(boost::get(
+                      &celerity::tdag_vertex_properties::label, tdag)),
+                  boost::default_writer());
 }
 
 void print_graph(const celerity::command_dag& cdag) {
   using namespace celerity;
-  write_graph_mux(cdag, [&](std::ostream& out, const auto& ve) {
-    const char* colors[] = {"black",     "crimson",    "dodgerblue4",
-                            "goldenrod", "maroon4",    "springgreen2",
-                            "tan1",      "chartreuse2"};
+  write_graph_mux(cdag,
+                  [&](std::ostream& out, vertex v) {
+                    const char* colors[] = {"black",       "crimson",
+                                            "dodgerblue4", "goldenrod",
+                                            "maroon4",     "springgreen2",
+                                            "tan1",        "chartreuse2"};
 
-    std::unordered_map<std::string, std::string> props;
-    props["label"] = boost::escape_dot_string(cdag[ve].label);
+                    std::unordered_map<std::string, std::string> props;
+                    props["label"] = boost::escape_dot_string(cdag[v].label);
 
-    props["fontcolor"] = colors[cdag[ve].nid % sizeof(colors)];
+                    props["fontcolor"] = colors[cdag[v].nid % sizeof(colors)];
 
-    switch (cdag[ve].cmd) {
-      case cdag_command::NOP:
-        props["color"] = "gray50";
-        props["fontcolor"] = "gray50";
-        break;
-      case cdag_command::COMPUTE:
-        props["shape"] = "square";
-        break;
-      default:
-        break;
-    }
+                    switch (cdag[v].cmd) {
+                      case cdag_command::NOP:
+                        props["color"] = "gray50";
+                        props["fontcolor"] = "gray50";
+                        break;
+                      case cdag_command::COMPUTE:
+                        props["shape"] = "box";
+                        break;
+                      default:
+                        break;
+                    }
 
-    out << "[";
-    for (auto it : props) {
-      out << " " << it.first << "=" << it.second;
-    }
-    out << "]";
-  });
+                    out << "[";
+                    for (auto it : props) {
+                      out << " " << it.first << "=" << it.second;
+                    }
+                    out << "]";
+                  },
+                  [&](std::ostream& out, auto e) {
+                    vertex v0 = boost::source(e, cdag);
+                    vertex v1 = boost::target(e, cdag);
+                    if ((cdag[v0].cmd == cdag_command::PULL ||
+                         cdag[v0].cmd == cdag_command::WAIT_FOR_PULL) &&
+                        (cdag[v1].cmd == cdag_command::PULL ||
+                         cdag[v1].cmd == cdag_command::WAIT_FOR_PULL)) {
+                      out << "[color=gray50]";
+                    }
+                  });
 }
 
 namespace celerity {
@@ -265,7 +281,8 @@ void search_vertex_bf(vertex start, const Graph& graph, Functor f) {
 
 task_vertices add_task(task_id tid, const task_dag& tdag, command_dag& cdag) {
   const vertex begin_task_v = boost::add_vertex(cdag);
-  cdag[begin_task_v].label = (boost::format("Begin Task %d") % tid).str();
+  cdag[begin_task_v].label =
+      (boost::format("Begin %s") % tdag[tid].label).str();
 
   // Add all task requirements
   for_predecessors(tdag, tid, [&cdag, begin_task_v](vertex requirement) {
@@ -276,7 +293,8 @@ task_vertices add_task(task_id tid, const task_dag& tdag, command_dag& cdag) {
 
   const vertex complete_task_v = boost::add_vertex(cdag);
   cdag[boost::graph_bundle].task_complete_vertices[tid] = complete_task_v;
-  cdag[complete_task_v].label = (boost::format("Complete Task %d") % tid).str();
+  cdag[complete_task_v].label =
+      (boost::format("Complete %s") % tdag[tid].label).str();
 
   return task_vertices(begin_task_v, complete_task_v);
 }
@@ -289,7 +307,7 @@ vertex add_compute_cmd(node_id nid, const task_vertices& tv,
   boost::add_edge(v, tv.second, cdag);
   cdag[v].cmd = cdag_command::COMPUTE;
   cdag[v].nid = nid;
-  cdag[v].label = (boost::format("Node %d:\\nCompute\\n%s") % nid %
+  cdag[v].label = (boost::format("Node %d:\\COMPUTE %s") % nid %
                    toString(detail::subrange_to_grid_region(chunk)))
                       .str();
   return v;
@@ -510,8 +528,16 @@ void distr_queue::build_command_graph() {
           const node_id nid = i + 1;
           if (rm->get_access_mode() == cl::sycl::access::mode::write) {
             // TODO: We could just store GridBoxes in here
-            buffer_writers[bid][nid].push_back(
-                std::make_pair(tid, detail::subrange_to_grid_region(reqs[i])));
+            auto region = detail::subrange_to_grid_region(reqs[i]);
+            buffer_writers[bid][nid].push_back(std::make_pair(tid, region));
+
+            // Also add to node label for debugging
+            command_graph[chunk_compute_vertices[i]].label =
+                (boost::format("%s\\nWrite %d %s") %
+                 command_graph[chunk_compute_vertices[i]].label % bid %
+                 toString(region))
+                    .str();
+
             continue;
           }
 
