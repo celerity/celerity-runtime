@@ -42,6 +42,8 @@ add_library(celerity_runtime celerity_runtime.cc)
 
 set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD 17)
 
+message(STATUS "Buildtype: ${CMAKE_BUILD_TYPE}")
+
 target_include_directories(
 	celerity_runtime
 	PUBLIC
@@ -109,7 +111,8 @@ add_sycl_to_target(
 #
 function(copy_dlls target)
 
-	if (${CMAKE_BUILD_TYPE} MATCHES "Debug")
+	if (${CMAKE_BUILD_TYPE} MATCHES "Debug" OR
+	    ${CMAKE_BUILD_TYPE} MATCHES "RelWithDebInfo")
 
 		get_filename_component(COMPUTECPP_RUNTIME_LIBRARY_DEBUG_WE 
 			${COMPUTECPP_RUNTIME_LIBRARY_DEBUG} NAME_WE)
@@ -126,10 +129,10 @@ function(copy_dlls target)
 	else()
 
 		get_filename_component(COMPUTECPP_RUNTIME_LIBRARY_WE 
-			${COMPUTECPP_RUNTIME_LIBRARY_DEBUG} NAME_WE)
+			${COMPUTECPP_RUNTIME_LIBRARY} NAME_WE)
 
 		get_filename_component(COMPUTECPP_RUNTIME_LIBRARY_DIRECTORY
-			${COMPUTECPP_RUNTIME_LIBRARY_DEBUG} DIRECTORY )
+			${COMPUTECPP_RUNTIME_LIBRARY} DIRECTORY )
 
 		add_custom_command(TARGET ${target} 
 		POST_BUILD
