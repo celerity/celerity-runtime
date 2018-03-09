@@ -1,22 +1,63 @@
 cmake_minimum_required(VERSION 3.8)
 project(celerity_full_stack_example)
-set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
-include(FindComputeCpp)
-find_package(Boost 1.66.0 REQUIRED)
+
+set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/modules ${CMAKE_MODULE_PATH})
+
+# Windows-specific:
+#
+# install libraries with vcpkg using the x64-windows triplet e.g.:
+#
+#	.\vcpkg.exe install boost-graph:x64-windows
+#
+# provide CMake toolchain file through -DCMAKE_TOOLCHAIN_FILE=<path_to_vcpkg_toolchain_file>
+# 
+# the vcpkg tool chain file can be found in:
+#
+#	<vcpkg_root>/scripts/buildsystems/vcpkg.cmake
+#
+# either set it as command line parameter when invoking CMake 
+#
+#	OR
+# 
+# set it in the CMakeSettings.json when using the Visual Studio CMake integration
+# 
+# variables: [
+#	{ 
+#		name: "CMAKE_TOOLCHAIN_FILE", 
+#		value: "<path_to_vcpkg_toolchain_file>"
+#	}
+# ]
+#
+#
+# similarily the ComputeCpp root directory has to be set in order for CMake to find it -
+# again, use one of the approaches above to set COMPUTECPP_PACKAGE_ROOT_DIR
+
+find_package(Boost 1.66.0 COMPONENTS graph REQUIRED)
+find_package(ComputeCpp REQUIRED)
+find_package(OpenCL REQUIRED)
 
 add_executable(
 	full_stack_example
 	main.cc
-	celerity_runtime.h
 	celerity_runtime.cc
 )
+
+set_property(TARGET full_stack_example PROPERTY CXX_STANDARD 17)
 
 target_include_directories(
 	full_stack_example
 	PUBLIC
 	${CMAKE_CURRENT_SOURCE_DIR}/vendor
 	${Boost_INCLUDE_DIRS}
-	${COMPUTECPP_INCLUDE_DIRECTORY}
+	${OpenCL_INCLUDE_DIR}
+	${ComputeCpp_INCLUDE_DIRECTORY}
+)
+
+target_link_libraries(
+	full_stack_example
+	PUBLIC
+	${Boost_LIBRARIES}
+	${OpenCL_LIBRARIES}
 )
 
 add_sycl_to_target(
@@ -25,62 +66,42 @@ add_sycl_to_target(
 	${CMAKE_CURRENT_SOURCE_DIR}/main.cc
 )
 
-# TESTS
+# Windows-specific:
+# add post build step to copy ComputeCpp DLLs to the output directory
 
-include(ucm)
-add_subdirectory(googletest)
+if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 
-add_executable(
-	runtime_tests
-	runtime_tests.cc
-	celerity_runtime.cc
-)
+	if (${CMAKE_BUILD_TYPE} MATCHES "Debug")
 
-find_package(OpenCL REQUIRED)
+		get_filename_component(COMPUTECPP_RUNTIME_LIBRARY_DEBUG_WE 
+			${COMPUTECPP_RUNTIME_LIBRARY_DEBUG} NAME_WE)
 
-target_include_directories(
-	runtime_tests
-	PUBLIC
-	${CMAKE_CURRENT_SOURCE_DIR}/vendor
-	${Boost_INCLUDE_DIRS}
-	${OpenCL_INCLUDE_DIR}
-	${COMPUTECPP_INCLUDE_DIRECTORY}
-)
+		get_filename_component(COMPUTECPP_RUNTIME_LIBRARY_DIRECTORY
+			${COMPUTECPP_RUNTIME_LIBRARY_DEBUG} DIRECTORY )
 
-target_link_libraries(
-	runtime_tests
-	PUBLIC
-	gtest_main
-	# Link ComputeCpp libs manually instead of calling add_sycl_to_target()
-	# since we don't want to include the kernel compilation step.
-	$<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:${COMPUTECPP_RUNTIME_LIBRARY_DEBUG}>
-	$<$<NOT:$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>>:${COMPUTECPP_RUNTIME_LIBRARY}>
-	${OpenCL_LIBRARIES}
-)
+		add_custom_command(TARGET full_stack_example 
+		POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different	
+			"${COMPUTECPP_RUNTIME_LIBRARY_DIRECTORY}/${COMPUTECPP_RUNTIME_LIBRARY_DEBUG_WE}.dll"   
+			$<TARGET_FILE_DIR:full_stack_example>)
 
-if (MSVC)
-	# GoogleTest really wants to build against the static CRT, so we have to
-	# configure the test executable accordingly. Unfortunately we cannot use
-	# ucm_set_runtime(STATIC), because that would set the flags globally
-	# which in turn breaks the ComputeCpp libs, which want dynamic CRT.
-	ucm_gather_flags(0 flags_configs)
-	foreach(flags ${flags_configs})
-		if(${flags} MATCHES "/MD")
-			string(REGEX REPLACE "/MD" "/MT" new_flags "${${flags}}")
-			string(REPLACE " " ";" new_flags ${new_flags})
-			if(flags MATCHES "_DEBUG")
-				target_compile_options(runtime_tests PUBLIC
-					"$<$<CONFIG:DEBUG>:${new_flags}>")
-			elseif(flags MATCHES "_RELEASE")
-				target_compile_options(runtime_tests PUBLIC
-					"$<$<CONFIG:RELEASE>:${new_flags}>")
-			elseif(flags MATCHES "_MINSIZEREL")
-				target_compile_options(runtime_tests PUBLIC
-					"$<$<CONFIG:MINSIZEREL>:${new_flags}>")
-			elseif(flags MATCHES "_RELWITHDEBINFO")
-				target_compile_options(runtime_tests PUBLIC
-					"$<$<CONFIG:RELWITHDEBINFO>:${new_flags}>")
-			endif()
-		endif()
-	endforeach()
+	else()
+
+		get_filename_component(COMPUTECPP_RUNTIME_LIBRARY_WE 
+			${COMPUTECPP_RUNTIME_LIBRARY_DEBUG} NAME_WE)
+
+		get_filename_component(COMPUTECPP_RUNTIME_LIBRARY_DIRECTORY
+			${COMPUTECPP_RUNTIME_LIBRARY_DEBUG} DIRECTORY )
+
+		add_custom_command(TARGET full_stack_example 
+		POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different	
+			"${COMPUTECPP_RUNTIME_LIBRARY_DIRECTORY}/${COMPUTECPP_RUNTIME_LIBRARY_WE}.dll"    
+			$<TARGET_FILE_DIR:full_stack_example>)
+
+	endif()
+
 endif()
+
+
+
