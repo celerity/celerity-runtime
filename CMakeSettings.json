@@ -6,10 +6,10 @@
       "generator": "Visual Studio 15 2017",
       "configurationType": "Debug",
       "inheritEnvironments": [ "msvc_x64_x64" ],
-      "buildRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\build\\${name}",
-      "installRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\install\\${name}",
+      "buildRoot": "${workspaceRoot}\\build\\${name}",
+      "installRoot": "${workspaceRoot}\\install\\${name}",
       "cmakeCommandArgs": "-T v140",
-      "buildCommandArgs": "",
+      "buildCommandArgs": "/m:8 /v:minimal",
       "ctestCommandArgs": "",
       "variables": [
         {
@@ -36,10 +36,10 @@
       "generator": "Visual Studio 15 2017",
       "configurationType": "RelWithDebInfo",
       "inheritEnvironments": [ "msvc_x64_x64" ],
-      "buildRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\build\\${name}",
-      "installRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\install\\${name}",
+      "buildRoot": "${workspaceRoot}\\build\\${name}",
+      "installRoot": "${workspaceRoot}\\install\\${name}",
       "cmakeCommandArgs": "-T v140",
-      "buildCommandArgs": "",
+      "buildCommandArgs": "/m:8 /v:minimal",
       "ctestCommandArgs": "",
       "variables": [
         {

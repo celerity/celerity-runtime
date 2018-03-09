@@ -3,8 +3,7 @@ const { spawn, exec } = require('child_process');
 const readline = require('readline');
 const fs = require('fs');
 
-// Assuming windows build for now
-const EXE = './build/Debug/full_stack_example.exe';
+const EXE = process.argv[2];
 
 function run(args) {
 	console.log(">> Running...");
@@ -72,7 +71,7 @@ function run(args) {
 	});
 }
 
-if (process.argv[2] === '--watch') {
+if (process.argv[3] === '--watch') {
 	let queuedRun = null;
 	fs.watch(EXE, {}, (eventType, filename) => {
 		if (eventType === 'change') {
