@@ -36,16 +36,14 @@ find_package(Boost 1.66.0 COMPONENTS graph REQUIRED)
 find_package(ComputeCpp REQUIRED)
 find_package(OpenCL REQUIRED)
 
-add_executable(
-	full_stack_example
-	main.cc
-	celerity_runtime.cc
-)
+# Celerity runtime library
 
-set_property(TARGET full_stack_example PROPERTY CXX_STANDARD 17)
+add_library(celerity_runtime celerity_runtime.cc)
+
+set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD 17)
 
 target_include_directories(
-	full_stack_example
+	celerity_runtime
 	PUBLIC
 	${CMAKE_CURRENT_SOURCE_DIR}/vendor
 	${Boost_INCLUDE_DIRS}
@@ -54,10 +52,49 @@ target_include_directories(
 )
 
 target_link_libraries(
-	full_stack_example
+	celerity_runtime
 	PUBLIC
 	${Boost_LIBRARIES}
 	${OpenCL_LIBRARIES}
+)
+
+add_sycl_to_target(
+	celerity_runtime
+	${CMAKE_CURRENT_BINARY_DIR}
+	""
+)
+
+set(Celerity_LIBRARIES 
+	celerity_runtime 
+	${Boost_LIBRARIES}
+	${OpenCL_LIBRARIES})
+
+set(Celerity_INCLUDE_DIRS
+	${CMAKE_CURRENT_SOURCE_DIR}
+	${CMAKE_CURRENT_SOURCE_DIR}/vendor
+	${Boost_INCLUDE_DIRS}
+	${OpenCL_INCLUDE_DIR}
+	${ComputeCpp_INCLUDE_DIRECTORY})
+
+# full stack example
+
+add_executable(
+	full_stack_example
+	main.cc
+)
+
+set_property(TARGET full_stack_example PROPERTY CXX_STANDARD 17)
+
+target_include_directories(
+	full_stack_example
+	PUBLIC
+	${Celerity_INCLUDE_DIRS}
+)
+
+target_link_libraries(
+	full_stack_example
+	PUBLIC
+	${Celerity_LIBRARIES}
 )
 
 add_sycl_to_target(
@@ -67,9 +104,10 @@ add_sycl_to_target(
 )
 
 # Windows-specific:
+#
 # add post build step to copy ComputeCpp DLLs to the output directory
-
-if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+#
+function(copy_dlls target)
 
 	if (${CMAKE_BUILD_TYPE} MATCHES "Debug")
 
@@ -79,11 +117,11 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 		get_filename_component(COMPUTECPP_RUNTIME_LIBRARY_DIRECTORY
 			${COMPUTECPP_RUNTIME_LIBRARY_DEBUG} DIRECTORY )
 
-		add_custom_command(TARGET full_stack_example 
+		add_custom_command(TARGET ${target}
 		POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy_if_different	
 			"${COMPUTECPP_RUNTIME_LIBRARY_DIRECTORY}/${COMPUTECPP_RUNTIME_LIBRARY_DEBUG_WE}.dll"   
-			$<TARGET_FILE_DIR:full_stack_example>)
+			$<TARGET_FILE_DIR:${target}>)
 
 	else()
 
@@ -93,14 +131,19 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 		get_filename_component(COMPUTECPP_RUNTIME_LIBRARY_DIRECTORY
 			${COMPUTECPP_RUNTIME_LIBRARY_DEBUG} DIRECTORY )
 
-		add_custom_command(TARGET full_stack_example 
+		add_custom_command(TARGET ${target} 
 		POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy_if_different	
 			"${COMPUTECPP_RUNTIME_LIBRARY_DIRECTORY}/${COMPUTECPP_RUNTIME_LIBRARY_WE}.dll"    
-			$<TARGET_FILE_DIR:full_stack_example>)
+			$<TARGET_FILE_DIR:${target}>)
 
 	endif()
 
+endfunction(copy_dlls)
+
+
+if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+	copy_dlls(full_stack_example)
 endif()
 
 
