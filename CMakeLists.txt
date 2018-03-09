@@ -141,10 +141,13 @@ function(copy_dlls target)
 
 endfunction(copy_dlls)
 
-
 if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 	copy_dlls(full_stack_example)
 endif()
 
+# tests
+
+enable_testing(true)
+add_subdirectory(test)
 
 
