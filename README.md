@@ -62,7 +62,7 @@ These dependencies are only required for live plotting of graphs.
 
 9. Build artifacts will be placed in `<workspace_root>\\build\\\<configuration_name\>\\<build_type>` for example:
     + `<workspace_root>\\build\\\x64-Debug\\Debug`
-    + `<workspace_root>\\build\\\x64-Release\\RelWithDebInfo`
+    + `<workspace_root>\\build\\\x64-Release\\Release`
 
 ## Running with Live Graph plotting (on Windows)
 
