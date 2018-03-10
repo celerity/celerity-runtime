@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.5.1)
 project(celerity_full_stack_example)
 
-set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/modules ${CMAKE_MODULE_PATH})
+set(CMAKE_MODULE_PATH 
+    ${CMAKE_MODULE_PATH} 
+    ${PROJECT_SOURCE_DIR}/cmake )
 
 # Windows-specific:
 #
@@ -35,6 +37,11 @@ set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/modules ${CMAKE_MODULE_PATH})
 find_package(Boost 1.66.0 COMPONENTS graph REQUIRED)
 find_package(ComputeCpp REQUIRED)
 find_package(OpenCL REQUIRED)
+
+# linux-specific
+if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+    set(COMPUTECPP_USER_FLAGS "-stdlib=libc++ -I/usr/include/libcxxabi")
+endif()
 
 # Celerity runtime library
 

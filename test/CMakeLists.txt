@@ -1,5 +1,15 @@
-
-find_package(GTest REQUIRED)
+# platform-spefic
+# 
+# Windows: use gtest installed via vcpkg
+# Linux: clone repo and build manually 
+#
+if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+    find_package(GTEST REQUIRED)
+else()
+    include(ConfigGTest)
+    set(GTEST_INCLUDE_DIRS "")
+    set(GTEST_BOTH_LIBRARIES "gtest" "gtest_main")
+endif()
 
  # iterate over all cpp files in the current directory
 file(GLOB_RECURSE ALL_TEST_CPP *.cc)
