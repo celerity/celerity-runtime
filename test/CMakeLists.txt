@@ -1,5 +1,5 @@
 
-find_package(GTEST REQUIRED)
+find_package(GTest REQUIRED)
 
  # iterate over all cpp files in the current directory
 file(GLOB_RECURSE ALL_TEST_CPP *.cc)

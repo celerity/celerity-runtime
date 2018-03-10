@@ -313,7 +313,7 @@ vertex add_compute_cmd(node_id nid, const task_vertices& tv,
   return v;
 }
 
-template <int Dims>
+template <std::size_t Dims>
 vertex add_pull_cmd(node_id nid, node_id source_nid, buffer_id bid,
                     const task_vertices& tv, const task_vertices& source_tv,
                     vertex compute_cmd, const GridBox<Dims>& req,
