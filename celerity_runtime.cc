@@ -67,9 +67,9 @@ void print_graph(const celerity::command_dag& cdag) {
                     vertex v0 = boost::source(e, cdag);
                     vertex v1 = boost::target(e, cdag);
                     if ((cdag[v0].cmd == cdag_command::PULL ||
-                         cdag[v0].cmd == cdag_command::WAIT_FOR_PULL) &&
+                         cdag[v0].cmd == cdag_command::AWAIT_PULL) &&
                         (cdag[v1].cmd == cdag_command::PULL ||
-                         cdag[v1].cmd == cdag_command::WAIT_FOR_PULL)) {
+                         cdag[v1].cmd == cdag_command::AWAIT_PULL)) {
                       out << "[color=gray50]";
                     }
                   });
@@ -344,9 +344,9 @@ vertex add_pull_cmd(node_id nid, node_id source_nid, buffer_id bid,
 
   const auto w = graph_utils::insert_vertex_on_edge(source_tv.first,
                                                     source_compute_v, cdag);
-  cdag[w].cmd = cdag_command::WAIT_FOR_PULL;
+  cdag[w].cmd = cdag_command::AWAIT_PULL;
   cdag[w].nid = source_nid;
-  cdag[w].label = (boost::format("Node %d:\\nWAIT FOR PULL %d by %d\\n %s") %
+  cdag[w].label = (boost::format("Node %d:\\nAWAIT PULL %d by %d\\n %s") %
                    source_nid % bid % nid % toString(req))
                       .str();
 
@@ -446,10 +446,10 @@ void mark_as_processed(task_id tid, task_dag& tdag) {
  *       It is important to create these before pull-commands are inserted
  *       (see below).
  *    e) Iterate over per-chunk reads & writes to (i) store per-buffer per-node
- *       written regions and (ii) create pull / wait-for-pull commands for
+ *       written regions and (ii) create pull / await-pull commands for
  *       all nodes, inserting them as requirements for their respective
  *       compute commands. If no task in the sibling set writes to a specific
- *       buffer, the wait-for-pull command for that buffer will be inserted in
+ *       buffer, the await-pull command for that buffer will be inserted in
  *       the command subgraph for the current task (which is why it's important
  *       that all compute commands already exist).
  * 3) Finally, all per-buffer per-node written regions are used to update the
@@ -471,7 +471,7 @@ void distr_queue::build_command_graph() {
 
   // Iterate over tasks in reverse order so we can determine kernels which
   // write to certain buffer ranges before generating the pull commands for
-  // those ranges, which allows us to insert "wait-for-pull"s before writes.
+  // those ranges, which allows us to insert "await-pull"s before writes.
   for (auto it = sibling_set.crbegin(); it != sibling_set.crend(); ++it) {
     const task_id tid = *it;
     const auto& rms = task_range_mappers[tid];
@@ -583,7 +583,7 @@ void distr_queue::build_command_graph() {
       chunk_compute_vertices.push_back(cv);
     }
 
-    // Process writes and create pull / wait-for-pull commands
+    // Process writes and create pull / await-pull commands
     for (auto i = 0u; i < chunks.size(); ++i) {
       const node_id nid = chunk_nodes[i];
 
@@ -650,7 +650,7 @@ void distr_queue::build_command_graph() {
             }
           }
 
-          // If we haven't found a writer, simply add the "wait-for-pull" in
+          // If we haven't found a writer, simply add the "await-pull" in
           // the current task
           const auto source_tv = has_writer ? taskvs[writer_tid] : taskvs[tid];
 

@@ -49,7 +49,7 @@ using task_dag =
                           tdag_vertex_properties, boost::no_property,
                           tdag_graph_properties>;
 
-enum class cdag_command { NOP, COMPUTE, PULL, WAIT_FOR_PULL };
+enum class cdag_command { NOP, COMPUTE, PULL, AWAIT_PULL };
 
 struct cdag_vertex_properties {
   std::string label;
