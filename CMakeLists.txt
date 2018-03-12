@@ -73,11 +73,6 @@ add_sycl_to_target(
 	""
 )
 
-set(Celerity_LIBRARIES 
-	celerity_runtime 
-	${Boost_LIBRARIES}
-	${OpenCL_LIBRARIES})
-
 set(Celerity_INCLUDE_DIRS
 	${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}/vendor
@@ -103,7 +98,7 @@ target_include_directories(
 target_link_libraries(
 	full_stack_example
 	PUBLIC
-	${Celerity_LIBRARIES}
+	celerity_runtime
 )
 
 add_sycl_to_target(

@@ -35,7 +35,7 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
 	target_link_libraries(
 		${TARGET_NAME}
 		PUBLIC
-		${Celerity_LIBRARIES}
+		celerity_runtime
 		${GTEST_BOTH_LIBRARIES}
 	)
 
