@@ -113,9 +113,13 @@ int main(int argc, char* argv[]) {
       auto a = buf_a.get_access<cl::sycl::access::mode::write>(
           cgh, [](celerity::subrange<1> range) -> celerity::subrange<1> {
             celerity::subrange<1> sr(range);
-            // 1-neighborhood
-            sr.start -= 1;
-            sr.range += 1;
+            // Write the opposite subrange
+            // This is useful to demonstrate that the nodes are assigned to
+            // chunks somewhat intelligently in order to minimize buffer
+            // transfers. Remove this line and the node assignment in the
+            // command graph should be flipped.
+            // NOTE: JUST A DEMO. NOT HONORED IN KERNEL.
+            sr.start = range.global_size - range.start - range.range;
             return sr;
           });
 
@@ -166,7 +170,20 @@ int main(int argc, char* argv[]) {
 
     queue.submit([&](auto& cgh) {
       auto a = buf_a.get_access<cl::sycl::access::mode::read>(
-          cgh, celerity::access::one_to_one<1>());
+          cgh, [](celerity::subrange<1> range) -> celerity::subrange<1> {
+            celerity::subrange<1> sr(range);
+            // Add some overlap so we can generate pull commands
+            // NOTE: JUST A DEMO. NOT HONORED IN KERNEL.
+
+            // TODO: This overflows if sr.start == 0! Does user have to take
+            // care or do we provide some safety mechanism?
+            if (range.start[0] > 10) {
+              sr.start -= 10;
+            }
+            sr.range += 20;
+            return sr;
+          });
+
       auto b = buf_b.get_access<cl::sycl::access::mode::write>(
           cgh, celerity::access::one_to_one<1>());
       cgh.template parallel_for<class compute_b>(cl::sycl::range<1>(1024),
