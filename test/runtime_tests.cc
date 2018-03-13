@@ -4,7 +4,7 @@
 #include <celerity_runtime.h>
 
 namespace celerity {
-TEST_CASE("Basic") {
+TEST_CASE("Basic", "[buffer_state]") {
   detail::buffer_state<1> bs(cl::sycl::range<1>(256), 2);
   REQUIRE( bs.get_dimensions() == 1);
 
@@ -16,7 +16,7 @@ TEST_CASE("Basic") {
   REQUIRE(sn[0].second.count(1) == 1);
 }
 
-TEST_CASE("UpdateRegion") {
+TEST_CASE("UpdateRegion", "[buffer_state]") {
   detail::buffer_state<1> bs(cl::sycl::range<1>(256), 2);
   bs.update_region({0, 128}, {1});
 
@@ -37,7 +37,7 @@ TEST_CASE("UpdateRegion") {
   REQUIRE(sn[1].second.count(1) == 1);
 }
 
-TEST_CASE("CollapseRegions") {
+TEST_CASE("CollapseRegions", "[buffer_state]") {
   // We test buffer_state<>::collapse_regions by observing the order of the
   // returned boxes. This somewhat relies on implementation details of
   // buffer_state<>::get_source_nodes.
