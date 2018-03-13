@@ -3,13 +3,8 @@
 # Windows: use gtest installed via vcpkg
 # Linux: clone repo and build manually 
 #
-if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
-    find_package(GTEST REQUIRED)
-else()
-    include(ConfigGTest)
-    set(GTEST_INCLUDE_DIRS "")
-    set(GTEST_BOTH_LIBRARIES "gtest" "gtest_main")
-endif()
+include(ConfigCatch2)
+include(ParseAndAddCatchTests)    
 
  # iterate over all cpp files in the current directory
 file(GLOB_RECURSE ALL_TEST_CPP *.cc)
@@ -17,7 +12,7 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
 
 	# get file name without extension and use it as target name
     get_filename_component(ONE_TEST_EXEC ${ONE_TEST_CPP} NAME_WE)
-    set(TARGET_NAME ut_${ONE_TEST_EXEC})
+    set(TARGET_NAME ${ONE_TEST_EXEC})
 
 	# add test executable 
     add_executable(${TARGET_NAME} ${ONE_TEST_CPP})
@@ -29,27 +24,26 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
 		${TARGET_NAME}
 		PUBLIC
 		${Celerity_INCLUDE_DIRS}
-		${GTEST_INCLUDE_DIRS}
 	)
 
 	target_link_libraries(
 		${TARGET_NAME}
 		PUBLIC
 		celerity_runtime
-		${GTEST_BOTH_LIBRARIES}
 	)
 
 	add_sycl_to_target(
 		${TARGET_NAME}
 		${CMAKE_CURRENT_BINARY_DIR}
-		""
-		#${ONE_TEST_CPP}
+		${ONE_TEST_CPP}
 	)
 
 	if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 		copy_dlls(${TARGET_NAME})
 	endif()
-
-    add_test(NAME ${TARGET_NAME} COMMAND ${ONE_TEST_EXEC})
+             
+	ParseFile(${ONE_TEST_CPP} ${TARGET_NAME})   
+    #add_test(NAME ${TARGET_NAME} COMMAND ${ONE_TEST_EXEC})
 
 endforeach()
+

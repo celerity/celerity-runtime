@@ -10,12 +10,17 @@ else()
 endif()
 
 include(DownloadProject)
-download_project(PROJ                googletest
-                 GIT_REPOSITORY      https://github.com/google/googletest.git
-                 GIT_TAG             release-1.8.0
+download_project(PROJ                catch2
+                 GIT_REPOSITORY      https://github.com/catchorg/Catch2
+                 GIT_TAG             v2.2.1
                  ${UPDATE_DISCONNECTED_IF_AVAILABLE}
 )
 
-add_subdirectory(${googletest_SOURCE_DIR} ${googletest_BINARY_DIR})
+#add_subdirectory(${catch2_SOURCE_DIR} ${catch2_BINARY_DIR})
 
-include_directories("${googletest_SOURCE_DIR}/include")
+include_directories("${catch2_SOURCE_DIR}/single_include")
+
+# add cmake modules
+set(CMAKE_MODULE_PATH 
+    ${CMAKE_MODULE_PATH} 
+    "${catch2_SOURCE_DIR}/contrib" )
