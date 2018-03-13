@@ -48,15 +48,15 @@ These dependencies are only required for live plotting of graphs.
    ComputeCpp installation (`COMPUTECPP_PACKAGE_ROOT_DIR`) in the "environments"
    section:
 
-```json
-"environments": [
-    {
-        "COMPUTECPP_PACKAGE_ROOT_DIR": "<path-to-computecpp>",
-        "VCPKG_ROOT": "<path-to-vcpkg>",
-        ...
-    }
-]
-```
+    ```json
+    "environments": [
+       {
+           "COMPUTECPP_PACKAGE_ROOT_DIR": "<path-to-computecpp>",
+           "VCPKG_ROOT": "<path-to-vcpkg>",
+           ...
+       }
+    ]
+    ```
 
 8. Save file and use the top menu "CMake" to regenerate the cache.
 
