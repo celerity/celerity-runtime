@@ -1,20 +1,20 @@
 <!doctype html>
 <html>
 <head>
-	<meta charset="utf8">
-	<title>CELERITY Graph Viewer</title>
+  <meta charset="utf8">
+  <title>CELERITY Graph Viewer</title>
 </head>
 <body>
 <img src="Node_TaskGraph.png">
 <img src="Node_CommandGraph.png">
 <script>
 window.setInterval(() => {
-	const imgs = document.getElementsByTagName("img");
-	for (img of imgs) {
-		img.src += "?";
-		img.src = img.src.substr(0, img.src.indexOf("?")) +
-			"?cachebust=" + new Date().getTime();
-	}
+  const imgs = document.getElementsByTagName("img");
+  for (img of imgs) {
+    img.src += "?";
+    img.src = img.src.substr(0, img.src.indexOf("?")) +
+      "?cachebust=" + new Date().getTime();
+  }
 }, 2500);
 </script>
 </body>
