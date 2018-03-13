@@ -3,13 +3,7 @@
 # Windows: use gtest installed via vcpkg
 # Linux: clone repo and build manually 
 #
-if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
-    find_package(GTEST REQUIRED)
-else()
-    include(ConfigGTest)
-    set(GTEST_INCLUDE_DIRS "")
-    set(GTEST_BOTH_LIBRARIES "gtest" "gtest_main")
-endif()
+include(ConfigCatch2)
 
  # iterate over all cpp files in the current directory
 file(GLOB_RECURSE ALL_TEST_CPP *.cc)
@@ -29,21 +23,18 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
 		${TARGET_NAME}
 		PUBLIC
 		${Celerity_INCLUDE_DIRS}
-		${GTEST_INCLUDE_DIRS}
 	)
 
 	target_link_libraries(
 		${TARGET_NAME}
 		PUBLIC
 		celerity_runtime
-		${GTEST_BOTH_LIBRARIES}
 	)
 
 	add_sycl_to_target(
 		${TARGET_NAME}
 		${CMAKE_CURRENT_BINARY_DIR}
-		""
-		#${ONE_TEST_CPP}
+		${ONE_TEST_CPP}
 	)
 
 	if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
