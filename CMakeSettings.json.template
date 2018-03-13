@@ -1,5 +1,16 @@
 {
+  // Usage:
+  // (1) Create a copy of this file
+  // (2) Name it "CMakeSettings.json"
+  // (3) Edit paths in "environments" block below
   // See https://go.microsoft.com//fwlink//?linkid=834763 for more information about this file.
+  "environments": [
+    {
+      "COMPUTECPP_PACKAGE_ROOT_DIR": "<path-to-computecpp>",
+      "VCPKG_ROOT": "<path-to-vcpkg>",
+      "namespace": "paths"
+    }
+  ],
   "configurations": [
     {
       "name": "x64-Debug",
@@ -14,11 +25,11 @@
       "variables": [
         {
           "name": "COMPUTECPP_PACKAGE_ROOT_DIR",
-          "value": "C:\\Program Files\\Codeplay\\ComputeCpp"
+          "value": "${paths.COMPUTECPP_PACKAGE_ROOT_DIR}"
         },
         {
           "name": "CMAKE_TOOLCHAIN_FILE",
-          "value": "C:\\Users\\Florian\\Dev\\projects\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake"
+          "value": "${paths.VCPKG_ROOT}\\scripts\\buildsystems\\vcpkg.cmake"
         },
         {
           "name": "VCPKG_TARGET_TRIPLET",
@@ -48,11 +59,11 @@
       "variables": [
         {
           "name": "COMPUTECPP_PACKAGE_ROOT_DIR",
-          "value": "C:\\Program Files\\Codeplay\\ComputeCpp"
+          "value": "${paths.COMPUTECPP_PACKAGE_ROOT_DIR}"
         },
         {
           "name": "CMAKE_TOOLCHAIN_FILE",
-          "value": "C:\\Users\\Florian\\Dev\\projects\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake"
+          "value": "${paths.VCPKG_ROOT}\\scripts\\buildsystems\\vcpkg.cmake"
         },
         {
           "name": "VCPKG_TARGET_TRIPLET",
@@ -82,11 +93,11 @@
       "variables": [
         {
           "name": "COMPUTECPP_PACKAGE_ROOT_DIR",
-          "value": "C:\\Program Files\\Codeplay\\ComputeCpp"
+          "value": "${paths.COMPUTECPP_PACKAGE_ROOT_DIR}"
         },
         {
           "name": "CMAKE_TOOLCHAIN_FILE",
-          "value": "C:\\Users\\Florian\\Dev\\projects\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake"
+          "value": "${paths.VCPKG_ROOT}\\scripts\\buildsystems\\vcpkg.cmake"
         },
         {
           "name": "VCPKG_TARGET_TRIPLET",

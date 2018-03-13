@@ -7,7 +7,8 @@ runtime implementation.
 ## Dependencies
 
 * [Boost](http://www.boost.org) (tested with version 1.66.0)
-* The [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp) runtime (tested with version 0.5.1)
+* The [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp)
+  runtime (tested with version 0.6.1)
 * [CMake](https://www.cmake.org)
 * A C++14 compiler (tested only with MSVC 14 so far)
 
@@ -27,40 +28,42 @@ These dependencies are only required for live plotting of graphs.
 
 2. Install dependencies using vcpkg (x64-windows triplet)
 
-       .\vcpkg.exe install boost-graph:x64-windows
-       .\vcpkg.exe install gtest:x64-windows
+        .\vcpkg.exe install boost-graph:x64-windows
+        .\vcpkg.exe install gtest:x64-windows
 
-3. Integrate install (note the path of the CMake toolchain file)
+3. Integrate install
 
-       .\vcpkg.exe integrate install
+        .\vcpkg.exe integrate install
 
-4. Use open folder feature of Visual Studio 2017 to open the workspace
+4. Create a copy of the `CMakeSettings.json.template` file and name it
+   `CMakeSettings.json`
 
-5. Right-Click CMakeLists.txt in the Solution Explorer and choose "Change CMake Settings" to open the CMakeSettings.json file
+5. Use `File -> Open -> Folder` in Visual Studio 2017 to open the workspace
 
-6. Edit the CMakeSettings.json file by supplying the correct paths for the vcpkg CMake tool chain file (CMAKE_TOOLCHAIN_FILE) and the install root of your ComputeCpp installation (COMPUTECPP_PACKAGE_ROOT_DIR)
+6. Right-click `CMakeLists.txt` in the Solution Explorer and choose "Change
+   CMake Settings" to open the `CMakeSettings.json` file
+
+7. Edit the `CMakeSettings.json` file by supplying the correct paths for finding
+   the vcpkg CMake tool chain file (`VCPKG_ROOT`) and the install root of your
+   ComputeCpp installation (`COMPUTECPP_PACKAGE_ROOT_DIR`) in the "environments"
+   section:
 
 ```json
-    variables: [
-        {
-            name: "COMPUTECPP_PACKAGE_ROOT_DIR",
-            value: "<computecpp_root>"
-        },
-        {
-            name: "CMAKE_TOOLCHAIN_FILE", 
-            value: "<path_to_vcpkg_toolchain_file>"
-        },
-        {
-            ...
-        }
-    ]
+"environments": [
+    {
+        "COMPUTECPP_PACKAGE_ROOT_DIR": "<path-to-computecpp>",
+        "VCPKG_ROOT": "<path-to-vcpkg>",
+        ...
+    }
+]
 ```
 
-7. Save file and use the top menu "CMake" to regenerate the cache.
+8. Save file and use the top menu "CMake" to regenerate the cache.
 
-8. Use the top menu "CMake" to build and/or run tests
+9. Use the top menu "CMake" to build and/or run tests
 
-9. Build artifacts will be placed in `<workspace_root>\\build\\\<configuration_name\>\\<build_type>` for example:
+10. Build artifacts will be placed in
+    `<workspace_root>\\build\\\<configuration_name\>\\<build_type>` for example:
     + `<workspace_root>\\build\\\x64-Debug\\Debug`
     + `<workspace_root>\\build\\\x64-Release\\Release`
 
