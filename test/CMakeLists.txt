@@ -4,6 +4,7 @@
 # Linux: clone repo and build manually 
 #
 include(ConfigCatch2)
+include(ParseAndAddCatchTests)    
 
  # iterate over all cpp files in the current directory
 file(GLOB_RECURSE ALL_TEST_CPP *.cc)
@@ -40,7 +41,9 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
 	if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 		copy_dlls(${TARGET_NAME})
 	endif()
-
-    add_test(NAME ${TARGET_NAME} COMMAND ${ONE_TEST_EXEC})
+             
+	ParseFile(${ONE_TEST_CPP} ${TARGET_NAME})   
+    #add_test(NAME ${TARGET_NAME} COMMAND ${ONE_TEST_EXEC})
 
 endforeach()
+

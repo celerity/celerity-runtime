@@ -19,3 +19,8 @@ download_project(PROJ                catch2
 #add_subdirectory(${catch2_SOURCE_DIR} ${catch2_BINARY_DIR})
 
 include_directories("${catch2_SOURCE_DIR}/single_include")
+
+# add cmake modules
+set(CMAKE_MODULE_PATH 
+    ${CMAKE_MODULE_PATH} 
+    "${catch2_SOURCE_DIR}/contrib" )
