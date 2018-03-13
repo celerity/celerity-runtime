@@ -107,11 +107,16 @@ add_sycl_to_target(
 	${CMAKE_CURRENT_SOURCE_DIR}/main.cc
 )
 
-# Windows-specific:
+# Windows-specific, when using Visual Studio's "Open Folder":
 #
 # add post build step to copy ComputeCpp DLLs to the output directory
 #
 function(copy_dlls target)
+
+	# This is not set when using standard CMake generation
+	if(NOT CMAKE_BUILD_TYPE)
+		return()
+	endif()
 
 	if (${CMAKE_BUILD_TYPE} MATCHES "Debug" OR
 	    ${CMAKE_BUILD_TYPE} MATCHES "RelWithDebInfo")
