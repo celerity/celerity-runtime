@@ -5,6 +5,11 @@ const fs = require('fs');
 
 const EXE = process.argv[2];
 
+if (EXE == null) {
+    console.log("Usage: " + process.argv[1] + " <path_to_exe> [--watch]");
+    process.exit(0);
+}
+
 function run(args) {
 	console.log(">> Running...");
 	let child;
