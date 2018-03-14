@@ -21,18 +21,11 @@ set(CMAKE_MODULE_PATH
 #
 #  OR
 #
-# set it in the CMakeSettings.json when using the Visual Studio CMake integration
-#
-# variables: [
-#  {
-#    name: "CMAKE_TOOLCHAIN_FILE",
-#    value: "<path_to_vcpkg_toolchain_file>"
-#  }
-# ]
-#
-#
-# similarily the ComputeCpp root directory has to be set in order for CMake to find it -
-# again, use one of the approaches above to set COMPUTECPP_PACKAGE_ROOT_DIR
+# set VCPKG_ROOT in the CMakeSettings.json when using the Visual Studio CMake
+# integration.
+# Similarily the ComputeCpp root directory has to be set in order for CMake to
+# find it - again, use one of the approaches above to set
+# COMPUTECPP_PACKAGE_ROOT_DIR.
 
 find_package(Boost 1.66.0 COMPONENTS graph REQUIRED)
 find_package(ComputeCpp REQUIRED)
