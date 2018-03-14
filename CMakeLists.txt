@@ -38,7 +38,16 @@ endif()
 
 # Celerity runtime library
 
-add_library(celerity_runtime celerity_runtime.cc)
+if(MSVC)
+    # Add includes to library so they show up in generated VS project
+    file(GLOB_RECURSE INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
+endif()
+
+add_library(
+    celerity_runtime
+    src/celerity_runtime.cc
+    ${INCLUDES}
+)
 
 set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD 14)
 
@@ -47,6 +56,7 @@ message(STATUS "Buildtype: ${CMAKE_BUILD_TYPE}")
 target_include_directories(
   celerity_runtime
   PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/vendor
   ${Boost_INCLUDE_DIRS}
   ${OpenCL_INCLUDE_DIR}
@@ -67,7 +77,7 @@ add_sycl_to_target(
 )
 
 set(Celerity_INCLUDE_DIRS
-  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/vendor
   ${Boost_INCLUDE_DIRS}
   ${OpenCL_INCLUDE_DIR}
