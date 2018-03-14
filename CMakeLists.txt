@@ -46,6 +46,9 @@ endif()
 add_library(
     celerity_runtime
     src/celerity_runtime.cc
+    src/distr_queue.cc
+    src/graph_utils.cc
+    src/handler.cc
     ${INCLUDES}
 )
 
