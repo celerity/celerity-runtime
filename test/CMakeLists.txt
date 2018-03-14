@@ -18,7 +18,7 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
   add_executable(${TARGET_NAME} ${ONE_TEST_CPP})
   set_target_properties(${TARGET_NAME} PROPERTIES OUTPUT_NAME ${ONE_TEST_EXEC})
 
-  set_property(TARGET ${TARGET_NAME} PROPERTY CXX_STANDARD 17)
+  set_property(TARGET ${TARGET_NAME} PROPERTY CXX_STANDARD 14)
 
   target_include_directories(
     ${TARGET_NAME}

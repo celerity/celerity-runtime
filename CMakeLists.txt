@@ -40,7 +40,7 @@ endif()
 
 add_library(celerity_runtime celerity_runtime.cc)
 
-set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD 17)
+set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD 14)
 
 message(STATUS "Buildtype: ${CMAKE_BUILD_TYPE}")
 
@@ -80,7 +80,7 @@ add_executable(
   main.cc
 )
 
-set_property(TARGET full_stack_example PROPERTY CXX_STANDARD 17)
+set_property(TARGET full_stack_example PROPERTY CXX_STANDARD 14)
 
 target_include_directories(
   full_stack_example
