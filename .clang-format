@@ -1,7 +1,34 @@
----
-BasedOnStyle: Google
----
-Language: Cpp
-DerivePointerAlignment: false
-PointerAlignment: Left
+BasedOnStyle: llvm
 
+AlignAfterOpenBracket: DontAlign
+AlignOperands: true
+AlignTrailingComments: true
+AllowShortBlocksOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: true
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakTemplateDeclarations: true
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBinaryOperators: NonAssignment
+BreakBeforeBraces: Attach
+ColumnLimit: 160
+Cpp11BracedListStyle: true
+IndentCaseLabels: false
+IndentWidth: 4
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 2
+NamespaceIndentation: Inner
+PointerAlignment: Left
+SpaceAfterCStyleCast: false
+SpaceBeforeParens: Never
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 1
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+Standard: Cpp11
+TabWidth: 4
+UseTab: ForIndentation
