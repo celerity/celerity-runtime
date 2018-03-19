@@ -30,6 +30,7 @@ set(CMAKE_MODULE_PATH
 find_package(Boost 1.66.0 COMPONENTS graph REQUIRED)
 find_package(ComputeCpp REQUIRED)
 find_package(OpenCL REQUIRED)
+find_package(MPI 2.0 REQUIRED)
 
 # linux-specific
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Windows")
@@ -45,10 +46,10 @@ endif()
 
 add_library(
     celerity_runtime
-    src/celerity_runtime.cc
     src/distr_queue.cc
     src/graph_utils.cc
     src/handler.cc
+    src/runtime.cc
     ${INCLUDES}
 )
 
@@ -64,6 +65,7 @@ target_include_directories(
   ${Boost_INCLUDE_DIRS}
   ${OpenCL_INCLUDE_DIR}
   ${ComputeCpp_INCLUDE_DIRECTORY}
+  ${MPI_CXX_INCLUDE_PATH}
 )
 
 target_link_libraries(
@@ -71,6 +73,7 @@ target_link_libraries(
   PUBLIC
   ${Boost_LIBRARIES}
   ${OpenCL_LIBRARIES}
+  ${MPI_CXX_LIBRARIES}
 )
 
 add_sycl_to_target(
@@ -84,7 +87,9 @@ set(Celerity_INCLUDE_DIRS
   ${CMAKE_CURRENT_SOURCE_DIR}/vendor
   ${Boost_INCLUDE_DIRS}
   ${OpenCL_INCLUDE_DIR}
-  ${ComputeCpp_INCLUDE_DIRECTORY})
+  ${ComputeCpp_INCLUDE_DIRECTORY}
+  ${MPI_CXX_INCLUDE_PATH}
+)
 
 # full stack example
 

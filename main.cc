@@ -2,7 +2,7 @@
 #include <CL/cl_ext.h>
 #include <SYCL/sycl.hpp>
 
-#include "celerity_runtime.h"
+#include <celerity.h>
 
 // Prepend "//" to not break GraphViz format
 // ...or output it to stderr... or both!
@@ -20,6 +20,8 @@ std::ostream& log() {
 // data overlap may be executed in parallel. Is this something we need to
 // consider for our distributed scheduler?
 int main(int argc, char* argv[]) {
+	celerity::runtime::init(&argc, &argv);
+
 	//// ============= DEMO SETUP =================
 	// Pause execution so we can attach debugger (for stepping w/ live plotting)
 	if(argc > 1 && std::string("--pause") == argv[1]) {
@@ -211,13 +213,10 @@ int main(int argc, char* argv[]) {
 		}
 #endif
 
-		queue.debug_print_task_graph();
-
-		log() << "EXECUTE DEFERRED" << std::endl;
-		queue.TEST_execute_deferred();
-
-		// In reality, this would be called periodically by a worker thread
-		queue.build_command_graph();
+		// Master: Compute task / command graph, distribute to workers
+		// Workers: Wait for and execute commands
+		// (In reality, this wouldn't be called explicitly)
+		celerity::runtime::get_instance().TEST_do_work();
 
 	} catch(std::exception e) {
 		std::cerr << e.what();

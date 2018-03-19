@@ -4,6 +4,7 @@
 
 #include "graph_utils.h"
 #include "grid.h"
+#include "runtime.h"
 #include "subrange.h"
 
 namespace celerity {
@@ -13,6 +14,8 @@ distr_queue::distr_queue(cl::sycl::device device)
     : sycl_queue(device),
       // Include an additional node 0 (= master)
       num_nodes(CELERITY_NUM_WORKER_NODES + 1) {
+	runtime::get_instance().register_queue(this);
+
 	task_graph[boost::graph_bundle].name = "TaskGraph";
 	command_graph[boost::graph_bundle].name = "CommandGraph";
 }

@@ -9,6 +9,7 @@ runtime implementation.
 * [Boost](http://www.boost.org) (tested with version 1.66.0)
 * The [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp)
   runtime (tested with version 0.6.1)
+* A MPI 2 implementation
 * [CMake](https://www.cmake.org)
 * A C++14 compiler (tested only with MSVC 14 so far)
 
@@ -29,6 +30,7 @@ These dependencies are only required for live plotting of graphs.
 2. Install dependencies using vcpkg (x64-windows triplet)
 
         .\vcpkg.exe install boost-graph:x64-windows
+        .\vcpkg.exe install msmpi:x64-windows
 
 3. Integrate install
 
