@@ -78,10 +78,10 @@ int main(int argc, char* argv[]) {
 		celerity::distr_queue queue(myDevice);
 
 		// TODO: Do we support SYCL sub-buffers & images? Section 4.7.2
-		celerity::buffer<float, 1> buf_a = queue.create_buffer(host_data_a, cl::sycl::range<1>(1024));
-		celerity::buffer<float, 1> buf_b = queue.create_buffer(host_data_b, cl::sycl::range<1>(1024));
-		celerity::buffer<float, 1> buf_c = queue.create_buffer(host_data_c, cl::sycl::range<1>(1024));
-		celerity::buffer<float, 1> buf_d = queue.create_buffer(host_data_d, cl::sycl::range<1>(1024));
+		celerity::buffer<float, 1> buf_a(host_data_a, cl::sycl::range<1>(1024));
+		celerity::buffer<float, 1> buf_b(host_data_b, cl::sycl::range<1>(1024));
+		celerity::buffer<float, 1> buf_c(host_data_c, cl::sycl::range<1>(1024));
+		celerity::buffer<float, 1> buf_d(host_data_d, cl::sycl::range<1>(1024));
 
 		// **** COMMAND GROUPS ****
 		// The functor/lambda submitted to a SYCL queue is called a "command group".

@@ -1,7 +1,5 @@
 #pragma once
 
-#define CELERITY_NUM_WORKER_NODES 2
-
 #include <functional>
 #include <unordered_map>
 
@@ -61,20 +59,18 @@ class distr_queue {
 		task_command_groups[tid] = std::make_unique<detail::cgf_storage<CGF>>(cgf);
 	}
 
-	template <typename DataT, int Dims>
-	buffer<DataT, Dims> create_buffer(DataT* host_ptr, cl::sycl::range<Dims> size) {
-		const buffer_id bid = buffer_count++;
-		valid_buffer_regions[bid] = std::make_unique<detail::buffer_state<Dims>>(size, num_nodes);
-		return buffer<DataT, Dims>(host_ptr, size, bid);
-	}
+	const task_dag& get_task_graph() const { return task_graph; }
+	const auto& get_task_range_mappers() const { return task_range_mappers; }
+	const auto& get_task_global_sizes() const { return task_global_sizes; }
+
+	void mark_task_as_processed(task_id tid);
 
 	// experimental
 	// TODO: Can we derive 2nd lambdas args from requested values in 1st?
-	void branch(std::function<void(branch_handle& bh)>, std::function<void(float)>){};
+	void branch(std::function<void(branch_handle& bh)>, std::function<void(float)>) {}
 
 	void debug_print_task_graph();
 	void TEST_execute_deferred();
-	void build_command_graph();
 
   private:
 	friend handler<is_prepass::true_t>;
@@ -88,20 +84,8 @@ class distr_queue {
 	// it corresponds to the leaf nodes of the current task graph.
 	std::unordered_map<buffer_id, task_id> buffer_last_writer;
 
-	// This is a more granular view which encodes where (= on which node) valid
-	// regions of a buffer can be found. A valid region is any region that has not
-	// been written to on another node.
-	// NOTE: This represents the buffer regions after all commands in the current
-	// command graph have been completed.
-	std::unordered_map<buffer_id, std::unique_ptr<detail::buffer_state_base>> valid_buffer_regions;
-
 	size_t task_count = 0;
-	size_t buffer_count = 0;
 	task_dag task_graph;
-	command_dag command_graph;
-
-	// For now we don't store any additional data on nodes
-	const size_t num_nodes;
 
 	cl::sycl::queue sycl_queue;
 
