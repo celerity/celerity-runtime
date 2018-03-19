@@ -29,7 +29,6 @@ These dependencies are only required for live plotting of graphs.
 2. Install dependencies using vcpkg (x64-windows triplet)
 
         .\vcpkg.exe install boost-graph:x64-windows
-        .\vcpkg.exe install gtest:x64-windows
 
 3. Integrate install
 
