@@ -1,6 +1,7 @@
 #include "runtime.h"
 
 #include <algorithm>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -281,7 +282,7 @@ void runtime::build_command_graph() {
 		}
 
 		std::unordered_map<chunk_id, node_id> chunk_nodes;
-		std::unordered_set<node_id> free_nodes;
+		std::set<node_id> free_nodes;
 		for(auto i = 0u; i < num_nodes; ++i) {
 			if(!master_only && i == 0) { continue; }
 			free_nodes.insert(i);
@@ -302,6 +303,7 @@ void runtime::build_command_graph() {
 				// FIXME Dimensions
 				auto bs = dynamic_cast<detail::buffer_state<1>*>(valid_buffer_regions[bid].get());
 
+				// TODO: Are these always sorted? Probably not. (requried for set_intersection)
 				const auto sn = bs->get_source_nodes(read_req);
 				chunk_buffer_sources[i][bid] = sn;
 
