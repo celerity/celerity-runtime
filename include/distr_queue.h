@@ -18,7 +18,7 @@ namespace celerity {
 class branch_handle {
   public:
 	template <typename DataT, int Dims>
-	void get(buffer<DataT, Dims>, cl::sycl::range<Dims>){};
+	void get(buffer<DataT, Dims>&, cl::sycl::range<Dims>){};
 };
 
 namespace detail {
@@ -70,7 +70,24 @@ class distr_queue {
 	void branch(std::function<void(branch_handle& bh)>, std::function<void(float)>) {}
 
 	void debug_print_task_graph();
-	void TEST_execute_deferred();
+
+	/**
+	 * Returns true iff task_a has a dependency on task_b within the task graph.
+	 */
+	bool has_dependency(task_id task_a, task_id task_b) const;
+
+	/**
+	 * Executes the kernel associated with task tid in the subrange sr.
+	 * TODO: Subrange is not the ideal parameter type, as we don't need the global size
+	 */
+	template <int Dims>
+	cl::sycl::event execute(task_id tid, subrange<Dims> sr) {
+		auto& cgf = task_command_groups.at(tid);
+		return sycl_queue.submit([this, &cgf, tid, sr](cl::sycl::handler& sycl_handler) {
+			handler<is_prepass::false_t> h(*this, tid, sr, &sycl_handler);
+			(*cgf)(h);
+		});
+	}
 
   private:
 	friend handler<is_prepass::true_t>;

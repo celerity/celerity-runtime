@@ -363,6 +363,12 @@ namespace data {
 			writer.write(max);
 		}
 
+		/**
+		 * Added by psalz for CELERITY on 2018/03/19.
+		 */
+		point_type get_min() const { return min; }
+		point_type get_max() const { return max; }
+
 	};
 
 	template<std::size_t Dims>

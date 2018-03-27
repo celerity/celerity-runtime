@@ -10,6 +10,7 @@ namespace graph_utils {
 	task_vertices add_task(task_id tid, const task_dag& tdag, command_dag& cdag) {
 		const vertex begin_task_v = boost::add_vertex(cdag);
 		cdag[begin_task_v].label = (boost::format("Begin %s") % tdag[tid].label).str();
+		cdag[begin_task_v].tid = tid;
 
 		// Add all task requirements
 		for_predecessors(tdag, tid,
@@ -18,6 +19,7 @@ namespace graph_utils {
 		const vertex complete_task_v = boost::add_vertex(cdag);
 		cdag[boost::graph_bundle].task_complete_vertices[tid] = complete_task_v;
 		cdag[complete_task_v].label = (boost::format("Complete %s") % tdag[tid].label).str();
+		cdag[complete_task_v].tid = tid;
 
 		return task_vertices(begin_task_v, complete_task_v);
 	}
@@ -93,11 +95,11 @@ namespace graph_utils {
 			    props["fontcolor"] = colors[cdag[v].nid % sizeof(colors)];
 
 			    switch(cdag[v].cmd) {
-			    case cdag_command::NOP:
+			    case command::NOP:
 				    props["color"] = "gray50";
 				    props["fontcolor"] = "gray50";
 				    break;
-			    case cdag_command::COMPUTE: props["shape"] = "box"; break;
+			    case command::COMPUTE: props["shape"] = "box"; break;
 			    default: break;
 			    }
 
@@ -110,8 +112,8 @@ namespace graph_utils {
 		    [&](std::ostream& out, auto e) {
 			    vertex v0 = boost::source(e, cdag);
 			    vertex v1 = boost::target(e, cdag);
-			    if((cdag[v0].cmd == cdag_command::PULL || cdag[v0].cmd == cdag_command::AWAIT_PULL)
-			        && (cdag[v1].cmd == cdag_command::PULL || cdag[v1].cmd == cdag_command::AWAIT_PULL)) {
+			    if((cdag[v0].cmd == command::PULL || cdag[v0].cmd == command::AWAIT_PULL)
+			        && (cdag[v1].cmd == command::PULL || cdag[v1].cmd == command::AWAIT_PULL)) {
 				    out << "[color=gray50]";
 			    }
 		    });

@@ -9,6 +9,7 @@
 
 #include "accessor.h"
 #include "range_mapper.h"
+#include "subrange.h"
 #include "types.h"
 
 namespace celerity {
@@ -53,28 +54,44 @@ template <>
 class handler<is_prepass::false_t> {
   public:
 	template <typename Name, typename Functor, int Dims>
-	void parallel_for(cl::sycl::range<Dims> range, const Functor& kernel) {
-		sycl_handler->parallel_for<Name>(range, kernel);
+	void parallel_for(cl::sycl::range<Dims>, const Functor& kernel) {
+		assert(asr.which() == Dims - 1);
+		switch(asr.which()) {
+		case 0: {
+			auto& sr = boost::get<subrange<1>>(asr);
+			sycl_handler->parallel_for<Name>(sr.range, cl::sycl::id<1>(sr.start), kernel);
+		} break;
+		case 1: {
+			auto& sr = boost::get<subrange<2>>(asr);
+			sycl_handler->parallel_for<Name>(sr.range, cl::sycl::id<2>(sr.start), kernel);
+		} break;
+		case 2: {
+			auto& sr = boost::get<subrange<3>>(asr);
+			sycl_handler->parallel_for<Name>(sr.range, cl::sycl::id<3>(sr.start), kernel);
+		} break;
+		default: assert(false);
+		}
 	}
 
 	template <cl::sycl::access::mode Mode>
 	void require(accessor<Mode> a, buffer_id bid) {
-		// TODO: Is there any need for this?
+		// TODO: Query runtime for the actual buffer size that is required on this node, return sub-accessor
 	}
 
 	cl::sycl::handler& get_sycl_handler() { return *sycl_handler; }
 
   private:
 	friend class distr_queue;
+	using any_subrange = boost::variant<subrange<1>, subrange<2>, subrange<3>>;
+
 	distr_queue& queue;
 	cl::sycl::handler* sycl_handler;
 	task_id tid;
+	any_subrange asr;
 
 	// The handler does not take ownership of the sycl_handler, but expects it to
 	// exist for the duration of it's lifetime.
-	handler(distr_queue& q, task_id tid, cl::sycl::handler* sycl_handler) : queue(q), tid(tid), sycl_handler(sycl_handler) {
-		this->sycl_handler = sycl_handler;
-	}
+	handler(distr_queue& q, task_id tid, any_subrange asr, cl::sycl::handler* sycl_handler) : queue(q), tid(tid), asr(asr), sycl_handler(sycl_handler) {}
 };
 
 template <>

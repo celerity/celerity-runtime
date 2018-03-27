@@ -1,10 +1,15 @@
 #include "runtime.h"
 
 #include <algorithm>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include <allscale/utils/string_utils.h>
+#include <boost/variant.hpp>
 #include <mpi.h>
 
+#include "command.h"
 #include "graph_utils.h"
 #include "grid.h"
 #include "subrange.h"
@@ -40,20 +45,135 @@ runtime::~runtime() {
 	MPI_Finalize();
 }
 
+void send_command(node_id target, const command_pkg& pkg) {
+	MPI_Request req;
+	// TODO: Do we need the request object?
+	const auto result = MPI_Isend(&pkg, sizeof(command_pkg), MPI_BYTE, target, CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD, &req);
+	assert(result == MPI_SUCCESS);
+}
+
 void runtime::TEST_do_work() {
 	assert(queue != nullptr);
+
+	bool done = false;
+
 	if(is_master) {
 		queue->debug_print_task_graph();
-		queue->TEST_execute_deferred();
 		build_command_graph();
-	} else {
-		std::cout << "Worker is idle" << std::endl;
+
+		// TODO: Is a BFS walk sufficient or do we need to properly check for fulfilled dependencies?
+		graph_utils::search_vertex_bf(0, command_graph, [](vertex v, const command_dag& cdag) {
+			auto& v_data = cdag[v];
+
+			// Debug output
+			switch(v_data.cmd) {
+			case command::PULL: std::cout << "Sending PULL command for task " << v_data.tid << " to node " << v_data.nid << std::endl; break;
+			case command::AWAIT_PULL: std::cout << "Sending AWAIT_PULL command for task " << v_data.tid << " to node " << v_data.nid << std::endl; break;
+			case command::COMPUTE: std::cout << "Sending COMPUTE command for task " << v_data.tid << " to node " << v_data.nid << std::endl; break;
+			default: return false;
+			}
+
+			command_pkg pkg{v_data.tid, v_data.cmd, v_data.data};
+			send_command(cdag[v].nid, pkg);
+
+			return false;
+		});
+
+		// Pull in all the buffer parts so we can check if the result is correct
+
+		// ================================================== HACK HACK HACK ===========================================
+
+		{
+			// Sleep a bit so the workers can complete writing their results into buffer 3
+			std::this_thread::sleep_for(std::chrono::seconds(2));
+
+			// TODO: This is specific to the current example code (i.e. which buffers) and should probably be done during command graph generation instead
+			buffer_id bid = 3;
+			auto bs = dynamic_cast<detail::buffer_state<1>*>(valid_buffer_regions[bid].get());
+			auto sources = bs->get_source_nodes(GridRegion<1>(1024));
+			for(auto& source : sources) {
+				auto box = source.first;
+				node_id nid = *source.second.begin();
+				{
+					// FIXME: This needs a proper task id
+					command_data data{};
+					data.await_pull = await_pull_data{bid, 0, 9999, detail::grid_box_to_subrange(box)};
+					std::cout << "Sending final AWAIT PULL to node " << nid << std::endl;
+					send_command(nid, command_pkg(9999, command::AWAIT_PULL, data));
+				}
+				{
+					command_data data{};
+					data.pull = pull_data{bid, nid, detail::grid_box_to_subrange(box)};
+					command_pkg pkg{9999, command::PULL, data};
+					auto job = std::make_shared<pull_job>(pkg, btm);
+					job->initialize(*queue, jobs);
+					jobs.insert(job);
+				}
+			}
+		}
+
+		// ================================================== HACK HACK HACK ===========================================
+
+		// Finally, send shutdown commands to all worker nodes
+		command_pkg pkg{0, command::SHUTDOWN, command_data{}};
+		for(auto n = 1; n < num_nodes; ++n) {
+			send_command(n, pkg);
+		}
+
+		// Master can just exit after handling all open jobs
+		done = true;
+	}
+
+	while(!done || !jobs.empty()) {
+		btm.poll();
+
+		for(auto it = jobs.begin(); it != jobs.end();) {
+			auto job = *it;
+			job->update();
+			if(job->is_done()) {
+				it = jobs.erase(it);
+			} else {
+				++it;
+			}
+		}
+
+		{
+			// Check for incoming commands
+			// TODO: Move elswhere
+			MPI_Status status;
+			int flag;
+			MPI_Iprobe(MPI_ANY_SOURCE, CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD, &flag, &status);
+			if(flag == 1) {
+				command_pkg pkg;
+				// Commands should be small enough to block here
+				MPI_Recv(&pkg, sizeof(command_pkg), MPI_BYTE, status.MPI_SOURCE, CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD, &status);
+				if(pkg.cmd == command::SHUTDOWN) {
+					done = true;
+				} else {
+					std::shared_ptr<worker_job> job = nullptr;
+					switch(pkg.cmd) {
+					case command::PULL: job = std::make_shared<pull_job>(pkg, btm); break;
+					case command::AWAIT_PULL: job = std::make_shared<await_pull_job>(pkg, btm); break;
+					case command::COMPUTE: job = std::make_shared<compute_job>(pkg, *queue); break;
+					default: { assert(false && "Unexpected command"); }
+					}
+					job->initialize(*queue, jobs);
+					jobs.insert(job);
+				}
+			}
+		}
 	}
 }
 
 void runtime::register_queue(distr_queue* queue) {
 	if(this->queue != nullptr) { throw std::runtime_error("Only one celerity::distr_queue can be created per process"); }
 	this->queue = queue;
+}
+
+void runtime::schedule_buffer_send(node_id recipient, const command_pkg& pkg) {
+	auto job = std::make_shared<send_job>(pkg, btm, recipient);
+	job->initialize(*queue, jobs);
+	jobs.insert(job);
 }
 
 std::vector<subrange<1>> split_equal(const subrange<1>& sr, size_t num_chunks) {

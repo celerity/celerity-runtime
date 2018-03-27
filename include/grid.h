@@ -42,6 +42,27 @@ namespace detail {
 		return GridRegion<3>(sycl_range_to_grid_point(sr.start), sycl_range_to_grid_point(end));
 	}
 
+	inline subrange<1> grid_box_to_subrange(const GridBox<1>& box) {
+		const auto& min = box.get_min();
+		const auto& max = box.get_max();
+		const cl::sycl::range<1> size(max[0] - min[0]);
+		return subrange<1>{cl::sycl::range<1>(min[0]), size, size};
+	}
+
+	inline subrange<2> grid_box_to_subrange(const GridBox<2>& box) {
+		const auto& min = box.get_min();
+		const auto& max = box.get_max();
+		const cl::sycl::range<2> size(max[0] - min[0], max[1] - min[1]);
+		return subrange<2>{cl::sycl::range<2>(min[0], min[1]), size, size};
+	}
+
+	inline subrange<3> grid_box_to_subrange(const GridBox<3>& box) {
+		const auto& min = box.get_min();
+		const auto& max = box.get_max();
+		const cl::sycl::range<3> size(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+		return subrange<3>{cl::sycl::range<3>(min[0], min[1], min[2]), size, size};
+	}
+
 } // namespace detail
 
 } // namespace celerity

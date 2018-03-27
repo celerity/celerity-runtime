@@ -33,15 +33,14 @@ void distr_queue::add_requirement(task_id tid, buffer_id bid, cl::sycl::access::
 	task_range_mappers[tid][bid].push_back(std::move(rm));
 };
 
-void distr_queue::TEST_execute_deferred() {
-	for(auto& it : task_command_groups) {
-		const task_id tid = it.first;
-		auto& cgf = it.second;
-		sycl_queue.submit([this, &cgf, tid](cl::sycl::handler& sycl_handler) {
-			handler<is_prepass::false_t> h(*this, tid, &sycl_handler);
-			(*cgf)(h);
-		});
-	}
+bool distr_queue::has_dependency(task_id task_a, task_id task_b) const {
+	// TODO: Use DFS instead?
+	bool found = false;
+	graph_utils::search_vertex_bf(task_b, task_graph, [&found, task_a](vertex v, const task_dag&) {
+		if(v == task_a) { found = true; }
+		return found;
+	});
+	return found;
 }
 
 } // namespace celerity

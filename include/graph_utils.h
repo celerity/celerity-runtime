@@ -6,6 +6,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/graph/breadth_first_search.hpp>
 
+#include "command.h"
 #include "graph.h"
 #include "grid.h"
 #include "subrange.h"
@@ -114,26 +115,32 @@ namespace graph_utils {
 		const auto v = boost::add_vertex(cdag);
 		boost::add_edge(tv.first, v, cdag);
 		boost::add_edge(v, tv.second, cdag);
-		cdag[v].cmd = cdag_command::COMPUTE;
+		cdag[v].cmd = command::COMPUTE;
 		cdag[v].nid = nid;
+		cdag[v].tid = cdag[tv.first].tid;
 		cdag[v].label = (boost::format("Node %d:\\COMPUTE %s") % nid % toString(detail::subrange_to_grid_region(chunk))).str();
+		cdag[v].data.compute.chunk = command_subrange(chunk);
 		return v;
 	}
 
 	template <std::size_t Dims>
 	vertex add_pull_cmd(node_id nid, node_id source_nid, buffer_id bid, const task_vertices& tv, const task_vertices& source_tv, vertex compute_cmd,
 	    const GridBox<Dims>& req, command_dag& cdag) {
-		assert(cdag[compute_cmd].cmd == cdag_command::COMPUTE);
+		assert(cdag[compute_cmd].cmd == command::COMPUTE);
 		const auto v = graph_utils::insert_vertex_on_edge(tv.first, compute_cmd, cdag);
-		cdag[v].cmd = cdag_command::PULL;
+		cdag[v].cmd = command::PULL;
 		cdag[v].nid = nid;
+		cdag[v].tid = cdag[tv.first].tid;
 		cdag[v].label = (boost::format("Node %d:\\nPULL %d from %d\\n %s") % nid % bid % source_nid % toString(req)).str();
+		cdag[v].data.pull.bid = bid;
+		cdag[v].data.pull.source = source_nid;
+		cdag[v].data.pull.subrange = command_subrange(detail::grid_box_to_subrange(req));
 
 		// Find the compute command for the source node in the writing task (or this
 		// task, if no writing task has been found)
 		vertex source_compute_v = 0;
 		search_vertex_bf(source_tv.first, cdag, [source_nid, source_tv, &source_compute_v](vertex v, const command_dag& cdag) {
-			if(cdag[v].cmd == cdag_command::COMPUTE && cdag[v].nid == source_nid) {
+			if(cdag[v].cmd == command::COMPUTE && cdag[v].nid == source_nid) {
 				source_compute_v = v;
 				return true;
 			}
@@ -142,9 +149,14 @@ namespace graph_utils {
 		assert(source_compute_v != 0);
 
 		const auto w = graph_utils::insert_vertex_on_edge(source_tv.first, source_compute_v, cdag);
-		cdag[w].cmd = cdag_command::AWAIT_PULL;
+		cdag[w].cmd = command::AWAIT_PULL;
 		cdag[w].nid = source_nid;
+		cdag[w].tid = cdag[source_tv.first].tid;
 		cdag[w].label = (boost::format("Node %d:\\nAWAIT PULL %d by %d\\n %s") % source_nid % bid % nid % toString(req)).str();
+		cdag[w].data.await_pull.bid = bid;
+		cdag[w].data.await_pull.target = nid;
+		cdag[w].data.await_pull.target_tid = cdag[tv.first].tid;
+		cdag[w].data.await_pull.subrange = command_subrange(detail::grid_box_to_subrange(req));
 
 		// Add edges in both directions
 		boost::add_edge(w, v, cdag);

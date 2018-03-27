@@ -1,6 +1,7 @@
 #include <CL/cl.h>
 #include <CL/cl_ext.h>
 #include <SYCL/sycl.hpp>
+#include <thread> // JUST FOR SLEEPING
 
 #include <celerity.h>
 
@@ -21,6 +22,7 @@ std::ostream& log() {
 // consider for our distributed scheduler?
 int main(int argc, char* argv[]) {
 	celerity::runtime::init(&argc, &argv);
+	// std::this_thread::sleep_for(std::chrono::seconds(5)); // Sleep so we have time to attach a debugger
 
 	//// ============= DEMO SETUP =================
 	// Pause execution so we can attach debugger (for stepping w/ live plotting)
@@ -113,7 +115,6 @@ int main(int argc, char* argv[]) {
 				// chunks somewhat intelligently in order to minimize buffer
 				// transfers. Remove this line and the node assignment in the
 				// command graph should be flipped.
-				// NOTE: JUST A DEMO. NOT HONORED IN KERNEL.
 				sr.start = range.global_size - range.start - range.range;
 				return sr;
 			});
@@ -123,10 +124,13 @@ int main(int argc, char* argv[]) {
 			//   handled by the runtime. We only specify the global size.
 			// * We only support a single kernel call per command group (not sure if
 			//   this is also the case in SYCL; spec doesn't mention it explicitly).
-			// TODO: SYCL parallel_for allows specification of an offset - look into
 			cgh.template parallel_for<class produce_a>(cl::sycl::range<1>(1024), [=](cl::sycl::item<1> item) {
-				auto i = item.get_id();
-				a[i] = 1.f;
+				// TODO: Why doesn't this work? It appears like get_offset always returns 0? Bug? Investigate!
+				// a[item.get_range() - item.get_offset() + item.get_id()] = 1.f;
+				// a[1024 - item.get_range() - item.get_offset() + item.get_id()] = 1.f;
+
+				auto id = item.get_id()[0];
+				a[1023 - id] = 1.f;
 			});
 		});
 

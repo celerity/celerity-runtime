@@ -13,7 +13,14 @@ namespace celerity {
 template <typename DataT, int Dims>
 class buffer {
   public:
-	buffer(DataT* host_ptr, cl::sycl::range<Dims> size) : size(size), sycl_buffer(host_ptr, size) { id = runtime::get_instance().register_buffer(size); }
+	buffer(DataT* host_ptr, cl::sycl::range<Dims> size) : size(size), sycl_buffer(host_ptr, size) {
+		id = runtime::get_instance().register_buffer(size, sycl_buffer);
+	}
+
+	buffer(const buffer&) = delete;
+	buffer(buffer&&) = delete;
+
+	~buffer() { runtime::get_instance().unregister_buffer(id); }
 
 	template <cl::sycl::access::mode Mode>
 	prepass_accessor<Mode> get_access(handler<is_prepass::true_t> handler, detail::range_mapper_fn<Dims> rmfn) {
@@ -38,7 +45,7 @@ class buffer {
 	friend distr_queue;
 	buffer_id id;
 	cl::sycl::range<Dims> size;
-	cl::sycl::buffer<float, 1> sycl_buffer;
+	cl::sycl::buffer<float, Dims> sycl_buffer;
 };
 
 

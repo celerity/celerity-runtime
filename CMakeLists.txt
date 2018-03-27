@@ -46,10 +46,12 @@ endif()
 
 add_library(
     celerity_runtime
+    src/buffer_transfer_manager.cc
     src/distr_queue.cc
     src/graph_utils.cc
     src/handler.cc
     src/runtime.cc
+    src/worker_job.cc
     ${INCLUDES}
 )
 
