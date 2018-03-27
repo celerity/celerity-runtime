@@ -92,7 +92,7 @@ namespace graph_utils {
 			    std::unordered_map<std::string, std::string> props;
 			    props["label"] = boost::escape_dot_string(cdag[v].label);
 
-			    props["fontcolor"] = colors[cdag[v].nid % sizeof(colors)];
+			    props["fontcolor"] = colors[cdag[v].nid % (sizeof(colors) / sizeof(char*))];
 
 			    switch(cdag[v].cmd) {
 			    case command::NOP:
