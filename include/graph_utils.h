@@ -155,6 +155,10 @@ namespace graph_utils {
 			}
 			return false;
 		});
+
+		// If the buffer is on the master node, chances are there isn't any master access command in the (source) task.
+		// In this case, we simply add the await pull anywhere in the (source) task.
+		if(source_command_v == std::numeric_limits<size_t>::max() && source_nid == 0) { source_command_v = source_tv.second; }
 		assert(source_command_v != std::numeric_limits<size_t>::max());
 
 		const auto w = graph_utils::insert_vertex_on_edge(source_tv.first, source_command_v, cdag);

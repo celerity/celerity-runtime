@@ -129,7 +129,7 @@ bool send_job::WORKAROUND_avoid_race_condition() {
 		// Now any actual dependencies must be present, or have already been completed
 		if(corresponding_await_pull != nullptr) {
 			for(auto& job : *jobs) {
-				if(job->get_type() == command::COMPUTE) {
+				if(job->get_type() == command::COMPUTE || job->get_type() == command::MASTER_ACCESS) {
 					if(get_task_id() != job->get_task_id() && queue->has_dependency(get_task_id(), job->get_task_id())) { additional_dependencies.insert(job); }
 				}
 			}

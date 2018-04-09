@@ -187,6 +187,19 @@ int main(int argc, char* argv[]) {
 			});
 		});
 
+#define COMPUTE_C_ON_MASTER 1
+#if COMPUTE_C_ON_MASTER
+		celerity::with_master_access([&](auto& mah) {
+			auto a = buf_a.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<1>(1024));
+			auto c = buf_c.get_access<cl::sycl::access::mode::write>(mah, cl::sycl::range<1>(1024));
+
+			mah.run([=]() {
+				for(int i = 0; i < 1024; ++i) {
+					c[i] = 2.f - a[i];
+				}
+			});
+		});
+#else
 		queue.submit([&](auto& cgh) {
 			auto a = buf_a.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one<1>());
 			auto c = buf_c.get_access<cl::sycl::access::mode::write>(cgh, celerity::access::one_to_one<1>());
@@ -195,6 +208,8 @@ int main(int argc, char* argv[]) {
 				c[i] = 2.f - a[i];
 			});
 		});
+
+#endif
 
 		queue.submit([&](auto& cgh) {
 			auto b = buf_b.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one<1>());
