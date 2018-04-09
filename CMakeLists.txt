@@ -32,11 +32,6 @@ find_package(ComputeCpp REQUIRED)
 find_package(OpenCL REQUIRED)
 find_package(MPI 2.0 REQUIRED)
 
-# linux-specific
-if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Windows")
-    set(COMPUTECPP_USER_FLAGS "-stdlib=libc++ -I/usr/include/libcxxabi")
-endif()
-
 # Celerity runtime library
 
 if(MSVC)
