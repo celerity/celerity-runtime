@@ -44,7 +44,7 @@ class distr_queue {
 	distr_queue(distr_queue&& other) = delete;
 
 	template <typename CGF>
-	void distr_queue::submit(CGF cgf) {
+	void submit(CGF cgf) {
 		const auto tid = add_task(std::make_shared<compute_task>(std::make_unique<detail::cgf_storage<CGF>>(cgf)));
 		compute_prepass_handler h(*this, tid);
 		cgf(h);
@@ -71,7 +71,7 @@ class distr_queue {
 	// TODO: Can we derive 2nd lambdas args from requested values in 1st?
 	void branch(std::function<void(branch_handle& bh)>, std::function<void(float)>) {}
 
-	void debug_print_task_graph();
+	void debug_print_task_graph() const;
 
 	/**
 	 * Returns true iff task_a has a dependency on task_b within the task graph.

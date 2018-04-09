@@ -12,7 +12,7 @@ void worker_job::update() {
 
 	if(!running) {
 		for(auto it = dependencies.begin(); it != dependencies.end();) {
-			auto job = *it;
+			auto& job = *it;
 			if(job->is_done()) {
 				it = dependencies.erase(it);
 			} else {
@@ -32,7 +32,6 @@ bool pull_job::execute(const command_pkg& pkg) {
 	}
 	if(data_handle->complete) {
 		std::cout << "PULL COMPLETE buffer " << pkg.data.pull.bid << " from node " << pkg.data.pull.source << std::endl;
-		// TODO: Copy data
 		// TODO: Remove handle from btm
 	}
 	return data_handle->complete;
@@ -184,7 +183,7 @@ bool compute_job::execute(const command_pkg& pkg) {
 		submitted = true;
 	}
 
-	auto status = event.get_info<cl::sycl::info::event::command_execution_status>();
+	const auto status = event.get_info<cl::sycl::info::event::command_execution_status>();
 	if(status == cl::sycl::info::event_command_status::complete) {
 		std::cout << "COMPUTE COMPLETE (some range) for task " << pkg.tid << std::endl;
 		return true;

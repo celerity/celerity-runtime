@@ -446,7 +446,7 @@ std::unordered_map<runtime::chunk_id, node_id> runtime::assign_chunks_to_nodes(
 			if(it.second.count(cl::sycl::access::mode::read) != 0) { read_req = it.second.at(cl::sycl::access::mode::read); }
 
 			// FIXME Dimensions
-			auto bs = dynamic_cast<detail::buffer_state<1>*>(valid_buffer_regions.at(bid).get());
+			const auto bs = dynamic_cast<detail::buffer_state<1>*>(valid_buffer_regions.at(bid).get());
 
 			// TODO: Are these always sorted? Probably not. (requried for set_intersection)
 			const auto sn = bs->get_source_nodes(read_req);
