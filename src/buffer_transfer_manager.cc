@@ -157,8 +157,8 @@ void buffer_transfer_manager::update_transfers() {
 		handle->complete = true;
 
 		// TODO: Assert t->data.size();
-		detail::raw_data_range dr{&t->data[0], 1, {0, 0, 0}, {pdata.subrange.range0, pdata.subrange.range1, pdata.subrange.range2},
-		    {pdata.subrange.offset0, pdata.subrange.offset1, pdata.subrange.offset2}};
+		detail::raw_data_range dr{&t->data[0], 1, {0, 0, 0}, {(int)pdata.subrange.range0, (int)pdata.subrange.range1, (int)pdata.subrange.range2},
+		    {(int)pdata.subrange.offset0, (int)pdata.subrange.offset1, (int)pdata.subrange.offset2}};
 		runtime::get_instance().set_buffer_data(pdata.bid, dr);
 
 		// DEBUG

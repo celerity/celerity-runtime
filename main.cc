@@ -1,10 +1,25 @@
 #include <CL/cl.h>
 #include <CL/cl_ext.h>
 #include <SYCL/sycl.hpp>
-#include <process.h>
 #include <thread> // JUST FOR SLEEPING
 
+#ifdef _MSC_VER
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
 #include <celerity.h>
+
+void print_pid() {
+	std::cout << "PID: ";
+#ifdef _MSC_VER
+	std::cout << _getpid();
+#else
+	std::cout << getpid();
+#endif
+	std::cout << std::endl;
+}
 
 // General notes:
 // Spec version used: https://www.khronos.org/registry/SYCL/specs/sycl-1.2.1.pdf
@@ -17,7 +32,7 @@
 // consider for our distributed scheduler?
 int main(int argc, char* argv[]) {
 	celerity::runtime::init(&argc, &argv);
-	std::cout << "PID: " << _getpid() << std::endl;
+	print_pid();
 	// std::this_thread::sleep_for(std::chrono::seconds(5)); // Sleep so we have time to attach a debugger
 
 	//// ============= DEMO SETUP =================

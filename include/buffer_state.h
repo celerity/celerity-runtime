@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <set>
 #include <unordered_set>
 #include <vector>
 

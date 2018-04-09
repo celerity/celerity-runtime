@@ -224,7 +224,7 @@ void runtime::build_command_graph() {
 	// NOTE: We still need the ability to run the program on a single node (= master)
 	// for easier debugging, so we create a single "split" instead of throwing
 	// TODO: Remove this
-	const size_t num_worker_nodes = std::max(num_nodes - 1, 1ull);
+	const size_t num_worker_nodes = std::max(num_nodes - 1, (size_t)1);
 	const bool master_only = num_nodes == 1;
 
 	const auto& task_graph = queue->get_task_graph();
