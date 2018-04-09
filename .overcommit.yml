@@ -1,0 +1,6 @@
+# https://github.com/brigade/overcommit
+PreCommit:
+  NoCommit:
+    enabled: true
+    exclude:
+      - '.git-hooks/pre_commit/no_commit.rb'
