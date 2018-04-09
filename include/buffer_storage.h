@@ -77,7 +77,7 @@ namespace detail {
 
 		void set_data_range(const raw_data_range& dr) override {
 			assert(dr.dimensions == 2);
-			throw new std::runtime_errror("set_data_range for 2 dimensions NYI");
+			throw std::runtime_error("set_data_range for 2 dimensions NYI");
 		}
 	};
 
@@ -103,7 +103,7 @@ namespace detail {
 
 		void set_data_range(const raw_data_range& dr) override {
 			assert(dr.dimensions == 3);
-			throw new std::runtime_errror("set_data_range for 3 dimensions NYI");
+			throw std::runtime_error("set_data_range for 3 dimensions NYI");
 		}
 	};
 
