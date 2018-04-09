@@ -11,8 +11,9 @@ namespace graph_utils {
 		cdag[begin_task_v].tid = tid;
 
 		// Add all task requirements
-		for_predecessors(tdag, tid,
-		    [&cdag, begin_task_v](vertex requirement) { boost::add_edge(cdag[boost::graph_bundle].task_complete_vertices[requirement], begin_task_v, cdag); });
+		for_predecessors(tdag, static_cast<vertex>(tid), [&cdag, begin_task_v](vertex requirement) {
+			boost::add_edge(cdag[boost::graph_bundle].task_complete_vertices[static_cast<task_id>(requirement)], begin_task_v, cdag);
+		});
 
 		const vertex complete_task_v = boost::add_vertex(cdag);
 		cdag[boost::graph_bundle].task_complete_vertices[tid] = complete_task_v;
@@ -50,16 +51,18 @@ namespace graph_utils {
 				const task_id sib = unchecked_siblings.front();
 				unchecked_siblings.pop();
 
-				abort = !for_predecessors(tdag, sib, [&](vertex pre) {
+				abort = !for_predecessors(tdag, static_cast<vertex>(sib), [&](vertex pre) {
 					if(!tdag[pre].processed) return false;
-					if(checked_predecessors.find(pre) != checked_predecessors.end()) { return true; }
-					checked_predecessors.insert(pre);
+					auto pre_tid = static_cast<task_id>(pre);
+					if(checked_predecessors.find(pre_tid) != checked_predecessors.end()) { return true; }
+					checked_predecessors.insert(pre_tid);
 
 					abort = !for_successors(tdag, pre, [&](vertex suc) {
-						if(candidates.find(suc) == candidates.end()) {
+						auto suc_tid = static_cast<task_id>(suc);
+						if(candidates.find(suc_tid) == candidates.end()) {
 							if(tdag[suc].processed || tdag[suc].num_unsatisfied > 0) { return false; }
-							candidates.insert(suc);
-							unchecked_siblings.push(suc);
+							candidates.insert(suc_tid);
+							unchecked_siblings.push(suc_tid);
 						}
 						return true;
 					});
@@ -81,7 +84,7 @@ namespace graph_utils {
 
 	void mark_as_processed(task_id tid, task_dag& tdag) {
 		tdag[tid].processed = true;
-		for_successors(tdag, tid, [&tdag](vertex suc) {
+		for_successors(tdag, static_cast<vertex>(tid), [&tdag](vertex suc) {
 			assert(tdag[suc].num_unsatisfied >= 1);
 			tdag[suc].num_unsatisfied--;
 		});

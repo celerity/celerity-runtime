@@ -64,7 +64,7 @@ void distr_queue::update_dependencies(task_id tid, buffer_id bid, cl::sycl::acce
 bool distr_queue::has_dependency(task_id task_a, task_id task_b) const {
 	// TODO: Use DFS instead?
 	bool found = false;
-	graph_utils::search_vertex_bf(task_b, task_graph, [&found, task_a](vertex v, const task_dag&) {
+	graph_utils::search_vertex_bf(static_cast<vertex>(task_b), task_graph, [&found, task_a](vertex v, const task_dag&) {
 		if(v == task_a) { found = true; }
 		return found;
 	});
