@@ -6,7 +6,7 @@ const fs = require('fs');
 const EXE = process.argv[2];
 
 if (EXE == null) {
-    console.log("Usage: " + process.argv[1] + " <path_to_exe> [--watch]");
+    console.log("Usage: " + process.argv[1] + " <path_to_exe> [--watch] [-- <additional args>]");
     process.exit(0);
 }
 
@@ -39,14 +39,10 @@ function run(args) {
   let currentGraphData = '';
 
   function processLine(line) {
-    if (!line.startsWith('#G:')) {
-      console.log(line);
-      return;
-    }
-
     const matches = /#G:(\w+)#(.*)/.exec(line);
     if (matches === null) {
-      throw new Error('Invalid graph line: ' + line);
+      console.log(line);
+      return;
     }
 
     const name = matches[1];
@@ -76,6 +72,12 @@ function run(args) {
   });
 }
 
+let additionalArgs = [];
+const argsIdx = process.argv.indexOf('--');
+if (argsIdx !== -1) {
+    additionalArgs = process.argv.slice(argsIdx + 1);
+}
+
 if (process.argv[3] === '--watch') {
   let queuedRun = null;
   fs.watch(EXE, {}, (eventType, filename) => {
@@ -85,12 +87,12 @@ if (process.argv[3] === '--watch') {
         clearTimeout(queuedRun);
       }
       queuedRun = setTimeout(() => {
-        run();
+        run(additionalArgs);
         queuedRun = null;
       }, 250);
     }
   });
   run();
 } else {
-  run(['--pause']);
+  run(additionalArgs);
 }
