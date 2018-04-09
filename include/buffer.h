@@ -2,9 +2,8 @@
 
 #include <SYCL/sycl.hpp>
 
-#include "accessor.h"
-#include "grid.h"
 #include "handler.h"
+#include "prepass_accessor.h"
 #include "range_mapper.h"
 #include "runtime.h"
 
@@ -23,29 +22,43 @@ class buffer {
 	~buffer() { runtime::get_instance().unregister_buffer(id); }
 
 	template <cl::sycl::access::mode Mode>
-	prepass_accessor<Mode> get_access(handler<is_prepass::true_t> handler, detail::range_mapper_fn<Dims> rmfn) {
-		prepass_accessor<Mode> a;
-		handler.require(a, id, std::make_unique<detail::range_mapper<Dims>>(rmfn, Mode));
+	prepass_accessor<DataT, Dims, Mode> get_access(compute_prepass_handler& handler, detail::range_mapper_fn<Dims> rmfn) {
+		handler.require(Mode, id, std::make_unique<detail::range_mapper<Dims>>(rmfn, Mode));
+		return prepass_accessor<DataT, Dims, Mode>();
+	}
+
+	template <cl::sycl::access::mode Mode>
+	cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> get_access(
+	    compute_livepass_handler& handler, detail::range_mapper_fn<Dims> rmfn) {
+		// TODO: Query runtime for the actual buffer size that is required on this node, return sub-accessor
+		auto a = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>(sycl_buffer, handler.get_sycl_handler());
 		return a;
 	}
 
 	template <cl::sycl::access::mode Mode>
-	accessor<Mode> get_access(handler<is_prepass::false_t> handler, detail::range_mapper_fn<Dims> rmfn) {
-		auto a = accessor<Mode>(sycl_buffer, handler.get_sycl_handler());
-		handler.require(a, id);
-		return a;
+	prepass_accessor<DataT, Dims, Mode> get_access(
+	    master_access_prepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::range<Dims> offset = cl::sycl::range<Dims>(0)) {
+		handler.require(Mode, id, range, offset);
+		return prepass_accessor<DataT, Dims, Mode>();
 	}
 
-	size_t get_id() { return id; }
+	template <cl::sycl::access::mode Mode>
+	cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer> get_access(
+	    master_access_livepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::range<Dims> offset = cl::sycl::range<Dims>(0)) {
+		return sycl_buffer.template get_access<Mode>(range, cl::sycl::id<Dims>(offset));
+	}
 
-	// FIXME Host-size access should block
+	// TODO: Should we support this?
+	// (Currently only used for branching demo code)
 	DataT operator[](size_t idx) { return 1.f; }
+
+	size_t get_id() const { return id; }
 
   private:
 	friend distr_queue;
 	buffer_id id;
 	cl::sycl::range<Dims> size;
-	cl::sycl::buffer<float, Dims> sycl_buffer;
+	cl::sycl::buffer<DataT, Dims> sycl_buffer;
 };
 
 

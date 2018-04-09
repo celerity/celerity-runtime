@@ -1,6 +1,7 @@
 #include <CL/cl.h>
 #include <CL/cl_ext.h>
 #include <SYCL/sycl.hpp>
+#include <process.h>
 #include <thread> // JUST FOR SLEEPING
 
 #include <celerity.h>
@@ -22,6 +23,7 @@ std::ostream& log() {
 // consider for our distributed scheduler?
 int main(int argc, char* argv[]) {
 	celerity::runtime::init(&argc, &argv);
+	std::cout << "PID: " << _getpid() << std::endl;
 	// std::this_thread::sleep_for(std::chrono::seconds(5)); // Sleep so we have time to attach a debugger
 
 	//// ============= DEMO SETUP =================
@@ -43,12 +45,12 @@ int main(int argc, char* argv[]) {
 		cl_platform_id platforms[10];
 		cl::sycl::cl_uint num_platforms;
 		assert(clGetPlatformIDs(10, platforms, &num_platforms) == CL_SUCCESS);
-		log() << "Found " << num_platforms << " platforms:" << std::endl;
+		// log() << "Found " << num_platforms << " platforms:" << std::endl;
 
 		for(auto i = 0u; i < num_platforms; ++i) {
 			char platform_name[255];
 			clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, sizeof(platform_name), platform_name, nullptr);
-			log() << "Platform " << i << ": " << platform_name << std::endl;
+			// log() << "Platform " << i << ": " << platform_name << std::endl;
 		}
 
 		const size_t USE_PLATFORM = 2;
@@ -56,12 +58,12 @@ int main(int argc, char* argv[]) {
 		cl_device_id devices[10];
 		cl::sycl::cl_uint num_devices;
 		assert(clGetDeviceIDs(platforms[USE_PLATFORM], CL_DEVICE_TYPE_CPU, 10, devices, &num_devices) == CL_SUCCESS);
-		log() << "Found " << num_devices << " devices on platform #" << USE_PLATFORM << ":" << std::endl;
+		// log() << "Found " << num_devices << " devices on platform #" << USE_PLATFORM << ":" << std::endl;
 
 		for(auto i = 0u; i < num_devices; ++i) {
 			char device_name[255];
 			clGetDeviceInfo(devices[i], CL_DEVICE_NAME, sizeof(device_name), device_name, nullptr);
-			log() << "Device " << i << ": " << device_name << std::endl;
+			// log() << "Device " << i << ": " << device_name << std::endl;
 		}
 
 		// Create device explicitly as the default ComputeCpp device selector
@@ -217,6 +219,28 @@ int main(int argc, char* argv[]) {
 		}
 #endif
 
+		celerity::with_master_access([&](auto& mah) {
+			auto d = buf_d.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<1>(1024));
+
+			mah.run([=]() {
+				// Buffer contents can be accessed in here
+				// This is indended for I/O and validation
+				// No queue submissions are allowed (i.e. no branching)
+				// If access mode is write, update valid buffer regions afterwards!
+				float sum = 0.f;
+				for(int i = 0; i < 1024; ++i) {
+					sum += d[i];
+				}
+
+				std::cout << "## RESULT: ";
+				if(sum == 3072.f) {
+					std::cout << "Success! Correct value was computed." << std::endl;
+				} else {
+					std::cout << "Fail! Value is " << sum << std::endl;
+				}
+			});
+		});
+
 		// Master: Compute task / command graph, distribute to workers
 		// Workers: Wait for and execute commands
 		// (In reality, this wouldn't be called explicitly)
@@ -225,18 +249,5 @@ int main(int argc, char* argv[]) {
 	} catch(std::exception e) {
 		std::cerr << e.what();
 		return EXIT_FAILURE;
-	}
-
-	// ================= VERIFY CORRECTNESS ==================
-
-	float sum = 0.f;
-	for(int i = 0; i < 1024; ++i) {
-		sum += host_data_d[i];
-	}
-
-	if(sum == 3072.f) {
-		log() << "Success!" << std::endl;
-	} else {
-		log() << "Fail! Value is " << sum << std::endl;
 	}
 }

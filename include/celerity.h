@@ -3,4 +3,7 @@
 
 #include "runtime.h"
 
+#include "buffer.h"
+#include "with_master_access.h"
+
 #endif

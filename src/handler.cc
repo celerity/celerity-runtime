@@ -4,17 +4,11 @@
 
 namespace celerity {
 
-template <>
-void handler<is_prepass::true_t>::require(prepass_accessor<cl::sycl::access::mode::read> a, buffer_id bid, std::unique_ptr<detail::range_mapper_base> rm) {
-	queue.add_requirement(tid, bid, cl::sycl::access::mode::read, std::move(rm));
+void compute_prepass_handler::require(cl::sycl::access::mode mode, buffer_id bid, std::unique_ptr<detail::range_mapper_base> rm) {
+	queue.add_requirement(tid, bid, mode, std::move(rm));
 }
 
-template <>
-void handler<is_prepass::true_t>::require(prepass_accessor<cl::sycl::access::mode::write> a, buffer_id bid, std::unique_ptr<detail::range_mapper_base> rm) {
-	queue.add_requirement(tid, bid, cl::sycl::access::mode::write, std::move(rm));
-}
-
-handler<is_prepass::true_t>::~handler() {
+compute_prepass_handler::~compute_prepass_handler() {
 	const int dimensions = global_size.which() + 1;
 	switch(dimensions) {
 	case 1: queue.set_task_data(tid, boost::get<cl::sycl::range<1>>(global_size), debug_name); break;
@@ -25,6 +19,10 @@ handler<is_prepass::true_t>::~handler() {
 		assert(false);
 		break;
 	}
+}
+
+void master_access_prepass_handler::require(cl::sycl::access::mode mode, buffer_id bid, any_range range, any_range offset) const {
+	queue.add_requirement(tid, bid, mode, range, offset);
 }
 
 } // namespace celerity

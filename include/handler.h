@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <regex>
 #include <string>
 
@@ -7,22 +8,15 @@
 #include <boost/format.hpp>
 #include <boost/variant.hpp>
 
-#include "accessor.h"
 #include "range_mapper.h"
 #include "subrange.h"
 #include "types.h"
 
 namespace celerity {
 
-enum class is_prepass { true_t, false_t };
-
-template <is_prepass>
-class handler {};
-
 class distr_queue;
 
-template <>
-class handler<is_prepass::true_t> {
+class compute_prepass_handler {
   public:
 	template <typename Name, typename Functor, int Dims>
 	void parallel_for(cl::sycl::range<Dims> global_size, const Functor& kernel) {
@@ -35,23 +29,21 @@ class handler<is_prepass::true_t> {
 		debug_name = matches.size() > 0 ? matches[1] : qualified_name;
 	}
 
-	template <cl::sycl::access::mode Mode>
-	void require(prepass_accessor<Mode> a, buffer_id bid, std::unique_ptr<detail::range_mapper_base> rm);
+	void require(cl::sycl::access::mode mode, buffer_id bid, std::unique_ptr<detail::range_mapper_base> rm);
 
-	~handler();
+	~compute_prepass_handler();
 
   private:
 	friend class distr_queue;
 	distr_queue& queue;
 	task_id tid;
 	std::string debug_name;
-	boost::variant<cl::sycl::range<1>, cl::sycl::range<2>, cl::sycl::range<3>> global_size;
+	any_range global_size;
 
-	handler(distr_queue& q, task_id tid) : queue(q), tid(tid) { debug_name = (boost::format("task%d") % tid).str(); }
+	compute_prepass_handler(distr_queue& q, task_id tid) : queue(q), tid(tid) { debug_name = (boost::format("task%d") % tid).str(); }
 };
 
-template <>
-class handler<is_prepass::false_t> {
+class compute_livepass_handler {
   public:
 	template <typename Name, typename Functor, int Dims>
 	void parallel_for(cl::sycl::range<Dims>, const Functor& kernel) {
@@ -73,11 +65,6 @@ class handler<is_prepass::false_t> {
 		}
 	}
 
-	template <cl::sycl::access::mode Mode>
-	void require(accessor<Mode> a, buffer_id bid) {
-		// TODO: Query runtime for the actual buffer size that is required on this node, return sub-accessor
-	}
-
 	cl::sycl::handler& get_sycl_handler() { return *sycl_handler; }
 
   private:
@@ -91,13 +78,28 @@ class handler<is_prepass::false_t> {
 
 	// The handler does not take ownership of the sycl_handler, but expects it to
 	// exist for the duration of it's lifetime.
-	handler(distr_queue& q, task_id tid, any_subrange asr, cl::sycl::handler* sycl_handler) : queue(q), tid(tid), asr(asr), sycl_handler(sycl_handler) {}
+	compute_livepass_handler(distr_queue& q, task_id tid, any_subrange asr, cl::sycl::handler* sycl_handler)
+	    : queue(q), tid(tid), asr(asr), sycl_handler(sycl_handler) {}
 };
 
-template <>
-void handler<is_prepass::true_t>::require(prepass_accessor<cl::sycl::access::mode::read> a, buffer_id bid, std::unique_ptr<detail::range_mapper_base> rm);
+class master_access_prepass_handler {
+  public:
+	master_access_prepass_handler(distr_queue& queue, task_id tid) : queue(queue), tid(tid) {}
 
-template <>
-void handler<is_prepass::true_t>::require(prepass_accessor<cl::sycl::access::mode::write> a, buffer_id bid, std::unique_ptr<detail::range_mapper_base> rm);
+	void run(std::function<void()> fun) const {
+		// nop
+	}
+
+	void require(cl::sycl::access::mode mode, buffer_id bid, any_range range, any_range offset) const;
+
+  private:
+	distr_queue& queue;
+	task_id tid;
+};
+
+class master_access_livepass_handler {
+  public:
+	void run(std::function<void()> fun) const { fun(); }
+};
 
 } // namespace celerity

@@ -25,6 +25,7 @@ class runtime {
 
 	void TEST_do_work();
 	void register_queue(distr_queue* queue);
+	distr_queue& get_queue();
 
 	template <typename DataT, int Dims>
 	buffer_id register_buffer(cl::sycl::range<Dims> size, cl::sycl::buffer<DataT, Dims>& buf) {
@@ -52,6 +53,14 @@ class runtime {
 	void schedule_buffer_send(node_id recipient, const command_pkg& pkg);
 
   private:
+	using chunk_id = size_t;
+	// FIXME: Dimensions
+	using chunk_buffer_requirements_map =
+	    std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<1>>>>;
+	// FIXME: Dimensions
+	using chunk_buffer_source_map =
+	    std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::vector<std::pair<GridBox<1>, std::unordered_set<node_id>>>>>;
+
 	static std::unique_ptr<runtime> instance;
 
 	distr_queue* queue = nullptr;
@@ -78,6 +87,18 @@ class runtime {
 	runtime(runtime&&) = delete;
 
 	void build_command_graph();
+
+	/**
+	 * Assigns a number of chunks to a given set of free nodes.
+	 * Additionally computes the source nodes for the buffers required by the individual chunks.
+	 */
+	std::unordered_map<chunk_id, node_id> assign_chunks_to_nodes(
+	    size_t num_chunks, const chunk_buffer_requirements_map& chunk_reqs, std::set<node_id> free_nodes, chunk_buffer_source_map& chunk_buffer_sources) const;
+
+	friend class master_access_job;
+	void execute_master_access_task(task_id tid) const;
+
+	void handle_command_pkg(const command_pkg& pkg);
 };
 
 } // namespace celerity

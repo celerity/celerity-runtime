@@ -5,7 +5,7 @@
 
 namespace celerity {
 
-enum class command { NOP, COMPUTE, PULL, AWAIT_PULL, SHUTDOWN };
+enum class command { NOP, COMPUTE, MASTER_ACCESS, PULL, AWAIT_PULL, SHUTDOWN };
 
 struct command_subrange {
 	size_t offset0 = 0;
@@ -50,6 +50,8 @@ struct compute_data {
 	command_subrange chunk;
 };
 
+struct master_access_data {};
+
 struct pull_data {
 	buffer_id bid;
 	node_id source;
@@ -68,6 +70,7 @@ struct shutdown_data {};
 union command_data {
 	nop_data nop;
 	compute_data compute;
+	master_access_data master_access;
 	pull_data pull;
 	await_pull_data await_pull;
 	shutdown_data shutdown;

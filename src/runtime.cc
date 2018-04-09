@@ -1,6 +1,8 @@
 #include "runtime.h"
 
 #include <algorithm>
+#include <limits>
+#include <queue>
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
@@ -14,6 +16,7 @@
 #include "graph_utils.h"
 #include "grid.h"
 #include "subrange.h"
+#include "task.h"
 
 namespace celerity {
 
@@ -57,13 +60,15 @@ void runtime::TEST_do_work() {
 	assert(queue != nullptr);
 
 	bool done = false;
+	// Instead of sending commands to itself, master stores them here
+	std::queue<command_pkg> master_commands;
 
 	if(is_master) {
 		queue->debug_print_task_graph();
 		build_command_graph();
 
 		// TODO: Is a BFS walk sufficient or do we need to properly check for fulfilled dependencies?
-		graph_utils::search_vertex_bf(0, command_graph, [](vertex v, const command_dag& cdag) {
+		graph_utils::search_vertex_bf(0, command_graph, [&master_commands](vertex v, const command_dag& cdag) {
 			auto& v_data = cdag[v];
 
 			// Debug output
@@ -71,49 +76,20 @@ void runtime::TEST_do_work() {
 			case command::PULL: std::cout << "Sending PULL command for task " << v_data.tid << " to node " << v_data.nid << std::endl; break;
 			case command::AWAIT_PULL: std::cout << "Sending AWAIT_PULL command for task " << v_data.tid << " to node " << v_data.nid << std::endl; break;
 			case command::COMPUTE: std::cout << "Sending COMPUTE command for task " << v_data.tid << " to node " << v_data.nid << std::endl; break;
+			case command::MASTER_ACCESS: std::cout << "Sending MASTER_ACCESS command for task " << v_data.tid << " to node " << v_data.nid << std::endl; break;
 			default: return false;
 			}
 
-			command_pkg pkg{v_data.tid, v_data.cmd, v_data.data};
-			send_command(cdag[v].nid, pkg);
+			const command_pkg pkg{v_data.tid, v_data.cmd, v_data.data};
+			const node_id target = cdag[v].nid;
+			if(target != 0) {
+				send_command(target, pkg);
+			} else {
+				master_commands.push(pkg);
+			}
 
 			return false;
 		});
-
-		// Pull in all the buffer parts so we can check if the result is correct
-
-		// ================================================== HACK HACK HACK ===========================================
-
-		{
-			// Sleep a bit so the workers can complete writing their results into buffer 3
-			std::this_thread::sleep_for(std::chrono::seconds(2));
-
-			// TODO: This is specific to the current example code (i.e. which buffers) and should probably be done during command graph generation instead
-			buffer_id bid = 3;
-			auto bs = dynamic_cast<detail::buffer_state<1>*>(valid_buffer_regions[bid].get());
-			auto sources = bs->get_source_nodes(GridRegion<1>(1024));
-			for(auto& source : sources) {
-				auto box = source.first;
-				node_id nid = *source.second.begin();
-				{
-					// FIXME: This needs a proper task id
-					command_data data{};
-					data.await_pull = await_pull_data{bid, 0, 9999, detail::grid_box_to_subrange(box)};
-					std::cout << "Sending final AWAIT PULL to node " << nid << std::endl;
-					send_command(nid, command_pkg(9999, command::AWAIT_PULL, data));
-				}
-				{
-					command_data data{};
-					data.pull = pull_data{bid, nid, detail::grid_box_to_subrange(box)};
-					command_pkg pkg{9999, command::PULL, data};
-					auto job = std::make_shared<pull_job>(pkg, btm);
-					job->initialize(*queue, jobs);
-					jobs.insert(job);
-				}
-			}
-		}
-
-		// ================================================== HACK HACK HACK ===========================================
 
 		// Finally, send shutdown commands to all worker nodes
 		command_pkg pkg{0, command::SHUTDOWN, command_data{}};
@@ -122,7 +98,7 @@ void runtime::TEST_do_work() {
 		}
 
 		// Master can just exit after handling all open jobs
-		done = true;
+		master_commands.push(pkg);
 	}
 
 	while(!done || !jobs.empty()) {
@@ -138,37 +114,58 @@ void runtime::TEST_do_work() {
 			}
 		}
 
-		{
+		bool has_pkg = false;
+		command_pkg pkg;
+		if(!is_master) {
 			// Check for incoming commands
 			// TODO: Move elswhere
 			MPI_Status status;
 			int flag;
 			MPI_Iprobe(MPI_ANY_SOURCE, CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD, &flag, &status);
 			if(flag == 1) {
-				command_pkg pkg;
 				// Commands should be small enough to block here
 				MPI_Recv(&pkg, sizeof(command_pkg), MPI_BYTE, status.MPI_SOURCE, CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD, &status);
-				if(pkg.cmd == command::SHUTDOWN) {
-					done = true;
-				} else {
-					std::shared_ptr<worker_job> job = nullptr;
-					switch(pkg.cmd) {
-					case command::PULL: job = std::make_shared<pull_job>(pkg, btm); break;
-					case command::AWAIT_PULL: job = std::make_shared<await_pull_job>(pkg, btm); break;
-					case command::COMPUTE: job = std::make_shared<compute_job>(pkg, *queue); break;
-					default: { assert(false && "Unexpected command"); }
-					}
-					job->initialize(*queue, jobs);
-					jobs.insert(job);
-				}
+				has_pkg = true;
+			}
+		} else {
+			if(!master_commands.empty()) {
+				pkg = master_commands.front();
+				master_commands.pop();
+				has_pkg = true;
+			}
+		}
+
+		if(has_pkg) {
+			if(pkg.cmd == command::SHUTDOWN) {
+				done = true;
+			} else {
+				handle_command_pkg(pkg);
 			}
 		}
 	}
 }
 
+void runtime::handle_command_pkg(const command_pkg& pkg) {
+	std::shared_ptr<worker_job> job = nullptr;
+	switch(pkg.cmd) {
+	case command::PULL: job = std::make_shared<pull_job>(pkg, btm); break;
+	case command::AWAIT_PULL: job = std::make_shared<await_pull_job>(pkg, btm); break;
+	case command::COMPUTE: job = std::make_shared<compute_job>(pkg, *queue); break;
+	case command::MASTER_ACCESS: job = std::make_shared<master_access_job>(pkg); break;
+	default: { assert(false && "Unexpected command"); }
+	}
+	job->initialize(*queue, jobs);
+	jobs.insert(job);
+}
+
 void runtime::register_queue(distr_queue* queue) {
 	if(this->queue != nullptr) { throw std::runtime_error("Only one celerity::distr_queue can be created per process"); }
 	this->queue = queue;
+}
+
+distr_queue& runtime::get_queue() {
+	assert(queue != nullptr);
+	return *queue;
 }
 
 void runtime::schedule_buffer_send(node_id recipient, const command_pkg& pkg) {
@@ -205,11 +202,11 @@ std::vector<subrange<1>> split_equal(const subrange<1>& sr, size_t num_chunks) {
  *       determining the read and write regions for every chunk. Note that a
  *       task may contain several read/write accessors for the same buffer,
  *       which is why we first have to compute their union regions.
- *    c) Iterate over all per-chunk read regions and try to find the most
- *       suitable node to execute that chunk on, i.e. the node that requires
- *       the least amount of data-transfer in order to execute that chunk.
- *       Note that currently only the first read buffer is considered, and
- *       nodes are assigned greedily.
+ *    c) (In assign_chunks_to_nodes): Iterate over all per-chunk read regions
+ *		 and try to find the most suitable node to execute that chunk on, i.e.
+ *		 the node that requires the least amount of data-transfer in order to
+ *		 execute that chunk. Note that currently only the first read buffer is
+ *		 considered, and nodes are assigned greedily.
  *    d) Insert compute commands for every node into the command graph.
  *       It is important to create these before pull-commands are inserted
  *       (see below).
@@ -224,8 +221,6 @@ std::vector<subrange<1>> split_equal(const subrange<1>& sr, size_t num_chunks) {
  *    data structure that keeps track of valid buffer regions.
  */
 void runtime::build_command_graph() {
-	using chunk_id = size_t;
-
 	// NOTE: We still need the ability to run the program on a single node (= master)
 	// for easier debugging, so we create a single "split" instead of throwing
 	// TODO: Remove this
@@ -233,15 +228,11 @@ void runtime::build_command_graph() {
 	const bool master_only = num_nodes == 1;
 
 	const auto& task_graph = queue->get_task_graph();
-	const auto& task_range_mappers = queue->get_task_range_mappers();
-	const auto& task_global_sizes = queue->get_task_global_sizes();
-
 	auto sibling_set = graph_utils::get_satisfied_sibling_set(task_graph);
 	std::sort(sibling_set.begin(), sibling_set.end());
 
 	std::unordered_map<task_id, graph_utils::task_vertices> taskvs;
-
-	// FIXME: Dimensions. Also, containers much??
+	// FIXME: Dimensions
 	std::unordered_map<buffer_id, std::unordered_map<node_id, std::vector<std::pair<task_id, GridRegion<1>>>>> buffer_writers;
 
 	// Iterate over tasks in reverse order so we can determine kernels which
@@ -249,116 +240,108 @@ void runtime::build_command_graph() {
 	// those ranges, which allows us to insert "await-pull"s before writes.
 	for(auto it = sibling_set.crbegin(); it != sibling_set.crend(); ++it) {
 		const task_id tid = *it;
-		const auto& rms = task_range_mappers.at(tid);
-
+		auto tsk = queue->get_task(tid);
 		taskvs[tid] = graph_utils::add_task(tid, task_graph, command_graph);
 
-		// Split task into equal chunks for every worker node
-		// TODO: In the future, we may want to adjust our split based on the range
-		// mapper results and data location!
-		auto sr = subrange<1>();
-		// FIXME: We assume task dimensionality 1 here
-		sr.global_size = boost::get<cl::sycl::range<1>>(task_global_sizes.at(tid));
-		sr.range = sr.global_size;
+		size_t num_chunks = 0;
+		chunk_buffer_requirements_map chunk_reqs;
+		chunk_buffer_source_map chunk_buffer_sources;
+		std::unordered_map<chunk_id, node_id> chunk_nodes;
+		// Vertices corresponding to the per-chunk compute / master access command
+		std::vector<vertex> chunk_command_vertices;
 
-		auto chunks = split_equal(sr, num_worker_nodes);
+		if(tsk->get_type() == task_type::COMPUTE) {
+			const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
 
-		// FIXME: Dimensions
-		std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<1>>>> chunk_reqs;
+			// Split task into equal chunks for every worker node
+			// TODO: In the future, we may want to adjust our split based on the range
+			// mapper results and data location!
+			num_chunks = num_worker_nodes;
 
-		for(auto& it : rms) {
-			const buffer_id bid = it.first;
+			// FIXME: Dimensions
+			auto sr = subrange<1>();
+			sr.global_size = boost::get<cl::sycl::range<1>>(ctsk->get_global_size());
+			sr.range = sr.global_size;
+			auto chunks = split_equal(sr, num_chunks);
 
-			for(auto& rm : it.second) {
-				auto mode = rm->get_access_mode();
-				assert(mode == cl::sycl::access::mode::read || mode == cl::sycl::access::mode::write);
+			const auto& rms = ctsk->get_range_mappers();
+			for(auto& it : rms) {
+				const buffer_id bid = it.first;
 
-				for(auto i = 0u; i < chunks.size(); ++i) {
-					// FIXME: Dimensions
-					subrange<1> req = (*rm)(chunks[i]);
-					chunk_reqs[i][bid][mode] = GridRegion<1>::merge(chunk_reqs[i][bid][mode], detail::subrange_to_grid_region(req));
+				for(auto& rm : it.second) {
+					auto mode = rm->get_access_mode();
+					assert(mode == cl::sycl::access::mode::read || mode == cl::sycl::access::mode::write);
+
+					for(auto i = 0u; i < chunks.size(); ++i) {
+						// FIXME: Dimensions
+						subrange<1> req = (*rm)(chunks[i]);
+						chunk_reqs[i][bid][mode] = GridRegion<1>::merge(chunk_reqs[i][bid][mode], detail::subrange_to_grid_region(req));
+					}
 				}
 			}
-		}
 
-		std::unordered_map<chunk_id, node_id> chunk_nodes;
-		std::set<node_id> free_nodes;
-		for(auto i = 0u; i < num_nodes; ++i) {
-			if(!master_only && i == 0) { continue; }
-			free_nodes.insert(i);
-		}
+			std::set<node_id> free_nodes;
+			for(auto i = 0u; i < num_nodes; ++i) {
+				if(!master_only && i == 0) { continue; }
+				free_nodes.insert(i);
+			}
 
-		// FIXME: Dimensions
-		std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::vector<std::pair<GridBox<1>, std::unordered_set<node_id>>>>> chunk_buffer_sources;
+			chunk_nodes = assign_chunks_to_nodes(chunks.size(), chunk_reqs, free_nodes, chunk_buffer_sources);
 
-		// Find per-chunk per-buffer sources and assign nodes to chunks
-		for(auto i = 0u; i < chunks.size(); ++i) {
-			bool node_assigned = false;
-			node_id nid = 0;
+			// Create a compute command for every chunk
+			for(chunk_id i = 0u; i < chunks.size(); ++i) {
+				const node_id nid = chunk_nodes[i];
+				const auto cv = graph_utils::add_compute_cmd(nid, taskvs[tid], chunks[i], command_graph);
+				chunk_command_vertices.push_back(cv);
+			}
+		} else if(tsk->get_type() == task_type::MASTER_ACCESS) {
+			const auto matsk = dynamic_cast<const master_access_task*>(tsk.get());
+			const node_id master_node = 0;
+			num_chunks = 1;
+			chunk_nodes[master_node] = 0;
 
-			for(auto& it : chunk_reqs[i]) {
+			const auto buffer_accesses = matsk->get_accesses();
+			for(auto& it : buffer_accesses) {
 				const buffer_id bid = it.first;
-				const auto& read_req = it.second[cl::sycl::access::mode::read];
+
+				for(auto& bacc : it.second) {
+					// Note that subrange_to_grid_region clamps to the global size, which is why we set this to size_t max
+					// TODO: Subrange is not ideal here, we don't need the global size
+					// FIXME Dimensions
+					auto req = subrange<1>{boost::get<cl::sycl::range<1>>(bacc.offset), boost::get<cl::sycl::range<1>>(bacc.range),
+					    cl::sycl::range<1>(std::numeric_limits<size_t>::max())};
+					chunk_reqs[master_node][bid][bacc.mode] =
+					    GridRegion<1>::merge(chunk_reqs[master_node][bid][bacc.mode], detail::subrange_to_grid_region(req));
+				}
+			}
+
+			for(auto& it : chunk_reqs.at(master_node)) {
+				const buffer_id bid = it.first;
+				if(it.second.count(cl::sycl::access::mode::read) == 0) continue;
+				auto read_req = it.second.at(cl::sycl::access::mode::read);
 
 				// FIXME Dimensions
-				auto bs = dynamic_cast<detail::buffer_state<1>*>(valid_buffer_regions[bid].get());
-
-				// TODO: Are these always sorted? Probably not. (requried for set_intersection)
-				const auto sn = bs->get_source_nodes(read_req);
-				chunk_buffer_sources[i][bid] = sn;
-
-				if(!node_assigned) {
-					assert(free_nodes.size() > 0);
-
-					// If the chunk doesn't have any read requirements (for this buffer!),
-					// we also won't get any source nodes
-					if(sn.size() > 0) {
-						const auto& source_nodes = sn[0].second;
-
-						// We simply pick the first node that contains the largest chunk of
-						// the first requested buffer, given it is still available.
-						// Otherwise we simply pick the first available node.
-						// TODO: We should probably consider all buffers, not just the first
-						std::vector<node_id> intersection;
-						std::set_intersection(
-						    free_nodes.cbegin(), free_nodes.cend(), source_nodes.cbegin(), source_nodes.cend(), std::back_inserter(intersection));
-						if(!intersection.empty()) {
-							nid = intersection[0];
-						} else {
-							nid = *free_nodes.cbegin();
-						}
-					} else {
-						nid = *free_nodes.cbegin();
-					}
-
-					assert(master_only || nid != 0);
-					node_assigned = true;
-					free_nodes.erase(nid);
-					chunk_nodes[i] = nid;
-				}
+				auto bs = dynamic_cast<detail::buffer_state<1>*>(valid_buffer_regions.at(bid).get());
+				chunk_buffer_sources[master_node][bid] = bs->get_source_nodes(read_req);
 			}
-		}
 
-		// Create a compute command for every chunk
-		std::vector<vertex> chunk_compute_vertices;
-		for(chunk_id i = 0u; i < chunks.size(); ++i) {
-			const node_id nid = chunk_nodes[i];
-			const auto cv = graph_utils::add_compute_cmd(nid, taskvs[tid], chunks[i], command_graph);
-			chunk_compute_vertices.push_back(cv);
+			const auto cv = graph_utils::add_master_access_cmd(taskvs[tid], command_graph);
+			chunk_command_vertices.push_back(cv);
 		}
 
 		// Process writes and create pull / await-pull commands
-		for(auto i = 0u; i < chunks.size(); ++i) {
+		for(auto i = 0u; i < num_chunks; ++i) {
 			const node_id nid = chunk_nodes[i];
 
 			for(auto& it : chunk_reqs[i]) {
 				const buffer_id bid = it.first;
+				const vertex command_vertex = chunk_command_vertices[i];
 
-				// Add read to compute node label for debugging
+				// Add read to command node label for debugging
 				const auto& read_req = it.second[cl::sycl::access::mode::read];
 				if(read_req.area() > 0) {
-					command_graph[chunk_compute_vertices[i]].label =
-					    (boost::format("%s\\nRead %d %s") % command_graph[chunk_compute_vertices[i]].label % bid % toString(read_req)).str();
+					command_graph[command_vertex].label =
+					    (boost::format("%s\\nRead %d %s") % command_graph[command_vertex].label % bid % toString(read_req)).str();
 				}
 
 				// ==== Writes ====
@@ -367,8 +350,8 @@ void runtime::build_command_graph() {
 					buffer_writers[bid][nid].push_back(std::make_pair(tid, write_req));
 
 					// Add to compute node label for debugging
-					command_graph[chunk_compute_vertices[i]].label =
-					    (boost::format("%s\\nWrite %d %s") % command_graph[chunk_compute_vertices[i]].label % bid % toString(write_req)).str();
+					command_graph[command_vertex].label =
+					    (boost::format("%s\\nWrite %d %s") % command_graph[command_vertex].label % bid % toString(write_req)).str();
 				}
 
 				// ==== Reads ====
@@ -412,7 +395,7 @@ void runtime::build_command_graph() {
 					const auto source_tv = has_writer ? taskvs[writer_tid] : taskvs[tid];
 
 					// TODO: Update buffer regions since we copied some stuff!!
-					graph_utils::add_pull_cmd(nid, source_nid, bid, taskvs[tid], source_tv, chunk_compute_vertices[i], box, command_graph);
+					graph_utils::add_pull_cmd(nid, source_nid, bid, taskvs[tid], source_tv, command_vertex, box, command_graph);
 				}
 			}
 		}
@@ -445,6 +428,68 @@ void runtime::build_command_graph() {
 	} else {
 		graph_utils::print_graph(command_graph);
 	}
+}
+
+// FIXME: Dimensions
+std::unordered_map<runtime::chunk_id, node_id> runtime::assign_chunks_to_nodes(
+    size_t num_chunks, const chunk_buffer_requirements_map& chunk_reqs, std::set<node_id> free_nodes, chunk_buffer_source_map& chunk_buffer_sources) const {
+	std::unordered_map<chunk_id, node_id> chunk_nodes;
+	for(auto i = 0u; i < num_chunks; ++i) {
+		bool node_assigned = false;
+		node_id nid = std::numeric_limits<node_id>::max();
+
+		for(auto& it : chunk_reqs.at(i)) {
+			const buffer_id bid = it.first;
+
+			// FIXME Dimensions
+			GridRegion<1> read_req;
+			if(it.second.count(cl::sycl::access::mode::read) != 0) { read_req = it.second.at(cl::sycl::access::mode::read); }
+
+			// FIXME Dimensions
+			auto bs = dynamic_cast<detail::buffer_state<1>*>(valid_buffer_regions.at(bid).get());
+
+			// TODO: Are these always sorted? Probably not. (requried for set_intersection)
+			const auto sn = bs->get_source_nodes(read_req);
+			chunk_buffer_sources[i][bid] = sn;
+
+			if(!node_assigned) {
+				assert(free_nodes.size() > 0);
+
+				// If the chunk doesn't have any read requirements (for this buffer!),
+				// we also won't get any source nodes
+				if(sn.size() > 0) {
+					const auto& source_nodes = sn[0].second;
+
+					// We simply pick the first node that contains the largest chunk of
+					// the first requested buffer, given it is still available.
+					// Otherwise we simply pick the first available node.
+					// TODO: We should probably consider all buffers, not just the first
+					std::vector<node_id> intersection;
+					std::set_intersection(free_nodes.cbegin(), free_nodes.cend(), source_nodes.cbegin(), source_nodes.cend(), std::back_inserter(intersection));
+					if(!intersection.empty()) {
+						nid = intersection[0];
+					} else {
+						nid = *free_nodes.cbegin();
+					}
+				} else {
+					nid = *free_nodes.cbegin();
+				}
+
+				assert(nid != std::numeric_limits<node_id>::max());
+				node_assigned = true;
+				free_nodes.erase(nid);
+				chunk_nodes[i] = nid;
+			}
+		}
+	}
+
+	return chunk_nodes;
+}
+
+void runtime::execute_master_access_task(task_id tid) const {
+	const auto tsk = dynamic_cast<const master_access_task*>(queue->get_task(tid).get());
+	const master_access_livepass_handler handler;
+	tsk->get_functor()(handler);
 }
 
 } // namespace celerity

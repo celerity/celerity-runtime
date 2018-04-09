@@ -1,9 +1,11 @@
 #pragma once
 
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
 #include <boost/algorithm/string.hpp>
+#include <boost/format.hpp>
 #include <boost/graph/breadth_first_search.hpp>
 
 #include "command.h"
@@ -123,11 +125,13 @@ namespace graph_utils {
 		return v;
 	}
 
+	vertex add_master_access_cmd(const task_vertices& tv, command_dag& cdag);
+
 	template <std::size_t Dims>
-	vertex add_pull_cmd(node_id nid, node_id source_nid, buffer_id bid, const task_vertices& tv, const task_vertices& source_tv, vertex compute_cmd,
+	vertex add_pull_cmd(node_id nid, node_id source_nid, buffer_id bid, const task_vertices& tv, const task_vertices& source_tv, vertex req_cmd,
 	    const GridBox<Dims>& req, command_dag& cdag) {
-		assert(cdag[compute_cmd].cmd == command::COMPUTE);
-		const auto v = graph_utils::insert_vertex_on_edge(tv.first, compute_cmd, cdag);
+		assert(cdag[req_cmd].cmd == command::COMPUTE || cdag[req_cmd].cmd == command::MASTER_ACCESS);
+		const auto v = graph_utils::insert_vertex_on_edge(tv.first, req_cmd, cdag);
 		cdag[v].cmd = command::PULL;
 		cdag[v].nid = nid;
 		cdag[v].tid = cdag[tv.first].tid;
@@ -136,19 +140,24 @@ namespace graph_utils {
 		cdag[v].data.pull.source = source_nid;
 		cdag[v].data.pull.subrange = command_subrange(detail::grid_box_to_subrange(req));
 
-		// Find the compute command for the source node in the writing task (or this
+		// Find the compute / master access command for the source node in the writing task (or this
 		// task, if no writing task has been found)
-		vertex source_compute_v = 0;
-		search_vertex_bf(source_tv.first, cdag, [source_nid, source_tv, &source_compute_v](vertex v, const command_dag& cdag) {
-			if(cdag[v].cmd == command::COMPUTE && cdag[v].nid == source_nid) {
-				source_compute_v = v;
+		vertex source_command_v = std::numeric_limits<size_t>::max();
+		search_vertex_bf(source_tv.first, cdag, [source_nid, source_tv, &source_command_v](vertex v, const command_dag& cdag) {
+			// FIXME: We have some special casing here for master access:
+			// Master access only executes on the master node, which is (generally) not the source node. If the master access
+			// is not in a sibling set with some writing task, we won't be able to find a compute comand for source_nid.
+			// A proper solution to this will also handle the fact that in the futue we won't necessarily split every task
+			// over all nodes.
+			if(cdag[v].cmd == command::MASTER_ACCESS || cdag[v].cmd == command::COMPUTE && cdag[v].nid == source_nid) {
+				source_command_v = v;
 				return true;
 			}
 			return false;
 		});
-		assert(source_compute_v != 0);
+		assert(source_command_v != std::numeric_limits<size_t>::max());
 
-		const auto w = graph_utils::insert_vertex_on_edge(source_tv.first, source_compute_v, cdag);
+		const auto w = graph_utils::insert_vertex_on_edge(source_tv.first, source_command_v, cdag);
 		cdag[w].cmd = command::AWAIT_PULL;
 		cdag[w].nid = source_nid;
 		cdag[w].tid = cdag[source_tv.first].tid;

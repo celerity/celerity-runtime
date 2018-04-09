@@ -30,6 +30,9 @@ class worker_job {
 	command get_type() const { return pkg.cmd; }
 	task_id get_task_id() const { return pkg.tid; }
 
+	// FIXME Remove this, required for send_job workaround (see below)
+	const command_pkg& WORKAROUND_get_pkg() const { return pkg; }
+
   private:
 	command_pkg pkg;
 	bool done = false;
@@ -96,6 +99,16 @@ class send_job : public worker_job {
 	job_set find_dependencies(const distr_queue& queue, const job_set& jobs) override;
 
 	bool execute(const command_pkg& pkg) override;
+
+	// FIXME: WORKAROUND - Remove this at some point
+  private:
+	const distr_queue* queue = nullptr;
+	const job_set* jobs = nullptr;
+	bool safe_to_send = false;
+	std::shared_ptr<const await_pull_job> corresponding_await_pull = nullptr;
+	job_set additional_dependencies;
+
+	bool WORKAROUND_avoid_race_condition();
 };
 
 /**
@@ -118,5 +131,20 @@ class compute_job : public worker_job {
 
 	bool execute(const command_pkg& pkg) override;
 };
+
+/**
+ * Runs a master access functor.
+ * Waits for any pulls within the same task.
+ */
+class master_access_job : public worker_job {
+  public:
+	master_access_job(command_pkg pkg) : worker_job(pkg) { assert(pkg.cmd == command::MASTER_ACCESS); }
+
+  private:
+	job_set find_dependencies(const distr_queue& queue, const job_set& jobs) override;
+
+	bool execute(const command_pkg& pkg) override;
+};
+
 
 } // namespace celerity

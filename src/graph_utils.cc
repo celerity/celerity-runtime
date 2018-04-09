@@ -2,8 +2,6 @@
 
 #include <queue>
 
-#include <boost/format.hpp>
-
 namespace celerity {
 
 namespace graph_utils {
@@ -22,6 +20,19 @@ namespace graph_utils {
 		cdag[complete_task_v].tid = tid;
 
 		return task_vertices(begin_task_v, complete_task_v);
+	}
+
+	vertex add_master_access_cmd(const task_vertices& tv, command_dag& cdag) {
+		const node_id master_nid = 0;
+		const auto v = boost::add_vertex(cdag);
+		boost::add_edge(tv.first, v, cdag);
+		boost::add_edge(v, tv.second, cdag);
+		cdag[v].cmd = command::MASTER_ACCESS;
+		cdag[v].nid = master_nid;
+		cdag[v].tid = cdag[tv.first].tid;
+		cdag[v].label = (boost::format("Node %d:\\MASTER ACCESS") % master_nid).str();
+		cdag[v].data.master_access = {};
+		return v;
 	}
 
 	std::vector<task_id> get_satisfied_sibling_set(const task_dag& tdag) {

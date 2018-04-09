@@ -6,13 +6,15 @@
 #include <SYCL/sycl.hpp>
 #include <boost/variant.hpp>
 
-#include "buffer.h"
 #include "graph.h"
 #include "handler.h"
-#include "range_mapper.h"
+#include "task.h"
 #include "types.h"
 
 namespace celerity {
+
+template <typename DataT, int Dims>
+class buffer;
 
 // experimental / NYI
 class branch_handle {
@@ -21,47 +23,47 @@ class branch_handle {
 	void get(buffer<DataT, Dims>&, cl::sycl::range<Dims>){};
 };
 
-namespace detail {
-
-	// This is a workaround that let's us store a command group functor with auto&
-	// parameter, which we require in order to be able to pass different
-	// celerity::handlers (celerity::is_prepass::true_t/false_t) for prepass and
-	// live invocations.
-	struct cgf_storage_base {
-		virtual void operator()(handler<is_prepass::true_t>) = 0;
-		virtual void operator()(handler<is_prepass::false_t>) = 0;
-		virtual ~cgf_storage_base(){};
-	};
-
-	template <typename CGF>
-	struct cgf_storage : cgf_storage_base {
-		CGF cgf;
-
-		cgf_storage(CGF cgf) : cgf(cgf) {}
-
-		void operator()(handler<is_prepass::true_t> cgh) override { cgf(cgh); }
-		void operator()(handler<is_prepass::false_t> cgh) override { cgf(cgh); }
-	};
-
-} // namespace detail
-
+/*
+ * TODO: distr_queue has a bit of an identity crisis
+ * On the one hand, it encapsulates the SYCL queue and is thus responsible for compute tasks (kernels), which makes
+ * it a reasonable location for storing tasks as well as the task graph. Things are complicated by the introduction of
+ * "single-tasks" (i.e., celerity::with_master_access, or branching later on): distr_queue needs to know about these tasks,
+ * as they also affect the task graph. However, the execution of single-tasks is entirely out of SYCL scope and much better
+ * suited to be handled by the runtime class, which has access to all buffers. So distr_queue now stores all tasks, but
+ * execution is handled by distr_queue OR the runtime, depending on the task type.
+ *
+ * ==> Maybe distr_queue should really only be a thin wrapper around the SYCL queue, and task management should be delegated
+ * to a dedicated class.
+ */
 class distr_queue {
   public:
 	// TODO: Device should be selected transparently
 	distr_queue(cl::sycl::device device);
 
+	distr_queue(const distr_queue& other) = delete;
+	distr_queue(distr_queue&& other) = delete;
+
 	template <typename CGF>
 	void distr_queue::submit(CGF cgf) {
-		const task_id tid = task_count++;
-		boost::add_vertex(task_graph);
-		handler<is_prepass::true_t> h(*this, tid);
+		const auto tid = add_task(std::make_shared<compute_task>(std::make_unique<detail::cgf_storage<CGF>>(cgf)));
+		compute_prepass_handler h(*this, tid);
 		cgf(h);
-		task_command_groups[tid] = std::make_unique<detail::cgf_storage<CGF>>(cgf);
+	}
+
+	// ----------- CELERITY INTERNAL -----------
+	// TODO: Consider employing the pimpl-pattern to hide all these internal member functions
+
+	template <typename MAF>
+	task_id create_master_access_task(MAF maf) {
+		return add_task(std::make_shared<master_access_task>(std::make_unique<detail::maf_storage<MAF>>(maf)));
 	}
 
 	const task_dag& get_task_graph() const { return task_graph; }
-	const auto& get_task_range_mappers() const { return task_range_mappers; }
-	const auto& get_task_global_sizes() const { return task_global_sizes; }
+
+	std::shared_ptr<const task> get_task(task_id tid) const {
+		assert(task_map.count(tid) != 0);
+		return task_map.at(tid);
+	}
 
 	void mark_task_as_processed(task_id tid);
 
@@ -82,19 +84,20 @@ class distr_queue {
 	 */
 	template <int Dims>
 	cl::sycl::event execute(task_id tid, subrange<Dims> sr) {
-		auto& cgf = task_command_groups.at(tid);
+		assert(task_map.count(tid) != 0);
+		assert(task_map[tid]->get_type() == task_type::COMPUTE);
+		auto& cgf = dynamic_cast<compute_task*>(task_map[tid].get())->get_command_group();
 		return sycl_queue.submit([this, &cgf, tid, sr](cl::sycl::handler& sycl_handler) {
-			handler<is_prepass::false_t> h(*this, tid, sr, &sycl_handler);
-			(*cgf)(h);
+			compute_livepass_handler h(*this, tid, sr, &sycl_handler);
+			cgf(h);
 		});
 	}
 
   private:
-	friend handler<is_prepass::true_t>;
-	// TODO: We may want to move all these task maps into a dedicated struct
-	std::unordered_map<task_id, std::unique_ptr<detail::cgf_storage_base>> task_command_groups;
-	std::unordered_map<task_id, boost::variant<cl::sycl::range<1>, cl::sycl::range<2>, cl::sycl::range<3>>> task_global_sizes;
-	std::unordered_map<task_id, std::unordered_map<buffer_id, std::vector<std::unique_ptr<detail::range_mapper_base>>>> task_range_mappers;
+	friend compute_prepass_handler;
+	friend master_access_prepass_handler;
+
+	std::unordered_map<task_id, std::shared_ptr<task>> task_map;
 
 	// This is a high-level view on buffer writers, for creating the task graph
 	// NOTE: This represents the state after the latest performed pre-pass, i.e.
@@ -106,13 +109,21 @@ class distr_queue {
 
 	cl::sycl::queue sycl_queue;
 
+	task_id add_task(std::shared_ptr<task> tsk);
+
+	/**
+	 * Adds requirement for a compute task, including a range mapper.
+	 */
 	void add_requirement(task_id tid, buffer_id bid, cl::sycl::access::mode mode, std::unique_ptr<detail::range_mapper_base> rm);
 
-	template <int Dims>
-	void set_task_data(task_id tid, cl::sycl::range<Dims> global_size, std::string debug_name) {
-		task_global_sizes[tid] = global_size;
-		task_graph[tid].label = (boost::format("Task %d (%s)") % tid % debug_name).str();
-	}
+	/**
+	 * Adds requirement for a master-access task, with plain ranges.
+	 */
+	void add_requirement(task_id tid, buffer_id bid, cl::sycl::access::mode mode, any_range range, any_range offset);
+
+	void set_task_data(task_id tid, any_range global_size, std::string debug_name);
+
+	void update_dependencies(task_id tid, buffer_id bid, cl::sycl::access::mode mode);
 };
 
 } // namespace celerity
