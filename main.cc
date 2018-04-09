@@ -6,12 +6,6 @@
 
 #include <celerity.h>
 
-// Prepend "//" to not break GraphViz format
-// ...or output it to stderr... or both!
-std::ostream& log() {
-	return std::cerr << "// ";
-}
-
 // General notes:
 // Spec version used: https://www.khronos.org/registry/SYCL/specs/sycl-1.2.1.pdf
 //
@@ -45,12 +39,12 @@ int main(int argc, char* argv[]) {
 		cl_platform_id platforms[10];
 		cl::sycl::cl_uint num_platforms;
 		assert(clGetPlatformIDs(10, platforms, &num_platforms) == CL_SUCCESS);
-		// log() << "Found " << num_platforms << " platforms:" << std::endl;
+		// std::cout << "Found " << num_platforms << " platforms:" << std::endl;
 
 		for(auto i = 0u; i < num_platforms; ++i) {
 			char platform_name[255];
 			clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, sizeof(platform_name), platform_name, nullptr);
-			// log() << "Platform " << i << ": " << platform_name << std::endl;
+			// std::cout << "Platform " << i << ": " << platform_name << std::endl;
 		}
 
 		const size_t USE_PLATFORM = 2;
@@ -58,12 +52,12 @@ int main(int argc, char* argv[]) {
 		cl_device_id devices[10];
 		cl::sycl::cl_uint num_devices;
 		assert(clGetDeviceIDs(platforms[USE_PLATFORM], CL_DEVICE_TYPE_CPU, 10, devices, &num_devices) == CL_SUCCESS);
-		// log() << "Found " << num_devices << " devices on platform #" << USE_PLATFORM << ":" << std::endl;
+		// std::cout << "Found " << num_devices << " devices on platform #" << USE_PLATFORM << ":" << std::endl;
 
 		for(auto i = 0u; i < num_devices; ++i) {
 			char device_name[255];
 			clGetDeviceInfo(devices[i], CL_DEVICE_NAME, sizeof(device_name), device_name, nullptr);
-			// log() << "Device " << i << ": " << device_name << std::endl;
+			// std::cout << "Device " << i << ": " << device_name << std::endl;
 		}
 
 		// Create device explicitly as the default ComputeCpp device selector
