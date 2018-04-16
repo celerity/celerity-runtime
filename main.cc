@@ -24,6 +24,40 @@ void print_pid() {
 	std::cout << std::endl;
 }
 
+cl::sycl::device pick_device(int platform_id, int device_id) {
+	if(platform_id != -1 && device_id != -1) {
+		cl_platform_id platforms[10];
+		cl::sycl::cl_uint num_platforms;
+		assert(clGetPlatformIDs(10, platforms, &num_platforms) == CL_SUCCESS);
+		std::cout << "Found " << num_platforms << " platforms:" << std::endl;
+
+		for(auto i = 0u; i < num_platforms; ++i) {
+			char platform_name[255];
+			clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, sizeof(platform_name), platform_name, nullptr);
+			std::cout << "Platform " << i << ": " << platform_name << std::endl;
+		}
+
+		assert(platform_id < num_platforms);
+		cl_device_id devices[10];
+		cl::sycl::cl_uint num_devices;
+
+		assert(clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, 10, devices, &num_devices) == CL_SUCCESS);
+		std::cout << "Found " << num_devices << " devices on platform #" << platform_id << ":" << std::endl;
+
+		for(auto i = 0u; i < num_devices; ++i) {
+			char device_name[255];
+			clGetDeviceInfo(devices[i], CL_DEVICE_NAME, sizeof(device_name), device_name, nullptr);
+			std::cout << "Device " << i << ": " << device_name << std::endl;
+		}
+
+		std::cout << "Using device " << device_id << std::endl;
+		return cl::sycl::device(devices[device_id]);
+	}
+
+	cl::sycl::gpu_selector selector;
+	return selector.select_device();
+}
+
 // General notes:
 // Spec version used: https://www.khronos.org/registry/SYCL/specs/sycl-1.2.1.pdf
 //
@@ -38,12 +72,11 @@ int main(int argc, char* argv[]) {
 	print_pid();
 	// std::this_thread::sleep_for(std::chrono::seconds(5)); // Sleep so we have time to attach a debugger
 
-	//// ============= DEMO SETUP =================
-	// Pause execution so we can attach debugger (for stepping w/ live plotting)
-	if(argc > 1 && std::string("--pause") == argv[1]) {
-		std::cout << "(Paused. Press return key to continue)" << std::endl;
-		char a;
-		std::cin >> std::noskipws >> a;
+	int platform_id = -1;
+	int device_id = -1;
+	if(argc > 2) {
+		platform_id = atoi(argv[1]);
+		device_id = atoi(argv[2]);
 	}
 
 	std::vector<float> host_data_a(DEMO_DATA_SIZE);
@@ -52,35 +85,7 @@ int main(int argc, char* argv[]) {
 	std::vector<float> host_data_d(DEMO_DATA_SIZE);
 
 	try {
-		//// ============= DEVICE SELECTION =================
-
-		cl_platform_id platforms[10];
-		cl::sycl::cl_uint num_platforms;
-		assert(clGetPlatformIDs(10, platforms, &num_platforms) == CL_SUCCESS);
-		// std::cout << "Found " << num_platforms << " platforms:" << std::endl;
-
-		for(auto i = 0u; i < num_platforms; ++i) {
-			char platform_name[255];
-			clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, sizeof(platform_name), platform_name, nullptr);
-			// std::cout << "Platform " << i << ": " << platform_name << std::endl;
-		}
-
-		const size_t USE_PLATFORM = 2;
-		assert(USE_PLATFORM < num_platforms);
-		cl_device_id devices[10];
-		cl::sycl::cl_uint num_devices;
-		assert(clGetDeviceIDs(platforms[USE_PLATFORM], CL_DEVICE_TYPE_CPU, 10, devices, &num_devices) == CL_SUCCESS);
-		// std::cout << "Found " << num_devices << " devices on platform #" << USE_PLATFORM << ":" << std::endl;
-
-		for(auto i = 0u; i < num_devices; ++i) {
-			char device_name[255];
-			clGetDeviceInfo(devices[i], CL_DEVICE_NAME, sizeof(device_name), device_name, nullptr);
-			// std::cout << "Device " << i << ": " << device_name << std::endl;
-		}
-
-		// Create device explicitly as the default ComputeCpp device selector
-		// selects a faulty device (on this machine - psalz 2018/02/06).
-		cl::sycl::device myDevice(devices[0]);
+		const cl::sycl::device device = pick_device(platform_id, device_id);
 
 		//// =========== DEVICE SELECTION END ===============
 
@@ -91,7 +96,7 @@ int main(int argc, char* argv[]) {
 		// don't have to address multiple devices (with multiple queues) manually.
 		// If a node has multiple devices available, it can start multiple worker
 		// processes to make use of them.
-		celerity::distr_queue queue(myDevice);
+		celerity::distr_queue queue(device);
 
 		// TODO: Do we support SYCL sub-buffers & images? Section 4.7.2
 		celerity::buffer<float, 1> buf_a(host_data_a.data(), cl::sycl::range<1>(DEMO_DATA_SIZE));
