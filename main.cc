@@ -11,6 +11,9 @@
 
 #include <celerity.h>
 
+// Use define instead of constexpr as MSVC seems to have some trouble getting it into nested closures
+#define DEMO_DATA_SIZE (1024)
+
 void print_pid() {
 	std::cout << "PID: ";
 #ifdef _MSC_VER
@@ -43,10 +46,10 @@ int main(int argc, char* argv[]) {
 		std::cin >> std::noskipws >> a;
 	}
 
-	float host_data_a[1024];
-	float host_data_b[1024];
-	float host_data_c[1024];
-	float host_data_d[1024];
+	std::vector<float> host_data_a(DEMO_DATA_SIZE);
+	std::vector<float> host_data_b(DEMO_DATA_SIZE);
+	std::vector<float> host_data_c(DEMO_DATA_SIZE);
+	std::vector<float> host_data_d(DEMO_DATA_SIZE);
 
 	try {
 		//// ============= DEVICE SELECTION =================
@@ -91,10 +94,10 @@ int main(int argc, char* argv[]) {
 		celerity::distr_queue queue(myDevice);
 
 		// TODO: Do we support SYCL sub-buffers & images? Section 4.7.2
-		celerity::buffer<float, 1> buf_a(host_data_a, cl::sycl::range<1>(1024));
-		celerity::buffer<float, 1> buf_b(host_data_b, cl::sycl::range<1>(1024));
-		celerity::buffer<float, 1> buf_c(host_data_c, cl::sycl::range<1>(1024));
-		celerity::buffer<float, 1> buf_d(host_data_d, cl::sycl::range<1>(1024));
+		celerity::buffer<float, 1> buf_a(host_data_a.data(), cl::sycl::range<1>(DEMO_DATA_SIZE));
+		celerity::buffer<float, 1> buf_b(host_data_b.data(), cl::sycl::range<1>(DEMO_DATA_SIZE));
+		celerity::buffer<float, 1> buf_c(host_data_c.data(), cl::sycl::range<1>(DEMO_DATA_SIZE));
+		celerity::buffer<float, 1> buf_d(host_data_d.data(), cl::sycl::range<1>(DEMO_DATA_SIZE));
 
 		// **** COMMAND GROUPS ****
 		// The functor/lambda submitted to a SYCL queue is called a "command group".
@@ -135,13 +138,13 @@ int main(int argc, char* argv[]) {
 			//   handled by the runtime. We only specify the global size.
 			// * We only support a single kernel call per command group (not sure if
 			//   this is also the case in SYCL; spec doesn't mention it explicitly).
-			cgh.template parallel_for<class produce_a>(cl::sycl::range<1>(1024), [=](cl::sycl::item<1> item) {
+			cgh.template parallel_for<class produce_a>(cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) {
 				// TODO: Why doesn't this work? It appears like get_offset always returns 0? Bug? Investigate!
 				// a[item.get_range() - item.get_offset() + item.get_id()] = 1.f;
 				// a[1024 - item.get_range() - item.get_offset() + item.get_id()] = 1.f;
 
 				auto id = item.get_id()[0];
-				a[1023 - id] = 1.f;
+				a[DEMO_DATA_SIZE - 1 - id] = 1.f;
 			});
 		});
 
@@ -190,7 +193,7 @@ int main(int argc, char* argv[]) {
 			});
 
 			auto b = buf_b.get_access<cl::sycl::access::mode::write>(cgh, celerity::access::one_to_one<1>());
-			cgh.template parallel_for<class compute_b>(cl::sycl::range<1>(1024), [=](cl::sycl::item<1> item) {
+			cgh.template parallel_for<class compute_b>(cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) {
 				auto i = item.get_id();
 				b[i] = a[i] * 2.f;
 			});
@@ -199,11 +202,11 @@ int main(int argc, char* argv[]) {
 #define COMPUTE_C_ON_MASTER 1
 #if COMPUTE_C_ON_MASTER
 		celerity::with_master_access([&](auto& mah) {
-			auto a = buf_a.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<1>(1024));
-			auto c = buf_c.get_access<cl::sycl::access::mode::write>(mah, cl::sycl::range<1>(1024));
+			auto a = buf_a.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<1>(DEMO_DATA_SIZE));
+			auto c = buf_c.get_access<cl::sycl::access::mode::write>(mah, cl::sycl::range<1>(DEMO_DATA_SIZE));
 
 			mah.run([=]() {
-				for(int i = 0; i < 1024; ++i) {
+				for(int i = 0; i < DEMO_DATA_SIZE; ++i) {
 					c[i] = 2.f - a[i];
 				}
 			});
@@ -212,7 +215,7 @@ int main(int argc, char* argv[]) {
 		queue.submit([&](auto& cgh) {
 			auto a = buf_a.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one<1>());
 			auto c = buf_c.get_access<cl::sycl::access::mode::write>(cgh, celerity::access::one_to_one<1>());
-			cgh.template parallel_for<class compute_c>(cl::sycl::range<1>(1024), [=](cl::sycl::item<1> item) {
+			cgh.template parallel_for<class compute_c>(cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) {
 				auto i = item.get_id();
 				c[i] = 2.f - a[i];
 			});
@@ -224,7 +227,7 @@ int main(int argc, char* argv[]) {
 			auto b = buf_b.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one<1>());
 			auto c = buf_c.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one<1>());
 			auto d = buf_d.get_access<cl::sycl::access::mode::write>(cgh, celerity::access::one_to_one<1>());
-			cgh.template parallel_for<class compute_d>(cl::sycl::range<1>(1024), [=](cl::sycl::item<1> item) {
+			cgh.template parallel_for<class compute_d>(cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) {
 				auto i = item.get_id();
 				d[i] = b[i] + c[i];
 			});
@@ -235,7 +238,7 @@ int main(int argc, char* argv[]) {
 			queue.submit([&](auto& cgh) {
 				auto c = buf_c.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one<1>());
 				auto d = buf_d.get_access<cl::sycl::access::mode::write>(cgh, celerity::access::one_to_one<1>());
-				cgh.template parallel_for<class compute_some_more>(cl::sycl::range<1>(1024), [=](cl::sycl::item<1> item) {
+				cgh.template parallel_for<class compute_some_more>(cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) {
 					auto i = item.get_id();
 					d[i] = 2.f - c[i];
 				});
@@ -244,20 +247,20 @@ int main(int argc, char* argv[]) {
 #endif
 
 		celerity::with_master_access([&](auto& mah) {
-			auto d = buf_d.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<1>(1024));
+			auto d = buf_d.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<1>(DEMO_DATA_SIZE));
 
 			mah.run([=]() {
 				// Buffer contents can be accessed in here
 				// This is indended for I/O and validation
 				// No queue submissions are allowed (i.e. no branching)
 				// If access mode is write, update valid buffer regions afterwards!
-				float sum = 0.f;
-				for(int i = 0; i < 1024; ++i) {
-					sum += d[i];
+				size_t sum = 0;
+				for(int i = 0; i < DEMO_DATA_SIZE; ++i) {
+					sum += (size_t)d[i];
 				}
 
 				std::cout << "## RESULT: ";
-				if(sum == 3072.f) {
+				if(sum == 3 * DEMO_DATA_SIZE) {
 					std::cout << "Success! Correct value was computed." << std::endl;
 				} else {
 					std::cout << "Fail! Value is " << sum << std::endl;
