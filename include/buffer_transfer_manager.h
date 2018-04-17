@@ -44,6 +44,12 @@ class buffer_transfer_manager {
 		MPI_Request request;
 		data_header header;
 		std::vector<char> data;
+
+		// This data type is constructed for every individual transfer
+		MPI_Datatype data_type = 0;
+		~transfer_in() {
+			if(data_type != 0) { MPI_Type_free(&data_type); }
+		}
 	};
 
 	struct transfer_out {
@@ -53,6 +59,12 @@ class buffer_transfer_manager {
 
 		transfer_out(detail::raw_data_read_handle data_handle) : data_handle(data_handle) {}
 		void* get_raw_ptr() const { return data_handle.base_ptr; }
+
+		// This data type is constructed for every individual transfer
+		MPI_Datatype data_type = 0;
+		~transfer_out() {
+			if(data_type != 0) { MPI_Type_free(&data_type); }
+		}
 
 	  private:
 		detail::raw_data_read_handle data_handle;

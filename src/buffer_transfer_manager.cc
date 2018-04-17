@@ -43,8 +43,9 @@ void buffer_transfer_manager::poll_transfers() {
 	// We use absolute displacements here (= pointers), since it's easier that way to get the actual memory location within the vector
 	MPI_Aint disps[2] = {(MPI_Aint)&transfer->header, (MPI_Aint)&transfer->data[0]};
 	MPI_Type_create_struct(2, block_lengths, disps, block_types, &transfer_data_type);
-	// TODO: Free data type after transfer is complete
 	MPI_Type_commit(&transfer_data_type);
+	// Store data type so it can be free'd after the transfer is complete
+	transfer->data_type = transfer_data_type;
 
 	// Start receiving data
 	MPI_Irecv(MPI_BOTTOM, 1, transfer_data_type, status.MPI_SOURCE, CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &transfer->request);
@@ -99,8 +100,9 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 	// We use absolute displacements here (= pointers), so we can obtain header and data from different locations
 	MPI_Aint disps[2] = {(MPI_Aint)&transfer->header, (MPI_Aint)transfer->get_raw_ptr()};
 	MPI_Type_create_struct(2, block_lengths, disps, block_types, &transfer_data_type);
-	// TODO: Free data type after transfer is complete
 	MPI_Type_commit(&transfer_data_type);
+	// Store data type so it can be free'd after the transfer is complete
+	transfer->data_type = transfer_data_type;
 
 	// Start transmitting data
 	MPI_Isend(MPI_BOTTOM, 1, transfer_data_type, to, CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &transfer->request);
