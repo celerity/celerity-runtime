@@ -50,9 +50,9 @@ runtime::~runtime() {
 }
 
 void send_command(node_id target, const command_pkg& pkg) {
-	MPI_Request req;
-	// TODO: Do we need the request object?
-	const auto result = MPI_Isend(&pkg, sizeof(command_pkg), MPI_BYTE, target, CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD, &req);
+	// Command packages are small enough to use a blocking send.
+	// This way we don't have to ensure the data stays around long enough (until asynchronous send is complete).
+	const auto result = MPI_Send(&pkg, sizeof(command_pkg), MPI_BYTE, target, CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD);
 	assert(result == MPI_SUCCESS);
 }
 

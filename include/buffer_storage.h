@@ -1,5 +1,8 @@
 #pragma once
 
+#include <array>
+#include <cassert>
+
 #include <SYCL/sycl.hpp>
 
 namespace celerity {
@@ -13,9 +16,19 @@ namespace detail {
 		std::array<int, 3> offsets;
 	};
 
+	struct raw_data_read_handle : raw_data_range {
+		explicit raw_data_read_handle(cl::sycl::accessor_base accessor) : accessor(accessor){};
+
+	  private:
+		// We store the related accessor (_base, for convenience) to ensure the memory remains valid
+		// FIXME: accessor_base is a non-standard (ComputeCpp internal) object
+		// TODO: An alternative approach would be to copy the data somewhere before sending it
+		cl::sycl::accessor_base accessor;
+	};
+
 	struct buffer_storage_base {
-		virtual raw_data_range get_data_range(const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) = 0;
-		virtual void set_data_range(const raw_data_range& dr) = 0;
+		virtual raw_data_read_handle get_data(const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) = 0;
+		virtual void set_data(const raw_data_range& dr) = 0;
 		virtual ~buffer_storage_base() = default;
 	};
 
@@ -30,13 +43,13 @@ namespace detail {
 
 		buffer_storage(cl::sycl::buffer<DataT, 1>& buf) : buf(buf) {}
 
-		raw_data_range get_data_range(const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) override {
+		raw_data_read_handle get_data(const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) override {
 			assert(offset[1] == 0 && range[1] == 0);
 			assert(offset[2] == 0 && range[2] == 0);
 
 			auto acc = buf.template get_access<cl::sycl::access::mode::read>(cl::sycl::range<1>(range[0]), cl::sycl::id<1>(offset[0]));
 			auto buf_size = buf.get_range();
-			raw_data_range result;
+			raw_data_read_handle result(acc);
 			result.dimensions = 1;
 			result.base_ptr = acc.get_pointer();
 			// FIXME: Check bounds before casting to int!
@@ -46,7 +59,7 @@ namespace detail {
 			return result;
 		}
 
-		void set_data_range(const raw_data_range& dr) override {
+		void set_data(const raw_data_range& dr) override {
 			assert(dr.dimensions == 1);
 			auto acc = buf.template get_access<cl::sycl::access::mode::write>(cl::sycl::range<1>(dr.subsize[0]), cl::sycl::id<1>(dr.offsets[0]));
 			auto dst_ptr = acc.get_pointer();
@@ -60,12 +73,12 @@ namespace detail {
 
 		buffer_storage(cl::sycl::buffer<DataT, 2>& buf) : buf(buf) {}
 
-		raw_data_range get_data_range(const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) override {
+		raw_data_read_handle get_data(const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) override {
 			assert(offset[2] == 0 && range[2] == 0);
 
 			auto acc = buf.template get_access<cl::sycl::access::mode::read>(cl::sycl::range<2>(range[0], range[1]), cl::sycl::id<2>(offset[0], offset[1]));
 			auto buf_size = buf.get_range();
-			raw_data_range result;
+			raw_data_read_handle result(acc);
 			result.dimensions = 2;
 			result.base_ptr = acc.get_pointer();
 			// FIXME: Check bounds before casting to int!
@@ -75,7 +88,7 @@ namespace detail {
 			return result;
 		}
 
-		void set_data_range(const raw_data_range& dr) override {
+		void set_data(const raw_data_range& dr) override {
 			assert(dr.dimensions == 2);
 			throw std::runtime_error("set_data_range for 2 dimensions NYI");
 		}
@@ -87,11 +100,11 @@ namespace detail {
 
 		buffer_storage(cl::sycl::buffer<DataT, 3>& buf) : buf(buf) {}
 
-		raw_data_range get_data_range(const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) override {
+		raw_data_read_handle get_data(const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) override {
 			auto acc = buf.template get_access<cl::sycl::access::mode::read>(
 			    cl::sycl::range<3>(range[0], range[1], range[2]), cl::sycl::id<3>(offset[0], offset[1], offset[2]));
 			auto buf_size = buf.get_range();
-			raw_data_range result;
+			raw_data_read_handle result(acc);
 			result.dimensions = 3;
 			result.base_ptr = acc.get_pointer();
 			// FIXME: Check bounds before casting to int!
@@ -101,7 +114,7 @@ namespace detail {
 			return result;
 		}
 
-		void set_data_range(const raw_data_range& dr) override {
+		void set_data(const raw_data_range& dr) override {
 			assert(dr.dimensions == 3);
 			throw std::runtime_error("set_data_range for 3 dimensions NYI");
 		}

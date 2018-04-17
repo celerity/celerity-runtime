@@ -40,14 +40,14 @@ class runtime {
 		valid_buffer_regions.erase(bid);
 	}
 
-	detail::raw_data_range get_buffer_data(buffer_id bid, const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) {
+	detail::raw_data_read_handle get_buffer_data(buffer_id bid, const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) {
 		assert(buffer_ptrs.at(bid) != nullptr);
-		return buffer_ptrs[bid]->get_data_range(offset, range);
+		return buffer_ptrs[bid]->get_data(offset, range);
 	}
 
 	void set_buffer_data(buffer_id bid, const detail::raw_data_range& dr) {
 		assert(buffer_ptrs.at(bid) != nullptr);
-		buffer_ptrs[bid]->set_data_range(dr);
+		buffer_ptrs[bid]->set_data(dr);
 	}
 
 	void schedule_buffer_send(node_id recipient, const command_pkg& pkg);

@@ -75,29 +75,29 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 		active_handles[pkg.tid][data.bid].push_back(std::make_pair(pkg, handle));
 	}
 
-	auto data_range = runtime::get_instance().get_buffer_data(data.bid, cl::sycl::range<3>(data.subrange.offset0, data.subrange.offset1, data.subrange.offset2),
-	    cl::sycl::range<3>(data.subrange.range0, data.subrange.range1, data.subrange.range2));
+	auto data_handle =
+	    runtime::get_instance().get_buffer_data(data.bid, cl::sycl::range<3>(data.subrange.offset0, data.subrange.offset1, data.subrange.offset2),
+	        cl::sycl::range<3>(data.subrange.range0, data.subrange.range1, data.subrange.range2));
 
 	// Build subarray data type
 	// FIXME: We assume float data here! Either include data type in data_range, or byte size of one element
 	MPI_Datatype subarray_data_type;
-	MPI_Type_create_subarray(
-	    data_range.dimensions, data_range.full_size.data(), data_range.subsize.data(), data_range.offsets.data(), MPI_ORDER_C, MPI_FLOAT, &subarray_data_type);
+	MPI_Type_create_subarray(data_handle.dimensions, data_handle.full_size.data(), data_handle.subsize.data(), data_handle.offsets.data(), MPI_ORDER_C,
+	    MPI_FLOAT, &subarray_data_type);
 	MPI_Type_commit(&subarray_data_type);
 
-	auto transfer = std::make_unique<transfer_out>();
+	auto transfer = std::make_unique<transfer_out>(data_handle);
 	transfer->handle = handle;
 	transfer->header.subrange = pkg.data.pull.subrange;
 	transfer->header.bid = pkg.data.pull.bid;
 	transfer->header.tid = pkg.tid;
-	transfer->data_ptr = data_range.base_ptr;
 
 	// Build full data type with header
 	MPI_Datatype transfer_data_type;
 	MPI_Datatype block_types[2] = {MPI_BYTE, subarray_data_type};
 	int block_lengths[2] = {sizeof(data_header), 1};
 	// We use absolute displacements here (= pointers), so we can obtain header and data from different locations
-	MPI_Aint disps[2] = {(MPI_Aint)&transfer->header, (MPI_Aint)transfer->data_ptr};
+	MPI_Aint disps[2] = {(MPI_Aint)&transfer->header, (MPI_Aint)transfer->get_raw_ptr()};
 	MPI_Type_create_struct(2, block_lengths, disps, block_types, &transfer_data_type);
 	// TODO: Free data type after transfer is complete
 	MPI_Type_commit(&transfer_data_type);

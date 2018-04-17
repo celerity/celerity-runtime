@@ -6,6 +6,7 @@
 
 #include <mpi.h>
 
+#include "buffer_storage.h"
 #include "command.h"
 #include "types.h"
 
@@ -49,7 +50,12 @@ class buffer_transfer_manager {
 		std::shared_ptr<transfer_handle> handle;
 		MPI_Request request;
 		data_header header;
-		void* data_ptr = nullptr;
+
+		transfer_out(detail::raw_data_read_handle data_handle) : data_handle(data_handle) {}
+		void* get_raw_ptr() const { return data_handle.base_ptr; }
+
+	  private:
+		detail::raw_data_read_handle data_handle;
 	};
 
 	std::unordered_map<task_id, std::unordered_map<buffer_id, std::vector<std::pair<command_pkg, std::shared_ptr<transfer_handle>>>>> active_handles;
