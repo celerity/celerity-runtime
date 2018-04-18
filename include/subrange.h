@@ -7,6 +7,8 @@ namespace celerity {
 // FIXME: Naming; could be clearer
 template <int Dims>
 struct subrange {
+	static constexpr int dims = Dims;
+
 	// TODO: Should "start" be a cl::sycl::id instead? (What's the difference?)
 	// We'll leave it a range for now so we don't have to provide conversion
 	// overloads below

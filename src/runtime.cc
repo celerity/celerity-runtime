@@ -274,7 +274,7 @@ void runtime::build_command_graph() {
 
 					for(auto i = 0u; i < chunks.size(); ++i) {
 						// FIXME: Dimensions
-						subrange<1> req = (*rm)(chunks[i]);
+						subrange<1> req = (*rm).map_1(chunks[i]);
 						chunk_reqs[i][bid][mode] = GridRegion<1>::merge(chunk_reqs[i][bid][mode], detail::subrange_to_grid_region(req));
 					}
 				}

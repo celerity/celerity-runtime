@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SYCL/sycl.hpp>
+#include <allscale/utils/functional_utils.h>
 
 #include "handler.h"
 #include "prepass_accessor.h"
@@ -21,15 +22,16 @@ class buffer {
 
 	~buffer() { runtime::get_instance().unregister_buffer(id); }
 
-	template <cl::sycl::access::mode Mode>
-	prepass_accessor<DataT, Dims, Mode> get_access(compute_prepass_handler& handler, detail::range_mapper_fn<Dims> rmfn) {
-		handler.require(Mode, id, std::make_unique<detail::range_mapper<Dims>>(rmfn, Mode));
+	template <cl::sycl::access::mode Mode, typename Functor>
+	prepass_accessor<DataT, Dims, Mode> get_access(compute_prepass_handler& handler, Functor rmfn) {
+		using rmfn_traits = allscale::utils::lambda_traits<Functor>;
+		static_assert(rmfn_traits::result_type::dims == Dims, "The returned subrange doesn't match buffer dimensions.");
+		handler.require(Mode, id, std::make_unique<detail::range_mapper<rmfn_traits::arg1_type::dims, Dims>>(rmfn, Mode));
 		return prepass_accessor<DataT, Dims, Mode>();
 	}
 
-	template <cl::sycl::access::mode Mode>
-	cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> get_access(
-	    compute_livepass_handler& handler, detail::range_mapper_fn<Dims> rmfn) {
+	template <cl::sycl::access::mode Mode, typename Functor>
+	cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> get_access(compute_livepass_handler& handler, Functor rmfn) {
 		// TODO: Query runtime for the actual buffer size that is required on this node, return sub-accessor
 		auto a = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>(sycl_buffer, handler.get_sycl_handler());
 		return a;
