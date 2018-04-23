@@ -1,6 +1,7 @@
 #include <CL/cl.h>
 #include <CL/cl_ext.h>
 #include <SYCL/sycl.hpp>
+#include <cstdlib>
 #include <thread> // JUST FOR SLEEPING
 
 #ifdef _MSC_VER
@@ -9,6 +10,8 @@
 #include <unistd.h>
 #endif
 
+#include <boost/algorithm/string.hpp>
+#include <boost/format.hpp>
 #include <celerity.h>
 
 // Use define instead of constexpr as MSVC seems to have some trouble getting it into nested closures
@@ -58,6 +61,60 @@ cl::sycl::device pick_device(int platform_id, int device_id) {
 	return selector.select_device();
 }
 
+/**
+ * Attempts to retrieve the platform and device id from the CELERITY_DEVICES environment variable.
+ * The variable has the form "P D0 [D1 ...]", where P is the platform index, followed by any number
+ * of device indices. Each device is assigned to a different worker process on the same node, according
+ * to their node-local rank.
+ *
+ * TODO: We should get something like this into the runtime itself
+ * TODO: Should we support multiple platforms on the same node as well?
+ */
+void try_get_platform_device_env(int& platform_id, int& device_id) {
+#ifdef OPEN_MPI
+#define SPLIT_TYPE OMPI_COMM_TYPE_HOST
+#else
+#define SPLIT_TYPE MPI_COMM_TYPE_SHARED
+#endif
+	// Determine our per-node rank by finding all world-ranks that can use a shared-memory transport
+	// (If running on OpenMPI, use the per-host split instead)
+	// This is a collective call, so make sure we do this before checking the env var
+	// TODO: Assert that shared memory is available (i.e. not explicitly disabled)
+	MPI_Comm node_comm;
+	MPI_Comm_split_type(MPI_COMM_WORLD, SPLIT_TYPE, 0, MPI_INFO_NULL, &node_comm);
+	int node_rank = 0;
+	MPI_Comm_rank(node_comm, &node_rank);
+
+	const auto env_var = std::getenv("CELERITY_DEVICES");
+	if(env_var == nullptr) {
+		std::cout << "CELERITY_DEVICES not set" << std::endl;
+		return;
+	}
+
+	std::vector<std::string> values;
+	boost::split(values, env_var, boost::is_any_of(" "));
+
+	if(node_rank > values.size() - 2) {
+		throw std::runtime_error(
+		    (boost::format("Process has local rank %d, but CELERITY_DEVICES only includes %d device(s)") % node_rank % (values.size() - 1)).str());
+	}
+
+	int node_size = 0;
+	MPI_Comm_size(node_comm, &node_size);
+	if(values.size() - 1 > node_size) {
+		std::cout << boost::format("Warning: CELERITY_DEVICES contains %d device indices, but only %d worker processes were spawned on this node")
+		                 % (values.size() - 1) % node_size
+		          << std::endl;
+	}
+
+	platform_id = atoi(values[0].c_str());
+	assert(platform_id >= 0);
+	device_id = atoi(values[node_rank + 1].c_str());
+	assert(device_id >= 0);
+
+	std::cout << "Using platform / device set by CELERITY_DEVICES: " << platform_id << " " << device_id << std::endl;
+}
+
 // General notes:
 // Spec version used: https://www.khronos.org/registry/SYCL/specs/sycl-1.2.1.pdf
 //
@@ -74,6 +131,9 @@ int main(int argc, char* argv[]) {
 
 	int platform_id = -1;
 	int device_id = -1;
+	// Always call this, even if we end up using command line args instead
+	try_get_platform_device_env(platform_id, device_id);
+
 	if(argc > 2) {
 		platform_id = atoi(argv[1]);
 		device_id = atoi(argv[2]);
