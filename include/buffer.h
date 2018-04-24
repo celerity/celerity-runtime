@@ -32,8 +32,13 @@ class buffer {
 
 	template <cl::sycl::access::mode Mode, typename Functor>
 	cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> get_access(compute_livepass_handler& handler, Functor rmfn) {
-		// TODO: Query runtime for the actual buffer size that is required on this node, return sub-accessor
-		auto a = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>(sycl_buffer, handler.get_sycl_handler());
+		const auto range_offset = handler.get_buffer_range_offset<Dims>(id, Mode);
+		// Sanity check
+		assert(range_offset.second[0] + range_offset.first[0] <= sycl_buffer.get_range()[0]
+		       && range_offset.second[1] + range_offset.first[1] <= sycl_buffer.get_range()[1]
+		       && range_offset.second[2] + range_offset.first[2] <= sycl_buffer.get_range()[2]);
+		auto a = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>(
+		    sycl_buffer, handler.get_sycl_handler(), range_offset.first, range_offset.second);
 		return a;
 	}
 

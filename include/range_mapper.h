@@ -25,15 +25,15 @@ namespace detail {
 
 		virtual size_t get_kernel_dimensions() const = 0;
 
-		virtual subrange<1> map_1(subrange<1> range) { throw create_dimension_mismatch_error(1, 1); }
-		virtual subrange<1> map_1(subrange<2> range) { throw create_dimension_mismatch_error(2, 1); }
-		virtual subrange<1> map_1(subrange<3> range) { throw create_dimension_mismatch_error(3, 1); }
-		virtual subrange<2> map_2(subrange<1> range) { throw create_dimension_mismatch_error(1, 2); }
-		virtual subrange<2> map_2(subrange<2> range) { throw create_dimension_mismatch_error(2, 2); }
-		virtual subrange<2> map_2(subrange<3> range) { throw create_dimension_mismatch_error(3, 2); }
-		virtual subrange<3> map_3(subrange<1> range) { throw create_dimension_mismatch_error(1, 3); }
-		virtual subrange<3> map_3(subrange<2> range) { throw create_dimension_mismatch_error(2, 3); }
-		virtual subrange<3> map_3(subrange<3> range) { throw create_dimension_mismatch_error(3, 3); }
+		virtual subrange<1> map_1(subrange<1> range) const { throw create_dimension_mismatch_error(1, 1); }
+		virtual subrange<1> map_1(subrange<2> range) const { throw create_dimension_mismatch_error(2, 1); }
+		virtual subrange<1> map_1(subrange<3> range) const { throw create_dimension_mismatch_error(3, 1); }
+		virtual subrange<2> map_2(subrange<1> range) const { throw create_dimension_mismatch_error(1, 2); }
+		virtual subrange<2> map_2(subrange<2> range) const { throw create_dimension_mismatch_error(2, 2); }
+		virtual subrange<2> map_2(subrange<3> range) const { throw create_dimension_mismatch_error(3, 2); }
+		virtual subrange<3> map_3(subrange<1> range) const { throw create_dimension_mismatch_error(1, 3); }
+		virtual subrange<3> map_3(subrange<2> range) const { throw create_dimension_mismatch_error(2, 3); }
+		virtual subrange<3> map_3(subrange<3> range) const { throw create_dimension_mismatch_error(3, 3); }
 
 		virtual ~range_mapper_base() = default;
 
@@ -55,40 +55,40 @@ namespace detail {
 
 		size_t get_kernel_dimensions() const override { return KernelDims; }
 
-		subrange<1> map_1(subrange<KernelDims> range) override { return map_1_impl(range); }
-		subrange<2> map_2(subrange<KernelDims> range) override { return map_2_impl(range); }
-		subrange<3> map_3(subrange<KernelDims> range) override { return map_3_impl(range); }
+		subrange<1> map_1(subrange<KernelDims> range) const override { return map_1_impl(range); }
+		subrange<2> map_2(subrange<KernelDims> range) const override { return map_2_impl(range); }
+		subrange<3> map_3(subrange<KernelDims> range) const override { return map_3_impl(range); }
 
 	  private:
 		range_mapper_fn<KernelDims, BufferDims> rmfn;
 
 		template <int D = BufferDims>
-		typename std::enable_if<D == 1, subrange<1>>::type map_1_impl(subrange<KernelDims> range) {
+		typename std::enable_if<D == 1, subrange<1>>::type map_1_impl(subrange<KernelDims> range) const {
 			return rmfn(range);
 		}
 
 		template <int D = BufferDims>
-		typename std::enable_if<D != 1, subrange<1>>::type map_1_impl(subrange<KernelDims> range) {
+		typename std::enable_if<D != 1, subrange<1>>::type map_1_impl(subrange<KernelDims> range) const {
 			return range_mapper_base::map_1(range);
 		}
 
 		template <int D = BufferDims>
-		typename std::enable_if<D == 2, subrange<2>>::type map_2_impl(subrange<KernelDims> range) {
+		typename std::enable_if<D == 2, subrange<2>>::type map_2_impl(subrange<KernelDims> range) const {
 			return rmfn(range);
 		}
 
 		template <int D = BufferDims>
-		typename std::enable_if<D != 2, subrange<2>>::type map_2_impl(subrange<KernelDims> range) {
+		typename std::enable_if<D != 2, subrange<2>>::type map_2_impl(subrange<KernelDims> range) const {
 			return range_mapper_base::map_2(range);
 		}
 
 		template <int D = BufferDims>
-		typename std::enable_if<D == 3, subrange<3>>::type map_3_impl(subrange<KernelDims> range) {
+		typename std::enable_if<D == 3, subrange<3>>::type map_3_impl(subrange<KernelDims> range) const {
 			return rmfn(range);
 		}
 
 		template <int D = BufferDims>
-		typename std::enable_if<D != 3, subrange<3>>::type map_3_impl(subrange<KernelDims> range) {
+		typename std::enable_if<D != 3, subrange<3>>::type map_3_impl(subrange<KernelDims> range) const {
 			return range_mapper_base::map_3(range);
 		}
 	};

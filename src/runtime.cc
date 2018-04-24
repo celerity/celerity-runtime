@@ -488,7 +488,7 @@ std::unordered_map<runtime::chunk_id, node_id> runtime::assign_chunks_to_nodes(
 
 void runtime::execute_master_access_task(task_id tid) const {
 	const auto tsk = dynamic_cast<const master_access_task*>(queue->get_task(tid).get());
-	const master_access_livepass_handler handler;
+	master_access_livepass_handler handler;
 	tsk->get_functor()(handler);
 }
 

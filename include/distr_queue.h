@@ -80,15 +80,15 @@ class distr_queue {
 
 	/**
 	 * Executes the kernel associated with task tid in the subrange sr.
-	 * TODO: Subrange is not the ideal parameter type, as we don't need the global size
 	 */
 	template <int Dims>
 	cl::sycl::event execute(task_id tid, subrange<Dims> sr) {
 		assert(task_map.count(tid) != 0);
 		assert(task_map[tid]->get_type() == task_type::COMPUTE);
-		auto& cgf = dynamic_cast<compute_task*>(task_map[tid].get())->get_command_group();
-		return sycl_queue.submit([this, &cgf, tid, sr](cl::sycl::handler& sycl_handler) {
-			compute_livepass_handler h(*this, tid, sr, &sycl_handler);
+		auto task = std::static_pointer_cast<compute_task>(task_map[tid]);
+		auto& cgf = task->get_command_group();
+		return sycl_queue.submit([this, &cgf, tid, task, sr](cl::sycl::handler& sycl_handler) {
+			compute_livepass_handler h(*this, tid, task, sr, &sycl_handler);
 			cgf(h);
 		});
 	}

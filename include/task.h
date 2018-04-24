@@ -5,10 +5,15 @@
 #include <unordered_map>
 #include <vector>
 
-#include "handler.h"
 #include "range_mapper.h"
+#include "types.h"
 
 namespace celerity {
+
+class compute_prepass_handler;
+class compute_livepass_handler;
+class master_access_prepass_handler;
+class master_access_livepass_handler;
 
 enum class task_type { COMPUTE, MASTER_ACCESS };
 
@@ -19,9 +24,9 @@ namespace detail {
 	// celerity::handlers for prepass and live invocations.
 	template <typename PrepassHandler, typename LivepassHandler>
 	struct handler_storage_base {
-		virtual void operator()(PrepassHandler) const = 0;
-		virtual void operator()(LivepassHandler) const = 0;
-		virtual ~handler_storage_base(){};
+		virtual void operator()(PrepassHandler&) const = 0;
+		virtual void operator()(LivepassHandler&) const = 0;
+		virtual ~handler_storage_base() = default;
 	};
 
 	template <typename Functor, typename PrepassHandler, typename LivepassHandler>
@@ -30,8 +35,8 @@ namespace detail {
 
 		handler_storage(Functor fun) : fun(fun) {}
 
-		void operator()(PrepassHandler handler) const override { fun(handler); }
-		void operator()(LivepassHandler handler) const override { fun(handler); }
+		void operator()(PrepassHandler& handler) const override { fun(handler); }
+		void operator()(LivepassHandler& handler) const override { fun(handler); }
 	};
 
 	using cgf_storage_base = handler_storage_base<compute_prepass_handler, compute_livepass_handler>;
