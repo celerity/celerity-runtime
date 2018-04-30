@@ -29,34 +29,37 @@ void print_pid() {
 
 cl::sycl::device pick_device(int platform_id, int device_id) {
 	if(platform_id != -1 && device_id != -1) {
-		cl_platform_id platforms[10];
-		cl::sycl::cl_uint num_platforms;
-		assert(clGetPlatformIDs(10, platforms, &num_platforms) == CL_SUCCESS);
+		cl_uint num_platforms;
+		clGetPlatformIDs(0, nullptr, &num_platforms);
+		std::vector<cl_platform_id> platforms(num_platforms);
+		auto ret = clGetPlatformIDs(num_platforms, platforms.data(), nullptr);
+		assert(ret == CL_SUCCESS);
 		std::cout << "Found " << num_platforms << " platforms:" << std::endl;
-
 		for(auto i = 0u; i < num_platforms; ++i) {
-			char platform_name[255];
-			clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, sizeof(platform_name), platform_name, nullptr);
-			std::cout << "Platform " << i << ": " << platform_name << std::endl;
+			size_t name_length;
+			auto ret = clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, 0, nullptr, &name_length);
+			std::vector<char> platform_name(name_length + 1);
+			clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, name_length, platform_name.data(), nullptr);
+			std::cout << "Platform " << i << ": " << &platform_name[0] << std::endl;
 		}
-
 		assert(platform_id < num_platforms);
-		cl_device_id devices[10];
-		cl::sycl::cl_uint num_devices;
-
-		assert(clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, 10, devices, &num_devices) == CL_SUCCESS);
+		cl_uint num_devices;
+		clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, 10, nullptr, &num_devices);
+		std::vector<cl_device_id> devices(num_devices);
+		ret = clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, 10, devices.data(), nullptr);
+		assert(ret == CL_SUCCESS);
+		assert(device_id < num_devices);
 		std::cout << "Found " << num_devices << " devices on platform #" << platform_id << ":" << std::endl;
-
 		for(auto i = 0u; i < num_devices; ++i) {
-			char device_name[255];
-			clGetDeviceInfo(devices[i], CL_DEVICE_NAME, sizeof(device_name), device_name, nullptr);
-			std::cout << "Device " << i << ": " << device_name << std::endl;
+			size_t name_length;
+			clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 0, nullptr, &name_length);
+			std::vector<char> device_name(name_length + 1);
+			clGetDeviceInfo(devices[i], CL_DEVICE_NAME, name_length, device_name.data(), nullptr);
+			std::cout << "Device " << i << ": " << &device_name[0] << std::endl;
 		}
-
 		std::cout << "Using device " << device_id << std::endl;
 		return cl::sycl::device(devices[device_id]);
 	}
-
 	cl::sycl::gpu_selector selector;
 	return selector.select_device();
 }
