@@ -4,6 +4,7 @@
 #include <limits>
 #include <queue>
 #include <set>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -15,6 +16,7 @@
 #include "command.h"
 #include "graph_utils.h"
 #include "grid.h"
+#include "logger.h"
 #include "subrange.h"
 #include "task.h"
 
@@ -42,7 +44,12 @@ runtime::runtime(int* argc, char** argv[]) {
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 	is_master = world_rank == 0;
 
+	default_logger = logger("default").create_context({{"rank", std::to_string(world_rank)}});
+	graph_logger = logger("graph").create_context({{"rank", std::to_string(world_rank)}});
+
 	command_graph[boost::graph_bundle].name = "CommandGraph";
+
+	btm = std::make_unique<buffer_transfer_manager>(default_logger);
 }
 
 runtime::~runtime() {
@@ -64,19 +71,20 @@ void runtime::TEST_do_work() {
 	std::queue<command_pkg> master_commands;
 
 	if(is_master) {
-		queue->debug_print_task_graph();
+		queue->debug_print_task_graph(graph_logger);
 		build_command_graph();
+		graph_utils::print_graph(command_graph, graph_logger);
 
 		// TODO: Is a BFS walk sufficient or do we need to properly check for fulfilled dependencies?
-		graph_utils::search_vertex_bf(0, command_graph, [&master_commands](vertex v, const command_dag& cdag) {
+		graph_utils::search_vertex_bf(0, command_graph, [&master_commands, this](vertex v, const command_dag& cdag) {
 			auto& v_data = cdag[v];
 
 			// Debug output
 			switch(v_data.cmd) {
-			case command::PULL: std::cout << "Sending PULL command for task " << v_data.tid << " to node " << v_data.nid << std::endl; break;
-			case command::AWAIT_PULL: std::cout << "Sending AWAIT_PULL command for task " << v_data.tid << " to node " << v_data.nid << std::endl; break;
-			case command::COMPUTE: std::cout << "Sending COMPUTE command for task " << v_data.tid << " to node " << v_data.nid << std::endl; break;
-			case command::MASTER_ACCESS: std::cout << "Sending MASTER_ACCESS command for task " << v_data.tid << " to node " << v_data.nid << std::endl; break;
+			case command::PULL: default_logger->info("Sending PULL command for task {} to node {}", v_data.tid, v_data.nid); break;
+			case command::AWAIT_PULL: default_logger->info("Sending AWAIT_PULL command for task {} to node {}", v_data.tid, v_data.nid); break;
+			case command::COMPUTE: default_logger->info("Sending COMPUTE command for task {} to node {}", v_data.tid, v_data.nid); break;
+			case command::MASTER_ACCESS: default_logger->info("Sending MASTER_ACCESS command for task {} to node {}", v_data.tid, v_data.nid); break;
 			default: return false;
 			}
 
@@ -102,7 +110,7 @@ void runtime::TEST_do_work() {
 	}
 
 	while(!done || !jobs.empty()) {
-		btm.poll();
+		btm->poll();
 
 		for(auto it = jobs.begin(); it != jobs.end();) {
 			auto job = *it;
@@ -146,16 +154,13 @@ void runtime::TEST_do_work() {
 }
 
 void runtime::handle_command_pkg(const command_pkg& pkg) {
-	std::shared_ptr<worker_job> job = nullptr;
 	switch(pkg.cmd) {
-	case command::PULL: job = std::make_shared<pull_job>(pkg, btm); break;
-	case command::AWAIT_PULL: job = std::make_shared<await_pull_job>(pkg, btm); break;
-	case command::COMPUTE: job = std::make_shared<compute_job>(pkg, *queue); break;
-	case command::MASTER_ACCESS: job = std::make_shared<master_access_job>(pkg); break;
+	case command::PULL: create_job<pull_job>(pkg, *btm); break;
+	case command::AWAIT_PULL: create_job<await_pull_job>(pkg, *btm); break;
+	case command::COMPUTE: create_job<compute_job>(pkg, *queue); break;
+	case command::MASTER_ACCESS: create_job<master_access_job>(pkg); break;
 	default: { assert(false && "Unexpected command"); }
 	}
-	job->initialize(*queue, jobs);
-	jobs.insert(job);
 }
 
 void runtime::register_queue(distr_queue* queue) {
@@ -169,9 +174,7 @@ distr_queue& runtime::get_queue() {
 }
 
 void runtime::schedule_buffer_send(node_id recipient, const command_pkg& pkg) {
-	auto job = std::make_shared<send_job>(pkg, btm, recipient);
-	job->initialize(*queue, jobs);
-	jobs.insert(job);
+	create_job<send_job>(pkg, *btm, recipient);
 }
 
 std::vector<subrange<1>> split_equal(const subrange<1>& sr, size_t num_chunks) {
@@ -423,11 +426,7 @@ void runtime::build_command_graph() {
 
 	// HACK: We recursively call this until all tasks have been processed
 	// In the future, we may want to do this periodically in a worker thread
-	if(graph_utils::get_satisfied_sibling_set(task_graph).size() > 0) {
-		build_command_graph();
-	} else {
-		graph_utils::print_graph(command_graph);
-	}
+	if(graph_utils::get_satisfied_sibling_set(task_graph).size() > 0) { build_command_graph(); }
 }
 
 // FIXME: Dimensions

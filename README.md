@@ -13,6 +13,14 @@ runtime implementation.
 * [CMake](https://www.cmake.org)
 * A C++14 compiler (tested only with MSVC 14 so far)
 
+### Automatically Downloaded Dependencies
+
+These dependencies are downloaded automatically during the CMake build process,
+for convenience:
+
+* [Catch2](https://github.com/catchorg/Catch2) for testing
+* The [spdlog](https://github.com/gabime/spdlog) logging library
+
 ### Optional
 These dependencies are only required for live plotting of graphs.
 

@@ -31,7 +31,7 @@ namespace graph_utils {
 		cdag[v].cmd = command::MASTER_ACCESS;
 		cdag[v].nid = master_nid;
 		cdag[v].tid = cdag[tv.first].tid;
-		cdag[v].label = (boost::format("Node %d:\\MASTER ACCESS") % master_nid).str();
+		cdag[v].label = (boost::format("Node %d:\\nMASTER ACCESS") % master_nid).str();
 		cdag[v].data.master_access = {};
 		return v;
 	}
@@ -94,11 +94,11 @@ namespace graph_utils {
 	// --------------------------- Graph printing ---------------------------
 
 
-	void print_graph(const celerity::task_dag& tdag) {
-		write_graph_mux(tdag, boost::make_label_writer(boost::get(&celerity::tdag_vertex_properties::label, tdag)), boost::default_writer());
+	void print_graph(const celerity::task_dag& tdag, std::shared_ptr<logger> graph_logger) {
+		write_graph_mux(tdag, boost::make_label_writer(boost::get(&celerity::tdag_vertex_properties::label, tdag)), boost::default_writer(), graph_logger);
 	}
 
-	void print_graph(const celerity::command_dag& cdag) {
+	void print_graph(const celerity::command_dag& cdag, std::shared_ptr<logger> graph_logger) {
 		write_graph_mux(cdag,
 		    [&](std::ostream& out, vertex v) {
 			    const char* colors[] = {"black", "crimson", "dodgerblue4", "goldenrod", "maroon4", "springgreen2", "tan1", "chartreuse2"};
@@ -130,7 +130,8 @@ namespace graph_utils {
 			        && (cdag[v1].cmd == command::PULL || cdag[v1].cmd == command::AWAIT_PULL)) {
 				    out << "[color=gray50]";
 			    }
-		    });
+		    },
+		    graph_logger);
 	}
 
 } // namespace graph_utils

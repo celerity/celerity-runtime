@@ -36,32 +36,27 @@ function run(args) {
     input: child.stdout
   });
 
-  let currentGraphData = '';
-
   function processLine(line) {
-    const matches = /#G:(\w+)#(.*)/.exec(line);
-    if (matches === null) {
-      console.log(line);
-      return;
-    }
-
-    const name = matches[1];
-    const data = matches[2];
-
-    if (data == '') {
-      plotGraph(name);
-      currentGraphData = '';
-    } else {
-      currentGraphData += data;
+    if (line === '') return;
+    try {
+        const parsed = JSON.parse(line);
+        if (parsed.channel !== 'graph') {
+            console.log(line);
+            return;
+        }
+        plotGraph(parsed.name, parsed.data);
+    } catch (e) {
+        console.log(line);
+        return;
     }
   }
 
-  function plotGraph(graphName) {
-    console.log('Plotting ' + graphName);
-    const ws = fs.createWriteStream('node_' + graphName + '.png');
+  function plotGraph(name, data) {
+    console.log('Plotting ' + name);
+    const ws = fs.createWriteStream('node_' + name + '.png');
     const dot = spawn('dot', ['-Tpng:gd']);
     dot.stdout.pipe(ws);
-    dot.stdin.write(currentGraphData);
+    dot.stdin.write(data);
     dot.stdin.end();
 
     dot.on('exit', () => { ws.end(); })

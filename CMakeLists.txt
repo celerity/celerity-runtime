@@ -31,6 +31,8 @@ find_package(Boost 1.66.0 COMPONENTS graph REQUIRED)
 find_package(ComputeCpp REQUIRED)
 find_package(OpenCL REQUIRED)
 find_package(MPI 2.0 REQUIRED)
+find_package(Threads REQUIRED)
+include(Download_spdlog)
 
 # Celerity runtime library
 
@@ -63,11 +65,13 @@ target_include_directories(
   ${OpenCL_INCLUDE_DIR}
   ${ComputeCpp_INCLUDE_DIRECTORY}
   ${MPI_CXX_INCLUDE_PATH}
+  ${spdlog_INCLUDE_DIRS}
 )
 
 target_link_libraries(
   celerity_runtime
   PUBLIC
+  ${CMAKE_THREAD_LIBS_INIT}
   ${Boost_LIBRARIES}
   ${OpenCL_LIBRARIES}
   ${MPI_CXX_LIBRARIES}
@@ -86,6 +90,7 @@ set(Celerity_INCLUDE_DIRS
   ${OpenCL_INCLUDE_DIR}
   ${ComputeCpp_INCLUDE_DIRECTORY}
   ${MPI_CXX_INCLUDE_PATH}
+  ${spdlog_INCLUDE_DIRS}
 )
 
 # full stack example

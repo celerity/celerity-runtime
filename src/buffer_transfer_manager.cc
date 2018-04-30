@@ -1,7 +1,6 @@
 #include "buffer_transfer_manager.h"
 
 #include <cassert>
-#include <iostream>
 
 #include "runtime.h"
 
@@ -51,7 +50,7 @@ void buffer_transfer_manager::poll_transfers() {
 	MPI_Irecv(MPI_BOTTOM, 1, transfer_data_type, status.MPI_SOURCE, CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &transfer->request);
 	incoming_transfers.insert(std::move(transfer));
 
-	std::cout << "===> Receiving incoming data of size " << data_size << " from " << status.MPI_SOURCE << std::endl;
+	transfer_logger->info("Receiving incoming data of size {} from {}", data_size, status.MPI_SOURCE);
 }
 
 std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::send(node_id to, const command_pkg& pkg) {
@@ -108,7 +107,7 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 	MPI_Isend(MPI_BOTTOM, 1, transfer_data_type, to, CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &transfer->request);
 	outgoing_transfers.insert(std::move(transfer));
 
-	std::cout << "===> Serving incoming PULL request for buffer " << pkg.data.pull.bid << " from node " << to << std::endl;
+	transfer_logger->info("Serving incoming PULL request for buffer {} from node {}", pkg.data.pull.bid, to);
 	return handle;
 }
 
@@ -162,16 +161,6 @@ void buffer_transfer_manager::update_transfers() {
 		detail::raw_data_range dr{&t->data[0], 1, {0, 0, 0}, {(int)pdata.subrange.range0, (int)pdata.subrange.range1, (int)pdata.subrange.range2},
 		    {(int)pdata.subrange.offset0, (int)pdata.subrange.offset1, (int)pdata.subrange.offset2}};
 		runtime::get_instance().set_buffer_data(pdata.bid, dr);
-
-		// DEBUG
-		std::cout << "## DATA EXERCEPT bid = " << pdata.bid << " from = " << pdata.source << std::endl;
-		float* debug_ptr = reinterpret_cast<float*>(&t->data[0]);
-		for(int i = 0; i < 10; ++i) {
-			std::cout << *debug_ptr << " ";
-			debug_ptr++;
-		}
-		std::cout << std::endl;
-		// DEBUG
 
 		// Transfer cannot be accessed after this!
 		it = incoming_transfers.erase(it);

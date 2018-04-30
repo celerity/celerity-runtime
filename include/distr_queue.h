@@ -8,6 +8,7 @@
 
 #include "graph.h"
 #include "handler.h"
+#include "logger.h"
 #include "task.h"
 #include "types.h"
 
@@ -71,7 +72,7 @@ class distr_queue {
 	// TODO: Can we derive 2nd lambdas args from requested values in 1st?
 	void branch(std::function<void(branch_handle& bh)>, std::function<void(float)>) {}
 
-	void debug_print_task_graph() const;
+	void debug_print_task_graph(std::shared_ptr<logger> graph_logger) const;
 
 	/**
 	 * Returns true iff task_a has a dependency on task_b within the task graph.

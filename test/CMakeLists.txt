@@ -1,9 +1,4 @@
-# platform-spefic
-#
-# Windows: use gtest installed via vcpkg
-# Linux: clone repo and build manually
-#
-include(ConfigCatch2)
+include(Download_Catch2)
 include(ParseAndAddCatchTests)
 
  # iterate over all cpp files in the current directory
@@ -24,6 +19,7 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
     ${TARGET_NAME}
     PUBLIC
     ${Celerity_INCLUDE_DIRS}
+    ${Catch2_INCLUDE_DIRS}
   )
 
   target_link_libraries(

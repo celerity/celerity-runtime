@@ -1,7 +1,5 @@
 #include "worker_job.h"
 
-#include <iostream>
-
 #include "distr_queue.h"
 #include "runtime.h"
 
@@ -21,30 +19,28 @@ void worker_job::update() {
 		}
 		if(dependencies.empty()) { running = true; }
 	} else {
-		done = execute(pkg);
+		done = execute(pkg, job_logger);
 	}
 }
 
-bool pull_job::execute(const command_pkg& pkg) {
+bool pull_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 	if(data_handle == nullptr) {
-		std::cout << "PULL buffer " << pkg.data.pull.bid << " from node " << pkg.data.pull.source << std::endl;
+		logger->info("PULL buffer {} from node {}", pkg.data.pull.bid, pkg.data.pull.source);
 		data_handle = btm.pull(pkg);
 	}
 	if(data_handle->complete) {
-		std::cout << "PULL COMPLETE buffer " << pkg.data.pull.bid << " from node " << pkg.data.pull.source << std::endl;
+		logger->info("PULL COMPLETE buffer {} from node {}", pkg.data.pull.bid, pkg.data.pull.source);
 		// TODO: Remove handle from btm
 	}
 	return data_handle->complete;
 }
 
-bool await_pull_job::execute(const command_pkg& pkg) {
+bool await_pull_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 	if(data_handle == nullptr) {
-		std::cout << "AWAIT PULL of buffer " << pkg.data.await_pull.bid << " by node " << pkg.data.await_pull.target << std::endl;
+		logger->info("AWAIT PULL of buffer {} by node {}", pkg.data.await_pull.bid, pkg.data.await_pull.target);
 		data_handle = btm.await_pull(pkg);
 	}
-	if(data_handle->complete) {
-		std::cout << "AWAIT PULL COMPLETE of buffer " << pkg.data.await_pull.bid << " by node " << pkg.data.await_pull.target << std::endl;
-	}
+	if(data_handle->complete) { logger->info("AWAIT PULL COMPLETE of buffer {} by node {}", pkg.data.await_pull.bid, pkg.data.await_pull.target); }
 	return data_handle->complete;
 }
 
@@ -64,9 +60,13 @@ job_set send_job::find_dependencies(const distr_queue& queue, const job_set& job
 	return dependencies;
 }
 
-bool send_job::execute(const command_pkg& pkg) {
+bool send_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 	if(WORKAROUND_avoid_race_condition() == false) return false;
-	if(data_handle == nullptr) { data_handle = btm.send(recipient, pkg); }
+	if(data_handle == nullptr) {
+		logger->info("SEND buffer {} to node {}", pkg.data.pull.bid, recipient);
+		data_handle = btm.send(recipient, pkg);
+	}
+	if(data_handle->complete) { logger->info("SEND COMPLETE buffer {} to node {}", pkg.data.pull.bid, recipient); }
 	return data_handle->complete;
 }
 
@@ -165,9 +165,9 @@ job_set compute_job::find_dependencies(const distr_queue& queue, const job_set& 
 	return dependencies;
 }
 
-bool compute_job::execute(const command_pkg& pkg) {
+bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 	if(!submitted) {
-		std::cout << "COMPUTE (some range) for task " << pkg.tid << std::endl;
+		logger->info("COMPUTE");
 
 		// Note that we have to set the proper global size so the livepass handler can use the assigned chunk as input for range mappers
 		auto gs = std::static_pointer_cast<const compute_task>(queue.get_task(pkg.tid))->get_global_size();
@@ -187,7 +187,7 @@ bool compute_job::execute(const command_pkg& pkg) {
 
 	const auto status = event.get_info<cl::sycl::info::event::command_execution_status>();
 	if(status == cl::sycl::info::event_command_status::complete) {
-		std::cout << "COMPUTE COMPLETE (some range) for task " << pkg.tid << std::endl;
+		logger->info("COMPUTE COMPLETE");
 		return true;
 	}
 	return false;
@@ -204,7 +204,7 @@ job_set master_access_job::find_dependencies(const distr_queue& queue, const job
 	return dependencies;
 }
 
-bool master_access_job::execute(const command_pkg& pkg) {
+bool master_access_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 	runtime::get_instance().execute_master_access_task(pkg.tid);
 	return true;
 }

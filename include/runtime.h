@@ -3,6 +3,7 @@
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 #include <mpi.h>
 
@@ -11,6 +12,7 @@
 #include "buffer_transfer_manager.h"
 #include "distr_queue.h"
 #include "graph.h"
+#include "logger.h"
 #include "types.h"
 #include "worker_job.h"
 
@@ -62,6 +64,8 @@ class runtime {
 	    std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::vector<std::pair<GridBox<1>, std::unordered_set<node_id>>>>>;
 
 	static std::unique_ptr<runtime> instance;
+	std::shared_ptr<logger> default_logger;
+	std::shared_ptr<logger> graph_logger;
 
 	distr_queue* queue = nullptr;
 	size_t num_nodes;
@@ -79,7 +83,7 @@ class runtime {
 
 	command_dag command_graph;
 
-	buffer_transfer_manager btm;
+	std::unique_ptr<buffer_transfer_manager> btm;
 	job_set jobs;
 
 	runtime(int* argc, char** argv[]);
@@ -99,6 +103,17 @@ class runtime {
 	void execute_master_access_task(task_id tid) const;
 
 	void handle_command_pkg(const command_pkg& pkg);
+
+	size_t num_jobs = 0;
+
+	template <typename Job, typename... Args>
+	void create_job(const command_pkg& pkg, Args&&... args) {
+		auto logger = default_logger->create_context({{"task", std::to_string(pkg.tid)}, {"job", std::to_string(num_jobs)}});
+		auto job = std::make_shared<Job>(pkg, logger, std::forward<Args>(args)...);
+		job->initialize(*queue, jobs);
+		jobs.insert(job);
+		num_jobs++;
+	}
 };
 
 } // namespace celerity

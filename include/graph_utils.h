@@ -1,6 +1,7 @@
 #pragma once
 
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 
@@ -11,6 +12,7 @@
 #include "command.h"
 #include "graph.h"
 #include "grid.h"
+#include "logger.h"
 #include "subrange.h"
 #include "types.h"
 
@@ -120,7 +122,7 @@ namespace graph_utils {
 		cdag[v].cmd = command::COMPUTE;
 		cdag[v].nid = nid;
 		cdag[v].tid = cdag[tv.first].tid;
-		cdag[v].label = (boost::format("Node %d:\\COMPUTE %s") % nid % toString(detail::subrange_to_grid_region(chunk))).str();
+		cdag[v].label = (boost::format("Node %d:\\nCOMPUTE %s") % nid % toString(detail::subrange_to_grid_region(chunk))).str();
 		cdag[v].data.compute.chunk = command_subrange(chunk);
 		return v;
 	}
@@ -197,20 +199,17 @@ namespace graph_utils {
 
 
 	template <typename Graph, typename VertexPropertiesWriter, typename EdgePropertiesWriter>
-	void write_graph_mux(const Graph& g, VertexPropertiesWriter vpw, EdgePropertiesWriter epw) {
+	void write_graph_mux(const Graph& g, VertexPropertiesWriter vpw, EdgePropertiesWriter epw, std::shared_ptr<logger> graph_logger) {
 		std::stringstream ss;
 		write_graphviz(ss, g, vpw, epw);
 		auto str = ss.str();
-		std::vector<std::string> lines;
-		boost::split(lines, str, boost::is_any_of("\n"));
-		auto graph_name = g[boost::graph_bundle].name;
-		for(auto l : lines) {
-			std::cout << "#G:" << graph_name << "#" << l << std::endl;
-		}
+		boost::replace_all(str, "\n", "\\n");
+		boost::replace_all(str, "\"", "\\\"");
+		graph_logger->info(logger_map({{"name", g[boost::graph_bundle].name}, {"data", str}}));
 	}
 
-	void print_graph(const celerity::task_dag& tdag);
-	void print_graph(const celerity::command_dag& cdag);
+	void print_graph(const celerity::task_dag& tdag, std::shared_ptr<logger> graph_logger);
+	void print_graph(const celerity::command_dag& cdag, std::shared_ptr<logger> graph_logger);
 
 } // namespace graph_utils
 

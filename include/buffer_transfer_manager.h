@@ -8,6 +8,7 @@
 
 #include "buffer_storage.h"
 #include "command.h"
+#include "logger.h"
 #include "types.h"
 
 namespace celerity {
@@ -21,6 +22,8 @@ class buffer_transfer_manager {
 	struct transfer_handle {
 		bool complete = false;
 	};
+
+	buffer_transfer_manager(std::shared_ptr<logger> transfer_logger) : transfer_logger(transfer_logger) {}
 
 	/**
 	 * Checks for (and handles) incoming data requests and transfers.
@@ -74,6 +77,8 @@ class buffer_transfer_manager {
 
 	std::unordered_set<std::unique_ptr<transfer_in>> incoming_transfers;
 	std::unordered_set<std::unique_ptr<transfer_out>> outgoing_transfers;
+
+	std::shared_ptr<logger> transfer_logger;
 
 	void poll_requests();
 	void poll_transfers();

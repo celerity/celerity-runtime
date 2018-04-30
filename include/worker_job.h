@@ -5,7 +5,7 @@
 
 #include "buffer_transfer_manager.h"
 #include "command.h"
-#include "worker_job.h"
+#include "logger.h"
 
 namespace celerity {
 
@@ -16,7 +16,7 @@ using job_set = std::unordered_set<std::shared_ptr<worker_job>>;
 
 class worker_job {
   public:
-	explicit worker_job(command_pkg pkg) : pkg(pkg) {}
+	worker_job(command_pkg pkg, std::shared_ptr<logger> job_logger) : pkg(pkg), job_logger(job_logger) {}
 	worker_job(const worker_job&) = delete;
 	worker_job(worker_job&&) = delete;
 
@@ -35,12 +35,13 @@ class worker_job {
 
   private:
 	command_pkg pkg;
+	std::shared_ptr<logger> job_logger;
 	bool done = false;
 	bool running = false;
 	job_set dependencies;
 
 	virtual job_set find_dependencies(const distr_queue& queue, const job_set& jobs) { return job_set(); }
-	virtual bool execute(const command_pkg& pkg) = 0;
+	virtual bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) = 0;
 };
 
 /**
@@ -49,7 +50,9 @@ class worker_job {
  */
 class pull_job : public worker_job {
   public:
-	pull_job(command_pkg pkg, buffer_transfer_manager& btm) : worker_job(pkg), btm(btm) { assert(pkg.cmd == command::PULL); }
+	pull_job(command_pkg pkg, std::shared_ptr<logger> job_logger, buffer_transfer_manager& btm) : worker_job(pkg, job_logger), btm(btm) {
+		assert(pkg.cmd == command::PULL);
+	}
 
   private:
 	buffer_transfer_manager& btm;
@@ -61,7 +64,7 @@ class pull_job : public worker_job {
 		return job_set();
 	}
 
-	bool execute(const command_pkg& pkg) override;
+	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
 };
 
 /**
@@ -70,13 +73,15 @@ class pull_job : public worker_job {
  */
 class await_pull_job : public worker_job {
   public:
-	await_pull_job(command_pkg pkg, buffer_transfer_manager& btm) : worker_job(pkg), btm(btm) { assert(pkg.cmd == command::AWAIT_PULL); }
+	await_pull_job(command_pkg pkg, std::shared_ptr<logger> job_logger, buffer_transfer_manager& btm) : worker_job(pkg, job_logger), btm(btm) {
+		assert(pkg.cmd == command::AWAIT_PULL);
+	}
 
   private:
 	buffer_transfer_manager& btm;
 	std::shared_ptr<const buffer_transfer_manager::transfer_handle> data_handle = nullptr;
 
-	bool execute(const command_pkg& pkg) override;
+	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
 };
 
 /**
@@ -87,7 +92,8 @@ class await_pull_job : public worker_job {
  */
 class send_job : public worker_job {
   public:
-	send_job(command_pkg pkg, buffer_transfer_manager& btm, node_id recipient) : worker_job(pkg), btm(btm), recipient(recipient) {
+	send_job(command_pkg pkg, std::shared_ptr<logger> job_logger, buffer_transfer_manager& btm, node_id recipient)
+	    : worker_job(pkg, job_logger), btm(btm), recipient(recipient) {
 		assert(pkg.cmd == command::PULL);
 	}
 
@@ -98,7 +104,7 @@ class send_job : public worker_job {
 
 	job_set find_dependencies(const distr_queue& queue, const job_set& jobs) override;
 
-	bool execute(const command_pkg& pkg) override;
+	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
 
 	// FIXME: WORKAROUND - Remove this at some point
   private:
@@ -120,7 +126,9 @@ class send_job : public worker_job {
  */
 class compute_job : public worker_job {
   public:
-	compute_job(command_pkg pkg, distr_queue& queue) : worker_job(pkg), queue(queue) { assert(pkg.cmd == command::COMPUTE); }
+	compute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, distr_queue& queue) : worker_job(pkg, job_logger), queue(queue) {
+		assert(pkg.cmd == command::COMPUTE);
+	}
 
   private:
 	distr_queue& queue;
@@ -129,7 +137,7 @@ class compute_job : public worker_job {
 
 	job_set find_dependencies(const distr_queue& queue, const job_set& jobs) override;
 
-	bool execute(const command_pkg& pkg) override;
+	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
 };
 
 /**
@@ -138,12 +146,12 @@ class compute_job : public worker_job {
  */
 class master_access_job : public worker_job {
   public:
-	master_access_job(command_pkg pkg) : worker_job(pkg) { assert(pkg.cmd == command::MASTER_ACCESS); }
+	master_access_job(command_pkg pkg, std::shared_ptr<logger> job_logger) : worker_job(pkg, job_logger) { assert(pkg.cmd == command::MASTER_ACCESS); }
 
   private:
 	job_set find_dependencies(const distr_queue& queue, const job_set& jobs) override;
 
-	bool execute(const command_pkg& pkg) override;
+	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
 };
 
 
