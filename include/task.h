@@ -63,6 +63,7 @@ class compute_task : public task {
 
 	const detail::cgf_storage_base& get_command_group() const { return *cgf; }
 	any_range get_global_size() const { return global_size; }
+	int get_dimensions() const { return global_size.which() + 1; }
 	const std::unordered_map<buffer_id, std::vector<std::unique_ptr<detail::range_mapper_base>>>& get_range_mappers() const { return range_mappers; }
 
 	void set_global_size(any_range gs) { global_size = gs; }

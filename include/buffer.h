@@ -13,6 +13,10 @@ namespace celerity {
 template <typename DataT, int Dims>
 class buffer {
   public:
+	// TODO: We may want to experiment with allocating smaller buffers on each worker node.
+	// However this either requires knowledge of the entire buffer range that will be used over the buffer's lifetime,
+	// or that buffers can be resized further down the line.
+	// A big advantage of going that route is that it would enable buffers much larger than the per-worker device(s) would otherwise allow
 	buffer(DataT* host_ptr, cl::sycl::range<Dims> size) : size(size), sycl_buffer(host_ptr, size) {
 		id = runtime::get_instance().register_buffer(size, sycl_buffer);
 	}
@@ -43,15 +47,14 @@ class buffer {
 	}
 
 	template <cl::sycl::access::mode Mode>
-	prepass_accessor<DataT, Dims, Mode> get_access(
-	    master_access_prepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::range<Dims> offset = cl::sycl::range<Dims>(0)) {
+	prepass_accessor<DataT, Dims, Mode> get_access(master_access_prepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::range<Dims> offset = {0}) {
 		handler.require(Mode, id, range, offset);
 		return prepass_accessor<DataT, Dims, Mode>();
 	}
 
 	template <cl::sycl::access::mode Mode>
 	cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer> get_access(
-	    master_access_livepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::range<Dims> offset = cl::sycl::range<Dims>(0)) {
+	    master_access_livepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::range<Dims> offset = {0}) {
 		return sycl_buffer.template get_access<Mode>(range, cl::sycl::id<Dims>(offset));
 	}
 

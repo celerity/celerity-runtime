@@ -12,11 +12,22 @@
 #include "buffer_transfer_manager.h"
 #include "distr_queue.h"
 #include "graph.h"
+#include "graph_utils.h"
 #include "logger.h"
 #include "types.h"
 #include "worker_job.h"
 
 namespace celerity {
+
+using chunk_id = size_t;
+// FIXME: Dimensions
+using chunk_buffer_requirements_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<1>>>>;
+// FIXME: Dimensions
+using chunk_buffer_source_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::vector<std::pair<GridBox<1>, std::unordered_set<node_id>>>>>;
+// FIXME: Dimensions
+using buffer_writers_map = std::unordered_map<buffer_id, std::unordered_map<node_id, std::vector<std::pair<task_id, GridRegion<1>>>>>;
+
+using buffer_state_map = std::unordered_map<buffer_id, std::unique_ptr<detail::buffer_state_base>>;
 
 class runtime {
   public:
@@ -55,14 +66,6 @@ class runtime {
 	void schedule_buffer_send(node_id recipient, const command_pkg& pkg);
 
   private:
-	using chunk_id = size_t;
-	// FIXME: Dimensions
-	using chunk_buffer_requirements_map =
-	    std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<1>>>>;
-	// FIXME: Dimensions
-	using chunk_buffer_source_map =
-	    std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::vector<std::pair<GridBox<1>, std::unordered_set<node_id>>>>>;
-
 	static std::unique_ptr<runtime> instance;
 	std::shared_ptr<logger> default_logger;
 	std::shared_ptr<logger> graph_logger;
@@ -74,12 +77,12 @@ class runtime {
 	size_t buffer_count = 0;
 	std::unordered_map<buffer_id, std::unique_ptr<detail::buffer_storage_base>> buffer_ptrs;
 
-	// This is a data structe view which encodes where (= on which node) valid
+	// This is a data structure which encodes where (= on which node) valid
 	// regions of a buffer can be found. A valid region is any region that has not
 	// been written to on another node.
 	// NOTE: This represents the buffer regions after all commands in the current
 	// command graph have been completed.
-	std::unordered_map<buffer_id, std::unique_ptr<detail::buffer_state_base>> valid_buffer_regions;
+	buffer_state_map valid_buffer_regions;
 
 	command_dag command_graph;
 
@@ -92,12 +95,10 @@ class runtime {
 
 	void build_command_graph();
 
-	/**
-	 * Assigns a number of chunks to a given set of free nodes.
-	 * Additionally computes the source nodes for the buffers required by the individual chunks.
-	 */
-	std::unordered_map<chunk_id, node_id> assign_chunks_to_nodes(
-	    size_t num_chunks, const chunk_buffer_requirements_map& chunk_reqs, std::set<node_id> free_nodes, chunk_buffer_source_map& chunk_buffer_sources) const;
+	void process_task_data_requirements(task_id tid, size_t num_chunks, const std::unordered_map<chunk_id, node_id>& chunk_nodes,
+	    const chunk_buffer_requirements_map& chunk_requirements, const chunk_buffer_source_map& chunk_buffer_sources,
+	    const std::unordered_map<task_id, graph_utils::task_vertices>& taskvs, const std::vector<vertex>& chunk_command_vertices,
+	    buffer_writers_map& buffer_writers);
 
 	friend class master_access_job;
 	void execute_master_access_task(task_id tid) const;
