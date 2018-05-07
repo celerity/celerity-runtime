@@ -1,5 +1,7 @@
 #include "distr_queue.h"
 
+#include <spdlog/fmt/fmt.h>
+
 #include "graph_utils.h"
 #include "runtime.h"
 
@@ -23,7 +25,7 @@ task_id distr_queue::add_task(std::shared_ptr<task> tsk) {
 	const task_id tid = task_count++;
 	task_map[tid] = tsk;
 	boost::add_vertex(task_graph);
-	task_graph[tid].label = (boost::format("Task %d") % tid).str();
+	task_graph[tid].label = fmt::format("Task {}", tid);
 	return tid;
 }
 
@@ -45,7 +47,7 @@ void distr_queue::set_task_data(task_id tid, any_range global_size, std::string 
 	assert(task_map.count(tid) != 0);
 	assert(task_map[tid]->get_type() == task_type::COMPUTE);
 	dynamic_cast<compute_task*>(task_map[tid].get())->set_global_size(global_size);
-	task_graph[tid].label = (boost::format("%s (%s)") % task_graph[tid].label % debug_name).str();
+	task_graph[tid].label = fmt::format("{} ({})", task_graph[tid].label, debug_name);
 }
 
 void distr_queue::update_dependencies(task_id tid, buffer_id bid, cl::sycl::access::mode mode) {

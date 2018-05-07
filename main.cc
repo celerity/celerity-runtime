@@ -11,8 +11,8 @@
 #endif
 
 #include <boost/algorithm/string.hpp>
-#include <boost/format.hpp>
 #include <celerity.h>
+#include <spdlog/fmt/fmt.h>
 
 // Use define instead of constexpr as MSVC seems to have some trouble getting it into nested closures
 #define DEMO_DATA_SIZE (1024)
@@ -98,15 +98,14 @@ void try_get_platform_device_env(int& platform_id, int& device_id) {
 	boost::split(values, env_var, boost::is_any_of(" "));
 
 	if(node_rank > values.size() - 2) {
-		throw std::runtime_error(
-		    (boost::format("Process has local rank %d, but CELERITY_DEVICES only includes %d device(s)") % node_rank % (values.size() - 1)).str());
+		throw std::runtime_error(fmt::format("Process has local rank {}, but CELERITY_DEVICES only includes {} device(s)", node_rank, values.size() - 1));
 	}
 
 	int node_size = 0;
 	MPI_Comm_size(node_comm, &node_size);
 	if(values.size() - 1 > node_size) {
-		std::cout << boost::format("Warning: CELERITY_DEVICES contains %d device indices, but only %d worker processes were spawned on this node")
-		                 % (values.size() - 1) % node_size
+		std::cout << fmt::format("Warning: CELERITY_DEVICES contains {} device indices, but only {} worker processes were spawned on this node",
+		                 values.size() - 1, node_size)
 		          << std::endl;
 	}
 

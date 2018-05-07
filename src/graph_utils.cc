@@ -7,7 +7,7 @@ namespace celerity {
 namespace graph_utils {
 	task_vertices add_task(task_id tid, const task_dag& tdag, command_dag& cdag) {
 		const vertex begin_task_v = boost::add_vertex(cdag);
-		cdag[begin_task_v].label = (boost::format("Begin %s") % tdag[tid].label).str();
+		cdag[begin_task_v].label = fmt::format("Begin {}", tdag[tid].label);
 		cdag[begin_task_v].tid = tid;
 
 		// Add all task requirements
@@ -17,7 +17,7 @@ namespace graph_utils {
 
 		const vertex complete_task_v = boost::add_vertex(cdag);
 		cdag[boost::graph_bundle].task_complete_vertices[tid] = complete_task_v;
-		cdag[complete_task_v].label = (boost::format("Complete %s") % tdag[tid].label).str();
+		cdag[complete_task_v].label = fmt::format("Complete {}", tdag[tid].label);
 		cdag[complete_task_v].tid = tid;
 
 		return task_vertices(begin_task_v, complete_task_v);
@@ -31,7 +31,7 @@ namespace graph_utils {
 		cdag[v].cmd = command::MASTER_ACCESS;
 		cdag[v].nid = master_nid;
 		cdag[v].tid = cdag[tv.first].tid;
-		cdag[v].label = (boost::format("Node %d:\\nMASTER ACCESS") % master_nid).str();
+		cdag[v].label = fmt::format("Node {}:\\nMASTER ACCESS", master_nid);
 		cdag[v].data.master_access = {};
 		return v;
 	}

@@ -4,7 +4,7 @@
 #include <type_traits>
 
 #include <SYCL/sycl.hpp>
-#include <boost/format.hpp>
+#include <spdlog/fmt/fmt.h>
 
 #include "subrange.h"
 
@@ -42,9 +42,8 @@ namespace detail {
 
 		std::runtime_error create_dimension_mismatch_error(int wrong_kernel_dims, int buffer_dims) const {
 			const int kernel_dims = get_kernel_dimensions();
-			return std::runtime_error((boost::format("Range mapper maps subrange<%d> -> subrange<%d>, but should map subrange<%d> -> subrange<%d>.")
-			                           % wrong_kernel_dims % buffer_dims % kernel_dims % buffer_dims)
-			                              .str());
+			return std::runtime_error(fmt::format("Range mapper maps subrange<{}> -> subrange<{}>, but should map subrange<{}> -> subrange<{}>.",
+			    wrong_kernel_dims, buffer_dims, kernel_dims, buffer_dims));
 		}
 	};
 

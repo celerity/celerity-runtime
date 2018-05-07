@@ -6,8 +6,8 @@
 #include <utility>
 
 #include <boost/algorithm/string.hpp>
-#include <boost/format.hpp>
 #include <boost/graph/breadth_first_search.hpp>
+#include <spdlog/fmt/fmt.h>
 
 #include "command.h"
 #include "graph.h"
@@ -122,7 +122,7 @@ namespace graph_utils {
 		cdag[v].cmd = command::COMPUTE;
 		cdag[v].nid = nid;
 		cdag[v].tid = cdag[tv.first].tid;
-		cdag[v].label = (boost::format("Node %d:\\nCOMPUTE %s") % nid % toString(detail::subrange_to_grid_region(chunk))).str();
+		cdag[v].label = fmt::format("Node {}:\\nCOMPUTE {}", nid, detail::subrange_to_grid_region(chunk));
 		cdag[v].data.compute.chunk = command_subrange(chunk);
 		return v;
 	}
@@ -137,7 +137,7 @@ namespace graph_utils {
 		cdag[v].cmd = command::PULL;
 		cdag[v].nid = nid;
 		cdag[v].tid = cdag[tv.first].tid;
-		cdag[v].label = (boost::format("Node %d:\\nPULL %d from %d\\n %s") % nid % bid % source_nid % toString(req)).str();
+		cdag[v].label = fmt::format("Node {}:\\nPULL {} from {}\\n {}", nid, bid, source_nid, req);
 		cdag[v].data.pull.bid = bid;
 		cdag[v].data.pull.source = source_nid;
 		cdag[v].data.pull.subrange = command_subrange(detail::grid_box_to_subrange(req));
@@ -167,7 +167,7 @@ namespace graph_utils {
 		cdag[w].cmd = command::AWAIT_PULL;
 		cdag[w].nid = source_nid;
 		cdag[w].tid = cdag[source_tv.first].tid;
-		cdag[w].label = (boost::format("Node %d:\\nAWAIT PULL %d by %d\\n %s") % source_nid % bid % nid % toString(req)).str();
+		cdag[w].label = fmt::format("Node {}:\\nAWAIT PULL {} by {}\\n {}", source_nid, bid, nid, req);
 		cdag[w].data.await_pull.bid = bid;
 		cdag[w].data.await_pull.target = nid;
 		cdag[w].data.await_pull.target_tid = cdag[tv.first].tid;

@@ -12,6 +12,7 @@
 #include <allscale/utils/string_utils.h>
 #include <boost/variant.hpp>
 #include <mpi.h>
+#include <spdlog/fmt/fmt.h>
 
 #include "command.h"
 #include "graph_utils.h"
@@ -343,8 +344,7 @@ void runtime::build_command_graph() {
 				// Add read to command node label for debugging
 				const auto& read_req = it.second[cl::sycl::access::mode::read];
 				if(read_req.area() > 0) {
-					command_graph[command_vertex].label =
-					    (boost::format("%s\\nRead %d %s") % command_graph[command_vertex].label % bid % toString(read_req)).str();
+					command_graph[command_vertex].label = fmt::format("{}\\nRead {} {}", command_graph[command_vertex].label, bid, toString(read_req));
 				}
 
 				// ==== Writes ====
@@ -353,8 +353,7 @@ void runtime::build_command_graph() {
 					buffer_writers[bid][nid].push_back(std::make_pair(tid, write_req));
 
 					// Add to compute node label for debugging
-					command_graph[command_vertex].label =
-					    (boost::format("%s\\nWrite %d %s") % command_graph[command_vertex].label % bid % toString(write_req)).str();
+					command_graph[command_vertex].label = fmt::format("{}\\nWrite {} {}", command_graph[command_vertex].label, bid, toString(write_req));
 				}
 
 				// ==== Reads ====

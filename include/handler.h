@@ -5,8 +5,8 @@
 #include <string>
 
 #include <SYCL/sycl.hpp>
-#include <boost/format.hpp>
 #include <boost/variant.hpp>
+#include <spdlog/fmt/fmt.h>
 
 #include "grid.h"
 #include "range_mapper.h"
@@ -42,7 +42,7 @@ class compute_prepass_handler {
 	std::string debug_name;
 	any_range global_size;
 
-	compute_prepass_handler(distr_queue& q, task_id tid) : queue(q), tid(tid) { debug_name = (boost::format("task%d") % tid).str(); }
+	compute_prepass_handler(distr_queue& q, task_id tid) : queue(q), tid(tid) { debug_name = fmt::format("task{}", tid); }
 };
 
 class compute_livepass_handler {
