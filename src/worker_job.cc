@@ -1,9 +1,23 @@
 #include "worker_job.h"
 
+#include <spdlog/fmt/fmt.h>
+
 #include "distr_queue.h"
 #include "runtime.h"
 
 namespace celerity {
+
+template <typename DurationRep, size_t NumSamples>
+void benchmark_update_moving_average(const std::array<DurationRep, NumSamples>& samples, const size_t total_sample_count, const size_t period_sample_count,
+    double& avg, DurationRep& min, DurationRep& max) {
+	DurationRep sum = 0;
+	for(size_t i = 0; i < period_sample_count; ++i) {
+		sum += samples[i];
+		if(samples[i] < min) { min = samples[i]; }
+		if(samples[i] > max) { max = samples[i]; }
+	}
+	avg = (avg * (total_sample_count - period_sample_count) + sum) / total_sample_count;
+}
 
 void worker_job::update() {
 	if(is_done()) return;
@@ -17,30 +31,53 @@ void worker_job::update() {
 				++it;
 			}
 		}
-		if(dependencies.empty()) { running = true; }
+		if(dependencies.empty()) {
+			running = true;
+			auto job_description = get_description(pkg);
+			job_logger->info(logger_map({{"event", "START"}, {"type", job_type_string[static_cast<std::underlying_type_t<job_type>>(job_description.first)]},
+			    {"message", job_description.second}}));
+		}
 	} else {
+		const auto before = bench_clock.now();
 		done = execute(pkg, job_logger);
+		const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(bench_clock.now() - before);
+
+		// TODO: We may want to make benchmarking optional with a macro
+		bench_samples[bench_sample_count % BENCH_MOVING_AVG_SAMPLES] = dt.count();
+		if(++bench_sample_count % BENCH_MOVING_AVG_SAMPLES == 0) {
+			benchmark_update_moving_average(bench_samples, bench_sample_count, BENCH_MOVING_AVG_SAMPLES, bench_avg, bench_min, bench_max);
+		}
+	}
+
+	if(done) {
+		// Include the remaining values into the average
+		const auto remaining = bench_sample_count % BENCH_MOVING_AVG_SAMPLES;
+		benchmark_update_moving_average(bench_samples, bench_sample_count, remaining, bench_avg, bench_min, bench_max);
+
+		job_logger->info(
+		    logger_map({{"event", "STOP"}, {"message", "Performance data is measured in microseconds"}, {"pollDurationAvg", std::to_string(bench_avg)}, {"pollDurationMin", std::to_string(bench_min)},
+		        {"pollDurationMax", std::to_string(bench_max)}, {"pollSamples", std::to_string(bench_sample_count)}}));
 	}
 }
 
+std::pair<job_type, std::string> pull_job::get_description(const command_pkg& pkg) {
+	return std::make_pair(job_type::PULL, fmt::format("PULL buffer {} from node {}", pkg.data.pull.bid, pkg.data.pull.source));
+}
+
 bool pull_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
-	if(data_handle == nullptr) {
-		logger->info("PULL buffer {} from node {}", pkg.data.pull.bid, pkg.data.pull.source);
-		data_handle = btm.pull(pkg);
-	}
+	if(data_handle == nullptr) { data_handle = btm.pull(pkg); }
 	if(data_handle->complete) {
-		logger->info("PULL COMPLETE buffer {} from node {}", pkg.data.pull.bid, pkg.data.pull.source);
 		// TODO: Remove handle from btm
 	}
 	return data_handle->complete;
 }
 
+std::pair<job_type, std::string> await_pull_job::get_description(const command_pkg& pkg) {
+	return std::make_pair(job_type::AWAIT_PULL, fmt::format("AWAIT PULL of buffer {} by node {}", pkg.data.await_pull.bid, pkg.data.await_pull.target));
+}
+
 bool await_pull_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
-	if(data_handle == nullptr) {
-		logger->info("AWAIT PULL of buffer {} by node {}", pkg.data.await_pull.bid, pkg.data.await_pull.target);
-		data_handle = btm.await_pull(pkg);
-	}
-	if(data_handle->complete) { logger->info("AWAIT PULL COMPLETE of buffer {} by node {}", pkg.data.await_pull.bid, pkg.data.await_pull.target); }
+	if(data_handle == nullptr) { data_handle = btm.await_pull(pkg); }
 	return data_handle->complete;
 }
 
@@ -60,13 +97,18 @@ job_set send_job::find_dependencies(const distr_queue& queue, const job_set& job
 	return dependencies;
 }
 
+std::pair<job_type, std::string> send_job::get_description(const command_pkg& pkg) {
+	return std::make_pair(job_type::SEND, fmt::format("SEND buffer {} to node {}", pkg.data.pull.bid, recipient));
+}
+
 bool send_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
-	if(WORKAROUND_avoid_race_condition() == false) return false;
+	if(WORKAROUND_avoid_race_condition(logger) == false) return false;
 	if(data_handle == nullptr) {
-		logger->info("SEND buffer {} to node {}", pkg.data.pull.bid, recipient);
+		logger->info("NOTE: Job duration includes waiting for corresponding AWAIT PULL (race condition workaround)");
+		logger->info(logger_map({{"event", "Submit buffer to MPI"}}));
 		data_handle = btm.send(recipient, pkg);
+		logger->info(logger_map({{"event", "Buffer submitted to MPI"}}));
 	}
-	if(data_handle->complete) { logger->info("SEND COMPLETE buffer {} to node {}", pkg.data.pull.bid, recipient); }
 	return data_handle->complete;
 }
 
@@ -110,7 +152,7 @@ bool send_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
  *    of push id), target nodes can check whether the data has already been received
  *    and if so, continue immediately - or wait otherwise.
  */
-bool send_job::WORKAROUND_avoid_race_condition() {
+bool send_job::WORKAROUND_avoid_race_condition(std::shared_ptr<logger> logger) {
 	assert(queue != nullptr);
 	assert(jobs != nullptr);
 
@@ -133,6 +175,7 @@ bool send_job::WORKAROUND_avoid_race_condition() {
 					if(get_task_id() != job->get_task_id() && queue->has_dependency(get_task_id(), job->get_task_id())) { additional_dependencies.insert(job); }
 				}
 			}
+			logger->info(logger_map({{"event", fmt::format("Found corresponding AWAIT PULL, and {} additional dependencies", additional_dependencies.size())}}));
 		}
 	}
 
@@ -165,10 +208,12 @@ job_set compute_job::find_dependencies(const distr_queue& queue, const job_set& 
 	return dependencies;
 }
 
+std::pair<job_type, std::string> compute_job::get_description(const command_pkg& pkg) {
+	return std::make_pair(job_type::COMPUTE, "COMPUTE");
+}
+
 bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 	if(!submitted) {
-		logger->info("COMPUTE");
-
 		// Note that we have to set the proper global size so the livepass handler can use the assigned chunk as input for range mappers
 		auto gs = std::static_pointer_cast<const compute_task>(queue.get_task(pkg.tid))->get_global_size();
 		auto& chunk = pkg.data.compute.chunk;
@@ -186,10 +231,7 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 	}
 
 	const auto status = event.get_info<cl::sycl::info::event::command_execution_status>();
-	if(status == cl::sycl::info::event_command_status::complete) {
-		logger->info("COMPUTE COMPLETE");
-		return true;
-	}
+	if(status == cl::sycl::info::event_command_status::complete) { return true; }
 	return false;
 }
 
@@ -202,6 +244,10 @@ job_set master_access_job::find_dependencies(const distr_queue& queue, const job
 	}
 
 	return dependencies;
+}
+
+std::pair<job_type, std::string> master_access_job::get_description(const command_pkg& pkg) {
+	return std::make_pair(job_type::MASTER_ACCESS, "MASTER ACCESS");
 }
 
 bool master_access_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {

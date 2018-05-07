@@ -1,7 +1,11 @@
 #pragma once
 
+#include <array>
 #include <cassert>
+#include <chrono>
+#include <limits>
 #include <unordered_set>
+#include <utility>
 
 #include "buffer_transfer_manager.h"
 #include "command.h"
@@ -13,6 +17,9 @@ class distr_queue;
 
 class worker_job;
 using job_set = std::unordered_set<std::shared_ptr<worker_job>>;
+
+enum class job_type : int { COMPUTE, PULL, AWAIT_PULL, SEND, MASTER_ACCESS };
+constexpr const char* job_type_string[] = {"COMPUTE", "PULL", "AWAIT_PULL", "SEND", "MASTER_ACCESS"};
 
 class worker_job {
   public:
@@ -40,8 +47,24 @@ class worker_job {
 	bool running = false;
 	job_set dependencies;
 
+	// Benchmarking
+	static constexpr size_t BENCH_MOVING_AVG_SAMPLES = 1000;
+	std::array<std::chrono::microseconds::rep, BENCH_MOVING_AVG_SAMPLES> bench_samples;
+	std::chrono::high_resolution_clock bench_clock;
+	size_t bench_sample_count = 0;
+	// Benchmarking results
+	double bench_avg = 0.0;
+	std::chrono::microseconds::rep bench_min = std::numeric_limits<std::chrono::microseconds::rep>::max();
+	std::chrono::microseconds::rep bench_max = std::numeric_limits<std::chrono::microseconds::rep>::min();
+
 	virtual job_set find_dependencies(const distr_queue& queue, const job_set& jobs) { return job_set(); }
 	virtual bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) = 0;
+
+	/**
+	 * Returns the job description in the form of the job type, as well as a string describing the parameters.
+	 * Used for logging.
+	 */
+	virtual std::pair<job_type, std::string> get_description(const command_pkg& pkg) = 0;
 };
 
 /**
@@ -65,6 +88,7 @@ class pull_job : public worker_job {
 	}
 
 	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
+	std::pair<job_type, std::string> get_description(const command_pkg& pkg) override;
 };
 
 /**
@@ -82,6 +106,7 @@ class await_pull_job : public worker_job {
 	std::shared_ptr<const buffer_transfer_manager::transfer_handle> data_handle = nullptr;
 
 	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
+	std::pair<job_type, std::string> get_description(const command_pkg& pkg) override;
 };
 
 /**
@@ -105,6 +130,7 @@ class send_job : public worker_job {
 	job_set find_dependencies(const distr_queue& queue, const job_set& jobs) override;
 
 	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
+	std::pair<job_type, std::string> get_description(const command_pkg& pkg) override;
 
 	// FIXME: WORKAROUND - Remove this at some point
   private:
@@ -114,7 +140,7 @@ class send_job : public worker_job {
 	std::shared_ptr<const await_pull_job> corresponding_await_pull = nullptr;
 	job_set additional_dependencies;
 
-	bool WORKAROUND_avoid_race_condition();
+	bool WORKAROUND_avoid_race_condition(std::shared_ptr<logger> logger);
 };
 
 /**
@@ -138,6 +164,7 @@ class compute_job : public worker_job {
 	job_set find_dependencies(const distr_queue& queue, const job_set& jobs) override;
 
 	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
+	std::pair<job_type, std::string> get_description(const command_pkg& pkg) override;
 };
 
 /**
@@ -152,6 +179,7 @@ class master_access_job : public worker_job {
 	job_set find_dependencies(const distr_queue& queue, const job_set& jobs) override;
 
 	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
+	std::pair<job_type, std::string> get_description(const command_pkg& pkg) override;
 };
 
 
