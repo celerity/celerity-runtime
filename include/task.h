@@ -81,6 +81,8 @@ class master_access_task : public task {
 		cl::sycl::access::mode mode;
 		any_range range;
 		any_range offset;
+
+		int get_dimensions() const { return range.which() + 1; }
 	};
 
 	master_access_task(std::unique_ptr<detail::maf_storage_base>&& maf) : task(), maf(std::move(maf)) {}

@@ -197,11 +197,34 @@ std::vector<subrange<1>> split_equal(const subrange<1>& sr, size_t num_chunks) {
 	return result;
 }
 
+// We simply split by row for now
+// TODO: There's other ways to split in 2D as well.
+std::vector<subrange<2>> split_equal(const subrange<2>& sr, size_t num_chunks) {
+	const auto rows =
+	    split_equal(subrange<1>{cl::sycl::range<1>(sr.start[0]), cl::sycl::range<1>(sr.range[0]), cl::sycl::range<1>(sr.global_size[0])}, num_chunks);
+	std::vector<subrange<2>> result;
+	for(auto& row : rows) {
+		result.push_back(subrange<2>{cl::sycl::range<2>(row.start[0], sr.start[1]), cl::sycl::range<2>(row.range[0], sr.range[1]), sr.global_size});
+	}
+	return result;
+}
+
+std::vector<subrange<3>> split_equal(const subrange<3>& sr, size_t num_chunks) {
+	throw std::runtime_error("3D split_equal NYI");
+}
+
+template <int Dims>
+std::vector<std::pair<any_grid_box, std::unordered_set<node_id>>> any_wrap_source_nodes_grid_boxes(
+    const std::vector<std::pair<GridBox<Dims>, std::unordered_set<node_id>>>& source_nodes) {
+	std::vector<std::pair<any_grid_box, std::unordered_set<node_id>>> wrapped(source_nodes.size());
+	std::transform(source_nodes.cbegin(), source_nodes.cend(), wrapped.begin(), [](auto& sn) { return std::make_pair(any_grid_box(sn.first), sn.second); });
+	return wrapped;
+};
+
 /**
  * Assigns a number of chunks to a given set of free nodes.
  * Additionally computes the source nodes for the buffers required by the individual chunks.
  */
-// FIXME: Dimensions
 std::unordered_map<chunk_id, node_id> assign_chunks_to_nodes(size_t num_chunks, const chunk_buffer_requirements_map& chunk_reqs,
     const buffer_state_map& valid_buffer_regions, std::set<node_id> free_nodes, chunk_buffer_source_map& chunk_buffer_sources) {
 	std::unordered_map<chunk_id, node_id> chunk_nodes;
@@ -212,25 +235,43 @@ std::unordered_map<chunk_id, node_id> assign_chunks_to_nodes(size_t num_chunks, 
 		for(auto& it : chunk_reqs.at(i)) {
 			const buffer_id bid = it.first;
 
-			// FIXME Dimensions
-			GridRegion<1> read_req;
-			if(it.second.count(cl::sycl::access::mode::read) != 0) { read_req = it.second.at(cl::sycl::access::mode::read); }
+			// TODO: Are these always sorted (return value of buffer_state::get_source_nodes)? Probably not. (requried for set_intersection)
+			std::unordered_set<node_id> source_nodes;
 
-			// FIXME Dimensions
-			const auto bs = dynamic_cast<detail::buffer_state<1>*>(valid_buffer_regions.at(bid).get());
-
-			// TODO: Are these always sorted? Probably not. (requried for set_intersection)
-			const auto sn = bs->get_source_nodes(read_req);
-			chunk_buffer_sources[i][bid] = sn;
+			if(it.second.count(cl::sycl::access::mode::read) > 0) {
+				const int dimensions = it.second.at(cl::sycl::access::mode::read).which() + 1;
+				switch(dimensions) {
+				default:
+				case 1: {
+					const auto& read_req = boost::get<GridRegion<1>>(it.second.at(cl::sycl::access::mode::read));
+					const auto bs = dynamic_cast<detail::buffer_state<1>*>(valid_buffer_regions.at(bid).get());
+					const auto sn = bs->get_source_nodes(read_req);
+					chunk_buffer_sources[i][bid] = any_wrap_source_nodes_grid_boxes<1>(sn);
+					if(sn.size() > 0) { source_nodes = sn[0].second; }
+				} break;
+				case 2: {
+					const auto& read_req = boost::get<GridRegion<2>>(it.second.at(cl::sycl::access::mode::read));
+					const auto bs = dynamic_cast<detail::buffer_state<2>*>(valid_buffer_regions.at(bid).get());
+					const auto sn = bs->get_source_nodes(read_req);
+					chunk_buffer_sources[i][bid] = any_wrap_source_nodes_grid_boxes<2>(sn);
+					if(sn.size() > 0) { source_nodes = sn[0].second; }
+				} break;
+				case 3: {
+					const auto& read_req = boost::get<GridRegion<3>>(it.second.at(cl::sycl::access::mode::read));
+					const auto bs = dynamic_cast<detail::buffer_state<3>*>(valid_buffer_regions.at(bid).get());
+					const auto sn = bs->get_source_nodes(read_req);
+					chunk_buffer_sources[i][bid] = any_wrap_source_nodes_grid_boxes<3>(sn);
+					if(sn.size() > 0) { source_nodes = sn[0].second; }
+				} break;
+				}
+			}
 
 			if(!node_assigned) {
 				assert(free_nodes.size() > 0);
 
 				// If the chunk doesn't have any read requirements (for this buffer!),
 				// we also won't get any source nodes
-				if(sn.size() > 0) {
-					const auto& source_nodes = sn[0].second;
-
+				if(source_nodes.size() > 0) {
 					// We simply pick the first node that contains the largest chunk of
 					// the first requested buffer, given it is still available.
 					// Otherwise we simply pick the first available node.
@@ -257,19 +298,21 @@ std::unordered_map<chunk_id, node_id> assign_chunks_to_nodes(size_t num_chunks, 
 	return chunk_nodes;
 }
 
+template <int Dims>
 void process_compute_task(task_id tid, const compute_task* ctsk, size_t num_worker_nodes, bool master_only,
     const std::unordered_map<task_id, graph_utils::task_vertices>& taskvs, const buffer_state_map& valid_buffer_regions, size_t& num_chunks,
     std::unordered_map<chunk_id, node_id>& chunk_nodes, chunk_buffer_requirements_map& chunk_requirements, chunk_buffer_source_map& chunk_buffer_sources,
     std::vector<vertex>& chunk_command_vertices, command_dag& command_graph) {
+	assert(ctsk->get_dimensions() == Dims);
+
 	// Split task into equal chunks for every worker node
 	// TODO: In the future, we may want to adjust our split based on the range
 	// mapper results and data location!
 	num_chunks = num_worker_nodes;
 
-	// FIXME: Dimensions
-	// ---> The chunks have the same dimensionality as the task
-	auto sr = subrange<1>();
-	sr.global_size = boost::get<cl::sycl::range<1>>(ctsk->get_global_size());
+	// The chunks have the same dimensionality as the task
+	auto sr = subrange<Dims>();
+	sr.global_size = boost::get<cl::sycl::range<Dims>>(ctsk->get_global_size());
 	sr.range = sr.global_size;
 	auto chunks = split_equal(sr, num_chunks);
 
@@ -280,12 +323,36 @@ void process_compute_task(task_id tid, const compute_task* ctsk, size_t num_work
 		for(auto& rm : it.second) {
 			auto mode = rm->get_access_mode();
 			assert(mode == cl::sycl::access::mode::read || mode == cl::sycl::access::mode::write);
+			assert(rm->get_kernel_dimensions() == Dims);
 
 			for(auto i = 0u; i < chunks.size(); ++i) {
-				// FIXME: Dimensions
-				// ---> The chunk requirements have the dimensionality of the corresponding buffer
-				const subrange<1> req = (*rm).map_1(chunks[i]);
-				chunk_requirements[i][bid][mode] = GridRegion<1>::merge(chunk_requirements[i][bid][mode], detail::subrange_to_grid_region(req));
+				// The chunk requirements have the dimensionality of the corresponding buffer
+				switch(rm->get_buffer_dimensions()) {
+				default:
+				case 1: {
+					const subrange<1> req = (*rm).map_1(chunks[i]);
+					const auto& reqs = boost::get<GridRegion<1>>(chunk_requirements[i][bid][mode]);
+					chunk_requirements[i][bid][mode] = GridRegion<1>::merge(reqs, detail::subrange_to_grid_region(req));
+				} break;
+				case 2: {
+					const subrange<2> req = (*rm).map_2(chunks[i]);
+					if(chunk_requirements[i][bid][mode].which() == 0) {
+						chunk_requirements[i][bid][mode] = detail::subrange_to_grid_region(req);
+						continue;
+					}
+					const auto& reqs = boost::get<GridRegion<2>>(chunk_requirements[i][bid][mode]);
+					chunk_requirements[i][bid][mode] = GridRegion<2>::merge(reqs, detail::subrange_to_grid_region(req));
+				} break;
+				case 3: {
+					const subrange<3> req = (*rm).map_3(chunks[i]);
+					if(chunk_requirements[i][bid][mode].which() == 0) {
+						chunk_requirements[i][bid][mode] = detail::subrange_to_grid_region(req);
+						continue;
+					}
+					const auto& reqs = boost::get<GridRegion<3>>(chunk_requirements[i][bid][mode]);
+					chunk_requirements[i][bid][mode] = GridRegion<3>::merge(reqs, detail::subrange_to_grid_region(req));
+				} break;
+				}
 			}
 		}
 	}
@@ -321,26 +388,81 @@ void process_master_access_task(task_id tid, const master_access_task* matsk, co
 		for(auto& bacc : it.second) {
 			// Note that subrange_to_grid_region clamps to the global size, which is why we set this to size_t max
 			// TODO: Subrange is not ideal here, we don't need the global size
-			// FIXME Dimensions
-			const auto req = subrange<1>{boost::get<cl::sycl::range<1>>(bacc.offset), boost::get<cl::sycl::range<1>>(bacc.range),
-			    cl::sycl::range<1>(std::numeric_limits<size_t>::max())};
-			chunk_requirements[master_node][bid][bacc.mode] =
-			    GridRegion<1>::merge(chunk_requirements[master_node][bid][bacc.mode], detail::subrange_to_grid_region(req));
+			switch(bacc.get_dimensions()) {
+			default:
+			case 1: {
+				const auto req = subrange<1>{boost::get<cl::sycl::range<1>>(bacc.offset), boost::get<cl::sycl::range<1>>(bacc.range),
+				    cl::sycl::range<1>(std::numeric_limits<size_t>::max())};
+				const auto& reqs = boost::get<GridRegion<1>>(chunk_requirements[master_node][bid][bacc.mode]);
+				chunk_requirements[master_node][bid][bacc.mode] = GridRegion<1>::merge(reqs, detail::subrange_to_grid_region(req));
+			} break;
+			case 2: {
+				const auto req = subrange<2>{boost::get<cl::sycl::range<2>>(bacc.offset), boost::get<cl::sycl::range<2>>(bacc.range),
+				    cl::sycl::range<2>(std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max())};
+				if(chunk_requirements[master_node][bid][bacc.mode].which() == 0) {
+					chunk_requirements[master_node][bid][bacc.mode] = detail::subrange_to_grid_region(req);
+					continue;
+				}
+				const auto& reqs = boost::get<GridRegion<2>>(chunk_requirements[master_node][bid][bacc.mode]);
+				chunk_requirements[master_node][bid][bacc.mode] = GridRegion<2>::merge(reqs, detail::subrange_to_grid_region(req));
+			} break;
+			case 3: {
+				const auto req = subrange<3>{boost::get<cl::sycl::range<3>>(bacc.offset), boost::get<cl::sycl::range<3>>(bacc.range),
+				    cl::sycl::range<3>(std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max())};
+				if(chunk_requirements[master_node][bid][bacc.mode].which() == 0) {
+					chunk_requirements[master_node][bid][bacc.mode] = detail::subrange_to_grid_region(req);
+					continue;
+				}
+				const auto& reqs = boost::get<GridRegion<3>>(chunk_requirements[master_node][bid][bacc.mode]);
+				chunk_requirements[master_node][bid][bacc.mode] = GridRegion<3>::merge(reqs, detail::subrange_to_grid_region(req));
+			} break;
+			}
 		}
 	}
 
 	for(auto& it : chunk_requirements.at(master_node)) {
 		const buffer_id bid = it.first;
 		if(it.second.count(cl::sycl::access::mode::read) == 0) continue;
-		const auto read_req = it.second.at(cl::sycl::access::mode::read);
+		const int dimensions = it.second.at(cl::sycl::access::mode::read).which() + 1;
 
-		// FIXME Dimensions
-		const auto bs = dynamic_cast<detail::buffer_state<1>*>(valid_buffer_regions.at(bid).get());
-		chunk_buffer_sources[master_node][bid] = bs->get_source_nodes(read_req);
+		switch(dimensions) {
+		default:
+		case 1: {
+			const auto& read_req = boost::get<GridRegion<1>>(it.second.at(cl::sycl::access::mode::read));
+			const auto bs = dynamic_cast<detail::buffer_state<1>*>(valid_buffer_regions.at(bid).get());
+			const auto source_nodes = bs->get_source_nodes(read_req);
+			chunk_buffer_sources[master_node][bid] = any_wrap_source_nodes_grid_boxes<1>(source_nodes);
+		} break;
+		case 2: {
+			const auto& read_req = boost::get<GridRegion<2>>(it.second.at(cl::sycl::access::mode::read));
+			const auto bs = dynamic_cast<detail::buffer_state<2>*>(valid_buffer_regions.at(bid).get());
+			const auto source_nodes = bs->get_source_nodes(read_req);
+			chunk_buffer_sources[master_node][bid] = any_wrap_source_nodes_grid_boxes<2>(source_nodes);
+		} break;
+		case 3: {
+			const auto& read_req = boost::get<GridRegion<3>>(it.second.at(cl::sycl::access::mode::read));
+			const auto bs = dynamic_cast<detail::buffer_state<3>*>(valid_buffer_regions.at(bid).get());
+			const auto source_nodes = bs->get_source_nodes(read_req);
+			chunk_buffer_sources[master_node][bid] = any_wrap_source_nodes_grid_boxes<3>(source_nodes);
+		} break;
+		}
 	}
 
 	const auto cv = graph_utils::add_master_access_cmd(taskvs.at(tid), command_graph);
 	chunk_command_vertices.push_back(cv);
+}
+
+
+template <int Dims>
+void update_buffer_state(const std::unordered_map<node_id, std::vector<std::pair<task_id, any_grid_region>>>& buffer_writers, detail::buffer_state<Dims>& bs) {
+	for(const auto& w : buffer_writers) {
+		const node_id nid = w.first;
+		GridRegion<Dims> region;
+		for(const auto& tr : w.second) {
+			region = GridRegion<Dims>::merge(region, boost::get<GridRegion<Dims>>(tr.second));
+		}
+		bs.update_region(region, {nid});
+	}
 }
 
 /**
@@ -405,8 +527,21 @@ void runtime::build_command_graph() {
 
 		if(tsk->get_type() == task_type::COMPUTE) {
 			const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
-			process_compute_task(tid, ctsk, num_worker_nodes, master_only, taskvs, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
-			    chunk_buffer_sources, chunk_command_vertices, command_graph);
+			switch(ctsk->get_dimensions()) {
+			default:
+			case 1:
+				process_compute_task<1>(tid, ctsk, num_worker_nodes, master_only, taskvs, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
+				    chunk_buffer_sources, chunk_command_vertices, command_graph);
+				break;
+			case 2:
+				process_compute_task<2>(tid, ctsk, num_worker_nodes, master_only, taskvs, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
+				    chunk_buffer_sources, chunk_command_vertices, command_graph);
+				break;
+			case 3:
+				process_compute_task<3>(tid, ctsk, num_worker_nodes, master_only, taskvs, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
+				    chunk_buffer_sources, chunk_command_vertices, command_graph);
+				break;
+			}
 		} else if(tsk->get_type() == task_type::MASTER_ACCESS) {
 			const auto matsk = dynamic_cast<const master_access_task*>(tsk.get());
 			process_master_access_task(
@@ -418,20 +553,13 @@ void runtime::build_command_graph() {
 	}
 
 	// Update buffer regions
-	// FIXME Dimensions
 	for(auto it : buffer_writers) {
 		const buffer_id bid = it.first;
-		auto bs = static_cast<detail::buffer_state<1>*>(valid_buffer_regions[bid].get());
-
-		for(auto jt : it.second) {
-			const node_id nid = jt.first;
-			GridRegion<1> region;
-
-			for(const auto& kt : jt.second) {
-				region = GridRegion<1>::merge(region, kt.second);
-			}
-
-			bs->update_region(region, {nid});
+		switch(valid_buffer_regions[bid]->get_dimensions()) {
+		default:
+		case 1: update_buffer_state(it.second, *dynamic_cast<detail::buffer_state<1>*>(valid_buffer_regions[bid].get())); break;
+		case 2: update_buffer_state(it.second, *dynamic_cast<detail::buffer_state<2>*>(valid_buffer_regions[bid].get())); break;
+		case 3: update_buffer_state(it.second, *dynamic_cast<detail::buffer_state<3>*>(valid_buffer_regions[bid].get())); break;
 		}
 	}
 
@@ -450,29 +578,68 @@ void runtime::process_task_data_requirements(task_id tid, size_t num_chunks, con
 
 		for(auto& it : chunk_requirements.at(i)) {
 			const buffer_id bid = it.first;
+			int buffer_dimensions = 0;
 			const vertex command_vertex = chunk_command_vertices.at(i);
 
 			// ==== Writes ====
 			if(it.second.count(cl::sycl::access::mode::write) > 0) {
-				const auto& write_req = it.second.at(cl::sycl::access::mode::write);
-				assert(write_req.area() > 0);
-				buffer_writers[bid][nid].push_back(std::make_pair(tid, write_req));
+				buffer_dimensions = it.second.at(cl::sycl::access::mode::write).which() + 1;
 
-				// Add to compute node label for debugging
-				command_graph[command_vertex].label = fmt::format("{}\\nWrite {} {}", command_graph[command_vertex].label, bid, toString(write_req));
+				switch(buffer_dimensions) {
+				default:
+				case 1: {
+					const auto& write_req = boost::get<GridRegion<1>>(it.second.at(cl::sycl::access::mode::write));
+					assert(write_req.area() > 0);
+					buffer_writers[bid][nid].push_back(std::make_pair(tid, write_req));
+					// Add to compute node label for debugging
+					command_graph[command_vertex].label = fmt::format("{}\\nWrite {} {}", command_graph[command_vertex].label, bid, toString(write_req));
+				} break;
+				case 2: {
+					const auto& write_req = boost::get<GridRegion<2>>(it.second.at(cl::sycl::access::mode::write));
+					assert(write_req.area() > 0);
+					buffer_writers[bid][nid].push_back(std::make_pair(tid, write_req));
+					// Add to compute node label for debugging
+					command_graph[command_vertex].label = fmt::format("{}\\nWrite {} {}", command_graph[command_vertex].label, bid, toString(write_req));
+				} break;
+				case 3: {
+					const auto& write_req = boost::get<GridRegion<3>>(it.second.at(cl::sycl::access::mode::write));
+					assert(write_req.area() > 0);
+					buffer_writers[bid][nid].push_back(std::make_pair(tid, write_req));
+					// Add to compute node label for debugging
+					command_graph[command_vertex].label = fmt::format("{}\\nWrite {} {}", command_graph[command_vertex].label, bid, toString(write_req));
+				} break;
+				}
 			}
 
 			// ==== Reads ====
 			// Add read to command node label for debugging
 			if(it.second.count(cl::sycl::access::mode::read) > 0) {
-				const auto& read_req = it.second.at(cl::sycl::access::mode::read);
-				assert(read_req.area() > 0);
-				command_graph[command_vertex].label = fmt::format("{}\\nRead {} {}", command_graph[command_vertex].label, bid, toString(read_req));
+				assert(buffer_dimensions == 0 || buffer_dimensions == it.second.at(cl::sycl::access::mode::read).which() + 1);
+				buffer_dimensions = it.second.at(cl::sycl::access::mode::read).which() + 1;
+
+				switch(buffer_dimensions) {
+				default:
+				case 1: {
+					const auto& read_req = boost::get<GridRegion<1>>(it.second.at(cl::sycl::access::mode::read));
+					assert(read_req.area() > 0);
+					command_graph[command_vertex].label = fmt::format("{}\\nRead {} {}", command_graph[command_vertex].label, bid, toString(read_req));
+				} break;
+				case 2: {
+					const auto& read_req = boost::get<GridRegion<2>>(it.second.at(cl::sycl::access::mode::read));
+					assert(read_req.area() > 0);
+					command_graph[command_vertex].label = fmt::format("{}\\nRead {} {}", command_graph[command_vertex].label, bid, toString(read_req));
+				} break;
+				case 3: {
+					const auto& read_req = boost::get<GridRegion<3>>(it.second.at(cl::sycl::access::mode::read));
+					assert(read_req.area() > 0);
+					command_graph[command_vertex].label = fmt::format("{}\\nRead {} {}", command_graph[command_vertex].label, bid, toString(read_req));
+				} break;
+				}
 			} else {
 				continue;
 			}
 
-			const auto buffer_sources = chunk_buffer_sources.at(i).at(bid);
+			const std::vector<std::pair<any_grid_box, std::unordered_set<node_id>>>& buffer_sources = chunk_buffer_sources.at(i).at(bid);
 
 			for(auto& box_sources : buffer_sources) {
 				const auto& box = box_sources.first;
@@ -493,7 +660,21 @@ void runtime::process_task_data_requirements(task_id tid, size_t num_chunks, con
 				bool has_writer = false;
 				task_id writer_tid = 0;
 				for(const auto& bw : buffer_writers[bid][source_nid]) {
-					if(GridRegion<1>::intersect(bw.second, GridRegion<1>(box)).area() > 0) {
+					bool intersects = false;
+					switch(buffer_dimensions) {
+					default:
+					case 1:
+						intersects = GridRegion<1>::intersect(boost::get<GridRegion<1>>(bw.second), GridRegion<1>(boost::get<GridBox<1>>(box))).area() > 0;
+						break;
+					case 2:
+						intersects = GridRegion<2>::intersect(boost::get<GridRegion<2>>(bw.second), GridRegion<2>(boost::get<GridBox<2>>(box))).area() > 0;
+						break;
+					case 3:
+						intersects = GridRegion<3>::intersect(boost::get<GridRegion<3>>(bw.second), GridRegion<3>(boost::get<GridBox<3>>(box))).area() > 0;
+						break;
+					}
+
+					if(intersects) {
 #ifdef _DEBUG
 						// We assume at most one sibling writes to that exact region
 						// TODO: Is there any (useful) scenario where this isn't true?
@@ -512,7 +693,18 @@ void runtime::process_task_data_requirements(task_id tid, size_t num_chunks, con
 				const auto source_tv = has_writer ? taskvs.at(writer_tid) : taskvs.at(tid);
 
 				// TODO: Update buffer regions since we copied some stuff!!
-				graph_utils::add_pull_cmd(nid, source_nid, bid, taskvs.at(tid), source_tv, command_vertex, box, command_graph);
+				switch(buffer_dimensions) {
+				default:
+				case 1:
+					graph_utils::add_pull_cmd(nid, source_nid, bid, taskvs.at(tid), source_tv, command_vertex, boost::get<GridBox<1>>(box), command_graph);
+					break;
+				case 2:
+					graph_utils::add_pull_cmd(nid, source_nid, bid, taskvs.at(tid), source_tv, command_vertex, boost::get<GridBox<2>>(box), command_graph);
+					break;
+				case 3:
+					graph_utils::add_pull_cmd(nid, source_nid, bid, taskvs.at(tid), source_tv, command_vertex, boost::get<GridBox<3>>(box), command_graph);
+					break;
+				}
 			}
 		}
 	}

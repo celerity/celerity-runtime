@@ -25,21 +25,21 @@ namespace detail {
 	}
 
 	inline GridRegion<1> subrange_to_grid_region(const subrange<1>& sr) {
-		auto end = sr.start + sr.range;
+		auto end = cl::sycl::range<1>(sr.start) + sr.range;
 		clamp_range(end, sr.global_size);
-		return GridRegion<1>(sycl_range_to_grid_point(sr.start), sycl_range_to_grid_point(end));
+		return GridRegion<1>(sycl_range_to_grid_point(cl::sycl::range<1>(sr.start)), sycl_range_to_grid_point(end));
 	}
 
 	inline GridRegion<2> subrange_to_grid_region(const subrange<2>& sr) {
-		auto end = sr.start + sr.range;
+		auto end = cl::sycl::range<2>(sr.start) + sr.range;
 		clamp_range(end, sr.global_size);
-		return GridRegion<2>(sycl_range_to_grid_point(sr.start), sycl_range_to_grid_point(end));
+		return GridRegion<2>(sycl_range_to_grid_point(cl::sycl::range<2>(sr.start)), sycl_range_to_grid_point(end));
 	}
 
 	inline GridRegion<3> subrange_to_grid_region(const subrange<3>& sr) {
-		auto end = sr.start + sr.range;
+		auto end = cl::sycl::range<3>(sr.start) + sr.range;
 		clamp_range(end, sr.global_size);
-		return GridRegion<3>(sycl_range_to_grid_point(sr.start), sycl_range_to_grid_point(end));
+		return GridRegion<3>(sycl_range_to_grid_point(cl::sycl::range<3>(sr.start)), sycl_range_to_grid_point(end));
 	}
 
 	inline subrange<1> grid_box_to_subrange(const GridBox<1>& box) {

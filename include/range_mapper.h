@@ -24,6 +24,7 @@ namespace detail {
 		cl::sycl::access::mode get_access_mode() const { return access_mode; }
 
 		virtual size_t get_kernel_dimensions() const = 0;
+		virtual size_t get_buffer_dimensions() const = 0;
 
 		virtual subrange<1> map_1(subrange<1> range) const { throw create_dimension_mismatch_error(1, 1); }
 		virtual subrange<1> map_1(subrange<2> range) const { throw create_dimension_mismatch_error(2, 1); }
@@ -53,6 +54,7 @@ namespace detail {
 		range_mapper(range_mapper_fn<KernelDims, BufferDims> fn, cl::sycl::access::mode am) : range_mapper_base(am), rmfn(fn) {}
 
 		size_t get_kernel_dimensions() const override { return KernelDims; }
+		size_t get_buffer_dimensions() const override { return BufferDims; }
 
 		subrange<1> map_1(subrange<KernelDims> range) const override { return map_1_impl(range); }
 		subrange<2> map_2(subrange<KernelDims> range) const override { return map_2_impl(range); }

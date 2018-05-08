@@ -9,10 +9,7 @@ template <int Dims>
 struct subrange {
 	static constexpr int dims = Dims;
 
-	// TODO: Should "start" be a cl::sycl::id instead? (What's the difference?)
-	// We'll leave it a range for now so we don't have to provide conversion
-	// overloads below
-	cl::sycl::range<Dims> start;
+	cl::sycl::id<Dims> start;
 	cl::sycl::range<Dims> range;
 	cl::sycl::range<Dims> global_size;
 };

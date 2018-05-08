@@ -62,7 +62,7 @@ namespace detail {
 		void set_data(const raw_data_range& dr) override {
 			assert(dr.dimensions == 1);
 			auto acc = buf.template get_access<cl::sycl::access::mode::write>(cl::sycl::range<1>(dr.subsize[0]), cl::sycl::id<1>(dr.offsets[0]));
-			auto dst_ptr = acc.get_pointer();
+			const auto dst_ptr = acc.get_pointer();
 			std::memcpy(dst_ptr + dr.offsets[0], dr.base_ptr, dr.subsize[0] * sizeof(DataT));
 		}
 	};
@@ -90,7 +90,15 @@ namespace detail {
 
 		void set_data(const raw_data_range& dr) override {
 			assert(dr.dimensions == 2);
-			throw std::runtime_error("set_data_range for 2 dimensions NYI");
+			auto acc = buf.template get_access<cl::sycl::access::mode::write>(
+			    cl::sycl::range<2>(dr.subsize[0], dr.subsize[1]), cl::sycl::id<2>(dr.offsets[0], dr.offsets[1]));
+			const auto dst_ptr = acc.get_pointer();
+			const auto buffer_size = buf.get_range();
+			const auto base_row_offset = dr.offsets[0] * buffer_size[0];
+			for(auto i = 0; i < dr.subsize[0]; ++i) {
+				std::memcpy(dst_ptr + base_row_offset + i * buffer_size[0] + dr.offsets[1], reinterpret_cast<DataT*>(dr.base_ptr) + i * dr.subsize[1],
+				    dr.subsize[1] * sizeof(DataT));
+			}
 		}
 	};
 

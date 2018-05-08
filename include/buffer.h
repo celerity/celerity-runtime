@@ -47,15 +47,16 @@ class buffer {
 	}
 
 	template <cl::sycl::access::mode Mode>
-	prepass_accessor<DataT, Dims, Mode> get_access(master_access_prepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::range<Dims> offset = {0}) {
-		handler.require(Mode, id, range, offset);
+	prepass_accessor<DataT, Dims, Mode> get_access(master_access_prepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {}) {
+		// FIXME: This should also take a sycl::id for offset
+		handler.require(Mode, id, range, cl::sycl::range<Dims>(offset));
 		return prepass_accessor<DataT, Dims, Mode>();
 	}
 
 	template <cl::sycl::access::mode Mode>
 	cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer> get_access(
-	    master_access_livepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::range<Dims> offset = {0}) {
-		return sycl_buffer.template get_access<Mode>(range, cl::sycl::id<Dims>(offset));
+	    master_access_livepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {}) {
+		return sycl_buffer.template get_access<Mode>(range, offset);
 	}
 
 	// TODO: Should we support this?

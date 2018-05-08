@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include <boost/variant.hpp>
 #include <mpi.h>
 
 #include "buffer_state.h"
@@ -20,13 +21,14 @@
 namespace celerity {
 
 using chunk_id = size_t;
-// FIXME: Dimensions
-using chunk_buffer_requirements_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<1>>>>;
-// FIXME: Dimensions
-using chunk_buffer_source_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::vector<std::pair<GridBox<1>, std::unordered_set<node_id>>>>>;
-// FIXME: Dimensions
-using buffer_writers_map = std::unordered_map<buffer_id, std::unordered_map<node_id, std::vector<std::pair<task_id, GridRegion<1>>>>>;
 
+using any_grid_region = boost::variant<GridRegion<1>, GridRegion<2>, GridRegion<3>>;
+using any_grid_box = boost::variant<GridBox<1>, GridBox<2>, GridBox<3>>;
+
+// FIXME: Untangle these data structures somehow. MSVC already warns about long names (C4503).
+using chunk_buffer_requirements_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, any_grid_region>>>;
+using chunk_buffer_source_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::vector<std::pair<any_grid_box, std::unordered_set<node_id>>>>>;
+using buffer_writers_map = std::unordered_map<buffer_id, std::unordered_map<node_id, std::vector<std::pair<task_id, any_grid_region>>>>;
 using buffer_state_map = std::unordered_map<buffer_id, std::unique_ptr<detail::buffer_state_base>>;
 
 class runtime {

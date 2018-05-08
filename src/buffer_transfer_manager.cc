@@ -158,7 +158,13 @@ void buffer_transfer_manager::update_transfers() {
 		handle->complete = true;
 
 		// TODO: Assert t->data.size();
-		detail::raw_data_range dr{&t->data[0], 1, {0, 0, 0}, {(int)pdata.subrange.range0, (int)pdata.subrange.range1, (int)pdata.subrange.range2},
+		int dimensions = 3;
+		if(pdata.subrange.range2 == 0) {
+			dimensions = 2;
+			if(pdata.subrange.range1 == 0) { dimensions = 1; }
+		}
+		// FIXME: It's not ideal that we set raw_data_range::full_size to all zeros here.
+		detail::raw_data_range dr{&t->data[0], dimensions, {0, 0, 0}, {(int)pdata.subrange.range0, (int)pdata.subrange.range1, (int)pdata.subrange.range2},
 		    {(int)pdata.subrange.offset0, (int)pdata.subrange.offset1, (int)pdata.subrange.offset2}};
 		runtime::get_instance().set_buffer_data(pdata.bid, dr);
 
