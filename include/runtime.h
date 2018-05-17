@@ -67,6 +67,8 @@ class runtime {
 
 	void schedule_buffer_send(node_id recipient, const command_pkg& pkg);
 
+	std::shared_ptr<logger> get_logger() const { return default_logger; }
+
   private:
 	static std::unique_ptr<runtime> instance;
 	std::shared_ptr<logger> default_logger;

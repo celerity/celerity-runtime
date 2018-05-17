@@ -231,6 +231,9 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 		submitted = true;
 	}
 
+	// NOTE: Currently (ComputeCpp 0.8.0) there exists a bug that causes this call to deadlock
+	// if the command failed to be submitted in the first place (e.g. when buffer allocation failed).
+	// Codeplay has been informed about this, and they're working on it.
 	const auto status = event.get_info<cl::sycl::info::event::command_execution_status>();
 	if(status == cl::sycl::info::event_command_status::complete) { return true; }
 	return false;

@@ -8,9 +8,13 @@
 namespace celerity {
 
 // TODO: Initialize SYCL queue lazily
-distr_queue::distr_queue(cl::sycl::device device) : sycl_queue(device) {
+distr_queue::distr_queue(cl::sycl::device device) : sycl_queue(device, handle_async_exceptions) {
 	runtime::get_instance().register_queue(this);
 	task_graph[boost::graph_bundle].name = "TaskGraph";
+}
+
+distr_queue::~distr_queue() {
+	sycl_queue.wait_and_throw();
 }
 
 void distr_queue::mark_task_as_processed(task_id tid) {
@@ -61,6 +65,17 @@ void distr_queue::update_dependencies(task_id tid, buffer_id bid, cl::sycl::acce
 		}
 	}
 	if(mode == cl::sycl::access::mode::write) { buffer_last_writer[bid] = tid; }
+}
+
+void distr_queue::handle_async_exceptions(cl::sycl::exception_list el) {
+	for(auto& e : el) {
+		try {
+			std::rethrow_exception(e);
+		} catch(cl::sycl::exception& e) {
+			// TODO: We'd probably want to abort execution here
+			runtime::get_instance().get_logger()->error("SYCL asynchronous exception: {}", e.what());
+		}
+	}
 }
 
 bool distr_queue::has_dependency(task_id task_a, task_id task_b) const {

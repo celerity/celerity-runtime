@@ -41,6 +41,8 @@ class distr_queue {
 	// TODO: Device should be selected transparently
 	distr_queue(cl::sycl::device device);
 
+	~distr_queue();
+
 	distr_queue(const distr_queue& other) = delete;
 	distr_queue(distr_queue&& other) = delete;
 
@@ -125,6 +127,8 @@ class distr_queue {
 	void set_task_data(task_id tid, any_range global_size, std::string debug_name);
 
 	void update_dependencies(task_id tid, buffer_id bid, cl::sycl::access::mode mode);
+
+	static void handle_async_exceptions(cl::sycl::exception_list el);
 };
 
 } // namespace celerity
