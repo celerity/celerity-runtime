@@ -54,9 +54,9 @@ void worker_job::update() {
 		const auto remaining = bench_sample_count % BENCH_MOVING_AVG_SAMPLES;
 		benchmark_update_moving_average(bench_samples, bench_sample_count, remaining, bench_avg, bench_min, bench_max);
 
-		job_logger->info(
-		    logger_map({{"event", "STOP"}, {"message", "Performance data is measured in microseconds"}, {"pollDurationAvg", std::to_string(bench_avg)}, {"pollDurationMin", std::to_string(bench_min)},
-		        {"pollDurationMax", std::to_string(bench_max)}, {"pollSamples", std::to_string(bench_sample_count)}}));
+		job_logger->info(logger_map({{"event", "STOP"}, {"message", "Performance data is measured in microseconds"},
+		    {"pollDurationAvg", std::to_string(bench_avg)}, {"pollDurationMin", std::to_string(bench_min)}, {"pollDurationMax", std::to_string(bench_max)},
+		    {"pollSamples", std::to_string(bench_sample_count)}}));
 	}
 }
 
@@ -175,7 +175,8 @@ bool send_job::WORKAROUND_avoid_race_condition(std::shared_ptr<logger> logger) {
 					if(get_task_id() != job->get_task_id() && queue->has_dependency(get_task_id(), job->get_task_id())) { additional_dependencies.insert(job); }
 				}
 			}
-			logger->info(logger_map({{"event", fmt::format("Found corresponding AWAIT PULL, and {} additional dependencies", additional_dependencies.size())}}));
+			logger->info(
+			    logger_map({{"event", fmt::format("Found corresponding AWAIT PULL, and {} additional dependencies", additional_dependencies.size())}}));
 		}
 	}
 
