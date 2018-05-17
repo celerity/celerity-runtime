@@ -62,13 +62,6 @@ mark_as_advanced(COMPUTECPP_DISABLE_GCC_DUAL_ABI)
 set(COMPUTECPP_USER_FLAGS "" CACHE STRING "User flags for compute++")
 mark_as_advanced(COMPUTECPP_USER_FLAGS)
 
-# Platform-specific arguments
-if(MSVC)
-  # Workaround to an unfixed Clang bug, rationale:
-  # https://github.com/codeplaysoftware/computecpp-sdk/pull/51#discussion_r139399093
-  set (COMPUTECPP_PLATFORM_SPECIFIC_ARGS "-fno-ms-compatibility")
-endif()
-
 # Find OpenCL package
 find_package(OpenCL REQUIRED)
 
@@ -143,7 +136,7 @@ else()
 endif()
 
 # Obtain the ComputeCpp include directory
-set(COMPUTECPP_INCLUDE_DIRECTORY ${COMPUTECPP_PACKAGE_ROOT_DIR}/include/)
+set(COMPUTECPP_INCLUDE_DIRECTORY ${COMPUTECPP_PACKAGE_ROOT_DIR}/include)
 if (NOT EXISTS ${COMPUTECPP_INCLUDE_DIRECTORY})
   message(FATAL_ERROR "ComputeCpp includes - Not found!")
 else()
@@ -213,7 +206,7 @@ define_property(
 )
 
 ####################
-#   __build_sycl
+#   __build_spir
 ####################
 #
 #  Adds a custom target for running compute++ and adding a dependency for the
@@ -251,6 +244,7 @@ function(__build_spir targetName sourceFile binaryDir fileCounter)
         ${device_compiler_includes})
     endforeach()
   endif()
+  list(REMOVE_DUPLICATES device_compiler_includes)
 
   # Obtain language standard of the file
   set(device_compiler_cxx_standard)
@@ -280,7 +274,6 @@ function(__build_spir targetName sourceFile binaryDir fileCounter)
     COMMAND ${COMPUTECPP_DEVICE_COMPILER}
             ${COMPUTECPP_DEVICE_COMPILER_FLAGS}
             -isystem ${COMPUTECPP_INCLUDE_DIRECTORY}
-            ${COMPUTECPP_PLATFORM_SPECIFIC_ARGS}
             ${device_compiler_includes}
             -o ${outputSyclFile}
             -c ${sourceFile}
@@ -380,6 +373,9 @@ function(add_sycl_to_target targetName binaryDir sourceFiles)
   )
   # Add custom target to run compute++ and generate the integration header
   foreach(sourceFile ${sourceFiles})
+    if(NOT IS_ABSOLUTE ${sourceFile})
+      set(sourceFile "${CMAKE_CURRENT_SOURCE_DIR}/${sourceFile}")
+    endif()
     __build_spir(${targetName} ${sourceFile} ${binaryDir} ${fileCounter})
     MATH(EXPR fileCounter "${fileCounter} + 1")
   endforeach()
