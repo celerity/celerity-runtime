@@ -25,6 +25,8 @@ class buffer_transfer_manager {
 
 	buffer_transfer_manager(std::shared_ptr<logger> transfer_logger) : transfer_logger(transfer_logger) {}
 
+	~buffer_transfer_manager();
+
 	/**
 	 * Checks for (and handles) incoming data requests and transfers.
 	 */
@@ -73,6 +75,9 @@ class buffer_transfer_manager {
 		detail::raw_data_read_handle data_handle;
 	};
 
+	// We store different MPI datatypes for every type size we want to transfer
+	std::unordered_map<size_t, MPI_Datatype> mpi_byte_size_data_types;
+
 	std::unordered_map<task_id, std::unordered_map<buffer_id, std::vector<std::pair<command_pkg, std::shared_ptr<transfer_handle>>>>> active_handles;
 
 	std::unordered_set<std::unique_ptr<transfer_in>> incoming_transfers;
@@ -83,6 +88,8 @@ class buffer_transfer_manager {
 	void poll_requests();
 	void poll_transfers();
 	void update_transfers();
+
+	MPI_Datatype get_byte_size_data_type(size_t byte_size);
 };
 
 

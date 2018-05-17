@@ -11,9 +11,12 @@ namespace detail {
 	struct raw_data_range {
 		void* base_ptr;
 		int dimensions;
-		std::array<int, 3> full_size;
 		std::array<int, 3> subsize;
 		std::array<int, 3> offsets;
+
+		// These are only set for local (sending) data, not when receiving
+		std::array<int, 3> full_size;
+		size_t element_size;
 	};
 
 	struct raw_data_read_handle : raw_data_range {
@@ -52,6 +55,7 @@ namespace detail {
 			raw_data_read_handle result(acc);
 			result.dimensions = 1;
 			result.base_ptr = acc.get_pointer();
+			result.element_size = sizeof(DataT);
 			// FIXME: Check bounds before casting to int!
 			result.full_size = {(int)buf_size[0], 0, 0};
 			result.subsize = {(int)range[0], 0, 0};
@@ -81,6 +85,7 @@ namespace detail {
 			raw_data_read_handle result(acc);
 			result.dimensions = 2;
 			result.base_ptr = acc.get_pointer();
+			result.element_size = sizeof(DataT);
 			// FIXME: Check bounds before casting to int!
 			result.full_size = {(int)buf_size[0], (int)buf_size[1], 0};
 			result.subsize = {(int)range[0], (int)range[1], 0};
@@ -115,6 +120,7 @@ namespace detail {
 			raw_data_read_handle result(acc);
 			result.dimensions = 3;
 			result.base_ptr = acc.get_pointer();
+			result.element_size = sizeof(DataT);
 			// FIXME: Check bounds before casting to int!
 			result.full_size = {(int)buf_size[0], (int)buf_size[1], (int)buf_size[2]};
 			result.subsize = {(int)range[0], (int)range[1], (int)range[2]};

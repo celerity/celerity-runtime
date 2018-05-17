@@ -6,6 +6,12 @@
 
 namespace celerity {
 
+buffer_transfer_manager::~buffer_transfer_manager() {
+	for(auto dt : mpi_byte_size_data_types) {
+		MPI_Type_free(&dt.second);
+	}
+}
+
 void buffer_transfer_manager::poll() {
 	poll_requests();
 	poll_transfers();
@@ -80,10 +86,9 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 	        cl::sycl::range<3>(data.subrange.range0, data.subrange.range1, data.subrange.range2));
 
 	// Build subarray data type
-	// FIXME: We assume float data here! Either include data type in data_range, or byte size of one element
 	MPI_Datatype subarray_data_type;
 	MPI_Type_create_subarray(data_handle.dimensions, data_handle.full_size.data(), data_handle.subsize.data(), data_handle.offsets.data(), MPI_ORDER_C,
-	    MPI_FLOAT, &subarray_data_type);
+	    get_byte_size_data_type(data_handle.element_size), &subarray_data_type);
 	MPI_Type_commit(&subarray_data_type);
 
 	auto transfer = std::make_unique<transfer_out>(data_handle);
@@ -163,9 +168,9 @@ void buffer_transfer_manager::update_transfers() {
 			dimensions = 2;
 			if(pdata.subrange.range1 == 0) { dimensions = 1; }
 		}
-		// FIXME: It's not ideal that we set raw_data_range::full_size to all zeros here.
-		detail::raw_data_range dr{&t->data[0], dimensions, {0, 0, 0}, {(int)pdata.subrange.range0, (int)pdata.subrange.range1, (int)pdata.subrange.range2},
-		    {(int)pdata.subrange.offset0, (int)pdata.subrange.offset1, (int)pdata.subrange.offset2}};
+		// FIXME: It's not ideal that we set raw_data_range::full_size and element_size to all zeros here.
+		detail::raw_data_range dr{&t->data[0], dimensions, {(int)pdata.subrange.range0, (int)pdata.subrange.range1, (int)pdata.subrange.range2},
+		    {(int)pdata.subrange.offset0, (int)pdata.subrange.offset1, (int)pdata.subrange.offset2}, {0, 0, 0}, 0};
 		runtime::get_instance().set_buffer_data(pdata.bid, dr);
 
 		// Transfer cannot be accessed after this!
@@ -186,6 +191,15 @@ void buffer_transfer_manager::update_transfers() {
 		// Transfer cannot be accessed after this!
 		it = outgoing_transfers.erase(it);
 	}
+}
+
+MPI_Datatype buffer_transfer_manager::get_byte_size_data_type(size_t byte_size) {
+	if(mpi_byte_size_data_types.count(byte_size) != 0) { return mpi_byte_size_data_types[byte_size]; }
+	MPI_Datatype data_type;
+	MPI_Type_contiguous(byte_size, MPI_BYTE, &data_type);
+	MPI_Type_commit(&data_type);
+	mpi_byte_size_data_types[byte_size] = data_type;
+	return data_type;
 }
 
 std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::pull(const command_pkg& pkg) {

@@ -53,6 +53,8 @@ runtime::runtime(int* argc, char** argv[]) {
 }
 
 runtime::~runtime() {
+	// Allow BTM to clean up MPI data types before we finalize
+	btm.release();
 	MPI_Finalize();
 }
 
@@ -76,6 +78,7 @@ void runtime::TEST_do_work() {
 		graph_utils::print_graph(command_graph, graph_logger);
 
 		// TODO: Is a BFS walk sufficient or do we need to properly check for fulfilled dependencies?
+		// FIXME: This doesn't support disconnected tasks (e.g. two kernels with no dependencies whatsoever)
 		graph_utils::search_vertex_bf(0, command_graph, [&master_commands, this](vertex v, const command_dag& cdag) {
 			auto& v_data = cdag[v];
 
