@@ -23,9 +23,9 @@ cl::sycl::device pick_device(int platform_id, int device_id, std::shared_ptr<cel
 		}
 		assert(platform_id < num_platforms);
 		cl_uint num_devices;
-		clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, 10, nullptr, &num_devices);
+		clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, 0, nullptr, &num_devices);
 		std::vector<cl_device_id> devices(num_devices);
-		ret = clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, 10, devices.data(), nullptr);
+		ret = clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, num_devices, devices.data(), nullptr);
 		assert(ret == CL_SUCCESS);
 		assert(device_id < num_devices);
 		logger->trace("Found {} devices on platform {}:", num_devices, platform_id);
