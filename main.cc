@@ -27,96 +27,6 @@ void print_pid() {
 	std::cout << std::endl;
 }
 
-cl::sycl::device pick_device(int platform_id, int device_id) {
-	if(platform_id != -1 && device_id != -1) {
-		cl_uint num_platforms;
-		clGetPlatformIDs(0, nullptr, &num_platforms);
-		std::vector<cl_platform_id> platforms(num_platforms);
-		auto ret = clGetPlatformIDs(num_platforms, platforms.data(), nullptr);
-		assert(ret == CL_SUCCESS);
-		std::cout << "Found " << num_platforms << " platforms:" << std::endl;
-		for(auto i = 0u; i < num_platforms; ++i) {
-			size_t name_length;
-			auto ret = clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, 0, nullptr, &name_length);
-			std::vector<char> platform_name(name_length + 1);
-			clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, name_length, platform_name.data(), nullptr);
-			std::cout << "Platform " << i << ": " << &platform_name[0] << std::endl;
-		}
-		assert(platform_id < num_platforms);
-		cl_uint num_devices;
-		clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, 10, nullptr, &num_devices);
-		std::vector<cl_device_id> devices(num_devices);
-		ret = clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, 10, devices.data(), nullptr);
-		assert(ret == CL_SUCCESS);
-		assert(device_id < num_devices);
-		std::cout << "Found " << num_devices << " devices on platform #" << platform_id << ":" << std::endl;
-		for(auto i = 0u; i < num_devices; ++i) {
-			size_t name_length;
-			clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 0, nullptr, &name_length);
-			std::vector<char> device_name(name_length + 1);
-			clGetDeviceInfo(devices[i], CL_DEVICE_NAME, name_length, device_name.data(), nullptr);
-			std::cout << "Device " << i << ": " << &device_name[0] << std::endl;
-		}
-		std::cout << "Using device " << device_id << std::endl;
-		return cl::sycl::device(devices[device_id]);
-	}
-	cl::sycl::gpu_selector selector;
-	return selector.select_device();
-}
-
-/**
- * Attempts to retrieve the platform and device id from the CELERITY_DEVICES environment variable.
- * The variable has the form "P D0 [D1 ...]", where P is the platform index, followed by any number
- * of device indices. Each device is assigned to a different worker process on the same node, according
- * to their node-local rank.
- *
- * TODO: We should get something like this into the runtime itself
- * TODO: Should we support multiple platforms on the same node as well?
- */
-void try_get_platform_device_env(int& platform_id, int& device_id) {
-#ifdef OPEN_MPI
-#define SPLIT_TYPE OMPI_COMM_TYPE_HOST
-#else
-#define SPLIT_TYPE MPI_COMM_TYPE_SHARED
-#endif
-	// Determine our per-node rank by finding all world-ranks that can use a shared-memory transport
-	// (If running on OpenMPI, use the per-host split instead)
-	// This is a collective call, so make sure we do this before checking the env var
-	// TODO: Assert that shared memory is available (i.e. not explicitly disabled)
-	MPI_Comm node_comm;
-	MPI_Comm_split_type(MPI_COMM_WORLD, SPLIT_TYPE, 0, MPI_INFO_NULL, &node_comm);
-	int node_rank = 0;
-	MPI_Comm_rank(node_comm, &node_rank);
-
-	const auto env_var = std::getenv("CELERITY_DEVICES");
-	if(env_var == nullptr) {
-		std::cout << "CELERITY_DEVICES not set" << std::endl;
-		return;
-	}
-
-	std::vector<std::string> values;
-	boost::split(values, env_var, boost::is_any_of(" "));
-
-	if(node_rank > values.size() - 2) {
-		throw std::runtime_error(fmt::format("Process has local rank {}, but CELERITY_DEVICES only includes {} device(s)", node_rank, values.size() - 1));
-	}
-
-	int node_size = 0;
-	MPI_Comm_size(node_comm, &node_size);
-	if(values.size() - 1 > node_size) {
-		std::cout << fmt::format("Warning: CELERITY_DEVICES contains {} device indices, but only {} worker processes were spawned on this node",
-		                 values.size() - 1, node_size)
-		          << std::endl;
-	}
-
-	platform_id = atoi(values[0].c_str());
-	assert(platform_id >= 0);
-	device_id = atoi(values[node_rank + 1].c_str());
-	assert(device_id >= 0);
-
-	std::cout << "Using platform / device set by CELERITY_DEVICES: " << platform_id << " " << device_id << std::endl;
-}
-
 // General notes:
 // Spec version used: https://www.khronos.org/registry/SYCL/specs/sycl-1.2.1.pdf
 //
@@ -131,26 +41,12 @@ int main(int argc, char* argv[]) {
 	print_pid();
 	// std::this_thread::sleep_for(std::chrono::seconds(5)); // Sleep so we have time to attach a debugger
 
-	int platform_id = -1;
-	int device_id = -1;
-	// Always call this, even if we end up using command line args instead
-	try_get_platform_device_env(platform_id, device_id);
-
-	if(argc > 2) {
-		platform_id = atoi(argv[1]);
-		device_id = atoi(argv[2]);
-	}
-
 	std::vector<float> host_data_a(DEMO_DATA_SIZE);
 	std::vector<float> host_data_b(DEMO_DATA_SIZE);
 	std::vector<float> host_data_c(DEMO_DATA_SIZE);
 	std::vector<float> host_data_d(DEMO_DATA_SIZE);
 
 	try {
-		const cl::sycl::device device = pick_device(platform_id, device_id);
-
-		//// =========== DEVICE SELECTION END ===============
-
 		// TODO: How is device selected for distributed queue?
 		// The choice of device is obviously important to the master node, so we
 		// have to inform it about our choice somehow. NOTE: We only support a
@@ -158,7 +54,7 @@ int main(int argc, char* argv[]) {
 		// don't have to address multiple devices (with multiple queues) manually.
 		// If a node has multiple devices available, it can start multiple worker
 		// processes to make use of them.
-		celerity::distr_queue queue(device);
+		celerity::distr_queue queue;
 
 		// TODO: Do we support SYCL sub-buffers & images? Section 4.7.2
 		celerity::buffer<float, 1> buf_a(host_data_a.data(), cl::sycl::range<1>(DEMO_DATA_SIZE));

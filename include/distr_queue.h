@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <unordered_map>
 
 #include <SYCL/sycl.hpp>
@@ -38,8 +39,8 @@ class branch_handle {
  */
 class distr_queue {
   public:
-	// TODO: Device should be selected transparently
-	distr_queue(cl::sycl::device device);
+	distr_queue();
+	distr_queue(cl::sycl::device& device);
 
 	~distr_queue();
 
@@ -90,7 +91,7 @@ class distr_queue {
 		assert(task_map[tid]->get_type() == task_type::COMPUTE);
 		auto task = std::static_pointer_cast<compute_task>(task_map[tid]);
 		auto& cgf = task->get_command_group();
-		return sycl_queue.submit([this, &cgf, tid, task, sr](cl::sycl::handler& sycl_handler) {
+		return sycl_queue->submit([this, &cgf, tid, task, sr](cl::sycl::handler& sycl_handler) {
 			compute_livepass_handler h(*this, tid, task, sr, &sycl_handler);
 			cgf(h);
 		});
@@ -110,7 +111,9 @@ class distr_queue {
 	size_t task_count = 0;
 	task_dag task_graph;
 
-	cl::sycl::queue sycl_queue;
+	std::unique_ptr<cl::sycl::queue> sycl_queue;
+
+	void init(cl::sycl::device* device_ptr);
 
 	task_id add_task(std::shared_ptr<task> tsk);
 

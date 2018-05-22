@@ -3,18 +3,123 @@
 #include <spdlog/fmt/fmt.h>
 
 #include "graph_utils.h"
+#include "logger.h"
 #include "runtime.h"
+
+cl::sycl::device pick_device(int platform_id, int device_id, std::shared_ptr<celerity::logger> logger) {
+	if(platform_id != -1 && device_id != -1) {
+		cl_uint num_platforms;
+		clGetPlatformIDs(0, nullptr, &num_platforms);
+		std::vector<cl_platform_id> platforms(num_platforms);
+		auto ret = clGetPlatformIDs(num_platforms, platforms.data(), nullptr);
+		assert(ret == CL_SUCCESS);
+		logger->trace("Found {} platforms", num_platforms);
+		for(auto i = 0u; i < num_platforms; ++i) {
+			size_t name_length;
+			auto ret = clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, 0, nullptr, &name_length);
+			std::vector<char> platform_name(name_length + 1);
+			clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, name_length, platform_name.data(), nullptr);
+			logger->trace("Platform {}: {}", i, &platform_name[0]);
+		}
+		assert(platform_id < num_platforms);
+		cl_uint num_devices;
+		clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, 10, nullptr, &num_devices);
+		std::vector<cl_device_id> devices(num_devices);
+		ret = clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, 10, devices.data(), nullptr);
+		assert(ret == CL_SUCCESS);
+		assert(device_id < num_devices);
+		logger->trace("Found {} devices on platform {}:", num_devices, platform_id);
+		for(auto i = 0u; i < num_devices; ++i) {
+			size_t name_length;
+			clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 0, nullptr, &name_length);
+			std::vector<char> device_name(name_length + 1);
+			clGetDeviceInfo(devices[i], CL_DEVICE_NAME, name_length, device_name.data(), nullptr);
+			logger->trace("Device {}: {}", i, &device_name[0]);
+		}
+		return cl::sycl::device(devices[device_id]);
+	}
+	cl::sycl::gpu_selector selector;
+	return selector.select_device();
+}
+
+/**
+ * Attempts to retrieve the platform and device id from the CELERITY_DEVICES environment variable.
+ * The variable has the form "P D0 [D1 ...]", where P is the platform index, followed by any number
+ * of device indices. Each device is assigned to a different worker process on the same node, according
+ * to their node-local rank.
+ *
+ * TODO: Should we support multiple platforms on the same node as well?
+ */
+void try_get_platform_device_env(int& platform_id, int& device_id, std::shared_ptr<celerity::logger> logger) {
+#ifdef OPEN_MPI
+#define SPLIT_TYPE OMPI_COMM_TYPE_HOST
+#else
+#define SPLIT_TYPE MPI_COMM_TYPE_SHARED
+#endif
+	// Determine our per-node rank by finding all world-ranks that can use a shared-memory transport
+	// (If running on OpenMPI, use the per-host split instead)
+	// This is a collective call, so make sure we do this before checking the env var
+	// TODO: Assert that shared memory is available (i.e. not explicitly disabled)
+	MPI_Comm node_comm;
+	MPI_Comm_split_type(MPI_COMM_WORLD, SPLIT_TYPE, 0, MPI_INFO_NULL, &node_comm);
+	int node_rank = 0;
+	MPI_Comm_rank(node_comm, &node_rank);
+
+	const auto env_var = std::getenv("CELERITY_DEVICES");
+	if(env_var == nullptr) {
+		logger->warn("CELERITY_DEVICES not set");
+		return;
+	}
+
+	std::vector<std::string> values;
+	boost::split(values, env_var, boost::is_any_of(" "));
+
+	if(node_rank > values.size() - 2) {
+		throw std::runtime_error(fmt::format("Process has local rank {}, but CELERITY_DEVICES only includes {} device(s)", node_rank, values.size() - 1));
+	}
+
+	int node_size = 0;
+	MPI_Comm_size(node_comm, &node_size);
+	if(values.size() - 1 > node_size) {
+		logger->warn("CELERITY_DEVICES contains {} device indices, but only {} worker processes were spawned on this node", values.size() - 1, node_size);
+	}
+
+	platform_id = atoi(values[0].c_str());
+	assert(platform_id >= 0);
+	device_id = atoi(values[node_rank + 1].c_str());
+	assert(device_id >= 0);
+
+	logger->info("Using platform {}, device {} (set by CELERITY_DEVICES)", platform_id, device_id);
+}
 
 namespace celerity {
 
-// TODO: Initialize SYCL queue lazily
-distr_queue::distr_queue(cl::sycl::device device) : sycl_queue(device, handle_async_exceptions) {
+distr_queue::distr_queue() {
+	init(nullptr);
+}
+
+distr_queue::distr_queue(cl::sycl::device& device) {
+	init(&device);
+}
+
+void distr_queue::init(cl::sycl::device* device_ptr) {
 	runtime::get_instance().register_queue(this);
+	cl::sycl::device device;
+	if(device_ptr != nullptr) {
+		device = *device_ptr;
+	} else {
+		auto platform_id = -1;
+		auto device_id = -1;
+		try_get_platform_device_env(platform_id, device_id, runtime::get_instance().get_logger());
+		device = pick_device(platform_id, device_id, runtime::get_instance().get_logger());
+	}
+	// TODO: Do we need a queue on master nodes? (Only for single-node execution?)
+	sycl_queue = std::make_unique<cl::sycl::queue>(device, handle_async_exceptions);
 	task_graph[boost::graph_bundle].name = "TaskGraph";
 }
 
 distr_queue::~distr_queue() {
-	sycl_queue.wait_and_throw();
+	sycl_queue->wait_and_throw();
 }
 
 void distr_queue::mark_task_as_processed(task_id tid) {
