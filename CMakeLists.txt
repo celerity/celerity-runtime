@@ -1,31 +1,9 @@
 cmake_minimum_required(VERSION 3.5.1)
-project(celerity_full_stack_example)
+project(celerity_runtime)
 
 set(CMAKE_MODULE_PATH
     ${CMAKE_MODULE_PATH}
     ${PROJECT_SOURCE_DIR}/cmake )
-
-# Windows-specific:
-#
-# install libraries with vcpkg using the x64-windows triplet e.g.:
-#
-#  .\vcpkg.exe install boost-graph:x64-windows
-#
-# provide CMake toolchain file through -DCMAKE_TOOLCHAIN_FILE=<path_to_vcpkg_toolchain_file>
-#
-# the vcpkg tool chain file can be found in:
-#
-#  <vcpkg_root>/scripts/buildsystems/vcpkg.cmake
-#
-# either set it as command line parameter when invoking CMake
-#
-#  OR
-#
-# set VCPKG_ROOT in the CMakeSettings.json when using the Visual Studio CMake
-# integration.
-# Similarily the ComputeCpp root directory has to be set in order for CMake to
-# find it - again, use one of the approaches above to set
-# COMPUTECPP_PACKAGE_ROOT_DIR.
 
 find_package(Boost 1.66.0 COMPONENTS graph REQUIRED)
 find_package(ComputeCpp REQUIRED)
@@ -33,8 +11,6 @@ find_package(OpenCL REQUIRED)
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 include(Download_spdlog)
-
-# Celerity runtime library
 
 if(MSVC)
     # Add includes to library so they show up in generated VS project
@@ -53,8 +29,6 @@ add_library(
 )
 
 set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD 14)
-
-message(STATUS "Buildtype: ${CMAKE_BUILD_TYPE}")
 
 target_include_directories(
   celerity_runtime
@@ -93,32 +67,11 @@ set(Celerity_INCLUDE_DIRS
   ${spdlog_INCLUDE_DIRS}
 )
 
-# full stack example
-
-add_executable(
-  full_stack_example
-  main.cc
-)
-
-set_property(TARGET full_stack_example PROPERTY CXX_STANDARD 14)
-
-target_include_directories(
-  full_stack_example
-  PUBLIC
-  ${Celerity_INCLUDE_DIRS}
-)
-
-target_link_libraries(
-  full_stack_example
-  PUBLIC
-  celerity_runtime
-)
-
-add_sycl_to_target(
-  full_stack_example
-  ${CMAKE_CURRENT_BINARY_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/main.cc
-)
+option(CELERITY_BUILD_EXAMPLES "Build various example applications" ON)
+if(CELERITY_BUILD_EXAMPLES)
+  add_subdirectory(examples/simple)
+  add_subdirectory(examples/gaussian)
+endif()
 
 # Windows-specific, when using Visual Studio's "Open Folder":
 #
@@ -172,5 +125,4 @@ endif()
 
 enable_testing(true)
 add_subdirectory(test)
-
 
