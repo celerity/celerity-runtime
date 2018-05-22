@@ -18,13 +18,6 @@ namespace celerity {
 template <typename DataT, int Dims>
 class buffer;
 
-// experimental / NYI
-class branch_handle {
-  public:
-	template <typename DataT, int Dims>
-	void get(buffer<DataT, Dims>&, cl::sycl::range<Dims>){};
-};
-
 /*
  * TODO: distr_queue has a bit of an identity crisis
  * On the one hand, it encapsulates the SYCL queue and is thus responsible for compute tasks (kernels), which makes
@@ -70,10 +63,6 @@ class distr_queue {
 	}
 
 	void mark_task_as_processed(task_id tid);
-
-	// experimental
-	// TODO: Can we derive 2nd lambdas args from requested values in 1st?
-	void branch(std::function<void(branch_handle& bh)>, std::function<void(float)>) {}
 
 	void debug_print_task_graph(std::shared_ptr<logger> graph_logger) const;
 
