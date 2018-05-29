@@ -34,7 +34,13 @@ runtime& runtime::get_instance() {
 }
 
 runtime::runtime(int* argc, char** argv[]) {
-	MPI_Init(argc, argv);
+	// We specify MPI_THREAD_FUNNELED even though we currently don't use multiple threads,
+	// as we link with various multi-threaded libraries. This will likely not make any difference,
+	// but we do it anyway, just in case. See here for more information:
+	// http://users.open-mpi.narkive.com/T04C74T4/ompi-users-mpi-thread-single-vs-mpi-thread-funneled
+	int provided;
+	MPI_Init_thread(argc, argv, MPI_THREAD_FUNNELED, &provided);
+	assert(provided == MPI_THREAD_FUNNELED);
 
 	int world_size;
 	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
