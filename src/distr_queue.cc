@@ -38,13 +38,18 @@ cl::sycl::device pick_device(int platform_id, int device_id, std::shared_ptr<cel
 			clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, name_length, platform_name.data(), nullptr);
 			logger->trace("Platform {}: {}", i, &platform_name[0]);
 		}
+		if(platform_id >= num_platforms) {
+			throw std::runtime_error(fmt::format("Invalid platform id {}: Only {} platforms available", platform_id, num_platforms));
+		}
 		assert(platform_id < num_platforms);
 		cl_uint num_devices;
 		clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, 0, nullptr, &num_devices);
 		std::vector<cl_device_id> devices(num_devices);
 		ret = clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, num_devices, devices.data(), nullptr);
 		assert(ret == CL_SUCCESS);
-		assert(device_id < num_devices);
+		if(device_id >= num_devices) {
+			throw std::runtime_error(fmt::format("Invalid device id {}: Only {} devices available on platform {}", device_id, num_devices, platform_id));
+		}
 		logger->trace("Found {} devices on platform {}:", num_devices, platform_id);
 		for(auto i = 0u; i < num_devices; ++i) {
 			size_t name_length;
@@ -67,7 +72,7 @@ cl::sycl::device pick_device(int platform_id, int device_id, std::shared_ptr<cel
  *
  * TODO: Should we support multiple platforms on the same node as well?
  */
-void try_get_platform_device_env(int& platform_id, int& device_id, std::shared_ptr<celerity::logger> logger) {
+bool try_get_platform_device_env(int& platform_id, int& device_id, std::shared_ptr<celerity::logger> logger) {
 #ifdef OPEN_MPI
 #define SPLIT_TYPE OMPI_COMM_TYPE_HOST
 #else
@@ -85,7 +90,7 @@ void try_get_platform_device_env(int& platform_id, int& device_id, std::shared_p
 	const auto env_var = get_env("CELERITY_DEVICES");
 	if(env_var.empty()) {
 		logger->warn("CELERITY_DEVICES not set");
-		return;
+		return false;
 	}
 
 	std::vector<std::string> values;
@@ -106,7 +111,7 @@ void try_get_platform_device_env(int& platform_id, int& device_id, std::shared_p
 	device_id = atoi(values[node_rank + 1].c_str());
 	assert(device_id >= 0);
 
-	logger->info("Using platform {}, device {} (set by CELERITY_DEVICES)", platform_id, device_id);
+	return true;
 }
 
 namespace celerity {
@@ -121,18 +126,28 @@ distr_queue::distr_queue(cl::sycl::device& device) {
 
 void distr_queue::init(cl::sycl::device* device_ptr) {
 	runtime::get_instance().register_queue(this);
+	auto logger = runtime::get_instance().get_logger();
+
 	cl::sycl::device device;
+	std::string how_selected = "automatically selected";
 	if(device_ptr != nullptr) {
 		device = *device_ptr;
+		how_selected = "specified by user";
 	} else {
 		auto platform_id = -1;
 		auto device_id = -1;
-		try_get_platform_device_env(platform_id, device_id, runtime::get_instance().get_logger());
-		device = pick_device(platform_id, device_id, runtime::get_instance().get_logger());
+		if(try_get_platform_device_env(platform_id, device_id, logger)) {
+			how_selected = fmt::format("set by CELERITY_DEVICES: platform {}, device {}", platform_id, device_id);
+		}
+		device = pick_device(platform_id, device_id, logger);
 	}
 
+	const auto platform_name = device.get_platform().get_info<cl::sycl::info::platform::name>();
+	const auto device_name = device.get_info<cl::sycl::info::device::name>();
+	logger->info("Using platform '{}', device '{}' ({})", platform_name, device_name, how_selected);
+
 	ocl_profiling_enabled = get_env("CELERITY_PROFILE_OCL") == "1";
-	if(ocl_profiling_enabled) { runtime::get_instance().get_logger()->info("OpenCL profiling enabled"); }
+	if(ocl_profiling_enabled) { logger->info("OpenCL profiling enabled."); }
 
 	// TODO: Do we need a queue on master nodes? (Only for single-node execution?)
 	cl::sycl::property_list props;
