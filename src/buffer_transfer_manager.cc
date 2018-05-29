@@ -67,7 +67,7 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 	std::shared_ptr<transfer_handle> handle = nullptr;
 	for(auto& p : active_handles[pkg.tid][data.bid]) {
 		if(p.first.cmd != command::AWAIT_PULL) continue;
-		if(p.first.data.await_pull.subrange == data.subrange) {
+		if(p.first.data.await_pull.subrange == data.subrange && p.first.data.await_pull.target == to) {
 			handle = p.second;
 			break;
 		}
@@ -124,6 +124,8 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 	// Check to see if we have a data transfer running already
 	for(auto& p : active_handles[pkg.tid][data.bid]) {
 		if(p.first.cmd != command::PULL) continue;
+		// FIXME: We have to check the recipient as well, just as in buffer_transfer_manager::send.
+		// However, we don't have that information available within pull_data.
 		if(p.first.data.pull.subrange == data.subrange) {
 			// TODO: We may want to replace the stored pkg with the new one to signal that we are expecting that transfer
 			// so we can remove it from the list of active handles upon completion
