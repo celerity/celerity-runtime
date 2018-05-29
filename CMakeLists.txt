@@ -71,6 +71,7 @@ option(CELERITY_BUILD_EXAMPLES "Build various example applications" ON)
 if(CELERITY_BUILD_EXAMPLES)
   add_subdirectory(examples/simple)
   add_subdirectory(examples/gaussian)
+  add_subdirectory(examples/matmul)
 endif()
 
 # Windows-specific, when using Visual Studio's "Open Folder":
