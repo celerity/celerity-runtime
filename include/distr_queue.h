@@ -86,9 +86,13 @@ class distr_queue {
 		});
 	}
 
+	bool is_ocl_profiling_enabled() const { return ocl_profiling_enabled; }
+
   private:
 	friend compute_prepass_handler;
 	friend master_access_prepass_handler;
+
+	bool ocl_profiling_enabled = false;
 
 	std::unordered_map<task_id, std::shared_ptr<task>> task_map;
 

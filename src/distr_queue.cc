@@ -6,6 +6,23 @@
 #include "logger.h"
 #include "runtime.h"
 
+// std::getenv is not thread-safe. MS provides an alternative.
+std::string get_env(std::string key) {
+	std::string result;
+#ifdef _MSC_VER
+	char* buf;
+	_dupenv_s(&buf, nullptr, key.c_str());
+	if(buf != nullptr) {
+		result = buf;
+		delete buf;
+	}
+#else
+	auto value = std::getenv(key.c_str());
+	if(value != nullptr) { result = value; }
+#endif
+	return result;
+}
+
 cl::sycl::device pick_device(int platform_id, int device_id, std::shared_ptr<celerity::logger> logger) {
 	if(platform_id != -1 && device_id != -1) {
 		cl_uint num_platforms;
@@ -65,8 +82,8 @@ void try_get_platform_device_env(int& platform_id, int& device_id, std::shared_p
 	int node_rank = 0;
 	MPI_Comm_rank(node_comm, &node_rank);
 
-	const auto env_var = std::getenv("CELERITY_DEVICES");
-	if(env_var == nullptr) {
+	const auto env_var = get_env("CELERITY_DEVICES");
+	if(env_var.empty()) {
 		logger->warn("CELERITY_DEVICES not set");
 		return;
 	}
@@ -113,8 +130,14 @@ void distr_queue::init(cl::sycl::device* device_ptr) {
 		try_get_platform_device_env(platform_id, device_id, runtime::get_instance().get_logger());
 		device = pick_device(platform_id, device_id, runtime::get_instance().get_logger());
 	}
+
+	ocl_profiling_enabled = get_env("CELERITY_PROFILE_OCL") == "1";
+	if(ocl_profiling_enabled) { runtime::get_instance().get_logger()->info("OpenCL profiling enabled"); }
+
 	// TODO: Do we need a queue on master nodes? (Only for single-node execution?)
-	sycl_queue = std::make_unique<cl::sycl::queue>(device, handle_async_exceptions);
+	cl::sycl::property_list props;
+	if(ocl_profiling_enabled) { props.push_back(std::make_shared<cl::sycl::property::queue::enable_profiling>()); }
+	sycl_queue = std::make_unique<cl::sycl::queue>(device, handle_async_exceptions, props);
 	task_graph[boost::graph_bundle].name = "TaskGraph";
 }
 
