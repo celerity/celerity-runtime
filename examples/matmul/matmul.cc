@@ -128,7 +128,7 @@ int main(int argc, char* argv[]) {
 		celerity::with_master_access([&](auto& mah) {
 			auto result = mat_a_buf.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
 
-			mah.run([=]() {
+			mah.run([=, &verification_passed]() {
 				std::cout << fmt::format(
 				    "Execution time: {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(bench_clock.now() - bench_start).count());
 

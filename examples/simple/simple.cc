@@ -113,7 +113,7 @@ int main(int argc, char* argv[]) {
 		celerity::with_master_access([&](auto& mah) {
 			auto d = buf_d.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<1>(DEMO_DATA_SIZE));
 
-			mah.run([=]() {
+			mah.run([=, &verification_passed]() {
 				size_t sum = 0;
 				for(int i = 0; i < DEMO_DATA_SIZE; ++i) {
 					sum += (size_t)d[i];
