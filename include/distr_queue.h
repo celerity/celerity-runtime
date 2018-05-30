@@ -52,7 +52,9 @@ class distr_queue {
 
 	template <typename MAF>
 	task_id create_master_access_task(MAF maf) {
-		return add_task(std::make_shared<master_access_task>(std::make_unique<detail::maf_storage<MAF>>(maf)));
+		auto tid = add_task(std::make_shared<master_access_task>(std::make_unique<detail::maf_storage<MAF>>(maf)));
+		task_graph[tid].label = fmt::format("{} ({})", task_graph[tid].label, "master-access");
+		return tid;
 	}
 
 	const task_dag& get_task_graph() const { return task_graph; }
