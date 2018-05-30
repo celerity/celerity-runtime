@@ -58,6 +58,7 @@ void multiply(celerity::distr_queue& queue, celerity::buffer<T, 2>& mat_a, celer
 int main(int argc, char* argv[]) {
 	celerity::runtime::init(&argc, &argv);
 	print_pid();
+	bool verification_passed = true;
 
 	std::vector<float> mat_a(MAT_SIZE * MAT_SIZE);
 	std::vector<float> mat_b(MAT_SIZE * MAT_SIZE);
@@ -133,20 +134,19 @@ int main(int argc, char* argv[]) {
 
 #if ENABLE_VERIFICATION
 #define EPSILON 1e-5
-				bool has_error = false;
 				for(auto i = 0ull; i < MAT_SIZE; ++i) {
 					for(auto j = 0ull; j < MAT_SIZE; ++j) {
 						const auto kernel_value = result[{i, j}];
 						const auto host_value = result_host[i * MAT_SIZE + j];
 						if(std::abs(kernel_value - host_value) > EPSILON) {
 							std::cerr << fmt::format("VERIFICATION FAILED for element {},{}: {} != {}", i, j, kernel_value, host_value) << std::endl;
-							has_error = true;
+							verification_passed = false;
 							break;
 						}
 					}
-					if(has_error) { break; }
+					if(!verification_passed) { break; }
 				}
-				if(!has_error) { std::cout << "VERIFICATION PASSED!" << std::endl; }
+				if(verification_passed) { std::cout << "VERIFICATION PASSED!" << std::endl; }
 #else
 				std::cout << "(VERIFICATION IS DISABLED)" << std::endl;
 #endif
@@ -163,5 +163,5 @@ int main(int argc, char* argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	return EXIT_SUCCESS;
+	return verification_passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

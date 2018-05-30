@@ -25,6 +25,7 @@ void print_pid() {
 int main(int argc, char* argv[]) {
 	celerity::runtime::init(&argc, &argv);
 	print_pid();
+	bool verification_passed = true;
 
 	std::vector<float> host_data_a(DEMO_DATA_SIZE);
 	std::vector<float> host_data_b(DEMO_DATA_SIZE);
@@ -123,6 +124,7 @@ int main(int argc, char* argv[]) {
 					std::cout << "Success! Correct value was computed." << std::endl;
 				} else {
 					std::cout << "Fail! Value is " << sum << std::endl;
+					verification_passed = false;
 				}
 			});
 		});
@@ -137,5 +139,5 @@ int main(int argc, char* argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	return EXIT_SUCCESS;
+	return verification_passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }
