@@ -122,7 +122,8 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 	const await_pull_data& data = pkg.data.await_pull;
 
 	// Check to see if we have a data transfer running already
-	for(auto& p : active_handles[pkg.tid][data.bid]) {
+	// Note that we use the target tid, since that is the tid that incoming PULL packages will have as well
+	for(auto& p : active_handles[data.target_tid][data.bid]) {
 		if(p.first.cmd != command::PULL) continue;
 		// FIXME: We have to check the recipient as well, just as in buffer_transfer_manager::send.
 		// However, we don't have that information available within pull_data.
@@ -135,7 +136,7 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 
 	auto handle = std::make_shared<transfer_handle>();
 	// Store new handle so we can use it when the pull comes in
-	active_handles[pkg.tid][data.bid].push_back(std::make_pair(pkg, handle));
+	active_handles[data.target_tid][data.bid].push_back(std::make_pair(pkg, handle));
 	return handle;
 }
 
