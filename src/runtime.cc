@@ -59,7 +59,7 @@ runtime::runtime(int* argc, char** argv[]) {
 
 runtime::~runtime() {
 	// Allow BTM to clean up MPI data types before we finalize
-	btm.release();
+	btm.reset();
 	MPI_Finalize();
 }
 
