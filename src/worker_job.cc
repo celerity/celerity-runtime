@@ -224,17 +224,20 @@ std::chrono::time_point<std::chrono::nanoseconds> get_profiling_info(cl_event e,
 bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 	if(!submitted) {
 		// Note that we have to set the proper global size so the livepass handler can use the assigned chunk as input for range mappers
-		auto gs = std::static_pointer_cast<const compute_task>(queue.get_task(pkg.tid))->get_global_size();
+		const auto ctsk = std::static_pointer_cast<const compute_task>(queue.get_task(pkg.tid));
+		const auto dimensions = ctsk->get_dimensions();
+		auto gs = ctsk->get_global_size();
 		auto& chunk = pkg.data.compute.chunk;
-		if(chunk.range1 != 0) {
-			if(chunk.range2 != 0) {
-				event = queue.execute(pkg.tid,
-				    subrange<3>{{chunk.offset0, chunk.offset1, chunk.offset2}, {chunk.range0, chunk.range1, chunk.range2}, boost::get<cl::sycl::range<3>>(gs)});
-			} else {
-				event = queue.execute(pkg.tid, subrange<2>{{chunk.offset0, chunk.offset1}, {chunk.range0, chunk.range1}, boost::get<cl::sycl::range<2>>(gs)});
-			}
-		} else {
-			event = queue.execute(pkg.tid, subrange<1>{{chunk.offset0}, {chunk.range0}, boost::get<cl::sycl::range<1>>(gs)});
+		switch(dimensions) {
+		default:
+		case 1: event = queue.execute(pkg.tid, subrange<1>{{chunk.offset0}, {chunk.range0}, boost::get<cl::sycl::range<1>>(gs)}); break;
+		case 2:
+			event = queue.execute(pkg.tid, subrange<2>{{chunk.offset0, chunk.offset1}, {chunk.range0, chunk.range1}, boost::get<cl::sycl::range<2>>(gs)});
+			break;
+		case 3:
+			event = queue.execute(pkg.tid,
+			    subrange<3>{{chunk.offset0, chunk.offset1, chunk.offset2}, {chunk.range0, chunk.range1, chunk.range2}, boost::get<cl::sycl::range<3>>(gs)});
+			break;
 		}
 		submitted = true;
 	}

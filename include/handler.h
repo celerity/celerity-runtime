@@ -158,7 +158,7 @@ class master_access_prepass_handler {
 		// nop
 	}
 
-	void require(cl::sycl::access::mode mode, buffer_id bid, any_range range, any_range offset) const;
+	void require(cl::sycl::access::mode mode, buffer_id bid, cl::sycl::range<3> range, cl::sycl::id<3> offset) const;
 
   private:
 	distr_queue& queue;

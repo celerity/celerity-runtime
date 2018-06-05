@@ -20,6 +20,7 @@ endif()
 add_library(
     celerity_runtime
     src/buffer_transfer_manager.cc
+    src/buffer_state.cc
     src/distr_queue.cc
     src/graph_utils.cc
     src/handler.cc

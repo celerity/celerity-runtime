@@ -21,7 +21,7 @@ compute_prepass_handler::~compute_prepass_handler() {
 	}
 }
 
-void master_access_prepass_handler::require(cl::sycl::access::mode mode, buffer_id bid, any_range range, any_range offset) const {
+void master_access_prepass_handler::require(cl::sycl::access::mode mode, buffer_id bid, cl::sycl::range<3> range, cl::sycl::id<3> offset) const {
 	queue.add_requirement(tid, bid, mode, range, offset);
 }
 

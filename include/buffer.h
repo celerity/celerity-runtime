@@ -48,8 +48,7 @@ class buffer {
 
 	template <cl::sycl::access::mode Mode>
 	prepass_accessor<DataT, Dims, Mode> get_access(master_access_prepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {}) {
-		// FIXME: This should also take a sycl::id for offset
-		handler.require(Mode, id, range, cl::sycl::range<Dims>(offset));
+		handler.require(Mode, id, cl::sycl::range<3>(range), cl::sycl::id<3>(offset));
 		return prepass_accessor<DataT, Dims, Mode>();
 	}
 

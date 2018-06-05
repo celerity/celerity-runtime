@@ -11,9 +11,9 @@ struct command_subrange {
 	size_t offset0 = 0;
 	size_t offset1 = 0;
 	size_t offset2 = 0;
-	size_t range0 = 0;
-	size_t range1 = 0;
-	size_t range2 = 0;
+	size_t range0 = 1;
+	size_t range1 = 1;
+	size_t range2 = 1;
 
 	command_subrange() = default;
 

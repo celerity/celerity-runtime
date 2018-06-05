@@ -120,7 +120,7 @@ class distr_queue {
 	/**
 	 * Adds requirement for a master-access task, with plain ranges.
 	 */
-	void add_requirement(task_id tid, buffer_id bid, cl::sycl::access::mode mode, any_range range, any_range offset);
+	void add_requirement(task_id tid, buffer_id bid, cl::sycl::access::mode mode, cl::sycl::range<3> range, cl::sycl::id<3> offset);
 
 	void set_task_data(task_id tid, any_range global_size, std::string debug_name);
 

@@ -183,7 +183,7 @@ void distr_queue::add_requirement(task_id tid, buffer_id bid, cl::sycl::access::
 	update_dependencies(tid, bid, mode);
 }
 
-void distr_queue::add_requirement(task_id tid, buffer_id bid, cl::sycl::access::mode mode, any_range range, any_range offset) {
+void distr_queue::add_requirement(task_id tid, buffer_id bid, cl::sycl::access::mode mode, cl::sycl::range<3> range, cl::sycl::id<3> offset) {
 	assert(task_map.count(tid) != 0);
 	assert(task_map[tid]->get_type() == task_type::MASTER_ACCESS);
 	dynamic_cast<master_access_task*>(task_map[tid].get())->add_buffer_access(bid, mode, range, offset);

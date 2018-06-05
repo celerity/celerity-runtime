@@ -30,7 +30,7 @@ namespace detail {
 	};
 
 	struct buffer_storage_base {
-		virtual raw_data_read_handle get_data(const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) = 0;
+		virtual raw_data_read_handle get_data(const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) = 0;
 		virtual void set_data(const raw_data_range& dr) = 0;
 		virtual ~buffer_storage_base() = default;
 	};
@@ -46,9 +46,9 @@ namespace detail {
 
 		buffer_storage(cl::sycl::buffer<DataT, 1>& buf) : buf(buf) {}
 
-		raw_data_read_handle get_data(const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) override {
-			assert(offset[1] == 0 && range[1] == 0);
-			assert(offset[2] == 0 && range[2] == 0);
+		raw_data_read_handle get_data(const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) override {
+			assert(offset[1] == 0 && range[1] == 1);
+			assert(offset[2] == 0 && range[2] == 1);
 
 			auto acc = buf.template get_access<cl::sycl::access::mode::read>(cl::sycl::range<1>(range[0]), cl::sycl::id<1>(offset[0]));
 			auto buf_size = buf.get_range();
@@ -77,8 +77,8 @@ namespace detail {
 
 		buffer_storage(cl::sycl::buffer<DataT, 2>& buf) : buf(buf) {}
 
-		raw_data_read_handle get_data(const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) override {
-			assert(offset[2] == 0 && range[2] == 0);
+		raw_data_read_handle get_data(const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) override {
+			assert(offset[2] == 0 && range[2] == 1);
 
 			auto acc = buf.template get_access<cl::sycl::access::mode::read>(cl::sycl::range<2>(range[0], range[1]), cl::sycl::id<2>(offset[0], offset[1]));
 			auto buf_size = buf.get_range();
@@ -113,7 +113,7 @@ namespace detail {
 
 		buffer_storage(cl::sycl::buffer<DataT, 3>& buf) : buf(buf) {}
 
-		raw_data_read_handle get_data(const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) override {
+		raw_data_read_handle get_data(const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) override {
 			auto acc = buf.template get_access<cl::sycl::access::mode::read>(
 			    cl::sycl::range<3>(range[0], range[1], range[2]), cl::sycl::id<3>(offset[0], offset[1], offset[2]));
 			auto buf_size = buf.get_range();

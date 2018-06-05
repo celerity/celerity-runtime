@@ -79,10 +79,8 @@ class master_access_task : public task {
   public:
 	struct buffer_access_info {
 		cl::sycl::access::mode mode;
-		any_range range;
-		any_range offset;
-
-		int get_dimensions() const { return range.which() + 1; }
+		cl::sycl::range<3> range;
+		cl::sycl::id<3> offset;
 	};
 
 	master_access_task(std::unique_ptr<detail::maf_storage_base>&& maf) : task(), maf(std::move(maf)) {}
@@ -92,7 +90,7 @@ class master_access_task : public task {
 	const std::unordered_map<buffer_id, std::vector<buffer_access_info>>& get_accesses() const { return buffer_accesses; }
 	const detail::maf_storage_base& get_functor() const { return *maf; }
 
-	void add_buffer_access(buffer_id bid, cl::sycl::access::mode mode, any_range range, any_range offset) {
+	void add_buffer_access(buffer_id bid, cl::sycl::access::mode mode, cl::sycl::range<3> range, cl::sycl::id<3> offset) {
 		buffer_accesses[bid].push_back({mode, range, offset});
 	}
 

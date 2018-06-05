@@ -167,9 +167,9 @@ void buffer_transfer_manager::update_transfers() {
 
 		// TODO: Assert t->data.size();
 		int dimensions = 3;
-		if(pdata.subrange.range2 == 0) {
+		if(pdata.subrange.range2 == 1) {
 			dimensions = 2;
-			if(pdata.subrange.range1 == 0) { dimensions = 1; }
+			if(pdata.subrange.range1 == 1) { dimensions = 1; }
 		}
 		// FIXME: It's not ideal that we set raw_data_range::full_size and element_size to all zeros here.
 		detail::raw_data_range dr{&t->data[0], dimensions, {(int)pdata.subrange.range0, (int)pdata.subrange.range1, (int)pdata.subrange.range2},

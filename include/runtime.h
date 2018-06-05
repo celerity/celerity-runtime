@@ -5,7 +5,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include <boost/variant.hpp>
 #include <mpi.h>
 
 #include "buffer_state.h"
@@ -22,14 +21,11 @@ namespace celerity {
 
 using chunk_id = size_t;
 
-using any_grid_region = boost::variant<GridRegion<1>, GridRegion<2>, GridRegion<3>>;
-using any_grid_box = boost::variant<GridBox<1>, GridBox<2>, GridBox<3>>;
-
 // FIXME: Untangle these data structures somehow. MSVC already warns about long names (C4503).
-using chunk_buffer_requirements_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, any_grid_region>>>;
-using chunk_buffer_source_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::vector<std::pair<any_grid_box, std::unordered_set<node_id>>>>>;
-using buffer_writers_map = std::unordered_map<buffer_id, std::unordered_map<node_id, std::vector<std::pair<task_id, any_grid_region>>>>;
-using buffer_state_map = std::unordered_map<buffer_id, std::unique_ptr<detail::buffer_state_base>>;
+using chunk_buffer_requirements_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<3>>>>;
+using chunk_buffer_source_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::vector<std::pair<GridBox<3>, std::unordered_set<node_id>>>>>;
+using buffer_writers_map = std::unordered_map<buffer_id, std::unordered_map<node_id, std::vector<std::pair<task_id, GridRegion<3>>>>>;
+using buffer_state_map = std::unordered_map<buffer_id, std::unique_ptr<detail::buffer_state>>;
 
 class runtime {
   public:
@@ -45,7 +41,7 @@ class runtime {
 	template <typename DataT, int Dims>
 	buffer_id register_buffer(cl::sycl::range<Dims> size, cl::sycl::buffer<DataT, Dims>& buf) {
 		const buffer_id bid = buffer_count++;
-		valid_buffer_regions[bid] = std::make_unique<detail::buffer_state<Dims>>(size, num_nodes);
+		valid_buffer_regions[bid] = std::make_unique<detail::buffer_state>(cl::sycl::range<3>(size), num_nodes);
 		buffer_ptrs[bid] = std::make_unique<detail::buffer_storage<DataT, Dims>>(buf);
 		return bid;
 	}
@@ -55,7 +51,7 @@ class runtime {
 		valid_buffer_regions.erase(bid);
 	}
 
-	detail::raw_data_read_handle get_buffer_data(buffer_id bid, const cl::sycl::range<3>& offset, const cl::sycl::range<3>& range) {
+	detail::raw_data_read_handle get_buffer_data(buffer_id bid, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) {
 		assert(buffer_ptrs.at(bid) != nullptr);
 		return buffer_ptrs[bid]->get_data(offset, range);
 	}
