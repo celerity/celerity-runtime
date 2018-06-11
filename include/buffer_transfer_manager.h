@@ -1,8 +1,8 @@
 #pragma once
 
+#include <list>
 #include <memory>
 #include <unordered_map>
-#include <unordered_set>
 
 #include <mpi.h>
 
@@ -14,8 +14,7 @@
 namespace celerity {
 
 constexpr int CELERITY_MPI_TAG_CMD = 0;
-constexpr int CELERITY_MPI_TAG_DATA_REQUEST = 1;
-constexpr int CELERITY_MPI_TAG_DATA_TRANSFER = 2;
+constexpr int CELERITY_MPI_TAG_DATA_TRANSFER = 1;
 
 class buffer_transfer_manager {
   public:
@@ -24,25 +23,21 @@ class buffer_transfer_manager {
 	};
 
 	buffer_transfer_manager(std::shared_ptr<logger> transfer_logger) : transfer_logger(transfer_logger) {}
-
 	~buffer_transfer_manager();
 
 	/**
-	 * Checks for (and handles) incoming data requests and transfers.
+	 * Checks for (and handles) incoming data transfers.
 	 */
 	void poll();
 
-	std::shared_ptr<const transfer_handle> await_pull(const command_pkg& pkg);
-
-	std::shared_ptr<const transfer_handle> pull(const command_pkg& pkg);
-
-	std::shared_ptr<const transfer_handle> send(node_id to, const command_pkg& pkg);
+	std::shared_ptr<const transfer_handle> await_push(const command_pkg& pkg);
+	std::shared_ptr<const transfer_handle> push(const command_pkg& pkg);
 
   private:
 	struct data_header {
 		buffer_id bid;
-		task_id tid;
 		command_subrange subrange;
+		command_id push_cid;
 	};
 
 	struct transfer_in {
@@ -55,6 +50,10 @@ class buffer_transfer_manager {
 		~transfer_in() {
 			if(data_type != 0) { MPI_Type_free(&data_type); }
 		}
+	};
+
+	struct incoming_transfer_handle : transfer_handle {
+		std::unique_ptr<transfer_in> transfer;
 	};
 
 	struct transfer_out {
@@ -78,16 +77,21 @@ class buffer_transfer_manager {
 	// We store different MPI datatypes for every type size we want to transfer
 	std::unordered_map<size_t, MPI_Datatype> mpi_byte_size_data_types;
 
-	std::unordered_map<task_id, std::unordered_map<buffer_id, std::vector<std::pair<command_pkg, std::shared_ptr<transfer_handle>>>>> active_handles;
+	std::list<std::unique_ptr<transfer_in>> incoming_transfers;
+	std::list<std::unique_ptr<transfer_out>> outgoing_transfers;
 
-	std::unordered_set<std::unique_ptr<transfer_in>> incoming_transfers;
-	std::unordered_set<std::unique_ptr<transfer_out>> outgoing_transfers;
+	// Here we store two types of handles:
+	//  - Incoming pushes that have not yet been requested through ::await_push
+	//  - Stil outstanding pushes that have been requested through ::await_push
+	std::unordered_map<command_id, std::shared_ptr<incoming_transfer_handle>> push_blackboard;
 
 	std::shared_ptr<logger> transfer_logger;
 
-	void poll_requests();
 	void poll_transfers();
-	void update_transfers();
+	void update_incoming_transfers();
+	void update_outgoing_transfers();
+
+	void write_data_to_buffer(std::unique_ptr<transfer_in>&& transfer);
 
 	MPI_Datatype get_byte_size_data_type(size_t byte_size);
 };

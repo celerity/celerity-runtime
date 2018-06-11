@@ -24,7 +24,7 @@ using chunk_id = size_t;
 // FIXME: Untangle these data structures somehow. MSVC already warns about long names (C4503).
 using chunk_buffer_requirements_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<3>>>>;
 using chunk_buffer_source_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::vector<std::pair<GridBox<3>, std::unordered_set<node_id>>>>>;
-using buffer_writers_map = std::unordered_map<buffer_id, std::unordered_map<node_id, std::vector<std::pair<task_id, GridRegion<3>>>>>;
+using buffer_writers_map = std::unordered_map<buffer_id, std::unordered_map<node_id, std::vector<GridRegion<3>>>>;
 using buffer_state_map = std::unordered_map<buffer_id, std::unique_ptr<detail::buffer_state>>;
 
 class runtime {
@@ -61,8 +61,6 @@ class runtime {
 		buffer_ptrs[bid]->set_data(dr);
 	}
 
-	void schedule_buffer_send(node_id recipient, const command_pkg& pkg);
-
 	std::shared_ptr<logger> get_logger() const { return default_logger; }
 
   private:
@@ -84,6 +82,7 @@ class runtime {
 	// command graph have been completed.
 	buffer_state_map valid_buffer_regions;
 
+	command_id next_cmd_id = 0;
 	command_dag command_graph;
 
 	std::unique_ptr<buffer_transfer_manager> btm;
@@ -95,10 +94,9 @@ class runtime {
 
 	void build_command_graph();
 
-	void process_task_data_requirements(task_id tid, size_t num_chunks, const std::unordered_map<chunk_id, node_id>& chunk_nodes,
-	    const chunk_buffer_requirements_map& chunk_requirements, const chunk_buffer_source_map& chunk_buffer_sources,
-	    const std::unordered_map<task_id, graph_utils::task_vertices>& taskvs, const std::vector<vertex>& chunk_command_vertices,
-	    buffer_writers_map& buffer_writers);
+	void process_task_data_requirements(task_id tid, const std::unordered_map<chunk_id, node_id>& chunk_nodes,
+	    const chunk_buffer_requirements_map& chunk_requirements, const chunk_buffer_source_map& chunk_buffer_sources, const graph_utils::task_vertices& tv,
+	    const std::vector<vertex>& chunk_command_vertices, buffer_writers_map& buffer_writers);
 
 	friend class master_access_job;
 	void execute_master_access_task(task_id tid) const;

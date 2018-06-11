@@ -13,30 +13,23 @@ buffer_transfer_manager::~buffer_transfer_manager() {
 }
 
 void buffer_transfer_manager::poll() {
-	poll_requests();
 	poll_transfers();
-	update_transfers();
-}
-
-void buffer_transfer_manager::poll_requests() {
-	MPI_Status status;
-	int flag;
-	MPI_Iprobe(MPI_ANY_SOURCE, CELERITY_MPI_TAG_DATA_REQUEST, MPI_COMM_WORLD, &flag, &status);
-	if(flag == 0) return;
-	command_pkg pkg;
-	MPI_Recv(&pkg, sizeof(command_pkg), MPI_BYTE, status.MPI_SOURCE, CELERITY_MPI_TAG_DATA_REQUEST, MPI_COMM_WORLD, &status);
-	runtime::get_instance().schedule_buffer_send(status.MPI_SOURCE, pkg);
+	update_incoming_transfers();
+	update_outgoing_transfers();
 }
 
 void buffer_transfer_manager::poll_transfers() {
 	MPI_Status status;
 	int flag;
 	MPI_Iprobe(MPI_ANY_SOURCE, CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &flag, &status);
-	if(flag == 0) return;
+	if(flag == 0) {
+		// No incoming transfers at the moment
+		return;
+	}
 
 	int count;
 	MPI_Get_count(&status, MPI_CHAR, &count);
-	int data_size = count - sizeof(data_header);
+	const int data_size = count - sizeof(data_header);
 
 	auto transfer = std::make_unique<transfer_in>();
 	transfer->data.resize(data_size);
@@ -54,33 +47,17 @@ void buffer_transfer_manager::poll_transfers() {
 
 	// Start receiving data
 	MPI_Irecv(MPI_BOTTOM, 1, transfer_data_type, status.MPI_SOURCE, CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &transfer->request);
-	incoming_transfers.insert(std::move(transfer));
+	incoming_transfers.push_back(std::move(transfer));
 
 	transfer_logger->info("Receiving incoming data of size {} from {}", data_size, status.MPI_SOURCE);
 }
 
-std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::send(node_id to, const command_pkg& pkg) {
-	assert(pkg.cmd == command::PULL);
-	const pull_data& data = pkg.data.pull;
+// TODO: Copy buffer subrange in case we want to overwrite it (handle here or on job-level?)
+std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::push(const command_pkg& pkg) {
+	assert(pkg.cmd == command::PUSH);
+	const push_data& data = pkg.data.push;
 
-	// Check whether we already have an await pull request, and if so, use that handle
-	std::shared_ptr<transfer_handle> handle = nullptr;
-	for(auto& p : active_handles[pkg.tid][data.bid]) {
-		if(p.first.cmd != command::AWAIT_PULL) continue;
-		if(p.first.data.await_pull.subrange == data.subrange && p.first.data.await_pull.target == to) {
-			handle = p.second;
-			break;
-		}
-	}
-
-	if(handle == nullptr) {
-		handle = std::make_shared<transfer_handle>();
-		// Store new handle so we can return it when the await pull finally comes in
-		// TODO: It's confusing that we're storing PULL commands for both our own requests, as well as incoming requests
-		// We may want to instead store an AWAIT PULL here
-		active_handles[pkg.tid][data.bid].push_back(std::make_pair(pkg, handle));
-	}
-
+	auto t_handle = std::make_shared<transfer_handle>();
 	auto data_handle =
 	    runtime::get_instance().get_buffer_data(data.bid, cl::sycl::range<3>(data.subrange.offset0, data.subrange.offset1, data.subrange.offset2),
 	        cl::sycl::range<3>(data.subrange.range0, data.subrange.range1, data.subrange.range2));
@@ -92,10 +69,10 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 	MPI_Type_commit(&subarray_data_type);
 
 	auto transfer = std::make_unique<transfer_out>(data_handle);
-	transfer->handle = handle;
-	transfer->header.subrange = pkg.data.pull.subrange;
-	transfer->header.bid = pkg.data.pull.bid;
-	transfer->header.tid = pkg.tid;
+	transfer->handle = t_handle;
+	transfer->header.subrange = data.subrange;
+	transfer->header.bid = data.bid;
+	transfer->header.push_cid = pkg.cid;
 
 	// Build full data type with header
 	MPI_Datatype transfer_data_type;
@@ -109,77 +86,62 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 	transfer->data_type = transfer_data_type;
 
 	// Start transmitting data
-	MPI_Isend(MPI_BOTTOM, 1, transfer_data_type, to, CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &transfer->request);
-	outgoing_transfers.insert(std::move(transfer));
+	MPI_Isend(MPI_BOTTOM, 1, transfer_data_type, data.target, CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &transfer->request);
+	outgoing_transfers.push_back(std::move(transfer));
 
-	transfer_logger->info("Serving incoming PULL request for buffer {} from node {}", pkg.data.pull.bid, to);
-	return handle;
+	return t_handle;
 }
 
-// TODO: Copy buffer subrange in case we want to overwrite it (handle here or on job-level?)
-std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::await_pull(const command_pkg& pkg) {
-	assert(pkg.cmd == command::AWAIT_PULL);
-	const await_pull_data& data = pkg.data.await_pull;
+std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::await_push(const command_pkg& pkg) {
+	assert(pkg.cmd == command::AWAIT_PUSH);
+	const await_push_data& data = pkg.data.await_push;
 
-	// Check to see if we have a data transfer running already
-	// Note that we use the target tid, since that is the tid that incoming PULL packages will have as well
-	for(auto& p : active_handles[data.target_tid][data.bid]) {
-		if(p.first.cmd != command::PULL) continue;
-		// FIXME: We have to check the recipient as well, just as in buffer_transfer_manager::send.
-		// However, we don't have that information available within pull_data.
-		if(p.first.data.pull.subrange == data.subrange) {
-			// TODO: We may want to replace the stored pkg with the new one to signal that we are expecting that transfer
-			// so we can remove it from the list of active handles upon completion
-			return p.second;
-		}
+	std::shared_ptr<incoming_transfer_handle> t_handle;
+	// Check to see if we have (fully) received the push already
+	if(push_blackboard.count(data.source_cid) != 0) {
+		t_handle = push_blackboard[data.source_cid];
+		push_blackboard.erase(data.source_cid);
+		assert(t_handle->transfer != nullptr);
+		assert(t_handle->transfer->header.bid == data.bid);
+		assert(t_handle->transfer->header.subrange == data.subrange);
+		write_data_to_buffer(std::move(t_handle->transfer));
+	} else {
+		t_handle = std::make_shared<incoming_transfer_handle>();
+		// Store new handle so we can mark it as complete when the push is received
+		push_blackboard[data.source_cid] = t_handle;
 	}
 
-	auto handle = std::make_shared<transfer_handle>();
-	// Store new handle so we can use it when the pull comes in
-	active_handles[data.target_tid][data.bid].push_back(std::make_pair(pkg, handle));
-	return handle;
+	return t_handle;
 }
 
-void buffer_transfer_manager::update_transfers() {
+void buffer_transfer_manager::update_incoming_transfers() {
 	for(auto it = incoming_transfers.begin(); it != incoming_transfers.end();) {
-		auto& t = *it;
+		auto& transfer = *it;
 		int flag;
-		MPI_Test(&t->request, &flag, MPI_STATUS_IGNORE);
+		MPI_Test(&transfer->request, &flag, MPI_STATUS_IGNORE);
 		if(flag == 0) {
 			++it;
 			continue;
 		}
 
-		std::shared_ptr<transfer_handle> handle = nullptr;
-		pull_data pdata;
-		for(auto& p : active_handles[t->header.tid][t->header.bid]) {
-			if(p.first.cmd != command::PULL) continue;
-			// TODO: Remove matching handle
-			if(p.first.data.pull.subrange == t->header.subrange) {
-				// TODO: assert that the pull source is not this node (since this could also be an incoming pull request, see ::handle_request)
-				handle = p.second;
-				pdata = p.first.data.pull;
-				break;
-			}
+		// Check whether we already have an await push request
+		std::shared_ptr<incoming_transfer_handle> t_handle = nullptr;
+		if(push_blackboard.count(transfer->header.push_cid) != 0) {
+			t_handle = push_blackboard[transfer->header.push_cid];
+			push_blackboard.erase(transfer->header.push_cid);
+			write_data_to_buffer(std::move(*it));
+		} else {
+			t_handle = std::make_shared<incoming_transfer_handle>();
+			push_blackboard[transfer->header.push_cid] = t_handle;
+			t_handle->transfer = std::move(*it);
 		}
-		assert(handle != nullptr && "Received unrequested data");
-		handle->complete = true;
 
-		// TODO: Assert t->data.size();
-		int dimensions = 3;
-		if(pdata.subrange.range2 == 1) {
-			dimensions = 2;
-			if(pdata.subrange.range1 == 1) { dimensions = 1; }
-		}
-		// FIXME: It's not ideal that we set raw_data_range::full_size and element_size to all zeros here.
-		detail::raw_data_range dr{&t->data[0], dimensions, {(int)pdata.subrange.range0, (int)pdata.subrange.range1, (int)pdata.subrange.range2},
-		    {(int)pdata.subrange.offset0, (int)pdata.subrange.offset1, (int)pdata.subrange.offset2}, {0, 0, 0}, 0};
-		runtime::get_instance().set_buffer_data(pdata.bid, dr);
-
-		// Transfer cannot be accessed after this!
+		t_handle->complete = true;
 		it = incoming_transfers.erase(it);
 	}
+}
 
+void buffer_transfer_manager::update_outgoing_transfers() {
 	for(auto it = outgoing_transfers.begin(); it != outgoing_transfers.end();) {
 		auto& t = *it;
 		int flag;
@@ -189,11 +151,23 @@ void buffer_transfer_manager::update_transfers() {
 			continue;
 		}
 		t->handle->complete = true;
-		// TODO: REMOVE HANDLE FROM active_handles IFF ::await_pull has been called already
 
 		// Transfer cannot be accessed after this!
 		it = outgoing_transfers.erase(it);
 	}
+}
+
+void buffer_transfer_manager::write_data_to_buffer(std::unique_ptr<transfer_in>&& transfer) {
+	int dimensions = 3;
+	const auto& header = transfer->header;
+	if(transfer->header.subrange.range2 == 1) {
+		dimensions = 2;
+		if(transfer->header.subrange.range1 == 1) { dimensions = 1; }
+	}
+	// FIXME: It's not ideal that we set raw_data_range::full_size and element_size to all zeros here.
+	detail::raw_data_range dr{&transfer->data[0], dimensions, {(int)header.subrange.range0, (int)header.subrange.range1, (int)header.subrange.range2},
+	    {(int)header.subrange.offset0, (int)header.subrange.offset1, (int)header.subrange.offset2}, {0, 0, 0}, 0};
+	runtime::get_instance().set_buffer_data(header.bid, dr);
 }
 
 MPI_Datatype buffer_transfer_manager::get_byte_size_data_type(size_t byte_size) {
@@ -203,18 +177,6 @@ MPI_Datatype buffer_transfer_manager::get_byte_size_data_type(size_t byte_size) 
 	MPI_Type_commit(&data_type);
 	mpi_byte_size_data_types[byte_size] = data_type;
 	return data_type;
-}
-
-std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::pull(const command_pkg& pkg) {
-	assert(pkg.cmd == command::PULL);
-	const pull_data& data = pkg.data.pull;
-
-	// We basically just forward the command using a different tag, then we wait (asynchronously) for the response transfer
-	MPI_Send(&pkg, sizeof(command_pkg), MPI_BYTE, data.source, CELERITY_MPI_TAG_DATA_REQUEST, MPI_COMM_WORLD);
-
-	auto handle = std::make_shared<transfer_handle>();
-	active_handles[pkg.tid][data.bid].push_back(std::make_pair(pkg, handle));
-	return handle;
 }
 
 } // namespace celerity

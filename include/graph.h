@@ -28,6 +28,7 @@ using task_dag = boost::adjacency_list<boost::vecS, boost::vecS, boost::bidirect
 struct cdag_vertex_properties {
 	std::string label;
 	command cmd = command::NOP;
+	command_id cid;
 	node_id nid = 0;
 	task_id tid;
 	command_data data = {};

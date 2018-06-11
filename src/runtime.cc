@@ -86,17 +86,8 @@ void runtime::TEST_do_work() {
 		// FIXME: This doesn't support disconnected tasks (e.g. two kernels with no dependencies whatsoever)
 		graph_utils::search_vertex_bf(0, command_graph, [&master_commands, this](vertex v, const command_dag& cdag) {
 			auto& v_data = cdag[v];
-
-			// Debug output
-			switch(v_data.cmd) {
-			case command::PULL: default_logger->info("Sending PULL command for task {} to node {}", v_data.tid, v_data.nid); break;
-			case command::AWAIT_PULL: default_logger->info("Sending AWAIT_PULL command for task {} to node {}", v_data.tid, v_data.nid); break;
-			case command::COMPUTE: default_logger->info("Sending COMPUTE command for task {} to node {}", v_data.tid, v_data.nid); break;
-			case command::MASTER_ACCESS: default_logger->info("Sending MASTER_ACCESS command for task {} to node {}", v_data.tid, v_data.nid); break;
-			default: return false;
-			}
-
-			const command_pkg pkg{v_data.tid, v_data.cmd, v_data.data};
+			if(v_data.cmd == command::NOP) { return false; }
+			const command_pkg pkg{v_data.tid, v_data.cid, v_data.cmd, v_data.data};
 			const node_id target = cdag[v].nid;
 			if(target != 0) {
 				send_command(target, pkg);
@@ -108,13 +99,13 @@ void runtime::TEST_do_work() {
 		});
 
 		// Finally, send shutdown commands to all worker nodes
-		command_pkg pkg{0, command::SHUTDOWN, command_data{}};
 		for(auto n = 1; n < num_nodes; ++n) {
+			command_pkg pkg{0, next_cmd_id++, command::SHUTDOWN, command_data{}};
 			send_command(n, pkg);
 		}
 
 		// Master can just exit after handling all open jobs
-		master_commands.push(pkg);
+		master_commands.push(command_pkg{0, next_cmd_id++, command::SHUTDOWN, command_data{}});
 	}
 
 	while(!done || !jobs.empty()) {
@@ -163,8 +154,8 @@ void runtime::TEST_do_work() {
 
 void runtime::handle_command_pkg(const command_pkg& pkg) {
 	switch(pkg.cmd) {
-	case command::PULL: create_job<pull_job>(pkg, *btm); break;
-	case command::AWAIT_PULL: create_job<await_pull_job>(pkg, *btm); break;
+	case command::PUSH: create_job<push_job>(pkg, *btm); break;
+	case command::AWAIT_PUSH: create_job<await_push_job>(pkg, *btm); break;
 	case command::COMPUTE: create_job<compute_job>(pkg, *queue); break;
 	case command::MASTER_ACCESS: create_job<master_access_job>(pkg); break;
 	default: { assert(false && "Unexpected command"); }
@@ -179,10 +170,6 @@ void runtime::register_queue(distr_queue* queue) {
 distr_queue& runtime::get_queue() {
 	assert(queue != nullptr);
 	return *queue;
-}
-
-void runtime::schedule_buffer_send(node_id recipient, const command_pkg& pkg) {
-	create_job<send_job>(pkg, *btm, recipient);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -280,10 +267,10 @@ std::unordered_map<chunk_id, node_id> assign_chunks_to_nodes(size_t num_chunks, 
 }
 
 template <int Dims>
-void process_compute_task(task_id tid, const compute_task* ctsk, size_t num_worker_nodes, bool master_only,
-    const std::unordered_map<task_id, graph_utils::task_vertices>& taskvs, const buffer_state_map& valid_buffer_regions, size_t& num_chunks,
-    std::unordered_map<chunk_id, node_id>& chunk_nodes, chunk_buffer_requirements_map& chunk_requirements, chunk_buffer_source_map& chunk_buffer_sources,
-    std::vector<vertex>& chunk_command_vertices, command_dag& command_graph) {
+void process_compute_task(command_id& next_cmd_id, task_id tid, const compute_task* ctsk, size_t num_worker_nodes, bool master_only,
+    const graph_utils::task_vertices& tv, const buffer_state_map& valid_buffer_regions, size_t& num_chunks, std::unordered_map<chunk_id, node_id>& chunk_nodes,
+    chunk_buffer_requirements_map& chunk_requirements, chunk_buffer_source_map& chunk_buffer_sources, std::vector<vertex>& chunk_command_vertices,
+    command_dag& command_graph) {
 	assert(ctsk->get_dimensions() == Dims);
 
 	// Split task into equal chunks for every worker node
@@ -338,12 +325,12 @@ void process_compute_task(task_id tid, const compute_task* ctsk, size_t num_work
 	// Create a compute command for every chunk
 	for(chunk_id i = 0u; i < chunks.size(); ++i) {
 		const node_id nid = chunk_nodes[i];
-		const auto cv = graph_utils::add_compute_cmd(nid, taskvs.at(tid), subrange<3>(chunks[i]), command_graph);
+		const auto cv = graph_utils::add_compute_cmd(next_cmd_id, nid, tv, subrange<3>(chunks[i]), command_graph);
 		chunk_command_vertices.push_back(cv);
 	}
 }
 
-void process_master_access_task(task_id tid, const master_access_task* matsk, const std::unordered_map<task_id, graph_utils::task_vertices>& taskvs,
+void process_master_access_task(command_id& next_cmd_id, task_id tid, const master_access_task* matsk, const graph_utils::task_vertices& tv,
     const buffer_state_map& valid_buffer_regions, size_t& num_chunks, std::unordered_map<chunk_id, node_id>& chunk_nodes,
     chunk_buffer_requirements_map& chunk_requirements, chunk_buffer_source_map& chunk_buffer_sources, std::vector<vertex>& chunk_command_vertices,
     command_dag& command_graph) {
@@ -376,50 +363,45 @@ void process_master_access_task(task_id tid, const master_access_task* matsk, co
 		chunk_buffer_sources[master_node][bid] = source_nodes;
 	}
 
-	const auto cv = graph_utils::add_master_access_cmd(taskvs.at(tid), command_graph);
+	const auto cv = graph_utils::add_master_access_cmd(next_cmd_id, tv, command_graph);
 	chunk_command_vertices.push_back(cv);
 }
 
 
-void update_buffer_state(const std::unordered_map<node_id, std::vector<std::pair<task_id, GridRegion<3>>>>& buffer_writers, detail::buffer_state& bs) {
+void update_buffer_state(const std::unordered_map<node_id, std::vector<GridRegion<3>>>& buffer_writers, detail::buffer_state& bs) {
 	for(const auto& w : buffer_writers) {
 		const node_id nid = w.first;
 		GridRegion<3> region;
-		for(const auto& tr : w.second) {
-			region = GridRegion<3>::merge(region, tr.second);
+		for(const auto& r : w.second) {
+			region = GridRegion<3>::merge(region, r);
 		}
 		bs.update_region(region, {nid});
 	}
 }
 
 /**
- * Computes a command graph from the task graph, in batches of sibling sets.
+ * Computes a command graph from the task graph, one task at a time.
  *
  * This currently (= likely to change in the future!) works as follows:
  *
- * 1) Obtain a suitable satisfied sibling set from the task graph.
- * 2) For every task within that sibling set:
- *    a) Split the task into equally sized chunks.
- *    b) Obtain all range mappers for that task and iterate over them,
- *       determining the read and write regions for every chunk. Note that a
- *       task may contain several read/write accessors for the same buffer,
- *       which is why we first have to compute their union regions.
- *    c) (In assign_chunks_to_nodes): Iterate over all per-chunk read regions
- *		 and try to find the most suitable node to execute that chunk on, i.e.
- *		 the node that requires the least amount of data-transfer in order to
- *		 execute that chunk. Note that currently only the first read buffer is
- *		 considered, and nodes are assigned greedily.
- *    d) Insert compute commands for every node into the command graph.
- *       It is important to create these before pull-commands are inserted
- *       (see below).
- *    e) Iterate over per-chunk reads & writes to (i) store per-buffer per-node
- *       written regions and (ii) create pull / await-pull commands for
- *       all nodes, inserting them as requirements for their respective
- *       compute commands. If no task in the sibling set writes to a specific
- *       buffer, the await-pull command for that buffer will be inserted in
- *       the command subgraph for the current task (which is why it's important
- *       that all compute commands already exist).
- * 3) Finally, all per-buffer per-node written regions are used to update the
+ * 1) Obtain a satisfied task from the task graph.
+ * 2) Split the task into equally sized chunks.
+ * 3) Obtain all range mappers for that task and iterate over them,
+ *    determining the read and write regions for every chunk. Note that a
+ *    task may contain several read/write accessors for the same buffer,
+ *    which is why we first have to compute their union regions.
+ * 4) (In assign_chunks_to_nodes): Iterate over all per-chunk read regions
+ *	  and try to find the most suitable node to execute that chunk on, i.e.
+ *	  the node that requires the least amount of data-transfer in order to
+ *	  execute that chunk. Note that currently only the first read buffer is
+ *    considered, and nodes are assigned greedily.
+ * 5) Insert execution (compute / master-access) commands for every node into
+ *	  the command graph.
+ * 6) Iterate over per-chunk reads & writes to (i) store per-buffer per-node
+ *    written regions and (ii) create push / await-push commands for
+ *    all nodes, inserting them as requirements for their respective
+ *    execution commands.
+ * 7) Finally, all per-buffer per-node written regions are used to update the
  *    data structure that keeps track of valid buffer regions.
  */
 void runtime::build_command_graph() {
@@ -430,72 +412,64 @@ void runtime::build_command_graph() {
 	const bool master_only = num_nodes == 1;
 
 	const auto& task_graph = queue->get_task_graph();
-	auto sibling_set = graph_utils::get_satisfied_sibling_set(task_graph);
-	std::sort(sibling_set.begin(), sibling_set.end());
+	task_id tid;
+	assert(graph_utils::get_satisfied_task(task_graph, tid));
 
-	std::unordered_map<task_id, graph_utils::task_vertices> taskvs;
 	buffer_writers_map buffer_writers;
 
-	// Iterate over tasks in reverse order so we can determine kernels which
-	// write to certain buffer ranges before generating the pull commands for
-	// those ranges, which allows us to insert "await-pull"s before writes.
-	for(auto it = sibling_set.crbegin(); it != sibling_set.crend(); ++it) {
-		const task_id tid = *it;
-		auto tsk = queue->get_task(tid);
-		taskvs[tid] = graph_utils::add_task(tid, task_graph, command_graph);
+	auto tsk = queue->get_task(tid);
+	graph_utils::task_vertices tv = graph_utils::add_task(tid, task_graph, command_graph);
 
-		size_t num_chunks = 0;
-		chunk_buffer_requirements_map chunk_reqs;
-		chunk_buffer_source_map chunk_buffer_sources;
-		std::unordered_map<chunk_id, node_id> chunk_nodes;
-		// Vertices corresponding to the per-chunk compute / master access command
-		// TODO: Either use map <chunk_id, node_id> for this, or vector for chunk_nodes - not both
-		std::vector<vertex> chunk_command_vertices;
+	size_t num_chunks = 0;
+	chunk_buffer_requirements_map chunk_reqs;
+	chunk_buffer_source_map chunk_buffer_sources;
+	std::unordered_map<chunk_id, node_id> chunk_nodes;
+	// Vertices corresponding to the per-chunk compute / master access command
+	// TODO: Either use map <chunk_id, node_id> for this, or vector for chunk_nodes - not both
+	std::vector<vertex> chunk_command_vertices;
 
-		if(tsk->get_type() == task_type::COMPUTE) {
-			const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
-			switch(ctsk->get_dimensions()) {
-			default:
-			case 1:
-				process_compute_task<1>(tid, ctsk, num_worker_nodes, master_only, taskvs, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
-				    chunk_buffer_sources, chunk_command_vertices, command_graph);
-				break;
-			case 2:
-				process_compute_task<2>(tid, ctsk, num_worker_nodes, master_only, taskvs, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
-				    chunk_buffer_sources, chunk_command_vertices, command_graph);
-				break;
-			case 3:
-				process_compute_task<3>(tid, ctsk, num_worker_nodes, master_only, taskvs, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
-				    chunk_buffer_sources, chunk_command_vertices, command_graph);
-				break;
-			}
-		} else if(tsk->get_type() == task_type::MASTER_ACCESS) {
-			const auto matsk = dynamic_cast<const master_access_task*>(tsk.get());
-			process_master_access_task(
-			    tid, matsk, taskvs, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs, chunk_buffer_sources, chunk_command_vertices, command_graph);
+	if(tsk->get_type() == task_type::COMPUTE) {
+		const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
+		switch(ctsk->get_dimensions()) {
+		default:
+		case 1:
+			process_compute_task<1>(next_cmd_id, tid, ctsk, num_worker_nodes, master_only, tv, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
+			    chunk_buffer_sources, chunk_command_vertices, command_graph);
+			break;
+		case 2:
+			process_compute_task<2>(next_cmd_id, tid, ctsk, num_worker_nodes, master_only, tv, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
+			    chunk_buffer_sources, chunk_command_vertices, command_graph);
+			break;
+		case 3:
+			process_compute_task<3>(next_cmd_id, tid, ctsk, num_worker_nodes, master_only, tv, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
+			    chunk_buffer_sources, chunk_command_vertices, command_graph);
+			break;
 		}
-
-		process_task_data_requirements(tid, num_chunks, chunk_nodes, chunk_reqs, chunk_buffer_sources, taskvs, chunk_command_vertices, buffer_writers);
-		queue->mark_task_as_processed(tid);
+	} else if(tsk->get_type() == task_type::MASTER_ACCESS) {
+		const auto matsk = dynamic_cast<const master_access_task*>(tsk.get());
+		process_master_access_task(next_cmd_id, tid, matsk, tv, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs, chunk_buffer_sources,
+		    chunk_command_vertices, command_graph);
 	}
 
+	process_task_data_requirements(tid, chunk_nodes, chunk_reqs, chunk_buffer_sources, tv, chunk_command_vertices, buffer_writers);
+	queue->mark_task_as_processed(tid);
+
 	// Update buffer regions
-	for(auto it : buffer_writers) {
+	for(const auto& it : buffer_writers) {
 		const buffer_id bid = it.first;
 		update_buffer_state(it.second, *valid_buffer_regions[bid]);
 	}
 
 	// HACK: We recursively call this until all tasks have been processed
 	// In the future, we may want to do this periodically in a worker thread
-	if(graph_utils::get_satisfied_sibling_set(task_graph).size() > 0) { build_command_graph(); }
+	if(graph_utils::get_satisfied_task(task_graph, tid)) { build_command_graph(); }
 }
 
-// Process writes and create pull / await-pull commands
-void runtime::process_task_data_requirements(task_id tid, size_t num_chunks, const std::unordered_map<chunk_id, node_id>& chunk_nodes,
-    const chunk_buffer_requirements_map& chunk_requirements, const chunk_buffer_source_map& chunk_buffer_sources,
-    const std::unordered_map<task_id, graph_utils::task_vertices>& taskvs, const std::vector<vertex>& chunk_command_vertices,
-    buffer_writers_map& buffer_writers) {
-	for(auto i = 0u; i < num_chunks; ++i) {
+// Process writes and create push / await-push commands
+void runtime::process_task_data_requirements(task_id tid, const std::unordered_map<chunk_id, node_id>& chunk_nodes,
+    const chunk_buffer_requirements_map& chunk_requirements, const chunk_buffer_source_map& chunk_buffer_sources, const graph_utils::task_vertices& tv,
+    const std::vector<vertex>& chunk_command_vertices, buffer_writers_map& buffer_writers) {
+	for(auto i = 0u; i < chunk_nodes.size(); ++i) {
 		const node_id nid = chunk_nodes.at(i);
 
 		for(auto& it : chunk_requirements.at(i)) {
@@ -506,7 +480,7 @@ void runtime::process_task_data_requirements(task_id tid, size_t num_chunks, con
 			if(it.second.count(cl::sycl::access::mode::write) > 0) {
 				const auto& write_req = it.second.at(cl::sycl::access::mode::write);
 				assert(write_req.area() > 0);
-				buffer_writers[bid][nid].push_back(std::make_pair(tid, write_req));
+				buffer_writers[bid][nid].push_back(write_req);
 				// Add to compute node label for debugging
 				command_graph[command_vertex].label = fmt::format("{}\\nWrite {} {}", command_graph[command_vertex].label, bid, toString(write_req));
 			}
@@ -528,42 +502,15 @@ void runtime::process_task_data_requirements(task_id tid, size_t num_chunks, con
 				const auto& box_src_nodes = box_sources.second;
 
 				if(box_src_nodes.count(nid) == 1) {
-					// No need to pull
+					// No need to push
 					continue;
 				}
 
 				// We just pick the first source node for now
 				const node_id source_nid = *box_src_nodes.cbegin();
 
-				// Figure out where/when (and if) source node writes to that buffer
-				// TODO: For now we just store the writer's task id since we assume
-				// that every node has exactly one compute command per task. In the
-				// future this may not be true.
-				bool has_writer = false;
-				task_id writer_tid = 0;
-				for(const auto& bw : buffer_writers[bid][source_nid]) {
-					const bool intersects = GridRegion<3>::intersect(bw.second, GridRegion<3>(boost::get<GridBox<3>>(box))).area() > 0;
-
-					if(intersects) {
-#ifdef _DEBUG
-						// We assume at most one sibling writes to that exact region
-						// TODO: Is there any (useful) scenario where this isn't true?
-						assert(!has_writer);
-#endif
-						has_writer = true;
-						writer_tid = bw.first;
-#ifndef _DEBUG
-						break;
-#endif
-					}
-				}
-
-				// If we haven't found a writer, simply add the "await-pull" in
-				// the current task
-				const auto source_tv = has_writer ? taskvs.at(writer_tid) : taskvs.at(tid);
-
 				// TODO: Update buffer regions since we copied some stuff!!
-				graph_utils::add_pull_cmd(nid, source_nid, bid, taskvs.at(tid), source_tv, command_vertex, box, command_graph);
+				graph_utils::add_push_cmd(next_cmd_id, nid, source_nid, bid, tv, command_vertex, box, command_graph);
 			}
 		}
 	}

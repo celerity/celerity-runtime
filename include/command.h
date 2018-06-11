@@ -5,7 +5,7 @@
 
 namespace celerity {
 
-enum class command { NOP, COMPUTE, MASTER_ACCESS, PULL, AWAIT_PULL, SHUTDOWN };
+enum class command { NOP, COMPUTE, MASTER_ACCESS, PUSH, AWAIT_PUSH, SHUTDOWN };
 
 struct command_subrange {
 	size_t offset0 = 0;
@@ -52,16 +52,16 @@ struct compute_data {
 
 struct master_access_data {};
 
-struct pull_data {
+struct push_data {
 	buffer_id bid;
-	node_id source;
+	node_id target;
 	command_subrange subrange;
 };
 
-struct await_pull_data {
+struct await_push_data {
 	buffer_id bid;
-	node_id target;
-	task_id target_tid;
+	node_id source;
+	command_id source_cid;
 	command_subrange subrange;
 };
 
@@ -71,8 +71,8 @@ union command_data {
 	nop_data nop;
 	compute_data compute;
 	master_access_data master_access;
-	pull_data pull;
-	await_pull_data await_pull;
+	push_data push;
+	await_push_data await_push;
 	shutdown_data shutdown;
 };
 
@@ -81,11 +81,12 @@ union command_data {
  */
 struct command_pkg {
 	task_id tid;
+	command_id cid;
 	command cmd;
 	command_data data;
 
 	command_pkg() : data({}) {}
-	command_pkg(task_id tid, command cmd, command_data data) : tid(tid), cmd(cmd), data(data) {}
+	command_pkg(task_id tid, command_id cid, command cmd, command_data data) : tid(tid), cid(cid), cmd(cmd), data(data) {}
 };
 
 } // namespace celerity

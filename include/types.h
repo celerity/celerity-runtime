@@ -15,7 +15,8 @@ class PhantomType {
 	// Luckily compilers won't do more than one user-defined conversion, so something like
 	// PhantomType1<T> -> T -> PhantomType2<T>, can't happen. Therefore we still retain
 	// strong typesafety between phantom types with the same underlying type.
-	operator T() const { return value; }
+	operator T&() { return value; }
+	operator const T&() const { return value; }
 
   private:
 	T value;
@@ -38,6 +39,7 @@ MAKE_PHANTOM_TYPE(task_id, size_t)
 MAKE_PHANTOM_TYPE(vertex, size_t)
 MAKE_PHANTOM_TYPE(buffer_id, size_t)
 MAKE_PHANTOM_TYPE(node_id, size_t)
+MAKE_PHANTOM_TYPE(command_id, size_t)
 
 namespace celerity {
 

@@ -111,22 +111,16 @@ namespace graph_utils {
 
 	task_vertices add_task(task_id tid, const task_dag& tdag, command_dag& cdag);
 
-	vertex add_compute_cmd(node_id nid, const task_vertices& tv, const subrange<3>& chunk, command_dag& cdag);
-	vertex add_master_access_cmd(const task_vertices& tv, command_dag& cdag);
-	vertex add_pull_cmd(node_id nid, node_id source_nid, buffer_id bid, const task_vertices& tv, const task_vertices& source_tv, vertex req_cmd,
+	vertex add_compute_cmd(command_id& next_cmd_id, node_id nid, const task_vertices& tv, const subrange<3>& chunk, command_dag& cdag);
+	vertex add_master_access_cmd(command_id& next_cmd_id, const task_vertices& tv, command_dag& cdag);
+	vertex add_push_cmd(command_id& next_cmd_id, node_id to_nid, node_id from_nid, buffer_id bid, const task_vertices& tv, vertex req_cmd,
 	    const GridBox<3>& req, command_dag& cdag);
 
 	/**
-	 * Returns a set of tasks that
-	 *  (1) have all their requirements satisfied (i.e., all predecessors are
-	 *      marked as processed)
-	 *  (2) don't have any unsatisfied siblings.
-	 *
-	 *  Note that "siblingness" can be transitive, meaning that not every pair
-	 *  of returned tasks necessarily has common parents. All siblings are
-	 *  however connected through some child->parent->child->[...] chain.
+	 * Finds the next (= in the global list of task vertices) task with no unsatisfied dependencies.
+	 * Returns false if no satisfied task was found.
 	 */
-	std::vector<task_id> get_satisfied_sibling_set(const task_dag& tdag);
+	bool get_satisfied_task(const task_dag& tdag, task_id& tid);
 
 	void mark_as_processed(task_id tid, task_dag& tdag);
 

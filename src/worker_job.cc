@@ -54,145 +54,46 @@ void worker_job::update() {
 		const auto remaining = bench_sample_count % BENCH_MOVING_AVG_SAMPLES;
 		benchmark_update_moving_average(bench_samples, bench_sample_count, remaining, bench_avg, bench_min, bench_max);
 
-		job_logger->info(logger_map({{"event", "STOP"}, {"message", "Performance data is measured in microseconds"},
-		    {"pollDurationAvg", std::to_string(bench_avg)}, {"pollDurationMin", std::to_string(bench_min)}, {"pollDurationMax", std::to_string(bench_max)},
-		    {"pollSamples", std::to_string(bench_sample_count)}}));
+		job_logger->info(logger_map({{"event", "STOP"}, {"pollDurationAvg", std::to_string(bench_avg)}, {"pollDurationMin", std::to_string(bench_min)},
+		    {"pollDurationMax", std::to_string(bench_max)}, {"pollSamples", std::to_string(bench_sample_count)}}));
 	}
 }
 
-std::pair<job_type, std::string> pull_job::get_description(const command_pkg& pkg) {
-	return std::make_pair(job_type::PULL, fmt::format("PULL buffer {} from node {}", pkg.data.pull.bid, pkg.data.pull.source));
+std::pair<job_type, std::string> await_push_job::get_description(const command_pkg& pkg) {
+	return std::make_pair(job_type::AWAIT_PUSH, fmt::format("AWAIT PUSH of buffer {} by node {}", pkg.data.await_push.bid, pkg.data.await_push.source));
 }
 
-bool pull_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
-	if(data_handle == nullptr) { data_handle = btm.pull(pkg); }
-	if(data_handle->complete) {
-		// TODO: Remove handle from btm
-	}
+bool await_push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
+	if(data_handle == nullptr) { data_handle = btm.await_push(pkg); }
 	return data_handle->complete;
 }
 
-std::pair<job_type, std::string> await_pull_job::get_description(const command_pkg& pkg) {
-	return std::make_pair(job_type::AWAIT_PULL, fmt::format("AWAIT PULL of buffer {} by node {}", pkg.data.await_pull.bid, pkg.data.await_pull.target));
-}
-
-bool await_pull_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
-	if(data_handle == nullptr) { data_handle = btm.await_pull(pkg); }
-	return data_handle->complete;
-}
-
-job_set send_job::find_dependencies(const distr_queue& queue, const job_set& jobs) {
-	// Store queue & jobs for race condition workaround
-	// FIXME remove this at some point
-	this->queue = &queue;
-	this->jobs = &jobs;
-
+job_set push_job::find_dependencies(const distr_queue& queue, const job_set& jobs) {
 	job_set dependencies;
 	for(auto& job : jobs) {
-		if(job->get_type() == command::COMPUTE) {
+		switch(job->get_type()) {
+		case command::COMPUTE:
+		case command::MASTER_ACCESS:
 			if(get_task_id() != job->get_task_id() && queue.has_dependency(get_task_id(), job->get_task_id())) { dependencies.insert(job); }
+			break;
+		default: break;
 		}
 	}
 
 	return dependencies;
 }
 
-std::pair<job_type, std::string> send_job::get_description(const command_pkg& pkg) {
-	return std::make_pair(job_type::SEND, fmt::format("SEND buffer {} to node {}", pkg.data.pull.bid, recipient));
+std::pair<job_type, std::string> push_job::get_description(const command_pkg& pkg) {
+	return std::make_pair(job_type::PUSH, fmt::format("PUSH buffer {} to node {}", pkg.data.push.bid, pkg.data.push.target));
 }
 
-bool send_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
-	if(WORKAROUND_avoid_race_condition(logger) == false) return false;
+bool push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 	if(data_handle == nullptr) {
-		logger->info("NOTE: Job duration includes waiting for corresponding AWAIT PULL (race condition workaround)");
 		logger->info(logger_map({{"event", "Submit buffer to MPI"}}));
-		data_handle = btm.send(recipient, pkg);
+		data_handle = btm.push(pkg);
 		logger->info(logger_map({{"event", "Buffer submitted to MPI"}}));
 	}
 	return data_handle->complete;
-}
-
-/**
- * FIXME WORKAROUND
- *
- * We currently have a race-condition with regard to PULLs, made apparent by
- * master accesses, but it really can apply to all PULL commands:
- *
- * If the node issuing PULLs (e.g. the master node, for MASTER ACCESSes) does
- * so before the target node has even received the COMPUTE commands for those
- * buffer regions, it won't know that there exists a dependency for that PULL.
- * It will thus happily return garbage data.
- *
- * For now we circumvent this by requiring the corresponding AWAIT PULL
- * job to be received before a send_job can execute (i.e. a hard sync point).
- *
- * After the corresponding AWAIT PULL has been found, we scan all jobs for
- * potential dependencies. Only after those dependencies have been completed,
- * the send is executed.
- *
- * To properly avoid this issue (and with good perf), we may actually have to
- * introduce an additional command type:
- *  - PULLs need to contain a unique pull id. If the source node doesn't know
- *    about that pull id yet, it stalls the request.
- *  - After computing required results, the target nodes executes a "PULL READY"
- *	  command with the same pull id. This signals that the PULL can now be fulfilled.
- *  - Before a node would write to that buffer again, the AWAIT PULL command
- *    is issued (as it is now). This ensures that a copy of the buffer data stays
- *    around until the PULL request with the correct id has been received and
- *    processed.
- *
- * A simpler way of handling the whole issue may however be to adopt a PUSH
- * model instead:
- *  - Nodes simply PUSH computation results to the nodes that need them as soon
- *    as they're available.
- *  - Target nodes either already know that they need the data and can write it
- *    to the corresponding buffer directly, or they store it somewhere in a
- *    temporary buffer.
- *  - As they reach the corresponding AWAIT PUSH command (again, using some sort
- *    of push id), target nodes can check whether the data has already been received
- *    and if so, continue immediately - or wait otherwise.
- */
-bool send_job::WORKAROUND_avoid_race_condition(std::shared_ptr<logger> logger) {
-	assert(queue != nullptr);
-	assert(jobs != nullptr);
-
-	if(corresponding_await_pull == nullptr) {
-		// The await pull job won't be completed until this send job is done, so we should always find it.
-		for(auto& job : *jobs) {
-			if(job->get_type() == command::AWAIT_PULL) {
-				auto& ap_data = job->WORKAROUND_get_pkg().data.await_pull;
-				auto& send_data = this->WORKAROUND_get_pkg().data.pull;
-				if(ap_data.bid == send_data.bid && ap_data.target == recipient && ap_data.target_tid == this->get_task_id()) {
-					corresponding_await_pull = std::static_pointer_cast<await_pull_job>(job);
-				}
-			}
-		}
-
-		// Now any actual dependencies must be present, or have already been completed
-		if(corresponding_await_pull != nullptr) {
-			for(auto& job : *jobs) {
-				if(job->get_type() == command::COMPUTE || job->get_type() == command::MASTER_ACCESS) {
-					if(get_task_id() != job->get_task_id() && queue->has_dependency(get_task_id(), job->get_task_id())) { additional_dependencies.insert(job); }
-				}
-			}
-			logger->info(
-			    logger_map({{"event", fmt::format("Found corresponding AWAIT PULL, and {} additional dependencies", additional_dependencies.size())}}));
-		}
-	}
-
-	if(corresponding_await_pull != nullptr) {
-		for(auto it = additional_dependencies.begin(); it != additional_dependencies.end();) {
-			auto& job = *it;
-			if(job->is_done()) {
-				it = additional_dependencies.erase(it);
-			} else {
-				++it;
-			}
-		}
-		return additional_dependencies.empty();
-	}
-
-	return false;
 }
 
 job_set compute_job::find_dependencies(const distr_queue& queue, const job_set& jobs) {
@@ -201,7 +102,7 @@ job_set compute_job::find_dependencies(const distr_queue& queue, const job_set& 
 		if(job->get_type() == command::COMPUTE) {
 			if(queue.has_dependency(get_task_id(), job->get_task_id())) { dependencies.insert(job); }
 		}
-		if(job->get_type() == command::PULL) {
+		if(job->get_type() == command::AWAIT_PUSH) {
 			if(get_task_id() == job->get_task_id()) { dependencies.insert(job); }
 		}
 	}
@@ -271,7 +172,7 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 job_set master_access_job::find_dependencies(const distr_queue& queue, const job_set& jobs) {
 	job_set dependencies;
 	for(auto& job : jobs) {
-		if(job->get_type() == command::PULL) {
+		if(job->get_type() == command::AWAIT_PUSH) {
 			if(get_task_id() == job->get_task_id()) { dependencies.insert(job); }
 		}
 	}
