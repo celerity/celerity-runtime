@@ -34,8 +34,8 @@ void worker_job::update() {
 		if(dependencies.empty()) {
 			running = true;
 			auto job_description = get_description(pkg);
-			job_logger->info(logger_map({{"event", "START"}, {"type", job_type_string[static_cast<std::underlying_type_t<job_type>>(job_description.first)]},
-			    {"message", job_description.second}}));
+			job_logger->info(logger_map({{"cid", std::to_string(pkg.cid)}, {"event", "START"},
+			    {"type", job_type_string[static_cast<std::underlying_type_t<job_type>>(job_description.first)]}, {"message", job_description.second}}));
 		}
 	} else {
 		const auto before = bench_clock.now();
