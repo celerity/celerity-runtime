@@ -131,7 +131,7 @@ class compute_job : public worker_job {
 
 /**
  * Runs a master access functor.
- * Waits for any pulls within the same task.
+ * Waits for any pushes within the same task, as well as other master accesses (and computes) on which it has a task-level dependency.
  */
 class master_access_job : public worker_job {
   public:

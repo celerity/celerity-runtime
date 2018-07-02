@@ -175,6 +175,12 @@ job_set master_access_job::find_dependencies(const distr_queue& queue, const job
 		if(job->get_type() == command::AWAIT_PUSH) {
 			if(get_task_id() == job->get_task_id()) { dependencies.insert(job); }
 		}
+		// Wait for jobs that produce results on the master node (i.e. which don't require a transfer).
+		// Note that typically this can only be master accesses, while all compute jobs run on worker nodes,
+		// thus always requiring a transfer.
+		if(job->get_type() == command::MASTER_ACCESS || job->get_type() == command::COMPUTE) {
+			if(queue.has_dependency(get_task_id(), job->get_task_id())) { dependencies.insert(job); }
+		}
 	}
 
 	return dependencies;
