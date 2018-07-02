@@ -33,10 +33,11 @@ cl::sycl::device pick_device(int platform_id, int device_id, std::shared_ptr<cel
 		logger->trace("Found {} platforms", num_platforms);
 		for(auto i = 0u; i < num_platforms; ++i) {
 			size_t name_length;
-			auto ret = clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, 0, nullptr, &name_length);
-			std::vector<char> platform_name(name_length + 1);
+			ret = clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, 0, nullptr, &name_length);
+			assert(ret == CL_SUCCESS);
+			std::vector<char> platform_name(name_length);
 			clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, name_length, platform_name.data(), nullptr);
-			logger->trace("Platform {}: {}", i, &platform_name[0]);
+			logger->trace("Platform {}: {}", i, std::string(platform_name.data()));
 		}
 		if(platform_id >= num_platforms) {
 			throw std::runtime_error(fmt::format("Invalid platform id {}: Only {} platforms available", platform_id, num_platforms));
@@ -53,10 +54,11 @@ cl::sycl::device pick_device(int platform_id, int device_id, std::shared_ptr<cel
 		logger->trace("Found {} devices on platform {}:", num_devices, platform_id);
 		for(auto i = 0u; i < num_devices; ++i) {
 			size_t name_length;
-			clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 0, nullptr, &name_length);
-			std::vector<char> device_name(name_length + 1);
+			ret = clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 0, nullptr, &name_length);
+			assert(ret == CL_SUCCESS);
+			std::vector<char> device_name(name_length);
 			clGetDeviceInfo(devices[i], CL_DEVICE_NAME, name_length, device_name.data(), nullptr);
-			logger->trace("Device {}: {}", i, &device_name[0]);
+			logger->trace("Device {}: {}", i, std::string(device_name.data()));
 		}
 		return cl::sycl::device(devices[device_id]);
 	}
@@ -144,7 +146,10 @@ void distr_queue::init(cl::sycl::device* device_ptr) {
 
 	const auto platform_name = device.get_platform().get_info<cl::sycl::info::platform::name>();
 	const auto device_name = device.get_info<cl::sycl::info::device::name>();
-	logger->info("Using platform '{}', device '{}' ({})", platform_name, device_name, how_selected);
+	// The names returned by ComputeCpp seem to contain an additional null byte,
+	// which causes problems (log files get interpreted as binary data etc), so we chop it off.
+	logger->info("Using platform '{}', device '{}' ({})", platform_name.substr(0, platform_name.size() - 1), device_name.substr(0, device_name.size() - 1),
+	    how_selected);
 
 	ocl_profiling_enabled = get_env("CELERITY_PROFILE_OCL") == "1";
 	if(ocl_profiling_enabled) { logger->info("OpenCL profiling enabled."); }
