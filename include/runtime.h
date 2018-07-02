@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <queue>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -84,6 +85,7 @@ class runtime {
 
 	command_id next_cmd_id = 0;
 	command_dag command_graph;
+	std::unordered_map<task_id, graph_utils::task_vertices> cmd_dag_task_vertices;
 
 	std::unique_ptr<buffer_transfer_manager> btm;
 	job_set jobs;
@@ -95,8 +97,16 @@ class runtime {
 	void build_command_graph();
 
 	void process_task_data_requirements(task_id tid, const std::unordered_map<chunk_id, node_id>& chunk_nodes,
-	    const chunk_buffer_requirements_map& chunk_requirements, const chunk_buffer_source_map& chunk_buffer_sources, const graph_utils::task_vertices& tv,
+	    const chunk_buffer_requirements_map& chunk_requirements, const chunk_buffer_source_map& chunk_buffer_sources,
 	    const std::vector<vertex>& chunk_command_vertices, buffer_writers_map& buffer_writers);
+
+	/**
+	 * @brief Sends commands to their designated nodes
+	 *
+	 * The command graph is traversed in a breadth-first fashion, starting at the root tasks, i.e. tasks without any dependencies.
+	 * @param master_command_queue Queue of commands to be executed by the master node
+	 */
+	void distribute_commands(std::queue<command_pkg>& master_command_queue);
 
 	friend class master_access_job;
 	void execute_master_access_task(task_id tid) const;

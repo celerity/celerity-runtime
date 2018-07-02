@@ -66,8 +66,6 @@ class distr_queue {
 
 	void mark_task_as_processed(task_id tid);
 
-	void debug_print_task_graph(std::shared_ptr<logger> graph_logger) const;
-
 	/**
 	 * Returns true iff task_a has a dependency on task_b within the task graph.
 	 */

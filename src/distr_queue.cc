@@ -169,10 +169,6 @@ void distr_queue::mark_task_as_processed(task_id tid) {
 	graph_utils::mark_as_processed(tid, task_graph);
 }
 
-void distr_queue::debug_print_task_graph(std::shared_ptr<logger> graph_logger) const {
-	graph_utils::print_graph(task_graph, graph_logger);
-}
-
 task_id distr_queue::add_task(std::shared_ptr<task> tsk) {
 	const task_id tid = task_count++;
 	task_map[tid] = tsk;

@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <limits>
-#include <queue>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -18,6 +17,8 @@
 #include "logger.h"
 #include "subrange.h"
 #include "task.h"
+
+#define MAX_CONCURRENT_JOBS 20
 
 namespace celerity {
 
@@ -70,33 +71,86 @@ void send_command(node_id target, const command_pkg& pkg) {
 	assert(result == MPI_SUCCESS);
 }
 
+void runtime::distribute_commands(std::queue<command_pkg>& master_command_queue) {
+	assert(is_master);
+	const auto& task_graph = queue->get_task_graph();
+	std::queue<task_id> task_queue;
+	std::unordered_set<task_id> queued_tasks;
+
+	// Find all root tasks
+	for(auto v : task_graph.vertex_set()) {
+		if(boost::in_degree(v, task_graph) == 0) {
+			task_queue.push(v);
+			queued_tasks.insert(v);
+		}
+	}
+
+	while(!task_queue.empty()) {
+		const task_id tid = task_queue.front();
+		task_queue.pop();
+		// Verify that we didn't foget to generate commands for this task for some reason
+		assert(cmd_dag_task_vertices.count(tid) != 0);
+		const auto& tv = cmd_dag_task_vertices[tid];
+		std::queue<vertex> cmd_queue;
+		std::unordered_set<vertex> queued_cmds;
+		cmd_queue.push(tv.first);
+		queued_cmds.insert(tv.first);
+
+		while(!cmd_queue.empty()) {
+			const vertex v = cmd_queue.front();
+			cmd_queue.pop();
+			auto& cmd_v = command_graph[v];
+			if(cmd_v.cmd != command::NOP) {
+				const command_pkg pkg{cmd_v.tid, cmd_v.cid, cmd_v.cmd, cmd_v.data};
+				const node_id target = cmd_v.nid;
+				if(target != 0) {
+					send_command(target, pkg);
+				} else {
+					master_command_queue.push(pkg);
+				}
+			}
+
+			// NOTE: This assumes that we have no inter-task command dependencies!
+			graph_utils::for_successors(command_graph, v, [tv, &queued_cmds, &cmd_queue](vertex s) {
+				if(s != tv.second && queued_cmds.count(s) == 0) {
+					cmd_queue.push(s);
+					queued_cmds.insert(s);
+				}
+				return true;
+			});
+		}
+
+		graph_utils::for_successors(task_graph, static_cast<vertex>(tid), [&queued_tasks, &task_queue](vertex v) {
+			const auto t = static_cast<task_id>(v);
+			if(queued_tasks.count(t) == 0) {
+				task_queue.push(t);
+				queued_tasks.insert(t);
+			}
+		});
+	}
+}
+
 void runtime::TEST_do_work() {
 	assert(queue != nullptr);
 
 	bool done = false;
-	// Instead of sending commands to itself, master stores them here
-	std::queue<command_pkg> master_commands;
+	std::queue<command_pkg> command_queue;
 
 	if(is_master) {
-		queue->debug_print_task_graph(graph_logger);
+		const auto& task_graph = queue->get_task_graph();
+		if(task_graph.m_vertices.size() < 200) {
+			graph_utils::print_graph(task_graph, graph_logger);
+		} else {
+			default_logger->info("Task graph is very large ({} vertices). Skipping GraphViz output", task_graph.m_vertices.size());
+		}
 		build_command_graph();
-		graph_utils::print_graph(command_graph, graph_logger);
+		if(command_graph.m_vertices.size() < 200) {
+			graph_utils::print_graph(command_graph, graph_logger);
+		} else {
+			default_logger->info("Command graph is very large ({} vertices). Skipping GraphViz output", command_graph.m_vertices.size());
+		}
 
-		// TODO: Is a BFS walk sufficient or do we need to properly check for fulfilled dependencies?
-		// FIXME: This doesn't support disconnected tasks (e.g. two kernels with no dependencies whatsoever)
-		graph_utils::search_vertex_bf(0, command_graph, [&master_commands, this](vertex v, const command_dag& cdag) {
-			auto& v_data = cdag[v];
-			if(v_data.cmd == command::NOP) { return false; }
-			const command_pkg pkg{v_data.tid, v_data.cid, v_data.cmd, v_data.data};
-			const node_id target = cdag[v].nid;
-			if(target != 0) {
-				send_command(target, pkg);
-			} else {
-				master_commands.push(pkg);
-			}
-
-			return false;
-		});
+		distribute_commands(command_queue);
 
 		// Finally, send shutdown commands to all worker nodes
 		for(auto n = 1; n < num_nodes; ++n) {
@@ -105,7 +159,7 @@ void runtime::TEST_do_work() {
 		}
 
 		// Master can just exit after handling all open jobs
-		master_commands.push(command_pkg{0, next_cmd_id++, command::SHUTDOWN, command_data{}});
+		command_queue.push(command_pkg{0, next_cmd_id++, command::SHUTDOWN, command_data{}});
 	}
 
 	while(!done || !jobs.empty()) {
@@ -121,8 +175,6 @@ void runtime::TEST_do_work() {
 			}
 		}
 
-		bool has_pkg = false;
-		command_pkg pkg;
 		if(!is_master) {
 			// Check for incoming commands
 			// TODO: Move elswhere
@@ -131,19 +183,18 @@ void runtime::TEST_do_work() {
 			MPI_Iprobe(MPI_ANY_SOURCE, CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD, &flag, &status);
 			if(flag == 1) {
 				// Commands should be small enough to block here
+				command_pkg pkg;
 				MPI_Recv(&pkg, sizeof(command_pkg), MPI_BYTE, status.MPI_SOURCE, CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD, &status);
-				has_pkg = true;
-			}
-		} else {
-			if(!master_commands.empty()) {
-				pkg = master_commands.front();
-				master_commands.pop();
-				has_pkg = true;
+				command_queue.push(pkg);
 			}
 		}
 
-		if(has_pkg) {
+		if(jobs.size() < MAX_CONCURRENT_JOBS && !command_queue.empty()) {
+			const auto pkg = command_queue.front();
+			command_queue.pop();
 			if(pkg.cmd == command::SHUTDOWN) {
+				// NOTE: This might fail if commands come in out-of-order
+				assert(command_queue.empty());
 				done = true;
 			} else {
 				handle_command_pkg(pkg);
@@ -420,6 +471,7 @@ void runtime::build_command_graph() {
 
 		auto tsk = queue->get_task(tid);
 		const graph_utils::task_vertices tv = graph_utils::add_task(tid, task_graph, command_graph);
+		cmd_dag_task_vertices[tid] = tv;
 
 		size_t num_chunks = 0;
 		chunk_buffer_requirements_map chunk_reqs;
@@ -452,7 +504,7 @@ void runtime::build_command_graph() {
 			    chunk_command_vertices, command_graph);
 		}
 
-		process_task_data_requirements(tid, chunk_nodes, chunk_reqs, chunk_buffer_sources, tv, chunk_command_vertices, buffer_writers);
+		process_task_data_requirements(tid, chunk_nodes, chunk_reqs, chunk_buffer_sources, chunk_command_vertices, buffer_writers);
 		queue->mark_task_as_processed(tid);
 
 		// Update buffer regions
@@ -465,8 +517,9 @@ void runtime::build_command_graph() {
 
 // Process writes and create push / await-push commands
 void runtime::process_task_data_requirements(task_id tid, const std::unordered_map<chunk_id, node_id>& chunk_nodes,
-    const chunk_buffer_requirements_map& chunk_requirements, const chunk_buffer_source_map& chunk_buffer_sources, const graph_utils::task_vertices& tv,
+    const chunk_buffer_requirements_map& chunk_requirements, const chunk_buffer_source_map& chunk_buffer_sources,
     const std::vector<vertex>& chunk_command_vertices, buffer_writers_map& buffer_writers) {
+	const graph_utils::task_vertices& tv = cmd_dag_task_vertices[tid];
 	for(auto i = 0u; i < chunk_nodes.size(); ++i) {
 		const node_id nid = chunk_nodes.at(i);
 
