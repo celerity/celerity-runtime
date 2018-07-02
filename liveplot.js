@@ -56,10 +56,11 @@ function run(args) {
     const ws = fs.createWriteStream('node_' + name + '.png');
     const dot = spawn('dot', ['-Tpng:gd']);
     dot.stdout.pipe(ws);
-    dot.stdin.write(data);
-    dot.stdin.end();
+    dot.stdin.write(data, () => {
+        dot.stdin.end();
+    });
 
-    dot.on('exit', () => { ws.end(); })
+    dot.stdout.on('close', () => { ws.end(); })
   }
 
   rl.on('line', line => {
