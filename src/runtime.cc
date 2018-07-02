@@ -405,64 +405,62 @@ void update_buffer_state(const std::unordered_map<node_id, std::vector<GridRegio
  *    data structure that keeps track of valid buffer regions.
  */
 void runtime::build_command_graph() {
-	// NOTE: We still need the ability to run the program on a single node (= master)
-	// for easier debugging, so we create a single "split" instead of throwing
-	// TODO: Remove this
-	const size_t num_worker_nodes = std::max(num_nodes - 1, (size_t)1);
-	const bool master_only = num_nodes == 1;
-
 	const auto& task_graph = queue->get_task_graph();
+	// We loop until all tasks have been processed
+	// In the future, we may want to do this batched in a worker thread instead
 	task_id tid;
-	assert(graph_utils::get_satisfied_task(task_graph, tid));
+	while(graph_utils::get_satisfied_task(task_graph, tid)) {
+		// NOTE: We still need the ability to run the program on a single node (= master)
+		// for easier debugging, so we create a single "split" instead of throwing
+		// TODO: Remove this
+		const size_t num_worker_nodes = std::max(num_nodes - 1, (size_t)1);
+		const bool master_only = num_nodes == 1;
 
-	buffer_writers_map buffer_writers;
+		buffer_writers_map buffer_writers;
 
-	auto tsk = queue->get_task(tid);
-	graph_utils::task_vertices tv = graph_utils::add_task(tid, task_graph, command_graph);
+		auto tsk = queue->get_task(tid);
+		const graph_utils::task_vertices tv = graph_utils::add_task(tid, task_graph, command_graph);
 
-	size_t num_chunks = 0;
-	chunk_buffer_requirements_map chunk_reqs;
-	chunk_buffer_source_map chunk_buffer_sources;
-	std::unordered_map<chunk_id, node_id> chunk_nodes;
-	// Vertices corresponding to the per-chunk compute / master access command
-	// TODO: Either use map <chunk_id, node_id> for this, or vector for chunk_nodes - not both
-	std::vector<vertex> chunk_command_vertices;
+		size_t num_chunks = 0;
+		chunk_buffer_requirements_map chunk_reqs;
+		chunk_buffer_source_map chunk_buffer_sources;
+		std::unordered_map<chunk_id, node_id> chunk_nodes;
+		// Vertices corresponding to the per-chunk compute / master access command
+		// TODO: Either use map <chunk_id, node_id> for this, or vector for chunk_nodes - not both
+		std::vector<vertex> chunk_command_vertices;
 
-	if(tsk->get_type() == task_type::COMPUTE) {
-		const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
-		switch(ctsk->get_dimensions()) {
-		default:
-		case 1:
-			process_compute_task<1>(next_cmd_id, tid, ctsk, num_worker_nodes, master_only, tv, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
-			    chunk_buffer_sources, chunk_command_vertices, command_graph);
-			break;
-		case 2:
-			process_compute_task<2>(next_cmd_id, tid, ctsk, num_worker_nodes, master_only, tv, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
-			    chunk_buffer_sources, chunk_command_vertices, command_graph);
-			break;
-		case 3:
-			process_compute_task<3>(next_cmd_id, tid, ctsk, num_worker_nodes, master_only, tv, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
-			    chunk_buffer_sources, chunk_command_vertices, command_graph);
-			break;
+		if(tsk->get_type() == task_type::COMPUTE) {
+			const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
+			switch(ctsk->get_dimensions()) {
+			default:
+			case 1:
+				process_compute_task<1>(next_cmd_id, tid, ctsk, num_worker_nodes, master_only, tv, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
+				    chunk_buffer_sources, chunk_command_vertices, command_graph);
+				break;
+			case 2:
+				process_compute_task<2>(next_cmd_id, tid, ctsk, num_worker_nodes, master_only, tv, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
+				    chunk_buffer_sources, chunk_command_vertices, command_graph);
+				break;
+			case 3:
+				process_compute_task<3>(next_cmd_id, tid, ctsk, num_worker_nodes, master_only, tv, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs,
+				    chunk_buffer_sources, chunk_command_vertices, command_graph);
+				break;
+			}
+		} else if(tsk->get_type() == task_type::MASTER_ACCESS) {
+			const auto matsk = dynamic_cast<const master_access_task*>(tsk.get());
+			process_master_access_task(next_cmd_id, tid, matsk, tv, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs, chunk_buffer_sources,
+			    chunk_command_vertices, command_graph);
 		}
-	} else if(tsk->get_type() == task_type::MASTER_ACCESS) {
-		const auto matsk = dynamic_cast<const master_access_task*>(tsk.get());
-		process_master_access_task(next_cmd_id, tid, matsk, tv, valid_buffer_regions, num_chunks, chunk_nodes, chunk_reqs, chunk_buffer_sources,
-		    chunk_command_vertices, command_graph);
+
+		process_task_data_requirements(tid, chunk_nodes, chunk_reqs, chunk_buffer_sources, tv, chunk_command_vertices, buffer_writers);
+		queue->mark_task_as_processed(tid);
+
+		// Update buffer regions
+		for(const auto& it : buffer_writers) {
+			const buffer_id bid = it.first;
+			update_buffer_state(it.second, *valid_buffer_regions[bid]);
+		}
 	}
-
-	process_task_data_requirements(tid, chunk_nodes, chunk_reqs, chunk_buffer_sources, tv, chunk_command_vertices, buffer_writers);
-	queue->mark_task_as_processed(tid);
-
-	// Update buffer regions
-	for(const auto& it : buffer_writers) {
-		const buffer_id bid = it.first;
-		update_buffer_state(it.second, *valid_buffer_regions[bid]);
-	}
-
-	// HACK: We recursively call this until all tasks have been processed
-	// In the future, we may want to do this periodically in a worker thread
-	if(graph_utils::get_satisfied_task(task_graph, tid)) { build_command_graph(); }
 }
 
 // Process writes and create push / await-push commands
