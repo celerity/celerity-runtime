@@ -31,6 +31,14 @@ These dependencies are only required for plotting of graphs.
 The runtime comes with several examples that are built automatically when
 the `CELERITY_BUILD_EXAMPLES` CMake option is set (true by default).
 
+## Environment Variables
+
+* `CELERITY_DEVICES` can be used to assign different compute devices to CELERITY
+  nodes on a single host. The syntax is as follows:
+  `CELERITY_DEVICES="<platform_id> <first device_id> <second device_id> ... <nth device_id>"`.
+* `CELERITY_PROFILE_OCL` controls whether OpenCL-level profiling information
+  should be used or not.
+
 ## Plot Task and Command Graphs
 
 Simply run
