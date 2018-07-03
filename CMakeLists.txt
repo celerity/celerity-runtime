@@ -73,6 +73,7 @@ if(CELERITY_BUILD_EXAMPLES)
   add_subdirectory(examples/simple)
   add_subdirectory(examples/gaussian)
   add_subdirectory(examples/matmul)
+  add_subdirectory(examples/wave_sim)
 endif()
 
 # Windows-specific, when using Visual Studio's "Open Folder":
