@@ -178,7 +178,6 @@ enum class output_mode { CSV, ASCII_PLOT };
 int main(int argc, char* argv[]) {
 	celerity::runtime::init(&argc, &argv);
 	print_pid();
-	std::this_thread::sleep_for(std::chrono::seconds(5));
 
 	output_mode out_mode = output_mode::CSV;
 	if(argc > 1 && std::string(argv[1]) == "--ascii-plot") { out_mode = output_mode::ASCII_PLOT; }
