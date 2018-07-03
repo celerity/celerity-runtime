@@ -1,6 +1,7 @@
 #include "buffer_transfer_manager.h"
 
 #include <cassert>
+#include <limits>
 
 #include "runtime.h"
 
@@ -86,7 +87,7 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 	transfer->data_type = transfer_data_type;
 
 	// Start transmitting data
-	MPI_Isend(MPI_BOTTOM, 1, transfer_data_type, data.target, CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &transfer->request);
+	MPI_Isend(MPI_BOTTOM, 1, transfer_data_type, static_cast<int>(data.target), CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &transfer->request);
 	outgoing_transfers.push_back(std::move(transfer));
 
 	return t_handle;
@@ -174,7 +175,8 @@ void buffer_transfer_manager::write_data_to_buffer(std::unique_ptr<transfer_in>&
 MPI_Datatype buffer_transfer_manager::get_byte_size_data_type(size_t byte_size) {
 	if(mpi_byte_size_data_types.count(byte_size) != 0) { return mpi_byte_size_data_types[byte_size]; }
 	MPI_Datatype data_type;
-	MPI_Type_contiguous(byte_size, MPI_BYTE, &data_type);
+	assert(byte_size < std::numeric_limits<int>::max());
+	MPI_Type_contiguous(static_cast<int>(byte_size), MPI_BYTE, &data_type);
 	MPI_Type_commit(&data_type);
 	mpi_byte_size_data_types[byte_size] = data_type;
 	return data_type;

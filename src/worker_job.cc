@@ -60,7 +60,8 @@ void worker_job::update() {
 }
 
 std::pair<job_type, std::string> await_push_job::get_description(const command_pkg& pkg) {
-	return std::make_pair(job_type::AWAIT_PUSH, fmt::format("AWAIT PUSH of buffer {} by node {}", pkg.data.await_push.bid, pkg.data.await_push.source));
+	return std::make_pair(job_type::AWAIT_PUSH,
+	    fmt::format("AWAIT PUSH of buffer {} by node {}", static_cast<size_t>(pkg.data.await_push.bid), static_cast<size_t>(pkg.data.await_push.source)));
 }
 
 bool await_push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
@@ -84,7 +85,8 @@ job_set push_job::find_dependencies(const distr_queue& queue, const job_set& job
 }
 
 std::pair<job_type, std::string> push_job::get_description(const command_pkg& pkg) {
-	return std::make_pair(job_type::PUSH, fmt::format("PUSH buffer {} to node {}", pkg.data.push.bid, pkg.data.push.target));
+	return std::make_pair(
+	    job_type::PUSH, fmt::format("PUSH buffer {} to node {}", static_cast<size_t>(pkg.data.push.bid), static_cast<size_t>(pkg.data.push.target)));
 }
 
 bool push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {

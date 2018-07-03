@@ -39,16 +39,16 @@ cl::sycl::device pick_device(int platform_id, int device_id, std::shared_ptr<cel
 			clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, name_length, platform_name.data(), nullptr);
 			logger->trace("Platform {}: {}", i, std::string(platform_name.data()));
 		}
-		if(platform_id >= num_platforms) {
+		if(static_cast<cl_uint>(platform_id) >= num_platforms) {
 			throw std::runtime_error(fmt::format("Invalid platform id {}: Only {} platforms available", platform_id, num_platforms));
 		}
-		assert(platform_id < num_platforms);
+		assert(static_cast<cl_uint>(platform_id) < num_platforms);
 		cl_uint num_devices;
 		clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, 0, nullptr, &num_devices);
 		std::vector<cl_device_id> devices(num_devices);
 		ret = clGetDeviceIDs(platforms[platform_id], CL_DEVICE_TYPE_ALL, num_devices, devices.data(), nullptr);
 		assert(ret == CL_SUCCESS);
-		if(device_id >= num_devices) {
+		if(static_cast<cl_uint>(device_id) >= num_devices) {
 			throw std::runtime_error(fmt::format("Invalid device id {}: Only {} devices available on platform {}", device_id, num_devices, platform_id));
 		}
 		logger->trace("Found {} devices on platform {}:", num_devices, platform_id);
@@ -96,7 +96,7 @@ bool try_get_platform_device_env(int& platform_id, int& device_id, std::shared_p
 	}
 
 	std::vector<std::string> values;
-	boost::split(values, env_var, boost::is_any_of(" "));
+	boost::split(values, env_var, [](char c) { return c == ' '; });
 
 	if(node_rank > values.size() - 2) {
 		throw std::runtime_error(fmt::format("Process has local rank {}, but CELERITY_DEVICES only includes {} device(s)", node_rank, values.size() - 1));
@@ -173,7 +173,7 @@ task_id distr_queue::add_task(std::shared_ptr<task> tsk) {
 	const task_id tid = task_count++;
 	task_map[tid] = tsk;
 	boost::add_vertex(task_graph);
-	task_graph[tid].label = fmt::format("Task {}", tid);
+	task_graph[tid].label = fmt::format("Task {}", static_cast<size_t>(tid));
 	return tid;
 }
 

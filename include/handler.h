@@ -42,7 +42,7 @@ class compute_prepass_handler {
 	std::string debug_name;
 	any_range global_size;
 
-	compute_prepass_handler(distr_queue& q, task_id tid) : queue(q), tid(tid) { debug_name = fmt::format("task{}", tid); }
+	compute_prepass_handler(distr_queue& q, task_id tid) : queue(q), tid(tid) { debug_name = fmt::format("task{}", static_cast<size_t>(tid)); }
 };
 
 class compute_livepass_handler {

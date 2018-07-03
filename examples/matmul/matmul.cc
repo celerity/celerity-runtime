@@ -44,7 +44,7 @@ void multiply(celerity::distr_queue& queue, celerity::buffer<T, 2>& mat_a, celer
 		auto c = mat_c.template get_access<cl::sycl::access::mode::write>(cgh, celerity::access::one_to_one<2>());
 
 		cgh.template parallel_for<class mat_mul>(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE), [=](cl::sycl::item<2> item) {
-			auto sum = 0;
+			auto sum = 0.f;
 			for(auto k = 0ull; k < MAT_SIZE; ++k) {
 				const auto a_ik = a[{item[0], k}];
 				const auto b_kj = b[{k, item[1]}];
@@ -87,7 +87,7 @@ int main(int argc, char* argv[]) {
 		std::vector<float> tmp_host(MAT_SIZE * MAT_SIZE);
 		for(auto i = 0; i < MAT_SIZE; ++i) {
 			for(auto j = 0; j < MAT_SIZE; ++j) {
-				auto sum = 0;
+				auto sum = 0.f;
 				for(auto k = 0; k < MAT_SIZE; ++k) {
 					const auto a_ik = mat_a[i * MAT_SIZE + k];
 					const auto b_kj = mat_b[k * MAT_SIZE + j];
@@ -98,7 +98,7 @@ int main(int argc, char* argv[]) {
 		}
 		for(auto i = 0; i < MAT_SIZE; ++i) {
 			for(auto j = 0; j < MAT_SIZE; ++j) {
-				auto sum = 0;
+				auto sum = 0.f;
 				for(auto k = 0; k < MAT_SIZE; ++k) {
 					const auto b_ik = mat_b[i * MAT_SIZE + k];
 					const auto t_kj = tmp_host[k * MAT_SIZE + j];

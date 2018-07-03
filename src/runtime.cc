@@ -67,7 +67,7 @@ runtime::~runtime() {
 void send_command(node_id target, const command_pkg& pkg) {
 	// Command packages are small enough to use a blocking send.
 	// This way we don't have to ensure the data stays around long enough (until asynchronous send is complete).
-	const auto result = MPI_Send(&pkg, sizeof(command_pkg), MPI_BYTE, target, CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD);
+	const auto result = MPI_Send(&pkg, sizeof(command_pkg), MPI_BYTE, static_cast<int>(target), CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD);
 	assert(result == MPI_SUCCESS);
 }
 
@@ -533,7 +533,8 @@ void runtime::process_task_data_requirements(task_id tid, const std::unordered_m
 				assert(write_req.area() > 0);
 				buffer_writers[bid][nid].push_back(write_req);
 				// Add to compute node label for debugging
-				command_graph[command_vertex].label = fmt::format("{}\\nWrite {} {}", command_graph[command_vertex].label, bid, toString(write_req));
+				command_graph[command_vertex].label =
+				    fmt::format("{}\\nWrite {} {}", command_graph[command_vertex].label, static_cast<size_t>(bid), toString(write_req));
 			}
 
 			// ==== Reads ====
@@ -541,7 +542,8 @@ void runtime::process_task_data_requirements(task_id tid, const std::unordered_m
 			if(it.second.count(cl::sycl::access::mode::read) > 0) {
 				const auto& read_req = it.second.at(cl::sycl::access::mode::read);
 				assert(read_req.area() > 0);
-				command_graph[command_vertex].label = fmt::format("{}\\nRead {} {}", command_graph[command_vertex].label, bid, toString(read_req));
+				command_graph[command_vertex].label =
+				    fmt::format("{}\\nRead {} {}", command_graph[command_vertex].label, static_cast<size_t>(bid), toString(read_req));
 			} else {
 				continue;
 			}

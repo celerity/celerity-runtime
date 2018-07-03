@@ -42,7 +42,7 @@ int main(int argc, char* argv[]) {
 
 	constexpr int KERNEL_SIZE = 16;
 	constexpr float sigma = 3.f;
-	constexpr float PI = 3.141592;
+	constexpr float PI = 3.141592f;
 
 	std::vector<float> gaussian_matrix(KERNEL_SIZE * KERNEL_SIZE);
 	for(auto j = 0; j < KERNEL_SIZE; ++j) {
@@ -130,12 +130,12 @@ int main(int argc, char* argv[]) {
 			auto out = image_output_buf.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<2>(image_height, image_width));
 
 			mah.run([=]() {
-				for(auto y = 0; y < image_height; ++y) {
-					for(auto x = 0; x < image_width; ++x) {
+				for(size_t y = 0; y < image_height; ++y) {
+					for(size_t x = 0; x < image_width; ++x) {
 						const auto idx = y * image_width * 3 + x * 3;
-						image_data[idx + 0] = static_cast<float>(out[{(size_t)y, (size_t)x}].x() * 255.f);
-						image_data[idx + 1] = static_cast<float>(out[{(size_t)y, (size_t)x}].y() * 255.f);
-						image_data[idx + 2] = static_cast<float>(out[{(size_t)y, (size_t)x}].z() * 255.f);
+						image_data[idx + 0] = static_cast<uint8_t>(static_cast<float>(out[{y, x}].x() * 255.f));
+						image_data[idx + 1] = static_cast<uint8_t>(static_cast<float>(out[{y, x}].y() * 255.f));
+						image_data[idx + 2] = static_cast<uint8_t>(static_cast<float>(out[{y, x}].z() * 255.f));
 					}
 				}
 				stbi_write_png("./output.png", image_width, image_height, 3, image_data, 0);

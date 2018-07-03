@@ -35,7 +35,8 @@ namespace graph_utils {
 		cdag[v].cid = next_cmd_id++;
 		cdag[v].nid = nid;
 		cdag[v].tid = cdag[tv.first].tid;
-		cdag[v].label = fmt::format("[{}] Node {}:\\nCOMPUTE {}", cdag[v].cid, nid, detail::subrange_to_grid_region(chunk));
+		cdag[v].label =
+		    fmt::format("[{}] Node {}:\\nCOMPUTE {}", static_cast<size_t>(cdag[v].cid), static_cast<size_t>(nid), detail::subrange_to_grid_region(chunk));
 		cdag[v].data.compute.chunk = command_subrange(chunk);
 		return v;
 	}
@@ -49,7 +50,7 @@ namespace graph_utils {
 		cdag[v].cid = next_cmd_id++;
 		cdag[v].nid = master_nid;
 		cdag[v].tid = cdag[tv.first].tid;
-		cdag[v].label = fmt::format("[{}] Node {}:\\nMASTER ACCESS", cdag[v].cid, master_nid);
+		cdag[v].label = fmt::format("[{}] Node {}:\\nMASTER ACCESS", static_cast<size_t>(cdag[v].cid), static_cast<size_t>(master_nid));
 		cdag[v].data.master_access = {};
 		return v;
 	}
@@ -63,7 +64,8 @@ namespace graph_utils {
 		cdag[v].cid = next_cmd_id++;
 		cdag[v].nid = from_nid;
 		cdag[v].tid = cdag[tv.first].tid;
-		cdag[v].label = fmt::format("[{}] Node {}:\\nPUSH {} to {}\\n {}", cdag[v].cid, from_nid, bid, to_nid, req);
+		cdag[v].label = fmt::format("[{}] Node {}:\\nPUSH {} to {}\\n {}", static_cast<size_t>(cdag[v].cid), static_cast<size_t>(from_nid),
+		    static_cast<size_t>(bid), static_cast<size_t>(to_nid), req);
 		cdag[v].data.push.bid = bid;
 		cdag[v].data.push.target = to_nid;
 		cdag[v].data.push.subrange = command_subrange(detail::grid_box_to_subrange(req));
@@ -73,7 +75,8 @@ namespace graph_utils {
 		cdag[w].cid = next_cmd_id++;
 		cdag[w].nid = to_nid;
 		cdag[w].tid = cdag[tv.first].tid;
-		cdag[w].label = fmt::format("[{}] Node {}:\\nAWAIT PUSH {} from {}\\n {}", cdag[w].cid, to_nid, bid, from_nid, req);
+		cdag[w].label = fmt::format("[{}] Node {}:\\nAWAIT PUSH {} from {}\\n {}", static_cast<size_t>(cdag[w].cid), static_cast<size_t>(to_nid),
+		    static_cast<size_t>(bid), static_cast<size_t>(from_nid), req);
 		cdag[w].data.await_push.bid = bid;
 		cdag[w].data.await_push.source = from_nid;
 		cdag[w].data.await_push.source_cid = cdag[v].cid;
