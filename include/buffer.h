@@ -17,8 +17,8 @@ class buffer {
 	// However this either requires knowledge of the entire buffer range that will be used over the buffer's lifetime,
 	// or that buffers can be resized further down the line.
 	// A big advantage of going that route is that it would enable buffers much larger than the per-worker device(s) would otherwise allow
-	buffer(DataT* host_ptr, cl::sycl::range<Dims> size) : size(size), sycl_buffer(host_ptr, size) {
-		id = runtime::get_instance().register_buffer(size, sycl_buffer);
+	buffer(DataT* host_ptr, cl::sycl::range<Dims> range) : range(range), sycl_buffer(host_ptr, range) {
+		id = runtime::get_instance().register_buffer(range, sycl_buffer);
 	}
 
 	buffer(const buffer&) = delete;
@@ -27,11 +27,11 @@ class buffer {
 	~buffer() { runtime::get_instance().unregister_buffer(id); }
 
 	template <cl::sycl::access::mode Mode, typename Functor>
-	prepass_accessor<DataT, Dims, Mode> get_access(compute_prepass_handler& handler, Functor rmfn) {
+	prepass_accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> get_access(compute_prepass_handler& handler, Functor rmfn) {
 		using rmfn_traits = allscale::utils::lambda_traits<Functor>;
 		static_assert(rmfn_traits::result_type::dims == Dims, "The returned subrange doesn't match buffer dimensions.");
 		handler.require(Mode, id, std::make_unique<detail::range_mapper<rmfn_traits::arg1_type::dims, Dims>>(rmfn, Mode));
-		return prepass_accessor<DataT, Dims, Mode>();
+		return prepass_accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>();
 	}
 
 	template <cl::sycl::access::mode Mode, typename Functor>
@@ -47,9 +47,10 @@ class buffer {
 	}
 
 	template <cl::sycl::access::mode Mode>
-	prepass_accessor<DataT, Dims, Mode> get_access(master_access_prepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {}) {
+	prepass_accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer> get_access(
+	    master_access_prepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {}) {
 		handler.require(Mode, id, cl::sycl::range<3>(range), cl::sycl::id<3>(offset));
-		return prepass_accessor<DataT, Dims, Mode>();
+		return prepass_accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer>();
 	}
 
 	template <cl::sycl::access::mode Mode>
@@ -64,10 +65,12 @@ class buffer {
 
 	size_t get_id() const { return id; }
 
+	cl::sycl::range<Dims> get_range() const { return range; }
+
   private:
 	friend distr_queue;
 	buffer_id id;
-	cl::sycl::range<Dims> size;
+	cl::sycl::range<Dims> range;
 	cl::sycl::buffer<DataT, Dims> sycl_buffer;
 };
 
