@@ -158,6 +158,7 @@ void buffer_transfer_manager::update_outgoing_transfers() {
 }
 
 void buffer_transfer_manager::write_data_to_buffer(std::unique_ptr<transfer_in>&& transfer) {
+	// FIXME: This check doesn't work for e.g. transfering just a single column: (0, 0, 0) - (256, 1, 1) of a 2D or 3D buffer!
 	int dimensions = 3;
 	const auto& header = transfer->header;
 	if(transfer->header.subrange.range2 == 1) {
