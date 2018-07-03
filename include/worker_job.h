@@ -34,6 +34,7 @@ class worker_job {
 	void update();
 
 	bool is_done() const { return done; }
+	// TODO: This should return a job_type, not a command
 	command get_type() const { return pkg.cmd; }
 	task_id get_task_id() const { return pkg.tid; }
 
@@ -79,6 +80,25 @@ class await_push_job : public worker_job {
   private:
 	buffer_transfer_manager& btm;
 	std::shared_ptr<const buffer_transfer_manager::transfer_handle> data_handle = nullptr;
+
+	/**
+	 * This is a workaround for a race-condition occuring between consecutive master access tasks.
+	 *
+	 * Scenario: If a master access task is used to e.g. write results somewhere outside the scope of CELERITY, and that task is repeated multiple times, we
+	 * have to make sure that the buffer contents read within each task are in the correct state at that particular point in time. This is problematic however,
+	 * if worker nodes continue to push new results to the master node: Consecutive AWAIT PUSH jobs will happily accept the new data and use it to update the
+	 * buffer, even if previous master access tasks have not yet excuted.
+	 *
+	 * NOTE: This needs a bit more investigation, however it may very well be that this type of race condition can also occur for compute tasks.
+	 * FIXME: Get rid of this hack, solve at command graph level
+	 */
+	job_set find_dependencies(const distr_queue& queue, const job_set& jobs) override {
+		job_set dependencies;
+		for(auto& job : jobs) {
+			if(job->get_type() == command::MASTER_ACCESS && job->get_task_id() < get_task_id()) { dependencies.insert(job); }
+		}
+		return dependencies;
+	}
 
 	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
 	std::pair<job_type, std::string> get_description(const command_pkg& pkg) override;
