@@ -72,16 +72,16 @@ class distr_queue {
 	bool has_dependency(task_id task_a, task_id task_b) const;
 
 	/**
-	 * Executes the kernel associated with task tid in the subrange sr.
+	 * @brief Executes the kernel associated with task @p tid over the chunk @p chnk.
 	 */
 	template <int Dims>
-	cl::sycl::event execute(task_id tid, subrange<Dims> sr) {
+	cl::sycl::event execute(task_id tid, chunk<Dims> chnk) {
 		assert(task_map.count(tid) != 0);
 		assert(task_map[tid]->get_type() == task_type::COMPUTE);
 		auto task = std::static_pointer_cast<compute_task>(task_map[tid]);
 		auto& cgf = task->get_command_group();
-		return sycl_queue->submit([this, &cgf, tid, task, sr](cl::sycl::handler& sycl_handler) {
-			compute_livepass_handler h(*this, tid, task, sr, &sycl_handler);
+		return sycl_queue->submit([this, &cgf, tid, task, chnk](cl::sycl::handler& sycl_handler) {
+			compute_livepass_handler h(*this, tid, task, chnk, &sycl_handler);
 			cgf(h);
 		});
 	}

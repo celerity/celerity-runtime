@@ -10,7 +10,7 @@
 
 #include "grid.h"
 #include "range_mapper.h"
-#include "subrange.h"
+#include "ranges.h"
 #include "task.h"
 #include "types.h"
 
@@ -49,19 +49,19 @@ class compute_livepass_handler {
   public:
 	template <typename Name, typename Functor, int Dims>
 	void parallel_for(cl::sycl::range<Dims>, const Functor& kernel) {
-		assert(asr.which() == Dims - 1);
-		switch(asr.which()) {
+		assert(achnk.which() == Dims - 1);
+		switch(achnk.which()) {
 		case 0: {
-			auto& sr = boost::get<subrange<1>>(asr);
-			sycl_handler->parallel_for<Name>(sr.range, cl::sycl::id<1>(sr.start), kernel);
+			auto& chnk = boost::get<chunk<1>>(achnk);
+			sycl_handler->parallel_for<Name>(chnk.range, cl::sycl::id<1>(chnk.offset), kernel);
 		} break;
 		case 1: {
-			auto& sr = boost::get<subrange<2>>(asr);
-			sycl_handler->parallel_for<Name>(sr.range, cl::sycl::id<2>(sr.start), kernel);
+			auto& chnk = boost::get<chunk<2>>(achnk);
+			sycl_handler->parallel_for<Name>(chnk.range, cl::sycl::id<2>(chnk.offset), kernel);
 		} break;
 		case 2: {
-			auto& sr = boost::get<subrange<3>>(asr);
-			sycl_handler->parallel_for<Name>(sr.range, cl::sycl::id<3>(sr.start), kernel);
+			auto& chnk = boost::get<chunk<3>>(achnk);
+			sycl_handler->parallel_for<Name>(chnk.range, cl::sycl::id<3>(chnk.offset), kernel);
 		} break;
 		default: assert(false);
 		}
@@ -98,23 +98,23 @@ class compute_livepass_handler {
 		}
 
 		const subrange<BufferDims> bb = detail::grid_box_to_subrange(reqs.boundingBox());
-		return std::make_pair(bb.range, cl::sycl::id<BufferDims>(bb.start));
+		return std::make_pair(bb.range, cl::sycl::id<BufferDims>(bb.offset));
 	}
 
   private:
 	friend class distr_queue;
-	using any_subrange = boost::variant<subrange<1>, subrange<2>, subrange<3>>;
+	using any_chunk = boost::variant<chunk<1>, chunk<2>, chunk<3>>;
 
 	distr_queue& queue;
 	cl::sycl::handler* sycl_handler;
 	task_id tid;
 	std::shared_ptr<compute_task> task;
-	any_subrange asr;
+	any_chunk achnk;
 
 	// The handler does not take ownership of the sycl_handler, but expects it to
 	// exist for the duration of it's lifetime.
-	compute_livepass_handler(distr_queue& q, task_id tid, std::shared_ptr<compute_task> task, any_subrange asr, cl::sycl::handler* sycl_handler)
-	    : queue(q), tid(tid), task(task), asr(asr), sycl_handler(sycl_handler) {}
+	compute_livepass_handler(distr_queue& q, task_id tid, std::shared_ptr<compute_task> task, any_chunk achnk, cl::sycl::handler* sycl_handler)
+	    : queue(q), tid(tid), task(task), achnk(achnk), sycl_handler(sycl_handler) {}
 
 	template <int BufferDims>
 	subrange<BufferDims> apply_range_mapper(const detail::range_mapper_base& rm) const;
@@ -122,31 +122,31 @@ class compute_livepass_handler {
 
 template <>
 inline subrange<1> compute_livepass_handler::apply_range_mapper(const detail::range_mapper_base& rm) const {
-	switch(asr.which()) {
+	switch(achnk.which()) {
 	default: // suppress warnings
-	case 0: return rm.map_1(boost::get<subrange<1>>(asr));
-	case 1: return rm.map_1(boost::get<subrange<2>>(asr));
-	case 2: return rm.map_1(boost::get<subrange<3>>(asr));
+	case 0: return rm.map_1(boost::get<chunk<1>>(achnk));
+	case 1: return rm.map_1(boost::get<chunk<2>>(achnk));
+	case 2: return rm.map_1(boost::get<chunk<3>>(achnk));
 	}
 }
 
 template <>
 inline subrange<2> compute_livepass_handler::apply_range_mapper(const detail::range_mapper_base& rm) const {
-	switch(asr.which()) {
+	switch(achnk.which()) {
 	default: // suppress warnings
-	case 0: return rm.map_2(boost::get<subrange<1>>(asr));
-	case 1: return rm.map_2(boost::get<subrange<2>>(asr));
-	case 2: return rm.map_2(boost::get<subrange<3>>(asr));
+	case 0: return rm.map_2(boost::get<chunk<1>>(achnk));
+	case 1: return rm.map_2(boost::get<chunk<2>>(achnk));
+	case 2: return rm.map_2(boost::get<chunk<3>>(achnk));
 	}
 }
 
 template <>
 inline subrange<3> compute_livepass_handler::apply_range_mapper(const detail::range_mapper_base& rm) const {
-	switch(asr.which()) {
+	switch(achnk.which()) {
 	default: // suppress warnings
-	case 0: return rm.map_3(boost::get<subrange<1>>(asr));
-	case 1: return rm.map_3(boost::get<subrange<2>>(asr));
-	case 2: return rm.map_3(boost::get<subrange<3>>(asr));
+	case 0: return rm.map_3(boost::get<chunk<1>>(achnk));
+	case 1: return rm.map_3(boost::get<chunk<2>>(achnk));
+	case 2: return rm.map_3(boost::get<chunk<3>>(achnk));
 	}
 }
 

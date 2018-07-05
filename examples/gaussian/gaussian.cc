@@ -66,16 +66,16 @@ int main(int argc, char* argv[]) {
 		// Do a gaussian blur
 		// TODO: Due to some weird issue with Clang on Windows, we have to capture some of these values explicitly
 		queue.submit([&, image_height, image_width, KERNEL_SIZE](auto& cgh) {
-			auto in = image_input_buf.get_access<cl::sycl::access::mode::read>(cgh, [=](celerity::subrange<2> sr) {
-				auto neighborhood = sr;
-				neighborhood.start = cl::sycl::id<2>(std::max(0, (int)sr.start[0] - KERNEL_SIZE / 2), std::max(0, (int)sr.start[1] - KERNEL_SIZE / 2));
+			auto in = image_input_buf.get_access<cl::sycl::access::mode::read>(cgh, [=](celerity::chunk<2> chnk) {
+				celerity::subrange<2> neighborhood = chnk;
+				neighborhood.offset = cl::sycl::id<2>(std::max(0, (int)chnk.offset[0] - KERNEL_SIZE / 2), std::max(0, (int)chnk.offset[1] - KERNEL_SIZE / 2));
 				// Since we moved the start by half the kernel size, we have to increase the range by the full kernel size
-				neighborhood.range = sr.range + cl::sycl::range<2>(KERNEL_SIZE, KERNEL_SIZE);
+				neighborhood.range = chnk.range + cl::sycl::range<2>(KERNEL_SIZE, KERNEL_SIZE);
 				return neighborhood;
 			});
-			auto gauss = gaussian_mat_buf.get_access<cl::sycl::access::mode::read>(cgh, [=](celerity::subrange<2> sr) {
+			auto gauss = gaussian_mat_buf.get_access<cl::sycl::access::mode::read>(cgh, [=](celerity::chunk<2> chnk) {
 				// We always need access to the full gaussian matrix
-				return celerity::subrange<2>{{0, 0}, cl::sycl::range<2>(KERNEL_SIZE, KERNEL_SIZE), sr.global_size};
+				return celerity::subrange<2>{{0, 0}, cl::sycl::range<2>(KERNEL_SIZE, KERNEL_SIZE)};
 			});
 			auto out = image_tmp_buf.get_access<cl::sycl::access::mode::write>(cgh, [](celerity::subrange<2> sr) { return sr; });
 
@@ -101,11 +101,11 @@ int main(int argc, char* argv[]) {
 
 		// Now apply a sharpening kernel
 		queue.submit([&, image_height, image_width](auto& cgh) {
-			auto in = image_tmp_buf.get_access<cl::sycl::access::mode::read>(cgh, [](celerity::subrange<2> sr) {
-				auto neighborhood = sr;
-				neighborhood.start = cl::sycl::id<2>(std::max(0, (int)sr.start[0] - 1), std::max(0, (int)sr.start[1] - 1));
+			auto in = image_tmp_buf.get_access<cl::sycl::access::mode::read>(cgh, [](celerity::chunk<2> chnk) {
+				celerity::subrange<2> neighborhood = chnk;
+				neighborhood.offset = cl::sycl::id<2>(std::max(0, (int)chnk.offset[0] - 1), std::max(0, (int)chnk.offset[1] - 1));
 				// Add 2 since we set the start off by -1!
-				neighborhood.range = sr.range + cl::sycl::range<2>(2, 2);
+				neighborhood.range = chnk.range + cl::sycl::range<2>(2, 2);
 				return neighborhood;
 			});
 			auto out = image_output_buf.get_access<cl::sycl::access::mode::write>(cgh, [](celerity::subrange<2> sr) { return sr; });

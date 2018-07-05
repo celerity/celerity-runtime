@@ -29,15 +29,15 @@ void print_pid() {
 template <typename T>
 void multiply(celerity::distr_queue& queue, celerity::buffer<T, 2>& mat_a, celerity::buffer<T, 2>& mat_b, celerity::buffer<T, 2>& mat_c) {
 	queue.submit([&](auto& cgh) {
-		auto a = mat_a.template get_access<cl::sycl::access::mode::read>(cgh, [=](celerity::subrange<2> sr) {
-			auto rows = sr;
-			rows.start[1] = 0;
+		auto a = mat_a.template get_access<cl::sycl::access::mode::read>(cgh, [=](celerity::chunk<2> chnk) {
+			auto rows = chnk;
+			rows.offset[1] = 0;
 			rows.range[1] = MAT_SIZE;
 			return rows;
 		});
-		auto b = mat_b.template get_access<cl::sycl::access::mode::read>(cgh, [=](celerity::subrange<2> sr) {
-			auto cols = sr;
-			cols.start[0] = 0;
+		auto b = mat_b.template get_access<cl::sycl::access::mode::read>(cgh, [=](celerity::chunk<2> chnk) {
+			auto cols = chnk;
+			cols.offset[0] = 0;
 			cols.range[0] = MAT_SIZE;
 			return cols;
 		});

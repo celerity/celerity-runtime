@@ -10,7 +10,7 @@
 #include "graph.h"
 #include "grid.h"
 #include "logger.h"
-#include "subrange.h"
+#include "ranges.h"
 #include "types.h"
 
 namespace celerity {
@@ -111,7 +111,7 @@ namespace graph_utils {
 
 	task_vertices add_task(task_id tid, const task_dag& tdag, command_dag& cdag);
 
-	vertex add_compute_cmd(command_id& next_cmd_id, node_id nid, const task_vertices& tv, const subrange<3>& chunk, command_dag& cdag);
+	vertex add_compute_cmd(command_id& next_cmd_id, node_id nid, const task_vertices& tv, const chunk<3>& chnk, command_dag& cdag);
 	vertex add_master_access_cmd(command_id& next_cmd_id, const task_vertices& tv, command_dag& cdag);
 	vertex add_push_cmd(command_id& next_cmd_id, node_id to_nid, node_id from_nid, buffer_id bid, const task_vertices& tv, vertex req_cmd,
 	    const GridBox<3>& req, command_dag& cdag);

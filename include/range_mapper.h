@@ -6,14 +6,14 @@
 #include <SYCL/sycl.hpp>
 #include <spdlog/fmt/fmt.h>
 
-#include "subrange.h"
+#include "ranges.h"
 
 namespace celerity {
 
 namespace detail {
 
 	template <int KernelDims, int BufferDims>
-	using range_mapper_fn = std::function<subrange<BufferDims>(subrange<KernelDims> range)>;
+	using range_mapper_fn = std::function<subrange<BufferDims>(chunk<KernelDims> chnk)>;
 
 	class range_mapper_base {
 	  public:
@@ -26,15 +26,15 @@ namespace detail {
 		virtual int get_kernel_dimensions() const = 0;
 		virtual int get_buffer_dimensions() const = 0;
 
-		virtual subrange<1> map_1(subrange<1> range) const { throw create_dimension_mismatch_error(1, 1); }
-		virtual subrange<1> map_1(subrange<2> range) const { throw create_dimension_mismatch_error(2, 1); }
-		virtual subrange<1> map_1(subrange<3> range) const { throw create_dimension_mismatch_error(3, 1); }
-		virtual subrange<2> map_2(subrange<1> range) const { throw create_dimension_mismatch_error(1, 2); }
-		virtual subrange<2> map_2(subrange<2> range) const { throw create_dimension_mismatch_error(2, 2); }
-		virtual subrange<2> map_2(subrange<3> range) const { throw create_dimension_mismatch_error(3, 2); }
-		virtual subrange<3> map_3(subrange<1> range) const { throw create_dimension_mismatch_error(1, 3); }
-		virtual subrange<3> map_3(subrange<2> range) const { throw create_dimension_mismatch_error(2, 3); }
-		virtual subrange<3> map_3(subrange<3> range) const { throw create_dimension_mismatch_error(3, 3); }
+		virtual subrange<1> map_1(chunk<1> chnk) const { throw create_dimension_mismatch_error(1, 1); }
+		virtual subrange<1> map_1(chunk<2> chnk) const { throw create_dimension_mismatch_error(2, 1); }
+		virtual subrange<1> map_1(chunk<3> chnk) const { throw create_dimension_mismatch_error(3, 1); }
+		virtual subrange<2> map_2(chunk<1> chnk) const { throw create_dimension_mismatch_error(1, 2); }
+		virtual subrange<2> map_2(chunk<2> chnk) const { throw create_dimension_mismatch_error(2, 2); }
+		virtual subrange<2> map_2(chunk<3> chnk) const { throw create_dimension_mismatch_error(3, 2); }
+		virtual subrange<3> map_3(chunk<1> chnk) const { throw create_dimension_mismatch_error(1, 3); }
+		virtual subrange<3> map_3(chunk<2> chnk) const { throw create_dimension_mismatch_error(2, 3); }
+		virtual subrange<3> map_3(chunk<3> chnk) const { throw create_dimension_mismatch_error(3, 3); }
 
 		virtual ~range_mapper_base() = default;
 
@@ -43,8 +43,8 @@ namespace detail {
 
 		std::runtime_error create_dimension_mismatch_error(int wrong_kernel_dims, int buffer_dims) const {
 			const int kernel_dims = get_kernel_dimensions();
-			return std::runtime_error(fmt::format("Range mapper maps subrange<{}> -> subrange<{}>, but should map subrange<{}> -> subrange<{}>.",
-			    wrong_kernel_dims, buffer_dims, kernel_dims, buffer_dims));
+			return std::runtime_error(fmt::format("Range mapper maps chunk<{}> -> subrange<{}>, but should map chunk<{}> -> subrange<{}>.", wrong_kernel_dims,
+			    buffer_dims, kernel_dims, buffer_dims));
 		}
 	};
 
@@ -56,41 +56,50 @@ namespace detail {
 		int get_kernel_dimensions() const override { return KernelDims; }
 		int get_buffer_dimensions() const override { return BufferDims; }
 
-		subrange<1> map_1(subrange<KernelDims> range) const override { return map_1_impl(range); }
-		subrange<2> map_2(subrange<KernelDims> range) const override { return map_2_impl(range); }
-		subrange<3> map_3(subrange<KernelDims> range) const override { return map_3_impl(range); }
+		subrange<1> map_1(chunk<KernelDims> chnk) const override { return map_1_impl(chnk); }
+		subrange<2> map_2(chunk<KernelDims> chnk) const override { return map_2_impl(chnk); }
+		subrange<3> map_3(chunk<KernelDims> chnk) const override { return map_3_impl(chnk); }
 
 	  private:
 		range_mapper_fn<KernelDims, BufferDims> rmfn;
 
-		template <int D = BufferDims>
-		typename std::enable_if<D == 1, subrange<1>>::type map_1_impl(subrange<KernelDims> range) const {
-			return rmfn(range);
+		subrange<BufferDims> clamp_subrange_to_global_size(subrange<BufferDims> sr, const chunk<KernelDims>& chnk) const {
+			auto end = sr.offset + sr.range;
+			auto& max = chnk.global_size;
+			if(end[0] > max[0]) { sr.range[0] = sr.offset[0] <= max[0] ? max[0] - sr.offset[0] : 0; }
+			if(end[1] > max[1]) { sr.range[1] = sr.offset[1] <= max[1] ? max[1] - sr.offset[1] : 0; }
+			if(end[2] > max[2]) { sr.range[2] = sr.offset[2] <= max[2] ? max[2] - sr.offset[2] : 0; }
+			return sr;
 		}
 
 		template <int D = BufferDims>
-		typename std::enable_if<D != 1, subrange<1>>::type map_1_impl(subrange<KernelDims> range) const {
-			return range_mapper_base::map_1(range);
+		typename std::enable_if<D == 1, subrange<1>>::type map_1_impl(chunk<KernelDims> chnk) const {
+			return clamp_subrange_to_global_size(rmfn(chnk), chnk);
 		}
 
 		template <int D = BufferDims>
-		typename std::enable_if<D == 2, subrange<2>>::type map_2_impl(subrange<KernelDims> range) const {
-			return rmfn(range);
+		typename std::enable_if<D != 1, subrange<1>>::type map_1_impl(chunk<KernelDims> chnk) const {
+			return range_mapper_base::map_1(chnk);
 		}
 
 		template <int D = BufferDims>
-		typename std::enable_if<D != 2, subrange<2>>::type map_2_impl(subrange<KernelDims> range) const {
-			return range_mapper_base::map_2(range);
+		typename std::enable_if<D == 2, subrange<2>>::type map_2_impl(chunk<KernelDims> chnk) const {
+			return clamp_subrange_to_global_size(rmfn(chnk), chnk);
 		}
 
 		template <int D = BufferDims>
-		typename std::enable_if<D == 3, subrange<3>>::type map_3_impl(subrange<KernelDims> range) const {
-			return rmfn(range);
+		typename std::enable_if<D != 2, subrange<2>>::type map_2_impl(chunk<KernelDims> chnk) const {
+			return range_mapper_base::map_2(chnk);
 		}
 
 		template <int D = BufferDims>
-		typename std::enable_if<D != 3, subrange<3>>::type map_3_impl(subrange<KernelDims> range) const {
-			return range_mapper_base::map_3(range);
+		typename std::enable_if<D == 3, subrange<3>>::type map_3_impl(chunk<KernelDims> chnk) const {
+			return clamp_subrange_to_global_size(rmfn(chnk), chnk);
+		}
+
+		template <int D = BufferDims>
+		typename std::enable_if<D != 3, subrange<3>>::type map_3_impl(chunk<KernelDims> chnk) const {
+			return range_mapper_base::map_3(chnk);
 		}
 	};
 
@@ -103,7 +112,7 @@ namespace detail {
 namespace access {
 	template <int Dims>
 	struct one_to_one {
-		subrange<Dims> operator()(subrange<Dims> range) const { return range; }
+		subrange<Dims> operator()(chunk<Dims> chnk) const { return chnk; }
 	};
 } // namespace access
 

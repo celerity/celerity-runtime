@@ -42,14 +42,14 @@ int main(int argc, char* argv[]) {
 		celerity::buffer<float, 1> buf_d(host_data_d.data(), cl::sycl::range<1>(DEMO_DATA_SIZE));
 
 		queue.submit([&](auto& cgh) {
-			auto a = buf_a.get_access<cl::sycl::access::mode::write>(cgh, [](celerity::subrange<1> range) -> celerity::subrange<1> {
-				celerity::subrange<1> sr(range);
+			auto a = buf_a.get_access<cl::sycl::access::mode::write>(cgh, [](celerity::chunk<1> chnk) -> celerity::subrange<1> {
+				celerity::subrange<1> sr(chnk);
 				// Write the opposite subrange
 				// This is useful to demonstrate that the nodes are assigned to
 				// chunks somewhat intelligently in order to minimize buffer
 				// transfers. Remove this line and the node assignment in the
 				// command graph should be flipped.
-				sr.start = range.global_size - range.start - range.range;
+				sr.offset = chnk.global_size - chnk.offset - chnk.range;
 				return sr;
 			});
 
@@ -60,11 +60,11 @@ int main(int argc, char* argv[]) {
 		});
 
 		queue.submit([&](auto& cgh) {
-			auto a = buf_a.get_access<cl::sycl::access::mode::read>(cgh, [](celerity::subrange<1> range) -> celerity::subrange<1> {
-				celerity::subrange<1> sr(range);
+			auto a = buf_a.get_access<cl::sycl::access::mode::read>(cgh, [](celerity::chunk<1> chnk) -> celerity::subrange<1> {
+				celerity::subrange<1> sr(chnk);
 				// Add some overlap so we can generate pull commands
 				// NOTE: JUST A DEMO. NOT HONORED IN KERNEL.
-				if(range.start[0] > 10) { sr.start -= 10; }
+				if(chnk.offset[0] > 10) { sr.offset -= 10; }
 				sr.range += 20;
 				return sr;
 			});

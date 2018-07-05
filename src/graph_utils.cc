@@ -27,7 +27,7 @@ namespace graph_utils {
 		return task_vertices(begin_task_v, complete_task_v);
 	}
 
-	vertex add_compute_cmd(command_id& next_cmd_id, node_id nid, const task_vertices& tv, const subrange<3>& chunk, command_dag& cdag) {
+	vertex add_compute_cmd(command_id& next_cmd_id, node_id nid, const task_vertices& tv, const chunk<3>& chnk, command_dag& cdag) {
 		const auto v = boost::add_vertex(cdag);
 		boost::add_edge(tv.first, v, cdag);
 		boost::add_edge(v, tv.second, cdag);
@@ -36,8 +36,8 @@ namespace graph_utils {
 		cdag[v].nid = nid;
 		cdag[v].tid = cdag[tv.first].tid;
 		cdag[v].label =
-		    fmt::format("[{}] Node {}:\\nCOMPUTE {}", static_cast<size_t>(cdag[v].cid), static_cast<size_t>(nid), detail::subrange_to_grid_region(chunk));
-		cdag[v].data.compute.chunk = command_subrange(chunk);
+		    fmt::format("[{}] Node {}:\\nCOMPUTE {}", static_cast<size_t>(cdag[v].cid), static_cast<size_t>(nid), detail::subrange_to_grid_region(chnk));
+		cdag[v].data.compute.subrange = command_subrange(chnk);
 		return v;
 	}
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "subrange.h"
+#include "ranges.h"
 #include "types.h"
 
 namespace celerity {
@@ -18,21 +18,21 @@ struct command_subrange {
 	command_subrange() = default;
 
 	command_subrange(const subrange<1>& sr) {
-		offset0 = sr.start[0];
+		offset0 = sr.offset[0];
 		range0 = sr.range[0];
 	}
 
 	command_subrange(const subrange<2>& sr) {
-		offset0 = sr.start[0];
-		offset1 = sr.start[1];
+		offset0 = sr.offset[0];
+		offset1 = sr.offset[1];
 		range0 = sr.range[0];
 		range1 = sr.range[1];
 	}
 
 	command_subrange(const subrange<3>& sr) {
-		offset0 = sr.start[0];
-		offset1 = sr.start[1];
-		offset2 = sr.start[2];
+		offset0 = sr.offset[0];
+		offset1 = sr.offset[1];
+		offset2 = sr.offset[2];
 		range0 = sr.range[0];
 		range1 = sr.range[1];
 		range2 = sr.range[2];
@@ -47,7 +47,7 @@ struct command_subrange {
 struct nop_data {};
 
 struct compute_data {
-	command_subrange chunk;
+	command_subrange subrange;
 };
 
 struct master_access_data {};

@@ -68,14 +68,14 @@ struct update_config {
 template <typename T, typename Config, typename KernelName>
 // TODO: See if we can make buffers u and um const refs here
 void step(celerity::distr_queue& queue, celerity::buffer<T, 2>& up, celerity::buffer<T, 2>& u, celerity::buffer<T, 2>& um, float dt, cl::sycl::float2 delta) {
-	const auto one_neighborhood = [](celerity::subrange<2> sr) {
-		const auto dy = sr.start[0] > 0 ? 1 : 0;
-		const auto dx = sr.start[1] > 0 ? 1 : 0;
-		sr.start[0] = sr.start[0] - dy;
-		sr.start[1] = sr.start[1] - dx;
-		sr.range[0] += 1 + dy;
-		sr.range[1] += 1 + dx;
-		return sr;
+	const auto one_neighborhood = [](celerity::chunk<2> chnk) {
+		const auto dy = chnk.offset[0] > 0 ? 1 : 0;
+		const auto dx = chnk.offset[1] > 0 ? 1 : 0;
+		chnk.offset[0] = chnk.offset[0] - dy;
+		chnk.offset[1] = chnk.offset[1] - dx;
+		chnk.range[0] += 1 + dy;
+		chnk.range[1] += 1 + dx;
+		return chnk;
 	};
 
 	queue.submit([&, dt, delta](auto& cgh) {

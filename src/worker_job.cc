@@ -130,16 +130,16 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 		const auto ctsk = std::static_pointer_cast<const compute_task>(queue.get_task(pkg.tid));
 		const auto dimensions = ctsk->get_dimensions();
 		auto gs = ctsk->get_global_size();
-		auto& chunk = pkg.data.compute.chunk;
+		auto& cmd_sr = pkg.data.compute.subrange;
 		switch(dimensions) {
 		default:
-		case 1: event = queue.execute(pkg.tid, subrange<1>{{chunk.offset0}, {chunk.range0}, boost::get<cl::sycl::range<1>>(gs)}); break;
+		case 1: event = queue.execute(pkg.tid, chunk<1>{{cmd_sr.offset0}, {cmd_sr.range0}, boost::get<cl::sycl::range<1>>(gs)}); break;
 		case 2:
-			event = queue.execute(pkg.tid, subrange<2>{{chunk.offset0, chunk.offset1}, {chunk.range0, chunk.range1}, boost::get<cl::sycl::range<2>>(gs)});
+			event = queue.execute(pkg.tid, chunk<2>{{cmd_sr.offset0, cmd_sr.offset1}, {cmd_sr.range0, cmd_sr.range1}, boost::get<cl::sycl::range<2>>(gs)});
 			break;
 		case 3:
 			event = queue.execute(pkg.tid,
-			    subrange<3>{{chunk.offset0, chunk.offset1, chunk.offset2}, {chunk.range0, chunk.range1, chunk.range2}, boost::get<cl::sycl::range<3>>(gs)});
+			    chunk<3>{{cmd_sr.offset0, cmd_sr.offset1, cmd_sr.offset2}, {cmd_sr.range0, cmd_sr.range1, cmd_sr.range2}, boost::get<cl::sycl::range<3>>(gs)});
 			break;
 		}
 		submitted = true;

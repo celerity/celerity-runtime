@@ -15,7 +15,7 @@
 #include "command.h"
 #include "grid.h"
 #include "logger.h"
-#include "subrange.h"
+#include "ranges.h"
 #include "task.h"
 
 #define MAX_CONCURRENT_JOBS 20
@@ -227,35 +227,36 @@ distr_queue& runtime::get_queue() {
 // -----------------------------------------  COMMAND GRAPH GENERATION  ------------------------------------------
 // ---------------------------------------------------------------------------------------------------------------
 
-std::vector<subrange<1>> split_equal(const subrange<1>& sr, size_t num_chunks) {
+std::vector<chunk<1>> split_equal(const chunk<1>& full_chunk, size_t num_chunks) {
 	assert(num_chunks > 0);
-	subrange<1> chunk;
-	chunk.global_size = sr.global_size;
-	chunk.start = cl::sycl::range<1>(0);
-	chunk.range = cl::sycl::range<1>(sr.range.size() / num_chunks);
+	chunk<1> chnk;
+	chnk.global_size = full_chunk.global_size;
+	chnk.offset = cl::sycl::range<1>(0);
+	chnk.range = cl::sycl::range<1>(full_chunk.range.size() / num_chunks);
 
-	std::vector<subrange<1>> result;
+	std::vector<chunk<1>> result;
 	for(auto i = 0u; i < num_chunks; ++i) {
-		result.push_back(chunk);
-		chunk.start = chunk.start + chunk.range;
-		if(i == num_chunks - 1) { result[i].range += sr.range.size() % num_chunks; }
+		result.push_back(chnk);
+		chnk.offset = chnk.offset + chnk.range;
+		if(i == num_chunks - 1) { result[i].range += full_chunk.range.size() % num_chunks; }
 	}
 	return result;
 }
 
 // We simply split by row for now
 // TODO: There's other ways to split in 2D as well.
-std::vector<subrange<2>> split_equal(const subrange<2>& sr, size_t num_chunks) {
-	const auto rows =
-	    split_equal(subrange<1>{cl::sycl::range<1>(sr.start[0]), cl::sycl::range<1>(sr.range[0]), cl::sycl::range<1>(sr.global_size[0])}, num_chunks);
-	std::vector<subrange<2>> result;
+std::vector<chunk<2>> split_equal(const chunk<2>& full_chunk, size_t num_chunks) {
+	const auto rows = split_equal(
+	    chunk<1>{cl::sycl::range<1>(full_chunk.offset[0]), cl::sycl::range<1>(full_chunk.range[0]), cl::sycl::range<1>(full_chunk.global_size[0])}, num_chunks);
+	std::vector<chunk<2>> result;
 	for(auto& row : rows) {
-		result.push_back(subrange<2>{cl::sycl::range<2>(row.start[0], sr.start[1]), cl::sycl::range<2>(row.range[0], sr.range[1]), sr.global_size});
+		result.push_back(
+		    chunk<2>{cl::sycl::range<2>(row.offset[0], full_chunk.offset[1]), cl::sycl::range<2>(row.range[0], full_chunk.range[1]), full_chunk.global_size});
 	}
 	return result;
 }
 
-std::vector<subrange<3>> split_equal(const subrange<3>& sr, size_t num_chunks) {
+std::vector<chunk<3>> split_equal(const chunk<3>& full_chunk, size_t num_chunks) {
 	throw std::runtime_error("3D split_equal NYI");
 }
 
@@ -330,10 +331,10 @@ void process_compute_task(command_id& next_cmd_id, task_id tid, const compute_ta
 	num_chunks = num_worker_nodes;
 
 	// The chunks have the same dimensionality as the task
-	auto sr = subrange<Dims>();
-	sr.global_size = boost::get<cl::sycl::range<Dims>>(ctsk->get_global_size());
-	sr.range = sr.global_size;
-	auto chunks = split_equal(sr, num_chunks);
+	auto full_chunk = chunk<Dims>();
+	full_chunk.global_size = boost::get<cl::sycl::range<Dims>>(ctsk->get_global_size());
+	full_chunk.range = full_chunk.global_size;
+	auto chunks = split_equal(full_chunk, num_chunks);
 
 	const auto& rms = ctsk->get_range_mappers();
 	for(auto& it : rms) {
@@ -376,7 +377,7 @@ void process_compute_task(command_id& next_cmd_id, task_id tid, const compute_ta
 	// Create a compute command for every chunk
 	for(chunk_id i = 0u; i < chunks.size(); ++i) {
 		const node_id nid = chunk_nodes[i];
-		const auto cv = graph_utils::add_compute_cmd(next_cmd_id, nid, tv, subrange<3>(chunks[i]), command_graph);
+		const auto cv = graph_utils::add_compute_cmd(next_cmd_id, nid, tv, chunk<3>(chunks[i]), command_graph);
 		chunk_command_vertices.push_back(cv);
 	}
 }
@@ -394,10 +395,7 @@ void process_master_access_task(command_id& next_cmd_id, task_id tid, const mast
 		const buffer_id bid = it.first;
 
 		for(auto& bacc : it.second) {
-			// Note that subrange_to_grid_region clamps to the global size, which is why we set this to size_t max
-			// TODO: Subrange is not ideal here, we don't need the global size
-			const auto req = subrange<3>{bacc.offset, bacc.range,
-			    cl::sycl::range<3>(std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max())};
+			const auto req = subrange<3>{bacc.offset, bacc.range};
 			const auto& reqs = chunk_requirements[master_node][bid][bacc.mode];
 			chunk_requirements[master_node][bid][bacc.mode] = GridRegion<3>::merge(reqs, detail::subrange_to_grid_region(req));
 		}
