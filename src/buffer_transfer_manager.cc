@@ -1,17 +1,10 @@
 #include "buffer_transfer_manager.h"
 
 #include <cassert>
-#include <limits>
 
 #include "runtime.h"
 
 namespace celerity {
-
-buffer_transfer_manager::~buffer_transfer_manager() {
-	for(auto dt : mpi_byte_size_data_types) {
-		MPI_Type_free(&dt.second);
-	}
-}
 
 void buffer_transfer_manager::poll() {
 	poll_transfers();
@@ -60,25 +53,20 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 
 	auto t_handle = std::make_shared<transfer_handle>();
 	auto data_handle =
-	    runtime::get_instance().get_buffer_data(data.bid, cl::sycl::range<3>(data.subrange.offset0, data.subrange.offset1, data.subrange.offset2),
-	        cl::sycl::range<3>(data.subrange.range0, data.subrange.range1, data.subrange.range2));
+	    runtime::get_instance().get_buffer_data(data.bid, cl::sycl::range<3>(data.subrange.offset[0], data.subrange.offset[1], data.subrange.offset[2]),
+	        cl::sycl::range<3>(data.subrange.range[0], data.subrange.range[1], data.subrange.range[2]));
 
-	// Build subarray data type
-	MPI_Datatype subarray_data_type;
-	MPI_Type_create_subarray(data_handle.dimensions, data_handle.full_size.data(), data_handle.subsize.data(), data_handle.offsets.data(), MPI_ORDER_C,
-	    get_byte_size_data_type(data_handle.element_size), &subarray_data_type);
-	MPI_Type_commit(&subarray_data_type);
+	// Build full data type with header
+	MPI_Datatype transfer_data_type;
+	MPI_Datatype block_types[2] = {MPI_BYTE, MPI_BYTE};
+	int block_lengths[2] = {sizeof(data_header), static_cast<int>(data_handle->linearized_data_size)};
 
-	auto transfer = std::make_unique<transfer_out>(data_handle);
+	auto transfer = std::make_unique<transfer_out>(std::move(data_handle));
 	transfer->handle = t_handle;
 	transfer->header.subrange = data.subrange;
 	transfer->header.bid = data.bid;
 	transfer->header.push_cid = pkg.cid;
 
-	// Build full data type with header
-	MPI_Datatype transfer_data_type;
-	MPI_Datatype block_types[2] = {MPI_BYTE, subarray_data_type};
-	int block_lengths[2] = {sizeof(data_header), 1};
 	// We use absolute displacements here (= pointers), so we can obtain header and data from different locations
 	MPI_Aint disps[2] = {(MPI_Aint)&transfer->header, (MPI_Aint)transfer->get_raw_ptr()};
 	MPI_Type_create_struct(2, block_lengths, disps, block_types, &transfer_data_type);
@@ -159,27 +147,10 @@ void buffer_transfer_manager::update_outgoing_transfers() {
 }
 
 void buffer_transfer_manager::write_data_to_buffer(std::unique_ptr<transfer_in>&& transfer) {
-	// FIXME: This check doesn't work for e.g. transfering just a single column: (0, 0, 0) - (256, 1, 1) of a 2D or 3D buffer!
-	int dimensions = 3;
 	const auto& header = transfer->header;
-	if(transfer->header.subrange.range2 == 1) {
-		dimensions = 2;
-		if(transfer->header.subrange.range1 == 1) { dimensions = 1; }
-	}
-	// FIXME: It's not ideal that we set raw_data_range::full_size and element_size to all zeros here.
-	detail::raw_data_range dr{&transfer->data[0], dimensions, {(int)header.subrange.range0, (int)header.subrange.range1, (int)header.subrange.range2},
-	    {(int)header.subrange.offset0, (int)header.subrange.offset1, (int)header.subrange.offset2}, {0, 0, 0}, 0};
-	runtime::get_instance().set_buffer_data(header.bid, dr);
-}
-
-MPI_Datatype buffer_transfer_manager::get_byte_size_data_type(size_t byte_size) {
-	if(mpi_byte_size_data_types.count(byte_size) != 0) { return mpi_byte_size_data_types[byte_size]; }
-	MPI_Datatype data_type;
-	assert(byte_size < std::numeric_limits<int>::max());
-	MPI_Type_contiguous(static_cast<int>(byte_size), MPI_BYTE, &data_type);
-	MPI_Type_commit(&data_type);
-	mpi_byte_size_data_types[byte_size] = data_type;
-	return data_type;
+	const detail::raw_data_handle dh{&transfer->data[0], cl::sycl::range<3>(header.subrange.range[0], header.subrange.range[1], header.subrange.range[2]),
+	    cl::sycl::id<3>(header.subrange.offset[0], header.subrange.offset[1], header.subrange.offset[2])};
+	runtime::get_instance().set_buffer_data(header.bid, dh);
 }
 
 } // namespace celerity

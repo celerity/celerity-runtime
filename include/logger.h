@@ -34,9 +34,14 @@ class map_serializer {
 
 class logger {
   public:
-	logger(std::string channel) {
+	logger(const std::string& channel) {
+		this->channel = channel;
 		spd_logger = spd::stdout_logger_mt(channel);
 		spd_logger->set_pattern(R"({"at": "%Y-%m-%d %T.%e", "channel": "%n", "level": "%l"%v})");
+	}
+
+	~logger() {
+		if(channel != "") { spd::drop(channel); }
 	}
 
 	std::shared_ptr<logger> create_context(logger_map context_values) const {
@@ -109,6 +114,7 @@ class logger {
 	}
 
   private:
+	std::string channel;
 	std::shared_ptr<spd::logger> spd_logger;
 	std::string context = ", ";
 

@@ -228,23 +228,14 @@ function(__build_spir targetName sourceFile binaryDir fileCounter)
   set(outputSyclFile ${binaryDir}/${sourceFileName}.sycl)
 
   # Add any user-defined include to the device compiler
-  set(device_compiler_includes "")
-  get_property(includeDirectories DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY
-    INCLUDE_DIRECTORIES)
-  foreach(directory ${includeDirectories})
-    set(device_compiler_includes "-I${directory}" ${device_compiler_includes})
-  endforeach()
-  get_target_property(targetIncludeDirectories ${targetName} INCLUDE_DIRECTORIES)
-  foreach(directory ${targetIncludeDirectories})
-    set(device_compiler_includes "-I${directory}" ${device_compiler_includes})
-  endforeach()
-  if (CMAKE_INCLUDE_PATH)
-    foreach(directory ${CMAKE_INCLUDE_PATH})
-      set(device_compiler_includes "-I${directory}"
-        ${device_compiler_includes})
-    endforeach()
-  endif()
-  list(REMOVE_DUPLICATES device_compiler_includes)
+  # NOTE: This is backported from ComputeCpp 0.9.0 for ccto, since this version can also
+  # find transitive include directories (i.e. defined via a library).
+  set(include_directories "$<TARGET_PROPERTY:${targetName},INCLUDE_DIRECTORIES>")
+  set(compile_definitions "$<TARGET_PROPERTY:${targetName},COMPILE_DEFINITIONS>")
+  set(generated_include_directories
+    $<$<BOOL:${include_directories}>:-I\"$<JOIN:${include_directories},\"\t-I\">\">)
+  set(generated_compile_definitions
+    $<$<BOOL:${compile_definitions}>:-D$<JOIN:${compile_definitions},\t-D>>)
 
   # Obtain language standard of the file
   set(device_compiler_cxx_standard)
@@ -274,7 +265,8 @@ function(__build_spir targetName sourceFile binaryDir fileCounter)
     COMMAND ${COMPUTECPP_DEVICE_COMPILER}
             ${COMPUTECPP_DEVICE_COMPILER_FLAGS}
             -isystem ${COMPUTECPP_INCLUDE_DIRECTORY}
-            ${device_compiler_includes}
+            ${generated_include_directories}
+            ${generated_compile_definitions}
             -o ${outputSyclFile}
             -c ${sourceFile}
     DEPENDS ${sourceFile}

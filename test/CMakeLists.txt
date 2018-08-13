@@ -18,7 +18,6 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
   target_include_directories(
     ${TARGET_NAME}
     PUBLIC
-    ${Celerity_INCLUDE_DIRS}
     ${Catch2_INCLUDE_DIRS}
   )
 
@@ -26,6 +25,9 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
     ${TARGET_NAME}
     PUBLIC
     celerity_runtime
+    # FIXME: This is a workaround for add_sycl_to_target linking OpenCL, which breaks clin on Linux
+    # (Transitive dependencies like ccto via celerity_runtime seem to be added to the executable last)
+    ccto
   )
 
   add_sycl_to_target(
@@ -34,12 +36,19 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
     ${ONE_TEST_CPP}
   )
 
-  if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
-    copy_dlls(${TARGET_NAME})
+  if(MSVC)
+    target_compile_options(${TARGET_NAME} PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3)
+    # Copy ccto DLL
+    add_custom_command(TARGET ${TARGET_NAME}
+      POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      $<TARGET_FILE:ccto>
+      $<TARGET_FILE_DIR:${TARGET_NAME}>
+    )
+  elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(${TARGET_NAME} PRIVATE -Wall -Wextra)
   endif()
 
   ParseFile(${ONE_TEST_CPP} ${TARGET_NAME})
-  #add_test(NAME ${TARGET_NAME} COMMAND ${ONE_TEST_EXEC})
 
 endforeach()
-

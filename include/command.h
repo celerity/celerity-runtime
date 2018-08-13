@@ -8,39 +8,35 @@ namespace celerity {
 enum class command { NOP, COMPUTE, MASTER_ACCESS, PUSH, AWAIT_PUSH, SHUTDOWN };
 
 struct command_subrange {
-	size_t offset0 = 0;
-	size_t offset1 = 0;
-	size_t offset2 = 0;
-	size_t range0 = 1;
-	size_t range1 = 1;
-	size_t range2 = 1;
+	size_t offset[3] = {0, 0, 0};
+	size_t range[3] = {1, 1, 1};
 
 	command_subrange() = default;
 
 	command_subrange(const subrange<1>& sr) {
-		offset0 = sr.offset[0];
-		range0 = sr.range[0];
+		offset[0] = sr.offset[0];
+		range[0] = sr.range[0];
 	}
 
 	command_subrange(const subrange<2>& sr) {
-		offset0 = sr.offset[0];
-		offset1 = sr.offset[1];
-		range0 = sr.range[0];
-		range1 = sr.range[1];
+		offset[0] = sr.offset[0];
+		offset[1] = sr.offset[1];
+		range[0] = sr.range[0];
+		range[1] = sr.range[1];
 	}
 
 	command_subrange(const subrange<3>& sr) {
-		offset0 = sr.offset[0];
-		offset1 = sr.offset[1];
-		offset2 = sr.offset[2];
-		range0 = sr.range[0];
-		range1 = sr.range[1];
-		range2 = sr.range[2];
+		offset[0] = sr.offset[0];
+		offset[1] = sr.offset[1];
+		offset[2] = sr.offset[2];
+		range[0] = sr.range[0];
+		range[1] = sr.range[1];
+		range[2] = sr.range[2];
 	}
 
 	bool operator==(const command_subrange& rhs) const {
-		return offset0 == rhs.offset0 && offset1 == rhs.offset1 && offset2 == rhs.offset2 && range0 == rhs.range0 && range1 == rhs.range1
-		       && range2 == rhs.range2;
+		return offset[0] == rhs.offset[0] && offset[1] == rhs.offset[1] && offset[2] == rhs.offset[2] && range[0] == rhs.range[0] && range[1] == rhs.range[1]
+		       && range[2] == rhs.range[2];
 	}
 };
 

@@ -23,7 +23,6 @@ class buffer_transfer_manager {
 	};
 
 	buffer_transfer_manager(std::shared_ptr<logger> transfer_logger) : transfer_logger(transfer_logger) {}
-	~buffer_transfer_manager();
 
 	/**
 	 * Checks for (and handles) incoming data transfers.
@@ -61,8 +60,8 @@ class buffer_transfer_manager {
 		MPI_Request request;
 		data_header header;
 
-		transfer_out(detail::raw_data_read_handle data_handle) : data_handle(data_handle) {}
-		void* get_raw_ptr() const { return data_handle.base_ptr; }
+		transfer_out(std::shared_ptr<detail::raw_data_read_handle> data_handle) : data_handle(std::move(data_handle)) {}
+		void* get_raw_ptr() const { return data_handle->linearized_data_ptr; }
 
 		// This data type is constructed for every individual transfer
 		MPI_Datatype data_type = 0;
@@ -71,11 +70,8 @@ class buffer_transfer_manager {
 		}
 
 	  private:
-		detail::raw_data_read_handle data_handle;
+		std::shared_ptr<detail::raw_data_read_handle> data_handle;
 	};
-
-	// We store different MPI datatypes for every type size we want to transfer
-	std::unordered_map<size_t, MPI_Datatype> mpi_byte_size_data_types;
 
 	std::list<std::unique_ptr<transfer_in>> incoming_transfers;
 	std::list<std::unique_ptr<transfer_out>> outgoing_transfers;
@@ -92,8 +88,6 @@ class buffer_transfer_manager {
 	void update_outgoing_transfers();
 
 	void write_data_to_buffer(std::unique_ptr<transfer_in>&& transfer);
-
-	MPI_Datatype get_byte_size_data_type(size_t byte_size);
 };
 
 

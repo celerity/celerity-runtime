@@ -25,21 +25,16 @@ void print_pid() {
 int main(int argc, char* argv[]) {
 	celerity::runtime::init(&argc, &argv);
 	print_pid();
+	// std::this_thread::sleep_for(std::chrono::seconds(5));
 	bool verification_passed = true;
-
-	std::vector<float> host_data_a(DEMO_DATA_SIZE);
-	std::vector<float> host_data_b(DEMO_DATA_SIZE);
-	std::vector<float> host_data_c(DEMO_DATA_SIZE);
-	std::vector<float> host_data_d(DEMO_DATA_SIZE);
 
 	try {
 		celerity::distr_queue queue;
 
-		// TODO: Do we support SYCL sub-buffers & images? Section 4.7.2
-		celerity::buffer<float, 1> buf_a(host_data_a.data(), cl::sycl::range<1>(DEMO_DATA_SIZE));
-		celerity::buffer<float, 1> buf_b(host_data_b.data(), cl::sycl::range<1>(DEMO_DATA_SIZE));
-		celerity::buffer<float, 1> buf_c(host_data_c.data(), cl::sycl::range<1>(DEMO_DATA_SIZE));
-		celerity::buffer<float, 1> buf_d(host_data_d.data(), cl::sycl::range<1>(DEMO_DATA_SIZE));
+		celerity::buffer<float, 1> buf_a(nullptr, cl::sycl::range<1>(DEMO_DATA_SIZE));
+		celerity::buffer<float, 1> buf_b(nullptr, cl::sycl::range<1>(DEMO_DATA_SIZE));
+		celerity::buffer<float, 1> buf_c(nullptr, cl::sycl::range<1>(DEMO_DATA_SIZE));
+		celerity::buffer<float, 1> buf_d(nullptr, cl::sycl::range<1>(DEMO_DATA_SIZE));
 
 		queue.submit([&](auto& cgh) {
 			auto a = buf_a.get_access<cl::sycl::access::mode::write>(cgh, [](celerity::chunk<1> chnk) -> celerity::subrange<1> {

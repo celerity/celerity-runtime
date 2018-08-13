@@ -12,6 +12,8 @@
 #include <mpi.h>
 #include <spdlog/fmt/fmt.h>
 
+#include "buffer.h"
+#include "buffer_storage.h"
 #include "command.h"
 #include "grid.h"
 #include "logger.h"
@@ -23,6 +25,7 @@
 namespace celerity {
 
 std::unique_ptr<runtime> runtime::instance = nullptr;
+bool runtime::test_skip_mpi_lifecycle = false;
 
 void runtime::init(int* argc, char** argv[]) {
 	instance = std::unique_ptr<runtime>(new runtime(argc, argv));
@@ -34,13 +37,15 @@ runtime& runtime::get_instance() {
 }
 
 runtime::runtime(int* argc, char** argv[]) {
-	// We specify MPI_THREAD_FUNNELED even though we currently don't use multiple threads,
-	// as we link with various multi-threaded libraries. This will likely not make any difference,
-	// but we do it anyway, just in case. See here for more information:
-	// http://users.open-mpi.narkive.com/T04C74T4/ompi-users-mpi-thread-single-vs-mpi-thread-funneled
-	int provided;
-	MPI_Init_thread(argc, argv, MPI_THREAD_FUNNELED, &provided);
-	assert(provided == MPI_THREAD_FUNNELED);
+	if(!test_skip_mpi_lifecycle) {
+		// We specify MPI_THREAD_FUNNELED even though we currently don't use multiple threads,
+		// as we link with various multi-threaded libraries. This will likely not make any difference,
+		// but we do it anyway, just in case. See here for more information:
+		// http://users.open-mpi.narkive.com/T04C74T4/ompi-users-mpi-thread-single-vs-mpi-thread-funneled
+		int provided;
+		MPI_Init_thread(argc, argv, MPI_THREAD_FUNNELED, &provided);
+		assert(provided == MPI_THREAD_FUNNELED);
+	}
 
 	int world_size;
 	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
@@ -61,7 +66,7 @@ runtime::runtime(int* argc, char** argv[]) {
 runtime::~runtime() {
 	// Allow BTM to clean up MPI data types before we finalize
 	btm.reset();
-	MPI_Finalize();
+	if(!test_skip_mpi_lifecycle) { MPI_Finalize(); }
 }
 
 void send_command(node_id target, const command_pkg& pkg) {
@@ -221,6 +226,14 @@ void runtime::register_queue(distr_queue* queue) {
 distr_queue& runtime::get_queue() {
 	assert(queue != nullptr);
 	return *queue;
+}
+
+buffer_id runtime::register_buffer(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buf_storage) {
+	buf_storage->set_type(is_master ? detail::buffer_type::HOST_BUFFER : detail::buffer_type::DEVICE_BUFFER);
+	const buffer_id bid = buffer_count++;
+	valid_buffer_regions[bid] = std::make_unique<detail::buffer_state>(range, num_nodes);
+	buffer_ptrs[bid] = buf_storage;
+	return bid;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

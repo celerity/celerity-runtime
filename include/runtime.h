@@ -9,7 +9,6 @@
 #include <mpi.h>
 
 #include "buffer_state.h"
-#include "buffer_storage.h"
 #include "buffer_transfer_manager.h"
 #include "distr_queue.h"
 #include "graph.h"
@@ -28,6 +27,10 @@ using chunk_buffer_source_map = std::unordered_map<chunk_id, std::unordered_map<
 using buffer_writers_map = std::unordered_map<buffer_id, std::unordered_map<node_id, std::vector<GridRegion<3>>>>;
 using buffer_state_map = std::unordered_map<buffer_id, std::unique_ptr<detail::buffer_state>>;
 
+namespace detail {
+	class buffer_storage_base;
+}
+
 class runtime {
   public:
 	static void init(int* argc, char** argv[]);
@@ -39,27 +42,21 @@ class runtime {
 	void register_queue(distr_queue* queue);
 	distr_queue& get_queue();
 
-	template <typename DataT, int Dims>
-	buffer_id register_buffer(cl::sycl::range<Dims> size, cl::sycl::buffer<DataT, Dims>& buf) {
-		const buffer_id bid = buffer_count++;
-		valid_buffer_regions[bid] = std::make_unique<detail::buffer_state>(cl::sycl::range<3>(size), num_nodes);
-		buffer_ptrs[bid] = std::make_unique<detail::buffer_storage<DataT, Dims>>(buf);
-		return bid;
-	}
+	buffer_id register_buffer(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buf_storage);
 
 	void unregister_buffer(buffer_id bid) {
 		buffer_ptrs.erase(bid);
 		valid_buffer_regions.erase(bid);
 	}
 
-	detail::raw_data_read_handle get_buffer_data(buffer_id bid, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) {
+	std::shared_ptr<detail::raw_data_read_handle> get_buffer_data(buffer_id bid, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) {
 		assert(buffer_ptrs.at(bid) != nullptr);
 		return buffer_ptrs[bid]->get_data(offset, range);
 	}
 
-	void set_buffer_data(buffer_id bid, const detail::raw_data_range& dr) {
+	void set_buffer_data(buffer_id bid, const detail::raw_data_handle& dh) {
 		assert(buffer_ptrs.at(bid) != nullptr);
-		buffer_ptrs[bid]->set_data(dr);
+		buffer_ptrs[bid]->set_data(dh);
 	}
 
 	std::shared_ptr<logger> get_logger() const { return default_logger; }
@@ -74,7 +71,7 @@ class runtime {
 	bool is_master;
 
 	size_t buffer_count = 0;
-	std::unordered_map<buffer_id, std::unique_ptr<detail::buffer_storage_base>> buffer_ptrs;
+	std::unordered_map<buffer_id, std::shared_ptr<detail::buffer_storage_base>> buffer_ptrs;
 
 	// This is a data structure which encodes where (= on which node) valid
 	// regions of a buffer can be found. A valid region is any region that has not
@@ -123,6 +120,31 @@ class runtime {
 		jobs.insert(job);
 		num_jobs++;
 	}
+
+#ifdef CELERITY_TEST
+	// ------------------------------------------ TESTING UTILS ------------------------------------------
+	// We have to jump through some hoops to be able to re-initialize the runtime for unit testing.
+	// MPI does not like being initialized more than once per process, so we have to skip that part for
+	// re-initialization.
+	// ---------------------------------------------------------------------------------------------------
+
+  public:
+	/**
+	 * Initializes the runtime singleton without running the MPI lifecycle more than once per process.
+	 */
+	static void init_for_testing() {
+		if(instance == nullptr) {
+			init(nullptr, nullptr);
+			return;
+		}
+		test_skip_mpi_lifecycle = true;
+		instance.reset();
+		init(nullptr, nullptr);
+		test_skip_mpi_lifecycle = false;
+	}
+#endif
+  private:
+	static bool test_skip_mpi_lifecycle;
 };
 
 } // namespace celerity

@@ -1,5 +1,6 @@
 #include "distr_queue.h"
 
+#include <ccto/ccto.h>
 #include <spdlog/fmt/fmt.h>
 
 #include "graph_utils.h"
@@ -158,11 +159,13 @@ void distr_queue::init(cl::sycl::device* device_ptr) {
 	cl::sycl::property_list props;
 	if(ocl_profiling_enabled) { props.push_back(std::make_shared<cl::sycl::property::queue::enable_profiling>()); }
 	sycl_queue = std::make_unique<cl::sycl::queue>(device, handle_async_exceptions, props);
+	ccto::initialize(*sycl_queue);
 	task_graph[boost::graph_bundle].name = "TaskGraph";
 }
 
 distr_queue::~distr_queue() {
 	sycl_queue->wait_and_throw();
+	ccto::terminate();
 }
 
 void distr_queue::mark_task_as_processed(task_id tid) {

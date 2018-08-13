@@ -1,0 +1,3 @@
+[submodule "vendor/ccto"]
+	path = vendor/ccto
+	url = git@goedis.dps.uibk.ac.at:psalz/ccto.git
