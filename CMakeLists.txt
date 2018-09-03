@@ -11,22 +11,26 @@ include(Download_spdlog)
 
 add_subdirectory(vendor/ccto)
 
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)
+endif()
+
 if(MSVC)
-    # Add includes to library so they show up in generated VS project
-    file(GLOB_RECURSE INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
+  # Add includes to library so they show up in generated VS project
+  file(GLOB_RECURSE INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
 endif()
 
 add_library(
-    celerity_runtime
-    src/buffer.cc
-    src/buffer_transfer_manager.cc
-    src/buffer_state.cc
-    src/distr_queue.cc
-    src/graph_utils.cc
-    src/handler.cc
-    src/runtime.cc
-    src/worker_job.cc
-    ${INCLUDES}
+  celerity_runtime
+  src/buffer.cc
+  src/buffer_transfer_manager.cc
+  src/buffer_state.cc
+  src/distr_queue.cc
+  src/graph_utils.cc
+  src/handler.cc
+  src/runtime.cc
+  src/worker_job.cc
+  ${INCLUDES}
 )
 
 set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD 14)
