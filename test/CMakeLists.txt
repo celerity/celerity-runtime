@@ -46,7 +46,7 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
       $<TARGET_FILE_DIR:${TARGET_NAME}>
     )
   elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-    target_compile_options(${TARGET_NAME} PRIVATE -Wall -Wextra)
+    target_compile_options(${TARGET_NAME} PRIVATE -Wall -Wextra -Wextra -Wno-unused-parameter)
   endif()
 
   ParseFile(${ONE_TEST_CPP} ${TARGET_NAME})

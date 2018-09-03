@@ -30,5 +30,5 @@ if(MSVC)
     $<TARGET_FILE_DIR:gaussian>
   )
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-  target_compile_options(gaussian PRIVATE -Wall -Wextra)
+  target_compile_options(gaussian PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()

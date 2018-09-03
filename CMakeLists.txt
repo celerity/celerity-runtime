@@ -60,7 +60,7 @@ add_sycl_to_target(
 if(MSVC)
   target_compile_options(celerity_runtime PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra)
+  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
 # Examples

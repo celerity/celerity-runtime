@@ -30,5 +30,5 @@ if(MSVC)
     $<TARGET_FILE_DIR:wave_sim>
   )
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-  target_compile_options(wave_sim PRIVATE -Wall -Wextra)
+  target_compile_options(wave_sim PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()

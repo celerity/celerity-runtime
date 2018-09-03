@@ -30,5 +30,5 @@ if(MSVC)
     $<TARGET_FILE_DIR:matmul>
   )
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-  target_compile_options(matmul PRIVATE -Wall -Wextra)
+  target_compile_options(matmul PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
