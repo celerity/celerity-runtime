@@ -114,7 +114,7 @@ class compute_livepass_handler {
 	// The handler does not take ownership of the sycl_handler, but expects it to
 	// exist for the duration of it's lifetime.
 	compute_livepass_handler(distr_queue& q, task_id tid, std::shared_ptr<compute_task> task, any_chunk achnk, cl::sycl::handler* sycl_handler)
-	    : queue(q), tid(tid), task(task), achnk(achnk), sycl_handler(sycl_handler) {}
+	    : queue(q), sycl_handler(sycl_handler), tid(tid), task(task), achnk(achnk) {}
 
 	template <int BufferDims>
 	subrange<BufferDims> apply_range_mapper(const detail::range_mapper_base& rm) const;

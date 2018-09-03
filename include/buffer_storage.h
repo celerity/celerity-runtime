@@ -124,8 +124,8 @@ namespace detail {
 		}
 
 		std::shared_ptr<raw_data_read_handle> get_data(const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) override {
-			assert(Dims > 1 || offset[1] == 0 && range[1] == 1);
-			assert(Dims > 2 || offset[2] == 0 && range[2] == 1);
+			assert(Dims > 1 || (offset[1] == 0 && range[1] == 1));
+			assert(Dims > 2 || (offset[2] == 0 && range[2] == 1));
 
 			auto result = std::make_shared<raw_data_read_handle>();
 			result->range = range;

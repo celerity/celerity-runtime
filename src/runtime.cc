@@ -158,7 +158,7 @@ void runtime::TEST_do_work() {
 		distribute_commands(command_queue);
 
 		// Finally, send shutdown commands to all worker nodes
-		for(auto n = 1; n < num_nodes; ++n) {
+		for(auto n = 1u; n < num_nodes; ++n) {
 			command_pkg pkg{0, next_cmd_id++, command::SHUTDOWN, command_data{}};
 			send_command(n, pkg);
 		}

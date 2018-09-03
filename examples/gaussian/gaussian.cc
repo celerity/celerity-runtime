@@ -40,13 +40,13 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	constexpr int KERNEL_SIZE = 16;
+	constexpr unsigned KERNEL_SIZE = 16;
 	constexpr float sigma = 3.f;
 	constexpr float PI = 3.141592f;
 
 	std::vector<float> gaussian_matrix(KERNEL_SIZE * KERNEL_SIZE);
-	for(auto j = 0; j < KERNEL_SIZE; ++j) {
-		for(auto i = 0; i < KERNEL_SIZE; ++i) {
+	for(auto j = 0u; j < KERNEL_SIZE; ++j) {
+		for(auto i = 0u; i < KERNEL_SIZE; ++i) {
 			const auto x = i - (KERNEL_SIZE / 2);
 			const auto y = j - (KERNEL_SIZE / 2);
 			const auto value = cl::sycl::exp(-1.f * (x * x + y * y) / (2 * sigma * sigma)) / (2 * PI * sigma * sigma);
@@ -68,7 +68,8 @@ int main(int argc, char* argv[]) {
 		queue.submit([&, image_height, image_width, KERNEL_SIZE](auto& cgh) {
 			auto in = image_input_buf.get_access<cl::sycl::access::mode::read>(cgh, [=](celerity::chunk<2> chnk) {
 				celerity::subrange<2> neighborhood = chnk;
-				neighborhood.offset = cl::sycl::id<2>(std::max(0, (int)chnk.offset[0] - KERNEL_SIZE / 2), std::max(0, (int)chnk.offset[1] - KERNEL_SIZE / 2));
+				neighborhood.offset =
+				    cl::sycl::id<2>(std::max(0, (int)chnk.offset[0] - (int)KERNEL_SIZE / 2), std::max(0, (int)chnk.offset[1] - (int)KERNEL_SIZE / 2));
 				// Since we moved the start by half the kernel size, we have to increase the range by the full kernel size
 				neighborhood.range = chnk.range + cl::sycl::range<2>(KERNEL_SIZE, KERNEL_SIZE);
 				return neighborhood;
@@ -112,7 +113,7 @@ int main(int argc, char* argv[]) {
 			cgh.template parallel_for<class sharpen>(
 			    cl::sycl::range<2>(image_height, image_width), [=, iw = image_width, ih = image_height](cl::sycl::item<2> item) {
 				    using namespace cl::sycl;
-				    if(item[0] == 0 || item[1] == 0 || item[0] == ih - 1 || item[1] == iw - 1) {
+				    if(item[0] == 0u || item[1] == 0u || item[0] == ih - 1u || item[1] == iw - 1u) {
 					    out[item] = float3(0.f, 0.f, 0.f);
 					    return;
 				    }
@@ -130,8 +131,8 @@ int main(int argc, char* argv[]) {
 			auto out = image_output_buf.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<2>(image_height, image_width));
 
 			mah.run([=]() {
-				for(size_t y = 0; y < image_height; ++y) {
-					for(size_t x = 0; x < image_width; ++x) {
+				for(size_t y = 0; y < (size_t)image_height; ++y) {
+					for(size_t x = 0; x < (size_t)image_width; ++x) {
 						const auto idx = y * image_width * 3 + x * 3;
 						image_data[idx + 0] = static_cast<uint8_t>(static_cast<float>(out[{y, x}].x() * 255.f));
 						image_data[idx + 1] = static_cast<uint8_t>(static_cast<float>(out[{y, x}].y() * 255.f));

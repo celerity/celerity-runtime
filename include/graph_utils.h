@@ -67,7 +67,6 @@ namespace graph_utils {
 	// Note that we don't check whether the edge u->v actually existed
 	template <typename Graph>
 	vertex insert_vertex_on_edge(vertex u, vertex v, Graph& graph) {
-		const auto e = boost::edge(u, v, graph);
 		const auto w = boost::add_vertex(graph);
 		boost::remove_edge(u, v, graph);
 		boost::add_edge(u, w, graph);
