@@ -15,9 +15,8 @@ target_link_libraries(
 )
 
 add_sycl_to_target(
-  matmul
-  ${CMAKE_CURRENT_BINARY_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/matmul.cc
+  TARGET matmul
+  SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/matmul.cc
 )
 
 if(MSVC)

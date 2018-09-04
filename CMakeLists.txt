@@ -56,9 +56,8 @@ target_link_libraries(
 )
 
 add_sycl_to_target(
-  celerity_runtime
-  ${CMAKE_CURRENT_BINARY_DIR}
-  ""
+  TARGET celerity_runtime
+  SOURCES ""
 )
 
 if(MSVC)

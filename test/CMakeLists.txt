@@ -31,9 +31,8 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
   )
 
   add_sycl_to_target(
-    ${TARGET_NAME}
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${ONE_TEST_CPP}
+    TARGET ${TARGET_NAME}
+    SOURCES ${ONE_TEST_CPP}
   )
 
   if(MSVC)

@@ -15,9 +15,8 @@ target_link_libraries(
 )
 
 add_sycl_to_target(
-  simple
-  ${CMAKE_CURRENT_BINARY_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/simple.cc
+  TARGET simple
+  SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/simple.cc
 )
 
 if(MSVC)

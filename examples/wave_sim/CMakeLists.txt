@@ -15,9 +15,8 @@ target_link_libraries(
 )
 
 add_sycl_to_target(
-  wave_sim
-  ${CMAKE_CURRENT_BINARY_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/wave_sim.cc
+  TARGET wave_sim
+  SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/wave_sim.cc
 )
 
 if(MSVC)
