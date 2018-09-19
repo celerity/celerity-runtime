@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.5.1)
 project(celerity_runtime)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 find_package(Boost 1.66.0 COMPONENTS graph REQUIRED)
 find_package(ComputeCpp REQUIRED)
@@ -10,6 +11,10 @@ find_package(Threads REQUIRED)
 include(Download_spdlog)
 
 add_subdirectory(vendor/ccto)
+set_property(
+  TARGET ccto ccto_test cl_rect_update_benchmark cl_rect_update_lib.headers cl_rect_update_test
+  PROPERTY FOLDER "vendor"
+)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)
@@ -74,6 +79,11 @@ if(CELERITY_BUILD_EXAMPLES)
   add_subdirectory(examples/gaussian)
   add_subdirectory(examples/matmul)
   add_subdirectory(examples/wave_sim)
+
+  set_property(
+    TARGET simple gaussian matmul wave_sim
+    PROPERTY FOLDER "examples"
+  )
 endif()
 
 # Tests
