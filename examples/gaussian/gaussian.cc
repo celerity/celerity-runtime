@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	constexpr unsigned KERNEL_SIZE = 16;
+	constexpr int KERNEL_SIZE = 16;
 	constexpr float sigma = 3.f;
 	constexpr float PI = 3.141592f;
 
