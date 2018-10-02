@@ -28,12 +28,15 @@ endif()
 add_library(
   celerity_runtime
   src/buffer.cc
-  src/buffer_transfer_manager.cc
   src/buffer_state.cc
+  src/buffer_transfer_manager.cc
   src/distr_queue.cc
+  src/graph_builder.cc
+  src/graph_generator.cc
   src/graph_utils.cc
   src/handler.cc
   src/runtime.cc
+  src/transformers/naive_split.cc
   src/worker_job.cc
   ${INCLUDES}
 )

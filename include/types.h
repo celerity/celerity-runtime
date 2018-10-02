@@ -1,7 +1,5 @@
 #pragma once
 
-#include <boost/variant/variant.hpp>
-
 namespace celerity {
 
 template <typename T, typename UniqueName>
@@ -36,13 +34,6 @@ class PhantomType {
 	}
 
 MAKE_PHANTOM_TYPE(task_id, size_t)
-MAKE_PHANTOM_TYPE(vertex, size_t)
 MAKE_PHANTOM_TYPE(buffer_id, size_t)
 MAKE_PHANTOM_TYPE(node_id, size_t)
 MAKE_PHANTOM_TYPE(command_id, size_t)
-
-namespace celerity {
-
-using any_range = boost::variant<cl::sycl::range<1>, cl::sycl::range<2>, cl::sycl::range<3>>;
-
-} // namespace celerity

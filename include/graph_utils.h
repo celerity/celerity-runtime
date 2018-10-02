@@ -2,10 +2,10 @@
 
 #include <memory>
 #include <stdexcept>
-#include <utility>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/graph/breadth_first_search.hpp>
+#include <boost/optional.hpp>
 
 #include "graph.h"
 #include "grid.h"
@@ -17,15 +17,16 @@ namespace celerity {
 
 namespace graph_utils {
 
-	using task_vertices = std::pair<vertex, vertex>;
+	template <typename Graph>
+	using VertexType = typename boost::graph_traits<Graph>::vertex_descriptor;
 
-	template <typename Functor>
-	bool call_for_vertex_fn(const Functor& fn, vertex v, std::true_type) {
+	template <typename Functor, typename Vertex>
+	bool call_for_vertex_fn(const Functor& fn, Vertex v, std::true_type) {
 		return fn(v);
 	}
 
-	template <typename Functor>
-	bool call_for_vertex_fn(const Functor& fn, vertex v, std::false_type) {
+	template <typename Functor, typename Vertex>
+	bool call_for_vertex_fn(const Functor& fn, Vertex v, std::false_type) {
 		fn(v);
 		return true;
 	}
@@ -38,10 +39,10 @@ namespace graph_utils {
 	 * Returns false if the loop was aborted.
 	 */
 	template <typename Graph, typename Functor>
-	bool for_predecessors(const Graph& graph, vertex v, const Functor& f) {
+	bool for_predecessors(const Graph& graph, VertexType<Graph> v, const Functor& f) {
 		typename boost::graph_traits<Graph>::in_edge_iterator eit, eit_end;
 		for(std::tie(eit, eit_end) = boost::in_edges(v, graph); eit != eit_end; ++eit) {
-			vertex pre = boost::source(*eit, graph);
+			auto pre = boost::source(*eit, graph);
 			if(call_for_vertex_fn(f, pre, std::is_same<bool, decltype(f(pre))>()) == false) { return false; }
 		}
 		return true;
@@ -55,10 +56,10 @@ namespace graph_utils {
 	 * Returns false if the loop was aborted.
 	 */
 	template <typename Graph, typename Functor>
-	bool for_successors(const Graph& graph, vertex v, const Functor& f) {
+	bool for_successors(const Graph& graph, VertexType<Graph> v, const Functor& f) {
 		typename boost::graph_traits<Graph>::out_edge_iterator eit, eit_end;
 		for(std::tie(eit, eit_end) = boost::out_edges(v, graph); eit != eit_end; ++eit) {
-			vertex suc = boost::target(*eit, graph);
+			auto suc = boost::target(*eit, graph);
 			if(call_for_vertex_fn(f, suc, std::is_same<bool, decltype(f(suc))>()) == false) { return false; }
 		}
 		return true;
@@ -66,7 +67,7 @@ namespace graph_utils {
 
 	// Note that we don't check whether the edge u->v actually existed
 	template <typename Graph>
-	vertex insert_vertex_on_edge(vertex u, vertex v, Graph& graph) {
+	VertexType<Graph> insert_vertex_on_edge(VertexType<Graph> u, VertexType<Graph> v, Graph& graph) {
 		const auto w = boost::add_vertex(graph);
 		boost::remove_edge(u, v, graph);
 		boost::add_edge(u, w, graph);
@@ -85,7 +86,7 @@ namespace graph_utils {
 		bfs_visitor(Functor f) : f(f) {}
 
 		template <typename Graph>
-		void discover_vertex(vertex v, const Graph& graph) const {
+		void discover_vertex(VertexType<Graph> v, const Graph& graph) const {
 			if(f(v, graph) == true) { throw abort_search_exception(); }
 		}
 
@@ -99,7 +100,7 @@ namespace graph_utils {
 	 * The search is aborted if the functor returns true.
 	 */
 	template <typename Graph, typename Functor>
-	void search_vertex_bf(vertex start, const Graph& graph, Functor f) {
+	void search_vertex_bf(VertexType<Graph> start, const Graph& graph, Functor f) {
 		try {
 			bfs_visitor<Functor> vis(f);
 			boost::breadth_first_search(graph, start, boost::visitor(vis));
@@ -108,18 +109,10 @@ namespace graph_utils {
 		}
 	}
 
-	task_vertices add_task(task_id tid, const task_dag& tdag, command_dag& cdag);
-
-	vertex add_compute_cmd(command_id& next_cmd_id, node_id nid, const task_vertices& tv, const chunk<3>& chnk, command_dag& cdag);
-	vertex add_master_access_cmd(command_id& next_cmd_id, const task_vertices& tv, command_dag& cdag);
-	vertex add_push_cmd(command_id& next_cmd_id, node_id to_nid, node_id from_nid, buffer_id bid, const task_vertices& tv, vertex req_cmd,
-	    const GridBox<3>& req, command_dag& cdag);
-
 	/**
 	 * Finds the next (= in the global list of task vertices) task with no unsatisfied dependencies.
-	 * Returns false if no satisfied task was found.
 	 */
-	bool get_satisfied_task(const task_dag& tdag, task_id& tid);
+	boost::optional<task_id> get_satisfied_task(const task_dag& tdag);
 
 	void mark_as_processed(task_id tid, task_dag& tdag);
 
@@ -128,17 +121,18 @@ namespace graph_utils {
 
 
 	template <typename Graph, typename VertexPropertiesWriter, typename EdgePropertiesWriter>
-	void write_graph_mux(const Graph& g, VertexPropertiesWriter vpw, EdgePropertiesWriter epw, std::shared_ptr<logger> graph_logger) {
+	void write_graph(
+	    const Graph& g, const std::string& name, VertexPropertiesWriter vpw, EdgePropertiesWriter epw, const std::shared_ptr<logger>& graph_logger) {
 		std::stringstream ss;
-		write_graphviz(ss, g, vpw, epw);
+		boost::write_graphviz(ss, g, vpw, epw);
 		auto str = ss.str();
 		boost::replace_all(str, "\n", "\\n");
 		boost::replace_all(str, "\"", "\\\"");
-		graph_logger->info(logger_map({{"name", g[boost::graph_bundle].name}, {"data", str}}));
+		graph_logger->info(logger_map({{"name", name}, {"data", str}}));
 	}
 
-	void print_graph(const celerity::task_dag& tdag, std::shared_ptr<logger> graph_logger);
-	void print_graph(const celerity::command_dag& cdag, std::shared_ptr<logger> graph_logger);
+	void print_graph(const celerity::task_dag& tdag, const std::shared_ptr<logger>& graph_logger);
+	void print_graph(celerity::command_dag& cdag, const std::shared_ptr<logger>& graph_logger);
 
 } // namespace graph_utils
 

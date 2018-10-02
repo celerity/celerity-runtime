@@ -1,12 +1,25 @@
 #include "buffer_state.h"
 
+#include <algorithm>
 #include <cassert>
 #include <set>
 
 namespace celerity {
 namespace detail {
 
-	buffer_state::buffer_state(cl::sycl::range<3> size, size_t num_nodes) {
+	template <typename T>
+	std::vector<T> intersect(const std::unordered_set<T>& a, const std::unordered_set<T>& b) {
+		std::vector<T> result;
+		result.reserve(std::min(a.size(), b.size()));
+		std::vector<T> a_v(a.cbegin(), a.cend());
+		std::vector<T> b_v(b.cbegin(), b.cend());
+		std::sort(a_v.begin(), a_v.end());
+		std::sort(b_v.begin(), b_v.end());
+		std::set_intersection(a_v.cbegin(), a_v.cend(), b_v.cbegin(), b_v.cend(), std::back_inserter(result));
+		return result;
+	}
+
+	buffer_state::buffer_state(cl::sycl::range<3> size, size_t num_nodes) : size(size), num_nodes(num_nodes) {
 		std::unordered_set<node_id> all_nodes(num_nodes);
 		for(auto i = 0u; i < num_nodes; ++i)
 			all_nodes.insert(i);
@@ -60,14 +73,20 @@ namespace detail {
 		collapse_regions();
 	}
 
+	void buffer_state::merge(const buffer_state& other) {
+		if(size != other.size || num_nodes != other.num_nodes) { throw std::runtime_error("Incompatible buffer state"); }
+		for(auto& p : other.region_nodes) {
+			update_region(p.first, p.second);
+		}
+	}
+
 	void buffer_state::collapse_regions() {
 		std::set<size_t> erase_indices;
 		for(auto i = 0u; i < region_nodes.size(); ++i) {
 			const auto& nodes_i = region_nodes[i].second;
 			for(auto j = i + 1; j < region_nodes.size(); ++j) {
 				const auto& nodes_j = region_nodes[j].second;
-				std::vector<node_id> intersection;
-				std::set_intersection(nodes_i.cbegin(), nodes_i.cend(), nodes_j.cbegin(), nodes_j.cend(), std::back_inserter(intersection));
+				std::vector<node_id> intersection = intersect(nodes_i, nodes_j);
 				if(intersection.size() == nodes_i.size()) {
 					region_nodes[i].first = GridRegion<3>::merge(region_nodes[i].first, region_nodes[j].first);
 					erase_indices.insert(j);

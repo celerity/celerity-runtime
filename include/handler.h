@@ -22,7 +22,8 @@ class compute_prepass_handler {
   public:
 	template <typename Name, typename Functor, int Dims>
 	void parallel_for(cl::sycl::range<Dims> global_size, const Functor& kernel) {
-		this->global_size = global_size;
+		dimensions = Dims;
+		this->global_size = cl::sycl::range<3>(global_size);
 		// DEBUG: Find nice name for kernel (regex is probably not super portable)
 		auto qualified_name = boost::typeindex::type_id<Name*>().pretty_name();
 		std::regex name_regex(R"(.*?(?:::)?([\w_]+)\s?\*.*)");
@@ -40,7 +41,8 @@ class compute_prepass_handler {
 	distr_queue& queue;
 	task_id tid;
 	std::string debug_name;
-	any_range global_size;
+	int dimensions = 0;
+	cl::sycl::range<3> global_size;
 
 	compute_prepass_handler(distr_queue& q, task_id tid) : queue(q), tid(tid) { debug_name = fmt::format("task{}", static_cast<size_t>(tid)); }
 };

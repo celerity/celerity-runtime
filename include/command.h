@@ -38,6 +38,8 @@ struct command_subrange {
 		return offset[0] == rhs.offset[0] && offset[1] == rhs.offset[1] && offset[2] == rhs.offset[2] && range[0] == rhs.range[0] && range[1] == rhs.range[1]
 		       && range[2] == rhs.range[2];
 	}
+
+	operator subrange<3>() const { return {cl::sycl::id<3>(offset[0], offset[1], offset[2]), cl::sycl::range<3>(range[0], range[1], range[2])}; }
 };
 
 struct nop_data {};

@@ -77,7 +77,6 @@ TEST_CASE("CollapseRegions", "[buffer_state]") {
 
 	// Since this one is returned before the [128,192) box,
 	// the {[64,128), [192,256)} region must exist internally.
-	// REQUIRE(sn[1].first == GridBox<1>(192, 256));
 	REQUIRE(sn[1].first == make_grid_box({64, 1, 1}, {192, 0, 0}));
 	REQUIRE(sn[1].second.size() == 1);
 	REQUIRE(sn[1].second.count(1) == 1);
@@ -86,6 +85,40 @@ TEST_CASE("CollapseRegions", "[buffer_state]") {
 	REQUIRE(sn[2].second.size() == 2);
 	REQUIRE(sn[2].second.count(0) == 1);
 	REQUIRE(sn[2].second.count(1) == 1);
+}
+
+TEST_CASE("Merging states", "[buffer_state]") {
+	detail::buffer_state bs1(cl::sycl::range<3>(128, 64, 32), 3);
+	detail::buffer_state bs2(cl::sycl::range<3>(128, 64, 32), 3);
+
+	bs1.update_region(make_grid_region({128, 64, 32}, {0, 0, 0}), {0});
+	bs2.update_region(make_grid_region({128, 8, 1}, {0, 24, 0}), {1});
+	bs2.update_region(make_grid_region({128, 24, 1}, {0, 0, 0}), {2});
+	bs1.merge(bs2);
+
+	const auto sn = bs1.get_source_nodes(make_grid_region({128, 64, 32}, {0, 0, 0}));
+	REQUIRE(sn.size() == 4);
+	REQUIRE(sn[0].first == make_grid_box({128, 32, 31}, {0, 0, 1}));
+	REQUIRE(sn[0].second.size() == 1);
+	REQUIRE(sn[0].second.count(0) == 1);
+
+	REQUIRE(sn[1].first == make_grid_box({128, 32, 32}, {0, 32, 0}));
+	REQUIRE(sn[1].second.size() == 1);
+	REQUIRE(sn[1].second.count(0) == 1);
+
+	REQUIRE(sn[2].first == make_grid_box({128, 24, 1}, {0, 0, 0}));
+	REQUIRE(sn[2].second.size() == 1);
+	REQUIRE(sn[2].second.count(2) == 1);
+
+	REQUIRE(sn[3].first == make_grid_box({128, 8, 1}, {0, 24, 0}));
+	REQUIRE(sn[3].second.size() == 1);
+	REQUIRE(sn[3].second.count(1) == 1);
+
+	// Attempting to merge buffer states with incompatible dimensions or numbers of nodes should throw
+	const detail::buffer_state bs_incompat1(cl::sycl::range<3>(128, 64, 32), 2);
+	REQUIRE_THROWS_WITH(bs1.merge(bs_incompat1), Catch::Equals("Incompatible buffer state"));
+	const detail::buffer_state bs_incompat2(cl::sycl::range<3>(128, 64, 30), 3);
+	REQUIRE_THROWS_WITH(bs1.merge(bs_incompat2), Catch::Equals("Incompatible buffer state"));
 }
 
 TEST_CASE("host_accessor 1D indexing behaves the same way as a SYCL host-accessor", "[host_accessor]") {

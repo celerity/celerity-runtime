@@ -160,11 +160,11 @@ void distr_queue::init(cl::sycl::device* device_ptr) {
 	if(ocl_profiling_enabled) { props.push_back(std::make_shared<cl::sycl::property::queue::enable_profiling>()); }
 	sycl_queue = std::make_unique<cl::sycl::queue>(device, handle_async_exceptions, props);
 	ccto::initialize(*sycl_queue);
-	task_graph[boost::graph_bundle].name = "TaskGraph";
 }
 
 distr_queue::~distr_queue() {
 	sycl_queue->wait_and_throw();
+	runtime::get_instance().free_buffers();
 	ccto::terminate();
 }
 
@@ -194,10 +194,12 @@ void distr_queue::add_requirement(task_id tid, buffer_id bid, cl::sycl::access::
 	update_dependencies(tid, bid, mode);
 }
 
-void distr_queue::set_task_data(task_id tid, any_range global_size, std::string debug_name) {
+void distr_queue::set_task_data(task_id tid, int dimensions, cl::sycl::range<3> global_size, std::string debug_name) {
 	assert(task_map.count(tid) != 0);
 	assert(task_map[tid]->get_type() == task_type::COMPUTE);
-	dynamic_cast<compute_task*>(task_map[tid].get())->set_global_size(global_size);
+	auto ctsk = dynamic_cast<compute_task*>(task_map[tid].get());
+	ctsk->set_dimensions(dimensions);
+	ctsk->set_global_size(global_size);
 	task_graph[tid].label = fmt::format("{} ({})", task_graph[tid].label, debug_name);
 }
 
@@ -228,7 +230,7 @@ void distr_queue::handle_async_exceptions(cl::sycl::exception_list el) {
 bool distr_queue::has_dependency(task_id task_a, task_id task_b) const {
 	// TODO: Use DFS instead?
 	bool found = false;
-	graph_utils::search_vertex_bf(static_cast<vertex>(task_b), task_graph, [&found, task_a](vertex v, const task_dag&) {
+	graph_utils::search_vertex_bf(static_cast<tdag_vertex>(task_b), task_graph, [&found, task_a](tdag_vertex v, const task_dag&) {
 		if(v == task_a) { found = true; }
 		return found;
 	});

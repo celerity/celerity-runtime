@@ -133,14 +133,13 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 		auto& cmd_sr = pkg.data.compute.subrange;
 		switch(dimensions) {
 		default:
-		case 1: event = queue.execute(pkg.tid, chunk<1>{{cmd_sr.offset[0]}, {cmd_sr.range[0]}, boost::get<cl::sycl::range<1>>(gs)}); break;
+		case 1: event = queue.execute(pkg.tid, chunk<1>{{cmd_sr.offset[0]}, {cmd_sr.range[0]}, cl::sycl::range<1>(gs)}); break;
 		case 2:
-			event =
-			    queue.execute(pkg.tid, chunk<2>{{cmd_sr.offset[0], cmd_sr.offset[1]}, {cmd_sr.range[0], cmd_sr.range[1]}, boost::get<cl::sycl::range<2>>(gs)});
+			event = queue.execute(pkg.tid, chunk<2>{{cmd_sr.offset[0], cmd_sr.offset[1]}, {cmd_sr.range[0], cmd_sr.range[1]}, cl::sycl::range<2>(gs)});
 			break;
 		case 3:
-			event = queue.execute(pkg.tid, chunk<3>{{cmd_sr.offset[0], cmd_sr.offset[1], cmd_sr.offset[2]}, {cmd_sr.range[0], cmd_sr.range[1], cmd_sr.range[2]},
-			                                   boost::get<cl::sycl::range<3>>(gs)});
+			event = queue.execute(
+			    pkg.tid, chunk<3>{{cmd_sr.offset[0], cmd_sr.offset[1], cmd_sr.offset[2]}, {cmd_sr.range[0], cmd_sr.range[1], cmd_sr.range[2]}, gs});
 			break;
 		}
 		submitted = true;

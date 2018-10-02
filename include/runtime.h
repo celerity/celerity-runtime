@@ -3,29 +3,17 @@
 #include <memory>
 #include <queue>
 #include <unordered_map>
-#include <unordered_set>
-#include <utility>
 
 #include <mpi.h>
 
-#include "buffer_state.h"
 #include "buffer_transfer_manager.h"
 #include "distr_queue.h"
-#include "graph.h"
-#include "graph_utils.h"
+#include "graph_generator.h"
 #include "logger.h"
 #include "types.h"
 #include "worker_job.h"
 
 namespace celerity {
-
-using chunk_id = size_t;
-
-// FIXME: Untangle these data structures somehow. MSVC already warns about long names (C4503).
-using chunk_buffer_requirements_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<3>>>>;
-using chunk_buffer_source_map = std::unordered_map<chunk_id, std::unordered_map<buffer_id, std::vector<std::pair<GridBox<3>, std::unordered_set<node_id>>>>>;
-using buffer_writers_map = std::unordered_map<buffer_id, std::unordered_map<node_id, std::vector<GridRegion<3>>>>;
-using buffer_state_map = std::unordered_map<buffer_id, std::unique_ptr<detail::buffer_state>>;
 
 namespace detail {
 	class buffer_storage_base;
@@ -44,10 +32,18 @@ class runtime {
 
 	buffer_id register_buffer(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buf_storage);
 
-	void unregister_buffer(buffer_id bid) {
-		buffer_ptrs.erase(bid);
-		valid_buffer_regions.erase(bid);
-	}
+	/**
+	 * Currently this is being called by the distr_queue on shutdown (dtor).
+	 * We have to make sure all SYCl objects are free'd before the queue is destroyed.
+	 * TODO: Once we get rid of TEST_do_work we'll need an alternative solution that blocks the distr_queue dtor until we're done.
+	 */
+	void free_buffers();
+
+	/**
+	 * This is currently a no-op. We don't know whether it is safe to free a buffer.
+	 * TODO: We could mark when a buffer is no longer needed in the task graph, and free the memory accordingly.
+	 */
+	void unregister_buffer(buffer_id bid) {}
 
 	std::shared_ptr<detail::raw_data_read_handle> get_buffer_data(buffer_id bid, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) {
 		assert(buffer_ptrs.at(bid) != nullptr);
@@ -73,16 +69,7 @@ class runtime {
 	size_t buffer_count = 0;
 	std::unordered_map<buffer_id, std::shared_ptr<detail::buffer_storage_base>> buffer_ptrs;
 
-	// This is a data structure which encodes where (= on which node) valid
-	// regions of a buffer can be found. A valid region is any region that has not
-	// been written to on another node.
-	// NOTE: This represents the buffer regions after all commands in the current
-	// command graph have been completed.
-	buffer_state_map valid_buffer_regions;
-
-	command_id next_cmd_id = 0;
-	command_dag command_graph;
-	std::unordered_map<task_id, graph_utils::task_vertices> cmd_dag_task_vertices;
+	std::unique_ptr<celerity::detail::graph_generator> ggen;
 
 	std::unique_ptr<buffer_transfer_manager> btm;
 	job_set jobs;
@@ -90,12 +77,6 @@ class runtime {
 	runtime(int* argc, char** argv[]);
 	runtime(const runtime&) = delete;
 	runtime(runtime&&) = delete;
-
-	void build_command_graph();
-
-	void process_task_data_requirements(task_id tid, const std::unordered_map<chunk_id, node_id>& chunk_nodes,
-	    const chunk_buffer_requirements_map& chunk_requirements, const chunk_buffer_source_map& chunk_buffer_sources,
-	    const std::vector<vertex>& chunk_command_vertices, buffer_writers_map& buffer_writers);
 
 	/**
 	 * @brief Sends commands to their designated nodes

@@ -38,9 +38,6 @@ class worker_job {
 	command get_type() const { return pkg.cmd; }
 	task_id get_task_id() const { return pkg.tid; }
 
-	// FIXME Remove this, required for send_job workaround (see below)
-	const command_pkg& WORKAROUND_get_pkg() const { return pkg; }
-
   private:
 	command_pkg pkg;
 	std::shared_ptr<logger> job_logger;

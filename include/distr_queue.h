@@ -120,7 +120,7 @@ class distr_queue {
 	 */
 	void add_requirement(task_id tid, buffer_id bid, cl::sycl::access::mode mode, cl::sycl::range<3> range, cl::sycl::id<3> offset);
 
-	void set_task_data(task_id tid, any_range global_size, std::string debug_name);
+	void set_task_data(task_id tid, int dimensions, cl::sycl::range<3> global_size, std::string debug_name);
 
 	void update_dependencies(task_id tid, buffer_id bid, cl::sycl::access::mode mode);
 

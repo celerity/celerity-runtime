@@ -62,16 +62,18 @@ class compute_task : public task {
 	task_type get_type() const override { return task_type::COMPUTE; }
 
 	const detail::cgf_storage_base& get_command_group() const { return *cgf; }
-	any_range get_global_size() const { return global_size; }
-	int get_dimensions() const { return global_size.which() + 1; }
+	cl::sycl::range<3> get_global_size() const { return global_size; }
+	int get_dimensions() const { return dimensions; }
 	const std::unordered_map<buffer_id, std::vector<std::unique_ptr<detail::range_mapper_base>>>& get_range_mappers() const { return range_mappers; }
 
-	void set_global_size(any_range gs) { global_size = gs; }
+	void set_dimensions(int dims) { dimensions = dims; }
+	void set_global_size(cl::sycl::range<3> gs) { global_size = gs; }
 	void add_range_mapper(buffer_id bid, std::unique_ptr<detail::range_mapper_base>&& rm) { range_mappers[bid].push_back(std::move(rm)); }
 
   private:
 	std::unique_ptr<detail::cgf_storage_base> cgf;
-	any_range global_size;
+	int dimensions = 0;
+	cl::sycl::range<3> global_size;
 	std::unordered_map<buffer_id, std::vector<std::unique_ptr<detail::range_mapper_base>>> range_mappers;
 };
 
