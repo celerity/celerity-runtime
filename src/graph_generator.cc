@@ -8,12 +8,6 @@
 #include "graph_builder.h"
 #include "graph_utils.h"
 
-#ifdef NDEBUG
-#define DEBUG_ONLY
-#else
-#define DEBUG_ONLY(Exp) Exp
-#endif
-
 namespace celerity {
 namespace detail {
 
@@ -135,27 +129,26 @@ namespace detail {
 
 	// TODO: We can ignore all commands that have already been flushed
 	void graph_generator::process_task_data_requirements(task_id tid) {
-		const auto& task_graph = queue->get_task_graph();
 		buffer_state_map initial_buffer_states;
-		DEBUG_ONLY(task_id last_task_id = static_cast<task_id>(-1);)
-		bool is_root_task = true;
-		graph_utils::for_predecessors(task_graph, static_cast<tdag_vertex>(tid), [&](tdag_vertex v) {
-			is_root_task = false;
-#ifndef NDEBUG
-			// Sanity check, make sure predecessors are walked in-order (which is required for consistent buffer states)
-			assert(last_task_id == static_cast<task_id>(-1) || last_task_id < static_cast<task_id>(v));
-			last_task_id = static_cast<task_id>(v);
-#endif
+
+		// Build the initial buffer states for this task by merging all predecessor's final states.
+		// It's important (for certain edge cases) that we do this in the same order that tasks were submitted.
+		// Since walking the graph doesn't guarantee this, we have to manually sort the predecessors by task id first.
+		std::vector<task_id> predecessors;
+		graph_utils::for_predecessors(
+		    queue->get_task_graph(), static_cast<tdag_vertex>(tid), [&](tdag_vertex v) { predecessors.push_back(static_cast<task_id>(v)); });
+		std::sort(predecessors.begin(), predecessors.end());
+
+		for(const auto t : predecessors) {
 			if(initial_buffer_states.empty()) {
-				initial_buffer_states = task_buffer_states[static_cast<task_id>(v)];
+				initial_buffer_states = task_buffer_states[t];
 			} else {
-				for(auto& it : task_buffer_states[static_cast<task_id>(v)]) {
+				for(auto& it : task_buffer_states[t]) {
 					initial_buffer_states[it.first]->merge(*it.second);
 				}
 			}
-		});
-
-		if(is_root_task) { initial_buffer_states = empty_buffer_states; }
+		}
+		if(predecessors.empty()) { initial_buffer_states = empty_buffer_states; }
 
 		buffer_state_map final_buffer_states = initial_buffer_states;
 
