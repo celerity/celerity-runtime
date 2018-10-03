@@ -23,7 +23,7 @@ namespace detail {
 		for(auto i = 0u; i < num_chunks; ++i) {
 			result.push_back(chnk);
 			chnk.offset = chnk.offset + chnk.range;
-			if(i == num_chunks - 1) { result[i].range += full_chunk.range.size() % num_chunks; }
+			if(i == num_chunks - 1) { result[i].range[0] += full_chunk.range.size() % num_chunks; }
 		}
 		return result;
 	}
