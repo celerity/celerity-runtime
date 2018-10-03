@@ -12,9 +12,12 @@ include(Download_spdlog)
 
 add_subdirectory(vendor/ccto)
 set_property(
-  TARGET ccto ccto_test cl_rect_update_benchmark cl_rect_update_lib.headers cl_rect_update_test
+  TARGET ccto ccto_test cl_rect_update_benchmark cl_rect_update_test
   PROPERTY FOLDER "vendor"
 )
+if(MSVC)
+  set_property(TARGET cl_rect_update_lib.headers PROPERTY FOLDER "vendor")
+endif()
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)
