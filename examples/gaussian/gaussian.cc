@@ -142,9 +142,6 @@ int main(int argc, char* argv[]) {
 				stbi_write_png("./output.png", image_width, image_height, 3, image_data, 0);
 			});
 		});
-
-		celerity::runtime::get_instance().TEST_do_work();
-
 	} catch(std::exception& e) {
 		std::cerr << "Exception: " << e.what() << std::endl;
 		return EXIT_FAILURE;

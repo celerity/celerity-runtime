@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mutex>
 #include <utility>
 
 #include <boost/graph/adjacency_list.hpp>
@@ -14,6 +15,24 @@
 MAKE_PHANTOM_TYPE(tdag_vertex, size_t)
 
 namespace celerity {
+
+template <typename Graph>
+class locked_graph {
+  public:
+	locked_graph(Graph& graph, std::mutex& mutex) : graph(graph), lock(mutex) {}
+	locked_graph(locked_graph<Graph>&& other) noexcept : graph(other.graph) { lock = std::move(other.lock); }
+
+	locked_graph(const locked_graph<Graph>& other) = delete;
+	locked_graph& operator=(const locked_graph<Graph>& other) = delete;
+	locked_graph& operator=(locked_graph<Graph>&& other) = delete;
+
+	Graph& operator*() { return graph; };
+	Graph& operator*() const { return graph; };
+
+  private:
+	Graph& graph;
+	std::unique_lock<std::mutex> lock;
+};
 
 // -------------------------------------------------------------------------------------------------------------------
 // --------------------------------------------------- TASK GRAPH ----------------------------------------------------

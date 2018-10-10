@@ -40,7 +40,7 @@ function run(args) {
     if (line === '') return;
     try {
         const parsed = JSON.parse(line);
-        if (parsed.channel !== 'graph') {
+        if (parsed.channel !== 'graph' || parsed.level !== 'info') {
             console.log(line);
             return;
         }

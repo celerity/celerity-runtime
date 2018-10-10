@@ -1,23 +1,25 @@
 #pragma once
 
+#include <deque>
 #include <memory>
-#include <queue>
 #include <unordered_map>
 
 #include <mpi.h>
 
 #include "buffer_transfer_manager.h"
 #include "distr_queue.h"
-#include "graph_generator.h"
 #include "logger.h"
 #include "types.h"
-#include "worker_job.h"
 
 namespace celerity {
 
 namespace detail {
 	class buffer_storage_base;
-}
+	class graph_generator;
+	class scheduler;
+	class executor;
+	class task_manager;
+} // namespace detail
 
 class runtime {
   public:
@@ -26,9 +28,10 @@ class runtime {
 
 	~runtime();
 
-	void TEST_do_work();
-	void register_queue(distr_queue* queue);
-	distr_queue& get_queue();
+	void startup(distr_queue* queue);
+	void shutdown();
+
+	detail::task_manager& get_task_manager();
 
 	buffer_id register_buffer(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buf_storage);
 
@@ -69,38 +72,21 @@ class runtime {
 	size_t buffer_count = 0;
 	std::unordered_map<buffer_id, std::shared_ptr<detail::buffer_storage_base>> buffer_ptrs;
 
-	std::unique_ptr<celerity::detail::graph_generator> ggen;
+	// The graph generator and scheduler are only constructed on the master node.
+	std::shared_ptr<detail::graph_generator> ggen;
+	std::unique_ptr<detail::scheduler> scheduler;
 
+	std::shared_ptr<detail::task_manager> task_mngr;
+	std::unique_ptr<detail::executor> executor;
 	std::unique_ptr<buffer_transfer_manager> btm;
-	job_set jobs;
+
+	std::deque<std::pair<command_pkg, MPI_Request>> active_flushes;
 
 	runtime(int* argc, char** argv[]);
 	runtime(const runtime&) = delete;
 	runtime(runtime&&) = delete;
 
-	/**
-	 * @brief Sends commands to their designated nodes
-	 *
-	 * The command graph is traversed in a breadth-first fashion, starting at the root tasks, i.e. tasks without any dependencies.
-	 * @param master_command_queue Queue of commands to be executed by the master node
-	 */
-	void distribute_commands(std::queue<command_pkg>& master_command_queue);
-
-	friend class master_access_job;
-	void execute_master_access_task(task_id tid) const;
-
-	void handle_command_pkg(const command_pkg& pkg);
-
-	size_t num_jobs = 0;
-
-	template <typename Job, typename... Args>
-	void create_job(const command_pkg& pkg, Args&&... args) {
-		auto logger = default_logger->create_context({{"task", std::to_string(pkg.tid)}, {"job", std::to_string(num_jobs)}});
-		auto job = std::make_shared<Job>(pkg, logger, std::forward<Args>(args)...);
-		job->initialize(*queue, jobs);
-		jobs.insert(job);
-		num_jobs++;
-	}
+	void flush_command(node_id target, const command_pkg& pkg);
 
 #ifdef CELERITY_TEST
 	// ------------------------------------------ TESTING UTILS ------------------------------------------

@@ -7,6 +7,7 @@
 #include <celerity.h>
 
 #include "graph_builder.h"
+#include "graph_generator.h"
 
 namespace celerity {
 
@@ -41,7 +42,7 @@ TEST_CASE("graph_builder correctly splits commands", "[graph_builder]") {
 	detail::graph_builder gb(cdag);
 
 	cdag_vertex begin_task_cmd_v, end_task_cmd_v;
-	std::tie(begin_task_cmd_v, end_task_cmd_v) = create_task_commands(tdag, cdag, gb, 0);
+	std::tie(begin_task_cmd_v, end_task_cmd_v) = detail::create_task_commands(tdag, cdag, gb, 0);
 	gb.commit();
 	REQUIRE(cdag.m_vertices.size() == 2);
 
@@ -91,7 +92,7 @@ TEST_CASE("graph_builder throws if split chunks don't add up to original chunk")
 	detail::graph_builder gb(cdag);
 
 	cdag_vertex begin_task_cmd_v, end_task_cmd_v;
-	std::tie(begin_task_cmd_v, end_task_cmd_v) = create_task_commands(tdag, cdag, gb, 0);
+	std::tie(begin_task_cmd_v, end_task_cmd_v) = detail::create_task_commands(tdag, cdag, gb, 0);
 	gb.commit();
 	REQUIRE(cdag.m_vertices.size() == 2);
 

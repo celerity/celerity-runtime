@@ -2,8 +2,9 @@
 
 #include <spdlog/fmt/fmt.h>
 
-#include "distr_queue.h"
+#include "handler.h"
 #include "runtime.h"
+#include "task_manager.h"
 
 namespace celerity {
 
@@ -69,13 +70,13 @@ bool await_push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> log
 	return data_handle->complete;
 }
 
-job_set push_job::find_dependencies(const distr_queue& queue, const job_set& jobs) {
+job_set push_job::find_dependencies(const detail::task_manager& tm, const job_set& jobs) {
 	job_set dependencies;
 	for(auto& job : jobs) {
 		switch(job->get_type()) {
 		case command::COMPUTE:
 		case command::MASTER_ACCESS:
-			if(get_task_id() != job->get_task_id() && queue.has_dependency(get_task_id(), job->get_task_id())) { dependencies.insert(job); }
+			if(get_task_id() != job->get_task_id() && tm.has_dependency(get_task_id(), job->get_task_id())) { dependencies.insert(job); }
 			break;
 		default: break;
 		}
@@ -98,11 +99,16 @@ bool push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 	return data_handle->complete;
 }
 
-job_set compute_job::find_dependencies(const distr_queue& queue, const job_set& jobs) {
+job_set compute_job::find_dependencies(const detail::task_manager& tm, const job_set& jobs) {
+	// Sometimes the master node can be faster in excuting the main thread, sending out commands for tasks that don't yet exist on workers.
+	// FIXME: Do something better than a busy wait here.
+	while(!tm.has_task(get_task_id()))
+		;
+
 	job_set dependencies;
 	for(auto& job : jobs) {
 		if(job->get_type() == command::COMPUTE) {
-			if(queue.has_dependency(get_task_id(), job->get_task_id())) { dependencies.insert(job); }
+			if(tm.has_dependency(get_task_id(), job->get_task_id())) { dependencies.insert(job); }
 		}
 		if(job->get_type() == command::AWAIT_PUSH) {
 			if(get_task_id() == job->get_task_id()) { dependencies.insert(job); }
@@ -125,9 +131,12 @@ std::chrono::time_point<std::chrono::nanoseconds> get_profiling_info(cl_event e,
 };
 
 bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
+	// A bit of a hack: We cannot be sure the main thread has reached the task definition yet, so we have to check it here
+	if(!task_mngr.has_task(pkg.tid)) return false;
+
 	if(!submitted) {
 		// Note that we have to set the proper global size so the livepass handler can use the assigned chunk as input for range mappers
-		const auto ctsk = std::static_pointer_cast<const compute_task>(queue.get_task(pkg.tid));
+		const auto ctsk = std::static_pointer_cast<const compute_task>(task_mngr.get_task(pkg.tid));
 		const auto dimensions = ctsk->get_dimensions();
 		auto gs = ctsk->get_global_size();
 		auto& cmd_sr = pkg.data.compute.subrange;
@@ -171,7 +180,7 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 	return false;
 }
 
-job_set master_access_job::find_dependencies(const distr_queue& queue, const job_set& jobs) {
+job_set master_access_job::find_dependencies(const detail::task_manager& tm, const job_set& jobs) {
 	job_set dependencies;
 	for(auto& job : jobs) {
 		if(job->get_type() == command::AWAIT_PUSH) {
@@ -181,7 +190,7 @@ job_set master_access_job::find_dependencies(const distr_queue& queue, const job
 		// Note that typically this can only be master accesses, while all compute jobs run on worker nodes,
 		// thus always requiring a transfer.
 		if(job->get_type() == command::MASTER_ACCESS || job->get_type() == command::COMPUTE) {
-			if(queue.has_dependency(get_task_id(), job->get_task_id())) { dependencies.insert(job); }
+			if(tm.has_dependency(get_task_id(), job->get_task_id())) { dependencies.insert(job); }
 		}
 	}
 
@@ -193,7 +202,9 @@ std::pair<job_type, std::string> master_access_job::get_description(const comman
 }
 
 bool master_access_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
-	runtime::get_instance().execute_master_access_task(pkg.tid);
+	const auto tsk = dynamic_cast<const master_access_task*>(task_mngr.get_task(pkg.tid).get());
+	master_access_livepass_handler handler;
+	tsk->get_functor()(handler);
 	return true;
 }
 

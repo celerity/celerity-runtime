@@ -1,9 +1,9 @@
 #include "distr_queue.h"
 
+#include <boost/algorithm/string.hpp>
 #include <ccto/ccto.h>
 #include <spdlog/fmt/fmt.h>
 
-#include "graph_utils.h"
 #include "logger.h"
 #include "runtime.h"
 
@@ -128,7 +128,6 @@ distr_queue::distr_queue(cl::sycl::device& device) {
 }
 
 void distr_queue::init(cl::sycl::device* device_ptr) {
-	runtime::get_instance().register_queue(this);
 	auto logger = runtime::get_instance().get_logger();
 
 	cl::sycl::device device;
@@ -160,60 +159,17 @@ void distr_queue::init(cl::sycl::device* device_ptr) {
 	if(ocl_profiling_enabled) { props.push_back(std::make_shared<cl::sycl::property::queue::enable_profiling>()); }
 	sycl_queue = std::make_unique<cl::sycl::queue>(device, handle_async_exceptions, props);
 	ccto::initialize(*sycl_queue);
+
+	runtime::get_instance().startup(this);
+	assert(task_mngr != nullptr);
 }
 
 distr_queue::~distr_queue() {
+	runtime::get_instance().shutdown();
+
 	sycl_queue->wait_and_throw();
 	runtime::get_instance().free_buffers();
 	ccto::terminate();
-}
-
-void distr_queue::mark_task_as_processed(task_id tid) {
-	graph_utils::mark_as_processed(tid, task_graph);
-}
-
-task_id distr_queue::add_task(std::shared_ptr<task> tsk) {
-	const task_id tid = task_count++;
-	task_map[tid] = tsk;
-	boost::add_vertex(task_graph);
-	task_graph[tid].label = fmt::format("Task {}", static_cast<size_t>(tid));
-	return tid;
-}
-
-void distr_queue::add_requirement(task_id tid, buffer_id bid, cl::sycl::access::mode mode, std::unique_ptr<detail::range_mapper_base> rm) {
-	assert(task_map.count(tid) != 0);
-	assert(task_map[tid]->get_type() == task_type::COMPUTE);
-	dynamic_cast<compute_task*>(task_map[tid].get())->add_range_mapper(bid, std::move(rm));
-	update_dependencies(tid, bid, mode);
-}
-
-void distr_queue::add_requirement(task_id tid, buffer_id bid, cl::sycl::access::mode mode, cl::sycl::range<3> range, cl::sycl::id<3> offset) {
-	assert(task_map.count(tid) != 0);
-	assert(task_map[tid]->get_type() == task_type::MASTER_ACCESS);
-	dynamic_cast<master_access_task*>(task_map[tid].get())->add_buffer_access(bid, mode, range, offset);
-	update_dependencies(tid, bid, mode);
-}
-
-void distr_queue::set_task_data(task_id tid, int dimensions, cl::sycl::range<3> global_size, std::string debug_name) {
-	assert(task_map.count(tid) != 0);
-	assert(task_map[tid]->get_type() == task_type::COMPUTE);
-	auto ctsk = dynamic_cast<compute_task*>(task_map[tid].get());
-	ctsk->set_dimensions(dimensions);
-	ctsk->set_global_size(global_size);
-	task_graph[tid].label = fmt::format("{} ({})", task_graph[tid].label, debug_name);
-}
-
-void distr_queue::update_dependencies(task_id tid, buffer_id bid, cl::sycl::access::mode mode) {
-	// TODO: Check if edge already exists (avoid double edges)
-	// TODO: If we have dependencies "A -> B, B -> C, A -> C", we could get rid of
-	// "A -> C", as it is transitively implicit in "B -> C".
-	if(mode == cl::sycl::access::mode::read) {
-		if(buffer_last_writer.find(bid) != buffer_last_writer.end()) {
-			boost::add_edge(buffer_last_writer[bid], tid, task_graph);
-			task_graph[tid].num_unsatisfied++;
-		}
-	}
-	if(mode == cl::sycl::access::mode::write) { buffer_last_writer[bid] = tid; }
 }
 
 void distr_queue::handle_async_exceptions(cl::sycl::exception_list el) {
@@ -225,16 +181,6 @@ void distr_queue::handle_async_exceptions(cl::sycl::exception_list el) {
 			runtime::get_instance().get_logger()->error("SYCL asynchronous exception: {}", e.what());
 		}
 	}
-}
-
-bool distr_queue::has_dependency(task_id task_a, task_id task_b) const {
-	// TODO: Use DFS instead?
-	bool found = false;
-	graph_utils::search_vertex_bf(static_cast<tdag_vertex>(task_b), task_graph, [&found, task_a](tdag_vertex v, const task_dag&) {
-		if(v == task_a) { found = true; }
-		return found;
-	});
-	return found;
 }
 
 } // namespace celerity

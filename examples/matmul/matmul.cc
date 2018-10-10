@@ -152,9 +152,6 @@ int main(int argc, char* argv[]) {
 #endif
 			});
 		});
-
-		celerity::runtime::get_instance().TEST_do_work();
-
 	} catch(std::exception& e) {
 		std::cerr << "Exception: " << e.what() << std::endl;
 		return EXIT_FAILURE;

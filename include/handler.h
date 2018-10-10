@@ -1,6 +1,5 @@
 #pragma once
 
-#include <functional>
 #include <regex>
 #include <string>
 
@@ -15,6 +14,10 @@
 #include "types.h"
 
 namespace celerity {
+
+namespace detail {
+	class task_manager;
+}
 
 class distr_queue;
 
@@ -37,14 +40,14 @@ class compute_prepass_handler {
 	~compute_prepass_handler();
 
   private:
-	friend class distr_queue;
-	distr_queue& queue;
+	friend class detail::task_manager;
+	detail::task_manager& task_mngr;
 	task_id tid;
 	std::string debug_name;
 	int dimensions = 0;
 	cl::sycl::range<3> global_size;
 
-	compute_prepass_handler(distr_queue& q, task_id tid) : queue(q), tid(tid) { debug_name = fmt::format("task{}", static_cast<size_t>(tid)); }
+	compute_prepass_handler(detail::task_manager& tm, task_id tid) : task_mngr(tm), tid(tid) { debug_name = fmt::format("task{}", static_cast<size_t>(tid)); }
 };
 
 class compute_livepass_handler {
@@ -107,16 +110,15 @@ class compute_livepass_handler {
 	friend class distr_queue;
 	using any_chunk = boost::variant<chunk<1>, chunk<2>, chunk<3>>;
 
-	distr_queue& queue;
 	cl::sycl::handler* sycl_handler;
 	task_id tid;
-	std::shared_ptr<compute_task> task;
+	std::shared_ptr<const compute_task> task;
 	any_chunk achnk;
 
 	// The handler does not take ownership of the sycl_handler, but expects it to
 	// exist for the duration of it's lifetime.
-	compute_livepass_handler(distr_queue& q, task_id tid, std::shared_ptr<compute_task> task, any_chunk achnk, cl::sycl::handler* sycl_handler)
-	    : queue(q), sycl_handler(sycl_handler), tid(tid), task(task), achnk(achnk) {}
+	compute_livepass_handler(task_id tid, std::shared_ptr<const compute_task> task, any_chunk achnk, cl::sycl::handler* sycl_handler)
+	    : sycl_handler(sycl_handler), tid(tid), task(task), achnk(achnk) {}
 
 	template <int BufferDims>
 	subrange<BufferDims> apply_range_mapper(const detail::range_mapper_base& rm) const;
@@ -154,22 +156,26 @@ inline subrange<3> compute_livepass_handler::apply_range_mapper(const detail::ra
 
 class master_access_prepass_handler {
   public:
-	master_access_prepass_handler(distr_queue& queue, task_id tid) : queue(queue), tid(tid) {}
+	master_access_prepass_handler(detail::task_manager& tm, task_id tid) : task_mngr(tm), tid(tid) {}
 
-	void run(std::function<void()> fun) const {
+	template <typename MAF>
+	void run(MAF maf) const {
 		// nop
 	}
 
 	void require(cl::sycl::access::mode mode, buffer_id bid, cl::sycl::range<3> range, cl::sycl::id<3> offset) const;
 
   private:
-	distr_queue& queue;
+	detail::task_manager& task_mngr;
 	task_id tid;
 };
 
 class master_access_livepass_handler {
   public:
-	void run(std::function<void()> fun) const { fun(); }
+	template <typename MAF>
+	void run(MAF maf) const {
+		maf();
+	}
 };
 
 } // namespace celerity

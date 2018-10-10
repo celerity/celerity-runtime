@@ -13,8 +13,12 @@
 
 namespace celerity {
 
-class distr_queue;
+namespace detail {
+	class executor;
+	class task_manager;
+} // namespace detail
 
+class distr_queue;
 class worker_job;
 using job_set = std::unordered_set<std::shared_ptr<worker_job>>;
 
@@ -29,7 +33,7 @@ class worker_job {
 
 	virtual ~worker_job() = default;
 
-	void initialize(const distr_queue& queue, const job_set& jobs) { dependencies = find_dependencies(queue, jobs); }
+	void initialize(const detail::task_manager& tm, const job_set& jobs) { dependencies = find_dependencies(tm, jobs); }
 
 	void update();
 
@@ -55,7 +59,7 @@ class worker_job {
 	std::chrono::microseconds::rep bench_min = std::numeric_limits<std::chrono::microseconds::rep>::max();
 	std::chrono::microseconds::rep bench_max = std::numeric_limits<std::chrono::microseconds::rep>::min();
 
-	virtual job_set find_dependencies(const distr_queue& queue, const job_set& jobs) { return job_set(); }
+	virtual job_set find_dependencies(const detail::task_manager& tm, const job_set& jobs) { return job_set(); }
 	virtual bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) = 0;
 
 	/**
@@ -89,7 +93,7 @@ class await_push_job : public worker_job {
 	 * NOTE: This needs a bit more investigation, however it may very well be that this type of race condition can also occur for compute tasks.
 	 * FIXME: Get rid of this hack, solve at command graph level
 	 */
-	job_set find_dependencies(const distr_queue& queue, const job_set& jobs) override {
+	job_set find_dependencies(const detail::task_manager& tm, const job_set& jobs) override {
 		job_set dependencies;
 		for(auto& job : jobs) {
 			if(job->get_type() == command::MASTER_ACCESS && job->get_task_id() < get_task_id()) { dependencies.insert(job); }
@@ -116,7 +120,7 @@ class push_job : public worker_job {
 	buffer_transfer_manager& btm;
 	std::shared_ptr<const buffer_transfer_manager::transfer_handle> data_handle = nullptr;
 
-	job_set find_dependencies(const distr_queue& queue, const job_set& jobs) override;
+	job_set find_dependencies(const detail::task_manager& tm, const job_set& jobs) override;
 
 	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
 	std::pair<job_type, std::string> get_description(const command_pkg& pkg) override;
@@ -131,16 +135,18 @@ class push_job : public worker_job {
  */
 class compute_job : public worker_job {
   public:
-	compute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, distr_queue& queue) : worker_job(pkg, job_logger), queue(queue) {
+	compute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, distr_queue& queue, detail::task_manager& tm)
+	    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm) {
 		assert(pkg.cmd == command::COMPUTE);
 	}
 
   private:
 	distr_queue& queue;
+	detail::task_manager& task_mngr;
 	cl::sycl::event event;
 	bool submitted = false;
 
-	job_set find_dependencies(const distr_queue& queue, const job_set& jobs) override;
+	job_set find_dependencies(const detail::task_manager& tm, const job_set& jobs) override;
 
 	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
 	std::pair<job_type, std::string> get_description(const command_pkg& pkg) override;
@@ -152,10 +158,13 @@ class compute_job : public worker_job {
  */
 class master_access_job : public worker_job {
   public:
-	master_access_job(command_pkg pkg, std::shared_ptr<logger> job_logger) : worker_job(pkg, job_logger) { assert(pkg.cmd == command::MASTER_ACCESS); }
+	master_access_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::task_manager& tm) : worker_job(pkg, job_logger), task_mngr(tm) {
+		assert(pkg.cmd == command::MASTER_ACCESS);
+	}
 
   private:
-	job_set find_dependencies(const distr_queue& queue, const job_set& jobs) override;
+	detail::task_manager& task_mngr;
+	job_set find_dependencies(const detail::task_manager& tm, const job_set& jobs) override;
 
 	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
 	std::pair<job_type, std::string> get_description(const command_pkg& pkg) override;

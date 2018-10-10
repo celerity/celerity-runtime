@@ -7,6 +7,7 @@
 #include "distr_queue.h"
 #include "graph_builder.h"
 #include "graph_utils.h"
+#include "logger.h"
 
 namespace celerity {
 namespace detail {
@@ -29,11 +30,10 @@ namespace detail {
 		return std::make_pair(begin_task_cmd_v, end_task_cmd_v);
 	}
 
-	graph_generator::graph_generator(size_t num_nodes) : num_nodes(num_nodes) {
+	graph_generator::graph_generator(size_t num_nodes, task_manager& tm, flush_callback flush_callback)
+	    : num_nodes(num_nodes), task_mngr(tm), flush_cb(flush_callback) {
 		register_transformer(std::make_shared<naive_split_transformer>(num_nodes > 1 ? num_nodes - 1 : 1));
 	}
-
-	void graph_generator::set_queue(distr_queue* queue) { this->queue = queue; }
 
 	void graph_generator::add_buffer(buffer_id bid, const cl::sycl::range<3>& range) {
 		// FIXME: We don't need to initialize buffer states for tasks that don't use this buffer
@@ -45,18 +45,14 @@ namespace detail {
 
 	void graph_generator::register_transformer(std::shared_ptr<graph_transformer> gt) { transformers.push_back(gt); }
 
-	void graph_generator::build_task() {
-		assert(queue != nullptr);
-		const auto& task_graph = queue->get_task_graph();
-		auto otid = graph_utils::get_satisfied_task(task_graph);
-		if(!otid) return;
-		const task_id tid = *otid;
+	void graph_generator::build_task(task_id tid) {
+		// TODO: Maybe assert that this task hasn't been processed before
 		graph_builder gb(command_graph);
 
 		cdag_vertex begin_task_cmd_v, end_task_cmd_v;
-		std::tie(begin_task_cmd_v, end_task_cmd_v) = create_task_commands(task_graph, command_graph, gb, tid);
+		std::tie(begin_task_cmd_v, end_task_cmd_v) = create_task_commands(*task_mngr.get_task_graph(), command_graph, gb, tid);
 
-		auto tsk = queue->get_task(tid);
+		auto tsk = task_mngr.get_task(tid);
 		if(tsk->get_type() == task_type::COMPUTE) {
 			const node_id compute_node = 1 % num_nodes;
 			const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
@@ -81,12 +77,45 @@ namespace detail {
 		// TODO: At some point we might want to do this also before calling transformers
 		// --> So that more advanced transformations can also take data transfers into account
 		process_task_data_requirements(tid);
-		queue->mark_task_as_processed(tid);
+		task_mngr.mark_task_as_processed(tid);
 	}
 
-	bool graph_generator::has_unbuilt_tasks() const {
-		// TODO: It's not ideal that we're wasting this result
-		return !!graph_utils::get_satisfied_task(queue->get_task_graph());
+	boost::optional<task_id> graph_generator::get_unbuilt_task() const { return graph_utils::get_satisfied_task(*task_mngr.get_task_graph()); }
+
+	void graph_generator::flush(task_id tid) const {
+		const auto& tv = GRAPH_PROP(command_graph, task_vertices).at(tid);
+		std::queue<cdag_vertex> cmd_queue;
+		std::unordered_set<cdag_vertex> queued_cmds;
+		cmd_queue.push(tv.first);
+		queued_cmds.insert(tv.first);
+
+		while(!cmd_queue.empty()) {
+			const cdag_vertex v = cmd_queue.front();
+			cmd_queue.pop();
+			auto& cmd_v = command_graph[v];
+			if(cmd_v.cmd != command::NOP) {
+				const command_pkg pkg{cmd_v.tid, cmd_v.cid, cmd_v.cmd, cmd_v.data};
+				const node_id target = cmd_v.nid;
+				flush_cb(target, pkg);
+			}
+
+			// NOTE: This assumes that we have no inter-task command dependencies!
+			graph_utils::for_successors(command_graph, v, [tv, &queued_cmds, &cmd_queue](cdag_vertex s) {
+				if(s != tv.second && queued_cmds.count(s) == 0) {
+					cmd_queue.push(s);
+					queued_cmds.insert(s);
+				}
+				return true;
+			});
+		}
+	}
+
+	void graph_generator::print_graph(std::shared_ptr<logger>& graph_logger) {
+		if(command_graph.m_vertices.size() < 200) {
+			graph_utils::print_graph(command_graph, graph_logger);
+		} else {
+			graph_logger->warn("Command graph is very large ({} vertices). Skipping GraphViz output", command_graph.m_vertices.size());
+		}
 	}
 
 	using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<3>>>;
@@ -136,7 +165,7 @@ namespace detail {
 		// Since walking the graph doesn't guarantee this, we have to manually sort the predecessors by task id first.
 		std::vector<task_id> predecessors;
 		graph_utils::for_predecessors(
-		    queue->get_task_graph(), static_cast<tdag_vertex>(tid), [&](tdag_vertex v) { predecessors.push_back(static_cast<task_id>(v)); });
+		    *task_mngr.get_task_graph(), static_cast<tdag_vertex>(tid), [&](tdag_vertex v) { predecessors.push_back(static_cast<task_id>(v)); });
 		std::sort(predecessors.begin(), predecessors.end());
 
 		for(const auto t : predecessors) {
@@ -153,7 +182,7 @@ namespace detail {
 		buffer_state_map final_buffer_states = initial_buffer_states;
 
 		graph_builder gb(command_graph);
-		auto tsk = queue->get_task(tid);
+		auto tsk = task_mngr.get_task(tid);
 		graph_utils::for_successors(command_graph, GRAPH_PROP(command_graph, task_vertices)[tid].first, [&](cdag_vertex v) {
 			// Work on a copy of the buffer states to ensure parallel commands don't affect each other
 			buffer_state_map working_buffer_states = initial_buffer_states;

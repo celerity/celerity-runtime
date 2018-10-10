@@ -15,7 +15,8 @@ void buffer_transfer_manager::poll() {
 void buffer_transfer_manager::poll_transfers() {
 	MPI_Status status;
 	int flag;
-	MPI_Iprobe(MPI_ANY_SOURCE, CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &flag, &status);
+	MPI_Message msg;
+	MPI_Improbe(MPI_ANY_SOURCE, CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &flag, &msg, &status);
 	if(flag == 0) {
 		// No incoming transfers at the moment
 		return;
@@ -40,7 +41,7 @@ void buffer_transfer_manager::poll_transfers() {
 	transfer->data_type = transfer_data_type;
 
 	// Start receiving data
-	MPI_Irecv(MPI_BOTTOM, 1, transfer_data_type, status.MPI_SOURCE, CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &transfer->request);
+	MPI_Imrecv(MPI_BOTTOM, 1, transfer_data_type, &msg, &transfer->request);
 	incoming_transfers.push_back(std::move(transfer));
 
 	transfer_logger->info("Receiving incoming data of size {} from {}", data_size, status.MPI_SOURCE);

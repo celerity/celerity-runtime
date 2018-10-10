@@ -1,7 +1,10 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <vector>
+
+#include <boost/optional.hpp>
 
 #include "buffer_state.h"
 #include "graph.h"
@@ -12,41 +15,45 @@
 
 namespace celerity {
 
-class distr_queue;
+class logger;
 
 namespace detail {
 
-	using buffer_state_map = std::unordered_map<buffer_id, std::shared_ptr<buffer_state>>;
-
+	class task_manager;
 	class graph_builder;
 
 	std::pair<cdag_vertex, cdag_vertex> create_task_commands(const task_dag& task_graph, command_dag& command_graph, graph_builder& gb, task_id tid);
 
 	class graph_generator {
+		using buffer_state_map = std::unordered_map<buffer_id, std::shared_ptr<buffer_state>>;
+		using flush_callback = std::function<void(node_id, command_pkg)>;
+
 	  public:
 		/**
 		 * @param num_nodes Number of CELERITY nodes, including the master node.
+		 * @param tm
+		 * @param flush_cb Callback invoked for each command that is being flushed
 		 */
-		graph_generator(size_t num_nodes);
-
-		void set_queue(distr_queue* queue);
+		graph_generator(size_t num_nodes, task_manager& tm, flush_callback flush_cb);
 
 		void add_buffer(buffer_id bid, const cl::sycl::range<3>& range);
 
 		void register_transformer(std::shared_ptr<graph_transformer> gt);
 
 		// Build the commands for a single task
-		void build_task();
+		void build_task(task_id tid);
 
-		bool has_unbuilt_tasks() const;
+		boost::optional<task_id> get_unbuilt_task() const;
 
-		// FIXME: Currently used for debug graph printing and distributing commands - both of which should be handled internally
-		const command_dag& get_command_graph() const { return command_graph; }
+		void flush(task_id tid) const;
+
+		void print_graph(std::shared_ptr<logger>& graph_logger);
 
 	  private:
-		distr_queue* queue = nullptr;
+		task_manager& task_mngr;
 		const size_t num_nodes;
 		command_dag command_graph;
+		flush_callback flush_cb;
 
 		// This is a data structure which encodes where (= on which node) valid
 		// regions of a buffer can be found after a task has been completed.
