@@ -79,11 +79,10 @@ TEST_CASE("graph_builder correctly splits commands", "[graph_builder]") {
 	compare_cmd_subrange(second_data.data.compute.subrange, {128, 256, 0}, {128, 256, 1});
 }
 
-// NOTE: It's not ideal that we only run this test in debug builds, but the check is also only done in debug builds
-#ifdef NDEBUG
-std::cerr << "NOTE: Some tests only run in debug builds" << std::endl;
-#else
 TEST_CASE("graph_builder throws if split chunks don't add up to original chunk") {
+#ifdef NDEBUG
+	std::cerr << "NOTE: Some tests only run in debug builds" << std::endl;
+#else
 	task_dag tdag;
 	boost::add_vertex(tdag);
 	tdag[0].label = "Foo Task";
@@ -105,7 +104,7 @@ TEST_CASE("graph_builder throws if split chunks don't add up to original chunk")
 	const std::vector<chunk<3>> split_chunks = {first_chunk, second_chunk};
 	const std::vector<node_id> nodes = {3, 5};
 	REQUIRE_THROWS_WITH(gb.split_command(compute_cid, split_chunks, nodes), Catch::Equals("Invalid split"));
-}
 #endif
+}
 
 } // namespace celerity
