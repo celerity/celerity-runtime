@@ -52,26 +52,43 @@ class compute_prepass_handler {
 	cl::sycl::range<3> global_size;
 };
 
+namespace detail {
+	template <class Name>
+	class wrapped_kernel_name {};
+
+	static size_t get_forced_work_group_size() {
+		static bool memoized = false;
+		static size_t value = 0;
+		if(!memoized) {
+			memoized = true;
+			const auto env = getenv("CELERITY_FORCE_WG");
+			if(env != nullptr) { value = std::atoll(env); }
+		}
+		return value;
+	}
+} // namespace detail
+
 class compute_livepass_handler {
   public:
 	template <typename Name, typename Functor, int Dims>
-	void parallel_for(cl::sycl::range<Dims> global_size, const Functor& kernel) {
+	void parallel_for(cl::sycl::range<Dims> global_size, Functor kernel) {
 		parallel_for<Name, Functor, Dims>(global_size, cl::sycl::id<Dims>(), kernel);
 	}
 
 	template <typename Name, typename Functor, int Dims>
-	void parallel_for(cl::sycl::range<Dims>, cl::sycl::id<Dims>, const Functor& kernel) {
-		switch(Dims) {
-		case 0: {
-			sycl_handler->parallel_for<Name>(cl::sycl::range<1>(sr.range), cl::sycl::id<1>(sr.offset), kernel);
-		} break;
-		case 1: {
-			sycl_handler->parallel_for<Name>(cl::sycl::range<2>(sr.range), cl::sycl::id<2>(sr.offset), kernel);
-		} break;
-		case 2: {
-			sycl_handler->parallel_for<Name>(cl::sycl::range<3>(sr.range), cl::sycl::id<3>(sr.offset), kernel);
-		} break;
-		default: assert(false);
+	void parallel_for(cl::sycl::range<Dims>, cl::sycl::id<Dims>, Functor kernel) {
+		// This is a workaround until we get proper nd_item overloads for parallel_for into the API.
+		const size_t forced_wg_size = detail::get_forced_work_group_size();
+		if(forced_wg_size == 0) {
+			sycl_handler->parallel_for<Name>(sr.range, sr.offset, kernel);
+		} else {
+			const auto nd_range = cl::sycl::nd_range<3>(sr.range, {forced_wg_size, Dims > 1 ? forced_wg_size : 1, Dims == 3 ? forced_wg_size : 1}, sr.offset);
+			sycl_handler->parallel_for<detail::wrapped_kernel_name<Name>>(nd_range, [=, sr = this->sr](cl::sycl::nd_item<3> nd_item) {
+				const auto item_base = cl::sycl::detail::item_base(static_cast<cl::sycl::detail::index_array>(nd_item.get_global_id()),
+				    static_cast<cl::sycl::detail::index_array>(sr.range), static_cast<cl::sycl::detail::index_array>(sr.offset));
+				const auto item = cl::sycl::item<3, true>(item_base);
+				kernel(item);
+			});
 		}
 	}
 

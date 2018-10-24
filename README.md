@@ -6,10 +6,10 @@ The CELERITY distributed runtime implementation.
 
 * [Boost](http://www.boost.org) (tested with version 1.66.0)
 * The [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp)
-  runtime (tested with version 0.8.0)
-* A MPI 2 implementation
+  runtime (tested with version 1.0.2)
+* A MPI 2 implementation (tested with OpenMPI 3.0 and MSMPI 10.0)
 * [CMake](https://www.cmake.org)
-* A C++14 compiler
+* A C++14 compiler (tested with MSVC 14, gcc 7 and Clang 6)
 
 ### Automatically Downloaded Dependencies
 
@@ -36,6 +36,8 @@ the `CELERITY_BUILD_EXAMPLES` CMake option is set (true by default).
 * `CELERITY_DEVICES` can be used to assign different compute devices to CELERITY
   nodes on a single host. The syntax is as follows:
   `CELERITY_DEVICES="<platform_id> <first device_id> <second device_id> ... <nth device_id>"`.
+* `CELERITY_FORCE_WG=<work_group_size>` can be used to force a particular work
+   group size for *every kernel* and *every dimension*.
 * `CELERITY_PROFILE_OCL` controls whether OpenCL-level profiling information
   should be used or not.
 
