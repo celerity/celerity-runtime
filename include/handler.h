@@ -53,7 +53,7 @@ class compute_prepass_handler {
 };
 
 namespace detail {
-	template <class Name>
+	template <class Name, bool NdRange>
 	class wrapped_kernel_name {};
 
 	static size_t get_forced_work_group_size() {
@@ -79,13 +79,25 @@ class compute_livepass_handler {
 	void parallel_for(cl::sycl::range<Dims>, cl::sycl::id<Dims>, Functor kernel) {
 		// This is a workaround until we get proper nd_item overloads for parallel_for into the API.
 		const size_t forced_wg_size = detail::get_forced_work_group_size();
+
+		// As of ComputeCpp 1.0.2 the PTX backend has problems with kernel invocations that have an offset.
+		// See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-98 (psalz).
+		// To work around this, instead of passing an offset to SYCL, we simply add it to the item that is passed to the kernel.
+		const cl::sycl::id<3> ptx_workaround_offset = {};
+
 		if(forced_wg_size == 0) {
-			sycl_handler->parallel_for<Name>(sr.range, sr.offset, kernel);
+			sycl_handler->parallel_for<detail::wrapped_kernel_name<Name, false>>(sr.range, ptx_workaround_offset, [=, sr = this->sr](cl::sycl::item<3> item) {
+				const cl::sycl::id<3> ptx_workaround_id = item.get_id() + sr.offset;
+				const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ptx_workaround_offset);
+				const auto offset_item = cl::sycl::item<3, true>(item_base);
+				kernel(offset_item);
+			});
 		} else {
-			const auto nd_range = cl::sycl::nd_range<3>(sr.range, {forced_wg_size, Dims > 1 ? forced_wg_size : 1, Dims == 3 ? forced_wg_size : 1}, sr.offset);
-			sycl_handler->parallel_for<detail::wrapped_kernel_name<Name>>(nd_range, [=, sr = this->sr](cl::sycl::nd_item<3> nd_item) {
-				const auto item_base = cl::sycl::detail::item_base(static_cast<cl::sycl::detail::index_array>(nd_item.get_global_id()),
-				    static_cast<cl::sycl::detail::index_array>(sr.range), static_cast<cl::sycl::detail::index_array>(sr.offset));
+			const auto nd_range =
+			    cl::sycl::nd_range<3>(sr.range, {forced_wg_size, Dims > 1 ? forced_wg_size : 1, Dims == 3 ? forced_wg_size : 1}, ptx_workaround_offset);
+			sycl_handler->parallel_for<detail::wrapped_kernel_name<Name, true>>(nd_range, [=, sr = this->sr](cl::sycl::nd_item<3> nd_item) {
+				const cl::sycl::id<3> ptx_workaround_id = nd_item.get_global_id() + sr.offset;
+				const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ptx_workaround_offset);
 				const auto item = cl::sycl::item<3, true>(item_base);
 				kernel(item);
 			});
