@@ -339,20 +339,21 @@ TEST_CASE("task_manager keeps track of task processing status", "[task_manager]"
 TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][compute_task]") {
 	detail::task_manager tm;
 	test_utils::mock_buffer_factory mbf(&tm);
-	auto buf_a = mbf.create_buffer(cl::sycl::range<2>(30, 40));
+	auto buf_a = mbf.create_buffer(cl::sycl::range<2>(64, 152));
 	auto buf_b = mbf.create_buffer(cl::sycl::range<3>(7, 21, 99));
 	const auto tid = test_utils::add_compute_task(
 	    tm,
 	    [&](auto& cgh) {
-		    buf_a.get_access<cl::sycl::access::mode::read>(cgh, access::fixed<2, 2>(subrange<2>({}, {12, 33})));
+		    buf_a.get_access<cl::sycl::access::mode::read>(cgh, access::one_to_one<2>());
 		    buf_b.get_access<cl::sycl::access::mode::discard_read_write>(cgh, access::fixed<2, 3>(subrange<3>({}, {5, 18, 74})));
 	    },
-	    cl::sycl::range<2>{32, 128});
+	    cl::sycl::range<2>{32, 128}, cl::sycl::id<2>{32, 24});
 	const auto tsk = tm.get_task(tid);
 	REQUIRE(tsk->get_type() == task_type::COMPUTE);
 	const auto ctsk = dynamic_cast<const detail::compute_task*>(tsk.get());
 	REQUIRE(ctsk->get_dimensions() == 2);
 	REQUIRE(ctsk->get_global_size() == cl::sycl::range<3>{32, 128, 1});
+	REQUIRE(ctsk->get_global_offset() == cl::sycl::id<3>{32, 24, 0});
 
 	const auto bufs = ctsk->get_accessed_buffers();
 	REQUIRE(bufs.size() == 2);
@@ -360,9 +361,10 @@ TEST_CASE("task_manager correctly records compute task information", "[task_mana
 	REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_b.get_id()) != bufs.cend());
 	REQUIRE(ctsk->get_access_modes(buf_a.get_id()).count(cl::sycl::access::mode::read) == 1);
 	REQUIRE(ctsk->get_access_modes(buf_b.get_id()).count(cl::sycl::access::mode::discard_read_write) == 1);
-	const auto reqs_a = ctsk->get_requirements(buf_a.get_id(), cl::sycl::access::mode::read, {});
-	REQUIRE(reqs_a == detail::subrange_to_grid_region(subrange<3>({}, {12, 33, 1})));
-	const auto reqs_b = ctsk->get_requirements(buf_b.get_id(), cl::sycl::access::mode::discard_read_write, {});
+	const auto reqs_a = ctsk->get_requirements(buf_a.get_id(), cl::sycl::access::mode::read, {ctsk->get_global_offset(), ctsk->get_global_size()});
+	REQUIRE(reqs_a == detail::subrange_to_grid_region(subrange<3>({32, 24, 0}, {32, 128, 1})));
+	const auto reqs_b =
+	    ctsk->get_requirements(buf_b.get_id(), cl::sycl::access::mode::discard_read_write, {ctsk->get_global_offset(), ctsk->get_global_size()});
 	REQUIRE(reqs_b == detail::subrange_to_grid_region(subrange<3>({}, {5, 18, 74})));
 }
 

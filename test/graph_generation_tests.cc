@@ -588,6 +588,34 @@ TEST_CASE("graph_generator doesn't generate data transfer commands for the same 
 	}
 }
 
+// Currently fails as this optimization is NYI and the test just exists for documentation purposes.
+TEST_CASE("graph_generator consolidates PUSH commands for adjacent subranges", "[graph_generator][command-graph][!shouldfail]") {
+	using namespace cl::sycl::access;
+
+	detail::task_manager tm;
+	cdag_inspector inspector;
+
+	detail::graph_generator ggen(2, tm, inspector.get_cb());
+	test_utils::mock_buffer_factory mbf(&tm, &ggen);
+	auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
+
+	const auto tid_a = build_and_flush(
+	    ggen, test_utils::add_compute_task<class task_a>(
+	              tm, [&](auto& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{64}, cl::sycl::id<1>{0}));
+	CHECK(inspector.get_commands(tid_a, boost::none, command::COMPUTE).size() == 1);
+
+	const auto tid_b = build_and_flush(
+	    ggen, test_utils::add_compute_task<class task_b>(
+	              tm, [&](auto& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{64}, cl::sycl::id<1>{64}));
+	CHECK(inspector.get_commands(tid_b, boost::none, command::COMPUTE).size() == 1);
+
+	const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<mode::read>(mah, 128); }));
+	REQUIRE(inspector.get_commands(tid_c, node_id(1), command::PUSH).size() == 1);
+
+	maybe_print_graph(tm);
+	maybe_print_graph(ggen);
+}
+
 TEST_CASE("graph_generator generates dependencies for PUSH commands", "[graph_generator][command-graph]") {
 	using namespace cl::sycl::access;
 

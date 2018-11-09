@@ -75,7 +75,8 @@ namespace detail {
 			const node_id compute_node = 1 % num_nodes;
 			const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
 			const auto global_size = ctsk->get_global_size();
-			const auto chnk = chunk<3>(cl::sycl::id<3>(), global_size, global_size);
+			const auto global_offset = ctsk->get_global_offset();
+			const auto chnk = chunk<3>(global_offset, global_size, global_size);
 			command_data data{};
 			data.compute.subrange = command_subrange(chnk);
 			gb.add_command(begin_task_cmd_v, end_task_cmd_v, compute_node, tid, command::COMPUTE, data);

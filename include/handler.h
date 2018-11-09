@@ -25,9 +25,15 @@ class compute_prepass_handler {
 	compute_prepass_handler(detail::compute_task& task) : task(task) { debug_name = fmt::format("task{}", task.get_id()); }
 
 	template <typename Name, typename Functor, int Dims>
-	void parallel_for(cl::sycl::range<Dims> global_size, const Functor&) {
+	void parallel_for(cl::sycl::range<Dims> global_size, const Functor& kernel) {
+		parallel_for<Name, Functor, Dims>(global_size, cl::sycl::id<Dims>(), kernel);
+	}
+
+	template <typename Name, typename Functor, int Dims>
+	void parallel_for(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, const Functor&) {
 		task.set_dimensions(Dims);
 		task.set_global_size(cl::sycl::range<3>(global_size));
+		task.set_global_offset(cl::sycl::id<3>(global_offset));
 
 		// DEBUG: Find nice name for kernel (regex is probably not super portable)
 		auto qualified_name = boost::typeindex::type_id<Name*>().pretty_name();
@@ -49,7 +55,12 @@ class compute_prepass_handler {
 class compute_livepass_handler {
   public:
 	template <typename Name, typename Functor, int Dims>
-	void parallel_for(cl::sycl::range<Dims>, const Functor& kernel) {
+	void parallel_for(cl::sycl::range<Dims> global_size, const Functor& kernel) {
+		parallel_for<Name, Functor, Dims>(global_size, cl::sycl::id<Dims>(), kernel);
+	}
+
+	template <typename Name, typename Functor, int Dims>
+	void parallel_for(cl::sycl::range<Dims>, cl::sycl::id<Dims>, const Functor& kernel) {
 		switch(Dims) {
 		case 0: {
 			sycl_handler->parallel_for<Name>(cl::sycl::range<1>(sr.range), cl::sycl::id<1>(sr.offset), kernel);

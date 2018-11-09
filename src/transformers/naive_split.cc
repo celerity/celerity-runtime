@@ -16,7 +16,7 @@ namespace detail {
 		assert(num_chunks > 0);
 		chunk<1> chnk;
 		chnk.global_size = full_chunk.global_size;
-		chnk.offset = cl::sycl::range<1>(0);
+		chnk.offset = full_chunk.offset;
 		chnk.range = cl::sycl::range<1>(full_chunk.range.size() / num_chunks);
 
 		std::vector<chunk<3>> result;
@@ -31,13 +31,13 @@ namespace detail {
 	// We simply split by row for now
 	// TODO: There's other ways to split in 2D as well.
 	std::vector<chunk<3>> split_equal(const chunk<2>& full_chunk, size_t num_chunks) {
-		const auto rows = split_equal(
-		    chunk<1>{cl::sycl::range<1>(full_chunk.offset[0]), cl::sycl::range<1>(full_chunk.range[0]), cl::sycl::range<1>(full_chunk.global_size[0])},
-		    num_chunks);
+		const auto rows =
+		    split_equal(chunk<1>{cl::sycl::id<1>(full_chunk.offset[0]), cl::sycl::range<1>(full_chunk.range[0]), cl::sycl::range<1>(full_chunk.global_size[0])},
+		        num_chunks);
 		std::vector<chunk<3>> result;
 		for(auto& row : rows) {
-			result.push_back(chunk<2>{
-			    cl::sycl::range<2>(row.offset[0], full_chunk.offset[1]), cl::sycl::range<2>(row.range[0], full_chunk.range[1]), full_chunk.global_size});
+			result.push_back(
+			    chunk<2>{cl::sycl::id<2>(row.offset[0], full_chunk.offset[1]), cl::sycl::range<2>(row.range[0], full_chunk.range[1]), full_chunk.global_size});
 		}
 		return result;
 	}

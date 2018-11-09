@@ -56,7 +56,7 @@ namespace detail {
 		case task_type::COMPUTE: {
 			const auto ctsk = dynamic_cast<compute_task const*>(tsk);
 			// Determine the requirements for the full kernel global size
-			const subrange<3> full_range{{}, ctsk->get_global_size()};
+			const subrange<3> full_range{ctsk->get_global_offset(), ctsk->get_global_size()};
 			for(auto m : modes) {
 				result = GridRegion<3>::merge(result, ctsk->get_requirements(bid, m, full_range));
 			}

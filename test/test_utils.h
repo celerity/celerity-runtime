@@ -63,10 +63,10 @@ namespace test_utils {
 	};
 
 	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
-	task_id add_compute_task(detail::task_manager& tm, CGF cgf, cl::sycl::range<KernelDims> global_size = {1, 1}) {
-		tm.create_compute_task([&, gs = global_size](auto& cgh) {
+	task_id add_compute_task(detail::task_manager& tm, CGF cgf, cl::sycl::range<KernelDims> global_size = {1, 1}, cl::sycl::id<KernelDims> global_offset = {}) {
+		tm.create_compute_task([&, gs = global_size, go = global_offset](auto& cgh) {
 			cgf(cgh);
-			cgh.template parallel_for<KernelName>(gs, [](cl::sycl::id<KernelDims>) {});
+			cgh.template parallel_for<KernelName>(gs, go, [](cl::sycl::id<KernelDims>) {});
 		});
 		return (*tm.get_task_graph()).m_vertices.size() - 1;
 	}
