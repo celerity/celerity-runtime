@@ -37,19 +37,19 @@ inline float my_exp(float x) {
 // See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-94 (psalz)
 void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2>& u, const cl::sycl::float2& center, double amplitude, cl::sycl::float2 sigma) {
 	queue.submit([&, center, amplitude, sigma](auto& cgh) {
-		auto u_w = u.get_access<cl::sycl::access::mode::write>(cgh, celerity::access::one_to_one<2>());
+		auto dw_u = u.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
 		cgh.template parallel_for<class setup_wave>(u.get_range(), [=, c = center, a = amplitude, s = sigma](cl::sycl::item<2> item) {
 			const float dx = item[1] - c.x();
 			const float dy = item[0] - c.y();
-			u_w[item] = a * my_exp(-(dx * dx / (2.f * s.x() * s.x()) + dy * dy / (2.f * s.y() * s.y())));
+			dw_u[item] = a * my_exp(-(dx * dx / (2.f * s.x() * s.x()) + dy * dy / (2.f * s.y() * s.y())));
 		});
 	});
 }
 
 void zero(celerity::distr_queue& queue, celerity::buffer<float, 2>& buf) {
 	queue.submit([&](auto& cgh) {
-		auto buf_w = buf.get_access<cl::sycl::access::mode::write>(cgh, celerity::access::one_to_one<2>());
-		cgh.template parallel_for<class zero>(buf.get_range(), [=](cl::sycl::item<2> item) { buf_w[item] = 0.f; });
+		auto dw_buf = buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
+		cgh.template parallel_for<class zero>(buf.get_range(), [=](cl::sycl::item<2> item) { dw_buf[item] = 0.f; });
 	});
 }
 
@@ -79,9 +79,9 @@ void step(celerity::distr_queue& queue, celerity::buffer<T, 2>& up, celerity::bu
 	};
 
 	queue.submit([&, dt, delta](auto& cgh) {
-		auto up_w = up.template get_access<cl::sycl::access::mode::write>(cgh, celerity::access::one_to_one<2>());
-		auto u_r = u.template get_access<cl::sycl::access::mode::read>(cgh, one_neighborhood);
-		auto um_r = um.template get_access<cl::sycl::access::mode::read>(cgh, one_neighborhood);
+		auto dw_up = up.template get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
+		auto r_u = u.template get_access<cl::sycl::access::mode::read>(cgh, one_neighborhood);
+		auto r_um = um.template get_access<cl::sycl::access::mode::read>(cgh, one_neighborhood);
 
 		const auto size = up.get_range();
 		cgh.template parallel_for<KernelName>(size, [=](cl::sycl::item<2> item) {
@@ -94,9 +94,9 @@ void step(celerity::distr_queue& queue, celerity::buffer<T, 2>& up, celerity::bu
 
 			// NOTE: We have to copy delta here, again to avoid some ComputeCpp weirdness.
 			cl::sycl::float2 delta2 = delta;
-			const float lap = (dt / delta2.y()) * (dt / delta2.y()) * ((u_r[{py, item[1]}] - u_r[item]) - (u_r[item] - u_r[{my, item[1]}]))
-			                  + (dt / delta2.x()) * (dt / delta2.x()) * ((u_r[{item[0], px}] - u_r[item]) - (u_r[item] - u_r[{item[0], mx}]));
-			up_w[item] = Config::a * 2 * u_r[item] - Config::b * um_r[item] + Config::c * lap;
+			const float lap = (dt / delta2.y()) * (dt / delta2.y()) * ((r_u[{py, item[1]}] - r_u[item]) - (r_u[item] - r_u[{my, item[1]}]))
+			                  + (dt / delta2.x()) * (dt / delta2.x()) * ((r_u[{item[0], px}] - r_u[item]) - (r_u[item] - r_u[{item[0], mx}]));
+			dw_up[item] = Config::a * 2 * r_u[item] - Config::b * r_um[item] + Config::c * lap;
 		});
 	});
 }

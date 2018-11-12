@@ -41,7 +41,7 @@ void multiply(celerity::distr_queue& queue, celerity::buffer<T, 2>& mat_a, celer
 			cols.range[0] = MAT_SIZE;
 			return cols;
 		});
-		auto c = mat_c.template get_access<cl::sycl::access::mode::write>(cgh, celerity::access::one_to_one<2>());
+		auto c = mat_c.template get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
 
 		cgh.template parallel_for<class mat_mul>(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE), [=](cl::sycl::item<2> item) {
 			auto sum = 0.f;
@@ -62,7 +62,6 @@ int main(int argc, char* argv[]) {
 
 	std::vector<float> mat_a(MAT_SIZE * MAT_SIZE);
 	std::vector<float> mat_b(MAT_SIZE * MAT_SIZE);
-	std::vector<float> mat_c(MAT_SIZE * MAT_SIZE);
 
 	std::mt19937 gen(1337);
 	std::uniform_real_distribution<float> dis(0.f, 10.f);
@@ -120,7 +119,7 @@ int main(int argc, char* argv[]) {
 
 		celerity::buffer<float, 2> mat_a_buf(mat_a.data(), cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
 		celerity::buffer<float, 2> mat_b_buf(mat_b.data(), cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
-		celerity::buffer<float, 2> mat_c_buf(mat_c.data(), cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
+		celerity::buffer<float, 2> mat_c_buf(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
 
 		multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
 		multiply(queue, mat_b_buf, mat_c_buf, mat_a_buf);
