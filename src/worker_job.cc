@@ -8,60 +8,47 @@
 
 namespace celerity {
 
-template <typename DurationRep, size_t NumSamples>
-void benchmark_update_moving_average(const std::array<DurationRep, NumSamples>& samples, const size_t total_sample_count, const size_t period_sample_count,
-    double& avg, DurationRep& min, DurationRep& max) {
-	DurationRep sum = 0;
-	for(size_t i = 0; i < period_sample_count; ++i) {
-		sum += samples[i];
-		if(samples[i] < min) { min = samples[i]; }
-		if(samples[i] > max) { max = samples[i]; }
-	}
-	avg = (avg * (total_sample_count - period_sample_count) + sum) / total_sample_count;
-}
+// --------------------------------------------------------------------------------------------------------------------
+// ----------------------------------------------------- GENERAL ------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
 void worker_job::update() {
-	if(is_done()) return;
+	if(!running) start();
+	assert(!done);
 
-	if(!running) {
-		for(auto it = dependencies.begin(); it != dependencies.end();) {
-			auto& job = *it;
-			if(job->is_done()) {
-				it = dependencies.erase(it);
-			} else {
-				++it;
-			}
-		}
-		if(dependencies.empty()) {
-			running = true;
-			auto job_description = get_description(pkg);
-			job_logger->info(logger_map({{"cid", std::to_string(pkg.cid)}, {"event", "START"},
-			    {"type", job_type_string[static_cast<std::underlying_type_t<job_type>>(job_description.first)]}, {"message", job_description.second}}));
-		}
-	} else {
-		const auto before = bench_clock.now();
-		done = execute(pkg, job_logger);
-		const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(bench_clock.now() - before);
+	const auto before = bench_clock.now();
+	done = execute(pkg, job_logger);
 
-		// TODO: We may want to make benchmarking optional with a macro
-		bench_samples[bench_sample_count % BENCH_MOVING_AVG_SAMPLES] = dt.count();
-		if(++bench_sample_count % BENCH_MOVING_AVG_SAMPLES == 0) {
-			benchmark_update_moving_average(bench_samples, bench_sample_count, BENCH_MOVING_AVG_SAMPLES, bench_avg, bench_min, bench_max);
-		}
-	}
+	// TODO: We may want to make benchmarking optional with a macro
+	const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(bench_clock.now() - before);
+	bench_sum_execution_time += dt;
+	bench_sample_count++;
+	if(dt < bench_min) bench_min = dt;
+	if(dt > bench_max) bench_max = dt;
 
 	if(done) {
-		// Include the remaining values into the average
-		const auto remaining = bench_sample_count % BENCH_MOVING_AVG_SAMPLES;
-		benchmark_update_moving_average(bench_samples, bench_sample_count, remaining, bench_avg, bench_min, bench_max);
-
-		job_logger->info(logger_map({{"event", "STOP"}, {"pollDurationAvg", std::to_string(bench_avg)}, {"pollDurationMin", std::to_string(bench_min)},
-		    {"pollDurationMax", std::to_string(bench_max)}, {"pollSamples", std::to_string(bench_sample_count)}}));
+		const auto bench_avg = bench_sum_execution_time.count() / bench_sample_count;
+		job_logger->info(logger_map({{"event", "STOP"}, {"pollDurationAvg", std::to_string(bench_avg)}, {"pollDurationMin", std::to_string(bench_min.count())},
+		    {"pollDurationMax", std::to_string(bench_max.count())}, {"pollSamples", std::to_string(bench_sample_count)}}));
 	}
 }
 
-std::pair<job_type, std::string> await_push_job::get_description(const command_pkg& pkg) {
-	return std::make_pair(job_type::AWAIT_PUSH,
+void worker_job::start() {
+	assert(!running);
+	running = true;
+
+	auto job_description = get_description(pkg);
+	job_logger->info(logger_map({{"cid", std::to_string(pkg.cid)}, {"event", "START"},
+	    {"type", command_string[static_cast<std::underlying_type_t<command>>(job_description.first)]}, {"message", job_description.second}}));
+}
+
+
+// --------------------------------------------------------------------------------------------------------------------
+// --------------------------------------------------- AWAIT PUSH -----------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
+
+std::pair<command, std::string> await_push_job::get_description(const command_pkg& pkg) {
+	return std::make_pair(command::AWAIT_PUSH,
 	    fmt::format("AWAIT PUSH of buffer {} by node {}", static_cast<size_t>(pkg.data.await_push.bid), static_cast<size_t>(pkg.data.await_push.source)));
 }
 
@@ -70,24 +57,14 @@ bool await_push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> log
 	return data_handle->complete;
 }
 
-job_set push_job::find_dependencies(const detail::task_manager& tm, const job_set& jobs) {
-	job_set dependencies;
-	for(auto& job : jobs) {
-		switch(job->get_type()) {
-		case command::COMPUTE:
-		case command::MASTER_ACCESS:
-			if(get_task_id() != job->get_task_id() && tm.has_dependency(get_task_id(), job->get_task_id())) { dependencies.insert(job); }
-			break;
-		default: break;
-		}
-	}
 
-	return dependencies;
-}
+// --------------------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------- PUSH -------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
-std::pair<job_type, std::string> push_job::get_description(const command_pkg& pkg) {
+std::pair<command, std::string> push_job::get_description(const command_pkg& pkg) {
 	return std::make_pair(
-	    job_type::PUSH, fmt::format("PUSH buffer {} to node {}", static_cast<size_t>(pkg.data.push.bid), static_cast<size_t>(pkg.data.push.target)));
+	    command::PUSH, fmt::format("PUSH buffer {} to node {}", static_cast<size_t>(pkg.data.push.bid), static_cast<size_t>(pkg.data.push.target)));
 }
 
 bool push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
@@ -99,27 +76,12 @@ bool push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 	return data_handle->complete;
 }
 
-job_set compute_job::find_dependencies(const detail::task_manager& tm, const job_set& jobs) {
-	// Sometimes the master node can be faster in excuting the main thread, sending out commands for tasks that don't yet exist on workers.
-	// FIXME: Do something better than a busy wait here.
-	while(!tm.has_task(get_task_id()))
-		;
+// --------------------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------ COMPUTE -----------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
-	job_set dependencies;
-	for(auto& job : jobs) {
-		if(job->get_type() == command::COMPUTE) {
-			if(tm.has_dependency(get_task_id(), job->get_task_id())) { dependencies.insert(job); }
-		}
-		if(job->get_type() == command::AWAIT_PUSH) {
-			if(get_task_id() == job->get_task_id()) { dependencies.insert(job); }
-		}
-	}
-
-	return dependencies;
-}
-
-std::pair<job_type, std::string> compute_job::get_description(const command_pkg& pkg) {
-	return std::make_pair(job_type::COMPUTE, "COMPUTE");
+std::pair<command, std::string> compute_job::get_description(const command_pkg& pkg) {
+	return std::make_pair(command::COMPUTE, "COMPUTE");
 }
 
 // TODO: SYCL should have a event::get_profiling_info call. As of ComputeCpp 0.8.0 this doesn't seem to be supported.
@@ -132,26 +94,21 @@ std::chrono::time_point<std::chrono::nanoseconds> get_profiling_info(cl_event e,
 
 bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 	// A bit of a hack: We cannot be sure the main thread has reached the task definition yet, so we have to check it here
-	if(!task_mngr.has_task(pkg.tid)) return false;
+	if(!task_mngr.has_task(pkg.tid)) {
+		if(!did_log_task_wait) {
+			logger->info(logger_map({{"event", "Waiting for task definition"}}));
+			did_log_task_wait = true;
+		}
+		return false;
+	}
 
 	if(!submitted) {
 		// Note that we have to set the proper global size so the livepass handler can use the assigned chunk as input for range mappers
-		const auto ctsk = std::static_pointer_cast<const compute_task>(task_mngr.get_task(pkg.tid));
-		const auto dimensions = ctsk->get_dimensions();
-		auto gs = ctsk->get_global_size();
+		const auto ctsk = std::static_pointer_cast<const detail::compute_task>(task_mngr.get_task(pkg.tid));
 		auto& cmd_sr = pkg.data.compute.subrange;
-		switch(dimensions) {
-		default:
-		case 1: event = queue.execute(pkg.tid, chunk<1>{{cmd_sr.offset[0]}, {cmd_sr.range[0]}, cl::sycl::range<1>(gs)}); break;
-		case 2:
-			event = queue.execute(pkg.tid, chunk<2>{{cmd_sr.offset[0], cmd_sr.offset[1]}, {cmd_sr.range[0], cmd_sr.range[1]}, cl::sycl::range<2>(gs)});
-			break;
-		case 3:
-			event = queue.execute(
-			    pkg.tid, chunk<3>{{cmd_sr.offset[0], cmd_sr.offset[1], cmd_sr.offset[2]}, {cmd_sr.range[0], cmd_sr.range[1], cmd_sr.range[2]}, gs});
-			break;
-		}
+		event = queue.execute(pkg.tid, cmd_sr);
 		submitted = true;
+		if(did_log_task_wait) { logger->info(logger_map({{"event", "Submitted"}})); }
 	}
 
 	// NOTE: Currently (ComputeCpp 0.8.0) there exists a bug that causes this call to deadlock
@@ -180,29 +137,17 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 	return false;
 }
 
-job_set master_access_job::find_dependencies(const detail::task_manager& tm, const job_set& jobs) {
-	job_set dependencies;
-	for(auto& job : jobs) {
-		if(job->get_type() == command::AWAIT_PUSH) {
-			if(get_task_id() == job->get_task_id()) { dependencies.insert(job); }
-		}
-		// Wait for jobs that produce results on the master node (i.e. which don't require a transfer).
-		// Note that typically this can only be master accesses, while all compute jobs run on worker nodes,
-		// thus always requiring a transfer.
-		if(job->get_type() == command::MASTER_ACCESS || job->get_type() == command::COMPUTE) {
-			if(tm.has_dependency(get_task_id(), job->get_task_id())) { dependencies.insert(job); }
-		}
-	}
+// --------------------------------------------------------------------------------------------------------------------
+// --------------------------------------------------- MASTER ACCESS --------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
-	return dependencies;
-}
-
-std::pair<job_type, std::string> master_access_job::get_description(const command_pkg& pkg) {
-	return std::make_pair(job_type::MASTER_ACCESS, "MASTER ACCESS");
+std::pair<command, std::string> master_access_job::get_description(const command_pkg& pkg) {
+	return std::make_pair(command::MASTER_ACCESS, "MASTER ACCESS");
 }
 
 bool master_access_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
-	const auto tsk = dynamic_cast<const master_access_task*>(task_mngr.get_task(pkg.tid).get());
+	// In this case we can be sure that the task definition exists, as we're on the master node.
+	const auto tsk = dynamic_cast<const detail::master_access_task*>(task_mngr.get_task(pkg.tid).get());
 	master_access_livepass_handler handler;
 	tsk->get_functor()(handler);
 	return true;

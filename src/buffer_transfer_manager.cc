@@ -28,20 +28,10 @@ void buffer_transfer_manager::poll_transfers() {
 
 	auto transfer = std::make_unique<transfer_in>();
 	transfer->data.resize(data_size);
-
-	// Build data type
-	MPI_Datatype transfer_data_type;
-	MPI_Datatype block_types[2] = {MPI_BYTE, MPI_BYTE};
-	int block_lengths[2] = {sizeof(data_header), data_size};
-	// We use absolute displacements here (= pointers), since it's easier that way to get the actual memory location within the vector
-	MPI_Aint disps[2] = {(MPI_Aint)&transfer->header, (MPI_Aint)&transfer->data[0]};
-	MPI_Type_create_struct(2, block_lengths, disps, block_types, &transfer_data_type);
-	MPI_Type_commit(&transfer_data_type);
-	// Store data type so it can be free'd after the transfer is complete
-	transfer->data_type = transfer_data_type;
+	transfer->data_type = mpi_support::build_single_use_composite_type({{sizeof(data_header), &transfer->header}, {data_size, &transfer->data[0]}});
 
 	// Start receiving data
-	MPI_Imrecv(MPI_BOTTOM, 1, transfer_data_type, &msg, &transfer->request);
+	MPI_Imrecv(MPI_BOTTOM, 1, *transfer->data_type, &msg, &transfer->request);
 	incoming_transfers.push_back(std::move(transfer));
 
 	transfer_logger->info("Receiving incoming data of size {} from {}", data_size, status.MPI_SOURCE);
@@ -57,26 +47,16 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 	    runtime::get_instance().get_buffer_data(data.bid, cl::sycl::range<3>(data.subrange.offset[0], data.subrange.offset[1], data.subrange.offset[2]),
 	        cl::sycl::range<3>(data.subrange.range[0], data.subrange.range[1], data.subrange.range[2]));
 
-	// Build full data type with header
-	MPI_Datatype transfer_data_type;
-	MPI_Datatype block_types[2] = {MPI_BYTE, MPI_BYTE};
-	int block_lengths[2] = {sizeof(data_header), static_cast<int>(data_handle->linearized_data_size)};
-
+	const auto data_size = data_handle->linearized_data_size;
 	auto transfer = std::make_unique<transfer_out>(std::move(data_handle));
 	transfer->handle = t_handle;
 	transfer->header.subrange = data.subrange;
 	transfer->header.bid = data.bid;
 	transfer->header.push_cid = pkg.cid;
-
-	// We use absolute displacements here (= pointers), so we can obtain header and data from different locations
-	MPI_Aint disps[2] = {(MPI_Aint)&transfer->header, (MPI_Aint)transfer->get_raw_ptr()};
-	MPI_Type_create_struct(2, block_lengths, disps, block_types, &transfer_data_type);
-	MPI_Type_commit(&transfer_data_type);
-	// Store data type so it can be free'd after the transfer is complete
-	transfer->data_type = transfer_data_type;
+	transfer->data_type = mpi_support::build_single_use_composite_type({{sizeof(data_header), &transfer->header}, {data_size, transfer->get_raw_ptr()}});
 
 	// Start transmitting data
-	MPI_Isend(MPI_BOTTOM, 1, transfer_data_type, static_cast<int>(data.target), CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &transfer->request);
+	MPI_Isend(MPI_BOTTOM, 1, *transfer->data_type, static_cast<int>(data.target), CELERITY_MPI_TAG_DATA_TRANSFER, MPI_COMM_WORLD, &transfer->request);
 	outgoing_transfers.push_back(std::move(transfer));
 
 	return t_handle;

@@ -1,3 +1,5 @@
+#define COMPILE_SYCL_KERNELS 1
+#include <algorithm>
 #include <memory>
 #include <random>
 
@@ -9,7 +11,10 @@
 #define CELERITY_TEST
 #include <celerity.h>
 
-#include "buffer_state.h"
+#include "access_modes.h"
+#include "region_map.h"
+
+#include "test_utils.h"
 
 GridBox<3> make_grid_box(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) {
 	const auto end = cl::sycl::range<3>(offset) + range;
@@ -30,97 +35,79 @@ struct test_context {
 
 namespace celerity {
 
-TEST_CASE("Basic", "[buffer_state]") {
-	detail::buffer_state bs(cl::sycl::range<3>(256, 1, 1), 2);
+TEST_CASE("region_map correctly handles region updates", "[region_map]") {
+	detail::region_map<std::string> rm(cl::sycl::range<3>(256, 128, 1));
 
-	auto sn = bs.get_source_nodes(make_grid_region({256, 1, 1}));
-	REQUIRE(sn.size() == 1);
-	REQUIRE(sn[0].first == make_grid_box({256, 1, 1}));
-	REQUIRE(sn[0].second.size() == 2);
-	REQUIRE(sn[0].second.count(0) == 1);
-	REQUIRE(sn[0].second.count(1) == 1);
+	rm.update_region(make_grid_region({256, 1, 1}), "foo");
+	{
+		const auto rvs = rm.get_region_values(make_grid_region({32, 1, 1}, {32, 0, 0}));
+		REQUIRE(rvs.size() == 1);
+		REQUIRE(rvs[0].first == make_grid_box({32, 1, 1}, {32, 0, 0}));
+		REQUIRE(rvs[0].second == "foo");
+	}
+
+	rm.update_region(make_grid_region({64, 1, 1}), "baz");
+	{
+		const auto rvs = rm.get_region_values(make_grid_region({256, 1, 1}));
+		REQUIRE(rvs.size() == 2);
+		REQUIRE(rvs[1].first == make_grid_box({64, 1, 1}));
+		REQUIRE(rvs[1].second == "baz");
+		REQUIRE(rvs[0].first == make_grid_box({192, 1, 1}, {64, 0, 0}));
+		REQUIRE(rvs[0].second == "foo");
+	}
 }
 
-TEST_CASE("UpdateRegion", "[buffer_state]") {
-	detail::buffer_state bs(cl::sycl::range<3>(256, 1, 1), 2);
-	bs.update_region(make_grid_region({128, 1, 1}), {1});
-
-	auto sn = bs.get_source_nodes(make_grid_region({32, 1, 1}, {32, 0, 0}));
-	REQUIRE(sn.size() == 1);
-	REQUIRE(sn[0].first == make_grid_box({32, 1, 1}, {32, 0, 0}));
-	REQUIRE(sn[0].second.size() == 1);
-	REQUIRE(sn[0].second.count(1) == 1);
-
-	sn = bs.get_source_nodes(make_grid_region({256, 1, 1}));
-	REQUIRE(sn.size() == 2);
-	REQUIRE(sn[0].first == make_grid_box({128, 1, 1}, {128, 0, 0}));
-	REQUIRE(sn[0].second.size() == 2);
-	REQUIRE(sn[0].second.count(0) == 1);
-	REQUIRE(sn[0].second.count(1) == 1);
-	REQUIRE(sn[1].first == make_grid_box({128, 1, 1}));
-	REQUIRE(sn[1].second.size() == 1);
-	REQUIRE(sn[1].second.count(1) == 1);
-}
-
-TEST_CASE("CollapseRegions", "[buffer_state]") {
-	// We test buffer_state<>::collapse_regions by observing the order of the
+TEST_CASE("region_map collapses stored regions with the same values", "[region_map]") {
+	// We test region_map<>::collapse_regions by observing the order of the
 	// returned boxes. This somewhat relies on implementation details of
-	// buffer_state<>::get_source_nodes.
+	// region_map<>::get_region_values.
 	// TODO: We may want to test this directly instead
-	detail::buffer_state bs(cl::sycl::range<3>(256, 1, 1), 2);
-	bs.update_region(make_grid_region({64, 1, 1}, {64, 0, 0}), {1});
-	bs.update_region(make_grid_region({64, 1, 1}, {192, 0, 0}), {1});
+	detail::region_map<std::unordered_set<size_t>> rm(cl::sycl::range<3>(256, 1, 1));
+	rm.update_region(make_grid_region({64, 1, 1}, {64, 0, 0}), {1});
+	rm.update_region(make_grid_region({64, 1, 1}, {192, 0, 0}), {1});
 
-	auto sn = bs.get_source_nodes(make_grid_region({192, 1, 1}, {64, 0, 0}));
-	REQUIRE(sn.size() == 3);
-	REQUIRE(sn[0].first == make_grid_box({64, 1, 1}, {64, 0, 0}));
-	REQUIRE(sn[0].second.size() == 1);
-	REQUIRE(sn[0].second.count(1) == 1);
+	auto rvs = rm.get_region_values(make_grid_region({192, 1, 1}, {64, 0, 0}));
+	REQUIRE(rvs.size() == 3);
+	REQUIRE(rvs[0].first == make_grid_box({64, 1, 1}, {64, 0, 0}));
+	REQUIRE(rvs[0].second.size() == 1);
+	REQUIRE(rvs[0].second.count(1) == 1);
 
 	// Since this one is returned before the [128,192) box,
 	// the {[64,128), [192,256)} region must exist internally.
-	REQUIRE(sn[1].first == make_grid_box({64, 1, 1}, {192, 0, 0}));
-	REQUIRE(sn[1].second.size() == 1);
-	REQUIRE(sn[1].second.count(1) == 1);
+	REQUIRE(rvs[1].first == make_grid_box({64, 1, 1}, {192, 0, 0}));
+	REQUIRE(rvs[1].second.size() == 1);
+	REQUIRE(rvs[1].second.count(1) == 1);
 
-	REQUIRE(sn[2].first == make_grid_box({64, 1, 1}, {128, 0, 0}));
-	REQUIRE(sn[2].second.size() == 2);
-	REQUIRE(sn[2].second.count(0) == 1);
-	REQUIRE(sn[2].second.count(1) == 1);
+	REQUIRE(rvs[2].first == make_grid_box({64, 1, 1}, {128, 0, 0}));
+	// This is the default initialized region that was never updated
+	REQUIRE(rvs[2].second.empty());
 }
 
-TEST_CASE("Merging states", "[buffer_state]") {
-	detail::buffer_state bs1(cl::sycl::range<3>(128, 64, 32), 3);
-	detail::buffer_state bs2(cl::sycl::range<3>(128, 64, 32), 3);
+TEST_CASE("region_map correctly merges with other instance", "[region_map]") {
+	detail::region_map<size_t> rm1(cl::sycl::range<3>(128, 64, 32));
+	detail::region_map<size_t> rm2(cl::sycl::range<3>(128, 64, 32));
+	rm1.update_region(make_grid_region({128, 64, 32}, {0, 0, 0}), 5);
+	rm2.update_region(make_grid_region({128, 8, 1}, {0, 24, 0}), 1);
+	rm2.update_region(make_grid_region({128, 24, 1}, {0, 0, 0}), 2);
+	rm1.merge(rm2);
 
-	bs1.update_region(make_grid_region({128, 64, 32}, {0, 0, 0}), {0});
-	bs2.update_region(make_grid_region({128, 8, 1}, {0, 24, 0}), {1});
-	bs2.update_region(make_grid_region({128, 24, 1}, {0, 0, 0}), {2});
-	bs1.merge(bs2);
+	const auto rvs = rm1.get_region_values(make_grid_region({128, 64, 32}));
+	REQUIRE(rvs.size() == 4);
+	REQUIRE(rvs[0].first == make_grid_box({128, 32, 31}, {0, 0, 1}));
+	REQUIRE(rvs[0].second == 5);
 
-	const auto sn = bs1.get_source_nodes(make_grid_region({128, 64, 32}, {0, 0, 0}));
-	REQUIRE(sn.size() == 4);
-	REQUIRE(sn[0].first == make_grid_box({128, 32, 31}, {0, 0, 1}));
-	REQUIRE(sn[0].second.size() == 1);
-	REQUIRE(sn[0].second.count(0) == 1);
+	REQUIRE(rvs[1].first == make_grid_box({128, 32, 32}, {0, 32, 0}));
+	REQUIRE(rvs[1].second == 5);
 
-	REQUIRE(sn[1].first == make_grid_box({128, 32, 32}, {0, 32, 0}));
-	REQUIRE(sn[1].second.size() == 1);
-	REQUIRE(sn[1].second.count(0) == 1);
+	REQUIRE(rvs[2].first == make_grid_box({128, 24, 1}, {0, 0, 0}));
+	REQUIRE(rvs[2].second == 2);
 
-	REQUIRE(sn[2].first == make_grid_box({128, 24, 1}, {0, 0, 0}));
-	REQUIRE(sn[2].second.size() == 1);
-	REQUIRE(sn[2].second.count(2) == 1);
+	REQUIRE(rvs[3].first == make_grid_box({128, 8, 1}, {0, 24, 0}));
+	REQUIRE(rvs[3].second == 1);
 
-	REQUIRE(sn[3].first == make_grid_box({128, 8, 1}, {0, 24, 0}));
-	REQUIRE(sn[3].second.size() == 1);
-	REQUIRE(sn[3].second.count(1) == 1);
-
-	// Attempting to merge buffer states with incompatible dimensions or numbers of nodes should throw
-	const detail::buffer_state bs_incompat1(cl::sycl::range<3>(128, 64, 32), 2);
-	REQUIRE_THROWS_WITH(bs1.merge(bs_incompat1), Catch::Equals("Incompatible buffer state"));
-	const detail::buffer_state bs_incompat2(cl::sycl::range<3>(128, 64, 30), 3);
-	REQUIRE_THROWS_WITH(bs1.merge(bs_incompat2), Catch::Equals("Incompatible buffer state"));
+	// Attempting to merge region maps with incompatible extents should throw
+	const detail::region_map<size_t> rm_incompat(cl::sycl::range<3>(128, 64, 30));
+	REQUIRE_THROWS_WITH(rm1.merge(rm_incompat), Catch::Equals("Incompatible region map"));
 }
 
 TEST_CASE("host_accessor 1D indexing behaves the same way as a SYCL host-accessor", "[host_accessor]") {
@@ -152,9 +139,16 @@ TEST_CASE("host_accessor 1D indexing behaves the same way as a SYCL host-accesso
 	host_accessor<float, 1, cl::sycl::access::mode::read> cel_device_acc(cel_device_buffer, cl::sycl::range<1>(15));
 	auto sycl_acc = sycl_buffer->get_sycl_buffer().get_access<cl::sycl::access::mode::read>(cl::sycl::range<1>(15));
 	for(auto i = 0u; i < 15; ++i) {
-		REQUIRE(cel_host_acc[i] == ((i > 7 && i < 14) ? test_values[i] : 0.f));
-		REQUIRE(cel_device_acc[i] == ((i > 7 && i < 14) ? test_values[i] : 0.f));
-		REQUIRE(sycl_acc[i] == ((i > 7 && i < 14) ? test_values[i] : 0.f));
+		const float expected_value = ((i > 7 && i < 14) ? test_values[i] : 0.f);
+		REQUIRE(cel_host_acc[i] == expected_value);
+		REQUIRE(cel_device_acc[i] == expected_value);
+		REQUIRE(sycl_acc[i] == expected_value);
+
+		// Also test pointer access.
+		// TODO: Move into separate test, add offsets (we likely don't handle this correctly, see 2D case below)
+		REQUIRE(*(cel_host_acc.get_pointer() + i) == expected_value);
+		REQUIRE(*(cel_device_acc.get_pointer() + i) == expected_value);
+		REQUIRE(*(sycl_acc.get_pointer() + i) == expected_value);
 	}
 }
 
@@ -179,9 +173,10 @@ TEST_CASE("host_accessor 2D indexing behaves the same way as a SYCL host-accesso
 		auto sycl_acc = sycl_buffer->get_sycl_buffer().get_access<cl::sycl::access::mode::write>(cl::sycl::range<2>(7, 6), cl::sycl::id<2>(30, 16));
 		for(auto i = 30u; i < 37; ++i) {
 			for(auto j = 16u; j < 22; ++j) {
-				cel_host_acc[{i, j}] = test_values[(i - 30) * 6 + j - 16];
-				cel_device_acc[{i, j}] = test_values[(i - 30) * 6 + j - 16];
-				sycl_acc[{i, j}] = test_values[(i - 30) * 6 + j - 16];
+				const float value = test_values[(i - 30) * 6 + j - 16];
+				cel_host_acc[{i, j}] = value;
+				cel_device_acc[{i, j}] = value;
+				sycl_acc[{i, j}] = value;
 			}
 		}
 	}
@@ -190,9 +185,19 @@ TEST_CASE("host_accessor 2D indexing behaves the same way as a SYCL host-accesso
 	auto sycl_acc = sycl_buffer->get_sycl_buffer().get_access<cl::sycl::access::mode::read>(cl::sycl::range<2>(7, 6), cl::sycl::id<2>(30, 16));
 	for(auto i = 30u; i < 37; ++i) {
 		for(auto j = 16u; j < 22; ++j) {
-			REQUIRE(cel_host_acc[{i, j}] == test_values[(i - 30) * 6 + j - 16]);
-			REQUIRE(cel_device_acc[{i, j}] == test_values[(i - 30) * 6 + j - 16]);
-			REQUIRE(sycl_acc[{i, j}] == test_values[(i - 30) * 6 + j - 16]);
+			const auto subrange_offset = (i - 30) * 6 + j - 16;
+			const float expected_value = test_values[subrange_offset];
+			REQUIRE(cel_host_acc[{i, j}] == expected_value);
+			REQUIRE(cel_device_acc[{i, j}] == expected_value);
+			REQUIRE(sycl_acc[{i, j}] == expected_value);
+
+			// Also test pointer access.
+			// FIXME: SYCL appears to set the pointer to the global first item regardless of offset. We currently don't!
+			// Figure this out: Either it points into an unrelated memory region, or it always allocates the full buffer size (which seems wasteful...)
+			REQUIRE(*(cel_host_acc.get_pointer() + subrange_offset) == expected_value);
+			REQUIRE(*(cel_device_acc.get_pointer() + subrange_offset) == expected_value);
+			const auto full_size_offset = i * 22 + j;
+			REQUIRE(*(sycl_acc.get_pointer() + full_size_offset) == expected_value);
 		}
 	}
 }
@@ -201,117 +206,220 @@ TEST_CASE("host_accessor 3D indexing behaves the same way as a SYCL host-accesso
 	// TODO
 }
 
+TEST_CASE("host_accessor can be written if captured by value", "[host_accessor]") {
+	test_context ctx;
+	auto host_buffer = std::make_shared<detail::buffer_storage<float, 1>>(cl::sycl::range<1>(10));
+	host_buffer->set_type(detail::buffer_type::HOST_BUFFER);
+
+	{
+		host_accessor<float, 1, cl::sycl::access::mode::write> host_acc(host_buffer, cl::sycl::range<1>(10));
+		[=]() { host_acc[5] = 22.f; }();
+	}
+
+	{
+		host_accessor<float, 1, cl::sycl::access::mode::read> host_acc(host_buffer, cl::sycl::range<1>(10));
+		REQUIRE(host_acc[5] == 22.f);
+	}
+}
+
+// NOTE: We assume buffer to be of size 10 here
+template <cl::sycl::access::mode ProducerMode, cl::sycl::access::mode ConsumerMode = cl::sycl::access::mode::read, typename DataT, int Dims>
+void test_host_accessor_mode(std::shared_ptr<detail::buffer_storage<DataT, Dims>> bs) {
+	{
+		host_accessor<DataT, Dims, ProducerMode> host_acc(bs, cl::sycl::range<1>(10));
+		host_acc[5] = 33.f;
+	}
+	{
+		host_accessor<DataT, Dims, ConsumerMode> host_acc(bs, cl::sycl::range<1>(10));
+		REQUIRE(host_acc[5] == 33.f);
+	}
+}
+
+TEST_CASE("host_accessor handles all producer modes correctly", "[host_accessor]") {
+	using namespace cl::sycl::access;
+	test_context ctx;
+	auto host_buffer = std::make_shared<detail::buffer_storage<float, 1>>(cl::sycl::range<1>(10));
+	auto device_buffer = std::make_shared<detail::buffer_storage<float, 1>>(cl::sycl::range<1>(10));
+	host_buffer->set_type(detail::buffer_type::HOST_BUFFER);
+	device_buffer->set_type(detail::buffer_type::DEVICE_BUFFER);
+
+	SECTION("discard_read_write") {
+		test_host_accessor_mode<mode::discard_read_write>(host_buffer);
+		test_host_accessor_mode<mode::discard_read_write>(device_buffer);
+	}
+
+	SECTION("discard_write") {
+		test_host_accessor_mode<mode::discard_write>(host_buffer);
+		test_host_accessor_mode<mode::discard_write>(device_buffer);
+	}
+
+	SECTION("read_write") {
+		test_host_accessor_mode<mode::read_write>(host_buffer);
+		test_host_accessor_mode<mode::read_write>(device_buffer);
+	}
+
+	SECTION("write") {
+		test_host_accessor_mode<mode::write>(host_buffer);
+		test_host_accessor_mode<mode::write>(device_buffer);
+	}
+}
+
+TEST_CASE("host_accessor handles all consumer modes correctly", "[host_accessor]") {
+	using namespace cl::sycl::access;
+	test_context ctx;
+	auto host_buffer = std::make_shared<detail::buffer_storage<float, 1>>(cl::sycl::range<1>(10));
+	auto device_buffer = std::make_shared<detail::buffer_storage<float, 1>>(cl::sycl::range<1>(10));
+	host_buffer->set_type(detail::buffer_type::HOST_BUFFER);
+	device_buffer->set_type(detail::buffer_type::DEVICE_BUFFER);
+
+	SECTION("read") {
+		test_host_accessor_mode<mode::discard_write, mode::read>(host_buffer);
+		test_host_accessor_mode<mode::discard_write, mode::read>(device_buffer);
+	}
+
+	SECTION("read_write") {
+		test_host_accessor_mode<mode::discard_write, mode::read_write>(host_buffer);
+		test_host_accessor_mode<mode::discard_write, mode::read_write>(device_buffer);
+	}
+
+	// While not semantically correct, reading from "write" access is perfectly fine on host buffers
+	SECTION("write") {
+		test_host_accessor_mode<mode::discard_write, mode::write>(host_buffer);
+		test_host_accessor_mode<mode::discard_write, mode::write>(device_buffer);
+	}
+}
+
 TEST_CASE("task_manager invokes callback upon task creation", "[task_manager]") {
-	detail::task_manager task_mngr;
+	detail::task_manager tm;
 	size_t call_counter = 0;
-	task_mngr.register_task_callback([&call_counter]() { call_counter++; });
-	task_mngr.create_compute_task([](auto& cgh) {});
+	tm.register_task_callback([&call_counter]() { call_counter++; });
+	tm.create_compute_task([](auto& cgh) {});
 	REQUIRE(call_counter == 1);
-	task_mngr.create_master_access_task([](auto& mah) {});
+	tm.create_master_access_task([](auto& mah) {});
 	REQUIRE(call_counter == 2);
 }
 
-TEST_CASE("task_manager correctly records compute task information", "[task_manager]") {
-	detail::task_manager task_mngr;
-	task_mngr.create_compute_task([](auto& cgh) { cgh.template parallel_for<class my_kernel>(cl::sycl::range<2>{32, 128}, [](cl::sycl::item<2>) {}); });
-	const auto tsk = task_mngr.get_task(0);
+// NOTE: Making assertions on the task graph isn't great as it really is an implementation detail, but it works for now
+TEST_CASE("task_manager keeps track of task processing status", "[task_manager]") {
+	detail::task_manager tm;
+	test_utils::mock_buffer_factory mbf(&tm);
+	auto buf = mbf.create_buffer(cl::sycl::range<1>(32));
+
+	const auto tid_a = test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<cl::sycl::access::mode::discard_write>(mah, 32); });
+	REQUIRE((*tm.get_task_graph())[tid_a].num_unsatisfied == 0);
+	REQUIRE_FALSE((*tm.get_task_graph())[tid_a].processed);
+
+	// Having a dependency on an unprocessed task should increase the number of unsatisfied dependencies
+	const auto tid_b = test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<cl::sycl::access::mode::read>(mah, 32); });
+	REQUIRE((*tm.get_task_graph())[tid_b].num_unsatisfied == 1);
+	REQUIRE_FALSE((*tm.get_task_graph())[tid_b].processed);
+
+	tm.mark_task_as_processed(tid_a);
+	REQUIRE((*tm.get_task_graph())[tid_a].processed);
+	REQUIRE((*tm.get_task_graph())[tid_b].num_unsatisfied == 0);
+
+	// Having a dependency onto an already processed task shouldn't increase the number of unsatisfied dependencies
+	const auto tid_c = test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<cl::sycl::access::mode::read>(mah, 32); });
+	REQUIRE((*tm.get_task_graph())[tid_c].num_unsatisfied == 0);
+	REQUIRE_FALSE((*tm.get_task_graph())[tid_c].processed);
+
+	// Anti-dependencies behave in the same way
+	const auto tid_d = test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<cl::sycl::access::mode::discard_write>(mah, 32); });
+	REQUIRE((*tm.get_task_graph())[tid_d].num_unsatisfied == 2);
+	REQUIRE_FALSE((*tm.get_task_graph())[tid_d].processed);
+
+	tm.mark_task_as_processed(tid_b);
+	tm.mark_task_as_processed(tid_c);
+	tm.mark_task_as_processed(tid_d);
+
+	const auto tid_e = test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<cl::sycl::access::mode::discard_write>(mah, 32); });
+	REQUIRE((*tm.get_task_graph())[tid_e].num_unsatisfied == 0);
+	REQUIRE_FALSE((*tm.get_task_graph())[tid_e].processed);
+}
+
+TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][compute_task]") {
+	detail::task_manager tm;
+	test_utils::mock_buffer_factory mbf(&tm);
+	auto buf_a = mbf.create_buffer(cl::sycl::range<2>(30, 40));
+	auto buf_b = mbf.create_buffer(cl::sycl::range<3>(7, 21, 99));
+	const auto tid = test_utils::add_compute_task(tm,
+	    [&](auto& cgh) {
+		    buf_a.get_access<cl::sycl::access::mode::read>(cgh, access::fixed<2, 2>(subrange<2>({}, {12, 33})));
+		    buf_b.get_access<cl::sycl::access::mode::discard_read_write>(cgh, access::fixed<2, 3>(subrange<3>({}, {5, 18, 74})));
+	    },
+	    cl::sycl::range<2>{32, 128});
+	const auto tsk = tm.get_task(tid);
 	REQUIRE(tsk->get_type() == task_type::COMPUTE);
-	const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
+	const auto ctsk = dynamic_cast<const detail::compute_task*>(tsk.get());
 	REQUIRE(ctsk->get_dimensions() == 2);
 	REQUIRE(ctsk->get_global_size() == cl::sycl::range<3>{32, 128, 1});
 
-	task_mngr.add_requirement(0, 32, cl::sycl::access::mode::read,
-	    std::make_unique<detail::range_mapper<2, 2>>(
-	        [](celerity::chunk<2> chnk) {
-		        chnk.range += 3;
-		        return chnk;
-	        },
-	        cl::sycl::access::mode::read));
-	const auto& rms = ctsk->get_range_mappers();
-	REQUIRE(rms.size() == 1);
-	REQUIRE(rms.at(32).size() == 1);
-	auto result = rms.at(32)[0]->map_2(celerity::chunk<2>({0, 0}, {5, 7}, {99, 99}));
-	REQUIRE(result.range == cl::sycl::range<2>(8, 10));
+	const auto bufs = ctsk->get_accessed_buffers();
+	REQUIRE(bufs.size() == 2);
+	REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_a.get_id()) != bufs.cend());
+	REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_b.get_id()) != bufs.cend());
+	REQUIRE(ctsk->get_access_modes(buf_a.get_id()).count(cl::sycl::access::mode::read) == 1);
+	REQUIRE(ctsk->get_access_modes(buf_b.get_id()).count(cl::sycl::access::mode::discard_read_write) == 1);
+	const auto reqs_a = ctsk->get_requirements(buf_a.get_id(), cl::sycl::access::mode::read, {});
+	REQUIRE(reqs_a == detail::subrange_to_grid_region(subrange<3>({}, {12, 33, 1})));
+	const auto reqs_b = ctsk->get_requirements(buf_b.get_id(), cl::sycl::access::mode::discard_read_write, {});
+	REQUIRE(reqs_b == detail::subrange_to_grid_region(subrange<3>({}, {5, 18, 74})));
 }
 
-TEST_CASE("task_manager correctly records master access task information", "[task_manager]") {
-	detail::task_manager task_mngr;
+TEST_CASE("compute_task merges multiple accesses with the same mode", "[task][compute_task]") {
+	auto ctsk = std::make_unique<detail::compute_task>(0, nullptr);
+	ctsk->set_dimensions(2);
+	ctsk->add_range_mapper(0, std::make_unique<detail::range_mapper<2, 2>>(
+	                              access::fixed<2, 2>(subrange<2>({3, 0}, {10, 20})), cl::sycl::access::mode::read, cl::sycl::range<2>{30, 30}));
+	ctsk->add_range_mapper(0, std::make_unique<detail::range_mapper<2, 2>>(
+	                              access::fixed<2, 2>(subrange<2>({10, 0}, {7, 20})), cl::sycl::access::mode::read, cl::sycl::range<2>{30, 30}));
+	const auto req = ctsk->get_requirements(0, cl::sycl::access::mode::read, subrange<3>({0, 0, 0}, {100, 100, 1}));
+	REQUIRE(req == detail::subrange_to_grid_region(subrange<3>({3, 0, 0}, {14, 20, 1})));
+}
+
+TEST_CASE("task_manager correctly records master access task information", "[task_manager][task][master_access_task]") {
+	detail::task_manager tm;
+	test_utils::mock_buffer_factory mbf(&tm);
+	auto buf_a = mbf.create_buffer(cl::sycl::range<3>(45, 90, 160));
+	auto buf_b = mbf.create_buffer(cl::sycl::range<3>(5, 30, 100));
+
 	size_t call_counter = 0;
 	const auto ma_functor = [&call_counter]() { call_counter++; };
-	task_mngr.create_master_access_task([=](auto& mah) { mah.run(ma_functor); });
-	const auto tsk = task_mngr.get_task(0);
+	const auto tid = test_utils::add_master_access_task(tm, [&](auto& mah) {
+		buf_a.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<3>{32, 48, 96}, cl::sycl::id<3>{4, 8, 16});
+		buf_a.get_access<cl::sycl::access::mode::write>(mah, cl::sycl::range<3>{21, 84, 75}, cl::sycl::id<3>{9, 2, 44});
+		buf_b.get_access<cl::sycl::access::mode::discard_write>(mah, cl::sycl::range<3>{1, 7, 19}, cl::sycl::id<3>{0, 3, 8});
+		mah.run(ma_functor);
+	});
+	const auto tsk = tm.get_task(tid);
 	REQUIRE(tsk->get_type() == task_type::MASTER_ACCESS);
-	const auto matsk = dynamic_cast<const master_access_task*>(tsk.get());
+	const auto matsk = dynamic_cast<const detail::master_access_task*>(tsk.get());
 	master_access_livepass_handler mah;
 	matsk->get_functor()(mah);
 	REQUIRE(call_counter == 1);
 
-	task_mngr.add_requirement(0, 99, cl::sycl::access::mode::read, cl::sycl::range<3>{32, 48, 96}, cl::sycl::id<3>{4, 8, 16});
-	task_mngr.add_requirement(0, 99, cl::sycl::access::mode::write, cl::sycl::range<3>{21, 84, 75}, cl::sycl::id<3>{9, 2, 44});
-	task_mngr.add_requirement(0, 21, cl::sycl::access::mode::write, cl::sycl::range<3>{1, 7, 19}, cl::sycl::id<3>{0, 3, 8});
-	const auto& acc = matsk->get_accesses();
-	REQUIRE(acc.size() == 2);
-	REQUIRE(acc.at(99).at(0).mode == cl::sycl::access::mode::read);
-	REQUIRE(acc.at(99).at(0).range == cl::sycl::range<3>(32, 48, 96));
-	REQUIRE(acc.at(99).at(0).offset == cl::sycl::id<3>(4, 8, 16));
-	REQUIRE(acc.at(99).at(1).mode == cl::sycl::access::mode::write);
-	REQUIRE(acc.at(99).at(1).range == cl::sycl::range<3>(21, 84, 75));
-	REQUIRE(acc.at(99).at(1).offset == cl::sycl::id<3>(9, 2, 44));
-	REQUIRE(acc.at(21).at(0).mode == cl::sycl::access::mode::write);
-	REQUIRE(acc.at(21).at(0).range == cl::sycl::range<3>(1, 7, 19));
-	REQUIRE(acc.at(21).at(0).offset == cl::sycl::id<3>(0, 3, 8));
+	const auto bufs = matsk->get_accessed_buffers();
+	REQUIRE(bufs.size() == 2);
+	REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_a.get_id()) != bufs.cend());
+	REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_b.get_id()) != bufs.cend());
+	REQUIRE(matsk->get_access_modes(buf_a.get_id()).count(cl::sycl::access::mode::read) == 1);
+	REQUIRE(matsk->get_access_modes(buf_a.get_id()).count(cl::sycl::access::mode::write) == 1);
+	REQUIRE(matsk->get_access_modes(buf_b.get_id()).count(cl::sycl::access::mode::discard_write) == 1);
+
+	const auto reqs_a_r = matsk->get_requirements(buf_a.get_id(), cl::sycl::access::mode::read);
+	REQUIRE(reqs_a_r == detail::subrange_to_grid_region(subrange<3>({4, 8, 16}, {32, 48, 96})));
+	const auto reqs_a_w = matsk->get_requirements(buf_a.get_id(), cl::sycl::access::mode::write);
+	REQUIRE(reqs_a_w == detail::subrange_to_grid_region(subrange<3>({9, 2, 44}, {21, 84, 75})));
+	const auto reqs_b_dw = matsk->get_requirements(buf_b.get_id(), cl::sycl::access::mode::discard_write);
+	REQUIRE(reqs_b_dw == detail::subrange_to_grid_region(subrange<3>({0, 3, 8}, {1, 7, 19})));
 }
 
-TEST_CASE("task_manager records task dependencies based on buffer accesses", "[task_manager]") {
-	detail::task_manager task_mngr;
-	const buffer_id buf_a = 0;
-	const buffer_id buf_b = 1;
-	const buffer_id buf_c = 2;
-	task_mngr.create_compute_task([&](auto& cgh) { task_mngr.add_requirement(0, buf_a, cl::sycl::access::mode::write, nullptr); });
-	task_mngr.create_compute_task([&](auto& cgh) { task_mngr.add_requirement(1, buf_b, cl::sycl::access::mode::write, nullptr); });
-	REQUIRE(task_mngr.has_dependency(1, 0) == false);
-	REQUIRE(task_mngr.has_dependency(0, 1) == false);
-	task_mngr.create_compute_task([&](auto& cgh) {
-		task_mngr.add_requirement(2, buf_a, cl::sycl::access::mode::read, nullptr);
-		task_mngr.add_requirement(2, buf_b, cl::sycl::access::mode::read, nullptr);
-		task_mngr.add_requirement(2, buf_c, cl::sycl::access::mode::write, nullptr);
-	});
-	REQUIRE(task_mngr.has_dependency(2, 0) == true);
-	REQUIRE(task_mngr.has_dependency(2, 1) == true);
-	REQUIRE(task_mngr.has_dependency(0, 2) == false);
-	REQUIRE(task_mngr.has_dependency(1, 2) == false);
-	task_mngr.create_master_access_task([&](auto& cgh) {
-		task_mngr.add_requirement(3, buf_a, cl::sycl::access::mode::read, {}, {});
-		task_mngr.add_requirement(3, buf_c, cl::sycl::access::mode::read, {}, {});
-	});
-	REQUIRE(task_mngr.has_dependency(3, 0) == true);
-	REQUIRE(task_mngr.has_dependency(3, 1) == true); // transitively!
-	REQUIRE(task_mngr.has_dependency(3, 2) == true);
-	task_mngr.create_compute_task([&](auto& cgh) {
-		task_mngr.add_requirement(4, buf_a, cl::sycl::access::mode::write, nullptr);
-		task_mngr.add_requirement(4, buf_b, cl::sycl::access::mode::write, nullptr);
-		task_mngr.add_requirement(4, buf_c, cl::sycl::access::mode::write, nullptr);
-	});
-	// No dependencies since task 4 only writes
-	REQUIRE(task_mngr.has_dependency(4, 0) == false);
-	REQUIRE(task_mngr.has_dependency(4, 1) == false);
-	REQUIRE(task_mngr.has_dependency(4, 2) == false);
-	REQUIRE(task_mngr.has_dependency(4, 3) == false);
-};
-
-TEST_CASE("task_manager manages the number of unsatisfied dependencies for each task", "[task_manager]") {
-	detail::task_manager task_mngr;
-	const buffer_id buf_a = 0;
-	task_mngr.create_compute_task([&](auto& cgh) { task_mngr.add_requirement(0, buf_a, cl::sycl::access::mode::write, nullptr); });
-	REQUIRE((*task_mngr.get_task_graph())[0].num_unsatisfied == 0);
-	REQUIRE((*task_mngr.get_task_graph())[0].processed == false);
-	task_mngr.create_compute_task([&](auto& cgh) { task_mngr.add_requirement(1, buf_a, cl::sycl::access::mode::read, nullptr); });
-	REQUIRE((*task_mngr.get_task_graph())[1].num_unsatisfied == 1);
-	task_mngr.mark_task_as_processed(0);
-	REQUIRE((*task_mngr.get_task_graph())[0].processed == true);
-	REQUIRE((*task_mngr.get_task_graph())[1].num_unsatisfied == 0);
-	task_mngr.create_compute_task([&](auto& cgh) { task_mngr.add_requirement(2, buf_a, cl::sycl::access::mode::read, nullptr); });
-	REQUIRE((*task_mngr.get_task_graph())[2].num_unsatisfied == 0);
-};
+TEST_CASE("master_access_task merges multiple accesses with the same mode", "[task][master_access_task]") {
+	auto matsk = std::make_unique<detail::master_access_task>(0, nullptr);
+	matsk->add_buffer_access(0, cl::sycl::access::mode::read, subrange<2>({3, 0}, {10, 20}));
+	matsk->add_buffer_access(0, cl::sycl::access::mode::read, subrange<2>({10, 0}, {7, 20}));
+	const auto req = matsk->get_requirements(0, cl::sycl::access::mode::read);
+	REQUIRE(req == detail::subrange_to_grid_region(subrange<3>({3, 0, 0}, {14, 20, 1})));
+}
 
 } // namespace celerity

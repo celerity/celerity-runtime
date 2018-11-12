@@ -33,7 +33,7 @@ namespace detail {
 			if(should_shutdown && unscheduled_tasks == 1) return;
 
 			const auto tid = ggen->get_unbuilt_task();
-			assert(tid);
+			assert(tid != boost::none);
 			ggen->build_task(*tid);
 			ggen->flush(*tid);
 			unscheduled_tasks--;

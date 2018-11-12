@@ -51,8 +51,8 @@ runtime::runtime(int* argc, char** argv[]) {
 }
 
 runtime::~runtime() {
-	// Allow BTM to clean up MPI data types before we finalize
-	btm.reset();
+	// Make sure we free all of our MPI custom types before we finalize
+	active_flushes.clear();
 	if(!test_skip_mpi_lifecycle) { MPI_Finalize(); }
 }
 
@@ -60,14 +60,15 @@ void runtime::startup(distr_queue* queue) {
 	if(this->queue != nullptr) { throw std::runtime_error("Only one celerity::distr_queue can be created per process"); }
 	this->queue = queue;
 
-	task_mngr = std::make_shared<detail::task_manager>();
+	task_mngr = is_master ? std::make_shared<detail::task_manager>() : std::make_shared<detail::simple_task_manager>();
 	queue->set_task_manager(task_mngr);
 
 	btm = std::make_unique<buffer_transfer_manager>(default_logger);
 	executor = std::make_unique<detail::executor>(*queue, *task_mngr, *btm, default_logger);
 
 	if(is_master) {
-		ggen = std::make_shared<detail::graph_generator>(num_nodes, *task_mngr, [this](node_id target, const command_pkg& pkg) { flush_command(target, pkg); });
+		ggen = std::make_shared<detail::graph_generator>(num_nodes, *task_mngr,
+		    [this](node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies) { flush_command(target, pkg, dependencies); });
 		scheduler = std::make_unique<detail::scheduler>(ggen, num_nodes);
 		scheduler->startup();
 
@@ -87,15 +88,15 @@ void runtime::shutdown() {
 		command_id base_cmd_id = std::numeric_limits<command_id>::max() - num_nodes;
 		for(auto n = 0u; n < num_nodes; ++n) {
 			command_pkg pkg{0, base_cmd_id + n, command::SHUTDOWN, command_data{}};
-			flush_command(n, pkg);
+			flush_command(n, pkg, {});
 		}
 	}
 
 	executor->shutdown();
 
 	if(is_master) {
-		task_mngr->print_graph(graph_logger);
-		ggen->print_graph(graph_logger);
+		task_mngr->print_graph(*graph_logger);
+		ggen->print_graph(*graph_logger);
 	}
 }
 
@@ -103,11 +104,14 @@ detail::task_manager& runtime::get_task_manager() {
 	return *task_mngr;
 }
 
-buffer_id runtime::register_buffer(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buf_storage) {
+buffer_id runtime::register_buffer(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buf_storage, bool host_initialized) {
 	buf_storage->set_type(is_master ? detail::buffer_type::HOST_BUFFER : detail::buffer_type::DEVICE_BUFFER);
 	const buffer_id bid = buffer_count++;
 	buffer_ptrs[bid] = buf_storage;
-	if(is_master) { ggen->add_buffer(bid, range); }
+	if(is_master) {
+		task_mngr->add_buffer(bid, range, host_initialized);
+		ggen->add_buffer(bid, range);
+	}
 	return bid;
 }
 
@@ -115,16 +119,20 @@ void runtime::free_buffers() {
 	buffer_ptrs.clear();
 }
 
-void runtime::flush_command(node_id target, const command_pkg& pkg) {
+void runtime::flush_command(node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies) {
 	// Even though command packages are small enough to use a blocking send we want to be able to send to the master node as well,
 	// which is why we have to use Isend after all. We also have to make sure that the buffer stays around until the send is complete.
-	active_flushes.emplace_back(pkg, MPI_REQUEST_NULL);
-	MPI_Isend(&active_flushes.rbegin()->first, sizeof(command_pkg), MPI_BYTE, static_cast<int>(target), CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD,
-	    &active_flushes.rbegin()->second);
+	active_flushes.push_back(flush_handle{pkg, dependencies, MPI_REQUEST_NULL, {}});
+	auto it = active_flushes.rbegin();
+	auto data_type =
+	    mpi_support::build_single_use_composite_type({{sizeof(command_pkg), &it->pkg}, {sizeof(command_id) * dependencies.size(), it->dependencies.data()}});
+	it->data_type = std::move(data_type);
+	MPI_Isend(MPI_BOTTOM, 1, *it->data_type, static_cast<int>(target), CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD, &active_flushes.rbegin()->req);
 
+	// Cleanup finished transfers.
 	// Just check the oldest flush. Since commands are small this will stay in equilibrium fairly quickly.
 	int done;
-	MPI_Test(&active_flushes.begin()->second, &done, MPI_STATUS_IGNORE);
+	MPI_Test(&active_flushes.begin()->req, &done, MPI_STATUS_IGNORE);
 	if(done) { active_flushes.pop_front(); }
 }
 

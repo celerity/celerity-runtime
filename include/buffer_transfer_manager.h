@@ -9,6 +9,7 @@
 #include "buffer_storage.h"
 #include "command.h"
 #include "logger.h"
+#include "mpi_support.h"
 #include "types.h"
 
 namespace celerity {
@@ -43,12 +44,7 @@ class buffer_transfer_manager {
 		MPI_Request request;
 		data_header header;
 		std::vector<char> data;
-
-		// This data type is constructed for every individual transfer
-		MPI_Datatype data_type = 0;
-		~transfer_in() {
-			if(data_type != 0) { MPI_Type_free(&data_type); }
-		}
+		mpi_support::single_use_data_type data_type;
 	};
 
 	struct incoming_transfer_handle : transfer_handle {
@@ -59,15 +55,10 @@ class buffer_transfer_manager {
 		std::shared_ptr<transfer_handle> handle;
 		MPI_Request request;
 		data_header header;
+		mpi_support::single_use_data_type data_type;
 
 		transfer_out(std::shared_ptr<detail::raw_data_read_handle> data_handle) : data_handle(std::move(data_handle)) {}
 		void* get_raw_ptr() const { return data_handle->linearized_data_ptr; }
-
-		// This data type is constructed for every individual transfer
-		MPI_Datatype data_type = 0;
-		~transfer_out() {
-			if(data_type != 0) { MPI_Type_free(&data_type); }
-		}
 
 	  private:
 		std::shared_ptr<detail::raw_data_read_handle> data_handle;

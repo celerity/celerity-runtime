@@ -7,7 +7,7 @@
 namespace celerity {
 namespace detail {
 
-	enum class graph_op_type { ADD_COMMAND, REMOVE_COMMAND };
+	enum class graph_op_type { ADD_COMMAND, REMOVE_COMMAND, ADD_DEPENDENCY };
 
 	struct add_command_op {
 		cdag_vertex a = 0;
@@ -24,7 +24,13 @@ namespace detail {
 		command_id cid = 0;
 	};
 
-	using graph_op_info = boost::variant<add_command_op, remove_command_op>;
+	struct add_dependency_op {
+		command_id dependant;
+		command_id dependency;
+		bool anti;
+	};
+
+	using graph_op_info = boost::variant<add_command_op, remove_command_op, add_dependency_op>;
 
 	struct graph_op {
 		graph_op_type type = graph_op_type::ADD_COMMAND;
@@ -37,6 +43,8 @@ namespace detail {
 		graph_builder(command_dag& command_graph);
 
 		command_id add_command(cdag_vertex a, cdag_vertex b, node_id nid, task_id tid, command cmd, command_data data, std::string label = "");
+
+		void add_dependency(command_id dependant, command_id dependency, bool anti = false);
 
 		std::vector<command_id> get_commands(task_id tid, command cmd) const;
 

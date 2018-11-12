@@ -31,7 +31,6 @@ endif()
 add_library(
   celerity_runtime
   src/buffer.cc
-  src/buffer_state.cc
   src/buffer_transfer_manager.cc
   src/distr_queue.cc
   src/executor.cc
@@ -39,8 +38,10 @@ add_library(
   src/graph_generator.cc
   src/graph_utils.cc
   src/handler.cc
+  src/mpi_support.cc
   src/runtime.cc
   src/scheduler.cc
+  src/task.cc
   src/task_manager.cc
   src/transformers/naive_split.cc
   src/worker_job.cc

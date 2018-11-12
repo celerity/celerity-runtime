@@ -2,15 +2,11 @@
 
 #include <memory>
 
-#include "types.h"
-
 namespace celerity {
-
-class task;
-
 namespace detail {
 
 	class scoped_graph_builder;
+	class task;
 
 	class graph_transformer {
 	  public:

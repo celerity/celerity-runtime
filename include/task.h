@@ -1,10 +1,11 @@
 #pragma once
 
-#include <functional>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
+#include "grid.h"
 #include "range_mapper.h"
 #include "types.h"
 
@@ -47,58 +48,84 @@ namespace detail {
 	template <typename Functor>
 	using maf_storage = handler_storage<Functor, master_access_prepass_handler, master_access_livepass_handler>;
 
-} // namespace detail
+	class task {
+	  public:
+		task(task_id tid) : tid(tid) {}
+		virtual ~task() = default;
 
-class task {
-  public:
-	virtual ~task() = default;
-	virtual task_type get_type() const = 0;
-};
+		virtual task_type get_type() const = 0;
+		virtual std::vector<buffer_id> get_accessed_buffers() const = 0;
+		virtual std::unordered_set<cl::sycl::access::mode> get_access_modes(buffer_id bid) const = 0;
 
-class compute_task : public task {
-  public:
-	compute_task(std::unique_ptr<detail::cgf_storage_base>&& cgf) : task(), cgf(std::move(cgf)) {}
+		task_id get_id() const { return tid; }
 
-	task_type get_type() const override { return task_type::COMPUTE; }
-
-	const detail::cgf_storage_base& get_command_group() const { return *cgf; }
-	cl::sycl::range<3> get_global_size() const { return global_size; }
-	int get_dimensions() const { return dimensions; }
-	const std::unordered_map<buffer_id, std::vector<std::unique_ptr<detail::range_mapper_base>>>& get_range_mappers() const { return range_mappers; }
-
-	void set_dimensions(int dims) { dimensions = dims; }
-	void set_global_size(cl::sycl::range<3> gs) { global_size = gs; }
-	void add_range_mapper(buffer_id bid, std::unique_ptr<detail::range_mapper_base>&& rm) { range_mappers[bid].push_back(std::move(rm)); }
-
-  private:
-	std::unique_ptr<detail::cgf_storage_base> cgf;
-	int dimensions = 0;
-	cl::sycl::range<3> global_size;
-	std::unordered_map<buffer_id, std::vector<std::unique_ptr<detail::range_mapper_base>>> range_mappers;
-};
-
-class master_access_task : public task {
-  public:
-	struct buffer_access_info {
-		cl::sycl::access::mode mode;
-		cl::sycl::range<3> range;
-		cl::sycl::id<3> offset;
+	  private:
+		task_id tid;
 	};
 
-	master_access_task(std::unique_ptr<detail::maf_storage_base>&& maf) : task(), maf(std::move(maf)) {}
+	class compute_task : public task {
+	  public:
+		compute_task(task_id tid, std::unique_ptr<cgf_storage_base>&& cgf) : task(tid), cgf(std::move(cgf)) {}
 
-	task_type get_type() const override { return task_type::MASTER_ACCESS; }
+		task_type get_type() const override { return task_type::COMPUTE; }
 
-	const std::unordered_map<buffer_id, std::vector<buffer_access_info>>& get_accesses() const { return buffer_accesses; }
-	const detail::maf_storage_base& get_functor() const { return *maf; }
+		void set_dimensions(int dims) { dimensions = dims; }
+		void set_global_size(cl::sycl::range<3> gs) { global_size = gs; }
+		void set_debug_name(std::string name) { debug_name = name; };
 
-	void add_buffer_access(buffer_id bid, cl::sycl::access::mode mode, cl::sycl::range<3> range, cl::sycl::id<3> offset) {
-		buffer_accesses[bid].push_back({mode, range, offset});
-	}
+		void add_range_mapper(buffer_id bid, std::unique_ptr<range_mapper_base>&& rm) { range_mappers[bid].push_back(std::move(rm)); }
 
-  private:
-	std::unique_ptr<detail::maf_storage_base> maf;
-	std::unordered_map<buffer_id, std::vector<buffer_access_info>> buffer_accesses;
-};
+		const cgf_storage_base& get_command_group() const { return *cgf; }
 
+		int get_dimensions() const { return dimensions; }
+		cl::sycl::range<3> get_global_size() const { return global_size; }
+		std::string get_debug_name() const { return debug_name; }
+
+		std::vector<buffer_id> get_accessed_buffers() const override;
+		std::unordered_set<cl::sycl::access::mode> get_access_modes(buffer_id bid) const override;
+
+		/**
+		 * @brief Computes the combined access-region for a given buffer, mode and subrange.
+		 *
+		 * @param bid
+		 * @param mode
+		 * @param sr The subrange to be passed to the range mappers (extended to a chunk using the global size of the task)
+		 *
+		 * @returns The region obtained by merging the results of all range-mappers for this buffer and mode
+		 */
+		GridRegion<3> get_requirements(buffer_id bid, cl::sycl::access::mode mode, const subrange<3>& sr) const;
+
+	  private:
+		std::unique_ptr<cgf_storage_base> cgf;
+		int dimensions = 0;
+		cl::sycl::range<3> global_size;
+		std::string debug_name;
+		std::unordered_map<buffer_id, std::vector<std::unique_ptr<range_mapper_base>>> range_mappers;
+	};
+
+	class master_access_task : public task {
+	  public:
+		master_access_task(task_id tid, std::unique_ptr<maf_storage_base>&& maf) : task(tid), maf(std::move(maf)) {}
+
+		task_type get_type() const override { return task_type::MASTER_ACCESS; }
+
+		void add_buffer_access(buffer_id bid, cl::sycl::access::mode mode, subrange<3> sr) { buffer_accesses[bid].push_back({mode, sr}); }
+
+		const maf_storage_base& get_functor() const { return *maf; }
+
+		std::vector<buffer_id> get_accessed_buffers() const override;
+		std::unordered_set<cl::sycl::access::mode> get_access_modes(buffer_id bid) const override;
+		GridRegion<3> get_requirements(buffer_id bid, cl::sycl::access::mode mode) const;
+
+	  private:
+		struct buffer_access_info {
+			cl::sycl::access::mode mode;
+			subrange<3> sr;
+		};
+
+		std::unique_ptr<maf_storage_base> maf;
+		std::unordered_map<buffer_id, std::vector<buffer_access_info>> buffer_accesses;
+	};
+
+} // namespace detail
 } // namespace celerity

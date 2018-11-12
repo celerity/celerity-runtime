@@ -9,6 +9,7 @@
 #include "buffer_transfer_manager.h"
 #include "distr_queue.h"
 #include "logger.h"
+#include "mpi_support.h"
 #include "types.h"
 
 namespace celerity {
@@ -33,7 +34,7 @@ class runtime {
 
 	detail::task_manager& get_task_manager();
 
-	buffer_id register_buffer(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buf_storage);
+	buffer_id register_buffer(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buf_storage, bool host_initialized);
 
 	/**
 	 * Currently this is being called by the distr_queue on shutdown (dtor).
@@ -80,13 +81,19 @@ class runtime {
 	std::unique_ptr<detail::executor> executor;
 	std::unique_ptr<buffer_transfer_manager> btm;
 
-	std::deque<std::pair<command_pkg, MPI_Request>> active_flushes;
+	struct flush_handle {
+		command_pkg pkg;
+		std::vector<command_id> dependencies;
+		MPI_Request req;
+		mpi_support::single_use_data_type data_type;
+	};
+	std::deque<flush_handle> active_flushes;
 
 	runtime(int* argc, char** argv[]);
 	runtime(const runtime&) = delete;
 	runtime(runtime&&) = delete;
 
-	void flush_command(node_id target, const command_pkg& pkg);
+	void flush_command(node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies);
 
 #ifdef CELERITY_TEST
 	// ------------------------------------------ TESTING UTILS ------------------------------------------

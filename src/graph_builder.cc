@@ -23,6 +23,11 @@ namespace detail {
 		return add.cid;
 	}
 
+	void graph_builder::add_dependency(command_id dependant, command_id dependency, bool anti) {
+		add_dependency_op add{dependant, dependency, anti};
+		graph_ops.emplace_back<graph_op>({graph_op_type::ADD_DEPENDENCY, add});
+	}
+
 	std::vector<command_id> graph_builder::get_commands(task_id tid, command cmd) const {
 		std::vector<command_id> result;
 		auto& tv = GRAPH_PROP(command_graph, task_vertices)[tid];
@@ -40,9 +45,8 @@ namespace detail {
 			auto& cmd_v = command_graph[v];
 			if(cmd_v.cmd == cmd) { result.push_back(cmd_v.cid); }
 
-			// NOTE: This assumes that we have no inter-task command dependencies!
-			graph_utils::for_successors(command_graph, v, [tv, &queued_cmds, &cmd_queue](cdag_vertex s) {
-				if(s != tv.second && queued_cmds.count(s) == 0) {
+			graph_utils::for_successors(command_graph, v, [tv, tid, &queued_cmds, &cmd_queue, this](cdag_vertex s, cdag_edge) {
+				if(command_graph[s].tid == tid && s != tv.second && queued_cmds.count(s) == 0) {
 					cmd_queue.push(s);
 					queued_cmds.insert(s);
 				}
@@ -74,8 +78,9 @@ namespace detail {
 		}
 #endif
 
-		graph_utils::for_predecessors(command_graph, GRAPH_PROP(command_graph, command_vertices).at(cid),
-		    [&](cdag_vertex v) { assert(command_graph[v].cmd == command::NOP && "Splitting computes with existing data transfer dependencies NYI"); });
+		graph_utils::for_predecessors(command_graph, GRAPH_PROP(command_graph, command_vertices).at(cid), [&](cdag_vertex v, cdag_edge) {
+			assert(command_graph[v].cmd == command::NOP && "Splitting computes with existing data transfer dependencies NYI");
+		});
 
 		const auto tv = GRAPH_PROP(command_graph, task_vertices).at(cmdv.tid);
 		remove_command_op rm;
@@ -93,9 +98,8 @@ namespace detail {
 		if(graph_ops.empty()) return;
 
 		for(auto& op : graph_ops) {
-			if(op.type != graph_op_type::ADD_COMMAND && op.type != graph_op_type::REMOVE_COMMAND) { assert(false); }
-
-			if(op.type == graph_op_type::ADD_COMMAND) {
+			switch(op.type) {
+			case graph_op_type::ADD_COMMAND: {
 				auto& add_info = boost::get<add_command_op>(op.info);
 				const auto v = [=] {
 					if(add_info.a != cdag_vertex_none && add_info.b != cdag_vertex_none) {
@@ -111,12 +115,35 @@ namespace detail {
 				command_graph[v].data = add_info.data;
 
 				GRAPH_PROP(command_graph, command_vertices)[add_info.cid] = v;
-			} else if(op.type == graph_op_type::REMOVE_COMMAND) {
+			} break;
+			case graph_op_type::REMOVE_COMMAND: {
 				auto& cmd_vertices = GRAPH_PROP(command_graph, command_vertices);
 				const auto cid = boost::get<remove_command_op>(op.info).cid;
 				boost::clear_vertex(cmd_vertices.at(cid), command_graph);
 				boost::remove_vertex(cmd_vertices.at(cid), command_graph);
 				cmd_vertices.erase(cid);
+			} break;
+			case graph_op_type::ADD_DEPENDENCY: {
+				const auto& add_info = boost::get<add_dependency_op>(op.info);
+				assert(GRAPH_PROP(command_graph, command_vertices).count(add_info.dependency) == 1);
+				assert(GRAPH_PROP(command_graph, command_vertices).count(add_info.dependant) == 1);
+				const auto dependency_v = GRAPH_PROP(command_graph, command_vertices)[add_info.dependency];
+				const auto dependant_v = GRAPH_PROP(command_graph, command_vertices)[add_info.dependant];
+
+				// Check whether edge already exists
+				const auto ep = boost::edge(dependency_v, dependant_v, command_graph);
+				if(ep.second) {
+					if(!add_info.anti) {
+						// Anti-dependencies can be overwritten by true dependencies
+						command_graph[ep.first].anti_dependency = false;
+					}
+				} else {
+					const auto new_edge = boost::add_edge(dependency_v, dependant_v, command_graph).first;
+					command_graph[new_edge].anti_dependency = add_info.anti;
+				}
+
+			} break;
+			default: assert(false && "Unexpected graph_op_type");
 			}
 		}
 

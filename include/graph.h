@@ -48,9 +48,16 @@ struct tdag_vertex_properties {
 	size_t num_unsatisfied = 0;
 };
 
+struct tdag_edge_properties {
+	// An anti-dependency indicates that the source task uses a buffer that is written to by the target task
+	// (I.e. avoding write after read race conditions)
+	bool anti_dependency = false;
+};
+
 struct tdag_graph_properties {};
 
-using task_dag = boost::adjacency_list<boost::vecS, boost::vecS, boost::bidirectionalS, tdag_vertex_properties, boost::no_property, tdag_graph_properties>;
+using task_dag = boost::adjacency_list<boost::vecS, boost::vecS, boost::bidirectionalS, tdag_vertex_properties, tdag_edge_properties, tdag_graph_properties>;
+using tdag_edge = task_dag::edge_descriptor;
 
 // -------------------------------------------------------------------------------------------------------------------
 // -------------------------------------------------- COMMAND GRAPH --------------------------------------------------
@@ -69,6 +76,8 @@ using cdag_EdgeListS = boost::listS;
 using cdag_vertex = boost::adjacency_list_traits<cdag_OutEdgeListS, cdag_VertexListS, cdag_DirectedS, cdag_EdgeListS>::vertex_descriptor;
 constexpr cdag_vertex cdag_vertex_none = static_cast<cdag_vertex>(nullptr);
 
+using cdag_edge = boost::adjacency_list_traits<cdag_OutEdgeListS, cdag_VertexListS, cdag_DirectedS, cdag_EdgeListS>::edge_descriptor;
+
 struct cdag_vertex_properties {
 	std::string label;
 	command cmd = command::NOP;
@@ -76,6 +85,12 @@ struct cdag_vertex_properties {
 	node_id nid = 0;
 	task_id tid;
 	command_data data = {};
+};
+
+struct cdag_edge_properties {
+	// An anti-dependency indicates that the source command uses a buffer that is written to by the target command
+	// (I.e. avoding write after read race conditions)
+	bool anti_dependency = false;
 };
 
 struct cdag_graph_properties {
@@ -90,6 +105,6 @@ struct cdag_graph_properties {
 
 using command_dag = boost::adjacency_list<cdag_OutEdgeListS, cdag_VertexListS, cdag_DirectedS,
     // Add vertex_index_t as a vertex property alongside the bundled properties since it's required by certain BGL algorithms (e.g. write_graphviz)
-    boost::property<boost::vertex_index_t, int, cdag_vertex_properties>, boost::no_property, cdag_graph_properties, cdag_EdgeListS>;
+    boost::property<boost::vertex_index_t, int, cdag_vertex_properties>, cdag_edge_properties, cdag_graph_properties, cdag_EdgeListS>;
 
 } // namespace celerity

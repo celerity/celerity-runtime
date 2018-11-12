@@ -43,14 +43,13 @@ class distr_queue {
 	 * @brief Executes the kernel associated with task @p tid over the chunk @p chnk.
 	 * @internal
 	 */
-	template <int Dims>
-	cl::sycl::event execute(task_id tid, chunk<Dims> chnk) {
+	cl::sycl::event execute(task_id tid, subrange<3> sr) {
 		assert(task_mngr->has_task(tid));
 		assert(task_mngr->get_task(tid)->get_type() == task_type::COMPUTE);
-		auto task = std::static_pointer_cast<const compute_task>(task_mngr->get_task(tid));
+		auto task = std::static_pointer_cast<const detail::compute_task>(task_mngr->get_task(tid));
 		auto& cgf = task->get_command_group();
-		return sycl_queue->submit([this, &cgf, tid, task, chnk](cl::sycl::handler& sycl_handler) {
-			compute_livepass_handler h(tid, task, chnk, &sycl_handler);
+		return sycl_queue->submit([&cgf, task, sr](cl::sycl::handler& sycl_handler) {
+			compute_livepass_handler h(*task, sr, &sycl_handler);
 			cgf(h);
 		});
 	}

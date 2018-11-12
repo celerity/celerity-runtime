@@ -6,6 +6,7 @@
 namespace celerity {
 
 enum class command { NOP, COMPUTE, MASTER_ACCESS, PUSH, AWAIT_PUSH, SHUTDOWN };
+constexpr const char* command_string[] = {"NOP", "COMPUTE", "MASTER_ACCESS", "PUSH", "AWAIT_PUSH", "SHUTDOWN"};
 
 struct command_subrange {
 	size_t offset[3] = {0, 0, 0};

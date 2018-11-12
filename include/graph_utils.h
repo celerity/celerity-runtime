@@ -20,14 +20,14 @@ namespace graph_utils {
 	template <typename Graph>
 	using VertexType = typename boost::graph_traits<Graph>::vertex_descriptor;
 
-	template <typename Functor, typename Vertex>
-	bool call_for_vertex_fn(const Functor& fn, Vertex v, std::true_type) {
-		return fn(v);
+	template <typename Functor, typename Vertex, typename Edge>
+	bool call_for_vertex_fn(const Functor& fn, Vertex v, Edge e, std::true_type) {
+		return fn(v, e);
 	}
 
-	template <typename Functor, typename Vertex>
-	bool call_for_vertex_fn(const Functor& fn, Vertex v, std::false_type) {
-		fn(v);
+	template <typename Functor, typename Vertex, typename Edge>
+	bool call_for_vertex_fn(const Functor& fn, Vertex v, Edge e, std::false_type) {
+		fn(v, e);
 		return true;
 	}
 
@@ -43,7 +43,7 @@ namespace graph_utils {
 		typename boost::graph_traits<Graph>::in_edge_iterator eit, eit_end;
 		for(std::tie(eit, eit_end) = boost::in_edges(v, graph); eit != eit_end; ++eit) {
 			auto pre = boost::source(*eit, graph);
-			if(call_for_vertex_fn(f, pre, std::is_same<bool, decltype(f(pre))>()) == false) { return false; }
+			if(call_for_vertex_fn(f, pre, *eit, std::is_same<bool, decltype(f(pre, *eit))>()) == false) { return false; }
 		}
 		return true;
 	}
@@ -60,7 +60,7 @@ namespace graph_utils {
 		typename boost::graph_traits<Graph>::out_edge_iterator eit, eit_end;
 		for(std::tie(eit, eit_end) = boost::out_edges(v, graph); eit != eit_end; ++eit) {
 			auto suc = boost::target(*eit, graph);
-			if(call_for_vertex_fn(f, suc, std::is_same<bool, decltype(f(suc))>()) == false) { return false; }
+			if(call_for_vertex_fn(f, suc, *eit, std::is_same<bool, decltype(f(suc, *eit))>()) == false) { return false; }
 		}
 		return true;
 	}
@@ -121,18 +121,17 @@ namespace graph_utils {
 
 
 	template <typename Graph, typename VertexPropertiesWriter, typename EdgePropertiesWriter>
-	void write_graph(
-	    const Graph& g, const std::string& name, VertexPropertiesWriter vpw, EdgePropertiesWriter epw, const std::shared_ptr<logger>& graph_logger) {
+	void write_graph(const Graph& g, const std::string& name, VertexPropertiesWriter vpw, EdgePropertiesWriter epw, logger& graph_logger) {
 		std::stringstream ss;
 		boost::write_graphviz(ss, g, vpw, epw);
 		auto str = ss.str();
 		boost::replace_all(str, "\n", "\\n");
 		boost::replace_all(str, "\"", "\\\"");
-		graph_logger->info(logger_map({{"name", name}, {"data", str}}));
+		graph_logger.info(logger_map({{"name", name}, {"data", str}}));
 	}
 
-	void print_graph(const celerity::task_dag& tdag, const std::shared_ptr<logger>& graph_logger);
-	void print_graph(celerity::command_dag& cdag, const std::shared_ptr<logger>& graph_logger);
+	void print_graph(const task_dag& tdag, logger& graph_logger);
+	void print_graph(command_dag& cdag, logger& graph_logger);
 
 } // namespace graph_utils
 

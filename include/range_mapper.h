@@ -12,6 +12,7 @@ namespace celerity {
 
 namespace detail {
 
+
 	template <int KernelDims, int BufferDims>
 	using range_mapper_fn = std::function<subrange<BufferDims>(chunk<KernelDims> chnk)>;
 
@@ -48,10 +49,20 @@ namespace detail {
 		}
 	};
 
+	template <int BufferDims>
+	subrange<BufferDims> clamp_subrange_to_buffer_size(subrange<BufferDims> sr, cl::sycl::range<BufferDims> buffer_size) {
+		auto end = sr.offset + sr.range;
+		if(end[0] > buffer_size[0]) { sr.range[0] = sr.offset[0] <= buffer_size[0] ? buffer_size[0] - sr.offset[0] : 0; }
+		if(end[1] > buffer_size[1]) { sr.range[1] = sr.offset[1] <= buffer_size[1] ? buffer_size[1] - sr.offset[1] : 0; }
+		if(end[2] > buffer_size[2]) { sr.range[2] = sr.offset[2] <= buffer_size[2] ? buffer_size[2] - sr.offset[2] : 0; }
+		return sr;
+	}
+
 	template <int KernelDims, int BufferDims>
 	class range_mapper : public range_mapper_base {
 	  public:
-		range_mapper(range_mapper_fn<KernelDims, BufferDims> fn, cl::sycl::access::mode am) : range_mapper_base(am), rmfn(fn) {}
+		range_mapper(range_mapper_fn<KernelDims, BufferDims> fn, cl::sycl::access::mode am, cl::sycl::range<BufferDims> buffer_size)
+		    : range_mapper_base(am), rmfn(fn), buffer_size(buffer_size) {}
 
 		int get_kernel_dimensions() const override { return KernelDims; }
 		int get_buffer_dimensions() const override { return BufferDims; }
@@ -62,19 +73,12 @@ namespace detail {
 
 	  private:
 		range_mapper_fn<KernelDims, BufferDims> rmfn;
+		cl::sycl::range<BufferDims> buffer_size;
 
-		subrange<BufferDims> clamp_subrange_to_global_size(subrange<BufferDims> sr, const chunk<KernelDims>& chnk) const {
-			auto end = sr.offset + sr.range;
-			auto& max = chnk.global_size;
-			if(end[0] > max[0]) { sr.range[0] = sr.offset[0] <= max[0] ? max[0] - sr.offset[0] : 0; }
-			if(end[1] > max[1]) { sr.range[1] = sr.offset[1] <= max[1] ? max[1] - sr.offset[1] : 0; }
-			if(end[2] > max[2]) { sr.range[2] = sr.offset[2] <= max[2] ? max[2] - sr.offset[2] : 0; }
-			return sr;
-		}
 
 		template <int D = BufferDims>
 		typename std::enable_if<D == 1, subrange<1>>::type map_1_impl(chunk<KernelDims> chnk) const {
-			return clamp_subrange_to_global_size(rmfn(chnk), chnk);
+			return clamp_subrange_to_buffer_size(rmfn(chnk), buffer_size);
 		}
 
 		template <int D = BufferDims>
@@ -84,7 +88,7 @@ namespace detail {
 
 		template <int D = BufferDims>
 		typename std::enable_if<D == 2, subrange<2>>::type map_2_impl(chunk<KernelDims> chnk) const {
-			return clamp_subrange_to_global_size(rmfn(chnk), chnk);
+			return clamp_subrange_to_buffer_size(rmfn(chnk), buffer_size);
 		}
 
 		template <int D = BufferDims>
@@ -94,7 +98,7 @@ namespace detail {
 
 		template <int D = BufferDims>
 		typename std::enable_if<D == 3, subrange<3>>::type map_3_impl(chunk<KernelDims> chnk) const {
-			return clamp_subrange_to_global_size(rmfn(chnk), chnk);
+			return clamp_subrange_to_buffer_size(rmfn(chnk), buffer_size);
 		}
 
 		template <int D = BufferDims>
@@ -108,12 +112,23 @@ namespace detail {
 
 // --------------------------- Convenience range mappers ---------------------------
 
-
 namespace access {
+
 	template <int Dims>
 	struct one_to_one {
 		subrange<Dims> operator()(chunk<Dims> chnk) const { return chnk; }
 	};
+
+	template <int KernelDims, int BufferDims>
+	struct fixed {
+		fixed(subrange<BufferDims> sr) : sr(sr) {}
+
+		subrange<BufferDims> operator()(chunk<KernelDims>) const { return sr; }
+
+	  private:
+		subrange<BufferDims> sr;
+	};
+
 } // namespace access
 
 } // namespace celerity

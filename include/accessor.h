@@ -4,6 +4,7 @@
 
 #include <SYCL/sycl.hpp>
 
+#include "access_modes.h"
 #include "buffer_storage.h"
 
 namespace celerity {
@@ -24,33 +25,42 @@ namespace detail {
 
 	template <typename DataT, int Dims, cl::sycl::access::mode Mode>
 	class host_accessor_impl {
+		static_assert(Mode != cl::sycl::access::mode::atomic, "Atomic host access is NYI");
+
 	  public:
-		host_accessor_impl(std::shared_ptr<detail::buffer_storage<DataT, Dims>> buffer_storage, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {})
-		    : buffer_storage(buffer_storage), range(range), offset(offset) {
-			buffer_range = cl::sycl::range<Dims>(buffer_storage->get_range());
-			// TODO: Also for read_write
-			if(Mode == cl::sycl::access::mode::read) {
-				read_handle = buffer_storage->get_data(cl::sycl::id<3>(offset), cl::sycl::range<3>(range));
+		host_accessor_impl(std::shared_ptr<buffer_storage<DataT, Dims>> buf_storage, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {})
+		    : buf_storage(buf_storage), range(range), offset(offset) {
+			buffer_range = cl::sycl::range<Dims>(buf_storage->get_range());
+			if(access::detail::mode_traits::is_consumer(Mode)) {
+				read_handle = buf_storage->get_data(cl::sycl::id<3>(offset), cl::sycl::range<3>(range));
 				linearized_data_ptr = reinterpret_cast<DataT*>(read_handle->linearized_data_ptr);
-			} else {
+			}
+
+			if(access::detail::mode_traits::is_producer(Mode)) {
 				write_buffer = std::make_unique<DataT[]>(range[0] * range[1] * range[2]);
 				linearized_data_ptr = write_buffer.get();
+
+				// Retain previous contents
+				if(access::detail::mode_traits::is_consumer(Mode)) {
+					std::memcpy(linearized_data_ptr, read_handle->linearized_data_ptr, sizeof(DataT) * range[0] * range[1] * range[2]);
+					read_handle = nullptr;
+				}
 			}
 		}
 
 		~host_accessor_impl() {
-			// TODO: Also for read_write
-			if(Mode == cl::sycl::access::mode::write) {
+			if(access::detail::mode_traits::is_producer(Mode)) {
 				if(linearized_data_ptr == nullptr) return;
-				detail::raw_data_handle data_handle;
+				raw_data_handle data_handle;
 				data_handle.linearized_data_ptr = linearized_data_ptr;
 				data_handle.range = cl::sycl::range<3>(range);
 				data_handle.offset = cl::sycl::range<3>(offset);
-				buffer_storage->set_data(data_handle);
+				buf_storage->set_data(data_handle);
 			}
 		}
 
-		// TODO: Where should this point if the accessor has an offset? How does SYCL do it? Investigate
+		// FIXME: This currently does NOT behave the same way as SYCL if the accessor has an offset
+		// (See runtime tests; basically SYCL always points to the first item in the buffer, regardless of offset).
 		DataT* get_pointer() { return linearized_data_ptr; }
 
 		/**
@@ -61,31 +71,31 @@ namespace detail {
 		 */
 
 		template <cl::sycl::access::mode M = Mode, int D = Dims>
-		std::enable_if_t<M == cl::sycl::access::mode::write && D == 1, DataT&> operator[](size_t index) {
+		std::enable_if_t<access::detail::mode_traits::is_producer(M) && D == 1, DataT&> operator[](size_t index) {
 			return linearized_data_ptr[index - offset[0]];
 		}
 
 		template <cl::sycl::access::mode M = Mode, int D = Dims>
-		std::enable_if_t<M == cl::sycl::access::mode::read && D == 1, const DataT&> operator[](size_t index) {
+		std::enable_if_t<access::detail::mode_traits::is_pure_consumer(M) && D == 1, const DataT&> operator[](size_t index) const {
 			return linearized_data_ptr[index - offset[0]];
 		}
 
 		template <cl::sycl::access::mode M = Mode>
-		std::enable_if_t<M == cl::sycl::access::mode::write, DataT&> operator[](cl::sycl::id<Dims> index) {
+		std::enable_if_t<access::detail::mode_traits::is_producer(M), DataT&> operator[](cl::sycl::id<Dims> index) {
 			return linearized_data_ptr[detail::get_linear_index(range, index - offset)];
 		}
 
 		template <cl::sycl::access::mode M = Mode>
-		std::enable_if_t<M == cl::sycl::access::mode::read, const DataT&> operator[](cl::sycl::id<Dims> index) {
+		std::enable_if_t<access::detail::mode_traits::is_pure_consumer(M), const DataT&> operator[](cl::sycl::id<Dims> index) const {
 			return linearized_data_ptr[detail::get_linear_index(range, index - offset)];
 		}
 
 	  private:
 		cl::sycl::range<Dims> buffer_range;
-		std::shared_ptr<detail::buffer_storage<DataT, Dims>> buffer_storage;
+		std::shared_ptr<buffer_storage<DataT, Dims>> buf_storage;
 		cl::sycl::range<Dims> range;
 		cl::sycl::id<Dims> offset;
-		std::shared_ptr<detail::raw_data_read_handle> read_handle;
+		std::shared_ptr<raw_data_read_handle> read_handle;
 		std::unique_ptr<DataT[]> write_buffer;
 		DataT* linearized_data_ptr = nullptr;
 	};
@@ -107,22 +117,22 @@ class host_accessor {
 	DataT* get_pointer() const { return (*pimpl).get_pointer(); }
 
 	template <cl::sycl::access::mode M = Mode, int D = Dims>
-	std::enable_if_t<M == cl::sycl::access::mode::write && D == 1, DataT&> operator[](size_t index) const {
+	std::enable_if_t<access::detail::mode_traits::is_producer(M) && D == 1, DataT&> operator[](size_t index) const {
 		return (*pimpl)[index];
 	}
 
 	template <cl::sycl::access::mode M = Mode, int D = Dims>
-	std::enable_if_t<M == cl::sycl::access::mode::read && D == 1, const DataT&> operator[](size_t index) const {
+	std::enable_if_t<access::detail::mode_traits::is_pure_consumer(M) && D == 1, const DataT&> operator[](size_t index) const {
 		return (*pimpl)[index];
 	}
 
 	template <cl::sycl::access::mode M = Mode>
-	std::enable_if_t<M == cl::sycl::access::mode::write, DataT&> operator[](cl::sycl::id<Dims> index) const {
+	std::enable_if_t<access::detail::mode_traits::is_producer(M), DataT&> operator[](cl::sycl::id<Dims> index) const {
 		return (*pimpl)[index];
 	}
 
 	template <cl::sycl::access::mode M = Mode>
-	std::enable_if_t<M == cl::sycl::access::mode::read, const DataT&> operator[](cl::sycl::id<Dims> index) const {
+	std::enable_if_t<access::detail::mode_traits::is_pure_consumer(M), const DataT&> operator[](cl::sycl::id<Dims> index) const {
 		return (*pimpl)[index];
 	}
 
