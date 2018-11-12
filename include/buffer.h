@@ -38,6 +38,8 @@ class buffer : public buffer_base {
 		if(host_initialized) { buffer_storage->set_data(detail::raw_data_handle{host_ptr, cl::sycl::range<3>(range), cl::sycl::id<3>{}}); }
 	}
 
+	buffer(cl::sycl::range<Dims> range) : buffer(nullptr, range) {}
+
 	buffer(const buffer&) = delete;
 	buffer(buffer&&) = delete;
 
