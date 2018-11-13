@@ -10,15 +10,20 @@
 
 namespace celerity {
 
-// We have to jump through some hoops to resolve a circular dependency with runtime
-class buffer_base {
-  protected:
-	buffer_id register_with_runtime(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buffer_storage, bool host_initialized) const;
-	void unregister_with_runtime(buffer_id id) const;
-};
+namespace detail {
+
+	// We have to jump through some hoops to resolve a circular dependency with runtime
+	class buffer_base {
+	  protected:
+		buffer_type get_type() const;
+		buffer_id register_with_runtime(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buffer_storage, bool host_initialized) const;
+		void unregister_with_runtime(buffer_id id) const;
+	};
+
+} // namespace detail
 
 template <typename DataT, int Dims>
-class buffer : public buffer_base {
+class buffer : public detail::buffer_base {
   public:
 	// TODO: We may want to experiment with allocating smaller buffers on each worker node.
 	// However this either requires knowledge of the entire buffer range that will be used over the buffer's lifetime,
@@ -28,7 +33,7 @@ class buffer : public buffer_base {
 		const bool host_initialized = host_ptr != nullptr;
 
 		buffer_storage = std::make_shared<detail::buffer_storage<DataT, Dims>>(range);
-		id = register_with_runtime(cl::sycl::range<3>(range), buffer_storage, host_initialized);
+		buffer_storage->set_type(get_type());
 
 		// TODO: Get rid of this functionality. Add high-level interface for explicit transfers instead.
 		// --> Most of the time we'd not want a backing host-buffer, since it would contain only partial results (i.e. chunks
@@ -36,6 +41,11 @@ class buffer : public buffer_base {
 		// --> Note that we're currently not even transferring data back to the host_ptr, but the interface looks like the SYCL
 		//		interface that does just that!.
 		if(host_initialized) { buffer_storage->set_data(detail::raw_data_handle{host_ptr, cl::sycl::range<3>(range), cl::sycl::id<3>{}}); }
+
+		// It's important that we register the buffer AFTER we transferred the initial data (if any):
+		// As soon as the buffer is registered, incoming transfers can be written to it.
+		// In rare cases this might happen before the initial transfer is finished, causing a data race.
+		id = register_with_runtime(cl::sycl::range<3>(range), buffer_storage, host_initialized);
 	}
 
 	buffer(cl::sycl::range<Dims> range) : buffer(nullptr, range) {}

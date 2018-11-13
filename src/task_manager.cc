@@ -16,6 +16,7 @@ namespace detail {
 	}
 
 	void task_manager::add_buffer(buffer_id bid, const cl::sycl::range<3>& range, bool host_initialized) {
+		std::lock_guard<std::mutex> lock(task_mutex);
 		buffers_last_writers.emplace(bid, range);
 		if(host_initialized) { buffers_last_writers.at(bid).update_region(subrange_to_grid_region(subrange<3>({}, range)), init_task_id); }
 	}

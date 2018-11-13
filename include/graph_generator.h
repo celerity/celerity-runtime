@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include <boost/optional.hpp>
@@ -102,6 +103,9 @@ namespace detail {
 		std::unordered_map<node_id, buffer_writer_map> node_buffer_last_writer;
 
 		std::vector<std::shared_ptr<graph_transformer>> transformers;
+
+		// This mutex mainly serves to protect per-buffer data structures, as new buffers might be added at any time.
+		std::mutex buffer_mutex;
 
 		void generate_anti_dependencies(task_id tid, buffer_id bid, const region_map<boost::optional<command_id>>& last_writers_map,
 		    const GridRegion<3>& write_req, command_id write_cid, graph_builder& gb);

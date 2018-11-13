@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 
 #include <mpi.h>
@@ -32,6 +33,14 @@ class runtime {
 	void startup(distr_queue* queue);
 	void shutdown();
 
+	/**
+	 * @brief Whether this node is the master node.
+	 *
+	 * This function should generally be used with care, as branching based on node type can lead
+	 * to diverging Celerity user code (i.e. task definitions, buffers etc), which causes undefined behavior.
+	 */
+	bool is_master_node() const { return is_master; }
+
 	detail::task_manager& get_task_manager();
 
 	buffer_id register_buffer(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buf_storage, bool host_initialized);
@@ -49,13 +58,25 @@ class runtime {
 	 */
 	void unregister_buffer(buffer_id bid) {}
 
-	std::shared_ptr<detail::raw_data_read_handle> get_buffer_data(buffer_id bid, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) {
-		assert(buffer_ptrs.at(bid) != nullptr);
-		return buffer_ptrs[bid]->get_data(offset, range);
+	/**
+	 * @brief Checks whether the buffer with id \p bid has already been registered with the runtime.
+	 *
+	 * This is useful in rare situations where worker nodes might receive data for buffers they haven't registered yet.
+	 */
+	bool has_buffer(buffer_id bid) const {
+		std::lock_guard<std::mutex> lock(buffer_mutex);
+		return buffer_ptrs.count(bid) == 1;
+	}
+
+	std::shared_ptr<detail::raw_data_read_handle> get_buffer_data(buffer_id bid, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) const {
+		std::lock_guard<std::mutex> lock(buffer_mutex);
+		assert(buffer_ptrs.count(bid) == 1);
+		return buffer_ptrs.at(bid)->get_data(offset, range);
 	}
 
 	void set_buffer_data(buffer_id bid, const detail::raw_data_handle& dh) {
-		assert(buffer_ptrs.at(bid) != nullptr);
+		std::lock_guard<std::mutex> lock(buffer_mutex);
+		assert(buffer_ptrs.count(bid) == 1);
 		buffer_ptrs[bid]->set_data(dh);
 	}
 
@@ -72,6 +93,7 @@ class runtime {
 
 	size_t buffer_count = 0;
 	std::unordered_map<buffer_id, std::shared_ptr<detail::buffer_storage_base>> buffer_ptrs;
+	mutable std::mutex buffer_mutex;
 
 	// The graph generator and scheduler are only constructed on the master node.
 	std::shared_ptr<detail::graph_generator> ggen;

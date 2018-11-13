@@ -131,6 +131,9 @@ void buffer_transfer_manager::write_data_to_buffer(std::unique_ptr<transfer_in>&
 	const auto& header = transfer->header;
 	const detail::raw_data_handle dh{&transfer->data[0], cl::sycl::range<3>(header.subrange.range[0], header.subrange.range[1], header.subrange.range[2]),
 	    cl::sycl::id<3>(header.subrange.offset[0], header.subrange.offset[1], header.subrange.offset[2])};
+	// In some rare situations the local runtime might not yet know about this buffer. Busy wait until it does.
+	// TODO: It's not ideal that we stall everything else here.
+	while(!runtime::get_instance().has_buffer(header.bid)) {}
 	runtime::get_instance().set_buffer_data(header.bid, dh);
 }
 

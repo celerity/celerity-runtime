@@ -105,7 +105,7 @@ detail::task_manager& runtime::get_task_manager() {
 }
 
 buffer_id runtime::register_buffer(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buf_storage, bool host_initialized) {
-	buf_storage->set_type(is_master ? detail::buffer_type::HOST_BUFFER : detail::buffer_type::DEVICE_BUFFER);
+	std::lock_guard<std::mutex> lock(buffer_mutex);
 	const buffer_id bid = buffer_count++;
 	buffer_ptrs[bid] = buf_storage;
 	if(is_master) {
