@@ -33,7 +33,7 @@ namespace detail {
 	}
 
 	graph_generator::graph_generator(size_t num_nodes, task_manager& tm, flush_callback flush_callback)
-	    : num_nodes(num_nodes), task_mngr(tm), flush_cb(flush_callback) {
+	    : task_mngr(tm), num_nodes(num_nodes), flush_cb(flush_callback) {
 		register_transformer(std::make_shared<naive_split_transformer>(num_nodes > 1 ? num_nodes - 1 : 1));
 		build_task(tm.get_init_task_id());
 	}
@@ -276,7 +276,7 @@ namespace detail {
 							for(auto& bs : box_sources) {
 								if(bs.nid == nid) {
 									// No need to push, but make sure to add a dependency.
-									if(bs.cid != -1) { gb.add_dependency(cid, bs.cid); }
+									if(bs.cid != static_cast<command_id>(-1)) { gb.add_dependency(cid, bs.cid); }
 									exists_locally = true;
 									break;
 								}

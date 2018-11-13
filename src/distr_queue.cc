@@ -99,13 +99,13 @@ bool try_get_platform_device_env(int& platform_id, int& device_id, std::shared_p
 	std::vector<std::string> values;
 	boost::split(values, env_var, [](char c) { return c == ' '; });
 
-	if(node_rank > values.size() - 2) {
+	if(node_rank > static_cast<long>(values.size()) - 2) {
 		throw std::runtime_error(fmt::format("Process has local rank {}, but CELERITY_DEVICES only includes {} device(s)", node_rank, values.size() - 1));
 	}
 
 	int node_size = 0;
 	MPI_Comm_size(node_comm, &node_size);
-	if(values.size() - 1 > node_size) {
+	if(static_cast<long>(values.size()) - 1 > node_size) {
 		logger->warn("CELERITY_DEVICES contains {} device indices, but only {} worker processes were spawned on this node", values.size() - 1, node_size);
 	}
 

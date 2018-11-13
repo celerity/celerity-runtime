@@ -100,7 +100,7 @@ void runtime::shutdown() {
 	}
 }
 
-detail::task_manager& runtime::get_task_manager() {
+detail::task_manager& runtime::get_task_manager() const {
 	return *task_mngr;
 }
 

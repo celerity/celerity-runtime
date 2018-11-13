@@ -16,7 +16,7 @@ namespace mpi_support {
 		}
 		std::vector<MPI_Datatype> block_types(blocks.size(), MPI_BYTE);
 		MPI_Datatype data_type;
-		MPI_Type_create_struct(blocks.size(), block_lengths.data(), disps.data(), block_types.data(), &data_type);
+		MPI_Type_create_struct(static_cast<int>(blocks.size()), block_lengths.data(), disps.data(), block_types.data(), &data_type);
 		MPI_Type_commit(&data_type);
 		return data_type;
 	}

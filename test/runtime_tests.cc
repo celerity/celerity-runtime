@@ -11,14 +11,13 @@
 #define CELERITY_TEST
 #include <celerity.h>
 
-#include "access_modes.h"
 #include "region_map.h"
 
 #include "test_utils.h"
 
 GridBox<3> make_grid_box(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) {
 	const auto end = cl::sycl::range<3>(offset) + range;
-	return GridBox<3>(celerity::detail::sycl_range_to_grid_point(cl::sycl::range<3>(offset)), celerity::detail::sycl_range_to_grid_point(end));
+	return {celerity::detail::sycl_range_to_grid_point(cl::sycl::range<3>(offset)), celerity::detail::sycl_range_to_grid_point(end)};
 }
 
 GridRegion<3> make_grid_region(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) {
@@ -342,7 +341,8 @@ TEST_CASE("task_manager correctly records compute task information", "[task_mana
 	test_utils::mock_buffer_factory mbf(&tm);
 	auto buf_a = mbf.create_buffer(cl::sycl::range<2>(30, 40));
 	auto buf_b = mbf.create_buffer(cl::sycl::range<3>(7, 21, 99));
-	const auto tid = test_utils::add_compute_task(tm,
+	const auto tid = test_utils::add_compute_task(
+	    tm,
 	    [&](auto& cgh) {
 		    buf_a.get_access<cl::sycl::access::mode::read>(cgh, access::fixed<2, 2>(subrange<2>({}, {12, 33})));
 		    buf_b.get_access<cl::sycl::access::mode::discard_read_write>(cgh, access::fixed<2, 3>(subrange<3>({}, {5, 18, 74})));

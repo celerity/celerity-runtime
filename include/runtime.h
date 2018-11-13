@@ -41,7 +41,7 @@ class runtime {
 	 */
 	bool is_master_node() const { return is_master; }
 
-	detail::task_manager& get_task_manager();
+	detail::task_manager& get_task_manager() const;
 
 	buffer_id register_buffer(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buf_storage, bool host_initialized);
 
