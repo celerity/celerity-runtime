@@ -341,8 +341,7 @@ TEST_CASE("task_manager correctly records compute task information", "[task_mana
 	test_utils::mock_buffer_factory mbf(&tm);
 	auto buf_a = mbf.create_buffer(cl::sycl::range<2>(64, 152));
 	auto buf_b = mbf.create_buffer(cl::sycl::range<3>(7, 21, 99));
-	const auto tid = test_utils::add_compute_task(
-	    tm,
+	const auto tid = test_utils::add_compute_task(tm,
 	    [&](auto& cgh) {
 		    buf_a.get_access<cl::sycl::access::mode::read>(cgh, access::one_to_one<2>());
 		    buf_b.get_access<cl::sycl::access::mode::discard_read_write>(cgh, access::fixed<2, 3>(subrange<3>({}, {5, 18, 74})));

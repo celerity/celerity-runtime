@@ -54,7 +54,7 @@ namespace graph_utils {
 		case command::AWAIT_PUSH:
 			return label
 			       + fmt::format("AWAIT PUSH {} from {}\\n {}", props.data.await_push.bid, props.data.await_push.source,
-			           detail::subrange_to_grid_region(props.data.await_push.subrange));
+			             detail::subrange_to_grid_region(props.data.await_push.subrange));
 		default: return props.label;
 		}
 	}

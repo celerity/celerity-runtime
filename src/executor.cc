@@ -87,9 +87,7 @@ namespace detail {
 		case command::AWAIT_PUSH: create_job<await_push_job>(pkg, dependencies, btm); break;
 		case command::COMPUTE: create_job<compute_job>(pkg, dependencies, queue, task_mngr); break;
 		case command::MASTER_ACCESS: create_job<master_access_job>(pkg, dependencies, task_mngr); break;
-		default: {
-			assert(false && "Unexpected command");
-		}
+		default: { assert(false && "Unexpected command"); }
 		}
 	}
 } // namespace detail
