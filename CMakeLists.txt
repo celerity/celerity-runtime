@@ -4,7 +4,7 @@ project(celerity_runtime)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-find_package(Boost 1.66.0 COMPONENTS graph REQUIRED)
+find_package(Boost 1.65.0 COMPONENTS graph REQUIRED)
 find_package(ComputeCpp REQUIRED)
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
