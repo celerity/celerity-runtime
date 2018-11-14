@@ -1,11 +1,5 @@
 #include <cstdlib>
 
-#ifdef _MSC_VER
-#include <process.h>
-#else
-#include <unistd.h>
-#endif
-
 #include <SYCL/sycl.hpp>
 #include <celerity.h>
 
@@ -14,20 +8,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-void print_pid() {
-	std::cout << "PID: ";
-#ifdef _MSC_VER
-	std::cout << _getpid();
-#else
-	std::cout << getpid();
-#endif
-	std::cout << std::endl;
-}
-
 int main(int argc, char* argv[]) {
-	celerity::runtime::init(&argc, &argv);
-	print_pid();
-
 	int image_width = 0, image_height = 0, image_channels = 0;
 	uint8_t* image_data = stbi_load("./Lenna.png", &image_width, &image_height, &image_channels, 3);
 	assert(image_data != nullptr);

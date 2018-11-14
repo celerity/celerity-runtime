@@ -1,30 +1,12 @@
 #include <cstdlib>
 
-#ifdef _MSC_VER
-#include <process.h>
-#else
-#include <unistd.h>
-#endif
-
 #include <SYCL/sycl.hpp>
 #include <celerity.h>
 
 // Use define instead of constexpr as MSVC seems to have some trouble getting it into nested closures
 #define DEMO_DATA_SIZE (1024)
 
-void print_pid() {
-	std::cout << "PID: ";
-#ifdef _MSC_VER
-	std::cout << _getpid();
-#else
-	std::cout << getpid();
-#endif
-	std::cout << std::endl;
-}
-
 int main(int argc, char* argv[]) {
-	celerity::runtime::init(&argc, &argv);
-	print_pid();
 	// std::this_thread::sleep_for(std::chrono::seconds(5));
 	bool verification_passed = true;
 

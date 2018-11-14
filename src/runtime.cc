@@ -5,6 +5,12 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#ifdef _MSC_VER
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
 #include <mpi.h>
 
 #include "buffer.h"
@@ -31,6 +37,22 @@ runtime& runtime::get_instance() {
 	return *instance;
 }
 
+auto get_pid() {
+#ifdef _MSC_VER
+	return _getpid();
+#else
+	return getpid();
+#endif
+}
+
+const char* get_build_type() {
+#ifndef NDEBUG
+	return "release";
+#else
+	return "debug";
+#endif
+}
+
 runtime::runtime(int* argc, char** argv[]) {
 	if(!test_skip_mpi_lifecycle) {
 		int provided;
@@ -48,6 +70,9 @@ runtime::runtime(int* argc, char** argv[]) {
 
 	default_logger = logger("default").create_context({{"rank", std::to_string(world_rank)}});
 	graph_logger = logger("graph").create_context({{"rank", std::to_string(world_rank)}});
+
+	default_logger->info(logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"build", get_build_type()}}));
+	if(num_nodes == 1) { default_logger->warn("Execution of device kernels on single node is currently not supported. Try spawning more than one node."); }
 }
 
 runtime::~runtime() {

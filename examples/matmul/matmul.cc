@@ -2,28 +2,12 @@
 #include <cstdlib>
 #include <random>
 
-#ifdef _MSC_VER
-#include <process.h>
-#else
-#include <unistd.h>
-#endif
-
 #include <SYCL/sycl.hpp>
 #include <celerity.h>
 #include <spdlog/fmt/fmt.h>
 
 #define MAT_SIZE 256
 #define ENABLE_VERIFICATION (MAT_SIZE < 2048)
-
-void print_pid() {
-	std::cout << "PID: ";
-#ifdef _MSC_VER
-	std::cout << _getpid();
-#else
-	std::cout << getpid();
-#endif
-	std::cout << std::endl;
-}
 
 // TODO: See if we can make buffers a and b const refs here
 template <typename T>
@@ -56,8 +40,8 @@ void multiply(celerity::distr_queue& queue, celerity::buffer<T, 2>& mat_a, celer
 }
 
 int main(int argc, char* argv[]) {
+	// Explicitly initialize here so we can use MPI functions below
 	celerity::runtime::init(&argc, &argv);
-	print_pid();
 	bool verification_passed = true;
 
 	std::vector<float> mat_a(MAT_SIZE * MAT_SIZE);

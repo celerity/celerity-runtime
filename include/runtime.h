@@ -26,6 +26,7 @@ namespace detail {
 class runtime {
   public:
 	static void init(int* argc, char** argv[]);
+	static bool is_initialized() { return instance != nullptr; }
 	static runtime& get_instance();
 
 	~runtime();

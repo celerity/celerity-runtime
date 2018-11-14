@@ -128,6 +128,7 @@ distr_queue::distr_queue(cl::sycl::device& device) {
 }
 
 void distr_queue::init(cl::sycl::device* device_ptr) {
+	if(!runtime::is_initialized()) { runtime::init(nullptr, nullptr); }
 	auto logger = runtime::get_instance().get_logger();
 
 	cl::sycl::device device;

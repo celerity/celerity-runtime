@@ -4,24 +4,8 @@
 #include <sstream>
 #include <vector>
 
-#ifdef _MSC_VER
-#include <process.h>
-#else
-#include <unistd.h>
-#endif
-
 #include <SYCL/sycl.hpp>
 #include <celerity.h>
-
-void print_pid() {
-	std::cout << "PID: ";
-#ifdef _MSC_VER
-	std::cout << _getpid();
-#else
-	std::cout << getpid();
-#endif
-	std::cout << std::endl;
-}
 
 // We have to provide the STL implementation over SYCL on Linux,
 // as our POCL SPIR -> PTX translation seems to have issues with the latter.
@@ -176,9 +160,8 @@ void write_csv(size_t columns, size_t rows, std::vector<std::array<float, Size>>
 enum class output_mode { CSV, ASCII_PLOT };
 
 int main(int argc, char* argv[]) {
+	// Explicitly initialize here so we can use MPI functions below
 	celerity::runtime::init(&argc, &argv);
-	print_pid();
-
 	output_mode out_mode = output_mode::CSV;
 	if(argc > 1 && std::string(argv[1]) == "--ascii-plot") { out_mode = output_mode::ASCII_PLOT; }
 
