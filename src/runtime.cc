@@ -46,7 +46,7 @@ auto get_pid() {
 }
 
 const char* get_build_type() {
-#ifndef NDEBUG
+#ifdef NDEBUG
 	return "release";
 #else
 	return "debug";
