@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.5.1)
 project(celerity_runtime)
 
+set(Celerity_VERSION 0.0.0)
+
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
@@ -53,12 +55,13 @@ set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD 14)
 target_include_directories(
   celerity_runtime
   PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor>
   ${Boost_INCLUDE_DIRS}
   ${ComputeCpp_INCLUDE_DIRECTORY}
   ${MPI_CXX_INCLUDE_PATH}
-  ${spdlog_INCLUDE_DIRS}
+  $<BUILD_INTERFACE:${spdlog_INCLUDE_DIRS}>
 )
 
 target_link_libraries(
@@ -100,3 +103,48 @@ endif()
 
 enable_testing(true)
 add_subdirectory(test)
+
+# Install
+
+install(
+  DIRECTORY ${PROJECT_SOURCE_DIR}/include/
+  DESTINATION include
+)
+install(
+  DIRECTORY ${PROJECT_SOURCE_DIR}/vendor/allscale/
+  DESTINATION include/allscale
+)
+install(
+  DIRECTORY ${spdlog_INCLUDE_DIRS}/spdlog/
+  DESTINATION include/spdlog
+)
+install(
+  TARGETS celerity_runtime
+  EXPORT install_exports # CCTO uses the same export name
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+)
+export(
+  EXPORT install_exports
+  FILE "${CMAKE_CURRENT_BINARY_DIR}/celerity-targets.cmake"
+  NAMESPACE Celerity::
+)
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/celerity-config-version.cmake"
+  VERSION ${Celerity_VERSION}
+  COMPATIBILITY SameMajorVersion
+)
+install(
+  EXPORT install_exports
+  FILE "celerity-targets.cmake"
+  NAMESPACE Celerity::
+  DESTINATION lib/cmake
+)
+install(
+  FILES
+    ${PROJECT_SOURCE_DIR}/cmake/celerity-config.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/celerity-config-version.cmake
+  DESTINATION lib/cmake
+)
+
