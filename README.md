@@ -4,7 +4,7 @@ The CELERITY distributed runtime implementation.
 
 ## Dependencies
 
-* [Boost](http://www.boost.org) (tested with version 1.66.0)
+* [Boost](http://www.boost.org) (tested with version 1.65.0)
 * The [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp)
   runtime (tested with version 1.0.2)
 * A MPI 2 implementation (tested with OpenMPI 3.0 and MSMPI 10.0)
@@ -28,8 +28,8 @@ These dependencies are only required for plotting of graphs.
 
 ## Building
 
-Before you build make sure to also clone all git submodules using `git
-submodule update --init --recursive`.
+Before you build make sure to also clone all git submodules using
+`git submodule update --init --recursive`.
 
 Building itself is as simple as calling `cmake && make`, depending on your setup
 you might however also have to provide some library paths etc.
@@ -41,11 +41,14 @@ the `CELERITY_BUILD_EXAMPLES` CMake option is set (true by default).
 
 ## Using CELERITY as a Library
 
-Simply run `cmake install` to copy all relevant header files and libraries to
-the `CMAKE_INSTALL_PREFIX`. This includes a CMake [package configuration
+Simply run `make install` (or equivalent, depending on build system) to copy all
+relevant header files and libraries to the `CMAKE_INSTALL_PREFIX`. This includes
+a CMake [package configuration
 file](https://cmake.org/cmake/help/latest/manual/cmake-packages.7.html#package-configuration-file)
 which is placed inside the `lib/cmake` directory. Once included in a CMake
-project, simply use the `add_celerity_to_target` function to set everything up.
+project, you can use the
+`add_celerity_to_target(TARGET target SOURCES source1 source2...)` function to
+set everything up.
 
 ## Environment Variables
 
