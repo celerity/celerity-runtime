@@ -129,6 +129,45 @@ namespace access {
 		subrange<BufferDims> sr;
 	};
 
+	template <int Dims>
+	struct slice {
+		slice(size_t dim_idx) : dim_idx(dim_idx) { assert(dim_idx < Dims && "Invalid slice dimension index (starts at 0)"); }
+
+		subrange<Dims> operator()(chunk<Dims> chnk) const {
+			subrange<Dims> result = chnk;
+			result.offset[dim_idx] = 0;
+			// Since we don't know the range of the buffer, we just set it way too high and let it be clamped to the correct range
+			result.range[dim_idx] = std::numeric_limits<size_t>::max();
+			return result;
+		}
+
+	  private:
+		size_t dim_idx;
+	};
+
+	template <int Dims>
+	struct neighborhood {
+		neighborhood(size_t dim0) : dim0(dim0), dim1(0), dim2(0) {}
+
+		template <int D = Dims, std::enable_if_t<D >= 2, void*>...>
+		neighborhood(size_t dim0, size_t dim1) : dim0(dim0), dim1(dim1), dim2(0) {}
+
+		template <int D = Dims, std::enable_if_t<D == 3, void*>...>
+		neighborhood(size_t dim0, size_t dim1, size_t dim2) : dim0(dim0), dim1(dim1), dim2(dim2) {}
+
+		subrange<Dims> operator()(chunk<Dims> chnk) const {
+			subrange<3> result = {cl::sycl::id<3>(chnk.offset), cl::sycl::range<3>(chnk.range)};
+			const cl::sycl::id<3> delta = {dim0 < result.offset[0] ? dim0 : result.offset[0], dim1 < result.offset[1] ? dim1 : result.offset[1],
+			    dim2 < result.offset[2] ? dim2 : result.offset[2]};
+			result.offset -= delta;
+			result.range += cl::sycl::range<3>{dim0 + delta[0], dim1 + delta[1], dim2 + delta[2]};
+			return subrange<Dims>(result);
+		}
+
+	  private:
+		size_t dim0, dim1, dim2;
+	};
+
 } // namespace access
 
 } // namespace celerity

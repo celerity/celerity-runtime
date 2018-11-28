@@ -13,18 +13,8 @@
 template <typename T>
 void multiply(celerity::distr_queue& queue, celerity::buffer<T, 2>& mat_a, celerity::buffer<T, 2>& mat_b, celerity::buffer<T, 2>& mat_c) {
 	queue.submit([&](auto& cgh) {
-		auto a = mat_a.template get_access<cl::sycl::access::mode::read>(cgh, [=](celerity::chunk<2> chnk) {
-			auto rows = chnk;
-			rows.offset[1] = 0;
-			rows.range[1] = MAT_SIZE;
-			return rows;
-		});
-		auto b = mat_b.template get_access<cl::sycl::access::mode::read>(cgh, [=](celerity::chunk<2> chnk) {
-			auto cols = chnk;
-			cols.offset[0] = 0;
-			cols.range[0] = MAT_SIZE;
-			return cols;
-		});
+		auto a = mat_a.template get_access<cl::sycl::access::mode::read>(cgh, celerity::access::slice<2>(1));
+		auto b = mat_b.template get_access<cl::sycl::access::mode::read>(cgh, celerity::access::slice<2>(0));
 		auto c = mat_c.template get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
 
 		cgh.template parallel_for<class mat_mul>(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE), [=](cl::sycl::item<2> item) {

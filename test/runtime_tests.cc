@@ -288,6 +288,70 @@ TEST_CASE("host_accessor handles all consumer modes correctly", "[host_accessor]
 	}
 }
 
+TEST_CASE("range mapper results are clamped to buffer range", "[range-mapper]") {
+	const auto rmfn = [](chunk<3>) { return subrange<3>{{0, 100, 127}, {256, 64, 32}}; };
+	detail::range_mapper<3, 3> rm(rmfn, cl::sycl::access::mode::read, {128, 128, 128});
+	auto sr = rm.map_3({});
+	REQUIRE(sr.offset == cl::sycl::id<3>{0, 100, 127});
+	REQUIRE(sr.range == cl::sycl::range<3>{128, 28, 1});
+}
+
+TEST_CASE("one_to_one built-in range mapper behaves as expected", "[range-mapper]") {
+	detail::range_mapper<2, 2> rm(access::one_to_one<2>(), cl::sycl::access::mode::read, {128, 128});
+	auto sr = rm.map_2({{64, 32}, {32, 4}, {128, 128}});
+	REQUIRE(sr.offset == cl::sycl::id<2>{64, 32});
+	REQUIRE(sr.range == cl::sycl::range<2>{32, 4});
+}
+
+TEST_CASE("fixed built-in range mapper behaves as expected", "[range-mapper]") {
+	detail::range_mapper<2, 1> rm(access::fixed<2, 1>({{3}, {97}}), cl::sycl::access::mode::read, {128});
+	auto sr = rm.map_1({{64, 32}, {32, 4}, {128, 128}});
+	REQUIRE(sr.offset == cl::sycl::id<1>{3});
+	REQUIRE(sr.range == cl::sycl::range<1>{97});
+}
+
+TEST_CASE("slice built-in range mapper behaves as expected", "[range-mapper]") {
+	{
+		detail::range_mapper<3, 3> rm(access::slice<3>(0), cl::sycl::access::mode::read, {128, 128, 128});
+		auto sr = rm.map_3({{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
+		REQUIRE(sr.offset == cl::sycl::id<3>{0, 32, 32});
+		REQUIRE(sr.range == cl::sycl::range<3>{128, 32, 32});
+	}
+	{
+		detail::range_mapper<3, 3> rm(access::slice<3>(1), cl::sycl::access::mode::read, {128, 128, 128});
+		auto sr = rm.map_3({{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
+		REQUIRE(sr.offset == cl::sycl::id<3>{32, 0, 32});
+		REQUIRE(sr.range == cl::sycl::range<3>{32, 128, 32});
+	}
+	{
+		detail::range_mapper<3, 3> rm(access::slice<3>(2), cl::sycl::access::mode::read, {128, 128, 128});
+		auto sr = rm.map_3({{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
+		REQUIRE(sr.offset == cl::sycl::id<3>{32, 32, 0});
+		REQUIRE(sr.range == cl::sycl::range<3>{32, 32, 128});
+	}
+}
+
+TEST_CASE("neighborhood built-in range mapper behaves as expected", "[range-mapper]") {
+	{
+		detail::range_mapper<1, 1> rm(access::neighborhood<1>(10), cl::sycl::access::mode::read, {128});
+		auto sr = rm.map_1({{15}, {10}, {128}});
+		REQUIRE(sr.offset == cl::sycl::id<1>{5});
+		REQUIRE(sr.range == cl::sycl::range<1>{30});
+	}
+	{
+		detail::range_mapper<2, 2> rm(access::neighborhood<2>(10, 10), cl::sycl::access::mode::read, {128, 128});
+		auto sr = rm.map_2({{5, 100}, {10, 20}, {128, 128}});
+		REQUIRE(sr.offset == cl::sycl::id<2>{0, 90});
+		REQUIRE(sr.range == cl::sycl::range<2>{25, 38});
+	}
+	{
+		detail::range_mapper<3, 3> rm(access::neighborhood<3>(3, 4, 5), cl::sycl::access::mode::read, {128, 128, 128});
+		auto sr = rm.map_3({{3, 4, 5}, {1, 1, 1}, {128, 128, 128}});
+		REQUIRE(sr.offset == cl::sycl::id<3>{0, 0, 0});
+		REQUIRE(sr.range == cl::sycl::range<3>{7, 9, 11});
+	}
+}
+
 TEST_CASE("task_manager invokes callback upon task creation", "[task_manager]") {
 	detail::task_manager tm;
 	size_t call_counter = 0;

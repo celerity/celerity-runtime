@@ -47,19 +47,10 @@ int main(int argc, char* argv[]) {
 		// Do a gaussian blur
 		// TODO: Due to some weird issue with Clang on Windows, we have to capture some of these values explicitly
 		queue.submit([&, image_height, image_width, KERNEL_SIZE](auto& cgh) {
-			auto in = image_input_buf.get_access<cl::sycl::access::mode::read>(cgh, [=](celerity::chunk<2> chnk) {
-				celerity::subrange<2> neighborhood = chnk;
-				neighborhood.offset =
-				    cl::sycl::id<2>(std::max(0, (int)chnk.offset[0] - (int)KERNEL_SIZE / 2), std::max(0, (int)chnk.offset[1] - (int)KERNEL_SIZE / 2));
-				// Since we moved the start by half the kernel size, we have to increase the range by the full kernel size
-				neighborhood.range = chnk.range + cl::sycl::range<2>(KERNEL_SIZE, KERNEL_SIZE);
-				return neighborhood;
-			});
-			auto gauss = gaussian_mat_buf.get_access<cl::sycl::access::mode::read>(cgh, [=](celerity::chunk<2> chnk) {
-				// We always need access to the full gaussian matrix
-				return celerity::subrange<2>{{0, 0}, cl::sycl::range<2>(KERNEL_SIZE, KERNEL_SIZE)};
-			});
-			auto out = image_tmp_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, [](celerity::chunk<2> chnk) { return chnk; });
+			auto in = image_input_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood<2>(KERNEL_SIZE / 2, KERNEL_SIZE / 2));
+			auto gauss = gaussian_mat_buf.get_access<cl::sycl::access::mode::read>(
+			    cgh, celerity::access::fixed<2, 2>({{0, 0}, {(size_t)KERNEL_SIZE, (size_t)KERNEL_SIZE}}));
+			auto out = image_tmp_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
 
 			cgh.template parallel_for<class gaussian_blur>(
 			    cl::sycl::range<2>(image_height, image_width), [=, ih = image_height, iw = image_width, ks = KERNEL_SIZE](cl::sycl::item<2> item) {
@@ -83,14 +74,8 @@ int main(int argc, char* argv[]) {
 
 		// Now apply a sharpening kernel
 		queue.submit([&, image_height, image_width](auto& cgh) {
-			auto in = image_tmp_buf.get_access<cl::sycl::access::mode::read>(cgh, [](celerity::chunk<2> chnk) {
-				celerity::subrange<2> neighborhood = chnk;
-				neighborhood.offset = cl::sycl::id<2>(std::max(0, (int)chnk.offset[0] - 1), std::max(0, (int)chnk.offset[1] - 1));
-				// Add 2 since we set the start off by -1!
-				neighborhood.range = chnk.range + cl::sycl::range<2>(2, 2);
-				return neighborhood;
-			});
-			auto out = image_output_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, [](celerity::chunk<2> chnk) { return chnk; });
+			auto in = image_tmp_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood<2>(1, 1));
+			auto out = image_output_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
 			cgh.template parallel_for<class sharpen>(
 			    cl::sycl::range<2>(image_height, image_width), [=, iw = image_width, ih = image_height](cl::sycl::item<2> item) {
 				    using namespace cl::sycl;
