@@ -31,7 +31,7 @@ namespace graph_utils {
 
 	void print_graph(const task_dag& tdag, logger& graph_logger) {
 		const auto edge_props_writer = [&](std::ostream& out, auto e) {
-			if(tdag[e].anti_dependency) { out << "[color=green]"; }
+			if(tdag[e].anti_dependency) { out << "[color=limegreen]"; }
 		};
 		// Omit the INIT task in the GraphViz output
 		struct init_task_filter {
@@ -94,7 +94,7 @@ namespace graph_utils {
 			const auto src = boost::source(e, cdag);
 			const auto tar = boost::target(e, cdag);
 			if(cdag[src].cmd == command::NOP || cdag[tar].cmd == command::NOP) { out << "[color=gray]"; }
-			if(cdag[e].anti_dependency) { out << "[color=green]"; }
+			if(cdag[e].anti_dependency) { out << "[color=limegreen]"; }
 		};
 
 		// Omit the INIT task in the GraphViz output
