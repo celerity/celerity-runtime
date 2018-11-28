@@ -69,9 +69,9 @@ std::pair<command, std::string> push_job::get_description(const command_pkg& pkg
 
 bool push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 	if(data_handle == nullptr) {
-		logger->info(logger_map({{"event", "Submit buffer to MPI"}}));
+		logger->info(logger_map({{"event", "Submit buffer to BTM"}}));
 		data_handle = btm.push(pkg);
-		logger->info(logger_map({{"event", "Buffer submitted to MPI"}}));
+		logger->info(logger_map({{"event", "Buffer submitted to BTM"}}));
 	}
 	return data_handle->complete;
 }

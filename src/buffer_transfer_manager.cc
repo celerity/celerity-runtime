@@ -47,6 +47,9 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 	    runtime::get_instance().get_buffer_data(data.bid, cl::sycl::range<3>(data.subrange.offset[0], data.subrange.offset[1], data.subrange.offset[2]),
 	        cl::sycl::range<3>(data.subrange.range[0], data.subrange.range[1], data.subrange.range[2]));
 
+	// This is a bit of a hack (logging a job event from here), but it's very useful
+	transfer_logger->info(logger_map{{"job", std::to_string(pkg.cid)}, {"event", "Buffer data ready to be sent"}});
+
 	const auto data_size = data_handle->linearized_data_size;
 	auto transfer = std::make_unique<transfer_out>(std::move(data_handle));
 	transfer->handle = t_handle;
