@@ -51,7 +51,7 @@ namespace detail {
 		 * TODO: Is there any scenario where we'd want to change this over time?
 		 * TODO: Consider making host / device buffers different (templatized) types entirely
 		 */
-		void set_type(buffer_type type) {
+		virtual void set_type(buffer_type type) {
 			assert(!initialized && "Currently buffer type can only be set once");
 			initialized = true;
 			this->type = type;
@@ -111,16 +111,24 @@ namespace detail {
 	  public:
 		buffer_storage(cl::sycl::range<Dims> range) : buffer_storage_base(cl::sycl::range<3>(range)) {}
 
+		void set_type(buffer_type type) override {
+			buffer_storage_base::set_type(type);
+
+			// Initialize device buffers eagerly, as they will very likely be required later anyway.
+			// (For host buffers it makes sense to initialize lazily, as typically only a few "result buffers" will be used in master-access tasks).
+			// Since creating buffers with CCTO takes some time, initializing them eagerly makes performance more predictable.
+			if(type == buffer_type::DEVICE_BUFFER) {
+				sycl_buf = std::make_unique<cl::sycl::buffer<DataT, Dims>>(ccto::create_buffer<DataT, Dims>(cl::sycl::range<Dims>(get_range())));
+			}
+		}
+
 		/**
-		 * @brief Returns the underlying lazy SYCL buffer. If the buffer doesn't exist yet, it is created.
+		 * @brief Returns the underlying SYCL buffer.
 		 * Only available for DEVICE_BUFFERs.
 		 */
 		cl::sycl::buffer<DataT, Dims>& get_sycl_buffer() {
 			assert(get_type() == buffer_type::DEVICE_BUFFER && "Trying to access SYCL buffer on HOST_BUFFER");
-			if(lazy_sycl_buf == nullptr) {
-				lazy_sycl_buf = std::make_unique<cl::sycl::buffer<DataT, Dims>>(ccto::create_buffer<DataT, Dims>(cl::sycl::range<Dims>(get_range())));
-			}
-			return *lazy_sycl_buf;
+			return *sycl_buf;
 		}
 
 		std::shared_ptr<raw_data_read_handle> get_data(const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) override {
@@ -175,7 +183,7 @@ namespace detail {
 
 	  private:
 		// Only used for DEVICE_BUFFERs
-		std::unique_ptr<cl::sycl::buffer<DataT, Dims>> lazy_sycl_buf;
+		std::unique_ptr<cl::sycl::buffer<DataT, Dims>> sycl_buf;
 
 		// Only used for HOST_BUFFERs
 		std::vector<DataT> lazy_host_buf;
