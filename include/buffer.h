@@ -29,7 +29,7 @@ class buffer : public detail::buffer_base {
 	// However this either requires knowledge of the entire buffer range that will be used over the buffer's lifetime,
 	// or that buffers can be resized further down the line.
 	// A big advantage of going that route is that it would enable buffers much larger than the per-worker device(s) would otherwise allow
-	buffer(DataT* host_ptr, cl::sycl::range<Dims> range) : range(range) {
+	buffer(const DataT* host_ptr, cl::sycl::range<Dims> range) : range(range) {
 		const bool host_initialized = host_ptr != nullptr;
 
 		buffer_storage = std::make_shared<detail::buffer_storage<DataT, Dims>>(range);
@@ -40,7 +40,8 @@ class buffer : public detail::buffer_base {
 		//		computed on that particular worker node) in the end anyway.
 		// --> Note that we're currently not even transferring data back to the host_ptr, but the interface looks like the SYCL
 		//		interface that does just that!.
-		if(host_initialized) { buffer_storage->set_data(detail::raw_data_handle{host_ptr, cl::sycl::range<3>(range), cl::sycl::id<3>{}}); }
+		// FIXME: It's not ideal that we have a const_cast here. Solve this at raw_data_handle instead.
+		if(host_initialized) { buffer_storage->set_data(detail::raw_data_handle{const_cast<DataT*>(host_ptr), cl::sycl::range<3>(range), cl::sycl::id<3>{}}); }
 
 		// It's important that we register the buffer AFTER we transferred the initial data (if any):
 		// As soon as the buffer is registered, incoming transfers can be written to it.
