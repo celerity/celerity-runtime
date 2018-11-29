@@ -1,7 +1,9 @@
 #pragma once
 
+#include <chrono>
 #include <thread>
 
+#include "buffer_transfer_manager.h"
 #include "logger.h"
 #include "worker_job.h"
 
@@ -13,10 +15,29 @@ namespace detail {
 
 	class task_manager;
 
+	class duration_metric {
+	  public:
+		void resume();
+		void pause();
+		bool is_running() const { return running; }
+		std::chrono::microseconds get() const { return duration; }
+
+	  private:
+		bool running = false;
+		std::chrono::high_resolution_clock clock;
+		std::chrono::time_point<std::chrono::high_resolution_clock> current_start;
+		std::chrono::microseconds duration = {};
+	};
+
+	struct executor_metrics {
+		duration_metric initial_idle;
+		duration_metric compute_idle;
+	};
+
 	class executor {
 	  public:
 		// TODO: Try to decouple this more.
-		executor(distr_queue& queue, task_manager& tm, buffer_transfer_manager& btm, std::shared_ptr<logger> execution_logger);
+		executor(distr_queue& queue, task_manager& tm, std::shared_ptr<logger> execution_logger);
 
 		void startup();
 
@@ -28,24 +49,29 @@ namespace detail {
 	  private:
 		distr_queue& queue;
 		task_manager& task_mngr;
-		buffer_transfer_manager& btm;
+		std::unique_ptr<buffer_transfer_manager> btm;
 		std::shared_ptr<logger> execution_logger;
 		std::thread exec_thrd;
+		std::unordered_map<command, size_t> job_count_by_cmd;
 
 		// Jobs are identified by the command id they're processing
 
 		struct job_handle {
 			std::unique_ptr<worker_job> job;
+			command cmd;
 			std::vector<command_id> dependants;
 			size_t unsatisfied_dependencies;
 		};
 
 		std::unordered_map<command_id, job_handle> jobs;
 
+		executor_metrics metrics;
+		bool first_command_received = false;
+
 		template <typename Job, typename... Args>
 		void create_job(const command_pkg& pkg, const std::vector<command_id>& dependencies, Args&&... args) {
 			auto logger = execution_logger->create_context({{"task", std::to_string(pkg.tid)}, {"job", std::to_string(pkg.cid)}});
-			jobs[pkg.cid] = {std::make_unique<Job>(pkg, logger, std::forward<Args>(args)...), {}, 0};
+			jobs[pkg.cid] = {std::make_unique<Job>(pkg, logger, std::forward<Args>(args)...), pkg.cmd, {}, 0};
 
 			// If job doesn't exist we assume it has already completed.
 			// This is true as long as we're respecting task-graph (anti-)dependencies when processing tasks.
@@ -60,6 +86,8 @@ namespace detail {
 
 		void run();
 		void handle_command(const command_pkg& pkg, const std::vector<command_id>& dependencies);
+
+		void update_metrics();
 	};
 
 } // namespace detail

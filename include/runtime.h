@@ -5,9 +5,10 @@
 #include <mutex>
 #include <unordered_map>
 
+#include <ctpl.h>
 #include <mpi.h>
 
-#include "buffer_transfer_manager.h"
+#include "buffer_storage.h"
 #include "distr_queue.h"
 #include "logger.h"
 #include "mpi_support.h"
@@ -83,6 +84,16 @@ class runtime {
 
 	std::shared_ptr<logger> get_logger() const { return default_logger; }
 
+	/**
+	 * @brief Executes the given functor \p fun in a thread pool.
+	 * @internal
+	 */
+	template <typename Functor>
+	auto execute_async_pooled(Functor&& fun) -> std::future<decltype(fun())> {
+		// Wrap inside lambda to get rid of mandatory thread id argument provided by CTPL
+		return thread_pool.push([fun](int id) { return fun(); });
+	}
+
   private:
 	static std::unique_ptr<runtime> instance;
 	std::shared_ptr<logger> default_logger;
@@ -102,7 +113,9 @@ class runtime {
 
 	std::shared_ptr<detail::task_manager> task_mngr;
 	std::unique_ptr<detail::executor> executor;
-	std::unique_ptr<buffer_transfer_manager> btm;
+
+	// TODO: What is a good size for this?
+	ctpl::thread_pool thread_pool{3};
 
 	struct flush_handle {
 		command_pkg pkg;

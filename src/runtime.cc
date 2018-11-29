@@ -20,6 +20,7 @@
 #include "graph_generator.h"
 #include "graph_utils.h"
 #include "logger.h"
+#include "mpi_support.h"
 #include "scheduler.h"
 #include "task_manager.h"
 
@@ -88,8 +89,7 @@ void runtime::startup(distr_queue* queue) {
 	task_mngr = is_master ? std::make_shared<detail::task_manager>() : std::make_shared<detail::simple_task_manager>();
 	queue->set_task_manager(task_mngr);
 
-	btm = std::make_unique<buffer_transfer_manager>(default_logger);
-	executor = std::make_unique<detail::executor>(*queue, *task_mngr, *btm, default_logger);
+	executor = std::make_unique<detail::executor>(*queue, *task_mngr, default_logger);
 
 	if(is_master) {
 		ggen = std::make_shared<detail::graph_generator>(num_nodes, *task_mngr,
@@ -149,10 +149,9 @@ void runtime::flush_command(node_id target, const command_pkg& pkg, const std::v
 	// which is why we have to use Isend after all. We also have to make sure that the buffer stays around until the send is complete.
 	active_flushes.push_back(flush_handle{pkg, dependencies, MPI_REQUEST_NULL, {}});
 	auto it = active_flushes.rbegin();
-	auto data_type =
+	it->data_type =
 	    mpi_support::build_single_use_composite_type({{sizeof(command_pkg), &it->pkg}, {sizeof(command_id) * dependencies.size(), it->dependencies.data()}});
-	it->data_type = std::move(data_type);
-	MPI_Isend(MPI_BOTTOM, 1, *it->data_type, static_cast<int>(target), CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD, &active_flushes.rbegin()->req);
+	MPI_Isend(MPI_BOTTOM, 1, *it->data_type, static_cast<int>(target), mpi_support::TAG_CMD, MPI_COMM_WORLD, &active_flushes.rbegin()->req);
 
 	// Cleanup finished transfers.
 	// Just check the oldest flush. Since commands are small this will stay in equilibrium fairly quickly.

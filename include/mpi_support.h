@@ -8,6 +8,10 @@
 namespace celerity {
 namespace mpi_support {
 
+	constexpr int TAG_CMD = 0;
+	constexpr int TAG_DATA_TRANSFER = 1;
+	constexpr int TAG_TELEMETRY = 2;
+
 	class single_use_data_type {
 	  public:
 		single_use_data_type() = default;

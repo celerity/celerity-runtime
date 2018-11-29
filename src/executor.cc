@@ -10,13 +10,31 @@ constexpr size_t MAX_CONCURRENT_JOBS = 20;
 
 namespace celerity {
 namespace detail {
-	executor::executor(distr_queue& queue, task_manager& tm, buffer_transfer_manager& btm, std::shared_ptr<logger> execution_logger)
-	    : queue(queue), task_mngr(tm), btm(btm), execution_logger(execution_logger) {}
+	void duration_metric::resume() {
+		assert(!running);
+		current_start = clock.now();
+		running = true;
+	}
+
+	void duration_metric::pause() {
+		assert(running);
+		duration += std::chrono::duration_cast<std::chrono::microseconds>(clock.now() - current_start);
+		running = false;
+	}
+
+	executor::executor(distr_queue& queue, task_manager& tm, std::shared_ptr<logger> execution_logger)
+	    : queue(queue), task_mngr(tm), execution_logger(execution_logger) {
+		btm = std::make_unique<buffer_transfer_manager>(execution_logger);
+		metrics.initial_idle.resume();
+	}
 
 	void executor::startup() { exec_thrd = std::thread(&executor::run, this); }
 
 	void executor::shutdown() {
 		if(exec_thrd.joinable()) { exec_thrd.join(); }
+
+		execution_logger->info(logger_map{{"initialIdleTime", std::to_string(metrics.initial_idle.get().count())}});
+		execution_logger->info(logger_map{{"computeIdleTime", std::to_string(metrics.compute_idle.get().count())}});
 	}
 
 	void executor::run() {
@@ -29,7 +47,11 @@ namespace detail {
 		std::queue<command_info> command_queue;
 
 		while(!done || !jobs.empty()) {
-			btm.poll();
+			// We poll transfers from here (in the same thread, interleaved with job updates),
+			// as it allows us to omit any sort of locking when interacting with the BTM through jobs.
+			// This actually makes quite a big difference, especially for lots of small transfers.
+			// The BTM uses non-blocking MPI routines internally, making this a relatively cheap operation.
+			btm->poll();
 
 			for(auto it = jobs.begin(); it != jobs.end();) {
 				auto& job_handle = it->second;
@@ -39,12 +61,18 @@ namespace detail {
 					continue;
 				}
 
+				if(!job_handle.job->is_running()) {
+					job_handle.job->start();
+					job_count_by_cmd[job_handle.cmd]++;
+				}
+
 				job_handle.job->update();
 				if(job_handle.job->is_done()) {
 					for(const auto& d : job_handle.dependants) {
 						assert(jobs.count(d) == 1);
 						jobs[d].unsatisfied_dependencies--;
 					}
+					job_count_by_cmd[job_handle.cmd]--;
 					it = jobs.erase(it);
 				} else {
 					++it;
@@ -54,9 +82,9 @@ namespace detail {
 			MPI_Status status;
 			int flag;
 			MPI_Message msg;
-			MPI_Improbe(MPI_ANY_SOURCE, CELERITY_MPI_TAG_CMD, MPI_COMM_WORLD, &flag, &msg, &status);
+			MPI_Improbe(MPI_ANY_SOURCE, mpi_support::TAG_CMD, MPI_COMM_WORLD, &flag, &msg, &status);
 			if(flag == 1) {
-				// Commands should be small enough to block here (TODO: Re-evaluate this now that also transfer dependencies)
+				// Commands should be small enough to block here (TODO: Re-evaluate this now that we also transfer dependencies)
 				command_queue.emplace<command_info>({});
 				auto& pkg = command_queue.back().pkg;
 				auto& dependencies = command_queue.back().dependencies;
@@ -66,6 +94,12 @@ namespace detail {
 				dependencies.resize(deps_size / sizeof(command_id));
 				const auto data_type = mpi_support::build_single_use_composite_type({{sizeof(command_pkg), &pkg}, {deps_size, dependencies.data()}});
 				MPI_Mrecv(MPI_BOTTOM, 1, *data_type, &msg, &status);
+
+				if(!first_command_received) {
+					metrics.initial_idle.pause();
+					metrics.compute_idle.resume();
+					first_command_received = true;
+				}
 			}
 
 			if(jobs.size() < MAX_CONCURRENT_JOBS && !command_queue.empty()) {
@@ -78,16 +112,32 @@ namespace detail {
 					handle_command(info.pkg, info.dependencies);
 				}
 			}
+
+			if(first_command_received) { update_metrics(); }
 		}
+
+#ifndef NDEBUG
+		for(const auto it : job_count_by_cmd) {
+			assert(it.second == 0);
+		}
+#endif
 	}
 
 	void executor::handle_command(const command_pkg& pkg, const std::vector<command_id>& dependencies) {
 		switch(pkg.cmd) {
-		case command::PUSH: create_job<push_job>(pkg, dependencies, btm); break;
-		case command::AWAIT_PUSH: create_job<await_push_job>(pkg, dependencies, btm); break;
+		case command::PUSH: create_job<push_job>(pkg, dependencies, *btm); break;
+		case command::AWAIT_PUSH: create_job<await_push_job>(pkg, dependencies, *btm); break;
 		case command::COMPUTE: create_job<compute_job>(pkg, dependencies, queue, task_mngr); break;
 		case command::MASTER_ACCESS: create_job<master_access_job>(pkg, dependencies, task_mngr); break;
 		default: { assert(false && "Unexpected command"); }
+		}
+	}
+
+	void executor::update_metrics() {
+		if(job_count_by_cmd[command::COMPUTE] == 0) {
+			if(!metrics.compute_idle.is_running()) { metrics.compute_idle.resume(); }
+		} else {
+			if(metrics.compute_idle.is_running()) { metrics.compute_idle.pause(); }
 		}
 	}
 } // namespace detail

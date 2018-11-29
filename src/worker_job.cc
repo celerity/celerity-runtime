@@ -13,9 +13,7 @@ namespace celerity {
 // --------------------------------------------------------------------------------------------------------------------
 
 void worker_job::update() {
-	if(!running) start();
-	assert(!done);
-
+	assert(running && !done);
 	const auto before = bench_clock.now();
 	done = execute(pkg, job_logger);
 
@@ -102,23 +100,40 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 		return false;
 	}
 
+	// There currently (since 0.9.0 and up to and including 1.0.2) exists a bug that causes ComputeCpp to block when
+	// querying the execution status of a compute command until it is finished. This is bad for us, as it blocks all other
+	// jobs and prevents us from executing multiple compute jobs simultaneously.
+	// --> See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-107 (psalz)
+	// The workaround for now is to block within a worker thread.
+#define COMPUTECPP_BUG_FIXED 0
+
 	if(!submitted) {
 		// Note that we have to set the proper global size so the livepass handler can use the assigned chunk as input for range mappers
 		const auto ctsk = std::static_pointer_cast<const detail::compute_task>(task_mngr.get_task(pkg.tid));
 		auto& cmd_sr = pkg.data.compute.subrange;
+		logger->info(logger_map({{"event", "Execute live-pass, submit kernel to SYCL"}}));
 		event = queue.execute(pkg.tid, cmd_sr);
 		submitted = true;
-		if(did_log_task_wait) { logger->info(logger_map({{"event", "Submitted"}})); }
+		logger->info(logger_map({{"event", "Submitted"}}));
+
+#if !COMPUTECPP_BUG_FIXED
+		computecpp_workaround_future = runtime::get_instance().execute_async_pooled([this]() {
+			while(true) {
+				const auto status = event.get_info<cl::sycl::info::event::command_execution_status>();
+				if(status == cl::sycl::info::event_command_status::complete) { return; }
+			}
+		});
+#endif
 	}
 
-	// NOTE: Currently (ComputeCpp 0.8.0) there exists a bug that causes this call to deadlock
-	// if the command failed to be submitted in the first place (e.g. when buffer allocation failed).
-	// Codeplay has been informed about this, and they're working on it.
+#if COMPUTECPP_BUG_FIXED
 	const auto status = event.get_info<cl::sycl::info::event::command_execution_status>();
 	if(status == cl::sycl::info::event_command_status::complete) {
+#else
+	assert(computecpp_workaround_future.valid());
+	if(computecpp_workaround_future.wait_for(std::chrono::microseconds(1)) == std::future_status::ready) {
+#endif
 		if(queue.is_ocl_profiling_enabled()) {
-			// FIXME: Currently (ComputeCpp 0.8.0), the event.get() call may cause an exception within some ComputeCpp worker thread in certain situations
-			// (E.g. when running on our NVIDIA Tesla K20m, but only when using more than one device).
 			const auto queued = get_profiling_info(event.get(), CL_PROFILING_COMMAND_QUEUED);
 			const auto submit = get_profiling_info(event.get(), CL_PROFILING_COMMAND_SUBMIT);
 			const auto start = get_profiling_info(event.get(), CL_PROFILING_COMMAND_START);
@@ -126,11 +141,11 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 
 			// FIXME: The timestamps logged here don't match the actual values we just queried. Can we fix that?
 			logger->info(logger_map({{"event",
-			    fmt::format("Delta time queued -> submit : {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(submit - queued).count())}}));
+			    fmt::format("Delta time queued -> submit : {}us", std::chrono::duration_cast<std::chrono::microseconds>(submit - queued).count())}}));
 			logger->info(logger_map(
-			    {{"event", fmt::format("Delta time submit -> start: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(start - submit).count())}}));
+			    {{"event", fmt::format("Delta time submit -> start: {}us", std::chrono::duration_cast<std::chrono::microseconds>(start - submit).count())}}));
 			logger->info(logger_map(
-			    {{"event", fmt::format("Delta time start -> end: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count())}}));
+			    {{"event", fmt::format("Delta time start -> end: {}us", std::chrono::duration_cast<std::chrono::microseconds>(end - start).count())}}));
 		}
 		return true;
 	}

@@ -115,6 +115,10 @@ install(
   DESTINATION include/allscale
 )
 install(
+  FILES ${PROJECT_SOURCE_DIR}/vendor/ctpl.h
+  DESTINATION include
+)
+install(
   DIRECTORY ${spdlog_INCLUDE_DIRS}/spdlog/
   DESTINATION include/spdlog
 )

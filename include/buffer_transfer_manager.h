@@ -14,9 +14,6 @@
 
 namespace celerity {
 
-constexpr int CELERITY_MPI_TAG_CMD = 0;
-constexpr int CELERITY_MPI_TAG_DATA_TRANSFER = 1;
-
 class buffer_transfer_manager {
   public:
 	struct transfer_handle {
@@ -25,13 +22,13 @@ class buffer_transfer_manager {
 
 	buffer_transfer_manager(std::shared_ptr<logger> transfer_logger) : transfer_logger(transfer_logger) {}
 
+	std::shared_ptr<const transfer_handle> push(const command_pkg& pkg);
+	std::shared_ptr<const transfer_handle> await_push(const command_pkg& pkg);
+
 	/**
-	 * Checks for (and handles) incoming data transfers.
+	 * @brief Polls for incoming transfers and updates the status of existing ones.
 	 */
 	void poll();
-
-	std::shared_ptr<const transfer_handle> await_push(const command_pkg& pkg);
-	std::shared_ptr<const transfer_handle> push(const command_pkg& pkg);
 
   private:
 	struct data_header {
@@ -69,17 +66,16 @@ class buffer_transfer_manager {
 
 	// Here we store two types of handles:
 	//  - Incoming pushes that have not yet been requested through ::await_push
-	//  - Stil outstanding pushes that have been requested through ::await_push
+	//  - Still outstanding pushes that have been requested through ::await_push
 	std::unordered_map<command_id, std::shared_ptr<incoming_transfer_handle>> push_blackboard;
 
 	std::shared_ptr<logger> transfer_logger;
 
-	void poll_transfers();
+	void poll_incoming_transfers();
 	void update_incoming_transfers();
 	void update_outgoing_transfers();
 
-	void write_data_to_buffer(std::unique_ptr<transfer_in>&& transfer);
+	void write_data_to_buffer(transfer_in& transfer);
 };
-
 
 } // namespace celerity

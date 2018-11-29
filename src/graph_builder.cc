@@ -130,6 +130,9 @@ namespace detail {
 				const auto dependency_v = GRAPH_PROP(command_graph, command_vertices)[add_info.dependency];
 				const auto dependant_v = GRAPH_PROP(command_graph, command_vertices)[add_info.dependant];
 
+				// We definitely don't want that
+				assert(!boost::edge(dependant_v, dependency_v, command_graph).second && "cyclic dependency");
+
 				// Check whether edge already exists
 				const auto ep = boost::edge(dependency_v, dependant_v, command_graph);
 				if(ep.second) {

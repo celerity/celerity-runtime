@@ -95,6 +95,8 @@ namespace detail {
 		buffer_state_map buffer_states;
 
 		// For proper handling of anti-dependencies we also have to store for each task which buffer regions are read by which commands.
+		// We do this because we cannot reconstruct the requirements from a command within the graph alone (e.g. for compute commands).
+		// While we could apply range mappers again etc., that is a bit wasteful. This is basically an optimization.
 		// TODO: Look into freeing this for tasks that won't be needed anymore
 		std::unordered_map<task_id, buffer_read_map> task_buffer_reads;
 

@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <future> // TODO: Only required for compute job workaround - remove
 #include <limits>
 #include <utility>
 
@@ -27,8 +28,10 @@ class worker_job {
 
 	virtual ~worker_job() = default;
 
+	void start();
 	void update();
 
+	bool is_running() const { return running; }
 	bool is_done() const { return done; }
 
   private:
@@ -44,7 +47,6 @@ class worker_job {
 	std::chrono::microseconds bench_min = std::numeric_limits<std::chrono::microseconds>::max();
 	std::chrono::microseconds bench_max = std::numeric_limits<std::chrono::microseconds>::min();
 
-	void start();
 	virtual bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) = 0;
 
 	/**
@@ -102,6 +104,8 @@ class compute_job : public worker_job {
 	cl::sycl::event event;
 	bool did_log_task_wait = false;
 	bool submitted = false;
+
+	std::future<void> computecpp_workaround_future;
 
 	bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
 	std::pair<command, std::string> get_description(const command_pkg& pkg) override;
