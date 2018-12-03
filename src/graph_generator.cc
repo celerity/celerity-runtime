@@ -125,13 +125,21 @@ namespace detail {
 				flush_cb(target, pkg, dependencies);
 			}
 
-			graph_utils::for_successors(command_graph, v, [tid, tv, &queued_cmds, &cmd_queue, this](cdag_vertex s, cdag_edge) {
-				if(command_graph[s].tid == tid && s != tv.second && queued_cmds.count(s) == 0) {
-					cmd_queue.push(s);
-					queued_cmds.insert(s);
-				}
-				return true;
+			std::vector<cdag_vertex> next_batch;
+			graph_utils::for_successors(command_graph, v, [tid, tv, &queued_cmds, &next_batch, this](cdag_vertex s, cdag_edge) {
+				if(command_graph[s].tid == tid && s != tv.second && queued_cmds.count(s) == 0) { next_batch.push_back(s); }
 			});
+
+			// Make sure to flush PUSH commands first, as we want to execute those before any COMPUTEs, in case they
+			// cannot be performed in parallel (on some platforms parallel copying to host and reading from within kernel
+			// is not supported).
+			std::sort(next_batch.begin(), next_batch.end(),
+			    [this](cdag_vertex a, cdag_vertex b) { return command_graph[a].cmd == command::PUSH && command_graph[b].cmd != command::PUSH; });
+
+			for(auto v : next_batch) {
+				cmd_queue.push(v);
+				queued_cmds.insert(v);
+			}
 		}
 	}
 

@@ -53,6 +53,7 @@ namespace detail {
 			// The BTM uses non-blocking MPI routines internally, making this a relatively cheap operation.
 			btm->poll();
 
+			std::vector<command_id> ready_jobs;
 			for(auto it = jobs.begin(); it != jobs.end();) {
 				auto& job_handle = it->second;
 
@@ -62,20 +63,35 @@ namespace detail {
 				}
 
 				if(!job_handle.job->is_running()) {
-					job_handle.job->start();
-					job_count_by_cmd[job_handle.cmd]++;
+					if(std::find(ready_jobs.cbegin(), ready_jobs.cend(), it->first) == ready_jobs.cend()) { ready_jobs.push_back(it->first); }
+					++it;
+					continue;
 				}
 
-				job_handle.job->update();
-				if(job_handle.job->is_done()) {
+				if(!job_handle.job->is_done()) {
+					job_handle.job->update();
+					++it;
+				} else {
 					for(const auto& d : job_handle.dependants) {
 						assert(jobs.count(d) == 1);
 						jobs[d].unsatisfied_dependencies--;
+						if(jobs[d].unsatisfied_dependencies == 0) { ready_jobs.push_back(d); }
 					}
 					job_count_by_cmd[job_handle.cmd]--;
 					it = jobs.erase(it);
-				} else {
-					++it;
+				}
+			}
+
+			// Process newly available jobs
+			if(!ready_jobs.empty()) {
+				// Make sure to start any PUSH jobs before other jobs, as on some platforms copying data from a compute device while
+				// also reading it from within a kernel is not supported. To avoid stalling other nodes, we thus perform the PUSH first.
+				std::sort(ready_jobs.begin(), ready_jobs.end(),
+				    [this](command_id a, command_id b) { return jobs[a].cmd == command::PUSH && jobs[b].cmd != command::PUSH; });
+				for(command_id cid : ready_jobs) {
+					jobs[cid].job->start();
+					jobs[cid].job->update();
+					job_count_by_cmd[jobs[cid].cmd]++;
 				}
 			}
 
