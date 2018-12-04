@@ -24,6 +24,7 @@
 #include "mpi_support.h"
 #include "scheduler.h"
 #include "task_manager.h"
+#include "user_bench.h"
 
 namespace celerity {
 
@@ -91,12 +92,14 @@ runtime::runtime(int* argc, char** argv[]) {
 
 	cfg = std::make_unique<detail::config>(argc, argv, *default_logger);
 	queue = std::make_unique<detail::device_queue>(*default_logger);
+	experimental::bench::detail::user_benchmarker::initialize(static_cast<node_id>(world_rank));
 }
 
 runtime::~runtime() {
 	// Make sure we free all of our MPI custom types before we finalize
 	active_flushes.clear();
 	if(!test_skip_mpi_lifecycle) { MPI_Finalize(); }
+	experimental::bench::detail::user_benchmarker::destroy();
 }
 
 void runtime::startup(cl::sycl::device* user_device) {

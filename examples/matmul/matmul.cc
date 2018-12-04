@@ -1,10 +1,7 @@
-#include <chrono>
 #include <cstdlib>
 #include <random>
 
-#include <CL/sycl.hpp>
 #include <celerity.h>
-#include <spdlog/fmt/fmt.h>
 
 #define MAT_SIZE 1024
 
@@ -33,6 +30,8 @@ int main(int argc, char* argv[]) {
 	celerity::runtime::init(&argc, &argv);
 	bool verification_passed = true;
 
+	celerity::experimental::bench::log_user_config({{"matSize", std::to_string(MAT_SIZE)}});
+
 	std::vector<float> mat_a(MAT_SIZE * MAT_SIZE);
 	std::vector<float> mat_b(MAT_SIZE * MAT_SIZE);
 
@@ -45,14 +44,14 @@ int main(int argc, char* argv[]) {
 	}
 
 	try {
-		std::chrono::high_resolution_clock bench_clock;
-		const auto bench_start = bench_clock.now();
-
 		celerity::distr_queue queue;
 
 		celerity::buffer<float, 2> mat_a_buf(mat_a.data(), cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
 		celerity::buffer<float, 2> mat_b_buf(mat_b.data(), cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
 		celerity::buffer<float, 2> mat_c_buf(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
+
+		MPI_Barrier(MPI_COMM_WORLD);
+		celerity::experimental::bench::begin("main program");
 
 		multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
 		multiply(queue, mat_b_buf, mat_c_buf, mat_a_buf);
@@ -61,8 +60,7 @@ int main(int argc, char* argv[]) {
 			auto result = mat_a_buf.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
 
 			mah.run([=, &verification_passed]() {
-				std::cout << fmt::format(
-				    "Execution time: {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(bench_clock.now() - bench_start).count());
+				celerity::experimental::bench::end("main program");
 
 				for(auto i = 0ull; i < MAT_SIZE; ++i) {
 					for(auto j = 0ull; j < MAT_SIZE; ++j) {

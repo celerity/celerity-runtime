@@ -16,11 +16,11 @@ namespace celerity {
 
 void worker_job::update() {
 	assert(running && !done);
-	const auto before = bench_clock.now();
+	const auto before = std::chrono::steady_clock::now();
 	done = execute(pkg, job_logger);
 
 	// TODO: We may want to make benchmarking optional with a macro
-	const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(bench_clock.now() - before);
+	const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - before);
 	bench_sum_execution_time += dt;
 	bench_sample_count++;
 	if(dt < bench_min) bench_min = dt;
@@ -28,8 +28,10 @@ void worker_job::update() {
 
 	if(done) {
 		const auto bench_avg = bench_sum_execution_time.count() / bench_sample_count;
-		job_logger->info(logger_map({{"event", "STOP"}, {"pollDurationAvg", std::to_string(bench_avg)}, {"pollDurationMin", std::to_string(bench_min.count())},
-		    {"pollDurationMax", std::to_string(bench_max.count())}, {"pollSamples", std::to_string(bench_sample_count)}}));
+		const auto execution_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time).count();
+		job_logger->info(logger_map({{"event", "STOP"}, {"executionTime", std::to_string(execution_time)}, {"pollDurationAvg", std::to_string(bench_avg)},
+		    {"pollDurationMin", std::to_string(bench_min.count())}, {"pollDurationMax", std::to_string(bench_max.count())},
+		    {"pollSamples", std::to_string(bench_sample_count)}}));
 	}
 }
 
@@ -40,6 +42,7 @@ void worker_job::start() {
 	auto job_description = get_description(pkg);
 	job_logger->info(logger_map({{"cid", std::to_string(pkg.cid)}, {"event", "START"},
 	    {"type", command_string[static_cast<std::underlying_type_t<command>>(job_description.first)]}, {"message", job_description.second}}));
+	start_time = std::chrono::steady_clock::now();
 }
 
 

@@ -41,7 +41,7 @@ class worker_job {
 	bool done = false;
 
 	// Benchmarking
-	std::chrono::high_resolution_clock bench_clock;
+	std::chrono::steady_clock::time_point start_time;
 	std::chrono::microseconds bench_sum_execution_time = {};
 	size_t bench_sample_count = 0;
 	std::chrono::microseconds bench_min = std::numeric_limits<std::chrono::microseconds>::max();

@@ -23,8 +23,8 @@ namespace detail {
 
 	  private:
 		bool running = false;
-		std::chrono::high_resolution_clock clock;
-		std::chrono::time_point<std::chrono::high_resolution_clock> current_start;
+		std::chrono::steady_clock clock;
+		std::chrono::time_point<std::chrono::steady_clock> current_start;
 		std::chrono::microseconds duration = {};
 	};
 

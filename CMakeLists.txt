@@ -66,6 +66,7 @@ add_library(
   src/task.cc
   src/task_manager.cc
   src/transformers/naive_split.cc
+  src/user_bench.cc
   src/worker_job.cc
   ${INCLUDES}
 )

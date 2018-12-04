@@ -152,6 +152,9 @@ int main(int argc, char* argv[]) {
 	const float dx = 1.f;
 	const float dy = 1.f;
 
+	celerity::experimental::bench::log_user_config(
+	    {{"N", std::to_string(N)}, {"T", std::to_string(T)}, {"dt", std::to_string(dt)}, {"dx", std::to_string(dx)}, {"dy", std::to_string(dy)}});
+
 	const int rows = N;
 	const int columns = N;
 
@@ -166,6 +169,9 @@ int main(int argc, char* argv[]) {
 		celerity::buffer<float, 2> up(nullptr, cl::sycl::range<2>(rows, columns)); // next
 		celerity::buffer<float, 2> u(nullptr, cl::sycl::range<2>(rows, columns));  // current
 		celerity::buffer<float, 2> um(nullptr, cl::sycl::range<2>(rows, columns)); // previous
+
+		MPI_Barrier(MPI_COMM_WORLD);
+		celerity::experimental::bench::begin("main program");
 
 		setup_wave(queue, u, {N / 4.f, N / 4.f}, 1, {N / 8.f, N / 8.f});
 		zero(queue, up);
@@ -197,6 +203,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	if(is_master) {
+		celerity::experimental::bench::end("main program");
 		if(out_mode == output_mode::CSV) {
 			write_csv(columns, rows, result_frames);
 		} else {
