@@ -6,6 +6,8 @@ set(Celerity_VERSION 0.0.0)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+set(COMPUTECPP_USER_FLAGS ${COMPUTECPP_USER_FLAGS} -D_CRT_SECURE_NO_WARNINGS)
+
 find_package(Boost 1.65.0 COMPONENTS graph REQUIRED)
 find_package(ComputeCpp REQUIRED)
 find_package(MPI 2.0 REQUIRED)
@@ -79,9 +81,9 @@ add_sycl_to_target(
 )
 
 if(MSVC)
-  target_compile_options(celerity_runtime PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3)
+  target_compile_options(celerity_runtime PRIVATE /MP /W3 /D_CRT_SECURE_NO_WARNINGS)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter)
+  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -D_CRT_SECURE_NO_WARNINGS)
 endif()
 
 # Examples
