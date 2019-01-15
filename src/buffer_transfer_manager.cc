@@ -15,8 +15,8 @@ std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_
 	// --> This probably needs some kind of heuristic, as for small (e.g. ghost cell) transfers the overhead of threading is way too big
 	const push_data& data = pkg.data.push;
 	auto data_handle =
-		runtime::get_instance().get_buffer_data(data.bid, cl::sycl::range<3>(data.subrange.offset[0], data.subrange.offset[1], data.subrange.offset[2]),
-				cl::sycl::range<3>(data.subrange.range[0], data.subrange.range[1], data.subrange.range[2]));
+	    runtime::get_instance().get_buffer_data(data.bid, cl::sycl::range<3>(data.subrange.offset[0], data.subrange.offset[1], data.subrange.offset[2]),
+	        cl::sycl::range<3>(data.subrange.range[0], data.subrange.range[1], data.subrange.range[2]));
 
 	// This is a bit of a hack (logging a job event from here), but it's very useful
 	transfer_logger->info(logger_map{{"job", std::to_string(pkg.cid)}, {"event", "Buffer data ready to be sent"}});
@@ -136,7 +136,7 @@ void buffer_transfer_manager::write_data_to_buffer(transfer_in& transfer) {
 	// TODO: Same as in push() - this blocks the caller until data is submitted to MPI
 	const auto& header = transfer.header;
 	const detail::raw_data_handle dh{&transfer.data[0], cl::sycl::range<3>(header.subrange.range[0], header.subrange.range[1], header.subrange.range[2]),
-		cl::sycl::id<3>(header.subrange.offset[0], header.subrange.offset[1], header.subrange.offset[2])};
+	    cl::sycl::id<3>(header.subrange.offset[0], header.subrange.offset[1], header.subrange.offset[2])};
 	// In some rare situations the local runtime might not yet know about this buffer. Busy wait until it does.
 	while(!runtime::get_instance().has_buffer(header.bid)) {}
 	runtime::get_instance().set_buffer_data(header.bid, dh);
