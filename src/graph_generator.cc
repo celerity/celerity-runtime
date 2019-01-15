@@ -293,8 +293,15 @@ namespace detail {
 							}
 							if(exists_locally) continue;
 
-							// We just pick the first source node for now
-							const auto source = *box_sources.cbegin();
+							// We just pick the first source node for now,
+							// unless the sources contain the master node, in which
+							// case we prefer any other node.
+							const auto source = ([&box_sources]() {
+								for(auto bs : box_sources) {
+									if(bs.nid != 0) return bs;
+								}
+								return *box_sources.cbegin();
+							})(); // IIFE
 
 							// Generate PUSH command
 							command_id push_cid = -1;
