@@ -1,6 +1,6 @@
 #include <cstdlib>
 
-#include <SYCL/sycl.hpp>
+#include <CL/sycl.hpp>
 #include <celerity.h>
 
 // Use define instead of constexpr as MSVC seems to have some trouble getting it into nested closures

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <SYCL/sycl.hpp>
+#include <CL/sycl.hpp>
 #include <allscale/utils/functional_utils.h>
 
 #include "accessor.h"

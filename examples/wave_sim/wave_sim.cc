@@ -4,7 +4,7 @@
 #include <sstream>
 #include <vector>
 
-#include <SYCL/sycl.hpp>
+#include <CL/sycl.hpp>
 #include <celerity.h>
 
 // We have to provide the STL implementation over SYCL on Linux,

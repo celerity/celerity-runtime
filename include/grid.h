@@ -1,6 +1,6 @@
 #pragma once
 
-#include <SYCL/sycl.hpp>
+#include <CL/sycl.hpp>
 #include <allscale/api/user/data/grid.h>
 
 #include "ranges.h"

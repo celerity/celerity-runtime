@@ -3,7 +3,7 @@
 #include <cassert>
 #include <memory>
 
-#include <SYCL/sycl.hpp>
+#include <CL/sycl.hpp>
 
 namespace celerity {
 namespace detail {

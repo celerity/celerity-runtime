@@ -3,7 +3,7 @@
 #include <memory>
 #include <random>
 
-#include <SYCL/sycl.hpp>
+#include <CL/sycl.hpp>
 
 #define CATCH_CONFIG_MAIN
 #include <catch.hpp>

@@ -3,7 +3,7 @@
 #include <regex>
 #include <string>
 
-#include <SYCL/sycl.hpp>
+#include <CL/sycl.hpp>
 #include <boost/type_index.hpp>
 #include <spdlog/fmt/fmt.h>
 

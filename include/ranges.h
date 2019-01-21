@@ -1,6 +1,6 @@
 #pragma once
 
-#include <SYCL/sycl.hpp>
+#include <CL/sycl.hpp>
 
 namespace celerity {
 

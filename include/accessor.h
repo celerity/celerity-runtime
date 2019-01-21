@@ -2,7 +2,7 @@
 
 #include <type_traits>
 
-#include <SYCL/sycl.hpp>
+#include <CL/sycl.hpp>
 
 #include "access_modes.h"
 #include "buffer_storage.h"

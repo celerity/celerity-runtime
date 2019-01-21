@@ -2,7 +2,7 @@
 #include <cstdlib>
 #include <random>
 
-#include <SYCL/sycl.hpp>
+#include <CL/sycl.hpp>
 #include <celerity.h>
 #include <spdlog/fmt/fmt.h>
 

@@ -1,6 +1,6 @@
 #include <cstdlib>
 
-#include <SYCL/sycl.hpp>
+#include <CL/sycl.hpp>
 #include <celerity.h>
 
 #define STB_IMAGE_IMPLEMENTATION

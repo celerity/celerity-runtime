@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include <type_traits>
 
-#include <SYCL/sycl.hpp>
+#include <CL/sycl.hpp>
 #include <spdlog/fmt/fmt.h>
 
 #include "ranges.h"
