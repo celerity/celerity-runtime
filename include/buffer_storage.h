@@ -5,6 +5,8 @@
 
 #include <CL/sycl.hpp>
 
+#include "ranges.h"
+
 namespace celerity {
 namespace detail {
 
@@ -102,10 +104,10 @@ namespace detail {
 	template <typename DataT, int Dims>
 	class buffer_storage : public virtual buffer_storage_base {
 	  public:
-		buffer_storage(buffer_type type, cl::sycl::range<Dims> range) : buffer_storage_base(type, cl::sycl::range<3>(range)) {
+		buffer_storage(buffer_type type, cl::sycl::range<Dims> range) : buffer_storage_base(type, detail::range_cast<3>(range)) {
 			// Initialize device buffers eagerly, as they will very likely be required later anyway.
 			// (For host buffers it makes sense to initialize lazily, as typically only a few "result buffers" will be used in master-access tasks).
-			if(type == buffer_type::DEVICE_BUFFER) { sycl_buf = std::make_unique<cl::sycl::buffer<DataT, Dims>>(cl::sycl::range<Dims>(get_range())); }
+			if(type == buffer_type::DEVICE_BUFFER) { sycl_buf = std::make_unique<cl::sycl::buffer<DataT, Dims>>(detail::range_cast<Dims>(get_range())); }
 		}
 
 		/**
@@ -143,7 +145,7 @@ namespace detail {
 				});
 #else
 				auto event = queue.submit([&](cl::sycl::handler& cgh) {
-					auto acc = buf.template get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<Dims>(range), cl::sycl::id<Dims>(offset));
+					auto acc = buf.template get_access<cl::sycl::access::mode::read>(cgh, detail::range_cast<Dims>(range), detail::id_cast<Dims>(offset));
 					cgh.copy(acc, reinterpret_cast<DataT*>(result->linearized_data_ptr));
 				});
 #endif
@@ -155,8 +157,8 @@ namespace detail {
 					result->linearized_data_ptr = get_host_pointer();
 				} else {
 					result->allocate(result->linearized_data_size);
-					copy_buffer(get_host_pointer(), reinterpret_cast<DataT*>(result->linearized_data_ptr), cl::sycl::range<Dims>(get_range()),
-					    cl::sycl::id<Dims>(offset), cl::sycl::range<Dims>(range), cl::sycl::id<Dims>{}, cl::sycl::range<Dims>(range));
+					copy_buffer(get_host_pointer(), reinterpret_cast<DataT*>(result->linearized_data_ptr), detail::range_cast<Dims>(get_range()),
+					    detail::id_cast<Dims>(offset), detail::range_cast<Dims>(range), cl::sycl::id<Dims>{}, detail::range_cast<Dims>(range));
 				}
 			}
 
@@ -180,8 +182,8 @@ namespace detail {
 				});
 #else
 				auto event = queue.submit([&](cl::sycl::handler& cgh) {
-					auto acc =
-					    buf.template get_access<cl::sycl::access::mode::discard_write>(cgh, cl::sycl::range<Dims>(dh.range), cl::sycl::id<Dims>(dh.offset));
+					auto acc = buf.template get_access<cl::sycl::access::mode::discard_write>(
+					    cgh, detail::range_cast<Dims>(dh.range), detail::id_cast<Dims>(dh.offset));
 					cgh.copy(reinterpret_cast<DataT*>(dh.linearized_data_ptr), acc);
 				});
 #endif
@@ -194,8 +196,8 @@ namespace detail {
 					memcpy(host_ptr, reinterpret_cast<DataT*>(dh.linearized_data_ptr), data_size);
 				} else {
 					// Copy 1D/2D/3D rect
-					copy_buffer(reinterpret_cast<DataT*>(dh.linearized_data_ptr), get_host_pointer(), cl::sycl::range<Dims>(dh.range), cl::sycl::id<Dims>{},
-					    cl::sycl::range<Dims>(get_range()), cl::sycl::range<Dims>(dh.offset), cl::sycl::range<Dims>(dh.range));
+					copy_buffer(reinterpret_cast<DataT*>(dh.linearized_data_ptr), get_host_pointer(), detail::range_cast<Dims>(dh.range), cl::sycl::id<Dims>{},
+					    detail::range_cast<Dims>(get_range()), detail::id_cast<Dims>(dh.offset), detail::range_cast<Dims>(dh.range));
 				}
 			}
 		}

@@ -34,13 +34,13 @@ class buffer {
 		// FIXME: It's not ideal that we have a const_cast here. Solve this at raw_data_handle instead.
 		if(host_initialized) {
 			auto queue = runtime::get_instance().get_device_queue().get_sycl_queue();
-			buffer_storage->set_data(queue, detail::raw_data_handle{const_cast<DataT*>(host_ptr), cl::sycl::range<3>(range), cl::sycl::id<3>{}});
+			buffer_storage->set_data(queue, detail::raw_data_handle{const_cast<DataT*>(host_ptr), detail::range_cast<3>(range), cl::sycl::id<3>{}});
 		}
 
 		// It's important that we register the buffer AFTER we transferred the initial data (if any):
 		// As soon as the buffer is registered, incoming transfers can be written to it.
 		// In rare cases this might happen before the initial transfer is finished, causing a data race.
-		id = runtime::get_instance().register_buffer(cl::sycl::range<3>(range), buffer_storage, host_initialized);
+		id = runtime::get_instance().register_buffer(detail::range_cast<3>(range), buffer_storage, host_initialized);
 	}
 
 	buffer(cl::sycl::range<Dims> range) : buffer(nullptr, range) {}
@@ -72,7 +72,7 @@ class buffer {
 	prepass_accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer> get_access(
 	    master_access_prepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {}) {
 		static_assert(Mode != cl::sycl::access::mode::atomic, "Atomic access not supported on host buffers");
-		handler.require(Mode, id, cl::sycl::range<3>(range), cl::sycl::id<3>(offset));
+		handler.require(Mode, id, detail::range_cast<3>(range), detail::id_cast<3>(offset));
 		return prepass_accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer>();
 	}
 

@@ -26,7 +26,7 @@ int main(int argc, char* argv[]) {
 				// chunks somewhat intelligently in order to minimize buffer
 				// transfers. Remove this line and the node assignment in the
 				// command graph should be flipped.
-				sr.offset = chnk.global_size - chnk.offset - chnk.range;
+				sr.offset = cl::sycl::id<1>(chnk.global_size) - chnk.offset - cl::sycl::id<1>(chnk.range);
 				return sr;
 			});
 

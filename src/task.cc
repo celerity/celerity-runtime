@@ -37,13 +37,16 @@ namespace detail {
 			subrange<3> req;
 			switch(dimensions) {
 			case 1:
-				req = apply_range_mapper<1>(rm.get(), chunk<1>(cl::sycl::id<1>(sr.offset), cl::sycl::range<1>(sr.range), cl::sycl::range<1>(global_size)));
+				req = apply_range_mapper<1>(
+				    rm.get(), chunk<1>(detail::id_cast<1>(sr.offset), detail::range_cast<1>(sr.range), detail::range_cast<1>(global_size)));
 				break;
 			case 2:
-				req = apply_range_mapper<2>(rm.get(), chunk<2>(cl::sycl::id<2>(sr.offset), cl::sycl::range<2>(sr.range), cl::sycl::range<2>(global_size)));
+				req = apply_range_mapper<2>(
+				    rm.get(), chunk<2>(detail::id_cast<2>(sr.offset), detail::range_cast<2>(sr.range), detail::range_cast<2>(global_size)));
 				break;
 			case 3:
-				req = apply_range_mapper<3>(rm.get(), chunk<3>(cl::sycl::id<3>(sr.offset), cl::sycl::range<3>(sr.range), cl::sycl::range<3>(global_size)));
+				req = apply_range_mapper<3>(
+				    rm.get(), chunk<3>(detail::id_cast<3>(sr.offset), detail::range_cast<3>(sr.range), detail::range_cast<3>(global_size)));
 				break;
 			default: assert(false);
 			}

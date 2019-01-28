@@ -62,15 +62,15 @@ namespace detail {
 			std::vector<chunk<3>> chunks;
 			switch(ctsk->get_dimensions()) {
 			case 1: {
-				const chunk<1> full_chunk(cl::sycl::id<1>(sr.offset), cl::sycl::range<1>(sr.range), cl::sycl::range<1>(ctsk->get_global_size()));
+				const chunk<1> full_chunk(detail::id_cast<1>(sr.offset), detail::range_cast<1>(sr.range), detail::range_cast<1>(ctsk->get_global_size()));
 				chunks = split_equal(full_chunk, num_workers);
 			} break;
 			case 2: {
-				const chunk<2> full_chunk(cl::sycl::id<2>(sr.offset), cl::sycl::range<2>(sr.range), cl::sycl::range<2>(ctsk->get_global_size()));
+				const chunk<2> full_chunk(detail::id_cast<2>(sr.offset), detail::range_cast<2>(sr.range), detail::range_cast<2>(ctsk->get_global_size()));
 				chunks = split_equal(full_chunk, num_workers);
 			} break;
 			case 3: {
-				const chunk<3> full_chunk(cl::sycl::id<3>(sr.offset), cl::sycl::range<3>(sr.range), cl::sycl::range<3>(ctsk->get_global_size()));
+				const chunk<3> full_chunk(detail::id_cast<3>(sr.offset), detail::range_cast<3>(sr.range), detail::range_cast<3>(ctsk->get_global_size()));
 				chunks = split_equal(full_chunk, num_workers);
 			} break;
 			default: assert(false);

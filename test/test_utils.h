@@ -26,7 +26,7 @@ namespace test_utils {
 
 		template <cl::sycl::access::mode Mode>
 		void get_access(master_access_prepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {}) {
-			handler.require(Mode, id, cl::sycl::range<3>(range), cl::sycl::id<3>(offset));
+			handler.require(Mode, id, detail::range_cast<3>(range), detail::id_cast<3>(offset));
 		}
 
 		template <cl::sycl::access::mode Mode>
@@ -51,8 +51,8 @@ namespace test_utils {
 		mock_buffer<Dims> create_buffer(cl::sycl::range<Dims> size, bool mark_as_host_initialized = false) {
 			const buffer_id bid = next_buffer_id++;
 			const auto buf = mock_buffer<Dims>(bid, size);
-			if(task_mngr != nullptr) { task_mngr->add_buffer(bid, cl::sycl::range<3>(size), mark_as_host_initialized); }
-			if(ggen != nullptr) { ggen->add_buffer(bid, cl::sycl::range<3>(size)); }
+			if(task_mngr != nullptr) { task_mngr->add_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
+			if(ggen != nullptr) { ggen->add_buffer(bid, detail::range_cast<3>(size)); }
 			return buf;
 		}
 

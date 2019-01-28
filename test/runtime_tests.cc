@@ -11,13 +11,14 @@
 #define CELERITY_TEST
 #include <celerity.h>
 
+#include "ranges.h"
 #include "region_map.h"
 
 #include "test_utils.h"
 
 GridBox<3> make_grid_box(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) {
-	const auto end = cl::sycl::range<3>(offset) + range;
-	return {celerity::detail::sycl_range_to_grid_point(cl::sycl::range<3>(offset)), celerity::detail::sycl_range_to_grid_point(end)};
+	const auto end = celerity::detail::range_cast<3>(offset) + range;
+	return {celerity::detail::sycl_range_to_grid_point(celerity::detail::range_cast<3>(offset)), celerity::detail::sycl_range_to_grid_point(end)};
 }
 
 GridRegion<3> make_grid_region(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) {

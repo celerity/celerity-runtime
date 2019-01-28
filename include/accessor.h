@@ -6,6 +6,7 @@
 
 #include "access_modes.h"
 #include "buffer_storage.h"
+#include "ranges.h"
 #include "runtime.h"
 
 namespace celerity {
@@ -31,20 +32,20 @@ namespace detail {
 	  public:
 		host_accessor_impl(std::shared_ptr<buffer_storage<DataT, Dims>> buf_storage, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {})
 		    : buf_storage(buf_storage), range(range), offset(offset) {
-			buffer_range = cl::sycl::range<Dims>(buf_storage->get_range());
+			buffer_range = detail::range_cast<Dims>(buf_storage->get_range());
 			auto queue = runtime::get_instance().get_device_queue().get_sycl_queue();
 			if(access::detail::mode_traits::is_consumer(Mode)) {
-				read_handle = buf_storage->get_data(queue, cl::sycl::id<3>(offset), cl::sycl::range<3>(range));
+				read_handle = buf_storage->get_data(queue, detail::id_cast<3>(offset), detail::range_cast<3>(range));
 				linearized_data_ptr = reinterpret_cast<DataT*>(read_handle->linearized_data_ptr);
 			}
 
 			if(access::detail::mode_traits::is_producer(Mode)) {
-				write_buffer = std::make_unique<DataT[]>(range[0] * range[1] * range[2]);
+				write_buffer = std::make_unique<DataT[]>(range.size());
 				linearized_data_ptr = write_buffer.get();
 
 				// Retain previous contents
 				if(access::detail::mode_traits::is_consumer(Mode)) {
-					std::memcpy(linearized_data_ptr, read_handle->linearized_data_ptr, sizeof(DataT) * range[0] * range[1] * range[2]);
+					std::memcpy(linearized_data_ptr, read_handle->linearized_data_ptr, sizeof(DataT) * range.size());
 					read_handle = nullptr;
 				}
 			}
@@ -55,8 +56,8 @@ namespace detail {
 				if(linearized_data_ptr == nullptr) return;
 				raw_data_handle data_handle;
 				data_handle.linearized_data_ptr = linearized_data_ptr;
-				data_handle.range = cl::sycl::range<3>(range);
-				data_handle.offset = cl::sycl::range<3>(offset);
+				data_handle.range = detail::range_cast<3>(range);
+				data_handle.offset = detail::id_cast<3>(offset);
 				auto queue = runtime::get_instance().get_device_queue().get_sycl_queue();
 				buf_storage->set_data(queue, data_handle);
 			}
