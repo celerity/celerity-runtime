@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <cstring>
 #include <memory>
 
 #include <CL/sycl.hpp>
@@ -75,7 +76,8 @@ namespace detail {
 	void copy_buffer(const DataT* source_base_ptr, DataT* target_base_ptr, const cl::sycl::range<1> source_range, const cl::sycl::id<1> source_offset,
 	    const cl::sycl::range<1> target_range, const cl::sycl::id<1> target_offset, const cl::sycl::range<1>& copy_range) {
 		const size_t line_size = sizeof(DataT) * copy_range[0];
-		memcpy(target_base_ptr + get_linear_index(target_range, target_offset), source_base_ptr + get_linear_index(source_range, source_offset), line_size);
+		std::memcpy(
+		    target_base_ptr + get_linear_index(target_range, target_offset), source_base_ptr + get_linear_index(source_range, source_offset), line_size);
 	}
 
 	template <typename DataT>
@@ -85,7 +87,7 @@ namespace detail {
 		const auto source_base_offset = get_linear_index(source_range, source_offset);
 		const auto target_base_offset = get_linear_index(target_range, target_offset);
 		for(size_t i = 0; i < copy_range[0]; ++i) {
-			memcpy(target_base_ptr + target_base_offset + i * target_range[1], source_base_ptr + source_base_offset + i * source_range[1], line_size);
+			std::memcpy(target_base_ptr + target_base_offset + i * target_range[1], source_base_ptr + source_base_offset + i * source_range[1], line_size);
 		}
 	}
 
@@ -193,7 +195,7 @@ namespace detail {
 					// Copy full buffer
 					auto host_ptr = get_host_pointer();
 					const size_t data_size = sizeof(DataT) * dh.range[0] * dh.range[1] * dh.range[2];
-					memcpy(host_ptr, reinterpret_cast<DataT*>(dh.linearized_data_ptr), data_size);
+					std::memcpy(host_ptr, reinterpret_cast<DataT*>(dh.linearized_data_ptr), data_size);
 				} else {
 					// Copy 1D/2D/3D rect
 					copy_buffer(reinterpret_cast<DataT*>(dh.linearized_data_ptr), get_host_pointer(), detail::range_cast<Dims>(dh.range), cl::sycl::id<Dims>{},
