@@ -54,7 +54,7 @@ int main(int argc, char* argv[]) {
 
 			cgh.template parallel_for<class gaussian_blur>(
 			    cl::sycl::range<2>(image_height, image_width), [=, ih = image_height, iw = image_width, ks = KERNEL_SIZE](cl::sycl::item<2> item) {
-				    using namespace cl::sycl;
+				    using cl::sycl::float3;
 
 				    // Unfortunately we don't support images (yet?), so we can't just us a clamping sampler
 				    if(item[0] < (ks / 2) || item[1] < (ks / 2) || item[0] > ih - (ks / 2) - 1 || item[1] > iw - (ks / 2) - 1) {
@@ -78,7 +78,7 @@ int main(int argc, char* argv[]) {
 			auto out = image_output_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
 			cgh.template parallel_for<class sharpen>(
 			    cl::sycl::range<2>(image_height, image_width), [=, iw = image_width, ih = image_height](cl::sycl::item<2> item) {
-				    using namespace cl::sycl;
+				    using cl::sycl::float3;
 				    if(item[0] == 0u || item[1] == 0u || item[0] == ih - 1u || item[1] == iw - 1u) {
 					    out[item] = float3(0.f, 0.f, 0.f);
 					    return;
