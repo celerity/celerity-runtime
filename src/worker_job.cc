@@ -2,6 +2,7 @@
 
 #include <spdlog/fmt/fmt.h>
 
+#include "device_queue.h"
 #include "handler.h"
 #include "runtime.h"
 #include "task_manager.h"
@@ -133,7 +134,7 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 	assert(computecpp_workaround_future.valid());
 	if(computecpp_workaround_future.wait_for(std::chrono::microseconds(1)) == std::future_status::ready) {
 #endif
-		if(queue.is_ocl_profiling_enabled()) {
+		if(queue.is_profiling_enabled()) {
 			const auto queued = get_profiling_info(event.get(), CL_PROFILING_COMMAND_QUEUED);
 			const auto submit = get_profiling_info(event.get(), CL_PROFILING_COMMAND_SUBMIT);
 			const auto start = get_profiling_info(event.get(), CL_PROFILING_COMMAND_START);

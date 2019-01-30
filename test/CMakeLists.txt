@@ -30,9 +30,6 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
     ${TARGET_NAME}
     PUBLIC
     celerity_runtime
-    # FIXME: This is a workaround for add_sycl_to_target linking OpenCL, which breaks clin on Linux
-    # (Transitive dependencies like ccto via celerity_runtime seem to be added to the executable last)
-    ccto
   )
 
   # Determine whether we want the device compiler to run on this test or not.
@@ -46,13 +43,6 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
 
   if(MSVC)
     target_compile_options(${TARGET_NAME} PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3 /bigobj)
-    # Copy ccto DLL
-    add_custom_command(TARGET ${TARGET_NAME}
-      POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:ccto>
-      $<TARGET_FILE_DIR:${TARGET_NAME}>
-    )
   elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     target_compile_options(${TARGET_NAME} PRIVATE -Wall -Wextra -Wextra -Wno-unused-parameter)
   endif()

@@ -74,6 +74,9 @@ runtime::runtime(int* argc, char** argv[]) {
 
 	default_logger->info(logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"build", get_build_type()}}));
 	if(num_nodes == 1) { default_logger->warn("Execution of device kernels on single node is currently not supported. Try spawning more than one node."); }
+
+	cfg = std::make_unique<detail::config>(argc, argv, *default_logger);
+	queue = std::make_unique<detail::device_queue>(*default_logger);
 }
 
 runtime::~runtime() {
@@ -82,12 +85,13 @@ runtime::~runtime() {
 	if(!test_skip_mpi_lifecycle) { MPI_Finalize(); }
 }
 
-void runtime::startup(distr_queue* queue) {
-	if(this->queue != nullptr) { throw std::runtime_error("Only one celerity::distr_queue can be created per process"); }
-	this->queue = queue;
+void runtime::startup(cl::sycl::device* user_device) {
+	// Since this function is called by distr_queue, we need to inform the user appropriately.
+	if(is_active) { throw std::runtime_error("Only one celerity::distr_queue can be created per process"); }
+	is_active = true;
 
 	task_mngr = is_master ? std::make_shared<detail::task_manager>() : std::make_shared<detail::simple_task_manager>();
-	queue->set_task_manager(task_mngr);
+	queue->init(*cfg, task_mngr.get(), user_device);
 
 	executor = std::make_unique<detail::executor>(*queue, *task_mngr, default_logger);
 
@@ -104,7 +108,7 @@ void runtime::startup(distr_queue* queue) {
 }
 
 void runtime::shutdown() {
-	assert(queue != nullptr);
+	assert(is_active);
 	if(is_master) {
 		scheduler->shutdown();
 
@@ -123,6 +127,10 @@ void runtime::shutdown() {
 		task_mngr->print_graph(*graph_logger);
 		ggen->print_graph(*graph_logger);
 	}
+
+	queue->wait();
+	buffer_ptrs.clear();
+	queue.reset();
 }
 
 detail::task_manager& runtime::get_task_manager() const {
@@ -138,10 +146,6 @@ buffer_id runtime::register_buffer(cl::sycl::range<3> range, std::shared_ptr<det
 		ggen->add_buffer(bid, range);
 	}
 	return bid;
-}
-
-void runtime::free_buffers() {
-	buffer_ptrs.clear();
 }
 
 void runtime::flush_command(node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies) {

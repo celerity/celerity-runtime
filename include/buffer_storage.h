@@ -4,7 +4,6 @@
 #include <memory>
 
 #include <SYCL/sycl.hpp>
-#include <ccto/ccto.h>
 
 namespace celerity {
 namespace detail {
@@ -40,38 +39,26 @@ namespace detail {
 
 	class buffer_storage_base {
 	  public:
-		buffer_storage_base(cl::sycl::range<3> range) : range(range) {}
-
 		/**
-		 * @brief Sets the type of the buffer.
-		 *
-		 * This is kind of a hack for now, to avoid host buffers used in master-access tasks
+		 * @param type The type of buffer. This is kind of a hack for now, to avoid host buffers used in master-access tasks
 		 * clogging up device memory for no reason.
-		 *
 		 * TODO: Is there any scenario where we'd want to change this over time?
 		 * TODO: Consider making host / device buffers different (templatized) types entirely
+		 * @param range The size of the buffer
 		 */
-		virtual void set_type(buffer_type type) {
-			assert(!initialized && "Currently buffer type can only be set once");
-			initialized = true;
-			this->type = type;
-		}
+		buffer_storage_base(buffer_type type, cl::sycl::range<3> range) : type(type), range(range) {}
 
-		buffer_type get_type() const {
-			assert(initialized && "Buffer type hasn't been set");
-			return type;
-		}
+		buffer_type get_type() const { return type; }
 
 		cl::sycl::range<3> get_range() const { return range; }
 
-		virtual std::shared_ptr<raw_data_read_handle> get_data(const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) = 0;
-		virtual void set_data(const raw_data_handle& dh) = 0;
+		virtual std::shared_ptr<raw_data_read_handle> get_data(cl::sycl::queue& queue, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) = 0;
+		virtual void set_data(cl::sycl::queue& queue, const raw_data_handle& dh) = 0;
 		virtual ~buffer_storage_base() = default;
 
 	  private:
-		cl::sycl::range<3> range;
-		bool initialized = false;
 		buffer_type type = buffer_type::HOST_BUFFER;
+		cl::sycl::range<3> range;
 	};
 
 	inline size_t get_linear_index(const cl::sycl::range<1>& buffer_range, const cl::sycl::id<1>& index) { return index[0]; }
@@ -106,20 +93,19 @@ namespace detail {
 		throw std::runtime_error("3D buffer copying NYI");
 	}
 
+	// FIXME: Remove this
+	template <typename DataT, int Dims>
+	class computecpp_get_data_workaround {};
+	template <typename DataT, int Dims>
+	class computecpp_set_data_workaround {};
+
 	template <typename DataT, int Dims>
 	class buffer_storage : public virtual buffer_storage_base {
 	  public:
-		buffer_storage(cl::sycl::range<Dims> range) : buffer_storage_base(cl::sycl::range<3>(range)) {}
-
-		void set_type(buffer_type type) override {
-			buffer_storage_base::set_type(type);
-
+		buffer_storage(buffer_type type, cl::sycl::range<Dims> range) : buffer_storage_base(type, cl::sycl::range<3>(range)) {
 			// Initialize device buffers eagerly, as they will very likely be required later anyway.
 			// (For host buffers it makes sense to initialize lazily, as typically only a few "result buffers" will be used in master-access tasks).
-			// Since creating buffers with CCTO takes some time, initializing them eagerly makes performance more predictable.
-			if(type == buffer_type::DEVICE_BUFFER) {
-				sycl_buf = std::make_unique<cl::sycl::buffer<DataT, Dims>>(ccto::create_buffer<DataT, Dims>(cl::sycl::range<Dims>(get_range())));
-			}
+			if(type == buffer_type::DEVICE_BUFFER) { sycl_buf = std::make_unique<cl::sycl::buffer<DataT, Dims>>(cl::sycl::range<Dims>(get_range())); }
 		}
 
 		/**
@@ -131,7 +117,7 @@ namespace detail {
 			return *sycl_buf;
 		}
 
-		std::shared_ptr<raw_data_read_handle> get_data(const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) override {
+		std::shared_ptr<raw_data_read_handle> get_data(cl::sycl::queue& queue, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) override {
 			assert(Dims > 1 || (offset[1] == 0 && range[1] == 1));
 			assert(Dims > 2 || (offset[2] == 0 && range[2] == 1));
 
@@ -143,9 +129,25 @@ namespace detail {
 			if(get_type() == buffer_type::DEVICE_BUFFER) {
 				result->allocate(result->linearized_data_size);
 				// TODO: Ideally we'd not wait here and instead return some sort of async handle that can be waited upon
-				ccto::download_rect(
-				    get_sycl_buffer(), reinterpret_cast<DataT*>(result->linearized_data_ptr), cl::sycl::range<Dims>(range), cl::sycl::id<Dims>(offset))
-				    .wait();
+				auto buf = get_sycl_buffer();
+				// Explicit memory operations appear to be broken in ComputeCpp as of version 1.0.5
+				// As a workaround we create a temporary buffer and copy the contents manually.
+#if defined(__COMPUTECPP__) && COMPUTECPP_VERSION_MAJOR == 1 && COMPUTECPP_VERSION_MINOR == 0 && COMPUTECPP_VERSION_PATCH <= 5
+				cl::sycl::buffer<DataT, Dims> tmp_dst_buf(reinterpret_cast<DataT*>(result->linearized_data_ptr), cl::sycl::range<Dims>(range));
+				const auto dim_offset = cl::sycl::id<Dims>(offset);
+				auto event = queue.submit([&](cl::sycl::handler& cgh) {
+					auto src_acc = buf.template get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<Dims>(range), dim_offset);
+					auto dst_acc = tmp_dst_buf.template get_access<cl::sycl::access::mode::discard_write>(cgh);
+					cgh.parallel_for<computecpp_get_data_workaround<DataT, Dims>>(
+					    cl::sycl::range<Dims>(range), [=](cl::sycl::item<Dims> item) { dst_acc[item] = src_acc[item.get_id() + dim_offset]; });
+				});
+#else
+				auto event = queue.submit([&](cl::sycl::handler& cgh) {
+					auto acc = buf.template get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<Dims>(range), cl::sycl::id<Dims>(offset));
+					cgh.copy(acc, reinterpret_cast<DataT*>(result->linearized_data_ptr));
+				});
+#endif
+				event.wait();
 			} else {
 				// FIXME: It's kind of bad that accessing the full HOST_BUFFER is much cheaper than accessing a subrange.
 				// At least for the celerity::host_accessor we could work around this by computing the proper linear offsets internally on the fly
@@ -161,12 +163,29 @@ namespace detail {
 			return result;
 		}
 
-		void set_data(const raw_data_handle& dh) override {
+		void set_data(cl::sycl::queue& queue, const raw_data_handle& dh) override {
 			if(get_type() == buffer_type::DEVICE_BUFFER) {
 				// TODO: Ideally we'd not wait here and instead return some sort of async handle that can be waited upon
-				ccto::upload_rect(
-				    get_sycl_buffer(), reinterpret_cast<DataT*>(dh.linearized_data_ptr), cl::sycl::range<Dims>(dh.range), cl::sycl::id<Dims>(dh.offset))
-				    .wait();
+				auto buf = get_sycl_buffer();
+				// Explicit memory operations appear to be broken in ComputeCpp as of version 1.0.5
+				// As a workaround we create a temporary buffer and copy the contents manually.
+#if defined(__COMPUTECPP__) && COMPUTECPP_VERSION_MAJOR == 1 && COMPUTECPP_VERSION_MINOR == 0 && COMPUTECPP_VERSION_PATCH <= 5
+				cl::sycl::buffer<DataT, Dims> tmp_src_buf(reinterpret_cast<DataT*>(dh.linearized_data_ptr), cl::sycl::range<Dims>(dh.range));
+				const auto dim_offset = cl::sycl::id<Dims>(dh.offset);
+				auto event = queue.submit([&](cl::sycl::handler& cgh) {
+					auto src_acc = tmp_src_buf.template get_access<cl::sycl::access::mode::read>(cgh);
+					auto dst_acc = buf.template get_access<cl::sycl::access::mode::discard_write>(cgh, cl::sycl::range<Dims>(dh.range), dim_offset);
+					cgh.parallel_for<computecpp_set_data_workaround<DataT, Dims>>(
+					    cl::sycl::range<Dims>(dh.range), [=](cl::sycl::item<Dims> item) { dst_acc[item.get_id() + dim_offset] = src_acc[item]; });
+				});
+#else
+				auto event = queue.submit([&](cl::sycl::handler& cgh) {
+					auto acc =
+					    buf.template get_access<cl::sycl::access::mode::discard_write>(cgh, cl::sycl::range<Dims>(dh.range), cl::sycl::id<Dims>(dh.offset));
+					cgh.copy(reinterpret_cast<DataT*>(dh.linearized_data_ptr), acc);
+				});
+#endif
+				event.wait();
 			} else {
 				if(dh.range == get_range() && dh.offset == cl::sycl::id<3>{}) {
 					// Copy full buffer

@@ -15,10 +15,9 @@
 namespace celerity {
 
 namespace detail {
+	class device_queue;
 	class task_manager;
-}
-
-class distr_queue;
+} // namespace detail
 
 class compute_prepass_handler {
   public:
@@ -55,17 +54,6 @@ class compute_prepass_handler {
 namespace detail {
 	template <class Name, bool NdRange>
 	class wrapped_kernel_name {};
-
-	static size_t get_forced_work_group_size() {
-		static bool memoized = false;
-		static size_t value = 0;
-		if(!memoized) {
-			memoized = true;
-			const auto env = getenv("CELERITY_FORCE_WG");
-			if(env != nullptr) { value = std::atoll(env); }
-		}
-		return value;
-	}
 } // namespace detail
 
 class compute_livepass_handler {
@@ -77,15 +65,12 @@ class compute_livepass_handler {
 
 	template <typename Name, typename Functor, int Dims>
 	void parallel_for(cl::sycl::range<Dims>, cl::sycl::id<Dims>, Functor kernel) {
-		// This is a workaround until we get proper nd_item overloads for parallel_for into the API.
-		const size_t forced_wg_size = detail::get_forced_work_group_size();
-
 		// As of ComputeCpp 1.0.2 the PTX backend has problems with kernel invocations that have an offset.
 		// See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-98 (psalz).
 		// To work around this, instead of passing an offset to SYCL, we simply add it to the item that is passed to the kernel.
 		const cl::sycl::id<3> ptx_workaround_offset = {};
 
-		if(forced_wg_size == 0) {
+		if(forced_work_group_size == 0) {
 			sycl_handler->parallel_for<detail::wrapped_kernel_name<Name, false>>(sr.range, ptx_workaround_offset, [=, sr = this->sr](cl::sycl::item<3> item) {
 				const cl::sycl::id<3> ptx_workaround_id = item.get_id() + sr.offset;
 				const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ptx_workaround_offset);
@@ -93,8 +78,8 @@ class compute_livepass_handler {
 				kernel(offset_item);
 			});
 		} else {
-			const auto nd_range =
-			    cl::sycl::nd_range<3>(sr.range, {forced_wg_size, Dims > 1 ? forced_wg_size : 1, Dims == 3 ? forced_wg_size : 1}, ptx_workaround_offset);
+			const auto fwgs = forced_work_group_size;
+			const auto nd_range = cl::sycl::nd_range<3>(sr.range, {fwgs, Dims > 1 ? fwgs : 1, Dims == 3 ? fwgs : 1}, ptx_workaround_offset);
 			sycl_handler->parallel_for<detail::wrapped_kernel_name<Name, true>>(nd_range, [=, sr = this->sr](cl::sycl::nd_item<3> nd_item) {
 				const cl::sycl::id<3> ptx_workaround_id = nd_item.get_global_id() + sr.offset;
 				const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ptx_workaround_offset);
@@ -118,17 +103,19 @@ class compute_livepass_handler {
 	}
 
   private:
-	friend class distr_queue;
+	friend class detail::device_queue;
 
 	const detail::compute_task& task;
 	// The subrange, when combined with the tasks global size, defines the chunk this handler executes.
 	subrange<3> sr;
 	cl::sycl::handler* sycl_handler;
+	// This is a workaround until we get proper nd_item overloads for parallel_for into the API.
+	size_t forced_work_group_size;
 
 	// The handler does not take ownership of the sycl_handler, but expects it to
 	// exist for the duration of it's lifetime.
-	compute_livepass_handler(const detail::compute_task& task, subrange<3> sr, cl::sycl::handler* sycl_handler)
-	    : task(task), sr(sr), sycl_handler(sycl_handler) {}
+	compute_livepass_handler(const detail::compute_task& task, subrange<3> sr, cl::sycl::handler* sycl_handler, size_t forced_work_group_size)
+	    : task(task), sr(sr), sycl_handler(sycl_handler), forced_work_group_size(forced_work_group_size) {}
 };
 
 class master_access_prepass_handler {

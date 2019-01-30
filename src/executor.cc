@@ -22,7 +22,7 @@ namespace detail {
 		running = false;
 	}
 
-	executor::executor(distr_queue& queue, task_manager& tm, std::shared_ptr<logger> execution_logger)
+	executor::executor(device_queue& queue, task_manager& tm, std::shared_ptr<logger> execution_logger)
 	    : queue(queue), task_mngr(tm), execution_logger(execution_logger) {
 		btm = std::make_unique<buffer_transfer_manager>(execution_logger);
 		metrics.initial_idle.resume();

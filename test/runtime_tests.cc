@@ -111,12 +111,9 @@ TEST_CASE("region_map correctly merges with other instance", "[region_map]") {
 
 TEST_CASE("host_accessor 1D indexing behaves the same way as a SYCL host-accessor", "[host_accessor]") {
 	test_context ctx;
-	auto cel_host_buffer = std::make_shared<detail::buffer_storage<float, 1>>(cl::sycl::range<1>(15));
-	auto cel_device_buffer = std::make_shared<detail::buffer_storage<float, 1>>(cl::sycl::range<1>(15));
-	auto sycl_buffer = std::make_shared<detail::buffer_storage<float, 1>>(cl::sycl::range<1>(15));
-	cel_host_buffer->set_type(detail::buffer_type::HOST_BUFFER);
-	cel_device_buffer->set_type(detail::buffer_type::DEVICE_BUFFER);
-	sycl_buffer->set_type(detail::buffer_type::DEVICE_BUFFER);
+	auto cel_host_buffer = std::make_shared<detail::buffer_storage<float, 1>>(detail::buffer_type::HOST_BUFFER, cl::sycl::range<1>(15));
+	auto cel_device_buffer = std::make_shared<detail::buffer_storage<float, 1>>(detail::buffer_type::DEVICE_BUFFER, cl::sycl::range<1>(15));
+	auto sycl_buffer = std::make_shared<detail::buffer_storage<float, 1>>(detail::buffer_type::DEVICE_BUFFER, cl::sycl::range<1>(15));
 
 	float test_values[15];
 	std::mt19937 gen(1337);
@@ -137,28 +134,24 @@ TEST_CASE("host_accessor 1D indexing behaves the same way as a SYCL host-accesso
 	host_accessor<float, 1, cl::sycl::access::mode::read> cel_host_acc(cel_host_buffer, cl::sycl::range<1>(15));
 	host_accessor<float, 1, cl::sycl::access::mode::read> cel_device_acc(cel_device_buffer, cl::sycl::range<1>(15));
 	auto sycl_acc = sycl_buffer->get_sycl_buffer().get_access<cl::sycl::access::mode::read>(cl::sycl::range<1>(15));
-	for(auto i = 0u; i < 15; ++i) {
-		const float expected_value = ((i > 7 && i < 14) ? test_values[i] : 0.f);
-		REQUIRE(cel_host_acc[i] == expected_value);
-		REQUIRE(cel_device_acc[i] == expected_value);
-		REQUIRE(sycl_acc[i] == expected_value);
+	for(auto i = 8u; i < 14; ++i) {
+		REQUIRE(cel_host_acc[i] == test_values[i]);
+		REQUIRE(cel_device_acc[i] == test_values[i]);
+		REQUIRE(sycl_acc[i] == test_values[i]);
 
 		// Also test pointer access.
 		// TODO: Move into separate test, add offsets (we likely don't handle this correctly, see 2D case below)
-		REQUIRE(*(cel_host_acc.get_pointer() + i) == expected_value);
-		REQUIRE(*(cel_device_acc.get_pointer() + i) == expected_value);
-		REQUIRE(*(sycl_acc.get_pointer() + i) == expected_value);
+		REQUIRE(*(cel_host_acc.get_pointer() + i) == test_values[i]);
+		REQUIRE(*(cel_device_acc.get_pointer() + i) == test_values[i]);
+		REQUIRE(*(sycl_acc.get_pointer() + i) == test_values[i]);
 	}
 }
 
 TEST_CASE("host_accessor 2D indexing behaves the same way as a SYCL host-accessor", "[host_accessor]") {
 	test_context ctx;
-	auto cel_host_buffer = std::make_shared<detail::buffer_storage<float, 2>>(cl::sycl::range<2>(37, 22));
-	auto cel_device_buffer = std::make_shared<detail::buffer_storage<float, 2>>(cl::sycl::range<2>(37, 22));
-	auto sycl_buffer = std::make_shared<detail::buffer_storage<float, 2>>(cl::sycl::range<2>(37, 22));
-	cel_host_buffer->set_type(detail::buffer_type::HOST_BUFFER);
-	cel_device_buffer->set_type(detail::buffer_type::DEVICE_BUFFER);
-	sycl_buffer->set_type(detail::buffer_type::DEVICE_BUFFER);
+	auto cel_host_buffer = std::make_shared<detail::buffer_storage<float, 2>>(detail::buffer_type::HOST_BUFFER, cl::sycl::range<2>(37, 22));
+	auto cel_device_buffer = std::make_shared<detail::buffer_storage<float, 2>>(detail::buffer_type::DEVICE_BUFFER, cl::sycl::range<2>(37, 22));
+	auto sycl_buffer = std::make_shared<detail::buffer_storage<float, 2>>(detail::buffer_type::DEVICE_BUFFER, cl::sycl::range<2>(37, 22));
 
 	float test_values[7 * 6];
 	std::mt19937 gen(1337);
@@ -207,8 +200,7 @@ TEST_CASE("host_accessor 3D indexing behaves the same way as a SYCL host-accesso
 
 TEST_CASE("host_accessor can be written if captured by value", "[host_accessor]") {
 	test_context ctx;
-	auto host_buffer = std::make_shared<detail::buffer_storage<float, 1>>(cl::sycl::range<1>(10));
-	host_buffer->set_type(detail::buffer_type::HOST_BUFFER);
+	auto host_buffer = std::make_shared<detail::buffer_storage<float, 1>>(detail::buffer_type::HOST_BUFFER, cl::sycl::range<1>(10));
 
 	{
 		host_accessor<float, 1, cl::sycl::access::mode::write> host_acc(host_buffer, cl::sycl::range<1>(10));
@@ -237,10 +229,8 @@ void test_host_accessor_mode(std::shared_ptr<detail::buffer_storage<DataT, Dims>
 TEST_CASE("host_accessor handles all producer modes correctly", "[host_accessor]") {
 	using namespace cl::sycl::access;
 	test_context ctx;
-	auto host_buffer = std::make_shared<detail::buffer_storage<float, 1>>(cl::sycl::range<1>(10));
-	auto device_buffer = std::make_shared<detail::buffer_storage<float, 1>>(cl::sycl::range<1>(10));
-	host_buffer->set_type(detail::buffer_type::HOST_BUFFER);
-	device_buffer->set_type(detail::buffer_type::DEVICE_BUFFER);
+	auto host_buffer = std::make_shared<detail::buffer_storage<float, 1>>(detail::buffer_type::HOST_BUFFER, cl::sycl::range<1>(10));
+	auto device_buffer = std::make_shared<detail::buffer_storage<float, 1>>(detail::buffer_type::DEVICE_BUFFER, cl::sycl::range<1>(10));
 
 	SECTION("discard_read_write") {
 		test_host_accessor_mode<mode::discard_read_write>(host_buffer);
@@ -266,10 +256,8 @@ TEST_CASE("host_accessor handles all producer modes correctly", "[host_accessor]
 TEST_CASE("host_accessor handles all consumer modes correctly", "[host_accessor]") {
 	using namespace cl::sycl::access;
 	test_context ctx;
-	auto host_buffer = std::make_shared<detail::buffer_storage<float, 1>>(cl::sycl::range<1>(10));
-	auto device_buffer = std::make_shared<detail::buffer_storage<float, 1>>(cl::sycl::range<1>(10));
-	host_buffer->set_type(detail::buffer_type::HOST_BUFFER);
-	device_buffer->set_type(detail::buffer_type::DEVICE_BUFFER);
+	auto host_buffer = std::make_shared<detail::buffer_storage<float, 1>>(detail::buffer_type::HOST_BUFFER, cl::sycl::range<1>(10));
+	auto device_buffer = std::make_shared<detail::buffer_storage<float, 1>>(detail::buffer_type::DEVICE_BUFFER, cl::sycl::range<1>(10));
 
 	SECTION("read") {
 		test_host_accessor_mode<mode::discard_write, mode::read>(host_buffer);

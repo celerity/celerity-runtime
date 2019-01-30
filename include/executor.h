@@ -9,10 +9,9 @@
 
 namespace celerity {
 
-class distr_queue;
-
 namespace detail {
 
+	class device_queue;
 	class task_manager;
 
 	class duration_metric {
@@ -37,7 +36,7 @@ namespace detail {
 	class executor {
 	  public:
 		// TODO: Try to decouple this more.
-		executor(distr_queue& queue, task_manager& tm, std::shared_ptr<logger> execution_logger);
+		executor(device_queue& queue, task_manager& tm, std::shared_ptr<logger> execution_logger);
 
 		void startup();
 
@@ -47,7 +46,7 @@ namespace detail {
 		void shutdown();
 
 	  private:
-		distr_queue& queue;
+		device_queue& queue;
 		task_manager& task_mngr;
 		std::unique_ptr<buffer_transfer_manager> btm;
 		std::shared_ptr<logger> execution_logger;

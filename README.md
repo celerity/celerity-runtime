@@ -28,11 +28,8 @@ These dependencies are only required for plotting of graphs.
 
 ## Building
 
-Before you build make sure to also clone all git submodules using
-`git submodule update --init --recursive`.
-
-Building itself is as simple as calling `cmake && make`, depending on your setup
-you might however also have to provide some library paths etc.
+Building is as simple as calling `cmake && make`, depending on your setup you
+might however also have to provide some library paths etc.
 
 ## Building Examples
 

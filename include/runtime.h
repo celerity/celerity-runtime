@@ -9,7 +9,8 @@
 #include <mpi.h>
 
 #include "buffer_storage.h"
-#include "distr_queue.h"
+#include "config.h"
+#include "device_queue.h"
 #include "logger.h"
 #include "mpi_support.h"
 #include "types.h"
@@ -32,7 +33,12 @@ class runtime {
 
 	~runtime();
 
-	void startup(distr_queue* queue);
+	/**
+	 * @brief Starts the runtime and all its internal components and worker threads.
+	 *
+	 * @param user_device This optional device can be provided by the user, overriding any other device selection strategy.
+	 */
+	void startup(cl::sycl::device* user_device);
 	void shutdown();
 
 	/**
@@ -45,14 +51,9 @@ class runtime {
 
 	detail::task_manager& get_task_manager() const;
 
-	buffer_id register_buffer(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buf_storage, bool host_initialized);
+	detail::device_queue& get_device_queue() const { return *queue; }
 
-	/**
-	 * Currently this is being called by the distr_queue on shutdown (dtor).
-	 * We have to make sure all SYCl objects are free'd before the queue is destroyed.
-	 * TODO: Once we get rid of TEST_do_work we'll need an alternative solution that blocks the distr_queue dtor until we're done.
-	 */
-	void free_buffers();
+	buffer_id register_buffer(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buf_storage, bool host_initialized);
 
 	/**
 	 * This is currently a no-op. We don't know whether it is safe to free a buffer.
@@ -73,13 +74,13 @@ class runtime {
 	std::shared_ptr<detail::raw_data_read_handle> get_buffer_data(buffer_id bid, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) const {
 		std::lock_guard<std::mutex> lock(buffer_mutex);
 		assert(buffer_ptrs.count(bid) == 1);
-		return buffer_ptrs.at(bid)->get_data(offset, range);
+		return buffer_ptrs.at(bid)->get_data(queue->get_sycl_queue(), offset, range);
 	}
 
 	void set_buffer_data(buffer_id bid, const detail::raw_data_handle& dh) {
 		std::lock_guard<std::mutex> lock(buffer_mutex);
 		assert(buffer_ptrs.count(bid) == 1);
-		buffer_ptrs[bid]->set_data(dh);
+		buffer_ptrs[bid]->set_data(queue->get_sycl_queue(), dh);
 	}
 
 	std::shared_ptr<logger> get_logger() const { return default_logger; }
@@ -99,7 +100,11 @@ class runtime {
 	std::shared_ptr<logger> default_logger;
 	std::shared_ptr<logger> graph_logger;
 
-	distr_queue* queue = nullptr;
+	// Whether the runtime is active, i.e. between startup() and shutdown().
+	bool is_active = false;
+
+	std::unique_ptr<detail::config> cfg;
+	std::unique_ptr<detail::device_queue> queue;
 	size_t num_nodes;
 	bool is_master;
 

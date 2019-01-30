@@ -7,23 +7,12 @@
 #include "buffer_storage.h"
 #include "handler.h"
 #include "range_mapper.h"
+#include "runtime.h"
 
 namespace celerity {
 
-namespace detail {
-
-	// We have to jump through some hoops to resolve a circular dependency with runtime
-	class buffer_base {
-	  protected:
-		buffer_type get_type() const;
-		buffer_id register_with_runtime(cl::sycl::range<3> range, std::shared_ptr<detail::buffer_storage_base> buffer_storage, bool host_initialized) const;
-		void unregister_with_runtime(buffer_id id) const;
-	};
-
-} // namespace detail
-
 template <typename DataT, int Dims>
-class buffer : public detail::buffer_base {
+class buffer {
   public:
 	// TODO: We may want to experiment with allocating smaller buffers on each worker node.
 	// However this either requires knowledge of the entire buffer range that will be used over the buffer's lifetime,
@@ -32,8 +21,10 @@ class buffer : public detail::buffer_base {
 	buffer(const DataT* host_ptr, cl::sycl::range<Dims> range) : range(range) {
 		const bool host_initialized = host_ptr != nullptr;
 
-		buffer_storage = std::make_shared<detail::buffer_storage<DataT, Dims>>(range);
-		buffer_storage->set_type(get_type());
+		// By making the master node always use HOST_BUFFERs we currently prevent it from running as a single node
+		// TODO: Look into running on a single node (for development / debugging)
+		const auto type = runtime::get_instance().is_master_node() ? detail::buffer_type::HOST_BUFFER : detail::buffer_type::DEVICE_BUFFER;
+		buffer_storage = std::make_shared<detail::buffer_storage<DataT, Dims>>(type, range);
 
 		// TODO: Get rid of this functionality. Add high-level interface for explicit transfers instead.
 		// --> Most of the time we'd not want a backing host-buffer, since it would contain only partial results (i.e. chunks
@@ -41,12 +32,15 @@ class buffer : public detail::buffer_base {
 		// --> Note that we're currently not even transferring data back to the host_ptr, but the interface looks like the SYCL
 		//		interface that does just that!.
 		// FIXME: It's not ideal that we have a const_cast here. Solve this at raw_data_handle instead.
-		if(host_initialized) { buffer_storage->set_data(detail::raw_data_handle{const_cast<DataT*>(host_ptr), cl::sycl::range<3>(range), cl::sycl::id<3>{}}); }
+		if(host_initialized) {
+			auto queue = runtime::get_instance().get_device_queue().get_sycl_queue();
+			buffer_storage->set_data(queue, detail::raw_data_handle{const_cast<DataT*>(host_ptr), cl::sycl::range<3>(range), cl::sycl::id<3>{}});
+		}
 
 		// It's important that we register the buffer AFTER we transferred the initial data (if any):
 		// As soon as the buffer is registered, incoming transfers can be written to it.
 		// In rare cases this might happen before the initial transfer is finished, causing a data race.
-		id = register_with_runtime(cl::sycl::range<3>(range), buffer_storage, host_initialized);
+		id = runtime::get_instance().register_buffer(cl::sycl::range<3>(range), buffer_storage, host_initialized);
 	}
 
 	buffer(cl::sycl::range<Dims> range) : buffer(nullptr, range) {}
@@ -54,7 +48,7 @@ class buffer : public detail::buffer_base {
 	buffer(const buffer&) = delete;
 	buffer(buffer&&) = delete;
 
-	~buffer() { unregister_with_runtime(id); }
+	~buffer() { runtime::get_instance().unregister_buffer(id); }
 
 	template <cl::sycl::access::mode Mode, typename Functor>
 	prepass_accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> get_access(compute_prepass_handler& handler, Functor rmfn) {
@@ -97,6 +91,5 @@ class buffer : public detail::buffer_base {
 	cl::sycl::range<Dims> range;
 	std::shared_ptr<detail::buffer_storage<DataT, Dims>> buffer_storage;
 };
-
 
 } // namespace celerity

@@ -1,3 +1,0 @@
-[submodule "vendor/ccto"]
-	path = vendor/ccto
-	url = https://github.com/celerity/ccto.git

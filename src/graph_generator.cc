@@ -6,10 +6,11 @@
 #include <allscale/utils/string_utils.h>
 
 #include "access_modes.h"
-#include "distr_queue.h"
 #include "graph_builder.h"
 #include "graph_utils.h"
 #include "logger.h"
+#include "task.h"
+#include "task_manager.h"
 
 namespace celerity {
 namespace detail {

@@ -14,15 +14,6 @@ find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 include(Download_spdlog)
 
-add_subdirectory(vendor/ccto)
-set_property(
-  TARGET ccto ccto_test cl_rect_update_benchmark cl_rect_update_test
-  PROPERTY FOLDER "vendor"
-)
-if(MSVC)
-  set_property(TARGET cl_rect_update_lib.headers PROPERTY FOLDER "vendor")
-endif()
-
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)
 endif()
@@ -34,9 +25,9 @@ endif()
 
 add_library(
   celerity_runtime
-  src/buffer.cc
   src/buffer_transfer_manager.cc
-  src/distr_queue.cc
+  src/config.cc
+  src/device_queue.cc
   src/executor.cc
   src/graph_builder.cc
   src/graph_generator.cc
@@ -72,7 +63,6 @@ target_link_libraries(
   ${CMAKE_THREAD_LIBS_INIT}
   ${Boost_LIBRARIES}
   ${MPI_CXX_LIBRARIES}
-  ccto
 )
 
 add_sycl_to_target(
@@ -126,7 +116,7 @@ install(
 )
 install(
   TARGETS celerity_runtime
-  EXPORT install_exports # CCTO uses the same export name
+  EXPORT install_exports
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
 )

@@ -13,11 +13,11 @@
 namespace celerity {
 
 namespace detail {
+	class device_queue;
 	class executor;
 	class task_manager;
 } // namespace detail
 
-class distr_queue;
 class worker_job;
 
 class worker_job {
@@ -93,13 +93,13 @@ class push_job : public worker_job {
  */
 class compute_job : public worker_job {
   public:
-	compute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, distr_queue& queue, detail::task_manager& tm)
+	compute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::device_queue& queue, detail::task_manager& tm)
 	    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm) {
 		assert(pkg.cmd == command::COMPUTE);
 	}
 
   private:
-	distr_queue& queue;
+	detail::device_queue& queue;
 	detail::task_manager& task_mngr;
 	cl::sycl::event event;
 	bool did_log_task_wait = false;

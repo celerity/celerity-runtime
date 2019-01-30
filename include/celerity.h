@@ -4,6 +4,7 @@
 #include "runtime.h"
 
 #include "buffer.h"
+#include "distr_queue.h"
 #include "with_master_access.h"
 
 #endif

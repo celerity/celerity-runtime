@@ -6,6 +6,7 @@
 
 #include "access_modes.h"
 #include "buffer_storage.h"
+#include "runtime.h"
 
 namespace celerity {
 
@@ -31,8 +32,9 @@ namespace detail {
 		host_accessor_impl(std::shared_ptr<buffer_storage<DataT, Dims>> buf_storage, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {})
 		    : buf_storage(buf_storage), range(range), offset(offset) {
 			buffer_range = cl::sycl::range<Dims>(buf_storage->get_range());
+			auto queue = runtime::get_instance().get_device_queue().get_sycl_queue();
 			if(access::detail::mode_traits::is_consumer(Mode)) {
-				read_handle = buf_storage->get_data(cl::sycl::id<3>(offset), cl::sycl::range<3>(range));
+				read_handle = buf_storage->get_data(queue, cl::sycl::id<3>(offset), cl::sycl::range<3>(range));
 				linearized_data_ptr = reinterpret_cast<DataT*>(read_handle->linearized_data_ptr);
 			}
 
@@ -55,7 +57,8 @@ namespace detail {
 				data_handle.linearized_data_ptr = linearized_data_ptr;
 				data_handle.range = cl::sycl::range<3>(range);
 				data_handle.offset = cl::sycl::range<3>(offset);
-				buf_storage->set_data(data_handle);
+				auto queue = runtime::get_instance().get_device_queue().get_sycl_queue();
+				buf_storage->set_data(queue, data_handle);
 			}
 		}
 
