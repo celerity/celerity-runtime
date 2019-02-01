@@ -7,6 +7,7 @@
 #include <CL/sycl.hpp>
 
 #include "ranges.h"
+#include "workaround.h"
 
 namespace celerity {
 namespace detail {
@@ -136,7 +137,7 @@ namespace detail {
 				auto buf = get_sycl_buffer();
 				// Explicit memory operations appear to be broken in ComputeCpp as of version 1.0.5
 				// As a workaround we create a temporary buffer and copy the contents manually.
-#if defined(__COMPUTECPP__) && COMPUTECPP_VERSION_MAJOR == 1 && COMPUTECPP_VERSION_MINOR == 0 && COMPUTECPP_VERSION_PATCH <= 5
+#if WORKAROUND(COMPUTECPP, 1, 0, 5)
 				cl::sycl::buffer<DataT, Dims> tmp_dst_buf(reinterpret_cast<DataT*>(result->linearized_data_ptr), cl::sycl::range<Dims>(range));
 				const auto dim_offset = cl::sycl::id<Dims>(offset);
 				auto event = queue.submit([&](cl::sycl::handler& cgh) {
@@ -173,7 +174,7 @@ namespace detail {
 				auto buf = get_sycl_buffer();
 				// Explicit memory operations appear to be broken in ComputeCpp as of version 1.0.5
 				// As a workaround we create a temporary buffer and copy the contents manually.
-#if defined(__COMPUTECPP__) && COMPUTECPP_VERSION_MAJOR == 1 && COMPUTECPP_VERSION_MINOR == 0 && COMPUTECPP_VERSION_PATCH <= 5
+#if WORKAROUND(COMPUTECPP, 1, 0, 5)
 				cl::sycl::buffer<DataT, Dims> tmp_src_buf(reinterpret_cast<DataT*>(dh.linearized_data_ptr), cl::sycl::range<Dims>(dh.range));
 				const auto dim_offset = cl::sycl::id<Dims>(dh.offset);
 				auto event = queue.submit([&](cl::sycl::handler& cgh) {

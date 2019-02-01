@@ -7,6 +7,7 @@
 #include <mpi.h>
 
 #include "logger.h"
+#include "workaround.h"
 
 std::pair<bool, std::string> get_env(const char* key) {
 	bool exists = false;
@@ -89,7 +90,15 @@ namespace detail {
 
 		{
 			const auto result = get_env("CELERITY_PROFILE_OCL");
-			if(result.first) { enable_device_profiling = result.second == "1"; }
+			if(result.first) {
+				enable_device_profiling = result.second == "1";
+#if WORKAROUND(HIPSYCL, 0)
+				if(*enable_device_profiling) {
+					logger.warn("Device profiling is currently not supported on hipSYCL");
+					enable_device_profiling = false;
+				}
+#endif
+			}
 		}
 
 		// -------------------------------- CELERITY_FORCE_WG ---------------------------------

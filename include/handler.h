@@ -11,6 +11,7 @@
 #include "ranges.h"
 #include "task.h"
 #include "types.h"
+#include "workaround.h"
 
 namespace celerity {
 
@@ -65,26 +66,41 @@ class compute_livepass_handler {
 
 	template <typename Name, typename Functor, int Dims>
 	void parallel_for(cl::sycl::range<Dims>, cl::sycl::id<Dims>, Functor kernel) {
+#if WORKAROUND_COMPUTECPP
 		// As of ComputeCpp 1.0.2 the PTX backend has problems with kernel invocations that have an offset.
 		// See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-98 (psalz).
 		// To work around this, instead of passing an offset to SYCL, we simply add it to the item that is passed to the kernel.
-		const cl::sycl::id<3> ptx_workaround_offset = {};
-
+		const cl::sycl::id<Dims> ccpp_ptx_workaround_offset = {};
+#else
+		const cl::sycl::id<Dims> ccpp_ptx_workaround_offset = detail::id_cast<Dims>(sr.offset);
+#endif
 		if(forced_work_group_size == 0) {
-			sycl_handler->parallel_for<detail::wrapped_kernel_name<Name, false>>(sr.range, ptx_workaround_offset, [=, sr = this->sr](cl::sycl::item<3> item) {
-				const cl::sycl::id<3> ptx_workaround_id = item.get_id() + sr.offset;
-				const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ptx_workaround_offset);
-				const auto offset_item = cl::sycl::item<3, true>(item_base);
-				kernel(offset_item);
-			});
+#if WORKAROUND_COMPUTECPP
+			sycl_handler->parallel_for<detail::wrapped_kernel_name<Name, false>>(
+			    detail::range_cast<Dims>(sr.range), ccpp_ptx_workaround_offset, [=, sr = this->sr](cl::sycl::item<Dims> item) {
+				    const cl::sycl::id<Dims> ptx_workaround_id = detail::range_cast<Dims>(item.get_id()) + detail::id_cast<Dims>(sr.offset);
+				    const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ccpp_ptx_workaround_offset);
+				    const auto offset_item = cl::sycl::item<Dims, true>(item_base);
+				    kernel(offset_item);
+			    });
+#else
+			sycl_handler->parallel_for<detail::wrapped_kernel_name<Name, false>>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), kernel);
+#endif
 		} else {
 			const auto fwgs = forced_work_group_size;
-			const auto nd_range = cl::sycl::nd_range<3>(sr.range, {fwgs, Dims > 1 ? fwgs : 1, Dims == 3 ? fwgs : 1}, ptx_workaround_offset);
-			sycl_handler->parallel_for<detail::wrapped_kernel_name<Name, true>>(nd_range, [=, sr = this->sr](cl::sycl::nd_item<3> nd_item) {
-				const cl::sycl::id<3> ptx_workaround_id = nd_item.get_global_id() + sr.offset;
-				const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ptx_workaround_offset);
-				const auto item = cl::sycl::item<3, true>(item_base);
-				kernel(item);
+			const auto nd_range = cl::sycl::nd_range<Dims>(detail::range_cast<Dims>(sr.range),
+			    detail::range_cast<Dims>(cl::sycl::range<3>(fwgs, Dims > 1 ? fwgs : 1, Dims == 3 ? fwgs : 1)), ccpp_ptx_workaround_offset);
+			sycl_handler->parallel_for<detail::wrapped_kernel_name<Name, true>>(nd_range, [=, sr = this->sr](cl::sycl::nd_item<Dims> item) {
+#if WORKAROUND_HIPSYCL
+				kernel(cl::sycl::item<Dims>(cl::sycl::detail::item_impl<Dims>(item.get_global())));
+#elif WORKAROUND_COMPUTECPP
+				const cl::sycl::id<Dims> ptx_workaround_id = detail::range_cast<Dims>(item.get_global_id()) + detail::id_cast<Dims>(sr.offset);
+				const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ccpp_ptx_workaround_offset);
+				const auto offset_item = cl::sycl::item<Dims, true>(item_base);
+				kernel(offset_item);
+#else
+#error Unsupported SYCL implementation
+#endif
 			});
 		}
 	}

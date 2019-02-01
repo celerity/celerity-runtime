@@ -6,13 +6,40 @@ set(Celerity_VERSION 0.0.0)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-set(COMPUTECPP_USER_FLAGS ${COMPUTECPP_USER_FLAGS} -D_CRT_SECURE_NO_WARNINGS)
-
 find_package(Boost 1.65.0 COMPONENTS graph REQUIRED)
-find_package(ComputeCpp REQUIRED)
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 include(Download_spdlog)
+
+# Find SYCL implementation.
+# We first check if ComputeCpp is found, otherwise we assume hipSYCL.
+# TODO: Use findhipSYCL, once that exists.
+find_package(ComputeCpp)
+if(ComputeCpp_FOUND)
+  set(COMPUTECPP_USER_FLAGS ${COMPUTECPP_USER_FLAGS} -D_CRT_SECURE_NO_WARNINGS)
+else()
+  # This is a dummy-implementation that doesn't do a whole lot, mainly so
+  # we can always assume that this function exists.
+  # Note that it does set some target properties to enable compatiblity
+  # with hipSYCL (CUDA/Clang).
+  function(add_sycl_to_target)
+    set(options)
+    set(one_value_args TARGET)
+    set(multi_value_args SOURCES)
+    cmake_parse_arguments(ADD_HIPSYCL
+      "${options}"
+      "${one_value_args}"
+      "${multi_value_args}"
+      ${ARGN}
+    )
+
+    # Disable gnu++14 (breaks CUDA/Clang compilation of libstdc++)
+    set_property(TARGET ${ADD_HIPSYCL_TARGET} PROPERTY CXX_EXTENSIONS OFF)
+    # Since hipSYCL transforms source files and stores them in a separate location, we have to
+    # make sure any local includes can still be found.
+    target_include_directories(${ADD_HIPSYCL_TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  endfunction()
+endif()
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)

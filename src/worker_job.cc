@@ -6,6 +6,7 @@
 #include "handler.h"
 #include "runtime.h"
 #include "task_manager.h"
+#include "workaround.h"
 
 namespace celerity {
 
@@ -83,6 +84,8 @@ std::pair<command, std::string> compute_job::get_description(const command_pkg& 
 	return std::make_pair(command::COMPUTE, "COMPUTE");
 }
 
+// While device profiling is disabled on hipSYCL anyway, we have to make sure that we don't include any OpenCL code
+#if !WORKAROUND(HIPSYCL, 0)
 // TODO: SYCL should have a event::get_profiling_info call. As of ComputeCpp 0.8.0 this doesn't seem to be supported.
 std::chrono::time_point<std::chrono::nanoseconds> get_profiling_info(cl_event e, cl_profiling_info param) {
 	cl_ulong value;
@@ -90,6 +93,7 @@ std::chrono::time_point<std::chrono::nanoseconds> get_profiling_info(cl_event e,
 	assert(result == CL_SUCCESS);
 	return std::chrono::time_point<std::chrono::nanoseconds>(std::chrono::nanoseconds(value));
 };
+#endif
 
 bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 	// A bit of a hack: We cannot be sure the main thread has reached the task definition yet, so we have to check it here
@@ -101,13 +105,6 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 		return false;
 	}
 
-	// There currently (since 0.9.0 and up to and including 1.0.2) exists a bug that causes ComputeCpp to block when
-	// querying the execution status of a compute command until it is finished. This is bad for us, as it blocks all other
-	// jobs and prevents us from executing multiple compute jobs simultaneously.
-	// --> See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-107 (psalz)
-	// The workaround for now is to block within a worker thread.
-#define COMPUTECPP_BUG_FIXED 0
-
 	if(!submitted) {
 		// Note that we have to set the proper global size so the livepass handler can use the assigned chunk as input for range mappers
 		const auto ctsk = std::static_pointer_cast<const detail::compute_task>(task_mngr.get_task(pkg.tid));
@@ -117,7 +114,12 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 		submitted = true;
 		logger->info(logger_map({{"event", "Submitted"}}));
 
-#if !COMPUTECPP_BUG_FIXED
+		// There currently (since 0.9.0 and up to and including 1.0.5) exists a bug that causes ComputeCpp to block when
+		// querying the execution status of a compute command until it is finished. This is bad for us, as it blocks all other
+		// jobs and prevents us from executing multiple compute jobs simultaneously.
+		// --> See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-107 (psalz)
+		// The workaround for now is to block within a worker thread.
+#if WORKAROUND(COMPUTECPP, 1, 0, 5)
 		computecpp_workaround_future = runtime::get_instance().execute_async_pooled([this]() {
 			while(true) {
 				const auto status = event.get_info<cl::sycl::info::event::command_execution_status>();
@@ -127,13 +129,14 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 #endif
 	}
 
-#if COMPUTECPP_BUG_FIXED
-	const auto status = event.get_info<cl::sycl::info::event::command_execution_status>();
-	if(status == cl::sycl::info::event_command_status::complete) {
-#else
+#if WORKAROUND(COMPUTECPP, 1, 0, 5)
 	assert(computecpp_workaround_future.valid());
 	if(computecpp_workaround_future.wait_for(std::chrono::microseconds(1)) == std::future_status::ready) {
+#else
+	const auto status = event.get_info<cl::sycl::info::event::command_execution_status>();
+	if(status == cl::sycl::info::event_command_status::complete) {
 #endif
+#if !WORKAROUND(HIPSYCL, 0)
 		if(queue.is_profiling_enabled()) {
 			const auto queued = get_profiling_info(event.get(), CL_PROFILING_COMMAND_QUEUED);
 			const auto submit = get_profiling_info(event.get(), CL_PROFILING_COMMAND_SUBMIT);
@@ -148,6 +151,7 @@ bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger
 			logger->info(logger_map(
 			    {{"event", fmt::format("Delta time start -> end: {}us", std::chrono::duration_cast<std::chrono::microseconds>(end - start).count())}}));
 		}
+#endif
 		return true;
 	}
 	return false;

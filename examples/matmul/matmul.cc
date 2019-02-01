@@ -6,8 +6,7 @@
 #include <celerity.h>
 #include <spdlog/fmt/fmt.h>
 
-#define MAT_SIZE 256
-#define ENABLE_VERIFICATION (MAT_SIZE < 2048)
+#define MAT_SIZE 1024
 
 // TODO: See if we can make buffers a and b const refs here
 template <typename T>
@@ -37,53 +36,13 @@ int main(int argc, char* argv[]) {
 	std::vector<float> mat_a(MAT_SIZE * MAT_SIZE);
 	std::vector<float> mat_b(MAT_SIZE * MAT_SIZE);
 
-	std::mt19937 gen(1337);
-	std::uniform_real_distribution<float> dis(0.f, 10.f);
-
-	// Initialize matrices a and b with random values
+	// Initialize matrices a and b to the identity
 	for(auto i = 0; i < MAT_SIZE; ++i) {
 		for(auto j = 0; j < MAT_SIZE; ++j) {
-			mat_a[i * MAT_SIZE + j] = dis(gen);
-			mat_b[i * MAT_SIZE + j] = dis(gen);
+			mat_a[i * MAT_SIZE + j] = i == j;
+			mat_b[i * MAT_SIZE + j] = i == j;
 		}
 	}
-
-	std::vector<float> result_host(MAT_SIZE * MAT_SIZE);
-	int world_rank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-	const bool is_master = world_rank == 0;
-
-#if ENABLE_VERIFICATION
-	if(is_master) {
-		std::cout << "Computing ground-truth." << std::endl;
-
-		std::vector<float> tmp_host(MAT_SIZE * MAT_SIZE);
-		for(auto i = 0; i < MAT_SIZE; ++i) {
-			for(auto j = 0; j < MAT_SIZE; ++j) {
-				auto sum = 0.f;
-				for(auto k = 0; k < MAT_SIZE; ++k) {
-					const auto a_ik = mat_a[i * MAT_SIZE + k];
-					const auto b_kj = mat_b[k * MAT_SIZE + j];
-					sum += a_ik * b_kj;
-				}
-				tmp_host[i * MAT_SIZE + j] = sum;
-			}
-		}
-		for(auto i = 0; i < MAT_SIZE; ++i) {
-			for(auto j = 0; j < MAT_SIZE; ++j) {
-				auto sum = 0.f;
-				for(auto k = 0; k < MAT_SIZE; ++k) {
-					const auto b_ik = mat_b[i * MAT_SIZE + k];
-					const auto t_kj = tmp_host[k * MAT_SIZE + j];
-					sum += b_ik * t_kj;
-				}
-				result_host[i * MAT_SIZE + j] = sum;
-			}
-		}
-
-		std::cout << "Done computing ground-truth." << std::endl;
-	}
-#endif
 
 	try {
 		std::chrono::high_resolution_clock bench_clock;
@@ -105,14 +64,14 @@ int main(int argc, char* argv[]) {
 				std::cout << fmt::format(
 				    "Execution time: {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(bench_clock.now() - bench_start).count());
 
-#if ENABLE_VERIFICATION
-#define EPSILON 1e-5
 				for(auto i = 0ull; i < MAT_SIZE; ++i) {
 					for(auto j = 0ull; j < MAT_SIZE; ++j) {
-						const auto kernel_value = result[{i, j}];
-						const auto host_value = result_host[i * MAT_SIZE + j];
-						if(std::abs(kernel_value - host_value) > EPSILON) {
-							std::cerr << fmt::format("VERIFICATION FAILED for element {},{}: {} != {}", i, j, kernel_value, host_value) << std::endl;
+						const float kernel_value = result[{i, j}];
+						const float host_value = i == j;
+						if(kernel_value != host_value) {
+							std::cerr << fmt::format(
+							                 "VERIFICATION FAILED for element {},{}: {} != {}", i, j, std::to_string(kernel_value), std::to_string(host_value))
+							          << std::endl;
 							verification_passed = false;
 							break;
 						}
@@ -120,9 +79,6 @@ int main(int argc, char* argv[]) {
 					if(!verification_passed) { break; }
 				}
 				if(verification_passed) { std::cout << "VERIFICATION PASSED!" << std::endl; }
-#else
-				std::cout << "(VERIFICATION IS DISABLED)" << std::endl;
-#endif
 			});
 		});
 	} catch(std::exception& e) {

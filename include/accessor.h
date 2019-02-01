@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstring>
 #include <type_traits>
 
 #include <CL/sycl.hpp>
@@ -8,14 +9,28 @@
 #include "buffer_storage.h"
 #include "ranges.h"
 #include "runtime.h"
+#include "workaround.h"
 
 namespace celerity {
+
+#if !WORKAROUND_HIPSYCL
+#define __host__
+#define __device__
+#endif
 
 // TODO: Looks like we will have to provide the full (mocked) accessor API
 template <typename DataT, int Dims, cl::sycl::access::mode Mode, cl::sycl::access::target Target>
 class prepass_accessor {
   public:
-	DataT& operator[](cl::sycl::id<Dims> index) const { throw std::runtime_error("Accessor used outside kernel / functor"); }
+	// It looks like the hipSYCL rewrite-pass tags the generic lambda as __device__, even though it is both (and this is only ever called from host)
+	// FIXME: Look into this
+	__host__ __device__ DataT& operator[](cl::sycl::id<Dims> index) const {
+#if WORKAROUND_HIPSYCL
+		assert(false);
+#else
+		throw std::runtime_error("Accessor used outside kernel / functor");
+#endif
+	}
 
 	template <cl::sycl::access::target T = Target>
 	std::enable_if_t<T == cl::sycl::access::target::host_buffer, DataT*> get_pointer() const {

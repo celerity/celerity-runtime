@@ -5,8 +5,10 @@ The CELERITY distributed runtime implementation.
 ## Dependencies
 
 * [Boost](http://www.boost.org) (tested with version 1.65.0)
-* The [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp)
-  runtime (tested with version 1.0.2)
+* A supported SYCL implementation, either
+	- [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp)
+	  runtime (tested with version 1.0.5), or
+	- [hipSYCL](https://github.com/illuhad/hipsycl)
 * A MPI 2 implementation (tested with OpenMPI 3.0 and MSMPI 10.0)
 * [CMake](https://www.cmake.org)
 * A C++14 compiler (tested with MSVC 14, gcc 7 and Clang 6)

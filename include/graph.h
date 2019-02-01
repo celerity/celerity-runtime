@@ -4,6 +4,14 @@
 #include <utility>
 
 #include <boost/graph/adjacency_list.hpp>
+// As of Boost 1.70, this includes a header which contains a __noinline__ attribute
+// for __GNUC__ == 4 (which Clang (8) apparently also identifies as).
+// This breaks CUDA compilation with Clang, as the CUDA (10) headers define __noinline__
+// in an incompatible manner. As a workaround we thus simply undefine it altogether.
+// Potentially related to https://svn.boost.org/trac10/ticket/9392
+#if defined(__clang__) && defined(__CUDA__)
+#undef __noinline__
+#endif
 #include <boost/graph/graphviz.hpp>
 
 #include "command.h"

@@ -7,16 +7,6 @@
 #include <CL/sycl.hpp>
 #include <celerity.h>
 
-// We have to provide the STL implementation over SYCL on Linux,
-// as our POCL SPIR -> PTX translation seems to have issues with the latter.
-inline float my_exp(float x) {
-#ifdef _MSC_VER
-	return cl::sycl::exp(x);
-#else
-	return std::exp(x);
-#endif
-}
-
 // NOTE: We have to make amplitude a double to avoid some weird ComputeCpp behavior - possibly a device compiler bug.
 // See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-94 (psalz)
 void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2>& u, const cl::sycl::float2& center, double amplitude, cl::sycl::float2 sigma) {
@@ -25,7 +15,7 @@ void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2>& u, con
 		cgh.template parallel_for<class setup_wave>(u.get_range(), [=, c = center, a = amplitude, s = sigma](cl::sycl::item<2> item) {
 			const float dx = item[1] - c.x();
 			const float dy = item[0] - c.y();
-			dw_u[item] = a * my_exp(-(dx * dx / (2.f * s.x() * s.x()) + dy * dy / (2.f * s.y() * s.y())));
+			dw_u[item] = a * cl::sycl::exp(-(dx * dx / (2.f * s.x() * s.x()) + dy * dy / (2.f * s.y() * s.y())));
 		});
 	});
 }

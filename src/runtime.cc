@@ -1,6 +1,7 @@
 #include "runtime.h"
 
 #include <queue>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -54,6 +55,19 @@ const char* get_build_type() {
 #endif
 }
 
+std::string get_sycl_version() {
+	std::stringstream ss;
+#if defined(__COMPUTECPP__)
+	ss << "ComputeCpp " << COMPUTECPP_VERSION_MAJOR << "." << COMPUTECPP_VERSION_MINOR << "." << COMPUTECPP_VERSION_PATCH;
+	return ss.str();
+#elif defined(__HIPSYCL__) || defined(__HIPSYCL_TRANSFORM__)
+	ss << "hipSYCL " << HIPSYCL_VERSION_MAJOR << "." << HIPSYCL_VERSION_MINOR << "." << HIPSYCL_VERSION_PATCH;
+	return ss.str();
+#else
+	return "Unknown";
+#endif
+}
+
 runtime::runtime(int* argc, char** argv[]) {
 	if(!test_skip_mpi_lifecycle) {
 		int provided;
@@ -72,7 +86,7 @@ runtime::runtime(int* argc, char** argv[]) {
 	default_logger = logger("default").create_context({{"rank", std::to_string(world_rank)}});
 	graph_logger = logger("graph").create_context({{"rank", std::to_string(world_rank)}});
 
-	default_logger->info(logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"build", get_build_type()}}));
+	default_logger->info(logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"build", get_build_type()}, {"sycl", get_sycl_version()}}));
 	if(num_nodes == 1) { default_logger->warn("Execution of device kernels on single node is currently not supported. Try spawning more than one node."); }
 
 	cfg = std::make_unique<detail::config>(argc, argv, *default_logger);

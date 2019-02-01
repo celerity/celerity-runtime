@@ -3,10 +3,10 @@
 #include <memory>
 #include <random>
 
-#include <CL/sycl.hpp>
-
 #define CATCH_CONFIG_MAIN
 #include <catch.hpp>
+
+#include <CL/sycl.hpp>
 
 #define CELERITY_TEST
 #include <celerity.h>
