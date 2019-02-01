@@ -1,6 +1,8 @@
 #pragma once
 
 #include <CL/sycl.hpp>
+#include <boost/preprocessor/cat.hpp>
+#include <boost/preprocessor/facilities/empty.hpp>
 #include <boost/preprocessor/facilities/overload.hpp>
 
 #if defined(__COMPUTECPP__)
@@ -26,6 +28,11 @@
 #define _WA_CHECK_VERSION_3(major, minor, patch)                                                                                                               \
 	(_WA_VERSION_MAJOR < major) || (_WA_VERSION_MAJOR == major && _WA_VERSION_MINOR < minor)                                                                   \
 	    || (_WA_VERSION_MAJOR == major && _WA_VERSION_MINOR == minor && _WA_VERSION_PATCH <= patch)
+
+#if !BOOST_PP_VARIADICS_MSVC
 #define _WA_CHECK_VERSION(...) BOOST_PP_OVERLOAD(_WA_CHECK_VERSION_, __VA_ARGS__)(__VA_ARGS__)
+#else
+#define _WA_CHECK_VERSION(...) BOOST_PP_CAT(BOOST_PP_OVERLOAD(_WA_CHECK_VERSION_, __VA_ARGS__)(__VA_ARGS__), BOOST_PP_EMPTY())
+#endif
 
 #define WORKAROUND(impl, ...) (WORKAROUND_##impl == 1 && _WA_CHECK_VERSION(__VA_ARGS__))
