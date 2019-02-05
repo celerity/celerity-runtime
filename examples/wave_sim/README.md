@@ -3,10 +3,21 @@
 This is based on the [AllScale wave simulation
 example](https://github.com/allscale/allscale_api/tree/50b551b4a79ef5cf08d1c9f76e3a8051c7d47239/code/tutorials/src/adaptivegrid).
 
-By default, the program produces a CSV file containing the resulting simulation
-data. This can then be used to render an animated GIF using `gnuplot`.
-Alternatively, the results can be immediately displayed in the terminal window,
-by passing the `--ascii-plot` command line parameter.
+Computes a wave simulation (2D wave equation) over multiple time steps,
+optionally writing intermediate results to a CSV file which can subsequently be
+plotted.
+
+The behavior of this simulation can be altered through various command line
+arguments:
+
+- `-N <integer>` sets the size of the simulated grid (should be a power of 2).
+- `-T <integer>` sets the time at the end of the simulation.
+- `--dt <float>` sets the delta time increments used for each simulation step.
+  This, together with `-T`, effectively dictates the number of steps.
+- `--sample-rate <integer>` controls the rate at which intermediate results
+  are recorded for output. For example, `--sample-rate 10` means that every
+  10th time step will be recorded. Setting this to 0 means that no output file
+  will be produced.
 
 ## Plotting the output using GNUPlot
 
