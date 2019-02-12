@@ -25,7 +25,7 @@ namespace experimental {
 			}
 
 			user_benchmarker& user_benchmarker::get_instance() {
-				if(!runtime::is_initialized()) { throw std::runtime_error("Cannot use benchmarking before runtime has been initialized"); }
+				if(!celerity::detail::runtime::is_initialized()) { throw std::runtime_error("Cannot use benchmarking before runtime has been initialized"); }
 				assert(instance != nullptr && "User benchmarking was not properly initialized");
 				return *instance;
 			}

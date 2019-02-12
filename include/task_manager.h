@@ -14,11 +14,9 @@
 #include "types.h"
 
 namespace celerity {
-
-class logger;
-
 namespace detail {
 
+	class logger;
 	using task_callback = std::function<void(void)>;
 
 	class task_manager {

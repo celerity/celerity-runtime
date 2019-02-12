@@ -28,7 +28,7 @@ GridRegion<3> make_grid_region(cl::sycl::range<3> range, cl::sycl::id<3> offset 
 struct test_context {
 	std::unique_ptr<celerity::distr_queue> queue = nullptr;
 	test_context() {
-		celerity::runtime::init_for_testing();
+		celerity::detail::runtime::init_for_testing();
 		queue = std::make_unique<celerity::distr_queue>();
 	}
 };
@@ -401,7 +401,7 @@ TEST_CASE("task_manager correctly records compute task information", "[task_mana
 	    },
 	    cl::sycl::range<2>{32, 128}, cl::sycl::id<2>{32, 24});
 	const auto tsk = tm.get_task(tid);
-	REQUIRE(tsk->get_type() == task_type::COMPUTE);
+	REQUIRE(tsk->get_type() == detail::task_type::COMPUTE);
 	const auto ctsk = dynamic_cast<const detail::compute_task*>(tsk.get());
 	REQUIRE(ctsk->get_dimensions() == 2);
 	REQUIRE(ctsk->get_global_size() == cl::sycl::range<3>{32, 128, 1});
@@ -446,7 +446,7 @@ TEST_CASE("task_manager correctly records master access task information", "[tas
 		mah.run(ma_functor);
 	});
 	const auto tsk = tm.get_task(tid);
-	REQUIRE(tsk->get_type() == task_type::MASTER_ACCESS);
+	REQUIRE(tsk->get_type() == detail::task_type::MASTER_ACCESS);
 	const auto matsk = dynamic_cast<const detail::master_access_task*>(tsk.get());
 	master_access_livepass_handler mah;
 	matsk->get_functor()(mah);

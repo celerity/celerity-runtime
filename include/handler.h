@@ -44,7 +44,10 @@ class compute_prepass_handler {
 		task.set_debug_name(debug_name);
 	}
 
-	void require(buffer_id bid, std::unique_ptr<detail::range_mapper_base> rm) const;
+	/**
+	 * @internal
+	 */
+	void require(detail::buffer_id bid, std::unique_ptr<detail::range_mapper_base> rm) const;
 
   private:
 	detail::compute_task& task;
@@ -143,7 +146,10 @@ class master_access_prepass_handler {
 		// nop
 	}
 
-	void require(cl::sycl::access::mode mode, buffer_id bid, cl::sycl::range<3> range, cl::sycl::id<3> offset) const;
+	/**
+	 * @internal
+	 */
+	void require(cl::sycl::access::mode mode, detail::buffer_id bid, cl::sycl::range<3> range, cl::sycl::id<3> offset) const;
 
   private:
 	detail::master_access_task& task;

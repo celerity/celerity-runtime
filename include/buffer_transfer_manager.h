@@ -13,69 +13,71 @@
 #include "types.h"
 
 namespace celerity {
+namespace detail {
 
-class buffer_transfer_manager {
-  public:
-	struct transfer_handle {
-		bool complete = false;
-	};
+	class buffer_transfer_manager {
+	  public:
+		struct transfer_handle {
+			bool complete = false;
+		};
 
-	buffer_transfer_manager(std::shared_ptr<logger> transfer_logger) : transfer_logger(transfer_logger) {}
+		buffer_transfer_manager(std::shared_ptr<logger> transfer_logger) : transfer_logger(transfer_logger) {}
 
-	std::shared_ptr<const transfer_handle> push(const command_pkg& pkg);
-	std::shared_ptr<const transfer_handle> await_push(const command_pkg& pkg);
+		std::shared_ptr<const transfer_handle> push(const command_pkg& pkg);
+		std::shared_ptr<const transfer_handle> await_push(const command_pkg& pkg);
 
-	/**
-	 * @brief Polls for incoming transfers and updates the status of existing ones.
-	 */
-	void poll();
-
-  private:
-	struct data_header {
-		buffer_id bid;
-		command_subrange subrange;
-		command_id push_cid;
-	};
-
-	struct transfer_in {
-		MPI_Request request;
-		data_header header;
-		std::vector<char> data;
-		mpi_support::single_use_data_type data_type;
-	};
-
-	struct incoming_transfer_handle : transfer_handle {
-		std::unique_ptr<transfer_in> transfer;
-	};
-
-	struct transfer_out {
-		std::shared_ptr<transfer_handle> handle;
-		MPI_Request request;
-		data_header header;
-		mpi_support::single_use_data_type data_type;
-
-		transfer_out(std::shared_ptr<detail::raw_data_read_handle> data_handle) : data_handle(std::move(data_handle)) {}
-		void* get_raw_ptr() const { return data_handle->linearized_data_ptr; }
+		/**
+		 * @brief Polls for incoming transfers and updates the status of existing ones.
+		 */
+		void poll();
 
 	  private:
-		std::shared_ptr<detail::raw_data_read_handle> data_handle;
+		struct data_header {
+			buffer_id bid;
+			command_subrange subrange;
+			command_id push_cid;
+		};
+
+		struct transfer_in {
+			MPI_Request request;
+			data_header header;
+			std::vector<char> data;
+			mpi_support::single_use_data_type data_type;
+		};
+
+		struct incoming_transfer_handle : transfer_handle {
+			std::unique_ptr<transfer_in> transfer;
+		};
+
+		struct transfer_out {
+			std::shared_ptr<transfer_handle> handle;
+			MPI_Request request;
+			data_header header;
+			mpi_support::single_use_data_type data_type;
+
+			transfer_out(std::shared_ptr<detail::raw_data_read_handle> data_handle) : data_handle(std::move(data_handle)) {}
+			void* get_raw_ptr() const { return data_handle->linearized_data_ptr; }
+
+		  private:
+			std::shared_ptr<detail::raw_data_read_handle> data_handle;
+		};
+
+		std::list<std::unique_ptr<transfer_in>> incoming_transfers;
+		std::list<std::unique_ptr<transfer_out>> outgoing_transfers;
+
+		// Here we store two types of handles:
+		//  - Incoming pushes that have not yet been requested through ::await_push
+		//  - Still outstanding pushes that have been requested through ::await_push
+		std::unordered_map<command_id, std::shared_ptr<incoming_transfer_handle>> push_blackboard;
+
+		std::shared_ptr<logger> transfer_logger;
+
+		void poll_incoming_transfers();
+		void update_incoming_transfers();
+		void update_outgoing_transfers();
+
+		void write_data_to_buffer(transfer_in& transfer);
 	};
 
-	std::list<std::unique_ptr<transfer_in>> incoming_transfers;
-	std::list<std::unique_ptr<transfer_out>> outgoing_transfers;
-
-	// Here we store two types of handles:
-	//  - Incoming pushes that have not yet been requested through ::await_push
-	//  - Still outstanding pushes that have been requested through ::await_push
-	std::unordered_map<command_id, std::shared_ptr<incoming_transfer_handle>> push_blackboard;
-
-	std::shared_ptr<logger> transfer_logger;
-
-	void poll_incoming_transfers();
-	void update_incoming_transfers();
-	void update_outgoing_transfers();
-
-	void write_data_to_buffer(transfer_in& transfer);
-};
-
+} // namespace detail
 } // namespace celerity

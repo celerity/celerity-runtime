@@ -33,8 +33,8 @@ namespace std {
 template <>
 struct hash<celerity::detail::valid_buffer_source> {
 	size_t operator()(const celerity::detail::valid_buffer_source& vbs) const noexcept {
-		const auto h1 = std::hash<celerity::node_id>{}(vbs.nid);
-		const auto h2 = std::hash<celerity::command_id>{}(vbs.cid);
+		const auto h1 = std::hash<celerity::detail::node_id>{}(vbs.nid);
+		const auto h2 = std::hash<celerity::detail::command_id>{}(vbs.cid);
 		return h1 ^ (h2 << 1);
 	}
 };
@@ -42,11 +42,9 @@ struct hash<celerity::detail::valid_buffer_source> {
 } // namespace std
 
 namespace celerity {
-
-class logger;
-
 namespace detail {
 
+	class logger;
 	class task_manager;
 	class graph_builder;
 

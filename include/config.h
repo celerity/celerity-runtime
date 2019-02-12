@@ -3,9 +3,8 @@
 #include <boost/optional.hpp>
 
 namespace celerity {
-class logger;
-
 namespace detail {
+	class logger;
 
 	struct device_config {
 		size_t platform_id;

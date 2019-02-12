@@ -32,15 +32,15 @@ namespace test_utils {
 		template <cl::sycl::access::mode Mode>
 		void get_access(master_access_livepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {}) {}
 
-		buffer_id get_id() const { return id; }
+		detail::buffer_id get_id() const { return id; }
 
 	  private:
 		friend class mock_buffer_factory;
 
-		buffer_id id;
+		detail::buffer_id id;
 		cl::sycl::range<Dims> size;
 
-		mock_buffer(buffer_id id, cl::sycl::range<Dims> size) : id(id), size(size) {}
+		mock_buffer(detail::buffer_id id, cl::sycl::range<Dims> size) : id(id), size(size) {}
 	};
 
 	class mock_buffer_factory {
@@ -49,7 +49,7 @@ namespace test_utils {
 
 		template <int Dims>
 		mock_buffer<Dims> create_buffer(cl::sycl::range<Dims> size, bool mark_as_host_initialized = false) {
-			const buffer_id bid = next_buffer_id++;
+			const detail::buffer_id bid = next_buffer_id++;
 			const auto buf = mock_buffer<Dims>(bid, size);
 			if(task_mngr != nullptr) { task_mngr->add_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
 			if(ggen != nullptr) { ggen->add_buffer(bid, detail::range_cast<3>(size)); }
@@ -59,11 +59,12 @@ namespace test_utils {
 	  private:
 		detail::task_manager* task_mngr;
 		detail::graph_generator* ggen;
-		buffer_id next_buffer_id = 0;
+		detail::buffer_id next_buffer_id = 0;
 	};
 
 	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
-	task_id add_compute_task(detail::task_manager& tm, CGF cgf, cl::sycl::range<KernelDims> global_size = {1, 1}, cl::sycl::id<KernelDims> global_offset = {}) {
+	detail::task_id add_compute_task(
+	    detail::task_manager& tm, CGF cgf, cl::sycl::range<KernelDims> global_size = {1, 1}, cl::sycl::id<KernelDims> global_offset = {}) {
 		tm.create_compute_task([&, gs = global_size, go = global_offset](auto& cgh) {
 			cgf(cgh);
 			cgh.template parallel_for<KernelName>(gs, go, [](cl::sycl::id<KernelDims>) {});
@@ -72,7 +73,7 @@ namespace test_utils {
 	}
 
 	template <typename MAF>
-	task_id add_master_access_task(detail::task_manager& tm, MAF maf) {
+	detail::task_id add_master_access_task(detail::task_manager& tm, MAF maf) {
 		tm.create_master_access_task(maf);
 		return (*tm.get_task_graph()).m_vertices.size() - 1;
 	}

@@ -16,9 +16,9 @@ class compute_livepass_handler;
 class master_access_prepass_handler;
 class master_access_livepass_handler;
 
-enum class task_type { COMPUTE, MASTER_ACCESS };
-
 namespace detail {
+
+	enum class task_type { COMPUTE, MASTER_ACCESS };
 
 	// This is a workaround that let's us store a command group functor with auto&
 	// parameter, which we require in order to be able to pass different

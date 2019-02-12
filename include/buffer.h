@@ -23,7 +23,7 @@ class buffer {
 
 		// By making the master node always use HOST_BUFFERs we currently prevent it from running as a single node
 		// TODO: Look into running on a single node (for development / debugging)
-		const auto type = runtime::get_instance().is_master_node() ? detail::buffer_type::HOST_BUFFER : detail::buffer_type::DEVICE_BUFFER;
+		const auto type = detail::runtime::get_instance().is_master_node() ? detail::buffer_type::HOST_BUFFER : detail::buffer_type::DEVICE_BUFFER;
 		buffer_storage = std::make_shared<detail::buffer_storage<DataT, Dims>>(type, range);
 
 		// TODO: Get rid of this functionality. Add high-level interface for explicit transfers instead.
@@ -33,14 +33,14 @@ class buffer {
 		//		interface that does just that!.
 		// FIXME: It's not ideal that we have a const_cast here. Solve this at raw_data_handle instead.
 		if(host_initialized) {
-			auto queue = runtime::get_instance().get_device_queue().get_sycl_queue();
+			auto queue = detail::runtime::get_instance().get_device_queue().get_sycl_queue();
 			buffer_storage->set_data(queue, detail::raw_data_handle{const_cast<DataT*>(host_ptr), detail::range_cast<3>(range), cl::sycl::id<3>{}});
 		}
 
 		// It's important that we register the buffer AFTER we transferred the initial data (if any):
 		// As soon as the buffer is registered, incoming transfers can be written to it.
 		// In rare cases this might happen before the initial transfer is finished, causing a data race.
-		id = runtime::get_instance().register_buffer(detail::range_cast<3>(range), buffer_storage, host_initialized);
+		id = detail::runtime::get_instance().register_buffer(detail::range_cast<3>(range), buffer_storage, host_initialized);
 	}
 
 	buffer(cl::sycl::range<Dims> range) : buffer(nullptr, range) {}
@@ -48,7 +48,7 @@ class buffer {
 	buffer(const buffer&) = delete;
 	buffer(buffer&&) = delete;
 
-	~buffer() { runtime::get_instance().unregister_buffer(id); }
+	~buffer() { detail::runtime::get_instance().unregister_buffer(id); }
 
 	template <cl::sycl::access::mode Mode, typename Functor>
 	prepass_accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> get_access(compute_prepass_handler& handler, Functor rmfn) {
@@ -87,7 +87,7 @@ class buffer {
 	cl::sycl::range<Dims> get_range() const { return range; }
 
   private:
-	buffer_id id;
+	detail::buffer_id id;
 	cl::sycl::range<Dims> range;
 	std::shared_ptr<detail::buffer_storage<DataT, Dims>> buffer_storage;
 };

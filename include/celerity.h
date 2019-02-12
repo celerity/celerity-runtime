@@ -8,4 +8,10 @@
 #include "user_bench.h"
 #include "with_master_access.h"
 
+namespace celerity {
+namespace runtime {
+	inline void init(int* argc, char** argv[]) { detail::runtime::init(argc, argv); }
+} // namespace runtime
+} // namespace celerity
+
 #endif

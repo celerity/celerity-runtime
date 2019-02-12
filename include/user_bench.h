@@ -11,6 +11,10 @@ namespace celerity {
 namespace experimental {
 	namespace bench {
 		namespace detail {
+			using logger = celerity::detail::logger;
+			using node_id = celerity::detail::node_id;
+			using logger_map = celerity::detail::logger_map;
+
 			class user_benchmarker {
 			  public:
 				static void initialize(node_id this_nid);
@@ -68,7 +72,7 @@ namespace experimental {
 		/**
 		 * @brief Logs structured user configuration data. Only logged once (on the master node).
 		 */
-		inline void log_user_config(const logger_map& lm) { detail::user_benchmarker::get_instance().log_user_config(lm); }
+		inline void log_user_config(const detail::logger_map& lm) { detail::user_benchmarker::get_instance().log_user_config(lm); }
 
 		/**
 		 * @brief Begins a new benchmarking section.
@@ -96,7 +100,7 @@ namespace experimental {
 			detail::user_benchmarker::get_instance().event(event_fmt, std::forward<Args>(args)...);
 		}
 
-		inline void event(const logger_map& lm) { detail::user_benchmarker::get_instance().event(lm); }
+		inline void event(const detail::logger_map& lm) { detail::user_benchmarker::get_instance().event(lm); }
 
 	} // namespace bench
 } // namespace experimental
