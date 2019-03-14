@@ -18,6 +18,9 @@ find_package(ComputeCpp)
 if(ComputeCpp_FOUND)
   set(COMPUTECPP_USER_FLAGS ${COMPUTECPP_USER_FLAGS} -D_CRT_SECURE_NO_WARNINGS)
 else()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --restrict-device-header-path=\"${PROJECT_SOURCE_DIR}/include\"")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --restrict-device-header-path=\"${PROJECT_SOURCE_DIR}/test\"")
+
   # This is a dummy-implementation that doesn't do a whole lot, mainly so
   # we can always assume that this function exists.
   # Note that it does set some target properties to enable compatiblity
