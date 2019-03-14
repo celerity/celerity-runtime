@@ -35,6 +35,7 @@ namespace detail {
 
 		execution_logger->info(logger_map{{"initialIdleTime", std::to_string(metrics.initial_idle.get().count())}});
 		execution_logger->info(logger_map{{"computeIdleTime", std::to_string(metrics.compute_idle.get().count())}});
+		execution_logger->info(logger_map{{"starvationTime", std::to_string(metrics.starvation.get().count())}});
 	}
 
 	void executor::run() {
@@ -154,6 +155,11 @@ namespace detail {
 			if(!metrics.compute_idle.is_running()) { metrics.compute_idle.resume(); }
 		} else {
 			if(metrics.compute_idle.is_running()) { metrics.compute_idle.pause(); }
+		}
+		if(jobs.empty()) {
+			if(!metrics.starvation.is_running()) { metrics.starvation.resume(); }
+		} else {
+			if(metrics.starvation.is_running()) { metrics.starvation.pause(); }
 		}
 	}
 } // namespace detail

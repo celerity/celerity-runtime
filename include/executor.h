@@ -29,8 +29,12 @@ namespace detail {
 	};
 
 	struct executor_metrics {
+		// How much time occurs before the first job is started
 		duration_metric initial_idle;
+		// How much is spent not executing any compute tasks
 		duration_metric compute_idle;
+		// How much time is spent without any jobs (excluding initial idle)
+		duration_metric starvation;
 	};
 
 	class executor {
