@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.5.1)
 include(CMakeFindDependencyMacro)
 
 find_dependency(Boost 1.66.0 COMPONENTS graph REQUIRED)
-find_dependency(ComputeCpp REQUIRED)
 find_dependency(MPI 2.0 REQUIRED)
 find_dependency(Threads REQUIRED)
 
