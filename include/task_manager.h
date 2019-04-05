@@ -23,31 +23,42 @@ namespace detail {
 		using buffer_writers_map = std::unordered_map<buffer_id, region_map<boost::optional<task_id>>>;
 
 	  public:
-		task_manager();
+		/**
+		 * The task_manager operates differently based on whether this is the master node or not.
+		 * In the first case, in addition to storing command groups within task objects, the task graph is additionally computed.
+		 *
+		 * TODO: This is a bit of a code smell. Maybe we should split simple task management and task graph generation into separate classes?
+		 */
+		task_manager(bool is_master_node);
 		virtual ~task_manager() = default;
 
 		template <typename CGF>
 		void create_compute_task(CGF cgf) {
 			{
 				std::lock_guard<std::mutex> lock(task_mutex);
-				const auto task = create_task<compute_task>(std::make_unique<cgf_storage<CGF>>(cgf));
-				compute_prepass_handler h(*task);
-				cgf(h);
+				const auto task = create_task<compute_task>(std::make_unique<command_group_storage<CGF>>(cgf));
+				auto cgh = std::make_unique<compute_task_handler<true>>(task);
+				cgf(*cgh);
 				task_graph[task->get_id()].label = fmt::format("{} ({})", task_graph[task->get_id()].label, task->get_debug_name());
-				compute_dependencies(task->get_id());
+				if(is_master_node) { compute_dependencies(task->get_id()); }
 			}
 			invoke_callbacks();
 		}
 
-		template <typename MAF>
-		void create_master_access_task(MAF maf) {
+		template <typename CGF>
+		void create_master_access_task(CGF cgf) {
 			{
 				std::lock_guard<std::mutex> lock(task_mutex);
-				const auto task = create_task<master_access_task>(std::make_unique<maf_storage<MAF>>(maf));
-				master_access_prepass_handler h(*task);
-				maf(h);
-				task_graph[task->get_id()].label = fmt::format("{} ({})", task_graph[task->get_id()].label, "master-access");
-				compute_dependencies(task->get_id());
+				const auto task = create_task<master_access_task>(std::make_unique<command_group_storage<CGF>>(cgf));
+				// Executing master access command groups involves the creation of real (i.e., non-placeholder) host accessors,
+				// which is not for free - especially on worker nodes. As we don't really need any information about master
+				// access tasks on worker nodes anyway, we simply omit the pre-pass execution of the command group function.
+				if(is_master_node) {
+					auto cgh = std::make_unique<master_access_task_handler<true>>(task);
+					cgf(*cgh);
+					task_graph[task->get_id()].label = fmt::format("{} ({})", task_graph[task->get_id()].label, "master-access");
+					compute_dependencies(task->get_id());
+				}
 			}
 			invoke_callbacks();
 		}
@@ -91,6 +102,7 @@ namespace detail {
 		void print_graph(logger& graph_logger) const;
 
 	  private:
+		const bool is_master_node;
 		task_id next_task_id = 0;
 		const task_id init_task_id;
 		std::unordered_map<task_id, std::shared_ptr<task>> task_map;
@@ -120,13 +132,6 @@ namespace detail {
 
 	  protected:
 		virtual void compute_dependencies(task_id tid);
-	};
-
-	// The simple_task_manager is intended for use on worker_nodes, omitting task graph generation.
-	// TODO: This is a bit of a code smell. Maybe we should split the simple task management and task graph generation into separate classes
-	class simple_task_manager : public task_manager {
-	  protected:
-		void compute_dependencies(task_id) override{};
 	};
 
 } // namespace detail

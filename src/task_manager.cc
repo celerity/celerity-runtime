@@ -5,7 +5,7 @@
 
 namespace celerity {
 namespace detail {
-	task_manager::task_manager() : init_task_id(next_task_id++) {
+	task_manager::task_manager(bool is_master_node) : is_master_node(is_master_node), init_task_id(next_task_id++) {
 		// We add a special init task for initializing buffers. This task is marked as processed right away.
 		// This is useful so we can correctly generate anti-dependencies for tasks that read host initialized buffers.
 		// TODO: Not the cleanest solution, especially since it doesn't have an associated task object.

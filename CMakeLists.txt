@@ -62,7 +62,6 @@ add_library(
   src/graph_builder.cc
   src/graph_generator.cc
   src/graph_utils.cc
-  src/handler.cc
   src/mpi_support.cc
   src/runtime.cc
   src/scheduler.cc

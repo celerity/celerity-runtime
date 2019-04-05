@@ -2,12 +2,22 @@
 
 #include <CL/sycl.hpp>
 
+#include "workaround.h"
+
+#if !WORKAROUND_HIPSYCL
+#define __host__
+#define __device__
+#endif
+
 namespace celerity {
 namespace detail {
 
+// The hipSYCL source transformation seems to have difficulties annotating this
+// definition, which is why we provide the __device__ and __host__ attributes
+// manually.
 #define MAKE_ARRAY_CAST_FN(name, default_value, out_type)                                                                                                      \
 	template <int DimsOut, template <int> class InType, int DimsIn>                                                                                            \
-	out_type<DimsOut> name(const InType<DimsIn>& other) {                                                                                                      \
+	__device__ __host__ out_type<DimsOut> name(const InType<DimsIn>& other) {                                                                                  \
 		out_type<DimsOut> result;                                                                                                                              \
 		for(size_t o = 0; o < DimsOut; ++o) {                                                                                                                  \
 			result[o] = o < DimsIn ? other[o] : default_value;                                                                                                 \

@@ -8,12 +8,12 @@
 // TODO: See if we can make buffers a and b const refs here
 template <typename T>
 void multiply(celerity::distr_queue& queue, celerity::buffer<T, 2>& mat_a, celerity::buffer<T, 2>& mat_b, celerity::buffer<T, 2>& mat_c) {
-	queue.submit([&](auto& cgh) {
+	queue.submit([&](celerity::handler& cgh) {
 		auto a = mat_a.template get_access<cl::sycl::access::mode::read>(cgh, celerity::access::slice<2>(1));
 		auto b = mat_b.template get_access<cl::sycl::access::mode::read>(cgh, celerity::access::slice<2>(0));
 		auto c = mat_c.template get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
 
-		cgh.template parallel_for<class mat_mul>(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE), [=](cl::sycl::item<2> item) {
+		cgh.parallel_for<class mat_mul>(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE), [=](cl::sycl::item<2> item) {
 			auto sum = 0.f;
 			for(auto k = 0ull; k < MAT_SIZE; ++k) {
 				const auto a_ik = a[{item[0], k}];
@@ -56,10 +56,10 @@ int main(int argc, char* argv[]) {
 		multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
 		multiply(queue, mat_b_buf, mat_c_buf, mat_a_buf);
 
-		celerity::with_master_access([&](auto& mah) {
-			auto result = mat_a_buf.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
+		celerity::with_master_access([&](celerity::handler& cgh) {
+			auto result = mat_a_buf.get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
 
-			mah.run([=, &verification_passed]() {
+			cgh.run([=, &verification_passed]() {
 				celerity::experimental::bench::end("main program");
 
 				for(auto i = 0ull; i < MAT_SIZE; ++i) {

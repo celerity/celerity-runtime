@@ -11,8 +11,7 @@
 
 namespace celerity {
 
-class compute_prepass_handler;
-class compute_livepass_handler;
+class handler;
 class master_access_prepass_handler;
 class master_access_livepass_handler;
 
@@ -20,33 +19,19 @@ namespace detail {
 
 	enum class task_type { COMPUTE, MASTER_ACCESS };
 
-	// This is a workaround that let's us store a command group functor with auto&
-	// parameter, which we require in order to be able to pass different
-	// celerity::handlers for prepass and live invocations.
-	template <typename PrepassHandler, typename LivepassHandler>
-	struct handler_storage_base {
-		virtual void operator()(PrepassHandler&) const = 0;
-		virtual void operator()(LivepassHandler&) const = 0;
-		virtual ~handler_storage_base() = default;
+	struct command_group_storage_base {
+		virtual void operator()(handler& cgh) const = 0;
+
+		virtual ~command_group_storage_base() = default;
 	};
 
-	template <typename Functor, typename PrepassHandler, typename LivepassHandler>
-	struct handler_storage : handler_storage_base<PrepassHandler, LivepassHandler> {
+	template <typename Functor>
+	struct command_group_storage : command_group_storage_base {
 		Functor fun;
 
-		handler_storage(Functor fun) : fun(fun) {}
-
-		void operator()(PrepassHandler& handler) const override { fun(handler); }
-		void operator()(LivepassHandler& handler) const override { fun(handler); }
+		command_group_storage(Functor fun) : fun(fun) {}
+		void operator()(handler& cgh) const override { fun(cgh); }
 	};
-
-	using cgf_storage_base = handler_storage_base<compute_prepass_handler, compute_livepass_handler>;
-	template <typename Functor>
-	using cgf_storage = handler_storage<Functor, compute_prepass_handler, compute_livepass_handler>;
-
-	using maf_storage_base = handler_storage_base<master_access_prepass_handler, master_access_livepass_handler>;
-	template <typename Functor>
-	using maf_storage = handler_storage<Functor, master_access_prepass_handler, master_access_livepass_handler>;
 
 	class task {
 	  public:
@@ -65,7 +50,7 @@ namespace detail {
 
 	class compute_task : public task {
 	  public:
-		compute_task(task_id tid, std::unique_ptr<cgf_storage_base>&& cgf) : task(tid), cgf(std::move(cgf)) {}
+		compute_task(task_id tid, std::unique_ptr<command_group_storage_base>&& cgf) : task(tid), cgf(std::move(cgf)) {}
 
 		task_type get_type() const override { return task_type::COMPUTE; }
 
@@ -76,7 +61,7 @@ namespace detail {
 
 		void add_range_mapper(buffer_id bid, std::unique_ptr<range_mapper_base>&& rm) { range_mappers[bid].push_back(std::move(rm)); }
 
-		const cgf_storage_base& get_command_group() const { return *cgf; }
+		const command_group_storage_base& get_command_group() const { return *cgf; }
 
 		int get_dimensions() const { return dimensions; }
 		cl::sycl::range<3> get_global_size() const { return global_size; }
@@ -98,7 +83,7 @@ namespace detail {
 		GridRegion<3> get_requirements(buffer_id bid, cl::sycl::access::mode mode, const subrange<3>& sr) const;
 
 	  private:
-		std::unique_ptr<cgf_storage_base> cgf;
+		std::unique_ptr<command_group_storage_base> cgf;
 		int dimensions = 0;
 		cl::sycl::range<3> global_size;
 		cl::sycl::id<3> global_offset = {};
@@ -108,13 +93,13 @@ namespace detail {
 
 	class master_access_task : public task {
 	  public:
-		master_access_task(task_id tid, std::unique_ptr<maf_storage_base>&& maf) : task(tid), maf(std::move(maf)) {}
+		master_access_task(task_id tid, std::unique_ptr<command_group_storage_base>&& maf) : task(tid), maf(std::move(maf)) {}
 
 		task_type get_type() const override { return task_type::MASTER_ACCESS; }
 
 		void add_buffer_access(buffer_id bid, cl::sycl::access::mode mode, subrange<3> sr) { buffer_accesses[bid].push_back({mode, sr}); }
 
-		const maf_storage_base& get_functor() const { return *maf; }
+		const command_group_storage_base& get_functor() const { return *maf; }
 
 		std::vector<buffer_id> get_accessed_buffers() const override;
 		std::unordered_set<cl::sycl::access::mode> get_access_modes(buffer_id bid) const override;
@@ -126,7 +111,7 @@ namespace detail {
 			subrange<3> sr;
 		};
 
-		std::unique_ptr<maf_storage_base> maf;
+		std::unique_ptr<command_group_storage_base> maf;
 		std::unordered_map<buffer_id, std::vector<buffer_access_info>> buffer_accesses;
 	};
 

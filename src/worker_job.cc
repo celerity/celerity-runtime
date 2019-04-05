@@ -169,9 +169,9 @@ namespace detail {
 
 	bool master_access_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 		// In this case we can be sure that the task definition exists, as we're on the master node.
-		const auto tsk = dynamic_cast<const detail::master_access_task*>(task_mngr.get_task(pkg.tid).get());
-		master_access_livepass_handler handler;
-		tsk->get_functor()(handler);
+		const auto tsk = std::static_pointer_cast<const master_access_task>(task_mngr.get_task(pkg.tid));
+		auto cgh = std::make_unique<master_access_task_handler<false>>();
+		tsk->get_functor()(*cgh);
 		return true;
 	}
 

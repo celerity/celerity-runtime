@@ -58,19 +58,19 @@ namespace detail {
 
 	TEST_CASE("task_manager does not create multiple dependencies between the same tasks", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm;
+		task_manager tm{true};
 		test_utils::mock_buffer_factory mbf(&tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
 		auto buf_b = mbf.create_buffer(cl::sycl::range<1>(128));
 
 		SECTION("true dependencies") {
-			const auto tid_a = test_utils::add_master_access_task(tm, [&](auto& mah) {
-				buf_a.get_access<mode::discard_write>(mah, 128);
-				buf_b.get_access<mode::discard_write>(mah, 128);
+			const auto tid_a = test_utils::add_master_access_task(tm, [&](handler& cgh) {
+				buf_a.get_access<mode::discard_write>(cgh, 128);
+				buf_b.get_access<mode::discard_write>(cgh, 128);
 			});
-			const auto tid_b = test_utils::add_master_access_task(tm, [&](auto& mah) {
-				buf_a.get_access<mode::read>(mah, 128);
-				buf_b.get_access<mode::read>(mah, 128);
+			const auto tid_b = test_utils::add_master_access_task(tm, [&](handler& cgh) {
+				buf_a.get_access<mode::read>(cgh, 128);
+				buf_b.get_access<mode::read>(cgh, 128);
 			});
 			CHECK(has_dependency(tm, tid_b, tid_a));
 
@@ -81,13 +81,13 @@ namespace detail {
 		}
 
 		SECTION("anti-dependencies") {
-			const auto tid_a = test_utils::add_master_access_task(tm, [&](auto& mah) {
-				buf_a.get_access<mode::discard_write>(mah, 128);
-				buf_b.get_access<mode::discard_write>(mah, 128);
+			const auto tid_a = test_utils::add_master_access_task(tm, [&](handler& cgh) {
+				buf_a.get_access<mode::discard_write>(cgh, 128);
+				buf_b.get_access<mode::discard_write>(cgh, 128);
 			});
-			const auto tid_b = test_utils::add_master_access_task(tm, [&](auto& mah) {
-				buf_a.get_access<mode::discard_write>(mah, 128);
-				buf_b.get_access<mode::discard_write>(mah, 128);
+			const auto tid_b = test_utils::add_master_access_task(tm, [&](handler& cgh) {
+				buf_a.get_access<mode::discard_write>(cgh, 128);
+				buf_b.get_access<mode::discard_write>(cgh, 128);
 			});
 			CHECK(has_dependency(tm, tid_b, tid_a, true));
 
@@ -100,13 +100,13 @@ namespace detail {
 		// Here we also check that true dependencies always take precedence
 		SECTION("true and anti-dependencies combined") {
 			SECTION("if true is declared first") {
-				const auto tid_a = test_utils::add_master_access_task(tm, [&](auto& mah) {
-					buf_a.get_access<mode::discard_write>(mah, 128);
-					buf_b.get_access<mode::discard_write>(mah, 128);
+				const auto tid_a = test_utils::add_master_access_task(tm, [&](handler& cgh) {
+					buf_a.get_access<mode::discard_write>(cgh, 128);
+					buf_b.get_access<mode::discard_write>(cgh, 128);
 				});
-				const auto tid_b = test_utils::add_master_access_task(tm, [&](auto& mah) {
-					buf_a.get_access<mode::read>(mah, 128);
-					buf_b.get_access<mode::discard_write>(mah, 128);
+				const auto tid_b = test_utils::add_master_access_task(tm, [&](handler& cgh) {
+					buf_a.get_access<mode::read>(cgh, 128);
+					buf_b.get_access<mode::discard_write>(cgh, 128);
 				});
 				CHECK(has_dependency(tm, tid_b, tid_a));
 				CHECK_FALSE(has_dependency(tm, tid_b, tid_a, true));
@@ -118,13 +118,13 @@ namespace detail {
 			}
 
 			SECTION("if anti is declared first") {
-				const auto tid_a = test_utils::add_master_access_task(tm, [&](auto& mah) {
-					buf_a.get_access<mode::discard_write>(mah, 128);
-					buf_b.get_access<mode::discard_write>(mah, 128);
+				const auto tid_a = test_utils::add_master_access_task(tm, [&](handler& cgh) {
+					buf_a.get_access<mode::discard_write>(cgh, 128);
+					buf_b.get_access<mode::discard_write>(cgh, 128);
 				});
-				const auto tid_b = test_utils::add_master_access_task(tm, [&](auto& mah) {
-					buf_a.get_access<mode::discard_write>(mah, 128);
-					buf_b.get_access<mode::read>(mah, 128);
+				const auto tid_b = test_utils::add_master_access_task(tm, [&](handler& cgh) {
+					buf_a.get_access<mode::discard_write>(cgh, 128);
+					buf_b.get_access<mode::read>(cgh, 128);
 				});
 				CHECK(has_dependency(tm, tid_b, tid_a));
 				CHECK_FALSE(has_dependency(tm, tid_b, tid_a, true));
@@ -139,17 +139,21 @@ namespace detail {
 
 	TEST_CASE("task_manager respects range mapper results for finding dependencies", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm;
+		task_manager tm{true};
 		test_utils::mock_buffer_factory mbf(&tm);
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
 
-		const auto tid_a = test_utils::add_compute_task<class task_a>(tm, [&](auto& cgh) {
+		const auto tid_a = test_utils::add_compute_task<class task_a>(tm, [&](handler& cgh) {
 			buf.get_access<mode::discard_write>(cgh, access::fixed<2, 1>({0, 64}));
 		});
-		const auto tid_b = test_utils::add_compute_task<class task_b>(tm, [&](auto& cgh) { buf.get_access<mode::read>(cgh, access::fixed<2, 1>({0, 128})); });
+		const auto tid_b = test_utils::add_compute_task<class task_b>(tm, [&](handler& cgh) {
+			buf.get_access<mode::read>(cgh, access::fixed<2, 1>({0, 128}));
+		});
 		REQUIRE(has_dependency(tm, tid_b, tid_a));
 
-		const auto tid_c = test_utils::add_compute_task<class task_c>(tm, [&](auto& cgh) { buf.get_access<mode::read>(cgh, access::fixed<2, 1>({64, 128})); });
+		const auto tid_c = test_utils::add_compute_task<class task_c>(tm, [&](handler& cgh) {
+			buf.get_access<mode::read>(cgh, access::fixed<2, 1>({64, 128}));
+		});
 		REQUIRE_FALSE(has_dependency(tm, tid_c, tid_a));
 
 		maybe_print_graph(tm);
@@ -157,25 +161,25 @@ namespace detail {
 
 	TEST_CASE("task_manager correctly generates anti-dependencies", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm;
+		task_manager tm{true};
 		test_utils::mock_buffer_factory mbf(&tm);
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
 
 		// Write to the full buffer
-		const auto tid_a = test_utils::add_compute_task<class task_a>(tm, [&](auto& cgh) {
+		const auto tid_a = test_utils::add_compute_task<class task_a>(tm, [&](handler& cgh) {
 			buf.get_access<mode::discard_write>(cgh, access::fixed<2, 1>({0, 128}));
 		});
 		// Read the first half of the buffer
-		const auto tid_b = test_utils::add_compute_task<class task_b>(tm, [&](auto& cgh) { buf.get_access<mode::read>(cgh, access::fixed<2, 1>({0, 64})); });
+		const auto tid_b = test_utils::add_compute_task<class task_b>(tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, access::fixed<2, 1>({0, 64})); });
 		CHECK(has_dependency(tm, tid_b, tid_a));
 		// Overwrite the second half - no anti-dependency onto task_b should exist (but onto task_a)
-		const auto tid_c = test_utils::add_compute_task<class task_c>(tm, [&](auto& cgh) {
+		const auto tid_c = test_utils::add_compute_task<class task_c>(tm, [&](handler& cgh) {
 			buf.get_access<mode::discard_write>(cgh, access::fixed<2, 1>({64, 64}));
 		});
 		REQUIRE(has_dependency(tm, tid_c, tid_a, true));
 		REQUIRE_FALSE(has_dependency(tm, tid_c, tid_b, true));
 		// Overwrite the first half - now only an anti-dependency onto task_b should exist
-		const auto tid_d = test_utils::add_compute_task<class task_d>(tm, [&](auto& cgh) {
+		const auto tid_d = test_utils::add_compute_task<class task_d>(tm, [&](handler& cgh) {
 			buf.get_access<mode::discard_write>(cgh, access::fixed<2, 1>({0, 64}));
 		});
 		REQUIRE_FALSE(has_dependency(tm, tid_d, tid_a, true));
@@ -186,25 +190,25 @@ namespace detail {
 
 	TEST_CASE("task_manager correctly handles host-initialized buffers", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm;
+		task_manager tm{true};
 		test_utils::mock_buffer_factory mbf(&tm);
 		auto host_init_buf = mbf.create_buffer(cl::sycl::range<1>(128), true);
 		auto non_host_init_buf = mbf.create_buffer(cl::sycl::range<1>(128), false);
 
-		const auto tid_a = test_utils::add_compute_task<class task_a>(tm, [&](auto& cgh) {
+		const auto tid_a = test_utils::add_compute_task<class task_a>(tm, [&](handler& cgh) {
 			host_init_buf.get_access<mode::read>(cgh, access::fixed<2, 1>({0, 128}));
 		});
 		REQUIRE(has_dependency(tm, tid_a, 0)); // This task has a dependency on the init task (tid 0)
-		const auto tid_b = test_utils::add_compute_task<class task_b>(tm, [&](auto& cgh) {
+		const auto tid_b = test_utils::add_compute_task<class task_b>(tm, [&](handler& cgh) {
 			non_host_init_buf.get_access<mode::read>(cgh, access::fixed<2, 1>({0, 128}));
 		});
 		REQUIRE_FALSE(has_dependency(tm, tid_b, 0));
 
-		const auto tid_c = test_utils::add_compute_task<class task_c>(tm, [&](auto& cgh) {
+		const auto tid_c = test_utils::add_compute_task<class task_c>(tm, [&](handler& cgh) {
 			host_init_buf.get_access<mode::discard_write>(cgh, access::fixed<2, 1>({0, 128}));
 		});
 		REQUIRE(has_dependency(tm, tid_c, tid_a, true));
-		const auto tid_d = test_utils::add_compute_task<class task_d>(tm, [&](auto& cgh) {
+		const auto tid_d = test_utils::add_compute_task<class task_d>(tm, [&](handler& cgh) {
 			non_host_init_buf.get_access<mode::discard_write>(cgh, access::fixed<2, 1>({0, 128}));
 		});
 		// Since task b is essentially reading uninitialized garbage, it doesn't make a difference if we write into it concurrently
@@ -233,16 +237,16 @@ namespace detail {
 		const std::vector<std::vector<mode>> rw_mode_sets = {{mode::discard_read_write}, {mode::read_write}, {mode::atomic}, {mode::discard_write, mode::read}};
 
 		for(const auto& mode_set : rw_mode_sets) {
-			task_manager tm;
+			task_manager tm{true};
 			test_utils::mock_buffer_factory mbf(&tm);
 			auto buf = mbf.create_buffer(cl::sycl::range<1>(128), true);
 
-			const auto tid_a = test_utils::add_compute_task<class task_a>(tm, [&](auto& cgh) {
+			const auto tid_a = test_utils::add_compute_task<class task_a>(tm, [&](handler& cgh) {
 				for(const auto& m : mode_set) {
 					dispatch_get_access(buf, cgh, m, access::fixed<2, 1>({0, 128}));
 				}
 			});
-			const auto tid_b = test_utils::add_compute_task<class task_b>(tm, [&](auto& cgh) {
+			const auto tid_b = test_utils::add_compute_task<class task_b>(tm, [&](handler& cgh) {
 				buf.get_access<mode::discard_write>(cgh, access::fixed<2, 1>({0, 128}));
 			});
 			REQUIRE(has_dependency(tm, tid_b, tid_a, true));
@@ -255,20 +259,20 @@ namespace detail {
 			for(const auto& producer_mode : access::detail::producer_modes) {
 				CAPTURE(consumer_mode);
 				CAPTURE(producer_mode);
-				task_manager tm;
+				task_manager tm{true};
 				test_utils::mock_buffer_factory mbf(&tm);
 				auto buf = mbf.create_buffer(cl::sycl::range<1>(128), false);
 
-				const task_id tid_a = test_utils::add_compute_task(tm, [&](auto& cgh) {
+				const task_id tid_a = test_utils::add_compute_task(tm, [&](handler& cgh) {
 					dispatch_get_access(buf, cgh, producer_mode, celerity::access::fixed<2, 1>({0, 128}));
 				});
 
-				const task_id tid_b = test_utils::add_compute_task(tm, [&](auto& cgh) {
+				const task_id tid_b = test_utils::add_compute_task(tm, [&](handler& cgh) {
 					dispatch_get_access(buf, cgh, consumer_mode, celerity::access::fixed<2, 1>({0, 128}));
 				});
 				REQUIRE(has_dependency(tm, tid_b, tid_a));
 
-				const task_id tid_c = test_utils::add_compute_task(tm, [&](auto& cgh) {
+				const task_id tid_c = test_utils::add_compute_task(tm, [&](handler& cgh) {
 					dispatch_get_access(buf, cgh, producer_mode, celerity::access::fixed<2, 1>({0, 128}));
 				});
 				const bool pure_consumer = consumer_mode == mode::read;
@@ -279,23 +283,23 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager manages the number of unsatisfied dependencies for each task", "[task_manager]") {
-		task_manager tm;
+		task_manager tm{true};
 		test_utils::mock_buffer_factory mbf(&tm);
 		auto buf = mbf.create_buffer(cl::sycl::range<2>(30, 40));
 
-		const task_id tid_a = test_utils::add_compute_task(tm, [&](auto& cgh) {
+		const task_id tid_a = test_utils::add_compute_task(tm, [&](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::discard_write>(cgh, access::fixed<2, 2>({{}, {32, 23}}));
 		});
 		REQUIRE((*tm.get_task_graph())[tid_a].num_unsatisfied == 0);
 		REQUIRE((*tm.get_task_graph())[tid_a].processed == false);
-		const task_id tid_b = test_utils::add_compute_task(tm, [&](auto& cgh) {
+		const task_id tid_b = test_utils::add_compute_task(tm, [&](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, access::fixed<2, 2>({{}, {32, 23}}));
 		});
 		REQUIRE((*tm.get_task_graph())[tid_b].num_unsatisfied == 1);
 		tm.mark_task_as_processed(tid_a);
 		REQUIRE((*tm.get_task_graph())[tid_a].processed == true);
 		REQUIRE((*tm.get_task_graph())[tid_b].num_unsatisfied == 0);
-		const task_id tid_c = test_utils::add_compute_task(tm, [&](auto& cgh) {
+		const task_id tid_c = test_utils::add_compute_task(tm, [&](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, access::fixed<2, 2>({{}, {32, 23}}));
 		});
 		REQUIRE((*tm.get_task_graph())[tid_c].num_unsatisfied == 0);
@@ -477,14 +481,14 @@ namespace detail {
 	TEST_CASE("graph_generator generates required data transfer commands", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
 
-		task_manager tm;
+		task_manager tm{true};
 		cdag_inspector inspector;
 		graph_generator ggen(4, tm, inspector.get_cb());
 		test_utils::mock_buffer_factory mbf(&tm, &ggen);
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(300));
 
 		const auto tid_a = build_and_flush(ggen, test_utils::add_compute_task<class task_a>(tm,
-		                                             [&](auto& cgh) {
+		                                             [&](handler& cgh) {
 			                                             buf.get_access<mode::discard_write>(cgh, [](chunk<1> chnk) {
 				                                             if(chnk.offset[0] == 0) return subrange<1>(100, 100);
 				                                             if(chnk.offset[0] == 100) return subrange<1>(0, 100);
@@ -499,7 +503,7 @@ namespace detail {
 		CHECK(inspector.get_commands(tid_a, node_id(3), command::COMPUTE).size() == 1);
 
 		const auto tid_b = build_and_flush(ggen, test_utils::add_compute_task<class task_b>(tm,
-		                                             [&](auto& cgh) { buf.get_access<mode::read>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{300}));
+		                                             [&](handler& cgh) { buf.get_access<mode::read>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{300}));
 
 		REQUIRE(inspector.get_commands(tid_b, boost::none, command::PUSH).size() == 2);
 		REQUIRE(inspector.get_commands(tid_b, node_id(1), command::PUSH).size() == 1);
@@ -515,7 +519,7 @@ namespace detail {
 	TEST_CASE("graph_generator doesn't generate data transfer commands for the same buffer and range more than once", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
 
-		task_manager tm;
+		task_manager tm{true};
 		cdag_inspector inspector;
 		graph_generator ggen(2, tm, inspector.get_cb());
 		test_utils::mock_buffer_factory mbf(&tm, &ggen);
@@ -523,12 +527,12 @@ namespace detail {
 
 		SECTION("when used in the same task") {
 			build_and_flush(ggen, test_utils::add_compute_task<class task_a>(
-			                          tm, [&](auto& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			                          tm, [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
-			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) {
+			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) {
 				// Both of theses are consumer modes, meaning that both have a requirement on the buffer range produced in task_a
-				buf_a.get_access<mode::read>(mah, {100});
-				buf_a.get_access<mode::write>(mah, {100});
+				buf_a.get_access<mode::read>(cgh, {100});
+				buf_a.get_access<mode::write>(cgh, {100});
 			}));
 
 			REQUIRE(inspector.get_commands(tid_b, boost::none, command::PUSH).size() == 1);
@@ -544,11 +548,11 @@ namespace detail {
 			auto buf_b = mbf.create_buffer(cl::sycl::range<1>(100));
 
 			build_and_flush(ggen, test_utils::add_compute_task<class task_a>(
-			                          tm, [&](auto& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			                          tm, [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
-			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) {
-				buf_a.get_access<mode::read>(mah, {100});
-				buf_b.get_access<mode::discard_write>(mah, {100});
+			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) {
+				buf_a.get_access<mode::read>(cgh, {100});
+				buf_b.get_access<mode::discard_write>(cgh, {100});
 			}));
 
 			REQUIRE(inspector.get_commands(tid_b, boost::none, command::PUSH).size() == 1);
@@ -556,9 +560,9 @@ namespace detail {
 			REQUIRE(inspector.get_commands(tid_b, boost::none, command::AWAIT_PUSH).size() == 1);
 			REQUIRE(inspector.get_commands(tid_b, node_id(0), command::AWAIT_PUSH).size() == 1);
 
-			const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) {
-				buf_a.get_access<mode::read>(mah, {100});
-				buf_b.get_access<mode::read>(mah, {100});
+			const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) {
+				buf_a.get_access<mode::read>(cgh, {100});
+				buf_b.get_access<mode::read>(cgh, {100});
 			}));
 
 			REQUIRE(inspector.get_commands(tid_c, boost::none, command::PUSH).empty());
@@ -570,16 +574,16 @@ namespace detail {
 
 		SECTION("when used in parallel tasks") {
 			build_and_flush(ggen, test_utils::add_compute_task<class task_a>(
-			                          tm, [&](auto& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			                          tm, [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
-			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf_a.get_access<mode::read>(mah, {100}); }));
+			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, {100}); }));
 
 			REQUIRE(inspector.get_commands(tid_b, boost::none, command::PUSH).size() == 1);
 			REQUIRE(inspector.get_commands(tid_b, node_id(1), command::PUSH).size() == 1);
 			REQUIRE(inspector.get_commands(tid_b, boost::none, command::AWAIT_PUSH).size() == 1);
 			REQUIRE(inspector.get_commands(tid_b, node_id(0), command::AWAIT_PUSH).size() == 1);
 
-			const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf_a.get_access<mode::read>(mah, {100}); }));
+			const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, {100}); }));
 
 			REQUIRE(inspector.get_commands(tid_c, boost::none, command::PUSH).empty());
 			REQUIRE(inspector.get_commands(tid_c, boost::none, command::AWAIT_PUSH).empty());
@@ -593,7 +597,7 @@ namespace detail {
 	TEST_CASE("graph_generator consolidates PUSH commands for adjacent subranges", "[graph_generator][command-graph][!shouldfail]") {
 		using namespace cl::sycl::access;
 
-		task_manager tm;
+		task_manager tm{true};
 		cdag_inspector inspector;
 
 		graph_generator ggen(2, tm, inspector.get_cb());
@@ -601,16 +605,16 @@ namespace detail {
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
 
 		const auto tid_a = build_and_flush(
-		    ggen, test_utils::add_compute_task<class task_a>(
-		              tm, [&](auto& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{64}, cl::sycl::id<1>{0}));
+		    ggen, test_utils::add_compute_task<class task_a>(tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
+		              cl::sycl::range<1>{64}, cl::sycl::id<1>{0}));
 		CHECK(inspector.get_commands(tid_a, boost::none, command::COMPUTE).size() == 1);
 
 		const auto tid_b = build_and_flush(
-		    ggen, test_utils::add_compute_task<class task_b>(
-		              tm, [&](auto& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{64}, cl::sycl::id<1>{64}));
+		    ggen, test_utils::add_compute_task<class task_b>(tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
+		              cl::sycl::range<1>{64}, cl::sycl::id<1>{64}));
 		CHECK(inspector.get_commands(tid_b, boost::none, command::COMPUTE).size() == 1);
 
-		const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<mode::read>(mah, 128); }));
+		const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, 128); }));
 		REQUIRE(inspector.get_commands(tid_c, node_id(1), command::PUSH).size() == 1);
 
 		maybe_print_graph(tm);
@@ -620,7 +624,7 @@ namespace detail {
 	TEST_CASE("graph_generator generates dependencies for PUSH commands", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
 
-		task_manager tm;
+		task_manager tm{true};
 		cdag_inspector inspector;
 
 		SECTION("if data is produced by an execution command") {
@@ -629,13 +633,13 @@ namespace detail {
 			auto buf = mbf.create_buffer(cl::sycl::range<1>(100));
 
 			const auto tid_a =
-			    build_and_flush(ggen, test_utils::add_compute_task<class task_a>(
-			                              tm, [&](auto& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			    build_and_flush(ggen, test_utils::add_compute_task<class task_a>(tm,
+			                              [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 			CHECK(inspector.get_commands(tid_a, boost::none, command::COMPUTE).size() == 1);
 			const auto computes = inspector.get_commands(tid_a, node_id(1), command::COMPUTE);
 			CHECK(computes.size() == 1);
 
-			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<mode::read>(mah, 100); }));
+			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, 100); }));
 			CHECK(inspector.get_commands(tid_b, boost::none, command::PUSH).size() == 1);
 			const auto pushes = inspector.get_commands(tid_b, node_id(1), command::PUSH);
 			CHECK(pushes.size() == 1);
@@ -656,7 +660,7 @@ namespace detail {
 	TEST_CASE("graph_generator generates anti-dependencies for AWAIT_PUSH commands", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
 
-		task_manager tm;
+		task_manager tm{true};
 		cdag_inspector inspector;
 		graph_generator ggen(2, tm, inspector.get_cb());
 		test_utils::mock_buffer_factory mbf(&tm, &ggen);
@@ -664,18 +668,18 @@ namespace detail {
 
 		SECTION("if writing to region used by execution command") {
 			// The master node starts by reading from buf (which is host-initialized)
-			const auto tid_a = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<mode::read>(mah, 100); }));
+			const auto tid_a = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, 100); }));
 
 			CHECK(inspector.get_commands(tid_a, boost::none, command::MASTER_ACCESS).size() == 1);
 			CHECK(inspector.get_commands(tid_a, node_id(0), command::MASTER_ACCESS).size() == 1);
 
 			// Meanwhile, the worker node writes to buf
 			build_and_flush(ggen, test_utils::add_compute_task<class task_b>(
-			                          tm, [&](auto& cgh) { buf.get_access<mode::write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			                          tm, [&](handler& cgh) { buf.get_access<mode::write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
 			// Finally the master node reads again from buf, which is now the version written to by the worker node.
 			// The AWAIT_PUSH command has to wait until tid_a is complete.
-			const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<mode::read>(mah, 100); }));
+			const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, 100); }));
 
 			CHECK(inspector.get_commands(tid_c, boost::none, command::AWAIT_PUSH).size() == 1);
 			const auto await_pushes = inspector.get_commands(tid_c, node_id(0), command::AWAIT_PUSH);
@@ -692,10 +696,10 @@ namespace detail {
 		SECTION("if writing to region used by PUSH command") {
 			// Worker node writes to buf
 			build_and_flush(ggen, test_utils::add_compute_task<class task_a>(
-			                          tm, [&](auto& cgh) { buf.get_access<mode::write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			                          tm, [&](handler& cgh) { buf.get_access<mode::write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
 			// Master node reads from buf, requiring a PUSH, while also writing to it
-			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& cgh) { buf.get_access<mode::read_write>(cgh, 100); }));
+			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf.get_access<mode::read_write>(cgh, 100); }));
 
 			CHECK(inspector.get_commands(tid_b, boost::none, command::PUSH).size() == 1);
 			const auto pushes = inspector.get_commands(tid_b, node_id(1), command::PUSH);
@@ -706,7 +710,7 @@ namespace detail {
 			// in a distributed dependency relationship, however more complex examples could give rise to situations where this can happen.
 			const auto tid_c =
 			    build_and_flush(ggen, test_utils::add_compute_task<class task_c>(
-			                              tm, [&](auto& cgh) { buf.get_access<mode::read>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			                              tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
 			CHECK(inspector.get_commands(tid_c, boost::none, command::AWAIT_PUSH).size() == 1);
 			const auto await_pushes = inspector.get_commands(tid_c, node_id(1), command::AWAIT_PUSH);
@@ -720,18 +724,18 @@ namespace detail {
 
 		SECTION("if writing to region used by another AWAIT_PUSH command") {
 			build_and_flush(ggen, test_utils::add_compute_task<class task_a>(
-			                          tm, [&](auto& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			                          tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
-			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& cgh) { buf.get_access<mode::read>(cgh, 100); }));
+			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, 100); }));
 			const auto await_pushes_b = inspector.get_commands(tid_b, node_id(0), command::AWAIT_PUSH);
 			CHECK(await_pushes_b.size() == 1);
 			const auto master_accesses_b = inspector.get_commands(tid_b, node_id(0), command::MASTER_ACCESS);
 			CHECK(master_accesses_b.size() == 1);
 
 			build_and_flush(ggen, test_utils::add_compute_task<class task_c>(
-			                          tm, [&](auto& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			                          tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
-			const auto tid_d = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& cgh) { buf.get_access<mode::read>(cgh, 100); }));
+			const auto tid_d = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, 100); }));
 			const auto await_pushes_d = inspector.get_commands(tid_d, node_id(0), command::AWAIT_PUSH);
 			CHECK(await_pushes_d.size() == 1);
 
@@ -747,7 +751,7 @@ namespace detail {
 	TEST_CASE("graph_generator generates anti-dependencies with subrange precision", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
 
-		task_manager tm;
+		task_manager tm{true};
 		cdag_inspector inspector;
 		graph_generator ggen(2, tm, inspector.get_cb());
 		test_utils::mock_buffer_factory mbf(&tm, &ggen);
@@ -756,7 +760,7 @@ namespace detail {
 		SECTION("for execution commands") {
 			// task_a writes the first half
 			const auto tid_a = build_and_flush(ggen, test_utils::add_compute_task<class task_a>(tm,
-			                                             [&](auto& cgh) {
+			                                             [&](handler& cgh) {
 				                                             buf.get_access<mode::discard_write>(cgh, access::fixed<1, 1>({0, 50}));
 			                                             },
 			                                             cl::sycl::range<1>{100}));
@@ -765,7 +769,7 @@ namespace detail {
 
 			// task_b writes the second half
 			const auto tid_b = build_and_flush(ggen, test_utils::add_compute_task<class task_b>(tm,
-			                                             [&](auto& cgh) {
+			                                             [&](handler& cgh) {
 				                                             buf.get_access<mode::discard_write>(cgh, access::fixed<1, 1>({50, 50}));
 			                                             },
 			                                             cl::sycl::range<1>{100}));
@@ -774,7 +778,7 @@ namespace detail {
 
 			// task_c reads the first half
 			const auto tid_c = build_and_flush(ggen, test_utils::add_compute_task<class task_c>(tm,
-			                                             [&](auto& cgh) {
+			                                             [&](handler& cgh) {
 				                                             buf.get_access<mode::read>(cgh, access::fixed<1, 1>({0, 50}));
 			                                             },
 			                                             cl::sycl::range<1>{100}));
@@ -785,7 +789,7 @@ namespace detail {
 
 			// task_d reads the second half
 			const auto tid_d = build_and_flush(ggen, test_utils::add_compute_task<class task_d>(tm,
-			                                             [&](auto& cgh) {
+			                                             [&](handler& cgh) {
 				                                             buf.get_access<mode::read>(cgh, access::fixed<1, 1>({50, 50}));
 			                                             },
 			                                             cl::sycl::range<1>{100}));
@@ -801,21 +805,21 @@ namespace detail {
 		SECTION("for AWAIT_PUSH commands") {
 			// task_a writes the full buffer
 			const auto tid_a =
-			    build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<mode::discard_write>(mah, 100, 0); }));
+			    build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, 100, 0); }));
 			const auto master_accesses_a = inspector.get_commands(tid_a, node_id(0), command::MASTER_ACCESS);
 			CHECK(master_accesses_a.size() == 1);
 
 			// task_b only reads the second half
-			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<mode::read>(mah, 50, 50); }));
+			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, 50, 50); }));
 			const auto master_accesses_b = inspector.get_commands(tid_b, node_id(0), command::MASTER_ACCESS);
 			CHECK(master_accesses_b.size() == 1);
 
 			// task_c writes to the first half
 			build_and_flush(ggen, test_utils::add_compute_task<class task_c>(
-			                          tm, [&](auto& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{50}));
+			                          tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{50}));
 
 			// task_d reads the first half
-			const auto tid_d = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<mode::read>(mah, 50, 0); }));
+			const auto tid_d = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, 50, 0); }));
 
 			// This should generate an AWAIT_PUSH command that does NOT have an anti-dependency onto task_b, only task_a
 			CHECK(inspector.get_commands(tid_d, boost::none, command::AWAIT_PUSH).size() == 1);
@@ -831,7 +835,7 @@ namespace detail {
 	TEST_CASE("graph_generator generates dependencies for execution commands", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
 
-		task_manager tm;
+		task_manager tm{true};
 		cdag_inspector inspector;
 		graph_generator ggen(2, tm, inspector.get_cb());
 		test_utils::mock_buffer_factory mbf(&tm, &ggen);
@@ -840,12 +844,12 @@ namespace detail {
 
 		SECTION("if data is produced remotely") {
 			build_and_flush(ggen, test_utils::add_compute_task<class task_a>(
-			                          tm, [&](auto& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			                          tm, [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 			build_and_flush(ggen, test_utils::add_compute_task<class task_b>(
-			                          tm, [&](auto& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
-			const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) {
-				buf_a.get_access<mode::read>(mah, 100);
-				buf_b.get_access<mode::read>(mah, 100);
+			                          tm, [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) {
+				buf_a.get_access<mode::read>(cgh, 100);
+				buf_b.get_access<mode::read>(cgh, 100);
 			}));
 			const auto await_pushes = inspector.get_commands(tid_c, node_id(0), command::AWAIT_PUSH);
 			REQUIRE(await_pushes.size() == 2);
@@ -860,11 +864,11 @@ namespace detail {
 
 		SECTION("if data is produced remotely but already available from an earlier task") {
 			build_and_flush(ggen, test_utils::add_compute_task<class task_a>(
-			                          tm, [&](auto& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
-			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf_a.get_access<mode::read>(mah, 100); }));
+			                          tm, [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, 100); }));
 			const auto await_pushes_b = inspector.get_commands(tid_b, node_id(0), command::AWAIT_PUSH);
 			REQUIRE(await_pushes_b.size() == 1);
-			const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf_a.get_access<mode::read>(mah, 100); }));
+			const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, 100); }));
 			const auto await_pushes_c = inspector.get_commands(tid_c, node_id(0), command::AWAIT_PUSH);
 			REQUIRE(await_pushes_c.size() == 0);
 			const auto master_accesses = inspector.get_commands(tid_c, node_id(0), command::MASTER_ACCESS);
@@ -878,14 +882,14 @@ namespace detail {
 		SECTION("if data is produced locally") {
 			const auto tid_a =
 			    build_and_flush(ggen, test_utils::add_compute_task<class task_a>(tm,
-			                              [&](auto& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			                              [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 			const auto computes_a = inspector.get_commands(tid_a, node_id(1), command::COMPUTE);
 			const auto tid_b =
 			    build_and_flush(ggen, test_utils::add_compute_task<class task_b>(tm,
-			                              [&](auto& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			                              [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 			const auto computes_b = inspector.get_commands(tid_b, node_id(1), command::COMPUTE);
 			const auto tid_c = build_and_flush(ggen, test_utils::add_compute_task<class task_c>(tm,
-			                                             [&](auto& cgh) {
+			                                             [&](handler& cgh) {
 				                                             buf_a.get_access<mode::read>(cgh, access::one_to_one<1>());
 				                                             buf_b.get_access<mode::read>(cgh, access::one_to_one<1>());
 			                                             },
@@ -908,14 +912,14 @@ namespace detail {
 	TEST_CASE("graph_generator handles fixed write access", "[graph_generator][command-graph][!shouldfail]") {
 		using namespace cl::sycl::access;
 
-		task_manager tm;
+		task_manager tm{true};
 		cdag_inspector inspector;
 		graph_generator ggen(3, tm, inspector.get_cb());
 		test_utils::mock_buffer_factory mbf(&tm, &ggen);
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(100), true);
 
 		const auto tid_a = build_and_flush(ggen, test_utils::add_compute_task<class task_a>(tm,
-		                                             [&](auto& cgh) {
+		                                             [&](handler& cgh) {
 			                                             buf.get_access<mode::write>(cgh, access::fixed<1, 1>({0, 100}));
 		                                             },
 		                                             cl::sycl::range<1>{100}));
@@ -924,7 +928,7 @@ namespace detail {
 		CHECK(inspector.get_commands(tid_a, boost::none, command::COMPUTE).size() == 1);
 
 		const auto tid_b = build_and_flush(ggen, test_utils::add_compute_task<class task_b>(tm,
-		                                             [&](auto& cgh) {
+		                                             [&](handler& cgh) {
 			                                             buf.get_access<mode::read>(cgh, access::fixed<1, 1>({0, 100}));
 		                                             },
 		                                             cl::sycl::range<1>{100}));
@@ -939,19 +943,19 @@ namespace detail {
 	TEST_CASE("graph_generator allows chunks to require empty buffer ranges", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
 
-		task_manager tm;
+		task_manager tm{true};
 		cdag_inspector inspector;
 		graph_generator ggen(3, tm, inspector.get_cb());
 		test_utils::mock_buffer_factory mbf(&tm, &ggen);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(100));
 		auto buf_b = mbf.create_buffer(cl::sycl::range<1>(100));
 
-		build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) {
-			buf_a.get_access<mode::discard_write>(mah, 100);
-			buf_b.get_access<mode::discard_write>(mah, 100);
+		build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) {
+			buf_a.get_access<mode::discard_write>(cgh, 100);
+			buf_b.get_access<mode::discard_write>(cgh, 100);
 		}));
 		const auto tid_b = build_and_flush(ggen, test_utils::add_compute_task<class task_b>(tm,
-		                                             [&](auto& cgh) {
+		                                             [&](handler& cgh) {
 			                                             // NOTE: It's important to construct range-mappers in such a way that passing the
 			                                             // global size (during tdag generation) still returns the correct result!
 			                                             buf_a.get_access<mode::read>(cgh, [&](chunk<1> chnk) -> subrange<1> {
@@ -984,7 +988,7 @@ namespace detail {
 	// This is a highly constructed and unrealistic example, but we'd still like the behavior to be clearly defined.
 	TEST_CASE("graph_generator generates anti-dependencies for execution commands that have a task-level true dependency", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm;
+		task_manager tm{true};
 		cdag_inspector inspector;
 		graph_generator ggen(3, tm, inspector.get_cb());
 		test_utils::mock_buffer_factory mbf(&tm, &ggen);
@@ -993,7 +997,7 @@ namespace detail {
 
 		// Initialize both buffers
 		const auto tid_a = build_and_flush(ggen, test_utils::add_compute_task<class task_a>(tm,
-		                                             [&](auto& cgh) {
+		                                             [&](handler& cgh) {
 			                                             buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
 			                                             buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
 		                                             },
@@ -1006,7 +1010,7 @@ namespace detail {
 		// Read from buf_a but overwrite buf_b
 		// Importantly, we only read on the first node node, making it so the second node node does not have a true dependency on the previous task.
 		const auto tid_b = build_and_flush(ggen, test_utils::add_compute_task<class task_b>(tm,
-		                                             [&](auto& cgh) {
+		                                             [&](handler& cgh) {
 			                                             buf_a.get_access<mode::read>(cgh, [&](chunk<1> chnk) -> subrange<1> {
 				                                             if(chnk.offset[0] < 50) return chnk;
 				                                             return {0, 0};
@@ -1028,15 +1032,15 @@ namespace detail {
 
 	TEST_CASE("graph_generator generates anti-dependencies onto the original producer if no consumer exists in between", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm;
+		task_manager tm{true};
 		cdag_inspector inspector;
 		graph_generator ggen(3, tm, inspector.get_cb());
 		test_utils::mock_buffer_factory mbf(&tm, &ggen);
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(100));
 
-		const auto tid_a = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<mode::discard_write>(mah, 100); }));
+		const auto tid_a = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, 100); }));
 		const auto master_accesses_a = inspector.get_commands(tid_a, node_id(0), command::MASTER_ACCESS);
-		const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](auto& mah) { buf.get_access<mode::discard_write>(mah, 100); }));
+		const auto tid_b = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, 100); }));
 		const auto master_accesses_b = inspector.get_commands(tid_b, node_id(0), command::MASTER_ACCESS);
 		CHECK(master_accesses_b.size() == 1);
 		REQUIRE(inspector.has_dependency(*master_accesses_b.cbegin(), *master_accesses_a.cbegin()));
@@ -1047,16 +1051,16 @@ namespace detail {
 
 	TEST_CASE("graph_generator generates anti-dependencies for execution commands onto PUSHes within the same task", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm;
+		task_manager tm{true};
 		cdag_inspector inspector;
 		graph_generator ggen(3, tm, inspector.get_cb());
 		test_utils::mock_buffer_factory mbf(&tm, &ggen);
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(100));
 
 		build_and_flush(ggen, test_utils::add_compute_task<class task_a>(
-		                          tm, [&](auto& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+		                          tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 		const auto tid_b = build_and_flush(ggen, test_utils::add_compute_task<class task_b>(tm,
-		                                             [&](auto& cgh) {
+		                                             [&](handler& cgh) {
 			                                             // Both workers read the full buffer
 			                                             buf.get_access<mode::read>(cgh, access::fixed<1, 1>({0, 100}));
 

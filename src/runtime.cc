@@ -88,7 +88,6 @@ namespace detail {
 
 		default_logger->info(
 		    logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"build", get_build_type()}, {"sycl", get_sycl_version()}}));
-		if(num_nodes == 1) { default_logger->warn("Execution of device kernels on single node is currently not supported. Try spawning more than one node."); }
 
 		cfg = std::make_unique<config>(argc, argv, *default_logger);
 		queue = std::make_unique<device_queue>(*default_logger);
@@ -107,7 +106,7 @@ namespace detail {
 		if(is_active) { throw std::runtime_error("Only one celerity::distr_queue can be created per process"); }
 		is_active = true;
 
-		task_mngr = is_master ? std::make_shared<task_manager>() : std::make_shared<simple_task_manager>();
+		task_mngr = std::make_shared<task_manager>(is_master);
 		queue->init(*cfg, task_mngr.get(), user_device);
 
 		exec = std::make_unique<detail::executor>(*queue, *task_mngr, default_logger);

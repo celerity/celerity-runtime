@@ -30,7 +30,7 @@ int main(int argc, char* argv[]) {
 		for(auto i = 0u; i < KERNEL_SIZE; ++i) {
 			const auto x = i - (KERNEL_SIZE / 2);
 			const auto y = j - (KERNEL_SIZE / 2);
-			const auto value = cl::sycl::exp(-1.f * (x * x + y * y) / (2 * sigma * sigma)) / (2 * PI * sigma * sigma);
+			const auto value = std::exp(-1.f * (x * x + y * y) / (2 * sigma * sigma)) / (2 * PI * sigma * sigma);
 			gaussian_matrix[j * KERNEL_SIZE + i] = value;
 		}
 	}
@@ -46,13 +46,13 @@ int main(int argc, char* argv[]) {
 
 		// Do a gaussian blur
 		// TODO: Due to some weird issue with Clang on Windows, we have to capture some of these values explicitly
-		queue.submit([&, image_height, image_width, KERNEL_SIZE](auto& cgh) {
+		queue.submit([&, image_height, image_width, KERNEL_SIZE](celerity::handler& cgh) {
 			auto in = image_input_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood<2>(KERNEL_SIZE / 2, KERNEL_SIZE / 2));
 			auto gauss = gaussian_mat_buf.get_access<cl::sycl::access::mode::read>(
 			    cgh, celerity::access::fixed<2, 2>({{0, 0}, {(size_t)KERNEL_SIZE, (size_t)KERNEL_SIZE}}));
 			auto out = image_tmp_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
 
-			cgh.template parallel_for<class gaussian_blur>(
+			cgh.parallel_for<class gaussian_blur>(
 			    cl::sycl::range<2>(image_height, image_width), [=, ih = image_height, iw = image_width, ks = KERNEL_SIZE](cl::sycl::item<2> item) {
 				    using cl::sycl::float3;
 
@@ -73,30 +73,29 @@ int main(int argc, char* argv[]) {
 		});
 
 		// Now apply a sharpening kernel
-		queue.submit([&, image_height, image_width](auto& cgh) {
+		queue.submit([&, image_height, image_width](celerity::handler& cgh) {
 			auto in = image_tmp_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood<2>(1, 1));
 			auto out = image_output_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
-			cgh.template parallel_for<class sharpen>(
-			    cl::sycl::range<2>(image_height, image_width), [=, iw = image_width, ih = image_height](cl::sycl::item<2> item) {
-				    using cl::sycl::float3;
-				    if(item[0] == 0u || item[1] == 0u || item[0] == ih - 1u || item[1] == iw - 1u) {
-					    out[item] = float3(0.f, 0.f, 0.f);
-					    return;
-				    }
+			cgh.parallel_for<class sharpen>(cl::sycl::range<2>(image_height, image_width), [=, iw = image_width, ih = image_height](cl::sycl::item<2> item) {
+				using cl::sycl::float3;
+				if(item[0] == 0u || item[1] == 0u || item[0] == ih - 1u || item[1] == iw - 1u) {
+					out[item] = float3(0.f, 0.f, 0.f);
+					return;
+				}
 
-				    float3 sum = 5.f * in[item];
-				    sum -= in[{item[0] - 1, item[1]}];
-				    sum -= in[{item[0] + 1, item[1]}];
-				    sum -= in[{item[0], item[1] - 1}];
-				    sum -= in[{item[0], item[1] + 1}];
-				    out[item] = float3(std::min(1.f, (float)sum.x()), std::min(1.f, (float)sum.y()), std::min(1.f, (float)sum.z()));
-			    });
+				float3 sum = 5.f * in[item];
+				sum -= in[{item[0] - 1, item[1]}];
+				sum -= in[{item[0] + 1, item[1]}];
+				sum -= in[{item[0], item[1] - 1}];
+				sum -= in[{item[0], item[1] + 1}];
+				out[item] = float3(std::min(1.f, (float)sum.x()), std::min(1.f, (float)sum.y()), std::min(1.f, (float)sum.z()));
+			});
 		});
 
-		celerity::with_master_access([&](auto& mah) {
-			auto out = image_output_buf.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<2>(image_height, image_width));
+		celerity::with_master_access([&](celerity::handler& cgh) {
+			auto out = image_output_buf.get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<2>(image_height, image_width));
 
-			mah.run([=]() {
+			cgh.run([=]() {
 				for(size_t y = 0; y < (size_t)image_height; ++y) {
 					for(size_t x = 0; x < (size_t)image_width; ++x) {
 						const auto idx = y * image_width * 3 + x * 3;

@@ -18,7 +18,7 @@ int main(int argc, char* argv[]) {
 		celerity::buffer<float, 1> buf_c(cl::sycl::range<1>(DEMO_DATA_SIZE));
 		celerity::buffer<float, 1> buf_d(cl::sycl::range<1>(DEMO_DATA_SIZE));
 
-		queue.submit([&](auto& cgh) {
+		queue.submit([&](celerity::handler& cgh) {
 			auto dw_a = buf_a.get_access<cl::sycl::access::mode::discard_write>(cgh, [](celerity::chunk<1> chnk) -> celerity::subrange<1> {
 				celerity::subrange<1> sr(chnk);
 				// Write the opposite subrange
@@ -30,11 +30,10 @@ int main(int argc, char* argv[]) {
 				return sr;
 			});
 
-			cgh.template parallel_for<class produce_a>(
-			    cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) { dw_a[DEMO_DATA_SIZE - 1 - item[0]] = 1.f; });
+			cgh.parallel_for<class produce_a>(cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) { dw_a[DEMO_DATA_SIZE - 1 - item[0]] = 1.f; });
 		});
 
-		queue.submit([&](auto& cgh) {
+		queue.submit([&](celerity::handler& cgh) {
 			auto r_a = buf_a.get_access<cl::sycl::access::mode::read>(cgh, [](celerity::chunk<1> chnk) -> celerity::subrange<1> {
 				celerity::subrange<1> sr(chnk);
 				// Add some overlap so we can generate pull commands
@@ -45,41 +44,41 @@ int main(int argc, char* argv[]) {
 			});
 
 			auto dw_b = buf_b.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<1>());
-			cgh.template parallel_for<class compute_b>(cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) { dw_b[item] = r_a[item] * 2.f; });
+			cgh.parallel_for<class compute_b>(cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) { dw_b[item] = r_a[item] * 2.f; });
 		});
 
 #define COMPUTE_C_ON_MASTER 1
 #if COMPUTE_C_ON_MASTER
-		celerity::with_master_access([&](auto& mah) {
-			auto r_a = buf_a.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<1>(DEMO_DATA_SIZE));
-			auto dw_c = buf_c.get_access<cl::sycl::access::mode::discard_write>(mah, cl::sycl::range<1>(DEMO_DATA_SIZE));
+		celerity::with_master_access([&](celerity::handler& cgh) {
+			auto r_a = buf_a.get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<1>(DEMO_DATA_SIZE));
+			auto dw_c = buf_c.get_access<cl::sycl::access::mode::discard_write>(cgh, cl::sycl::range<1>(DEMO_DATA_SIZE));
 
-			mah.run([=]() {
+			cgh.run([=]() {
 				for(int i = 0; i < DEMO_DATA_SIZE; ++i) {
 					dw_c[i] = 2.f - r_a[i];
 				}
 			});
 		});
 #else
-		queue.submit([&](auto& cgh) {
+		queue.submit([&](celerity::handler& cgh) {
 			auto r_a = buf_a.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one<1>());
 			auto dw_c = buf_c.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<1>());
-			cgh.template parallel_for<class compute_c>(cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) { dw_c[item] = 2.f - r_a[item]; });
+			cgh.parallel_for<class compute_c>(cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) { dw_c[item] = 2.f - r_a[item]; });
 		});
 
 #endif
 
-		queue.submit([&](auto& cgh) {
+		queue.submit([&](celerity::handler& cgh) {
 			auto r_b = buf_b.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one<1>());
 			auto r_c = buf_c.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one<1>());
 			auto dw_d = buf_d.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<1>());
-			cgh.template parallel_for<class compute_d>(cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) { dw_d[item] = r_b[item] + r_c[item]; });
+			cgh.parallel_for<class compute_d>(cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) { dw_d[item] = r_b[item] + r_c[item]; });
 		});
 
-		celerity::with_master_access([&](auto& mah) {
-			auto r_d = buf_d.get_access<cl::sycl::access::mode::read>(mah, cl::sycl::range<1>(DEMO_DATA_SIZE));
+		celerity::with_master_access([&](celerity::handler& cgh) {
+			auto r_d = buf_d.get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<1>(DEMO_DATA_SIZE));
 
-			mah.run([=, &verification_passed]() {
+			cgh.run([=, &verification_passed]() {
 				size_t sum = 0;
 				for(int i = 0; i < DEMO_DATA_SIZE; ++i) {
 					sum += (size_t)r_d[i];

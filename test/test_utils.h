@@ -4,6 +4,7 @@
 #include <celerity.h>
 
 #include "graph_generator.h"
+#include "range_mapper.h"
 #include "task_manager.h"
 
 namespace celerity {
@@ -14,23 +15,23 @@ namespace test_utils {
 	template <int Dims>
 	class mock_buffer {
 	  public:
-		template <cl::sycl::access::mode Mode, typename Functor>
-		void get_access(compute_prepass_handler& handler, Functor rmfn) {
+		template <cl::sycl::access::mode Mode, typename Functor, typename = decltype(std::declval<Functor>()(std::declval<chunk<Dims>>()))>
+		void get_access(handler& cgh, Functor rmfn) {
 			using rmfn_traits = allscale::utils::lambda_traits<Functor>;
 			static_assert(rmfn_traits::result_type::dims == Dims, "The returned subrange doesn't match buffer dimensions.");
-			handler.require(id, std::make_unique<detail::range_mapper<rmfn_traits::arg1_type::dims, Dims>>(rmfn, Mode, size));
-		}
-
-		template <cl::sycl::access::mode Mode, typename Functor>
-		void get_access(compute_livepass_handler& handler, Functor rmfn) {}
-
-		template <cl::sycl::access::mode Mode>
-		void get_access(master_access_prepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {}) {
-			handler.require(Mode, id, detail::range_cast<3>(range), detail::id_cast<3>(offset));
+			if(detail::is_prepass_handler(cgh)) {
+				auto compute_cgh = dynamic_cast<detail::compute_task_handler<true>&>(cgh);
+				compute_cgh.add_requirement(id, std::make_unique<detail::range_mapper<rmfn_traits::arg1_type::dims, Dims>>(rmfn, Mode, size));
+			}
 		}
 
 		template <cl::sycl::access::mode Mode>
-		void get_access(master_access_livepass_handler& handler, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {}) {}
+		void get_access(handler& cgh, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {}) {
+			if(detail::is_prepass_handler(cgh)) {
+				auto ma_cgh = dynamic_cast<detail::master_access_task_handler<true>&>(cgh);
+				ma_cgh.add_requirement(Mode, id, detail::range_cast<3>(range), detail::id_cast<3>(offset));
+			}
+		}
 
 		detail::buffer_id get_id() const { return id; }
 
@@ -65,16 +66,16 @@ namespace test_utils {
 	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
 	detail::task_id add_compute_task(
 	    detail::task_manager& tm, CGF cgf, cl::sycl::range<KernelDims> global_size = {1, 1}, cl::sycl::id<KernelDims> global_offset = {}) {
-		tm.create_compute_task([&, gs = global_size, go = global_offset](auto& cgh) {
+		tm.create_compute_task([&, gs = global_size, go = global_offset](handler& cgh) {
 			cgf(cgh);
-			cgh.template parallel_for<KernelName>(gs, go, [](cl::sycl::id<KernelDims>) {});
+			cgh.parallel_for<KernelName>(gs, go, [](cl::sycl::id<KernelDims>) {});
 		});
 		return (*tm.get_task_graph()).m_vertices.size() - 1;
 	}
 
-	template <typename MAF>
-	detail::task_id add_master_access_task(detail::task_manager& tm, MAF maf) {
-		tm.create_master_access_task(maf);
+	template <typename CGF>
+	detail::task_id add_master_access_task(detail::task_manager& tm, CGF cgf) {
+		tm.create_master_access_task(cgf);
 		return (*tm.get_task_graph()).m_vertices.size() - 1;
 	}
 

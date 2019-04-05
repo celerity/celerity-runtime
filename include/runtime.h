@@ -40,14 +40,6 @@ namespace detail {
 		void startup(cl::sycl::device* user_device);
 		void shutdown();
 
-		/**
-		 * @brief Whether this node is the master node.
-		 *
-		 * This function should generally be used with care, as branching based on node type can lead
-		 * to diverging Celerity user code (i.e. task definitions, buffers etc), which causes undefined behavior.
-		 */
-		bool is_master_node() const { return is_master; }
-
 		task_manager& get_task_manager() const;
 
 		device_queue& get_device_queue() const { return *queue; }

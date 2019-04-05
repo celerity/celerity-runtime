@@ -49,8 +49,8 @@ namespace detail {
 			auto task = std::static_pointer_cast<const compute_task>(task_mngr->get_task(tid));
 			auto& cgf = task->get_command_group();
 			return sycl_queue->submit([&cgf, task, sr, this](cl::sycl::handler& sycl_handler) {
-				compute_livepass_handler h(*task, sr, &sycl_handler, forced_work_group_size);
-				cgf(h);
+				auto cgh = std::make_unique<compute_task_handler<false>>(task, sr, &sycl_handler, forced_work_group_size);
+				cgf(*cgh);
 			});
 		}
 
