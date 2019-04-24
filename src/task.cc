@@ -32,6 +32,8 @@ namespace detail {
 
 	GridRegion<3> compute_task::get_requirements(buffer_id bid, cl::sycl::access::mode mode, const subrange<3>& sr) const {
 		GridRegion<3> result;
+		if(range_mappers.find(bid) == range_mappers.end()) { return result; }
+
 		for(auto& rm : range_mappers.at(bid)) {
 			if(rm->get_access_mode() != mode) continue;
 			subrange<3> req;
@@ -71,6 +73,8 @@ namespace detail {
 
 	GridRegion<3> master_access_task::get_requirements(buffer_id bid, cl::sycl::access::mode mode) const {
 		GridRegion<3> result;
+		if(buffer_accesses.find(bid) == buffer_accesses.end()) { return result; }
+
 		for(auto& bai : buffer_accesses.at(bid)) {
 			if(bai.mode != mode) continue;
 			result = GridRegion<3>::merge(result, subrange_to_grid_region(bai.sr));

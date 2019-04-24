@@ -304,4 +304,18 @@ TEST_CASE("master_access_task merges multiple accesses with the same mode", "[ta
 	REQUIRE(req == detail::subrange_to_grid_region(subrange<3>({3, 0, 0}, {14, 20, 1})));
 }
 
+TEST_CASE("tasks gracefully handle get_requirements() calls for buffers they don't access", "[task]") {
+	{
+		auto ctsk = std::make_unique<detail::compute_task>(0, nullptr);
+		ctsk->set_dimensions(1);
+		const auto req = ctsk->get_requirements(0, cl::sycl::access::mode::read, subrange<3>({0, 0, 0}, {100, 1, 1}));
+		REQUIRE(req == detail::subrange_to_grid_region(subrange<3>({0, 0, 0}, {0, 0, 0})));
+	}
+	{
+		auto matsk = std::make_unique<detail::master_access_task>(0, nullptr);
+		const auto req = matsk->get_requirements(0, cl::sycl::access::mode::read);
+		REQUIRE(req == detail::subrange_to_grid_region(subrange<3>({0, 0, 0}, {0, 0, 0})));
+	}
+}
+
 } // namespace celerity
