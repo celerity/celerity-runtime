@@ -93,8 +93,8 @@ class handler {
 			    detail::range_cast<Dims>(cl::sycl::range<3>(fwgs, Dims > 1 ? fwgs : 1, Dims == 3 ? fwgs : 1)), ccpp_ptx_workaround_offset);
 			sycl_handler->parallel_for<detail::wrapped_kernel_name<Name, true>>(nd_range, [=](cl::sycl::nd_item<Dims> item) {
 #if WORKAROUND_HIPSYCL
-				kernel(cl::sycl::item<Dims>(
-				    cl::sycl::detail::item_impl<Dims>(item.get_global(), detail::range_cast<Dims>(sr.range)), detail::id_cast<Dims>(sr.offset)));
+				kernel(cl::sycl::item<Dims>(cl::sycl::detail::make_item<Dims>(
+				    item.get_global() - detail::id_cast<Dims>(sr.offset), detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset))));
 #elif WORKAROUND_COMPUTECPP
 				const cl::sycl::id<Dims> ptx_workaround_id = detail::range_cast<Dims>(item.get_global_id()) + detail::id_cast<Dims>(sr.offset);
 				const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ccpp_ptx_workaround_offset);
