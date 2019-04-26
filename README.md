@@ -6,12 +6,12 @@ The CELERITY distributed runtime implementation.
 
 * [Boost](http://www.boost.org) (tested with version 1.65.0)
 * A supported SYCL implementation, either
+	- [hipSYCL](https://github.com/illuhad/hipsycl), or
 	- [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp)
-	  runtime (tested with version 1.0.5), or
-	- [hipSYCL](https://github.com/illuhad/hipsycl)
+	  runtime (tested with version 1.0.5)
 * A MPI 2 implementation (tested with OpenMPI 3.0 and MSMPI 10.0)
 * [CMake](https://www.cmake.org)
-* A C++14 compiler (tested with MSVC 14, gcc 7 and Clang 6)
+* A C++14 compiler (tested with MSVC 14, gcc 7 and Clang 8)
 
 ### Automatically Downloaded Dependencies
 
@@ -57,7 +57,7 @@ set everything up.
 * `CELERITY_FORCE_WG=<work_group_size>` can be used to force a particular work
    group size for *every kernel* and *every dimension*.
 * `CELERITY_PROFILE_OCL` controls whether OpenCL-level profiling information
-  should be used or not.
+  should be used or not (currently not supported when using hipSYCL).
 
 ## Plot Task and Command Graphs
 

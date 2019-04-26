@@ -38,7 +38,14 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
   if(${FILE_CONTENTS} MATCHES "^#define COMPILE_SYCL_KERNELS 1.*")
     add_sycl_to_target(TARGET ${TARGET_NAME} SOURCES ${ONE_TEST_CPP})
   else()
-    add_sycl_to_target(TARGET ${TARGET_NAME})
+    if(NOT hipSYCL_FOUND)
+      add_sycl_to_target(TARGET ${TARGET_NAME})
+    else()
+      # Workaround for hipSYCL: Since SYCL include paths etc are currently only set through
+      # syclcc (as opposed to using CMake mechanisms), we always have to compile the source
+      # using the syclcc.
+      add_sycl_to_target(TARGET ${TARGET_NAME} SOURCES ${ONE_TEST_CPP})
+    endif()
   endif()
 
   if(MSVC)

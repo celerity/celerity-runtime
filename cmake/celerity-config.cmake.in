@@ -1,0 +1,55 @@
+cmake_minimum_required(VERSION 3.5.1)
+include(CMakeFindDependencyMacro)
+
+set(CELERITY_INSTALL_LOCATION "@CELERITY_INSTALL_LOCATION@")
+set(CELERITY_SYCL_IMPL "@CELERITY_SYCL_IMPL@")
+
+find_dependency(Boost 1.66.0 COMPONENTS graph REQUIRED)
+find_dependency(MPI 2.0 REQUIRED)
+find_dependency(Threads REQUIRED)
+
+if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
+  if(NOT HIPSYCL_RESTRICT_DEVICE_HEADER_PATH)
+    # Since we have to restrict the device header path to not include some
+    # of the vendor includes (e.g. Boost), we have to make sure to not break
+    # user compilation. If the user hasn't provided any paths, we attempt
+    # to emulate default behavior by including the user's source directory.
+    #
+    # FIXME: This still causes issues when the user wants to include device
+    # code from other locations (e.g. a library).
+    set(HIPSYCL_RESTRICT_DEVICE_HEADER_PATH "${CMAKE_CURRENT_SOURCE_DIR}")
+  endif()
+
+  list(
+    APPEND HIPSYCL_RESTRICT_DEVICE_HEADER_PATH
+    "${CELERITY_INSTALL_LOCATION}/include/celerity/celerity"
+  )
+  find_dependency(hipSYCL CONFIG REQUIRED)
+else()
+  find_dependency(ComputeCpp REQUIRED)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/celerity-targets.cmake")
+
+function(add_celerity_to_target)
+  set(options)
+  set(one_value_args TARGET)
+  set(multi_value_args SOURCES)
+  cmake_parse_arguments(ADD_CELERITY
+    "${options}"
+    "${one_value_args}"
+    "${multi_value_args}"
+    ${ARGN}
+  )
+
+  set_property(
+    TARGET ${ADD_CELERITY_TARGET}
+    APPEND PROPERTY LINK_LIBRARIES Celerity::celerity_runtime
+  )
+
+  add_sycl_to_target(
+    TARGET ${ADD_CELERITY_TARGET}
+    SOURCES ${ADD_CELERITY_SOURCES}
+  )
+endfunction()
+
