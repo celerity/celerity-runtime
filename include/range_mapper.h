@@ -119,7 +119,7 @@ namespace access {
 		subrange<Dims> operator()(chunk<Dims> chnk) const { return chnk; }
 	};
 
-	template <int KernelDims, int BufferDims>
+	template <int KernelDims, int BufferDims = KernelDims>
 	struct fixed {
 		fixed(subrange<BufferDims> sr) : sr(sr) {}
 
@@ -143,6 +143,18 @@ namespace access {
 
 	  private:
 		size_t dim_idx;
+	};
+
+	template <int KernelDims, int BufferDims = KernelDims>
+	struct all {
+		subrange<BufferDims> operator()(chunk<KernelDims>) const {
+			subrange<BufferDims> result;
+			result.offset = detail::id_cast<BufferDims>(cl::sycl::id<3>{0, 0, 0});
+			const auto max_num = std::numeric_limits<size_t>::max();
+			// Since we don't know the range of the buffer, we just set it way too high and let it be clamped to the correct range
+			result.range = detail::range_cast<BufferDims>(cl::sycl::range<3>{max_num, max_num, max_num});
+			return result;
+		}
 	};
 
 	template <int Dims>

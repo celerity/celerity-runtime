@@ -153,6 +153,27 @@ TEST_CASE("slice built-in range mapper behaves as expected", "[range-mapper]") {
 	}
 }
 
+TEST_CASE("all built-in range mapper behaves as expected", "[range-mapper]") {
+	{
+		detail::range_mapper<1, 1> rm(access::all<1, 1>(), cl::sycl::access::mode::read, {128});
+		auto sr = rm.map_1({{}, {}, {}});
+		REQUIRE(sr.offset == cl::sycl::id<1>{0});
+		REQUIRE(sr.range == cl::sycl::range<1>{128});
+	}
+	{
+		detail::range_mapper<1, 2> rm(access::all<1, 2>(), cl::sycl::access::mode::read, {128, 64});
+		auto sr = rm.map_2({{}, {}, {}});
+		REQUIRE(sr.offset == cl::sycl::id<2>{0, 0});
+		REQUIRE(sr.range == cl::sycl::range<2>{128, 64});
+	}
+	{
+		detail::range_mapper<1, 3> rm(access::all<1, 3>(), cl::sycl::access::mode::read, {128, 64, 32});
+		auto sr = rm.map_3({{}, {}, {}});
+		REQUIRE(sr.offset == cl::sycl::id<3>{0, 0, 0});
+		REQUIRE(sr.range == cl::sycl::range<3>{128, 64, 32});
+	}
+}
+
 TEST_CASE("neighborhood built-in range mapper behaves as expected", "[range-mapper]") {
 	{
 		detail::range_mapper<1, 1> rm(access::neighborhood<1>(10), cl::sycl::access::mode::read, {128});

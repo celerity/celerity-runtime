@@ -48,8 +48,7 @@ int main(int argc, char* argv[]) {
 		// TODO: Due to some weird issue with Clang on Windows, we have to capture some of these values explicitly
 		queue.submit([&, image_height, image_width, KERNEL_SIZE](celerity::handler& cgh) {
 			auto in = image_input_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood<2>(KERNEL_SIZE / 2, KERNEL_SIZE / 2));
-			auto gauss = gaussian_mat_buf.get_access<cl::sycl::access::mode::read>(
-			    cgh, celerity::access::fixed<2, 2>({{0, 0}, {(size_t)KERNEL_SIZE, (size_t)KERNEL_SIZE}}));
+			auto gauss = gaussian_mat_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::all<2, 2>());
 			auto out = image_tmp_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
 
 			cgh.parallel_for<class gaussian_blur>(
