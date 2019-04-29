@@ -16,10 +16,12 @@ set(HIPSYCL_RESTRICT_DEVICE_HEADER_PATH "${PROJECT_SOURCE_DIR}/include;${PROJECT
 find_package(hipSYCL CONFIG)
 if(NOT hipSYCL_FOUND)
   find_package(ComputeCpp REQUIRED)
-  set(
-    COMPUTECPP_USER_FLAGS "${COMPUTECPP_USER_FLAGS} -D_CRT_SECURE_NO_WARNINGS"
-    CACHE STRING "" FORCE
-  )
+  if(NOT COMPUTECPP_USER_FLAGS MATCHES "-D_CRT_SECURE_NO_WARNINGS")
+	set(
+	  COMPUTECPP_USER_FLAGS "${COMPUTECPP_USER_FLAGS};-D_CRT_SECURE_NO_WARNINGS=1"
+	  CACHE STRING "" FORCE
+	)
+  endif()
 endif()
 
 include(Download_spdlog)
@@ -81,9 +83,16 @@ target_link_libraries(
   ${MPI_CXX_LIBRARIES}
 )
 
+set(DEVICE_SOURCES "")
+if(hipSYCL_FOUND)
+  # For hipSYCL we have to pass all source files into add_sycl_to_target
+  # Don't just do it in general (yields better ComputeCpp build performance)
+  set(DEVICE_SOURCES ${SOURCES})
+endif()
+
 add_sycl_to_target(
   TARGET celerity_runtime
-  SOURCES "${SOURCES}"
+  SOURCES ${DEVICE_SOURCES}
 )
 
 if(MSVC)
