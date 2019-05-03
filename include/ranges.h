@@ -19,7 +19,7 @@ namespace detail {
 	template <int DimsOut, template <int> class InType, int DimsIn>                                                                                            \
 	__device__ __host__ out_type<DimsOut> name(const InType<DimsIn>& other) {                                                                                  \
 		out_type<DimsOut> result;                                                                                                                              \
-		for(size_t o = 0; o < DimsOut; ++o) {                                                                                                                  \
+		for(int o = 0; o < DimsOut; ++o) {                                                                                                                     \
 			result[o] = o < DimsIn ? other[o] : default_value;                                                                                                 \
 		}                                                                                                                                                      \
 		return result;                                                                                                                                         \
