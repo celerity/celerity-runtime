@@ -111,5 +111,23 @@ namespace detail {
 			}
 		}
 	}
+
+	size_t config::get_log_level() {
+		std::pair<bool, std::string> env_log_level = get_env("CELERITY_LOG_LEVEL");
+#ifdef NDEBUG
+		size_t log_level = 2;
+#else
+		size_t log_level = 0;
+#endif
+		if(env_log_level.first) {
+			std::pair<bool, size_t> parsed = parse_uint(env_log_level.second.c_str());
+			if(parsed.first) log_level = parsed.second;
+		}
+		if(log_level > 6) log_level = 6;
+		if(log_level < 0) log_level = 0;
+
+		return log_level;
+	}
+
 } // namespace detail
 } // namespace celerity

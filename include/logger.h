@@ -8,6 +8,9 @@
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/spdlog.h>
 
+#include "config.h"
+#include "stdout_color_sink_custom.h"
+
 namespace spd = spdlog;
 
 namespace celerity {
@@ -35,10 +38,13 @@ namespace detail {
 
 	class logger {
 	  public:
-		logger(const std::string& channel) {
+		logger(const std::string& channel, bool force_color_seq = true) {
 			this->channel = channel;
-			spd_logger = spd::stdout_logger_mt(channel);
-			spd_logger->set_pattern(R"({"at": "%Y-%m-%d %T.%e", "channel": "%n", "level": "%l"%v})");
+			spd_logger = spd::sinks::stdout_color_mt(channel, force_color_seq);
+			spd_logger->set_pattern(R"({"at": "%Y-%m-%d %T.%e", "channel": "%n", "level": "%^%l%$"%v})");
+			size_t log_level = config::get_log_level();
+			spd_logger->set_level(spd::level::level_enum(log_level));
+			spd_logger->flush_on(spd::level::level_enum(log_level));
 		}
 
 		~logger() {

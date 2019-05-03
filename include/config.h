@@ -1,9 +1,11 @@
 #pragma once
 
 #include <boost/optional.hpp>
+#include <string>
 
 namespace celerity {
 namespace detail {
+
 	class logger;
 
 	struct device_config {
@@ -26,6 +28,7 @@ namespace detail {
 		boost::optional<device_config> get_device_config() const { return device_cfg; };
 		boost::optional<bool> get_enable_device_profiling() const { return enable_device_profiling; };
 		boost::optional<size_t> get_forced_work_group_size() const { return forced_work_group_size; };
+		static size_t get_log_level();
 
 	  private:
 		boost::optional<device_config> device_cfg;
