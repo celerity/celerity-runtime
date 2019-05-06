@@ -75,7 +75,7 @@ void update(celerity::distr_queue& queue, celerity::buffer<float, 2>& up, celeri
 template <typename T>
 void store(celerity::distr_queue& queue, celerity::buffer<T, 2>& up, std::vector<std::vector<float>>& result_frames) {
 	const auto range = up.get_range();
-	celerity::with_master_access([&, range](celerity::handler& cgh) {
+	queue.with_master_access([&, range](celerity::handler& cgh) {
 		auto up_r = up.template get_access<cl::sycl::access::mode::read>(cgh, range);
 		cgh.run([&]() {
 			result_frames.emplace_back();

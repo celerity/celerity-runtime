@@ -49,7 +49,7 @@ int main(int argc, char* argv[]) {
 
 #define COMPUTE_C_ON_MASTER 1
 #if COMPUTE_C_ON_MASTER
-		celerity::with_master_access([&](celerity::handler& cgh) {
+		queue.with_master_access([&](celerity::handler& cgh) {
 			auto r_a = buf_a.get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<1>(DEMO_DATA_SIZE));
 			auto dw_c = buf_c.get_access<cl::sycl::access::mode::discard_write>(cgh, cl::sycl::range<1>(DEMO_DATA_SIZE));
 
@@ -75,7 +75,7 @@ int main(int argc, char* argv[]) {
 			cgh.parallel_for<class compute_d>(cl::sycl::range<1>(DEMO_DATA_SIZE), [=](cl::sycl::item<1> item) { dw_d[item] = r_b[item] + r_c[item]; });
 		});
 
-		celerity::with_master_access([&](celerity::handler& cgh) {
+		queue.with_master_access([&](celerity::handler& cgh) {
 			auto r_d = buf_d.get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<1>(DEMO_DATA_SIZE));
 
 			cgh.run([=, &verification_passed]() {

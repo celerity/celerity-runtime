@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
 		multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
 		multiply(queue, mat_b_buf, mat_c_buf, mat_a_buf);
 
-		celerity::with_master_access([&](celerity::handler& cgh) {
+		queue.with_master_access([&](celerity::handler& cgh) {
 			auto result = mat_a_buf.get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
 
 			cgh.run([=, &verification_passed]() {

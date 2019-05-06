@@ -6,7 +6,6 @@
 #include "buffer.h"
 #include "distr_queue.h"
 #include "user_bench.h"
-#include "with_master_access.h"
 
 namespace celerity {
 namespace runtime {

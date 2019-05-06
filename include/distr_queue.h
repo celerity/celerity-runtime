@@ -19,6 +19,11 @@ class distr_queue {
 		detail::runtime::get_instance().get_task_manager().create_compute_task(cgf);
 	}
 
+	template <typename MAF>
+	void with_master_access(MAF maf) {
+		detail::runtime::get_instance().get_task_manager().create_master_access_task(maf);
+	}
+
   private:
 	void init(cl::sycl::device* user_device) {
 		if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr); }

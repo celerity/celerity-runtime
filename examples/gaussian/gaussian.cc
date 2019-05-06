@@ -91,7 +91,7 @@ int main(int argc, char* argv[]) {
 			});
 		});
 
-		celerity::with_master_access([&](celerity::handler& cgh) {
+		queue.with_master_access([&](celerity::handler& cgh) {
 			auto out = image_output_buf.get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<2>(image_height, image_width));
 
 			cgh.run([=]() {
