@@ -101,6 +101,11 @@ namespace detail {
 
 		void print_graph(logger& graph_logger) const;
 
+		/**
+		 * @brief Shuts down the task_manager, freeing all stored tasks.
+		 */
+		void shutdown() { task_map.clear(); }
+
 	  private:
 		const bool is_master_node;
 		task_id next_task_id = 0;

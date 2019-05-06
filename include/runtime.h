@@ -24,9 +24,17 @@ namespace detail {
 	class executor;
 	class task_manager;
 
+	class runtime_already_started_error : public std::runtime_error {
+	  public:
+		runtime_already_started_error() : std::runtime_error("The Celerity runtime has already been started") {}
+	};
+
 	class runtime {
 	  public:
-		static void init(int* argc, char** argv[]);
+		/**
+		 * @param user_device This optional device can be provided by the user, overriding any other device selection strategy.
+		 */
+		static void init(int* argc, char** argv[], cl::sycl::device* user_device = nullptr);
 		static bool is_initialized() { return instance != nullptr; }
 		static runtime& get_instance();
 
@@ -34,11 +42,10 @@ namespace detail {
 
 		/**
 		 * @brief Starts the runtime and all its internal components and worker threads.
-		 *
-		 * @param user_device This optional device can be provided by the user, overriding any other device selection strategy.
 		 */
-		void startup(cl::sycl::device* user_device);
-		void shutdown();
+		void startup();
+
+		void shutdown() noexcept;
 
 		task_manager& get_task_manager() const;
 
@@ -47,10 +54,12 @@ namespace detail {
 		buffer_id register_buffer(cl::sycl::range<3> range, std::shared_ptr<buffer_storage_base> buf_storage, bool host_initialized);
 
 		/**
-		 * This is currently a no-op. We don't know whether it is safe to free a buffer.
-		 * TODO: We could mark when a buffer is no longer needed in the task graph, and free the memory accordingly.
+		 * @brief Unregisters a buffer from the runtime, releasing the internally stored reference.
+		 *
+		 * This function must not be called while the runtime is still active, as Celerity currently does not know whether
+		 * it is safe to release a buffer at any given point in time.
 		 */
-		void unregister_buffer(buffer_id bid) {}
+		void unregister_buffer(buffer_id bid) noexcept;
 
 		/**
 		 * @brief Checks whether the buffer with id \p bid has already been registered with the runtime.
@@ -94,6 +103,8 @@ namespace detail {
 		// Whether the runtime is active, i.e. between startup() and shutdown().
 		bool is_active = false;
 
+		bool is_shutting_down = false;
+
 		std::unique_ptr<config> cfg;
 		std::unique_ptr<device_queue> queue;
 		size_t num_nodes;
@@ -121,9 +132,14 @@ namespace detail {
 		};
 		std::deque<flush_handle> active_flushes;
 
-		runtime(int* argc, char** argv[]);
+		runtime(int* argc, char** argv[], cl::sycl::device* user_device = nullptr);
 		runtime(const runtime&) = delete;
 		runtime(runtime&&) = delete;
+
+		/**
+		 * @brief Destroys the runtime if it is no longer active and all buffers have been unregistered.
+		 */
+		void maybe_destroy_runtime() const;
 
 		void flush_command(node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies);
 
@@ -136,21 +152,23 @@ namespace detail {
 
 	  public:
 		/**
-		 * Initializes the runtime singleton without running the MPI lifecycle more than once per process.
+		 * @brief Enables test mode, which ensures the MPI lifecycle methods are only called once per process.
 		 */
-		static void init_for_testing() {
-			if(instance == nullptr) {
-				init(nullptr, nullptr);
-				return;
-			}
-			test_skip_mpi_lifecycle = true;
+		static void enable_test_mode() {
+			assert(!is_initialized() && !test_mode);
+			// Initialize normally one time to setup MPI
+			init(nullptr, nullptr, nullptr);
+			test_mode = true;
+			teardown();
+		}
+
+		static void teardown() {
+			assert(test_mode);
 			instance.reset();
-			init(nullptr, nullptr);
-			test_skip_mpi_lifecycle = false;
 		}
 #endif
 	  private:
-		static bool test_skip_mpi_lifecycle;
+		static bool test_mode;
 	};
 
 } // namespace detail
