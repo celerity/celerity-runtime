@@ -25,15 +25,67 @@ GridRegion<3> make_grid_region(cl::sycl::range<3> range, cl::sycl::id<3> offset 
 	return GridRegion<3>(make_grid_box(range, offset));
 }
 
-struct test_context {
-	std::unique_ptr<celerity::distr_queue> queue = nullptr;
-	test_context() {
-		celerity::detail::runtime::init_for_testing();
-		queue = std::make_unique<celerity::distr_queue>();
+struct GlobalSetupAndTeardown : Catch::TestEventListenerBase {
+	using TestEventListenerBase::TestEventListenerBase;
+	void testRunStarting(const Catch::TestRunInfo&) override { celerity::detail::runtime::enable_test_mode(); }
+	void testCaseEnded(const Catch::TestCaseStats&) override {
+		if(celerity::detail::runtime::is_initialized()) { celerity::detail::runtime::teardown(); }
 	}
 };
+CATCH_REGISTER_LISTENER(GlobalSetupAndTeardown)
 
 namespace celerity {
+
+TEST_CASE("only a single distr_queue can be created", "[distr_queue][lifetime][dx]") {
+	distr_queue q1;
+	auto q2{q1}; // Copying is allowed
+	REQUIRE_THROWS_WITH(distr_queue{}, "Only one celerity::distr_queue can be created per process (but it can be copied!)");
+}
+
+TEST_CASE("distr_queue implicitly initializes the runtime", "[distr_queue][lifetime]") {
+	REQUIRE_FALSE(detail::runtime::is_initialized());
+	distr_queue queue;
+	REQUIRE(detail::runtime::is_initialized());
+}
+
+TEST_CASE("an explicit device can only be provided to distr_queue if runtime has not been initialized", "[distr_queue][lifetime]") {
+	cl::sycl::default_selector selector;
+	auto device = selector.select_device();
+	{
+		REQUIRE_FALSE(detail::runtime::is_initialized());
+		REQUIRE_NOTHROW(distr_queue{device});
+	}
+	detail::runtime::teardown();
+	{
+		REQUIRE_FALSE(detail::runtime::is_initialized());
+		detail::runtime::init(nullptr, nullptr);
+		REQUIRE_THROWS_WITH(distr_queue{device}, "Passing explicit device not possible, runtime has already been initialized.");
+	}
+}
+
+TEST_CASE("buffer implicitly initializes the runtime", "[distr_queue][lifetime]") {
+	REQUIRE_FALSE(detail::runtime::is_initialized());
+	buffer<float, 1> buf(cl::sycl::range<1>{1});
+	REQUIRE(detail::runtime::is_initialized());
+}
+
+TEST_CASE("buffer can be copied", "[distr_queue][lifetime]") {
+	buffer<float, 1> buf_a{cl::sycl::range<1>{10}};
+	buffer<float, 1> buf_b{cl::sycl::range<1>{10}};
+	auto buf_c{buf_a};
+	buf_b = buf_c;
+}
+
+TEST_CASE("get_access can be called on const buffer", "[buffer]") {
+	buffer<float, 2> buf_a{cl::sycl::range<2>{32, 64}};
+	auto& tm = detail::runtime::get_instance().get_task_manager();
+	const auto tid = test_utils::add_compute_task<class get_access_const>(
+	    tm, [buf_a /* capture by value */](handler& cgh) { buf_a.get_access<cl::sycl::access::mode::read>(cgh, access::one_to_one<2>()); }, buf_a.get_range());
+	const auto ctsk = std::static_pointer_cast<const detail::compute_task>(tm.get_task(tid));
+	const auto bufs = ctsk->get_accessed_buffers();
+	REQUIRE(bufs.size() == 1);
+	REQUIRE(ctsk->get_access_modes(0).count(cl::sycl::access::mode::read) == 1);
+}
 
 TEST_CASE("region_map correctly handles region updates", "[region_map]") {
 	detail::region_map<std::string> rm(cl::sycl::range<3>(256, 128, 1));
@@ -337,6 +389,14 @@ TEST_CASE("tasks gracefully handle get_requirements() calls for buffers they don
 		const auto req = matsk->get_requirements(0, cl::sycl::access::mode::read);
 		REQUIRE(req == detail::subrange_to_grid_region(subrange<3>({0, 0, 0}, {0, 0, 0})));
 	}
+}
+
+TEST_CASE("safe command group functions must not capture by reference", "[lifetime][dx]") {
+	int value = 123;
+	const auto unsafe = [&]() { return value + 1; };
+	REQUIRE_FALSE(detail::is_safe_cgf<decltype(unsafe)>);
+	const auto safe = [=]() { return value + 1; };
+	REQUIRE(detail::is_safe_cgf<decltype(safe)>);
 }
 
 } // namespace celerity

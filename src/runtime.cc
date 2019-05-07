@@ -30,9 +30,16 @@ namespace celerity {
 namespace detail {
 
 	std::unique_ptr<runtime> runtime::instance = nullptr;
-	bool runtime::test_skip_mpi_lifecycle = false;
+	bool runtime::test_mode = false;
 
-	void runtime::init(int* argc, char** argv[]) { instance = std::unique_ptr<runtime>(new runtime(argc, argv)); }
+	void runtime::init(int* argc, char** argv[], cl::sycl::device* user_device) {
+		if(test_mode) {
+			instance.reset();
+			instance = std::unique_ptr<runtime>(new runtime(argc, argv, user_device));
+			return;
+		}
+		instance = std::unique_ptr<runtime>(new runtime(argc, argv, user_device));
+	}
 
 	runtime& runtime::get_instance() {
 		if(instance == nullptr) { throw std::runtime_error("Runtime has not been initialized"); }
@@ -68,8 +75,8 @@ namespace detail {
 #endif
 	}
 
-	runtime::runtime(int* argc, char** argv[]) {
-		if(!test_skip_mpi_lifecycle) {
+	runtime::runtime(int* argc, char** argv[], cl::sycl::device* user_device) {
+		if(!test_mode) {
 			int provided;
 			MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
 			assert(provided == MPI_THREAD_MULTIPLE);
@@ -89,42 +96,54 @@ namespace detail {
 		default_logger->info(
 		    logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"build", get_build_type()}, {"sycl", get_sycl_version()}}));
 
+		experimental::bench::detail::user_benchmarker::initialize(static_cast<node_id>(world_rank));
+
 		cfg = std::make_unique<config>(argc, argv, *default_logger);
 		queue = std::make_unique<device_queue>(*default_logger);
-		experimental::bench::detail::user_benchmarker::initialize(static_cast<node_id>(world_rank));
-	}
 
-	runtime::~runtime() {
-		// Make sure we free all of our MPI custom types before we finalize
-		active_flushes.clear();
-		if(!test_skip_mpi_lifecycle) { MPI_Finalize(); }
-		experimental::bench::detail::user_benchmarker::destroy();
-	}
-
-	void runtime::startup(cl::sycl::device* user_device) {
-		// Since this function is called by distr_queue, we need to inform the user appropriately.
-		if(is_active) { throw std::runtime_error("Only one celerity::distr_queue can be created per process"); }
-		is_active = true;
-
+		// Initialize worker classes (but don't start them up yet)
 		task_mngr = std::make_shared<task_manager>(is_master);
-		queue->init(*cfg, task_mngr.get(), user_device);
-
-		exec = std::make_unique<detail::executor>(*queue, *task_mngr, default_logger);
-
+		exec = std::make_unique<executor>(*queue, *task_mngr, default_logger);
 		if(is_master) {
 			ggen = std::make_shared<graph_generator>(num_nodes, *task_mngr,
 			    [this](node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies) { flush_command(target, pkg, dependencies); });
-			schdlr = std::make_unique<detail::scheduler>(ggen, num_nodes);
-			schdlr->startup();
-
+			schdlr = std::make_unique<scheduler>(ggen, num_nodes);
 			task_mngr->register_task_callback([this]() { schdlr->notify_task_created(); });
 		}
 
+		queue->init(*cfg, task_mngr.get(), user_device);
+	}
+
+	runtime::~runtime() {
+		if(is_master) {
+			schdlr.reset();
+			ggen.reset();
+		}
+
+		exec.reset();
+		task_mngr.reset();
+		queue.reset();
+
+		experimental::bench::detail::user_benchmarker::destroy();
+
+		// All buffers should have unregistered themselves by now.
+		assert(buffer_ptrs.empty());
+
+		// Make sure we free all of our MPI custom types before we finalize
+		active_flushes.clear();
+		if(!test_mode) { MPI_Finalize(); }
+	}
+
+	void runtime::startup() {
+		if(is_active) { throw runtime_already_started_error(); }
+		is_active = true;
+		if(is_master) { schdlr->startup(); }
 		exec->startup();
 	}
 
-	void runtime::shutdown() {
+	void runtime::shutdown() noexcept {
 		assert(is_active);
+		is_shutting_down = true;
 		if(is_master) {
 			schdlr->shutdown();
 
@@ -138,15 +157,19 @@ namespace detail {
 		}
 
 		exec->shutdown();
+		queue->wait();
 
 		if(is_master) {
 			task_mngr->print_graph(*graph_logger);
 			ggen->print_graph(*graph_logger);
 		}
 
-		queue->wait();
-		buffer_ptrs.clear();
-		queue.reset();
+		// Shutting down the task_manager will cause all buffers captured inside command group functions to unregister.
+		// Since we check whether the runtime is still active upon unregistering, we have to set this to false first.
+		is_active = false;
+		task_mngr->shutdown();
+		is_shutting_down = false;
+		maybe_destroy_runtime();
 	}
 
 	task_manager& runtime::get_task_manager() const { return *task_mngr; }
@@ -160,6 +183,24 @@ namespace detail {
 			ggen->add_buffer(bid, range);
 		}
 		return bid;
+	}
+
+	void runtime::unregister_buffer(buffer_id bid) noexcept {
+		assert(buffer_ptrs.find(bid) != buffer_ptrs.end());
+		if(is_active) {
+			// We cannot throw here, as this is being called from buffer destructors.
+			default_logger->error(
+			    "The Celerity runtime detected that a buffer is going out of scope before all tasks have been completed. This is not allowed.");
+		}
+		buffer_ptrs.erase(bid);
+		maybe_destroy_runtime();
+	}
+
+	void runtime::maybe_destroy_runtime() const {
+		if(is_active) return;
+		if(is_shutting_down) return;
+		if(!buffer_ptrs.empty()) return;
+		instance.reset();
 	}
 
 	void runtime::flush_command(node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies) {

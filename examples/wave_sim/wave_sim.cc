@@ -9,8 +9,8 @@
 
 // NOTE: We have to make amplitude a double to avoid some weird ComputeCpp behavior - possibly a device compiler bug.
 // See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-94 (psalz)
-void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2>& u, const cl::sycl::float2& center, double amplitude, cl::sycl::float2 sigma) {
-	queue.submit([&, center, amplitude, sigma](celerity::handler& cgh) {
+void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2> u, const cl::sycl::float2& center, double amplitude, cl::sycl::float2 sigma) {
+	queue.submit([=](celerity::handler& cgh) {
 		auto dw_u = u.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
 		cgh.parallel_for<class setup_wave>(u.get_range(), [=, c = center, a = amplitude, s = sigma](cl::sycl::item<2> item) {
 			const float dx = item[1] - c.x();
@@ -20,8 +20,8 @@ void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2>& u, con
 	});
 }
 
-void zero(celerity::distr_queue& queue, celerity::buffer<float, 2>& buf) {
-	queue.submit([&](celerity::handler& cgh) {
+void zero(celerity::distr_queue& queue, celerity::buffer<float, 2> buf) {
+	queue.submit([=](celerity::handler& cgh) {
 		auto dw_buf = buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
 		cgh.parallel_for<class zero>(buf.get_range(), [=](cl::sycl::item<2> item) { dw_buf[item] = 0.f; });
 	});
@@ -41,8 +41,8 @@ struct update_config {
 
 template <typename T, typename Config, typename KernelName>
 // TODO: See if we can make buffer u a const ref here
-void step(celerity::distr_queue& queue, celerity::buffer<T, 2>& up, celerity::buffer<T, 2>& u, float dt, cl::sycl::float2 delta) {
-	queue.submit([&, dt, delta](celerity::handler& cgh) {
+void step(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T, 2> u, float dt, cl::sycl::float2 delta) {
+	queue.submit([=](celerity::handler& cgh) {
 		auto rw_up = up.template get_access<cl::sycl::access::mode::read_write>(cgh, celerity::access::one_to_one<2>());
 		auto r_u = u.template get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood<2>(1, 1));
 
@@ -64,18 +64,18 @@ void step(celerity::distr_queue& queue, celerity::buffer<T, 2>& up, celerity::bu
 	});
 }
 
-void initialize(celerity::distr_queue& queue, celerity::buffer<float, 2>& up, celerity::buffer<float, 2>& u, float dt, cl::sycl::float2 delta) {
+void initialize(celerity::distr_queue& queue, celerity::buffer<float, 2> up, celerity::buffer<float, 2> u, float dt, cl::sycl::float2 delta) {
 	step<float, init_config, class initialize>(queue, up, u, dt, delta);
 }
 
-void update(celerity::distr_queue& queue, celerity::buffer<float, 2>& up, celerity::buffer<float, 2>& u, float dt, cl::sycl::float2 delta) {
+void update(celerity::distr_queue& queue, celerity::buffer<float, 2> up, celerity::buffer<float, 2> u, float dt, cl::sycl::float2 delta) {
 	step<float, update_config, class update>(queue, up, u, dt, delta);
 }
 
 template <typename T>
-void store(celerity::distr_queue& queue, celerity::buffer<T, 2>& up, std::vector<std::vector<float>>& result_frames) {
+void store(celerity::distr_queue& queue, celerity::buffer<T, 2> up, std::vector<std::vector<float>>& result_frames) {
 	const auto range = up.get_range();
-	queue.with_master_access([&, range](celerity::handler& cgh) {
+	queue.with_master_access([=, &result_frames](celerity::handler& cgh) {
 		auto up_r = up.template get_access<cl::sycl::access::mode::read>(cgh, range);
 		cgh.run([&]() {
 			result_frames.emplace_back();
@@ -204,7 +204,6 @@ int main(int argc, char* argv[]) {
 	}
 
 	if(is_master) {
-		celerity::experimental::bench::end("main program");
 		if(cfg.output_sample_rate > 0) {
 			// TODO: Consider writing results to disk as they're coming in, instead of just at the end
 			write_csv(cfg.N, result_frames);

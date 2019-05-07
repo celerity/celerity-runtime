@@ -7,8 +7,8 @@
 
 // TODO: See if we can make buffers a and b const refs here
 template <typename T>
-void multiply(celerity::distr_queue& queue, celerity::buffer<T, 2>& mat_a, celerity::buffer<T, 2>& mat_b, celerity::buffer<T, 2>& mat_c) {
-	queue.submit([&](celerity::handler& cgh) {
+void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
+	queue.submit([=](celerity::handler& cgh) {
 		auto a = mat_a.template get_access<cl::sycl::access::mode::read>(cgh, celerity::access::slice<2>(1));
 		auto b = mat_b.template get_access<cl::sycl::access::mode::read>(cgh, celerity::access::slice<2>(0));
 		auto c = mat_c.template get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
