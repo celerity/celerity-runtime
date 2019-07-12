@@ -8,16 +8,21 @@
 #include "types.h"
 
 namespace celerity {
+namespace detail {
+	class config;
+}
+
 namespace experimental {
 	namespace bench {
 		namespace detail {
 			using logger = celerity::detail::logger;
 			using node_id = celerity::detail::node_id;
 			using logger_map = celerity::detail::logger_map;
+			using config = celerity::detail::config;
 
 			class user_benchmarker {
 			  public:
-				static void initialize(node_id this_nid);
+				static void initialize(config& cfg, node_id this_nid);
 				static void destroy();
 
 				user_benchmarker(const user_benchmarker&) = delete;
@@ -60,7 +65,7 @@ namespace experimental {
 				section_id next_section_id = 0;
 				std::stack<section> sections;
 
-				user_benchmarker(node_id this_nid);
+				user_benchmarker(config& cfg, node_id this_nid);
 
 				void begin_section(std::string name);
 				void end_section(std::string name);

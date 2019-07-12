@@ -1,6 +1,7 @@
 #include "config.h"
 
 #include <cstdlib>
+#include <sstream>
 #include <vector>
 
 #include <boost/algorithm/string.hpp>
@@ -41,6 +42,47 @@ namespace celerity {
 namespace detail {
 	config::config(int* argc, char** argv[], logger& logger) {
 		// TODO: At some point we might want to parse arguments from argv as well
+
+		// ------------------------------- CELERITY_LOG_LEVEL ---------------------------------
+
+		{
+#ifdef NDEBUG
+			log_lvl = log_level::info;
+#else
+			log_lvl = log_level::trace;
+#endif
+			const std::vector<std::pair<log_level, std::string>> possible_values = {
+			    {log_level::trace, "trace"},
+			    {log_level::debug, "debug"},
+			    {log_level::info, "info"},
+			    {log_level::warn, "warn"},
+			    {log_level::err, "err"},
+			    {log_level::critical, "critical"},
+			    {log_level::off, "off"},
+			};
+
+			const auto result = get_env("CELERITY_LOG_LEVEL");
+			if(result.first) {
+				bool valid = false;
+				for(auto& pv : possible_values) {
+					if(result.second == pv.second) {
+						log_lvl = pv.first;
+						valid = true;
+						break;
+					}
+				}
+				if(!valid) {
+					std::ostringstream oss;
+					oss << "Invalid value \"" << result.second << "\" provided for CELERITY_LOG_LEVEL. ";
+					oss << "Possible values are: ";
+					for(size_t i = 0; i < possible_values.size(); ++i) {
+						oss << possible_values[i].second << (i < possible_values.size() - 1 ? ", " : ".");
+					}
+					logger.warn(oss.str());
+				}
+			}
+			logger.set_level(log_lvl);
+		}
 
 		// --------------------------------- CELERITY_DEVICES ---------------------------------
 
@@ -110,23 +152,6 @@ namespace detail {
 				if(parsed.first) { forced_work_group_size = parsed.second; }
 			}
 		}
-	}
-
-	size_t config::get_log_level() {
-		std::pair<bool, std::string> env_log_level = get_env("CELERITY_LOG_LEVEL");
-#ifdef NDEBUG
-		size_t log_level = 2;
-#else
-		size_t log_level = 0;
-#endif
-		if(env_log_level.first) {
-			std::pair<bool, size_t> parsed = parse_uint(env_log_level.second.c_str());
-			if(parsed.first) log_level = parsed.second;
-		}
-		if(log_level > 6) log_level = 6;
-		if(log_level < 0) log_level = 0;
-
-		return log_level;
 	}
 
 } // namespace detail

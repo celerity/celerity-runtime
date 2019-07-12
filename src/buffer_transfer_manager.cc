@@ -20,7 +20,7 @@ namespace detail {
 		        cl::sycl::range<3>(data.subrange.range[0], data.subrange.range[1], data.subrange.range[2]));
 
 		// This is a bit of a hack (logging a job event from here), but it's very useful
-		transfer_logger->info(logger_map{{"job", std::to_string(pkg.cid)}, {"event", "Buffer data ready to be sent"}});
+		transfer_logger->trace(logger_map{{"job", std::to_string(pkg.cid)}, {"event", "Buffer data ready to be sent"}});
 
 		const auto data_size = data_handle->linearized_data_size;
 		auto transfer = std::make_unique<transfer_out>(std::move(data_handle));
@@ -87,7 +87,7 @@ namespace detail {
 		MPI_Imrecv(MPI_BOTTOM, 1, *transfer->data_type, &msg, &transfer->request);
 		incoming_transfers.push_back(std::move(transfer));
 
-		transfer_logger->info("Receiving incoming data of size {} from {}", data_size, status.MPI_SOURCE);
+		transfer_logger->trace("Receiving incoming data of size {} from {}", data_size, status.MPI_SOURCE);
 	}
 
 	void buffer_transfer_manager::update_incoming_transfers() {

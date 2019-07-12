@@ -33,9 +33,9 @@ namespace detail {
 	void executor::shutdown() {
 		if(exec_thrd.joinable()) { exec_thrd.join(); }
 
-		execution_logger->info(logger_map{{"initialIdleTime", std::to_string(metrics.initial_idle.get().count())}});
-		execution_logger->info(logger_map{{"computeIdleTime", std::to_string(metrics.compute_idle.get().count())}});
-		execution_logger->info(logger_map{{"starvationTime", std::to_string(metrics.starvation.get().count())}});
+		execution_logger->trace(logger_map{{"initialIdleTime", std::to_string(metrics.initial_idle.get().count())}});
+		execution_logger->trace(logger_map{{"computeIdleTime", std::to_string(metrics.compute_idle.get().count())}});
+		execution_logger->trace(logger_map{{"starvationTime", std::to_string(metrics.starvation.get().count())}});
 	}
 
 	void executor::run() {

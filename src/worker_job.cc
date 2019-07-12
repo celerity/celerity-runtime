@@ -30,7 +30,7 @@ namespace detail {
 		if(done) {
 			const auto bench_avg = bench_sum_execution_time.count() / bench_sample_count;
 			const auto execution_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time).count();
-			job_logger->info(logger_map({{"event", "STOP"}, {"executionTime", std::to_string(execution_time)}, {"pollDurationAvg", std::to_string(bench_avg)},
+			job_logger->trace(logger_map({{"event", "STOP"}, {"executionTime", std::to_string(execution_time)}, {"pollDurationAvg", std::to_string(bench_avg)},
 			    {"pollDurationMin", std::to_string(bench_min.count())}, {"pollDurationMax", std::to_string(bench_max.count())},
 			    {"pollSamples", std::to_string(bench_sample_count)}}));
 		}
@@ -41,7 +41,7 @@ namespace detail {
 		running = true;
 
 		auto job_description = get_description(pkg);
-		job_logger->info(logger_map({{"cid", std::to_string(pkg.cid)}, {"event", "START"},
+		job_logger->trace(logger_map({{"cid", std::to_string(pkg.cid)}, {"event", "START"},
 		    {"type", command_string[static_cast<std::underlying_type_t<command>>(job_description.first)]}, {"message", job_description.second}}));
 		start_time = std::chrono::steady_clock::now();
 	}
@@ -73,9 +73,9 @@ namespace detail {
 
 	bool push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 		if(data_handle == nullptr) {
-			logger->info(logger_map({{"event", "Submit buffer to BTM"}}));
+			logger->trace(logger_map({{"event", "Submit buffer to BTM"}}));
 			data_handle = btm.push(pkg);
-			logger->info(logger_map({{"event", "Buffer submitted to BTM"}}));
+			logger->trace(logger_map({{"event", "Buffer submitted to BTM"}}));
 		}
 		return data_handle->complete;
 	}
@@ -101,7 +101,7 @@ namespace detail {
 		// A bit of a hack: We cannot be sure the main thread has reached the task definition yet, so we have to check it here
 		if(!task_mngr.has_task(pkg.tid)) {
 			if(!did_log_task_wait) {
-				logger->info(logger_map({{"event", "Waiting for task definition"}}));
+				logger->trace(logger_map({{"event", "Waiting for task definition"}}));
 				did_log_task_wait = true;
 			}
 			return false;
@@ -111,10 +111,10 @@ namespace detail {
 			// Note that we have to set the proper global size so the livepass handler can use the assigned chunk as input for range mappers
 			const auto ctsk = std::static_pointer_cast<const detail::compute_task>(task_mngr.get_task(pkg.tid));
 			auto& cmd_sr = pkg.data.compute.subrange;
-			logger->info(logger_map({{"event", "Execute live-pass, submit kernel to SYCL"}}));
+			logger->trace(logger_map({{"event", "Execute live-pass, submit kernel to SYCL"}}));
 			event = queue.execute(pkg.tid, cmd_sr);
 			submitted = true;
-			logger->info(logger_map({{"event", "Submitted"}}));
+			logger->trace(logger_map({{"event", "Submitted"}}));
 
 			// There currently (since 0.9.0 and up to and including 1.0.5) exists a bug that causes ComputeCpp to block when
 			// querying the execution status of a compute command until it is finished. This is bad for us, as it blocks all other
@@ -146,11 +146,11 @@ namespace detail {
 				const auto end = get_profiling_info(event.get(), CL_PROFILING_COMMAND_END);
 
 				// FIXME: The timestamps logged here don't match the actual values we just queried. Can we fix that?
-				logger->info(logger_map({{"event",
+				logger->trace(logger_map({{"event",
 				    fmt::format("Delta time queued -> submit : {}us", std::chrono::duration_cast<std::chrono::microseconds>(submit - queued).count())}}));
-				logger->info(logger_map({{"event",
+				logger->trace(logger_map({{"event",
 				    fmt::format("Delta time submit -> start: {}us", std::chrono::duration_cast<std::chrono::microseconds>(start - submit).count())}}));
-				logger->info(logger_map(
+				logger->trace(logger_map(
 				    {{"event", fmt::format("Delta time start -> end: {}us", std::chrono::duration_cast<std::chrono::microseconds>(end - start).count())}}));
 			}
 #endif

@@ -92,13 +92,12 @@ namespace detail {
 
 		default_logger = logger("default").create_context({{"rank", std::to_string(world_rank)}});
 		graph_logger = logger("graph").create_context({{"rank", std::to_string(world_rank)}});
-
-		default_logger->info(
-		    logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"build", get_build_type()}, {"sycl", get_sycl_version()}}));
-
-		experimental::bench::detail::user_benchmarker::initialize(static_cast<node_id>(world_rank));
-
+		// Create config next, as it initializes the logger to the correct level
 		cfg = std::make_unique<config>(argc, argv, *default_logger);
+		graph_logger->set_level(cfg->get_log_level());
+
+		experimental::bench::detail::user_benchmarker::initialize(*cfg, static_cast<node_id>(world_rank));
+
 		queue = std::make_unique<device_queue>(*default_logger);
 
 		// Initialize worker classes (but don't start them up yet)
@@ -111,6 +110,8 @@ namespace detail {
 			task_mngr->register_task_callback([this]() { schdlr->notify_task_created(); });
 		}
 
+		default_logger->info(
+		    logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"build", get_build_type()}, {"sycl", get_sycl_version()}}));
 		queue->init(*cfg, task_mngr.get(), user_device);
 	}
 
@@ -159,7 +160,7 @@ namespace detail {
 		exec->shutdown();
 		queue->wait();
 
-		if(is_master) {
+		if(is_master && graph_logger->get_level() == log_level::trace) {
 			task_mngr->print_graph(*graph_logger);
 			ggen->print_graph(*graph_logger);
 		}

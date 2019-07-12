@@ -2,6 +2,7 @@
 
 #include <ratio>
 
+#include "config.h"
 #include "runtime.h"
 
 namespace celerity {
@@ -10,9 +11,9 @@ namespace experimental {
 		namespace detail {
 			std::unique_ptr<user_benchmarker> user_benchmarker::instance = nullptr;
 
-			void user_benchmarker::initialize(node_id this_nid) {
+			void user_benchmarker::initialize(config& cfg, node_id this_nid) {
 				assert(instance == nullptr && "User benchmarking has already been initialized");
-				instance = std::unique_ptr<user_benchmarker>(new user_benchmarker(this_nid));
+				instance = std::unique_ptr<user_benchmarker>(new user_benchmarker(cfg, this_nid));
 			}
 
 			void user_benchmarker::destroy() { instance.reset(); }
@@ -38,8 +39,8 @@ namespace experimental {
 				}
 			}
 
-			user_benchmarker::user_benchmarker(node_id this_nid) : this_nid(this_nid) {
-				bench_logger = logger("bench").create_context({{"rank", std::to_string(this_nid)}});
+			user_benchmarker::user_benchmarker(config& cfg, node_id this_nid) : this_nid(this_nid) {
+				bench_logger = logger("bench", cfg.get_log_level()).create_context({{"rank", std::to_string(this_nid)}});
 				if(static_cast<double>(bench_clock::period::num) / bench_clock::period::den > static_cast<double>(std::micro::num) / std::micro::den) {
 					bench_logger->warn("Available clock does not have sufficient precision");
 				}
