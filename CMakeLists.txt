@@ -12,7 +12,6 @@ find_package(Threads REQUIRED)
 
 # Find SYCL implementation.
 # We first check if hipSYCL can be found, otherwise we try ComputeCpp.
-set(HIPSYCL_RESTRICT_DEVICE_HEADER_PATH "${PROJECT_SOURCE_DIR}/include;${PROJECT_SOURCE_DIR}/test")
 find_package(hipSYCL CONFIG)
 if(NOT hipSYCL_FOUND)
   find_package(ComputeCpp REQUIRED)
@@ -98,7 +97,7 @@ add_sycl_to_target(
 if(MSVC)
   target_compile_options(celerity_runtime PRIVATE /MP /W3 /D_CRT_SECURE_NO_WARNINGS)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -D_CRT_SECURE_NO_WARNINGS)
+  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
 # Examples

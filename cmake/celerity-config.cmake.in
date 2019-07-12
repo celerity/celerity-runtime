@@ -9,21 +9,6 @@ find_dependency(MPI 2.0 REQUIRED)
 find_dependency(Threads REQUIRED)
 
 if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
-  if(NOT HIPSYCL_RESTRICT_DEVICE_HEADER_PATH)
-    # Since we have to restrict the device header path to not include some
-    # of the vendor includes (e.g. Boost), we have to make sure to not break
-    # user compilation. If the user hasn't provided any paths, we attempt
-    # to emulate default behavior by including the user's source directory.
-    #
-    # FIXME: This still causes issues when the user wants to include device
-    # code from other locations (e.g. a library).
-    set(HIPSYCL_RESTRICT_DEVICE_HEADER_PATH "${CMAKE_CURRENT_SOURCE_DIR}")
-  endif()
-
-  list(
-    APPEND HIPSYCL_RESTRICT_DEVICE_HEADER_PATH
-    "${CELERITY_INSTALL_LOCATION}/include/celerity/celerity"
-  )
   find_dependency(hipSYCL CONFIG REQUIRED)
 else()
   find_dependency(ComputeCpp REQUIRED)
