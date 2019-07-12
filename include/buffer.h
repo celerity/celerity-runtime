@@ -1,19 +1,57 @@
 #pragma once
 
+#include <memory>
+#include <utility>
+
 #include <CL/sycl.hpp>
 #include <allscale/utils/functional_utils.h>
 
 #include "buffer_storage.h"
 #include "handler.h"
 #include "range_mapper.h"
+#include "ranges.h"
 #include "runtime.h"
 
 namespace celerity {
 namespace detail {
 
+	struct master_proxy_buffer_base {
+		virtual ~master_proxy_buffer_base() = default;
+	};
+
+	/**
+	 * In order to allow the master node to participate in computations as a regular worker,
+	 * we have to ensure that master access tasks do not incur any unnecessary data transfers
+	 * during the pre-pass. This is a concern because unlike for compute tasks, we cannot
+	 * return a placeholder accessors during the pre-pass. Instead, each buffer existing on
+	 * the master node also wraps a single element proxy SYCL buffer, for which it returns
+	 * a regular accessor during the pre-pass. Since the proxy buffer will never be used
+	 * during a live pass, it will never incur any host <-> device data transfers.
+	 *
+	 * TODO: Can we share these among all buffers with same DataT/Dims?
+	 * FIXME: Ultimately find a cleaner solution for this issue.
+	 */
+	template <typename DataT, int Dims>
+	struct master_proxy_buffer : master_proxy_buffer_base {
+		master_proxy_buffer() {
+			assert(runtime::get_instance().is_master_node());
+			proxy_buf = std::make_unique<cl::sycl::buffer<DataT, Dims>>(range_cast<Dims>(cl::sycl::range<3>(1, 1, 1)));
+		}
+
+		template <cl::sycl::access::mode Mode>
+		auto get_access() {
+			return proxy_buf->template get_access<Mode>();
+		}
+
+	  private:
+		std::unique_ptr<cl::sycl::buffer<DataT, Dims>> proxy_buf;
+	};
+
 	class buffer_impl {
 	  public:
-		buffer_impl(std::shared_ptr<buffer_storage_base> storage, const cl::sycl::range<3>& range, bool is_host_initialized) : storage(storage), range(range) {
+		buffer_impl(std::shared_ptr<buffer_storage_base> storage, std::unique_ptr<master_proxy_buffer_base> master_proxy_buf, const cl::sycl::range<3>& range,
+		    bool is_host_initialized)
+		    : storage(storage), master_proxy_buf(std::move(master_proxy_buf)), range(range) {
 			id = runtime::get_instance().register_buffer(range, storage, is_host_initialized);
 		}
 
@@ -23,10 +61,16 @@ namespace detail {
 
 		buffer_storage_base& get_buffer_storage() const { return *storage; }
 
+		master_proxy_buffer_base& get_master_proxy_buffer() const {
+			assert(master_proxy_buf != nullptr);
+			return *master_proxy_buf;
+		}
+
 		~buffer_impl() noexcept { runtime::get_instance().unregister_buffer(id); }
 
 	  private:
 		const std::shared_ptr<buffer_storage_base> storage;
+		const std::unique_ptr<master_proxy_buffer_base> master_proxy_buf;
 		const cl::sycl::range<3> range;
 		buffer_id id;
 	};
@@ -53,10 +97,13 @@ class buffer {
 			buf_storage->set_data(queue, detail::raw_data_handle{const_cast<DataT*>(host_ptr), detail::range_cast<3>(range), cl::sycl::id<3>{}});
 		}
 
+		std::unique_ptr<detail::master_proxy_buffer_base> master_proxy_buf = nullptr;
+		if(detail::runtime::get_instance().is_master_node()) { master_proxy_buf = std::make_unique<detail::master_proxy_buffer<DataT, Dims>>(); }
+
 		// It's important that we register the buffer AFTER we transferred the initial data (if any):
 		// As soon as the buffer is registered, incoming transfers can be written to it.
 		// In rare cases this might happen before the initial transfer is finished, causing a data race.
-		pimpl = std::make_shared<detail::buffer_impl>(buf_storage, detail::range_cast<3>(range), is_host_initialized);
+		pimpl = std::make_shared<detail::buffer_impl>(buf_storage, std::move(master_proxy_buf), detail::range_cast<3>(range), is_host_initialized);
 	}
 
 	buffer(cl::sycl::range<Dims> range) : buffer(nullptr, range) {}
@@ -103,11 +150,11 @@ class buffer {
 		if(detail::is_prepass_handler(cgh)) {
 			auto ma_cgh = dynamic_cast<detail::master_access_task_handler<true>&>(cgh);
 			ma_cgh.add_requirement(Mode, get_id(), detail::range_cast<3>(range), detail::id_cast<3>(offset));
+			// Since we unfortunately cannot return a placeholder accessor for host accesses,
+			// we instead return an accessor to the proxy buffer, which should be a cheap operation.
+			return dynamic_cast<detail::master_proxy_buffer<DataT, Dims>&>(pimpl->get_master_proxy_buffer()).template get_access<Mode>();
 		}
 
-		// Unfortunately we cannot return a placeholder accessor in this case (as host accessors cannot be placeholders).
-		// Instead, we simply return a real host accessor during prepass as well.
-		// The idea is that the master node will never do any work on a device anyway, making this a cheap operation.
 		return get_buffer_storage().get_sycl_buffer().template get_access<Mode>(range, offset);
 	}
 

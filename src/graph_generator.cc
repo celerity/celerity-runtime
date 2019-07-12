@@ -35,7 +35,7 @@ namespace detail {
 
 	graph_generator::graph_generator(size_t num_nodes, task_manager& tm, flush_callback flush_callback)
 	    : task_mngr(tm), num_nodes(num_nodes), flush_cb(flush_callback) {
-		register_transformer(std::make_shared<naive_split_transformer>(num_nodes > 1 ? num_nodes - 1 : 1));
+		register_transformer(std::make_shared<naive_split_transformer>(num_nodes));
 		build_task(tm.get_init_task_id());
 	}
 

@@ -47,6 +47,8 @@ namespace detail {
 
 		void shutdown() noexcept;
 
+		bool is_master_node() { return is_master; }
+
 		task_manager& get_task_manager() const;
 
 		device_queue& get_device_queue() const { return *queue; }

@@ -52,7 +52,7 @@ namespace detail {
 		if(num_workers == 1) return;
 
 		std::vector<node_id> nodes(num_workers);
-		std::iota(nodes.begin(), nodes.end(), 1);
+		std::iota(nodes.begin(), nodes.end(), 0);
 
 		auto computes = gb.get_commands(command::COMPUTE);
 		for(auto& cid : computes) {
