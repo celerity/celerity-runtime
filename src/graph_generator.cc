@@ -198,7 +198,9 @@ namespace detail {
 				// So far we don't know whether the dependant actually intersects with the subrange we're writing
 				// TODO: Not the most efficient solution
 				bool intersects = false;
-				for(const auto& read_pair : task_buffer_reads.at(command_graph[v].tid).at(bid)) {
+				const auto reads = task_buffer_reads.at(command_graph[v].tid);
+				if(reads.find(bid) == reads.end()) return; // The task might be a dependant because of another buffer
+				for(const auto& read_pair : reads.at(bid)) {
 					if(read_pair.first == command_graph[v].cid) {
 						if(!GridRegion<3>::intersect(write_req, read_pair.second).empty()) { intersects = true; }
 						break;
