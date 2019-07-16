@@ -106,7 +106,7 @@ namespace detail {
 		if(is_master) {
 			ggen = std::make_shared<graph_generator>(num_nodes, *task_mngr,
 			    [this](node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies) { flush_command(target, pkg, dependencies); });
-			schdlr = std::make_unique<scheduler>(ggen, num_nodes);
+			schdlr = std::make_unique<scheduler>(ggen);
 			task_mngr->register_task_callback([this]() { schdlr->notify_task_created(); });
 		}
 

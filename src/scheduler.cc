@@ -5,7 +5,7 @@
 namespace celerity {
 namespace detail {
 
-	scheduler::scheduler(std::shared_ptr<graph_generator> ggen, size_t num_nodes) : ggen(ggen), num_nodes(num_nodes) {}
+	scheduler::scheduler(std::shared_ptr<graph_generator> ggen) : ggen(ggen) {}
 
 	void scheduler::startup() { schd_thrd = std::thread(&scheduler::schedule, this); }
 

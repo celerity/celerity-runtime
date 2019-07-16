@@ -13,7 +13,7 @@ namespace detail {
 
 	class scheduler {
 	  public:
-		scheduler(std::shared_ptr<graph_generator> ggen, size_t num_nodes);
+		scheduler(std::shared_ptr<graph_generator> ggen);
 
 		void startup();
 
@@ -26,7 +26,6 @@ namespace detail {
 
 	  private:
 		std::shared_ptr<graph_generator> ggen;
-		size_t num_nodes;
 
 		size_t unscheduled_tasks = 0;
 		std::atomic<bool> should_shutdown = {false};
