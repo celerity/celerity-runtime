@@ -1,15 +1,21 @@
-# CELERITY Runtime
+# Celerity Runtime
 
-The CELERITY distributed runtime implementation.
+The Celerity distributed runtime and API aims to bring the power and ease of
+use of SYCL to distributed memory clusters.
+
+**NOTE**: Celerity is a research project first and foremost, and is still in
+early development. While it does work for certain applications, it probably
+does not fully support your use case just yet. We'd however love for you to
+give it a try and tell us about how you could imagine using Celerity for your
+projects in the future.
 
 ## Dependencies
 
-* [Boost](http://www.boost.org) (tested with version 1.65.0)
+* [Boost](http://www.boost.org) (tested with version 1.65 - 1.68)
 * A supported SYCL implementation, either
 	- [hipSYCL](https://github.com/illuhad/hipsycl), or
 	- [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp)
-	  runtime (tested with version 1.0.5)
-* A MPI 2 implementation (tested with OpenMPI 3.0 and MSMPI 10.0)
+* A MPI 2 implementation (tested with OpenMPI 4.0 and MSMPI 10.0)
 * [CMake](https://www.cmake.org)
 * A C++14 compiler (tested with MSVC 14, gcc 7 and Clang 8)
 
@@ -21,13 +27,6 @@ for convenience:
 * [Catch2](https://github.com/catchorg/Catch2) for testing
 * The [spdlog](https://github.com/gabime/spdlog) logging library
 
-### Optional
-
-These dependencies are only required for plotting of graphs.
-
-* [NodeJS](https://nodejs.org/en)
-* [GraphViz](http://graphviz.org)
-
 ## Building
 
 Building is as simple as calling `cmake && make`, depending on your setup you
@@ -38,7 +37,7 @@ might however also have to provide some library paths etc.
 The runtime comes with several examples that are built automatically when
 the `CELERITY_BUILD_EXAMPLES` CMake option is set (true by default).
 
-## Using CELERITY as a Library
+## Using Celerity as a Library
 
 Simply run `make install` (or equivalent, depending on build system) to copy all
 relevant header files and libraries to the `CMAKE_INSTALL_PREFIX`. This includes
@@ -58,13 +57,5 @@ set everything up.
    group size for *every kernel* and *every dimension*.
 * `CELERITY_PROFILE_OCL` controls whether OpenCL-level profiling information
   should be used or not (currently not supported when using hipSYCL).
-
-## Plot Task and Command Graphs
-
-Simply run
-
-    node liveplot.js <path_to_exe> -- [args]
-
-The `view_graphs.html` file can be used to display the newest graphs generated
-by `liveplot.js` automatically.
-
+* `CELERITY_LOG_LEVEL` controls the logging output level. One of `trace`, `debug`,
+  `info`, `warn`, `err`, `critical`, or `off`.
