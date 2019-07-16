@@ -7,9 +7,7 @@
 #include <CL/sycl.hpp>
 #include <celerity.h>
 
-// NOTE: We have to make amplitude a double to avoid some weird ComputeCpp behavior - possibly a device compiler bug.
-// See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-94 (psalz)
-void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2> u, const cl::sycl::float2& center, double amplitude, cl::sycl::float2 sigma) {
+void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2> u, cl::sycl::float2 center, float amplitude, cl::sycl::float2 sigma) {
 	queue.submit([=](celerity::handler& cgh) {
 		auto dw_u = u.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
 		cgh.parallel_for<class setup_wave>(u.get_range(), [=, c = center, a = amplitude, s = sigma](cl::sycl::item<2> item) {
@@ -40,7 +38,6 @@ struct update_config {
 };
 
 template <typename T, typename Config, typename KernelName>
-// TODO: See if we can make buffer u a const ref here
 void step(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T, 2> u, float dt, cl::sycl::float2 delta) {
 	queue.submit([=](celerity::handler& cgh) {
 		auto rw_up = up.template get_access<cl::sycl::access::mode::read_write>(cgh, celerity::access::one_to_one<2>());
@@ -48,17 +45,13 @@ void step(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::buf
 
 		const auto size = up.get_range();
 		cgh.parallel_for<KernelName>(size, [=](cl::sycl::item<2> item) {
-			// NOTE: We have to do some casting due to some weird ComputeCpp behavior - possibly a device compiler bug.
-			// See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-94 (psalz)
 			const size_t py = item[0] < size[0] - 1 ? item[0] + 1 : item[0];
-			const size_t my = item[0] > 0 ? static_cast<size_t>(static_cast<int>(item[0]) - 1) : item[0];
+			const size_t my = item[0] > 0 ? item[0] - 1 : item[0];
 			const size_t px = item[1] < size[1] - 1 ? item[1] + 1 : item[1];
-			const size_t mx = item[1] > 0 ? static_cast<size_t>(static_cast<int>(item[1]) - 1) : item[1];
+			const size_t mx = item[1] > 0 ? item[1] - 1 : item[1];
 
-			// NOTE: We have to copy delta here, again to avoid some ComputeCpp weirdness.
-			cl::sycl::float2 delta2 = delta;
-			const float lap = (dt / delta2.y()) * (dt / delta2.y()) * ((r_u[{py, item[1]}] - r_u[item]) - (r_u[item] - r_u[{my, item[1]}]))
-			                  + (dt / delta2.x()) * (dt / delta2.x()) * ((r_u[{item[0], px}] - r_u[item]) - (r_u[item] - r_u[{item[0], mx}]));
+			const float lap = (dt / delta.y()) * (dt / delta.y()) * ((r_u[{py, item[1]}] - r_u[item]) - (r_u[item] - r_u[{my, item[1]}]))
+			                  + (dt / delta.x()) * (dt / delta.x()) * ((r_u[{item[0], px}] - r_u[item]) - (r_u[item] - r_u[{item[0], mx}]));
 			rw_up[item] = Config::a * 2 * r_u[item] - Config::b * rw_up[item] + Config::c * lap;
 		});
 	});
@@ -167,7 +160,7 @@ int main(int argc, char* argv[]) {
 
 	// TODO: We could allocate the required size at the beginning
 	std::vector<std::vector<float>> result_frames;
-	try {
+	{
 		celerity::distr_queue queue;
 
 		celerity::buffer<float, 2> up(nullptr, cl::sycl::range<2>(cfg.N, cfg.N)); // next
@@ -181,6 +174,7 @@ int main(int argc, char* argv[]) {
 		initialize(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
 
 		// We need to rotate buffers. Since we cannot swap them directly, we use pointers instead.
+		// TODO: Make buffers swappable
 		auto up_ref = &up;
 		auto u_ref = &u;
 
@@ -195,12 +189,6 @@ int main(int argc, char* argv[]) {
 			std::swap(u_ref, up_ref);
 			t += cfg.dt;
 		}
-	} catch(std::exception& e) {
-		std::cerr << "Exception: " << e.what() << std::endl;
-		return EXIT_FAILURE;
-	} catch(cl::sycl::exception& e) {
-		std::cerr << "SYCL Exception: " << e.what() << std::endl;
-		return EXIT_FAILURE;
 	}
 
 	if(is_master) {

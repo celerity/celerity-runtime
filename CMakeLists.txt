@@ -104,13 +104,12 @@ endif()
 
 option(CELERITY_BUILD_EXAMPLES "Build various example applications" ON)
 if(CELERITY_BUILD_EXAMPLES)
-  add_subdirectory(examples/simple)
-  add_subdirectory(examples/gaussian)
+  add_subdirectory(examples/convolution)
   add_subdirectory(examples/matmul)
   add_subdirectory(examples/wave_sim)
 
   set_property(
-    TARGET simple gaussian matmul wave_sim
+    TARGET convolution matmul wave_sim
     PROPERTY FOLDER "examples"
   )
 endif()
