@@ -97,7 +97,7 @@ int main(int argc, char* argv[]) {
 			sum -= in[{item[0] + 1, item[1]}];
 			sum -= in[{item[0], item[1] - 1}];
 			sum -= in[{item[0], item[1] + 1}];
-			out[item] = float3(std::min(1.f, sum.x()), std::min(1.f, sum.y()), std::min(1.f, sum.z()));
+			out[item] = fmin(float3(1.f, 1.f, 1.f), sum);
 		});
 	});
 
@@ -109,9 +109,9 @@ int main(int argc, char* argv[]) {
 			for(size_t y = 0; y < static_cast<size_t>(image_height); ++y) {
 				for(size_t x = 0; x < static_cast<size_t>(image_width); ++x) {
 					const auto idx = y * image_width * 3 + x * 3;
-					image_output[idx + 0] = static_cast<uint8_t>(out[{y, x}].x() * 255.f);
-					image_output[idx + 1] = static_cast<uint8_t>(out[{y, x}].y() * 255.f);
-					image_output[idx + 2] = static_cast<uint8_t>(out[{y, x}].z() * 255.f);
+					image_output[idx + 0] = static_cast<uint8_t>(static_cast<float>(out[{y, x}].x()) * 255.f);
+					image_output[idx + 1] = static_cast<uint8_t>(static_cast<float>(out[{y, x}].y()) * 255.f);
+					image_output[idx + 2] = static_cast<uint8_t>(static_cast<float>(out[{y, x}].z()) * 255.f);
 				}
 			}
 			stbi_write_png("./output.png", image_width, image_height, 3, image_output.data(), 0);
