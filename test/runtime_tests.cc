@@ -1,4 +1,3 @@
-#define COMPILE_SYCL_KERNELS 1
 #include <algorithm>
 #include <memory>
 #include <random>

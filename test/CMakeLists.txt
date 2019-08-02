@@ -32,21 +32,7 @@ foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
     celerity_runtime
   )
 
-  # Determine whether we want the device compiler to run on this test or not.
-  # This can be enabled by adding "#define COMPILE_SYCL_KERNELS 1" to the first line of the file.
-  file(READ ${ONE_TEST_CPP} FILE_CONTENTS LIMIT 32)
-  if(${FILE_CONTENTS} MATCHES "^#define COMPILE_SYCL_KERNELS 1.*")
-    add_sycl_to_target(TARGET ${TARGET_NAME} SOURCES ${ONE_TEST_CPP})
-  else()
-    if(NOT hipSYCL_FOUND)
-      add_sycl_to_target(TARGET ${TARGET_NAME})
-    else()
-      # Workaround for hipSYCL: Since SYCL include paths etc are currently only set through
-      # syclcc (as opposed to using CMake mechanisms), we always have to compile the source
-      # using the syclcc.
-      add_sycl_to_target(TARGET ${TARGET_NAME} SOURCES ${ONE_TEST_CPP})
-    endif()
-  endif()
+  add_sycl_to_target(TARGET ${TARGET_NAME} SOURCES ${ONE_TEST_CPP})
 
   if(MSVC)
     target_compile_options(${TARGET_NAME} PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3 /bigobj)
