@@ -191,9 +191,11 @@ namespace detail {
 
 			// Add anti-dependencies onto all dependants of the writer
 			bool has_dependants = false;
-			graph_utils::for_successors(command_graph, cmd_v, [&](cdag_vertex v, cdag_edge) {
+			graph_utils::for_successors(command_graph, cmd_v, [&](cdag_vertex v, cdag_edge e) {
 				assert(command_graph[v].tid != tid);
 				if(command_graph[v].cmd == command::NOP) return;
+				// Don't consider anti-dependants
+				if(command_graph[e].anti_dependency) return;
 
 				// So far we don't know whether the dependant actually intersects with the subrange we're writing
 				// TODO: Not the most efficient solution

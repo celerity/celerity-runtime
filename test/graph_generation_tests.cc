@@ -28,7 +28,7 @@
 
 // Printing of graphs can be enabled using the "--print-graphs" command line flag
 bool print_graphs = false;
-celerity::detail::logger graph_logger{"graph"};
+celerity::detail::logger graph_logger{"graph", celerity::detail::log_level::trace};
 
 namespace celerity {
 namespace detail {
@@ -498,14 +498,18 @@ namespace detail {
 		const auto tid_a = build_and_flush(ggen, test_utils::add_compute_task<class UKN(task_a)>(tm,
 		                                             [&](handler& cgh) {
 			                                             buf.get_access<mode::discard_write>(cgh, [](chunk<1> chnk) {
-				                                             if(chnk.offset[0] == 0) return subrange<1>(100, 100);
-				                                             if(chnk.offset[0] == 100) return subrange<1>(0, 100);
-				                                             return subrange<1>(chnk);
+				                                             switch(chnk.offset[0]) {
+				                                             case 0: return subrange<1>(chnk);
+				                                             case 75: return subrange<1>(150, 75);
+				                                             case 150: return subrange<1>(75, 75);
+				                                             case 225: return subrange<1>(chnk);
+				                                             default: CATCH_ERROR("Unexpected offset");
+				                                             }
 			                                             });
 		                                             },
 		                                             cl::sycl::range<1>{300}));
 
-		CHECK(inspector.get_commands(tid_a, boost::none, command::COMPUTE).size() == 3);
+		CHECK(inspector.get_commands(tid_a, boost::none, command::COMPUTE).size() == 4);
 		CHECK(inspector.get_commands(tid_a, node_id(1), command::COMPUTE).size() == 1);
 		CHECK(inspector.get_commands(tid_a, node_id(2), command::COMPUTE).size() == 1);
 		CHECK(inspector.get_commands(tid_a, node_id(3), command::COMPUTE).size() == 1);
@@ -543,6 +547,8 @@ namespace detail {
 				buf_a.get_access<mode::write>(cgh, {100});
 			}));
 
+			CHECK(inspector.get_commands(boost::none, boost::none, command::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(boost::none, boost::none, command::MASTER_ACCESS).size() == 1);
 			REQUIRE(inspector.get_commands(tid_b, boost::none, command::PUSH).size() == 1);
 			REQUIRE(inspector.get_commands(tid_b, node_id(1), command::PUSH).size() == 1);
 			REQUIRE(inspector.get_commands(tid_b, boost::none, command::AWAIT_PUSH).size() == 1);
@@ -573,6 +579,8 @@ namespace detail {
 				buf_b.get_access<mode::read>(cgh, {100});
 			}));
 
+			CHECK(inspector.get_commands(boost::none, boost::none, command::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(boost::none, boost::none, command::MASTER_ACCESS).size() == 2);
 			REQUIRE(inspector.get_commands(tid_c, boost::none, command::PUSH).empty());
 			REQUIRE(inspector.get_commands(tid_c, boost::none, command::AWAIT_PUSH).empty());
 
@@ -593,6 +601,7 @@ namespace detail {
 
 			const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, {100}); }));
 
+			CHECK(inspector.get_commands(boost::none, boost::none, command::MASTER_ACCESS).size() == 2);
 			REQUIRE(inspector.get_commands(tid_c, boost::none, command::PUSH).empty());
 			REQUIRE(inspector.get_commands(tid_c, boost::none, command::AWAIT_PUSH).empty());
 
@@ -615,12 +624,21 @@ namespace detail {
 		const auto tid_a = build_and_flush(
 		    ggen, test_utils::add_compute_task<class UKN(task_a)>(tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
 		              cl::sycl::range<1>{64}, cl::sycl::id<1>{0}));
-		CHECK(inspector.get_commands(tid_a, boost::none, command::COMPUTE).size() == 1);
+		CHECK(inspector.get_commands(tid_a, boost::none, command::COMPUTE).size() == 2);
 
-		const auto tid_b = build_and_flush(
-		    ggen, test_utils::add_compute_task<class UKN(task_b)>(tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
-		              cl::sycl::range<1>{64}, cl::sycl::id<1>{64}));
-		CHECK(inspector.get_commands(tid_b, boost::none, command::COMPUTE).size() == 1);
+		const auto tid_b = build_and_flush(ggen, test_utils::add_compute_task<class UKN(task_b)>(tm,
+		                                             [&](handler& cgh) {
+			                                             // Swap the two chunks so we write a contiguous range on the worker node across tasks a and b
+			                                             buf.get_access<mode::discard_write>(cgh, [](chunk<1> chnk) {
+				                                             switch(chnk.offset[0]) {
+				                                             case 64: return subrange<1>(96, 32);
+				                                             case 96: return subrange<1>(64, 32);
+				                                             default: CATCH_ERROR("Unexpected offset");
+				                                             }
+			                                             });
+		                                             },
+		                                             cl::sycl::range<1>{64}, cl::sycl::id<1>{64}));
+		CHECK(inspector.get_commands(tid_b, boost::none, command::COMPUTE).size() == 2);
 
 		const auto tid_c = build_and_flush(ggen, test_utils::add_master_access_task(tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, 128); }));
 		REQUIRE(inspector.get_commands(tid_c, node_id(1), command::PUSH).size() == 1);
@@ -643,7 +661,7 @@ namespace detail {
 			const auto tid_a =
 			    build_and_flush(ggen, test_utils::add_compute_task<class UKN(task_a)>(tm,
 			                              [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
-			CHECK(inspector.get_commands(tid_a, boost::none, command::COMPUTE).size() == 1);
+			CHECK(inspector.get_commands(tid_a, boost::none, command::COMPUTE).size() == 2);
 			const auto computes = inspector.get_commands(tid_a, node_id(1), command::COMPUTE);
 			CHECK(computes.size() == 1);
 
@@ -967,17 +985,25 @@ namespace detail {
 			                                             // NOTE: It's important to construct range-mappers in such a way that passing the
 			                                             // global size (during tdag generation) still returns the correct result!
 			                                             buf_a.get_access<mode::read>(cgh, [&](chunk<1> chnk) -> subrange<1> {
-				                                             if(chnk.offset[0] < 50) { return chnk; }
-				                                             return {0, 0};
+				                                             switch(chnk.offset[0]) {
+				                                             case 0: return chnk;
+				                                             case 33: return chnk;
+				                                             case 66: return {0, 0}; // Node 2 does not read buffer a
+				                                             default: CATCH_ERROR("Unexpected offset");
+				                                             }
 			                                             });
 			                                             buf_b.get_access<mode::read>(cgh, [&](chunk<1> chnk) -> subrange<1> {
-				                                             if(chnk.offset[0] + chnk.range[0] <= 50) return {0, 0};
-				                                             return chnk;
+				                                             switch(chnk.offset[0]) {
+				                                             case 0: return chnk;
+				                                             case 33: return {0, 0}; // Node 1 does not read buffer b
+				                                             case 66: return chnk;
+				                                             default: CATCH_ERROR("Unexpected offset");
+				                                             }
 			                                             });
 		                                             },
 		                                             cl::sycl::range<1>{100}));
 
-		CHECK(inspector.get_commands(tid_b, boost::none, command::COMPUTE).size() == 2);
+		CHECK(inspector.get_commands(tid_b, boost::none, command::COMPUTE).size() == 3);
 		const auto computes_node1 = inspector.get_commands(tid_b, node_id(1), command::COMPUTE);
 		CHECK(computes_node1.size() == 1);
 		const auto computes_node2 = inspector.get_commands(tid_b, node_id(2), command::COMPUTE);
@@ -1016,12 +1042,17 @@ namespace detail {
 		CHECK(computes_a_node2.size() == 1);
 
 		// Read from buf_a but overwrite buf_b
-		// Importantly, we only read on the first node node, making it so the second node node does not have a true dependency on the previous task.
+		// Importantly, we only read on the first worker node node, making it so the second worker does not have a true dependency on the previous task.
 		const auto tid_b = build_and_flush(ggen, test_utils::add_compute_task<class UKN(task_b)>(tm,
 		                                             [&](handler& cgh) {
 			                                             buf_a.get_access<mode::read>(cgh, [&](chunk<1> chnk) -> subrange<1> {
-				                                             if(chnk.offset[0] < 50) return chnk;
-				                                             return {0, 0};
+				                                             if(chnk.range[0] == 100) return chnk; // Return full chunk during tdag generation
+				                                             switch(chnk.offset[0]) {
+				                                             case 0: return {0, 0};
+				                                             case 33: return chnk;
+				                                             case 66: return {0, 0};
+				                                             default: CATCH_ERROR("Unexpected offset");
+				                                             }
 			                                             });
 			                                             buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
 		                                             },
@@ -1033,6 +1064,70 @@ namespace detail {
 
 		CHECK(inspector.has_dependency(*computes_b_node1.cbegin(), *computes_a_node1.cbegin()));
 		REQUIRE(inspector.has_dependency(*computes_b_node2.cbegin(), *computes_a_node2.cbegin()));
+
+		maybe_print_graph(tm);
+		maybe_print_graph(ggen);
+	}
+
+	// This test covers implementation details rather than graph-level constructs, however it's important that we deal with this gracefully.
+	TEST_CASE("graph_generator correctly handles anti-dependency edge cases", "[graph_generator][command-graph]") {
+		using namespace cl::sycl::access;
+		task_manager tm{true};
+		cdag_inspector inspector;
+		graph_generator ggen(1, tm, inspector.get_cb());
+		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(100));
+		auto buf_b = mbf.create_buffer(cl::sycl::range<1>(100));
+
+		// task_a writes both buffers
+		const auto tid_a = build_and_flush(ggen, test_utils::add_compute_task<class UKN(task_a)>(tm,
+		                                             [&](handler& cgh) {
+			                                             buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
+			                                             buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
+		                                             },
+		                                             cl::sycl::range<1>{100}));
+
+		task_id tid_b, tid_c;
+
+		SECTION("correctly handles false anti-dependencies that consume a different buffer from the last writer") {
+			// task_b reads buf_a
+			tid_b = build_and_flush(ggen, test_utils::add_compute_task<class UKN(task_b)>(
+			                                  tm, [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>(100)));
+
+			// task_c writes buf_b, initially making task_b a potential anti-dependency (as it is a dependant of task_a). However, since the
+			// two tasks don't actually touch the same buffers at all, nothing needs to be done.
+			tid_c =
+			    build_and_flush(ggen, test_utils::add_compute_task<class UKN(task_c)>(tm,
+			                              [&](handler& cgh) { buf_b.get_access<mode::read_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>(100)));
+		}
+
+		SECTION("does not consider anti-dependants of last writer as potential anti-dependencies") {
+			// task_b writes buf_a, making task_a an anti-dependency
+			tid_b =
+			    build_and_flush(ggen, test_utils::add_compute_task<class UKN(task_b)>(tm,
+			                              [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>(100)));
+
+			// task_c writes buf_b. Since task_b is not a true dependant of task_a, we don't consider it as a potential anti-dependency.
+			tid_c =
+			    build_and_flush(ggen, test_utils::add_compute_task<class UKN(task_c)>(tm,
+			                              [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>(100)));
+		}
+
+		// Even though we're testing for different conditions, we can use the same assertions here.
+
+		const auto computes = inspector.get_commands(boost::none, boost::none, command::COMPUTE);
+		CHECK(computes.size() == 3);
+
+		const auto computes_a = inspector.get_commands(tid_a, boost::none, command::COMPUTE);
+		CHECK(computes_a.size() == 1);
+		const auto computes_b = inspector.get_commands(tid_b, boost::none, command::COMPUTE);
+		CHECK(computes_b.size() == 1);
+		CHECK(inspector.has_dependency(*computes_b.cbegin(), *computes_a.cbegin()));
+		const auto computes_c = inspector.get_commands(tid_c, boost::none, command::COMPUTE);
+		CHECK(computes_c.size() == 1);
+		CHECK(inspector.has_dependency(*computes_c.cbegin(), *computes_a.cbegin()));
+
+		REQUIRE_FALSE(inspector.has_dependency(*computes_c.cbegin(), *computes_b.cbegin()));
 
 		maybe_print_graph(tm);
 		maybe_print_graph(ggen);
@@ -1061,7 +1156,7 @@ namespace detail {
 		using namespace cl::sycl::access;
 		task_manager tm{true};
 		cdag_inspector inspector;
-		graph_generator ggen(3, tm, inspector.get_cb());
+		graph_generator ggen(2, tm, inspector.get_cb());
 		test_utils::mock_buffer_factory mbf(&tm, &ggen);
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(100));
 
@@ -1069,24 +1164,37 @@ namespace detail {
 		                          tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 		const auto tid_b = build_and_flush(ggen, test_utils::add_compute_task<class UKN(task_b)>(tm,
 		                                             [&](handler& cgh) {
-			                                             // Both workers read the full buffer
+			                                             // Both nodes read the full buffer
 			                                             buf.get_access<mode::read>(cgh, access::fixed<1, 1>({0, 100}));
 
-			                                             // Only the second worker also writes to the buffer
+			                                             // Only the worker also writes to the buffer
 			                                             buf.get_access<mode::read_write>(cgh, [](chunk<1> chnk) -> subrange<1> {
-				                                             if(chnk.offset[0] + chnk.range[0] > 50) return chnk;
-				                                             return {0, 0};
+				                                             if(chnk.range[0] == 100) return chnk; // Return full chunk during tdag generation
+				                                             switch(chnk.offset[0]) {
+				                                             case 0: return {0, 0};
+				                                             case 50: return chnk;
+				                                             default: CATCH_ERROR("Unexpected offset");
+				                                             }
 			                                             });
 		                                             },
 		                                             cl::sycl::range<1>{100}));
 		CHECK(inspector.get_commands(tid_b, boost::none, command::PUSH).size() == 2);
 		CHECK(inspector.get_commands(tid_b, boost::none, command::AWAIT_PUSH).size() == 2);
 		CHECK(inspector.get_commands(tid_b, boost::none, command::COMPUTE).size() == 2);
-		const auto pushes_node2 = inspector.get_commands(tid_b, node_id(2), command::PUSH);
-		CHECK(pushes_node2.size() == 1);
-		const auto computes_node2 = inspector.get_commands(tid_b, node_id(2), command::COMPUTE);
-		CHECK(computes_node2.size() == 1);
-		REQUIRE(inspector.has_dependency(*computes_node2.cbegin(), *pushes_node2.cbegin()));
+
+		const auto pushes_master = inspector.get_commands(tid_b, node_id(0), command::PUSH);
+		CHECK(pushes_master.size() == 1);
+		const auto computes_master = inspector.get_commands(tid_b, node_id(0), command::COMPUTE);
+		CHECK(computes_master.size() == 1);
+		// Since the master node does not write to the buffer, there is no anti-dependency...
+		REQUIRE_FALSE(inspector.has_dependency(*computes_master.cbegin(), *pushes_master.cbegin()));
+
+		const auto pushes_node1 = inspector.get_commands(tid_b, node_id(1), command::PUSH);
+		CHECK(pushes_node1.size() == 1);
+		const auto computes_node1 = inspector.get_commands(tid_b, node_id(1), command::COMPUTE);
+		CHECK(computes_node1.size() == 1);
+		// ...however for the worker, there is.
+		REQUIRE(inspector.has_dependency(*computes_node1.cbegin(), *pushes_node1.cbegin()));
 
 		maybe_print_graph(tm);
 		maybe_print_graph(ggen);
