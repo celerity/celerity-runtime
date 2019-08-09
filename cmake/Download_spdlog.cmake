@@ -4,7 +4,7 @@
 include(DownloadProject)
 download_project(PROJ                spdlog
                  GIT_REPOSITORY      https://github.com/gabime/spdlog
-                 GIT_TAG             74dbf4cf702b49c98642c9afe74d114a238a6a07
+                 GIT_TAG             8cc0997f796d2295b0ccc9caaf0abcca25d89525
                  UPDATE_DISCONNECTED 1
 )
 

@@ -4,10 +4,10 @@
 #include <string>
 #include <unordered_map>
 
-#include <spdlog/fmt/fmt.h>
+#include <spdlog/spdlog.h>
+
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/spdlog.h>
 
 namespace spd = spdlog;
 
@@ -159,13 +159,13 @@ namespace detail {
 			log_machine_readable = get_level() == log_level::trace; // TODO: Make this configurable as well?
 			if(log_machine_readable) {
 				// FIXME: We need proper JSON serialization solution
-				spd_logger->set_pattern(R"({"at": "%Y-%m-%d %T.%e", "channel": "%n", "level": "%l"%v})");
+				spd_logger->set_pattern(R"({"at": "%E%f", "channel": "%n", "level": "%l"%v})");
 				context = ", ";
 			}
 
 			std::ostringstream oss;
 			oss << map_serializer(context_values, log_machine_readable);
-			if(log_machine_readable) oss << ", ";
+			if(!context_values.empty() && log_machine_readable) oss << ", ";
 			context = context + oss.str();
 		}
 

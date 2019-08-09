@@ -1,5 +1,6 @@
 #include "graph_utils.h"
 
+#define FMT_HEADER_ONLY
 #include <spdlog/fmt/fmt.h>
 
 #include "command.h"

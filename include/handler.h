@@ -5,6 +5,7 @@
 
 #include <CL/sycl.hpp>
 #include <boost/type_index.hpp>
+#define FMT_HEADER_ONLY
 #include <spdlog/fmt/fmt.h>
 
 #include "range_mapper.h"
