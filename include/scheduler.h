@@ -1,15 +1,17 @@
 #pragma once
 
-#include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <thread>
 
 namespace celerity {
 namespace detail {
 
 	class graph_generator;
+
+	enum class scheduler_event_type { TASK_AVAILABLE, SHUTDOWN };
 
 	class scheduler {
 	  public:
@@ -22,21 +24,23 @@ namespace detail {
 		/**
 		 * @brief Notifies the scheduler that a new task has been created and is ready for scheduling.
 		 */
-		void notify_task_created();
+		void notify_task_created() { notify(scheduler_event_type::TASK_AVAILABLE); }
 
 	  private:
 		std::shared_ptr<graph_generator> ggen;
 
-		size_t unscheduled_tasks = 0;
-		std::atomic<bool> should_shutdown = {false};
-		std::mutex tasks_available_mutex;
-		std::condition_variable tasks_available_cv;
-		std::thread schd_thrd;
+		std::queue<scheduler_event_type> events;
+		std::mutex events_mutex;
+		std::condition_variable events_cv;
+
+		std::thread worker_thread;
 
 		/**
 		 * This is called by the worker thread.
 		 */
 		void schedule();
+
+		void notify(scheduler_event_type type);
 	};
 
 } // namespace detail

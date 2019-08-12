@@ -7,37 +7,42 @@ namespace detail {
 
 	scheduler::scheduler(std::shared_ptr<graph_generator> ggen) : ggen(ggen) {}
 
-	void scheduler::startup() { schd_thrd = std::thread(&scheduler::schedule, this); }
+	void scheduler::startup() { worker_thread = std::thread(&scheduler::schedule, this); }
 
 	void scheduler::shutdown() {
-		should_shutdown = true;
-		notify_task_created(); // Hack: We hijack this functionality to wake the worker thread up
-
-		if(schd_thrd.joinable()) { schd_thrd.join(); }
-	}
-
-	void scheduler::notify_task_created() {
-		{
-			std::lock_guard<std::mutex> lk(tasks_available_mutex);
-			unscheduled_tasks++;
-		}
-		tasks_available_cv.notify_one();
+		notify(scheduler_event_type::SHUTDOWN);
+		if(worker_thread.joinable()) { worker_thread.join(); }
 	}
 
 	void scheduler::schedule() {
-		std::unique_lock<std::mutex> lk(tasks_available_mutex);
+		std::unique_lock<std::mutex> lk(events_mutex);
 
 		while(true) {
 			// TODO: We currently operate in lockstep with the main thread. This is less than ideal.
-			tasks_available_cv.wait(lk, [this] { return unscheduled_tasks > 0; });
-			if(should_shutdown && unscheduled_tasks == 1) return;
+			events_cv.wait(lk, [this] { return !events.empty(); });
+			const auto event = events.front();
+			events.pop();
 
-			const auto tid = ggen->get_unbuilt_task();
-			assert(tid != boost::none);
-			ggen->build_task(*tid);
-			ggen->flush(*tid);
-			unscheduled_tasks--;
+			if(event == scheduler_event_type::SHUTDOWN) {
+				assert(events.empty());
+				return;
+			}
+
+			if(event == scheduler_event_type::TASK_AVAILABLE) {
+				const auto tid = ggen->get_unbuilt_task();
+				assert(tid != boost::none);
+				ggen->build_task(*tid);
+				ggen->flush(*tid);
+			}
 		}
+	}
+
+	void scheduler::notify(scheduler_event_type type) {
+		{
+			std::lock_guard<std::mutex> lk(events_mutex);
+			events.push(type);
+		}
+		events_cv.notify_one();
 	}
 
 } // namespace detail
