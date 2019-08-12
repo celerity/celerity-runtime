@@ -52,6 +52,17 @@ class distr_queue {
 		detail::runtime::get_instance().get_task_manager().create_master_access_task(maf);
 	}
 
+	/**
+	 * @brief Fully syncs the entire system.
+	 *
+	 * This function is intended for incremental development and debugging.
+	 * In production, it should only be used at very coarse granularity (second scale).
+	 * @warning { This is very slow, as it drains all queues and synchronizes accross the entire cluster. }
+	 */
+	void slow_full_sync() {
+		detail::runtime::get_instance().sync();
+	}
+
   private:
 	std::shared_ptr<detail::distr_queue_tracker> tracker;
 

@@ -34,6 +34,12 @@ if(MSVC)
   file(GLOB_RECURSE INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
 endif()
 
+if(CMAKE_GENERATOR STREQUAL "Ninja")
+  # Force colored warnings in Ninja's output, if the compiler has -fdiagnostics-color support.
+  # Rationale in https://github.com/ninja-build/ninja/issues/814
+  set(CMAKE_SYCL_FLAGS "${CMAKE_SYCL_FLAGS} -fdiagnostics-color=always")
+endif()
+
 set(SOURCES
   src/buffer_transfer_manager.cc
   src/config.cc
@@ -106,10 +112,11 @@ option(CELERITY_BUILD_EXAMPLES "Build various example applications" ON)
 if(CELERITY_BUILD_EXAMPLES)
   add_subdirectory(examples/convolution)
   add_subdirectory(examples/matmul)
+  add_subdirectory(examples/syncing)
   add_subdirectory(examples/wave_sim)
 
   set_property(
-    TARGET convolution matmul wave_sim
+    TARGET convolution matmul syncing wave_sim
     PROPERTY FOLDER "examples"
   )
 endif()
