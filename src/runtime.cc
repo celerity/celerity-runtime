@@ -147,14 +147,7 @@ namespace detail {
 		is_shutting_down = true;
 		if(is_master) {
 			schdlr->shutdown();
-
-			// Send shutdown commands to all worker nodes.
-			// FIXME: This is a bit of hack, since we don't know the last command id issued. Maybe we should generate actual commands in the graph for this.
-			command_id base_cmd_id = std::numeric_limits<command_id>::max() - num_nodes;
-			for(auto n = 0u; n < num_nodes; ++n) {
-				command_pkg pkg{0, base_cmd_id + n, command::SHUTDOWN, command_data{}};
-				flush_command(n, pkg, {});
-			}
+			broadcast_control_command(command::SHUTDOWN, command_data{});
 		}
 
 		exec->shutdown();
@@ -171,6 +164,22 @@ namespace detail {
 		task_mngr->shutdown();
 		is_shutting_down = false;
 		maybe_destroy_runtime();
+	}
+
+	void runtime::sync() noexcept {
+		// (Note: currently this function busy waits, but sync is slow and shouldn't be on the critical path anyway)
+		sync_id++;
+
+		// First, broadcast SYNC command once the scheduler has finished all previous tasks
+		if(is_master) {
+			while(!schdlr->is_idle()) std::this_thread::yield();
+			command_data cmd_data{};
+			cmd_data.sync.sync_id = sync_id;
+			broadcast_control_command(command::SYNC, cmd_data);
+		}
+
+		// Then we wait for that sync to actually be reached.
+		while(exec->get_highest_executed_sync_id() < sync_id) std::this_thread::yield();
 	}
 
 	task_manager& runtime::get_task_manager() const { return *task_mngr; }
@@ -195,6 +204,14 @@ namespace detail {
 		}
 		buffer_ptrs.erase(bid);
 		maybe_destroy_runtime();
+	}
+
+	void runtime::broadcast_control_command(command cmd, const command_data& data) {
+		assert_true(is_master) << "Control commands should only be broadcast from the master";
+		for(auto n = 0u; n < num_nodes; ++n) {
+			command_pkg pkg{0, control_command_id++, cmd, data};
+			flush_command(n, pkg, {});
+		}
 	}
 
 	void runtime::maybe_destroy_runtime() const {

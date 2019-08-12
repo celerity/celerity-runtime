@@ -14,6 +14,11 @@ namespace detail {
 		if(worker_thread.joinable()) { worker_thread.join(); }
 	}
 
+	bool scheduler::is_idle() const noexcept {
+		std::lock_guard<std::mutex> lock(events_mutex);
+		return events.empty();
+	}
+
 	void scheduler::schedule() {
 		std::unique_lock<std::mutex> lk(events_mutex);
 

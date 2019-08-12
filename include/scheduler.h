@@ -26,11 +26,16 @@ namespace detail {
 		 */
 		void notify_task_created() { notify(scheduler_event_type::TASK_AVAILABLE); }
 
+		/**
+		 * @brief Returns true if the scheduler is idle (has no events to process).
+		 */
+		bool is_idle() const noexcept;
+
 	  private:
 		std::shared_ptr<graph_generator> ggen;
 
 		std::queue<scheduler_event_type> events;
-		std::mutex events_mutex;
+		mutable std::mutex events_mutex;
 		std::condition_variable events_cv;
 
 		std::thread worker_thread;

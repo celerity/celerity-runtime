@@ -38,8 +38,14 @@ namespace detail {
 		execution_logger->trace(logger_map{{"starvationTime", std::to_string(metrics.starvation.get().count())}});
 	}
 
+	uint64_t executor::get_highest_executed_sync_id() const noexcept {
+		return highest_executed_sync_id;
+	}
+
 	void executor::run() {
 		bool done = false;
+		constexpr uint64_t NOT_SYNCING = std::numeric_limits<uint64_t>::max();
+		uint64_t syncing_on_id = NOT_SYNCING;
 
 		struct command_info {
 			command_pkg pkg;
@@ -48,6 +54,12 @@ namespace detail {
 		std::queue<command_info> command_queue;
 
 		while(!done || !jobs.empty()) {
+			if(syncing_on_id != NOT_SYNCING && jobs.empty()) {
+				MPI_Barrier(MPI_COMM_WORLD);
+				highest_executed_sync_id = syncing_on_id;
+				syncing_on_id = NOT_SYNCING;
+			}
+
 			// We poll transfers from here (in the same thread, interleaved with job updates),
 			// as it allows us to omit any sort of locking when interacting with the BTM through jobs.
 			// This actually makes quite a big difference, especially for lots of small transfers.
@@ -119,12 +131,15 @@ namespace detail {
 				}
 			}
 
-			if(jobs.size() < MAX_CONCURRENT_JOBS && !command_queue.empty()) {
+			if(syncing_on_id == NOT_SYNCING && jobs.size() < MAX_CONCURRENT_JOBS && !command_queue.empty()) {
 				const auto info = command_queue.front();
 				command_queue.pop();
 				if(info.pkg.cmd == command::SHUTDOWN) {
 					assert(command_queue.empty());
 					done = true;
+				}
+				else if(info.pkg.cmd == command::SYNC) {
+					syncing_on_id = info.pkg.data.sync.sync_id;
 				} else {
 					handle_command(info.pkg, info.dependencies);
 				}

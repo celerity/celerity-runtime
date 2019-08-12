@@ -6,8 +6,24 @@
 namespace celerity {
 namespace detail {
 
-	enum class command { NOP, COMPUTE, MASTER_ACCESS, PUSH, AWAIT_PUSH, SHUTDOWN };
-	constexpr const char* command_string[] = {"NOP", "COMPUTE", "MASTER_ACCESS", "PUSH", "AWAIT_PUSH", "SHUTDOWN"};
+	enum class command {
+		NOP,
+		COMPUTE,
+		MASTER_ACCESS,
+		PUSH,
+		AWAIT_PUSH,
+		SHUTDOWN,
+		SYNC,
+	};
+	constexpr const char* command_string[] = {
+		"NOP",
+		"COMPUTE",
+		"MASTER_ACCESS",
+		"PUSH",
+		"AWAIT_PUSH",
+		"SHUTDOWN",
+		"SYNC",
+	};
 
 	struct command_subrange {
 		size_t offset[3] = {0, 0, 0};
@@ -67,6 +83,10 @@ namespace detail {
 
 	struct shutdown_data {};
 
+	struct sync_data {
+		uint64_t sync_id;
+	};
+
 	union command_data {
 		nop_data nop;
 		compute_data compute;
@@ -74,6 +94,7 @@ namespace detail {
 		push_data push;
 		await_push_data await_push;
 		shutdown_data shutdown;
+		sync_data sync;
 	};
 
 	/**

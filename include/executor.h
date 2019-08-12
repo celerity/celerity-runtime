@@ -49,6 +49,11 @@ namespace detail {
 		 */
 		void shutdown();
 
+		/**
+		 * @brief Get the id of the highest executed global sync operation.
+		 */
+		uint64_t get_highest_executed_sync_id() const noexcept;
+
 	  private:
 		device_queue& queue;
 		task_manager& task_mngr;
@@ -56,6 +61,7 @@ namespace detail {
 		std::shared_ptr<logger> execution_logger;
 		std::thread exec_thrd;
 		std::unordered_map<command, size_t> job_count_by_cmd;
+		std::atomic<uint64_t> highest_executed_sync_id;
 
 		// Jobs are identified by the command id they're processing
 

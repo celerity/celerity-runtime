@@ -47,6 +47,8 @@ namespace detail {
 
 		void shutdown() noexcept;
 
+		void sync() noexcept;
+
 		bool is_master_node() { return is_master; }
 
 		task_manager& get_task_manager() const;
@@ -97,6 +99,12 @@ namespace detail {
 			return thread_pool.push([fun](int id) { return fun(); });
 		}
 
+		/**
+		 * @brief Broadcasts the specified control command to all workers.
+		 * @internal
+		 */
+		void broadcast_control_command(command cmd, const command_data& data);
+
 	  private:
 		static std::unique_ptr<runtime> instance;
 		std::shared_ptr<logger> default_logger;
@@ -111,6 +119,11 @@ namespace detail {
 		std::unique_ptr<device_queue> queue;
 		size_t num_nodes;
 		bool is_master;
+
+		uint64_t sync_id = 0;
+
+		// We reserve the upper half of control IDs for control commands.
+		command_id control_command_id = 1ul << 63;
 
 		size_t buffer_count = 0;
 		std::unordered_map<buffer_id, std::shared_ptr<buffer_storage_base>> buffer_ptrs;

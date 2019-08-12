@@ -398,4 +398,35 @@ TEST_CASE("safe command group functions must not capture by reference", "[lifeti
 	REQUIRE(detail::is_safe_cgf<decltype(safe)>);
 }
 
+TEST_CASE("basic SYNC command functionality", "[distr_queue][sync][control-flow]") {
+	constexpr int N = 10;
+
+	distr_queue q;
+	buffer<int, 1> buff(N);
+	std::vector<int> host_buff(N);
+
+	q.submit([=](handler& cgh) {
+		auto b = buff.get_access<cl::sycl::access::mode::discard_write>(cgh, access::one_to_one<1>());
+		cgh.parallel_for<class mat_mul>(cl::sycl::range<1>(N), [=](cl::sycl::item<1> item) {
+			b[item] = item.get_linear_id();
+		});
+	});
+
+	q.with_master_access([&](handler& cgh) {
+		auto b = buff.get_access<cl::sycl::access::mode::read>(cgh, buff.get_range());
+		cgh.run([&]() {
+			std::this_thread::sleep_for(std::chrono::milliseconds(10)); // give the synchronization more time to fail
+			for(int i = 0; i < N; i++) {
+				host_buff[i] = b[i];
+			}
+		});
+	});
+
+	q.slow_full_sync();
+
+	for(int i = 0; i < N; i++) {
+		CHECK(host_buff[i] == i);
+	}
+}
+
 } // namespace celerity
