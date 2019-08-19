@@ -59,9 +59,7 @@ class distr_queue {
 	 * In production, it should only be used at very coarse granularity (second scale).
 	 * @warning { This is very slow, as it drains all queues and synchronizes accross the entire cluster. }
 	 */
-	void slow_full_sync() {
-		detail::runtime::get_instance().sync();
-	}
+	void slow_full_sync() { detail::runtime::get_instance().sync(); }
 
   private:
 	std::shared_ptr<detail::distr_queue_tracker> tracker;

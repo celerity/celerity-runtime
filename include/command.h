@@ -16,13 +16,13 @@ namespace detail {
 		SYNC,
 	};
 	constexpr const char* command_string[] = {
-		"NOP",
-		"COMPUTE",
-		"MASTER_ACCESS",
-		"PUSH",
-		"AWAIT_PUSH",
-		"SHUTDOWN",
-		"SYNC",
+	    "NOP",
+	    "COMPUTE",
+	    "MASTER_ACCESS",
+	    "PUSH",
+	    "AWAIT_PUSH",
+	    "SHUTDOWN",
+	    "SYNC",
 	};
 
 	struct command_subrange {

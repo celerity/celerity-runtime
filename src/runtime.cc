@@ -172,14 +172,18 @@ namespace detail {
 
 		// First, broadcast SYNC command once the scheduler has finished all previous tasks
 		if(is_master) {
-			while(!schdlr->is_idle()) std::this_thread::yield();
+			while(!schdlr->is_idle()) {
+				std::this_thread::yield();
+			}
 			command_data cmd_data{};
 			cmd_data.sync.sync_id = sync_id;
 			broadcast_control_command(command::SYNC, cmd_data);
 		}
 
 		// Then we wait for that sync to actually be reached.
-		while(exec->get_highest_executed_sync_id() < sync_id) std::this_thread::yield();
+		while(exec->get_highest_executed_sync_id() < sync_id) {
+			std::this_thread::yield();
+		}
 	}
 
 	task_manager& runtime::get_task_manager() const { return *task_mngr; }

@@ -407,9 +407,7 @@ TEST_CASE("basic SYNC command functionality", "[distr_queue][sync][control-flow]
 
 	q.submit([=](handler& cgh) {
 		auto b = buff.get_access<cl::sycl::access::mode::discard_write>(cgh, access::one_to_one<1>());
-		cgh.parallel_for<class mat_mul>(cl::sycl::range<1>(N), [=](cl::sycl::item<1> item) {
-			b[item] = item.get_linear_id();
-		});
+		cgh.parallel_for<class mat_mul>(cl::sycl::range<1>(N), [=](cl::sycl::item<1> item) { b[item] = item.get_linear_id(); });
 	});
 
 	q.with_master_access([&](handler& cgh) {

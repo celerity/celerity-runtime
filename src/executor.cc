@@ -38,9 +38,7 @@ namespace detail {
 		execution_logger->trace(logger_map{{"starvationTime", std::to_string(metrics.starvation.get().count())}});
 	}
 
-	uint64_t executor::get_highest_executed_sync_id() const noexcept {
-		return highest_executed_sync_id;
-	}
+	uint64_t executor::get_highest_executed_sync_id() const noexcept { return highest_executed_sync_id; }
 
 	void executor::run() {
 		bool done = false;
@@ -137,8 +135,7 @@ namespace detail {
 				if(info.pkg.cmd == command::SHUTDOWN) {
 					assert(command_queue.empty());
 					done = true;
-				}
-				else if(info.pkg.cmd == command::SYNC) {
+				} else if(info.pkg.cmd == command::SYNC) {
 					syncing_on_id = info.pkg.data.sync.sync_id;
 				} else {
 					handle_command(info.pkg, info.dependencies);
