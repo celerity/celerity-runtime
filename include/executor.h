@@ -61,7 +61,7 @@ namespace detail {
 		std::shared_ptr<logger> execution_logger;
 		std::thread exec_thrd;
 		std::unordered_map<command, size_t> job_count_by_cmd;
-		std::atomic<uint64_t> highest_executed_sync_id;
+		std::atomic<uint64_t> highest_executed_sync_id = {0};
 
 		// Jobs are identified by the command id they're processing
 
