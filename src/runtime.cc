@@ -213,7 +213,7 @@ namespace detail {
 	void runtime::broadcast_control_command(command cmd, const command_data& data) {
 		assert_true(is_master) << "Control commands should only be broadcast from the master";
 		for(auto n = 0u; n < num_nodes; ++n) {
-			command_pkg pkg{0, control_command_id++, cmd, data};
+			command_pkg pkg{0, next_control_command_id++, cmd, data};
 			flush_command(n, pkg, {});
 		}
 	}

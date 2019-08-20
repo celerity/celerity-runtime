@@ -6,6 +6,8 @@ namespace detail {
 	template <typename T, typename UniqueName>
 	class PhantomType {
 	  public:
+		using underlying_t = T;
+
 		PhantomType() = default;
 		PhantomType(T const& value) : value(value) {}
 		PhantomType(T&& value) : value(std::move(value)) {}

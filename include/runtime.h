@@ -1,6 +1,7 @@
 #pragma once
 
 #include <deque>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -122,8 +123,8 @@ namespace detail {
 
 		uint64_t sync_id = 0;
 
-		// We reserve the upper half of control IDs for control commands.
-		command_id control_command_id = 1ul << 63;
+		// We reserve the upper half of command IDs for control commands.
+		command_id next_control_command_id = command_id(1) << (std::numeric_limits<command_id::underlying_t>::digits - 1);
 
 		size_t buffer_count = 0;
 		std::unordered_map<buffer_id, std::shared_ptr<buffer_storage_base>> buffer_ptrs;
