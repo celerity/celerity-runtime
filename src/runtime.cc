@@ -130,8 +130,12 @@ namespace detail {
 		// All buffers should have unregistered themselves by now.
 		assert(buffer_ptrs.empty());
 
-		// Make sure we free all of our MPI custom types before we finalize
-		active_flushes.clear();
+		// Make sure we free all of our MPI transfers before we finalize
+		while(!active_flushes.empty()) {
+			int done;
+			MPI_Test(&active_flushes.begin()->req, &done, MPI_STATUS_IGNORE);
+			if(done) { active_flushes.pop_front(); }
+		}
 		if(!test_mode) { MPI_Finalize(); }
 	}
 
