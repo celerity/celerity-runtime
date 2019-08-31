@@ -106,6 +106,15 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
+if(hipSYCL_FOUND)
+  # Boost currently (as of 1.71) does not enable variadic macros
+  # when it detects CUDA compilation.
+  # Since we are using Clang however (via hipSYCL) instead of NVCC,
+  # the macros can and should be enabled.
+  # See https://github.com/boostorg/preprocessor/issues/24
+  target_compile_definitions(celerity_runtime PUBLIC BOOST_PP_VARIADICS=1)
+endif()
+
 # Examples
 
 option(CELERITY_BUILD_EXAMPLES "Build various example applications" ON)
