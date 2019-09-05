@@ -1,0 +1,5 @@
+node_modules
+translated_docs
+build
+package-lock.json
+i18n

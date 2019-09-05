@@ -1,0 +1,48 @@
+/* Docusarus overrides */
+
+.fixedHeaderContainer {
+  background: linear-gradient(
+    90deg,
+    rgb(245, 139, 105) 0%,
+    rgb(200, 110, 132) 35%,
+    rgb(74, 102, 176) 100%
+  );
+}
+
+.blockContent {
+  max-width: 25em;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.blockElement {
+  margin-bottom: 6em;
+}
+
+.imageAlignTop .blockImage {
+  max-width: 10em;
+}
+
+blockquote {
+  background-color: rgb(255, 223, 213);
+  border-left: 8px solid #f58b69;
+  color: #333;
+}
+
+/* Custom classes */
+
+.celerity-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1em;
+}
+
+.celerity-disclaimer {
+  max-width: 600px;
+  margin: 0 auto;
+  margin-top: 1em;
+  padding: 1em;
+  background: #ffd99a;
+  border: solid 1px orange;
+  border-radius: 2px;
+}
