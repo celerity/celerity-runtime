@@ -1,12 +1,16 @@
 #pragma once
 
 #include <boost/optional.hpp>
-#include <string>
 
 #include "logger.h"
 
 namespace celerity {
 namespace detail {
+
+	struct host_config {
+		size_t node_count;
+		size_t local_rank;
+	};
 
 	struct device_config {
 		size_t platform_id;
@@ -24,7 +28,9 @@ namespace detail {
 		 */
 		config(int* argc, char** argv[], logger& logger);
 
-		log_level get_log_level() { return log_lvl; }
+		log_level get_log_level() const { return log_lvl; }
+
+		host_config get_host_config() const { return host_cfg; }
 
 		/**
 		 * Returns the platform and device id as set by the CELERITY_DEVICES environment variable.
@@ -40,6 +46,7 @@ namespace detail {
 
 	  private:
 		log_level log_lvl;
+		host_config host_cfg;
 		boost::optional<device_config> device_cfg;
 		boost::optional<bool> enable_device_profiling;
 		boost::optional<size_t> forced_work_group_size;

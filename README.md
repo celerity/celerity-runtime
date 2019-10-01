@@ -46,13 +46,15 @@ executed like any other MPI application (i.e., using `mpirun` or equivalent).
 
 ## Environment Variables
 
+* `CELERITY_LOG_LEVEL` controls the logging output level. One of `trace`, `debug`,
+  `info`, `warn`, `err`, `critical`, or `off`.
 * `CELERITY_DEVICES` can be used to assign different compute devices to CELERITY
   nodes on a single host. The syntax is as follows:
   `CELERITY_DEVICES="<platform_id> <first device_id> <second device_id> ... <nth device_id>"`.
+  Note that this should normally not be required, as Celerity will attempt to
+  automatically assign a unique device to each node on a host.
 * `CELERITY_FORCE_WG=<work_group_size>` can be used to force a particular work
    group size for *every kernel* and *every dimension*.
 * `CELERITY_PROFILE_OCL` controls whether OpenCL-level profiling information
   should be used or not (currently not supported when using hipSYCL).
-* `CELERITY_LOG_LEVEL` controls the logging output level. One of `trace`, `debug`,
-  `info`, `warn`, `err`, `critical`, or `off`.
 

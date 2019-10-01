@@ -17,7 +17,6 @@ namespace detail {
 		device_profiling_enabled = profiling_cfg != boost::none && *profiling_cfg;
 		if(device_profiling_enabled) { queue_logger.info("Device profiling enabled."); }
 
-		// TODO: Do we need a queue on master nodes? (Only for single-node execution?)
 		cl::sycl::property_list props = ([&]() {
 #if !WORKAROUND(HIPSYCL, 0)
 			if(device_profiling_enabled) { return cl::sycl::property_list{cl::sycl::property::queue::enable_profiling()}; }
@@ -51,12 +50,29 @@ namespace detail {
 				}
 				device = devices[device_cfg->device_id];
 			} else {
-				queue_logger.warn("CELERITY_DEVICES not set");
+				const auto host_cfg = cfg.get_host_config();
 
-				// Just use the first device available
-				const auto devices = cl::sycl::device::get_devices(cl::sycl::info::device_type::gpu);
-				if(devices.empty()) { throw std::runtime_error("Automatic device selection failed: No GPU device available"); }
-				device = devices[0];
+				// Try to find a platform that can provide a unique device for each node.
+				bool found = false;
+				const auto platforms = cl::sycl::platform::get_platforms();
+				for(size_t i = 0; i < platforms.size(); ++i) {
+					auto&& platform = platforms[i];
+					const auto devices = platform.get_devices(cl::sycl::info::device_type::gpu);
+					if(devices.size() >= host_cfg.node_count) {
+						how_selected = fmt::format("automatically selected platform {}, device {}", i, host_cfg.local_rank);
+						device = devices[host_cfg.local_rank];
+						found = true;
+						break;
+					}
+				}
+
+				if(!found) {
+					queue_logger.warn("No suitable platform found that can provide {} devices, and CELERITY_DEVICES not set", host_cfg.node_count);
+					// Just use the first device available
+					const auto devices = cl::sycl::device::get_devices(cl::sycl::info::device_type::gpu);
+					if(devices.empty()) { throw std::runtime_error("Automatic device selection failed: No GPU device available"); }
+					device = devices[0];
+				}
 			}
 		}
 
