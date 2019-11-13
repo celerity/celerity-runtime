@@ -83,7 +83,7 @@ namespace detail {
 					job_handle.job->update();
 					++it;
 				} else {
-					for(const auto& d : job_handle.dependants) {
+					for(const auto& d : job_handle.dependents) {
 						assert(jobs.count(d) == 1);
 						jobs[d].unsatisfied_dependencies--;
 						if(jobs[d].unsatisfied_dependencies == 0) { ready_jobs.push_back(d); }
@@ -98,7 +98,7 @@ namespace detail {
 				// Make sure to start any PUSH jobs before other jobs, as on some platforms copying data from a compute device while
 				// also reading it from within a kernel is not supported. To avoid stalling other nodes, we thus perform the PUSH first.
 				std::sort(ready_jobs.begin(), ready_jobs.end(),
-				    [this](command_id a, command_id b) { return jobs[a].cmd == command::PUSH && jobs[b].cmd != command::PUSH; });
+				    [this](command_id a, command_id b) { return jobs[a].cmd == command_type::PUSH && jobs[b].cmd != command_type::PUSH; });
 				for(command_id cid : ready_jobs) {
 					jobs[cid].job->start();
 					jobs[cid].job->update();
@@ -132,11 +132,11 @@ namespace detail {
 			if(syncing_on_id == NOT_SYNCING && jobs.size() < MAX_CONCURRENT_JOBS && !command_queue.empty()) {
 				const auto info = command_queue.front();
 				command_queue.pop();
-				if(info.pkg.cmd == command::SHUTDOWN) {
+				if(info.pkg.cmd == command_type::SHUTDOWN) {
 					assert(command_queue.empty());
 					done = true;
-				} else if(info.pkg.cmd == command::SYNC) {
-					syncing_on_id = info.pkg.data.sync.sync_id;
+				} else if(info.pkg.cmd == command_type::SYNC) {
+					syncing_on_id = boost::get<sync_data>(info.pkg.data).sync_id;
 				} else {
 					handle_command(info.pkg, info.dependencies);
 				}
@@ -154,16 +154,16 @@ namespace detail {
 
 	void executor::handle_command(const command_pkg& pkg, const std::vector<command_id>& dependencies) {
 		switch(pkg.cmd) {
-		case command::PUSH: create_job<push_job>(pkg, dependencies, *btm); break;
-		case command::AWAIT_PUSH: create_job<await_push_job>(pkg, dependencies, *btm); break;
-		case command::COMPUTE: create_job<compute_job>(pkg, dependencies, queue, task_mngr); break;
-		case command::MASTER_ACCESS: create_job<master_access_job>(pkg, dependencies, task_mngr); break;
+		case command_type::PUSH: create_job<push_job>(pkg, dependencies, *btm); break;
+		case command_type::AWAIT_PUSH: create_job<await_push_job>(pkg, dependencies, *btm); break;
+		case command_type::COMPUTE: create_job<compute_job>(pkg, dependencies, queue, task_mngr); break;
+		case command_type::MASTER_ACCESS: create_job<master_access_job>(pkg, dependencies, task_mngr); break;
 		default: { assert(false && "Unexpected command"); }
 		}
 	}
 
 	void executor::update_metrics() {
-		if(job_count_by_cmd[command::COMPUTE] == 0) {
+		if(job_count_by_cmd[command_type::COMPUTE] == 0) {
 			if(!metrics.compute_idle.is_running()) { metrics.compute_idle.resume(); }
 		} else {
 			if(metrics.compute_idle.is_running()) { metrics.compute_idle.pause(); }

@@ -60,15 +60,15 @@ namespace detail {
 		std::unique_ptr<buffer_transfer_manager> btm;
 		std::shared_ptr<logger> execution_logger;
 		std::thread exec_thrd;
-		std::unordered_map<command, size_t> job_count_by_cmd;
+		std::unordered_map<command_type, size_t> job_count_by_cmd;
 		std::atomic<uint64_t> highest_executed_sync_id = {0};
 
 		// Jobs are identified by the command id they're processing
 
 		struct job_handle {
 			std::unique_ptr<worker_job> job;
-			command cmd;
-			std::vector<command_id> dependants;
+			command_type cmd;
+			std::vector<command_id> dependents;
 			size_t unsatisfied_dependencies;
 		};
 
@@ -79,7 +79,11 @@ namespace detail {
 
 		template <typename Job, typename... Args>
 		void create_job(const command_pkg& pkg, const std::vector<command_id>& dependencies, Args&&... args) {
-			auto logger = execution_logger->create_context({{"task", std::to_string(pkg.tid)}, {"job", std::to_string(pkg.cid)}});
+			auto logger = execution_logger->create_context({{"job", std::to_string(pkg.cid)}});
+			if(pkg.cmd == command_type::COMPUTE || pkg.cmd == command_type::MASTER_ACCESS) {
+				logger = logger->create_context({{"task",
+				    std::to_string(pkg.cmd == command_type::COMPUTE ? boost::get<compute_data>(pkg.data).tid : boost::get<master_access_data>(pkg.data).tid)}});
+			}
 			jobs[pkg.cid] = {std::make_unique<Job>(pkg, logger, std::forward<Args>(args)...), pkg.cmd, {}, 0};
 
 			// If job doesn't exist we assume it has already completed.
@@ -87,7 +91,7 @@ namespace detail {
 			for(const command_id& d : dependencies) {
 				const auto it = jobs.find(d);
 				if(it != jobs.end()) {
-					it->second.dependants.push_back(pkg.cid);
+					it->second.dependents.push_back(pkg.cid);
 					jobs[pkg.cid].unsatisfied_dependencies++;
 				}
 			}

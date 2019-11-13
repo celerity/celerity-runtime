@@ -9,15 +9,14 @@ namespace celerity {
 namespace detail {
 
 	std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::push(const command_pkg& pkg) {
-		assert(pkg.cmd == command::PUSH);
+		assert(pkg.cmd == command_type::PUSH);
 		auto t_handle = std::make_shared<transfer_handle>();
 		// We are blocking the caller until the buffer has been copied and submitted to MPI
 		// TODO: Investigate doing this in worker thread
 		// --> This probably needs some kind of heuristic, as for small (e.g. ghost cell) transfers the overhead of threading is way too big
-		const push_data& data = pkg.data.push;
-		auto data_handle =
-		    runtime::get_instance().get_buffer_data(data.bid, cl::sycl::range<3>(data.subrange.offset[0], data.subrange.offset[1], data.subrange.offset[2]),
-		        cl::sycl::range<3>(data.subrange.range[0], data.subrange.range[1], data.subrange.range[2]));
+		const push_data& data = boost::get<push_data>(pkg.data);
+		auto data_handle = runtime::get_instance().get_buffer_data(data.bid, cl::sycl::range<3>(data.sr.offset[0], data.sr.offset[1], data.sr.offset[2]),
+		    cl::sycl::range<3>(data.sr.range[0], data.sr.range[1], data.sr.range[2]));
 
 		// This is a bit of a hack (logging a job event from here), but it's very useful
 		transfer_logger->trace(logger_map{{"job", std::to_string(pkg.cid)}, {"event", "Buffer data ready to be sent"}});
@@ -25,7 +24,7 @@ namespace detail {
 		const auto data_size = data_handle->linearized_data_size;
 		auto transfer = std::make_unique<transfer_out>(std::move(data_handle));
 		transfer->handle = t_handle;
-		transfer->header.subrange = data.subrange;
+		transfer->header.sr = data.sr;
 		transfer->header.bid = data.bid;
 		transfer->header.push_cid = pkg.cid;
 		transfer->data_type = mpi_support::build_single_use_composite_type({{sizeof(data_header), &transfer->header}, {data_size, transfer->get_raw_ptr()}});
@@ -38,8 +37,8 @@ namespace detail {
 	}
 
 	std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::await_push(const command_pkg& pkg) {
-		assert(pkg.cmd == command::AWAIT_PUSH);
-		const await_push_data& data = pkg.data.await_push;
+		assert(pkg.cmd == command_type::AWAIT_PUSH);
+		const await_push_data& data = boost::get<await_push_data>(pkg.data);
 
 		std::shared_ptr<incoming_transfer_handle> t_handle;
 		// Check to see if we have (fully) received the push already
@@ -48,7 +47,7 @@ namespace detail {
 			push_blackboard.erase(data.source_cid);
 			assert(t_handle->transfer != nullptr);
 			assert(t_handle->transfer->header.bid == data.bid);
-			assert(t_handle->transfer->header.subrange == data.subrange);
+			assert(t_handle->transfer->header.sr == data.sr);
 			assert(t_handle->complete);
 			write_data_to_buffer(*t_handle->transfer);
 		} else {
@@ -136,8 +135,8 @@ namespace detail {
 	void buffer_transfer_manager::write_data_to_buffer(transfer_in& transfer) {
 		// TODO: Same as in push() - this blocks the caller until data is submitted to MPI
 		const auto& header = transfer.header;
-		const detail::raw_data_handle dh{&transfer.data[0], cl::sycl::range<3>(header.subrange.range[0], header.subrange.range[1], header.subrange.range[2]),
-		    cl::sycl::id<3>(header.subrange.offset[0], header.subrange.offset[1], header.subrange.offset[2])};
+		const detail::raw_data_handle dh{&transfer.data[0], cl::sycl::range<3>(header.sr.range[0], header.sr.range[1], header.sr.range[2]),
+		    cl::sycl::id<3>(header.sr.offset[0], header.sr.offset[1], header.sr.offset[2])};
 		// In some rare situations the local runtime might not yet know about this buffer. Busy wait until it does.
 		while(!runtime::get_instance().has_buffer(header.bid)) {}
 		runtime::get_instance().set_buffer_data(header.bid, dh);

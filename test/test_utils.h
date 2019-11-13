@@ -1,11 +1,18 @@
 #pragma once
 
+#include <catch.hpp>
+
 #define CELERITY_TEST
 #include <celerity.h>
 
+#include "command.h"
+#include "command_graph.h"
 #include "graph_generator.h"
+#include "graph_serializer.h"
 #include "range_mapper.h"
 #include "task_manager.h"
+#include "transformers/naive_split.h"
+#include "types.h"
 
 namespace celerity {
 namespace test_utils {
@@ -44,9 +51,102 @@ namespace test_utils {
 		mock_buffer(detail::buffer_id id, cl::sycl::range<Dims> size) : id(id), size(size) {}
 	};
 
+	class cdag_inspector {
+	  public:
+		auto get_cb() {
+			return [this](detail::node_id nid, detail::command_pkg pkg, const std::vector<detail::command_id>& dependencies) {
+				for(detail::command_id dep : dependencies) {
+					// Sanity check: All dependencies must have already been flushed
+					CHECK(commands.count(dep) == 1);
+				}
+
+				const detail::command_id cid = pkg.cid;
+				commands[cid] = {nid, pkg, dependencies};
+				if(pkg.cmd == detail::command_type::COMPUTE || pkg.cmd == detail::command_type::MASTER_ACCESS) {
+					by_task[pkg.cmd == detail::command_type::COMPUTE ? boost::get<detail::compute_data>(pkg.data).tid
+					                                                 : boost::get<detail::master_access_data>(pkg.data).tid]
+					    .insert(cid);
+				}
+				by_node[nid].insert(cid);
+			};
+		}
+
+		std::set<detail::command_id> get_commands(
+		    boost::optional<detail::task_id> tid, boost::optional<detail::node_id> nid, boost::optional<detail::command_type> cmd) const {
+			// Sanity check: Not all commands have an associated task id
+			assert(tid == boost::none || (cmd == boost::none || cmd == detail::command_type::COMPUTE || cmd == detail::command_type::MASTER_ACCESS));
+
+			std::set<detail::command_id> result;
+			std::transform(commands.cbegin(), commands.cend(), std::inserter(result, result.begin()), [](auto p) { return p.first; });
+
+			if(tid != boost::none) {
+				auto& task_set = by_task.at(*tid);
+				std::set<detail::command_id> new_result;
+				std::set_intersection(result.cbegin(), result.cend(), task_set.cbegin(), task_set.cend(), std::inserter(new_result, new_result.begin()));
+				result = std::move(new_result);
+			}
+			if(nid != boost::none) {
+				auto& node_set = by_node.at(*nid);
+				std::set<detail::command_id> new_result;
+				std::set_intersection(result.cbegin(), result.cend(), node_set.cbegin(), node_set.cend(), std::inserter(new_result, new_result.begin()));
+				result = std::move(new_result);
+			}
+			if(cmd != boost::none) {
+				std::set<detail::command_id> new_result;
+				std::copy_if(result.cbegin(), result.cend(), std::inserter(new_result, new_result.begin()),
+				    [this, cmd](detail::command_id cid) { return commands.at(cid).pkg.cmd == cmd; });
+				result = std::move(new_result);
+			}
+
+			return result;
+		}
+
+		bool has_dependency(detail::command_id dependent, detail::command_id dependency) {
+			const auto& deps = commands.at(dependent).dependencies;
+			return std::find(deps.cbegin(), deps.cend(), dependency) != deps.cend();
+		}
+
+		size_t get_dependency_count(detail::command_id dependent) const { return commands.at(dependent).dependencies.size(); }
+
+	  private:
+		struct cmd_info {
+			detail::node_id nid;
+			detail::command_pkg pkg;
+			std::vector<detail::command_id> dependencies;
+		};
+
+		std::map<detail::command_id, cmd_info> commands;
+		std::map<detail::task_id, std::set<detail::command_id>> by_task;
+		std::map<experimental::bench::detail::node_id, std::set<detail::command_id>> by_node;
+	};
+
+	class cdag_test_context {
+	  public:
+		cdag_test_context(size_t num_nodes) {
+			tm = std::make_unique<detail::task_manager>(true);
+			cdag = std::make_unique<detail::command_graph>();
+			ggen = std::make_unique<detail::graph_generator>(num_nodes, *tm, *cdag);
+			gsrlzr = std::make_unique<detail::graph_serializer>(*cdag, inspector.get_cb());
+		}
+
+		detail::task_manager& get_task_manager() { return *tm; }
+		detail::command_graph& get_command_graph() { return *cdag; }
+		detail::graph_generator& get_graph_generator() { return *ggen; }
+		cdag_inspector& get_inspector() { return inspector; }
+		detail::graph_serializer& get_graph_serializer() { return *gsrlzr; }
+
+	  private:
+		std::unique_ptr<detail::task_manager> tm;
+		std::unique_ptr<detail::command_graph> cdag;
+		std::unique_ptr<detail::graph_generator> ggen;
+		cdag_inspector inspector;
+		std::unique_ptr<detail::graph_serializer> gsrlzr;
+	};
+
 	class mock_buffer_factory {
 	  public:
 		mock_buffer_factory(detail::task_manager* tm = nullptr, detail::graph_generator* ggen = nullptr) : task_mngr(tm), ggen(ggen) {}
+		mock_buffer_factory(cdag_test_context& ctx) : task_mngr(&ctx.get_task_manager()), ggen(&ctx.get_graph_generator()) {}
 
 		template <int Dims>
 		mock_buffer<Dims> create_buffer(cl::sycl::range<Dims> size, bool mark_as_host_initialized = false) {
@@ -66,18 +166,31 @@ namespace test_utils {
 	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
 	detail::task_id add_compute_task(
 	    detail::task_manager& tm, CGF cgf, cl::sycl::range<KernelDims> global_size = {1, 1}, cl::sycl::id<KernelDims> global_offset = {}) {
-		tm.create_compute_task([&, gs = global_size, go = global_offset](handler& cgh) {
+		return tm.create_compute_task([&, gs = global_size, go = global_offset](handler& cgh) {
 			cgf(cgh);
 			cgh.parallel_for<KernelName>(gs, go, [](cl::sycl::id<KernelDims>) {});
 		});
-		return (*tm.get_task_graph()).m_vertices.size() - 1;
 	}
 
 	template <typename CGF>
 	detail::task_id add_master_access_task(detail::task_manager& tm, CGF cgf) {
-		tm.create_master_access_task(cgf);
-		return (*tm.get_task_graph()).m_vertices.size() - 1;
+		return tm.create_master_access_task(cgf);
 	}
+
+	inline detail::task_id build_and_flush(cdag_test_context& ctx, size_t num_nodes, size_t num_chunks, detail::task_id tid) {
+		detail::naive_split_transformer transformer{num_chunks, num_nodes};
+		ctx.get_graph_generator().build_task(tid, {&transformer});
+		ctx.get_graph_serializer().flush(tid);
+		return tid;
+	}
+
+	// Defaults to the same number of chunks as nodes
+	inline detail::task_id build_and_flush(cdag_test_context& ctx, size_t num_nodes, detail::task_id tid) {
+		return build_and_flush(ctx, num_nodes, num_nodes, tid);
+	}
+
+	// Defaults to one node and chunk
+	inline detail::task_id build_and_flush(cdag_test_context& ctx, detail::task_id tid) { return build_and_flush(ctx, 1, 1, tid); }
 
 } // namespace test_utils
 } // namespace celerity

@@ -34,7 +34,7 @@ namespace detail {
 	  private:
 		struct data_header {
 			buffer_id bid;
-			command_subrange subrange;
+			subrange<3> sr;
 			command_id push_cid;
 		};
 

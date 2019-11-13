@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "grid.h"
+#include "intrusive_graph.h"
 #include "range_mapper.h"
 #include "types.h"
 
@@ -17,7 +18,7 @@ class master_access_livepass_handler;
 
 namespace detail {
 
-	enum class task_type { COMPUTE, MASTER_ACCESS };
+	enum class task_type { NOP, COMPUTE, MASTER_ACCESS };
 
 	struct command_group_storage_base {
 		virtual void operator()(handler& cgh) const = 0;
@@ -33,7 +34,8 @@ namespace detail {
 		void operator()(handler& cgh) const override { fun(cgh); }
 	};
 
-	class task {
+	// TODO: It's not ideal that dependencies are only populated on the master node, but the interface exists on workers as well...
+	class task : public intrusive_graph_node<task> {
 	  public:
 		task(task_id tid) : tid(tid) {}
 		virtual ~task() = default;
@@ -46,6 +48,15 @@ namespace detail {
 
 	  private:
 		task_id tid;
+	};
+
+	class nop_task : public task {
+	  public:
+		explicit nop_task(const task_id& tid) : task(tid) {}
+
+		task_type get_type() const override { return task_type::NOP; }
+		std::vector<buffer_id> get_accessed_buffers() const override { return {}; }
+		std::unordered_set<cl::sycl::access::mode> get_access_modes(buffer_id bid) const override { return {}; }
 	};
 
 	class compute_task : public task {

@@ -1,16 +1,18 @@
 #include "scheduler.h"
 
 #include "graph_generator.h"
+#include "graph_serializer.h"
+#include "transformers/naive_split.h"
 
 namespace celerity {
 namespace detail {
 
-	scheduler::scheduler(std::shared_ptr<graph_generator> ggen) : ggen(ggen) {}
+	scheduler::scheduler(graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes) : ggen(ggen), gsrlzr(gsrlzr), num_nodes(num_nodes) {}
 
 	void scheduler::startup() { worker_thread = std::thread(&scheduler::schedule, this); }
 
 	void scheduler::shutdown() {
-		notify(scheduler_event_type::SHUTDOWN);
+		notify(scheduler_event_type::SHUTDOWN, 0);
 		if(worker_thread.joinable()) { worker_thread.join(); }
 	}
 
@@ -28,24 +30,24 @@ namespace detail {
 			const auto event = events.front();
 			events.pop();
 
-			if(event == scheduler_event_type::SHUTDOWN) {
+			if(event.type == scheduler_event_type::SHUTDOWN) {
 				assert(events.empty());
 				return;
 			}
 
-			if(event == scheduler_event_type::TASK_AVAILABLE) {
-				const auto tid = ggen->get_unbuilt_task();
-				assert(tid != boost::none);
-				ggen->build_task(*tid);
-				ggen->flush(*tid);
+			if(event.type == scheduler_event_type::TASK_AVAILABLE) {
+				const task_id tid = event.data;
+				naive_split_transformer naive_split(num_nodes, num_nodes);
+				ggen.build_task(tid, {&naive_split});
+				gsrlzr.flush(tid);
 			}
 		}
 	}
 
-	void scheduler::notify(scheduler_event_type type) {
+	void scheduler::notify(scheduler_event_type type, size_t data) {
 		{
 			std::lock_guard<std::mutex> lk(events_mutex);
-			events.push(type);
+			events.push({type, data});
 		}
 		events_cv.notify_one();
 	}

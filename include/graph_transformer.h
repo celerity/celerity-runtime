@@ -2,15 +2,16 @@
 
 #include <memory>
 
+#include "command_graph.h"
+
 namespace celerity {
 namespace detail {
 
-	class scoped_graph_builder;
 	class task;
 
 	class graph_transformer {
 	  public:
-		virtual void transform_task(const std::shared_ptr<const task>& tsk, scoped_graph_builder& gb) = 0;
+		virtual void transform_task(const std::shared_ptr<const task>& tsk, command_graph& cdag) = 0;
 
 		virtual ~graph_transformer() = default;
 	};

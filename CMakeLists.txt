@@ -42,13 +42,14 @@ endif()
 
 set(SOURCES
   src/buffer_transfer_manager.cc
+  src/command_graph.cc
   src/config.cc
   src/device_queue.cc
   src/executor.cc
-  src/graph_builder.cc
   src/graph_generator.cc
-  src/graph_utils.cc
+  src/graph_serializer.cc
   src/mpi_support.cc
+  src/print_graph.cc
   src/runtime.cc
   src/scheduler.cc
   src/task.cc

@@ -62,6 +62,8 @@ struct subrange {
 	subrange(subrange<OtherDims> other) : offset(detail::id_cast<Dims>(other.offset)), range(detail::range_cast<Dims>(other.range)) {}
 
 	subrange(chunk<Dims> other) : offset(other.offset), range(other.range) {}
+
+	bool operator==(const subrange& rhs) { return offset == rhs.offset && range == rhs.range; }
 };
 
 } // namespace celerity

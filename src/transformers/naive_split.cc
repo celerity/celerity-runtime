@@ -1,11 +1,9 @@
 #include "transformers/naive_split.h"
 
 #include <cassert>
-#include <numeric>
 #include <vector>
 
 #include "command.h"
-#include "graph_builder.h"
 #include "ranges.h"
 #include "task.h"
 
@@ -44,42 +42,54 @@ namespace detail {
 
 	std::vector<chunk<3>> split_equal(const chunk<3>& full_chunk, size_t num_chunks) { throw std::runtime_error("3D split_equal NYI"); }
 
-	naive_split_transformer::naive_split_transformer(size_t num_workers) : num_workers(num_workers) {}
+	naive_split_transformer::naive_split_transformer(size_t num_chunks, size_t num_workers) : num_chunks(num_chunks), num_workers(num_workers) {
+		assert(num_chunks >= num_workers);
+	}
 
-	void naive_split_transformer::transform_task(const std::shared_ptr<const task>& tsk, scoped_graph_builder& gb) {
+	void naive_split_transformer::transform_task(const std::shared_ptr<const task>& tsk, command_graph& cdag) {
 		if(tsk->get_type() != task_type::COMPUTE) return;
 		const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
-		if(num_workers == 1) return;
 
-		std::vector<node_id> nodes(num_workers);
-		std::iota(nodes.begin(), nodes.end(), 0);
-
-		auto computes = gb.get_commands(command::COMPUTE);
-		for(auto& cid : computes) {
-			auto& cmd_data = gb.get_command_data(cid);
-			const subrange<3> sr = cmd_data.data.compute.subrange;
-
-			std::vector<chunk<3>> chunks;
-			switch(ctsk->get_dimensions()) {
-			case 1: {
-				const chunk<1> full_chunk(detail::id_cast<1>(sr.offset), detail::range_cast<1>(sr.range), detail::range_cast<1>(ctsk->get_global_size()));
-				chunks = split_equal(full_chunk, num_workers);
-			} break;
-			case 2: {
-				const chunk<2> full_chunk(detail::id_cast<2>(sr.offset), detail::range_cast<2>(sr.range), detail::range_cast<2>(ctsk->get_global_size()));
-				chunks = split_equal(full_chunk, num_workers);
-			} break;
-			case 3: {
-				const chunk<3> full_chunk(detail::id_cast<3>(sr.offset), detail::range_cast<3>(sr.range), detail::range_cast<3>(ctsk->get_global_size()));
-				chunks = split_equal(full_chunk, num_workers);
-			} break;
-			default: assert(false);
-			}
-
-			gb.split_command(cid, chunks, nodes);
+		// Assign each chunk to a node
+		std::vector<node_id> nodes(num_chunks);
+		// We assign chunks next to each other to the same worker (if there is more chunks than workers), as this is likely to produce less
+		// transfers between tasks than a round-robin assignment (for typical stencil codes).
+		const auto chunks_per_node = num_workers > 0 ? num_chunks / num_workers : num_chunks;
+		for(auto i = 0u; i < num_chunks; ++i) {
+			nodes[i] = (i / chunks_per_node) % num_workers;
 		}
 
-		gb.commit();
+		auto& task_commands = cdag.task_commands(ctsk->get_id());
+		assert(task_commands.size() == 1);
+		assert(isa<compute_command>(task_commands[0]));
+
+		const auto original = static_cast<compute_command*>(task_commands[0]);
+
+		// TODO: For now we can only handle newly created computes (i.e. no existing dependencies/dependents)
+		assert(std::distance(original->get_dependencies().begin(), original->get_dependencies().end()) == 0);
+		assert(std::distance(original->get_dependents().begin(), original->get_dependents().end()) == 0);
+
+		chunk<3> full_chunk{ctsk->get_global_offset(), ctsk->get_global_size(), ctsk->get_global_size()};
+		std::vector<chunk<3>> chunks;
+		switch(ctsk->get_dimensions()) {
+		case 1: {
+			chunks = split_equal(chunk<1>(full_chunk), num_chunks);
+		} break;
+		case 2: {
+			chunks = split_equal(chunk<2>(full_chunk), num_chunks);
+		} break;
+		case 3: {
+			chunks = split_equal(chunk<3>(full_chunk), num_chunks);
+		} break;
+		default: assert(false);
+		}
+
+		for(size_t i = 0; i < chunks.size(); ++i) {
+			cdag.create<compute_command>(nodes[i], ctsk->get_id(), chunks[i]);
+		}
+
+		// Remove original
+		cdag.erase(original);
 	}
 
 } // namespace detail

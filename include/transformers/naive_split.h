@@ -7,12 +7,19 @@ namespace detail {
 
 	class naive_split_transformer : public graph_transformer {
 	  public:
-		explicit naive_split_transformer(size_t num_workers);
+		/**
+		 * The naive split transformer splits every COMPUTE command within a given task into a certain number of chunks.
+		 *
+		 * @arg num_chunks The number of chunks each COMPUTE command should be split into.
+		 * @arg num_workers The number of workers that the resulting chunks should be assigned to.
+		 */
+		naive_split_transformer(size_t num_chunks, size_t num_workers);
 
-		void transform_task(const std::shared_ptr<const task>& tsk, scoped_graph_builder& gb) override;
+		void transform_task(const std::shared_ptr<const task>& tsk, command_graph& cdag) override;
 
 	  private:
-		size_t num_workers;
+		const size_t num_chunks;
+		const size_t num_workers;
 	};
 
 } // namespace detail

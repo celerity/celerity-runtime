@@ -7,7 +7,6 @@
 
 #include <boost/optional.hpp>
 
-#include "graph.h"
 #include "handler.h"
 #include "region_map.h"
 #include "task.h"
@@ -17,7 +16,7 @@ namespace celerity {
 namespace detail {
 
 	class logger;
-	using task_callback = std::function<void(void)>;
+	using task_callback = std::function<void(task_id)>;
 
 	class task_manager {
 		using buffer_writers_map = std::unordered_map<buffer_id, region_map<boost::optional<task_id>>>;
@@ -32,35 +31,39 @@ namespace detail {
 		task_manager(bool is_master_node);
 		virtual ~task_manager() = default;
 
-		template <typename CGF>
-		void create_compute_task(CGF cgf) {
+		template <typename CGF, typename... Hints>
+		task_id create_compute_task(CGF cgf, Hints... hints) {
+			task_id tid;
 			{
 				std::lock_guard<std::mutex> lock(task_mutex);
 				const auto task = create_task<compute_task>(std::make_unique<command_group_storage<CGF>>(cgf));
+				tid = task->get_id();
 				auto cgh = std::make_unique<compute_task_handler<true>>(task);
 				cgf(*cgh);
-				task_graph[task->get_id()].label = fmt::format("{} ({})", task_graph[task->get_id()].label, task->get_debug_name());
-				if(is_master_node) { compute_dependencies(task->get_id()); }
+				if(is_master_node) { compute_dependencies(tid); }
 			}
-			invoke_callbacks();
+			invoke_callbacks(tid);
+			return tid;
 		}
 
 		template <typename CGF>
-		void create_master_access_task(CGF cgf) {
+		task_id create_master_access_task(CGF cgf) {
+			task_id tid;
 			{
 				std::lock_guard<std::mutex> lock(task_mutex);
 				const auto task = create_task<master_access_task>(std::make_unique<command_group_storage<CGF>>(cgf));
+				tid = task->get_id();
 				// Executing master access command groups involves the creation of real (i.e., non-placeholder) host accessors,
 				// which is not for free - especially on worker nodes. As we don't really need any information about master
 				// access tasks on worker nodes anyway, we simply omit the pre-pass execution of the command group function.
 				if(is_master_node) {
 					auto cgh = std::make_unique<master_access_task_handler<true>>(task);
 					cgf(*cgh);
-					task_graph[task->get_id()].label = fmt::format("{} ({})", task_graph[task->get_id()].label, "master-access");
-					compute_dependencies(task->get_id());
+					compute_dependencies(tid);
 				}
 			}
-			invoke_callbacks();
+			invoke_callbacks(tid);
+			return tid;
 		}
 
 		/**
@@ -73,9 +76,6 @@ namespace detail {
 		 * @arg host_initialized Whether this buffer has been initialized using a host pointer (i.e., it contains useful data before any write-task)
 		 */
 		void add_buffer(buffer_id bid, const cl::sycl::range<3>& range, bool host_initialized);
-
-		// TODO: See if we can get rid of this entirely, effectively making the task graph an implementation detail.
-		locked_graph<const task_dag> get_task_graph() const;
 
 		/**
 		 * @brief Checks whether a task has already been registered with the queue.
@@ -97,8 +97,6 @@ namespace detail {
 			return init_task_id;
 		}
 
-		void mark_task_as_processed(task_id tid);
-
 		void print_graph(logger& graph_logger) const;
 
 		/**
@@ -116,8 +114,6 @@ namespace detail {
 		// NOTE: This represents the state after the latest performed pre-pass.
 		buffer_writers_map buffers_last_writers;
 
-		task_dag task_graph;
-
 		// For simplicity we use a single mutex to control access to all task-related (i.e. the task graph, task_map, ...) data structures.
 		mutable std::mutex task_mutex;
 
@@ -128,12 +124,10 @@ namespace detail {
 			const task_id tid = next_task_id++;
 			const auto task = std::make_shared<Task>(tid, std::forward<Args...>(args...));
 			task_map[tid] = task;
-			boost::add_vertex(task_graph);
-			task_graph[tid].label = fmt::format("Task {}", static_cast<size_t>(tid));
 			return task;
 		}
 
-		void invoke_callbacks();
+		void invoke_callbacks(task_id tid);
 
 	  protected:
 		virtual void compute_dependencies(task_id tid);

@@ -16,10 +16,10 @@
 
 #include "buffer.h"
 #include "buffer_storage.h"
-#include "command.h"
+#include "command_graph.h"
 #include "executor.h"
 #include "graph_generator.h"
-#include "graph_utils.h"
+#include "graph_serializer.h"
 #include "logger.h"
 #include "mpi_support.h"
 #include "scheduler.h"
@@ -104,10 +104,12 @@ namespace detail {
 		task_mngr = std::make_shared<task_manager>(is_master);
 		exec = std::make_unique<executor>(*queue, *task_mngr, default_logger);
 		if(is_master) {
-			ggen = std::make_shared<graph_generator>(num_nodes, *task_mngr,
+			cdag = std::make_unique<command_graph>();
+			ggen = std::make_shared<graph_generator>(num_nodes, *task_mngr, *cdag);
+			gsrlzr = std::make_unique<graph_serializer>(*cdag,
 			    [this](node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies) { flush_command(target, pkg, dependencies); });
-			schdlr = std::make_unique<scheduler>(ggen);
-			task_mngr->register_task_callback([this]() { schdlr->notify_task_created(); });
+			schdlr = std::make_unique<scheduler>(*ggen, *gsrlzr, num_nodes);
+			task_mngr->register_task_callback([this](task_id tid) { schdlr->notify_task_created(tid); });
 		}
 
 		default_logger->info(
@@ -118,7 +120,9 @@ namespace detail {
 	runtime::~runtime() {
 		if(is_master) {
 			schdlr.reset();
+			gsrlzr.reset();
 			ggen.reset();
+			cdag.reset();
 		}
 
 		exec.reset();
@@ -151,7 +155,7 @@ namespace detail {
 		is_shutting_down = true;
 		if(is_master) {
 			schdlr->shutdown();
-			broadcast_control_command(command::SHUTDOWN, command_data{});
+			broadcast_control_command(command_type::SHUTDOWN, command_data{});
 		}
 
 		exec->shutdown();
@@ -159,7 +163,7 @@ namespace detail {
 
 		if(is_master && graph_logger->get_level() == log_level::trace) {
 			task_mngr->print_graph(*graph_logger);
-			ggen->print_graph(*graph_logger);
+			cdag->print_graph(*graph_logger);
 		}
 
 		// Shutting down the task_manager will cause all buffers captured inside command group functions to unregister.
@@ -179,9 +183,9 @@ namespace detail {
 			while(!schdlr->is_idle()) {
 				std::this_thread::yield();
 			}
-			command_data cmd_data{};
-			cmd_data.sync.sync_id = sync_id;
-			broadcast_control_command(command::SYNC, cmd_data);
+			sync_data cmd_data{};
+			cmd_data.sync_id = sync_id;
+			broadcast_control_command(command_type::SYNC, cmd_data);
 		}
 
 		// Then we wait for that sync to actually be reached.
@@ -216,10 +220,10 @@ namespace detail {
 		maybe_destroy_runtime();
 	}
 
-	void runtime::broadcast_control_command(command cmd, const command_data& data) {
+	void runtime::broadcast_control_command(command_type cmd, const command_data& data) {
 		assert_true(is_master) << "Control commands should only be broadcast from the master";
 		for(auto n = 0u; n < num_nodes; ++n) {
-			command_pkg pkg{0, next_control_command_id++, cmd, data};
+			command_pkg pkg{next_control_command_id++, cmd, data};
 			flush_command(n, pkg, {});
 		}
 	}

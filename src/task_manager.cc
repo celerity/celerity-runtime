@@ -1,18 +1,15 @@
 #include "task_manager.h"
 
 #include "access_modes.h"
-#include "graph_utils.h"
+#include "logger.h"
+#include "print_graph.h"
 
 namespace celerity {
 namespace detail {
 	task_manager::task_manager(bool is_master_node) : is_master_node(is_master_node), init_task_id(next_task_id++) {
-		// We add a special init task for initializing buffers. This task is marked as processed right away.
+		// We add a special init task for initializing buffers.
 		// This is useful so we can correctly generate anti-dependencies for tasks that read host initialized buffers.
-		// TODO: Not the cleanest solution, especially since it doesn't have an associated task object.
-		task_map[init_task_id] = nullptr;
-		boost::add_vertex(task_graph);
-		task_graph[init_task_id].label = fmt::format("Task {} <INIT>", static_cast<size_t>(init_task_id));
-		task_graph[init_task_id].processed = true;
+		task_map[init_task_id] = std::make_shared<nop_task>(init_task_id);
 	}
 
 	void task_manager::add_buffer(buffer_id bid, const cl::sycl::range<3>& range, bool host_initialized) {
@@ -20,8 +17,6 @@ namespace detail {
 		buffers_last_writers.emplace(bid, range);
 		if(host_initialized) { buffers_last_writers.at(bid).update_region(subrange_to_grid_region(subrange<3>({}, range)), init_task_id); }
 	}
-
-	locked_graph<const task_dag> task_manager::get_task_graph() const { return locked_graph<const task_dag>{task_graph, task_mutex}; }
 
 	bool task_manager::has_task(task_id tid) const {
 		std::lock_guard<std::mutex> lock(task_mutex);
@@ -36,17 +31,12 @@ namespace detail {
 		return task_map.at(tid);
 	}
 
-	void task_manager::mark_task_as_processed(task_id tid) {
-		std::lock_guard<std::mutex> lock(task_mutex);
-		graph_utils::mark_as_processed(tid, task_graph);
-	}
-
 	void task_manager::print_graph(logger& graph_logger) const {
-		const auto locked_tdag = get_task_graph();
-		if((*locked_tdag).m_vertices.size() < 200) {
-			graph_utils::print_graph(*locked_tdag, graph_logger);
+		std::lock_guard<std::mutex> lock(task_mutex);
+		if(task_map.size() < 200) {
+			detail::print_graph(task_map, graph_logger);
 		} else {
-			graph_logger.warn("Task graph is very large ({} vertices). Skipping GraphViz output", (*locked_tdag).m_vertices.size());
+			graph_logger.warn("Task graph is very large ({} vertices). Skipping GraphViz output", task_map.size());
 		}
 	}
 
@@ -75,21 +65,6 @@ namespace detail {
 	void task_manager::compute_dependencies(task_id tid) {
 		using namespace cl::sycl::access;
 
-		const auto add_dependency = [this](task_id dependant, task_id dependency, bool anti) {
-			// Check if edge already exists
-			const auto ed = boost::edge(dependency, dependant, task_graph);
-			const bool exists = ed.second;
-
-			if(exists) {
-				// If it already exists, make sure true dependencies take precedence
-				if(!anti) { task_graph[ed.first].anti_dependency = false; }
-			} else {
-				const auto result = boost::add_edge(dependency, dependant, task_graph);
-				task_graph[result.first].anti_dependency = anti;
-				if(!task_graph[dependency].processed) { task_graph[dependant].num_unsatisfied++; }
-			}
-		};
-
 		const auto& tsk = task_map[tid];
 		const auto buffers = tsk->get_accessed_buffers();
 
@@ -107,7 +82,7 @@ namespace detail {
 					// A valid use case (i.e., not reading garbage) for this is when the buffer has been initialized using a host pointer.
 					if(p.second == boost::none) continue;
 					const task_id last_writer = *p.second;
-					add_dependency(tid, last_writer, false);
+					tsk->add_dependency({task_map[last_writer].get(), false});
 				}
 			}
 
@@ -120,35 +95,34 @@ namespace detail {
 
 				for(auto& p : last_writers) {
 					if(p.second == boost::none) continue;
-					task_id last_writer = *p.second;
+					auto last_writer = task_map[*p.second];
 
-					// Determine anti-dependencies by looking at all the dependants of the last writing task
-					bool has_anti_dependants = false;
-					graph_utils::for_successors(
-					    task_graph, last_writer, [tid, bid, add_dependency, &write_requirements, &has_anti_dependants, this](tdag_vertex v, tdag_edge) {
-						    const auto dependant_tid = static_cast<task_id>(v);
-						    if(dependant_tid == tid) {
-							    // This can happen
-							    // - if a task writes to two or more buffers with the same last writer
-							    // - if the task itself also needs read access to that buffer (R/W access)
-							    return;
-						    }
-						    const auto dependant_read_requirements = get_requirements(
-						        task_map[dependant_tid].get(), bid, {access::detail::consumer_modes.cbegin(), access::detail::consumer_modes.cend()});
-						    // Only add an anti-dependency if we are really writing over the region read by this task
-						    if(!GridRegion<3>::intersect(write_requirements, dependant_read_requirements).empty()) {
-							    add_dependency(tid, dependant_tid, true);
-							    has_anti_dependants = true;
-						    }
-					    });
+					// Determine anti-dependencies by looking at all the dependents of the last writing task
+					bool has_anti_dependents = false;
 
-					if(!has_anti_dependants) {
+					for(auto dependent : last_writer->get_dependents()) {
+						if(dependent.node->get_id() == tid) {
+							// This can happen
+							// - if a task writes to two or more buffers with the same last writer
+							// - if the task itself also needs read access to that buffer (R/W access)
+							continue;
+						}
+						const auto dependent_read_requirements =
+						    get_requirements(dependent.node, bid, {access::detail::consumer_modes.cbegin(), access::detail::consumer_modes.cend()});
+						// Only add an anti-dependency if we are really writing over the region read by this task
+						if(!GridRegion<3>::intersect(write_requirements, dependent_read_requirements).empty()) {
+							tsk->add_dependency({dependent.node, true});
+							has_anti_dependents = true;
+						}
+					}
+
+					if(!has_anti_dependents) {
 						// If no intermediate consumers exist, add an anti-dependency on the last writer directly.
 						// Note that unless this task is a pure producer, a true dependency will be created and this is a no-op.
 						// While it might not always make total sense to have anti-dependencies between (pure) producers without an
 						// intermediate consumer, we at least have a defined behavior, and the thus enforced ordering of tasks
 						// likely reflects what the user expects.
-						add_dependency(tid, last_writer, true);
+						tsk->add_dependency({last_writer.get(), true});
 					}
 				}
 
@@ -157,9 +131,9 @@ namespace detail {
 		}
 	}
 
-	void task_manager::invoke_callbacks() {
+	void task_manager::invoke_callbacks(task_id tid) {
 		for(auto& cb : task_callbacks) {
-			cb();
+			cb(tid);
 		}
 	}
 

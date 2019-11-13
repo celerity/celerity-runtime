@@ -43,7 +43,7 @@ namespace detail {
 
 		auto job_description = get_description(pkg);
 		job_logger->trace(logger_map({{"cid", std::to_string(pkg.cid)}, {"event", "START"},
-		    {"type", command_string[static_cast<std::underlying_type_t<command>>(job_description.first)]}, {"message", job_description.second}}));
+		    {"type", command_string[static_cast<std::underlying_type_t<command_type>>(job_description.first)]}, {"message", job_description.second}}));
 		start_time = std::chrono::steady_clock::now();
 	}
 
@@ -52,9 +52,10 @@ namespace detail {
 	// --------------------------------------------------- AWAIT PUSH -----------------------------------------------------
 	// --------------------------------------------------------------------------------------------------------------------
 
-	std::pair<command, std::string> await_push_job::get_description(const command_pkg& pkg) {
-		return std::make_pair(command::AWAIT_PUSH,
-		    fmt::format("AWAIT PUSH of buffer {} by node {}", static_cast<size_t>(pkg.data.await_push.bid), static_cast<size_t>(pkg.data.await_push.source)));
+	std::pair<command_type, std::string> await_push_job::get_description(const command_pkg& pkg) {
+		const auto data = boost::get<await_push_data>(pkg.data);
+		return std::make_pair(
+		    command_type::AWAIT_PUSH, fmt::format("AWAIT PUSH of buffer {} by node {}", static_cast<size_t>(data.bid), static_cast<size_t>(data.source)));
 	}
 
 	bool await_push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
@@ -67,9 +68,9 @@ namespace detail {
 	// ------------------------------------------------------- PUSH -------------------------------------------------------
 	// --------------------------------------------------------------------------------------------------------------------
 
-	std::pair<command, std::string> push_job::get_description(const command_pkg& pkg) {
-		return std::make_pair(
-		    command::PUSH, fmt::format("PUSH buffer {} to node {}", static_cast<size_t>(pkg.data.push.bid), static_cast<size_t>(pkg.data.push.target)));
+	std::pair<command_type, std::string> push_job::get_description(const command_pkg& pkg) {
+		const auto data = boost::get<push_data>(pkg.data);
+		return std::make_pair(command_type::PUSH, fmt::format("PUSH buffer {} to node {}", static_cast<size_t>(data.bid), static_cast<size_t>(data.target)));
 	}
 
 	bool push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
@@ -85,7 +86,7 @@ namespace detail {
 	// ------------------------------------------------------ COMPUTE -----------------------------------------------------
 	// --------------------------------------------------------------------------------------------------------------------
 
-	std::pair<command, std::string> compute_job::get_description(const command_pkg& pkg) { return std::make_pair(command::COMPUTE, "COMPUTE"); }
+	std::pair<command_type, std::string> compute_job::get_description(const command_pkg& pkg) { return std::make_pair(command_type::COMPUTE, "COMPUTE"); }
 
 // While device profiling is disabled on hipSYCL anyway, we have to make sure that we don't include any OpenCL code
 #if !WORKAROUND(HIPSYCL, 0)
@@ -99,8 +100,9 @@ namespace detail {
 #endif
 
 	bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
+		const auto data = boost::get<compute_data>(pkg.data);
 		// A bit of a hack: We cannot be sure the main thread has reached the task definition yet, so we have to check it here
-		if(!task_mngr.has_task(pkg.tid)) {
+		if(!task_mngr.has_task(data.tid)) {
 			if(!did_log_task_wait) {
 				logger->trace(logger_map({{"event", "Waiting for task definition"}}));
 				did_log_task_wait = true;
@@ -110,10 +112,10 @@ namespace detail {
 
 		if(!submitted) {
 			// Note that we have to set the proper global size so the livepass handler can use the assigned chunk as input for range mappers
-			const auto ctsk = std::static_pointer_cast<const detail::compute_task>(task_mngr.get_task(pkg.tid));
-			auto& cmd_sr = pkg.data.compute.subrange;
+			const auto ctsk = std::static_pointer_cast<const detail::compute_task>(task_mngr.get_task(data.tid));
+			auto& cmd_sr = data.sr;
 			logger->trace(logger_map({{"event", "Execute live-pass, submit kernel to SYCL"}}));
-			event = queue.execute(pkg.tid, cmd_sr);
+			event = queue.execute(data.tid, cmd_sr);
 			submitted = true;
 			logger->trace(logger_map({{"event", "Submitted"}}));
 
@@ -164,13 +166,13 @@ namespace detail {
 	// --------------------------------------------------- MASTER ACCESS --------------------------------------------------
 	// --------------------------------------------------------------------------------------------------------------------
 
-	std::pair<command, std::string> master_access_job::get_description(const command_pkg& pkg) {
-		return std::make_pair(command::MASTER_ACCESS, "MASTER ACCESS");
+	std::pair<command_type, std::string> master_access_job::get_description(const command_pkg& pkg) {
+		return std::make_pair(command_type::MASTER_ACCESS, "MASTER ACCESS");
 	}
 
 	bool master_access_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 		// In this case we can be sure that the task definition exists, as we're on the master node.
-		const auto tsk = std::static_pointer_cast<const master_access_task>(task_mngr.get_task(pkg.tid));
+		const auto tsk = std::static_pointer_cast<const master_access_task>(task_mngr.get_task(boost::get<master_access_data>(pkg.data).tid));
 		auto cgh = std::make_unique<master_access_task_handler<false>>();
 		tsk->get_functor()(*cgh);
 		return true;

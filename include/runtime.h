@@ -10,6 +10,7 @@
 #include <mpi.h>
 
 #include "buffer_storage.h"
+#include "command.h"
 #include "config.h"
 #include "device_queue.h"
 #include "logger.h"
@@ -21,6 +22,8 @@ namespace detail {
 
 	class buffer_storage_base;
 	class graph_generator;
+	class graph_serializer;
+	class command_graph;
 	class scheduler;
 	class executor;
 	class task_manager;
@@ -104,7 +107,7 @@ namespace detail {
 		 * @brief Broadcasts the specified control command to all workers.
 		 * @internal
 		 */
-		void broadcast_control_command(command cmd, const command_data& data);
+		void broadcast_control_command(command_type cmd, const command_data& data);
 
 	  private:
 		static std::unique_ptr<runtime> instance;
@@ -130,8 +133,10 @@ namespace detail {
 		std::unordered_map<buffer_id, std::shared_ptr<buffer_storage_base>> buffer_ptrs;
 		mutable std::mutex buffer_mutex;
 
-		// The graph generator and scheduler are only constructed on the master node.
+		// These management classes are only constructed on the master node.
+		std::unique_ptr<command_graph> cdag;
 		std::shared_ptr<graph_generator> ggen;
+		std::shared_ptr<graph_serializer> gsrlzr;
 		std::unique_ptr<scheduler> schdlr;
 
 		std::shared_ptr<task_manager> task_mngr;
