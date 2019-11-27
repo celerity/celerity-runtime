@@ -9,6 +9,8 @@
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "print_utils.h"
+
 namespace spd = spdlog;
 
 namespace celerity {
