@@ -23,6 +23,8 @@ namespace detail {
 	 */
 	template <typename ValueType>
 	class region_map {
+		using region_values_t = std::vector<std::pair<GridRegion<3>, ValueType>>;
+
 	  public:
 		/**
 		 * @param extent The maximum extent of a region that can be stored within the map (i.e. all regions are subsets of this).
@@ -70,21 +72,19 @@ namespace detail {
 		void update_region(const GridRegion<3>& region, const ValueType& value) {
 			if(!default_initialized.empty()) { default_initialized = GridRegion<3>::difference(default_initialized, region); }
 
-			const auto num_regions = region_values.size();
-			for(auto i = 0u; i < num_regions; ++i) {
-				const size_t overlap = GridRegion<3>::intersect(region_values[i].first, region).area();
-				if(overlap == 0) continue;
-				const auto diff = GridRegion<3>::difference(region_values[i].first, region);
-				if(diff.area() == 0) {
-					// New region is larger / equal to stored region - update it
-					region_values[i].first = region;
-					region_values[i].second = value;
-				} else {
-					// Stored region needs to be updated as well
-					region_values[i].first = diff;
-					region_values.push_back(std::make_pair(region, value));
-				}
+			region_values_t new_region_values;
+			// Reserve enough elements in case we need to add a region.
+			new_region_values.reserve(region_values.size() + 1);
+			for(const auto& region_value : region_values) {
+				auto rest = GridRegion<3>::difference(region_value.first, region);
+				if(rest.empty()) continue;
+				new_region_values.push_back({rest, region_value.second});
 			}
+			new_region_values.push_back({region, value});
+			region_values = std::move(new_region_values);
+
+			// TODO WIP: currently no collapsing
+			//std::cout << "Regions after update: " << region_values.size() << " --- " << typeid(ValueType).name() << "\n";
 
 			// Since we only add regions in this function it's important to collapse afterwards.
 			collapse_regions();
@@ -108,7 +108,8 @@ namespace detail {
 		GridRegion<3> default_initialized;
 		// TODO: Look into using a different data structure for this.
 		// Maybe order descending by area?
-		std::vector<std::pair<GridRegion<3>, ValueType>> region_values;
+		region_values_t region_values;
+
 
 		/**
 		 * Merge regions with the same values.
