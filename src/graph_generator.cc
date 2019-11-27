@@ -24,16 +24,14 @@ namespace detail {
 		std::lock_guard<std::mutex> lock(buffer_mutex);
 		// Initialize the whole range to all nodes, so that we always use local buffer ranges when they haven't been written to (on any node) yet.
 		// TODO: Consider better handling for when buffers are not host initialized
-		std::vector<valid_buffer_source> all_nodes(num_nodes);
+		std::vector<node_id> all_nodes(num_nodes);
 		for(auto i = 0u; i < num_nodes; ++i) {
-			all_nodes[i].cid = node_data[i].init_cid;
-			all_nodes[i].nid = i;
+			all_nodes[i] = i;
 			node_data[i].buffer_last_writer.emplace(bid, range);
 			node_data[i].buffer_last_writer.at(bid).update_region(subrange_to_grid_region({cl::sycl::id<3>(), range}), node_data[i].init_cid);
 		}
 
-		buffer_states.emplace(
-		    bid, region_map<std::unordered_set<valid_buffer_source>>{range, std::unordered_set<valid_buffer_source>(all_nodes.cbegin(), all_nodes.cend())});
+		buffer_states.emplace(bid, region_map<std::vector<node_id>>{range, all_nodes});
 	}
 
 	void graph_generator::build_task(task_id tid, const std::vector<graph_transformer*>& transformers) {
@@ -131,15 +129,18 @@ namespace detail {
 		}
 	}
 
+	namespace {
+		template <typename RegionMap>
+		inline void add_dependencies_for_box(command_graph& cdag, abstract_command* cmd, const RegionMap& map, const GridBox<3>& box) {
+			auto sources = map.get_region_values(box);
+			for(const auto& source : sources) {
+				auto source_cmd = cdag.get(*source.second);
+				cmd->add_dependency({source_cmd, false});
+			}
+		}
+	} // namespace
+
 	void graph_generator::process_task_data_requirements(task_id tid) {
-		buffer_state_map& final_buffer_states = buffer_states;
-
-		// We keep a working copy around that is updated for data that is pulled in for the different access modes.
-		// This is useful so we don't generate multiple PUSHes for the same buffer ranges.
-		// Importantly, this does NOT contain the NEW buffer states produced by this task.
-		// By sharing this working copy for all commands (having it outside the the loop) we also support this for multiple chunks on the same node.
-		buffer_state_map working_buffer_states = buffer_states;
-
 		const auto tsk = task_mngr.get_task(tid);
 
 		// Copy the list of task commands so we can safely modify the command graph in the loop below
@@ -148,6 +149,12 @@ namespace detail {
 		for(auto cmd : cdag.task_commands<compute_command, master_access_command>(tid)) {
 			task_commands.push_back(cmd);
 		}
+
+		// Store a list of writes (directly done by computation) while processing commands,
+		// so that we can update the state with them at the end, while using only the state
+		// before this task while resolving its dependencies.
+		std::vector<std::tuple<node_id, buffer_id, GridRegion<3>>> buffer_state_write_list;
+		std::vector<std::tuple<node_id, buffer_id, GridRegion<3>, command_id>> per_node_last_writer_update_list;
 
 		// Remember all generated PUSHes for determining intra-task anti-dependencies.
 		std::vector<push_command*> generated_pushes;
@@ -170,8 +177,6 @@ namespace detail {
 			for(auto& it : requirements) {
 				const buffer_id bid = it.first;
 				const auto& reqs_by_mode = it.second;
-
-				auto& working_buffer_state = working_buffer_states.at(bid);
 
 				// We have to make sure to update the last writer map for this node and buffer only after all new writes have been processed,
 				// as we otherwise risk creating anti dependencies onto commands within the same task, that shouldn't exist.
@@ -196,65 +201,54 @@ namespace detail {
 						command_buffer_reads[cid][bid] = GridRegion<3>::merge(command_buffer_reads[cid][bid], req);
 
 						// Determine whether data transfers are required to fulfill the read requirements
-						const auto buffer_sources = working_buffer_state.get_region_values(reqs_by_mode.at(mode));
-						assert(!buffer_sources.empty());
+						const auto buffer_source_nodes = buffer_states.at(bid).get_region_values(req);
+						assert(!buffer_source_nodes.empty());
 
-						for(auto& box_and_sources : buffer_sources) {
+						for(auto& box_and_sources : buffer_source_nodes) {
 							const auto& box = box_and_sources.first;
 							const auto& box_sources = box_and_sources.second;
+							assert(!box_sources.empty());
 
-							bool exists_locally = false;
-							for(auto& bs : box_sources) {
-								if(bs.nid == nid) {
-									// No need to push, but make sure to add a dependency.
-									cmd->add_dependency({cdag.get(bs.cid), false});
-									exists_locally = true;
-									break;
-								}
+							if(std::find(box_sources.cbegin(), box_sources.cend(), nid) != box_sources.cend()) {
+								// No need to push if found locally, but make sure to add dependencies
+								add_dependencies_for_box(cdag, cmd, working_node_buffer_last_writer, box);
+								continue;
 							}
-							if(exists_locally) continue;
 
-							// Try to find the original producer (i.e., a task_command, as opposed to an AWAIT_PUSH) to avoid
-							// creating long dependency chains across nodes.
+							// If not local, the original producer is the primary source (i.e., a task_command, as opposed to an AWAIT_PUSH)
+							// it is used as the transfer source to avoid creating long dependency chains across nodes.
 							// TODO: For larger numbers of nodes this might become a bottleneck.
-							const auto source = ([&box_sources, tid, this]() {
-								for(auto bs : box_sources) {
-									const auto scmd = cdag.get(bs.cid);
-									(void)tid;
-									assert(!isa<task_command>(scmd) || static_cast<task_command*>(scmd)->get_tid() != tid);
-									if(isa<task_command>(scmd)) return bs;
-								}
-								return *box_sources.cbegin();
-							})(); // IIFE
+							auto source_nid = box_sources[0];
 
 							// Generate PUSH command
 							push_command* push_cmd = nullptr;
 							{
-								push_cmd = cdag.create<push_command>(source.nid, bid, nid, grid_box_to_subrange(box));
+								push_cmd = cdag.create<push_command>(source_nid, bid, nid, grid_box_to_subrange(box));
+								generated_pushes.push_back(push_cmd);
 
 								// Store the read access on the pushing node
 								command_buffer_reads[push_cmd->get_cid()][bid] = GridRegion<3>::merge(command_buffer_reads[push_cmd->get_cid()][bid], box);
 
-								// Add a dependency on the source node between the PUSH and the command that last wrote that box
-								push_cmd->add_dependency({cdag.get(source.cid), false});
-
-								generated_pushes.push_back(push_cmd);
+								// Add dependencies on the source node between the PUSH and the commands that last wrote that box
+								add_dependencies_for_box(cdag, push_cmd, node_data.at(source_nid).buffer_last_writer.at(bid), box);
 							}
 
 							// Generate AWAIT_PUSH command
 							{
 								auto await_push_cmd = cdag.create<await_push_command>(nid, push_cmd);
-								cmd->add_dependency({await_push_cmd, false});
 
+								cmd->add_dependency({await_push_cmd, false});
 								generate_anti_dependencies(tid, bid, initial_node_buffer_last_writer, box, await_push_cmd);
+
 								// Mark this command as the last writer of this region for this buffer and node
 								working_node_buffer_last_writer.update_region(box, await_push_cmd->get_cid());
 
 								// Finally, remember the fact that we now have this valid buffer range on this node.
 								auto new_box_sources = box_sources;
-								new_box_sources.insert({nid, await_push_cmd->get_cid()});
-								working_buffer_state.update_region(box, new_box_sources);
-								final_buffer_states.at(bid).update_region(box, new_box_sources);
+								new_box_sources.push_back(nid);
+								buffer_states.at(bid).update_region(box, new_box_sources);
+
+								per_node_last_writer_update_list.emplace_back(nid, bid, box, await_push_cmd->get_cid());
 							}
 						}
 					}
@@ -265,12 +259,28 @@ namespace detail {
 						// Mark this command as the last writer of this region for this buffer and node
 						working_node_buffer_last_writer.update_region(req, cid);
 						// After this task is completed, this node and command are the last writer of this region
-						final_buffer_states.at(bid).update_region(req, {{nid, cid}});
+						buffer_state_write_list.emplace_back(nid, bid, req);
+						per_node_last_writer_update_list.emplace_back(nid, bid, req, cid);
 					}
 				}
-
-				node_data.at(nid).buffer_last_writer.at(bid).merge(working_node_buffer_last_writer);
 			}
+		}
+
+		// Update global buffer_states with writes from task_commands after handling is complete.
+		for(const auto& write : buffer_state_write_list) {
+			const auto& nid = std::get<0>(write);
+			const auto& bid = std::get<1>(write);
+			const auto& region = std::get<2>(write);
+			buffer_states.at(bid).update_region(region, {nid});
+		}
+
+		// Update per-node last writer information to take into account writes from await_pushes generated for this task.
+		for(const auto& write : per_node_last_writer_update_list) {
+			const auto& nid = std::get<0>(write);
+			const auto& bid = std::get<1>(write);
+			const auto& region = std::get<2>(write);
+			const auto& cid = std::get<3>(write);
+			node_data.at(nid).buffer_last_writer.at(bid).update_region(region, {cid});
 		}
 
 		// As the last step, we determine potential "intra-task" race conditions.

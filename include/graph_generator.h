@@ -10,32 +10,6 @@
 #include "task.h"
 #include "types.h"
 
-namespace celerity {
-namespace detail {
-
-	// Data structure used to map valid buffer regions to the node(s) that currently hold that region, as well as the commands that produced the region.
-	struct valid_buffer_source {
-		node_id nid;
-		command_id cid;
-	};
-
-	inline bool operator==(const valid_buffer_source& vbs1, const valid_buffer_source& vbs2) { return vbs1.nid == vbs2.nid && vbs1.cid == vbs2.cid; }
-
-} // namespace detail
-} // namespace celerity
-
-namespace std {
-
-template <>
-struct hash<celerity::detail::valid_buffer_source> {
-	size_t operator()(const celerity::detail::valid_buffer_source& vbs) const noexcept {
-		const auto h1 = std::hash<celerity::detail::node_id>{}(vbs.nid);
-		const auto h2 = std::hash<celerity::detail::command_id>{}(vbs.cid);
-		return h1 ^ (h2 << 1);
-	}
-};
-
-} // namespace std
 
 namespace celerity {
 namespace detail {
@@ -46,7 +20,7 @@ namespace detail {
 	class abstract_command;
 
 	class graph_generator {
-		using buffer_state_map = std::unordered_map<buffer_id, region_map<std::unordered_set<valid_buffer_source>>>;
+		using buffer_state_map = std::unordered_map<buffer_id, region_map<std::vector<node_id>>>;
 		using buffer_read_map = std::unordered_map<buffer_id, GridRegion<3>>;
 		using buffer_writer_map = std::unordered_map<buffer_id, region_map<boost::optional<command_id>>>;
 
