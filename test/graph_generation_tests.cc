@@ -19,6 +19,8 @@
 #define _UKN_CONCAT(x, y) _UKN_CONCAT2(x, y)
 #define UKN(name) _UKN_CONCAT(name, __COUNTER__)
 
+#define IMPORTANT_CHECK CHECK
+
 namespace celerity {
 namespace detail {
 
@@ -535,8 +537,60 @@ namespace detail {
 		}
 	}
 
-	// Currently fails as this optimization is NYI and the test just exists for documentation purposes.
-	TEST_CASE("graph_generator consolidates PUSH commands for adjacent subranges", "[graph_generator][command-graph][!shouldfail]") {
+	TEST_CASE("graph_generator uses original producer as source for PUSH rather than building dependency chain", "[graph_generator][command-graph]") {
+		using namespace cl::sycl::access;
+
+		constexpr int NUM_NODES = 3;
+		test_utils::cdag_test_context ctx(NUM_NODES);
+		auto& inspector = ctx.get_inspector();
+		test_utils::mock_buffer_factory mbf(ctx);
+		auto full_range = cl::sycl::range<1>(300);
+		auto buf_a = mbf.create_buffer(full_range);
+
+		test_utils::build_and_flush(ctx, 1,
+		    test_utils::add_compute_task<class UKN(producer)>(
+		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, full_range));
+
+		SECTION("when distributing a single reading task across nodes") {
+			test_utils::build_and_flush(ctx, NUM_NODES,
+			    test_utils::add_compute_task<class UKN(producer)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, access::one_to_one<1>()); }, full_range));
+		}
+
+		SECTION("when distributing a single read-write task across nodes") {
+			test_utils::build_and_flush(ctx, NUM_NODES,
+			    test_utils::add_compute_task<class UKN(producer)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, access::one_to_one<1>()); }, full_range));
+		}
+
+		SECTION("when running multiple reading task on separate nodes") {
+			auto full_range_for_single_node = [=](node_id node) {
+				return [=](chunk<1> chnk) -> subrange<1> {
+					if(chnk.range == full_range) return chnk;
+					if(chnk.offset[0] == (full_range.size() / NUM_NODES) * node) { return {0, full_range}; }
+					return {0, 0};
+				};
+			};
+
+			test_utils::build_and_flush(ctx, NUM_NODES,
+			    test_utils::add_compute_task<class UKN(producer)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, full_range_for_single_node(1)); }, full_range));
+
+			test_utils::build_and_flush(ctx, NUM_NODES,
+			    test_utils::add_compute_task<class UKN(producer)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, full_range_for_single_node(2)); }, full_range));
+		}
+
+		IMPORTANT_CHECK(inspector.get_commands(boost::none, node_id(0), command_type::PUSH).size() == 2);
+		IMPORTANT_CHECK(inspector.get_commands(boost::none, node_id(1), command_type::PUSH).size() == 0);
+		IMPORTANT_CHECK(inspector.get_commands(boost::none, node_id(2), command_type::PUSH).size() == 0);
+		CHECK(inspector.get_commands(boost::none, node_id(1), command_type::AWAIT_PUSH).size() == 1);
+		CHECK(inspector.get_commands(boost::none, node_id(2), command_type::AWAIT_PUSH).size() == 1);
+
+		maybe_print_graphs(ctx);
+	}
+
+	TEST_CASE("graph_generator consolidates PUSH commands for adjacent subranges", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
 
 		test_utils::cdag_test_context ctx(2);
@@ -568,6 +622,37 @@ namespace detail {
 		test_utils::build_and_flush(
 		    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 128); }));
 		REQUIRE(inspector.get_commands(boost::none, node_id(1), command_type::PUSH).size() == 1);
+
+		maybe_print_graphs(ctx);
+	}
+
+	TEST_CASE("graph_generator builds dependencies to all local commands if a given range is produced by multiple", "[graph_generator][command-graph]") {
+		using namespace cl::sycl::access;
+
+		test_utils::cdag_test_context ctx(1);
+		auto& inspector = ctx.get_inspector();
+
+		test_utils::mock_buffer_factory mbf(ctx);
+		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
+
+		test_utils::build_and_flush(ctx, 1,
+		    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
+		        [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{64}, cl::sycl::id<1>{0}));
+		test_utils::build_and_flush(ctx, 1,
+		    test_utils::add_compute_task<class UKN(task_b)>(ctx.get_task_manager(),
+		        [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{32}, cl::sycl::id<1>{64}));
+		test_utils::build_and_flush(ctx, 1,
+		    test_utils::add_compute_task<class UKN(task_c)>(ctx.get_task_manager(),
+		        [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{32}, cl::sycl::id<1>{96}));
+
+		auto master_task = test_utils::build_and_flush(
+		    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 128); }));
+
+		auto master_cmds = inspector.get_commands(master_task, boost::none, boost::none);
+		CHECK(master_cmds.size() == 1);
+
+		auto master_cmd = *master_cmds.cbegin();
+		CHECK(inspector.get_dependency_count(master_cmd) == 3);
 
 		maybe_print_graphs(ctx);
 	}
