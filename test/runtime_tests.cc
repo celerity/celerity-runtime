@@ -1,8 +1,10 @@
-#include "unit_test_suite.h"
+#include "unit_test_suite_celerity.h"
 
 #include <algorithm>
 #include <memory>
 #include <random>
+
+#include <catch2/catch.hpp>
 
 #define CELERITY_TEST
 #include <celerity.h>
@@ -20,15 +22,6 @@ GridBox<3> make_grid_box(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) 
 GridRegion<3> make_grid_region(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) {
 	return GridRegion<3>(make_grid_box(range, offset));
 }
-
-struct GlobalSetupAndTeardown : Catch::TestEventListenerBase {
-	using TestEventListenerBase::TestEventListenerBase;
-	void testRunStarting(const Catch::TestRunInfo&) override { celerity::detail::runtime::enable_test_mode(); }
-	void testCaseEnded(const Catch::TestCaseStats&) override {
-		if(celerity::detail::runtime::is_initialized()) { celerity::detail::runtime::teardown(); }
-	}
-};
-CATCH_REGISTER_LISTENER(GlobalSetupAndTeardown)
 
 namespace celerity {
 namespace detail {

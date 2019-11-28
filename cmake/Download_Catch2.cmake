@@ -4,7 +4,7 @@
 include(DownloadProject)
 download_project(PROJ                Catch2
                  GIT_REPOSITORY      https://github.com/catchorg/Catch2
-                 GIT_TAG             v2.2.1
+                 GIT_TAG             v2.10.2
                  UPDATE_DISCONNECTED 1
 )
 

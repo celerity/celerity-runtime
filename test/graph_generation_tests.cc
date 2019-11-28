@@ -1,9 +1,10 @@
-#include "unit_test_suite.h"
+#include "unit_test_suite_celerity.h"
 
 #include <set>
 #include <unordered_set>
 
 #include <boost/optional.hpp>
+#include <catch2/catch.hpp>
 
 #define CELERITY_TEST
 #include <celerity.h>
@@ -589,7 +590,7 @@ namespace detail {
 			CHECK(computes.size() == 1);
 
 			CHECK(inspector.get_commands(boost::none, boost::none, command_type::PUSH).empty());
-			const auto tid_b = test_utils::build_and_flush(
+			test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 100); }));
 			CHECK(inspector.get_commands(boost::none, boost::none, command_type::PUSH).size() == 1);
 			const auto pushes = inspector.get_commands(boost::none, node_id(1), command_type::PUSH);
@@ -786,7 +787,7 @@ namespace detail {
 			CHECK(inspector.get_commands(tid_c, boost::none, command_type::COMPUTE).size() == 2);
 
 			// task_d reads the first half
-			const auto tid_d = test_utils::build_and_flush(
+			test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 50, 0); }));
 
 			// This should generate an AWAIT_PUSH command that does NOT have an anti-dependency onto task_b, only task_a
@@ -836,7 +837,7 @@ namespace detail {
 			    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
 			        [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 			CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 2);
-			const auto tid_b = test_utils::build_and_flush(
+			test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, 100); }));
 			const auto await_pushes_b = inspector.get_commands(boost::none, node_id(0), command_type::AWAIT_PUSH);
 			REQUIRE(await_pushes_b.size() == 1);

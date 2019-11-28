@@ -5,41 +5,50 @@ if(MSVC)
   file(GLOB_RECURSE TEST_INCLUDES *.h)
 endif()
 
- # iterate over all cpp files in the current directory
-file(GLOB_RECURSE ALL_TEST_CPP *.cc)
-foreach(ONE_TEST_CPP ${ALL_TEST_CPP})
+set(TEST_TARGETS
+  runtime_tests
+  graph_generation_tests
+)
 
-  # get file name without extension and use it as target name
-  get_filename_component(ONE_TEST_EXEC ${ONE_TEST_CPP} NAME_WE)
-  set(TARGET_NAME ${ONE_TEST_EXEC})
+add_library(unit_test_suite unit_test_suite.cc unit_test_suite_celerity.cc)
+
+target_include_directories(
+  unit_test_suite
+  PUBLIC
+  ${Catch2_INCLUDE_DIRS}
+)
+
+target_link_libraries(
+  unit_test_suite
+  PUBLIC
+  celerity_runtime
+)
+
+set_property(TARGET unit_test_suite PROPERTY CXX_STANDARD 14)
+
+add_sycl_to_target(TARGET unit_test_suite SOURCES unit_test_suite_celerity.cc)
+
+foreach(TEST_TARGET ${TEST_TARGETS})
+
+  set(TEST_SOURCE ${TEST_TARGET}.cc)
 
   # add test executable
-  add_executable(${TARGET_NAME} ${ONE_TEST_CPP} ${TEST_INCLUDES})
-  set_target_properties(${TARGET_NAME} PROPERTIES OUTPUT_NAME ${ONE_TEST_EXEC})
+  add_executable(${TEST_TARGET} ${TEST_SOURCE} ${TEST_INCLUDES})
+  target_link_libraries(${TEST_TARGET} PRIVATE unit_test_suite)
 
-  set_property(TARGET ${TARGET_NAME} PROPERTY CXX_STANDARD 14)
-  set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER "tests")
+  set_property(TARGET ${TEST_TARGET} PROPERTY CXX_STANDARD 14)
+  set_property(TARGET ${TEST_TARGET} PROPERTY FOLDER "tests")
 
-  target_include_directories(
-    ${TARGET_NAME}
-    PUBLIC
-    ${Catch2_INCLUDE_DIRS}
-  )
-
-  target_link_libraries(
-    ${TARGET_NAME}
-    PUBLIC
-    celerity_runtime
-  )
-
-  add_sycl_to_target(TARGET ${TARGET_NAME} SOURCES ${ONE_TEST_CPP})
+  add_sycl_to_target(TARGET ${TEST_TARGET} SOURCES ${TEST_SOURCE})
 
   if(MSVC)
-    target_compile_options(${TARGET_NAME} PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3 /bigobj)
+    target_compile_options(${TEST_TARGET} PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3 /bigobj)
   elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-    target_compile_options(${TARGET_NAME} PRIVATE -Wall -Wextra -Wextra -Wno-unused-parameter)
+    target_compile_options(${TEST_TARGET} PRIVATE -Wall -Wextra -Wextra -Wno-unused-parameter)
   endif()
 
-  ParseFile(${ONE_TEST_CPP} ${TARGET_NAME})
+  # We use the (undocumented) per-file function as we otherwise run into
+  # problems with ComputeCpp's generated integration headers.
+  ParseAndAddCatchTests_ParseFile(${TEST_SOURCE} ${TEST_TARGET})
 
 endforeach()

@@ -1,7 +1,5 @@
 #pragma once
 
-#include <catch.hpp>
-
 #define CELERITY_TEST
 #include <celerity.h>
 
@@ -57,7 +55,8 @@ namespace test_utils {
 			return [this](detail::node_id nid, detail::command_pkg pkg, const std::vector<detail::command_id>& dependencies) {
 				for(detail::command_id dep : dependencies) {
 					// Sanity check: All dependencies must have already been flushed
-					CHECK(commands.count(dep) == 1);
+					(void)dep;
+					assert(commands.count(dep) == 1);
 				}
 
 				const detail::command_id cid = pkg.cid;
