@@ -4,7 +4,7 @@ include(CMakeFindDependencyMacro)
 set(CELERITY_INSTALL_LOCATION "@CELERITY_INSTALL_LOCATION@")
 set(CELERITY_SYCL_IMPL "@CELERITY_SYCL_IMPL@")
 
-find_dependency(Boost 1.66.0 REQUIRED)
+find_dependency(Boost 1.65.0 REQUIRED)
 find_dependency(MPI 2.0 REQUIRED)
 find_dependency(Threads REQUIRED)
 
