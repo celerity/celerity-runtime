@@ -40,7 +40,27 @@ namespace detail {
 		return result;
 	}
 
-	std::vector<chunk<3>> split_equal(const chunk<3>& full_chunk, size_t num_chunks) { throw std::runtime_error("3D split_equal NYI"); }
+	// We simply split by planes for now
+	std::vector<chunk<3>> split_equal(const chunk<3>& full_chunk, size_t num_chunks) {
+		assert(num_chunks > 0);
+
+		const auto dim0_size = full_chunk.global_size[0];
+		const auto dim1_size = full_chunk.global_size[1];
+		const auto dim2_size = full_chunk.global_size[2];
+
+		chunk<3> chnk;
+		chnk.global_size = full_chunk.global_size;
+		chnk.offset = full_chunk.offset;
+		chnk.range = cl::sycl::range<3>(dim0_size / num_chunks, dim1_size, dim2_size);
+
+		std::vector<chunk<3>> result;
+		for(auto i = 0u; i < num_chunks; ++i) {
+			result.push_back(chnk);
+			chnk.offset[0] = chnk.offset[0] + chnk.range[0];
+			if(i == num_chunks - 1) result[i].range[0] += dim0_size % num_chunks;
+		}
+		return result;
+	}
 
 	naive_split_transformer::naive_split_transformer(size_t num_chunks, size_t num_workers) : num_chunks(num_chunks), num_workers(num_workers) {
 		assert(num_chunks >= num_workers);
