@@ -9,8 +9,8 @@
 namespace celerity {
 namespace detail {
 
-	enum class command_type { NOP, COMPUTE, MASTER_ACCESS, PUSH, AWAIT_PUSH, SHUTDOWN, SYNC };
-	constexpr const char* command_string[] = {"NOP", "COMPUTE", "MASTER_ACCESS", "PUSH", "AWAIT_PUSH", "SHUTDOWN", "SYNC"};
+	enum class command_type { NOP, HORIZON, COMPUTE, MASTER_ACCESS, PUSH, AWAIT_PUSH, SHUTDOWN, SYNC };
+	constexpr const char* command_string[] = {"NOP", "HORIZON", "COMPUTE", "MASTER_ACCESS", "PUSH", "AWAIT_PUSH", "SHUTDOWN", "SYNC"};
 
 	// ----------------------------------------------------------------------------------------------------------------
 	// ------------------------------------------------ COMMAND GRAPH -------------------------------------------------
@@ -39,9 +39,12 @@ namespace detail {
 
 	// TODO: Consider adding a mechanism (during debug builds?) to assert that dependencies can only exist between commands on the same node
 	class abstract_command : public intrusive_graph_node<abstract_command> {
-	  public:
+		friend class command_graph;
+
+	  protected:
 		abstract_command(command_id cid, node_id nid) : cid(cid), nid(nid) {}
 
+	  public:
 		virtual ~abstract_command() = 0;
 
 		command_id get_cid() const { return cid; }
@@ -58,27 +61,37 @@ namespace detail {
 		std::string debug_label;
 
 	  private:
+		// Should only be possible to add/remove dependencies using command_graph.
+		using parent_type = intrusive_graph_node<abstract_command>;
+		using parent_type::add_dependency;
+		using parent_type::remove_dependency;
+
 		command_id cid;
 		node_id nid;
 		bool flushed = false;
 	};
-
 	inline abstract_command::~abstract_command() {}
 
 	// Used for the init task.
 	class nop_command : public abstract_command {
-	  public:
+		friend class command_graph;
 		nop_command(command_id cid, node_id nid) : abstract_command(cid, nid) {
 			// There's no point in flushing NOP commands.
 			mark_as_flushed();
 		}
 	};
 
+	class horizon_command : public abstract_command {
+		friend class command_graph;
+		horizon_command(command_id cid, node_id nid) : abstract_command(cid, nid) {}
+	};
+
 	class push_command : public abstract_command {
-	  public:
+		friend class command_graph;
 		push_command(command_id cid, node_id nid, buffer_id bid, node_id target, subrange<3> push_range)
 		    : abstract_command(cid, nid), bid(bid), target(target), push_range(push_range) {}
 
+	  public:
 		buffer_id get_bid() const { return bid; }
 		node_id get_target() const { return target; }
 		const subrange<3>& get_range() const { return push_range; }
@@ -90,9 +103,10 @@ namespace detail {
 	};
 
 	class await_push_command : public abstract_command {
-	  public:
+		friend class command_graph;
 		await_push_command(command_id cid, node_id nid, push_command* source) : abstract_command(cid, nid), source(source) {}
 
+	  public:
 		push_command* get_source() const { return source; }
 
 	  private:
@@ -100,20 +114,26 @@ namespace detail {
 	};
 
 	class task_command : public abstract_command {
-	  public:
+		friend class command_graph;
+
+	  protected:
 		task_command(command_id cid, node_id nid, task_id tid) : abstract_command(cid, nid), tid(tid) {}
 
+	  public:
+		virtual ~task_command() = 0;
 		task_id get_tid() const { return tid; }
 
 	  private:
 		task_id tid;
 	};
+	inline task_command::~task_command() {}
 
 	class compute_command : public task_command {
-	  public:
+		friend class command_graph;
 		compute_command(command_id cid, node_id nid, task_id tid, subrange<3> execution_range)
 		    : task_command(cid, nid, tid), execution_range(execution_range) {}
 
+	  public:
 		const subrange<3>& get_execution_range() const { return execution_range; }
 
 	  private:
@@ -121,7 +141,7 @@ namespace detail {
 	};
 
 	class master_access_command : public task_command {
-	  public:
+		friend class command_graph;
 		master_access_command(command_id cid, node_id nid, task_id tid) : task_command(cid, nid, tid) {}
 	};
 
@@ -130,6 +150,8 @@ namespace detail {
 	// ----------------------------------------------------------------------------------------------------------------
 
 	struct nop_data {};
+
+	struct horizon_data {};
 
 	struct compute_data {
 		task_id tid;

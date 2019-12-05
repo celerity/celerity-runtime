@@ -24,62 +24,6 @@
 namespace celerity {
 namespace detail {
 
-	struct my_graph_node : intrusive_graph_node<my_graph_node> {};
-
-	TEST_CASE("intrusive_graph_node correctly handles adding and removing of", "[intrusive_graph_node]") {
-		SECTION("true dependencies") {
-			// Adding and removing true dependency
-			{
-				my_graph_node n0, n1;
-				n0.add_dependency({&n1, false});
-				REQUIRE(n0.has_dependency(&n1, false));
-				REQUIRE(n1.has_dependent(&n0, false));
-				n0.remove_dependency(&n1);
-				REQUIRE_FALSE(n0.has_dependency(&n1));
-				REQUIRE_FALSE(n1.has_dependent(&n0));
-			}
-			// Anti-dependency is upgraded to true dependency
-			{
-				my_graph_node n0, n1;
-				n0.add_dependency({&n1, true});
-				CHECK(n0.has_dependency(&n1, true));
-				CHECK(n1.has_dependent(&n0, true));
-				n0.add_dependency({&n1, false});
-				REQUIRE_FALSE(n0.has_dependency(&n1, true));
-				REQUIRE_FALSE(n1.has_dependent(&n0, true));
-				REQUIRE(n0.has_dependency(&n1, false));
-				REQUIRE(n1.has_dependent(&n0, false));
-			}
-		}
-
-		SECTION("anti-dependencies") {
-			// True dependency cannot be downgraded to anti-dependency
-			{
-				my_graph_node n0, n1;
-				n0.add_dependency({&n1, false});
-				CHECK(n0.has_dependency(&n1, false));
-				CHECK(n1.has_dependent(&n0, false));
-				n0.add_dependency({&n1, true});
-				REQUIRE_FALSE(n0.has_dependency(&n1, true));
-				REQUIRE_FALSE(n1.has_dependent(&n0, true));
-				REQUIRE(n0.has_dependency(&n1, false));
-				REQUIRE(n1.has_dependent(&n0, false));
-			}
-		}
-	}
-
-	TEST_CASE("intrusive_graph_node removes itself from all connected nodes upon destruction", "[intrusive_graph_node]") {
-		my_graph_node n0, n2;
-		auto n1 = std::make_unique<my_graph_node>();
-		n0.add_dependency({n1.get(), false});
-		n1->add_dependency({&n2, false});
-		CHECK(n0.has_dependency(n1.get(), false));
-		CHECK(n2.has_dependent(n1.get(), false));
-		n1.reset();
-		REQUIRE(std::distance(n0.get_dependencies().begin(), n0.get_dependencies().end()) == 0);
-		REQUIRE(std::distance(n2.get_dependents().begin(), n2.get_dependents().end()) == 0);
-	}
-
 	bool has_dependency(const task_manager& tm, task_id dependent, task_id dependency, bool anti = false) {
 		for(auto dep : tm.get_task(dependent)->get_dependencies()) {
 			if(dep.node->get_id() == dependency && dep.is_anti == anti) return true;
@@ -371,17 +315,49 @@ namespace detail {
 		REQUIRE(tsk1_cmds.empty());
 	}
 
+	TEST_CASE("command_graph keeps track of execution fronts", "[command_graph][command-graph]") {
+
+		command_graph cdag;
+
+		auto build_testing_graph_on_node = [&cdag](node_id node) {
+			std::unordered_set<abstract_command*> expected_front;
+
+			auto t0 = cdag.create<compute_command>(node, 0, subrange<3>{});
+			expected_front.insert(t0);
+			REQUIRE(expected_front == cdag.get_execution_front(node));
+
+			expected_front.insert(cdag.create<compute_command>(node, 1, subrange<3>{}));
+			REQUIRE(expected_front == cdag.get_execution_front(node));
+
+			expected_front.erase(t0);
+			auto t2 = cdag.create<compute_command>(node, 2, subrange<3>{});
+			expected_front.insert(t2);
+			cdag.add_dependency(t2, t0);
+			REQUIRE(expected_front == cdag.get_execution_front(node));
+			return expected_front;
+		};
+
+		auto node_0_expected_front = build_testing_graph_on_node(0u);
+
+		SECTION("for individual nodes") {
+			build_testing_graph_on_node(1u);
+		}
+
+		REQUIRE(node_0_expected_front == cdag.get_execution_front(0));
+	}
+
 	TEST_CASE("isa<> RTTI helper correctly handles command hierarchies", "[rtti][command-graph]") {
-		nop_command np{0, 0};
-		REQUIRE(isa<abstract_command>(&np));
-		compute_command cpc(0, 0, 0, {});
-		REQUIRE(isa<task_command>(&cpc));
-		master_access_command mac(0, 0, 0);
-		REQUIRE(isa<task_command>(&mac));
-		push_command pc(0, 0, 0, 0, {});
-		REQUIRE(isa<abstract_command>(&pc));
-		await_push_command apc(0, 0, &pc);
-		REQUIRE(isa<abstract_command>(&apc));
+		command_graph cdag;
+		auto np = cdag.create<nop_command>(0);
+		REQUIRE(isa<abstract_command>(np));
+		auto cpc = cdag.create<compute_command>(0, 0, subrange<3>{});
+		REQUIRE(isa<task_command>(cpc));
+		auto mac = cdag.create<master_access_command>(0, 0);
+		REQUIRE(isa<task_command>(mac));
+		auto pc = cdag.create<push_command>(0, 0, 0, subrange<3>{});
+		REQUIRE(isa<abstract_command>(pc));
+		auto apc = cdag.create<await_push_command>(0, pc);
+		REQUIRE(isa<abstract_command>(apc));
 	}
 
 	TEST_CASE("graph_generator generates required data transfer commands", "[graph_generator][command-graph]") {
@@ -621,7 +597,10 @@ namespace detail {
 
 		test_utils::build_and_flush(
 		    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 128); }));
-		REQUIRE(inspector.get_commands(boost::none, node_id(1), command_type::PUSH).size() == 1);
+
+		auto push_commands = inspector.get_commands(boost::none, node_id(1), command_type::PUSH);
+		REQUIRE(push_commands.size() == 1);
+		REQUIRE(inspector.get_dependency_count(*push_commands.cbegin()) == 2);
 
 		maybe_print_graphs(ctx);
 	}

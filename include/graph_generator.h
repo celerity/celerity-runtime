@@ -18,8 +18,11 @@ namespace detail {
 	class graph_transformer;
 	class command_graph;
 	class abstract_command;
+	class horizon_command;
 
 	class graph_generator {
+		friend struct graph_generator_testspy;
+
 		using buffer_state_map = std::unordered_map<buffer_id, region_map<std::vector<node_id>>>;
 		using buffer_read_map = std::unordered_map<buffer_id, GridRegion<3>>;
 		using buffer_writer_map = std::unordered_map<buffer_id, region_map<boost::optional<command_id>>>;
@@ -49,6 +52,11 @@ namespace detail {
 		task_manager& task_mngr;
 		const size_t num_nodes;
 		command_graph& cdag;
+
+		// Keeps track of the "position" of the previous horizon to allow inserting new horizons with a controlled frequency.
+		unsigned prev_horizon_cpath_max = 0;
+		// The most recent horizon command per node
+		std::vector<horizon_command*> prev_horizon_cmds;
 
 		// NOTE: We have several data structures that keep track of the "global state" of the distributed program, across all tasks and nodes.
 		// While it might seem that this is problematic when the ordering of tasks can be chosen freely (by the scheduler),
