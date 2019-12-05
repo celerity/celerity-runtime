@@ -3,6 +3,8 @@
 #include <CL/sycl.hpp>
 
 #include "workaround.h"
+#define FMT_HEADER_ONLY
+#include <spdlog/fmt/fmt.h>
 
 #if !WORKAROUND_HIPSYCL
 #define __host__
@@ -64,6 +66,17 @@ struct subrange {
 	subrange(chunk<Dims> other) : offset(other.offset), range(other.range) {}
 
 	bool operator==(const subrange& rhs) { return offset == rhs.offset && range == rhs.range; }
+
+	std::string to_string() const {
+		if(dims == 1)
+			return fmt::format("subrange({}) at offset({})", range[0], offset[0]);
+		else if(dims == 2)
+			return fmt::format("subrange({},{}) at offset({},{})", range[0], range[1], offset[0], offset[1]);
+		else
+			return fmt::format("subrange({},{},{}) at offset({},{},{})", range[0], range[1], range[2], offset[0], offset[1], offset[2]);
+	}
+
+	size_t num_elems() const { return range.size(); }
 };
 
 } // namespace celerity

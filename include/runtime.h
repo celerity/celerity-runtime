@@ -79,6 +79,11 @@ namespace detail {
 			return buffer_ptrs.count(bid) == 1;
 		}
 
+		size_t getElemSizeOfBuffer(buffer_id bid) const {
+			std::lock_guard<std::mutex> lock(buffer_mutex);
+			return buffer_ptrs.find(bid)->second->get_element_size();
+		}
+
 		std::shared_ptr<raw_data_read_handle> get_buffer_data(buffer_id bid, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) const {
 			std::lock_guard<std::mutex> lock(buffer_mutex);
 			assert(buffer_ptrs.count(bid) == 1);

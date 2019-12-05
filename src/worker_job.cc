@@ -75,6 +75,14 @@ namespace detail {
 
 	bool push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 		if(data_handle == nullptr) {
+			// const celerity::detail::push_data
+			const auto data = boost::get<push_data>(pkg.data);
+			size_t elemSize = runtime::get_instance().getElemSizeOfBuffer(data.bid);
+			size_t numElems = data.sr.num_elems();
+			size_t bufTransferSize = elemSize * numElems;
+			logger->debug(logger_map(
+			    {{"event", fmt::format("PUSH buffer id {} to node {} with {} ({} elems of size {}) total transfer size {} bytes", static_cast<size_t>(data.bid),
+			                   static_cast<size_t>(data.target), data.sr.to_string(), numElems, elemSize, bufTransferSize)}}));
 			logger->trace(logger_map({{"event", "Submit buffer to BTM"}}));
 			data_handle = btm.push(pkg);
 			logger->trace(logger_map({{"event", "Buffer submitted to BTM"}}));

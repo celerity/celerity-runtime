@@ -24,7 +24,7 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 
 int main(int argc, char* argv[]) {
 	if(argc <= 1) {
-		std::cout << "Usage: ./matmul size\n";
+		std::cout << "Usage: ./matmulChain size\n";
 		return 1;
 	}
 	const size_t mat_size = std::stoi(argv[1]);
@@ -36,12 +36,16 @@ int main(int argc, char* argv[]) {
 
 	std::vector<float> mat_a(mat_size * mat_size);
 	std::vector<float> mat_b(mat_size * mat_size);
+	std::vector<float> mat_c(mat_size * mat_size);
+	std::vector<float> mat_d(mat_size * mat_size);
 
 	// Initialize matrices a and b to the identity
 	for(size_t i = 0; i < mat_size; ++i) {
 		for(size_t j = 0; j < mat_size; ++j) {
 			mat_a[i * mat_size + j] = i == j;
 			mat_b[i * mat_size + j] = i == j;
+			mat_c[i * mat_size + j] = i == j;
+			mat_d[i * mat_size + j] = i == j;
 		}
 	}
 
@@ -50,15 +54,21 @@ int main(int argc, char* argv[]) {
 
 		celerity::buffer<float, 2> mat_a_buf(mat_a.data(), cl::sycl::range<2>(mat_size, mat_size));
 		celerity::buffer<float, 2> mat_b_buf(mat_b.data(), cl::sycl::range<2>(mat_size, mat_size));
-		celerity::buffer<float, 2> mat_c_buf(cl::sycl::range<2>(mat_size, mat_size));
+		celerity::buffer<float, 2> mat_c_buf(mat_b.data(), cl::sycl::range<2>(mat_size, mat_size));
+		celerity::buffer<float, 2> mat_d_buf(mat_b.data(), cl::sycl::range<2>(mat_size, mat_size));
+		celerity::buffer<float, 2> mat_r_buf(cl::sycl::range<2>(mat_size, mat_size));
+		celerity::buffer<float, 2> mat_p_buf(cl::sycl::range<2>(mat_size, mat_size));
+		celerity::buffer<float, 2> mat_q_buf(cl::sycl::range<2>(mat_size, mat_size));
 
 		MPI_Barrier(MPI_COMM_WORLD);
 		celerity::experimental::bench::begin("main program");
 
-		multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf, mat_size);
+		multiply(queue, mat_a_buf, mat_b_buf, mat_p_buf, mat_size);
+		multiply(queue, mat_c_buf, mat_d_buf, mat_q_buf, mat_size);
+		multiply(queue, mat_p_buf, mat_q_buf, mat_r_buf, mat_size);
 
 		queue.with_master_access([&](celerity::handler& cgh) {
-			auto result = mat_c_buf.get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<2>(mat_size, mat_size));
+			auto result = mat_r_buf.get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<2>(mat_size, mat_size));
 
 			cgh.run([=, &verification_passed]() {
 				celerity::experimental::bench::end("main program");

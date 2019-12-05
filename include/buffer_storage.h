@@ -50,6 +50,7 @@ namespace detail {
 		virtual std::shared_ptr<raw_data_read_handle> get_data(cl::sycl::queue& queue, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) = 0;
 		virtual void set_data(cl::sycl::queue& queue, const raw_data_handle& dh) = 0;
 		virtual ~buffer_storage_base() = default;
+		virtual size_t get_element_size() const = 0;
 
 	  private:
 		cl::sycl::range<3> range;
@@ -68,6 +69,8 @@ namespace detail {
 			// TODO: Especially on master node it is likely overkill to initialize all buffers eagerly
 			sycl_buf = std::make_unique<cl::sycl::buffer<DataT, Dims>>(detail::range_cast<Dims>(get_range()));
 		}
+
+		size_t get_element_size() const override { return sizeof(DataT); }
 
 		/**
 		 * @brief Returns the underlying SYCL buffer.

@@ -6,6 +6,7 @@
 #include "command.h"
 #include "command_graph.h"
 #include "graph_transformer.h"
+#include "runtime.h"
 #include "task.h"
 #include "task_manager.h"
 
@@ -45,7 +46,11 @@ namespace detail {
 			const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
 			const auto global_size = ctsk->get_global_size();
 			const auto global_offset = ctsk->get_global_offset();
-			cdag.create<compute_command>(0, tid, subrange<3>{global_offset, global_size});
+			auto sr = subrange<3>{global_offset, global_size};
+			cdag.create<compute_command>(0, tid, sr);
+			size_t numElems = sr.num_elems();
+			runtime::get_instance().get_logger()->debug(
+			    logger_map({{"event", fmt::format("Creating task with global size {} with total elems {}", sr.to_string(), sr.num_elems())}}));
 		} else if(tsk->get_type() == task_type::MASTER_ACCESS) {
 			cdag.create<master_access_command>(0, tid);
 		}
