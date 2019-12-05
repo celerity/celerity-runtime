@@ -3,9 +3,11 @@
 #include <memory>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <boost/range.hpp>
+#include <boost/container/flat_map.hpp>
 
 #include "command.h"
 #include "types.h"
@@ -98,6 +100,7 @@ namespace detail {
 			auto result = commands.emplace(std::make_pair(cid, new T(cid, std::forward<Args>(args)...)));
 			auto cmd = result.first->second.get();
 			if(isa<task_command>(cmd)) { by_task[static_cast<task_command*>(cmd)->get_tid()].emplace_back(static_cast<task_command*>(cmd)); }
+			if(!std::is_same<T, nop_command>::value) execution_fronts[cmd->get_nid()].insert(cmd);
 			return static_cast<T*>(cmd);
 		}
 
@@ -130,11 +133,29 @@ namespace detail {
 
 		void print_graph(logger& graph_logger) const;
 
+		// TODO unify dependency terminology to this
+		void add_dependency(abstract_command* depender, abstract_command* dependee, bool is_anti = false) {
+			assert(depender->get_nid() == dependee->get_nid()); // We cannot depend on commands executed on another node!
+			assert(dependee != depender);
+			depender->add_dependency({dependee, is_anti});
+			execution_fronts[depender->get_nid()].erase(dependee);
+		}
+
+		void remove_dependency(abstract_command* depender, abstract_command* dependee) {
+			depender->remove_dependency(dependee);
+		}
+
+
+		const std::unordered_set<abstract_command*>& get_execution_front(node_id nid) const { return execution_fronts.at(nid); }
+
 	  private:
 		command_id next_cmd_id = 0;
 		// TODO: Consider storing commands in a contiguous memory data structure instead
 		std::unordered_map<command_id, std::unique_ptr<abstract_command>> commands;
 		std::unordered_map<task_id, std::vector<task_command*>> by_task;
+
+		// Set of per-node commands with no dependents
+		boost::container::flat_map<node_id, std::unordered_set<abstract_command*>> execution_fronts;
 	};
 
 } // namespace detail

@@ -60,6 +60,9 @@ namespace detail {
 
 			dependencies.emplace_back(dep);
 			dep.node->dependents.emplace_back(dependent{static_cast<T*>(this), dep.is_anti});
+
+			pseudo_critical_path_length =
+			    std::max(pseudo_critical_path_length, static_cast<intrusive_graph_node*>(dep.node)->pseudo_critical_path_length + 1);
 		}
 
 		void remove_dependency(T* node) {
@@ -90,9 +93,17 @@ namespace detail {
 		auto get_dependencies() const { return boost::make_iterator_range(dependencies.cbegin(), dependencies.cend()); }
 		auto get_dependents() const { return boost::make_iterator_range(dependents.cbegin(), dependents.cend()); }
 
+		unsigned get_pseudo_critical_path_length() const { return pseudo_critical_path_length; }
+
 	  private:
+		// TODO grep "list<" and think about each (here probably boost::small_vector)
 		std::list<dependency> dependencies;
 		std::list<dependent> dependents;
+
+		// This only (potentially) grows when adding dependencies,
+		// it never shrinks and does not take into account later changes further up in the dependency chain
+		// (that is all that is needed for celerity use).
+		unsigned pseudo_critical_path_length = 0;
 
 		template <typename Dep>
 		boost::optional<typename std::list<Dep>::iterator> maybe_get_dep(std::list<Dep>& deps, T* node) {

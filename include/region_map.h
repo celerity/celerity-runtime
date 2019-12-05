@@ -23,6 +23,8 @@ namespace detail {
 	 */
 	template <typename ValueType>
 	class region_map {
+		friend struct region_map_testspy;
+
 		using region_values_t = std::vector<std::pair<GridRegion<3>, ValueType>>;
 
 	  public:
@@ -87,6 +89,14 @@ namespace detail {
 			//std::cout << "Regions after update: " << region_values.size() << " --- " << typeid(ValueType).name() << "\n";
 
 			// Since we only add regions in this function it's important to collapse afterwards.
+			collapse_regions();
+		}
+
+		template<typename Functor>
+		void apply_to_values(Functor f) {
+			for(auto& pair : region_values) {
+				pair.second = f(pair.second);
+			}
 			collapse_regions();
 		}
 

@@ -13,6 +13,7 @@ namespace detail {
 			by_task[tcmd->get_tid()].erase(std::find(by_task[tcmd->get_tid()].begin(), by_task[tcmd->get_tid()].end(), cmd));
 		}
 		commands.erase(cmd->get_cid());
+		execution_fronts[cmd->get_nid()].erase(cmd);
 	}
 
 	void command_graph::print_graph(logger& graph_logger) const {

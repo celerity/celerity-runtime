@@ -12,12 +12,15 @@
 namespace celerity {
 namespace detail {
 
+	constexpr unsigned HORIZON_STEP_SIZE = 1;
+
 	graph_generator::graph_generator(size_t num_nodes, task_manager& tm, command_graph& cdag) : task_mngr(tm), num_nodes(num_nodes), cdag(cdag) {
 		// Build init command for each node (these are required to properly handle host-initialized buffers).
 		for(auto i = 0u; i < num_nodes; ++i) {
 			const auto init_cmd = cdag.create<nop_command>(i);
 			node_data[i].init_cid = init_cmd->get_cid();
 		}
+		std::fill_n(std::back_inserter(prev_horizon_cmds), num_nodes, nullptr);
 	}
 
 	void graph_generator::add_buffer(buffer_id bid, const cl::sycl::range<3>& range) {
@@ -55,6 +58,38 @@ namespace detail {
 		// TODO: At some point we might want to do this also before calling transformers
 		// --> So that more advanced transformations can also take data transfers into account
 		process_task_data_requirements(tid);
+
+		// Horizon generation here
+		unsigned max_pseudo_cpath = 0;
+		for(auto cmd : cdag.task_commands<compute_command, master_access_command>(tid)) {
+			max_pseudo_cpath = std::max(max_pseudo_cpath, cmd->get_pseudo_critical_path_length());
+		}
+		if(max_pseudo_cpath >= prev_horizon_cpath_max + HORIZON_STEP_SIZE) {
+			prev_horizon_cpath_max = max_pseudo_cpath;
+			for(node_id node = 0; node < num_nodes; ++node) {
+				// TODO this could be optimized to something like cdag.apply_horizon(node_id, horizon_cmd) with much fewer internal operations
+				auto previous_execution_front = cdag.get_execution_front(node);
+				// Build horizon command and make current front depend on it
+				auto horizon_cmd = cdag.create<horizon_command>(node);
+				for(const auto& front_cmd : previous_execution_front) {
+					cdag.add_dependency(horizon_cmd, front_cmd);
+				}
+				// Apply the previous horizon to data structures
+				auto prev_horizon = prev_horizon_cmds[node];
+				if(prev_horizon != nullptr) {
+					auto prev_hid = prev_horizon->get_cid();
+					for(auto& blw_pair : node_data[node].buffer_last_writer) {
+						blw_pair.second.apply_to_values([prev_hid](boost::optional<command_id> cid) -> boost::optional<command_id> {
+							if(!cid) return cid;
+							return { std::max(prev_hid, *cid) };
+						});
+					}
+					// TODO delete before-previous-horizon commands
+				}
+				prev_horizon_cmds[node] = horizon_cmd;
+			}
+		}
+
 	}
 
 	using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<3>>>;
@@ -111,7 +146,7 @@ namespace detail {
 				if(buffer_reads_it == command_reads.end()) continue; // The task might be a dependent because of another buffer
 				if(!GridRegion<3>::intersect(write_req, buffer_reads_it->second).empty()) {
 					has_dependents = true;
-					write_cmd->add_dependency({d.node, true});
+					cdag.add_dependency(write_cmd, cmd, true);
 				}
 			}
 
@@ -121,7 +156,7 @@ namespace detail {
 				// Don't add anti-dependencies onto the init command
 				if(last_writer_cid == node_data[write_cmd->get_nid()].init_cid) continue;
 
-				write_cmd->add_dependency({last_writer_cmd, true});
+				cdag.add_dependency(write_cmd, last_writer_cmd, true);
 
 				// This is a good time to validate our assumption that every AWAIT_PUSH command has a dependent
 				assert(!isa<await_push_command>(last_writer_cmd));
@@ -135,7 +170,7 @@ namespace detail {
 			auto sources = map.get_region_values(box);
 			for(const auto& source : sources) {
 				auto source_cmd = cdag.get(*source.second);
-				cmd->add_dependency({source_cmd, false});
+				cdag.add_dependency(cmd, source_cmd);
 			}
 		}
 	} // namespace
@@ -237,7 +272,7 @@ namespace detail {
 							{
 								auto await_push_cmd = cdag.create<await_push_command>(nid, push_cmd);
 
-								cmd->add_dependency({await_push_cmd, false});
+								cdag.add_dependency(cmd, await_push_cmd);
 								generate_anti_dependencies(tid, bid, initial_node_buffer_last_writer, box, await_push_cmd);
 
 								// Mark this command as the last writer of this region for this buffer and node
@@ -305,7 +340,7 @@ namespace detail {
 						assert(isa<await_push_command>(writer_cmd));
 						continue;
 					}
-					writer_cmd->add_dependency({push_cmd, true});
+					cdag.add_dependency(writer_cmd, push_cmd, true);
 				}
 			}
 		}

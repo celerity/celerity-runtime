@@ -30,6 +30,9 @@ namespace detail {
 			serialize_and_flush(dep, dep_deps);
 		};
 
+		std::vector<horizon_command*> horizon_cmds; // TODO small vector type
+		horizon_cmds.reserve(cmds.size());
+
 		std::vector<std::pair<task_command*, std::vector<command_id>>> cmds_and_deps;
 		cmds_and_deps.reserve(cmds.size());
 		for(auto cmd : cmds) {
@@ -70,11 +73,20 @@ namespace detail {
 					if(!pcmd->is_flushed()) flush_dependency(pcmd);
 				}
 			}
+
+			for(auto d : cmd->get_dependents()) {
+				assert(isa<horizon_command>(d.node));
+				horizon_cmds.emplace_back(static_cast<horizon_command*>(d.node));
+			}
 		}
 
 		// Finally, flush all the task commands.
 		for(auto& cad : cmds_and_deps) {
 			serialize_and_flush(cad.first, cad.second);
+		}
+
+		for(auto& horizon_cmd : horizon_cmds) {
+			flush_dependency(horizon_cmd);
 		}
 	}
 
@@ -101,6 +113,8 @@ namespace detail {
 			const auto await_push = static_cast<await_push_command*>(cmd);
 			pkg.data = await_push_data{await_push->get_source()->get_bid(), await_push->get_source()->get_nid(), await_push->get_source()->get_cid(),
 			    await_push->get_source()->get_range()};
+		} else if(isa<horizon_command>(cmd)) {
+			pkg.cmd = command_type::HORIZON;
 		} else {
 			assert(false && "Unknown command");
 		}

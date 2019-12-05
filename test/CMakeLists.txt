@@ -8,6 +8,8 @@ endif()
 set(TEST_TARGETS
   runtime_tests
   graph_generation_tests
+  graph_compaction_tests
+  intrusive_graph_tests
 )
 
 add_library(unit_test_suite unit_test_suite.cc unit_test_suite_celerity.cc)
