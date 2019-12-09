@@ -22,7 +22,7 @@ if(rand() > 1337) {
 }
 ```
 
-## Asynchronous Execution
+## Asynchronous Execution - Capturing by Reference
 
 Celerity tasks submitted to the `celerity::distr_queue` are executed
 _asynchronously_ at a later point in time. This means that the stack

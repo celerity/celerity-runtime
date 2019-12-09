@@ -104,3 +104,4 @@ mpirun -n 2 ./examples/matmul/matmul
 ```
 
 > **Tip:** You might also want to try and run the unit tests that come with Celerity.
+> To do so, simply run `ninja test` or `make test`.

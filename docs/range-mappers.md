@@ -25,8 +25,9 @@ celerity::subrange<BufferDims> fn(celerity::chunk<KernelDims>);
 
 Note that there are two template parameters, one for the kernel chunk, and
 another for the buffer. This means that in general, the dimensionality of a
-kernel must not match that of the buffer(s) it operates on. For example, a
-two-dimensional kernel might access a one-dimensional buffer, or vice-versa.
+kernel does not have to match that of the buffer(s) it operates on. For
+example, a two-dimensional kernel might access a one-dimensional buffer, or
+vice-versa.
 
 ### Usage
 

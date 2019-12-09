@@ -122,7 +122,7 @@ are specified in Celerity is very similar to how it is done in SYCL:
 queue.submit([=](celerity::handler& cgh) {
     // TODO: Buffer accessors
     cgh.parallel_for<class MyEdgeDetectionKernel>(
-        cl::sycl::range<2>(img_height - 1, img_width - 1),
+        cl::sycl::range<2>(img_height - 2, img_width - 2),
         cl::sycl::id<2>(1, 1),
         [=](cl::sycl::item<2> item) {
             // TODO: Kernel code
@@ -226,8 +226,8 @@ Here we chose `MyEdgeDetectionKernel`, but this can be anything you like.
 Finally, the first two parameters to the `parallel_for` function tell
 Celerity how many individual GPU threads (or work items) we want to execute.
 In our case we want to execute one thread for each pixel of our image, except
-for an 1-pixel border on the outside of the image - which is why we subtract
-1 from our image size in both dimensions and additionally specify the
+for a 1-pixel border on the outside of the image - which is why we subtract
+2 from our image size in both dimensions and additionally specify the
 execution offset of `(1, 1)`. _Why_ this is a good idea is left as an
 exercise for the reader ;-).
 
@@ -283,7 +283,7 @@ file as a command line argument like so:
 ./edge_detection ./my_image.jpg
 ```
 
-If all goes well, a result file named `output.png` should then be located in
+If all goes well, a result file named `result.png` should then be located in
 your working directory.
 
 Since Celerity applications are built on top of MPI internally, you can now

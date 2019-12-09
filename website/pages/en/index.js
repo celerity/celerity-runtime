@@ -95,7 +95,7 @@ class Index extends React.Component {
           {
             title: "Designed for HPC",
             content:
-              "Transparently scale your workloads to large-scale accelerator clusters.",
+              "Transparently run your workloads on large-scale accelerator clusters.",
             image: `${baseUrl}img/hpc_icon.svg`,
             imageAlign: "top"
           }
