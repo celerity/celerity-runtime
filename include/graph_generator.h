@@ -48,14 +48,18 @@ namespace detail {
 		// Build the commands for a single task
 		void build_task(task_id tid, const std::vector<graph_transformer*>& transformers);
 
+		void set_horizon_step_size(unsigned step_size) { horizon_step_size = step_size; }
+
 	  private:
 		task_manager& task_mngr;
 		const size_t num_nodes;
 		command_graph& cdag;
 
+		// Number of cpath steps which should occur before a new horizon is inserted.
+		unsigned horizon_step_size = 4;
 		// Keeps track of the "position" of the previous horizon to allow inserting new horizons with a controlled frequency.
 		unsigned prev_horizon_cpath_max = 0;
-		// The most recent horizon command per node
+		// The most recent horizon command per node.
 		std::vector<horizon_command*> prev_horizon_cmds;
 
 		// NOTE: We have several data structures that keep track of the "global state" of the distributed program, across all tasks and nodes.
@@ -82,6 +86,9 @@ namespace detail {
 		    const GridRegion<3>& write_req, abstract_command* write_cmd);
 
 		void process_task_data_requirements(task_id tid);
+
+		bool should_generate_horizon() const;
+		void generate_horizon();
 	};
 
 } // namespace detail

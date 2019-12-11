@@ -30,7 +30,7 @@ namespace detail {
 			serialize_and_flush(dep, dep_deps);
 		};
 
-		std::vector<horizon_command*> horizon_cmds; // TODO small vector type
+		std::vector<horizon_command*> horizon_cmds;
 		horizon_cmds.reserve(cmds.size());
 
 		std::vector<std::pair<task_command*, std::vector<command_id>>> cmds_and_deps;

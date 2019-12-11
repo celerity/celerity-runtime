@@ -54,6 +54,15 @@ namespace detail {
 		virtual std::pair<command_type, std::string> get_description(const command_pkg& pkg) = 0;
 	};
 
+	class horizon_job : public worker_job {
+	  public:
+		horizon_job(command_pkg pkg, std::shared_ptr<logger> job_logger) : worker_job(pkg, job_logger) { assert(pkg.cmd == command_type::HORIZON); }
+
+	  private:
+		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override { return true; };
+		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
+	};
+
 	/**
 	 * Informs the data_transfer_manager about the awaited push, then waits until the transfer has been received and completed.
 	 */

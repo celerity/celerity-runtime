@@ -6,8 +6,8 @@
 #include <unordered_set>
 #include <vector>
 
-#include <boost/range.hpp>
 #include <boost/container/flat_map.hpp>
+#include <boost/range.hpp>
 
 #include "command.h"
 #include "types.h"
@@ -139,14 +139,14 @@ namespace detail {
 			assert(dependee != depender);
 			depender->add_dependency({dependee, is_anti});
 			execution_fronts[depender->get_nid()].erase(dependee);
+			max_pseudo_critical_path_length = std::max(max_pseudo_critical_path_length, depender->get_pseudo_critical_path_length());
 		}
 
-		void remove_dependency(abstract_command* depender, abstract_command* dependee) {
-			depender->remove_dependency(dependee);
-		}
-
+		void remove_dependency(abstract_command* depender, abstract_command* dependee) { depender->remove_dependency(dependee); }
 
 		const std::unordered_set<abstract_command*>& get_execution_front(node_id nid) const { return execution_fronts.at(nid); }
+
+		unsigned get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
 
 	  private:
 		command_id next_cmd_id = 0;
@@ -156,6 +156,10 @@ namespace detail {
 
 		// Set of per-node commands with no dependents
 		boost::container::flat_map<node_id, std::unordered_set<abstract_command*>> execution_fronts;
+
+		// This only (potentially) grows when adding dependencies,
+		// it never shrinks and does not take into account later changes further up in the dependency chain
+		unsigned max_pseudo_critical_path_length = 0;
 	};
 
 } // namespace detail

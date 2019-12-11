@@ -61,8 +61,7 @@ namespace detail {
 			dependencies.emplace_back(dep);
 			dep.node->dependents.emplace_back(dependent{static_cast<T*>(this), dep.is_anti});
 
-			pseudo_critical_path_length =
-			    std::max(pseudo_critical_path_length, static_cast<intrusive_graph_node*>(dep.node)->pseudo_critical_path_length + 1);
+			pseudo_critical_path_length = std::max(pseudo_critical_path_length, static_cast<intrusive_graph_node*>(dep.node)->pseudo_critical_path_length + 1);
 		}
 
 		void remove_dependency(T* node) {

@@ -12,8 +12,6 @@
 namespace celerity {
 namespace detail {
 
-	constexpr unsigned HORIZON_STEP_SIZE = 1;
-
 	graph_generator::graph_generator(size_t num_nodes, task_manager& tm, command_graph& cdag) : task_mngr(tm), num_nodes(num_nodes), cdag(cdag) {
 		// Build init command for each node (these are required to properly handle host-initialized buffers).
 		for(auto i = 0u; i < num_nodes; ++i) {
@@ -59,37 +57,7 @@ namespace detail {
 		// --> So that more advanced transformations can also take data transfers into account
 		process_task_data_requirements(tid);
 
-		// Horizon generation here
-		unsigned max_pseudo_cpath = 0;
-		for(auto cmd : cdag.task_commands<compute_command, master_access_command>(tid)) {
-			max_pseudo_cpath = std::max(max_pseudo_cpath, cmd->get_pseudo_critical_path_length());
-		}
-		if(max_pseudo_cpath >= prev_horizon_cpath_max + HORIZON_STEP_SIZE) {
-			prev_horizon_cpath_max = max_pseudo_cpath;
-			for(node_id node = 0; node < num_nodes; ++node) {
-				// TODO this could be optimized to something like cdag.apply_horizon(node_id, horizon_cmd) with much fewer internal operations
-				auto previous_execution_front = cdag.get_execution_front(node);
-				// Build horizon command and make current front depend on it
-				auto horizon_cmd = cdag.create<horizon_command>(node);
-				for(const auto& front_cmd : previous_execution_front) {
-					cdag.add_dependency(horizon_cmd, front_cmd);
-				}
-				// Apply the previous horizon to data structures
-				auto prev_horizon = prev_horizon_cmds[node];
-				if(prev_horizon != nullptr) {
-					auto prev_hid = prev_horizon->get_cid();
-					for(auto& blw_pair : node_data[node].buffer_last_writer) {
-						blw_pair.second.apply_to_values([prev_hid](boost::optional<command_id> cid) -> boost::optional<command_id> {
-							if(!cid) return cid;
-							return { std::max(prev_hid, *cid) };
-						});
-					}
-					// TODO delete before-previous-horizon commands
-				}
-				prev_horizon_cmds[node] = horizon_cmd;
-			}
-		}
-
+		if(should_generate_horizon()) { generate_horizon(); }
 	}
 
 	using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<3>>>;
@@ -213,12 +181,7 @@ namespace detail {
 				const buffer_id bid = it.first;
 				const auto& reqs_by_mode = it.second;
 
-				// We have to make sure to update the last writer map for this node and buffer only after all new writes have been processed,
-				// as we otherwise risk creating anti dependencies onto commands within the same task, that shouldn't exist.
-				// (For example, an AWAIT_PUSH could be falsely identified as an anti-dependency for a "read_write" COMPUTE).
-				auto working_node_buffer_last_writer = node_data.at(nid).buffer_last_writer.at(bid);
-
-				const auto& initial_node_buffer_last_writer = node_data.at(nid).buffer_last_writer.at(bid);
+				const auto& node_buffer_last_writer = node_data.at(nid).buffer_last_writer.at(bid);
 
 				for(const auto mode : access::detail::all_modes) {
 					if(reqs_by_mode.count(mode) == 0) continue;
@@ -246,7 +209,7 @@ namespace detail {
 
 							if(std::find(box_sources.cbegin(), box_sources.cend(), nid) != box_sources.cend()) {
 								// No need to push if found locally, but make sure to add dependencies
-								add_dependencies_for_box(cdag, cmd, working_node_buffer_last_writer, box);
+								add_dependencies_for_box(cdag, cmd, node_buffer_last_writer, box);
 								continue;
 							}
 
@@ -273,12 +236,9 @@ namespace detail {
 								auto await_push_cmd = cdag.create<await_push_command>(nid, push_cmd);
 
 								cdag.add_dependency(cmd, await_push_cmd);
-								generate_anti_dependencies(tid, bid, initial_node_buffer_last_writer, box, await_push_cmd);
+								generate_anti_dependencies(tid, bid, node_buffer_last_writer, box, await_push_cmd);
 
-								// Mark this command as the last writer of this region for this buffer and node
-								working_node_buffer_last_writer.update_region(box, await_push_cmd->get_cid());
-
-								// Finally, remember the fact that we now have this valid buffer range on this node.
+								// Remember the fact that we now have this valid buffer range on this node.
 								auto new_box_sources = box_sources;
 								new_box_sources.push_back(nid);
 								buffer_states.at(bid).update_region(box, new_box_sources);
@@ -289,10 +249,8 @@ namespace detail {
 					}
 
 					if(access::detail::mode_traits::is_producer(mode)) {
-						generate_anti_dependencies(tid, bid, initial_node_buffer_last_writer, req, cmd);
+						generate_anti_dependencies(tid, bid, node_buffer_last_writer, req, cmd);
 
-						// Mark this command as the last writer of this region for this buffer and node
-						working_node_buffer_last_writer.update_region(req, cid);
 						// After this task is completed, this node and command are the last writer of this region
 						buffer_state_write_list.emplace_back(nid, bid, req);
 						per_node_last_writer_update_list.emplace_back(nid, bid, req, cid);
@@ -343,6 +301,35 @@ namespace detail {
 					cdag.add_dependency(writer_cmd, push_cmd, true);
 				}
 			}
+		}
+	}
+
+
+	bool graph_generator::should_generate_horizon() const { return cdag.get_max_pseudo_critical_path_length() >= prev_horizon_cpath_max + horizon_step_size; }
+
+	void graph_generator::generate_horizon() {
+		prev_horizon_cpath_max = cdag.get_max_pseudo_critical_path_length();
+		for(node_id node = 0; node < num_nodes; ++node) {
+			// TODO this could be optimized to something like cdag.apply_horizon(node_id, horizon_cmd) with much fewer internal operations
+			auto previous_execution_front = cdag.get_execution_front(node);
+			// Build horizon command and make current front depend on it
+			auto horizon_cmd = cdag.create<horizon_command>(node);
+			for(const auto& front_cmd : previous_execution_front) {
+				cdag.add_dependency(horizon_cmd, front_cmd);
+			}
+			// Apply the previous horizon to data structures
+			auto prev_horizon = prev_horizon_cmds[node];
+			if(prev_horizon != nullptr) {
+				auto prev_hid = prev_horizon->get_cid();
+				for(auto& blw_pair : node_data[node].buffer_last_writer) {
+					blw_pair.second.apply_to_values([prev_hid](boost::optional<command_id> cid) -> boost::optional<command_id> {
+						if(!cid) return cid;
+						return {std::max(prev_hid, *cid)};
+					});
+				}
+				// TODO delete before-previous-horizon commands
+			}
+			prev_horizon_cmds[node] = horizon_cmd;
 		}
 	}
 

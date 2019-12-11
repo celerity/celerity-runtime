@@ -85,14 +85,11 @@ namespace detail {
 			new_region_values.push_back({region, value});
 			region_values = std::move(new_region_values);
 
-			// TODO WIP: currently no collapsing
-			//std::cout << "Regions after update: " << region_values.size() << " --- " << typeid(ValueType).name() << "\n";
-
 			// Since we only add regions in this function it's important to collapse afterwards.
 			collapse_regions();
 		}
 
-		template<typename Functor>
+		template <typename Functor>
 		void apply_to_values(Functor f) {
 			for(auto& pair : region_values) {
 				pair.second = f(pair.second);

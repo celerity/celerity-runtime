@@ -77,6 +77,7 @@ namespace detail {
 			       + fmt::format("AWAIT PUSH {} from {}\\n {}", await_push->get_source()->get_bid(), await_push->get_source()->get_nid(),
 			             subrange_to_grid_region(await_push->get_source()->get_range()));
 		}
+		if(isa<horizon_command>(cmd)) { return label + "HORIZON"; }
 		return fmt::format("[{}] UNKNOWN\\n{}", cmd->get_cid(), cmd->debug_label);
 	}
 
