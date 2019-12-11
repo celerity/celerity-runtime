@@ -19,8 +19,6 @@
 #define _UKN_CONCAT(x, y) _UKN_CONCAT2(x, y)
 #define UKN(name) _UKN_CONCAT(name, __COUNTER__)
 
-#define IMPORTANT_CHECK CHECK
-
 namespace celerity {
 namespace detail {
 
@@ -316,7 +314,6 @@ namespace detail {
 	}
 
 	TEST_CASE("command_graph keeps track of execution fronts", "[command_graph][command-graph]") {
-
 		command_graph cdag;
 
 		auto build_testing_graph_on_node = [&cdag](node_id node) {
@@ -339,9 +336,7 @@ namespace detail {
 
 		auto node_0_expected_front = build_testing_graph_on_node(0u);
 
-		SECTION("for individual nodes") {
-			build_testing_graph_on_node(1u);
-		}
+		SECTION("for individual nodes") { build_testing_graph_on_node(1u); }
 
 		REQUIRE(node_0_expected_front == cdag.get_execution_front(0));
 	}
@@ -557,9 +552,9 @@ namespace detail {
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, full_range_for_single_node(2)); }, full_range));
 		}
 
-		IMPORTANT_CHECK(inspector.get_commands(boost::none, node_id(0), command_type::PUSH).size() == 2);
-		IMPORTANT_CHECK(inspector.get_commands(boost::none, node_id(1), command_type::PUSH).size() == 0);
-		IMPORTANT_CHECK(inspector.get_commands(boost::none, node_id(2), command_type::PUSH).size() == 0);
+		CHECK(inspector.get_commands(boost::none, node_id(0), command_type::PUSH).size() == 2);
+		CHECK(inspector.get_commands(boost::none, node_id(1), command_type::PUSH).size() == 0);
+		CHECK(inspector.get_commands(boost::none, node_id(2), command_type::PUSH).size() == 0);
 		CHECK(inspector.get_commands(boost::none, node_id(1), command_type::AWAIT_PUSH).size() == 1);
 		CHECK(inspector.get_commands(boost::none, node_id(2), command_type::AWAIT_PUSH).size() == 1);
 
