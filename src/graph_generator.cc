@@ -118,7 +118,7 @@ namespace detail {
 				}
 			}
 
-			// In some cases (master access, weird discard_* constructs...)
+			// In some cases (horizons, master access, weird discard_* constructs...)
 			// the last writer might not have any dependents. Just add the anti-dependency onto the writer itself then.
 			if(!has_dependents) {
 				// Don't add anti-dependencies onto the init command

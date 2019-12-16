@@ -12,6 +12,11 @@
 #include "transformers/naive_split.h"
 #include "types.h"
 
+// To avoid having to come up with tons of unique kernel names, we simply use the CPP counter.
+// This is non-standard but widely supported.
+#define _UKN_CONCAT2(x, y) x##_##y
+#define _UKN_CONCAT(x, y) _UKN_CONCAT2(x, y)
+#define UKN(name) _UKN_CONCAT(name, __COUNTER__)
 
 namespace celerity {
 namespace test_utils {
@@ -107,6 +112,8 @@ namespace test_utils {
 		}
 
 		size_t get_dependency_count(detail::command_id dependent) const { return commands.at(dependent).dependencies.size(); }
+
+		std::vector<detail::command_id> get_dependencies(detail::command_id dependent) const { return commands.at(dependent).dependencies; }
 
 	  private:
 		struct cmd_info {

@@ -13,12 +13,6 @@
 
 #include "test_utils.h"
 
-// To avoid having to come up with tons of unique kernel names, we simply use the CPP counter.
-// This is non-standard but widely supported.
-#define _UKN_CONCAT2(x, y) x##_##y
-#define _UKN_CONCAT(x, y) _UKN_CONCAT2(x, y)
-#define UKN(name) _UKN_CONCAT(name, __COUNTER__)
-
 namespace celerity {
 namespace detail {
 

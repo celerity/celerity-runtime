@@ -46,7 +46,7 @@ namespace detail {
 		}
 	};
 
-	TEST_CASE("graph_compactor prevents number of regions from growing indefinitely", "[graph_compactor][command-graph]") {
+	TEST_CASE("horizons prevent number of regions from growing indefinitely", "[horizon][command-graph]") {
 		using namespace cl::sycl::access;
 
 		constexpr int NUM_TIMESTEPS = 100;
@@ -125,6 +125,72 @@ namespace detail {
 		maybe_print_graphs(ctx);
 	}
 
+	TEST_CASE("horizons correctly deal with antidependencies", "[horizon][command-graph]") {
+		using namespace cl::sycl::access;
+
+		constexpr int NUM_NODES = 1;
+		test_utils::cdag_test_context ctx(NUM_NODES);
+
+		// For this test, we need to generate 2 horizons but still have the first one be relevant
+		// after the second is generated -> use 2 buffers A and B, with a longer task chan on A, and write to B later
+		// step size is set to ensure expected horizons
+		ctx.get_graph_generator().set_horizon_step_size(1);
+
+		auto& inspector = ctx.get_inspector();
+		test_utils::mock_buffer_factory mbf(ctx);
+		auto full_range = cl::sycl::range<1>(100);
+		auto buf_a = mbf.create_buffer<1>(full_range);
+		auto buf_b = mbf.create_buffer<1>(full_range);
+
+		// write to buf_a and buf_b
+		test_utils::build_and_flush(ctx, NUM_NODES,
+		    test_utils::add_compute_task<class UKN(init_a_b)>(ctx.get_task_manager(),
+		        [&](handler& cgh) {
+			        buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
+			        buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
+		        },
+		        full_range));
+
+		// then read from buf_b to later induce anti-dependence
+		test_utils::build_and_flush(ctx, NUM_NODES,
+		    test_utils::add_compute_task<class UKN(read_b_before_first_horizon)>(
+		        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::read>(cgh, access::one_to_one<1>()); }, full_range));
+
+		// here, the first horizon should have been generated
+
+		// do 1 more read/writes on buf_a to generate another horizon and apply the first one
+		for(int i = 0; i < 1; ++i) {
+			test_utils::build_and_flush(ctx, NUM_NODES,
+			    test_utils::add_compute_task<class UKN(buf_a_rw)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, access::one_to_one<1>()); }, full_range));
+		}
+
+		// now, do a write on buf_b which should generate an anti-dependency on the first horizon
+
+		auto write_b_after_first_horizon = test_utils::build_and_flush(ctx, NUM_NODES,
+		    test_utils::add_compute_task<class UKN(write_b_after_first_horizon)>(
+		        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, full_range));
+
+		// Now we need to check various graph properties
+
+		auto cmds = inspector.get_commands(write_b_after_first_horizon, boost::none, boost::none);
+		CHECK(cmds.size() == 1);
+		auto deps = inspector.get_dependencies(*cmds.cbegin());
+		CHECK(deps.size() == 1);
+
+		// check that the dependee is the first horizon
+		auto horizon_cmds = inspector.get_commands(boost::none, boost::none, command_type::HORIZON);
+		CHECK(horizon_cmds.size() == 3);
+		CHECK(deps[0] == *horizon_cmds.cbegin());
+
+		// and that it's an anti-dependence
+		auto write_b_cmd = ctx.get_command_graph().get(*cmds.cbegin());
+		auto write_b_dependencies = write_b_cmd->get_dependencies();
+		CHECK(!write_b_dependencies.empty());
+		CHECK(write_b_dependencies.front().is_anti);
+
+		maybe_print_graphs(ctx);
+	}
 
 } // namespace detail
 } // namespace celerity
