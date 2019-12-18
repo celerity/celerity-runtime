@@ -125,12 +125,12 @@ namespace detail {
 			submitted = true;
 			logger->trace(logger_map({{"event", "Submitted"}}));
 
-			// There currently (since 0.9.0 and up to and including 1.0.5) exists a bug that causes ComputeCpp to block when
+			// There currently (since 0.9.0 and up to and including 1.1.4) exists a bug that causes ComputeCpp to block when
 			// querying the execution status of a compute command until it is finished. This is bad for us, as it blocks all other
 			// jobs and prevents us from executing multiple compute jobs simultaneously.
 			// --> See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-107 (psalz)
 			// The workaround for now is to block within a worker thread.
-#if WORKAROUND(COMPUTECPP, 1, 0, 5)
+#if WORKAROUND(COMPUTECPP, 1, 1, 4)
 			computecpp_workaround_future = runtime::get_instance().execute_async_pooled([this]() {
 				while(true) {
 					const auto status = event.get_info<cl::sycl::info::event::command_execution_status>();
