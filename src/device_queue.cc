@@ -7,10 +7,8 @@
 namespace celerity {
 namespace detail {
 
-	void device_queue::init(config& cfg, task_manager* task_mngr, cl::sycl::device* user_device) {
+	void device_queue::init(config& cfg, cl::sycl::device* user_device) {
 		assert(sycl_queue == nullptr);
-		assert(task_mngr != nullptr);
-		this->task_mngr = task_mngr;
 		const auto forced_wg_size_cfg = cfg.get_forced_work_group_size();
 		forced_work_group_size = forced_wg_size_cfg != std::nullopt ? *forced_wg_size_cfg : 0;
 		const auto profiling_cfg = cfg.get_enable_device_profiling();

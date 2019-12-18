@@ -114,7 +114,7 @@ namespace detail {
 
 		default_logger->info(
 		    logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"build", get_build_type()}, {"sycl", get_sycl_version()}}));
-		queue->init(*cfg, task_mngr.get(), user_device);
+		queue->init(*cfg, user_device);
 	}
 
 	runtime::~runtime() {

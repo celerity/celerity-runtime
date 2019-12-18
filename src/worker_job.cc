@@ -118,10 +118,10 @@ namespace detail {
 
 		if(!submitted) {
 			// Note that we have to set the proper global size so the livepass handler can use the assigned chunk as input for range mappers
-			const auto ctsk = std::static_pointer_cast<const detail::compute_task>(task_mngr.get_task(data.tid));
+			const auto ctsk = std::static_pointer_cast<const compute_task>(task_mngr.get_task(data.tid));
 			auto& cmd_sr = data.sr;
 			logger->trace(logger_map({{"event", "Execute live-pass, submit kernel to SYCL"}}));
-			event = queue.execute(data.tid, cmd_sr);
+			event = queue.execute(ctsk, cmd_sr);
 			submitted = true;
 			logger->trace(logger_map({{"event", "Submitted"}}));
 

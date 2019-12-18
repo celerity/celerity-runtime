@@ -4,6 +4,7 @@
 #include <type_traits>
 
 #include "runtime.h"
+#include "task_manager.h"
 
 #if !defined(CELERITY_STRICT_CGF_SAFETY)
 #define CELERITY_STRICT_CGF_SAFETY 1
