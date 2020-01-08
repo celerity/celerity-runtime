@@ -309,6 +309,7 @@ namespace detail {
 
 	void graph_generator::generate_horizon() {
 		prev_horizon_cpath_max = cdag.get_max_pseudo_critical_path_length();
+		detail::command_id lowest_prev_hid = 0;
 		for(node_id node = 0; node < num_nodes; ++node) {
 			// TODO this could be optimized to something like cdag.apply_horizon(node_id, horizon_cmd) with much fewer internal operations
 			auto previous_execution_front = cdag.get_execution_front(node);
@@ -320,6 +321,7 @@ namespace detail {
 			// Apply the previous horizon to data structures
 			auto prev_horizon = prev_horizon_cmds[node];
 			if(prev_horizon != nullptr) {
+				// update "buffer_last_writer" structures to subsume pre-horizon commands
 				auto prev_hid = prev_horizon->get_cid();
 				for(auto& blw_pair : node_data[node].buffer_last_writer) {
 					blw_pair.second.apply_to_values([prev_hid](std::optional<command_id> cid) -> std::optional<command_id> {
@@ -327,10 +329,28 @@ namespace detail {
 						return {std::max(prev_hid, *cid)};
 					});
 				}
-				// TODO delete before-previous-horizon commands
+				// update lowest previous horizon id (for later command deletion
+				if(lowest_prev_hid == 0) {
+					lowest_prev_hid = prev_hid;
+				} else {
+					lowest_prev_hid = std::min(lowest_prev_hid, prev_hid);
+				}
 			}
 			prev_horizon_cmds[node] = horizon_cmd;
 		}
+		// After updating all the data structures, delete before-cleanup-horizon commands
+		// Also remove commands from command_buffer_reads (if it exists)
+		if(cleanup_horizon_id > 0) {
+			cdag.erase_if([&](abstract_command* cmd) {
+				if(cmd->get_cid() < cleanup_horizon_id) {
+					assert(cmd->is_flushed() && "Cannot delete unflushed command");
+					command_buffer_reads.erase(cmd->get_cid());
+					return true;
+				}
+				return false;
+			});
+		}
+		cleanup_horizon_id = lowest_prev_hid;
 	}
 
 } // namespace detail

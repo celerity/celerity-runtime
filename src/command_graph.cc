@@ -16,6 +16,17 @@ namespace detail {
 		commands.erase(cmd->get_cid());
 	}
 
+
+	void command_graph::erase_if(std::function<bool(abstract_command*)> condition) {
+		for(auto it = commands.begin(); it != commands.end();) {
+			if(condition(it->second.get())) {
+				it = commands.erase(it);
+			} else {
+				++it;
+			}
+		}
+	}
+
 	void command_graph::print_graph(logger& graph_logger) const {
 		if(command_count() < 200) {
 			detail::print_graph(*this, graph_logger);

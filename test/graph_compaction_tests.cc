@@ -44,6 +44,7 @@ namespace detail {
 		static void print_buffer_last_writers(const graph_generator& ggen, const buffer_id bid) {
 			region_map_testspy::print_regions(ggen.node_data.at(node_id{0}).buffer_last_writer.at(bid));
 		}
+		static size_t get_command_buffer_reads_size(const graph_generator& ggen) { return ggen.command_buffer_reads.size(); }
 	};
 
 	TEST_CASE("horizons prevent number of regions from growing indefinitely", "[horizon][command-graph]") {
@@ -104,6 +105,11 @@ namespace detail {
 				CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() <= NUM_TIMESTEPS);
 				CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() >= NUM_TIMESTEPS - 1);
 			}
+
+			// also check that unused commands are deleted
+			CHECK(ctx.get_command_graph().command_count() <= NUM_NODES * 13);
+			// and are removed from the read cache
+			CHECK(graph_generator_testspy::get_command_buffer_reads_size(ctx.get_graph_generator()) < NUM_NODES * 9);
 		}
 
 		SECTION("with horizon step size 3") {
@@ -118,6 +124,11 @@ namespace detail {
 				CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() <= NUM_TIMESTEPS / 3 + 1);
 				CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() >= NUM_TIMESTEPS / 3 - 1);
 			}
+
+			// also check that unused commands are deleted
+			CHECK(ctx.get_command_graph().command_count() <= NUM_NODES * 13 * 3);
+			// and are removed from the read cache
+			CHECK(graph_generator_testspy::get_command_buffer_reads_size(ctx.get_graph_generator()) < NUM_NODES * 9 * 3);
 		}
 
 		// graph_generator_testspy::print_buffer_last_writers(ctx.get_graph_generator(), buf_a.get_id());

@@ -61,6 +61,8 @@ namespace detail {
 		unsigned prev_horizon_cpath_max = 0;
 		// The most recent horizon command per node.
 		std::vector<horizon_command*> prev_horizon_cmds;
+		// The id for the next cleanup horizon (after which we can delete commands)
+		detail::command_id cleanup_horizon_id = 0;
 
 		// NOTE: We have several data structures that keep track of the "global state" of the distributed program, across all tasks and nodes.
 		// While it might seem that this is problematic when the ordering of tasks can be chosen freely (by the scheduler),
@@ -74,7 +76,6 @@ namespace detail {
 		// For proper handling of anti-dependencies we also have to store for each command which buffer regions it reads.
 		// We do this because we cannot reconstruct the requirements from a command within the graph alone (e.g. for compute commands).
 		// While we could apply range mappers again etc., that is a bit wasteful. This is basically an optimization.
-		// TODO: Look into freeing this for commands that won't be needed anymore
 		std::unordered_map<command_id, buffer_read_map> command_buffer_reads;
 
 		std::unordered_map<node_id, per_node_data> node_data;

@@ -106,6 +106,8 @@ namespace detail {
 
 		void erase(abstract_command* cmd);
 
+		void erase_if(std::function<bool(abstract_command*)> condition);
+
 		template <typename T = abstract_command>
 		T* get(command_id cid) {
 			assert(commands.find(cid) != commands.end());
