@@ -203,5 +203,49 @@ namespace detail {
 		maybe_print_graphs(ctx);
 	}
 
+	TEST_CASE("horizons are flushed correctly even if not directly dependent on tasks", "[horizon][command-graph]") {
+		using namespace cl::sycl::access;
+
+		constexpr int NUM_NODES = 2;
+		test_utils::cdag_test_context ctx(NUM_NODES);
+
+		// For this test, we need to generate a horizon that attaches only
+		// to an execution front of "push", without directly attaching to any computes
+		// as such our minimum possible horizon step for testing this is 2
+		ctx.get_graph_generator().set_horizon_step_size(2);
+
+		auto& inspector = ctx.get_inspector();
+		test_utils::mock_buffer_factory mbf(ctx);
+		auto full_range = cl::sycl::range<1>(100);
+		auto buf_a = mbf.create_buffer<1>(full_range);
+
+		// write to buf_a on all nodes
+		test_utils::build_and_flush(ctx, NUM_NODES,
+		    test_utils::add_compute_task<class UKN(init_a)>(
+		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, full_range));
+
+		// perform another read-write step to ensure that horizons are generated as expected
+		test_utils::build_and_flush(ctx, NUM_NODES,
+		    test_utils::add_compute_task<class UKN(rw_a)>(
+		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, access::one_to_one<1>()); }, full_range));
+
+		// now for the actual test, read only on node 0
+		test_utils::build_and_flush(
+		    ctx, NUM_NODES, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, full_range); }));
+
+		// build some additional read/write steps so that we reach deletion
+		for(int i = 0; i < 2; ++i) {
+			test_utils::build_and_flush(ctx, NUM_NODES,
+			    test_utils::add_compute_task<class UKN(rw_a)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, access::one_to_one<1>()); }, full_range));
+		}
+
+		// check that all horizons were flushed
+		auto horizon_cmds = inspector.get_commands(boost::none, boost::none, command_type::HORIZON);
+		CHECK(horizon_cmds.size() == 4);
+
+		maybe_print_graphs(ctx);
+	}
+
 } // namespace detail
 } // namespace celerity

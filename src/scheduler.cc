@@ -40,6 +40,7 @@ namespace detail {
 				naive_split_transformer naive_split(num_nodes, num_nodes);
 				ggen.build_task(tid, {&naive_split});
 				gsrlzr.flush(tid);
+				gsrlzr.flush_horizons();
 			}
 		}
 	}

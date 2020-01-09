@@ -4,6 +4,7 @@
 
 #include "command.h"
 #include "command_graph.h"
+#include "logger.h"
 
 namespace celerity {
 namespace detail {
@@ -18,20 +19,6 @@ namespace detail {
 #ifndef NDEBUG
 		task_id check_tid = task_id(-1);
 #endif
-
-		const auto flush_dependency = [this](abstract_command* dep) {
-			std::vector<command_id> dep_deps;
-			// Iterate over second level of dependencies. All of these must already have been flushed.
-			// TODO: We could probably do some pruning here (e.g. omit tasks we know are already finished)
-			for(auto dd : dep->get_dependencies()) {
-				assert(dd.node->is_flushed());
-				dep_deps.push_back(dd.node->get_cid());
-			}
-			serialize_and_flush(dep, dep_deps);
-		};
-
-		std::vector<horizon_command*> horizon_cmds;
-		horizon_cmds.reserve(cmds.size());
 
 		std::vector<std::pair<task_command*, std::vector<command_id>>> cmds_and_deps;
 		cmds_and_deps.reserve(cmds.size());
@@ -73,21 +60,32 @@ namespace detail {
 					if(!pcmd->is_flushed()) flush_dependency(pcmd);
 				}
 			}
-
-			for(auto d : cmd->get_dependents()) {
-				assert(isa<horizon_command>(d.node));
-				horizon_cmds.emplace_back(static_cast<horizon_command*>(d.node));
-			}
 		}
 
 		// Finally, flush all the task commands.
 		for(auto& cad : cmds_and_deps) {
 			serialize_and_flush(cad.first, cad.second);
 		}
+	}
 
+
+	void graph_serializer::flush_horizons() {
+		auto& horizon_cmds = cdag.get_active_horizons();
 		for(auto& horizon_cmd : horizon_cmds) {
 			flush_dependency(horizon_cmd);
 		}
+		horizon_cmds.clear();
+	}
+
+	void graph_serializer::flush_dependency(abstract_command* dep) const {
+		std::vector<command_id> dep_deps;
+		// Iterate over second level of dependencies. All of these must already have been flushed.
+		// TODO: We could probably do some pruning here (e.g. omit tasks we know are already finished)
+		for(auto dd : dep->get_dependencies()) {
+			assert(dd.node->is_flushed());
+			dep_deps.push_back(dd.node->get_cid());
+		}
+		serialize_and_flush(dep, dep_deps);
 	}
 
 	void graph_serializer::serialize_and_flush(abstract_command* cmd, const std::vector<command_id>& dependencies) const {

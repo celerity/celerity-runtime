@@ -188,6 +188,7 @@ namespace test_utils {
 		detail::naive_split_transformer transformer{num_chunks, num_nodes};
 		ctx.get_graph_generator().build_task(tid, {&transformer});
 		ctx.get_graph_serializer().flush(tid);
+		ctx.get_graph_serializer().flush_horizons();
 		return tid;
 	}
 

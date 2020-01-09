@@ -93,15 +93,22 @@ namespace detail {
 
 	class command_graph {
 	  public:
+		void record_command(nop_command*) {}
+		void record_command(push_command*) {}
+		void record_command(await_push_command*) {}
+		void record_command(task_command* tcmd) { by_task[tcmd->get_tid()].emplace_back(tcmd); }
+		void record_command(horizon_command* hcmd) { active_horizons.emplace_back(hcmd); }
+
 		template <typename T, typename... Args>
 		T* create(Args... args) {
 			static_assert(std::is_base_of<abstract_command, T>::value, "T must be derived from abstract_command");
 			command_id cid = next_cmd_id++;
 			auto result = commands.emplace(std::make_pair(cid, new T(cid, std::forward<Args>(args)...)));
 			auto cmd = result.first->second.get();
-			if(isa<task_command>(cmd)) { by_task[static_cast<task_command*>(cmd)->get_tid()].emplace_back(static_cast<task_command*>(cmd)); }
 			if(!std::is_same<T, nop_command>::value) execution_fronts[cmd->get_nid()].insert(cmd);
-			return static_cast<T*>(cmd);
+			auto ret = static_cast<T*>(cmd);
+			record_command(ret);
+			return ret;
 		}
 
 		void erase(abstract_command* cmd);
@@ -150,6 +157,8 @@ namespace detail {
 
 		unsigned get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
 
+		std::vector<horizon_command*>& get_active_horizons() { return active_horizons; }
+
 	  private:
 		command_id next_cmd_id = 0;
 		// TODO: Consider storing commands in a contiguous memory data structure instead
@@ -162,6 +171,9 @@ namespace detail {
 		// This only (potentially) grows when adding dependencies,
 		// it never shrinks and does not take into account later changes further up in the dependency chain
 		unsigned max_pseudo_critical_path_length = 0;
+
+		// Active horizons (created but not flushed)
+		std::vector<horizon_command*> active_horizons;
 	};
 
 } // namespace detail
