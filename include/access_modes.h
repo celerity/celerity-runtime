@@ -38,10 +38,10 @@ namespace access {
 				return m == mode::atomic
 				           ? "atomic"
 				           : (m == mode::discard_read_write
-				                     ? "discard_read_write"
-				                     : (m == mode::discard_write
-				                               ? "discard_write"
-				                               : (m == mode::read ? "read" : (m == mode::read_write ? "read_write" : (m == mode::write ? "write" : nullptr)))));
+				                   ? "discard_read_write"
+				                   : (m == mode::discard_write
+				                           ? "discard_write"
+				                           : (m == mode::read ? "read" : (m == mode::read_write ? "read_write" : (m == mode::write ? "write" : nullptr)))));
 			}
 		};
 

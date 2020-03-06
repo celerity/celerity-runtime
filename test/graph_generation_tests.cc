@@ -365,7 +365,8 @@ namespace detail {
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(300));
 
 		const auto tid_a = test_utils::build_and_flush(ctx, 4,
-		    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
+		    test_utils::add_compute_task<class UKN(task_a)>(
+		        ctx.get_task_manager(),
 		        [&](handler& cgh) {
 			        buf.get_access<mode::discard_write>(cgh, [](chunk<1> chnk) {
 				        switch(chnk.offset[0]) {
@@ -408,8 +409,9 @@ namespace detail {
 
 		SECTION("when used in the same task") {
 			test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
-			        [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			    test_utils::add_compute_task<class UKN(task_a)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
+			        cl::sycl::range<1>{100}));
 
 			test_utils::build_and_flush(ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) {
 				// Both of theses are consumer modes, meaning that both have a requirement on the buffer range produced in task_a
@@ -432,7 +434,8 @@ namespace detail {
 			                                     [&](auto& mah) { buf_a.get_access<mode::discard_write>(mah, cl::sycl::range<1>(100)); }));
 			// Create 4 chunks, two of which will be assigned to the worker node
 			const auto tid_b = test_utils::build_and_flush(ctx, 2, 4,
-			    test_utils::add_compute_task<class task_b>(ctx.get_task_manager(),
+			    test_utils::add_compute_task<class task_b>(
+			        ctx.get_task_manager(),
 			        [&](auto& cgh) {
 				        // All chunks read the same subrange (the full buffer)
 				        buf_a.get_access<mode::read>(cgh, access::fixed<1, 1>(subrange<1>(0, 100)));
@@ -454,8 +457,9 @@ namespace detail {
 			auto buf_b = mbf.create_buffer(cl::sycl::range<1>(100));
 
 			test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
-			        [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			    test_utils::add_compute_task<class UKN(task_a)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
+			        cl::sycl::range<1>{100}));
 
 			test_utils::build_and_flush(ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) {
 				buf_a.get_access<mode::read>(cgh, {100});
@@ -483,8 +487,9 @@ namespace detail {
 
 		SECTION("when used in parallel tasks") {
 			const auto tid_a = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
-			        [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			    test_utils::add_compute_task<class UKN(task_a)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
+			        cl::sycl::range<1>{100}));
 
 			CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 2);
 
@@ -571,12 +576,14 @@ namespace detail {
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
 
 		const auto tid_a = test_utils::build_and_flush(ctx, 2,
-		    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
-		        [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{64}, cl::sycl::id<1>{0}));
+		    test_utils::add_compute_task<class UKN(task_a)>(
+		        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{64},
+		        cl::sycl::id<1>{0}));
 		CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 2);
 
 		const auto tid_b = test_utils::build_and_flush(ctx, 2,
-		    test_utils::add_compute_task<class UKN(task_b)>(ctx.get_task_manager(),
+		    test_utils::add_compute_task<class UKN(task_b)>(
+		        ctx.get_task_manager(),
 		        [&](handler& cgh) {
 			        // Swap the two chunks so we write a contiguous range on the worker node across tasks a and b
 			        buf.get_access<mode::discard_write>(cgh, [](chunk<1> chnk) {
@@ -610,14 +617,17 @@ namespace detail {
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
 
 		test_utils::build_and_flush(ctx, 1,
-		    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
-		        [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{64}, cl::sycl::id<1>{0}));
+		    test_utils::add_compute_task<class UKN(task_a)>(
+		        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{64},
+		        cl::sycl::id<1>{0}));
 		test_utils::build_and_flush(ctx, 1,
-		    test_utils::add_compute_task<class UKN(task_b)>(ctx.get_task_manager(),
-		        [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{32}, cl::sycl::id<1>{64}));
+		    test_utils::add_compute_task<class UKN(task_b)>(
+		        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{32},
+		        cl::sycl::id<1>{64}));
 		test_utils::build_and_flush(ctx, 1,
-		    test_utils::add_compute_task<class UKN(task_c)>(ctx.get_task_manager(),
-		        [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{32}, cl::sycl::id<1>{96}));
+		    test_utils::add_compute_task<class UKN(task_c)>(
+		        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{32},
+		        cl::sycl::id<1>{96}));
 
 		auto master_task = test_utils::build_and_flush(
 		    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 128); }));
@@ -787,7 +797,8 @@ namespace detail {
 		SECTION("for execution commands") {
 			// task_a writes the first half
 			const auto tid_a = test_utils::build_and_flush(ctx, 1,
-			    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
+			    test_utils::add_compute_task<class UKN(task_a)>(
+			        ctx.get_task_manager(),
 			        [&](handler& cgh) {
 				        buf.get_access<mode::discard_write>(cgh, access::fixed<1, 1>({0, 50}));
 			        },
@@ -798,7 +809,8 @@ namespace detail {
 
 			// task_b reads the first half
 			const auto tid_b = test_utils::build_and_flush(ctx, 1,
-			    test_utils::add_compute_task<class UKN(task_b)>(ctx.get_task_manager(),
+			    test_utils::add_compute_task<class UKN(task_b)>(
+			        ctx.get_task_manager(),
 			        [&](handler& cgh) {
 				        buf.get_access<mode::read>(cgh, access::fixed<1, 1>({0, 50}));
 			        },
@@ -810,7 +822,8 @@ namespace detail {
 
 			// task_c writes the second half
 			const auto tid_c = test_utils::build_and_flush(ctx, 1,
-			    test_utils::add_compute_task<class UKN(task_c)>(ctx.get_task_manager(),
+			    test_utils::add_compute_task<class UKN(task_c)>(
+			        ctx.get_task_manager(),
 			        [&](handler& cgh) {
 				        buf.get_access<mode::discard_write>(cgh, access::fixed<1, 1>({50, 50}));
 			        },
@@ -870,12 +883,14 @@ namespace detail {
 
 		SECTION("if data is produced remotely") {
 			const auto tid_a = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
-			        [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			    test_utils::add_compute_task<class UKN(task_a)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
+			        cl::sycl::range<1>{100}));
 			CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 2);
 			const auto tid_b = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_b)>(ctx.get_task_manager(),
-			        [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			    test_utils::add_compute_task<class UKN(task_b)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
+			        cl::sycl::range<1>{100}));
 			CHECK(inspector.get_commands(tid_b, boost::none, command_type::COMPUTE).size() == 2);
 			const auto tid_c = test_utils::build_and_flush(ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) {
 				buf_a.get_access<mode::read>(cgh, 100);
@@ -893,8 +908,9 @@ namespace detail {
 
 		SECTION("if data is produced remotely but already available from an earlier task") {
 			const auto tid_a = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
-			        [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			    test_utils::add_compute_task<class UKN(task_a)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
+			        cl::sycl::range<1>{100}));
 			CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 2);
 			test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, 100); }));
@@ -913,17 +929,20 @@ namespace detail {
 
 		SECTION("if data is produced locally") {
 			const auto tid_a = test_utils::build_and_flush(ctx, 1,
-			    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
-			        [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			    test_utils::add_compute_task<class UKN(task_a)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
+			        cl::sycl::range<1>{100}));
 			CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 1);
 			const auto computes_a = inspector.get_commands(tid_a, node_id(0), command_type::COMPUTE);
 			const auto tid_b = test_utils::build_and_flush(ctx, 1,
-			    test_utils::add_compute_task<class UKN(task_b)>(ctx.get_task_manager(),
-			        [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
+			    test_utils::add_compute_task<class UKN(task_b)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
+			        cl::sycl::range<1>{100}));
 			CHECK(inspector.get_commands(tid_b, boost::none, command_type::COMPUTE).size() == 1);
 			const auto computes_b = inspector.get_commands(tid_b, node_id(0), command_type::COMPUTE);
 			const auto tid_c = test_utils::build_and_flush(ctx, 1,
-			    test_utils::add_compute_task<class UKN(task_c)>(ctx.get_task_manager(),
+			    test_utils::add_compute_task<class UKN(task_c)>(
+			        ctx.get_task_manager(),
 			        [&](handler& cgh) {
 				        buf_a.get_access<mode::read>(cgh, access::one_to_one<1>());
 				        buf_b.get_access<mode::read>(cgh, access::one_to_one<1>());
@@ -953,7 +972,8 @@ namespace detail {
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(100), true);
 
 		const auto tid_a = test_utils::build_and_flush(ctx, 3,
-		    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
+		    test_utils::add_compute_task<class UKN(task_a)>(
+		        ctx.get_task_manager(),
 		        [&](handler& cgh) {
 			        buf.get_access<mode::write>(cgh, access::fixed<1, 1>({0, 100}));
 		        },
@@ -963,7 +983,8 @@ namespace detail {
 		CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 1);
 
 		test_utils::build_and_flush(ctx, 3,
-		    test_utils::add_compute_task<class UKN(task_b)>(ctx.get_task_manager(),
+		    test_utils::add_compute_task<class UKN(task_b)>(
+		        ctx.get_task_manager(),
 		        [&](handler& cgh) {
 			        buf.get_access<mode::read>(cgh, access::fixed<1, 1>({0, 100}));
 		        },
@@ -989,7 +1010,8 @@ namespace detail {
 			buf_b.get_access<mode::discard_write>(cgh, 100);
 		}));
 		const auto tid_b = test_utils::build_and_flush(ctx, 3,
-		    test_utils::add_compute_task<class UKN(task_b)>(ctx.get_task_manager(),
+		    test_utils::add_compute_task<class UKN(task_b)>(
+		        ctx.get_task_manager(),
 		        [&](handler& cgh) {
 			        // NOTE: It's important to construct range-mappers in such a way that passing the
 			        // global size (during tdag generation) still returns the correct result!
@@ -1038,7 +1060,8 @@ namespace detail {
 
 		// Initialize both buffers
 		const auto tid_a = test_utils::build_and_flush(ctx, 3,
-		    test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
+		    test_utils::add_compute_task<class UKN(task_a)>(
+		        ctx.get_task_manager(),
 		        [&](handler& cgh) {
 			        buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
 			        buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
@@ -1052,7 +1075,8 @@ namespace detail {
 		// Read from buf_a but overwrite buf_b
 		// Importantly, we only read on the first worker node node, making it so the second worker does not have a true dependency on the previous task.
 		const auto tid_b = test_utils::build_and_flush(ctx, 3,
-		    test_utils::add_compute_task<class UKN(task_b)>(ctx.get_task_manager(),
+		    test_utils::add_compute_task<class UKN(task_b)>(
+		        ctx.get_task_manager(),
 		        [&](handler& cgh) {
 			        buf_a.get_access<mode::read>(cgh, [&](chunk<1> chnk) -> subrange<1> {
 				        if(chnk.range[0] == 100) return chnk; // Return full chunk during tdag generation
@@ -1087,7 +1111,8 @@ namespace detail {
 		auto buf_b = mbf.create_buffer(cl::sycl::range<1>(100));
 
 		// task_a writes both buffers
-		const auto tid_a = test_utils::build_and_flush(ctx, test_utils::add_compute_task<class UKN(task_a)>(ctx.get_task_manager(),
+		const auto tid_a = test_utils::build_and_flush(ctx, test_utils::add_compute_task<class UKN(task_a)>(
+		                                                        ctx.get_task_manager(),
 		                                                        [&](handler& cgh) {
 			                                                        buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
 			                                                        buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
@@ -1104,21 +1129,23 @@ namespace detail {
 
 			// task_c writes buf_b, initially making task_b a potential anti-dependency (as it is a dependent of task_a). However, since the
 			// two tasks don't actually touch the same buffers at all, nothing needs to be done.
-			tid_c = test_utils::build_and_flush(
-			    ctx, test_utils::add_compute_task<class UKN(task_c)>(ctx.get_task_manager(),
-			             [&](handler& cgh) { buf_b.get_access<mode::read_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>(100)));
+			tid_c = test_utils::build_and_flush(ctx,
+			    test_utils::add_compute_task<class UKN(task_c)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::read_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>(100)));
 		}
 
 		SECTION("does not consider anti-dependants of last writer as potential anti-dependencies") {
 			// task_b writes buf_a, making task_a an anti-dependency
 			tid_b = test_utils::build_and_flush(
-			    ctx, test_utils::add_compute_task<class UKN(task_b)>(ctx.get_task_manager(),
-			             [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>(100)));
+			    ctx, test_utils::add_compute_task<class UKN(task_b)>(
+			             ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
+			             cl::sycl::range<1>(100)));
 
 			// task_c writes buf_b. Since task_b is not a true dependent of task_a, we don't consider it as a potential anti-dependency.
 			tid_c = test_utils::build_and_flush(
-			    ctx, test_utils::add_compute_task<class UKN(task_c)>(ctx.get_task_manager(),
-			             [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>(100)));
+			    ctx, test_utils::add_compute_task<class UKN(task_c)>(
+			             ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
+			             cl::sycl::range<1>(100)));
 		}
 
 		// Even though we're testing for different conditions, we can use the same assertions here.
@@ -1177,7 +1204,8 @@ namespace detail {
 			    test_utils::add_compute_task<class UKN(task_a)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 			const auto tid_b = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_b)>(ctx.get_task_manager(),
+			    test_utils::add_compute_task<class UKN(task_b)>(
+			        ctx.get_task_manager(),
 			        [&](handler& cgh) {
 				        // Both nodes read the full buffer
 				        buf.get_access<mode::read>(cgh, access::fixed<1, 1>({0, 100}));
@@ -1219,7 +1247,8 @@ namespace detail {
 			    test_utils::add_compute_task<class UKN(task_a)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 			const auto tid_b = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_b)>(ctx.get_task_manager(),
+			    test_utils::add_compute_task<class UKN(task_b)>(
+			        ctx.get_task_manager(),
 			        [&](handler& cgh) {
 				        // Both nodes read the full buffer
 				        buf.get_access<mode::read>(cgh, access::fixed<1, 1>({0, 100}));

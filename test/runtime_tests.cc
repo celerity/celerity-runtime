@@ -69,8 +69,9 @@ namespace detail {
 	TEST_CASE("get_access can be called on const buffer", "[buffer]") {
 		buffer<float, 2> buf_a{cl::sycl::range<2>{32, 64}};
 		auto& tm = runtime::get_instance().get_task_manager();
-		const auto tid = test_utils::add_compute_task<class get_access_const>(tm,
-		    [buf_a /* capture by value */](handler& cgh) { buf_a.get_access<cl::sycl::access::mode::read>(cgh, access::one_to_one<2>()); }, buf_a.get_range());
+		const auto tid = test_utils::add_compute_task<class get_access_const>(
+		    tm, [buf_a /* capture by value */](handler& cgh) { buf_a.get_access<cl::sycl::access::mode::read>(cgh, access::one_to_one<2>()); },
+		    buf_a.get_range());
 		const auto ctsk = std::static_pointer_cast<const compute_task>(tm.get_task(tid));
 		const auto bufs = ctsk->get_accessed_buffers();
 		REQUIRE(bufs.size() == 1);
@@ -252,7 +253,8 @@ namespace detail {
 		test_utils::mock_buffer_factory mbf(&tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<2>(64, 152));
 		auto buf_b = mbf.create_buffer(cl::sycl::range<3>(7, 21, 99));
-		const auto tid = test_utils::add_compute_task(tm,
+		const auto tid = test_utils::add_compute_task(
+		    tm,
 		    [&](handler& cgh) {
 			    buf_a.get_access<cl::sycl::access::mode::read>(cgh, access::one_to_one<2>());
 			    buf_b.get_access<cl::sycl::access::mode::discard_read_write>(cgh, access::fixed<2, 3>(subrange<3>({}, {5, 18, 74})));

@@ -78,7 +78,8 @@ namespace detail {
 				};
 
 				test_utils::build_and_flush(ctx, NUM_NODES,
-				    test_utils::add_compute_task<class growing_read_kernel>(ctx.get_task_manager(),
+				    test_utils::add_compute_task<class growing_read_kernel>(
+				        ctx.get_task_manager(),
 				        [&](handler& cgh) {
 					        buf_a.get_access<mode::read>(cgh, read_accessor);
 					        buf_a.get_access<mode::discard_write>(cgh, latest_write_accessor);
