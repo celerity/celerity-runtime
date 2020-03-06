@@ -75,7 +75,7 @@ namespace detail {
 			const auto await_push = static_cast<const await_push_command*>(cmd);
 			return label
 			       + fmt::format("AWAIT PUSH {} from {}\\n {}", await_push->get_source()->get_bid(), await_push->get_source()->get_nid(),
-			             subrange_to_grid_region(await_push->get_source()->get_range()));
+			           subrange_to_grid_region(await_push->get_source()->get_range()));
 		}
 		if(isa<horizon_command>(cmd)) { return label + "HORIZON"; }
 		return fmt::format("[{}] UNKNOWN\\n{}", cmd->get_cid(), cmd->debug_label);
