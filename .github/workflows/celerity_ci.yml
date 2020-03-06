@@ -1,0 +1,68 @@
+name: Celerity CI
+
+on: [pull_request]
+
+jobs:
+  checkout:
+    runs-on: [self-hosted]
+    steps:
+      - uses: actions/checkout@v2
+
+  build:
+    needs: [checkout]
+    runs-on: [self-hosted]
+    strategy:
+      fail-fast: false
+      matrix:
+        SYCL-impl: ["hipSYCL", "ComputeCpp"]
+        build-type: ["Debug", "Release"]
+    env:
+      build-name: build-${{ matrix.SYCL-impl }}-${{ matrix.build-type }}
+    steps:
+      - name: Run build script
+        run: |
+          mkdir ${{ env.build-name }}
+          set -o pipefail
+          cd ${{ env.build-name }} && /scripts/build.sh ${{ matrix.SYCL-impl }} ${{ matrix.build-type }} | tee ${{ env.build-name }}.log
+      - name: Upload build log
+        uses: actions/upload-artifact@v1
+        with:
+          name: ${{ env.build-name }}-log
+          path: ${{ env.build-name }}/${{ env.build-name }}.log
+
+  test:
+    needs: [checkout, build]
+    runs-on: [self-hosted]
+    # FIXME: Can we keep this DRY?
+    strategy:
+      fail-fast: false
+      matrix:
+        SYCL-impl: ["hipSYCL", "ComputeCpp"]
+        build-type: ["Debug", "Release"]
+    env:
+      build-name: build-${{ matrix.SYCL-impl }}-${{ matrix.build-type }}
+    steps:
+      - name: Run unit tests
+        working-directory: ${{ env.build-name }}
+        # Running "make test" is slow (why?), so we just call all test executables manually
+        run: find test -maxdepth 1 -executable -type f -print0 | xargs -0 -n1 bash -c
+      - name: Run integration tests
+        working-directory: ${{ env.build-name }}
+        run: ${{ github.workspace }}/ci/run-integration-tests.sh /data/Lenna.png 1 2 4
+
+  report:
+    needs: [checkout, build, test]
+    runs-on: [self-hosted]
+    steps:
+      - name: Check code formatting
+        id: formatting
+        run: |
+          unformatted=$("./ci/find-unformatted-files.sh")
+          unformatted=${unformatted//$'\n'/'%0A'}
+          echo "::set-output name=unformatted-files::$unformatted"
+      - uses: "celerity/ci-report-action@v1"
+        with:
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
+          unformatted-files: ${{ steps.formatting.outputs.unformatted-files }}
+          # FIXME: Can we somehow keep this DRY with the matrix config above?
+          builds: "hipSYCL-Debug, hipSYCL-Release, ComputeCpp-Debug, ComputeCpp-Release"
