@@ -43,14 +43,22 @@ class Footer extends React.Component {
             <a
               href="https://stackoverflow.com/questions/tagged/celerity-hpc"
               target="_blank"
-              rel="noreferrer noopener">
+              rel="noreferrer noopener"
+            >
               Stack Overflow
             </a>
             <a href="https://discord.gg/k8vWTPB">Celerity Chat</a>
           </div>
           <div>
             <h5>More</h5>
-            <a href={this.props.config.repoUrl} target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href={this.pageUrl("research")}>Celerity Research</a>
+            <a
+              href={this.props.config.repoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              GitHub
+            </a>
             <a
               className="github-button"
               href={this.props.config.repoUrl}

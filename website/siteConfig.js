@@ -9,8 +9,9 @@ const siteConfig = {
 
   headerLinks: [
     { doc: "getting-started", label: "Docs" },
-    { href: "https://github.com/celerity/celerity-runtime", label: "GitHub" }
-    // { blog: true, label: "Blog" }
+    { href: "https://github.com/celerity/celerity-runtime", label: "GitHub" },
+    // { blog: true, label: "Blog" },
+    { page: "research", label: "Research" }
   ],
 
   headerIcon: "img/celerity_icon.png",

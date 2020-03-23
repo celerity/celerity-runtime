@@ -46,3 +46,20 @@ blockquote {
   border: solid 1px orange;
   border-radius: 2px;
 }
+
+.uni-logos {
+  display: flex;
+  justify-content: space-evenly;
+  flex-wrap: wrap;
+  margin-bottom: 1em;
+}
+
+.uni-logos img {
+  height: 100px;
+}
+
+@media (max-width: 768px) {
+  .uni-logos img {
+    height: 60px;
+  }
+}
