@@ -2,6 +2,8 @@
 
 #include <memory>
 
+#include <CL/sycl.hpp>
+
 #include "config.h"
 #include "handler.h"
 #include "logger.h"
@@ -9,14 +11,6 @@
 #include "task.h"
 #include "task_manager.h"
 #include "types.h"
-
-namespace cl {
-namespace sycl {
-	class device;
-	class event;
-	class queue;
-} // namespace sycl
-} // namespace cl
 
 namespace celerity {
 namespace detail {
