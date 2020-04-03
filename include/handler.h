@@ -69,7 +69,7 @@ class handler {
 		const auto sr = exec_ctx.sr;
 
 #if WORKAROUND_COMPUTECPP
-		// As of ComputeCpp 1.0.2 the PTX backend has problems with kernel invocations that have an offset.
+		// As of ComputeCpp 1.1.5 the PTX backend has problems with kernel invocations that have an offset.
 		// See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-98 (psalz).
 		// To work around this, instead of passing an offset to SYCL, we simply add it to the item that is passed to the kernel.
 		const cl::sycl::id<Dims> ccpp_ptx_workaround_offset = {};

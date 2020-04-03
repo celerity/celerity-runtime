@@ -1,5 +1,7 @@
 #pragma once
 
+#include <catch2/catch.hpp>
+
 #define CELERITY_TEST
 #include <celerity.h>
 

@@ -1,7 +1,5 @@
 #include "unit_test_suite_celerity.h"
 
-#include <catch2/catch.hpp>
-
 celerity::detail::logger graph_logger{"test-graph", celerity::detail::log_level::trace};
 
 namespace detail {

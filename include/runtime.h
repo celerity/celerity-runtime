@@ -3,13 +3,10 @@
 #include <deque>
 #include <limits>
 #include <memory>
-#include <mutex>
-#include <unordered_map>
 
 #include <ctpl.h>
 #include <mpi.h>
 
-#include "buffer_storage.h"
 #include "command.h"
 #include "config.h"
 #include "device_queue.h"
@@ -20,7 +17,7 @@
 namespace celerity {
 namespace detail {
 
-	class buffer_storage_base;
+	class buffer_manager;
 	class graph_generator;
 	class graph_serializer;
 	class command_graph;
@@ -59,37 +56,7 @@ namespace detail {
 
 		device_queue& get_device_queue() const { return *queue; }
 
-		buffer_id register_buffer(cl::sycl::range<3> range, std::shared_ptr<buffer_storage_base> buf_storage, bool host_initialized);
-
-		/**
-		 * @brief Unregisters a buffer from the runtime, releasing the internally stored reference.
-		 *
-		 * This function must not be called while the runtime is still active, as Celerity currently does not know whether
-		 * it is safe to release a buffer at any given point in time.
-		 */
-		void unregister_buffer(buffer_id bid) noexcept;
-
-		/**
-		 * @brief Checks whether the buffer with id \p bid has already been registered with the runtime.
-		 *
-		 * This is useful in rare situations where worker nodes might receive data for buffers they haven't registered yet.
-		 */
-		bool has_buffer(buffer_id bid) const {
-			std::lock_guard<std::mutex> lock(buffer_mutex);
-			return buffer_ptrs.count(bid) == 1;
-		}
-
-		std::shared_ptr<raw_data_read_handle> get_buffer_data(buffer_id bid, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) const {
-			std::lock_guard<std::mutex> lock(buffer_mutex);
-			assert(buffer_ptrs.count(bid) == 1);
-			return buffer_ptrs.at(bid)->get_data(queue->get_sycl_queue(), offset, range);
-		}
-
-		void set_buffer_data(buffer_id bid, const raw_data_handle& dh) {
-			std::lock_guard<std::mutex> lock(buffer_mutex);
-			assert(buffer_ptrs.count(bid) == 1);
-			buffer_ptrs[bid]->set_data(queue->get_sycl_queue(), dh);
-		}
+		buffer_manager& get_buffer_manager() const;
 
 		std::shared_ptr<logger> get_logger() const { return default_logger; }
 
@@ -129,17 +96,14 @@ namespace detail {
 		// We reserve the upper half of command IDs for control commands.
 		command_id next_control_command_id = command_id(1) << (std::numeric_limits<command_id::underlying_t>::digits - 1);
 
-		size_t buffer_count = 0;
-		std::unordered_map<buffer_id, std::shared_ptr<buffer_storage_base>> buffer_ptrs;
-		mutable std::mutex buffer_mutex;
-
 		// These management classes are only constructed on the master node.
 		std::unique_ptr<command_graph> cdag;
 		std::shared_ptr<graph_generator> ggen;
 		std::shared_ptr<graph_serializer> gsrlzr;
 		std::unique_ptr<scheduler> schdlr;
 
-		std::shared_ptr<task_manager> task_mngr;
+		std::unique_ptr<buffer_manager> buffer_mngr;
+		std::unique_ptr<task_manager> task_mngr;
 		std::unique_ptr<executor> exec;
 
 		// TODO: What is a good size for this?
@@ -156,6 +120,9 @@ namespace detail {
 		runtime(int* argc, char** argv[], cl::sycl::device* user_device = nullptr);
 		runtime(const runtime&) = delete;
 		runtime(runtime&&) = delete;
+
+		void handle_buffer_registered(buffer_id bid);
+		void handle_buffer_unregistered(buffer_id bid);
 
 		/**
 		 * @brief Destroys the runtime if it is no longer active and all buffers have been unregistered.

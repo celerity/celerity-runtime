@@ -2,6 +2,7 @@
 
 #include <cassert>
 
+#include "buffer_manager.h"
 #include "mpi_support.h"
 #include "runtime.h"
 
@@ -15,19 +16,21 @@ namespace detail {
 		// TODO: Investigate doing this in worker thread
 		// --> This probably needs some kind of heuristic, as for small (e.g. ghost cell) transfers the overhead of threading is way too big
 		const push_data& data = std::get<push_data>(pkg.data);
-		auto data_handle = runtime::get_instance().get_buffer_data(data.bid, cl::sycl::range<3>(data.sr.offset[0], data.sr.offset[1], data.sr.offset[2]),
-		    cl::sycl::range<3>(data.sr.range[0], data.sr.range[1], data.sr.range[2]));
+
+		auto transfer = std::make_unique<transfer_out>();
+		transfer->data =
+		    runtime::get_instance().get_buffer_manager().get_buffer_data(data.bid, cl::sycl::range<3>(data.sr.offset[0], data.sr.offset[1], data.sr.offset[2]),
+		        cl::sycl::range<3>(data.sr.range[0], data.sr.range[1], data.sr.range[2]));
 
 		// This is a bit of a hack (logging a job event from here), but it's very useful
 		transfer_logger->trace(logger_map{{"job", std::to_string(pkg.cid)}, {"event", "Buffer data ready to be sent"}});
 
-		const auto data_size = data_handle->linearized_data_size;
-		auto transfer = std::make_unique<transfer_out>(std::move(data_handle));
 		transfer->handle = t_handle;
 		transfer->header.sr = data.sr;
 		transfer->header.bid = data.bid;
 		transfer->header.push_cid = pkg.cid;
-		transfer->data_type = mpi_support::build_single_use_composite_type({{sizeof(data_header), &transfer->header}, {data_size, transfer->get_raw_ptr()}});
+		transfer->data_type =
+		    mpi_support::build_single_use_composite_type({{sizeof(data_header), &transfer->header}, {transfer->data.get_size(), transfer->data.get_pointer()}});
 
 		// Start transmitting data
 		MPI_Isend(MPI_BOTTOM, 1, *transfer->data_type, static_cast<int>(data.target), mpi_support::TAG_DATA_TRANSFER, MPI_COMM_WORLD, &transfer->request);
@@ -76,11 +79,14 @@ namespace detail {
 		}
 		int count;
 		MPI_Get_count(&status, MPI_CHAR, &count);
-		const int data_size = count - sizeof(data_header);
+		const size_t data_size = count - sizeof(data_header);
 
 		auto transfer = std::make_unique<transfer_in>();
-		transfer->data.resize(data_size);
-		transfer->data_type = mpi_support::build_single_use_composite_type({{sizeof(data_header), &transfer->header}, {data_size, &transfer->data[0]}});
+		// Since we don't know the dimensions of the data yet, we'll just allocate the buffer as if it were one very large element.
+		// We'll reinterpret the data later, once the transfer is completed.
+		transfer->data = raw_buffer_data{data_size, cl::sycl::range<3>(1, 1, 1)};
+		transfer->data_type =
+		    mpi_support::build_single_use_composite_type({{sizeof(data_header), &transfer->header}, {data_size, transfer->data.get_pointer()}});
 
 		// Start receiving data
 		MPI_Imrecv(MPI_BOTTOM, 1, *transfer->data_type, &msg, &transfer->request);
@@ -133,13 +139,13 @@ namespace detail {
 	}
 
 	void buffer_transfer_manager::write_data_to_buffer(transfer_in& transfer) {
-		// TODO: Same as in push() - this blocks the caller until data is submitted to MPI
 		const auto& header = transfer.header;
-		const detail::raw_data_handle dh{&transfer.data[0], cl::sycl::range<3>(header.sr.range[0], header.sr.range[1], header.sr.range[2]),
-		    cl::sycl::id<3>(header.sr.offset[0], header.sr.offset[1], header.sr.offset[2])};
+		size_t elem_size = transfer.data.get_size() / (header.sr.range[0] * header.sr.range[1] * header.sr.range[2]);
+		transfer.data.reinterpret(elem_size, cl::sycl::range<3>(header.sr.range[0], header.sr.range[1], header.sr.range[2]));
 		// In some rare situations the local runtime might not yet know about this buffer. Busy wait until it does.
-		while(!runtime::get_instance().has_buffer(header.bid)) {}
-		runtime::get_instance().set_buffer_data(header.bid, dh);
+		while(!runtime::get_instance().get_buffer_manager().has_buffer(header.bid)) {}
+		runtime::get_instance().get_buffer_manager().set_buffer_data(header.bid, header.sr.offset, std::move(transfer.data));
+		transfer.data = {};
 	}
 
 } // namespace detail

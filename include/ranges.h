@@ -2,22 +2,12 @@
 
 #include <CL/sycl.hpp>
 
-#include "workaround.h"
-
-#if !WORKAROUND_HIPSYCL
-#define __host__
-#define __device__
-#endif
-
 namespace celerity {
 namespace detail {
 
-// The hipSYCL source transformation seems to have difficulties annotating this
-// definition, which is why we provide the __device__ and __host__ attributes
-// manually.
 #define MAKE_ARRAY_CAST_FN(name, default_value, out_type)                                                                                                      \
 	template <int DimsOut, template <int> class InType, int DimsIn>                                                                                            \
-	__device__ __host__ out_type<DimsOut> name(const InType<DimsIn>& other) {                                                                                  \
+	out_type<DimsOut> name(const InType<DimsIn>& other) {                                                                                                      \
 		out_type<DimsOut> result;                                                                                                                              \
 		for(int o = 0; o < DimsOut; ++o) {                                                                                                                     \
 			result[o] = o < DimsIn ? other[o] : default_value;                                                                                                 \
@@ -25,8 +15,27 @@ namespace detail {
 		return result;                                                                                                                                         \
 	}
 
-	MAKE_ARRAY_CAST_FN(range_cast, 1, cl::sycl::range);
-	MAKE_ARRAY_CAST_FN(id_cast, 0, cl::sycl::id);
+	MAKE_ARRAY_CAST_FN(range_cast, 1, cl::sycl::range)
+	MAKE_ARRAY_CAST_FN(id_cast, 0, cl::sycl::id)
+
+#undef MAKE_ARRAY_CAST_FN
+
+#define MAKE_COMPONENT_WISE_BINARY_FN(name, range_type, op)                                                                                                    \
+	template <int Dims>                                                                                                                                        \
+	range_type<Dims> name(const range_type<Dims>& a, const range_type<Dims>& b) {                                                                              \
+		range_type<Dims> result;                                                                                                                               \
+		for(int d = 0; d < Dims; ++d) {                                                                                                                        \
+			result[d] = op(a[d], b[d]);                                                                                                                        \
+		}                                                                                                                                                      \
+		return result;                                                                                                                                         \
+	}
+
+	MAKE_COMPONENT_WISE_BINARY_FN(min_range, cl::sycl::range, std::min)
+	MAKE_COMPONENT_WISE_BINARY_FN(max_range, cl::sycl::range, std::max)
+	MAKE_COMPONENT_WISE_BINARY_FN(min_id, cl::sycl::id, std::min)
+	MAKE_COMPONENT_WISE_BINARY_FN(max_id, cl::sycl::id, std::max)
+
+#undef MAKE_COMPONENT_WISE_BINARY_FN
 
 } // namespace detail
 

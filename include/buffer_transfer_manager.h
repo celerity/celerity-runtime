@@ -41,7 +41,7 @@ namespace detail {
 		struct transfer_in {
 			MPI_Request request;
 			data_header header;
-			std::vector<char> data;
+			raw_buffer_data data;
 			mpi_support::single_use_data_type data_type;
 		};
 
@@ -53,13 +53,8 @@ namespace detail {
 			std::shared_ptr<transfer_handle> handle;
 			MPI_Request request;
 			data_header header;
+			raw_buffer_data data;
 			mpi_support::single_use_data_type data_type;
-
-			transfer_out(std::shared_ptr<detail::raw_data_read_handle> data_handle) : data_handle(std::move(data_handle)) {}
-			void* get_raw_ptr() const { return data_handle->linearized_data_ptr; }
-
-		  private:
-			std::shared_ptr<detail::raw_data_read_handle> data_handle;
 		};
 
 		std::list<std::unique_ptr<transfer_in>> incoming_transfers;

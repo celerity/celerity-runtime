@@ -4,7 +4,6 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 
 #ifdef _MSC_VER
 #include <process.h>
@@ -15,7 +14,7 @@
 #include <mpi.h>
 
 #include "buffer.h"
-#include "buffer_storage.h"
+#include "buffer_manager.h"
 #include "command_graph.h"
 #include "executor.h"
 #include "graph_generator.h"
@@ -101,7 +100,14 @@ namespace detail {
 		queue = std::make_unique<device_queue>(*default_logger);
 
 		// Initialize worker classes (but don't start them up yet)
-		task_mngr = std::make_shared<task_manager>(is_master);
+		buffer_mngr = std::make_unique<buffer_manager>(*queue, [this](buffer_manager::buffer_lifecycle_event event, buffer_id bid) {
+			switch(event) {
+			case buffer_manager::buffer_lifecycle_event::REGISTERED: handle_buffer_registered(bid); break;
+			case buffer_manager::buffer_lifecycle_event::UNREGISTERED: handle_buffer_unregistered(bid); break;
+			default: assert(false && "Unexpected buffer lifecycle event");
+			}
+		});
+		task_mngr = std::make_unique<task_manager>(is_master);
 		exec = std::make_unique<executor>(*queue, *task_mngr, default_logger);
 		if(is_master) {
 			cdag = std::make_unique<command_graph>();
@@ -127,12 +133,12 @@ namespace detail {
 
 		exec.reset();
 		task_mngr.reset();
+		// All buffers should have unregistered themselves by now.
+		assert(!buffer_mngr->has_active_buffers());
+		buffer_mngr.reset();
 		queue.reset();
 
 		experimental::bench::detail::user_benchmarker::destroy();
-
-		// All buffers should have unregistered themselves by now.
-		assert(buffer_ptrs.empty());
 
 		// Make sure we free all of our MPI transfers before we finalize
 		while(!active_flushes.empty()) {
@@ -196,29 +202,8 @@ namespace detail {
 
 	task_manager& runtime::get_task_manager() const { return *task_mngr; }
 
-	buffer_id runtime::register_buffer(cl::sycl::range<3> range, std::shared_ptr<buffer_storage_base> buf_storage, bool host_initialized) {
-		std::lock_guard<std::mutex> lock(buffer_mutex);
-		const buffer_id bid = buffer_count++;
-		buffer_ptrs[bid] = buf_storage;
-		if(is_master) {
-			task_mngr->add_buffer(bid, range, host_initialized);
-			ggen->add_buffer(bid, range);
-		}
-		return bid;
-	}
 
-	void runtime::unregister_buffer(buffer_id bid) noexcept {
-		assert(buffer_ptrs.find(bid) != buffer_ptrs.end());
-		// If the runtime is still active, and at least one task has been submitted, report an error.
-		// TODO: This is overly restrictive. Can we instead check whether any tasks that require this particular buffer are still pending?
-		if(is_active && task_mngr->has_task(task_mngr->get_init_task_id() + 1)) {
-			// We cannot throw here, as this is being called from buffer destructors.
-			default_logger->error(
-			    "The Celerity runtime detected that a buffer is going out of scope before all tasks have been completed. This is not allowed.");
-		}
-		buffer_ptrs.erase(bid);
-		maybe_destroy_runtime();
-	}
+	buffer_manager& runtime::get_buffer_manager() const { return *buffer_mngr; }
 
 	void runtime::broadcast_control_command(command_type cmd, const command_data& data) {
 		assert_true(is_master) << "Control commands should only be broadcast from the master";
@@ -228,10 +213,29 @@ namespace detail {
 		}
 	}
 
+	void runtime::handle_buffer_registered(buffer_id bid) {
+		if(is_master) {
+			const auto& info = buffer_mngr->get_buffer_info(bid);
+			task_mngr->add_buffer(bid, info.range, info.is_host_initialized);
+			ggen->add_buffer(bid, info.range);
+		}
+	}
+
+	void runtime::handle_buffer_unregistered(buffer_id bid) {
+		// If the runtime is still active, and at least one task has been submitted, report an error.
+		// TODO: This is overly restrictive. Can we instead check whether any tasks that require this particular buffer are still pending?
+		if(is_active && task_mngr->has_task(task_mngr->get_init_task_id() + 1)) {
+			// We cannot throw here, as this is being called from buffer destructors.
+			default_logger->error(
+			    "The Celerity runtime detected that a buffer is going out of scope before all tasks have been completed. This is not allowed.");
+		}
+		maybe_destroy_runtime();
+	}
+
 	void runtime::maybe_destroy_runtime() const {
 		if(is_active) return;
 		if(is_shutting_down) return;
-		if(!buffer_ptrs.empty()) return;
+		if(buffer_mngr->has_active_buffers()) return;
 		instance.reset();
 	}
 
