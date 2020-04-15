@@ -14,17 +14,15 @@
 
 #include "test_utils.h"
 
-GridBox<3> make_grid_box(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) {
-	const auto end = celerity::detail::range_cast<3>(offset) + range;
-	return {celerity::detail::sycl_range_to_grid_point(celerity::detail::range_cast<3>(offset)), celerity::detail::sycl_range_to_grid_point(end)};
-}
-
-GridRegion<3> make_grid_region(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) {
-	return GridRegion<3>(make_grid_box(range, offset));
-}
-
 namespace celerity {
 namespace detail {
+
+	GridBox<3> make_grid_box(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) {
+		const auto end = celerity::detail::range_cast<3>(offset) + range;
+		return {sycl_id_to_grid_point(celerity::detail::range_cast<3>(offset)), sycl_id_to_grid_point(end)};
+	}
+
+	GridRegion<3> make_grid_region(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) { return GridRegion<3>(make_grid_box(range, offset)); }
 
 	TEST_CASE("only a single distr_queue can be created", "[distr_queue][lifetime][dx]") {
 		distr_queue q1;
@@ -274,10 +272,10 @@ namespace detail {
 		REQUIRE(ctsk->get_access_modes(buf_a.get_id()).count(cl::sycl::access::mode::read) == 1);
 		REQUIRE(ctsk->get_access_modes(buf_b.get_id()).count(cl::sycl::access::mode::discard_read_write) == 1);
 		const auto reqs_a = ctsk->get_requirements(buf_a.get_id(), cl::sycl::access::mode::read, {ctsk->get_global_offset(), ctsk->get_global_size()});
-		REQUIRE(reqs_a == subrange_to_grid_region(subrange<3>({32, 24, 0}, {32, 128, 1})));
+		REQUIRE(reqs_a == subrange_to_grid_box(subrange<3>({32, 24, 0}, {32, 128, 1})));
 		const auto reqs_b =
 		    ctsk->get_requirements(buf_b.get_id(), cl::sycl::access::mode::discard_read_write, {ctsk->get_global_offset(), ctsk->get_global_size()});
-		REQUIRE(reqs_b == subrange_to_grid_region(subrange<3>({}, {5, 18, 74})));
+		REQUIRE(reqs_b == subrange_to_grid_box(subrange<3>({}, {5, 18, 74})));
 	}
 
 	TEST_CASE("compute_task merges multiple accesses with the same mode", "[task][compute_task]") {
@@ -288,7 +286,7 @@ namespace detail {
 		ctsk->add_range_mapper(0,
 		    std::make_unique<range_mapper<2, 2>>(access::fixed<2, 2>(subrange<2>({10, 0}, {7, 20})), cl::sycl::access::mode::read, cl::sycl::range<2>{30, 30}));
 		const auto req = ctsk->get_requirements(0, cl::sycl::access::mode::read, subrange<3>({0, 0, 0}, {100, 100, 1}));
-		REQUIRE(req == subrange_to_grid_region(subrange<3>({3, 0, 0}, {14, 20, 1})));
+		REQUIRE(req == subrange_to_grid_box(subrange<3>({3, 0, 0}, {14, 20, 1})));
 	}
 
 	TEST_CASE("task_manager correctly records master access task information", "[task_manager][task][master_access_task]") {
@@ -316,11 +314,11 @@ namespace detail {
 		REQUIRE(matsk->get_access_modes(buf_b.get_id()).count(cl::sycl::access::mode::discard_write) == 1);
 
 		const auto reqs_a_r = matsk->get_requirements(buf_a.get_id(), cl::sycl::access::mode::read);
-		REQUIRE(reqs_a_r == subrange_to_grid_region(subrange<3>({4, 8, 16}, {32, 48, 96})));
+		REQUIRE(reqs_a_r == subrange_to_grid_box(subrange<3>({4, 8, 16}, {32, 48, 96})));
 		const auto reqs_a_w = matsk->get_requirements(buf_a.get_id(), cl::sycl::access::mode::write);
-		REQUIRE(reqs_a_w == subrange_to_grid_region(subrange<3>({9, 2, 44}, {21, 84, 75})));
+		REQUIRE(reqs_a_w == subrange_to_grid_box(subrange<3>({9, 2, 44}, {21, 84, 75})));
 		const auto reqs_b_dw = matsk->get_requirements(buf_b.get_id(), cl::sycl::access::mode::discard_write);
-		REQUIRE(reqs_b_dw == subrange_to_grid_region(subrange<3>({0, 3, 8}, {1, 7, 19})));
+		REQUIRE(reqs_b_dw == subrange_to_grid_box(subrange<3>({0, 3, 8}, {1, 7, 19})));
 	}
 
 	TEST_CASE("master_access_task merges multiple accesses with the same mode", "[task][master_access_task]") {
@@ -328,7 +326,7 @@ namespace detail {
 		matsk->add_buffer_access(0, cl::sycl::access::mode::read, subrange<2>({3, 0}, {10, 20}));
 		matsk->add_buffer_access(0, cl::sycl::access::mode::read, subrange<2>({10, 0}, {7, 20}));
 		const auto req = matsk->get_requirements(0, cl::sycl::access::mode::read);
-		REQUIRE(req == subrange_to_grid_region(subrange<3>({3, 0, 0}, {14, 20, 1})));
+		REQUIRE(req == subrange_to_grid_box(subrange<3>({3, 0, 0}, {14, 20, 1})));
 	}
 
 	TEST_CASE("tasks gracefully handle get_requirements() calls for buffers they don't access", "[task]") {
@@ -336,12 +334,12 @@ namespace detail {
 			auto ctsk = std::make_unique<compute_task>(0, nullptr);
 			ctsk->set_dimensions(1);
 			const auto req = ctsk->get_requirements(0, cl::sycl::access::mode::read, subrange<3>({0, 0, 0}, {100, 1, 1}));
-			REQUIRE(req == subrange_to_grid_region(subrange<3>({0, 0, 0}, {0, 0, 0})));
+			REQUIRE(req == subrange_to_grid_box(subrange<3>({0, 0, 0}, {0, 0, 0})));
 		}
 		{
 			auto matsk = std::make_unique<master_access_task>(0, nullptr);
 			const auto req = matsk->get_requirements(0, cl::sycl::access::mode::read);
-			REQUIRE(req == subrange_to_grid_region(subrange<3>({0, 0, 0}, {0, 0, 0})));
+			REQUIRE(req == subrange_to_grid_box(subrange<3>({0, 0, 0}, {0, 0, 0})));
 		}
 	}
 

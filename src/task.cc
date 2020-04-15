@@ -52,7 +52,7 @@ namespace detail {
 				break;
 			default: assert(false);
 			}
-			result = GridRegion<3>::merge(result, subrange_to_grid_region(req));
+			result = GridRegion<3>::merge(result, subrange_to_grid_box(req));
 		}
 		return result;
 	}
@@ -77,7 +77,7 @@ namespace detail {
 
 		for(auto& bai : buffer_accesses.at(bid)) {
 			if(bai.mode != mode) continue;
-			result = GridRegion<3>::merge(result, subrange_to_grid_region(bai.sr));
+			result = GridRegion<3>::merge(result, subrange_to_grid_box(bai.sr));
 		}
 		return result;
 	}

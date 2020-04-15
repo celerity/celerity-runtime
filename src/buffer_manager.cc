@@ -38,7 +38,7 @@ namespace detail {
 	raw_buffer_data buffer_manager::get_buffer_data(buffer_id bid, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) {
 		std::unique_lock lock(mutex);
 		assert(buffers.count(bid) == 1 && buffers.at(bid).device_buf.is_allocated());
-		auto data_locations = newest_data_location.at(bid).get_region_values(subrange_to_grid_region(subrange<3>(offset, range)));
+		auto data_locations = newest_data_location.at(bid).get_region_values(subrange_to_grid_box(subrange<3>(offset, range)));
 
 		// Slow path: We need to obtain current data from both host and device.
 		if(data_locations.size() > 1) {
@@ -57,7 +57,7 @@ namespace detail {
 				make_buffer_subrange_coherent(bid, cl::sycl::access::mode::read, vb.host_buf, {offset, range}, backing_buffer{});
 			}
 
-			data_locations = {{subrange_to_grid_region(subrange<3>(offset, range)).boundingBox(), data_location::HOST}};
+			data_locations = {{subrange_to_grid_box(subrange<3>(offset, range)), data_location::HOST}};
 		}
 
 		if(data_locations[0].second == data_location::HOST || data_locations[0].second == data_location::HOST_AND_DEVICE) {
@@ -79,13 +79,13 @@ namespace detail {
 		assert(!previous_buffer.is_allocated() || target_buffer.storage->get_type() == previous_buffer.storage->get_type());
 		const auto target_buffer_location = target_buffer.storage->get_type() == buffer_type::HOST_BUFFER ? data_location::HOST : data_location::DEVICE;
 
-		const auto coherent_box = subrange_to_grid_region(coherent_sr).boundingBox();
+		const auto coherent_box = subrange_to_grid_box(coherent_sr);
 
 		// If a previous buffer is provided, we may have to retain some or all of the existing data.
 		const GridRegion<3> retain_region = ([&]() {
 			GridRegion<3> result = coherent_box;
 			if(previous_buffer.is_allocated()) {
-				result = GridRegion<3>::merge(result, subrange_to_grid_region({previous_buffer.offset, previous_buffer.storage->get_range()}));
+				result = GridRegion<3>::merge(result, subrange_to_grid_box({previous_buffer.offset, previous_buffer.storage->get_range()}));
 			}
 			return result;
 		})(); // IIFE
@@ -113,7 +113,7 @@ namespace detail {
 			auto& scheduled_buffer_transfers = scheduled_transfers[bid];
 			remaining_transfers.reserve(scheduled_buffer_transfers.size() / 2);
 			for(auto& t : scheduled_buffer_transfers) {
-				auto t_region = subrange_to_grid_region({t.target_offset, t.data.get_range()});
+				auto t_region = subrange_to_grid_box({t.target_offset, t.data.get_range()});
 
 				// Check whether this transfer applies to the current request.
 				auto t_minus_coherent_region = GridRegion<3>::difference(t_region, coherent_box);

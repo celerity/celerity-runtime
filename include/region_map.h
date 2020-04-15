@@ -33,7 +33,7 @@ namespace detail {
 		 * @param default_value The default value is used to initialize the entire extent
 		 */
 		region_map(cl::sycl::range<3> extent, ValueType default_value = ValueType{}) : extent(extent) {
-			default_initialized = GridRegion<3>(sycl_range_to_grid_point(extent));
+			default_initialized = GridRegion<3>(sycl_id_to_grid_point(extent));
 			region_values.push_back(std::make_pair(default_initialized, default_value));
 		}
 

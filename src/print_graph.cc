@@ -64,18 +64,18 @@ namespace detail {
 		const std::string label = fmt::format("[{}] Node {}:\\n", cmd->get_cid(), cmd->get_nid());
 		if(isa<compute_command>(cmd)) {
 			return label
-			       + fmt::format("COMPUTE {}\\n{}", subrange_to_grid_region(static_cast<const compute_command*>(cmd)->get_execution_range()), cmd->debug_label);
+			       + fmt::format("COMPUTE {}\\n{}", subrange_to_grid_box(static_cast<const compute_command*>(cmd)->get_execution_range()), cmd->debug_label);
 		}
 		if(isa<master_access_command>(cmd)) { return label + "MASTER ACCESS\\n" + cmd->debug_label; }
 		if(isa<push_command>(cmd)) {
 			const auto push = static_cast<const push_command*>(cmd);
-			return label + fmt::format("PUSH {} to {}\\n {}", push->get_bid(), push->get_target(), subrange_to_grid_region(push->get_range()));
+			return label + fmt::format("PUSH {} to {}\\n {}", push->get_bid(), push->get_target(), subrange_to_grid_box(push->get_range()));
 		}
 		if(isa<await_push_command>(cmd)) {
 			const auto await_push = static_cast<const await_push_command*>(cmd);
 			return label
 			       + fmt::format("AWAIT PUSH {} from {}\\n {}", await_push->get_source()->get_bid(), await_push->get_source()->get_nid(),
-			           subrange_to_grid_region(await_push->get_source()->get_range()));
+			           subrange_to_grid_box(await_push->get_source()->get_range()));
 		}
 		if(isa<horizon_command>(cmd)) { return label + "HORIZON"; }
 		return fmt::format("[{}] UNKNOWN\\n{}", cmd->get_cid(), cmd->debug_label);
