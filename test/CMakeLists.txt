@@ -25,7 +25,7 @@ target_link_libraries(
   celerity_runtime
 )
 
-set_property(TARGET unit_test_suite PROPERTY CXX_STANDARD 14)
+set_property(TARGET unit_test_suite PROPERTY CXX_STANDARD 17)
 
 add_sycl_to_target(TARGET unit_test_suite SOURCES unit_test_suite_celerity.cc)
 
@@ -37,7 +37,7 @@ foreach(TEST_TARGET ${TEST_TARGETS})
   add_executable(${TEST_TARGET} ${TEST_SOURCE} ${TEST_INCLUDES})
   target_link_libraries(${TEST_TARGET} PRIVATE unit_test_suite)
 
-  set_property(TARGET ${TEST_TARGET} PROPERTY CXX_STANDARD 14)
+  set_property(TARGET ${TEST_TARGET} PROPERTY CXX_STANDARD 17)
   set_property(TARGET ${TEST_TARGET} PROPERTY FOLDER "tests")
 
   add_sycl_to_target(TARGET ${TEST_TARGET} SOURCES ${TEST_SOURCE})
