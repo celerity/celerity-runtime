@@ -12,8 +12,8 @@ namespace detail {
 			// TODO: If the number of commands per task gets large, this could become problematic. Maybe use an unordered_set instead?
 			by_task[tcmd->get_tid()].erase(std::find(by_task[tcmd->get_tid()].begin(), by_task[tcmd->get_tid()].end(), cmd));
 		}
-		commands.erase(cmd->get_cid());
 		execution_fronts[cmd->get_nid()].erase(cmd);
+		commands.erase(cmd->get_cid());
 	}
 
 	void command_graph::print_graph(logger& graph_logger) const {
