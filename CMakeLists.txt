@@ -45,10 +45,8 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)
 endif()
 
-if(MSVC)
-  # Add includes to library so they show up in generated VS project
-  file(GLOB_RECURSE INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
-endif()
+# Add includes to library so they show up in IDEs
+file(GLOB_RECURSE INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
 
 if(CMAKE_GENERATOR STREQUAL "Ninja")
   # Force colored warnings in Ninja's output, if the compiler has -fdiagnostics-color support.

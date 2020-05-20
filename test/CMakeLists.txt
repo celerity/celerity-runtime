@@ -1,9 +1,8 @@
 include(Download_Catch2)
 include(ParseAndAddCatchTests)
 
-if(MSVC)
-  file(GLOB_RECURSE TEST_INCLUDES *.h)
-endif()
+# Add includes to library so they show up in IDEs
+file(GLOB_RECURSE TEST_INCLUDES *.h)
 
 set(TEST_TARGETS
   runtime_tests
