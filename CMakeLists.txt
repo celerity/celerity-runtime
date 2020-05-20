@@ -81,7 +81,7 @@ add_library(
   ${INCLUDES}
 )
 
-set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD 14)
+set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD 17)
 
 target_include_directories(
   celerity_runtime

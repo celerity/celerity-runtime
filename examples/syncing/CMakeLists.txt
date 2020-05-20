@@ -3,7 +3,7 @@ add_executable(
   syncing.cc
 )
 
-set_property(TARGET syncing PROPERTY CXX_STANDARD 14)
+set_property(TARGET syncing PROPERTY CXX_STANDARD 17)
 
 target_link_libraries(
   syncing

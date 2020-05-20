@@ -3,7 +3,7 @@ add_executable(
   convolution.cc
 )
 
-set_property(TARGET convolution PROPERTY CXX_STANDARD 14)
+set_property(TARGET convolution PROPERTY CXX_STANDARD 17)
 
 target_link_libraries(
   convolution

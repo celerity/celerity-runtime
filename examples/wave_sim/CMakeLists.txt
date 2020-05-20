@@ -3,7 +3,7 @@ add_executable(
   wave_sim.cc
 )
 
-set_property(TARGET wave_sim PROPERTY CXX_STANDARD 14)
+set_property(TARGET wave_sim PROPERTY CXX_STANDARD 17)
 
 target_link_libraries(
   wave_sim

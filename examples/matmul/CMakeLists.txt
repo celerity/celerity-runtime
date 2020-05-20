@@ -3,7 +3,7 @@ add_executable(
   matmul.cc
 )
 
-set_property(TARGET matmul PROPERTY CXX_STANDARD 14)
+set_property(TARGET matmul PROPERTY CXX_STANDARD 17)
 
 target_link_libraries(
   matmul
