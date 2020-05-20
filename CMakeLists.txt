@@ -123,6 +123,7 @@ option(CELERITY_BUILD_EXAMPLES "Build various example applications" ON)
 if(CELERITY_BUILD_EXAMPLES)
   add_subdirectory(examples/convolution)
   add_subdirectory(examples/matmul)
+  add_subdirectory(examples/matmul_tiled)
   add_subdirectory(examples/syncing)
   add_subdirectory(examples/wave_sim)
 

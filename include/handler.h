@@ -60,7 +60,7 @@ class handler {
 			std::smatch matches;
 			std::regex_search(qualified_name, matches, name_regex);
 			auto debug_name = matches.size() > 0 ? matches[1] : qualified_name;
-			set_compute_task_data(Dims, detail::range_cast<3>(global_size), detail::id_cast<3>(global_offset), debug_name);
+			set_compute_task_data(Dims, detail::range_cast<3>(global_size), detail::id_cast<3>(global_offset), {1, 1, 1}, debug_name);
 			return;
 		}
 
@@ -108,6 +108,36 @@ class handler {
 		}
 	}
 
+	template <typename Name, int Dims, typename Functor>
+	void parallel_for_work_group(cl::sycl::range<Dims> num_work_groups, cl::sycl::range<Dims> local_size, Functor kernel) {
+		assert(task_type == detail::task_type::COMPUTE);
+		if(is_prepass()) {
+			// DEBUG: Find nice name for kernel (regex is probably not super portable)
+			auto qualified_name = boost::typeindex::type_id<Name*>().pretty_name();
+			std::regex name_regex(R"(.*?(?:::)?([\w_]+)\s?\*.*)");
+			std::smatch matches;
+			std::regex_search(qualified_name, matches, name_regex);
+			auto debug_name = matches.size() > 0 ? matches[1] : qualified_name;
+			cl::sycl::range<3> global_size;
+			for(size_t d = 0; d < Dims; ++d) {
+				global_size[d] = num_work_groups[d] * local_size[d];
+			}
+			set_compute_task_data(Dims, global_size, {}, detail::range_cast<3>(local_size), debug_name);
+			return;
+		}
+
+		auto exec_ctx = get_compute_task_exec_context();
+		const auto sycl_handler = exec_ctx.sycl_handler;
+		subrange<Dims> group_sr(detail::range_cast<Dims>(exec_ctx.sr.offset) / local_size, detail::range_cast<Dims>(exec_ctx.sr.range) / local_size);
+
+		// hack: parallel_for_work_group is missing an offset parameter. Until this is fixed, we simply pass [0, range+offset[ instead of [range, range+offset[
+		// and skip evaluation for [0, range[ inside the kernel.
+		auto extended_range = detail::range_cast<Dims>(group_sr.offset + group_sr.range);
+		sycl_handler->parallel_for_work_group<detail::wrapped_kernel_name<Name, false>>(extended_range, local_size, [=](const cl::sycl::group<Dims>& group) {
+			if(in_range(group.get_id(), group_sr.offset, group_sr.range)) { kernel(group); }
+		});
+	}
+
 	template <typename MAF>
 	void run(MAF maf) const {
 		assert(task_type == detail::task_type::MASTER_ACCESS);
@@ -122,13 +152,21 @@ class handler {
 
 	virtual bool is_prepass() const = 0;
 
-	virtual void set_compute_task_data(
-	    int dimensions, const cl::sycl::range<3>& global_size, const cl::sycl::id<3>& global_offset, const std::string& debug_name) = 0;
+	virtual void set_compute_task_data(int dimensions, const cl::sycl::range<3>& global_size, const cl::sycl::id<3>& global_offset,
+	    const cl::sycl::range<3>& local_size, const std::string& debug_name) = 0;
 
 	virtual detail::compute_task_exec_context get_compute_task_exec_context() const = 0;
 
   private:
 	detail::task_type task_type;
+
+	template <int Dims>
+	constexpr static bool in_range(cl::sycl::id<Dims> id, cl::sycl::id<Dims> offset, cl::sycl::range<Dims> range) {
+		for(int d = 0; d < Dims; ++d) {
+			if(!(offset[d] <= id[d] && id[d] < offset[d] + range[d])) return false;
+		}
+		return true;
+	}
 };
 
 namespace detail {
@@ -172,12 +210,13 @@ namespace detail {
 	  protected:
 		bool is_prepass() const override { return IsPrepass; }
 
-		void set_compute_task_data(
-		    int dimensions, const cl::sycl::range<3>& global_size, const cl::sycl::id<3>& global_offset, const std::string& debug_name) override {
+		void set_compute_task_data(int dimensions, const cl::sycl::range<3>& global_size, const cl::sycl::id<3>& global_offset,
+		    const cl::sycl::range<3>& local_size, const std::string& debug_name) override {
 			assert(IsPrepass);
 			task->set_dimensions(dimensions);
 			task->set_global_size(global_size);
 			task->set_global_offset(global_offset);
+			task->set_local_size(local_size);
 			task->set_debug_name(debug_name);
 		}
 
@@ -215,8 +254,8 @@ namespace detail {
 	  protected:
 		bool is_prepass() const override { return IsPrepass; }
 
-		void set_compute_task_data(
-		    int dimensions, const cl::sycl::range<3>& global_size, const cl::sycl::id<3>& global_offset, const std::string& debug_name) override {
+		void set_compute_task_data(int dimensions, const cl::sycl::range<3>& global_size, const cl::sycl::id<3>& global_offset,
+		    const cl::sycl::range<3>& local_size, const std::string& debug_name) override {
 			throw std::runtime_error("Illegal usage of master access handler");
 		}
 
