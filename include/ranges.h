@@ -55,7 +55,13 @@ namespace detail {
 
 #undef MAKE_COMPONENT_WISE_BINARY_FN
 
-} // namespace detail
+	struct {
+		operator cl::sycl::range<1>() const { return {0}; }
+		operator cl::sycl::range<2>() const { return {0, 0}; }
+		operator cl::sycl::range<3>() const { return {0, 0, 0}; }
+	} inline constexpr zero_range;
+
+}; // namespace detail
 
 template <int Dims>
 struct chunk {
@@ -93,8 +99,13 @@ struct subrange {
 	// which causes a const-mismatch -- but only when transitively called from the host_memory_layout runtime_test. Explicitly defining the constructor without
 	// delegating to range(const range&) seems to fix this.
 #if WORKAROUND_COMPUTECPP
-	subrange(const subrange& other) : offset(detail::id_cast<Dims>(other.offset)), range(detail::range_cast<Dims>(other.range)) {}
-	subrange& operator=(const subrange& other) = default;
+	subrange(const subrange& other) { *this = other; }
+
+	subrange& operator=(const subrange& other) {
+		offset = detail::id_cast<Dims>(other.offset);
+		range = detail::range_cast<Dims>(other.range);
+		return *this;
+	}
 #endif
 
 	subrange(cl::sycl::id<Dims> offset, cl::sycl::range<Dims> range) : offset(offset), range(range) {}

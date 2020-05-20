@@ -10,55 +10,45 @@
 namespace celerity {
 namespace detail {
 
-	std::vector<chunk<3>> split_equal(const chunk<1>& full_chunk, size_t num_chunks) {
+	// We simply split in the first dimension for now
+	std::vector<chunk<3>> split_equal(const chunk<3>& full_chunk, const cl::sycl::range<3>& granularity, size_t num_chunks, int dims) {
+#ifndef NDEBUG
 		assert(num_chunks > 0);
-		chunk<1> chnk;
-		chnk.global_size = full_chunk.global_size;
-		chnk.offset = full_chunk.offset;
-		chnk.range = cl::sycl::range<1>(full_chunk.range.size() / num_chunks);
-
-		std::vector<chunk<3>> result;
-		for(auto i = 0u; i < num_chunks; ++i) {
-			result.push_back(chunk_cast<3>(chnk));
-			chnk.offset = chnk.offset + chnk.range;
-			if(i == num_chunks - 1) { result[i].range[0] += full_chunk.range.size() % num_chunks; }
+		for(int d = 0; d < dims; ++d) {
+			assert(granularity[d] > 0);
+			assert(full_chunk.range[d] % granularity[d] == 0);
 		}
-		return result;
-	}
+#endif
 
-	// We simply split by row for now
-	// TODO: There's other ways to split in 2D as well.
-	std::vector<chunk<3>> split_equal(const chunk<2>& full_chunk, size_t num_chunks) {
-		const auto rows =
-		    split_equal(chunk<1>{cl::sycl::id<1>(full_chunk.offset[0]), cl::sycl::range<1>(full_chunk.range[0]), cl::sycl::range<1>(full_chunk.global_size[0])},
-		        num_chunks);
-		std::vector<chunk<3>> result;
-		for(auto& row : rows) {
-			result.push_back(chunk_cast<3>(
-			    chunk<2>{cl::sycl::id<2>(row.offset[0], full_chunk.offset[1]), cl::sycl::range<2>(row.range[0], full_chunk.range[1]), full_chunk.global_size}));
+		// If global range is not divisible by (num_chunks * granularity), assign ceil(quotient) to the first few chunks and floor(quotient) to the remaining
+		auto small_chunk_size_dim0 = full_chunk.range[0] / (num_chunks * granularity[0]) * granularity[0];
+		auto large_chunk_size_dim0 = small_chunk_size_dim0 + granularity[0];
+		auto num_large_chunks = (full_chunk.range[0] - small_chunk_size_dim0 * num_chunks) / granularity[0];
+		assert(num_large_chunks * large_chunk_size_dim0 + (num_chunks - num_large_chunks) * small_chunk_size_dim0 == full_chunk.range[0]);
+
+		std::vector<chunk<3>> result(num_chunks, {full_chunk.offset, full_chunk.range, full_chunk.global_size});
+		for(auto i = 0u; i < num_large_chunks; ++i) {
+			result[i].range[0] = large_chunk_size_dim0;
+			result[i].offset[0] += i * large_chunk_size_dim0;
 		}
-		return result;
-	}
-
-	// We simply split by planes for now
-	std::vector<chunk<3>> split_equal(const chunk<3>& full_chunk, size_t num_chunks) {
-		assert(num_chunks > 0);
-
-		const auto dim0_size = full_chunk.global_size[0];
-		const auto dim1_size = full_chunk.global_size[1];
-		const auto dim2_size = full_chunk.global_size[2];
-
-		chunk<3> chnk;
-		chnk.global_size = full_chunk.global_size;
-		chnk.offset = full_chunk.offset;
-		chnk.range = cl::sycl::range<3>(dim0_size / num_chunks, dim1_size, dim2_size);
-
-		std::vector<chunk<3>> result;
-		for(auto i = 0u; i < num_chunks; ++i) {
-			result.push_back(chnk);
-			chnk.offset[0] = chnk.offset[0] + chnk.range[0];
-			if(i == num_chunks - 1) result[i].range[0] += dim0_size % num_chunks;
+		for(auto i = num_large_chunks; i < num_chunks; ++i) {
+			result[i].range[0] = small_chunk_size_dim0;
+			result[i].offset[0] += num_large_chunks * large_chunk_size_dim0 + (i - num_large_chunks) * small_chunk_size_dim0;
 		}
+
+#ifndef NDEBUG
+		size_t total_range_dim0 = 0;
+		for(size_t i = 0; i < result.size(); ++i) {
+			total_range_dim0 += result[i].range[0];
+			if(i == 0) {
+				assert(result[i].offset[0] == full_chunk.offset[0]);
+			} else {
+				assert(result[i].offset[0] == result[i - 1].offset[0] + result[i - 1].range[0]);
+			}
+		}
+		assert(total_range_dim0 == full_chunk.range[0]);
+#endif
+
 		return result;
 	}
 
@@ -88,20 +78,7 @@ namespace detail {
 		assert(std::distance(original->get_dependents().begin(), original->get_dependents().end()) == 0);
 
 		chunk<3> full_chunk{tsk->get_global_offset(), tsk->get_global_size(), tsk->get_global_size()};
-		std::vector<chunk<3>> chunks;
-		switch(tsk->get_dimensions()) {
-		case 1: {
-			chunks = split_equal(chunk_cast<1>(full_chunk), num_chunks);
-		} break;
-		case 2: {
-			chunks = split_equal(chunk_cast<2>(full_chunk), num_chunks);
-		} break;
-		case 3: {
-			chunks = split_equal(full_chunk, num_chunks);
-		} break;
-		default: assert(false);
-		}
-
+		auto chunks = split_equal(full_chunk, tsk->get_granularity(), num_chunks, tsk->get_dimensions());
 		for(size_t i = 0; i < chunks.size(); ++i) {
 			cdag.create<task_command>(nodes[i], tsk->get_id(), subrange{chunks[i]});
 		}

@@ -50,6 +50,18 @@ namespace detail {
 
 	struct accessor_testspy;
 
+	template <typename T>
+	[[gnu::noinline, gnu::const]] T* hack_make_invisible_nullptr() {
+		return static_cast<T*>(nullptr);
+	}
+
+	// DPC++ workaround for constructing a cl::sycl::local_accessor without a handler. The constructor takes a handler&, but does not actually use it in the
+	// constructor body. We hide conjuring an (UB) handler& from a null pointer behind this function to minimize the chance of the optimizer breaking this hack.
+	template <typename T>
+	[[gnu::const]] T& hack_make_invisible_null_reference() {
+		return *hack_make_invisible_nullptr<T>();
+	}
+
 } // namespace detail
 
 /**
@@ -539,6 +551,78 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 
 	size_t get_linear_offset(cl::sycl::id<Dims> index) const { return detail::get_linear_index(get_buffer().get_range(), index - index_offset); }
 };
+
+
+template <typename DataT, int Dims = 1>
+class local_accessor {
+#if WORKAROUND_COMPUTECPP
+	static_assert(detail::constexpr_false<DataT>, "ComputeCpp cannot currently support celerity::local_accessor");
+#else
+  private:
+#if WORKAROUND_DPCPP
+	using sycl_accessor = cl::sycl::accessor<DataT, Dims, cl::sycl::access::mode::read_write, cl::sycl::access::target::local>;
+#else
+	using sycl_accessor = cl::sycl::local_accessor<DataT, Dims>;
+#endif
+
+  public:
+	using value_type = DataT;
+	using reference = DataT&;
+	using const_reference = const DataT&;
+	using size_type = size_t;
+
+	local_accessor() = delete;
+
+#if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
+	local_accessor(const cl::sycl::range<Dims>& allocation_size, handler& cgh)
+#if WORKAROUND_DPCPP
+	    : sycl_acc(allocation_size, detail::hack_make_invisible_null_reference<cl::sycl::handler>()),
+#else
+	    : sycl_acc(),
+#endif
+	      allocation_size(allocation_size) {
+		if(!detail::is_prepass_handler(cgh)) {
+			auto& device_handler = dynamic_cast<detail::live_pass_device_handler&>(cgh);
+			eventual_sycl_cgh = device_handler.get_eventual_sycl_cgh();
+		}
+	}
+
+	local_accessor(const local_accessor& other)
+	    : sycl_acc(other.sycl_cgh() ? sycl_accessor{other.allocation_size, *other.sycl_cgh()} : other.sycl_acc), allocation_size(other.allocation_size),
+	      eventual_sycl_cgh(other.sycl_cgh() ? nullptr : other.eventual_sycl_cgh) {}
+
+	local_accessor& operator=(const local_accessor&) = delete;
+#else
+	local_accessor(const cl::sycl::range<Dims>& allocation_size, handler& cgh);
+	local_accessor(const local_accessor &) = default;
+#endif
+
+	size_type byte_size() const noexcept { return allocation_size.size() * sizeof(value_type); }
+
+	size_type size() const noexcept { return allocation_size.size(); }
+
+	size_type max_size() const noexcept { return sycl_acc.max_size(); }
+
+	bool empty() const noexcept { return sycl_acc.empty(); }
+
+	cl::sycl::range<Dims> get_range() const { return allocation_size; }
+
+	std::add_pointer_t<value_type> get_pointer() const noexcept { return sycl_acc.get_pointer(); }
+
+	template <typename Index>
+	inline decltype(auto) operator[](const Index& index) const {
+		return sycl_acc[index];
+	}
+
+  private:
+	sycl_accessor sycl_acc;
+	cl::sycl::range<Dims> allocation_size;
+	cl::sycl::handler* const* eventual_sycl_cgh = nullptr;
+
+	cl::sycl::handler* sycl_cgh() const { return eventual_sycl_cgh != nullptr ? *eventual_sycl_cgh : nullptr; }
+#endif
+};
+
 
 namespace detail {
 	template <typename DataT, int Dims, access_mode Mode, typename... Args>
