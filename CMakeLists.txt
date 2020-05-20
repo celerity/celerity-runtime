@@ -10,17 +10,33 @@ find_package(Boost 1.65.0 REQUIRED)
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 
+option(CELERITY_SYCL_IMPL "hipSYCL|ComputeCpp")
+
 # Find SYCL implementation.
-# We first check if hipSYCL can be found, otherwise we try ComputeCpp.
-find_package(hipSYCL CONFIG)
-if(NOT hipSYCL_FOUND)
+if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
+  find_package(hipSYCL CONFIG REQUIRED)
+elseif(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
   find_package(ComputeCpp REQUIRED)
-  if(NOT COMPUTECPP_USER_FLAGS MATCHES "-D_CRT_SECURE_NO_WARNINGS")
-	set(
-	  COMPUTECPP_USER_FLAGS "${COMPUTECPP_USER_FLAGS};-D_CRT_SECURE_NO_WARNINGS=1"
-	  CACHE STRING "" FORCE
-	)
+else()
+  # We first check if hipSYCL can be found, otherwise we try ComputeCpp.
+  find_package(hipSYCL CONFIG)
+  if(hipSYCL_FOUND)
+    set(CELERITY_SYCL_IMPL "hipSYCL")
+  else()
+    find_package(ComputeCpp REQUIRED)
+    set(CELERITY_SYCL_IMPL "ComputeCpp")
   endif()
+endif()
+
+if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
+  message(STATUS "Found hipSYCL: ${hipSYCL_DIR}")
+else()
+  message(STATUS "Found ComputeCpp: ${ComputeCpp_DIR}")
+endif()
+
+if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp" AND NOT COMPUTECPP_USER_FLAGS MATCHES "-D_CRT_SECURE_NO_WARNINGS")
+  set(COMPUTECPP_USER_FLAGS "${COMPUTECPP_USER_FLAGS};-D_CRT_SECURE_NO_WARNINGS=1"
+    CACHE STRING "" FORCE)
 endif()
 
 include(Download_spdlog)
@@ -91,7 +107,7 @@ target_link_libraries(
 )
 
 set(DEVICE_SOURCES "")
-if(hipSYCL_FOUND)
+if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
   # For hipSYCL we have to pass all source files into add_sycl_to_target
   # Don't just do it in general (yields better ComputeCpp build performance)
   set(DEVICE_SOURCES ${SOURCES})
@@ -108,7 +124,7 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
-if(hipSYCL_FOUND)
+if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
   # Boost currently (as of 1.71) does not enable variadic macros
   # when it detects CUDA compilation.
   # Since we are using Clang however (via hipSYCL) instead of NVCC,
@@ -174,11 +190,6 @@ install(
   DESTINATION lib/cmake
 )
 set(CELERITY_INSTALL_LOCATION ${CMAKE_INSTALL_PREFIX})
-if(hipSYCL_FOUND)
-  set(CELERITY_SYCL_IMPL "hipSYCL")
-else()
-  set(CELERITY_SYCL_IMPL "ComputeCpp")
-endif()
 configure_file(
   ${PROJECT_SOURCE_DIR}/cmake/celerity-config.cmake.in
   ${CMAKE_CURRENT_BINARY_DIR}/celerity-config.cmake
