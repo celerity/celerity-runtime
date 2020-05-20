@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <ostream>
 
 #include <catch2/catch.hpp>
 
@@ -171,6 +172,15 @@ namespace test_utils {
 		});
 	}
 
+	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
+	detail::task_id add_nd_range_compute_task(
+	    detail::task_manager& tm, CGF cgf, cl::sycl::nd_range<KernelDims> execution_range = {{1, 1}, {1, 1}}, cl::sycl::id<KernelDims> global_offset = {}) {
+		return tm.create_task([&, er = execution_range, go = global_offset](handler& cgh) {
+			cgf(cgh);
+			cgh.parallel_for<KernelName>(er, go, [](nd_item<KernelDims>) {});
+		});
+	}
+
 	template <typename Spec, typename CGF>
 	detail::task_id add_host_task(detail::task_manager& tm, Spec spec, CGF cgf) {
 		return tm.create_task([&](handler& cgh) {
@@ -205,3 +215,32 @@ namespace test_utils {
 
 } // namespace test_utils
 } // namespace celerity
+
+
+namespace Catch {
+
+template <int Dims>
+struct StringMaker<cl::sycl::id<Dims>> {
+	static std::string convert(const cl::sycl::id<Dims>& value) {
+		switch(Dims) {
+		case 1: return fmt::format("{{{}}}", value[0]);
+		case 2: return fmt::format("{{{}, {}}}", value[0], value[1]);
+		case 3: return fmt::format("{{{}, {}, {}}}", value[0], value[1], value[2]);
+		default: return {};
+		}
+	}
+};
+
+template <int Dims>
+struct StringMaker<cl::sycl::range<Dims>> {
+	static std::string convert(const cl::sycl::range<Dims>& value) {
+		switch(Dims) {
+		case 1: return fmt::format("{{{}}}", value[0]);
+		case 2: return fmt::format("{{{}, {}}}", value[0], value[1]);
+		case 3: return fmt::format("{{{}, {}, {}}}", value[0], value[1], value[2]);
+		default: return {};
+		}
+	}
+};
+
+} // namespace Catch

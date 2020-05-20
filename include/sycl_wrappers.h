@@ -43,4 +43,19 @@ namespace property {
 
 inline const property::no_init no_init;
 
+// We do not expose memory_scope::system because Celerity does not expose USM or multi-GPU kernel launches
+enum class memory_scope { work_item, sub_group, work_group, device };
+
+inline constexpr auto memory_scope_work_item = memory_scope::work_item;
+inline constexpr auto memory_scope_sub_group = memory_scope::sub_group;
+inline constexpr auto memory_scope_work_group = memory_scope::work_group;
+inline constexpr auto memory_scope_device = memory_scope::device;
+
+template <typename T>
+using decorated_global_ptr = cl::sycl::global_ptr<T>;
+
+template <typename T>
+using decorated_local_ptr = cl::sycl::local_ptr<T>;
+
+
 } // namespace celerity

@@ -132,5 +132,91 @@ namespace detail {
 
 #endif // !WORKAROUND_COMPUTECPP && (!WORKAROUND_HIPSYCL || CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
 
+	template <int Dims>
+	class kernel_name_nd_geometry;
+
+	// This should be a template, but the ComputeCpp compiler segfaults if DataT of a buffer is a template type
+	struct geometry {
+		struct {
+			size_t group_linear_id = 0;
+			cl::sycl::range<3> group_range = zero_range;
+			cl::sycl::id<3> local_id;
+			size_t local_linear_id = 0;
+			cl::sycl::range<3> local_range = zero_range;
+			cl::sycl::id<3> global_id;
+			size_t global_linear_id = 0;
+			cl::sycl::range<3> global_range = zero_range;
+		} item;
+		struct {
+			cl::sycl::id<3> group_id;
+			size_t group_linear_id = 0;
+			cl::sycl::range<3> group_range = zero_range;
+			cl::sycl::id<3> local_id;
+			size_t local_linear_id = 0;
+			cl::sycl::range<3> local_range = zero_range;
+		} group;
+	};
+
+	TEMPLATE_TEST_CASE_SIG("nd_item and group return correct execution space geometry", "[item]", ((int Dims), Dims), 1, 2, 3) {
+		distr_queue q;
+		auto n = runtime::get_instance().get_num_nodes();
+
+		auto global_range = range_cast<Dims>(cl::sycl::range<3>{n * 4 * 3, 3 * 5, 2 * 11});
+		auto local_range = range_cast<Dims>(cl::sycl::range<3>{3, 5, 11});
+		auto group_range = global_range / local_range;
+		auto global_offset = id_cast<Dims>(cl::sycl::id<3>{47, 53, 59});
+
+		buffer<geometry, Dims> geo(global_range);
+
+		q.submit([=](handler& cgh) {
+			accessor g{geo, cgh, celerity::access::one_to_one{}, write_only, no_init};
+			cgh.parallel_for<kernel_name_nd_geometry<Dims>>(cl::sycl::nd_range{global_range, local_range}, /* global_offset,*/ [=](nd_item<Dims> item) {
+				auto group = item.get_group();
+				g[item.get_global_id()] = geometry{//
+				    {item.get_group_linear_id(), range_cast<3>(item.get_group_range()), range_cast<3>(item.get_local_id()), item.get_local_linear_id(),
+				        range_cast<3>(item.get_local_range()), id_cast<3>(item.get_global_id()), item.get_global_linear_id(),
+				        range_cast<3>(item.get_global_range())},
+				    {id_cast<3>(group.get_group_id()), group.get_group_linear_id(), range_cast<3>(group.get_group_range()), id_cast<3>(group.get_local_id()),
+				        group.get_local_linear_id(), range_cast<3>(group.get_local_range())}};
+			});
+		});
+
+		q.submit([=](handler& cgh) {
+			accessor g{geo, cgh, celerity::access::all{}, read_only_host_task};
+			cgh.host_task(on_master_node, [=] {
+				for(size_t global_linear_id = 0; global_linear_id < global_range.size(); ++global_linear_id) {
+					cl::sycl::id<Dims> global_id;
+					{
+						size_t relative = global_linear_id;
+						for(int nd = 0; nd < Dims; ++nd) {
+							int d = Dims - 1 - nd;
+							global_id[d] = relative % global_range[d];
+							relative /= global_range[d];
+						}
+					}
+					auto group_id = global_id / local_range;
+					auto local_id = global_id % local_range;
+					auto local_linear_id = get_linear_index(local_range, local_id);
+					auto group_linear_id = get_linear_index(group_range, group_id);
+
+					REQUIRE(g[global_id].item.group_linear_id == group_linear_id);
+					REQUIRE(range_cast<Dims>(g[global_id].item.group_range) == group_range);
+					REQUIRE(id_cast<Dims>(g[global_id].item.local_id) == local_id);
+					REQUIRE(g[global_id].item.local_linear_id == local_linear_id);
+					REQUIRE(range_cast<Dims>(g[global_id].item.local_range) == local_range);
+					REQUIRE(id_cast<Dims>(g[global_id].item.global_id) == global_id);
+					REQUIRE(g[global_id].item.global_linear_id == global_linear_id);
+					REQUIRE(range_cast<Dims>(g[global_id].item.global_range) == global_range);
+					REQUIRE(id_cast<Dims>(g[global_id].group.group_id) == group_id);
+					REQUIRE(g[global_id].group.group_linear_id == group_linear_id);
+					REQUIRE(range_cast<Dims>(g[global_id].group.group_range) == group_range);
+					REQUIRE(id_cast<Dims>(g[global_id].group.local_id) == local_id);
+					REQUIRE(g[global_id].group.local_linear_id == local_linear_id);
+					REQUIRE(range_cast<Dims>(g[global_id].group.local_range) == local_range);
+				}
+			});
+		});
+	}
+
 } // namespace detail
 } // namespace celerity

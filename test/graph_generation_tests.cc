@@ -1027,16 +1027,16 @@ namespace detail {
 			        buf_a.get_access<mode::read>(cgh, [&](chunk<1> chnk) -> subrange<1> {
 				        switch(chnk.offset[0]) {
 				        case 0: return chnk;
-				        case 33: return chnk;
-				        case 66: return {0, 0}; // Node 2 does not read buffer a
+				        case 34: return chnk;
+				        case 67: return {0, 0}; // Node 2 does not read buffer a
 				        default: CATCH_ERROR("Unexpected offset");
 				        }
 			        });
 			        buf_b.get_access<mode::read>(cgh, [&](chunk<1> chnk) -> subrange<1> {
 				        switch(chnk.offset[0]) {
 				        case 0: return chnk;
-				        case 33: return {0, 0}; // Node 1 does not read buffer b
-				        case 66: return chnk;
+				        case 34: return {0, 0}; // Node 1 does not read buffer b
+				        case 67: return chnk;
 				        default: CATCH_ERROR("Unexpected offset");
 				        }
 			        });
@@ -1091,8 +1091,8 @@ namespace detail {
 				        if(chnk.range[0] == 100) return chnk; // Return full chunk during tdag generation
 				        switch(chnk.offset[0]) {
 				        case 0: return {0, 0};
-				        case 33: return chnk;
-				        case 66: return {0, 0};
+				        case 34: return chnk;
+				        case 67: return {0, 0};
 				        default: CATCH_ERROR("Unexpected offset");
 				        }
 			        });
@@ -1631,6 +1631,87 @@ namespace detail {
 			have_initializers += tcmd->is_reduction_initializer();
 		}
 		CHECK(have_initializers == 1);
+
+		maybe_print_graphs(ctx);
+	}
+
+	TEST_CASE("graph_generator respects task granularity when splitting", "[graph_generator]") {
+		using namespace cl::sycl::access;
+
+		size_t num_nodes = 4;
+		test_utils::cdag_test_context ctx(num_nodes);
+		auto& tm = ctx.get_task_manager();
+		auto& ggen = ctx.get_graph_generator();
+
+		auto simple_1d = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(simple_1d)>(
+		        tm, [&](handler& cgh) {}, cl::sycl::range<1>{255}));
+
+		auto simple_2d = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(simple_2d)>(
+		        tm, [&](handler& cgh) {}, cl::sycl::range<2>{255, 19}));
+
+		auto simple_3d = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(simple_3d)>(
+		        tm, [&](handler& cgh) {}, cl::sycl::range<3>{255, 19, 31}));
+
+		auto perfect_1d = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_nd_range_compute_task<class UKN(perfect_1d)>(
+		        tm, [&](handler& cgh) {}, cl::sycl::nd_range<1>{{256}, {32}}));
+
+		auto perfect_2d = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_nd_range_compute_task<class UKN(perfect_2d)>(
+		        tm, [&](handler& cgh) {}, cl::sycl::nd_range<2>{{256, 19}, {32, 19}}));
+
+		auto perfect_3d = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_nd_range_compute_task<class UKN(perfect_3d)>(
+		        tm, [&](handler& cgh) {}, cl::sycl::nd_range<3>{{256, 19, 31}, {32, 19, 31}}));
+
+		auto rebalance_1d = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_nd_range_compute_task<class UKN(rebalance_1d)>(
+		        tm, [&](handler& cgh) {}, cl::sycl::nd_range<1>{{320}, {32}}));
+
+		auto rebalance_2d = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_nd_range_compute_task<class UKN(rebalance_2d)>(
+		        tm, [&](handler& cgh) {}, cl::sycl::nd_range<2>{{320, 19}, {32, 19}}));
+
+		auto rebalance_3d = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_nd_range_compute_task<class UKN(rebalance_3d)>(
+		        tm, [&](handler& cgh) {}, cl::sycl::nd_range<3>{{320, 19, 31}, {32, 19, 31}}));
+
+		auto& inspector = ctx.get_inspector();
+		auto& cdag = ctx.get_command_graph();
+
+		for(auto tid : {simple_1d, simple_2d, simple_3d}) {
+			size_t total_range_dim0 = 0;
+			for(auto cid : inspector.get_commands(tid, std::nullopt, std::nullopt)) {
+				auto* tcmd = dynamic_cast<task_command*>(cdag.get(cid));
+				auto range_dim0 = tcmd->get_execution_range().range[0];
+				// Don't waste compute resources by creating over- or undersized chunks
+				CHECK((range_dim0 == 63 || range_dim0 == 64));
+				total_range_dim0 += range_dim0;
+			}
+			CHECK(total_range_dim0 == 255);
+		}
+
+		for(auto tid : {perfect_1d, perfect_2d, perfect_3d}) {
+			for(auto cid : inspector.get_commands(tid, std::nullopt, std::nullopt)) {
+				auto* tcmd = dynamic_cast<task_command*>(cdag.get(cid));
+				CHECK(tcmd->get_execution_range().range[0] == 64); // Can be split perfectly
+			}
+		}
+
+		for(auto tid : {rebalance_1d, rebalance_2d, rebalance_3d}) {
+			size_t total_range_dim0 = 0;
+			for(auto cid : inspector.get_commands(tid, std::nullopt, std::nullopt)) {
+				auto* tcmd = dynamic_cast<task_command*>(cdag.get(cid));
+				auto range_dim0 = tcmd->get_execution_range().range[0];
+				// Don't waste compute resources by creating over- or undersized chunks
+				CHECK((range_dim0 == 64 || range_dim0 == 96));
+				total_range_dim0 += range_dim0;
+			}
+			CHECK(total_range_dim0 == 320);
+		}
 
 		maybe_print_graphs(ctx);
 	}
