@@ -5,7 +5,7 @@ project(celerity_runtime VERSION ${Celerity_VERSION})
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${PROJECT_SOURCE_DIR}/cmake")
-find_package(Boost 1.65.0 REQUIRED)
+find_package(Boost 1.65.0 REQUIRED COMPONENTS container)
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 
@@ -91,26 +91,24 @@ add_library(
 
 set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD 17)
 
-target_include_directories(
-  celerity_runtime
-  PUBLIC
+target_include_directories(celerity_runtime PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include/celerity>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor>
   $<INSTALL_INTERFACE:include/celerity/vendor>
   ${Boost_INCLUDE_DIRS}
-  ${ComputeCpp_INCLUDE_DIRECTORY}
-  ${MPI_CXX_INCLUDE_PATH}
 )
 
-target_link_libraries(
-  celerity_runtime
-  PUBLIC
-  ${CMAKE_THREAD_LIBS_INIT}
+target_link_libraries(celerity_runtime PUBLIC
+  Threads::Threads
   ${Boost_LIBRARIES}
-  ${MPI_CXX_LIBRARIES}
+  MPI::MPI_CXX
   spdlog::spdlog
 )
+
+if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
+	target_link_libraries(celerity_runtime PUBLIC ComputeCpp::ComputeCpp)
+endif()
 
 set(DEVICE_SOURCES "")
 if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
