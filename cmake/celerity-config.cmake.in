@@ -14,6 +14,9 @@ else()
   find_dependency(ComputeCpp REQUIRED)
 endif()
 
+# spdlog is a bundled dependency
+include("${CMAKE_CURRENT_LIST_DIR}/../celerity/vendor/cmake/spdlogConfig.cmake")
+
 include("${CMAKE_CURRENT_LIST_DIR}/celerity-targets.cmake")
 
 function(add_celerity_to_target)

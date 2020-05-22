@@ -1,11 +1,10 @@
 cmake_minimum_required(VERSION 3.5.1)
-project(celerity_runtime)
 
 set(Celerity_VERSION 0.1.0)
-
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
+project(celerity_runtime VERSION ${Celerity_VERSION})
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${PROJECT_SOURCE_DIR}/cmake")
 find_package(Boost 1.65.0 REQUIRED)
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
@@ -39,11 +38,20 @@ if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp" AND NOT COMPUTECPP_USER_FLAGS MATCHE
     CACHE STRING "" FORCE)
 endif()
 
-include(Download_spdlog)
-
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)
 endif()
+
+# 3rdparty dependencies
+macro(add_submodule_directory RELPATH)
+	if(NOT EXISTS "${PROJECT_SOURCE_DIR}/${RELPATH}/CMakeLists.txt")
+		message(SEND_ERROR "${RELPATH} is missing, perform a git submodule update")
+	endif()
+	add_subdirectory("${RELPATH}")
+endmacro()
+
+add_submodule_directory(vendor/spdlog)
+add_submodule_directory(vendor/Catch2)
 
 # Add includes to library so they show up in IDEs
 file(GLOB_RECURSE INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
@@ -93,7 +101,6 @@ target_include_directories(
   ${Boost_INCLUDE_DIRS}
   ${ComputeCpp_INCLUDE_DIRECTORY}
   ${MPI_CXX_INCLUDE_PATH}
-  $<BUILD_INTERFACE:${spdlog_INCLUDE_DIRS}>
 )
 
 target_link_libraries(
@@ -102,6 +109,7 @@ target_link_libraries(
   ${CMAKE_THREAD_LIBS_INIT}
   ${Boost_LIBRARIES}
   ${MPI_CXX_LIBRARIES}
+  spdlog::spdlog
 )
 
 set(DEVICE_SOURCES "")
@@ -153,9 +161,45 @@ add_subdirectory(test)
 
 # Install
 
+include(CMakePackageConfigHelpers)
+
+# Install 3rdparty spdlog under celerity/vendor
+set(config_targets_file spdlogConfigTargets.cmake) # This variable is used in spdlogConfig.cmake.in
+set(spdlog_PROJECT_CONFIG_OUT "${CMAKE_CURRENT_BINARY_DIR}/vendor/spdlog/spdlogConfig.cmake")
+set(spdlog_VERSION_CONFIG_FILE "${CMAKE_CURRENT_BINARY_DIR}/vendor/spdlog/spdlogConfigVersion.cmake")
+install(
+	DIRECTORY vendor/spdlog/include/spdlog/
+	DESTINATION include/celerity/vendor/spdlog
+)
+install(
+	TARGETS spdlog
+	EXPORT spdlog
+	DESTINATION lib/celerity/vendor
+)
+install(
+	EXPORT spdlog
+	DESTINATION lib/celerity/vendor/cmake
+	NAMESPACE spdlog::
+	FILE spdlogConfigTargets.cmake
+)
+configure_file(
+	vendor/spdlog/cmake/spdlogConfig.cmake.in
+	"${spdlog_PROJECT_CONFIG_OUT}"
+	@ONLY
+)
+write_basic_package_version_file(
+	"${spdlog_VERSION_CONFIG_FILE}"
+	VERSION ${spdlog_VERSION}
+	COMPATIBILITY SameMajorVersion
+)
+install(FILES "${spdlog_PROJECT_CONFIG_OUT}" "${spdlog_VERSION_CONFIG_FILE}"
+	DESTINATION lib/celerity/vendor/cmake
+)
+
+# Install celerity
 install(
   DIRECTORY ${PROJECT_SOURCE_DIR}/include/
-  DESTINATION include/celerity/celerity
+  DESTINATION include/celerity
 )
 install(
   DIRECTORY ${PROJECT_SOURCE_DIR}/vendor/allscale/
@@ -166,16 +210,11 @@ install(
   DESTINATION include/celerity/vendor
 )
 install(
-  DIRECTORY ${spdlog_INCLUDE_DIRS}/spdlog/
-  DESTINATION include/celerity/vendor/spdlog
-)
-install(
   TARGETS celerity_runtime
   EXPORT install_exports
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
 )
-include(CMakePackageConfigHelpers)
 write_basic_package_version_file(
   "${CMAKE_CURRENT_BINARY_DIR}/celerity-config-version.cmake"
   VERSION ${Celerity_VERSION}
