@@ -1,6 +1,6 @@
 #pragma once
 
-#include <boost/variant.hpp>
+#include <variant>
 
 #include "intrusive_graph.h"
 #include "ranges.h"
@@ -183,7 +183,7 @@ namespace detail {
 		uint64_t sync_id;
 	};
 
-	using command_data = boost::variant<nop_data, compute_data, master_access_data, push_data, await_push_data, shutdown_data, sync_data>;
+	using command_data = std::variant<nop_data, compute_data, master_access_data, push_data, await_push_data, shutdown_data, sync_data>;
 
 	/**
 	 * A command package is what is actually transferred between nodes.

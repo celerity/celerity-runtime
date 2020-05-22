@@ -88,11 +88,11 @@ namespace detail {
 		return result;
 	}
 
-	void graph_generator::generate_anti_dependencies(task_id tid, buffer_id bid, const region_map<boost::optional<command_id>>& last_writers_map,
+	void graph_generator::generate_anti_dependencies(task_id tid, buffer_id bid, const region_map<std::optional<command_id>>& last_writers_map,
 	    const GridRegion<3>& write_req, abstract_command* write_cmd) {
 		const auto last_writers = last_writers_map.get_region_values(write_req);
 		for(auto& box_and_writers : last_writers) {
-			if(box_and_writers.second == boost::none) continue;
+			if(box_and_writers.second == std::nullopt) continue;
 			const command_id last_writer_cid = *box_and_writers.second;
 			const auto last_writer_cmd = cdag.get(last_writer_cid);
 			assert(!isa<task_command>(last_writer_cmd) || static_cast<task_command*>(last_writer_cmd)->get_tid() != tid);
@@ -285,7 +285,7 @@ namespace detail {
 			    node_data.at(push_cmd->get_nid()).buffer_last_writer.at(push_cmd->get_bid()).get_region_values(subrange_to_grid_region(push_cmd->get_range()));
 			for(auto& box_and_writer : last_writers) {
 				assert(!box_and_writer.first.empty());        // If we want to push it it cannot be empty
-				assert(box_and_writer.second != boost::none); // Exactly one command last wrote to that box
+				assert(box_and_writer.second != std::nullopt); // Exactly one command last wrote to that box
 				const auto writer_cmd = cdag.get(*box_and_writer.second);
 				assert(writer_cmd != nullptr);
 
@@ -322,7 +322,7 @@ namespace detail {
 			if(prev_horizon != nullptr) {
 				auto prev_hid = prev_horizon->get_cid();
 				for(auto& blw_pair : node_data[node].buffer_last_writer) {
-					blw_pair.second.apply_to_values([prev_hid](boost::optional<command_id> cid) -> boost::optional<command_id> {
+					blw_pair.second.apply_to_values([prev_hid](std::optional<command_id> cid) -> std::optional<command_id> {
 						if(!cid) return cid;
 						return {std::max(prev_hid, *cid)};
 					});

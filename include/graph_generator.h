@@ -4,7 +4,7 @@
 #include <mutex>
 #include <vector>
 
-#include <boost/optional.hpp>
+#include <optional>
 
 #include "region_map.h"
 #include "task.h"
@@ -25,7 +25,7 @@ namespace detail {
 
 		using buffer_state_map = std::unordered_map<buffer_id, region_map<std::vector<node_id>>>;
 		using buffer_read_map = std::unordered_map<buffer_id, GridRegion<3>>;
-		using buffer_writer_map = std::unordered_map<buffer_id, region_map<boost::optional<command_id>>>;
+		using buffer_writer_map = std::unordered_map<buffer_id, region_map<std::optional<command_id>>>;
 
 		struct per_node_data {
 			// For each node we generate a separate INIT command which acts as a proxy last writer for host-initialized buffers.
@@ -82,7 +82,7 @@ namespace detail {
 		// This mutex mainly serves to protect per-buffer data structures, as new buffers might be added at any time.
 		std::mutex buffer_mutex;
 
-		void generate_anti_dependencies(task_id tid, buffer_id bid, const region_map<boost::optional<command_id>>& last_writers_map,
+		void generate_anti_dependencies(task_id tid, buffer_id bid, const region_map<std::optional<command_id>>& last_writers_map,
 		    const GridRegion<3>& write_req, abstract_command* write_cmd);
 
 		void process_task_data_requirements(task_id tid);

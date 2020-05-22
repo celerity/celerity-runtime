@@ -12,9 +12,9 @@ namespace detail {
 		assert(task_mngr != nullptr);
 		this->task_mngr = task_mngr;
 		const auto forced_wg_size_cfg = cfg.get_forced_work_group_size();
-		forced_work_group_size = forced_wg_size_cfg != boost::none ? *forced_wg_size_cfg : 0;
+		forced_work_group_size = forced_wg_size_cfg != std::nullopt ? *forced_wg_size_cfg : 0;
 		const auto profiling_cfg = cfg.get_enable_device_profiling();
-		device_profiling_enabled = profiling_cfg != boost::none && *profiling_cfg;
+		device_profiling_enabled = profiling_cfg != std::nullopt && *profiling_cfg;
 		if(device_profiling_enabled) { queue_logger.info("Device profiling enabled."); }
 
 		cl::sycl::property_list props = ([&]() {
@@ -36,7 +36,7 @@ namespace detail {
 			how_selected = "specified by user";
 		} else {
 			const auto device_cfg = cfg.get_device_config();
-			if(device_cfg != boost::none) {
+			if(device_cfg != std::nullopt) {
 				how_selected = fmt::format("set by CELERITY_DEVICES: platform {}, device {}", device_cfg->platform_id, device_cfg->device_id);
 				const auto platforms = cl::sycl::platform::get_platforms();
 				queue_logger.trace("{} platforms available", platforms.size());

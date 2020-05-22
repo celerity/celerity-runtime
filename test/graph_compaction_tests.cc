@@ -1,10 +1,9 @@
 #include "unit_test_suite_celerity.h"
 
+#include <optional>
 #include <set>
 #include <unordered_set>
 
-#include <boost/optional.hpp>
-#include <boost/optional/optional_io.hpp>
 #include <catch2/catch.hpp>
 
 #define CELERITY_TEST
@@ -97,8 +96,8 @@ namespace detail {
 			CHECK(buf_a_region_map_size() <= NUM_NODES * 2);
 			CHECK(buf_a_last_writer_map_size() <= NUM_NODES * 2);
 			for(node_id n = 0; n < NUM_NODES; ++n) {
-				CHECK(inspector.get_commands(boost::none, n, command_type::HORIZON).size() <= NUM_TIMESTEPS);
-				CHECK(inspector.get_commands(boost::none, n, command_type::HORIZON).size() >= NUM_TIMESTEPS - 1);
+				CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() <= NUM_TIMESTEPS);
+				CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() >= NUM_TIMESTEPS - 1);
 			}
 		}
 
@@ -111,8 +110,8 @@ namespace detail {
 			CHECK(buf_a_region_map_size() <= NUM_NODES * 2 * 3);
 			CHECK(buf_a_last_writer_map_size() <= NUM_NODES * 2 * 3);
 			for(node_id n = 0; n < NUM_NODES; ++n) {
-				CHECK(inspector.get_commands(boost::none, n, command_type::HORIZON).size() <= NUM_TIMESTEPS / 3 + 1);
-				CHECK(inspector.get_commands(boost::none, n, command_type::HORIZON).size() >= NUM_TIMESTEPS / 3 - 1);
+				CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() <= NUM_TIMESTEPS / 3 + 1);
+				CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() >= NUM_TIMESTEPS / 3 - 1);
 			}
 		}
 

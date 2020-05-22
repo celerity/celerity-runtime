@@ -3,9 +3,8 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
-
-#include <boost/optional.hpp>
 
 #include "handler.h"
 #include "region_map.h"
@@ -19,7 +18,7 @@ namespace detail {
 	using task_callback = std::function<void(task_id)>;
 
 	class task_manager {
-		using buffer_writers_map = std::unordered_map<buffer_id, region_map<boost::optional<task_id>>>;
+		using buffer_writers_map = std::unordered_map<buffer_id, region_map<std::optional<task_id>>>;
 
 	  public:
 		/**
