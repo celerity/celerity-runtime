@@ -1,5 +1,4 @@
-include(Download_Catch2)
-include(ParseAndAddCatchTests)
+include("${PROJECT_SOURCE_DIR}/vendor/Catch2/contrib/ParseAndAddCatchTests.cmake")
 
 # Add includes to library so they show up in IDEs
 file(GLOB_RECURSE TEST_INCLUDES *.h)
@@ -13,16 +12,11 @@ set(TEST_TARGETS
 
 add_library(unit_test_suite unit_test_suite.cc unit_test_suite_celerity.cc)
 
-target_include_directories(
-  unit_test_suite
-  PUBLIC
-  ${Catch2_INCLUDE_DIRS}
-)
-
 target_link_libraries(
   unit_test_suite
   PUBLIC
   celerity_runtime
+  Catch2::Catch2
 )
 
 set_property(TARGET unit_test_suite PROPERTY CXX_STANDARD 17)
