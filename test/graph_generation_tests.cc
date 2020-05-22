@@ -1,9 +1,9 @@
 #include "unit_test_suite_celerity.h"
 
+#include <optional>
 #include <set>
 #include <unordered_set>
 
-#include <boost/optional.hpp>
 #include <catch2/catch.hpp>
 
 #define CELERITY_TEST
@@ -380,7 +380,7 @@ namespace detail {
 		        },
 		        cl::sycl::range<1>{300}));
 
-		CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 4);
+		CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::COMPUTE).size() == 4);
 		CHECK(inspector.get_commands(tid_a, node_id(1), command_type::COMPUTE).size() == 1);
 		CHECK(inspector.get_commands(tid_a, node_id(2), command_type::COMPUTE).size() == 1);
 		CHECK(inspector.get_commands(tid_a, node_id(3), command_type::COMPUTE).size() == 1);
@@ -389,12 +389,12 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(task_b)>(
 		        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{300}));
 
-		REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::PUSH).size() == 2);
-		REQUIRE(inspector.get_commands(boost::none, node_id(1), command_type::PUSH).size() == 1);
-		REQUIRE(inspector.get_commands(boost::none, node_id(2), command_type::PUSH).size() == 1);
-		REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::AWAIT_PUSH).size() == 2);
-		REQUIRE(inspector.get_commands(boost::none, node_id(1), command_type::AWAIT_PUSH).size() == 1);
-		REQUIRE(inspector.get_commands(boost::none, node_id(2), command_type::AWAIT_PUSH).size() == 1);
+		REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).size() == 2);
+		REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::PUSH).size() == 1);
+		REQUIRE(inspector.get_commands(std::nullopt, node_id(2), command_type::PUSH).size() == 1);
+		REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 2);
+		REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::AWAIT_PUSH).size() == 1);
+		REQUIRE(inspector.get_commands(std::nullopt, node_id(2), command_type::AWAIT_PUSH).size() == 1);
 
 		maybe_print_graphs(ctx);
 	}
@@ -419,12 +419,12 @@ namespace detail {
 				buf_a.get_access<mode::write>(cgh, {100});
 			}));
 
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::COMPUTE).size() == 2);
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::MASTER_ACCESS).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, node_id(1), command_type::PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::AWAIT_PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, node_id(0), command_type::AWAIT_PUSH).size() == 1);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::MASTER_ACCESS).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, node_id(0), command_type::AWAIT_PUSH).size() == 1);
 
 			maybe_print_graphs(ctx);
 		}
@@ -442,13 +442,13 @@ namespace detail {
 			        },
 			        cl::sycl::range<1>(100)));
 
-			CHECK(inspector.get_commands(tid_b, boost::none, command_type::COMPUTE).size() == 4);
+			CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::COMPUTE).size() == 4);
 			const auto computes = inspector.get_commands(tid_b, node_id(1), command_type::COMPUTE);
 			CHECK(computes.size() == 2);
-			REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, node_id(0), command_type::PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::AWAIT_PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, node_id(1), command_type::AWAIT_PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, node_id(0), command_type::PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::AWAIT_PUSH).size() == 1);
 
 			maybe_print_graphs(ctx);
 		}
@@ -466,21 +466,21 @@ namespace detail {
 				buf_b.get_access<mode::discard_write>(cgh, {100});
 			}));
 
-			REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, node_id(1), command_type::PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::AWAIT_PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, node_id(0), command_type::AWAIT_PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, node_id(0), command_type::AWAIT_PUSH).size() == 1);
 
 			test_utils::build_and_flush(ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) {
 				buf_a.get_access<mode::read>(cgh, {100});
 				buf_b.get_access<mode::read>(cgh, {100});
 			}));
 
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::COMPUTE).size() == 2);
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::MASTER_ACCESS).size() == 2);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::MASTER_ACCESS).size() == 2);
 			// Assert that the number of PUSHes / AWAIT_PUSHes hasn't changed
-			REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::AWAIT_PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 1);
 
 			maybe_print_graphs(ctx);
 		}
@@ -491,23 +491,23 @@ namespace detail {
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
 			        cl::sycl::range<1>{100}));
 
-			CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::COMPUTE).size() == 2);
 
 			test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, {100}); }));
 
-			REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, node_id(1), command_type::PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::AWAIT_PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, node_id(0), command_type::AWAIT_PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, node_id(0), command_type::AWAIT_PUSH).size() == 1);
 
 			test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, {100}); }));
 
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::MASTER_ACCESS).size() == 2);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::MASTER_ACCESS).size() == 2);
 			// Assert that the number of PUSHes / AWAIT_PUSHes hasn't changed
-			REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::PUSH).size() == 1);
-			REQUIRE(inspector.get_commands(boost::none, boost::none, command_type::AWAIT_PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 1);
 
 			maybe_print_graphs(ctx);
 		}
@@ -557,11 +557,11 @@ namespace detail {
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, full_range_for_single_node(2)); }, full_range));
 		}
 
-		CHECK(inspector.get_commands(boost::none, node_id(0), command_type::PUSH).size() == 2);
-		CHECK(inspector.get_commands(boost::none, node_id(1), command_type::PUSH).size() == 0);
-		CHECK(inspector.get_commands(boost::none, node_id(2), command_type::PUSH).size() == 0);
-		CHECK(inspector.get_commands(boost::none, node_id(1), command_type::AWAIT_PUSH).size() == 1);
-		CHECK(inspector.get_commands(boost::none, node_id(2), command_type::AWAIT_PUSH).size() == 1);
+		CHECK(inspector.get_commands(std::nullopt, node_id(0), command_type::PUSH).size() == 2);
+		CHECK(inspector.get_commands(std::nullopt, node_id(1), command_type::PUSH).size() == 0);
+		CHECK(inspector.get_commands(std::nullopt, node_id(2), command_type::PUSH).size() == 0);
+		CHECK(inspector.get_commands(std::nullopt, node_id(1), command_type::AWAIT_PUSH).size() == 1);
+		CHECK(inspector.get_commands(std::nullopt, node_id(2), command_type::AWAIT_PUSH).size() == 1);
 
 		maybe_print_graphs(ctx);
 	}
@@ -579,7 +579,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(task_a)>(
 		        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{64},
 		        cl::sycl::id<1>{0}));
-		CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 2);
+		CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::COMPUTE).size() == 2);
 
 		const auto tid_b = test_utils::build_and_flush(ctx, 2,
 		    test_utils::add_compute_task<class UKN(task_b)>(
@@ -595,12 +595,12 @@ namespace detail {
 			        });
 		        },
 		        cl::sycl::range<1>{64}, cl::sycl::id<1>{64}));
-		CHECK(inspector.get_commands(tid_b, boost::none, command_type::COMPUTE).size() == 2);
+		CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::COMPUTE).size() == 2);
 
 		test_utils::build_and_flush(
 		    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 128); }));
 
-		auto push_commands = inspector.get_commands(boost::none, node_id(1), command_type::PUSH);
+		auto push_commands = inspector.get_commands(std::nullopt, node_id(1), command_type::PUSH);
 		REQUIRE(push_commands.size() == 1);
 		REQUIRE(inspector.get_dependency_count(*push_commands.cbegin()) == 2);
 
@@ -632,7 +632,7 @@ namespace detail {
 		auto master_task = test_utils::build_and_flush(
 		    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 128); }));
 
-		auto master_cmds = inspector.get_commands(master_task, boost::none, boost::none);
+		auto master_cmds = inspector.get_commands(master_task, std::nullopt, std::nullopt);
 		CHECK(master_cmds.size() == 1);
 
 		auto master_cmd = *master_cmds.cbegin();
@@ -654,15 +654,15 @@ namespace detail {
 			const auto tid_a = test_utils::build_and_flush(ctx, 2,
 			    test_utils::add_compute_task<class UKN(task_a)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
-			CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::COMPUTE).size() == 2);
 			const auto computes = inspector.get_commands(tid_a, node_id(1), command_type::COMPUTE);
 			CHECK(computes.size() == 1);
 
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::PUSH).empty());
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).empty());
 			test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 100); }));
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::PUSH).size() == 1);
-			const auto pushes = inspector.get_commands(boost::none, node_id(1), command_type::PUSH);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).size() == 1);
+			const auto pushes = inspector.get_commands(std::nullopt, node_id(1), command_type::PUSH);
 			CHECK(pushes.size() == 1);
 
 			REQUIRE(inspector.has_dependency(*pushes.cbegin(), *computes.cbegin()));
@@ -690,7 +690,7 @@ namespace detail {
 			const auto tid_a = test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 100); }));
 
-			CHECK(inspector.get_commands(tid_a, boost::none, command_type::MASTER_ACCESS).size() == 1);
+			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::MASTER_ACCESS).size() == 1);
 			const auto master_accesses_a = inspector.get_commands(tid_a, node_id(0), command_type::MASTER_ACCESS);
 			CHECK(master_accesses_a.size() == 1);
 
@@ -699,7 +699,7 @@ namespace detail {
 			    test_utils::add_compute_task<class UKN(task_b)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
-			CHECK(inspector.get_commands(tid_b, boost::none, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::COMPUTE).size() == 2);
 			const auto computes_b_0 = inspector.get_commands(tid_b, node_id(0), command_type::COMPUTE);
 			CHECK(computes_b_0.size() == 1);
 			CHECK(inspector.has_dependency(*computes_b_0.cbegin(), *master_accesses_a.cbegin()));
@@ -708,8 +708,8 @@ namespace detail {
 			const auto tid_c = test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 100); }));
 
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::AWAIT_PUSH).size() == 1);
-			const auto await_pushes = inspector.get_commands(boost::none, node_id(0), command_type::AWAIT_PUSH);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 1);
+			const auto await_pushes = inspector.get_commands(std::nullopt, node_id(0), command_type::AWAIT_PUSH);
 			CHECK(await_pushes.size() == 1);
 			const auto master_accesses_c = inspector.get_commands(tid_c, node_id(0), command_type::MASTER_ACCESS);
 			CHECK(master_accesses_c.size() == 1);
@@ -727,14 +727,14 @@ namespace detail {
 			    test_utils::add_compute_task<class UKN(task_a)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
-			CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::COMPUTE).size() == 2);
 
 			// Master node reads from buf, requiring a PUSH, while also writing to it
 			test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read_write>(cgh, 100); }));
 
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::PUSH).size() == 1);
-			const auto pushes = inspector.get_commands(boost::none, node_id(1), command_type::PUSH);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).size() == 1);
+			const auto pushes = inspector.get_commands(std::nullopt, node_id(1), command_type::PUSH);
 			CHECK(pushes.size() == 1);
 
 			// Finally, the worker node reads buf again, requiring an AWAIT_PUSH
@@ -744,9 +744,9 @@ namespace detail {
 			    test_utils::add_compute_task<class UKN(task_c)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
-			CHECK(inspector.get_commands(tid_c, boost::none, command_type::COMPUTE).size() == 2);
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::AWAIT_PUSH).size() == 2);
-			const auto await_pushes = inspector.get_commands(boost::none, node_id(1), command_type::AWAIT_PUSH);
+			CHECK(inspector.get_commands(tid_c, std::nullopt, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 2);
+			const auto await_pushes = inspector.get_commands(std::nullopt, node_id(1), command_type::AWAIT_PUSH);
 			CHECK(await_pushes.size() == 1);
 
 			REQUIRE(inspector.has_dependency(*await_pushes.cbegin(), *pushes.cbegin()));
@@ -759,11 +759,11 @@ namespace detail {
 			    test_utils::add_compute_task<class UKN(task_a)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
-			CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::COMPUTE).size() == 2);
 
 			const auto tid_b = test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 100); }));
-			CHECK(inspector.get_commands(boost::none, node_id(0), command_type::AWAIT_PUSH).size() == 1);
+			CHECK(inspector.get_commands(std::nullopt, node_id(0), command_type::AWAIT_PUSH).size() == 1);
 			const auto master_accesses_b = inspector.get_commands(tid_b, node_id(0), command_type::MASTER_ACCESS);
 			CHECK(master_accesses_b.size() == 1);
 
@@ -771,11 +771,11 @@ namespace detail {
 			    test_utils::add_compute_task<class UKN(task_c)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
-			CHECK(inspector.get_commands(tid_c, boost::none, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(tid_c, std::nullopt, command_type::COMPUTE).size() == 2);
 
 			test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 100); }));
-			const auto await_pushes = inspector.get_commands(boost::none, node_id(0), command_type::AWAIT_PUSH);
+			const auto await_pushes = inspector.get_commands(std::nullopt, node_id(0), command_type::AWAIT_PUSH);
 			CHECK(await_pushes.size() == 2);
 
 			// The anti-dependency is delegated to the reader (i.e. the master_access)
@@ -803,7 +803,7 @@ namespace detail {
 				        buf.get_access<mode::discard_write>(cgh, access::fixed<1, 1>({0, 50}));
 			        },
 			        cl::sycl::range<1>{100}));
-			CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 1);
+			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::COMPUTE).size() == 1);
 			const auto computes_a = inspector.get_commands(tid_a, node_id(0), command_type::COMPUTE);
 			CHECK(computes_a.size() == 1);
 
@@ -815,7 +815,7 @@ namespace detail {
 				        buf.get_access<mode::read>(cgh, access::fixed<1, 1>({0, 50}));
 			        },
 			        cl::sycl::range<1>{100}));
-			CHECK(inspector.get_commands(tid_b, boost::none, command_type::COMPUTE).size() == 1);
+			CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::COMPUTE).size() == 1);
 			const auto computes_b = inspector.get_commands(tid_b, node_id(0), command_type::COMPUTE);
 			CHECK(computes_b.size() == 1);
 			CHECK(inspector.has_dependency(*computes_b.cbegin(), *computes_a.cbegin()));
@@ -828,7 +828,7 @@ namespace detail {
 				        buf.get_access<mode::discard_write>(cgh, access::fixed<1, 1>({50, 50}));
 			        },
 			        cl::sycl::range<1>{100}));
-			CHECK(inspector.get_commands(tid_c, boost::none, command_type::COMPUTE).size() == 1);
+			CHECK(inspector.get_commands(tid_c, std::nullopt, command_type::COMPUTE).size() == 1);
 			const auto computes_c = inspector.get_commands(tid_c, node_id(0), command_type::COMPUTE);
 			CHECK(computes_c.size() == 1);
 
@@ -856,15 +856,15 @@ namespace detail {
 			const auto tid_c = test_utils::build_and_flush(ctx, 2,
 			    test_utils::add_compute_task<class UKN(task_c)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{50}));
-			CHECK(inspector.get_commands(tid_c, boost::none, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(tid_c, std::nullopt, command_type::COMPUTE).size() == 2);
 
 			// task_d reads the first half
 			test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, 50, 0); }));
 
 			// This should generate an AWAIT_PUSH command that does NOT have an anti-dependency onto task_b, only task_a
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::AWAIT_PUSH).size() == 1);
-			const auto await_pushes = inspector.get_commands(boost::none, node_id(0), command_type::AWAIT_PUSH);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 1);
+			const auto await_pushes = inspector.get_commands(std::nullopt, node_id(0), command_type::AWAIT_PUSH);
 			REQUIRE(inspector.has_dependency(*await_pushes.cbegin(), *master_accesses_a.cbegin()));
 			REQUIRE_FALSE(inspector.has_dependency(*await_pushes.cbegin(), *master_accesses_b.cbegin()));
 
@@ -886,17 +886,17 @@ namespace detail {
 			    test_utils::add_compute_task<class UKN(task_a)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
 			        cl::sycl::range<1>{100}));
-			CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::COMPUTE).size() == 2);
 			const auto tid_b = test_utils::build_and_flush(ctx, 2,
 			    test_utils::add_compute_task<class UKN(task_b)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
 			        cl::sycl::range<1>{100}));
-			CHECK(inspector.get_commands(tid_b, boost::none, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::COMPUTE).size() == 2);
 			const auto tid_c = test_utils::build_and_flush(ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) {
 				buf_a.get_access<mode::read>(cgh, 100);
 				buf_b.get_access<mode::read>(cgh, 100);
 			}));
-			const auto await_pushes = inspector.get_commands(boost::none, node_id(0), command_type::AWAIT_PUSH);
+			const auto await_pushes = inspector.get_commands(std::nullopt, node_id(0), command_type::AWAIT_PUSH);
 			REQUIRE(await_pushes.size() == 2);
 			const auto master_accesses = inspector.get_commands(tid_c, node_id(0), command_type::MASTER_ACCESS);
 			CHECK(master_accesses.size() == 1);
@@ -911,15 +911,15 @@ namespace detail {
 			    test_utils::add_compute_task<class UKN(task_a)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
 			        cl::sycl::range<1>{100}));
-			CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::COMPUTE).size() == 2);
 			test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, 100); }));
-			const auto await_pushes_b = inspector.get_commands(boost::none, node_id(0), command_type::AWAIT_PUSH);
+			const auto await_pushes_b = inspector.get_commands(std::nullopt, node_id(0), command_type::AWAIT_PUSH);
 			REQUIRE(await_pushes_b.size() == 1);
 			const auto tid_c = test_utils::build_and_flush(
 			    ctx, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, 100); }));
 			// Assert that the number of AWAIT_PUSHes hasn't changed (i.e., none were added)
-			REQUIRE(inspector.get_commands(boost::none, node_id(0), command_type::AWAIT_PUSH).size() == 1);
+			REQUIRE(inspector.get_commands(std::nullopt, node_id(0), command_type::AWAIT_PUSH).size() == 1);
 			const auto master_accesses = inspector.get_commands(tid_c, node_id(0), command_type::MASTER_ACCESS);
 			REQUIRE(master_accesses.size() == 1);
 			REQUIRE(inspector.has_dependency(*master_accesses.cbegin(), *await_pushes_b.cbegin()));
@@ -932,13 +932,13 @@ namespace detail {
 			    test_utils::add_compute_task<class UKN(task_a)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
 			        cl::sycl::range<1>{100}));
-			CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 1);
+			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::COMPUTE).size() == 1);
 			const auto computes_a = inspector.get_commands(tid_a, node_id(0), command_type::COMPUTE);
 			const auto tid_b = test_utils::build_and_flush(ctx, 1,
 			    test_utils::add_compute_task<class UKN(task_b)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); },
 			        cl::sycl::range<1>{100}));
-			CHECK(inspector.get_commands(tid_b, boost::none, command_type::COMPUTE).size() == 1);
+			CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::COMPUTE).size() == 1);
 			const auto computes_b = inspector.get_commands(tid_b, node_id(0), command_type::COMPUTE);
 			const auto tid_c = test_utils::build_and_flush(ctx, 1,
 			    test_utils::add_compute_task<class UKN(task_c)>(
@@ -948,7 +948,7 @@ namespace detail {
 				        buf_b.get_access<mode::read>(cgh, access::one_to_one<1>());
 			        },
 			        cl::sycl::range<1>{100}));
-			CHECK(inspector.get_commands(tid_c, boost::none, command_type::COMPUTE).size() == 1);
+			CHECK(inspector.get_commands(tid_c, std::nullopt, command_type::COMPUTE).size() == 1);
 			const auto computes_c = inspector.get_commands(tid_c, node_id(0), command_type::COMPUTE);
 			REQUIRE(inspector.has_dependency(*computes_c.cbegin(), *computes_a.cbegin()));
 			REQUIRE(inspector.has_dependency(*computes_c.cbegin(), *computes_b.cbegin()));
@@ -980,7 +980,7 @@ namespace detail {
 		        cl::sycl::range<1>{100}));
 
 		// Another solution could be to not split the task at all
-		CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 1);
+		CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::COMPUTE).size() == 1);
 
 		test_utils::build_and_flush(ctx, 3,
 		    test_utils::add_compute_task<class UKN(task_b)>(
@@ -991,7 +991,7 @@ namespace detail {
 		        cl::sycl::range<1>{100}));
 
 		// Right now this generates a push command from the second node to the first, which also doesn't make much sense
-		CHECK(inspector.get_commands(boost::none, boost::none, command_type::PUSH).empty());
+		CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).empty());
 
 		maybe_print_graphs(ctx);
 	}
@@ -1034,15 +1034,15 @@ namespace detail {
 		        },
 		        cl::sycl::range<1>{100}));
 
-		CHECK(inspector.get_commands(tid_b, boost::none, command_type::COMPUTE).size() == 3);
+		CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::COMPUTE).size() == 3);
 		const auto computes_node1 = inspector.get_commands(tid_b, node_id(1), command_type::COMPUTE);
 		CHECK(computes_node1.size() == 1);
 		const auto computes_node2 = inspector.get_commands(tid_b, node_id(2), command_type::COMPUTE);
 		CHECK(computes_node2.size() == 1);
-		const auto await_pushes_node1 = inspector.get_commands(boost::none, node_id(1), command_type::AWAIT_PUSH);
+		const auto await_pushes_node1 = inspector.get_commands(std::nullopt, node_id(1), command_type::AWAIT_PUSH);
 		REQUIRE(await_pushes_node1.size() == 1);
 		CHECK(inspector.has_dependency(*computes_node1.cbegin(), *await_pushes_node1.cbegin()));
-		const auto await_pushes_node2 = inspector.get_commands(boost::none, node_id(2), command_type::AWAIT_PUSH);
+		const auto await_pushes_node2 = inspector.get_commands(std::nullopt, node_id(2), command_type::AWAIT_PUSH);
 		REQUIRE(await_pushes_node2.size() == 1);
 		CHECK(inspector.has_dependency(*computes_node2.cbegin(), *await_pushes_node2.cbegin()));
 
@@ -1150,15 +1150,15 @@ namespace detail {
 
 		// Even though we're testing for different conditions, we can use the same assertions here.
 
-		const auto computes = inspector.get_commands(boost::none, boost::none, command_type::COMPUTE);
+		const auto computes = inspector.get_commands(std::nullopt, std::nullopt, command_type::COMPUTE);
 		CHECK(computes.size() == 3);
 
-		const auto computes_a = inspector.get_commands(tid_a, boost::none, command_type::COMPUTE);
+		const auto computes_a = inspector.get_commands(tid_a, std::nullopt, command_type::COMPUTE);
 		CHECK(computes_a.size() == 1);
-		const auto computes_b = inspector.get_commands(tid_b, boost::none, command_type::COMPUTE);
+		const auto computes_b = inspector.get_commands(tid_b, std::nullopt, command_type::COMPUTE);
 		CHECK(computes_b.size() == 1);
 		CHECK(inspector.has_dependency(*computes_b.cbegin(), *computes_a.cbegin()));
-		const auto computes_c = inspector.get_commands(tid_c, boost::none, command_type::COMPUTE);
+		const auto computes_c = inspector.get_commands(tid_c, std::nullopt, command_type::COMPUTE);
 		CHECK(computes_c.size() == 1);
 		CHECK(inspector.has_dependency(*computes_c.cbegin(), *computes_a.cbegin()));
 
@@ -1221,18 +1221,18 @@ namespace detail {
 				        });
 			        },
 			        cl::sycl::range<1>{100}));
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::PUSH).size() == 2);
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::AWAIT_PUSH).size() == 2);
-			CHECK(inspector.get_commands(tid_b, boost::none, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).size() == 2);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 2);
+			CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::COMPUTE).size() == 2);
 
-			const auto pushes_master = inspector.get_commands(boost::none, node_id(0), command_type::PUSH);
+			const auto pushes_master = inspector.get_commands(std::nullopt, node_id(0), command_type::PUSH);
 			CHECK(pushes_master.size() == 1);
 			const auto computes_master = inspector.get_commands(tid_b, node_id(0), command_type::COMPUTE);
 			CHECK(computes_master.size() == 1);
 			// Since the master node does not write to the buffer, there is no anti-dependency...
 			REQUIRE_FALSE(inspector.has_dependency(*computes_master.cbegin(), *pushes_master.cbegin()));
 
-			const auto pushes_node1 = inspector.get_commands(boost::none, node_id(1), command_type::PUSH);
+			const auto pushes_node1 = inspector.get_commands(std::nullopt, node_id(1), command_type::PUSH);
 			CHECK(pushes_node1.size() == 1);
 			const auto computes_node1 = inspector.get_commands(tid_b, node_id(1), command_type::COMPUTE);
 			CHECK(computes_node1.size() == 1);
@@ -1264,18 +1264,18 @@ namespace detail {
 				        });
 			        },
 			        cl::sycl::range<1>{100}));
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::PUSH).size() == 2);
-			CHECK(inspector.get_commands(boost::none, boost::none, command_type::AWAIT_PUSH).size() == 2);
-			CHECK(inspector.get_commands(tid_b, boost::none, command_type::COMPUTE).size() == 2);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).size() == 2);
+			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 2);
+			CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::COMPUTE).size() == 2);
 
-			const auto pushes_node1 = inspector.get_commands(boost::none, node_id(1), command_type::PUSH);
+			const auto pushes_node1 = inspector.get_commands(std::nullopt, node_id(1), command_type::PUSH);
 			CHECK(pushes_node1.size() == 1);
 			const auto computes_node1 = inspector.get_commands(tid_b, node_id(1), command_type::COMPUTE);
 			CHECK(computes_node1.size() == 1);
 			// Since the worker node does not write to the buffer, there is no anti-dependency...
 			REQUIRE_FALSE(inspector.has_dependency(*computes_node1.cbegin(), *pushes_node1.cbegin()));
 
-			const auto pushes_master = inspector.get_commands(boost::none, node_id(0), command_type::PUSH);
+			const auto pushes_master = inspector.get_commands(std::nullopt, node_id(0), command_type::PUSH);
 			CHECK(pushes_master.size() == 1);
 			const auto computes_master = inspector.get_commands(tid_b, node_id(0), command_type::COMPUTE);
 			CHECK(computes_master.size() == 1);
@@ -1301,7 +1301,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(task_a)>(
 		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
-		CHECK(inspector.get_commands(tid_a, boost::none, command_type::COMPUTE).size() == 1);
+		CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::COMPUTE).size() == 1);
 		const auto computes_a = inspector.get_commands(tid_a, node_id(0), command_type::COMPUTE);
 		CHECK(computes_a.size() == 1);
 
@@ -1310,7 +1310,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(task_b)>(
 		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
-		CHECK(inspector.get_commands(tid_b, boost::none, command_type::COMPUTE).size() == 1);
+		CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::COMPUTE).size() == 1);
 		const auto computes_b = inspector.get_commands(tid_b, node_id(0), command_type::COMPUTE);
 		CHECK(computes_b.size() == 1);
 		// task_b should have an anti-dependency onto task_a
@@ -1321,7 +1321,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(task_c)>(
 		        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, cl::sycl::range<1>{100}));
 
-		CHECK(inspector.get_commands(tid_c, boost::none, command_type::COMPUTE).size() == 1);
+		CHECK(inspector.get_commands(tid_c, std::nullopt, command_type::COMPUTE).size() == 1);
 		const auto computes_c = inspector.get_commands(tid_c, node_id(0), command_type::COMPUTE);
 		CHECK(computes_c.size() == 1);
 		// task_c should not have any anti-dependencies at all

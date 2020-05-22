@@ -60,7 +60,7 @@ namespace detail {
 	// --------------------------------------------------------------------------------------------------------------------
 
 	std::pair<command_type, std::string> await_push_job::get_description(const command_pkg& pkg) {
-		const auto data = boost::get<await_push_data>(pkg.data);
+		const auto data = std::get<await_push_data>(pkg.data);
 		return std::make_pair(
 		    command_type::AWAIT_PUSH, fmt::format("AWAIT PUSH of buffer {} by node {}", static_cast<size_t>(data.bid), static_cast<size_t>(data.source)));
 	}
@@ -76,7 +76,7 @@ namespace detail {
 	// --------------------------------------------------------------------------------------------------------------------
 
 	std::pair<command_type, std::string> push_job::get_description(const command_pkg& pkg) {
-		const auto data = boost::get<push_data>(pkg.data);
+		const auto data = std::get<push_data>(pkg.data);
 		return std::make_pair(command_type::PUSH, fmt::format("PUSH buffer {} to node {}", static_cast<size_t>(data.bid), static_cast<size_t>(data.target)));
 	}
 
@@ -107,7 +107,7 @@ namespace detail {
 #endif
 
 	bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
-		const auto data = boost::get<compute_data>(pkg.data);
+		const auto data = std::get<compute_data>(pkg.data);
 		// A bit of a hack: We cannot be sure the main thread has reached the task definition yet, so we have to check it here
 		if(!task_mngr.has_task(data.tid)) {
 			if(!did_log_task_wait) {
@@ -179,7 +179,7 @@ namespace detail {
 
 	bool master_access_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 		// In this case we can be sure that the task definition exists, as we're on the master node.
-		const auto tsk = std::static_pointer_cast<const master_access_task>(task_mngr.get_task(boost::get<master_access_data>(pkg.data).tid));
+		const auto tsk = std::static_pointer_cast<const master_access_task>(task_mngr.get_task(std::get<master_access_data>(pkg.data).tid));
 		auto cgh = std::make_unique<master_access_task_handler<false>>();
 		tsk->get_functor()(*cgh);
 		return true;

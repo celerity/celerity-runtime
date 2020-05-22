@@ -2,8 +2,8 @@
 
 #include <list>
 #include <type_traits>
+#include <optional>
 
-#include <boost/optional.hpp>
 #include <boost/range.hpp>
 
 namespace celerity {
@@ -45,13 +45,13 @@ namespace detail {
 			assert(!has_dependent(dep.node));
 
 			auto it = maybe_get_dep(dependencies, dep.node);
-			if(it != boost::none) {
+			if(it != std::nullopt) {
 				// Already exists, potentially upgrade to full dependency
 				if((*it)->is_anti && !dep.is_anti) {
 					(*it)->is_anti = false;
 					// In this case we also have to upgrade corresponding dependent within dependency
 					auto this_it = maybe_get_dep(dep.node->dependents, static_cast<T*>(this));
-					assert(this_it != boost::none);
+					assert(this_it != std::nullopt);
 					assert((*this_it)->is_anti);
 					(*this_it)->is_anti = false;
 				}
@@ -66,27 +66,27 @@ namespace detail {
 
 		void remove_dependency(T* node) {
 			auto it = maybe_get_dep(dependencies, node);
-			if(it != boost::none) {
+			if(it != std::nullopt) {
 				{
 					auto& dep_dependents = static_cast<intrusive_graph_node*>((*it)->node)->dependents;
 					auto this_it = maybe_get_dep(dep_dependents, static_cast<T*>(this));
-					assert(this_it != boost::none);
+					assert(this_it != std::nullopt);
 					dep_dependents.erase(*this_it);
 				}
 				dependencies.erase(*it);
 			}
 		}
 
-		bool has_dependency(T* node, boost::optional<bool> is_anti = boost::none) {
+		bool has_dependency(T* node, std::optional<bool> is_anti = std::nullopt) {
 			auto result = maybe_get_dep(dependencies, node);
-			if(result == boost::none) return false;
-			return is_anti != boost::none ? (*result)->is_anti == is_anti : true;
+			if(result == std::nullopt) return false;
+			return is_anti != std::nullopt ? (*result)->is_anti == is_anti : true;
 		}
 
-		bool has_dependent(T* node, boost::optional<bool> is_anti = boost::none) {
+		bool has_dependent(T* node, std::optional<bool> is_anti = std::nullopt) {
 			auto result = maybe_get_dep(dependents, node);
-			if(result == boost::none) return false;
-			return is_anti != boost::none ? (*result)->is_anti == is_anti : true;
+			if(result == std::nullopt) return false;
+			return is_anti != std::nullopt ? (*result)->is_anti == is_anti : true;
 		}
 
 		auto get_dependencies() const { return boost::make_iterator_range(dependencies.cbegin(), dependencies.cend()); }
@@ -105,9 +105,9 @@ namespace detail {
 		unsigned pseudo_critical_path_length = 0;
 
 		template <typename Dep>
-		boost::optional<typename std::list<Dep>::iterator> maybe_get_dep(std::list<Dep>& deps, T* node) {
+		std::optional<typename std::list<Dep>::iterator> maybe_get_dep(std::list<Dep>& deps, T* node) {
 			auto it = std::find_if(deps.begin(), deps.end(), [&](auto d) { return d.node == node; });
-			if(it == deps.end()) return boost::none;
+			if(it == deps.end()) return std::nullopt;
 			return it;
 		}
 	};

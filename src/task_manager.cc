@@ -80,7 +80,7 @@ namespace detail {
 				for(auto& p : last_writers) {
 					// This indicates that the buffer is being used for the first time by this task, or all previous tasks also only read from it.
 					// A valid use case (i.e., not reading garbage) for this is when the buffer has been initialized using a host pointer.
-					if(p.second == boost::none) continue;
+					if(p.second == std::nullopt) continue;
 					const task_id last_writer = *p.second;
 					tsk->add_dependency({task_map[last_writer].get(), false});
 				}
@@ -94,7 +94,7 @@ namespace detail {
 				const auto last_writers = buffers_last_writers.at(bid).get_region_values(write_requirements);
 
 				for(auto& p : last_writers) {
-					if(p.second == boost::none) continue;
+					if(p.second == std::nullopt) continue;
 					auto last_writer = task_map[*p.second];
 
 					// Determine anti-dependencies by looking at all the dependents of the last writing task

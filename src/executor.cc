@@ -136,7 +136,7 @@ namespace detail {
 					assert(command_queue.empty());
 					done = true;
 				} else if(info.pkg.cmd == command_type::SYNC) {
-					syncing_on_id = boost::get<sync_data>(info.pkg.data).sync_id;
+					syncing_on_id = std::get<sync_data>(info.pkg.data).sync_id;
 				} else {
 					handle_command(info.pkg, info.dependencies);
 				}

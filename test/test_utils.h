@@ -12,6 +12,13 @@
 #include "transformers/naive_split.h"
 #include "types.h"
 
+namespace {
+	template<typename T>
+	std::ostream &operator<<(std::ostream& os, const std::optional<T>& v) {
+		return v != std::nullopt ? (os << *v) : (os << "nullopt");
+	}
+}
+
 namespace celerity {
 namespace test_utils {
 
@@ -62,8 +69,8 @@ namespace test_utils {
 				const detail::command_id cid = pkg.cid;
 				commands[cid] = {nid, pkg, dependencies};
 				if(pkg.cmd == detail::command_type::COMPUTE || pkg.cmd == detail::command_type::MASTER_ACCESS) {
-					by_task[pkg.cmd == detail::command_type::COMPUTE ? boost::get<detail::compute_data>(pkg.data).tid
-					                                                 : boost::get<detail::master_access_data>(pkg.data).tid]
+					by_task[pkg.cmd == detail::command_type::COMPUTE ? std::get<detail::compute_data>(pkg.data).tid
+					                                                 : std::get<detail::master_access_data>(pkg.data).tid]
 					    .insert(cid);
 				}
 				by_node[nid].insert(cid);
@@ -71,26 +78,26 @@ namespace test_utils {
 		}
 
 		std::set<detail::command_id> get_commands(
-		    boost::optional<detail::task_id> tid, boost::optional<detail::node_id> nid, boost::optional<detail::command_type> cmd) const {
+		    std::optional<detail::task_id> tid, std::optional<detail::node_id> nid, std::optional<detail::command_type> cmd) const {
 			// Sanity check: Not all commands have an associated task id
-			assert(tid == boost::none || (cmd == boost::none || cmd == detail::command_type::COMPUTE || cmd == detail::command_type::MASTER_ACCESS));
+			assert(tid == std::nullopt || (cmd == std::nullopt || cmd == detail::command_type::COMPUTE || cmd == detail::command_type::MASTER_ACCESS));
 
 			std::set<detail::command_id> result;
 			std::transform(commands.cbegin(), commands.cend(), std::inserter(result, result.begin()), [](auto p) { return p.first; });
 
-			if(tid != boost::none) {
+			if(tid != std::nullopt) {
 				auto& task_set = by_task.at(*tid);
 				std::set<detail::command_id> new_result;
 				std::set_intersection(result.cbegin(), result.cend(), task_set.cbegin(), task_set.cend(), std::inserter(new_result, new_result.begin()));
 				result = std::move(new_result);
 			}
-			if(nid != boost::none) {
+			if(nid != std::nullopt) {
 				auto& node_set = by_node.at(*nid);
 				std::set<detail::command_id> new_result;
 				std::set_intersection(result.cbegin(), result.cend(), node_set.cbegin(), node_set.cend(), std::inserter(new_result, new_result.begin()));
 				result = std::move(new_result);
 			}
-			if(cmd != boost::none) {
+			if(cmd != std::nullopt) {
 				std::set<detail::command_id> new_result;
 				std::copy_if(result.cbegin(), result.cend(), std::inserter(new_result, new_result.begin()),
 				    [this, cmd](detail::command_id cid) { return commands.at(cid).pkg.cmd == cmd; });

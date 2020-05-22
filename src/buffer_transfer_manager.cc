@@ -14,7 +14,7 @@ namespace detail {
 		// We are blocking the caller until the buffer has been copied and submitted to MPI
 		// TODO: Investigate doing this in worker thread
 		// --> This probably needs some kind of heuristic, as for small (e.g. ghost cell) transfers the overhead of threading is way too big
-		const push_data& data = boost::get<push_data>(pkg.data);
+		const push_data& data = std::get<push_data>(pkg.data);
 		auto data_handle = runtime::get_instance().get_buffer_data(data.bid, cl::sycl::range<3>(data.sr.offset[0], data.sr.offset[1], data.sr.offset[2]),
 		    cl::sycl::range<3>(data.sr.range[0], data.sr.range[1], data.sr.range[2]));
 
@@ -38,7 +38,7 @@ namespace detail {
 
 	std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::await_push(const command_pkg& pkg) {
 		assert(pkg.cmd == command_type::AWAIT_PUSH);
-		const await_push_data& data = boost::get<await_push_data>(pkg.data);
+		const await_push_data& data = std::get<await_push_data>(pkg.data);
 
 		std::shared_ptr<incoming_transfer_handle> t_handle;
 		// Check to see if we have (fully) received the push already

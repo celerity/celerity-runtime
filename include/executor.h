@@ -82,7 +82,7 @@ namespace detail {
 			auto logger = execution_logger->create_context({{"job", std::to_string(pkg.cid)}});
 			if(pkg.cmd == command_type::COMPUTE || pkg.cmd == command_type::MASTER_ACCESS) {
 				logger = logger->create_context({{"task",
-				    std::to_string(pkg.cmd == command_type::COMPUTE ? boost::get<compute_data>(pkg.data).tid : boost::get<master_access_data>(pkg.data).tid)}});
+				    std::to_string(pkg.cmd == command_type::COMPUTE ? std::get<compute_data>(pkg.data).tid : std::get<master_access_data>(pkg.data).tid)}});
 			}
 			jobs[pkg.cid] = {std::make_unique<Job>(pkg, logger, std::forward<Args>(args)...), pkg.cmd, {}, 0};
 
