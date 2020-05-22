@@ -35,7 +35,7 @@ namespace detail {
 	namespace std {                                                                                                                                            \
 		template <>                                                                                                                                            \
 		struct hash<celerity::detail::TypeName> {                                                                                                              \
-			std::size_t operator()(const celerity::detail::TypeName& t) const noexcept { return std::hash<UnderlyingT>{}(static_cast<const UnderlyingT>(t)); } \
+			std::size_t operator()(const celerity::detail::TypeName& t) const noexcept { return std::hash<UnderlyingT>{}(static_cast<UnderlyingT>(t)); } \
 		};                                                                                                                                                     \
 	}
 
