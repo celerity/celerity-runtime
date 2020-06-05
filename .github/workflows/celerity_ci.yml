@@ -1,12 +1,18 @@
 name: Celerity CI
 
-on: [pull_request]
+# We want this workflow to run on commits as well as PRs.
+# If we add the "pull_request" event here however, GitHub
+# will run all checks twice on PRs made from internal
+# (non-fork) branches.
+on: [push]
 
 jobs:
   checkout:
     runs-on: [self-hosted]
     steps:
       - uses: actions/checkout@v2
+        with:
+          submodules: true
 
   build:
     needs: [checkout]
@@ -60,7 +66,7 @@ jobs:
           unformatted=$("./ci/find-unformatted-files.sh")
           unformatted=${unformatted//$'\n'/'%0A'}
           echo "::set-output name=unformatted-files::$unformatted"
-      - uses: "celerity/ci-report-action@v1"
+      - uses: "celerity/ci-report-action@v2"
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           unformatted-files: ${{ steps.formatting.outputs.unformatted-files }}
