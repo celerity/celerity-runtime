@@ -16,6 +16,11 @@
 namespace celerity {
 namespace detail {
 
+	template <typename T>
+	std::ostream& operator<<(std::ostream& os, const std::optional<T>& v) {
+		return v != std::nullopt ? (os << *v) : (os << "nullopt");
+	}
+
 	struct region_map_testspy {
 		template <typename T>
 		static size_t get_num_regions(const region_map<T>& map) {
