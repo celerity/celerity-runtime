@@ -1,5 +1,7 @@
 #include "print_utils.h"
 
+#include <spdlog/spdlog.h>
+
 #include <spdlog/fmt/ostr.h>
 
 namespace celerity {

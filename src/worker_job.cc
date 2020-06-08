@@ -1,6 +1,5 @@
 #include "worker_job.h"
 
-#define FMT_HEADER_ONLY
 #include <spdlog/fmt/fmt.h>
 
 #include "device_queue.h"

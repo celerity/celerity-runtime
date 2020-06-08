@@ -4,7 +4,6 @@
 #include <type_traits>
 
 #include <CL/sycl.hpp>
-#define FMT_HEADER_ONLY
 #include <spdlog/fmt/fmt.h>
 
 #include "ranges.h"
