@@ -284,7 +284,7 @@ namespace detail {
 			const auto last_writers =
 			    node_data.at(push_cmd->get_nid()).buffer_last_writer.at(push_cmd->get_bid()).get_region_values(subrange_to_grid_region(push_cmd->get_range()));
 			for(auto& box_and_writer : last_writers) {
-				assert(!box_and_writer.first.empty());        // If we want to push it it cannot be empty
+				assert(!box_and_writer.first.empty());         // If we want to push it it cannot be empty
 				assert(box_and_writer.second != std::nullopt); // Exactly one command last wrote to that box
 				const auto writer_cmd = cdag.get(*box_and_writer.second);
 				assert(writer_cmd != nullptr);

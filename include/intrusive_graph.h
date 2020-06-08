@@ -1,8 +1,8 @@
 #pragma once
 
 #include <list>
-#include <type_traits>
 #include <optional>
+#include <type_traits>
 
 #include <boost/range.hpp>
 
