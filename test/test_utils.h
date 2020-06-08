@@ -12,12 +12,6 @@
 #include "transformers/naive_split.h"
 #include "types.h"
 
-namespace {
-	template<typename T>
-	std::ostream &operator<<(std::ostream& os, const std::optional<T>& v) {
-		return v != std::nullopt ? (os << *v) : (os << "nullopt");
-	}
-}
 
 namespace celerity {
 namespace test_utils {
