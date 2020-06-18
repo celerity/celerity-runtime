@@ -11,7 +11,7 @@
 namespace celerity {
 
 template <typename DataT, int Dims, cl::sycl::access::mode Mode, cl::sycl::access::target Target>
-class accessor {};
+class accessor;
 
 namespace detail {
 
@@ -44,13 +44,13 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>
     : public detail::accessor_base<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> {
   public:
 	template <cl::sycl::access::mode M = Mode, int D = Dims>
-	std::enable_if_t<access::detail::mode_traits::is_producer(M) && M != cl::sycl::access::mode::atomic && (D > 0), DataT&> operator[](
+	std::enable_if_t<detail::access::mode_traits::is_producer(M) && M != cl::sycl::access::mode::atomic && (D > 0), DataT&> operator[](
 	    cl::sycl::id<Dims> index) const {
 		return sycl_accessor[index - backing_buffer_offset];
 	}
 
 	template <cl::sycl::access::mode M = Mode, int D = Dims>
-	std::enable_if_t<access::detail::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](cl::sycl::id<Dims> index) const {
+	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](cl::sycl::id<Dims> index) const {
 		return sycl_accessor[index - backing_buffer_offset];
 	}
 
@@ -98,12 +98,12 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer>
 	cl::sycl::id<Dims> get_offset() const { return requested_offset; }
 
 	template <cl::sycl::access::mode M = Mode, int D = Dims>
-	std::enable_if_t<access::detail::mode_traits::is_producer(M) && (D > 0), DataT&> operator[](cl::sycl::id<Dims> index) const {
+	std::enable_if_t<detail::access::mode_traits::is_producer(M) && (D > 0), DataT&> operator[](cl::sycl::id<Dims> index) const {
 		return *(get_buffer().get_pointer() + get_linear_offset(index));
 	}
 
 	template <cl::sycl::access::mode M = Mode, int D = Dims>
-	std::enable_if_t<access::detail::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](cl::sycl::id<Dims> index) const {
+	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](cl::sycl::id<Dims> index) const {
 		return *(get_buffer().get_pointer() + get_linear_offset(index));
 	}
 

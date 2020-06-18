@@ -17,6 +17,12 @@
 namespace celerity {
 namespace detail {
 
+	using celerity::access::all;
+	using celerity::access::fixed;
+	using celerity::access::neighborhood;
+	using celerity::access::one_to_one;
+	using celerity::access::slice;
+
 	GridBox<3> make_grid_box(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) {
 		const auto end = celerity::detail::range_cast<3>(offset) + range;
 		return {sycl_id_to_grid_point(celerity::detail::range_cast<3>(offset)), sycl_id_to_grid_point(end)};
@@ -68,8 +74,7 @@ namespace detail {
 		buffer<float, 2> buf_a{cl::sycl::range<2>{32, 64}};
 		auto& tm = runtime::get_instance().get_task_manager();
 		const auto tid = test_utils::add_compute_task<class get_access_const>(
-		    tm, [buf_a /* capture by value */](handler& cgh) { buf_a.get_access<cl::sycl::access::mode::read>(cgh, access::one_to_one<2>()); },
-		    buf_a.get_range());
+		    tm, [buf_a /* capture by value */](handler& cgh) { buf_a.get_access<cl::sycl::access::mode::read>(cgh, one_to_one<2>()); }, buf_a.get_range());
 		const auto ctsk = std::static_pointer_cast<const compute_task>(tm.get_task(tid));
 		const auto bufs = ctsk->get_accessed_buffers();
 		REQUIRE(bufs.size() == 1);
@@ -160,14 +165,14 @@ namespace detail {
 	}
 
 	TEST_CASE("one_to_one built-in range mapper behaves as expected", "[range-mapper]") {
-		range_mapper<2, 2> rm(access::one_to_one<2>(), cl::sycl::access::mode::read, {128, 128});
+		range_mapper<2, 2> rm(one_to_one<2>(), cl::sycl::access::mode::read, {128, 128});
 		auto sr = rm.map_2({{64, 32}, {32, 4}, {128, 128}});
 		REQUIRE(sr.offset == cl::sycl::id<2>{64, 32});
 		REQUIRE(sr.range == cl::sycl::range<2>{32, 4});
 	}
 
 	TEST_CASE("fixed built-in range mapper behaves as expected", "[range-mapper]") {
-		range_mapper<2, 1> rm(access::fixed<2, 1>({{3}, {97}}), cl::sycl::access::mode::read, {128});
+		range_mapper<2, 1> rm(fixed<2, 1>({{3}, {97}}), cl::sycl::access::mode::read, {128});
 		auto sr = rm.map_1({{64, 32}, {32, 4}, {128, 128}});
 		REQUIRE(sr.offset == cl::sycl::id<1>{3});
 		REQUIRE(sr.range == cl::sycl::range<1>{97});
@@ -175,19 +180,19 @@ namespace detail {
 
 	TEST_CASE("slice built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper<3, 3> rm(access::slice<3>(0), cl::sycl::access::mode::read, {128, 128, 128});
+			range_mapper<3, 3> rm(slice<3>(0), cl::sycl::access::mode::read, {128, 128, 128});
 			auto sr = rm.map_3({{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{0, 32, 32});
 			REQUIRE(sr.range == cl::sycl::range<3>{128, 32, 32});
 		}
 		{
-			range_mapper<3, 3> rm(access::slice<3>(1), cl::sycl::access::mode::read, {128, 128, 128});
+			range_mapper<3, 3> rm(slice<3>(1), cl::sycl::access::mode::read, {128, 128, 128});
 			auto sr = rm.map_3({{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{32, 0, 32});
 			REQUIRE(sr.range == cl::sycl::range<3>{32, 128, 32});
 		}
 		{
-			range_mapper<3, 3> rm(access::slice<3>(2), cl::sycl::access::mode::read, {128, 128, 128});
+			range_mapper<3, 3> rm(slice<3>(2), cl::sycl::access::mode::read, {128, 128, 128});
 			auto sr = rm.map_3({{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{32, 32, 0});
 			REQUIRE(sr.range == cl::sycl::range<3>{32, 32, 128});
@@ -196,19 +201,19 @@ namespace detail {
 
 	TEST_CASE("all built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper<1, 1> rm(access::all<1, 1>(), cl::sycl::access::mode::read, {128});
+			range_mapper<1, 1> rm(all<1, 1>(), cl::sycl::access::mode::read, {128});
 			auto sr = rm.map_1({{}, {}, {}});
 			REQUIRE(sr.offset == cl::sycl::id<1>{0});
 			REQUIRE(sr.range == cl::sycl::range<1>{128});
 		}
 		{
-			range_mapper<1, 2> rm(access::all<1, 2>(), cl::sycl::access::mode::read, {128, 64});
+			range_mapper<1, 2> rm(all<1, 2>(), cl::sycl::access::mode::read, {128, 64});
 			auto sr = rm.map_2({{}, {}, {}});
 			REQUIRE(sr.offset == cl::sycl::id<2>{0, 0});
 			REQUIRE(sr.range == cl::sycl::range<2>{128, 64});
 		}
 		{
-			range_mapper<1, 3> rm(access::all<1, 3>(), cl::sycl::access::mode::read, {128, 64, 32});
+			range_mapper<1, 3> rm(all<1, 3>(), cl::sycl::access::mode::read, {128, 64, 32});
 			auto sr = rm.map_3({{}, {}, {}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{0, 0, 0});
 			REQUIRE(sr.range == cl::sycl::range<3>{128, 64, 32});
@@ -217,19 +222,19 @@ namespace detail {
 
 	TEST_CASE("neighborhood built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper<1, 1> rm(access::neighborhood<1>(10), cl::sycl::access::mode::read, {128});
+			range_mapper<1, 1> rm(neighborhood<1>(10), cl::sycl::access::mode::read, {128});
 			auto sr = rm.map_1({{15}, {10}, {128}});
 			REQUIRE(sr.offset == cl::sycl::id<1>{5});
 			REQUIRE(sr.range == cl::sycl::range<1>{30});
 		}
 		{
-			range_mapper<2, 2> rm(access::neighborhood<2>(10, 10), cl::sycl::access::mode::read, {128, 128});
+			range_mapper<2, 2> rm(neighborhood<2>(10, 10), cl::sycl::access::mode::read, {128, 128});
 			auto sr = rm.map_2({{5, 100}, {10, 20}, {128, 128}});
 			REQUIRE(sr.offset == cl::sycl::id<2>{0, 90});
 			REQUIRE(sr.range == cl::sycl::range<2>{25, 38});
 		}
 		{
-			range_mapper<3, 3> rm(access::neighborhood<3>(3, 4, 5), cl::sycl::access::mode::read, {128, 128, 128});
+			range_mapper<3, 3> rm(neighborhood<3>(3, 4, 5), cl::sycl::access::mode::read, {128, 128, 128});
 			auto sr = rm.map_3({{3, 4, 5}, {1, 1, 1}, {128, 128, 128}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{0, 0, 0});
 			REQUIRE(sr.range == cl::sycl::range<3>{7, 9, 11});
@@ -254,8 +259,8 @@ namespace detail {
 		const auto tid = test_utils::add_compute_task(
 		    tm,
 		    [&](handler& cgh) {
-			    buf_a.get_access<cl::sycl::access::mode::read>(cgh, access::one_to_one<2>());
-			    buf_b.get_access<cl::sycl::access::mode::discard_read_write>(cgh, access::fixed<2, 3>(subrange<3>({}, {5, 18, 74})));
+			    buf_a.get_access<cl::sycl::access::mode::read>(cgh, one_to_one<2>());
+			    buf_b.get_access<cl::sycl::access::mode::discard_read_write>(cgh, fixed<2, 3>(subrange<3>({}, {5, 18, 74})));
 		    },
 		    cl::sycl::range<2>{32, 128}, cl::sycl::id<2>{32, 24});
 		const auto tsk = tm.get_task(tid);
@@ -281,10 +286,10 @@ namespace detail {
 	TEST_CASE("compute_task merges multiple accesses with the same mode", "[task][compute_task]") {
 		auto ctsk = std::make_unique<compute_task>(0, nullptr);
 		ctsk->set_dimensions(2);
-		ctsk->add_range_mapper(0,
-		    std::make_unique<range_mapper<2, 2>>(access::fixed<2, 2>(subrange<2>({3, 0}, {10, 20})), cl::sycl::access::mode::read, cl::sycl::range<2>{30, 30}));
-		ctsk->add_range_mapper(0,
-		    std::make_unique<range_mapper<2, 2>>(access::fixed<2, 2>(subrange<2>({10, 0}, {7, 20})), cl::sycl::access::mode::read, cl::sycl::range<2>{30, 30}));
+		ctsk->add_range_mapper(
+		    0, std::make_unique<range_mapper<2, 2>>(fixed<2, 2>(subrange<2>({3, 0}, {10, 20})), cl::sycl::access::mode::read, cl::sycl::range<2>{30, 30}));
+		ctsk->add_range_mapper(
+		    0, std::make_unique<range_mapper<2, 2>>(fixed<2, 2>(subrange<2>({10, 0}, {7, 20})), cl::sycl::access::mode::read, cl::sycl::range<2>{30, 30}));
 		const auto req = ctsk->get_requirements(0, cl::sycl::access::mode::read, subrange<3>({0, 0, 0}, {100, 100, 1}));
 		REQUIRE(req == subrange_to_grid_box(subrange<3>({3, 0, 0}, {14, 20, 1})));
 	}
@@ -359,7 +364,7 @@ namespace detail {
 		std::vector<int> host_buff(N);
 
 		q.submit([=](handler& cgh) {
-			auto b = buff.get_access<cl::sycl::access::mode::discard_write>(cgh, access::one_to_one<1>());
+			auto b = buff.get_access<cl::sycl::access::mode::discard_write>(cgh, one_to_one<1>());
 			cgh.parallel_for<class sync_test>(cl::sycl::range<1>(N), [=](cl::sycl::item<1> item) { b[item] = item.get_linear_id(); });
 		});
 

@@ -16,6 +16,8 @@
 namespace celerity {
 namespace detail {
 
+	using celerity::access::one_to_one;
+
 	template <typename T>
 	std::ostream& operator<<(std::ostream& os, const std::optional<T>& v) {
 		return v != std::nullopt ? (os << *v) : (os << "nullopt");
@@ -158,15 +160,15 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(init_a_b)>(
 		        ctx.get_task_manager(),
 		        [&](handler& cgh) {
-			        buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
-			        buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
+			        buf_a.get_access<mode::discard_write>(cgh, one_to_one<1>());
+			        buf_b.get_access<mode::discard_write>(cgh, one_to_one<1>());
 		        },
 		        full_range));
 
 		// then read from buf_b to later induce anti-dependence
 		test_utils::build_and_flush(ctx, NUM_NODES,
 		    test_utils::add_compute_task<class UKN(read_b_before_first_horizon)>(
-		        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::read>(cgh, access::one_to_one<1>()); }, full_range));
+		        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::read>(cgh, one_to_one<1>()); }, full_range));
 
 		// here, the first horizon should have been generated
 
@@ -174,14 +176,14 @@ namespace detail {
 		for(int i = 0; i < 1; ++i) {
 			test_utils::build_and_flush(ctx, NUM_NODES,
 			    test_utils::add_compute_task<class UKN(buf_a_rw)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, access::one_to_one<1>()); }, full_range));
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, one_to_one<1>()); }, full_range));
 		}
 
 		// now, do a write on buf_b which should generate an anti-dependency on the first horizon
 
 		auto write_b_after_first_horizon = test_utils::build_and_flush(ctx, NUM_NODES,
 		    test_utils::add_compute_task<class UKN(write_b_after_first_horizon)>(
-		        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, full_range));
+		        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, one_to_one<1>()); }, full_range));
 
 		// Now we need to check various graph properties
 
@@ -223,12 +225,12 @@ namespace detail {
 		// write to buf_a on all nodes
 		test_utils::build_and_flush(ctx, NUM_NODES,
 		    test_utils::add_compute_task<class UKN(init_a)>(
-		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>()); }, full_range));
+		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, one_to_one<1>()); }, full_range));
 
 		// perform another read-write step to ensure that horizons are generated as expected
 		test_utils::build_and_flush(ctx, NUM_NODES,
 		    test_utils::add_compute_task<class UKN(rw_a)>(
-		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, access::one_to_one<1>()); }, full_range));
+		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, one_to_one<1>()); }, full_range));
 
 		// now for the actual test, read only on node 0
 		test_utils::build_and_flush(
@@ -238,7 +240,7 @@ namespace detail {
 		for(int i = 0; i < 2; ++i) {
 			test_utils::build_and_flush(ctx, NUM_NODES,
 			    test_utils::add_compute_task<class UKN(rw_a)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, access::one_to_one<1>()); }, full_range));
+			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, one_to_one<1>()); }, full_range));
 		}
 
 		// check that all horizons were flushed

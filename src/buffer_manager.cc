@@ -105,7 +105,7 @@ namespace detail {
 #ifdef NDEBUG
 		// There should only be queued transfers for this buffer iff this is a consumer mode.
 		// To assert this we check for bogus transfers for other modes in debug builds.
-		if(access::detail::mode_traits::is_consumer(mode))
+		if(detail::access::mode_traits::is_consumer(mode))
 #endif
 		{
 			GridRegion<3> updated_region;
@@ -127,7 +127,7 @@ namespace detail {
 					// This assumption is valid right now, as the graph generator will not consolidate adjacent PUSHes for two (or more)
 					// separate commands. This might however change in the future.
 					if(t_minus_coherent_region != t_region) {
-						assert(access::detail::mode_traits::is_consumer(mode));
+						assert(detail::access::mode_traits::is_consumer(mode));
 						auto intersection = GridRegion<3>::intersect(t_region, coherent_box);
 						remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, intersection);
 						intersection.scanByBoxes([&](const GridBox<3>& box) {
@@ -143,7 +143,7 @@ namespace detail {
 				}
 
 				// Transfer applies fully.
-				assert(access::detail::mode_traits::is_consumer(mode));
+				assert(detail::access::mode_traits::is_consumer(mode));
 				remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, t_region);
 				target_buffer.storage->set_data(target_buffer.get_local_offset(t.target_offset), std::move(t.data));
 				updated_region = GridRegion<3>::merge(updated_region, t_region);
@@ -155,7 +155,7 @@ namespace detail {
 
 		if(!remaining_region_after_transfers.empty()) {
 			const auto maybe_retain_box = [&](const GridBox<3>& box) {
-				if(access::detail::mode_traits::is_consumer(mode)) {
+				if(detail::access::mode_traits::is_consumer(mode)) {
 					// If we are accessing the buffer using a consumer mode, we have to retain the full previous contents, otherwise...
 					const auto box_sr = grid_box_to_subrange(box);
 					target_buffer.storage->copy(
@@ -186,7 +186,7 @@ namespace detail {
 						maybe_retain_box(dl.first);
 					}
 					// Copy from host, unless we are using a pure producer mode
-					else if(dl.second == data_location::HOST && access::detail::mode_traits::is_consumer(mode)) {
+					else if(dl.second == data_location::HOST && detail::access::mode_traits::is_consumer(mode)) {
 						assert(buffers[bid].host_buf.is_allocated());
 						const auto box_sr = grid_box_to_subrange(dl.first);
 						const auto& host_buf = buffers[bid].host_buf;
@@ -196,7 +196,7 @@ namespace detail {
 					}
 				} else if(target_buffer.storage->get_type() == buffer_type::HOST_BUFFER) {
 					// Copy from device, unless we are using a pure producer mode
-					if(dl.second == data_location::DEVICE && access::detail::mode_traits::is_consumer(mode)) {
+					if(dl.second == data_location::DEVICE && detail::access::mode_traits::is_consumer(mode)) {
 						assert(buffers[bid].device_buf.is_allocated());
 						const auto box_sr = grid_box_to_subrange(dl.first);
 						const auto& device_buf = buffers[bid].device_buf;
@@ -215,7 +215,7 @@ namespace detail {
 			buffer_data_locations.update_region(replicated_region, data_location::HOST_AND_DEVICE);
 		}
 
-		if(access::detail::mode_traits::is_producer(mode)) { newest_data_location.at(bid).update_region(coherent_box, target_buffer_location); }
+		if(detail::access::mode_traits::is_producer(mode)) { newest_data_location.at(bid).update_region(coherent_box, target_buffer_location); }
 	}
 
 } // namespace detail

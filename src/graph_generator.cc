@@ -183,7 +183,7 @@ namespace detail {
 
 				const auto& node_buffer_last_writer = node_data.at(nid).buffer_last_writer.at(bid);
 
-				for(const auto mode : access::detail::all_modes) {
+				for(const auto mode : detail::access::all_modes) {
 					if(reqs_by_mode.count(mode) == 0) continue;
 					const auto& req = reqs_by_mode.at(mode);
 					if(req.empty()) {
@@ -192,9 +192,9 @@ namespace detail {
 					}
 
 					// Add access mode and range to execution command node label for debugging
-					cmd->debug_label = fmt::format("{}{} {} {}\\n", cmd->debug_label, access::detail::mode_traits::name(mode), bid, toString(req));
+					cmd->debug_label = fmt::format("{}{} {} {}\\n", cmd->debug_label, detail::access::mode_traits::name(mode), bid, toString(req));
 
-					if(access::detail::mode_traits::is_consumer(mode)) {
+					if(detail::access::mode_traits::is_consumer(mode)) {
 						// Store the read access for determining anti-dependencies later on
 						command_buffer_reads[cid][bid] = GridRegion<3>::merge(command_buffer_reads[cid][bid], req);
 
@@ -248,7 +248,7 @@ namespace detail {
 						}
 					}
 
-					if(access::detail::mode_traits::is_producer(mode)) {
+					if(detail::access::mode_traits::is_producer(mode)) {
 						generate_anti_dependencies(tid, bid, node_buffer_last_writer, req, cmd);
 
 						// After this task is completed, this node and command are the last writer of this region
