@@ -67,8 +67,7 @@ namespace detail {
 	}
 
 	void naive_split_transformer::transform_task(const std::shared_ptr<const task>& tsk, command_graph& cdag) {
-		if(tsk->get_type() != task_type::COMPUTE) return;
-		const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
+		if(!tsk->has_variable_split()) return;
 
 		// Assign each chunk to a node
 		std::vector<node_id> nodes(num_chunks);
@@ -79,19 +78,18 @@ namespace detail {
 			nodes[i] = (i / chunks_per_node) % num_workers;
 		}
 
-		auto& task_commands = cdag.task_commands(ctsk->get_id());
+		auto& task_commands = cdag.task_commands(tsk->get_id());
 		assert(task_commands.size() == 1);
-		assert(isa<compute_command>(task_commands[0]));
 
-		const auto original = static_cast<compute_command*>(task_commands[0]);
+		const auto original = static_cast<task_command*>(task_commands[0]);
 
-		// TODO: For now we can only handle newly created computes (i.e. no existing dependencies/dependents)
+		// TODO: For now we can only handle newly created tasks (i.e. no existing dependencies/dependents)
 		assert(std::distance(original->get_dependencies().begin(), original->get_dependencies().end()) == 0);
 		assert(std::distance(original->get_dependents().begin(), original->get_dependents().end()) == 0);
 
-		chunk<3> full_chunk{ctsk->get_global_offset(), ctsk->get_global_size(), ctsk->get_global_size()};
+		chunk<3> full_chunk{tsk->get_global_offset(), tsk->get_global_size(), tsk->get_global_size()};
 		std::vector<chunk<3>> chunks;
-		switch(ctsk->get_dimensions()) {
+		switch(tsk->get_dimensions()) {
 		case 1: {
 			chunks = split_equal(chunk<1>(full_chunk), num_chunks);
 		} break;
@@ -105,7 +103,7 @@ namespace detail {
 		}
 
 		for(size_t i = 0; i < chunks.size(); ++i) {
-			cdag.create<compute_command>(nodes[i], ctsk->get_id(), chunks[i]);
+			cdag.create<task_command>(nodes[i], tsk->get_id(), chunks[i]);
 		}
 
 		// Remove original

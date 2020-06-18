@@ -10,6 +10,7 @@ namespace detail {
 	struct host_config {
 		size_t node_count;
 		size_t local_rank;
+		size_t local_num_cpus;
 	};
 
 	struct device_config {
@@ -30,7 +31,7 @@ namespace detail {
 
 		log_level get_log_level() const { return log_lvl; }
 
-		host_config get_host_config() const { return host_cfg; }
+		const host_config& get_host_config() const { return host_cfg; }
 
 		/**
 		 * Returns the platform and device id as set by the CELERITY_DEVICES environment variable.
@@ -40,7 +41,7 @@ namespace detail {
 		 *
 		 * TODO: Should we support multiple platforms on the same host as well?
 		 */
-		std::optional<device_config> get_device_config() const { return device_cfg; };
+		const std::optional<device_config>& get_device_config() const { return device_cfg; };
 		std::optional<bool> get_enable_device_profiling() const { return enable_device_profiling; };
 		std::optional<size_t> get_forced_work_group_size() const { return forced_work_group_size; };
 

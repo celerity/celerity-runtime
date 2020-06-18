@@ -2,9 +2,8 @@
 
 #include <memory>
 #include <mutex>
-#include <vector>
-
 #include <optional>
+#include <vector>
 
 #include "region_map.h"
 #include "task.h"
@@ -79,6 +78,10 @@ namespace detail {
 		std::unordered_map<command_id, buffer_read_map> command_buffer_reads;
 
 		std::unordered_map<node_id, per_node_data> node_data;
+
+		// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
+		// they are executed in the same order on every node.
+		std::unordered_map<std::pair<node_id, collective_group_id>, command_id, boost::hash<std::pair<node_id, collective_group_id>>> last_collective_commands;
 
 		// This mutex mainly serves to protect per-buffer data structures, as new buffers might be added at any time.
 		std::mutex buffer_mutex;

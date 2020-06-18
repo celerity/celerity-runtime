@@ -97,18 +97,19 @@ namespace detail {
 
 		experimental::bench::detail::user_benchmarker::initialize(*cfg, static_cast<node_id>(world_rank));
 
-		queue = std::make_unique<device_queue>(*default_logger);
+		h_queue = std::make_unique<host_queue>(*default_logger);
+		d_queue = std::make_unique<device_queue>(*default_logger);
 
 		// Initialize worker classes (but don't start them up yet)
-		buffer_mngr = std::make_unique<buffer_manager>(*queue, [this](buffer_manager::buffer_lifecycle_event event, buffer_id bid) {
+		buffer_mngr = std::make_unique<buffer_manager>(*d_queue, [this](buffer_manager::buffer_lifecycle_event event, buffer_id bid) {
 			switch(event) {
 			case buffer_manager::buffer_lifecycle_event::REGISTERED: handle_buffer_registered(bid); break;
 			case buffer_manager::buffer_lifecycle_event::UNREGISTERED: handle_buffer_unregistered(bid); break;
 			default: assert(false && "Unexpected buffer lifecycle event");
 			}
 		});
-		task_mngr = std::make_unique<task_manager>(is_master);
-		exec = std::make_unique<executor>(*queue, *task_mngr, default_logger);
+		task_mngr = std::make_unique<task_manager>(num_nodes, h_queue.get(), is_master);
+		exec = std::make_unique<executor>(*h_queue, *d_queue, *task_mngr, default_logger);
 		if(is_master) {
 			cdag = std::make_unique<command_graph>();
 			ggen = std::make_shared<graph_generator>(num_nodes, *task_mngr, *cdag);
@@ -120,7 +121,7 @@ namespace detail {
 
 		default_logger->info(
 		    logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"build", get_build_type()}, {"sycl", get_sycl_version()}}));
-		queue->init(*cfg, user_device);
+		d_queue->init(*cfg, user_device);
 	}
 
 	runtime::~runtime() {
@@ -136,7 +137,8 @@ namespace detail {
 		// All buffers should have unregistered themselves by now.
 		assert(!buffer_mngr->has_active_buffers());
 		buffer_mngr.reset();
-		queue.reset();
+		d_queue.reset();
+		h_queue.reset();
 
 		experimental::bench::detail::user_benchmarker::destroy();
 
@@ -165,7 +167,8 @@ namespace detail {
 		}
 
 		exec->shutdown();
-		queue->wait();
+		d_queue->wait();
+		h_queue->wait();
 
 		if(is_master && graph_logger->get_level() == log_level::trace) {
 			task_mngr->print_graph(*graph_logger);

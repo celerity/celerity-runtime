@@ -44,9 +44,10 @@ int main(int argc, char* argv[]) {
 	{
 		celerity::distr_queue queue;
 
-		celerity::buffer<float, 2> mat_a_buf(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
-		celerity::buffer<float, 2> mat_b_buf(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
-		celerity::buffer<float, 2> mat_c_buf(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
+		auto range = cl::sycl::range<2>(MAT_SIZE, MAT_SIZE);
+		celerity::buffer<float, 2> mat_a_buf(range);
+		celerity::buffer<float, 2> mat_b_buf(range);
+		celerity::buffer<float, 2> mat_c_buf(range);
 
 		set_identity(queue, mat_a_buf);
 		set_identity(queue, mat_b_buf);
@@ -56,25 +57,27 @@ int main(int argc, char* argv[]) {
 		multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
 		multiply(queue, mat_b_buf, mat_c_buf, mat_a_buf);
 
-		queue.with_master_access([&](celerity::handler& cgh) {
-			auto result = mat_a_buf.get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
+		queue.submit(celerity::allow_by_ref, [&](celerity::handler& cgh) {
+			auto result = mat_a_buf.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::one_to_one<2>());
 
-			cgh.run([=, &verification_passed]() {
+			cgh.host_task(range, [=, &verification_passed](celerity::partition<2> part) {
 				celerity::experimental::bench::end("main program");
 
-				for(size_t i = 0; i < MAT_SIZE; ++i) {
-					for(size_t j = 0; j < MAT_SIZE; ++j) {
+				auto sr = part.get_subrange();
+				for(size_t i = sr.offset[0]; i < sr.offset[0] + sr.range[0]; ++i) {
+					for(size_t j = sr.offset[0]; j < sr.offset[0] + sr.range[0]; ++j) {
 						const float kernel_value = result[{i, j}];
 						const float host_value = i == j;
 						if(kernel_value != host_value) {
-							fprintf(stderr, "VERIFICATION FAILED for element %ld,%ld: %f (received) != %f (expected)\n", i, j, kernel_value, host_value);
+							fprintf(stderr, "rank %d: VERIFICATION FAILED for element %zu,%zu: %f (received) != %f (expected)\n", rank, i, j, kernel_value,
+							    host_value);
 							verification_passed = false;
 							break;
 						}
 					}
 					if(!verification_passed) { break; }
 				}
-				if(verification_passed) { printf("VERIFICATION PASSED!\n"); }
+				if(verification_passed) { printf("rank %d: VERIFICATION PASSED!\n", rank); }
 			});
 		});
 	}

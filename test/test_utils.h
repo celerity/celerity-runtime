@@ -33,16 +33,8 @@ namespace test_utils {
 			using rmfn_traits = allscale::utils::lambda_traits<Functor>;
 			static_assert(rmfn_traits::result_type::dims == Dims, "The returned subrange doesn't match buffer dimensions.");
 			if(detail::is_prepass_handler(cgh)) {
-				auto compute_cgh = dynamic_cast<detail::compute_task_handler<true>&>(cgh);
-				compute_cgh.add_requirement(id, std::make_unique<detail::range_mapper<rmfn_traits::arg1_type::dims, Dims>>(rmfn, Mode, size));
-			}
-		}
-
-		template <cl::sycl::access::mode Mode>
-		void get_access(handler& cgh, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset = {}) {
-			if(detail::is_prepass_handler(cgh)) {
-				auto ma_cgh = dynamic_cast<detail::master_access_task_handler<true>&>(cgh);
-				ma_cgh.add_requirement(Mode, id, detail::range_cast<3>(range), detail::id_cast<3>(offset));
+				auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
+				prepass_cgh.add_requirement(id, std::make_unique<detail::range_mapper<rmfn_traits::arg1_type::dims, Dims>>(rmfn, Mode, size));
 			}
 		}
 
@@ -69,11 +61,7 @@ namespace test_utils {
 
 				const detail::command_id cid = pkg.cid;
 				commands[cid] = {nid, pkg, dependencies};
-				if(pkg.cmd == detail::command_type::COMPUTE || pkg.cmd == detail::command_type::MASTER_ACCESS) {
-					by_task[pkg.cmd == detail::command_type::COMPUTE ? std::get<detail::compute_data>(pkg.data).tid
-					                                                 : std::get<detail::master_access_data>(pkg.data).tid]
-					    .insert(cid);
-				}
+				if(pkg.cmd == detail::command_type::TASK) { by_task[std::get<detail::task_data>(pkg.data).tid].insert(cid); }
 				by_node[nid].insert(cid);
 			};
 		}
@@ -81,7 +69,7 @@ namespace test_utils {
 		std::set<detail::command_id> get_commands(
 		    std::optional<detail::task_id> tid, std::optional<detail::node_id> nid, std::optional<detail::command_type> cmd) const {
 			// Sanity check: Not all commands have an associated task id
-			assert(tid == std::nullopt || (cmd == std::nullopt || cmd == detail::command_type::COMPUTE || cmd == detail::command_type::MASTER_ACCESS));
+			assert(tid == std::nullopt || (cmd == std::nullopt || cmd == detail::command_type::TASK));
 
 			std::set<detail::command_id> result;
 			std::transform(commands.cbegin(), commands.cend(), std::inserter(result, result.begin()), [](auto p) { return p.first; });
@@ -132,7 +120,7 @@ namespace test_utils {
 	class cdag_test_context {
 	  public:
 		cdag_test_context(size_t num_nodes) {
-			tm = std::make_unique<detail::task_manager>(true);
+			tm = std::make_unique<detail::task_manager>(1 /* num_nodes */, nullptr /* host_queue */, true /* is_master */);
 			cdag = std::make_unique<detail::command_graph>();
 			ggen = std::make_unique<detail::graph_generator>(num_nodes, *tm, *cdag);
 			gsrlzr = std::make_unique<detail::graph_serializer>(*cdag, inspector.get_cb());
@@ -175,15 +163,18 @@ namespace test_utils {
 	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
 	detail::task_id add_compute_task(
 	    detail::task_manager& tm, CGF cgf, cl::sycl::range<KernelDims> global_size = {1, 1}, cl::sycl::id<KernelDims> global_offset = {}) {
-		return tm.create_compute_task([&, gs = global_size, go = global_offset](handler& cgh) {
+		return tm.create_task([&, gs = global_size, go = global_offset](handler& cgh) {
 			cgf(cgh);
 			cgh.parallel_for<KernelName>(gs, go, [](cl::sycl::id<KernelDims>) {});
 		});
 	}
 
-	template <typename CGF>
-	detail::task_id add_master_access_task(detail::task_manager& tm, CGF cgf) {
-		return tm.create_master_access_task(cgf);
+	template <typename Spec, typename CGF>
+	detail::task_id add_host_task(detail::task_manager& tm, Spec spec, CGF cgf) {
+		return tm.create_task([&](handler& cgh) {
+			cgf(cgh);
+			cgh.host_task(spec, [](auto...) {});
+		});
 	}
 
 	inline detail::task_id build_and_flush(cdag_test_context& ctx, size_t num_nodes, size_t num_chunks, detail::task_id tid) {

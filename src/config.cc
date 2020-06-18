@@ -162,6 +162,17 @@ namespace detail {
 				if(parsed.first) { forced_work_group_size = parsed.second; }
 			}
 		}
+
+		// -------------------------------- CELERITY_HOST_CPUS --------------------------------
+
+		{
+			host_cfg.local_num_cpus = std::thread::hardware_concurrency();
+			const auto result = get_env("CELERITY_HOST_CPUS");
+			if(result.first) {
+				const auto parsed = parse_uint(result.second.c_str());
+				if(parsed.first) { host_cfg.local_num_cpus = parsed.second; }
+			}
+		}
 	}
 
 } // namespace detail

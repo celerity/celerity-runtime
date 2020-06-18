@@ -3,12 +3,16 @@
 #include <type_traits>
 
 #include <CL/sycl.hpp>
-#include <boost/optional.hpp>
+#include <boost/container/static_vector.hpp>
 
 #include "access_modes.h"
 #include "buffer_storage.h"
 
+
 namespace celerity {
+
+template <int Dims>
+class partition;
 
 template <typename DataT, int Dims, cl::sycl::access::mode Mode, cl::sycl::access::target Target>
 class accessor;
@@ -32,6 +36,63 @@ namespace detail {
 	accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer> make_host_accessor(Args&&...);
 
 } // namespace detail
+
+/**
+ * Maps slices of the accessor backing buffer present on a host to the virtual global range of the Celerity buffer.
+ */
+class host_memory_layout {
+  public:
+	/**
+	 * Layout map for a single dimension describing the offset and strides of its hyperplanes.
+	 *
+	 * - A zero-dimensional layout corresponds to an individual data item and is not explicitly modelled in the dimension vector.
+	 * - A one-dimensional layout is an interval of one-dimensional space and is fully described by global and local offsets and a count of data items (aka
+	 * 0-dimensional hyperplanes).
+	 * - A two-dimensional layout is modelled as an interval of rows, which manifests as an offset (a multiple of the row width) and a stride (the row width
+	 * itself). Each row (aka 1-dimensional hyperplane) is modelled by the same one-dimensional layout.
+	 * - and so on for arbitrary dimensioned layouts.
+	 */
+	class dimension {
+	  public:
+		dimension() noexcept = default;
+
+		dimension(size_t global_size, size_t global_offset, size_t local_size, size_t local_offset, size_t extent)
+		    : global_size(global_size), global_offset(global_offset), local_size(local_size), local_offset(local_offset), extent(extent) {
+			assert(global_offset >= local_offset);
+			assert(global_size >= local_size);
+		}
+
+		size_t get_global_size() const { return global_size; }
+
+		size_t get_local_size() const { return local_size; }
+
+		size_t get_global_offset() const { return global_offset; }
+
+		size_t get_local_offset() const { return local_offset; }
+
+		size_t get_extent() const { return extent; }
+
+	  private:
+		size_t global_size{};
+		size_t global_offset{};
+		size_t local_size{};
+		size_t local_offset{};
+		size_t extent{};
+	};
+
+	/** Since contiguous dimensions can be merged when generating the memory layout, host_memory_layout is not generic over a fixed dimension count */
+	constexpr static size_t max_dimensionality = 4;
+
+	using dimension_vector = boost::container::static_vector<dimension, max_dimensionality>;
+
+	explicit host_memory_layout(const dimension_vector& dimensions) : dimensions(dimensions) {}
+
+	/** The layout maps per dimension, in descending dimensionality */
+	const dimension_vector& get_dimensions() const { return dimensions; }
+
+  private:
+	dimension_vector dimensions;
+};
 
 /**
  * Celerity wrapper around SYCL accessors.
@@ -89,14 +150,6 @@ template <typename DataT, int Dims, cl::sycl::access::mode Mode>
 class accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer>
     : public detail::accessor_base<DataT, Dims, Mode, cl::sycl::access::target::host_buffer> {
   public:
-	size_t get_size() const { return requested_range.size() * sizeof(DataT); }
-
-	size_t get_count() const { return requested_range.size(); }
-
-	cl::sycl::range<Dims> get_range() const { return requested_range; }
-
-	cl::sycl::id<Dims> get_offset() const { return requested_offset; }
-
 	template <cl::sycl::access::mode M = Mode, int D = Dims>
 	std::enable_if_t<detail::access::mode_traits::is_producer(M) && (D > 0), DataT&> operator[](cl::sycl::id<Dims> index) const {
 		return *(get_buffer().get_pointer() + get_linear_offset(index));
@@ -130,25 +183,47 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer>
 	}
 
 	friend bool operator==(const accessor& lhs, const accessor& rhs) {
-		return lhs.optional_buffer == rhs.optional_buffer && lhs.backing_buffer_offset == rhs.backing_buffer_offset;
+		return (lhs.optional_buffer == rhs.optional_buffer || (lhs.optional_buffer && rhs.optional_buffer && *lhs.optional_buffer == *rhs.optional_buffer))
+		       && lhs.backing_buffer_offset == rhs.backing_buffer_offset;
 	}
 
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
+
+	/**
+	 * Returs a pointer to the host-local backing buffer along with a mapping to the global virtual buffer.
+	 *
+	 * Each host keeps only part of the global (virtual) buffer locally. The layout information can be used, for example, to perform distributed I/O on the
+	 * partial buffer present at each host.
+	 */
+	template <int KernelDims>
+	std::pair<DataT*, host_memory_layout> get_host_memory(const partition<KernelDims>& part) const {
+		// We already know the range mapper output for "chunk" from the constructor. The parameter is a purely semantic dependency which ensures that this
+		// function is not called outside a host task.
+		(void)part;
+
+		host_memory_layout::dimension_vector dimensions(Dims);
+		for(int d = 0; d < Dims; ++d) {
+			dimensions[d] = {/* global_size */ virtual_buffer_range[d],
+			    /* global_offset */ mapped_subrange.offset[d],
+			    /* local_size */ get_buffer().get_range()[d],
+			    /* local_offset */ mapped_subrange.offset[d] - backing_buffer_offset[d],
+			    /* extent */ mapped_subrange.range[d]};
+		}
+
+		return {get_buffer().get_pointer(), host_memory_layout{dimensions}};
+	}
 
   private:
 	template <typename T, int D, cl::sycl::access::mode M, typename... Args>
 	friend accessor<T, D, M, cl::sycl::access::target::host_buffer> detail::make_host_accessor(Args&&...);
 
-	// The range of the accessor, as requested by the user.
-	// This does not correspond to the backing buffer's range.
-	cl::sycl::range<Dims> requested_range;
+	// Subange of the accessor, as set by the range mapper or requested by the user (master node host tasks only).
+	// This does not necessarily correspond to the backing buffer's range.
+	subrange<Dims> mapped_subrange;
 
-	// The offset of the accessor, as requested by the user.
-	// This does not correspond to the backing buffer's offset.
-	cl::sycl::id<Dims> requested_offset;
+	mutable detail::host_buffer<DataT, Dims>* optional_buffer = nullptr;
 
-	mutable boost::optional<detail::host_buffer<DataT, Dims>&> optional_buffer = boost::none;
-
+	// Offset of the backing buffer relative to the virtual buffer.
 	cl::sycl::id<Dims> backing_buffer_offset;
 
 	// The range of the Celerity buffer as created by the user.
@@ -158,19 +233,18 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer>
 	/**
 	 * Constructor for pre-pass.
 	 */
-	accessor(cl::sycl::range<Dims> requested_range, cl::sycl::id<Dims> requested_offset)
-	    : requested_range(requested_range), requested_offset(requested_offset) {}
+	accessor() = default;
 
 	/**
 	 * Constructor for live-pass.
 	 */
-	accessor(cl::sycl::range<Dims> requested_range, cl::sycl::id<Dims> requested_offset, detail::host_buffer<DataT, Dims>& buffer,
-	    cl::sycl::id<Dims> backing_buffer_offset, cl::sycl::range<Dims> virtual_buffer_range)
-	    : requested_range(requested_range), requested_offset(requested_offset), optional_buffer(buffer), backing_buffer_offset(backing_buffer_offset),
-	      virtual_buffer_range(virtual_buffer_range) {}
+	accessor(subrange<Dims> mapped_subrange, detail::host_buffer<DataT, Dims>& buffer, cl::sycl::id<Dims> backing_buffer_offset,
+	    cl::sycl::range<Dims> virtual_buffer_range)
+	    : mapped_subrange(mapped_subrange), optional_buffer(&buffer), backing_buffer_offset(backing_buffer_offset), virtual_buffer_range(virtual_buffer_range) {
+	}
 
 	detail::host_buffer<DataT, Dims>& get_buffer() const {
-		assert(optional_buffer != boost::none);
+		assert(optional_buffer != nullptr);
 		return *optional_buffer;
 	}
 

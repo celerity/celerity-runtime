@@ -89,10 +89,60 @@ namespace detail {
 	}
 
 	// --------------------------------------------------------------------------------------------------------------------
-	// ------------------------------------------------------ COMPUTE -----------------------------------------------------
+	// --------------------------------------------------- HOST_EXECUTE ---------------------------------------------------
 	// --------------------------------------------------------------------------------------------------------------------
 
-	std::pair<command_type, std::string> compute_job::get_description(const command_pkg& pkg) { return std::make_pair(command_type::COMPUTE, "COMPUTE"); }
+	std::pair<command_type, std::string> host_execute_job::get_description(const command_pkg& pkg) {
+		return std::make_pair(command_type::TASK, "HOST_EXECUTE");
+	}
+
+	bool host_execute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
+		const auto data = std::get<task_data>(pkg.data);
+		// A bit of a hack: We cannot be sure the main thread has reached the task definition yet, so we have to check it here
+		if(!task_mngr.has_task(data.tid)) {
+			if(!did_log_task_wait) {
+				logger->trace(logger_map({{"event", "Waiting for task definition"}}));
+				did_log_task_wait = true;
+			}
+			return false;
+		}
+
+		if(!submitted) {
+			auto tsk = task_mngr.get_task(data.tid);
+			assert(tsk->get_execution_target() == execution_target::HOST);
+			logger->trace(logger_map({{"event", "Execute live-pass, scheduling host task in thread pool"}}));
+
+			// Note that for host tasks, there is no indirection through a queue->submit step like there is for SYCL tasks. The CGF is executed directly,
+			// which then schedules task in the thread pool through the host_queue.
+			auto& cgf = tsk->get_command_group();
+			live_pass_host_handler cgh(tsk, data.sr, queue);
+			cgf(cgh);
+			future = cgh.into_future();
+
+			assert(future.valid());
+			submitted = true;
+			logger->trace(logger_map({{"event", "Submitted"}}));
+		}
+
+		assert(future.valid());
+		if(future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+			auto info = future.get();
+			logger->trace(logger_map({{"event", fmt::format("Delta time submit -> start: {}us",
+			                                        std::chrono::duration_cast<std::chrono::microseconds>(info.start_time - info.submit_time).count())}}));
+			logger->trace(logger_map({{"event", fmt::format("Delta time start -> end: {}us",
+			                                        std::chrono::duration_cast<std::chrono::microseconds>(info.end_time - info.start_time).count())}}));
+			return true;
+		}
+		return false;
+	}
+
+	// --------------------------------------------------------------------------------------------------------------------
+	// ---------------------------------------------------- DEVICE_EXECUTE ------------------------------------------------
+	// --------------------------------------------------------------------------------------------------------------------
+
+	std::pair<command_type, std::string> device_execute_job::get_description(const command_pkg& pkg) {
+		return std::make_pair(command_type::TASK, "DEVICE_EXECUTE");
+	}
 
 // While device profiling is disabled on hipSYCL anyway, we have to make sure that we don't include any OpenCL code
 #if !WORKAROUND(HIPSYCL, 0)
@@ -105,8 +155,8 @@ namespace detail {
 	};
 #endif
 
-	bool compute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
-		const auto data = std::get<compute_data>(pkg.data);
+	bool device_execute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
+		const auto data = std::get<task_data>(pkg.data);
 		// A bit of a hack: We cannot be sure the main thread has reached the task definition yet, so we have to check it here
 		if(!task_mngr.has_task(data.tid)) {
 			if(!did_log_task_wait) {
@@ -117,11 +167,16 @@ namespace detail {
 		}
 
 		if(!submitted) {
-			// Note that we have to set the proper global size so the livepass handler can use the assigned chunk as input for range mappers
-			const auto ctsk = std::static_pointer_cast<const compute_task>(task_mngr.get_task(data.tid));
-			auto& cmd_sr = data.sr;
+			auto tsk = task_mngr.get_task(data.tid);
+			assert(tsk->get_execution_target() == execution_target::DEVICE);
 			logger->trace(logger_map({{"event", "Execute live-pass, submit kernel to SYCL"}}));
-			event = queue.execute(ctsk, cmd_sr);
+
+			event = queue.submit([tsk, sr = data.sr](cl::sycl::handler& handler, size_t forced_work_group_size) {
+				auto& cgf = tsk->get_command_group();
+				live_pass_device_handler cgh(tsk, sr, handler, forced_work_group_size);
+				cgf(cgh);
+			});
+
 			submitted = true;
 			logger->trace(logger_map({{"event", "Submitted"}}));
 		}
@@ -147,22 +202,6 @@ namespace detail {
 			return true;
 		}
 		return false;
-	}
-
-	// --------------------------------------------------------------------------------------------------------------------
-	// --------------------------------------------------- MASTER ACCESS --------------------------------------------------
-	// --------------------------------------------------------------------------------------------------------------------
-
-	std::pair<command_type, std::string> master_access_job::get_description(const command_pkg& pkg) {
-		return std::make_pair(command_type::MASTER_ACCESS, "MASTER ACCESS");
-	}
-
-	bool master_access_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
-		// In this case we can be sure that the task definition exists, as we're on the master node.
-		const auto tsk = std::static_pointer_cast<const master_access_task>(task_mngr.get_task(std::get<master_access_data>(pkg.data).tid));
-		auto cgh = std::make_unique<master_access_task_handler<false>>();
-		tsk->get_functor()(*cgh);
-		return true;
 	}
 
 } // namespace detail

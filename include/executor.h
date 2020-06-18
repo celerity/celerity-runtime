@@ -11,6 +11,7 @@ namespace celerity {
 
 namespace detail {
 
+	class host_queue;
 	class device_queue;
 	class task_manager;
 
@@ -31,8 +32,8 @@ namespace detail {
 	struct executor_metrics {
 		// How much time occurs before the first job is started
 		duration_metric initial_idle;
-		// How much is spent not executing any compute tasks
-		duration_metric compute_idle;
+		// How much is spent not executing any device compute job
+		duration_metric device_idle;
 		// How much time is spent without any jobs (excluding initial idle)
 		duration_metric starvation;
 	};
@@ -40,7 +41,7 @@ namespace detail {
 	class executor {
 	  public:
 		// TODO: Try to decouple this more.
-		executor(device_queue& queue, task_manager& tm, std::shared_ptr<logger> execution_logger);
+		executor(host_queue& h_queue, device_queue& d_queue, task_manager& tm, std::shared_ptr<logger> execution_logger);
 
 		void startup();
 
@@ -55,12 +56,13 @@ namespace detail {
 		uint64_t get_highest_executed_sync_id() const noexcept;
 
 	  private:
-		device_queue& queue;
+		host_queue& h_queue;
+		device_queue& d_queue;
 		task_manager& task_mngr;
 		std::unique_ptr<buffer_transfer_manager> btm;
 		std::shared_ptr<logger> execution_logger;
 		std::thread exec_thrd;
-		std::unordered_map<command_type, size_t> job_count_by_cmd;
+		size_t running_device_compute_jobs = 0;
 		std::atomic<uint64_t> highest_executed_sync_id = {0};
 
 		// Jobs are identified by the command id they're processing
@@ -80,10 +82,7 @@ namespace detail {
 		template <typename Job, typename... Args>
 		void create_job(const command_pkg& pkg, const std::vector<command_id>& dependencies, Args&&... args) {
 			auto logger = execution_logger->create_context({{"job", std::to_string(pkg.cid)}});
-			if(pkg.cmd == command_type::COMPUTE || pkg.cmd == command_type::MASTER_ACCESS) {
-				logger = logger->create_context({{"task",
-				    std::to_string(pkg.cmd == command_type::COMPUTE ? std::get<compute_data>(pkg.data).tid : std::get<master_access_data>(pkg.data).tid)}});
-			}
+			if(pkg.cmd == command_type::TASK) { logger = logger->create_context({{"task", std::to_string(std::get<task_data>(pkg.data).tid)}}); }
 			jobs[pkg.cid] = {std::make_unique<Job>(pkg, logger, std::forward<Args>(args)...), pkg.cmd, {}, 0};
 
 			// If job doesn't exist we assume it has already completed.

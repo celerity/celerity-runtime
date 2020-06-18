@@ -14,7 +14,24 @@ namespace detail {
 
 
 	template <int KernelDims, int BufferDims>
-	using range_mapper_fn = std::function<subrange<BufferDims>(chunk<KernelDims> chnk)>;
+	using range_mapper_fn = std::function<subrange<BufferDims>(chunk<KernelDims> chnk, cl::sycl::range<BufferDims> buffer_size)>;
+
+	template <int KernelDims, int BufferDims, typename Functor>
+	subrange<BufferDims> invoke_range_mapper(Functor&& fn, const celerity::chunk<KernelDims>& chunk, const cl::sycl::range<BufferDims>& buffer_size) {
+		if constexpr(std::is_invocable_v<Functor&&, const celerity::chunk<KernelDims>&, const cl::sycl::range<BufferDims>&>) {
+			return std::forward<Functor>(fn)(chunk, buffer_size);
+		} else {
+			static_assert(std::is_invocable_v<Functor&&, const celerity::chunk<KernelDims>&>);
+			return std::forward<Functor>(fn)(chunk);
+		}
+	}
+
+	template <int KernelDims, int BufferDims, typename Functor>
+	auto bind_range_mapper(Functor fn) {
+		return [fn](const chunk<KernelDims>& chunk, const cl::sycl::range<BufferDims>& buffer_size) {
+			return invoke_range_mapper<KernelDims, BufferDims>(fn, chunk, buffer_size);
+		};
+	}
 
 	class range_mapper_base {
 	  public:
@@ -61,8 +78,9 @@ namespace detail {
 	template <int KernelDims, int BufferDims>
 	class range_mapper : public range_mapper_base {
 	  public:
-		range_mapper(range_mapper_fn<KernelDims, BufferDims> fn, cl::sycl::access::mode am, cl::sycl::range<BufferDims> buffer_size)
-		    : range_mapper_base(am), rmfn(fn), buffer_size(buffer_size) {}
+		template <typename RangeMapperFn>
+		range_mapper(RangeMapperFn fn, cl::sycl::access::mode am, cl::sycl::range<BufferDims> buffer_size)
+		    : range_mapper_base(am), rmfn(bind_range_mapper<KernelDims, BufferDims>(fn)), buffer_size(buffer_size) {}
 
 		int get_kernel_dimensions() const override { return KernelDims; }
 		int get_buffer_dimensions() const override { return BufferDims; }
@@ -75,10 +93,9 @@ namespace detail {
 		range_mapper_fn<KernelDims, BufferDims> rmfn;
 		cl::sycl::range<BufferDims> buffer_size;
 
-
 		template <int D = BufferDims>
 		typename std::enable_if<D == 1, subrange<1>>::type map_1_impl(chunk<KernelDims> chnk) const {
-			return clamp_subrange_to_buffer_size(rmfn(chnk), buffer_size);
+			return clamp_subrange_to_buffer_size(rmfn(chnk, buffer_size), buffer_size);
 		}
 
 		template <int D = BufferDims>
@@ -88,7 +105,7 @@ namespace detail {
 
 		template <int D = BufferDims>
 		typename std::enable_if<D == 2, subrange<2>>::type map_2_impl(chunk<KernelDims> chnk) const {
-			return clamp_subrange_to_buffer_size(rmfn(chnk), buffer_size);
+			return clamp_subrange_to_buffer_size(rmfn(chnk, buffer_size), buffer_size);
 		}
 
 		template <int D = BufferDims>
@@ -98,7 +115,7 @@ namespace detail {
 
 		template <int D = BufferDims>
 		typename std::enable_if<D == 3, subrange<3>>::type map_3_impl(chunk<KernelDims> chnk) const {
-			return clamp_subrange_to_buffer_size(rmfn(chnk), buffer_size);
+			return clamp_subrange_to_buffer_size(rmfn(chnk, buffer_size), buffer_size);
 		}
 
 		template <int D = BufferDims>
@@ -147,14 +164,7 @@ namespace access {
 
 	template <int KernelDims, int BufferDims = KernelDims>
 	struct all {
-		subrange<BufferDims> operator()(chunk<KernelDims>) const {
-			subrange<BufferDims> result;
-			result.offset = detail::id_cast<BufferDims>(cl::sycl::id<3>{0, 0, 0});
-			const auto max_num = std::numeric_limits<size_t>::max();
-			// Since we don't know the range of the buffer, we just set it way too high and let it be clamped to the correct range
-			result.range = detail::range_cast<BufferDims>(cl::sycl::range<3>{max_num, max_num, max_num});
-			return result;
-		}
+		subrange<BufferDims> operator()(chunk<KernelDims>, cl::sycl::range<BufferDims> buffer_size) const { return {{}, buffer_size}; }
 	};
 
 	template <int Dims>
@@ -178,6 +188,51 @@ namespace access {
 
 	  private:
 		size_t dim0, dim1, dim2;
+	};
+
+	template <int BufferDims>
+	class even_split {
+		static_assert(BufferDims > 0);
+
+	  public:
+		even_split() {
+			for(int d = 0; d < BufferDims; ++d)
+				granularity[d] = 1;
+		}
+
+		explicit even_split(cl::sycl::range<BufferDims> granularity) : granularity(granularity) {}
+
+		subrange<BufferDims> operator()(chunk<1> chunk, cl::sycl::range<BufferDims> buffer_size) const {
+			if(chunk.global_size[0] == 0) { return {}; }
+
+			// Equal splitting has edge cases when buffer_size is not a multiple of global_size * granularity. Splitting is performed in a manner that
+			// distributes the remainder as equally as possible while adhering to granularity. In case buffer_size is not even a multiple of granularity,
+			// only last chunk should be oddly sized so that only one node needs to deal with misaligned buffers.
+
+			// 1. Each slice has at least buffer_size / global_size items, rounded down to the nearest multiple of the granularity.
+			// 2. The first chunks in the range receive one additional granularity-sized block each to distribute most of the remainder
+			// 3. The last chunk additionally receives the not-granularity-sized part of the remainder, if any.
+
+			auto dim0_step = buffer_size[0] / (chunk.global_size[0] * granularity[0]) * granularity[0];
+			auto dim0_remainder = buffer_size[0] - chunk.global_size[0] * dim0_step;
+			auto dim0_range_in_this_chunk = chunk.range[0] * dim0_step;
+			auto sum_dim0_remainder_in_prev_chunks = std::min(dim0_remainder / granularity[0] * granularity[0], chunk.offset[0] * granularity[0]);
+			if(dim0_remainder > sum_dim0_remainder_in_prev_chunks) {
+				dim0_range_in_this_chunk += std::min(chunk.range[0], (dim0_remainder - sum_dim0_remainder_in_prev_chunks) / granularity[0]) * granularity[0];
+				if(chunk.offset[0] + chunk.range[0] == chunk.global_size[0]) { dim0_range_in_this_chunk += dim0_remainder % granularity[0]; }
+			}
+			auto dim0_offset_in_this_chunk = chunk.offset[0] * dim0_step + sum_dim0_remainder_in_prev_chunks;
+
+			subrange<BufferDims> sr;
+			sr.offset[0] = dim0_offset_in_this_chunk;
+			sr.range = buffer_size;
+			sr.range[0] = dim0_range_in_this_chunk;
+
+			return sr;
+		}
+
+	  private:
+		cl::sycl::range<BufferDims> granularity;
 	};
 
 } // namespace access

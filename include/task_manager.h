@@ -7,6 +7,7 @@
 #include <unordered_map>
 
 #include "handler.h"
+#include "host_queue.h"
 #include "region_map.h"
 #include "task.h"
 #include "types.h"
@@ -27,39 +28,22 @@ namespace detail {
 		 *
 		 * TODO: This is a bit of a code smell. Maybe we should split simple task management and task graph generation into separate classes?
 		 */
-		task_manager(bool is_master_node);
+		task_manager(size_t num_collective_nodes, host_queue* queue, bool is_master_node);
 		virtual ~task_manager() = default;
 
 		template <typename CGF, typename... Hints>
-		task_id create_compute_task(CGF cgf, Hints... hints) {
+		task_id create_task(CGF cgf, Hints... hints) {
 			task_id tid;
 			{
-				std::lock_guard<std::mutex> lock(task_mutex);
-				const auto task = create_task<compute_task>(std::make_unique<command_group_storage<CGF>>(cgf));
-				tid = task->get_id();
-				auto cgh = std::make_unique<compute_task_handler<true>>(task);
-				cgf(*cgh);
+				std::lock_guard lock(task_mutex);
+				tid = next_task_id++;
+				prepass_handler cgh(tid, std::make_unique<command_group_storage<CGF>>(cgf), num_collective_nodes);
+				cgf(cgh);
+				auto task = std::move(cgh).into_task();
+				assert(task != nullptr);
+				task_map.emplace(tid, task);
 				if(is_master_node) { compute_dependencies(tid); }
-			}
-			invoke_callbacks(tid);
-			return tid;
-		}
-
-		template <typename CGF>
-		task_id create_master_access_task(CGF cgf) {
-			task_id tid;
-			{
-				std::lock_guard<std::mutex> lock(task_mutex);
-				const auto task = create_task<master_access_task>(std::make_unique<command_group_storage<CGF>>(cgf));
-				tid = task->get_id();
-				// Executing master access command groups involves the creation of real (i.e., non-placeholder) host accessors,
-				// which is not for free - especially on worker nodes. As we don't really need any information about master
-				// access tasks on worker nodes anyway, we simply omit the pre-pass execution of the command group function.
-				if(is_master_node) {
-					auto cgh = std::make_unique<master_access_task_handler<true>>(task);
-					cgf(*cgh);
-					compute_dependencies(tid);
-				}
+				if(queue) queue->require_collective_group(task->get_collective_group_id());
 			}
 			invoke_callbacks(tid);
 			return tid;
@@ -104,6 +88,8 @@ namespace detail {
 		void shutdown() { task_map.clear(); }
 
 	  private:
+		const size_t num_collective_nodes;
+		host_queue* queue;
 		const bool is_master_node;
 		task_id next_task_id = 0;
 		const task_id init_task_id;
@@ -113,18 +99,12 @@ namespace detail {
 		// NOTE: This represents the state after the latest performed pre-pass.
 		buffer_writers_map buffers_last_writers;
 
+		std::unordered_map<collective_group_id, task_id> last_collective_tasks;
+
 		// For simplicity we use a single mutex to control access to all task-related (i.e. the task graph, task_map, ...) data structures.
 		mutable std::mutex task_mutex;
 
 		std::vector<task_callback> task_callbacks;
-
-		template <typename Task, typename... Args>
-		std::shared_ptr<Task> create_task(Args... args) {
-			const task_id tid = next_task_id++;
-			const auto task = std::make_shared<Task>(tid, std::forward<Args...>(args...));
-			task_map[tid] = task;
-			return task;
-		}
 
 		void invoke_callbacks(task_id tid);
 

@@ -4,13 +4,14 @@
 
 #include "intrusive_graph.h"
 #include "ranges.h"
+#include "task.h"
 #include "types.h"
 
 namespace celerity {
 namespace detail {
 
-	enum class command_type { NOP, HORIZON, COMPUTE, MASTER_ACCESS, PUSH, AWAIT_PUSH, SHUTDOWN, SYNC };
-	constexpr const char* command_string[] = {"NOP", "HORIZON", "COMPUTE", "MASTER_ACCESS", "PUSH", "AWAIT_PUSH", "SHUTDOWN", "SYNC"};
+	enum class command_type { NOP, HORIZON, TASK, PUSH, AWAIT_PUSH, SHUTDOWN, SYNC };
+	constexpr const char* command_string[] = {"NOP", "HORIZON", "TASK", "PUSH", "AWAIT_PUSH", "SHUTDOWN", "SYNC"};
 
 	// ----------------------------------------------------------------------------------------------------------------
 	// ------------------------------------------------ COMMAND GRAPH -------------------------------------------------
@@ -73,7 +74,7 @@ namespace detail {
 	inline abstract_command::~abstract_command() {}
 
 	// Used for the init task.
-	class nop_command : public abstract_command {
+	class nop_command final : public abstract_command {
 		friend class command_graph;
 		nop_command(command_id cid, node_id nid) : abstract_command(cid, nid) {
 			// There's no point in flushing NOP commands.
@@ -81,12 +82,12 @@ namespace detail {
 		}
 	};
 
-	class horizon_command : public abstract_command {
+	class horizon_command final : public abstract_command {
 		friend class command_graph;
 		horizon_command(command_id cid, node_id nid) : abstract_command(cid, nid) {}
 	};
 
-	class push_command : public abstract_command {
+	class push_command final : public abstract_command {
 		friend class command_graph;
 		push_command(command_id cid, node_id nid, buffer_id bid, node_id target, subrange<3> push_range)
 		    : abstract_command(cid, nid), bid(bid), target(target), push_range(push_range) {}
@@ -102,7 +103,7 @@ namespace detail {
 		subrange<3> push_range;
 	};
 
-	class await_push_command : public abstract_command {
+	class await_push_command final : public abstract_command {
 		friend class command_graph;
 		await_push_command(command_id cid, node_id nid, push_command* source) : abstract_command(cid, nid), source(source) {}
 
@@ -117,32 +118,17 @@ namespace detail {
 		friend class command_graph;
 
 	  protected:
-		task_command(command_id cid, node_id nid, task_id tid) : abstract_command(cid, nid), tid(tid) {}
+		task_command(command_id cid, node_id nid, task_id tid, subrange<3> execution_range)
+		    : abstract_command(cid, nid), tid(tid), execution_range(execution_range) {}
 
 	  public:
-		virtual ~task_command() = 0;
 		task_id get_tid() const { return tid; }
 
-	  private:
-		task_id tid;
-	};
-	inline task_command::~task_command() {}
-
-	class compute_command : public task_command {
-		friend class command_graph;
-		compute_command(command_id cid, node_id nid, task_id tid, subrange<3> execution_range)
-		    : task_command(cid, nid, tid), execution_range(execution_range) {}
-
-	  public:
 		const subrange<3>& get_execution_range() const { return execution_range; }
 
 	  private:
+		task_id tid;
 		subrange<3> execution_range;
-	};
-
-	class master_access_command : public task_command {
-		friend class command_graph;
-		master_access_command(command_id cid, node_id nid, task_id tid) : task_command(cid, nid, tid) {}
 	};
 
 	// ----------------------------------------------------------------------------------------------------------------
@@ -153,15 +139,9 @@ namespace detail {
 
 	struct horizon_data {};
 
-	struct compute_data {
+	struct task_data {
 		task_id tid;
 		subrange<3> sr;
-
-		compute_data(const compute_data&) = default;
-	};
-
-	struct master_access_data {
-		task_id tid;
 	};
 
 	struct push_data {
@@ -183,7 +163,7 @@ namespace detail {
 		uint64_t sync_id;
 	};
 
-	using command_data = std::variant<nop_data, compute_data, master_access_data, push_data, await_push_data, shutdown_data, sync_data>;
+	using command_data = std::variant<nop_data, task_data, push_data, await_push_data, shutdown_data, sync_data>;
 
 	/**
 	 * A command package is what is actually transferred between nodes.

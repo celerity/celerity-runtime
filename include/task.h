@@ -13,12 +13,22 @@
 namespace celerity {
 
 class handler;
-class master_access_prepass_handler;
-class master_access_livepass_handler;
 
 namespace detail {
 
-	enum class task_type { NOP, COMPUTE, MASTER_ACCESS };
+	enum class task_type {
+		NOP,
+		HOST_COMPUTE,   ///< host task with explicit global size and celerity-defined split
+		DEVICE_COMPUTE, ///< device compute task
+		COLLECTIVE,     ///< host task with implicit 1d global size = #ranks and fixed split
+		MASTER_NODE,    ///< zero-dimensional host task
+	};
+
+	enum class execution_target {
+		NONE,
+		HOST,
+		DEVICE,
+	};
 
 	struct command_group_storage_base {
 		virtual void operator()(handler& cgh) const = 0;
@@ -34,53 +44,12 @@ namespace detail {
 		void operator()(handler& cgh) const override { fun(cgh); }
 	};
 
-	// TODO: It's not ideal that dependencies are only populated on the master node, but the interface exists on workers as well...
-	class task : public intrusive_graph_node<task> {
+	class buffer_access_map {
 	  public:
-		task(task_id tid) : tid(tid) {}
-		virtual ~task() = default;
+		void add_access(buffer_id bid, std::unique_ptr<range_mapper_base>&& rm) { map.emplace(bid, std::move(rm)); }
 
-		virtual task_type get_type() const = 0;
-		virtual std::vector<buffer_id> get_accessed_buffers() const = 0;
-		virtual std::unordered_set<cl::sycl::access::mode> get_access_modes(buffer_id bid) const = 0;
-
-		task_id get_id() const { return tid; }
-
-	  private:
-		task_id tid;
-	};
-
-	class nop_task : public task {
-	  public:
-		explicit nop_task(const task_id& tid) : task(tid) {}
-
-		task_type get_type() const override { return task_type::NOP; }
-		std::vector<buffer_id> get_accessed_buffers() const override { return {}; }
-		std::unordered_set<cl::sycl::access::mode> get_access_modes(buffer_id bid) const override { return {}; }
-	};
-
-	class compute_task : public task {
-	  public:
-		compute_task(task_id tid, std::unique_ptr<command_group_storage_base>&& cgf) : task(tid), cgf(std::move(cgf)) {}
-
-		task_type get_type() const override { return task_type::COMPUTE; }
-
-		void set_dimensions(int dims) { dimensions = dims; }
-		void set_global_size(cl::sycl::range<3> gs) { global_size = gs; }
-		void set_global_offset(cl::sycl::id<3> offset) { global_offset = offset; }
-		void set_debug_name(std::string name) { debug_name = name; };
-
-		void add_range_mapper(buffer_id bid, std::unique_ptr<range_mapper_base>&& rm) { range_mappers[bid].push_back(std::move(rm)); }
-
-		const command_group_storage_base& get_command_group() const { return *cgf; }
-
-		int get_dimensions() const { return dimensions; }
-		cl::sycl::range<3> get_global_size() const { return global_size; }
-		cl::sycl::id<3> get_global_offset() const { return global_offset; }
-		std::string get_debug_name() const { return debug_name; }
-
-		std::vector<buffer_id> get_accessed_buffers() const override;
-		std::unordered_set<cl::sycl::access::mode> get_access_modes(buffer_id bid) const override;
+		std::unordered_set<buffer_id> get_accessed_buffers() const;
+		std::unordered_set<cl::sycl::access::mode> get_access_modes(buffer_id bid) const;
 
 		/**
 		 * @brief Computes the combined access-region for a given buffer, mode and subrange.
@@ -91,39 +60,86 @@ namespace detail {
 		 *
 		 * @returns The region obtained by merging the results of all range-mappers for this buffer and mode
 		 */
-		GridRegion<3> get_requirements(buffer_id bid, cl::sycl::access::mode mode, const subrange<3>& sr) const;
+		GridRegion<3> get_requirements_for_access(
+		    buffer_id bid, cl::sycl::access::mode mode, const subrange<3>& sr, const cl::sycl::range<3>& global_size) const;
 
 	  private:
-		std::unique_ptr<command_group_storage_base> cgf;
-		int dimensions = 0;
-		cl::sycl::range<3> global_size;
-		cl::sycl::id<3> global_offset = {};
-		std::string debug_name;
-		std::unordered_map<buffer_id, std::vector<std::unique_ptr<range_mapper_base>>> range_mappers;
+		std::unordered_multimap<buffer_id, std::unique_ptr<range_mapper_base>> map;
 	};
 
-	class master_access_task : public task {
+	// TODO: It's not ideal that dependencies are only populated on the master node, but the interface exists on workers as well...
+	class task : public intrusive_graph_node<task> {
 	  public:
-		master_access_task(task_id tid, std::unique_ptr<command_group_storage_base>&& maf) : task(tid), maf(std::move(maf)) {}
+		task_type get_type() const { return type; }
 
-		task_type get_type() const override { return task_type::MASTER_ACCESS; }
+		task_id get_id() const { return tid; }
 
-		void add_buffer_access(buffer_id bid, cl::sycl::access::mode mode, subrange<3> sr) { buffer_accesses[bid].push_back({mode, sr}); }
+		collective_group_id get_collective_group_id() const { return cgid; }
 
-		const command_group_storage_base& get_functor() const { return *maf; }
+		const buffer_access_map& get_buffer_access_map() const { return access_map; }
 
-		std::vector<buffer_id> get_accessed_buffers() const override;
-		std::unordered_set<cl::sycl::access::mode> get_access_modes(buffer_id bid) const override;
-		GridRegion<3> get_requirements(buffer_id bid, cl::sycl::access::mode mode) const;
+		const command_group_storage_base& get_command_group() const { return *cgf; }
+
+		int get_dimensions() const { return dimensions; }
+
+		cl::sycl::range<3> get_global_size() const { return global_size; }
+
+		cl::sycl::id<3> get_global_offset() const { return global_offset; }
+
+		const std::string& get_debug_name() const { return debug_name; }
+
+		bool has_variable_split() const { return type == task_type::HOST_COMPUTE || type == task_type::DEVICE_COMPUTE; }
+
+		execution_target get_execution_target() const {
+			switch(type) {
+			case task_type::NOP: return execution_target::NONE;
+			case task_type::DEVICE_COMPUTE: return execution_target::DEVICE;
+			case task_type::HOST_COMPUTE:
+			case task_type::COLLECTIVE:
+			case task_type::MASTER_NODE: return execution_target::HOST;
+			default: assert(!"Unhandled task type"); return execution_target::NONE;
+			}
+		}
+
+		static std::unique_ptr<task> make_nop(task_id tid) { return std::unique_ptr<task>(new task(tid, task_type::NOP, {}, 0, {}, {}, nullptr, {}, {})); }
+
+		static std::unique_ptr<task> make_host_compute(task_id tid, int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset,
+		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map) {
+			return std::unique_ptr<task>(
+			    new task(tid, task_type::HOST_COMPUTE, {}, dimensions, global_size, global_offset, std::move(cgf), std::move(access_map), {}));
+		}
+
+		static std::unique_ptr<task> make_device_compute(task_id tid, int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset,
+		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, std::string debug_name) {
+			return std::unique_ptr<task>(new task(
+			    tid, task_type::DEVICE_COMPUTE, {}, dimensions, global_size, global_offset, std::move(cgf), std::move(access_map), std::move(debug_name)));
+		}
+
+		static std::unique_ptr<task> make_collective(
+		    task_id tid, collective_group_id cgid, size_t num_collective_nodes, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map) {
+			return std::unique_ptr<task>(new task(tid, task_type::COLLECTIVE, cgid, 1, detail::range_cast<3>(cl::sycl::range<1>{num_collective_nodes}), {},
+			    std::move(cgf), std::move(access_map), {}));
+		}
+
+		static std::unique_ptr<task> make_master_node(task_id tid, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map) {
+			return std::unique_ptr<task>(new task(tid, task_type::MASTER_NODE, {}, 0, {}, {}, std::move(cgf), std::move(access_map), {}));
+		}
 
 	  private:
-		struct buffer_access_info {
-			cl::sycl::access::mode mode;
-			subrange<3> sr;
-		};
+		task_id tid;
+		task_type type;
+		collective_group_id cgid;
+		int dimensions;
+		cl::sycl::range<3> global_size;
+		cl::sycl::id<3> global_offset;
+		std::unique_ptr<command_group_storage_base> cgf;
+		buffer_access_map access_map;
+		std::string debug_name;
 
-		std::unique_ptr<command_group_storage_base> maf;
-		std::unordered_map<buffer_id, std::vector<buffer_access_info>> buffer_accesses;
+		task(task_id tid, task_type type, collective_group_id cgid, int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset,
+		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, std::string debug_name)
+		    : tid(tid), type(type), cgid(cgid), dimensions(dimensions), global_size(global_size), global_offset(global_offset), cgf(std::move(cgf)),
+		      access_map(std::move(access_map)), debug_name(std::move(debug_name)) {}
 	};
 
 } // namespace detail

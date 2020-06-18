@@ -40,13 +40,25 @@ namespace detail {
 		// TODO: Maybe assert that this task hasn't been processed before
 
 		auto tsk = task_mngr.get_task(tid);
-		if(tsk->get_type() == task_type::COMPUTE) {
-			const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
-			const auto global_size = ctsk->get_global_size();
-			const auto global_offset = ctsk->get_global_offset();
-			cdag.create<compute_command>(0, tid, subrange<3>{global_offset, global_size});
-		} else if(tsk->get_type() == task_type::MASTER_ACCESS) {
-			cdag.create<master_access_command>(0, tid);
+		if(tsk->get_type() == task_type::COLLECTIVE) {
+			for(size_t nid = 0; nid < num_nodes; ++nid) {
+				auto offset = cl::sycl::id<1>{nid};
+				auto range = cl::sycl::range<1>{1};
+				const auto sr = subrange<1>{offset, range};
+				auto* cmd = cdag.create<task_command>(nid, tid, sr);
+
+				// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
+				// they are executed in the same order on every node.
+				auto cgid = tsk->get_collective_group_id();
+				if(auto prev = last_collective_commands.find({nid, cgid}); prev != last_collective_commands.end()) {
+					cdag.add_dependency(cmd, cdag.get(prev->second), dependency_kind::ORDER);
+					last_collective_commands.erase(prev);
+				}
+				last_collective_commands.emplace(std::pair{nid, cgid}, cmd->get_cid());
+			}
+		} else {
+			const auto sr = subrange<3>{tsk->get_global_offset(), tsk->get_global_size()};
+			cdag.create<task_command>(0, tid, sr);
 		}
 
 		for(auto& t : transformers) {
@@ -62,27 +74,14 @@ namespace detail {
 
 	using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<3>>>;
 
-	buffer_requirements_map get_buffer_requirements(const compute_task* ctsk, subrange<3> sr) {
+	buffer_requirements_map get_buffer_requirements_for_mapped_access(const task* tsk, subrange<3> sr, const cl::sycl::range<3> global_size) {
 		buffer_requirements_map result;
-
-		const auto buffers = ctsk->get_accessed_buffers();
+		const auto& access_map = tsk->get_buffer_access_map();
+		const auto buffers = access_map.get_accessed_buffers();
 		for(const buffer_id bid : buffers) {
-			const auto modes = ctsk->get_access_modes(bid);
+			const auto modes = access_map.get_access_modes(bid);
 			for(auto m : modes) {
-				result[bid][m] = ctsk->get_requirements(bid, m, sr);
-			}
-		}
-		return result;
-	}
-
-	buffer_requirements_map get_buffer_requirements(const master_access_task* mtsk) {
-		buffer_requirements_map result;
-
-		const auto buffers = mtsk->get_accessed_buffers();
-		for(const buffer_id bid : buffers) {
-			const auto modes = mtsk->get_access_modes(bid);
-			for(auto m : modes) {
-				result[bid][m] = mtsk->get_requirements(bid, m);
+				result[bid][m] = access_map.get_requirements_for_access(bid, m, sr, global_size);
 			}
 		}
 		return result;
@@ -100,8 +99,8 @@ namespace detail {
 			// Add anti-dependencies onto all dependents of the writer
 			bool has_dependents = false;
 			for(auto d : last_writer_cmd->get_dependents()) {
-				// Don't consider anti-dependents
-				if(d.is_anti) continue;
+				// Only consider true dependencies
+				if(d.kind != dependency_kind::TRUE) continue;
 
 				const auto cmd = d.node;
 
@@ -114,17 +113,17 @@ namespace detail {
 				if(buffer_reads_it == command_reads.end()) continue; // The task might be a dependent because of another buffer
 				if(!GridRegion<3>::intersect(write_req, buffer_reads_it->second).empty()) {
 					has_dependents = true;
-					cdag.add_dependency(write_cmd, cmd, true);
+					cdag.add_dependency(write_cmd, cmd, dependency_kind::ANTI);
 				}
 			}
 
-			// In some cases (horizons, master access, weird discard_* constructs...)
+			// In some cases (horizons, master node host task, weird discard_* constructs...)
 			// the last writer might not have any dependents. Just add the anti-dependency onto the writer itself then.
 			if(!has_dependents) {
 				// Don't add anti-dependencies onto the init command
 				if(last_writer_cid == node_data[write_cmd->get_nid()].init_cid) continue;
 
-				cdag.add_dependency(write_cmd, last_writer_cmd, true);
+				cdag.add_dependency(write_cmd, last_writer_cmd, dependency_kind::ANTI);
 
 				// This is a good time to validate our assumption that every AWAIT_PUSH command has a dependent
 				assert(!isa<await_push_command>(last_writer_cmd));
@@ -149,7 +148,7 @@ namespace detail {
 		// Copy the list of task commands so we can safely modify the command graph in the loop below
 		// NOTE: We assume that none of these commands are deleted
 		std::vector<task_command*> task_commands;
-		for(auto cmd : cdag.task_commands<compute_command, master_access_command>(tid)) {
+		for(auto cmd : cdag.task_commands<task_command>(tid)) {
 			task_commands.push_back(cmd);
 		}
 
@@ -165,17 +164,8 @@ namespace detail {
 		for(auto cmd : task_commands) {
 			const command_id cid = cmd->get_cid();
 			const node_id nid = cmd->get_nid();
-			buffer_requirements_map requirements;
 
-			if(isa<compute_command>(cmd)) {
-				const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
-				requirements = get_buffer_requirements(ctsk, static_cast<compute_command*>(cmd)->get_execution_range());
-			} else if(isa<master_access_command>(cmd)) {
-				const auto matsk = dynamic_cast<const master_access_task*>(tsk.get());
-				requirements = get_buffer_requirements(matsk);
-			} else {
-				assert(false);
-			}
+			auto requirements = get_buffer_requirements_for_mapped_access(tsk.get(), cmd->get_execution_range(), tsk->get_global_size());
 
 			for(auto& it : requirements) {
 				const buffer_id bid = it.first;
@@ -293,12 +283,12 @@ namespace detail {
 				if(isa<task_command>(writer_cmd) && static_cast<task_command*>(writer_cmd)->get_tid() == tid) {
 					// In certain situations the PUSH might have a true dependency on the last writer,
 					// in that case don't add an anti-dependency (as that would cause a cycle).
-					if(cmd->has_dependency(writer_cmd, false)) {
+					if(cmd->has_dependency(writer_cmd, dependency_kind::TRUE)) {
 						// This can currently only happen for AWAIT_PUSH commands.
 						assert(isa<await_push_command>(writer_cmd));
 						continue;
 					}
-					cdag.add_dependency(writer_cmd, push_cmd, true);
+					cdag.add_dependency(writer_cmd, push_cmd, dependency_kind::ANTI);
 				}
 			}
 		}

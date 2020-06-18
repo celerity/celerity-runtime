@@ -23,6 +23,9 @@ namespace detail {
 
 } // namespace detail
 
+struct allow_by_ref_t {
+} inline constexpr allow_by_ref{};
+
 class distr_queue {
   public:
 	distr_queue() { init(nullptr); }
@@ -38,19 +41,20 @@ class distr_queue {
 	distr_queue& operator=(distr_queue&&) = delete;
 
 	template <typename CGF>
+	void submit(allow_by_ref_t, CGF cgf) {
+		// (Note while this function could be made static, it must not be! Otherwise we can't be sure the runtime has been initialized.)
+		detail::runtime::get_instance().get_task_manager().create_task(cgf);
+	}
+
+	template <typename CGF>
 	void submit(CGF cgf) {
 #if CELERITY_STRICT_CGF_SAFETY
-		static_assert(
-		    detail::is_safe_cgf<CGF>, "The provided command group function is not multi-pass execution safe. Please make sure to only capture by value.");
+		static_assert(detail::is_safe_cgf<CGF>, "The provided command group function is not multi-pass execution safe. Please make sure to only capture by "
+		                                        "value. If you know what you're doing, use submit(celerity::allow_by_ref, ...).");
 #endif
 
 		// (Note while this function could be made static, it must not be! Otherwise we can't be sure the runtime has been initialized.)
-		detail::runtime::get_instance().get_task_manager().create_compute_task(cgf);
-	}
-
-	template <typename MAF>
-	void with_master_access(MAF maf) {
-		detail::runtime::get_instance().get_task_manager().create_master_access_task(maf);
+		detail::runtime::get_instance().get_task_manager().create_task(cgf);
 	}
 
 	/**

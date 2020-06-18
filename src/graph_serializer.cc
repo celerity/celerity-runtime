@@ -94,24 +94,17 @@ namespace detail {
 		if(isa<nop_command>(cmd)) return;
 		command_pkg pkg{cmd->get_cid(), command_type::NOP, command_data{nop_data{}}};
 
-		if(isa<compute_command>(cmd)) {
-			pkg.cmd = command_type::COMPUTE;
-			const auto compute = static_cast<compute_command*>(cmd);
-			pkg.data = compute_data{compute->get_tid(), compute->get_execution_range()};
-		} else if(isa<master_access_command>(cmd)) {
-			pkg.cmd = command_type::MASTER_ACCESS;
-			const auto ma = static_cast<master_access_command*>(cmd);
-			pkg.data = master_access_data{ma->get_tid()};
-		} else if(isa<push_command>(cmd)) {
+		if(const auto* tcmd = dynamic_cast<task_command*>(cmd)) {
+			pkg.cmd = command_type::TASK;
+			pkg.data = task_data{tcmd->get_tid(), tcmd->get_execution_range()};
+		} else if(const auto* pcmd = dynamic_cast<push_command*>(cmd)) {
 			pkg.cmd = command_type::PUSH;
-			const auto push = static_cast<push_command*>(cmd);
-			pkg.data = push_data{push->get_bid(), push->get_target(), push->get_range()};
-		} else if(isa<await_push_command>(cmd)) {
+			pkg.data = push_data{pcmd->get_bid(), pcmd->get_target(), pcmd->get_range()};
+		} else if(const auto* apcmd = dynamic_cast<await_push_command*>(cmd)) {
 			pkg.cmd = command_type::AWAIT_PUSH;
-			const auto await_push = static_cast<await_push_command*>(cmd);
-			pkg.data = await_push_data{await_push->get_source()->get_bid(), await_push->get_source()->get_nid(), await_push->get_source()->get_cid(),
-			    await_push->get_source()->get_range()};
-		} else if(isa<horizon_command>(cmd)) {
+			pkg.data = await_push_data{
+			    apcmd->get_source()->get_bid(), apcmd->get_source()->get_nid(), apcmd->get_source()->get_cid(), apcmd->get_source()->get_range()};
+		} else if(dynamic_cast<horizon_command*>(cmd)) {
 			pkg.cmd = command_type::HORIZON;
 		} else {
 			assert(false && "Unknown command");

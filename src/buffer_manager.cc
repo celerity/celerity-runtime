@@ -37,7 +37,7 @@ namespace detail {
 
 	raw_buffer_data buffer_manager::get_buffer_data(buffer_id bid, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) {
 		std::unique_lock lock(mutex);
-		assert(buffers.count(bid) == 1 && buffers.at(bid).device_buf.is_allocated());
+		assert(buffers.count(bid) == 1 && (buffers.at(bid).device_buf.is_allocated() || buffers.at(bid).host_buf.is_allocated()));
 		auto data_locations = newest_data_location.at(bid).get_region_values(subrange_to_grid_box(subrange<3>(offset, range)));
 
 		// Slow path: We need to obtain current data from both host and device.

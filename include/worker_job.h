@@ -2,15 +2,18 @@
 
 #include <cassert>
 #include <chrono>
+#include <future>
 #include <limits>
 #include <utility>
 
 #include "buffer_transfer_manager.h"
 #include "command.h"
+#include "host_queue.h"
 #include "logger.h"
 
 namespace celerity {
 namespace detail {
+
 	class device_queue;
 	class executor;
 	class task_manager;
@@ -93,15 +96,33 @@ namespace detail {
 		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
 	};
 
+	class host_execute_job : public worker_job {
+	  public:
+		host_execute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::host_queue& queue, detail::task_manager& tm)
+		    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm) {
+			assert(pkg.cmd == command_type::TASK);
+		}
+
+	  private:
+		detail::host_queue& queue;
+		detail::task_manager& task_mngr;
+		std::future<detail::host_queue::execution_info> future;
+		bool did_log_task_wait = false;
+		bool submitted = false;
+
+		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
+		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
+	};
+
 	/**
 	 * TODO: Optimization opportunity: If we don't have any outstanding await-pushes, submitting the kernel to SYCL right away may be faster,
 	 * as it can already start copying buffers to the device (i.e. let SYCL do the scheduling).
 	 */
-	class compute_job : public worker_job {
+	class device_execute_job : public worker_job {
 	  public:
-		compute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::device_queue& queue, detail::task_manager& tm)
+		device_execute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::device_queue& queue, detail::task_manager& tm)
 		    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm) {
-			assert(pkg.cmd == command_type::COMPUTE);
+			assert(pkg.cmd == command_type::TASK);
 		}
 
 	  private:
@@ -111,18 +132,7 @@ namespace detail {
 		bool did_log_task_wait = false;
 		bool submitted = false;
 
-		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
-		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
-	};
-
-	class master_access_job : public worker_job {
-	  public:
-		master_access_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::task_manager& tm) : worker_job(pkg, job_logger), task_mngr(tm) {
-			assert(pkg.cmd == command_type::MASTER_ACCESS);
-		}
-
-	  private:
-		detail::task_manager& task_mngr;
+		std::future<void> computecpp_workaround_future;
 
 		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
 		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;

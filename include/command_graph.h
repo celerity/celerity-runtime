@@ -143,10 +143,10 @@ namespace detail {
 		void print_graph(logger& graph_logger) const;
 
 		// TODO unify dependency terminology to this
-		void add_dependency(abstract_command* depender, abstract_command* dependee, bool is_anti = false) {
+		void add_dependency(abstract_command* depender, abstract_command* dependee, dependency_kind kind = dependency_kind::TRUE) {
 			assert(depender->get_nid() == dependee->get_nid()); // We cannot depend on commands executed on another node!
 			assert(dependee != depender);
-			depender->add_dependency({dependee, is_anti});
+			depender->add_dependency({dependee, kind});
 			execution_fronts[depender->get_nid()].erase(dependee);
 			max_pseudo_critical_path_length = std::max(max_pseudo_critical_path_length, depender->get_pseudo_critical_path_length());
 		}

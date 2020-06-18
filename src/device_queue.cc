@@ -7,7 +7,7 @@
 namespace celerity {
 namespace detail {
 
-	void device_queue::init(config& cfg, cl::sycl::device* user_device) {
+	void device_queue::init(const config& cfg, cl::sycl::device* user_device) {
 		assert(sycl_queue == nullptr);
 		const auto forced_wg_size_cfg = cfg.get_forced_work_group_size();
 		forced_work_group_size = forced_wg_size_cfg != std::nullopt ? *forced_wg_size_cfg : 0;
@@ -26,7 +26,7 @@ namespace detail {
 		sycl_queue = std::make_unique<cl::sycl::queue>(device, handle_exceptions, props);
 	}
 
-	cl::sycl::device device_queue::pick_device(config& cfg, cl::sycl::device* user_device) const {
+	cl::sycl::device device_queue::pick_device(const config& cfg, cl::sycl::device* user_device) const {
 		cl::sycl::device device;
 		std::string how_selected = "automatically selected";
 		if(user_device != nullptr) {

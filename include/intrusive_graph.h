@@ -9,12 +9,18 @@
 namespace celerity {
 namespace detail {
 
+	enum class dependency_kind {
+		ANTI = 0,  // Data anti-dependency, can be resolved by duplicating buffers
+		ORDER = 1, // Order pseudo-depencency, introduced by collective host task groups
+		TRUE = 2,  // True data flow dependency
+	};
+
 	template <typename T>
 	class intrusive_graph_node {
 	  public:
 		struct dependency {
 			T* node;
-			bool is_anti;
+			dependency_kind kind;
 		};
 
 		using dependent = dependency;
@@ -22,7 +28,8 @@ namespace detail {
 	  public:
 		intrusive_graph_node() { static_assert(std::is_base_of<intrusive_graph_node<T>, T>::value, "T must be child class (CRTP)"); }
 
-		virtual ~intrusive_graph_node() {
+	  protected:
+		~intrusive_graph_node() { // protected: Statically disallow destruction through base pointer, since dtor is not polymorphic
 			for(auto& dep : dependents) {
 				auto dep_it_end = static_cast<intrusive_graph_node*>(dep.node)->dependencies.end();
 				auto this_it =
@@ -40,6 +47,7 @@ namespace detail {
 			}
 		}
 
+	  public:
 		void add_dependency(dependency dep) {
 			// Check for (direct) cycles
 			assert(!has_dependent(dep.node));
@@ -47,19 +55,19 @@ namespace detail {
 			auto it = maybe_get_dep(dependencies, dep.node);
 			if(it != std::nullopt) {
 				// Already exists, potentially upgrade to full dependency
-				if((*it)->is_anti && !dep.is_anti) {
-					(*it)->is_anti = false;
+				if((*it)->kind < dep.kind) {
+					(*it)->kind = dep.kind;
 					// In this case we also have to upgrade corresponding dependent within dependency
 					auto this_it = maybe_get_dep(dep.node->dependents, static_cast<T*>(this));
 					assert(this_it != std::nullopt);
-					assert((*this_it)->is_anti);
-					(*this_it)->is_anti = false;
+					assert((*this_it)->kind != dep.kind);
+					(*this_it)->kind = dep.kind;
 				}
 				return;
 			}
 
 			dependencies.emplace_back(dep);
-			dep.node->dependents.emplace_back(dependent{static_cast<T*>(this), dep.is_anti});
+			dep.node->dependents.emplace_back(dependent{static_cast<T*>(this), dep.kind});
 
 			pseudo_critical_path_length = std::max(pseudo_critical_path_length, static_cast<intrusive_graph_node*>(dep.node)->pseudo_critical_path_length + 1);
 		}
@@ -77,16 +85,16 @@ namespace detail {
 			}
 		}
 
-		bool has_dependency(T* node, std::optional<bool> is_anti = std::nullopt) {
+		bool has_dependency(T* node, std::optional<dependency_kind> kind = std::nullopt) {
 			auto result = maybe_get_dep(dependencies, node);
 			if(result == std::nullopt) return false;
-			return is_anti != std::nullopt ? (*result)->is_anti == is_anti : true;
+			return kind != std::nullopt ? (*result)->kind == kind : true;
 		}
 
-		bool has_dependent(T* node, std::optional<bool> is_anti = std::nullopt) {
+		bool has_dependent(T* node, std::optional<dependency_kind> kind = std::nullopt) {
 			auto result = maybe_get_dep(dependents, node);
 			if(result == std::nullopt) return false;
-			return is_anti != std::nullopt ? (*result)->is_anti == is_anti : true;
+			return kind != std::nullopt ? (*result)->kind == kind : true;
 		}
 
 		auto get_dependencies() const { return boost::make_iterator_range(dependencies.cbegin(), dependencies.cend()); }

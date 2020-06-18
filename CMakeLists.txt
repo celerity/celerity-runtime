@@ -127,7 +127,7 @@ add_sycl_to_target(
 if(MSVC)
   target_compile_options(celerity_runtime PRIVATE /MP /W3 /D_CRT_SECURE_NO_WARNINGS)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter)
+  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self)
 endif()
 
 if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
@@ -152,6 +152,15 @@ if(CELERITY_BUILD_EXAMPLES)
     TARGET convolution matmul syncing wave_sim
     PROPERTY FOLDER "examples"
   )
+
+  find_package(PkgConfig)
+  if (PkgConfig_FOUND)
+	pkg_check_modules(HDF5 IMPORTED_TARGET hdf5-1.12.0)
+	if(HDF5_FOUND)
+      add_subdirectory(examples/distr_io)
+      set_property(TARGET distr_io PROPERTY FOLDER "examples")
+    endif()
+  endif()
 endif()
 
 # Tests

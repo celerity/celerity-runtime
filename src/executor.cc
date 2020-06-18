@@ -22,8 +22,8 @@ namespace detail {
 		running = false;
 	}
 
-	executor::executor(device_queue& queue, task_manager& tm, std::shared_ptr<logger> execution_logger)
-	    : queue(queue), task_mngr(tm), execution_logger(execution_logger) {
+	executor::executor(host_queue& h_queue, device_queue& d_queue, task_manager& tm, std::shared_ptr<logger> execution_logger)
+	    : h_queue(h_queue), d_queue(d_queue), task_mngr(tm), execution_logger(execution_logger) {
 		btm = std::make_unique<buffer_transfer_manager>(execution_logger);
 		metrics.initial_idle.resume();
 	}
@@ -34,7 +34,7 @@ namespace detail {
 		if(exec_thrd.joinable()) { exec_thrd.join(); }
 
 		execution_logger->trace(logger_map{{"initialIdleTime", std::to_string(metrics.initial_idle.get().count())}});
-		execution_logger->trace(logger_map{{"computeIdleTime", std::to_string(metrics.compute_idle.get().count())}});
+		execution_logger->trace(logger_map{{"computeIdleTime", std::to_string(metrics.device_idle.get().count())}});
 		execution_logger->trace(logger_map{{"starvationTime", std::to_string(metrics.starvation.get().count())}});
 	}
 
@@ -88,7 +88,7 @@ namespace detail {
 						jobs[d].unsatisfied_dependencies--;
 						if(jobs[d].unsatisfied_dependencies == 0) { ready_jobs.push_back(d); }
 					}
-					job_count_by_cmd[job_handle.cmd]--;
+					if(isa<device_execute_job>(job_handle.job.get())) { running_device_compute_jobs--; }
 					it = jobs.erase(it);
 				}
 			}
@@ -100,9 +100,10 @@ namespace detail {
 				std::sort(ready_jobs.begin(), ready_jobs.end(),
 				    [this](command_id a, command_id b) { return jobs[a].cmd == command_type::PUSH && jobs[b].cmd != command_type::PUSH; });
 				for(command_id cid : ready_jobs) {
-					jobs[cid].job->start();
-					jobs[cid].job->update();
-					job_count_by_cmd[jobs[cid].cmd]++;
+					auto* job = jobs.at(cid).job.get();
+					job->start();
+					job->update();
+					if(isa<device_execute_job>(job)) { running_device_compute_jobs++; }
 				}
 			}
 
@@ -124,7 +125,7 @@ namespace detail {
 
 				if(!first_command_received) {
 					metrics.initial_idle.pause();
-					metrics.compute_idle.resume();
+					metrics.device_idle.resume();
 					first_command_received = true;
 				}
 			}
@@ -145,11 +146,7 @@ namespace detail {
 			if(first_command_received) { update_metrics(); }
 		}
 
-#ifndef NDEBUG
-		for(const auto it : job_count_by_cmd) {
-			assert(it.second == 0);
-		}
-#endif
+		assert(running_device_compute_jobs == 0);
 	}
 
 	void executor::handle_command(const command_pkg& pkg, const std::vector<command_id>& dependencies) {
@@ -157,19 +154,27 @@ namespace detail {
 		case command_type::HORIZON: create_job<horizon_job>(pkg, dependencies); break;
 		case command_type::PUSH: create_job<push_job>(pkg, dependencies, *btm); break;
 		case command_type::AWAIT_PUSH: create_job<await_push_job>(pkg, dependencies, *btm); break;
-		case command_type::COMPUTE: create_job<compute_job>(pkg, dependencies, queue, task_mngr); break;
-		case command_type::MASTER_ACCESS: create_job<master_access_job>(pkg, dependencies, task_mngr); break;
-		default: {
-			assert(false && "Unexpected command");
+		case command_type::TASK: {
+			const auto& data = std::get<task_data>(pkg.data);
+			auto tsk = task_mngr.get_task(data.tid);
+			if(tsk->get_execution_target() == execution_target::HOST) {
+				create_job<host_execute_job>(pkg, dependencies, h_queue, task_mngr);
+				break;
+			} else {
+				create_job<device_execute_job>(pkg, dependencies, d_queue, task_mngr);
+				break;
+			}
+			break;
 		}
+		default: assert(!"Unexpected command");
 		}
 	}
 
 	void executor::update_metrics() {
-		if(job_count_by_cmd[command_type::COMPUTE] == 0) {
-			if(!metrics.compute_idle.is_running()) { metrics.compute_idle.resume(); }
+		if(running_device_compute_jobs == 0) {
+			if(!metrics.device_idle.is_running()) { metrics.device_idle.resume(); }
 		} else {
-			if(metrics.compute_idle.is_running()) { metrics.compute_idle.pause(); }
+			if(metrics.device_idle.is_running()) { metrics.device_idle.pause(); }
 		}
 		if(jobs.empty()) {
 			if(!metrics.starvation.is_running()) { metrics.starvation.resume(); }

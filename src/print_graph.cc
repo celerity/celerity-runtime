@@ -21,11 +21,22 @@
 namespace celerity {
 namespace detail {
 
+	const char* dependency_style(dependency_kind kind) {
+		switch(kind) {
+		case dependency_kind::ORDER: return "color=blue"; break;
+		case dependency_kind::ANTI: return "color=limegreen"; break;
+		default: return "";
+		}
+	}
+
 	std::string get_task_label(const task* tsk) {
 		switch(tsk->get_type()) {
-		case task_type::COMPUTE: return fmt::format("Task {} ({})", tsk->get_id(), static_cast<const compute_task*>(tsk)->get_debug_name());
-		case task_type::MASTER_ACCESS: return fmt::format("Task {} (master-access)", tsk->get_id());
-		default: return fmt::format("Task {} (UNKNOWN)");
+		case task_type::NOP: return fmt::format("Task {} (nop)", tsk->get_id());
+		case task_type::HOST_COMPUTE: return fmt::format("Task {} (host-compute)", tsk->get_id());
+		case task_type::DEVICE_COMPUTE: return fmt::format("Task {} ({})", tsk->get_id(), tsk->get_debug_name());
+		case task_type::COLLECTIVE: return fmt::format("Task {} (collective #{})", tsk->get_id(), static_cast<size_t>(tsk->get_collective_group_id()));
+		case task_type::MASTER_NODE: return fmt::format("Task {} (master-node)", tsk->get_id());
+		default: assert(false); return fmt::format("Task {} (unknown)", tsk->get_id());
 		}
 	}
 
@@ -49,7 +60,7 @@ namespace detail {
 
 			for(auto d : tsk->get_dependencies()) {
 				if(d.node->get_id() == 0) continue; // Skip INIT task
-				ss << fmt::format("{} -> {}{};", d.node->get_id(), tsk->get_id(), d.is_anti ? " [color=limegreen]" : "");
+				ss << fmt::format("{} -> {} [{}];", d.node->get_id(), tsk->get_id(), dependency_style(d.kind));
 			}
 		}
 
@@ -62,23 +73,19 @@ namespace detail {
 
 	std::string get_command_label(const abstract_command* cmd) {
 		const std::string label = fmt::format("[{}] Node {}:\\n", cmd->get_cid(), cmd->get_nid());
-		if(isa<compute_command>(cmd)) {
+		if(const auto tcmd = dynamic_cast<const task_command*>(cmd)) {
+			return label + fmt::format("TASK {}\\n{}", subrange_to_grid_box(tcmd->get_execution_range()), cmd->debug_label);
+		} else if(const auto pcmd = dynamic_cast<const push_command*>(cmd)) {
+			return label + fmt::format("PUSH {} to {}\\n {}", pcmd->get_bid(), pcmd->get_target(), subrange_to_grid_box(pcmd->get_range()));
+		} else if(const auto apcmd = dynamic_cast<const await_push_command*>(cmd)) {
 			return label
-			       + fmt::format("COMPUTE {}\\n{}", subrange_to_grid_box(static_cast<const compute_command*>(cmd)->get_execution_range()), cmd->debug_label);
+			       + fmt::format("AWAIT PUSH {} from {}\\n {}", apcmd->get_source()->get_bid(), apcmd->get_source()->get_nid(),
+			           subrange_to_grid_box(apcmd->get_source()->get_range()));
+		} else if(const auto hcmd = dynamic_cast<const horizon_command*>(cmd)) {
+			return label + "HORIZON";
+		} else {
+			return fmt::format("[{}] UNKNOWN\\n{}", cmd->get_cid(), cmd->debug_label);
 		}
-		if(isa<master_access_command>(cmd)) { return label + "MASTER ACCESS\\n" + cmd->debug_label; }
-		if(isa<push_command>(cmd)) {
-			const auto push = static_cast<const push_command*>(cmd);
-			return label + fmt::format("PUSH {} to {}\\n {}", push->get_bid(), push->get_target(), subrange_to_grid_box(push->get_range()));
-		}
-		if(isa<await_push_command>(cmd)) {
-			const auto await_push = static_cast<const await_push_command*>(cmd);
-			return label
-			       + fmt::format("AWAIT PUSH {} from {}\\n {}", await_push->get_source()->get_bid(), await_push->get_source()->get_nid(),
-			           subrange_to_grid_box(await_push->get_source()->get_range()));
-		}
-		if(isa<horizon_command>(cmd)) { return label + "HORIZON"; }
-		return fmt::format("[{}] UNKNOWN\\n{}", cmd->get_cid(), cmd->debug_label);
 	}
 
 	void print_graph(const command_graph& cdag, logger& graph_logger) {
@@ -91,7 +98,7 @@ namespace detail {
 			std::unordered_map<std::string, std::string> props;
 			props["label"] = boost::escape_dot_string(get_command_label(cmd));
 			props["fontcolor"] = colors[cmd->get_nid() % (sizeof(colors) / sizeof(char*))];
-			if(isa<compute_command>(cmd)) { props["shape"] = "box"; }
+			if(isa<task_command>(cmd)) { props["shape"] = "box"; }
 
 			out << cmd->get_cid();
 			out << "[";
@@ -117,7 +124,7 @@ namespace detail {
 
 			for(auto d : cmd->get_dependencies()) {
 				if(isa<nop_command>(d.node)) continue;
-				main_ss << fmt::format("{} -> {}{};", d.node->get_cid(), cmd->get_cid(), d.is_anti ? " [color=limegreen]" : "");
+				main_ss << fmt::format("{} -> {} [{}];", d.node->get_cid(), cmd->get_cid(), dependency_style(d.kind));
 			}
 
 			// Add a dashed line to the corresponding PUSH

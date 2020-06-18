@@ -17,9 +17,9 @@ int main(int argc, char* argv[]) {
 		cgh.parallel_for<class mat_mul>(cl::sycl::range<1>(N), [=](cl::sycl::item<1> item) { b[item] = item.get_linear_id(); });
 	});
 
-	q.with_master_access([&](handler& cgh) {
-		auto b = buff.get_access<cl::sycl::access::mode::read>(cgh, buff.get_range());
-		cgh.run([&]() {
+	q.submit(celerity::allow_by_ref, [=, &host_buff](handler& cgh) {
+		auto b = buff.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, access::fixed<1>({0, N}));
+		cgh.host_task(on_master_node, [=, &host_buff] {
 			std::this_thread::sleep_for(std::chrono::milliseconds(10)); // give the synchronization more time to fail
 			for(int i = 0; i < N; i++) {
 				host_buff[i] = b[i];

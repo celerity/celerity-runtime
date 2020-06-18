@@ -8,6 +8,7 @@ namespace detail {
 #define MAKE_ARRAY_CAST_FN(name, default_value, out_type)                                                                                                      \
 	template <int DimsOut, template <int> class InType, int DimsIn>                                                                                            \
 	out_type<DimsOut> name(const InType<DimsIn>& other) {                                                                                                      \
+		static_assert(DimsOut > 0 && DimsOut < 4, "SYCL only supports 1, 2, or 3 dimensions for range / id");                                                  \
 		out_type<DimsOut> result;                                                                                                                              \
 		for(int o = 0; o < DimsOut; ++o) {                                                                                                                     \
 			result[o] = o < DimsIn ? other[o] : default_value;                                                                                                 \
@@ -41,6 +42,8 @@ namespace detail {
 
 template <int Dims>
 struct chunk {
+	static_assert(Dims > 0);
+
 	static constexpr int dims = Dims;
 
 	cl::sycl::id<Dims> offset;
@@ -58,6 +61,8 @@ struct chunk {
 
 template <int Dims>
 struct subrange {
+	static_assert(Dims > 0);
+
 	static constexpr int dims = Dims;
 
 	cl::sycl::id<Dims> offset;

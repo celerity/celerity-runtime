@@ -1,5 +1,8 @@
 #pragma once
 
+#include <boost/container_hash/hash.hpp>
+
+
 namespace celerity {
 namespace detail {
 
@@ -37,9 +40,16 @@ namespace detail {
 		struct hash<celerity::detail::TypeName> {                                                                                                              \
 			std::size_t operator()(const celerity::detail::TypeName& t) const noexcept { return std::hash<UnderlyingT>{}(static_cast<UnderlyingT>(t)); }       \
 		};                                                                                                                                                     \
+	}                                                                                                                                                          \
+	namespace boost {                                                                                                                                          \
+		template <>                                                                                                                                            \
+		struct hash<celerity::detail::TypeName> {                                                                                                              \
+			std::size_t operator()(const celerity::detail::TypeName& t) const noexcept { return std::hash<UnderlyingT>{}(static_cast<UnderlyingT>(t)); }       \
+		};                                                                                                                                                     \
 	}
 
 MAKE_PHANTOM_TYPE(task_id, size_t)
 MAKE_PHANTOM_TYPE(buffer_id, size_t)
 MAKE_PHANTOM_TYPE(node_id, size_t)
 MAKE_PHANTOM_TYPE(command_id, size_t)
+MAKE_PHANTOM_TYPE(collective_group_id, size_t)

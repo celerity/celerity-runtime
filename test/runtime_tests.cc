@@ -18,6 +18,7 @@ namespace celerity {
 namespace detail {
 
 	using celerity::access::all;
+	using celerity::access::even_split;
 	using celerity::access::fixed;
 	using celerity::access::neighborhood;
 	using celerity::access::one_to_one;
@@ -75,10 +76,10 @@ namespace detail {
 		auto& tm = runtime::get_instance().get_task_manager();
 		const auto tid = test_utils::add_compute_task<class get_access_const>(
 		    tm, [buf_a /* capture by value */](handler& cgh) { buf_a.get_access<cl::sycl::access::mode::read>(cgh, one_to_one<2>()); }, buf_a.get_range());
-		const auto ctsk = std::static_pointer_cast<const compute_task>(tm.get_task(tid));
-		const auto bufs = ctsk->get_accessed_buffers();
+		const auto tsk = tm.get_task(tid);
+		const auto bufs = tsk->get_buffer_access_map().get_accessed_buffers();
 		REQUIRE(bufs.size() == 1);
-		REQUIRE(ctsk->get_access_modes(0).count(cl::sycl::access::mode::read) == 1);
+		REQUIRE(tsk->get_buffer_access_map().get_access_modes(0).count(cl::sycl::access::mode::read) == 1);
 	}
 
 	TEST_CASE("region_map correctly handles region updates", "[region_map]") {
@@ -241,18 +242,65 @@ namespace detail {
 		}
 	}
 
+	TEST_CASE("even_split built-in range mapper behaves as expected", "[range-mapper]") {
+		{
+			range_mapper<1, 3> rm(even_split<3>(), cl::sycl::access::mode::read, {128, 345, 678});
+			auto sr = rm.map_3({{0}, {1}, {8}});
+			REQUIRE(sr.offset == cl::sycl::id<3>{0, 0, 0});
+			REQUIRE(sr.range == cl::sycl::range<3>{16, 345, 678});
+		}
+		{
+			range_mapper<1, 3> rm(even_split<3>(), cl::sycl::access::mode::read, {128, 345, 678});
+			auto sr = rm.map_3({{4}, {2}, {8}});
+			REQUIRE(sr.offset == cl::sycl::id<3>{64, 0, 0});
+			REQUIRE(sr.range == cl::sycl::range<3>{32, 345, 678});
+		}
+		{
+			range_mapper<1, 3> rm(even_split<3>(), cl::sycl::access::mode::read, {131, 992, 613});
+			auto sr = rm.map_3({{5}, {2}, {7}});
+			REQUIRE(sr.offset == cl::sycl::id<3>{95, 0, 0});
+			REQUIRE(sr.range == cl::sycl::range<3>{36, 992, 613});
+		}
+		{
+			range_mapper<1, 3> rm(even_split<3>(cl::sycl::range<3>(10, 1, 1)), cl::sycl::access::mode::read, {128, 345, 678});
+			auto sr = rm.map_3({{0}, {1}, {8}});
+			REQUIRE(sr.offset == cl::sycl::id<3>{0, 0, 0});
+			REQUIRE(sr.range == cl::sycl::range<3>{20, 345, 678});
+		}
+		{
+			range_mapper<1, 3> rm(even_split<3>(cl::sycl::range<3>(10, 1, 1)), cl::sycl::access::mode::read, {131, 992, 613});
+			auto sr = rm.map_3({{0}, {1}, {7}});
+			REQUIRE(sr.offset == cl::sycl::id<3>{0, 0, 0});
+			REQUIRE(sr.range == cl::sycl::range<3>{20, 992, 613});
+		}
+		{
+			range_mapper<1, 3> rm(even_split<3>(cl::sycl::range<3>(10, 1, 1)), cl::sycl::access::mode::read, {131, 992, 613});
+			auto sr = rm.map_3({{5}, {2}, {7}});
+			REQUIRE(sr.offset == cl::sycl::id<3>{100, 0, 0});
+			REQUIRE(sr.range == cl::sycl::range<3>{31, 992, 613});
+		}
+		{
+			range_mapper<1, 3> rm(even_split<3>(cl::sycl::range<3>(10, 1, 1)), cl::sycl::access::mode::read, {236, 992, 613});
+			auto sr = rm.map_3({{6}, {1}, {7}});
+			REQUIRE(sr.offset == cl::sycl::id<3>{200, 0, 0});
+			REQUIRE(sr.range == cl::sycl::range<3>{36, 992, 613});
+		}
+	}
+
 	TEST_CASE("task_manager invokes callback upon task creation", "[task_manager]") {
-		task_manager tm{true};
+		task_manager tm{1, nullptr, true};
 		size_t call_counter = 0;
 		tm.register_task_callback([&call_counter](task_id) { call_counter++; });
-		tm.create_compute_task([](handler& cgh) {});
+		cl::sycl::range<2> gs = {1, 1};
+		cl::sycl::id<2> go = {};
+		tm.create_task([=](handler& cgh) { cgh.parallel_for<class kernel>(gs, go, [](auto) {}); });
 		REQUIRE(call_counter == 1);
-		tm.create_master_access_task([](handler& cgh) {});
+		tm.create_task([](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
 		REQUIRE(call_counter == 2);
 	}
 
-	TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][compute_task]") {
-		task_manager tm{true};
+	TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][device_compute_task]") {
+		task_manager tm{1, nullptr, true};
 		test_utils::mock_buffer_factory mbf(&tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<2>(64, 152));
 		auto buf_b = mbf.create_buffer(cl::sycl::range<3>(7, 21, 99));
@@ -264,88 +312,40 @@ namespace detail {
 		    },
 		    cl::sycl::range<2>{32, 128}, cl::sycl::id<2>{32, 24});
 		const auto tsk = tm.get_task(tid);
-		REQUIRE(tsk->get_type() == task_type::COMPUTE);
-		const auto ctsk = dynamic_cast<const compute_task*>(tsk.get());
-		REQUIRE(ctsk->get_dimensions() == 2);
-		REQUIRE(ctsk->get_global_size() == cl::sycl::range<3>{32, 128, 1});
-		REQUIRE(ctsk->get_global_offset() == cl::sycl::id<3>{32, 24, 0});
+		REQUIRE(tsk->get_type() == task_type::DEVICE_COMPUTE);
+		REQUIRE(tsk->get_dimensions() == 2);
+		REQUIRE(tsk->get_global_size() == cl::sycl::range<3>{32, 128, 1});
+		REQUIRE(tsk->get_global_offset() == cl::sycl::id<3>{32, 24, 0});
 
-		const auto bufs = ctsk->get_accessed_buffers();
+		auto& bam = tsk->get_buffer_access_map();
+		const auto bufs = bam.get_accessed_buffers();
 		REQUIRE(bufs.size() == 2);
 		REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_a.get_id()) != bufs.cend());
 		REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_b.get_id()) != bufs.cend());
-		REQUIRE(ctsk->get_access_modes(buf_a.get_id()).count(cl::sycl::access::mode::read) == 1);
-		REQUIRE(ctsk->get_access_modes(buf_b.get_id()).count(cl::sycl::access::mode::discard_read_write) == 1);
-		const auto reqs_a = ctsk->get_requirements(buf_a.get_id(), cl::sycl::access::mode::read, {ctsk->get_global_offset(), ctsk->get_global_size()});
+		REQUIRE(bam.get_access_modes(buf_a.get_id()).count(cl::sycl::access::mode::read) == 1);
+		REQUIRE(bam.get_access_modes(buf_b.get_id()).count(cl::sycl::access::mode::discard_read_write) == 1);
+		const auto reqs_a = bam.get_requirements_for_access(
+		    buf_a.get_id(), cl::sycl::access::mode::read, {tsk->get_global_offset(), tsk->get_global_size()}, tsk->get_global_size());
 		REQUIRE(reqs_a == subrange_to_grid_box(subrange<3>({32, 24, 0}, {32, 128, 1})));
-		const auto reqs_b =
-		    ctsk->get_requirements(buf_b.get_id(), cl::sycl::access::mode::discard_read_write, {ctsk->get_global_offset(), ctsk->get_global_size()});
+		const auto reqs_b = bam.get_requirements_for_access(
+		    buf_b.get_id(), cl::sycl::access::mode::discard_read_write, {tsk->get_global_offset(), tsk->get_global_size()}, tsk->get_global_size());
 		REQUIRE(reqs_b == subrange_to_grid_box(subrange<3>({}, {5, 18, 74})));
 	}
 
-	TEST_CASE("compute_task merges multiple accesses with the same mode", "[task][compute_task]") {
-		auto ctsk = std::make_unique<compute_task>(0, nullptr);
-		ctsk->set_dimensions(2);
-		ctsk->add_range_mapper(
+	TEST_CASE("buffer_access_map merges multiple accesses with the same mode", "[task][device_compute_task]") {
+		buffer_access_map bam;
+		bam.add_access(
 		    0, std::make_unique<range_mapper<2, 2>>(fixed<2, 2>(subrange<2>({3, 0}, {10, 20})), cl::sycl::access::mode::read, cl::sycl::range<2>{30, 30}));
-		ctsk->add_range_mapper(
+		bam.add_access(
 		    0, std::make_unique<range_mapper<2, 2>>(fixed<2, 2>(subrange<2>({10, 0}, {7, 20})), cl::sycl::access::mode::read, cl::sycl::range<2>{30, 30}));
-		const auto req = ctsk->get_requirements(0, cl::sycl::access::mode::read, subrange<3>({0, 0, 0}, {100, 100, 1}));
-		REQUIRE(req == subrange_to_grid_box(subrange<3>({3, 0, 0}, {14, 20, 1})));
-	}
-
-	TEST_CASE("task_manager correctly records master access task information", "[task_manager][task][master_access_task]") {
-		task_manager tm{true};
-		test_utils::mock_buffer_factory mbf(&tm);
-		auto buf_a = mbf.create_buffer(cl::sycl::range<3>(45, 90, 160));
-		auto buf_b = mbf.create_buffer(cl::sycl::range<3>(5, 30, 100));
-
-		const auto tid = test_utils::add_master_access_task(tm, [&](handler& cgh) {
-			buf_a.get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<3>{32, 48, 96}, cl::sycl::id<3>{4, 8, 16});
-			buf_a.get_access<cl::sycl::access::mode::write>(cgh, cl::sycl::range<3>{21, 84, 75}, cl::sycl::id<3>{9, 2, 44});
-			buf_b.get_access<cl::sycl::access::mode::discard_write>(cgh, cl::sycl::range<3>{1, 7, 19}, cl::sycl::id<3>{0, 3, 8});
-			cgh.run([]() {});
-		});
-		const auto tsk = tm.get_task(tid);
-		REQUIRE(tsk->get_type() == task_type::MASTER_ACCESS);
-		const auto matsk = dynamic_cast<const master_access_task*>(tsk.get());
-
-		const auto bufs = matsk->get_accessed_buffers();
-		REQUIRE(bufs.size() == 2);
-		REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_a.get_id()) != bufs.cend());
-		REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_b.get_id()) != bufs.cend());
-		REQUIRE(matsk->get_access_modes(buf_a.get_id()).count(cl::sycl::access::mode::read) == 1);
-		REQUIRE(matsk->get_access_modes(buf_a.get_id()).count(cl::sycl::access::mode::write) == 1);
-		REQUIRE(matsk->get_access_modes(buf_b.get_id()).count(cl::sycl::access::mode::discard_write) == 1);
-
-		const auto reqs_a_r = matsk->get_requirements(buf_a.get_id(), cl::sycl::access::mode::read);
-		REQUIRE(reqs_a_r == subrange_to_grid_box(subrange<3>({4, 8, 16}, {32, 48, 96})));
-		const auto reqs_a_w = matsk->get_requirements(buf_a.get_id(), cl::sycl::access::mode::write);
-		REQUIRE(reqs_a_w == subrange_to_grid_box(subrange<3>({9, 2, 44}, {21, 84, 75})));
-		const auto reqs_b_dw = matsk->get_requirements(buf_b.get_id(), cl::sycl::access::mode::discard_write);
-		REQUIRE(reqs_b_dw == subrange_to_grid_box(subrange<3>({0, 3, 8}, {1, 7, 19})));
-	}
-
-	TEST_CASE("master_access_task merges multiple accesses with the same mode", "[task][master_access_task]") {
-		auto matsk = std::make_unique<master_access_task>(0, nullptr);
-		matsk->add_buffer_access(0, cl::sycl::access::mode::read, subrange<2>({3, 0}, {10, 20}));
-		matsk->add_buffer_access(0, cl::sycl::access::mode::read, subrange<2>({10, 0}, {7, 20}));
-		const auto req = matsk->get_requirements(0, cl::sycl::access::mode::read);
+		const auto req = bam.get_requirements_for_access(0, cl::sycl::access::mode::read, subrange<3>({0, 0, 0}, {100, 100, 1}), {100, 100, 1});
 		REQUIRE(req == subrange_to_grid_box(subrange<3>({3, 0, 0}, {14, 20, 1})));
 	}
 
 	TEST_CASE("tasks gracefully handle get_requirements() calls for buffers they don't access", "[task]") {
-		{
-			auto ctsk = std::make_unique<compute_task>(0, nullptr);
-			ctsk->set_dimensions(1);
-			const auto req = ctsk->get_requirements(0, cl::sycl::access::mode::read, subrange<3>({0, 0, 0}, {100, 1, 1}));
-			REQUIRE(req == subrange_to_grid_box(subrange<3>({0, 0, 0}, {0, 0, 0})));
-		}
-		{
-			auto matsk = std::make_unique<master_access_task>(0, nullptr);
-			const auto req = matsk->get_requirements(0, cl::sycl::access::mode::read);
-			REQUIRE(req == subrange_to_grid_box(subrange<3>({0, 0, 0}, {0, 0, 0})));
-		}
+		buffer_access_map bam;
+		const auto req = bam.get_requirements_for_access(0, cl::sycl::access::mode::read, subrange<3>({0, 0, 0}, {100, 1, 1}), {100, 1, 1});
+		REQUIRE(req == subrange_to_grid_box(subrange<3>({0, 0, 0}, {0, 0, 0})));
 	}
 
 	TEST_CASE("safe command group functions must not capture by reference", "[lifetime][dx]") {
@@ -368,9 +368,10 @@ namespace detail {
 			cgh.parallel_for<class sync_test>(cl::sycl::range<1>(N), [=](cl::sycl::item<1> item) { b[item] = item.get_linear_id(); });
 		});
 
-		q.with_master_access([&](handler& cgh) {
-			auto b = buff.get_access<cl::sycl::access::mode::read>(cgh, buff.get_range());
-			cgh.run([&]() {
+		q.submit(allow_by_ref, [&](handler& cgh) {
+			auto b =
+			    buff.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::fixed<1>{{{}, buff.get_range()}});
+			cgh.host_task(on_master_node, [=, &host_buff] {
 				std::this_thread::sleep_for(std::chrono::milliseconds(10)); // give the synchronization more time to fail
 				for(int i = 0; i < N; i++) {
 					host_buff[i] = b[i];
@@ -616,7 +617,7 @@ namespace detail {
 		    buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
 			auto buf_info = bm->get_host_buffer<DataT, Dims>(bid, Mode, range_cast<3>(range), id_cast<3>(offset));
 			return detail::make_host_accessor<DataT, Dims, Mode>(
-			    range, offset, buf_info.buffer, buf_info.offset, range_cast<Dims>(bm->get_buffer_info(bid).range));
+			    subrange<Dims>(offset, range), buf_info.buffer, buf_info.offset, range_cast<Dims>(bm->get_buffer_info(bid).range));
 		}
 
 	  private:
@@ -1500,28 +1501,6 @@ namespace detail {
 		REQUIRE(acc[0] == 4096);
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "host accessor supports querying size, count, range and offset", "[accessor]") {
-		auto& bm = get_buffer_manager();
-		auto bid = bm.register_buffer<size_t, 3>(cl::sycl::range<3>(128, 64, 32));
-
-		{
-			auto acc = get_host_accessor<size_t, 3, cl::sycl::access::mode::discard_write>(bid, {32, 16, 24}, {16, 16, 8});
-			REQUIRE(acc.get_size() == 32 * 16 * 24 * sizeof(size_t));
-			REQUIRE(acc.get_count() == 32 * 16 * 24);
-			REQUIRE(acc.get_range() == cl::sycl::range<3>{32, 16, 24});
-			REQUIRE(acc.get_offset() == cl::sycl::id<3>{16, 16, 8});
-		}
-
-		// This is completely independent from the backing buffer (which would still have the same size here):
-		{
-			auto acc = get_host_accessor<size_t, 3, cl::sycl::access::mode::discard_write>(bid, {2, 3, 4}, {18, 18, 12});
-			REQUIRE(acc.get_size() == 2 * 3 * 4 * sizeof(size_t));
-			REQUIRE(acc.get_count() == 2 * 3 * 4);
-			REQUIRE(acc.get_range() == cl::sycl::range<3>{2, 3, 4});
-			REQUIRE(acc.get_offset() == cl::sycl::id<3>{18, 18, 12});
-		}
-	}
-
 	TEST_CASE_METHOD(buffer_manager_fixture, "host accessor supports get_pointer", "[accessor]") {
 		auto& bm = get_buffer_manager();
 
@@ -1593,6 +1572,180 @@ namespace detail {
 
 		// Passing an offset is now also possible.
 		REQUIRE_NOTHROW(get_host_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(bid_b, {64, 64}, {32, 32}).get_pointer());
+	}
+
+	TEST_CASE("host accessor get_host_memory produces the correct memory layout", "[task]") {
+		distr_queue q;
+
+		std::vector<char> memory1d(10);
+		buffer<char, 1> buf1d(memory1d.data(), cl::sycl::range<1>(10));
+
+		q.submit([=](handler& cgh) {
+			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, all<1>());
+			cgh.host_task(on_master_node, [=](partition<0> part) {
+				auto [ptr, layout] = b.get_host_memory(part);
+				auto& dims = layout.get_dimensions();
+				REQUIRE(dims.size() == 1);
+				CHECK(dims[0].get_global_offset() == 0);
+				CHECK(dims[0].get_local_offset() == 0);
+				CHECK(dims[0].get_global_size() == 10);
+				CHECK(dims[0].get_local_size() >= 10);
+				CHECK(dims[0].get_extent() == 10);
+			});
+		});
+
+		q.submit([=](handler& cgh) {
+			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, one_to_one<1>());
+			cgh.host_task(cl::sycl::range<1>(6), cl::sycl::id<1>(2), [=](partition<1> part) {
+				auto [ptr, layout] = b.get_host_memory(part);
+				auto& dims = layout.get_dimensions();
+				REQUIRE(dims.size() == 1);
+				CHECK(dims[0].get_global_offset() == 2);
+				CHECK(dims[0].get_local_offset() <= 2);
+				CHECK(dims[0].get_global_size() == 10);
+				CHECK(dims[0].get_local_size() >= 6);
+				CHECK(dims[0].get_local_size() <= 10);
+				CHECK(dims[0].get_extent() == 6);
+			});
+		});
+
+		std::vector<char> memory2d(10 * 10);
+		buffer<char, 2> buf2d(memory2d.data(), cl::sycl::range<2>(10, 10));
+
+		q.submit([=](handler& cgh) {
+			auto b = buf2d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, one_to_one<2>());
+			cgh.host_task(cl::sycl::range<2>(5, 6), cl::sycl::id<2>(1, 2), [=](partition<2> part) {
+				auto [ptr, layout] = b.get_host_memory(part);
+				auto& dims = layout.get_dimensions();
+				REQUIRE(dims.size() == 2);
+				CHECK(dims[0].get_global_offset() == 1);
+				CHECK(dims[0].get_global_size() == 10);
+				CHECK(dims[0].get_local_offset() <= 1);
+				CHECK(dims[0].get_local_size() >= 6);
+				CHECK(dims[0].get_local_size() <= 10);
+				CHECK(dims[0].get_extent() == 5);
+				CHECK(dims[1].get_global_offset() == 2);
+				CHECK(dims[1].get_global_size() == 10);
+				CHECK(dims[1].get_extent() == 6);
+			});
+		});
+
+		std::vector<char> memory3d(10 * 10 * 10);
+		buffer<char, 3> buf3d(memory3d.data(), cl::sycl::range<3>(10, 10, 10));
+
+		q.submit([=](handler& cgh) {
+			auto b = buf3d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, one_to_one<3>());
+			cgh.host_task(cl::sycl::range<3>(5, 6, 7), cl::sycl::id<3>(1, 2, 3), [=](partition<3> part) {
+				auto [ptr, layout] = b.get_host_memory(part);
+				auto& dims = layout.get_dimensions();
+				REQUIRE(dims.size() == 3);
+				CHECK(dims[0].get_global_offset() == 1);
+				CHECK(dims[0].get_local_offset() <= 1);
+				CHECK(dims[0].get_global_size() == 10);
+				CHECK(dims[0].get_local_size() >= 5);
+				CHECK(dims[0].get_local_size() <= 10);
+				CHECK(dims[0].get_extent() == 5);
+				CHECK(dims[1].get_global_offset() == 2);
+				CHECK(dims[1].get_local_offset() <= 2);
+				CHECK(dims[1].get_global_size() == 10);
+				CHECK(dims[1].get_local_size() >= 6);
+				CHECK(dims[1].get_local_size() <= 10);
+				CHECK(dims[1].get_extent() == 6);
+				CHECK(dims[2].get_global_offset() == 3);
+				CHECK(dims[2].get_global_size() == 10);
+				CHECK(dims[2].get_extent() == 7);
+			});
+		});
+	}
+
+	TEST_CASE("collective host_task produces one item per rank", "[task]") {
+		distr_queue{}.submit([=](handler& cgh) {
+			cgh.host_task(experimental::collective, [=](partition<1> part) {
+				CHECK(part.get_global_size().size() == runtime::get_instance().get_num_nodes());
+				CHECK_NOTHROW(experimental::get_collective_mpi_comm(part));
+			});
+		});
+	}
+
+	TEST_CASE("collective host_task share MPI communicator & thread iff they are on the same collective_group", "[task]") {
+		std::thread::id default1_thread, default2_thread, primary1_thread, primary2_thread, secondary1_thread, secondary2_thread;
+		MPI_Comm default1_comm, default2_comm, primary1_comm, primary2_comm, secondary1_comm, secondary2_comm;
+
+		{
+			distr_queue q;
+			experimental::collective_group primary_group;
+			experimental::collective_group secondary_group;
+
+			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
+				cgh.host_task(cl::sycl::range<1>(1), [&](partition<1> part) { CHECK_THROWS(experimental::get_collective_mpi_comm(part)); });
+			});
+			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
+				cgh.host_task(experimental::collective, [&](partition<1> part) {
+					default1_thread = std::this_thread::get_id();
+					default1_comm = experimental::get_collective_mpi_comm(part);
+				});
+			});
+			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
+				cgh.host_task(experimental::collective(primary_group), [&](partition<1> part) {
+					primary1_thread = std::this_thread::get_id();
+					primary1_comm = experimental::get_collective_mpi_comm(part);
+				});
+			});
+			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
+				cgh.host_task(experimental::collective(secondary_group), [&](partition<1> part) {
+					secondary1_thread = std::this_thread::get_id();
+					secondary1_comm = experimental::get_collective_mpi_comm(part);
+				});
+			});
+			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
+				cgh.host_task(experimental::collective, [&](partition<1> part) {
+					default2_thread = std::this_thread::get_id();
+					default2_comm = experimental::get_collective_mpi_comm(part);
+				});
+			});
+			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
+				cgh.host_task(experimental::collective(primary_group), [&](partition<1> part) {
+					primary2_thread = std::this_thread::get_id();
+					primary2_comm = experimental::get_collective_mpi_comm(part);
+				});
+			});
+			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
+				cgh.host_task(experimental::collective(secondary_group), [&](partition<1> part) {
+					secondary2_thread = std::this_thread::get_id();
+					secondary2_comm = experimental::get_collective_mpi_comm(part);
+				});
+			});
+		}
+
+		CHECK(default1_thread == default2_thread);
+		CHECK(primary1_thread == primary2_thread);
+		CHECK(primary1_thread != default1_thread);
+		CHECK(secondary1_thread == secondary2_thread);
+		CHECK(secondary1_thread != default1_thread);
+		CHECK(secondary1_thread != primary1_thread);
+		CHECK(default1_comm == default2_comm);
+		CHECK(primary1_comm == primary2_comm);
+		CHECK(primary1_comm != default1_comm);
+		CHECK(secondary1_comm == secondary2_comm);
+		CHECK(secondary1_comm != default1_comm);
+		CHECK(secondary1_comm != primary1_comm);
+	}
+
+	TEST_CASE("accessors behave correctly for 0-dimensional master node kernels", "[accessor]") {
+		distr_queue q;
+		std::vector mem_a{42};
+		buffer<int, 1> buf_a(mem_a.data(), cl::sycl::range<1>{1});
+		q.submit([=](handler& cgh) {
+			auto a = buf_a.get_access<cl::sycl::access::mode::read_write, cl::sycl::access::target::host_buffer>(cgh, fixed<1>({0, 1}));
+			cgh.host_task(on_master_node, [=] { ++a[{0}]; });
+		});
+		int out = 0;
+		q.submit(celerity::allow_by_ref, [=, &out](handler& cgh) {
+			auto a = buf_a.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, fixed<1>({0, 1}));
+			cgh.host_task(on_master_node, [=, &out] { out = a[0]; });
+		});
+		q.slow_full_sync();
+		CHECK(out == 43);
 	}
 
 } // namespace detail

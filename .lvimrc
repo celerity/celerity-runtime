@@ -1,2 +1,4 @@
 set noet ts=4 sw=4
-let &makeprg='cd "$(git rev-parse --show-toplevel)/build" && cmake --build .'
+let &makeprg='cmake --build "$(git rev-parse --show-toplevel)/build"'
+cabbrev ctags !cd "$(git rev-parse --show-toplevel)" && ctags -R .
+

@@ -68,9 +68,9 @@ void update(celerity::distr_queue& queue, celerity::buffer<float, 2> up, celerit
 template <typename T>
 void store(celerity::distr_queue& queue, celerity::buffer<T, 2> up, std::vector<std::vector<float>>& result_frames) {
 	const auto range = up.get_range();
-	queue.with_master_access([=, &result_frames](celerity::handler& cgh) {
-		auto up_r = up.template get_access<cl::sycl::access::mode::read>(cgh, range);
-		cgh.run([&]() {
+	queue.submit(celerity::allow_by_ref, [=, &result_frames](celerity::handler& cgh) {
+		auto up_r = up.template get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::fixed<2>{{{}, range}});
+		cgh.host_task(celerity::on_master_node, [=, &result_frames] {
 			result_frames.emplace_back();
 			auto& frame = *result_frames.rbegin();
 			frame.resize(range.size());

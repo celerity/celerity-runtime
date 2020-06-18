@@ -4,12 +4,12 @@
 #include <limits>
 #include <memory>
 
-#include <ctpl.h>
 #include <mpi.h>
 
 #include "command.h"
 #include "config.h"
 #include "device_queue.h"
+#include "host_queue.h"
 #include "logger.h"
 #include "mpi_support.h"
 #include "types.h"
@@ -50,25 +50,19 @@ namespace detail {
 
 		void sync() noexcept;
 
-		bool is_master_node() { return is_master; }
+		bool is_master_node() const { return is_master; }
+
+		size_t get_num_nodes() const { return num_nodes; }
 
 		task_manager& get_task_manager() const;
 
-		device_queue& get_device_queue() const { return *queue; }
+		host_queue& get_host_queue() const { return *h_queue; }
+
+		device_queue& get_device_queue() const { return *d_queue; }
 
 		buffer_manager& get_buffer_manager() const;
 
 		std::shared_ptr<logger> get_logger() const { return default_logger; }
-
-		/**
-		 * @brief Executes the given functor \p fun in a thread pool.
-		 * @internal
-		 */
-		template <typename Functor>
-		auto execute_async_pooled(Functor&& fun) -> std::future<decltype(fun())> {
-			// Wrap inside lambda to get rid of mandatory thread id argument provided by CTPL
-			return thread_pool.push([fun](int id) { return fun(); });
-		}
 
 		/**
 		 * @brief Broadcasts the specified control command to all workers.
@@ -87,7 +81,8 @@ namespace detail {
 		bool is_shutting_down = false;
 
 		std::unique_ptr<config> cfg;
-		std::unique_ptr<device_queue> queue;
+		std::unique_ptr<host_queue> h_queue;
+		std::unique_ptr<device_queue> d_queue;
 		size_t num_nodes;
 		bool is_master;
 
@@ -105,9 +100,6 @@ namespace detail {
 		std::unique_ptr<buffer_manager> buffer_mngr;
 		std::unique_ptr<task_manager> task_mngr;
 		std::unique_ptr<executor> exec;
-
-		// TODO: What is a good size for this?
-		ctpl::thread_pool thread_pool{3};
 
 		struct flush_handle {
 			command_pkg pkg;

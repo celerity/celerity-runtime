@@ -100,10 +100,11 @@ int main(int argc, char* argv[]) {
 		});
 	});
 
-	queue.with_master_access([=](celerity::handler& cgh) {
-		auto out = image_output_buf.get_access<cl::sycl::access::mode::read>(cgh, cl::sycl::range<2>(image_height, image_width));
+	queue.submit([=](celerity::handler& cgh) {
+		auto out = image_output_buf.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(
+		    cgh, celerity::access::fixed<2>{{{}, cl::sycl::range<2>(image_height, image_width)}});
 
-		cgh.run([=]() {
+		cgh.host_task(celerity::on_master_node, [=] {
 			std::vector<uint8_t> image_output(image_width * image_height * 3);
 			for(size_t y = 0; y < static_cast<size_t>(image_height); ++y) {
 				for(size_t x = 0; x < static_cast<size_t>(image_width); ++x) {

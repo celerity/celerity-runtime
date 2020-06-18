@@ -5,11 +5,7 @@
 #include <CL/sycl.hpp>
 
 #include "config.h"
-#include "handler.h"
 #include "logger.h"
-#include "ranges.h"
-#include "task.h"
-#include "types.h"
 
 namespace celerity {
 namespace detail {
@@ -29,23 +25,21 @@ namespace detail {
 		 * @param cfg The configuration is used to select the appropriate SYCL device.
 		 * @param user_device Optionally a device can be provided, which will take precedence over any configuration.
 		 */
-		void init(config& cfg, cl::sycl::device* user_device);
+		void init(const config& cfg, cl::sycl::device* user_device);
 
 		/**
 		 * @brief Executes the kernel associated with task @p ctsk over the chunk @p chnk.
 		 */
-		cl::sycl::event execute(std::shared_ptr<const compute_task> ctsk, subrange<3> sr) const {
-			auto& cgf = ctsk->get_command_group();
-			return sycl_queue->submit([&cgf, ctsk, sr, this](cl::sycl::handler& sycl_handler) {
-				auto cgh = std::make_unique<compute_task_handler<false>>(ctsk, sr, &sycl_handler, forced_work_group_size);
-				cgf(*cgh);
-			});
+		template <typename Fn>
+		cl::sycl::event submit(Fn&& fn) {
+			// FIXME: Get rid of forced_work_group_size
+			return sycl_queue->submit([fn = std::forward<Fn>(fn), fwgs = forced_work_group_size](cl::sycl::handler& sycl_handler) { fn(sycl_handler, fwgs); });
 		}
 
 		/**
 		 * @brief Waits until all currently submitted operations have completed.
 		 */
-		void wait() const { sycl_queue->wait_and_throw(); }
+		void wait() { sycl_queue->wait_and_throw(); }
 
 		/**
 		 * @brief Returns whether device profiling is enabled.
@@ -64,7 +58,7 @@ namespace detail {
 		// FIXME: Get rid of this
 		size_t forced_work_group_size = 0;
 
-		cl::sycl::device pick_device(config& cfg, cl::sycl::device* user_device) const;
+		cl::sycl::device pick_device(const config& cfg, cl::sycl::device* user_device) const;
 		void handle_async_exceptions(cl::sycl::exception_list el) const;
 	};
 
