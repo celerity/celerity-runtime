@@ -185,13 +185,13 @@ namespace detail {
 
 		// Now we need to check various graph properties
 
-		auto cmds = inspector.get_commands(write_b_after_first_horizon, boost::none, boost::none);
+		auto cmds = inspector.get_commands(write_b_after_first_horizon, {}, {});
 		CHECK(cmds.size() == 1);
 		auto deps = inspector.get_dependencies(*cmds.cbegin());
 		CHECK(deps.size() == 1);
 
 		// check that the dependee is the first horizon
-		auto horizon_cmds = inspector.get_commands(boost::none, boost::none, command_type::HORIZON);
+		auto horizon_cmds = inspector.get_commands({}, {}, command_type::HORIZON);
 		CHECK(horizon_cmds.size() == 3);
 		CHECK(deps[0] == *horizon_cmds.cbegin());
 
@@ -242,7 +242,7 @@ namespace detail {
 		}
 
 		// check that all horizons were flushed
-		auto horizon_cmds = inspector.get_commands(boost::none, boost::none, command_type::HORIZON);
+		auto horizon_cmds = inspector.get_commands({}, {}, command_type::HORIZON);
 		CHECK(horizon_cmds.size() == 4);
 
 		maybe_print_graphs(ctx);
