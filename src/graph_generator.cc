@@ -329,7 +329,7 @@ namespace detail {
 						return {std::max(prev_hid, *cid)};
 					});
 				}
-				// update lowest previous horizon id (for later command deletion
+				// update lowest previous horizon id (for later command deletion)
 				if(lowest_prev_hid == 0) {
 					lowest_prev_hid = prev_hid;
 				} else {

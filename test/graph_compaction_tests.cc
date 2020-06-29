@@ -155,7 +155,8 @@ namespace detail {
 
 		// write to buf_a and buf_b
 		test_utils::build_and_flush(ctx, NUM_NODES,
-		    test_utils::add_compute_task<class UKN(init_a_b)>(ctx.get_task_manager(),
+		    test_utils::add_compute_task<class UKN(init_a_b)>(
+		        ctx.get_task_manager(),
 		        [&](handler& cgh) {
 			        buf_a.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
 			        buf_b.get_access<mode::discard_write>(cgh, access::one_to_one<1>());
