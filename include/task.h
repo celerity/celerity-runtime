@@ -67,6 +67,7 @@ namespace detail {
 
 		void set_dimensions(int dims) { dimensions = dims; }
 		void set_global_size(cl::sycl::range<3> gs) { global_size = gs; }
+		void set_local_size(cl::sycl::range<3> ls) { local_size = ls; }
 		void set_global_offset(cl::sycl::id<3> offset) { global_offset = offset; }
 		void set_debug_name(std::string name) { debug_name = name; };
 
@@ -76,6 +77,7 @@ namespace detail {
 
 		int get_dimensions() const { return dimensions; }
 		cl::sycl::range<3> get_global_size() const { return global_size; }
+		cl::sycl::range<3> get_local_size() const { return local_size; }
 		cl::sycl::id<3> get_global_offset() const { return global_offset; }
 		std::string get_debug_name() const { return debug_name; }
 
@@ -97,7 +99,8 @@ namespace detail {
 		std::unique_ptr<command_group_storage_base> cgf;
 		int dimensions = 0;
 		cl::sycl::range<3> global_size;
-		cl::sycl::id<3> global_offset = {};
+		cl::sycl::range<3> local_size{1, 1, 1};
+		cl::sycl::id<3> global_offset{};
 		std::string debug_name;
 		std::unordered_map<buffer_id, std::vector<std::unique_ptr<range_mapper_base>>> range_mappers;
 	};

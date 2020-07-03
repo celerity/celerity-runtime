@@ -10,55 +10,30 @@
 namespace celerity {
 namespace detail {
 
-	std::vector<chunk<3>> split_equal(const chunk<1>& full_chunk, size_t num_chunks) {
+	// We simply split in the first dimension for now
+	std::vector<chunk<3>> split_equal(const chunk<3>& full_chunk, const cl::sycl::range<3>& local_size, size_t num_chunks, int dims) {
 		assert(num_chunks > 0);
-		chunk<1> chnk;
-		chnk.global_size = full_chunk.global_size;
-		chnk.offset = full_chunk.offset;
-		chnk.range = cl::sycl::range<1>(full_chunk.range.size() / num_chunks);
-
-		std::vector<chunk<3>> result;
-		for(auto i = 0u; i < num_chunks; ++i) {
-			result.push_back(chnk);
-			chnk.offset = chnk.offset + chnk.range;
-			if(i == num_chunks - 1) { result[i].range[0] += full_chunk.range.size() % num_chunks; }
+		for(int d = 0; d < dims; ++d) {
+			assert(local_size[d] > 0);
+			assert(full_chunk.range[d] % local_size[d] == 0);
 		}
-		return result;
-	}
-
-	// We simply split by row for now
-	// TODO: There's other ways to split in 2D as well.
-	std::vector<chunk<3>> split_equal(const chunk<2>& full_chunk, size_t num_chunks) {
-		const auto rows =
-		    split_equal(chunk<1>{cl::sycl::id<1>(full_chunk.offset[0]), cl::sycl::range<1>(full_chunk.range[0]), cl::sycl::range<1>(full_chunk.global_size[0])},
-		        num_chunks);
-		std::vector<chunk<3>> result;
-		for(auto& row : rows) {
-			result.push_back(
-			    chunk<2>{cl::sycl::id<2>(row.offset[0], full_chunk.offset[1]), cl::sycl::range<2>(row.range[0], full_chunk.range[1]), full_chunk.global_size});
-		}
-		return result;
-	}
-
-	// We simply split by planes for now
-	std::vector<chunk<3>> split_equal(const chunk<3>& full_chunk, size_t num_chunks) {
-		assert(num_chunks > 0);
-
-		const auto dim0_size = full_chunk.global_size[0];
-		const auto dim1_size = full_chunk.global_size[1];
-		const auto dim2_size = full_chunk.global_size[2];
 
 		chunk<3> chnk;
 		chnk.global_size = full_chunk.global_size;
 		chnk.offset = full_chunk.offset;
-		chnk.range = cl::sycl::range<3>(dim0_size / num_chunks, dim1_size, dim2_size);
+		chnk.range = full_chunk.range;
+
+		auto ideal_chunk_size_dim0 = full_chunk.range[0] / num_chunks;
+		auto floor_chunk_size_dim0 = ideal_chunk_size_dim0 / local_size[0] * local_size[0];
+		assert(full_chunk.range[0] >= num_chunks * floor_chunk_size_dim0);
+		chnk.range[0] = floor_chunk_size_dim0;
 
 		std::vector<chunk<3>> result;
 		for(auto i = 0u; i < num_chunks; ++i) {
 			result.push_back(chnk);
-			chnk.offset[0] = chnk.offset[0] + chnk.range[0];
-			if(i == num_chunks - 1) result[i].range[0] += dim0_size % num_chunks;
+			chnk.offset[0] += floor_chunk_size_dim0;
 		}
+		result.back().range[0] += full_chunk.range[0] - num_chunks * floor_chunk_size_dim0;
 		return result;
 	}
 
@@ -90,20 +65,8 @@ namespace detail {
 		assert(std::distance(original->get_dependents().begin(), original->get_dependents().end()) == 0);
 
 		chunk<3> full_chunk{ctsk->get_global_offset(), ctsk->get_global_size(), ctsk->get_global_size()};
-		std::vector<chunk<3>> chunks;
-		switch(ctsk->get_dimensions()) {
-		case 1: {
-			chunks = split_equal(chunk<1>(full_chunk), num_chunks);
-		} break;
-		case 2: {
-			chunks = split_equal(chunk<2>(full_chunk), num_chunks);
-		} break;
-		case 3: {
-			chunks = split_equal(chunk<3>(full_chunk), num_chunks);
-		} break;
-		default: assert(false);
-		}
-
+		auto local_size = ctsk->get_local_size();
+		auto chunks = split_equal(full_chunk, local_size, num_chunks, ctsk->get_dimensions());
 		for(size_t i = 0; i < chunks.size(); ++i) {
 			cdag.create<compute_command>(nodes[i], ctsk->get_id(), chunks[i]);
 		}
