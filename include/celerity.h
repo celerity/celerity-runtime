@@ -1,6 +1,10 @@
 #ifndef RUNTIME_INCLUDE_ENTRY_CELERITY
 #define RUNTIME_INCLUDE_ENTRY_CELERITY
 
+#if defined(__CELERITY_ENABLE_BOOST_WORKAROUNDS__)
+#include "boost_workarounds.h"
+#endif
+
 #include "runtime.h"
 
 #include "buffer.h"
