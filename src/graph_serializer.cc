@@ -10,7 +10,7 @@ namespace celerity {
 namespace detail {
 
 	void graph_serializer::flush(task_id tid) {
-		const auto cmd_range = cdag.task_commands<task_command>(tid);
+		const auto cmd_range = cdag.task_commands(tid);
 		const std::vector<task_command*> cmds(cmd_range.begin(), cmd_range.end());
 		flush(cmds);
 	}

@@ -318,44 +318,6 @@ namespace detail {
 		REQUIRE(cmds.empty());
 	}
 
-	/*
-	TEST_CASE("command_graph allows to iterate over per-task commands of specific types", "[command_graph][command-graph]") {
-	    command_graph cdag;
-	    std::unordered_set<abstract_command*> tsk0_cmds;
-	    std::unordered_set<abstract_command*> tsk1_cmds;
-
-	    tsk0_cmds.insert(cdag.create<host_compute_command>(0, 0, subrange<3>{}));
-	    tsk0_cmds.insert(cdag.create<host_compute_command>(0, 0, subrange<3>{}));
-	    tsk1_cmds.insert(cdag.create<host_compute_command>(0, 1, subrange<3>{}));
-	    tsk0_cmds.insert(cdag.create<device_compute_command>(0, 0, subrange<3>{}));
-	    tsk0_cmds.insert(cdag.create<device_compute_command>(0, 0, subrange<3>{}));
-	    tsk1_cmds.insert(cdag.create<device_compute_command>(0, 1, subrange<3>{}));
-	    tsk0_cmds.insert(cdag.create<master_access_command>(0, 0));
-	    tsk1_cmds.insert(cdag.create<master_access_command>(0, 1));
-	    tsk1_cmds.insert(cdag.create<master_access_command>(0, 1));
-	    CHECK(cdag.task_command_count(0) == 5);
-	    CHECK(cdag.task_command_count(1) == 4);
-
-	    for(auto cmd : cdag.task_commands<host_compute_command>(0)) {
-	        REQUIRE(isa<host_compute_command>(cmd));
-	        REQUIRE(tsk0_cmds.find(cmd) != tsk0_cmds.end());
-	        tsk0_cmds.erase(cmd);
-	    }
-	    REQUIRE(tsk0_cmds.size() == 3);
-	    for(auto cmd : cdag.task_commands<device_compute_command>(0)) {
-	        REQUIRE(isa<device_compute_command>(cmd));
-	        REQUIRE(tsk0_cmds.find(cmd) != tsk0_cmds.end());
-	        tsk0_cmds.erase(cmd);
-	    }
-	    REQUIRE(tsk0_cmds.size() == 1);
-	    for(auto cmd : cdag.task_commands<compute_command, master_access_command>(1)) {
-	        REQUIRE((isa<compute_command>(cmd) || isa<master_access_command>(cmd)));
-	        REQUIRE(tsk1_cmds.find(cmd) != tsk1_cmds.end());
-	        tsk1_cmds.erase(cmd);
-	    }
-	    REQUIRE(tsk1_cmds.empty());
-	}*/
-
 	TEST_CASE("command_graph keeps track of execution fronts", "[command_graph][command-graph]") {
 		command_graph cdag;
 

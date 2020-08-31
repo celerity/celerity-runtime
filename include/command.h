@@ -23,21 +23,6 @@ namespace detail {
 		return dynamic_cast<T*>(const_cast<std::remove_const_t<P>*>(p)) != nullptr;
 	}
 
-	template <typename P, typename... Types>
-	struct _isany_impl {
-		bool operator()(const P* p) { return false; }
-	};
-
-	template <typename P, typename T, typename... Types>
-	struct _isany_impl<P, T, Types...> {
-		bool operator()(const P* p) { return isa<T>(p) || _isany_impl<P, Types...>{}(p); }
-	};
-
-	template <typename... Types, typename P>
-	bool isany(const P* p) {
-		return _isany_impl<P, Types...>{}(p);
-	}
-
 	// TODO: Consider adding a mechanism (during debug builds?) to assert that dependencies can only exist between commands on the same node
 	class abstract_command : public intrusive_graph_node<abstract_command> {
 		friend class command_graph;

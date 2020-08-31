@@ -148,7 +148,7 @@ namespace detail {
 		// Copy the list of task commands so we can safely modify the command graph in the loop below
 		// NOTE: We assume that none of these commands are deleted
 		std::vector<task_command*> task_commands;
-		for(auto cmd : cdag.task_commands<task_command>(tid)) {
+		for(auto cmd : cdag.task_commands(tid)) {
 			task_commands.push_back(cmd);
 		}
 

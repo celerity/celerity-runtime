@@ -131,15 +131,6 @@ namespace detail {
 
 		auto& task_commands(task_id tid) { return by_task.at(tid); }
 
-		template <typename... Filters>
-		auto task_commands(task_id tid) {
-			assert(by_task.find(tid) != by_task.end());
-			auto& commands = by_task[tid];
-			const auto filter = [](auto& cmd) { return isany<Filters...>(cmd); };
-			return boost::make_iterator_range(
-			    make_filter_iterator(commands.begin(), commands.end(), filter), make_filter_iterator(commands.end(), commands.end(), filter));
-		}
-
 		void print_graph(logger& graph_logger) const;
 
 		// TODO unify dependency terminology to this
