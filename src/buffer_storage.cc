@@ -49,8 +49,8 @@ namespace detail {
 	}
 
 	raw_buffer_data raw_buffer_data::copy(cl::sycl::id<3> offset, cl::sycl::range<3> copy_range) {
-		assert(id_cast<3>(offset) < id_cast<3>(range) == cl::sycl::id<3>(1, 1, 1));
-		assert(id_cast<3>(offset + copy_range) <= id_cast<3>(range) == cl::sycl::id<3>(1, 1, 1));
+		assert((id_cast<3>(offset) < id_cast<3>(range)) == cl::sycl::id<3>(1, 1, 1));
+		assert((id_cast<3>(offset + copy_range) <= id_cast<3>(range)) == cl::sycl::id<3>(1, 1, 1));
 		raw_buffer_data result(elem_size, range_cast<3>(copy_range));
 
 		if(range[2] == 1) {

@@ -323,8 +323,8 @@ namespace detail {
 			assert(buffer.is_allocated());
 			const cl::sycl::range<3> old_abs_range = range_cast<3>(buffer.offset + buffer.storage->get_range());
 			const cl::sycl::range<3> new_abs_range = range_cast<3>(request_offset + request_range);
-			const bool is_inside_old_range = (request_offset >= buffer.offset == cl::sycl::id<3>(true, true, true))
-			                                 && (new_abs_range <= old_abs_range == cl::sycl::range<3>(true, true, true));
+			const bool is_inside_old_range = ((request_offset >= buffer.offset) == cl::sycl::id<3>(true, true, true))
+			                                 && ((new_abs_range <= old_abs_range) == cl::sycl::range<3>(true, true, true));
 			resize_info result;
 			if(!is_inside_old_range) {
 				result.resize_required = true;

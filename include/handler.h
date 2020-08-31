@@ -234,6 +234,7 @@ namespace detail {
 					const auto part = make_partition<Dims>(global_size, sr, comm);
 					kernel(part);
 				} else {
+					(void)sr;
 					kernel();
 				}
 			});
