@@ -1,9 +1,16 @@
 #include <cstdio>
-#include <vector>
 
 #include <celerity.h>
 
 constexpr size_t MAT_SIZE = 1024;
+
+template <typename T>
+void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat) {
+	queue.submit([=](celerity::handler& cgh) {
+		auto dw = mat.template get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
+		cgh.parallel_for<class set_identity_kernel>(mat.get_range(), [=](cl::sycl::item<2> item) { dw[item] = item[0] == item[1]; });
+	});
+}
 
 template <typename T>
 void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
@@ -25,31 +32,25 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 }
 
 int main(int argc, char* argv[]) {
-	// Explicitly initialize here so we can use MPI functions below
-	celerity::runtime::init(&argc, &argv);
 	bool verification_passed = true;
 
+	celerity::runtime::init(&argc, &argv);
+
+	int rank;
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
 	celerity::experimental::bench::log_user_config({{"matSize", std::to_string(MAT_SIZE)}});
-
-	std::vector<float> mat_a(MAT_SIZE * MAT_SIZE);
-	std::vector<float> mat_b(MAT_SIZE * MAT_SIZE);
-
-	// Initialize matrices a and b to the identity
-	for(size_t i = 0; i < MAT_SIZE; ++i) {
-		for(size_t j = 0; j < MAT_SIZE; ++j) {
-			mat_a[i * MAT_SIZE + j] = i == j;
-			mat_b[i * MAT_SIZE + j] = i == j;
-		}
-	}
 
 	{
 		celerity::distr_queue queue;
 
-		celerity::buffer<float, 2> mat_a_buf(mat_a.data(), cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
-		celerity::buffer<float, 2> mat_b_buf(mat_b.data(), cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
+		celerity::buffer<float, 2> mat_a_buf(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
+		celerity::buffer<float, 2> mat_b_buf(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
 		celerity::buffer<float, 2> mat_c_buf(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE));
 
-		MPI_Barrier(MPI_COMM_WORLD);
+		set_identity(queue, mat_a_buf);
+		set_identity(queue, mat_b_buf);
+
 		celerity::experimental::bench::begin("main program");
 
 		multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
@@ -66,7 +67,7 @@ int main(int argc, char* argv[]) {
 						const float kernel_value = result[{i, j}];
 						const float host_value = i == j;
 						if(kernel_value != host_value) {
-							fprintf(stderr, "VERIFICATION FAILED for element %ld,%ld: %f != %f\n", i, j, kernel_value, host_value);
+							fprintf(stderr, "VERIFICATION FAILED for element %ld,%ld: %f (received) != %f (expected)\n", i, j, kernel_value, host_value);
 							verification_passed = false;
 							break;
 						}
