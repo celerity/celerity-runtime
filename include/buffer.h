@@ -60,6 +60,9 @@ class buffer {
 
 	template <cl::sycl::access::mode Mode, cl::sycl::access::target Target, typename Functor>
 	accessor<DataT, Dims, Mode, Target> get_access(handler& cgh, Functor rmfn) const {
+		static_assert(!std::is_same_v<Functor, cl::sycl::range<Dims>>, "The buffer::get_access overload for master-access tasks (now called 'host tasks') has "
+		                                                               "been removed with Celerity 0.2.0. Please provide a range mapper instead.");
+
 		using rmfn_traits = allscale::utils::lambda_traits<Functor>;
 		static_assert(rmfn_traits::result_type::dims == Dims, "The returned subrange doesn't match buffer dimensions.");
 
@@ -79,7 +82,7 @@ class buffer {
 		// This also means that we have to clamp the subrange ourselves here, which is not ideal from an encapsulation standpoint.
 		if constexpr(Target == cl::sycl::access::target::host_buffer) {
 			if(detail::get_handler_execution_target(cgh) != detail::execution_target::HOST) {
-				throw std::runtime_error("range-mapped get_access to host buffers is only allowed in host tasks");
+				throw std::runtime_error("Calling buffer::get_access with sycl::access::target::host_buffer is only allowed in host tasks.");
 			}
 			auto& live_cgh = dynamic_cast<detail::live_pass_host_handler&>(cgh);
 			const auto sr = detail::clamp_subrange_to_buffer_size(live_cgh.apply_range_mapper<Dims>(rmfn, get_range()), get_range());
@@ -88,7 +91,9 @@ class buffer {
 			return detail::make_host_accessor<DataT, Dims, Mode>(sr, access_info.buffer, access_info.offset, range);
 		} else {
 			if(detail::get_handler_execution_target(cgh) != detail::execution_target::DEVICE) {
-				throw std::runtime_error("range-mapped get_access to device buffers is only allowed in compute tasks");
+				throw std::runtime_error(
+				    "Calling buffer::get_access on device buffers is only allowed in compute tasks. "
+				    "If you want to access this buffer from within a host task, please specialize the call using sycl::access::target::host_buffer.");
 			}
 			auto& live_cgh = dynamic_cast<detail::live_pass_device_handler&>(cgh);
 			const auto sr = detail::clamp_subrange_to_buffer_size(live_cgh.apply_range_mapper<Dims>(rmfn, get_range()), get_range());
