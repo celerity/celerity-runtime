@@ -6,10 +6,18 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic
 Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0]
 
 ### Changed
 
+- Celerity now uses (and requires) C++17.
+- Following the release of the SYCL 2020 provisional spec, master access tasks
+  have been retired in favor of host tasks. These are scheduled in command groups
+  in the same fashion as compute tasks. In addition to master-only execution,
+  they allow distributing host code amongst nodes.
+- _(Experimental)_ Collective host tasks allow integration of distributed I/O
+  by providing an infrastructure to call MPI collective APIs like parallel
+  HDF5 from within asynchronous Celerity tasks.
 - Celerity should now be able to automatically assign a unique compute device
   to each node on a host, given that a sufficient number of devices is
   available. (9d3da06e)
