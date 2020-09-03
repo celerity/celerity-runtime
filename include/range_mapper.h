@@ -190,6 +190,13 @@ namespace access {
 		size_t dim0, dim1, dim2;
 	};
 
+	/**
+	 * For a 1D kernel, splits an nD-buffer evenly along its slowest dimension.
+	 *
+	 * This range mapper is unique in the sense that the chunk parameter (i.e. the iteration space) is unrelated to the buffer indices it maps to.
+	 * It is designed to distribute a buffer in contiguous portions between nodes for collective host tasks, allowing each node to output its portion in
+	 * I/O operations. See `accessor::get_host_memory` on how to access the resulting host memory.
+	 */
 	template <int BufferDims>
 	class even_split {
 		static_assert(BufferDims > 0);
