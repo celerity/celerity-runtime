@@ -16,14 +16,11 @@
 
 namespace celerity {
 
-template <int Dims>
-class host_chunk;
 class handler;
 
 namespace detail {
 	class device_queue;
 	class task_manager;
-	class collective_spec;
 	class prepass_handler;
 
 	template <class Name, bool NdRange>
@@ -43,38 +40,78 @@ namespace detail {
 	}
 } // namespace detail
 
+/**
+ * Tag type marking a `handler::host_task` as a master-node task. Do not construct this type directly, but use `celerity::on_master_node`.
+ */
+class on_master_node_tag {};
+
+/**
+ * Pass to `handler::host_task` to select the master-node task overload.
+ */
+inline constexpr on_master_node_tag on_master_node;
+
 namespace experimental {
+	class collective_tag_factory;
+
+	/**
+	 * Each collective host task is executed within a collective group. If multiple host tasks are scheduled within the same collective group, they are
+	 * guaranteed to execute in the same order on every node and within a single thread per node. Each group has its own MPI communicator spanning all
+	 * participating nodes, so MPI operations the user invokes from different collective groups do not race.
+	 */
 	class collective_group {
 	  public:
-		collective_group() : cgid(next_cgid++) {}
+		/// Creates a new collective group with a globally unique id. This must only be called from the main thread.
+		collective_group() noexcept : cgid(next_cgid++) {}
 
 	  private:
-		friend class detail::collective_spec;
+		friend class collective_tag_factory;
 		detail::collective_group_id cgid;
-		inline static size_t next_cgid = 2;
+		inline static size_t next_cgid = 1;
 	};
 
+	/**
+	 * Tag type marking a `handler::host_task` as a collective task. Do not construct this type directly, but use `celerity::experimental::collective`
+	 * or `celerity::experimental::collective(group)`.
+	 */
 	class collective_tag {
 	  private:
-		friend class detail::collective_spec;
+		friend class collective_tag_factory;
 		friend class celerity::handler;
 		collective_tag(detail::collective_group_id cgid) : cgid(cgid) {}
 		detail::collective_group_id cgid;
 	};
+
+	/**
+	 * The collective group used in collective host tasks when no group is specified explicitly.
+	 */
+	inline const collective_group default_collective_group;
+
+	/**
+	 * Tag type construction helper. Do not construct this type directly, use `celerity::experimental::collective` instead.
+	 */
+	class collective_tag_factory {
+	  public:
+		operator experimental::collective_tag() const { return default_collective_group.cgid; }
+		experimental::collective_tag operator()(experimental::collective_group cg) const { return cg.cgid; }
+	};
+
+	/**
+	 * Pass to `handler::host_task` to select the collective host task overload.
+	 *
+	 * Either as a value to schedule with the `default_collective_group`:
+	 * ```c++
+	 * cgh.host_task(celerity::experimental::collective, []...);
+	 * ```
+	 *
+	 * Or by specifying a collective group explicitly:
+	 * ```c++
+	 * celerity::experimental::collective_group my_group;
+	 * ...
+	 * cgh.host_task(celerity::experimental::collective(my_group), []...);
+	 * ```
+	 */
+	inline constexpr collective_tag_factory collective;
 } // namespace experimental
-
-class on_master_node_tag {};
-
-class detail::collective_spec {
-  public:
-	operator experimental::collective_tag() const { return {1}; }
-	experimental::collective_tag operator()(experimental::collective_group cg) const { return cg.cgid; }
-};
-
-namespace experimental {
-	inline constexpr detail::collective_spec collective;
-}
-inline constexpr on_master_node_tag on_master_node;
 
 class handler {
   public:
@@ -88,19 +125,57 @@ class handler {
 	template <typename Name, int Dims, typename Functor>
 	void parallel_for(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, Functor kernel);
 
+	/**
+	 * Schedules `kernel` to execute on the master node only. Call via `cgh.host_task(celerity::on_master_node, []...)`. The kernel is assumed to be invocable
+	 * with the signature `void(const celerity::partition<0> &)` or `void()`.
+	 *
+	 * The kernel is executed in a background thread pool and multiple master node tasks may be executed concurrently if they are independent in the
+	 * task graph, so proper synchronization must be ensured.
+	 *
+	 * **Compatibility note:** This replaces master-access tasks from Celerity 0.1 which were executed on the master node's main thread, so this implementation
+	 * may require different lifetimes for captures. See `celerity::allow_by_ref` for more information on this topic.
+	 */
+	template <typename Functor>
+	void host_task(on_master_node_tag, Functor kernel);
+
+	/**
+	 * Schedules `kernel` to be executed collectively on all nodes participating in the specified collective group. Call via
+	 * `cgh.host_task(celerity::experimental::collective, []...)` or  `cgh.host_task(celerity::experimental::collective(group), []...)`.
+	 * The kernel is assumed to be invocable with the signature `void(const celerity::experimental::collective_partition&)`
+	 * or `void(const celerity::partition<1>&)`.
+	 *
+	 * This provides framework to use arbitrary collective MPI operations in a host task, such as performing collective I/O with parallel HDF5.
+	 * The local node id,t the number of participating nodes as well as the group MPI communicator can be obtained from the `collective_partition` passed into
+	 * the kernel.
+	 *
+	 * All collective tasks within a collective group are guaranteed to be executed in the same order on all nodes, additionally, all internal MPI operations
+	 * and all host kernel invocations are executed in a single thread on each host.
+	 */
+	template <typename Functor>
+	void host_task(experimental::collective_tag tag, Functor kernel);
+
+	/**
+	 * Schedules a distributed execution of `kernel` by splitting the iteration space in a runtime-defined manner. The kernel is assumed to be invocable
+	 * with the signature `void(const celerity::partition<Dims>&)`.
+	 *
+	 * The kernel is executed in a background thread pool with multiple host tasks being run concurrently if they are independent in the task graph,
+	 * so proper synchronization must be ensured. The partition passed into the kernel describes the split each host receives. It may be used with accessors
+	 * to obtain the per-node portion of a buffer en-bloc, see `celerity::accessor::get_host_memory` for details.
+	 *
+	 * There are no guarantees with respect to the split size and the order in which host tasks are re-orered between nodes other than
+	 * the restrictions imposed by dependencies in the task graph. Also, the kernel may be invoked multiple times on one node and not be scheduled on
+	 * another node. If you need guarantees about execution order
+	 */
+	template <int Dims, typename Functor>
+	void host_task(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, Functor kernel);
+
+	/**
+	 * Like `host_task(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, Functor kernel)`, but with a `global_offset` of zero.
+	 */
 	template <int Dims, typename Functor>
 	void host_task(cl::sycl::range<Dims> global_size, Functor task) {
 		host_task(global_size, {}, task);
 	}
-
-	template <typename Functor>
-	void host_task(on_master_node_tag, Functor kernel);
-
-	template <typename Functor>
-	void host_task(experimental::collective_tag tag, Functor kernel);
-
-	template <int Dims, typename Functor>
-	void host_task(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, Functor kernel);
 
   protected:
 	friend bool detail::is_prepass_handler(const handler& cgh);
@@ -229,14 +304,22 @@ namespace detail {
 
 		template <int Dims, typename Kernel>
 		void schedule(Kernel kernel) {
-			future = queue->submit(task->get_collective_group_id(), [kernel, global_size = task->get_global_size(), sr = sr](MPI_Comm comm) {
+			future = queue->submit(task->get_collective_group_id(), [kernel, global_size = task->get_global_size(), sr = sr](MPI_Comm) {
 				if constexpr(Dims > 0 || std::is_invocable_v<Kernel, const partition<0>&>) {
-					const auto part = make_partition<Dims>(global_size, sr, comm);
+					const auto part = make_partition<Dims>(global_size, sr);
 					kernel(part);
 				} else {
 					(void)sr;
 					kernel();
 				}
+			});
+		}
+
+		template <typename Kernel>
+		void schedule_collective(Kernel kernel) {
+			future = queue->submit(task->get_collective_group_id(), [kernel, global_size = task->get_global_size(), sr = sr](MPI_Comm comm) {
+				const auto part = make_collective_partition(global_size, sr, comm);
+				kernel(part);
 			});
 		}
 
@@ -336,7 +419,7 @@ void handler::host_task(experimental::collective_tag tag, Functor kernel) {
 	if(is_prepass()) {
 		create_collective_task(tag.cgid);
 	} else {
-		dynamic_cast<detail::live_pass_host_handler&>(*this).schedule<1>(kernel);
+		dynamic_cast<detail::live_pass_host_handler&>(*this).schedule_collective(kernel);
 	}
 }
 

@@ -17,6 +17,10 @@ namespace celerity {
 template <int Dims>
 class partition;
 
+namespace experimental {
+	class collective_partition;
+}
+
 namespace detail {
 
 	template <int Dims>
@@ -37,57 +41,58 @@ namespace detail {
 	};
 
 	template <int Dims>
-	partition<Dims> make_partition(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm) {
-		return partition<Dims>(global_size, range, comm);
+	partition<Dims> make_partition(const cl::sycl::range<3>& global_size, const subrange<3>& range) {
+		return partition<Dims>(global_size, range);
 	}
 
-} // namespace detail
+	experimental::collective_partition make_collective_partition(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm);
 
-namespace experimental {
-	MPI_Comm get_collective_mpi_comm(const partition<1>& p);
-}
+} // namespace detail
 
 /**
  * Represents the sub-range of the iteration space handled by each host in a host_task.
  */
 template <int Dims>
 class partition : public detail::sized_partition_base<Dims> {
-  private:
-	friend partition<Dims> detail::make_partition<Dims>(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm);
+  protected:
+	friend partition<Dims> detail::make_partition<Dims>(const cl::sycl::range<3>& global_size, const subrange<3>& range);
 
-	partition(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm) : detail::sized_partition_base<Dims>(global_size, range) {}
+	partition(const cl::sycl::range<3>& global_size, const subrange<3>& range) : detail::sized_partition_base<Dims>(global_size, range) {}
 };
 
 /**
- * Represents the sub-range of the iteration space handled by each host in a host_task.
+ * A one-dimensional partition, additionally carrying the MPI communicator of the collective group.
  */
-template <>
-class partition<1> : public detail::sized_partition_base<1> {
-  private:
-	friend partition<1> detail::make_partition<1>(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm);
-	friend MPI_Comm experimental::get_collective_mpi_comm(const partition<1>&);
+class experimental::collective_partition : public partition<1> {
+  public:
+	MPI_Comm get_collective_mpi_comm() const { return comm; }
+
+	size_t get_node_index() const { return get_subrange().offset[0]; }
+
+	size_t get_num_nodes() const { return get_global_size()[0]; }
+
+  protected:
+	friend collective_partition detail::make_collective_partition(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm);
 
 	MPI_Comm comm;
 
-	partition(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm)
-	    : detail::sized_partition_base<1>(global_size, range), comm(comm) {}
+	collective_partition(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm) : partition<1>(global_size, range), comm(comm) {}
 };
 
 template <>
 class partition<0> {
-  private:
-	friend partition<0> detail::make_partition<0>(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm);
+  protected:
+	friend partition<0> detail::make_partition<0>(const cl::sycl::range<3>& global_size, const subrange<3>& range);
 
-	partition(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm) noexcept {}
+	partition(const cl::sycl::range<3>& global_size, const subrange<3>& range) noexcept {}
 };
-
-inline MPI_Comm experimental::get_collective_mpi_comm(const partition<1>& p) {
-	if(p.comm == MPI_COMM_NULL) { throw std::runtime_error("collective_comm() is only available inside a collective host task"); }
-	return p.comm;
-}
 
 
 namespace detail {
+
+	inline experimental::collective_partition make_collective_partition(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm) {
+		return experimental::collective_partition(global_size, range, comm);
+	}
 
 	/**
 	 * The @p host_queue provides a thread pool to submit host tasks.

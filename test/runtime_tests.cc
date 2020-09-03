@@ -1660,9 +1660,9 @@ namespace detail {
 
 	TEST_CASE("collective host_task produces one item per rank", "[task]") {
 		distr_queue{}.submit([=](handler& cgh) {
-			cgh.host_task(experimental::collective, [=](partition<1> part) {
+			cgh.host_task(experimental::collective, [=](experimental::collective_partition part) {
 				CHECK(part.get_global_size().size() == runtime::get_instance().get_num_nodes());
-				CHECK_NOTHROW(experimental::get_collective_mpi_comm(part));
+				CHECK_NOTHROW(part.get_collective_mpi_comm());
 			});
 		});
 	}
@@ -1677,42 +1677,39 @@ namespace detail {
 			experimental::collective_group secondary_group;
 
 			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
-				cgh.host_task(cl::sycl::range<1>(1), [&](partition<1> part) { CHECK_THROWS(experimental::get_collective_mpi_comm(part)); });
-			});
-			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
-				cgh.host_task(experimental::collective, [&](partition<1> part) {
+				cgh.host_task(experimental::collective, [&](experimental::collective_partition part) {
 					default1_thread = std::this_thread::get_id();
-					default1_comm = experimental::get_collective_mpi_comm(part);
+					default1_comm = part.get_collective_mpi_comm();
 				});
 			});
 			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
-				cgh.host_task(experimental::collective(primary_group), [&](partition<1> part) {
+				cgh.host_task(experimental::collective(primary_group), [&](experimental::collective_partition part) {
 					primary1_thread = std::this_thread::get_id();
-					primary1_comm = experimental::get_collective_mpi_comm(part);
+					primary1_comm = part.get_collective_mpi_comm();
 				});
 			});
 			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
-				cgh.host_task(experimental::collective(secondary_group), [&](partition<1> part) {
+				cgh.host_task(experimental::collective(secondary_group), [&](experimental::collective_partition part) {
 					secondary1_thread = std::this_thread::get_id();
-					secondary1_comm = experimental::get_collective_mpi_comm(part);
+					secondary1_comm = part.get_collective_mpi_comm();
 				});
 			});
 			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
-				cgh.host_task(experimental::collective, [&](partition<1> part) {
+				cgh.host_task(experimental::collective, [&](experimental::collective_partition part) {
 					default2_thread = std::this_thread::get_id();
-					default2_comm = experimental::get_collective_mpi_comm(part);
+					default2_comm = part.get_collective_mpi_comm();
 				});
 			});
 			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
-				cgh.host_task(experimental::collective(primary_group), [&](partition<1> part) {
+				cgh.host_task(experimental::collective(primary_group), [&](experimental::collective_partition part) {
 					primary2_thread = std::this_thread::get_id();
-					primary2_comm = experimental::get_collective_mpi_comm(part);
+					primary2_comm = part.get_collective_mpi_comm();
 				});
 			});
 			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
-				cgh.host_task(experimental::collective(secondary_group), [&](partition<1> part) {
+				cgh.host_task(experimental::collective(secondary_group), [&](experimental::collective_partition part) {
 					secondary2_thread = std::this_thread::get_id();
-					secondary2_comm = experimental::get_collective_mpi_comm(part);
+					secondary2_comm = part.get_collective_mpi_comm();
 				});
 			});
 		}

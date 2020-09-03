@@ -96,6 +96,7 @@ namespace detail {
 		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
 	};
 
+	// host-compute jobs, master-node tasks and collective host tasks
 	class host_execute_job : public worker_job {
 	  public:
 		host_execute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::host_queue& queue, detail::task_manager& tm)

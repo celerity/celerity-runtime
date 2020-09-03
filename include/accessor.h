@@ -190,7 +190,7 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer>
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
 	/**
-	 * Returs a pointer to the host-local backing buffer along with a mapping to the global virtual buffer.
+	 * Returns a pointer to the host-local backing buffer along with a mapping to the global virtual buffer.
 	 *
 	 * Each host keeps only part of the global (virtual) buffer locally. The layout information can be used, for example, to perform distributed I/O on the
 	 * partial buffer present at each host.
