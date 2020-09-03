@@ -46,8 +46,11 @@ queue.submit([=](celerity::handler& cgh) {
 });
 ```
 
-> **NOTE**: Range mappers are currently only required for compute kernels,
-> not for master-access tasks!
+> **NOTE**: In Celerity 0.1, range mappers were only used for compute kernels.
+> For master-node tasks (then called master-access tasks), explicit buffer ranges
+> were passed to `get_access`. These APIs have been unified and range mappers
+> are now required in all cases. In master node tasks, the `all` and `fixed`
+> mappers provide equivalent functionality to explicit ranges.
 
 ### Getting an Intuition
 

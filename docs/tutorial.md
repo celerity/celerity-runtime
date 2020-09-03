@@ -238,41 +238,43 @@ a file.
 
 ## Saving The Result
 
-To write the image resulting from our kernel execution back to a file, we
-first have to obtain the full `edge_buf` back on the host. While in SYCL we
-could create a _host accessor_ to do so, the semantics of distributed memory
-execution as well as the Celerity execution model cannot support host
-accessors while guaranteeing reasonable performance and scalability on larger
-clusters. Instead, Celerity provides a special construct for such scenarios:
-So-called **master-access tasks**. Just like kernel command group submissions
-(which are also considered Celerity _tasks_, by the way), master-access tasks
-are created on the distributed queue. Add the following code at the end of
+To write the image resulting from our kernel execution back to a file, we need
+to pass the contents of `edge_buf` back to the host. Similar to SYCL 2020,
+Celerity offers _host tasks_ for this purpose. In the distributed memory setting,
+we opt for the simple solution of transferring the entire image to one node
+and writing the output file from there.
+
+Just like the _compute tasks_ we created above by calling
+`celerity::handler::parallel_for`, we can instantiate a host task on the command group
+handler by calling `celerity::handler::host_task`. Add the following code at the end of
 your `main()` function:
 
+
 ```cpp
-queue.with_master_access([=](celerity::handler& cgh) {
-    auto out = edge_buf.get_access<cl::sycl::access::mode::read>(cgh, edge_buf.get_range());
-    cgh.run([=]() {
+queue.submit([=](celerity::handler& cgh) {
+    auto out = edge_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::all<2>());
+    cgh.host_task(celerity::on_master_node, [=]() {
         stbi_write_png("result.png", img_width, img_height, 1, out.get_pointer(), 0);
     });
 });
 ```
 
-Just as in kernel command group functions, we first obtain accessors for the
-buffers we want to operate on during this master-access. Instead of a range
-mapper however, we simply specify the range of the buffer we want to access
--- in this case the entire buffer. Then, we provide a callback function to
-`celerity::handler::run`, which will be executed once the data is available.
+Just as in compute kernel command groups, we first obtain accessors for the
+buffers we want to operate on within this task. Since we need access
+to the entire buffer, we pass an instance of the `all` range mapper.
 
-As the name implies, this function is only called on one node -- the master
-node. And unlike kernel functions, the master-access function is executed on
-the host, allowing us to use it for things such as result verification and I/O.
-In this case, we use `stbi_write_png` to write our resulting image into a
-file called `result.png`.
+Then we supply the code to be run on the host as a lambda function to
+`celerity::handler::host_task`. As the tag `celerity::on_master_node`
+implies, we select the overload that calls our host task on a single node
+-- the master node. Since the code is executed on the host, we are able to
+use it for things such as result verification and I/O. In this case, we call
+`stbi_write_png` to write our resulting image into a file called `result.png`.
 
-> **Note:** While master-access tasks currently fulfill an important role in
-> most Celerity applications, we ultimately plan to retire them in favor of a
-> more comprehensive and scalable distributed I/O solution.
+> **Note:** While master-node tasks are easy to use, they do not scale
+> to larger problems. For real-world applications, transferring all data
+> to a single node may be either prohibitively expensive or impossible
+> altogether. Instead, _collective host tasks_ can be used to perform distributed
+> I/O with libraries like HDF5. This feature is currently experimental.
 
 ## Running The Application
 

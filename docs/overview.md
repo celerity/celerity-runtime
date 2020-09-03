@@ -21,7 +21,7 @@ internally by the Celerity runtime system:
 
 Everything starts with the _Prepass_, which is similar to normal program
 execution. However, whenever a relevant Celerity queue operation -- such as
-`submit` or `with_master_access` -- is encountered, this pass does not
+`submit` -- is encountered, this pass does not
 actually fully execute the related _kernel_ code (marked in color in the
 video). Instead, this code, together with some dependency and scheduling
 metainformation, is recorded in the Celerity **task graph**.

@@ -26,7 +26,7 @@ if(rand() > 1337) {
 
 Celerity tasks submitted to the `celerity::distr_queue` are executed
 _asynchronously_ at a later point in time. This means that the stack
-surrounding a Celerity command group function or master-access function might
+surrounding a Celerity command group function might
 have been unwound by the time it is being called.
 
 For this reason Celerity by default enforces that tasks only capture
