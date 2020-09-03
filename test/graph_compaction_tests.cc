@@ -16,6 +16,7 @@
 namespace celerity {
 namespace detail {
 
+	using celerity::access::all;
 	using celerity::access::one_to_one;
 
 	template <typename T>
@@ -201,7 +202,7 @@ namespace detail {
 		auto write_b_cmd = ctx.get_command_graph().get(*cmds.cbegin());
 		auto write_b_dependencies = write_b_cmd->get_dependencies();
 		CHECK(!write_b_dependencies.empty());
-		CHECK(write_b_dependencies.front().is_anti);
+		CHECK(write_b_dependencies.front().kind == dependency_kind::ANTI);
 
 		maybe_print_graphs(ctx);
 	}
@@ -233,8 +234,8 @@ namespace detail {
 		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, one_to_one<1>()); }, full_range));
 
 		// now for the actual test, read only on node 0
-		test_utils::build_and_flush(
-		    ctx, NUM_NODES, test_utils::add_master_access_task(ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, full_range); }));
+		test_utils::build_and_flush(ctx, NUM_NODES,
+		    test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, all<1>{}); }));
 
 		// build some additional read/write steps so that we reach deletion
 		for(int i = 0; i < 2; ++i) {

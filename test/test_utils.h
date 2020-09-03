@@ -28,7 +28,7 @@ namespace test_utils {
 	template <int Dims>
 	class mock_buffer {
 	  public:
-		template <cl::sycl::access::mode Mode, typename Functor, typename = decltype(std::declval<Functor>()(std::declval<chunk<Dims>>()))>
+		template <cl::sycl::access::mode Mode, typename Functor>
 		void get_access(handler& cgh, Functor rmfn) {
 			using rmfn_traits = allscale::utils::lambda_traits<Functor>;
 			static_assert(rmfn_traits::result_type::dims == Dims, "The returned subrange doesn't match buffer dimensions.");
