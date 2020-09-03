@@ -18,11 +18,11 @@ namespace celerity {
 namespace detail {
 
 	using celerity::access::all;
-	using celerity::access::even_split;
 	using celerity::access::fixed;
 	using celerity::access::neighborhood;
 	using celerity::access::one_to_one;
 	using celerity::access::slice;
+	using celerity::experimental::access::even_split;
 
 	GridBox<3> make_grid_box(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) {
 		const auto end = celerity::detail::range_cast<3>(offset) + range;

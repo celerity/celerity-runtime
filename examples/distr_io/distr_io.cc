@@ -30,7 +30,8 @@ static std::pair<hid_t, hid_t> host_memory_layout_to_dataspace(const celerity::h
 
 static void read_hdf5_file(celerity::distr_queue& q, const celerity::buffer<float, 2>& buffer, const char* file_name) {
 	q.submit([=](celerity::handler& cgh) {
-		auto a = buffer.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, celerity::access::even_split<2>());
+		auto a = buffer.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(
+		    cgh, celerity::experimental::access::even_split<2>());
 		cgh.host_task(celerity::experimental::collective, [=](celerity::experimental::collective_partition part) {
 			auto plist = H5Pcreate(H5P_FILE_ACCESS);
 			H5Pset_fapl_mpio(plist, part.get_collective_mpi_comm(), MPI_INFO_NULL);
@@ -57,7 +58,7 @@ static void read_hdf5_file(celerity::distr_queue& q, const celerity::buffer<floa
 
 static void write_hdf5_file(celerity::distr_queue& q, const celerity::buffer<float, 2>& buffer, const char* file_name) {
 	q.submit([=](celerity::handler& cgh) {
-		auto a = buffer.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::even_split<2>());
+		auto a = buffer.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::experimental::access::even_split<2>());
 		cgh.host_task(celerity::experimental::collective, [=](celerity::experimental::collective_partition part) {
 			auto plist = H5Pcreate(H5P_FILE_ACCESS);
 			H5Pset_fapl_mpio(plist, part.get_collective_mpi_comm(), MPI_INFO_NULL);

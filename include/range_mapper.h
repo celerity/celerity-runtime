@@ -190,6 +190,10 @@ namespace access {
 		size_t dim0, dim1, dim2;
 	};
 
+} // namespace access
+
+namespace experimental::access {
+
 	/**
 	 * For a 1D kernel, splits an nD-buffer evenly along its slowest dimension.
 	 *
@@ -242,6 +246,6 @@ namespace access {
 		cl::sycl::range<BufferDims> granularity;
 	};
 
-} // namespace access
+} // namespace experimental::access
 
 } // namespace celerity
