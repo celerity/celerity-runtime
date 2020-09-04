@@ -6,10 +6,6 @@
 #include "runtime.h"
 #include "task_manager.h"
 
-#if !defined(CELERITY_STRICT_CGF_SAFETY)
-#define CELERITY_STRICT_CGF_SAFETY 1
-#endif
-
 namespace celerity {
 namespace detail {
 
@@ -23,8 +19,9 @@ namespace detail {
 
 } // namespace detail
 
-struct allow_by_ref_t {
-} inline constexpr allow_by_ref{};
+struct allow_by_ref_t {};
+
+inline constexpr allow_by_ref_t allow_by_ref{};
 
 class distr_queue {
   public:
@@ -40,21 +37,32 @@ class distr_queue {
 	distr_queue& operator=(const distr_queue&) = delete;
 	distr_queue& operator=(distr_queue&&) = delete;
 
+	/**
+	 * Submits a command group to the queue.
+	 *
+	 * Invoke via `q.submit(celerity::allow_by_ref, [&](celerity::handler &cgh) {...})`.
+	 *
+	 * With this overload, CGF may capture by-reference. This may lead to lifetime issues with asynchronous execution, so using the `submit(cgf)` overload is
+	 * preferred in the common case.
+	 */
 	template <typename CGF>
 	void submit(allow_by_ref_t, CGF cgf) {
 		// (Note while this function could be made static, it must not be! Otherwise we can't be sure the runtime has been initialized.)
-		detail::runtime::get_instance().get_task_manager().create_task(cgf);
+		detail::runtime::get_instance().get_task_manager().create_task(std::move(cgf));
 	}
 
+	/**
+	 * Submits a command group to the queue.
+	 *
+	 * CGF must not capture by reference. This is a conservative safety check to avoid lifetime issues when command groups are executed asynchronously.
+	 *
+	 * If you know what you are doing, you can use the `allow_by_ref` overload of `submit` to bypass this check.
+	 */
 	template <typename CGF>
 	void submit(CGF cgf) {
-#if CELERITY_STRICT_CGF_SAFETY
 		static_assert(detail::is_safe_cgf<CGF>, "The provided command group function is not multi-pass execution safe. Please make sure to only capture by "
 		                                        "value. If you know what you're doing, use submit(celerity::allow_by_ref, ...).");
-#endif
-
-		// (Note while this function could be made static, it must not be! Otherwise we can't be sure the runtime has been initialized.)
-		detail::runtime::get_instance().get_task_manager().create_task(cgf);
+		submit(allow_by_ref, std::move(cgf));
 	}
 
 	/**

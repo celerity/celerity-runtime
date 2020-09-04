@@ -31,10 +31,10 @@ have been unwound by the time it is being called.
 
 For this reason Celerity by default enforces that tasks only capture
 surrounding variables by value, rather than by reference. If you know what
-you are doing and would like to disable this check, you can define the
-following macro before including Celerity:
+you are doing and would like to disable this check, you can use the
+`distr_queue::submit` overload accepting reference captures:
 
 ```cpp
-#define CELERITY_STRICT_CGF_SAFETY 0
-#include <celerity/celerity.h>
+distr_queue q;
+q.submit(celerity::allow_by_ref, [&](celerity::handler &cgh) {...});
 ```

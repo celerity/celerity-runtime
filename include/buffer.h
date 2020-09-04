@@ -127,7 +127,7 @@ class buffer {
 	//
 	// (The reason why we make this a shared_ptr is so that Celerity buffers
 	// still satisfy StandardLayoutType, which we use as a crude safety check;
-	// see CELERITY_STRICT_CGF_SAFETY macro).
+	// see distr_queue::submit).
 	std::shared_ptr<cl::sycl::buffer<DataT, Dims>> faux_buf;
 };
 
