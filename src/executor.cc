@@ -132,15 +132,18 @@ namespace detail {
 
 			if(syncing_on_id == NOT_SYNCING && jobs.size() < MAX_CONCURRENT_JOBS && !command_queue.empty()) {
 				const auto info = command_queue.front();
-				command_queue.pop();
 				if(info.pkg.cmd == command_type::SHUTDOWN) {
-					assert(command_queue.empty());
+					assert(command_queue.size() == 1);
 					done = true;
 				} else if(info.pkg.cmd == command_type::SYNC) {
 					syncing_on_id = std::get<sync_data>(info.pkg.data).sync_id;
 				} else {
-					handle_command(info.pkg, info.dependencies);
+					if(!handle_command(info.pkg, info.dependencies)) {
+						// In case the command couldn't be handled, don't pop it from the queue.
+						continue;
+					}
 				}
+				command_queue.pop();
 			}
 
 			if(first_command_received) { update_metrics(); }
@@ -149,25 +152,28 @@ namespace detail {
 		assert(running_device_compute_jobs == 0);
 	}
 
-	void executor::handle_command(const command_pkg& pkg, const std::vector<command_id>& dependencies) {
+	bool executor::handle_command(const command_pkg& pkg, const std::vector<command_id>& dependencies) {
 		switch(pkg.cmd) {
 		case command_type::HORIZON: create_job<horizon_job>(pkg, dependencies); break;
 		case command_type::PUSH: create_job<push_job>(pkg, dependencies, *btm); break;
 		case command_type::AWAIT_PUSH: create_job<await_push_job>(pkg, dependencies, *btm); break;
 		case command_type::TASK: {
 			const auto& data = std::get<task_data>(pkg.data);
+
+			// A bit of a hack: We cannot be sure the main thread has reached the task definition yet, so we have to check it here
+			if(!task_mngr.has_task(data.tid)) { return false; }
+
 			auto tsk = task_mngr.get_task(data.tid);
 			if(tsk->get_execution_target() == execution_target::HOST) {
 				create_job<host_execute_job>(pkg, dependencies, h_queue, task_mngr);
-				break;
 			} else {
 				create_job<device_execute_job>(pkg, dependencies, d_queue, task_mngr);
-				break;
 			}
 			break;
 		}
 		default: assert(!"Unexpected command");
 		}
+		return true;
 	}
 
 	void executor::update_metrics() {

@@ -97,7 +97,7 @@ namespace detail {
 		}
 
 		void run();
-		void handle_command(const command_pkg& pkg, const std::vector<command_id>& dependencies);
+		bool handle_command(const command_pkg& pkg, const std::vector<command_id>& dependencies);
 
 		void update_metrics();
 	};

@@ -98,14 +98,6 @@ namespace detail {
 
 	bool host_execute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 		const auto data = std::get<task_data>(pkg.data);
-		// A bit of a hack: We cannot be sure the main thread has reached the task definition yet, so we have to check it here
-		if(!task_mngr.has_task(data.tid)) {
-			if(!did_log_task_wait) {
-				logger->trace(logger_map({{"event", "Waiting for task definition"}}));
-				did_log_task_wait = true;
-			}
-			return false;
-		}
 
 		if(!submitted) {
 			auto tsk = task_mngr.get_task(data.tid);
@@ -157,14 +149,6 @@ namespace detail {
 
 	bool device_execute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 		const auto data = std::get<task_data>(pkg.data);
-		// A bit of a hack: We cannot be sure the main thread has reached the task definition yet, so we have to check it here
-		if(!task_mngr.has_task(data.tid)) {
-			if(!did_log_task_wait) {
-				logger->trace(logger_map({{"event", "Waiting for task definition"}}));
-				did_log_task_wait = true;
-			}
-			return false;
-		}
 
 		if(!submitted) {
 			auto tsk = task_mngr.get_task(data.tid);

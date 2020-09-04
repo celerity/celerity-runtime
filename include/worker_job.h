@@ -108,7 +108,6 @@ namespace detail {
 		detail::host_queue& queue;
 		detail::task_manager& task_mngr;
 		std::future<detail::host_queue::execution_info> future;
-		bool did_log_task_wait = false;
 		bool submitted = false;
 
 		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
@@ -130,7 +129,6 @@ namespace detail {
 		detail::device_queue& queue;
 		detail::task_manager& task_mngr;
 		cl::sycl::event event;
-		bool did_log_task_wait = false;
 		bool submitted = false;
 
 		std::future<void> computecpp_workaround_future;
