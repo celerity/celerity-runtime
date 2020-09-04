@@ -6,6 +6,7 @@
 #include <limits>
 #include <utility>
 
+#include "buffer_manager.h"
 #include "buffer_transfer_manager.h"
 #include "command.h"
 #include "host_queue.h"
@@ -84,12 +85,14 @@ namespace detail {
 
 	class push_job : public worker_job {
 	  public:
-		push_job(command_pkg pkg, std::shared_ptr<logger> job_logger, buffer_transfer_manager& btm) : worker_job(pkg, job_logger), btm(btm) {
+		push_job(command_pkg pkg, std::shared_ptr<logger> job_logger, buffer_transfer_manager& btm, buffer_manager& bm)
+		    : worker_job(pkg, job_logger), btm(btm), buffer_mngr(bm) {
 			assert(pkg.cmd == command_type::PUSH);
 		}
 
 	  private:
 		buffer_transfer_manager& btm;
+		buffer_manager& buffer_mngr;
 		std::shared_ptr<const buffer_transfer_manager::transfer_handle> data_handle = nullptr;
 
 		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
@@ -99,14 +102,15 @@ namespace detail {
 	// host-compute jobs, master-node tasks and collective host tasks
 	class host_execute_job : public worker_job {
 	  public:
-		host_execute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::host_queue& queue, detail::task_manager& tm)
-		    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm) {
+		host_execute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::host_queue& queue, detail::task_manager& tm, buffer_manager& bm)
+		    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm), buffer_mngr(bm) {
 			assert(pkg.cmd == command_type::TASK);
 		}
 
 	  private:
 		detail::host_queue& queue;
 		detail::task_manager& task_mngr;
+		detail::buffer_manager& buffer_mngr;
 		std::future<detail::host_queue::execution_info> future;
 		bool submitted = false;
 
@@ -120,14 +124,15 @@ namespace detail {
 	 */
 	class device_execute_job : public worker_job {
 	  public:
-		device_execute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::device_queue& queue, detail::task_manager& tm)
-		    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm) {
+		device_execute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::device_queue& queue, detail::task_manager& tm, buffer_manager& bm)
+		    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm), buffer_mngr(bm) {
 			assert(pkg.cmd == command_type::TASK);
 		}
 
 	  private:
 		detail::device_queue& queue;
 		detail::task_manager& task_mngr;
+		detail::buffer_manager& buffer_mngr;
 		cl::sycl::event event;
 		bool submitted = false;
 

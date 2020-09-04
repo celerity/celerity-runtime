@@ -3,6 +3,7 @@
 #include <chrono>
 #include <thread>
 
+#include "buffer_manager.h"
 #include "buffer_transfer_manager.h"
 #include "logger.h"
 #include "worker_job.h"
@@ -41,7 +42,7 @@ namespace detail {
 	class executor {
 	  public:
 		// TODO: Try to decouple this more.
-		executor(host_queue& h_queue, device_queue& d_queue, task_manager& tm, std::shared_ptr<logger> execution_logger);
+		executor(host_queue& h_queue, device_queue& d_queue, task_manager& tm, buffer_manager& buffer_mngr, std::shared_ptr<logger> execution_logger);
 
 		void startup();
 
@@ -59,6 +60,8 @@ namespace detail {
 		host_queue& h_queue;
 		device_queue& d_queue;
 		task_manager& task_mngr;
+		// FIXME: We currently need this for buffer locking in some jobs, which is a bit of a band-aid fix. Get rid of this at some point.
+		buffer_manager& buffer_mngr;
 		std::unique_ptr<buffer_transfer_manager> btm;
 		std::shared_ptr<logger> execution_logger;
 		std::thread exec_thrd;

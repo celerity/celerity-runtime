@@ -73,6 +73,32 @@ namespace detail {
 		scheduled_transfers[bid].push_back({std::move(data), offset});
 	}
 
+	bool buffer_manager::try_lock(buffer_lock_id id, const std::unordered_set<buffer_id>& buffers) {
+		assert(buffer_locks_by_id.count(id) == 0);
+		for(auto bid : buffers) {
+			if(buffer_lock_infos[bid].is_locked) return false;
+		}
+		buffer_locks_by_id[id].reserve(buffers.size());
+		for(auto bid : buffers) {
+			buffer_lock_infos[bid] = {true, std::nullopt};
+			buffer_locks_by_id[id].push_back(bid);
+		}
+		return true;
+	}
+
+	void buffer_manager::unlock(buffer_lock_id id) {
+		assert(buffer_locks_by_id.count(id) != 0);
+		for(auto bid : buffer_locks_by_id[id]) {
+			buffer_lock_infos[bid] = {};
+		}
+		buffer_locks_by_id.erase(id);
+	}
+
+	bool buffer_manager::is_locked(buffer_id bid) const {
+		if(buffer_lock_infos.count(bid) == 0) return false;
+		return buffer_lock_infos.at(bid).is_locked;
+	}
+
 	// TODO: Something we could look into is to dispatch all memory copies concurrently and wait for them in the end.
 	void buffer_manager::make_buffer_subrange_coherent(
 	    buffer_id bid, cl::sycl::access::mode mode, backing_buffer& target_buffer, const subrange<3>& coherent_sr, const backing_buffer& previous_buffer) {
@@ -216,6 +242,35 @@ namespace detail {
 		}
 
 		if(detail::access::mode_traits::is_producer(mode)) { newest_data_location.at(bid).update_region(coherent_box, target_buffer_location); }
+	}
+
+	void buffer_manager::audit_buffer_access(buffer_id bid, bool requires_allocation, cl::sycl::access::mode mode) {
+		auto& lock_info = buffer_lock_infos[bid];
+
+		// Buffer locking is currently opt-in, so if this buffer isn't locked, we won't check anything else.
+		if(!lock_info.is_locked) return;
+
+		if(lock_info.earlier_access_mode == std::nullopt) {
+			// First access, all good.
+			lock_info.earlier_access_mode = mode;
+			return;
+		}
+
+		if(requires_allocation) {
+			// Re-allocation of a buffer that is currently being accessed never works.
+			throw std::runtime_error("You are requesting multiple accessors for the same buffer, with later ones requiring a larger part of the buffer, "
+			                         "causing a backing buffer reallocation. "
+			                         "This is currently unsupported. Try changing the order of your calls to buffer::get_access.");
+		}
+
+		if(!access::mode_traits::is_consumer(*lock_info.earlier_access_mode) && access::mode_traits::is_consumer(mode)) {
+			// Accessing a buffer using a pure producer mode followed by a consumer mode breaks our coherence bookkeeping.
+			throw std::runtime_error("You are requesting multiple accessors for the same buffer, using a discarding access mode first, followed by a "
+			                         "non-discarding mode. This is currently unsupported. Try changing the order of your calls to buffer::get_access.");
+		}
+
+		// We only need to remember pure producer accesses.
+		if(!access::mode_traits::is_consumer(mode)) { lock_info.earlier_access_mode = mode; }
 	}
 
 } // namespace detail

@@ -81,10 +81,18 @@ namespace detail {
 
 	bool push_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 		if(data_handle == nullptr) {
+			const auto data = std::get<push_data>(pkg.data);
+			// Getting buffer data from the buffer manager may incur a host-side buffer reallocation.
+			// If any other tasks are currently using this buffer for reading, we run into problems.
+			// To avoid this, we use a very crude buffer locking mechanism for now.
+			// FIXME: Get rid of this, replace with finer grained approach.
+			if(buffer_mngr.is_locked(data.bid)) { return false; }
+
 			logger->trace(logger_map({{"event", "Submit buffer to BTM"}}));
 			data_handle = btm.push(pkg);
 			logger->trace(logger_map({{"event", "Buffer submitted to BTM"}}));
 		}
+
 		return data_handle->complete;
 	}
 
@@ -102,6 +110,9 @@ namespace detail {
 		if(!submitted) {
 			auto tsk = task_mngr.get_task(data.tid);
 			assert(tsk->get_execution_target() == execution_target::HOST);
+
+			if(!buffer_mngr.try_lock(pkg.cid, tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
+
 			logger->trace(logger_map({{"event", "Execute live-pass, scheduling host task in thread pool"}}));
 
 			// Note that for host tasks, there is no indirection through a queue->submit step like there is for SYCL tasks. The CGF is executed directly,
@@ -118,6 +129,8 @@ namespace detail {
 
 		assert(future.valid());
 		if(future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+			buffer_mngr.unlock(pkg.cid);
+
 			auto info = future.get();
 			logger->trace(logger_map({{"event", fmt::format("Delta time submit -> start: {}us",
 			                                        std::chrono::duration_cast<std::chrono::microseconds>(info.start_time - info.submit_time).count())}}));
@@ -153,6 +166,9 @@ namespace detail {
 		if(!submitted) {
 			auto tsk = task_mngr.get_task(data.tid);
 			assert(tsk->get_execution_target() == execution_target::DEVICE);
+
+			if(!buffer_mngr.try_lock(pkg.cid, tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
+
 			logger->trace(logger_map({{"event", "Execute live-pass, submit kernel to SYCL"}}));
 
 			event = queue.submit([tsk, sr = data.sr](cl::sycl::handler& handler, size_t forced_work_group_size) {
@@ -167,6 +183,8 @@ namespace detail {
 
 		const auto status = event.get_info<cl::sycl::info::event::command_execution_status>();
 		if(status == cl::sycl::info::event_command_status::complete) {
+			buffer_mngr.unlock(pkg.cid);
+
 #if !WORKAROUND(HIPSYCL, 0)
 			if(queue.is_profiling_enabled()) {
 				const auto queued = get_profiling_info(event.get(), CL_PROFILING_COMMAND_QUEUED);

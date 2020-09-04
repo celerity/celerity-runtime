@@ -109,7 +109,7 @@ namespace detail {
 			}
 		});
 		task_mngr = std::make_unique<task_manager>(num_nodes, h_queue.get(), is_master);
-		exec = std::make_unique<executor>(*h_queue, *d_queue, *task_mngr, default_logger);
+		exec = std::make_unique<executor>(*h_queue, *d_queue, *task_mngr, *buffer_mngr, default_logger);
 		if(is_master) {
 			cdag = std::make_unique<command_graph>();
 			ggen = std::make_shared<graph_generator>(num_nodes, *task_mngr, *cdag);

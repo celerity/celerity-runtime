@@ -16,6 +16,7 @@
 #include "ranges.h"
 #include "region_map.h"
 #include "types.h"
+#include <unordered_set>
 
 namespace celerity {
 namespace detail {
@@ -62,7 +63,7 @@ namespace detail {
 	 * Essentially, this means that any requests made to the buffer_manager are assumed to be operations
 	 * that are currently allowed by the command graph.
 	 *
-	 * FIXME: There are two important caveats that we need to deal with:
+	 * There are two important caveats that we need to deal with:
 	 *
 	 * - Reading from a buffer is no longer a const operation, as the buffer may need to be resized.
 	 *   This means that two tasks that could be considered independent on a TDAG basis actually have an
@@ -75,6 +76,11 @@ namespace detail {
 	 *   buffer first with "discard_write" and followed by a "read" should result in a combined "write" mode.
 	 *   However the effect of the discard_write is recorded immediately, and the buffer_manager will thus
 	 *   wrongly assume that no coherence update for the "read" is required.
+	 *
+	 * Currently, these issues are handled through the buffer locking mechanism.
+	 * See buffer_manager::try_lock, buffer_manager::unlock and buffer_manager::is_locked.
+	 *
+	 * FIXME: The current buffer locking mechanism limits task parallelism. Come up with a better solution.
 	 */
 	class buffer_manager {
 	  public:
@@ -103,6 +109,8 @@ namespace detail {
 			 */
 			cl::sycl::id<Dims> offset;
 		};
+
+		using buffer_lock_id = size_t;
 
 	  public:
 		buffer_manager(device_queue& queue, buffer_lifecycle_callback lifecycle_cb);
@@ -212,6 +220,8 @@ namespace detail {
 				}
 			}
 
+			audit_buffer_access(bid, new_buffer.is_allocated(), mode);
+
 			backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
 			const backing_buffer empty{};
 			const backing_buffer& previous_buffer = new_buffer.is_allocated() ? old_buffer : empty;
@@ -242,6 +252,8 @@ namespace detail {
 				}
 			}
 
+			audit_buffer_access(bid, new_buffer.is_allocated(), mode);
+
 			backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
 			const backing_buffer empty{};
 			const backing_buffer& previous_buffer = new_buffer.is_allocated() ? old_buffer : empty;
@@ -252,6 +264,32 @@ namespace detail {
 			return {static_cast<host_buffer_storage<DataT, Dims>*>(buffers[bid].host_buf.storage.get())->get_host_buffer(),
 			    id_cast<Dims>(buffers[bid].host_buf.offset)};
 		}
+
+		/**
+		 * @brief Tries to lock the given list of @p buffers using the given lock @p id.
+		 *
+		 * If any of the buffers is currently locked, the locking attempt fails.
+		 *
+		 * Locking is currently an optional (opt-in) mechanism, i.e., buffers can also be
+		 * accessed without being locked. This is because locking is a bit of a band-aid fix
+		 * that doesn't properly cover all use-cases (for example, host-pointer initialized buffers).
+		 *
+		 * However, when accessing a locked buffer, the buffer_manager enforces additional
+		 * rules to ensure they are used in a safe manner for the duration of the lock:
+		 *	- A locked buffer may only be resized at most once, and only for the first access.
+		 *	- A locked buffer may not be accessed using consumer access modes, if it was previously
+		 *	  accessed using a pure producer mode.
+		 *
+		 * @returns Returns true if the list of buffers was successfully locked.
+		 */
+		bool try_lock(buffer_lock_id, const std::unordered_set<buffer_id>& buffers);
+
+		/**
+		 * Unlocks all buffers that were previously locked with a call to try_lock with the given @p id.
+		 */
+		void unlock(buffer_lock_id id);
+
+		bool is_locked(buffer_id bid) const;
 
 	  private:
 		struct backing_buffer {
@@ -302,6 +340,15 @@ namespace detail {
 		struct buffer_type_guard : buffer_type_guard_base {};
 #endif
 
+		struct buffer_lock_info {
+			bool is_locked = false;
+
+			// For lack of a better name, this stores *an* access mode that has already been used during this lock.
+			// While it initially stores whatever is first used to access the buffer, it will always be overwritten
+			// by subsequent pure producer accesses, as those are the only ones we really care about.
+			std::optional<cl::sycl::access::mode> earlier_access_mode = std::nullopt;
+		};
+
 	  private:
 		device_queue& queue;
 		buffer_lifecycle_callback lifecycle_cb;
@@ -311,6 +358,9 @@ namespace detail {
 		std::unordered_map<buffer_id, virtual_buffer> buffers;
 		std::unordered_map<buffer_id, std::vector<transfer>> scheduled_transfers;
 		std::unordered_map<buffer_id, region_map<data_location>> newest_data_location;
+
+		std::unordered_map<buffer_id, buffer_lock_info> buffer_lock_infos;
+		std::unordered_map<buffer_lock_id, std::vector<buffer_id>> buffer_locks_by_id;
 
 #if !defined(NDEBUG)
 		// Since we store buffers without type information (i.e., its data type and dimensionality),
@@ -356,6 +406,15 @@ namespace detail {
 		 */
 		void make_buffer_subrange_coherent(buffer_id bid, cl::sycl::access::mode mode, backing_buffer& target_buffer, const subrange<3>& coherent_sr,
 		    const backing_buffer& previous_buffer = backing_buffer{});
+
+		/**
+		 * Checks whether access to a currently locked buffer is safe.
+		 *
+		 * There's two distinct issues that can cause an access to be unsafe:
+		 *	- If a buffer that has been accessed earlier needs to be resized (reallocated) now
+		 *	- If a buffer was previously accessed using a discard_* mode and is now accessed using a consumer mode
+		 */
+		void audit_buffer_access(buffer_id bid, bool requires_allocation, cl::sycl::access::mode mode);
 	};
 
 } // namespace detail

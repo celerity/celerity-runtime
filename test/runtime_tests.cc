@@ -1319,6 +1319,92 @@ namespace detail {
 		}
 	}
 
+	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager correctly handles locking", "[buffer_manager]") {
+		auto& bm = get_buffer_manager();
+
+		// Check that basic functionality works.
+		REQUIRE(bm.try_lock(0, {}));
+		bm.unlock(0);
+
+		// Lock buffers 1 - 3.
+		CHECK(bm.try_lock(1, {1, 2, 3}));
+
+		// No combination of these buffers can be locked.
+		REQUIRE(!bm.try_lock(2, {1}));
+		REQUIRE(!bm.try_lock(2, {1, 2}));
+		REQUIRE(!bm.try_lock(2, {1, 3}));
+		REQUIRE(!bm.try_lock(2, {2}));
+		REQUIRE(!bm.try_lock(2, {2, 3}));
+		REQUIRE(!bm.try_lock(2, {3}));
+
+		// However another buffer can be locked.
+		REQUIRE(bm.try_lock(2, {4}));
+
+		// A single locked buffer prevents an entire set of otherwise unlocked buffers from being locked.
+		REQUIRE(!bm.try_lock(3, {4, 5, 6}));
+
+		// After unlocking buffer 4 can be locked again.
+		bm.unlock(2);
+		REQUIRE(bm.try_lock(3, {4, 5, 6}));
+
+		// But 1 - 3 are still locked.
+		REQUIRE(!bm.try_lock(4, {1}));
+		REQUIRE(!bm.try_lock(4, {2}));
+		REQUIRE(!bm.try_lock(4, {3}));
+
+		// Now they can be locked again as well.
+		bm.unlock(1);
+		REQUIRE(bm.try_lock(4, {3}));
+	}
+
+	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager throws if accessing locked buffers in unsupported order", "[buffer_manager]") {
+		auto& bm = get_buffer_manager();
+		auto bid = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(128, 1, 1));
+
+		task_id tid = 0;
+		auto run_test = [&](auto test_fn) {
+			CHECK(bm.try_lock(tid, {bid}));
+			test_fn();
+			bm.unlock(tid);
+			tid++;
+		};
+
+		const std::string resize_error_msg = "You are requesting multiple accessors for the same buffer, with later ones requiring a larger part of the "
+		                                     "buffer, causing a backing buffer reallocation. "
+		                                     "This is currently unsupported. Try changing the order of your calls to buffer::get_access.";
+		const std::string discard_error_msg =
+		    "You are requesting multiple accessors for the same buffer, using a discarding access mode first, followed by a non-discarding mode. "
+		    "This is currently unsupported. Try changing the order of your calls to buffer::get_access.";
+
+		SECTION("when running on device, requiring resize on second access") {
+			run_test([&]() {
+				bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {64, 1, 1}, {0, 0, 0});
+				REQUIRE_THROWS_WITH((bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {128, 1, 1}, {0, 0, 0})), resize_error_msg);
+			});
+		}
+
+		SECTION("when running on host, requiring resize on second access") {
+			run_test([&]() {
+				bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {64, 1, 1}, {0, 0, 0});
+				REQUIRE_THROWS_WITH((bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {128, 1, 1}, {0, 0, 0})), resize_error_msg);
+			});
+		}
+
+		SECTION("when running on device, using consumer after discard access") {
+			run_test([&]() {
+				bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::discard_write, {64, 1, 1}, {0, 0, 0});
+				REQUIRE_THROWS_WITH((bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {64, 1, 1}, {0, 0, 0})), discard_error_msg);
+			});
+		}
+
+		SECTION("when running on host, using consumer after discard access") {
+			run_test([&]() {
+				bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::discard_write, {64, 1, 1}, {0, 0, 0});
+				REQUIRE_THROWS_WITH((bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {64, 1, 1}, {0, 0, 0})), discard_error_msg);
+			});
+		}
+	}
+
 	TEST_CASE_METHOD(buffer_manager_fixture, "accessor correctly handles backing buffer offsets", "[accessor][buffer_manager]") {
 		auto& bm = get_buffer_manager();
 		auto& dq = get_device_queue();
