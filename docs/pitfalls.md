@@ -36,5 +36,24 @@ you are doing and would like to disable this check, you can use the
 
 ```cpp
 celerity::distr_queue q;
-q.submit(celerity::allow_by_ref, [&](celerity::handler &cgh) {...});
+bool flag = false;
+q.submit(celerity::allow_by_ref, [&flag](celerity::handler &cgh) {...});
+```
+
+Also, similar to SYCL kernels, both host and device kernels must not capture accessors
+or other values from the command group function by reference since the kernels will
+outlive it. To avoid mistakes, make it a habit to **never use by-reference capture
+defaults**, even when using `allow_by_ref`:
+
+```cpp
+celerity::distr_queue q;
+celerity::buffer<int, 1> buf;
+bool flag = false;
+q.submit(celerity::allow_by_ref, [=, &flag](celerity::handler &cgh) {
+    auto acc = buf.get_access<cl::sycl::access::mode::read,
+        cl::sycl::access::target::host_buffer>(cgh, celerity::access::all<1>());
+    cgh.host_task(celerity::on_master_node, [=, &flag] {
+        flag = acc[0] == 42;
+    });
+});
 ```
