@@ -48,10 +48,10 @@ SDK](https://github.com/codeplaysoftware/computecpp-sdk/).
 
 ## Configuring CMake
 
-After installing all of the aforementioned dependencies, clone or download
-the [Celerity source files](https://github.com/celerity/celerity-runtime)
-from GitHub. Next, create a `build` folder inside the Celerity root folder
-and navigate into it.
+After installing all of the aforementioned dependencies, clone (we recommend
+using `git clone --recurse-submodules`) or download the [Celerity source
+files](https://github.com/celerity/celerity-runtime) from GitHub. Next,
+create a `build` folder inside the Celerity root folder and navigate into it.
 
 The exact CMake configuration call you need depends on a few factors, for
 example the SYCL implementation you chose, as well as your target hardware

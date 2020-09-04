@@ -87,7 +87,7 @@ installed first.
     with newer versions of Boost.
 - A MPI 2 implementation (tested with OpenMPI 4.0, MPICH 3.3 should work as well)
 - [CMake](https://www.cmake.org) (3.5.1 or newer)
-- A C++14 compiler
+- A C++17 compiler
 
 Building can be as simple as calling `cmake && make`, depending on your setup
 you might however also have to provide some library paths etc.
