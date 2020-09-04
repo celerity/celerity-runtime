@@ -35,6 +35,6 @@ you are doing and would like to disable this check, you can use the
 `distr_queue::submit` overload accepting reference captures:
 
 ```cpp
-distr_queue q;
+celerity::distr_queue q;
 q.submit(celerity::allow_by_ref, [&](celerity::handler &cgh) {...});
 ```

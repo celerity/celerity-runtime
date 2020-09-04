@@ -12,7 +12,7 @@ Celerity can be built and installed from
   newer versions of Boost - pending investigation. In the meantime we
   recommend using a version ranging from 1.65 to 1.68)
 - A MPI 2 implementation (for example [OpenMPI 4](https://www.open-mpi.org))
-- A C++14 compiler
+- A C++17 compiler
 - A supported SYCL implementation (see below)
 
 Note that while Celerity does support compilation and execution on Windows in
