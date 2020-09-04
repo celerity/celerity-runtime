@@ -5,7 +5,7 @@ project(celerity_runtime VERSION ${Celerity_VERSION})
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${PROJECT_SOURCE_DIR}/cmake")
-find_package(Boost 1.65.0 REQUIRED COMPONENTS)
+find_package(Boost 1.65.0 REQUIRED COMPONENTS atomic container)
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 
