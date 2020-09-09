@@ -1,7 +1,7 @@
 #pragma once
 
-#include <boost/container_hash/hash.hpp>
-
+// FIXME: Replace this with <boost/container_hash/hash.hpp> once we only support Boost 1.67+
+#include <boost/functional/hash.hpp>
 
 namespace celerity {
 namespace detail {
