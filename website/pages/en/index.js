@@ -114,7 +114,7 @@ class Index extends React.Component {
     );
 
     return (
-      <div>
+      <div className="home-page">
         <HomeSplash siteConfig={siteConfig} language={language} />
         <div className="mainContainer">
           <Features />

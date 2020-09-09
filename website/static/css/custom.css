@@ -15,10 +15,6 @@
   margin-right: auto;
 }
 
-.blockElement {
-  margin-bottom: 6em;
-}
-
 .imageAlignTop .blockImage {
   max-width: 10em;
 }
@@ -30,6 +26,10 @@ blockquote {
 }
 
 /* Custom classes */
+
+hr.separator {
+  margin: 3em 0;
+}
 
 .celerity-logo {
   display: flex;
@@ -47,6 +47,15 @@ blockquote {
   border-radius: 2px;
 }
 
+.home-page .blockElement {
+  margin-bottom: 6em;
+}
+
+.celerity-loves-github {
+  margin-top: 2em;
+  margin-bottom: 1em;
+}
+
 .uni-logos {
   display: flex;
   justify-content: space-evenly;
@@ -56,10 +65,15 @@ blockquote {
 
 .uni-logos img {
   height: 100px;
+  margin: 0 30px;
 }
 
 @media (max-width: 768px) {
+  .uni-logos {
+    margin-top: -20px;
+  }
   .uni-logos img {
     height: 60px;
+    margin-top: 20px;
   }
 }
