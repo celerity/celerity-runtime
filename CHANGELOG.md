@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic
 Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2020-09-09
+
+### Fixed
+
+- Re-enable ComputeCpp workaround for explicit copy operations. (f58b146b)
+- Fix compilation on Windows by avoiding the `TRUE` literal as enum value.
+  (8de922e9)
+- Fix compilation with Boost < 1.67 by using backwards compatible header.
+  (51c98a7a)
+
 ## [0.2.0] - 2020-09-04
 
 ### Added
