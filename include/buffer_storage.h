@@ -7,6 +7,7 @@
 #include <CL/sycl.hpp>
 
 #include "ranges.h"
+#include "workaround.h"
 
 namespace celerity {
 namespace detail {
@@ -186,8 +187,10 @@ namespace detail {
 			auto result = raw_buffer_data{sizeof(DataT), range};
 			auto buf = get_device_buffer();
 
-			// Explicit memory operations with an offset are broken in ComputeCpp PTX as of version 1.3.0
-			// As a workaround we create a temporary buffer and copy the contents manually.
+			// ComputeCpp (as of version 2.1.0) expects the target pointer of an explicit copy operation to have the same size as the buffer,
+			// even though the SYCL 1.2.1 Rev 7 spec states that "dest must have at least as many bytes as the range accessed by src", which
+			// in my (psalz) opinion indicates that this is supposed to result in a contiguous copy of potentially strided source data.
+			// As a workaround, we copy the data manually using a kernel.
 #if WORKAROUND_COMPUTECPP
 			cl::sycl::buffer<DataT, Dims> tmp_dst_buf(reinterpret_cast<DataT*>(result.get_pointer()), range_cast<Dims>(range));
 			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
@@ -217,8 +220,7 @@ namespace detail {
 
 			auto buf = get_device_buffer();
 
-// Explicit memory operations with an offset are broken in ComputeCpp PTX as of version 1.3.0
-// As a workaround we create a temporary buffer and copy the contents manually.
+			// See above for why this workaround is needed.
 #if WORKAROUND_COMPUTECPP
 			cl::sycl::buffer<DataT, Dims> tmp_src_buf(reinterpret_cast<DataT*>(data.get_pointer()), range_cast<Dims>(data.get_range()));
 			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
