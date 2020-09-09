@@ -39,21 +39,17 @@ namespace detail {
 
 		raw_buffer_data(size_t elem_size, cl::sycl::range<3> range) : elem_size(elem_size), range(range) {
 			const size_t size = get_size();
-			ptr = malloc(size);
+			data = std::make_unique<unsigned char[]>(size);
 		}
 
 		raw_buffer_data(const raw_buffer_data&) = delete;
 
 		raw_buffer_data(raw_buffer_data&& other) noexcept { *this = std::move(other); }
 
-		~raw_buffer_data() { free(ptr); }
-
 		raw_buffer_data& operator=(raw_buffer_data&& other) noexcept {
 			elem_size = other.elem_size;
 			range = other.range;
-			ptr = other.ptr;
-
-			other.ptr = nullptr;
+			data = std::move(other.data);
 			return *this;
 		}
 
@@ -62,6 +58,7 @@ namespace detail {
 		 * Note that the resulting data size must remain the same as before.
 		 */
 		void reinterpret(size_t elem_size, cl::sycl::range<3> range) {
+			assert(elem_size * range.size() == this->elem_size * this->range.size());
 			this->elem_size = elem_size;
 			this->range = range;
 		}
@@ -69,7 +66,7 @@ namespace detail {
 		/**
 		 * Returns the pointer to the dense, linearized data location.
 		 */
-		void* get_pointer() const { return ptr; }
+		void* get_pointer() const { return data.get(); }
 
 		cl::sycl::range<3> get_range() const { return range; }
 
@@ -86,7 +83,7 @@ namespace detail {
 	  private:
 		size_t elem_size = 0;
 		cl::sycl::range<3> range = {};
-		void* ptr = nullptr;
+		std::unique_ptr<unsigned char[]> data;
 	};
 
 	template <typename DataT, int Dims>

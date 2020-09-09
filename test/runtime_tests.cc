@@ -468,6 +468,53 @@ namespace detail {
 		}
 	}
 
+	TEST_CASE("raw_buffer_data works as expected") {
+		const cl::sycl::range<3> data1_range{3, 5, 7};
+		raw_buffer_data data1{sizeof(size_t), data1_range};
+		REQUIRE(data1.get_range() == data1_range);
+		REQUIRE(data1.get_pointer() != nullptr);
+		REQUIRE(data1.get_size() == sizeof(size_t) * data1_range.size());
+
+		for(size_t i = 0; i < data1_range[0]; ++i) {
+			for(size_t j = 0; j < data1_range[1]; ++j) {
+				for(size_t k = 0; k < data1_range[2]; ++k) {
+					reinterpret_cast<size_t*>(data1.get_pointer())[i * data1_range[1] * data1_range[2] + j * data1_range[2] + k] = i * 100 + j * 10 + k;
+				}
+			}
+		}
+
+		const cl::sycl::range<3> data2_range{2, 2, 4};
+		const cl::sycl::id<3> data2_offset{1, 2, 2};
+		auto data2 = data1.copy(data2_offset, data2_range);
+		REQUIRE(data2.get_range() == data2_range);
+		REQUIRE(data2.get_pointer() != nullptr);
+		REQUIRE(data2.get_pointer() != data1.get_pointer());
+		REQUIRE(data2.get_size() == sizeof(size_t) * data2_range.size());
+
+		bool valid = true;
+		for(size_t i = 0; i < 2; ++i) {
+			for(size_t j = 0; j < 2; ++j) {
+				for(size_t k = 0; k < 4; ++k) {
+					valid &= reinterpret_cast<size_t*>(data2.get_pointer())[i * data2_range[1] * data2_range[2] + j * data2_range[2] + k]
+					         == (i + data2_offset[0]) * 100 + (j + data2_offset[1]) * 10 + (k + data2_offset[2]);
+				}
+			}
+		}
+		REQUIRE(valid);
+
+		const auto data2_ptr = data2.get_pointer();
+		auto data3 = std::move(data2);
+		REQUIRE(data2.get_pointer() == nullptr);
+		REQUIRE(data3.get_range() == data2_range);
+		REQUIRE(data3.get_pointer() == data2_ptr);
+		REQUIRE(data3.get_size() == sizeof(size_t) * data2_range.size());
+
+		raw_buffer_data data4{sizeof(uint64_t), {16, 8, 4}};
+		data4.reinterpret(sizeof(uint32_t), {32, 8, 4});
+		REQUIRE(data4.get_range() == cl::sycl::range<3>{32, 8, 4});
+		REQUIRE(data4.get_size() == sizeof(uint64_t) * 16 * 8 * 4);
+	}
+
 	class buffer_manager_fixture {
 	  public:
 		enum class access_target { HOST, DEVICE };

@@ -55,14 +55,14 @@ namespace detail {
 
 		if(range[2] == 1) {
 			if(range[1] == 1) {
-				memcpy_strided(ptr, result.get_pointer(), elem_size, range_cast<1>(range), range_cast<1>(offset), range_cast<1>(copy_range), cl::sycl::id<1>(0),
-				    range_cast<1>(copy_range));
+				memcpy_strided(data.get(), result.get_pointer(), elem_size, range_cast<1>(range), range_cast<1>(offset), range_cast<1>(copy_range),
+				    cl::sycl::id<1>(0), range_cast<1>(copy_range));
 			} else {
-				memcpy_strided(ptr, result.get_pointer(), elem_size, range_cast<2>(range), range_cast<2>(offset), range_cast<2>(copy_range),
+				memcpy_strided(data.get(), result.get_pointer(), elem_size, range_cast<2>(range), range_cast<2>(offset), range_cast<2>(copy_range),
 				    cl::sycl::id<2>(0, 0), range_cast<2>(copy_range));
 			}
 		} else {
-			memcpy_strided(ptr, result.get_pointer(), elem_size, range_cast<3>(range), offset, copy_range, cl::sycl::id<3>(0, 0, 0), copy_range);
+			memcpy_strided(data.get(), result.get_pointer(), elem_size, range_cast<3>(range), offset, copy_range, cl::sycl::id<3>(0, 0, 0), copy_range);
 		}
 
 		return result;
