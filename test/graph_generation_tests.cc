@@ -19,7 +19,7 @@ namespace detail {
 	using celerity::access::fixed;
 	using celerity::access::one_to_one;
 
-	bool has_dependency(const task_manager& tm, task_id dependent, task_id dependency, dependency_kind kind = dependency_kind::TRUE) {
+	bool has_dependency(const task_manager& tm, task_id dependent, task_id dependency, dependency_kind kind = dependency_kind::TRUE_DEP) {
 		for(auto dep : tm.get_task(dependent)->get_dependencies()) {
 			if(dep.node->get_id() == dependency && dep.kind == kind) return true;
 		}
@@ -66,7 +66,7 @@ namespace detail {
 				buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
 				buf_b.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
 			});
-			CHECK(has_dependency(tm, tid_b, tid_a, dependency_kind::ANTI));
+			CHECK(has_dependency(tm, tid_b, tid_a, dependency_kind::ANTI_DEP));
 
 			const auto its = tm.get_task(tid_a)->get_dependents();
 			REQUIRE(std::distance(its.begin(), its.end()) == 1);
@@ -86,7 +86,7 @@ namespace detail {
 					buf_b.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
 				});
 				CHECK(has_dependency(tm, tid_b, tid_a));
-				CHECK_FALSE(has_dependency(tm, tid_b, tid_a, dependency_kind::ANTI));
+				CHECK_FALSE(has_dependency(tm, tid_b, tid_a, dependency_kind::ANTI_DEP));
 
 				const auto its = tm.get_task(tid_a)->get_dependents();
 				REQUIRE(std::distance(its.begin(), its.end()) == 1);
@@ -104,7 +104,7 @@ namespace detail {
 					buf_b.get_access<mode::read>(cgh, fixed<1>({0, 128}));
 				});
 				CHECK(has_dependency(tm, tid_b, tid_a));
-				CHECK_FALSE(has_dependency(tm, tid_b, tid_a, dependency_kind::ANTI));
+				CHECK_FALSE(has_dependency(tm, tid_b, tid_a, dependency_kind::ANTI_DEP));
 
 				const auto its = tm.get_task(tid_a)->get_dependents();
 				REQUIRE(std::distance(its.begin(), its.end()) == 1);
@@ -149,14 +149,14 @@ namespace detail {
 		const auto tid_c = test_utils::add_compute_task<class UKN(task_c)>(tm, [&](handler& cgh) {
 			buf.get_access<mode::discard_write>(cgh, fixed<2, 1>({64, 64}));
 		});
-		REQUIRE(has_dependency(tm, tid_c, tid_a, dependency_kind::ANTI));
-		REQUIRE_FALSE(has_dependency(tm, tid_c, tid_b, dependency_kind::ANTI));
+		REQUIRE(has_dependency(tm, tid_c, tid_a, dependency_kind::ANTI_DEP));
+		REQUIRE_FALSE(has_dependency(tm, tid_c, tid_b, dependency_kind::ANTI_DEP));
 		// Overwrite the first half - now only an anti-dependency onto task_b should exist
 		const auto tid_d = test_utils::add_compute_task<class UKN(task_d)>(tm, [&](handler& cgh) {
 			buf.get_access<mode::discard_write>(cgh, fixed<2, 1>({0, 64}));
 		});
-		REQUIRE_FALSE(has_dependency(tm, tid_d, tid_a, dependency_kind::ANTI));
-		REQUIRE(has_dependency(tm, tid_d, tid_b, dependency_kind::ANTI));
+		REQUIRE_FALSE(has_dependency(tm, tid_d, tid_a, dependency_kind::ANTI_DEP));
+		REQUIRE(has_dependency(tm, tid_d, tid_b, dependency_kind::ANTI_DEP));
 
 		maybe_print_graph(tm);
 	}
@@ -180,12 +180,12 @@ namespace detail {
 		const auto tid_c = test_utils::add_compute_task<class UKN(task_c)>(tm, [&](handler& cgh) {
 			host_init_buf.get_access<mode::discard_write>(cgh, fixed<2, 1>({0, 128}));
 		});
-		REQUIRE(has_dependency(tm, tid_c, tid_a, dependency_kind::ANTI));
+		REQUIRE(has_dependency(tm, tid_c, tid_a, dependency_kind::ANTI_DEP));
 		const auto tid_d = test_utils::add_compute_task<class UKN(task_d)>(tm, [&](handler& cgh) {
 			non_host_init_buf.get_access<mode::discard_write>(cgh, fixed<2, 1>({0, 128}));
 		});
 		// Since task b is essentially reading uninitialized garbage, it doesn't make a difference if we write into it concurrently
-		REQUIRE_FALSE(has_dependency(tm, tid_d, tid_b, dependency_kind::ANTI));
+		REQUIRE_FALSE(has_dependency(tm, tid_d, tid_b, dependency_kind::ANTI_DEP));
 
 		maybe_print_graph(tm);
 	}
@@ -222,7 +222,7 @@ namespace detail {
 			const auto tid_b = test_utils::add_compute_task<class UKN(task_b)>(tm, [&](handler& cgh) {
 				buf.get_access<mode::discard_write>(cgh, fixed<2, 1>({0, 128}));
 			});
-			REQUIRE(has_dependency(tm, tid_b, tid_a, dependency_kind::ANTI));
+			REQUIRE(has_dependency(tm, tid_b, tid_a, dependency_kind::ANTI_DEP));
 		}
 	}
 
@@ -250,7 +250,7 @@ namespace detail {
 				});
 				const bool pure_consumer = consumer_mode == mode::read;
 				const bool pure_producer = producer_mode == mode::discard_read_write || producer_mode == mode::discard_write;
-				REQUIRE(has_dependency(tm, tid_c, tid_b, pure_consumer || pure_producer ? dependency_kind::ANTI : dependency_kind::TRUE));
+				REQUIRE(has_dependency(tm, tid_c, tid_b, pure_consumer || pure_producer ? dependency_kind::ANTI_DEP : dependency_kind::TRUE_DEP));
 			}
 		}
 	}
@@ -275,7 +275,7 @@ namespace detail {
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_1, tid_collective_explicit_2));
 
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_2, tid_master));
-		CHECK(has_dependency(tm, tid_collective_implicit_2, tid_collective_implicit_1, dependency_kind::ORDER));
+		CHECK(has_dependency(tm, tid_collective_implicit_2, tid_collective_implicit_1, dependency_kind::ORDER_DEP));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_2, tid_collective_explicit_1));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_2, tid_collective_explicit_2));
 
@@ -287,7 +287,7 @@ namespace detail {
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_explicit_2, tid_master));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_explicit_2, tid_collective_implicit_1));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_explicit_2, tid_collective_implicit_2));
-		CHECK(has_dependency(tm, tid_collective_explicit_2, tid_collective_explicit_1, dependency_kind::ORDER));
+		CHECK(has_dependency(tm, tid_collective_explicit_2, tid_collective_explicit_1, dependency_kind::ORDER_DEP));
 	}
 
 	TEST_CASE("command_graph keeps track of created commands", "[command_graph][command-graph]") {
@@ -1361,7 +1361,7 @@ namespace detail {
 
 		auto has_dependencies_on_same_node = [&](task_id depender, task_id dependency) {
 			return all_command_dependencies(depender, dependency, [](auto depender_cmd, auto dependency_cmd) {
-				return depender_cmd->has_dependency(dependency_cmd, dependency_kind::ORDER) == (depender_cmd->get_nid() == dependency_cmd->get_nid());
+				return depender_cmd->has_dependency(dependency_cmd, dependency_kind::ORDER_DEP) == (depender_cmd->get_nid() == dependency_cmd->get_nid());
 			});
 		};
 

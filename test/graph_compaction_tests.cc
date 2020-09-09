@@ -202,7 +202,7 @@ namespace detail {
 		auto write_b_cmd = ctx.get_command_graph().get(*cmds.cbegin());
 		auto write_b_dependencies = write_b_cmd->get_dependencies();
 		CHECK(!write_b_dependencies.empty());
-		CHECK(write_b_dependencies.front().kind == dependency_kind::ANTI);
+		CHECK(write_b_dependencies.front().kind == dependency_kind::ANTI_DEP);
 
 		maybe_print_graphs(ctx);
 	}

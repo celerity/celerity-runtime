@@ -10,9 +10,9 @@ namespace celerity {
 namespace detail {
 
 	enum class dependency_kind {
-		ANTI = 0,  // Data anti-dependency, can be resolved by duplicating buffers
-		ORDER = 1, // Order pseudo-depencency, introduced by collective host task groups
-		TRUE = 2,  // True data flow dependency
+		ANTI_DEP = 0,  // Data anti-dependency, can be resolved by duplicating buffers
+		ORDER_DEP = 1, // Order pseudo-depencency, introduced by collective host task groups
+		TRUE_DEP = 2,  // True data flow dependency
 	};
 
 	template <typename T>

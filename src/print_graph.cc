@@ -23,8 +23,8 @@ namespace detail {
 
 	const char* dependency_style(dependency_kind kind) {
 		switch(kind) {
-		case dependency_kind::ORDER: return "color=blue"; break;
-		case dependency_kind::ANTI: return "color=limegreen"; break;
+		case dependency_kind::ORDER_DEP: return "color=blue"; break;
+		case dependency_kind::ANTI_DEP: return "color=limegreen"; break;
 		default: return "";
 		}
 	}

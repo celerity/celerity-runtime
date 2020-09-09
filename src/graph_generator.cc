@@ -51,7 +51,7 @@ namespace detail {
 				// they are executed in the same order on every node.
 				auto cgid = tsk->get_collective_group_id();
 				if(auto prev = last_collective_commands.find({nid, cgid}); prev != last_collective_commands.end()) {
-					cdag.add_dependency(cmd, cdag.get(prev->second), dependency_kind::ORDER);
+					cdag.add_dependency(cmd, cdag.get(prev->second), dependency_kind::ORDER_DEP);
 					last_collective_commands.erase(prev);
 				}
 				last_collective_commands.emplace(std::pair{nid, cgid}, cmd->get_cid());
@@ -100,7 +100,7 @@ namespace detail {
 			bool has_dependents = false;
 			for(auto d : last_writer_cmd->get_dependents()) {
 				// Only consider true dependencies
-				if(d.kind != dependency_kind::TRUE) continue;
+				if(d.kind != dependency_kind::TRUE_DEP) continue;
 
 				const auto cmd = d.node;
 
@@ -113,7 +113,7 @@ namespace detail {
 				if(buffer_reads_it == command_reads.end()) continue; // The task might be a dependent because of another buffer
 				if(!GridRegion<3>::intersect(write_req, buffer_reads_it->second).empty()) {
 					has_dependents = true;
-					cdag.add_dependency(write_cmd, cmd, dependency_kind::ANTI);
+					cdag.add_dependency(write_cmd, cmd, dependency_kind::ANTI_DEP);
 				}
 			}
 
@@ -123,7 +123,7 @@ namespace detail {
 				// Don't add anti-dependencies onto the init command
 				if(last_writer_cid == node_data[write_cmd->get_nid()].init_cid) continue;
 
-				cdag.add_dependency(write_cmd, last_writer_cmd, dependency_kind::ANTI);
+				cdag.add_dependency(write_cmd, last_writer_cmd, dependency_kind::ANTI_DEP);
 
 				// This is a good time to validate our assumption that every AWAIT_PUSH command has a dependent
 				assert(!isa<await_push_command>(last_writer_cmd));
@@ -283,12 +283,12 @@ namespace detail {
 				if(isa<task_command>(writer_cmd) && static_cast<task_command*>(writer_cmd)->get_tid() == tid) {
 					// In certain situations the PUSH might have a true dependency on the last writer,
 					// in that case don't add an anti-dependency (as that would cause a cycle).
-					if(cmd->has_dependency(writer_cmd, dependency_kind::TRUE)) {
+					if(cmd->has_dependency(writer_cmd, dependency_kind::TRUE_DEP)) {
 						// This can currently only happen for AWAIT_PUSH commands.
 						assert(isa<await_push_command>(writer_cmd));
 						continue;
 					}
-					cdag.add_dependency(writer_cmd, push_cmd, dependency_kind::ANTI);
+					cdag.add_dependency(writer_cmd, push_cmd, dependency_kind::ANTI_DEP);
 				}
 			}
 		}
