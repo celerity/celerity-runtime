@@ -14,7 +14,7 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 - Fix compilation on Windows by avoiding the `TRUE` literal as enum value.
   (8de922e9)
 - Fix compilation with Boost < 1.67 by using backwards compatible header.
-  (51c98a7a)
+  (a51c98a7)
 
 ## [0.2.0] - 2020-09-04
 
