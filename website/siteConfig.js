@@ -31,7 +31,7 @@ const siteConfig = {
   },
 
   algolia: {
-    apiKey: "1945a24367750ada26456787eaa90102",
+    apiKey: "87af380bf99bc4a1062f993db5a2c0df",
     indexName: "celerity"
   },
 
