@@ -650,14 +650,10 @@ namespace detail {
 
 		template <typename DataT, int Dims, cl::sycl::access::mode Mode>
 		accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> get_device_accessor(
-		    cl::sycl::handler& cgh, buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
+		    live_pass_device_handler& cgh, buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
 			auto buf_info = bm->get_device_buffer<DataT, Dims>(bid, Mode, range_cast<3>(range), id_cast<3>(offset));
-			cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t> sycl_accessor{
-			    buf_info.buffer, range, buf_info.offset};
-			cgh.require(sycl_accessor);
-			return detail::make_device_accessor<DataT, Dims, Mode>(sycl_accessor, buf_info.offset);
+			return detail::make_device_accessor<DataT, Dims, Mode>(cgh, buf_info.buffer, range, offset);
 		}
-
 
 		template <typename DataT, int Dims, cl::sycl::access::mode Mode>
 		accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer> get_host_accessor(
@@ -1458,15 +1454,15 @@ namespace detail {
 		auto bid = bm.register_buffer<size_t, 2>(cl::sycl::range<3>(64, 32, 1));
 
 		SECTION("when using device buffers") {
-			dq.get_sycl_queue()
-			    .submit([&](cl::sycl::handler& cgh) {
-				    auto acc = get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(cgh, bid, {32, 32}, {32, 0});
-				    // NOTE: Add offset manually to work around ComputeCpp PTX bug (still present as of version 1.1.5)
-				    // See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-98 (psalz).
-				    cgh.parallel_for<class UKN(write_buf)>(
-				        cl::sycl::range<2>(32, 32), [=](cl::sycl::id<2> id) { acc[id + cl::sycl::id<2>(32, 0)] = (id[0] + 32) + id[1]; });
-			    })
-			    .wait();
+			auto range = cl::sycl::range<2>(32, 32);
+			auto sr = subrange<3>({}, range_cast<3>(range));
+			live_pass_device_handler cgh(nullptr, sr, dq);
+
+			auto acc = get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(cgh, bid, {32, 32}, {32, 0});
+			// NOTE: Add offset manually to work around ComputeCpp PTX bug (still present as of version 1.1.5)
+			// See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-98 (psalz).
+			cgh.parallel_for<class UKN(write_buf)>(range, [=](cl::sycl::id<2> id) { acc[id + cl::sycl::id<2>(32, 0)] = (id[0] + 32) + id[1]; });
+			cgh.get_submission_event().wait();
 
 			auto buf_info = bm.get_host_buffer<size_t, 2>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 32, 1), cl::sycl::id<3>(32, 0, 0));
 			bool valid = true;
@@ -1506,66 +1502,68 @@ namespace detail {
 		auto bid_d = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(32, 1, 1));
 
 		SECTION("when using device buffers") {
-			dq.get_sycl_queue()
-			    .submit([&](cl::sycl::handler& cgh) {
-				    // For device accessors we test this both on host and device
+			auto range = cl::sycl::range<1>(32);
+			auto sr = subrange<3>({}, range_cast<3>(range));
+			live_pass_device_handler cgh(nullptr, sr, dq);
 
-				    // Copy ctor
-				    auto acc_a = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_a, {32}, {0});
-				    decltype(acc_a) acc_a1(acc_a);
+			// For device accessors we test this both on host and device
 
-				    // Move ctor
-				    auto acc_b = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_b, {32}, {0});
-				    decltype(acc_b) acc_b1(std::move(acc_b));
+			// Copy ctor
+			auto device_acc_a = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_a, {32}, {0});
+			decltype(device_acc_a) device_acc_a1(device_acc_a);
 
-				    // Copy assignment
-				    auto acc_c = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_c, {32}, {0});
-				    auto acc_c1 = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_a, {32}, {0});
-				    acc_c1 = acc_c;
+			// Move ctor
+			auto device_acc_b = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_b, {32}, {0});
+			decltype(device_acc_b) device_acc_b1(std::move(device_acc_b));
 
-				    // Move assignment
-				    auto acc_d = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_d, {32}, {0});
-				    auto acc_d1 = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_a, {32}, {0});
-				    acc_d1 = std::move(acc_d);
+			// Copy assignment
+			auto device_acc_c = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_c, {32}, {0});
+			auto device_acc_c1 = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_a, {32}, {0});
+			device_acc_c1 = device_acc_c;
 
-				    // Hidden friends (equality operators)
-				    REQUIRE(acc_a == acc_a1);
-				    REQUIRE(acc_a1 != acc_b1);
+			// Move assignment
+			auto device_acc_d = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_d, {32}, {0});
+			auto device_acc_d1 = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_a, {32}, {0});
+			device_acc_d1 = std::move(device_acc_d);
 
-				    cgh.parallel_for<class UKN(member_fn_test)>(cl::sycl::range<1>(32), [=](cl::sycl::id<1> id) {
-					    // Copy ctor
-					    decltype(acc_a1) acc_a2(acc_a1);
-					    acc_a2[id] = 1 * id[0];
+			// Hidden friends (equality operators)
+			REQUIRE(device_acc_a == device_acc_a1);
+			REQUIRE(device_acc_a1 != device_acc_b1);
 
-					    // Move ctor
-					    decltype(acc_b1) acc_b2(std::move(acc_b1));
-					    acc_b2[id] = 2 * id[0];
+			cgh.parallel_for<class UKN(member_fn_test)>(range, [=](cl::sycl::id<1> id) {
+				// Copy ctor
+				decltype(device_acc_a1) device_acc_a2(device_acc_a1);
+				device_acc_a2[id] = 1 * id[0];
 
-					    // Copy assignment
-					    auto acc_c2 = acc_a1;
-					    acc_c2 = acc_c1;
-					    acc_c2[id] = 3 * id[0];
+				// Move ctor
+				decltype(device_acc_b1) device_acc_b2(std::move(device_acc_b1));
+				device_acc_b2[id] = 2 * id[0];
 
-					    // Move assignment
-					    auto acc_d2 = acc_a1;
-					    acc_d2 = std::move(acc_d1);
-					    acc_d2[id] = 4 * id[0];
+				// Copy assignment
+				auto device_acc_c2 = device_acc_a1;
+				device_acc_c2 = device_acc_c1;
+				device_acc_c2[id] = 3 * id[0];
 
-					    // Hidden friends (equality operators) are only required to be defined on the host
-				    });
-			    })
-			    .wait();
+				// Move assignment
+				auto device_acc_d2 = device_acc_a1;
+				device_acc_d2 = std::move(device_acc_d1);
+				device_acc_d2[id] = 4 * id[0];
 
-			auto acc_a = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_a, {32}, {0});
-			auto acc_b = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_b, {32}, {0});
-			auto acc_c = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_c, {32}, {0});
-			auto acc_d = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_d, {32}, {0});
+				// Hidden friends (equality operators) are only required to be defined on the host
+			});
+
+			cgh.get_submission_event().wait();
+
+			auto host_acc_a = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_a, {32}, {0});
+			auto host_acc_b = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_b, {32}, {0});
+			auto host_acc_c = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_c, {32}, {0});
+			auto host_acc_d = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_d, {32}, {0});
 			bool valid = true;
 			for(size_t i = 0; i < 32; ++i) {
-				valid &= acc_a[i] == 1 * i;
-				valid &= acc_b[i] == 2 * i;
-				valid &= acc_c[i] == 3 * i;
-				valid &= acc_d[i] == 4 * i;
+				valid &= host_acc_a[i] == 1 * i;
+				valid &= host_acc_b[i] == 2 * i;
+				valid &= host_acc_c[i] == 3 * i;
+				valid &= host_acc_d[i] == 4 * i;
 			}
 			REQUIRE(valid);
 		}
@@ -1623,15 +1621,17 @@ namespace detail {
 		int host_data = 0;
 		auto bid = bm.register_buffer<int, 1>(cl::sycl::range<3>(1, 1, 1), &host_data);
 
-		dq.get_sycl_queue()
-		    .submit([&](cl::sycl::handler& cgh) {
-			    auto acc = get_device_accessor<int, 1, cl::sycl::access::mode::atomic>(cgh, bid, {1}, {0});
-			    cgh.parallel_for<class UKN(atomic_increment)>(cl::sycl::range<1>(2048), [=](cl::sycl::id<1> id) { acc[0].fetch_add(2); });
-		    })
-		    .wait();
+		auto range = cl::sycl::range<1>(2048);
+		auto sr = subrange<3>({}, range_cast<3>(range));
+		live_pass_device_handler cgh(nullptr, sr, dq);
 
-		auto acc = get_host_accessor<int, 1, cl::sycl::access::mode::read>(bid, {1}, {0});
-		REQUIRE(acc[0] == 4096);
+
+		auto device_acc = get_device_accessor<int, 1, cl::sycl::access::mode::atomic>(cgh, bid, {1}, {0});
+		cgh.parallel_for<class UKN(atomic_increment)>(range, [=](cl::sycl::id<1> id) { device_acc[0].fetch_add(2); });
+		cgh.get_submission_event().wait();
+
+		auto host_acc = get_host_accessor<int, 1, cl::sycl::access::mode::read>(bid, {1}, {0});
+		REQUIRE(host_acc[0] == 4096);
 	}
 
 	TEST_CASE_METHOD(buffer_manager_fixture, "host accessor supports get_pointer", "[accessor]") {

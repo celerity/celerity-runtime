@@ -171,11 +171,10 @@ namespace detail {
 
 			logger->trace(logger_map({{"event", "Execute live-pass, submit kernel to SYCL"}}));
 
-			event = queue.submit([tsk, sr = data.sr](cl::sycl::handler& handler, size_t forced_work_group_size) {
-				auto& cgf = tsk->get_command_group();
-				live_pass_device_handler cgh(tsk, sr, handler, forced_work_group_size);
-				cgf(cgh);
-			});
+			live_pass_device_handler cgh(tsk, data.sr, queue);
+			auto& cgf = tsk->get_command_group();
+			cgf(cgh);
+			event = cgh.get_submission_event();
 
 			submitted = true;
 			logger->trace(logger_map({{"event", "Submitted"}}));

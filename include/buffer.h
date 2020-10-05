@@ -72,9 +72,7 @@ class buffer {
 			if constexpr(Target == cl::sycl::access::target::host_buffer) {
 				return detail::make_host_accessor<DataT, Dims, Mode>();
 			} else {
-				auto faux_acc =
-				    cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>(*faux_buf);
-				return detail::make_device_accessor<DataT, Dims, Mode>(faux_acc, detail::id_cast<Dims>(cl::sycl::id<3>{0, 0, 0}));
+				return detail::make_device_accessor<DataT, Dims, Mode>(*faux_buf);
 			}
 		}
 
@@ -99,11 +97,7 @@ class buffer {
 			const auto sr = detail::clamp_subrange_to_buffer_size(live_cgh.apply_range_mapper<Dims>(rmfn, get_range()), get_range());
 			auto access_info = detail::runtime::get_instance().get_buffer_manager().get_device_buffer<DataT, Dims>(
 			    id, Mode, detail::range_cast<3>(sr.range), detail::id_cast<3>(sr.offset));
-			// We pass a range and offset here to avoid interference from SYCL, but the offset must be relative to the *backing buffer*.
-			auto a = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>(
-			    access_info.buffer, sr.range, access_info.offset);
-			live_cgh.require_accessor(a);
-			return detail::make_device_accessor<DataT, Dims, Mode>(a, access_info.offset);
+			return detail::make_device_accessor<DataT, Dims, Mode>(live_cgh, access_info.buffer, sr.range, access_info.offset);
 		}
 	}
 
