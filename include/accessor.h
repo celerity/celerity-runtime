@@ -7,7 +7,6 @@
 
 #include "access_modes.h"
 #include "buffer_storage.h"
-#include "handler.h"
 
 
 namespace celerity {
@@ -144,7 +143,7 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>
 	friend accessor<T, D, M, cl::sycl::access::target::global_buffer> detail::make_device_accessor(Args&&...);
 
 	// see init_from
-	detail::live_pass_device_handler* live_cgh = nullptr;
+	cl::sycl::handler* const* eventual_sycl_cgh = nullptr;
 	cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t> sycl_accessor;
 	cl::sycl::id<Dims> backing_buffer_offset;
 
@@ -152,9 +151,9 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>
 	accessor(cl::sycl::buffer<DataT, Dims>& faux_buffer)
 	    : sycl_accessor(cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>(faux_buffer)) {}
 
-	accessor(detail::live_pass_device_handler& live_cgh, cl::sycl::buffer<DataT, Dims>& buffer, const cl::sycl::range<Dims>& range,
+	accessor(cl::sycl::handler* const* eventual_sycl_cgh, cl::sycl::buffer<DataT, Dims>& buffer, const cl::sycl::range<Dims>& range,
 	    cl::sycl::id<Dims> backing_buffer_offset)
-	    : live_cgh(&live_cgh),
+	    : eventual_sycl_cgh(eventual_sycl_cgh),
 	      // We pass a range and offset here to avoid interference from SYCL, but the offset must be relative to the *backing buffer*.
 	      sycl_accessor(cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>(
 	          buffer, range, backing_buffer_offset)),
@@ -167,14 +166,18 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>
 	}
 
 	void init_from(const accessor& other) {
-		live_cgh = other.live_cgh;
+		eventual_sycl_cgh = other.eventual_sycl_cgh;
 		backing_buffer_offset = other.backing_buffer_offset;
 
 		// The call to sycl::handler::require must happen inside the SYCL CGF, but since get_access within the Celerity CGF is executed before
-		// the submission  to SYCL, it needs to be deferred. This workaround captures the live pass handler and then abuses the copy constructor
-		// that is called implicitly when the lambda is copied for the SYCL kernel submission to call require().
+		// the submission to SYCL, it needs to be deferred. We capture a reference to a SYCL handler pointer owned by the live pass handler that is
+		// initialized once the SYCL CGF is entered. We then abuse the copy constructor that is called implicitly when the lambda is copied for the SYCL
+		// kernel submission to call require().
 #if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
-		if(live_cgh != nullptr && live_cgh->require_accessor(sycl_accessor)) { live_cgh = nullptr; }
+		if(eventual_sycl_cgh != nullptr && *eventual_sycl_cgh != nullptr) {
+			(*eventual_sycl_cgh)->require(sycl_accessor);
+			eventual_sycl_cgh = nullptr; // only `require` once
+		}
 #endif
 	}
 };

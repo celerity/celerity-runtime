@@ -652,7 +652,7 @@ namespace detail {
 		accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> get_device_accessor(
 		    live_pass_device_handler& cgh, buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
 			auto buf_info = bm->get_device_buffer<DataT, Dims>(bid, Mode, range_cast<3>(range), id_cast<3>(offset));
-			return detail::make_device_accessor<DataT, Dims, Mode>(cgh, buf_info.buffer, range, offset);
+			return detail::make_device_accessor<DataT, Dims, Mode>(cgh.get_eventual_sycl_cgh(), buf_info.buffer, range, offset);
 		}
 
 		template <typename DataT, int Dims, cl::sycl::access::mode Mode>

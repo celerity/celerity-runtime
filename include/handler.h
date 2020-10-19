@@ -334,30 +334,22 @@ namespace detail {
 		live_pass_device_handler(std::shared_ptr<const class task> task, subrange<3> sr, device_queue& d_queue)
 		    : live_pass_handler(std::move(task), sr), d_queue(&d_queue) {}
 
-		// called from accessor::init_from, which captures the live pass handler
-		template <typename DataT, int Dims, cl::sycl::access::mode Mode, cl::sycl::access::target Target, cl::sycl::access::placeholder IsPlaceholder>
-		bool require_accessor(cl::sycl::accessor<DataT, Dims, Mode, Target, IsPlaceholder>& accessor) {
-			if(cgh != nullptr) {
-				cgh->require(accessor);
-				return true;
-			}
-			return false;
-		}
-
 		template <typename CGF>
 		void submit_to_sycl(CGF&& cgf) {
 			event = d_queue->submit([&](cl::sycl::handler& cgh, size_t fwgs) {
-				this->cgh = &cgh;
+				this->eventual_cgh = &cgh;
 				std::forward<CGF>(cgf)(cgh, fwgs);
-				this->cgh = nullptr;
+				this->eventual_cgh = nullptr;
 			});
 		}
 
 		cl::sycl::event get_submission_event() const { return event; }
 
+		cl::sycl::handler* const* get_eventual_sycl_cgh() const { return &eventual_cgh; }
+
 	  private:
 		device_queue* d_queue;
-		cl::sycl::handler* cgh = nullptr;
+		cl::sycl::handler* eventual_cgh = nullptr;
 		cl::sycl::event event;
 	};
 

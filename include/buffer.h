@@ -97,7 +97,7 @@ class buffer {
 			const auto sr = detail::clamp_subrange_to_buffer_size(live_cgh.apply_range_mapper<Dims>(rmfn, get_range()), get_range());
 			auto access_info = detail::runtime::get_instance().get_buffer_manager().get_device_buffer<DataT, Dims>(
 			    id, Mode, detail::range_cast<3>(sr.range), detail::id_cast<3>(sr.offset));
-			return detail::make_device_accessor<DataT, Dims, Mode>(live_cgh, access_info.buffer, sr.range, access_info.offset);
+			return detail::make_device_accessor<DataT, Dims, Mode>(live_cgh.get_eventual_sycl_cgh(), access_info.buffer, sr.range, access_info.offset);
 		}
 	}
 
