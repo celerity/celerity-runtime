@@ -16,14 +16,14 @@ namespace detail {
 	}
 
 	void graph_serializer::flush(const std::vector<task_command*>& cmds) {
-#ifndef NDEBUG
+#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 		task_id check_tid = task_id(-1);
 #endif
 
 		std::vector<std::pair<task_command*, std::vector<command_id>>> cmds_and_deps;
 		cmds_and_deps.reserve(cmds.size());
 		for(auto cmd : cmds) {
-#ifndef NDEBUG
+#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 			// Verify that all commands belong to the same task
 			assert(check_tid == task_id(-1) || check_tid == cmd->get_tid());
 			check_tid = cmd->get_tid();
