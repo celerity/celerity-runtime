@@ -54,10 +54,10 @@ namespace detail {
 	}
 
 	const char* get_build_type() {
-#ifdef NDEBUG
-		return "release";
-#else
+#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 		return "debug";
+#else
+		return "release";
 #endif
 	}
 

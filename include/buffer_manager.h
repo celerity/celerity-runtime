@@ -126,7 +126,7 @@ namespace detail {
 				buffer_infos[bid] = buffer_info{range, is_host_initialized};
 				newest_data_location.emplace(bid, region_map<data_location>(range, data_location::NOWHERE));
 
-#if !defined(NDEBUG)
+#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 				buffer_types.emplace(bid, new buffer_type_guard<DataT, Dims>());
 #endif
 			}
@@ -200,7 +200,9 @@ namespace detail {
 		access_info<DataT, Dims, device_buffer> get_device_buffer(
 		    buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
 			std::unique_lock lock(mutex);
+#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 			assert((buffer_types.at(bid)->has_type<DataT, Dims>()));
+#endif
 			assert((range_cast<3>(offset + range) <= buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
 
 			auto& old_buffer = buffers[bid].device_buf;
@@ -237,7 +239,9 @@ namespace detail {
 		access_info<DataT, Dims, host_buffer> get_host_buffer(
 		    buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
 			std::unique_lock lock(mutex);
+#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 			assert((buffer_types.at(bid)->has_type<DataT, Dims>()));
+#endif
 			assert((range_cast<3>(offset + range) <= buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
 
 			auto& old_buffer = buffers[bid].host_buf;
@@ -327,7 +331,7 @@ namespace detail {
 
 		enum class data_location { NOWHERE, HOST, DEVICE, HOST_AND_DEVICE };
 
-#if !defined(NDEBUG)
+#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 		struct buffer_type_guard_base {
 			virtual ~buffer_type_guard_base(){};
 			template <typename DataT, int Dims>
@@ -362,7 +366,7 @@ namespace detail {
 		std::unordered_map<buffer_id, buffer_lock_info> buffer_lock_infos;
 		std::unordered_map<buffer_lock_id, std::vector<buffer_id>> buffer_locks_by_id;
 
-#if !defined(NDEBUG)
+#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 		// Since we store buffers without type information (i.e., its data type and dimensionality),
 		// it is the user's responsibility to only request access to a buffer using the correct type.
 		// In debug builds we can help out a bit by remembering the type and asserting it on every access.

@@ -108,6 +108,24 @@ target_link_libraries(celerity_runtime PUBLIC
   spdlog::spdlog
 )
 
+# For debug builds, we set the CELERITY_DETAIL_ENABLE_DEBUG preprocessor flag,
+# which allows Celerity to control debug functionality within headers regardless
+# of a user target's build type. (This flag is not intended to be modified by
+# end users directly).
+#
+# To make this work, we need to ensure that user targets also receive this flag
+# whenever they link to a Celerity runtime that was built with the DEBUG
+# configuration. Unfortunately there doesn't seem to be a way of doing this using
+# generator expressions, which is why we have to do it manually within
+# celerity-config.cmake instead.
+target_compile_definitions(celerity_runtime PUBLIC
+  # We still mark this as PUBLIC during builds (but not installation),
+  # so that the examples and tests receive the correct flag as well.
+  $<BUILD_INTERFACE:
+    $<$<CONFIG:Debug>:CELERITY_DETAIL_ENABLE_DEBUG>
+  >
+)
+
 if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
 	target_link_libraries(celerity_runtime PUBLIC ComputeCpp::ComputeCpp)
 endif()

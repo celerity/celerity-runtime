@@ -73,10 +73,10 @@ namespace detail {
 		// ------------------------------- CELERITY_LOG_LEVEL ---------------------------------
 
 		{
-#ifdef NDEBUG
-			log_lvl = log_level::info;
-#else
+#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 			log_lvl = log_level::trace;
+#else
+			log_lvl = log_level::info;
 #endif
 			const std::vector<std::pair<log_level, std::string>> possible_values = {
 			    {log_level::trace, "trace"},

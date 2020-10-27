@@ -19,6 +19,39 @@ include("${CMAKE_CURRENT_LIST_DIR}/../celerity/vendor/cmake/spdlogConfig.cmake")
 
 include("${CMAKE_CURRENT_LIST_DIR}/celerity-targets.cmake")
 
+# We currently assume that only a single Celerity configuration is installed at a time.
+# Unfortunately CMake doesn't remove old configurations when re-installing a target,
+# so we advise to do a clean install (although it would suffice to just remove the
+# configuration-specific target files).
+# NOTE: This assumption is required for the CELERITY_DETAIL_ENABLE_DEBUG mechanism below.
+get_target_property(
+  CELERITY_IMPORTED_CONFIGS
+  Celerity::celerity_runtime
+  IMPORTED_CONFIGURATIONS
+)
+list(LENGTH CELERITY_IMPORTED_CONFIGS CELERITY_CONFIG_COUNT)
+if(CELERITY_CONFIG_COUNT GREATER 1)
+  message(FATAL_ERROR "More than one Celerity build configuration was found: "
+    "${CELERITY_IMPORTED_CONFIGS}. This is currently unsupported. "
+    "Perform a clean installation to remedy this.")
+endif()
+unset(CELERITY_CONFIG_COUNT)
+
+# Set the CELERITY_DETAIL_ENABLE_DEBUG preprocessor flag if the imported target
+# was built with the debug configuration. This flag is also set during the library
+# build itself, see the respective CMakeLists.txt.
+#
+# If the requirement on having only a single configuration is to be lifted, we also
+# have to take MAP_IMPORTED_CONFIG_DEBUG into account to figure out which configuration
+# will be linked to the user target.
+if("DEBUG" IN_LIST CELERITY_IMPORTED_CONFIGS)
+  target_compile_definitions(
+    Celerity::celerity_runtime INTERFACE
+    CELERITY_DETAIL_ENABLE_DEBUG
+  )
+endif()
+unset(CELERITY_IMPORTED_CONFIGS)
+
 function(add_celerity_to_target)
   set(options)
   set(one_value_args TARGET)
