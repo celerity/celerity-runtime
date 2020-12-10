@@ -1,3 +1,7 @@
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.19.0") 
+    cmake_policy(SET CMP0110 NEW) # don't spam about add_test names..
+endif()
+
 include("${PROJECT_SOURCE_DIR}/vendor/Catch2/contrib/ParseAndAddCatchTests.cmake")
 
 # Add includes to library so they show up in IDEs
