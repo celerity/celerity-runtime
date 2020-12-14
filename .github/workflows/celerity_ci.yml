@@ -1,10 +1,24 @@
 name: Celerity CI
 
-# We want this workflow to run on commits as well as PRs.
-# If we add the "pull_request" event here however, GitHub
-# will run all checks twice on PRs made from internal
-# (non-fork) branches.
-on: [push]
+# We currently run this workflow on three different triggers,
+# which all have subtly different semantics.
+on:
+  # Run workflow on any push to any branch.
+  push:
+  # Also run on internal PRs. The difference to the "push" trigger
+  # being, that the workflow will run on the result of merging the PR's
+  # commits into the target branch.
+  pull_request:
+    branches-ignore:
+      # Ignore branches from forks (which contain a colon).
+      - '**:**'
+  # Finally, also run on external PRs. By using the "_target" trigger,
+  # we can ensure that the workflow definition itself will always come
+  # from the main repository, not the fork (for security reasons).
+  pull_request_target:
+    branches:
+      # Only consider branches from forks (which contain a colon).
+      - '**:**'
 
 jobs:
   checkout:
@@ -23,7 +37,8 @@ jobs:
         SYCL-impl: ["hipSYCL", "ComputeCpp"]
         build-type: ["Debug", "Release"]
     env:
-      build-name: build-${{ matrix.SYCL-impl }}-${{ matrix.build-type }}
+      # FIXME: Can we keep this DRY?
+      build-name: build-${{ matrix.SYCL-impl }}-${{ matrix.build-type }}-${{ github.run_id }}-${{ github.run_number }}
     steps:
       - name: Run build script
         run: |
@@ -46,7 +61,8 @@ jobs:
         SYCL-impl: ["hipSYCL", "ComputeCpp"]
         build-type: ["Debug", "Release"]
     env:
-      build-name: build-${{ matrix.SYCL-impl }}-${{ matrix.build-type }}
+      # FIXME: Can we keep this DRY?
+      build-name: build-${{ matrix.SYCL-impl }}-${{ matrix.build-type }}-${{ github.run_id }}-${{ github.run_number }}
     steps:
       - name: Run unit tests
         working-directory: ${{ env.build-name }}
@@ -66,9 +82,26 @@ jobs:
           unformatted=$("./ci/find-unformatted-files.sh")
           unformatted=${unformatted//$'\n'/'%0A'}
           echo "::set-output name=unformatted-files::$unformatted"
-      - uses: "celerity/ci-report-action@v2"
+      - uses: "celerity/ci-report-action@v3"
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           unformatted-files: ${{ steps.formatting.outputs.unformatted-files }}
           # FIXME: Can we somehow keep this DRY with the matrix config above?
           builds: "hipSYCL-Debug, hipSYCL-Release, ComputeCpp-Debug, ComputeCpp-Release"
+
+  cleanup:
+    needs: [build, test]
+    if: always() # Execute even if our dependencies fail
+    runs-on: [self-hosted]
+    # FIXME: Can we keep this DRY?
+    strategy:
+      fail-fast: false
+      matrix:
+        SYCL-impl: ["hipSYCL", "ComputeCpp"]
+        build-type: ["Debug", "Release"]
+    env:
+      # FIXME: Can we keep this DRY?
+      build-name: build-${{ matrix.SYCL-impl }}-${{ matrix.build-type }}-${{ github.run_id }}-${{ github.run_number }}
+    steps:
+      - name: Remove build directory
+        run: rm -rf ${{ env.build-name }}
