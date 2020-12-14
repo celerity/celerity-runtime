@@ -7,6 +7,7 @@
 #include <boost/type_index.hpp>
 #include <spdlog/fmt/fmt.h>
 
+#include "device_queue.h"
 #include "host_queue.h"
 #include "range_mapper.h"
 #include "ranges.h"
@@ -287,10 +288,8 @@ namespace detail {
 		subrange<3> get_iteration_range() { return sr; }
 
 	  protected:
-		live_pass_handler(std::shared_ptr<const class task> task, subrange<3> sr) : task(std::move(task)), sr(sr) { assert(this->task != nullptr); }
+		live_pass_handler(std::shared_ptr<const class task> task, subrange<3> sr) : task(std::move(task)), sr(sr) {}
 
-		// The handler does not take ownership of the sycl_handler, but expects it to
-		// exist for the duration of it's lifetime.
 		std::shared_ptr<const class task> task = nullptr;
 
 		// The subrange, when combined with the tasks global size, defines the chunk this handler executes.
@@ -332,25 +331,26 @@ namespace detail {
 
 	class live_pass_device_handler final : public live_pass_handler {
 	  public:
-		// The handler does not take ownership of the sycl_handler, but expects it to
-		// exist for the duration of it's lifetime.
-		live_pass_device_handler(std::shared_ptr<const class task> task, subrange<3> sr, cl::sycl::handler& sycl_handler, size_t forced_work_group_size)
-		    : live_pass_handler(std::move(task), sr), sycl_handler(&sycl_handler), forced_work_group_size(forced_work_group_size) {}
+		live_pass_device_handler(std::shared_ptr<const class task> task, subrange<3> sr, device_queue& d_queue)
+		    : live_pass_handler(std::move(task), sr), d_queue(&d_queue) {}
 
-		template <typename DataT, int Dims, cl::sycl::access::mode Mode, cl::sycl::access::target Target, cl::sycl::access::placeholder IsPlaceholder>
-		void require_accessor(cl::sycl::accessor<DataT, Dims, Mode, Target, IsPlaceholder>& accessor) {
-			sycl_handler->require(accessor);
+		template <typename CGF>
+		void submit_to_sycl(CGF&& cgf) {
+			event = d_queue->submit([&](cl::sycl::handler& cgh, size_t fwgs) {
+				this->eventual_cgh = &cgh;
+				std::forward<CGF>(cgf)(cgh, fwgs);
+				this->eventual_cgh = nullptr;
+			});
 		}
 
-		cl::sycl::handler& get_sycl_handler() const { return *sycl_handler; }
+		cl::sycl::event get_submission_event() const { return event; }
 
-		// This is a workaround until we get proper nd_item overloads for parallel_for into the API.
-		size_t get_forced_work_group_size() { return forced_work_group_size; }
+		cl::sycl::handler* const* get_eventual_sycl_cgh() const { return &eventual_cgh; }
 
 	  private:
-		cl::sycl::handler* sycl_handler = nullptr;
-		// This is a workaround until we get proper nd_item overloads for parallel_for into the API.
-		size_t forced_work_group_size = 0;
+		device_queue* d_queue;
+		cl::sycl::handler* eventual_cgh = nullptr;
+		cl::sycl::event event;
 	};
 
 } // namespace detail
@@ -362,37 +362,37 @@ void handler::parallel_for(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims>
 	}
 
 	auto& device_handler = dynamic_cast<detail::live_pass_device_handler&>(*this);
-	auto& sycl_handler = device_handler.get_sycl_handler();
-	const auto fwgs = device_handler.get_forced_work_group_size();
 	const auto sr = device_handler.get_iteration_range();
 
+	device_handler.submit_to_sycl([&](cl::sycl::handler& cgh, size_t fwgs) {
+
 #if WORKAROUND_COMPUTECPP
-	// As of ComputeCpp 1.1.5 the PTX backend has problems with kernel invocations that have an offset.
-	// See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-98 (psalz).
-	// To work around this, instead of passing an offset to SYCL, we simply add it to the item that is passed to the kernel.
-	const cl::sycl::id<Dims> ccpp_ptx_workaround_offset = {};
+		// As of ComputeCpp 1.1.5 the PTX backend has problems with kernel invocations that have an offset.
+		// See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-98 (psalz).
+		// To work around this, instead of passing an offset to SYCL, we simply add it to the item that is passed to the kernel.
+		const cl::sycl::id<Dims> ccpp_ptx_workaround_offset = {};
 #else
-	const cl::sycl::id<Dims> ccpp_ptx_workaround_offset = detail::id_cast<Dims>(sr.offset);
+		const cl::sycl::id<Dims> ccpp_ptx_workaround_offset = detail::id_cast<Dims>(sr.offset);
 #endif
-	if(fwgs == 0) {
+		if(fwgs == 0) {
 #if WORKAROUND_COMPUTECPP
-		sycl_handler.parallel_for<detail::wrapped_kernel_name<Name, false>>(
-		    detail::range_cast<Dims>(sr.range), ccpp_ptx_workaround_offset, [=](cl::sycl::item<Dims> item) {
-			    const cl::sycl::id<Dims> ptx_workaround_id = detail::range_cast<Dims>(item.get_id()) + detail::id_cast<Dims>(sr.offset);
-			    const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ccpp_ptx_workaround_offset);
-			    const auto offset_item = cl::sycl::item<Dims, true>(item_base);
-			    kernel(offset_item);
-		    });
+			cgh.parallel_for<detail::wrapped_kernel_name<Name, false>>(
+			    detail::range_cast<Dims>(sr.range), ccpp_ptx_workaround_offset, [=](cl::sycl::item<Dims> item) {
+				    const cl::sycl::id<Dims> ptx_workaround_id = detail::range_cast<Dims>(item.get_id()) + detail::id_cast<Dims>(sr.offset);
+				    const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ccpp_ptx_workaround_offset);
+				    const auto offset_item = cl::sycl::item<Dims, true>(item_base);
+				    kernel(offset_item);
+			    });
 #else
-		sycl_handler.parallel_for<detail::wrapped_kernel_name<Name, false>>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), kernel);
+			cgh.parallel_for<detail::wrapped_kernel_name<Name, false>>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), kernel);
 #endif
-	} else {
-		const auto nd_range = cl::sycl::nd_range<Dims>(detail::range_cast<Dims>(sr.range),
-		    detail::range_cast<Dims>(cl::sycl::range<3>(fwgs, Dims > 1 ? fwgs : 1, Dims == 3 ? fwgs : 1)), ccpp_ptx_workaround_offset);
-		sycl_handler.parallel_for<detail::wrapped_kernel_name<Name, true>>(nd_range, [=](cl::sycl::nd_item<Dims> item) {
+		} else {
+			const auto nd_range = cl::sycl::nd_range<Dims>(detail::range_cast<Dims>(sr.range),
+			    detail::range_cast<Dims>(cl::sycl::range<3>(fwgs, Dims > 1 ? fwgs : 1, Dims == 3 ? fwgs : 1)), ccpp_ptx_workaround_offset);
+			cgh.parallel_for<detail::wrapped_kernel_name<Name, true>>(nd_range, [=](cl::sycl::nd_item<Dims> item) {
 #if WORKAROUND_HIPSYCL
-			kernel(cl::sycl::item<Dims>(
-			    cl::sycl::detail::make_item<Dims>(item.get_global_id(), detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset))));
+				kernel(cl::sycl::item<Dims>(
+				    cl::sycl::detail::make_item<Dims>(item.get_global_id(), detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset))));
 #elif WORKAROUND_COMPUTECPP
 			const cl::sycl::id<Dims> ptx_workaround_id = detail::range_cast<Dims>(item.get_global_id()) + detail::id_cast<Dims>(sr.offset);
 			const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ccpp_ptx_workaround_offset);
@@ -401,8 +401,9 @@ void handler::parallel_for(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims>
 #else
 #error Unsupported SYCL implementation
 #endif
-		});
-	}
+			});
+		}
+	});
 }
 
 template <typename Functor>

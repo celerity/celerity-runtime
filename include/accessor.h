@@ -104,6 +104,16 @@ template <typename DataT, int Dims, cl::sycl::access::mode Mode>
 class accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>
     : public detail::accessor_base<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> {
   public:
+	accessor(const accessor& other) : sycl_accessor(other.sycl_accessor) { init_from(other); }
+
+	accessor& operator=(const accessor& other) {
+		if(this != &other) {
+			sycl_accessor = other.sycl_accessor;
+			init_from(other);
+		}
+		return *this;
+	}
+
 	template <cl::sycl::access::mode M = Mode, int D = Dims>
 	std::enable_if_t<detail::access::mode_traits::is_producer(M) && M != cl::sycl::access::mode::atomic && (D > 0), DataT&> operator[](
 	    cl::sycl::id<Dims> index) const {
@@ -132,17 +142,43 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>
 	template <typename T, int D, cl::sycl::access::mode M, typename... Args>
 	friend accessor<T, D, M, cl::sycl::access::target::global_buffer> detail::make_device_accessor(Args&&...);
 
+	// see init_from
+	cl::sycl::handler* const* eventual_sycl_cgh = nullptr;
 	cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t> sycl_accessor;
-
 	cl::sycl::id<Dims> backing_buffer_offset;
 
-	accessor(sycl_accessor_t sycl_accessor, cl::sycl::id<Dims> backing_buffer_offset)
-	    : sycl_accessor(sycl_accessor), backing_buffer_offset(backing_buffer_offset) {
+	// TODO remove this once we have SYCL 2020 default-constructible accessors
+	accessor(cl::sycl::buffer<DataT, Dims>& faux_buffer)
+	    : sycl_accessor(cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>(faux_buffer)) {}
+
+	accessor(cl::sycl::handler* const* eventual_sycl_cgh, cl::sycl::buffer<DataT, Dims>& buffer, const cl::sycl::range<Dims>& range,
+	    cl::sycl::id<Dims> backing_buffer_offset)
+	    : eventual_sycl_cgh(eventual_sycl_cgh),
+	      // We pass a range and offset here to avoid interference from SYCL, but the offset must be relative to the *backing buffer*.
+	      sycl_accessor(cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>(
+	          buffer, range, backing_buffer_offset)),
+	      backing_buffer_offset(backing_buffer_offset) {
 		// SYCL 1.2.1 dictates that all kernel parameters must have standard layout.
 		// However, since we are wrapping a SYCL accessor, this assertion fails for some implementations,
 		// as it is currently unclear whether SYCL accessors must also have standard layout.
 		// See https://github.com/KhronosGroup/SYCL-Docs/issues/94
 		// static_assert(std::is_standard_layout<accessor>::value, "accessor must have standard layout");
+	}
+
+	void init_from(const accessor& other) {
+		eventual_sycl_cgh = other.eventual_sycl_cgh;
+		backing_buffer_offset = other.backing_buffer_offset;
+
+		// The call to sycl::handler::require must happen inside the SYCL CGF, but since get_access within the Celerity CGF is executed before
+		// the submission to SYCL, it needs to be deferred. We capture a reference to a SYCL handler pointer owned by the live pass handler that is
+		// initialized once the SYCL CGF is entered. We then abuse the copy constructor that is called implicitly when the lambda is copied for the SYCL
+		// kernel submission to call require().
+#if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
+		if(eventual_sycl_cgh != nullptr && *eventual_sycl_cgh != nullptr) {
+			(*eventual_sycl_cgh)->require(sycl_accessor);
+			eventual_sycl_cgh = nullptr; // only `require` once
+		}
+#endif
 	}
 };
 
