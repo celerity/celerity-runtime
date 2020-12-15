@@ -12,13 +12,14 @@ find_package(Threads REQUIRED)
 option(CELERITY_SYCL_IMPL "hipSYCL|ComputeCpp")
 
 # Find SYCL implementation.
+set(hipSYCL_MIN_VERSION "0.9.0")
 if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
-  find_package(hipSYCL CONFIG REQUIRED)
+  find_package(hipSYCL ${hipSYCL_MIN_VERSION} CONFIG REQUIRED)
 elseif(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
   find_package(ComputeCpp REQUIRED)
 else()
   # We first check if hipSYCL can be found, otherwise we try ComputeCpp.
-  find_package(hipSYCL CONFIG)
+  find_package(hipSYCL ${hipSYCL_MIN_VERSION} CONFIG)
   if(hipSYCL_FOUND)
     set(CELERITY_SYCL_IMPL "hipSYCL")
   else()
