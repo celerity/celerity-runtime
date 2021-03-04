@@ -206,11 +206,7 @@ namespace experimental::access {
 		static_assert(BufferDims > 0);
 
 	  public:
-		even_split() {
-			for(int d = 0; d < BufferDims; ++d)
-				granularity[d] = 1;
-		}
-
+		even_split() = default;
 		explicit even_split(cl::sycl::range<BufferDims> granularity) : granularity(granularity) {}
 
 		subrange<BufferDims> operator()(chunk<1> chunk, cl::sycl::range<BufferDims> buffer_size) const {
@@ -243,7 +239,7 @@ namespace experimental::access {
 		}
 
 	  private:
-		cl::sycl::range<BufferDims> granularity;
+		cl::sycl::range<BufferDims> granularity = detail::range_cast<BufferDims>(cl::sycl::range<3>(1, 1, 1));
 	};
 
 } // namespace experimental::access

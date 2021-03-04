@@ -82,7 +82,7 @@ namespace detail {
 
 	  private:
 		size_t elem_size = 0;
-		cl::sycl::range<3> range = {};
+		cl::sycl::range<3> range = {1, 1, 1};
 		std::unique_ptr<unsigned char[]> data;
 	};
 

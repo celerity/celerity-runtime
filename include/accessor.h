@@ -279,7 +279,7 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer>
 
 	// The range of the Celerity buffer as created by the user.
 	// We only need this to check whether it is safe to call get_pointer() or not.
-	cl::sycl::range<Dims> virtual_buffer_range;
+	cl::sycl::range<Dims> virtual_buffer_range = detail::range_cast<Dims>(cl::sycl::range<3>(0, 0, 0));
 
 	/**
 	 * Constructor for pre-pass.

@@ -5,11 +5,18 @@
 namespace celerity {
 namespace detail {
 
+	template <int Dims, template <int> class Type>
+	auto make_range_type() {
+		if constexpr(Dims == 1) return Type<Dims>{0};
+		if constexpr(Dims == 2) return Type<Dims>{0, 0};
+		if constexpr(Dims == 3) return Type<Dims>{0, 0, 0};
+	}
+
 #define MAKE_ARRAY_CAST_FN(name, default_value, out_type)                                                                                                      \
 	template <int DimsOut, template <int> class InType, int DimsIn>                                                                                            \
 	out_type<DimsOut> name(const InType<DimsIn>& other) {                                                                                                      \
 		static_assert(DimsOut > 0 && DimsOut < 4, "SYCL only supports 1, 2, or 3 dimensions for range / id");                                                  \
-		out_type<DimsOut> result;                                                                                                                              \
+		out_type<DimsOut> result = make_range_type<DimsOut, out_type>();                                                                                       \
 		for(int o = 0; o < DimsOut; ++o) {                                                                                                                     \
 			result[o] = o < DimsIn ? other[o] : default_value;                                                                                                 \
 		}                                                                                                                                                      \
@@ -24,7 +31,7 @@ namespace detail {
 #define MAKE_COMPONENT_WISE_BINARY_FN(name, range_type, op)                                                                                                    \
 	template <int Dims>                                                                                                                                        \
 	range_type<Dims> name(const range_type<Dims>& a, const range_type<Dims>& b) {                                                                              \
-		range_type<Dims> result;                                                                                                                               \
+		range_type<Dims> result = make_range_type<Dims, range_type>();                                                                                         \
 		for(int d = 0; d < Dims; ++d) {                                                                                                                        \
 			result[d] = op(a[d], b[d]);                                                                                                                        \
 		}                                                                                                                                                      \
@@ -47,8 +54,8 @@ struct chunk {
 	static constexpr int dims = Dims;
 
 	cl::sycl::id<Dims> offset;
-	cl::sycl::range<Dims> range;
-	cl::sycl::range<Dims> global_size;
+	cl::sycl::range<Dims> range = detail::range_cast<Dims>(cl::sycl::range<3>(0, 0, 0));
+	cl::sycl::range<Dims> global_size = detail::range_cast<Dims>(cl::sycl::range<3>(0, 0, 0));
 
 	chunk() = default;
 
@@ -66,7 +73,7 @@ struct subrange {
 	static constexpr int dims = Dims;
 
 	cl::sycl::id<Dims> offset;
-	cl::sycl::range<Dims> range;
+	cl::sycl::range<Dims> range = detail::range_cast<Dims>(cl::sycl::range<3>(0, 0, 0));
 
 	subrange() = default;
 

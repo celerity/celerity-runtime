@@ -101,7 +101,9 @@ namespace detail {
 			}
 		}
 
-		static std::unique_ptr<task> make_nop(task_id tid) { return std::unique_ptr<task>(new task(tid, task_type::NOP, {}, 0, {}, {}, nullptr, {}, {})); }
+		static std::unique_ptr<task> make_nop(task_id tid) {
+			return std::unique_ptr<task>(new task(tid, task_type::NOP, {}, 0, {0, 0, 0}, {}, nullptr, {}, {}));
+		}
 
 		static std::unique_ptr<task> make_host_compute(task_id tid, int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset,
 		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map) {
@@ -122,7 +124,7 @@ namespace detail {
 		}
 
 		static std::unique_ptr<task> make_master_node(task_id tid, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map) {
-			return std::unique_ptr<task>(new task(tid, task_type::MASTER_NODE, {}, 0, {}, {}, std::move(cgf), std::move(access_map), {}));
+			return std::unique_ptr<task>(new task(tid, task_type::MASTER_NODE, {}, 0, {0, 0, 0}, {}, std::move(cgf), std::move(access_map), {}));
 		}
 
 	  private:

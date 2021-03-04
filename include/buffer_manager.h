@@ -89,7 +89,7 @@ namespace detail {
 		using buffer_lifecycle_callback = std::function<void(buffer_lifecycle_event, buffer_id)>;
 
 		struct buffer_info {
-			cl::sycl::range<3> range;
+			cl::sycl::range<3> range = {1, 1, 1};
 			bool is_host_initialized;
 		};
 
@@ -313,7 +313,6 @@ namespace detail {
 		};
 
 		struct virtual_buffer {
-			cl::sycl::range<3> range;
 			backing_buffer device_buf;
 			backing_buffer host_buf;
 		};
@@ -326,7 +325,7 @@ namespace detail {
 		struct resize_info {
 			bool resize_required = false;
 			cl::sycl::id<3> new_offset = {};
-			cl::sycl::range<3> new_range = {};
+			cl::sycl::range<3> new_range = {1, 1, 1};
 		};
 
 		enum class data_location { NOWHERE, HOST, DEVICE, HOST_AND_DEVICE };
