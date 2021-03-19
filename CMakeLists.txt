@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.13)
 
 set(Celerity_VERSION 0.2.1)
-project(celerity_runtime VERSION ${Celerity_VERSION})
+project(celerity_runtime VERSION ${Celerity_VERSION} LANGUAGES CXX)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${PROJECT_SOURCE_DIR}/cmake")
