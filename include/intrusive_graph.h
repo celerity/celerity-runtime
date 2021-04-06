@@ -1,10 +1,10 @@
 #pragma once
 
+#include <algorithm>
+#include <cassert>
 #include <list>
 #include <optional>
 #include <type_traits>
-
-#include <boost/range.hpp>
 
 namespace celerity {
 namespace detail {
@@ -13,6 +13,25 @@ namespace detail {
 		ANTI_DEP = 0,  // Data anti-dependency, can be resolved by duplicating buffers
 		ORDER_DEP = 1, // Order pseudo-depencency, introduced by collective host task groups
 		TRUE_DEP = 2,  // True data flow dependency
+	};
+
+	// TODO: Move to utility header..?
+	template <typename Iterator>
+	class iterable_range {
+	  public:
+		iterable_range(Iterator first, Iterator last) : first(first), last(last) {}
+
+		Iterator begin() const { return first; }
+		Iterator end() const { return last; }
+		friend Iterator begin(const iterable_range& ir) { return ir.first; }
+		friend Iterator end(const iterable_range& ir) { return ir.last; }
+
+		auto& front() const { return *first; }
+		bool empty() const { return first == last; }
+
+	  private:
+		Iterator first;
+		Iterator last;
 	};
 
 	template <typename T>
@@ -97,8 +116,8 @@ namespace detail {
 			return kind != std::nullopt ? (*result)->kind == kind : true;
 		}
 
-		auto get_dependencies() const { return boost::make_iterator_range(dependencies.cbegin(), dependencies.cend()); }
-		auto get_dependents() const { return boost::make_iterator_range(dependents.cbegin(), dependents.cend()); }
+		auto get_dependencies() const { return iterable_range{dependencies.cbegin(), dependencies.cend()}; }
+		auto get_dependents() const { return iterable_range{dependents.cbegin(), dependents.cend()}; }
 
 		unsigned get_pseudo_critical_path_length() const { return pseudo_critical_path_length; }
 

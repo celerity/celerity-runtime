@@ -80,10 +80,25 @@ class host_memory_layout {
 		size_t extent{};
 	};
 
-	/** Since contiguous dimensions can be merged when generating the memory layout, host_memory_layout is not generic over a fixed dimension count */
-	constexpr static size_t max_dimensionality = 4;
+	// TODO: This is a temporary replacement for Boost's static_vector; entire mechanism needs more comprehensive API overhaul.
+	class dimension_vector {
+	  public:
+		dimension_vector(size_t size) : this_size(size) {}
 
-	using dimension_vector = boost::container::static_vector<dimension, max_dimensionality>;
+		dimension& operator[](size_t idx) { return values[idx]; }
+		const dimension& operator[](size_t idx) const { return values[idx]; }
+
+		size_t size() const { return this_size; }
+
+	  private:
+		/**
+		 * Since contiguous dimensions can be merged when generating the memory layout, host_memory_layout is not generic over a fixed dimension count
+		 * TODO: Implement this ^
+		 */
+		constexpr static size_t max_dimensionality = 4;
+		std::array<dimension, max_dimensionality> values;
+		size_t this_size;
+	};
 
 	explicit host_memory_layout(const dimension_vector& dimensions) : dimensions(dimensions) {}
 

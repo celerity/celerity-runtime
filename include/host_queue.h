@@ -6,7 +6,7 @@
 
 #include <CL/sycl.hpp>
 
-#include <ctpl.h>
+#include <ctpl_stl.h>
 #include <mpi.h>
 
 #include "config.h"

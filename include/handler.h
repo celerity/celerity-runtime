@@ -2,9 +2,9 @@
 
 #include <regex>
 #include <type_traits>
+#include <typeinfo>
 
 #include <CL/sycl.hpp>
-#include <boost/type_index.hpp>
 #include <spdlog/fmt/fmt.h>
 
 #include "device_queue.h"
@@ -14,6 +14,11 @@
 #include "task.h"
 #include "types.h"
 #include "workaround.h"
+
+#if !defined(_MSC_VER)
+// Required for kernel name demangling in Clang
+#include <cxxabi.h>
+#endif
 
 namespace celerity {
 
@@ -32,12 +37,18 @@ namespace detail {
 
 	template <typename Name>
 	std::string kernel_debug_name() {
-		// DEBUG: Find nice name for kernel (regex is probably not super portable)
-		auto qualified_name = boost::typeindex::type_id<Name*>().pretty_name();
-		std::regex name_regex(R"(.*?(?:::)?([\w_]+)\s?\*.*)");
-		std::smatch matches;
-		std::regex_search(qualified_name, matches, name_regex);
-		return matches.size() > 0 ? matches[1] : qualified_name;
+		std::string name = typeid(Name*).name();
+		// TODO: On Windows, returned names are still a bit messy. Consider improving this.
+#if !defined(_MSC_VER)
+		const std::unique_ptr<char, void (*)(void*)> demangled(abi::__cxa_demangle(name.c_str(), nullptr, nullptr, nullptr), std::free);
+		const std::string demangled_s(demangled.get());
+		if(size_t lastc; (lastc = demangled_s.rfind(":")) != std::string::npos) {
+			name = demangled_s.substr(lastc + 1, demangled_s.length() - lastc - 1);
+		} else {
+			name = demangled_s;
+		}
+#endif
+		return name.substr(0, name.length() - 1);
 	}
 } // namespace detail
 

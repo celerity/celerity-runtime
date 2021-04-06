@@ -1,8 +1,5 @@
 #pragma once
 
-// FIXME: Replace this with <boost/container_hash/hash.hpp> once we only support Boost 1.67+
-#include <boost/functional/hash.hpp>
-
 namespace celerity {
 namespace detail {
 
@@ -36,12 +33,6 @@ namespace detail {
 		}                                                                                                                                                      \
 	}                                                                                                                                                          \
 	namespace std {                                                                                                                                            \
-		template <>                                                                                                                                            \
-		struct hash<celerity::detail::TypeName> {                                                                                                              \
-			std::size_t operator()(const celerity::detail::TypeName& t) const noexcept { return std::hash<UnderlyingT>{}(static_cast<UnderlyingT>(t)); }       \
-		};                                                                                                                                                     \
-	}                                                                                                                                                          \
-	namespace boost {                                                                                                                                          \
 		template <>                                                                                                                                            \
 		struct hash<celerity::detail::TypeName> {                                                                                                              \
 			std::size_t operator()(const celerity::detail::TypeName& t) const noexcept { return std::hash<UnderlyingT>{}(static_cast<UnderlyingT>(t)); }       \

@@ -356,6 +356,23 @@ namespace detail {
 		REQUIRE(is_safe_cgf<decltype(safe)>);
 	}
 
+	namespace foo {
+		class MySecondKernel;
+	}
+
+	template <typename T>
+	class MyThirdKernel;
+
+	TEST_CASE("DEVICE_COMPUTE tasks derive debug name from kernel name", "[task][!mayfail]") {
+		auto tm = std::make_unique<detail::task_manager>(1, nullptr, true);
+		auto t1 = tm->get_task(tm->create_task([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));
+		auto t2 = tm->get_task(tm->create_task([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));
+		auto t3 = tm->get_task(tm->create_task([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));
+		REQUIRE(t1->get_debug_name() == "MyFirstKernel");
+		REQUIRE(t2->get_debug_name() == "MySecondKernel");
+		REQUIRE(t3->get_debug_name() == "MyThirdKernel<int>");
+	}
+
 	TEST_CASE("basic SYNC command functionality", "[distr_queue][sync][control-flow]") {
 		constexpr int N = 10;
 
