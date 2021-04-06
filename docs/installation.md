@@ -8,9 +8,6 @@ Celerity can be built and installed from
 [source](https://github.com/celerity/celerity-runtime) using
 [CMake](https://cmake.org). It requires the following dependencies:
 
-- [Boost](https://boost.org) (**Note**: There appear to be some issues with
-  newer versions of Boost - pending investigation. In the meantime we
-  recommend using a version ranging from 1.65 to 1.68)
 - A MPI 2 implementation (for example [OpenMPI 4](https://www.open-mpi.org))
 - A C++17 compiler
 - A supported SYCL implementation (see below)

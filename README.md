@@ -82,9 +82,6 @@ installed first.
 - A supported SYCL implementation, either
   - [hipSYCL](https://github.com/illuhad/hipsycl), or
   - [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp)
-- [Boost](http://www.boost.org) (we recommended version 1.65 - 1.68)
-  - If you use hipSYCL to target the CUDA platform, you may run into issues
-    with newer versions of Boost.
 - A MPI 2 implementation (tested with OpenMPI 4.0, MPICH 3.3 should work as well)
 - [CMake](https://www.cmake.org) (3.5.1 or newer)
 - A C++17 compiler

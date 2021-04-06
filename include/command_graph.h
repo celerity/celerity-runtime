@@ -6,9 +6,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include <boost/container/flat_map.hpp>
-#include <boost/range.hpp>
-
 #include "command.h"
 #include "types.h"
 
@@ -126,7 +123,7 @@ namespace detail {
 
 		auto all_commands() const {
 			const auto transform = [](auto& uptr) { return uptr.second.get(); };
-			return boost::make_iterator_range(make_transform_iterator(commands.cbegin(), transform), make_transform_iterator(commands.cend(), transform));
+			return iterable_range{make_transform_iterator(commands.cbegin(), transform), make_transform_iterator(commands.cend(), transform)};
 		}
 
 		auto& task_commands(task_id tid) { return by_task.at(tid); }
@@ -157,7 +154,7 @@ namespace detail {
 		std::unordered_map<task_id, std::vector<task_command*>> by_task;
 
 		// Set of per-node commands with no dependents
-		boost::container::flat_map<node_id, std::unordered_set<abstract_command*>> execution_fronts;
+		std::unordered_map<node_id, std::unordered_set<abstract_command*>> execution_fronts;
 
 		// This only (potentially) grows when adding dependencies,
 		// it never shrinks and does not take into account later changes further up in the dependency chain

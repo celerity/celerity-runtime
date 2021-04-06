@@ -1,11 +1,11 @@
 #include "config.h"
 
 #include <cstdlib>
+#include <iterator>
 #include <sstream>
 #include <thread>
 #include <vector>
 
-#include <boost/algorithm/string.hpp>
 #include <mpi.h>
 
 #include "logger.h"
@@ -116,8 +116,8 @@ namespace detail {
 		{
 			const auto result = get_env("CELERITY_DEVICES");
 			if(result.first) {
-				std::vector<std::string> values;
-				boost::split(values, result.second, [](char c) { return c == ' '; });
+				std::istringstream ss{result.second};
+				std::vector<std::string> values{std::istream_iterator<std::string>{ss}, std::istream_iterator<std::string>{}};
 
 				if(static_cast<long>(host_cfg.local_rank) > static_cast<long>(values.size()) - 2) {
 					throw std::runtime_error(

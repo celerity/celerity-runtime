@@ -1,16 +1,7 @@
 #include "print_graph.h"
 
-// As of Boost 1.70, this includes a header which contains a __noinline__ attribute
-// for __GNUC__ == 4 (which Clang (8) apparently also identifies as).
-// This breaks CUDA compilation with Clang, as the CUDA (10) headers define __noinline__
-// in an incompatible manner. As a workaround we thus simply undefine it altogether.
-// Potentially related to https://svn.boost.org/trac10/ticket/9392
-#if defined(__clang__) && defined(__CUDA__)
-#undef __noinline__
-#endif
-#include <boost/graph/graphviz.hpp>
+#include <regex>
 
-#include <boost/algorithm/string.hpp>
 #include <spdlog/fmt/fmt.h>
 
 #include "command.h"
@@ -49,7 +40,7 @@ namespace detail {
 			const auto tsk = it.second.get();
 
 			std::unordered_map<std::string, std::string> props;
-			props["label"] = boost::escape_dot_string(get_task_label(tsk));
+			props["label"] = get_task_label(tsk);
 
 			ss << tsk->get_id();
 			ss << "[";
@@ -66,8 +57,8 @@ namespace detail {
 
 		ss << "}";
 		auto str = ss.str();
-		boost::replace_all(str, "\n", "\\n");
-		boost::replace_all(str, "\"", "\\\"");
+		str = std::regex_replace(str, std::regex("\n"), "\\n");
+		str = std::regex_replace(str, std::regex("\""), "\\\"");
 		graph_logger.info(logger_map({{"name", "TaskGraph"}, {"data", str}}));
 	}
 
@@ -96,7 +87,7 @@ namespace detail {
 			const char* colors[] = {"black", "crimson", "dodgerblue4", "goldenrod", "maroon4", "springgreen2", "tan1", "chartreuse2"};
 
 			std::unordered_map<std::string, std::string> props;
-			props["label"] = boost::escape_dot_string(get_command_label(cmd));
+			props["label"] = get_command_label(cmd);
 			props["fontcolor"] = colors[cmd->get_nid() % (sizeof(colors) / sizeof(char*))];
 			if(isa<task_command>(cmd)) { props["shape"] = "box"; }
 
@@ -152,8 +143,8 @@ namespace detail {
 		ss << "}";
 
 		auto str = ss.str();
-		boost::replace_all(str, "\n", "\\n");
-		boost::replace_all(str, "\"", "\\\"");
+		str = std::regex_replace(str, std::regex("\n"), "\\n");
+		str = std::regex_replace(str, std::regex("\""), "\\\"");
 		graph_logger.info(logger_map({{"name", "CommandGraph"}, {"data", str}}));
 	}
 

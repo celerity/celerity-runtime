@@ -19,6 +19,20 @@ namespace detail {
 	class abstract_command;
 	class horizon_command;
 
+	// TODO: Move to utility header..?
+	// Implementation from Boost.ContainerHash, licensed under the Boost Software License, Version 1.0.
+	inline void hash_combine(std::size_t& seed, std::size_t value) { seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2); }
+
+	struct pair_hash {
+		template <typename U, typename V>
+		std::size_t operator()(const std::pair<U, V>& p) const {
+			std::size_t seed = 0;
+			hash_combine(seed, std::hash<U>{}(p.first));
+			hash_combine(seed, std::hash<V>{}(p.second));
+			return seed;
+		}
+	};
+
 	class graph_generator {
 		friend struct graph_generator_testspy;
 
@@ -81,7 +95,7 @@ namespace detail {
 
 		// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
 		// they are executed in the same order on every node.
-		std::unordered_map<std::pair<node_id, collective_group_id>, command_id, boost::hash<std::pair<node_id, collective_group_id>>> last_collective_commands;
+		std::unordered_map<std::pair<node_id, collective_group_id>, command_id, pair_hash> last_collective_commands;
 
 		// This mutex mainly serves to protect per-buffer data structures, as new buffers might be added at any time.
 		std::mutex buffer_mutex;

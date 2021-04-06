@@ -5,7 +5,6 @@ project(celerity_runtime VERSION ${Celerity_VERSION} LANGUAGES CXX)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${PROJECT_SOURCE_DIR}/cmake")
-find_package(Boost 1.65.0 REQUIRED COMPONENTS atomic container)
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 
@@ -99,12 +98,10 @@ target_include_directories(celerity_runtime PUBLIC
   $<INSTALL_INTERFACE:include/celerity>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor>
   $<INSTALL_INTERFACE:include/celerity/vendor>
-  ${Boost_INCLUDE_DIRS}
 )
 
 target_link_libraries(celerity_runtime PUBLIC
   Threads::Threads
-  ${Boost_LIBRARIES}
   MPI::MPI_CXX
   spdlog::spdlog
 )
@@ -147,15 +144,6 @@ if(MSVC)
   target_compile_options(celerity_runtime PRIVATE /MP /W3 /D_CRT_SECURE_NO_WARNINGS)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self)
-endif()
-
-if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
-  # Boost currently (as of 1.71) does not enable variadic macros
-  # when it detects CUDA compilation.
-  # Since we are using Clang however (via hipSYCL) instead of NVCC,
-  # the macros can and should be enabled.
-  # See https://github.com/boostorg/preprocessor/issues/24
-  target_compile_definitions(celerity_runtime PUBLIC BOOST_PP_VARIADICS=1)
 endif()
 
 # Examples
