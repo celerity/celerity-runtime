@@ -59,7 +59,7 @@ file(GLOB_RECURSE INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
 if(CMAKE_GENERATOR STREQUAL "Ninja")
   # Force colored warnings in Ninja's output, if the compiler has -fdiagnostics-color support.
   # Rationale in https://github.com/ninja-build/ninja/issues/814
-  set(CMAKE_SYCL_FLAGS "${CMAKE_SYCL_FLAGS} -fdiagnostics-color=always")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
 endif()
 
 set(SOURCES
