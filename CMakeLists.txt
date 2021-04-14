@@ -222,7 +222,7 @@ install(
   DESTINATION include/celerity/vendor/allscale
 )
 install(
-  FILES ${PROJECT_SOURCE_DIR}/vendor/ctpl.h
+  FILES ${PROJECT_SOURCE_DIR}/vendor/ctpl_stl.h
   DESTINATION include/celerity/vendor
 )
 install(
