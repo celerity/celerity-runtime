@@ -166,12 +166,12 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>
 	accessor(cl::sycl::buffer<DataT, Dims>& faux_buffer)
 	    : sycl_accessor(cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>(faux_buffer)) {}
 
-	accessor(cl::sycl::handler* const* eventual_sycl_cgh, cl::sycl::buffer<DataT, Dims>& buffer, const cl::sycl::range<Dims>& range,
+	accessor(cl::sycl::handler* const* eventual_sycl_cgh, const subrange<Dims>& mapped_subrange, cl::sycl::buffer<DataT, Dims>& buffer,
 	    cl::sycl::id<Dims> backing_buffer_offset)
 	    : eventual_sycl_cgh(eventual_sycl_cgh),
 	      // We pass a range and offset here to avoid interference from SYCL, but the offset must be relative to the *backing buffer*.
 	      sycl_accessor(cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>(
-	          buffer, range, backing_buffer_offset)),
+	          buffer, mapped_subrange.range, mapped_subrange.offset - backing_buffer_offset)),
 	      backing_buffer_offset(backing_buffer_offset) {
 		// SYCL 1.2.1 dictates that all kernel parameters must have standard layout.
 		// However, since we are wrapping a SYCL accessor, this assertion fails for some implementations,

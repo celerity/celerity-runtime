@@ -669,7 +669,8 @@ namespace detail {
 		accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> get_device_accessor(
 		    live_pass_device_handler& cgh, buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
 			auto buf_info = bm->get_device_buffer<DataT, Dims>(bid, Mode, range_cast<3>(range), id_cast<3>(offset));
-			return detail::make_device_accessor<DataT, Dims, Mode>(cgh.get_eventual_sycl_cgh(), buf_info.buffer, range, offset);
+			return detail::make_device_accessor<DataT, Dims, Mode>(
+			    cgh.get_eventual_sycl_cgh(), subrange<Dims>(offset, range), buf_info.buffer, buf_info.offset);
 		}
 
 		template <typename DataT, int Dims, cl::sycl::access::mode Mode>
@@ -1475,6 +1476,7 @@ namespace detail {
 			auto sr = subrange<3>({}, range_cast<3>(range));
 			live_pass_device_handler cgh(nullptr, sr, dq);
 
+			get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(cgh, bid, {48, 32}, {16, 0});
 			auto acc = get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(cgh, bid, {32, 32}, {32, 0});
 			// NOTE: Add offset manually to work around ComputeCpp PTX bug (still present as of version 1.1.5)
 			// See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-98 (psalz).
@@ -1485,13 +1487,14 @@ namespace detail {
 			bool valid = true;
 			for(size_t i = 32; i < 64; ++i) {
 				for(size_t j = 0; j < 32; ++j) {
-					valid &= (buf_info.buffer.get_pointer()[(i - 32) * 32 + j] == i + j);
+					valid &= (buf_info.buffer.get_pointer()[(i - buf_info.offset[0]) * 32 + j - buf_info.offset[1]] == i + j);
 				}
 			}
 			REQUIRE(valid);
 		}
 
 		SECTION("when using host buffers") {
+			get_host_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(bid, {48, 32}, {16, 0});
 			auto acc = get_host_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(bid, {32, 32}, {32, 0});
 			for(size_t i = 32; i < 64; ++i) {
 				for(size_t j = 0; j < 32; ++j) {
@@ -1502,7 +1505,7 @@ namespace detail {
 			bool valid = true;
 			for(size_t i = 32; i < 64; ++i) {
 				for(size_t j = 0; j < 32; ++j) {
-					valid &= (buf_info.buffer.get_pointer()[(i - 32) * 32 + j] == i + j);
+					valid &= (buf_info.buffer.get_pointer()[(i - buf_info.offset[0]) * 32 + j - buf_info.offset[1]] == i + j);
 				}
 			}
 			REQUIRE(valid);
