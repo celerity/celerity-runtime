@@ -93,8 +93,8 @@ namespace detail {
 			try {
 				std::rethrow_exception(e);
 			} catch(cl::sycl::exception& e) {
-				// TODO: We'd probably want to abort execution here
-				queue_logger.error("SYCL asynchronous exception: {}", e.what());
+				queue_logger.error("SYCL asynchronous exception: {}. Terminating.", e.what());
+				std::terminate();
 			}
 		}
 	}

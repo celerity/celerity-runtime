@@ -52,6 +52,9 @@ namespace detail {
 		std::queue<command_info> command_queue;
 
 		while(!done || !jobs.empty()) {
+			// Bail if a device error ocurred.
+			if(running_device_compute_jobs > 0) { d_queue.get_sycl_queue().throw_asynchronous(); }
+
 			if(syncing_on_id != NOT_SYNCING && jobs.empty()) {
 				MPI_Barrier(MPI_COMM_WORLD);
 				highest_executed_sync_id = syncing_on_id;
