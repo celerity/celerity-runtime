@@ -3,7 +3,6 @@
 #include <type_traits>
 
 #include <CL/sycl.hpp>
-#include <boost/container/static_vector.hpp>
 
 #include "access_modes.h"
 #include "buffer_storage.h"
