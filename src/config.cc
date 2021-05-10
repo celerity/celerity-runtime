@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <iterator>
 #include <sstream>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -13,29 +14,35 @@
 
 std::pair<bool, std::string> get_env(const char* key) {
 	bool exists = false;
-	std::string result;
+	std::string str;
 #ifdef _MSC_VER
 	char* buf;
 	_dupenv_s(&buf, nullptr, key);
 	if(buf != nullptr) {
 		exists = true;
-		result = buf;
+		str = buf;
 		delete buf;
 	}
 #else
-	auto value = std::getenv(key);
+	const auto value = std::getenv(key);
 	if(value != nullptr) {
 		exists = true;
-		result = value;
+		str = value;
 	}
 #endif
-	return {exists, result};
+
+	std::string_view sv = str;
+	sv.remove_prefix(std::min(sv.find_first_not_of(" "), sv.size()));
+	sv.remove_suffix(std::min(sv.size() - sv.find_last_not_of(" ") - 1, sv.size()));
+
+	return {exists, std::string{sv}};
 }
 
 std::pair<bool, size_t> parse_uint(const char* str) {
 	errno = 0;
-	const auto value = std::strtoul(str, nullptr, 10);
-	if(errno == 0) { return {true, value}; }
+	char* eptr = nullptr;
+	const auto value = std::strtoul(str, &eptr, 10);
+	if(errno == 0 && eptr != str) { return {true, value}; }
 	return {false, 0};
 }
 
@@ -114,27 +121,30 @@ namespace detail {
 		// --------------------------------- CELERITY_DEVICES ---------------------------------
 
 		{
-			const auto result = get_env("CELERITY_DEVICES");
-			if(result.first) {
-				std::istringstream ss{result.second};
-				std::vector<std::string> values{std::istream_iterator<std::string>{ss}, std::istream_iterator<std::string>{}};
-
-				if(static_cast<long>(host_cfg.local_rank) > static_cast<long>(values.size()) - 2) {
-					throw std::runtime_error(
-					    fmt::format("Process has local rank {}, but CELERITY_DEVICES only includes {} device(s)", host_cfg.local_rank, values.size() - 1));
-				}
-
-				if(static_cast<long>(values.size()) - 1 > static_cast<long>(host_cfg.node_count)) {
-					logger.warn("CELERITY_DEVICES contains {} device indices, but only {} worker processes were spawned on this host", values.size() - 1,
-					    host_cfg.node_count);
-				}
-
-				const auto pid_parsed = parse_uint(values[0].c_str());
-				const auto did_parsed = parse_uint(values[host_cfg.local_rank + 1].c_str());
-				if(!pid_parsed.first || !did_parsed.first) {
-					logger.warn("CELERITY_DEVICES contains invalid value(s) - will be ignored");
+			const auto [is_set, value] = get_env("CELERITY_DEVICES");
+			if(is_set) {
+				if(value.empty()) {
+					logger.warn("CELERITY_DEVICES is set but empty - ignoring");
 				} else {
-					device_cfg = device_config{pid_parsed.second, did_parsed.second};
+					std::istringstream ss{value};
+					std::vector<std::string> values{std::istream_iterator<std::string>{ss}, std::istream_iterator<std::string>{}};
+					if(static_cast<long>(host_cfg.local_rank) > static_cast<long>(values.size()) - 2) {
+						throw std::runtime_error(fmt::format("Process has local rank {}, but CELERITY_DEVICES only includes {} device(s)", host_cfg.local_rank,
+						    values.empty() ? 0 : values.size() - 1));
+					}
+
+					if(static_cast<long>(values.size()) - 1 > static_cast<long>(host_cfg.node_count)) {
+						logger.warn("CELERITY_DEVICES contains {} device indices, but only {} worker processes were spawned on this host", values.size() - 1,
+						    host_cfg.node_count);
+					}
+
+					const auto pid_parsed = parse_uint(values[0].c_str());
+					const auto did_parsed = parse_uint(values[host_cfg.local_rank + 1].c_str());
+					if(!pid_parsed.first || !did_parsed.first) {
+						logger.warn("CELERITY_DEVICES contains invalid value(s) - will be ignored");
+					} else {
+						device_cfg = device_config{pid_parsed.second, did_parsed.second};
+					}
 				}
 			}
 		}
