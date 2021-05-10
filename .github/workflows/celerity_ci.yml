@@ -68,6 +68,14 @@ jobs:
     env:
       # FIXME: Can we keep this DRY?
       build-name: build-${{ matrix.SYCL-impl }}-${{ matrix.build-type }}-${{ github.run_id }}-${{ github.run_number }}
+      # Run ComputeCpp tests on host device instead of NVIDIA, as the PTX backend is no longer officially supported.
+      # Celerity uses a GPU selector by default. To override this behavior, we have to set CELERITY_DEVICES to
+      # platform 0 (which happens to be the host platform for ComputeCpp) and use device 0 on up to 4 Celerity workers.
+      # TODO: Come up with more robust solution for setting device type on a per-implementation basis,
+      #       which also doesn't require knowing the index of the particular platform.
+      # For other implementations, simply pass an empty value, which is then ignored.
+      # Workflow syntax doesn't support the ternary operator, so we have to use a bit of a hack here.
+      CELERITY_DEVICES: ${{ fromJSON('["", "0 0 0 0 0"]')[matrix.SYCL-impl == 'ComputeCpp'] }}
     steps:
       - name: Run unit tests
         working-directory: ${{ env.build-name }}
