@@ -26,6 +26,10 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
+          # We clean up artifacts ourselves.
+          # Cleaning here can cause problems with concurrent workflow runs,
+          # where build folders are being removed mid-run.
+          clean: false
           submodules: true
 
   build:
@@ -45,6 +49,7 @@ jobs:
           mkdir ${{ env.build-name }}
           set -o pipefail
           cd ${{ env.build-name }} && /scripts/build.sh ${{ matrix.SYCL-impl }} ${{ matrix.build-type }} | tee ${{ env.build-name }}.log
+      # Upload build log for report step
       - name: Upload build log
         uses: actions/upload-artifact@v1
         with:
@@ -52,7 +57,7 @@ jobs:
           path: ${{ env.build-name }}/${{ env.build-name }}.log
 
   test:
-    needs: [checkout, build]
+    needs: [build]
     runs-on: [self-hosted]
     # FIXME: Can we keep this DRY?
     strategy:
@@ -73,7 +78,7 @@ jobs:
         run: ${{ github.workspace }}/ci/run-integration-tests.sh /data/Lenna.png 1 2 4
 
   report:
-    needs: [checkout, build, test]
+    needs: [test]
     runs-on: [self-hosted]
     steps:
       - name: Check code formatting
@@ -90,7 +95,7 @@ jobs:
           builds: "hipSYCL-Debug, hipSYCL-Release, ComputeCpp-Debug, ComputeCpp-Release"
 
   cleanup:
-    needs: [build, test]
+    needs: [report]
     if: always() # Execute even if our dependencies fail
     runs-on: [self-hosted]
     # FIXME: Can we keep this DRY?
@@ -105,3 +110,8 @@ jobs:
     steps:
       - name: Remove build directory
         run: rm -rf ${{ env.build-name }}
+      # The report step downloads build logs for analysis
+      # FIXME: Either read build logs directly from within build folder (don't download them again),
+      #        or at least clean up directly within report action script.
+      - name: Remove build log
+        run: rm -f ${{ env.build-name }}.log
