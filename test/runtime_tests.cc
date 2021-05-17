@@ -544,6 +544,7 @@ namespace detail {
 			dq = std::make_unique<device_queue>(*l);
 			dq->init(*cfg, nullptr);
 			bm = std::make_unique<buffer_manager>(*dq, cb);
+			bm->enable_test_mode();
 			initialized = true;
 		}
 
@@ -862,6 +863,15 @@ namespace detail {
 		// TODO: Can we also come up with a good 3D case?
 	}
 
+	template <typename T>
+	bool is_valid_buffer_test_mode_pattern(T value) {
+		static_assert(sizeof(T) % sizeof(buffer_manager::test_mode_pattern) == 0);
+		for(size_t i = 0; i < sizeof(T) / sizeof(buffer_manager::test_mode_pattern); ++i) {
+			if(reinterpret_cast<decltype(buffer_manager::test_mode_pattern)*>(&value)[i] != buffer_manager::test_mode_pattern) { return false; }
+		}
+		return true;
+	}
+
 	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager does not retain existing data when resizing buffer using a pure producer access mode",
 	    "[buffer_manager][performance]") {
 		auto& bm = get_buffer_manager();
@@ -878,14 +888,13 @@ namespace detail {
 			    [](cl::sycl::id<1> idx, size_t& value) { /* NOP */ });
 
 			// Verify that the original 64 elements have not been retained during the resizing (unless we did a partial overwrite)
-			// NOTE: We're reading uninitialized memory here, so anything is possible, technically (but highly unlikely).
 			{
 				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {128}, {0}, true, [=](cl::sycl::id<1> idx, bool current, size_t value) {
 					if(partial_overwrite) {
 						// If we did a partial overwrite, the first 32 elements should have been retained
 						if(idx[0] < 32) return current && value == 1337 + idx[0];
 					}
-					if(idx[0] < 64) return current && value != 1337 + idx[0];
+					if(idx[0] < 64) return current && is_valid_buffer_test_mode_pattern(value);
 					return current;
 				});
 				REQUIRE(valid);
@@ -962,9 +971,8 @@ namespace detail {
 			    bid, tgt, {128}, {0}, [](cl::sycl::id<1> idx, size_t& value) { /* NOP */ });
 
 			// Verify that buffer does not have initialized contents
-			// NOTE: We're reading uninitialized memory here, so anything is possible, technically (but highly unlikely).
-			bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
-			    bid, tgt, {128}, {0}, true, [](cl::sycl::id<1> idx, bool current, size_t value) { return current && value != 1337 + idx[0]; });
+			bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {128}, {0}, true,
+			    [](cl::sycl::id<1> idx, bool current, size_t value) { return current && is_valid_buffer_test_mode_pattern(value); });
 			REQUIRE(valid);
 		};
 
@@ -1177,7 +1185,7 @@ namespace detail {
 				CHECK(valid);
 			}
 
-			// Now request a set of rows that partially intersect the columns from before, requiring the backing device buffer to be resized.
+			// Now request a set of rows that partially intersect the columns from before, requiring the backing buffer on this side to be resized.
 			// This resizing should retain the columns, but not introduce an additional coherence update in the empty area not covered by
 			// either the columns or rows (i.e., [0,0]-[64,64]).
 			{
@@ -1194,10 +1202,9 @@ namespace detail {
 			    bid, tgt, {128, 128}, {0, 0}, [](cl::sycl::id<2> idx, size_t& value) { /* NOP */ });
 
 			// While the backing buffer also includes the [0,0]-[64,64] region, this part should still be uninitialized.
-			// NOTE: We're reading uninitialized memory here, so anything is possible, technically (but highly unlikely).
 			{
 				bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, tgt, {64, 64}, {0, 0}, true,
-				    [=](cl::sycl::id<2> idx, bool current, size_t value) { return current && value != 1337 * idx[0] + 42 + idx[1]; });
+				    [=](cl::sycl::id<2> idx, bool current, size_t value) { return current && is_valid_buffer_test_mode_pattern(value); });
 				REQUIRE(valid);
 			}
 		};

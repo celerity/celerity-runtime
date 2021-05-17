@@ -6,6 +6,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <CL/sycl.hpp>
@@ -16,7 +17,6 @@
 #include "ranges.h"
 #include "region_map.h"
 #include "types.h"
-#include <unordered_set>
 
 namespace celerity {
 namespace detail {
@@ -224,6 +224,34 @@ namespace detail {
 
 			audit_buffer_access(bid, new_buffer.is_allocated(), mode);
 
+#ifdef CELERITY_TEST
+			if(test_mode && new_buffer.is_allocated()) {
+				auto device_buf = static_cast<device_buffer_storage<DataT, Dims>*>(new_buffer.storage.get())->get_device_buffer();
+
+				// We need two separate approaches here for hipSYCL and ComputeCpp, as hipSYCL currently (0.9.1) does
+				// not support reinterpreting buffers to other dimensionalities, while ComputeCpp (2.5.0) does not
+				// support filling buffers with arbitrary data types.
+#if WORKAROUND_HIPSYCL
+				DataT pattern;
+				memset(&pattern, test_mode_pattern, sizeof(DataT));
+#else
+				auto byte_buf = device_buf.template reinterpret<unsigned char, 1>();
+#endif
+
+				queue.get_sycl_queue()
+				    .submit([&](cl::sycl::handler& cgh) {
+#if WORKAROUND_HIPSYCL
+					    auto acc = device_buf.template get_access<cl::sycl::access::mode::discard_write>(cgh);
+					    cgh.fill(acc, pattern);
+#else
+					    auto acc = byte_buf.template get_access<cl::sycl::access::mode::discard_write>(cgh);
+					    cgh.fill(acc, test_mode_pattern);
+#endif
+				    })
+				    .wait();
+			}
+#endif
+
 			backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
 			const backing_buffer empty{};
 			const backing_buffer& previous_buffer = new_buffer.is_allocated() ? old_buffer : empty;
@@ -257,6 +285,13 @@ namespace detail {
 			}
 
 			audit_buffer_access(bid, new_buffer.is_allocated(), mode);
+
+#ifdef CELERITY_TEST
+			if(test_mode && new_buffer.is_allocated()) {
+				auto& host_buf = static_cast<host_buffer_storage<DataT, Dims>*>(new_buffer.storage.get())->get_host_buffer();
+				std::memset(host_buf.get_pointer(), test_mode_pattern, host_buf.get_range().size() * sizeof(DataT));
+			}
+#endif
 
 			backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
 			const backing_buffer empty{};
@@ -418,6 +453,20 @@ namespace detail {
 		 *	- If a buffer was previously accessed using a discard_* mode and is now accessed using a consumer mode
 		 */
 		void audit_buffer_access(buffer_id bid, bool requires_allocation, cl::sycl::access::mode mode);
+
+#ifdef CELERITY_TEST
+	  public:
+		/**
+		 * @brief Enables test mode, ensuring that newly allocated buffers are always initialized to
+		 *        a known bit pattern, see buffer_manager::test_mode_pattern.
+		 */
+		static void enable_test_mode() { test_mode = true; }
+
+		static constexpr unsigned char test_mode_pattern = 0b10101010;
+
+#endif
+	  private:
+		inline static bool test_mode = false;
 	};
 
 } // namespace detail
