@@ -45,7 +45,7 @@ namespace detail {
 
 	TEST_CASE("an explicit device can only be provided to distr_queue if runtime has not been initialized", "[distr_queue][lifetime]") {
 		cl::sycl::default_selector selector;
-		auto device = selector.select_device();
+		cl::sycl::device device{selector};
 		{
 			REQUIRE_FALSE(runtime::is_initialized());
 			REQUIRE_NOTHROW(distr_queue{device});
