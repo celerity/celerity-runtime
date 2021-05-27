@@ -36,14 +36,14 @@ namespace detail {
 	    const cl::sycl::id<3>& source_offset, const cl::sycl::range<3>& target_range, const cl::sycl::id<3>& target_offset,
 	    const cl::sycl::range<3>& copy_range) {
 		// We simply decompose this into a bunch of 2D copies. Subtract offset on the copy plane, as it will be added again during the 2D copy.
-		const auto source_base_offset =
-		    get_linear_index(source_range, source_offset) - get_linear_index({source_range[1], source_range[2]}, {source_offset[1], source_offset[2]});
-		const auto target_base_offset =
-		    get_linear_index(target_range, target_offset) - get_linear_index({target_range[1], target_range[2]}, {target_offset[1], target_offset[2]});
+		const auto source_base_offset = get_linear_index(source_range, source_offset)
+		                                - get_linear_index(cl::sycl::range<2>{source_range[1], source_range[2]}, {source_offset[1], source_offset[2]});
+		const auto target_base_offset = get_linear_index(target_range, target_offset)
+		                                - get_linear_index(cl::sycl::range<2>{target_range[1], target_range[2]}, {target_offset[1], target_offset[2]});
 		for(size_t i = 0; i < copy_range[0]; ++i) {
 			const auto source_ptr = reinterpret_cast<const char*>(source_base_ptr) + elem_size * (source_base_offset + i * (source_range[1] * source_range[2]));
 			const auto target_ptr = reinterpret_cast<char*>(target_base_ptr) + elem_size * (target_base_offset + i * (target_range[1] * target_range[2]));
-			memcpy_strided(source_ptr, target_ptr, elem_size, {source_range[1], source_range[2]}, {source_offset[1], source_offset[2]},
+			memcpy_strided(source_ptr, target_ptr, elem_size, cl::sycl::range<2>{source_range[1], source_range[2]}, {source_offset[1], source_offset[2]},
 			    {target_range[1], target_range[2]}, {target_offset[1], target_offset[2]}, {copy_range[1], copy_range[2]});
 		}
 	}
