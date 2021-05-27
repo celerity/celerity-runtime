@@ -9,7 +9,7 @@ SOURCES=$(find examples include src test \( -name "*.h" -o -name "*.cc" \) ! -na
 for s in $SOURCES; do
     # Since clang-format does not provide an option to check whether formatting is required,
     # we use the XML replacements output together with grep as a workaround.
-    NUM_REPLACEMENTS=$(clang-format-8 -output-replacements-xml "$s" | grep -v -c -E "<(/?replacements|\?xml)")
+    NUM_REPLACEMENTS=$(clang-format -output-replacements-xml "$s" | grep -v -c -E "<(/?replacements|\?xml)")
     if [[ $NUM_REPLACEMENTS -ne 0 ]]; then
         echo $s
     fi

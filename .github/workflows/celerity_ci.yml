@@ -21,29 +21,25 @@ on:
       - '**:**'
 
 jobs:
-  checkout:
-    runs-on: [self-hosted]
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          # We clean up artifacts ourselves.
-          # Cleaning here can cause problems with concurrent workflow runs,
-          # where build folders are being removed mid-run.
-          clean: false
-          submodules: true
-
-  build:
-    needs: [checkout]
-    runs-on: [self-hosted]
+  build-and-test:
+    runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false
       matrix:
+        platform: ["intel", "nvidia"]
         SYCL-impl: ["hipSYCL", "ComputeCpp"]
         build-type: ["Debug", "Release"]
+        exclude:
+          - platform: "intel"
+            SYCL-impl: "hipSYCL"
+          - platform: "nvidia"
+            SYCL-impl: "ComputeCpp"
     env:
-      # FIXME: Can we keep this DRY?
-      build-name: build-${{ matrix.SYCL-impl }}-${{ matrix.build-type }}-${{ github.run_id }}-${{ github.run_number }}
+      build-name: ${{ matrix.platform }}-${{ matrix.SYCL-impl }}-${{ matrix.build-type }}
     steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
       - name: Run build script
         run: |
           mkdir ${{ env.build-name }}
@@ -53,22 +49,8 @@ jobs:
       - name: Upload build log
         uses: actions/upload-artifact@v1
         with:
-          name: ${{ env.build-name }}-log
+          name: ${{ env.build-name }}
           path: ${{ env.build-name }}/${{ env.build-name }}.log
-
-  test:
-    needs: [build]
-    runs-on: [self-hosted]
-    # FIXME: Can we keep this DRY?
-    strategy:
-      fail-fast: false
-      matrix:
-        SYCL-impl: ["hipSYCL", "ComputeCpp"]
-        build-type: ["Debug", "Release"]
-    env:
-      # FIXME: Can we keep this DRY?
-      build-name: build-${{ matrix.SYCL-impl }}-${{ matrix.build-type }}-${{ github.run_id }}-${{ github.run_number }}
-    steps:
       - name: Run unit tests
         working-directory: ${{ env.build-name }}
         # Running "make test" is slow (why?), so we just call all test executables manually
@@ -78,8 +60,8 @@ jobs:
         run: ${{ github.workspace }}/ci/run-integration-tests.sh /data/Lenna.png 1 2 4
 
   report:
-    needs: [test]
-    runs-on: [self-hosted]
+    needs: [build-and-test]
+    runs-on: self-hosted
     steps:
       - name: Check code formatting
         id: formatting
@@ -87,31 +69,8 @@ jobs:
           unformatted=$("./ci/find-unformatted-files.sh")
           unformatted=${unformatted//$'\n'/'%0A'}
           echo "::set-output name=unformatted-files::$unformatted"
-      - uses: "celerity/ci-report-action@v3"
+      - uses: "celerity/ci-report-action@v4"
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           unformatted-files: ${{ steps.formatting.outputs.unformatted-files }}
-          # FIXME: Can we somehow keep this DRY with the matrix config above?
-          builds: "hipSYCL-Debug, hipSYCL-Release, ComputeCpp-Debug, ComputeCpp-Release"
 
-  cleanup:
-    needs: [report]
-    if: always() # Execute even if our dependencies fail
-    runs-on: [self-hosted]
-    # FIXME: Can we keep this DRY?
-    strategy:
-      fail-fast: false
-      matrix:
-        SYCL-impl: ["hipSYCL", "ComputeCpp"]
-        build-type: ["Debug", "Release"]
-    env:
-      # FIXME: Can we keep this DRY?
-      build-name: build-${{ matrix.SYCL-impl }}-${{ matrix.build-type }}-${{ github.run_id }}-${{ github.run_number }}
-    steps:
-      - name: Remove build directory
-        run: rm -rf ${{ env.build-name }}
-      # The report step downloads build logs for analysis
-      # FIXME: Either read build logs directly from within build folder (don't download them again),
-      #        or at least clean up directly within report action script.
-      - name: Remove build log
-        run: rm -f ${{ env.build-name }}.log

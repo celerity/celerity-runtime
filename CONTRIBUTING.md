@@ -25,9 +25,8 @@ Unfortunately Clang Format frequently has breaking changes with major
 releases (which are tied to the Clang release cycle), which means we have to
 settle on a specific version.
 
-We currently use `clang-format-8`. Please make sure to use the correct
+We currently use `clang-format-10`. Please make sure to use the correct
 version to avoid cluttering your diffs with unrelated format changes.
-[Prebuilt binaries can be found on llvm.org](http://releases.llvm.org/8.0.0/).
 
 You can automatically determine whether you've correctly formatted all of
 your files using our [find-unformatted-files](ci/find-unformatted-files.sh)
@@ -46,7 +45,8 @@ Always use [`git rebase`](https://git-scm.com/docs/git-rebase) instead of
 creating merge commits when incorporating upstream changes into your local
 branches. This is to reduce noise in our git history.
 
-Please use imperative form for your commit messages, i.e., prefer `"Add feature X"` over `"Added feature X"`, or just `"feature X"`. Furthermore, try
+Please use imperative form for your commit messages, i.e., prefer `"Add feature
+X"` over `"Added feature X"`, or just `"feature X"`. Furthermore, try
 to come up with meaningful commit messages that succinctly describe your
 change. If your commit introduces a large change, consider providing a more
 detailed description in the commit message body.
