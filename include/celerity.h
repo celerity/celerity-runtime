@@ -3,6 +3,7 @@
 
 #include "runtime.h"
 
+#include "accessor.h"
 #include "buffer.h"
 #include "distr_queue.h"
 #include "user_bench.h"
