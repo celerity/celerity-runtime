@@ -665,16 +665,16 @@ namespace detail {
 			return result;
 		}
 
-		template <typename DataT, int Dims, cl::sycl::access::mode Mode>
-		accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> get_device_accessor(
+		template <typename DataT, int Dims, cl::sycl::access_mode Mode>
+		accessor<DataT, Dims, Mode, cl::sycl::target::device> get_device_accessor(
 		    live_pass_device_handler& cgh, buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
 			auto buf_info = bm->get_device_buffer<DataT, Dims>(bid, Mode, range_cast<3>(range), id_cast<3>(offset));
 			return detail::make_device_accessor<DataT, Dims, Mode>(
 			    cgh.get_eventual_sycl_cgh(), subrange<Dims>(offset, range), buf_info.buffer, buf_info.offset);
 		}
 
-		template <typename DataT, int Dims, cl::sycl::access::mode Mode>
-		accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer> get_host_accessor(
+		template <typename DataT, int Dims, cl::sycl::access_mode Mode>
+		accessor<DataT, Dims, Mode, cl::sycl::target::host_buffer> get_host_accessor(
 		    buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
 			auto buf_info = bm->get_host_buffer<DataT, Dims>(bid, Mode, range_cast<3>(range), id_cast<3>(offset));
 			return detail::make_host_accessor<DataT, Dims, Mode>(
@@ -1896,6 +1896,68 @@ namespace detail {
 		});
 		q.slow_full_sync();
 		CHECK(out == 43);
+	}
+
+	TEST_CASE("accessors mode and target deduced correctly from SYCL 2020 tag types and no_init property", "[accessor]") {
+		buffer<int, 1> buf_a(cl::sycl::range<1>(32));
+		auto& tm = runtime::get_instance().get_task_manager();
+		detail::task_id tid;
+
+		SECTION("Device Accessors") {
+			tid = test_utils::add_compute_task<class get_access_with_tag>(
+			    tm,
+			    [&](handler& cgh) {
+				    accessor acc1{buf_a, cgh, one_to_one<1>(), cl::sycl::write_only};
+				    static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::write, cl::sycl::target::device>, decltype(acc1)>);
+
+				    accessor acc2{buf_a, cgh, one_to_one<1>(), cl::sycl::read_only};
+				    static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::read, cl::sycl::target::device>, decltype(acc2)>);
+
+				    accessor acc3{buf_a, cgh, one_to_one<1>(), cl::sycl::read_write};
+				    static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::read_write, cl::sycl::target::device>, decltype(acc3)>);
+
+				    accessor acc4{buf_a, cgh, one_to_one<1>(), cl::sycl::write_only, cl::sycl::no_init};
+				    static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::discard_write, cl::sycl::target::device>, decltype(acc4)>);
+
+				    accessor acc5{buf_a, cgh, one_to_one<1>(), cl::sycl::read_write, cl::sycl::no_init};
+				    static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::discard_read_write, cl::sycl::target::device>, decltype(acc5)>);
+			    },
+			    buf_a.get_range());
+		}
+
+
+		SECTION("Host Accessors") {
+			tid = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+				//   The following line is commented because it produces a compile error but it is still a case we wanted to test.
+				//   Since we can not check the content of a property list at compile time, for now it is only accepted to pass either the property
+				//   cl::sycl::no_init or nothing.
+				// accessor acc0{buf_a, cgh, one_to_one<1>(), cl::sycl::write_only_host_task, cl::sycl::property_list{cl::sycl::no_init}};
+
+				accessor acc1{buf_a, cgh, one_to_one<1>(), cl::sycl::write_only_host_task};
+				static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::write, cl::sycl::target::host_buffer>, decltype(acc1)>);
+
+				accessor acc2{buf_a, cgh, one_to_one<1>(), cl::sycl::read_only_host_task};
+				static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::read, cl::sycl::target::host_buffer>, decltype(acc2)>);
+
+				accessor acc3{buf_a, cgh, fixed<1>({0, 1}), cl::sycl::read_write_host_task};
+				static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::read_write, cl::sycl::target::host_buffer>, decltype(acc3)>);
+
+				accessor acc4{buf_a, cgh, one_to_one<1>(), cl::sycl::write_only_host_task, cl::sycl::no_init};
+				static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::discard_write, cl::sycl::target::host_buffer>, decltype(acc4)>);
+
+				accessor acc5{buf_a, cgh, one_to_one<1>(), cl::sycl::read_write_host_task, cl::sycl::no_init};
+				static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::discard_read_write, cl::sycl::target::host_buffer>, decltype(acc5)>);
+			});
+		}
+
+		const auto tsk = tm.get_task(tid);
+		const auto buff_id = detail::get_buffer_id(buf_a);
+
+		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(cl::sycl::access_mode::write) == 1);
+		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(cl::sycl::access_mode::read) == 1);
+		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(cl::sycl::access_mode::read_write) == 1);
+		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(cl::sycl::access_mode::discard_write) == 1);
+		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(cl::sycl::access_mode::discard_read_write) == 1);
 	}
 
 } // namespace detail

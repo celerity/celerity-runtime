@@ -7,7 +7,7 @@ constexpr size_t MAT_SIZE = 1024;
 template <typename T>
 void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat) {
 	queue.submit([=](celerity::handler& cgh) {
-		auto dw = mat.template get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
+		celerity::accessor dw{mat, cgh, celerity::access::one_to_one<2>(), cl::sycl::write_only, cl::sycl::no_init};
 		cgh.parallel_for<class set_identity_kernel>(mat.get_range(), [=](cl::sycl::item<2> item) { dw[item] = item[0] == item[1]; });
 	});
 }
@@ -15,9 +15,9 @@ void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat) {
 template <typename T>
 void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
 	queue.submit([=](celerity::handler& cgh) {
-		auto a = mat_a.template get_access<cl::sycl::access::mode::read>(cgh, celerity::access::slice<2>(1));
-		auto b = mat_b.template get_access<cl::sycl::access::mode::read>(cgh, celerity::access::slice<2>(0));
-		auto c = mat_c.template get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
+		celerity::accessor a{mat_a, cgh, celerity::access::slice<2>(1), cl::sycl::read_only};
+		celerity::accessor b{mat_b, cgh, celerity::access::slice<2>(0), cl::sycl::read_only};
+		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one<2>(), cl::sycl::write_only, cl::sycl::no_init};
 
 		cgh.parallel_for<class mat_mul>(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE), [=](cl::sycl::item<2> item) {
 			auto sum = 0.f;
@@ -58,7 +58,7 @@ int main(int argc, char* argv[]) {
 		multiply(queue, mat_b_buf, mat_c_buf, mat_a_buf);
 
 		queue.submit(celerity::allow_by_ref, [&](celerity::handler& cgh) {
-			auto result = mat_a_buf.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::one_to_one<2>());
+			celerity::accessor result{mat_a_buf, cgh, celerity::access::one_to_one<2>(), cl::sycl::read_only_host_task};
 
 			cgh.host_task(range, [=, &verification_passed](celerity::partition<2> part) {
 				celerity::experimental::bench::end("main program");

@@ -3,22 +3,25 @@
 #include <type_traits>
 
 #include <CL/sycl.hpp>
+#include <allscale/utils/functional_utils.h>
 
 #include "access_modes.h"
+#include "buffer.h"
 #include "buffer_storage.h"
-
+#include "ccpp_2020_compatibility_layer.h"
+#include "handler.h"
 
 namespace celerity {
 
 template <int Dims>
 class partition;
 
-template <typename DataT, int Dims, cl::sycl::access::mode Mode, cl::sycl::access::target Target>
+template <typename DataT, int Dims, cl::sycl::access_mode Mode, cl::sycl::target Target>
 class accessor;
 
 namespace detail {
 
-	template <typename DataT, int Dims, cl::sycl::access::mode Mode, cl::sycl::access::target Target>
+	template <typename DataT, int Dims, cl::sycl::access_mode Mode, cl::sycl::target Target>
 	class accessor_base {
 	  public:
 		static_assert(Dims > 0, "0-dimensional accessors NYI");
@@ -28,11 +31,20 @@ namespace detail {
 		using const_reference = const DataT&;
 	};
 
-	template <typename DataT, int Dims, cl::sycl::access::mode Mode, typename... Args>
-	accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> make_device_accessor(Args&&...);
+	template <typename DataT, int Dims, cl::sycl::access_mode Mode, typename... Args>
+	accessor<DataT, Dims, Mode, cl::sycl::target::device> make_device_accessor(Args&&...);
 
-	template <typename DataT, int Dims, cl::sycl::access::mode Mode, typename... Args>
-	accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer> make_host_accessor(Args&&...);
+	template <typename DataT, int Dims, cl::sycl::access_mode Mode, typename... Args>
+	accessor<DataT, Dims, Mode, cl::sycl::target::host_buffer> make_host_accessor(Args&&...);
+
+	template <typename TagT>
+	constexpr cl::sycl::access_mode deduce_access_mode();
+
+	template <typename TagT>
+	constexpr cl::sycl::access_mode deduce_access_mode_discard();
+
+	template <typename TagT>
+	constexpr cl::sycl::target deduce_access_target();
 
 } // namespace detail
 
@@ -114,11 +126,54 @@ class host_memory_layout {
  * @note The Celerity accessor currently does not support get_size, get_count, get_range, get_offset and get_pointer,
  * as their semantics in a distributed context are unclear.
  */
-template <typename DataT, int Dims, cl::sycl::access::mode Mode>
-class accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>
-    : public detail::accessor_base<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> {
+template <typename DataT, int Dims, cl::sycl::access_mode Mode>
+class accessor<DataT, Dims, Mode, cl::sycl::target::device> : public detail::accessor_base<DataT, Dims, Mode, cl::sycl::target::device> {
   public:
 	accessor(const accessor& other) : sycl_accessor(other.sycl_accessor) { init_from(other); }
+
+	template <cl::sycl::target Target = cl::sycl::target::device, typename Functor>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
+		using rmfn_traits = allscale::utils::lambda_traits<Functor>;
+		static_assert(rmfn_traits::result_type::dims == Dims, "The returned subrange doesn't match buffer dimensions.");
+
+		if(detail::is_prepass_handler(cgh)) {
+			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
+			prepass_cgh.add_requirement(
+			    detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<rmfn_traits::arg1_type::dims, Dims>>(rmfn, Mode, buff.get_range()));
+			sycl_accessor = sycl_accessor_t();
+
+		} else {
+			if(detail::get_handler_execution_target(cgh) != detail::execution_target::DEVICE) {
+				throw std::runtime_error(
+				    "Calling accessor constructor with device target is only allowed in parallel_for tasks."
+				    "If you want to access this buffer from within a host task, please specialize the call using one of the *_host_task tags");
+			}
+			auto& live_cgh = dynamic_cast<detail::live_pass_device_handler&>(cgh);
+			// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper
+			// manually. This also means that we have to clamp the subrange ourselves here, which is not ideal from an encapsulation standpoint.
+			const auto sr = detail::clamp_subrange_to_buffer_size(live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range()), buff.get_range());
+			auto access_info = detail::runtime::get_instance().get_buffer_manager().get_device_buffer<DataT, Dims>(
+			    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(sr.range), detail::id_cast<3>(sr.offset));
+			eventual_sycl_cgh = live_cgh.get_eventual_sycl_cgh();
+			sycl_accessor = sycl_accessor_t(access_info.buffer, buff.get_range(), access_info.offset);
+			backing_buffer_offset = access_info.offset;
+		}
+	}
+
+	template <typename Functor, typename TagT>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag) : accessor(buff, cgh, rmfn) {}
+
+	template <typename Functor, typename TagT>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, cl::sycl::property::no_init no_init) : accessor(buff, cgh, rmfn) {}
+
+	template <typename Functor, typename TagT>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, cl::sycl::property_list prop_list) {
+		// in this static assert it would be more relevant to use property_list type, but if a defined type is used then it is always false and
+		// always fails to compile. Hence we use a templated type so that it only produces a compile error when the ctr is called.
+		static_assert(!std::is_same_v<TagT, TagT>,
+		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property cl::sycl::no_init "
+		    "as a last argument in the constructor");
+	}
 
 	accessor& operator=(const accessor& other) {
 		if(this != &other) {
@@ -128,19 +183,19 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>
 		return *this;
 	}
 
-	template <cl::sycl::access::mode M = Mode, int D = Dims>
-	std::enable_if_t<detail::access::mode_traits::is_producer(M) && M != cl::sycl::access::mode::atomic && (D > 0), DataT&> operator[](
+	template <cl::sycl::access_mode M = Mode, int D = Dims>
+	std::enable_if_t<detail::access::mode_traits::is_producer(M) && M != cl::sycl::access_mode::atomic && (D > 0), DataT&> operator[](
 	    cl::sycl::id<Dims> index) const {
 		return sycl_accessor[index - backing_buffer_offset];
 	}
 
-	template <cl::sycl::access::mode M = Mode, int D = Dims>
+	template <cl::sycl::access_mode M = Mode, int D = Dims>
 	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](cl::sycl::id<Dims> index) const {
 		return sycl_accessor[index - backing_buffer_offset];
 	}
 
-	template <cl::sycl::access::mode M = Mode, int D = Dims>
-	std::enable_if_t<M == cl::sycl::access::mode::atomic && (D > 0), cl::sycl::atomic<DataT>> operator[](cl::sycl::id<Dims> index) const {
+	template <cl::sycl::access_mode M = Mode, int D = Dims>
+	std::enable_if_t<M == cl::sycl::access_mode::atomic && (D > 0), cl::sycl::atomic<DataT>> operator[](cl::sycl::id<Dims> index) const {
 		return sycl_accessor[index - backing_buffer_offset];
 	}
 
@@ -151,26 +206,26 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
   private:
+#if WORKAROUND_COMPUTECPP
 	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>;
+#else
+	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::target::device>;
+#endif
 
-	template <typename T, int D, cl::sycl::access::mode M, typename... Args>
-	friend accessor<T, D, M, cl::sycl::access::target::global_buffer> detail::make_device_accessor(Args&&...);
+	template <typename T, int D, cl::sycl::access_mode M, typename... Args>
+	friend accessor<T, D, M, cl::sycl::target::device> detail::make_device_accessor(Args&&...);
 
 	// see init_from
 	cl::sycl::handler* const* eventual_sycl_cgh = nullptr;
-	cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t> sycl_accessor;
-	cl::sycl::id<Dims> backing_buffer_offset;
+	sycl_accessor_t sycl_accessor;
 
-	// TODO remove this once we have SYCL 2020 default-constructible accessors
-	accessor(cl::sycl::buffer<DataT, Dims>& faux_buffer)
-	    : sycl_accessor(cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>(faux_buffer)) {}
+	cl::sycl::id<Dims> backing_buffer_offset;
 
 	accessor(cl::sycl::handler* const* eventual_sycl_cgh, const subrange<Dims>& mapped_subrange, cl::sycl::buffer<DataT, Dims>& buffer,
 	    cl::sycl::id<Dims> backing_buffer_offset)
 	    : eventual_sycl_cgh(eventual_sycl_cgh),
 	      // We pass a range and offset here to avoid interference from SYCL, but the offset must be relative to the *backing buffer*.
-	      sycl_accessor(cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>(
-	          buffer, mapped_subrange.range, mapped_subrange.offset - backing_buffer_offset)),
+	      sycl_accessor(sycl_accessor_t(buffer, mapped_subrange.range, mapped_subrange.offset - backing_buffer_offset)),
 	      backing_buffer_offset(backing_buffer_offset) {
 		// SYCL 1.2.1 dictates that all kernel parameters must have standard layout.
 		// However, since we are wrapping a SYCL accessor, this assertion fails for some implementations,
@@ -196,16 +251,84 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer>
 	}
 };
 
-template <typename DataT, int Dims, cl::sycl::access::mode Mode>
-class accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer>
-    : public detail::accessor_base<DataT, Dims, Mode, cl::sycl::access::target::host_buffer> {
+// Celerity Accessor Deduction Guides
+template <typename T, int D, typename Functor, typename TagT>
+accessor(const buffer<T, D>& buff, handler& cgh, Functor rmfn, TagT tag)
+    -> accessor<T, D, detail::deduce_access_mode<TagT>(), detail::deduce_access_target<TagT>()>;
+
+template <typename T, int D, typename Functor, typename TagT>
+accessor(const buffer<T, D>& buff, handler& cgh, Functor rmfn, TagT tag, cl::sycl::property::no_init no_init)
+    -> accessor<T, D, detail::deduce_access_mode_discard<TagT>(), detail::deduce_access_target<TagT>()>;
+
+template <typename T, int D, typename Functor, typename TagT>
+accessor(const buffer<T, D>& buff, handler& cgh, Functor rmfn, TagT tag, cl::sycl::property_list prop_list)
+    -> accessor<T, D, detail::deduce_access_mode_discard<TagT>(), detail::deduce_access_target<TagT>()>;
+
+//
+
+template <typename DataT, int Dims, cl::sycl::access_mode Mode>
+class accessor<DataT, Dims, Mode, cl::sycl::target::host_buffer> : public detail::accessor_base<DataT, Dims, Mode, cl::sycl::target::host_buffer> {
   public:
-	template <cl::sycl::access::mode M = Mode, int D = Dims>
+	template <cl::sycl::target Target = cl::sycl::target::host_buffer, typename Functor>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
+		static_assert(!std::is_same_v<Functor, cl::sycl::range<Dims>>,
+		    "The accessor constructor overload for master-access tasks (now called 'host tasks') has "
+		    "been removed with Celerity 0.2.0. Please provide a range mapper instead.");
+
+		using rmfn_traits = allscale::utils::lambda_traits<Functor>;
+		static_assert(rmfn_traits::result_type::dims == Dims, "The returned subrange doesn't match buffer dimensions.");
+
+		if(detail::is_prepass_handler(cgh)) {
+			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
+			prepass_cgh.add_requirement(
+			    detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<rmfn_traits::arg1_type::dims, Dims>>(rmfn, Mode, buff.get_range()));
+		} else {
+			if constexpr(Target == cl::sycl::target::host_buffer) {
+				if(detail::get_handler_execution_target(cgh) != detail::execution_target::HOST) {
+					throw std::runtime_error(
+					    "Calling accessor constructor with host_buffer target is only allowed in host tasks."
+					    "If you want to access this buffer from within a parallel_for task, please specialize the call using one of the non host tags");
+				}
+				auto& live_cgh = dynamic_cast<detail::live_pass_host_handler&>(cgh);
+				// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper
+				// manually. This also means that we have to clamp the subrange ourselves here, which is not ideal from an encapsulation standpoint.
+				const auto sr = detail::clamp_subrange_to_buffer_size(live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range()), buff.get_range());
+				auto access_info = detail::runtime::get_instance().get_buffer_manager().get_host_buffer<DataT, Dims>(
+				    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(sr.range), detail::id_cast<3>(sr.offset));
+
+				mapped_subrange = sr;
+				optional_buffer = &access_info.buffer;
+				backing_buffer_offset = access_info.offset;
+				virtual_buffer_range = buff.get_range();
+			}
+		}
+	}
+
+	template <typename Functor, typename TagT>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag) : accessor(buff, cgh, rmfn) {}
+
+	/**
+	 * TODO: As of ComputeCpp 2.5.0 they do not support no_init prop, hence this constructor is needed along with discard deduction guide.
+	 *    but once they do this should be replace for a constructor that takes a prop list as an argument.
+	 */
+	template <typename Functor, typename TagT>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, cl::sycl::property::no_init no_init) : accessor(buff, cgh, rmfn) {}
+
+	template <typename Functor, typename TagT>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, cl::sycl::property_list prop_list) {
+		// in this static assert it would be more relevant to use property_list type, but if a defined type is used then it is always false and
+		// always fails to compile. Hence we use a templated type so that it only produces a compile error when the ctr is loaded.
+		static_assert(!std::is_same_v<TagT, TagT>,
+		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property cl::sycl::no_init "
+		    "as a last argument in the constructor");
+	}
+
+	template <cl::sycl::access_mode M = Mode, int D = Dims>
 	std::enable_if_t<detail::access::mode_traits::is_producer(M) && (D > 0), DataT&> operator[](cl::sycl::id<Dims> index) const {
 		return *(get_buffer().get_pointer() + get_linear_offset(index));
 	}
 
-	template <cl::sycl::access::mode M = Mode, int D = Dims>
+	template <cl::sycl::access_mode M = Mode, int D = Dims>
 	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](cl::sycl::id<Dims> index) const {
 		return *(get_buffer().get_pointer() + get_linear_offset(index));
 	}
@@ -247,8 +370,8 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer>
 	 */
 	template <int KernelDims>
 	std::pair<DataT*, host_memory_layout> get_host_memory(const partition<KernelDims>& part) const {
-		// We already know the range mapper output for "chunk" from the constructor. The parameter is a purely semantic dependency which ensures that this
-		// function is not called outside a host task.
+		// We already know the range mapper output for "chunk" from the constructor. The parameter is a purely semantic dependency which ensures that
+		// this function is not called outside a host task.
 		(void)part;
 
 		host_memory_layout::dimension_vector dimensions(Dims);
@@ -264,8 +387,8 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer>
 	}
 
   private:
-	template <typename T, int D, cl::sycl::access::mode M, typename... Args>
-	friend accessor<T, D, M, cl::sycl::access::target::host_buffer> detail::make_host_accessor(Args&&...);
+	template <typename T, int D, cl::sycl::access_mode M, typename... Args>
+	friend accessor<T, D, M, cl::sycl::target::host_buffer> detail::make_host_accessor(Args&&...);
 
 	// Subange of the accessor, as set by the range mapper or requested by the user (master node host tasks only).
 	// This does not necessarily correspond to the backing buffer's range.
@@ -302,15 +425,51 @@ class accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer>
 };
 
 namespace detail {
-
-	template <typename DataT, int Dims, cl::sycl::access::mode Mode, typename... Args>
-	accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer> make_device_accessor(Args&&... args) {
+	template <typename DataT, int Dims, cl::sycl::access_mode Mode, typename... Args>
+	accessor<DataT, Dims, Mode, cl::sycl::target::global_buffer> make_device_accessor(Args&&... args) {
 		return {std::forward<Args>(args)...};
 	}
 
-	template <typename DataT, int Dims, cl::sycl::access::mode Mode, typename... Args>
-	accessor<DataT, Dims, Mode, cl::sycl::access::target::host_buffer> make_host_accessor(Args&&... args) {
+	template <typename DataT, int Dims, cl::sycl::access_mode Mode, typename... Args>
+	accessor<DataT, Dims, Mode, cl::sycl::target::host_buffer> make_host_accessor(Args&&... args) {
 		return {std::forward<Args>(args)...};
+	}
+
+	template <typename TagT>
+	constexpr cl::sycl::access_mode deduce_access_mode() {
+		if(std::is_same_v<const TagT, decltype(cl::sycl::read_only)> || //
+		    std::is_same_v<const TagT, decltype(cl::sycl::read_only_host_task)>) {
+			return cl::sycl::access_mode::read;
+		} else if(std::is_same_v<const TagT, decltype(cl::sycl::read_write)> || //
+		          std::is_same_v<const TagT, decltype(cl::sycl::read_write_host_task)>) {
+			return cl::sycl::access_mode::read_write;
+		} else {
+			return cl::sycl::access_mode::write;
+		}
+	}
+
+	template <typename TagT>
+	constexpr cl::sycl::access_mode deduce_access_mode_discard() {
+		if constexpr(std::is_same_v<const TagT, decltype(cl::sycl::read_only)> || //
+		             std::is_same_v<const TagT, decltype(cl::sycl::read_only_host_task)>) {
+			static_assert(!std::is_same_v<TagT, TagT>, "Invalid access mode + no_init");
+		} else if(std::is_same_v<const TagT, decltype(cl::sycl::read_write)> || //
+		          std::is_same_v<const TagT, decltype(cl::sycl::read_write_host_task)>) {
+			return cl::sycl::access_mode::discard_read_write;
+		} else {
+			return cl::sycl::access_mode::discard_write;
+		}
+	}
+
+	template <typename TagT>
+	constexpr cl::sycl::target deduce_access_target() {
+		if(std::is_same_v<const TagT, decltype(cl::sycl::read_only)> ||   //
+		    std::is_same_v<const TagT, decltype(cl::sycl::read_write)> || //
+		    std::is_same_v<const TagT, decltype(cl::sycl::write_only)>) {
+			return cl::sycl::target::device;
+		} else {
+			return cl::sycl::target::host_buffer;
+		}
 	}
 
 } // namespace detail
