@@ -83,7 +83,7 @@ installed first.
   - [hipSYCL](https://github.com/illuhad/hipsycl), or
   - [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp)
 - A MPI 2 implementation (tested with OpenMPI 4.0, MPICH 3.3 should work as well)
-- [CMake](https://www.cmake.org) (3.5.1 or newer)
+- [CMake](https://www.cmake.org) (3.13 or newer)
 - A C++17 compiler
 
 Building can be as simple as calling `cmake && make`, depending on your setup
