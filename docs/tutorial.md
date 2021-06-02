@@ -252,7 +252,7 @@ your `main()` function:
 
 ```cpp
 queue.submit([=](celerity::handler& cgh) {
-    auto out = edge_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::all<2>());
+    auto out = edge_buf.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all<2>());
     cgh.host_task(celerity::on_master_node, [=]() {
         stbi_write_png("result.png", img_width, img_height, 1, out.get_pointer(), 0);
     });
