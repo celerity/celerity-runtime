@@ -32,8 +32,7 @@ namespace detail {
 		 */
 		template <typename Fn>
 		cl::sycl::event submit(Fn&& fn) {
-			// FIXME: Get rid of forced_work_group_size
-			return sycl_queue->submit([fn = std::forward<Fn>(fn), fwgs = forced_work_group_size](cl::sycl::handler& sycl_handler) { fn(sycl_handler, fwgs); });
+			return sycl_queue->submit([fn = std::forward<Fn>(fn)](cl::sycl::handler& sycl_handler) { fn(sycl_handler); });
 		}
 
 		/**
@@ -55,8 +54,6 @@ namespace detail {
 		logger& queue_logger;
 		std::unique_ptr<cl::sycl::queue> sycl_queue;
 		bool device_profiling_enabled = false;
-		// FIXME: Get rid of this
-		size_t forced_work_group_size = 0;
 
 		cl::sycl::device pick_device(const config& cfg, cl::sycl::device* user_device) const;
 		void handle_async_exceptions(cl::sycl::exception_list el) const;

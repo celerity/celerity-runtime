@@ -29,7 +29,7 @@ namespace detail {
 	class task_manager;
 	class prepass_handler;
 
-	template <class Name, bool NdRange>
+	template <class Name>
 	class wrapped_kernel_name {};
 
 	inline bool is_prepass_handler(const handler& cgh);
@@ -347,12 +347,13 @@ namespace detail {
 
 		template <typename CGF>
 		void submit_to_sycl(CGF&& cgf) {
-			event = d_queue->submit([&](cl::sycl::handler& cgh, size_t fwgs) {
+			event = d_queue->submit([&](cl::sycl::handler& cgh) {
 				this->eventual_cgh = &cgh;
-				std::forward<CGF>(cgf)(cgh, fwgs);
+				std::forward<CGF>(cgf)(cgh);
 				this->eventual_cgh = nullptr;
 			});
 		}
+
 
 		cl::sycl::event get_submission_event() const { return event; }
 
@@ -375,45 +376,22 @@ void handler::parallel_for(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims>
 	auto& device_handler = dynamic_cast<detail::live_pass_device_handler&>(*this);
 	const auto sr = device_handler.get_iteration_range();
 
-	device_handler.submit_to_sycl([&](cl::sycl::handler& cgh, size_t fwgs) {
+	device_handler.submit_to_sycl([&](cl::sycl::handler& cgh) {
 
 #if WORKAROUND_COMPUTECPP
 		// As of ComputeCpp 1.1.5 the PTX backend has problems with kernel invocations that have an offset.
 		// See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-98 (psalz).
 		// To work around this, instead of passing an offset to SYCL, we simply add it to the item that is passed to the kernel.
 		const cl::sycl::id<Dims> ccpp_ptx_workaround_offset = {};
-#else
-		const cl::sycl::id<Dims> ccpp_ptx_workaround_offset = detail::id_cast<Dims>(sr.offset);
-#endif
-		if(fwgs == 0) {
-#if WORKAROUND_COMPUTECPP
-			cgh.parallel_for<detail::wrapped_kernel_name<Name, false>>(
-			    detail::range_cast<Dims>(sr.range), ccpp_ptx_workaround_offset, [=](cl::sycl::item<Dims> item) {
-				    const cl::sycl::id<Dims> ptx_workaround_id = detail::range_cast<Dims>(item.get_id()) + detail::id_cast<Dims>(sr.offset);
-				    const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ccpp_ptx_workaround_offset);
-				    const auto offset_item = cl::sycl::item<Dims, true>(item_base);
-				    kernel(offset_item);
-			    });
-#else
-			cgh.parallel_for<detail::wrapped_kernel_name<Name, false>>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), kernel);
-#endif
-		} else {
-			const auto nd_range = cl::sycl::nd_range<Dims>(detail::range_cast<Dims>(sr.range),
-			    detail::range_cast<Dims>(cl::sycl::range<3>(fwgs, Dims > 1 ? fwgs : 1, Dims == 3 ? fwgs : 1)), ccpp_ptx_workaround_offset);
-			cgh.parallel_for<detail::wrapped_kernel_name<Name, true>>(nd_range, [=](cl::sycl::nd_item<Dims> item) {
-#if WORKAROUND_HIPSYCL
-				kernel(cl::sycl::item<Dims>(
-				    cl::sycl::detail::make_item<Dims>(item.get_global_id(), detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset))));
-#elif WORKAROUND_COMPUTECPP
-			const cl::sycl::id<Dims> ptx_workaround_id = detail::range_cast<Dims>(item.get_global_id()) + detail::id_cast<Dims>(sr.offset);
+		cgh.parallel_for<detail::wrapped_kernel_name<Name>>(detail::range_cast<Dims>(sr.range), ccpp_ptx_workaround_offset, [=](cl::sycl::item<Dims> item) {
+			const cl::sycl::id<Dims> ptx_workaround_id = detail::range_cast<Dims>(item.get_id()) + detail::id_cast<Dims>(sr.offset);
 			const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ccpp_ptx_workaround_offset);
 			const auto offset_item = cl::sycl::item<Dims, true>(item_base);
 			kernel(offset_item);
+		});
 #else
-#error Unsupported SYCL implementation
+		cgh.parallel_for<detail::wrapped_kernel_name<Name>>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), kernel);
 #endif
-			});
-		}
 	});
 }
 

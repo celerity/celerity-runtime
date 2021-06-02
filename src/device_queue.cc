@@ -9,8 +9,6 @@ namespace detail {
 
 	void device_queue::init(const config& cfg, cl::sycl::device* user_device) {
 		assert(sycl_queue == nullptr);
-		const auto forced_wg_size_cfg = cfg.get_forced_work_group_size();
-		forced_work_group_size = forced_wg_size_cfg != std::nullopt ? *forced_wg_size_cfg : 0;
 		const auto profiling_cfg = cfg.get_enable_device_profiling();
 		device_profiling_enabled = profiling_cfg != std::nullopt && *profiling_cfg;
 		if(device_profiling_enabled) { queue_logger.info("Device profiling enabled."); }

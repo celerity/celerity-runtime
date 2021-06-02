@@ -168,10 +168,7 @@ namespace detail {
 
 		{
 			const auto result = get_env("CELERITY_FORCE_WG");
-			if(result.first) {
-				const auto parsed = parse_uint(result.second.c_str());
-				if(parsed.first) { forced_work_group_size = parsed.second; }
-			}
+			if(result.first) { logger.warn("Support for CELERITY_FORCE_WG has been removed with Celerity 0.3.0."); }
 		}
 
 		// -------------------------------- CELERITY_HOST_CPUS --------------------------------
