@@ -120,9 +120,6 @@ Celerity's runtime behavior:
   `CELERITY_DEVICES="<platform_id> <first device_id> <second device_id> ... <nth device_id>"`.
   Note that this should normally not be required, as Celerity will attempt to
   automatically assign a unique device to each worker on a host.
-- `CELERITY_FORCE_WG=<work_group_size>` can be used to force a particular work
-  group size for _every kernel_ and _every dimension_. This currently exists
-  as a workaround until Celerity supports ND-range kernels.
 - `CELERITY_PROFILE_OCL` controls whether OpenCL-level profiling information
   should be queried (currently not supported when using hipSYCL).
 

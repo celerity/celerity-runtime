@@ -43,14 +43,12 @@ namespace detail {
 		 */
 		const std::optional<device_config>& get_device_config() const { return device_cfg; };
 		std::optional<bool> get_enable_device_profiling() const { return enable_device_profiling; };
-		std::optional<size_t> get_forced_work_group_size() const { return forced_work_group_size; };
 
 	  private:
 		log_level log_lvl;
 		host_config host_cfg;
 		std::optional<device_config> device_cfg;
 		std::optional<bool> enable_device_profiling;
-		std::optional<size_t> forced_work_group_size;
 	};
 
 } // namespace detail
