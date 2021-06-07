@@ -29,7 +29,6 @@ namespace celerity {
 namespace detail {
 
 	std::unique_ptr<runtime> runtime::instance = nullptr;
-	bool runtime::test_mode = false;
 
 	void runtime::init(int* argc, char** argv[], cl::sycl::device* user_device) {
 		if(test_mode) {

@@ -123,7 +123,6 @@ namespace detail {
 
 		void flush_command(node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies);
 
-#ifdef CELERITY_TEST
 		// ------------------------------------------ TESTING UTILS ------------------------------------------
 		// We have to jump through some hoops to be able to re-initialize the runtime for unit testing.
 		// MPI does not like being initialized more than once per process, so we have to skip that part for
@@ -146,9 +145,9 @@ namespace detail {
 			assert(test_mode);
 			instance.reset();
 		}
-#endif
+
 	  private:
-		static bool test_mode;
+		inline static bool test_mode = false;
 	};
 
 } // namespace detail
