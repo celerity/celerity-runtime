@@ -6,7 +6,6 @@
 
 #include <catch2/catch.hpp>
 
-#define CELERITY_TEST
 #include <celerity.h>
 
 #include "access_modes.h"

@@ -224,7 +224,6 @@ namespace detail {
 
 			audit_buffer_access(bid, new_buffer.is_allocated(), mode);
 
-#ifdef CELERITY_TEST
 			if(test_mode && new_buffer.is_allocated()) {
 				auto device_buf = static_cast<device_buffer_storage<DataT, Dims>*>(new_buffer.storage.get())->get_device_buffer();
 
@@ -250,7 +249,6 @@ namespace detail {
 				    })
 				    .wait();
 			}
-#endif
 
 			backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
 			const backing_buffer empty{};
@@ -286,12 +284,10 @@ namespace detail {
 
 			audit_buffer_access(bid, new_buffer.is_allocated(), mode);
 
-#ifdef CELERITY_TEST
 			if(test_mode && new_buffer.is_allocated()) {
 				auto& host_buf = static_cast<host_buffer_storage<DataT, Dims>*>(new_buffer.storage.get())->get_host_buffer();
 				std::memset(host_buf.get_pointer(), test_mode_pattern, host_buf.get_range().size() * sizeof(DataT));
 			}
-#endif
 
 			backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
 			const backing_buffer empty{};
@@ -454,19 +450,17 @@ namespace detail {
 		 */
 		void audit_buffer_access(buffer_id bid, bool requires_allocation, cl::sycl::access::mode mode);
 
-#ifdef CELERITY_TEST
 	  public:
+		static constexpr unsigned char test_mode_pattern = 0b10101010;
+
 		/**
 		 * @brief Enables test mode, ensuring that newly allocated buffers are always initialized to
 		 *        a known bit pattern, see buffer_manager::test_mode_pattern.
 		 */
-		static void enable_test_mode() { test_mode = true; }
+		void enable_test_mode() { test_mode = true; }
 
-		static constexpr unsigned char test_mode_pattern = 0b10101010;
-
-#endif
 	  private:
-		inline static bool test_mode = false;
+		bool test_mode = false;
 	};
 
 } // namespace detail
