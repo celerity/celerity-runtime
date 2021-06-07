@@ -136,8 +136,6 @@ namespace detail {
 		cl::sycl::event event;
 		bool submitted = false;
 
-		std::future<void> computecpp_workaround_future;
-
 		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
 		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
 	};

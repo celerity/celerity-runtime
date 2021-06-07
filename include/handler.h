@@ -29,9 +29,6 @@ namespace detail {
 	class task_manager;
 	class prepass_handler;
 
-	template <class Name>
-	class wrapped_kernel_name {};
-
 	inline bool is_prepass_handler(const handler& cgh);
 	inline execution_target get_handler_execution_target(const handler& cgh);
 
@@ -130,12 +127,12 @@ class handler {
 	virtual ~handler() = default;
 
 	template <typename Name, int Dims, typename Functor>
-	void parallel_for(cl::sycl::range<Dims> global_size, Functor kernel) {
+	void parallel_for(cl::sycl::range<Dims> global_size, const Functor& kernel) {
 		parallel_for<Name, Dims, Functor>(global_size, cl::sycl::id<Dims>(), kernel);
 	}
 
 	template <typename Name, int Dims, typename Functor>
-	void parallel_for(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, Functor kernel);
+	void parallel_for(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, const Functor& kernel);
 
 	/**
 	 * Schedules `kernel` to execute on the master node only. Call via `cgh.host_task(celerity::on_master_node, []...)`. The kernel is assumed to be invocable
@@ -340,6 +337,14 @@ namespace detail {
 		std::future<host_queue::execution_info> future;
 	};
 
+	// The current mechanism for hydrating the SYCL placeholder accessors inside Celerity accessors requires that the kernel functor
+	// capturing those accessors is copied at least once during submission (see also live_pass_device_handler::submit_to_sycl).
+	// As of SYCL 2020 kernel functors are passed as const references, so we have to do this manually here.
+	template <typename Functor>
+	Functor copy_kernel(const Functor& kernel) {
+		return Functor{kernel};
+	}
+
 	class live_pass_device_handler final : public live_pass_handler {
 	  public:
 		live_pass_device_handler(std::shared_ptr<const class task> task, subrange<3> sr, device_queue& d_queue)
@@ -368,7 +373,7 @@ namespace detail {
 } // namespace detail
 
 template <typename Name, int Dims, typename Functor>
-void handler::parallel_for(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, Functor kernel) {
+void handler::parallel_for(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, const Functor& kernel) {
 	if(is_prepass()) {
 		return create_device_compute_task(Dims, detail::range_cast<3>(global_size), detail::id_cast<3>(global_offset), detail::kernel_debug_name<Name>());
 	}
@@ -377,21 +382,7 @@ void handler::parallel_for(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims>
 	const auto sr = device_handler.get_iteration_range();
 
 	device_handler.submit_to_sycl([&](cl::sycl::handler& cgh) {
-
-#if WORKAROUND_COMPUTECPP
-		// As of ComputeCpp 1.1.5 the PTX backend has problems with kernel invocations that have an offset.
-		// See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-98 (psalz).
-		// To work around this, instead of passing an offset to SYCL, we simply add it to the item that is passed to the kernel.
-		const cl::sycl::id<Dims> ccpp_ptx_workaround_offset = {};
-		cgh.parallel_for<detail::wrapped_kernel_name<Name>>(detail::range_cast<Dims>(sr.range), ccpp_ptx_workaround_offset, [=](cl::sycl::item<Dims> item) {
-			const cl::sycl::id<Dims> ptx_workaround_id = detail::range_cast<Dims>(item.get_id()) + detail::id_cast<Dims>(sr.offset);
-			const auto item_base = cl::sycl::detail::item_base(ptx_workaround_id, sr.range, ccpp_ptx_workaround_offset);
-			const auto offset_item = cl::sycl::item<Dims, true>(item_base);
-			kernel(offset_item);
-		});
-#else
-		cgh.parallel_for<detail::wrapped_kernel_name<Name>>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), kernel);
-#endif
+		cgh.parallel_for<Name>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), detail::copy_kernel(kernel));
 	});
 }
 
