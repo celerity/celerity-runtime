@@ -184,9 +184,7 @@ namespace detail {
 			auto result = raw_buffer_data{sizeof(DataT), range};
 			auto buf = get_device_buffer();
 
-			// ComputeCpp (as of version 2.1.0) expects the target pointer of an explicit copy operation to have the same size as the buffer,
-			// even though the SYCL 1.2.1 Rev 7 spec states that "dest must have at least as many bytes as the range accessed by src", which
-			// in my (psalz) opinion indicates that this is supposed to result in a contiguous copy of potentially strided source data.
+			// ComputeCpp (as of version 2.5.0) expects the target pointer of an explicit copy operation to have the same size as the buffer.
 			// As a workaround, we copy the data manually using a kernel.
 #if WORKAROUND_COMPUTECPP
 			cl::sycl::buffer<DataT, Dims> tmp_dst_buf(reinterpret_cast<DataT*>(result.get_pointer()), range_cast<Dims>(range));

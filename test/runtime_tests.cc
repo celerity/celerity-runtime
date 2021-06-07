@@ -598,9 +598,7 @@ namespace detail {
 				dq->get_sycl_queue()
 				    .submit([&](cl::sycl::handler& cgh) {
 					    auto acc = info.buffer.template get_access<Mode>(cgh);
-					    cgh.parallel_for<KernelName>(range, [=](cl::sycl::id<Dims> idx) {
-						    // Add offset manually to work around ComputeCpp PTX offset bug (still present as of 1.1.5)
-						    const auto global_idx = idx + offset;
+					    cgh.parallel_for<KernelName>(range, offset, [=](cl::sycl::id<Dims> global_idx) {
 						    const auto local_idx = global_idx - buf_offset;
 						    cb(global_idx, acc[local_idx]);
 					    });
@@ -1478,15 +1476,14 @@ namespace detail {
 		auto bid = bm.register_buffer<size_t, 2>(cl::sycl::range<3>(64, 32, 1));
 
 		SECTION("when using device buffers") {
-			auto range = cl::sycl::range<2>(32, 32);
-			auto sr = subrange<3>({}, range_cast<3>(range));
+			const auto range = cl::sycl::range<2>(32, 32);
+			const auto offset = cl::sycl::id<2>(32, 0);
+			auto sr = subrange<3>(id_cast<3>(offset), range_cast<3>(range));
 			live_pass_device_handler cgh(nullptr, sr, dq);
 
 			get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(cgh, bid, {48, 32}, {16, 0});
 			auto acc = get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(cgh, bid, {32, 32}, {32, 0});
-			// NOTE: Add offset manually to work around ComputeCpp PTX bug (still present as of version 1.1.5)
-			// See https://codeplay.atlassian.net/servicedesk/customer/portal/1/CPPB-98 (psalz).
-			cgh.parallel_for<class UKN(write_buf)>(range, [=](cl::sycl::id<2> id) { acc[id + cl::sycl::id<2>(32, 0)] = (id[0] + 32) + id[1]; });
+			cgh.parallel_for<class UKN(write_buf)>(range, offset, [=](cl::sycl::id<2> id) { acc[id] = id[0] + id[1]; });
 			cgh.get_submission_event().wait();
 
 			auto buf_info = bm.get_host_buffer<size_t, 2>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 32, 1), cl::sycl::id<3>(32, 0, 0));

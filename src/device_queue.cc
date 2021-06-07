@@ -74,14 +74,7 @@ namespace detail {
 
 		const auto platform_name = device.get_platform().get_info<cl::sycl::info::platform::name>();
 		const auto device_name = device.get_info<cl::sycl::info::device::name>();
-#if WORKAROUND(COMPUTECPP, 1, 1, 2)
-		// The names returned by ComputeCpp seem to contain an additional null byte,
-		// which causes problems (log files get interpreted as binary data etc), so we chop it off.
-		queue_logger.info("Using platform '{}', device '{}' ({})", platform_name.substr(0, platform_name.size() - 1),
-		    device_name.substr(0, device_name.size() - 1), how_selected);
-#else
 		queue_logger.info("Using platform '{}', device '{}' ({})", platform_name, device_name, how_selected);
-#endif
 
 		return device;
 	}
