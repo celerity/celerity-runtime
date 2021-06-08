@@ -195,8 +195,13 @@ class accessor<DataT, Dims, Mode, cl::sycl::target::device> : public detail::acc
 	}
 
 	template <cl::sycl::access_mode M = Mode, int D = Dims>
-	std::enable_if_t<M == cl::sycl::access_mode::atomic && (D > 0), cl::sycl::atomic<DataT>> operator[](cl::sycl::id<Dims> index) const {
+	[[deprecated("Atomic accessors are deprecated as of SYCL 2020")]] std::enable_if_t<M == cl::sycl::access_mode::atomic && (D > 0), cl::sycl::atomic<DataT>>
+	operator[](cl::sycl::id<Dims> index) const {
+#pragma GCC diagnostic push
+		// Ignore deprecation warnings emitted by SYCL implementations (e.g. hipSYCL)
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 		return sycl_accessor[index - backing_buffer_offset];
+#pragma GCC diagnostic pop
 	}
 
 	friend bool operator==(const accessor& lhs, const accessor& rhs) {

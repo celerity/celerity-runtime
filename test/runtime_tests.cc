@@ -1648,9 +1648,13 @@ namespace detail {
 		auto sr = subrange<3>({}, range_cast<3>(range));
 		live_pass_device_handler cgh(nullptr, sr, dq);
 
-
 		auto device_acc = get_device_accessor<int, 1, cl::sycl::access::mode::atomic>(cgh, bid, {1}, {0});
-		cgh.parallel_for<class UKN(atomic_increment)>(range, [=](cl::sycl::id<1> id) { device_acc[0].fetch_add(2); });
+		cgh.parallel_for<class UKN(atomic_increment)>(range, [=](cl::sycl::id<1> id) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+			device_acc[0].fetch_add(2);
+#pragma GCC diagnostic pop
+		});
 		cgh.get_submission_event().wait();
 
 		auto host_acc = get_host_accessor<int, 1, cl::sycl::access::mode::read>(bid, {1}, {0});
