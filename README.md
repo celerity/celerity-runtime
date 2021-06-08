@@ -120,7 +120,7 @@ Celerity's runtime behavior:
   `CELERITY_DEVICES="<platform_id> <first device_id> <second device_id> ... <nth device_id>"`.
   Note that this should normally not be required, as Celerity will attempt to
   automatically assign a unique device to each worker on a host.
-- `CELERITY_PROFILE_OCL` controls whether OpenCL-level profiling information
+- `CELERITY_PROFILE_KERNEL` controls whether SYCL queue profiling information
   should be queried (currently not supported when using hipSYCL).
 
 ## Disclaimer

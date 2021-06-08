@@ -14,7 +14,7 @@ namespace detail {
 		if(device_profiling_enabled) { queue_logger.info("Device profiling enabled."); }
 
 		cl::sycl::property_list props = ([&]() {
-#if !WORKAROUND(HIPSYCL, 0)
+#if !WORKAROUND_HIPSYCL
 			if(device_profiling_enabled) { return cl::sycl::property_list{cl::sycl::property::queue::enable_profiling()}; }
 #endif
 			return cl::sycl::property_list{};
