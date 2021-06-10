@@ -46,6 +46,8 @@ namespace detail {
 	template <typename TagT>
 	constexpr cl::sycl::target deduce_access_target();
 
+	template <typename DataT, int Dims, cl::sycl::access::mode Mode, cl::sycl::target Target, int Index>
+	class accessor_subscript_proxy;
 } // namespace detail
 
 /**
@@ -204,6 +206,11 @@ class accessor<DataT, Dims, Mode, cl::sycl::target::device> : public detail::acc
 #pragma GCC diagnostic pop
 	}
 
+	template <int D = Dims>
+	std::enable_if_t<(D > 1), detail::accessor_subscript_proxy<DataT, D, Mode, cl::sycl::target::device, 1>> operator[](const size_t d0) const {
+		return {*this, d0};
+	}
+
 	friend bool operator==(const accessor& lhs, const accessor& rhs) {
 		return lhs.sycl_accessor == rhs.sycl_accessor && lhs.backing_buffer_offset == rhs.backing_buffer_offset;
 	}
@@ -336,6 +343,11 @@ class accessor<DataT, Dims, Mode, cl::sycl::target::host_buffer> : public detail
 	template <cl::sycl::access_mode M = Mode, int D = Dims>
 	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](cl::sycl::id<Dims> index) const {
 		return *(get_buffer().get_pointer() + get_linear_offset(index));
+	}
+
+	template <int D = Dims>
+	std::enable_if_t<(D > 1), detail::accessor_subscript_proxy<DataT, D, Mode, cl::sycl::target::host_buffer, 1>> operator[](const size_t d0) const {
+		return {*this, d0};
 	}
 
 	/**
@@ -476,6 +488,47 @@ namespace detail {
 			return cl::sycl::target::host_buffer;
 		}
 	}
+
+
+	template <typename DataT, cl::sycl::access::mode Mode, cl::sycl::target Target>
+	class accessor_subscript_proxy<DataT, 3, Mode, Target, 2> {
+		using AccessorT = celerity::accessor<DataT, 3, Mode, Target>;
+
+	  public:
+		accessor_subscript_proxy(const AccessorT& acc, const size_t d0, const size_t d1) : acc(acc), d0(d0), d1(d1) {}
+
+		decltype(std::declval<AccessorT>()[{0, 0, 0}]) operator[](const size_t d2) const { return acc[{d0, d1, d2}]; }
+
+	  private:
+		const AccessorT& acc;
+		size_t d0;
+		size_t d1;
+	};
+
+	template <typename DataT, int Dims, cl::sycl::access::mode Mode, cl::sycl::target Target>
+	class accessor_subscript_proxy<DataT, Dims, Mode, Target, 1> {
+		template <int D>
+		using AccessorT = celerity::accessor<DataT, D, Mode, Target>;
+
+	  public:
+		accessor_subscript_proxy(const AccessorT<Dims>& acc, const size_t d0) : acc(acc), d0(d0) {}
+
+		// Note that we currently have to use SFINAE over constexpr-if + decltype(auto), as ComputeCpp 2.6.0 has
+		// problems inferring the correct type in some cases (e.g. when DataT == sycl::id<>).
+		template <int D = Dims>
+		std::enable_if_t<D == 2, decltype(std::declval<AccessorT<2>>()[{0, 0}])> operator[](const size_t d1) const {
+			return acc[{d0, d1}];
+		}
+
+		template <int D = Dims>
+		std::enable_if_t<D == 3, accessor_subscript_proxy<DataT, 3, Mode, Target, 2>> operator[](const size_t d1) const {
+			return {acc, d0, d1};
+		}
+
+	  private:
+		const AccessorT<Dims>& acc;
+		size_t d0;
+	};
 
 } // namespace detail
 
