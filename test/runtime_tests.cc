@@ -1967,5 +1967,78 @@ namespace detail {
 		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(cl::sycl::access_mode::discard_read_write) == 1);
 	}
 
+	template <int>
+	class accessor_fixture : public buffer_manager_fixture {};
+
+	template <int>
+	class kernel_multi_dim_accessor_write_;
+
+	template <int>
+	class kernel_multi_dim_accessor_read_;
+
+	template <int>
+	class check_multi_dim_accessor;
+
+	TEMPLATE_TEST_CASE_METHOD_SIG(accessor_fixture, "accessor supports multi-dimensional subscript operator", "[accessor]", ((int Dims), Dims), 2, 3) {
+		const auto range = cl::sycl::range<3>(2, 3, 4);
+		auto& bm = accessor_fixture<Dims>::get_buffer_manager();
+		auto bid = bm.template register_buffer<cl::sycl::id<Dims>, Dims>(range);
+
+		auto& q = accessor_fixture<Dims>::get_device_queue();
+		auto sr = subrange<3>({}, range);
+		live_pass_device_handler cgh(nullptr, sr, q);
+
+		// this kernel initializes the buffer what will be read after.
+		auto acc_write = accessor_fixture<Dims>::template get_device_accessor<cl::sycl::id<Dims>, Dims, cl::sycl::access::mode::discard_write>(
+		    cgh, bid, range_cast<Dims>(range), {});
+		cgh.parallel_for<class kernel_multi_dim_accessor_write_<Dims>>(range_cast<Dims>(range), [=](cl::sycl::item<Dims> item) {
+			acc_write[item] = item;
+		});
+		cgh.get_submission_event().wait();
+
+		SECTION("for device buffers") {
+			auto acc_read = accessor_fixture<Dims>::template get_device_accessor<cl::sycl::id<Dims>, Dims, cl::sycl::access::mode::read>(
+			    cgh, bid, range_cast<Dims>(range), {});
+			auto acc = accessor_fixture<Dims>::template get_device_accessor<cl::sycl::id<Dims>, Dims, cl::sycl::access::mode::discard_write>(
+			    cgh, bid, range_cast<Dims>(range), {});
+			cgh.parallel_for<class kernel_multi_dim_accessor_read_<Dims>>(range_cast<Dims>(range), [=](cl::sycl::item<Dims> item) {
+				size_t i = item[0];
+				size_t j = item[1];
+				if constexpr(Dims == 2) {
+					acc[i][j] = acc_read[i][j];
+				} else {
+					size_t k = item[2];
+					acc[i][j][k] = acc_read[i][j][k];
+				}
+			});
+			cgh.get_submission_event().wait();
+		}
+
+		SECTION("for host buffers") {
+			auto acc_read =
+			    accessor_fixture<Dims>::template get_host_accessor<cl::sycl::id<Dims>, Dims, cl::sycl::access::mode::read>(bid, range_cast<Dims>(range), {});
+			auto acc = accessor_fixture<Dims>::template get_host_accessor<cl::sycl::id<Dims>, Dims, cl::sycl::access::mode::discard_write>(
+			    bid, range_cast<Dims>(range), {});
+			for(size_t i = 0; i < range[0]; i++) {
+				for(size_t j = 0; j < range[1]; j++) {
+					for(size_t k = 0; k < (Dims == 2 ? 1 : range[2]); k++) {
+						if constexpr(Dims == 2) {
+							acc[i][j] = acc_read[i][j];
+						} else {
+							acc[i][j][k] = acc_read[i][j][k];
+						}
+					}
+				}
+			}
+		}
+
+		typename accessor_fixture<Dims>::access_target tgt = accessor_fixture<Dims>::access_target::HOST;
+		bool acc_check = accessor_fixture<Dims>::template buffer_reduce<cl::sycl::id<Dims>, Dims, class check_multi_dim_accessor<Dims>>(bid, tgt,
+		    range_cast<Dims>(range), {}, true, [](cl::sycl::id<Dims> idx, bool current, cl::sycl::id<Dims> value) {
+			return current && value == idx; });
+
+		REQUIRE(acc_check);
+	}
+
 } // namespace detail
 } // namespace celerity
