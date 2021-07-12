@@ -37,8 +37,6 @@ namespace detail {
 			region_values.push_back(std::make_pair(default_initialized, default_value));
 		}
 
-		region_map(const region_map<ValueType>& other) = default;
-
 		/**
 		 * @brief Given a region request, returns all values that belong to regions intersecting with the request.
 		 *
@@ -110,7 +108,7 @@ namespace detail {
 		}
 
 	  private:
-		const cl::sycl::range<3> extent;
+		cl::sycl::range<3> extent;
 		// We keep track which parts are default initialized for merging
 		GridRegion<3> default_initialized;
 		// TODO: Look into using a different data structure for this.
