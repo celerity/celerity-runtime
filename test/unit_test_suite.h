@@ -10,6 +10,7 @@ extern bool print_graphs;
 // the listener, which will be linked in from unit_test_suite_celerity, which is
 // compiled as SYCL code.
 namespace detail {
-void test_started_callback();
-void test_ended_callback();
+void test_run_started_callback();
+void test_case_ended_callback();
+void test_run_ended_callback();
 } // namespace detail
