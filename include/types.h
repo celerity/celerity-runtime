@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdlib>
+#include <utility>
+
 namespace celerity {
 namespace detail {
 
@@ -49,3 +52,4 @@ MAKE_PHANTOM_TYPE(buffer_id, size_t)
 MAKE_PHANTOM_TYPE(node_id, size_t)
 MAKE_PHANTOM_TYPE(command_id, size_t)
 MAKE_PHANTOM_TYPE(collective_group_id, size_t)
+MAKE_PHANTOM_TYPE(reduction_id, size_t)

@@ -95,6 +95,7 @@ namespace detail {
 		void record_command(await_push_command*) {}
 		void record_command(task_command* tcmd) { by_task[tcmd->get_tid()].emplace_back(tcmd); }
 		void record_command(horizon_command* hcmd) { active_horizons.emplace_back(hcmd); }
+		void record_command(reduction_command*) {}
 
 		template <typename T, typename... Args>
 		T* create(Args... args) {

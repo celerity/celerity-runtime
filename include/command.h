@@ -10,8 +10,8 @@
 namespace celerity {
 namespace detail {
 
-	enum class command_type { NOP, HORIZON, TASK, PUSH, AWAIT_PUSH, SHUTDOWN, SYNC };
-	constexpr const char* command_string[] = {"NOP", "HORIZON", "TASK", "PUSH", "AWAIT_PUSH", "SHUTDOWN", "SYNC"};
+	enum class command_type { NOP, HORIZON, TASK, PUSH, AWAIT_PUSH, REDUCTION, SHUTDOWN, SYNC };
+	constexpr const char* command_string[] = {"NOP", "HORIZON", "TASK", "PUSH", "AWAIT_PUSH", "REDUCTION", "SHUTDOWN", "SYNC"};
 
 	// ----------------------------------------------------------------------------------------------------------------
 	// ------------------------------------------------ COMMAND GRAPH -------------------------------------------------
@@ -74,16 +74,18 @@ namespace detail {
 
 	class push_command final : public abstract_command {
 		friend class command_graph;
-		push_command(command_id cid, node_id nid, buffer_id bid, node_id target, subrange<3> push_range)
-		    : abstract_command(cid, nid), bid(bid), target(target), push_range(push_range) {}
+		push_command(command_id cid, node_id nid, buffer_id bid, reduction_id rid, node_id target, subrange<3> push_range)
+		    : abstract_command(cid, nid), bid(bid), rid(rid), target(target), push_range(push_range) {}
 
 	  public:
 		buffer_id get_bid() const { return bid; }
+		reduction_id get_rid() const { return rid; }
 		node_id get_target() const { return target; }
 		const subrange<3>& get_range() const { return push_range; }
 
 	  private:
 		buffer_id bid;
+		reduction_id rid;
 		node_id target;
 		subrange<3> push_range;
 	};
@@ -99,6 +101,17 @@ namespace detail {
 		push_command* source;
 	};
 
+	class reduction_command final : public abstract_command {
+		friend class command_graph;
+		reduction_command(command_id cid, node_id nid, reduction_id rid) : abstract_command(cid, nid), rid(rid) {}
+
+	  public:
+		reduction_id get_rid() const { return rid; }
+
+	  private:
+		reduction_id rid;
+	};
+
 	class task_command : public abstract_command {
 		friend class command_graph;
 
@@ -111,9 +124,14 @@ namespace detail {
 
 		const subrange<3>& get_execution_range() const { return execution_range; }
 
+		void set_is_reduction_initializer(bool is_initializer) { initialize_reductions = is_initializer; }
+
+		bool is_reduction_initializer() const { return initialize_reductions; }
+
 	  private:
 		task_id tid;
 		subrange<3> execution_range;
+		bool initialize_reductions = false;
 	};
 
 	// ----------------------------------------------------------------------------------------------------------------
@@ -127,19 +145,26 @@ namespace detail {
 	struct task_data {
 		task_id tid;
 		subrange<3> sr;
+		bool initialize_reductions;
 	};
 
 	struct push_data {
 		buffer_id bid;
+		reduction_id rid;
 		node_id target;
 		subrange<3> sr;
 	};
 
 	struct await_push_data {
 		buffer_id bid;
+		reduction_id rid;
 		node_id source;
 		command_id source_cid;
 		subrange<3> sr;
+	};
+
+	struct reduction_data {
+		reduction_id rid;
 	};
 
 	struct shutdown_data {};
@@ -148,7 +173,7 @@ namespace detail {
 		uint64_t sync_id;
 	};
 
-	using command_data = std::variant<nop_data, task_data, push_data, await_push_data, shutdown_data, sync_data>;
+	using command_data = std::variant<nop_data, task_data, push_data, await_push_data, reduction_data, shutdown_data, sync_data>;
 
 	/**
 	 * A command package is what is actually transferred between nodes.

@@ -18,6 +18,7 @@ namespace celerity {
 namespace detail {
 
 	class buffer_manager;
+	class reduction_manager;
 	class graph_generator;
 	class graph_serializer;
 	class command_graph;
@@ -50,7 +51,7 @@ namespace detail {
 
 		void sync() noexcept;
 
-		bool is_master_node() const { return is_master; }
+		bool is_master_node() const { return local_nid == 0; }
 
 		size_t get_num_nodes() const { return num_nodes; }
 
@@ -61,6 +62,8 @@ namespace detail {
 		device_queue& get_device_queue() const { return *d_queue; }
 
 		buffer_manager& get_buffer_manager() const;
+
+		reduction_manager& get_reduction_manager() const;
 
 		std::shared_ptr<logger> get_logger() const { return default_logger; }
 
@@ -84,7 +87,7 @@ namespace detail {
 		std::unique_ptr<host_queue> h_queue;
 		std::unique_ptr<device_queue> d_queue;
 		size_t num_nodes;
-		bool is_master;
+		node_id local_nid;
 
 		uint64_t sync_id = 0;
 
@@ -98,6 +101,7 @@ namespace detail {
 		std::unique_ptr<scheduler> schdlr;
 
 		std::unique_ptr<buffer_manager> buffer_mngr;
+		std::unique_ptr<reduction_manager> reduction_mngr;
 		std::unique_ptr<task_manager> task_mngr;
 		std::unique_ptr<executor> exec;
 
@@ -144,6 +148,11 @@ namespace detail {
 		static void teardown() {
 			assert(test_mode);
 			instance.reset();
+		}
+
+		static void finish_test_mode() {
+			assert(test_mode && !instance);
+			MPI_Finalize();
 		}
 
 	  private:

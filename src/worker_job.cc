@@ -4,6 +4,7 @@
 
 #include "device_queue.h"
 #include "handler.h"
+#include "reduction_manager.h"
 #include "runtime.h"
 #include "task_manager.h"
 #include "workaround.h"
@@ -97,6 +98,18 @@ namespace detail {
 	}
 
 	// --------------------------------------------------------------------------------------------------------------------
+	// ------------------------------------------------- REDUCTION_REDUCE -------------------------------------------------
+	// --------------------------------------------------------------------------------------------------------------------
+
+	bool reduction_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
+		const auto& data = std::get<reduction_data>(pkg.data);
+		rm.finish_reduction(data.rid);
+		return true;
+	}
+
+	std::pair<command_type, std::string> reduction_job::get_description(const command_pkg& pkg) { return {command_type::REDUCTION, "REDUCTION"}; }
+
+	// --------------------------------------------------------------------------------------------------------------------
 	// --------------------------------------------------- HOST_EXECUTE ---------------------------------------------------
 	// --------------------------------------------------------------------------------------------------------------------
 
@@ -118,7 +131,7 @@ namespace detail {
 			// Note that for host tasks, there is no indirection through a queue->submit step like there is for SYCL tasks. The CGF is executed directly,
 			// which then schedules task in the thread pool through the host_queue.
 			auto& cgf = tsk->get_command_group();
-			live_pass_host_handler cgh(tsk, data.sr, queue);
+			live_pass_host_handler cgh(tsk, data.sr, data.initialize_reductions, queue);
 			cgf(cgh);
 			future = cgh.into_future();
 
@@ -160,7 +173,7 @@ namespace detail {
 
 			logger->trace(logger_map({{"event", "Execute live-pass, submit kernel to SYCL"}}));
 
-			live_pass_device_handler cgh(tsk, data.sr, queue);
+			live_pass_device_handler cgh(tsk, data.sr, data.initialize_reductions, queue);
 			auto& cgf = tsk->get_command_group();
 			cgf(cgh);
 			event = cgh.get_submission_event();
@@ -172,6 +185,12 @@ namespace detail {
 		const auto status = event.get_info<cl::sycl::info::event::command_execution_status>();
 		if(status == cl::sycl::info::event_command_status::complete) {
 			buffer_mngr.unlock(pkg.cid);
+
+			auto tsk = task_mngr.get_task(data.tid);
+			for(auto rid : tsk->get_reductions()) {
+				auto reduction = reduction_mngr.get_reduction(rid);
+				reduction_mngr.push_overlapping_reduction_data(rid, local_nid, buffer_mngr.get_buffer_data(reduction.output_buffer_id, {}, {1, 1, 1}));
+			}
 
 #if !WORKAROUND_HIPSYCL
 			if(queue.is_profiling_enabled()) {

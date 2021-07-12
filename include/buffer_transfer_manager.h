@@ -24,7 +24,7 @@ namespace detail {
 			bool complete = false;
 		};
 
-		buffer_transfer_manager(std::shared_ptr<logger> transfer_logger) : transfer_logger(transfer_logger) {}
+		explicit buffer_transfer_manager(std::shared_ptr<logger> transfer_logger) : transfer_logger(transfer_logger) {}
 
 		std::shared_ptr<const transfer_handle> push(const command_pkg& pkg);
 		std::shared_ptr<const transfer_handle> await_push(const command_pkg& pkg);
@@ -37,11 +37,13 @@ namespace detail {
 	  private:
 		struct data_header {
 			buffer_id bid;
+			reduction_id rid; // zero if this does not belong to a reduction
 			subrange<3> sr;
 			command_id push_cid;
 		};
 
 		struct transfer_in {
+			node_id source_nid;
 			MPI_Request request;
 			data_header header;
 			raw_buffer_data data;
@@ -74,7 +76,7 @@ namespace detail {
 		void update_incoming_transfers();
 		void update_outgoing_transfers();
 
-		void write_data_to_buffer(transfer_in& transfer);
+		static void commit_transfer(transfer_in& transfer);
 	};
 
 } // namespace detail

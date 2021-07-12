@@ -7,11 +7,13 @@
 #include <CL/sycl.hpp>
 #include <spdlog/fmt/fmt.h>
 
+#include "buffer.h"
 #include "device_queue.h"
 #include "host_queue.h"
 #include "item.h"
 #include "range_mapper.h"
 #include "ranges.h"
+#include "reduction_manager.h"
 #include "task.h"
 #include "types.h"
 #include "workaround.h"
@@ -127,13 +129,19 @@ class handler {
   public:
 	virtual ~handler() = default;
 
-	template <typename Name, int Dims, typename Functor>
-	void parallel_for(cl::sycl::range<Dims> global_size, const Functor& kernel) {
-		parallel_for<Name, Dims, Functor>(global_size, cl::sycl::id<Dims>(), kernel);
+	template <typename Name, int Dims, typename... ReductionsAndKernel>
+	void parallel_for(cl::sycl::range<Dims> global_size, ReductionsAndKernel... reductions_and_kernel) {
+		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
+		parallel_for_reductions_and_kernel<Name, Dims, ReductionsAndKernel...>(
+		    global_size, cl::sycl::id<Dims>(), std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
 	}
 
-	template <typename Name, int Dims, typename Functor>
-	void parallel_for(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, const Functor& kernel);
+	template <typename Name, int Dims, typename... ReductionsAndKernel>
+	void parallel_for(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, ReductionsAndKernel... reductions_and_kernel) {
+		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
+		parallel_for_reductions_and_kernel<Name, Dims, ReductionsAndKernel...>(
+		    global_size, global_offset, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
+	}
 
 	/**
 	 * Schedules `kernel` to execute on the master node only. Call via `cgh.host_task(celerity::on_master_node, []...)`. The kernel is assumed to be invocable
@@ -212,6 +220,19 @@ class handler {
 	virtual void create_master_node_task() {
 		std::terminate(); // unimplemented
 	}
+
+  private:
+	template <typename Name, int Dims, typename... ReductionsAndKernel, size_t... ReductionIndices>
+	void parallel_for_reductions_and_kernel(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset,
+	    std::index_sequence<ReductionIndices...> indices, ReductionsAndKernel&... kernel_and_reductions) {
+		auto args_tuple = std::forward_as_tuple(kernel_and_reductions...);
+		auto& kernel = std::get<sizeof...(kernel_and_reductions) - 1>(args_tuple);
+		parallel_for_kernel_and_reductions<Name>(global_size, global_offset, kernel, indices, std::get<ReductionIndices>(args_tuple)...);
+	}
+
+	template <typename Name, int Dims, typename Kernel, typename... Reductions, size_t... ReductionIndices>
+	void parallel_for_kernel_and_reductions(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, Kernel& kernel,
+	    std::index_sequence<ReductionIndices...>, Reductions&... reductions);
 };
 
 namespace detail {
@@ -229,14 +250,20 @@ namespace detail {
 			access_map.add_access(bid, std::move(rm));
 		}
 
+		template <int Dims>
+		void add_reduction(reduction_id rid) {
+			reductions.push_back(rid);
+		}
+
 		void create_host_compute_task(int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset) override {
 			assert(task == nullptr);
-			task = detail::task::make_host_compute(tid, dimensions, global_size, global_offset, std::move(cgf), std::move(access_map));
+			task = detail::task::make_host_compute(tid, dimensions, global_size, global_offset, std::move(cgf), std::move(access_map), std::move(reductions));
 		}
 
 		void create_device_compute_task(int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset, std::string debug_name) override {
 			assert(task == nullptr);
-			task = detail::task::make_device_compute(tid, dimensions, global_size, global_offset, std::move(cgf), std::move(access_map), std::move(debug_name));
+			task = detail::task::make_device_compute(
+			    tid, dimensions, global_size, global_offset, std::move(cgf), std::move(access_map), std::move(reductions), std::move(debug_name));
 		}
 
 		void create_collective_task(collective_group_id cgid) override {
@@ -263,6 +290,7 @@ namespace detail {
 		task_id tid;
 		std::unique_ptr<command_group_storage_base> cgf;
 		buffer_access_map access_map;
+		std::vector<reduction_id> reductions;
 		std::shared_ptr<class task> task = nullptr;
 		size_t num_collective_nodes;
 	};
@@ -280,19 +308,24 @@ namespace detail {
 
 		subrange<3> get_iteration_range() { return sr; }
 
+		bool is_reduction_initializer() const { return initialize_reductions; }
+
 	  protected:
-		live_pass_handler(std::shared_ptr<const class task> task, subrange<3> sr) : task(std::move(task)), sr(sr) {}
+		live_pass_handler(std::shared_ptr<const class task> task, subrange<3> sr, bool initialize_reductions)
+		    : task(std::move(task)), sr(sr), initialize_reductions(initialize_reductions) {}
 
 		std::shared_ptr<const class task> task = nullptr;
 
 		// The subrange, when combined with the tasks global size, defines the chunk this handler executes.
 		subrange<3> sr;
+
+		bool initialize_reductions;
 	};
 
 	class live_pass_host_handler final : public live_pass_handler {
 	  public:
-		live_pass_host_handler(std::shared_ptr<const class task> task, subrange<3> sr, host_queue& queue)
-		    : live_pass_handler(std::move(task), sr), queue(&queue) {}
+		live_pass_host_handler(std::shared_ptr<const class task> task, subrange<3> sr, bool initialize_reductions, host_queue& queue)
+		    : live_pass_handler(std::move(task), sr, initialize_reductions), queue(&queue) {}
 
 		template <int Dims, typename Kernel>
 		void schedule(Kernel kernel) {
@@ -356,8 +389,8 @@ namespace detail {
 
 	class live_pass_device_handler final : public live_pass_handler {
 	  public:
-		live_pass_device_handler(std::shared_ptr<const class task> task, subrange<3> sr, device_queue& d_queue)
-		    : live_pass_handler(std::move(task), sr), d_queue(&d_queue) {}
+		live_pass_device_handler(std::shared_ptr<const class task> task, subrange<3> sr, bool initialize_reductions, device_queue& d_queue)
+		    : live_pass_handler(std::move(task), sr, initialize_reductions), d_queue(&d_queue) {}
 
 		template <typename CGF>
 		void submit_to_sycl(CGF&& cgf) {
@@ -367,7 +400,6 @@ namespace detail {
 				this->eventual_cgh = nullptr;
 			});
 		}
-
 
 		cl::sycl::event get_submission_event() const { return event; }
 
@@ -379,10 +411,88 @@ namespace detail {
 		cl::sycl::event event;
 	};
 
+	template <typename DataT, int Dims, typename BinaryOperation, bool WithExplicitIdentity>
+	class reduction_descriptor;
+
+	template <typename DataT, int Dims, typename BinaryOperation, bool WithExplicitIdentity>
+	auto make_sycl_reduction(cl::sycl::handler& sycl_cgh, const reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>& d) {
+		cl::sycl::property_list props;
+		if(!d.include_current_buffer_value) { props = {cl::sycl::property::reduction::initialize_to_identity{}}; }
+		if constexpr(WithExplicitIdentity) {
+			return cl::sycl::reduction(*d.sycl_buffer, sycl_cgh, d.identity, d.op, props);
+		} else {
+			return cl::sycl::reduction(*d.sycl_buffer, sycl_cgh, d.op, props);
+		}
+	}
+
+	template <typename DataT, int Dims, typename BinaryOperation>
+	class reduction_descriptor<DataT, Dims, BinaryOperation, false /* WithExplicitIdentity */> {
+	  public:
+		reduction_descriptor(
+		    buffer_id bid, BinaryOperation combiner, DataT /* identity */, bool include_current_buffer_value, cl::sycl::buffer<DataT, Dims>* sycl_buffer)
+		    : bid(bid), op(combiner), include_current_buffer_value(include_current_buffer_value), sycl_buffer(sycl_buffer) {}
+
+	  private:
+		friend auto make_sycl_reduction<DataT, Dims, BinaryOperation, false>(cl::sycl::handler&, const reduction_descriptor&);
+
+		buffer_id bid;
+		BinaryOperation op;
+		bool include_current_buffer_value;
+		cl::sycl::buffer<DataT, Dims>* sycl_buffer;
+	};
+
+	template <typename DataT, int Dims, typename BinaryOperation>
+	class reduction_descriptor<DataT, Dims, BinaryOperation, true /* WithExplicitIdentity */> {
+	  public:
+		reduction_descriptor(
+		    buffer_id bid, BinaryOperation combiner, DataT identity, bool include_current_buffer_value, cl::sycl::buffer<DataT, Dims>* sycl_buffer)
+		    : bid(bid), op(combiner), identity(identity), include_current_buffer_value(include_current_buffer_value), sycl_buffer(sycl_buffer) {}
+
+	  private:
+		friend auto make_sycl_reduction<DataT, Dims, BinaryOperation, true>(cl::sycl::handler&, const reduction_descriptor&);
+
+		buffer_id bid;
+		BinaryOperation op;
+		DataT identity{};
+		bool include_current_buffer_value;
+		cl::sycl::buffer<DataT, Dims>* sycl_buffer;
+	};
+
+	template <bool WithExplicitIdentity, typename DataT, int Dims, typename BinaryOperation>
+	auto make_reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation op, DataT identity, const cl::sycl::property_list& prop_list) {
+		if(vars.get_range().size() != 1) {
+			// SYCL 2020 only supports unit-size reductions. We could in theory allow passing a larger buffer and only ever access element (0, 0, 0), but this
+			// would mean that part of the buffer is in pending_reduction_state while another part might remain in distributed_state. It doesn't seem to be
+			// worth added complexity, so we report it as an error instead.
+			throw std::runtime_error("Celerity only supports reductions into unit-sized buffers");
+		}
+
+		auto bid = detail::get_buffer_id(vars);
+		auto include_current_buffer_value = !prop_list.has_property<cl::sycl::property::reduction::initialize_to_identity>();
+		cl::sycl::buffer<DataT, Dims>* sycl_buffer = nullptr;
+
+		if(detail::is_prepass_handler(cgh)) {
+			auto rid = detail::runtime::get_instance().get_reduction_manager().create_reduction<DataT, Dims>(bid, op, identity, include_current_buffer_value);
+			static_cast<detail::prepass_handler&>(cgh).add_reduction<Dims>(rid);
+		} else {
+			include_current_buffer_value &= static_cast<detail::live_pass_handler&>(cgh).is_reduction_initializer();
+
+			auto mode = cl::sycl::access_mode::discard_write;
+			cl::sycl::property_list props;
+			if(include_current_buffer_value) { mode = cl::sycl::access_mode::read_write; }
+			sycl_buffer = &runtime::get_instance()
+			                   .get_buffer_manager()
+			                   .get_device_buffer<DataT, Dims>(bid, mode, cl::sycl::range<3>{1, 1, 1}, cl::sycl::id<3>{}) //
+			                   .buffer;
+		}
+		return detail::reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>{bid, op, identity, include_current_buffer_value, sycl_buffer};
+	}
+
 } // namespace detail
 
-template <typename Name, int Dims, typename Functor>
-void handler::parallel_for(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, const Functor& kernel) {
+template <typename Name, int Dims, typename Kernel, typename... Reductions, size_t... ReductionIndices>
+void handler::parallel_for_kernel_and_reductions(
+    cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Kernel& kernel, std::index_sequence<ReductionIndices...>, Reductions&... reductions) {
 	if(is_prepass()) {
 		return create_device_compute_task(Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), detail::kernel_debug_name<Name>());
 	}
@@ -391,7 +501,8 @@ void handler::parallel_for(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims
 	const auto sr = device_handler.get_iteration_range();
 
 	device_handler.submit_to_sycl([&](cl::sycl::handler& cgh) {
-		cgh.parallel_for<Name>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), detail::bind_kernel(kernel, global_offset, global_range));
+		cgh.parallel_for<Name>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), detail::make_sycl_reduction(cgh, reductions)...,
+		    detail::bind_kernel(kernel, global_offset, global_range));
 	});
 }
 
@@ -420,6 +531,20 @@ void handler::host_task(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> g
 	} else {
 		dynamic_cast<detail::live_pass_host_handler&>(*this).schedule<Dims>(kernel);
 	}
+}
+
+template <typename DataT, int Dims, typename BinaryOperation>
+auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
+	static_assert(cl::sycl::has_known_identity_v<BinaryOperation, DataT>,
+	    "Celerity does not currently support reductions without an identity. Either specialize "
+	    "cl::sycl::known_identity or use the reduction() overload taking an identity at runtime");
+	return detail::make_reduction<false>(vars, cgh, combiner, cl::sycl::known_identity_v<BinaryOperation, DataT>, prop_list);
+}
+
+template <typename DataT, int Dims, typename BinaryOperation>
+auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, const DataT identity, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
+	static_assert(!cl::sycl::has_known_identity_v<BinaryOperation, DataT>, "Identity is known to SYCL, remove the identity parameter from reduction()");
+	return detail::make_reduction<true>(vars, cgh, combiner, identity, prop_list);
 }
 
 } // namespace celerity
