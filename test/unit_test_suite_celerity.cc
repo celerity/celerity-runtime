@@ -3,11 +3,14 @@
 celerity::detail::logger graph_logger{"test-graph", celerity::detail::log_level::trace};
 
 namespace detail {
-void test_started_callback() {
+void test_run_started_callback() {
 	celerity::detail::runtime::enable_test_mode();
 }
-void test_ended_callback() {
+void test_case_ended_callback() {
 	if(celerity::detail::runtime::is_initialized()) { celerity::detail::runtime::teardown(); }
+}
+void test_run_ended_callback() {
+	celerity::detail::runtime::finish_test_mode();
 }
 } // namespace detail
 
