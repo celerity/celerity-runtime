@@ -63,20 +63,24 @@ namespace detail {
 	}
 
 	std::string get_command_label(const abstract_command* cmd) {
-		const std::string label = fmt::format("[{}] Node {}:\\n", cmd->get_cid(), cmd->get_nid());
+		std::string label = fmt::format("[{}] Node {}:\\n", cmd->get_cid(), cmd->get_nid());
 		if(const auto tcmd = dynamic_cast<const task_command*>(cmd)) {
-			return label + fmt::format("TASK {}\\n{}", subrange_to_grid_box(tcmd->get_execution_range()), cmd->debug_label);
+			label += fmt::format("TASK {}\\n{}", subrange_to_grid_box(tcmd->get_execution_range()), cmd->debug_label);
 		} else if(const auto pcmd = dynamic_cast<const push_command*>(cmd)) {
-			return label + fmt::format("PUSH {} to {}\\n {}", pcmd->get_bid(), pcmd->get_target(), subrange_to_grid_box(pcmd->get_range()));
+			if(pcmd->get_rid()) { label += fmt::format("(R{}) ", pcmd->get_rid()); }
+			label += fmt::format("PUSH {} to {}\\n {}", pcmd->get_bid(), pcmd->get_target(), subrange_to_grid_box(pcmd->get_range()));
 		} else if(const auto apcmd = dynamic_cast<const await_push_command*>(cmd)) {
-			return label
-			       + fmt::format("AWAIT PUSH {} from {}\\n {}", apcmd->get_source()->get_bid(), apcmd->get_source()->get_nid(),
-			           subrange_to_grid_box(apcmd->get_source()->get_range()));
+			if(apcmd->get_source()->get_rid()) { label += fmt::format("(R{}) ", apcmd->get_source()->get_rid()); }
+			label += fmt::format("AWAIT PUSH {} from {}\n {}", apcmd->get_source()->get_bid(), apcmd->get_source()->get_nid(),
+			    subrange_to_grid_box(apcmd->get_source()->get_range()));
+		} else if(const auto rrcmd = dynamic_cast<const reduction_command*>(cmd)) {
+			label += fmt::format("REDUCTION {}", rrcmd->get_rid());
 		} else if(const auto hcmd = dynamic_cast<const horizon_command*>(cmd)) {
-			return label + "HORIZON";
+			label += "HORIZON";
 		} else {
 			return fmt::format("[{}] UNKNOWN\\n{}", cmd->get_cid(), cmd->debug_label);
 		}
+		return label;
 	}
 
 	void print_graph(const command_graph& cdag, logger& graph_logger) {

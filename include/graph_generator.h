@@ -3,6 +3,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <variant>
 #include <vector>
 
 #include "region_map.h"
@@ -14,6 +15,7 @@ namespace celerity {
 namespace detail {
 
 	class task_manager;
+	class reduction_manager;
 	class graph_transformer;
 	class command_graph;
 	class abstract_command;
@@ -36,7 +38,24 @@ namespace detail {
 	class graph_generator {
 		friend struct graph_generator_testspy;
 
-		using buffer_state_map = std::unordered_map<buffer_id, region_map<std::vector<node_id>>>;
+		// Common case: the buffer is scattered and/or replicated among nodes.
+		struct distributed_state {
+			region_map<std::vector<node_id>> region_sources;
+		};
+
+		// When a buffer is used as the output of a reduction, we do not insert reduction_commands right away, but mark it as pending_reduction. The final
+		// reduction will then be generated when the buffer is used in a subsequent read requirement. This avoids generating unnecessary reduction commands
+		// or multi-hop transfers.
+		struct pending_reduction_state {
+			reduction_id reduction;
+			std::vector<node_id> operand_sources;
+		};
+
+		// Currently only unit-size reductions are supported, so no buffer can be partially in both a distributed and a pending_reduction state. This means
+		// we can avoid any region_map shenanigans for the pending_reduction case.
+		using buffer_state = std::variant<distributed_state, pending_reduction_state>;
+
+		using buffer_state_map = std::unordered_map<buffer_id, buffer_state>;
 		using buffer_read_map = std::unordered_map<buffer_id, GridRegion<3>>;
 		using buffer_writer_map = std::unordered_map<buffer_id, region_map<std::optional<command_id>>>;
 
@@ -54,7 +73,7 @@ namespace detail {
 		 * @param tm
 		 * @param cdag The command graph this generator should operate on.
 		 */
-		graph_generator(size_t num_nodes, task_manager& tm, command_graph& cdag);
+		graph_generator(size_t num_nodes, task_manager& tm, reduction_manager& rm, command_graph& cdag);
 
 		void add_buffer(buffer_id bid, const cl::sycl::range<3>& range);
 
@@ -65,6 +84,7 @@ namespace detail {
 
 	  private:
 		task_manager& task_mngr;
+		reduction_manager& reduction_mngr;
 		const size_t num_nodes;
 		command_graph& cdag;
 

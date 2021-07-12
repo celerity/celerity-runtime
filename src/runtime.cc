@@ -86,7 +86,7 @@ namespace detail {
 
 		int world_rank;
 		MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-		is_master = world_rank == 0;
+		local_nid = world_rank;
 
 		default_logger = logger("default").create_context({{"rank", std::to_string(world_rank)}});
 		graph_logger = logger("graph").create_context({{"rank", std::to_string(world_rank)}});
@@ -107,11 +107,12 @@ namespace detail {
 			default: assert(false && "Unexpected buffer lifecycle event");
 			}
 		});
-		task_mngr = std::make_unique<task_manager>(num_nodes, h_queue.get(), is_master);
-		exec = std::make_unique<executor>(*h_queue, *d_queue, *task_mngr, *buffer_mngr, default_logger);
-		if(is_master) {
+		reduction_mngr = std::make_unique<reduction_manager>();
+		task_mngr = std::make_unique<task_manager>(num_nodes, h_queue.get(), is_master_node(), reduction_mngr.get());
+		exec = std::make_unique<executor>(local_nid, *h_queue, *d_queue, *task_mngr, *buffer_mngr, *reduction_mngr, default_logger);
+		if(is_master_node()) {
 			cdag = std::make_unique<command_graph>();
-			ggen = std::make_shared<graph_generator>(num_nodes, *task_mngr, *cdag);
+			ggen = std::make_shared<graph_generator>(num_nodes, *task_mngr, *reduction_mngr, *cdag);
 			gsrlzr = std::make_unique<graph_serializer>(*cdag,
 			    [this](node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies) { flush_command(target, pkg, dependencies); });
 			schdlr = std::make_unique<scheduler>(*ggen, *gsrlzr, num_nodes);
@@ -124,7 +125,7 @@ namespace detail {
 	}
 
 	runtime::~runtime() {
-		if(is_master) {
+		if(is_master_node()) {
 			schdlr.reset();
 			gsrlzr.reset();
 			ggen.reset();
@@ -133,6 +134,7 @@ namespace detail {
 
 		exec.reset();
 		task_mngr.reset();
+		reduction_mngr.reset();
 		// All buffers should have unregistered themselves by now.
 		assert(!buffer_mngr->has_active_buffers());
 		buffer_mngr.reset();
@@ -153,14 +155,14 @@ namespace detail {
 	void runtime::startup() {
 		if(is_active) { throw runtime_already_started_error(); }
 		is_active = true;
-		if(is_master) { schdlr->startup(); }
+		if(is_master_node()) { schdlr->startup(); }
 		exec->startup();
 	}
 
 	void runtime::shutdown() noexcept {
 		assert(is_active);
 		is_shutting_down = true;
-		if(is_master) {
+		if(is_master_node()) {
 			schdlr->shutdown();
 			broadcast_control_command(command_type::SHUTDOWN, command_data{});
 		}
@@ -169,7 +171,7 @@ namespace detail {
 		d_queue->wait();
 		h_queue->wait();
 
-		if(is_master && graph_logger->get_level() == log_level::trace) {
+		if(is_master_node() && graph_logger->get_level() == log_level::trace) {
 			task_mngr->print_graph(*graph_logger);
 			cdag->print_graph(*graph_logger);
 		}
@@ -187,7 +189,7 @@ namespace detail {
 		sync_id++;
 
 		// First, broadcast SYNC command once the scheduler has finished all previous tasks
-		if(is_master) {
+		if(is_master_node()) {
 			while(!schdlr->is_idle()) {
 				std::this_thread::yield();
 			}
@@ -204,11 +206,12 @@ namespace detail {
 
 	task_manager& runtime::get_task_manager() const { return *task_mngr; }
 
-
 	buffer_manager& runtime::get_buffer_manager() const { return *buffer_mngr; }
 
+	reduction_manager& runtime::get_reduction_manager() const { return *reduction_mngr; }
+
 	void runtime::broadcast_control_command(command_type cmd, const command_data& data) {
-		assert_true(is_master) << "Control commands should only be broadcast from the master";
+		assert_true(is_master_node()) << "Control commands should only be broadcast from the master";
 		for(auto n = 0u; n < num_nodes; ++n) {
 			command_pkg pkg{next_control_command_id++, cmd, data};
 			flush_command(n, pkg, {});
@@ -216,7 +219,7 @@ namespace detail {
 	}
 
 	void runtime::handle_buffer_registered(buffer_id bid) {
-		if(is_master) {
+		if(is_master_node()) {
 			const auto& info = buffer_mngr->get_buffer_info(bid);
 			task_mngr->add_buffer(bid, info.range, info.is_host_initialized);
 			ggen->add_buffer(bid, info.range);

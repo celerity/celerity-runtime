@@ -333,7 +333,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager invokes callback upon task creation", "[task_manager]") {
-		task_manager tm{1, nullptr, true};
+		task_manager tm{1, nullptr, true, nullptr};
 		size_t call_counter = 0;
 		tm.register_task_callback([&call_counter](task_id) { call_counter++; });
 		cl::sycl::range<2> gs = {1, 1};
@@ -345,7 +345,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][device_compute_task]") {
-		task_manager tm{1, nullptr, true};
+		task_manager tm{1, nullptr, true, nullptr};
 		test_utils::mock_buffer_factory mbf(&tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<2>(64, 152));
 		auto buf_b = mbf.create_buffer(cl::sycl::range<3>(7, 21, 99));
@@ -407,7 +407,7 @@ namespace detail {
 	class MyThirdKernel;
 
 	TEST_CASE("DEVICE_COMPUTE tasks derive debug name from kernel name", "[task][!mayfail]") {
-		auto tm = std::make_unique<detail::task_manager>(1, nullptr, true);
+		auto tm = std::make_unique<detail::task_manager>(1, nullptr, true, nullptr);
 		auto t1 = tm->get_task(tm->create_task([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));
 		auto t2 = tm->get_task(tm->create_task([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));
 		auto t3 = tm->get_task(tm->create_task([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));
@@ -1521,7 +1521,7 @@ namespace detail {
 			const auto range = cl::sycl::range<2>(32, 32);
 			const auto offset = cl::sycl::id<2>(32, 0);
 			auto sr = subrange<3>(id_cast<3>(offset), range_cast<3>(range));
-			live_pass_device_handler cgh(nullptr, sr, dq);
+			live_pass_device_handler cgh(nullptr, sr, 0, dq);
 
 			get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(cgh, bid, {48, 32}, {16, 0});
 			auto acc = get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(cgh, bid, {32, 32}, {32, 0});
@@ -1569,7 +1569,7 @@ namespace detail {
 		SECTION("when using device buffers") {
 			auto range = cl::sycl::range<1>(32);
 			auto sr = subrange<3>({}, range_cast<3>(range));
-			live_pass_device_handler cgh(nullptr, sr, dq);
+			live_pass_device_handler cgh(nullptr, sr, 0, dq);
 
 			// For device accessors we test this both on host and device
 
@@ -1688,7 +1688,7 @@ namespace detail {
 
 		auto range = cl::sycl::range<1>(2048);
 		auto sr = subrange<3>({}, range_cast<3>(range));
-		live_pass_device_handler cgh(nullptr, sr, dq);
+		live_pass_device_handler cgh(nullptr, sr, 0, dq);
 
 		auto device_acc = get_device_accessor<int, 1, cl::sycl::access::mode::atomic>(cgh, bid, {1}, {0});
 		cgh.parallel_for<class UKN(atomic_increment)>(range, [=](cl::sycl::id<1> id) {
@@ -2354,6 +2354,44 @@ namespace detail {
 				}
 			});
 		});
+	}
+
+	TEST_CASE("attempting a reduction on buffers with size != 1 throws", "[task-manager]") {
+		runtime::init(nullptr, nullptr, nullptr);
+		auto& tm = runtime::get_instance().get_task_manager();
+
+		buffer<float, 1> buf_1{cl::sycl::range<1>{2}};
+		CHECK_THROWS(tm.create_task([&](handler& cgh) { //
+			cgh.parallel_for<class UKN(wrong_size_1)>(cl::sycl::range<1>{1}, reduction(buf_1, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<1>, auto&) {});
+		}));
+
+		buffer<float, 2> buf_2{cl::sycl::range<2>{1, 2}};
+		CHECK_THROWS(tm.create_task([&](handler& cgh) { //
+			cgh.parallel_for<class UKN(wrong_size_2)>(
+			    cl::sycl::range<2>{1, 1}, reduction(buf_2, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<2>, auto&) {});
+		}));
+
+		buffer<float, 3> buf_3{cl::sycl::range<3>{1, 2, 1}};
+		CHECK_THROWS(tm.create_task([&](handler& cgh) { //
+			cgh.parallel_for<class UKN(wrong_size_3)>(
+			    cl::sycl::range<3>{1, 1, 1}, reduction(buf_3, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<3>, auto&) {});
+		}));
+
+		buffer<float, 1> buf_4{cl::sycl::range<1>{1}};
+		CHECK_NOTHROW(tm.create_task([&](handler& cgh) { //
+			cgh.parallel_for<class UKN(ok_size_1)>(cl::sycl::range<1>{1}, reduction(buf_4, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<1>, auto&) {});
+		}));
+
+		buffer<float, 2> buf_5{cl::sycl::range<2>{1, 1}};
+		CHECK_NOTHROW(tm.create_task([&](handler& cgh) { //
+			cgh.parallel_for<class UKN(ok_size_2)>(cl::sycl::range<2>{1, 1}, reduction(buf_5, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<2>, auto&) {});
+		}));
+
+		buffer<float, 3> buf_6{cl::sycl::range<3>{1, 1, 1}};
+		CHECK_NOTHROW(tm.create_task([&](handler& cgh) { //
+			cgh.parallel_for<class UKN(ok_size_3)>(
+			    cl::sycl::range<3>{1, 1, 1}, reduction(buf_6, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<3>, auto&) {});
+		}));
 	}
 
 } // namespace detail

@@ -18,6 +18,7 @@ namespace detail {
 	class device_queue;
 	class executor;
 	class task_manager;
+	class reduction_manager;
 
 	class worker_job;
 
@@ -99,6 +100,19 @@ namespace detail {
 		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
 	};
 
+	class reduction_job : public worker_job {
+	  public:
+		reduction_job(command_pkg pkg, std::shared_ptr<logger> job_logger, reduction_manager& rm) : worker_job(pkg, job_logger), rm(rm) {
+			assert(pkg.cmd == command_type::REDUCTION);
+		}
+
+	  private:
+		reduction_manager& rm;
+
+		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
+		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
+	};
+
 	// host-compute jobs, master-node tasks and collective host tasks
 	class host_execute_job : public worker_job {
 	  public:
@@ -124,8 +138,9 @@ namespace detail {
 	 */
 	class device_execute_job : public worker_job {
 	  public:
-		device_execute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::device_queue& queue, detail::task_manager& tm, buffer_manager& bm)
-		    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm), buffer_mngr(bm) {
+		device_execute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::device_queue& queue, detail::task_manager& tm, buffer_manager& bm,
+		    reduction_manager& rm, node_id local_nid)
+		    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm), buffer_mngr(bm), reduction_mngr(rm), local_nid(local_nid) {
 			assert(pkg.cmd == command_type::TASK);
 		}
 
@@ -133,6 +148,8 @@ namespace detail {
 		detail::device_queue& queue;
 		detail::task_manager& task_mngr;
 		detail::buffer_manager& buffer_mngr;
+		detail::reduction_manager& reduction_mngr;
+		node_id local_nid;
 		cl::sycl::event event;
 		bool submitted = false;
 

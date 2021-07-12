@@ -4,6 +4,7 @@
 
 #include "buffer_manager.h"
 #include "mpi_support.h"
+#include "reduction_manager.h"
 #include "runtime.h"
 
 namespace celerity {
@@ -28,6 +29,7 @@ namespace detail {
 		transfer->handle = t_handle;
 		transfer->header.sr = data.sr;
 		transfer->header.bid = data.bid;
+		transfer->header.rid = data.rid;
 		transfer->header.push_cid = pkg.cid;
 		transfer->data_type =
 		    mpi_support::build_single_use_composite_type({{sizeof(data_header), &transfer->header}, {transfer->data.get_size(), transfer->data.get_pointer()}});
@@ -41,7 +43,7 @@ namespace detail {
 
 	std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::await_push(const command_pkg& pkg) {
 		assert(pkg.cmd == command_type::AWAIT_PUSH);
-		const await_push_data& data = std::get<await_push_data>(pkg.data);
+		const auto& data = std::get<await_push_data>(pkg.data);
 
 		std::shared_ptr<incoming_transfer_handle> t_handle;
 		// Check to see if we have (fully) received the push already
@@ -50,9 +52,10 @@ namespace detail {
 			push_blackboard.erase(data.source_cid);
 			assert(t_handle->transfer != nullptr);
 			assert(t_handle->transfer->header.bid == data.bid);
+			assert(t_handle->transfer->header.rid == data.rid);
 			assert(t_handle->transfer->header.sr == data.sr);
 			assert(t_handle->complete);
-			write_data_to_buffer(*t_handle->transfer);
+			commit_transfer(*t_handle->transfer);
 		} else {
 			t_handle = std::make_shared<incoming_transfer_handle>();
 			// Store new handle so we can mark it as complete when the push is received
@@ -82,6 +85,7 @@ namespace detail {
 		const size_t data_size = count - sizeof(data_header);
 
 		auto transfer = std::make_unique<transfer_in>();
+		transfer->source_nid = static_cast<node_id>(status.MPI_SOURCE);
 		// Since we don't know the dimensions of the data yet, we'll just allocate the buffer as if it were one very large element.
 		// We'll reinterpret the data later, once the transfer is completed.
 		transfer->data = raw_buffer_data{data_size, cl::sycl::range<3>(1, 1, 1)};
@@ -112,7 +116,7 @@ namespace detail {
 				push_blackboard.erase(transfer->header.push_cid);
 				assert(t_handle.use_count() > 1 && "Dangling await push request");
 				t_handle->transfer = std::move(*it);
-				write_data_to_buffer(*t_handle->transfer);
+				commit_transfer(*t_handle->transfer);
 				t_handle->complete = true;
 			} else {
 				t_handle = std::make_shared<incoming_transfer_handle>();
@@ -138,13 +142,21 @@ namespace detail {
 		}
 	}
 
-	void buffer_transfer_manager::write_data_to_buffer(transfer_in& transfer) {
+	void buffer_transfer_manager::commit_transfer(transfer_in& transfer) {
 		const auto& header = transfer.header;
 		size_t elem_size = transfer.data.get_size() / (header.sr.range[0] * header.sr.range[1] * header.sr.range[2]);
 		transfer.data.reinterpret(elem_size, cl::sycl::range<3>(header.sr.range[0], header.sr.range[1], header.sr.range[2]));
-		// In some rare situations the local runtime might not yet know about this buffer. Busy wait until it does.
-		while(!runtime::get_instance().get_buffer_manager().has_buffer(header.bid)) {}
-		runtime::get_instance().get_buffer_manager().set_buffer_data(header.bid, header.sr.offset, std::move(transfer.data));
+		if(header.rid) {
+			auto& rm = runtime::get_instance().get_reduction_manager();
+			// In some rare situations the local runtime might not yet know about this reduction. Busy wait until it does.
+			while(!rm.has_reduction(header.rid)) {}
+			rm.push_overlapping_reduction_data(header.rid, transfer.source_nid, std::move(transfer.data));
+		} else {
+			auto& bm = runtime::get_instance().get_buffer_manager();
+			// In some rare situations the local runtime might not yet know about this buffer. Busy wait until it does.
+			while(!bm.has_buffer(header.bid)) {}
+			bm.set_buffer_data(header.bid, header.sr.offset, std::move(transfer.data));
+		}
 		transfer.data = {};
 	}
 

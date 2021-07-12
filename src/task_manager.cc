@@ -7,8 +7,9 @@
 namespace celerity {
 namespace detail {
 
-	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, bool is_master_node)
-	    : num_collective_nodes(num_collective_nodes), queue(queue), is_master_node(is_master_node), init_task_id(next_task_id++) {
+	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, bool is_master_node, reduction_manager* redunction_mngr)
+	    : num_collective_nodes(num_collective_nodes), queue(queue), is_master_node(is_master_node), reduction_mngr(redunction_mngr),
+	      init_task_id(next_task_id++) {
 		// We add a special init task for initializing buffers.
 		// This is useful so we can correctly generate anti-dependencies for tasks that read host initialized buffers.
 		task_map[init_task_id] = task::make_nop(init_task_id);
@@ -57,15 +58,34 @@ namespace detail {
 
 		const auto& tsk = task_map[tid];
 		const auto& access_map = tsk->get_buffer_access_map();
-		const auto buffers = access_map.get_accessed_buffers();
+
+		auto buffers = access_map.get_accessed_buffers();
+		for(auto rid : tsk->get_reductions()) {
+			assert(reduction_mngr != nullptr);
+			buffers.emplace(reduction_mngr->get_reduction(rid).output_buffer_id);
+		}
 
 		for(const auto bid : buffers) {
 			const auto modes = access_map.get_access_modes(bid);
 
+			std::optional<reduction_info> reduction;
+			for(auto maybe_rid : tsk->get_reductions()) {
+				auto maybe_reduction = reduction_mngr->get_reduction(maybe_rid);
+				if(maybe_reduction.output_buffer_id == bid) {
+					if(reduction) { throw std::runtime_error(fmt::format("Multiple reductions attempt to write buffer {} in task {}", bid, tid)); }
+					reduction = maybe_reduction;
+				}
+			}
+
+			if(reduction && std::any_of(modes.begin(), modes.end(), detail::access::mode_traits::is_producer)) {
+				throw std::runtime_error(fmt::format("Buffer {} is both written through an accessor and used as a reduction output in task {}", bid, tid));
+			}
+
 			// Determine reader dependencies
-			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_consumer)) {
-				const auto read_requirements =
-				    get_requirements(tsk.get(), bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
+			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_consumer)
+			    || (reduction.has_value() && reduction->initialize_from_buffer)) {
+				auto read_requirements = get_requirements(tsk.get(), bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
+				if(reduction.has_value()) { read_requirements = GridRegion<3>::merge(read_requirements, GridRegion<3>{{1, 1, 1}}); }
 				const auto last_writers = buffers_last_writers.at(bid).get_region_values(read_requirements);
 
 				for(auto& p : last_writers) {
@@ -78,9 +98,9 @@ namespace detail {
 			}
 
 			// Update last writers and determine anti-dependencies
-			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_producer)) {
-				const auto write_requirements =
-				    get_requirements(tsk.get(), bid, {detail::access::producer_modes.cbegin(), detail::access::producer_modes.cend()});
+			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_producer) || reduction.has_value()) {
+				auto write_requirements = get_requirements(tsk.get(), bid, {detail::access::producer_modes.cbegin(), detail::access::producer_modes.cend()});
+				if(reduction.has_value()) { write_requirements = GridRegion<3>::merge(write_requirements, GridRegion<3>{{1, 1, 1}}); }
 				assert(!write_requirements.empty() && "Task specified empty buffer range requirement. This indicates potential anti-pattern.");
 				const auto last_writers = buffers_last_writers.at(bid).get_region_values(write_requirements);
 

@@ -38,7 +38,11 @@ namespace detail {
 
 	struct graph_generator_testspy {
 		static size_t get_buffer_states_num_regions(const graph_generator& ggen, const buffer_id bid) {
-			return region_map_testspy::get_num_regions(ggen.buffer_states.at(bid));
+			if(auto* distr_state = std::get_if<graph_generator::distributed_state>(&ggen.buffer_states.at(bid))) {
+				return region_map_testspy::get_num_regions(distr_state->region_sources);
+			} else {
+				return 1;
+			}
 		}
 		static size_t get_buffer_last_writer_num_regions(const graph_generator& ggen, const buffer_id bid) {
 			return region_map_testspy::get_num_regions(ggen.node_data.at(node_id{0}).buffer_last_writer.at(bid));
