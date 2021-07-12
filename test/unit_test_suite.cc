@@ -24,8 +24,9 @@ int main(int argc, char* argv[]) {
 
 struct GlobalSetupAndTeardown : Catch::TestEventListenerBase {
 	using TestEventListenerBase::TestEventListenerBase;
-	void testRunStarting(const Catch::TestRunInfo&) override { detail::test_started_callback(); }
-	void testCaseEnded(const Catch::TestCaseStats&) override { detail::test_ended_callback(); }
+	void testRunStarting(const Catch::TestRunInfo&) override { detail::test_run_started_callback(); }
+	void testCaseEnded(const Catch::TestCaseStats&) override { detail::test_case_ended_callback(); }
+	void testRunEnded(const Catch::TestRunStats&) override { detail::test_run_ended_callback(); }
 };
 
 struct GlobalSetupAndTeardown;

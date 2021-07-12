@@ -81,6 +81,9 @@ jobs:
         timeout-minutes: 5
         working-directory: ${{ env.build-dir }}
         run: ${{ env.container-workspace }}/ci/run-integration-tests.sh /data/Lenna.png 1 2 4
+      - name: Run system tests
+        working-directory: ${{ env.build-dir }}
+        run: ${{ env.container-workspace }}/ci/run-system-tests.sh 2 4
 
   report:
     needs: [build-and-test]

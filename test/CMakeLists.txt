@@ -51,3 +51,5 @@ foreach(TEST_TARGET ${TEST_TARGETS})
   ParseAndAddCatchTests_ParseFile(${TEST_SOURCE} ${TEST_TARGET})
 
 endforeach()
+
+add_subdirectory(system)
