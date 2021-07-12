@@ -204,6 +204,7 @@ option(CELERITY_EXAMPLES_REQUIRE_HDF5 "Fail on missing HDF5 dependency instead o
 if(CELERITY_BUILD_EXAMPLES)
   add_subdirectory(examples/convolution)
   add_subdirectory(examples/matmul)
+  add_subdirectory(examples/reduction)
   add_subdirectory(examples/syncing)
   add_subdirectory(examples/wave_sim)
 
