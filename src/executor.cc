@@ -22,8 +22,10 @@ namespace detail {
 		running = false;
 	}
 
-	executor::executor(host_queue& h_queue, device_queue& d_queue, task_manager& tm, buffer_manager& buffer_mngr, std::shared_ptr<logger> execution_logger)
-	    : h_queue(h_queue), d_queue(d_queue), task_mngr(tm), buffer_mngr(buffer_mngr), execution_logger(execution_logger) {
+	executor::executor(node_id local_nid, host_queue& h_queue, device_queue& d_queue, task_manager& tm, buffer_manager& buffer_mngr,
+	    reduction_manager& reduction_mngr, std::shared_ptr<logger> execution_logger)
+	    : local_nid(local_nid), h_queue(h_queue), d_queue(d_queue), task_mngr(tm), buffer_mngr(buffer_mngr), reduction_mngr(reduction_mngr),
+	      execution_logger(execution_logger) {
 		btm = std::make_unique<buffer_transfer_manager>(execution_logger);
 		metrics.initial_idle.resume();
 	}
@@ -160,6 +162,7 @@ namespace detail {
 		case command_type::HORIZON: create_job<horizon_job>(pkg, dependencies); break;
 		case command_type::PUSH: create_job<push_job>(pkg, dependencies, *btm, buffer_mngr); break;
 		case command_type::AWAIT_PUSH: create_job<await_push_job>(pkg, dependencies, *btm); break;
+		case command_type::REDUCTION: create_job<reduction_job>(pkg, dependencies, reduction_mngr); break;
 		case command_type::TASK: {
 			const auto& data = std::get<task_data>(pkg.data);
 
@@ -170,7 +173,7 @@ namespace detail {
 			if(tsk->get_execution_target() == execution_target::HOST) {
 				create_job<host_execute_job>(pkg, dependencies, h_queue, task_mngr, buffer_mngr);
 			} else {
-				create_job<device_execute_job>(pkg, dependencies, d_queue, task_mngr, buffer_mngr);
+				create_job<device_execute_job>(pkg, dependencies, d_queue, task_mngr, buffer_mngr, reduction_mngr, local_nid);
 			}
 			break;
 		}

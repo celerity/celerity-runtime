@@ -15,6 +15,7 @@
 namespace celerity {
 namespace detail {
 
+	class reduction_manager;
 	class logger;
 	using task_callback = std::function<void(task_id)>;
 
@@ -28,7 +29,7 @@ namespace detail {
 		 *
 		 * TODO: This is a bit of a code smell. Maybe we should split simple task management and task graph generation into separate classes?
 		 */
-		task_manager(size_t num_collective_nodes, host_queue* queue, bool is_master_node);
+		task_manager(size_t num_collective_nodes, host_queue* queue, bool is_master_node, reduction_manager* redunction_mngr);
 		virtual ~task_manager() = default;
 
 		template <typename CGF, typename... Hints>
@@ -91,6 +92,7 @@ namespace detail {
 		const size_t num_collective_nodes;
 		host_queue* queue;
 		const bool is_master_node;
+		reduction_manager* reduction_mngr;
 		task_id next_task_id = 0;
 		const task_id init_task_id;
 		std::unordered_map<task_id, std::shared_ptr<task>> task_map;

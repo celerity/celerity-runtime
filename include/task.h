@@ -101,30 +101,32 @@ namespace detail {
 			}
 		}
 
+		const std::vector<reduction_id>& get_reductions() const { return reductions; }
+
 		static std::unique_ptr<task> make_nop(task_id tid) {
-			return std::unique_ptr<task>(new task(tid, task_type::NOP, {}, 0, {0, 0, 0}, {}, nullptr, {}, {}));
+			return std::unique_ptr<task>(new task(tid, task_type::NOP, {}, 0, {0, 0, 0}, {}, nullptr, {}, {}, {}));
 		}
 
 		static std::unique_ptr<task> make_host_compute(task_id tid, int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset,
-		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map) {
-			return std::unique_ptr<task>(
-			    new task(tid, task_type::HOST_COMPUTE, {}, dimensions, global_size, global_offset, std::move(cgf), std::move(access_map), {}));
+		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, std::vector<reduction_id> reductions) {
+			return std::unique_ptr<task>(new task(
+			    tid, task_type::HOST_COMPUTE, {}, dimensions, global_size, global_offset, std::move(cgf), std::move(access_map), std::move(reductions), {}));
 		}
 
 		static std::unique_ptr<task> make_device_compute(task_id tid, int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset,
-		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, std::string debug_name) {
-			return std::unique_ptr<task>(new task(
-			    tid, task_type::DEVICE_COMPUTE, {}, dimensions, global_size, global_offset, std::move(cgf), std::move(access_map), std::move(debug_name)));
+		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, std::vector<reduction_id> reductions, std::string debug_name) {
+			return std::unique_ptr<task>(new task(tid, task_type::DEVICE_COMPUTE, {}, dimensions, global_size, global_offset, std::move(cgf),
+			    std::move(access_map), std::move(reductions), std::move(debug_name)));
 		}
 
 		static std::unique_ptr<task> make_collective(
 		    task_id tid, collective_group_id cgid, size_t num_collective_nodes, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map) {
 			return std::unique_ptr<task>(new task(tid, task_type::COLLECTIVE, cgid, 1, detail::range_cast<3>(cl::sycl::range<1>{num_collective_nodes}), {},
-			    std::move(cgf), std::move(access_map), {}));
+			    std::move(cgf), std::move(access_map), {}, {}));
 		}
 
 		static std::unique_ptr<task> make_master_node(task_id tid, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map) {
-			return std::unique_ptr<task>(new task(tid, task_type::MASTER_NODE, {}, 0, {0, 0, 0}, {}, std::move(cgf), std::move(access_map), {}));
+			return std::unique_ptr<task>(new task(tid, task_type::MASTER_NODE, {}, 0, {0, 0, 0}, {}, std::move(cgf), std::move(access_map), {}, {}));
 		}
 
 	  private:
@@ -136,12 +138,13 @@ namespace detail {
 		cl::sycl::id<3> global_offset;
 		std::unique_ptr<command_group_storage_base> cgf;
 		buffer_access_map access_map;
+		std::vector<reduction_id> reductions;
 		std::string debug_name;
 
 		task(task_id tid, task_type type, collective_group_id cgid, int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset,
-		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, std::string debug_name)
+		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, std::vector<reduction_id> reductions, std::string debug_name)
 		    : tid(tid), type(type), cgid(cgid), dimensions(dimensions), global_size(global_size), global_offset(global_offset), cgf(std::move(cgf)),
-		      access_map(std::move(access_map)), debug_name(std::move(debug_name)) {}
+		      access_map(std::move(access_map)), reductions(std::move(reductions)), debug_name(std::move(debug_name)) {}
 	};
 
 } // namespace detail

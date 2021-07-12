@@ -31,10 +31,8 @@ namespace test_utils {
 		void get_access(handler& cgh, Functor rmfn) {
 			using rmfn_traits = allscale::utils::lambda_traits<Functor>;
 			static_assert(rmfn_traits::result_type::dims == Dims, "The returned subrange doesn't match buffer dimensions.");
-			if(detail::is_prepass_handler(cgh)) {
-				auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
-				prepass_cgh.add_requirement(id, std::make_unique<detail::range_mapper<rmfn_traits::arg1_type::dims, Dims>>(rmfn, Mode, size));
-			}
+			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh); // No live pass in tests
+			prepass_cgh.add_requirement(id, std::make_unique<detail::range_mapper<rmfn_traits::arg1_type::dims, Dims>>(rmfn, Mode, size));
 		}
 
 		detail::buffer_id get_id() const { return id; }
@@ -119,12 +117,14 @@ namespace test_utils {
 	class cdag_test_context {
 	  public:
 		cdag_test_context(size_t num_nodes) {
-			tm = std::make_unique<detail::task_manager>(1 /* num_nodes */, nullptr /* host_queue */, true /* is_master */);
+			rm = std::make_unique<detail::reduction_manager>();
+			tm = std::make_unique<detail::task_manager>(1 /* num_nodes */, nullptr /* host_queue */, true /* is_master */, rm.get());
 			cdag = std::make_unique<detail::command_graph>();
-			ggen = std::make_unique<detail::graph_generator>(num_nodes, *tm, *cdag);
+			ggen = std::make_unique<detail::graph_generator>(num_nodes, *tm, *rm, *cdag);
 			gsrlzr = std::make_unique<detail::graph_serializer>(*cdag, inspector.get_cb());
 		}
 
+		detail::reduction_manager& get_reduction_manager() { return *rm; }
 		detail::task_manager& get_task_manager() { return *tm; }
 		detail::command_graph& get_command_graph() { return *cdag; }
 		detail::graph_generator& get_graph_generator() { return *ggen; }
@@ -132,6 +132,7 @@ namespace test_utils {
 		detail::graph_serializer& get_graph_serializer() { return *gsrlzr; }
 
 	  private:
+		std::unique_ptr<detail::reduction_manager> rm;
 		std::unique_ptr<detail::task_manager> tm;
 		std::unique_ptr<detail::command_graph> cdag;
 		std::unique_ptr<detail::graph_generator> ggen;
@@ -191,6 +192,13 @@ namespace test_utils {
 
 	// Defaults to one node and chunk
 	inline detail::task_id build_and_flush(cdag_test_context& ctx, detail::task_id tid) { return build_and_flush(ctx, 1, 1, tid); }
+
+	template <int Dims>
+	void add_reduction(handler& cgh, detail::reduction_manager& rm, const mock_buffer<Dims>& vars, bool include_current_buffer_value) {
+		auto bid = vars.get_id();
+		auto rid = rm.create_reduction<int, Dims>(bid, cl::sycl::plus<int>{}, 0, include_current_buffer_value);
+		static_cast<detail::prepass_handler&>(cgh).add_reduction<Dims>(rid);
+	}
 
 } // namespace test_utils
 } // namespace celerity
