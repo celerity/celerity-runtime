@@ -11,6 +11,13 @@
 namespace celerity {
 namespace detail {
 
+	template <typename T>
+	struct unknown_identity_maximum {
+		T operator()(T a, T b) const { return a < b ? b : a; }
+	};
+
+#if !WORKAROUND_COMPUTECPP
+
 	TEST_CASE("simple reductions produce the expected results", "[reductions]") {
 		size_t N = 1000;
 		buffer<size_t, 1> sum_buf{{1}};
@@ -19,7 +26,7 @@ namespace detail {
 		distr_queue q;
 		q.submit([=](handler& cgh) {
 			auto sum_r = reduction(sum_buf, cgh, cl::sycl::plus<size_t>{});
-			auto max_r = reduction(max_buf, cgh, size_t{0}, cl::sycl::maximum<size_t>{});
+			auto max_r = reduction(max_buf, cgh, size_t{0}, unknown_identity_maximum<size_t>{});
 			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range{N}, cl::sycl::id{1}, sum_r, max_r, [=](cl::sycl::item<1> item, auto& sum, auto& max) {
 				sum += item.get_id(0);
 				max.combine(item.get_id(0));
@@ -78,6 +85,8 @@ namespace detail {
 			cgh.host_task(on_master_node, [=] { CHECK(acc[0] == 3 * N); });
 		});
 	}
+
+#endif // !WORKAROUND_COMPUTECPP
 
 } // namespace detail
 } // namespace celerity

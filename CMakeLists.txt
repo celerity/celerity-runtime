@@ -204,7 +204,6 @@ option(CELERITY_EXAMPLES_REQUIRE_HDF5 "Fail on missing HDF5 dependency instead o
 if(CELERITY_BUILD_EXAMPLES)
   add_subdirectory(examples/convolution)
   add_subdirectory(examples/matmul)
-  add_subdirectory(examples/reduction)
   add_subdirectory(examples/syncing)
   add_subdirectory(examples/wave_sim)
 
@@ -212,6 +211,12 @@ if(CELERITY_BUILD_EXAMPLES)
     TARGET convolution matmul syncing wave_sim
     PROPERTY FOLDER "examples"
   )
+
+  if(NOT CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
+    # CCPP currently does not implement reductions
+    add_subdirectory(examples/reduction)
+    set_property(TARGET reduction PROPERTY FOLDER "examples")
+  endif()
 
   find_package(PkgConfig)
   unset(HDF5_FOUND)
