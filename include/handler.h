@@ -416,6 +416,9 @@ namespace detail {
 
 	template <typename DataT, int Dims, typename BinaryOperation, bool WithExplicitIdentity>
 	auto make_sycl_reduction(cl::sycl::handler& sycl_cgh, const reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>& d) {
+#if WORKAROUND_COMPUTECPP
+		static_assert(!std::is_same_v<DataT, DataT>, "Reductions are currently not supported on ComputeCpp");
+#else
 		cl::sycl::property_list props;
 		if(!d.include_current_buffer_value) { props = {cl::sycl::property::reduction::initialize_to_identity{}}; }
 		if constexpr(WithExplicitIdentity) {
@@ -423,6 +426,7 @@ namespace detail {
 		} else {
 			return cl::sycl::reduction(*d.sycl_buffer, sycl_cgh, d.op, props);
 		}
+#endif
 	}
 
 	template <typename DataT, int Dims, typename BinaryOperation>
@@ -460,6 +464,9 @@ namespace detail {
 
 	template <bool WithExplicitIdentity, typename DataT, int Dims, typename BinaryOperation>
 	auto make_reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation op, DataT identity, const cl::sycl::property_list& prop_list) {
+#if WORKAROUND_COMPUTECPP
+		static_assert(!std::is_same_v<DataT, DataT>, "Reductions are currently not supported on ComputeCpp");
+#else
 		if(vars.get_range().size() != 1) {
 			// SYCL 2020 only supports unit-size reductions. We could in theory allow passing a larger buffer and only ever access element (0, 0, 0), but this
 			// would mean that part of the buffer is in pending_reduction_state while another part might remain in distributed_state. It doesn't seem to be
@@ -486,6 +493,7 @@ namespace detail {
 			                   .buffer;
 		}
 		return detail::reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>{bid, op, identity, include_current_buffer_value, sycl_buffer};
+#endif
 	}
 
 } // namespace detail
@@ -535,16 +543,24 @@ void handler::host_task(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> g
 
 template <typename DataT, int Dims, typename BinaryOperation>
 auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
+#if WORKAROUND_COMPUTECPP
+	static_assert(!std::is_same_v<DataT, DataT>, "Reductions are currently not supported on ComputeCpp");
+#else
 	static_assert(cl::sycl::has_known_identity_v<BinaryOperation, DataT>,
 	    "Celerity does not currently support reductions without an identity. Either specialize "
 	    "cl::sycl::known_identity or use the reduction() overload taking an identity at runtime");
 	return detail::make_reduction<false>(vars, cgh, combiner, cl::sycl::known_identity_v<BinaryOperation, DataT>, prop_list);
+#endif
 }
 
 template <typename DataT, int Dims, typename BinaryOperation>
 auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, const DataT identity, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
+#if WORKAROUND_COMPUTECPP
+	static_assert(!std::is_same_v<DataT, DataT>, "Reductions are currently not supported on ComputeCpp");
+#else
 	static_assert(!cl::sycl::has_known_identity_v<BinaryOperation, DataT>, "Identity is known to SYCL, remove the identity parameter from reduction()");
 	return detail::make_reduction<true>(vars, cgh, combiner, identity, prop_list);
+#endif
 }
 
 } // namespace celerity

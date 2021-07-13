@@ -2356,6 +2356,8 @@ namespace detail {
 		});
 	}
 
+#if !WORKAROUND_COMPUTECPP // no reductions yet
+
 	TEST_CASE("attempting a reduction on buffers with size != 1 throws", "[task-manager]") {
 		runtime::init(nullptr, nullptr, nullptr);
 		auto& tm = runtime::get_instance().get_task_manager();
@@ -2393,6 +2395,8 @@ namespace detail {
 			    cl::sycl::range<3>{1, 1, 1}, reduction(buf_6, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<3>, auto&) {});
 		}));
 	}
+
+#endif // !WORKAROUND_COMPUTECPP
 
 } // namespace detail
 } // namespace celerity

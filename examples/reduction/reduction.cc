@@ -69,8 +69,8 @@ int main(int argc, char* argv[]) {
 	q.submit([=](celerity::handler& cgh) {
 		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::one_to_one<2>{}, cl::sycl::read_only};
 		celerity::accessor rgb_acc{lab_buf, cgh, celerity::access::one_to_one<2>{}, cl::sycl::write_only, cl::sycl::no_init};
-		auto min_value_r = celerity::reduction(min_value_buf, cgh, 100.0f, cl::sycl::minimum<float>{}, cl::sycl::property::reduction::initialize_to_identity{});
-		auto max_value_r = celerity::reduction(max_value_buf, cgh, 0.0f, cl::sycl::maximum<float>{}, cl::sycl::property::reduction::initialize_to_identity{});
+		auto min_value_r = celerity::reduction(min_value_buf, cgh, cl::sycl::minimum<float>{}, cl::sycl::property::reduction::initialize_to_identity{});
+		auto max_value_r = celerity::reduction(max_value_buf, cgh, cl::sycl::maximum<float>{}, cl::sycl::property::reduction::initialize_to_identity{});
 		cgh.parallel_for<class linearize_and_accumulate>(image_size, min_value_r, max_value_r, [=](cl::sycl::item<2> item, auto& min_value, auto& max_value) {
 			const auto rgb = srgb_to_rgb(srgb_255_acc[item].convert<float>() / 255.0f);
 			rgb_acc[item] = rgb;
