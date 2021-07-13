@@ -1409,6 +1409,8 @@ namespace detail {
 		maybe_print_graphs(ctx);
 	}
 
+#if !WORKAROUND_COMPUTECPP // no reductions
+
 	TEST_CASE("graph_generator generates reduction command trees", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
 		size_t num_nodes = 2;
@@ -1665,6 +1667,8 @@ namespace detail {
 
 		maybe_print_graphs(ctx);
 	}
+
+#endif // !WORKAROUND_COMPUTECPP
 
 } // namespace detail
 } // namespace celerity

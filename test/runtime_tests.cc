@@ -1967,6 +1967,8 @@ namespace detail {
 		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(cl::sycl::access_mode::discard_read_write) == 1);
 	}
 
+#if !WORKAROUND_COMPUTECPP // no reductions yet
+
 	TEST_CASE("attempting a reduction on buffers with size != 1 throws", "[task-manager]") {
 		runtime::init(nullptr, nullptr, nullptr);
 		auto& tm = runtime::get_instance().get_task_manager();
@@ -2004,6 +2006,8 @@ namespace detail {
 			    cl::sycl::range<3>{1, 1, 1}, reduction(buf_6, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<3>, auto&) {});
 		}));
 	}
+
+#endif // !WORKAROUND_COMPUTECPP
 
 
 } // namespace detail

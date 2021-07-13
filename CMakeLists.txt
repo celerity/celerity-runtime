@@ -152,7 +152,6 @@ option(CELERITY_BUILD_EXAMPLES "Build various example applications" ON)
 if(CELERITY_BUILD_EXAMPLES)
   add_subdirectory(examples/convolution)
   add_subdirectory(examples/matmul)
-  add_subdirectory(examples/reduction)
   add_subdirectory(examples/syncing)
   add_subdirectory(examples/wave_sim)
 
@@ -161,10 +160,16 @@ if(CELERITY_BUILD_EXAMPLES)
     PROPERTY FOLDER "examples"
   )
 
+  if(NOT CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
+    # CCPP currently does not implement reductions
+    add_subdirectory(examples/reduction)
+    set_property(TARGET reduction PROPERTY FOLDER "examples")
+  endif()
+
   find_package(PkgConfig)
-  if (PkgConfig_FOUND)
-	pkg_check_modules(HDF5 IMPORTED_TARGET hdf5-1.12.0)
-	if(HDF5_FOUND)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(HDF5 IMPORTED_TARGET hdf5-1.12.0)
+    if(HDF5_FOUND)
       add_subdirectory(examples/distr_io)
       set_property(TARGET distr_io PROPERTY FOLDER "examples")
     endif()
