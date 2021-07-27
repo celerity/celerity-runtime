@@ -69,7 +69,8 @@ template <typename T>
 void store(celerity::distr_queue& queue, celerity::buffer<T, 2> up, std::vector<std::vector<float>>& result_frames) {
 	const auto range = up.get_range();
 	queue.submit(celerity::allow_by_ref, [=, &result_frames](celerity::handler& cgh) {
-		celerity::accessor up_r{up, cgh, celerity::access::fixed<2>{{{}, range}}, cl::sycl::read_only_host_task};
+		// We need to access all of the 2D buffer, but the master-node task produces a one-dimensional chunk
+		celerity::accessor up_r{up, cgh, celerity::access::all<1, 2>{}, cl::sycl::read_only_host_task};
 		cgh.host_task(celerity::on_master_node, [=, &result_frames] {
 			result_frames.emplace_back();
 			auto& frame = *result_frames.rbegin();

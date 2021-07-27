@@ -142,8 +142,9 @@ int main(int argc, char* argv[]) {
 			read_hdf5_file(q, right, argv[3]);
 
 			q.submit(celerity::allow_by_ref, [=, &equal](celerity::handler& cgh) {
-				auto a = left.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all<2>());
-				auto b = right.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all<2>());
+				// We need to access all of the 2D buffers, but the master-node task produces a one-dimensional chunk
+				auto a = left.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all<1, 2>());
+				auto b = right.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all<1, 2>());
 				cgh.host_task(celerity::on_master_node, [=, &equal] {
 					for(size_t i = 0; i < N; ++i) {
 						for(size_t j = 0; j < N; ++j) {

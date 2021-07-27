@@ -18,7 +18,7 @@ int main(int argc, char* argv[]) {
 	});
 
 	q.submit(celerity::allow_by_ref, [=, &host_buff](handler& cgh) {
-		celerity::accessor b{buff, cgh, access::fixed<1>({0, N}), cl::sycl::read_only_host_task};
+		celerity::accessor b{buff, cgh, access::all<1>{}, cl::sycl::read_only_host_task};
 		cgh.host_task(on_master_node, [=, &host_buff] {
 			std::this_thread::sleep_for(std::chrono::milliseconds(10)); // give the synchronization more time to fail
 			for(int i = 0; i < N; i++) {
