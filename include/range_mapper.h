@@ -16,20 +16,49 @@ namespace detail {
 	template <int KernelDims, int BufferDims>
 	using range_mapper_fn = std::function<subrange<BufferDims>(chunk<KernelDims> chnk, cl::sycl::range<BufferDims> buffer_size)>;
 
+	template <typename Functor, int BufferDims, int KernelDims>
+	constexpr bool is_range_mapper_invocable_for_kernel =
+	    std::is_invocable_v<Functor&&, const celerity::chunk<KernelDims>&,
+	        const cl::sycl::range<BufferDims>&> || std::is_invocable_v<Functor&&, const celerity::chunk<KernelDims>&>;
+
+	template <typename Functor, int BufferDims>
+	constexpr bool is_range_mapper_invocable =
+	    is_range_mapper_invocable_for_kernel<Functor, BufferDims,
+	        1> || is_range_mapper_invocable_for_kernel<Functor, BufferDims, 2> || is_range_mapper_invocable_for_kernel<Functor, BufferDims, 3>;
+
 	template <int KernelDims, int BufferDims, typename Functor>
-	subrange<BufferDims> invoke_range_mapper(Functor&& fn, const celerity::chunk<KernelDims>& chunk, const cl::sycl::range<BufferDims>& buffer_size) {
+	subrange<BufferDims> invoke_range_mapper_for_kernel_dims(
+	    Functor&& fn, const celerity::chunk<KernelDims>& chunk, const cl::sycl::range<BufferDims>& buffer_size) {
+		static_assert(KernelDims >= 1 && KernelDims <= 3 && BufferDims >= 1 && BufferDims <= 3);
 		if constexpr(std::is_invocable_v<Functor&&, const celerity::chunk<KernelDims>&, const cl::sycl::range<BufferDims>&>) {
 			return std::forward<Functor>(fn)(chunk, buffer_size);
-		} else {
-			static_assert(std::is_invocable_v<Functor&&, const celerity::chunk<KernelDims>&>);
+		} else if constexpr(std::is_invocable_v<Functor&&, const celerity::chunk<KernelDims>&>) {
 			return std::forward<Functor>(fn)(chunk);
+		} else {
+			throw std::runtime_error(fmt::format("Invalid range mapper dimensionality: {0}-dimensional kernel submitted with a requirement whose range mapper "
+			                                     "is neither invocable for chunk<{0}> nor (chunk<{0}>, range<{1}>)",
+			    KernelDims, BufferDims));
+		}
+	}
+
+	template <int BufferDims, typename Functor>
+	subrange<BufferDims> invoke_range_mapper(int kernel_dims, Functor&& fn, const celerity::chunk<3>& chunk, const cl::sycl::range<BufferDims>& buffer_size) {
+		static_assert(is_range_mapper_invocable<Functor, BufferDims>);
+		switch(kernel_dims) {
+		case 0:
+			[[fallthrough]]; // cl::sycl::range is not defined for the 0d case, but since only constant range mappers are useful in the 0d-kernel case
+			                 // anyway, we require range mappers to take at least 1d subranges
+		case 1: return invoke_range_mapper_for_kernel_dims<1>(std::forward<Functor>(fn), chunk_cast<1>(chunk), buffer_size);
+		case 2: return invoke_range_mapper_for_kernel_dims<2>(std::forward<Functor>(fn), chunk_cast<2>(chunk), buffer_size);
+		case 3: return invoke_range_mapper_for_kernel_dims<3>(std::forward<Functor>(fn), chunk_cast<3>(chunk), buffer_size);
+		default: assert(!"Unreachable"); return {};
 		}
 	}
 
 	template <int KernelDims, int BufferDims, typename Functor>
 	auto bind_range_mapper(Functor fn) {
 		return [fn](const chunk<KernelDims>& chunk, const cl::sycl::range<BufferDims>& buffer_size) {
-			return invoke_range_mapper<KernelDims, BufferDims>(fn, chunk, buffer_size);
+			return invoke_range_mapper_for_kernel_dims<KernelDims>(fn, chunk, buffer_size);
 		};
 	}
 
@@ -183,7 +212,7 @@ namespace access {
 			    dim2 < result.offset[2] ? dim2 : result.offset[2]};
 			result.offset -= delta;
 			result.range += cl::sycl::range<3>{dim0 + delta[0], dim1 + delta[1], dim2 + delta[2]};
-			return subrange<Dims>(result);
+			return detail::subrange_cast<Dims>(result);
 		}
 
 	  private:

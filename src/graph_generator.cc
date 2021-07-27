@@ -44,7 +44,7 @@ namespace detail {
 			for(size_t nid = 0; nid < num_nodes; ++nid) {
 				auto offset = cl::sycl::id<1>{nid};
 				auto range = cl::sycl::range<1>{1};
-				const auto sr = subrange<1>{offset, range};
+				const auto sr = subrange_cast<3>(subrange<1>{offset, range});
 				auto* cmd = cdag.create<task_command>(nid, tid, sr);
 
 				// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee

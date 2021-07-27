@@ -2040,5 +2040,95 @@ namespace detail {
 		REQUIRE(acc_check);
 	}
 
+	TEST_CASE("Range mappers are only invocable with correctly-dimensioned chunks", "[range-mapper]") {
+		auto rmfn1 = [](chunk<3> chnk) -> subrange<3> { return chnk; };
+		using rmfn1_t = decltype(rmfn1);
+		static_assert(is_range_mapper_invocable<rmfn1_t, 1>);
+		static_assert(is_range_mapper_invocable<rmfn1_t, 2>);
+		static_assert(is_range_mapper_invocable<rmfn1_t, 3>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn1_t, 1, 1>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn1_t, 2, 1>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn1_t, 3, 1>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn1_t, 1, 2>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn1_t, 2, 2>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn1_t, 3, 2>);
+		static_assert(is_range_mapper_invocable_for_kernel<rmfn1_t, 1, 3>);
+		static_assert(is_range_mapper_invocable_for_kernel<rmfn1_t, 2, 3>);
+		static_assert(is_range_mapper_invocable_for_kernel<rmfn1_t, 3, 3>);
+
+		auto rmfn2 = [](chunk<2> chnk, cl::sycl::range<1>) -> subrange<2> { return chnk; };
+		using rmfn2_t = decltype(rmfn2);
+		static_assert(is_range_mapper_invocable<rmfn2_t, 1>);
+		static_assert(!is_range_mapper_invocable<rmfn2_t, 2>);
+		static_assert(!is_range_mapper_invocable<rmfn2_t, 3>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn2_t, 1, 1>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn2_t, 2, 1>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn2_t, 3, 1>);
+		static_assert(is_range_mapper_invocable_for_kernel<rmfn2_t, 1, 2>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn2_t, 2, 2>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn2_t, 3, 2>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn2_t, 1, 3>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn2_t, 2, 3>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn2_t, 3, 3>);
+
+		auto rmfn3 = [](chunk<3> chnk, auto range) -> subrange<3> { return chnk; };
+		using rmfn3_t = decltype(rmfn3);
+		static_assert(is_range_mapper_invocable<rmfn3_t, 1>);
+		static_assert(is_range_mapper_invocable<rmfn3_t, 2>);
+		static_assert(is_range_mapper_invocable<rmfn3_t, 3>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn3_t, 1, 1>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn3_t, 2, 1>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn3_t, 3, 1>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn3_t, 1, 2>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn3_t, 2, 2>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn3_t, 3, 2>);
+		static_assert(is_range_mapper_invocable_for_kernel<rmfn3_t, 1, 3>);
+		static_assert(is_range_mapper_invocable_for_kernel<rmfn3_t, 2, 3>);
+		static_assert(is_range_mapper_invocable_for_kernel<rmfn3_t, 3, 3>);
+
+		auto rmfn4 = [](auto chnk, cl::sycl::range<1>) -> subrange<decltype(chnk)::dims> { return chnk; };
+		using rmfn4_t = decltype(rmfn4);
+		static_assert(is_range_mapper_invocable<rmfn4_t, 1>);
+		static_assert(!is_range_mapper_invocable<rmfn4_t, 2>);
+		static_assert(!is_range_mapper_invocable<rmfn4_t, 3>);
+		static_assert(is_range_mapper_invocable_for_kernel<rmfn4_t, 1, 1>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn4_t, 2, 1>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn4_t, 3, 1>);
+		static_assert(is_range_mapper_invocable_for_kernel<rmfn4_t, 1, 2>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn4_t, 2, 2>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn4_t, 3, 2>);
+		static_assert(is_range_mapper_invocable_for_kernel<rmfn4_t, 1, 3>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn4_t, 2, 3>);
+		static_assert(!is_range_mapper_invocable_for_kernel<rmfn4_t, 3, 3>);
+
+		distr_queue q;
+		buffer<int, 2> buf{{10, 10}};
+
+		q.submit([=](handler& cgh) {
+			CHECK_THROWS_IN_LIVE_PASS(cgh, buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one<2>{}));
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<1>{10}, [=](cl::sycl::item<1>) {});
+		});
+
+		q.submit([=](handler& cgh) {
+			CHECK_NOTHROW(buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one<2>{}));
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<2>{10, 10}, [=](cl::sycl::item<2>) {});
+		});
+
+		q.submit([=](handler& cgh) {
+			CHECK_THROWS_IN_LIVE_PASS(cgh, buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one<2>{}));
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](cl::sycl::item<3>) {});
+		});
+
+		q.submit([=](handler& cgh) {
+			CHECK_THROWS_IN_LIVE_PASS(cgh, buf.get_access<cl::sycl::access::mode::read>(cgh, all<1, 2>{}));
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](cl::sycl::item<3>) {});
+		});
+
+		q.submit([=](handler& cgh) {
+			CHECK_NOTHROW(buf.get_access<cl::sycl::access::mode::read>(cgh, all<3, 2>{}));
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](cl::sycl::item<3>) {});
+		});
+	}
+
 } // namespace detail
 } // namespace celerity

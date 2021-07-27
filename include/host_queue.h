@@ -26,7 +26,7 @@ namespace detail {
 	template <int Dims>
 	class sized_partition_base {
 	  public:
-		explicit sized_partition_base(const cl::sycl::range<3>& global_size, const subrange<3>& range)
+		explicit sized_partition_base(const cl::sycl::range<Dims>& global_size, const subrange<Dims>& range)
 		    : global_size(range_cast<Dims>(global_size)), range(range) {}
 
 		/** The subrange handled by this host. */
@@ -41,11 +41,13 @@ namespace detail {
 	};
 
 	template <int Dims>
-	partition<Dims> make_partition(const cl::sycl::range<3>& global_size, const subrange<3>& range) {
+	partition<Dims> make_partition(const cl::sycl::range<Dims>& global_size, const subrange<Dims>& range) {
 		return partition<Dims>(global_size, range);
 	}
 
-	experimental::collective_partition make_collective_partition(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm);
+	partition<0> make_0d_partition();
+
+	experimental::collective_partition make_collective_partition(const cl::sycl::range<1>& global_size, const subrange<1>& range, MPI_Comm comm);
 
 } // namespace detail
 
@@ -55,9 +57,9 @@ namespace detail {
 template <int Dims>
 class partition : public detail::sized_partition_base<Dims> {
   protected:
-	friend partition<Dims> detail::make_partition<Dims>(const cl::sycl::range<3>& global_size, const subrange<3>& range);
+	friend partition<Dims> detail::make_partition<Dims>(const cl::sycl::range<Dims>& global_size, const subrange<Dims>& range);
 
-	partition(const cl::sycl::range<3>& global_size, const subrange<3>& range) : detail::sized_partition_base<Dims>(global_size, range) {}
+	partition(const cl::sycl::range<Dims>& global_size, const subrange<Dims>& range) : detail::sized_partition_base<Dims>(global_size, range) {}
 };
 
 /**
@@ -72,27 +74,29 @@ class experimental::collective_partition : public partition<1> {
 	size_t get_num_nodes() const { return get_global_size()[0]; }
 
   protected:
-	friend collective_partition detail::make_collective_partition(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm);
+	friend collective_partition detail::make_collective_partition(const cl::sycl::range<1>& global_size, const subrange<1>& range, MPI_Comm comm);
 
 	MPI_Comm comm;
 
-	collective_partition(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm) : partition<1>(global_size, range), comm(comm) {}
+	collective_partition(const cl::sycl::range<1>& global_size, const subrange<1>& range, MPI_Comm comm) : partition<1>(global_size, range), comm(comm) {}
 };
 
 template <>
 class partition<0> {
-  protected:
-	friend partition<0> detail::make_partition<0>(const cl::sycl::range<3>& global_size, const subrange<3>& range);
+  private:
+	partition() noexcept = default;
 
-	partition(const cl::sycl::range<3>& global_size, const subrange<3>& range) noexcept {}
+	friend partition<0> detail::make_0d_partition();
 };
 
 
 namespace detail {
 
-	inline experimental::collective_partition make_collective_partition(const cl::sycl::range<3>& global_size, const subrange<3>& range, MPI_Comm comm) {
+	inline experimental::collective_partition make_collective_partition(const cl::sycl::range<1>& global_size, const subrange<1>& range, MPI_Comm comm) {
 		return experimental::collective_partition(global_size, range, comm);
 	}
+
+	inline partition<0> make_0d_partition() { return {}; }
 
 	/**
 	 * The @p host_queue provides a thread pool to submit host tasks.
@@ -107,7 +111,7 @@ namespace detail {
 			time_point end_time{};
 		};
 
-		host_queue(logger& queue_logger) : queue_logger(queue_logger) {
+		explicit host_queue(logger& queue_logger) : queue_logger(queue_logger) {
 			// TODO what is a good thread count for the non-collective thread pool?
 			threads.emplace(std::piecewise_construct, std::tuple{0}, std::tuple{MPI_COMM_NULL, 4});
 		}

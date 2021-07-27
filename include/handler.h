@@ -274,23 +274,7 @@ namespace detail {
 
 		template <int BufferDims, typename RangeMapper>
 		subrange<BufferDims> apply_range_mapper(RangeMapper rm, const cl::sycl::range<BufferDims>& buffer_range) const {
-			switch(task->get_dimensions()) {
-			case 0:
-				[[fallthrough]]; // cl::sycl::range is not defined for the 0d case, but since only constant range mappers are useful in the 0d-kernel case
-				                 // anyway,
-				                 // we require range mappers to take at least 1d subranges
-			case 1:
-				return invoke_range_mapper(
-				    rm, chunk<1>(detail::id_cast<1>(sr.offset), detail::range_cast<1>(sr.range), detail::range_cast<1>(task->get_global_size())), buffer_range);
-			case 2:
-				return invoke_range_mapper(
-				    rm, chunk<2>(detail::id_cast<2>(sr.offset), detail::range_cast<2>(sr.range), detail::range_cast<2>(task->get_global_size())), buffer_range);
-			case 3:
-				return invoke_range_mapper(
-				    rm, chunk<3>(detail::id_cast<3>(sr.offset), detail::range_cast<3>(sr.range), detail::range_cast<3>(task->get_global_size())), buffer_range);
-			default: assert(false);
-			}
-			return {};
+			return invoke_range_mapper(task->get_dimensions(), rm, chunk{sr.offset, sr.range, task->get_global_size()}, buffer_range);
 		}
 
 		subrange<3> get_iteration_range() { return sr; }
@@ -311,9 +295,14 @@ namespace detail {
 
 		template <int Dims, typename Kernel>
 		void schedule(Kernel kernel) {
+			static_assert(Dims >= 0);
 			future = queue->submit(task->get_collective_group_id(), [kernel, global_size = task->get_global_size(), sr = sr](MPI_Comm) {
-				if constexpr(Dims > 0 || std::is_invocable_v<Kernel, const partition<0>&>) {
-					const auto part = make_partition<Dims>(global_size, sr);
+				if constexpr(Dims > 0) {
+					const auto part = make_partition<Dims>(range_cast<Dims>(global_size), subrange_cast<Dims>(sr));
+					kernel(part);
+				} else if constexpr(std::is_invocable_v<Kernel, const partition<0>&>) {
+					(void)sr;
+					const auto part = make_0d_partition();
 					kernel(part);
 				} else {
 					(void)sr;
@@ -325,7 +314,7 @@ namespace detail {
 		template <typename Kernel>
 		void schedule_collective(Kernel kernel) {
 			future = queue->submit(task->get_collective_group_id(), [kernel, global_size = task->get_global_size(), sr = sr](MPI_Comm comm) {
-				const auto part = make_collective_partition(global_size, sr, comm);
+				const auto part = make_collective_partition(range_cast<1>(global_size), subrange_cast<1>(sr), comm);
 				kernel(part);
 			});
 		}

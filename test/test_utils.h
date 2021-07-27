@@ -19,6 +19,15 @@
 #define _UKN_CONCAT(x, y) _UKN_CONCAT2(x, y)
 #define UKN(name) _UKN_CONCAT(name, __COUNTER__)
 
+#define CHECK_THROWS_IN_LIVE_PASS(cgh, ...)                                                                                                                    \
+	do {                                                                                                                                                       \
+		if(::celerity::detail::is_prepass_handler(cgh)) {                                                                                                      \
+			(void)(__VA_ARGS__);                                                                                                                               \
+		} else {                                                                                                                                               \
+			CHECK_THROWS(__VA_ARGS__);                                                                                                                         \
+		}                                                                                                                                                      \
+	} while(false)
+
 namespace celerity {
 namespace test_utils {
 
