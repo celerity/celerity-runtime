@@ -40,7 +40,7 @@ namespace detail {
 			const auto tsk = it.second.get();
 
 			std::unordered_map<std::string, std::string> props;
-			props["label"] = get_task_label(tsk);
+			props["label"] = "\"" + get_task_label(tsk) + "\"";
 
 			ss << tsk->get_id();
 			ss << "[";
@@ -87,7 +87,7 @@ namespace detail {
 			const char* colors[] = {"black", "crimson", "dodgerblue4", "goldenrod", "maroon4", "springgreen2", "tan1", "chartreuse2"};
 
 			std::unordered_map<std::string, std::string> props;
-			props["label"] = get_command_label(cmd);
+			props["label"] = "\"" + get_command_label(cmd) + "\"";
 			props["fontcolor"] = colors[cmd->get_nid() % (sizeof(colors) / sizeof(char*))];
 			if(isa<task_command>(cmd)) { props["shape"] = "box"; }
 
