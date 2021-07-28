@@ -158,7 +158,7 @@ namespace access {
 	struct [[deprecated("Explicitly-dimensioned range mappers are deprecated, remove template arguments from celerity::one_to_one")]] one_to_one
 	    : one_to_one<0>{};
 
-	one_to_one() -> one_to_one<>;
+	one_to_one()->one_to_one<>;
 
 	template <int KernelDims, int BufferDims = KernelDims>
 	struct fixed;
@@ -216,7 +216,7 @@ namespace access {
 	template <int KernelDims, int BufferDims>
 	struct [[deprecated("Explicitly-dimensioned range mappers are deprecated, remove template arguments from celerity::all")]] all : all<0, 0>{};
 
-	all() -> all<>;
+	all()->all<>;
 
 	template <int Dims>
 	struct neighborhood {
@@ -241,9 +241,9 @@ namespace access {
 		size_t dim0, dim1, dim2;
 	};
 
-	neighborhood(size_t) -> neighborhood<1>;
-	neighborhood(size_t, size_t) -> neighborhood<2>;
-	neighborhood(size_t, size_t, size_t) -> neighborhood<3>;
+	neighborhood(size_t)->neighborhood<1>;
+	neighborhood(size_t, size_t)->neighborhood<2>;
+	neighborhood(size_t, size_t, size_t)->neighborhood<3>;
 
 } // namespace access
 
