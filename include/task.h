@@ -61,7 +61,7 @@ namespace detail {
 		 * @returns The region obtained by merging the results of all range-mappers for this buffer and mode
 		 */
 		GridRegion<3> get_requirements_for_access(
-		    buffer_id bid, cl::sycl::access::mode mode, const subrange<3>& sr, const cl::sycl::range<3>& global_size) const;
+		    buffer_id bid, cl::sycl::access::mode mode, int kernel_dims, const subrange<3>& sr, const cl::sycl::range<3>& global_size) const;
 
 	  private:
 		std::unordered_multimap<buffer_id, std::unique_ptr<range_mapper_base>> map;

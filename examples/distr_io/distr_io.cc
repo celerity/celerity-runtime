@@ -121,7 +121,7 @@ int main(int argc, char* argv[]) {
 		read_hdf5_file(q, in, argv[2]);
 
 		q.submit([=](celerity::handler& cgh) {
-			auto a = in.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one<2>());
+			auto a = in.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one{});
 			auto b = out.get_access<cl::sycl::access::mode::discard_write>(cgh, transposed);
 			cgh.parallel_for<class transpose>(cl::sycl::range<2>{N, N}, [=](cl::sycl::item<2> item) {
 				auto id = item.get_id();
@@ -142,9 +142,8 @@ int main(int argc, char* argv[]) {
 			read_hdf5_file(q, right, argv[3]);
 
 			q.submit(celerity::allow_by_ref, [=, &equal](celerity::handler& cgh) {
-				// We need to access all of the 2D buffers, but the master-node task produces a one-dimensional chunk
-				auto a = left.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all<1, 2>());
-				auto b = right.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all<1, 2>());
+				auto a = left.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all{});
+				auto b = right.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all{});
 				cgh.host_task(celerity::on_master_node, [=, &equal] {
 					for(size_t i = 0; i < N; ++i) {
 						for(size_t j = 0; j < N; ++j) {

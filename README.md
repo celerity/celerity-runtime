@@ -32,7 +32,7 @@ celerity::buffer<float, 1> buf(sycl::range<1>(1024));
 queue.submit([=](celerity::handler& cgh) {
   auto acc = buf.get_access<sycl::access::mode::discard_write>(
     cgh,
-    celerity::access::one_to_one<1>()           // 1
+    celerity::access::one_to_one()              // 1
   );
   cgh.parallel_for<class MyKernel>(
     sycl::range<1>(1024),                       // 2

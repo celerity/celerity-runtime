@@ -170,8 +170,8 @@ aforementioned buffer accessors. Let's create these now - replace the TODO
 before the kernel function with the following:
 
 ```cpp
-auto r_input = input_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood<2>(1, 1));
-auto dw_edge = edge_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
+auto r_input = input_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood(1, 1));
+auto dw_edge = edge_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one());
 ```
 
 If you have worked with SYCL before, these buffer accessors will look
@@ -201,8 +201,8 @@ for each invocation of the kernel -- i.e., for each work item, we only ever
 access the output buffer once: at exactly the current location represented by
 the `item`. This means there exists a one-to-one mapping of the kernel index
 and the accessed buffer index. For this reason we pass a
-`celerity::access::one_to_one<2>` range mapper (where the `2` simply means
-that we are operating on two-dimensional kernels and buffers).
+`celerity::access::one_to_one` range mapper (which means that kernel and
+buffer need to have the same dimensionality and size).
 
 The range mapper for our `input_buf` is a bit more complicated, but not by
 much: Remember that for computing the Laplace filter, we are summing up the

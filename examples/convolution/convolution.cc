@@ -57,9 +57,9 @@ int main(int argc, char* argv[]) {
 
 	// Do a gaussian blur
 	queue.submit([=](celerity::handler& cgh) {
-		auto in = image_input_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood<2>(FILTER_SIZE / 2, FILTER_SIZE / 2));
-		auto gauss = gaussian_mat_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::all<2, 2>());
-		auto out = image_tmp_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
+		auto in = image_input_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood{FILTER_SIZE / 2, FILTER_SIZE / 2});
+		auto gauss = gaussian_mat_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::all{});
+		auto out = image_tmp_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one{});
 
 		cgh.parallel_for<class gaussian_blur>(cl::sycl::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](cl::sycl::item<2> item) {
 			using cl::sycl::float3;
@@ -82,8 +82,8 @@ int main(int argc, char* argv[]) {
 
 	// Now apply a sharpening kernel
 	queue.submit([=](celerity::handler& cgh) {
-		auto in = image_tmp_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood<2>(1, 1));
-		auto out = image_output_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one<2>());
+		auto in = image_tmp_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood{1, 1});
+		auto out = image_output_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one{});
 		cgh.parallel_for<class sharpen>(cl::sycl::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](cl::sycl::item<2> item) {
 			using cl::sycl::float3;
 			if(is_on_boundary(cl::sycl::range<2>(image_height, image_width), fs, item)) {
@@ -101,8 +101,7 @@ int main(int argc, char* argv[]) {
 	});
 
 	queue.submit([=](celerity::handler& cgh) {
-		auto out = image_output_buf.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(
-		    cgh, celerity::access::all<1, 2>{}); // we need to access all of the 2D buffer, but the master-node task produces a one-dimensional chunk
+		auto out = image_output_buf.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all{});
 
 		cgh.host_task(celerity::on_master_node, [=] {
 			std::vector<uint8_t> image_output(image_width * image_height * 3);

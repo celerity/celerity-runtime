@@ -81,7 +81,7 @@ namespace detail {
 		for(const buffer_id bid : buffers) {
 			const auto modes = access_map.get_access_modes(bid);
 			for(auto m : modes) {
-				result[bid][m] = access_map.get_requirements_for_access(bid, m, sr, global_size);
+				result[bid][m] = access_map.get_requirements_for_access(bid, m, tsk->get_dimensions(), sr, global_size);
 			}
 		}
 		return result;

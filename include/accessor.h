@@ -3,7 +3,6 @@
 #include <type_traits>
 
 #include <CL/sycl.hpp>
-#include <allscale/utils/functional_utils.h>
 
 #include "access_modes.h"
 #include "buffer.h"
@@ -135,13 +134,9 @@ class accessor<DataT, Dims, Mode, cl::sycl::target::device> : public detail::acc
 
 	template <cl::sycl::target Target = cl::sycl::target::device, typename Functor>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
-		using rmfn_traits = allscale::utils::lambda_traits<Functor>;
-		static_assert(rmfn_traits::result_type::dims == Dims, "The returned subrange doesn't match buffer dimensions.");
-
 		if(detail::is_prepass_handler(cgh)) {
 			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
-			prepass_cgh.add_requirement(
-			    detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<rmfn_traits::arg1_type::dims, Dims>>(rmfn, Mode, buff.get_range()));
+			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, buff.get_range()));
 			sycl_accessor = sycl_accessor_t();
 
 		} else {
@@ -151,9 +146,8 @@ class accessor<DataT, Dims, Mode, cl::sycl::target::device> : public detail::acc
 				    "If you want to access this buffer from within a host task, please specialize the call using one of the *_host_task tags");
 			}
 			auto& live_cgh = dynamic_cast<detail::live_pass_device_handler&>(cgh);
-			// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper
-			// manually. This also means that we have to clamp the subrange ourselves here, which is not ideal from an encapsulation standpoint.
-			const auto sr = detail::clamp_subrange_to_buffer_size(live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range()), buff.get_range());
+			// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper manually.
+			const auto sr = live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range());
 			auto access_info = detail::runtime::get_instance().get_buffer_manager().get_device_buffer<DataT, Dims>(
 			    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(sr.range), detail::id_cast<3>(sr.offset));
 			eventual_sycl_cgh = live_cgh.get_eventual_sycl_cgh();
@@ -287,13 +281,9 @@ class accessor<DataT, Dims, Mode, cl::sycl::target::host_buffer> : public detail
 		    "The accessor constructor overload for master-access tasks (now called 'host tasks') has "
 		    "been removed with Celerity 0.2.0. Please provide a range mapper instead.");
 
-		using rmfn_traits = allscale::utils::lambda_traits<Functor>;
-		static_assert(rmfn_traits::result_type::dims == Dims, "The returned subrange doesn't match buffer dimensions.");
-
 		if(detail::is_prepass_handler(cgh)) {
 			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
-			prepass_cgh.add_requirement(
-			    detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<rmfn_traits::arg1_type::dims, Dims>>(rmfn, Mode, buff.get_range()));
+			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, buff.get_range()));
 		} else {
 			if constexpr(Target == cl::sycl::target::host_buffer) {
 				if(detail::get_handler_execution_target(cgh) != detail::execution_target::HOST) {
@@ -303,8 +293,8 @@ class accessor<DataT, Dims, Mode, cl::sycl::target::host_buffer> : public detail
 				}
 				auto& live_cgh = dynamic_cast<detail::live_pass_host_handler&>(cgh);
 				// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper
-				// manually. This also means that we have to clamp the subrange ourselves here, which is not ideal from an encapsulation standpoint.
-				const auto sr = detail::clamp_subrange_to_buffer_size(live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range()), buff.get_range());
+				// manually.
+				const auto sr = live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range());
 				auto access_info = detail::runtime::get_instance().get_buffer_manager().get_host_buffer<DataT, Dims>(
 				    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(sr.range), detail::id_cast<3>(sr.offset));
 

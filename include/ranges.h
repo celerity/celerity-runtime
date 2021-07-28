@@ -60,6 +60,11 @@ struct chunk {
 	chunk() = default;
 
 	chunk(cl::sycl::id<Dims> offset, cl::sycl::range<Dims> range, cl::sycl::range<Dims> global_size) : offset(offset), range(range), global_size(global_size) {}
+
+	friend bool operator==(const chunk& lhs, const chunk& rhs) {
+		return lhs.offset == rhs.offset && lhs.range == rhs.range && lhs.global_size == rhs.global_size;
+	}
+	friend bool operator!=(const chunk& lhs, const chunk& rhs) { return !operator==(lhs, rhs); }
 };
 
 template <int Dims>
@@ -77,7 +82,8 @@ struct subrange {
 
 	subrange(chunk<Dims> other) : offset(other.offset), range(other.range) {}
 
-	bool operator==(const subrange& rhs) { return offset == rhs.offset && range == rhs.range; }
+	friend bool operator==(const subrange& lhs, const subrange& rhs) { return lhs.offset == rhs.offset && lhs.range == rhs.range; }
+	friend bool operator!=(const subrange& lhs, const subrange& rhs) { return !operator==(lhs, rhs); }
 };
 
 namespace detail {
