@@ -254,7 +254,7 @@ namespace experimental::access {
 	 *
 	 * This range mapper is unique in the sense that the chunk parameter (i.e. the iteration space) is unrelated to the buffer indices it maps to.
 	 * It is designed to distribute a buffer in contiguous portions between nodes for collective host tasks, allowing each node to output its portion in
-	 * I/O operations. See `accessor::get_host_memory` on how to access the resulting host memory.
+	 * I/O operations. See `accessor::get_allocation_window` on how to access the resulting host memory.
 	 */
 	template <int BufferDims>
 	class even_split {

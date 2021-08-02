@@ -55,7 +55,9 @@ namespace detail {
 /**
  * Maps slices of the accessor backing buffer present on a host to the virtual global range of the Celerity buffer.
  */
-class host_memory_layout {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+class [[deprecated("host_memory_layout will be removed in favor of buffer_allocation_window in a future version of Celerity")]] host_memory_layout {
   public:
 	/**
 	 * Layout map for a single dimension describing the offset and strides of its hyperplanes.
@@ -67,7 +69,7 @@ class host_memory_layout {
 	 * itself). Each row (aka 1-dimensional hyperplane) is modelled by the same one-dimensional layout.
 	 * - and so on for arbitrary dimensioned layouts.
 	 */
-	class dimension {
+	class [[deprecated("host_memory_layout will be removed in favor of buffer_allocation_window in a future version of Celerity")]] dimension {
 	  public:
 		dimension() noexcept = default;
 
@@ -95,8 +97,7 @@ class host_memory_layout {
 		size_t extent{};
 	};
 
-	// TODO: This is a temporary replacement for Boost's static_vector; entire mechanism needs more comprehensive API overhaul.
-	class dimension_vector {
+	class [[deprecated("host_memory_layout will be removed in favor of buffer_allocation_window in a future version of Celerity")]] dimension_vector {
 	  public:
 		dimension_vector(size_t size) : this_size(size) {}
 
@@ -108,7 +109,6 @@ class host_memory_layout {
 	  private:
 		/**
 		 * Since contiguous dimensions can be merged when generating the memory layout, host_memory_layout is not generic over a fixed dimension count
-		 * TODO: Implement this ^
 		 */
 		constexpr static size_t max_dimensionality = 4;
 		std::array<dimension, max_dimensionality> values;
@@ -122,6 +122,51 @@ class host_memory_layout {
 
   private:
 	dimension_vector dimensions;
+};
+#pragma GCC diagnostic pop
+
+/**
+ * In addition to the usual per-item access through the subscript operator, accessors in distributed and collective host tasks can access the underlying memory
+ * of the node-local copy of a buffer directly through `accessor::get_allocation_window()`. Celerity does not replicate buffers fully on all nodes unless
+ * necessary, instead keeping an allocation of a subset that is resized as needed.
+ *
+ * buffer_allocation_window denotes how indices in the subrange assigned to one node (the _window_) map to the underlying buffer storage (the
+ * _allocation_). The structure threrefore describes three subranges: The buffer, the allocation, and the window, with the latter being fully contained in the
+ * former. Popular third-party APIs, such as HDF5 hyperslabs, can accept parameters from such an explicit description in one or the other form.
+ */
+template <typename T, int Dims>
+class buffer_allocation_window {
+  public:
+	T* get_allocation() const { return allocation; }
+
+	cl::sycl::range<Dims> get_buffer_range() const { return buffer_range; }
+
+	cl::sycl::range<Dims> get_allocation_range() const { return allocation_range; }
+
+	cl::sycl::range<Dims> get_window_range() const { return window_range; }
+
+	cl::sycl::id<Dims> get_allocation_offset_in_buffer() const { return allocation_offset_in_buffer; }
+
+	cl::sycl::id<Dims> get_window_offset_in_buffer() const { return window_offset_in_buffer; }
+
+	cl::sycl::id<Dims> get_window_offset_in_allocation() const { return window_offset_in_buffer - allocation_offset_in_buffer; }
+
+  private:
+	T* allocation;
+	cl::sycl::range<Dims> buffer_range;
+	cl::sycl::range<Dims> allocation_range;
+	cl::sycl::range<Dims> window_range;
+	cl::sycl::id<Dims> allocation_offset_in_buffer;
+	cl::sycl::id<Dims> window_offset_in_buffer;
+
+  public:
+	buffer_allocation_window(T* allocation, const cl::sycl::range<Dims>& buffer_range, const cl::sycl::range<Dims>& allocation_range,
+	    const cl::sycl::range<Dims>& window_range, const cl::sycl::id<Dims>& allocation_offset_in_buffer, const cl::sycl::id<Dims>& window_offset_in_buffer)
+	    : allocation(allocation), buffer_range(buffer_range), allocation_range(allocation_range), window_range(window_range),
+	      allocation_offset_in_buffer(allocation_offset_in_buffer), window_offset_in_buffer(window_offset_in_buffer) {}
+
+	template <typename, int, cl::sycl::access_mode, cl::sycl::target>
+	friend class accessor;
 };
 
 /**
@@ -375,13 +420,39 @@ class accessor<DataT, Dims, Mode, cl::sycl::target::host_buffer> : public detail
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
 	/**
+	 * Returns a pointer to the buffer allocation local to this node along with a description how this potentially smaller allocation maps to the underlying
+	 * virtual buffer and the partition available in the current host task.
+	 *
+	 * Accessing the returned allocation outside the window will lead to undefined results.
+	 */
+	template <int KernelDims>
+	buffer_allocation_window<DataT, Dims> get_allocation_window(const partition<KernelDims>& part) const {
+		// We already know the range mapper output for "chunk" from the constructor. The parameter is a purely semantic dependency which ensures that
+		// this function is not called outside a host task.
+		(void)part;
+
+		return {
+		    get_buffer().get_pointer(),
+		    virtual_buffer_range,
+		    get_buffer().get_range(),
+		    mapped_subrange.range,
+		    backing_buffer_offset,
+		    mapped_subrange.offset,
+		};
+	}
+
+	/**
 	 * Returns a pointer to the host-local backing buffer along with a mapping to the global virtual buffer.
 	 *
 	 * Each host keeps only part of the global (virtual) buffer locally. The layout information can be used, for example, to perform distributed I/O on the
 	 * partial buffer present at each host.
 	 */
+	// TODO remove this together with host_memory_layout after a grace period
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 	template <int KernelDims>
-	std::pair<DataT*, host_memory_layout> get_host_memory(const partition<KernelDims>& part) const {
+	[[deprecated("get_host_memory will be removed in a future version of Celerity. Use get_allocation_window instead")]] std::pair<DataT*, host_memory_layout>
+	get_host_memory(const partition<KernelDims>& part) const {
 		// We already know the range mapper output for "chunk" from the constructor. The parameter is a purely semantic dependency which ensures that
 		// this function is not called outside a host task.
 		(void)part;
@@ -397,6 +468,7 @@ class accessor<DataT, Dims, Mode, cl::sycl::target::host_buffer> : public detail
 
 		return {get_buffer().get_pointer(), host_memory_layout{dimensions}};
 	}
+#pragma GCC diagnostic pop
 
   private:
 	template <typename T, int D, cl::sycl::access_mode M, typename... Args>

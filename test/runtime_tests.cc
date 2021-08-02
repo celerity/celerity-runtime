@@ -1778,7 +1778,9 @@ namespace detail {
 		REQUIRE_NOTHROW(get_host_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(bid_b, {64, 64}, {32, 32}).get_pointer());
 	}
 
-	TEST_CASE("host accessor get_host_memory produces the correct memory layout", "[task]") {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+	TEST_CASE("deprecated host_memory_layout continues to work", "[task]") {
 		distr_queue q;
 
 		std::vector<char> memory1d(10);
@@ -1858,6 +1860,83 @@ namespace detail {
 				CHECK(dims[2].get_global_offset() == 3);
 				CHECK(dims[2].get_global_size() == 10);
 				CHECK(dims[2].get_extent() == 7);
+			});
+		});
+	}
+#pragma GCC diagnostic pop
+
+	TEST_CASE("host accessor get_allocation_window produces the correct memory layout", "[task]") {
+		distr_queue q;
+
+		std::vector<char> memory1d(10);
+		buffer<char, 1> buf1d(memory1d.data(), cl::sycl::range<1>(10));
+
+		q.submit([=](handler& cgh) {
+			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, all<1>());
+			cgh.host_task(on_master_node, [=](partition<0> part) {
+				auto aw = b.get_allocation_window(part);
+				CHECK(aw.get_window_offset_in_buffer()[0] == 0);
+				CHECK(aw.get_window_offset_in_allocation()[0] == 0);
+				CHECK(aw.get_buffer_range()[0] == 10);
+				CHECK(aw.get_allocation_range()[0] >= 10);
+				CHECK(aw.get_window_range()[0] == 10);
+			});
+		});
+
+		q.submit([=](handler& cgh) {
+			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, one_to_one<1>());
+			cgh.host_task(cl::sycl::range<1>(6), cl::sycl::id<1>(2), [=](partition<1> part) {
+				auto aw = b.get_allocation_window(part);
+				CHECK(aw.get_window_offset_in_buffer()[0] == 2);
+				CHECK(aw.get_window_offset_in_allocation()[0] <= 2);
+				CHECK(aw.get_buffer_range()[0] == 10);
+				CHECK(aw.get_allocation_range()[0] >= 6);
+				CHECK(aw.get_allocation_range()[0] <= 10);
+				CHECK(aw.get_window_range()[0] == 6);
+			});
+		});
+
+		std::vector<char> memory2d(10 * 10);
+		buffer<char, 2> buf2d(memory2d.data(), cl::sycl::range<2>(10, 10));
+
+		q.submit([=](handler& cgh) {
+			auto b = buf2d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, one_to_one<2>());
+			cgh.host_task(cl::sycl::range<2>(5, 6), cl::sycl::id<2>(1, 2), [=](partition<2> part) {
+				auto aw = b.get_allocation_window(part);
+				CHECK(aw.get_window_offset_in_buffer()[0] == 1);
+				CHECK(aw.get_buffer_range()[0] == 10);
+				CHECK(aw.get_window_offset_in_allocation()[0] <= 1);
+				CHECK(aw.get_allocation_range()[0] >= 6);
+				CHECK(aw.get_allocation_range()[0] <= 10);
+				CHECK(aw.get_window_range()[0] == 5);
+				CHECK(aw.get_window_offset_in_buffer()[1] == 2);
+				CHECK(aw.get_buffer_range()[1] == 10);
+				CHECK(aw.get_window_range()[1] == 6);
+			});
+		});
+
+		std::vector<char> memory3d(10 * 10 * 10);
+		buffer<char, 3> buf3d(memory3d.data(), cl::sycl::range<3>(10, 10, 10));
+
+		q.submit([=](handler& cgh) {
+			auto b = buf3d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, one_to_one<3>());
+			cgh.host_task(cl::sycl::range<3>(5, 6, 7), cl::sycl::id<3>(1, 2, 3), [=](partition<3> part) {
+				auto aw = b.get_allocation_window(part);
+				CHECK(aw.get_window_offset_in_buffer()[0] == 1);
+				CHECK(aw.get_window_offset_in_allocation()[0] <= 1);
+				CHECK(aw.get_buffer_range()[0] == 10);
+				CHECK(aw.get_allocation_range()[0] >= 5);
+				CHECK(aw.get_allocation_range()[0] <= 10);
+				CHECK(aw.get_window_range()[0] == 5);
+				CHECK(aw.get_window_offset_in_buffer()[1] == 2);
+				CHECK(aw.get_window_offset_in_allocation()[1] <= 2);
+				CHECK(aw.get_buffer_range()[1] == 10);
+				CHECK(aw.get_allocation_range()[1] >= 6);
+				CHECK(aw.get_allocation_range()[1] <= 10);
+				CHECK(aw.get_window_range()[1] == 6);
+				CHECK(aw.get_window_offset_in_buffer()[2] == 3);
+				CHECK(aw.get_buffer_range()[2] == 10);
+				CHECK(aw.get_window_range()[2] == 7);
 			});
 		});
 	}

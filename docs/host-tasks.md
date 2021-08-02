@@ -140,9 +140,9 @@ Collective host tasks are special in that they receive an implicit one-dimension
 the participating nodes. To access buffers in a meaningful way, these node indices must be translated to buffer regions.
 In the typical Celerity fashion, this is handled via range mappers.
 
-The `celerity::experimental::even_split` range mapper maps a one-dimensional range onto arbitrary-dimensional buffers
-by splitting them along the first (slowest) dimension into contiguous memory portions.
-`celerity::accessor::get_host_memory` can then be used to retrieve the host-local chunk of the buffer:
+The `celerity::experimental::even_split` range mapper maps a one-dimensional range onto arbitrary-dimensional buffers by
+splitting them along the first (slowest) dimension into contiguous memory portions.
+`celerity::accessor::get_allocation_window` can then be used to retrieve the host-local chunk of the buffer:
 
 ```cpp
 celerity::distr_queue q;
@@ -153,7 +153,7 @@ q.submit([=](celerity::handler& cgh) {
             celerity::experimental::access::even_split<2>());
     cgh.host_task(celerity::experimental::collective,
             [=](celerity::experimental::collective_partition part) {
-        auto [data, layout] = acc.get_host_memory(part);
+        auto aw = acc.get_allocation_window(part);
         // ...
     });
 });
