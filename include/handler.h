@@ -169,7 +169,7 @@ class handler {
 	 *
 	 * The kernel is executed in a background thread pool with multiple host tasks being run concurrently if they are independent in the task graph,
 	 * so proper synchronization must be ensured. The partition passed into the kernel describes the split each host receives. It may be used with accessors
-	 * to obtain the per-node portion of a buffer en-bloc, see `celerity::accessor::get_host_memory` for details.
+	 * to obtain the per-node portion of a buffer en-bloc, see `celerity::accessor::get_allocation_window` for details.
 	 *
 	 * There are no guarantees with respect to the split size and the order in which host tasks are re-orered between nodes other than
 	 * the restrictions imposed by dependencies in the task graph. Also, the kernel may be invoked multiple times on one node and not be scheduled on

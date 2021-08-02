@@ -6,25 +6,24 @@
 #include <hdf5.h>
 
 
-static std::pair<hid_t, hid_t> host_memory_layout_to_dataspace(const celerity::host_memory_layout& layout) {
-	auto& layout_dims = layout.get_dimensions();
-
-	hsize_t file_size[2], file_start[2], file_count[2];
-	hsize_t buffer_size[2], buffer_start[2], buffer_count[2];
+static std::pair<hid_t, hid_t> allocation_window_to_dataspace(const celerity::buffer_allocation_window<float, 2>& layout) {
+	hsize_t file_size[2], file_start[2];
+	hsize_t allocation_size[2], allocation_start[2];
+	hsize_t count[2];
 	for(int d = 0; d < 2; ++d) {
-		file_size[d] = layout_dims[d].get_global_size();
-		file_start[d] = layout_dims[d].get_global_offset();
-		buffer_size[d] = layout_dims[d].get_local_size();
-		buffer_start[d] = layout_dims[d].get_local_offset();
-		file_count[d] = buffer_count[d] = layout_dims[d].get_extent();
+		file_size[d] = layout.get_buffer_range()[d];
+		file_start[d] = layout.get_window_offset_in_buffer()[d];
+		allocation_size[d] = layout.get_allocation_range()[d];
+		allocation_start[d] = layout.get_window_offset_in_allocation()[d];
+		count[d] = layout.get_window_range()[d];
 	}
 
 	auto file_space = H5Screate_simple(2, file_size, nullptr);
-	H5Sselect_hyperslab(file_space, H5S_SELECT_SET, file_start, nullptr, file_count, nullptr);
-	auto buffer_space = H5Screate_simple(2, buffer_size, nullptr);
-	H5Sselect_hyperslab(buffer_space, H5S_SELECT_SET, buffer_start, nullptr, buffer_count, nullptr);
+	H5Sselect_hyperslab(file_space, H5S_SELECT_SET, file_start, nullptr, count, nullptr);
+	auto allocation_space = H5Screate_simple(2, allocation_size, nullptr);
+	H5Sselect_hyperslab(allocation_space, H5S_SELECT_SET, allocation_start, nullptr, count, nullptr);
 
-	return {file_space, buffer_space};
+	return {file_space, allocation_space};
 }
 
 
@@ -41,13 +40,13 @@ static void read_hdf5_file(celerity::distr_queue& q, const celerity::buffer<floa
 			plist = H5Pcreate(H5P_DATASET_XFER);
 			H5Pset_dxpl_mpio(plist, H5FD_MPIO_COLLECTIVE);
 
-			auto [data, layout] = a.get_host_memory(part);
-			auto [file_space, buffer_space] = host_memory_layout_to_dataspace(layout);
+			auto allocation_window = a.get_allocation_window(part);
+			auto [file_space, allocation_space] = allocation_window_to_dataspace(allocation_window);
 			auto dataset = H5Dopen(file, "data", H5P_DEFAULT);
-			H5Dread(dataset, H5T_NATIVE_FLOAT, buffer_space, file_space, plist, data);
+			H5Dread(dataset, H5T_NATIVE_FLOAT, allocation_space, file_space, plist, allocation_window.get_allocation());
 
 			H5Dclose(dataset);
-			H5Sclose(buffer_space);
+			H5Sclose(allocation_space);
 			H5Sclose(file_space);
 			H5Fclose(file);
 			H5Pclose(plist);
@@ -68,13 +67,13 @@ static void write_hdf5_file(celerity::distr_queue& q, const celerity::buffer<flo
 			plist = H5Pcreate(H5P_DATASET_XFER);
 			H5Pset_dxpl_mpio(plist, H5FD_MPIO_COLLECTIVE);
 
-			auto [data, layout] = a.get_host_memory(part);
-			auto [file_space, buffer_space] = host_memory_layout_to_dataspace(layout);
+			auto allocation_window = a.get_allocation_window(part);
+			auto [file_space, allocation_space] = allocation_window_to_dataspace(allocation_window);
 			auto dataset = H5Dcreate(file, "data", H5T_NATIVE_FLOAT, file_space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-			H5Dwrite(dataset, H5T_NATIVE_FLOAT, buffer_space, file_space, plist, data);
+			H5Dwrite(dataset, H5T_NATIVE_FLOAT, allocation_space, file_space, plist, allocation_window.get_allocation());
 
 			H5Dclose(dataset);
-			H5Sclose(buffer_space);
+			H5Sclose(allocation_space);
 			H5Sclose(file_space);
 			H5Fclose(file);
 			H5Pclose(plist);
