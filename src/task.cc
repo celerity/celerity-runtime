@@ -39,8 +39,8 @@ namespace detail {
 
 		GridRegion<3> result;
 		for(auto iter = first; iter != last; ++iter) {
-			auto range = iter->second.get();
-			if(range->get_access_mode() != mode) continue;
+			auto rm = iter->second.get();
+			if(rm->get_access_mode() != mode) continue;
 
 			chunk<3> chnk{sr.offset, sr.range, global_size};
 			subrange<3> req;
@@ -48,9 +48,9 @@ namespace detail {
 			case 0:
 				[[fallthrough]]; // cl::sycl::range is not defined for the 0d case, but since only constant range mappers are useful in the 0d-kernel case
 				                 // anyway, we require range mappers to take at least 1d subranges
-			case 1: req = apply_range_mapper<1>(range, chunk_cast<1>(chnk)); break;
-			case 2: req = apply_range_mapper<2>(range, chunk_cast<2>(chnk)); break;
-			case 3: req = apply_range_mapper<3>(range, chunk_cast<3>(chnk)); break;
+			case 1: req = apply_range_mapper<1>(rm, chunk_cast<1>(chnk)); break;
+			case 2: req = apply_range_mapper<2>(rm, chunk_cast<2>(chnk)); break;
+			case 3: req = apply_range_mapper<3>(rm, chunk_cast<3>(chnk)); break;
 			default: assert(!"Unreachable");
 			}
 			result = GridRegion<3>::merge(result, subrange_to_grid_box(req));
