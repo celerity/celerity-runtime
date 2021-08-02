@@ -89,12 +89,12 @@ struct subrange {
 namespace detail {
 
 	template <int Dims, int OtherDims>
-	chunk<Dims> chunk_cast(chunk<OtherDims> other) {
+	chunk<Dims> chunk_cast(const chunk<OtherDims>& other) {
 		return chunk{detail::id_cast<Dims>(other.offset), detail::range_cast<Dims>(other.range), detail::range_cast<Dims>(other.global_size)};
 	}
 
 	template <int Dims, int OtherDims>
-	subrange<Dims> subrange_cast(subrange<OtherDims> other) {
+	subrange<Dims> subrange_cast(const subrange<OtherDims>& other) {
 		return subrange{detail::id_cast<Dims>(other.offset), detail::range_cast<Dims>(other.range)};
 	}
 

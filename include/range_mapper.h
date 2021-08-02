@@ -87,15 +87,15 @@ namespace detail {
 
 		virtual int get_buffer_dimensions() const = 0;
 
-		virtual subrange<1> map_1(chunk<1> chnk) const = 0;
-		virtual subrange<1> map_1(chunk<2> chnk) const = 0;
-		virtual subrange<1> map_1(chunk<3> chnk) const = 0;
-		virtual subrange<2> map_2(chunk<1> chnk) const = 0;
-		virtual subrange<2> map_2(chunk<2> chnk) const = 0;
-		virtual subrange<2> map_2(chunk<3> chnk) const = 0;
-		virtual subrange<3> map_3(chunk<1> chnk) const = 0;
-		virtual subrange<3> map_3(chunk<2> chnk) const = 0;
-		virtual subrange<3> map_3(chunk<3> chnk) const = 0;
+		virtual subrange<1> map_1(const chunk<1>& chnk) const = 0;
+		virtual subrange<1> map_1(const chunk<2>& chnk) const = 0;
+		virtual subrange<1> map_1(const chunk<3>& chnk) const = 0;
+		virtual subrange<2> map_2(const chunk<1>& chnk) const = 0;
+		virtual subrange<2> map_2(const chunk<2>& chnk) const = 0;
+		virtual subrange<2> map_2(const chunk<3>& chnk) const = 0;
+		virtual subrange<3> map_3(const chunk<1>& chnk) const = 0;
+		virtual subrange<3> map_3(const chunk<2>& chnk) const = 0;
+		virtual subrange<3> map_3(const chunk<3>& chnk) const = 0;
 
 		virtual ~range_mapper_base() = default;
 
@@ -111,22 +111,22 @@ namespace detail {
 
 		int get_buffer_dimensions() const override { return BufferDims; }
 
-		subrange<1> map_1(chunk<1> chnk) const override { return map<1>(chnk); }
-		subrange<1> map_1(chunk<2> chnk) const override { return map<1>(chnk); }
-		subrange<1> map_1(chunk<3> chnk) const override { return map<1>(chnk); }
-		subrange<2> map_2(chunk<1> chnk) const override { return map<2>(chnk); }
-		subrange<2> map_2(chunk<2> chnk) const override { return map<2>(chnk); }
-		subrange<2> map_2(chunk<3> chnk) const override { return map<2>(chnk); }
-		subrange<3> map_3(chunk<1> chnk) const override { return map<3>(chnk); }
-		subrange<3> map_3(chunk<2> chnk) const override { return map<3>(chnk); }
-		subrange<3> map_3(chunk<3> chnk) const override { return map<3>(chnk); }
+		subrange<1> map_1(const chunk<1>& chnk) const override { return map<1>(chnk); }
+		subrange<1> map_1(const chunk<2>& chnk) const override { return map<1>(chnk); }
+		subrange<1> map_1(const chunk<3>& chnk) const override { return map<1>(chnk); }
+		subrange<2> map_2(const chunk<1>& chnk) const override { return map<2>(chnk); }
+		subrange<2> map_2(const chunk<2>& chnk) const override { return map<2>(chnk); }
+		subrange<2> map_2(const chunk<3>& chnk) const override { return map<2>(chnk); }
+		subrange<3> map_3(const chunk<1>& chnk) const override { return map<3>(chnk); }
+		subrange<3> map_3(const chunk<2>& chnk) const override { return map<3>(chnk); }
+		subrange<3> map_3(const chunk<3>& chnk) const override { return map<3>(chnk); }
 
 	  private:
 		Functor rmfn;
 		cl::sycl::range<BufferDims> buffer_size;
 
 		template <int OtherBufferDims, int KernelDims>
-		subrange<OtherBufferDims> map(chunk<KernelDims> chnk) const {
+		subrange<OtherBufferDims> map(const chunk<KernelDims>& chnk) const {
 			if constexpr(OtherBufferDims == BufferDims) {
 				auto sr = invoke_range_mapper_for_kernel(rmfn, chnk, buffer_size);
 				return clamp_subrange_to_buffer_size(sr, buffer_size);
@@ -149,7 +149,7 @@ namespace access {
 	template <>
 	struct one_to_one<0> {
 		template <int Dims>
-		subrange<Dims> operator()(chunk<Dims> chnk) const {
+		subrange<Dims> operator()(const chunk<Dims>& chnk) const {
 			return chnk;
 		}
 	};
@@ -165,10 +165,10 @@ namespace access {
 
 	template <int BufferDims>
 	struct fixed<BufferDims, BufferDims> {
-		fixed(subrange<BufferDims> sr) : sr(sr) {}
+		fixed(const subrange<BufferDims>& sr) : sr(sr) {}
 
 		template <int KernelDims>
-		subrange<BufferDims> operator()(chunk<KernelDims>) const {
+		subrange<BufferDims> operator()(const chunk<KernelDims>&) const {
 			return sr;
 		}
 
@@ -179,7 +179,7 @@ namespace access {
 	template <int KernelDims, int BufferDims>
 	struct fixed : fixed<BufferDims, BufferDims> {
 		[[deprecated("Explicitly-dimensioned range mappers are deprecated, remove first template argument from celerity::fixed")]] //
-		fixed(subrange<BufferDims> sr)
+		fixed(const subrange<BufferDims>& sr)
 		    : fixed<BufferDims, BufferDims>(sr) {}
 	};
 
@@ -190,7 +190,7 @@ namespace access {
 	struct slice {
 		slice(size_t dim_idx) : dim_idx(dim_idx) { assert(dim_idx < Dims && "Invalid slice dimension index (starts at 0)"); }
 
-		subrange<Dims> operator()(chunk<Dims> chnk) const {
+		subrange<Dims> operator()(const chunk<Dims>& chnk) const {
 			subrange<Dims> result = chnk;
 			result.offset[dim_idx] = 0;
 			// Since we don't know the range of the buffer, we just set it way too high and let it be clamped to the correct range
@@ -208,7 +208,7 @@ namespace access {
 	template <>
 	struct all<0, 0> {
 		template <int KernelDims, int BufferDims>
-		subrange<BufferDims> operator()(chunk<KernelDims>, cl::sycl::range<BufferDims> buffer_size) const {
+		subrange<BufferDims> operator()(const chunk<KernelDims>&, const cl::sycl::range<BufferDims>& buffer_size) const {
 			return {{}, buffer_size};
 		}
 	};
@@ -228,7 +228,7 @@ namespace access {
 		template <int D = Dims, std::enable_if_t<D == 3, void*>...>
 		neighborhood(size_t dim0, size_t dim1, size_t dim2) : dim0(dim0), dim1(dim1), dim2(dim2) {}
 
-		subrange<Dims> operator()(chunk<Dims> chnk) const {
+		subrange<Dims> operator()(const chunk<Dims>& chnk) const {
 			subrange<3> result = {celerity::detail::id_cast<3>(chnk.offset), celerity::detail::range_cast<3>(chnk.range)};
 			const cl::sycl::id<3> delta = {dim0 < result.offset[0] ? dim0 : result.offset[0], dim1 < result.offset[1] ? dim1 : result.offset[1],
 			    dim2 < result.offset[2] ? dim2 : result.offset[2]};
@@ -262,9 +262,9 @@ namespace experimental::access {
 
 	  public:
 		even_split() = default;
-		explicit even_split(cl::sycl::range<BufferDims> granularity) : granularity(granularity) {}
+		explicit even_split(const cl::sycl::range<BufferDims>& granularity) : granularity(granularity) {}
 
-		subrange<BufferDims> operator()(chunk<1> chunk, cl::sycl::range<BufferDims> buffer_size) const {
+		subrange<BufferDims> operator()(const chunk<1>& chunk, const cl::sycl::range<BufferDims>& buffer_size) const {
 			if(chunk.global_size[0] == 0) { return {}; }
 
 			// Equal splitting has edge cases when buffer_size is not a multiple of global_size * granularity. Splitting is performed in a manner that
