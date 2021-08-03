@@ -6,6 +6,7 @@
 
 namespace celerity {
 namespace detail {
+
 	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, bool is_master_node)
 	    : num_collective_nodes(num_collective_nodes), queue(queue), is_master_node(is_master_node), init_task_id(next_task_id++) {
 		// We add a special init task for initializing buffers.
@@ -41,12 +42,12 @@ namespace detail {
 		}
 	}
 
-	GridRegion<3> get_requirements(task const* tsk, buffer_id bid, const std::vector<cl::sycl::access::mode> modes, size_t num_collective_nodes) {
+	GridRegion<3> get_requirements(task const* tsk, buffer_id bid, const std::vector<cl::sycl::access::mode> modes) {
 		const auto& access_map = tsk->get_buffer_access_map();
 		const subrange<3> full_range{tsk->get_global_offset(), tsk->get_global_size()};
 		GridRegion<3> result;
 		for(auto m : modes) {
-			result = GridRegion<3>::merge(result, access_map.get_requirements_for_access(bid, m, full_range, tsk->get_global_size()));
+			result = GridRegion<3>::merge(result, access_map.get_requirements_for_access(bid, m, tsk->get_dimensions(), full_range, tsk->get_global_size()));
 		}
 		return result;
 	}
@@ -64,7 +65,7 @@ namespace detail {
 			// Determine reader dependencies
 			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_consumer)) {
 				const auto read_requirements =
-				    get_requirements(tsk.get(), bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()}, num_collective_nodes);
+				    get_requirements(tsk.get(), bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
 				const auto last_writers = buffers_last_writers.at(bid).get_region_values(read_requirements);
 
 				for(auto& p : last_writers) {
@@ -79,7 +80,7 @@ namespace detail {
 			// Update last writers and determine anti-dependencies
 			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_producer)) {
 				const auto write_requirements =
-				    get_requirements(tsk.get(), bid, {detail::access::producer_modes.cbegin(), detail::access::producer_modes.cend()}, num_collective_nodes);
+				    get_requirements(tsk.get(), bid, {detail::access::producer_modes.cbegin(), detail::access::producer_modes.cend()});
 				assert(!write_requirements.empty() && "Task specified empty buffer range requirement. This indicates potential anti-pattern.");
 				const auto last_writers = buffers_last_writers.at(bid).get_region_values(write_requirements);
 
@@ -97,8 +98,8 @@ namespace detail {
 							// - if the task itself also needs read access to that buffer (R/W access)
 							continue;
 						}
-						const auto dependent_read_requirements = get_requirements(
-						    dependent.node, bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()}, num_collective_nodes);
+						const auto dependent_read_requirements =
+						    get_requirements(dependent.node, bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
 						// Only add an anti-dependency if we are really writing over the region read by this task
 						if(!GridRegion<3>::intersect(write_requirements, dependent_read_requirements).empty()) {
 							tsk->add_dependency({dependent.node, dependency_kind::ANTI_DEP});

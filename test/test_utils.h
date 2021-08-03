@@ -29,11 +29,9 @@ namespace test_utils {
 	  public:
 		template <cl::sycl::access::mode Mode, typename Functor>
 		void get_access(handler& cgh, Functor rmfn) {
-			using rmfn_traits = allscale::utils::lambda_traits<Functor>;
-			static_assert(rmfn_traits::result_type::dims == Dims, "The returned subrange doesn't match buffer dimensions.");
 			if(detail::is_prepass_handler(cgh)) {
 				auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
-				prepass_cgh.add_requirement(id, std::make_unique<detail::range_mapper<rmfn_traits::arg1_type::dims, Dims>>(rmfn, Mode, size));
+				prepass_cgh.add_requirement(id, std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, size));
 			}
 		}
 

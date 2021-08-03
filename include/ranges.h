@@ -61,9 +61,10 @@ struct chunk {
 
 	chunk(cl::sycl::id<Dims> offset, cl::sycl::range<Dims> range, cl::sycl::range<Dims> global_size) : offset(offset), range(range), global_size(global_size) {}
 
-	template <int OtherDims>
-	chunk(chunk<OtherDims> other)
-	    : offset(detail::id_cast<Dims>(other.offset)), range(detail::range_cast<Dims>(other.range)), global_size(detail::range_cast<Dims>(other.global_size)) {}
+	friend bool operator==(const chunk& lhs, const chunk& rhs) {
+		return lhs.offset == rhs.offset && lhs.range == rhs.range && lhs.global_size == rhs.global_size;
+	}
+	friend bool operator!=(const chunk& lhs, const chunk& rhs) { return !operator==(lhs, rhs); }
 };
 
 template <int Dims>
@@ -79,12 +80,24 @@ struct subrange {
 
 	subrange(cl::sycl::id<Dims> offset, cl::sycl::range<Dims> range) : offset(offset), range(range) {}
 
-	template <int OtherDims>
-	subrange(subrange<OtherDims> other) : offset(detail::id_cast<Dims>(other.offset)), range(detail::range_cast<Dims>(other.range)) {}
-
 	subrange(chunk<Dims> other) : offset(other.offset), range(other.range) {}
 
-	bool operator==(const subrange& rhs) { return offset == rhs.offset && range == rhs.range; }
+	friend bool operator==(const subrange& lhs, const subrange& rhs) { return lhs.offset == rhs.offset && lhs.range == rhs.range; }
+	friend bool operator!=(const subrange& lhs, const subrange& rhs) { return !operator==(lhs, rhs); }
 };
+
+namespace detail {
+
+	template <int Dims, int OtherDims>
+	chunk<Dims> chunk_cast(const chunk<OtherDims>& other) {
+		return chunk{detail::id_cast<Dims>(other.offset), detail::range_cast<Dims>(other.range), detail::range_cast<Dims>(other.global_size)};
+	}
+
+	template <int Dims, int OtherDims>
+	subrange<Dims> subrange_cast(const subrange<OtherDims>& other) {
+		return subrange{detail::id_cast<Dims>(other.offset), detail::range_cast<Dims>(other.range)};
+	}
+
+} // namespace detail
 
 } // namespace celerity

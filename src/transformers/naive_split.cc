@@ -19,7 +19,7 @@ namespace detail {
 
 		std::vector<chunk<3>> result;
 		for(auto i = 0u; i < num_chunks; ++i) {
-			result.push_back(chnk);
+			result.push_back(chunk_cast<3>(chnk));
 			chnk.offset = chnk.offset + chnk.range;
 			if(i == num_chunks - 1) { result[i].range[0] += full_chunk.range.size() % num_chunks; }
 		}
@@ -34,8 +34,8 @@ namespace detail {
 		        num_chunks);
 		std::vector<chunk<3>> result;
 		for(auto& row : rows) {
-			result.push_back(
-			    chunk<2>{cl::sycl::id<2>(row.offset[0], full_chunk.offset[1]), cl::sycl::range<2>(row.range[0], full_chunk.range[1]), full_chunk.global_size});
+			result.push_back(chunk_cast<3>(
+			    chunk<2>{cl::sycl::id<2>(row.offset[0], full_chunk.offset[1]), cl::sycl::range<2>(row.range[0], full_chunk.range[1]), full_chunk.global_size}));
 		}
 		return result;
 	}
@@ -91,19 +91,19 @@ namespace detail {
 		std::vector<chunk<3>> chunks;
 		switch(tsk->get_dimensions()) {
 		case 1: {
-			chunks = split_equal(chunk<1>(full_chunk), num_chunks);
+			chunks = split_equal(chunk_cast<1>(full_chunk), num_chunks);
 		} break;
 		case 2: {
-			chunks = split_equal(chunk<2>(full_chunk), num_chunks);
+			chunks = split_equal(chunk_cast<2>(full_chunk), num_chunks);
 		} break;
 		case 3: {
-			chunks = split_equal(chunk<3>(full_chunk), num_chunks);
+			chunks = split_equal(full_chunk, num_chunks);
 		} break;
 		default: assert(false);
 		}
 
 		for(size_t i = 0; i < chunks.size(); ++i) {
-			cdag.create<task_command>(nodes[i], tsk->get_id(), chunks[i]);
+			cdag.create<task_command>(nodes[i], tsk->get_id(), subrange{chunks[i]});
 		}
 
 		// Remove original

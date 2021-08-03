@@ -11,12 +11,12 @@ namespace detail {
 
 template <int Dims>
 std::ostream& operator<<(std::ostream& os, chunk<Dims> chnk) {
-	return detail::print_chunk3(os, chnk);
+	return detail::print_chunk3(os, detail::chunk_cast<3>(chnk));
 }
 
 template <int Dims>
 std::ostream& operator<<(std::ostream& os, subrange<Dims> subr) {
-	return detail::print_subrange3(os, subr);
+	return detail::print_subrange3(os, detail::subrange_cast<3>(subr));
 }
 
 } // namespace celerity

@@ -44,7 +44,7 @@ namespace detail {
 			for(size_t nid = 0; nid < num_nodes; ++nid) {
 				auto offset = cl::sycl::id<1>{nid};
 				auto range = cl::sycl::range<1>{1};
-				const auto sr = subrange<1>{offset, range};
+				const auto sr = subrange_cast<3>(subrange<1>{offset, range});
 				auto* cmd = cdag.create<task_command>(nid, tid, sr);
 
 				// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
@@ -81,7 +81,7 @@ namespace detail {
 		for(const buffer_id bid : buffers) {
 			const auto modes = access_map.get_access_modes(bid);
 			for(auto m : modes) {
-				result[bid][m] = access_map.get_requirements_for_access(bid, m, sr, global_size);
+				result[bid][m] = access_map.get_requirements_for_access(bid, m, tsk->get_dimensions(), sr, global_size);
 			}
 		}
 		return result;

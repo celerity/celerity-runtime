@@ -9,7 +9,7 @@
 
 void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2> u, cl::sycl::float2 center, float amplitude, cl::sycl::float2 sigma) {
 	queue.submit([=](celerity::handler& cgh) {
-		celerity::accessor dw_u{u, cgh, celerity::access::one_to_one<2>(), cl::sycl::write_only, cl::sycl::no_init};
+		celerity::accessor dw_u{u, cgh, celerity::access::one_to_one{}, cl::sycl::write_only, cl::sycl::no_init};
 		cgh.parallel_for<class setup_wave>(u.get_range(), [=, c = center, a = amplitude, s = sigma](cl::sycl::item<2> item) {
 			const float dx = item[1] - c.x();
 			const float dy = item[0] - c.y();
@@ -20,7 +20,7 @@ void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2> u, cl::
 
 void zero(celerity::distr_queue& queue, celerity::buffer<float, 2> buf) {
 	queue.submit([=](celerity::handler& cgh) {
-		celerity::accessor dw_buf{buf, cgh, celerity::access::one_to_one<2>(), cl::sycl::write_only, cl::sycl::no_init};
+		celerity::accessor dw_buf{buf, cgh, celerity::access::one_to_one{}, cl::sycl::write_only, cl::sycl::no_init};
 		cgh.parallel_for<class zero>(buf.get_range(), [=](cl::sycl::item<2> item) { dw_buf[item] = 0.f; });
 	});
 }
@@ -40,8 +40,8 @@ struct update_config {
 template <typename T, typename Config, typename KernelName>
 void step(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T, 2> u, float dt, cl::sycl::float2 delta) {
 	queue.submit([=](celerity::handler& cgh) {
-		celerity::accessor rw_up{up, cgh, celerity::access::one_to_one<2>(), cl::sycl::read_write};
-		celerity::accessor r_u{u, cgh, celerity::access::neighborhood<2>(1, 1), cl::sycl::read_only};
+		celerity::accessor rw_up{up, cgh, celerity::access::one_to_one{}, cl::sycl::read_write};
+		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{1, 1}, cl::sycl::read_only};
 
 		const auto size = up.get_range();
 		cgh.parallel_for<KernelName>(size, [=](cl::sycl::item<2> item) {
@@ -69,7 +69,7 @@ template <typename T>
 void store(celerity::distr_queue& queue, celerity::buffer<T, 2> up, std::vector<std::vector<float>>& result_frames) {
 	const auto range = up.get_range();
 	queue.submit(celerity::allow_by_ref, [=, &result_frames](celerity::handler& cgh) {
-		celerity::accessor up_r{up, cgh, celerity::access::fixed<2>{{{}, range}}, cl::sycl::read_only_host_task};
+		celerity::accessor up_r{up, cgh, celerity::access::all{}, cl::sycl::read_only_host_task};
 		cgh.host_task(celerity::on_master_node, [=, &result_frames] {
 			result_frames.emplace_back();
 			auto& frame = *result_frames.rbegin();
