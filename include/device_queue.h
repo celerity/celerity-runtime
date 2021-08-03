@@ -6,6 +6,7 @@
 
 #include "config.h"
 #include "logger.h"
+#include "workaround.h"
 
 namespace celerity {
 namespace detail {
@@ -32,7 +33,14 @@ namespace detail {
 		 */
 		template <typename Fn>
 		cl::sycl::event submit(Fn&& fn) {
-			return sycl_queue->submit([fn = std::forward<Fn>(fn)](cl::sycl::handler& sycl_handler) { fn(sycl_handler); });
+			auto evt = sycl_queue->submit([fn = std::forward<Fn>(fn)](cl::sycl::handler& sycl_handler) { fn(sycl_handler); });
+#if WORKAROUND_HIPSYCL
+			// hipSYCL does not guarantee that command groups are actually scheduled until an explicit await operation, which we cannot insert without
+			// blocking the executor loop (See https://github.com/illuhad/hipSYCL/issues/599). Instead, we explicitly flush the queue to be able to continue
+			// using our polling-based approach.
+			hipsycl::rt::application::dag().flush_async();
+#endif
+			return evt;
 		}
 
 		/**
