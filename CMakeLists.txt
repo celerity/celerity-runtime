@@ -162,7 +162,7 @@ if(CELERITY_BUILD_EXAMPLES)
 
   find_package(PkgConfig)
   if (PkgConfig_FOUND)
-	pkg_check_modules(HDF5 IMPORTED_TARGET hdf5-1.12.0)
+	pkg_search_module(HDF5 IMPORTED_TARGET hdf5-openmpi hdf5-1.12.0 hdf5)
 	if(HDF5_FOUND)
       add_subdirectory(examples/distr_io)
       set_property(TARGET distr_io PROPERTY FOLDER "examples")
