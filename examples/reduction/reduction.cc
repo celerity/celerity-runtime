@@ -67,8 +67,8 @@ int main(int argc, char* argv[]) {
 	celerity::buffer<float, 1> max_value_buf{cl::sycl::range{1}};
 
 	q.submit([=](celerity::handler& cgh) {
-		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::one_to_one<2>{}, cl::sycl::read_only};
-		celerity::accessor rgb_acc{lab_buf, cgh, celerity::access::one_to_one<2>{}, cl::sycl::write_only, cl::sycl::no_init};
+		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::one_to_one{}, celerity::read_only};
+		celerity::accessor rgb_acc{lab_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		auto min_value_r = celerity::reduction(min_value_buf, cgh, cl::sycl::minimum<float>{}, cl::sycl::property::reduction::initialize_to_identity{});
 		auto max_value_r = celerity::reduction(max_value_buf, cgh, cl::sycl::maximum<float>{}, cl::sycl::property::reduction::initialize_to_identity{});
 		cgh.parallel_for<class linearize_and_accumulate>(image_size, min_value_r, max_value_r, [=](cl::sycl::item<2> item, auto& min_value, auto& max_value) {
@@ -82,16 +82,16 @@ int main(int argc, char* argv[]) {
 	});
 
 	q.submit([=](celerity::handler& cgh) {
-		celerity::accessor min_value_acc{min_value_buf, cgh, celerity::access::all<1>{}, cl::sycl::read_only_host_task};
-		celerity::accessor max_value_acc{max_value_buf, cgh, celerity::access::all<1>{}, cl::sycl::read_only_host_task};
+		celerity::accessor min_value_acc{min_value_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
+		celerity::accessor max_value_acc{max_value_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		cgh.host_task(celerity::on_master_node, [=] { printf("Before contrast stretch: min = %f, max = %f\n", min_value_acc[{}], max_value_acc[{}]); });
 	});
 
 	q.submit([=](celerity::handler& cgh) {
-		celerity::accessor rgb_acc{lab_buf, cgh, celerity::access::one_to_one<2>{}, cl::sycl::read_only};
-		celerity::accessor min_value_acc{min_value_buf, cgh, celerity::access::all<1>{}, cl::sycl::read_only};
-		celerity::accessor max_value_acc{max_value_buf, cgh, celerity::access::all<1>{}, cl::sycl::read_only};
-		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::one_to_one<2>{}, cl::sycl::write_only, cl::sycl::no_init};
+		celerity::accessor rgb_acc{lab_buf, cgh, celerity::access::one_to_one{}, celerity::read_only};
+		celerity::accessor min_value_acc{min_value_buf, cgh, celerity::access::all{}, celerity::read_only};
+		celerity::accessor max_value_acc{max_value_buf, cgh, celerity::access::all{}, celerity::read_only};
+		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for<class correct_and_compress>(image_size, [=](cl::sycl::item<2> item) {
 			const auto min = min_value_acc[{}], max = max_value_acc[{}];
 			auto rgb = rgb_acc[item];
@@ -103,7 +103,7 @@ int main(int argc, char* argv[]) {
 	});
 
 	q.submit([=](celerity::handler& cgh) {
-		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::all<2>{}, cl::sycl::read_only_host_task};
+		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		cgh.host_task(celerity::on_master_node, [=] { stbi_write_jpg("output.jpg", image_width, image_height, 4, srgb_255_acc.get_pointer(), 90); });
 	});
 

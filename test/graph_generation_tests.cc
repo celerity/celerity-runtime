@@ -1424,25 +1424,25 @@ namespace detail {
 		auto buf_0 = mbf.create_buffer(range);
 		auto buf_1 = mbf.create_buffer(cl::sycl::range<1>(1));
 
-		const auto tid_initialize =
-		    test_utils::add_compute_task<class UKN(task_initialize)>(tm, [&](handler& cgh) { buf_1.get_access<mode::discard_write>(cgh, one_to_one<1>{}); });
+		const auto tid_initialize = test_utils::add_compute_task<class UKN(task_initialize)>(
+		    tm, [&](handler& cgh) { buf_1.get_access<mode::discard_write>(cgh, one_to_one{}); }, range);
 		test_utils::build_and_flush(ctx, num_nodes, tid_initialize);
 
 		const auto tid_produce = test_utils::add_compute_task<class UKN(task_produce)>(
-		    tm, [&](handler& cgh) { buf_0.get_access<mode::discard_write>(cgh, one_to_one<1>{}); }, range);
+		    tm, [&](handler& cgh) { buf_0.get_access<mode::discard_write>(cgh, one_to_one{}); }, range);
 		test_utils::build_and_flush(ctx, num_nodes, tid_produce);
 
 		const auto tid_reduce = test_utils::add_compute_task<class UKN(task_reduce)>(
 		    tm,
 		    [&](handler& cgh) {
-			    buf_0.get_access<mode::read>(cgh, one_to_one<1>{});
+			    buf_0.get_access<mode::read>(cgh, one_to_one{});
 			    test_utils::add_reduction(cgh, rm, buf_1, true /* include_current_buffer_value */);
 		    },
 		    range);
 		test_utils::build_and_flush(ctx, num_nodes, tid_reduce);
 
 		const auto tid_consume = test_utils::add_compute_task<class UKN(task_consume)>(tm, [&](handler& cgh) {
-			buf_1.get_access<mode::read>(cgh, fixed<2, 1>({0, 1}));
+			buf_1.get_access<mode::read>(cgh, fixed<1>({0, 1}));
 		});
 		test_utils::build_and_flush(ctx, num_nodes, tid_consume);
 
@@ -1512,7 +1512,7 @@ namespace detail {
 		test_utils::build_and_flush(ctx, num_nodes, tid_reduce);
 
 		const auto tid_consume = test_utils::add_compute_task<class UKN(task_consume)>(tm, [&](handler& cgh) {
-			buf_0.get_access<mode::read>(cgh, fixed<2, 1>({0, 1}));
+			buf_0.get_access<mode::read>(cgh, fixed<1>({0, 1}));
 		});
 		test_utils::build_and_flush(ctx, num_nodes, tid_consume);
 
@@ -1539,17 +1539,17 @@ namespace detail {
 
 		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
 			test_utils::add_reduction(cgh, rm, buf_0, false);
-			buf_0.get_access<mode::write>(cgh, fixed<2, 1>({0, 1}));
+			buf_0.get_access<mode::write>(cgh, fixed<1>({0, 1}));
 		}));
 
 		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
 			test_utils::add_reduction(cgh, rm, buf_0, false);
-			buf_0.get_access<mode::read_write>(cgh, fixed<2, 1>({0, 1}));
+			buf_0.get_access<mode::read_write>(cgh, fixed<1>({0, 1}));
 		}));
 
 		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
 			test_utils::add_reduction(cgh, rm, buf_0, false);
-			buf_0.get_access<mode::discard_write>(cgh, fixed<2, 1>({0, 1}));
+			buf_0.get_access<mode::discard_write>(cgh, fixed<1>({0, 1}));
 		}));
 	}
 
@@ -1569,7 +1569,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf_0, false); }));
 
 		test_utils::build_and_flush(ctx, num_nodes, test_utils::add_compute_task<class UKN(task_discard)>(tm, [&](handler& cgh) {
-			buf_0.get_access<mode::discard_write>(cgh, fixed<2, 1>({0, 1}));
+			buf_0.get_access<mode::discard_write>(cgh, fixed<1>({0, 1}));
 		}));
 
 		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::REDUCTION).empty());
@@ -1593,9 +1593,9 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf_0, false); }));
 
 		test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
-			buf_0.get_access<mode::read>(cgh, fixed<2, 1>({0, 1}));
-			buf_0.get_access<mode::read_write>(cgh, fixed<2, 1>({0, 1}));
-			buf_0.get_access<mode::write>(cgh, fixed<2, 1>({0, 1}));
+			buf_0.get_access<mode::read>(cgh, fixed<1>({0, 1}));
+			buf_0.get_access<mode::read_write>(cgh, fixed<1>({0, 1}));
+			buf_0.get_access<mode::write>(cgh, fixed<1>({0, 1}));
 		}));
 
 		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::REDUCTION).size() == 1);
@@ -1619,7 +1619,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf_0, false); }));
 
 		auto host_tid = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
-			buf_0.get_access<mode::read_write>(cgh, fixed<2, 1>({0, 1}));
+			buf_0.get_access<mode::read_write>(cgh, fixed<1>({0, 1}));
 		}));
 
 		auto& inspector = ctx.get_inspector();
@@ -1646,13 +1646,13 @@ namespace detail {
 		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 
 		test_utils::build_and_flush(
-		    ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_0.get_access<mode::discard_write>(cgh, all<1>{}); }));
+		    ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_0.get_access<mode::discard_write>(cgh, all{}); }));
 
 		auto compute_tid = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf_0, true); }));
 
 		test_utils::build_and_flush(
-		    ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_0.get_access<mode::read>(cgh, all<2, 1>{}); }));
+		    ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_0.get_access<mode::read>(cgh, all{}); }));
 
 		// Although there are two writing tasks
 		auto& inspector = ctx.get_inspector();

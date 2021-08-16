@@ -33,8 +33,8 @@ namespace detail {
 			});
 		});
 		q.submit([=](handler& cgh) {
-			auto sum_acc = sum_buf.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all<1>{});
-			auto max_acc = max_buf.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all<1>{});
+			accessor sum_acc{sum_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
+			accessor max_acc{max_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			cgh.host_task(on_master_node, [=] {
 				CHECK(sum_acc[0] == (N + 1) * (N / 2));
 				CHECK(max_acc[0] == N);
@@ -58,7 +58,7 @@ namespace detail {
 		});
 
 		q.submit([=](handler& cgh) {
-			auto acc = sum.get_access<cl::sycl::access_mode::read, cl::sycl::target::host_buffer>(cgh, celerity::access::all<1>{});
+			accessor acc{sum, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			cgh.host_task(on_master_node, [=] { CHECK(acc[0] == N + init); });
 		});
 	}
@@ -81,7 +81,7 @@ namespace detail {
 		});
 
 		q.submit([=](handler& cgh) {
-			auto acc = sum.get_access<cl::sycl::access_mode::read_write, cl::sycl::target::host_buffer>(cgh, celerity::access::all<1>{});
+			accessor acc{sum, cgh, celerity::access::all{}, celerity::read_write_host_task};
 			cgh.host_task(on_master_node, [=] { CHECK(acc[0] == 3 * N); });
 		});
 	}
