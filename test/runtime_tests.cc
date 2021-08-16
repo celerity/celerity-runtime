@@ -1521,7 +1521,7 @@ namespace detail {
 			const auto range = cl::sycl::range<2>(32, 32);
 			const auto offset = cl::sycl::id<2>(32, 0);
 			auto sr = subrange<3>(id_cast<3>(offset), range_cast<3>(range));
-			live_pass_device_handler cgh(nullptr, sr, 0, dq);
+			live_pass_device_handler cgh(nullptr, sr, true, dq);
 
 			get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(cgh, bid, {48, 32}, {16, 0});
 			auto acc = get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(cgh, bid, {32, 32}, {32, 0});
@@ -1569,7 +1569,7 @@ namespace detail {
 		SECTION("when using device buffers") {
 			auto range = cl::sycl::range<1>(32);
 			auto sr = subrange<3>({}, range_cast<3>(range));
-			live_pass_device_handler cgh(nullptr, sr, 0, dq);
+			live_pass_device_handler cgh(nullptr, sr, true, dq);
 
 			// For device accessors we test this both on host and device
 
@@ -1688,7 +1688,7 @@ namespace detail {
 
 		auto range = cl::sycl::range<1>(2048);
 		auto sr = subrange<3>({}, range_cast<3>(range));
-		live_pass_device_handler cgh(nullptr, sr, 0, dq);
+		live_pass_device_handler cgh(nullptr, sr, true, dq);
 
 		auto device_acc = get_device_accessor<int, 1, cl::sycl::access::mode::atomic>(cgh, bid, {1}, {0});
 		cgh.parallel_for<class UKN(atomic_increment)>(range, [=](cl::sycl::id<1> id) {
@@ -2118,7 +2118,7 @@ namespace detail {
 
 		auto& q = accessor_fixture<Dims>::get_device_queue();
 		auto sr = subrange<3>({}, range);
-		live_pass_device_handler cgh(nullptr, sr, q);
+		live_pass_device_handler cgh(nullptr, sr, true, q);
 
 		// this kernel initializes the buffer what will be read after.
 		auto acc_write =
