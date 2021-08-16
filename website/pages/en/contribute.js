@@ -7,9 +7,23 @@ const GridBlock = CompLibrary.GridBlock;
 
 const publications = [
   {
+    title: "The Celerity High-level API: C++20 for Accelerator Clusters",
+    authors:
+      "Peter Thoman, Florian Tischler, Philip Salzmann, and Thomas Fahringer",
+    publishedAt: "HLPP 2021",
+  },
+  {
+    title:
+      "Porting Real-World Applications to GPU Clusters: A Celerity and CRONOS Case Study",
+    authors:
+      "Philipp Gschwandtner, Ralf Kissmann, David Huber, Philip Salzmann, Fabian Knorr, Peter Thoman, and Thomas Fahringer",
+    publishedAt: "eScience 2021",
+  },
+  {
     title: "Celerity: High-level C++ for Accelerator Clusters",
     authors: "Peter Thoman, Philip Salzmann, Biagio Cosenza, Thomas Fahringer",
     publishedAt: "Euro-Par 2019",
+    doi: "10.1007/978-3-030-29400-7_21",
   },
   {
     title:
@@ -22,6 +36,16 @@ const publications = [
 
 const events = [
   {
+    title: "SYCL Panel Discussion",
+    authors: "Peter Thoman",
+    info: "IWOCL/SYCLcon 2021",
+  },
+  {
+    title: "Celerity — High-Level Distributed Accelerator C++ Programming",
+    authors: "Philipp Gschwandtner",
+    info: "Talk at AHPC 2020",
+  },
+  {
     title: "Celerity: High-productivity Programming for Accelerator Clusters",
     authors: "Peter Thoman",
     info: "Talk at ScalPerf 2019",
@@ -32,6 +56,11 @@ const events = [
     info: "Demo session at HPCS 2019",
   },
 ];
+
+function formatDOI(doi) {
+  if (doi == null) return "";
+  return ` **DOI**:&nbsp;[${doi}](https://dx.doi.org/${doi})`;
+}
 
 const ResearchPage = ({ config }) => {
   const { baseUrl } = config;
@@ -44,11 +73,11 @@ const ResearchPage = ({ config }) => {
     <Block layout="twoColumn">
       {[
         {
-          title: "Publications",
+          title: "Selected Publications",
           content: publications
             .map(
-              ({ title, authors, publishedAt }) =>
-                `### ${title}\n${authors}\n**${publishedAt}**`
+              ({ title, authors, publishedAt, doi }) =>
+                `### ${title}\n${authors}\n**${publishedAt}**${formatDOI(doi)}`
             )
             .join("\n"),
         },
@@ -114,10 +143,20 @@ const ResearchPage = ({ config }) => {
   const Acknowledgements = () => (
     <div>
       <h2>Acknowledgements</h2>
-      This research has been partially funded by the{" "}
-      <strong>FWF (I 3388)</strong> and{" "}
-      <strong>DFG (CO 1544/1-1, project number 360291326)</strong> as part of
-      the <strong>CELERITY</strong> project.
+      <p>
+        This project has received funding from the{" "}
+        <strong>
+          European High-Performance Computing Joint Undertaking (JU)
+        </strong>{" "}
+        under grant agreement <strong>No 956137</strong>.
+      </p>
+
+      <p>
+        This research has been partially funded by the{" "}
+        <strong>FWF (I 3388)</strong> and{" "}
+        <strong>DFG (CO 1544/1-1, project number 360291326)</strong> as part of
+        the <strong>CELERITY</strong> project.
+      </p>
     </div>
   );
 
