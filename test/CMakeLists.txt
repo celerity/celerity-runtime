@@ -43,7 +43,7 @@ foreach(TEST_TARGET ${TEST_TARGETS})
   if(MSVC)
     target_compile_options(${TEST_TARGET} PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3 /bigobj)
   elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-    target_compile_options(${TEST_TARGET} PRIVATE -Wall -Wextra -Wextra -Wno-unused-parameter)
+    target_compile_options(${TEST_TARGET} PRIVATE -Wall -Wextra -Wextra -Wno-unused-parameter -Wno-unused-variable)
   endif()
 
   # We use the (undocumented) per-file function as we otherwise run into

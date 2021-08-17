@@ -429,8 +429,7 @@ namespace detail {
 		});
 
 		q.submit(allow_by_ref, [&](handler& cgh) {
-			auto b =
-			    buff.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::fixed<1>{{{}, buff.get_range()}});
+			auto b = buff.get_access<cl::sycl::access::mode::read, celerity::target::host_task>(cgh, celerity::access::fixed<1>{{{}, buff.get_range()}});
 			cgh.host_task(on_master_node, [=, &host_buff] {
 				std::this_thread::sleep_for(std::chrono::milliseconds(10)); // give the synchronization more time to fail
 				for(int i = 0; i < N; i++) {
@@ -707,16 +706,16 @@ namespace detail {
 			return result;
 		}
 
-		template <typename DataT, int Dims, cl::sycl::access_mode Mode>
-		accessor<DataT, Dims, Mode, cl::sycl::target::device> get_device_accessor(
+		template <typename DataT, int Dims, access_mode Mode>
+		accessor<DataT, Dims, Mode, celerity::target::device> get_device_accessor(
 		    live_pass_device_handler& cgh, buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
 			auto buf_info = bm->get_device_buffer<DataT, Dims>(bid, Mode, range_cast<3>(range), id_cast<3>(offset));
 			return detail::make_device_accessor<DataT, Dims, Mode>(
 			    cgh.get_eventual_sycl_cgh(), subrange<Dims>(offset, range), buf_info.buffer, buf_info.offset);
 		}
 
-		template <typename DataT, int Dims, cl::sycl::access_mode Mode>
-		accessor<DataT, Dims, Mode, cl::sycl::target::host_buffer> get_host_accessor(
+		template <typename DataT, int Dims, access_mode Mode>
+		accessor<DataT, Dims, Mode, celerity::target::host_task> get_host_accessor(
 		    buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
 			auto buf_info = bm->get_host_buffer<DataT, Dims>(bid, Mode, range_cast<3>(range), id_cast<3>(offset));
 			return detail::make_host_accessor<DataT, Dims, Mode>(
@@ -1787,7 +1786,7 @@ namespace detail {
 		buffer<char, 1> buf1d(memory1d.data(), cl::sycl::range<1>(10));
 
 		q.submit([=](handler& cgh) {
-			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, all{});
+			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, celerity::target::host_task>(cgh, all{});
 			cgh.host_task(on_master_node, [=](partition<0> part) {
 				auto [ptr, layout] = b.get_host_memory(part);
 				auto& dims = layout.get_dimensions();
@@ -1801,7 +1800,7 @@ namespace detail {
 		});
 
 		q.submit([=](handler& cgh) {
-			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, one_to_one{});
+			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, celerity::target::host_task>(cgh, one_to_one{});
 			cgh.host_task(cl::sycl::range<1>(6), cl::sycl::id<1>(2), [=](partition<1> part) {
 				auto [ptr, layout] = b.get_host_memory(part);
 				auto& dims = layout.get_dimensions();
@@ -1819,7 +1818,7 @@ namespace detail {
 		buffer<char, 2> buf2d(memory2d.data(), cl::sycl::range<2>(10, 10));
 
 		q.submit([=](handler& cgh) {
-			auto b = buf2d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, one_to_one{});
+			auto b = buf2d.get_access<cl::sycl::access::mode::discard_write, celerity::target::host_task>(cgh, one_to_one{});
 			cgh.host_task(cl::sycl::range<2>(5, 6), cl::sycl::id<2>(1, 2), [=](partition<2> part) {
 				auto [ptr, layout] = b.get_host_memory(part);
 				auto& dims = layout.get_dimensions();
@@ -1840,7 +1839,7 @@ namespace detail {
 		buffer<char, 3> buf3d(memory3d.data(), cl::sycl::range<3>(10, 10, 10));
 
 		q.submit([=](handler& cgh) {
-			auto b = buf3d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, one_to_one{});
+			auto b = buf3d.get_access<cl::sycl::access::mode::discard_write, celerity::target::host_task>(cgh, one_to_one{});
 			cgh.host_task(cl::sycl::range<3>(5, 6, 7), cl::sycl::id<3>(1, 2, 3), [=](partition<3> part) {
 				auto [ptr, layout] = b.get_host_memory(part);
 				auto& dims = layout.get_dimensions();
@@ -1872,7 +1871,7 @@ namespace detail {
 		buffer<char, 1> buf1d(memory1d.data(), cl::sycl::range<1>(10));
 
 		q.submit([=](handler& cgh) {
-			accessor b{buf1d, cgh, all{}, cl::sycl::write_only_host_task, cl::sycl::no_init};
+			accessor b{buf1d, cgh, all{}, celerity::write_only_host_task, celerity::no_init};
 			cgh.host_task(on_master_node, [=](partition<0> part) {
 				auto aw = b.get_allocation_window(part);
 				CHECK(aw.get_window_offset_in_buffer()[0] == 0);
@@ -1884,7 +1883,7 @@ namespace detail {
 		});
 
 		q.submit([=](handler& cgh) {
-			accessor b{buf1d, cgh, one_to_one{}, cl::sycl::write_only_host_task, cl::sycl::no_init};
+			accessor b{buf1d, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
 			cgh.host_task(cl::sycl::range<1>(6), cl::sycl::id<1>(2), [=](partition<1> part) {
 				auto aw = b.get_allocation_window(part);
 				CHECK(aw.get_window_offset_in_buffer()[0] == 2);
@@ -1900,7 +1899,7 @@ namespace detail {
 		buffer<char, 2> buf2d(memory2d.data(), cl::sycl::range<2>(10, 10));
 
 		q.submit([=](handler& cgh) {
-			accessor b{buf2d, cgh, one_to_one{}, cl::sycl::write_only_host_task, cl::sycl::no_init};
+			accessor b{buf2d, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
 			cgh.host_task(cl::sycl::range<2>(5, 6), cl::sycl::id<2>(1, 2), [=](partition<2> part) {
 				auto aw = b.get_allocation_window(part);
 				CHECK(aw.get_window_offset_in_buffer()[0] == 1);
@@ -1919,7 +1918,7 @@ namespace detail {
 		buffer<char, 3> buf3d(memory3d.data(), cl::sycl::range<3>(10, 10, 10));
 
 		q.submit([=](handler& cgh) {
-			accessor b{buf3d, cgh, one_to_one{}, cl::sycl::write_only_host_task, cl::sycl::no_init};
+			accessor b{buf3d, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
 			cgh.host_task(cl::sycl::range<3>(5, 6, 7), cl::sycl::id<3>(1, 2, 3), [=](partition<3> part) {
 				auto aw = b.get_allocation_window(part);
 				CHECK(aw.get_window_offset_in_buffer()[0] == 1);
@@ -2016,12 +2015,12 @@ namespace detail {
 		std::vector mem_a{42};
 		buffer<int, 1> buf_a(mem_a.data(), cl::sycl::range<1>{1});
 		q.submit([=](handler& cgh) {
-			auto a = buf_a.get_access<cl::sycl::access::mode::read_write, cl::sycl::access::target::host_buffer>(cgh, fixed<1>({0, 1}));
+			auto a = buf_a.get_access<cl::sycl::access::mode::read_write, celerity::target::host_task>(cgh, fixed<1>({0, 1}));
 			cgh.host_task(on_master_node, [=] { ++a[{0}]; });
 		});
 		int out = 0;
 		q.submit(celerity::allow_by_ref, [=, &out](handler& cgh) {
-			auto a = buf_a.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, fixed<1>({0, 1}));
+			auto a = buf_a.get_access<cl::sycl::access::mode::read, celerity::target::host_task>(cgh, fixed<1>({0, 1}));
 			cgh.host_task(on_master_node, [=, &out] { out = a[0]; });
 		});
 		q.slow_full_sync();
@@ -2037,20 +2036,20 @@ namespace detail {
 			tid = test_utils::add_compute_task<class get_access_with_tag>(
 			    tm,
 			    [&](handler& cgh) {
-				    accessor acc1{buf_a, cgh, one_to_one{}, cl::sycl::write_only};
-				    static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::write, cl::sycl::target::device>, decltype(acc1)>);
+				    accessor acc1{buf_a, cgh, one_to_one{}, celerity::write_only};
+				    static_assert(std::is_same_v<accessor<int, 1, access_mode::write, celerity::target::device>, decltype(acc1)>);
 
-				    accessor acc2{buf_a, cgh, one_to_one{}, cl::sycl::read_only};
-				    static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::read, cl::sycl::target::device>, decltype(acc2)>);
+				    accessor acc2{buf_a, cgh, one_to_one{}, celerity::read_only};
+				    static_assert(std::is_same_v<accessor<int, 1, access_mode::read, celerity::target::device>, decltype(acc2)>);
 
-				    accessor acc3{buf_a, cgh, one_to_one{}, cl::sycl::read_write};
-				    static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::read_write, cl::sycl::target::device>, decltype(acc3)>);
+				    accessor acc3{buf_a, cgh, one_to_one{}, celerity::read_write};
+				    static_assert(std::is_same_v<accessor<int, 1, access_mode::read_write, celerity::target::device>, decltype(acc3)>);
 
-				    accessor acc4{buf_a, cgh, one_to_one{}, cl::sycl::write_only, cl::sycl::no_init};
-				    static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::discard_write, cl::sycl::target::device>, decltype(acc4)>);
+				    accessor acc4{buf_a, cgh, one_to_one{}, celerity::write_only, celerity::no_init};
+				    static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_write, celerity::target::device>, decltype(acc4)>);
 
-				    accessor acc5{buf_a, cgh, one_to_one{}, cl::sycl::read_write, cl::sycl::no_init};
-				    static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::discard_read_write, cl::sycl::target::device>, decltype(acc5)>);
+				    accessor acc5{buf_a, cgh, one_to_one{}, celerity::read_write, celerity::no_init};
+				    static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, celerity::target::device>, decltype(acc5)>);
 			    },
 			    buf_a.get_range());
 		}
@@ -2060,34 +2059,34 @@ namespace detail {
 			tid = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 				//   The following line is commented because it produces a compile error but it is still a case we wanted to test.
 				//   Since we can not check the content of a property list at compile time, for now it is only accepted to pass either the property
-				//   cl::sycl::no_init or nothing.
-				// accessor acc0{buf_a, cgh, one_to_one{}, cl::sycl::write_only_host_task, cl::sycl::property_list{cl::sycl::no_init}};
+				//   celerity::no_init or nothing.
+				// accessor acc0{buf_a, cgh, one_to_one{}, cl::sycl::write_only_host_task, cl::sycl::property_list{celerity::no_init}};
 
-				accessor acc1{buf_a, cgh, one_to_one{}, cl::sycl::write_only_host_task};
-				static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::write, cl::sycl::target::host_buffer>, decltype(acc1)>);
+				accessor acc1{buf_a, cgh, one_to_one{}, celerity::write_only_host_task};
+				static_assert(std::is_same_v<accessor<int, 1, access_mode::write, celerity::target::host_task>, decltype(acc1)>);
 
-				accessor acc2{buf_a, cgh, one_to_one{}, cl::sycl::read_only_host_task};
-				static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::read, cl::sycl::target::host_buffer>, decltype(acc2)>);
+				accessor acc2{buf_a, cgh, one_to_one{}, celerity::read_only_host_task};
+				static_assert(std::is_same_v<accessor<int, 1, access_mode::read, celerity::target::host_task>, decltype(acc2)>);
 
-				accessor acc3{buf_a, cgh, fixed<1>{{0, 1}}, cl::sycl::read_write_host_task};
-				static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::read_write, cl::sycl::target::host_buffer>, decltype(acc3)>);
+				accessor acc3{buf_a, cgh, fixed<1>{{0, 1}}, celerity::read_write_host_task};
+				static_assert(std::is_same_v<accessor<int, 1, access_mode::read_write, celerity::target::host_task>, decltype(acc3)>);
 
-				accessor acc4{buf_a, cgh, one_to_one{}, cl::sycl::write_only_host_task, cl::sycl::no_init};
-				static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::discard_write, cl::sycl::target::host_buffer>, decltype(acc4)>);
+				accessor acc4{buf_a, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
+				static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_write, celerity::target::host_task>, decltype(acc4)>);
 
-				accessor acc5{buf_a, cgh, one_to_one{}, cl::sycl::read_write_host_task, cl::sycl::no_init};
-				static_assert(std::is_same_v<accessor<int, 1, cl::sycl::access_mode::discard_read_write, cl::sycl::target::host_buffer>, decltype(acc5)>);
+				accessor acc5{buf_a, cgh, one_to_one{}, celerity::read_write_host_task, celerity::no_init};
+				static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, celerity::target::host_task>, decltype(acc5)>);
 			});
 		}
 
 		const auto tsk = tm.get_task(tid);
 		const auto buff_id = detail::get_buffer_id(buf_a);
 
-		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(cl::sycl::access_mode::write) == 1);
-		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(cl::sycl::access_mode::read) == 1);
-		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(cl::sycl::access_mode::read_write) == 1);
-		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(cl::sycl::access_mode::discard_write) == 1);
-		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(cl::sycl::access_mode::discard_read_write) == 1);
+		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(access_mode::write) == 1);
+		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(access_mode::read) == 1);
+		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(access_mode::read_write) == 1);
+		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(access_mode::discard_write) == 1);
+		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(access_mode::discard_read_write) == 1);
 	}
 
 	template <int>
@@ -2269,8 +2268,8 @@ namespace detail {
 		subrange<3> small_accessor_sr{{207, 206, 205}, {101, 102, 103}};
 
 		q.submit([=](handler& cgh) {
-			accessor large_celerity_acc{virtual_buf, cgh, celerity::access::fixed{large_accessor_sr}, cl::sycl::read_write};
-			accessor small_celerity_acc{virtual_buf, cgh, celerity::access::fixed{small_accessor_sr}, cl::sycl::read_write};
+			accessor large_celerity_acc{virtual_buf, cgh, celerity::access::fixed{large_accessor_sr}, celerity::read_write};
+			accessor small_celerity_acc{virtual_buf, cgh, celerity::access::fixed{small_accessor_sr}, celerity::read_write};
 			if(!is_prepass_handler(cgh)) {
 				auto& bm = runtime::get_instance().get_buffer_manager();
 				auto info = buffer_manager_testspy::get_device_buffer<int, 3>(bm, get_buffer_id(virtual_buf));

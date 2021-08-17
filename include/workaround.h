@@ -4,6 +4,12 @@
 
 // TODO: Don't pollute preprocessor namespace with generic "WORKAROUND" names, prefix with "CELERITY".
 
+#if defined(CELERITY_DPCPP)
+#define WORKAROUND_DPCPP 1
+#else
+#define WORKAROUND_DPCPP 0
+#endif
+
 #if defined(__COMPUTECPP__)
 #define WORKAROUND_COMPUTECPP 1
 #define CELERITY_DETAIL_WA_VERSION_MAJOR COMPUTECPP_VERSION_MAJOR

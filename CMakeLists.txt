@@ -8,7 +8,8 @@ set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${PROJECT_SOURCE_DIR}/cmake")
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 
-option(CELERITY_SYCL_IMPL "hipSYCL|ComputeCpp")
+# NOCOMMIT TODO "DPC++" / "DPCPP"?
+option(CELERITY_SYCL_IMPL "hipSYCL|ComputeCpp|DPC++")
 
 # Find SYCL implementation.
 set(hipSYCL_MIN_VERSION "0.9.0")
@@ -16,6 +17,12 @@ if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
   find_package(hipSYCL ${hipSYCL_MIN_VERSION} CONFIG REQUIRED)
 elseif(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
   find_package(ComputeCpp REQUIRED)
+elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
+  # Copied from CTS (TODO: Rename to DPCPP_* ?)
+  if(NOT DEFINED INTEL_SYCL_TRIPLE)
+    set(INTEL_SYCL_TRIPLE spir64-unknown-unknown-sycldevice)
+  endif()
+  message("DPC++ target triple: ${INTEL_SYCL_TRIPLE}")
 else()
   # We first check if hipSYCL can be found, otherwise we try ComputeCpp.
   find_package(hipSYCL ${hipSYCL_MIN_VERSION} CONFIG)
@@ -133,6 +140,24 @@ if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
   # For hipSYCL we have to pass all source files into add_sycl_to_target
   # Don't just do it in general (yields better ComputeCpp build performance)
   set(DEVICE_SOURCES ${SOURCES})
+endif()
+
+if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
+  function(add_sycl_to_target)
+    set(options)
+    set(one_value_args TARGET)
+    set(multi_value_args)
+    cmake_parse_arguments(ADD_SYCL
+      "${options}"
+      "${one_value_args}"
+      "${multi_value_args}"
+      ${ARGN}
+      )
+    # Wno-deprecated-declarations: Kernel offsets are used all over the place
+    set(INTEL_SYCL_FLAGS "-fsycl;-sycl-std=2020;-fsycl-targets=${INTEL_SYCL_TRIPLE};-DCELERITY_DPCPP=1;-Wno-deprecated-declarations;${INTEL_SYCL_FLAGS}")
+    target_compile_options(${ADD_SYCL_TARGET} PUBLIC ${INTEL_SYCL_FLAGS})
+    target_link_options(${ADD_SYCL_TARGET} PUBLIC ${INTEL_SYCL_FLAGS})
+  endfunction()
 endif()
 
 add_sycl_to_target(
