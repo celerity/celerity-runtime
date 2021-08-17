@@ -47,6 +47,9 @@ namespace detail {
 
 	template <typename DataT, int Dims, cl::sycl::access::mode Mode, cl::sycl::target Target, int Index>
 	class accessor_subscript_proxy;
+
+	struct accessor_testspy;
+
 } // namespace detail
 
 /**
@@ -129,6 +132,8 @@ class host_memory_layout {
  */
 template <typename DataT, int Dims, cl::sycl::access_mode Mode>
 class accessor<DataT, Dims, Mode, cl::sycl::target::device> : public detail::accessor_base<DataT, Dims, Mode, cl::sycl::target::device> {
+	friend struct detail::accessor_testspy;
+
   public:
 	accessor(const accessor& other) : sycl_accessor(other.sycl_accessor) { init_from(other); }
 
@@ -151,7 +156,7 @@ class accessor<DataT, Dims, Mode, cl::sycl::target::device> : public detail::acc
 			auto access_info = detail::runtime::get_instance().get_buffer_manager().get_device_buffer<DataT, Dims>(
 			    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(sr.range), detail::id_cast<3>(sr.offset));
 			eventual_sycl_cgh = live_cgh.get_eventual_sycl_cgh();
-			sycl_accessor = sycl_accessor_t(access_info.buffer, buff.get_range(), access_info.offset);
+			sycl_accessor = sycl_accessor_t(access_info.buffer, sr.range, sr.offset - access_info.offset);
 			backing_buffer_offset = access_info.offset;
 		}
 	}

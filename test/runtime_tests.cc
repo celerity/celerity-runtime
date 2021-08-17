@@ -30,6 +30,22 @@ namespace detail {
 
 	GridRegion<3> make_grid_region(cl::sycl::range<3> range, cl::sycl::id<3> offset = {}) { return GridRegion<3>(make_grid_box(range, offset)); }
 
+	struct accessor_testspy {
+		template <typename CelerityAccessor>
+		static auto& get_sycl_accessor(CelerityAccessor& celerity_acc) {
+			return celerity_acc.sycl_accessor;
+		}
+	};
+
+	struct buffer_manager_testspy {
+		template <typename DataT, int Dims>
+		static buffer_manager::access_info<DataT, Dims, device_buffer> get_device_buffer(buffer_manager& bm, buffer_id bid) {
+			std::unique_lock lock(bm.mutex);
+			auto& buf = bm.buffers.at(bid).device_buf;
+			return {dynamic_cast<device_buffer_storage<DataT, Dims>*>(buf.storage.get())->get_device_buffer(), id_cast<Dims>(buf.offset)};
+		}
+	};
+
 	TEST_CASE("only a single distr_queue can be created", "[distr_queue][lifetime][dx]") {
 		distr_queue q1;
 		auto q2{q1}; // Copying is allowed
@@ -2165,6 +2181,33 @@ namespace detail {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, all{});
 			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](cl::sycl::item<3>) {});
 		}));
+	}
+
+	TEST_CASE("SYCL accessors receive correct backing-buffer relative ranges and offsets", "[accessor]") {
+		distr_queue q;
+		buffer<int, 3> virtual_buf{cl::sycl::range<3>{1000, 1000, 1000}};
+		subrange<3> large_accessor_sr{{117, 118, 119}, {301, 302, 303}};
+		subrange<3> small_accessor_sr{{207, 206, 205}, {101, 102, 103}};
+
+		q.submit([=](handler& cgh) {
+			accessor large_celerity_acc{virtual_buf, cgh, celerity::access::fixed{large_accessor_sr}, cl::sycl::read_write};
+			accessor small_celerity_acc{virtual_buf, cgh, celerity::access::fixed{small_accessor_sr}, cl::sycl::read_write};
+			if(!is_prepass_handler(cgh)) {
+				auto& bm = runtime::get_instance().get_buffer_manager();
+				auto info = buffer_manager_testspy::get_device_buffer<int, 3>(bm, get_buffer_id(virtual_buf));
+				subrange<3> backing_buffer_sr{info.offset, info.buffer.get_range()};
+
+				auto& large_sycl_acc = accessor_testspy::get_sycl_accessor(large_celerity_acc);
+				auto& small_sycl_acc = accessor_testspy::get_sycl_accessor(small_celerity_acc);
+
+				CHECK(large_sycl_acc.get_range() == large_accessor_sr.range);
+				CHECK(small_sycl_acc.get_range() == small_accessor_sr.range);
+				CHECK(large_sycl_acc.get_offset() == large_accessor_sr.offset - backing_buffer_sr.offset);
+				CHECK(small_sycl_acc.get_offset() == small_accessor_sr.offset - backing_buffer_sr.offset);
+				CHECK(small_sycl_acc.get_offset() == large_sycl_acc.get_offset() + (small_accessor_sr.offset - large_accessor_sr.offset));
+			}
+			cgh.parallel_for<class UKN(dummy)>(cl::sycl::range<3>{1, 1, 1}, [](cl::sycl::item<3>) {});
+		});
 	}
 
 } // namespace detail
