@@ -83,6 +83,8 @@ namespace detail {
 	 * FIXME: The current buffer locking mechanism limits task parallelism. Come up with a better solution.
 	 */
 	class buffer_manager {
+		friend struct buffer_manager_testspy;
+
 	  public:
 		enum class buffer_lifecycle_event { REGISTERED, UNREGISTERED };
 
