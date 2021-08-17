@@ -13,12 +13,12 @@ int main(int argc, char* argv[]) {
 	std::vector<int> host_buff(N);
 
 	q.submit([=](handler& cgh) {
-		celerity::accessor b{buff, cgh, access::one_to_one{}, cl::sycl::write_only, cl::sycl::no_init};
+		celerity::accessor b{buff, cgh, access::one_to_one{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for<class mat_mul>(cl::sycl::range<1>(N), [=](cl::sycl::item<1> item) { b[item] = item.get_linear_id(); });
 	});
 
 	q.submit(celerity::allow_by_ref, [=, &host_buff](handler& cgh) {
-		celerity::accessor b{buff, cgh, access::all{}, cl::sycl::read_only_host_task};
+		celerity::accessor b{buff, cgh, access::all{}, celerity::read_only_host_task};
 		cgh.host_task(on_master_node, [=, &host_buff] {
 			std::this_thread::sleep_for(std::chrono::milliseconds(10)); // give the synchronization more time to fail
 			for(int i = 0; i < N; i++) {

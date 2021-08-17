@@ -29,8 +29,7 @@ static std::pair<hid_t, hid_t> allocation_window_to_dataspace(const celerity::bu
 
 static void read_hdf5_file(celerity::distr_queue& q, const celerity::buffer<float, 2>& buffer, const char* file_name) {
 	q.submit([=](celerity::handler& cgh) {
-		auto a = buffer.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(
-		    cgh, celerity::experimental::access::even_split<2>());
+		auto a = buffer.get_access<cl::sycl::access::mode::discard_write, celerity::target::host_task>(cgh, celerity::experimental::access::even_split<2>());
 		cgh.host_task(celerity::experimental::collective, [=](celerity::experimental::collective_partition part) {
 			auto plist = H5Pcreate(H5P_FILE_ACCESS);
 			H5Pset_fapl_mpio(plist, part.get_collective_mpi_comm(), MPI_INFO_NULL);
@@ -57,7 +56,7 @@ static void read_hdf5_file(celerity::distr_queue& q, const celerity::buffer<floa
 
 static void write_hdf5_file(celerity::distr_queue& q, const celerity::buffer<float, 2>& buffer, const char* file_name) {
 	q.submit([=](celerity::handler& cgh) {
-		auto a = buffer.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::experimental::access::even_split<2>());
+		auto a = buffer.get_access<cl::sycl::access::mode::read, celerity::target::host_task>(cgh, celerity::experimental::access::even_split<2>());
 		cgh.host_task(celerity::experimental::collective, [=](celerity::experimental::collective_partition part) {
 			auto plist = H5Pcreate(H5P_FILE_ACCESS);
 			H5Pset_fapl_mpio(plist, part.get_collective_mpi_comm(), MPI_INFO_NULL);
@@ -141,8 +140,8 @@ int main(int argc, char* argv[]) {
 			read_hdf5_file(q, right, argv[3]);
 
 			q.submit(celerity::allow_by_ref, [=, &equal](celerity::handler& cgh) {
-				auto a = left.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all{});
-				auto b = right.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all{});
+				auto a = left.get_access<cl::sycl::access::mode::read, celerity::target::host_task>(cgh, celerity::access::all{});
+				auto b = right.get_access<cl::sycl::access::mode::read, celerity::target::host_task>(cgh, celerity::access::all{});
 				cgh.host_task(celerity::on_master_node, [=, &equal] {
 					for(size_t i = 0; i < N; ++i) {
 						for(size_t j = 0; j < N; ++j) {

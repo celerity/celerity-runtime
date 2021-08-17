@@ -1,5 +1,7 @@
 #pragma once
 
+#include <map>
+
 #include <catch2/catch.hpp>
 
 #include <celerity.h>

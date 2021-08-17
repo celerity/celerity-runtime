@@ -4,7 +4,10 @@
 #include <memory>
 #include <unordered_map>
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wignored-attributes"
 #include <mpi.h>
+#pragma clang diagnostic pop
 
 #include "buffer_storage.h"
 #include "command.h"

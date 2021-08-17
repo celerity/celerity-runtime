@@ -6,10 +6,10 @@
 #include <allscale/utils/functional_utils.h>
 
 #include "buffer_manager.h"
-#include "ccpp_2020_compatibility_layer.h"
 #include "range_mapper.h"
 #include "ranges.h"
 #include "runtime.h"
+#include "sycl_wrappers.h"
 
 namespace celerity {
 
@@ -36,7 +36,7 @@ namespace detail {
 
 } // namespace detail
 
-template <typename DataT, int Dims, cl::sycl::access_mode Mode, cl::sycl::target Target>
+template <typename DataT, int Dims, access_mode Mode, celerity::target Target>
 class accessor;
 
 template <typename DataT, int Dims>
@@ -61,24 +61,16 @@ class buffer {
 
 	~buffer() {}
 
-	template <cl::sycl::access_mode Mode, typename Functor>
-	accessor<DataT, Dims, Mode, cl::sycl::target::device> get_access(handler& cgh, Functor rmfn) const {
-		return get_access<Mode, cl::sycl::target::device, Functor>(cgh, rmfn);
+	template <access_mode Mode, typename Functor>
+	accessor<DataT, Dims, Mode, celerity::target::device> get_access(handler& cgh, Functor rmfn) const {
+		return get_access<Mode, celerity::target::device, Functor>(cgh, rmfn);
 	}
 
 
-	template <cl::sycl::access_mode Mode, cl::sycl::target Target, typename Functor>
+	template <access_mode Mode, celerity::target Target, typename Functor>
 	accessor<DataT, Dims, Mode, Target> get_access(handler& cgh, Functor rmfn) const {
 		return accessor<DataT, Dims, Mode, Target>(*this, cgh, rmfn);
 	}
-
-#if WORKAROUND_COMPUTECPP
-	template <cl::sycl::access_mode Mode, cl::sycl::access::target Trgt, typename Functor>
-	auto get_access(handler& cgh, Functor rmfn) const {
-		return accessor<DataT, Dims, Mode, static_cast<cl::sycl::target>(Trgt)>(*this, cgh, rmfn);
-	}
-#endif
-
 
 	cl::sycl::range<Dims> get_range() const { return range; }
 

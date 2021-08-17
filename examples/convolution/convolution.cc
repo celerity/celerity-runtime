@@ -101,7 +101,7 @@ int main(int argc, char* argv[]) {
 	});
 
 	queue.submit([=](celerity::handler& cgh) {
-		auto out = image_output_buf.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all{});
+		auto out = image_output_buf.get_access<cl::sycl::access::mode::read, celerity::target::host_task>(cgh, celerity::access::all{});
 
 		cgh.host_task(celerity::on_master_node, [=] {
 			std::vector<uint8_t> image_output(image_width * image_height * 3);
