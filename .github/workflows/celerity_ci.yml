@@ -1,24 +1,9 @@
 name: Celerity CI
 
-# We currently run this workflow on three different triggers,
-# which all have subtly different semantics.
 on:
-  # Run workflow on any push to any branch.
   push:
-  # Also run on internal PRs. The difference to the "push" trigger
-  # being, that the workflow will run on the result of merging the PR's
-  # commits into the target branch.
   pull_request:
-    branches-ignore:
-      # Ignore branches from forks (which contain a colon).
-      - '**:**'
-  # Finally, also run on external PRs. By using the "_target" trigger,
-  # we can ensure that the workflow definition itself will always come
-  # from the main repository, not the fork (for security reasons).
-  pull_request_target:
-    branches:
-      # Only consider branches from forks (which contain a colon).
-      - '**:**'
+  workflow_dispatch:
 
 jobs:
   build-and-test:
@@ -26,51 +11,81 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: ["intel", "nvidia"]
-        SYCL-impl: ["hipSYCL", "ComputeCpp"]
-        build-type: ["Debug", "Release"]
-        exclude:
-          - platform: "intel"
-            SYCL-impl: "hipSYCL"
-          - platform: "nvidia"
-            SYCL-impl: "ComputeCpp"
+        include:
+          - sycl-version: "computecpp:2.6.0"
+            platform: "intel"
+            build-type: "Debug"
+          - sycl-version: "computecpp:2.6.0"
+            platform: "intel"
+            build-type: "Release"
+          - sycl-version: "hipsycl:HEAD"
+            platform: "nvidia"
+            build-type: "Debug"
+          - sycl-version: "hipsycl:HEAD"
+            platform: "nvidia"
+            build-type: "Release"
+          - sycl-version: "hipsycl:v0.9.1"
+            platform: "nvidia"
+            build-type: "Debug"
+          - sycl-version: "hipsycl:v0.9.1"
+            platform: "nvidia"
+            build-type: "Release"
+
     env:
-      build-name: ${{ matrix.platform }}-${{ matrix.SYCL-impl }}-${{ matrix.build-type }}
+      build-name: ${{ matrix.platform }}-${{ matrix.sycl-version }}-${{ matrix.build-type }}
+      container-workspace: /__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}
+      build-dir: /root/build
+    container:
+      image: build/celerity/${{ matrix.sycl-version }}
+      volumes:
+        - ccache:/ccache
     steps:
+      - name: Print exact SYCL revision used for this CI run
+        run: cat /VERSION
+      # The build name may not contain colons (this is not allowed for artifacts)
+      # Since GitHub does not provide a built-in string replacement function, we use a bashism
+      - name: Sanitize build name
+        shell: bash
+        run: echo "build-name=${unsanitized/:/-}" >> $GITHUB_ENV
+        env:
+          unsanitized: ${{ env.build-name }}
       - uses: actions/checkout@v2
         with:
           submodules: true
       - name: Run build script
-        run: |
-          mkdir ${{ env.build-name }}
-          set -o pipefail
-          cd ${{ env.build-name }} && /scripts/build.sh ${{ matrix.SYCL-impl }} ${{ matrix.build-type }} | tee ${{ env.build-name }}.log
+        run: bash -c "set -o pipefail; bash /root/build-celerity.sh ${{ env.container-workspace }} --build-type ${{ matrix.build-type }} 2>&1 | tee ${{ env.build-name }}.log"
       # Upload build log for report step
       - name: Upload build log
         uses: actions/upload-artifact@v1
         with:
           name: ${{ env.build-name }}
-          path: ${{ env.build-name }}/${{ env.build-name }}.log
+          path: ${{ env.build-name }}.log
       - name: Run unit tests
-        working-directory: ${{ env.build-name }}
+        working-directory: ${{ env.build-dir }}
         # Running "make test" is slow (why?), so we just call all test executables manually
         run: find test -maxdepth 1 -executable -type f -print0 | xargs -0 -n1 bash -c
       - name: Run integration tests
-        working-directory: ${{ env.build-name }}
-        run: ${{ github.workspace }}/ci/run-integration-tests.sh /data/Lenna.png 1 2 4
+        working-directory: ${{ env.build-dir }}
+        run: ${{ env.container-workspace }}/ci/run-integration-tests.sh /data/Lenna.png 1 2 4
 
   report:
     needs: [build-and-test]
     runs-on: self-hosted
+    env:
+      container-workspace: /__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}
+    container:
+      image: celerity-lint
     steps:
+      - uses: actions/checkout@v2
       - name: Check code formatting
         id: formatting
+        working-directory: ${{ env.container-workspace }}
+        shell: bash
         run: |
           unformatted=$("./ci/find-unformatted-files.sh")
           unformatted=${unformatted//$'\n'/'%0A'}
           echo "::set-output name=unformatted-files::$unformatted"
-      - uses: "celerity/ci-report-action@v4"
+      - uses: "celerity/ci-report-action@v6"
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           unformatted-files: ${{ steps.formatting.outputs.unformatted-files }}
-
