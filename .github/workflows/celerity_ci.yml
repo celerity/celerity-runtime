@@ -61,10 +61,12 @@ jobs:
           name: ${{ env.build-name }}
           path: ${{ env.build-name }}.log
       - name: Run unit tests
+        timeout-minutes: 5
         working-directory: ${{ env.build-dir }}
         # Running "make test" is slow (why?), so we just call all test executables manually
         run: find test -maxdepth 1 -executable -type f -print0 | xargs -0 -n1 bash -c
       - name: Run integration tests
+        timeout-minutes: 5
         working-directory: ${{ env.build-dir }}
         run: ${{ env.container-workspace }}/ci/run-integration-tests.sh /data/Lenna.png 1 2 4
 
