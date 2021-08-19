@@ -30,6 +30,18 @@ jobs:
           - sycl-version: "hipsycl:v0.9.1"
             platform: "nvidia"
             build-type: "Release"
+          - sycl-version: "dpcpp:HEAD"
+            platform: "intel"
+            build-type: "Debug"
+          - sycl-version: "dpcpp:HEAD"
+            platform: "intel"
+            build-type: "Release"
+          - sycl-version: "dpcpp:7735139b"
+            platform: "intel"
+            build-type: "Debug"
+          - sycl-version: "dpcpp:7735139b"
+            platform: "intel"
+            build-type: "Release"
 
     env:
       build-name: ${{ matrix.platform }}-${{ matrix.sycl-version }}-${{ matrix.build-type }}
