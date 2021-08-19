@@ -8,8 +8,15 @@ set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${PROJECT_SOURCE_DIR}/cmake")
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 
-# NOCOMMIT TODO "DPC++" / "DPCPP"?
 option(CELERITY_SYCL_IMPL "hipSYCL|ComputeCpp|DPC++")
+
+try_compile(CXX_COMPILER_IS_DPCPP "${PROJECT_BINARY_DIR}/detect_dpcpp"
+  SOURCES "${PROJECT_SOURCE_DIR}/cmake/sycl_test.cpp"
+  COMPILE_DEFINITIONS -fsycl -sycl-std=2020
+  )
+if(CXX_COMPILER_IS_DPCPP)
+  message(STATUS "CXX compiler at ${CMAKE_CXX_COMPILER} detected as DPC++")
+endif()
 
 # Find SYCL implementation.
 set(hipSYCL_MIN_VERSION "0.9.0")
@@ -18,26 +25,43 @@ if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
 elseif(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
   find_package(ComputeCpp REQUIRED)
 elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
+  if(NOT CXX_COMPILER_IS_DPCPP)
+    message(FATAL_ERROR "CELERITY_SYCL_IMPL set to DPC++, but CXX compiler at ${CMAKE_CXX_COMPILER} is not DPC++")
+  endif()
   # Copied from CTS (TODO: Rename to DPCPP_* ?)
   if(NOT DEFINED INTEL_SYCL_TRIPLE)
     set(INTEL_SYCL_TRIPLE spir64-unknown-unknown-sycldevice)
   endif()
-  message("DPC++ target triple: ${INTEL_SYCL_TRIPLE}")
+  message(STATUS "DPC++ target triple: ${INTEL_SYCL_TRIPLE}")
 else()
-  # We first check if hipSYCL can be found, otherwise we try ComputeCpp.
-  find_package(hipSYCL ${hipSYCL_MIN_VERSION} CONFIG)
-  if(hipSYCL_FOUND)
-    set(CELERITY_SYCL_IMPL "hipSYCL")
-  else()
-    find_package(ComputeCpp REQUIRED)
-    set(CELERITY_SYCL_IMPL "ComputeCpp")
+  if(CXX_COMPILER_IS_DPCPP)
+    list(APPEND AVAILABLE_SYCL_IMPLS DPC++)
   endif()
-endif()
 
-if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
-  message(STATUS "Found hipSYCL: ${hipSYCL_DIR}")
-else()
-  message(STATUS "Found ComputeCpp: ${ComputeCpp_DIR}")
+  find_package(hipSYCL ${hipSYCL_MIN_VERSION} QUIET CONFIG)
+  if(hipSYCL_FOUND)
+    message(STATUS "Found hipSYCL: ${hipSYCL_DIR}")
+    list(APPEND AVAILABLE_SYCL_IMPLS hipSYCL)
+  endif()
+
+  find_package(ComputeCpp QUIET)
+  if(ComputeCpp_FOUND)
+    message(STATUS "Found ComputeCpp: ${ComputeCpp_DIR}")
+    list(APPEND AVAILABLE_SYCL_IMPLS ComputeCpp)
+  endif()
+
+  list(LENGTH AVAILABLE_SYCL_IMPLS NUM_AVAILABLE_SYCL_IMPLS)
+  if(NUM_AVAILABLE_SYCL_IMPLS EQUAL 0)
+    message(FATAL_ERROR "No SYCL implementation found. You might need to add an install path for hipSYCL or "
+      "ComputeCpp to CMAKE_PREFIX_PATH.")
+  elseif(NUM_AVAILABLE_SYCL_IMPLS GREATER 1)
+    list(JOIN AVAILABLE_SYCL_IMPLS " and " AVAILABLE_SYCL_IMPLS_STR)
+    message(FATAL_ERROR "More than one SYCL implementation available: Found ${AVAILABLE_SYCL_IMPLS_STR}. "
+      "Please choose one implementation using -DCELERITY_SYCL_IMPL=hipSYCL|ComputeCpp|DPC++.")
+  else()
+    set(CELERITY_SYCL_IMPL "${AVAILABLE_SYCL_IMPLS}")
+    message(STATUS "Automatically chooosing ${CELERITY_SYCL_IMPL} because it is the only SYCL implementation available")
+  endif()
 endif()
 
 if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp" AND NOT COMPUTECPP_USER_FLAGS MATCHES "-D_CRT_SECURE_NO_WARNINGS")

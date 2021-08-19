@@ -40,7 +40,10 @@ set(COMPUTECPP_BITCODE "spir64" CACHE STRING
   "Bitcode type to use as SYCL target in compute++")
 mark_as_advanced(COMPUTECPP_BITCODE)
 
-find_package(OpenCL REQUIRED)
+find_package(OpenCL)
+if(NOT OpenCL_FOUND)
+  return()
+endif()
 
 # Find ComputeCpp package
 
@@ -93,7 +96,9 @@ set(ComputeCpp_ROOT_DIR "${computecpp_canonical_root_dir}" CACHE PATH
     "The root of the ComputeCpp install")
 
 if(NOT ComputeCpp_INFO_EXECUTABLE)
-  message(WARNING "Can't find computecpp_info - check ComputeCpp_DIR")
+  if(NOT ComputeCpp_FIND_QUIETLY)
+    message(WARNING "Can't find computecpp_info - check ComputeCpp_DIR")
+  endif()
 else()
   execute_process(COMMAND ${ComputeCpp_INFO_EXECUTABLE} "--dump-version"
     OUTPUT_VARIABLE ComputeCpp_VERSION
