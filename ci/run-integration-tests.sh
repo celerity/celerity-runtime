@@ -29,7 +29,7 @@ PARAMS=(
 ARTIFACTS=(
     ""
     "output.png"
-    "wave_sim_result.csv"
+    "wave_sim_result.bin"
     ""
 )
 
