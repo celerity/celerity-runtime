@@ -79,28 +79,14 @@ void store(celerity::distr_queue& queue, celerity::buffer<T, 2> up, std::vector<
 	});
 }
 
-void write_csv(size_t N, std::vector<std::vector<float>>& result_frames) {
-	std::ofstream os;
-	os.open("wave_sim_result.csv", std::ios_base::out | std::ios_base::binary);
+void write_bin(size_t N, std::vector<std::vector<float>>& result_frames) {
+	std::ofstream os("wave_sim_result.bin", std::ios_base::out | std::ios_base::binary);
 
-	os << "t";
-	for(size_t y = 0; y < N; ++y) {
-		for(size_t x = 0; x < N; ++x) {
-			os << "," << y << ":" << x;
-		}
-	}
-	os << "\n";
+	const struct { uint64_t n, t; } header{N, result_frames.size()};
+	os.write(reinterpret_cast<const char*>(&header), sizeof(header));
 
-	size_t i = 0;
-	for(auto& frame : result_frames) {
-		os << i++;
-		for(size_t y = 0; y < N; ++y) {
-			for(size_t x = 0; x < N; ++x) {
-				auto v = frame[y * N + x];
-				os << "," << v;
-			}
-		}
-		os << "\n";
+	for(const auto& frame : result_frames) {
+		os.write(reinterpret_cast<const char*>(frame.data()), sizeof(float) * N * N);
 	}
 }
 
@@ -194,7 +180,7 @@ int main(int argc, char* argv[]) {
 	if(is_master) {
 		if(cfg.output_sample_rate > 0) {
 			// TODO: Consider writing results to disk as they're coming in, instead of just at the end
-			write_csv(cfg.N, result_frames);
+			write_bin(cfg.N, result_frames);
 		}
 	}
 

@@ -4,7 +4,7 @@ This is based on the [AllScale wave simulation
 example](https://github.com/allscale/allscale_api/tree/50b551b4a79ef5cf08d1c9f76e3a8051c7d47239/code/tutorials/src/adaptivegrid).
 
 Computes a wave simulation (2D wave equation) over multiple time steps,
-optionally writing intermediate results to a CSV file which can subsequently be
+optionally writing intermediate results to a binary file which can subsequently be
 plotted.
 
 The behavior of this simulation can be altered through various command line
@@ -21,11 +21,8 @@ arguments:
 
 ## Plotting the output using GNUPlot
 
-This requires `ruby` and the following gems: `gnuplot`, `parallel`, `rmagick`.
+This requires `ruby` and the following gems: `gnuplot` and `parallel`.
+It also requires `ffmpeg` to be present in the `$PATH`.
 
-To produce a series of images from the generated CSV data run
-`plot.rb wave_sim_result.csv`.
-
-To combine the images into an animated GIF, run `animate.rb` in the same
-directory.
-
+To produce an animated plot from the generated binary data run
+`ruby plot.rb`. This will generate a `wave_sim.mp4` file using the VP9 codec.
