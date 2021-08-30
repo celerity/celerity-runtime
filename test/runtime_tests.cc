@@ -1872,7 +1872,7 @@ namespace detail {
 		buffer<char, 1> buf1d(memory1d.data(), cl::sycl::range<1>(10));
 
 		q.submit([=](handler& cgh) {
-			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, all{});
+			accessor b{buf1d, cgh, all{}, cl::sycl::write_only_host_task, cl::sycl::no_init};
 			cgh.host_task(on_master_node, [=](partition<0> part) {
 				auto aw = b.get_allocation_window(part);
 				CHECK(aw.get_window_offset_in_buffer()[0] == 0);
@@ -1884,7 +1884,7 @@ namespace detail {
 		});
 
 		q.submit([=](handler& cgh) {
-			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, one_to_one{});
+			accessor b{buf1d, cgh, one_to_one{}, cl::sycl::write_only_host_task, cl::sycl::no_init};
 			cgh.host_task(cl::sycl::range<1>(6), cl::sycl::id<1>(2), [=](partition<1> part) {
 				auto aw = b.get_allocation_window(part);
 				CHECK(aw.get_window_offset_in_buffer()[0] == 2);
@@ -1900,7 +1900,7 @@ namespace detail {
 		buffer<char, 2> buf2d(memory2d.data(), cl::sycl::range<2>(10, 10));
 
 		q.submit([=](handler& cgh) {
-			auto b = buf2d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, one_to_one{});
+			accessor b{buf2d, cgh, one_to_one{}, cl::sycl::write_only_host_task, cl::sycl::no_init};
 			cgh.host_task(cl::sycl::range<2>(5, 6), cl::sycl::id<2>(1, 2), [=](partition<2> part) {
 				auto aw = b.get_allocation_window(part);
 				CHECK(aw.get_window_offset_in_buffer()[0] == 1);
@@ -1919,7 +1919,7 @@ namespace detail {
 		buffer<char, 3> buf3d(memory3d.data(), cl::sycl::range<3>(10, 10, 10));
 
 		q.submit([=](handler& cgh) {
-			auto b = buf3d.get_access<cl::sycl::access::mode::discard_write, cl::sycl::access::target::host_buffer>(cgh, one_to_one{});
+			accessor b{buf3d, cgh, one_to_one{}, cl::sycl::write_only_host_task, cl::sycl::no_init};
 			cgh.host_task(cl::sycl::range<3>(5, 6, 7), cl::sycl::id<3>(1, 2, 3), [=](partition<3> part) {
 				auto aw = b.get_allocation_window(part);
 				CHECK(aw.get_window_offset_in_buffer()[0] == 1);
