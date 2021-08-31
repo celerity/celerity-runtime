@@ -2,6 +2,8 @@
 
 #include <CL/sycl.hpp>
 
+#include "workaround.h"
+
 namespace celerity {
 namespace detail {
 
@@ -77,6 +79,15 @@ struct subrange {
 	cl::sycl::range<Dims> range = detail::range_cast<Dims>(cl::sycl::range<3>(0, 0, 0));
 
 	subrange() = default;
+
+	// Due to an apparent bug in the ComputeCpp 2.6.0 compiler, the implicit copy constructor of subrange instantiates a copy constructor of the "array" type
+	// underlying ComputeCpp's implementation of sycl::range. This generated array copy constructor receives a *non-const* lvalue instead of a const lvalue,
+	// which causes a const-mismatch -- but only when transitively called from the host_memory_layout runtime_test. Explicitly defining the constructor without
+	// delegating to range(const range&) seems to fix this.
+#if WORKAROUND_COMPUTECPP
+	subrange(const subrange& other) : offset(detail::id_cast<Dims>(other.offset)), range(detail::range_cast<Dims>(other.range)) {}
+	subrange& operator=(const subrange& other) = default;
+#endif
 
 	subrange(cl::sycl::id<Dims> offset, cl::sycl::range<Dims> range) : offset(offset), range(range) {}
 
