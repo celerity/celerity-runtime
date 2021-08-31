@@ -2102,26 +2102,37 @@ namespace detail {
 	class check_multi_dim_accessor;
 
 	TEMPLATE_TEST_CASE_METHOD_SIG(accessor_fixture, "accessor supports multi-dimensional subscript operator", "[accessor]", ((int Dims), Dims), 2, 3) {
+		// This test *used* to fill a buffer<sycl::id<Dims>> and check that the correct indices have been written. However, this caused the ComputeCpp 2.6.0
+		// compiler to segfault on a device-code recursion detection step while traversing the following call path:
+		//
+		// 0. buffer_manager_fixture::get_device_accessor()
+		// 1. buffer_manager::get_device_buffer()
+		// 2. new device_buffer_storage<DataT, Dims>::device_buffer_storage()
+		//
+		// Stripping the device_buffer_storage constructor call in device code (where it is never actually called, this is all pure host code) through
+		// #if __SYCL_DEVICE_ONLY__ did get rid of the segfault, but caused the test to fail with a heap corruption at runtime. Instead, replacing sycl::id with
+		// size_t seems to resolve the problem.
+
 		const auto range = cl::sycl::range<3>(2, 3, 4);
 		auto& bm = accessor_fixture<Dims>::get_buffer_manager();
-		auto bid = bm.template register_buffer<cl::sycl::id<Dims>, Dims>(range);
+		auto bid = bm.template register_buffer<size_t, Dims>(range);
 
 		auto& q = accessor_fixture<Dims>::get_device_queue();
 		auto sr = subrange<3>({}, range);
 		live_pass_device_handler cgh(nullptr, sr, q);
 
 		// this kernel initializes the buffer what will be read after.
-		auto acc_write = accessor_fixture<Dims>::template get_device_accessor<cl::sycl::id<Dims>, Dims, cl::sycl::access::mode::discard_write>(
-		    cgh, bid, range_cast<Dims>(range), {});
+		auto acc_write =
+		    accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, cl::sycl::access::mode::discard_write>(cgh, bid, range_cast<Dims>(range), {});
 		cgh.parallel_for<class kernel_multi_dim_accessor_write_<Dims>>(range_cast<Dims>(range), [=](cl::sycl::item<Dims> item) {
-			acc_write[item] = item;
+			acc_write[item] = item.get_linear_id();
 		});
 		cgh.get_submission_event().wait();
 
 		SECTION("for device buffers") {
-			auto acc_read = accessor_fixture<Dims>::template get_device_accessor<cl::sycl::id<Dims>, Dims, cl::sycl::access::mode::read>(
-			    cgh, bid, range_cast<Dims>(range), {});
-			auto acc = accessor_fixture<Dims>::template get_device_accessor<cl::sycl::id<Dims>, Dims, cl::sycl::access::mode::discard_write>(
+			auto acc_read =
+			    accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, cl::sycl::access::mode::read>(cgh, bid, range_cast<Dims>(range), {});
+			auto acc = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, cl::sycl::access::mode::discard_write>(
 			    cgh, bid, range_cast<Dims>(range), {});
 			cgh.parallel_for<class kernel_multi_dim_accessor_read_<Dims>>(range_cast<Dims>(range), [=](cl::sycl::item<Dims> item) {
 				size_t i = item[0];
@@ -2137,10 +2148,9 @@ namespace detail {
 		}
 
 		SECTION("for host buffers") {
-			auto acc_read =
-			    accessor_fixture<Dims>::template get_host_accessor<cl::sycl::id<Dims>, Dims, cl::sycl::access::mode::read>(bid, range_cast<Dims>(range), {});
-			auto acc = accessor_fixture<Dims>::template get_host_accessor<cl::sycl::id<Dims>, Dims, cl::sycl::access::mode::discard_write>(
-			    bid, range_cast<Dims>(range), {});
+			auto acc_read = accessor_fixture<Dims>::template get_host_accessor<size_t, Dims, cl::sycl::access::mode::read>(bid, range_cast<Dims>(range), {});
+			auto acc =
+			    accessor_fixture<Dims>::template get_host_accessor<size_t, Dims, cl::sycl::access::mode::discard_write>(bid, range_cast<Dims>(range), {});
 			for(size_t i = 0; i < range[0]; i++) {
 				for(size_t j = 0; j < range[1]; j++) {
 					for(size_t k = 0; k < (Dims == 2 ? 1 : range[2]); k++) {
@@ -2155,9 +2165,9 @@ namespace detail {
 		}
 
 		typename accessor_fixture<Dims>::access_target tgt = accessor_fixture<Dims>::access_target::HOST;
-		bool acc_check = accessor_fixture<Dims>::template buffer_reduce<cl::sycl::id<Dims>, Dims, class check_multi_dim_accessor<Dims>>(bid, tgt,
-		    range_cast<Dims>(range), {}, true, [](cl::sycl::id<Dims> idx, bool current, cl::sycl::id<Dims> value) {
-			return current && value == idx; });
+		bool acc_check = accessor_fixture<Dims>::template buffer_reduce<size_t, Dims, class check_multi_dim_accessor<Dims>>(bid, tgt,
+		    range_cast<Dims>(range), {}, true, [range=range_cast<Dims>(range)](cl::sycl::id<Dims> idx, bool current, size_t value) {
+			return current && value == get_linear_index(range, idx); });
 
 		REQUIRE(acc_check);
 	}
