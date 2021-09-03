@@ -35,23 +35,33 @@ CUDA and AMD ROCm platforms.
 
 ### ComputeCpp
 
-Codeplay's ComputeCpp is a fully SYCL 1.2.1 spec-conformant proprietary
-implementation. Binary distributions can be downloaded from [Codeplay's
-website](https://www.codeplay.com/products/computesuite/computecpp).
-You will also need the CMake module from the [ComputeCpp
-SDK](https://github.com/codeplaysoftware/computecpp-sdk/).
+Codeplay's ComputeCpp is a fully SYCL 1.2.1 spec-conformant proprietary implementation. Binary
+distributions can be downloaded
+from [Codeplay's website](https://www.codeplay.com/products/computesuite/computecpp).
 
 > ComputeCpp is available for both Linux and Windows.
+
+### DPC++
+
+Intel's LLVM fork [DPC++](https://github.com/intel/llvm) brings SYCL to the latest Intel CPU and GPU
+hardware and also, experimentally, to CUDA devices. Celerity will automatically detect
+when `CMAKE_CXX_COMPILER` points to a DPC++ Clang.
+
+To launch kernels on Intel GPUs, you will also need to install a recent version of the
+[Intel Compute Runtime](https://github.com/intel/compute-runtime/releases) (failing to do so will
+result in mysterious segfaults in the DPC++ SYCL library!)
+
+> Celerity works with DPC++ on Linux.
 
 ## Configuring CMake
 
 After installing all of the aforementioned dependencies, clone (we recommend
-using `git clone --recurse-submodules`) or download the [Celerity source
-files](https://github.com/celerity/celerity-runtime) from GitHub. Next,
-create a `build` folder inside the Celerity root folder and navigate into it.
+using `git clone --recurse-submodules`) or download
+the [Celerity source files](https://github.com/celerity/celerity-runtime) from GitHub. Next, create
+a `build` folder inside the Celerity root folder and navigate into it.
 
-The exact CMake configuration call you need depends on a few factors, for
-example the SYCL implementation you chose, as well as your target hardware
+The exact CMake configuration call you need depends on a few factors, for example the SYCL
+implementation you chose, as well as your target hardware
 platform. Here are a couple of examples:
 
 <!--DOCUSAURUS_CODE_TABS-->
