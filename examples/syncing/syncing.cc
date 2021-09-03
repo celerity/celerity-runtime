@@ -14,7 +14,7 @@ int main(int argc, char* argv[]) {
 
 	q.submit([=](handler& cgh) {
 		celerity::accessor b{buff, cgh, access::one_to_one{}, celerity::write_only, celerity::no_init};
-		cgh.parallel_for<class mat_mul>(cl::sycl::range<1>(N), [=](cl::sycl::item<1> item) { b[item] = item.get_linear_id(); });
+		cgh.parallel_for<class mat_mul>(cl::sycl::range<1>(N), [=](cl::sycl::item<1> item) { b[item] = item[0]; });
 	});
 
 	q.submit(celerity::allow_by_ref, [=, &host_buff](handler& cgh) {
