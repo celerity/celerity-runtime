@@ -80,8 +80,9 @@ installed first.
 ### Dependencies
 
 - A supported SYCL implementation, either
-  - [hipSYCL](https://github.com/illuhad/hipsycl), or
-  - [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp)
+    - [hipSYCL](https://github.com/illuhad/hipsycl),
+    - [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp), or
+    - [DPC++](https://github.com/intel/llvm)
 - A MPI 2 implementation (tested with OpenMPI 4.0, MPICH 3.3 should work as well)
 - [CMake](https://www.cmake.org) (3.13 or newer)
 - A C++17 compiler
