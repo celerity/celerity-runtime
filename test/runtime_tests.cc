@@ -425,7 +425,7 @@ namespace detail {
 
 		q.submit([=](handler& cgh) {
 			auto b = buff.get_access<cl::sycl::access::mode::discard_write>(cgh, one_to_one{});
-			cgh.parallel_for<class sync_test>(cl::sycl::range<1>(N), [=](cl::sycl::item<1> item) { b[item] = item.get_linear_id(); });
+			cgh.parallel_for<class sync_test>(cl::sycl::range<1>(N), [=](celerity::item<1> item) { b[item] = item.get_linear_id(); });
 		});
 
 		q.submit(allow_by_ref, [&](handler& cgh) {
@@ -2123,7 +2123,7 @@ namespace detail {
 		// this kernel initializes the buffer what will be read after.
 		auto acc_write =
 		    accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, cl::sycl::access::mode::discard_write>(cgh, bid, range_cast<Dims>(range), {});
-		cgh.parallel_for<class kernel_multi_dim_accessor_write_<Dims>>(range_cast<Dims>(range), [=](cl::sycl::item<Dims> item) {
+		cgh.parallel_for<class kernel_multi_dim_accessor_write_<Dims>>(range_cast<Dims>(range), [=](celerity::item<Dims> item) {
 			acc_write[item] = item.get_linear_id();
 		});
 		cgh.get_submission_event().wait();
@@ -2133,7 +2133,7 @@ namespace detail {
 			    accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, cl::sycl::access::mode::read>(cgh, bid, range_cast<Dims>(range), {});
 			auto acc = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, cl::sycl::access::mode::discard_write>(
 			    cgh, bid, range_cast<Dims>(range), {});
-			cgh.parallel_for<class kernel_multi_dim_accessor_read_<Dims>>(range_cast<Dims>(range), [=](cl::sycl::item<Dims> item) {
+			cgh.parallel_for<class kernel_multi_dim_accessor_read_<Dims>>(range_cast<Dims>(range), [=](celerity::item<Dims> item) {
 				size_t i = item[0];
 				size_t j = item[1];
 				if constexpr(Dims == 2) {
@@ -2242,31 +2242,31 @@ namespace detail {
 
 		CHECK_THROWS_WITH(q.submit([=](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<1>{10}, [=](cl::sycl::item<1>) {});
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<1>{10}, [=](celerity::item<1>) {});
 		}),
 		    "Invalid range mapper dimensionality: 1-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<1> nor "
 		    "(chunk<1>, range<2>) to produce subrange<2>");
 
 		CHECK_NOTHROW(q.submit([=](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<2>{10, 10}, [=](cl::sycl::item<2>) {});
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<2>{10, 10}, [=](celerity::item<2>) {});
 		}));
 
 		CHECK_THROWS_WITH(q.submit([=](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](cl::sycl::item<3>) {});
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](celerity::item<3>) {});
 		}),
 		    "Invalid range mapper dimensionality: 3-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<3> nor "
 		    "(chunk<3>, range<2>) to produce subrange<2>");
 
 		CHECK_NOTHROW(q.submit([=](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, all{});
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](cl::sycl::item<3>) {});
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](celerity::item<3>) {});
 		}));
 
 		CHECK_NOTHROW(q.submit([=](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, all{});
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](cl::sycl::item<3>) {});
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](celerity::item<3>) {});
 		}));
 	}
 
@@ -2293,9 +2293,34 @@ namespace detail {
 				CHECK(small_sycl_acc.get_offset() == small_accessor_sr.offset - backing_buffer_sr.offset);
 				CHECK(small_sycl_acc.get_offset() == large_sycl_acc.get_offset() + (small_accessor_sr.offset - large_accessor_sr.offset));
 			}
-			cgh.parallel_for<class UKN(dummy)>(cl::sycl::range<3>{1, 1, 1}, [](cl::sycl::item<3>) {});
+			cgh.parallel_for<class UKN(dummy)>(cl::sycl::range<3>{1, 1, 1}, [](celerity::item<3>) {});
 		});
 	}
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+	TEST_CASE("Kernels receiving cl::sycl::item<Dims> (deprecated) continue to work", "[handler]") {
+		distr_queue q;
+
+		buffer<int, 1> buf1d{{1}};
+		q.submit([=](handler& cgh) {
+			accessor acc{buf1d, cgh, celerity::access::one_to_one{}, celerity::read_write, celerity::no_init};
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<1>{1}, [=](cl::sycl::item<1> id) { acc[id] = 0; });
+		});
+
+		buffer<int, 2> buf2d{{1, 1}};
+		q.submit([=](handler& cgh) {
+			accessor acc{buf2d, cgh, celerity::access::one_to_one{}, celerity::read_write, celerity::no_init};
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<2>{1, 1}, [=](cl::sycl::item<2> id) { acc[id] = 0; });
+		});
+
+		buffer<int, 3> buf3d{{1, 1, 1}};
+		q.submit([=](handler& cgh) {
+			accessor acc{buf3d, cgh, celerity::access::one_to_one{}, celerity::read_write, celerity::no_init};
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{1, 1, 1}, [=](cl::sycl::item<3> id) { acc[id] = 0; });
+		});
+	}
+#pragma GCC diagnostic pop
 
 } // namespace detail
 } // namespace celerity

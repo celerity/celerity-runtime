@@ -124,7 +124,7 @@ queue.submit([=](celerity::handler& cgh) {
     cgh.parallel_for<class MyEdgeDetectionKernel>(
         cl::sycl::range<2>(img_height - 2, img_width - 2),
         cl::sycl::id<2>(1, 1),
-        [=](cl::sycl::item<2> item) {
+        [=](celerity::item<2> item) {
             // TODO: Kernel code
         }
     );
@@ -162,7 +162,7 @@ main axes surrounding the current result pixel and computing the difference
 to the current pixel value. We then subtract the resulting value from the
 maximum value a `uint8_t` can store (255) in order to get a white image with
 black edges. The current pixel position is described by the
-`cl::sycl::item<2>` we receive as an argument to our kernel function. This
+`celerity::item<2>` we receive as an argument to our kernel function. This
 two-dimensional item corresponds to a `y/x` position in our input and output
 images and can be used to index into the respective buffers. However, we're
 not using the buffers directly; instead we are indexing into the

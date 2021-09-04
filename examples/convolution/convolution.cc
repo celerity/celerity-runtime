@@ -61,7 +61,7 @@ int main(int argc, char* argv[]) {
 		auto gauss = gaussian_mat_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::all{});
 		auto out = image_tmp_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one{});
 
-		cgh.parallel_for<class gaussian_blur>(cl::sycl::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](cl::sycl::item<2> item) {
+		cgh.parallel_for<class gaussian_blur>(cl::sycl::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](celerity::item<2> item) {
 			using cl::sycl::float3;
 			if(is_on_boundary(cl::sycl::range<2>(image_height, image_width), fs, item)) {
 				out[item] = float3(0.f, 0.f, 0.f);
@@ -84,7 +84,7 @@ int main(int argc, char* argv[]) {
 	queue.submit([=](celerity::handler& cgh) {
 		auto in = image_tmp_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood{1, 1});
 		auto out = image_output_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one{});
-		cgh.parallel_for<class sharpen>(cl::sycl::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](cl::sycl::item<2> item) {
+		cgh.parallel_for<class sharpen>(cl::sycl::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](celerity::item<2> item) {
 			using cl::sycl::float3;
 			if(is_on_boundary(cl::sycl::range<2>(image_height, image_width), fs, item)) {
 				out[item] = float3(0.f, 0.f, 0.f);

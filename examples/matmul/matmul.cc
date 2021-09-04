@@ -8,7 +8,7 @@ template <typename T>
 void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat) {
 	queue.submit([=](celerity::handler& cgh) {
 		celerity::accessor dw{mat, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-		cgh.parallel_for<class set_identity_kernel>(mat.get_range(), [=](cl::sycl::item<2> item) { dw[item] = item[0] == item[1]; });
+		cgh.parallel_for<class set_identity_kernel>(mat.get_range(), [=](celerity::item<2> item) { dw[item] = item[0] == item[1]; });
 	});
 }
 
@@ -19,7 +19,7 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 		celerity::accessor b{mat_b, cgh, celerity::access::slice<2>(0), celerity::read_only};
 		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 
-		cgh.parallel_for<class mat_mul>(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE), [=](cl::sycl::item<2> item) {
+		cgh.parallel_for<class mat_mul>(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE), [=](celerity::item<2> item) {
 			auto sum = 0.f;
 			for(size_t k = 0; k < MAT_SIZE; ++k) {
 				const auto a_ik = a[{item[0], k}];
