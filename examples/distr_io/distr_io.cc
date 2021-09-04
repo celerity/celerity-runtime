@@ -121,7 +121,7 @@ int main(int argc, char* argv[]) {
 		q.submit([=](celerity::handler& cgh) {
 			auto a = in.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one{});
 			auto b = out.get_access<cl::sycl::access::mode::discard_write>(cgh, transposed);
-			cgh.parallel_for<class transpose>(cl::sycl::range<2>{N, N}, [=](cl::sycl::item<2> item) {
+			cgh.parallel_for<class transpose>(cl::sycl::range<2>{N, N}, [=](celerity::item<2> item) {
 				auto id = item.get_id();
 				b[{id[1], id[0]}] = a[id];
 			});

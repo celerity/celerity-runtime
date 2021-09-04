@@ -9,6 +9,7 @@
 
 #include "device_queue.h"
 #include "host_queue.h"
+#include "item.h"
 #include "range_mapper.h"
 #include "ranges.h"
 #include "task.h"
@@ -328,10 +329,29 @@ namespace detail {
 
 	// The current mechanism for hydrating the SYCL placeholder accessors inside Celerity accessors requires that the kernel functor
 	// capturing those accessors is copied at least once during submission (see also live_pass_device_handler::submit_to_sycl).
-	// As of SYCL 2020 kernel functors are passed as const references, so we have to do this manually here.
+	// As of SYCL 2020 kernel functors are passed as const references, so we explicitly copy or capture by value in bind_kernel_with_*
+
+	template <typename Functor, int Dims>
+	auto bind_kernel_with_celerity_item(const Functor& kernel, const cl::sycl::range<Dims>& global_range) {
+		return [=](cl::sycl::item<Dims> s_item) { kernel(make_item<Dims>(s_item.get_id(), global_range)); };
+	}
+
 	template <typename Functor>
-	Functor copy_kernel(const Functor& kernel) {
-		return Functor{kernel};
+	[[deprecated("Support for kernels receiving cl::sycl::item<Dims> will be removed in the future, change parameter type to celerity::item<Dims>")]] //
+	Functor
+	bind_kernel_with_sycl_item(const Functor& kernel) {
+		return kernel;
+	}
+
+	template <typename Functor, int Dims>
+	auto bind_kernel(const Functor& kernel, const cl::sycl::range<Dims>& global_range) {
+		if constexpr(std::is_invocable_v<Functor, celerity::item<Dims>>) {
+			return bind_kernel_with_celerity_item(kernel, global_range);
+		} else if constexpr(std::is_invocable_v<Functor, cl::sycl::item<Dims>>) {
+			return bind_kernel_with_sycl_item(kernel);
+		} else {
+			static_assert(constexpr_false<Functor>, "Kernel function must be invocable with celerity::item<Dims> or cl::sycl::item<Dims> (deprecated)");
+		}
 	}
 
 	class live_pass_device_handler final : public live_pass_handler {
@@ -371,7 +391,7 @@ void handler::parallel_for(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims>
 	const auto sr = device_handler.get_iteration_range();
 
 	device_handler.submit_to_sycl([&](cl::sycl::handler& cgh) {
-		cgh.parallel_for<Name>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), detail::copy_kernel(kernel));
+		cgh.parallel_for<Name>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), detail::bind_kernel(kernel, global_size));
 	});
 }
 

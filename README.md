@@ -36,7 +36,7 @@ queue.submit([=](celerity::handler& cgh) {
   );
   cgh.parallel_for<class MyKernel>(
     sycl::range<1>(1024),                       // 2
-    [=](sycl::item<1> item) {                   // 3
+    [=](celerity::item<1> item) {                   // 3
       acc[item] = sycl::sin(item[0] / 1024.f);  // 4
     });
 });
