@@ -208,22 +208,22 @@ if(CELERITY_BUILD_EXAMPLES)
   add_subdirectory(examples/wave_sim)
 
   set_property(
-    TARGET convolution matmul syncing wave_sim
-    PROPERTY FOLDER "examples"
+          TARGET convolution matmul syncing wave_sim
+          PROPERTY FOLDER "examples"
   )
 
-  if(NOT CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
-    # CCPP currently does not implement reductions
-    add_subdirectory(examples/reduction)
-    set_property(TARGET reduction PROPERTY FOLDER "examples")
-  endif()
+  if (CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
+      # CCPP currently does not implement reductions, and DPC++ does not support multiple reduction variables per kernel
+      add_subdirectory(examples/reduction)
+      set_property(TARGET reduction PROPERTY FOLDER "examples")
+  endif ()
 
   find_package(PkgConfig)
   unset(HDF5_FOUND)
-  if(PkgConfig_FOUND)
-    pkg_search_module(HDF5 IMPORTED_TARGET hdf5-openmpi hdf5-1.12.0 hdf5)
-    if(HDF5_FOUND)
-      add_subdirectory(examples/distr_io)
+  if (PkgConfig_FOUND)
+      pkg_search_module(HDF5 IMPORTED_TARGET hdf5-openmpi hdf5-1.12.0 hdf5)
+      if (HDF5_FOUND)
+          add_subdirectory(examples/distr_io)
       set_property(TARGET distr_io PROPERTY FOLDER "examples")
     endif()
   endif()

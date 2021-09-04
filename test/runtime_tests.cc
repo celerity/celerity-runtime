@@ -2322,7 +2322,7 @@ namespace detail {
 	}
 #pragma GCC diagnostic pop
 
-	template<int Dims>
+	template <int Dims>
 	class linear_id_kernel;
 
 	TEMPLATE_TEST_CASE_SIG("item::get_id() includes global offset, item::get_linear_id() does not", "[item]", ((int Dims), Dims), 1, 2, 3) {
@@ -2345,12 +2345,12 @@ namespace detail {
 		q.submit([=](handler& cgh) {
 			accessor a{linear_id, cgh, celerity::access::all{}, read_only_host_task};
 			cgh.host_task(on_master_node, [=] {
-				for (int i = 0; i < n; ++i) {
+				for(int i = 0; i < n; ++i) {
 					CHECK(a[i][0] == global_offset[0] + i);
 					for(int d = 1; d < Dims; ++d) {
 						CHECK(a[i][d] == global_offset[d]);
 					}
-					CHECK(a[i][Dims] == i);
+					CHECK(a[i][Dims] == static_cast<size_t>(i));
 				}
 			});
 		});
@@ -2364,36 +2364,40 @@ namespace detail {
 
 		buffer<float, 1> buf_1{cl::sycl::range<1>{2}};
 		CHECK_THROWS(tm.create_task([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(wrong_size_1)>(cl::sycl::range<1>{1}, reduction(buf_1, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<1>, auto&) {});
+			cgh.parallel_for<class UKN(wrong_size_1)>(cl::sycl::range<1>{1}, reduction(buf_1, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
 		}));
 
+#if !WORKAROUND_DPCPP // no reductions to buffers with dimensionality != 1
 		buffer<float, 2> buf_2{cl::sycl::range<2>{1, 2}};
 		CHECK_THROWS(tm.create_task([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(wrong_size_2)>(
-			    cl::sycl::range<2>{1, 1}, reduction(buf_2, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<2>, auto&) {});
+			    cl::sycl::range<2>{1, 1}, reduction(buf_2, cgh, cl::sycl::plus<float>{}), [=](celerity::item<2>, auto&) {});
 		}));
 
 		buffer<float, 3> buf_3{cl::sycl::range<3>{1, 2, 1}};
 		CHECK_THROWS(tm.create_task([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(wrong_size_3)>(
-			    cl::sycl::range<3>{1, 1, 1}, reduction(buf_3, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<3>, auto&) {});
+			    cl::sycl::range<3>{1, 1, 1}, reduction(buf_3, cgh, cl::sycl::plus<float>{}), [=](celerity::item<3>, auto&) {});
 		}));
+#endif
 
 		buffer<float, 1> buf_4{cl::sycl::range<1>{1}};
 		CHECK_NOTHROW(tm.create_task([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_1)>(cl::sycl::range<1>{1}, reduction(buf_4, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<1>, auto&) {});
+			cgh.parallel_for<class UKN(ok_size_1)>(cl::sycl::range<1>{1}, reduction(buf_4, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
 		}));
 
+#if !WORKAROUND_DPCPP // no reductions to buffers with dimensionality != 1
 		buffer<float, 2> buf_5{cl::sycl::range<2>{1, 1}};
 		CHECK_NOTHROW(tm.create_task([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_2)>(cl::sycl::range<2>{1, 1}, reduction(buf_5, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<2>, auto&) {});
+			cgh.parallel_for<class UKN(ok_size_2)>(cl::sycl::range<2>{1, 1}, reduction(buf_5, cgh, cl::sycl::plus<float>{}), [=](celerity::item<2>, auto&) {});
 		}));
 
 		buffer<float, 3> buf_6{cl::sycl::range<3>{1, 1, 1}};
 		CHECK_NOTHROW(tm.create_task([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(ok_size_3)>(
-			    cl::sycl::range<3>{1, 1, 1}, reduction(buf_6, cgh, cl::sycl::plus<float>{}), [=](cl::sycl::item<3>, auto&) {});
+			    cl::sycl::range<3>{1, 1, 1}, reduction(buf_6, cgh, cl::sycl::plus<float>{}), [=](celerity::item<3>, auto&) {});
 		}));
+#endif
 	}
 
 #endif // !WORKAROUND_COMPUTECPP
