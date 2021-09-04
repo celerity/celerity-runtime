@@ -9,10 +9,7 @@
 #include <stb/stb_image_write.h>
 
 
-#if WORKAROUND_HIPSYCL
-// work around a weird compiler bug that causes this one function not to be auto-annotated with __host__ __device__ on CUDA targets
-HIPSYCL_UNIVERSAL_TARGET
-#endif
+WORKAROUND_HIPSYCL_UNIVERSAL_TARGET
 cl::sycl::float4 srgb_to_rgb(cl::sycl::float4 srgb) {
 	const auto linearize = [](float u) {
 		if(u <= 0.04045f) {
@@ -30,6 +27,7 @@ cl::sycl::float4 srgb_to_rgb(cl::sycl::float4 srgb) {
 }
 
 
+WORKAROUND_HIPSYCL_UNIVERSAL_TARGET
 cl::sycl::float4 rgb_to_srgb(cl::sycl::float4 linear) {
 	const auto compress = [](float u) {
 		if(u <= 0.0031308f) {
@@ -71,7 +69,7 @@ int main(int argc, char* argv[]) {
 		celerity::accessor rgb_acc{lab_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		auto min_value_r = celerity::reduction(min_value_buf, cgh, cl::sycl::minimum<float>{}, cl::sycl::property::reduction::initialize_to_identity{});
 		auto max_value_r = celerity::reduction(max_value_buf, cgh, cl::sycl::maximum<float>{}, cl::sycl::property::reduction::initialize_to_identity{});
-		cgh.parallel_for<class linearize_and_accumulate>(image_size, min_value_r, max_value_r, [=](cl::sycl::item<2> item, auto& min_value, auto& max_value) {
+		cgh.parallel_for<class linearize_and_accumulate>(image_size, min_value_r, max_value_r, [=](celerity::item<2> item, auto& min_value, auto& max_value) {
 			const auto rgb = srgb_to_rgb(srgb_255_acc[item].convert<float>() / 255.0f);
 			rgb_acc[item] = rgb;
 			for(int i = 0; i < 3; ++i) {
@@ -92,7 +90,7 @@ int main(int argc, char* argv[]) {
 		celerity::accessor min_value_acc{min_value_buf, cgh, celerity::access::all{}, celerity::read_only};
 		celerity::accessor max_value_acc{max_value_buf, cgh, celerity::access::all{}, celerity::read_only};
 		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-		cgh.parallel_for<class correct_and_compress>(image_size, [=](cl::sycl::item<2> item) {
+		cgh.parallel_for<class correct_and_compress>(image_size, [=](celerity::item<2> item) {
 			const auto min = min_value_acc[{}], max = max_value_acc[{}];
 			auto rgb = rgb_acc[item];
 			for(int i = 0; i < 3; ++i) {

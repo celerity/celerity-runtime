@@ -130,17 +130,17 @@ class handler {
 	virtual ~handler() = default;
 
 	template <typename Name, int Dims, typename... ReductionsAndKernel>
-	void parallel_for(cl::sycl::range<Dims> global_size, ReductionsAndKernel... reductions_and_kernel) {
+	void parallel_for(cl::sycl::range<Dims> global_range, ReductionsAndKernel... reductions_and_kernel) {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
 		parallel_for_reductions_and_kernel<Name, Dims, ReductionsAndKernel...>(
-		    global_size, cl::sycl::id<Dims>(), std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
+		    global_range, cl::sycl::id<Dims>(), std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
 	}
 
 	template <typename Name, int Dims, typename... ReductionsAndKernel>
 	void parallel_for(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, ReductionsAndKernel... reductions_and_kernel) {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
 		parallel_for_reductions_and_kernel<Name, Dims, ReductionsAndKernel...>(
-		    global_size, global_offset, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
+		    global_range, global_offset, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
 	}
 
 	/**
@@ -188,11 +188,11 @@ class handler {
 	void host_task(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Functor kernel);
 
 	/**
-	 * Like `host_task(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, Functor kernel)`, but with a `global_offset` of zero.
+	 * Like `host_task(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Functor kernel)`, but with a `global_offset` of zero.
 	 */
 	template <int Dims, typename Functor>
-	void host_task(cl::sycl::range<Dims> global_size, Functor task) {
-		host_task(global_size, {}, task);
+	void host_task(cl::sycl::range<Dims> global_range, Functor task) {
+		host_task(global_range, {}, task);
 	}
 
   protected:
@@ -223,15 +223,15 @@ class handler {
 
   private:
 	template <typename Name, int Dims, typename... ReductionsAndKernel, size_t... ReductionIndices>
-	void parallel_for_reductions_and_kernel(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset,
+	void parallel_for_reductions_and_kernel(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset,
 	    std::index_sequence<ReductionIndices...> indices, ReductionsAndKernel&... kernel_and_reductions) {
 		auto args_tuple = std::forward_as_tuple(kernel_and_reductions...);
 		auto& kernel = std::get<sizeof...(kernel_and_reductions) - 1>(args_tuple);
-		parallel_for_kernel_and_reductions<Name>(global_size, global_offset, kernel, indices, std::get<ReductionIndices>(args_tuple)...);
+		parallel_for_kernel_and_reductions<Name>(global_range, global_offset, kernel, indices, std::get<ReductionIndices>(args_tuple)...);
 	}
 
 	template <typename Name, int Dims, typename Kernel, typename... Reductions, size_t... ReductionIndices>
-	void parallel_for_kernel_and_reductions(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, Kernel& kernel,
+	void parallel_for_kernel_and_reductions(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Kernel& kernel,
 	    std::index_sequence<ReductionIndices...>, Reductions&... reductions);
 };
 
@@ -360,31 +360,44 @@ namespace detail {
 		std::future<host_queue::execution_info> future;
 	};
 
-	// The current mechanism for hydrating the SYCL placeholder accessors inside Celerity accessors requires that the kernel functor
-	// capturing those accessors is copied at least once during submission (see also live_pass_device_handler::submit_to_sycl).
-	// As of SYCL 2020 kernel functors are passed as const references, so we explicitly copy or capture by value in bind_kernel_with_*
-
-	template <typename Functor, int Dims>
-	auto bind_kernel_with_celerity_item(const Functor& kernel, const cl::sycl::id<Dims>& global_offset, const cl::sycl::range<Dims>& global_range) {
-		return [=](cl::sycl::item<Dims> s_item) { kernel(make_item<Dims>(s_item.get_id(), global_offset, global_range)); };
+	template <typename Kernel, int Dims, typename... Reducers>
+	WORKAROUND_HIPSYCL_UNIVERSAL_TARGET inline void invoke_kernel_with_celerity_item(const Kernel& kernel, const cl::sycl::id<Dims>& s_id,
+	    const cl::sycl::range<Dims>& global_range, const cl::sycl::id<Dims>& global_offset, const cl::sycl::id<Dims>& chunk_offset, Reducers&... reducers) {
+		kernel(make_item<Dims>(s_id + chunk_offset, global_offset, global_range), reducers...);
 	}
 
-	template <typename Functor>
+	template <typename Kernel, int Dims, typename... Reducers>
 	[[deprecated("Support for kernels receiving cl::sycl::item<Dims> will be removed in the future, change parameter type to celerity::item<Dims>")]] //
-	Functor
-	bind_kernel_with_sycl_item(const Functor& kernel) {
-		return kernel;
+	WORKAROUND_HIPSYCL_UNIVERSAL_TARGET inline void
+	invoke_kernel_with_sycl_item(const Kernel& kernel, const cl::sycl::item<Dims>& s_item, Reducers&... reducers) {
+		kernel(s_item, reducers...);
 	}
 
-	template <typename Functor, int Dims>
-	auto bind_kernel(const Functor& kernel, const cl::sycl::id<Dims>& global_offset, const cl::sycl::range<Dims>& global_range) {
-		if constexpr(std::is_invocable_v<Functor, celerity::item<Dims>>) {
-			return bind_kernel_with_celerity_item(kernel, global_offset, global_range);
-		} else if constexpr(std::is_invocable_v<Functor, cl::sycl::item<Dims>>) {
-			return bind_kernel_with_sycl_item(kernel);
-		} else {
-			static_assert(constexpr_false<Functor>, "Kernel function must be invocable with celerity::item<Dims> or cl::sycl::item<Dims> (deprecated)");
-		}
+	template <typename Kernel, int Dims>
+	auto bind_kernel(
+	    const Kernel& kernel, const cl::sycl::range<Dims>& global_range, const cl::sycl::id<Dims>& global_offset, const cl::sycl::id<Dims>& chunk_offset) {
+		// The current mechanism for hydrating the SYCL placeholder accessors inside Celerity accessors requires that the kernel functor
+		// capturing those accessors is copied at least once during submission (see also live_pass_device_handler::submit_to_sycl).
+		// As of SYCL 2020 kernel functors are passed as const references, so we explicitly capture by value here.
+		return [=](auto s_item_or_id, auto&... reducers) {
+			if constexpr(std::is_invocable_v<Kernel, celerity::item<Dims>, decltype(reducers)...>) {
+				if constexpr(WORKAROUND_DPCPP && std::is_same_v<cl::sycl::id<Dims>, decltype(s_item_or_id)>) {
+					// WORKAROUND: DPC++ passes a sycl::id instead of a sycl::item to kernels alongside reductions
+					invoke_kernel_with_celerity_item(kernel, s_item_or_id, global_range, global_offset, chunk_offset, reducers...);
+				} else {
+					// Explicit item constructor: ComputeCpp does not pass a sycl::item, but an implicitly convertible sycl::item_base (?) which does not have
+					// `sycl::id<> get_id()`
+					invoke_kernel_with_celerity_item(
+					    kernel, cl::sycl::item<Dims>{s_item_or_id}.get_id(), global_range, global_offset, chunk_offset, reducers...);
+				}
+			} else if constexpr(std::is_invocable_v<Kernel, cl::sycl::item<Dims>, decltype(reducers)...>) {
+				invoke_kernel_with_sycl_item(kernel, cl::sycl::item<Dims>{s_item_or_id}, reducers...);
+			} else {
+				static_assert(constexpr_false<decltype(reducers)...>,
+				    "Kernel function must be invocable with celerity::item<Dims> (or cl::sycl::item<Dims>, deprecated) and as "
+				    "many reducer objects as reductions passed to parallel_for");
+			}
+		};
 	}
 
 	class live_pass_device_handler final : public live_pass_handler {
@@ -417,7 +430,7 @@ namespace detail {
 	template <typename DataT, int Dims, typename BinaryOperation, bool WithExplicitIdentity>
 	auto make_sycl_reduction(cl::sycl::handler& sycl_cgh, const reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>& d) {
 #if WORKAROUND_COMPUTECPP
-		static_assert(!std::is_same_v<DataT, DataT>, "Reductions are currently not supported on ComputeCpp");
+		static_assert(constexpr_false<BinaryOperation>, "Reductions are currently not supported on ComputeCpp");
 #else
 		cl::sycl::property_list props;
 		if(!d.include_current_buffer_value) { props = {cl::sycl::property::reduction::initialize_to_identity{}}; }
@@ -509,8 +522,14 @@ void handler::parallel_for_kernel_and_reductions(
 	const auto sr = device_handler.get_iteration_range();
 
 	device_handler.submit_to_sycl([&](cl::sycl::handler& cgh) {
-		cgh.parallel_for<Name>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), detail::make_sycl_reduction(cgh, reductions)...,
-		    detail::bind_kernel(kernel, global_offset, global_range));
+		if constexpr(WORKAROUND_COMPUTECPP && sizeof...(reductions) > 0) {
+			static_assert(detail::constexpr_false<Kernel>, "ComputeCpp does not currently support reductions");
+		} else if constexpr(WORKAROUND_DPCPP && sizeof...(reductions) > 1) {
+			static_assert(detail::constexpr_false<Kernel>, "DPC++ currently does not support more than one reduction variable per kernel");
+		} else {
+			cgh.parallel_for<Name>(detail::range_cast<Dims>(sr.range), detail::make_sycl_reduction(cgh, reductions)...,
+			    detail::bind_kernel(kernel, global_range, global_offset, detail::id_cast<Dims>(sr.offset)));
+		}
 	});
 }
 
@@ -544,8 +563,11 @@ void handler::host_task(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> g
 template <typename DataT, int Dims, typename BinaryOperation>
 auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
 #if WORKAROUND_COMPUTECPP
-	static_assert(!std::is_same_v<DataT, DataT>, "Reductions are currently not supported on ComputeCpp");
+	static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are currently not supported on ComputeCpp");
 #else
+#if WORKAROUND_DPCPP
+	static_assert(Dims == 1, "DPC++ currently does not support reductions to buffers with dimensionality != 1");
+#endif
 	static_assert(cl::sycl::has_known_identity_v<BinaryOperation, DataT>,
 	    "Celerity does not currently support reductions without an identity. Either specialize "
 	    "cl::sycl::known_identity or use the reduction() overload taking an identity at runtime");
@@ -556,7 +578,7 @@ auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation co
 template <typename DataT, int Dims, typename BinaryOperation>
 auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, const DataT identity, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
 #if WORKAROUND_COMPUTECPP
-	static_assert(!std::is_same_v<DataT, DataT>, "Reductions are currently not supported on ComputeCpp");
+	static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are currently not supported on ComputeCpp");
 #else
 	static_assert(!cl::sycl::has_known_identity_v<BinaryOperation, DataT>, "Identity is known to SYCL, remove the identity parameter from reduction()");
 	return detail::make_reduction<true>(vars, cgh, combiner, identity, prop_list);

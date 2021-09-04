@@ -10,7 +10,8 @@ class item;
 namespace detail {
 
 	template <int Dims>
-	item<Dims> make_item(cl::sycl::id<Dims> absolute_global_id, cl::sycl::id<Dims> global_offset, cl::sycl::range<Dims> global_range) {
+	WORKAROUND_HIPSYCL_UNIVERSAL_TARGET inline item<Dims> make_item(
+	    cl::sycl::id<Dims> absolute_global_id, cl::sycl::id<Dims> global_offset, cl::sycl::range<Dims> global_range) {
 		return item<Dims>{absolute_global_id, global_offset, global_range};
 	}
 
@@ -22,13 +23,11 @@ class item {
   public:
 	item() = delete;
 
-	friend bool operator==(const item &lhs, const item &rhs) {
+	friend bool operator==(const item& lhs, const item& rhs) {
 		return lhs.absolute_global_id == rhs.absolute_global_id && lhs.global_offset == rhs.global_offset && lhs.global_range == rhs.global_range;
 	}
 
-	friend bool operator!=(const item &lhs, const item &rhs) {
-		return !(lhs == rhs);
-	}
+	friend bool operator!=(const item& lhs, const item& rhs) { return !(lhs == rhs); }
 
 	cl::sycl::id<Dims> get_id() const { return absolute_global_id; }
 
@@ -48,13 +47,14 @@ class item {
 
   private:
 	template <int D>
-	friend item<D> celerity::detail::make_item(cl::sycl::id<D>, cl::sycl::id<D>, cl::sycl::range<D>);
+	WORKAROUND_HIPSYCL_UNIVERSAL_TARGET friend item<D> celerity::detail::make_item(cl::sycl::id<D>, cl::sycl::id<D>, cl::sycl::range<D>);
 
 	cl::sycl::id<Dims> absolute_global_id;
 	cl::sycl::id<Dims> global_offset;
 	cl::sycl::range<Dims> global_range;
 
-	explicit item(cl::sycl::id<Dims> absolute_global_id, cl::sycl::id<Dims> global_offset, cl::sycl::range<Dims> global_range) : absolute_global_id(absolute_global_id), global_offset(global_offset), global_range(global_range) {}
+	explicit item(cl::sycl::id<Dims> absolute_global_id, cl::sycl::id<Dims> global_offset, cl::sycl::range<Dims> global_range)
+	    : absolute_global_id(absolute_global_id), global_offset(global_offset), global_range(global_range) {}
 };
 
 } // namespace celerity

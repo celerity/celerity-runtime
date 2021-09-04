@@ -9,6 +9,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
 
+WORKAROUND_HIPSYCL_UNIVERSAL_TARGET
 bool is_on_boundary(cl::sycl::range<2> range, size_t filter_size, cl::sycl::id<2> id) {
 	return (id[0] < (filter_size / 2) || id[1] < (filter_size / 2) || id[0] > range[0] - (filter_size / 2) - 1 || id[1] > range[1] - (filter_size / 2) - 1);
 }
