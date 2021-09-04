@@ -12,14 +12,6 @@
 namespace celerity {
 namespace detail {
 
-	inline size_t get_linear_index(const cl::sycl::range<1>& buffer_range, const cl::sycl::id<1>& index) { return index[0]; }
-
-	inline size_t get_linear_index(const cl::sycl::range<2>& buffer_range, const cl::sycl::id<2>& index) { return index[0] * buffer_range[1] + index[1]; }
-
-	inline size_t get_linear_index(const cl::sycl::range<3>& buffer_range, const cl::sycl::id<3>& index) {
-		return index[0] * buffer_range[1] * buffer_range[2] + index[1] * buffer_range[2] + index[2];
-	}
-
 	void memcpy_strided(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const cl::sycl::range<1>& source_range,
 	    const cl::sycl::id<1>& source_offset, const cl::sycl::range<1>& target_range, const cl::sycl::id<1>& target_offset,
 	    const cl::sycl::range<1>& copy_range);

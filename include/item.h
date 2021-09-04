@@ -1,6 +1,6 @@
 #pragma once
 
-#include "buffer_storage.h"
+#include "ranges.h"
 
 namespace celerity {
 
