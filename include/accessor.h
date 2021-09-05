@@ -193,7 +193,7 @@ class accessor<DataT, Dims, Mode, celerity::target::device> : public detail::acc
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, cl::sycl::property_list prop_list) {
 		// in this static assert it would be more relevant to use property_list type, but if a defined type is used then it is always false and
 		// always fails to compile. Hence we use a templated type so that it only produces a compile error when the ctr is called.
-		static_assert(!std::is_same_v<TagT, TagT>,
+		static_assert(detail::constexpr_false<TagT>,
 		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
 		    "as a last argument in the constructor");
 	}
@@ -405,7 +405,7 @@ class accessor<DataT, Dims, Mode, celerity::target::host_task> : public detail::
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, cl::sycl::property_list prop_list) {
 		// in this static assert it would be more relevant to use property_list type, but if a defined type is used then it is always false and
 		// always fails to compile. Hence we use a templated type so that it only produces a compile error when the ctr is loaded.
-		static_assert(!std::is_same_v<TagT, TagT>,
+		static_assert(detail::constexpr_false<TagT>,
 		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
 		    "as a last argument in the constructor");
 	}
@@ -565,8 +565,7 @@ namespace detail {
 		                    std::is_same_v<const TagT, decltype(celerity::write_only_host_task)>) {
 			return access_mode::write;
 		} else {
-			static_assert(!std::is_same_v<TagT, decltype(celerity::read_only)>,
-			    "Invalid access tag, expecting one of celerity::{read_only,read_write,write_only}[_host_task]");
+			static_assert(constexpr_false<TagT>, "Invalid access tag, expecting one of celerity::{read_only,read_write,write_only}[_host_task]");
 		}
 	}
 
@@ -574,7 +573,7 @@ namespace detail {
 	constexpr access_mode deduce_access_mode_discard() {
 		if constexpr(std::is_same_v<const TagT, decltype(celerity::read_only)> || //
 		             std::is_same_v<const TagT, decltype(celerity::read_only_host_task)>) {
-			static_assert(!std::is_same_v<TagT, TagT>, "Invalid access mode + no_init");
+			static_assert(constexpr_false<TagT>, "Invalid access mode + no_init");
 		} else if constexpr(std::is_same_v<const TagT, decltype(celerity::read_write)> || //
 		                    std::is_same_v<const TagT, decltype(celerity::read_write_host_task)>) {
 			return access_mode::discard_read_write;
@@ -582,8 +581,7 @@ namespace detail {
 		                    std::is_same_v<const TagT, decltype(celerity::write_only_host_task)>) {
 			return access_mode::discard_write;
 		} else {
-			static_assert(!std::is_same_v<TagT, decltype(celerity::read_only)>,
-			    "Invalid access tag, expecting one of celerity::{read_only,read_write,write_only}[_host_task]");
+			static_assert(constexpr_false<TagT>, "Invalid access tag, expecting one of celerity::{read_only,read_write,write_only}[_host_task]");
 		}
 	}
 
@@ -598,7 +596,7 @@ namespace detail {
 		                    std::is_same_v<const TagT, decltype(celerity::write_only_host_task)>) {
 			return celerity::target::host_task;
 		} else {
-			static_assert(!std::is_same_v<TagT, TagT>, "Invalid access tag, expecting one of celerity::{read_only,read_write,write_only}[_host_task]");
+			static_assert(constexpr_false<TagT>, "Invalid access tag, expecting one of celerity::{read_only,read_write,write_only}[_host_task]");
 		}
 	}
 
