@@ -3,6 +3,11 @@
 namespace celerity {
 namespace detail {
 
+	/// Like `false`, but dependent on one or more template parameters. Use as the condition of always-failing static assertions in overloads, template
+	/// specializations or `if constexpr` branches.
+	template <typename...>
+	constexpr bool constexpr_false = false;
+
 	template <typename T, typename UniqueName>
 	class PhantomType {
 	  public:
