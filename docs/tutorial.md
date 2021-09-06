@@ -170,8 +170,8 @@ aforementioned buffer accessors. Let's create these now - replace the TODO
 before the kernel function with the following:
 
 ```cpp
-auto r_input = input_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood(1, 1));
-auto dw_edge = edge_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one());
+auto r_input = input_buf.get_access<celerity::access_mode::read>(cgh, celerity::access::neighborhood(1, 1));
+auto dw_edge = edge_buf.get_access<celerity::access_mode::discard_write>(cgh, celerity::access::one_to_one());
 ```
 
 If you have worked with SYCL before, these buffer accessors will look
@@ -252,7 +252,7 @@ your `main()` function:
 
 ```cpp
 queue.submit([=](celerity::handler& cgh) {
-    auto out = edge_buf.get_access<cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer>(cgh, celerity::access::all<2>());
+    auto out = edge_buf.get_access<celerity::access_mode::read, celerity::target::host_task>(cgh, celerity::access::all());
     cgh.host_task(celerity::on_master_node, [=]() {
         stbi_write_png("result.png", img_width, img_height, 1, out.get_pointer(), 0);
     });

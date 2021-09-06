@@ -78,7 +78,16 @@ cmake -G Ninja .. -DCMAKE_PREFIX_PATH="<path-to-hipsycl-install>/lib" -DHIPSYCL_
 cmake -G "Unix Makefiles" .. -DComputeCpp_DIR="<path-to-computecpp-install>" -DCMAKE_INSTALL_PREFIX="<install-path>" -DCMAKE_BUILD_TYPE=Release
 ```
 
+<!-- DPC++ + Unix Makefiles-->
+
+```
+cmake -G "Unix Makefiles" .. -DCMAKE_CXX_COMPILER="/path/to/dpc++/bin/clang++" -DCMAKE_INSTALL_PREFIX="<install-path>" -DCMAKE_BUILD_TYPE=Release
+```
+
 <!--END_DOCUSAURUS_CODE_TABS-->
+
+In case multiple SYCL implementations are in CMake's search path, you can disambiguate them
+using `-DCELERITY_SYCL_IMPL=hipSYCL|ComputeCpp|DPC++`.
 
 Note that the `CMAKE_PREFIX_PATH` and `ComputeCpp_DIR` parameters should only
 be required if you installed SYCL in a non-standard location. See the [CMake
