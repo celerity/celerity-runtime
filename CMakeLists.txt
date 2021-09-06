@@ -8,7 +8,7 @@ set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${PROJECT_SOURCE_DIR}/cmake")
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 
-option(CELERITY_SYCL_IMPL "hipSYCL|ComputeCpp|DPC++")
+set(CELERITY_SYCL_IMPL "OFF" CACHE STRING "hipSYCL|ComputeCpp|DPC++")
 
 try_compile(CXX_COMPILER_IS_DPCPP "${PROJECT_BINARY_DIR}/detect_dpcpp"
   SOURCES "${PROJECT_SOURCE_DIR}/cmake/sycl_test.cpp"
@@ -28,6 +28,8 @@ elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
   if(NOT CXX_COMPILER_IS_DPCPP)
     message(FATAL_ERROR "CELERITY_SYCL_IMPL set to DPC++, but CXX compiler at ${CMAKE_CXX_COMPILER} is not DPC++")
   endif()
+elseif(NOT "${CELERITY_SYCL_IMPL}x" STREQUAL "OFFx")
+  message(FATAL_ERROR "Invalid SYCL implementation ${CELERITY_SYCL_IMPL} specified")
 else()
   if(CXX_COMPILER_IS_DPCPP)
     list(APPEND AVAILABLE_SYCL_IMPLS DPC++)
@@ -48,21 +50,21 @@ else()
   list(LENGTH AVAILABLE_SYCL_IMPLS NUM_AVAILABLE_SYCL_IMPLS)
   if(NUM_AVAILABLE_SYCL_IMPLS EQUAL 0)
     message(FATAL_ERROR "No SYCL implementation found. You might need to add an install path for hipSYCL or "
-            "ComputeCpp to CMAKE_PREFIX_PATH.")
-  elseif (NUM_AVAILABLE_SYCL_IMPLS GREATER 1)
-      list(JOIN AVAILABLE_SYCL_IMPLS " and " AVAILABLE_SYCL_IMPLS_STR)
-      message(FATAL_ERROR "More than one SYCL implementation available: Found ${AVAILABLE_SYCL_IMPLS_STR}. "
-              "Please choose one implementation using -DCELERITY_SYCL_IMPL=hipSYCL|ComputeCpp|DPC++.")
-  else ()
-      set(CELERITY_SYCL_IMPL "${AVAILABLE_SYCL_IMPLS}")
-      message(STATUS "Automatically chooosing ${CELERITY_SYCL_IMPL} because it is the only SYCL implementation available")
-  endif ()
+      "ComputeCpp to CMAKE_PREFIX_PATH.")
+  elseif(NUM_AVAILABLE_SYCL_IMPLS GREATER 1)
+    list(JOIN AVAILABLE_SYCL_IMPLS " and " AVAILABLE_SYCL_IMPLS_STR)
+    message(FATAL_ERROR "More than one SYCL implementation available: Found ${AVAILABLE_SYCL_IMPLS_STR}. "
+      "Please choose one implementation using -DCELERITY_SYCL_IMPL=hipSYCL|ComputeCpp|DPC++.")
+  else()
+    set(CELERITY_SYCL_IMPL "${AVAILABLE_SYCL_IMPLS}")
+    message(STATUS "Automatically chooosing ${CELERITY_SYCL_IMPL} because it is the only SYCL implementation available")
+  endif()
 endif ()
 
 set(CELERITY_DPCPP_TARGETS "spir64" CACHE STRING "Intel DPC++ targets")
-if (CELEIRTY_SYCL_IMPL STREQUAL "DPC++")
-    message(STATUS "DPC++ targets: ${CELERITY_DPCPP_TARGETS}")
-endif ()
+if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
+  message(STATUS "DPC++ will target ${CELERITY_DPCPP_TARGETS}")
+endif()
 
 if (CELERITY_SYCL_IMPL STREQUAL "ComputeCpp" AND NOT COMPUTECPP_USER_FLAGS MATCHES "-D_CRT_SECURE_NO_WARNINGS")
     set(COMPUTECPP_USER_FLAGS "${COMPUTECPP_USER_FLAGS};-D_CRT_SECURE_NO_WARNINGS=1"
@@ -168,19 +170,19 @@ endif()
 
 if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
   function(add_sycl_to_target)
-      set(options)
-      set(one_value_args TARGET)
-      set(multi_value_args)
-      cmake_parse_arguments(ADD_SYCL
-              "${options}"
-              "${one_value_args}"
-              "${multi_value_args}"
-              ${ARGN}
-              )
-      # Wno-deprecated-declarations: Kernel offsets are used all over the place
-      set(DPCPP_FLAGS "-fsycl;-sycl-std=2020;-fsycl-targets=${CELERITY_DPCPP_TARGETS};-DCELERITY_DPCPP=1;-Wno-deprecated-declarations;${DPCPP_FLAGS}")
-      target_compile_options(${ADD_SYCL_TARGET} PUBLIC ${DPCPP_FLAGS})
-      target_link_options(${ADD_SYCL_TARGET} PUBLIC ${DPCPP_FLAGS})
+    set(options)
+    set(one_value_args TARGET)
+    set(multi_value_args)
+    cmake_parse_arguments(ADD_SYCL
+      "${options}"
+      "${one_value_args}"
+      "${multi_value_args}"
+      ${ARGN}
+      )
+    # Wno-deprecated-declarations: Kernel offsets are used all over the place
+    set(DPCPP_FLAGS "-fsycl;-sycl-std=2020;-fsycl-targets=${CELERITY_DPCPP_TARGETS};-DCELERITY_DPCPP=1;-Wno-deprecated-declarations;${DPCPP_FLAGS}")
+    target_compile_options(${ADD_SYCL_TARGET} PUBLIC ${DPCPP_FLAGS})
+    target_link_options(${ADD_SYCL_TARGET} PUBLIC ${DPCPP_FLAGS})
   endfunction()
 endif()
 

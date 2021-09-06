@@ -1,3 +1,8 @@
+# ** CELERITY PATCH NOTE **
+# This file is sourced from the ComputeCpp SDK and has been patched to allow find_package(ComputeCpp) to gracefully
+# report failure in case OpenCL is not found (find_package(OpenCL) is not REQUIRED any more) and avoid printing
+# warnings if the QUIET option is specified (if NOT ComputeCpp_FIND_QUIETLY).
+
 #.rst:
 # FindComputeCpp
 #---------------
@@ -93,7 +98,7 @@ get_filename_component(ComputeCpp_INCLUDE_DIRS ${ComputeCpp_INCLUDE_DIRS} ABSOLU
 
 get_filename_component(computecpp_canonical_root_dir "${ComputeCpp_INCLUDE_DIRS}/.." ABSOLUTE)
 set(ComputeCpp_ROOT_DIR "${computecpp_canonical_root_dir}" CACHE PATH
-    "The root of the ComputeCpp install")
+  "The root of the ComputeCpp install")
 
 if(NOT ComputeCpp_INFO_EXECUTABLE)
   if(NOT ComputeCpp_FIND_QUIETLY)
@@ -124,19 +129,19 @@ endif()
 
 find_package_handle_standard_args(ComputeCpp
   REQUIRED_VARS ComputeCpp_ROOT_DIR
-                ComputeCpp_DEVICE_COMPILER_EXECUTABLE
-                ComputeCpp_INFO_EXECUTABLE
-                COMPUTECPP_RUNTIME_LIBRARY
-                COMPUTECPP_RUNTIME_LIBRARY_DEBUG
-                ComputeCpp_INCLUDE_DIRS
+  ComputeCpp_DEVICE_COMPILER_EXECUTABLE
+  ComputeCpp_INFO_EXECUTABLE
+  COMPUTECPP_RUNTIME_LIBRARY
+  COMPUTECPP_RUNTIME_LIBRARY_DEBUG
+  ComputeCpp_INCLUDE_DIRS
   VERSION_VAR ComputeCpp_VERSION)
 mark_as_advanced(ComputeCpp_ROOT_DIR
-                 ComputeCpp_DEVICE_COMPILER_EXECUTABLE
-                 ComputeCpp_INFO_EXECUTABLE
-                 COMPUTECPP_RUNTIME_LIBRARY
-                 COMPUTECPP_RUNTIME_LIBRARY_DEBUG
-                 ComputeCpp_INCLUDE_DIRS
-                 ComputeCpp_VERSION)
+  ComputeCpp_DEVICE_COMPILER_EXECUTABLE
+  ComputeCpp_INFO_EXECUTABLE
+  COMPUTECPP_RUNTIME_LIBRARY
+  COMPUTECPP_RUNTIME_LIBRARY_DEBUG
+  ComputeCpp_INCLUDE_DIRS
+  ComputeCpp_VERSION)
 
 if(NOT ComputeCpp_FOUND)
   return()
@@ -161,7 +166,7 @@ if(NOT TARGET OpenCL::OpenCL)
   set_target_properties(OpenCL::OpenCL PROPERTIES
     IMPORTED_LOCATION             "${OpenCL_LIBRARIES}"
     INTERFACE_INCLUDE_DIRECTORIES "${OpenCL_INCLUDE_DIRS}"
-  )
+    )
 endif()
 
 if(NOT TARGET ComputeCpp::ComputeCpp)
@@ -172,7 +177,7 @@ if(NOT TARGET ComputeCpp::ComputeCpp)
     IMPORTED_LOCATION                "${COMPUTECPP_RUNTIME_LIBRARY}"
     INTERFACE_INCLUDE_DIRECTORIES    "${ComputeCpp_INCLUDE_DIRS}"
     INTERFACE_LINK_LIBRARIES         "OpenCL::OpenCL"
-  )
+    )
 endif()
 
 # This property allows targets to specify that their sources should be
@@ -220,14 +225,14 @@ function(__build_ir)
     TARGET
     SOURCE
     COUNTER
-  )
+    )
   set(multi_value_args)
   cmake_parse_arguments(SDK_BUILD_IR
     "${options}"
     "${one_value_args}"
     "${multi_value_args}"
     ${ARGN}
-  )
+    )
   get_filename_component(sourceFileName ${SDK_BUILD_IR_SOURCE} NAME)
 
   # Set the path to the integration header.
@@ -262,7 +267,7 @@ function(__build_ir)
   get_property(source_compile_flags
     SOURCE ${SDK_BUILD_IR_SOURCE}
     PROPERTY COMPUTECPP_SOURCE_FLAGS
-  )
+    )
   separate_arguments(source_compile_flags)
   if(source_compile_flags)
     list(APPEND computecpp_source_flags ${source_compile_flags})
@@ -272,7 +277,7 @@ function(__build_ir)
     ${device_compiler_cxx_standard}
     ${COMPUTECPP_USER_FLAGS}
     ${computecpp_source_flags}
-  )
+    )
 
   set(ir_dependencies ${SDK_BUILD_IR_SOURCE})
   get_target_property(target_libraries ${SDK_BUILD_IR_TARGET} LINK_LIBRARIES)
@@ -285,7 +290,7 @@ function(__build_ir)
   # Depfile support was only added in CMake 3.7
   # CMake throws an error if it is unsupported by the generator (i. e. not ninja)
   if((NOT CMAKE_VERSION VERSION_LESS 3.7.0) AND
-          CMAKE_GENERATOR MATCHES "Ninja")
+    CMAKE_GENERATOR MATCHES "Ninja")
     file(RELATIVE_PATH relOutputFile ${CMAKE_BINARY_DIR} ${outputSyclFile})
     set(generate_depfile -MMD -MF ${depFileName} -MT ${relOutputFile})
     set(enable_depfile DEPFILE ${depFileName})
@@ -295,12 +300,12 @@ function(__build_ir)
   add_custom_command(
     OUTPUT ${outputSyclFile}
     COMMAND ${ComputeCpp_DEVICE_COMPILER_EXECUTABLE}
-            ${COMPUTECPP_DEVICE_COMPILER_FLAGS}
-            ${generated_include_directories}
-            ${generated_compile_definitions}
-            -o ${outputSyclFile}
-            -c ${SDK_BUILD_IR_SOURCE}
-            ${generate_depfile}
+    ${COMPUTECPP_DEVICE_COMPILER_FLAGS}
+    ${generated_include_directories}
+    ${generated_compile_definitions}
+    -o ${outputSyclFile}
+    -c ${SDK_BUILD_IR_SOURCE}
+    ${generate_depfile}
     DEPENDS ${ir_dependencies}
     IMPLICIT_DEPENDS CXX ${SDK_BUILD_IR_SOURCE}
     ${enable_depfile}
@@ -330,7 +335,7 @@ function(__build_ir)
     # Remove relative path to source file
     string(REPLACE "${CMAKE_CURRENT_SOURCE_DIR}/" ""
       rel_source_file ${SDK_BUILD_IR_SOURCE}
-    )
+      )
     list(REMOVE_ITEM current_sources ${rel_source_file})
     # Add SYCL header to source list
     list(APPEND current_sources ${outputSyclFile})
@@ -386,16 +391,16 @@ function(add_sycl_to_target)
   set(options)
   set(one_value_args
     TARGET
-  )
+    )
   set(multi_value_args
     SOURCES
-  )
+    )
   cmake_parse_arguments(SDK_ADD_SYCL
     "${options}"
     "${one_value_args}"
     "${multi_value_args}"
     ${ARGN}
-  )
+    )
 
   # If the CXX compiler is set to compute++ enable the driver.
   get_filename_component(cmakeCxxCompilerFileName "${CMAKE_CXX_COMPILER}" NAME)
