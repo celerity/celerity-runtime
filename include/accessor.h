@@ -15,12 +15,12 @@ namespace celerity {
 template <int Dims>
 class partition;
 
-template <typename DataT, int Dims, access_mode Mode, celerity::target Target>
+template <typename DataT, int Dims, access_mode Mode, target Target>
 class accessor;
 
 namespace detail {
 
-	template <typename DataT, int Dims, access_mode Mode, celerity::target Target>
+	template <typename DataT, int Dims, access_mode Mode, target Target>
 	class accessor_base {
 	  public:
 		static_assert(Dims > 0, "0-dimensional accessors NYI");
@@ -31,10 +31,10 @@ namespace detail {
 	};
 
 	template <typename DataT, int Dims, access_mode Mode, typename... Args>
-	accessor<DataT, Dims, Mode, celerity::target::device> make_device_accessor(Args&&...);
+	accessor<DataT, Dims, Mode, target::device> make_device_accessor(Args&&...);
 
 	template <typename DataT, int Dims, access_mode Mode, typename... Args>
-	accessor<DataT, Dims, Mode, celerity::target::host_task> make_host_accessor(Args&&...);
+	accessor<DataT, Dims, Mode, target::host_task> make_host_accessor(Args&&...);
 
 	template <typename TagT>
 	constexpr access_mode deduce_access_mode();
@@ -43,9 +43,9 @@ namespace detail {
 	constexpr access_mode deduce_access_mode_discard();
 
 	template <typename TagT>
-	constexpr celerity::target deduce_access_target();
+	constexpr target deduce_access_target();
 
-	template <typename DataT, int Dims, cl::sycl::access::mode Mode, celerity::target Target, int Index>
+	template <typename DataT, int Dims, cl::sycl::access::mode Mode, target Target, int Index>
 	class accessor_subscript_proxy;
 
 	struct accessor_testspy;
@@ -165,7 +165,7 @@ class buffer_allocation_window {
 	    : allocation(allocation), buffer_range(buffer_range), allocation_range(allocation_range), window_range(window_range),
 	      allocation_offset_in_buffer(allocation_offset_in_buffer), window_offset_in_buffer(window_offset_in_buffer) {}
 
-	template <typename, int, celerity::access_mode, celerity::target>
+	template <typename, int, access_mode, target>
 	friend class accessor;
 };
 
@@ -176,11 +176,11 @@ class buffer_allocation_window {
  * as their semantics in a distributed context are unclear.
  */
 template <typename DataT, int Dims, access_mode Mode>
-class accessor<DataT, Dims, Mode, celerity::target::device> : public detail::accessor_base<DataT, Dims, Mode, celerity::target::device> {
+class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base<DataT, Dims, Mode, target::device> {
 	friend struct detail::accessor_testspy;
 
   public:
-	template <celerity::target Target = celerity::target::device, typename Functor>
+	template <target Target = target::device, typename Functor>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) : accessor(construct<Target>(buff, cgh, rmfn)) {}
 
 	template <typename Functor, typename TagT>
@@ -231,7 +231,7 @@ class accessor<DataT, Dims, Mode, celerity::target::device> : public detail::acc
 	}
 
 	template <int D = Dims>
-	std::enable_if_t<(D > 1), detail::accessor_subscript_proxy<DataT, D, Mode, celerity::target::device, 1>> operator[](const size_t d0) const {
+	std::enable_if_t<(D > 1), detail::accessor_subscript_proxy<DataT, D, Mode, target::device, 1>> operator[](const size_t d0) const {
 		return {*this, d0};
 	}
 
@@ -247,7 +247,7 @@ class accessor<DataT, Dims, Mode, celerity::target::device> : public detail::acc
 #endif
 
 	template <typename T, int D, access_mode M, typename... Args>
-	friend accessor<T, D, M, celerity::target::device> detail::make_device_accessor(Args&&...);
+	friend accessor<T, D, M, target::device> detail::make_device_accessor(Args&&...);
 
 	// see init_from
 	cl::sycl::handler* const* eventual_sycl_cgh = nullptr;
@@ -284,7 +284,7 @@ class accessor<DataT, Dims, Mode, celerity::target::device> : public detail::acc
 		// static_assert(std::is_standard_layout<accessor>::value, "accessor must have standard layout");
 	}
 
-	template <celerity::target Target, typename Functor>
+	template <target Target, typename Functor>
 	static constructor_args construct(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
 		if(detail::is_prepass_handler(cgh)) {
 			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
@@ -358,9 +358,9 @@ accessor(const buffer<T, D>& buff, handler& cgh, Functor rmfn, TagT tag, cl::syc
 //
 
 template <typename DataT, int Dims, access_mode Mode>
-class accessor<DataT, Dims, Mode, celerity::target::host_task> : public detail::accessor_base<DataT, Dims, Mode, celerity::target::host_task> {
+class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_base<DataT, Dims, Mode, target::host_task> {
   public:
-	template <celerity::target Target = celerity::target::host_task, typename Functor>
+	template <target Target = target::host_task, typename Functor>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
 		static_assert(!std::is_same_v<Functor, cl::sycl::range<Dims>>,
 		    "The accessor constructor overload for master-access tasks (now called 'host tasks') has "
@@ -370,7 +370,7 @@ class accessor<DataT, Dims, Mode, celerity::target::host_task> : public detail::
 			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
 			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, buff.get_range()));
 		} else {
-			if constexpr(Target == celerity::target::host_task) {
+			if constexpr(Target == target::host_task) {
 				if(detail::get_handler_execution_target(cgh) != detail::execution_target::HOST) {
 					throw std::runtime_error(
 					    "Calling accessor constructor with host_buffer target is only allowed in host tasks."
@@ -421,7 +421,7 @@ class accessor<DataT, Dims, Mode, celerity::target::host_task> : public detail::
 	}
 
 	template <int D = Dims>
-	std::enable_if_t<(D > 1), detail::accessor_subscript_proxy<DataT, D, Mode, celerity::target::host_task, 1>> operator[](const size_t d0) const {
+	std::enable_if_t<(D > 1), detail::accessor_subscript_proxy<DataT, D, Mode, target::host_task, 1>> operator[](const size_t d0) const {
 		return {*this, d0};
 	}
 
@@ -507,7 +507,7 @@ class accessor<DataT, Dims, Mode, celerity::target::host_task> : public detail::
 
   private:
 	template <typename T, int D, access_mode M, typename... Args>
-	friend accessor<T, D, M, celerity::target::host_task> detail::make_host_accessor(Args&&...);
+	friend accessor<T, D, M, target::host_task> detail::make_host_accessor(Args&&...);
 
 	// Subange of the accessor, as set by the range mapper or requested by the user (master node host tasks only).
 	// This does not necessarily correspond to the backing buffer's range.
@@ -544,12 +544,12 @@ class accessor<DataT, Dims, Mode, celerity::target::host_task> : public detail::
 
 namespace detail {
 	template <typename DataT, int Dims, access_mode Mode, typename... Args>
-	accessor<DataT, Dims, Mode, celerity::target::device> make_device_accessor(Args&&... args) {
+	accessor<DataT, Dims, Mode, target::device> make_device_accessor(Args&&... args) {
 		return {std::forward<Args>(args)...};
 	}
 
 	template <typename DataT, int Dims, access_mode Mode, typename... Args>
-	accessor<DataT, Dims, Mode, celerity::target::host_task> make_host_accessor(Args&&... args) {
+	accessor<DataT, Dims, Mode, target::host_task> make_host_accessor(Args&&... args) {
 		return {std::forward<Args>(args)...};
 	}
 
@@ -586,22 +586,22 @@ namespace detail {
 	}
 
 	template <typename TagT>
-	constexpr celerity::target deduce_access_target() {
+	constexpr target deduce_access_target() {
 		if constexpr(std::is_same_v<const TagT, decltype(celerity::read_only)> ||  //
 		             std::is_same_v<const TagT, decltype(celerity::read_write)> || //
 		             std::is_same_v<const TagT, decltype(celerity::write_only)>) {
-			return celerity::target::device;
+			return target::device;
 		} else if constexpr(std::is_same_v<const TagT, decltype(celerity::read_only_host_task)> ||  //
 		                    std::is_same_v<const TagT, decltype(celerity::read_write_host_task)> || //
 		                    std::is_same_v<const TagT, decltype(celerity::write_only_host_task)>) {
-			return celerity::target::host_task;
+			return target::host_task;
 		} else {
 			static_assert(constexpr_false<TagT>, "Invalid access tag, expecting one of celerity::{read_only,read_write,write_only}[_host_task]");
 		}
 	}
 
 
-	template <typename DataT, cl::sycl::access::mode Mode, celerity::target Target>
+	template <typename DataT, cl::sycl::access::mode Mode, target Target>
 	class accessor_subscript_proxy<DataT, 3, Mode, Target, 2> {
 		using AccessorT = celerity::accessor<DataT, 3, Mode, Target>;
 
@@ -616,7 +616,7 @@ namespace detail {
 		size_t d1;
 	};
 
-	template <typename DataT, int Dims, cl::sycl::access::mode Mode, celerity::target Target>
+	template <typename DataT, int Dims, cl::sycl::access::mode Mode, target Target>
 	class accessor_subscript_proxy<DataT, Dims, Mode, Target, 1> {
 		template <int D>
 		using AccessorT = celerity::accessor<DataT, D, Mode, Target>;

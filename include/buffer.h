@@ -36,7 +36,7 @@ namespace detail {
 
 } // namespace detail
 
-template <typename DataT, int Dims, access_mode Mode, celerity::target Target>
+template <typename DataT, int Dims, access_mode Mode, target Target>
 class accessor;
 
 template <typename DataT, int Dims>
@@ -62,12 +62,12 @@ class buffer {
 	~buffer() {}
 
 	template <access_mode Mode, typename Functor>
-	accessor<DataT, Dims, Mode, celerity::target::device> get_access(handler& cgh, Functor rmfn) const {
-		return get_access<Mode, celerity::target::device, Functor>(cgh, rmfn);
+	accessor<DataT, Dims, Mode, target::device> get_access(handler& cgh, Functor rmfn) const {
+		return get_access<Mode, target::device, Functor>(cgh, rmfn);
 	}
 
 
-	template <access_mode Mode, celerity::target Target, typename Functor>
+	template <access_mode Mode, target Target, typename Functor>
 	accessor<DataT, Dims, Mode, Target> get_access(handler& cgh, Functor rmfn) const {
 		return accessor<DataT, Dims, Mode, Target>(*this, cgh, rmfn);
 	}
