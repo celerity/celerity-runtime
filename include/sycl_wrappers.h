@@ -19,9 +19,9 @@ namespace detail {
 
 using access_mode = cl::sycl::access::mode;
 
-enum class target : std::underlying_type_t<cl::sycl::access::target> {
-	device = static_cast<std::underlying_type_t<cl::sycl::access::target>>(cl::sycl::access::target::global_buffer),
-	host_task = static_cast<std::underlying_type_t<cl::sycl::access::target>>(cl::sycl::access::target::host_buffer),
+enum class target {
+	device,
+	host_task,
 };
 
 inline constexpr detail::read_only_tag_t read_only;
