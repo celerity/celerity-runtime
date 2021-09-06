@@ -403,8 +403,6 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 
 	template <typename Functor, typename TagT>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, cl::sycl::property_list prop_list) {
-		// in this static assert it would be more relevant to use property_list type, but if a defined type is used then it is always false and
-		// always fails to compile. Hence we use a templated type so that it only produces a compile error when the ctr is loaded.
 		static_assert(detail::constexpr_false<TagT>,
 		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
 		    "as a last argument in the constructor");
