@@ -39,8 +39,8 @@ definition is omitted) for buffers `buf_a` and `buf_b`:
 
 ```cpp
 queue.submit([=](celerity::handler& cgh) {
-    auto r_a = buf_a.get_access<cl::sycl::access::mode::read>(cgh, my_mapper);
-    auto dw_b = buf_b.get_access<cl::sycl::access::mode::discard_write>(cgh, other_mapper);
+    auto r_a = buf_a.get_access<celerity::access_mode::read>(cgh, my_mapper);
+    auto dw_b = buf_b.get_access<celerity::access_mode::discard_write>(cgh, other_mapper);
 
     cgh.parallel_for<>(...);
 });
@@ -181,8 +181,7 @@ valid.
   reason range mappers exist in the first place is to alleviate users of having
   to think about how work and data is to be split.
 - For producer accesses (that is, everything except
-  `cl::sycl::access::mode::read`), the output of a range mapper must not
-  overlap.
+  `celerity::access_mode::read`), the output of a range mapper must not overlap.
 
 Range mappers that do not satisfy all of the above points cause undefined
 behavior. Note that it is perfectly valid for range mappers to return an

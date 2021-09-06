@@ -30,9 +30,9 @@ the access target must be set to `host_buffer` explicitly in the call to `get_ac
 celerity::distr_queue q;
 celerity::buffer<float, 1> result;
 q.submit([=](celerity::handler &cgh) {
-    auto acc = result.get_access<cl::sycl::access::mode::read,
-            cl::sycl::access::target::host_buffer>(cgh,
-            celerity::access::all<1>());
+    auto acc = result.get_access<celerity::access_mode::read,
+            celerity::target::host_task>(cgh,
+            celerity::access::all());
     cgh.host_task(celerity::on_master_node, [=]{
         printf("The result is %g\n", acc[0]);
     });
@@ -148,8 +148,8 @@ splitting them along the first (slowest) dimension into contiguous memory portio
 celerity::distr_queue q;
 celerity::buffer<float, 2> buf;
 q.submit([=](celerity::handler& cgh) {
-    auto acc = buffer.get_access<cl::sycl::access::mode::read,
-            cl::sycl::access::target::host_buffer>(cgh,
+    auto acc = buffer.get_access<celerity::access_mode::read,
+            celerity::target::host_task>(cgh,
             celerity::experimental::access::even_split<2>());
     cgh.host_task(celerity::experimental::collective,
             [=](celerity::experimental::collective_partition part) {
