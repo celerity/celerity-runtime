@@ -429,8 +429,8 @@ namespace detail {
 
 	template <typename DataT, int Dims, typename BinaryOperation, bool WithExplicitIdentity>
 	auto make_sycl_reduction(cl::sycl::handler& sycl_cgh, const reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>& d) {
-#if WORKAROUND_COMPUTECPP
-		static_assert(constexpr_false<BinaryOperation>, "Reductions are currently not supported on ComputeCpp");
+#if WORKAROUND_COMPUTECPP || (WORKAROUND_HIPSYCL && !CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
+		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
 		cl::sycl::property_list props;
 		if(!d.include_current_buffer_value) { props = {cl::sycl::property::reduction::initialize_to_identity{}}; }
@@ -477,13 +477,13 @@ namespace detail {
 
 	template <bool WithExplicitIdentity, typename DataT, int Dims, typename BinaryOperation>
 	auto make_reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation op, DataT identity, const cl::sycl::property_list& prop_list) {
-#if WORKAROUND_COMPUTECPP
-		static_assert(!std::is_same_v<DataT, DataT>, "Reductions are currently not supported on ComputeCpp");
+#if WORKAROUND_COMPUTECPP || (WORKAROUND_HIPSYCL && !CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
+		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
 		if(vars.get_range().size() != 1) {
 			// SYCL 2020 only supports unit-size reductions. We could in theory allow passing a larger buffer and only ever access element (0, 0, 0), but this
 			// would mean that part of the buffer is in pending_reduction_state while another part might remain in distributed_state. It doesn't seem to be
-			// worth added complexity, so we report it as an error instead.
+			// worth the added complexity, so we report it as an error instead.
 			throw std::runtime_error("Celerity only supports reductions into unit-sized buffers");
 		}
 
@@ -522,8 +522,8 @@ void handler::parallel_for_kernel_and_reductions(
 	const auto sr = device_handler.get_iteration_range();
 
 	device_handler.submit_to_sycl([&](cl::sycl::handler& cgh) {
-		if constexpr(WORKAROUND_COMPUTECPP && sizeof...(reductions) > 0) {
-			static_assert(detail::constexpr_false<Kernel>, "ComputeCpp does not currently support reductions");
+		if constexpr((WORKAROUND_COMPUTECPP || (WORKAROUND_HIPSYCL && !CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)) && sizeof...(reductions) > 0) {
+			static_assert(detail::constexpr_false<Kernel>, "Reductions are not supported by your SYCL implementation");
 		} else if constexpr(WORKAROUND_DPCPP && sizeof...(reductions) > 1) {
 			static_assert(detail::constexpr_false<Kernel>, "DPC++ currently does not support more than one reduction variable per kernel");
 		} else {
@@ -562,8 +562,8 @@ void handler::host_task(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> g
 
 template <typename DataT, int Dims, typename BinaryOperation>
 auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
-#if WORKAROUND_COMPUTECPP
-	static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are currently not supported on ComputeCpp");
+#if WORKAROUND_COMPUTECPP || (WORKAROUND_HIPSYCL && !CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
+	static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
 #if WORKAROUND_DPCPP
 	static_assert(Dims == 1, "DPC++ currently does not support reductions to buffers with dimensionality != 1");
@@ -577,8 +577,8 @@ auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation co
 
 template <typename DataT, int Dims, typename BinaryOperation>
 auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, const DataT identity, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
-#if WORKAROUND_COMPUTECPP
-	static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are currently not supported on ComputeCpp");
+#if WORKAROUND_COMPUTECPP || (WORKAROUND_HIPSYCL && !CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
+	static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
 	static_assert(!cl::sycl::has_known_identity_v<BinaryOperation, DataT>, "Identity is known to SYCL, remove the identity parameter from reduction()");
 	return detail::make_reduction<true>(vars, cgh, combiner, identity, prop_list);
