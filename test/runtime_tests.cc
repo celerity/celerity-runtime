@@ -2356,7 +2356,7 @@ namespace detail {
 		});
 	}
 
-#if !WORKAROUND_COMPUTECPP // no reductions yet
+#if !WORKAROUND_COMPUTECPP && (!WORKAROUND_HIPSYCL || CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
 
 	TEST_CASE("attempting a reduction on buffers with size != 1 throws", "[task-manager]") {
 		runtime::init(nullptr, nullptr, nullptr);
@@ -2400,7 +2400,7 @@ namespace detail {
 #endif
 	}
 
-#endif // !WORKAROUND_COMPUTECPP
+#endif // !WORKAROUND_COMPUTECPP && (!WORKAROUND_HIPSYCL || CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
 
 } // namespace detail
 } // namespace celerity

@@ -11,7 +11,7 @@
 namespace celerity {
 namespace detail {
 
-#if !WORKAROUND_COMPUTECPP // no reductions in ComputeCpp
+#if !WORKAROUND_COMPUTECPP && (!WORKAROUND_HIPSYCL || CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
 
 	template <typename T>
 	struct unknown_identity_maximum {
@@ -102,7 +102,7 @@ namespace detail {
 		});
 	}
 
-#endif // !WORKAROUND_COMPUTECPP
+#endif // !WORKAROUND_COMPUTECPP && (!WORKAROUND_HIPSYCL || CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
 
 } // namespace detail
 } // namespace celerity

@@ -71,6 +71,9 @@ if (CELERITY_SYCL_IMPL STREQUAL "ComputeCpp" AND NOT COMPUTECPP_USER_FLAGS MATCH
             CACHE STRING "" FORCE)
 endif ()
 
+# Currently requires a patched hipSYCL (https://github.com/illuhad/hipSYCL/pull/578) to enable
+set(CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS FALSE CACHE BOOL "hipSYCL installation supports SYCL 2020 reductions")
+
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)
 endif ()
@@ -155,6 +158,7 @@ target_compile_definitions(celerity_runtime PUBLIC
   $<BUILD_INTERFACE:
     $<$<CONFIG:Debug>:CELERITY_DETAIL_ENABLE_DEBUG>
   >
+  CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS=$<BOOL:${CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS}>
 )
 
 if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
@@ -208,11 +212,11 @@ if(CELERITY_BUILD_EXAMPLES)
   add_subdirectory(examples/wave_sim)
 
   set_property(
-          TARGET convolution matmul syncing wave_sim
-          PROPERTY FOLDER "examples"
+    TARGET convolution matmul syncing wave_sim
+    PROPERTY FOLDER "examples"
   )
 
-  if (CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
+  if (CELERITY_SYCL_IMPL STREQUAL "hipSYCL" AND CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
       # CCPP currently does not implement reductions, and DPC++ does not support multiple reduction variables per kernel
       add_subdirectory(examples/reduction)
       set_property(TARGET reduction PROPERTY FOLDER "examples")
@@ -220,10 +224,10 @@ if(CELERITY_BUILD_EXAMPLES)
 
   find_package(PkgConfig)
   unset(HDF5_FOUND)
-  if (PkgConfig_FOUND)
-      pkg_search_module(HDF5 IMPORTED_TARGET hdf5-openmpi hdf5-1.12.0 hdf5)
-      if (HDF5_FOUND)
-          add_subdirectory(examples/distr_io)
+  if(PkgConfig_FOUND)
+    pkg_search_module(HDF5 IMPORTED_TARGET hdf5-openmpi hdf5-1.12.0 hdf5)
+    if(HDF5_FOUND)
+      add_subdirectory(examples/distr_io)
       set_property(TARGET distr_io PROPERTY FOLDER "examples")
     endif()
   endif()
