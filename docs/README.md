@@ -12,8 +12,9 @@
 
 1. [Range Mappers](range-mappers.md)
 2. [Host Tasks](host-tasks.md)
-3. [Common Pitfalls](pitfalls.md)
-4. [Issues & Limitations](issues-and-limitations.md)
+3. [Reductions](reductions.md)
+4. [Common Pitfalls](pitfalls.md)
+5. [Issues & Limitations](issues-and-limitations.md)
 
 ## Celerity In-Depth
 
