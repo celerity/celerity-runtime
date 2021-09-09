@@ -13,19 +13,6 @@ If you are blocked by any of these or other issues, please
 
 Here is a (potentially incomplete) list of currently known issues:
 
-## No Reductions
-
-Celerity currently offers no dedicated API for performing distributed
-reduction operations. While the experimental support for [collective host
-tasks](host-tasks.md#experimental-collective-host-tasks) allows to implement
-distributed reductions using e.g. `MPI_Reduce`, the calculations have to be
-performed on the host. First-class support for device-accelerated distributed
-reductions will be added to Celerity in the future.
-
-We are currently evaluating the reduction functionalities proposed in the
-[SYCL 2020 Provisional Specification](https://www.khronos.org/registry/SYCL/),
-and how we could build a distributed variant on top of it.
-
 ## No Control Flow
 
 In some situations, the number of Celerity tasks required for a computation
