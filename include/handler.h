@@ -205,22 +205,6 @@ class handler {
 
 	virtual const detail::task& get_task() const = 0;
 
-	virtual void create_collective_task(detail::collective_group_id cgid) {
-		std::terminate(); // unimplemented
-	}
-
-	virtual void create_host_compute_task(int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset) {
-		std::terminate(); // unimplemented
-	}
-
-	virtual void create_device_compute_task(int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset, std::string debug_name) {
-		std::terminate(); // unimplemented
-	}
-
-	virtual void create_master_node_task() {
-		std::terminate(); // unimplemented
-	}
-
   private:
 	template <typename Name, int Dims, typename... ReductionsAndKernel, size_t... ReductionIndices>
 	void parallel_for_reductions_and_kernel(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset,
@@ -254,23 +238,23 @@ namespace detail {
 			reductions.push_back(rid);
 		}
 
-		void create_host_compute_task(int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset) override {
+		void create_host_compute_task(int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset) {
 			assert(task == nullptr);
 			task = detail::task::make_host_compute(tid, dimensions, global_size, global_offset, std::move(cgf), std::move(access_map), std::move(reductions));
 		}
 
-		void create_device_compute_task(int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset, std::string debug_name) override {
+		void create_device_compute_task(int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset, std::string debug_name) {
 			assert(task == nullptr);
 			task = detail::task::make_device_compute(
 			    tid, dimensions, global_size, global_offset, std::move(cgf), std::move(access_map), std::move(reductions), std::move(debug_name));
 		}
 
-		void create_collective_task(collective_group_id cgid) override {
+		void create_collective_task(collective_group_id cgid) {
 			assert(task == nullptr);
 			task = detail::task::make_collective(tid, cgid, num_collective_nodes, std::move(cgf), std::move(access_map));
 		}
 
-		void create_master_node_task() override {
+		void create_master_node_task() {
 			assert(task == nullptr);
 			task = detail::task::make_master_node(tid, std::move(cgf), std::move(access_map));
 		}
@@ -512,7 +496,8 @@ template <typename Name, int Dims, typename Kernel, typename... Reductions>
 void handler::parallel_for_kernel_and_reductions(
     cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Kernel& kernel, Reductions&... reductions) {
 	if(is_prepass()) {
-		return create_device_compute_task(Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), detail::kernel_debug_name<Name>());
+		return dynamic_cast<detail::prepass_handler&>(*this).create_device_compute_task(
+		    Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), detail::kernel_debug_name<Name>());
 	}
 
 	auto& device_handler = dynamic_cast<detail::live_pass_device_handler&>(*this);
@@ -532,7 +517,7 @@ void handler::parallel_for_kernel_and_reductions(
 template <typename Functor>
 void handler::host_task(on_master_node_tag, Functor kernel) {
 	if(is_prepass()) {
-		create_master_node_task();
+		dynamic_cast<detail::prepass_handler&>(*this).create_master_node_task();
 	} else {
 		dynamic_cast<detail::live_pass_host_handler&>(*this).schedule<0>(kernel);
 	}
@@ -541,7 +526,7 @@ void handler::host_task(on_master_node_tag, Functor kernel) {
 template <typename Functor>
 void handler::host_task(experimental::collective_tag tag, Functor kernel) {
 	if(is_prepass()) {
-		create_collective_task(tag.cgid);
+		dynamic_cast<detail::prepass_handler&>(*this).create_collective_task(tag.cgid);
 	} else {
 		dynamic_cast<detail::live_pass_host_handler&>(*this).schedule_collective(kernel);
 	}
@@ -550,7 +535,7 @@ void handler::host_task(experimental::collective_tag tag, Functor kernel) {
 template <int Dims, typename Functor>
 void handler::host_task(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Functor kernel) {
 	if(is_prepass()) {
-		create_host_compute_task(Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset));
+		dynamic_cast<detail::prepass_handler&>(*this).create_host_compute_task(Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset));
 	} else {
 		dynamic_cast<detail::live_pass_host_handler&>(*this).schedule<Dims>(kernel);
 	}
