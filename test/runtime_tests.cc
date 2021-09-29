@@ -2322,5 +2322,39 @@ namespace detail {
 	}
 #pragma GCC diagnostic pop
 
+	template<int Dims>
+	class linear_id_kernel;
+
+	TEMPLATE_TEST_CASE_SIG("item::get_id() includes global offset, item::get_linear_id() does not", "[item]", ((int Dims), Dims), 1, 2, 3) {
+		distr_queue q;
+
+		const int n = 3;
+		const auto global_offset = detail::id_cast<Dims>(cl::sycl::id<3>{4, 5, 6});
+
+		buffer<size_t, 2> linear_id{{n, Dims + 1}};
+		q.submit([=](handler& cgh) {
+			accessor a{linear_id, cgh, celerity::access::all{}, write_only, no_init}; // all RM is sane because runtime_tests runs single-node
+			cgh.parallel_for<linear_id_kernel<Dims>>(detail::range_cast<Dims>(cl::sycl::range<3>{n, 1, 1}), global_offset, [=](celerity::item<Dims> item) {
+				auto i = (item.get_id() - item.get_offset())[0];
+				for(int d = 0; d < Dims; ++d) {
+					a[i][d] = item[d];
+				}
+				a[i][Dims] = item.get_linear_id();
+			});
+		});
+		q.submit([=](handler& cgh) {
+			accessor a{linear_id, cgh, celerity::access::all{}, read_only_host_task};
+			cgh.host_task(on_master_node, [=] {
+				for (int i = 0; i < n; ++i) {
+					CHECK(a[i][0] == global_offset[0] + i);
+					for(int d = 1; d < Dims; ++d) {
+						CHECK(a[i][d] == global_offset[d]);
+					}
+					CHECK(a[i][Dims] == i);
+				}
+			});
+		});
+	}
+
 } // namespace detail
 } // namespace celerity

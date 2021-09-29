@@ -133,7 +133,7 @@ class handler {
 	}
 
 	template <typename Name, int Dims, typename Functor>
-	void parallel_for(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, const Functor& kernel);
+	void parallel_for(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, const Functor& kernel);
 
 	/**
 	 * Schedules `kernel` to execute on the master node only. Call via `cgh.host_task(celerity::on_master_node, []...)`. The kernel is assumed to be invocable
@@ -177,7 +177,7 @@ class handler {
 	 * another node. If you need guarantees about execution order
 	 */
 	template <int Dims, typename Functor>
-	void host_task(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, Functor kernel);
+	void host_task(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Functor kernel);
 
 	/**
 	 * Like `host_task(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, Functor kernel)`, but with a `global_offset` of zero.
@@ -332,8 +332,8 @@ namespace detail {
 	// As of SYCL 2020 kernel functors are passed as const references, so we explicitly copy or capture by value in bind_kernel_with_*
 
 	template <typename Functor, int Dims>
-	auto bind_kernel_with_celerity_item(const Functor& kernel, const cl::sycl::range<Dims>& global_range) {
-		return [=](cl::sycl::item<Dims> s_item) { kernel(make_item<Dims>(s_item.get_id(), global_range)); };
+	auto bind_kernel_with_celerity_item(const Functor& kernel, const cl::sycl::id<Dims>& global_offset, const cl::sycl::range<Dims>& global_range) {
+		return [=](cl::sycl::item<Dims> s_item) { kernel(make_item<Dims>(s_item.get_id(), global_offset, global_range)); };
 	}
 
 	template <typename Functor>
@@ -344,9 +344,9 @@ namespace detail {
 	}
 
 	template <typename Functor, int Dims>
-	auto bind_kernel(const Functor& kernel, const cl::sycl::range<Dims>& global_range) {
+	auto bind_kernel(const Functor& kernel, const cl::sycl::id<Dims>& global_offset, const cl::sycl::range<Dims>& global_range) {
 		if constexpr(std::is_invocable_v<Functor, celerity::item<Dims>>) {
-			return bind_kernel_with_celerity_item(kernel, global_range);
+			return bind_kernel_with_celerity_item(kernel, global_offset, global_range);
 		} else if constexpr(std::is_invocable_v<Functor, cl::sycl::item<Dims>>) {
 			return bind_kernel_with_sycl_item(kernel);
 		} else {
@@ -382,16 +382,16 @@ namespace detail {
 } // namespace detail
 
 template <typename Name, int Dims, typename Functor>
-void handler::parallel_for(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, const Functor& kernel) {
+void handler::parallel_for(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, const Functor& kernel) {
 	if(is_prepass()) {
-		return create_device_compute_task(Dims, detail::range_cast<3>(global_size), detail::id_cast<3>(global_offset), detail::kernel_debug_name<Name>());
+		return create_device_compute_task(Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), detail::kernel_debug_name<Name>());
 	}
 
 	auto& device_handler = dynamic_cast<detail::live_pass_device_handler&>(*this);
 	const auto sr = device_handler.get_iteration_range();
 
 	device_handler.submit_to_sycl([&](cl::sycl::handler& cgh) {
-		cgh.parallel_for<Name>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), detail::bind_kernel(kernel, global_size));
+		cgh.parallel_for<Name>(detail::range_cast<Dims>(sr.range), detail::id_cast<Dims>(sr.offset), detail::bind_kernel(kernel, global_offset, global_range));
 	});
 }
 
@@ -414,9 +414,9 @@ void handler::host_task(experimental::collective_tag tag, Functor kernel) {
 }
 
 template <int Dims, typename Functor>
-void handler::host_task(cl::sycl::range<Dims> global_size, cl::sycl::id<Dims> global_offset, Functor kernel) {
+void handler::host_task(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Functor kernel) {
 	if(is_prepass()) {
-		create_host_compute_task(Dims, detail::range_cast<3>(global_size), detail::id_cast<3>(global_offset));
+		create_host_compute_task(Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset));
 	} else {
 		dynamic_cast<detail::live_pass_host_handler&>(*this).schedule<Dims>(kernel);
 	}
