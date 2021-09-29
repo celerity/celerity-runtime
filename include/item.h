@@ -10,8 +10,8 @@ class item;
 namespace detail {
 
 	template <int Dims>
-	item<Dims> make_item(cl::sycl::id<Dims> global_id, cl::sycl::range<Dims> global_range) {
-		return item<Dims>{global_id, global_range};
+	item<Dims> make_item(cl::sycl::id<Dims> absolute_global_id, cl::sycl::id<Dims> global_offset, cl::sycl::range<Dims> global_range) {
+		return item<Dims>{absolute_global_id, global_offset, global_range};
 	}
 
 } // namespace detail
@@ -22,28 +22,39 @@ class item {
   public:
 	item() = delete;
 
-	cl::sycl::id<Dims> get_id() const { return id; }
+	friend bool operator==(const item &lhs, const item &rhs) {
+		return lhs.absolute_global_id == rhs.absolute_global_id && lhs.global_offset == rhs.global_offset && lhs.global_range == rhs.global_range;
+	}
 
-	size_t get_id(int dimension) const { return id[dimension]; }
+	friend bool operator!=(const item &lhs, const item &rhs) {
+		return !(lhs == rhs);
+	}
 
-	operator cl::sycl::id<Dims>() const { return id; } // NOLINT(google-explicit-constructor)
+	cl::sycl::id<Dims> get_id() const { return absolute_global_id; }
 
-	size_t operator[](int dimension) const { return id[dimension]; }
+	size_t get_id(int dimension) const { return absolute_global_id[dimension]; }
 
-	cl::sycl::range<Dims> get_range() const { return range; }
+	operator cl::sycl::id<Dims>() const { return absolute_global_id; } // NOLINT(google-explicit-constructor)
 
-	size_t get_range(int dimension) const { return range[dimension]; }
+	size_t operator[](int dimension) const { return absolute_global_id[dimension]; }
 
-	size_t get_linear_id() const { return detail::get_linear_index(range, id); }
+	cl::sycl::range<Dims> get_range() const { return global_range; }
+
+	size_t get_range(int dimension) const { return global_range[dimension]; }
+
+	size_t get_linear_id() const { return detail::get_linear_index(global_range, absolute_global_id - global_offset); }
+
+	cl::sycl::id<Dims> get_offset() const { return global_offset; }
 
   private:
 	template <int D>
-	friend item<D> celerity::detail::make_item(cl::sycl::id<D>, cl::sycl::range<D>);
+	friend item<D> celerity::detail::make_item(cl::sycl::id<D>, cl::sycl::id<D>, cl::sycl::range<D>);
 
-	cl::sycl::id<Dims> id;
-	cl::sycl::range<Dims> range;
+	cl::sycl::id<Dims> absolute_global_id;
+	cl::sycl::id<Dims> global_offset;
+	cl::sycl::range<Dims> global_range;
 
-	explicit item(cl::sycl::id<Dims> id, cl::sycl::range<Dims> range) : id(id), range(range) {}
+	explicit item(cl::sycl::id<Dims> absolute_global_id, cl::sycl::id<Dims> global_offset, cl::sycl::range<Dims> global_range) : absolute_global_id(absolute_global_id), global_offset(global_offset), global_range(global_range) {}
 };
 
 } // namespace celerity
