@@ -2,7 +2,7 @@
 
 #include <celerity.h>
 
-constexpr size_t MAT_SIZE = 1024;
+const size_t MAT_SIZE = 1024;
 
 template <typename T>
 void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat) {
@@ -19,8 +19,35 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 		celerity::accessor b{mat_b, cgh, celerity::access::slice<2>(0), celerity::read_only};
 		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 
+#if !WORKAROUND_COMPUTECPP // ComptueCpp currently does not support local memory
+
+		// Use local-memory tiling to avoid waiting on global memory too often
+		const size_t GROUP_SIZE = 8;
+		celerity::local_accessor<T, 2> scratch_a{{GROUP_SIZE, GROUP_SIZE}, cgh};
+		celerity::local_accessor<T, 2> scratch_b{{GROUP_SIZE, GROUP_SIZE}, cgh};
+
+		cgh.parallel_for<class mat_mul>(cl::sycl::nd_range<2>{{MAT_SIZE, MAT_SIZE}, {GROUP_SIZE, GROUP_SIZE}}, [=](celerity::nd_item<2> item) {
+			T sum{};
+			const auto lid = item.get_local_id();
+			for(size_t j = 0; j < MAT_SIZE; j += GROUP_SIZE) {
+				scratch_a[lid] = a[item.get_group(0) * GROUP_SIZE + lid[0]][j + lid[1]];
+				scratch_b[lid] = b[j + lid[0]][item.get_group(1) * GROUP_SIZE + lid[1]];
+				celerity::group_barrier(item.get_group());
+
+				for(size_t k = 0; k < GROUP_SIZE; ++k) {
+					const auto a_ik = scratch_a[lid[0]][k];
+					const auto b_kj = scratch_b[k][lid[1]];
+					sum += a_ik * b_kj;
+				}
+				celerity::group_barrier(item.get_group());
+			}
+			c[item.get_global_id()] = sum;
+		});
+
+#else // WORKAROUND_COMPUTECPP
+
 		cgh.parallel_for<class mat_mul>(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE), [=](celerity::item<2> item) {
-			auto sum = 0.f;
+			T sum{};
 			for(size_t k = 0; k < MAT_SIZE; ++k) {
 				const auto a_ik = a[{item[0], k}];
 				const auto b_kj = b[{k, item[1]}];
@@ -28,6 +55,9 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 			}
 			c[item] = sum;
 		});
+
+#endif // WORKAROUND_COMPUTECPP
+
 	});
 }
 
