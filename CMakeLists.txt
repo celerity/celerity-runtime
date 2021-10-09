@@ -13,7 +13,7 @@ set(CELERITY_SYCL_IMPL "OFF" CACHE STRING "hipSYCL|ComputeCpp|DPC++")
 try_compile(CXX_COMPILER_IS_DPCPP "${PROJECT_BINARY_DIR}/detect_dpcpp"
   SOURCES "${PROJECT_SOURCE_DIR}/cmake/sycl_test.cpp"
   COMPILE_DEFINITIONS -fsycl -sycl-std=2020
-  )
+)
 if(CXX_COMPILER_IS_DPCPP)
   message(STATUS "CXX compiler at ${CMAKE_CXX_COMPILER} detected as DPC++")
 endif()
@@ -71,8 +71,40 @@ if (CELERITY_SYCL_IMPL STREQUAL "ComputeCpp" AND NOT COMPUTECPP_USER_FLAGS MATCH
             CACHE STRING "" FORCE)
 endif ()
 
-# Currently requires a patched hipSYCL (https://github.com/illuhad/hipSYCL/pull/578) to enable
-set(CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS FALSE CACHE BOOL "hipSYCL installation supports SYCL 2020 reductions")
+if(CELERITY_SYCL_IMPL STREQUAL hipSYCL)
+  macro(test_hipsycl_feature VAR NAME FEATURE)
+    try_compile("${VAR}"
+      "${PROJECT_BINARY_DIR}/hipsycl_feature_test" # bindir
+      "${PROJECT_SOURCE_DIR}/cmake/hipsycl_feature_test" # srcdir
+      hipsycl_test # projectName
+      "${NAME}" # targetName
+      CMAKE_FLAGS "-DhipSYCL_DIR=${hipSYCL_DIR}"
+    )
+    if("${${VAR}}")
+      message(STATUS "hipSYCL supports ${FEATURE}")
+    else()
+      message(STATUS "hipSYCL does NOT support ${FEATURE}")
+    endif()
+  endmacro()
+  test_hipsycl_feature(HIPSYCL_SUPPORTS_SYCL_2020_REDUCTIONS hipsycl_reduction_test "SYCL 2020 reductions")
+endif()
+
+if(CELERITY_SYCL_IMPL STREQUAL hipSYCL AND HIPSYCL_SUPPORTS_SYCL_2020_REDUCTIONS)
+  set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
+  set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS ON)
+elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
+  set(CELERITY_FEATURE_SCALAR_REDUCTIONS OFF)
+  set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS ON)
+else()
+  set(CELERITY_FEATURE_SCALAR_REDUCTIONS OFF)
+  set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS OFF)
+endif()
+
+if(CELERITY_SYCL_IMPL STREQUAL hipSYCL OR CELERITY_SYCL_IMPL STREQUAL "DPC++")
+  set(CELERITY_FEATURE_LOCAL_ACCESSOR ON)
+else()
+  set(CELERITY_FEATURE_LOCAL_ACCESSOR OFF)
+endif()
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)
@@ -158,7 +190,9 @@ target_compile_definitions(celerity_runtime PUBLIC
   $<BUILD_INTERFACE:
     $<$<CONFIG:Debug>:CELERITY_DETAIL_ENABLE_DEBUG>
   >
-  CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS=$<BOOL:${CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS}>
+  CELERITY_FEATURE_SCALAR_REDUCTIONS=$<BOOL:${CELERITY_FEATURE_SCALAR_REDUCTIONS}>
+  CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS=$<BOOL:${CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS}>
+  CELERITY_FEATURE_LOCAL_ACCESSOR=$<BOOL:${CELERITY_FEATURE_LOCAL_ACCESSOR}>
 )
 
 if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
@@ -216,12 +250,10 @@ if(CELERITY_BUILD_EXAMPLES)
     PROPERTY FOLDER "examples"
   )
 
-  # CCPP currently does not implement reductions
-  if(CELERITY_SYCL_IMPL STREQUAL "DPC++" OR (
-    CELERITY_SYCL_IMPL STREQUAL "hipSYCL" AND CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS))
+  if (CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS)
     add_subdirectory(examples/reduction)
     set_property(TARGET reduction PROPERTY FOLDER "examples")
-  endif()
+  endif ()
 
   find_package(PkgConfig)
   unset(HDF5_FOUND)

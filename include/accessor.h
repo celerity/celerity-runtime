@@ -555,8 +555,8 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 
 template <typename DataT, int Dims = 1>
 class local_accessor {
-#if WORKAROUND_COMPUTECPP
-	static_assert(detail::constexpr_false<DataT>, "ComputeCpp cannot currently support celerity::local_accessor");
+#if !CELERITY_FEATURE_LOCAL_ACCESSOR
+	static_assert(detail::constexpr_false<DataT>, "Your SYCL implementation cannot support celerity::local_accessor");
 #else
   private:
 #if WORKAROUND_DPCPP
@@ -590,12 +590,12 @@ class local_accessor {
 	local_accessor(const local_accessor& other)
 	    : sycl_acc(other.sycl_cgh() ? sycl_accessor{other.allocation_size, *other.sycl_cgh()} : other.sycl_acc), allocation_size(other.allocation_size),
 	      eventual_sycl_cgh(other.sycl_cgh() ? nullptr : other.eventual_sycl_cgh) {}
-
-	local_accessor& operator=(const local_accessor&) = delete;
 #else
 	local_accessor(const cl::sycl::range<Dims>& allocation_size, handler& cgh);
-	local_accessor(const local_accessor &) = default;
+	local_accessor(const local_accessor&) = default;
 #endif
+
+	local_accessor& operator=(const local_accessor&) = default;
 
 	size_type byte_size() const noexcept { return allocation_size.size() * sizeof(value_type); }
 

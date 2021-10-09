@@ -19,7 +19,7 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 		celerity::accessor b{mat_b, cgh, celerity::access::slice<2>(0), celerity::read_only};
 		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 
-#if !WORKAROUND_COMPUTECPP // ComptueCpp currently does not support local memory
+#if CELERITY_FEATURE_LOCAL_ACCESSOR
 
 		// Use local-memory tiling to avoid waiting on global memory too often
 		const size_t GROUP_SIZE = 8;
@@ -44,7 +44,7 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 			c[item.get_global_id()] = sum;
 		});
 
-#else // WORKAROUND_COMPUTECPP
+#else
 
 		cgh.parallel_for<class mat_mul>(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE), [=](celerity::item<2> item) {
 			T sum{};
@@ -56,8 +56,7 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 			c[item] = sum;
 		});
 
-#endif // WORKAROUND_COMPUTECPP
-
+#endif
 	});
 }
 
