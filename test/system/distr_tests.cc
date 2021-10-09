@@ -11,7 +11,7 @@
 namespace celerity {
 namespace detail {
 
-#if !WORKAROUND_COMPUTECPP && (!WORKAROUND_HIPSYCL || CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
+#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 
 	template <typename T>
 	struct unknown_identity_maximum {
@@ -26,7 +26,7 @@ namespace detail {
 		distr_queue q;
 		const auto initialize_to_identity = cl::sycl::property::reduction::initialize_to_identity{};
 
-#if WORKAROUND_DPCPP // DPC++ can handle at most 1 reduction variable per kernel
+#if !CELERITY_FEATURE_SCALAR_REDUCTIONS // DPC++ can handle at most 1 reduction variable per kernel
 		q.submit([=](handler& cgh) {
 			auto sum_r = reduction(sum_buf, cgh, cl::sycl::plus<size_t>{}, initialize_to_identity);
 			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range{N}, cl::sycl::id{1}, sum_r, [=](celerity::item<1> item, auto& sum) { sum += item.get_id(0); });
@@ -130,7 +130,7 @@ namespace detail {
 		});
 	}
 
-#endif // !WORKAROUND_COMPUTECPP && (!WORKAROUND_HIPSYCL || CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
+#endif // CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 
 	template <int Dims>
 	class kernel_name_nd_geometry;

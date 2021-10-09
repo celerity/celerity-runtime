@@ -2390,7 +2390,7 @@ namespace detail {
 		}));
 	}
 
-#if !WORKAROUND_COMPUTECPP && (!WORKAROUND_HIPSYCL || CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
+#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 
 	TEST_CASE("attempting a reduction on buffers with size != 1 throws", "[task-manager]") {
 		runtime::init(nullptr, nullptr, nullptr);
@@ -2401,7 +2401,13 @@ namespace detail {
 			cgh.parallel_for<class UKN(wrong_size_1)>(cl::sycl::range<1>{1}, reduction(buf_1, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
 		}));
 
-#if !WORKAROUND_DPCPP // no reductions to buffers with dimensionality != 1
+		buffer<float, 1> buf_4{cl::sycl::range<1>{1}};
+		CHECK_NOTHROW(tm.create_task([&](handler& cgh) { //
+			cgh.parallel_for<class UKN(ok_size_1)>(cl::sycl::range<1>{1}, reduction(buf_4, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
+		}));
+
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
+
 		buffer<float, 2> buf_2{cl::sycl::range<2>{1, 2}};
 		CHECK_THROWS(tm.create_task([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(wrong_size_2)>(
@@ -2413,14 +2419,7 @@ namespace detail {
 			cgh.parallel_for<class UKN(wrong_size_3)>(
 			    cl::sycl::range<3>{1, 1, 1}, reduction(buf_3, cgh, cl::sycl::plus<float>{}), [=](celerity::item<3>, auto&) {});
 		}));
-#endif
 
-		buffer<float, 1> buf_4{cl::sycl::range<1>{1}};
-		CHECK_NOTHROW(tm.create_task([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_1)>(cl::sycl::range<1>{1}, reduction(buf_4, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
-		}));
-
-#if !WORKAROUND_DPCPP // no reductions to buffers with dimensionality != 1
 		buffer<float, 2> buf_5{cl::sycl::range<2>{1, 1}};
 		CHECK_NOTHROW(tm.create_task([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(ok_size_2)>(cl::sycl::range<2>{1, 1}, reduction(buf_5, cgh, cl::sycl::plus<float>{}), [=](celerity::item<2>, auto&) {});
@@ -2434,7 +2433,7 @@ namespace detail {
 #endif
 	}
 
-#endif // !WORKAROUND_COMPUTECPP && (!WORKAROUND_HIPSYCL || CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
+#endif
 
 	TEST_CASE("handler::parallel_for accepts nd_range", "[handler]") {
 		distr_queue q;
@@ -2488,7 +2487,7 @@ namespace detail {
 		// We cannot test for the edge case of local_size containing zeroes, that triggers a SIGFPE (at least) with hipSYCL
 	}
 
-#if !WORKAROUND_COMPUTECPP // no local_accessor support
+#if CELERITY_FEATURE_LOCAL_ACCESSOR
 	TEST_CASE("nd_range kernels support local memory", "[handler]") {
 		distr_queue q;
 		buffer<int, 1> out{64};
@@ -2514,7 +2513,7 @@ namespace detail {
 	}
 #endif
 
-#if !WORKAROUND_COMPUTECPP && (!WORKAROUND_HIPSYCL || CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
+#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 
 	TEST_CASE("reductions can be passed into nd_range kernels", "[handler]") {
 		buffer<int, 1> b{cl::sycl::range<1>{1}};
