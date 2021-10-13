@@ -9,7 +9,6 @@
 #include <stb/stb_image_write.h>
 
 
-WORKAROUND_HIPSYCL_UNIVERSAL_TARGET
 cl::sycl::float4 srgb_to_rgb(cl::sycl::float4 srgb) {
 	const auto linearize = [](float u) {
 		if(u <= 0.04045f) {
@@ -26,8 +25,6 @@ cl::sycl::float4 srgb_to_rgb(cl::sycl::float4 srgb) {
 	};
 }
 
-
-WORKAROUND_HIPSYCL_UNIVERSAL_TARGET
 cl::sycl::float4 rgb_to_srgb(cl::sycl::float4 linear) {
 	const auto compress = [](float u) {
 		if(u <= 0.0031308f) {
@@ -43,7 +40,6 @@ cl::sycl::float4 rgb_to_srgb(cl::sycl::float4 linear) {
 	    0,
 	};
 }
-
 
 // Reads an image, finds minimum/maximum pixel values, stretches the histogram to increase contrast, and saves the resulting image to output.jpg.
 int main(int argc, char* argv[]) {

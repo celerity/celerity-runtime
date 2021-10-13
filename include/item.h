@@ -10,8 +10,7 @@ class item;
 namespace detail {
 
 	template <int Dims>
-	WORKAROUND_HIPSYCL_UNIVERSAL_TARGET inline item<Dims> make_item(
-	    cl::sycl::id<Dims> absolute_global_id, cl::sycl::id<Dims> global_offset, cl::sycl::range<Dims> global_range) {
+	inline item<Dims> make_item(cl::sycl::id<Dims> absolute_global_id, cl::sycl::id<Dims> global_offset, cl::sycl::range<Dims> global_range) {
 		return item<Dims>{absolute_global_id, global_offset, global_range};
 	}
 
@@ -47,7 +46,7 @@ class item {
 
   private:
 	template <int D>
-	WORKAROUND_HIPSYCL_UNIVERSAL_TARGET friend item<D> celerity::detail::make_item(cl::sycl::id<D>, cl::sycl::id<D>, cl::sycl::range<D>);
+	friend item<D> celerity::detail::make_item(cl::sycl::id<D>, cl::sycl::id<D>, cl::sycl::range<D>);
 
 	cl::sycl::id<Dims> absolute_global_id;
 	cl::sycl::id<Dims> global_offset;
