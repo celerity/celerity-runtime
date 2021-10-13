@@ -2356,6 +2356,40 @@ namespace detail {
 		});
 	}
 
+	TEST_CASE("conflicts between producer-accessors and reductions are reported", "[task-manager]") {
+		runtime::init(nullptr, nullptr);
+		auto& tm = runtime::get_instance().get_task_manager();
+		auto& rm = runtime::get_instance().get_reduction_manager();
+		test_utils::mock_buffer_factory mbf(&tm, nullptr);
+
+		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
+
+		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_conflict)>(tm, [&](handler& cgh) {
+			test_utils::add_reduction(cgh, rm, buf_0, false);
+			test_utils::add_reduction(cgh, rm, buf_0, false);
+		}));
+
+		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
+			test_utils::add_reduction(cgh, rm, buf_0, false);
+			buf_0.get_access<access_mode::read>(cgh, fixed<1>({0, 1}));
+		}));
+
+		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
+			test_utils::add_reduction(cgh, rm, buf_0, false);
+			buf_0.get_access<access_mode::write>(cgh, fixed<1>({0, 1}));
+		}));
+
+		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
+			test_utils::add_reduction(cgh, rm, buf_0, false);
+			buf_0.get_access<access_mode::read_write>(cgh, fixed<1>({0, 1}));
+		}));
+
+		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
+			test_utils::add_reduction(cgh, rm, buf_0, false);
+			buf_0.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 1}));
+		}));
+	}
+
 #if !WORKAROUND_COMPUTECPP && (!WORKAROUND_HIPSYCL || CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
 
 	TEST_CASE("attempting a reduction on buffers with size != 1 throws", "[task-manager]") {

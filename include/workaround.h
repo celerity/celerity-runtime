@@ -24,7 +24,9 @@
 #define CELERITY_DETAIL_WA_VERSION_MAJOR HIPSYCL_VERSION_MAJOR
 #define CELERITY_DETAIL_WA_VERSION_MINOR HIPSYCL_VERSION_MINOR
 #define CELERITY_DETAIL_WA_VERSION_PATCH HIPSYCL_VERSION_PATCH
-// Works around a weird hipSYCL bug that causes some functions not to be auto-annotated with __host__ __device__ on CUDA targets
+
+// Works around https://github.com/illuhad/hipSYCL/issues/640 as long as we plan to support hipSYCL 0.9.1.
+// TODO remove this after bumping the minimum version of the hipSYCL dependency.
 #define WORKAROUND_HIPSYCL_UNIVERSAL_TARGET HIPSYCL_UNIVERSAL_TARGET
 #else
 #define WORKAROUND_HIPSYCL 0

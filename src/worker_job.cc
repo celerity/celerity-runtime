@@ -98,7 +98,7 @@ namespace detail {
 	}
 
 	// --------------------------------------------------------------------------------------------------------------------
-	// ------------------------------------------------- REDUCTION_REDUCE -------------------------------------------------
+	// ----------------------------------------------------- REDUCTION ----------------------------------------------------
 	// --------------------------------------------------------------------------------------------------------------------
 
 	bool reduction_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
@@ -123,6 +123,7 @@ namespace detail {
 		if(!submitted) {
 			auto tsk = task_mngr.get_task(data.tid);
 			assert(tsk->get_execution_target() == execution_target::HOST);
+			assert(!data.initialize_reductions); // For now, we do not support reductions in host tasks
 
 			if(!buffer_mngr.try_lock(pkg.cid, tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
 
