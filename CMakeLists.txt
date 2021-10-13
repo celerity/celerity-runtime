@@ -19,7 +19,7 @@ if(CXX_COMPILER_IS_DPCPP)
 endif()
 
 # Find SYCL implementation.
-set(hipSYCL_MIN_VERSION "0.9.0")
+set(hipSYCL_MIN_VERSION "0.9.1")
 if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
   find_package(hipSYCL ${hipSYCL_MIN_VERSION} CONFIG REQUIRED)
 elseif(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")

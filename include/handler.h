@@ -360,14 +360,14 @@ namespace detail {
 	};
 
 	template <typename Kernel, int Dims, typename... Reducers>
-	WORKAROUND_HIPSYCL_UNIVERSAL_TARGET inline void invoke_kernel_with_celerity_item(const Kernel& kernel, const cl::sycl::id<Dims>& s_id,
-	    const cl::sycl::range<Dims>& global_range, const cl::sycl::id<Dims>& global_offset, const cl::sycl::id<Dims>& chunk_offset, Reducers&... reducers) {
+	inline void invoke_kernel_with_celerity_item(const Kernel& kernel, const cl::sycl::id<Dims>& s_id, const cl::sycl::range<Dims>& global_range,
+	    const cl::sycl::id<Dims>& global_offset, const cl::sycl::id<Dims>& chunk_offset, Reducers&... reducers) {
 		kernel(make_item<Dims>(s_id + chunk_offset, global_offset, global_range), reducers...);
 	}
 
 	template <typename Kernel, int Dims, typename... Reducers>
 	[[deprecated("Support for kernels receiving cl::sycl::item<Dims> will be removed in the future, change parameter type to celerity::item<Dims>")]] //
-	WORKAROUND_HIPSYCL_UNIVERSAL_TARGET inline void
+	inline void
 	invoke_kernel_with_sycl_item(const Kernel& kernel, const cl::sycl::item<Dims>& s_item, Reducers&... reducers) {
 		kernel(s_item, reducers...);
 	}
