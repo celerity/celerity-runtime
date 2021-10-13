@@ -227,12 +227,11 @@ class handler {
 	    std::index_sequence<ReductionIndices...> indices, ReductionsAndKernel&... kernel_and_reductions) {
 		auto args_tuple = std::forward_as_tuple(kernel_and_reductions...);
 		auto& kernel = std::get<sizeof...(kernel_and_reductions) - 1>(args_tuple);
-		parallel_for_kernel_and_reductions<Name>(global_range, global_offset, kernel, indices, std::get<ReductionIndices>(args_tuple)...);
+		parallel_for_kernel_and_reductions<Name>(global_range, global_offset, kernel, std::get<ReductionIndices>(args_tuple)...);
 	}
 
-	template <typename Name, int Dims, typename Kernel, typename... Reductions, size_t... ReductionIndices>
-	void parallel_for_kernel_and_reductions(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Kernel& kernel,
-	    std::index_sequence<ReductionIndices...>, Reductions&... reductions);
+	template <typename Name, int Dims, typename Kernel, typename... Reductions>
+	void parallel_for_kernel_and_reductions(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Kernel& kernel, Reductions&... reductions);
 };
 
 namespace detail {
@@ -481,10 +480,9 @@ namespace detail {
 		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
 		if(vars.get_range().size() != 1) {
-			// SYCL 2020 only supports unit-size reductions. We could in theory allow passing a larger buffer and only ever access element (0, 0, 0), but this
-			// would mean that part of the buffer is in pending_reduction_state while another part might remain in distributed_state. It doesn't seem to be
-			// worth the added complexity, so we report it as an error instead.
-			throw std::runtime_error("Celerity only supports reductions into unit-sized buffers");
+			// Like SYCL 2020, Celerity only supports reductions to unit-sized buffers. This allows us to avoid tracking different parts of the buffer
+			// as distributed_state and pending_reduction_state.
+			throw std::runtime_error("Only unit-sized buffers can be reduction targets");
 		}
 
 		auto bid = detail::get_buffer_id(vars);
@@ -498,7 +496,6 @@ namespace detail {
 			include_current_buffer_value &= static_cast<detail::live_pass_handler&>(cgh).is_reduction_initializer();
 
 			auto mode = cl::sycl::access_mode::discard_write;
-			cl::sycl::property_list props;
 			if(include_current_buffer_value) { mode = cl::sycl::access_mode::read_write; }
 			sycl_buffer = &runtime::get_instance()
 			                   .get_buffer_manager()
@@ -511,9 +508,9 @@ namespace detail {
 
 } // namespace detail
 
-template <typename Name, int Dims, typename Kernel, typename... Reductions, size_t... ReductionIndices>
+template <typename Name, int Dims, typename Kernel, typename... Reductions>
 void handler::parallel_for_kernel_and_reductions(
-    cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Kernel& kernel, std::index_sequence<ReductionIndices...>, Reductions&... reductions) {
+    cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Kernel& kernel, Reductions&... reductions) {
 	if(is_prepass()) {
 		return create_device_compute_task(Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), detail::kernel_debug_name<Name>());
 	}
@@ -522,9 +519,8 @@ void handler::parallel_for_kernel_and_reductions(
 	const auto sr = device_handler.get_iteration_range();
 
 	device_handler.submit_to_sycl([&](cl::sycl::handler& cgh) {
-		if constexpr((WORKAROUND_COMPUTECPP || (WORKAROUND_HIPSYCL && !CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)) && sizeof...(reductions) > 0) {
-			static_assert(detail::constexpr_false<Kernel>, "Reductions are not supported by your SYCL implementation");
-		} else if constexpr(WORKAROUND_DPCPP && sizeof...(reductions) > 1) {
+		// ComputeCpp does not support reductions at all, but users cannot create reductions without triggering a static_assert in that case anyway.
+		if constexpr(WORKAROUND_DPCPP && sizeof...(reductions) > 1) {
 			static_assert(detail::constexpr_false<Kernel>, "DPC++ currently does not support more than one reduction variable per kernel");
 		} else {
 			cgh.parallel_for<Name>(detail::range_cast<Dims>(sr.range), detail::make_sycl_reduction(cgh, reductions)...,

@@ -29,7 +29,7 @@ namespace detail {
 		 *
 		 * TODO: This is a bit of a code smell. Maybe we should split simple task management and task graph generation into separate classes?
 		 */
-		task_manager(size_t num_collective_nodes, host_queue* queue, bool is_master_node, reduction_manager* redunction_mngr);
+		task_manager(size_t num_collective_nodes, host_queue* queue, bool is_master_node, reduction_manager* reduction_mgr);
 		virtual ~task_manager() = default;
 
 		template <typename CGF, typename... Hints>

@@ -195,14 +195,13 @@ namespace test_utils {
 	// Defaults to one node and chunk
 	inline detail::task_id build_and_flush(cdag_test_context& ctx, detail::task_id tid) { return build_and_flush(ctx, 1, 1, tid); }
 
-#if !WORKAROUND_COMPUTECPP
 	template <int Dims>
 	void add_reduction(handler& cgh, detail::reduction_manager& rm, const mock_buffer<Dims>& vars, bool include_current_buffer_value) {
 		auto bid = vars.get_id();
-		auto rid = rm.create_reduction<int, Dims>(bid, cl::sycl::plus<int>{}, 0, include_current_buffer_value);
+		auto rid = rm.create_reduction<int, Dims>(
+		    bid, [](int a, int b) { return a + b; }, 0, include_current_buffer_value);
 		static_cast<detail::prepass_handler&>(cgh).add_reduction<Dims>(rid);
 	}
-#endif
 
 } // namespace test_utils
 } // namespace celerity

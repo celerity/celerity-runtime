@@ -82,7 +82,7 @@ int main(int argc, char* argv[]) {
 	q.submit([=](celerity::handler& cgh) {
 		celerity::accessor min_value_acc{min_value_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		celerity::accessor max_value_acc{max_value_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
-		cgh.host_task(celerity::on_master_node, [=] { printf("Before contrast stretch: min = %f, max = %f\n", min_value_acc[{}], max_value_acc[{}]); });
+		cgh.host_task(celerity::on_master_node, [=] { printf("Before contrast stretch: min = %f, max = %f\n", min_value_acc[0], max_value_acc[0]); });
 	});
 
 	q.submit([=](celerity::handler& cgh) {
@@ -91,7 +91,7 @@ int main(int argc, char* argv[]) {
 		celerity::accessor max_value_acc{max_value_buf, cgh, celerity::access::all{}, celerity::read_only};
 		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for<class correct_and_compress>(image_size, [=](celerity::item<2> item) {
-			const auto min = min_value_acc[{}], max = max_value_acc[{}];
+			const auto min = min_value_acc[0], max = max_value_acc[0];
 			auto rgb = rgb_acc[item];
 			for(int i = 0; i < 3; ++i) {
 				rgb[i] = (rgb[i] - min) / (max - min);

@@ -7,8 +7,8 @@
 namespace celerity {
 namespace detail {
 
-	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, bool is_master_node, reduction_manager* redunction_mngr)
-	    : num_collective_nodes(num_collective_nodes), queue(queue), is_master_node(is_master_node), reduction_mngr(redunction_mngr),
+	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, bool is_master_node, reduction_manager* reduction_mgr)
+	    : num_collective_nodes(num_collective_nodes), queue(queue), is_master_node(is_master_node), reduction_mngr(reduction_mgr),
 	      init_task_id(next_task_id++) {
 		// We add a special init task for initializing buffers.
 		// This is useful so we can correctly generate anti-dependencies for tasks that read host initialized buffers.
@@ -77,8 +77,8 @@ namespace detail {
 				}
 			}
 
-			if(reduction && std::any_of(modes.begin(), modes.end(), detail::access::mode_traits::is_producer)) {
-				throw std::runtime_error(fmt::format("Buffer {} is both written through an accessor and used as a reduction output in task {}", bid, tid));
+			if(reduction && !modes.empty()) {
+				throw std::runtime_error(fmt::format("Buffer {} is both required through an accessor and used as a reduction output in task {}", bid, tid));
 			}
 
 			// Determine reader dependencies

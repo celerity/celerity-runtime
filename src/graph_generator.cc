@@ -240,9 +240,11 @@ namespace detail {
 				if(cmd->is_reduction_initializer() && reduction.initialize_from_buffer) { rmode = cl::sycl::access::mode::read_write; }
 
 				auto bid = reduction.output_buffer_id;
+#ifndef NDEBUG
 				for(auto pmode : detail::access::producer_modes) {
 					assert(requirements[bid].count(pmode) == 0); // We verify in the task manager that there are no reduction <-> write-access conflicts
 				}
+#endif
 
 				// We need to add a proper requirement here because bid might itself be in pending_reduction_state
 				requirements[bid][rmode] = GridRegion<3>{{1, 1, 1}};

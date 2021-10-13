@@ -75,10 +75,13 @@ namespace detail {
 
 		std::vector<command_id> dep_deps;
 		// Iterate over second level of dependencies. These will usually be flushed already. One notable exception are reduction dependencies, which generate
-		// a tree of reduction_push_await_commands and reduction_reduce_commmands as a dependency.
+		// a tree of push_await_commands and reduction_commands as a dependency.
 		// TODO: We could probably do some pruning here (e.g. omit tasks we know are already finished)
 		for(auto dd : dep->get_dependencies()) {
-			if(!dd.node->is_flushed()) { flush_dependency(dd.node); }
+			if(!dd.node->is_flushed()) {
+				assert(isa<reduction_command>(dep) && isa<await_push_command>(dd.node));
+				flush_dependency(dd.node);
+			}
 			dep_deps.push_back(dd.node->get_cid());
 		}
 		serialize_and_flush(dep, dep_deps);

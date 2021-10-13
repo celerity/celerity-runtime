@@ -1409,8 +1409,6 @@ namespace detail {
 		maybe_print_graphs(ctx);
 	}
 
-#if !WORKAROUND_COMPUTECPP // no reductions
-
 	TEST_CASE("graph_generator generates reduction command trees", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
 		size_t num_nodes = 2;
@@ -1520,37 +1518,6 @@ namespace detail {
 		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::REDUCTION).empty());
 
 		maybe_print_graphs(ctx);
-	}
-
-	TEST_CASE("conflicts between producer-accessors and reductions are reported", "[task-manager]") {
-		using namespace cl::sycl::access;
-		test_utils::cdag_test_context ctx(1);
-		auto& tm = ctx.get_task_manager();
-		auto& ggen = ctx.get_graph_generator();
-		auto& rm = ctx.get_reduction_manager();
-		test_utils::mock_buffer_factory mbf(&tm, &ggen);
-
-		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
-
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, rm, buf_0, false);
-			test_utils::add_reduction(cgh, rm, buf_0, false);
-		}));
-
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, rm, buf_0, false);
-			buf_0.get_access<mode::write>(cgh, fixed<1>({0, 1}));
-		}));
-
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, rm, buf_0, false);
-			buf_0.get_access<mode::read_write>(cgh, fixed<1>({0, 1}));
-		}));
-
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, rm, buf_0, false);
-			buf_0.get_access<mode::discard_write>(cgh, fixed<1>({0, 1}));
-		}));
 	}
 
 	TEST_CASE("discarding the reduction result from a task_command will not generate a reduction command", "[graph_generator][command-graph]") {
@@ -1667,8 +1634,6 @@ namespace detail {
 
 		maybe_print_graphs(ctx);
 	}
-
-#endif // !WORKAROUND_COMPUTECPP
 
 } // namespace detail
 } // namespace celerity

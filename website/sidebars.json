@@ -8,6 +8,7 @@
     "Guides": [
       "range-mappers",
       "host-tasks",
+      "reductions",
       "pitfalls",
       "issues-and-limitations"
     ],
