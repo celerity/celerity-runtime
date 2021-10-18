@@ -216,11 +216,12 @@ if(CELERITY_BUILD_EXAMPLES)
     PROPERTY FOLDER "examples"
   )
 
-  if (CELERITY_SYCL_IMPL STREQUAL "hipSYCL" AND CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS)
-      # CCPP currently does not implement reductions, and DPC++ does not support multiple reduction variables per kernel
-      add_subdirectory(examples/reduction)
-      set_property(TARGET reduction PROPERTY FOLDER "examples")
-  endif ()
+  # CCPP currently does not implement reductions
+  if(CELERITY_SYCL_IMPL STREQUAL "DPC++" OR (
+    CELERITY_SYCL_IMPL STREQUAL "hipSYCL" AND CELERITY_HIPSYCL_SUPPORTS_REDUCTIONS))
+    add_subdirectory(examples/reduction)
+    set_property(TARGET reduction PROPERTY FOLDER "examples")
+  endif()
 
   find_package(PkgConfig)
   unset(HDF5_FOUND)

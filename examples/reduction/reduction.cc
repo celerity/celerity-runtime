@@ -41,6 +41,16 @@ cl::sycl::float4 rgb_to_srgb(cl::sycl::float4 linear) {
 	};
 }
 
+
+// We could use two reduction variables to calculate minimum and maximum, but some SYCL implementations currently only support a single reductio per kernel.
+// Instead we build a combined minimum-maximum operation, with the side effect that we have to call `combine(x, x)` instead of `combine(x)` below.
+const auto minmax = [](cl::sycl::float2 a, cl::sycl::float2 b) { //
+	return cl::sycl::float2{cl::sycl::min(a[0], b[0]), cl::sycl::max(a[1], b[1])};
+};
+
+const cl::sycl::float2 minmax_identity{INFINITY, -INFINITY};
+
+
 // Reads an image, finds minimum/maximum pixel values, stretches the histogram to increase contrast, and saves the resulting image to output.jpg.
 int main(int argc, char* argv[]) {
 	if(argc != 2) {
@@ -57,37 +67,32 @@ int main(int argc, char* argv[]) {
 	cl::sycl::range<2> image_size{static_cast<size_t>(image_height), static_cast<size_t>(image_width)};
 	celerity::buffer<cl::sycl::uchar4, 2> srgb_255_buf{reinterpret_cast<const cl::sycl::uchar4*>(srgb_255_data.get()), image_size};
 	celerity::buffer<cl::sycl::float4, 2> lab_buf{image_size};
-	celerity::buffer<float, 1> min_value_buf{cl::sycl::range{1}};
-	celerity::buffer<float, 1> max_value_buf{cl::sycl::range{1}};
+	celerity::buffer<cl::sycl::float2, 1> minmax_buf{cl::sycl::range{1}};
 
 	q.submit([=](celerity::handler& cgh) {
 		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::one_to_one{}, celerity::read_only};
 		celerity::accessor rgb_acc{lab_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-		auto min_value_r = celerity::reduction(min_value_buf, cgh, cl::sycl::minimum<float>{}, cl::sycl::property::reduction::initialize_to_identity{});
-		auto max_value_r = celerity::reduction(max_value_buf, cgh, cl::sycl::maximum<float>{}, cl::sycl::property::reduction::initialize_to_identity{});
-		cgh.parallel_for<class linearize_and_accumulate>(image_size, min_value_r, max_value_r, [=](celerity::item<2> item, auto& min_value, auto& max_value) {
+		auto minmax_r = celerity::reduction(minmax_buf, cgh, minmax_identity, minmax, cl::sycl::property::reduction::initialize_to_identity{});
+		cgh.parallel_for<class linearize_and_accumulate>(image_size, minmax_r, [=](celerity::item<2> item, auto& minmax) {
 			const auto rgb = srgb_to_rgb(srgb_255_acc[item].convert<float>() / 255.0f);
 			rgb_acc[item] = rgb;
 			for(int i = 0; i < 3; ++i) {
-				min_value.combine(rgb[i]);
-				max_value.combine(rgb[i]);
+				minmax.combine({rgb[i], rgb[i]});
 			}
 		});
 	});
 
 	q.submit([=](celerity::handler& cgh) {
-		celerity::accessor min_value_acc{min_value_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
-		celerity::accessor max_value_acc{max_value_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
-		cgh.host_task(celerity::on_master_node, [=] { printf("Before contrast stretch: min = %f, max = %f\n", min_value_acc[0], max_value_acc[0]); });
+		celerity::accessor minmax_acc{minmax_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
+		cgh.host_task(celerity::on_master_node, [=] { printf("Before contrast stretch: min = %f, max = %f\n", minmax_acc[0][0], minmax_acc[0][1]); });
 	});
 
 	q.submit([=](celerity::handler& cgh) {
 		celerity::accessor rgb_acc{lab_buf, cgh, celerity::access::one_to_one{}, celerity::read_only};
-		celerity::accessor min_value_acc{min_value_buf, cgh, celerity::access::all{}, celerity::read_only};
-		celerity::accessor max_value_acc{max_value_buf, cgh, celerity::access::all{}, celerity::read_only};
+		celerity::accessor minmax_acc{minmax_buf, cgh, celerity::access::all{}, celerity::read_only};
 		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for<class correct_and_compress>(image_size, [=](celerity::item<2> item) {
-			const auto min = min_value_acc[0], max = max_value_acc[0];
+			const auto min = minmax_acc[0][0], max = minmax_acc[0][1];
 			auto rgb = rgb_acc[item];
 			for(int i = 0; i < 3; ++i) {
 				rgb[i] = (rgb[i] - min) / (max - min);
