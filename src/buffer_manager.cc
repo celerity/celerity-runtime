@@ -60,6 +60,12 @@ namespace detail {
 			data_locations = {{subrange_to_grid_box(subrange<3>(offset, range)), data_location::HOST}};
 		}
 
+		// get_buffer_data will race with pending transfers for the same subrange. In case there are pending transfers and a host buffer does not exist yet,
+		// these transfers cannot easily be flushed here as creating a host buffer requires a templated context that knows about DataT.
+		assert(std::none_of(scheduled_transfers[bid].begin(), scheduled_transfers[bid].end(), [&](const transfer& t) {
+			return subrange_to_grid_box({offset, range}).intersectsWith(subrange_to_grid_box({t.target_offset, t.data.get_range()}));
+		}));
+
 		if(data_locations[0].second == data_location::HOST || data_locations[0].second == data_location::HOST_AND_DEVICE) {
 			return buffers.at(bid).host_buf.storage->get_data(buffers.at(bid).host_buf.get_local_offset(offset), range);
 		}

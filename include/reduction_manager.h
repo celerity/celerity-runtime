@@ -47,9 +47,9 @@ namespace detail {
 				acc = op(acc, other);
 			}
 
-			raw_buffer_data raw(sizeof(DataT), cl::sycl::range<3>{1, 1, 1});
-			memcpy(raw.get_pointer(), &acc, sizeof(DataT));
-			runtime::get_instance().get_buffer_manager().set_buffer_data(info.output_buffer_id, {}, std::move(raw));
+			auto host_buf = runtime::get_instance().get_buffer_manager().get_host_buffer<DataT, Dims>(
+			    info.output_buffer_id, cl::sycl::access::mode::discard_write, cl::sycl::range<3>{1, 1, 1}, cl::sycl::id<3>{});
+			*host_buf.buffer.get_pointer() = acc;
 		}
 
 	  private:
