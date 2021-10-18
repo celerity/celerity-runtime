@@ -97,8 +97,36 @@ namespace detail {
 		});
 
 		q.submit([=](handler& cgh) {
-			accessor acc{sum, cgh, celerity::access::all{}, celerity::read_write_host_task};
+			accessor acc{sum, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			cgh.host_task(on_master_node, [=] { CHECK(acc[0] == 3 * N); });
+		});
+	}
+
+	TEST_CASE("subsequently requiring reduction results on different subsets of nodes produces correct data flow", "[reductions]") {
+		distr_queue q;
+
+		const int N = 1000;
+
+		buffer<int, 1> sum(cl::sycl::range{1});
+		q.submit([=](handler& cgh) {
+			cgh.parallel_for<class UKN(produce)>(cl::sycl::range{N},
+			    reduction(sum, cgh, cl::sycl::plus<int>{}, cl::sycl::property::reduction::initialize_to_identity{}),
+			    [=](celerity::item<1> item, auto& sum) { sum += static_cast<int>(item.get_linear_id()); });
+		});
+
+		const int expected = (N - 1) * N / 2;
+
+		q.submit([=](handler& cgh) {
+			accessor acc{sum, cgh, celerity::access::all{}, celerity::read_only_host_task};
+			cgh.host_task(on_master_node, [=] { CHECK(acc[0] == expected); });
+		});
+
+		q.submit([=](handler& cgh) {
+			accessor acc{sum, cgh, celerity::access::all{}, celerity::read_only_host_task};
+			cgh.host_task(experimental::collective, [=](experimental::collective_partition p) {
+				INFO("Node " << p.get_node_index());
+				CHECK(acc[0] == expected);
+			});
 		});
 	}
 
