@@ -19,29 +19,46 @@ EXAMPLES=(
     "convolution"
     "wave_sim"
     "syncing"
+    "reduction"
+)
+IS_OPTIONAL=(
+    ""
+    ""
+    ""
+    ""
+    "yes"
 )
 PARAMS=(
     ""
     "$CONV_IMG"
     "-T 15 --dt 0.5 --sample-rate 2"
     ""
+    "$CONV_IMG"
 )
 ARTIFACTS=(
     ""
     "output.png"
     "wave_sim_result.bin"
     ""
+    "output.jpg"
 )
 
 expected_checksum=""
 for e in "${!EXAMPLES[@]}"; do
-    EXE="${EXAMPLES[$e]}"
+    NAME="${EXAMPLES[$e]}"
+
+    EXE="./examples/$NAME/$NAME"
+    if [ -n "${IS_OPTIONAL[$e]}" ] && ! [ -f "$EXE" ]; then
+      echo -e "\n\n ---- (Skipping optional \"$NAME\" because it has not been built) ----\n\n" >&2
+      continue
+    fi
+
     # shellcheck disable=SC2206
-    CMD=("./examples/$EXE/$EXE" ${PARAMS[$e]})
+    CMD=("$EXE" ${PARAMS[$e]})
     ARTIFACT="${ARTIFACTS[$e]}"
 
     for n in "${NUM_NODES[@]}"; do
-        echo -e "\n\n ---- Running \"$EXE\" on $n node(s) ----\n\n" 1>&2
+        echo -e "\n\n ---- Running \"$NAME\" on $n node(s) ----\n\n" 1>&2
         rm -rf "$ARTIFACT" # Delete artifact before each run to make sure it is actually created
         mpirun -n "$n" "${CMD[@]}"
         if [ -n "$ARTIFACT" ]; then
@@ -52,7 +69,7 @@ for e in "${!EXAMPLES[@]}"; do
                 # configuration (debug/release, hipSYCL/ComputeCpp, etc) because they don't. Instead
                 # we just check whether they produce the same result across runs with different nodes.
                 if [[ $(md5sum "$ARTIFACT") != "$expected_checksum" ]]; then
-                    echo "$EXE: Wrong ARTIFACT checksum after running with $n nodes." 1>&2
+                    echo "$NAME: Wrong ARTIFACT checksum after running with $n nodes." 1>&2
                     exit 1
                 fi
             fi
