@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.13)
 
-set(Celerity_VERSION 0.2.1)
+file(STRINGS "VERSION" Celerity_VERSION)
 project(celerity_runtime VERSION ${Celerity_VERSION} LANGUAGES CXX)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
@@ -238,35 +238,8 @@ endif()
 # Examples
 
 option(CELERITY_BUILD_EXAMPLES "Build various example applications" ON)
-option(CELERITY_EXAMPLES_REQUIRE_HDF5 "Fail on missing HDF5 dependency instead of skipping the distr_io example" OFF)
 if(CELERITY_BUILD_EXAMPLES)
-  add_subdirectory(examples/convolution)
-  add_subdirectory(examples/matmul)
-  add_subdirectory(examples/syncing)
-  add_subdirectory(examples/wave_sim)
-
-  set_property(
-    TARGET convolution matmul syncing wave_sim
-    PROPERTY FOLDER "examples"
-  )
-
-  if(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS)
-    add_subdirectory(examples/reduction)
-    set_property(TARGET reduction PROPERTY FOLDER "examples")
-  endif()
-
-  find_package(PkgConfig)
-  unset(HDF5_FOUND)
-  if(PkgConfig_FOUND)
-    pkg_search_module(HDF5 IMPORTED_TARGET hdf5-openmpi hdf5-1.12.0 hdf5)
-    if(HDF5_FOUND)
-      add_subdirectory(examples/distr_io)
-      set_property(TARGET distr_io PROPERTY FOLDER "examples")
-    endif()
-  endif()
-  if(CELERITY_EXAMPLES_REQUIRE_HDF5 AND NOT HDF5_FOUND)
-    message(FATAL_ERROR "HDF5 not found, but required by CELERITY_EXAMPLES_REQUIRE_HDF5")
-  endif()
+  add_subdirectory(examples)
 endif()
 
 # Tests
