@@ -290,6 +290,33 @@ namespace detail {
 		CHECK(has_dependency(tm, tid_collective_explicit_2, tid_collective_explicit_1, dependency_kind::ORDER_DEP));
 	}
 
+	TEST_CASE("task_manager keeps track of max pseudo critical path length", "[task_manager][task-graph]") {
+		using namespace cl::sycl::access;
+		task_manager tm{1, nullptr, true};
+		test_utils::mock_buffer_factory mbf(&tm);
+		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
+
+		SECTION("with true dependencies") {
+			[[maybe_unused]] const auto tid_a = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+				buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
+			});
+			[[maybe_unused]] const auto tid_b = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+				buf_a.get_access<mode::read_write>(cgh, fixed<1>({0, 128}));
+			});
+			CHECK(tm.get_max_pseudo_critical_path_length() == 1);
+
+			[[maybe_unused]] const auto tid_c = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+				buf_a.get_access<mode::read>(cgh, fixed<1>({0, 128}));
+			});
+			CHECK(tm.get_max_pseudo_critical_path_length() == 2);
+
+			[[maybe_unused]] const auto tid_d = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {});
+			CHECK(tm.get_max_pseudo_critical_path_length() == 2);
+
+			maybe_print_graph(tm);
+		}
+	}
+
 	TEST_CASE("command_graph keeps track of created commands", "[command_graph][command-graph]") {
 		command_graph cdag;
 		auto cmd0 = cdag.create<task_command>(0, 0, subrange<3>{});

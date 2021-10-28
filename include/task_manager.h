@@ -89,6 +89,8 @@ namespace detail {
 		 */
 		void shutdown() { task_map.clear(); }
 
+		unsigned get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
+
 	  private:
 		const size_t num_collective_nodes;
 		host_queue* queue;
@@ -110,6 +112,13 @@ namespace detail {
 		std::vector<task_callback> task_callbacks;
 
 		void invoke_callbacks(task_id tid);
+
+		// This only (potentially) grows when adding dependencies,
+		// it never shrinks and does not take into account later changes further up in the dependency chain
+		unsigned max_pseudo_critical_path_length = 0;
+
+		// Set of tasks with no dependents
+		std::unordered_set<task*> execution_front;
 
 	  protected:
 		virtual void compute_dependencies(task_id tid);
