@@ -9,11 +9,8 @@ endif()
 file(STRINGS "../VERSION" Celerity_VERSION)
 project(celerity_examples VERSION "${Celerity_VERSION}" LANGUAGES CXX)
 
-if(INCLUDED_AS_SUBPROJECT)
-  set(CELERITY_TARGET celerity_runtime)
-else()
+if(NOT INCLUDED_AS_SUBPROJECT)
   find_package(Celerity "${Celerity_VERSION}")
-  set(CELERITY_TARGET Celerity::celerity_runtime)
 endif()
 
 option(CELERITY_EXAMPLES_REQUIRE_HDF5 "Fail on missing HDF5 dependency instead of skipping the distr_io example" OFF)
@@ -28,14 +25,12 @@ function(add_example NAME)
   set_property(TARGET "${NAME}" PROPERTY RUNTIME_OUTPUT_DIRECTORY "${NAME}")
   set_property(TARGET "${NAME}" PROPERTY FOLDER "examples")
 
-  add_sycl_to_target(
+  add_celerity_to_target(
     TARGET "${NAME}"
     SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${NAME}/${NAME}.cc"
   )
 
   target_include_directories("${NAME}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../vendor")
-
-  target_link_libraries("${NAME}" PUBLIC "${CELERITY_TARGET}")
 
   if(MSVC)
     target_compile_options("${NAME}" PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3)
