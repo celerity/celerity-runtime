@@ -1,16 +1,26 @@
-cmake_minimum_required(VERSION 3.5.1)
+cmake_minimum_required(VERSION 3.13)
 include(CMakeFindDependencyMacro)
 
 set(CELERITY_INSTALL_LOCATION "@CELERITY_INSTALL_LOCATION@")
 set(CELERITY_SYCL_IMPL "@CELERITY_SYCL_IMPL@")
+
+set(CELERITY_CMAKE_DIR "${CELERITY_INSTALL_LOCATION}/lib/cmake/Celerity")
+set(CELERITY_RUNTIME_LIBRARY Celerity::celerity_runtime)
+include("${CELERITY_CMAKE_DIR}/TestDPCXX.cmake")
+include("${CELERITY_CMAKE_DIR}/AddToTarget.cmake")
 
 find_dependency(MPI 2.0 REQUIRED)
 find_dependency(Threads REQUIRED)
 
 if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
   find_dependency(hipSYCL CONFIG REQUIRED)
-else()
+elseif(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
   find_dependency(ComputeCpp REQUIRED)
+elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
+  test_cxx_compiler_is_dpcpp(CXX_COMPILER_IS_DPCPP)
+  if(NOT CXX_COMPILER_IS_DPCPP)
+    message(ERROR "Celerity was built against DPC++, but CMAKE_CXX_COMPILER does not point to DPC++")
+  endif()
 endif()
 
 set(CELERITY_FEATURE_SCALAR_REDUCTIONS "@CELERITY_FEATURE_SCALAR_REDUCTIONS@")
@@ -18,7 +28,7 @@ set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS "@CELERITY_FEATURE_SIMPLE_SCALAR_R
 set(CELERITY_FEATURE_LOCAL_ACCESSOR "@CELERITY_FEATURE_LOCAL_ACCESSOR@")
 
 # spdlog is a bundled dependency
-include("${CMAKE_CURRENT_LIST_DIR}/../celerity/vendor/cmake/spdlogConfig.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../celerity/vendor/cmake/spdlogConfig.cmake")
 
 include("${CMAKE_CURRENT_LIST_DIR}/celerity-targets.cmake")
 
@@ -54,26 +64,3 @@ if("DEBUG" IN_LIST CELERITY_IMPORTED_CONFIGS)
   )
 endif()
 unset(CELERITY_IMPORTED_CONFIGS)
-
-function(add_celerity_to_target)
-  set(options)
-  set(one_value_args TARGET)
-  set(multi_value_args SOURCES)
-  cmake_parse_arguments(ADD_CELERITY
-    "${options}"
-    "${one_value_args}"
-    "${multi_value_args}"
-    ${ARGN}
-  )
-
-  set_property(
-    TARGET ${ADD_CELERITY_TARGET}
-    APPEND PROPERTY LINK_LIBRARIES Celerity::celerity_runtime
-  )
-
-  add_sycl_to_target(
-    TARGET ${ADD_CELERITY_TARGET}
-    SOURCES ${ADD_CELERITY_SOURCES}
-  )
-endfunction()
-

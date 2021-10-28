@@ -4,16 +4,15 @@ file(STRINGS "VERSION" Celerity_VERSION)
 project(celerity_runtime VERSION ${Celerity_VERSION} LANGUAGES CXX)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${PROJECT_SOURCE_DIR}/cmake")
+set(CELERITY_CMAKE_DIR "${PROJECT_SOURCE_DIR}/cmake")
+set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CELERITY_CMAKE_DIR}")
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 
 set(CELERITY_SYCL_IMPL "OFF" CACHE STRING "hipSYCL|ComputeCpp|DPC++")
 
-try_compile(CXX_COMPILER_IS_DPCPP "${PROJECT_BINARY_DIR}/detect_dpcpp"
-  SOURCES "${PROJECT_SOURCE_DIR}/cmake/sycl_test.cpp"
-  COMPILE_DEFINITIONS -fsycl -sycl-std=2020
-)
+include("${CELERITY_CMAKE_DIR}/TestDPCXX.cmake")
+test_cxx_compiler_is_dpcpp(CXX_COMPILER_IS_DPCPP)
 if(CXX_COMPILER_IS_DPCPP)
   message(STATUS "CXX compiler at ${CMAKE_CXX_COMPILER} detected as DPC++")
 endif()
@@ -66,10 +65,10 @@ if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
   message(STATUS "DPC++ will target ${CELERITY_DPCPP_TARGETS}")
 endif()
 
-if (CELERITY_SYCL_IMPL STREQUAL "ComputeCpp" AND NOT COMPUTECPP_USER_FLAGS MATCHES "-D_CRT_SECURE_NO_WARNINGS")
-    set(COMPUTECPP_USER_FLAGS "${COMPUTECPP_USER_FLAGS};-D_CRT_SECURE_NO_WARNINGS=1"
-            CACHE STRING "" FORCE)
-endif ()
+if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp" AND NOT COMPUTECPP_USER_FLAGS MATCHES "-D_CRT_SECURE_NO_WARNINGS")
+  set(COMPUTECPP_USER_FLAGS "${COMPUTECPP_USER_FLAGS};-D_CRT_SECURE_NO_WARNINGS=1"
+    CACHE STRING "" FORCE)
+endif()
 
 if(CELERITY_SYCL_IMPL STREQUAL hipSYCL)
   macro(test_hipsycl_feature VAR NAME FEATURE)
@@ -106,15 +105,18 @@ else()
   set(CELERITY_FEATURE_LOCAL_ACCESSOR OFF)
 endif()
 
-if (NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)
-endif ()
+set(CELERITY_RUNTIME_LIBRARY celerity_runtime)
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/AddToTarget.cmake")
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)
+endif()
 
 # 3rdparty dependencies
 macro(add_submodule_directory RELPATH)
-	if(NOT EXISTS "${PROJECT_SOURCE_DIR}/${RELPATH}/CMakeLists.txt")
-		message(SEND_ERROR "${RELPATH} is missing, perform a git submodule update")
-	endif()
+  if(NOT EXISTS "${PROJECT_SOURCE_DIR}/${RELPATH}/CMakeLists.txt")
+    message(SEND_ERROR "${RELPATH} is missing, perform a git submodule update")
+  endif()
 	add_subdirectory("${RELPATH}")
 endmacro()
 
@@ -206,24 +208,6 @@ if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
   set(DEVICE_SOURCES ${SOURCES})
 endif()
 
-if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
-  function(add_sycl_to_target)
-    set(options)
-    set(one_value_args TARGET)
-    set(multi_value_args)
-    cmake_parse_arguments(ADD_SYCL
-      "${options}"
-      "${one_value_args}"
-      "${multi_value_args}"
-      ${ARGN}
-      )
-    # Wno-deprecated-declarations: Kernel offsets are used all over the place
-    set(DPCPP_FLAGS "-fsycl;-sycl-std=2020;-fsycl-targets=${CELERITY_DPCPP_TARGETS};-DCELERITY_DPCPP=1;-Wno-deprecated-declarations;${DPCPP_FLAGS}")
-    target_compile_options(${ADD_SYCL_TARGET} PUBLIC ${DPCPP_FLAGS})
-    target_link_options(${ADD_SYCL_TARGET} PUBLIC ${DPCPP_FLAGS})
-  endfunction()
-endif()
-
 add_sycl_to_target(
   TARGET celerity_runtime
   SOURCES ${DEVICE_SOURCES}
@@ -312,17 +296,20 @@ install(
   EXPORT install_exports
   FILE "celerity-targets.cmake"
   NAMESPACE Celerity::
-  DESTINATION lib/cmake
+  DESTINATION lib/cmake/Celerity
 )
 set(CELERITY_INSTALL_LOCATION ${CMAKE_INSTALL_PREFIX})
 configure_file(
-  ${PROJECT_SOURCE_DIR}/cmake/celerity-config.cmake.in
-  ${CMAKE_CURRENT_BINARY_DIR}/celerity-config.cmake
+  "${PROJECT_SOURCE_DIR}/cmake/celerity-config.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/celerity-config.cmake"
   @ONLY
 )
 install(FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/celerity-config.cmake
-  ${CMAKE_CURRENT_BINARY_DIR}/celerity-config-version.cmake
-  DESTINATION lib/cmake
-)
+  "${CMAKE_CURRENT_BINARY_DIR}/celerity-config.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/celerity-config-version.cmake"
+  "${PROJECT_SOURCE_DIR}/cmake/AddToTarget.cmake"
+  "${PROJECT_SOURCE_DIR}/cmake/TestDPCXX.cmake"
+  "${PROJECT_SOURCE_DIR}/cmake/sycl_test.cpp"
+  DESTINATION lib/cmake/Celerity
+  )
 
