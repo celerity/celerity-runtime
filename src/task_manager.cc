@@ -148,6 +148,8 @@ namespace detail {
 			}
 			last_collective_tasks.emplace(cgid, tid);
 		}
+
+		max_pseudo_critical_path_length = std::max(max_pseudo_critical_path_length, tsk->get_pseudo_critical_path_length());
 	}
 
 	void task_manager::invoke_callbacks(task_id tid) {

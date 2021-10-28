@@ -22,6 +22,7 @@ namespace detail {
 		DEVICE_COMPUTE, ///< device compute task
 		COLLECTIVE,     ///< host task with implicit 1d global size = #ranks and fixed split
 		MASTER_NODE,    ///< zero-dimensional host task
+		HORIZON,        ///< task horizon
 	};
 
 	enum class execution_target {
