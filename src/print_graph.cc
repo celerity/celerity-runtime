@@ -31,7 +31,7 @@ namespace detail {
 		}
 	}
 
-	void print_graph(const std::unordered_map<task_id, std::shared_ptr<task>>& tdag, logger& graph_logger) {
+	void print_graph(const std::unordered_map<task_id, std::unique_ptr<task>>& tdag, logger& graph_logger) {
 		std::stringstream ss;
 		ss << "digraph G { ";
 

@@ -28,10 +28,10 @@ namespace detail {
 
 	// Note that we assume tasks are not modified after their initial creation, which is why
 	// we don't need to worry about thread-safety after returning the task pointer.
-	std::shared_ptr<const task> task_manager::get_task(task_id tid) const {
+	const task* task_manager::get_task(task_id tid) const {
 		std::lock_guard<std::mutex> lock(task_mutex);
 		assert(task_map.count(tid) != 0);
-		return task_map.at(tid);
+		return task_map.at(tid).get();
 	}
 
 	void task_manager::print_graph(logger& graph_logger) const {
@@ -106,12 +106,12 @@ namespace detail {
 
 				for(auto& p : last_writers) {
 					if(p.second == std::nullopt) continue;
-					auto last_writer = task_map[*p.second];
+					auto& last_writer = *task_map[*p.second];
 
 					// Determine anti-dependencies by looking at all the dependents of the last writing task
 					bool has_anti_dependents = false;
 
-					for(auto dependent : last_writer->get_dependents()) {
+					for(auto dependent : last_writer.get_dependents()) {
 						if(dependent.node->get_id() == tid) {
 							// This can happen
 							// - if a task writes to two or more buffers with the same last writer
@@ -133,7 +133,7 @@ namespace detail {
 						// While it might not always make total sense to have anti-dependencies between (pure) producers without an
 						// intermediate consumer, we at least have a defined behavior, and the thus enforced ordering of tasks
 						// likely reflects what the user expects.
-						tsk->add_dependency({last_writer.get(), dependency_kind::ANTI_DEP});
+						tsk->add_dependency({&last_writer, dependency_kind::ANTI_DEP});
 					}
 				}
 

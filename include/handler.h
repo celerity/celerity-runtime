@@ -315,7 +315,7 @@ namespace detail {
 			task = detail::task::make_master_node(tid, std::move(cgf), std::move(access_map));
 		}
 
-		std::shared_ptr<class task> into_task() && { return std::move(task); }
+		std::unique_ptr<class task> into_task() && { return std::move(task); }
 
 	  protected:
 		bool is_prepass() const override { return true; }
@@ -329,8 +329,10 @@ namespace detail {
 		task_id tid;
 		std::unique_ptr<command_group_storage_base> cgf;
 		buffer_access_map access_map;
+
 		std::vector<reduction_id> reductions;
-		std::shared_ptr<class task> task = nullptr;
+		std::unique_ptr<class task> task = nullptr;
+
 		size_t num_collective_nodes;
 	};
 
@@ -350,10 +352,10 @@ namespace detail {
 		bool is_reduction_initializer() const { return initialize_reductions; }
 
 	  protected:
-		live_pass_handler(std::shared_ptr<const class task> task, subrange<3> sr, bool initialize_reductions)
+		live_pass_handler(const class task* task, subrange<3> sr, bool initialize_reductions)
 		    : task(std::move(task)), sr(sr), initialize_reductions(initialize_reductions) {}
 
-		std::shared_ptr<const class task> task = nullptr;
+		const class task* task = nullptr;
 
 		// The subrange, when combined with the tasks global size, defines the chunk this handler executes.
 		subrange<3> sr;
@@ -363,8 +365,8 @@ namespace detail {
 
 	class live_pass_host_handler final : public live_pass_handler {
 	  public:
-		live_pass_host_handler(std::shared_ptr<const class task> task, subrange<3> sr, bool initialize_reductions, host_queue& queue)
-		    : live_pass_handler(std::move(task), sr, initialize_reductions), queue(&queue) {}
+		live_pass_host_handler(const class task* task, subrange<3> sr, bool initialize_reductions, host_queue& queue)
+		    : live_pass_handler(task, sr, initialize_reductions), queue(&queue) {}
 
 		template <int Dims, typename Kernel>
 		void schedule(Kernel kernel) {
@@ -470,8 +472,8 @@ namespace detail {
 
 	class live_pass_device_handler final : public live_pass_handler {
 	  public:
-		live_pass_device_handler(std::shared_ptr<const class task> task, subrange<3> sr, bool initialize_reductions, device_queue& d_queue)
-		    : live_pass_handler(std::move(task), sr, initialize_reductions), d_queue(&d_queue) {}
+		live_pass_device_handler(const class task* task, subrange<3> sr, bool initialize_reductions, device_queue& d_queue)
+		    : live_pass_handler(task, sr, initialize_reductions), d_queue(&d_queue) {}
 
 		template <typename CGF>
 		void submit_to_sycl(CGF&& cgf) {
