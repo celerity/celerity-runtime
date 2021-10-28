@@ -2,11 +2,11 @@
 
 set -o errexit -o pipefail -o nounset
 
-if [[ ! -d examples || ! -d CMakeFiles ]]; then
+if [[ ! -d CMakeFiles ]]; then
     echo "Warning: This script should be run from within a build directory" 1>&2
 fi
 
-if [[ $# -le 1 ]]; then
+if [[ $# -lt 2 ]]; then
     echo "Usage: $0 <convolution image file> <num nodes> [<num nodes>...]" 1>&2
     exit 1
 fi
@@ -43,11 +43,16 @@ ARTIFACTS=(
     "output.jpg"
 )
 
+EXAMPLES_DIR="$(pwd)"
+if [[ ! -x "${EXAMPLES[0]}/${EXAMPLES[0]}" ]]; then
+  EXAMPLES_DIR="$EXAMPLES_DIR/examples"
+fi
+
 expected_checksum=""
 for e in "${!EXAMPLES[@]}"; do
     NAME="${EXAMPLES[$e]}"
 
-    EXE="./examples/$NAME/$NAME"
+    EXE="$EXAMPLES_DIR/$NAME/$NAME"
     if [ -n "${IS_OPTIONAL[$e]}" ] && ! [ -f "$EXE" ]; then
       echo -e "\n\n ---- (Skipping optional \"$NAME\" because it has not been built) ----\n\n" >&2
       continue
