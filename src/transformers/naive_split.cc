@@ -56,7 +56,7 @@ namespace detail {
 		assert(num_chunks >= num_workers);
 	}
 
-	void naive_split_transformer::transform_task(const std::shared_ptr<const task>& tsk, command_graph& cdag) {
+	void naive_split_transformer::transform_task(const task* tsk, command_graph& cdag) {
 		if(!tsk->has_variable_split()) return;
 
 		// Assign each chunk to a node

@@ -41,10 +41,11 @@ namespace detail {
 				prepass_handler cgh(tid, std::make_unique<command_group_storage<CGF>>(cgf), num_collective_nodes);
 				cgf(cgh);
 				auto task = std::move(cgh).into_task();
+				auto& task_ref = *task;
 				assert(task != nullptr);
-				task_map.emplace(tid, task);
+				task_map.emplace(tid, std::move(task));
 				if(is_master_node) { compute_dependencies(tid); }
-				if(queue) queue->require_collective_group(task->get_collective_group_id());
+				if(queue) queue->require_collective_group(task_ref.get_collective_group_id());
 			}
 			invoke_callbacks(tid);
 			return tid;
@@ -69,7 +70,7 @@ namespace detail {
 		 */
 		bool has_task(task_id tid) const;
 
-		std::shared_ptr<const task> get_task(task_id tid) const;
+		const task* get_task(task_id tid) const;
 
 		/**
 		 * @brief Returns the id of the INIT task which acts as a surrogate for the host-initialization of buffers.
@@ -95,7 +96,7 @@ namespace detail {
 		reduction_manager* reduction_mngr;
 		task_id next_task_id = 0;
 		const task_id init_task_id;
-		std::unordered_map<task_id, std::shared_ptr<task>> task_map;
+		std::unordered_map<task_id, std::unique_ptr<task>> task_map;
 
 		// We store a map of which task last wrote to a certain region of a buffer.
 		// NOTE: This represents the state after the latest performed pre-pass.
