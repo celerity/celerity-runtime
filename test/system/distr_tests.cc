@@ -3,6 +3,8 @@
 #include <algorithm>
 
 #include <catch2/catch.hpp>
+#include <mpi.h>
+#include <spdlog/sinks/ostream_sink.h>
 
 #include <celerity.h>
 
@@ -217,6 +219,81 @@ namespace detail {
 			});
 		});
 	}
+
+	TEST_CASE("generating same task graph on different nodes", "[task-graph]") {
+		distr_queue q;
+		REQUIRE(runtime::get_instance().get_num_nodes() > 1);
+
+		const int N = 1000;
+
+		buffer<int, 1> buff_a(cl::sycl::range{1});
+		q.submit([=](handler& cgh) {
+			accessor write_a{buff_a, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
+			cgh.parallel_for<class UKN(produce_a)>(cl::sycl::range{N}, [=](celerity::item<1> item) { write_a[item] = static_cast<int>(item.get_linear_id()); });
+		});
+
+		buffer<int, 1> buff_b(cl::sycl::range{1});
+		q.submit([=](handler& cgh) {
+			accessor write_b{buff_b, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
+			cgh.parallel_for<class UKN(produce_b)>(cl::sycl::range{N}, [=](celerity::item<1> item) { write_b[item] = static_cast<int>(item.get_linear_id()); });
+		});
+
+		q.submit([=](handler& cgh) {
+			accessor read_write_a{buff_a, cgh, celerity::access::all{}, celerity::read_write};
+			cgh.parallel_for<class UKN(produce_c)>(cl::sycl::range{N}, [=](celerity::item<1> item) { read_write_a[item] += 1; });
+		});
+
+		q.submit([=](handler& cgh) {
+			accessor read_write_a{buff_a, cgh, celerity::access::all{}, celerity::read_write};
+			accessor read_write_b{buff_b, cgh, celerity::access::all{}, celerity::read_write};
+			cgh.parallel_for<class UKN(produce_d)>(cl::sycl::range{N}, [=](celerity::item<1> item) {
+				read_write_a[item] += read_write_b[item] + 1;
+				read_write_b[item] = read_write_a[item];
+			});
+		});
+
+		q.submit([=](handler& cgh) {
+			accessor write_a{buff_a, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
+			cgh.parallel_for<class UKN(produce_e)>(cl::sycl::range{N}, [=](celerity::item<1> item) { write_a[item] = static_cast<int>(item.get_linear_id()); });
+		});
+
+		q.slow_full_sync();
+
+		int global_rank;
+		MPI_Comm_rank(MPI_COMM_WORLD, &global_rank);
+
+		MPI_Group world_group;
+		MPI_Comm_group(MPI_COMM_WORLD, &world_group);
+
+		MPI_Comm test_communicator;
+		MPI_Comm_create(MPI_COMM_WORLD, world_group, &test_communicator);
+
+		std::ostringstream oss;
+		auto ostream_sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(oss);
+		auto spd_logger = std::make_shared<spdlog::logger>("my_logger", ostream_sink);
+
+		logger graph_logger{"test-graph", log_level::trace, log_color_mode::never, spd_logger};
+		runtime::get_instance().get_task_manager().print_graph(graph_logger);
+		std::string graph_str = oss.str();
+
+		// we only want to compare the data payload not the log id.
+		graph_str = graph_str.substr(graph_str.find("data"));
+
+		int graph_str_length = graph_str.length();
+
+		if(global_rank == 1) {
+			MPI_Send(&graph_str_length, 1, MPI_INT, 0, 0, test_communicator);
+			MPI_Send(graph_str.c_str(), graph_str.length(), MPI_BYTE, 0, 0, test_communicator);
+		} else if(global_rank == 0) {
+			int rec_graph_str_length = 0;
+			MPI_Recv(&rec_graph_str_length, 1, MPI_INT, 1, 0, test_communicator, MPI_STATUS_IGNORE);
+			CHECK(rec_graph_str_length == graph_str_length);
+			std::string received_graph(rec_graph_str_length, 'X');
+			MPI_Recv(received_graph.data(), rec_graph_str_length, MPI_BYTE, 1, 0, test_communicator, MPI_STATUS_IGNORE);
+			CHECK(received_graph == graph_str);
+		}
+	}
+
 
 } // namespace detail
 } // namespace celerity

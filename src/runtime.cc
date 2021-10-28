@@ -107,8 +107,9 @@ namespace detail {
 			default: assert(false && "Unexpected buffer lifecycle event");
 			}
 		});
+
 		reduction_mngr = std::make_unique<reduction_manager>();
-		task_mngr = std::make_unique<task_manager>(num_nodes, h_queue.get(), is_master_node(), reduction_mngr.get());
+		task_mngr = std::make_unique<task_manager>(num_nodes, h_queue.get(), reduction_mngr.get());
 		exec = std::make_unique<executor>(local_nid, *h_queue, *d_queue, *task_mngr, *buffer_mngr, *reduction_mngr, default_logger);
 		if(is_master_node()) {
 			cdag = std::make_unique<command_graph>();
@@ -219,11 +220,9 @@ namespace detail {
 	}
 
 	void runtime::handle_buffer_registered(buffer_id bid) {
-		if(is_master_node()) {
-			const auto& info = buffer_mngr->get_buffer_info(bid);
-			task_mngr->add_buffer(bid, info.range, info.is_host_initialized);
-			ggen->add_buffer(bid, info.range);
-		}
+		const auto& info = buffer_mngr->get_buffer_info(bid);
+		task_mngr->add_buffer(bid, info.range, info.is_host_initialized);
+		if(is_master_node()) ggen->add_buffer(bid, info.range);
 	}
 
 	void runtime::handle_buffer_unregistered(buffer_id bid) {

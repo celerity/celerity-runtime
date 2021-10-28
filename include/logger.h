@@ -59,9 +59,9 @@ namespace detail {
 
 	class logger {
 	  public:
-		logger(const std::string& channel, log_level level = log_level::info, log_color_mode mode = log_color_mode::automatic) {
-			this->channel = channel;
-			spd_logger = spd::stderr_color_mt(channel, static_cast<spdlog::color_mode>(mode));
+		logger(const std::string& channel, log_level level = log_level::info, log_color_mode mode = log_color_mode::automatic,
+		    std::shared_ptr<spd::logger> spd_logger = nullptr)
+		    : channel(channel), spd_logger(spd_logger ? spd_logger : spd::stderr_color_mt(channel, static_cast<spdlog::color_mode>(mode))) {
 			set_level(level);
 		}
 

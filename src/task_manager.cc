@@ -7,9 +7,8 @@
 namespace celerity {
 namespace detail {
 
-	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, bool is_master_node, reduction_manager* reduction_mgr)
-	    : num_collective_nodes(num_collective_nodes), queue(queue), is_master_node(is_master_node), reduction_mngr(reduction_mgr),
-	      init_task_id(next_task_id++) {
+	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, reduction_manager* reduction_mgr)
+	    : num_collective_nodes(num_collective_nodes), queue(queue), reduction_mngr(reduction_mgr), init_task_id(next_task_id++) {
 		// We add a special init task for initializing buffers.
 		// This is useful so we can correctly generate anti-dependencies for tasks that read host initialized buffers.
 		task_map[init_task_id] = task::make_nop(init_task_id);
@@ -93,7 +92,7 @@ namespace detail {
 					// A valid use case (i.e., not reading garbage) for this is when the buffer has been initialized using a host pointer.
 					if(p.second == std::nullopt) continue;
 					const task_id last_writer = *p.second;
-					tsk->add_dependency({task_map[last_writer].get(), dependency_kind::TRUE_DEP});
+					add_dependency(tsk.get(), task_map[last_writer].get(), dependency_kind::TRUE_DEP);
 				}
 			}
 
@@ -122,7 +121,7 @@ namespace detail {
 						    get_requirements(dependent.node, bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
 						// Only add an anti-dependency if we are really writing over the region read by this task
 						if(!GridRegion<3>::intersect(write_requirements, dependent_read_requirements).empty()) {
-							tsk->add_dependency({dependent.node, dependency_kind::ANTI_DEP});
+							add_dependency(tsk.get(), dependent.node, dependency_kind::ANTI_DEP);
 							has_anti_dependents = true;
 						}
 					}
@@ -133,7 +132,7 @@ namespace detail {
 						// While it might not always make total sense to have anti-dependencies between (pure) producers without an
 						// intermediate consumer, we at least have a defined behavior, and the thus enforced ordering of tasks
 						// likely reflects what the user expects.
-						tsk->add_dependency({&last_writer, dependency_kind::ANTI_DEP});
+						add_dependency(tsk.get(), &last_writer, dependency_kind::ANTI_DEP);
 					}
 				}
 
@@ -143,19 +142,25 @@ namespace detail {
 
 		if(auto cgid = tsk->get_collective_group_id(); cgid != 0) {
 			if(auto prev = last_collective_tasks.find(cgid); prev != last_collective_tasks.end()) {
-				tsk->add_dependency({task_map.at(prev->second).get(), dependency_kind::ORDER_DEP});
+				add_dependency(tsk.get(), task_map.at(prev->second).get(), dependency_kind::ORDER_DEP);
 				last_collective_tasks.erase(prev);
 			}
 			last_collective_tasks.emplace(cgid, tid);
 		}
-
-		max_pseudo_critical_path_length = std::max(max_pseudo_critical_path_length, tsk->get_pseudo_critical_path_length());
 	}
 
 	void task_manager::invoke_callbacks(task_id tid) {
 		for(auto& cb : task_callbacks) {
 			cb(tid);
 		}
+	}
+
+	void task_manager::add_dependency(task* depender, task* dependee, dependency_kind kind) {
+		assert(depender != dependee);
+		assert(depender != nullptr && dependee != nullptr);
+		depender->add_dependency({dependee, kind});
+		execution_front.erase(dependee);
+		max_pseudo_critical_path_length = std::max(max_pseudo_critical_path_length, depender->get_pseudo_critical_path_length());
 	}
 
 } // namespace detail

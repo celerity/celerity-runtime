@@ -23,13 +23,8 @@ namespace detail {
 		using buffer_writers_map = std::unordered_map<buffer_id, region_map<std::optional<task_id>>>;
 
 	  public:
-		/**
-		 * The task_manager operates differently based on whether this is the master node or not.
-		 * In the first case, in addition to storing command groups within task objects, the task graph is additionally computed.
-		 *
-		 * TODO: This is a bit of a code smell. Maybe we should split simple task management and task graph generation into separate classes?
-		 */
-		task_manager(size_t num_collective_nodes, host_queue* queue, bool is_master_node, reduction_manager* reduction_mgr);
+		task_manager(size_t num_collective_nodes, host_queue* queue, reduction_manager* reduction_mgr);
+
 		virtual ~task_manager() = default;
 
 		template <typename CGF, typename... Hints>
@@ -44,7 +39,8 @@ namespace detail {
 				auto& task_ref = *task;
 				assert(task != nullptr);
 				task_map.emplace(tid, std::move(task));
-				if(is_master_node) { compute_dependencies(tid); }
+				execution_front.insert(&task_ref);
+				compute_dependencies(tid);
 				if(queue) queue->require_collective_group(task_ref.get_collective_group_id());
 			}
 			invoke_callbacks(tid);
@@ -91,11 +87,14 @@ namespace detail {
 
 		unsigned get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
 
+		const std::unordered_set<task*>& get_execution_front() { return execution_front; }
+
 	  private:
 		const size_t num_collective_nodes;
 		host_queue* queue;
-		const bool is_master_node;
+
 		reduction_manager* reduction_mngr;
+
 		task_id next_task_id = 0;
 		const task_id init_task_id;
 		std::unordered_map<task_id, std::unique_ptr<task>> task_map;
@@ -120,8 +119,10 @@ namespace detail {
 		// Set of tasks with no dependents
 		std::unordered_set<task*> execution_front;
 
+		void add_dependency(task* depender, task* dependee, dependency_kind kind = dependency_kind::TRUE_DEP);
+
 	  protected:
-		virtual void compute_dependencies(task_id tid);
+		void compute_dependencies(task_id tid);
 	};
 
 } // namespace detail

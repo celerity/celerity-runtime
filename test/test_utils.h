@@ -121,7 +121,7 @@ namespace test_utils {
 	  public:
 		cdag_test_context(size_t num_nodes) {
 			rm = std::make_unique<detail::reduction_manager>();
-			tm = std::make_unique<detail::task_manager>(1 /* num_nodes */, nullptr /* host_queue */, true /* is_master */, rm.get());
+			tm = std::make_unique<detail::task_manager>(1 /* num_nodes */, nullptr /* host_queue */, rm.get());
 			cdag = std::make_unique<detail::command_graph>();
 			ggen = std::make_unique<detail::graph_generator>(num_nodes, *tm, *rm, *cdag);
 			gsrlzr = std::make_unique<detail::graph_serializer>(*cdag, inspector.get_cb());

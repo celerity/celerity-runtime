@@ -35,7 +35,8 @@ namespace detail {
 
 	TEST_CASE("task_manager does not create multiple dependencies between the same tasks", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm{1, nullptr, true, nullptr};
+
+		task_manager tm{1, nullptr, nullptr};
 		test_utils::mock_buffer_factory mbf(&tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
 		auto buf_b = mbf.create_buffer(cl::sycl::range<1>(128));
@@ -116,7 +117,8 @@ namespace detail {
 
 	TEST_CASE("task_manager respects range mapper results for finding dependencies", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm{1, nullptr, true, nullptr};
+
+		task_manager tm{1, nullptr, nullptr};
 		test_utils::mock_buffer_factory mbf(&tm);
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
 
@@ -134,7 +136,7 @@ namespace detail {
 
 	TEST_CASE("task_manager correctly generates anti-dependencies", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm{1, nullptr, true, nullptr};
+		task_manager tm{1, nullptr, nullptr};
 		test_utils::mock_buffer_factory mbf(&tm);
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
 
@@ -163,7 +165,7 @@ namespace detail {
 
 	TEST_CASE("task_manager correctly handles host-initialized buffers", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm{1, nullptr, true, nullptr};
+		task_manager tm{1, nullptr, nullptr};
 		test_utils::mock_buffer_factory mbf(&tm);
 		auto host_init_buf = mbf.create_buffer(cl::sycl::range<1>(128), true);
 		auto non_host_init_buf = mbf.create_buffer(cl::sycl::range<1>(128), false);
@@ -210,7 +212,7 @@ namespace detail {
 		const std::vector<std::vector<mode>> rw_mode_sets = {{mode::discard_read_write}, {mode::read_write}, {mode::atomic}, {mode::discard_write, mode::read}};
 
 		for(const auto& mode_set : rw_mode_sets) {
-			task_manager tm{1, nullptr, true, nullptr};
+			task_manager tm{1, nullptr, nullptr};
 			test_utils::mock_buffer_factory mbf(&tm);
 			auto buf = mbf.create_buffer(cl::sycl::range<1>(128), true);
 
@@ -232,7 +234,7 @@ namespace detail {
 			for(const auto& producer_mode : detail::access::producer_modes) {
 				CAPTURE(consumer_mode);
 				CAPTURE(producer_mode);
-				task_manager tm{1, nullptr, true, nullptr};
+				task_manager tm{1, nullptr, nullptr};
 				test_utils::mock_buffer_factory mbf(&tm);
 				auto buf = mbf.create_buffer(cl::sycl::range<1>(128), false);
 
@@ -256,7 +258,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager generates pseudo-dependencies for collective host tasks", "[task_manager][task-graph]") {
-		task_manager tm{1, nullptr, true, nullptr};
+		task_manager tm{1, nullptr, nullptr};
 		experimental::collective_group group;
 		auto tid_master = test_utils::add_host_task(tm, on_master_node, [](handler&) {});
 		auto tid_collective_implicit_1 = test_utils::add_host_task(tm, experimental::collective, [](handler&) {});
@@ -290,28 +292,38 @@ namespace detail {
 		CHECK(has_dependency(tm, tid_collective_explicit_2, tid_collective_explicit_1, dependency_kind::ORDER_DEP));
 	}
 
-	TEST_CASE("task_manager keeps track of max pseudo critical path length", "[task_manager][task-graph]") {
+	void check_path_length_and_front(task_manager& tm, unsigned path_length, std::unordered_set<task_id> exec_front) {
+		SECTION("path length") { CHECK(tm.get_max_pseudo_critical_path_length() == path_length); }
+		SECTION("execution front") {
+			std::unordered_set<task*> task_exec_front;
+			std::transform(exec_front.cbegin(), exec_front.cend(), std::inserter(task_exec_front, task_exec_front.begin()),
+			    [&tm](task_id tid) { return const_cast<task*>(tm.get_task(tid)); });
+			CHECK(tm.get_execution_front() == task_exec_front);
+		}
+	}
+
+	TEST_CASE("task_manager keeps track of max pseudo critical path length and task front", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm{1, nullptr, true};
+		task_manager tm{1, nullptr, nullptr};
 		test_utils::mock_buffer_factory mbf(&tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
 
 		SECTION("with true dependencies") {
-			[[maybe_unused]] const auto tid_a = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+			const auto tid_a = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 				buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
 			});
-			[[maybe_unused]] const auto tid_b = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+			check_path_length_and_front(tm, 0, {tid_a});
+
+			const auto tid_b = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 				buf_a.get_access<mode::read_write>(cgh, fixed<1>({0, 128}));
 			});
-			CHECK(tm.get_max_pseudo_critical_path_length() == 1);
+			check_path_length_and_front(tm, 1, {tid_b});
 
-			[[maybe_unused]] const auto tid_c = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
-				buf_a.get_access<mode::read>(cgh, fixed<1>({0, 128}));
-			});
-			CHECK(tm.get_max_pseudo_critical_path_length() == 2);
+			const auto tid_c = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, fixed<1>({0, 128})); });
+			check_path_length_and_front(tm, 2, {tid_c});
 
-			[[maybe_unused]] const auto tid_d = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {});
-			CHECK(tm.get_max_pseudo_critical_path_length() == 2);
+			const auto tid_d = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {});
+			check_path_length_and_front(tm, 2, {tid_c, tid_d});
 
 			maybe_print_graph(tm);
 		}
