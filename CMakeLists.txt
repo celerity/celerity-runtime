@@ -308,8 +308,18 @@ install(FILES
   "${CMAKE_CURRENT_BINARY_DIR}/celerity-config.cmake"
   "${CMAKE_CURRENT_BINARY_DIR}/celerity-config-version.cmake"
   "${PROJECT_SOURCE_DIR}/cmake/AddToTarget.cmake"
-  "${PROJECT_SOURCE_DIR}/cmake/TestDPCXX.cmake"
-  "${PROJECT_SOURCE_DIR}/cmake/sycl_test.cpp"
   DESTINATION lib/cmake/Celerity
-  )
+)
 
+if(CELERITY_SYCL_IMPL STREQUAL ComputeCpp)
+  install(FILES
+    "${PROJECT_SOURCE_DIR}/cmake/FindComputeCpp.cmake"
+    DESTINATION lib/cmake/Celerity
+  )
+elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
+  install(FILES
+    "${PROJECT_SOURCE_DIR}/cmake/TestDPCXX.cmake"
+    "${PROJECT_SOURCE_DIR}/cmake/sycl_test.cpp"
+    DESTINATION lib/cmake/Celerity
+  )
+endif()
