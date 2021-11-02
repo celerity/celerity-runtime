@@ -1,3 +1,5 @@
+#include "task.h"
+#include "task_manager.h"
 #include "unit_test_suite_celerity.h"
 
 #include <catch2/catch.hpp>
@@ -329,6 +331,56 @@ namespace detail {
 		}
 	}
 
+	struct task_manager_testspy {
+		static task* get_previous_horizon_task(task_manager& tm) { return tm.previous_horizon_task; }
+		static int get_num_horizons(task_manager& tm) {
+			int horizon_counter = 0;
+			for(auto& [_, task_ptr] : tm.task_map) {
+				if(task_ptr->get_type() == task_type::HORIZON) { horizon_counter++; }
+			}
+			return horizon_counter;
+		}
+	};
+
+	TEST_CASE("task horizons are being generated", "[task_manager][task-graph][task-horizon]") {
+		task_manager tm{1, nullptr, nullptr};
+		tm.set_horizon_step(2);
+
+		using namespace cl::sycl::access;
+		test_utils::mock_buffer_factory mbf(&tm);
+		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
+
+		SECTION("with true dependencies") {
+			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 128})); });
+
+			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, fixed<1>({0, 128})); });
+
+			auto* previous_horizon = task_manager_testspy::get_previous_horizon_task(tm);
+			CHECK(previous_horizon == nullptr);
+
+			const auto tid_c = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, fixed<1>({0, 128})); });
+
+			previous_horizon = task_manager_testspy::get_previous_horizon_task(tm);
+			REQUIRE(previous_horizon != nullptr);
+			CHECK(previous_horizon->get_id() == tid_c + 1);
+			CHECK(task_manager_testspy::get_num_horizons(tm) == 1);
+
+			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {});
+			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {});
+			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {});
+			CHECK(task_manager_testspy::get_num_horizons(tm) == 1);
+
+			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, fixed<1>({0, 128})); });
+			const auto tid_d = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+				buf_a.get_access<mode::read_write>(cgh, fixed<1>({0, 128}));
+			});
+
+			previous_horizon = task_manager_testspy::get_previous_horizon_task(tm);
+			REQUIRE(previous_horizon != nullptr);
+			CHECK(previous_horizon->get_id() == tid_d + 1);
+			CHECK(task_manager_testspy::get_num_horizons(tm) == 2);
+		}
+	}
 
 } // namespace detail
 } // namespace celerity
