@@ -68,7 +68,6 @@ namespace detail {
 		std::unordered_multimap<buffer_id, std::unique_ptr<range_mapper_base>> map;
 	};
 
-	// TODO: It's not ideal that dependencies are only populated on the master node, but the interface exists on workers as well...
 	class task : public intrusive_graph_node<task> {
 	  public:
 		task_type get_type() const { return type; }
@@ -100,6 +99,7 @@ namespace detail {
 			case task_type::HOST_COMPUTE:
 			case task_type::COLLECTIVE:
 			case task_type::MASTER_NODE: return execution_target::HOST;
+			case task_type::HORIZON: return execution_target::NONE;
 			default: assert(!"Unhandled task type"); return execution_target::NONE;
 			}
 		}
@@ -132,6 +132,10 @@ namespace detail {
 
 		static std::unique_ptr<task> make_master_node(task_id tid, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map) {
 			return std::unique_ptr<task>(new task(tid, task_type::MASTER_NODE, {}, 0, {0, 0, 0}, {}, {1, 1, 1}, std::move(cgf), std::move(access_map), {}, {}));
+		}
+
+		static std::unique_ptr<task> make_horizon_task(task_id tid) {
+			return std::unique_ptr<task>(new task(tid, task_type::HORIZON, {}, 0, {0, 0, 0}, {}, nullptr, {}, {}, {}));
 		}
 
 	  private:

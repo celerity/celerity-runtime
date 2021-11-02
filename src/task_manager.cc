@@ -3,6 +3,7 @@
 #include "access_modes.h"
 #include "logger.h"
 #include "print_graph.h"
+#include "types.h"
 
 namespace celerity {
 namespace detail {
@@ -149,6 +150,16 @@ namespace detail {
 		}
 	}
 
+	task_id task_manager::get_new_tid() { return next_task_id++; }
+
+	task& task_manager::register_task_internal(std::unique_ptr<task> task) {
+		auto& task_ref = *task;
+		assert(task != nullptr);
+		task_map.emplace(task->get_id(), std::move(task));
+		execution_front.insert(&task_ref);
+		return task_ref;
+	}
+
 	void task_manager::invoke_callbacks(task_id tid) {
 		for(auto& cb : task_callbacks) {
 			cb(tid);
@@ -161,6 +172,42 @@ namespace detail {
 		depender->add_dependency({dependee, kind});
 		execution_front.erase(dependee);
 		max_pseudo_critical_path_length = std::max(max_pseudo_critical_path_length, depender->get_pseudo_critical_path_length());
+	}
+
+	bool task_manager::need_new_horizon() const { //
+		return max_pseudo_critical_path_length - previous_horizon_critical_path_length >= task_horizon_step_size;
+	}
+
+	void task_manager::generate_task_horizon() {
+		previous_horizon_critical_path_length = max_pseudo_critical_path_length;
+
+		// create horizon task
+		task_id tid = get_new_tid();
+		task* horizon_task_ptr = nullptr;
+		{
+			auto horizon_task = task::make_horizon_task(tid);
+			horizon_task_ptr = &register_task_internal(std::move(horizon_task));
+		}
+
+		// add dependencies from a copy of the front to this task
+		auto current_front = get_execution_front();
+		for(task* front_task : current_front) {
+			if(front_task != horizon_task_ptr) { add_dependency(horizon_task_ptr, front_task); }
+		}
+
+		// apply the previous horizon to buffers_last_writers data struct
+		if(previous_horizon_task != nullptr) {
+			for(auto [_, buffer_region_map] : buffers_last_writers) {
+				task_id prev_hid = previous_horizon_task->get_id();
+				buffer_region_map.apply_to_values([prev_hid](std::optional<task_id> tid) -> std::optional<task_id> {
+					if(!tid) return tid;
+					return {std::max(prev_hid, *tid)};
+				});
+			}
+			// buffers_last_writers
+		}
+		previous_horizon_task = horizon_task_ptr;
+		// add to active horizons
 	}
 
 } // namespace detail

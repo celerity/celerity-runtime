@@ -144,7 +144,7 @@ namespace detail {
 
 		const std::unordered_set<abstract_command*>& get_execution_front(node_id nid) const { return execution_fronts.at(nid); }
 
-		unsigned get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
+		int get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
 
 		std::vector<horizon_command*>& get_active_horizons() { return active_horizons; }
 
@@ -159,7 +159,7 @@ namespace detail {
 
 		// This only (potentially) grows when adding dependencies,
 		// it never shrinks and does not take into account later changes further up in the dependency chain
-		unsigned max_pseudo_critical_path_length = 0;
+		int max_pseudo_critical_path_length = 0;
 
 		// Active horizons (created but not flushed)
 		std::vector<horizon_command*> active_horizons;

@@ -119,7 +119,7 @@ namespace detail {
 		auto get_dependencies() const { return iterable_range{dependencies.cbegin(), dependencies.cend()}; }
 		auto get_dependents() const { return iterable_range{dependents.cbegin(), dependents.cend()}; }
 
-		unsigned get_pseudo_critical_path_length() const { return pseudo_critical_path_length; }
+		int get_pseudo_critical_path_length() const { return pseudo_critical_path_length; }
 
 	  private:
 		// TODO grep "list<" and think about each (here probably boost::small_vector)
@@ -129,7 +129,7 @@ namespace detail {
 		// This only (potentially) grows when adding dependencies,
 		// it never shrinks and does not take into account later changes further up in the dependency chain
 		// (that is all that is needed for celerity use).
-		unsigned pseudo_critical_path_length = 0;
+		int pseudo_critical_path_length = 0;
 
 		template <typename Dep>
 		std::optional<typename std::list<Dep>::iterator> maybe_get_dep(std::list<Dep>& deps, T* node) {
