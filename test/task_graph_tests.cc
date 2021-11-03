@@ -1,10 +1,13 @@
+#include "allscale/api/user/data/grid.h"
 #include "task.h"
 #include "task_manager.h"
+#include "types.h"
 #include "unit_test_suite_celerity.h"
 
 #include <catch2/catch.hpp>
 
 #include <celerity.h>
+#include <iterator>
 
 #include "test_utils.h"
 
@@ -340,9 +343,10 @@ namespace detail {
 			}
 			return horizon_counter;
 		}
+		static region_map<std::optional<task_id>> get_last_writer(task_manager& tm, const buffer_id bid) { return tm.buffers_last_writers.at(bid); }
 	};
 
-	TEST_CASE("task horizons are being generated", "[task_manager][task-graph][task-horizon]") {
+	TEST_CASE("task horizons are being generate with correct dependencies", "[task_manager][task-graph][task-horizon]") {
 		task_manager tm{1, nullptr, nullptr};
 		tm.set_horizon_step(2);
 
@@ -352,7 +356,6 @@ namespace detail {
 
 		SECTION("with true dependencies") {
 			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 128})); });
-
 			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, fixed<1>({0, 128})); });
 
 			auto* previous_horizon = task_manager_testspy::get_previous_horizon_task(tm);
@@ -365,21 +368,95 @@ namespace detail {
 			CHECK(previous_horizon->get_id() == tid_c + 1);
 			CHECK(task_manager_testspy::get_num_horizons(tm) == 1);
 
-			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {});
-			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {});
-			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {});
+			auto horizon_dependencies = previous_horizon->get_dependencies();
+
+			CHECK(std::distance(horizon_dependencies.begin(), horizon_dependencies.end()) == 1);
+			CHECK(horizon_dependencies.begin()->node->get_id() == tid_c);
+
+			std::set<task_id> expected_dependency_ids;
+
+			// previous horizon is always part of the active task front
+			expected_dependency_ids.insert(previous_horizon->get_id());
+			expected_dependency_ids.insert(test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {}));
+			expected_dependency_ids.insert(test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {}));
+			expected_dependency_ids.insert(test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {}));
 			CHECK(task_manager_testspy::get_num_horizons(tm) == 1);
 
 			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, fixed<1>({0, 128})); });
 			const auto tid_d = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 				buf_a.get_access<mode::read_write>(cgh, fixed<1>({0, 128}));
 			});
+			expected_dependency_ids.insert(tid_d);
 
 			previous_horizon = task_manager_testspy::get_previous_horizon_task(tm);
 			REQUIRE(previous_horizon != nullptr);
 			CHECK(previous_horizon->get_id() == tid_d + 1);
 			CHECK(task_manager_testspy::get_num_horizons(tm) == 2);
+
+			horizon_dependencies = previous_horizon->get_dependencies();
+			CHECK(std::distance(horizon_dependencies.begin(), horizon_dependencies.end()) == 5);
+
+			std::set<task_id> actual_dependecy_ids;
+			for(auto dep : horizon_dependencies) {
+				actual_dependecy_ids.insert(dep.node->get_id());
+			}
+			CHECK(expected_dependency_ids == actual_dependecy_ids);
 		}
+	}
+
+	static inline GridRegion<3> make_region(int min, int max) { return GridRegion<3>(GridPoint<3>(min, 0, 0), GridPoint<3>(max, 1, 1)); }
+
+	TEST_CASE("task horizons update previous writer data structure", "[task_manager][task-graph][task-horizon]") {
+		task_manager tm{1, nullptr, nullptr};
+		tm.set_horizon_step(2);
+
+		using namespace cl::sycl::access;
+		test_utils::mock_buffer_factory mbf(&tm);
+		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
+		auto buf_b = mbf.create_buffer(cl::sycl::range<1>(128));
+
+		task_id tid_1 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+			buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 64}));
+			buf_b.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
+		});
+		task_id tid_2 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, fixed<1>({64, 64})); });
+		task_id tid_3 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, fixed<1>({32, 64})); });
+		task_id tid_4 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, fixed<1>({32, 64})); });
+
+		auto* previous_horizon = task_manager_testspy::get_previous_horizon_task(tm);
+		CHECK(task_manager_testspy::get_num_horizons(tm) == 1);
+		CHECK(previous_horizon != nullptr);
+
+		task_id tid_6 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_b.get_access<mode::read_write>(cgh, fixed<1>({0, 128})); });
+		task_id tid_7 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_b.get_access<mode::read_write>(cgh, fixed<1>({0, 128})); });
+		task_id tid_8 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_b.get_access<mode::read_write>(cgh, fixed<1>({0, 128})); });
+
+		{
+			// here we check that previous tasks are still last writers before the first horizon is applied
+			auto region_map_a = task_manager_testspy::get_last_writer(tm, buf_a.get_id());
+			CHECK(region_map_a.get_region_values(make_region(0, 32)).front().second.value() == tid_1);
+			CHECK(region_map_a.get_region_values(make_region(96, 128)).front().second.value() == tid_2);
+			CHECK(region_map_a.get_region_values(make_region(32, 96)).front().second.value() == tid_4);
+		}
+
+		task_id tid_9 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_b.get_access<mode::read_write>(cgh, fixed<1>({0, 128})); });
+
+		{
+			// here we check that only the first horizon is the last writer of buff_a
+			auto region_map_a = task_manager_testspy::get_last_writer(tm, buf_a.get_id());
+			CHECK(region_map_a.get_region_values(make_region(0, 128)).front().second.value() == previous_horizon->get_id());
+		}
+
+		task_id tid_11 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, fixed<1>({64, 64})); });
+
+		{
+			// here we check that only the first horizon is the last writer of buff_a
+			auto region_map_a = task_manager_testspy::get_last_writer(tm, buf_a.get_id());
+			CHECK(region_map_a.get_region_values(make_region(0, 64)).front().second.value() == previous_horizon->get_id());
+			CHECK(region_map_a.get_region_values(make_region(64, 128)).front().second.value() == tid_11);
+		}
+
+		maybe_print_graph(tm);
 	}
 
 } // namespace detail

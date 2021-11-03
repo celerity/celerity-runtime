@@ -197,7 +197,7 @@ namespace detail {
 
 		// apply the previous horizon to buffers_last_writers data struct
 		if(previous_horizon_task != nullptr) {
-			for(auto [_, buffer_region_map] : buffers_last_writers) {
+			for(auto& [_, buffer_region_map] : buffers_last_writers) {
 				task_id prev_hid = previous_horizon_task->get_id();
 				buffer_region_map.apply_to_values([prev_hid](std::optional<task_id> tid) -> std::optional<task_id> {
 					if(!tid) return tid;
