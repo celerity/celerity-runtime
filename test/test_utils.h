@@ -6,12 +6,14 @@
 #include <catch2/catch.hpp>
 
 #include <celerity.h>
+#include <memory>
 
 #include "command.h"
 #include "command_graph.h"
 #include "graph_generator.h"
 #include "graph_serializer.h"
 #include "range_mapper.h"
+#include "scheduler.h"
 #include "task_manager.h"
 #include "transformers/naive_split.h"
 #include "types.h"
@@ -23,7 +25,22 @@
 #define UKN(name) _UKN_CONCAT(name, __COUNTER__)
 
 namespace celerity {
+namespace detail {
+
+	struct task_manager_testspy {
+		static task* get_previous_horizon_task(task_manager& tm) { return tm.previous_horizon_task; }
+		static int get_num_horizons(task_manager& tm) {
+			int horizon_counter = 0;
+			for(auto& [_, task_ptr] : tm.task_map) {
+				if(task_ptr->get_type() == task_type::HORIZON) { horizon_counter++; }
+			}
+			return horizon_counter;
+		}
+		static region_map<std::optional<task_id>> get_last_writer(task_manager& tm, const buffer_id bid) { return tm.buffers_last_writers.at(bid); }
+	};
+} // namespace detail
 namespace test_utils {
+
 
 	class mock_buffer_factory;
 
@@ -134,6 +151,17 @@ namespace test_utils {
 		cdag_inspector& get_inspector() { return inspector; }
 		detail::graph_serializer& get_graph_serializer() { return *gsrlzr; }
 
+		void build_task_horizons() {
+			auto most_recently_generated_task_horizon = detail::task_manager_testspy::get_previous_horizon_task(get_task_manager());
+			if(most_recently_generated_task_horizon != most_recently_built_task_horizon) {
+				most_recently_built_task_horizon = most_recently_generated_task_horizon;
+				if(most_recently_built_task_horizon != nullptr) {
+					auto htid = most_recently_built_task_horizon->get_id();
+					get_graph_generator().build_task(htid, {nullptr});
+				}
+			}
+		}
+
 	  private:
 		std::unique_ptr<detail::reduction_manager> rm;
 		std::unique_ptr<detail::task_manager> tm;
@@ -141,6 +169,7 @@ namespace test_utils {
 		std::unique_ptr<detail::graph_generator> ggen;
 		cdag_inspector inspector;
 		std::unique_ptr<detail::graph_serializer> gsrlzr;
+		detail::task* most_recently_built_task_horizon = nullptr;
 	};
 
 	class mock_buffer_factory {
@@ -192,6 +221,7 @@ namespace test_utils {
 		detail::naive_split_transformer transformer{num_chunks, num_nodes};
 		ctx.get_graph_generator().build_task(tid, {&transformer});
 		ctx.get_graph_serializer().flush(tid);
+		ctx.build_task_horizons();
 		ctx.get_graph_serializer().flush_horizons();
 		return tid;
 	}

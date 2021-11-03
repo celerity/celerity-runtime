@@ -208,6 +208,7 @@ namespace detail {
 		}
 		previous_horizon_task = horizon_task_ptr;
 		// add to active horizons
+		invoke_callbacks(tid);
 	}
 
 } // namespace detail

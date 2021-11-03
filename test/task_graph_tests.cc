@@ -334,18 +334,6 @@ namespace detail {
 		}
 	}
 
-	struct task_manager_testspy {
-		static task* get_previous_horizon_task(task_manager& tm) { return tm.previous_horizon_task; }
-		static int get_num_horizons(task_manager& tm) {
-			int horizon_counter = 0;
-			for(auto& [_, task_ptr] : tm.task_map) {
-				if(task_ptr->get_type() == task_type::HORIZON) { horizon_counter++; }
-			}
-			return horizon_counter;
-		}
-		static region_map<std::optional<task_id>> get_last_writer(task_manager& tm, const buffer_id bid) { return tm.buffers_last_writers.at(bid); }
-	};
-
 	TEST_CASE("task horizons are being generate with correct dependencies", "[task_manager][task-graph][task-horizon]") {
 		task_manager tm{1, nullptr, nullptr};
 		tm.set_horizon_step(2);
