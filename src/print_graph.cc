@@ -27,6 +27,7 @@ namespace detail {
 		case task_type::DEVICE_COMPUTE: return fmt::format("Task {} ({})", tsk->get_id(), tsk->get_debug_name());
 		case task_type::COLLECTIVE: return fmt::format("Task {} (collective #{})", tsk->get_id(), static_cast<size_t>(tsk->get_collective_group_id()));
 		case task_type::MASTER_NODE: return fmt::format("Task {} (master-node)", tsk->get_id());
+		case task_type::HORIZON: return fmt::format("Task {} (horizon)", tsk->get_id());
 		default: assert(false); return fmt::format("Task {} (unknown)", tsk->get_id());
 		}
 	}
