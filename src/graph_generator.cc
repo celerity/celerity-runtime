@@ -8,6 +8,7 @@
 #include "graph_transformer.h"
 #include "task.h"
 #include "task_manager.h"
+#include "types.h"
 
 namespace celerity {
 namespace detail {
@@ -41,6 +42,12 @@ namespace detail {
 		// TODO: Maybe assert that this task hasn't been processed before
 
 		auto tsk = task_mngr.get_task(tid);
+
+		if(tsk->get_type() == task_type::HORIZON) {
+			generate_horizon(tid);
+			return;
+		}
+
 		if(tsk->get_type() == task_type::COLLECTIVE) {
 			for(size_t nid = 0; nid < num_nodes; ++nid) {
 				auto offset = cl::sycl::id<1>{nid};
@@ -84,8 +91,6 @@ namespace detail {
 		// TODO: At some point we might want to do this also before calling transformers
 		// --> So that more advanced transformations can also take data transfers into account
 		process_task_data_requirements(tid);
-
-		if(should_generate_horizon()) { generate_horizon(); }
 	}
 
 	using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<3>>>;
@@ -466,17 +471,13 @@ namespace detail {
 		}
 	}
 
-
-	bool graph_generator::should_generate_horizon() const { return cdag.get_max_pseudo_critical_path_length() >= prev_horizon_cpath_max + horizon_step_size; }
-
-	void graph_generator::generate_horizon() {
-		prev_horizon_cpath_max = cdag.get_max_pseudo_critical_path_length();
+	void graph_generator::generate_horizon(task_id tid) {
 		detail::command_id lowest_prev_hid = 0;
 		for(node_id node = 0; node < num_nodes; ++node) {
 			// TODO this could be optimized to something like cdag.apply_horizon(node_id, horizon_cmd) with much fewer internal operations
 			auto previous_execution_front = cdag.get_execution_front(node);
 			// Build horizon command and make current front depend on it
-			auto horizon_cmd = cdag.create<horizon_command>(node);
+			auto horizon_cmd = cdag.create<horizon_command>(node, tid);
 			for(const auto& front_cmd : previous_execution_front) {
 				cdag.add_dependency(horizon_cmd, front_cmd);
 			}

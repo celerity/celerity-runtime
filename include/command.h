@@ -69,7 +69,13 @@ namespace detail {
 
 	class horizon_command final : public abstract_command {
 		friend class command_graph;
-		horizon_command(command_id cid, node_id nid) : abstract_command(cid, nid) {}
+		horizon_command(command_id cid, node_id nid, task_id tid) : abstract_command(cid, nid), tid(tid) {}
+
+	  public:
+		task_id get_horizon_tid() const { return tid; }
+
+	  private:
+		task_id tid;
 	};
 
 	class push_command final : public abstract_command {
@@ -140,7 +146,10 @@ namespace detail {
 
 	struct nop_data {};
 
-	struct horizon_data {};
+	struct horizon_data {
+		// this is the task_id of the horizon task that generated this command
+		task_id horizon_tid;
+	};
 
 	struct task_data {
 		task_id tid;
@@ -173,7 +182,7 @@ namespace detail {
 		uint64_t sync_id;
 	};
 
-	using command_data = std::variant<nop_data, task_data, push_data, await_push_data, reduction_data, shutdown_data, sync_data>;
+	using command_data = std::variant<nop_data, horizon_data, task_data, push_data, await_push_data, reduction_data, shutdown_data, sync_data>;
 
 	/**
 	 * A command package is what is actually transferred between nodes.

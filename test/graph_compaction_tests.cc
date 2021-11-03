@@ -100,7 +100,7 @@ namespace detail {
 		};
 
 		SECTION("with horizon step size 1") {
-			ctx.get_graph_generator().set_horizon_step_size(1);
+			ctx.get_task_manager().set_horizon_step(1);
 
 			SECTION("and a growing read pattern") { time_series_lambda(true); }
 			SECTION("and a latest-only read pattern") { time_series_lambda(false); }
@@ -119,7 +119,7 @@ namespace detail {
 		}
 
 		SECTION("with horizon step size 3") {
-			ctx.get_graph_generator().set_horizon_step_size(3);
+			ctx.get_task_manager().set_horizon_step(3);
 
 			SECTION("and a growing read pattern") { time_series_lambda(true); }
 			SECTION("and a latest-only read pattern") { time_series_lambda(false); }
@@ -151,7 +151,7 @@ namespace detail {
 		// For this test, we need to generate 2 horizons but still have the first one be relevant
 		// after the second is generated -> use 2 buffers A and B, with a longer task chan on A, and write to B later
 		// step size is set to ensure expected horizons
-		ctx.get_graph_generator().set_horizon_step_size(1);
+		ctx.get_task_manager().set_horizon_step(1);
 
 		auto& inspector = ctx.get_inspector();
 		test_utils::mock_buffer_factory mbf(ctx);
@@ -219,7 +219,8 @@ namespace detail {
 		// For this test, we need to generate a horizon that attaches only
 		// to an execution front of "push", without directly attaching to any computes
 		// as such our minimum possible horizon step for testing this is 2
-		ctx.get_graph_generator().set_horizon_step_size(2);
+
+		ctx.get_task_manager().set_horizon_step(2);
 
 		auto& inspector = ctx.get_inspector();
 		test_utils::mock_buffer_factory mbf(ctx);

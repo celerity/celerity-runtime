@@ -106,8 +106,9 @@ namespace detail {
 		} else if(const auto* rcmd = dynamic_cast<reduction_command*>(cmd)) {
 			pkg.cmd = command_type::REDUCTION;
 			pkg.data = reduction_data{rcmd->get_rid()};
-		} else if(dynamic_cast<horizon_command*>(cmd)) {
+		} else if(const auto* hcmd = dynamic_cast<horizon_command*>(cmd)) {
 			pkg.cmd = command_type::HORIZON;
+			pkg.data = horizon_data{hcmd->get_horizon_tid()};
 		} else {
 			assert(false && "Unknown command");
 		}
