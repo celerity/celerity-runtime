@@ -69,7 +69,7 @@ platform. Here are a couple of examples:
 <!--hipSYCL + Ninja -->
 
 ```
-cmake -G Ninja .. -DCMAKE_PREFIX_PATH="<path-to-hipsycl-install>/lib" -DHIPSYCL_PLATFORM=cuda -DHIPSYCL_GPU_ARCH=sm_52 -DCMAKE_INSTALL_PREFIX="<install-path>" -DCMAKE_BUILD_TYPE=Release
+cmake -G Ninja .. -DCMAKE_PREFIX_PATH="<path-to-hipsycl-install>/lib/cmake" -DHIPSYCL_PLATFORM=cuda -DHIPSYCL_GPU_ARCH=sm_52 -DCMAKE_INSTALL_PREFIX="<install-path>" -DCMAKE_BUILD_TYPE=Release
 ```
 
 <!--ComputeCpp + Unix Makefiles-->
