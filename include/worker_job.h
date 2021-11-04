@@ -60,10 +60,14 @@ namespace detail {
 
 	class horizon_job : public worker_job {
 	  public:
-		horizon_job(command_pkg pkg, std::shared_ptr<logger> job_logger) : worker_job(pkg, job_logger) { assert(pkg.cmd == command_type::HORIZON); }
+		horizon_job(command_pkg pkg, std::shared_ptr<logger> job_logger, task_manager& task_man) : worker_job(pkg, job_logger), task_man(task_man) {
+			assert(pkg.cmd == command_type::HORIZON);
+		}
 
 	  private:
-		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override { return true; };
+		task_manager& task_man;
+
+		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
 		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
 	};
 

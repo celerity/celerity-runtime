@@ -15,10 +15,7 @@
 namespace celerity {
 namespace detail {
 
-	using celerity::access::all;
 	using celerity::access::fixed;
-	using celerity::access::one_to_one;
-
 
 	bool has_dependency(const task_manager& tm, task_id dependent, task_id dependency, dependency_kind kind = dependency_kind::TRUE_DEP) {
 		for(auto dep : tm.get_task(dependent)->get_dependencies()) {
@@ -293,17 +290,17 @@ namespace detail {
 		CHECK(has_dependency(tm, tid_collective_explicit_2, tid_collective_explicit_1, dependency_kind::ORDER_DEP));
 	}
 
-	void check_path_length_and_front(task_manager& tm, unsigned path_length, std::unordered_set<task_id> exec_front) {
+	void check_path_length_and_front(task_manager& tm, int path_length, std::unordered_set<task_id> exec_front) {
 		{
 			INFO("path length");
-			CHECK(tm.get_max_pseudo_critical_path_length() == path_length);
+			CHECK(task_manager_testspy::get_max_pseudo_critical_path_length(tm) == path_length);
 		}
 		{
 			INFO("execution front");
 			std::unordered_set<task*> task_exec_front;
 			std::transform(exec_front.cbegin(), exec_front.cend(), std::inserter(task_exec_front, task_exec_front.begin()),
 			    [&tm](task_id tid) { return const_cast<task*>(tm.get_task(tid)); });
-			CHECK(tm.get_execution_front() == task_exec_front);
+			CHECK(task_manager_testspy::get_execution_front(tm) == task_exec_front);
 		}
 	}
 
@@ -420,7 +417,7 @@ namespace detail {
 		task_id tid_8 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_b.get_access<mode::read_write>(cgh, fixed<1>({0, 128})); });
 
 		{
-			// here we check that previous tasks are still last writers before the first horizon is applied
+			INFO("check that previous tasks are still last writers before the first horizon is applied");
 			auto region_map_a = task_manager_testspy::get_last_writer(tm, buf_a.get_id());
 			CHECK(region_map_a.get_region_values(make_region(0, 32)).front().second.value() == tid_1);
 			CHECK(region_map_a.get_region_values(make_region(96, 128)).front().second.value() == tid_2);
@@ -430,7 +427,7 @@ namespace detail {
 		task_id tid_9 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_b.get_access<mode::read_write>(cgh, fixed<1>({0, 128})); });
 
 		{
-			// here we check that only the first horizon is the last writer of buff_a
+			INFO("check that only the previous horizon is the last writer of buff_a");
 			auto region_map_a = task_manager_testspy::get_last_writer(tm, buf_a.get_id());
 			CHECK(region_map_a.get_region_values(make_region(0, 128)).front().second.value() == previous_horizon->get_id());
 		}
@@ -438,7 +435,7 @@ namespace detail {
 		task_id tid_11 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, fixed<1>({64, 64})); });
 
 		{
-			// here we check that only the first horizon is the last writer of buff_a
+			INFO("check that the previous horizon and task 11 are last writers of buff_a");
 			auto region_map_a = task_manager_testspy::get_last_writer(tm, buf_a.get_id());
 			CHECK(region_map_a.get_region_values(make_region(0, 64)).front().second.value() == previous_horizon->get_id());
 			CHECK(region_map_a.get_region_values(make_region(64, 128)).front().second.value() == tid_11);

@@ -1,3 +1,4 @@
+#include "sycl_wrappers.h"
 #include "unit_test_suite_celerity.h"
 
 #include <algorithm>
@@ -335,7 +336,7 @@ namespace detail {
 	TEST_CASE("task_manager invokes callback upon task creation", "[task_manager]") {
 		task_manager tm{1, nullptr, nullptr};
 		size_t call_counter = 0;
-		tm.register_task_callback([&call_counter](task_id) { call_counter++; });
+		tm.register_task_callback([&call_counter](task_id, task_type) { call_counter++; });
 		cl::sycl::range<2> gs = {1, 1};
 		cl::sycl::id<2> go = {};
 		tm.create_task([=](handler& cgh) { cgh.parallel_for<class kernel>(gs, go, [](auto) {}); });
@@ -2549,6 +2550,43 @@ namespace detail {
 	}
 
 #endif
+
+	// This test case requires actual command execution, which is why it is not in graph_compaction_tests
+	TEST_CASE("tasks behind the deletion horizon are deleted", "[task_manager][task-graph][task-horizon]") {
+		using namespace cl::sycl::access;
+
+		distr_queue q;
+		auto& tm = runtime::get_instance().get_task_manager();
+		tm.set_horizon_step(2);
+
+		constexpr int extents = 16;
+
+		buffer<int, 1> buf_a(extents);
+		q.submit([=](handler& cgh) {
+			accessor acc{buf_a, cgh, celerity::access::all{}, celerity::write_only_host_task, celerity::no_init};
+			cgh.host_task(on_master_node, [] {});
+		});
+
+		SECTION("in a simple linear chain of tasks") {
+			constexpr int chain_length = 1000;
+			constexpr int task_limit = 15;
+
+			for(int i = 0; i < chain_length; ++i) {
+				q.submit([=](handler& cgh) {
+					accessor acc{buf_a, cgh, celerity::access::all{}, celerity::read_write_host_task};
+					cgh.host_task(on_master_node, [] {});
+				});
+
+				// we need to wait in each iteration, so that tasks are still generated after some have already been executed
+				// (and after they therefore triggered their horizons)
+				q.slow_full_sync();
+			}
+
+			// need to wait for commands to actually be executed, otherwise no tasks are deleted
+			q.slow_full_sync();
+			CHECK(task_manager_testspy::num_tasks(tm) < task_limit);
+		}
+	}
 
 } // namespace detail
 } // namespace celerity

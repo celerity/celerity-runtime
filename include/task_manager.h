@@ -17,7 +17,7 @@ namespace detail {
 
 	class reduction_manager;
 	class logger;
-	using task_callback = std::function<void(task_id)>;
+	using task_callback = std::function<void(task_id, task_type)>;
 
 	class task_manager {
 		friend struct task_manager_testspy;
@@ -31,6 +31,7 @@ namespace detail {
 		template <typename CGF, typename... Hints>
 		task_id create_task(CGF cgf, Hints... hints) {
 			task_id tid;
+			task_type type;
 			{
 				std::lock_guard lock(task_mutex);
 				tid = get_new_tid();
@@ -39,12 +40,14 @@ namespace detail {
 				cgf(cgh);
 
 				task& task_ref = register_task_internal(std::move(cgh).into_task());
+				type = task_ref.get_type();
 
 				compute_dependencies(tid);
 				if(queue) queue->require_collective_group(task_ref.get_collective_group_id());
-				if(need_new_horizon()) { generate_task_horizon(); }
+				clean_up_pre_horizon_tasks();
 			}
-			invoke_callbacks(tid);
+			invoke_callbacks(tid, type);
+			if(need_new_horizon()) { generate_task_horizon(); }
 			return tid;
 		}
 
@@ -86,11 +89,12 @@ namespace detail {
 		 */
 		void shutdown() { task_map.clear(); }
 
-		unsigned get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
-
-		const std::unordered_set<task*>& get_execution_front() { return execution_front; }
-
 		void set_horizon_step(const int step) { task_horizon_step_size = step; }
+
+		/**
+		 * @brief Notifies the task manager that the given horizon has been executed (used for task deletion)
+		 */
+		void notify_horizon_executed(task_id tid);
 
 	  private:
 		const size_t num_collective_nodes;
@@ -123,6 +127,15 @@ namespace detail {
 
 		task* previous_horizon_task = nullptr;
 
+		// Queue of horizon tasks for which the associated commands were executed
+		std::queue<task_id> executed_horizons;
+		// marker task id for "nothing to delete" - we can safely use 0 here
+		static constexpr task_id nothing_to_delete = 0;
+		// task_id ready for deletion, 0 if nothing to delete (set on notify, used on new task creation)
+		std::atomic<task_id> horizon_task_id_for_deletion = nothing_to_delete;
+		// How many horizons to delay before deleting tasks
+		static constexpr int horizon_deletion_lag = 3;
+
 		// Set of tasks with no dependents
 		std::unordered_set<task*> execution_front;
 
@@ -130,13 +143,20 @@ namespace detail {
 
 		task& register_task_internal(std::unique_ptr<task> task);
 
-		void invoke_callbacks(task_id tid);
+		void invoke_callbacks(task_id tid, task_type type);
 
 		void add_dependency(task* depender, task* dependee, dependency_kind kind = dependency_kind::TRUE_DEP);
 
 		bool need_new_horizon() const;
 
+		int get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
+
+		const std::unordered_set<task*>& get_execution_front() { return execution_front; }
+
 		void generate_task_horizon();
+
+		// Needs to be called while task map accesses are safe (ie. mutex is locked)
+		void clean_up_pre_horizon_tasks();
 
 		void compute_dependencies(task_id tid);
 	};

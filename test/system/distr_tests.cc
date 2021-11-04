@@ -226,27 +226,29 @@ namespace detail {
 
 		const int N = 1000;
 
-		buffer<int, 1> buff_a(cl::sycl::range{1});
+		buffer<int, 1> buff_a(cl::sycl::range<1>{1});
 		q.submit([=](handler& cgh) {
 			accessor write_a{buff_a, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
-			cgh.parallel_for<class UKN(produce_a)>(cl::sycl::range{N}, [=](celerity::item<1> item) { write_a[item] = static_cast<int>(item.get_linear_id()); });
+			cgh.parallel_for<class UKN(produce_a)>(
+			    cl::sycl::range<1>{N}, [=](celerity::item<1> item) { write_a[item] = static_cast<int>(item.get_linear_id()); });
 		});
 
-		buffer<int, 1> buff_b(cl::sycl::range{1});
+		buffer<int, 1> buff_b(cl::sycl::range<1>{1});
 		q.submit([=](handler& cgh) {
 			accessor write_b{buff_b, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
-			cgh.parallel_for<class UKN(produce_b)>(cl::sycl::range{N}, [=](celerity::item<1> item) { write_b[item] = static_cast<int>(item.get_linear_id()); });
+			cgh.parallel_for<class UKN(produce_b)>(
+			    cl::sycl::range<1>{N}, [=](celerity::item<1> item) { write_b[item] = static_cast<int>(item.get_linear_id()); });
 		});
 
 		q.submit([=](handler& cgh) {
 			accessor read_write_a{buff_a, cgh, celerity::access::all{}, celerity::read_write};
-			cgh.parallel_for<class UKN(produce_c)>(cl::sycl::range{N}, [=](celerity::item<1> item) { read_write_a[item] += 1; });
+			cgh.parallel_for<class UKN(produce_c)>(cl::sycl::range<1>{N}, [=](celerity::item<1> item) { read_write_a[item] += 1; });
 		});
 
 		q.submit([=](handler& cgh) {
 			accessor read_write_a{buff_a, cgh, celerity::access::all{}, celerity::read_write};
 			accessor read_write_b{buff_b, cgh, celerity::access::all{}, celerity::read_write};
-			cgh.parallel_for<class UKN(produce_d)>(cl::sycl::range{N}, [=](celerity::item<1> item) {
+			cgh.parallel_for<class UKN(produce_d)>(cl::sycl::range<1>{N}, [=](celerity::item<1> item) {
 				read_write_a[item] += read_write_b[item] + 1;
 				read_write_b[item] = read_write_a[item];
 			});
@@ -254,7 +256,8 @@ namespace detail {
 
 		q.submit([=](handler& cgh) {
 			accessor write_a{buff_a, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
-			cgh.parallel_for<class UKN(produce_e)>(cl::sycl::range{N}, [=](celerity::item<1> item) { write_a[item] = static_cast<int>(item.get_linear_id()); });
+			cgh.parallel_for<class UKN(produce_e)>(
+			    cl::sycl::range<1>{N}, [=](celerity::item<1> item) { write_a[item] = static_cast<int>(item.get_linear_id()); });
 		});
 
 		q.slow_full_sync();
