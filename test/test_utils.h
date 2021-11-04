@@ -13,6 +13,7 @@
 #include "graph_generator.h"
 #include "graph_serializer.h"
 #include "range_mapper.h"
+#include "runtime.h"
 #include "scheduler.h"
 #include "task_manager.h"
 #include "transformers/naive_split.h"
@@ -25,10 +26,12 @@
 #define UKN(name) _UKN_CONCAT(name, __COUNTER__)
 
 namespace celerity {
+
 namespace detail {
 
 	struct task_manager_testspy {
 		static task* get_previous_horizon_task(task_manager& tm) { return tm.previous_horizon_task; }
+
 		static int get_num_horizons(task_manager& tm) {
 			int horizon_counter = 0;
 			for(auto& [_, task_ptr] : tm.task_map) {
@@ -36,9 +39,17 @@ namespace detail {
 			}
 			return horizon_counter;
 		}
+
 		static region_map<std::optional<task_id>> get_last_writer(task_manager& tm, const buffer_id bid) { return tm.buffers_last_writers.at(bid); }
+
+		static int num_tasks(task_manager& tm) { return tm.task_map.size(); }
+
+		static int get_max_pseudo_critical_path_length(task_manager& tm) { return tm.get_max_pseudo_critical_path_length(); }
+
+		static auto get_execution_front(task_manager& tm) { return tm.get_execution_front(); }
 	};
 } // namespace detail
+
 namespace test_utils {
 
 

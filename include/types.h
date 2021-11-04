@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdlib>
+#include <functional>
 #include <utility>
 
 namespace celerity {
@@ -16,16 +17,16 @@ namespace detail {
 	  public:
 		using underlying_t = T;
 
-		PhantomType() = default;
-		PhantomType(T const& value) : value(value) {}
-		PhantomType(T&& value) : value(std::move(value)) {}
+		constexpr PhantomType() = default;
+		constexpr PhantomType(T const& value) : value(value) {}
+		constexpr PhantomType(T&& value) : value(std::move(value)) {}
 
 		// Allow implicit conversion to underlying type, otherwise it becomes too annoying to use.
 		// Luckily compilers won't do more than one user-defined conversion, so something like
 		// PhantomType1<T> -> T -> PhantomType2<T>, can't happen. Therefore we still retain
 		// strong typesafety between phantom types with the same underlying type.
-		operator T&() { return value; }
-		operator const T&() const { return value; }
+		constexpr operator T&() { return value; }
+		constexpr operator const T&() const { return value; }
 
 	  private:
 		T value;
