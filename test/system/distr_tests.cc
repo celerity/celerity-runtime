@@ -170,7 +170,7 @@ namespace detail {
 
 		q.submit([=](handler& cgh) {
 			accessor g{geo, cgh, celerity::access::one_to_one{}, write_only, no_init};
-			cgh.parallel_for<kernel_name_nd_geometry<Dims>>(cl::sycl::nd_range{global_range, local_range}, /* global_offset,*/ [=](nd_item<Dims> item) {
+			cgh.parallel_for<kernel_name_nd_geometry<Dims>>(celerity::nd_range{global_range, local_range}, /* global_offset,*/ [=](nd_item<Dims> item) {
 				auto group = item.get_group();
 				g[item.get_global_id()] = geometry{//
 				    {item.get_group_linear_id(), range_cast<3>(item.get_group_range()), range_cast<3>(item.get_local_id()), item.get_local_linear_id(),

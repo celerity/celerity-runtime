@@ -1657,27 +1657,27 @@ namespace detail {
 
 		auto perfect_1d = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_nd_range_compute_task<class UKN(perfect_1d)>(
-		        tm, [&](handler& cgh) {}, cl::sycl::nd_range<1>{{256}, {32}}));
+		        tm, [&](handler& cgh) {}, celerity::nd_range<1>{{256}, {32}}));
 
 		auto perfect_2d = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_nd_range_compute_task<class UKN(perfect_2d)>(
-		        tm, [&](handler& cgh) {}, cl::sycl::nd_range<2>{{256, 19}, {32, 19}}));
+		        tm, [&](handler& cgh) {}, celerity::nd_range<2>{{256, 19}, {32, 19}}));
 
 		auto perfect_3d = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_nd_range_compute_task<class UKN(perfect_3d)>(
-		        tm, [&](handler& cgh) {}, cl::sycl::nd_range<3>{{256, 19, 31}, {32, 19, 31}}));
+		        tm, [&](handler& cgh) {}, celerity::nd_range<3>{{256, 19, 31}, {32, 19, 31}}));
 
 		auto rebalance_1d = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_nd_range_compute_task<class UKN(rebalance_1d)>(
-		        tm, [&](handler& cgh) {}, cl::sycl::nd_range<1>{{320}, {32}}));
+		        tm, [&](handler& cgh) {}, celerity::nd_range<1>{{320}, {32}}));
 
 		auto rebalance_2d = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_nd_range_compute_task<class UKN(rebalance_2d)>(
-		        tm, [&](handler& cgh) {}, cl::sycl::nd_range<2>{{320, 19}, {32, 19}}));
+		        tm, [&](handler& cgh) {}, celerity::nd_range<2>{{320, 19}, {32, 19}}));
 
 		auto rebalance_3d = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_nd_range_compute_task<class UKN(rebalance_3d)>(
-		        tm, [&](handler& cgh) {}, cl::sycl::nd_range<3>{{320, 19, 31}, {32, 19, 31}}));
+		        tm, [&](handler& cgh) {}, celerity::nd_range<3>{{320, 19, 31}, {32, 19, 31}}));
 
 		auto& inspector = ctx.get_inspector();
 		auto& cdag = ctx.get_command_graph();

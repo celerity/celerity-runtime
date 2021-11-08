@@ -2439,7 +2439,7 @@ namespace detail {
 		distr_queue q;
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(nd_range_1)>(cl::sycl::nd_range<1>{{256}, {64}}, [](nd_item<1> item) {
+			cgh.parallel_for<class UKN(nd_range_1)>(celerity::nd_range<1>{{256}, {64}}, [](nd_item<1> item) {
 				group_barrier(item.get_group());
 #if !WORKAROUND_COMPUTECPP // no group primitives
 				group_broadcast(item.get_group(), 42);
@@ -2448,7 +2448,7 @@ namespace detail {
 		}));
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(nd_range_2)>(cl::sycl::nd_range<2>{{64, 64}, {16, 16}}, [](nd_item<2> item) {
+			cgh.parallel_for<class UKN(nd_range_2)>(celerity::nd_range<2>{{64, 64}, {16, 16}}, [](nd_item<2> item) {
 				group_barrier(item.get_group());
 #if !WORKAROUND_COMPUTECPP // no group primitives
 				group_broadcast(item.get_group(), 42, 99);
@@ -2457,7 +2457,7 @@ namespace detail {
 		}));
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(nd_range_3)>(cl::sycl::nd_range<3>{{32, 32, 32}, {8, 8, 8}}, [](nd_item<3> item) {
+			cgh.parallel_for<class UKN(nd_range_3)>(celerity::nd_range<3>{{32, 32, 32}, {8, 8, 8}}, [](nd_item<3> item) {
 				group_barrier(item.get_group());
 #if !WORKAROUND_COMPUTECPP // no group primitives
 				group_broadcast(item.get_group(), 42, {2, 4, 6});
@@ -2466,25 +2466,13 @@ namespace detail {
 		}));
 	}
 
-	TEST_CASE("handler::parallel_for throws on nd_range with global_size indivisible by local_size", "[handler]") {
-		distr_queue q;
-
-		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(nd_range_1)>(cl::sycl::nd_range<1>{{256}, {19}}, [](nd_item<1> item) {});
-		}),
-		    "global_size is not divisible by local_size");
-
-		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(nd_range_2)>(cl::sycl::nd_range<2>{{256, 256}, {64, 63}}, [](nd_item<2> item) {});
-		}),
-		    "global_size is not divisible by local_size");
-
-		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(nd_range_3)>(cl::sycl::nd_range<3>{{256, 256, 256}, {2, 64, 9}}, [](nd_item<3> item) {});
-		}),
-		    "global_size is not divisible by local_size");
-
-		// We cannot test for the edge case of local_size containing zeroes, that triggers a SIGFPE (at least) with hipSYCL
+	TEST_CASE("nd_range throws on global_range indivisible by local_range", "[types]") {
+		CHECK_THROWS_WITH((celerity::nd_range<1>{{256}, {19}}), "global_range is not divisible by local_range");
+		CHECK_THROWS_WITH((celerity::nd_range<1>{{256}, {0}}), "global_range is not divisible by local_range");
+		CHECK_THROWS_WITH((celerity::nd_range<2>{{256, 256}, {64, 63}}), "global_range is not divisible by local_range");
+		CHECK_THROWS_WITH((celerity::nd_range<2>{{256, 256}, {64, 0}}), "global_range is not divisible by local_range");
+		CHECK_THROWS_WITH((celerity::nd_range<3>{{256, 256, 256}, {2, 64, 9}}), "global_range is not divisible by local_range");
+		CHECK_THROWS_WITH((celerity::nd_range<3>{{256, 256, 256}, {2, 1, 0}}), "global_range is not divisible by local_range");
 	}
 
 #if CELERITY_FEATURE_LOCAL_ACCESSOR
@@ -2495,7 +2483,7 @@ namespace detail {
 		q.submit([=](handler& cgh) {
 			local_accessor<int> la{32, cgh};
 			accessor ga{out, cgh, celerity::access::one_to_one{}, write_only};
-			cgh.parallel_for<class UKN(device_kernel)>(cl::sycl::nd_range<1>{64, 32}, [=](nd_item<1> item) {
+			cgh.parallel_for<class UKN(device_kernel)>(celerity::nd_range<1>{64, 32}, [=](nd_item<1> item) {
 				la[item.get_local_id()] = static_cast<int>(item.get_global_linear_id());
 				group_barrier(item.get_group());
 				ga[item.get_global_id()] = la[item.get_local_range(0) - 1 - item.get_local_id(0)];
@@ -2518,7 +2506,7 @@ namespace detail {
 	TEST_CASE("reductions can be passed into nd_range kernels", "[handler]") {
 		buffer<int, 1> b{cl::sycl::range<1>{1}};
 		distr_queue{}.submit([=](handler& cgh) {
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::nd_range{cl::sycl::range<2>{8, 8}, cl::sycl::range<2>{4, 4}}, reduction(b, cgh, cl::sycl::plus<>{}),
+			cgh.parallel_for<class UKN(kernel)>(celerity::nd_range{cl::sycl::range<2>{8, 8}, cl::sycl::range<2>{4, 4}}, reduction(b, cgh, cl::sycl::plus<>{}),
 			    [](nd_item<2> item, auto& sum) { sum += item.get_global_linear_id(); });
 		});
 	}

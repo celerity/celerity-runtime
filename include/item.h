@@ -239,7 +239,7 @@ class nd_item {
 
 	cl::sycl::id<Dims> get_offset() const { return global_offset; }
 
-	cl::sycl::nd_range<Dims> get_nd_range() const { return cl::sycl::nd_range<Dims>{global_range, sycl_item.get_local_range(), global_offset}; }
+	celerity::nd_range<Dims> get_nd_range() const { return celerity::nd_range<Dims>{global_range, sycl_item.get_local_range(), global_offset}; }
 
 	template <typename T>
 	cl::sycl::device_event async_work_group_copy(decorated_local_ptr<T> dest, decorated_global_ptr<T> src, size_t num_elements) const {
