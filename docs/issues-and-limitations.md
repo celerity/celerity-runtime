@@ -29,15 +29,6 @@ execution thread. The latter waits using
 been set, and then continues submitting Celerity tasks depending on the
 predicate.
 
-## Only Basic `parallel_for` Overload
-
-Due to various rather technical issues with the SYCL 1.2.1 standard, Celerity
-is currently unable to support the `nd_range` overload of `parallel_for`, as
-well as `parallel_for_work_group`. However, thanks to improvements made in
-SYCL 2020, Celerity will be able to support the former as soon as SYCL
-implementations catch up, giving users explicit control over work group
-sizes and access to local shared memory.
-
 ---
 
 If you encounter any additional issues, please [let us

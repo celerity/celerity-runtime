@@ -36,7 +36,7 @@ queue.submit([=](celerity::handler& cgh) {
   );
   cgh.parallel_for<class MyKernel>(
     sycl::range<1>(1024),                       // 2
-    [=](celerity::item<1> item) {                   // 3
+    [=](celerity::item<1> item) {               // 3
       acc[item] = sycl::sin(item[0] / 1024.f);  // 4
     });
 });
@@ -49,13 +49,10 @@ queue.submit([=](celerity::handler& cgh) {
    may be split across any number of nodes.
 
 3. Kernels can be expressed as C++11 lambda functions, just like in SYCL. In
-   fact, no changes to your existing kernels are required \*.
+   fact, no changes to your existing kernels are required.
 
 4. Access your buffers as if they reside on a single device -- even though
    they might be scattered throughout the cluster.
-
-\* There are currently some limitations to what types of kernels Celerity
-supports - see [Issues & Limitations](docs/issues-and-limitations.md).
 
 ### Run it like any other MPI application
 
