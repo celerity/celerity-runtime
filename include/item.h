@@ -178,6 +178,7 @@ class group {
 
   private:
 	// We capture SYCL `item` instead of `group` to provide celerity::group_barrier based on SYCL 1.2.1 nd_item.barrier()
+	// TODO consider capturing `group` once ComputeCpp resolves this issue (if that benefits us e.g. wrt. struct size)
 	cl::sycl::nd_item<Dims> sycl_item;
 	cl::sycl::id<Dims> group_id;
 	cl::sycl::range<Dims> group_range;
@@ -196,7 +197,7 @@ class group {
 };
 
 
-// We replace sycl::item with celerity::item to correctly expose the cluster global size instead of the chunk size to the user.
+// We replace sycl::nd_item with celerity::nd_item to correctly expose the cluster global size instead of the chunk size to the user.
 template <int Dims = 1>
 class nd_item {
   public:
@@ -310,7 +311,7 @@ void group_barrier(const group<Dims>& g, memory_scope scope = memory_scope_work_
 using cl::sycl::group_broadcast;
 
 template <int Dims, typename T>
-inline bool group_broadcast(const group<Dims>& g, T x) {
+inline T group_broadcast(const group<Dims>& g, T x) {
 	return cl::sycl::group_broadcast(detail::get_sycl_item(g).get_group(), x);
 }
 

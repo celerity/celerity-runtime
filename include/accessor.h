@@ -571,7 +571,14 @@ class local_accessor {
 	using const_reference = const DataT&;
 	using size_type = size_t;
 
-	local_accessor() = delete;
+	local_accessor()
+#if WORKAROUND_DPCPP
+	    : sycl_acc(allocation_size, detail::hack_make_invisible_null_reference<cl::sycl::handler>()),
+#else
+	    : sycl_acc(),
+#endif
+	      allocation_size(detail::zero_range) {
+	}
 
 #if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
 	local_accessor(const cl::sycl::range<Dims>& allocation_size, handler& cgh)
