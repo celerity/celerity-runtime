@@ -150,7 +150,9 @@ namespace detail {
 		    cl::sycl::range<3> granularity, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, std::vector<reduction_id> reductions,
 		    std::string debug_name)
 		    : tid(tid), type(type), cgid(cgid), dimensions(dimensions), global_size(global_size), global_offset(global_offset), granularity(granularity),
-		      cgf(std::move(cgf)), access_map(std::move(access_map)), reductions(std::move(reductions)), debug_name(std::move(debug_name)) {}
+		      cgf(std::move(cgf)), access_map(std::move(access_map)), reductions(std::move(reductions)), debug_name(std::move(debug_name)) {
+			assert(type == task_type::HOST_COMPUTE || type == task_type::DEVICE_COMPUTE || granularity.size() == 1);
+		}
 	};
 
 } // namespace detail

@@ -446,15 +446,10 @@ namespace detail {
 	template <typename Kernel, int Dims>
 	auto bind_nd_range_kernel(const Kernel& kernel, const cl::sycl::range<Dims>& global_range, const cl::sycl::id<Dims>& global_offset,
 	    const cl::sycl::id<Dims> chunk_offset, const cl::sycl::range<Dims>& group_range, const cl::sycl::id<Dims>& group_offset) {
-		return [=](auto s_item_or_id, auto&... reducers) {
-			if constexpr(std::is_invocable_v<Kernel, celerity::nd_item<Dims>, decltype(reducers)...>) {
-				// Explicit item constructor: ComputeCpp does not pass a sycl::item, but an implicitly convertible sycl::nd_item_base
-				auto sycl_item = cl::sycl::nd_item<Dims>{s_item_or_id};
-				invoke_kernel_with_celerity_nd_item(kernel, sycl_item, global_range, global_offset, chunk_offset, group_range, group_offset, reducers...);
-			} else {
-				static_assert(constexpr_false<decltype(reducers)...>,
-				    "Kernel function must be invocable with celerity::nd_item<Dims> or and as many reducer objects as reductions passed to parallel_for");
-			}
+		return [=](cl::sycl::nd_item<Dims> s_item, auto&... reducers) {
+			static_assert(std::is_invocable_v<Kernel, celerity::nd_item<Dims>, decltype(reducers)...>,
+			    "Kernel function must be invocable with celerity::nd_item<Dims> or and as many reducer objects as reductions passed to parallel_for");
+			invoke_kernel_with_celerity_nd_item(kernel, s_item, global_range, global_offset, chunk_offset, group_range, group_offset, reducers...);
 		};
 	}
 
@@ -574,7 +569,9 @@ void handler::parallel_for_kernel_and_reductions(cl::sycl::range<Dims> global_ra
 		cl::sycl::range<3> granularity = {1, 1, 1};
 		if constexpr(detail::kernel_flavor_traits<KernelFlavor, Dims>::has_local_size) {
 			for(int d = 0; d < Dims; ++d) {
-				if(local_range[d] == 0 || global_range[d] % local_range[d] != 0) { throw std::invalid_argument("global_size is not divisible by local_size"); }
+				if(local_range[d] == 0 || global_range[d] % local_range[d] != 0) {
+					throw std::invalid_argument("global_range is not divisible by local_range");
+				}
 				granularity[d] = local_range[d];
 			}
 		}
