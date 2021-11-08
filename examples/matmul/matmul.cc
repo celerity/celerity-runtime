@@ -26,7 +26,7 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 		celerity::local_accessor<T, 2> scratch_a{{GROUP_SIZE, GROUP_SIZE}, cgh};
 		celerity::local_accessor<T, 2> scratch_b{{GROUP_SIZE, GROUP_SIZE}, cgh};
 
-		cgh.parallel_for<class mat_mul>(cl::sycl::nd_range<2>{{MAT_SIZE, MAT_SIZE}, {GROUP_SIZE, GROUP_SIZE}}, [=](celerity::nd_item<2> item) {
+		cgh.parallel_for<class mat_mul>(celerity::nd_range<2>{{MAT_SIZE, MAT_SIZE}, {GROUP_SIZE, GROUP_SIZE}}, [=](celerity::nd_item<2> item) {
 			T sum{};
 			const auto lid = item.get_local_id();
 			for(size_t j = 0; j < MAT_SIZE; j += GROUP_SIZE) {

@@ -51,18 +51,6 @@ namespace detail {
 		return name.substr(0, name.length() - 1);
 	}
 
-	template <int Dims>
-	cl::sycl::id<Dims> get_deprecated_nd_range_offset(const cl::sycl::nd_range<Dims>& nd_range) {
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
-		return nd_range.get_offset();
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
-	}
-
 	struct simple_kernel_flavor {};
 	struct nd_range_kernel_flavor {};
 	struct no_local_size {};
@@ -175,21 +163,11 @@ class handler {
 	}
 
 	template <typename Name, int Dims, typename... ReductionsAndKernel>
-	void parallel_for(cl::sycl::nd_range<Dims> execution_range, ReductionsAndKernel... reductions_and_kernel) {
+	void parallel_for(celerity::nd_range<Dims> execution_range, ReductionsAndKernel... reductions_and_kernel) {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
 		parallel_for_reductions_and_kernel<detail::nd_range_kernel_flavor, Name, Dims, ReductionsAndKernel...>(execution_range.get_global_range(),
-		    detail::get_deprecated_nd_range_offset(execution_range), execution_range.get_local_range(),
-		    std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
-	}
-
-	template <typename Name, int Dims, typename... ReductionsAndKernel>
-	void parallel_for(cl::sycl::nd_range<Dims> execution_range, cl::sycl::id<Dims> global_offset, ReductionsAndKernel... reductions_and_kernel) {
-		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
-		if(auto offset = detail::get_deprecated_nd_range_offset(execution_range); offset != cl::sycl::id<Dims>{} && offset != global_offset) {
-			throw std::invalid_argument("Conflicting offsets specified through execution_range and global_offset in parallel_for(nd_range)");
-		}
-		parallel_for_reductions_and_kernel<detail::nd_range_kernel_flavor, Name, Dims, ReductionsAndKernel...>(execution_range.get_global_range(),
-		    global_offset, execution_range.get_local_range(), std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
+		    execution_range.get_offset(), execution_range.get_local_range(), std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{},
+		    reductions_and_kernel...);
 	}
 
 	/**
@@ -569,9 +547,6 @@ void handler::parallel_for_kernel_and_reductions(cl::sycl::range<Dims> global_ra
 		cl::sycl::range<3> granularity = {1, 1, 1};
 		if constexpr(detail::kernel_flavor_traits<KernelFlavor, Dims>::has_local_size) {
 			for(int d = 0; d < Dims; ++d) {
-				if(local_range[d] == 0 || global_range[d] % local_range[d] != 0) {
-					throw std::invalid_argument("global_range is not divisible by local_range");
-				}
 				granularity[d] = local_range[d];
 			}
 		}
