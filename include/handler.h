@@ -329,10 +329,8 @@ namespace detail {
 		task_id tid;
 		std::unique_ptr<command_group_storage_base> cgf;
 		buffer_access_map access_map;
-
 		std::vector<reduction_id> reductions;
 		std::unique_ptr<class task> task = nullptr;
-
 		size_t num_collective_nodes;
 	};
 

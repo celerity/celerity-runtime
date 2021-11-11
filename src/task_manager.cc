@@ -3,8 +3,6 @@
 #include "access_modes.h"
 #include "logger.h"
 #include "print_graph.h"
-#include "task.h"
-#include "types.h"
 
 namespace celerity {
 namespace detail {
@@ -161,8 +159,6 @@ namespace detail {
 		}
 	}
 
-	task_id task_manager::get_new_tid() { return next_task_id++; }
-
 	task& task_manager::register_task_internal(std::unique_ptr<task> task) {
 		auto& task_ref = *task;
 		assert(task != nullptr);
@@ -183,10 +179,6 @@ namespace detail {
 		depender->add_dependency({dependee, kind});
 		execution_front.erase(dependee);
 		max_pseudo_critical_path_length = std::max(max_pseudo_critical_path_length, depender->get_pseudo_critical_path_length());
-	}
-
-	bool task_manager::need_new_horizon() const { //
-		return max_pseudo_critical_path_length - previous_horizon_critical_path_length >= task_horizon_step_size;
 	}
 
 	void task_manager::generate_task_horizon() {

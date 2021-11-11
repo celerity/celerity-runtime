@@ -57,7 +57,7 @@ namespace detail {
 
 	bool horizon_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 		const auto data = std::get<horizon_data>(pkg.data);
-		task_man.notify_horizon_executed(data.horizon_tid);
+		task_mngr.notify_horizon_executed(data.horizon_tid);
 		return true;
 	};
 

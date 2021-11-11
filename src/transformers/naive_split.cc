@@ -56,8 +56,8 @@ namespace detail {
 		assert(num_chunks >= num_workers);
 	}
 
-	void naive_split_transformer::transform_task(const task* tsk, command_graph& cdag) {
-		if(!tsk->has_variable_split()) return;
+	void naive_split_transformer::transform_task(const task& tsk, command_graph& cdag) {
+		if(!tsk.has_variable_split()) return;
 
 		// Assign each chunk to a node
 		std::vector<node_id> nodes(num_chunks);
@@ -68,7 +68,7 @@ namespace detail {
 			nodes[i] = (i / chunks_per_node) % num_workers;
 		}
 
-		auto& task_commands = cdag.task_commands(tsk->get_id());
+		auto& task_commands = cdag.task_commands(tsk.get_id());
 		assert(task_commands.size() == 1);
 
 		const auto original = static_cast<task_command*>(task_commands[0]);
@@ -77,10 +77,10 @@ namespace detail {
 		assert(std::distance(original->get_dependencies().begin(), original->get_dependencies().end()) == 0);
 		assert(std::distance(original->get_dependents().begin(), original->get_dependents().end()) == 0);
 
-		chunk<3> full_chunk{tsk->get_global_offset(), tsk->get_global_size(), tsk->get_global_size()};
-		auto chunks = split_equal(full_chunk, tsk->get_granularity(), num_chunks, tsk->get_dimensions());
+		chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
+		auto chunks = split_equal(full_chunk, tsk.get_granularity(), num_chunks, tsk.get_dimensions());
 		for(size_t i = 0; i < chunks.size(); ++i) {
-			cdag.create<task_command>(nodes[i], tsk->get_id(), subrange{chunks[i]});
+			cdag.create<task_command>(nodes[i], tsk.get_id(), subrange{chunks[i]});
 		}
 
 		// Remove original

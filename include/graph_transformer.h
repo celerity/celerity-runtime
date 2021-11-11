@@ -11,7 +11,7 @@ namespace detail {
 
 	class graph_transformer {
 	  public:
-		virtual void transform_task(const task* tsk, command_graph& cdag) = 0;
+		virtual void transform_task(const task& tsk, command_graph& cdag) = 0;
 
 		virtual ~graph_transformer() = default;
 	};
