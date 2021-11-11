@@ -15,7 +15,7 @@ namespace detail {
 		 */
 		naive_split_transformer(size_t num_chunks, size_t num_workers);
 
-		void transform_task(const task* tsk, command_graph& cdag) override;
+		void transform_task(const task& tsk, command_graph& cdag) override;
 
 	  private:
 		const size_t num_chunks;

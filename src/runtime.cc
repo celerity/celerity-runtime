@@ -1,5 +1,4 @@
 #include "runtime.h"
-#include "task.h"
 
 #include <queue>
 #include <sstream>
@@ -233,9 +232,9 @@ namespace detail {
 	}
 
 	void runtime::handle_buffer_unregistered(buffer_id bid) {
-		// If the runtime is still active, and at least one task has been submitted, report an error.
+		// If the runtime is still active, and at least one task (other than the init task) has been submitted, report an error.
 		// TODO: This is overly restrictive. Can we instead check whether any tasks that require this particular buffer are still pending?
-		if(is_active && task_mngr->has_task(task_mngr->get_init_task_id() + 1)) {
+		if(is_active && task_mngr->get_current_task_count() > 1) {
 			// We cannot throw here, as this is being called from buffer destructors.
 			default_logger->error(
 			    "The Celerity runtime detected that a buffer is going out of scope before all tasks have been completed. This is not allowed.");

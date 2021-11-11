@@ -135,7 +135,7 @@ namespace detail {
 		}
 
 		static std::unique_ptr<task> make_horizon_task(task_id tid) {
-			return std::unique_ptr<task>(new task(tid, task_type::HORIZON, {}, 0, {0, 0, 0}, {}, nullptr, {}, {}, {}));
+			return std::unique_ptr<task>(new task(tid, task_type::HORIZON, {}, 0, {0, 0, 0}, {}, {1, 1, 1}, nullptr, {}, {}, {}));
 		}
 
 	  private:

@@ -89,12 +89,17 @@ namespace detail {
 		 */
 		void shutdown() { task_map.clear(); }
 
-		void set_horizon_step(const int step) { task_horizon_step_size = step; }
+		void set_horizon_step(const int step) {
+			assert(step >= 0);
+			task_horizon_step_size = step;
+		}
 
 		/**
 		 * @brief Notifies the task manager that the given horizon has been executed (used for task deletion)
 		 */
 		void notify_horizon_executed(task_id tid);
+
+		task_id get_current_task_count() const { return next_task_id; }
 
 	  private:
 		const size_t num_collective_nodes;
@@ -139,7 +144,7 @@ namespace detail {
 		// Set of tasks with no dependents
 		std::unordered_set<task*> execution_front;
 
-		task_id get_new_tid();
+		inline task_id get_new_tid() { return next_task_id++; }
 
 		task& register_task_internal(std::unique_ptr<task> task);
 
@@ -147,7 +152,7 @@ namespace detail {
 
 		void add_dependency(task* depender, task* dependee, dependency_kind kind = dependency_kind::TRUE_DEP);
 
-		bool need_new_horizon() const;
+		inline bool need_new_horizon() const { return max_pseudo_critical_path_length - previous_horizon_critical_path_length >= task_horizon_step_size; }
 
 		int get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
 

@@ -8,7 +8,6 @@
 #include "graph_transformer.h"
 #include "task.h"
 #include "task_manager.h"
-#include "types.h"
 
 namespace celerity {
 namespace detail {
@@ -70,7 +69,7 @@ namespace detail {
 		}
 
 		for(auto& t : transformers) {
-			t->transform_task(tsk, cdag);
+			t->transform_task(*tsk, cdag);
 		}
 
 #ifndef NDEBUG
