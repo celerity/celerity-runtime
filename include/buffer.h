@@ -13,7 +13,7 @@
 
 namespace celerity {
 
-template <typename DataT, int Dims>
+template <typename DataT, int Dims = 1>
 class buffer;
 
 namespace detail {

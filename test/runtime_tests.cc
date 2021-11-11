@@ -641,7 +641,7 @@ namespace detail {
 				dq->get_sycl_queue()
 				    .submit([&](cl::sycl::handler& cgh) {
 					    auto acc = info.buffer.template get_access<Mode>(cgh);
-					    cgh.parallel_for<KernelName>(range, offset, [=](cl::sycl::id<Dims> global_idx) {
+					    cgh.parallel_for<bind_kernel_name<KernelName>>(range, offset, [=](cl::sycl::id<Dims> global_idx) {
 						    const auto local_idx = global_idx - buf_offset;
 						    cb(global_idx, acc[local_idx]);
 					    });
@@ -680,7 +680,7 @@ namespace detail {
 			    .submit([&](cl::sycl::handler& cgh) {
 				    auto acc = info.buffer.template get_access<cl::sycl::access::mode::read>(cgh);
 				    auto result_acc = result_buf.template get_access<cl::sycl::access::mode::read_write>(cgh);
-				    cgh.single_task<KernelName>([=]() {
+				    cgh.single_task<bind_kernel_name<KernelName>>([=]() {
 					    result_acc[0] = init;
 					    for(size_t i = offset3[0]; i < offset3[0] + range3[0]; ++i) {
 						    for(size_t j = offset3[1]; j < offset3[1] + range3[1]; ++j) {
@@ -1127,7 +1127,7 @@ namespace detail {
 			dq.get_sycl_queue()
 			    .submit([&](cl::sycl::handler& cgh) {
 				    auto acc = device_buf->get_access<cl::sycl::access::mode::discard_write>(cgh);
-				    cgh.parallel_for<class UKN(overwrite_buf)>(cl::sycl::range<1>(32), [=](cl::sycl::item<1> item) { acc[item] = 33; });
+				    cgh.parallel_for<bind_kernel_name<class UKN(overwrite_buf)>>(cl::sycl::range<1>(32), [=](cl::sycl::item<1> item) { acc[item] = 33; });
 			    })
 			    .wait();
 
@@ -1151,7 +1151,7 @@ namespace detail {
 			dq.get_sycl_queue()
 			    .submit([&](cl::sycl::handler& cgh) {
 				    auto acc = device_buf->get_access<cl::sycl::access::mode::discard_write>(cgh);
-				    cgh.parallel_for<class UKN(overwrite_buf)>(cl::sycl::range<1>(32), [=](cl::sycl::item<1> item) { acc[item] = 34; });
+				    cgh.parallel_for<bind_kernel_name<class UKN(overwrite_buf)>>(cl::sycl::range<1>(32), [=](cl::sycl::item<1> item) { acc[item] = 34; });
 			    })
 			    .wait();
 
@@ -2509,6 +2509,43 @@ namespace detail {
 			cgh.parallel_for<class UKN(kernel)>(celerity::nd_range{cl::sycl::range<2>{8, 8}, cl::sycl::range<2>{4, 4}}, reduction(b, cgh, cl::sycl::plus<>{}),
 			    [](nd_item<2> item, auto& sum) { sum += item.get_global_linear_id(); });
 		});
+	}
+
+#endif
+
+#if !WORKAROUND_COMPUTECPP // CCPP does not support unnamed kernels yet
+
+	TEST_CASE("handler::parallel_for kernel names are optional", "[handler]") {
+		distr_queue q;
+
+		// without name
+		q.submit([](handler& cgh) { cgh.parallel_for(cl::sycl::range<1>{64}, [](item<1> item) {}); });
+		q.submit([=](handler& cgh) { cgh.parallel_for(celerity::nd_range<1>{64, 32}, [](nd_item<1> item) {}); });
+#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
+		buffer<int> b{{1}};
+		q.submit([=](handler& cgh) {
+			cgh.parallel_for(
+			    cl::sycl::range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
+		});
+		q.submit([=](handler& cgh) {
+			cgh.parallel_for(celerity::nd_range<1>{64, 32}, reduction(b, cgh, cl::sycl::plus<int>{}),
+			    [=](nd_item<1> item, auto& r) { r += static_cast<int>(item.get_global_linear_id()); });
+		});
+#endif
+
+		// with name
+		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(simple_kernel_with_name)>(cl::sycl::range<1>{64}, [=](item<1> item) {}); });
+		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(nd_range_kernel_with_name)>(celerity::nd_range<1>{64, 32}, [=](nd_item<1> item) {}); });
+#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
+		q.submit([=](handler& cgh) {
+			cgh.parallel_for<class UKN(simple_kernel_with_name_and_reductions)>(
+			    cl::sycl::range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
+		});
+		q.submit([=](handler& cgh) {
+			cgh.parallel_for<class UKN(nd_range_kernel_with_name_and_reductions)>(celerity::nd_range<1>{64, 32}, reduction(b, cgh, cl::sycl::plus<int>{}),
+			    [=](nd_item<1> item, auto& r) { r += static_cast<int>(item.get_global_linear_id()); });
+		});
+#endif
 	}
 
 #endif
