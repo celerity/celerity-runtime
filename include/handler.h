@@ -51,12 +51,36 @@ namespace detail {
 		return name.substr(0, name.length() - 1);
 	}
 
+	struct unnamed_kernel {};
+
+	template <typename KernelName>
+	constexpr bool is_unnamed_kernel = std::is_same_v<KernelName, unnamed_kernel>;
+
+#if WORKAROUND_COMPUTECPP
+	template <typename KernelName>
+	struct kernel_name_wrapper;
+#endif
+
+	template <typename KernelName>
+	struct bound_kernel_name {
+		static_assert(!is_unnamed_kernel<KernelName>);
+#if WORKAROUND_COMPUTECPP
+		using type = kernel_name_wrapper<KernelName>; // Suppress -Rsycl-kernel-naming diagnostic for local types
+#else
+		using type = KernelName;
+#endif
+	};
+
+	template <typename KernelName>
+	using bind_kernel_name = typename bound_kernel_name<KernelName>::type;
+
 	struct simple_kernel_flavor {};
 	struct nd_range_kernel_flavor {};
-	struct no_local_size {};
 
 	template <typename Flavor, int Dims>
 	struct kernel_flavor_traits;
+
+	struct no_local_size {};
 
 	template <int Dims>
 	struct kernel_flavor_traits<simple_kernel_flavor, Dims> {
@@ -148,24 +172,24 @@ class handler {
   public:
 	virtual ~handler() = default;
 
-	template <typename Name, int Dims, typename... ReductionsAndKernel>
+	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
 	void parallel_for(cl::sycl::range<Dims> global_range, ReductionsAndKernel... reductions_and_kernel) {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
-		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, Name, Dims, ReductionsAndKernel...>(global_range, cl::sycl::id<Dims>(),
+		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(global_range, cl::sycl::id<Dims>(),
 		    detail::no_local_size{}, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
 	}
 
-	template <typename Name, int Dims, typename... ReductionsAndKernel>
+	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
 	void parallel_for(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, ReductionsAndKernel... reductions_and_kernel) {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
-		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, Name, Dims, ReductionsAndKernel...>(
+		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(
 		    global_range, global_offset, detail::no_local_size{}, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
 	}
 
-	template <typename Name, int Dims, typename... ReductionsAndKernel>
+	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
 	void parallel_for(celerity::nd_range<Dims> execution_range, ReductionsAndKernel... reductions_and_kernel) {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
-		parallel_for_reductions_and_kernel<detail::nd_range_kernel_flavor, Name, Dims, ReductionsAndKernel...>(execution_range.get_global_range(),
+		parallel_for_reductions_and_kernel<detail::nd_range_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(execution_range.get_global_range(),
 		    execution_range.get_offset(), execution_range.get_local_range(), std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{},
 		    reductions_and_kernel...);
 	}
@@ -233,16 +257,17 @@ class handler {
 	virtual const detail::task& get_task() const = 0;
 
   private:
-	template <typename KernelFlavor, typename Name, int Dims, typename... ReductionsAndKernel, size_t... ReductionIndices>
+	template <typename KernelFlavor, typename KernelName, int Dims, typename... ReductionsAndKernel, size_t... ReductionIndices>
 	void parallel_for_reductions_and_kernel(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset,
 	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_size, std::index_sequence<ReductionIndices...> indices,
 	    ReductionsAndKernel&... kernel_and_reductions) {
 		auto args_tuple = std::forward_as_tuple(kernel_and_reductions...);
 		auto& kernel = std::get<sizeof...(kernel_and_reductions) - 1>(args_tuple);
-		parallel_for_kernel_and_reductions<KernelFlavor, Name>(global_range, global_offset, local_size, kernel, std::get<ReductionIndices>(args_tuple)...);
+		parallel_for_kernel_and_reductions<KernelFlavor, KernelName>(
+		    global_range, global_offset, local_size, kernel, std::get<ReductionIndices>(args_tuple)...);
 	}
 
-	template <typename KernelFlavor, typename Name, int Dims, typename Kernel, typename... Reductions>
+	template <typename KernelFlavor, typename KernelName, int Dims, typename Kernel, typename... Reductions>
 	void parallel_for_kernel_and_reductions(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset,
 	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel& kernel, Reductions&... reductions);
 };
@@ -430,6 +455,19 @@ namespace detail {
 		};
 	}
 
+	template <typename KernelName, typename... Params>
+	inline void invoke_sycl_parallel_for(cl::sycl::handler& cgh, Params&&... args) {
+		static_assert(!WORKAROUND_COMPUTECPP || !is_unnamed_kernel<KernelName>,
+		    "ComputeCpp does not support unnamed kernels, add a kernel name template parameter to this parallel_for invocation");
+		if constexpr(detail::is_unnamed_kernel<KernelName>) {
+#if !WORKAROUND_COMPUTECPP // see static_assert above
+			cgh.parallel_for(std::forward<Params>(args)...);
+#endif
+		} else {
+			cgh.parallel_for<detail::bind_kernel_name<KernelName>>(std::forward<Params>(args)...);
+		}
+	}
+
 	class live_pass_device_handler final : public live_pass_handler {
 	  public:
 		live_pass_device_handler(std::shared_ptr<const class task> task, subrange<3> sr, bool initialize_reductions, device_queue& d_queue)
@@ -539,7 +577,7 @@ namespace detail {
 
 } // namespace detail
 
-template <typename KernelFlavor, typename Name, int Dims, typename Kernel, typename... Reductions>
+template <typename KernelFlavor, typename KernelName, int Dims, typename Kernel, typename... Reductions>
 void handler::parallel_for_kernel_and_reductions(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset,
     typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel& kernel, Reductions&... reductions) {
 	if(is_prepass()) {
@@ -550,7 +588,7 @@ void handler::parallel_for_kernel_and_reductions(cl::sycl::range<Dims> global_ra
 			}
 		}
 		return dynamic_cast<detail::prepass_handler&>(*this).create_device_compute_task(
-		    Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), granularity, detail::kernel_debug_name<Name>());
+		    Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), granularity, detail::kernel_debug_name<KernelName>());
 	}
 
 	auto& device_handler = dynamic_cast<detail::live_pass_device_handler&>(*this);
@@ -564,10 +602,10 @@ void handler::parallel_for_kernel_and_reductions(cl::sycl::range<Dims> global_ra
 		} else if constexpr(!CELERITY_FEATURE_SCALAR_REDUCTIONS && sizeof...(reductions) > 1) {
 			static_assert(detail::constexpr_false<Kernel>, "DPC++ currently does not support more than one reduction variable per kernel");
 		} else if constexpr(std::is_same_v<KernelFlavor, detail::simple_kernel_flavor>) {
-			cgh.parallel_for<Name>(
-			    chunk_range, detail::make_sycl_reduction(cgh, reductions)..., detail::bind_simple_kernel(kernel, global_range, global_offset, chunk_offset));
+			detail::invoke_sycl_parallel_for<KernelName>(cgh, chunk_range, detail::make_sycl_reduction(cgh, reductions)...,
+			    detail::bind_simple_kernel(kernel, global_range, global_offset, chunk_offset));
 		} else if constexpr(std::is_same_v<KernelFlavor, detail::nd_range_kernel_flavor>) {
-			cgh.parallel_for<Name>(cl::sycl::nd_range{chunk_range, local_range}, detail::make_sycl_reduction(cgh, reductions)...,
+			detail::invoke_sycl_parallel_for<KernelName>(cgh, cl::sycl::nd_range{chunk_range, local_range}, detail::make_sycl_reduction(cgh, reductions)...,
 			    detail::bind_nd_range_kernel(kernel, global_range, global_offset, chunk_offset, global_range / local_range, chunk_offset / local_range));
 		} else {
 			static_assert(detail::constexpr_false<KernelFlavor>);
