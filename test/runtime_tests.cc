@@ -2438,7 +2438,7 @@ namespace detail {
 	TEST_CASE("handler::parallel_for accepts nd_range", "[handler]") {
 		distr_queue q;
 
-		CHECK_NOTHROW(q.submit([&](handler& cgh) { //
+		CHECK_NOTHROW(q.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(nd_range_1)>(celerity::nd_range<1>{{256}, {64}}, [](nd_item<1> item) {
 				group_barrier(item.get_group());
 #if !WORKAROUND_COMPUTECPP // no group primitives

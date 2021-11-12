@@ -21,9 +21,9 @@ namespace detail {
 #endif
 
 		// If global range is not divisible by (num_chunks * granularity), assign ceil(quotient) to the first few chunks and floor(quotient) to the remaining
-		auto small_chunk_size_dim0 = full_chunk.range[0] / (num_chunks * granularity[0]) * granularity[0];
-		auto large_chunk_size_dim0 = small_chunk_size_dim0 + granularity[0];
-		auto num_large_chunks = (full_chunk.range[0] - small_chunk_size_dim0 * num_chunks) / granularity[0];
+		const auto small_chunk_size_dim0 = full_chunk.range[0] / (num_chunks * granularity[0]) * granularity[0];
+		const auto large_chunk_size_dim0 = small_chunk_size_dim0 + granularity[0];
+		const auto num_large_chunks = (full_chunk.range[0] - small_chunk_size_dim0 * num_chunks) / granularity[0];
 		assert(num_large_chunks * large_chunk_size_dim0 + (num_chunks - num_large_chunks) * small_chunk_size_dim0 == full_chunk.range[0]);
 
 		std::vector<chunk<3>> result(num_chunks, {full_chunk.offset, full_chunk.range, full_chunk.global_size});

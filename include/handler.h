@@ -414,9 +414,8 @@ namespace detail {
 			} else if constexpr(std::is_invocable_v<Kernel, cl::sycl::item<Dims>, decltype(reducers)...>) {
 				invoke_kernel_with_sycl_item(kernel, cl::sycl::item<Dims>{s_item_or_id}, reducers...);
 			} else {
-				static_assert(constexpr_false<decltype(reducers)...>,
-				    "Kernel function must be invocable with celerity::item<Dims> or (or cl::sycl::item<Dims>, "
-				    "deprecated) and as many reducer objects as reductions passed to parallel_for");
+				static_assert(constexpr_false<decltype(reducers)...>, "Kernel function must be invocable with celerity::item<Dims> (or cl::sycl::item<Dims>, "
+				                                                      "deprecated) and as many reducer objects as reductions passed to parallel_for");
 			}
 		};
 	}

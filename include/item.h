@@ -301,7 +301,7 @@ void group_barrier(const group<Dims>& g, memory_scope scope = memory_scope_work_
 	auto space = scope > memory_scope_work_group ? cl::sycl::access::fence_space::global_and_local : cl::sycl::access::fence_space::local_space;
 	detail::get_sycl_item(g).barrier(space);
 #else
-	return cl::sycl::group_barrier(detail::get_sycl_item(g).get_group(), static_cast<cl::sycl::memory_scope>(scope)); // identical representation
+	cl::sycl::group_barrier(detail::get_sycl_item(g).get_group(), static_cast<cl::sycl::memory_scope>(scope)); // identical representation
 #endif
 }
 

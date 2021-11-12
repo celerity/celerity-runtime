@@ -1638,7 +1638,7 @@ namespace detail {
 	TEST_CASE("graph_generator respects task granularity when splitting", "[graph_generator]") {
 		using namespace cl::sycl::access;
 
-		size_t num_nodes = 4;
+		const size_t num_nodes = 4;
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
