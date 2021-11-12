@@ -250,10 +250,10 @@ if(CELERITY_BUILD_EXAMPLES)
     PROPERTY FOLDER "examples"
   )
 
-  if (CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS)
+  if(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS)
     add_subdirectory(examples/reduction)
     set_property(TARGET reduction PROPERTY FOLDER "examples")
-  endif ()
+  endif()
 
   find_package(PkgConfig)
   unset(HDF5_FOUND)
