@@ -96,7 +96,7 @@ default).
 Simply run `make install` (or equivalent, depending on build system) to copy
 all relevant header files and libraries to the `CMAKE_INSTALL_PREFIX`. This
 includes a CMake [package configuration file](https://cmake.org/cmake/help/latest/manual/cmake-packages.7.html#package-configuration-file)
-which is placed inside the `lib/cmake` directory. You can then use
+which is placed inside the `lib/cmake/Celerity` directory. You can then use
 `find_package(Celerity CONFIG)` to include Celerity into your CMake project.
 Once included, you can use the `add_celerity_to_target(TARGET target SOURCES source1 source2...)`
 function to set up the required dependencies for a target (no need to link manually).

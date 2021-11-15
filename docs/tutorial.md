@@ -23,7 +23,7 @@ is to set up a CMake project. For this, create a new folder for your project
 and in it create a file `CMakeLists.txt` with the following contents:
 
 ```cmake
-cmake_minimum_required(VERSION 3.5.1)
+cmake_minimum_required(VERSION 3.13)
 project(celerity_edge_detection)
 
 find_package(Celerity CONFIG REQUIRED)
@@ -152,7 +152,7 @@ out the kernel code. Replace the TODO with the following code:
 ```cpp
 int sum = r_input[{item[0] + 1, item[1]}] + r_input[{item[0] - 1, item[1]}]
         + r_input[{item[0], item[1] + 1}] + r_input[{item[0], item[1] - 1}];
-dw_edge[item] = 255 - std::max(0, sum - (4 * r_input[item]));
+w_edge[item] = 255 - std::max(0, sum - (4 * r_input[item]));
 ```
 
 This kernel computes a [discrete Laplace
@@ -171,29 +171,28 @@ before the kernel function with the following:
 
 ```cpp
 celerity::accessor r_input{input_buf, cgh, celerity::access::neighborhood{1, 1}, celerity::read_only};
-celerity::accessor dw_edge{edge_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+celerity::accessor w_edge{edge_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 ```
 
 If you have worked with SYCL before, these buffer accessors will look
-familiar to you. The template parameter is called the **access mode** and
-declares the type of access we inted to make on each buffer: We want to
-`read` from our `input_buf`, and want to write to our `edge_buf`. While
-there is a `write` access mode, we do not care at all about preserving any of
-the previous contents of `edge_buf`, which is why we choose to discard them
-and use the `discard_write` access mode.
+familiar to you. Accessors tie kernels to the data they operate on by declaring
+the type of access that we want to perform: We want to _read_ from our
+`input_buf`, and want to _write_ to our `edge_buf`. Additionally, we do not care
+at all about preserving any of the previous contents of `edge_buf`, which is why
+we choose to discard them by also passing the `celerity::no_init` property.
 
 So far everything works exactly as it would in a SYCL application. However,
-there is an additional parameter passed into the `accessor`
-constructor that is not present in its SYCL counterpart. In fact, this parameter
-represents one of Celerity's most important API additions: While access modes
-tell the runtime system how a kernel intends to access a buffer, it does not
-include any information about _where_ a kernel will access said buffer. In
-order for Celerity to be able to split a single kernel execution across
+there is an additional parameter passed into the `accessor` constructor that is
+not present in its SYCL counterpart. In fact, this parameter represents one of
+Celerity's most important API additions: While access modes (such as `read` and
+`write`) tell the runtime system how a kernel intends to access a buffer, they
+do not convey any information about _where_ a kernel will access said buffer.
+In order for Celerity to be able to split a single kernel execution across
 potentially many different worker nodes, it needs to know how each of those
 **kernel chunks** will interact with the input and output buffers of a kernel
 -- i.e., which node requires which parts of the input, and produces which
-parts of the output. This is where Celerity's so-called **range mappers**
-come into play.
+parts of the output. This is where Celerity's so-called **range mappers** come
+into play.
 
 Let us first discuss the range mapper for `edge_buf`, as it represents the
 simpler of the two cases. Looking at the kernel function, you can see that
@@ -221,8 +220,11 @@ surrounding the current work item.
 
 Lastly, there are two more things of note for the call to `parallel_for`: The
 first is the **kernel name**. Just like in SYCL, each kernel function in
-Celerity has to have a unique name in the form of a template type parameter.
+Celerity may have a unique name in the form of a template type parameter.
 Here we chose `MyEdgeDetectionKernel`, but this can be anything you like.
+
+> Kernel names used to be mandatory in SYCL 1.2.1 but have since become optional.
+
 Finally, the first two parameters to the `parallel_for` function tell
 Celerity how many individual GPU threads (or work items) we want to execute.
 In our case we want to execute one thread for each pixel of our image, except
@@ -248,7 +250,6 @@ Just like the _compute tasks_ we created above by calling
 `celerity::handler::parallel_for`, we can instantiate a host task on the command group
 handler by calling `celerity::handler::host_task`. Add the following code at the end of
 your `main()` function:
-
 
 ```cpp
 queue.submit([=](celerity::handler& cgh) {
