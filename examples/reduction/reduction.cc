@@ -72,7 +72,7 @@ int main(int argc, char* argv[]) {
 	q.submit([=](celerity::handler& cgh) {
 		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::one_to_one{}, celerity::read_only};
 		celerity::accessor rgb_acc{lab_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-		auto minmax_r = celerity::reduction(minmax_buf, cgh, minmax_identity, minmax, cl::sycl::property::reduction::initialize_to_identity{});
+		auto minmax_r = celerity::reduction(minmax_buf, cgh, minmax_identity, minmax, celerity::property::reduction::initialize_to_identity{});
 		cgh.parallel_for<class linearize_and_accumulate>(image_size, minmax_r, [=](celerity::item<2> item, auto& minmax) {
 			const auto rgb = srgb_to_rgb(srgb_255_acc[item].convert<float>() / 255.0f);
 			rgb_acc[item] = rgb;

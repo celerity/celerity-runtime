@@ -2060,7 +2060,7 @@ namespace detail {
 				//   The following line is commented because it produces a compile error but it is still a case we wanted to test.
 				//   Since we can not check the content of a property list at compile time, for now it is only accepted to pass either the property
 				//   celerity::no_init or nothing.
-				// accessor acc0{buf_a, cgh, one_to_one{}, cl::sycl::write_only_host_task, cl::sycl::property_list{celerity::no_init}};
+				// accessor acc0{buf_a, cgh, one_to_one{}, cl::sycl::write_only_host_task, celerity::property_list{celerity::no_init}};
 
 				accessor acc1{buf_a, cgh, one_to_one{}, celerity::write_only_host_task};
 				static_assert(std::is_same_v<accessor<int, 1, access_mode::write, target::host_task>, decltype(acc1)>);

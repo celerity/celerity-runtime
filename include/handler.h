@@ -552,7 +552,7 @@ namespace detail {
 		}
 
 		auto bid = detail::get_buffer_id(vars);
-		auto include_current_buffer_value = !prop_list.has_property<cl::sycl::property::reduction::initialize_to_identity>();
+		auto include_current_buffer_value = !prop_list.has_property<celerity::property::reduction::initialize_to_identity>();
 		cl::sycl::buffer<DataT, Dims>* sycl_buffer = nullptr;
 
 		if(detail::is_prepass_handler(cgh)) {
