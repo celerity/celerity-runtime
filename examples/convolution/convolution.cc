@@ -9,7 +9,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
 
-bool is_on_boundary(cl::sycl::range<2> range, size_t filter_size, cl::sycl::id<2> id) {
+bool is_on_boundary(celerity::range<2> range, size_t filter_size, celerity::id<2> id) {
 	return (id[0] < (filter_size / 2) || id[1] < (filter_size / 2) || id[0] > range[0] - (filter_size / 2) - 1 || id[1] > range[1] - (filter_size / 2) - 1);
 }
 
@@ -50,10 +50,10 @@ int main(int argc, char* argv[]) {
 
 	celerity::distr_queue queue;
 
-	celerity::buffer<cl::sycl::float3, 2> image_input_buf(image_input.data(), cl::sycl::range<2>(image_height, image_width));
-	celerity::buffer<cl::sycl::float3, 2> image_tmp_buf(cl::sycl::range<2>(image_height, image_width));
+	celerity::buffer<cl::sycl::float3, 2> image_input_buf(image_input.data(), celerity::range<2>(image_height, image_width));
+	celerity::buffer<cl::sycl::float3, 2> image_tmp_buf(celerity::range<2>(image_height, image_width));
 
-	celerity::buffer<float, 2> gaussian_mat_buf(gaussian_matrix.data(), cl::sycl::range<2>(FILTER_SIZE, FILTER_SIZE));
+	celerity::buffer<float, 2> gaussian_mat_buf(gaussian_matrix.data(), celerity::range<2>(FILTER_SIZE, FILTER_SIZE));
 
 	// Do a gaussian blur
 	queue.submit([=](celerity::handler& cgh) {
@@ -61,9 +61,9 @@ int main(int argc, char* argv[]) {
 		auto gauss = gaussian_mat_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::all{});
 		auto out = image_tmp_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one{});
 
-		cgh.parallel_for<class gaussian_blur>(cl::sycl::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](celerity::item<2> item) {
+		cgh.parallel_for<class gaussian_blur>(celerity::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](celerity::item<2> item) {
 			using cl::sycl::float3;
-			if(is_on_boundary(cl::sycl::range<2>(image_height, image_width), fs, item)) {
+			if(is_on_boundary(celerity::range<2>(image_height, image_width), fs, item)) {
 				out[item] = float3(0.f, 0.f, 0.f);
 				return;
 			}
@@ -71,22 +71,22 @@ int main(int argc, char* argv[]) {
 			float3 sum = float3(0.f, 0.f, 0.f);
 			for(auto y = -(fs / 2); y < fs / 2; ++y) {
 				for(auto x = -(fs / 2); x < fs / 2; ++x) {
-					sum += gauss[cl::sycl::id<2>(fs / 2 + y, fs / 2 + x)] * in[{item[0] + y, item[1] + x}];
+					sum += gauss[celerity::id<2>(fs / 2 + y, fs / 2 + x)] * in[{item[0] + y, item[1] + x}];
 				}
 			}
 			out[item] = sum;
 		});
 	});
 
-	celerity::buffer<cl::sycl::float3, 2> image_output_buf(cl::sycl::range<2>(image_height, image_width));
+	celerity::buffer<cl::sycl::float3, 2> image_output_buf(celerity::range<2>(image_height, image_width));
 
 	// Now apply a sharpening kernel
 	queue.submit([=](celerity::handler& cgh) {
 		auto in = image_tmp_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood{1, 1});
 		auto out = image_output_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one{});
-		cgh.parallel_for<class sharpen>(cl::sycl::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](celerity::item<2> item) {
+		cgh.parallel_for<class sharpen>(celerity::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](celerity::item<2> item) {
 			using cl::sycl::float3;
-			if(is_on_boundary(cl::sycl::range<2>(image_height, image_width), fs, item)) {
+			if(is_on_boundary(celerity::range<2>(image_height, image_width), fs, item)) {
 				out[item] = float3(0.f, 0.f, 0.f);
 				return;
 			}

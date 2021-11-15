@@ -26,28 +26,28 @@ namespace detail {
 	template <int Dims>
 	class sized_partition_base {
 	  public:
-		explicit sized_partition_base(const cl::sycl::range<Dims>& global_size, const subrange<Dims>& range)
+		explicit sized_partition_base(const celerity::range<Dims>& global_size, const subrange<Dims>& range)
 		    : global_size(range_cast<Dims>(global_size)), range(range) {}
 
 		/** The subrange handled by this host. */
 		const subrange<Dims>& get_subrange() const { return range; }
 
 		/** The size of the entire iteration space */
-		const cl::sycl::range<Dims>& get_global_size() const { return global_size; }
+		const celerity::range<Dims>& get_global_size() const { return global_size; }
 
 	  private:
-		cl::sycl::range<Dims> global_size;
+		celerity::range<Dims> global_size;
 		subrange<Dims> range;
 	};
 
 	template <int Dims>
-	partition<Dims> make_partition(const cl::sycl::range<Dims>& global_size, const subrange<Dims>& range) {
+	partition<Dims> make_partition(const celerity::range<Dims>& global_size, const subrange<Dims>& range) {
 		return partition<Dims>(global_size, range);
 	}
 
 	partition<0> make_0d_partition();
 
-	experimental::collective_partition make_collective_partition(const cl::sycl::range<1>& global_size, const subrange<1>& range, MPI_Comm comm);
+	experimental::collective_partition make_collective_partition(const celerity::range<1>& global_size, const subrange<1>& range, MPI_Comm comm);
 
 } // namespace detail
 
@@ -57,9 +57,9 @@ namespace detail {
 template <int Dims>
 class partition : public detail::sized_partition_base<Dims> {
   protected:
-	friend partition<Dims> detail::make_partition<Dims>(const cl::sycl::range<Dims>& global_size, const subrange<Dims>& range);
+	friend partition<Dims> detail::make_partition<Dims>(const celerity::range<Dims>& global_size, const subrange<Dims>& range);
 
-	partition(const cl::sycl::range<Dims>& global_size, const subrange<Dims>& range) : detail::sized_partition_base<Dims>(global_size, range) {}
+	partition(const celerity::range<Dims>& global_size, const subrange<Dims>& range) : detail::sized_partition_base<Dims>(global_size, range) {}
 };
 
 /**
@@ -74,11 +74,11 @@ class experimental::collective_partition : public partition<1> {
 	size_t get_num_nodes() const { return get_global_size()[0]; }
 
   protected:
-	friend collective_partition detail::make_collective_partition(const cl::sycl::range<1>& global_size, const subrange<1>& range, MPI_Comm comm);
+	friend collective_partition detail::make_collective_partition(const celerity::range<1>& global_size, const subrange<1>& range, MPI_Comm comm);
 
 	MPI_Comm comm;
 
-	collective_partition(const cl::sycl::range<1>& global_size, const subrange<1>& range, MPI_Comm comm) : partition<1>(global_size, range), comm(comm) {}
+	collective_partition(const celerity::range<1>& global_size, const subrange<1>& range, MPI_Comm comm) : partition<1>(global_size, range), comm(comm) {}
 };
 
 template <>
@@ -92,7 +92,7 @@ class partition<0> {
 
 namespace detail {
 
-	inline experimental::collective_partition make_collective_partition(const cl::sycl::range<1>& global_size, const subrange<1>& range, MPI_Comm comm) {
+	inline experimental::collective_partition make_collective_partition(const celerity::range<1>& global_size, const subrange<1>& range, MPI_Comm comm) {
 		return experimental::collective_partition(global_size, range, comm);
 	}
 

@@ -91,7 +91,7 @@ namespace detail {
 	template <int Dims>
 	struct kernel_flavor_traits<nd_range_kernel_flavor, Dims> {
 		inline static constexpr bool has_local_size = true;
-		using local_size_type = cl::sycl::range<Dims>;
+		using local_size_type = range<Dims>;
 	};
 } // namespace detail
 
@@ -173,14 +173,14 @@ class handler {
 	virtual ~handler() = default;
 
 	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
-	void parallel_for(cl::sycl::range<Dims> global_range, ReductionsAndKernel... reductions_and_kernel) {
+	void parallel_for(range<Dims> global_range, ReductionsAndKernel... reductions_and_kernel) {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
-		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(global_range, cl::sycl::id<Dims>(),
-		    detail::no_local_size{}, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
+		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(
+		    global_range, id<Dims>(), detail::no_local_size{}, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
 	}
 
 	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
-	void parallel_for(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, ReductionsAndKernel... reductions_and_kernel) {
+	void parallel_for(range<Dims> global_range, id<Dims> global_offset, ReductionsAndKernel... reductions_and_kernel) {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
 		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(
 		    global_range, global_offset, detail::no_local_size{}, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
@@ -236,13 +236,13 @@ class handler {
 	 * another node. If you need guarantees about execution order
 	 */
 	template <int Dims, typename Functor>
-	void host_task(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Functor kernel);
+	void host_task(range<Dims> global_range, id<Dims> global_offset, Functor kernel);
 
 	/**
-	 * Like `host_task(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Functor kernel)`, but with a `global_offset` of zero.
+	 * Like `host_task(range<Dims> global_range, id<Dims> global_offset, Functor kernel)`, but with a `global_offset` of zero.
 	 */
 	template <int Dims, typename Functor>
-	void host_task(cl::sycl::range<Dims> global_range, Functor task) {
+	void host_task(range<Dims> global_range, Functor task) {
 		host_task(global_range, {}, task);
 	}
 
@@ -258,7 +258,7 @@ class handler {
 
   private:
 	template <typename KernelFlavor, typename KernelName, int Dims, typename... ReductionsAndKernel, size_t... ReductionIndices>
-	void parallel_for_reductions_and_kernel(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset,
+	void parallel_for_reductions_and_kernel(range<Dims> global_range, id<Dims> global_offset,
 	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_size, std::index_sequence<ReductionIndices...> indices,
 	    ReductionsAndKernel&... kernel_and_reductions) {
 		auto args_tuple = std::forward_as_tuple(kernel_and_reductions...);
@@ -268,7 +268,7 @@ class handler {
 	}
 
 	template <typename KernelFlavor, typename KernelName, int Dims, typename Kernel, typename... Reductions>
-	void parallel_for_kernel_and_reductions(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset,
+	void parallel_for_kernel_and_reductions(range<Dims> global_range, id<Dims> global_offset,
 	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel& kernel, Reductions&... reductions);
 };
 
@@ -292,17 +292,16 @@ namespace detail {
 			reductions.push_back(rid);
 		}
 
-		void create_host_compute_task(int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset, cl::sycl::range<3> granularity) {
+		void create_host_compute_task(int dimensions, range<3> global_range, id<3> global_offset, range<3> granularity) {
 			assert(task == nullptr);
 			task = detail::task::make_host_compute(
-			    tid, dimensions, global_size, global_offset, granularity, std::move(cgf), std::move(access_map), std::move(reductions));
+			    tid, dimensions, global_range, global_offset, granularity, std::move(cgf), std::move(access_map), std::move(reductions));
 		}
 
-		void create_device_compute_task(
-		    int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset, cl::sycl::range<3> granularity, std::string debug_name) {
+		void create_device_compute_task(int dimensions, range<3> global_range, id<3> global_offset, range<3> granularity, std::string debug_name) {
 			assert(task == nullptr);
 			task = detail::task::make_device_compute(
-			    tid, dimensions, global_size, global_offset, granularity, std::move(cgf), std::move(access_map), std::move(reductions), std::move(debug_name));
+			    tid, dimensions, global_range, global_offset, granularity, std::move(cgf), std::move(access_map), std::move(reductions), std::move(debug_name));
 		}
 
 		void create_collective_task(collective_group_id cgid) {
@@ -341,7 +340,7 @@ namespace detail {
 		const class task& get_task() const final { return *task; }
 
 		template <int BufferDims, typename RangeMapper>
-		subrange<BufferDims> apply_range_mapper(RangeMapper rm, const cl::sycl::range<BufferDims>& buffer_range) const {
+		subrange<BufferDims> apply_range_mapper(RangeMapper rm, const range<BufferDims>& buffer_range) const {
 			return invoke_range_mapper(task->get_dimensions(), rm, chunk{sr.offset, sr.range, task->get_global_size()}, buffer_range);
 		}
 
@@ -400,15 +399,14 @@ namespace detail {
 	};
 
 	template <typename Kernel, int Dims, typename... Reducers>
-	inline void invoke_kernel_with_celerity_item(const Kernel& kernel, const cl::sycl::id<Dims>& s_id, const cl::sycl::range<Dims>& global_range,
-	    const cl::sycl::id<Dims>& global_offset, const cl::sycl::id<Dims>& chunk_offset, Reducers&... reducers) {
+	inline void invoke_kernel_with_celerity_item(const Kernel& kernel, const id<Dims>& s_id, const range<Dims>& global_range, const id<Dims>& global_offset,
+	    const id<Dims>& chunk_offset, Reducers&... reducers) {
 		kernel(make_item<Dims>(s_id + chunk_offset, global_offset, global_range), reducers...);
 	}
 
 	template <typename Kernel, int Dims, typename... Reducers>
-	inline void invoke_kernel_with_celerity_nd_item(const Kernel& kernel, const cl::sycl::nd_item<Dims>& s_item, const cl::sycl::range<Dims>& global_range,
-	    const cl::sycl::id<Dims>& global_offset, const cl::sycl::id<Dims>& chunk_offset, const cl::sycl::range<Dims>& group_range,
-	    const cl::sycl::id<Dims>& group_offset, Reducers&... reducers) {
+	inline void invoke_kernel_with_celerity_nd_item(const Kernel& kernel, const cl::sycl::nd_item<Dims>& s_item, const range<Dims>& global_range,
+	    const id<Dims>& global_offset, const id<Dims>& chunk_offset, const range<Dims>& group_range, const id<Dims>& group_offset, Reducers&... reducers) {
 		kernel(make_nd_item<Dims>(s_item, global_range, global_offset, chunk_offset, group_range, group_offset), reducers...);
 	}
 
@@ -420,14 +418,13 @@ namespace detail {
 	}
 
 	template <typename Kernel, int Dims>
-	auto bind_simple_kernel(
-	    const Kernel& kernel, const cl::sycl::range<Dims>& global_range, const cl::sycl::id<Dims>& global_offset, const cl::sycl::id<Dims>& chunk_offset) {
+	auto bind_simple_kernel(const Kernel& kernel, const range<Dims>& global_range, const id<Dims>& global_offset, const id<Dims>& chunk_offset) {
 		// The current mechanism for hydrating the SYCL placeholder accessors inside Celerity accessors requires that the kernel functor
 		// capturing those accessors is copied at least once during submission (see also live_pass_device_handler::submit_to_sycl).
 		// As of SYCL 2020 kernel functors are passed as const references, so we explicitly capture by value here.
 		return [=](auto s_item_or_id, auto&... reducers) {
 			if constexpr(std::is_invocable_v<Kernel, celerity::item<Dims>, decltype(reducers)...>) {
-				if constexpr(WORKAROUND_DPCPP && std::is_same_v<cl::sycl::id<Dims>, decltype(s_item_or_id)>) {
+				if constexpr(WORKAROUND_DPCPP && std::is_same_v<id<Dims>, decltype(s_item_or_id)>) {
 					// WORKAROUND: DPC++ passes a sycl::id instead of a sycl::item to kernels alongside reductions
 					invoke_kernel_with_celerity_item(kernel, s_item_or_id, global_range, global_offset, chunk_offset, reducers...);
 				} else {
@@ -446,8 +443,8 @@ namespace detail {
 	}
 
 	template <typename Kernel, int Dims>
-	auto bind_nd_range_kernel(const Kernel& kernel, const cl::sycl::range<Dims>& global_range, const cl::sycl::id<Dims>& global_offset,
-	    const cl::sycl::id<Dims> chunk_offset, const cl::sycl::range<Dims>& group_range, const cl::sycl::id<Dims>& group_offset) {
+	auto bind_nd_range_kernel(const Kernel& kernel, const range<Dims>& global_range, const id<Dims>& global_offset, const id<Dims> chunk_offset,
+	    const range<Dims>& group_range, const id<Dims>& group_offset) {
 		return [=](cl::sycl::nd_item<Dims> s_item, auto&... reducers) {
 			static_assert(std::is_invocable_v<Kernel, celerity::nd_item<Dims>, decltype(reducers)...>,
 			    "Kernel function must be invocable with celerity::nd_item<Dims> or and as many reducer objects as reductions passed to parallel_for");
@@ -568,7 +565,7 @@ namespace detail {
 			if(include_current_buffer_value) { mode = cl::sycl::access_mode::read_write; }
 			sycl_buffer = &runtime::get_instance()
 			                   .get_buffer_manager()
-			                   .get_device_buffer<DataT, Dims>(bid, mode, cl::sycl::range<3>{1, 1, 1}, cl::sycl::id<3>{}) //
+			                   .get_device_buffer<DataT, Dims>(bid, mode, range<3>{1, 1, 1}, id<3>{}) //
 			                   .buffer;
 		}
 		return detail::reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>{bid, op, identity, include_current_buffer_value, sycl_buffer};
@@ -578,10 +575,10 @@ namespace detail {
 } // namespace detail
 
 template <typename KernelFlavor, typename KernelName, int Dims, typename Kernel, typename... Reductions>
-void handler::parallel_for_kernel_and_reductions(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset,
+void handler::parallel_for_kernel_and_reductions(range<Dims> global_range, id<Dims> global_offset,
     typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel& kernel, Reductions&... reductions) {
 	if(is_prepass()) {
-		cl::sycl::range<3> granularity = {1, 1, 1};
+		range<3> granularity = {1, 1, 1};
 		if constexpr(detail::kernel_flavor_traits<KernelFlavor, Dims>::has_local_size) {
 			for(int d = 0; d < Dims; ++d) {
 				granularity[d] = local_range[d];
@@ -632,7 +629,7 @@ void handler::host_task(experimental::collective_tag tag, Functor kernel) {
 }
 
 template <int Dims, typename Functor>
-void handler::host_task(cl::sycl::range<Dims> global_range, cl::sycl::id<Dims> global_offset, Functor kernel) {
+void handler::host_task(range<Dims> global_range, id<Dims> global_offset, Functor kernel) {
 	if(is_prepass()) {
 		dynamic_cast<detail::prepass_handler&>(*this).create_host_compute_task(
 		    Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), {1, 1, 1});

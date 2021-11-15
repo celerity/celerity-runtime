@@ -151,29 +151,29 @@ class buffer_allocation_window {
   public:
 	T* get_allocation() const { return allocation; }
 
-	cl::sycl::range<Dims> get_buffer_range() const { return buffer_range; }
+	range<Dims> get_buffer_range() const { return buffer_range; }
 
-	cl::sycl::range<Dims> get_allocation_range() const { return allocation_range; }
+	range<Dims> get_allocation_range() const { return allocation_range; }
 
-	cl::sycl::range<Dims> get_window_range() const { return window_range; }
+	range<Dims> get_window_range() const { return window_range; }
 
-	cl::sycl::id<Dims> get_allocation_offset_in_buffer() const { return allocation_offset_in_buffer; }
+	id<Dims> get_allocation_offset_in_buffer() const { return allocation_offset_in_buffer; }
 
-	cl::sycl::id<Dims> get_window_offset_in_buffer() const { return window_offset_in_buffer; }
+	id<Dims> get_window_offset_in_buffer() const { return window_offset_in_buffer; }
 
-	cl::sycl::id<Dims> get_window_offset_in_allocation() const { return window_offset_in_buffer - allocation_offset_in_buffer; }
+	id<Dims> get_window_offset_in_allocation() const { return window_offset_in_buffer - allocation_offset_in_buffer; }
 
   private:
 	T* allocation;
-	cl::sycl::range<Dims> buffer_range;
-	cl::sycl::range<Dims> allocation_range;
-	cl::sycl::range<Dims> window_range;
-	cl::sycl::id<Dims> allocation_offset_in_buffer;
-	cl::sycl::id<Dims> window_offset_in_buffer;
+	range<Dims> buffer_range;
+	range<Dims> allocation_range;
+	range<Dims> window_range;
+	id<Dims> allocation_offset_in_buffer;
+	id<Dims> window_offset_in_buffer;
 
   public:
-	buffer_allocation_window(T* allocation, const cl::sycl::range<Dims>& buffer_range, const cl::sycl::range<Dims>& allocation_range,
-	    const cl::sycl::range<Dims>& window_range, const cl::sycl::id<Dims>& allocation_offset_in_buffer, const cl::sycl::id<Dims>& window_offset_in_buffer)
+	buffer_allocation_window(T* allocation, const range<Dims>& buffer_range, const range<Dims>& allocation_range, const range<Dims>& window_range,
+	    const id<Dims>& allocation_offset_in_buffer, const id<Dims>& window_offset_in_buffer)
 	    : allocation(allocation), buffer_range(buffer_range), allocation_range(allocation_range), window_range(window_range),
 	      allocation_offset_in_buffer(allocation_offset_in_buffer), window_offset_in_buffer(window_offset_in_buffer) {}
 
@@ -223,18 +223,18 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 #endif
 
 	template <access_mode M = Mode, int D = Dims>
-	std::enable_if_t<detail::access::mode_traits::is_producer(M) && M != access_mode::atomic && (D > 0), DataT&> operator[](cl::sycl::id<Dims> index) const {
+	std::enable_if_t<detail::access::mode_traits::is_producer(M) && M != access_mode::atomic && (D > 0), DataT&> operator[](id<Dims> index) const {
 		return sycl_accessor[index - index_offset];
 	}
 
 	template <access_mode M = Mode, int D = Dims>
-	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](cl::sycl::id<Dims> index) const {
+	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](id<Dims> index) const {
 		return sycl_accessor[index - index_offset];
 	}
 
 	template <access_mode M = Mode, int D = Dims>
 	[[deprecated("Atomic accessors are deprecated as of SYCL 2020")]] std::enable_if_t<M == access_mode::atomic && (D > 0), cl::sycl::atomic<DataT>> operator[](
-	    cl::sycl::id<Dims> index) const {
+	    id<Dims> index) const {
 #pragma GCC diagnostic push
 		// Ignore deprecation warnings emitted by SYCL implementations (e.g. hipSYCL)
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -264,10 +264,10 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	// see init_from
 	cl::sycl::handler* const* eventual_sycl_cgh = nullptr;
 	sycl_accessor_t sycl_accessor;
-	cl::sycl::id<Dims> index_offset;
+	id<Dims> index_offset;
 
 	accessor(cl::sycl::handler* const* eventual_sycl_cgh, const subrange<Dims>& mapped_subrange, cl::sycl::buffer<DataT, Dims>& buffer,
-	    cl::sycl::id<Dims> backing_buffer_offset)
+	    id<Dims> backing_buffer_offset)
 	    : eventual_sycl_cgh(eventual_sycl_cgh),
 	      // We pass a range and offset here to avoid interference from SYCL, but the offset must be relative to the *backing buffer*.
 	      sycl_accessor(sycl_accessor_t(buffer, mapped_subrange.range, mapped_subrange.offset - backing_buffer_offset)),
@@ -286,7 +286,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
 	// For DPC++, we must call the sycl_accessor_t constructor with arguments that need to be computed beforehand, so we pass the results from construct()
 	// throught to the accessor(constructor_args) ctor.
-	using constructor_args = std::tuple<cl::sycl::handler* const*, sycl_accessor_t, cl::sycl::id<Dims>>;
+	using constructor_args = std::tuple<cl::sycl::handler* const*, sycl_accessor_t, id<Dims>>;
 
 	explicit accessor(constructor_args&& args) : eventual_sycl_cgh(std::get<0>(args)), sycl_accessor(std::get<1>(args)), index_offset(std::get<2>(args)) {
 		// SYCL 1.2.1 dictates that all kernel parameters must have standard layout.
@@ -304,12 +304,12 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 #if WORKAROUND_DPCPP
 			// DPC++ does not support SYCL 2020 default-constructible accessors and requires a buffer. As of 2021-08-18, DPC++ placeholder accessors do not
 			// keep a reference to the buffer on the host, so having the buffer go out of scope right away will not cause any problems.
-			cl::sycl::buffer<DataT, Dims> faux_buf{detail::range_cast<Dims>(cl::sycl::range{1, 1, 1})};
+			cl::sycl::buffer<DataT, Dims> faux_buf{detail::range_cast<Dims>(range{1, 1, 1})};
 			sycl_accessor_t sycl_accessor{faux_buf};
 #else
 			sycl_accessor_t sycl_accessor{};
 #endif
-			return std::tuple{static_cast<cl::sycl::handler* const*>(nullptr), sycl_accessor, cl::sycl::id<Dims>{}};
+			return std::tuple{static_cast<cl::sycl::handler* const*>(nullptr), sycl_accessor, id<Dims>{}};
 		} else {
 			if(detail::get_handler_execution_target(cgh) != detail::execution_target::DEVICE) {
 				throw std::runtime_error(
@@ -374,9 +374,8 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
   public:
 	template <target Target = target::host_task, typename Functor>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
-		static_assert(!std::is_same_v<Functor, cl::sycl::range<Dims>>,
-		    "The accessor constructor overload for master-access tasks (now called 'host tasks') has "
-		    "been removed with Celerity 0.2.0. Please provide a range mapper instead.");
+		static_assert(!std::is_same_v<Functor, range<Dims>>, "The accessor constructor overload for master-access tasks (now called 'host tasks') has "
+		                                                     "been removed with Celerity 0.2.0. Please provide a range mapper instead.");
 
 		if(detail::is_prepass_handler(cgh)) {
 			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
@@ -421,12 +420,12 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	}
 
 	template <access_mode M = Mode, int D = Dims>
-	std::enable_if_t<detail::access::mode_traits::is_producer(M) && (D > 0), DataT&> operator[](cl::sycl::id<Dims> index) const {
+	std::enable_if_t<detail::access::mode_traits::is_producer(M) && (D > 0), DataT&> operator[](id<Dims> index) const {
 		return *(get_buffer().get_pointer() + get_linear_offset(index));
 	}
 
 	template <access_mode M = Mode, int D = Dims>
-	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](cl::sycl::id<Dims> index) const {
+	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](id<Dims> index) const {
 		return *(get_buffer().get_pointer() + get_linear_offset(index));
 	}
 
@@ -449,7 +448,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	 */
 	DataT* get_pointer() const {
 		bool illegal_access = false;
-		if(index_offset != detail::id_cast<Dims>(cl::sycl::id<3>{0, 0, 0})) { illegal_access = true; }
+		if(index_offset != detail::id_cast<Dims>(id<3>{0, 0, 0})) { illegal_access = true; }
 		// We can be a bit more lenient for 1D buffers, in that the backing buffer doesn't have to have the full size.
 		// (Dereferencing the pointer outside of the requested range is UB anyways).
 		if(Dims > 1 && get_buffer().get_range() != virtual_buffer_range) { illegal_access = true; }
@@ -526,11 +525,11 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	mutable detail::host_buffer<DataT, Dims>* optional_buffer = nullptr;
 
 	// Offset of the backing buffer relative to the virtual buffer.
-	cl::sycl::id<Dims> index_offset;
+	id<Dims> index_offset;
 
 	// The range of the Celerity buffer as created by the user.
 	// We only need this to check whether it is safe to call get_pointer() or not.
-	cl::sycl::range<Dims> virtual_buffer_range = detail::range_cast<Dims>(cl::sycl::range<3>(0, 0, 0));
+	range<Dims> virtual_buffer_range = detail::range_cast<Dims>(range<3>(0, 0, 0));
 
 	/**
 	 * Constructor for pre-pass.
@@ -540,8 +539,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	/**
 	 * Constructor for live-pass.
 	 */
-	accessor(subrange<Dims> mapped_subrange, detail::host_buffer<DataT, Dims>& buffer, cl::sycl::id<Dims> backing_buffer_offset,
-	    cl::sycl::range<Dims> virtual_buffer_range)
+	accessor(subrange<Dims> mapped_subrange, detail::host_buffer<DataT, Dims>& buffer, id<Dims> backing_buffer_offset, range<Dims> virtual_buffer_range)
 	    : mapped_subrange(mapped_subrange), optional_buffer(&buffer), index_offset(backing_buffer_offset), virtual_buffer_range(virtual_buffer_range) {}
 
 	detail::host_buffer<DataT, Dims>& get_buffer() const {
@@ -549,7 +547,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		return *optional_buffer;
 	}
 
-	size_t get_linear_offset(cl::sycl::id<Dims> index) const { return detail::get_linear_index(get_buffer().get_range(), index - index_offset); }
+	size_t get_linear_offset(id<Dims> index) const { return detail::get_linear_index(get_buffer().get_range(), index - index_offset); }
 };
 
 
@@ -581,7 +579,7 @@ class local_accessor {
 	}
 
 #if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
-	local_accessor(const cl::sycl::range<Dims>& allocation_size, handler& cgh)
+	local_accessor(const range<Dims>& allocation_size, handler& cgh)
 #if WORKAROUND_DPCPP
 	    : sycl_acc(allocation_size, detail::hack_make_invisible_null_reference<cl::sycl::handler>()),
 #else
@@ -598,7 +596,7 @@ class local_accessor {
 	    : sycl_acc(other.sycl_cgh() ? sycl_accessor{other.allocation_size, *other.sycl_cgh()} : other.sycl_acc), allocation_size(other.allocation_size),
 	      eventual_sycl_cgh(other.sycl_cgh() ? nullptr : other.eventual_sycl_cgh) {}
 #else
-	local_accessor(const cl::sycl::range<Dims>& allocation_size, handler& cgh);
+	local_accessor(const range<Dims>& allocation_size, handler& cgh);
 	local_accessor(const local_accessor&) = default;
 #endif
 
@@ -612,7 +610,7 @@ class local_accessor {
 
 	bool empty() const noexcept { return sycl_acc.empty(); }
 
-	cl::sycl::range<Dims> get_range() const { return allocation_size; }
+	range<Dims> get_range() const { return allocation_size; }
 
 	std::add_pointer_t<value_type> get_pointer() const noexcept { return sycl_acc.get_pointer(); }
 
@@ -623,7 +621,7 @@ class local_accessor {
 
   private:
 	sycl_accessor sycl_acc;
-	cl::sycl::range<Dims> allocation_size;
+	range<Dims> allocation_size;
 	cl::sycl::handler* const* eventual_sycl_cgh = nullptr;
 
 	cl::sycl::handler* sycl_cgh() const { return eventual_sycl_cgh != nullptr ? *eventual_sycl_cgh : nullptr; }
