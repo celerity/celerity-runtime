@@ -2584,7 +2584,7 @@ namespace detail {
 
 			// need to wait for commands to actually be executed, otherwise no tasks are deleted
 			q.slow_full_sync();
-			CHECK(task_manager_testspy::num_tasks(tm) < task_limit);
+			CHECK(tm.get_current_task_count() < task_limit);
 		}
 	}
 

@@ -99,7 +99,16 @@ namespace detail {
 		 */
 		void notify_horizon_executed(task_id tid);
 
-		task_id get_current_task_count() const { return next_task_id; }
+		/**
+		 * Returns the number of tasks created during the lifetime of the task_manager,
+		 * including tasks that have already been deleted.
+		 */
+		task_id get_total_task_count() const { return next_task_id; }
+
+		/**
+		 * Returns the number of tasks currently being managed by the task_manager.
+		 */
+		task_id get_current_task_count() const { return task_map.size(); }
 
 	  private:
 		const size_t num_collective_nodes;
@@ -128,9 +137,10 @@ namespace detail {
 		// This only (potentially) grows when adding dependencies,
 		// it never shrinks and does not take into account later changes further up in the dependency chain
 		int max_pseudo_critical_path_length = 0;
-		int previous_horizon_critical_path_length = 0;
+		int current_horizon_critical_path_length = 0;
 
-		task* previous_horizon_task = nullptr;
+		// The latest horizon task created. Will be applied as last writer once the next horizon is created.
+		task* current_horizon_task = nullptr;
 
 		// Queue of horizon tasks for which the associated commands were executed
 		std::queue<task_id> executed_horizons;
@@ -152,7 +162,7 @@ namespace detail {
 
 		void add_dependency(task* depender, task* dependee, dependency_kind kind = dependency_kind::TRUE_DEP);
 
-		inline bool need_new_horizon() const { return max_pseudo_critical_path_length - previous_horizon_critical_path_length >= task_horizon_step_size; }
+		inline bool need_new_horizon() const { return max_pseudo_critical_path_length - current_horizon_critical_path_length >= task_horizon_step_size; }
 
 		int get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
 
