@@ -170,8 +170,8 @@ aforementioned buffer accessors. Let's create these now - replace the TODO
 before the kernel function with the following:
 
 ```cpp
-auto r_input = input_buf.get_access<celerity::access_mode::read>(cgh, celerity::access::neighborhood(1, 1));
-auto dw_edge = edge_buf.get_access<celerity::access_mode::discard_write>(cgh, celerity::access::one_to_one());
+celerity::accessor r_input{input_buf, cgh, celerity::access::neighborhood{1, 1}, celerity::read_only};
+celerity::accessor dw_edge{edge_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 ```
 
 If you have worked with SYCL before, these buffer accessors will look
@@ -183,8 +183,8 @@ the previous contents of `edge_buf`, which is why we choose to discard them
 and use the `discard_write` access mode.
 
 So far everything works exactly as it would in a SYCL application. However,
-there is a second parameter passed into the `celerity::buffer::get_access`
-function that is not present in its SYCL counterpart. In fact, this parameter
+there is an additional parameter passed into the `accessor`
+constructor that is not present in its SYCL counterpart. In fact, this parameter
 represents one of Celerity's most important API additions: While access modes
 tell the runtime system how a kernel intends to access a buffer, it does not
 include any information about _where_ a kernel will access said buffer. In
@@ -252,7 +252,7 @@ your `main()` function:
 
 ```cpp
 queue.submit([=](celerity::handler& cgh) {
-    auto out = edge_buf.get_access<celerity::access_mode::read, celerity::target::host_task>(cgh, celerity::access::all());
+	celerity::accessor out{edge_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
     cgh.host_task(celerity::on_master_node, [=]() {
         stbi_write_png("result.png", img_width, img_height, 1, out.get_pointer(), 0);
     });

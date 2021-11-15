@@ -24,15 +24,14 @@ cgh.host_task(celerity::on_master_node, []{ ... });
 
 Buffers can be accessed in the usual fashion, although there is no `item` structure passed into the kernel. Instead,
 when constructing an accessor, a `fixed` or `all` range mapper is used to specify the range of interest. Also,
-the access target must be set to `host_buffer` explicitly in the call to `get_access`:
+the `*_host_task` selector must be used for selecting the access mode.
 
 ```cpp
 celerity::distr_queue q;
 celerity::buffer<float, 1> result;
 q.submit([=](celerity::handler &cgh) {
-    auto acc = result.get_access<celerity::access_mode::read,
-            celerity::target::host_task>(cgh,
-            celerity::access::all());
+	celerity::accessor acc{buffer, cgh, celerity::access::all{},
+			celerity::read_only_host_task};
     cgh.host_task(celerity::on_master_node, [=]{
         printf("The result is %g\n", acc[0]);
     });
@@ -148,9 +147,9 @@ splitting them along the first (slowest) dimension into contiguous memory portio
 celerity::distr_queue q;
 celerity::buffer<float, 2> buf;
 q.submit([=](celerity::handler& cgh) {
-    auto acc = buffer.get_access<celerity::access_mode::read,
-            celerity::target::host_task>(cgh,
-            celerity::experimental::access::even_split<2>());
+	celerity::accessor acc{buffer, cgh,
+			celerity::experimental::access::even_split<2>{},
+			celerity::read_only_host_task};
     cgh.host_task(celerity::experimental::collective,
             [=](celerity::experimental::collective_partition part) {
         auto aw = acc.get_allocation_window(part);
