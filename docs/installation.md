@@ -18,7 +18,7 @@ represents the de-facto standard in HPC nowadays.
 
 ## Picking a SYCL Implementation
 
-Celerity currently supports two different SYCL implementations. If you're
+Celerity currently supports three different SYCL implementations. If you're
 simply giving Celerity a try, the choice does not matter all that much. For
 more advanced use cases or specific hardware setups it might however make
 sense to prefer one over the other.
@@ -26,26 +26,27 @@ sense to prefer one over the other.
 ### hipSYCL
 
 [hipSYCL](https://github.com/illuhad/hipsycl) is an open source SYCL
-implementation based on AMD HIP. While not fully spec-conformant (especially
-regarding its OpenCL interoperability, which is fundamentally incompatible
-with its design), hipSYCL is a great choice when directly targeting Nvidia
-CUDA and AMD ROCm platforms.
+implementation focused on leveraging existing toolchains such as CUDA or HIP,
+making it a great choice when directly targeting Nvidia CUDA and AMD ROCm
+platforms.
 
-> hipSYCL is currently only available on Linux.
+> hipSYCL is currently available on Linux and has experimental/partial support
+> for OSX and Windows.
 
 ### ComputeCpp
 
-Codeplay's ComputeCpp is a fully SYCL 1.2.1 spec-conformant proprietary implementation. Binary
-distributions can be downloaded
-from [Codeplay's website](https://www.codeplay.com/products/computesuite/computecpp).
+ComputeCpp is a proprietary SYCL implementation by Codeplay. Binary
+distributions can be downloaded from [Codeplay's
+website](https://developer.codeplay.com/home/).
 
 > ComputeCpp is available for both Linux and Windows.
 
 ### DPC++
 
-Intel's LLVM fork [DPC++](https://github.com/intel/llvm) brings SYCL to the latest Intel CPU and GPU
-hardware and also, experimentally, to CUDA devices. Celerity will automatically detect
-when `CMAKE_CXX_COMPILER` points to a DPC++ Clang.
+Intel's LLVM fork [DPC++](https://github.com/intel/llvm) brings SYCL to the
+latest Intel CPU and GPU hardware and also, experimentally, to CUDA and HIP
+devices. Celerity will automatically detect when `CMAKE_CXX_COMPILER` points to
+a DPC++ Clang.
 
 To launch kernels on Intel GPUs, you will also need to install a recent version of the
 [Intel Compute Runtime](https://github.com/intel/compute-runtime/releases) (failing to do so will
@@ -69,7 +70,7 @@ platform. Here are a couple of examples:
 <!--hipSYCL + Ninja -->
 
 ```
-cmake -G Ninja .. -DCMAKE_PREFIX_PATH="<path-to-hipsycl-install>/lib/cmake" -DHIPSYCL_PLATFORM=cuda -DHIPSYCL_GPU_ARCH=sm_52 -DCMAKE_INSTALL_PREFIX="<install-path>" -DCMAKE_BUILD_TYPE=Release
+cmake -G Ninja .. -DCMAKE_PREFIX_PATH="<path-to-hipsycl-install>" -DHIPSYCL_TARGETS="cuda:sm_52" -DCMAKE_INSTALL_PREFIX="<install-path>" -DCMAKE_BUILD_TYPE=Release
 ```
 
 <!--ComputeCpp + Unix Makefiles-->
@@ -93,10 +94,6 @@ Note that the `CMAKE_PREFIX_PATH` and `ComputeCpp_DIR` parameters should only
 be required if you installed SYCL in a non-standard location. See the [CMake
 documentation](https://cmake.org/documentation/) as well as the documentation
 for your SYCL implementation for more information on the other parameters.
-
-> We currently recommend using the [Ninja build
-> system](https://ninja-build.org/) for building hipSYCL-based projects due
-> to some issues with dependency tracking that CMake has with Unix Makefiles.
 
 Celerity comes with several example applications that are built by default.
 If you don't want to build examples, provide `-DCELERITY_BUILD_EXAMPLES=0` as

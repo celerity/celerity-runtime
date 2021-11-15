@@ -36,14 +36,14 @@ auto rd = celerity::reduction(buf, cgh, parity, 0u /* explicit identity */,
 
 ## Limitations
 
-### Only scalar reductions
+### Only Scalar Reductions
 
 Currently, the SYCL standard only mandates scalar reductions, i.e. reductions that produce a single scalar value.
 While that is useful for synchronization work like terminating a loop on a stopping criterion, it is not enough for
 other common operations like histogram construction. Since Celerity delegates to SYCL for intra-node reductions,
 higher-dimensional reduction outputs will only become available once SYCL supports them.
 
-### No broad support across SYCL implementations
+### No Broad Support Across SYCL Implementations
 
 Only hipSYCL provides a complete implementation of SYCL 2020 reduction variables at the moment, but
 requires [a patch](https://github.com/illuhad/hipSYCL/pull/578). Installing this version of hipSYCL will

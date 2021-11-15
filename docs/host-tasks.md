@@ -38,10 +38,6 @@ q.submit([=](celerity::handler &cgh) {
 });
 ```
 
-> **Compatibility note:** Master-node host tasks replace the old _master-access tasks_ from Celerity 0.1. In addition to
-> the different syntax, master-access tasks were executed on the main thread, not in a thread pool. When porting an
->existing Celerity program, be aware of the changed lifetime and synchronization requirements.
-
 ## Distributed Host Tasks
 
 If a computation involving host code is to be distributed across a cluster, Celerity can split the iteration space
@@ -51,7 +47,7 @@ accordingly. Such a distributed host task is created by passing a global size to
 cgh.host_task(global_size, [](celerity::partition<Dims>) { ... });
 cgh.host_task(global_size, global_offset, [](celerity::partition<Dims>) { ... });
 ```
- 
+
 Instead of the per-item kernel invocation of `handler::parallel_for` that is useful for accelerator
 computations, ther host kernel will receive _partitions_ of the iteration space. They describe the iteration sub-space
 this node receives:
@@ -133,7 +129,7 @@ accesses, they can now be executed concurrently. For this purpose, each kernel r
 collective group. The prior example without explicit mentions of a collective group implicitly binds to
 `celerity::experimental::default_collective_group`.
 
-### Buffer Access form a Collective Host Task
+### Buffer Access from a Collective Host Task
 
 Collective host tasks are special in that they receive an implicit one-dimensional iteration space that just identifies
 the participating nodes. To access buffers in a meaningful way, these node indices must be translated to buffer regions.
