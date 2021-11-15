@@ -35,13 +35,21 @@ inline constexpr detail::read_only_host_task_tag_t read_only_host_task;
 inline constexpr detail::read_write_host_task_tag_t read_write_host_task;
 inline constexpr detail::write_only_host_task_tag_t write_only_host_task;
 
+using cl::sycl::property_list;
+
 namespace property {
 #if WORKAROUND_COMPUTECPP
 	struct no_init : cl::sycl::detail::property_base {
 		no_init() : cl::sycl::detail::property_base(static_cast<cl::sycl::detail::property_enum>(0)) {}
 	};
 #else
-	using no_init = cl::sycl::property::no_init;
+	using cl::sycl::property::no_init;
+#endif
+
+#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
+	namespace reduction {
+		using cl::sycl::property::reduction::initialize_to_identity;
+	}
 #endif
 } // namespace property
 

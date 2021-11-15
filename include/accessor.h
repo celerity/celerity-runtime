@@ -202,7 +202,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property::no_init no_init) : accessor(buff, cgh, rmfn) {}
 
 	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, cl::sycl::property_list prop_list) {
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property_list prop_list) {
 		// in this static assert it would be more relevant to use property_list type, but if a defined type is used then it is always false and
 		// always fails to compile. Hence we use a templated type so that it only produces a compile error when the ctr is called.
 		static_assert(detail::constexpr_false<TagT>,
@@ -364,7 +364,7 @@ accessor(const buffer<T, D>& buff, handler& cgh, Functor rmfn, TagT tag, propert
     -> accessor<T, D, detail::deduce_access_mode_discard<TagT>(), detail::deduce_access_target<std::remove_const_t<TagT>>()>;
 
 template <typename T, int D, typename Functor, typename TagT>
-accessor(const buffer<T, D>& buff, handler& cgh, Functor rmfn, TagT tag, cl::sycl::property_list prop_list)
+accessor(const buffer<T, D>& buff, handler& cgh, Functor rmfn, TagT tag, property_list prop_list)
     -> accessor<T, D, detail::deduce_access_mode_discard<TagT>(), detail::deduce_access_target<std::remove_const_t<TagT>>()>;
 
 //
@@ -413,7 +413,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property::no_init no_init) : accessor(buff, cgh, rmfn) {}
 
 	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, cl::sycl::property_list prop_list) {
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property_list prop_list) {
 		static_assert(detail::constexpr_false<TagT>,
 		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
 		    "as a last argument in the constructor");

@@ -14,7 +14,7 @@ celerity::distr_queue q;
 celerity::buffer<size_t, 1> sum_buf{{1}};
 q.submit([=](celerity::handler& cgh) {
     auto rd = celerity::reduction(sum_buf, cgh, cl::sycl::plus<size_t>{},
-                                  cl::sycl::property::reduction::initialize_to_identity{});
+                                  celerity::property::reduction::initialize_to_identity{});
     cgh.parallel_for(celerity::range<1>{1000}, rd,
                      [=](celerity::item<1> item, auto& sum) { sum += item.get_id(0); });
 });
@@ -31,7 +31,7 @@ these are known implicitly, for user-provided functors like lambdas, an explicit
 ```c++
 auto parity = [](unsigned a, unsigned b) { return (a ^ b) & 1u; };
 auto rd = celerity::reduction(buf, cgh, parity, 0u /* explicit identity */,
-                              cl::sycl::property::reduction::initialize_to_identity{});
+                              celerity::property::reduction::initialize_to_identity{});
 ```
 
 ## Limitations
