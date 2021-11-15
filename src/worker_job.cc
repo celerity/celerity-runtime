@@ -199,7 +199,6 @@ namespace detail {
 				reduction_mngr.push_overlapping_reduction_data(rid, local_nid, buffer_mngr.get_buffer_data(reduction.output_buffer_id, {}, {1, 1, 1}));
 			}
 
-#if !WORKAROUND_HIPSYCL
 			if(queue.is_profiling_enabled()) {
 				const auto submit = std::chrono::nanoseconds(event.get_profiling_info<cl::sycl::info::event_profiling::command_submit>());
 				const auto start = std::chrono::nanoseconds(event.get_profiling_info<cl::sycl::info::event_profiling::command_start>());
@@ -210,7 +209,6 @@ namespace detail {
 				logger->trace(logger_map(
 				    {{"event", fmt::format("Delta time start -> end: {}us", std::chrono::duration_cast<std::chrono::microseconds>(end - start).count())}}));
 			}
-#endif
 			return true;
 		}
 		return false;

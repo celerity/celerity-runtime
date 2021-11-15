@@ -152,20 +152,15 @@ namespace detail {
 		// ----------------------------- CELERITY_PROFILE_KERNEL ------------------------------
 		{
 			const auto result = get_env("CELERITY_PROFILE_OCL");
-			if(result.first) { logger.warn("CELERITY_PROFILE_OCL has been renamed to CELERITY_PROFILE_KERNEL with Celerity 0.3.0."); }
+			if(result.first) {
+				logger.warn("CELERITY_PROFILE_OCL has been renamed to CELERITY_PROFILE_KERNEL with Celerity 0.3.0.");
+				enable_device_profiling = result.second == "1";
+			}
 		}
 
 		{
 			const auto result = get_env("CELERITY_PROFILE_KERNEL");
-			if(result.first) {
-				enable_device_profiling = result.second == "1";
-#if WORKAROUND_HIPSYCL
-				if(*enable_device_profiling) {
-					logger.warn("Device profiling is currently not supported on hipSYCL");
-					enable_device_profiling = false;
-				}
-#endif
-			}
+			if(result.first) { enable_device_profiling = result.second == "1"; }
 		}
 
 		// -------------------------------- CELERITY_FORCE_WG ---------------------------------
