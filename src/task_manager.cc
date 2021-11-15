@@ -8,8 +8,9 @@ namespace celerity {
 namespace detail {
 
 	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, reduction_manager* reduction_mgr)
-	    : num_collective_nodes(num_collective_nodes), queue(queue), reduction_mngr(reduction_mgr), current_init_task_id(next_task_id++) {
+	    : num_collective_nodes(num_collective_nodes), queue(queue), reduction_mngr(reduction_mgr) {
 		// We manually generate the first init task; horizons are used later on (see generate_task_horizon).
+		current_init_task_id = get_new_tid();
 		task_map[current_init_task_id] = task::make_nop(current_init_task_id);
 	}
 
