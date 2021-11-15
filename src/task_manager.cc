@@ -8,16 +8,15 @@ namespace celerity {
 namespace detail {
 
 	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, reduction_manager* reduction_mgr)
-	    : num_collective_nodes(num_collective_nodes), queue(queue), reduction_mngr(reduction_mgr), init_task_id(next_task_id++) {
-		// We add a special init task for initializing buffers.
-		// This is useful so we can correctly generate anti-dependencies for tasks that read host initialized buffers.
-		task_map[init_task_id] = task::make_nop(init_task_id);
+	    : num_collective_nodes(num_collective_nodes), queue(queue), reduction_mngr(reduction_mgr), current_init_task_id(next_task_id++) {
+		// We manually generate the first init task; horizons are used later on (see generate_task_horizon).
+		task_map[current_init_task_id] = task::make_nop(current_init_task_id);
 	}
 
 	void task_manager::add_buffer(buffer_id bid, const cl::sycl::range<3>& range, bool host_initialized) {
 		std::lock_guard<std::mutex> lock(task_mutex);
 		buffers_last_writers.emplace(bid, range);
-		if(host_initialized) { buffers_last_writers.at(bid).update_region(subrange_to_grid_box(subrange<3>({}, range)), init_task_id); }
+		if(host_initialized) { buffers_last_writers.at(bid).update_region(subrange_to_grid_box(subrange<3>({}, range)), current_init_task_id); }
 	}
 
 	bool task_manager::has_task(task_id tid) const {
@@ -43,6 +42,8 @@ namespace detail {
 	}
 
 	void task_manager::notify_horizon_executed(task_id tid) {
+		assert(task_map.at(tid)->get_type() == task_type::HORIZON);
+		assert(executed_horizons.empty() || executed_horizons.back() != tid);
 		executed_horizons.push(tid);
 
 		if(executed_horizons.size() >= horizon_deletion_lag) {
@@ -102,6 +103,7 @@ namespace detail {
 					// A valid use case (i.e., not reading garbage) for this is when the buffer has been initialized using a host pointer.
 					if(p.second == std::nullopt) continue;
 					const task_id last_writer = *p.second;
+					assert(task_map.count(last_writer) == 1);
 					add_dependency(tsk.get(), task_map[last_writer].get(), dependency_kind::TRUE_DEP);
 				}
 			}
@@ -115,6 +117,7 @@ namespace detail {
 
 				for(auto& p : last_writers) {
 					if(p.second == std::nullopt) continue;
+					assert(task_map.count(*p.second) == 1);
 					auto& last_writer = *task_map[*p.second];
 
 					// Determine anti-dependencies by looking at all the dependents of the last writing task
@@ -198,13 +201,16 @@ namespace detail {
 
 			// apply the previous horizon to buffers_last_writers data struct
 			if(previous_horizon_task != nullptr) {
+				const task_id prev_hid = previous_horizon_task->get_id();
 				for(auto& [_, buffer_region_map] : buffers_last_writers) {
-					task_id prev_hid = previous_horizon_task->get_id();
 					buffer_region_map.apply_to_values([prev_hid](std::optional<task_id> tid) -> std::optional<task_id> {
 						if(!tid) return tid;
 						return {std::max(prev_hid, *tid)};
 					});
 				}
+
+				// We also use the previous horizon as the new init task for host-initialized buffers
+				current_init_task_id = prev_hid;
 			}
 		}
 

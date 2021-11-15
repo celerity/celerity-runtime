@@ -14,10 +14,11 @@ namespace detail {
 
 	graph_generator::graph_generator(size_t num_nodes, task_manager& tm, reduction_manager& rm, command_graph& cdag)
 	    : task_mngr(tm), reduction_mngr(rm), num_nodes(num_nodes), cdag(cdag) {
-		// Build init command for each node (these are required to properly handle host-initialized buffers).
+		// Build init command for each node (these are required to properly handle anti-dependencies on host-initialized buffers).
+		// We manually generate the first set of commands; horizons are used later on (see generate_horizon).
 		for(auto i = 0u; i < num_nodes; ++i) {
 			const auto init_cmd = cdag.create<nop_command>(i);
-			node_data[i].init_cid = init_cmd->get_cid();
+			node_data[i].current_init_cid = init_cmd->get_cid();
 		}
 		std::fill_n(std::back_inserter(current_horizon_cmds), num_nodes, nullptr);
 	}
@@ -30,7 +31,7 @@ namespace detail {
 		for(auto i = 0u; i < num_nodes; ++i) {
 			all_nodes[i] = i;
 			node_data[i].buffer_last_writer.emplace(bid, range);
-			node_data[i].buffer_last_writer.at(bid).update_region(subrange_to_grid_box({cl::sycl::id<3>(), range}), node_data[i].init_cid);
+			node_data[i].buffer_last_writer.at(bid).update_region(subrange_to_grid_box({cl::sycl::id<3>(), range}), node_data[i].current_init_cid);
 		}
 
 		buffer_states.emplace(bid, distributed_state{{range, std::move(all_nodes)}});
@@ -141,7 +142,7 @@ namespace detail {
 			// the last writer might not have any dependents. Just add the anti-dependency onto the writer itself then.
 			if(!has_dependents) {
 				// Don't add anti-dependencies onto the init command
-				if(last_writer_cid == node_data[write_cmd->get_nid()].init_cid) continue;
+				if(last_writer_cid == node_data[write_cmd->get_nid()].current_init_cid) continue;
 
 				cdag.add_dependency(write_cmd, last_writer_cmd, dependency_kind::ANTI_DEP);
 
@@ -498,6 +499,9 @@ namespace detail {
 				} else {
 					lowest_prev_hid = std::min(lowest_prev_hid, prev_hid);
 				}
+
+				// We also use the previous horizon as the new init cmd for host-initialized buffers
+				node_data[node].current_init_cid = prev_hid;
 			}
 		}
 		// After updating all the data structures, delete before-cleanup-horizon commands

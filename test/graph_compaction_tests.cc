@@ -1,5 +1,6 @@
 #include "unit_test_suite_celerity.h"
 
+#include <array>
 #include <optional>
 #include <set>
 #include <unordered_set>
@@ -51,6 +52,7 @@ namespace detail {
 			region_map_testspy::print_regions(ggen.node_data.at(node_id{0}).buffer_last_writer.at(bid));
 		}
 		static size_t get_command_buffer_reads_size(const graph_generator& ggen) { return ggen.command_buffer_reads.size(); }
+		static const std::vector<horizon_command*>& get_current_horizon_cmds(const graph_generator& ggen) { return ggen.current_horizon_cmds; }
 	};
 
 	TEST_CASE("horizons prevent number of regions from growing indefinitely", "[horizon][command-graph]") {
@@ -251,6 +253,82 @@ namespace detail {
 		// check that all horizons were flushed
 		auto horizon_cmds = inspector.get_commands({}, {}, command_type::HORIZON);
 		CHECK(horizon_cmds.size() == 4);
+
+		maybe_print_graphs(ctx);
+	}
+
+	TEST_CASE("previous horizons are used as last writers for host-initialized buffers", "[graph_generator][horizon][command-graph]") {
+		using namespace cl::sycl::access;
+
+		constexpr int NUM_NODES = 2;
+		test_utils::cdag_test_context ctx(NUM_NODES);
+
+		ctx.get_task_manager().set_horizon_step(2);
+
+		auto& inspector = ctx.get_inspector();
+		test_utils::mock_buffer_factory mbf(ctx);
+		const auto buf_range = cl::sycl::range<1>(100);
+
+		std::array<command_id, 2> initial_last_writer_ids = {-1, -1};
+		{
+			auto buf = mbf.create_buffer(buf_range, true);
+			const auto tid = test_utils::build_and_flush(ctx, NUM_NODES,
+			    test_utils::add_compute_task<class UKN(access_host_init_buf)>(
+			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read_write>(cgh, one_to_one{}); }, buf_range));
+			const auto cmds = inspector.get_commands(tid, std::nullopt, std::nullopt);
+			CHECK(cmds.size() == 2);
+			std::transform(cmds.begin(), cmds.end(), initial_last_writer_ids.begin(), [&](auto cid) {
+				// (Implementation detail: We can't use the inspector here b/c NOP commands are not flushed)
+				const auto deps = ctx.get_command_graph().get(cid)->get_dependencies();
+				REQUIRE(std::distance(deps.begin(), deps.end()) == 1);
+				return deps.begin()->node->get_cid();
+			});
+		}
+
+		// Create bunch of tasks to trigger horizon cleanup
+		{
+			auto buf = mbf.create_buffer(buf_range);
+			task_id last_executed_horizon = 0;
+			// We need 7 tasks to generate a pseudo-critical path length of 6 (3x2 horizon step size),
+			// and another one that triggers the actual deferred deletion.
+			for(int i = 0; i < 8; ++i) {
+				const auto tid = test_utils::build_and_flush(ctx, NUM_NODES,
+				    test_utils::add_compute_task<class UKN(generate_horizons)>(
+				        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, buf_range));
+				const auto* current_horizon = task_manager_testspy::get_current_horizon_task(ctx.get_task_manager());
+				if(current_horizon != nullptr && current_horizon->get_id() > last_executed_horizon) {
+					last_executed_horizon = current_horizon->get_id();
+					ctx.get_task_manager().notify_horizon_executed(last_executed_horizon);
+				}
+			}
+		}
+
+		for(auto cid : initial_last_writer_ids) {
+			INFO("initial last writer with id " << cid << " has been deleted")
+			CHECK_FALSE(ctx.get_command_graph().has(cid));
+		}
+
+		auto buf = mbf.create_buffer(buf_range, true);
+		const auto tid = test_utils::build_and_flush(ctx, NUM_NODES,
+		    test_utils::add_compute_task<class UKN(access_host_init_buf)>(
+		        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read_write>(cgh, one_to_one{}); }, buf_range));
+
+		const auto cmds = inspector.get_commands(tid, std::nullopt, std::nullopt);
+		std::array<command_id, 2> new_last_writer_ids = {-1, -1};
+		CHECK(cmds.size() == 2);
+		std::transform(cmds.begin(), cmds.end(), new_last_writer_ids.begin(), [&](auto cid) {
+			const auto deps = inspector.get_dependencies(cid);
+			REQUIRE(deps.size() == 1);
+			return deps[0];
+		});
+
+		CHECK(isa<horizon_command>(ctx.get_command_graph().get(new_last_writer_ids[0])));
+		CHECK(isa<horizon_command>(ctx.get_command_graph().get(new_last_writer_ids[1])));
+
+		const auto& current_horizon_cmds = graph_generator_testspy::get_current_horizon_cmds(ctx.get_graph_generator());
+		INFO("previous horizons are being used");
+		CHECK(std::none_of(current_horizon_cmds.cbegin(), current_horizon_cmds.cend(),
+		    [&](auto* cmd) { return cmd->get_cid() == new_last_writer_ids[0] || cmd->get_cid() == new_last_writer_ids[1]; }));
 
 		maybe_print_graphs(ctx);
 	}
