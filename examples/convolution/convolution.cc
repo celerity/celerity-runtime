@@ -57,9 +57,9 @@ int main(int argc, char* argv[]) {
 
 	// Do a gaussian blur
 	queue.submit([=](celerity::handler& cgh) {
-		auto in = image_input_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood{FILTER_SIZE / 2, FILTER_SIZE / 2});
-		auto gauss = gaussian_mat_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::all{});
-		auto out = image_tmp_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one{});
+		celerity::accessor in{image_input_buf, cgh, celerity::access::neighborhood{FILTER_SIZE / 2, FILTER_SIZE / 2}, celerity::read_only};
+		celerity::accessor gauss{gaussian_mat_buf, cgh, celerity::access::all{}, celerity::read_only};
+		celerity::accessor out{image_tmp_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 
 		cgh.parallel_for<class gaussian_blur>(celerity::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](celerity::item<2> item) {
 			using cl::sycl::float3;
@@ -82,8 +82,9 @@ int main(int argc, char* argv[]) {
 
 	// Now apply a sharpening kernel
 	queue.submit([=](celerity::handler& cgh) {
-		auto in = image_tmp_buf.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::neighborhood{1, 1});
-		auto out = image_output_buf.get_access<cl::sycl::access::mode::discard_write>(cgh, celerity::access::one_to_one{});
+		celerity::accessor in{image_tmp_buf, cgh, celerity::access::neighborhood{1, 1}, celerity::read_only};
+		celerity::accessor out{image_output_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+
 		cgh.parallel_for<class sharpen>(celerity::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](celerity::item<2> item) {
 			using cl::sycl::float3;
 			if(is_on_boundary(celerity::range<2>(image_height, image_width), fs, item)) {
@@ -101,7 +102,7 @@ int main(int argc, char* argv[]) {
 	});
 
 	queue.submit([=](celerity::handler& cgh) {
-		auto out = image_output_buf.get_access<cl::sycl::access::mode::read, celerity::target::host_task>(cgh, celerity::access::all{});
+		celerity::accessor out{image_output_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
 
 		cgh.host_task(celerity::on_master_node, [=] {
 			std::vector<uint8_t> image_output(image_width * image_height * 3);

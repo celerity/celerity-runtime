@@ -29,7 +29,7 @@ static std::pair<hid_t, hid_t> allocation_window_to_dataspace(const celerity::bu
 
 static void read_hdf5_file(celerity::distr_queue& q, const celerity::buffer<float, 2>& buffer, const char* file_name) {
 	q.submit([=](celerity::handler& cgh) {
-		auto a = buffer.get_access<cl::sycl::access::mode::discard_write, celerity::target::host_task>(cgh, celerity::experimental::access::even_split<2>());
+		celerity::accessor a{buffer, cgh, celerity::experimental::access::even_split<2>{}, celerity::write_only_host_task, celerity::no_init};
 		cgh.host_task(celerity::experimental::collective, [=](celerity::experimental::collective_partition part) {
 			auto plist = H5Pcreate(H5P_FILE_ACCESS);
 			H5Pset_fapl_mpio(plist, part.get_collective_mpi_comm(), MPI_INFO_NULL);
@@ -56,7 +56,7 @@ static void read_hdf5_file(celerity::distr_queue& q, const celerity::buffer<floa
 
 static void write_hdf5_file(celerity::distr_queue& q, const celerity::buffer<float, 2>& buffer, const char* file_name) {
 	q.submit([=](celerity::handler& cgh) {
-		auto a = buffer.get_access<cl::sycl::access::mode::read, celerity::target::host_task>(cgh, celerity::experimental::access::even_split<2>());
+		celerity::accessor a{buffer, cgh, celerity::experimental::access::even_split<2>{}, celerity::read_only_host_task};
 		cgh.host_task(celerity::experimental::collective, [=](celerity::experimental::collective_partition part) {
 			auto plist = H5Pcreate(H5P_FILE_ACCESS);
 			H5Pset_fapl_mpio(plist, part.get_collective_mpi_comm(), MPI_INFO_NULL);
@@ -119,8 +119,8 @@ int main(int argc, char* argv[]) {
 		read_hdf5_file(q, in, argv[2]);
 
 		q.submit([=](celerity::handler& cgh) {
-			auto a = in.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one{});
-			auto b = out.get_access<cl::sycl::access::mode::discard_write>(cgh, transposed);
+			celerity::accessor a{in, cgh, celerity::access::one_to_one{}, celerity::read_only};
+			celerity::accessor b{out, cgh, transposed, celerity::write_only, celerity::no_init};
 			cgh.parallel_for<class transpose>(celerity::range<2>{N, N}, [=](celerity::item<2> item) {
 				auto id = item.get_id();
 				b[{id[1], id[0]}] = a[id];
@@ -140,8 +140,8 @@ int main(int argc, char* argv[]) {
 			read_hdf5_file(q, right, argv[3]);
 
 			q.submit(celerity::allow_by_ref, [=, &equal](celerity::handler& cgh) {
-				auto a = left.get_access<cl::sycl::access::mode::read, celerity::target::host_task>(cgh, celerity::access::all{});
-				auto b = right.get_access<cl::sycl::access::mode::read, celerity::target::host_task>(cgh, celerity::access::all{});
+				celerity::accessor a{left, cgh, celerity::access::all{}, celerity::read_only_host_task};
+				celerity::accessor b{right, cgh, celerity::access::all{}, celerity::read_only_host_task};
 				cgh.host_task(celerity::on_master_node, [=, &equal] {
 					for(size_t i = 0; i < N; ++i) {
 						for(size_t j = 0; j < N; ++j) {
