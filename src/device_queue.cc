@@ -13,12 +13,7 @@ namespace detail {
 		device_profiling_enabled = profiling_cfg != std::nullopt && *profiling_cfg;
 		if(device_profiling_enabled) { queue_logger.info("Device profiling enabled."); }
 
-		cl::sycl::property_list props = ([&]() {
-#if !WORKAROUND_HIPSYCL
-			if(device_profiling_enabled) { return cl::sycl::property_list{cl::sycl::property::queue::enable_profiling()}; }
-#endif
-			return cl::sycl::property_list{};
-		})(); // IIFE
+		const auto props = device_profiling_enabled ? cl::sycl::property_list{cl::sycl::property::queue::enable_profiling()} : cl::sycl::property_list{};
 		const auto handle_exceptions = [this](cl::sycl::exception_list el) { this->handle_async_exceptions(el); };
 		auto device = pick_device(cfg, user_device);
 		sycl_queue = std::make_unique<cl::sycl::queue>(device, handle_exceptions, props);
