@@ -50,8 +50,8 @@ celerity::distr_queue q;
 celerity::buffer<int, 1> buf;
 bool flag = false;
 q.submit(celerity::allow_by_ref, [=, &flag](celerity::handler &cgh) {
-    auto acc = buf.get_access<celerity::access_mode::read,
-        celerity::target::host_task>(cgh, celerity::access::all<1>());
+	celerity::accessor acc{buffer, cgh, celerity::access::all{},
+			celerity::read_only_host_task};
     cgh.host_task(celerity::on_master_node, [=, &flag] {
         flag = acc[0] == 42;
     });

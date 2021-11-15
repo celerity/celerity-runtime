@@ -31,16 +31,16 @@ vice-versa.
 
 ### Usage
 
-Range mappers are passed as the second argument into a call to
-`celerity::buffer::get_access`. This means that the spatial accessing
+Range mappers are passed as the third argument when constructing a
+`celerity::accessor`. This means that the spatial accessing
 behavior of a kernel can vary from buffer to buffer. For example, the
 following command group specifies two different range mappers (whose
 definition is omitted) for buffers `buf_a` and `buf_b`:
 
 ```cpp
 queue.submit([=](celerity::handler& cgh) {
-    auto r_a = buf_a.get_access<celerity::access_mode::read>(cgh, my_mapper);
-    auto dw_b = buf_b.get_access<celerity::access_mode::discard_write>(cgh, other_mapper);
+	celerity::accessor r_a{cgh, buf_a, my_mapper, celerity::read_only};
+	celerity::accessor dw_b{cgh, buf_b, other_mapper, celerity::write_only, celerity::no_init};
 
     cgh.parallel_for<>(...);
 });
@@ -48,7 +48,7 @@ queue.submit([=](celerity::handler& cgh) {
 
 > **NOTE**: In Celerity 0.1, range mappers were only used for compute kernels.
 > For master-node tasks (then called master-access tasks), explicit buffer ranges
-> were passed to `get_access`. These APIs have been unified and range mappers
+> were passed to `buffer::get_access`. These APIs have been unified and range mappers
 > are now required in all cases. In master node tasks, the `all` and `fixed`
 > mappers provide equivalent functionality to explicit ranges.
 
