@@ -1,7 +1,6 @@
 #include "runtime.h"
 
 #include <queue>
-#include <sstream>
 #include <string>
 #include <unordered_map>
 
@@ -24,6 +23,9 @@
 #include "scheduler.h"
 #include "task_manager.h"
 #include "user_bench.h"
+
+#define CELERITY_STRINGIFY2(x) #x
+#define CELERITY_STRINGIFY(x) CELERITY_STRINGIFY2(x)
 
 namespace celerity {
 namespace detail {
@@ -60,16 +62,16 @@ namespace detail {
 #endif
 	}
 
-	std::string get_sycl_version() {
-		std::stringstream ss;
+	const char* get_sycl_version() {
 #if defined(__COMPUTECPP__)
-		ss << "ComputeCpp " << COMPUTECPP_VERSION_MAJOR << "." << COMPUTECPP_VERSION_MINOR << "." << COMPUTECPP_VERSION_PATCH;
-		return ss.str();
+		return "ComputeCpp " CELERITY_STRINGIFY(COMPUTECPP_VERSION_MAJOR) "." CELERITY_STRINGIFY(COMPUTECPP_VERSION_MINOR) //
+		    "." CELERITY_STRINGIFY(COMPUTECPP_VERSION_PATCH);
 #elif defined(__HIPSYCL__) || defined(__HIPSYCL_TRANSFORM__)
-		ss << "hipSYCL " << HIPSYCL_VERSION_MAJOR << "." << HIPSYCL_VERSION_MINOR << "." << HIPSYCL_VERSION_PATCH;
-		return ss.str();
+		return "hipSYCL " CELERITY_STRINGIFY(HIPSYCL_VERSION_MAJOR) "." CELERITY_STRINGIFY(HIPSYCL_VERSION_MINOR) "." CELERITY_STRINGIFY(HIPSYCL_VERSION_PATCH);
+#elif CELERITY_DPCPP
+		return "DPC++ / Clang " __clang_version__;
 #else
-		return "Unknown";
+#error "unknown SYCL implementation"
 #endif
 	}
 
