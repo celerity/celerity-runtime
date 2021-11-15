@@ -72,16 +72,6 @@ namespace detail {
 
 		const task* get_task(task_id tid) const;
 
-		/**
-		 * @brief Returns the id of the INIT task which acts as a surrogate for the host-initialization of buffers.
-		 *
-		 * While this is always 0, having this method makes code dealing with the INIT task more explicit.
-		 */
-		task_id get_init_task_id() const {
-			assert(init_task_id == 0);
-			return init_task_id;
-		}
-
 		void print_graph(logger& graph_logger) const;
 
 		/**
@@ -117,7 +107,9 @@ namespace detail {
 		reduction_manager* reduction_mngr;
 
 		task_id next_task_id = 0;
-		const task_id init_task_id;
+		// An "init task" is used as the last writer for host-initialized buffers.
+		// This is useful so we can correctly generate anti-dependencies onto tasks that read host-initialized buffers.
+		task_id current_init_task_id;
 		std::unordered_map<task_id, std::unique_ptr<task>> task_map;
 
 		// We store a map of which task last wrote to a certain region of a buffer.

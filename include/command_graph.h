@@ -113,6 +113,8 @@ namespace detail {
 
 		void erase_if(std::function<bool(abstract_command*)> condition);
 
+		bool has(command_id cid) const { return commands.count(cid) == 1; }
+
 		template <typename T = abstract_command>
 		T* get(command_id cid) {
 			assert(commands.find(cid) != commands.end());

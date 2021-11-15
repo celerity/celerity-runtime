@@ -15,6 +15,7 @@
 namespace celerity {
 namespace detail {
 
+	using celerity::access::all;
 	using celerity::access::fixed;
 
 	bool has_dependency(const task_manager& tm, task_id dependent, task_id dependency, dependency_kind kind = dependency_kind::TRUE_DEP) {
@@ -451,6 +452,55 @@ namespace detail {
 			CHECK(region_map_a.get_region_values(make_region(0, 64)).front().second.value() == horizon_tsk->get_id());
 			CHECK(region_map_a.get_region_values(make_region(64, 128)).front().second.value() == tid_11);
 		}
+
+		maybe_print_graph(tm);
+	}
+
+	TEST_CASE("previous task horizon is used as last writer for host-initialized buffers", "[task_manager][task-graph][task-horizon]") {
+		task_manager tm{1, nullptr, nullptr};
+		tm.set_horizon_step(2);
+
+		test_utils::mock_buffer_factory mbf(&tm);
+
+		task_id initial_last_writer_id = -1;
+		{
+			auto buf = mbf.create_buffer(cl::sycl::range<1>(1), true);
+			const auto tid = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::read_write>(cgh, all{}); });
+			const auto& deps = tm.get_task(tid)->get_dependencies();
+			CHECK(std::distance(deps.begin(), deps.end()) == 1);
+			initial_last_writer_id = deps.begin()->node->get_id();
+		}
+		CHECK(tm.has_task(initial_last_writer_id));
+
+		// Create a bunch of tasks to trigger horizon cleanup
+		{
+			auto buf = mbf.create_buffer(cl::sycl::range<1>(1));
+			task_id last_executed_horizon = 0;
+			// We need 7 tasks to generate a pseudo-critical path length of 6 (3x2 horizon step size),
+			// and another one that triggers the actual deferred deletion.
+			for(int i = 0; i < 8; ++i) {
+				const auto tid = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });
+				const auto* current_horizon = task_manager_testspy::get_current_horizon_task(tm);
+				if(current_horizon != nullptr && current_horizon->get_id() > last_executed_horizon) {
+					last_executed_horizon = current_horizon->get_id();
+					tm.notify_horizon_executed(last_executed_horizon);
+				}
+			}
+		}
+
+		INFO("initial last writer with id " << initial_last_writer_id << " has been deleted")
+		CHECK_FALSE(tm.has_task(initial_last_writer_id));
+
+		auto buf = mbf.create_buffer(cl::sycl::range<1>(1), true);
+		const auto tid = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::read_write>(cgh, all{}); });
+		const auto& deps = tm.get_task(tid)->get_dependencies();
+		CHECK(std::distance(deps.begin(), deps.end()) == 1);
+		const auto* new_last_writer = deps.begin()->node;
+		CHECK(new_last_writer->get_type() == task_type::HORIZON);
+
+		const auto* current_horizon = task_manager_testspy::get_current_horizon_task(tm);
+		INFO("previous horizon is being used");
+		CHECK(new_last_writer->get_id() < current_horizon->get_id());
 
 		maybe_print_graph(tm);
 	}
