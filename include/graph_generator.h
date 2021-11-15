@@ -87,8 +87,8 @@ namespace detail {
 		command_graph& cdag;
 
 		// The most recent horizon command per node.
-		std::vector<horizon_command*> prev_horizon_cmds;
-		// The id for the next cleanup horizon (after which we can delete commands)
+		std::vector<horizon_command*> current_horizon_cmds;
+		// The id for the next cleanup horizon (commands with ids lower than the cleanup horizon will be deleted next)
 		detail::command_id cleanup_horizon_id = 0;
 
 		// NOTE: We have several data structures that keep track of the "global state" of the distributed program, across all tasks and nodes.

@@ -30,7 +30,7 @@ namespace celerity {
 namespace detail {
 
 	struct task_manager_testspy {
-		static task* get_previous_horizon_task(task_manager& tm) { return tm.previous_horizon_task; }
+		static task* get_current_horizon_task(task_manager& tm) { return tm.current_horizon_task; }
 
 		static int get_num_horizons(task_manager& tm) {
 			int horizon_counter = 0;
@@ -41,8 +41,6 @@ namespace detail {
 		}
 
 		static region_map<std::optional<task_id>> get_last_writer(task_manager& tm, const buffer_id bid) { return tm.buffers_last_writers.at(bid); }
-
-		static int num_tasks(task_manager& tm) { return tm.task_map.size(); }
 
 		static int get_max_pseudo_critical_path_length(task_manager& tm) { return tm.get_max_pseudo_critical_path_length(); }
 
@@ -163,7 +161,7 @@ namespace test_utils {
 		detail::graph_serializer& get_graph_serializer() { return *gsrlzr; }
 
 		void build_task_horizons() {
-			auto most_recently_generated_task_horizon = detail::task_manager_testspy::get_previous_horizon_task(get_task_manager());
+			auto most_recently_generated_task_horizon = detail::task_manager_testspy::get_current_horizon_task(get_task_manager());
 			if(most_recently_generated_task_horizon != most_recently_built_task_horizon) {
 				most_recently_built_task_horizon = most_recently_generated_task_horizon;
 				if(most_recently_built_task_horizon != nullptr) {

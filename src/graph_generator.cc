@@ -19,7 +19,7 @@ namespace detail {
 			const auto init_cmd = cdag.create<nop_command>(i);
 			node_data[i].init_cid = init_cmd->get_cid();
 		}
-		std::fill_n(std::back_inserter(prev_horizon_cmds), num_nodes, nullptr);
+		std::fill_n(std::back_inserter(current_horizon_cmds), num_nodes, nullptr);
 	}
 
 	void graph_generator::add_buffer(buffer_id bid, const cl::sycl::range<3>& range) {
@@ -481,7 +481,8 @@ namespace detail {
 				cdag.add_dependency(horizon_cmd, front_cmd);
 			}
 			// Apply the previous horizon to data structures
-			auto prev_horizon = prev_horizon_cmds[node];
+			auto* prev_horizon = current_horizon_cmds[node];
+			current_horizon_cmds[node] = horizon_cmd;
 			if(prev_horizon != nullptr) {
 				// update "buffer_last_writer" structures to subsume pre-horizon commands
 				auto prev_hid = prev_horizon->get_cid();
@@ -498,7 +499,6 @@ namespace detail {
 					lowest_prev_hid = std::min(lowest_prev_hid, prev_hid);
 				}
 			}
-			prev_horizon_cmds[node] = horizon_cmd;
 		}
 		// After updating all the data structures, delete before-cleanup-horizon commands
 		// Also remove commands from command_buffer_reads (if it exists)

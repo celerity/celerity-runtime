@@ -183,23 +183,17 @@ namespace detail {
 
 	void task_manager::generate_task_horizon() {
 		// we are probably overzealous in locking here
-		task_id tid;
 		{
 			std::lock_guard lock(task_mutex);
-			previous_horizon_critical_path_length = max_pseudo_critical_path_length;
+			current_horizon_critical_path_length = max_pseudo_critical_path_length;
 
-			// create horizon task
-			tid = get_new_tid();
-			task* horizon_task_ptr = nullptr;
-			{
-				auto horizon_task = task::make_horizon_task(tid);
-				horizon_task_ptr = &register_task_internal(std::move(horizon_task));
-			}
+			auto* previous_horizon_task = current_horizon_task;
+			current_horizon_task = &register_task_internal(task::make_horizon_task(get_new_tid()));
 
 			// add dependencies from a copy of the front to this task
 			auto current_front = get_execution_front();
 			for(task* front_task : current_front) {
-				if(front_task != horizon_task_ptr) { add_dependency(horizon_task_ptr, front_task); }
+				if(front_task != current_horizon_task) { add_dependency(current_horizon_task, front_task); }
 			}
 
 			// apply the previous horizon to buffers_last_writers data struct
@@ -212,11 +206,10 @@ namespace detail {
 					});
 				}
 			}
-			previous_horizon_task = horizon_task_ptr;
 		}
 
 		// it's important that we don't hold the lock while doing this
-		invoke_callbacks(tid, task_type::HORIZON);
+		invoke_callbacks(current_horizon_task->get_id(), task_type::HORIZON);
 	}
 
 	void task_manager::clean_up_pre_horizon_tasks() {
