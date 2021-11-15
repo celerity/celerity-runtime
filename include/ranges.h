@@ -1,8 +1,6 @@
 #pragma once
 
-#include <CL/sycl.hpp>
-
-#include "workaround.h"
+#include "sycl_wrappers.h"
 
 namespace celerity {
 namespace detail {
@@ -69,13 +67,13 @@ struct chunk {
 
 	static constexpr int dims = Dims;
 
-	cl::sycl::id<Dims> offset;
-	cl::sycl::range<Dims> range = detail::range_cast<Dims>(cl::sycl::range<3>(0, 0, 0));
-	cl::sycl::range<Dims> global_size = detail::range_cast<Dims>(cl::sycl::range<3>(0, 0, 0));
+	celerity::id<Dims> offset;
+	celerity::range<Dims> range = detail::range_cast<Dims>(celerity::range<3>(0, 0, 0));
+	celerity::range<Dims> global_size = detail::range_cast<Dims>(celerity::range<3>(0, 0, 0));
 
 	chunk() = default;
 
-	chunk(cl::sycl::id<Dims> offset, cl::sycl::range<Dims> range, cl::sycl::range<Dims> global_size) : offset(offset), range(range), global_size(global_size) {}
+	chunk(celerity::id<Dims> offset, celerity::range<Dims> range, celerity::range<Dims> global_size) : offset(offset), range(range), global_size(global_size) {}
 
 	friend bool operator==(const chunk& lhs, const chunk& rhs) {
 		return lhs.offset == rhs.offset && lhs.range == rhs.range && lhs.global_size == rhs.global_size;
@@ -89,8 +87,8 @@ struct subrange {
 
 	static constexpr int dims = Dims;
 
-	cl::sycl::id<Dims> offset;
-	cl::sycl::range<Dims> range = detail::range_cast<Dims>(cl::sycl::range<3>(0, 0, 0));
+	celerity::id<Dims> offset;
+	celerity::range<Dims> range = detail::range_cast<Dims>(celerity::range<3>(0, 0, 0));
 
 	subrange() = default;
 
@@ -108,7 +106,7 @@ struct subrange {
 	}
 #endif
 
-	subrange(cl::sycl::id<Dims> offset, cl::sycl::range<Dims> range) : offset(offset), range(range) {}
+	subrange(celerity::id<Dims> offset, celerity::range<Dims> range) : offset(offset), range(range) {}
 
 	subrange(chunk<Dims> other) : offset(other.offset), range(other.range) {}
 

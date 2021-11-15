@@ -60,7 +60,7 @@ this node receives:
 ```cpp
 celerity::distr_queue q;
 q.submit([=](celerity::handler &cgh) {
-    cgh.host_task(cl::sycl::range<1>(100), [=](celerity::partition<1> part) {
+    cgh.host_task(celerity::range<1>(100), [=](celerity::partition<1> part) {
         printf("This node received %zu items\n", part.get_subrange().range[0]);
     });
 });

@@ -17,7 +17,7 @@ namespace detail {
 
 	template <typename Functor, int BufferDims, int KernelDims>
 	constexpr bool is_range_mapper_invocable_for_chunk_and_global_size =
-	    std::is_invocable_r_v<subrange<BufferDims>, const Functor&, const celerity::chunk<KernelDims>&, const cl::sycl::range<BufferDims>&>;
+	    std::is_invocable_r_v<subrange<BufferDims>, const Functor&, const celerity::chunk<KernelDims>&, const range<BufferDims>&>;
 
 	template <typename Functor, int BufferDims, int KernelDims>
 	constexpr bool is_range_mapper_invocable_for_kernel = is_range_mapper_invocable_for_chunk_only<Functor, BufferDims, KernelDims> //
@@ -40,8 +40,7 @@ namespace detail {
 	}
 
 	template <int KernelDims, int BufferDims, typename Functor>
-	subrange<BufferDims> invoke_range_mapper_for_kernel(
-	    Functor&& fn, const celerity::chunk<KernelDims>& chunk, const cl::sycl::range<BufferDims>& buffer_size) {
+	subrange<BufferDims> invoke_range_mapper_for_kernel(Functor&& fn, const celerity::chunk<KernelDims>& chunk, const range<BufferDims>& buffer_size) {
 		static_assert(KernelDims >= 1 && KernelDims <= 3 && BufferDims >= 1 && BufferDims <= 3);
 		if constexpr(is_range_mapper_invocable_for_chunk_and_global_size<Functor, BufferDims, KernelDims>) {
 			return std::forward<Functor>(fn)(chunk, buffer_size);
@@ -53,7 +52,7 @@ namespace detail {
 	}
 
 	template <int BufferDims>
-	subrange<BufferDims> clamp_subrange_to_buffer_size(subrange<BufferDims> sr, cl::sycl::range<BufferDims> buffer_size) {
+	subrange<BufferDims> clamp_subrange_to_buffer_size(subrange<BufferDims> sr, range<BufferDims> buffer_size) {
 		auto end = sr.offset + sr.range;
 		if(BufferDims > 0 && end[0] > buffer_size[0]) { sr.range[0] = sr.offset[0] <= buffer_size[0] ? buffer_size[0] - sr.offset[0] : 0; }
 		if(BufferDims > 1 && end[1] > buffer_size[1]) { sr.range[1] = sr.offset[1] <= buffer_size[1] ? buffer_size[1] - sr.offset[1] : 0; }
@@ -62,12 +61,12 @@ namespace detail {
 	}
 
 	template <int BufferDims, typename Functor>
-	subrange<BufferDims> invoke_range_mapper(int kernel_dims, Functor fn, const celerity::chunk<3>& chunk, const cl::sycl::range<BufferDims>& buffer_size) {
+	subrange<BufferDims> invoke_range_mapper(int kernel_dims, Functor fn, const celerity::chunk<3>& chunk, const range<BufferDims>& buffer_size) {
 		static_assert(is_range_mapper_invocable<Functor, BufferDims>);
 		subrange<BufferDims> sr;
 		switch(kernel_dims) {
 		case 0:
-			[[fallthrough]]; // cl::sycl::range is not defined for the 0d case, but since only constant range mappers are useful in the 0d-kernel case
+			[[fallthrough]]; // range is not defined for the 0d case, but since only constant range mappers are useful in the 0d-kernel case
 			                 // anyway, we require range mappers to take at least 1d subranges
 		case 1: sr = invoke_range_mapper_for_kernel(fn, chunk_cast<1>(chunk), buffer_size); break;
 		case 2: sr = invoke_range_mapper_for_kernel(fn, chunk_cast<2>(chunk), buffer_size); break;
@@ -106,8 +105,7 @@ namespace detail {
 	template <int BufferDims, typename Functor>
 	class range_mapper : public range_mapper_base {
 	  public:
-		range_mapper(Functor rmfn, cl::sycl::access::mode am, cl::sycl::range<BufferDims> buffer_size)
-		    : range_mapper_base(am), rmfn(rmfn), buffer_size(buffer_size) {}
+		range_mapper(Functor rmfn, cl::sycl::access::mode am, range<BufferDims> buffer_size) : range_mapper_base(am), rmfn(rmfn), buffer_size(buffer_size) {}
 
 		int get_buffer_dimensions() const override { return BufferDims; }
 
@@ -123,7 +121,7 @@ namespace detail {
 
 	  private:
 		Functor rmfn;
-		cl::sycl::range<BufferDims> buffer_size;
+		range<BufferDims> buffer_size;
 
 		template <int OtherBufferDims, int KernelDims>
 		subrange<OtherBufferDims> map(const chunk<KernelDims>& chnk) const {
@@ -208,7 +206,7 @@ namespace access {
 	template <>
 	struct all<0, 0> {
 		template <int KernelDims, int BufferDims>
-		subrange<BufferDims> operator()(const chunk<KernelDims>&, const cl::sycl::range<BufferDims>& buffer_size) const {
+		subrange<BufferDims> operator()(const chunk<KernelDims>&, const range<BufferDims>& buffer_size) const {
 			return {{}, buffer_size};
 		}
 	};
@@ -230,10 +228,10 @@ namespace access {
 
 		subrange<Dims> operator()(const chunk<Dims>& chnk) const {
 			subrange<3> result = {celerity::detail::id_cast<3>(chnk.offset), celerity::detail::range_cast<3>(chnk.range)};
-			const cl::sycl::id<3> delta = {dim0 < result.offset[0] ? dim0 : result.offset[0], dim1 < result.offset[1] ? dim1 : result.offset[1],
+			const id<3> delta = {dim0 < result.offset[0] ? dim0 : result.offset[0], dim1 < result.offset[1] ? dim1 : result.offset[1],
 			    dim2 < result.offset[2] ? dim2 : result.offset[2]};
 			result.offset -= delta;
-			result.range += cl::sycl::range<3>{dim0 + delta[0], dim1 + delta[1], dim2 + delta[2]};
+			result.range += range<3>{dim0 + delta[0], dim1 + delta[1], dim2 + delta[2]};
 			return detail::subrange_cast<Dims>(result);
 		}
 
@@ -262,9 +260,9 @@ namespace experimental::access {
 
 	  public:
 		even_split() = default;
-		explicit even_split(const cl::sycl::range<BufferDims>& granularity) : granularity(granularity) {}
+		explicit even_split(const range<BufferDims>& granularity) : granularity(granularity) {}
 
-		subrange<BufferDims> operator()(const chunk<1>& chunk, const cl::sycl::range<BufferDims>& buffer_size) const {
+		subrange<BufferDims> operator()(const chunk<1>& chunk, const range<BufferDims>& buffer_size) const {
 			if(chunk.global_size[0] == 0) { return {}; }
 
 			// Equal splitting has edge cases when buffer_size is not a multiple of global_size * granularity. Splitting is performed in a manner that
@@ -294,7 +292,7 @@ namespace experimental::access {
 		}
 
 	  private:
-		cl::sycl::range<BufferDims> granularity = detail::range_cast<BufferDims>(cl::sycl::range<3>(1, 1, 1));
+		range<BufferDims> granularity = detail::range_cast<BufferDims>(range<3>(1, 1, 1));
 	};
 
 } // namespace experimental::access

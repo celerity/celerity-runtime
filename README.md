@@ -28,14 +28,14 @@ Celerity without much hassle. If you know SYCL already, this will probably
 look very familiar to you:
 
 ```cpp
-celerity::buffer<float, 1> buf(sycl::range<1>(1024));
+celerity::buffer<float, 1> buf(celerity::range<1>(1024));
 queue.submit([=](celerity::handler& cgh) {
   auto acc = buf.get_access<sycl::access::mode::discard_write>(
     cgh,
     celerity::access::one_to_one()              // 1
   );
   cgh.parallel_for<class MyKernel>(
-    sycl::range<1>(1024),                       // 2
+    celerity::range<1>(1024),                   // 2
     [=](celerity::item<1> item) {               // 3
       acc[item] = sycl::sin(item[0] / 1024.f);  // 4
     });

@@ -6,7 +6,6 @@
 
 #include <vector>
 
-
 namespace celerity {
 namespace detail {
 
@@ -93,5 +92,6 @@ namespace detail {
 		reduction_id next_rid = 1;
 		std::unordered_map<reduction_id, std::unique_ptr<abstract_buffer_reduction>> reductions;
 	};
+
 } // namespace detail
 } // namespace celerity

@@ -97,9 +97,9 @@ by the GPU. Let's create our two buffers and the distributed queue now:
 #include <celerity/celerity.h>
 ...
 uint8_t* img_data = stbi_load(argv[1], &img_width, &img_height, nullptr, 1);
-celerity::buffer<uint8_t, 2> input_buf(img_data, cl::sycl::range<2>(img_height, img_width));
+celerity::buffer<uint8_t, 2> input_buf(img_data, celerity::range<2>(img_height, img_width));
 stbi_image_free(img_data);
-celerity::buffer<uint8_t, 2> edge_buf(cl::sycl::range<2>(img_height, img_width));
+celerity::buffer<uint8_t, 2> edge_buf(celerity::range<2>(img_height, img_width));
 celerity::distr_queue queue;
 ...
 ```
@@ -122,8 +122,8 @@ are specified in Celerity is very similar to how it is done in SYCL:
 queue.submit([=](celerity::handler& cgh) {
     // TODO: Buffer accessors
     cgh.parallel_for<class MyEdgeDetectionKernel>(
-        cl::sycl::range<2>(img_height - 2, img_width - 2),
-        cl::sycl::id<2>(1, 1),
+        celerity::range<2>(img_height - 2, img_width - 2),
+        celerity::id<2>(1, 1),
         [=](celerity::item<2> item) {
             // TODO: Kernel code
         }

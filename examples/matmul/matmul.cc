@@ -46,7 +46,7 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 
 #else
 
-		cgh.parallel_for<class mat_mul>(cl::sycl::range<2>(MAT_SIZE, MAT_SIZE), [=](celerity::item<2> item) {
+		cgh.parallel_for<class mat_mul>(celerity::range<2>(MAT_SIZE, MAT_SIZE), [=](celerity::item<2> item) {
 			T sum{};
 			for(size_t k = 0; k < MAT_SIZE; ++k) {
 				const auto a_ik = a[{item[0], k}];
@@ -73,7 +73,7 @@ int main(int argc, char* argv[]) {
 	{
 		celerity::distr_queue queue;
 
-		auto range = cl::sycl::range<2>(MAT_SIZE, MAT_SIZE);
+		auto range = celerity::range<2>(MAT_SIZE, MAT_SIZE);
 		celerity::buffer<float, 2> mat_a_buf(range);
 		celerity::buffer<float, 2> mat_b_buf(range);
 		celerity::buffer<float, 2> mat_c_buf(range);

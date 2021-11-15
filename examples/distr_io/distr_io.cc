@@ -106,13 +106,13 @@ int main(int argc, char* argv[]) {
 		auto gen = std::minstd_rand{seed};
 		auto dist = std::uniform_real_distribution{-1.0f, 1.0f};
 		std::generate(initial.begin(), initial.end(), [&] { return dist(gen); });
-		celerity::buffer<float, 2> out(initial.data(), cl::sycl::range<2>{N, N});
+		celerity::buffer<float, 2> out(initial.data(), celerity::range<2>{N, N});
 
 		celerity::distr_queue q;
 		write_hdf5_file(q, out, argv[2]);
 	} else if(argc == 4 && strcmp(argv[1], "--transpose") == 0) {
-		celerity::buffer<float, 2> in(cl::sycl::range<2>{N, N});
-		celerity::buffer<float, 2> out(cl::sycl::range<2>{N, N});
+		celerity::buffer<float, 2> in(celerity::range<2>{N, N});
+		celerity::buffer<float, 2> out(celerity::range<2>{N, N});
 
 		celerity::distr_queue q;
 
@@ -121,7 +121,7 @@ int main(int argc, char* argv[]) {
 		q.submit([=](celerity::handler& cgh) {
 			auto a = in.get_access<cl::sycl::access::mode::read>(cgh, celerity::access::one_to_one{});
 			auto b = out.get_access<cl::sycl::access::mode::discard_write>(cgh, transposed);
-			cgh.parallel_for<class transpose>(cl::sycl::range<2>{N, N}, [=](celerity::item<2> item) {
+			cgh.parallel_for<class transpose>(celerity::range<2>{N, N}, [=](celerity::item<2> item) {
 				auto id = item.get_id();
 				b[{id[1], id[0]}] = a[id];
 			});
@@ -133,8 +133,8 @@ int main(int argc, char* argv[]) {
 		{
 			celerity::distr_queue q;
 
-			celerity::buffer<float, 2> left(cl::sycl::range<2>{N, N});
-			celerity::buffer<float, 2> right(cl::sycl::range<2>{N, N});
+			celerity::buffer<float, 2> left(celerity::range<2>{N, N});
+			celerity::buffer<float, 2> right(celerity::range<2>{N, N});
 
 			read_hdf5_file(q, left, argv[2]);
 			read_hdf5_file(q, right, argv[3]);

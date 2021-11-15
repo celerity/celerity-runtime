@@ -64,10 +64,10 @@ int main(int argc, char* argv[]) {
 
 	celerity::distr_queue q;
 
-	cl::sycl::range<2> image_size{static_cast<size_t>(image_height), static_cast<size_t>(image_width)};
+	celerity::range<2> image_size{static_cast<size_t>(image_height), static_cast<size_t>(image_width)};
 	celerity::buffer<cl::sycl::uchar4, 2> srgb_255_buf{reinterpret_cast<const cl::sycl::uchar4*>(srgb_255_data.get()), image_size};
 	celerity::buffer<cl::sycl::float4, 2> lab_buf{image_size};
-	celerity::buffer<cl::sycl::float2, 1> minmax_buf{cl::sycl::range{1}};
+	celerity::buffer<cl::sycl::float2, 1> minmax_buf{celerity::range{1}};
 
 	q.submit([=](celerity::handler& cgh) {
 		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::one_to_one{}, celerity::read_only};

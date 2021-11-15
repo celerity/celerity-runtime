@@ -149,8 +149,8 @@ int main(int argc, char* argv[]) {
 	{
 		celerity::distr_queue queue;
 
-		celerity::buffer<float, 2> up(nullptr, cl::sycl::range<2>(cfg.N, cfg.N)); // next
-		celerity::buffer<float, 2> u(nullptr, cl::sycl::range<2>(cfg.N, cfg.N));  // current
+		celerity::buffer<float, 2> up(nullptr, celerity::range<2>(cfg.N, cfg.N)); // next
+		celerity::buffer<float, 2> u(nullptr, celerity::range<2>(cfg.N, cfg.N));  // current
 
 		MPI_Barrier(MPI_COMM_WORLD);
 		celerity::experimental::bench::begin("main program");

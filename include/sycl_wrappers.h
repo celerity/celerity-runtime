@@ -70,6 +70,9 @@ using decorated_global_ptr = cl::sycl::global_ptr<T>;
 template <typename T>
 using decorated_local_ptr = cl::sycl::local_ptr<T>;
 
+using cl::sycl::id;
+using cl::sycl::range;
+
 // We re-implement nd_range to un-deprecate kernel offsets
 template <int Dims = 1>
 class nd_range {
@@ -80,8 +83,7 @@ class nd_range {
 	    : global_range(s_range.get_global_range()), local_range(s_range.get_local_range()), offset(s_range.get_offset()) {}
 #pragma GCC diagnostic pop
 
-	nd_range(cl::sycl::range<Dims> global_range, cl::sycl::range<Dims> local_range, cl::sycl::id<Dims> offset = {})
-	    : global_range(global_range), local_range(local_range), offset(offset) {
+	nd_range(range<Dims> global_range, range<Dims> local_range, id<Dims> offset = {}) : global_range(global_range), local_range(local_range), offset(offset) {
 #ifndef __SYCL_DEVICE_ONLY__
 		for(int d = 0; d < Dims; ++d) {
 			if(local_range[d] == 0 || global_range[d] % local_range[d] != 0) { throw std::invalid_argument("global_range is not divisible by local_range"); }
@@ -91,10 +93,10 @@ class nd_range {
 
 	operator cl::sycl::nd_range<Dims>() const { return cl::sycl::nd_range<Dims>{global_range, local_range, offset}; }
 
-	cl::sycl::range<Dims> get_global_range() const { return global_range; }
-	cl::sycl::range<Dims> get_local_range() const { return local_range; }
-	cl::sycl::range<Dims> get_group_range() const { return global_range / local_range; }
-	cl::sycl::id<Dims> get_offset() const { return offset; }
+	range<Dims> get_global_range() const { return global_range; }
+	range<Dims> get_local_range() const { return local_range; }
+	range<Dims> get_group_range() const { return global_range / local_range; }
+	id<Dims> get_offset() const { return offset; }
 
 	friend bool operator==(const nd_range& lhs, const nd_range& rhs) {
 		return lhs.global_range == rhs.global_range && lhs.local_range == rhs.local_range && lhs.offset == rhs.offset;
@@ -103,18 +105,18 @@ class nd_range {
 	friend bool operator!=(const nd_range& lhs, const nd_range& rhs) { return !(lhs == rhs); }
 
   private:
-	cl::sycl::range<Dims> global_range;
-	cl::sycl::range<Dims> local_range;
-	cl::sycl::id<Dims> offset;
+	range<Dims> global_range;
+	range<Dims> local_range;
+	id<Dims> offset;
 };
 
 // Non-templated deduction guides allow construction of nd_range from range initializer lists like so: nd_range{{1, 2}, {3, 4}}
 // ... except, currently, for ComputeCpp which uses an outdated Clang (TODO)
-nd_range(cl::sycl::range<1> global_range, cl::sycl::range<1> local_range, cl::sycl::id<1> offset)->nd_range<1>;
-nd_range(cl::sycl::range<1> global_range, cl::sycl::range<1> local_range)->nd_range<1>;
-nd_range(cl::sycl::range<2> global_range, cl::sycl::range<2> local_range, cl::sycl::id<2> offset)->nd_range<2>;
-nd_range(cl::sycl::range<2> global_range, cl::sycl::range<2> local_range)->nd_range<2>;
-nd_range(cl::sycl::range<3> global_range, cl::sycl::range<3> local_range, cl::sycl::id<3> offset)->nd_range<3>;
-nd_range(cl::sycl::range<3> global_range, cl::sycl::range<3> local_range)->nd_range<3>;
+nd_range(range<1> global_range, range<1> local_range, id<1> offset)->nd_range<1>;
+nd_range(range<1> global_range, range<1> local_range)->nd_range<1>;
+nd_range(range<2> global_range, range<2> local_range, id<2> offset)->nd_range<2>;
+nd_range(range<2> global_range, range<2> local_range)->nd_range<2>;
+nd_range(range<3> global_range, range<3> local_range, id<3> offset)->nd_range<3>;
+nd_range(range<3> global_range, range<3> local_range)->nd_range<3>;
 
 } // namespace celerity
