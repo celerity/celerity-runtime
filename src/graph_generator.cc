@@ -141,8 +141,9 @@ namespace detail {
 			// In some cases (horizons, master node host task, weird discard_* constructs...)
 			// the last writer might not have any dependents. Just add the anti-dependency onto the writer itself then.
 			if(!has_dependents) {
-				// Don't add anti-dependencies onto the init command
-				if(last_writer_cid == node_data[write_cmd->get_nid()].current_init_cid) continue;
+				// Don't add anti-dependencies onto the (first! the nop_command) init command
+				const auto init_cid = node_data[write_cmd->get_nid()].current_init_cid;
+				if(last_writer_cid == init_cid && isa<nop_command>(cdag.get(init_cid))) continue;
 
 				cdag.add_dependency(write_cmd, last_writer_cmd, dependency_kind::ANTI_DEP);
 
