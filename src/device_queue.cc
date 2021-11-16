@@ -43,26 +43,42 @@ namespace detail {
 			} else {
 				const auto host_cfg = cfg.get_host_config();
 
-				// Try to find a platform that can provide a unique device for each node.
-				bool found = false;
-				const auto platforms = cl::sycl::platform::get_platforms();
-				for(size_t i = 0; i < platforms.size(); ++i) {
-					auto&& platform = platforms[i];
-					const auto devices = platform.get_devices(cl::sycl::info::device_type::gpu);
-					if(devices.size() >= host_cfg.node_count) {
-						how_selected = fmt::format("automatically selected platform {}, device {}", i, host_cfg.local_rank);
-						device = devices[host_cfg.local_rank];
-						found = true;
-						break;
+				const auto try_find_device_per_node = [&host_cfg, &device, &how_selected](cl::sycl::info::device_type type) {
+					// Try to find a platform that can provide a unique device for each node.
+					const auto platforms = cl::sycl::platform::get_platforms();
+					for(size_t i = 0; i < platforms.size(); ++i) {
+						auto&& platform = platforms[i];
+						const auto devices = platform.get_devices(type);
+						if(devices.size() >= host_cfg.node_count) {
+							how_selected = fmt::format("automatically selected platform {}, device {}", i, host_cfg.local_rank);
+							device = devices[host_cfg.local_rank];
+							return true;
+						}
 					}
-				}
+					return false;
+				};
 
-				if(!found) {
-					queue_logger.warn("No suitable platform found that can provide {} devices, and CELERITY_DEVICES not set", host_cfg.node_count);
-					// Just use the first device available
-					const auto devices = cl::sycl::device::get_devices(cl::sycl::info::device_type::gpu);
-					if(devices.empty()) { throw std::runtime_error("Automatic device selection failed: No GPU device available"); }
-					device = devices[0];
+				const auto try_find_one_device = [&device](cl::sycl::info::device_type type) {
+					const auto devices = cl::sycl::device::get_devices(type);
+					if(!devices.empty()) {
+						device = devices[0];
+						return true;
+					}
+					return false;
+				};
+
+				// Try to find a unique GPU per node.
+				if(!try_find_device_per_node(cl::sycl::info::device_type::gpu)) {
+					// Try to find a unique device (of any type) per node.
+					if(try_find_device_per_node(cl::sycl::info::device_type::all)) {
+						queue_logger.warn("No suitable platform found that can provide {} GPU devices, and CELERITY_DEVICES not set", host_cfg.node_count);
+					} else {
+						queue_logger.warn("No suitable platform found that can provide {} devices, and CELERITY_DEVICES not set", host_cfg.node_count);
+						// Just use the first available device. Prefer GPUs, but settle for anything.
+						if(!try_find_one_device(cl::sycl::info::device_type::gpu) && !try_find_one_device(cl::sycl::info::device_type::all)) {
+							throw std::runtime_error("Automatic device selection failed: No device available");
+						}
+					}
 				}
 			}
 		}
