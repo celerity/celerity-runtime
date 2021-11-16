@@ -24,4 +24,8 @@ namespace runtime {
 } // namespace runtime
 } // namespace celerity
 
+// Celerity includes <CL/sycl.hpp> internally, but we want to expose the SYCL 2020 ::sycl namespace to Celerity users.
+// TODO: Remove this once Celerity includes <sycl/sycl.hpp> internally.
+#include <sycl/sycl.hpp>
+
 #endif
