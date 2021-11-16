@@ -19,7 +19,7 @@ int main(int argc, char* argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	std::vector<cl::sycl::float3> image_input;
+	std::vector<sycl::float3> image_input;
 	int image_width = 0, image_height = 0, image_channels = 0;
 	{
 		uint8_t* image_data = stbi_load(argv[1], &image_width, &image_height, &image_channels, 3);
@@ -50,8 +50,8 @@ int main(int argc, char* argv[]) {
 
 	celerity::distr_queue queue;
 
-	celerity::buffer<cl::sycl::float3, 2> image_input_buf(image_input.data(), celerity::range<2>(image_height, image_width));
-	celerity::buffer<cl::sycl::float3, 2> image_tmp_buf(celerity::range<2>(image_height, image_width));
+	celerity::buffer<sycl::float3, 2> image_input_buf(image_input.data(), celerity::range<2>(image_height, image_width));
+	celerity::buffer<sycl::float3, 2> image_tmp_buf(celerity::range<2>(image_height, image_width));
 
 	celerity::buffer<float, 2> gaussian_mat_buf(gaussian_matrix.data(), celerity::range<2>(FILTER_SIZE, FILTER_SIZE));
 
@@ -62,7 +62,7 @@ int main(int argc, char* argv[]) {
 		celerity::accessor out{image_tmp_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 
 		cgh.parallel_for<class gaussian_blur>(celerity::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](celerity::item<2> item) {
-			using cl::sycl::float3;
+			using sycl::float3;
 			if(is_on_boundary(celerity::range<2>(image_height, image_width), fs, item)) {
 				out[item] = float3(0.f, 0.f, 0.f);
 				return;
@@ -78,7 +78,7 @@ int main(int argc, char* argv[]) {
 		});
 	});
 
-	celerity::buffer<cl::sycl::float3, 2> image_output_buf(celerity::range<2>(image_height, image_width));
+	celerity::buffer<sycl::float3, 2> image_output_buf(celerity::range<2>(image_height, image_width));
 
 	// Now apply a sharpening kernel
 	queue.submit([=](celerity::handler& cgh) {
@@ -86,7 +86,7 @@ int main(int argc, char* argv[]) {
 		celerity::accessor out{image_output_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 
 		cgh.parallel_for<class sharpen>(celerity::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](celerity::item<2> item) {
-			using cl::sycl::float3;
+			using sycl::float3;
 			if(is_on_boundary(celerity::range<2>(image_height, image_width), fs, item)) {
 				out[item] = float3(0.f, 0.f, 0.f);
 				return;

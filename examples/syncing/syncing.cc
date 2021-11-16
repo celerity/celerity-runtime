@@ -1,40 +1,40 @@
-#include <cstdio>
 #include <vector>
 
 #include <celerity.h>
 
-using namespace celerity;
-
 int main(int argc, char* argv[]) {
-	constexpr int N = 10;
+	constexpr size_t buf_size = 512;
 
-	celerity::distr_queue q;
-	celerity::buffer<int, 1> buff(N);
-	std::vector<int> host_buff(N);
+	celerity::distr_queue queue;
+	celerity::buffer<size_t, 1> buf(buf_size);
 
-	q.submit([=](handler& cgh) {
-		celerity::accessor b{buff, cgh, access::one_to_one{}, celerity::write_only, celerity::no_init};
-		cgh.parallel_for<class mat_mul>(celerity::range<1>(N), [=](celerity::item<1> item) { b[item] = item.get_linear_id(); });
+	// Initialize buffer in a distributed device kernel
+	queue.submit([=](celerity::handler& cgh) {
+		celerity::accessor b{buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+		cgh.parallel_for<class write_linear_id>(buf.get_range(), [=](celerity::item<1> item) { b[item] = item.get_linear_id(); });
 	});
 
-	q.submit(celerity::allow_by_ref, [=, &host_buff](handler& cgh) {
-		celerity::accessor b{buff, cgh, access::all{}, celerity::read_only_host_task};
-		cgh.host_task(on_master_node, [=, &host_buff] {
-			std::this_thread::sleep_for(std::chrono::milliseconds(10)); // give the synchronization more time to fail
-			for(int i = 0; i < N; i++) {
-				host_buff[i] = b[i];
+	// Process values on the host
+	std::vector<size_t> host_buf(buf_size);
+	queue.submit(celerity::allow_by_ref, [=, &host_buf](celerity::handler& cgh) {
+		celerity::accessor b{buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
+		cgh.host_task(celerity::experimental::collective, [=, &host_buf](celerity::experimental::collective_partition) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(100)); // give the synchronization more time to fail
+			for(size_t i = 0; i < buf_size; i++) {
+				host_buf[i] = 2 * b[i];
 			}
 		});
 	});
 
-	q.slow_full_sync();
+	// Wait until both tasks have completed
+	queue.slow_full_sync();
 
-	int rank = 1;
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	// At this point we can safely interact with host_buf from within the main thread
 	bool valid = true;
-	if(rank == 0) {
-		for(int i = 0; i < N; i++) {
-			if(host_buff[i] != i) valid = false;
+	for(size_t i = 0; i < buf_size; i++) {
+		if(host_buf[i] != 2 * i) {
+			valid = false;
+			break;
 		}
 	}
 

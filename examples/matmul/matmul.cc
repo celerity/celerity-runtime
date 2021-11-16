@@ -63,53 +63,39 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 int main(int argc, char* argv[]) {
 	bool verification_passed = true;
 
-	celerity::runtime::init(&argc, &argv);
+	celerity::distr_queue queue;
 
-	int rank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	auto range = celerity::range<2>(MAT_SIZE, MAT_SIZE);
+	celerity::buffer<float, 2> mat_a_buf(range);
+	celerity::buffer<float, 2> mat_b_buf(range);
+	celerity::buffer<float, 2> mat_c_buf(range);
 
-	celerity::experimental::bench::log_user_config({{"matSize", std::to_string(MAT_SIZE)}});
+	set_identity(queue, mat_a_buf);
+	set_identity(queue, mat_b_buf);
 
-	{
-		celerity::distr_queue queue;
+	multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
+	multiply(queue, mat_b_buf, mat_c_buf, mat_a_buf);
 
-		auto range = celerity::range<2>(MAT_SIZE, MAT_SIZE);
-		celerity::buffer<float, 2> mat_a_buf(range);
-		celerity::buffer<float, 2> mat_b_buf(range);
-		celerity::buffer<float, 2> mat_c_buf(range);
+	queue.submit(celerity::allow_by_ref, [&](celerity::handler& cgh) {
+		celerity::accessor result{mat_a_buf, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task};
 
-		set_identity(queue, mat_a_buf);
-		set_identity(queue, mat_b_buf);
-
-		celerity::experimental::bench::begin("main program");
-
-		multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
-		multiply(queue, mat_b_buf, mat_c_buf, mat_a_buf);
-
-		queue.submit(celerity::allow_by_ref, [&](celerity::handler& cgh) {
-			celerity::accessor result{mat_a_buf, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task};
-
-			cgh.host_task(range, [=, &verification_passed](celerity::partition<2> part) {
-				celerity::experimental::bench::end("main program");
-
-				auto sr = part.get_subrange();
-				for(size_t i = sr.offset[0]; i < sr.offset[0] + sr.range[0]; ++i) {
-					for(size_t j = sr.offset[0]; j < sr.offset[0] + sr.range[0]; ++j) {
-						const float kernel_value = result[{i, j}];
-						const float host_value = i == j;
-						if(kernel_value != host_value) {
-							fprintf(stderr, "rank %d: VERIFICATION FAILED for element %zu,%zu: %f (received) != %f (expected)\n", rank, i, j, kernel_value,
-							    host_value);
-							verification_passed = false;
-							break;
-						}
+		cgh.host_task(range, [=, &verification_passed](celerity::partition<2> part) {
+			auto sr = part.get_subrange();
+			for(size_t i = sr.offset[0]; i < sr.offset[0] + sr.range[0]; ++i) {
+				for(size_t j = sr.offset[0]; j < sr.offset[0] + sr.range[0]; ++j) {
+					const float received = result[{i, j}];
+					const float expected = float(i == j);
+					if(expected != received) {
+						fprintf(stderr, "VERIFICATION FAILED for element %zu,%zu: %f (received) != %f (expected)\n", i, j, received, expected);
+						verification_passed = false;
+						break;
 					}
-					if(!verification_passed) { break; }
 				}
-				if(verification_passed) { printf("rank %d: VERIFICATION PASSED!\n", rank); }
-			});
+				if(!verification_passed) { break; }
+			}
+			if(verification_passed) { printf("VERIFICATION PASSED!\n"); }
 		});
-	}
+	});
 
 	return verification_passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -9,15 +9,15 @@
 #include <stb/stb_image_write.h>
 
 
-cl::sycl::float4 srgb_to_rgb(cl::sycl::float4 srgb) {
+sycl::float4 srgb_to_rgb(sycl::float4 srgb) {
 	const auto linearize = [](float u) {
 		if(u <= 0.04045f) {
 			return u / 12.92f;
 		} else {
-			return cl::sycl::pow((u + 0.055f) / 1.055f, 2.4f);
+			return sycl::pow((u + 0.055f) / 1.055f, 2.4f);
 		}
 	};
-	return cl::sycl::float4{
+	return sycl::float4{
 	    linearize(srgb.r()),
 	    linearize(srgb.g()),
 	    linearize(srgb.b()),
@@ -25,15 +25,15 @@ cl::sycl::float4 srgb_to_rgb(cl::sycl::float4 srgb) {
 	};
 }
 
-cl::sycl::float4 rgb_to_srgb(cl::sycl::float4 linear) {
+sycl::float4 rgb_to_srgb(sycl::float4 linear) {
 	const auto compress = [](float u) {
 		if(u <= 0.0031308f) {
 			return 12.92f * u;
 		} else {
-			return 1.055f * cl::sycl::pow(u, 1.f / 2.4f) - 0.055f;
+			return 1.055f * sycl::pow(u, 1.f / 2.4f) - 0.055f;
 		}
 	};
-	return cl::sycl::float4{
+	return sycl::float4{
 	    compress(linear.r()),
 	    compress(linear.g()),
 	    compress(linear.b()),
@@ -44,11 +44,11 @@ cl::sycl::float4 rgb_to_srgb(cl::sycl::float4 linear) {
 
 // We could use two reduction variables to calculate minimum and maximum, but some SYCL implementations currently only support a single reductio per kernel.
 // Instead we build a combined minimum-maximum operation, with the side effect that we have to call `combine(x, x)` instead of `combine(x)` below.
-const auto minmax = [](cl::sycl::float2 a, cl::sycl::float2 b) { //
-	return cl::sycl::float2{cl::sycl::min(a[0], b[0]), cl::sycl::max(a[1], b[1])};
+const auto minmax = [](sycl::float2 a, sycl::float2 b) { //
+	return sycl::float2{sycl::min(a[0], b[0]), sycl::max(a[1], b[1])};
 };
 
-const cl::sycl::float2 minmax_identity{INFINITY, -INFINITY};
+const sycl::float2 minmax_identity{INFINITY, -INFINITY};
 
 
 // Reads an image, finds minimum/maximum pixel values, stretches the histogram to increase contrast, and saves the resulting image to output.jpg.
@@ -65,9 +65,9 @@ int main(int argc, char* argv[]) {
 	celerity::distr_queue q;
 
 	celerity::range<2> image_size{static_cast<size_t>(image_height), static_cast<size_t>(image_width)};
-	celerity::buffer<cl::sycl::uchar4, 2> srgb_255_buf{reinterpret_cast<const cl::sycl::uchar4*>(srgb_255_data.get()), image_size};
-	celerity::buffer<cl::sycl::float4, 2> lab_buf{image_size};
-	celerity::buffer<cl::sycl::float2, 1> minmax_buf{celerity::range{1}};
+	celerity::buffer<sycl::uchar4, 2> srgb_255_buf{reinterpret_cast<const sycl::uchar4*>(srgb_255_data.get()), image_size};
+	celerity::buffer<sycl::float4, 2> lab_buf{image_size};
+	celerity::buffer<sycl::float2, 1> minmax_buf{celerity::range{1}};
 
 	q.submit([=](celerity::handler& cgh) {
 		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::one_to_one{}, celerity::read_only};
@@ -97,7 +97,7 @@ int main(int argc, char* argv[]) {
 			for(int i = 0; i < 3; ++i) {
 				rgb[i] = (rgb[i] - min) / (max - min);
 			}
-			srgb_255_acc[item] = cl::sycl::round((rgb_to_srgb(rgb) * 255.0f)).convert<unsigned char>();
+			srgb_255_acc[item] = sycl::round((rgb_to_srgb(rgb) * 255.0f)).convert<unsigned char>();
 		});
 	});
 

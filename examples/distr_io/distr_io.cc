@@ -94,11 +94,6 @@ celerity::subrange<2> transposed(celerity::chunk<2> chnk) {
 int main(int argc, char* argv[]) {
 	const size_t N = 1000;
 
-	celerity::detail::runtime::init(&argc, &argv);
-
-	int rank = 1;
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
 	if((argc == 3 || argc == 4) && strcmp(argv[1], "--generate") == 0) {
 		std::vector<float> initial(N * N);
 		unsigned long seed = 1234567890;
@@ -110,7 +105,10 @@ int main(int argc, char* argv[]) {
 
 		celerity::distr_queue q;
 		write_hdf5_file(q, out, argv[2]);
-	} else if(argc == 4 && strcmp(argv[1], "--transpose") == 0) {
+		return EXIT_SUCCESS;
+	}
+
+	if(argc == 4 && strcmp(argv[1], "--transpose") == 0) {
 		celerity::buffer<float, 2> in(celerity::range<2>{N, N});
 		celerity::buffer<float, 2> out(celerity::range<2>{N, N});
 
@@ -128,7 +126,10 @@ int main(int argc, char* argv[]) {
 		});
 
 		write_hdf5_file(q, out, argv[3]);
-	} else if(argc == 4 && strcmp(argv[1], "--compare") == 0) {
+		return EXIT_SUCCESS;
+	}
+
+	if(argc == 4 && strcmp(argv[1], "--compare") == 0) {
 		bool equal = true;
 		{
 			celerity::distr_queue q;
@@ -148,17 +149,17 @@ int main(int argc, char* argv[]) {
 							equal &= a[{i, j}] == b[{i, j}];
 						}
 					}
+					fprintf(stderr, "=> Files are %sequal\n", equal ? "" : "NOT ");
 				});
 			});
 		}
-
-		if(rank == 0) { fprintf(stderr, "=> Files are %sequal\n", equal ? "" : "NOT "); }
-	} else {
-		fprintf(stderr,
-		    "Usage: %s --generate <out-file>               to generate random data\n"
-		    "       %s --transpose <in-file> <out-file>    to transpose\n"
-		    "       %s --compare <in-file> <out-file>      to compare for equality\n",
-		    argv[0], argv[0], argv[0]);
-		return EXIT_FAILURE;
+		return equal ? EXIT_SUCCESS : EXIT_FAILURE;
 	}
+
+	fprintf(stderr,
+	    "Usage: %s --generate <out-file>               to generate random data\n"
+	    "       %s --transpose <in-file> <out-file>    to transpose\n"
+	    "       %s --compare <in-file> <out-file>      to compare for equality\n",
+	    argv[0], argv[0], argv[0]);
+	return EXIT_FAILURE;
 }
