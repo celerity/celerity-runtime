@@ -1,19 +1,17 @@
 #include <array>
 #include <cmath>
 #include <fstream>
-#include <sstream>
 #include <vector>
 
-#include <CL/sycl.hpp>
 #include <celerity.h>
 
-void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2> u, cl::sycl::float2 center, float amplitude, cl::sycl::float2 sigma) {
+void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2> u, sycl::float2 center, float amplitude, sycl::float2 sigma) {
 	queue.submit([=](celerity::handler& cgh) {
 		celerity::accessor dw_u{u, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for<class setup_wave>(u.get_range(), [=, c = center, a = amplitude, s = sigma](celerity::item<2> item) {
 			const float dx = item[1] - c.x();
 			const float dy = item[0] - c.y();
-			dw_u[item] = a * cl::sycl::exp(-(dx * dx / (2.f * s.x() * s.x()) + dy * dy / (2.f * s.y() * s.y())));
+			dw_u[item] = a * sycl::exp(-(dx * dx / (2.f * s.x() * s.x()) + dy * dy / (2.f * s.y() * s.y())));
 		});
 	});
 }
@@ -38,7 +36,7 @@ struct update_config {
 };
 
 template <typename T, typename Config, typename KernelName>
-void step(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T, 2> u, float dt, cl::sycl::float2 delta) {
+void step(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T, 2> u, float dt, sycl::float2 delta) {
 	queue.submit([=](celerity::handler& cgh) {
 		celerity::accessor rw_up{up, cgh, celerity::access::one_to_one{}, celerity::read_write};
 		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{1, 1}, celerity::read_only};
@@ -57,11 +55,11 @@ void step(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::buf
 	});
 }
 
-void initialize(celerity::distr_queue& queue, celerity::buffer<float, 2> up, celerity::buffer<float, 2> u, float dt, cl::sycl::float2 delta) {
+void initialize(celerity::distr_queue& queue, celerity::buffer<float, 2> up, celerity::buffer<float, 2> u, float dt, sycl::float2 delta) {
 	step<float, init_config, class initialize>(queue, up, u, dt, delta);
 }
 
-void update(celerity::distr_queue& queue, celerity::buffer<float, 2> up, celerity::buffer<float, 2> u, float dt, cl::sycl::float2 delta) {
+void update(celerity::distr_queue& queue, celerity::buffer<float, 2> up, celerity::buffer<float, 2> u, float dt, sycl::float2 delta) {
 	step<float, update_config, class update>(queue, up, u, dt, delta);
 }
 
@@ -115,12 +113,6 @@ bool get_cli_arg(const arg_vector& args, const arg_vector::const_iterator& it, c
 }
 
 int main(int argc, char* argv[]) {
-	// Explicitly initialize here so we can use MPI functions right away
-	celerity::runtime::init(&argc, &argv);
-	int world_rank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-	const bool is_master = world_rank == 0;
-
 	// Parse command line arguments
 	const wave_sim_config cfg = ([&]() {
 		wave_sim_config result;
@@ -137,51 +129,42 @@ int main(int argc, char* argv[]) {
 	})(); // IIFE
 
 	const int num_steps = cfg.T / cfg.dt;
-	if(is_master && cfg.output_sample_rate != 0 && num_steps % cfg.output_sample_rate != 0) {
+	if(cfg.output_sample_rate != 0 && num_steps % cfg.output_sample_rate != 0) {
 		std::cerr << "Warning: Number of time steps (" << num_steps << ") is not a multiple of the output sample rate (wasted frames)" << std::endl;
 	}
 
-	celerity::experimental::bench::log_user_config({{"N", std::to_string(cfg.N)}, {"T", std::to_string(cfg.T)}, {"dt", std::to_string(cfg.dt)},
-	    {"dx", std::to_string(cfg.dx)}, {"dy", std::to_string(cfg.dy)}, {"outputSampleRate", std::to_string(cfg.output_sample_rate)}});
-
 	// TODO: We could allocate the required size at the beginning
 	std::vector<std::vector<float>> result_frames;
-	{
-		celerity::distr_queue queue;
+	celerity::distr_queue queue;
 
-		celerity::buffer<float, 2> up(nullptr, celerity::range<2>(cfg.N, cfg.N)); // next
-		celerity::buffer<float, 2> u(nullptr, celerity::range<2>(cfg.N, cfg.N));  // current
+	celerity::buffer<float, 2> up(nullptr, celerity::range<2>(cfg.N, cfg.N)); // next
+	celerity::buffer<float, 2> u(nullptr, celerity::range<2>(cfg.N, cfg.N));  // current
 
-		MPI_Barrier(MPI_COMM_WORLD);
-		celerity::experimental::bench::begin("main program");
+	setup_wave(queue, u, {cfg.N / 4.f, cfg.N / 4.f}, 1, {cfg.N / 8.f, cfg.N / 8.f});
+	zero(queue, up);
+	initialize(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
 
-		setup_wave(queue, u, {cfg.N / 4.f, cfg.N / 4.f}, 1, {cfg.N / 8.f, cfg.N / 8.f});
-		zero(queue, up);
-		initialize(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
+	// Store initial state
+	if(cfg.output_sample_rate > 0) { store(queue, u, result_frames); }
 
-		// We need to rotate buffers. Since we cannot swap them directly, we use pointers instead.
-		// TODO: Make buffers swappable
-		auto up_ref = &up;
-		auto u_ref = &u;
-
-		// Store initial state
-		if(cfg.output_sample_rate > 0) { store(queue, *u_ref, result_frames); }
-
-		auto t = 0.0;
-		size_t i = 0;
-		while(t < cfg.T) {
-			update(queue, *up_ref, *u_ref, cfg.dt, {cfg.dx, cfg.dy});
-			if(cfg.output_sample_rate != 0 && ++i % cfg.output_sample_rate == 0) { store(queue, *up_ref, result_frames); }
-			std::swap(u_ref, up_ref);
-			t += cfg.dt;
-		}
+	auto t = 0.0;
+	size_t i = 0;
+	while(t < cfg.T) {
+		update(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
+		if(cfg.output_sample_rate != 0 && ++i % cfg.output_sample_rate == 0) { store(queue, u, result_frames); }
+		std::swap(u, up);
+		t += cfg.dt;
 	}
 
-	if(is_master) {
-		if(cfg.output_sample_rate > 0) {
-			// TODO: Consider writing results to disk as they're coming in, instead of just at the end
-			write_bin(cfg.N, result_frames);
-		}
+	queue.slow_full_sync();
+
+	if(cfg.output_sample_rate > 0) {
+		queue.submit(celerity::allow_by_ref, [&cfg, &result_frames](celerity::handler& cgh) {
+			cgh.host_task(celerity::on_master_node, [&cfg, &result_frames]() {
+				// TODO: Consider writing results to disk as they're coming in, instead of just at the end
+				write_bin(cfg.N, result_frames);
+			});
+		});
 	}
 
 	return EXIT_SUCCESS;
