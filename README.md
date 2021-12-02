@@ -87,9 +87,9 @@ Building can be as simple as calling `cmake && make`, depending on your setup
 you might however also have to provide some library paths etc.
 See our [installation guide](docs/installation.md) for more information.
 
-The runtime comes with several [examples](examples) that are built
-automatically when the `CELERITY_BUILD_EXAMPLES` CMake option is set (true by
-default).
+The runtime comes with [examples](examples) and [benchmarks](benchmarks) that are built
+automatically when the `CELERITY_BUILD_EXAMPLES` and/pr `CELERITY_BUILD_BENCHMARKS` CMake 
+options are set (both are true by default).
 
 ## Using Celerity as a Library
 

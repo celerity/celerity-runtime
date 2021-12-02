@@ -123,6 +123,11 @@ endmacro()
 add_submodule_directory(vendor/spdlog)
 add_submodule_directory(vendor/Catch2)
 
+# we do not want to build the args example or tests
+set(ARGS_BUILD_EXAMPLE OFF CACHE INTERNAL "")
+set(ARGS_BUILD_UNITTESTS OFF CACHE INTERNAL "")
+add_submodule_directory(vendor/args)
+
 # Add includes to library so they show up in IDEs
 file(GLOB_RECURSE INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
 
@@ -224,6 +229,13 @@ endif()
 option(CELERITY_BUILD_EXAMPLES "Build various example applications" ON)
 if(CELERITY_BUILD_EXAMPLES)
   add_subdirectory(examples)
+endif()
+
+# Benchmarks
+
+option(CELERITY_BUILD_BENCHMARKS "Build benchmark applications" ON)
+if(CELERITY_BUILD_BENCHMARKS)
+  add_subdirectory(benchmarks)
 endif()
 
 # Tests
