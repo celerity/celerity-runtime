@@ -5,10 +5,17 @@
 #include <memory>
 #include <random>
 
+#ifdef _WIN32
+#include <Windows.h>
+#else
+#include <pthread.h>
+#endif
+
 #include <catch2/catch.hpp>
 
 #include <celerity.h>
 
+#include "affinity.h"
 #include "ranges.h"
 #include "region_map.h"
 
@@ -2304,6 +2311,26 @@ namespace detail {
 			CHECK(tm.get_current_task_count() < task_limit);
 		}
 	}
+
+
+	TEST_CASE("affinity check", "[affinity]") {
+#ifdef _WIN32
+		SECTION("in Windows") {
+			DWORD_PTR cpu_mask = 1;
+			SetProcessAffinityMask(GetCurrentProcess(), cpu_mask);
+		}
+#else
+		SECTION("in Posix") {
+			cpu_set_t cpu_mask;
+			CPU_ZERO(&cpu_mask);
+			CPU_SET(0, &cpu_mask);
+			pthread_setaffinity_np(pthread_self(), sizeof(cpu_mask), &cpu_mask);
+		}
+#endif
+		const auto cores = affinity_cores_available();
+		REQUIRE(cores == 1);
+	}
+
 
 } // namespace detail
 } // namespace celerity

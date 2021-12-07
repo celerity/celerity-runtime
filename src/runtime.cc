@@ -12,6 +12,7 @@
 
 #include <mpi.h>
 
+#include "affinity.h"
 #include "buffer.h"
 #include "buffer_manager.h"
 #include "command_graph.h"
@@ -23,6 +24,7 @@
 #include "scheduler.h"
 #include "task_manager.h"
 #include "user_bench.h"
+#include "utils.h"
 #include "version.h"
 
 namespace celerity {
@@ -98,7 +100,14 @@ namespace detail {
 		cfg = std::make_unique<config>(argc, argv, *default_logger);
 		graph_logger->set_level(cfg->get_log_level());
 
+		if(const uint32_t cores = affinity_cores_available(); cores < min_cores_needed) {
+			default_logger->warn("Celerity has detected that only {} logical cores are available to this process. It is recommended to assign at least {} "
+			                     "logical cores. Performance may be negatively impacted.",
+			    cores, min_cores_needed);
+		}
+
 		user_bench = std::make_unique<experimental::bench::detail::user_benchmarker>(*cfg, static_cast<node_id>(world_rank));
+
 
 		h_queue = std::make_unique<host_queue>(*default_logger);
 		d_queue = std::make_unique<device_queue>(*default_logger);

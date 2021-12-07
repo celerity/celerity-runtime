@@ -193,6 +193,12 @@ set(SOURCES
   "${CMAKE_CURRENT_BINARY_DIR}/src/version.cc"
 )
 
+if(WIN32)
+  set(SOURCES ${SOURCES} src/platform_specific/affinity.win.cc)
+ elseif(UNIX)
+  set(SOURCES ${SOURCES} src/platform_specific/affinity.unix.cc)
+endif()
+
 add_library(
   celerity_runtime
   STATIC
