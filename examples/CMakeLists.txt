@@ -1,18 +1,3 @@
-cmake_minimum_required(VERSION 3.13)
-
-if(DEFINED PROJECT_NAME)
-  set(INCLUDED_AS_SUBPROJECT ON)
-else()
-  set(INCLUDED_AS_SUBPROJECT OFF)
-endif()
-
-file(STRINGS "../VERSION" Celerity_VERSION)
-project(celerity_examples VERSION "${Celerity_VERSION}" LANGUAGES CXX)
-
-if(NOT INCLUDED_AS_SUBPROJECT)
-  find_package(Celerity "${Celerity_VERSION}")
-endif()
-
 option(CELERITY_EXAMPLES_REQUIRE_HDF5 "Fail on missing HDF5 dependency instead of skipping the distr_io example" OFF)
 
 function(add_example NAME)
@@ -29,8 +14,6 @@ function(add_example NAME)
     TARGET "${NAME}"
     SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${NAME}/${NAME}.cc"
   )
-
-  target_include_directories("${NAME}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../vendor")
 
   if(MSVC)
     target_compile_options("${NAME}" PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3)

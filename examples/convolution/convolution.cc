@@ -5,9 +5,9 @@
 #include <celerity.h>
 
 #define STB_IMAGE_IMPLEMENTATION
-#include <stb/stb_image.h>
+#include "stb/stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb/stb_image_write.h>
+#include "stb/stb_image_write.h"
 
 bool is_on_boundary(celerity::range<2> range, size_t filter_size, celerity::id<2> id) {
 	return (id[0] < (filter_size / 2) || id[1] < (filter_size / 2) || id[0] > range[0] - (filter_size / 2) - 1 || id[1] > range[1] - (filter_size / 2) - 1);
