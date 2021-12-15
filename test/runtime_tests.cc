@@ -578,6 +578,41 @@ namespace detail {
 		REQUIRE_FALSE(bm.has_active_buffers());
 	}
 
+	TEST_CASE("buffer_manager allows buffer deallocation", "[buffer_manager][dealloc]") {
+		celerity::distr_queue q;
+		buffer_id b_id;
+		auto& bm = runtime::get_instance().get_buffer_manager();
+		auto& tm = runtime::get_instance().get_task_manager();
+		constexpr int new_horizon_step = 2;
+		tm.set_horizon_step(new_horizon_step);
+		{
+			celerity::buffer<int, 1> b(celerity::range<1>(128));
+			b_id = celerity::detail::get_buffer_id(b);
+			q.submit([=](celerity::handler& cgh) {
+				celerity::accessor a{b, cgh, celerity::access::all(), celerity::write_only};
+				cgh.parallel_for<class UKN(i)>(b.get_range(), [=](celerity::item<1> it) {});
+			});
+			REQUIRE(bm.has_buffer(b_id));
+		}
+		celerity::buffer<int, 1> c(celerity::range<1>(128));
+		// we need horizon_step_size * 3 + 1 tasks to generate the third horizon,
+		// and one extra task to trigger the clean_up process
+		for(int i = 0; i < (new_horizon_step * 3 + 2); i++) {
+			q.submit([=](celerity::handler& cgh) {
+				celerity::accessor a{c, cgh, celerity::access::all(), celerity::write_only};
+				cgh.parallel_for<class UKN(i)>(c.get_range(), [=](celerity::item<1>) {});
+			});
+			// this sync is inside the loop because otherwise there is a race between the prepass and the executor informing the TDAG
+			// of the executed horizons, meaning that task deletion is not guaranteed.
+			q.slow_full_sync();
+		}
+		// require buffer b was indeed unregistered.
+		REQUIRE_FALSE(bm.has_buffer(b_id));
+
+		// TODO: check whether error was printed or not
+		maybe_print_graph(celerity::detail::runtime::get_instance().get_task_manager());
+	}
+
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager creates appropriately sized buffers as needed", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 		auto bid = bm.register_buffer<float, 1>(cl::sycl::range<3>(3072, 1, 1));

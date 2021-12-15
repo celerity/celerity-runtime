@@ -232,16 +232,7 @@ namespace detail {
 		if(is_master_node()) ggen->add_buffer(bid, info.range);
 	}
 
-	void runtime::handle_buffer_unregistered(buffer_id bid) {
-		// If the runtime is still active, and at least one task (other than the init task) has been submitted, report an error.
-		// TODO: This is overly restrictive. Can we instead check whether any tasks that require this particular buffer are still pending?
-		if(is_active && task_mngr->get_total_task_count() > 1) {
-			// We cannot throw here, as this is being called from buffer destructors.
-			default_logger->error(
-			    "The Celerity runtime detected that a buffer is going out of scope before all tasks have been completed. This is not allowed.");
-		}
-		maybe_destroy_runtime();
-	}
+	void runtime::handle_buffer_unregistered(buffer_id bid) { maybe_destroy_runtime(); }
 
 	void runtime::maybe_destroy_runtime() const {
 		if(is_active) return;
