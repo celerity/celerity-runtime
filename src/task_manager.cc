@@ -160,12 +160,30 @@ namespace detail {
 			}
 		}
 
+		for(const auto& side_effect : tsk->get_side_effect_map()) {
+			const auto [hoid, mode] = side_effect;
+			const auto is_producer = mode == access_mode::write || mode == access_mode::read_write;
+			const auto is_consumer = mode == access_mode::read || mode == access_mode::read_write;
+			if(is_producer) {
+				if(const auto last_effect = host_object_last_effects.find(hoid); last_effect != host_object_last_effects.end()) {
+					add_dependency(tsk.get(), task_map.at(last_effect->second).get(), dependency_kind::ANTI_DEP);
+				}
+			}
+			if(is_consumer) {
+				if(const auto last_producer = host_object_last_producers.find(hoid); last_producer != host_object_last_producers.end()) {
+					add_dependency(tsk.get(), task_map.at(last_producer->second).get(), dependency_kind::TRUE_DEP);
+				}
+			}
+			host_object_last_effects.insert_or_assign(hoid, tid);
+			if(is_producer) { host_object_last_producers.insert_or_assign(hoid, tid); }
+		}
+
 		if(auto cgid = tsk->get_collective_group_id(); cgid != 0) {
 			if(auto prev = last_collective_tasks.find(cgid); prev != last_collective_tasks.end()) {
 				add_dependency(tsk.get(), task_map.at(prev->second).get(), dependency_kind::ORDER_DEP);
 				last_collective_tasks.erase(prev);
 			}
-			last_collective_tasks.emplace(cgid, tid);
+			last_collective_tasks.insert_or_assign(cgid, tid);
 		}
 	}
 
@@ -216,6 +234,12 @@ namespace detail {
 					});
 				}
 				for(auto& [cgid, tid] : last_collective_tasks) {
+					tid = std::max(prev_hid, tid);
+				}
+				for(auto& [hoid, tid] : host_object_last_effects) {
+					tid = std::max(prev_hid, tid);
+				}
+				for(auto& [hoid, tid] : host_object_last_producers) {
 					tid = std::max(prev_hid, tid);
 				}
 

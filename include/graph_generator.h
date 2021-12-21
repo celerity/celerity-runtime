@@ -58,6 +58,7 @@ namespace detail {
 		using buffer_state_map = std::unordered_map<buffer_id, buffer_state>;
 		using buffer_read_map = std::unordered_map<buffer_id, GridRegion<3>>;
 		using buffer_writer_map = std::unordered_map<buffer_id, region_map<std::optional<command_id>>>;
+		using side_effect_map = std::unordered_map<host_object_id, command_id>;
 
 		struct per_node_data {
 			// An "init command" is used as the last writer for host-initialized buffers.
@@ -69,6 +70,9 @@ namespace detail {
 			// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
 			// they are executed in the same order on every node.
 			std::unordered_map<collective_group_id, command_id> last_collective_commands;
+
+			side_effect_map host_object_last_effects;
+			side_effect_map host_object_last_producers;
 		};
 
 	  public:
@@ -118,6 +122,8 @@ namespace detail {
 		    const GridRegion<3>& write_req, abstract_command* write_cmd);
 
 		void process_task_data_requirements(task_id tid);
+
+		void process_task_side_effect_requirements(task_id tid);
 
 		void generate_horizon(task_id tid);
 	};

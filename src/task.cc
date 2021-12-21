@@ -1,4 +1,5 @@
 #include "task.h"
+#include "access_modes.h"
 
 #include <algorithm>
 
@@ -59,5 +60,22 @@ namespace detail {
 		return result;
 	}
 
+	void host_object_side_effect_map::add_side_effect(const host_object_id hoid, access_mode mode) {
+		bool read = mode == access_mode::read || mode == access_mode::read_write;
+		bool write = mode == access_mode::write || mode == access_mode::read_write;
+		const auto existing = map::find(hoid);
+		if(existing != end()) {
+			auto mode_before = existing->second;
+			read |= mode_before == access_mode::read || mode_before == access_mode::read_write;
+			write |= mode_before == access_mode::write || mode_before == access_mode::read_write;
+		}
+		assert(read || write);
+		const auto combined_mode = read && write ? access_mode::read_write : write ? access_mode::write : access_mode::read;
+		if(existing != end()) {
+			existing->second = combined_mode;
+		} else {
+			emplace(hoid, combined_mode);
+		}
+	}
 } // namespace detail
 } // namespace celerity

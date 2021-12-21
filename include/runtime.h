@@ -30,6 +30,7 @@ namespace detail {
 	class scheduler;
 	class executor;
 	class task_manager;
+	class host_object_manager;
 
 	class runtime_already_started_error : public std::runtime_error {
 	  public:
@@ -72,6 +73,8 @@ namespace detail {
 
 		reduction_manager& get_reduction_manager() const;
 
+		host_object_manager& get_host_object_manager() const;
+
 		std::shared_ptr<logger> get_logger() const { return default_logger; }
 
 		/**
@@ -110,6 +113,7 @@ namespace detail {
 
 		std::unique_ptr<buffer_manager> buffer_mngr;
 		std::unique_ptr<reduction_manager> reduction_mngr;
+		std::unique_ptr<host_object_manager> host_object_mngr;
 		std::unique_ptr<task_manager> task_mngr;
 		std::unique_ptr<executor> exec;
 

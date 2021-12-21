@@ -6,6 +6,7 @@
 #include "accessor.h"
 #include "buffer.h"
 #include "distr_queue.h"
+#include "side_effect.h"
 #include "user_bench.h"
 #include "version.h"
 
