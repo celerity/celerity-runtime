@@ -118,3 +118,10 @@ mpirun -n 2 ./examples/matmul/matmul
 
 > **Tip:** You might also want to try and run the unit tests that come with Celerity.
 > To do so, simply run `ninja test` or `make test`.
+
+## Bootstrap your own Application
+
+All projects in the `examples/` directory are stand-alone Celerity programs
+– if you like a template for getting started, just copy one of them to
+bootstrap on your own Celerity application. You can find out more about that
+[here](https://github.com/celerity/celerity-runtime/blob/master/examples).

@@ -6,10 +6,9 @@ when the `CELERITY_BUILD_EXAMPLES` CMake option is set (true by default).
 
 ## Setup
 
-Begin by copying an example project folder that best fits your use case,
-while resolving symlinks:
+Begin by copying an example project folder that best fits your use case:
 ```shell
-cp -rL celerity-runtime/examples/convolution my-project
+cp -r celerity-runtime/examples/convolution my-project
 ```
 
 ## Build Configuration
@@ -17,14 +16,14 @@ cp -rL celerity-runtime/examples/convolution my-project
 Configure the project with CMake and make sure Celerity can be found by setting
 [`CMAKE_PREFIX_PATH`](https://cmake.org/cmake/help/latest/variable/CMAKE_PREFIX_PATH.html)
 to include the Celerity installation directory. Depending on your SYCL implementation,
-you may also have to specify its library installation directory and target options.
+you may also have to specify additional target options.
 
 ### With hipSYCL (exemplary)
 
 ```shell
 cd my-project
 cmake -B build \
-    -DCMAKE_PREFIX_PATH="../celerity-runtime-install/lib/cmake;../hipSYCL-install/lib/cmake" \
+    -DCMAKE_PREFIX_PATH="../celerity-runtime-install" \
     -DHIPSYCL_TARGETS=cuda:sm_75
 ```
 
@@ -33,8 +32,7 @@ cmake -B build \
 ```shell
 cd my-project
 cmake -B build \
-    -DCMAKE_PREFIX_PATH="../celerity-runtime-install/lib/cmake" \
-    -DComputeCpp_DIR=/opt/computecpp
+    -DCMAKE_PREFIX_PATH="../celerity-runtime-install"
 ```
 
 ### With DPC++ (exemplary)
@@ -42,6 +40,6 @@ cmake -B build \
 ```shell
 cd my-project
 cmake -B build \
-    -DCMAKE_PREFIX_PATH="../celerity-runtime-install/lib/cmake" \
+    -DCMAKE_PREFIX_PATH="../celerity-runtime-install" \
     -DCMAKE_CXX_COMPILER=/opt/dpcpp/bin/clang++
 ```
