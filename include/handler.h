@@ -287,6 +287,11 @@ namespace detail {
 			access_map.add_access(bid, std::move(rm));
 		}
 
+		void add_requirement(host_object_id hoid, access_mode mode) {
+			assert(task == nullptr);
+			side_effect_map.add_side_effect(hoid, mode);
+		}
+
 		template <int Dims>
 		void add_reduction(reduction_id rid) {
 			reductions.push_back(rid);
@@ -298,8 +303,8 @@ namespace detail {
 				// TODO this can be easily supported by not creating a task in case the execution range is empty
 				throw std::runtime_error{"The execution range of distributed host tasks must have at least one item"};
 			}
-			task = detail::task::make_host_compute(
-			    tid, dimensions, global_range, global_offset, granularity, std::move(cgf), std::move(access_map), std::move(reductions));
+			task = detail::task::make_host_compute(tid, dimensions, global_range, global_offset, granularity, std::move(cgf), std::move(access_map),
+			    std::move(side_effect_map), std::move(reductions));
 		}
 
 		void create_device_compute_task(int dimensions, range<3> global_range, id<3> global_offset, range<3> granularity, std::string debug_name) {
@@ -311,18 +316,19 @@ namespace detail {
 				// each node that reads from the reduction output buffer, initializing it to the identity value locally.
 				throw std::runtime_error{"The execution range of device tasks must have at least one item"};
 			}
+			if(!side_effect_map.empty()) { throw std::runtime_error{"Side effects cannot be used with device kernels"}; }
 			task = detail::task::make_device_compute(
 			    tid, dimensions, global_range, global_offset, granularity, std::move(cgf), std::move(access_map), std::move(reductions), std::move(debug_name));
 		}
 
 		void create_collective_task(collective_group_id cgid) {
 			assert(task == nullptr);
-			task = detail::task::make_collective(tid, cgid, num_collective_nodes, std::move(cgf), std::move(access_map));
+			task = detail::task::make_collective(tid, cgid, num_collective_nodes, std::move(cgf), std::move(access_map), std::move(side_effect_map));
 		}
 
 		void create_master_node_task() {
 			assert(task == nullptr);
-			task = detail::task::make_master_node(tid, std::move(cgf), std::move(access_map));
+			task = detail::task::make_master_node(tid, std::move(cgf), std::move(access_map), std::move(side_effect_map));
 		}
 
 		std::unique_ptr<class task> into_task() && { return std::move(task); }
@@ -339,6 +345,7 @@ namespace detail {
 		task_id tid;
 		std::unique_ptr<command_group_storage_base> cgf;
 		buffer_access_map access_map;
+		host_object_side_effect_map side_effect_map;
 		std::vector<reduction_id> reductions;
 		std::unique_ptr<class task> task = nullptr;
 		size_t num_collective_nodes;

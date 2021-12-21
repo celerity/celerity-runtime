@@ -92,6 +92,7 @@ namespace detail {
 		// TODO: At some point we might want to do this also before calling transformers
 		// --> So that more advanced transformations can also take data transfers into account
 		process_task_data_requirements(tid);
+		process_task_side_effect_requirements(tid);
 	}
 
 	using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<3>>>;
@@ -475,6 +476,36 @@ namespace detail {
 		}
 	}
 
+	void graph_generator::process_task_side_effect_requirements(const task_id tid) {
+		const auto tsk = task_mngr.get_task(tid);
+		for(const auto cmd : cdag.task_commands(tid)) {
+			auto& nd = node_data.at(cmd->get_nid());
+
+			for(const auto& side_effect : tsk->get_side_effect_map()) {
+				auto [hoid, mode] = side_effect;
+				const auto is_producer = mode == access_mode::write || mode == access_mode::read_write;
+				const auto is_consumer = mode == access_mode::read || mode == access_mode::read_write;
+				if(is_producer) {
+					if(const auto last_effect = nd.host_object_last_effects.find(hoid); last_effect != nd.host_object_last_effects.end()) {
+						cdag.add_dependency(cmd, cdag.get(last_effect->second), dependency_kind::ANTI_DEP);
+					}
+				}
+				if(is_consumer) {
+					if(const auto last_producer = nd.host_object_last_producers.find(hoid); last_producer != nd.host_object_last_producers.end()) {
+						cdag.add_dependency(cmd, cdag.get(last_producer->second), dependency_kind::TRUE_DEP);
+					}
+				}
+
+				// Simplification: If there are multiple chunks per node, we generate true-dependencies between them in an arbitrary order, when all we really
+				// need is mutual exclusion (i.e. a bi-directional pseudo-dependency).
+				nd.host_object_last_effects.insert_or_assign(hoid, cmd->get_cid());
+				if(is_producer) { nd.host_object_last_producers.insert_or_assign(hoid, cmd->get_cid()); }
+
+				cmd->debug_label += fmt::format("{} host-object {}\n", detail::access::mode_traits::name(mode), hoid);
+			}
+		}
+	}
+
 	void graph_generator::generate_horizon(task_id tid) {
 		detail::command_id lowest_prev_hid = 0;
 		for(node_id node = 0; node < num_nodes; ++node) {
@@ -499,6 +530,12 @@ namespace detail {
 					});
 				}
 				for(auto& [cgid, cid] : this_node_data.last_collective_commands) {
+					cid = std::max(prev_hid, cid);
+				}
+				for(auto& [cgid, cid] : this_node_data.host_object_last_effects) {
+					cid = std::max(prev_hid, cid);
+				}
+				for(auto& [cgid, cid] : this_node_data.host_object_last_producers) {
 					cid = std::max(prev_hid, cid);
 				}
 				// update lowest previous horizon id (for later command deletion)

@@ -22,6 +22,7 @@
 #include "logger.h"
 #include "mpi_support.h"
 #include "scheduler.h"
+#include "side_effect.h"
 #include "task_manager.h"
 #include "user_bench.h"
 #include "utils.h"
@@ -122,6 +123,7 @@ namespace detail {
 		});
 
 		reduction_mngr = std::make_unique<reduction_manager>();
+		host_object_mngr = std::make_unique<host_object_manager>();
 		task_mngr = std::make_unique<task_manager>(num_nodes, h_queue.get(), reduction_mngr.get());
 		exec = std::make_unique<executor>(local_nid, *h_queue, *d_queue, *task_mngr, *buffer_mngr, *reduction_mngr, default_logger);
 		if(is_master_node()) {
@@ -149,6 +151,7 @@ namespace detail {
 		exec.reset();
 		task_mngr.reset();
 		reduction_mngr.reset();
+		host_object_mngr.reset();
 		// All buffers should have unregistered themselves by now.
 		assert(!buffer_mngr->has_active_buffers());
 		buffer_mngr.reset();
@@ -223,6 +226,8 @@ namespace detail {
 
 	reduction_manager& runtime::get_reduction_manager() const { return *reduction_mngr; }
 
+	host_object_manager& runtime::get_host_object_manager() const { return *host_object_mngr; }
+
 	void runtime::broadcast_control_command(command_type cmd, const command_data& data) {
 		assert_true(is_master_node()) << "Control commands should only be broadcast from the master";
 		for(auto n = 0u; n < num_nodes; ++n) {
@@ -243,6 +248,7 @@ namespace detail {
 		if(is_active) return;
 		if(is_shutting_down) return;
 		if(buffer_mngr->has_active_buffers()) return;
+		if(host_object_mngr->has_active_objects()) return;
 		instance.reset();
 	}
 

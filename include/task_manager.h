@@ -22,6 +22,7 @@ namespace detail {
 	class task_manager {
 		friend struct task_manager_testspy;
 		using buffer_writers_map = std::unordered_map<buffer_id, region_map<std::optional<task_id>>>;
+		using side_effect_map = std::unordered_map<host_object_id, task_id>;
 
 	  public:
 		task_manager(size_t num_collective_nodes, host_queue* queue, reduction_manager* reduction_mgr);
@@ -117,6 +118,9 @@ namespace detail {
 		buffer_writers_map buffers_last_writers;
 
 		std::unordered_map<collective_group_id, task_id> last_collective_tasks;
+
+		side_effect_map host_object_last_effects;
+		side_effect_map host_object_last_producers;
 
 		// For simplicity we use a single mutex to control access to all task-related (i.e. the task graph, task_map, ...) data structures.
 		mutable std::mutex task_mutex;
