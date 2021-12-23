@@ -66,6 +66,9 @@ namespace detail {
 			// We store for each node which command last wrote to a buffer region. This includes both newly generated data (from a execution command),
 			// as well as already existing data that was pushed in from another node. This is used for determining anti-dependencies.
 			buffer_writer_map buffer_last_writer;
+			// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
+			// they are executed in the same order on every node.
+			std::unordered_map<collective_group_id, command_id> last_collective_commands;
 		};
 
 	  public:
@@ -107,10 +110,6 @@ namespace detail {
 		std::unordered_map<command_id, buffer_read_map> command_buffer_reads;
 
 		std::unordered_map<node_id, per_node_data> node_data;
-
-		// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
-		// they are executed in the same order on every node.
-		std::unordered_map<std::pair<node_id, collective_group_id>, command_id, pair_hash> last_collective_commands;
 
 		// This mutex mainly serves to protect per-buffer data structures, as new buffers might be added at any time.
 		std::mutex buffer_mutex;

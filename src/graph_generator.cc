@@ -58,11 +58,12 @@ namespace detail {
 				// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
 				// they are executed in the same order on every node.
 				auto cgid = tsk->get_collective_group_id();
-				if(auto prev = last_collective_commands.find({nid, cgid}); prev != last_collective_commands.end()) {
+				auto& last_collective_commands = node_data.at(nid).last_collective_commands;
+				if(auto prev = last_collective_commands.find(cgid); prev != last_collective_commands.end()) {
 					cdag.add_dependency(cmd, cdag.get(prev->second), dependency_kind::ORDER_DEP);
 					last_collective_commands.erase(prev);
 				}
-				last_collective_commands.emplace(std::pair{nid, cgid}, cmd->get_cid());
+				last_collective_commands.emplace(cgid, cmd->get_cid());
 			}
 		} else {
 			const auto sr = subrange<3>{tsk->get_global_offset(), tsk->get_global_size()};
@@ -486,17 +487,17 @@ namespace detail {
 			auto* prev_horizon = current_horizon_cmds[node];
 			current_horizon_cmds[node] = horizon_cmd;
 			if(prev_horizon != nullptr) {
-				// update "buffer_last_writer" structures to subsume pre-horizon commands
-				auto prev_hid = prev_horizon->get_cid();
-				for(auto& blw_pair : node_data[node].buffer_last_writer) {
+				// update "buffer_last_writer" and "last_collective_commands" structures to subsume pre-horizon commands
+				const auto prev_hid = prev_horizon->get_cid();
+				auto& this_node_data = node_data.at(node);
+				for(auto& blw_pair : this_node_data.buffer_last_writer) {
 					blw_pair.second.apply_to_values([prev_hid](std::optional<command_id> cid) -> std::optional<command_id> {
 						if(!cid) return cid;
 						return {std::max(prev_hid, *cid)};
 					});
 				}
-				for(auto& [nid_cgid, cid] : last_collective_commands) {
-					const auto [nid, cgid] = nid_cgid;
-					if(nid == node) { cid = std::max(prev_hid, cid); }
+				for(auto& [cgid, cid] : this_node_data.last_collective_commands) {
+					cid = std::max(prev_hid, cid);
 				}
 				// update lowest previous horizon id (for later command deletion)
 				if(lowest_prev_hid == 0) {
