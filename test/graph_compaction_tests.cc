@@ -376,5 +376,49 @@ namespace detail {
 		maybe_print_graphs(ctx);
 	}
 
+	// TODO deduplicate from test case above
+	TEST_CASE("side-effect dependencies are correctly subsumed by horizons", "[graph_generator][command-graph][horizon]") {
+		const size_t num_nodes = 1;
+		test_utils::cdag_test_context ctx(num_nodes);
+		auto& tm = ctx.get_task_manager();
+		tm.set_horizon_step(2);
+
+		test_utils::mock_host_object_factory mhof;
+		auto ho = mhof.create_host_object();
+		const auto first_task =
+		    test_utils::build_and_flush(ctx, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, access_mode::write); }));
+
+		// generate exactly two horizons
+		auto& ggen = ctx.get_graph_generator();
+		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+		auto buf = mbf.create_buffer(range<1>(1));
+		for(int i = 0; i < 5; ++i) {
+			test_utils::build_and_flush(
+			    ctx, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); }));
+		}
+
+		// This must depend on the first horizon, not first_task
+		const auto second_task =
+		    test_utils::build_and_flush(ctx, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, access_mode::read); }));
+
+		const auto& inspector = ctx.get_inspector();
+		auto& cdag = ctx.get_command_graph();
+		const auto first_commands = inspector.get_commands(first_task, std::nullopt, std::nullopt);
+		const auto second_commands = inspector.get_commands(second_task, std::nullopt, std::nullopt);
+		for(const auto second_cid : second_commands) {
+			for(const auto first_cid : first_commands) {
+				CHECK(!inspector.has_dependency(second_cid, first_cid));
+			}
+			const auto second_deps = cdag.get(second_cid)->get_dependencies();
+			CHECK(std::distance(second_deps.begin(), second_deps.end()) == 1);
+			for(const auto& dep : second_deps) {
+				CHECK(dep.kind == dependency_kind::TRUE_DEP);
+				CHECK(dynamic_cast<const horizon_command*>(dep.node));
+			}
+		}
+
+		maybe_print_graphs(ctx);
+	}
+
 } // namespace detail
 } // namespace celerity
