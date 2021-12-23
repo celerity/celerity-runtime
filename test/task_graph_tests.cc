@@ -505,5 +505,33 @@ namespace detail {
 		maybe_print_graph(tm);
 	}
 
+	TEST_CASE("collective host tasks do not order-depend on their predecessor if it is shadowed by a horizon", "[task_manager][task-graph][task-horizon]") {
+		// Regression test: the order-dependencies between host tasks in the same collective group are built by tracking the last task in each collective group.
+		// Once a horizon is inserted, new collective host tasks must order-depend on that horizon instead.
+
+		task_manager tm{1, nullptr, nullptr};
+		tm.set_horizon_step(2);
+
+		const auto first_collective = test_utils::add_host_task(tm, experimental::collective, [&](handler& cgh) {});
+
+		// generate exactly two horizons
+		test_utils::mock_buffer_factory mbf(&tm);
+		auto buf = mbf.create_buffer(range<1>(1));
+		for(int i = 0; i < 5; ++i) {
+			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });
+		}
+
+		// This must depend on the first horizon, not first_collective
+		const auto second_collective = test_utils::add_host_task(tm, experimental::collective, [&](handler& cgh) {});
+
+		for(const auto& dep : tm.get_task(second_collective)->get_dependencies()) {
+			const auto type = dep.node->get_type();
+			CHECK(type == task_type::HORIZON);
+			CHECK(dep.kind == dependency_kind::ORDER_DEP);
+		}
+
+		maybe_print_graph(tm);
+	}
+
 } // namespace detail
 } // namespace celerity

@@ -122,7 +122,7 @@ namespace test_utils {
 			return result;
 		}
 
-		bool has_dependency(detail::command_id dependent, detail::command_id dependency) {
+		bool has_dependency(detail::command_id dependent, detail::command_id dependency) const {
 			const auto& deps = commands.at(dependent).dependencies;
 			return std::find(deps.cbegin(), deps.cend(), dependency) != deps.cend();
 		}

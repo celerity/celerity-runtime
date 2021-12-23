@@ -209,6 +209,9 @@ namespace detail {
 						return {std::max(prev_hid, *tid)};
 					});
 				}
+				for(auto& [cgid, tid] : last_collective_tasks) {
+					tid = std::max(prev_hid, tid);
+				}
 
 				// We also use the previous horizon as the new init task for host-initialized buffers
 				current_init_task_id = prev_hid;
