@@ -494,6 +494,10 @@ namespace detail {
 						return {std::max(prev_hid, *cid)};
 					});
 				}
+				for(auto& [nid_cgid, cid] : last_collective_commands) {
+					const auto [nid, cgid] = nid_cgid;
+					if(nid == node) { cid = std::max(prev_hid, cid); }
+				}
 				// update lowest previous horizon id (for later command deletion)
 				if(lowest_prev_hid == 0) {
 					lowest_prev_hid = prev_hid;
