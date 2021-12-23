@@ -1523,5 +1523,67 @@ namespace detail {
 		}
 	}
 
+	TEST_CASE("side effects generate appropriate command-dependencies", "[graph_generator][command-graph][side-effect]") {
+		const auto side_effect_modes = {access_mode::read, access_mode::write, access_mode::read_write};
+		const size_t num_nodes = 2;
+
+		const auto expected_dependencies = std::unordered_map<std::pair<access_mode, access_mode>, std::optional<dependency_kind>, pair_hash>{
+		    // clang-format off
+			{{access_mode::read,       access_mode::read      }, std::nullopt             }, // RAR
+			{{access_mode::read,       access_mode::write     }, dependency_kind::ANTI_DEP}, // WAR
+			{{access_mode::read,       access_mode::read_write}, dependency_kind::ANTI_DEP}, // RAR + WAR
+			{{access_mode::write,      access_mode::read      }, dependency_kind::TRUE_DEP}, // RAW
+			{{access_mode::write,      access_mode::write     }, dependency_kind::ANTI_DEP}, // WAW
+			{{access_mode::write,      access_mode::read_write}, dependency_kind::TRUE_DEP}, // RAW + WAW
+			{{access_mode::read_write, access_mode::read      }, dependency_kind::TRUE_DEP}, // RAW
+			{{access_mode::read_write, access_mode::write     }, dependency_kind::ANTI_DEP}, // WAW + WAR
+			{{access_mode::read_write, access_mode::read_write}, dependency_kind::TRUE_DEP}, // RAW + WAW
+		    // clang-format on
+		};
+
+		for(const auto mode_a : side_effect_modes) {
+			for(const auto mode_b : side_effect_modes) {
+				CAPTURE(mode_a);
+				CAPTURE(mode_b);
+
+				test_utils::cdag_test_context ctx(num_nodes);
+				auto& tm = ctx.get_task_manager();
+				auto& ggen = ctx.get_graph_generator();
+				test_utils::mock_host_object_factory mhof;
+
+				auto ho_common = mhof.create_host_object(); // should generate dependencies
+				auto ho_a = mhof.create_host_object();      // should NOT generate dependencies
+				auto ho_b = mhof.create_host_object();      // -"-
+				const auto tid_a = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, sycl::range<1>{num_nodes}, [&](handler& cgh) {
+					ho_common.add_side_effect(cgh, mode_a);
+					ho_a.add_side_effect(cgh, mode_a);
+				}));
+				const auto tid_b = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, sycl::range<1>{num_nodes}, [&](handler& cgh) {
+					ho_common.add_side_effect(cgh, mode_b);
+					ho_b.add_side_effect(cgh, mode_b);
+				}));
+
+				auto& inspector = ctx.get_inspector();
+				auto& cdag = ctx.get_command_graph();
+
+				for(auto cid_a : inspector.get_commands(tid_a, std::nullopt, std::nullopt)) {
+					const auto deps_a = cdag.get(cid_a)->get_dependencies();
+					CHECK(deps_a.empty());
+				}
+
+				const auto expected_b = expected_dependencies.at({mode_a, mode_b});
+				for(auto cid_b : inspector.get_commands(tid_b, std::nullopt, std::nullopt)) {
+					const auto deps_b = cdag.get(cid_b)->get_dependencies();
+					// This assumes no oversubscription in the split, adjust if necessary:
+					CHECK(std::distance(deps_b.begin(), deps_b.end()) == expected_b.has_value());
+					if(expected_b) {
+						const auto& dep_tcmd = dynamic_cast<const task_command&>(*deps_b.front().node);
+						CHECK(dep_tcmd.get_tid() == tid_a);
+					}
+				}
+			}
+		}
+	}
+
 } // namespace detail
 } // namespace celerity

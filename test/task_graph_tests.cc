@@ -554,5 +554,85 @@ namespace detail {
 		CHECK(has_any_dependency(tm, read_tid, write_tid) == (!write_empty && !read_empty));
 	}
 
+	TEST_CASE("side effects generate appropriate task-dependencies", "[task_manager][task-graph][side-effect]") {
+		const auto side_effect_modes = {access_mode::read, access_mode::write, access_mode::read_write};
+
+		const auto expected_dependencies = std::unordered_map<std::pair<access_mode, access_mode>, std::optional<dependency_kind>, pair_hash>{
+		    // clang-format off
+			{{access_mode::read,       access_mode::read      }, std::nullopt             }, // RAR
+			{{access_mode::read,       access_mode::write     }, dependency_kind::ANTI_DEP}, // WAR
+			{{access_mode::read,       access_mode::read_write}, dependency_kind::ANTI_DEP}, // RAR + WAR
+			{{access_mode::write,      access_mode::read      }, dependency_kind::TRUE_DEP}, // RAW
+			{{access_mode::write,      access_mode::write     }, dependency_kind::ANTI_DEP}, // WAW
+			{{access_mode::write,      access_mode::read_write}, dependency_kind::TRUE_DEP}, // RAW + WAW
+			{{access_mode::read_write, access_mode::read      }, dependency_kind::TRUE_DEP}, // RAW
+			{{access_mode::read_write, access_mode::write     }, dependency_kind::ANTI_DEP}, // WAW + WAR
+			{{access_mode::read_write, access_mode::read_write}, dependency_kind::TRUE_DEP}, // RAW + WAW
+		    // clang-format on
+		};
+
+		for(const auto mode_a : side_effect_modes) {
+			for(const auto mode_b : side_effect_modes) {
+				CAPTURE(mode_a);
+				CAPTURE(mode_b);
+
+				task_manager tm{1, nullptr, nullptr};
+				test_utils::mock_host_object_factory mhof;
+
+				auto ho_common = mhof.create_host_object(); // should generate dependencies
+				auto ho_a = mhof.create_host_object();      // should NOT generate dependencies
+				auto ho_b = mhof.create_host_object();      // -"-
+				const auto tid_a = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+					ho_common.add_side_effect(cgh, mode_a);
+					ho_a.add_side_effect(cgh, mode_a);
+				});
+				const auto tid_b = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+					ho_common.add_side_effect(cgh, mode_b);
+					ho_b.add_side_effect(cgh, mode_b);
+				});
+
+				const auto deps_a = tm.get_task(tid_a)->get_dependencies();
+				CHECK(deps_a.empty());
+
+				const auto deps_b = tm.get_task(tid_b)->get_dependencies();
+				const auto expected_b = expected_dependencies.at({mode_a, mode_b});
+				CHECK(std::distance(deps_b.begin(), deps_b.end()) == expected_b.has_value());
+				if(expected_b) {
+					CHECK(deps_b.front().node == tm.get_task(tid_a));
+					CHECK(deps_b.front().kind == *expected_b);
+				}
+			}
+		}
+	}
+
+	// TODO deduplicate from test case above
+	TEST_CASE("side-effect dependencies are correctly subsumed by horizons", "[task_manager][task-graph][task-horizon]") {
+		task_manager tm{1, nullptr, nullptr};
+		tm.set_horizon_step(2);
+
+		test_utils::mock_host_object_factory mhof;
+		auto ho = mhof.create_host_object();
+		const auto first_task = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, access_mode::write); });
+
+		// generate exactly two horizons
+		test_utils::mock_buffer_factory mbf(&tm);
+		auto buf = mbf.create_buffer(range<1>(1));
+		for(int i = 0; i < 5; ++i) {
+			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });
+		}
+
+		// This must depend on the first horizon, not first_task
+		const auto second_task = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, access_mode::read); });
+
+		const auto& second_deps = tm.get_task(second_task)->get_dependencies();
+		CHECK(std::distance(second_deps.begin(), second_deps.end()) == 1);
+		for(const auto& dep : second_deps) {
+			const auto type = dep.node->get_type();
+			CHECK(type == task_type::HORIZON);
+			CHECK(dep.kind >= dependency_kind::TRUE_DEP);
+		}
+
+		maybe_print_graph(tm);
+	}
 } // namespace detail
 } // namespace celerity
