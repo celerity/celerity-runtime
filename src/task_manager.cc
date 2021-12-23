@@ -200,7 +200,7 @@ namespace detail {
 				if(front_task != current_horizon_task) { add_dependency(current_horizon_task, front_task); }
 			}
 
-			// apply the previous horizon to buffers_last_writers data struct
+			// apply the previous horizon to buffers_last_writers and last_collective_tasks data structs
 			if(previous_horizon_task != nullptr) {
 				const task_id prev_hid = previous_horizon_task->get_id();
 				for(auto& [_, buffer_region_map] : buffers_last_writers) {
