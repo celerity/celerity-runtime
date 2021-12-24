@@ -159,7 +159,14 @@ namespace detail {
 
 	bool executor::handle_command(const command_pkg& pkg, const std::vector<command_id>& dependencies) {
 		switch(pkg.cmd) {
-		case command_type::HORIZON: create_job<horizon_job>(pkg, dependencies, task_mngr); break;
+		case command_type::HORIZON: {
+			// Similar to task commands, a worker might receive the horizon command before creating the corresponding horizon task
+			const auto horizon_tid = std::get<horizon_data>(pkg.data).horizon_tid;
+			if(!task_mngr.has_task(horizon_tid)) return false;
+
+			create_job<horizon_job>(pkg, dependencies, task_mngr);
+			break;
+		}
 		case command_type::PUSH: create_job<push_job>(pkg, dependencies, *btm, buffer_mngr); break;
 		case command_type::AWAIT_PUSH: create_job<await_push_job>(pkg, dependencies, *btm); break;
 		case command_type::REDUCTION: create_job<reduction_job>(pkg, dependencies, reduction_mngr); break;
