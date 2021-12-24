@@ -134,7 +134,8 @@ namespace detail {
 		// The latest horizon task created. Will be applied as last writer once the next horizon is created.
 		task* current_horizon_task = nullptr;
 
-		// Queue of horizon tasks for which the associated commands were executed
+		// Queue of horizon tasks for which the associated commands were executed.
+		// Only accessed in task_manager::notify_horizon_executed, which is always called from the executor thread - no locking needed.
 		std::queue<task_id> executed_horizons;
 		// marker task id for "nothing to delete" - we can safely use 0 here
 		static constexpr task_id nothing_to_delete = 0;

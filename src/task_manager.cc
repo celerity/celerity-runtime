@@ -43,13 +43,19 @@ namespace detail {
 	}
 
 	void task_manager::notify_horizon_executed(task_id tid) {
-		assert(task_map.at(tid)->get_type() == task_type::HORIZON);
+#ifndef NDEBUG
+		{
+			std::lock_guard lock{task_mutex};
+			assert(task_map.count(tid) != 0);
+			assert(task_map.at(tid)->get_type() == task_type::HORIZON);
+		}
 		assert(executed_horizons.empty() || executed_horizons.back() != tid);
-		executed_horizons.push(tid);
+#endif
 
+		executed_horizons.push(tid); // no locking needed - see definition
 		if(executed_horizons.size() >= horizon_deletion_lag) {
 			// actual cleanup happens on new task creation
-			horizon_task_id_for_deletion = executed_horizons.front();
+			horizon_task_id_for_deletion.store(executed_horizons.front()); // atomic
 			executed_horizons.pop();
 		}
 	}
