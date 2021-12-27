@@ -2425,5 +2425,43 @@ namespace detail {
 		}
 	}
 
+	TEST_CASE("side_effect API works as expected on a single node", "[side-effect]") {
+		distr_queue q;
+
+		experimental::host_object owned_ho{std::vector<int>{}};
+		std::vector<int> exterior;
+		experimental::host_object ref_ho{std::ref(exterior)};
+		experimental::host_object void_ho;
+
+		q.submit([=](handler& cgh) {
+			experimental::side_effect append_owned{owned_ho, cgh, celerity::write_only};
+			experimental::side_effect append_ref{ref_ho, cgh, celerity::write_only};
+			experimental::side_effect track_void{void_ho, cgh, celerity::write_only};
+			cgh.host_task(on_master_node, [=] {
+				(*append_owned).push_back(1);
+				(*append_ref).push_back(1);
+			});
+		});
+
+		q.submit([=](handler& cgh) {
+			experimental::side_effect append_owned{owned_ho, cgh};
+			experimental::side_effect append_ref{ref_ho, cgh};
+			experimental::side_effect track_void{void_ho, cgh};
+			cgh.host_task(on_master_node, [=] {
+				append_owned->push_back(2);
+				append_ref->push_back(2);
+			});
+		});
+
+		q.submit([=](handler& cgh) {
+			experimental::side_effect check_owned{owned_ho, cgh, celerity::read_only};
+			cgh.host_task(on_master_node, [=] { CHECK(*check_owned == std::vector{1, 2}); });
+		});
+
+		q.slow_full_sync();
+
+		CHECK(exterior == std::vector{1, 2});
+	}
+
 } // namespace detail
 } // namespace celerity
