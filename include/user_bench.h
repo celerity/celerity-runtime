@@ -22,14 +22,10 @@ namespace experimental {
 
 			class user_benchmarker {
 			  public:
-				static void initialize(config& cfg, node_id this_nid);
-				static void destroy();
-
+				user_benchmarker(config& cfg, node_id this_nid);
 				user_benchmarker(const user_benchmarker&) = delete;
 				user_benchmarker(user_benchmarker&&) = delete;
 				~user_benchmarker();
-
-				static user_benchmarker& get_instance();
 
 				void log_user_config(logger_map lm) const;
 
@@ -59,25 +55,24 @@ namespace experimental {
 					bench_clock::time_point start;
 				};
 
-				static std::unique_ptr<user_benchmarker> instance;
 				std::shared_ptr<logger> bench_logger;
 				node_id this_nid;
 				section_id next_section_id = 0;
 				std::stack<section> sections;
-
-				user_benchmarker(config& cfg, node_id this_nid);
 
 				void begin_section(std::string name);
 				void end_section(std::string name);
 				void log_event(const std::string& message) const;
 				void log_event(logger_map lm) const;
 			};
+
+			user_benchmarker& get_user_benchmarker();
 		} // namespace detail
 
 		/**
 		 * @brief Logs structured user configuration data. Only logged once (on the master node).
 		 */
-		inline void log_user_config(const detail::logger_map& lm) { detail::user_benchmarker::get_instance().log_user_config(lm); }
+		inline void log_user_config(const detail::logger_map& lm) { detail::get_user_benchmarker().log_user_config(lm); }
 
 		/**
 		 * @brief Begins a new benchmarking section.
@@ -86,7 +81,7 @@ namespace experimental {
 		 */
 		template <typename... Args>
 		void begin(const char* bench_section_fmt, Args... args) {
-			detail::user_benchmarker::get_instance().begin(bench_section_fmt, std::forward<Args>(args)...);
+			detail::get_user_benchmarker().begin(bench_section_fmt, std::forward<Args>(args)...);
 		}
 
 		/**
@@ -94,7 +89,7 @@ namespace experimental {
 		 */
 		template <typename... Args>
 		void end(const char* bench_section_fmt, Args... args) {
-			detail::user_benchmarker::get_instance().end(bench_section_fmt, std::forward<Args>(args)...);
+			detail::get_user_benchmarker().end(bench_section_fmt, std::forward<Args>(args)...);
 		}
 
 		/**
@@ -102,10 +97,10 @@ namespace experimental {
 		 */
 		template <typename... Args>
 		void event(const char* event_fmt, Args... args) {
-			detail::user_benchmarker::get_instance().event(event_fmt, std::forward<Args>(args)...);
+			detail::get_user_benchmarker().event(event_fmt, std::forward<Args>(args)...);
 		}
 
-		inline void event(const detail::logger_map& lm) { detail::user_benchmarker::get_instance().event(lm); }
+		inline void event(const detail::logger_map& lm) { detail::get_user_benchmarker().event(lm); }
 
 	} // namespace bench
 } // namespace experimental

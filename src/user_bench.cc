@@ -9,26 +9,11 @@ namespace celerity {
 namespace experimental {
 	namespace bench {
 		namespace detail {
-			std::unique_ptr<user_benchmarker> user_benchmarker::instance = nullptr;
-
-			void user_benchmarker::initialize(config& cfg, node_id this_nid) {
-				assert(instance == nullptr && "User benchmarking has already been initialized");
-				instance = std::unique_ptr<user_benchmarker>(new user_benchmarker(cfg, this_nid));
-			}
-
-			void user_benchmarker::destroy() { instance.reset(); }
-
 			user_benchmarker::~user_benchmarker() {
 				while(!sections.empty()) {
 					const auto sec = sections.top();
 					end_section(sec.name);
 				}
-			}
-
-			user_benchmarker& user_benchmarker::get_instance() {
-				if(!celerity::detail::runtime::is_initialized()) { throw std::runtime_error("Cannot use benchmarking before runtime has been initialized"); }
-				assert(instance != nullptr && "User benchmarking was not properly initialized");
-				return *instance;
 			}
 
 			void user_benchmarker::log_user_config(logger_map lm) const {
@@ -45,6 +30,8 @@ namespace experimental {
 					bench_logger->warn("Available clock does not have sufficient precision");
 				}
 			}
+
+			user_benchmarker& get_user_benchmarker() { return celerity::detail::runtime::get_instance().get_user_benchmarker(); }
 
 			void user_benchmarker::begin_section(std::string name) {
 				const section sec = {next_section_id++, name, bench_clock::now()};
