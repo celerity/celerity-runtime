@@ -70,8 +70,8 @@ void store(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::ho
 		celerity::accessor up_r{up, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		celerity::side_effect store_frames{result_frames, cgh};
 		cgh.host_task(celerity::on_master_node, [=](celerity::partition<0> p) {
-			store_frames(p).emplace_back();
-			auto& frame = *store_frames(p).rbegin();
+			store_frames->emplace_back();
+			auto& frame = *store_frames->rbegin();
 			frame.resize(range.size());
 			memcpy(frame.data(), up_r.get_pointer(), range[0] * range[1] * sizeof(float));
 		});
@@ -165,7 +165,7 @@ int main(int argc, char* argv[]) {
 			celerity::side_effect load_frames{result_frames, cgh, celerity::read_only};
 			cgh.host_task(celerity::on_master_node, [=](celerity::partition<0> p) {
 				// TODO: Consider writing results to disk as they're coming in, instead of just at the end
-				write_bin(cfg.N, load_frames(p));
+				write_bin(cfg.N, *load_frames);
 			});
 		});
 	}

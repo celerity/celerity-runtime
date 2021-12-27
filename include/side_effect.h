@@ -107,10 +107,9 @@ class side_effect {
 	template <typename AccessModeTag>
 	explicit side_effect(const host_object<T>& object, handler& cgh, const AccessModeTag) : side_effect{object, cgh} {}
 
-	template <int Dims>
-	interior_type& operator()(const partition<Dims>& p) const {
-		return object.shared_state->object;
-	}
+	interior_type& operator*() const { return object.shared_state->object; }
+
+	interior_type* operator->() const { return &object.shared_state->object; }
 
   private:
 	host_object<T> object;
