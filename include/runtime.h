@@ -15,6 +15,11 @@
 #include "types.h"
 
 namespace celerity {
+
+namespace experimental::bench::detail {
+	class user_benchmarker;
+} // namespace experimental::bench::detail
+
 namespace detail {
 
 	class buffer_manager;
@@ -57,6 +62,8 @@ namespace detail {
 
 		task_manager& get_task_manager() const;
 
+		experimental::bench::detail::user_benchmarker& get_user_benchmarker() const { return *user_bench; }
+
 		host_queue& get_host_queue() const { return *h_queue; }
 
 		device_queue& get_device_queue() const { return *d_queue; }
@@ -84,6 +91,7 @@ namespace detail {
 		bool is_shutting_down = false;
 
 		std::unique_ptr<config> cfg;
+		std::unique_ptr<experimental::bench::detail::user_benchmarker> user_bench;
 		std::unique_ptr<host_queue> h_queue;
 		std::unique_ptr<device_queue> d_queue;
 		size_t num_nodes;

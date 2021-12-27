@@ -96,7 +96,7 @@ namespace detail {
 		cfg = std::make_unique<config>(argc, argv, *default_logger);
 		graph_logger->set_level(cfg->get_log_level());
 
-		experimental::bench::detail::user_benchmarker::initialize(*cfg, static_cast<node_id>(world_rank));
+		user_bench = std::make_unique<experimental::bench::detail::user_benchmarker>(*cfg, static_cast<node_id>(world_rank));
 
 		h_queue = std::make_unique<host_queue>(*default_logger);
 		d_queue = std::make_unique<device_queue>(*default_logger);
@@ -149,8 +149,7 @@ namespace detail {
 		buffer_mngr.reset();
 		d_queue.reset();
 		h_queue.reset();
-
-		experimental::bench::detail::user_benchmarker::destroy();
+		user_bench.reset();
 
 		// Make sure we free all of our MPI transfers before we finalize
 		while(!active_flushes.empty()) {
