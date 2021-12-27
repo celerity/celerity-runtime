@@ -64,11 +64,11 @@ void update(celerity::distr_queue& queue, celerity::buffer<float, 2> up, celerit
 }
 
 template <typename T>
-void store(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::host_object<std::vector<std::vector<float>>>& result_frames) {
+void store(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::experimental::host_object<std::vector<std::vector<float>>>& result_frames) {
 	const auto range = up.get_range();
 	queue.submit([=](celerity::handler& cgh) {
 		celerity::accessor up_r{up, cgh, celerity::access::all{}, celerity::read_only_host_task};
-		celerity::side_effect store_frames{result_frames, cgh};
+		celerity::experimental::side_effect store_frames{result_frames, cgh};
 		cgh.host_task(celerity::on_master_node, [=](celerity::partition<0> p) {
 			store_frames->emplace_back();
 			auto& frame = *store_frames->rbegin();
@@ -135,7 +135,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	// TODO: We could allocate the required size at the beginning
-	celerity::host_object<std::vector<std::vector<float>>> result_frames;
+	celerity::experimental::host_object<std::vector<std::vector<float>>> result_frames;
 
 	celerity::distr_queue queue;
 
@@ -162,7 +162,7 @@ int main(int argc, char* argv[]) {
 
 	if(cfg.output_sample_rate > 0) {
 		queue.submit([=](celerity::handler& cgh) {
-			celerity::side_effect load_frames{result_frames, cgh, celerity::read_only};
+			celerity::experimental::side_effect load_frames{result_frames, cgh, celerity::read_only};
 			cgh.host_task(celerity::on_master_node, [=](celerity::partition<0> p) {
 				// TODO: Consider writing results to disk as they're coming in, instead of just at the end
 				write_bin(cfg.N, *load_frames);

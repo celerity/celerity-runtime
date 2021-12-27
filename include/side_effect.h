@@ -4,12 +4,12 @@
 #include "runtime.h"
 
 
-namespace celerity {
+namespace celerity::experimental {
 
 template <typename T>
 class host_object;
 
-} // namespace celerity
+} // namespace celerity::experimental
 
 namespace celerity::detail {
 
@@ -45,7 +45,7 @@ class host_object_manager {
 
 } // namespace celerity::detail
 
-namespace celerity {
+namespace celerity::experimental {
 
 template <typename T, access_mode Mode>
 class side_effect;
@@ -121,4 +121,4 @@ side_effect(const host_object<T>&, handler&, Tag) -> side_effect<T, detail::dedu
 template <typename T>
 side_effect(const host_object<T>&, handler&) -> side_effect<T, access_mode::read_write>;
 
-} // namespace celerity
+} // namespace celerity::experimental
