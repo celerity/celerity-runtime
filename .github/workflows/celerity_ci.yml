@@ -69,7 +69,8 @@ jobs:
         run: bash -o pipefail -c "bash /root/build-celerity.sh ${{ env.container-workspace }} --build-type ${{ matrix.build-type }} --target install 2>&1 | tee ${{ env.build-name }}.log"
       # Upload build log for report step
       - name: Upload build logs
-        uses: actions/upload-artifact@v1
+        if: always()
+        uses: actions/upload-artifact@v2
         with:
           name: ${{ env.build-name }}
           path: ${{ env.build-name }}.log
@@ -78,8 +79,7 @@ jobs:
       - name: Run unit tests
         timeout-minutes: 5
         working-directory: ${{ env.build-dir }}
-        # Running "make test" is slow (why?), so we just call all test executables manually
-        run: find test -maxdepth 1 -executable -type f -print0 | xargs -0 -n1 bash -c
+        run: ${{ env.container-workspace }}/ci/run-unit-tests.sh
       - name: Run integration tests
         timeout-minutes: 5
         # We build examples twice, but only run the installed version (which probably has more failure modes)
@@ -88,6 +88,15 @@ jobs:
       - name: Run system tests
         working-directory: ${{ env.build-dir }}
         run: ${{ env.container-workspace }}/ci/run-system-tests.sh 2 4
+      - name: Upload stack traces (if any)
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ env.build-name }}
+          path: |
+            ${{ env.build-dir }}/*.trace
+            ${{ env.examples-build-dir }}/*.trace
+          if-no-files-found: ignore
 
   report:
     needs: [build-and-test]
