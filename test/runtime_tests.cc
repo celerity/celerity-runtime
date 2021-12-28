@@ -195,36 +195,6 @@ namespace detail {
 		REQUIRE(sr.range == cl::sycl::range<1>{97});
 	}
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated"
-	TEST_CASE("deprecated range mapper templates continue to work", "[range-mapper]") {
-		const auto chunk1d = chunk<1>{1, 2, 3};
-		const auto chunk2d = chunk<2>{{1, 1}, {2, 2}, {3, 3}};
-		const auto chunk3d = chunk<3>{{1, 1, 1}, {2, 2, 2}, {3, 3, 3}};
-		const auto range1d = cl::sycl::range<1>{4};
-		const auto range2d = cl::sycl::range<2>{4, 4};
-		const auto range3d = cl::sycl::range<3>{4, 4, 4};
-		const auto subrange1d = subrange<1>{{}, range1d};
-		const auto subrange2d = subrange<2>{{}, range2d};
-		const auto subrange3d = subrange<3>{{}, range3d};
-
-		CHECK(one_to_one<1>{}(chunk1d) == subrange{chunk1d});
-		CHECK(one_to_one<2>{}(chunk2d) == subrange{chunk2d});
-		CHECK(one_to_one<3>{}(chunk3d) == subrange{chunk3d});
-
-		CHECK(fixed<1, 3>{subrange3d}(chunk1d) == subrange3d);
-		CHECK(fixed<2, 2>{subrange2d}(chunk2d) == subrange2d);
-		CHECK(fixed<3, 1>{subrange1d}(chunk3d) == subrange1d);
-
-		CHECK(all<1>{}(chunk1d, range1d) == subrange1d);
-		CHECK(all<2>{}(chunk2d, range2d) == subrange2d);
-		CHECK(all<3>{}(chunk3d, range3d) == subrange3d);
-		CHECK(all<1, 3>{}(chunk1d, range3d) == subrange3d);
-		CHECK(all<2, 2>{}(chunk2d, range2d) == subrange2d);
-		CHECK(all<3, 1>{}(chunk3d, range1d) == subrange1d);
-	}
-#pragma GCC diagnostic pop
-
 	TEST_CASE("slice built-in range mapper behaves as expected", "[range-mapper]") {
 		{
 			range_mapper rm{slice<3>(0), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 128, 128}};
@@ -575,162 +545,7 @@ namespace detail {
 		REQUIRE(data4.get_size() == sizeof(uint64_t) * 16 * 8 * 4);
 	}
 
-	class buffer_manager_fixture {
-	  public:
-		enum class access_target { HOST, DEVICE };
-
-		~buffer_manager_fixture() { get_device_queue().get_sycl_queue().wait_and_throw(); }
-
-		void initialize(buffer_manager::buffer_lifecycle_callback cb = [](buffer_manager::buffer_lifecycle_event, buffer_id) {}) {
-			l = std::make_unique<logger>("test", log_level::warn);
-			cfg = std::make_unique<config>(nullptr, nullptr, *l);
-			dq = std::make_unique<device_queue>(*l);
-			dq->init(*cfg, nullptr);
-			bm = std::make_unique<buffer_manager>(*dq, cb);
-			bm->enable_test_mode();
-			initialized = true;
-		}
-
-		buffer_manager& get_buffer_manager() {
-			if(!initialized) initialize();
-			return *bm;
-		}
-
-		device_queue& get_device_queue() {
-			if(!initialized) initialize();
-			return *dq;
-		}
-
-		static access_target get_other_target(access_target tgt) {
-			if(tgt == access_target::HOST) return access_target::DEVICE;
-			return access_target::HOST;
-		}
-
-		template <typename DataT, int Dims>
-		cl::sycl::range<Dims> get_backing_buffer_range(buffer_id bid, access_target tgt, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset) {
-			if(tgt == access_target::HOST) {
-				auto info = bm->get_host_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, range_cast<3>(range), id_cast<3>(offset));
-				return info.buffer.get_range();
-			}
-			auto info = bm->get_device_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, range_cast<3>(range), id_cast<3>(offset));
-			return info.buffer.get_range();
-		}
-
-		template <typename DataT, int Dims, cl::sycl::access::mode Mode, typename KernelName = class buffer_for_each, typename Callback>
-		void buffer_for_each(buffer_id bid, access_target tgt, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset, Callback cb) {
-			const auto range3 = range_cast<3>(range);
-			const auto offset3 = id_cast<3>(offset);
-
-			if(tgt == access_target::HOST) {
-				auto info = bm->get_host_buffer<DataT, Dims>(bid, Mode, range3, offset3);
-				const auto buf_range = range_cast<3>(info.buffer.get_range());
-				for(size_t i = offset3[0]; i < offset3[0] + range3[0]; ++i) {
-					for(size_t j = offset3[1]; j < offset3[1] + range3[1]; ++j) {
-						for(size_t k = offset3[2]; k < offset3[2] + range3[2]; ++k) {
-							const auto global_idx = cl::sycl::id<3>(i, j, k);
-							const cl::sycl::id<3> local_idx = global_idx - id_cast<3>(info.offset);
-							const size_t linear_idx = local_idx[0] * buf_range[1] * buf_range[2] + local_idx[1] * buf_range[2] + local_idx[2];
-							cb(id_cast<Dims>(global_idx), info.buffer.get_pointer()[linear_idx]);
-						}
-					}
-				}
-			}
-
-			if(tgt == access_target::DEVICE) {
-				auto info = bm->get_device_buffer<DataT, Dims>(bid, Mode, range3, offset3);
-				const auto buf_offset = info.offset;
-				dq->get_sycl_queue()
-				    .submit([&](cl::sycl::handler& cgh) {
-					    auto acc = info.buffer.template get_access<Mode>(cgh);
-					    cgh.parallel_for<bind_kernel_name<KernelName>>(range, offset, [=](cl::sycl::id<Dims> global_idx) {
-						    const auto local_idx = global_idx - buf_offset;
-						    cb(global_idx, acc[local_idx]);
-					    });
-				    })
-				    .wait();
-			}
-		}
-
-		template <typename DataT, int Dims, typename KernelName = class buffer_reduce, typename ReduceT, typename Operation>
-		ReduceT buffer_reduce(buffer_id bid, access_target tgt, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset, ReduceT init, Operation op) {
-			const auto range3 = range_cast<3>(range);
-			const auto offset3 = id_cast<3>(offset);
-
-			if(tgt == access_target::HOST) {
-				auto info = bm->get_host_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, range3, offset3);
-				const auto buf_range = range_cast<3>(info.buffer.get_range());
-				ReduceT result = init;
-				for(size_t i = offset3[0]; i < offset3[0] + range3[0]; ++i) {
-					for(size_t j = offset3[1]; j < offset3[1] + range3[1]; ++j) {
-						for(size_t k = offset3[2]; k < offset3[2] + range3[2]; ++k) {
-							const auto global_idx = cl::sycl::id<3>(i, j, k);
-							const cl::sycl::id<3> local_idx = global_idx - id_cast<3>(info.offset);
-							const size_t linear_idx = local_idx[0] * buf_range[1] * buf_range[2] + local_idx[1] * buf_range[2] + local_idx[2];
-							result = op(id_cast<Dims>(global_idx), result, info.buffer.get_pointer()[linear_idx]);
-						}
-					}
-				}
-				return result;
-			}
-
-			auto info = bm->get_device_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, range3, offset3);
-			const auto buf_offset = info.offset;
-			cl::sycl::buffer<ReduceT, 1> result_buf(1); // Use 1-dimensional instead of 0-dimensional since it's NYI in hipSYCL as of 0.8.1
-			// Simply do a serial reduction on the device as well
-			dq->get_sycl_queue()
-			    .submit([&](cl::sycl::handler& cgh) {
-				    auto acc = info.buffer.template get_access<cl::sycl::access::mode::read>(cgh);
-				    auto result_acc = result_buf.template get_access<cl::sycl::access::mode::read_write>(cgh);
-				    cgh.single_task<bind_kernel_name<KernelName>>([=]() {
-					    result_acc[0] = init;
-					    for(size_t i = offset3[0]; i < offset3[0] + range3[0]; ++i) {
-						    for(size_t j = offset3[1]; j < offset3[1] + range3[1]; ++j) {
-							    for(size_t k = offset3[2]; k < offset3[2] + range3[2]; ++k) {
-								    const auto global_idx = cl::sycl::id<3>(i, j, k);
-								    const cl::sycl::id<3> local_idx = global_idx - id_cast<3>(buf_offset);
-								    result_acc[0] = op(id_cast<Dims>(global_idx), result_acc[0], acc[id_cast<Dims>(local_idx)]);
-							    }
-						    }
-					    }
-				    });
-			    })
-			    .wait();
-
-			ReduceT result;
-			dq->get_sycl_queue()
-			    .submit([&](cl::sycl::handler& cgh) {
-				    auto acc = result_buf.template get_access<cl::sycl::access::mode::read>(cgh);
-				    cgh.copy(acc, &result);
-			    })
-			    .wait();
-
-			return result;
-		}
-
-		template <typename DataT, int Dims, access_mode Mode>
-		accessor<DataT, Dims, Mode, target::device> get_device_accessor(
-		    live_pass_device_handler& cgh, buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
-			auto buf_info = bm->get_device_buffer<DataT, Dims>(bid, Mode, range_cast<3>(range), id_cast<3>(offset));
-			return detail::make_device_accessor<DataT, Dims, Mode>(
-			    cgh.get_eventual_sycl_cgh(), subrange<Dims>(offset, range), buf_info.buffer, buf_info.offset);
-		}
-
-		template <typename DataT, int Dims, access_mode Mode>
-		accessor<DataT, Dims, Mode, target::host_task> get_host_accessor(buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
-			auto buf_info = bm->get_host_buffer<DataT, Dims>(bid, Mode, range_cast<3>(range), id_cast<3>(offset));
-			return detail::make_host_accessor<DataT, Dims, Mode>(
-			    subrange<Dims>(offset, range), buf_info.buffer, buf_info.offset, range_cast<Dims>(bm->get_buffer_info(bid).range));
-		}
-
-	  private:
-		bool initialized = false;
-		std::unique_ptr<logger> l;
-		std::unique_ptr<config> cfg;
-		std::unique_ptr<device_queue> dq;
-		std::unique_ptr<buffer_manager> bm;
-	};
-
-	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager keeps track of buffers", "[buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager keeps track of buffers", "[buffer_manager]") {
 		std::vector<std::pair<buffer_manager::buffer_lifecycle_event, buffer_id>> cb_calls;
 		initialize([&](buffer_manager::buffer_lifecycle_event e, buffer_id bid) { cb_calls.push_back({e, bid}); });
 		auto& bm = get_buffer_manager();
@@ -763,7 +578,7 @@ namespace detail {
 		REQUIRE_FALSE(bm.has_active_buffers());
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager creates appropriately sized buffers as needed", "[buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager creates appropriately sized buffers as needed", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 		auto bid = bm.register_buffer<float, 1>(cl::sycl::range<3>(3072, 1, 1));
 
@@ -819,8 +634,8 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE_METHOD(
-	    buffer_manager_fixture, "buffer_manager returns correct access offset for backing buffers larger than the requested range", "[buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager returns correct access offset for backing buffers larger than the requested range",
+	    "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 		auto bid = bm.register_buffer<float, 1>(cl::sycl::range<3>(2048, 1, 1));
 
@@ -846,7 +661,7 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager retains existing data when resizing buffers", "[buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager retains existing data when resizing buffers", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 
 		auto run_1D_test = [&](access_target tgt) {
@@ -912,7 +727,7 @@ namespace detail {
 		return true;
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager does not retain existing data when resizing buffer using a pure producer access mode",
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager does not retain existing data when resizing buffer using a pure producer access mode",
 	    "[buffer_manager][performance]") {
 		auto& bm = get_buffer_manager();
 		auto bid = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(128, 1, 1));
@@ -948,7 +763,7 @@ namespace detail {
 		SECTION("unless accessed range does not fully cover previous buffer size (using host buffers)") { run_test(access_target::HOST, true); }
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager ensures coherence between device and host buffers", "[buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager ensures coherence between device and host buffers", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 		auto bid = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(512, 1, 1));
 
@@ -997,7 +812,8 @@ namespace detail {
 		SECTION("when initializing on host, partially updating larger portion on device, verifying on host") { run_test2(access_target::HOST, 512); }
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager does not ensure coherence when access mode is pure producer", "[buffer_manager][performance]") {
+	TEST_CASE_METHOD(
+	    test_utils::buffer_manager_fixture, "buffer_manager does not ensure coherence when access mode is pure producer", "[buffer_manager][performance]") {
 		auto& bm = get_buffer_manager();
 		auto bid = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(128, 1, 1));
 
@@ -1020,8 +836,8 @@ namespace detail {
 		SECTION("when initializing on device, verifying on host") { run_test(access_target::HOST); }
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager correctly updates buffer versioning for pure producer accesses that do not require a resize",
-	    "[buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture,
+	    "buffer_manager correctly updates buffer versioning for pure producer accesses that do not require a resize", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 		auto bid = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(128, 1, 1));
 
@@ -1056,7 +872,8 @@ namespace detail {
 	 * This test ensures that the BM doesn't generate superfluous H <-> D data transfers after coherence has already been established
 	 * by a previous access. For this to work, we have to cheat a bit and update a buffer after a second access call, which is technically not allowed.
 	 */
-	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager remembers coherency replications between consecutive accesses", "[buffer_manager][performance]") {
+	TEST_CASE_METHOD(
+	    test_utils::buffer_manager_fixture, "buffer_manager remembers coherency replications between consecutive accesses", "[buffer_manager][performance]") {
 		auto& bm = get_buffer_manager();
 		auto& dq = get_device_queue();
 
@@ -1168,8 +985,8 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE_METHOD(
-	    buffer_manager_fixture, "buffer_manager retains data that exists on both host and device when resizing buffers", "[buffer_manager][performance]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager retains data that exists on both host and device when resizing buffers",
+	    "[buffer_manager][performance]") {
 		auto& bm = get_buffer_manager();
 		auto bid = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(128, 1, 1));
 
@@ -1208,8 +1025,8 @@ namespace detail {
 	// This test is in response to a bug that was caused by computing the region to be retained upon buffer resizing as the bounding box of the coherence
 	// subrange as well as the old buffer range. While that works fine in 1D, in 2D (and 3D) it can introduce unnecessary H<->D coherence updates.
 	// TODO: Ideally we'd also test this for 3D buffers
-	TEST_CASE_METHOD(
-	    buffer_manager_fixture, "buffer_manager does not introduce superfluous coherence updates when retaining 2D buffers", "[buffer_manager][performance]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager does not introduce superfluous coherence updates when retaining 2D buffers",
+	    "[buffer_manager][performance]") {
 		auto& bm = get_buffer_manager();
 		auto bid = bm.register_buffer<size_t, 2>(cl::sycl::range<3>(128, 128, 1));
 
@@ -1253,7 +1070,7 @@ namespace detail {
 		SECTION("when using host buffers") { run_test(access_target::HOST); }
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager correctly updates buffer versioning for queued transfers", "[buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager correctly updates buffer versioning for queued transfers", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 		auto bid = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(64, 1, 1));
 
@@ -1287,8 +1104,8 @@ namespace detail {
 		SECTION("when using host buffers") { run_test(access_target::HOST); }
 	}
 
-	TEST_CASE_METHOD(
-	    buffer_manager_fixture, "buffer_manager prioritizes queued transfers over resize/coherency copies for the same ranges", "[buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager prioritizes queued transfers over resize/coherency copies for the same ranges",
+	    "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 		auto bid = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(128, 1, 1));
 
@@ -1320,8 +1137,8 @@ namespace detail {
 		SECTION("when initializing on device, verifying on host") { run_test(access_target::HOST, false, true); }
 	}
 
-	TEST_CASE_METHOD(
-	    buffer_manager_fixture, "buffer_manager correctly handles transfers that partially overlap with requested buffer range", "[buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager correctly handles transfers that partially overlap with requested buffer range",
+	    "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 
 		auto bid = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(128, 1, 1));
@@ -1361,7 +1178,7 @@ namespace detail {
 		SECTION("when using host buffers") { run_test(access_target::HOST); }
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager returns the newest raw buffer data when requested", "[buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager returns the newest raw buffer data when requested", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 		auto bid = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(32, 1, 1));
 
@@ -1395,7 +1212,7 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager correctly handles host-initialized buffers", "[buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager correctly handles host-initialized buffers", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 
 		constexpr size_t SIZE = 64;
@@ -1427,7 +1244,7 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager correctly handles locking", "[buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager correctly handles locking", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 
 		// Check that basic functionality works.
@@ -1465,7 +1282,7 @@ namespace detail {
 		REQUIRE(bm.try_lock(4, {3}));
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "buffer_manager throws if accessing locked buffers in unsupported order", "[buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager throws if accessing locked buffers in unsupported order", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 		auto bid = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(128, 1, 1));
 
@@ -1513,7 +1330,7 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "accessor correctly handles backing buffer offsets", "[accessor][buffer_manager]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "accessor correctly handles backing buffer offsets", "[accessor][buffer_manager]") {
 		auto& bm = get_buffer_manager();
 		auto& dq = get_device_queue();
 		auto bid = bm.register_buffer<size_t, 2>(cl::sycl::range<3>(64, 32, 1));
@@ -1558,7 +1375,7 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "accessor supports SYCL special member and hidden friend functions", "[accessor]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "accessor supports SYCL special member and hidden friend functions", "[accessor]") {
 		auto& bm = get_buffer_manager();
 		auto& dq = get_device_queue();
 
@@ -1681,30 +1498,7 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE_METHOD(buffer_manager_fixture, "device accessor supports atomic access", "[accessor]") {
-		auto& bm = get_buffer_manager();
-		auto& dq = get_device_queue();
-		int host_data = 0;
-		auto bid = bm.register_buffer<int, 1>(cl::sycl::range<3>(1, 1, 1), &host_data);
-
-		auto range = cl::sycl::range<1>(2048);
-		auto sr = subrange<3>({}, range_cast<3>(range));
-		live_pass_device_handler cgh(nullptr, sr, true, dq);
-
-		auto device_acc = get_device_accessor<int, 1, cl::sycl::access::mode::atomic>(cgh, bid, {1}, {0});
-		cgh.parallel_for<class UKN(atomic_increment)>(range, [=](cl::sycl::id<1> id) {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-			device_acc[0].fetch_add(2);
-#pragma GCC diagnostic pop
-		});
-		cgh.get_submission_event().wait();
-
-		auto host_acc = get_host_accessor<int, 1, cl::sycl::access::mode::read>(bid, {1}, {0});
-		REQUIRE(host_acc[0] == 4096);
-	}
-
-	TEST_CASE_METHOD(buffer_manager_fixture, "host accessor supports get_pointer", "[accessor]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "host accessor supports get_pointer", "[accessor]") {
 		auto& bm = get_buffer_manager();
 
 		auto check_values = [&](const cl::sycl::id<3>* ptr, cl::sycl::range<3> range) {
@@ -1745,8 +1539,8 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE_METHOD(
-	    buffer_manager_fixture, "host accessor throws when calling get_pointer for a backing buffer with different stride or nonzero offset", "[accessor]") {
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture,
+	    "host accessor throws when calling get_pointer for a backing buffer with different stride or nonzero offset", "[accessor]") {
 		auto& bm = get_buffer_manager();
 		auto bid_a = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(128, 1, 1));
 		auto bid_b = bm.register_buffer<size_t, 2>(cl::sycl::range<3>(128, 128, 1));
@@ -1776,93 +1570,6 @@ namespace detail {
 		// Passing an offset is now also possible.
 		REQUIRE_NOTHROW(get_host_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(bid_b, {64, 64}, {32, 32}).get_pointer());
 	}
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-	TEST_CASE("deprecated host_memory_layout continues to work", "[task]") {
-		distr_queue q;
-
-		std::vector<char> memory1d(10);
-		buffer<char, 1> buf1d(memory1d.data(), cl::sycl::range<1>(10));
-
-		q.submit([=](handler& cgh) {
-			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, target::host_task>(cgh, all{});
-			cgh.host_task(on_master_node, [=](partition<0> part) {
-				auto [ptr, layout] = b.get_host_memory(part);
-				auto& dims = layout.get_dimensions();
-				REQUIRE(dims.size() == 1);
-				CHECK(dims[0].get_global_offset() == 0);
-				CHECK(dims[0].get_local_offset() == 0);
-				CHECK(dims[0].get_global_size() == 10);
-				CHECK(dims[0].get_local_size() >= 10);
-				CHECK(dims[0].get_extent() == 10);
-			});
-		});
-
-		q.submit([=](handler& cgh) {
-			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, target::host_task>(cgh, one_to_one{});
-			cgh.host_task(cl::sycl::range<1>(6), cl::sycl::id<1>(2), [=](partition<1> part) {
-				auto [ptr, layout] = b.get_host_memory(part);
-				auto& dims = layout.get_dimensions();
-				REQUIRE(dims.size() == 1);
-				CHECK(dims[0].get_global_offset() == 2);
-				CHECK(dims[0].get_local_offset() <= 2);
-				CHECK(dims[0].get_global_size() == 10);
-				CHECK(dims[0].get_local_size() >= 6);
-				CHECK(dims[0].get_local_size() <= 10);
-				CHECK(dims[0].get_extent() == 6);
-			});
-		});
-
-		std::vector<char> memory2d(10 * 10);
-		buffer<char, 2> buf2d(memory2d.data(), cl::sycl::range<2>(10, 10));
-
-		q.submit([=](handler& cgh) {
-			auto b = buf2d.get_access<cl::sycl::access::mode::discard_write, target::host_task>(cgh, one_to_one{});
-			cgh.host_task(cl::sycl::range<2>(5, 6), cl::sycl::id<2>(1, 2), [=](partition<2> part) {
-				auto [ptr, layout] = b.get_host_memory(part);
-				auto& dims = layout.get_dimensions();
-				REQUIRE(dims.size() == 2);
-				CHECK(dims[0].get_global_offset() == 1);
-				CHECK(dims[0].get_global_size() == 10);
-				CHECK(dims[0].get_local_offset() <= 1);
-				CHECK(dims[0].get_local_size() >= 6);
-				CHECK(dims[0].get_local_size() <= 10);
-				CHECK(dims[0].get_extent() == 5);
-				CHECK(dims[1].get_global_offset() == 2);
-				CHECK(dims[1].get_global_size() == 10);
-				CHECK(dims[1].get_extent() == 6);
-			});
-		});
-
-		std::vector<char> memory3d(10 * 10 * 10);
-		buffer<char, 3> buf3d(memory3d.data(), cl::sycl::range<3>(10, 10, 10));
-
-		q.submit([=](handler& cgh) {
-			auto b = buf3d.get_access<cl::sycl::access::mode::discard_write, target::host_task>(cgh, one_to_one{});
-			cgh.host_task(cl::sycl::range<3>(5, 6, 7), cl::sycl::id<3>(1, 2, 3), [=](partition<3> part) {
-				auto [ptr, layout] = b.get_host_memory(part);
-				auto& dims = layout.get_dimensions();
-				REQUIRE(dims.size() == 3);
-				CHECK(dims[0].get_global_offset() == 1);
-				CHECK(dims[0].get_local_offset() <= 1);
-				CHECK(dims[0].get_global_size() == 10);
-				CHECK(dims[0].get_local_size() >= 5);
-				CHECK(dims[0].get_local_size() <= 10);
-				CHECK(dims[0].get_extent() == 5);
-				CHECK(dims[1].get_global_offset() == 2);
-				CHECK(dims[1].get_local_offset() <= 2);
-				CHECK(dims[1].get_global_size() == 10);
-				CHECK(dims[1].get_local_size() >= 6);
-				CHECK(dims[1].get_local_size() <= 10);
-				CHECK(dims[1].get_extent() == 6);
-				CHECK(dims[2].get_global_offset() == 3);
-				CHECK(dims[2].get_global_size() == 10);
-				CHECK(dims[2].get_extent() == 7);
-			});
-		});
-	}
-#pragma GCC diagnostic pop
 
 	TEST_CASE("host accessor get_allocation_window produces the correct memory layout", "[task]") {
 		distr_queue q;
@@ -2090,7 +1797,7 @@ namespace detail {
 	}
 
 	template <int>
-	class accessor_fixture : public buffer_manager_fixture {};
+	class accessor_fixture : public test_utils::buffer_manager_fixture {};
 
 	template <int>
 	class kernel_multi_dim_accessor_write_;
@@ -2297,31 +2004,6 @@ namespace detail {
 			cgh.parallel_for<class UKN(dummy)>(cl::sycl::range<3>{1, 1, 1}, [](celerity::item<3>) {});
 		});
 	}
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-	TEST_CASE("Kernels receiving cl::sycl::item<Dims> (deprecated) continue to work", "[handler]") {
-		distr_queue q;
-
-		buffer<int, 1> buf1d{{1}};
-		q.submit([=](handler& cgh) {
-			accessor acc{buf1d, cgh, celerity::access::one_to_one{}, celerity::read_write, celerity::no_init};
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<1>{1}, [=](cl::sycl::item<1> id) { acc[id] = 0; });
-		});
-
-		buffer<int, 2> buf2d{{1, 1}};
-		q.submit([=](handler& cgh) {
-			accessor acc{buf2d, cgh, celerity::access::one_to_one{}, celerity::read_write, celerity::no_init};
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<2>{1, 1}, [=](cl::sycl::item<2> id) { acc[id] = 0; });
-		});
-
-		buffer<int, 3> buf3d{{1, 1, 1}};
-		q.submit([=](handler& cgh) {
-			accessor acc{buf3d, cgh, celerity::access::one_to_one{}, celerity::read_write, celerity::no_init};
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{1, 1, 1}, [=](cl::sycl::item<3> id) { acc[id] = 0; });
-		});
-	}
-#pragma GCC diagnostic pop
 
 	template <int Dims>
 	class linear_id_kernel;
