@@ -9,6 +9,7 @@ file(GLOB_RECURSE TEST_INCLUDES *.h)
 
 set(TEST_TARGETS
   runtime_tests
+  runtime_deprecation_tests
   graph_generation_tests
   graph_compaction_tests
   intrusive_graph_tests
@@ -52,14 +53,5 @@ foreach(TEST_TARGET ${TEST_TARGETS})
   ParseAndAddCatchTests_ParseFile(${TEST_SOURCE} ${TEST_TARGET})
 
 endforeach()
-
-# runtime_tests explicitly tests deprecated APIs to ensure backwards compatibility, but
-# compilers may fail to suppress -Wno-deprecated-declarations locally through #pragma GCC diagnostic
-# when deprecations manifest through a template instantiated elsewhere.
-# TODO split off a separate translation unit from runtime_tests that only tests deprecated APIs
-# so we can leave deprecation warnings active for the remainder of runtime_tests
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-    target_compile_options(runtime_tests PRIVATE -Wno-deprecated-declarations)
-endif ()
 
 add_subdirectory(system)
