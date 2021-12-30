@@ -252,11 +252,13 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
   private:
-#if WORKAROUND_COMPUTECPP || WORKAROUND_DPCPP
+#if WORKAROUND_DPCPP || WORKAROUND(COMPUTECPP, 2, 6)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations" // target::gobal_buffer is now target::device, but only for very recent versions of DPC++
 	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>;
 #pragma GCC diagnostic pop
+#elif WORKAROUND_COMPUTECPP
+	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::device, cl::sycl::access::placeholder::true_t>;
 #else
 	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::target::device>;
 #endif

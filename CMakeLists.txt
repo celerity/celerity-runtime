@@ -42,7 +42,7 @@ else()
 
   find_package(ComputeCpp QUIET)
   if(ComputeCpp_FOUND)
-    message(STATUS "Found ComputeCpp: ${ComputeCpp_DIR}")
+    message(STATUS "Found ComputeCpp ${ComputeCpp_VERSION}: ${ComputeCpp_DIR}")
     list(APPEND AVAILABLE_SYCL_IMPLS ComputeCpp)
   endif()
 
@@ -65,9 +65,12 @@ if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
   message(STATUS "DPC++ will target ${CELERITY_DPCPP_TARGETS}")
 endif()
 
-if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp" AND NOT COMPUTECPP_USER_FLAGS MATCHES "-D_CRT_SECURE_NO_WARNINGS")
-  set(COMPUTECPP_USER_FLAGS "${COMPUTECPP_USER_FLAGS};-D_CRT_SECURE_NO_WARNINGS=1"
-    CACHE STRING "" FORCE)
+if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
+  list(APPEND CELERITY_CXX_FLAGS -DSYCL_LANGUAGE_VERSION=COMPUTECPP_SYCL_VERSION_2020)
+  list(APPEND COMPUTECPP_DEVICE_COMPILER_FLAGS -DSYCL_LANGUAGE_VERSION=COMPUTECPP_SYCL_VERSION_2020)
+endif()
+if(MSVC)
+  list(APPEND CELERITY_CXX_FLAGS -D_CRT_SECURE_NO_WARNINGS)
 endif()
 
 if(CELERITY_SYCL_IMPL STREQUAL hipSYCL)
@@ -218,6 +221,8 @@ if(MSVC)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self)
 endif()
+
+target_compile_options(celerity_runtime PRIVATE "${CELERITY_CXX_FLAGS}")
 
 # Examples
 

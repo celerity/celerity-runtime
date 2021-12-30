@@ -225,7 +225,7 @@ class nd_item {
 
 	size_t get_group_range(int dimension) const { return group_range[dimension]; }
 
-#if !WORKAROUND_COMPUTECPP && !WORKAROUND_DPCPP // no sub_group support
+#if !WORKAROUND_DPCPP // no sub_group support
 	cl::sycl::sub_group get_sub_group() const { return sycl_item.get_sub_group(); }
 #endif
 
@@ -290,18 +290,11 @@ class nd_item {
 };
 
 
-#if !WORKAROUND_COMPUTECPP
 using cl::sycl::group_barrier;
-#endif
 
 template <int Dims>
 void group_barrier(const group<Dims>& g, memory_scope scope = memory_scope_work_group) {
-#if WORKAROUND_COMPUTECPP
-	auto space = scope > memory_scope_work_group ? cl::sycl::access::fence_space::global_and_local : cl::sycl::access::fence_space::local_space;
-	detail::get_sycl_item(g).barrier(space);
-#else
 	cl::sycl::group_barrier(detail::get_sycl_item(g).get_group(), static_cast<cl::sycl::memory_scope>(scope)); // identical representation
-#endif
 }
 
 
