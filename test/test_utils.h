@@ -317,7 +317,8 @@ namespace test_utils {
 				dq->get_sycl_queue()
 				    .submit([&](cl::sycl::handler& cgh) {
 					    auto acc = info.buffer.template get_access<Mode>(cgh);
-					    cgh.parallel_for<detail::bind_kernel_name<KernelName>>(range, offset, [=](cl::sycl::id<Dims> global_idx) {
+					    cgh.parallel_for<detail::bind_kernel_name<KernelName>>(range, [=](cl::sycl::id<Dims> global_idx) {
+						    global_idx += offset;
 						    const auto local_idx = global_idx - buf_offset;
 						    cb(global_idx, acc[local_idx]);
 					    });
