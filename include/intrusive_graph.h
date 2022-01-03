@@ -71,8 +71,10 @@ namespace detail {
 			// Check for (direct) cycles
 			assert(!has_dependent(dep.node));
 
-			auto it = maybe_get_dep(dependencies, dep.node);
-			if(it != std::nullopt) {
+			if(const auto it = maybe_get_dep(dependencies, dep.node)) {
+				// We assume that for dependency kinds A and B, max(A, B) is strong enough to satisfy both.
+				static_assert(dependency_kind::ANTI_DEP < dependency_kind::ORDER_DEP && dependency_kind::ORDER_DEP < dependency_kind::TRUE_DEP);
+
 				// Already exists, potentially upgrade to full dependency
 				if((*it)->kind < dep.kind) {
 					(*it)->kind = dep.kind;
