@@ -3,11 +3,11 @@
 set -o errexit -o pipefail -o nounset
 
 if [[ ! -d CMakeFiles ]]; then
-    echo "Warning: This script should be run from within a build directory" 1>&2
+    echo "Warning: This script should be run from within a build directory" >&2
 fi
 
 if [[ $# -lt 2 ]]; then
-    echo "Usage: $0 <convolution image file> <num nodes> [<num nodes>...]" 1>&2
+    echo "Usage: $0 <convolution image file> <num nodes> [<num nodes>...]" >&2
     exit 1
 fi
 
@@ -63,7 +63,7 @@ for e in "${!EXAMPLES[@]}"; do
     ARTIFACT="${ARTIFACTS[$e]}"
 
     for n in "${NUM_NODES[@]}"; do
-        echo -e "\n\n ---- Running \"$NAME\" on $n node(s) ----\n\n" 1>&2
+        echo -e "\n\n ---- Running \"$NAME\" on $n node(s) ----\n\n" >&2
         rm -rf "$ARTIFACT" # Delete artifact before each run to make sure it is actually created
         mpirun -n "$n" bash /root/capture-backtrace.sh "${CMD[@]}"
         if [ -n "$ARTIFACT" ]; then
@@ -74,7 +74,7 @@ for e in "${!EXAMPLES[@]}"; do
                 # configuration (debug/release, hipSYCL/ComputeCpp, etc) because they don't. Instead
                 # we just check whether they produce the same result across runs with different nodes.
                 if [[ $(md5sum "$ARTIFACT") != "$expected_checksum" ]]; then
-                    echo "$NAME: Wrong ARTIFACT checksum after running with $n nodes." 1>&2
+                    echo "$NAME: Wrong ARTIFACT checksum after running with $n nodes." >&2
                     exit 1
                 fi
             fi
