@@ -6,7 +6,23 @@ on:
   workflow_dispatch:
 
 jobs:
+  find-duplicate-workflows:
+    runs-on: self-hosted
+    outputs:
+      should_skip: ${{ steps.skip-check.outputs.should_skip }}
+    steps:
+      - id: skip-check
+        uses: fkirc/skip-duplicate-actions@v3.4.1
+        with:
+          concurrent_skipping: 'same_content_newer'
+          skip_after_successful_duplicate: 'true'
+          paths_ignore: '["**/*.md", "docs/**", "website/**"]'
+          do_not_skip: '["workflow_dispatch", "schedule"]'
+          cancel_others: 'true'
+
   build-and-test:
+    needs: find-duplicate-workflows
+    if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
     runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false
@@ -90,7 +106,8 @@ jobs:
         run: ${{ env.container-workspace }}/ci/run-system-tests.sh 2 4
 
   report:
-    needs: [build-and-test]
+    needs: [find-duplicate-workflows, build-and-test]
+    if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
     runs-on: self-hosted
     env:
       container-workspace: /__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}
