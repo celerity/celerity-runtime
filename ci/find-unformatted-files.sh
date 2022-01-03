@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [[ ! -d src ]]; then
-    echo "Warning: This script should be run from within the repository root directory" 1>&2
+    echo "Warning: This script should be run from within the repository root directory" >&2
 fi
 
 SOURCES=$(find examples include src test \( -name "*.h" -o -name "*.cc" \) ! -name "stb*")
