@@ -6,11 +6,32 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic
 Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2022-01-04
+
+We recommend Clang >= 10.0 as the host compiler to avoid false-positive
+deprecation warnings.
+
+### Fixed
+
+- Remove blanket-statement error message upon early buffer deallocation, which
+  in many cases is now legal. (6851145)
+- Properly apply horizons to collective host task order-dependencies. (4488724)
+- Avoid race between horizon task generation and horizon command execution.
+  (f670868)
+- Fix data race in `task_manager::notify_horizon_executed` (only in debug
+  builds). (f641bcb)
+- Don't rely on static destruction order for `user_benchmarker`. (d1c9e51)
+- Restructure `wave_sim` example to avoid host side race condition for certain
+  `--sample-rate` configurations. (d226b95)
+- Hard-code paths for CMake dependencies in installed Celerity config to avoid
+  mismatches. (4e88657)
+
 ## [0.3.0] - 2021-11-16
 
 We recommend using the following SYCL versions with this release:
 
-- ComputeCpp: 2.6.0 or newer
+- ComputeCpp: 2.6.0 (an earlier version of this document used to recommend
+  "2.6.0 or newer")
 - DPC++: 7735139 or newer
 - hipSYCL: 7b00e2e or newer
 
