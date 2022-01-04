@@ -183,10 +183,11 @@ namespace detail {
 #if WORKAROUND_COMPUTECPP
 			cl::sycl::buffer<DataT, Dims> tmp_dst_buf(reinterpret_cast<DataT*>(result.get_pointer()), range_cast<Dims>(range));
 			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
-				auto src_acc = buf.template get_access<cl::sycl::access::mode::read>(cgh, range_cast<Dims>(range), id_cast<Dims>(offset));
-				auto dst_acc = tmp_dst_buf.template get_access<cl::sycl::access::mode::discard_write>(cgh);
+				const auto src_acc = buf.template get_access<cl::sycl::access::mode::read>(cgh, range_cast<Dims>(range), id_cast<Dims>(offset));
+				const auto dst_acc = tmp_dst_buf.template get_access<cl::sycl::access::mode::discard_write>(cgh);
+				const auto src_buf_range = buf.get_range();
 				cgh.parallel_for<computecpp_get_data_workaround<DataT, Dims>>(
-				    range_cast<Dims>(range), [=, offset = id_cast<Dims>(offset)](cl::sycl::id<Dims> id) { dst_acc[id] = src_acc[offset + id]; });
+				    range_cast<Dims>(range), [=](const sycl::id<Dims> id) { dst_acc[id] = ranged_sycl_access(src_acc, src_buf_range, id); });
 			});
 #else
 			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
@@ -215,8 +216,9 @@ namespace detail {
 			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
 				auto src_acc = tmp_src_buf.template get_access<cl::sycl::access::mode::read>(cgh);
 				auto dst_acc = buf.template get_access<cl::sycl::access::mode::discard_write>(cgh, range_cast<Dims>(data.get_range()), id_cast<Dims>(offset));
+				const auto dst_buf_range = buf.get_range();
 				cgh.parallel_for<computecpp_set_data_workaround<DataT, Dims>>(
-				    range_cast<Dims>(data.get_range()), [=, offset = id_cast<Dims>(offset)](cl::sycl::id<Dims> id) { dst_acc[offset + id] = src_acc[id]; });
+				    range_cast<Dims>(data.get_range()), [=](const sycl::id<Dims> id) { ranged_sycl_access(dst_acc, dst_buf_range, id) = src_acc[id]; });
 			});
 #else
 			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
