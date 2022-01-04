@@ -2156,6 +2156,8 @@ namespace detail {
 	TEST_CASE("handler::parallel_for accepts nd_range", "[handler]") {
 		distr_queue q;
 
+		// Note: be careful about local range sizes here, not all devices support work groups with > 256 elements.
+
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(nd_range_1)>(celerity::nd_range<1>{{256}, {64}}, [](nd_item<1> item) {
 				group_barrier(item.get_group());
@@ -2175,10 +2177,10 @@ namespace detail {
 		}));
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(nd_range_3)>(celerity::nd_range<3>{{32, 32, 32}, {8, 8, 8}}, [](nd_item<3> item) {
+			cgh.parallel_for<class UKN(nd_range_3)>(celerity::nd_range<3>{{16, 16, 16}, {4, 4, 4}}, [](nd_item<3> item) {
 				group_barrier(item.get_group());
 #if !WORKAROUND_COMPUTECPP // no group primitives
-				group_broadcast(item.get_group(), 42, {2, 4, 6});
+				group_broadcast(item.get_group(), 42, {1, 2, 3});
 #endif
 			});
 		}));
