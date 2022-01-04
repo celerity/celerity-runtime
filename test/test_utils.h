@@ -50,6 +50,24 @@ namespace detail {
 
 namespace test_utils {
 
+	template <int Dims, typename F>
+	void for_each_in_range(sycl::range<Dims> range, sycl::id<Dims> offset, F&& f) {
+		const auto range3 = detail::range_cast<3>(range);
+		sycl::id<3> index;
+		for(index[0] = 0; index[0] < range3[0]; ++index[0]) {
+			for(index[1] = 0; index[1] < range3[1]; ++index[1]) {
+				for(index[2] = 0; index[2] < range3[2]; ++index[2]) {
+					f(offset + detail::id_cast<Dims>(index));
+				}
+			}
+		}
+	}
+
+	template <int Dims, typename F>
+	void for_each_in_range(sycl::range<Dims> range, F&& f) {
+		for_each_in_range(range, {}, f);
+	}
+
 	class mock_buffer_factory;
 
 	template <int Dims>
@@ -250,30 +268,39 @@ namespace test_utils {
 		static_cast<detail::prepass_handler&>(cgh).add_reduction<Dims>(rid);
 	}
 
-	class buffer_manager_fixture {
+	class device_queue_fixture {
+	  public:
+		~device_queue_fixture() { get_device_queue().get_sycl_queue().wait_and_throw(); }
+
+		detail::device_queue& get_device_queue() {
+			if(!dq) {
+				l = std::make_unique<detail::logger>("test", detail::log_level::warn);
+				cfg = std::make_unique<detail::config>(nullptr, nullptr, *l);
+				dq = std::make_unique<detail::device_queue>(*l);
+				dq->init(*cfg, nullptr);
+			}
+			return *dq;
+		}
+
+	  private:
+		std::unique_ptr<detail::logger> l;
+		std::unique_ptr<detail::config> cfg;
+		std::unique_ptr<detail::device_queue> dq;
+	};
+
+	class buffer_manager_fixture : public device_queue_fixture {
 	  public:
 		enum class access_target { HOST, DEVICE };
 
-		~buffer_manager_fixture() { get_device_queue().get_sycl_queue().wait_and_throw(); }
-
 		void initialize(detail::buffer_manager::buffer_lifecycle_callback cb = [](detail::buffer_manager::buffer_lifecycle_event, detail::buffer_id) {}) {
-			l = std::make_unique<detail::logger>("test", detail::log_level::warn);
-			cfg = std::make_unique<detail::config>(nullptr, nullptr, *l);
-			dq = std::make_unique<detail::device_queue>(*l);
-			dq->init(*cfg, nullptr);
-			bm = std::make_unique<detail::buffer_manager>(*dq, cb);
+			assert(!bm);
+			bm = std::make_unique<detail::buffer_manager>(get_device_queue(), cb);
 			bm->enable_test_mode();
-			initialized = true;
 		}
 
 		detail::buffer_manager& get_buffer_manager() {
-			if(!initialized) initialize();
+			if(!bm) initialize();
 			return *bm;
-		}
-
-		detail::device_queue& get_device_queue() {
-			if(!initialized) initialize();
-			return *dq;
 		}
 
 		static access_target get_other_target(access_target tgt) {
@@ -314,7 +341,7 @@ namespace test_utils {
 			if(tgt == access_target::DEVICE) {
 				auto info = bm->get_device_buffer<DataT, Dims>(bid, Mode, range3, offset3);
 				const auto buf_offset = info.offset;
-				dq->get_sycl_queue()
+				get_device_queue()
 				    .submit([&](cl::sycl::handler& cgh) {
 					    auto acc = info.buffer.template get_access<Mode>(cgh);
 					    cgh.parallel_for<detail::bind_kernel_name<KernelName>>(range, [=](cl::sycl::id<Dims> global_idx) {
@@ -353,7 +380,7 @@ namespace test_utils {
 			const auto buf_offset = info.offset;
 			cl::sycl::buffer<ReduceT, 1> result_buf(1); // Use 1-dimensional instead of 0-dimensional since it's NYI in hipSYCL as of 0.8.1
 			// Simply do a serial reduction on the device as well
-			dq->get_sycl_queue()
+			get_device_queue()
 			    .submit([&](cl::sycl::handler& cgh) {
 				    auto acc = info.buffer.template get_access<cl::sycl::access::mode::read>(cgh);
 				    auto result_acc = result_buf.template get_access<cl::sycl::access::mode::read_write>(cgh);
@@ -373,7 +400,7 @@ namespace test_utils {
 			    .wait();
 
 			ReduceT result;
-			dq->get_sycl_queue()
+			get_device_queue()
 			    .submit([&](cl::sycl::handler& cgh) {
 				    auto acc = result_buf.template get_access<cl::sycl::access::mode::read>(cgh);
 				    cgh.copy(acc, &result);
@@ -401,9 +428,6 @@ namespace test_utils {
 
 	  private:
 		bool initialized = false;
-		std::unique_ptr<detail::logger> l;
-		std::unique_ptr<detail::config> cfg;
-		std::unique_ptr<detail::device_queue> dq;
 		std::unique_ptr<detail::buffer_manager> bm;
 	};
 

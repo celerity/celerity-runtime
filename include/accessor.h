@@ -224,12 +224,12 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
 	template <access_mode M = Mode, int D = Dims>
 	std::enable_if_t<detail::access::mode_traits::is_producer(M) && M != access_mode::atomic && (D > 0), DataT&> operator[](id<Dims> index) const {
-		return sycl_accessor[index - index_offset];
+		return detail::ranged_sycl_access(sycl_accessor, buffer_range, index - index_offset);
 	}
 
 	template <access_mode M = Mode, int D = Dims>
 	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](id<Dims> index) const {
-		return sycl_accessor[index - index_offset];
+		return detail::ranged_sycl_access(sycl_accessor, buffer_range, index - index_offset);
 	}
 
 	template <access_mode M = Mode, int D = Dims>
@@ -238,7 +238,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 #pragma GCC diagnostic push
 		// Ignore deprecation warnings emitted by SYCL implementations (e.g. hipSYCL)
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-		return sycl_accessor[index - index_offset];
+		return detail::ranged_sycl_access(sycl_accessor, buffer_range, index - index_offset);
 #pragma GCC diagnostic pop
 	}
 
@@ -247,12 +247,14 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		return {*this, d0};
 	}
 
-	friend bool operator==(const accessor& lhs, const accessor& rhs) { return lhs.sycl_accessor == rhs.sycl_accessor && lhs.index_offset == rhs.index_offset; }
+	friend bool operator==(const accessor& lhs, const accessor& rhs) {
+		return lhs.sycl_accessor == rhs.sycl_accessor && lhs.buffer_range == rhs.buffer_range && lhs.index_offset == rhs.index_offset;
+	}
 
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
   private:
-#if WORKAROUND_DPCPP || WORKAROUND(COMPUTECPP, 2, 6)
+#if WORKAROUND_DPCPP || WORKAROUND(COMPUTECPP, 2, 7)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations" // target::gobal_buffer is now target::device, but only for very recent versions of DPC++
 	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>;
@@ -269,19 +271,15 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	// see init_from
 	cl::sycl::handler* const* eventual_sycl_cgh = nullptr;
 	sycl_accessor_t sycl_accessor;
-	id<Dims> index_offset;
+	sycl::id<Dims> index_offset;
+	sycl::range<Dims> buffer_range = detail::zero_range; // TODO remove this togehter with ComputeCpp < 2.8.0 support
 
 	accessor(cl::sycl::handler* const* eventual_sycl_cgh, const subrange<Dims>& mapped_subrange, cl::sycl::buffer<DataT, Dims>& buffer,
 	    id<Dims> backing_buffer_offset)
 	    : eventual_sycl_cgh(eventual_sycl_cgh),
 	      // We pass a range and offset here to avoid interference from SYCL, but the offset must be relative to the *backing buffer*.
-	      sycl_accessor(sycl_accessor_t(buffer, mapped_subrange.range, mapped_subrange.offset - backing_buffer_offset)),
-#if WORKAROUND_HIPSYCL || WORKAROUND_COMPUTECPP // see below
-	      index_offset(backing_buffer_offset)
-#else
-	      index_offset(mapped_subrange.offset)
-#endif
-	{
+	      sycl_accessor(sycl_accessor_t(buffer, mapped_subrange.range, mapped_subrange.offset - backing_buffer_offset)), index_offset(mapped_subrange.offset),
+	      buffer_range(buffer.get_range()) {
 		// SYCL 1.2.1 dictates that all kernel parameters must have standard layout.
 		// However, since we are wrapping a SYCL accessor, this assertion fails for some implementations,
 		// as it is currently unclear whether SYCL accessors must also have standard layout.
@@ -291,9 +289,10 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
 	// For DPC++, we must call the sycl_accessor_t constructor with arguments that need to be computed beforehand, so we pass the results from construct()
 	// throught to the accessor(constructor_args) ctor.
-	using constructor_args = std::tuple<cl::sycl::handler* const*, sycl_accessor_t, id<Dims>>;
+	using constructor_args = std::tuple<cl::sycl::handler* const*, sycl_accessor_t, id<Dims>, range<Dims>>;
 
-	explicit accessor(constructor_args&& args) : eventual_sycl_cgh(std::get<0>(args)), sycl_accessor(std::get<1>(args)), index_offset(std::get<2>(args)) {
+	explicit accessor(constructor_args&& args)
+	    : eventual_sycl_cgh(std::get<0>(args)), sycl_accessor(std::get<1>(args)), index_offset(std::get<2>(args)), buffer_range(std::get<3>(args)) {
 		// SYCL 1.2.1 dictates that all kernel parameters must have standard layout.
 		// However, since we are wrapping a SYCL accessor, this assertion fails for some implementations,
 		// as it is currently unclear whether SYCL accessors must also have standard layout.
@@ -314,7 +313,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 #else
 			sycl_accessor_t sycl_accessor{};
 #endif
-			return std::tuple{static_cast<cl::sycl::handler* const*>(nullptr), sycl_accessor, id<Dims>{}};
+			return {static_cast<cl::sycl::handler* const*>(nullptr), sycl_accessor, id<Dims>{}, detail::zero_range};
 		} else {
 			if(detail::get_handler_execution_target(cgh) != detail::execution_target::DEVICE) {
 				throw std::runtime_error(
@@ -330,21 +329,14 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 			    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(sr.range), detail::id_cast<3>(sr.offset));
 			auto sycl_accessor = sycl_accessor_t(access_info.buffer, sr.range, sr.offset - access_info.offset);
 
-#if WORKAROUND_HIPSYCL || WORKAROUND_COMPUTECPP
-			// SYCL 1.2.1 behavior: Indexing into an accessor is relative to (0, 0, 0), regardless of accessor offsets
-			auto index_offset = access_info.offset;
-#else
-			// SYCL 2020 behavior: Indexing into an accessor is relative to the accessor offset
-			auto index_offset = sr.offset;
-#endif
-
-			return std::tuple{eventual_sycl_cgh, sycl_accessor, index_offset};
+			return {eventual_sycl_cgh, sycl_accessor, sr.offset, access_info.buffer.get_range()};
 		}
 	}
 
 	void init_from(const accessor& other) {
 		eventual_sycl_cgh = other.eventual_sycl_cgh;
 		index_offset = other.index_offset;
+		buffer_range = other.buffer_range;
 
 		// The call to sycl::handler::require must happen inside the SYCL CGF, but since get_access within the Celerity CGF is executed before
 		// the submission to SYCL, it needs to be deferred. We capture a reference to a SYCL handler pointer owned by the live pass handler that is
