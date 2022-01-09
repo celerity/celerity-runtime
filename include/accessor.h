@@ -50,26 +50,34 @@ namespace detail {
 
 	struct accessor_testspy;
 
-	template <typename T>
-	[[gnu::noinline, gnu::const]] T* hack_make_invisible_nullptr() {
-		return static_cast<T*>(nullptr);
-	}
-
-	// DPC++ workaround for constructing a cl::sycl::local_accessor without a handler. The constructor takes a handler&, but does not actually use it in the
-	// constructor body. We hide conjuring an (UB) handler& from a null pointer behind this function to minimize the chance of the optimizer breaking this hack.
-	template <typename T>
-	[[gnu::const]] T& hack_make_invisible_null_reference() {
-		return *hack_make_invisible_nullptr<T>();
-	}
-
-#if WORKAROUND_COMPUTECPP
-	class hack_null_sycl_handler: public sycl::handler {
+#if WORKAROUND_DPCPP
+	struct hack_handler_friend_accessor_specialization_type {};
+	using hack_handler_friend = cl::sycl::accessor<celerity::detail::hack_handler_friend_accessor_specialization_type, 0, cl::sycl::access::mode::read,
+	    cl::sycl::access::target::host_buffer, cl::sycl::access::placeholder::true_t, void>;
+#elif WORKAROUND_COMPUTECPP
+	class hack_null_sycl_handler : public sycl::handler {
 	  public:
-		hack_null_sycl_handler(): sycl::handler(nullptr) {}
+		hack_null_sycl_handler() : sycl::handler(nullptr) {}
 	};
 #endif
 
 } // namespace detail
+} // namespace celerity
+
+#if WORKAROUND_DPCPP
+template <>
+class cl::sycl::accessor<celerity::detail::hack_handler_friend_accessor_specialization_type, 0, cl::sycl::access::mode::read,
+    cl::sycl::access::target::host_buffer, cl::sycl::access::placeholder::true_t, void> {
+  public:
+	template <typename F>
+	static auto with_null_sycl_handler(F&& f) {
+		handler null_cgh{nullptr, false};
+		return f(null_cgh);
+	}
+};
+#endif
+
+namespace celerity {
 
 /**
  * Maps slices of the accessor backing buffer present on a host to the virtual global range of the Celerity buffer.
@@ -571,7 +579,7 @@ class local_accessor {
 #endif
 
 	template <typename Index>
-	using subscript_type = decltype(std::declval<sycl_accessor>()[std::declval<const Index &>()]);
+	using subscript_type = decltype(std::declval<sycl_accessor>()[std::declval<const Index&>()]);
 
   public:
 	using value_type = DataT;
@@ -579,15 +587,10 @@ class local_accessor {
 	using const_reference = const DataT&;
 	using size_type = size_t;
 
-	local_accessor()
-	    : sycl_acc{make_dangling_sycl_accessor()},
-	      allocation_size(detail::zero_range) {
-	}
+	local_accessor() : sycl_acc{make_dangling_sycl_accessor()}, allocation_size(detail::zero_range) {}
 
 #if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
-	local_accessor(const range<Dims>& allocation_size, handler& cgh)
-		: sycl_acc{make_dangling_sycl_accessor()},
-	      allocation_size(allocation_size) {
+	local_accessor(const range<Dims>& allocation_size, handler& cgh) : sycl_acc{make_dangling_sycl_accessor()}, allocation_size(allocation_size) {
 		if(!detail::is_prepass_handler(cgh)) {
 			auto& device_handler = dynamic_cast<detail::live_pass_device_handler&>(cgh);
 			eventual_sycl_cgh = device_handler.get_eventual_sycl_cgh();
@@ -626,10 +629,9 @@ class local_accessor {
 	range<Dims> allocation_size;
 	cl::sycl::handler* const* eventual_sycl_cgh = nullptr;
 
-	static sycl_accessor make_dangling_sycl_accessor()
-	{
+	static sycl_accessor make_dangling_sycl_accessor() {
 #if WORKAROUND_DPCPP
-		return sycl_accessor{detail::zero_range, detail::hack_make_invisible_null_reference<cl::sycl::handler>()};
+		return detail::hack_handler_friend::with_null_sycl_handler([](cl::sycl::handler& null_cgh) { return sycl_accessor{detail::zero_range, null_cgh}; });
 #elif WORKAROUND_COMPUTECPP
 		detail::hack_null_sycl_handler null_cgh;
 		return sycl_accessor{detail::zero_range, null_cgh};
