@@ -2195,7 +2195,6 @@ namespace detail {
 		CHECK_THROWS_WITH((celerity::nd_range<3>{{256, 256, 256}, {2, 1, 0}}), "global_range is not divisible by local_range");
 	}
 
-#if CELERITY_FEATURE_LOCAL_ACCESSOR
 	TEST_CASE("nd_range kernels support local memory", "[handler]") {
 		distr_queue q;
 		buffer<int, 1> out{64};
@@ -2219,7 +2218,6 @@ namespace detail {
 			});
 		});
 	}
-#endif
 
 #if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 

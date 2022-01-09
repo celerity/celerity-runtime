@@ -62,6 +62,13 @@ namespace detail {
 		return *hack_make_invisible_nullptr<T>();
 	}
 
+#if WORKAROUND_COMPUTECPP
+	class hack_null_sycl_handler: public sycl::handler {
+	  public:
+		hack_null_sycl_handler(): sycl::handler(nullptr) {}
+	};
+#endif
+
 } // namespace detail
 
 /**
@@ -550,15 +557,15 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 
 template <typename DataT, int Dims = 1>
 class local_accessor {
-#if !CELERITY_FEATURE_LOCAL_ACCESSOR
-	static_assert(detail::constexpr_false<DataT>, "Your SYCL implementation cannot support celerity::local_accessor");
-#else
   private:
-#if WORKAROUND_DPCPP
+#if WORKAROUND_DPCPP || WORKAROUND(COMPUTECPP, 2, 6)
 	using sycl_accessor = cl::sycl::accessor<DataT, Dims, cl::sycl::access::mode::read_write, cl::sycl::access::target::local>;
 #else
 	using sycl_accessor = cl::sycl::local_accessor<DataT, Dims>;
 #endif
+
+	template <typename Index>
+	using subscript_type = decltype(std::declval<sycl_accessor>()[std::declval<const Index &>()]);
 
   public:
 	using value_type = DataT;
@@ -567,21 +574,13 @@ class local_accessor {
 	using size_type = size_t;
 
 	local_accessor()
-#if WORKAROUND_DPCPP
-	    : sycl_acc(allocation_size, detail::hack_make_invisible_null_reference<cl::sycl::handler>()),
-#else
-	    : sycl_acc(),
-#endif
+	    : sycl_acc{make_dangling_sycl_accessor()},
 	      allocation_size(detail::zero_range) {
 	}
 
 #if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
 	local_accessor(const range<Dims>& allocation_size, handler& cgh)
-#if WORKAROUND_DPCPP
-	    : sycl_acc(allocation_size, detail::hack_make_invisible_null_reference<cl::sycl::handler>()),
-#else
-	    : sycl_acc(),
-#endif
+		: sycl_acc{make_dangling_sycl_accessor()},
 	      allocation_size(allocation_size) {
 		if(!detail::is_prepass_handler(cgh)) {
 			auto& device_handler = dynamic_cast<detail::live_pass_device_handler&>(cgh);
@@ -612,7 +611,7 @@ class local_accessor {
 	std::add_pointer_t<value_type> get_pointer() const noexcept { return sycl_acc.get_pointer(); }
 
 	template <typename Index>
-	inline decltype(auto) operator[](const Index& index) const {
+	inline subscript_type<Index> operator[](const Index& index) const {
 		return sycl_acc[index];
 	}
 
@@ -621,8 +620,19 @@ class local_accessor {
 	range<Dims> allocation_size;
 	cl::sycl::handler* const* eventual_sycl_cgh = nullptr;
 
-	cl::sycl::handler* sycl_cgh() const { return eventual_sycl_cgh != nullptr ? *eventual_sycl_cgh : nullptr; }
+	static sycl_accessor make_dangling_sycl_accessor()
+	{
+#if WORKAROUND_DPCPP
+		return sycl_accessor{detail::zero_range, detail::hack_make_invisible_null_reference<cl::sycl::handler>()};
+#elif WORKAROUND_COMPUTECPP
+		detail::hack_null_sycl_handler null_cgh;
+		return sycl_accessor{detail::zero_range, null_cgh};
+#else
+		return sycl_accessor{};
 #endif
+	}
+
+	cl::sycl::handler* sycl_cgh() const { return eventual_sycl_cgh != nullptr ? *eventual_sycl_cgh : nullptr; }
 };
 
 
