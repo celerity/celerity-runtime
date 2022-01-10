@@ -2233,7 +2233,7 @@ namespace detail {
 
 #endif
 
-#if !WORKAROUND_COMPUTECPP // CCPP does not support unnamed kernels yet
+#if CELERITY_FEATURE_UNNAMED_KERNELS
 
 	TEST_CASE("handler::parallel_for kernel names are optional", "[handler]") {
 		distr_queue q;
