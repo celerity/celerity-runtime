@@ -66,9 +66,33 @@ if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
 endif()
 
 if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
+  # Determining the compiler version would usually be a job for FindComputeCpp, but since we're vendoring it, we try
+  # to avoid introducing unnecessary changes.
+  # TODO Replace this once FindComputeCpp supports distinguishing old and new ("experimental") compilers natively.
+
+  execute_process(
+    COMMAND "${ComputeCpp_DEVICE_COMPILER_EXECUTABLE}" --version
+    RESULT_VARIABLE COMPUTECPP_COMPILER_STATUS
+    OUTPUT_VARIABLE COMPUTECPP_COMPILER_VERSION_STRING)
+  if(NOT COMPUTECPP_COMPILER_STATUS EQUAL 0)
+    message(FATAL_ERROR "Could not invoke ComputeCpp compiler at ${ComputeCpp_DEVICE_COMPILER_EXECUTABLE}")
+  endif()
+
+  string(REGEX REPLACE ".*clang version ([0-9]+\\.[0-9]+\\.[0-9]+).*" "\\1" COMPUTECPP_COMPILER_VERSION
+    "${COMPUTECPP_COMPILER_VERSION_STRING}")
+  if(NOT COMPUTECPP_COMPILER_VERSION MATCHES "[0-9]+\\.[0-9]+\\.[0-9]+")
+    message(FATAL_ERROR "Could not determine ComputeCpp version")
+  endif()
+  message(STATUS "Your installation of ComputeCpp is based on Clang ${COMPUTECPP_COMPILER_VERSION}")
+
   list(APPEND CELERITY_CXX_FLAGS -DSYCL_LANGUAGE_VERSION=COMPUTECPP_SYCL_VERSION_2020)
-  list(APPEND COMPUTECPP_DEVICE_COMPILER_FLAGS -DSYCL_LANGUAGE_VERSION=COMPUTECPP_SYCL_VERSION_2020)
+  if(COMPUTECPP_COMPILER_VERSION VERSION_GREATER_EQUAL 13.0.0)
+    list(APPEND COMPUTECPP_DEVICE_COMPILER_FLAGS -sycl-std=2020)
+  else()
+    list(APPEND COMPUTECPP_DEVICE_COMPILER_FLAGS -DSYCL_LANGUAGE_VERSION=COMPUTECPP_SYCL_VERSION_2020)
+  endif()
 endif()
+
 if(MSVC)
   list(APPEND CELERITY_CXX_FLAGS -D_CRT_SECURE_NO_WARNINGS)
 endif()
