@@ -68,9 +68,9 @@ namespace detail {
 		std::unordered_multimap<buffer_id, std::unique_ptr<range_mapper_base>> map;
 	};
 
-	class host_object_side_effect_map : private std::unordered_map<host_object_id, access_mode> {
+	class host_object_side_effect_map : private std::unordered_map<host_object_id, experimental::side_effect_order> {
 	  private:
-		using map = std::unordered_map<host_object_id, access_mode>;
+		using map = std::unordered_map<host_object_id, experimental::side_effect_order>;
 
 	  public:
 		using typename map::const_iterator, map::value_type, map::key_type, map::mapped_type, map::const_reference, map::const_pointer;
@@ -85,7 +85,7 @@ namespace detail {
 		iterator find(host_object_id key) const { return map::find(key); }
 
 	  public:
-		void add_side_effect(host_object_id hoid, access_mode mode);
+		void add_side_effect(host_object_id hoid, experimental::side_effect_order order);
 	};
 
 	class task : public intrusive_graph_node<task> {

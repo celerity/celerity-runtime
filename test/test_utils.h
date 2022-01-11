@@ -95,10 +95,10 @@ namespace test_utils {
 
 	class mock_host_object {
 	  public:
-		void add_side_effect(handler& cgh, const access_mode mode) {
+		void add_side_effect(handler& cgh, const experimental::side_effect_order order) {
 			if(detail::is_prepass_handler(cgh)) {
 				auto& prepass_cgh = static_cast<detail::prepass_handler&>(cgh);
-				prepass_cgh.add_requirement(id, mode);
+				prepass_cgh.add_requirement(id, order);
 			}
 		}
 

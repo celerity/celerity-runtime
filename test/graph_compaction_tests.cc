@@ -385,8 +385,8 @@ namespace detail {
 
 		test_utils::mock_host_object_factory mhof;
 		auto ho = mhof.create_host_object();
-		const auto first_task =
-		    test_utils::build_and_flush(ctx, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, access_mode::write); }));
+		const auto first_task = test_utils::build_and_flush(
+		    ctx, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, experimental::side_effect_order::sequential); }));
 
 		// generate exactly two horizons
 		auto& ggen = ctx.get_graph_generator();
@@ -398,8 +398,8 @@ namespace detail {
 		}
 
 		// This must depend on the first horizon, not first_task
-		const auto second_task =
-		    test_utils::build_and_flush(ctx, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, access_mode::read); }));
+		const auto second_task = test_utils::build_and_flush(
+		    ctx, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, experimental::side_effect_order::sequential); }));
 
 		const auto& inspector = ctx.get_inspector();
 		auto& cdag = ctx.get_command_graph();

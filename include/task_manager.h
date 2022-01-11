@@ -120,7 +120,6 @@ namespace detail {
 		std::unordered_map<collective_group_id, task_id> last_collective_tasks;
 
 		side_effect_map host_object_last_effects;
-		side_effect_map host_object_last_producers;
 
 		// For simplicity we use a single mutex to control access to all task-related (i.e. the task graph, task_map, ...) data structures.
 		mutable std::mutex task_mutex;

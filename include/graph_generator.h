@@ -72,7 +72,6 @@ namespace detail {
 			std::unordered_map<collective_group_id, command_id> last_collective_commands;
 
 			side_effect_map host_object_last_effects;
-			side_effect_map host_object_last_producers;
 		};
 
 	  public:
