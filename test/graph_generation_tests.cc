@@ -1524,27 +1524,19 @@ namespace detail {
 	}
 
 	TEST_CASE("side effects generate appropriate command-dependencies", "[graph_generator][command-graph][side-effect]") {
-		const auto side_effect_modes = {access_mode::read, access_mode::write, access_mode::read_write};
+		using order = experimental::side_effect_order;
+		const auto side_effect_orders = {order::sequential};
 		const size_t num_nodes = 2;
 
-		const auto expected_dependencies = std::unordered_map<std::pair<access_mode, access_mode>, std::optional<dependency_kind>, pair_hash>{
-		    // clang-format off
-			{{access_mode::read,       access_mode::read      }, std::nullopt             }, // RAR
-			{{access_mode::read,       access_mode::write     }, dependency_kind::ANTI_DEP}, // WAR
-			{{access_mode::read,       access_mode::read_write}, dependency_kind::ANTI_DEP}, // RAR + WAR
-			{{access_mode::write,      access_mode::read      }, dependency_kind::TRUE_DEP}, // RAW
-			{{access_mode::write,      access_mode::write     }, dependency_kind::ANTI_DEP}, // WAW
-			{{access_mode::write,      access_mode::read_write}, dependency_kind::TRUE_DEP}, // RAW + WAW
-			{{access_mode::read_write, access_mode::read      }, dependency_kind::TRUE_DEP}, // RAW
-			{{access_mode::read_write, access_mode::write     }, dependency_kind::ANTI_DEP}, // WAW + WAR
-			{{access_mode::read_write, access_mode::read_write}, dependency_kind::TRUE_DEP}, // RAW + WAW
-		    // clang-format on
+		// TODO placeholder: complete with dependency types for other side effect orders
+		const auto expected_dependencies = std::unordered_map<std::pair<order, order>, std::optional<dependency_kind>, pair_hash>{
+		    {{order::sequential, order::sequential}, dependency_kind::TRUE_DEP},
 		};
 
-		for(const auto mode_a : side_effect_modes) {
-			for(const auto mode_b : side_effect_modes) {
-				CAPTURE(mode_a);
-				CAPTURE(mode_b);
+		for(const auto order_a : side_effect_orders) {
+			for(const auto order_b : side_effect_orders) {
+				CAPTURE(order_a);
+				CAPTURE(order_b);
 
 				test_utils::cdag_test_context ctx(num_nodes);
 				auto& tm = ctx.get_task_manager();
@@ -1555,12 +1547,12 @@ namespace detail {
 				auto ho_a = mhof.create_host_object();      // should NOT generate dependencies
 				auto ho_b = mhof.create_host_object();      // -"-
 				const auto tid_a = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, sycl::range<1>{num_nodes}, [&](handler& cgh) {
-					ho_common.add_side_effect(cgh, mode_a);
-					ho_a.add_side_effect(cgh, mode_a);
+					ho_common.add_side_effect(cgh, order_a);
+					ho_a.add_side_effect(cgh, order_a);
 				}));
 				const auto tid_b = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, sycl::range<1>{num_nodes}, [&](handler& cgh) {
-					ho_common.add_side_effect(cgh, mode_b);
-					ho_b.add_side_effect(cgh, mode_b);
+					ho_common.add_side_effect(cgh, order_b);
+					ho_b.add_side_effect(cgh, order_b);
 				}));
 
 				auto& inspector = ctx.get_inspector();
@@ -1571,7 +1563,7 @@ namespace detail {
 					CHECK(deps_a.empty());
 				}
 
-				const auto expected_b = expected_dependencies.at({mode_a, mode_b});
+				const auto expected_b = expected_dependencies.at({order_a, order_b});
 				for(auto cid_b : inspector.get_commands(tid_b, std::nullopt, std::nullopt)) {
 					const auto deps_b = cdag.get(cid_b)->get_dependencies();
 					// This assumes no oversubscription in the split, adjust if necessary:

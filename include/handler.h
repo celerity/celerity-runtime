@@ -287,9 +287,9 @@ namespace detail {
 			access_map.add_access(bid, std::move(rm));
 		}
 
-		void add_requirement(host_object_id hoid, access_mode mode) {
+		void add_requirement(host_object_id hoid, experimental::side_effect_order order) {
 			assert(task == nullptr);
-			side_effect_map.add_side_effect(hoid, mode);
+			side_effect_map.add_side_effect(hoid, order);
 		}
 
 		template <int Dims>

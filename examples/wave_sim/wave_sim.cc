@@ -162,7 +162,7 @@ int main(int argc, char* argv[]) {
 
 	if(cfg.output_sample_rate > 0) {
 		queue.submit([=](celerity::handler& cgh) {
-			celerity::experimental::side_effect load_frames{result_frames, cgh, celerity::read_only};
+			celerity::experimental::side_effect load_frames{result_frames, cgh};
 			cgh.host_task(celerity::on_master_node, [=](celerity::partition<0> p) {
 				// TODO: Consider writing results to disk as they're coming in, instead of just at the end
 				write_bin(cfg.N, *load_frames);

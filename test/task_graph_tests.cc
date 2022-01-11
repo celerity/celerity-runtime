@@ -555,26 +555,17 @@ namespace detail {
 	}
 
 	TEST_CASE("side effects generate appropriate task-dependencies", "[task_manager][task-graph][side-effect]") {
-		const auto side_effect_modes = {access_mode::read, access_mode::write, access_mode::read_write};
+		using order = experimental::side_effect_order;
+		const auto side_effect_orders = {order::sequential};
 
-		const auto expected_dependencies = std::unordered_map<std::pair<access_mode, access_mode>, std::optional<dependency_kind>, pair_hash>{
-		    // clang-format off
-			{{access_mode::read,       access_mode::read      }, std::nullopt             }, // RAR
-			{{access_mode::read,       access_mode::write     }, dependency_kind::ANTI_DEP}, // WAR
-			{{access_mode::read,       access_mode::read_write}, dependency_kind::ANTI_DEP}, // RAR + WAR
-			{{access_mode::write,      access_mode::read      }, dependency_kind::TRUE_DEP}, // RAW
-			{{access_mode::write,      access_mode::write     }, dependency_kind::ANTI_DEP}, // WAW
-			{{access_mode::write,      access_mode::read_write}, dependency_kind::TRUE_DEP}, // RAW + WAW
-			{{access_mode::read_write, access_mode::read      }, dependency_kind::TRUE_DEP}, // RAW
-			{{access_mode::read_write, access_mode::write     }, dependency_kind::ANTI_DEP}, // WAW + WAR
-			{{access_mode::read_write, access_mode::read_write}, dependency_kind::TRUE_DEP}, // RAW + WAW
-		    // clang-format on
-		};
+		// TODO placeholder: complete with dependency types for other side effect orders
+		const auto expected_dependencies = std::unordered_map<std::pair<order, order>, std::optional<dependency_kind>, pair_hash>{
+		    {{order::sequential, order::sequential}, dependency_kind::TRUE_DEP}};
 
-		for(const auto mode_a : side_effect_modes) {
-			for(const auto mode_b : side_effect_modes) {
-				CAPTURE(mode_a);
-				CAPTURE(mode_b);
+		for(const auto order_a : side_effect_orders) {
+			for(const auto order_b : side_effect_orders) {
+				CAPTURE(order_a);
+				CAPTURE(order_b);
 
 				task_manager tm{1, nullptr, nullptr};
 				test_utils::mock_host_object_factory mhof;
@@ -583,19 +574,19 @@ namespace detail {
 				auto ho_a = mhof.create_host_object();      // should NOT generate dependencies
 				auto ho_b = mhof.create_host_object();      // -"-
 				const auto tid_a = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
-					ho_common.add_side_effect(cgh, mode_a);
-					ho_a.add_side_effect(cgh, mode_a);
+					ho_common.add_side_effect(cgh, order_a);
+					ho_a.add_side_effect(cgh, order_a);
 				});
 				const auto tid_b = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
-					ho_common.add_side_effect(cgh, mode_b);
-					ho_b.add_side_effect(cgh, mode_b);
+					ho_common.add_side_effect(cgh, order_b);
+					ho_b.add_side_effect(cgh, order_b);
 				});
 
 				const auto deps_a = tm.get_task(tid_a)->get_dependencies();
 				CHECK(deps_a.empty());
 
 				const auto deps_b = tm.get_task(tid_b)->get_dependencies();
-				const auto expected_b = expected_dependencies.at({mode_a, mode_b});
+				const auto expected_b = expected_dependencies.at({order_a, order_b});
 				CHECK(std::distance(deps_b.begin(), deps_b.end()) == expected_b.has_value());
 				if(expected_b) {
 					CHECK(deps_b.front().node == tm.get_task(tid_a));
@@ -612,7 +603,8 @@ namespace detail {
 
 		test_utils::mock_host_object_factory mhof;
 		auto ho = mhof.create_host_object();
-		const auto first_task = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, access_mode::write); });
+		const auto first_task =
+		    test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, experimental::side_effect_order::sequential); });
 
 		// generate exactly two horizons
 		test_utils::mock_buffer_factory mbf(&tm);
@@ -622,7 +614,8 @@ namespace detail {
 		}
 
 		// This must depend on the first horizon, not first_task
-		const auto second_task = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, access_mode::read); });
+		const auto second_task =
+		    test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, experimental::side_effect_order::sequential); });
 
 		const auto& second_deps = tm.get_task(second_task)->get_dependencies();
 		CHECK(std::distance(second_deps.begin(), second_deps.end()) == 1);
