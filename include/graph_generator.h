@@ -70,7 +70,7 @@ namespace detail {
 			// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
 			// they are executed in the same order on every node.
 			std::unordered_map<collective_group_id, command_id> last_collective_commands;
-
+			// Side effects on the same host object create true dependencies between task commands, so we track the last effect per host object on each node.
 			side_effect_map host_object_last_effects;
 		};
 

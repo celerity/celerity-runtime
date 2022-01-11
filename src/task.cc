@@ -1,5 +1,4 @@
 #include "task.h"
-#include "access_modes.h"
 
 #include <algorithm>
 
@@ -60,7 +59,7 @@ namespace detail {
 		return result;
 	}
 
-	void host_object_side_effect_map::add_side_effect(const host_object_id hoid, experimental::side_effect_order order) {
+	void side_effect_map::add_side_effect(const host_object_id hoid, const experimental::side_effect_order order) {
 		// TODO for multiple side effects on the same hoid, find the weakest order satisfying all of them
 		emplace(hoid, order);
 	}

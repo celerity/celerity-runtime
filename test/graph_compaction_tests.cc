@@ -333,6 +333,25 @@ namespace detail {
 		maybe_print_graphs(ctx);
 	}
 
+	static void check_task_commands_depend_on_horizon_only(
+	    task_id dependency_without_horizon, task_id task, dependency_kind kind, test_utils::cdag_test_context& ctx) {
+		const auto& inspector = ctx.get_inspector();
+		auto& cdag = ctx.get_command_graph();
+		const auto first_commands = inspector.get_commands(dependency_without_horizon, std::nullopt, std::nullopt);
+		const auto second_commands = inspector.get_commands(task, std::nullopt, std::nullopt);
+		for(const auto second_cid : second_commands) {
+			for(const auto first_cid : first_commands) {
+				CHECK(!inspector.has_dependency(second_cid, first_cid));
+			}
+			const auto second_deps = cdag.get(second_cid)->get_dependencies();
+			CHECK(std::distance(second_deps.begin(), second_deps.end()) == 1);
+			for(const auto& dep : second_deps) {
+				CHECK(dep.kind == kind);
+				CHECK(isa<horizon_command>(dep.node));
+			}
+		}
+	}
+
 	TEST_CASE("commands for collective host tasks do not order-depend on their predecessor if it is shadowed by a horizon",
 	    "[graph_generator][command-graph][horizon]") {
 		// Regression test: the order-dependencies between host tasks in the same collective group are built by tracking the last task command in each
@@ -357,26 +376,11 @@ namespace detail {
 		// This must depend on the first horizon, not first_collective
 		const auto second_collective = test_utils::build_and_flush(ctx, test_utils::add_host_task(tm, experimental::collective, [&](handler& cgh) {}));
 
-		const auto& inspector = ctx.get_inspector();
-		auto& cdag = ctx.get_command_graph();
-		const auto first_commands = inspector.get_commands(first_collective, std::nullopt, std::nullopt);
-		const auto second_commands = inspector.get_commands(second_collective, std::nullopt, std::nullopt);
-		for(const auto second_cid : second_commands) {
-			for(const auto first_cid : first_commands) {
-				CHECK(!inspector.has_dependency(second_cid, first_cid));
-			}
-			const auto second_deps = cdag.get(second_cid)->get_dependencies();
-			CHECK(std::distance(second_deps.begin(), second_deps.end()) == 1);
-			for(const auto& dep : second_deps) {
-				CHECK(dep.kind == dependency_kind::ORDER_DEP);
-				CHECK(dynamic_cast<const horizon_command*>(dep.node));
-			}
-		}
+		check_task_commands_depend_on_horizon_only(first_collective, second_collective, dependency_kind::ORDER_DEP, ctx);
 
 		maybe_print_graphs(ctx);
 	}
 
-	// TODO deduplicate from test case above
 	TEST_CASE("side-effect dependencies are correctly subsumed by horizons", "[graph_generator][command-graph][horizon]") {
 		const size_t num_nodes = 1;
 		test_utils::cdag_test_context ctx(num_nodes);
@@ -401,21 +405,7 @@ namespace detail {
 		const auto second_task = test_utils::build_and_flush(
 		    ctx, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, experimental::side_effect_order::sequential); }));
 
-		const auto& inspector = ctx.get_inspector();
-		auto& cdag = ctx.get_command_graph();
-		const auto first_commands = inspector.get_commands(first_task, std::nullopt, std::nullopt);
-		const auto second_commands = inspector.get_commands(second_task, std::nullopt, std::nullopt);
-		for(const auto second_cid : second_commands) {
-			for(const auto first_cid : first_commands) {
-				CHECK(!inspector.has_dependency(second_cid, first_cid));
-			}
-			const auto second_deps = cdag.get(second_cid)->get_dependencies();
-			CHECK(std::distance(second_deps.begin(), second_deps.end()) == 1);
-			for(const auto& dep : second_deps) {
-				CHECK(dep.kind == dependency_kind::TRUE_DEP);
-				CHECK(dynamic_cast<const horizon_command*>(dep.node));
-			}
-		}
+		check_task_commands_depend_on_horizon_only(first_task, second_task, dependency_kind::TRUE_DEP, ctx);
 
 		maybe_print_graphs(ctx);
 	}
