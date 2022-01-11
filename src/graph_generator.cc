@@ -478,6 +478,8 @@ namespace detail {
 
 	void graph_generator::process_task_side_effect_requirements(const task_id tid) {
 		const auto tsk = task_mngr.get_task(tid);
+		if(tsk->get_side_effect_map().empty()) return; // skip the loop in the common case
+
 		for(const auto cmd : cdag.task_commands(tid)) {
 			auto& nd = node_data.at(cmd->get_nid());
 
