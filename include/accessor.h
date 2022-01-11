@@ -50,11 +50,18 @@ namespace detail {
 
 	struct accessor_testspy;
 
+// Hack: DPC++ and ComputeCpp do not implement the SYCL 2020 sycl::local_accessor default constructor yet and always require a handler for construction.
+// Since there is no SYCL handler in the pre-pass, we abuse inheritance and friend declarations to conjure a temporary sycl::handler that can be passed to the
+// existing local_accessor constructor. This works because neither accessor implementation keep references to the handler internally or interacts with context
+// surrounding the fake handler instance.
 #if WORKAROUND_DPCPP
-	struct hack_handler_friend_accessor_specialization_type {};
-	using hack_handler_friend = cl::sycl::accessor<celerity::detail::hack_handler_friend_accessor_specialization_type, 0, cl::sycl::access::mode::read,
+	// The DPC++ handler declares `template<...> friend class accessor<...>`, so we specialize sycl::accessor with a made-up type and have it inherit from
+	// sycl::handler in order to be able to call the private constructor of sycl::handler.
+	struct hack_accessor_specialization_type {};
+	using hack_null_sycl_handler = cl::sycl::accessor<celerity::detail::hack_accessor_specialization_type, 0, cl::sycl::access::mode::read,
 	    cl::sycl::access::target::host_buffer, cl::sycl::access::placeholder::true_t, void>;
 #elif WORKAROUND_COMPUTECPP
+	// ComputeCpp's sycl::handler has a protected constructor, so we expose it to the public through inheritance.
 	class hack_null_sycl_handler : public sycl::handler {
 	  public:
 		hack_null_sycl_handler() : sycl::handler(nullptr) {}
@@ -65,15 +72,12 @@ namespace detail {
 } // namespace celerity
 
 #if WORKAROUND_DPCPP
+// See declaration of celerity::detail::hack_accessor_specialization_type
 template <>
-class cl::sycl::accessor<celerity::detail::hack_handler_friend_accessor_specialization_type, 0, cl::sycl::access::mode::read,
-    cl::sycl::access::target::host_buffer, cl::sycl::access::placeholder::true_t, void> {
+class cl::sycl::accessor<celerity::detail::hack_accessor_specialization_type, 0, cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer,
+    cl::sycl::access::placeholder::true_t, void> : public handler {
   public:
-	template <typename F>
-	static auto with_null_sycl_handler(F&& f) {
-		handler null_cgh{nullptr, false};
-		return f(null_cgh);
-	}
+	accessor() : handler{nullptr, false} {}
 };
 #endif
 
@@ -572,19 +576,16 @@ class local_accessor {
 	using sycl_accessor = cl::sycl::local_accessor<DataT, Dims>;
 #endif
 
-	template <typename Index>
-	using subscript_type = decltype(std::declval<sycl_accessor>()[std::declval<const Index&>()]);
-
   public:
 	using value_type = DataT;
 	using reference = DataT&;
 	using const_reference = const DataT&;
 	using size_type = size_t;
 
-	local_accessor() : sycl_acc{make_dangling_sycl_accessor()}, allocation_size(detail::zero_range) {}
+	local_accessor() : sycl_acc{make_placeholder_sycl_accessor()}, allocation_size(detail::zero_range) {}
 
 #if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
-	local_accessor(const range<Dims>& allocation_size, handler& cgh) : sycl_acc{make_dangling_sycl_accessor()}, allocation_size(allocation_size) {
+	local_accessor(const range<Dims>& allocation_size, handler& cgh) : sycl_acc{make_placeholder_sycl_accessor()}, allocation_size(allocation_size) {
 		if(!detail::is_prepass_handler(cgh)) {
 			auto& device_handler = dynamic_cast<detail::live_pass_device_handler&>(cgh);
 			eventual_sycl_cgh = device_handler.get_eventual_sycl_cgh();
@@ -613,8 +614,10 @@ class local_accessor {
 
 	std::add_pointer_t<value_type> get_pointer() const noexcept { return sycl_acc.get_pointer(); }
 
+	// Workaround: ComputeCpp's legacy clang-8 has trouble deducing the return type of operator[] with decltype(auto), so we derive it manually.
+	// TODO replace trailing return type with decltype(auto) once we require the new ComputeCpp (experimental) compiler.
 	template <typename Index>
-	inline subscript_type<Index> operator[](const Index& index) const {
+	inline auto operator[](const Index& index) const -> decltype(std::declval<const sycl_accessor&>()[index]) {
 		return sycl_acc[index];
 	}
 
@@ -623,10 +626,8 @@ class local_accessor {
 	range<Dims> allocation_size;
 	cl::sycl::handler* const* eventual_sycl_cgh = nullptr;
 
-	static sycl_accessor make_dangling_sycl_accessor() {
-#if WORKAROUND_DPCPP
-		return detail::hack_handler_friend::with_null_sycl_handler([](cl::sycl::handler& null_cgh) { return sycl_accessor{detail::zero_range, null_cgh}; });
-#elif WORKAROUND_COMPUTECPP
+	static sycl_accessor make_placeholder_sycl_accessor() {
+#if WORKAROUND_DPCPP || WORKAROUND_COMPUTECPP
 		detail::hack_null_sycl_handler null_cgh;
 		return sycl_accessor{detail::zero_range, null_cgh};
 #else
