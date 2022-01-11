@@ -6,13 +6,12 @@
 
 namespace celerity::experimental {
 
+/// Provides access to a `host_object` through capture in a `host_task`. Inside the host task kernel, the internal state of the host object can be accessed
+/// through the `*` or `->` operators. This behavior is similar to accessors on buffers.
 template <typename T, side_effect_order Order = side_effect_order::sequential>
-class side_effect;
-
-template <typename T, side_effect_order Order>
 class side_effect {
   public:
-	using object_type = std::remove_reference_t<T>;
+	using object_type = typename host_object<T>::object_type;
 	constexpr static inline side_effect_order order = Order;
 
 	explicit side_effect(const host_object<T>& object, handler& cgh) : object{object} {

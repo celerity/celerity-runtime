@@ -484,8 +484,9 @@ namespace detail {
 			auto& nd = node_data.at(cmd->get_nid());
 
 			for(const auto& side_effect : tsk->get_side_effect_map()) {
-				auto [hoid, mode] = side_effect;
+				const auto [hoid, order] = side_effect;
 				if(const auto last_effect = nd.host_object_last_effects.find(hoid); last_effect != nd.host_object_last_effects.end()) {
+					// TODO once we have different side_effect_orders, their interaction will determine the dependency kind
 					cdag.add_dependency(cmd, cdag.get(last_effect->second), dependency_kind::TRUE_DEP);
 				}
 
@@ -493,7 +494,7 @@ namespace detail {
 				// need is mutual exclusion (i.e. a bi-directional pseudo-dependency).
 				nd.host_object_last_effects.insert_or_assign(hoid, cmd->get_cid());
 
-				cmd->debug_label += fmt::format("host-object {}\n", hoid);
+				cmd->debug_label += fmt::format("affect host-object {}\n", hoid);
 			}
 		}
 	}

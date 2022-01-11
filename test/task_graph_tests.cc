@@ -556,47 +556,45 @@ namespace detail {
 
 	TEST_CASE("side effects generate appropriate task-dependencies", "[task_manager][task-graph][side-effect]") {
 		using order = experimental::side_effect_order;
-		const auto side_effect_orders = {order::sequential};
+		static constexpr auto side_effect_orders = {order::sequential};
 
 		// TODO placeholder: complete with dependency types for other side effect orders
 		const auto expected_dependencies = std::unordered_map<std::pair<order, order>, std::optional<dependency_kind>, pair_hash>{
 		    {{order::sequential, order::sequential}, dependency_kind::TRUE_DEP}};
 
-		for(const auto order_a : side_effect_orders) {
-			for(const auto order_b : side_effect_orders) {
-				CAPTURE(order_a);
-				CAPTURE(order_b);
+		const auto order_a = GENERATE(values(side_effect_orders));
+		const auto order_b = GENERATE(values(side_effect_orders));
 
-				task_manager tm{1, nullptr, nullptr};
-				test_utils::mock_host_object_factory mhof;
+		CAPTURE(order_a);
+		CAPTURE(order_b);
 
-				auto ho_common = mhof.create_host_object(); // should generate dependencies
-				auto ho_a = mhof.create_host_object();      // should NOT generate dependencies
-				auto ho_b = mhof.create_host_object();      // -"-
-				const auto tid_a = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
-					ho_common.add_side_effect(cgh, order_a);
-					ho_a.add_side_effect(cgh, order_a);
-				});
-				const auto tid_b = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
-					ho_common.add_side_effect(cgh, order_b);
-					ho_b.add_side_effect(cgh, order_b);
-				});
+		task_manager tm{1, nullptr, nullptr};
+		test_utils::mock_host_object_factory mhof;
 
-				const auto deps_a = tm.get_task(tid_a)->get_dependencies();
-				CHECK(deps_a.empty());
+		auto ho_common = mhof.create_host_object(); // should generate dependencies
+		auto ho_a = mhof.create_host_object();      // should NOT generate dependencies
+		auto ho_b = mhof.create_host_object();      // -"-
+		const auto tid_a = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+			ho_common.add_side_effect(cgh, order_a);
+			ho_a.add_side_effect(cgh, order_a);
+		});
+		const auto tid_b = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+			ho_common.add_side_effect(cgh, order_b);
+			ho_b.add_side_effect(cgh, order_b);
+		});
 
-				const auto deps_b = tm.get_task(tid_b)->get_dependencies();
-				const auto expected_b = expected_dependencies.at({order_a, order_b});
-				CHECK(std::distance(deps_b.begin(), deps_b.end()) == expected_b.has_value());
-				if(expected_b) {
-					CHECK(deps_b.front().node == tm.get_task(tid_a));
-					CHECK(deps_b.front().kind == *expected_b);
-				}
-			}
+		const auto deps_a = tm.get_task(tid_a)->get_dependencies();
+		CHECK(deps_a.empty());
+
+		const auto deps_b = tm.get_task(tid_b)->get_dependencies();
+		const auto expected_b = expected_dependencies.at({order_a, order_b});
+		CHECK(std::distance(deps_b.begin(), deps_b.end()) == expected_b.has_value());
+		if(expected_b) {
+			CHECK(deps_b.front().node == tm.get_task(tid_a));
+			CHECK(deps_b.front().kind == *expected_b);
 		}
 	}
 
-	// TODO deduplicate from test case above
 	TEST_CASE("side-effect dependencies are correctly subsumed by horizons", "[task_manager][task-graph][task-horizon]") {
 		task_manager tm{1, nullptr, nullptr};
 		tm.set_horizon_step(2);
@@ -622,7 +620,7 @@ namespace detail {
 		for(const auto& dep : second_deps) {
 			const auto type = dep.node->get_type();
 			CHECK(type == task_type::HORIZON);
-			CHECK(dep.kind >= dependency_kind::TRUE_DEP);
+			CHECK(dep.kind == dependency_kind::TRUE_DEP);
 		}
 
 		maybe_print_graph(tm);

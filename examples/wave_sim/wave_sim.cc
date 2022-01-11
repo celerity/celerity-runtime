@@ -63,7 +63,7 @@ void update(celerity::distr_queue& queue, celerity::buffer<float, 2> up, celerit
 	step<float, update_config, class update>(queue, up, u, dt, delta);
 }
 
-void open(celerity::distr_queue& queue, size_t N, size_t num_samples, celerity::experimental::host_object<std::ofstream> os) {
+void stream_open(celerity::distr_queue& queue, size_t N, size_t num_samples, celerity::experimental::host_object<std::ofstream> os) {
 	queue.submit([=](celerity::handler& cgh) {
 		celerity::experimental::side_effect os_eff{os, cgh};
 		cgh.host_task(celerity::on_master_node, [=] {
@@ -75,7 +75,7 @@ void open(celerity::distr_queue& queue, size_t N, size_t num_samples, celerity::
 }
 
 template <typename T>
-void store(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::experimental::host_object<std::ofstream> os) {
+void stream_append(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::experimental::host_object<std::ofstream> os) {
 	const auto range = up.get_range();
 	queue.submit([=](celerity::handler& cgh) {
 		celerity::accessor up_r{up, cgh, celerity::access::all{}, celerity::read_only_host_task};
@@ -84,7 +84,7 @@ void store(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::ex
 	});
 }
 
-void close(celerity::distr_queue& queue, celerity::experimental::host_object<std::ofstream> os) {
+void stream_close(celerity::distr_queue& queue, celerity::experimental::host_object<std::ofstream> os) {
 	queue.submit([=](celerity::handler& cgh) {
 		celerity::experimental::side_effect os_eff{os, cgh};
 		cgh.host_task(celerity::on_master_node, [=] { os_eff->close(); });
@@ -140,17 +140,17 @@ int main(int argc, char* argv[]) {
 
 	celerity::distr_queue queue;
 
-	celerity::buffer<float, 2> up{nullptr, celerity::range<2>(cfg.N, cfg.N)}; // next
-	celerity::buffer<float, 2> u{nullptr, celerity::range<2>(cfg.N, cfg.N)};  // current
+	celerity::buffer<float, 2> up{celerity::range<2>(cfg.N, cfg.N)}; // next
+	celerity::buffer<float, 2> u{celerity::range<2>(cfg.N, cfg.N)};  // current
 
 	setup_wave(queue, u, {cfg.N / 4.f, cfg.N / 4.f}, 1, {cfg.N / 8.f, cfg.N / 8.f});
 	zero(queue, up);
 	initialize(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
 
-	celerity::experimental::host_object<std::ofstream> os;
+	const celerity::experimental::host_object<std::ofstream> os;
 	if(cfg.output_sample_rate > 0) {
-		open(queue, cfg.N, num_samples, os);
-		store(queue, u, os); // Store initial state
+		stream_open(queue, cfg.N, num_samples, os);
+		stream_append(queue, u, os); // Store initial state
 	}
 
 	auto t = 0.0;
@@ -158,13 +158,13 @@ int main(int argc, char* argv[]) {
 	while(t < cfg.T) {
 		update(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
 		if(cfg.output_sample_rate > 0) {
-			if(++i % cfg.output_sample_rate == 0) { store(queue, u, os); }
+			if(++i % cfg.output_sample_rate == 0) { stream_append(queue, u, os); }
 		}
 		std::swap(u, up);
 		t += cfg.dt;
 	}
 
-	if(cfg.output_sample_rate > 0) { close(queue, os); }
+	if(cfg.output_sample_rate > 0) { stream_close(queue, os); }
 
 	return EXIT_SUCCESS;
 }

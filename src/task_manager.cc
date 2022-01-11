@@ -173,7 +173,7 @@ namespace detail {
 				add_dependency(tsk.get(), task_map.at(prev->second).get(), dependency_kind::ORDER_DEP);
 				last_collective_tasks.erase(prev);
 			}
-			last_collective_tasks.insert_or_assign(cgid, tid);
+			last_collective_tasks.emplace(cgid, tid);
 		}
 	}
 

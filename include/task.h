@@ -68,23 +68,23 @@ namespace detail {
 		std::unordered_multimap<buffer_id, std::unique_ptr<range_mapper_base>> map;
 	};
 
-	class host_object_side_effect_map : private std::unordered_map<host_object_id, experimental::side_effect_order> {
+	class side_effect_map : private std::unordered_map<host_object_id, experimental::side_effect_order> {
 	  private:
-		using map = std::unordered_map<host_object_id, experimental::side_effect_order>;
+		using map_base = std::unordered_map<host_object_id, experimental::side_effect_order>;
 
 	  public:
-		using typename map::const_iterator, map::value_type, map::key_type, map::mapped_type, map::const_reference, map::const_pointer;
+		using typename map_base::const_iterator, map_base::value_type, map_base::key_type, map_base::mapped_type, map_base::const_reference,
+		    map_base::const_pointer;
 		using iterator = const_iterator;
 		using reference = const_reference;
 		using pointer = const_pointer;
 
-		using map::size, map::count, map::empty, map::cbegin, map::cend;
+		using map_base::size, map_base::count, map_base::empty, map_base::cbegin, map_base::cend, map_base::at;
 
 		iterator begin() const { return cbegin(); }
 		iterator end() const { return cend(); }
-		iterator find(host_object_id key) const { return map::find(key); }
+		iterator find(host_object_id key) const { return map_base::find(key); }
 
-	  public:
 		void add_side_effect(host_object_id hoid, experimental::side_effect_order order);
 	};
 
@@ -98,7 +98,7 @@ namespace detail {
 
 		const buffer_access_map& get_buffer_access_map() const { return access_map; }
 
-		const host_object_side_effect_map& get_side_effect_map() const { return side_effect_map; }
+		const side_effect_map& get_side_effect_map() const { return side_effect_map; }
 
 		const command_group_storage_base& get_command_group() const { return *cgf; }
 
@@ -133,8 +133,8 @@ namespace detail {
 		}
 
 		static std::unique_ptr<task> make_host_compute(task_id tid, int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset,
-		    cl::sycl::range<3> granularity, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map,
-		    host_object_side_effect_map side_effect_map, std::vector<reduction_id> reductions) {
+		    cl::sycl::range<3> granularity, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, side_effect_map side_effect_map,
+		    std::vector<reduction_id> reductions) {
 			return std::unique_ptr<task>(new task(tid, task_type::HOST_COMPUTE, {}, dimensions, global_size, global_offset, granularity, std::move(cgf),
 			    std::move(access_map), std::move(side_effect_map), std::move(reductions), {}));
 		}
@@ -147,13 +147,13 @@ namespace detail {
 		}
 
 		static std::unique_ptr<task> make_collective(task_id tid, collective_group_id cgid, size_t num_collective_nodes,
-		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, host_object_side_effect_map side_effect_map) {
+		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, side_effect_map side_effect_map) {
 			return std::unique_ptr<task>(new task(tid, task_type::COLLECTIVE, cgid, 1, detail::range_cast<3>(cl::sycl::range<1>{num_collective_nodes}), {},
 			    {1, 1, 1}, std::move(cgf), std::move(access_map), std::move(side_effect_map), {}, {}));
 		}
 
 		static std::unique_ptr<task> make_master_node(
-		    task_id tid, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, host_object_side_effect_map side_effect_map) {
+		    task_id tid, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, side_effect_map side_effect_map) {
 			return std::unique_ptr<task>(new task(
 			    tid, task_type::MASTER_NODE, {}, 0, {0, 0, 0}, {}, {1, 1, 1}, std::move(cgf), std::move(access_map), std::move(side_effect_map), {}, {}));
 		}
@@ -172,13 +172,13 @@ namespace detail {
 		cl::sycl::range<3> granularity;
 		std::unique_ptr<command_group_storage_base> cgf;
 		buffer_access_map access_map;
-		host_object_side_effect_map side_effect_map;
+		detail::side_effect_map side_effect_map;
 		std::vector<reduction_id> reductions;
 		std::string debug_name;
 
 		task(task_id tid, task_type type, collective_group_id cgid, int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset,
 		    cl::sycl::range<3> granularity, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map,
-		    host_object_side_effect_map side_effect_map, std::vector<reduction_id> reductions, std::string debug_name)
+		    detail::side_effect_map side_effect_map, std::vector<reduction_id> reductions, std::string debug_name)
 		    : tid(tid), type(type), cgid(cgid), dimensions(dimensions), global_size(global_size), global_offset(global_offset), granularity(granularity),
 		      cgf(std::move(cgf)), access_map(std::move(access_map)), side_effect_map(std::move(side_effect_map)), reductions(std::move(reductions)),
 		      debug_name(std::move(debug_name)) {
