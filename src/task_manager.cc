@@ -9,7 +9,7 @@ namespace detail {
 	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue) : m_num_collective_nodes(num_collective_nodes), m_queue(queue) {
 		// We manually generate the initial epoch task, which we treat as if it has been reached immediately.
 		auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
-		m_task_buffer.put(std::move(reserve), task::make_epoch(initial_epoch_task, epoch_action::none));
+		m_task_buffer.put(std::move(reserve), task::make_epoch(initial_epoch_task, {}, {}, epoch_action::none));
 	}
 
 	void task_manager::add_buffer(buffer_id bid, const cl::sycl::range<3>& range, bool host_initialized) {
@@ -237,11 +237,11 @@ namespace detail {
 		return tid;
 	}
 
-	task_id task_manager::generate_epoch_task(epoch_action action) {
+	task_id task_manager::generate_epoch_task(epoch_action action, buffer_capture_map capture_map, side_effect_map side_effect_map) {
 		auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
 		const auto tid = reserve.get_tid();
 
-		task& new_epoch = reduce_execution_front(std::move(reserve), task::make_epoch(tid, action));
+		task& new_epoch = reduce_execution_front(std::move(reserve), task::make_epoch(tid, std::move(capture_map), std::move(side_effect_map), action));
 		compute_dependencies(new_epoch);
 		set_epoch_for_new_tasks(tid);
 

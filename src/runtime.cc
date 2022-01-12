@@ -188,11 +188,11 @@ namespace detail {
 		m_exec->startup();
 	}
 
-	void runtime::shutdown() {
+	void runtime::shutdown(buffer_capture_map capture_map, side_effect_map side_effect_map) {
 		assert(m_is_active);
 		m_is_shutting_down = true;
 
-		const auto shutdown_epoch = m_task_mngr->generate_epoch_task(epoch_action::shutdown);
+		const auto shutdown_epoch = m_task_mngr->generate_epoch_task(epoch_action::shutdown, std::move(capture_map), std::move(side_effect_map));
 
 		if(is_master_node()) { m_schdlr->shutdown(); }
 
@@ -232,8 +232,8 @@ namespace detail {
 		maybe_destroy_runtime();
 	}
 
-	void runtime::sync() {
-		const auto epoch = m_task_mngr->generate_epoch_task(epoch_action::barrier);
+	void runtime::sync(buffer_capture_map capture_map, side_effect_map side_effect_map) {
+		const auto epoch = m_task_mngr->generate_epoch_task(epoch_action::barrier, std::move(capture_map), std::move(side_effect_map));
 		m_task_mngr->await_epoch(epoch);
 	}
 

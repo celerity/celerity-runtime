@@ -176,6 +176,8 @@ namespace test_utils {
 			}
 		}
 
+		detail::host_object_id get_id() const { return m_id; }
+
 	  private:
 		friend class mock_host_object_factory;
 
@@ -503,6 +505,52 @@ namespace test_utils {
 
 } // namespace test_utils
 } // namespace celerity
+
+
+namespace celerity::experimental {
+
+template <typename>
+class capture;
+
+template <int Dims>
+class capture<test_utils::mock_buffer<Dims>> {
+  public:
+	explicit capture(test_utils::mock_buffer<Dims> buf) : m_buffer{std::move(buf)}, m_sr{{}, m_buffer.get_range()} {}
+	explicit capture(test_utils::mock_buffer<Dims> buf, const subrange<Dims>& sr) : m_buffer{std::move(buf)}, m_sr{sr} {}
+
+  private:
+	friend struct detail::capture_inspector;
+
+	test_utils::mock_buffer<Dims> m_buffer;
+	subrange<Dims> m_sr;
+
+	void record_requirements(detail::buffer_capture_map& accesses, detail::side_effect_map&) const { accesses.add_read_access(m_buffer.get_id(), m_sr); }
+};
+
+template <int Dims>
+capture(test_utils::mock_buffer<Dims>) -> capture<test_utils::mock_buffer<Dims>>;
+
+template <int Dims>
+capture(test_utils::mock_buffer<Dims>, const subrange<Dims>&) -> capture<test_utils::mock_buffer<Dims>>;
+
+template <>
+class capture<test_utils::mock_host_object> {
+  public:
+	explicit capture(test_utils::mock_host_object ho) : m_ho{std::move(ho)} {}
+
+  private:
+	friend struct detail::capture_inspector;
+
+	test_utils::mock_host_object m_ho;
+
+	void record_requirements(detail::buffer_capture_map&, detail::side_effect_map& side_effects) const {
+		side_effects.add_side_effect(m_ho.get_id(), side_effect_order::sequential);
+	}
+};
+
+capture(test_utils::mock_host_object)->capture<test_utils::mock_host_object>;
+
+} // namespace celerity::experimental
 
 
 namespace Catch {

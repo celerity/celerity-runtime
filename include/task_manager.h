@@ -90,7 +90,7 @@ namespace detail {
 		 * Inserts an epoch task that depends on the entire execution front and that immediately becomes the current epoch_for_new_tasks and the last writer
 		 * for all buffers.
 		 */
-		task_id generate_epoch_task(epoch_action action);
+		task_id generate_epoch_task(epoch_action action, buffer_capture_map capture_map, side_effect_map side_effect_map);
 
 		/**
 		 * @brief Registers a new callback that will be called whenever a new task is created.

@@ -137,7 +137,7 @@ struct task_manager_benchmark_context {
 	task_manager tm{1, nullptr};
 	test_utils::mock_buffer_factory mbf{tm};
 
-	~task_manager_benchmark_context() { tm.generate_epoch_task(celerity::detail::epoch_action::shutdown); }
+	~task_manager_benchmark_context() { tm.generate_epoch_task(celerity::detail::epoch_action::shutdown, {}, {}); }
 
 	template <int KernelDims, typename CGF>
 	void create_task(range<KernelDims> global_range, CGF cgf) {
@@ -164,7 +164,7 @@ struct graph_generator_benchmark_context {
 		});
 	}
 
-	~graph_generator_benchmark_context() { tm.generate_epoch_task(celerity::detail::epoch_action::shutdown); }
+	~graph_generator_benchmark_context() { tm.generate_epoch_task(celerity::detail::epoch_action::shutdown, {}, {}); }
 
 	template <int KernelDims, typename CGF>
 	void create_task(range<KernelDims> global_range, CGF cgf) {
@@ -265,7 +265,7 @@ struct scheduler_benchmark_context {
 	}
 
 	~scheduler_benchmark_context() {
-		tm.generate_epoch_task(celerity::detail::epoch_action::shutdown);
+		tm.generate_epoch_task(celerity::detail::epoch_action::shutdown, {}, {});
 		// scheduler operates in a FIFO manner, so awaiting shutdown will await processing of all pending tasks first
 		schdlr.shutdown();
 	}

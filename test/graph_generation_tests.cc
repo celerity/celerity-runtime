@@ -648,7 +648,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(task_b)>(
 		        tm, [&](handler& cgh) {}, node_range));
 
-		const auto tid_epoch = test_utils::build_and_flush(ctx, num_nodes, tm.generate_epoch_task(epoch_action::none));
+		const auto tid_epoch = test_utils::build_and_flush(ctx, num_nodes, tm.generate_epoch_task(epoch_action::none, {}, {}));
 
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			CAPTURE(nid);
@@ -669,6 +669,8 @@ namespace detail {
 			CHECK(inspector.has_dependency(cmd_epoch->get_cid(), cmd_a->get_cid()));
 			CHECK(inspector.has_dependency(cmd_epoch->get_cid(), cmd_b->get_cid()));
 		}
+
+		maybe_print_graphs(ctx);
 
 		auto buf = mbf.create_buffer(range<1>{1}, true /* host_initialized */);
 		const auto tid_c = test_utils::build_and_flush(ctx, num_nodes,
@@ -707,7 +709,7 @@ namespace detail {
 
 		auto tid_before = task_manager::initial_epoch_task;
 		for(const auto action : {epoch_action::barrier, epoch_action::shutdown}) {
-			const auto tid = test_utils::build_and_flush(ctx, num_nodes, tm.generate_epoch_task(action));
+			const auto tid = test_utils::build_and_flush(ctx, num_nodes, tm.generate_epoch_task(action, {}, {}));
 			CAPTURE(tid_before, tid);
 			for(const auto cid : inspector.get_commands(tid, std::nullopt, std::nullopt)) {
 				CAPTURE(cid);
@@ -749,7 +751,7 @@ namespace detail {
 		        },
 		        range<1>{num_nodes}));
 
-		const auto epoch = test_utils::build_and_flush(ctx, num_nodes, tm.generate_epoch_task(epoch_action::none));
+		const auto epoch = test_utils::build_and_flush(ctx, num_nodes, tm.generate_epoch_task(epoch_action::none, {}, {}));
 
 		test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(overwrite)>(
@@ -791,6 +793,90 @@ namespace detail {
 		}
 
 		CHECK(commands_after_epoch == transitive_dependents);
+	}
+
+	TEST_CASE("captures cause data dependencies", "[graph_generator][command-graph][capture]") {
+		const size_t num_nodes = 2;
+		const range<2> node_range{num_nodes, 1};
+		test_utils::cdag_test_context ctx(num_nodes);
+		auto& tm = ctx.get_task_manager();
+		auto& ggen = ctx.get_graph_generator();
+
+		test_utils::mock_buffer_factory mbf(tm, ggen);
+		test_utils::mock_host_object_factory mhof;
+
+		auto& inspector = ctx.get_inspector();
+		auto& cdag = ctx.get_command_graph();
+
+		auto buf = mbf.create_buffer(range<3>{5, 4, 7});
+		auto obj = mhof.create_host_object();
+
+		const auto tid_effect = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, experimental::collective, [&](handler& cgh) {
+			obj.add_side_effect(cgh, experimental::side_effect_order::sequential);
+		}));
+		const auto tid_effect_and_write = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, celerity::access::all{}); }));
+
+		task_id tid_sync;
+		{
+			auto [bcm, sem] = capture_inspector::collect_requirements(std::tuple{experimental::capture{buf, subrange<3>{{1, 2, 3}, {1, 1, 1}}}, //
+			    experimental::capture{obj}});
+			tid_sync = test_utils::build_and_flush(ctx, num_nodes, tm.generate_epoch_task(epoch_action::none, std::move(bcm), std::move(sem)));
+		}
+
+		maybe_print_graphs(ctx);
+
+		const auto sync_cids = inspector.get_commands(tid_sync, std::nullopt, std::nullopt);
+		CHECK(sync_cids.size() == num_nodes);
+		for(const auto cid : sync_cids) {
+			const auto sync_cmd = cdag.get(cid);
+			CAPTURE(sync_cmd->get_nid());
+			const auto deps = sync_cmd->get_dependencies();
+			CHECK(std::distance(deps.begin(), deps.end()) == 3 - static_cast<int>(sync_cmd->get_nid()));
+			for(const auto& d : deps) {
+				if(d.origin == dependency_origin::dataflow) {
+					if(sync_cmd->get_nid() == 0) {
+						REQUIRE(isa<task_command>(d.node));
+						const auto tid = static_cast<task_command*>(d.node)->get_tid();
+						CHECK((tid == tid_effect || tid == tid_effect_and_write));
+					} else {
+						if(!isa<await_push_command>(d.node)) {
+							REQUIRE(isa<task_command>(d.node));
+							CHECK(static_cast<task_command*>(d.node)->get_tid() == tid_effect);
+						}
+					}
+				}
+			}
+		}
+
+		test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::read_write>(cgh, celerity::access::all{}); }));
+
+		task_id tid_drain;
+		{
+			auto [bcm, sem] = capture_inspector::collect_requirements(std::tuple{experimental::capture{buf, subrange<3>{{1, 2, 3}, {1, 1, 1}}}});
+			tid_drain = test_utils::build_and_flush(ctx, num_nodes, tm.generate_epoch_task(epoch_action::none, std::move(bcm), std::move(sem)));
+		}
+
+		maybe_print_graphs(ctx);
+
+		const auto drain_cids = inspector.get_commands(tid_drain, std::nullopt, std::nullopt);
+		CHECK(drain_cids.size() == num_nodes);
+		for(const auto cid : drain_cids) {
+			const auto drain_cmd = cdag.get(cid);
+			CAPTURE(drain_cmd->get_nid());
+			const auto deps = drain_cmd->get_dependencies();
+			CHECK(std::distance(deps.begin(), deps.end()) == 2 - static_cast<int>(drain_cmd->get_nid()));
+			for(const auto& d : deps) {
+				if(d.origin == dependency_origin::dataflow) {
+					if(drain_cmd->get_nid() == 0) {
+						CHECK(isa<execution_command>(d.node));
+					} else {
+						CHECK(isa<await_push_command>(d.node));
+					}
+				}
+			}
+		}
 	}
 
 } // namespace detail

@@ -106,6 +106,9 @@ class host_object {
 	template <typename, side_effect_order>
 	friend class side_effect;
 
+	template <typename>
+	friend class capture;
+
 	struct state : detail::host_object_tracker {
 		T object;
 

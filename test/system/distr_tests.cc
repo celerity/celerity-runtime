@@ -343,5 +343,40 @@ namespace detail {
 		});
 	}
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "captures transfer data before the epoch command is executed", "[captures]") {
+		buffer<int, 3> buf{{5, 4, 7}}; // Use an oddly-sized buffer to test the buffer subrange extraction logic
+		experimental::host_object<int> obj;
+
+		distr_queue q;
+		q.submit([=](handler& cgh) {
+			experimental::side_effect eff{obj, cgh};
+			cgh.host_task(experimental::collective, [=](experimental::collective_partition p) { *eff = static_cast<int>(p.get_node_index()); });
+		});
+		q.submit([=](handler& cgh) {
+			accessor acc{buf, cgh, celerity::access::all{}, write_only_host_task, no_init};
+			cgh.host_task(on_master_node, [=] { acc[{1, 2, 3}] = 42; });
+		});
+
+		const auto [gathered_from_master, host_rank] =
+		    q.slow_full_sync(std::tuple{experimental::capture{buf, subrange<3>{{1, 2, 3}, {1, 1, 1}}}, experimental::capture{obj}});
+
+		REQUIRE(gathered_from_master.get_range() == range<3>{1, 1, 1});
+		CHECK(gathered_from_master.get_pointer()[0] == 42);
+
+		int global_rank;
+		MPI_Comm_rank(MPI_COMM_WORLD, &global_rank);
+		CHECK(host_rank == global_rank);
+
+		q.submit([=](handler& cgh) {
+			accessor acc{buf, cgh, celerity::access::all{}, read_write_host_task};
+			cgh.host_task(on_master_node, [=] { acc[{1, 2, 3}] *= 2; });
+		});
+
+		const auto drained_from_master = experimental::drain(std::move(q), experimental::capture{buf, subrange<3>{{1, 2, 3}, {1, 1, 1}}});
+
+		REQUIRE(drained_from_master.get_range() == range<3>{1, 1, 1});
+		CHECK(drained_from_master.get_pointer()[0] == 84);
+	}
+
 } // namespace detail
 } // namespace celerity

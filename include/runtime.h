@@ -55,9 +55,9 @@ namespace detail {
 		 */
 		void startup();
 
-		void shutdown();
+		void shutdown(buffer_capture_map capture_map, side_effect_map side_effect_map);
 
-		void sync();
+		void sync(buffer_capture_map capture_map, side_effect_map side_effect_map);
 
 		bool is_master_node() const { return m_local_nid == 0; }
 

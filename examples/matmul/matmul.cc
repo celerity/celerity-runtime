@@ -5,7 +5,7 @@
 const size_t MAT_SIZE = 1024;
 
 template <typename T>
-void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat) {
+void set_identity(celerity::distr_queue& queue, celerity::buffer<T, 2> mat) {
 	queue.submit([=](celerity::handler& cgh) {
 		celerity::accessor dw{mat, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for<class set_identity_kernel>(mat.get_range(), [=](celerity::item<2> item) { dw[item] = item[0] == item[1]; });
@@ -13,7 +13,7 @@ void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat) {
 }
 
 template <typename T>
-void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
+void multiply(celerity::distr_queue& queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
 	queue.submit([=](celerity::handler& cgh) {
 		celerity::accessor a{mat_a, cgh, celerity::access::slice<2>(1), celerity::read_only};
 		celerity::accessor b{mat_b, cgh, celerity::access::slice<2>(0), celerity::read_only};
@@ -46,7 +46,7 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 }
 
 template <typename T>
-void verify(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a_buf, bool& verification_passed) {
+void verify(celerity::distr_queue& queue, celerity::buffer<T, 2> mat_a_buf, bool& verification_passed) {
 	// allow_by_ref is safe here as long as the caller of verify() ensures that verification_passed lives until the next synchronization point
 	queue.submit(celerity::allow_by_ref, [=, &verification_passed](celerity::handler& cgh) {
 		celerity::accessor result{mat_a_buf, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task};
