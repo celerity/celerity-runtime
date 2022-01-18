@@ -53,6 +53,17 @@ struct host_object_tracker {
 	~host_object_tracker() { detail::runtime::get_instance().get_host_object_manager().destroy_host_object(id); }
 };
 
+// see host_object deduction guides
+template <typename T>
+struct assert_host_object_ctor_param_is_rvalue {
+	static_assert(std::is_rvalue_reference_v<T&&>,
+	    "Either pass the constructor parameter as T&& or std::reference_wrapper<T>, or add explicit template arguments to host_object");
+	using type = T;
+};
+
+template <typename T>
+using assert_host_object_ctor_param_is_rvalue_t = typename assert_host_object_ctor_param_is_rvalue<T>::type;
+
 } // namespace celerity::detail
 
 namespace celerity::experimental {
@@ -101,9 +112,6 @@ class host_object {
 };
 
 template <typename T>
-explicit host_object(T& obj) -> host_object<std::remove_const_t<T>>;
-
-template <typename T>
 class host_object<T&> {
   public:
 	using object_type = T;
@@ -128,9 +136,6 @@ class host_object<T&> {
 	std::shared_ptr<state> shared_state;
 };
 
-template <typename T>
-explicit host_object(std::reference_wrapper<T> ref) -> host_object<T&>;
-
 template <>
 class host_object<void> {
   public:
@@ -148,6 +153,14 @@ class host_object<void> {
 
 	std::shared_ptr<state> shared_state;
 };
+
+// The universal reference parameter T&& matches U& as well as U&& for object types U, but we don't want to implicitly invoke a copy constructor: the user
+// might have intended to either create a host_object<T&> (which requires a std::reference_wrapper parameter) or move-construct the interior.
+template <typename T>
+explicit host_object(T &&) -> host_object<detail::assert_host_object_ctor_param_is_rvalue_t<T>>;
+
+template <typename T>
+explicit host_object(std::reference_wrapper<T>) -> host_object<T&>;
 
 explicit host_object()->host_object<void>;
 
