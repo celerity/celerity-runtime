@@ -88,6 +88,13 @@ namespace detail {
 		void add_side_effect(host_object_id hoid, experimental::side_effect_order order);
 	};
 
+	struct task_geometry {
+		int dimensions = 0;
+		cl::sycl::range<3> global_size{0, 0, 0};
+		cl::sycl::id<3> global_offset{};
+		cl::sycl::range<3> granularity{1, 1, 1};
+	};
+
 	class task : public intrusive_graph_node<task> {
 	  public:
 		task_type get_type() const { return type; }
@@ -102,13 +109,15 @@ namespace detail {
 
 		const command_group_storage_base& get_command_group() const { return *cgf; }
 
-		int get_dimensions() const { return dimensions; }
+		const task_geometry& get_geometry() const { return geometry; }
 
-		cl::sycl::range<3> get_global_size() const { return global_size; }
+		int get_dimensions() const { return geometry.dimensions; }
 
-		cl::sycl::id<3> get_global_offset() const { return global_offset; }
+		cl::sycl::range<3> get_global_size() const { return geometry.global_size; }
 
-		cl::sycl::range<3> get_granularity() const { return granularity; }
+		cl::sycl::id<3> get_global_offset() const { return geometry.global_offset; }
+
+		cl::sycl::range<3> get_granularity() const { return geometry.granularity; }
 
 		const std::string& get_debug_name() const { return debug_name; }
 
@@ -129,60 +138,54 @@ namespace detail {
 		const std::vector<reduction_id>& get_reductions() const { return reductions; }
 
 		static std::unique_ptr<task> make_nop(task_id tid) {
-			return std::unique_ptr<task>(new task(tid, task_type::NOP, {}, 0, {0, 0, 0}, {}, {1, 1, 1}, nullptr, {}, {}, {}, {}));
+			return std::unique_ptr<task>(new task(tid, task_type::NOP, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}));
 		}
 
-		static std::unique_ptr<task> make_host_compute(task_id tid, int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset,
-		    cl::sycl::range<3> granularity, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, side_effect_map side_effect_map,
-		    std::vector<reduction_id> reductions) {
-			return std::unique_ptr<task>(new task(tid, task_type::HOST_COMPUTE, {}, dimensions, global_size, global_offset, granularity, std::move(cgf),
-			    std::move(access_map), std::move(side_effect_map), std::move(reductions), {}));
+		static std::unique_ptr<task> make_host_compute(task_id tid, task_geometry geometry, std::unique_ptr<command_group_storage_base> cgf,
+		    buffer_access_map access_map, side_effect_map side_effect_map, std::vector<reduction_id> reductions) {
+			return std::unique_ptr<task>(new task(tid, task_type::HOST_COMPUTE, collective_group_id{}, geometry, std::move(cgf), std::move(access_map),
+			    std::move(side_effect_map), std::move(reductions), {}));
 		}
 
-		static std::unique_ptr<task> make_device_compute(task_id tid, int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset,
-		    cl::sycl::range<3> granularity, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, std::vector<reduction_id> reductions,
-		    std::string debug_name) {
-			return std::unique_ptr<task>(new task(tid, task_type::DEVICE_COMPUTE, {}, dimensions, global_size, global_offset, granularity, std::move(cgf),
-			    std::move(access_map), {}, std::move(reductions), std::move(debug_name)));
+		static std::unique_ptr<task> make_device_compute(task_id tid, task_geometry geometry, std::unique_ptr<command_group_storage_base> cgf,
+		    buffer_access_map access_map, std::vector<reduction_id> reductions, std::string debug_name) {
+			return std::unique_ptr<task>(new task(tid, task_type::DEVICE_COMPUTE, collective_group_id{}, geometry, std::move(cgf), std::move(access_map), {},
+			    std::move(reductions), std::move(debug_name)));
 		}
 
 		static std::unique_ptr<task> make_collective(task_id tid, collective_group_id cgid, size_t num_collective_nodes,
 		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, side_effect_map side_effect_map) {
-			return std::unique_ptr<task>(new task(tid, task_type::COLLECTIVE, cgid, 1, detail::range_cast<3>(cl::sycl::range<1>{num_collective_nodes}), {},
-			    {1, 1, 1}, std::move(cgf), std::move(access_map), std::move(side_effect_map), {}, {}));
+			const task_geometry geometry{1, detail::range_cast<3>(cl::sycl::range<1>{num_collective_nodes}), {}, {1, 1, 1}};
+			return std::unique_ptr<task>(
+			    new task(tid, task_type::COLLECTIVE, cgid, geometry, std::move(cgf), std::move(access_map), std::move(side_effect_map), {}, {}));
 		}
 
 		static std::unique_ptr<task> make_master_node(
 		    task_id tid, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, side_effect_map side_effect_map) {
-			return std::unique_ptr<task>(new task(
-			    tid, task_type::MASTER_NODE, {}, 0, {0, 0, 0}, {}, {1, 1, 1}, std::move(cgf), std::move(access_map), std::move(side_effect_map), {}, {}));
+			return std::unique_ptr<task>(new task(tid, task_type::MASTER_NODE, collective_group_id{}, task_geometry{}, std::move(cgf), std::move(access_map),
+			    std::move(side_effect_map), {}, {}));
 		}
 
 		static std::unique_ptr<task> make_horizon_task(task_id tid) {
-			return std::unique_ptr<task>(new task(tid, task_type::HORIZON, {}, 0, {0, 0, 0}, {}, {1, 1, 1}, nullptr, {}, {}, {}, {}));
+			return std::unique_ptr<task>(new task(tid, task_type::HORIZON, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}));
 		}
 
 	  private:
 		task_id tid;
 		task_type type;
 		collective_group_id cgid;
-		int dimensions;
-		cl::sycl::range<3> global_size;
-		cl::sycl::id<3> global_offset;
-		cl::sycl::range<3> granularity;
+		task_geometry geometry;
 		std::unique_ptr<command_group_storage_base> cgf;
 		buffer_access_map access_map;
 		detail::side_effect_map side_effect_map;
 		std::vector<reduction_id> reductions;
 		std::string debug_name;
 
-		task(task_id tid, task_type type, collective_group_id cgid, int dimensions, cl::sycl::range<3> global_size, cl::sycl::id<3> global_offset,
-		    cl::sycl::range<3> granularity, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map,
-		    detail::side_effect_map side_effect_map, std::vector<reduction_id> reductions, std::string debug_name)
-		    : tid(tid), type(type), cgid(cgid), dimensions(dimensions), global_size(global_size), global_offset(global_offset), granularity(granularity),
-		      cgf(std::move(cgf)), access_map(std::move(access_map)), side_effect_map(std::move(side_effect_map)), reductions(std::move(reductions)),
-		      debug_name(std::move(debug_name)) {
-			assert(type == task_type::HOST_COMPUTE || type == task_type::DEVICE_COMPUTE || granularity.size() == 1);
+		task(task_id tid, task_type type, collective_group_id cgid, task_geometry geometry, std::unique_ptr<command_group_storage_base> cgf,
+		    buffer_access_map access_map, detail::side_effect_map side_effect_map, std::vector<reduction_id> reductions, std::string debug_name)
+		    : tid(tid), type(type), cgid(cgid), geometry(geometry), cgf(std::move(cgf)), access_map(std::move(access_map)),
+		      side_effect_map(std::move(side_effect_map)), reductions(std::move(reductions)), debug_name(std::move(debug_name)) {
+			assert(type == task_type::HOST_COMPUTE || type == task_type::DEVICE_COMPUTE || get_granularity().size() == 1);
 			assert((type != task_type::HOST_COMPUTE && type != task_type::COLLECTIVE && type != task_type::MASTER_NODE) || side_effect_map.empty());
 		}
 	};
