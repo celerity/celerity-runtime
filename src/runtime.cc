@@ -23,9 +23,7 @@
 #include "scheduler.h"
 #include "task_manager.h"
 #include "user_bench.h"
-
-#define CELERITY_STRINGIFY2(x) #x
-#define CELERITY_STRINGIFY(x) CELERITY_STRINGIFY2(x)
+#include "version.h"
 
 namespace celerity {
 namespace detail {
@@ -46,7 +44,7 @@ namespace detail {
 		return *instance;
 	}
 
-	auto get_pid() {
+	static auto get_pid() {
 #ifdef _MSC_VER
 		return _getpid();
 #else
@@ -54,7 +52,12 @@ namespace detail {
 #endif
 	}
 
-	const char* get_build_type() {
+	static std::string get_version_string() {
+		return fmt::format("{}.{}.{} {}{}", CELERITY_VERSION_MAJOR, CELERITY_VERSION_MINOR, CELERITY_VERSION_PATCH, CELERITY_VERSION_GIT_REVISION,
+		    CELERITY_VERSION_GIT_IS_DIRTY ? "-dirty" : "");
+	}
+
+	static const char* get_build_type() {
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 		return "debug";
 #else
@@ -62,12 +65,11 @@ namespace detail {
 #endif
 	}
 
-	const char* get_sycl_version() {
+	static std::string get_sycl_version() {
 #if defined(__COMPUTECPP__)
-		return "ComputeCpp " CELERITY_STRINGIFY(COMPUTECPP_VERSION_MAJOR) "." CELERITY_STRINGIFY(COMPUTECPP_VERSION_MINOR) //
-		    "." CELERITY_STRINGIFY(COMPUTECPP_VERSION_PATCH);
+		return fmt::format("ComputeCpp {}.{}.{}", COMPUTECPP_VERSION_MAJOR, COMPUTECPP_VERSION_MINOR, COMPUTECPP_VERSION_PATCH);
 #elif defined(__HIPSYCL__) || defined(__HIPSYCL_TRANSFORM__)
-		return "hipSYCL " CELERITY_STRINGIFY(HIPSYCL_VERSION_MAJOR) "." CELERITY_STRINGIFY(HIPSYCL_VERSION_MINOR) "." CELERITY_STRINGIFY(HIPSYCL_VERSION_PATCH);
+		return fmt::format("hipSYCL {}.{}.{}", HIPSYCL_VERSION_MAJOR, HIPSYCL_VERSION_MINOR, HIPSYCL_VERSION_PATCH);
 #elif CELERITY_DPCPP
 		return "DPC++ / Clang " __clang_version__;
 #else
@@ -128,8 +130,8 @@ namespace detail {
 			});
 		}
 
-		default_logger->info(
-		    logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"build", get_build_type()}, {"sycl", get_sycl_version()}}));
+		default_logger->info(logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"version", get_version_string()},
+		    {"build", get_build_type()}, {"sycl", get_sycl_version()}}));
 		d_queue->init(*cfg, user_device);
 	}
 

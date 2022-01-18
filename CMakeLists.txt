@@ -197,6 +197,20 @@ target_compile_definitions(celerity_runtime PUBLIC
   CELERITY_FEATURE_LOCAL_ACCESSOR=$<BOOL:${CELERITY_FEATURE_LOCAL_ACCESSOR}>
 )
 
+# Generate header containing version information.
+add_custom_target(
+  celerity_version_header
+  BYPRODUCTS "${CMAKE_CURRENT_LIST_DIR}/include/version.h"
+  COMMENT "Generating version header"
+  COMMAND "${CMAKE_COMMAND}"
+    -D "CELERITY_VERSION=${Celerity_VERSION}"
+    -D "CELERITY_SOURCE_DIR=${CMAKE_CURRENT_LIST_DIR}"
+    -P "${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateVersionHeader.cmake"
+  DEPENDS "${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateVersionHeader.cmake"
+  VERBATIM
+)
+add_dependencies(celerity_runtime celerity_version_header)
+
 if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
 	target_link_libraries(celerity_runtime PUBLIC ComputeCpp::ComputeCpp)
 endif()
