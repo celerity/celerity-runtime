@@ -320,10 +320,10 @@ install(
 	NAMESPACE spdlog::
 	FILE spdlogConfigTargets.cmake
 )
-configure_file(
-	vendor/spdlog/cmake/spdlogConfig.cmake.in
-	"${spdlog_PROJECT_CONFIG_OUT}"
-	@ONLY
+configure_package_config_file(
+  vendor/spdlog/cmake/spdlogConfig.cmake.in
+  "${spdlog_PROJECT_CONFIG_OUT}"
+  INSTALL_DESTINATION lib/celerity/vendor/cmake
 )
 write_basic_package_version_file(
 	"${spdlog_VERSION_CONFIG_FILE}"
