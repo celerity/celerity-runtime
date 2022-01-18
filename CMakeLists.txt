@@ -253,7 +253,7 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self)
 endif()
 
-target_compile_options(celerity_runtime PRIVATE "${CELERITY_CXX_FLAGS}")
+target_compile_options(celerity_runtime PUBLIC "${CELERITY_CXX_FLAGS}")
 
 # Examples
 
