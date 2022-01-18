@@ -1,11 +1,3 @@
-# Split version string into components
-string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)" _ ${CELERITY_VERSION})
-set(CELERITY_VERSION_MAJOR ${CMAKE_MATCH_1})
-set(CELERITY_VERSION_MINOR ${CMAKE_MATCH_2})
-set(CELERITY_VERSION_PATCH ${CMAKE_MATCH_3})
-
-message(VERBOSE "Celerity version is ${CELERITY_VERSION_MAJOR}.${CELERITY_VERSION_MINOR}.${CELERITY_VERSION_PATCH}")
-
 # Attempt to obtain git revision / dirty status
 set(CELERITY_VERSION_GIT_REVISION "unknown")
 set(CELERITY_VERSION_GIT_IS_DIRTY 0)
@@ -31,10 +23,10 @@ if(GIT_FOUND)
   endif()
 endif()
 
-# Simply write resulting header (which is git-ignored) into include directory.
-# This way we don't need to do any additional work
-# for setting up include paths, during installation etc.
-configure_file("${CMAKE_CURRENT_LIST_DIR}/version.h.in"
-  "${CELERITY_SOURCE_DIR}/include/version.h"
-  @ONLY
-)
+set(MESSAGE_GIT_DIRTY)
+if(CELERITY_VERSION_GIT_IS_DIRTY)
+  set(MESSAGE_GIT_DIRTY "-dirty")
+endif()
+message(VERBOSE "Celerity git revision is ${CELERITY_VERSION_GIT_REVISION}${MESSAGE_GIT_DIRTY}")
+
+configure_file("${CELERITY_SOURCE_DIR}/src/version.cc.in" src/version.cc @ONLY)

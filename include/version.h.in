@@ -1,0 +1,15 @@
+#pragma once
+
+#define CELERITY_VERSION_MAJOR @CELERITY_VERSION_MAJOR@
+#define CELERITY_VERSION_MINOR @CELERITY_VERSION_MINOR@
+#define CELERITY_VERSION_PATCH @CELERITY_VERSION_PATCH@
+
+namespace celerity::version {
+
+constexpr int major = CELERITY_VERSION_MAJOR;
+constexpr int minor = CELERITY_VERSION_MINOR;
+constexpr int patch = CELERITY_VERSION_PATCH;
+extern const char* const git_revision;
+extern const bool git_dirty;
+
+} // namespace celerity::version

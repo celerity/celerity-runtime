@@ -1,0 +1,4 @@
+#include "version.h"
+
+const char* const celerity::version::git_revision = "@CELERITY_VERSION_GIT_REVISION@";
+const bool celerity::version::git_dirty = @CELERITY_VERSION_GIT_IS_DIRTY@;
