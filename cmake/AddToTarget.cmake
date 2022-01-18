@@ -26,8 +26,6 @@ function(add_celerity_to_target)
     ${ARGN}
   )
 
-  target_compile_options(${ADD_CELERITY_TARGET} PRIVATE "${CELERITY_CXX_FLAGS}")
-
   set_property(
     TARGET ${ADD_CELERITY_TARGET}
     APPEND PROPERTY LINK_LIBRARIES ${CELERITY_RUNTIME_LIBRARY}
