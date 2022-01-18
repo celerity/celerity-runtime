@@ -2,6 +2,7 @@
 
 #include <CL/sycl.hpp>
 #include <allscale/api/user/data/grid.h>
+#undef assert_fail // Incompatible with fmt
 
 #include "ranges.h"
 
