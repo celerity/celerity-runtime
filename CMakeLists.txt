@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.13)
 
 file(STRINGS "VERSION" Celerity_VERSION)
+string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)" _ "${Celerity_VERSION}")
+set(CELERITY_VERSION_MAJOR ${CMAKE_MATCH_1})
+set(CELERITY_VERSION_MINOR ${CMAKE_MATCH_2})
+set(CELERITY_VERSION_PATCH ${CMAKE_MATCH_3})
+message(VERBOSE "Celerity version is ${CELERITY_VERSION_MAJOR}.${CELERITY_VERSION_MINOR}.${CELERITY_VERSION_PATCH}")
+
 project(celerity_runtime VERSION ${Celerity_VERSION} LANGUAGES CXX)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
@@ -123,8 +129,11 @@ endmacro()
 add_submodule_directory(vendor/spdlog)
 add_submodule_directory(vendor/Catch2)
 
+configure_file(include/version.h.in include/version.h @ONLY)
+
 # Add includes to library so they show up in IDEs
-file(GLOB_RECURSE INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
+file(GLOB_RECURSE INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
+list(APPEND INCLUDES "${CMAKE_CURRENT_BINARY_DIR}/include/version.h")
 
 if(CMAKE_GENERATOR STREQUAL "Ninja")
   # Force colored warnings in Ninja's output, if the compiler has -fdiagnostics-color support.
@@ -152,6 +161,7 @@ set(SOURCES
   src/transformers/naive_split.cc
   src/user_bench.cc
   src/worker_job.cc
+  "${CMAKE_CURRENT_BINARY_DIR}/src/version.cc"
 )
 
 add_library(
@@ -164,6 +174,7 @@ add_library(
 set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD 17)
 
 target_include_directories(celerity_runtime PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include/celerity>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor>
@@ -197,19 +208,22 @@ target_compile_definitions(celerity_runtime PUBLIC
   CELERITY_FEATURE_LOCAL_ACCESSOR=$<BOOL:${CELERITY_FEATURE_LOCAL_ACCESSOR}>
 )
 
-# Generate header containing version information.
+# Collect version information from git in src/version.cc. This target is always out of date, but the timestamp
+# (and contents) of version.cc will only change when the HEAD moves or the dirty-status changes. When they do, all
+# targets depending on celerity_runtime will have to be re-linked.
 add_custom_target(
-  celerity_version_header
-  BYPRODUCTS "${CMAKE_CURRENT_LIST_DIR}/include/version.h"
-  COMMENT "Generating version header"
+  celerity_version
+  BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/src/version.cc"
+  COMMENT "Generating src/version.cc"
   COMMAND "${CMAKE_COMMAND}"
-    -D "CELERITY_VERSION=${Celerity_VERSION}"
     -D "CELERITY_SOURCE_DIR=${CMAKE_CURRENT_LIST_DIR}"
-    -P "${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateVersionHeader.cmake"
-  DEPENDS "${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateVersionHeader.cmake"
+    -P "${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateVersionSource.cmake"
+  DEPENDS
+    "${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateVersionSource.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/version.cc.in"
   VERBATIM
 )
-add_dependencies(celerity_runtime celerity_version_header)
+add_dependencies(celerity_runtime celerity_version)
 
 if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
 	target_link_libraries(celerity_runtime PUBLIC ComputeCpp::ComputeCpp)
@@ -285,6 +299,11 @@ install(FILES "${spdlog_PROJECT_CONFIG_OUT}" "${spdlog_VERSION_CONFIG_FILE}"
 # Install celerity
 install(
   DIRECTORY ${PROJECT_SOURCE_DIR}/include/
+  DESTINATION include/celerity
+  PATTERN *.in EXCLUDE
+)
+install(
+  DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include/
   DESTINATION include/celerity
 )
 install(

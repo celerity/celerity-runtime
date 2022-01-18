@@ -53,8 +53,8 @@ namespace detail {
 	}
 
 	static std::string get_version_string() {
-		return fmt::format("{}.{}.{} {}{}", CELERITY_VERSION_MAJOR, CELERITY_VERSION_MINOR, CELERITY_VERSION_PATCH, CELERITY_VERSION_GIT_REVISION,
-		    CELERITY_VERSION_GIT_IS_DIRTY ? "-dirty" : "");
+		using namespace celerity::version;
+		return fmt::format("{}.{}.{} {}{}", major, minor, patch, git_revision, git_dirty ? "-dirty" : "");
 	}
 
 	static const char* get_build_type() {
