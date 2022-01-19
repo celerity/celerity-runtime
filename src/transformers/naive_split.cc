@@ -68,7 +68,7 @@ namespace detail {
 		auto& task_commands = cdag.task_commands(tsk.get_id());
 		assert(task_commands.size() == 1);
 
-		const auto original = static_cast<task_command*>(task_commands[0]);
+		const auto original = static_cast<execution_command*>(task_commands[0]);
 
 		// TODO: For now we can only handle newly created tasks (i.e. no existing dependencies/dependents)
 		assert(std::distance(original->get_dependencies().begin(), original->get_dependencies().end()) == 0);
@@ -88,7 +88,7 @@ namespace detail {
 		for(size_t i = 0; i < chunks.size(); ++i) {
 			assert(chunks[i].range.size() != 0);
 			const node_id nid = (i / chunks_per_node) % num_workers;
-			cdag.create<task_command>(nid, tsk.get_id(), subrange{chunks[i]});
+			cdag.create<execution_command>(nid, tsk.get_id(), subrange{chunks[i]});
 		}
 
 		// Remove original

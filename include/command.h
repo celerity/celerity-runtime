@@ -10,8 +10,8 @@
 namespace celerity {
 namespace detail {
 
-	enum class command_type { NOP, HORIZON, TASK, PUSH, AWAIT_PUSH, REDUCTION, SHUTDOWN, SYNC };
-	constexpr const char* command_string[] = {"NOP", "HORIZON", "TASK", "PUSH", "AWAIT_PUSH", "REDUCTION", "SHUTDOWN", "SYNC"};
+	enum class command_type { NOP, HORIZON, EXECUTION, PUSH, AWAIT_PUSH, REDUCTION, SHUTDOWN, SYNC };
+	constexpr const char* command_string[] = {"NOP", "HORIZON", "EXECUTION", "PUSH", "AWAIT_PUSH", "REDUCTION", "SHUTDOWN", "SYNC"};
 
 	// ----------------------------------------------------------------------------------------------------------------
 	// ------------------------------------------------ COMMAND GRAPH -------------------------------------------------
@@ -67,17 +67,6 @@ namespace detail {
 		}
 	};
 
-	class horizon_command final : public abstract_command {
-		friend class command_graph;
-		horizon_command(command_id cid, node_id nid, task_id tid) : abstract_command(cid, nid), tid(tid) {}
-
-	  public:
-		task_id get_horizon_tid() const { return tid; }
-
-	  private:
-		task_id tid;
-	};
-
 	class push_command final : public abstract_command {
 		friend class command_graph;
 		push_command(command_id cid, node_id nid, buffer_id bid, reduction_id rid, node_id target, subrange<3> push_range)
@@ -119,15 +108,29 @@ namespace detail {
 	};
 
 	class task_command : public abstract_command {
-		friend class command_graph;
-
 	  protected:
-		task_command(command_id cid, node_id nid, task_id tid, subrange<3> execution_range)
-		    : abstract_command(cid, nid), tid(tid), execution_range(execution_range) {}
+		task_command(command_id cid, node_id nid, task_id tid) : abstract_command(cid, nid), tid(tid) {}
 
 	  public:
 		task_id get_tid() const { return tid; }
 
+	  private:
+		task_id tid;
+	};
+
+	class horizon_command final : public task_command {
+		friend class command_graph;
+		using task_command::task_command;
+	};
+
+	class execution_command final : public task_command {
+		friend class command_graph;
+
+	  protected:
+		execution_command(command_id cid, node_id nid, task_id tid, subrange<3> execution_range)
+		    : task_command(cid, nid, tid), execution_range(execution_range) {}
+
+	  public:
 		const subrange<3>& get_execution_range() const { return execution_range; }
 
 		void set_is_reduction_initializer(bool is_initializer) { initialize_reductions = is_initializer; }
@@ -135,7 +138,6 @@ namespace detail {
 		bool is_reduction_initializer() const { return initialize_reductions; }
 
 	  private:
-		task_id tid;
 		subrange<3> execution_range;
 		bool initialize_reductions = false;
 	};
@@ -147,11 +149,10 @@ namespace detail {
 	struct nop_data {};
 
 	struct horizon_data {
-		// this is the task_id of the horizon task that generated this command
-		task_id horizon_tid;
+		task_id tid;
 	};
 
-	struct task_data {
+	struct execution_data {
 		task_id tid;
 		subrange<3> sr;
 		bool initialize_reductions;
@@ -182,7 +183,7 @@ namespace detail {
 		uint64_t sync_id;
 	};
 
-	using command_data = std::variant<nop_data, horizon_data, task_data, push_data, await_push_data, reduction_data, shutdown_data, sync_data>;
+	using command_data = std::variant<nop_data, horizon_data, execution_data, push_data, await_push_data, reduction_data, shutdown_data, sync_data>;
 
 	/**
 	 * A command package is what is actually transferred between nodes.

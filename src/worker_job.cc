@@ -57,7 +57,7 @@ namespace detail {
 
 	bool horizon_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
 		const auto data = std::get<horizon_data>(pkg.data);
-		task_mngr.notify_horizon_executed(data.horizon_tid);
+		task_mngr.notify_horizon_executed(data.tid);
 		return true;
 	};
 
@@ -120,11 +120,11 @@ namespace detail {
 	// --------------------------------------------------------------------------------------------------------------------
 
 	std::pair<command_type, std::string> host_execute_job::get_description(const command_pkg& pkg) {
-		return std::make_pair(command_type::TASK, "HOST_EXECUTE");
+		return std::make_pair(command_type::EXECUTION, "HOST_EXECUTE");
 	}
 
 	bool host_execute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
-		const auto data = std::get<task_data>(pkg.data);
+		const auto data = std::get<execution_data>(pkg.data);
 
 		if(!submitted) {
 			auto tsk = task_mngr.get_task(data.tid);
@@ -166,11 +166,11 @@ namespace detail {
 	// --------------------------------------------------------------------------------------------------------------------
 
 	std::pair<command_type, std::string> device_execute_job::get_description(const command_pkg& pkg) {
-		return std::make_pair(command_type::TASK, "DEVICE_EXECUTE");
+		return std::make_pair(command_type::EXECUTION, "DEVICE_EXECUTE");
 	}
 
 	bool device_execute_job::execute(const command_pkg& pkg, std::shared_ptr<logger> logger) {
-		const auto data = std::get<task_data>(pkg.data);
+		const auto data = std::get<execution_data>(pkg.data);
 
 		if(!submitted) {
 			auto tsk = task_mngr.get_task(data.tid);
