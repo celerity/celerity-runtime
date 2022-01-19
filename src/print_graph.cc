@@ -1,13 +1,14 @@
 #include "print_graph.h"
 
 #include <regex>
+#include <sstream>
 
 #include <spdlog/fmt/fmt.h>
+#include <spdlog/fmt/ostr.h>
 
 #include "command.h"
 #include "command_graph.h"
 #include "grid.h"
-#include "logger.h"
 
 namespace celerity {
 namespace detail {
@@ -32,9 +33,9 @@ namespace detail {
 		}
 	}
 
-	void print_graph(const std::unordered_map<task_id, std::unique_ptr<task>>& tdag, logger& graph_logger) {
-		std::stringstream ss;
-		ss << "digraph G { ";
+	std::string print_graph(const std::unordered_map<task_id, std::unique_ptr<task>>& tdag) {
+		std::ostringstream ss;
+		ss << "digraph G { label=\"Task Graph\" ";
 
 		for(auto& it : tdag) {
 			if(it.first == 0) continue; // Skip INIT task
@@ -57,10 +58,7 @@ namespace detail {
 		}
 
 		ss << "}";
-		auto str = ss.str();
-		str = std::regex_replace(str, std::regex("\n"), "\\n");
-		str = std::regex_replace(str, std::regex("\""), "\\\"");
-		graph_logger.info(logger_map({{"name", "TaskGraph"}, {"data", str}}));
+		return ss.str();
 	}
 
 	std::string get_command_label(const abstract_command* cmd) {
@@ -84,9 +82,9 @@ namespace detail {
 		return label;
 	}
 
-	void print_graph(const command_graph& cdag, logger& graph_logger) {
-		std::stringstream main_ss;
-		std::unordered_map<task_id, std::stringstream> task_subgraph_ss;
+	std::string print_graph(const command_graph& cdag) {
+		std::ostringstream main_ss;
+		std::unordered_map<task_id, std::ostringstream> task_subgraph_ss;
 
 		const auto write_vertex = [&](std::ostream& out, abstract_command* cmd) {
 			const char* colors[] = {"black", "crimson", "dodgerblue4", "goldenrod", "maroon4", "springgreen2", "tan1", "chartreuse2"};
@@ -139,18 +137,14 @@ namespace detail {
 			sg.second << "}";
 		}
 
-		std::stringstream ss;
-		ss << "digraph G { ";
+		std::ostringstream result_ss;
+		result_ss << "digraph G { label=\"Command Graph\" ";
 		for(auto& sg : task_subgraph_ss) {
-			ss << sg.second.str();
+			result_ss << sg.second.str();
 		}
-		ss << main_ss.str();
-		ss << "}";
-
-		auto str = ss.str();
-		str = std::regex_replace(str, std::regex("\n"), "\\n");
-		str = std::regex_replace(str, std::regex("\""), "\\\"");
-		graph_logger.info(logger_map({{"name", "CommandGraph"}, {"data", str}}));
+		result_ss << main_ss.str();
+		result_ss << "}";
+		return result_ss.str();
 	}
 
 } // namespace detail

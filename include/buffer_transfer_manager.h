@@ -11,7 +11,6 @@
 
 #include "buffer_storage.h"
 #include "command.h"
-#include "logger.h"
 #include "mpi_support.h"
 #include "types.h"
 
@@ -23,8 +22,6 @@ namespace detail {
 		struct transfer_handle {
 			bool complete = false;
 		};
-
-		explicit buffer_transfer_manager(std::shared_ptr<logger> transfer_logger) : transfer_logger(transfer_logger) {}
 
 		std::shared_ptr<const transfer_handle> push(const command_pkg& pkg);
 		std::shared_ptr<const transfer_handle> await_push(const command_pkg& pkg);
@@ -69,8 +66,6 @@ namespace detail {
 		//  - Incoming pushes that have not yet been requested through ::await_push
 		//  - Still outstanding pushes that have been requested through ::await_push
 		std::unordered_map<command_id, std::shared_ptr<incoming_transfer_handle>> push_blackboard;
-
-		std::shared_ptr<logger> transfer_logger;
 
 		void poll_incoming_transfers();
 		void update_incoming_transfers();

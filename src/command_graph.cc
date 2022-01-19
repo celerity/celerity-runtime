@@ -1,6 +1,6 @@
 #include "command_graph.h"
 
-#include "logger.h"
+#include "log.h"
 #include "print_graph.h"
 
 namespace celerity {
@@ -26,12 +26,10 @@ namespace detail {
 		}
 	}
 
-	void command_graph::print_graph(logger& graph_logger) const {
-		if(command_count() < 200) {
-			detail::print_graph(*this, graph_logger);
-		} else {
-			graph_logger.warn("Command graph is very large ({} vertices). Skipping GraphViz output", command_count());
-		}
+	std::optional<std::string> command_graph::print_graph() const {
+		if(command_count() < 200) { return detail::print_graph(*this); }
+		CELERITY_WARN("Command graph is very large ({} vertices). Skipping GraphViz output", command_count());
+		return std::nullopt;
 	}
 
 } // namespace detail

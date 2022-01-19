@@ -9,7 +9,7 @@
 
 #include <mpi.h>
 
-#include "logger.h"
+#include "log.h"
 #include "workaround.h"
 
 std::pair<bool, std::string> get_env(const char* key) {
@@ -48,7 +48,7 @@ std::pair<bool, size_t> parse_uint(const char* str) {
 
 namespace celerity {
 namespace detail {
-	config::config(int* argc, char** argv[], logger& logger) {
+	config::config(int* argc, char** argv[]) {
 		// TODO: At some point we might want to parse arguments from argv as well
 
 		{
@@ -81,7 +81,7 @@ namespace detail {
 
 		{
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-			log_lvl = log_level::trace;
+			log_lvl = log_level::debug;
 #else
 			log_lvl = log_level::info;
 #endif
@@ -112,10 +112,10 @@ namespace detail {
 					for(size_t i = 0; i < possible_values.size(); ++i) {
 						oss << possible_values[i].second << (i < possible_values.size() - 1 ? ", " : ".");
 					}
-					logger.warn(oss.str());
+					CELERITY_WARN(oss.str());
 				}
 			}
-			logger.set_level(log_lvl);
+			spdlog::set_level(log_lvl);
 		}
 
 		// --------------------------------- CELERITY_DEVICES ---------------------------------
@@ -124,7 +124,7 @@ namespace detail {
 			const auto [is_set, value] = get_env("CELERITY_DEVICES");
 			if(is_set) {
 				if(value.empty()) {
-					logger.warn("CELERITY_DEVICES is set but empty - ignoring");
+					CELERITY_WARN("CELERITY_DEVICES is set but empty - ignoring");
 				} else {
 					std::istringstream ss{value};
 					std::vector<std::string> values{std::istream_iterator<std::string>{ss}, std::istream_iterator<std::string>{}};
@@ -134,14 +134,14 @@ namespace detail {
 					}
 
 					if(static_cast<long>(values.size()) - 1 > static_cast<long>(host_cfg.node_count)) {
-						logger.warn("CELERITY_DEVICES contains {} device indices, but only {} worker processes were spawned on this host", values.size() - 1,
+						CELERITY_WARN("CELERITY_DEVICES contains {} device indices, but only {} worker processes were spawned on this host", values.size() - 1,
 						    host_cfg.node_count);
 					}
 
 					const auto pid_parsed = parse_uint(values[0].c_str());
 					const auto did_parsed = parse_uint(values[host_cfg.local_rank + 1].c_str());
 					if(!pid_parsed.first || !did_parsed.first) {
-						logger.warn("CELERITY_DEVICES contains invalid value(s) - will be ignored");
+						CELERITY_WARN("CELERITY_DEVICES contains invalid value(s) - will be ignored");
 					} else {
 						device_cfg = device_config{pid_parsed.second, did_parsed.second};
 					}
@@ -153,7 +153,7 @@ namespace detail {
 		{
 			const auto result = get_env("CELERITY_PROFILE_OCL");
 			if(result.first) {
-				logger.warn("CELERITY_PROFILE_OCL has been renamed to CELERITY_PROFILE_KERNEL with Celerity 0.3.0.");
+				CELERITY_WARN("CELERITY_PROFILE_OCL has been renamed to CELERITY_PROFILE_KERNEL with Celerity 0.3.0.");
 				enable_device_profiling = result.second == "1";
 			}
 		}
@@ -167,7 +167,7 @@ namespace detail {
 
 		{
 			const auto result = get_env("CELERITY_FORCE_WG");
-			if(result.first) { logger.warn("Support for CELERITY_FORCE_WG has been removed with Celerity 0.3.0."); }
+			if(result.first) { CELERITY_WARN("Support for CELERITY_FORCE_WG has been removed with Celerity 0.3.0."); }
 		}
 
 		// -------------------------------- CELERITY_HOST_CPUS --------------------------------

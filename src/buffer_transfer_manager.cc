@@ -3,6 +3,7 @@
 #include <cassert>
 
 #include "buffer_manager.h"
+#include "log.h"
 #include "mpi_support.h"
 #include "reduction_manager.h"
 #include "runtime.h"
@@ -23,8 +24,7 @@ namespace detail {
 		    runtime::get_instance().get_buffer_manager().get_buffer_data(data.bid, cl::sycl::range<3>(data.sr.offset[0], data.sr.offset[1], data.sr.offset[2]),
 		        cl::sycl::range<3>(data.sr.range[0], data.sr.range[1], data.sr.range[2]));
 
-		// This is a bit of a hack (logging a job event from here), but it's very useful
-		transfer_logger->trace(logger_map{{"job", std::to_string(pkg.cid)}, {"event", "Buffer data ready to be sent"}});
+		CELERITY_TRACE("Ready to send {} of buffer {} ({} B) to {}", data.sr, data.bid, transfer->data.get_size(), data.target);
 
 		transfer->handle = t_handle;
 		transfer->header.sr = data.sr;
@@ -96,7 +96,7 @@ namespace detail {
 		MPI_Imrecv(MPI_BOTTOM, 1, *transfer->data_type, &msg, &transfer->request);
 		incoming_transfers.push_back(std::move(transfer));
 
-		transfer_logger->trace("Receiving incoming data of size {} from {}", data_size, status.MPI_SOURCE);
+		CELERITY_TRACE("Receiving incoming data of size {} B from {}", data_size, status.MPI_SOURCE);
 	}
 
 	void buffer_transfer_manager::update_incoming_transfers() {

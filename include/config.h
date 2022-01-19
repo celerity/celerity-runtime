@@ -2,7 +2,7 @@
 
 #include <optional>
 
-#include "logger.h"
+#include "log.h"
 
 namespace celerity {
 namespace detail {
@@ -22,12 +22,8 @@ namespace detail {
 	  public:
 		/**
 		 * Initializes the @p config by parsing environment variables and passed arguments.
-		 *
-		 * @param logger The logger is used to print warnings about invalid configuration options.
-		 * 				 Additionally, the logger's level is set to the same level as is
-		 * 				 returned by ::get_log_level().
 		 */
-		config(int* argc, char** argv[], logger& logger);
+		config(int* argc, char** argv[]);
 
 		log_level get_log_level() const { return log_lvl; }
 

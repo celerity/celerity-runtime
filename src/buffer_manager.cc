@@ -1,7 +1,7 @@
 #include "buffer_manager.h"
 
 #include "buffer_storage.h"
-#include "logger.h"
+#include "log.h"
 #include "runtime.h"
 
 namespace celerity {
@@ -18,13 +18,8 @@ namespace detail {
 			const auto& buf = buffers[bid];
 			const size_t host_size = buf.host_buf.is_allocated() ? buf.host_buf.storage->get_size() : 0;
 			const size_t device_size = buf.device_buf.is_allocated() ? buf.device_buf.storage->get_size() : 0;
-			// During testing there might be no runtime available
-			// FIXME: Pass logger instance to buffer_manager directly (at least if we want to do more logging in the future)
-			if(runtime::is_initialized()) {
-				const auto& logger = runtime::get_instance().get_logger();
-				logger->trace(logger_map{{"event", "buffer unregister"}, {"bid", std::to_string(bid)}, {"hostSize", std::to_string(host_size)},
-				    {"deviceSize", std::to_string(device_size)}});
-			}
+
+			CELERITY_TRACE("Unregistering buffer {}. host size = {} B, device size = {} B", bid, host_size, device_size);
 			buffers.erase(bid);
 			buffer_infos.erase(bid);
 

@@ -10,7 +10,6 @@
 #include "config.h"
 #include "device_queue.h"
 #include "host_queue.h"
-#include "logger.h"
 #include "mpi_support.h"
 #include "types.h"
 
@@ -75,8 +74,6 @@ namespace detail {
 
 		host_object_manager& get_host_object_manager() const;
 
-		std::shared_ptr<logger> get_logger() const { return default_logger; }
-
 		/**
 		 * @brief Broadcasts the specified control command to all workers.
 		 * @internal
@@ -85,8 +82,6 @@ namespace detail {
 
 	  private:
 		static std::unique_ptr<runtime> instance;
-		std::shared_ptr<logger> default_logger;
-		std::shared_ptr<logger> graph_logger;
 
 		// Whether the runtime is active, i.e. between startup() and shutdown().
 		bool is_active = false;

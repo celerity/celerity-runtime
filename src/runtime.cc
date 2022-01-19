@@ -20,7 +20,7 @@
 #include "graph_generator.h"
 #include "graph_serializer.h"
 #include "host_object.h"
-#include "logger.h"
+#include "log.h"
 #include "mpi_support.h"
 #include "scheduler.h"
 #include "task_manager.h"
@@ -95,23 +95,20 @@ namespace detail {
 		MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 		local_nid = world_rank;
 
-		default_logger = logger("default").create_context({{"rank", std::to_string(world_rank)}});
-		graph_logger = logger("graph").create_context({{"rank", std::to_string(world_rank)}});
-		// Create config next, as it initializes the logger to the correct level
-		cfg = std::make_unique<config>(argc, argv, *default_logger);
-		graph_logger->set_level(cfg->get_log_level());
+		spdlog::set_pattern(fmt::format("[%Y-%m-%d %H:%M:%S.%e] [{:0{}}] [%^%l%$] %v", world_rank, int(ceil(log10(world_size)))));
+
+		cfg = std::make_unique<config>(argc, argv);
 
 		if(const uint32_t cores = affinity_cores_available(); cores < min_cores_needed) {
-			default_logger->warn("Celerity has detected that only {} logical cores are available to this process. It is recommended to assign at least {} "
-			                     "logical cores. Performance may be negatively impacted.",
+			CELERITY_WARN("Celerity has detected that only {} logical cores are available to this process. It is recommended to assign at least {} "
+			              "logical cores. Performance may be negatively impacted.",
 			    cores, min_cores_needed);
 		}
 
 		user_bench = std::make_unique<experimental::bench::detail::user_benchmarker>(*cfg, static_cast<node_id>(world_rank));
 
-
-		h_queue = std::make_unique<host_queue>(*default_logger);
-		d_queue = std::make_unique<device_queue>(*default_logger);
+		h_queue = std::make_unique<host_queue>();
+		d_queue = std::make_unique<device_queue>();
 
 		// Initialize worker classes (but don't start them up yet)
 		buffer_mngr = std::make_unique<buffer_manager>(*d_queue, [this](buffer_manager::buffer_lifecycle_event event, buffer_id bid) {
@@ -125,7 +122,7 @@ namespace detail {
 		reduction_mngr = std::make_unique<reduction_manager>();
 		host_object_mngr = std::make_unique<host_object_manager>();
 		task_mngr = std::make_unique<task_manager>(num_nodes, h_queue.get(), reduction_mngr.get());
-		exec = std::make_unique<executor>(local_nid, *h_queue, *d_queue, *task_mngr, *buffer_mngr, *reduction_mngr, default_logger);
+		exec = std::make_unique<executor>(local_nid, *h_queue, *d_queue, *task_mngr, *buffer_mngr, *reduction_mngr);
 		if(is_master_node()) {
 			cdag = std::make_unique<command_graph>();
 			ggen = std::make_shared<graph_generator>(num_nodes, *task_mngr, *reduction_mngr, *cdag);
@@ -135,8 +132,8 @@ namespace detail {
 			task_mngr->register_task_callback([this](task_id tid, task_type type) { schdlr->notify_task_created(tid); });
 		}
 
-		default_logger->info(logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"version", get_version_string()},
-		    {"build", get_build_type()}, {"sycl", get_sycl_version()}}));
+		CELERITY_INFO(
+		    "Celerity runtime version {} running on {}. PID = {}, build type = {}", get_version_string(), get_sycl_version(), get_pid(), get_build_type());
 		d_queue->init(*cfg, user_device);
 	}
 
@@ -187,9 +184,15 @@ namespace detail {
 		d_queue->wait();
 		h_queue->wait();
 
-		if(is_master_node() && graph_logger->get_level() == log_level::trace) {
-			task_mngr->print_graph(*graph_logger);
-			cdag->print_graph(*graph_logger);
+		if(is_master_node() && cfg->get_log_level() == log_level::trace) {
+			{
+				const auto graph_str = task_mngr->print_graph();
+				if(graph_str.has_value()) { CELERITY_TRACE("Task graph:\n\n{}\n", *graph_str); }
+			}
+			{
+				const auto graph_str = cdag->print_graph();
+				if(graph_str.has_value()) { CELERITY_TRACE("Command graph:\n\n{}\n", *graph_str); }
+			}
 		}
 
 		// Shutting down the task_manager will cause all buffers captured inside command group functions to unregister.

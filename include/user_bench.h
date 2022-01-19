@@ -4,7 +4,7 @@
 #include <memory>
 #include <stack>
 
-#include "logger.h"
+#include "log.h"
 #include "types.h"
 
 namespace celerity {
@@ -15,9 +15,8 @@ namespace detail {
 namespace experimental {
 	namespace bench {
 		namespace detail {
-			using logger = celerity::detail::logger;
 			using node_id = celerity::detail::node_id;
-			using logger_map = celerity::detail::logger_map;
+			using log_map = celerity::detail::log_map;
 			using config = celerity::detail::config;
 
 			class user_benchmarker {
@@ -27,7 +26,7 @@ namespace experimental {
 				user_benchmarker(user_benchmarker&&) = delete;
 				~user_benchmarker();
 
-				void log_user_config(logger_map lm) const;
+				void log_user_config(log_map lm) const;
 
 				template <typename... Args>
 				void begin(const char* fmt, Args... args) {
@@ -44,7 +43,7 @@ namespace experimental {
 					log_event(fmt::format(fmt, std::forward<Args>(args)...));
 				}
 
-				void event(const logger_map& lm) const { log_event(lm); }
+				void event(const log_map& lm) const { log_event(lm); }
 
 			  private:
 				using bench_clock = std::chrono::steady_clock;
@@ -55,7 +54,6 @@ namespace experimental {
 					bench_clock::time_point start;
 				};
 
-				std::shared_ptr<logger> bench_logger;
 				node_id this_nid;
 				section_id next_section_id = 0;
 				std::stack<section> sections;
@@ -63,7 +61,7 @@ namespace experimental {
 				void begin_section(std::string name);
 				void end_section(std::string name);
 				void log_event(const std::string& message) const;
-				void log_event(logger_map lm) const;
+				void log_event(log_map lm) const;
 			};
 
 			user_benchmarker& get_user_benchmarker();
@@ -72,7 +70,7 @@ namespace experimental {
 		/**
 		 * @brief Logs structured user configuration data. Only logged once (on the master node).
 		 */
-		inline void log_user_config(const detail::logger_map& lm) { detail::get_user_benchmarker().log_user_config(lm); }
+		inline void log_user_config(const detail::log_map& lm) { detail::get_user_benchmarker().log_user_config(lm); }
 
 		/**
 		 * @brief Begins a new benchmarking section.
@@ -100,7 +98,7 @@ namespace experimental {
 			detail::get_user_benchmarker().event(event_fmt, std::forward<Args>(args)...);
 		}
 
-		inline void event(const detail::logger_map& lm) { detail::get_user_benchmarker().event(lm); }
+		inline void event(const detail::log_map& lm) { detail::get_user_benchmarker().event(lm); }
 
 	} // namespace bench
 } // namespace experimental
