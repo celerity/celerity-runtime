@@ -122,7 +122,7 @@ namespace detail {
 	  public:
 		host_execute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::host_queue& queue, detail::task_manager& tm, buffer_manager& bm)
 		    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm), buffer_mngr(bm) {
-			assert(pkg.cmd == command_type::TASK);
+			assert(pkg.cmd == command_type::EXECUTION);
 		}
 
 	  private:
@@ -145,7 +145,7 @@ namespace detail {
 		device_execute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::device_queue& queue, detail::task_manager& tm, buffer_manager& bm,
 		    reduction_manager& rm, node_id local_nid)
 		    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm), buffer_mngr(bm), reduction_mngr(rm), local_nid(local_nid) {
-			assert(pkg.cmd == command_type::TASK);
+			assert(pkg.cmd == command_type::EXECUTION);
 		}
 
 	  private:

@@ -37,10 +37,10 @@ namespace detail {
 				// Sanity check: All dependencies must be on the same node.
 				assert(d.node->get_nid() == cmd->get_nid());
 
-				if(isa<task_command>(d.node)) {
+				if(auto* tcmd = dynamic_cast<task_command*>(d.node)) {
 					// Task command dependencies must be from a different task and have already been flushed.
-					assert(static_cast<task_command*>(d.node)->get_tid() != cmd->get_tid());
-					assert(static_cast<task_command*>(d.node)->is_flushed());
+					assert(tcmd->get_tid() != cmd->get_tid());
+					assert(tcmd->is_flushed());
 					continue;
 				}
 
@@ -93,9 +93,9 @@ namespace detail {
 		if(isa<nop_command>(cmd)) return;
 		command_pkg pkg{cmd->get_cid(), command_type::NOP, command_data{nop_data{}}};
 
-		if(const auto* tcmd = dynamic_cast<task_command*>(cmd)) {
-			pkg.cmd = command_type::TASK;
-			pkg.data = task_data{tcmd->get_tid(), tcmd->get_execution_range(), tcmd->is_reduction_initializer()};
+		if(const auto* tcmd = dynamic_cast<execution_command*>(cmd)) {
+			pkg.cmd = command_type::EXECUTION;
+			pkg.data = execution_data{tcmd->get_tid(), tcmd->get_execution_range(), tcmd->is_reduction_initializer()};
 		} else if(const auto* pcmd = dynamic_cast<push_command*>(cmd)) {
 			pkg.cmd = command_type::PUSH;
 			pkg.data = push_data{pcmd->get_bid(), pcmd->get_rid(), pcmd->get_target(), pcmd->get_range()};
@@ -108,7 +108,7 @@ namespace detail {
 			pkg.data = reduction_data{rcmd->get_rid()};
 		} else if(const auto* hcmd = dynamic_cast<horizon_command*>(cmd)) {
 			pkg.cmd = command_type::HORIZON;
-			pkg.data = horizon_data{hcmd->get_horizon_tid()};
+			pkg.data = horizon_data{hcmd->get_tid()};
 		} else {
 			assert(false && "Unknown command");
 		}

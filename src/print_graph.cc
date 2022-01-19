@@ -65,8 +65,8 @@ namespace detail {
 
 	std::string get_command_label(const abstract_command* cmd) {
 		std::string label = fmt::format("[{}] Node {}:\\n", cmd->get_cid(), cmd->get_nid());
-		if(const auto tcmd = dynamic_cast<const task_command*>(cmd)) {
-			label += fmt::format("TASK {}\\n{}", subrange_to_grid_box(tcmd->get_execution_range()), cmd->debug_label);
+		if(const auto ecmd = dynamic_cast<const execution_command*>(cmd)) {
+			label += fmt::format("EXECUTION {}\\n{}", subrange_to_grid_box(ecmd->get_execution_range()), cmd->debug_label);
 		} else if(const auto pcmd = dynamic_cast<const push_command*>(cmd)) {
 			if(pcmd->get_rid()) { label += fmt::format("(R{}) ", pcmd->get_rid()); }
 			label += fmt::format("PUSH {} to {}\\n {}", pcmd->get_bid(), pcmd->get_target(), subrange_to_grid_box(pcmd->get_range()));

@@ -161,7 +161,7 @@ namespace detail {
 		switch(pkg.cmd) {
 		case command_type::HORIZON: {
 			// Similar to task commands, a worker might receive the horizon command before creating the corresponding horizon task
-			const auto horizon_tid = std::get<horizon_data>(pkg.data).horizon_tid;
+			const auto horizon_tid = std::get<horizon_data>(pkg.data).tid;
 			if(!task_mngr.has_task(horizon_tid)) return false;
 
 			create_job<horizon_job>(pkg, dependencies, task_mngr);
@@ -170,8 +170,8 @@ namespace detail {
 		case command_type::PUSH: create_job<push_job>(pkg, dependencies, *btm, buffer_mngr); break;
 		case command_type::AWAIT_PUSH: create_job<await_push_job>(pkg, dependencies, *btm); break;
 		case command_type::REDUCTION: create_job<reduction_job>(pkg, dependencies, reduction_mngr); break;
-		case command_type::TASK: {
-			const auto& data = std::get<task_data>(pkg.data);
+		case command_type::EXECUTION: {
+			const auto& data = std::get<execution_data>(pkg.data);
 
 			// A bit of a hack: We cannot be sure the main thread has reached the task definition yet, so we have to check it here
 			if(!task_mngr.has_task(data.tid)) { return false; }
