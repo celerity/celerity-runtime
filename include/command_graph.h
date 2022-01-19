@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <optional>
+#include <string>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
@@ -11,8 +13,6 @@
 
 namespace celerity {
 namespace detail {
-
-	class logger;
 
 	// TODO: Could be extended (using SFINAE) to support additional iterator types (e.g. random access)
 	template <typename Iterator, typename PredicateFn>
@@ -126,7 +126,7 @@ namespace detail {
 
 		auto& task_commands(task_id tid) { return by_task.at(tid); }
 
-		void print_graph(logger& graph_logger) const;
+		std::optional<std::string> print_graph() const;
 
 		// TODO unify dependency terminology to this
 		void add_dependency(abstract_command* depender, abstract_command* dependee, dependency_kind kind = dependency_kind::TRUE_DEP) {

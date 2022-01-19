@@ -10,7 +10,7 @@
 #include "buffer_transfer_manager.h"
 #include "command.h"
 #include "host_queue.h"
-#include "logger.h"
+#include "log.h"
 
 namespace celerity {
 namespace detail {
@@ -24,7 +24,6 @@ namespace detail {
 
 	class worker_job {
 	  public:
-		worker_job(command_pkg pkg, std::shared_ptr<logger> job_logger) : pkg(pkg), job_logger(job_logger) {}
 		worker_job(const worker_job&) = delete;
 		worker_job(worker_job&&) = delete;
 
@@ -36,9 +35,12 @@ namespace detail {
 		bool is_running() const { return running; }
 		bool is_done() const { return done; }
 
+	  protected:
+		worker_job(command_pkg pkg, log_map ctx = {}) : pkg(pkg), lctx((ctx.insert({"job", pkg.cid}), ctx)) {}
+
 	  private:
 		command_pkg pkg;
-		std::shared_ptr<logger> job_logger;
+		log_context lctx;
 		bool running = false;
 		bool done = false;
 
@@ -49,26 +51,25 @@ namespace detail {
 		std::chrono::microseconds bench_min = std::numeric_limits<std::chrono::microseconds>::max();
 		std::chrono::microseconds bench_max = std::numeric_limits<std::chrono::microseconds>::min();
 
-		virtual bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) = 0;
+		virtual bool execute(const command_pkg& pkg) = 0;
 
 		/**
-		 * Returns the job description in the form of the command_type, as well as a string describing the parameters.
-		 * Used for logging.
+		 * Returns a human-readable job description for logging.
 		 */
-		virtual std::pair<command_type, std::string> get_description(const command_pkg& pkg) = 0;
+		virtual std::string get_description(const command_pkg& pkg) = 0;
 	};
 
 	class horizon_job : public worker_job {
 	  public:
-		horizon_job(command_pkg pkg, std::shared_ptr<logger> job_logger, task_manager& tm) : worker_job(pkg, job_logger), task_mngr(tm) {
+		horizon_job(command_pkg pkg, task_manager& tm) : worker_job(pkg, {{"tid", std::get<horizon_data>(pkg.data).tid}}), task_mngr(tm) {
 			assert(pkg.cmd == command_type::HORIZON);
 		}
 
 	  private:
 		task_manager& task_mngr;
 
-		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
-		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
+		bool execute(const command_pkg& pkg) override;
+		std::string get_description(const command_pkg& pkg) override;
 	};
 
 	/**
@@ -76,22 +77,19 @@ namespace detail {
 	 */
 	class await_push_job : public worker_job {
 	  public:
-		await_push_job(command_pkg pkg, std::shared_ptr<logger> job_logger, buffer_transfer_manager& btm) : worker_job(pkg, job_logger), btm(btm) {
-			assert(pkg.cmd == command_type::AWAIT_PUSH);
-		}
+		await_push_job(command_pkg pkg, buffer_transfer_manager& btm) : worker_job(pkg), btm(btm) { assert(pkg.cmd == command_type::AWAIT_PUSH); }
 
 	  private:
 		buffer_transfer_manager& btm;
 		std::shared_ptr<const buffer_transfer_manager::transfer_handle> data_handle = nullptr;
 
-		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
-		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
+		bool execute(const command_pkg& pkg) override;
+		std::string get_description(const command_pkg& pkg) override;
 	};
 
 	class push_job : public worker_job {
 	  public:
-		push_job(command_pkg pkg, std::shared_ptr<logger> job_logger, buffer_transfer_manager& btm, buffer_manager& bm)
-		    : worker_job(pkg, job_logger), btm(btm), buffer_mngr(bm) {
+		push_job(command_pkg pkg, buffer_transfer_manager& btm, buffer_manager& bm) : worker_job(pkg), btm(btm), buffer_mngr(bm) {
 			assert(pkg.cmd == command_type::PUSH);
 		}
 
@@ -100,28 +98,28 @@ namespace detail {
 		buffer_manager& buffer_mngr;
 		std::shared_ptr<const buffer_transfer_manager::transfer_handle> data_handle = nullptr;
 
-		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
-		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
+		bool execute(const command_pkg& pkg) override;
+		std::string get_description(const command_pkg& pkg) override;
 	};
 
 	class reduction_job : public worker_job {
 	  public:
-		reduction_job(command_pkg pkg, std::shared_ptr<logger> job_logger, reduction_manager& rm) : worker_job(pkg, job_logger), rm(rm) {
+		reduction_job(command_pkg pkg, reduction_manager& rm) : worker_job(pkg, {{"rid", std::get<reduction_data>(pkg.data).rid}}), rm(rm) {
 			assert(pkg.cmd == command_type::REDUCTION);
 		}
 
 	  private:
 		reduction_manager& rm;
 
-		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
-		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
+		bool execute(const command_pkg& pkg) override;
+		std::string get_description(const command_pkg& pkg) override;
 	};
 
 	// host-compute jobs, master-node tasks and collective host tasks
 	class host_execute_job : public worker_job {
 	  public:
-		host_execute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::host_queue& queue, detail::task_manager& tm, buffer_manager& bm)
-		    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm), buffer_mngr(bm) {
+		host_execute_job(command_pkg pkg, detail::host_queue& queue, detail::task_manager& tm, buffer_manager& bm)
+		    : worker_job(pkg, {{"tid", std::get<execution_data>(pkg.data).tid}}), queue(queue), task_mngr(tm), buffer_mngr(bm) {
 			assert(pkg.cmd == command_type::EXECUTION);
 		}
 
@@ -132,8 +130,8 @@ namespace detail {
 		std::future<detail::host_queue::execution_info> future;
 		bool submitted = false;
 
-		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
-		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
+		bool execute(const command_pkg& pkg) override;
+		std::string get_description(const command_pkg& pkg) override;
 	};
 
 	/**
@@ -142,9 +140,9 @@ namespace detail {
 	 */
 	class device_execute_job : public worker_job {
 	  public:
-		device_execute_job(command_pkg pkg, std::shared_ptr<logger> job_logger, detail::device_queue& queue, detail::task_manager& tm, buffer_manager& bm,
-		    reduction_manager& rm, node_id local_nid)
-		    : worker_job(pkg, job_logger), queue(queue), task_mngr(tm), buffer_mngr(bm), reduction_mngr(rm), local_nid(local_nid) {
+		device_execute_job(command_pkg pkg, detail::device_queue& queue, detail::task_manager& tm, buffer_manager& bm, reduction_manager& rm, node_id local_nid)
+		    : worker_job(pkg, {{"tid", std::get<execution_data>(pkg.data).tid}}), queue(queue), task_mngr(tm), buffer_mngr(bm), reduction_mngr(rm),
+		      local_nid(local_nid) {
 			assert(pkg.cmd == command_type::EXECUTION);
 		}
 
@@ -157,8 +155,8 @@ namespace detail {
 		cl::sycl::event event;
 		bool submitted = false;
 
-		bool execute(const command_pkg& pkg, std::shared_ptr<logger> logger) override;
-		std::pair<command_type, std::string> get_description(const command_pkg& pkg) override;
+		bool execute(const command_pkg& pkg) override;
+		std::string get_description(const command_pkg& pkg) override;
 	};
 
 } // namespace detail

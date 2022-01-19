@@ -267,22 +267,14 @@ namespace detail {
 		MPI_Comm test_communicator;
 		MPI_Comm_create(MPI_COMM_WORLD, world_group, &test_communicator);
 
-		std::ostringstream oss;
-		auto ostream_sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(oss);
-		auto spd_logger = std::make_shared<spdlog::logger>("my_logger", ostream_sink);
-
-		logger graph_logger{"test-graph", log_level::trace, log_color_mode::never, spd_logger};
-		runtime::get_instance().get_task_manager().print_graph(graph_logger);
-		std::string graph_str = oss.str();
-
-		// we only want to compare the data payload not the log id.
-		graph_str = graph_str.substr(graph_str.find("data"));
-
-		int graph_str_length = graph_str.length();
+		const auto graph_str = runtime::get_instance().get_task_manager().print_graph();
+		REQUIRE(graph_str.has_value());
+		const int graph_str_length = graph_str->length();
+		REQUIRE(graph_str_length > 0);
 
 		if(global_rank == 1) {
 			MPI_Send(&graph_str_length, 1, MPI_INT, 0, 0, test_communicator);
-			MPI_Send(graph_str.c_str(), graph_str.length(), MPI_BYTE, 0, 0, test_communicator);
+			MPI_Send(graph_str->c_str(), graph_str_length, MPI_BYTE, 0, 0, test_communicator);
 		} else if(global_rank == 0) {
 			int rec_graph_str_length = 0;
 			MPI_Recv(&rec_graph_str_length, 1, MPI_INT, 1, 0, test_communicator, MPI_STATUS_IGNORE);

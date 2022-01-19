@@ -111,7 +111,7 @@ namespace detail {
 			time_point end_time{};
 		};
 
-		explicit host_queue(logger& queue_logger) : queue_logger(queue_logger) {
+		host_queue() {
 			// TODO what is a good thread count for the non-collective thread pool?
 			threads.emplace(std::piecewise_construct, std::tuple{0}, std::tuple{MPI_COMM_NULL, 4});
 		}
@@ -133,17 +133,16 @@ namespace detail {
 		std::future<execution_info> submit(collective_group_id cgid, Fn&& fn) {
 			auto it = threads.find(cgid);
 			assert(it != threads.end());
-			return it->second.thread.push(
-			    [&ql = queue_logger, fn = std::forward<Fn>(fn), submit_time = std::chrono::steady_clock::now(), comm = it->second.comm](int) {
-				    auto start_time = std::chrono::steady_clock::now();
-				    try {
-					    fn(comm);
-				    } catch(std::exception& e) { ql.error("exception in thread pool: {}", e.what()); } catch(...) {
-					    ql.error("unknown exception in thread pool");
-				    }
-				    auto end_time = std::chrono::steady_clock::now();
-				    return execution_info{submit_time, start_time, end_time};
-			    });
+			return it->second.thread.push([fn = std::forward<Fn>(fn), submit_time = std::chrono::steady_clock::now(), comm = it->second.comm](int) {
+				auto start_time = std::chrono::steady_clock::now();
+				try {
+					fn(comm);
+				} catch(std::exception& e) { CELERITY_ERROR("exception in thread pool: {}", e.what()); } catch(...) {
+					CELERITY_ERROR("unknown exception in thread pool");
+				}
+				auto end_time = std::chrono::steady_clock::now();
+				return execution_info{submit_time, start_time, end_time};
+			});
 		}
 
 		/**
@@ -164,7 +163,6 @@ namespace detail {
 		};
 
 		std::unordered_map<collective_group_id, comm_thread> threads;
-		logger& queue_logger;
 	};
 
 } // namespace detail

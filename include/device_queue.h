@@ -5,7 +5,6 @@
 #include <CL/sycl.hpp>
 
 #include "config.h"
-#include "logger.h"
 #include "workaround.h"
 
 namespace celerity {
@@ -18,8 +17,6 @@ namespace detail {
 	 */
 	class device_queue {
 	  public:
-		device_queue(logger& queue_logger) : queue_logger(queue_logger){};
-
 		/**
 		 * @brief Initializes the @p device_queue, selecting an appropriate device in the process.
 		 *
@@ -59,7 +56,6 @@ namespace detail {
 		}
 
 	  private:
-		logger& queue_logger;
 		std::unique_ptr<cl::sycl::queue> sycl_queue;
 		bool device_profiling_enabled = false;
 

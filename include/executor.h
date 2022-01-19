@@ -5,7 +5,6 @@
 
 #include "buffer_manager.h"
 #include "buffer_transfer_manager.h"
-#include "logger.h"
 #include "worker_job.h"
 
 namespace celerity {
@@ -42,8 +41,8 @@ namespace detail {
 	class executor {
 	  public:
 		// TODO: Try to decouple this more.
-		executor(node_id local_nid, host_queue& h_queue, device_queue& d_queue, task_manager& tm, buffer_manager& buffer_mngr,
-		    reduction_manager& reduction_mngr, std::shared_ptr<logger> execution_logger);
+		executor(
+		    node_id local_nid, host_queue& h_queue, device_queue& d_queue, task_manager& tm, buffer_manager& buffer_mngr, reduction_manager& reduction_mngr);
 
 		void startup();
 
@@ -66,7 +65,6 @@ namespace detail {
 		buffer_manager& buffer_mngr;
 		reduction_manager& reduction_mngr;
 		std::unique_ptr<buffer_transfer_manager> btm;
-		std::shared_ptr<logger> execution_logger;
 		std::thread exec_thrd;
 		size_t running_device_compute_jobs = 0;
 		std::atomic<uint64_t> highest_executed_sync_id = {0};
@@ -87,10 +85,7 @@ namespace detail {
 
 		template <typename Job, typename... Args>
 		void create_job(const command_pkg& pkg, const std::vector<command_id>& dependencies, Args&&... args) {
-			auto logger = execution_logger->create_context({{"job", std::to_string(pkg.cid)}});
-			if(pkg.cmd == command_type::HORIZON) { logger = logger->create_context({{"task", std::to_string(std::get<horizon_data>(pkg.data).tid)}}); }
-			if(pkg.cmd == command_type::EXECUTION) { logger = logger->create_context({{"task", std::to_string(std::get<execution_data>(pkg.data).tid)}}); }
-			jobs[pkg.cid] = {std::make_unique<Job>(pkg, logger, std::forward<Args>(args)...), pkg.cmd, {}, 0};
+			jobs[pkg.cid] = {std::make_unique<Job>(pkg, std::forward<Args>(args)...), pkg.cmd, {}, 0};
 
 			// If job doesn't exist we assume it has already completed.
 			// This is true as long as we're respecting task-graph (anti-)dependencies when processing tasks.

@@ -1,7 +1,7 @@
 #include "task_manager.h"
 
 #include "access_modes.h"
-#include "logger.h"
+#include "log.h"
 #include "print_graph.h"
 
 namespace celerity {
@@ -33,13 +33,11 @@ namespace detail {
 		return task_map.at(tid).get();
 	}
 
-	void task_manager::print_graph(logger& graph_logger) const {
+	std::optional<std::string> task_manager::print_graph() const {
 		std::lock_guard<std::mutex> lock(task_mutex);
-		if(task_map.size() < 200) {
-			detail::print_graph(task_map, graph_logger);
-		} else {
-			graph_logger.warn("Task graph is very large ({} vertices). Skipping GraphViz output", task_map.size());
-		}
+		if(task_map.size() < 200) { return detail::print_graph(task_map); }
+		CELERITY_WARN("Task graph is very large ({} vertices). Skipping GraphViz output", task_map.size());
+		return std::nullopt;
 	}
 
 	void task_manager::notify_horizon_executed(task_id tid) {

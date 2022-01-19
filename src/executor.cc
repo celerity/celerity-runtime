@@ -3,6 +3,7 @@
 #include <queue>
 
 #include "distr_queue.h"
+#include "log.h"
 #include "mpi_support.h"
 
 // TODO: Get rid of this. (This could potentialy even cause deadlocks on large clusters)
@@ -22,11 +23,10 @@ namespace detail {
 		running = false;
 	}
 
-	executor::executor(node_id local_nid, host_queue& h_queue, device_queue& d_queue, task_manager& tm, buffer_manager& buffer_mngr,
-	    reduction_manager& reduction_mngr, std::shared_ptr<logger> execution_logger)
-	    : local_nid(local_nid), h_queue(h_queue), d_queue(d_queue), task_mngr(tm), buffer_mngr(buffer_mngr), reduction_mngr(reduction_mngr),
-	      execution_logger(execution_logger) {
-		btm = std::make_unique<buffer_transfer_manager>(execution_logger);
+	executor::executor(
+	    node_id local_nid, host_queue& h_queue, device_queue& d_queue, task_manager& tm, buffer_manager& buffer_mngr, reduction_manager& reduction_mngr)
+	    : local_nid(local_nid), h_queue(h_queue), d_queue(d_queue), task_mngr(tm), buffer_mngr(buffer_mngr), reduction_mngr(reduction_mngr) {
+		btm = std::make_unique<buffer_transfer_manager>();
 		metrics.initial_idle.resume();
 	}
 
@@ -35,9 +35,8 @@ namespace detail {
 	void executor::shutdown() {
 		if(exec_thrd.joinable()) { exec_thrd.join(); }
 
-		execution_logger->trace(logger_map{{"initialIdleTime", std::to_string(metrics.initial_idle.get().count())}});
-		execution_logger->trace(logger_map{{"computeIdleTime", std::to_string(metrics.device_idle.get().count())}});
-		execution_logger->trace(logger_map{{"starvationTime", std::to_string(metrics.starvation.get().count())}});
+		CELERITY_DEBUG("Executor initial idle time = {}us, compute idle time = {}us, starvation time = {}us", metrics.initial_idle.get().count(),
+		    metrics.device_idle.get().count(), metrics.starvation.get().count());
 	}
 
 	uint64_t executor::get_highest_executed_sync_id() const noexcept { return highest_executed_sync_id; }

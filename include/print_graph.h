@@ -1,15 +1,18 @@
 #pragma once
 
+#include <memory>
+#include <string>
+#include <unordered_map>
+
 #include "task.h"
 
 namespace celerity {
 namespace detail {
 
 	class command_graph;
-	class logger;
 
-	void print_graph(const std::unordered_map<task_id, std::unique_ptr<task>>& tdag, logger& graph_logger);
-	void print_graph(const command_graph& cdag, logger& graph_logger);
+	std::string print_graph(const std::unordered_map<task_id, std::unique_ptr<task>>& tdag);
+	std::string print_graph(const command_graph& cdag);
 
 } // namespace detail
 } // namespace celerity

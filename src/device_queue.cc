@@ -2,6 +2,7 @@
 
 #include <CL/sycl.hpp>
 
+#include "log.h"
 #include "workaround.h"
 
 namespace celerity {
@@ -11,7 +12,7 @@ namespace detail {
 		assert(sycl_queue == nullptr);
 		const auto profiling_cfg = cfg.get_enable_device_profiling();
 		device_profiling_enabled = profiling_cfg != std::nullopt && *profiling_cfg;
-		if(device_profiling_enabled) { queue_logger.info("Device profiling enabled."); }
+		if(device_profiling_enabled) { CELERITY_INFO("Device profiling enabled."); }
 
 		const auto props = device_profiling_enabled ? cl::sycl::property_list{cl::sycl::property::queue::enable_profiling()} : cl::sycl::property_list{};
 		const auto handle_exceptions = cl::sycl::async_handler{[this](cl::sycl::exception_list el) { this->handle_async_exceptions(el); }};
@@ -30,7 +31,7 @@ namespace detail {
 			if(device_cfg != std::nullopt) {
 				how_selected = fmt::format("set by CELERITY_DEVICES: platform {}, device {}", device_cfg->platform_id, device_cfg->device_id);
 				const auto platforms = cl::sycl::platform::get_platforms();
-				queue_logger.trace("{} platforms available", platforms.size());
+				CELERITY_DEBUG("{} platforms available", platforms.size());
 				if(device_cfg->platform_id >= platforms.size()) {
 					throw std::runtime_error(fmt::format("Invalid platform id {}: Only {} platforms available", device_cfg->platform_id, platforms.size()));
 				}
@@ -71,9 +72,9 @@ namespace detail {
 				if(!try_find_device_per_node(cl::sycl::info::device_type::gpu)) {
 					// Try to find a unique device (of any type) per node.
 					if(try_find_device_per_node(cl::sycl::info::device_type::all)) {
-						queue_logger.warn("No suitable platform found that can provide {} GPU devices, and CELERITY_DEVICES not set", host_cfg.node_count);
+						CELERITY_WARN("No suitable platform found that can provide {} GPU devices, and CELERITY_DEVICES not set", host_cfg.node_count);
 					} else {
-						queue_logger.warn("No suitable platform found that can provide {} devices, and CELERITY_DEVICES not set", host_cfg.node_count);
+						CELERITY_WARN("No suitable platform found that can provide {} devices, and CELERITY_DEVICES not set", host_cfg.node_count);
 						// Just use the first available device. Prefer GPUs, but settle for anything.
 						if(!try_find_one_device(cl::sycl::info::device_type::gpu) && !try_find_one_device(cl::sycl::info::device_type::all)) {
 							throw std::runtime_error("Automatic device selection failed: No device available");
@@ -85,7 +86,7 @@ namespace detail {
 
 		const auto platform_name = device.get_platform().get_info<cl::sycl::info::platform::name>();
 		const auto device_name = device.get_info<cl::sycl::info::device::name>();
-		queue_logger.info("Using platform '{}', device '{}' ({})", platform_name, device_name, how_selected);
+		CELERITY_INFO("Using platform '{}', device '{}' ({})", platform_name, device_name, how_selected);
 
 		return device;
 	}
@@ -95,7 +96,7 @@ namespace detail {
 			try {
 				std::rethrow_exception(e);
 			} catch(cl::sycl::exception& e) {
-				queue_logger.error("SYCL asynchronous exception: {}. Terminating.", e.what());
+				CELERITY_ERROR("SYCL asynchronous exception: {}. Terminating.", e.what());
 				std::terminate();
 			}
 		}

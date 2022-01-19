@@ -10,6 +10,7 @@
 
 #include "command.h"
 #include "command_graph.h"
+#include "device_queue.h"
 #include "graph_generator.h"
 #include "graph_serializer.h"
 #include "range_mapper.h"
@@ -307,16 +308,14 @@ namespace test_utils {
 
 		detail::device_queue& get_device_queue() {
 			if(!dq) {
-				l = std::make_unique<detail::logger>("test", detail::log_level::warn);
-				cfg = std::make_unique<detail::config>(nullptr, nullptr, *l);
-				dq = std::make_unique<detail::device_queue>(*l);
+				cfg = std::make_unique<detail::config>(nullptr, nullptr);
+				dq = std::make_unique<detail::device_queue>();
 				dq->init(*cfg, nullptr);
 			}
 			return *dq;
 		}
 
 	  private:
-		std::unique_ptr<detail::logger> l;
 		std::unique_ptr<detail::config> cfg;
 		std::unique_ptr<detail::device_queue> dq;
 	};

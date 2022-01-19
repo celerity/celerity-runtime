@@ -4,6 +4,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <unordered_map>
 
 #include "handler.h"
@@ -16,7 +17,6 @@ namespace celerity {
 namespace detail {
 
 	class reduction_manager;
-	class logger;
 	using task_callback = std::function<void(task_id, task_type)>;
 
 	class task_manager {
@@ -72,7 +72,7 @@ namespace detail {
 
 		const task* get_task(task_id tid) const;
 
-		void print_graph(logger& graph_logger) const;
+		std::optional<std::string> print_graph() const;
 
 		/**
 		 * @brief Shuts down the task_manager, freeing all stored tasks.
