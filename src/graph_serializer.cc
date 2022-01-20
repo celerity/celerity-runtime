@@ -55,15 +55,6 @@ namespace detail {
 		}
 	}
 
-
-	void graph_serializer::flush_horizons() {
-		auto& horizon_cmds = cdag.get_active_horizons();
-		for(auto& horizon_cmd : horizon_cmds) {
-			flush_dependency(horizon_cmd);
-		}
-		horizon_cmds.clear();
-	}
-
 	void graph_serializer::flush_dependency(abstract_command* dep) const {
 		// Special casing for AWAIT_PUSH commands: Also flush the corresponding PUSH.
 		// This is necessary as we would otherwise not reach it when starting from task commands alone

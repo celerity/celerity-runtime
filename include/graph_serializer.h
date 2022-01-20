@@ -31,12 +31,6 @@ namespace detail {
 		 */
 		void flush(const std::vector<task_command*>& cmds);
 
-
-		/**
-		 * Serializes a all currently un-flushed horizons.
-		 */
-		void flush_horizons();
-
 	  private:
 		command_graph& cdag;
 		flush_callback flush_cb;
