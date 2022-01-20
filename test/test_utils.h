@@ -169,6 +169,7 @@ namespace test_utils {
 			cdag = std::make_unique<detail::command_graph>();
 			ggen = std::make_unique<detail::graph_generator>(num_nodes, *tm, *rm, *cdag);
 			gsrlzr = std::make_unique<detail::graph_serializer>(*cdag, inspector.get_cb());
+			this->num_nodes = num_nodes;
 		}
 
 		detail::reduction_manager& get_reduction_manager() { return *rm; }
@@ -178,15 +179,19 @@ namespace test_utils {
 		cdag_inspector& get_inspector() { return inspector; }
 		detail::graph_serializer& get_graph_serializer() { return *gsrlzr; }
 
-		void build_task_horizons() {
+		detail::task_id build_task_horizons() {
 			auto most_recently_generated_task_horizon = detail::task_manager_testspy::get_current_horizon_task(get_task_manager());
 			if(most_recently_generated_task_horizon != most_recently_built_task_horizon) {
 				most_recently_built_task_horizon = most_recently_generated_task_horizon;
 				if(most_recently_built_task_horizon != nullptr) {
-					auto htid = most_recently_built_task_horizon->get_id();
-					get_graph_generator().build_task(htid, {nullptr});
+					const auto htid = most_recently_built_task_horizon->get_id();
+					// naive_split does not really do anything for horizons, but this mirrors the behavior of scheduler::schedule exactly.
+					detail::naive_split_transformer naive_split(num_nodes, num_nodes);
+					get_graph_generator().build_task(htid, {&naive_split});
+					return htid;
 				}
 			}
+			return 0;
 		}
 
 	  private:
@@ -196,6 +201,7 @@ namespace test_utils {
 		std::unique_ptr<detail::graph_generator> ggen;
 		cdag_inspector inspector;
 		std::unique_ptr<detail::graph_serializer> gsrlzr;
+		size_t num_nodes;
 		detail::task* most_recently_built_task_horizon = nullptr;
 	};
 
@@ -248,8 +254,7 @@ namespace test_utils {
 		detail::naive_split_transformer transformer{num_chunks, num_nodes};
 		ctx.get_graph_generator().build_task(tid, {&transformer});
 		ctx.get_graph_serializer().flush(tid);
-		ctx.build_task_horizons();
-		ctx.get_graph_serializer().flush_horizons();
+		if(const auto htid = ctx.build_task_horizons()) { ctx.get_graph_serializer().flush(htid); }
 		return tid;
 	}
 

@@ -130,13 +130,7 @@ namespace detail {
 			gsrlzr = std::make_unique<graph_serializer>(*cdag,
 			    [this](node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies) { flush_command(target, pkg, dependencies); });
 			schdlr = std::make_unique<scheduler>(*ggen, *gsrlzr, num_nodes);
-			task_mngr->register_task_callback([this](task_id tid, task_type type) {
-				if(type == task_type::HORIZON) {
-					schdlr->notify_horizon_created(tid);
-				} else {
-					schdlr->notify_task_created(tid);
-				}
-			});
+			task_mngr->register_task_callback([this](task_id tid, task_type type) { schdlr->notify_task_created(tid); });
 		}
 
 		default_logger->info(logger_map({{"event", "initialized"}, {"pid", std::to_string(get_pid())}, {"version", get_version_string()},

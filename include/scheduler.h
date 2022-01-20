@@ -13,7 +13,7 @@ namespace detail {
 	class graph_generator;
 	class graph_serializer;
 
-	enum class scheduler_event_type { TASK_AVAILABLE, HORIZON_AVAILABLE, SHUTDOWN };
+	enum class scheduler_event_type { TASK_AVAILABLE, SHUTDOWN };
 
 	struct scheduler_event {
 		scheduler_event_type type;
@@ -32,11 +32,6 @@ namespace detail {
 		 * @brief Notifies the scheduler that a new task has been created and is ready for scheduling.
 		 */
 		void notify_task_created(task_id tid) { notify(scheduler_event_type::TASK_AVAILABLE, tid); }
-
-		/**
-		 * @brief Notifies the scheduler that a new horizon has been created and is ready for scheduling.
-		 */
-		void notify_horizon_created(task_id tid) { notify(scheduler_event_type::HORIZON_AVAILABLE, tid); }
 
 		/**
 		 * @brief Returns true if the scheduler is idle (has no events to process).

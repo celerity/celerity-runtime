@@ -30,14 +30,11 @@ namespace detail {
 			const auto event = events.front();
 			events.pop();
 
+			const task_id tid = event.data;
 			if(event.type == scheduler_event_type::TASK_AVAILABLE) {
-				const task_id tid = event.data;
 				naive_split_transformer naive_split(num_nodes, num_nodes);
 				ggen.build_task(tid, {&naive_split});
 				gsrlzr.flush(tid);
-			} else if(event.type == scheduler_event_type::HORIZON_AVAILABLE) {
-				ggen.build_task(event.data, {});
-				gsrlzr.flush_horizons();
 			} else if(event.type == scheduler_event_type::SHUTDOWN) {
 				assert(events.empty());
 				return;

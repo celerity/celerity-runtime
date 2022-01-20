@@ -90,16 +90,6 @@ namespace detail {
 
 	class command_graph {
 	  public:
-		void record_command(nop_command*) {}
-		void record_command(push_command*) {}
-		void record_command(await_push_command*) {}
-		void record_command(execution_command* tcmd) { by_task[tcmd->get_tid()].emplace_back(tcmd); }
-		void record_command(horizon_command* hcmd) {
-			by_task[hcmd->get_tid()].emplace_back(hcmd);
-			active_horizons.emplace_back(hcmd);
-		}
-		void record_command(reduction_command*) {}
-
 		template <typename T, typename... Args>
 		T* create(Args... args) {
 			static_assert(std::is_base_of<abstract_command, T>::value, "T must be derived from abstract_command");
@@ -107,9 +97,9 @@ namespace detail {
 			auto result = commands.emplace(std::make_pair(cid, new T(cid, std::forward<Args>(args)...)));
 			auto cmd = result.first->second.get();
 			if(!std::is_same<T, nop_command>::value) execution_fronts[cmd->get_nid()].insert(cmd);
-			auto ret = static_cast<T*>(cmd);
-			record_command(ret);
-			return ret;
+			auto tcmd = static_cast<T*>(cmd);
+			if constexpr(std::is_base_of_v<task_command, T>) { by_task[tcmd->get_tid()].emplace_back(tcmd); }
+			return tcmd;
 		}
 
 		void erase(abstract_command* cmd);
@@ -144,16 +134,11 @@ namespace detail {
 			assert(dependee != depender);
 			depender->add_dependency({dependee, kind});
 			execution_fronts[depender->get_nid()].erase(dependee);
-			max_pseudo_critical_path_length = std::max(max_pseudo_critical_path_length, depender->get_pseudo_critical_path_length());
 		}
 
 		void remove_dependency(abstract_command* depender, abstract_command* dependee) { depender->remove_dependency(dependee); }
 
 		const std::unordered_set<abstract_command*>& get_execution_front(node_id nid) const { return execution_fronts.at(nid); }
-
-		int get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
-
-		std::vector<horizon_command*>& get_active_horizons() { return active_horizons; }
 
 	  private:
 		command_id next_cmd_id = 0;
@@ -163,13 +148,6 @@ namespace detail {
 
 		// Set of per-node commands with no dependents
 		std::unordered_map<node_id, std::unordered_set<abstract_command*>> execution_fronts;
-
-		// This only (potentially) grows when adding dependencies,
-		// it never shrinks and does not take into account later changes further up in the dependency chain
-		int max_pseudo_critical_path_length = 0;
-
-		// Active horizons (created but not flushed)
-		std::vector<horizon_command*> active_horizons;
 	};
 
 } // namespace detail
