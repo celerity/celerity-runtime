@@ -384,7 +384,7 @@ namespace test_utils {
 			if(!dq) {
 				cfg = std::make_unique<detail::config>(nullptr, nullptr);
 				dq = std::make_unique<detail::device_queue>();
-				dq->init(*cfg, nullptr);
+				dq->init(*cfg, detail::auto_select_device{});
 			}
 			return *dq;
 		}
@@ -447,6 +447,20 @@ struct StringMaker<cl::sycl::range<Dims>> {
 		case 3: return fmt::format("{{{}, {}, {}}}", value[0], value[1], value[2]);
 		default: return {};
 		}
+	}
+};
+
+template <>
+struct StringMaker<sycl::device> {
+	static std::string convert(const sycl::device& d) {
+		return fmt::format("sycl::device(vendor_id={}, name=\"{}\")", d.get_info<sycl::info::device::vendor_id>(), d.get_info<sycl::info::device::name>());
+	}
+};
+
+template <>
+struct StringMaker<sycl::platform> {
+	static std::string convert(const sycl::platform& d) {
+		return fmt::format("sycl::platform(vendor=\"{}\", name=\"{}\")", d.get_info<sycl::info::platform::vendor>(), d.get_info<sycl::info::platform::name>());
 	}
 };
 

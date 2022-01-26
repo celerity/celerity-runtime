@@ -1,6 +1,7 @@
 #ifndef RUNTIME_INCLUDE_ENTRY_CELERITY
 #define RUNTIME_INCLUDE_ENTRY_CELERITY
 
+#include "device_queue.h"
 #include "runtime.h"
 
 #include "accessor.h"
@@ -15,14 +16,24 @@ namespace runtime {
 	/**
 	 * @brief Initializes the Celerity runtime.
 	 */
-	inline void init(int* argc, char** argv[]) { detail::runtime::init(argc, argv, nullptr); }
+	inline void init(int* argc, char** argv[]) { detail::runtime::init(argc, argv, detail::auto_select_device{}); }
 
 	/**
 	 * @brief Initializes the Celerity runtime and instructs it to use a particular device.
 	 *
 	 * @param device The device to be used on the current node. This can vary between nodes.
 	 */
-	inline void init(int* argc, char** argv[], cl::sycl::device& device) { detail::runtime::init(argc, argv, &device); }
+	[[deprecated("Use the overload with device selector instead, this will be removed in future release")]] inline void init(
+	    int* argc, char** argv[], sycl::device& device) {
+		detail::runtime::init(argc, argv, device);
+	}
+
+	/**
+	 * @brief Initializes the Celerity runtime and instructs it to use a particular device.
+	 *
+	 * @param device_selector The device selector to be used on the current node. This can vary between nodes.
+	 */
+	inline void init(int* argc, char** argv[], const detail::device_selector& device_selector) { detail::runtime::init(argc, argv, device_selector); }
 } // namespace runtime
 } // namespace celerity
 

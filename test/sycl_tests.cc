@@ -171,4 +171,39 @@ TEST_CASE_METHOD(test_utils::device_queue_fixture, "SYCL has working simple scal
 
 #endif
 
+TEST_CASE("SYCL implements by-value equality-comparison of device information", "[sycl][device-selection][!mayfail]") {
+	constexpr static auto get_devices = [] {
+		auto devs = sycl::device::get_devices();
+		std::sort(devs.begin(), devs.end(), [](const sycl::device& lhs, const sycl::device& rhs) {
+			const auto lhs_vendor_id = lhs.get_info<sycl::info::device::vendor_id>(), rhs_vendor_id = rhs.get_info<sycl::info::device::vendor_id>();
+			const auto lhs_name = lhs.get_info<sycl::info::device::name>(), rhs_name = rhs.get_info<sycl::info::device::name>();
+			if(lhs_vendor_id < rhs_vendor_id) return true;
+			if(lhs_vendor_id > rhs_vendor_id) return false;
+			return lhs_name < rhs_name;
+		});
+		return devs;
+	};
+
+	constexpr static auto get_platforms = [] {
+		const auto devs = get_devices();
+		std::vector<sycl::platform> pfs;
+		for(const auto& d : devs) {
+			pfs.push_back(d.get_platform());
+		}
+		return pfs;
+	};
+
+	SECTION("for sycl::device") {
+		const auto first = get_devices();
+		const auto second = get_devices();
+		CHECK(first == second);
+	}
+
+	SECTION("for sycl::platforms") {
+		const auto first = get_platforms();
+		const auto second = get_platforms();
+		CHECK(first == second);
+	}
+}
+
 } // namespace celerity::detail

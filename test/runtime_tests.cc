@@ -69,6 +69,8 @@ namespace detail {
 		REQUIRE(runtime::is_initialized());
 	}
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "an explicit device can be provided to distr_queue", "[distr_queue][lifetime]") {
 		cl::sycl::default_selector selector;
 		cl::sycl::device device{selector};
@@ -84,6 +86,7 @@ namespace detail {
 			REQUIRE_THROWS_WITH(distr_queue{device}, "Passing explicit device not possible, runtime has already been initialized.");
 		}
 	}
+#pragma GCC diagnostic pop
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer implicitly initializes the runtime", "[distr_queue][lifetime]") {
 		REQUIRE_FALSE(runtime::is_initialized());
@@ -683,7 +686,7 @@ namespace detail {
 #if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "attempting a reduction on buffers with size != 1 throws", "[task-manager]") {
-		runtime::init(nullptr, nullptr, nullptr);
+		runtime::init(nullptr, nullptr);
 		auto& tm = runtime::get_instance().get_task_manager();
 
 		buffer<float, 1> buf_1{cl::sycl::range<1>{2}};
