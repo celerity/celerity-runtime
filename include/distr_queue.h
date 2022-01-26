@@ -3,6 +3,7 @@
 #include <memory>
 #include <type_traits>
 
+#include "device_queue.h"
 #include "runtime.h"
 #include "task_manager.h"
 
@@ -25,10 +26,19 @@ inline constexpr allow_by_ref_t allow_by_ref{};
 
 class distr_queue {
   public:
-	distr_queue() { init(nullptr); }
-	distr_queue(cl::sycl::device& device) {
+	distr_queue() { init(detail::auto_select_device{}); }
+
+	[[deprecated("Use the overload with device selector instead, this will be removed in future release")]] distr_queue(cl::sycl::device& device) {
 		if(detail::runtime::is_initialized()) { throw std::runtime_error("Passing explicit device not possible, runtime has already been initialized."); }
-		init(&device);
+		init(device);
+	}
+
+	template <typename DeviceSelector>
+	distr_queue(const DeviceSelector& device_selector) {
+		if(detail::runtime::is_initialized()) {
+			throw std::runtime_error("Passing explicit device selector not possible, runtime has already been initialized.");
+		}
+		init(device_selector);
 	}
 
 	distr_queue(const distr_queue&) = default;
@@ -77,8 +87,8 @@ class distr_queue {
   private:
 	std::shared_ptr<detail::distr_queue_tracker> tracker;
 
-	void init(cl::sycl::device* user_device) {
-		if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr, user_device); }
+	void init(detail::device_or_selector device_or_selector) {
+		if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr, device_or_selector); }
 		try {
 			detail::runtime::get_instance().startup();
 		} catch(detail::runtime_already_started_error&) {

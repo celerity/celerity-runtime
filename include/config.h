@@ -19,6 +19,8 @@ namespace detail {
 	};
 
 	class config {
+		friend struct config_testspy;
+
 	  public:
 		/**
 		 * Initializes the @p config by parsing environment variables and passed arguments.
@@ -48,7 +50,6 @@ namespace detail {
 		std::optional<device_config> device_cfg;
 		std::optional<bool> enable_device_profiling;
 		size_t graph_print_max_verts = 200;
-		friend struct config_testspy;
 	};
 
 } // namespace detail

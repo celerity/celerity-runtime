@@ -41,9 +41,10 @@ namespace detail {
 
 	  public:
 		/**
-		 * @param user_device This optional device can be provided by the user, overriding any other device selection strategy.
+		 * @param user_device_or_selector This optional device (overriding any other device selection strategy) or device selector can be provided by the user.
 		 */
-		static void init(int* argc, char** argv[], cl::sycl::device* user_device = nullptr);
+		static void init(int* argc, char** argv[], device_or_selector user_device_or_selector = auto_select_device{});
+
 		static bool is_initialized() { return instance != nullptr; }
 		static runtime& get_instance();
 
@@ -117,7 +118,7 @@ namespace detail {
 		};
 		std::deque<flush_handle> active_flushes;
 
-		runtime(int* argc, char** argv[], cl::sycl::device* user_device = nullptr);
+		runtime(int* argc, char** argv[], device_or_selector user_device_or_selector);
 		runtime(const runtime&) = delete;
 		runtime(runtime&&) = delete;
 

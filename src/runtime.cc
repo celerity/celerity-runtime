@@ -48,9 +48,9 @@ namespace detail {
 		mpi_finalized = true;
 	}
 
-	void runtime::init(int* argc, char** argv[], cl::sycl::device* user_device) {
+	void runtime::init(int* argc, char** argv[], device_or_selector user_device_or_selector) {
 		assert(!instance);
-		instance = std::unique_ptr<runtime>(new runtime(argc, argv, user_device));
+		instance = std::unique_ptr<runtime>(new runtime(argc, argv, user_device_or_selector));
 	}
 
 	runtime& runtime::get_instance() {
@@ -91,7 +91,7 @@ namespace detail {
 #endif
 	}
 
-	runtime::runtime(int* argc, char** argv[], cl::sycl::device* user_device) {
+	runtime::runtime(int* argc, char** argv[], device_or_selector user_device_or_selector) {
 		if(test_mode) {
 			assert(test_active && "initializing the runtime from a test without a runtime_fixture");
 		} else {
@@ -145,7 +145,7 @@ namespace detail {
 
 		CELERITY_INFO(
 		    "Celerity runtime version {} running on {}. PID = {}, build type = {}", get_version_string(), get_sycl_version(), get_pid(), get_build_type());
-		d_queue->init(*cfg, user_device);
+		d_queue->init(*cfg, user_device_or_selector);
 	}
 
 	runtime::~runtime() {
