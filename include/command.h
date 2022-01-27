@@ -142,6 +142,10 @@ namespace detail {
 	// -------------------------------------------- SERIALIZED COMMANDS -----------------------------------------------
 	// ----------------------------------------------------------------------------------------------------------------
 
+	struct epoch_data {
+		task_id tid;
+	};
+
 	struct horizon_data {
 		task_id tid;
 	};
@@ -175,7 +179,7 @@ namespace detail {
 		uint64_t sync_id;
 	};
 
-	using command_data = std::variant<std::monostate, horizon_data, execution_data, push_data, await_push_data, reduction_data, sync_data>;
+	using command_data = std::variant<std::monostate, epoch_data, horizon_data, execution_data, push_data, await_push_data, reduction_data, sync_data>;
 
 	/**
 	 * A command package is what is actually transferred between nodes.

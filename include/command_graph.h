@@ -95,13 +95,12 @@ namespace detail {
 		template <typename T, typename... Args>
 		T* create(Args... args) {
 			static_assert(std::is_base_of<abstract_command, T>::value, "T must be derived from abstract_command");
-			command_id cid = next_cmd_id++;
-			auto result = commands.emplace(std::make_pair(cid, new T(cid, std::forward<Args>(args)...)));
-			auto cmd = result.first->second.get();
+			auto unique_cmd = std::unique_ptr<T>{new T(next_cmd_id++, std::forward<Args>(args)...)};
+			const auto cmd = unique_cmd.get();
+			commands.emplace(std::pair{cmd->get_cid(), std::move(unique_cmd)});
+			if constexpr(std::is_base_of_v<task_command, T>) { by_task[cmd->get_tid()].emplace_back(cmd); }
 			execution_fronts[cmd->get_nid()].insert(cmd);
-			auto tcmd = static_cast<T*>(cmd);
-			if constexpr(std::is_base_of_v<task_command, T>) { by_task[tcmd->get_tid()].emplace_back(tcmd); }
-			return tcmd;
+			return cmd;
 		}
 
 		void erase(abstract_command* cmd);

@@ -206,46 +206,65 @@ namespace detail {
 		max_pseudo_critical_path_length = std::max(max_pseudo_critical_path_length, depender->get_pseudo_critical_path_length());
 	}
 
+	task& task_manager::reduce_execution_front(std::unique_ptr<task> reducer) {
+		// add dependencies from a copy of the front to this task
+		const auto current_front = execution_front;
+		for(task* front_task : current_front) {
+			add_dependency(reducer.get(), front_task, dependency_kind::TRUE_DEP, dependency_origin::horizon_ordering);
+		}
+		assert(execution_front.empty());
+		return register_task_internal(std::move(reducer));
+	}
+
+	void task_manager::apply_epoch(task* epoch) {
+		// apply the new epoch to buffers_last_writers and last_collective_tasks data structs
+		for(auto& [_, buffer_region_map] : buffers_last_writers) {
+			buffer_region_map.apply_to_values([epoch](std::optional<task_id> tid) -> std::optional<task_id> {
+				if(!tid) return tid;
+				return {std::max(epoch->get_id(), *tid)};
+			});
+		}
+		for(auto& [cgid, tid] : last_collective_tasks) {
+			tid = std::max(epoch->get_id(), tid);
+		}
+		for(auto& [hoid, tid] : host_object_last_effects) {
+			tid = std::max(epoch->get_id(), tid);
+		}
+
+		// We also use the previous horizon as the new epoch for host-initialized buffers
+		current_epoch = epoch->get_id();
+	}
+
 	void task_manager::generate_task_horizon() {
 		// we are probably overzealous in locking here
 		{
 			std::lock_guard lock(task_mutex);
 			current_horizon_critical_path_length = max_pseudo_critical_path_length;
-
-			auto* previous_horizon_task = current_horizon_task;
-			current_horizon_task = &register_task_internal(task::make_horizon_task(get_new_tid()));
-
-			// add dependencies from a copy of the front to this task
-			auto current_front = get_execution_front();
-			for(task* front_task : current_front) {
-				if(front_task != current_horizon_task) {
-					add_dependency(current_horizon_task, front_task, dependency_kind::TRUE_DEP, dependency_origin::horizon_ordering);
-				}
-			}
-
-			// apply the previous horizon to buffers_last_writers and last_collective_tasks data structs
-			if(previous_horizon_task != nullptr) {
-				const task_id prev_hid = previous_horizon_task->get_id();
-				for(auto& [_, buffer_region_map] : buffers_last_writers) {
-					buffer_region_map.apply_to_values([prev_hid](std::optional<task_id> tid) -> std::optional<task_id> {
-						if(!tid) return tid;
-						return {std::max(prev_hid, *tid)};
-					});
-				}
-				for(auto& [cgid, tid] : last_collective_tasks) {
-					tid = std::max(prev_hid, tid);
-				}
-				for(auto& [hoid, tid] : host_object_last_effects) {
-					tid = std::max(prev_hid, tid);
-				}
-
-				// We also use the previous horizon as the new epoch for host-initialized buffers
-				current_epoch = prev_hid;
-			}
+			const auto previous_horizon_task = current_horizon_task;
+			current_horizon_task = &reduce_execution_front(task::make_horizon_task(get_new_tid()));
+			if(previous_horizon_task != nullptr) { apply_epoch(previous_horizon_task); }
 		}
 
 		// it's important that we don't hold the lock while doing this
 		invoke_callbacks(current_horizon_task->get_id(), task_type::HORIZON);
+	}
+
+	task_id task_manager::end_epoch() {
+		// we are probably overzealous in locking here
+		task_id tid;
+		{
+			std::lock_guard lock(task_mutex);
+			tid = get_new_tid();
+			const auto new_epoch = &reduce_execution_front(task::make_epoch(tid));
+			compute_dependencies(new_epoch->get_id());
+			apply_epoch(new_epoch);
+			current_horizon_task = nullptr;
+			current_horizon_critical_path_length = max_pseudo_critical_path_length;
+		}
+
+		// it's important that we don't hold the lock while doing this
+		invoke_callbacks(tid, task_type::EPOCH);
+		return tid;
 	}
 
 	void task_manager::clean_up_pre_horizon_tasks() {

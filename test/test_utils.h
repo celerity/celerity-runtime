@@ -177,6 +177,7 @@ namespace test_utils {
 				commands[cid] = {nid, pkg, dependencies};
 				if(pkg.cmd == detail::command_type::EXECUTION) { by_task[std::get<detail::execution_data>(pkg.data).tid].insert(cid); }
 				if(pkg.cmd == detail::command_type::HORIZON) { by_task[std::get<detail::horizon_data>(pkg.data).tid].insert(cid); }
+				if(pkg.cmd == detail::command_type::EPOCH) { by_task[std::get<detail::epoch_data>(pkg.data).tid].insert(cid); }
 				by_node[nid].insert(cid);
 			};
 		}
@@ -184,7 +185,9 @@ namespace test_utils {
 		std::set<detail::command_id> get_commands(
 		    std::optional<detail::task_id> tid, std::optional<detail::node_id> nid, std::optional<detail::command_type> cmd) const {
 			// Sanity check: Not all commands have an associated task id
-			assert(tid == std::nullopt || (cmd == std::nullopt || cmd == detail::command_type::EXECUTION || cmd == detail::command_type::HORIZON));
+			assert(tid == std::nullopt
+			       || (cmd == std::nullopt || cmd == detail::command_type::EXECUTION || cmd == detail::command_type::HORIZON
+			           || cmd == detail::command_type::EPOCH));
 
 			std::set<detail::command_id> result;
 			std::transform(commands.cbegin(), commands.cend(), std::inserter(result, result.begin()), [](auto p) { return p.first; });

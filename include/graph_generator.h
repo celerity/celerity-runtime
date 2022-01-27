@@ -97,7 +97,7 @@ namespace detail {
 		// The most recent horizon command per node.
 		std::vector<horizon_command*> current_horizon_cmds;
 		// The id for the next cleanup horizon (commands with ids lower than the cleanup horizon will be deleted next)
-		detail::command_id cleanup_horizon_id = 0;
+		detail::command_id current_min_epoch_cid = 0;
 
 		// NOTE: We have several data structures that keep track of the "global state" of the distributed program, across all tasks and nodes.
 		// While it might seem that this is problematic when the ordering of tasks can be chosen freely (by the scheduler),
@@ -125,7 +125,10 @@ namespace detail {
 
 		void process_task_side_effect_requirements(task_id tid);
 
-		void generate_horizon(task_id tid);
+		template <typename TaskCommand>
+		TaskCommand* reduce_execution_front(task_id reducer_tid, node_id nid);
+
+		void apply_epoch(abstract_command* epoch);
 	};
 
 } // namespace detail
