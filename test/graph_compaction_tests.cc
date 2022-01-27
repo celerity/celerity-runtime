@@ -371,7 +371,7 @@ namespace detail {
 			REQUIRE(master_node_dep != second_deps.end());
 			CHECK(master_node_dep->kind == dependency_kind::TRUE_DEP);
 			REQUIRE(horizon_dep != second_deps.end());
-			CHECK(horizon_dep->kind == dependency_kind::ORDER_DEP);
+			CHECK(horizon_dep->kind == dependency_kind::TRUE_DEP);
 		}
 
 		test_utils::maybe_print_graphs(ctx);

@@ -64,6 +64,8 @@ namespace detail {
 		 */
 		void add_buffer(buffer_id bid, const cl::sycl::range<3>& range, bool host_initialized);
 
+		const task* find_task(task_id tid) const;
+
 		/**
 		 * @brief Checks whether a task has already been registered with the queue.
 		 *
@@ -159,7 +161,7 @@ namespace detail {
 
 		void invoke_callbacks(task_id tid, task_type type);
 
-		void add_dependency(task* depender, task* dependee, dependency_kind kind = dependency_kind::TRUE_DEP);
+		void add_dependency(task* depender, task* dependee, dependency_kind kind, dependency_origin origin);
 
 		inline bool need_new_horizon() const { return max_pseudo_critical_path_length - current_horizon_critical_path_length >= task_horizon_step_size; }
 

@@ -12,9 +12,15 @@ namespace celerity {
 namespace detail {
 
 	enum class dependency_kind {
-		ANTI_DEP = 0,  // Data anti-dependency, can be resolved by duplicating buffers
-		ORDER_DEP = 1, // Order pseudo-depencency, introduced by collective host task groups
-		TRUE_DEP = 2,  // True data flow dependency
+		ANTI_DEP, // Data anti-dependency, can be resolved by duplicating buffers
+		TRUE_DEP, // True data flow or temporal dependency
+	};
+
+	enum class dependency_origin {
+		dataflow,                       // buffer access dependencies generate task and command dependencies
+		collective_group_serialization, // all nodes must execute kernels within the same collective group in the same order
+		horizon_ordering,               // horizons are temporally ordered after all preceding tasks or commands on the same node
+		epoch_fallback,                 // nodes without other true-dependencies require an edge to the last epoch for temporal ordering
 	};
 
 	// TODO: Move to utility header..?
@@ -42,6 +48,7 @@ namespace detail {
 		struct dependency {
 			T* node;
 			dependency_kind kind;
+			dependency_origin origin; // context information for graph printing
 		};
 
 		using dependent = dependency;
@@ -75,22 +82,25 @@ namespace detail {
 
 			if(const auto it = maybe_get_dep(dependencies, dep.node)) {
 				// We assume that for dependency kinds A and B, max(A, B) is strong enough to satisfy both.
-				static_assert(dependency_kind::ANTI_DEP < dependency_kind::ORDER_DEP && dependency_kind::ORDER_DEP < dependency_kind::TRUE_DEP);
+				static_assert(dependency_kind::ANTI_DEP < dependency_kind::TRUE_DEP);
 
 				// Already exists, potentially upgrade to full dependency
 				if((*it)->kind < dep.kind) {
 					(*it)->kind = dep.kind;
+					(*it)->origin = dep.origin; // This unfortunately loses origin information from the lesser dependency
+
 					// In this case we also have to upgrade corresponding dependent within dependency
 					auto this_it = maybe_get_dep(dep.node->dependents, static_cast<T*>(this));
 					assert(this_it != std::nullopt);
 					assert((*this_it)->kind != dep.kind);
 					(*this_it)->kind = dep.kind;
+					(*this_it)->origin = dep.origin;
 				}
 				return;
 			}
 
 			dependencies.emplace_back(dep);
-			dep.node->dependents.emplace_back(dependent{static_cast<T*>(this), dep.kind});
+			dep.node->dependents.emplace_back(dependent{static_cast<T*>(this), dep.kind, dep.origin});
 
 			pseudo_critical_path_length = std::max(pseudo_critical_path_length, static_cast<intrusive_graph_node*>(dep.node)->pseudo_critical_path_length + 1);
 		}

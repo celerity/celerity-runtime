@@ -62,7 +62,7 @@ namespace detail {
 			expected_front.erase(t0);
 			auto t2 = cdag.create<execution_command>(node, 2, subrange<3>{});
 			expected_front.insert(t2);
-			cdag.add_dependency(t2, t0);
+			cdag.add_dependency(t2, t0, dependency_kind::TRUE_DEP, dependency_origin::dataflow);
 			REQUIRE(expected_front == cdag.get_execution_front(node));
 			return expected_front;
 		};
@@ -510,7 +510,7 @@ namespace detail {
 
 		auto has_dependencies_on_same_node = [&](task_id depender, task_id dependency) {
 			return all_command_dependencies(depender, dependency, [](auto depender_cmd, auto dependency_cmd) {
-				return depender_cmd->has_dependency(dependency_cmd, dependency_kind::ORDER_DEP) == (depender_cmd->get_nid() == dependency_cmd->get_nid());
+				return depender_cmd->has_dependency(dependency_cmd, dependency_kind::TRUE_DEP) == (depender_cmd->get_nid() == dependency_cmd->get_nid());
 			});
 		};
 

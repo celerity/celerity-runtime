@@ -28,7 +28,7 @@ TEMPLATE_TEST_CASE_SIG("benchmark intrusive graph dependency handling with N nod
 		bench_graph_node n0;
 		bench_graph_node nodes[N];
 		for(int i = 0; i < N; ++i) {
-			n0.add_dependency({&nodes[i], dependency_kind::TRUE_DEP});
+			n0.add_dependency({&nodes[i], dependency_kind::TRUE_DEP, dependency_origin::dataflow});
 		}
 		return n0.get_dependencies();
 	};
@@ -37,7 +37,7 @@ TEMPLATE_TEST_CASE_SIG("benchmark intrusive graph dependency handling with N nod
 	bench_graph_node nodes[N];
 	BENCHMARK("adding and removing dependencies") {
 		for(int i = 0; i < N; ++i) {
-			n0.add_dependency({&nodes[i], dependency_kind::TRUE_DEP});
+			n0.add_dependency({&nodes[i], dependency_kind::TRUE_DEP, dependency_origin::dataflow});
 		}
 		for(int i = 0; i < N; ++i) {
 			n0.remove_dependency(&nodes[i]);
@@ -46,7 +46,7 @@ TEMPLATE_TEST_CASE_SIG("benchmark intrusive graph dependency handling with N nod
 	};
 
 	for(int i = 0; i < N; ++i) {
-		n0.add_dependency({&nodes[i], dependency_kind::TRUE_DEP});
+		n0.add_dependency({&nodes[i], dependency_kind::TRUE_DEP, dependency_origin::dataflow});
 	}
 	BENCHMARK("checking for dependencies") {
 		int d = 0;
@@ -389,5 +389,5 @@ TEST_CASE("printing benchmark task graphs", "[.][debug-graphs][task-graph]") {
 }
 
 TEST_CASE("printing benchmark command graphs", "[.][debug-graphs][command-graph]") {
-	debug_graphs([] { return graph_generator_benchmark_context{2}; }, [](auto&& ctx) { test_utils::maybe_print_graph(ctx.cdag); });
+	debug_graphs([] { return graph_generator_benchmark_context{2}; }, [](auto&& ctx) { test_utils::maybe_print_graph(ctx.cdag, ctx.tm); });
 }

@@ -209,7 +209,7 @@ namespace detail {
 				}
 			}
 			{
-				const auto graph_str = cdag->print_graph(print_max_nodes);
+				const auto graph_str = cdag->print_graph(print_max_nodes, *task_mngr);
 				if(graph_str.has_value()) {
 					CELERITY_TRACE("Command graph:\n\n{}\n", *graph_str);
 				} else {
