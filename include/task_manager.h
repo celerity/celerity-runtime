@@ -24,6 +24,8 @@ namespace detail {
 		using buffer_writers_map = std::unordered_map<buffer_id, region_map<std::optional<task_id>>>;
 
 	  public:
+		constexpr inline static task_id initial_epoch_task = 0;
+
 		task_manager(size_t num_collective_nodes, host_queue* queue, reduction_manager* reduction_mgr);
 
 		virtual ~task_manager() = default;
@@ -106,10 +108,11 @@ namespace detail {
 
 		reduction_manager* reduction_mngr;
 
-		task_id next_task_id = 0;
-		// An "init task" is used as the last writer for host-initialized buffers.
+		task_id next_task_id = 1;
+		// The current epoch is used as the last writer for host-initialized buffers.
+		// To ensure correct ordering, all tasks that have no other true-dependencies depend on this task.
 		// This is useful so we can correctly generate anti-dependencies onto tasks that read host-initialized buffers.
-		task_id current_init_task_id;
+		task_id current_epoch;
 		std::unordered_map<task_id, std::unique_ptr<task>> task_map;
 
 		// We store a map of which task last wrote to a certain region of a buffer.

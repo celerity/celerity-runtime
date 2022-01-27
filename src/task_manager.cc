@@ -8,15 +8,15 @@ namespace detail {
 
 	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, reduction_manager* reduction_mgr)
 	    : num_collective_nodes(num_collective_nodes), queue(queue), reduction_mngr(reduction_mgr) {
-		// We manually generate the first init task; horizons are used later on (see generate_task_horizon).
-		current_init_task_id = get_new_tid();
-		task_map[current_init_task_id] = task::make_nop(current_init_task_id);
+		// We manually generate the initial epoch task; this is replaced by horizon tasks later on (see generate_task_horizon).
+		task_map.emplace(initial_epoch_task, task::make_epoch(initial_epoch_task));
+		current_epoch = initial_epoch_task;
 	}
 
 	void task_manager::add_buffer(buffer_id bid, const cl::sycl::range<3>& range, bool host_initialized) {
 		std::lock_guard<std::mutex> lock(task_mutex);
 		buffers_last_writers.emplace(bid, range);
-		if(host_initialized) { buffers_last_writers.at(bid).update_region(subrange_to_grid_box(subrange<3>({}, range)), current_init_task_id); }
+		if(host_initialized) { buffers_last_writers.at(bid).update_region(subrange_to_grid_box(subrange<3>({}, range)), current_epoch); }
 	}
 
 	bool task_manager::has_task(task_id tid) const {
@@ -171,6 +171,11 @@ namespace detail {
 			}
 			last_collective_tasks.emplace(cgid, tid);
 		}
+
+		if(const auto deps = tsk->get_dependencies();
+		    std::none_of(deps.begin(), deps.end(), [](const task::dependency d) { return d.kind == dependency_kind::TRUE_DEP; })) {
+			add_dependency(tsk.get(), task_map.at(current_epoch).get(), dependency_kind::TRUE_DEP);
+		}
 	}
 
 	task& task_manager::register_task_internal(std::unique_ptr<task> task) {
@@ -226,8 +231,8 @@ namespace detail {
 					tid = std::max(prev_hid, tid);
 				}
 
-				// We also use the previous horizon as the new init task for host-initialized buffers
-				current_init_task_id = prev_hid;
+				// We also use the previous horizon as the new epoch for host-initialized buffers
+				current_epoch = prev_hid;
 			}
 		}
 

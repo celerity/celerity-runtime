@@ -14,11 +14,12 @@ namespace detail {
 
 	graph_generator::graph_generator(size_t num_nodes, task_manager& tm, reduction_manager& rm, command_graph& cdag)
 	    : task_mngr(tm), reduction_mngr(rm), num_nodes(num_nodes), cdag(cdag) {
-		// Build init command for each node (these are required to properly handle anti-dependencies on host-initialized buffers).
+		// Build initial epoch command for each node (these are required to properly handle anti-dependencies on host-initialized buffers).
 		// We manually generate the first set of commands; horizons are used later on (see generate_horizon).
-		for(auto i = 0u; i < num_nodes; ++i) {
-			const auto init_cmd = cdag.create<nop_command>(i);
-			node_data[i].current_init_cid = init_cmd->get_cid();
+		for(node_id nid = 0; nid < num_nodes; ++nid) {
+			const auto epoch_cmd = cdag.create<epoch_command>(nid, task_manager::initial_epoch_task);
+			epoch_cmd->mark_as_flushed(); // there is no point in flushing the initial epoch command
+			node_data[nid].current_epoch_cid = epoch_cmd->get_cid();
 		}
 		std::fill_n(std::back_inserter(current_horizon_cmds), num_nodes, nullptr);
 	}
@@ -31,7 +32,7 @@ namespace detail {
 		for(auto i = 0u; i < num_nodes; ++i) {
 			all_nodes[i] = i;
 			node_data[i].buffer_last_writer.emplace(bid, range);
-			node_data[i].buffer_last_writer.at(bid).update_region(subrange_to_grid_box({cl::sycl::id<3>(), range}), node_data[i].current_init_cid);
+			node_data[i].buffer_last_writer.at(bid).update_region(subrange_to_grid_box({cl::sycl::id<3>(), range}), node_data[i].current_epoch_cid);
 		}
 
 		buffer_states.emplace(bid, distributed_state{{range, std::move(all_nodes)}});
@@ -93,6 +94,13 @@ namespace detail {
 		// --> So that more advanced transformations can also take data transfers into account
 		process_task_data_requirements(tid);
 		process_task_side_effect_requirements(tid);
+
+		for(const auto cmd : cdag.task_commands(tid)) {
+			if(const auto deps = cmd->get_dependencies();
+			    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::TRUE_DEP; })) {
+				cdag.add_dependency(cmd, cdag.get(node_data.at(cmd->get_nid()).current_epoch_cid), dependency_kind::TRUE_DEP);
+			}
+		}
 	}
 
 	using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<3>>>;
@@ -146,10 +154,6 @@ namespace detail {
 			// In some cases (horizons, master node host task, weird discard_* constructs...)
 			// the last writer might not have any dependents. Just add the anti-dependency onto the writer itself then.
 			if(!has_dependents) {
-				// Don't add anti-dependencies onto the (first! the nop_command) init command
-				const auto init_cid = node_data[write_cmd->get_nid()].current_init_cid;
-				if(last_writer_cid == init_cid && isa<nop_command>(cdag.get(init_cid))) continue;
-
 				cdag.add_dependency(write_cmd, last_writer_cmd, dependency_kind::ANTI_DEP);
 
 				// This is a good time to validate our assumption that every AWAIT_PUSH command has a dependent
@@ -539,7 +543,7 @@ namespace detail {
 				}
 
 				// We also use the previous horizon as the new init cmd for host-initialized buffers
-				node_data[node].current_init_cid = prev_hid;
+				node_data[node].current_epoch_cid = prev_hid;
 			}
 		}
 		// After updating all the data structures, delete before-cleanup-horizon commands

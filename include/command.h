@@ -10,8 +10,8 @@
 namespace celerity {
 namespace detail {
 
-	enum class command_type { NOP, HORIZON, EXECUTION, PUSH, AWAIT_PUSH, REDUCTION, SHUTDOWN, SYNC };
-	constexpr const char* command_string[] = {"NOP", "HORIZON", "EXECUTION", "PUSH", "AWAIT_PUSH", "REDUCTION", "SHUTDOWN", "SYNC"};
+	enum class command_type { EPOCH, HORIZON, EXECUTION, PUSH, AWAIT_PUSH, REDUCTION, SHUTDOWN, SYNC };
+	constexpr const char* command_string[] = {"EPOCH", "HORIZON", "EXECUTION", "PUSH", "AWAIT_PUSH", "REDUCTION", "SHUTDOWN", "SYNC"};
 
 	// ----------------------------------------------------------------------------------------------------------------
 	// ------------------------------------------------ COMMAND GRAPH -------------------------------------------------
@@ -57,15 +57,6 @@ namespace detail {
 		bool flushed = false;
 	};
 	inline abstract_command::~abstract_command() {}
-
-	// Used for the init task.
-	class nop_command final : public abstract_command {
-		friend class command_graph;
-		nop_command(command_id cid, node_id nid) : abstract_command(cid, nid) {
-			// There's no point in flushing NOP commands.
-			mark_as_flushed();
-		}
-	};
 
 	class push_command final : public abstract_command {
 		friend class command_graph;
@@ -118,6 +109,11 @@ namespace detail {
 		task_id tid;
 	};
 
+	class epoch_command final : public task_command {
+		friend class command_graph;
+		using task_command::task_command;
+	};
+
 	class horizon_command final : public task_command {
 		friend class command_graph;
 		using task_command::task_command;
@@ -145,8 +141,6 @@ namespace detail {
 	// ----------------------------------------------------------------------------------------------------------------
 	// -------------------------------------------- SERIALIZED COMMANDS -----------------------------------------------
 	// ----------------------------------------------------------------------------------------------------------------
-
-	struct nop_data {};
 
 	struct horizon_data {
 		task_id tid;
@@ -177,20 +171,18 @@ namespace detail {
 		reduction_id rid;
 	};
 
-	struct shutdown_data {};
-
 	struct sync_data {
 		uint64_t sync_id;
 	};
 
-	using command_data = std::variant<nop_data, horizon_data, execution_data, push_data, await_push_data, reduction_data, shutdown_data, sync_data>;
+	using command_data = std::variant<std::monostate, horizon_data, execution_data, push_data, await_push_data, reduction_data, sync_data>;
 
 	/**
 	 * A command package is what is actually transferred between nodes.
 	 */
 	struct command_pkg {
-		command_id cid;
-		command_type cmd;
+		command_id cid{};
+		command_type cmd{};
 		command_data data;
 
 		command_pkg() = default;
