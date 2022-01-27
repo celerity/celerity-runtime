@@ -19,22 +19,28 @@ namespace detail {
 		if(host_initialized) { buffers_last_writers.at(bid).update_region(subrange_to_grid_box(subrange<3>({}, range)), current_epoch); }
 	}
 
-	bool task_manager::has_task(task_id tid) const {
-		std::lock_guard<std::mutex> lock(task_mutex);
-		return task_map.count(tid) != 0;
-	}
-
 	// Note that we assume tasks are not modified after their initial creation, which is why
 	// we don't need to worry about thread-safety after returning the task pointer.
-	const task* task_manager::get_task(task_id tid) const {
-		std::lock_guard<std::mutex> lock(task_mutex);
-		assert(task_map.count(tid) != 0);
-		return task_map.at(tid).get();
+	const task* task_manager::find_task(const task_id tid) const {
+		const std::lock_guard lock{task_mutex};
+		if(const auto it = task_map.find(tid); it != task_map.end()) {
+			return it->second.get();
+		} else {
+			return nullptr;
+		}
+	}
+
+	bool task_manager::has_task(const task_id tid) const { return find_task(tid) != nullptr; }
+
+	const task* task_manager::get_task(const task_id tid) const {
+		const auto tsk = find_task(tid);
+		assert(tsk != nullptr);
+		return tsk;
 	}
 
 	std::optional<std::string> task_manager::print_graph(size_t max_nodes) const {
 		std::lock_guard<std::mutex> lock(task_mutex);
-		if(task_map.size() <= max_nodes) { return detail::print_graph(task_map); }
+		if(task_map.size() <= max_nodes) { return detail::print_task_graph(task_map); }
 		return std::nullopt;
 	}
 
@@ -107,7 +113,7 @@ namespace detail {
 					if(p.second == std::nullopt) continue;
 					const task_id last_writer = *p.second;
 					assert(task_map.count(last_writer) == 1);
-					add_dependency(tsk.get(), task_map[last_writer].get(), dependency_kind::TRUE_DEP);
+					add_dependency(tsk.get(), task_map[last_writer].get(), dependency_kind::TRUE_DEP, dependency_origin::dataflow);
 				}
 			}
 
@@ -137,7 +143,7 @@ namespace detail {
 						    get_requirements(dependent.node, bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
 						// Only add an anti-dependency if we are really writing over the region read by this task
 						if(!GridRegion<3>::intersect(write_requirements, dependent_read_requirements).empty()) {
-							add_dependency(tsk.get(), dependent.node, dependency_kind::ANTI_DEP);
+							add_dependency(tsk.get(), dependent.node, dependency_kind::ANTI_DEP, dependency_origin::dataflow);
 							has_anti_dependents = true;
 						}
 					}
@@ -148,7 +154,7 @@ namespace detail {
 						// While it might not always make total sense to have anti-dependencies between (pure) producers without an
 						// intermediate consumer, we at least have a defined behavior, and the thus enforced ordering of tasks
 						// likely reflects what the user expects.
-						add_dependency(tsk.get(), &last_writer, dependency_kind::ANTI_DEP);
+						add_dependency(tsk.get(), &last_writer, dependency_kind::ANTI_DEP, dependency_origin::dataflow);
 					}
 				}
 
@@ -159,14 +165,14 @@ namespace detail {
 		for(const auto& side_effect : tsk->get_side_effect_map()) {
 			const auto [hoid, order] = side_effect;
 			if(const auto last_effect = host_object_last_effects.find(hoid); last_effect != host_object_last_effects.end()) {
-				add_dependency(tsk.get(), task_map.at(last_effect->second).get(), dependency_kind::TRUE_DEP);
+				add_dependency(tsk.get(), task_map.at(last_effect->second).get(), dependency_kind::TRUE_DEP, dependency_origin::dataflow);
 			}
 			host_object_last_effects.insert_or_assign(hoid, tid);
 		}
 
 		if(auto cgid = tsk->get_collective_group_id(); cgid != 0) {
 			if(auto prev = last_collective_tasks.find(cgid); prev != last_collective_tasks.end()) {
-				add_dependency(tsk.get(), task_map.at(prev->second).get(), dependency_kind::ORDER_DEP);
+				add_dependency(tsk.get(), task_map.at(prev->second).get(), dependency_kind::TRUE_DEP, dependency_origin::collective_group_serialization);
 				last_collective_tasks.erase(prev);
 			}
 			last_collective_tasks.emplace(cgid, tid);
@@ -174,7 +180,7 @@ namespace detail {
 
 		if(const auto deps = tsk->get_dependencies();
 		    std::none_of(deps.begin(), deps.end(), [](const task::dependency d) { return d.kind == dependency_kind::TRUE_DEP; })) {
-			add_dependency(tsk.get(), task_map.at(current_epoch).get(), dependency_kind::TRUE_DEP);
+			add_dependency(tsk.get(), task_map.at(current_epoch).get(), dependency_kind::TRUE_DEP, dependency_origin::epoch_fallback);
 		}
 	}
 
@@ -192,10 +198,10 @@ namespace detail {
 		}
 	}
 
-	void task_manager::add_dependency(task* depender, task* dependee, dependency_kind kind) {
+	void task_manager::add_dependency(task* depender, task* dependee, dependency_kind kind, dependency_origin origin) {
 		assert(depender != dependee);
 		assert(depender != nullptr && dependee != nullptr);
-		depender->add_dependency({dependee, kind});
+		depender->add_dependency({dependee, kind, origin});
 		execution_front.erase(dependee);
 		max_pseudo_critical_path_length = std::max(max_pseudo_critical_path_length, depender->get_pseudo_critical_path_length());
 	}
@@ -212,7 +218,9 @@ namespace detail {
 			// add dependencies from a copy of the front to this task
 			auto current_front = get_execution_front();
 			for(task* front_task : current_front) {
-				if(front_task != current_horizon_task) { add_dependency(current_horizon_task, front_task); }
+				if(front_task != current_horizon_task) {
+					add_dependency(current_horizon_task, front_task, dependency_kind::TRUE_DEP, dependency_origin::horizon_ordering);
+				}
 			}
 
 			// apply the previous horizon to buffers_last_writers and last_collective_tasks data structs

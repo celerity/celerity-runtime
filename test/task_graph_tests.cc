@@ -267,7 +267,7 @@ namespace detail {
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_1, tid_collective_explicit_2));
 
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_2, tid_master));
-		CHECK(has_dependency(tm, tid_collective_implicit_2, tid_collective_implicit_1, dependency_kind::ORDER_DEP));
+		CHECK(has_dependency(tm, tid_collective_implicit_2, tid_collective_implicit_1, dependency_kind::TRUE_DEP));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_2, tid_collective_explicit_1));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_2, tid_collective_explicit_2));
 
@@ -279,7 +279,7 @@ namespace detail {
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_explicit_2, tid_master));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_explicit_2, tid_collective_implicit_1));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_explicit_2, tid_collective_implicit_2));
-		CHECK(has_dependency(tm, tid_collective_explicit_2, tid_collective_explicit_1, dependency_kind::ORDER_DEP));
+		CHECK(has_dependency(tm, tid_collective_explicit_2, tid_collective_explicit_1, dependency_kind::TRUE_DEP));
 	}
 
 	void check_path_length_and_front(task_manager& tm, int path_length, std::unordered_set<task_id> exec_front) {
@@ -522,7 +522,7 @@ namespace detail {
 		REQUIRE(master_node_dep != second_collective_deps.end());
 		CHECK(master_node_dep->kind == dependency_kind::TRUE_DEP);
 		REQUIRE(horizon_dep != second_collective_deps.end());
-		CHECK(horizon_dep->kind == dependency_kind::ORDER_DEP);
+		CHECK(horizon_dep->kind == dependency_kind::TRUE_DEP);
 
 		test_utils::maybe_print_graph(tm);
 	}
