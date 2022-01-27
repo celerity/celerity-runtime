@@ -90,7 +90,10 @@ namespace detail {
 		command_pkg pkg;
 		pkg.cid = cmd->get_cid();
 
-		if(const auto* xcmd = dynamic_cast<execution_command*>(cmd)) {
+		if(const auto* ecmd = dynamic_cast<epoch_command*>(cmd)) {
+			pkg.cmd = command_type::EPOCH;
+			pkg.data = epoch_data{ecmd->get_tid()};
+		} else if(const auto* xcmd = dynamic_cast<execution_command*>(cmd)) {
 			pkg.cmd = command_type::EXECUTION;
 			pkg.data = execution_data{xcmd->get_tid(), xcmd->get_execution_range(), xcmd->is_reduction_initializer()};
 		} else if(const auto* pcmd = dynamic_cast<push_command*>(cmd)) {

@@ -38,14 +38,88 @@ namespace detail {
 		buffer_states.emplace(bid, distributed_state{{range, std::move(all_nodes)}});
 	}
 
+	template <typename TaskCommand>
+	TaskCommand* graph_generator::reduce_execution_front(task_id reducer_tid, node_id nid) {
+		auto previous_execution_front = cdag.get_execution_front(nid);
+		// Build horizon command and make current front depend on it
+		auto reducer_cmd = cdag.create<TaskCommand>(nid, reducer_tid);
+		for(const auto& front_cmd : previous_execution_front) {
+			cdag.add_dependency(reducer_cmd, front_cmd, dependency_kind::TRUE_DEP, dependency_origin::horizon_ordering);
+		}
+		return reducer_cmd;
+	}
+
+	void graph_generator::apply_epoch(abstract_command* epoch) {
+		// update "buffer_last_writer" and "last_collective_commands" structures to subsume pre-horizon commands
+		auto& this_node_data = node_data.at(epoch->get_nid());
+		for(auto& blw_pair : this_node_data.buffer_last_writer) {
+			blw_pair.second.apply_to_values([epoch](std::optional<command_id> cid) -> std::optional<command_id> {
+				if(!cid) return cid;
+				return {std::max(epoch->get_cid(), *cid)};
+			});
+		}
+		for(auto& [cgid, cid] : this_node_data.last_collective_commands) {
+			cid = std::max(epoch->get_cid(), cid);
+		}
+		for(auto& [cgid, cid] : this_node_data.host_object_last_effects) {
+			cid = std::max(epoch->get_cid(), cid);
+		}
+
+		// We also use the previous horizon as the new init cmd for host-initialized buffers
+		this_node_data.current_epoch_cid = epoch->get_cid();
+	}
+
 	void graph_generator::build_task(task_id tid, const std::vector<graph_transformer*>& transformers) {
 		std::lock_guard<std::mutex> lock(buffer_mutex);
 		// TODO: Maybe assert that this task hasn't been processed before
 
 		auto tsk = task_mngr.get_task(tid);
 
-		if(tsk->get_type() == task_type::HORIZON) {
-			generate_horizon(tid);
+		if(tsk->get_type() == task_type::HORIZON || tsk->get_type() == task_type::EPOCH) {
+			command_id new_min_epoch_cid = 0;
+			for(node_id nid = 0; nid < num_nodes; ++nid) {
+				command_id node_epoch_cid = 0;
+				if(tsk->get_type() == task_type::HORIZON) {
+					auto horizon = reduce_execution_front<horizon_command>(tid, nid);
+
+					// Apply the previous horizon to data structures
+					auto prev_horizon = current_horizon_cmds[nid];
+					current_horizon_cmds[nid] = horizon;
+
+					if(prev_horizon != nullptr) {
+						apply_epoch(prev_horizon);
+						node_epoch_cid = prev_horizon->get_cid();
+					}
+				} else if(tsk->get_type() == task_type::EPOCH) {
+					auto epoch = reduce_execution_front<epoch_command>(tid, nid);
+					current_horizon_cmds[nid] = nullptr;
+					apply_epoch(epoch);
+					node_epoch_cid = epoch->get_cid();
+				}
+
+				if(node_epoch_cid != 0) {
+					// update the lowest previous horizon id (for later command deletion)
+					if(new_min_epoch_cid == 0) {
+						new_min_epoch_cid = node_epoch_cid;
+					} else {
+						new_min_epoch_cid = std::min(new_min_epoch_cid, node_epoch_cid);
+					}
+				}
+			}
+
+			// After updating all the data structures, delete before-cleanup-horizon commands
+			// Also remove commands from command_buffer_reads (if it exists)
+			if(current_min_epoch_cid > 0) {
+				cdag.erase_if([&](abstract_command* cmd) {
+					if(cmd->get_cid() < current_min_epoch_cid) {
+						assert(cmd->is_flushed() && "Cannot delete unflushed command");
+						command_buffer_reads.erase(cmd->get_cid());
+						return true;
+					}
+					return false;
+				});
+			}
+			current_min_epoch_cid = new_min_epoch_cid;
 			return;
 		}
 
@@ -505,61 +579,6 @@ namespace detail {
 				cmd->debug_label += fmt::format("affect host-object {}\\n", hoid);
 			}
 		}
-	}
-
-	void graph_generator::generate_horizon(task_id tid) {
-		detail::command_id lowest_prev_hid = 0;
-		for(node_id node = 0; node < num_nodes; ++node) {
-			// TODO this could be optimized to something like cdag.apply_horizon(node_id, horizon_cmd) with much fewer internal operations
-			auto previous_execution_front = cdag.get_execution_front(node);
-			// Build horizon command and make current front depend on it
-			auto horizon_cmd = cdag.create<horizon_command>(node, tid);
-			for(const auto& front_cmd : previous_execution_front) {
-				cdag.add_dependency(horizon_cmd, front_cmd, dependency_kind::TRUE_DEP, dependency_origin::horizon_ordering);
-			}
-			// Apply the previous horizon to data structures
-			auto* prev_horizon = current_horizon_cmds[node];
-			current_horizon_cmds[node] = horizon_cmd;
-			if(prev_horizon != nullptr) {
-				// update "buffer_last_writer" and "last_collective_commands" structures to subsume pre-horizon commands
-				const auto prev_hid = prev_horizon->get_cid();
-				auto& this_node_data = node_data.at(node);
-				for(auto& blw_pair : this_node_data.buffer_last_writer) {
-					blw_pair.second.apply_to_values([prev_hid](std::optional<command_id> cid) -> std::optional<command_id> {
-						if(!cid) return cid;
-						return {std::max(prev_hid, *cid)};
-					});
-				}
-				for(auto& [cgid, cid] : this_node_data.last_collective_commands) {
-					cid = std::max(prev_hid, cid);
-				}
-				for(auto& [cgid, cid] : this_node_data.host_object_last_effects) {
-					cid = std::max(prev_hid, cid);
-				}
-				// update lowest previous horizon id (for later command deletion)
-				if(lowest_prev_hid == 0) {
-					lowest_prev_hid = prev_hid;
-				} else {
-					lowest_prev_hid = std::min(lowest_prev_hid, prev_hid);
-				}
-
-				// We also use the previous horizon as the new init cmd for host-initialized buffers
-				node_data[node].current_epoch_cid = prev_hid;
-			}
-		}
-		// After updating all the data structures, delete before-cleanup-horizon commands
-		// Also remove commands from command_buffer_reads (if it exists)
-		if(cleanup_horizon_id > 0) {
-			cdag.erase_if([&](abstract_command* cmd) {
-				if(cmd->get_cid() < cleanup_horizon_id) {
-					assert(cmd->is_flushed() && "Cannot delete unflushed command");
-					command_buffer_reads.erase(cmd->get_cid());
-					return true;
-				}
-				return false;
-			});
-		}
-		cleanup_horizon_id = lowest_prev_hid;
 	}
 
 } // namespace detail

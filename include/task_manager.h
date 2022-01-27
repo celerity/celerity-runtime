@@ -53,6 +53,8 @@ namespace detail {
 			return tid;
 		}
 
+		task_id end_epoch();
+
 		/**
 		 * @brief Registers a new callback that will be called whenever a new task is created.
 		 */
@@ -166,6 +168,10 @@ namespace detail {
 		inline bool need_new_horizon() const { return max_pseudo_critical_path_length - current_horizon_critical_path_length >= task_horizon_step_size; }
 
 		int get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
+
+		task& reduce_execution_front(std::unique_ptr<task> reducer);
+
+		void apply_epoch(task* epoch);
 
 		const std::unordered_set<task*>& get_execution_front() { return execution_front; }
 

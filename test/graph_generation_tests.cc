@@ -15,6 +15,7 @@
 namespace celerity {
 namespace detail {
 
+	using celerity::access::all;
 	using celerity::access::fixed;
 	using celerity::access::one_to_one;
 
@@ -618,6 +619,79 @@ namespace detail {
 			}
 		}
 	}
+
+	TEST_CASE("epochs serialize commands on every node", "[graph_generator][command-graph][epoch]") {
+		using namespace cl::sycl::access;
+
+		const size_t num_nodes = 2;
+		const range<2> node_range{num_nodes, 1};
+		test_utils::cdag_test_context ctx(num_nodes);
+		auto& tm = ctx.get_task_manager();
+		auto& ggen = ctx.get_graph_generator();
+
+		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+
+		const auto tid_a = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(task_a)>(
+		        tm, [&](handler& cgh) {}, node_range));
+		const auto tid_b = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(task_b)>(
+		        tm, [&](handler& cgh) {}, node_range));
+
+		const auto tid_epoch = test_utils::build_and_flush(ctx, num_nodes, tm.end_epoch());
+
+		auto buf = mbf.create_buffer(range<1>{1}, true /* host_initialized */);
+		const auto tid_c = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(task_c)>(
+		        tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); }, node_range));
+		const auto tid_d = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(task_d)>(
+		        tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); }, node_range));
+
+		auto& inspector = ctx.get_inspector();
+		auto& cdag = ctx.get_command_graph();
+
+		const auto get_single_command = [&](const char* const info, const task_id tid, const node_id nid) {
+			INFO(info);
+			const auto set = inspector.get_commands(tid, nid, {});
+			REQUIRE(set.size() == 1);
+			return cdag.get(*set.begin());
+		};
+
+		for(node_id nid = 0; nid < num_nodes; ++nid) {
+			CAPTURE(nid);
+
+			const auto cmd_a = get_single_command("tid_a", tid_a, nid);
+			const auto a_deps = cmd_a->get_dependencies();
+			REQUIRE(std::distance(a_deps.begin(), a_deps.end()) == 1);
+			CHECK(a_deps.front().origin == dependency_origin::epoch_fallback);
+
+			const auto cmd_b = get_single_command("tid_b", tid_b, nid);
+			const auto b_deps = cmd_b->get_dependencies();
+			REQUIRE(std::distance(b_deps.begin(), b_deps.end()) == 1);
+			CHECK(b_deps.front().origin == dependency_origin::epoch_fallback);
+
+			const auto cmd_epoch = get_single_command("tid_epoch", tid_epoch, nid);
+			const auto epoch_deps = cmd_epoch->get_dependencies();
+			CHECK(std::distance(epoch_deps.begin(), epoch_deps.end()) == 2);
+			CHECK(inspector.has_dependency(cmd_epoch->get_cid(), cmd_a->get_cid()));
+			CHECK(inspector.has_dependency(cmd_epoch->get_cid(), cmd_b->get_cid()));
+
+			const auto cmd_c = get_single_command("tid_c", tid_c, nid);
+			const auto c_deps = cmd_c->get_dependencies();
+			CHECK(std::distance(c_deps.begin(), c_deps.end()) == 1);
+			CHECK(inspector.has_dependency(cmd_c->get_cid(), cmd_epoch->get_cid()));
+
+			const auto cmd_d = get_single_command("tid_d", tid_d, nid);
+			const auto d_deps = cmd_d->get_dependencies();
+			CHECK(std::distance(d_deps.begin(), d_deps.end()) == 2);
+			CHECK(inspector.has_dependency(cmd_d->get_cid(), cmd_epoch->get_cid()));
+			CHECK(inspector.has_dependency(cmd_d->get_cid(), cmd_c->get_cid()));
+		}
+
+		maybe_print_graphs(ctx);
+	}
+
 
 } // namespace detail
 } // namespace celerity
