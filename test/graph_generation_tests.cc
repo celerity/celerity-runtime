@@ -37,7 +37,7 @@ namespace detail {
 		command_graph cdag;
 		std::unordered_set<abstract_command*> cmds;
 		cmds.insert(cdag.create<execution_command>(0, 0, subrange<3>{}));
-		cmds.insert(cdag.create<nop_command>(0));
+		cmds.insert(cdag.create<epoch_command>(0, task_manager::initial_epoch_task));
 		cmds.insert(cdag.create<push_command>(0, 0, 0, 0, subrange<3>{}));
 		for(auto cmd : cdag.all_commands()) {
 			REQUIRE(cmds.find(cmd) != cmds.end());
@@ -76,7 +76,7 @@ namespace detail {
 
 	TEST_CASE("isa<> RTTI helper correctly handles command hierarchies", "[rtti][command-graph]") {
 		command_graph cdag;
-		auto np = cdag.create<nop_command>(0);
+		auto np = cdag.create<epoch_command>(0, task_manager::initial_epoch_task);
 		REQUIRE(isa<abstract_command>(np));
 		auto hec = cdag.create<execution_command>(0, 0, subrange<3>{});
 		REQUIRE(isa<execution_command>(hec));
@@ -602,7 +602,8 @@ namespace detail {
 		for(auto tid : {tid_0, tid_1}) {
 			for(auto cid : inspector.get_commands(tid, std::nullopt, std::nullopt)) {
 				const auto deps = cdag.get(cid)->get_dependencies();
-				CHECK(deps.empty());
+				REQUIRE(std::distance(deps.begin(), deps.end()) == 1);
+				CHECK(isa<epoch_command>(deps.front().node));
 			}
 		}
 

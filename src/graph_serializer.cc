@@ -4,11 +4,18 @@
 
 #include "command.h"
 #include "command_graph.h"
+#include "task_manager.h"
 
 namespace celerity {
 namespace detail {
 
 	void graph_serializer::flush(task_id tid) { flush(cdag.task_commands(tid)); }
+
+	bool flushed_manually(const abstract_command* const cmd) {
+		// The initial epoch command is not flushed, so we cannot record dependencies on it
+		const auto ecmd = dynamic_cast<const epoch_command*>(cmd);
+		return ecmd && ecmd->get_tid() == task_manager::initial_epoch_task;
+	}
 
 	void graph_serializer::flush(const std::vector<task_command*>& cmds) {
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
@@ -31,8 +38,7 @@ namespace detail {
 			// Iterate over first level of dependencies.
 			// These might either be data transfer commands, or task commands from other tasks.
 			for(auto d : cmd->get_dependencies()) {
-				if(isa<nop_command>(d.node)) continue;
-				cad.second.push_back(d.node->get_cid());
+				if(!flushed_manually(d.node)) { cad.second.push_back(d.node->get_cid()); }
 
 				// Sanity check: All dependencies must be on the same node.
 				assert(d.node->get_nid() == cmd->get_nid());
@@ -73,7 +79,7 @@ namespace detail {
 				assert(isa<reduction_command>(dep) && isa<await_push_command>(dd.node));
 				flush_dependency(dd.node);
 			}
-			dep_deps.push_back(dd.node->get_cid());
+			if(!flushed_manually(dd.node)) { dep_deps.push_back(dd.node->get_cid()); }
 		}
 		serialize_and_flush(dep, dep_deps);
 	}
@@ -81,12 +87,12 @@ namespace detail {
 	void graph_serializer::serialize_and_flush(abstract_command* cmd, const std::vector<command_id>& dependencies) const {
 		assert(!cmd->is_flushed() && "Command has already been flushed.");
 
-		if(isa<nop_command>(cmd)) return;
-		command_pkg pkg{cmd->get_cid(), command_type::NOP, command_data{nop_data{}}};
+		command_pkg pkg;
+		pkg.cid = cmd->get_cid();
 
-		if(const auto* tcmd = dynamic_cast<execution_command*>(cmd)) {
+		if(const auto* xcmd = dynamic_cast<execution_command*>(cmd)) {
 			pkg.cmd = command_type::EXECUTION;
-			pkg.data = execution_data{tcmd->get_tid(), tcmd->get_execution_range(), tcmd->is_reduction_initializer()};
+			pkg.data = execution_data{xcmd->get_tid(), xcmd->get_execution_range(), xcmd->is_reduction_initializer()};
 		} else if(const auto* pcmd = dynamic_cast<push_command*>(cmd)) {
 			pkg.cmd = command_type::PUSH;
 			pkg.data = push_data{pcmd->get_bid(), pcmd->get_rid(), pcmd->get_target(), pcmd->get_range()};
