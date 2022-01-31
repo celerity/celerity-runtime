@@ -188,11 +188,12 @@ namespace detail {
 	void runtime::shutdown() noexcept {
 		assert(is_active);
 		is_shutting_down = true;
+		const auto final_epoch = task_mngr->end_epoch(epoch_action::shutdown);
 		if(is_master_node()) {
 			schdlr->shutdown();
-			broadcast_control_command(command_type::SHUTDOWN, command_data{});
 		}
 
+		task_mngr->await_epoch(final_epoch);
 		exec->shutdown();
 		d_queue->wait();
 		h_queue->wait();
@@ -228,23 +229,8 @@ namespace detail {
 	}
 
 	void runtime::sync() noexcept {
-		// (Note: currently this function busy waits, but sync is slow and shouldn't be on the critical path anyway)
-		sync_id++;
-
-		// First, broadcast SYNC command once the scheduler has finished all previous tasks
-		if(is_master_node()) {
-			while(!schdlr->is_idle()) {
-				std::this_thread::yield();
-			}
-			sync_data cmd_data{};
-			cmd_data.sync_id = sync_id;
-			broadcast_control_command(command_type::SYNC, cmd_data);
-		}
-
-		// Then we wait for that sync to actually be reached.
-		while(exec->get_highest_executed_sync_id() < sync_id) {
-			std::this_thread::yield();
-		}
+		const auto new_epoch = task_mngr->end_epoch(epoch_action::barrier);
+		task_mngr->await_epoch(new_epoch);
 	}
 
 	task_manager& runtime::get_task_manager() const { return *task_mngr; }
@@ -254,14 +240,6 @@ namespace detail {
 	reduction_manager& runtime::get_reduction_manager() const { return *reduction_mngr; }
 
 	host_object_manager& runtime::get_host_object_manager() const { return *host_object_mngr; }
-
-	void runtime::broadcast_control_command(command_type cmd, const command_data& data) {
-		assert_true(is_master_node()) << "Control commands should only be broadcast from the master";
-		for(auto n = 0u; n < num_nodes; ++n) {
-			command_pkg pkg{next_control_command_id++, cmd, data};
-			flush_command(n, pkg, {});
-		}
-	}
 
 	void runtime::handle_buffer_registered(buffer_id bid) {
 		const auto& info = buffer_mngr->get_buffer_info(bid);

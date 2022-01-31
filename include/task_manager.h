@@ -19,6 +19,30 @@ namespace detail {
 	class reduction_manager;
 	using task_callback = std::function<void(task_id, task_type)>;
 
+	class epoch_monitor {
+	  public:
+		explicit epoch_monitor(const task_id epoch) : current_epoch(epoch) {}
+
+		void await_epoch(const task_id epoch) const {
+			std::unique_lock lock{mutex};
+			epoch_changed.wait(lock, [=] { return current_epoch >= epoch; });
+		}
+
+		void set_epoch(const task_id epoch) {
+			{
+				std::lock_guard lock{mutex};
+				assert(epoch >= current_epoch);
+				current_epoch = epoch;
+			}
+			epoch_changed.notify_all();
+		}
+
+	  private:
+		task_id current_epoch;
+		mutable std::mutex mutex;
+		mutable std::condition_variable epoch_changed;
+	};
+
 	class task_manager {
 		friend struct task_manager_testspy;
 		using buffer_writers_map = std::unordered_map<buffer_id, region_map<std::optional<task_id>>>;
@@ -53,7 +77,7 @@ namespace detail {
 			return tid;
 		}
 
-		task_id end_epoch();
+		task_id end_epoch(epoch_action action);
 
 		/**
 		 * @brief Registers a new callback that will be called whenever a new task is created.
@@ -79,6 +103,8 @@ namespace detail {
 		const task* get_task(task_id tid) const;
 
 		std::optional<std::string> print_graph(size_t max_nodes) const;
+
+		void await_epoch(task_id epoch);
 
 		/**
 		 * @brief Shuts down the task_manager, freeing all stored tasks.
@@ -115,11 +141,13 @@ namespace detail {
 		reduction_manager* reduction_mngr;
 
 		task_id next_task_id = 1;
+		std::unordered_map<task_id, std::unique_ptr<task>> task_map;
+
 		// The current epoch is used as the last writer for host-initialized buffers.
 		// To ensure correct ordering, all tasks that have no other true-dependencies depend on this task.
 		// This is useful so we can correctly generate anti-dependencies onto tasks that read host-initialized buffers.
 		task_id current_epoch;
-		std::unordered_map<task_id, std::unique_ptr<task>> task_map;
+		epoch_monitor current_epoch_monitor{initial_epoch_task};
 
 		// We store a map of which task last wrote to a certain region of a buffer.
 		// NOTE: This represents the state after the latest performed pre-pass.

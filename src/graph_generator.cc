@@ -17,7 +17,7 @@ namespace detail {
 		// Build initial epoch command for each node (these are required to properly handle anti-dependencies on host-initialized buffers).
 		// We manually generate the first set of commands; horizons are used later on (see generate_horizon).
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
-			const auto epoch_cmd = cdag.create<epoch_command>(nid, task_manager::initial_epoch_task);
+			const auto epoch_cmd = cdag.create<epoch_command>(nid, task_manager::initial_epoch_task, epoch_action::none);
 			epoch_cmd->mark_as_flushed(); // there is no point in flushing the initial epoch command
 			node_data[nid].current_epoch_cid = epoch_cmd->get_cid();
 		}
@@ -38,11 +38,11 @@ namespace detail {
 		buffer_states.emplace(bid, distributed_state{{range, std::move(all_nodes)}});
 	}
 
-	template <typename TaskCommand>
-	TaskCommand* graph_generator::reduce_execution_front(task_id reducer_tid, node_id nid) {
+	template <typename TaskCommand, typename... CtorParams>
+	TaskCommand* graph_generator::reduce_execution_front(task_id reducer_tid, node_id nid, CtorParams... args) {
 		auto previous_execution_front = cdag.get_execution_front(nid);
 		// Build horizon command and make current front depend on it
-		auto reducer_cmd = cdag.create<TaskCommand>(nid, reducer_tid);
+		auto reducer_cmd = cdag.create<TaskCommand>(nid, reducer_tid, args...);
 		for(const auto& front_cmd : previous_execution_front) {
 			cdag.add_dependency(reducer_cmd, front_cmd, dependency_kind::TRUE_DEP, dependency_origin::horizon_ordering);
 		}
@@ -91,7 +91,7 @@ namespace detail {
 						node_epoch_cid = prev_horizon->get_cid();
 					}
 				} else if(tsk->get_type() == task_type::EPOCH) {
-					auto epoch = reduce_execution_front<epoch_command>(tid, nid);
+					auto epoch = reduce_execution_front<epoch_command>(tid, nid, tsk->get_epoch_action());
 					current_horizon_cmds[nid] = nullptr;
 					apply_epoch(epoch);
 					node_epoch_cid = epoch->get_cid();

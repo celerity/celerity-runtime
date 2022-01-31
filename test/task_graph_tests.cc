@@ -630,7 +630,7 @@ namespace detail {
 		auto buf_b = mbf.create_buffer(range<1>(1));
 		const auto tid_b = test_utils::add_compute_task<class UKN(task_b)>(tm, [&](handler& cgh) { buf_b.get_access<access_mode::discard_write>(cgh, all{}); });
 
-		const auto tid_epoch = tm.end_epoch();
+		const auto tid_epoch = tm.end_epoch(epoch_action::none);
 
 		const auto tid_c = test_utils::add_compute_task<class UKN(task_c)>(tm, [&](handler& cgh) { buf_a.get_access<access_mode::read>(cgh, all{}); });
 		const auto tid_d = test_utils::add_compute_task<class UKN(task_d)>(tm, [&](handler& cgh) { buf_b.get_access<access_mode::discard_write>(cgh, all{}); });
@@ -662,7 +662,7 @@ namespace detail {
 		auto buf = mbf.create_buffer(range<1>(1));
 		for(int i = 0; i < 3; ++i) {
 			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });
-			tm.end_epoch();
+			tm.end_epoch(epoch_action::none);
 		}
 
 		CHECK(task_manager_testspy::get_num_horizons(tm) == 0);

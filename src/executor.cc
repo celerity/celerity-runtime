@@ -47,8 +47,6 @@ namespace detail {
 
 	void executor::run() {
 		bool done = false;
-		constexpr uint64_t NOT_SYNCING = std::numeric_limits<uint64_t>::max();
-		uint64_t syncing_on_id = NOT_SYNCING;
 
 		struct command_info {
 			command_pkg pkg;
@@ -59,12 +57,6 @@ namespace detail {
 		while(!done || !jobs.empty()) {
 			// Bail if a device error ocurred.
 			if(running_device_compute_jobs > 0) { d_queue.get_sycl_queue().throw_asynchronous(); }
-
-			if(syncing_on_id != NOT_SYNCING && jobs.empty()) {
-				MPI_Barrier(MPI_COMM_WORLD);
-				highest_executed_sync_id = syncing_on_id;
-				syncing_on_id = NOT_SYNCING;
-			}
 
 			// We poll transfers from here (in the same thread, interleaved with job updates),
 			// as it allows us to omit any sort of locking when interacting with the BTM through jobs.
@@ -90,15 +82,25 @@ namespace detail {
 				if(!job_handle.job->is_done()) {
 					job_handle.job->update();
 					++it;
-				} else {
-					for(const auto& d : job_handle.dependents) {
-						assert(jobs.count(d) == 1);
-						jobs[d].unsatisfied_dependencies--;
-						if(jobs[d].unsatisfied_dependencies == 0) { ready_jobs.push_back(d); }
-					}
-					if(isa<device_execute_job>(job_handle.job.get())) { running_device_compute_jobs--; }
-					it = jobs.erase(it);
+					continue;
 				}
+
+				for(const auto& d : job_handle.dependents) {
+					assert(jobs.count(d) == 1);
+					jobs[d].unsatisfied_dependencies--;
+					if(jobs[d].unsatisfied_dependencies == 0) { ready_jobs.push_back(d); }
+				}
+
+				if(isa<device_execute_job>(job_handle.job.get())) {
+					running_device_compute_jobs--;
+				} else if(const auto epoch = dynamic_cast<epoch_job*>(job_handle.job.get())) {
+					if(epoch && epoch->get_epoch_action() == epoch_action::shutdown) {
+						assert(command_queue.empty());
+						done = true;
+					}
+				}
+
+				it = jobs.erase(it);
 			}
 
 			// Process newly available jobs
@@ -138,18 +140,11 @@ namespace detail {
 				}
 			}
 
-			if(syncing_on_id == NOT_SYNCING && jobs.size() < MAX_CONCURRENT_JOBS && !command_queue.empty()) {
+			if(jobs.size() < MAX_CONCURRENT_JOBS && !command_queue.empty()) {
 				const auto info = command_queue.front();
-				if(info.pkg.cmd == command_type::SHUTDOWN) {
-					assert(command_queue.size() == 1);
-					done = true;
-				} else if(info.pkg.cmd == command_type::SYNC) {
-					syncing_on_id = std::get<sync_data>(info.pkg.data).sync_id;
-				} else {
-					if(!handle_command(info.pkg, info.dependencies)) {
-						// In case the command couldn't be handled, don't pop it from the queue.
-						continue;
-					}
+				if(!handle_command(info.pkg, info.dependencies)) {
+					// In case the command couldn't be handled, don't pop it from the queue.
+					continue;
 				}
 				command_queue.pop();
 			}

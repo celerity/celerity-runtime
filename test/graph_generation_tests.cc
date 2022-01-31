@@ -38,7 +38,7 @@ namespace detail {
 		command_graph cdag;
 		std::unordered_set<abstract_command*> cmds;
 		cmds.insert(cdag.create<execution_command>(0, 0, subrange<3>{}));
-		cmds.insert(cdag.create<epoch_command>(0, task_manager::initial_epoch_task));
+		cmds.insert(cdag.create<epoch_command>(0, task_manager::initial_epoch_task, epoch_action::none));
 		cmds.insert(cdag.create<push_command>(0, 0, 0, 0, subrange<3>{}));
 		for(auto cmd : cdag.all_commands()) {
 			REQUIRE(cmds.find(cmd) != cmds.end());
@@ -77,7 +77,7 @@ namespace detail {
 
 	TEST_CASE("isa<> RTTI helper correctly handles command hierarchies", "[rtti][command-graph]") {
 		command_graph cdag;
-		auto np = cdag.create<epoch_command>(0, task_manager::initial_epoch_task);
+		auto np = cdag.create<epoch_command>(0, task_manager::initial_epoch_task, epoch_action::none);
 		REQUIRE(isa<abstract_command>(np));
 		auto hec = cdag.create<execution_command>(0, 0, subrange<3>{});
 		REQUIRE(isa<execution_command>(hec));
@@ -638,7 +638,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(task_b)>(
 		        tm, [&](handler& cgh) {}, node_range));
 
-		const auto tid_epoch = test_utils::build_and_flush(ctx, num_nodes, tm.end_epoch());
+		const auto tid_epoch = test_utils::build_and_flush(ctx, num_nodes, tm.end_epoch(epoch_action::none));
 
 		auto buf = mbf.create_buffer(range<1>{1}, true /* host_initialized */);
 		const auto tid_c = test_utils::build_and_flush(ctx, num_nodes,

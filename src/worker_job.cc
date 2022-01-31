@@ -65,11 +65,13 @@ namespace detail {
 	std::string epoch_job::get_description(const command_pkg& pkg) { return "EPOCH"; }
 
 	bool epoch_job::execute(const command_pkg& pkg) {
+		const auto data = std::get<epoch_data>(pkg.data);
+		action = data.action;
+
 		// This barrier currently enables profiling Celerity programs on a cluster by issuing a queue.slow_full_sync() and
 		// then observing the execution times of barriers. TODO remove this once we have a better profiling workflow.
-		MPI_Barrier(MPI_COMM_WORLD);
+		if(action == epoch_action::barrier) { MPI_Barrier(MPI_COMM_WORLD); }
 
-		const auto data = std::get<epoch_data>(pkg.data);
 		task_mngr.notify_epoch_ended(data.tid);
 		return true;
 	};
