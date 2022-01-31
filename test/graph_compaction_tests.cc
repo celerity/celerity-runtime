@@ -420,5 +420,97 @@ namespace detail {
 		test_utils::maybe_print_graphs(ctx);
 	}
 
+	TEST_CASE("ending an epoch will prune all nodes of the preceding graph", "[task_manager][graph_generator][task-graph][command-graph][epoch]") {
+		using namespace cl::sycl::access;
+
+		constexpr int num_nodes = 2;
+		test_utils::cdag_test_context ctx(num_nodes);
+
+		auto& tm = ctx.get_task_manager();
+		auto& inspector = ctx.get_inspector();
+		test_utils::mock_buffer_factory mbf(ctx);
+
+		const auto check_task_has_exact_dependencies = [&](const char* info, const task_id dependent,
+		                                                   const std::initializer_list<std::tuple<task_id, dependency_kind, dependency_origin>> dependencies) {
+			INFO(info);
+			CAPTURE(dependent);
+			const auto actual = tm.get_task(dependent)->get_dependencies();
+			CHECK(static_cast<size_t>(std::distance(actual.begin(), actual.end())) == dependencies.size());
+			for(const auto& [tid, kind, origin] : dependencies) {
+				CAPTURE(tid);
+				size_t actual_count = 0;
+				for(const auto& actual_dep : actual) {
+					if(actual_dep.node->get_id() == tid) {
+						CHECK(actual_dep.kind == kind);
+						CHECK(actual_dep.origin == origin);
+						actual_count += 1;
+					}
+				}
+				CHECK(actual_count == 1);
+			}
+		};
+
+		const auto node_range = range<1>{num_nodes};
+		const auto init_tid = task_manager::initial_epoch_task;
+
+		auto early_host_initialized_buf = mbf.create_buffer(node_range, true);
+		auto buf_written_from_kernel = mbf.create_buffer(node_range, false);
+
+		const auto writer_tid = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(writer)>(
+		        tm, [&](handler& cgh) { buf_written_from_kernel.get_access<mode::discard_write>(cgh, one_to_one{}); }, node_range));
+
+		const auto epoch_tid = test_utils::build_and_flush(ctx, num_nodes, tm.end_epoch());
+
+		const auto reader_writer_tid = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(reader_writer)>(
+		        tm, [&](handler& cgh) { early_host_initialized_buf.get_access<mode::read_write>(cgh, one_to_one{}); }, node_range));
+
+		auto late_host_initialized_buf = mbf.create_buffer(node_range, true);
+
+		const auto late_writer_tid = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(late_writer)>(
+		        tm, [&](handler& cgh) { late_host_initialized_buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, node_range));
+
+		maybe_print_graphs(ctx);
+
+		REQUIRE(tm.has_task(init_tid));
+		check_task_has_exact_dependencies("initial epoch task", init_tid, {});
+		REQUIRE(tm.has_task(writer_tid));
+		check_task_has_exact_dependencies("writer", writer_tid, {{init_tid, dependency_kind::TRUE_DEP, dependency_origin::epoch_fallback}});
+		REQUIRE(tm.has_task(epoch_tid));
+		check_task_has_exact_dependencies("epoch before", epoch_tid, {{writer_tid, dependency_kind::TRUE_DEP, dependency_origin::horizon_ordering}});
+
+		tm.notify_epoch_ended(epoch_tid);
+
+		const auto reader_tid = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(reader)>(
+		        tm,
+		        [&](handler& cgh) {
+			        early_host_initialized_buf.get_access<mode::read>(cgh, one_to_one{});
+			        late_host_initialized_buf.get_access<mode::read>(cgh, one_to_one{});
+			        buf_written_from_kernel.get_access<mode::discard_write>(cgh, one_to_one{});
+		        },
+		        node_range));
+
+		CHECK(!tm.has_task(init_tid));
+		CHECK(!tm.has_task(writer_tid));
+		REQUIRE(tm.has_task(epoch_tid));
+		check_task_has_exact_dependencies("epoch after", epoch_tid, {});
+		REQUIRE(tm.has_task(reader_writer_tid));
+		check_task_has_exact_dependencies("reader-writer", reader_writer_tid, {{epoch_tid, dependency_kind::TRUE_DEP, dependency_origin::dataflow}});
+		REQUIRE(tm.has_task(late_writer_tid));
+		check_task_has_exact_dependencies("late writer", late_writer_tid, {{epoch_tid, dependency_kind::TRUE_DEP, dependency_origin::epoch_fallback}});
+		REQUIRE(tm.has_task(reader_tid));
+		check_task_has_exact_dependencies("reader", reader_tid,
+		    {
+		        {epoch_tid, dependency_kind::ANTI_DEP, dependency_origin::dataflow},
+		        {reader_writer_tid, dependency_kind::TRUE_DEP, dependency_origin::dataflow},
+		        {late_writer_tid, dependency_kind::TRUE_DEP, dependency_origin::dataflow},
+		    });
+
+		maybe_print_graphs(ctx);
+	}
+
 } // namespace detail
 } // namespace celerity

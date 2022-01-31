@@ -95,6 +95,8 @@ namespace detail {
 		 */
 		void notify_horizon_executed(task_id tid);
 
+		void notify_epoch_ended(task_id epoch_tid);
+
 		/**
 		 * Returns the number of tasks created during the lifetime of the task_manager,
 		 * including tasks that have already been deleted.
@@ -146,11 +148,11 @@ namespace detail {
 
 		// Queue of horizon tasks for which the associated commands were executed.
 		// Only accessed in task_manager::notify_horizon_executed, which is always called from the executor thread - no locking needed.
-		std::queue<task_id> executed_horizons;
+		std::queue<task_id> horizon_deletion_queue;
 		// marker task id for "nothing to delete" - we can safely use 0 here
 		static constexpr task_id nothing_to_delete = 0;
 		// task_id ready for deletion, 0 if nothing to delete (set on notify, used on new task creation)
-		std::atomic<task_id> horizon_task_id_for_deletion = nothing_to_delete;
+		std::atomic<task_id> delete_before_epoch = nothing_to_delete;
 		// How many horizons to delay before deleting tasks
 		static constexpr int horizon_deletion_lag = 3;
 

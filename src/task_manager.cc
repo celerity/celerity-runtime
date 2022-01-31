@@ -51,15 +51,31 @@ namespace detail {
 			assert(task_map.count(tid) != 0);
 			assert(task_map.at(tid)->get_type() == task_type::HORIZON);
 		}
-		assert(executed_horizons.empty() || executed_horizons.back() != tid);
+		assert(horizon_deletion_queue.empty() || horizon_deletion_queue.back() != tid);
 #endif
 
-		executed_horizons.push(tid); // no locking needed - see definition
-		if(executed_horizons.size() >= horizon_deletion_lag) {
+		horizon_deletion_queue.push(tid); // no locking needed - see definition
+		if(horizon_deletion_queue.size() >= horizon_deletion_lag) {
 			// actual cleanup happens on new task creation
-			horizon_task_id_for_deletion.store(executed_horizons.front()); // atomic
-			executed_horizons.pop();
+			delete_before_epoch.store(horizon_deletion_queue.front());
+			horizon_deletion_queue.pop();
 		}
+	}
+
+	void task_manager::notify_epoch_ended(task_id epoch_tid) {
+#ifndef NDEBUG
+		{
+			std::lock_guard lock{task_mutex};
+			assert(task_map.count(epoch_tid) != 0);
+			assert(task_map.at(epoch_tid)->get_type() == task_type::EPOCH);
+		}
+#endif
+
+		while(!horizon_deletion_queue.empty()) {
+			// no locking needed - see definition
+			horizon_deletion_queue.pop();
+		}
+		delete_before_epoch.store(epoch_tid);
 	}
 
 	GridRegion<3> get_requirements(task const* tsk, buffer_id bid, const std::vector<cl::sycl::access::mode> modes) {
@@ -268,7 +284,7 @@ namespace detail {
 	}
 
 	void task_manager::clean_up_pre_horizon_tasks() {
-		task_id deletion_task_id = horizon_task_id_for_deletion.exchange(nothing_to_delete);
+		task_id deletion_task_id = delete_before_epoch.exchange(nothing_to_delete);
 		if(deletion_task_id != nothing_to_delete) {
 			for(auto iter = task_map.begin(); iter != task_map.end();) {
 				if(iter->first < deletion_task_id) {

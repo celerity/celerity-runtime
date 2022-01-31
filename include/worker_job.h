@@ -73,6 +73,17 @@ namespace detail {
 		std::string get_description(const command_pkg& pkg) override;
 	};
 
+	class epoch_job : public worker_job {
+	  public:
+		epoch_job(command_pkg pkg, task_manager& tm) : worker_job(pkg), task_mngr(tm) { assert(pkg.cmd == command_type::EPOCH); }
+
+	  private:
+		task_manager& task_mngr;
+
+		bool execute(const command_pkg& pkg) override;
+		std::string get_description(const command_pkg& pkg) override;
+	};
+
 	/**
 	 * Informs the data_transfer_manager about the awaited push, then waits until the transfer has been received and completed.
 	 */
