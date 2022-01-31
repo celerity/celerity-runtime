@@ -9,7 +9,7 @@ namespace detail {
 	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, reduction_manager* reduction_mgr)
 	    : num_collective_nodes(num_collective_nodes), queue(queue), reduction_mngr(reduction_mgr) {
 		// We manually generate the initial epoch task; this is replaced by horizon tasks later on (see generate_task_horizon).
-		task_map.emplace(initial_epoch_task, task::make_epoch(initial_epoch_task));
+		task_map.emplace(initial_epoch_task, task::make_epoch(initial_epoch_task, epoch_action::none));
 		current_epoch = initial_epoch_task;
 	}
 
@@ -76,7 +76,10 @@ namespace detail {
 			horizon_deletion_queue.pop();
 		}
 		delete_before_epoch.store(epoch_tid);
+		current_epoch_monitor.set_epoch(epoch_tid);
 	}
+
+	void task_manager::await_epoch(const task_id epoch) { current_epoch_monitor.await_epoch(epoch); }
 
 	GridRegion<3> get_requirements(task const* tsk, buffer_id bid, const std::vector<cl::sycl::access::mode> modes) {
 		const auto& access_map = tsk->get_buffer_access_map();
@@ -265,13 +268,13 @@ namespace detail {
 		invoke_callbacks(current_horizon_task->get_id(), task_type::HORIZON);
 	}
 
-	task_id task_manager::end_epoch() {
+	task_id task_manager::end_epoch(epoch_action action) {
 		// we are probably overzealous in locking here
 		task_id tid;
 		{
 			std::lock_guard lock(task_mutex);
 			tid = get_new_tid();
-			const auto new_epoch = &reduce_execution_front(task::make_epoch(tid));
+			const auto new_epoch = &reduce_execution_front(task::make_epoch(tid, action));
 			compute_dependencies(new_epoch->get_id());
 			apply_epoch(new_epoch);
 			current_horizon_task = nullptr;

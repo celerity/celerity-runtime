@@ -92,7 +92,7 @@ namespace detail {
 
 		if(const auto* ecmd = dynamic_cast<epoch_command*>(cmd)) {
 			pkg.cmd = command_type::EPOCH;
-			pkg.data = epoch_data{ecmd->get_tid()};
+			pkg.data = epoch_data{ecmd->get_tid(), ecmd->get_epoch_action()};
 		} else if(const auto* xcmd = dynamic_cast<execution_command*>(cmd)) {
 			pkg.cmd = command_type::EXECUTION;
 			pkg.data = execution_data{xcmd->get_tid(), xcmd->get_execution_range(), xcmd->is_reduction_initializer()};

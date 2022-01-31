@@ -46,7 +46,7 @@ class distr_queue {
 	 * preferred in the common case.
 	 */
 	template <typename CGF>
-	void submit(allow_by_ref_t, CGF cgf) {
+	void submit(allow_by_ref_t, CGF cgf) { // NOLINT(readability-convert-member-functions-to-static)
 		// (Note while this function could be made static, it must not be! Otherwise we can't be sure the runtime has been initialized.)
 		detail::runtime::get_instance().get_task_manager().create_task(std::move(cgf));
 	}
@@ -72,7 +72,7 @@ class distr_queue {
 	 * In production, it should only be used at very coarse granularity (second scale).
 	 * @warning { This is very slow, as it drains all queues and synchronizes accross the entire cluster. }
 	 */
-	void slow_full_sync() { detail::runtime::get_instance().sync(); }
+	void slow_full_sync() { detail::runtime::get_instance().sync(); } // NOLINT(readability-convert-member-functions-to-static)
 
   private:
 	std::shared_ptr<detail::distr_queue_tracker> tracker;

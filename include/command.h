@@ -10,8 +10,8 @@
 namespace celerity {
 namespace detail {
 
-	enum class command_type { EPOCH, HORIZON, EXECUTION, PUSH, AWAIT_PUSH, REDUCTION, SHUTDOWN, SYNC };
-	constexpr const char* command_string[] = {"EPOCH", "HORIZON", "EXECUTION", "PUSH", "AWAIT_PUSH", "REDUCTION", "SHUTDOWN", "SYNC"};
+	enum class command_type { EPOCH, HORIZON, EXECUTION, PUSH, AWAIT_PUSH, REDUCTION };
+	constexpr const char* command_string[] = {"EPOCH", "HORIZON", "EXECUTION", "PUSH", "AWAIT_PUSH", "REDUCTION"};
 
 	// ----------------------------------------------------------------------------------------------------------------
 	// ------------------------------------------------ COMMAND GRAPH -------------------------------------------------
@@ -111,7 +111,13 @@ namespace detail {
 
 	class epoch_command final : public task_command {
 		friend class command_graph;
-		using task_command::task_command;
+		epoch_command(const command_id& cid, const node_id& nid, const task_id& tid, epoch_action action) : task_command(cid, nid, tid), action(action) {}
+
+	  public:
+		epoch_action get_epoch_action() const { return action; }
+
+	  private:
+		epoch_action action;
 	};
 
 	class horizon_command final : public task_command {
@@ -144,6 +150,7 @@ namespace detail {
 
 	struct epoch_data {
 		task_id tid;
+		epoch_action action;
 	};
 
 	struct horizon_data {

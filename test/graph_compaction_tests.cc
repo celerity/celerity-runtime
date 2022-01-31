@@ -460,7 +460,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(writer)>(
 		        tm, [&](handler& cgh) { buf_written_from_kernel.get_access<mode::discard_write>(cgh, one_to_one{}); }, node_range));
 
-		const auto epoch_tid = test_utils::build_and_flush(ctx, num_nodes, tm.end_epoch());
+		const auto epoch_tid = test_utils::build_and_flush(ctx, num_nodes, tm.end_epoch(epoch_action::none));
 
 		const auto reader_writer_tid = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(reader_writer)>(
