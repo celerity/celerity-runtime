@@ -170,6 +170,14 @@ namespace detail {
 			create_job<horizon_job>(pkg, dependencies, task_mngr);
 			break;
 		}
+		case command_type::EPOCH: {
+			// Similar to task commands, a worker might receive the horizon command before creating the corresponding horizon task
+			const auto epoch_tid = std::get<epoch_data>(pkg.data).tid;
+			if(!task_mngr.has_task(epoch_tid)) return false;
+
+			create_job<epoch_job>(pkg, dependencies, task_mngr);
+			break;
+		}
 		case command_type::PUSH: create_job<push_job>(pkg, dependencies, *btm, buffer_mngr); break;
 		case command_type::AWAIT_PUSH: create_job<await_push_job>(pkg, dependencies, *btm); break;
 		case command_type::REDUCTION: create_job<reduction_job>(pkg, dependencies, reduction_mngr); break;
