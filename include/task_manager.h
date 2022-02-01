@@ -72,7 +72,7 @@ namespace detail {
 
 		const task* get_task(task_id tid) const;
 
-		std::optional<std::string> print_graph() const;
+		std::optional<std::string> print_graph(size_t max_nodes) const;
 
 		/**
 		 * @brief Shuts down the task_manager, freeing all stored tasks.

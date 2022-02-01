@@ -120,6 +120,8 @@ Celerity's runtime behavior:
   automatically assign a unique device to each worker on a host.
 - `CELERITY_PROFILE_KERNEL` controls whether SYCL queue profiling information
   should be queried (currently not supported when using hipSYCL).
+- `CELERITY_GRAPH_PRINT_MAX_VERTS` sets the maximum number of vertices the
+  task/command graphs can have above which their GraphViz output will be omitted.
 
 ## Disclaimer
 
