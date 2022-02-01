@@ -1525,8 +1525,12 @@ namespace detail {
 
 	TEST_CASE("side effects generate appropriate command-dependencies", "[graph_generator][command-graph][side-effect]") {
 		using order = experimental::side_effect_order;
+
+		// Must be static for Catch2 GENERATE, which implicitly generates sections for each value and therefore cannot depend on runtime values
 		static constexpr auto side_effect_orders = {order::sequential};
+
 		constexpr size_t num_nodes = 2;
+		const range<1> node_range{num_nodes};
 
 		// TODO placeholder: complete with dependency types for other side effect orders
 		const auto expected_dependencies = std::unordered_map<std::pair<order, order>, std::optional<dependency_kind>, pair_hash>{
@@ -1546,31 +1550,35 @@ namespace detail {
 		auto ho_common = mhof.create_host_object(); // should generate dependencies
 		auto ho_a = mhof.create_host_object();      // should NOT generate dependencies
 		auto ho_b = mhof.create_host_object();      // -"-
-		const auto tid_a = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, sycl::range<1>{num_nodes}, [&](handler& cgh) {
-			ho_common.add_side_effect(cgh, order_a);
+		const auto tid_0 = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, node_range, [&](handler& cgh) { //
 			ho_a.add_side_effect(cgh, order_a);
 		}));
-		const auto tid_b = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, sycl::range<1>{num_nodes}, [&](handler& cgh) {
-			ho_common.add_side_effect(cgh, order_b);
+		const auto tid_1 = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, node_range, [&](handler& cgh) { //
+			ho_common.add_side_effect(cgh, order_a);
 			ho_b.add_side_effect(cgh, order_b);
+		}));
+		const auto tid_2 = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, node_range, [&](handler& cgh) { //
+			ho_common.add_side_effect(cgh, order_b);
 		}));
 
 		auto& inspector = ctx.get_inspector();
 		auto& cdag = ctx.get_command_graph();
 
-		for(auto cid_a : inspector.get_commands(tid_a, std::nullopt, std::nullopt)) {
-			const auto deps_a = cdag.get(cid_a)->get_dependencies();
-			CHECK(deps_a.empty());
+		for(auto tid : {tid_0, tid_1}) {
+			for(auto cid : inspector.get_commands(tid, std::nullopt, std::nullopt)) {
+				const auto deps = cdag.get(cid)->get_dependencies();
+				CHECK(deps.empty());
+			}
 		}
 
-		const auto expected_b = expected_dependencies.at({order_a, order_b});
-		for(auto cid_b : inspector.get_commands(tid_b, std::nullopt, std::nullopt)) {
-			const auto deps_b = cdag.get(cid_b)->get_dependencies();
+		const auto expected_2 = expected_dependencies.at({order_a, order_b});
+		for(auto cid_2 : inspector.get_commands(tid_2, std::nullopt, std::nullopt)) {
+			const auto deps_2 = cdag.get(cid_2)->get_dependencies();
 			// This assumes no oversubscription in the split, adjust if necessary:
-			CHECK(std::distance(deps_b.begin(), deps_b.end()) == expected_b.has_value());
-			if(expected_b) {
-				const auto& dep_tcmd = dynamic_cast<const task_command&>(*deps_b.front().node);
-				CHECK(dep_tcmd.get_tid() == tid_a);
+			CHECK(std::distance(deps_2.begin(), deps_2.end()) == expected_2.has_value());
+			if(expected_2) {
+				const auto& dep_tcmd = dynamic_cast<const task_command&>(*deps_2.front().node);
+				CHECK(dep_tcmd.get_tid() == tid_1);
 			}
 		}
 	}

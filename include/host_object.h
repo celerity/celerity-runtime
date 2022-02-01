@@ -1,5 +1,11 @@
 #pragma once
 
+#include <memory>
+#include <mutex>
+#include <type_traits>
+#include <unordered_set>
+#include <utility>
+
 #include "runtime.h"
 
 
@@ -68,14 +74,16 @@ using assert_host_object_ctor_param_is_rvalue_t = typename assert_host_object_ct
 
 namespace celerity::experimental {
 
-/// A `host_object` wraps state that exists separately on each worker node and can be referenced in host tasks through `side_effect`s. Celerity ensures that
-/// access to the object state is properly synchronized and ordered. An example usage of a host object might be a file stream that is written to from multiple
-/// host tasks sequentially.
-///
-/// - The generic `host_object<T>` keeps ownership of the state at any time and is the safest way to achieve side effects on the host.
-/// - The `host_object<T&>` specialization attaches Celerity's tracking and synchronization mechanism to user-managed state. The user guarantees that the
-///   referenced object is not accessed in any way other than through a `side_effect` while the `host_object` is live.
-/// - `host_object<void>` does not carry internal state and can be used to track access to global variables or functions like `printf()`.
+/**
+ * A `host_object` wraps state that exists separately on each worker node and can be referenced in host tasks through `side_effect`s. Celerity ensures that
+ * access to the object state is properly synchronized and ordered. An example usage of a host object might be a file stream that is written to from multiple
+ * host tasks sequentially.
+ *
+ * - The generic `host_object<T>` keeps ownership of the state at any time and is the safest way to achieve side effects on the host.
+ * - The `host_object<T&>` specialization attaches Celerity's tracking and synchronization mechanism to user-managed state. The user guarantees that the
+ *   referenced object is not accessed in any way other than through a `side_effect` while the `host_object` is live.
+ * - `host_object<void>` does not carry internal state and can be used to track access to global variables or functions like `printf()`.
+ */
 template <typename T>
 class host_object {
 	static_assert(std::is_object_v<T>); // disallow host_object<T&&> and host_object<function-type>
