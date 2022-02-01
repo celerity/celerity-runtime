@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic
 Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2022-02-17
+
+### Added
+
+- Add support for ComputeCpp 2.7.0 and 2.8.0 with stable and experimental compilers. (2831b2a)
+- Add support for using local memory with ComputeCpp. (8e2fce4)
+- Print Celerity version upon runtime startup. (0681c16)
+- Print warning when too few logical cores are available. (113e688)
+
+### Fixed
+
+- Fix race condition around reference-capture in matmul example. (76f49c9)
+- Reduce hardware requirements for maximum work-group size in tests. (008a868, f0cf3f42)
+- Update Catch2 submodule to v2.13.8 as a [bugfix](https://github.com/catchorg/Catch2/issues/2178). (26ca0895)
+- Do not create empty chunks when splitting tasks with a small execution range in dimension 0. (15fa9293)
+- Correctly handle empty buffers and buffer requirements with empty ranges. (ad99522b)
+- Suppress unhelpful deprecation warnings around `sycl::atomic` from DPC++. (39dacdf5)
+- Throw when submitting compute tasks with an empty execution range instead of accepting SYCL misbehavior. (baa242ad)
+
 ## [0.3.1] - 2022-01-04
 
 We recommend Clang >= 10.0 as the host compiler to avoid false-positive
