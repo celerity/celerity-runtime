@@ -291,6 +291,25 @@ namespace detail {
 		}
 	}
 
+	TEST_CASE("nodes do not receive commands for empty chunks", "[command-graph]") {
+		distr_queue q;
+		auto n = runtime::get_instance().get_num_nodes();
+		REQUIRE(n > 1);
+
+		buffer<float, 2> buf{{1, 100}};
+
+		const auto chunk_check_rm = [buf_range = buf.get_range()](const chunk<2>& chnk) {
+			CHECK(chnk.range == buf_range);
+			return celerity::access::one_to_one{}(chnk);
+		};
+
+		q.submit([=](handler& cgh) {
+			accessor acc{buf, cgh, chunk_check_rm, write_only, no_init};
+			// The kernel has a size of 1 in dimension 0, so it will not be split into
+			// more than one chunk (assuming current naive split behavior).
+			cgh.parallel_for<class UKN(kernel)>(buf.get_range(), [=](item<2> it) { acc[it] = 0; });
+		});
+	}
 
 } // namespace detail
 } // namespace celerity

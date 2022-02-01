@@ -1182,9 +1182,12 @@ namespace detail {
 		    range);
 		test_utils::build_and_flush(ctx, num_nodes, tid_reduce);
 
-		const auto tid_consume = test_utils::add_compute_task<class UKN(task_consume)>(tm, [&](handler& cgh) {
-			buf_1.get_access<mode::read>(cgh, fixed<1>({0, 1}));
-		});
+		const auto tid_consume = test_utils::add_compute_task<class UKN(task_consume)>(
+		    tm,
+		    [&](handler& cgh) {
+			    buf_1.get_access<mode::read>(cgh, fixed<1>({0, 1}));
+		    },
+		    range);
 		test_utils::build_and_flush(ctx, num_nodes, tid_consume);
 
 		CHECK(has_dependency(tm, tid_reduce, tid_initialize));
@@ -1300,7 +1303,8 @@ namespace detail {
 		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 
 		test_utils::build_and_flush(ctx, num_nodes,
-		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf_0, false); }));
+		    test_utils::add_compute_task<class UKN(task_reduction)>(
+		        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf_0, false); }, {num_nodes, 1}));
 
 		test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 			buf_0.get_access<mode::read>(cgh, fixed<1>({0, 1}));
@@ -1457,6 +1461,48 @@ namespace detail {
 		}
 
 		maybe_print_graphs(ctx);
+	}
+
+	template <int Dims>
+	class simple_task;
+
+	template <int Dims>
+	class nd_range_task;
+
+	TEMPLATE_TEST_CASE_SIG("graph_generator does not create empty chunks", "[graph_generator]", ((int Dims), Dims), 1, 2, 3) {
+		const size_t num_nodes = 3;
+		test_utils::cdag_test_context ctx(num_nodes);
+		auto& tm = ctx.get_task_manager();
+
+		range<Dims> task_range = zero_range;
+		task_id tid = -1;
+
+		SECTION("for simple tasks") {
+			task_range = range_cast<Dims>(range<3>(2, 2, 2));
+			tid = test_utils::build_and_flush(ctx, num_nodes,
+			    test_utils::add_compute_task<simple_task<Dims>>(
+			        tm, [&](handler& cgh) {}, task_range));
+		}
+
+		SECTION("for nd-range tasks") {
+			task_range = range_cast<Dims>(range<3>(16, 2, 2));
+			const auto local_range = range_cast<Dims>(range<3>(8, 1, 1));
+			tid = test_utils::build_and_flush(ctx, num_nodes,
+			    test_utils::add_nd_range_compute_task<nd_range_task<Dims>>(
+			        tm, [&](handler& cgh) {}, nd_range<Dims>(task_range, local_range)));
+		}
+
+		auto& inspector = ctx.get_inspector();
+		auto& cdag = ctx.get_command_graph();
+
+		const auto cmds = inspector.get_commands(tid, std::nullopt, std::nullopt);
+		CHECK(cmds.size() == 2);
+		for(auto tid : cmds) {
+			auto* tcmd = dynamic_cast<task_command*>(cdag.get(tid));
+			auto split_range = range_cast<3>(task_range);
+			split_range[0] /= 2;
+			CHECK(tcmd->get_execution_range().range == split_range);
+		}
 	}
 
 } // namespace detail
