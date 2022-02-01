@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.13)
 project(distr_io LANGUAGES CXX)
 
-find_package(Celerity 0.3.1 REQUIRED)
+find_package(Celerity 0.3.2 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_search_module(HDF5 REQUIRED IMPORTED_TARGET hdf5-openmpi hdf5-1.12.0 hdf5)
 
