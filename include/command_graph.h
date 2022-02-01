@@ -126,7 +126,7 @@ namespace detail {
 
 		auto& task_commands(task_id tid) { return by_task.at(tid); }
 
-		std::optional<std::string> print_graph() const;
+		std::optional<std::string> print_graph(size_t max_nodes) const;
 
 		// TODO unify dependency terminology to this
 		void add_dependency(abstract_command* depender, abstract_command* dependee, dependency_kind kind = dependency_kind::TRUE_DEP) {

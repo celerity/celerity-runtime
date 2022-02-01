@@ -14,7 +14,7 @@ void test_run_ended_callback() {
 
 void maybe_print_graph(celerity::detail::task_manager& tm) {
 	if(print_graphs) {
-		const auto graph_str = tm.print_graph();
+		const auto graph_str = tm.print_graph(std::numeric_limits<size_t>::max());
 		assert(graph_str.has_value());
 		CELERITY_INFO("Task graph:\n\n{}\n", *graph_str);
 	}
@@ -22,7 +22,7 @@ void maybe_print_graph(celerity::detail::task_manager& tm) {
 
 void maybe_print_graph(celerity::detail::command_graph& cdag) {
 	if(print_graphs) {
-		const auto graph_str = cdag.print_graph();
+		const auto graph_str = cdag.print_graph(std::numeric_limits<size_t>::max());
 		assert(graph_str.has_value());
 		CELERITY_INFO("Command graph:\n\n{}\n", *graph_str);
 	}

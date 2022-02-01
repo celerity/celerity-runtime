@@ -185,13 +185,24 @@ namespace detail {
 		h_queue->wait();
 
 		if(is_master_node() && cfg->get_log_level() == log_level::trace) {
+			const auto print_max_nodes = cfg->get_graph_print_max_verts();
 			{
-				const auto graph_str = task_mngr->print_graph();
-				if(graph_str.has_value()) { CELERITY_TRACE("Task graph:\n\n{}\n", *graph_str); }
+				const auto graph_str = task_mngr->print_graph(print_max_nodes);
+				if(graph_str.has_value()) {
+					CELERITY_TRACE("Task graph:\n\n{}\n", *graph_str);
+				} else {
+					CELERITY_WARN("Task graph with {} vertices exceeds CELERITY_GRAPH_PRINT_MAX_VERTS={}. Skipping GraphViz output",
+					    task_mngr->get_current_task_count(), print_max_nodes);
+				}
 			}
 			{
-				const auto graph_str = cdag->print_graph();
-				if(graph_str.has_value()) { CELERITY_TRACE("Command graph:\n\n{}\n", *graph_str); }
+				const auto graph_str = cdag->print_graph(print_max_nodes);
+				if(graph_str.has_value()) {
+					CELERITY_TRACE("Command graph:\n\n{}\n", *graph_str);
+				} else {
+					CELERITY_WARN("Command graph with {} vertices exceeds CELERITY_GRAPH_PRINT_MAX_VERTS={}. Skipping GraphViz output", cdag->command_count(),
+					    print_max_nodes);
+				}
 			}
 		}
 

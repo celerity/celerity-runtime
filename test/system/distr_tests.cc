@@ -267,7 +267,7 @@ namespace detail {
 		MPI_Comm test_communicator;
 		MPI_Comm_create(MPI_COMM_WORLD, world_group, &test_communicator);
 
-		const auto graph_str = runtime::get_instance().get_task_manager().print_graph();
+		const auto graph_str = runtime::get_instance().get_task_manager().print_graph(100);
 		REQUIRE(graph_str.has_value());
 		const int graph_str_length = graph_str->length();
 		REQUIRE(graph_str_length > 0);

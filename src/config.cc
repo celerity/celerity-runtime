@@ -118,6 +118,17 @@ namespace detail {
 			spdlog::set_level(log_lvl);
 		}
 
+		// ------------------------- CELERITY_GRAPH_PRINT_MAX_VERTS ---------------------------
+
+		{
+			const auto [is_set, value] = get_env("CELERITY_GRAPH_PRINT_MAX_VERTS");
+			if(is_set) {
+				if(log_lvl > log_level::trace) { CELERITY_WARN("CELERITY_GRAPH_PRINT_MAX_VERTS: Graphs will only be printed for CELERITY_LOG_LEVEL=trace."); }
+				const auto [is_valid, parsed] = parse_uint(value.c_str());
+				if(is_valid) { graph_print_max_verts = parsed; }
+			}
+		}
+
 		// --------------------------------- CELERITY_DEVICES ---------------------------------
 
 		{

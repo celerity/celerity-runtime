@@ -40,11 +40,14 @@ namespace detail {
 		const std::optional<device_config>& get_device_config() const { return device_cfg; };
 		std::optional<bool> get_enable_device_profiling() const { return enable_device_profiling; };
 
+		size_t get_graph_print_max_verts() const { return graph_print_max_verts; };
+
 	  private:
 		log_level log_lvl;
 		host_config host_cfg;
 		std::optional<device_config> device_cfg;
 		std::optional<bool> enable_device_profiling;
+		size_t graph_print_max_verts = 200;
 	};
 
 } // namespace detail
