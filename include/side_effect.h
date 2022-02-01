@@ -1,13 +1,17 @@
 #pragma once
 
+#include <type_traits>
+
 #include "handler.h"
 #include "host_object.h"
 
 
 namespace celerity::experimental {
 
-/// Provides access to a `host_object` through capture in a `host_task`. Inside the host task kernel, the internal state of the host object can be accessed
-/// through the `*` or `->` operators. This behavior is similar to accessors on buffers.
+/**
+ * Provides access to a `host_object` through capture in a `host_task`. Inside the host task kernel, the internal state of the host object can be accessed
+ * through the `*` or `->` operators. This behavior is similar to accessors on buffers.
+ */
 template <typename T, side_effect_order Order = side_effect_order::sequential>
 class side_effect {
   public:
