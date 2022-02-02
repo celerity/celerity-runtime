@@ -200,11 +200,9 @@ namespace detail {
 		// The latest horizon task created. Will be applied as last writer once the next horizon is created.
 		std::optional<task_id> current_horizon;
 
-		// Queue of horizon tasks for which the associated commands were executed.
+		// The last horizon completed in the executor, will become the last_completed_epoch once the next horizon is completed as well.
 		// Only accessed in task_manager::notify_*, which are always called from the executor thread - no locking needed.
-		std::queue<task_id> horizon_completion_queue;
-		// How many horizons have to be completed before the first one can be regarded as a completed epoch.
-		static constexpr int horizon_epoch_lag = 3;
+		std::optional<task_id> last_completed_horizon;
 
 		// The last epoch task that has been completed in the executor. Behind a monitor to allow awaiting this change from the main thread.
 		epoch_monitor last_completed_epoch{initial_epoch_task};

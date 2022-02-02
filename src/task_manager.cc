@@ -45,33 +45,28 @@ namespace detail {
 
 	void task_manager::notify_horizon_completed(task_id horizon_tid) {
 		// This method is called from the executor thread, but does not lock task_mutex to avoid lock-step execution with the main thread.
-		// horizon_completion_queue does not need  (see definition), all other accesses are implicitly synchronized.
+		// last_complete_horizon does not need synchronization (see definition), all other accesses are implicitly synchronized.
 
 		assert(get_task(horizon_tid)->get_type() == task_type::HORIZON);
-		assert(horizon_completion_queue.empty() || horizon_completion_queue.back() != horizon_tid);
+		assert(!last_completed_horizon || *last_completed_horizon < horizon_tid);
 		assert(last_completed_epoch.get() < horizon_tid);
 
-		horizon_completion_queue.push(horizon_tid);
-		if(horizon_completion_queue.size() >= horizon_epoch_lag) {
-			last_completed_epoch.set(horizon_completion_queue.front());
-			horizon_completion_queue.pop();
-			// The next call to create_task() will prune all tasks before the last completed epoch
+		if(last_completed_horizon) {
+			last_completed_epoch.set(*last_completed_horizon); // The next call to create_task() will prune all tasks before the last completed epoch
 		}
+		last_completed_horizon = horizon_tid;
 	}
 
 	void task_manager::notify_epoch_completed(task_id epoch_tid) {
 		// This method is called from the executor thread, but does not lock task_mutex to avoid lock-step execution with the main thread.
-		// horizon_completion_queue does not need synchronization (see definition), all other accesses are implicitly synchronized.
+		// last_complete_horizon does not need synchronization (see definition), all other accesses are implicitly synchronized.
 
 		assert(get_task(epoch_tid)->get_type() == task_type::EPOCH);
+		assert(!last_completed_horizon || *last_completed_horizon < epoch_tid);
 		assert(last_completed_epoch.get() < epoch_tid);
 
-		while(!horizon_completion_queue.empty()) {
-			assert(horizon_completion_queue.front() < epoch_tid);
-			horizon_completion_queue.pop();
-		}
-		last_completed_epoch.set(epoch_tid);
-		// The next call to create_task() will prune all tasks before the last completed epoch
+		last_completed_epoch.set(epoch_tid);   // The next call to create_task() will prune all tasks before the last completed epoch
+		last_completed_horizon = std::nullopt; // The last completed horizon is now behind the current epoch and will therefore never become an epoch itself
 	}
 
 	void task_manager::await_epoch_completed(task_id epoch) { last_completed_epoch.await(epoch); }
