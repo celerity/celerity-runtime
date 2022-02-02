@@ -56,18 +56,19 @@ namespace detail {
 #define CELERITY_DETAIL_LOG_SET_SCOPED_CTX(ctx)                                                                                                                \
 	log_ctx_setter _set_log_ctx_##__COUNTER__ { ctx }
 
-	template <typename A, typename B, typename... Rest, size_t... Is, typename Callback>
-	constexpr void tuple_for_each_pair_impl(const std::tuple<A, B, Rest...>& tuple, Callback&& cb, std::index_sequence<Is...>) {
-		cb(std::get<0>(tuple), std::get<1>(tuple));
-		if constexpr(sizeof...(Rest) > 0) {
-			tuple_for_each_pair_impl(std::tuple{std::get<2 + Is>(tuple)...}, std::forward<Callback>(cb), std::make_index_sequence<sizeof...(Rest)>{});
-		}
+	template <typename Tuple, typename Callback>
+	constexpr void tuple_for_each_pair_impl(const Tuple&, Callback&&, std::index_sequence<>) {}
+
+	template <typename Tuple, size_t I1, size_t I2, size_t... Is, typename Callback>
+	constexpr void tuple_for_each_pair_impl(const Tuple& tuple, Callback&& cb, std::index_sequence<I1, I2, Is...>) {
+		cb(std::get<I1>(tuple), std::get<I2>(tuple));
+		tuple_for_each_pair_impl(tuple, cb, std::index_sequence<Is...>{});
 	}
 
 	template <typename... Es, typename Callback>
 	constexpr void tuple_for_each_pair(const std::tuple<Es...>& tuple, Callback&& cb) {
 		static_assert(sizeof...(Es) % 2 == 0, "an even number of entries is required");
-		tuple_for_each_pair_impl(tuple, std::forward<Callback>(cb), std::make_index_sequence<sizeof...(Es) - 2>{});
+		tuple_for_each_pair_impl(tuple, std::forward<Callback>(cb), std::make_index_sequence<sizeof...(Es)>{});
 	}
 
 } // namespace detail

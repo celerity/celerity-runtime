@@ -53,8 +53,7 @@ namespace detail {
 	std::string horizon_job::get_description(const command_pkg& pkg) { return "HORIZON"; }
 
 	bool horizon_job::execute(const command_pkg& pkg) {
-		const auto data = std::get<horizon_data>(pkg.data);
-		task_mngr.notify_horizon_executed(data.tid);
+		task_mngr.notify_horizon_completed(pkg.tid.value());
 		return true;
 	};
 
@@ -72,7 +71,7 @@ namespace detail {
 		// then observing the execution times of barriers. TODO remove this once we have a better profiling workflow.
 		if(action == epoch_action::barrier) { MPI_Barrier(MPI_COMM_WORLD); }
 
-		task_mngr.notify_epoch_ended(data.tid);
+		task_mngr.notify_epoch_completed(pkg.tid.value());
 		return true;
 	};
 
@@ -139,10 +138,10 @@ namespace detail {
 	}
 
 	bool host_execute_job::execute(const command_pkg& pkg) {
-		const auto data = std::get<execution_data>(pkg.data);
-
 		if(!submitted) {
-			auto tsk = task_mngr.get_task(data.tid);
+			const auto data = std::get<execution_data>(pkg.data);
+
+			auto tsk = task_mngr.get_task(pkg.tid.value());
 			assert(tsk->get_execution_target() == execution_target::HOST);
 			assert(!data.initialize_reductions); // For now, we do not support reductions in host tasks
 
@@ -185,10 +184,9 @@ namespace detail {
 	}
 
 	bool device_execute_job::execute(const command_pkg& pkg) {
-		const auto data = std::get<execution_data>(pkg.data);
-
 		if(!submitted) {
-			auto tsk = task_mngr.get_task(data.tid);
+			const auto data = std::get<execution_data>(pkg.data);
+			auto tsk = task_mngr.get_task(pkg.tid.value());
 			assert(tsk->get_execution_target() == execution_target::DEVICE);
 
 			if(!buffer_mngr.try_lock(pkg.cid, tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
@@ -208,7 +206,7 @@ namespace detail {
 		if(status == cl::sycl::info::event_command_status::complete) {
 			buffer_mngr.unlock(pkg.cid);
 
-			auto tsk = task_mngr.get_task(data.tid);
+			auto tsk = task_mngr.get_task(pkg.tid.value());
 			for(auto rid : tsk->get_reductions()) {
 				auto reduction = reduction_mngr.get_reduction(rid);
 				reduction_mngr.push_overlapping_reduction_data(rid, local_nid, buffer_mngr.get_buffer_data(reduction.output_buffer_id, {}, {1, 1, 1}));

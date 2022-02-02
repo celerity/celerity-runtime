@@ -17,28 +17,35 @@ namespace celerity {
 namespace detail {
 
 	class reduction_manager;
-	using task_callback = std::function<void(task_id, task_type)>;
+	using task_callback = std::function<void(task_id)>;
 
+	// Allows other threads to await an epoch change in the task manager.
+	// This is worth a separate class to encapsulate the synchronization behavior.
 	class epoch_monitor {
 	  public:
-		explicit epoch_monitor(const task_id epoch) : current_epoch(epoch) {}
+		explicit epoch_monitor(const task_id epoch) : this_epoch(epoch) {}
 
-		void await_epoch(const task_id epoch) const {
-			std::unique_lock lock{mutex};
-			epoch_changed.wait(lock, [=] { return current_epoch >= epoch; });
+		task_id get() const {
+			std::lock_guard lock{mutex};
+			return this_epoch;
 		}
 
-		void set_epoch(const task_id epoch) {
+		void await(const task_id epoch) const {
+			std::unique_lock lock{mutex};
+			epoch_changed.wait(lock, [=] { return this_epoch >= epoch; });
+		}
+
+		void set(const task_id epoch) {
 			{
 				std::lock_guard lock{mutex};
-				assert(epoch >= current_epoch);
-				current_epoch = epoch;
+				assert(epoch >= this_epoch);
+				this_epoch = epoch;
 			}
 			epoch_changed.notify_all();
 		}
 
 	  private:
-		task_id current_epoch;
+		task_id this_epoch;
 		mutable std::mutex mutex;
 		mutable std::condition_variable epoch_changed;
 	};
@@ -57,7 +64,6 @@ namespace detail {
 		template <typename CGF, typename... Hints>
 		task_id create_task(CGF cgf, Hints... hints) {
 			task_id tid;
-			task_type type;
 			{
 				std::lock_guard lock(task_mutex);
 				tid = get_new_tid();
@@ -66,23 +72,26 @@ namespace detail {
 				cgf(cgh);
 
 				task& task_ref = register_task_internal(std::move(cgh).into_task());
-				type = task_ref.get_type();
 
 				compute_dependencies(tid);
 				if(queue) queue->require_collective_group(task_ref.get_collective_group_id());
-				clean_up_pre_horizon_tasks();
+				prune_completed_tasks();
 			}
-			invoke_callbacks(tid, type);
+			invoke_callbacks(tid);
 			if(need_new_horizon()) { generate_task_horizon(); }
 			return tid;
 		}
 
-		task_id end_epoch(epoch_action action);
+		/**
+		 * Inserts an epoch task that depends on the entire execution front and that immediately becomes the current current_epoch and the last writer
+		 * for all buffers.
+		 */
+		task_id finish_epoch(epoch_action action);
 
 		/**
 		 * @brief Registers a new callback that will be called whenever a new task is created.
 		 */
-		void register_task_callback(task_callback cb) { task_callbacks.push_back(cb); }
+		void register_task_callback(task_callback cb) { task_callbacks.push_back(std::move(cb)); }
 
 		/**
 		 * @brief Adds a new buffer for dependency tracking
@@ -90,6 +99,9 @@ namespace detail {
 		 */
 		void add_buffer(buffer_id bid, const cl::sycl::range<3>& range, bool host_initialized);
 
+		/**
+		 * Returns the specified task if it still exists, nullptr otherwise.
+		 */
 		const task* find_task(task_id tid) const;
 
 		/**
@@ -100,11 +112,17 @@ namespace detail {
 		 */
 		bool has_task(task_id tid) const;
 
+		/**
+		 * Asserts that the specified task exists and returns a non-null pointer to the task object.
+		 */
 		const task* get_task(task_id tid) const;
 
 		std::optional<std::string> print_graph(size_t max_nodes) const;
 
-		void await_epoch(task_id epoch);
+		/**
+		 * Blocks until an epoch task has executed on this node (or all nodes, if the current_epoch was created with `epoch_action::barrier`).
+		 */
+		void await_epoch_completed(task_id epoch);
 
 		/**
 		 * @brief Shuts down the task_manager, freeing all stored tasks.
@@ -117,11 +135,20 @@ namespace detail {
 		}
 
 		/**
-		 * @brief Notifies the task manager that the given horizon has been executed (used for task deletion)
+		 * @brief Notifies the task manager that the given horizon has been executed (used for task deletion).
+		 *
+		 * notify_horizon_completed and notify_epoch_completed must only ever be called from a single thread, but that thread does not have to be the main
+		 * thread.
 		 */
-		void notify_horizon_executed(task_id tid);
+		void notify_horizon_completed(task_id horizon_tid);
 
-		void notify_epoch_ended(task_id epoch_tid);
+		/**
+		 * @brief Notifies the task manager that the given epoch has been executed on this node.
+		 *
+		 * notify_horizon_completed and notify_epoch_completed must only ever be called from a single thread, but that thread does not have to be the main
+		 * thread.
+		 */
+		void notify_epoch_completed(task_id epoch_tid);
 
 		/**
 		 * Returns the number of tasks created during the lifetime of the task_manager,
@@ -146,8 +173,7 @@ namespace detail {
 		// The current epoch is used as the last writer for host-initialized buffers.
 		// To ensure correct ordering, all tasks that have no other true-dependencies depend on this task.
 		// This is useful so we can correctly generate anti-dependencies onto tasks that read host-initialized buffers.
-		task_id current_epoch;
-		epoch_monitor current_epoch_monitor{initial_epoch_task};
+		task_id current_epoch{initial_epoch_task};
 
 		// We store a map of which task last wrote to a certain region of a buffer.
 		// NOTE: This represents the state after the latest performed pre-pass.
@@ -172,17 +198,19 @@ namespace detail {
 		int current_horizon_critical_path_length = 0;
 
 		// The latest horizon task created. Will be applied as last writer once the next horizon is created.
-		task* current_horizon_task = nullptr;
+		std::optional<task_id> current_horizon;
 
 		// Queue of horizon tasks for which the associated commands were executed.
-		// Only accessed in task_manager::notify_horizon_executed, which is always called from the executor thread - no locking needed.
-		std::queue<task_id> horizon_deletion_queue;
-		// marker task id for "nothing to delete" - we can safely use 0 here
-		static constexpr task_id nothing_to_delete = 0;
-		// task_id ready for deletion, 0 if nothing to delete (set on notify, used on new task creation)
-		std::atomic<task_id> delete_before_epoch = nothing_to_delete;
-		// How many horizons to delay before deleting tasks
-		static constexpr int horizon_deletion_lag = 3;
+		// Only accessed in task_manager::notify_*, which are always called from the executor thread - no locking needed.
+		std::queue<task_id> horizon_completion_queue;
+		// How many horizons have to be completed before the first one can be regarded as a completed epoch.
+		static constexpr int horizon_epoch_lag = 3;
+
+		// The last epoch task that has been completed in the executor. Behind a monitor to allow awaiting this change from the main thread.
+		epoch_monitor last_completed_epoch{initial_epoch_task};
+
+		// The last completed epoch that was used in task pruning. This allows skipping the pruning step if no new was completed since.
+		task_id last_pruned_before{initial_epoch_task};
 
 		// Set of tasks with no dependents
 		std::unordered_set<task*> execution_front;
@@ -191,7 +219,7 @@ namespace detail {
 
 		task& register_task_internal(std::unique_ptr<task> task);
 
-		void invoke_callbacks(task_id tid, task_type type);
+		void invoke_callbacks(task_id tid);
 
 		void add_dependency(task* depender, task* dependee, dependency_kind kind, dependency_origin origin);
 
@@ -199,16 +227,16 @@ namespace detail {
 
 		int get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
 
-		task& reduce_execution_front(std::unique_ptr<task> reducer);
+		task_id collect_execution_front(std::unique_ptr<task> reducer);
 
-		void apply_epoch(task* epoch);
+		void set_current_epoch(task_id epoch);
 
 		const std::unordered_set<task*>& get_execution_front() { return execution_front; }
 
 		void generate_task_horizon();
 
 		// Needs to be called while task map accesses are safe (ie. mutex is locked)
-		void clean_up_pre_horizon_tasks();
+		void prune_completed_tasks();
 
 		void compute_dependencies(task_id tid);
 	};

@@ -170,8 +170,7 @@ namespace detail {
 
 		static std::unique_ptr<task> make_master_node(
 		    task_id tid, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, side_effect_map side_effect_map) {
-			return std::unique_ptr<task>(
-			    new task(tid, task_type::MASTER_NODE, collective_group_id{}, task_geometry{}, std::move(cgf), std::move(access_map),
+			return std::unique_ptr<task>(new task(tid, task_type::MASTER_NODE, collective_group_id{}, task_geometry{}, std::move(cgf), std::move(access_map),
 			    std::move(side_effect_map), {}, {}, {}));
 		}
 
@@ -192,10 +191,10 @@ namespace detail {
 		detail::epoch_action epoch_action;
 
 		task(task_id tid, task_type type, collective_group_id cgid, task_geometry geometry, std::unique_ptr<command_group_storage_base> cgf,
-		    buffer_access_map access_map, detail::side_effect_map side_effects, std::vector<reduction_id> reductions, std::string debug_name, detail::epoch_action epoch_action)
+		    buffer_access_map access_map, detail::side_effect_map side_effects, std::vector<reduction_id> reductions, std::string debug_name,
+		    detail::epoch_action epoch_action)
 		    : tid(tid), type(type), cgid(cgid), geometry(geometry), cgf(std::move(cgf)), access_map(std::move(access_map)),
-		      side_effects(std::move(side_effects)), reductions(std::move(reductions)), debug_name(std::move(debug_name)),
-		      epoch_action(epoch_action) {
+		      side_effects(std::move(side_effects)), reductions(std::move(reductions)), debug_name(std::move(debug_name)), epoch_action(epoch_action) {
 			assert(type == task_type::HOST_COMPUTE || type == task_type::DEVICE_COMPUTE || get_granularity().size() == 1);
 			assert((type != task_type::HOST_COMPUTE && type != task_type::COLLECTIVE && type != task_type::MASTER_NODE) || side_effects.empty());
 		}

@@ -41,7 +41,7 @@ namespace celerity {
 namespace detail {
 
 	struct task_manager_testspy {
-		static task* get_current_horizon_task(task_manager& tm) { return tm.current_horizon_task; }
+		static std::optional<task_id> get_current_horizon(task_manager& tm) { return tm.current_horizon; }
 
 		static int get_num_horizons(task_manager& tm) {
 			int horizon_counter = 0;
@@ -175,9 +175,7 @@ namespace test_utils {
 
 				const detail::command_id cid = pkg.cid;
 				commands[cid] = {nid, pkg, dependencies};
-				if(pkg.cmd == detail::command_type::EXECUTION) { by_task[std::get<detail::execution_data>(pkg.data).tid].insert(cid); }
-				if(pkg.cmd == detail::command_type::HORIZON) { by_task[std::get<detail::horizon_data>(pkg.data).tid].insert(cid); }
-				if(pkg.cmd == detail::command_type::EPOCH) { by_task[std::get<detail::epoch_data>(pkg.data).tid].insert(cid); }
+				if(pkg.tid) { by_task[*pkg.tid].insert(cid); }
 				by_node[nid].insert(cid);
 			};
 		}
@@ -254,15 +252,14 @@ namespace test_utils {
 		detail::graph_serializer& get_graph_serializer() { return *gsrlzr; }
 
 		detail::task_id build_task_horizons() {
-			auto most_recently_generated_task_horizon = detail::task_manager_testspy::get_current_horizon_task(get_task_manager());
+			const auto most_recently_generated_task_horizon = detail::task_manager_testspy::get_current_horizon(get_task_manager());
 			if(most_recently_generated_task_horizon != most_recently_built_task_horizon) {
 				most_recently_built_task_horizon = most_recently_generated_task_horizon;
-				if(most_recently_built_task_horizon != nullptr) {
-					const auto htid = most_recently_built_task_horizon->get_id();
+				if(most_recently_built_task_horizon) {
 					// naive_split does not really do anything for horizons, but this mirrors the behavior of scheduler::schedule exactly.
 					detail::naive_split_transformer naive_split(num_nodes, num_nodes);
-					get_graph_generator().build_task(htid, {&naive_split});
-					return htid;
+					get_graph_generator().build_task(*most_recently_built_task_horizon, {&naive_split});
+					return *most_recently_built_task_horizon;
 				}
 			}
 			return 0;
@@ -276,7 +273,7 @@ namespace test_utils {
 		cdag_inspector inspector;
 		std::unique_ptr<detail::graph_serializer> gsrlzr;
 		size_t num_nodes;
-		detail::task* most_recently_built_task_horizon = nullptr;
+		std::optional<detail::task_id> most_recently_built_task_horizon;
 	};
 
 	class mock_buffer_factory {

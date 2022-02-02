@@ -12,15 +12,15 @@ namespace celerity {
 namespace detail {
 
 	enum class dependency_kind {
-		ANTI_DEP, // Data anti-dependency, can be resolved by duplicating buffers
-		TRUE_DEP, // True data flow or temporal dependency
+		ANTI_DEP = 0, // Data anti-dependency, can be resolved by duplicating buffers
+		TRUE_DEP = 1, // True data flow or temporal dependency
 	};
 
 	enum class dependency_origin {
 		dataflow,                       // buffer access dependencies generate task and command dependencies
 		collective_group_serialization, // all nodes must execute kernels within the same collective group in the same order
-		horizon_ordering,               // horizons are temporally ordered after all preceding tasks or commands on the same node
-		epoch_fallback,                 // nodes without other true-dependencies require an edge to the last epoch for temporal ordering
+		execution_front,                // horizons and epochs are temporally ordered after all preceding tasks or commands on the same node
+		current_epoch,                  // nodes without other true-dependencies require an edge to the current epoch for temporal ordering
 	};
 
 	// TODO: Move to utility header..?

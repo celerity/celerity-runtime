@@ -140,7 +140,7 @@ namespace detail {
 			gsrlzr = std::make_unique<graph_serializer>(*cdag,
 			    [this](node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies) { flush_command(target, pkg, dependencies); });
 			schdlr = std::make_unique<scheduler>(*ggen, *gsrlzr, num_nodes);
-			task_mngr->register_task_callback([this](task_id tid, task_type type) { schdlr->notify_task_created(tid); });
+			task_mngr->register_task_callback([this](task_id tid) { schdlr->notify_task_created(tid); });
 		}
 
 		CELERITY_INFO(
@@ -188,12 +188,13 @@ namespace detail {
 	void runtime::shutdown() noexcept {
 		assert(is_active);
 		is_shutting_down = true;
-		const auto final_epoch = task_mngr->end_epoch(epoch_action::shutdown);
-		if(is_master_node()) {
-			schdlr->shutdown();
-		}
 
-		task_mngr->await_epoch(final_epoch);
+		const auto final_epoch = task_mngr->finish_epoch(epoch_action::shutdown);
+
+		if(is_master_node()) { schdlr->shutdown(); }
+
+		task_mngr->await_epoch_completed(final_epoch);
+
 		exec->shutdown();
 		d_queue->wait();
 		h_queue->wait();
@@ -229,8 +230,8 @@ namespace detail {
 	}
 
 	void runtime::sync() noexcept {
-		const auto new_epoch = task_mngr->end_epoch(epoch_action::barrier);
-		task_mngr->await_epoch(new_epoch);
+		const auto epoch = task_mngr->finish_epoch(epoch_action::barrier);
+		task_mngr->await_epoch_completed(epoch);
 	}
 
 	task_manager& runtime::get_task_manager() const { return *task_mngr; }

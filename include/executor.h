@@ -53,11 +53,6 @@ namespace detail {
 		 */
 		void shutdown();
 
-		/**
-		 * @brief Get the id of the highest executed global sync operation.
-		 */
-		uint64_t get_highest_executed_sync_id() const noexcept;
-
 	  private:
 		node_id local_nid;
 		host_queue& h_queue;
@@ -69,7 +64,6 @@ namespace detail {
 		std::unique_ptr<buffer_transfer_manager> btm;
 		std::thread exec_thrd;
 		size_t running_device_compute_jobs = 0;
-		std::atomic<uint64_t> highest_executed_sync_id = {0};
 
 		// Jobs are identified by the command id they're processing
 

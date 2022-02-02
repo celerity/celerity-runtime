@@ -82,7 +82,7 @@ struct graph_generator_benchmark_context {
 	test_utils::mock_buffer_factory mbf{&tm, &ggen};
 
 	explicit graph_generator_benchmark_context(size_t num_nodes) : num_nodes{num_nodes} {
-		tm.register_task_callback([this](const task_id tid, const task_type) {
+		tm.register_task_callback([this](const task_id tid) {
 			naive_split_transformer transformer{this->num_nodes, this->num_nodes};
 			ggen.build_task(tid, {&transformer});
 			gsrlzr.flush(tid);
