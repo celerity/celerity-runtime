@@ -18,8 +18,8 @@ namespace detail {
 		if(dep.kind == dependency_kind::ANTI_DEP) return "color=limegreen";
 		switch(dep.origin) {
 		case dependency_origin::collective_group_serialization: return "color=blue";
-		case dependency_origin::horizon_ordering: return "color=orange";
-		case dependency_origin::epoch_fallback: return "color=orchid";
+		case dependency_origin::execution_front: return "color=orange";
+		case dependency_origin::current_epoch: return "color=orchid";
 		default: return "";
 		}
 	}

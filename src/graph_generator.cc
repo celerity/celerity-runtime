@@ -19,9 +19,8 @@ namespace detail {
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			const auto epoch_cmd = cdag.create<epoch_command>(nid, task_manager::initial_epoch_task, epoch_action::none);
 			epoch_cmd->mark_as_flushed(); // there is no point in flushing the initial epoch command
-			node_data[nid].current_epoch_cid = epoch_cmd->get_cid();
+			node_data[nid].current_epoch = epoch_cmd->get_cid();
 		}
-		std::fill_n(std::back_inserter(current_horizon_cmds), num_nodes, nullptr);
 	}
 
 	void graph_generator::add_buffer(buffer_id bid, const cl::sycl::range<3>& range) {
@@ -32,41 +31,28 @@ namespace detail {
 		for(auto i = 0u; i < num_nodes; ++i) {
 			all_nodes[i] = i;
 			node_data[i].buffer_last_writer.emplace(bid, range);
-			node_data[i].buffer_last_writer.at(bid).update_region(subrange_to_grid_box({cl::sycl::id<3>(), range}), node_data[i].current_epoch_cid);
+			node_data[i].buffer_last_writer.at(bid).update_region(subrange_to_grid_box({cl::sycl::id<3>(), range}), node_data[i].current_epoch);
 		}
 
 		buffer_states.emplace(bid, distributed_state{{range, std::move(all_nodes)}});
 	}
 
-	template <typename TaskCommand, typename... CtorParams>
-	TaskCommand* graph_generator::reduce_execution_front(task_id reducer_tid, node_id nid, CtorParams... args) {
-		auto previous_execution_front = cdag.get_execution_front(nid);
-		// Build horizon command and make current front depend on it
-		auto reducer_cmd = cdag.create<TaskCommand>(nid, reducer_tid, args...);
-		for(const auto& front_cmd : previous_execution_front) {
-			cdag.add_dependency(reducer_cmd, front_cmd, dependency_kind::TRUE_DEP, dependency_origin::horizon_ordering);
-		}
-		return reducer_cmd;
-	}
-
-	void graph_generator::apply_epoch(abstract_command* epoch) {
-		// update "buffer_last_writer" and "last_collective_commands" structures to subsume pre-horizon commands
-		auto& this_node_data = node_data.at(epoch->get_nid());
-		for(auto& blw_pair : this_node_data.buffer_last_writer) {
-			blw_pair.second.apply_to_values([epoch](std::optional<command_id> cid) -> std::optional<command_id> {
+	void graph_generator::per_node_data::set_current_epoch(const command_id epoch) {
+		// update "buffer_last_writer" and "last_collective_commands" structures to subsume pre-epoch commands
+		for(auto& blw_pair : buffer_last_writer) {
+			blw_pair.second.apply_to_values([epoch](const std::optional<command_id> cid) -> std::optional<command_id> {
 				if(!cid) return cid;
-				return {std::max(epoch->get_cid(), *cid)};
+				return {std::max(epoch, *cid)};
 			});
 		}
-		for(auto& [cgid, cid] : this_node_data.last_collective_commands) {
-			cid = std::max(epoch->get_cid(), cid);
+		for(auto& [cgid, cid] : last_collective_commands) {
+			cid = std::max(epoch, cid);
 		}
-		for(auto& [cgid, cid] : this_node_data.host_object_last_effects) {
-			cid = std::max(epoch->get_cid(), cid);
+		for(auto& [cgid, cid] : host_object_last_effects) {
+			cid = std::max(epoch, cid);
 		}
 
-		// We also use the previous horizon as the new init cmd for host-initialized buffers
-		this_node_data.current_epoch_cid = epoch->get_cid();
+		current_epoch = epoch;
 	}
 
 	void graph_generator::build_task(task_id tid, const std::vector<graph_transformer*>& transformers) {
@@ -75,56 +61,35 @@ namespace detail {
 
 		auto tsk = task_mngr.get_task(tid);
 
+		std::optional<command_id> new_completed_epoch;
+
 		if(tsk->get_type() == task_type::HORIZON || tsk->get_type() == task_type::EPOCH) {
-			command_id new_min_epoch_cid = 0;
 			for(node_id nid = 0; nid < num_nodes; ++nid) {
-				command_id node_epoch_cid = 0;
+				auto& node = node_data.at(nid);
+				const auto apply_epoch = [&](const command_id cid) {
+					node.set_current_epoch(cid);
+					new_completed_epoch = new_completed_epoch ? std::min(*new_completed_epoch, cid) : cid;
+				};
+
+				abstract_command* new_front = nullptr;
 				if(tsk->get_type() == task_type::HORIZON) {
-					auto horizon = reduce_execution_front<horizon_command>(tid, nid);
-
-					// Apply the previous horizon to data structures
-					auto prev_horizon = current_horizon_cmds[nid];
-					current_horizon_cmds[nid] = horizon;
-
-					if(prev_horizon != nullptr) {
-						apply_epoch(prev_horizon);
-						node_epoch_cid = prev_horizon->get_cid();
-					}
+					new_front = cdag.create<horizon_command>(nid, tid);
+					if(node.current_horizon) { apply_epoch(*node.current_horizon); }
+					node.current_horizon = new_front->get_cid();
 				} else if(tsk->get_type() == task_type::EPOCH) {
-					auto epoch = reduce_execution_front<epoch_command>(tid, nid, tsk->get_epoch_action());
-					current_horizon_cmds[nid] = nullptr;
-					apply_epoch(epoch);
-					node_epoch_cid = epoch->get_cid();
+					new_front = cdag.create<epoch_command>(nid, tid, tsk->get_epoch_action());
+					apply_epoch(new_front->get_cid());
+					node.current_horizon = std::nullopt;
 				}
 
-				if(node_epoch_cid != 0) {
-					// update the lowest previous horizon id (for later command deletion)
-					if(new_min_epoch_cid == 0) {
-						new_min_epoch_cid = node_epoch_cid;
-					} else {
-						new_min_epoch_cid = std::min(new_min_epoch_cid, node_epoch_cid);
-					}
+				// Make the horizon or epoch command depend on the previous execution front
+				const auto previous_execution_front = cdag.get_execution_front(nid);
+				for(const auto front_cmd : previous_execution_front) {
+					if(front_cmd != new_front) { cdag.add_dependency(new_front, front_cmd, dependency_kind::TRUE_DEP, dependency_origin::execution_front); }
 				}
+				assert(cdag.get_execution_front(nid).size() == 1 && *cdag.get_execution_front(nid).begin() == new_front);
 			}
-
-			// After updating all the data structures, delete before-cleanup-horizon commands
-			// Also remove commands from command_buffer_reads (if it exists)
-			if(current_min_epoch_cid > 0) {
-				cdag.erase_if([&](abstract_command* cmd) {
-					if(cmd->get_cid() < current_min_epoch_cid) {
-						assert(cmd->is_flushed() && "Cannot delete unflushed command");
-						command_buffer_reads.erase(cmd->get_cid());
-						return true;
-					}
-					return false;
-				});
-			}
-
-			current_min_epoch_cid = new_min_epoch_cid;
-			return;
-		}
-
-		if(tsk->get_type() == task_type::COLLECTIVE) {
+		} else if(tsk->get_type() == task_type::COLLECTIVE) {
 			for(size_t nid = 0; nid < num_nodes; ++nid) {
 				auto offset = cl::sycl::id<1>{nid};
 				auto range = cl::sycl::range<1>{1};
@@ -150,32 +115,57 @@ namespace detail {
 			t->transform_task(*tsk, cdag);
 		}
 
+		// Only execution tasks can have data requirements or reductions
+		if(tsk->get_execution_target() != execution_target::NONE) {
 #ifndef NDEBUG
-		// It is currently undefined to split reduction-producer tasks into multiple chunks on the same node:
-		//   - Per-node reduction intermediate results are stored with fixed access to a single SYCL buffer, so multiple chunks on the same node will race on
-		//     this buffer access
-		//   - Inputs to the final reduction command are ordered by origin node ids to guarantee bit-identical results. It is not possible to distinguish
-		//     more than one chunk per node in the serialized commands, so different nodes can produce different final reduction results for non-associative
-		//     or non-commutative operations
-		if(!tsk->get_reductions().empty()) {
-			std::unordered_set<node_id> producer_nids;
-			for(auto& cmd : cdag.task_commands(tid)) {
-				assert(producer_nids.insert(cmd->get_nid()).second);
+			// It is currently undefined to split reduction-producer tasks into multiple chunks on the same node:
+			//   - Per-node reduction intermediate results are stored with fixed access to a single SYCL buffer, so multiple chunks on the same node will race
+			//   on
+			//     this buffer access
+			//   - Inputs to the final reduction command are ordered by origin node ids to guarantee bit-identical results. It is not possible to distinguish
+			//     more than one chunk per node in the serialized commands, so different nodes can produce different final reduction results for non-associative
+			//     or non-commutative operations
+			if(!tsk->get_reductions().empty()) {
+				std::unordered_set<node_id> producer_nids;
+				for(auto& cmd : cdag.task_commands(tid)) {
+					assert(producer_nids.insert(cmd->get_nid()).second);
+				}
 			}
-		}
 #endif
 
-		// TODO: At some point we might want to do this also before calling transformers
-		// --> So that more advanced transformations can also take data transfers into account
-		process_task_data_requirements(tid);
-		process_task_side_effect_requirements(tid);
+			// TODO: At some point we might want to do this also before calling transformers
+			// --> So that more advanced transformations can also take data transfers into account
+			process_task_data_requirements(tid);
+			process_task_side_effect_requirements(tid);
+		}
 
+		// Commands without any other true-dependency must depend on the current epoch command to ensure they cannot be re-ordered before the epoch
 		for(const auto cmd : cdag.task_commands(tid)) {
 			if(const auto deps = cmd->get_dependencies();
 			    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::TRUE_DEP; })) {
-				cdag.add_dependency(
-				    cmd, cdag.get(node_data.at(cmd->get_nid()).current_epoch_cid), dependency_kind::TRUE_DEP, dependency_origin::epoch_fallback);
+				auto current_epoch = node_data.at(cmd->get_nid()).current_epoch;
+				assert(cmd->get_cid() != current_epoch);
+				cdag.add_dependency(cmd, cdag.get(current_epoch), dependency_kind::TRUE_DEP, dependency_origin::current_epoch);
 			}
+		}
+
+		// If a new epoch was completed in the CDAG before the current task, prune all predecessor commands of that epoch.
+		// Also removes these commands from command_buffer_reads (if it exists)
+		if(last_completed_epoch > last_pruned_epoch) {
+			cdag.erase_if([&](abstract_command* cmd) {
+				if(cmd->get_cid() < last_completed_epoch) {
+					assert(cmd->is_flushed() && "Cannot prune unflushed command");
+					command_buffer_reads.erase(cmd->get_cid());
+					return true;
+				}
+				return false;
+			});
+			last_pruned_epoch = last_completed_epoch;
+		}
+
+		if(new_completed_epoch) {
+			assert(*new_completed_epoch > last_completed_epoch);
+			last_completed_epoch = *new_completed_epoch;
 		}
 	}
 

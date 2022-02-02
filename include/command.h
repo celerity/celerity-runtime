@@ -149,16 +149,10 @@ namespace detail {
 	// ----------------------------------------------------------------------------------------------------------------
 
 	struct epoch_data {
-		task_id tid;
 		epoch_action action;
 	};
 
-	struct horizon_data {
-		task_id tid;
-	};
-
 	struct execution_data {
-		task_id tid;
 		subrange<3> sr;
 		bool initialize_reductions;
 	};
@@ -182,22 +176,16 @@ namespace detail {
 		reduction_id rid;
 	};
 
-	struct sync_data {
-		uint64_t sync_id;
-	};
-
-	using command_data = std::variant<std::monostate, epoch_data, horizon_data, execution_data, push_data, await_push_data, reduction_data, sync_data>;
+	using command_data = std::variant<std::monostate, epoch_data, execution_data, push_data, await_push_data, reduction_data>;
 
 	/**
 	 * A command package is what is actually transferred between nodes.
 	 */
 	struct command_pkg {
 		command_id cid{};
+		std::optional<task_id> tid{};
 		command_type cmd{};
 		command_data data;
-
-		command_pkg() = default;
-		command_pkg(command_id cid, command_type cmd, command_data data) : cid(cid), cmd(cmd), data(data) {}
 	};
 
 } // namespace detail

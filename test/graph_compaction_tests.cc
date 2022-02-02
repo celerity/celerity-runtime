@@ -40,7 +40,13 @@ namespace detail {
 			return region_map_testspy::get_num_regions(ggen.node_data.at(node_id{0}).buffer_last_writer.at(bid));
 		}
 		static size_t get_command_buffer_reads_size(const graph_generator& ggen) { return ggen.command_buffer_reads.size(); }
-		static const std::vector<horizon_command*>& get_current_horizon_cmds(const graph_generator& ggen) { return ggen.current_horizon_cmds; }
+		static std::vector<command_id> get_current_horizons(const graph_generator& ggen) {
+			std::vector<command_id> horizons;
+			for(const auto& [nid, data] : ggen.node_data) {
+				if(data.current_horizon) { horizons.push_back(*data.current_horizon); }
+			}
+			return horizons;
+		}
 	};
 
 	TEST_CASE("horizons prevent number of regions from growing indefinitely", "[horizon][command-graph]") {
@@ -289,10 +295,10 @@ namespace detail {
 				const auto tid = test_utils::build_and_flush(ctx, NUM_NODES,
 				    test_utils::add_compute_task<class UKN(generate_horizons)>(
 				        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, buf_range));
-				const auto* current_horizon = task_manager_testspy::get_current_horizon_task(ctx.get_task_manager());
-				if(current_horizon != nullptr && current_horizon->get_id() > last_executed_horizon) {
-					last_executed_horizon = current_horizon->get_id();
-					ctx.get_task_manager().notify_horizon_executed(last_executed_horizon);
+				const auto current_horizon = task_manager_testspy::get_current_horizon(ctx.get_task_manager());
+				if(current_horizon && *current_horizon > last_executed_horizon) {
+					last_executed_horizon = *current_horizon;
+					ctx.get_task_manager().notify_horizon_completed(last_executed_horizon);
 				}
 			}
 		}
@@ -319,10 +325,10 @@ namespace detail {
 		CHECK(isa<horizon_command>(ctx.get_command_graph().get(new_last_writer_ids[0])));
 		CHECK(isa<horizon_command>(ctx.get_command_graph().get(new_last_writer_ids[1])));
 
-		const auto& current_horizon_cmds = graph_generator_testspy::get_current_horizon_cmds(ctx.get_graph_generator());
+		const auto current_horizons = graph_generator_testspy::get_current_horizons(ctx.get_graph_generator());
 		INFO("previous horizons are being used");
-		CHECK(std::none_of(current_horizon_cmds.cbegin(), current_horizon_cmds.cend(),
-		    [&](auto* cmd) { return cmd->get_cid() == new_last_writer_ids[0] || cmd->get_cid() == new_last_writer_ids[1]; }));
+		CHECK(std::none_of(current_horizons.cbegin(), current_horizons.cend(),
+		    [&](const command_id cid) { return cid == new_last_writer_ids[0] || cid == new_last_writer_ids[1]; }));
 
 		test_utils::maybe_print_graphs(ctx);
 	}
@@ -420,7 +426,7 @@ namespace detail {
 		test_utils::maybe_print_graphs(ctx);
 	}
 
-	TEST_CASE("ending an epoch will prune all nodes of the preceding graph", "[task_manager][graph_generator][task-graph][command-graph][epoch]") {
+	TEST_CASE("finishing an epoch will prune all nodes of the preceding graph", "[task_manager][graph_generator][task-graph][command-graph][epoch]") {
 		using namespace cl::sycl::access;
 
 		constexpr int num_nodes = 2;
@@ -460,7 +466,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(writer)>(
 		        tm, [&](handler& cgh) { buf_written_from_kernel.get_access<mode::discard_write>(cgh, one_to_one{}); }, node_range));
 
-		const auto epoch_tid = test_utils::build_and_flush(ctx, num_nodes, tm.end_epoch(epoch_action::none));
+		const auto epoch_tid = test_utils::build_and_flush(ctx, num_nodes, tm.finish_epoch(epoch_action::none));
 
 		const auto reader_writer_tid = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(reader_writer)>(
@@ -477,11 +483,11 @@ namespace detail {
 		REQUIRE(tm.has_task(init_tid));
 		check_task_has_exact_dependencies("initial epoch task", init_tid, {});
 		REQUIRE(tm.has_task(writer_tid));
-		check_task_has_exact_dependencies("writer", writer_tid, {{init_tid, dependency_kind::TRUE_DEP, dependency_origin::epoch_fallback}});
+		check_task_has_exact_dependencies("writer", writer_tid, {{init_tid, dependency_kind::TRUE_DEP, dependency_origin::current_epoch}});
 		REQUIRE(tm.has_task(epoch_tid));
-		check_task_has_exact_dependencies("epoch before", epoch_tid, {{writer_tid, dependency_kind::TRUE_DEP, dependency_origin::horizon_ordering}});
+		check_task_has_exact_dependencies("epoch before", epoch_tid, {{writer_tid, dependency_kind::TRUE_DEP, dependency_origin::execution_front}});
 
-		tm.notify_epoch_ended(epoch_tid);
+		tm.notify_epoch_completed(epoch_tid);
 
 		const auto reader_tid = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(reader)>(
@@ -500,7 +506,7 @@ namespace detail {
 		REQUIRE(tm.has_task(reader_writer_tid));
 		check_task_has_exact_dependencies("reader-writer", reader_writer_tid, {{epoch_tid, dependency_kind::TRUE_DEP, dependency_origin::dataflow}});
 		REQUIRE(tm.has_task(late_writer_tid));
-		check_task_has_exact_dependencies("late writer", late_writer_tid, {{epoch_tid, dependency_kind::TRUE_DEP, dependency_origin::epoch_fallback}});
+		check_task_has_exact_dependencies("late writer", late_writer_tid, {{epoch_tid, dependency_kind::TRUE_DEP, dependency_origin::current_epoch}});
 		REQUIRE(tm.has_task(reader_tid));
 		check_task_has_exact_dependencies("reader", reader_tid,
 		    {

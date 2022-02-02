@@ -8,9 +8,8 @@ namespace detail {
 
 	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, reduction_manager* reduction_mgr)
 	    : num_collective_nodes(num_collective_nodes), queue(queue), reduction_mngr(reduction_mgr) {
-		// We manually generate the initial epoch task; this is replaced by horizon tasks later on (see generate_task_horizon).
+		// We manually generate the initial epoch task, which we treat as immediately-completed.
 		task_map.emplace(initial_epoch_task, task::make_epoch(initial_epoch_task, epoch_action::none));
-		current_epoch = initial_epoch_task;
 	}
 
 	void task_manager::add_buffer(buffer_id bid, const cl::sycl::range<3>& range, bool host_initialized) {
@@ -44,42 +43,38 @@ namespace detail {
 		return std::nullopt;
 	}
 
-	void task_manager::notify_horizon_executed(task_id tid) {
-#ifndef NDEBUG
-		{
-			std::lock_guard lock{task_mutex};
-			assert(task_map.count(tid) != 0);
-			assert(task_map.at(tid)->get_type() == task_type::HORIZON);
-		}
-		assert(horizon_deletion_queue.empty() || horizon_deletion_queue.back() != tid);
-#endif
+	void task_manager::notify_horizon_completed(task_id horizon_tid) {
+		// This method is called from the executor thread, but does not lock task_mutex to avoid lock-step execution with the main thread.
+		// horizon_completion_queue does not need  (see definition), all other accesses are implicitly synchronized.
 
-		horizon_deletion_queue.push(tid); // no locking needed - see definition
-		if(horizon_deletion_queue.size() >= horizon_deletion_lag) {
-			// actual cleanup happens on new task creation
-			delete_before_epoch.store(horizon_deletion_queue.front());
-			horizon_deletion_queue.pop();
+		assert(get_task(horizon_tid)->get_type() == task_type::HORIZON);
+		assert(horizon_completion_queue.empty() || horizon_completion_queue.back() != horizon_tid);
+		assert(last_completed_epoch.get() < horizon_tid);
+
+		horizon_completion_queue.push(horizon_tid);
+		if(horizon_completion_queue.size() >= horizon_epoch_lag) {
+			last_completed_epoch.set(horizon_completion_queue.front());
+			horizon_completion_queue.pop();
+			// The next call to create_task() will prune all tasks before the last completed epoch
 		}
 	}
 
-	void task_manager::notify_epoch_ended(task_id epoch_tid) {
-#ifndef NDEBUG
-		{
-			std::lock_guard lock{task_mutex};
-			assert(task_map.count(epoch_tid) != 0);
-			assert(task_map.at(epoch_tid)->get_type() == task_type::EPOCH);
-		}
-#endif
+	void task_manager::notify_epoch_completed(task_id epoch_tid) {
+		// This method is called from the executor thread, but does not lock task_mutex to avoid lock-step execution with the main thread.
+		// horizon_completion_queue does not need synchronization (see definition), all other accesses are implicitly synchronized.
 
-		while(!horizon_deletion_queue.empty()) {
-			// no locking needed - see definition
-			horizon_deletion_queue.pop();
+		assert(get_task(epoch_tid)->get_type() == task_type::EPOCH);
+		assert(last_completed_epoch.get() < epoch_tid);
+
+		while(!horizon_completion_queue.empty()) {
+			assert(horizon_completion_queue.front() < epoch_tid);
+			horizon_completion_queue.pop();
 		}
-		delete_before_epoch.store(epoch_tid);
-		current_epoch_monitor.set_epoch(epoch_tid);
+		last_completed_epoch.set(epoch_tid);
+		// The next call to create_task() will prune all tasks before the last completed epoch
 	}
 
-	void task_manager::await_epoch(const task_id epoch) { current_epoch_monitor.await_epoch(epoch); }
+	void task_manager::await_epoch_completed(task_id epoch) { last_completed_epoch.await(epoch); }
 
 	GridRegion<3> get_requirements(task const* tsk, buffer_id bid, const std::vector<cl::sycl::access::mode> modes) {
 		const auto& access_map = tsk->get_buffer_access_map();
@@ -197,9 +192,10 @@ namespace detail {
 			last_collective_tasks.emplace(cgid, tid);
 		}
 
+		// Tasks without any other true-dependency must depend on the current epoch to ensure they cannot be re-ordered before the epoch
 		if(const auto deps = tsk->get_dependencies();
 		    std::none_of(deps.begin(), deps.end(), [](const task::dependency d) { return d.kind == dependency_kind::TRUE_DEP; })) {
-			add_dependency(tsk.get(), task_map.at(current_epoch).get(), dependency_kind::TRUE_DEP, dependency_origin::epoch_fallback);
+			add_dependency(tsk.get(), task_map.at(current_epoch).get(), dependency_kind::TRUE_DEP, dependency_origin::current_epoch);
 		}
 	}
 
@@ -211,9 +207,9 @@ namespace detail {
 		return task_ref;
 	}
 
-	void task_manager::invoke_callbacks(task_id tid, task_type type) {
-		for(auto& cb : task_callbacks) {
-			cb(tid, type);
+	void task_manager::invoke_callbacks(const task_id tid) {
+		for(const auto& cb : task_callbacks) {
+			cb(tid);
 		}
 	}
 
@@ -225,33 +221,32 @@ namespace detail {
 		max_pseudo_critical_path_length = std::max(max_pseudo_critical_path_length, depender->get_pseudo_critical_path_length());
 	}
 
-	task& task_manager::reduce_execution_front(std::unique_ptr<task> reducer) {
+	task_id task_manager::collect_execution_front(std::unique_ptr<task> reducer) {
 		// add dependencies from a copy of the front to this task
 		const auto current_front = execution_front;
 		for(task* front_task : current_front) {
-			add_dependency(reducer.get(), front_task, dependency_kind::TRUE_DEP, dependency_origin::horizon_ordering);
+			add_dependency(reducer.get(), front_task, dependency_kind::TRUE_DEP, dependency_origin::execution_front);
 		}
 		assert(execution_front.empty());
-		return register_task_internal(std::move(reducer));
+		return register_task_internal(std::move(reducer)).get_id();
 	}
 
-	void task_manager::apply_epoch(task* epoch) {
+	void task_manager::set_current_epoch(const task_id epoch) {
 		// apply the new epoch to buffers_last_writers and last_collective_tasks data structs
 		for(auto& [_, buffer_region_map] : buffers_last_writers) {
-			buffer_region_map.apply_to_values([epoch](std::optional<task_id> tid) -> std::optional<task_id> {
+			buffer_region_map.apply_to_values([epoch](const std::optional<task_id> tid) -> std::optional<task_id> {
 				if(!tid) return tid;
-				return {std::max(epoch->get_id(), *tid)};
+				return {std::max(epoch, *tid)};
 			});
 		}
 		for(auto& [cgid, tid] : last_collective_tasks) {
-			tid = std::max(epoch->get_id(), tid);
+			tid = std::max(epoch, tid);
 		}
 		for(auto& [hoid, tid] : host_object_last_effects) {
-			tid = std::max(epoch->get_id(), tid);
+			tid = std::max(epoch, tid);
 		}
 
-		// We also use the previous horizon as the new epoch for host-initialized buffers
-		current_epoch = epoch->get_id();
+		current_epoch = epoch;
 	}
 
 	void task_manager::generate_task_horizon() {
@@ -259,44 +254,45 @@ namespace detail {
 		{
 			std::lock_guard lock(task_mutex);
 			current_horizon_critical_path_length = max_pseudo_critical_path_length;
-			const auto previous_horizon_task = current_horizon_task;
-			current_horizon_task = &reduce_execution_front(task::make_horizon_task(get_new_tid()));
-			if(previous_horizon_task != nullptr) { apply_epoch(previous_horizon_task); }
+			const auto previous_horizon = current_horizon;
+			current_horizon = collect_execution_front(task::make_horizon_task(get_new_tid()));
+			if(previous_horizon) { set_current_epoch(*previous_horizon); }
 		}
 
 		// it's important that we don't hold the lock while doing this
-		invoke_callbacks(current_horizon_task->get_id(), task_type::HORIZON);
+		invoke_callbacks(*current_horizon);
 	}
 
-	task_id task_manager::end_epoch(epoch_action action) {
+	task_id task_manager::finish_epoch(epoch_action action) {
 		// we are probably overzealous in locking here
 		task_id tid;
 		{
 			std::lock_guard lock(task_mutex);
 			tid = get_new_tid();
-			const auto new_epoch = &reduce_execution_front(task::make_epoch(tid, action));
-			compute_dependencies(new_epoch->get_id());
-			apply_epoch(new_epoch);
-			current_horizon_task = nullptr;
-			current_horizon_critical_path_length = max_pseudo_critical_path_length;
+			const auto new_epoch = collect_execution_front(task::make_epoch(tid, action));
+			compute_dependencies(new_epoch);
+			set_current_epoch(new_epoch);
+			current_horizon = std::nullopt; // if there is a current horizon, it is now behind the new current epoch, so it will become an current_epoch itself
+			current_horizon_critical_path_length = max_pseudo_critical_path_length; // the explicit epoch resets the need to create horizons
 		}
 
 		// it's important that we don't hold the lock while doing this
-		invoke_callbacks(tid, task_type::EPOCH);
+		invoke_callbacks(tid);
 		return tid;
 	}
 
-	void task_manager::clean_up_pre_horizon_tasks() {
-		task_id deletion_task_id = delete_before_epoch.exchange(nothing_to_delete);
-		if(deletion_task_id != nothing_to_delete) {
+	void task_manager::prune_completed_tasks() {
+		const auto prune_before = last_completed_epoch.get();
+		if(prune_before > last_pruned_before) {
 			for(auto iter = task_map.begin(); iter != task_map.end();) {
-				if(iter->first < deletion_task_id) {
+				if(iter->first < prune_before) {
 					iter = task_map.erase(iter);
 				} else {
 					++iter;
 				}
 			}
 		}
+		last_pruned_before = prune_before;
 	}
 
 } // namespace detail

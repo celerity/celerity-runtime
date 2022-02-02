@@ -61,10 +61,12 @@ namespace detail {
 		using side_effect_map = std::unordered_map<host_object_id, command_id>;
 
 		struct per_node_data {
-			// The epoch command is used as the last writer for host-initialized buffers.
+			// The most recent horizon command. Depends on the previous execution front and will become the current_epoch once the next horizon is generated.
+			std::optional<command_id> current_horizon;
+			// The current epoch command is used as the last writer for host-initialized buffers.
 			// To ensure correct ordering, all commands that have no other true-dependencies depend on this command.
 			// This is useful so we can correctly generate anti-dependencies onto commands that read host-initialized buffers.
-			command_id current_epoch_cid;
+			command_id current_epoch;
 			// We store for each node which command last wrote to a buffer region. This includes both newly generated data (from a execution command),
 			// as well as already existing data that was pushed in from another node. This is used for determining anti-dependencies.
 			buffer_writer_map buffer_last_writer;
@@ -73,6 +75,8 @@ namespace detail {
 			std::unordered_map<collective_group_id, command_id> last_collective_commands;
 			// Side effects on the same host object create true dependencies between task commands, so we track the last effect per host object on each node.
 			side_effect_map host_object_last_effects;
+
+			void set_current_epoch(command_id cid);
 		};
 
 	  public:
@@ -94,10 +98,11 @@ namespace detail {
 		const size_t num_nodes;
 		command_graph& cdag;
 
-		// The most recent horizon command per node.
-		std::vector<horizon_command*> current_horizon_cmds;
-		// The id for the next cleanup horizon (commands with ids lower than the cleanup horizon will be deleted next)
-		detail::command_id current_min_epoch_cid = 0;
+		// After completing an epoch, we need to wait until it is flushed before proving predecessors from the CDAG, otherwise dependencies will not be flushed.
+		// We generate the initial epoch commands manually starting from cid 0, so initializing these to 0 is correct.
+		detail::command_id last_completed_epoch = 0;
+		// Used to skip the pruning step if no new epoch has been completed.
+		detail::command_id last_pruned_epoch = 0;
 
 		// NOTE: We have several data structures that keep track of the "global state" of the distributed program, across all tasks and nodes.
 		// While it might seem that this is problematic when the ordering of tasks can be chosen freely (by the scheduler),
@@ -124,11 +129,6 @@ namespace detail {
 		void process_task_data_requirements(task_id tid);
 
 		void process_task_side_effect_requirements(task_id tid);
-
-		template <typename TaskCommand, typename... CtorParams>
-		TaskCommand* reduce_execution_front(task_id reducer_tid, node_id nid, CtorParams... args);
-
-		void apply_epoch(abstract_command* epoch);
 	};
 
 } // namespace detail
