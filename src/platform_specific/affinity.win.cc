@@ -13,9 +13,8 @@ namespace detail {
 
 		native_cpu_set available_cores;
 		[[maybe_unused]] native_cpu_set sys_affinity_mask;
-		const auto affinity_error = GetProcessAffinityMask(GetCurrentProcess(), &available_cores, &sys_affinity_mask);
-		(void)affinity_error;
-		assert(affinity_error != 0 && "Error retrieving affinity mask.");
+		[[maybe_unused]] const auto ret = GetProcessAffinityMask(GetCurrentProcess(), &available_cores, &sys_affinity_mask);
+		assert(ret != FALSE && "Error retrieving affinity mask.");
 		return utils::popcount(available_cores);
 	}
 
