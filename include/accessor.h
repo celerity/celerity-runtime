@@ -68,6 +68,14 @@ namespace detail {
 	};
 #endif
 
+	template <int Dims>
+	subrange<Dims> get_effective_sycl_accessor_subrange(id<Dims> device_buffer_offset, subrange<Dims> sr) {
+#if WORKAROUND_COMPUTECPP || WORKAROUND_DPCPP
+		if(sr.range.size() == 0) return {{}, unit_range};
+#endif
+		return {sr.offset - device_buffer_offset, sr.range};
+	}
+
 } // namespace detail
 } // namespace celerity
 
@@ -293,11 +301,11 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	sycl::id<Dims> index_offset;
 	sycl::range<Dims> buffer_range = detail::zero_range; // TODO remove this togehter with ComputeCpp < 2.8.0 support
 
-	accessor(cl::sycl::handler* const* eventual_sycl_cgh, const subrange<Dims>& mapped_subrange, cl::sycl::buffer<DataT, Dims>& buffer,
-	    id<Dims> backing_buffer_offset)
+	accessor(
+	    cl::sycl::handler* const* eventual_sycl_cgh, cl::sycl::buffer<DataT, Dims>& buffer, const subrange<Dims>& effective_subrange, id<Dims> index_offset)
 	    : eventual_sycl_cgh(eventual_sycl_cgh),
 	      // We pass a range and offset here to avoid interference from SYCL, but the offset must be relative to the *backing buffer*.
-	      sycl_accessor(sycl_accessor_t(buffer, mapped_subrange.range, mapped_subrange.offset - backing_buffer_offset)), index_offset(mapped_subrange.offset),
+	      sycl_accessor(sycl_accessor_t(buffer, effective_subrange.range, effective_subrange.offset)), index_offset(index_offset),
 	      buffer_range(buffer.get_range()) {
 		// SYCL 1.2.1 dictates that all kernel parameters must have standard layout.
 		// However, since we are wrapping a SYCL accessor, this assertion fails for some implementations,
@@ -343,12 +351,13 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 			auto eventual_sycl_cgh = live_cgh.get_eventual_sycl_cgh();
 
 			// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper manually.
-			const auto sr = live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range());
-			auto access_info = detail::runtime::get_instance().get_buffer_manager().get_device_buffer<DataT, Dims>(
-			    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(sr.range), detail::id_cast<3>(sr.offset));
-			auto sycl_accessor = sycl_accessor_t(access_info.buffer, sr.range, sr.offset - access_info.offset);
+			const auto mapped_sr = live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range());
+			const auto access_info = detail::runtime::get_instance().get_buffer_manager().get_device_buffer<DataT, Dims>(
+			    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(mapped_sr.range), detail::id_cast<3>(mapped_sr.offset));
+			const auto effective_sr = detail::get_effective_sycl_accessor_subrange(access_info.offset, mapped_sr);
+			const auto sycl_accessor = sycl_accessor_t(access_info.buffer, effective_sr.range, effective_sr.offset);
 
-			return {eventual_sycl_cgh, sycl_accessor, sr.offset, access_info.buffer.get_range()};
+			return {eventual_sycl_cgh, sycl_accessor, mapped_sr.offset, access_info.buffer.get_range()};
 		}
 	}
 

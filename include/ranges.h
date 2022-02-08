@@ -54,10 +54,11 @@ namespace detail {
 #undef MAKE_COMPONENT_WISE_BINARY_FN
 
 	struct {
-		operator cl::sycl::range<1>() const { return {0}; }
-		operator cl::sycl::range<2>() const { return {0, 0}; }
-		operator cl::sycl::range<3>() const { return {0, 0, 0}; }
-	} inline constexpr zero_range;
+		size_t value;
+		constexpr operator cl::sycl::range<1>() const { return {value}; }
+		constexpr operator cl::sycl::range<2>() const { return {value, value}; }
+		constexpr operator cl::sycl::range<3>() const { return {value, value, value}; }
+	} inline constexpr zero_range{0}, unit_range{1};
 
 }; // namespace detail
 
