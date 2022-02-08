@@ -62,4 +62,87 @@ TEMPLATE_TEST_CASE_METHOD_SIG(dim_device_queue_fixture, "ranged_sycl_access work
 	CHECK(actual == expected);
 }
 
+
+template <access_mode, bool>
+class access_test_kernel;
+
+#if WORKAROUND_DPCPP || WORKAROUND(COMPUTECPP, 2, 7)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations" // target::gobal_buffer is now target::device, but only for very recent versions of DPC++
+constexpr auto sycl_target_device = cl::sycl::access::target::global_buffer;
+#pragma GCC diagnostic pop
+#else
+constexpr auto sycl_target_device = cl::sycl::access::target::device;
+#endif
+
+template <access_mode AccessMode, bool UsingPlaceholderAccessor>
+static auto make_device_accessor(sycl::buffer<int, 1>& buf, sycl::handler& cgh, const subrange<1>& sr) {
+	if constexpr(UsingPlaceholderAccessor) {
+		sycl::accessor<int, 1, AccessMode, sycl_target_device, sycl::access::placeholder::true_t> acc{buf, sr.range, sr.offset};
+		cgh.require(acc);
+		return acc;
+	} else {
+		return buf.get_access<AccessMode>(cgh, sr.range, sr.offset);
+	}
+}
+
+template <access_mode AccessMode, bool UsingPlaceholderAccessor>
+static void test_access(sycl::queue& q, sycl::buffer<int, 1>& test_buf, const subrange<1>& sr) {
+	CAPTURE(AccessMode);
+	CAPTURE(UsingPlaceholderAccessor);
+
+	bool verified = false;
+	sycl::buffer<bool> verify_buf{&verified, 1};
+	q.submit([&](sycl::handler& cgh) {
+		 const auto test_acc = make_device_accessor<AccessMode, UsingPlaceholderAccessor>(test_buf, cgh, sr);
+		 const auto verify_acc = verify_buf.get_access<access_mode::write>(cgh);
+		 cgh.parallel_for<access_test_kernel<AccessMode, UsingPlaceholderAccessor>>(
+		     range<1>{1}, [=](sycl::item<1>) { verify_acc[0] = test_acc.get_range() == sr.range; });
+	 }).wait_and_throw();
+	sycl::host_accessor verify_acc{verify_buf};
+	CHECK(verify_acc[0]);
+};
+
+// We artificially allocate unit-sized SYCL buffers for ComputeCpp and DPC++ to work around the lack of zero-sized accessor support. Once this test succeeds,
+// we can get rid of the workaround.
+TEST_CASE_METHOD(test_utils::device_queue_fixture, "SYCL can access empty buffers natively", "[sycl][accessor][!mayfail]") {
+	sycl::buffer<int> buf{zero_range};
+
+	auto& queue = get_device_queue().get_sycl_queue();
+	const auto sr = subrange<1>{0, 0};
+
+	SECTION("Using regular accessors") {
+		test_access<access_mode::discard_write, false>(queue, buf, sr);
+		test_access<access_mode::read_write, false>(queue, buf, sr);
+		test_access<access_mode::read, false>(queue, buf, sr);
+	}
+
+	SECTION("Using placeholder accessors") {
+		test_access<access_mode::discard_write, true>(queue, buf, sr);
+		test_access<access_mode::read_write, true>(queue, buf, sr);
+		test_access<access_mode::read, true>(queue, buf, sr);
+	}
+}
+
+TEST_CASE_METHOD(test_utils::device_queue_fixture, "SYCL can access empty buffers through device_buffer_storage", "[sycl][accessor]") {
+	detail::device_buffer_storage<int, 1> storage{zero_range, get_device_queue().get_sycl_queue()};
+	CHECK(range_cast<1>(storage.get_range()) == zero_range);
+
+	auto& queue = get_device_queue().get_sycl_queue();
+	auto& buf = storage.get_device_buffer();
+	const auto sr = subrange<1>{buf.get_range()[0], 0}; // offset == backing buffer range just to mess with things
+
+	SECTION("Using regular accessors") {
+		test_access<access_mode::discard_write, false>(queue, buf, sr);
+		test_access<access_mode::read_write, false>(queue, buf, sr);
+		test_access<access_mode::read, false>(queue, buf, sr);
+	}
+
+	SECTION("Using placeholder accessors") {
+		test_access<access_mode::discard_write, true>(queue, buf, sr);
+		test_access<access_mode::read_write, true>(queue, buf, sr);
+		test_access<access_mode::read, true>(queue, buf, sr);
+	}
+}
+
 } // namespace celerity::detail
