@@ -119,9 +119,9 @@ namespace detail {
 			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_producer) || reduction.has_value()) {
 				auto write_requirements = get_requirements(tsk.get(), bid, {detail::access::producer_modes.cbegin(), detail::access::producer_modes.cend()});
 				if(reduction.has_value()) { write_requirements = GridRegion<3>::merge(write_requirements, GridRegion<3>{{1, 1, 1}}); }
-				assert(!write_requirements.empty() && "Task specified empty buffer range requirement. This indicates potential anti-pattern.");
-				const auto last_writers = buffers_last_writers.at(bid).get_region_values(write_requirements);
+				if(write_requirements.empty()) continue;
 
+				const auto last_writers = buffers_last_writers.at(bid).get_region_values(write_requirements);
 				for(auto& p : last_writers) {
 					if(p.second == std::nullopt) continue;
 					assert(task_map.count(*p.second) == 1);

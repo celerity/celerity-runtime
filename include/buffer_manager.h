@@ -122,7 +122,6 @@ namespace detail {
 			buffer_id bid;
 			const bool is_host_initialized = host_init_ptr != nullptr;
 			{
-				assert(range.size() > 0);
 				std::unique_lock lock(mutex);
 				bid = buffer_count++;
 				buffer_infos[bid] = buffer_info{range, is_host_initialized};
@@ -252,10 +251,12 @@ namespace detail {
 				    .wait();
 			}
 
-			backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
-			const backing_buffer empty{};
-			const backing_buffer& previous_buffer = new_buffer.is_allocated() ? old_buffer : empty;
-			make_buffer_subrange_coherent(bid, mode, target_buffer, {offset, range}, previous_buffer);
+			if (range.size() != 0) {
+				backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
+				const backing_buffer empty{};
+				const backing_buffer& previous_buffer = new_buffer.is_allocated() ? old_buffer : empty;
+				make_buffer_subrange_coherent(bid, mode, target_buffer, {offset, range}, previous_buffer);
+			}
 
 			if(new_buffer.is_allocated()) { buffers[bid].device_buf = std::move(new_buffer); }
 
@@ -291,10 +292,12 @@ namespace detail {
 				std::memset(host_buf.get_pointer(), test_mode_pattern, host_buf.get_range().size() * sizeof(DataT));
 			}
 
-			backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
-			const backing_buffer empty{};
-			const backing_buffer& previous_buffer = new_buffer.is_allocated() ? old_buffer : empty;
-			make_buffer_subrange_coherent(bid, mode, target_buffer, {offset, range}, previous_buffer);
+			if (range.size() != 0) {
+				backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
+				const backing_buffer empty{};
+				const backing_buffer& previous_buffer = new_buffer.is_allocated() ? old_buffer : empty;
+				make_buffer_subrange_coherent(bid, mode, target_buffer, {offset, range}, previous_buffer);
+			}
 
 			if(new_buffer.is_allocated()) { buffers[bid].host_buf = std::move(new_buffer); }
 

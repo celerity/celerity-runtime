@@ -55,9 +55,9 @@ namespace detail {
 
 	struct {
 		size_t value;
-		constexpr operator cl::sycl::range<1>() const { return {value}; }
-		constexpr operator cl::sycl::range<2>() const { return {value, value}; }
-		constexpr operator cl::sycl::range<3>() const { return {value, value, value}; }
+		operator cl::sycl::range<1>() const { return {value}; }
+		operator cl::sycl::range<2>() const { return {value, value}; }
+		operator cl::sycl::range<3>() const { return {value, value, value}; }
 	} inline constexpr zero_range{0}, unit_range{1};
 
 }; // namespace detail
@@ -69,8 +69,8 @@ struct chunk {
 	static constexpr int dims = Dims;
 
 	celerity::id<Dims> offset;
-	celerity::range<Dims> range = detail::range_cast<Dims>(celerity::range<3>(0, 0, 0));
-	celerity::range<Dims> global_size = detail::range_cast<Dims>(celerity::range<3>(0, 0, 0));
+	celerity::range<Dims> range = detail::zero_range;
+	celerity::range<Dims> global_size = detail::zero_range;
 
 	chunk() = default;
 
