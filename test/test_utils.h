@@ -414,8 +414,8 @@ namespace test_utils {
 		accessor<DataT, Dims, Mode, target::device> get_device_accessor(
 		    detail::live_pass_device_handler& cgh, detail::buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
 			auto buf_info = bm->get_device_buffer<DataT, Dims>(bid, Mode, detail::range_cast<3>(range), detail::id_cast<3>(offset));
-			return detail::make_device_accessor<DataT, Dims, Mode>(
-			    cgh.get_eventual_sycl_cgh(), subrange<Dims>(offset, range), buf_info.buffer, buf_info.offset);
+			return detail::make_device_accessor<DataT, Dims, Mode>(cgh.get_eventual_sycl_cgh(), buf_info.buffer,
+			    detail::get_effective_sycl_accessor_subrange(buf_info.offset, subrange<Dims>(offset, range)), offset);
 		}
 
 		template <typename DataT, int Dims, access_mode Mode>

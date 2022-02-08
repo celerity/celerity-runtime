@@ -155,7 +155,8 @@ namespace detail {
 	class device_buffer_storage : public buffer_storage {
 	  public:
 		device_buffer_storage(cl::sycl::range<Dims> range, cl::sycl::queue transfer_queue)
-		    : buffer_storage(range_cast<3>(range), buffer_type::DEVICE_BUFFER), transfer_queue(transfer_queue), device_buf(range) {
+		    : buffer_storage(range_cast<3>(range), buffer_type::DEVICE_BUFFER), transfer_queue(transfer_queue),
+		      device_buf(make_device_buf_effective_range(range)) {
 			// We never want SYCL to do any buffer write-backs. While we don't pass any host pointers to SYCL buffers,
 			// meaning there shouldn't be any write-back in the first place, it doesn't hurt to make sure.
 			// (This was prompted by a hipSYCL bug that did superfluous write-backs).
@@ -242,6 +243,15 @@ namespace detail {
 	  private:
 		mutable cl::sycl::queue transfer_queue;
 		device_buffer<DataT, Dims> device_buf;
+
+		static celerity::range<Dims> make_device_buf_effective_range(sycl::range<Dims> range) {
+#if WORKAROUND_COMPUTECPP || WORKAROUND_DPCPP
+			for(int d = 0; d < Dims; ++d) {
+				range[d] = std::max(size_t{1}, range[d]);
+			}
+#endif
+			return range;
+		}
 	};
 
 	template <typename DataT, int Dims>

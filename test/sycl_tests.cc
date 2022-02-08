@@ -96,9 +96,11 @@ static void test_access(sycl::queue& q, sycl::buffer<int, 1>& test_buf, const su
 	q.submit([&](sycl::handler& cgh) {
 		 const auto test_acc = make_device_accessor<AccessMode, UsingPlaceholderAccessor>(test_buf, cgh, sr);
 		 const auto verify_acc = verify_buf.get_access<access_mode::write>(cgh);
-		 cgh.parallel_for<access_test_kernel<AccessMode, UsingPlaceholderAccessor>>(
-		     range<1>{1}, [=](sycl::item<1>) { verify_acc[0] = test_acc.get_range() == sr.range; });
+		 cgh.parallel_for<access_test_kernel<AccessMode, UsingPlaceholderAccessor>>(range<1>{1}, [=](sycl::item<1>) { //
+			 verify_acc[0] = test_acc.get_range() == sr.range;
+		 });
 	 }).wait_and_throw();
+
 	sycl::host_accessor verify_acc{verify_buf};
 	CHECK(verify_acc[0]);
 };
@@ -130,18 +132,19 @@ TEST_CASE_METHOD(test_utils::device_queue_fixture, "SYCL can access empty buffer
 
 	auto& queue = get_device_queue().get_sycl_queue();
 	auto& buf = storage.get_device_buffer();
-	const auto sr = subrange<1>{buf.get_range()[0], 0}; // offset == backing buffer range just to mess with things
+	const auto requested_sr = subrange<1>{buf.get_range()[0], 0}; // offset == backing buffer range just to mess with things
+	const auto effective_sr = detail::get_effective_sycl_accessor_subrange({}, requested_sr);
 
 	SECTION("Using regular accessors") {
-		test_access<access_mode::discard_write, false>(queue, buf, sr);
-		test_access<access_mode::read_write, false>(queue, buf, sr);
-		test_access<access_mode::read, false>(queue, buf, sr);
+		test_access<access_mode::discard_write, false>(queue, buf, effective_sr);
+		test_access<access_mode::read_write, false>(queue, buf, effective_sr);
+		test_access<access_mode::read, false>(queue, buf, effective_sr);
 	}
 
 	SECTION("Using placeholder accessors") {
-		test_access<access_mode::discard_write, true>(queue, buf, sr);
-		test_access<access_mode::read_write, true>(queue, buf, sr);
-		test_access<access_mode::read, true>(queue, buf, sr);
+		test_access<access_mode::discard_write, true>(queue, buf, effective_sr);
+		test_access<access_mode::read_write, true>(queue, buf, effective_sr);
+		test_access<access_mode::read, true>(queue, buf, effective_sr);
 	}
 }
 
