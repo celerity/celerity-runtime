@@ -2332,5 +2332,53 @@ namespace detail {
 	}
 
 
+	template <access_mode>
+	class empty_access_kernel;
+
+	template <access_mode Mode>
+	static void test_empty_access(distr_queue& q, buffer<int, 1>& test_buf) {
+		CAPTURE(Mode);
+		bool verified = false;
+		buffer<bool> verify_buf{&verified, 1};
+		q.submit([=](handler& cgh) {
+			// access with offset == buffer range just to mess with things
+			const auto offset = id_cast<1>(test_buf.get_range());
+			const auto test_acc = test_buf.get_access<Mode>(cgh, [=](chunk<1>) { return subrange<1>{offset, 0}; });
+			const auto verify_acc = verify_buf.get_access<access_mode::write>(cgh, one_to_one{});
+			cgh.parallel_for<empty_access_kernel<Mode>>(range<1>{1}, [=](item<1>) {
+				(void)test_acc;
+				verify_acc[0] = true;
+			});
+		});
+		q.submit(allow_by_ref, [&](handler& cgh) {
+			const accessor verify_acc{verify_buf, cgh, all{}, read_only_host_task};
+			cgh.host_task(on_master_node, [=, &verified] { verified = verify_acc[0]; });
+		});
+		q.slow_full_sync();
+		CHECK(verified);
+	};
+
+	TEST_CASE("kernels gracefully handle access to empty buffers", "[accessor]") {
+		distr_queue q;
+		buffer<int> buf{0};
+
+		test_empty_access<access_mode::discard_write>(q, buf);
+		test_empty_access<access_mode::read_write>(q, buf);
+		test_empty_access<access_mode::read>(q, buf);
+	}
+
+	TEST_CASE("kernels gracefully handle empty access ranges", "[accessor]") {
+		distr_queue q;
+		std::optional<buffer<int>> buf;
+
+		int init = 0;
+		SECTION("when the buffer is uninitialized") { buf = buffer<int>{1}; };
+		SECTION("when the buffer is host-initialized") { buf = buffer<int>{&init, 1}; };
+
+		test_empty_access<access_mode::discard_write>(q, *buf);
+		test_empty_access<access_mode::read_write>(q, *buf);
+		test_empty_access<access_mode::read>(q, *buf);
+	}
+
 } // namespace detail
 } // namespace celerity
