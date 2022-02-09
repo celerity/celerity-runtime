@@ -2,7 +2,10 @@
 
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <stack>
+#include <string>
+#include <string_view>
 
 #include "log.h"
 #include "types.h"
@@ -16,7 +19,6 @@ namespace experimental {
 	namespace bench {
 		namespace detail {
 			using node_id = celerity::detail::node_id;
-			using log_map = celerity::detail::log_map;
 			using config = celerity::detail::config;
 
 			class user_benchmarker {
@@ -26,24 +28,30 @@ namespace experimental {
 				user_benchmarker(user_benchmarker&&) = delete;
 				~user_benchmarker();
 
-				void log_user_config(log_map lm) const;
-
 				template <typename... Args>
-				void begin(const char* fmt, Args... args) {
-					begin_section(fmt::format(fmt, std::forward<Args>(args)...));
+				void log_once(const std::string& format_string, Args&&... args) const {
+					if(this_nid == 0) { log(format_string, std::forward<Args>(args)...); }
 				}
 
 				template <typename... Args>
-				void end(const char* fmt, Args... args) {
-					end_section(fmt::format(fmt, std::forward<Args>(args)...));
+				void begin(std::string_view format_string, Args&&... args) {
+					begin_section(fmt::format(format_string, std::forward<Args>(args)...));
 				}
 
 				template <typename... Args>
-				void event(const char* fmt, Args... args) {
-					log_event(fmt::format(fmt, std::forward<Args>(args)...));
+				void end(std::string_view format_string, Args&&... args) {
+					end_section(fmt::format(format_string, std::forward<Args>(args)...));
 				}
 
-				void event(const log_map& lm) const { log_event(lm); }
+				template <typename... Args>
+				void event(const std::string& format_string, Args&&... args) {
+					std::lock_guard lk{mutex};
+					const auto now = bench_clock::now();
+					const auto dt =
+					    (last_event_tp != bench_clock::time_point{}) ? std::chrono::duration_cast<std::chrono::microseconds>(now - last_event_tp).count() : 0;
+					log(format_string + " (+{}us)", std::forward<Args>(args)..., dt);
+					last_event_tp = now;
+				}
 
 			  private:
 				using bench_clock = std::chrono::steady_clock;
@@ -54,23 +62,32 @@ namespace experimental {
 					bench_clock::time_point start;
 				};
 
+				mutable std::mutex mutex;
+
 				node_id this_nid;
 				section_id next_section_id = 0;
 				std::stack<section> sections;
+				bench_clock::time_point last_event_tp = {};
 
 				void begin_section(std::string name);
-				void end_section(std::string name);
-				void log_event(const std::string& message) const;
-				void log_event(log_map lm) const;
+				void end_section(const std::string& name);
+
+				template <typename... Args>
+				void log(const std::string& format_string, Args&&... args) const {
+					spdlog::default_logger_raw()->log(spdlog::level::info, "[user] " + format_string, std::forward<Args>(args)...);
+				}
 			};
 
 			user_benchmarker& get_user_benchmarker();
 		} // namespace detail
 
 		/**
-		 * @brief Logs structured user configuration data. Only logged once (on the master node).
+		 * @brief Logs a message only once (on the master node).
 		 */
-		inline void log_user_config(const detail::log_map& lm) { detail::get_user_benchmarker().log_user_config(lm); }
+		template <typename... Args>
+		void log_once(const std::string& format_string, Args&&... args) {
+			detail::get_user_benchmarker().log_once(format_string, std::forward<Args>(args)...);
+		}
 
 		/**
 		 * @brief Begins a new benchmarking section.
@@ -78,27 +95,25 @@ namespace experimental {
 		 * Sections can be nested to any depth.
 		 */
 		template <typename... Args>
-		void begin(const char* bench_section_fmt, Args... args) {
-			detail::get_user_benchmarker().begin(bench_section_fmt, std::forward<Args>(args)...);
+		void begin(std::string_view format_string, Args&&... args) {
+			detail::get_user_benchmarker().begin(format_string, std::forward<Args>(args)...);
 		}
 
 		/**
 		 * @brief Ends an existing benchmarking section.
 		 */
 		template <typename... Args>
-		void end(const char* bench_section_fmt, Args... args) {
-			detail::get_user_benchmarker().end(bench_section_fmt, std::forward<Args>(args)...);
+		void end(std::string_view format_string, Args&&... args) {
+			detail::get_user_benchmarker().end(format_string, std::forward<Args>(args)...);
 		}
 
 		/**
 		 * @brief Logs a benchmarking event.
 		 */
 		template <typename... Args>
-		void event(const char* event_fmt, Args... args) {
-			detail::get_user_benchmarker().event(event_fmt, std::forward<Args>(args)...);
+		void event(const std::string& format_string, Args&&... args) {
+			detail::get_user_benchmarker().event(format_string, std::forward<Args>(args)...);
 		}
-
-		inline void event(const detail::log_map& lm) { detail::get_user_benchmarker().event(lm); }
 
 	} // namespace bench
 } // namespace experimental
