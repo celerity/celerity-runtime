@@ -71,6 +71,8 @@ namespace detail {
 	template <int Dims>
 	subrange<Dims> get_effective_sycl_accessor_subrange(id<Dims> device_buffer_offset, subrange<Dims> sr) {
 #if WORKAROUND_COMPUTECPP || WORKAROUND_DPCPP
+		// For ComputeCpp and DPC++, we allocate a unit-sized dummy backing buffer. ComputeCpp >= 2.8.0 does not support zero-sized placeholder accessors, so
+		// we simply create a unit-sized (SYCL) accessor instead.
 		if(sr.range.size() == 0) return {{}, unit_range};
 #endif
 		return {sr.offset - device_buffer_offset, sr.range};

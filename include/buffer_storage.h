@@ -246,6 +246,7 @@ namespace detail {
 
 		static celerity::range<Dims> make_device_buf_effective_range(sycl::range<Dims> range) {
 #if WORKAROUND_COMPUTECPP || WORKAROUND_DPCPP
+			// ComputeCpp and DPC++ do not support empty buffers, so we make a unit-sized dummy allocation instead.
 			for(int d = 0; d < Dims; ++d) {
 				range[d] = std::max(size_t{1}, range[d]);
 			}
