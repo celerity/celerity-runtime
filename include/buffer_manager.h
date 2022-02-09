@@ -251,7 +251,7 @@ namespace detail {
 				    .wait();
 			}
 
-			if (range.size() != 0) {
+			if(range.size() != 0) {
 				backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
 				const backing_buffer empty{};
 				const backing_buffer& previous_buffer = new_buffer.is_allocated() ? old_buffer : empty;
@@ -292,7 +292,7 @@ namespace detail {
 				std::memset(host_buf.get_pointer(), test_mode_pattern, host_buf.get_range().size() * sizeof(DataT));
 			}
 
-			if (range.size() != 0) {
+			if(range.size() != 0) {
 				backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
 				const backing_buffer empty{};
 				const backing_buffer& previous_buffer = new_buffer.is_allocated() ? old_buffer : empty;
@@ -410,6 +410,11 @@ namespace detail {
 
 		static resize_info is_resize_required(const backing_buffer& buffer, cl::sycl::range<3> request_range, cl::sycl::id<3> request_offset) {
 			assert(buffer.is_allocated());
+
+			if(request_range.size() == 0) { return resize_info{}; }
+
+			if(buffer.storage->get_range().size() == 0) { return resize_info{true, request_offset, request_range}; }
+
 			const cl::sycl::range<3> old_abs_range = range_cast<3>(buffer.offset + buffer.storage->get_range());
 			const cl::sycl::range<3> new_abs_range = range_cast<3>(request_offset + request_range);
 			const bool is_inside_old_range = ((request_offset >= buffer.offset) == cl::sycl::id<3>(true, true, true))
