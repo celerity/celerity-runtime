@@ -533,5 +533,26 @@ namespace detail {
 		maybe_print_graph(tm);
 	}
 
+	TEST_CASE("buffer accesses with empty ranges do not generate data-flow dependencies", "[task_manager][task-graph]") {
+		task_manager tm{1, nullptr, nullptr};
+		test_utils::mock_buffer_factory mbf(&tm);
+		auto buf = mbf.create_buffer(range<2>(32, 32));
+
+		const auto write_sr = GENERATE(values({subrange<2>{{16, 16}, {0, 0}}, subrange<2>{{16, 16}, {8, 8}}}));
+		const auto read_sr = GENERATE(values({subrange<2>{{1, 1}, {0, 0}}, subrange<2>{{8, 8}, {16, 16}}}));
+
+		const auto read_empty = read_sr.range.size() == 0;
+		const auto write_empty = write_sr.range.size() == 0;
+		CAPTURE(read_empty);
+		CAPTURE(write_empty);
+
+		const auto write_tid =
+		    test_utils::add_compute_task<class UKN(write)>(tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, fixed<2>{write_sr}); });
+		const auto read_tid =
+		    test_utils::add_compute_task<class UKN(read)>(tm, [&](handler& cgh) { buf.get_access<access_mode::read>(cgh, fixed<2>{read_sr}); });
+
+		CHECK(has_any_dependency(tm, read_tid, write_tid) == (!write_empty && !read_empty));
+	}
+
 } // namespace detail
 } // namespace celerity
