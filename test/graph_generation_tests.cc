@@ -1505,5 +1505,86 @@ namespace detail {
 		}
 	}
 
+	TEST_CASE("buffer accesses with empty ranges do not generate pushes or data-flow dependencies", "[graph_generator][command-graph]") {
+		constexpr size_t num_nodes = 2;
+		test_utils::cdag_test_context ctx(num_nodes);
+		auto& tm = ctx.get_task_manager();
+		auto& ggen = ctx.get_graph_generator();
+
+		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+		const range<1> buf_range{16};
+		auto buf = mbf.create_buffer(buf_range);
+
+		const auto write_rm = [&](chunk<1> chnk) {
+			const range<1> rg{chnk.offset[0] < 8 ? 8 - chnk.offset[0] : 0};
+			return subrange<1>{chnk.offset, rg};
+		};
+		const auto write_tid = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(write)>(
+		        tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, write_rm); }, buf_range));
+
+		const auto read_rm = [&](chunk<1> chnk) {
+			subrange<1> sr;
+			sr.offset[0] = 4;
+			sr.range[0] = chnk.offset[0] + chnk.range[0] > 4 ? chnk.offset[0] + chnk.range[0] - 4 : 0;
+			return sr;
+		};
+		const auto read_tid = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(read)>(
+		        tm, [&](handler& cgh) { buf.get_access<access_mode::read>(cgh, read_rm); }, buf_range / 2));
+
+		maybe_print_graphs(ctx);
+
+		CHECK(has_dependency(tm, read_tid, write_tid));
+
+		auto& inspector = ctx.get_inspector();
+		auto& cdag = ctx.get_command_graph();
+
+		const abstract_command* write_cmds[num_nodes];
+		{
+			const auto write_cids = inspector.get_commands(write_tid, std::nullopt, std::nullopt);
+			REQUIRE(write_cids.size() == num_nodes); // naive split
+			for(const auto cid : write_cids) {
+				const auto cmd = cdag.get(cid);
+				write_cmds[cmd->get_nid()] = cmd;
+			}
+		}
+
+		const abstract_command* read_cmds[num_nodes];
+		{
+			const auto read_cids = inspector.get_commands(read_tid, std::nullopt, std::nullopt);
+			REQUIRE(read_cids.size() == num_nodes); // naive split
+			for(const auto cid : read_cids) {
+				const auto cmd = cdag.get(cid);
+				read_cmds[cmd->get_nid()] = cmd;
+			}
+		}
+
+		CHECK(!inspector.has_dependency(read_cmds[0]->get_cid(), write_cmds[0]->get_cid()));
+		CHECK(!inspector.has_dependency(read_cmds[1]->get_cid(), write_cmds[1]->get_cid()));
+
+		const abstract_command* push_cmd;
+		{
+			const auto pushes = inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH);
+			REQUIRE(pushes.size() == 1);
+			push_cmd = cdag.get(*pushes.begin());
+			CHECK(push_cmd->get_nid() == 0);
+			const auto push_dependencies = push_cmd->get_dependencies();
+			REQUIRE(std::distance(push_dependencies.begin(), push_dependencies.end()) == 1);
+			CHECK(push_dependencies.begin()->node == write_cmds[0]);
+		}
+
+		const abstract_command* await_push_cmd;
+		{
+			const auto await_pushes = inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH);
+			REQUIRE(await_pushes.size() == 1);
+			await_push_cmd = cdag.get(*await_pushes.begin());
+			CHECK(await_push_cmd->get_nid() == 1);
+			const auto await_push_dependents = await_push_cmd->get_dependents();
+			REQUIRE(std::distance(await_push_dependents.begin(), await_push_dependents.end()) == 1);
+			CHECK(await_push_dependents.begin()->node == read_cmds[1]);
+		}
+	}
+
 } // namespace detail
 } // namespace celerity
