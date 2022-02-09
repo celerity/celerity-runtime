@@ -131,7 +131,7 @@ namespace detail {
 		}
 
 		static std::unique_ptr<task> make_master_node(task_id tid, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map) {
-			return std::unique_ptr<task>(new task(tid, task_type::MASTER_NODE, {}, 0, {0, 0, 0}, {}, {1, 1, 1}, std::move(cgf), std::move(access_map), {}, {}));
+			return std::unique_ptr<task>(new task(tid, task_type::MASTER_NODE, {}, 0, {1, 1, 1}, {}, {1, 1, 1}, std::move(cgf), std::move(access_map), {}, {}));
 		}
 
 		static std::unique_ptr<task> make_horizon_task(task_id tid) {

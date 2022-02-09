@@ -554,5 +554,53 @@ namespace detail {
 		CHECK(has_any_dependency(tm, read_tid, write_tid) == (!write_empty && !read_empty));
 	}
 
+	TEST_CASE("compute tasks with empty execution ranges do not generate data-flow dependencies", "[task_manager][task-graph]") {
+		reduction_manager rm;
+		task_manager tm{1, nullptr, &rm};
+		test_utils::mock_buffer_factory mbf(&tm);
+		auto buf = mbf.create_buffer(range<1>(1));
+
+		const auto tid_0 = test_utils::add_compute_task<class UKN(init)>(tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });
+
+		SECTION("on regular buffer access") {
+			const auto empty_task_idx = GENERATE(values({1, 2, 3}));
+			CAPTURE(empty_task_idx);
+
+			const auto tid_1 = test_utils::add_compute_task<class UKN(simple_compute)>(
+			    tm, [&](handler& cgh) { buf.get_access<access_mode::read_write>(cgh, all{}); }, range<1>{empty_task_idx != 1});
+			const auto tid_2 = test_utils::add_nd_range_compute_task<class UKN(ndrange_compute)>(
+			    tm, [&](handler& cgh) { buf.get_access<access_mode::read_write>(cgh, all{}); }, nd_range<1>{empty_task_idx != 2, 1});
+			const auto tid_3 =
+			    test_utils::add_host_task(tm, range<1>{empty_task_idx != 3}, [&](handler& cgh) { buf.get_access<access_mode::read_write>(cgh, all{}); });
+
+			CHECK(has_dependency(tm, tid_1, tid_0, dependency_kind::TRUE_DEP) == (empty_task_idx != 1));
+			CHECK(has_dependency(tm, tid_2, tid_0, dependency_kind::TRUE_DEP) == (empty_task_idx == 1));
+			CHECK(has_dependency(tm, tid_2, tid_1, dependency_kind::TRUE_DEP) == (empty_task_idx == 3));
+			CHECK(has_dependency(tm, tid_3, tid_1, dependency_kind::TRUE_DEP) == (empty_task_idx == 2));
+			CHECK(has_dependency(tm, tid_3, tid_2, dependency_kind::TRUE_DEP) == (empty_task_idx == 1));
+		}
+
+		SECTION("for reduction output buffers") {
+			const auto empty_task_idx = GENERATE(values({1, 2}));
+			CAPTURE(empty_task_idx);
+
+			const auto tid_1 = test_utils::add_compute_task<class UKN(retain_reduction)>(
+			    tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf, true /* include_current_buffer_value */); }, range<1>{empty_task_idx != 1});
+			const auto tid_2 = test_utils::add_compute_task<class UKN(reinit_reduction)>(
+			    tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf, false /* include_current_buffer_value */); }, range<1>{empty_task_idx != 2});
+			const auto tid_3 =
+			    test_utils::add_compute_task<class UKN(read_from_reduction)>(tm, [&](handler& cgh) { buf.get_access<access_mode::read>(cgh, all{}); });
+
+			CHECK(has_dependency(tm, tid_1, tid_0, dependency_kind::TRUE_DEP) == (empty_task_idx == 2));
+			CHECK(has_dependency(tm, tid_2, tid_0, dependency_kind::ANTI_DEP) == (empty_task_idx == 1));
+			CHECK(has_dependency(tm, tid_2, tid_1, dependency_kind::ANTI_DEP) == (empty_task_idx == 2));
+			CHECK(!has_any_dependency(tm, tid_3, tid_0));
+			CHECK(!has_any_dependency(tm, tid_3, tid_1));
+			CHECK(has_dependency(tm, tid_3, tid_2, dependency_kind::TRUE_DEP));
+		}
+
+		maybe_print_graph(tm);
+	}
+
 } // namespace detail
 } // namespace celerity

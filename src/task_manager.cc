@@ -61,6 +61,8 @@ namespace detail {
 	}
 
 	GridRegion<3> get_requirements(task const* tsk, buffer_id bid, const std::vector<cl::sycl::access::mode> modes) {
+		if(tsk->get_global_size().size() == 0) return {};
+
 		const auto& access_map = tsk->get_buffer_access_map();
 		const subrange<3> full_range{tsk->get_global_offset(), tsk->get_global_size()};
 		GridRegion<3> result;
@@ -102,7 +104,10 @@ namespace detail {
 			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_consumer)
 			    || (reduction.has_value() && reduction->initialize_from_buffer)) {
 				auto read_requirements = get_requirements(tsk.get(), bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
-				if(reduction.has_value()) { read_requirements = GridRegion<3>::merge(read_requirements, GridRegion<3>{{1, 1, 1}}); }
+				if(reduction.has_value() && tsk->get_global_size().size() > 0 && reduction->initialize_from_buffer) {
+					assert(read_requirements.empty()); // must have thrown "Buffer is required through an accessor" before
+					read_requirements = GridRegion<3>{{1, 1, 1}};
+				}
 				const auto last_writers = buffers_last_writers.at(bid).get_region_values(read_requirements);
 
 				for(auto& p : last_writers) {
@@ -118,7 +123,10 @@ namespace detail {
 			// Update last writers and determine anti-dependencies
 			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_producer) || reduction.has_value()) {
 				auto write_requirements = get_requirements(tsk.get(), bid, {detail::access::producer_modes.cbegin(), detail::access::producer_modes.cend()});
-				if(reduction.has_value()) { write_requirements = GridRegion<3>::merge(write_requirements, GridRegion<3>{{1, 1, 1}}); }
+				if(reduction.has_value() && (tsk->get_global_size().size() > 0 || !reduction->initialize_from_buffer)) {
+					assert(write_requirements.empty()); // must have thrown "Buffer is required through an accessor" before
+					write_requirements = GridRegion<3>{{1, 1, 1}};
+				}
 				if(write_requirements.empty()) continue;
 
 				const auto last_writers = buffers_last_writers.at(bid).get_region_values(write_requirements);

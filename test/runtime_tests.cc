@@ -2331,6 +2331,25 @@ namespace detail {
 		REQUIRE(cores == 1);
 	}
 
+#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
+
+	TEST_CASE("tasks with an empty execution range still initialize their reductions", "[reduction][task_manager]") {
+		distr_queue q;
+		int init = 42;
+		buffer<int, 1> b{&init, 1};
+		q.submit([=](handler& cgh) {
+			const auto r = reduction(b, cgh, sycl::plus<int>{}, property::reduction::initialize_to_identity{});
+			cgh.parallel_for(range<1>{0}, r, [](item<1>, auto&) {});
+		});
+		q.submit(allow_by_ref, [=, &init](handler& cgh) {
+			accessor a{b, cgh, all{}, read_only_host_task};
+			cgh.host_task(on_master_node, [=, &init] { init = a[0]; });
+		});
+		q.slow_full_sync();
+		CHECK(init == 0);
+	}
+
+#endif // CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 
 	template <access_mode>
 	class empty_access_kernel;
