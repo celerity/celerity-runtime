@@ -2380,5 +2380,44 @@ namespace detail {
 		test_empty_access<access_mode::read>(q, *buf);
 	}
 
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "empty access ranges do not inflate backing buffer allocations", "[buffer_manager]") {
+		auto& bm = get_buffer_manager();
+		const auto bid = bm.register_buffer<int, 2>(cl::sycl::range<3>(32, 32, 1));
+
+		const auto access_1_sr = GENERATE(values({subrange<2>{{1, 1}, {0, 0}}, subrange<2>{{0, 0}, {8, 8}}}));
+		const auto access_2_sr = GENERATE(values({subrange<2>{{16, 16}, {0, 0}}, subrange<2>{{16, 16}, {8, 8}}}));
+
+		const auto access_1_empty = access_1_sr.range.size() == 0;
+		CAPTURE(access_1_empty);
+		const auto backing_buffer_1 =
+		    bm.get_device_buffer<int, 2>(bid, access_mode::discard_write, range_cast<3>(access_1_sr.range), id_cast<3>(access_1_sr.offset));
+		const auto backing_buffer_1_identity = &backing_buffer_1.buffer;
+		if(access_1_empty) {
+			CHECK(backing_buffer_1.buffer.get_range().size() <= 1); // <= 1: We allocate a unit-size backing buffer as a workaround for some backends
+		} else {
+			CHECK(backing_buffer_1.buffer.get_range() == access_1_sr.range);
+			CHECK(backing_buffer_1.offset == access_1_sr.offset);
+		}
+
+		const auto access_2_empty = access_2_sr.range.size() == 0;
+		CAPTURE(access_2_empty);
+		const auto backing_buffer_2 = bm.get_device_buffer<int, 2>(bid, access_mode::write, range_cast<3>(access_2_sr.range), id_cast<3>(access_2_sr.offset));
+		const auto backing_buffer_2_identity = &backing_buffer_2.buffer;
+		if(access_2_empty) {
+			CHECK(backing_buffer_2_identity == backing_buffer_1_identity); // no re-allocation was made
+		}
+		if(access_2_empty && !access_1_empty) {
+			CHECK(backing_buffer_1.buffer.get_range() == access_1_sr.range);
+			CHECK(backing_buffer_1.offset == access_1_sr.offset);
+		}
+		if(access_1_empty && access_2_empty) {
+			CHECK(backing_buffer_2.buffer.get_range().size() <= 1); // <= 1: We allocate a unit-size backing buffer as a workaround for some backends
+		}
+		if(access_1_empty && !access_2_empty) {
+			CHECK(backing_buffer_2.buffer.get_range() == access_2_sr.range);
+			CHECK(backing_buffer_2.offset == access_2_sr.offset);
+		}
+	}
+
 } // namespace detail
 } // namespace celerity
