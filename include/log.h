@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 
 // TODO: Make this configurable through CMake?
@@ -26,13 +27,22 @@
 namespace celerity {
 namespace detail {
 
-	using log_map = std::unordered_map<std::string, std::variant<std::string_view, size_t>>;
 	using log_level = spdlog::level::level_enum;
+
+	template <typename... Es>
+	struct log_map {
+		const std::tuple<Es...>& entries;
+		log_map(const std::tuple<Es...>& entries) : entries(entries) {}
+	};
 
 	struct log_context {
 		std::string value;
 		log_context() = default;
-		explicit log_context(const log_map& values) { value = fmt::format("[{}] ", values); }
+		template <typename... Es>
+		explicit log_context(const std::tuple<Es...>& entries) {
+			static_assert(sizeof...(Es) % 2 == 0, "log_context requires key/value pairs");
+			value = fmt::format("[{}] ", log_map{entries});
+		}
 	};
 
 	inline const std::string null_log_ctx;
@@ -46,28 +56,35 @@ namespace detail {
 #define CELERITY_DETAIL_LOG_SET_SCOPED_CTX(ctx)                                                                                                                \
 	log_ctx_setter _set_log_ctx_##__COUNTER__ { ctx }
 
+	template <typename A, typename B, typename... Rest, size_t... Is, typename Callback>
+	constexpr void tuple_for_each_pair_impl(const std::tuple<A, B, Rest...>& tuple, Callback&& cb, std::index_sequence<Is...>) {
+		cb(std::get<0>(tuple), std::get<1>(tuple));
+		if constexpr(sizeof...(Rest) > 0) {
+			tuple_for_each_pair_impl(std::tuple{std::get<2 + Is>(tuple)...}, std::forward<Callback>(cb), std::make_index_sequence<sizeof...(Rest)>{});
+		}
+	}
+
+	template <typename... Es, typename Callback>
+	constexpr void tuple_for_each_pair(const std::tuple<Es...>& tuple, Callback&& cb) {
+		static_assert(sizeof...(Es) % 2 == 0, "an even number of entries is required");
+		tuple_for_each_pair_impl(tuple, std::forward<Callback>(cb), std::make_index_sequence<sizeof...(Es) - 2>{});
+	}
+
 } // namespace detail
 } // namespace celerity
 
-template <>
-struct fmt::formatter<celerity::detail::log_map> {
+template <typename... Es>
+struct fmt::formatter<celerity::detail::log_map<Es...>> {
 	constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
 
 	template <typename FormatContext>
-	auto format(const celerity::detail::log_map& map, FormatContext& ctx) {
+	auto format(const celerity::detail::log_map<Es...>& map, FormatContext& ctx) {
 		auto&& out = ctx.out();
 		int i = 0;
-		for(const auto& [k, v] : map) {
+		tuple_for_each_pair(map.entries, [&i, &out](auto& a, auto& b) {
 			if(i++ > 0) { fmt::format_to(out, ", "); }
-			fmt::format_to(out, "{}=", k);
-			if(std::holds_alternative<std::string_view>(v)) {
-				fmt::format_to(out, "{}", std::get<std::string_view>(v));
-			} else if(std::holds_alternative<size_t>(v)) {
-				fmt::format_to(out, "{}", std::get<size_t>(v));
-			} else {
-				assert(false);
-			}
-		}
+			fmt::format_to(out, "{}={}", a, b);
+		});
 		return out;
 	}
 };
