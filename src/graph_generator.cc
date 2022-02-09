@@ -65,6 +65,11 @@ namespace detail {
 				}
 				last_collective_commands.emplace(cgid, cmd->get_cid());
 			}
+		} else if(tsk->get_global_size().size() == 0
+		          && std::all_of(tsk->get_reductions().begin(), tsk->get_reductions().end(), //
+		              [&](const reduction_id rid) { return reduction_mngr.get_reduction(rid).initialize_from_buffer; })) {
+			// the task has an empty execution range and does not need a reduction initializer -> do not generate any commands
+			return;
 		} else {
 			const auto sr = subrange<3>{tsk->get_global_offset(), tsk->get_global_size()};
 			cdag.create<task_command>(0, tid, sr);

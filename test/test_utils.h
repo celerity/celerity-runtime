@@ -118,9 +118,11 @@ namespace test_utils {
 			std::transform(commands.cbegin(), commands.cend(), std::inserter(result, result.begin()), [](auto p) { return p.first; });
 
 			if(tid != std::nullopt) {
-				auto& task_set = by_task.at(*tid);
 				std::set<detail::command_id> new_result;
-				std::set_intersection(result.cbegin(), result.cend(), task_set.cbegin(), task_set.cend(), std::inserter(new_result, new_result.begin()));
+				if(const auto task_it = by_task.find(*tid); task_it != by_task.end()) {
+					const auto& task_set = task_it->second;
+					std::set_intersection(result.cbegin(), result.cend(), task_set.cbegin(), task_set.cend(), std::inserter(new_result, new_result.begin()));
+				}
 				result = std::move(new_result);
 			}
 			if(nid != std::nullopt) {

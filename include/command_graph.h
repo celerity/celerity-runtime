@@ -129,7 +129,13 @@ namespace detail {
 			return iterable_range{make_transform_iterator(commands.cbegin(), transform), make_transform_iterator(commands.cend(), transform)};
 		}
 
-		auto& task_commands(task_id tid) { return by_task.at(tid); }
+		const std::vector<task_command*>& task_commands(const task_id tid) const {
+			if(const auto it = by_task.find(tid); it != by_task.end()) {
+				return it->second;
+			} else {
+				return no_task_commands;
+			}
+		}
 
 		void print_graph(logger& graph_logger) const;
 
@@ -155,6 +161,7 @@ namespace detail {
 		// TODO: Consider storing commands in a contiguous memory data structure instead
 		std::unordered_map<command_id, std::unique_ptr<abstract_command>> commands;
 		std::unordered_map<task_id, std::vector<task_command*>> by_task;
+		std::vector<task_command*> no_task_commands; // left empty
 
 		// Set of per-node commands with no dependents
 		std::unordered_map<node_id, std::unordered_set<abstract_command*>> execution_fronts;

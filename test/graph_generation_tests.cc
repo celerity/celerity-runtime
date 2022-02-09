@@ -1541,5 +1541,46 @@ namespace detail {
 		}
 	}
 
+	TEST_CASE("graph_generator does not generate superfluous commands for tasks with an empty execution range", "[graph_generator][command-graph]") {
+		constexpr size_t num_nodes = 2;
+		test_utils::cdag_test_context ctx(num_nodes);
+		auto& rm = ctx.get_reduction_manager();
+		auto& tm = ctx.get_task_manager();
+		auto& ggen = ctx.get_graph_generator();
+		auto& inspector = ctx.get_inspector();
+		auto& cdag = ctx.get_command_graph();
+
+		SECTION("for regular tasks") {
+			const auto tid_1 = test_utils::build_and_flush(ctx, num_nodes,
+			    test_utils::add_compute_task<class UKN(simple_compute)>(
+			        tm, [&](handler& cgh) {}, range<1>{0}));
+			const auto tid_2 = test_utils::build_and_flush(ctx, num_nodes,
+			    test_utils::add_nd_range_compute_task<class UKN(ndrange_compute)>(
+			        tm, [&](handler& cgh) {}, nd_range<1>{0, 1}));
+			const auto tid_3 = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, range<1>{0}, [&](handler& cgh) {}));
+
+			CHECK(inspector.get_commands(tid_1, std::nullopt, std::nullopt).empty());
+			CHECK(inspector.get_commands(tid_2, std::nullopt, std::nullopt).empty());
+			CHECK(inspector.get_commands(tid_3, std::nullopt, std::nullopt).empty());
+		}
+
+		SECTION("for tasks involving reductions") {
+			test_utils::mock_buffer_factory mbf(&tm, &ggen);
+			auto buf = mbf.create_buffer(range<1>(1));
+
+			const auto tid_1 = test_utils::build_and_flush(ctx, num_nodes,
+			    test_utils::add_compute_task<class UKN(retain_reduction)>(
+			        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf, true /* include_current_buffer_value */); }, range<1>{0}));
+			const auto tid_2 = test_utils::build_and_flush(ctx, num_nodes,
+			    test_utils::add_compute_task<class UKN(reinit_reduction)>(
+			        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf, false /* include_current_buffer_value */); }, range<1>{0}));
+
+			CHECK(inspector.get_commands(tid_1, std::nullopt, std::nullopt).empty());
+			CHECK(inspector.get_commands(tid_2, std::nullopt, std::nullopt).size() > 0); // TODO should be == 1, but needs #84 merged first
+		}
+
+		maybe_print_graph(tm);
+	}
+
 } // namespace detail
 } // namespace celerity
