@@ -206,27 +206,27 @@ namespace detail {
 #endif
 			assert((range_cast<3>(offset + range) <= buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
 
-			auto& old_buffer = buffers[bid].device_buf;
-			backing_buffer new_buffer;
+			auto& existing_buf = buffers[bid].device_buf;
+			backing_buffer replacement_buf;
 
-			if(!old_buffer.is_allocated()) {
-				new_buffer = backing_buffer{std::make_unique<device_buffer_storage<DataT, Dims>>(range_cast<Dims>(range), queue.get_sycl_queue()), offset};
+			if(!existing_buf.is_allocated()) {
+				replacement_buf = backing_buffer{std::make_unique<device_buffer_storage<DataT, Dims>>(range_cast<Dims>(range), queue.get_sycl_queue()), offset};
 			} else {
 				// FIXME: For large buffers we might not be able to store two copies in device memory at once.
 				// Instead, we'd first have to transfer everything to the host and free the old buffer before allocating the new one.
 				// TODO: What we CAN do however already is to free the old buffer early iff we're requesting a discard_* access!
 				// (AND that access request covers the entirety of the old buffer!)
-				const auto info = is_resize_required(old_buffer, range, offset);
+				const auto info = is_resize_required(existing_buf, range, offset);
 				if(info.resize_required) {
-					new_buffer = backing_buffer{
+					replacement_buf = backing_buffer{
 					    std::make_unique<device_buffer_storage<DataT, Dims>>(range_cast<Dims>(info.new_range), queue.get_sycl_queue()), info.new_offset};
 				}
 			}
 
-			audit_buffer_access(bid, new_buffer.is_allocated(), mode);
+			audit_buffer_access(bid, replacement_buf.is_allocated(), mode);
 
-			if(test_mode && new_buffer.is_allocated()) {
-				auto device_buf = static_cast<device_buffer_storage<DataT, Dims>*>(new_buffer.storage.get())->get_device_buffer();
+			if(test_mode && replacement_buf.is_allocated()) {
+				auto device_buf = static_cast<device_buffer_storage<DataT, Dims>*>(replacement_buf.storage.get())->get_device_buffer();
 
 				// We need two separate approaches here for hipSYCL and ComputeCpp, as hipSYCL currently (0.9.1) does
 				// not support reinterpreting buffers to other dimensionalities, while ComputeCpp (2.5.0) does not
@@ -251,17 +251,9 @@ namespace detail {
 				    .wait();
 			}
 
-			if(range.size() != 0) {
-				backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
-				const backing_buffer empty{};
-				const backing_buffer& previous_buffer = new_buffer.is_allocated() ? old_buffer : empty;
-				make_buffer_subrange_coherent(bid, mode, target_buffer, {offset, range}, previous_buffer);
-			}
+			existing_buf = make_buffer_subrange_coherent(bid, mode, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
 
-			if(new_buffer.is_allocated()) { buffers[bid].device_buf = std::move(new_buffer); }
-
-			return {dynamic_cast<device_buffer_storage<DataT, Dims>*>(buffers[bid].device_buf.storage.get())->get_device_buffer(),
-			    id_cast<Dims>(buffers[bid].device_buf.offset)};
+			return {dynamic_cast<device_buffer_storage<DataT, Dims>*>(existing_buf.storage.get())->get_device_buffer(), id_cast<Dims>(existing_buf.offset)};
 		}
 
 		template <typename DataT, int Dims>
@@ -273,36 +265,28 @@ namespace detail {
 #endif
 			assert((range_cast<3>(offset + range) <= buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
 
-			auto& old_buffer = buffers[bid].host_buf;
-			backing_buffer new_buffer;
+			auto& existing_buf = buffers[bid].host_buf;
+			backing_buffer replacement_buf;
 
-			if(!old_buffer.is_allocated()) {
-				new_buffer = backing_buffer{std::make_unique<host_buffer_storage<DataT, Dims>>(range_cast<Dims>(range)), offset};
+			if(!existing_buf.is_allocated()) {
+				replacement_buf = backing_buffer{std::make_unique<host_buffer_storage<DataT, Dims>>(range_cast<Dims>(range)), offset};
 			} else {
-				const auto info = is_resize_required(old_buffer, range, offset);
+				const auto info = is_resize_required(existing_buf, range, offset);
 				if(info.resize_required) {
-					new_buffer = backing_buffer{std::make_unique<host_buffer_storage<DataT, Dims>>(range_cast<Dims>(info.new_range)), info.new_offset};
+					replacement_buf = backing_buffer{std::make_unique<host_buffer_storage<DataT, Dims>>(range_cast<Dims>(info.new_range)), info.new_offset};
 				}
 			}
 
-			audit_buffer_access(bid, new_buffer.is_allocated(), mode);
+			audit_buffer_access(bid, replacement_buf.is_allocated(), mode);
 
-			if(test_mode && new_buffer.is_allocated()) {
-				auto& host_buf = static_cast<host_buffer_storage<DataT, Dims>*>(new_buffer.storage.get())->get_host_buffer();
+			if(test_mode && replacement_buf.is_allocated()) {
+				auto& host_buf = static_cast<host_buffer_storage<DataT, Dims>*>(replacement_buf.storage.get())->get_host_buffer();
 				std::memset(host_buf.get_pointer(), test_mode_pattern, host_buf.get_range().size() * sizeof(DataT));
 			}
 
-			if(range.size() != 0) {
-				backing_buffer& target_buffer = new_buffer.is_allocated() ? new_buffer : old_buffer;
-				const backing_buffer empty{};
-				const backing_buffer& previous_buffer = new_buffer.is_allocated() ? old_buffer : empty;
-				make_buffer_subrange_coherent(bid, mode, target_buffer, {offset, range}, previous_buffer);
-			}
+			existing_buf = make_buffer_subrange_coherent(bid, mode, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
 
-			if(new_buffer.is_allocated()) { buffers[bid].host_buf = std::move(new_buffer); }
-
-			return {static_cast<host_buffer_storage<DataT, Dims>*>(buffers[bid].host_buf.storage.get())->get_host_buffer(),
-			    id_cast<Dims>(buffers[bid].host_buf.offset)};
+			return {static_cast<host_buffer_storage<DataT, Dims>*>(existing_buf.storage.get())->get_host_buffer(), id_cast<Dims>(existing_buf.offset)};
 		}
 
 		/**
@@ -429,27 +413,29 @@ namespace detail {
 		}
 
 		/**
-		 * Makes the contents of buffer @p target_buffer coherent within the range @p coherent_sr.
+		 * Makes the contents of a backing buffer coherent within the range @p coherent_sr.
 		 *
 		 * This is done in three separate steps:
 		 *	1) If @p mode is a consumer mode, apply all transfers that fully or partially overlap with the requested @p coherent_sr.
-		 *	2) If @p mode is a consumer mode, copy newest data from H->D or D->H (depending on what type of buffer @p target_buffer is).
-		 *	3) Optional: If @p previous_buffer is provided, ensure that any data that needs to be retained is copied into the new buffer.
-		 *	   Importantly, this step is performed even for parts of @p previous_buffer that lie outside the requested @p coherent_sr.
+		 *	2) If @p mode is a consumer mode, copy newest data from H->D or D->H (depending on what type the backing buffer is).
+		 *	3) Optional: If @p replacement_buffer is provided, ensure that any data that needs to be retained is copied from @p existing_buffer.
+		 *	   Importantly, this step is performed even for parts of @p existing_buffer that lie outside the requested @p coherent_sr.
 		 *
 		 * @param bid
 		 * @param mode The access mode for which coherency needs to be established.
-		 * @param target_buffer The buffer to make coherent, corresponding to @p bid.
-		 * @param coherent_sr The subrange of @p target_buffer which is to be made coherent.
-		 * @param previous_buffer Providing this optional argument indicates that the @p target_buffer is a newer (resized) version of this buffer,
-		 *						  and that the previous contents may need to be retained.
+		 * @param existing_buffer (optional) The existing buffer. Made coherent in-place or copied from, depending on whether @p replacement_buffer is present.
+		 * @param coherent_sr The subrange of the resulting buffer which is to be made coherent.
+		 * @param replacement_buffer (optional) If the sub-range requested lies outside the existing buffer allocation, an adequately-sized replacement buffer
+		 *                           must be provided via this argument.
+		 *
+		 * @return The now coherent buffer, which is either @p existing_buffer or @p replacement_buffer.
 		 *
 		 * @note Calling this function has side-effects:
 		 *	- Queued transfers are processed (if applicable).
 		 *  - The newest data locations are updated to reflect replicated data as well as newly written ranges (depending on access mode).
 		 */
-		void make_buffer_subrange_coherent(buffer_id bid, cl::sycl::access::mode mode, backing_buffer& target_buffer, const subrange<3>& coherent_sr,
-		    const backing_buffer& previous_buffer = backing_buffer{});
+		backing_buffer make_buffer_subrange_coherent(buffer_id bid, cl::sycl::access::mode mode, backing_buffer existing_buffer, const subrange<3>& coherent_sr,
+		    backing_buffer replacement_buffer = backing_buffer{});
 
 		/**
 		 * Checks whether access to a currently locked buffer is safe.
