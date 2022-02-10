@@ -42,20 +42,18 @@ namespace detail {
 
 		// Slow path: We need to obtain current data from both host and device.
 		if(data_locations.size() > 1) {
-			auto& vb = buffers[bid];
-			assert(vb.host_buf.is_allocated());
+			auto& existing_buf = buffers[bid].host_buf;
+			assert(existing_buf.is_allocated());
 
 			// Make sure newest data resides on the host.
 			// But first, we need to check whether the current host buffer is able to hold the full data range.
-			const auto info = is_resize_required(vb.host_buf, range, offset);
+			const auto info = is_resize_required(existing_buf, range, offset);
+			backing_buffer replacement_buf;
 			if(info.resize_required) {
 				// TODO: Do we really want to allocate host memory for this..? We could also make raw_buffer_data "coherent" directly.
-				backing_buffer new_buffer{std::unique_ptr<buffer_storage>(vb.host_buf.storage->make_new_of_same_type(info.new_range)), info.new_offset};
-				make_buffer_subrange_coherent(bid, cl::sycl::access::mode::read, new_buffer, {offset, range}, vb.host_buf);
-				vb.host_buf = std::move(new_buffer);
-			} else {
-				make_buffer_subrange_coherent(bid, cl::sycl::access::mode::read, vb.host_buf, {offset, range}, backing_buffer{});
+				replacement_buf = backing_buffer{std::unique_ptr<buffer_storage>(existing_buf.storage->make_new_of_same_type(info.new_range)), info.new_offset};
 			}
+			existing_buf = make_buffer_subrange_coherent(bid, access_mode::read, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
 
 			data_locations = {{subrange_to_grid_box(subrange<3>(offset, range)), data_location::HOST}};
 		}
@@ -106,9 +104,21 @@ namespace detail {
 	}
 
 	// TODO: Something we could look into is to dispatch all memory copies concurrently and wait for them in the end.
-	void buffer_manager::make_buffer_subrange_coherent(
-	    buffer_id bid, cl::sycl::access::mode mode, backing_buffer& target_buffer, const subrange<3>& coherent_sr, const backing_buffer& previous_buffer) {
-		assert(!previous_buffer.is_allocated() || target_buffer.storage->get_type() == previous_buffer.storage->get_type());
+	buffer_manager::backing_buffer buffer_manager::make_buffer_subrange_coherent(
+	    buffer_id bid, cl::sycl::access::mode mode, backing_buffer existing_buffer, const subrange<3>& coherent_sr, backing_buffer replacement_buffer) {
+		backing_buffer target_buffer, previous_buffer;
+		if(replacement_buffer.is_allocated()) {
+			assert(!existing_buffer.is_allocated() || replacement_buffer.storage->get_type() == existing_buffer.storage->get_type());
+			target_buffer = std::move(replacement_buffer);
+			previous_buffer = std::move(existing_buffer);
+		} else {
+			assert(existing_buffer.is_allocated());
+			target_buffer = std::move(existing_buffer);
+			previous_buffer = {};
+		}
+
+		if(coherent_sr.range.size() == 0) { return target_buffer; }
+
 		const auto target_buffer_location = target_buffer.storage->get_type() == buffer_type::HOST_BUFFER ? data_location::HOST : data_location::DEVICE;
 
 		const auto coherent_box = subrange_to_grid_box(coherent_sr);
@@ -248,6 +258,8 @@ namespace detail {
 		}
 
 		if(detail::access::mode_traits::is_producer(mode)) { newest_data_location.at(bid).update_region(coherent_box, target_buffer_location); }
+
+		return target_buffer;
 	}
 
 	void buffer_manager::audit_buffer_access(buffer_id bid, bool requires_allocation, cl::sycl::access::mode mode) {
