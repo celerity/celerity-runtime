@@ -220,6 +220,8 @@ target_link_libraries(celerity_runtime PUBLIC
   Threads::Threads
   MPI::MPI_CXX
   spdlog::spdlog
+  $<$<AND:$<BOOL:${WIN32}>,$<CONFIG:Debug>>:sycld>
+  $<$<AND:$<BOOL:${WIN32}>,$<CONFIG:Release>>:sycl>
 )
 
 # For debug builds, we set the CELERITY_DETAIL_ENABLE_DEBUG preprocessor flag,
