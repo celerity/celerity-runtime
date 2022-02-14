@@ -261,15 +261,15 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		return detail::ranged_sycl_access(sycl_accessor, buffer_range, index - index_offset);
 	}
 
+#pragma GCC diagnostic push
+	// Ignore deprecation warnings emitted by SYCL implementations (e.g. hipSYCL)
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 	template <access_mode M = Mode, int D = Dims>
 	[[deprecated("Atomic accessors are deprecated as of SYCL 2020")]] std::enable_if_t<M == access_mode::atomic && (D > 0), cl::sycl::atomic<DataT>> operator[](
 	    id<Dims> index) const {
-#pragma GCC diagnostic push
-		// Ignore deprecation warnings emitted by SYCL implementations (e.g. hipSYCL)
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 		return detail::ranged_sycl_access(sycl_accessor, buffer_range, index - index_offset);
-#pragma GCC diagnostic pop
 	}
+#pragma GCC diagnostic pop
 
 	template <int D = Dims>
 	std::enable_if_t<(D > 1), detail::accessor_subscript_proxy<DataT, D, Mode, target::device, 1>> operator[](const size_t d0) const {
