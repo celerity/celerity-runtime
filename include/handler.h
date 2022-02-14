@@ -294,12 +294,23 @@ namespace detail {
 
 		void create_host_compute_task(int dimensions, range<3> global_range, id<3> global_offset, range<3> granularity) {
 			assert(task == nullptr);
+			if(global_range.size() == 0) {
+				// TODO this can be easily supported by not creating a task in case the execution range is empty
+				throw std::runtime_error{"The execution range of distributed host tasks must have at least one item"};
+			}
 			task = detail::task::make_host_compute(
 			    tid, dimensions, global_range, global_offset, granularity, std::move(cgf), std::move(access_map), std::move(reductions));
 		}
 
 		void create_device_compute_task(int dimensions, range<3> global_range, id<3> global_offset, range<3> granularity, std::string debug_name) {
 			assert(task == nullptr);
+			if(global_range.size() == 0) {
+				// TODO unless reductions are involved, this can be easily supported by not creating a task in case the execution range is empty.
+				// Edge case: If the task includes reductions that specify property::reduction::initialize_to_identity, we need to create a task that sets
+				// the buffer state to an empty pending_reduction_state in the graph_generator. This will cause a trivial reduction_command to be generated on
+				// each node that reads from the reduction output buffer, initializing it to the identity value locally.
+				throw std::runtime_error{"The execution range of device tasks must have at least one item"};
+			}
 			task = detail::task::make_device_compute(
 			    tid, dimensions, global_range, global_offset, granularity, std::move(cgf), std::move(access_map), std::move(reductions), std::move(debug_name));
 		}
