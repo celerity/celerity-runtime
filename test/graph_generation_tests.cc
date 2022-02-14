@@ -1515,19 +1515,15 @@ namespace detail {
 		const range<1> buf_range{16};
 		auto buf = mbf.create_buffer(buf_range);
 
-		const auto write_rm = [&](chunk<1> chnk) {
-			const range<1> rg{chnk.offset[0] < 8 ? 8 - chnk.offset[0] : 0};
-			return subrange<1>{chnk.offset, rg};
-		};
 		const auto write_tid = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(write)>(
-		        tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, write_rm); }, buf_range));
+		        tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, one_to_one{}); }, buf_range));
 
 		const auto read_rm = [&](chunk<1> chnk) {
-			subrange<1> sr;
-			sr.offset[0] = 4;
-			sr.range[0] = chnk.offset[0] + chnk.range[0] > 4 ? chnk.offset[0] + chnk.range[0] - 4 : 0;
-			return sr;
+			const auto chunk_end = chnk.offset[0] + chnk.range[0];
+			const auto window_start = 4;
+			const auto window_length = chunk_end > window_start ? chunk_end - window_start : 0;
+			return subrange<1>{window_start, window_length};
 		};
 		const auto read_tid = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(read)>(
@@ -1563,26 +1559,19 @@ namespace detail {
 		CHECK(!inspector.has_dependency(read_cmds[0]->get_cid(), write_cmds[0]->get_cid()));
 		CHECK(!inspector.has_dependency(read_cmds[1]->get_cid(), write_cmds[1]->get_cid()));
 
-		const abstract_command* push_cmd;
 		{
 			const auto pushes = inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH);
 			REQUIRE(pushes.size() == 1);
-			push_cmd = cdag.get(*pushes.begin());
+			const auto push_cmd = cdag.get<push_command>(*pushes.begin());
 			CHECK(push_cmd->get_nid() == 0);
-			const auto push_dependencies = push_cmd->get_dependencies();
-			REQUIRE(std::distance(push_dependencies.begin(), push_dependencies.end()) == 1);
-			CHECK(push_dependencies.begin()->node == write_cmds[0]);
+			CHECK(push_cmd->get_target() == 1);
 		}
 
-		const abstract_command* await_push_cmd;
 		{
 			const auto await_pushes = inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH);
 			REQUIRE(await_pushes.size() == 1);
-			await_push_cmd = cdag.get(*await_pushes.begin());
+			const auto await_push_cmd = cdag.get<await_push_command>(*await_pushes.begin());
 			CHECK(await_push_cmd->get_nid() == 1);
-			const auto await_push_dependents = await_push_cmd->get_dependents();
-			REQUIRE(std::distance(await_push_dependents.begin(), await_push_dependents.end()) == 1);
-			CHECK(await_push_dependents.begin()->node == read_cmds[1]);
 		}
 	}
 

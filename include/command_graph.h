@@ -115,10 +115,12 @@ namespace detail {
 
 		bool has(command_id cid) const { return commands.count(cid) == 1; }
 
-		template <typename T = abstract_command>
+		abstract_command* get(command_id cid) { return commands.at(cid).get(); }
+
+		template <typename T>
 		T* get(command_id cid) {
-			assert(commands.find(cid) != commands.end());
-			return commands[cid].get();
+			// dynamic_cast with reference to force bad_cast to be thrown if type mismatches
+			return &dynamic_cast<T&>(*commands.at(cid));
 		}
 
 		size_t command_count() const { return commands.size(); }
