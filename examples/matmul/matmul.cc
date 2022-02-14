@@ -20,6 +20,7 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 
 		// Use local-memory tiling to avoid waiting on global memory too often
+		// Note: We assume a local range size of 64 here, this should be supported by most devices.
 		const size_t GROUP_SIZE = 8;
 		celerity::local_accessor<T, 2> scratch_a{{GROUP_SIZE, GROUP_SIZE}, cgh};
 		celerity::local_accessor<T, 2> scratch_b{{GROUP_SIZE, GROUP_SIZE}, cgh};
