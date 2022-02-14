@@ -47,6 +47,10 @@ namespace detail {
 		} else {
 			name = demangled_s;
 		}
+#elif defined(_MSC_VER)
+		if(size_t lastc, id_end; (lastc = name.rfind(":")) != std::string::npos && (id_end = name.find(" ", lastc)) != std::string::npos) {
+			name = name.substr(lastc + 1, id_end - lastc);
+		}
 #endif
 		return name.substr(0, name.length() - 1);
 	}
