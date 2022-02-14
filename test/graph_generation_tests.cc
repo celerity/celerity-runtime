@@ -748,59 +748,6 @@ namespace detail {
 		maybe_print_graphs(ctx);
 	}
 
-	TEST_CASE("graph_generator allows chunks to require empty buffer ranges", "[graph_generator][command-graph]") {
-		using namespace cl::sycl::access;
-
-		test_utils::cdag_test_context ctx(3);
-		auto& inspector = ctx.get_inspector();
-		test_utils::mock_buffer_factory mbf(ctx);
-		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(100));
-		auto buf_b = mbf.create_buffer(cl::sycl::range<1>(100));
-
-		test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-			buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 100}));
-			buf_b.get_access<mode::discard_write>(cgh, fixed<1>({0, 100}));
-		}));
-		const auto tid_b = test_utils::build_and_flush(ctx, 3,
-		    test_utils::add_compute_task<class UKN(task_b)>(
-		        ctx.get_task_manager(),
-		        [&](handler& cgh) {
-			        // NOTE: It's important to construct range-mappers in such a way that passing the
-			        // global size (during tdag generation) still returns the correct result!
-			        buf_a.get_access<mode::read>(cgh, [&](chunk<1> chnk) -> subrange<1> {
-				        switch(chnk.offset[0]) {
-				        case 0: return chnk;
-				        case 34: return chnk;
-				        case 67: return {0, 0}; // Node 2 does not read buffer a
-				        default: CATCH_ERROR("Unexpected offset");
-				        }
-			        });
-			        buf_b.get_access<mode::read>(cgh, [&](chunk<1> chnk) -> subrange<1> {
-				        switch(chnk.offset[0]) {
-				        case 0: return chnk;
-				        case 34: return {0, 0}; // Node 1 does not read buffer b
-				        case 67: return chnk;
-				        default: CATCH_ERROR("Unexpected offset");
-				        }
-			        });
-		        },
-		        cl::sycl::range<1>{100}));
-
-		CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::TASK).size() == 3);
-		const auto computes_node1 = inspector.get_commands(tid_b, node_id(1), command_type::TASK);
-		CHECK(computes_node1.size() == 1);
-		const auto computes_node2 = inspector.get_commands(tid_b, node_id(2), command_type::TASK);
-		CHECK(computes_node2.size() == 1);
-		const auto await_pushes_node1 = inspector.get_commands(std::nullopt, node_id(1), command_type::AWAIT_PUSH);
-		REQUIRE(await_pushes_node1.size() == 1);
-		CHECK(inspector.has_dependency(*computes_node1.cbegin(), *await_pushes_node1.cbegin()));
-		const auto await_pushes_node2 = inspector.get_commands(std::nullopt, node_id(2), command_type::AWAIT_PUSH);
-		REQUIRE(await_pushes_node2.size() == 1);
-		CHECK(inspector.has_dependency(*computes_node2.cbegin(), *await_pushes_node2.cbegin()));
-
-		maybe_print_graphs(ctx);
-	}
-
 	// This is a highly constructed and unrealistic example, but we'd still like the behavior to be clearly defined.
 	TEST_CASE("graph_generator generates anti-dependencies for execution commands that have a task-level true dependency", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
