@@ -2178,7 +2178,7 @@ namespace detail {
 			cgh.parallel_for<class UKN(nd_range_2)>(celerity::nd_range<2>{{64, 64}, {8, 8}}, [](nd_item<2> item) {
 				group_barrier(item.get_group());
 #if !WORKAROUND_COMPUTECPP // no group primitives
-				group_broadcast(item.get_group(), 42, {1, 2});
+				group_broadcast(item.get_group(), 42, 25);
 #endif
 			});
 		}));
