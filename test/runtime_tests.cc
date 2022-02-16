@@ -2163,7 +2163,7 @@ namespace detail {
 	TEST_CASE("handler::parallel_for accepts nd_range", "[handler]") {
 		distr_queue q;
 
-		// Note: be careful about local range sizes here, not all devices support work groups with > 256 elements.
+		// Note: We assume a local range size of 64 here, this should be supported by most devices.
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(nd_range_1)>(celerity::nd_range<1>{{256}, {64}}, [](nd_item<1> item) {
@@ -2206,6 +2206,8 @@ namespace detail {
 		distr_queue q;
 		buffer<int, 1> out{64};
 
+		// Note: We assume a local range size of 32 here, this should be supported by most devices.
+
 		q.submit([=](handler& cgh) {
 			local_accessor<int> la{32, cgh};
 			accessor ga{out, cgh, celerity::access::one_to_one{}, write_only};
@@ -2229,6 +2231,8 @@ namespace detail {
 #if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 
 	TEST_CASE("reductions can be passed into nd_range kernels", "[handler]") {
+		// Note: We assume a local range size of 16 here, this should be supported by most devices.
+
 		buffer<int, 1> b{cl::sycl::range<1>{1}};
 		distr_queue{}.submit([=](handler& cgh) {
 			cgh.parallel_for<class UKN(kernel)>(celerity::nd_range{cl::sycl::range<2>{8, 8}, cl::sycl::range<2>{4, 4}}, reduction(b, cgh, cl::sycl::plus<>{}),
@@ -2242,6 +2246,8 @@ namespace detail {
 
 	TEST_CASE("handler::parallel_for kernel names are optional", "[handler]") {
 		distr_queue q;
+
+		// Note: We assume a local range size of 32 here, this should be supported by most devices.
 
 		// without name
 		q.submit([](handler& cgh) { cgh.parallel_for(cl::sycl::range<1>{64}, [](item<1> item) {}); });

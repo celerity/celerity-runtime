@@ -163,6 +163,8 @@ namespace detail {
 		distr_queue q;
 		auto n = runtime::get_instance().get_num_nodes();
 
+		// Note: We assume a local range size of 165 here, this may not be supported by all devices.
+
 		auto global_range = range_cast<Dims>(cl::sycl::range<3>{n * 4 * 3, 3 * 5, 2 * 11});
 		auto local_range = range_cast<Dims>(cl::sycl::range<3>{3, 5, 11});
 		auto group_range = global_range / local_range;
