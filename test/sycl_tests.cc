@@ -148,4 +148,21 @@ TEST_CASE_METHOD(test_utils::device_queue_fixture, "SYCL can access empty buffer
 	}
 }
 
+#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
+
+TEST_CASE_METHOD(test_utils::device_queue_fixture, "SYCL has working simple scalar reductions", "[sycl][reductions]") {
+	constexpr size_t N = 1024;
+	sycl::buffer<int> buf{1};
+
+	get_device_queue().get_sycl_queue().submit([&](sycl::handler& cgh) {
+		cgh.parallel_for(range<1>{N}, sycl::reduction(buf, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
+		    [](auto, auto& r) { r.combine(1); });
+	});
+
+	sycl::host_accessor acc{buf};
+	CHECK(acc[0] == N);
+}
+
+#endif
+
 } // namespace celerity::detail
