@@ -6,6 +6,8 @@
 
 namespace celerity::detail {
 
+static_assert(std::is_same_v<std::thread::native_handle_type, HANDLE>, "Unexpected native thread handle type");
+
 static inline void set_thread_name_windows(const HANDLE thread_handle, const std::string& name) {
 	const auto wname = std::wstring(name.begin(), name.end());
 	[[maybe_unused]] const auto res = SetThreadDescription(thread_handle, wname.c_str());
