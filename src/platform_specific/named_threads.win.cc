@@ -1,6 +1,7 @@
 #include "named_threads.h"
 
 #include <cassert>
+#include <type_traits>
 
 #include <windows.h>
 
