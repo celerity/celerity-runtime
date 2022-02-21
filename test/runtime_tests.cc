@@ -985,7 +985,7 @@ namespace detail {
 	}
 
 	TEST_CASE("thread names are set", "[threads]") {
-		[[maybe_unused]] distr_queue _; // Implicitly initializes the runtime
+		distr_queue q;
 
 		auto& rt = runtime::get_instance();
 		auto& schdlr = runtime_testspy::get_schdlr(rt);
@@ -1001,6 +1001,14 @@ namespace detail {
 
 		const auto main_thread_name = get_current_thread_name();
 		CHECK(main_thread_name == "main");
+
+		q.submit([](handler& cgh) {
+			cgh.host_task(experimental::collective, [&](experimental::collective_partition) {
+				const auto base_name = std::string("worker");
+				const auto worker_thread_name = get_current_thread_name();
+				CHECK(worker_thread_name.compare(0, base_name.size(), base_name) == 0); // Check thread name starts with "worker"
+			});
+		});
 	}
 
 } // namespace detail

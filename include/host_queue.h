@@ -10,6 +10,7 @@
 #include <mpi.h>
 
 #include "config.h"
+#include "named_threads.h"
 #include "types.h"
 
 namespace celerity {
@@ -159,7 +160,12 @@ namespace detail {
 			MPI_Comm comm;
 			ctpl::thread_pool thread;
 
-			comm_thread(MPI_Comm comm, size_t n_threads) : comm(comm), thread(n_threads) {}
+			comm_thread(MPI_Comm comm, size_t n_threads) : comm(comm), thread(n_threads) {
+				for(size_t i = 0; i < n_threads; ++i) {
+					auto& worker = thread.get_thread(i);
+					set_thread_name(worker, "worker" + std::to_string(i));
+				}
+			}
 		};
 
 		std::unordered_map<collective_group_id, comm_thread> threads;
