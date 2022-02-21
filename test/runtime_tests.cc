@@ -18,6 +18,8 @@
 #include <celerity.h>
 
 #include "affinity.h"
+#include "executor.h"
+#include "named_threads.h"
 #include "ranges.h"
 #include "region_map.h"
 
@@ -40,6 +42,20 @@ namespace detail {
 			auto& buf = bm.buffers.at(bid).device_buf;
 			return {dynamic_cast<device_buffer_storage<DataT, Dims>*>(buf.storage.get())->get_device_buffer(), id_cast<Dims>(buf.offset)};
 		}
+	};
+
+	struct runtime_testspy {
+		static scheduler& get_schdlr(runtime& rt) { return *rt.schdlr; }
+
+		static executor& get_exec(runtime& rt) { return *rt.exec; }
+	};
+
+	struct scheduler_testspy {
+		static std::thread& get_worker_thread(scheduler& schdlr) { return schdlr.worker_thread; }
+	};
+
+	struct executor_testspy {
+		static std::thread& get_exec_thrd(executor& exec) { return exec.exec_thrd; }
 	};
 
 	TEST_CASE("only a single distr_queue can be created", "[distr_queue][lifetime][dx]") {
@@ -966,6 +982,25 @@ namespace detail {
 		q.slow_full_sync();
 
 		CHECK(exterior == std::vector{1, 2});
+	}
+
+	TEST_CASE("thread names are set", "[threads]") {
+		[[maybe_unused]] distr_queue _; // Implicitly initializes the runtime
+
+		auto& rt = runtime::get_instance();
+		auto& schdlr = runtime_testspy::get_schdlr(rt);
+		auto& exec = runtime_testspy::get_exec(rt);
+
+		if(rt.is_master_node()) {
+			const auto scheduler_thread_name = get_thread_name(scheduler_testspy::get_worker_thread(schdlr));
+			CHECK(scheduler_thread_name == "scheduler");
+		}
+
+		const auto executor_thread_name = get_thread_name(executor_testspy::get_exec_thrd(exec));
+		CHECK(executor_thread_name == "executor");
+
+		const auto main_thread_name = get_current_thread_name();
+		CHECK(main_thread_name == "main");
 	}
 
 } // namespace detail

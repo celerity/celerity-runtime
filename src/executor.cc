@@ -5,6 +5,7 @@
 #include "distr_queue.h"
 #include "log.h"
 #include "mpi_support.h"
+#include "named_threads.h"
 
 // TODO: Get rid of this. (This could potentialy even cause deadlocks on large clusters)
 constexpr size_t MAX_CONCURRENT_JOBS = 20;
@@ -30,7 +31,10 @@ namespace detail {
 		metrics.initial_idle.resume();
 	}
 
-	void executor::startup() { exec_thrd = std::thread(&executor::run, this); }
+	void executor::startup() {
+		exec_thrd = std::thread(&executor::run, this);
+		set_thread_name(exec_thrd, "executor");
+	}
 
 	void executor::shutdown() {
 		if(exec_thrd.joinable()) { exec_thrd.join(); }

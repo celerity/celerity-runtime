@@ -197,8 +197,11 @@ set(SOURCES
 
 if(WIN32)
   set(SOURCES ${SOURCES} src/platform_specific/affinity.win.cc)
- elseif(UNIX AND NOT APPLE)
+  set(SOURCES ${SOURCES} src/platform_specific/named_threads.win.cc)
+elseif(UNIX AND NOT APPLE)
   set(SOURCES ${SOURCES} src/platform_specific/affinity.unix.cc)
+elseif(UNIX)
+  set(SOURCES ${SOURCES} src/platform_specific/named_threads.unix.cc)
 endif()
 
 add_library(
