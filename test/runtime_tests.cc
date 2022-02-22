@@ -5,14 +5,6 @@
 #include <memory>
 #include <random>
 
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <Windows.h>
-#else
-#include <pthread.h>
-#endif
-
 #include <catch2/catch.hpp>
 
 #include <celerity.h>
@@ -2321,18 +2313,20 @@ namespace detail {
 	}
 
 
-	TEST_CASE("affinity check", "[affinity]") {
+	TEST_CASE_METHOD(test_utils::affinity_fixture, "affinity check", "[affinity]") {
 #ifdef _WIN32
 		SECTION("in Windows") {
 			DWORD_PTR cpu_mask = 1;
-			SetProcessAffinityMask(GetCurrentProcess(), cpu_mask);
+			const auto ret = SetProcessAffinityMask(GetCurrentProcess(), cpu_mask);
+			REQUIRE(ret != FALSE);
 		}
 #else
 		SECTION("in Posix") {
 			cpu_set_t cpu_mask;
 			CPU_ZERO(&cpu_mask);
 			CPU_SET(0, &cpu_mask);
-			pthread_setaffinity_np(pthread_self(), sizeof(cpu_mask), &cpu_mask);
+			const auto ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_mask), &cpu_mask);
+			REQUIRE(ret == 0);
 		}
 #endif
 		const auto cores = affinity_cores_available();
