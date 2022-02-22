@@ -66,6 +66,8 @@ namespace detail {
 		std::string label = fmt::format("[{}] Node {}:\\n", cmd->get_cid(), cmd->get_nid());
 		if(const auto ecmd = dynamic_cast<const epoch_command*>(cmd)) {
 			label += "EPOCH";
+			if(ecmd->get_epoch_action() == epoch_action::barrier) { label += " (barrier)"; }
+			if(ecmd->get_epoch_action() == epoch_action::shutdown) { label += " (shutdown)"; }
 		} else if(const auto xcmd = dynamic_cast<const execution_command*>(cmd)) {
 			label += fmt::format("EXECUTION {}\\n{}", subrange_to_grid_box(xcmd->get_execution_range()), cmd->debug_label);
 		} else if(const auto pcmd = dynamic_cast<const push_command*>(cmd)) {

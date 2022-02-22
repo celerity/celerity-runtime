@@ -621,6 +621,7 @@ namespace detail {
 
 		test_utils::maybe_print_graph(tm);
 	}
+
 	TEST_CASE("epochs create appropriate dependencies to predecessors and successors", "[task_manager][task-graph][epoch]") {
 		task_manager tm{1, nullptr, nullptr};
 		test_utils::mock_buffer_factory mbf(&tm);
@@ -654,7 +655,6 @@ namespace detail {
 		test_utils::maybe_print_graph(tm);
 	}
 
-
 	TEST_CASE("inserting epochs resets the need for horizons", "[task_manager][task-graph][task-horizon][epoch]") {
 		task_manager tm{1, nullptr, nullptr};
 		tm.set_horizon_step(2);
@@ -667,6 +667,25 @@ namespace detail {
 		}
 
 		CHECK(task_manager_testspy::get_num_horizons(tm) == 0);
+
+		test_utils::maybe_print_graph(tm);
+	}
+
+	TEST_CASE("a sequence of epochs without intermediate tasks has defined behavior", "[task_manager][task-graph][epoch]") {
+		task_manager tm{1, nullptr, nullptr};
+
+		auto tid_before = task_manager::initial_epoch_task;
+		for(const auto action : {epoch_action::barrier, epoch_action::shutdown}) {
+			const auto tid = tm.finish_epoch(action);
+			CAPTURE(tid_before, tid);
+			const auto deps = tm.get_task(tid)->get_dependencies();
+			CHECK(std::distance(deps.begin(), deps.end()) == 1);
+			for(const auto& d : deps) {
+				CHECK(d.kind == dependency_kind::TRUE_DEP);
+				CHECK(d.node->get_id() == tid_before);
+			}
+			tid_before = tid;
+		}
 
 		test_utils::maybe_print_graph(tm);
 	}
