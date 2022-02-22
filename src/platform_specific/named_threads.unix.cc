@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <type_traits>
+#include <vector>
 
 #include <pthread.h>
 
@@ -19,10 +20,10 @@ static inline void set_thread_name_unix(const pthread_t thread_handle, const std
 }
 
 static inline std::string get_thread_name_unix(const pthread_t thread_handle) {
-	auto name = std::string(PTHREAD_MAX_THREAD_NAME_LEN, '\0');
+	auto name = std::vector<char>(PTHREAD_MAX_THREAD_NAME_LEN, '\0');
 	[[maybe_unused]] const auto res = pthread_getname_np(thread_handle, name.data(), name.size());
 	assert(res == 0 && "Failed to get thread name");
-	return name.c_str(); // Strip null terminator
+	return name.data(); // Strip null terminator
 }
 
 void set_thread_name(std::thread& thread, const std::string& name) {
