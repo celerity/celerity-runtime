@@ -24,6 +24,14 @@ namespace detail {
 		}
 	}
 
+	template <typename Conflict>
+	const char* conflict_style(const Conflict& cf) {
+		switch(cf.origin) {
+		case conflict_origin::collective_group: return "dir=none,color=blue";
+		default: return "dir=none";
+		}
+	}
+
 	std::string get_task_label(const task* tsk) {
 		switch(tsk->get_type()) {
 		case task_type::epoch: return fmt::format("Task {} (epoch)", tsk->get_id());
@@ -53,6 +61,11 @@ namespace detail {
 
 			for(auto d : tsk->get_dependencies()) {
 				ss << fmt::format("{} -> {} [{}];", d.node->get_id(), tsk->get_id(), dependency_style(d));
+			}
+			for(auto c : tsk->get_conflicts()) {
+				if(c.node->get_id() < tsk->get_id()) { // Conflicts exist in both directions, do not print twice
+					ss << fmt::format("{} -> {} [{}];", c.node->get_id(), tsk->get_id(), conflict_style(c));
+				}
 			}
 		}
 
@@ -125,6 +138,11 @@ namespace detail {
 
 			for(auto d : cmd->get_dependencies()) {
 				main_ss << fmt::format("{} -> {} [{}];", d.node->get_cid(), cmd->get_cid(), dependency_style(d));
+			}
+			for(auto c : cmd->get_conflicts()) {
+				if(c.node->get_cid() < cmd->get_cid()) { // Conflicts exist in both directions, do not print twice
+					main_ss << fmt::format("{} -> {} [{}];", c.node->get_cid(), cmd->get_cid(), conflict_style(c));
+				}
 			}
 
 			// Add a dashed line to the corresponding push

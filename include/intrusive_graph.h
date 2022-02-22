@@ -23,6 +23,11 @@ namespace detail {
 		last_epoch,                     // nodes without other true-dependencies require an edge to the last epoch for temporal ordering
 	};
 
+	enum class conflict_origin {
+		collective_group,
+		side_effect_order,
+	};
+
 	// TODO: Move to utility header..?
 	template <typename Iterator>
 	class iterable_range {
@@ -53,6 +58,11 @@ namespace detail {
 
 		using dependent = dependency;
 
+		struct conflict {
+			T* node;
+			conflict_origin origin;
+		};
+
 	  public:
 		intrusive_graph_node() { static_assert(std::is_base_of<intrusive_graph_node<T>, T>::value, "T must be child class (CRTP)"); }
 
@@ -72,6 +82,14 @@ namespace detail {
 				    std::find_if(static_cast<intrusive_graph_node*>(dep.node)->m_dependents.begin(), dep_it_end, [&](auto d) { return d.node == this; });
 				assert(this_it != dep_it_end);
 				static_cast<intrusive_graph_node*>(dep.node)->m_dependents.erase(this_it);
+			}
+
+			for(auto& dep : m_conflicts) {
+				auto cf_it_end = static_cast<intrusive_graph_node*>(dep.node)->m_conflicts.end();
+				auto this_it =
+				    std::find_if(static_cast<intrusive_graph_node*>(dep.node)->m_conflicts.begin(), cf_it_end, [&](auto cf) { return cf.node == this; });
+				assert(this_it != cf_it_end);
+				static_cast<intrusive_graph_node*>(dep.node)->m_conflicts.erase(this_it);
 			}
 		}
 
@@ -102,8 +120,10 @@ namespace detail {
 			m_dependencies.emplace_back(dep);
 			dep.node->m_dependents.emplace_back(dependent{static_cast<T*>(this), dep.kind, dep.origin});
 
-			m_pseudo_critical_path_length =
-			    std::max(m_pseudo_critical_path_length, static_cast<intrusive_graph_node*>(dep.node)->m_pseudo_critical_path_length + 1);
+			m_pseudo_critical_path_length = std::max(m_pseudo_critical_path_length, dep.node->m_pseudo_critical_path_length + 1);
+
+			// True dependencies serialize execution, so they subsume conflicts
+			if(dep.kind == dependency_kind::true_dep) { remove_conflict(dep.node); }
 		}
 
 		void remove_dependency(T* node) {
@@ -136,9 +156,33 @@ namespace detail {
 
 		int get_pseudo_critical_path_length() const { return m_pseudo_critical_path_length; }
 
+		void add_conflict(conflict cf) {
+			if(!has_conflict(cf.node) && !has_dependency(cf.node, dependency_kind::true_dep) && !has_dependent(cf.node, dependency_kind::true_dep)) {
+				assert(!cf.node->has_conflict(static_cast<T*>(this)));
+				m_conflicts.push_back(cf);
+				cf.node->m_conflicts.push_back(conflict{static_cast<T*>(this), cf.origin});
+			}
+		}
+
+		void remove_conflict(T* const node) {
+			constexpr auto remove_conflict_direction = [](intrusive_graph_node* const from, intrusive_graph_node* const to) {
+				const auto remove_begin = std::remove_if(from->m_conflicts.begin(), from->m_conflicts.end(), [=](const conflict& cf) { return cf.node == to; });
+				from->m_conflicts.erase(remove_begin, from->m_conflicts.end());
+			};
+			remove_conflict_direction(this, node);
+			remove_conflict_direction(node, this);
+		}
+
+		bool has_conflict(const T* const node) const {
+			return std::find_if(m_conflicts.begin(), m_conflicts.end(), [&](const conflict& cf) { return cf.node == node; }) != m_conflicts.end();
+		}
+
+		auto get_conflicts() const { return iterable_range{m_conflicts.begin(), m_conflicts.end()}; }
+
 	  private:
 		gch::small_vector<dependency> m_dependencies;
 		gch::small_vector<dependent> m_dependents;
+		gch::small_vector<conflict> m_conflicts;
 
 		// This only (potentially) grows when adding dependencies,
 		// it never shrinks and does not take into account later changes further up in the dependency chain
