@@ -18,6 +18,8 @@ namespace detail {
 	using celerity::access::all;
 	using celerity::access::fixed;
 
+	bool has_conflict(const task_manager& tm, const task_id a, const task_id b) { return tm.get_task(a)->has_conflict(tm.get_task(b)); }
+
 	TEST_CASE("task_manager does not create multiple dependencies between the same tasks", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
 
@@ -247,7 +249,7 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE("task_manager generates pseudo-dependencies for collective host tasks", "[task_manager][task-graph]") {
+	TEST_CASE("task_manager generates conflicts for collective host tasks", "[task_manager][task-graph]") {
 		task_manager tm{1, nullptr, nullptr};
 		experimental::collective_group group;
 		auto tid_master = test_utils::add_host_task(tm, on_master_node, [](handler&) {});
@@ -255,6 +257,8 @@ namespace detail {
 		auto tid_collective_implicit_2 = test_utils::add_host_task(tm, experimental::collective, [](handler&) {});
 		auto tid_collective_explicit_1 = test_utils::add_host_task(tm, experimental::collective(group), [](handler&) {});
 		auto tid_collective_explicit_2 = test_utils::add_host_task(tm, experimental::collective(group), [](handler&) {});
+
+		test_utils::maybe_print_graph(tm);
 
 		CHECK_FALSE(has_any_dependency(tm, tid_master, tid_collective_implicit_1));
 		CHECK_FALSE(has_any_dependency(tm, tid_master, tid_collective_implicit_2));
@@ -267,7 +271,7 @@ namespace detail {
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_1, tid_collective_explicit_2));
 
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_2, tid_master));
-		CHECK(has_dependency(tm, tid_collective_implicit_2, tid_collective_implicit_1, dependency_kind::true_dep));
+		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_2, tid_collective_implicit_1));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_2, tid_collective_explicit_1));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_2, tid_collective_explicit_2));
 
@@ -279,7 +283,18 @@ namespace detail {
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_explicit_2, tid_master));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_explicit_2, tid_collective_implicit_1));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_explicit_2, tid_collective_implicit_2));
-		CHECK(has_dependency(tm, tid_collective_explicit_2, tid_collective_explicit_1, dependency_kind::true_dep));
+		CHECK_FALSE(has_any_dependency(tm, tid_collective_explicit_2, tid_collective_explicit_1));
+
+		CHECK(has_conflict(tm, tid_collective_implicit_2, tid_collective_implicit_1));
+		CHECK(has_conflict(tm, tid_collective_explicit_2, tid_collective_explicit_1));
+		CHECK_FALSE(has_conflict(tm, tid_collective_implicit_1, tid_master));
+		CHECK_FALSE(has_conflict(tm, tid_collective_implicit_2, tid_master));
+		CHECK_FALSE(has_conflict(tm, tid_collective_explicit_1, tid_master));
+		CHECK_FALSE(has_conflict(tm, tid_collective_explicit_2, tid_master));
+		CHECK_FALSE(has_conflict(tm, tid_collective_implicit_1, tid_collective_explicit_1));
+		CHECK_FALSE(has_conflict(tm, tid_collective_implicit_1, tid_collective_explicit_2));
+		CHECK_FALSE(has_conflict(tm, tid_collective_implicit_2, tid_collective_explicit_1));
+		CHECK_FALSE(has_conflict(tm, tid_collective_implicit_2, tid_collective_explicit_2));
 	}
 
 	void check_path_length_and_front(task_manager& tm, int path_length, std::unordered_set<task_id> exec_front) {
@@ -513,6 +528,8 @@ namespace detail {
 		const auto second_collective =
 		    test_utils::add_host_task(tm, experimental::collective, [&](handler& cgh) { buf.get_access<access_mode::read>(cgh, all{}); });
 
+		test_utils::maybe_print_graph(tm);
+
 		const auto second_collective_deps = tm.get_task(second_collective)->get_dependencies();
 		const auto master_node_dep = std::find_if(second_collective_deps.begin(), second_collective_deps.end(),
 		    [](const task::dependency d) { return d.node->get_type() == task_type::master_node; });
@@ -524,8 +541,6 @@ namespace detail {
 		CHECK(master_node_dep->kind == dependency_kind::true_dep);
 		REQUIRE(horizon_dep != second_collective_deps.end());
 		CHECK(horizon_dep->kind == dependency_kind::true_dep);
-
-		test_utils::maybe_print_graph(tm);
 	}
 
 	TEST_CASE("buffer accesses with empty ranges do not generate data-flow dependencies", "[task_manager][task-graph]") {
@@ -688,6 +703,66 @@ namespace detail {
 		}
 
 		test_utils::maybe_print_graph(tm);
+	}
+
+	TEST_CASE("collective groups create closed conflict sets separated by epochs", "[task_manager][task-graph]") {
+		using namespace std::string_literals;
+
+		task_manager tm{1, nullptr, nullptr};
+
+		const auto tid_epoch_a = task_manager::initial_epoch_task;
+
+		const auto tid_1_a = test_utils::add_host_task(tm, experimental::collective, [](handler&) {});
+		const auto tid_1_b = test_utils::add_host_task(tm, experimental::collective, [](handler&) {});
+		const auto tid_1_c = test_utils::add_host_task(tm, experimental::collective, [](handler&) {});
+		const std::array tid_group_1{tid_1_a, tid_1_b, tid_1_c};
+
+		const auto tid_epoch_b = tm.generate_epoch_task(epoch_action::barrier);
+
+		const auto tid_2_a = test_utils::add_host_task(tm, experimental::collective, [](handler&) {});
+		const auto tid_2_b = test_utils::add_host_task(tm, experimental::collective, [](handler&) {});
+		const auto tid_2_c = test_utils::add_host_task(tm, experimental::collective, [](handler&) {});
+		const std::array tid_group_2{tid_2_a, tid_2_b, tid_2_c};
+
+		const auto tid_epoch_c = tm.generate_epoch_task(epoch_action::shutdown);
+		const std::array tid_group_epochs{tid_epoch_a, tid_epoch_b, tid_epoch_c};
+
+		const std::array tid_groups{std::tuple{"1"s, tid_group_1}, std::tuple{"2"s, tid_group_2}, std::tuple{"epochs"s, tid_group_epochs}};
+
+		test_utils::maybe_print_graph(tm);
+
+		{
+			INFO("all tasks within one collective group are in conflict");
+			for(const auto& [group_id, tid_group] : tid_groups) {
+				if(group_id != "epochs") {
+					CAPTURE(group_id);
+					for(const auto tid_u : tid_group) {
+						for(const auto tid_v : tid_group) {
+							if(tid_v != tid_u) {
+								CAPTURE(tid_u, tid_v);
+								CHECK(has_conflict(tm, tid_u, tid_v));
+							}
+						}
+					}
+				}
+			}
+		}
+
+		{
+			INFO("no other conflicts exist");
+			for(const auto& [group_u_id, tid_group_u] : tid_groups) {
+				for(const auto& [group_v_id, tid_group_v] : tid_groups) {
+					if(group_u_id != group_v_id) {
+						CAPTURE(group_u_id, group_v_id);
+						for(const auto tid_u : tid_group_u) {
+							for(const auto tid_v : tid_group_v) {
+								CHECK(!has_conflict(tm, tid_u, tid_v));
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 } // namespace detail
