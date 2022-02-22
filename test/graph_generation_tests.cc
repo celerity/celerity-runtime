@@ -698,6 +698,31 @@ namespace detail {
 		maybe_print_graphs(ctx);
 	}
 
+	TEST_CASE("a sequence of epochs without intermediate commands has defined behavior", "[graph_generator][command-graph][epoch]") {
+		const size_t num_nodes = 2;
+		test_utils::cdag_test_context ctx(num_nodes);
+		auto& tm = ctx.get_task_manager();
+		auto& inspector = ctx.get_inspector();
+		auto& cdag = ctx.get_command_graph();
+
+		auto tid_before = task_manager::initial_epoch_task;
+		for(const auto action : {epoch_action::barrier, epoch_action::shutdown}) {
+			const auto tid = test_utils::build_and_flush(ctx, num_nodes, tm.finish_epoch(action));
+			CAPTURE(tid_before, tid);
+			for(const auto cid : inspector.get_commands(tid, std::nullopt, std::nullopt)) {
+				CAPTURE(cid);
+				const auto deps = cdag.get(cid)->get_dependencies();
+				CHECK(std::distance(deps.begin(), deps.end()) == 1);
+				for(const auto& d : deps) {
+					CHECK(d.kind == dependency_kind::TRUE_DEP);
+					CHECKED_IF(isa<task_command>(d.node)) { CHECK(static_cast<task_command*>(d.node)->get_tid() == tid_before); }
+				}
+			}
+			tid_before = tid;
+		}
+
+		maybe_print_graphs(ctx);
+	}
 
 } // namespace detail
 } // namespace celerity
