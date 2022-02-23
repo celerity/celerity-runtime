@@ -1,4 +1,5 @@
 #include "task.h"
+#include "side_effect.h"
 
 #include <algorithm>
 

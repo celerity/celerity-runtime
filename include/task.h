@@ -14,6 +14,12 @@ namespace celerity {
 
 class handler;
 
+namespace experimental {
+
+	enum class side_effect_order;
+
+}
+
 namespace detail {
 
 	enum class task_type {

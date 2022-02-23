@@ -2,6 +2,7 @@
 
 #include "access_modes.h"
 #include "print_graph.h"
+#include "side_effect.h"
 
 namespace celerity {
 namespace detail {

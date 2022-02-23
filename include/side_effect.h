@@ -10,6 +10,8 @@
 
 namespace celerity::experimental {
 
+enum class side_effect_order { relaxed, exclusive, sequential };
+
 /**
  * Provides access to a `host_object` through capture in a `host_task`. Inside the host task kernel, the internal state of the host object can be accessed
  * through the `*` or `->` operators. This behavior is similar to accessors on buffers.

@@ -11,6 +11,8 @@
 
 namespace celerity::experimental {
 
+enum class side_effect_order;
+
 template <typename T>
 class host_object;
 
