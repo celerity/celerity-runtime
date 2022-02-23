@@ -60,8 +60,14 @@ namespace detail {
 	}
 
 	void side_effect_map::add_side_effect(const host_object_id hoid, const experimental::side_effect_order order) {
-		// TODO for multiple side effects on the same hoid, find the weakest order satisfying all of them
-		emplace(hoid, order);
+		if(auto it = unordered_map::find(hoid); it != end()) {
+			using seo = experimental::side_effect_order;
+			// stronger orders subsume weaker ones and have higher integral enum value, so we can use std::max
+			static_assert(seo::exclusive > seo::relaxed && seo::sequential > seo::exclusive);
+			it->second = std::max(it->second, order);
+		} else {
+			emplace(hoid, order);
+		}
 	}
 } // namespace detail
 } // namespace celerity

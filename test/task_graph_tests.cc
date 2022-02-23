@@ -20,6 +20,22 @@ namespace detail {
 
 	bool has_conflict(const task_manager& tm, const task_id a, const task_id b) { return tm.get_task(a)->has_conflict(tm.get_task(b)); }
 
+	std::set<task_id> get_conflict_tids(const task_manager& tm, const task_id this_tid) {
+		std::set<task_id> conflict_tids;
+		for(const auto& cf : tm.get_task(this_tid)->get_conflicts()) {
+			conflict_tids.insert(cf.node->get_id());
+		}
+		return conflict_tids;
+	}
+
+	std::set<task_id> get_dependency_tids(const task_manager& tm, const task_id this_tid) {
+		std::set<task_id> dependency_tids;
+		for(const auto& dep : tm.get_task(this_tid)->get_dependencies()) {
+			dependency_tids.insert(dep.node->get_id());
+		}
+		return dependency_tids;
+	}
+
 	TEST_CASE("task_manager does not create multiple dependencies between the same tasks", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
 
@@ -763,6 +779,83 @@ namespace detail {
 				}
 			}
 		}
+	}
+
+	TEST_CASE("side effects of different order create appropriate task conflict sets", "[task_manager][task-graph][side-effect]") {
+		using seo = experimental::side_effect_order;
+
+		task_manager tm{1, nullptr, nullptr};
+		tm.set_horizon_step(std::numeric_limits<int>::max()); // do not generate horizons
+
+		test_utils::mock_host_object_factory mhof;
+		auto ho = mhof.create_host_object();
+
+		const auto add_task_with_side_effect = [&](seo order) {
+			return test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, order); });
+		};
+
+		const auto tid_0_epoch = task_manager::initial_epoch_task;
+
+		const auto tid_1_exclusive_1 = add_task_with_side_effect(seo::exclusive);
+		const auto tid_1_relaxed_1 = add_task_with_side_effect(seo::relaxed);
+		const auto tid_1_relaxed_2 = add_task_with_side_effect(seo::relaxed);
+		const auto tid_1_exclusive_2 = add_task_with_side_effect(seo::exclusive);
+
+		const auto tid_12_sequential = add_task_with_side_effect(seo::sequential);
+
+		const auto tid_2_exclusive_1 = add_task_with_side_effect(seo::exclusive);
+		const auto tid_2_relaxed_1 = add_task_with_side_effect(seo::relaxed);
+		const auto tid_2_relaxed_2 = add_task_with_side_effect(seo::relaxed);
+		const auto tid_2_exclusive_2 = add_task_with_side_effect(seo::exclusive);
+
+		const auto tid_23_sequential = add_task_with_side_effect(seo::sequential);
+
+		const auto tid_3_exclusive_1 = add_task_with_side_effect(seo::exclusive);
+		const auto tid_3_relaxed_1 = add_task_with_side_effect(seo::relaxed);
+		const auto tid_3_relaxed_2 = add_task_with_side_effect(seo::relaxed);
+		const auto tid_3_exclusive_2 = add_task_with_side_effect(seo::exclusive);
+
+		const auto tid_4_epoch = tm.generate_epoch_task(epoch_action::shutdown);
+
+		test_utils::maybe_print_graph(tm);
+
+		CHECK(get_conflict_tids(tm, tid_0_epoch).empty());
+
+		for(const auto tid_1 : {tid_1_exclusive_1, tid_1_exclusive_2, tid_1_relaxed_1, tid_1_relaxed_2}) {
+			CAPTURE(tid_1);
+			CHECK(get_dependency_tids(tm, tid_1) == std::set{tid_0_epoch});
+		}
+
+		CHECK(get_conflict_tids(tm, tid_1_exclusive_1) == std::set{tid_1_exclusive_2, tid_1_relaxed_1, tid_1_relaxed_2});
+		CHECK(get_conflict_tids(tm, tid_1_exclusive_2) == std::set{tid_1_exclusive_1, tid_1_relaxed_1, tid_1_relaxed_2});
+		CHECK(get_conflict_tids(tm, tid_1_relaxed_1) == std::set{tid_1_exclusive_1, tid_1_exclusive_2});
+		CHECK(get_conflict_tids(tm, tid_1_relaxed_2) == std::set{tid_1_exclusive_1, tid_1_exclusive_2});
+
+		CHECK(get_dependency_tids(tm, tid_12_sequential) == std::set{tid_1_exclusive_1, tid_1_exclusive_2, tid_1_relaxed_1, tid_1_relaxed_2});
+
+		for(const auto tid_2 : {tid_2_exclusive_1, tid_2_exclusive_2, tid_2_relaxed_1, tid_2_relaxed_2}) {
+			CAPTURE(tid_2);
+			CHECK(get_dependency_tids(tm, tid_2) == std::set{tid_12_sequential});
+		}
+
+		CHECK(get_conflict_tids(tm, tid_2_exclusive_1) == std::set{tid_2_exclusive_2, tid_2_relaxed_1, tid_2_relaxed_2});
+		CHECK(get_conflict_tids(tm, tid_2_exclusive_2) == std::set{tid_2_exclusive_1, tid_2_relaxed_1, tid_2_relaxed_2});
+		CHECK(get_conflict_tids(tm, tid_2_relaxed_1) == std::set{tid_2_exclusive_1, tid_2_exclusive_2});
+		CHECK(get_conflict_tids(tm, tid_2_relaxed_2) == std::set{tid_2_exclusive_1, tid_2_exclusive_2});
+
+		CHECK(get_dependency_tids(tm, tid_23_sequential) == std::set{tid_2_exclusive_1, tid_2_exclusive_2, tid_2_relaxed_1, tid_2_relaxed_2});
+
+		for(const auto tid_3 : {tid_3_exclusive_1, tid_3_exclusive_2, tid_3_relaxed_1, tid_3_relaxed_2}) {
+			CAPTURE(tid_3);
+			CHECK(get_dependency_tids(tm, tid_3) == std::set{tid_23_sequential});
+		}
+
+		CHECK(get_conflict_tids(tm, tid_3_exclusive_1) == std::set{tid_3_exclusive_2, tid_3_relaxed_1, tid_3_relaxed_2});
+		CHECK(get_conflict_tids(tm, tid_3_exclusive_2) == std::set{tid_3_exclusive_1, tid_3_relaxed_1, tid_3_relaxed_2});
+		CHECK(get_conflict_tids(tm, tid_3_relaxed_1) == std::set{tid_3_exclusive_1, tid_3_exclusive_2});
+		CHECK(get_conflict_tids(tm, tid_3_relaxed_2) == std::set{tid_3_exclusive_1, tid_3_exclusive_2});
+
+		CHECK(get_dependency_tids(tm, tid_4_epoch) == std::set{tid_3_exclusive_1, tid_3_exclusive_2, tid_3_relaxed_1, tid_3_relaxed_2});
 	}
 
 } // namespace detail

@@ -58,9 +58,17 @@ namespace detail {
 		using buffer_state_map = std::unordered_map<buffer_id, buffer_state>;
 		using buffer_read_map = std::unordered_map<buffer_id, GridRegion<3>>;
 		using buffer_writer_map = std::unordered_map<buffer_id, region_map<std::optional<command_id>>>;
-		using side_effect_map = std::unordered_map<host_object_id, command_id>;
 
 		struct per_node_data {
+			struct collective_group_state {
+				std::optional<command_id> last_collective_command_or_epoch;
+			};
+
+			struct host_object_state {
+				std::optional<command_id> last_serializing_effect_or_epoch;
+				std::unordered_map<command_id, experimental::side_effect_order> active_concurrent_set;
+			};
+
 			// The most recent horizon command. Depends on the previous execution front and will become the epoch_for_new_tasks once the next horizon is
 			// generated.
 			std::optional<command_id> current_horizon;
@@ -73,9 +81,9 @@ namespace detail {
 			buffer_writer_map buffer_last_writer;
 			// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
 			// they are executed in the same order on every node.
-			std::unordered_map<collective_group_id, command_id> last_collective_commands;
+			std::unordered_map<collective_group_id, collective_group_state> collective_groups;
 			// Side effects on the same host object create true dependencies between task commands, so we track the last effect per host object on each node.
-			side_effect_map host_object_last_effects;
+			std::unordered_map<host_object_id, host_object_state> host_objects;
 		};
 
 	  public:

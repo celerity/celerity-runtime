@@ -6,8 +6,10 @@
 #include "command.h"
 #include "command_graph.h"
 #include "graph_transformer.h"
+#include "side_effect.h"
 #include "task.h"
 #include "task_manager.h"
+
 
 namespace celerity {
 namespace detail {
@@ -104,11 +106,20 @@ namespace detail {
 				return {std::max(epoch, *cid)};
 			});
 		}
-		for(auto& [cgid, cid] : node.last_collective_commands) {
-			cid = std::max(epoch, cid);
+		for(auto& [_, cg] : node.collective_groups) {
+			if(cg.last_collective_command_or_epoch) { cg.last_collective_command_or_epoch = std::max(*cg.last_collective_command_or_epoch, epoch); }
 		}
-		for(auto& [cgid, cid] : node.host_object_last_effects) {
-			cid = std::max(epoch, cid);
+		// this loop is an exact duplicate from task_manager::set_current_epoch
+		for(auto& [_, ho] : node.host_objects) {
+			if(ho.last_serializing_effect_or_epoch) { ho.last_serializing_effect_or_epoch = std::max(*ho.last_serializing_effect_or_epoch, epoch); }
+			for(auto it = ho.active_concurrent_set.begin(); it != ho.active_concurrent_set.end();) {
+				if(it->first < epoch) {
+					ho.last_serializing_effect_or_epoch = epoch;
+					it = ho.active_concurrent_set.erase(it);
+				} else {
+					++it;
+				}
+			}
 		}
 
 		node.epoch_for_new_commands = epoch;
@@ -186,12 +197,12 @@ namespace detail {
 			// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
 			// they are executed in the same order on every node.
 			auto cgid = tsk.get_collective_group_id();
-			auto& last_collective_commands = m_node_data.at(nid).last_collective_commands;
-			if(auto prev = last_collective_commands.find(cgid); prev != last_collective_commands.end()) {
-				m_cdag.add_dependency(cmd, m_cdag.get(prev->second), dependency_kind::true_dep, dependency_origin::collective_group_serialization);
-				last_collective_commands.erase(prev);
+			auto& collective_group = m_node_data.at(nid).collective_groups[cgid];
+			if(collective_group.last_collective_command_or_epoch) {
+				m_cdag.add_dependency(cmd, m_cdag.get(*collective_group.last_collective_command_or_epoch), dependency_kind::true_dep,
+				    dependency_origin::collective_group_serialization);
 			}
-			last_collective_commands.emplace(cgid, cmd->get_cid());
+			collective_group.last_collective_command_or_epoch = cmd->get_cid();
 		}
 	}
 
@@ -592,18 +603,30 @@ namespace detail {
 		for(const auto cmd : m_cdag.task_commands(tid)) {
 			auto& nd = m_node_data.at(cmd->get_nid());
 
+			// TODO this is almost a perfect copy from task_manager::compute_dependencies
 			for(const auto& side_effect : tsk.get_side_effect_map()) {
 				const auto [hoid, order] = side_effect;
-				if(const auto last_effect = nd.host_object_last_effects.find(hoid); last_effect != nd.host_object_last_effects.end()) {
-					// TODO once we have different side_effect_orders, their interaction will determine the dependency kind
-					m_cdag.add_dependency(cmd, m_cdag.get(last_effect->second), dependency_kind::true_dep, dependency_origin::dataflow);
+				auto& ho = nd.host_objects[hoid];
+				if(ho.last_serializing_effect_or_epoch && (order != experimental::side_effect_order::sequential || ho.active_concurrent_set.empty())) {
+					m_cdag.add_dependency(cmd, m_cdag.get(*ho.last_serializing_effect_or_epoch), dependency_kind::true_dep, dependency_origin::dataflow);
+				}
+				if(order == experimental::side_effect_order::sequential) {
+					for(const auto [earlier_cid, weaker_order] : ho.active_concurrent_set) {
+						assert(weaker_order < experimental::side_effect_order::sequential);
+						m_cdag.add_dependency(cmd, m_cdag.get(earlier_cid), dependency_kind::true_dep, dependency_origin::dataflow);
+					}
+					ho.active_concurrent_set.clear();
+					ho.last_serializing_effect_or_epoch = cmd->get_cid();
+				} else {
+					for(const auto [concurrent_cid, concurrent_order] : ho.active_concurrent_set) {
+						if(order == experimental::side_effect_order::exclusive || concurrent_order == experimental::side_effect_order::exclusive) {
+							cmd->add_conflict({m_cdag.get(concurrent_cid), conflict_origin::side_effect_order});
+						}
+					}
+					ho.active_concurrent_set.emplace(cmd->get_cid(), order);
 				}
 
-				// Simplification: If there are multiple chunks per node, we generate true-dependencies between them in an arbitrary order, when all we really
-				// need is mutual exclusion (i.e. a bi-directional pseudo-dependency).
-				nd.host_object_last_effects.insert_or_assign(hoid, cmd->get_cid());
-
-				cmd->debug_label += fmt::format("affect host-object {}\\n", hoid);
+				cmd->debug_label += fmt::format("{} side-effect on {}\\n", order, hoid);
 			}
 		}
 	}

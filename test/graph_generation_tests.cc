@@ -19,6 +19,30 @@ namespace detail {
 	using celerity::access::fixed;
 	using celerity::access::one_to_one;
 
+	command_id get_single_task_command(const test_utils::cdag_inspector& inspector, const task_id tid, const node_id nid) {
+		CAPTURE(tid, nid);
+		const auto cmds = inspector.get_commands(tid, nid, std::nullopt);
+		REQUIRE(cmds.size() == 1);
+		return *cmds.begin();
+	}
+
+	std::set<command_id> get_conflict_cids(command_graph& cdag, const command_id this_cid) {
+		std::set<command_id> conflict_cids;
+		for(const auto& cf : cdag.get(this_cid)->get_conflicts()) {
+			conflict_cids.insert(cf.node->get_cid());
+		}
+		return conflict_cids;
+	}
+
+	std::set<command_id> get_dependency_cids(command_graph& cdag, const command_id this_cid) {
+		std::set<command_id> dependency_cids;
+		for(const auto& dep : cdag.get(this_cid)->get_dependencies()) {
+			dependency_cids.insert(dep.node->get_cid());
+		}
+		return dependency_cids;
+	}
+
+
 	TEST_CASE("command_graph keeps track of created commands", "[command_graph][command-graph]") {
 		command_graph cdag;
 		auto cmd0 = cdag.create<execution_command>(0, 0, subrange<3>{});
@@ -790,6 +814,105 @@ namespace detail {
 		}
 
 		CHECK(commands_after_epoch == transitive_dependents);
+	}
+
+	TEST_CASE("side effects of different order create appropriate graph conflict sets", "[task_manager][task-graph][side-effect]") {
+		using seo = experimental::side_effect_order;
+
+		const size_t num_nodes = 2;
+		test_utils::cdag_test_context ctx(num_nodes);
+		auto& tm = ctx.get_task_manager();
+		tm.set_horizon_step(std::numeric_limits<int>::max()); // do not generate horizons
+
+		test_utils::mock_host_object_factory mhof;
+		auto ho = mhof.create_host_object();
+
+		const auto build_and_flush_task_with_side_effect = [&](seo order) {
+			return test_utils::build_and_flush(
+			    ctx, num_nodes, test_utils::add_host_task(tm, range<1>{num_nodes}, [&](handler& cgh) { ho.add_side_effect(cgh, order); }));
+		};
+
+		const auto tid_0_epoch = task_manager::initial_epoch_task;
+
+		const auto tid_1_exclusive_1 = build_and_flush_task_with_side_effect(seo::exclusive);
+		const auto tid_1_relaxed_1 = build_and_flush_task_with_side_effect(seo::relaxed);
+		const auto tid_1_relaxed_2 = build_and_flush_task_with_side_effect(seo::relaxed);
+		const auto tid_1_exclusive_2 = build_and_flush_task_with_side_effect(seo::exclusive);
+
+		const auto tid_12_sequential = build_and_flush_task_with_side_effect(seo::sequential);
+
+		const auto tid_2_exclusive_1 = build_and_flush_task_with_side_effect(seo::exclusive);
+		const auto tid_2_relaxed_1 = build_and_flush_task_with_side_effect(seo::relaxed);
+		const auto tid_2_relaxed_2 = build_and_flush_task_with_side_effect(seo::relaxed);
+		const auto tid_2_exclusive_2 = build_and_flush_task_with_side_effect(seo::exclusive);
+
+		const auto tid_23_sequential = build_and_flush_task_with_side_effect(seo::sequential);
+
+		const auto tid_3_exclusive_1 = build_and_flush_task_with_side_effect(seo::exclusive);
+		const auto tid_3_relaxed_1 = build_and_flush_task_with_side_effect(seo::relaxed);
+		const auto tid_3_relaxed_2 = build_and_flush_task_with_side_effect(seo::relaxed);
+		const auto tid_3_exclusive_2 = build_and_flush_task_with_side_effect(seo::exclusive);
+
+		const auto tid_4_epoch = test_utils::build_and_flush(ctx, num_nodes, tm.generate_epoch_task(epoch_action::shutdown));
+
+		maybe_print_graphs(ctx);
+
+		auto& inspector = ctx.get_inspector();
+		auto& cdag = ctx.get_command_graph();
+
+		for(node_id nid = 0; nid < num_nodes; ++nid) {
+			const auto cid_1_exclusive_1 = get_single_task_command(inspector, tid_1_exclusive_1, nid);
+			const auto cid_1_relaxed_1 = get_single_task_command(inspector, tid_1_relaxed_1, nid);
+			const auto cid_1_relaxed_2 = get_single_task_command(inspector, tid_1_relaxed_2, nid);
+			const auto cid_1_exclusive_2 = get_single_task_command(inspector, tid_1_exclusive_2, nid);
+
+			const auto cid_12_sequential = get_single_task_command(inspector, tid_12_sequential, nid);
+
+			const auto cid_2_exclusive_1 = get_single_task_command(inspector, tid_2_exclusive_1, nid);
+			const auto cid_2_relaxed_1 = get_single_task_command(inspector, tid_2_relaxed_1, nid);
+			const auto cid_2_relaxed_2 = get_single_task_command(inspector, tid_2_relaxed_2, nid);
+			const auto cid_2_exclusive_2 = get_single_task_command(inspector, tid_2_exclusive_2, nid);
+
+			const auto cid_23_sequential = get_single_task_command(inspector, tid_23_sequential, nid);
+
+			const auto cid_3_exclusive_1 = get_single_task_command(inspector, tid_3_exclusive_1, nid);
+			const auto cid_3_relaxed_1 = get_single_task_command(inspector, tid_3_relaxed_1, nid);
+			const auto cid_3_relaxed_2 = get_single_task_command(inspector, tid_3_relaxed_2, nid);
+			const auto cid_3_exclusive_2 = get_single_task_command(inspector, tid_3_exclusive_2, nid);
+
+			const auto cid_4_epoch = get_single_task_command(inspector, tid_4_epoch, nid);
+
+			CHECK(get_conflict_cids(cdag, cid_1_exclusive_1) == std::set{cid_1_exclusive_2, cid_1_relaxed_1, cid_1_relaxed_2});
+			CHECK(get_conflict_cids(cdag, cid_1_exclusive_2) == std::set{cid_1_exclusive_1, cid_1_relaxed_1, cid_1_relaxed_2});
+			CHECK(get_conflict_cids(cdag, cid_1_relaxed_1) == std::set{cid_1_exclusive_1, cid_1_exclusive_2});
+			CHECK(get_conflict_cids(cdag, cid_1_relaxed_2) == std::set{cid_1_exclusive_1, cid_1_exclusive_2});
+
+			CHECK(get_dependency_cids(cdag, cid_12_sequential) == std::set{cid_1_exclusive_1, cid_1_exclusive_2, cid_1_relaxed_1, cid_1_relaxed_2});
+
+			for(const auto cid_2 : {cid_2_exclusive_1, cid_2_exclusive_2, cid_2_relaxed_1, cid_2_relaxed_2}) {
+				CAPTURE(cid_2);
+				CHECK(get_dependency_cids(cdag, cid_2) == std::set{cid_12_sequential});
+			}
+
+			CHECK(get_conflict_cids(cdag, cid_2_exclusive_1) == std::set{cid_2_exclusive_2, cid_2_relaxed_1, cid_2_relaxed_2});
+			CHECK(get_conflict_cids(cdag, cid_2_exclusive_2) == std::set{cid_2_exclusive_1, cid_2_relaxed_1, cid_2_relaxed_2});
+			CHECK(get_conflict_cids(cdag, cid_2_relaxed_1) == std::set{cid_2_exclusive_1, cid_2_exclusive_2});
+			CHECK(get_conflict_cids(cdag, cid_2_relaxed_2) == std::set{cid_2_exclusive_1, cid_2_exclusive_2});
+
+			CHECK(get_dependency_cids(cdag, cid_23_sequential) == std::set{cid_2_exclusive_1, cid_2_exclusive_2, cid_2_relaxed_1, cid_2_relaxed_2});
+
+			for(const auto cid_3 : {cid_3_exclusive_1, cid_3_exclusive_2, cid_3_relaxed_1, cid_3_relaxed_2}) {
+				CAPTURE(cid_3);
+				CHECK(get_dependency_cids(cdag, cid_3) == std::set{cid_23_sequential});
+			}
+
+			CHECK(get_conflict_cids(cdag, cid_3_exclusive_1) == std::set{cid_3_exclusive_2, cid_3_relaxed_1, cid_3_relaxed_2});
+			CHECK(get_conflict_cids(cdag, cid_3_exclusive_2) == std::set{cid_3_exclusive_1, cid_3_relaxed_1, cid_3_relaxed_2});
+			CHECK(get_conflict_cids(cdag, cid_3_relaxed_1) == std::set{cid_3_exclusive_1, cid_3_exclusive_2});
+			CHECK(get_conflict_cids(cdag, cid_3_relaxed_2) == std::set{cid_3_exclusive_1, cid_3_exclusive_2});
+
+			CHECK(get_dependency_cids(cdag, cid_4_epoch) == std::set{cid_3_exclusive_1, cid_3_exclusive_2, cid_3_relaxed_1, cid_3_relaxed_2});
+		}
 	}
 
 } // namespace detail

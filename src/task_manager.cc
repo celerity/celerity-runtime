@@ -157,20 +157,35 @@ namespace detail {
 
 		for(const auto& side_effect : tsk.get_side_effect_map()) {
 			const auto [hoid, order] = side_effect;
-			if(const auto last_effect = m_host_object_last_effects.find(hoid); last_effect != m_host_object_last_effects.end()) {
-				add_dependency(tsk, *m_task_buffer.get_task(last_effect->second), dependency_kind::true_dep, dependency_origin::dataflow);
+			auto& ho = m_host_objects[hoid];
+			if(ho.last_serializing_effect_or_epoch && (order != experimental::side_effect_order::sequential || ho.active_concurrent_set.empty())) {
+				add_dependency(tsk, *m_task_buffer.get_task(*ho.last_serializing_effect_or_epoch), dependency_kind::true_dep, dependency_origin::dataflow);
 			}
-			m_host_object_last_effects.insert_or_assign(hoid, tsk.get_id());
+			if(order == experimental::side_effect_order::sequential) {
+				for(const auto [earlier_tid, weaker_order] : ho.active_concurrent_set) {
+					assert(weaker_order < experimental::side_effect_order::sequential);
+					add_dependency(tsk, *m_task_buffer.get_task(earlier_tid), dependency_kind::true_dep, dependency_origin::dataflow);
+				}
+				ho.active_concurrent_set.clear();
+				ho.last_serializing_effect_or_epoch = tsk.get_id();
+			} else {
+				for(const auto [concurrent_tid, concurrent_order] : ho.active_concurrent_set) {
+					if(order == experimental::side_effect_order::exclusive || concurrent_order == experimental::side_effect_order::exclusive) {
+						tsk.add_conflict({m_task_buffer.get_task(concurrent_tid), conflict_origin::side_effect_order});
+					}
+				}
+				ho.active_concurrent_set.emplace(tsk.get_id(), order);
+			}
 		}
 
-		if(auto cgid = tsk.get_collective_group_id(); cgid != 0) {
+		if(const auto cgid = tsk.get_collective_group_id(); cgid != 0) {
 			auto& collective_state = m_collective_groups[cgid];
 			if(collective_state.had_tasks_before_current_epoch) {
 				// This true dependency would also be added through dependency_origin::last_epoch below, but we want to visualize the correct origin here
 				add_dependency(
 				    tsk, *m_task_buffer.get_task(m_epoch_for_new_tasks), dependency_kind::true_dep, dependency_origin::collective_group_serialization);
 			}
-			for(auto& other : collective_state.active_conflict_set) {
+			for(const auto other : collective_state.active_conflict_set) {
 				tsk.add_conflict({m_task_buffer.get_task(other), conflict_origin::collective_group});
 			}
 			collective_state.active_conflict_set.insert(tsk.get_id());
@@ -232,8 +247,16 @@ namespace detail {
 				}
 			}
 		}
-		for(auto& [hoid, tid] : m_host_object_last_effects) {
-			tid = std::max(epoch, tid);
+		for(auto& [_, ho] : m_host_objects) {
+			if(ho.last_serializing_effect_or_epoch) { ho.last_serializing_effect_or_epoch = std::max(*ho.last_serializing_effect_or_epoch, epoch); }
+			for(auto it = ho.active_concurrent_set.begin(); it != ho.active_concurrent_set.end();) {
+				if(it->first < epoch) {
+					ho.last_serializing_effect_or_epoch = epoch;
+					it = ho.active_concurrent_set.erase(it);
+				} else {
+					++it;
+				}
+			}
 		}
 
 		m_epoch_for_new_tasks = epoch;

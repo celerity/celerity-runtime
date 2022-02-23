@@ -60,6 +60,6 @@ MAKE_PHANTOM_TYPE(host_object_id, size_t)
 // declared in this header for include-dependency reasons
 namespace celerity::experimental {
 
-enum class side_effect_order { sequential };
+enum class side_effect_order { relaxed, exclusive, sequential };
 
 }
