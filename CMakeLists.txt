@@ -216,12 +216,18 @@ target_include_directories(celerity_runtime PUBLIC
   $<INSTALL_INTERFACE:include/celerity/vendor>
 )
 
+if(WIN32 AND CELERITY_SYCL_IMPL STREQUAL "DPC++")
+  set(SYCL_LIB
+    $<$<CONFIG:Debug>:sycld>
+    $<$<CONFIG:Release>:sycl>
+  )
+endif()
+
 target_link_libraries(celerity_runtime PUBLIC
   Threads::Threads
   MPI::MPI_CXX
   spdlog::spdlog
-  $<$<AND:$<BOOL:${WIN32}>,$<CONFIG:Debug>>:sycld>
-  $<$<AND:$<BOOL:${WIN32}>,$<CONFIG:Release>>:sycl>
+  ${SYCL_LIB}
 )
 
 # For debug builds, we set the CELERITY_DETAIL_ENABLE_DEBUG preprocessor flag,
