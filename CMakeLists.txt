@@ -99,7 +99,7 @@ if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
   endif()
 endif()
 
-if(MSVC)
+if(WIN32)
   list(APPEND CELERITY_CXX_FLAGS -D_CRT_SECURE_NO_WARNINGS)
 endif()
 
@@ -280,7 +280,7 @@ add_sycl_to_target(
 )
 
 if(MSVC)
-  target_compile_options(celerity_runtime PRIVATE /MP /W3 /D_CRT_SECURE_NO_WARNINGS)
+  target_compile_options(celerity_runtime PRIVATE /MP /W3)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self)
 endif()
