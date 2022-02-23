@@ -3,14 +3,6 @@
 #include <map>
 #include <ostream>
 
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <Windows.h>
-#else
-#include <pthread.h>
-#endif
-
 #include <catch2/catch.hpp>
 
 #include <celerity.h>
@@ -470,45 +462,6 @@ namespace test_utils {
 		bool initialized = false;
 		std::unique_ptr<detail::buffer_manager> bm;
 	};
-
-#ifdef _WIN32
-
-	class affinity_fixture {
-	  public:
-		affinity_fixture() {
-			[[maybe_unused]] DWORD_PTR system_mask;
-			auto ret = GetProcessAffinityMask(GetCurrentProcess(), &process_mask, &system_mask);
-			REQUIRE(ret != FALSE);
-		}
-
-		~affinity_fixture() {
-			const auto ret = SetProcessAffinityMask(GetCurrentProcess(), process_mask);
-			REQUIRE(ret != FALSE);
-		}
-
-	  private:
-		DWORD_PTR process_mask;
-	};
-
-#else
-
-	class affinity_fixture {
-	  public:
-		affinity_fixture() {
-			const auto ret = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &process_mask);
-			REQUIRE(ret == 0);
-		}
-
-		~affinity_fixture() {
-			const auto ret = pthread_setaffinity_np(pthread_self(), sizeof(process_mask), &process_mask);
-			REQUIRE(ret == 0);
-		}
-
-	  private:
-		cpu_set_t process_mask;
-	};
-
-#endif
 
 } // namespace test_utils
 } // namespace celerity

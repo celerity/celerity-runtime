@@ -5,6 +5,14 @@
 #include <memory>
 #include <random>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <Windows.h>
+#else
+#include <pthread.h>
+#endif
+
 #include <catch2/catch.hpp>
 
 #include <celerity.h>
@@ -2313,7 +2321,56 @@ namespace detail {
 	}
 
 
-	TEST_CASE_METHOD(test_utils::affinity_fixture, "affinity check", "[affinity]") {
+#ifdef _WIN32
+
+	class restore_process_affinity_fixture {
+		restore_process_affinity_fixture(const restore_process_affinity_fixture&) = delete;
+		restore_process_affinity_fixture(restore_process_affinity_fixture&&) = delete;
+		restore_process_affinity_fixture& operator=(const restore_process_affinity_fixture&) = delete;
+		restore_process_affinity_fixture& operator=(restore_process_affinity_fixture&&) = delete;
+
+	  public:
+		restore_process_affinity_fixture() {
+			[[maybe_unused]] DWORD_PTR system_mask;
+			auto ret = GetProcessAffinityMask(GetCurrentProcess(), &process_mask, &system_mask);
+			REQUIRE(ret != FALSE);
+		}
+
+		~restore_process_affinity_fixture() {
+			const auto ret = SetProcessAffinityMask(GetCurrentProcess(), process_mask);
+			REQUIRE(ret != FALSE);
+		}
+
+	  private:
+		DWORD_PTR process_mask;
+	};
+
+#else
+
+	class restore_process_affinity_fixture {
+		restore_process_affinity_fixture(const restore_process_affinity_fixture&) = delete;
+		restore_process_affinity_fixture(restore_process_affinity_fixture&&) = delete;
+		restore_process_affinity_fixture& operator=(const restore_process_affinity_fixture&) = delete;
+		restore_process_affinity_fixture& operator=(restore_process_affinity_fixture&&) = delete;
+
+	  public:
+		restore_process_affinity_fixture() {
+			const auto ret = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &process_mask);
+			REQUIRE(ret == 0);
+		}
+
+		~restore_process_affinity_fixture() {
+			const auto ret = pthread_setaffinity_np(pthread_self(), sizeof(process_mask), &process_mask);
+			REQUIRE(ret == 0);
+		}
+
+	  private:
+		cpu_set_t process_mask;
+	};
+
+#endif
+
+	TEST_CASE_METHOD(restore_process_affinity_fixture, "affinity check", "[affinity]") {
 #ifdef _WIN32
 		SECTION("in Windows") {
 			DWORD_PTR cpu_mask = 1;
