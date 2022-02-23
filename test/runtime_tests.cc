@@ -486,22 +486,16 @@ namespace detail {
 				}
 			}
 			memcpy_strided(source_buffer.get(), target_buffer.get(), sizeof(size_t), source_range, source_offset, target_range, target_offset, copy_range);
-			bool valid = true;
 			for(size_t i = 0; i < copy_range[0]; ++i) {
 				for(size_t j = 0; j < copy_range[1]; ++j) {
 					for(size_t k = 0; k < copy_range[2]; ++k) {
 						const auto id = target_offset + cl::sycl::id<3>{i, j, k};
 						const auto source_id = source_offset + cl::sycl::id<3>{i, j, k};
-						valid &= target_buffer[get_linear_index(target_range, id)] == source_id[0] * 10000 + source_id[1] * 100 + source_id[2];
-						if(!valid) {
-							printf("Unexpected value at %lu %lu %lu: %lu != %lu\n", id[0], id[1], id[2], target_buffer[get_linear_index(target_range, id)],
-							    source_id[0] * 10000 + source_id[1] * 100 + source_id[2]);
-							REQUIRE(false);
-						}
+						CAPTURE(id, source_id);
+						REQUIRE(target_buffer[get_linear_index(target_range, id)] == source_id[0] * 10000 + source_id[1] * 100 + source_id[2]);
 					}
 				}
 			}
-			REQUIRE(valid);
 		}
 	}
 
