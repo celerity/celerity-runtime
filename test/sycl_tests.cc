@@ -150,6 +150,7 @@ TEST_CASE_METHOD(test_utils::device_queue_fixture, "SYCL can access empty buffer
 
 #if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 
+// If this test fails, celerity can't reliably support reductions on the user's combination of backend and hardware
 TEST_CASE_METHOD(test_utils::device_queue_fixture, "SYCL has working simple scalar reductions", "[sycl][reductions]") {
 	constexpr size_t N = 1024;
 	sycl::buffer<int> buf{1};
