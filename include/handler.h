@@ -38,7 +38,6 @@ namespace detail {
 	template <typename Name>
 	std::string kernel_debug_name() {
 		std::string name = typeid(Name*).name();
-		// TODO: On Windows, returned names are still a bit messy. Consider improving this.
 #if !defined(_MSC_VER)
 		const std::unique_ptr<char, void (*)(void*)> demangled(abi::__cxa_demangle(name.c_str(), nullptr, nullptr, nullptr), std::free);
 		const std::string demangled_s(demangled.get());
