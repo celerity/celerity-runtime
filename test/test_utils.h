@@ -475,19 +475,18 @@ namespace test_utils {
 
 	class affinity_fixture {
 	  public:
-		affinity_fixture() : process_handle(GetCurrentProcess()) {
+		affinity_fixture() {
 			[[maybe_unused]] DWORD_PTR system_mask;
-			auto ret = GetProcessAffinityMask(process_handle, &process_mask, &system_mask);
+			auto ret = GetProcessAffinityMask(GetCurrentProcess(), &process_mask, &system_mask);
 			REQUIRE(ret != FALSE);
 		}
 
 		~affinity_fixture() {
-			const auto ret = SetProcessAffinityMask(process_handle, process_mask);
+			const auto ret = SetProcessAffinityMask(GetCurrentProcess(), process_mask);
 			REQUIRE(ret != FALSE);
 		}
 
 	  private:
-		const HANDLE process_handle;
 		DWORD_PTR process_mask;
 	};
 
@@ -495,18 +494,17 @@ namespace test_utils {
 
 	class affinity_fixture {
 	  public:
-		affinity_fixture() : process_handle(pthread_self()) {
-			const auto ret = pthread_getaffinity_np(process_handle, sizeof(cpu_set_t), &process_mask);
+		affinity_fixture() {
+			const auto ret = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &process_mask);
 			REQUIRE(ret == 0);
 		}
 
 		~affinity_fixture() {
-			const auto ret = pthread_setaffinity_np(process_handle, sizeof(process_mask), &process_mask);
+			const auto ret = pthread_setaffinity_np(pthread_self(), sizeof(process_mask), &process_mask);
 			REQUIRE(ret == 0);
 		}
 
 	  private:
-		const pthread_t process_handle;
 		cpu_set_t process_mask;
 	};
 
