@@ -608,12 +608,13 @@ namespace detail {
 				const auto [hoid, order] = side_effect;
 				auto& ho = nd.host_objects[hoid];
 				if(ho.last_serializing_effect_or_epoch && (order != experimental::side_effect_order::sequential || ho.active_concurrent_set.empty())) {
-					m_cdag.add_dependency(cmd, m_cdag.get(*ho.last_serializing_effect_or_epoch), dependency_kind::true_dep, dependency_origin::dataflow);
+					m_cdag.add_dependency(
+					    cmd, m_cdag.get(*ho.last_serializing_effect_or_epoch), dependency_kind::true_dep, dependency_origin::side_effect_order);
 				}
 				if(order == experimental::side_effect_order::sequential) {
 					for(const auto [earlier_cid, weaker_order] : ho.active_concurrent_set) {
 						assert(weaker_order < experimental::side_effect_order::sequential);
-						m_cdag.add_dependency(cmd, m_cdag.get(earlier_cid), dependency_kind::true_dep, dependency_origin::dataflow);
+						m_cdag.add_dependency(cmd, m_cdag.get(earlier_cid), dependency_kind::true_dep, dependency_origin::side_effect_order);
 					}
 					ho.active_concurrent_set.clear();
 					ho.last_serializing_effect_or_epoch = cmd->get_cid();

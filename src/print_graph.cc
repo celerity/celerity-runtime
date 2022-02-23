@@ -17,6 +17,7 @@ namespace detail {
 	const char* dependency_style(const Dependency& dep) {
 		if(dep.kind == dependency_kind::anti_dep) return "color=limegreen";
 		switch(dep.origin) {
+		case dependency_origin::side_effect_order: return "color=teal";
 		case dependency_origin::collective_group_serialization: return "color=blue";
 		case dependency_origin::execution_front: return "color=orange";
 		case dependency_origin::last_epoch: return "color=orchid";
@@ -24,12 +25,17 @@ namespace detail {
 		}
 	}
 
-	template <typename Conflict>
-	const char* conflict_style(const Conflict& cf) {
-		switch(cf.origin) {
-		case conflict_origin::collective_group: return "dir=none,color=blue";
-		default: return "dir=none";
+	const char* conflict_origin_color(conflict_origin origin) {
+		switch(origin) {
+		case conflict_origin::collective_group: return "blue";
+		case conflict_origin::side_effect_order: return "teal";
+		default: return "";
 		}
+	}
+
+	template <typename Conflict>
+	std::string conflict_style(const Conflict& cf) {
+		return std::string{"dir=both,arrowhead=empty,arrowtail=empty,color="} + conflict_origin_color(cf.origin);
 	}
 
 	std::string get_task_label(const task* tsk) {

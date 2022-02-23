@@ -18,6 +18,7 @@ namespace detail {
 
 	enum class dependency_origin {
 		dataflow,                       // buffer access dependencies generate task and command dependencies
+		side_effect_order,              // sequential-order side effects or side-effects behind epochs generate true dependencies
 		collective_group_serialization, // all nodes must execute kernels within the same collective group in the same order
 		execution_front,                // horizons and epochs are temporally ordered after all preceding tasks or commands on the same node
 		last_epoch,                     // nodes without other true-dependencies require an edge to the last epoch for temporal ordering
