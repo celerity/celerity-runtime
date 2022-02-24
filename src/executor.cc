@@ -47,6 +47,8 @@ namespace detail {
 	void executor::run() {
 		bool done = false;
 		std::queue<unique_frame_ptr<command_frame>> command_queue;
+		std::unordered_set<command_id> running_jobs;
+
 		while(!done || !m_jobs.empty()) {
 			// Bail if a device error ocurred.
 			if(m_running_device_compute_jobs > 0) { m_d_queue.get_sycl_queue().throw_asynchronous(); }
@@ -78,6 +80,8 @@ namespace detail {
 					continue;
 				}
 
+				running_jobs.erase(it->first);
+
 				for(const auto& d : job_handle.dependents) {
 					assert(m_jobs.count(d) == 1);
 					m_jobs[d].unsatisfied_dependencies--;
@@ -101,10 +105,15 @@ namespace detail {
 				std::sort(ready_jobs.begin(), ready_jobs.end(),
 				    [this](command_id a, command_id b) { return m_jobs[a].cmd == command_type::push && m_jobs[b].cmd != command_type::push; });
 				for(command_id cid : ready_jobs) {
-					auto* job = m_jobs.at(cid).job.get();
-					job->start();
-					job->update();
-					if(isa<device_execute_job>(job)) { m_running_device_compute_jobs++; }
+					auto& job_handle = m_jobs.at(cid);
+					if(std::none_of(job_handle.conflicts.begin(), job_handle.conflicts.end(),
+					       [&](const command_id conflict) { return running_jobs.find(conflict) != running_jobs.end(); })) {
+						auto* job = job_handle.job.get();
+						job->start();
+						job->update();
+						running_jobs.insert(cid);
+						if(isa<device_execute_job>(job)) { m_running_device_compute_jobs++; }
+					}
 				}
 			}
 
