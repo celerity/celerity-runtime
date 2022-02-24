@@ -38,7 +38,7 @@ namespace detail {
 
 
 		void flush_dependency(abstract_command* dep) const;
-		void serialize_and_flush(abstract_command* cmd, const std::vector<command_id>& dependencies) const;
+		void serialize_and_flush(abstract_command* cmd) const;
 	};
 
 } // namespace detail

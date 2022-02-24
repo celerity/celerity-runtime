@@ -117,7 +117,7 @@ namespace detail {
 				MPI_Get_count(&status, MPI_BYTE, &frame_bytes);
 				unique_frame_ptr<command_frame> frame(from_size_bytes, static_cast<size_t>(frame_bytes));
 				MPI_Mrecv(frame.get_pointer(), frame_bytes, MPI_BYTE, &msg, &status);
-				assert(frame->num_dependencies == frame.get_payload_count());
+				assert(frame->num_dependencies + frame->num_conflicts == frame.get_payload_count());
 				command_queue.push(std::move(frame));
 
 				if(!m_first_command_received) {

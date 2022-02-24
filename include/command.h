@@ -226,20 +226,21 @@ namespace detail {
 		using payload_type = command_id;
 
 		command_pkg pkg;
-		size_t num_dependencies = 0; // This information is duplicated from unique_frame_ptr::get_payload_count() so that we can still use a
-		                             // `const command_frame &` without its owning pointer
-		payload_type dependencies[];
+		size_t num_dependencies = 0;
+		size_t num_conflicts = 0;
+		payload_type refs[];
 
 		// variable-sized structure
 		command_frame() = default;
 		command_frame(const command_frame&) = delete;
 		command_frame& operator=(const command_frame&) = delete;
 
-		iterable_range<const command_id*> iter_dependencies() const { return {dependencies, dependencies + num_dependencies}; }
+		iterable_range<const command_id*> iter_dependencies() const { return {refs, refs + num_dependencies}; }
+		iterable_range<const command_id*> iter_conflicts() const { return {refs + num_dependencies, refs + num_dependencies + num_conflicts}; }
 	};
 
 	// unique_frame_ptr assumes that the flexible payload member begins at exactly sizeof(Frame) bytes
-	static_assert(offsetof(command_frame, dependencies) == sizeof(command_frame));
+	static_assert(offsetof(command_frame, refs) == sizeof(command_frame));
 
 } // namespace detail
 } // namespace celerity

@@ -92,6 +92,8 @@ namespace detail {
 					m_jobs[pkg.cid].unsatisfied_dependencies++;
 				}
 			}
+
+			// TODO something with conflicts
 		}
 
 		void run();

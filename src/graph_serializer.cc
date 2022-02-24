@@ -58,7 +58,7 @@ namespace detail {
 
 		// Finally, flush all the task commands.
 		for(auto& cad : cmds_and_deps) {
-			serialize_and_flush(cad.first, cad.second);
+			serialize_and_flush(cad.first);
 		}
 	}
 
@@ -80,15 +80,18 @@ namespace detail {
 				assert(isa<reduction_command>(dep) && isa<await_push_command>(dd.node));
 				flush_dependency(dd.node);
 			}
-			if(!is_virtual_dependency(dd.node)) { dep_deps.push_back(dd.node->get_cid()); }
 		}
-		serialize_and_flush(dep, dep_deps);
+		serialize_and_flush(dep);
 	}
 
-	void graph_serializer::serialize_and_flush(abstract_command* cmd, const std::vector<command_id>& dependencies) const {
+	void graph_serializer::serialize_and_flush(abstract_command* cmd) const {
 		assert(!cmd->is_flushed() && "Command has already been flushed.");
 
-		unique_frame_ptr<command_frame> frame(from_payload_count, dependencies.size());
+		const auto num_dependencies = static_cast<size_t>(std::count_if(cmd->get_dependencies().begin(), cmd->get_dependencies().end(),
+		    [](const abstract_command::dependency& dep) { return !is_virtual_dependency(dep.node); }));
+		const auto num_conflicts = static_cast<size_t>(std::distance(cmd->get_conflicts().begin(), cmd->get_conflicts().end()));
+
+		unique_frame_ptr<command_frame> frame(from_payload_count, num_dependencies + num_conflicts);
 
 		frame->pkg.cid = cmd->get_cid();
 		if(const auto* ecmd = dynamic_cast<epoch_command*>(cmd)) {
@@ -108,8 +111,18 @@ namespace detail {
 			assert(false && "Unknown command");
 		}
 
-		frame->num_dependencies = dependencies.size();
-		std::copy(dependencies.begin(), dependencies.end(), frame->dependencies);
+		frame->num_dependencies = num_dependencies;
+		auto* next_ref = &frame->refs[0];
+		for(const auto& dep : cmd->get_dependencies()) {
+			if(!is_virtual_dependency(dep.node)) { *next_ref++ = dep.node->get_cid(); }
+		}
+		assert(static_cast<size_t>(next_ref - &frame->refs[0]) == num_dependencies);
+
+		frame->num_conflicts = num_conflicts;
+		for(const auto& cf : cmd->get_conflicts()) {
+			*next_ref++ = cf.node->get_cid();
+		}
+		assert(static_cast<size_t>(next_ref - &frame->refs[num_dependencies]) == num_conflicts);
 
 		m_flush_cb(cmd->get_nid(), std::move(frame));
 		cmd->mark_as_flushed();
