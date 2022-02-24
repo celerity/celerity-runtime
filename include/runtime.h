@@ -76,12 +76,6 @@ namespace detail {
 
 		host_object_manager& get_host_object_manager() const;
 
-		/**
-		 * @brief Broadcasts the specified control command to all workers.
-		 * @internal
-		 */
-		void broadcast_control_command(command_type cmd, const command_data& data);
-
 	  private:
 		inline static bool mpi_initialized = false;
 		inline static bool mpi_finalized = false;
@@ -102,11 +96,6 @@ namespace detail {
 		std::unique_ptr<device_queue> d_queue;
 		size_t num_nodes;
 		node_id local_nid;
-
-		uint64_t sync_id = 0;
-
-		// We reserve the upper half of command IDs for control commands.
-		command_id next_control_command_id = command_id(1) << (std::numeric_limits<command_id::underlying_t>::digits - 1);
 
 		// These management classes are only constructed on the master node.
 		std::unique_ptr<command_graph> cdag;
