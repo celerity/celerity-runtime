@@ -45,7 +45,7 @@ std::string get_thread_name(const std::thread::native_handle_type thread_handle)
 	std::string name;
 	if(SUCCEEDED(res)) {
 		name = convert_string(wname);
-		LocalFree(wname);
+		LocalFree(wname); // Will leak if convert_string throws
 	}
 	return name;
 }
