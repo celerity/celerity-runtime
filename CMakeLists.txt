@@ -214,6 +214,8 @@ target_include_directories(celerity_runtime PUBLIC
   $<INSTALL_INTERFACE:include/celerity>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor>
   $<INSTALL_INTERFACE:include/celerity/vendor>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/small_vector/source/include>
+  $<INSTALL_INTERFACE:include/celerity/vendor/small_vector/include>
 )
 
 target_link_libraries(celerity_runtime PUBLIC
@@ -351,6 +353,10 @@ install(
 install(
   FILES ${PROJECT_SOURCE_DIR}/vendor/ctpl_stl.h
   DESTINATION include/celerity/vendor
+)
+install(
+  FILES ${PROJECT_SOURCE_DIR}/vendor/small_vector/source/include/gch/small_vector.hpp
+  DESTINATION include/celerity/vendor/small_vector/include/gch
 )
 install(
   TARGETS celerity_runtime

@@ -1,14 +1,17 @@
 #include <catch2/catch.hpp>
 
-#include <intrusive_graph.h>
+#include "intrusive_graph.h"
 
 using namespace celerity::detail;
 
 struct bench_graph_node : intrusive_graph_node<bench_graph_node> {};
 
-
 template <int N>
 void intrusive_graph_benchmark() {
+	// note that bench_graph_nodes are created/destroyed *within* the BENCHMARK
+	// in the first two cases while the latter 2 cases only operate on already
+	// existing nodes -- this is intentional; both cases are relevant in practise
+
 	BENCHMARK("creating nodes") {
 		bench_graph_node nodes[N];
 		return nodes[N - 1].get_pseudo_critical_path_length(); // trick the compiler

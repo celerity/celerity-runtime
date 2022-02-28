@@ -4,3 +4,7 @@
 [submodule "vendor/Catch2"]
 	path = vendor/Catch2
 	url = https://github.com/catchorg/Catch2
+[submodule "vendor/small_vector"]
+	path = vendor/small_vector
+	url = https://github.com/gharveymn/small_vector.git
+	branch = main

@@ -2,7 +2,7 @@
 
 #include <catch2/catch.hpp>
 
-#include <intrusive_graph.h>
+#include "intrusive_graph.h"
 
 namespace celerity {
 namespace detail {
