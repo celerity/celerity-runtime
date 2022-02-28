@@ -10,25 +10,21 @@ namespace celerity::detail {
 
 static_assert(std::is_same_v<std::thread::native_handle_type, HANDLE>, "Unexpected native thread handle type");
 
-template <typename SrcT, typename DstT>
-static inline DstT convert_string(const SrcT& str) {
-	static_assert(
-	    (std::is_same_v<SrcT, std::string> && std::is_same_v<DstT, std::wstring>) || (std::is_same_v<SrcT, std::wstring> && std::is_same_v<DstT, std::string>),
-	    "Unsupported string type");
-
-	constexpr auto converter = [](typename DstT::value_type* dst, const typename SrcT::value_type** src, const std::size_t len, std::mbstate_t* ps) {
-		if constexpr(std::is_same_v<SrcT, std::string>) {
-			return std::mbsrtowcs(dst, src, len, ps);
-		} else {
-			return std::wcsrtombs(dst, src, len, ps);
-		}
-	};
-
+static inline std::string convert_string(const std::wstring& str) {
 	const auto* src = str.c_str();
 	auto mbstate = std::mbstate_t{};
-	const auto len = converter(nullptr, &src, 0, &mbstate);
-	auto dst = DstT(len, L'\0'); // Automatically includes space for the null terminator
-	converter(dst.data(), &src, dst.size(), &mbstate);
+	const auto len = std::wcsrtombs(nullptr, &src, 0, &mbstate);
+	auto dst = std::string(len, L'\0'); // Automatically includes space for the null terminator
+	std::wcsrtombs(dst.data(), &src, dst.size(), &mbstate);
+	return dst;
+}
+
+static inline std::wstring convert_string(const std::string& str) {
+	const auto* src = str.c_str();
+	auto mbstate = std::mbstate_t{};
+	const auto len = std::mbsrtowcs(nullptr, &src, 0, &mbstate);
+	auto dst = std::wstring(len, L'\0'); // Automatically includes space for the null terminator
+	std::mbsrtowcs(dst.data(), &src, dst.size(), &mbstate);
 	return dst;
 }
 
@@ -37,7 +33,7 @@ std::thread::native_handle_type get_current_thread_handle() {
 }
 
 void set_thread_name(const std::thread::native_handle_type thread_handle, const std::string& name) {
-	const auto wname = convert_string<std::string, std::wstring>(name);
+	const auto wname = convert_string(name);
 	[[maybe_unused]] const auto res = SetThreadDescription(thread_handle, wname.c_str());
 	assert(SUCCEEDED(res) && "Failed to set thread name");
 }
@@ -48,7 +44,7 @@ std::string get_thread_name(const std::thread::native_handle_type thread_handle)
 	assert(SUCCEEDED(res) && "Failed to get thread name");
 	std::string name;
 	if(SUCCEEDED(res)) {
-		name = convert_string<std::wstring, std::string>(wname);
+		name = convert_string(wname);
 		LocalFree(wname);
 	}
 	return name;
