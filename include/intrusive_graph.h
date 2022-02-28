@@ -6,6 +6,8 @@
 #include <optional>
 #include <type_traits>
 
+#include <gch/small_vector.hpp>
+
 namespace celerity {
 namespace detail {
 
@@ -124,9 +126,8 @@ namespace detail {
 		int get_pseudo_critical_path_length() const { return pseudo_critical_path_length; }
 
 	  private:
-		// TODO grep "list<" and think about each (here probably boost::small_vector)
-		std::list<dependency> dependencies;
-		std::list<dependent> dependents;
+		gch::small_vector<dependency> dependencies;
+		gch::small_vector<dependent> dependents;
 
 		// This only (potentially) grows when adding dependencies,
 		// it never shrinks and does not take into account later changes further up in the dependency chain
@@ -134,7 +135,7 @@ namespace detail {
 		int pseudo_critical_path_length = 0;
 
 		template <typename Dep>
-		std::optional<typename std::list<Dep>::iterator> maybe_get_dep(std::list<Dep>& deps, T* node) {
+		std::optional<typename gch::small_vector<Dep>::iterator> maybe_get_dep(gch::small_vector<Dep>& deps, T* node) {
 			auto it = std::find_if(deps.begin(), deps.end(), [&](auto d) { return d.node == node; });
 			if(it == deps.end()) return std::nullopt;
 			return it;

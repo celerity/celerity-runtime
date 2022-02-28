@@ -1,5 +1,5 @@
-[2022-03-02 13:59:51.114] [0] [info] Celerity runtime version 0.3.2 1e9fac9-dirty running on hipSYCL 0.9.1. PID = 333714, build type = release
-[2022-03-02 13:59:52.087] [0] [info] Using platform 'CUDA', device 'NVIDIA GeForce RTX 2070' (automatically selected platform 1, device 0)
+[2022-03-02 14:08:41.795] [0] [info] Celerity runtime version 0.3.2 3709d91-dirty running on hipSYCL 0.9.1. PID = 339167, build type = release
+[2022-03-02 14:08:42.810] [0] [info] Using platform 'CUDA', device 'NVIDIA GeForce RTX 2070' (automatically selected platform 1, device 0)
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 benchmarks is a Catch v2.13.8 host application.
@@ -15,21 +15,21 @@ benchmark name                       samples       iterations    estimated
                                      mean          low mean      high mean
                                      std dev       low std dev   high std dev
 -------------------------------------------------------------------------------
-creating nodes                                 100          4961     1.9844 ms 
-                                        5.21801 ns    5.19983 ns    5.30536 ns 
-                                       0.176351 ns 0.00730106 ns   0.420381 ns 
+creating nodes                                 100          5543     2.2172 ms 
+                                        3.38076 ns    3.38057 ns      3.381 ns 
+                                     0.00108166 ns 0.00088833 ns 0.00167342 ns 
                                                                                
-creating and adding dependencies               100           522     2.4012 ms 
-                                        43.6724 ns    43.0861 ns    44.2722 ns 
-                                        3.03143 ns    2.93459 ns    3.37543 ns 
+creating and adding dependencies               100          1042     2.3966 ms 
+                                        23.5743 ns    23.5216 ns    23.7766 ns 
+                                       0.470046 ns  0.0990779 ns    1.09972 ns 
                                                                                
-adding and removing dependencies               100           610       2.44 ms 
-                                        39.9986 ns    39.9105 ns     40.287 ns 
-                                       0.730811 ns   0.263142 ns     1.6246 ns 
+adding and removing dependencies               100          1561     2.3415 ms 
+                                        16.1523 ns     16.053 ns    16.5475 ns 
+                                       0.980084 ns 0.00379986 ns    2.33919 ns 
                                                                                
-checking for dependencies                      100         30117          0 ns 
-                                       0.826139 ns   0.824279 ns   0.834236 ns 
-                                      0.0170003 ns 0.00271225 ns  0.0400652 ns 
+checking for dependencies                      100         20268     2.0268 ms 
+                                        1.21099 ns    1.20719 ns    1.22986 ns 
+                                      0.0376068 ns 0.000249798 ns  0.0897478 ns 
                                                                                
 
 -------------------------------------------------------------------------------
@@ -42,21 +42,21 @@ benchmark name                       samples       iterations    estimated
                                      mean          low mean      high mean
                                      std dev       low std dev   high std dev
 -------------------------------------------------------------------------------
-creating nodes                                 100           404      2.424 ms 
-                                         64.252 ns    64.0988 ns    64.8569 ns 
-                                        1.45773 ns   0.112241 ns    3.46626 ns 
+creating nodes                                 100           608     2.4928 ms 
+                                        44.4335 ns    44.3602 ns    44.7154 ns 
+                                       0.662176 ns   0.107918 ns    1.55587 ns 
                                                                                
-creating and adding dependencies               100            42     2.4738 ms 
-                                        589.408 ns    587.877 ns     595.84 ns 
-                                        13.7171 ns    1.48863 ns    32.1303 ns 
+creating and adding dependencies               100            85      2.499 ms 
+                                        285.053 ns    284.167 ns    288.583 ns 
+                                        8.17627 ns    1.14128 ns    19.3201 ns 
                                                                                
-adding and removing dependencies               100            44      2.442 ms 
-                                        572.738 ns    572.461 ns    573.511 ns 
-                                        2.19484 ns    1.00408 ns    4.73079 ns 
+adding and removing dependencies               100           121     2.5047 ms 
+                                        189.905 ns    189.845 ns    190.102 ns 
+                                       0.473099 ns  0.0179169 ns    1.07008 ns 
                                                                                
-checking for dependencies                      100           903     2.4381 ms 
-                                        27.3515 ns    27.3091 ns    27.3985 ns 
-                                       0.227501 ns   0.199505 ns   0.258621 ns 
+checking for dependencies                      100          1043     2.3989 ms 
+                                        24.2469 ns    24.0798 ns    24.4669 ns 
+                                       0.962934 ns   0.775704 ns    1.46298 ns 
                                                                                
 
 -------------------------------------------------------------------------------
@@ -69,21 +69,21 @@ benchmark name                       samples       iterations    estimated
                                      mean          low mean      high mean
                                      std dev       low std dev   high std dev
 -------------------------------------------------------------------------------
-creating nodes                                 100            38     2.4396 ms 
-                                        643.098 ns    642.726 ns    643.452 ns 
-                                        1.84686 ns    1.65161 ns    2.07119 ns 
+creating nodes                                 100            54      2.538 ms 
+                                        472.415 ns    471.485 ns    476.103 ns 
+                                        8.35764 ns    1.56203 ns    19.5945 ns 
                                                                                
-creating and adding dependencies               100             2     3.4124 ms 
-                                        17.1069 us    17.0971 us    17.1352 us 
-                                        78.0725 ns    34.6157 ns    169.666 ns 
+creating and adding dependencies               100             6     2.6808 ms 
+                                        4.63913 us    4.62863 us    4.64906 us 
+                                        52.1297 ns     43.585 ns    66.6578 ns 
                                                                                
-adding and removing dependencies               100             3     3.2802 ms 
-                                        10.9672 us    10.9459 us    11.0629 us 
-                                         197.05 ns    25.6187 ns    466.055 ns 
+adding and removing dependencies               100             6     2.5266 ms 
+                                        4.58994 us    4.57289 us    4.62819 us 
+                                        124.078 ns    66.3878 ns    254.847 ns 
                                                                                
-checking for dependencies                      100             5     2.6525 ms 
-                                         5.3111 us    5.29436 us    5.37616 us 
-                                         142.51 ns    13.1282 ns        330 ns 
+checking for dependencies                      100            14     2.5816 ms 
+                                        1.84775 us    1.84677 us    1.84949 us 
+                                        6.46367 ns    4.22064 ns    12.1414 ns 
                                                                                
 
 ===============================================================================
