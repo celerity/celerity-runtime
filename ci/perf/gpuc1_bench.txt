@@ -1,0 +1,92 @@
+[2022-03-02 13:59:51.114] [0] [info] Celerity runtime version 0.3.2 1e9fac9-dirty running on hipSYCL 0.9.1. PID = 333714, build type = release
+[2022-03-02 13:59:52.087] [0] [info] Using platform 'CUDA', device 'NVIDIA GeForce RTX 2070' (automatically selected platform 1, device 0)
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+benchmarks is a Catch v2.13.8 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+benchmark intrusive graph dependency handling, N=1
+-------------------------------------------------------------------------------
+../test/benchmarks.cc:51
+...............................................................................
+
+benchmark name                       samples       iterations    estimated
+                                     mean          low mean      high mean
+                                     std dev       low std dev   high std dev
+-------------------------------------------------------------------------------
+creating nodes                                 100          4961     1.9844 ms 
+                                        5.21801 ns    5.19983 ns    5.30536 ns 
+                                       0.176351 ns 0.00730106 ns   0.420381 ns 
+                                                                               
+creating and adding dependencies               100           522     2.4012 ms 
+                                        43.6724 ns    43.0861 ns    44.2722 ns 
+                                        3.03143 ns    2.93459 ns    3.37543 ns 
+                                                                               
+adding and removing dependencies               100           610       2.44 ms 
+                                        39.9986 ns    39.9105 ns     40.287 ns 
+                                       0.730811 ns   0.263142 ns     1.6246 ns 
+                                                                               
+checking for dependencies                      100         30117          0 ns 
+                                       0.826139 ns   0.824279 ns   0.834236 ns 
+                                      0.0170003 ns 0.00271225 ns  0.0400652 ns 
+                                                                               
+
+-------------------------------------------------------------------------------
+benchmark intrusive graph dependency handling, N=10
+-------------------------------------------------------------------------------
+../test/benchmarks.cc:54
+...............................................................................
+
+benchmark name                       samples       iterations    estimated
+                                     mean          low mean      high mean
+                                     std dev       low std dev   high std dev
+-------------------------------------------------------------------------------
+creating nodes                                 100           404      2.424 ms 
+                                         64.252 ns    64.0988 ns    64.8569 ns 
+                                        1.45773 ns   0.112241 ns    3.46626 ns 
+                                                                               
+creating and adding dependencies               100            42     2.4738 ms 
+                                        589.408 ns    587.877 ns     595.84 ns 
+                                        13.7171 ns    1.48863 ns    32.1303 ns 
+                                                                               
+adding and removing dependencies               100            44      2.442 ms 
+                                        572.738 ns    572.461 ns    573.511 ns 
+                                        2.19484 ns    1.00408 ns    4.73079 ns 
+                                                                               
+checking for dependencies                      100           903     2.4381 ms 
+                                        27.3515 ns    27.3091 ns    27.3985 ns 
+                                       0.227501 ns   0.199505 ns   0.258621 ns 
+                                                                               
+
+-------------------------------------------------------------------------------
+benchmark intrusive graph dependency handling, N=100
+-------------------------------------------------------------------------------
+../test/benchmarks.cc:57
+...............................................................................
+
+benchmark name                       samples       iterations    estimated
+                                     mean          low mean      high mean
+                                     std dev       low std dev   high std dev
+-------------------------------------------------------------------------------
+creating nodes                                 100            38     2.4396 ms 
+                                        643.098 ns    642.726 ns    643.452 ns 
+                                        1.84686 ns    1.65161 ns    2.07119 ns 
+                                                                               
+creating and adding dependencies               100             2     3.4124 ms 
+                                        17.1069 us    17.0971 us    17.1352 us 
+                                        78.0725 ns    34.6157 ns    169.666 ns 
+                                                                               
+adding and removing dependencies               100             3     3.2802 ms 
+                                        10.9672 us    10.9459 us    11.0629 us 
+                                         197.05 ns    25.6187 ns    466.055 ns 
+                                                                               
+checking for dependencies                      100             5     2.6525 ms 
+                                         5.3111 us    5.29436 us    5.37616 us 
+                                         142.51 ns    13.1282 ns        330 ns 
+                                                                               
+
+===============================================================================
+test cases: 3 | 3 passed
+assertions: - none -
+

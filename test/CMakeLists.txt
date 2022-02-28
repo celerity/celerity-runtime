@@ -8,6 +8,7 @@ include("${PROJECT_SOURCE_DIR}/vendor/Catch2/contrib/ParseAndAddCatchTests.cmake
 file(GLOB_RECURSE TEST_INCLUDES *.h)
 
 set(TEST_TARGETS
+  benchmarks
   runtime_tests
   runtime_deprecation_tests
   graph_generation_tests
@@ -26,6 +27,8 @@ target_link_libraries(
 )
 
 set_property(TARGET unit_test_suite PROPERTY CXX_STANDARD 17)
+
+add_definitions("-DCATCH_CONFIG_ENABLE_BENCHMARKING")
 
 add_celerity_to_target(TARGET unit_test_suite SOURCES unit_test_suite_celerity.cc)
 
