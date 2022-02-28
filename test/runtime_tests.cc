@@ -992,5 +992,72 @@ namespace detail {
 		});
 	}
 
+	struct side_effect_submission_fixture : public test_utils::runtime_fixture {
+		template <experimental::side_effect_order Order>
+		void submit_kernel_with_side_effect(const char* const name, side_effect_order_tag<Order> tag) {
+			q.submit([=, kernel_index = next_kernel_index++](handler& cgh) {
+				experimental::side_effect e{ho, cgh, tag};
+				cgh.host_task(on_master_node, [=] {
+					{
+						std::lock_guard lock{executing_kernels_mutex};
+						CAPTURE(name);
+						CHECK(kernel_index > last_executed_sequential_kernel);
+						CHECK(!currently_executing_exclusive_or_sequential_kernel);
+						max_concurrency = std::max(max_concurrency, n_currently_executing_relaxed_kernels + 1);
+						if(Order >= experimental::side_effect_order::exclusive) {
+							CHECK(n_currently_executing_relaxed_kernels == 0);
+							currently_executing_exclusive_or_sequential_kernel = true;
+						} else {
+							n_currently_executing_relaxed_kernels += 1;
+						}
+					}
+
+					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+					{
+						std::lock_guard lock{executing_kernels_mutex};
+						if(Order >= experimental::side_effect_order::sequential) { last_executed_sequential_kernel = kernel_index; }
+						if(Order >= experimental::side_effect_order::exclusive) {
+							currently_executing_exclusive_or_sequential_kernel = false;
+						} else {
+							n_currently_executing_relaxed_kernels -= 1;
+						}
+					}
+				});
+			});
+		}
+
+		distr_queue q;
+		experimental::host_object<void> ho;
+
+		int next_kernel_index = 0;
+
+		std::mutex executing_kernels_mutex;
+		size_t n_currently_executing_relaxed_kernels = 0;
+		bool currently_executing_exclusive_or_sequential_kernel = false;
+		int last_executed_sequential_kernel = -1;
+		size_t max_concurrency = 0;
+	};
+
+	TEST_CASE_METHOD(side_effect_submission_fixture, "execution schedule adheres to side_effect_order constraints", "[side-effect]") {
+		submit_kernel_with_side_effect("1 relaxed a", experimental::relaxed_order);
+		submit_kernel_with_side_effect("1 relaxed b", experimental::relaxed_order);
+		submit_kernel_with_side_effect("1 exclusive", experimental::exclusive_order);
+		submit_kernel_with_side_effect("2 sequential", experimental::sequential_order);
+		submit_kernel_with_side_effect("3 sequential", experimental::sequential_order);
+		submit_kernel_with_side_effect("4 relaxed 1", experimental::relaxed_order);
+		submit_kernel_with_side_effect("4 exclusive 1", experimental::exclusive_order);
+		submit_kernel_with_side_effect("4 relaxed 2", experimental::relaxed_order);
+		submit_kernel_with_side_effect("5 sequential", experimental::sequential_order);
+		submit_kernel_with_side_effect("6 sequential", experimental::sequential_order);
+		submit_kernel_with_side_effect("7 relaxed 1", experimental::relaxed_order);
+		submit_kernel_with_side_effect("7 relaxed 1", experimental::relaxed_order);
+		submit_kernel_with_side_effect("7 exclusive", experimental::exclusive_order);
+		submit_kernel_with_side_effect("8 relaxed", experimental::relaxed_order);
+
+		INFO("We expect some tasks to execute concurrently, but this is non-deterministic.");
+		CHECK_NOFAIL(max_concurrency > 1);
+	}
+
 } // namespace detail
 } // namespace celerity
