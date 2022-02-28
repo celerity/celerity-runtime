@@ -1,53 +1,20 @@
 #include "executor.h"
 
 #include <queue>
-#include <unordered_map>
 
+#include "conflict_graph.h"
 #include "distr_queue.h"
 #include "frame.h"
 #include "log.h"
 #include "mpi_support.h"
 #include "named_threads.h"
 
+
 // TODO: Get rid of this. (This could potentialy even cause deadlocks on large clusters)
 constexpr size_t MAX_CONCURRENT_JOBS = 20;
 
 namespace celerity {
 namespace detail {
-	class conflict_graph {
-	  public:
-		void add_conflict(const command_id a, const command_id b) {
-			conflicts.emplace(a, b);
-			conflicts.emplace(b, a);
-		}
-
-		bool has_conflict(const command_id a, const command_id b) {
-			const auto [first, last] = conflicts.equal_range(a);
-			return std::find(first, last, conflict_pair{a, b}) != last;
-		}
-
-		template <typename Predicate>
-		bool has_conflict_if(const command_id cid, Predicate&& predicate) const {
-			const auto [first, last] = conflicts.equal_range(cid);
-			return std::find_if(first, last, [=](const conflict_pair& cf) { return predicate(cf.second); }) != last;
-		}
-
-		void erase_command(const command_id cid) {
-			for(auto it = conflicts.begin(); it != conflicts.end();) {
-				if(it->first == cid || it->second == cid) {
-					it = conflicts.erase(it);
-				} else {
-					++it;
-				}
-			}
-		}
-
-	  private:
-		using conflict_map = std::unordered_multimap<command_id, command_id>;
-		using conflict_pair = conflict_map::value_type;
-
-		conflict_map conflicts;
-	};
 
 	void duration_metric::resume() {
 		assert(!m_running);
@@ -83,8 +50,8 @@ namespace detail {
 	void executor::run() {
 		bool done = false;
 		std::queue<unique_frame_ptr<command_frame>> command_queue;
-		std::unordered_set<command_id> executing_commands;
-		conflict_graph conflict_graph;
+		detail::conflict_graph conflict_graph;
+		detail::conflict_graph::command_set executing_commands;
 
 		while(!done || !m_jobs.empty()) {
 			// Bail if a device error ocurred.
@@ -96,7 +63,7 @@ namespace detail {
 			// The BTM uses non-blocking MPI routines internally, making this a relatively cheap operation.
 			m_btm->poll();
 
-			std::vector<command_id> ready_jobs;
+			detail::conflict_graph::command_set ready_jobs;
 			for(auto it = m_jobs.begin(); it != m_jobs.end();) {
 				const auto cid = it->first;
 				auto& job_handle = it->second;
@@ -107,7 +74,7 @@ namespace detail {
 				}
 
 				if(!job_handle.job->is_running()) {
-					if(std::find(ready_jobs.cbegin(), ready_jobs.cend(), cid) == ready_jobs.cend()) { ready_jobs.push_back(cid); }
+					if(ready_jobs.find(cid) == ready_jobs.end()) { ready_jobs.insert(cid); }
 					++it;
 					continue;
 				}
@@ -123,7 +90,7 @@ namespace detail {
 				for(const auto& d : job_handle.dependents) {
 					assert(m_jobs.count(d) == 1);
 					m_jobs[d].unsatisfied_dependencies--;
-					if(m_jobs[d].unsatisfied_dependencies == 0) { ready_jobs.push_back(d); }
+					if(m_jobs[d].unsatisfied_dependencies == 0) { ready_jobs.insert(d); }
 				}
 
 				if(isa<device_execute_job>(job_handle.job.get())) {
@@ -137,22 +104,22 @@ namespace detail {
 				it = m_jobs.erase(it);
 			}
 
+			ready_jobs = conflict_graph.largest_conflict_free_subset(std::move(ready_jobs), executing_commands);
+
 			// Process newly available jobs
 			if(!ready_jobs.empty()) {
 				// Make sure to start any push jobs before other jobs, as on some platforms copying data from a compute device while
 				// also reading it from within a kernel is not supported. To avoid stalling other nodes, we thus perform the push first.
-				std::sort(ready_jobs.begin(), ready_jobs.end(),
+				std::vector<command_id> ordered_ready_jobs(ready_jobs.begin(), ready_jobs.end());
+				std::sort(ordered_ready_jobs.begin(), ordered_ready_jobs.end(),
 				    [this](command_id a, command_id b) { return m_jobs[a].cmd == command_type::push && m_jobs[b].cmd != command_type::push; });
-				for(command_id cid : ready_jobs) {
+				for(command_id cid : ordered_ready_jobs) {
 					auto& job_handle = m_jobs.at(cid);
-					if(!conflict_graph.has_conflict_if(
-					       cid, [&](const command_id conflict) { return executing_commands.find(conflict) != executing_commands.end(); })) {
-						auto* job = job_handle.job.get();
-						job->start();
-						job->update();
-						executing_commands.insert(cid);
-						if(isa<device_execute_job>(job)) { m_running_device_compute_jobs++; }
-					}
+					auto* job = job_handle.job.get();
+					job->start();
+					job->update();
+					executing_commands.insert(cid);
+					if(isa<device_execute_job>(job)) { m_running_device_compute_jobs++; }
 				}
 			}
 
@@ -166,11 +133,16 @@ namespace detail {
 				unique_frame_ptr<command_frame> frame(from_size_bytes, static_cast<size_t>(frame_bytes));
 				MPI_Mrecv(frame.get_pointer(), frame_bytes, MPI_BYTE, &msg, &status);
 				assert(frame->num_dependencies + frame->num_conflicts == frame.get_payload_count());
-				command_queue.push(std::move(frame));
 
+				const auto cid = frame->pkg.cid;
+				conflict_graph.add_command(cid);
 				for(const auto conflict_cid : frame->iter_conflicts()) {
-					conflict_graph.add_conflict(frame->pkg.cid, conflict_cid);
+					// TODO how to decide when to add/remove a command to/from the CG? Like for dependencies, we should not track conflicts to old commands
+					conflict_graph.add_command(conflict_cid);
+					conflict_graph.add_conflict(cid, conflict_cid);
 				}
+
+				command_queue.push(std::move(frame));
 
 				if(!m_first_command_received) {
 					m_metrics.initial_idle.pause();
