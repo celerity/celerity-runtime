@@ -163,7 +163,7 @@ namespace detail {
 			comm_thread(MPI_Comm comm, size_t n_threads) : comm(comm), thread(n_threads) {
 				for(size_t i = 0; i < n_threads; ++i) {
 					auto& worker = thread.get_thread(i);
-					set_thread_name(worker, "worker" + std::to_string(i));
+					set_thread_name(worker.native_handle(), "worker" + std::to_string(i));
 				}
 			}
 		};

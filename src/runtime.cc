@@ -171,7 +171,7 @@ namespace detail {
 		is_active = true;
 		if(is_master_node()) { schdlr->startup(); }
 		exec->startup();
-		set_current_thread_name("main");
+		set_thread_name(get_current_thread_handle(), "main");
 	}
 
 	void runtime::shutdown() noexcept {

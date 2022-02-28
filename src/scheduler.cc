@@ -12,7 +12,7 @@ namespace detail {
 
 	void scheduler::startup() {
 		worker_thread = std::thread(&scheduler::schedule, this);
-		set_thread_name(worker_thread, "scheduler");
+		set_thread_name(worker_thread.native_handle(), "scheduler");
 	}
 
 	void scheduler::shutdown() {

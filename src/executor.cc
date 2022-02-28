@@ -33,7 +33,7 @@ namespace detail {
 
 	void executor::startup() {
 		exec_thrd = std::thread(&executor::run, this);
-		set_thread_name(exec_thrd, "executor");
+		set_thread_name(exec_thrd.native_handle(), "executor");
 	}
 
 	void executor::shutdown() {
