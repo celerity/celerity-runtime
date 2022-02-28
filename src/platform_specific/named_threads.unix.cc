@@ -2,7 +2,6 @@
 
 #include <cassert>
 #include <type_traits>
-#include <vector>
 
 #include <pthread.h>
 
@@ -24,10 +23,10 @@ void set_thread_name(const std::thread::native_handle_type thread_handle, const 
 }
 
 std::string get_thread_name(const std::thread::native_handle_type thread_handle) {
-	auto name = std::vector<char>(PTHREAD_MAX_THREAD_NAME_LEN, '\0');
-	[[maybe_unused]] const auto res = pthread_getname_np(thread_handle, name.data(), name.size());
+	char name[PTHREAD_MAX_THREAD_NAME_LEN] = {};
+	[[maybe_unused]] const auto res = pthread_getname_np(thread_handle, name, PTHREAD_MAX_THREAD_NAME_LEN);
 	assert(res == 0 && "Failed to get thread name");
-	return name.data(); // Strip null terminator
+	return name; // Automatically strips null terminator
 }
 
 } // namespace celerity::detail
