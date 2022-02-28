@@ -871,6 +871,7 @@ namespace detail {
 		}
 	}
 
+#ifndef __APPLE__
 	class restore_process_affinity_fixture {
 		restore_process_affinity_fixture(const restore_process_affinity_fixture&) = delete;
 		restore_process_affinity_fixture(restore_process_affinity_fixture&&) = delete;
@@ -927,6 +928,7 @@ namespace detail {
 		const auto cores = affinity_cores_available();
 		REQUIRE(cores == 1);
 	}
+#endif
 
 	TEST_CASE("side_effect API works as expected on a single node", "[side-effect]") {
 		distr_queue q;
