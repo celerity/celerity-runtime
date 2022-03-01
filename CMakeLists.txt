@@ -197,7 +197,7 @@ set(SOURCES
 
 if(WIN32)
   set(SOURCES ${SOURCES} src/platform_specific/affinity.win.cc)
- elseif(UNIX)
+ elseif(UNIX AND NOT APPLE)
   set(SOURCES ${SOURCES} src/platform_specific/affinity.unix.cc)
 endif()
 
