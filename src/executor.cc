@@ -100,7 +100,7 @@ namespace detail {
 					done = true;
 				}
 
-				conflict_graph.erase_command(cid);
+				conflict_graph.forget_command(cid);
 				it = m_jobs.erase(it);
 			}
 
@@ -135,10 +135,7 @@ namespace detail {
 				assert(frame->num_dependencies + frame->num_conflicts == frame.get_payload_count());
 
 				const auto cid = frame->pkg.cid;
-				conflict_graph.add_command(cid);
 				for(const auto conflict_cid : frame->iter_conflicts()) {
-					// TODO how to decide when to add/remove a command to/from the CG? Like for dependencies, we should not track conflicts to old commands
-					conflict_graph.add_command(conflict_cid);
 					conflict_graph.add_conflict(cid, conflict_cid);
 				}
 

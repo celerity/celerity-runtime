@@ -5,10 +5,12 @@
 namespace celerity::detail {
 
 TEST_CASE("maximum independent set", "[conflict-graph]") {
-	conflict_graph cg;
+	conflict_graph::command_set commands;
 	for(command_id cid = 0; cid <= 11; ++cid) {
-		cg.add_command(cid);
+		commands.insert(cid);
 	}
+
+	conflict_graph cg;
 
 	// fork
 	cg.add_conflict(0, 1);
@@ -26,7 +28,7 @@ TEST_CASE("maximum independent set", "[conflict-graph]") {
 	cg.add_conflict(9, 11);
 	cg.add_conflict(10, 11);
 
-	const auto cfs = cg.largest_conflict_free_subset(cg.get_commands());
+	const auto cfs = cg.largest_conflict_free_subset(commands);
 	CHECK(cfs.size() == 7);
 
 	CHECK(cfs.count(0) == 0);
@@ -43,8 +45,6 @@ TEST_CASE("maximum independent set", "[conflict-graph]") {
 
 TEST_CASE("maximum independent set 2", "[conflict-graph]") {
 	conflict_graph cg;
-	cg.add_command(2);
-	cg.add_command(0);
 	cg.add_conflict(0, 2);
 	const auto cfs = cg.largest_conflict_free_subset({2});
 	CHECK(cfs == conflict_graph::command_set{2});
@@ -52,23 +52,20 @@ TEST_CASE("maximum independent set 2", "[conflict-graph]") {
 
 TEST_CASE("conflict graph", "[conflict-graph]") {
 	conflict_graph cg;
-	for(command_id cid = 0; cid < 5; ++cid) {
-		cg.add_command(cid);
-	}
 
-	CHECK(!cg.has_any_conflict(0));
-	CHECK(!cg.has_any_conflict(1));
+	CHECK(!cg.has_conflict_with_any_of(0, conflict_graph::command_set{}));
+	CHECK(!cg.has_conflict_with_any_of(1, conflict_graph::command_set{}));
 	cg.add_conflict(0, 1);
 	CHECK(cg.has_conflict(0, 1));
 	CHECK(cg.has_conflict(1, 0));
-	CHECK(cg.has_any_conflict(0));
-	CHECK(cg.has_any_conflict(1));
+	CHECK(cg.has_conflict_with_any_of(0, conflict_graph::command_set{0, 1}));
+	CHECK(cg.has_conflict_with_any_of(1, conflict_graph::command_set{0, 1}));
 
 	cg.add_conflict(2, 3);
 	CHECK(cg.has_conflict(2, 3));
 	CHECK(cg.has_conflict(3, 2));
-	CHECK(cg.has_any_conflict(2));
-	CHECK(cg.has_any_conflict(3));
+	CHECK(cg.has_conflict_with_any_of(2, conflict_graph::command_set{0, 1, 2, 3}));
+	CHECK(cg.has_conflict_with_any_of(3, conflict_graph::command_set{0, 1, 2, 3}));
 }
 
 } // namespace celerity::detail
