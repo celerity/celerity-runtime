@@ -114,7 +114,7 @@ namespace detail {
 
 		host_queue() {
 			// TODO what is a good thread count for the non-collective thread pool?
-			threads.emplace(std::piecewise_construct, std::tuple{0}, std::tuple{MPI_COMM_NULL, 4});
+			threads.emplace(std::piecewise_construct, std::tuple{0}, std::tuple{MPI_COMM_NULL, 4, id++});
 		}
 
 		void require_collective_group(collective_group_id cgid) {
@@ -122,7 +122,7 @@ namespace detail {
 			assert(cgid != 0);
 			MPI_Comm comm;
 			MPI_Comm_dup(MPI_COMM_WORLD, &comm);
-			threads.emplace(std::piecewise_construct, std::tuple{cgid}, std::tuple{comm, 1});
+			threads.emplace(std::piecewise_construct, std::tuple{cgid}, std::tuple{comm, 1, id++});
 		}
 
 		template <typename Fn>
@@ -160,15 +160,16 @@ namespace detail {
 			MPI_Comm comm;
 			ctpl::thread_pool thread;
 
-			comm_thread(MPI_Comm comm, size_t n_threads) : comm(comm), thread(n_threads) {
+			comm_thread(MPI_Comm comm, size_t n_threads, size_t id) : comm(comm), thread(n_threads) {
 				for(size_t i = 0; i < n_threads; ++i) {
 					auto& worker = thread.get_thread(i);
-					set_thread_name(worker.native_handle(), "worker" + std::to_string(i));
+					set_thread_name(worker.native_handle(), fmt::format("cy-worker-{}.{}", id, i));
 				}
 			}
 		};
 
 		std::unordered_map<collective_group_id, comm_thread> threads;
+		size_t id = 0;
 	};
 
 } // namespace detail
