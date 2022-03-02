@@ -1006,7 +1006,7 @@ namespace detail {
 			cgh.host_task(experimental::collective, [&](experimental::collective_partition) {
 				const auto base_name = std::string("worker");
 				const auto worker_thread_name = get_thread_name(get_current_thread_handle());
-				CHECK(worker_thread_name.compare(0, base_name.size(), base_name) == 0); // Check thread name starts with "worker"
+				CHECK_THAT(worker_thread_name, Catch::Matchers::StartsWith(base_name));
 			});
 		});
 	}
