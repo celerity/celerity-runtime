@@ -216,6 +216,8 @@ target_include_directories(celerity_runtime PUBLIC
   $<INSTALL_INTERFACE:include/celerity/vendor>
 )
 
+# With DPC++ on windows the correct release (sycl) / debug (sycld) library needs to be linked,
+# because they are not ABI compatible.
 if(WIN32 AND CELERITY_SYCL_IMPL STREQUAL "DPC++")
   set(SYCL_LIB
     $<$<CONFIG:Debug>:sycld>
