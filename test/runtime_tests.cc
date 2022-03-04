@@ -13,7 +13,7 @@
 #include <pthread.h>
 #endif
 
-#include <catch2/catch.hpp>
+#include <catch2/catch_all.hpp>
 
 #include <celerity.h>
 
@@ -179,7 +179,7 @@ namespace detail {
 
 		// Attempting to merge region maps with incompatible extents should throw
 		const region_map<size_t> rm_incompat(cl::sycl::range<3>(128, 64, 30));
-		REQUIRE_THROWS_WITH(rm1.merge(rm_incompat), Catch::Equals("Incompatible region map"));
+		REQUIRE_THROWS_WITH(rm1.merge(rm_incompat), Catch::Matchers::Equals("Incompatible region map"));
 	}
 
 	TEST_CASE("range mapper results are clamped to buffer range", "[range-mapper]") {
