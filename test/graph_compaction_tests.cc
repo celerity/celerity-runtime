@@ -5,7 +5,7 @@
 #include <set>
 #include <unordered_set>
 
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include <celerity.h>
 
@@ -304,7 +304,7 @@ namespace detail {
 		}
 
 		for(auto cid : initial_last_writer_ids) {
-			INFO("initial last writer with id " << cid << " has been deleted")
+			INFO("initial last writer with id " << cid << " has been deleted");
 			CHECK_FALSE(ctx.get_command_graph().has(cid));
 		}
 

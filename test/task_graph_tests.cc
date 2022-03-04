@@ -4,7 +4,7 @@
 #include "types.h"
 #include "unit_test_suite_celerity.h"
 
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include <celerity.h>
 #include <iterator>
@@ -488,7 +488,7 @@ namespace detail {
 			}
 		}
 
-		INFO("initial last writer with id " << initial_last_writer_id << " has been deleted")
+		INFO("initial last writer with id " << initial_last_writer_id << " has been deleted");
 		CHECK_FALSE(tm.has_task(initial_last_writer_id));
 
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(1), true);

@@ -2,7 +2,7 @@ if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.19.0")
     cmake_policy(SET CMP0110 NEW) # don't spam about add_test names..
 endif()
 
-include("${PROJECT_SOURCE_DIR}/vendor/Catch2/contrib/ParseAndAddCatchTests.cmake")
+include("${PROJECT_SOURCE_DIR}/vendor/Catch2/extras/ParseAndAddCatchTests.cmake")
 
 # Add includes to library so they show up in IDEs
 file(GLOB_RECURSE TEST_INCLUDES *.h)
@@ -27,8 +27,6 @@ target_link_libraries(
 )
 
 set_property(TARGET unit_test_suite PROPERTY CXX_STANDARD 17)
-
-add_definitions("-DCATCH_CONFIG_ENABLE_BENCHMARKING")
 
 add_celerity_to_target(TARGET unit_test_suite SOURCES unit_test_suite_celerity.cc)
 

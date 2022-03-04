@@ -1,7 +1,9 @@
 #include "unit_test_suite.h"
 
-#define CATCH_CONFIG_RUNNER
-#include <catch2/catch.hpp>
+#include <catch2/catch_session.hpp>
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/reporters/catch_reporter_event_listener.hpp>
+#include <catch2/reporters/catch_reporter_registrars.hpp>
 
 bool print_graphs = false;
 
@@ -11,7 +13,7 @@ bool print_graphs = false;
 int main(int argc, char* argv[]) {
 	Catch::Session session;
 
-	using namespace Catch::clara;
+	using namespace Catch::Clara;
 	const auto cli = session.cli() | Opt(print_graphs)["--print-graphs"]("print graphs (GraphViz)");
 
 	session.cli(cli);
@@ -22,8 +24,8 @@ int main(int argc, char* argv[]) {
 	return session.run();
 }
 
-struct GlobalSetupAndTeardown : Catch::TestEventListenerBase {
-	using TestEventListenerBase::TestEventListenerBase;
+struct GlobalSetupAndTeardown : Catch::EventListenerBase {
+	using EventListenerBase::EventListenerBase;
 	void testRunStarting(const Catch::TestRunInfo&) override { detail::test_run_started_callback(); }
 	void testCaseEnded(const Catch::TestCaseStats&) override { detail::test_case_ended_callback(); }
 	void testRunEnded(const Catch::TestRunStats&) override { detail::test_run_ended_callback(); }
