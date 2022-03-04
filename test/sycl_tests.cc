@@ -1,5 +1,8 @@
 #include "test_utils.h"
 
+#include <catch2/catch_template_test_macros.hpp>
+#include <catch2/generators/catch_generators_all.hpp>
+
 namespace celerity::detail {
 
 template <int Dims>

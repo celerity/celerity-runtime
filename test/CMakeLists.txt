@@ -8,14 +8,20 @@ include("${PROJECT_SOURCE_DIR}/vendor/Catch2/extras/ParseAndAddCatchTests.cmake"
 file(GLOB_RECURSE TEST_INCLUDES *.h)
 
 set(TEST_TARGETS
+  accessor_tests
   benchmarks
-  runtime_tests
-  runtime_deprecation_tests
+  buffer_manager_tests
   graph_generation_tests
+  graph_gen_granularity_tests
+  graph_gen_reduction_tests
+  graph_gen_transfer_tests
   graph_compaction_tests
   intrusive_graph_tests
-  task_graph_tests
+  region_map_tests
+  runtime_tests
+  runtime_deprecation_tests
   sycl_tests
+  task_graph_tests
 )
 
 add_library(unit_test_suite unit_test_suite.cc unit_test_suite_celerity.cc)
