@@ -5,6 +5,7 @@
 #include "unit_test_suite_celerity.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <celerity.h>
 #include <iterator>
@@ -17,20 +18,6 @@ namespace detail {
 
 	using celerity::access::all;
 	using celerity::access::fixed;
-
-	bool has_dependency(const task_manager& tm, task_id dependent, task_id dependency, dependency_kind kind = dependency_kind::TRUE_DEP) {
-		for(auto dep : tm.get_task(dependent)->get_dependencies()) {
-			if(dep.node->get_id() == dependency && dep.kind == kind) return true;
-		}
-		return false;
-	}
-
-	bool has_any_dependency(const task_manager& tm, task_id dependent, task_id dependency) {
-		for(auto dep : tm.get_task(dependent)->get_dependencies()) {
-			if(dep.node->get_id() == dependency) return true;
-		}
-		return false;
-	}
 
 	TEST_CASE("task_manager does not create multiple dependencies between the same tasks", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;

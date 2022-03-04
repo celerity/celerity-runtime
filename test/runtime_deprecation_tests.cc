@@ -8,24 +8,21 @@
 #include <memory>
 #include <random>
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include <celerity.h>
 
 #include "ranges.h"
 #include "region_map.h"
 
-#include "test_utils.h"
+#include "buffer_manager_test_utils.h"
 
 namespace celerity {
 namespace detail {
 
 	using celerity::access::all;
 	using celerity::access::fixed;
-	using celerity::access::neighborhood;
 	using celerity::access::one_to_one;
-	using celerity::access::slice;
-	using celerity::experimental::access::even_split;
 
 	TEST_CASE("deprecated range mapper templates continue to work", "[range-mapper][deprecated]") {
 		const auto chunk1d = chunk<1>{1, 2, 3};
