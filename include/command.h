@@ -12,7 +12,6 @@ namespace celerity {
 namespace detail {
 
 	enum class command_type { EPOCH, HORIZON, EXECUTION, PUSH, AWAIT_PUSH, REDUCTION };
-	constexpr const char* command_string[] = {"EPOCH", "HORIZON", "EXECUTION", "PUSH", "AWAIT_PUSH", "REDUCTION"};
 
 	// ----------------------------------------------------------------------------------------------------------------
 	// ------------------------------------------------ COMMAND GRAPH -------------------------------------------------

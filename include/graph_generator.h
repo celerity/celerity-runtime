@@ -64,8 +64,8 @@ namespace detail {
 			// The most recent horizon command. Depends on the previous execution front and will become the current_epoch once the next horizon is generated.
 			std::optional<command_id> current_horizon;
 			// The current epoch command is used as the last writer for host-initialized buffers.
-			// To ensure correct ordering, all commands that have no other true-dependencies depend on this command.
 			// This is useful so we can correctly generate anti-dependencies onto commands that read host-initialized buffers.
+			// To ensure correct ordering, all commands that have no other true-dependencies depend on this command.
 			command_id current_epoch;
 			// We store for each node which command last wrote to a buffer region. This includes both newly generated data (from a execution command),
 			// as well as already existing data that was pushed in from another node. This is used for determining anti-dependencies.
@@ -98,7 +98,7 @@ namespace detail {
 		const size_t num_nodes;
 		command_graph& cdag;
 
-		// After completing an epoch, we need to wait until it is flushed before proving predecessors from the CDAG, otherwise dependencies will not be flushed.
+		// After completing an epoch, we need to wait until it is flushed before pruning predecessors from the CDAG, otherwise dependencies will not be flushed.
 		// We generate the initial epoch commands manually starting from cid 0, so initializing these to 0 is correct.
 		detail::command_id last_completed_epoch = 0;
 		// Used to skip the pruning step if no new epoch has been completed.

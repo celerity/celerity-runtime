@@ -152,7 +152,7 @@ namespace detail {
 	}
 
 	bool executor::handle_command(const command_pkg& pkg, const std::vector<command_id>& dependencies) {
-		// A worker might receive a task command before creating the corresponding horizon task itself
+		// A worker might receive a task command before creating the corresponding task graph node
 		if(const auto tid = pkg.get_tid()) {
 			if(!task_mngr.has_task(*tid)) { return false; }
 		}

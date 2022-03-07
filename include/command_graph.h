@@ -93,9 +93,9 @@ namespace detail {
 	class command_graph {
 	  public:
 		template <typename T, typename... Args>
-		T* create(Args... args) {
+		T* create(Args&&... args) {
 			static_assert(std::is_base_of<abstract_command, T>::value, "T must be derived from abstract_command");
-			auto unique_cmd = std::unique_ptr<T>{new T(next_cmd_id++, std::forward<Args>(args)...)};
+			auto unique_cmd = std::unique_ptr<T>{new T(next_cmd_id++, std::forward<Args>(args)...)}; // new, because ctors are private, but we are friends
 			const auto cmd = unique_cmd.get();
 			commands.emplace(std::pair{cmd->get_cid(), std::move(unique_cmd)});
 			if constexpr(std::is_base_of_v<task_command, T>) { by_task[cmd->get_tid()].emplace_back(cmd); }

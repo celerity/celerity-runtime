@@ -36,7 +36,7 @@ namespace detail {
 			cad.first = cmd;
 
 			// Iterate over first level of dependencies.
-			// These might either be data transfer commands, or task commands from other tasks.
+			// These might either be commands from other tasks that have been flushed previously or generated data transfer / reduction commands.
 			for(auto d : cmd->get_dependencies()) {
 				if(!flushed_manually(d.node)) { cad.second.push_back(d.node->get_cid()); }
 
