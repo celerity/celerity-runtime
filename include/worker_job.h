@@ -37,9 +37,7 @@ namespace detail {
 
 	  protected:
 		template <typename... Es>
-		explicit worker_job(command_pkg pkg, std::tuple<Es...> ctx = {})
-		    : pkg(pkg), lctx(pkg.tid.has_value() ? log_context{std::tuple_cat(std::tuple{"task", *pkg.tid, "job", pkg.cid}, ctx)}
-		                                         : log_context{std::tuple_cat(std::tuple{"job", pkg.cid}, ctx)}) {}
+		explicit worker_job(command_pkg pkg, std::tuple<Es...> ctx = {}) : pkg(pkg), lctx(make_log_context(pkg, ctx)) {}
 
 	  private:
 		command_pkg pkg;
@@ -54,6 +52,15 @@ namespace detail {
 		std::chrono::microseconds bench_min = std::numeric_limits<std::chrono::microseconds>::max();
 		std::chrono::microseconds bench_max = std::numeric_limits<std::chrono::microseconds>::min();
 
+		template <typename... Es>
+		log_context make_log_context(const command_pkg& pkg, const std::tuple<Es...>& ctx = {}) {
+			if(const auto tid = pkg.get_tid()) {
+				return log_context{std::tuple_cat(std::tuple{"task", *tid, "job", pkg.cid}, ctx)};
+			} else {
+				return log_context{std::tuple_cat(std::tuple{"job", pkg.cid}, ctx)};
+			}
+		}
+
 		virtual bool execute(const command_pkg& pkg) = 0;
 
 		/**
@@ -64,7 +71,7 @@ namespace detail {
 
 	class horizon_job : public worker_job {
 	  public:
-		horizon_job(command_pkg pkg, task_manager& tm) : worker_job(pkg), task_mngr(tm) { assert(pkg.cmd == command_type::HORIZON); }
+		horizon_job(command_pkg pkg, task_manager& tm) : worker_job(pkg), task_mngr(tm) { assert(pkg.get_command_type() == command_type::HORIZON); }
 
 	  private:
 		task_manager& task_mngr;
@@ -76,7 +83,7 @@ namespace detail {
 	class epoch_job : public worker_job {
 	  public:
 		epoch_job(command_pkg pkg, task_manager& tm) : worker_job(pkg), task_mngr(tm), action(std::get<epoch_data>(pkg.data).action) {
-			assert(pkg.cmd == command_type::EPOCH);
+			assert(pkg.get_command_type() == command_type::EPOCH);
 		}
 
 		epoch_action get_epoch_action() const { return action; }
@@ -94,7 +101,9 @@ namespace detail {
 	 */
 	class await_push_job : public worker_job {
 	  public:
-		await_push_job(command_pkg pkg, buffer_transfer_manager& btm) : worker_job(pkg), btm(btm) { assert(pkg.cmd == command_type::AWAIT_PUSH); }
+		await_push_job(command_pkg pkg, buffer_transfer_manager& btm) : worker_job(pkg), btm(btm) {
+			assert(pkg.get_command_type() == command_type::AWAIT_PUSH);
+		}
 
 	  private:
 		buffer_transfer_manager& btm;
@@ -107,7 +116,7 @@ namespace detail {
 	class push_job : public worker_job {
 	  public:
 		push_job(command_pkg pkg, buffer_transfer_manager& btm, buffer_manager& bm) : worker_job(pkg), btm(btm), buffer_mngr(bm) {
-			assert(pkg.cmd == command_type::PUSH);
+			assert(pkg.get_command_type() == command_type::PUSH);
 		}
 
 	  private:
@@ -122,7 +131,7 @@ namespace detail {
 	class reduction_job : public worker_job {
 	  public:
 		reduction_job(command_pkg pkg, reduction_manager& rm) : worker_job(pkg, std::tuple{"rid", std::get<reduction_data>(pkg.data).rid}), rm(rm) {
-			assert(pkg.cmd == command_type::REDUCTION);
+			assert(pkg.get_command_type() == command_type::REDUCTION);
 		}
 
 	  private:
@@ -137,7 +146,7 @@ namespace detail {
 	  public:
 		host_execute_job(command_pkg pkg, detail::host_queue& queue, detail::task_manager& tm, buffer_manager& bm)
 		    : worker_job(pkg), queue(queue), task_mngr(tm), buffer_mngr(bm) {
-			assert(pkg.cmd == command_type::EXECUTION);
+			assert(pkg.get_command_type() == command_type::EXECUTION);
 		}
 
 	  private:
@@ -159,7 +168,7 @@ namespace detail {
 	  public:
 		device_execute_job(command_pkg pkg, detail::device_queue& queue, detail::task_manager& tm, buffer_manager& bm, reduction_manager& rm, node_id local_nid)
 		    : worker_job(pkg), queue(queue), task_mngr(tm), buffer_mngr(bm), reduction_mngr(rm), local_nid(local_nid) {
-			assert(pkg.cmd == command_type::EXECUTION);
+			assert(pkg.get_command_type() == command_type::EXECUTION);
 		}
 
 	  private:

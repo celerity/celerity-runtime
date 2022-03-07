@@ -175,7 +175,7 @@ namespace test_utils {
 
 				const detail::command_id cid = pkg.cid;
 				commands[cid] = {nid, pkg, dependencies};
-				if(pkg.tid) { by_task[*pkg.tid].insert(cid); }
+				if(const auto tid = pkg.get_tid()) { by_task[*tid].insert(cid); }
 				by_node[nid].insert(cid);
 			};
 		}
@@ -205,7 +205,7 @@ namespace test_utils {
 			if(cmd != std::nullopt) {
 				std::set<detail::command_id> new_result;
 				std::copy_if(result.cbegin(), result.cend(), std::inserter(new_result, new_result.begin()),
-				    [this, cmd](detail::command_id cid) { return commands.at(cid).pkg.cmd == cmd; });
+				    [this, cmd](detail::command_id cid) { return commands.at(cid).pkg.get_command_type() == cmd; });
 				result = std::move(new_result);
 			}
 

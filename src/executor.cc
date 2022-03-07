@@ -153,23 +153,18 @@ namespace detail {
 
 	bool executor::handle_command(const command_pkg& pkg, const std::vector<command_id>& dependencies) {
 		// A worker might receive a task command before creating the corresponding horizon task itself
-		if(pkg.tid && !task_mngr.has_task(*pkg.tid)) { return false; }
+		if(const auto tid = pkg.get_tid()) {
+			if(!task_mngr.has_task(*tid)) { return false; }
+		}
 
-		switch(pkg.cmd) {
-		case command_type::HORIZON:
-			assert(pkg.tid.has_value());
-			create_job<horizon_job>(pkg, dependencies, task_mngr);
-			break;
-		case command_type::EPOCH:
-			assert(pkg.tid.has_value());
-			create_job<epoch_job>(pkg, dependencies, task_mngr);
-			break;
+		switch(pkg.get_command_type()) {
+		case command_type::HORIZON: create_job<horizon_job>(pkg, dependencies, task_mngr); break;
+		case command_type::EPOCH: create_job<epoch_job>(pkg, dependencies, task_mngr); break;
 		case command_type::PUSH: create_job<push_job>(pkg, dependencies, *btm, buffer_mngr); break;
 		case command_type::AWAIT_PUSH: create_job<await_push_job>(pkg, dependencies, *btm); break;
 		case command_type::REDUCTION: create_job<reduction_job>(pkg, dependencies, reduction_mngr); break;
 		case command_type::EXECUTION:
-			assert(pkg.tid.has_value());
-			if(task_mngr.get_task(*pkg.tid)->get_execution_target() == execution_target::HOST) {
+			if(task_mngr.get_task(std::get<execution_data>(pkg.data).tid)->get_execution_target() == execution_target::HOST) {
 				create_job<host_execute_job>(pkg, dependencies, h_queue, task_mngr, buffer_mngr);
 			} else {
 				create_job<device_execute_job>(pkg, dependencies, d_queue, task_mngr, buffer_mngr, reduction_mngr, local_nid);

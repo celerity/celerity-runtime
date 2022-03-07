@@ -81,7 +81,7 @@ namespace detail {
 
 		template <typename Job, typename... Args>
 		void create_job(const command_pkg& pkg, const std::vector<command_id>& dependencies, Args&&... args) {
-			jobs[pkg.cid] = {std::make_unique<Job>(pkg, std::forward<Args>(args)...), pkg.cmd, {}, 0};
+			jobs[pkg.cid] = {std::make_unique<Job>(pkg, std::forward<Args>(args)...), pkg.get_command_type(), {}, 0};
 
 			// If job doesn't exist we assume it has already completed.
 			// This is true as long as we're respecting task-graph (anti-)dependencies when processing tasks.
