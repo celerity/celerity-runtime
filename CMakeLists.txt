@@ -99,7 +99,7 @@ if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
   endif()
 endif()
 
-if(MSVC)
+if(WIN32)
   list(APPEND CELERITY_CXX_FLAGS -D_CRT_SECURE_NO_WARNINGS)
 endif()
 
@@ -218,10 +218,20 @@ target_include_directories(celerity_runtime PUBLIC
   $<INSTALL_INTERFACE:include/celerity/vendor/small_vector/include>
 )
 
+# With DPC++ on windows the correct release (sycl) / debug (sycld) library needs to be linked,
+# because they are not ABI compatible.
+if(WIN32 AND CELERITY_SYCL_IMPL STREQUAL "DPC++")
+  set(SYCL_LIB
+    $<$<CONFIG:Debug>:sycld>
+    $<$<CONFIG:Release>:sycl>
+  )
+endif()
+
 target_link_libraries(celerity_runtime PUBLIC
   Threads::Threads
   MPI::MPI_CXX
   spdlog::spdlog
+  ${SYCL_LIB}
 )
 
 # For debug builds, we set the CELERITY_DETAIL_ENABLE_DEBUG preprocessor flag,
@@ -280,7 +290,7 @@ add_sycl_to_target(
 )
 
 if(MSVC)
-  target_compile_options(celerity_runtime PRIVATE /MP /W3 /D_CRT_SECURE_NO_WARNINGS)
+  target_compile_options(celerity_runtime PRIVATE /MP /W3)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self)
 endif()
