@@ -12,7 +12,7 @@ namespace celerity {
 namespace detail {
 
 	std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::push(const command_pkg& pkg) {
-		assert(pkg.cmd == command_type::PUSH);
+		assert(pkg.get_command_type() == command_type::PUSH);
 		auto t_handle = std::make_shared<transfer_handle>();
 		// We are blocking the caller until the buffer has been copied and submitted to MPI
 		// TODO: Investigate doing this in worker thread
@@ -42,7 +42,7 @@ namespace detail {
 	}
 
 	std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::await_push(const command_pkg& pkg) {
-		assert(pkg.cmd == command_type::AWAIT_PUSH);
+		assert(pkg.get_command_type() == command_type::AWAIT_PUSH);
 		const auto& data = std::get<await_push_data>(pkg.data);
 
 		std::shared_ptr<incoming_transfer_handle> t_handle;

@@ -89,26 +89,19 @@ namespace detail {
 
 		command_pkg pkg;
 		pkg.cid = cmd->get_cid();
-		if(const auto* tcmd = dynamic_cast<task_command*>(cmd)) { pkg.tid = tcmd->get_tid(); }
-
 		if(const auto* ecmd = dynamic_cast<epoch_command*>(cmd)) {
-			pkg.cmd = command_type::EPOCH;
-			pkg.data = epoch_data{ecmd->get_epoch_action()};
+			pkg.data = epoch_data{ecmd->get_tid(), ecmd->get_epoch_action()};
 		} else if(const auto* xcmd = dynamic_cast<execution_command*>(cmd)) {
-			pkg.cmd = command_type::EXECUTION;
-			pkg.data = execution_data{xcmd->get_execution_range(), xcmd->is_reduction_initializer()};
+			pkg.data = execution_data{xcmd->get_tid(), xcmd->get_execution_range(), xcmd->is_reduction_initializer()};
 		} else if(const auto* pcmd = dynamic_cast<push_command*>(cmd)) {
-			pkg.cmd = command_type::PUSH;
 			pkg.data = push_data{pcmd->get_bid(), pcmd->get_rid(), pcmd->get_target(), pcmd->get_range()};
 		} else if(const auto* apcmd = dynamic_cast<await_push_command*>(cmd)) {
-			pkg.cmd = command_type::AWAIT_PUSH;
 			auto* source = apcmd->get_source();
 			pkg.data = await_push_data{source->get_bid(), source->get_rid(), source->get_nid(), source->get_cid(), source->get_range()};
 		} else if(const auto* rcmd = dynamic_cast<reduction_command*>(cmd)) {
-			pkg.cmd = command_type::REDUCTION;
 			pkg.data = reduction_data{rcmd->get_rid()};
 		} else if(const auto* hcmd = dynamic_cast<horizon_command*>(cmd)) {
-			pkg.cmd = command_type::HORIZON;
+			pkg.data = horizon_data{hcmd->get_tid()};
 		} else {
 			assert(false && "Unknown command");
 		}

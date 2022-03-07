@@ -6,6 +6,7 @@
 #include "ranges.h"
 #include "task.h"
 #include "types.h"
+#include "utils.h"
 
 namespace celerity {
 namespace detail {
@@ -148,11 +149,17 @@ namespace detail {
 	// -------------------------------------------- SERIALIZED COMMANDS -----------------------------------------------
 	// ----------------------------------------------------------------------------------------------------------------
 
+	struct horizon_data {
+		task_id tid;
+	};
+
 	struct epoch_data {
+		task_id tid;
 		epoch_action action;
 	};
 
 	struct execution_data {
+		task_id tid;
 		subrange<3> sr;
 		bool initialize_reductions;
 	};
@@ -176,16 +183,44 @@ namespace detail {
 		reduction_id rid;
 	};
 
-	using command_data = std::variant<std::monostate, epoch_data, execution_data, push_data, await_push_data, reduction_data>;
+	using command_data = std::variant<std::monostate, horizon_data, epoch_data, execution_data, push_data, await_push_data, reduction_data>;
 
 	/**
 	 * A command package is what is actually transferred between nodes.
 	 */
 	struct command_pkg {
 		command_id cid{};
-		std::optional<task_id> tid{};
-		command_type cmd{};
 		command_data data;
+
+		std::optional<task_id> get_tid() const {
+			// clang-format off
+			return utils::match(data,
+				[](const horizon_data& d) { return std::optional{d.tid}; },
+				[](const epoch_data& d) { return std::optional{d.tid}; },
+				[](const execution_data& d) { return std::optional{d.tid}; },
+				[](const auto&) { return std::optional<task_id>{}; }
+			);
+			// clang-format on
+		}
+
+		command_type get_command_type() const {
+			// clang-format off
+			return utils::match(data,
+			    [](const std::monostate&) -> command_type {
+				    assert(!"calling get_command_type() on an empty command_pkg");
+				    std::terminate();
+			    },
+			    [](const horizon_data&) { return command_type::HORIZON; },
+			    [](const epoch_data&) { return command_type::EPOCH; },
+			    [](const execution_data&) { return command_type::EXECUTION; },
+			    [](const push_data&) { return command_type::PUSH; },
+			    [](const await_push_data&) { return command_type::AWAIT_PUSH; },
+			    [](const reduction_data&) { return command_type::REDUCTION; }
+			);
+			// clang-format on
+		}
+
+		// clang-format on
 	};
 
 } // namespace detail
