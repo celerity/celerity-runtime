@@ -2321,18 +2321,57 @@ namespace detail {
 	}
 
 
-	TEST_CASE("affinity check", "[affinity]") {
+	class restore_process_affinity_fixture {
+		restore_process_affinity_fixture(const restore_process_affinity_fixture&) = delete;
+		restore_process_affinity_fixture(restore_process_affinity_fixture&&) = delete;
+		restore_process_affinity_fixture& operator=(const restore_process_affinity_fixture&) = delete;
+		restore_process_affinity_fixture& operator=(restore_process_affinity_fixture&&) = delete;
+
+	  public:
+#ifdef _WIN32
+		restore_process_affinity_fixture() {
+			[[maybe_unused]] DWORD_PTR system_mask;
+			const auto ret = GetProcessAffinityMask(GetCurrentProcess(), &process_mask, &system_mask);
+			REQUIRE(ret != FALSE);
+		}
+
+		~restore_process_affinity_fixture() {
+			const auto ret = SetProcessAffinityMask(GetCurrentProcess(), process_mask);
+			REQUIRE(ret != FALSE);
+		}
+
+	  private:
+		DWORD_PTR process_mask;
+#else
+		restore_process_affinity_fixture() {
+			const auto ret = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &process_mask);
+			REQUIRE(ret == 0);
+		}
+
+		~restore_process_affinity_fixture() {
+			const auto ret = pthread_setaffinity_np(pthread_self(), sizeof(process_mask), &process_mask);
+			REQUIRE(ret == 0);
+		}
+
+	  private:
+		cpu_set_t process_mask;
+#endif
+	};
+
+	TEST_CASE_METHOD(restore_process_affinity_fixture, "affinity check", "[affinity]") {
 #ifdef _WIN32
 		SECTION("in Windows") {
 			DWORD_PTR cpu_mask = 1;
-			SetProcessAffinityMask(GetCurrentProcess(), cpu_mask);
+			const auto ret = SetProcessAffinityMask(GetCurrentProcess(), cpu_mask);
+			REQUIRE(ret != FALSE);
 		}
 #else
 		SECTION("in Posix") {
 			cpu_set_t cpu_mask;
 			CPU_ZERO(&cpu_mask);
 			CPU_SET(0, &cpu_mask);
-			pthread_setaffinity_np(pthread_self(), sizeof(cpu_mask), &cpu_mask);
+			const auto ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_mask), &cpu_mask);
+			REQUIRE(ret == 0);
 		}
 #endif
 		const auto cores = affinity_cores_available();
