@@ -105,7 +105,7 @@ namespace detail {
 
 		const buffer_access_map& get_buffer_access_map() const { return access_map; }
 
-		const side_effect_map& get_side_effect_map() const { return side_effect_map; }
+		const side_effect_map& get_side_effect_map() const { return side_effects; }
 
 		const command_group_storage_base& get_command_group() const { return *cgf; }
 
@@ -177,16 +177,16 @@ namespace detail {
 		task_geometry geometry;
 		std::unique_ptr<command_group_storage_base> cgf;
 		buffer_access_map access_map;
-		detail::side_effect_map side_effect_map;
+		detail::side_effect_map side_effects;
 		std::vector<reduction_id> reductions;
 		std::string debug_name;
 
 		task(task_id tid, task_type type, collective_group_id cgid, task_geometry geometry, std::unique_ptr<command_group_storage_base> cgf,
-		    buffer_access_map access_map, detail::side_effect_map side_effect_map, std::vector<reduction_id> reductions, std::string debug_name)
+		    buffer_access_map access_map, detail::side_effect_map side_effects, std::vector<reduction_id> reductions, std::string debug_name)
 		    : tid(tid), type(type), cgid(cgid), geometry(geometry), cgf(std::move(cgf)), access_map(std::move(access_map)),
-		      side_effect_map(std::move(side_effect_map)), reductions(std::move(reductions)), debug_name(std::move(debug_name)) {
+		      side_effects(std::move(side_effects)), reductions(std::move(reductions)), debug_name(std::move(debug_name)) {
 			assert(type == task_type::HOST_COMPUTE || type == task_type::DEVICE_COMPUTE || get_granularity().size() == 1);
-			assert((type != task_type::HOST_COMPUTE && type != task_type::COLLECTIVE && type != task_type::MASTER_NODE) || side_effect_map.empty());
+			assert((type != task_type::HOST_COMPUTE && type != task_type::COLLECTIVE && type != task_type::MASTER_NODE) || side_effects.empty());
 		}
 	};
 

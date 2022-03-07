@@ -3,7 +3,6 @@
 #include "test_utils.h"
 
 namespace celerity {
-
 namespace detail {
 
 	struct buffer_manager_testspy {
