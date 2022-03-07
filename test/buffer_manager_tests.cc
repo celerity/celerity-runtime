@@ -15,39 +15,6 @@
 namespace celerity {
 namespace detail {
 
-	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager keeps track of buffers", "[buffer_manager]") {
-		std::vector<std::pair<buffer_manager::buffer_lifecycle_event, buffer_id>> cb_calls;
-		initialize([&](buffer_manager::buffer_lifecycle_event e, buffer_id bid) { cb_calls.push_back({e, bid}); });
-		auto& bm = get_buffer_manager();
-
-		REQUIRE_FALSE(bm.has_active_buffers());
-
-		REQUIRE_FALSE(bm.has_buffer(0));
-		bm.register_buffer<float, 1>({1024, 1, 1});
-		REQUIRE(bm.has_buffer(0));
-		REQUIRE(bm.has_active_buffers());
-		REQUIRE(bm.get_buffer_info(0).range == cl::sycl::range<3>{1024, 1, 1});
-		REQUIRE(bm.get_buffer_info(0).is_host_initialized == false);
-		REQUIRE(cb_calls.size() == 1);
-		REQUIRE(cb_calls[0] == std::make_pair(buffer_manager::buffer_lifecycle_event::REGISTERED, buffer_id(0)));
-
-		std::vector<float> host_buf(5 * 6 * 7);
-		bm.register_buffer<float, 3>({5, 6, 7}, host_buf.data());
-		REQUIRE(bm.has_buffer(1));
-		REQUIRE(bm.get_buffer_info(1).range == cl::sycl::range<3>{5, 6, 7});
-		REQUIRE(bm.get_buffer_info(1).is_host_initialized == true);
-		REQUIRE(cb_calls.size() == 2);
-		REQUIRE(cb_calls[1] == std::make_pair(buffer_manager::buffer_lifecycle_event::REGISTERED, buffer_id(1)));
-
-		bm.unregister_buffer(0);
-		REQUIRE(cb_calls.size() == 3);
-		REQUIRE(cb_calls[2] == std::make_pair(buffer_manager::buffer_lifecycle_event::UNREGISTERED, buffer_id(0)));
-		REQUIRE(bm.has_active_buffers());
-
-		bm.unregister_buffer(1);
-		REQUIRE_FALSE(bm.has_active_buffers());
-	}
-
 	TEST_CASE("buffer_manager allows buffer deallocation", "[buffer_manager][dealloc]") {
 		celerity::distr_queue q;
 		buffer_id b_id;
@@ -81,6 +48,42 @@ namespace detail {
 
 		// TODO: check whether error was printed or not
 		maybe_print_graph(celerity::detail::runtime::get_instance().get_task_manager());
+	}
+
+// ComputeCPP based on Clang 8 segfaults in these tests
+#if !CELERITY_IS_OLD_COMPUTECPP_COMPILER
+
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager keeps track of buffers", "[buffer_manager]") {
+		std::vector<std::pair<buffer_manager::buffer_lifecycle_event, buffer_id>> cb_calls;
+		initialize([&](buffer_manager::buffer_lifecycle_event e, buffer_id bid) { cb_calls.push_back({e, bid}); });
+		auto& bm = get_buffer_manager();
+
+		REQUIRE_FALSE(bm.has_active_buffers());
+
+		REQUIRE_FALSE(bm.has_buffer(0));
+		bm.register_buffer<float, 1>({1024, 1, 1});
+		REQUIRE(bm.has_buffer(0));
+		REQUIRE(bm.has_active_buffers());
+		REQUIRE(bm.get_buffer_info(0).range == cl::sycl::range<3>{1024, 1, 1});
+		REQUIRE(bm.get_buffer_info(0).is_host_initialized == false);
+		REQUIRE(cb_calls.size() == 1);
+		REQUIRE(cb_calls[0] == std::make_pair(buffer_manager::buffer_lifecycle_event::REGISTERED, buffer_id(0)));
+
+		std::vector<float> host_buf(5 * 6 * 7);
+		bm.register_buffer<float, 3>({5, 6, 7}, host_buf.data());
+		REQUIRE(bm.has_buffer(1));
+		REQUIRE(bm.get_buffer_info(1).range == cl::sycl::range<3>{5, 6, 7});
+		REQUIRE(bm.get_buffer_info(1).is_host_initialized == true);
+		REQUIRE(cb_calls.size() == 2);
+		REQUIRE(cb_calls[1] == std::make_pair(buffer_manager::buffer_lifecycle_event::REGISTERED, buffer_id(1)));
+
+		bm.unregister_buffer(0);
+		REQUIRE(cb_calls.size() == 3);
+		REQUIRE(cb_calls[2] == std::make_pair(buffer_manager::buffer_lifecycle_event::UNREGISTERED, buffer_id(0)));
+		REQUIRE(bm.has_active_buffers());
+
+		bm.unregister_buffer(1);
+		REQUIRE_FALSE(bm.has_active_buffers());
 	}
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager creates appropriately sized buffers as needed", "[buffer_manager]") {
@@ -1114,6 +1117,8 @@ namespace detail {
 			CHECK(backing_buffer_2.offset == access_2_sr.offset);
 		}
 	}
+
+#endif // CELERITY_IS_OLD_COMPUTECPP_COMPILER
 
 } // namespace detail
 } // namespace celerity
