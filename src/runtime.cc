@@ -98,13 +98,13 @@ namespace detail {
 		spdlog::set_pattern(fmt::format("[%Y-%m-%d %H:%M:%S.%e] [{:0{}}] [%^%l%$] %v", world_rank, int(ceil(log10(world_size)))));
 
 		cfg = std::make_unique<config>(argc, argv);
-
+#ifndef __APPLE__
 		if(const uint32_t cores = affinity_cores_available(); cores < min_cores_needed) {
 			CELERITY_WARN("Celerity has detected that only {} logical cores are available to this process. It is recommended to assign at least {} "
 			              "logical cores. Performance may be negatively impacted.",
 			    cores, min_cores_needed);
 		}
-
+#endif
 		user_bench = std::make_unique<experimental::bench::detail::user_benchmarker>(*cfg, static_cast<node_id>(world_rank));
 
 		h_queue = std::make_unique<host_queue>();
