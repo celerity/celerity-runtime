@@ -2,6 +2,7 @@
 
 #include "graph_generator.h"
 #include "graph_serializer.h"
+#include "named_threads.h"
 #include "transformers/naive_split.h"
 
 namespace celerity {
@@ -9,7 +10,10 @@ namespace detail {
 
 	scheduler::scheduler(graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes) : ggen(ggen), gsrlzr(gsrlzr), num_nodes(num_nodes) {}
 
-	void scheduler::startup() { worker_thread = std::thread(&scheduler::schedule, this); }
+	void scheduler::startup() {
+		worker_thread = std::thread(&scheduler::schedule, this);
+		set_thread_name(worker_thread.native_handle(), "cy-scheduler");
+	}
 
 	void scheduler::shutdown() {
 		notify(scheduler_event_type::SHUTDOWN, 0);

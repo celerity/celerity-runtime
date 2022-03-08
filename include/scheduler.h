@@ -21,6 +21,8 @@ namespace detail {
 	};
 
 	class scheduler {
+		friend struct scheduler_testspy;
+
 	  public:
 		scheduler(graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes);
 

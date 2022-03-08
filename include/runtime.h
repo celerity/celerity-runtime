@@ -37,6 +37,8 @@ namespace detail {
 	};
 
 	class runtime {
+		friend struct runtime_testspy;
+
 	  public:
 		/**
 		 * @param user_device This optional device can be provided by the user, overriding any other device selection strategy.

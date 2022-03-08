@@ -39,6 +39,8 @@ namespace detail {
 	};
 
 	class executor {
+		friend struct executor_testspy;
+
 	  public:
 		// TODO: Try to decouple this more.
 		executor(

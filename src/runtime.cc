@@ -22,6 +22,7 @@
 #include "host_object.h"
 #include "log.h"
 #include "mpi_support.h"
+#include "named_threads.h"
 #include "scheduler.h"
 #include "task_manager.h"
 #include "user_bench.h"
@@ -170,6 +171,7 @@ namespace detail {
 		is_active = true;
 		if(is_master_node()) { schdlr->startup(); }
 		exec->startup();
+		set_thread_name(get_current_thread_handle(), "cy-main");
 	}
 
 	void runtime::shutdown() noexcept {
