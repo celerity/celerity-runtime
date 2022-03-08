@@ -48,7 +48,7 @@ class distr_queue {
 	template <typename CGF>
 	void submit(allow_by_ref_t, CGF cgf) { // NOLINT(readability-convert-member-functions-to-static)
 		// (Note while this function could be made static, it must not be! Otherwise we can't be sure the runtime has been initialized.)
-		detail::runtime::get_instance().get_task_manager().create_task(std::move(cgf));
+		detail::runtime::get_instance().get_task_manager().submit_command_group(std::move(cgf));
 	}
 
 	/**

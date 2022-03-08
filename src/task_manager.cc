@@ -43,7 +43,7 @@ namespace detail {
 		return std::nullopt;
 	}
 
-	void task_manager::notify_horizon_completed(task_id horizon_tid) {
+	void task_manager::notify_horizon_reached(task_id horizon_tid) {
 		// This method is called from the executor thread, but does not lock task_mutex to avoid lock-step execution with the main thread.
 		// last_complete_horizon does not need synchronization (see definition), all other accesses are implicitly synchronized.
 
@@ -52,12 +52,12 @@ namespace detail {
 		assert(last_completed_epoch.get() < horizon_tid);
 
 		if(last_completed_horizon) {
-			last_completed_epoch.set(*last_completed_horizon); // The next call to create_task() will prune all tasks before the last completed epoch
+			last_completed_epoch.set(*last_completed_horizon); // The next call to submit_command_group() will prune all tasks before the last completed epoch
 		}
 		last_completed_horizon = horizon_tid;
 	}
 
-	void task_manager::notify_epoch_completed(task_id epoch_tid) {
+	void task_manager::notify_epoch_reached(task_id epoch_tid) {
 		// This method is called from the executor thread, but does not lock task_mutex to avoid lock-step execution with the main thread.
 		// last_complete_horizon does not need synchronization (see definition), all other accesses are implicitly synchronized.
 
@@ -65,11 +65,11 @@ namespace detail {
 		assert(!last_completed_horizon || *last_completed_horizon < epoch_tid);
 		assert(last_completed_epoch.get() < epoch_tid);
 
-		last_completed_epoch.set(epoch_tid);   // The next call to create_task() will prune all tasks before the last completed epoch
+		last_completed_epoch.set(epoch_tid);   // The next call to submit_command_group() will prune all tasks before the last completed epoch
 		last_completed_horizon = std::nullopt; // The last completed horizon is now behind the current epoch and will therefore never become an epoch itself
 	}
 
-	void task_manager::await_epoch_completed(task_id epoch) { last_completed_epoch.await(epoch); }
+	void task_manager::await_epoch(task_id epoch) { last_completed_epoch.await(epoch); }
 
 	GridRegion<3> get_requirements(task const* tsk, buffer_id bid, const std::vector<cl::sycl::access::mode> modes) {
 		const auto& access_map = tsk->get_buffer_access_map();
@@ -244,21 +244,24 @@ namespace detail {
 		current_epoch = epoch;
 	}
 
-	void task_manager::generate_task_horizon() {
+	task_id task_manager::generate_horizon_task() {
 		// we are probably overzealous in locking here
+		task_id tid;
 		{
 			std::lock_guard lock(task_mutex);
+			tid = get_new_tid();
 			current_horizon_critical_path_length = max_pseudo_critical_path_length;
 			const auto previous_horizon = current_horizon;
-			current_horizon = collect_execution_front(task::make_horizon_task(get_new_tid()));
+			current_horizon = collect_execution_front(task::make_horizon_task(tid));
 			if(previous_horizon) { set_current_epoch(*previous_horizon); }
 		}
 
 		// it's important that we don't hold the lock while doing this
-		invoke_callbacks(*current_horizon);
+		invoke_callbacks(tid);
+		return tid;
 	}
 
-	task_id task_manager::finish_epoch(epoch_action action) {
+	task_id task_manager::generate_epoch_task(epoch_action action) {
 		// we are probably overzealous in locking here
 		task_id tid;
 		{

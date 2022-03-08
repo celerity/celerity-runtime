@@ -62,7 +62,7 @@ namespace detail {
 		virtual ~task_manager() = default;
 
 		template <typename CGF, typename... Hints>
-		task_id create_task(CGF cgf, Hints... hints) {
+		task_id submit_command_group(CGF cgf, Hints... hints) {
 			task_id tid;
 			{
 				std::lock_guard lock(task_mutex);
@@ -78,7 +78,7 @@ namespace detail {
 				prune_completed_tasks();
 			}
 			invoke_callbacks(tid);
-			if(need_new_horizon()) { generate_task_horizon(); }
+			if(need_new_horizon()) { generate_horizon_task(); }
 			return tid;
 		}
 
@@ -86,7 +86,7 @@ namespace detail {
 		 * Inserts an epoch task that depends on the entire execution front and that immediately becomes the current current_epoch and the last writer
 		 * for all buffers.
 		 */
-		task_id finish_epoch(epoch_action action);
+		task_id generate_epoch_task(epoch_action action);
 
 		/**
 		 * @brief Registers a new callback that will be called whenever a new task is created.
@@ -122,7 +122,7 @@ namespace detail {
 		/**
 		 * Blocks until an epoch task has executed on this node (or all nodes, if the current_epoch was created with `epoch_action::barrier`).
 		 */
-		void await_epoch_completed(task_id epoch);
+		void await_epoch(task_id epoch);
 
 		/**
 		 * @brief Shuts down the task_manager, freeing all stored tasks.
@@ -137,18 +137,18 @@ namespace detail {
 		/**
 		 * @brief Notifies the task manager that the given horizon has been executed (used for task deletion).
 		 *
-		 * notify_horizon_completed and notify_epoch_completed must only ever be called from a single thread, but that thread does not have to be the main
+		 * notify_horizon_reached and notify_epoch_reached must only ever be called from a single thread, but that thread does not have to be the main
 		 * thread.
 		 */
-		void notify_horizon_completed(task_id horizon_tid);
+		void notify_horizon_reached(task_id horizon_tid);
 
 		/**
 		 * @brief Notifies the task manager that the given epoch has been executed on this node.
 		 *
-		 * notify_horizon_completed and notify_epoch_completed must only ever be called from a single thread, but that thread does not have to be the main
+		 * notify_horizon_reached and notify_epoch_reached must only ever be called from a single thread, but that thread does not have to be the main
 		 * thread.
 		 */
-		void notify_epoch_completed(task_id epoch_tid);
+		void notify_epoch_reached(task_id epoch_tid);
 
 		/**
 		 * Returns the number of tasks created during the lifetime of the task_manager,
@@ -231,7 +231,7 @@ namespace detail {
 
 		const std::unordered_set<task*>& get_execution_front() { return execution_front; }
 
-		void generate_task_horizon();
+		task_id generate_horizon_task();
 
 		// Needs to be called while task map accesses are safe (ie. mutex is locked)
 		void prune_completed_tasks();

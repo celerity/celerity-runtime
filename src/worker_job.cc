@@ -54,7 +54,7 @@ namespace detail {
 
 	bool horizon_job::execute(const command_pkg& pkg) {
 		const auto data = std::get<horizon_data>(pkg.data);
-		task_mngr.notify_horizon_completed(data.tid);
+		task_mngr.notify_horizon_reached(data.tid);
 		return true;
 	};
 
@@ -72,7 +72,7 @@ namespace detail {
 		// then observing the execution times of barriers. TODO remove this once we have a better profiling workflow.
 		if(action == epoch_action::barrier) { MPI_Barrier(MPI_COMM_WORLD); }
 
-		task_mngr.notify_epoch_completed(data.tid);
+		task_mngr.notify_epoch_reached(data.tid);
 		return true;
 	};
 

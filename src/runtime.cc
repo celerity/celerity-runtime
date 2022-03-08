@@ -189,11 +189,11 @@ namespace detail {
 		assert(is_active);
 		is_shutting_down = true;
 
-		const auto final_epoch = task_mngr->finish_epoch(epoch_action::shutdown);
+		const auto shutdown_epoch = task_mngr->generate_epoch_task(epoch_action::shutdown);
 
 		if(is_master_node()) { schdlr->shutdown(); }
 
-		task_mngr->await_epoch_completed(final_epoch);
+		task_mngr->await_epoch(shutdown_epoch);
 
 		exec->shutdown();
 		d_queue->wait();
@@ -230,8 +230,8 @@ namespace detail {
 	}
 
 	void runtime::sync() noexcept {
-		const auto epoch = task_mngr->finish_epoch(epoch_action::barrier);
-		task_mngr->await_epoch_completed(epoch);
+		const auto epoch = task_mngr->generate_epoch_task(epoch_action::barrier);
+		task_mngr->await_epoch(epoch);
 	}
 
 	task_manager& runtime::get_task_manager() const { return *task_mngr; }
