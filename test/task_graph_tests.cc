@@ -470,7 +470,7 @@ namespace detail {
 				const auto current_horizon = task_manager_testspy::get_current_horizon(tm);
 				if(current_horizon && *current_horizon > last_executed_horizon) {
 					last_executed_horizon = *current_horizon;
-					tm.notify_horizon_completed(last_executed_horizon);
+					tm.notify_horizon_reached(last_executed_horizon);
 				}
 			}
 		}
@@ -632,7 +632,7 @@ namespace detail {
 		auto buf_b = mbf.create_buffer(range<1>(1));
 		const auto tid_b = test_utils::add_compute_task<class UKN(task_b)>(tm, [&](handler& cgh) { buf_b.get_access<access_mode::discard_write>(cgh, all{}); });
 
-		const auto tid_epoch = tm.finish_epoch(epoch_action::none);
+		const auto tid_epoch = tm.generate_epoch_task(epoch_action::none);
 
 		const auto tid_c = test_utils::add_compute_task<class UKN(task_c)>(tm, [&](handler& cgh) { buf_a.get_access<access_mode::read>(cgh, all{}); });
 		const auto tid_d = test_utils::add_compute_task<class UKN(task_d)>(tm, [&](handler& cgh) { buf_b.get_access<access_mode::discard_write>(cgh, all{}); });
@@ -663,7 +663,7 @@ namespace detail {
 		auto buf = mbf.create_buffer(range<1>(1));
 		for(int i = 0; i < 3; ++i) {
 			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });
-			tm.finish_epoch(epoch_action::none);
+			tm.generate_epoch_task(epoch_action::none);
 		}
 
 		CHECK(task_manager_testspy::get_num_horizons(tm) == 0);
@@ -676,7 +676,7 @@ namespace detail {
 
 		auto tid_before = task_manager::initial_epoch_task;
 		for(const auto action : {epoch_action::barrier, epoch_action::shutdown}) {
-			const auto tid = tm.finish_epoch(action);
+			const auto tid = tm.generate_epoch_task(action);
 			CAPTURE(tid_before, tid);
 			const auto deps = tm.get_task(tid)->get_dependencies();
 			CHECK(std::distance(deps.begin(), deps.end()) == 1);

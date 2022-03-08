@@ -307,7 +307,7 @@ namespace test_utils {
 	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
 	detail::task_id add_compute_task(
 	    detail::task_manager& tm, CGF cgf, cl::sycl::range<KernelDims> global_size = {1, 1}, cl::sycl::id<KernelDims> global_offset = {}) {
-		return tm.create_task([&, gs = global_size, go = global_offset](handler& cgh) {
+		return tm.submit_command_group([&, gs = global_size, go = global_offset](handler& cgh) {
 			cgf(cgh);
 			cgh.parallel_for<KernelName>(gs, go, [](cl::sycl::id<KernelDims>) {});
 		});
@@ -315,7 +315,7 @@ namespace test_utils {
 
 	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
 	detail::task_id add_nd_range_compute_task(detail::task_manager& tm, CGF cgf, celerity::nd_range<KernelDims> execution_range = {{1, 1}, {1, 1}}) {
-		return tm.create_task([&, er = execution_range](handler& cgh) {
+		return tm.submit_command_group([&, er = execution_range](handler& cgh) {
 			cgf(cgh);
 			cgh.parallel_for<KernelName>(er, [](nd_item<KernelDims>) {});
 		});
@@ -323,7 +323,7 @@ namespace test_utils {
 
 	template <typename Spec, typename CGF>
 	detail::task_id add_host_task(detail::task_manager& tm, Spec spec, CGF cgf) {
-		return tm.create_task([&](handler& cgh) {
+		return tm.submit_command_group([&](handler& cgh) {
 			cgf(cgh);
 			cgh.host_task(spec, [](auto...) {});
 		});

@@ -648,7 +648,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(task_b)>(
 		        tm, [&](handler& cgh) {}, node_range));
 
-		const auto tid_epoch = test_utils::build_and_flush(ctx, num_nodes, tm.finish_epoch(epoch_action::none));
+		const auto tid_epoch = test_utils::build_and_flush(ctx, num_nodes, tm.generate_epoch_task(epoch_action::none));
 
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			CAPTURE(nid);
@@ -707,7 +707,7 @@ namespace detail {
 
 		auto tid_before = task_manager::initial_epoch_task;
 		for(const auto action : {epoch_action::barrier, epoch_action::shutdown}) {
-			const auto tid = test_utils::build_and_flush(ctx, num_nodes, tm.finish_epoch(action));
+			const auto tid = test_utils::build_and_flush(ctx, num_nodes, tm.generate_epoch_task(action));
 			CAPTURE(tid_before, tid);
 			for(const auto cid : inspector.get_commands(tid, std::nullopt, std::nullopt)) {
 				CAPTURE(cid);

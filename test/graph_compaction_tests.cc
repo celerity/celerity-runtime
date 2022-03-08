@@ -298,7 +298,7 @@ namespace detail {
 				const auto current_horizon = task_manager_testspy::get_current_horizon(ctx.get_task_manager());
 				if(current_horizon && *current_horizon > last_executed_horizon) {
 					last_executed_horizon = *current_horizon;
-					ctx.get_task_manager().notify_horizon_completed(last_executed_horizon);
+					ctx.get_task_manager().notify_horizon_reached(last_executed_horizon);
 				}
 			}
 		}
@@ -466,7 +466,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(writer)>(
 		        tm, [&](handler& cgh) { buf_written_from_kernel.get_access<mode::discard_write>(cgh, one_to_one{}); }, node_range));
 
-		const auto epoch_tid = test_utils::build_and_flush(ctx, num_nodes, tm.finish_epoch(epoch_action::none));
+		const auto epoch_tid = test_utils::build_and_flush(ctx, num_nodes, tm.generate_epoch_task(epoch_action::none));
 
 		const auto reader_writer_tid = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(reader_writer)>(
@@ -487,7 +487,7 @@ namespace detail {
 		REQUIRE(tm.has_task(epoch_tid));
 		check_task_has_exact_dependencies("epoch before", epoch_tid, {{writer_tid, dependency_kind::TRUE_DEP, dependency_origin::execution_front}});
 
-		tm.notify_epoch_completed(epoch_tid);
+		tm.notify_epoch_reached(epoch_tid);
 
 		const auto reader_tid = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(reader)>(

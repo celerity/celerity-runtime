@@ -245,9 +245,9 @@ namespace detail {
 		tm.register_task_callback([&call_counter](task_id) { call_counter++; });
 		cl::sycl::range<2> gs = {1, 1};
 		cl::sycl::id<2> go = {};
-		tm.create_task([=](handler& cgh) { cgh.parallel_for<class kernel>(gs, go, [](auto) {}); });
+		tm.submit_command_group([=](handler& cgh) { cgh.parallel_for<class kernel>(gs, go, [](auto) {}); });
 		REQUIRE(call_counter == 1);
-		tm.create_task([](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
+		tm.submit_command_group([](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
 		REQUIRE(call_counter == 2);
 	}
 
@@ -315,9 +315,12 @@ namespace detail {
 
 	TEST_CASE("DEVICE_COMPUTE tasks derive debug name from kernel name", "[task][!mayfail]") {
 		auto tm = std::make_unique<detail::task_manager>(1, nullptr, nullptr);
-		auto t1 = tm->get_task(tm->create_task([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));
-		auto t2 = tm->get_task(tm->create_task([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));
-		auto t3 = tm->get_task(tm->create_task([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));
+		auto t1 =
+		    tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));
+		auto t2 =
+		    tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));
+		auto t3 =
+		    tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));
 		REQUIRE(t1->get_debug_name() == "MyFirstKernel");
 		REQUIRE(t2->get_debug_name() == "MySecondKernel");
 		REQUIRE(t3->get_debug_name() == "MyThirdKernel<int>");
@@ -684,36 +687,36 @@ namespace detail {
 		auto& tm = runtime::get_instance().get_task_manager();
 
 		buffer<float, 1> buf_1{cl::sycl::range<1>{2}};
-		CHECK_THROWS(tm.create_task([&](handler& cgh) { //
+		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(wrong_size_1)>(cl::sycl::range<1>{1}, reduction(buf_1, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
 		}));
 
 		buffer<float, 1> buf_4{cl::sycl::range<1>{1}};
-		CHECK_NOTHROW(tm.create_task([&](handler& cgh) { //
+		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(ok_size_1)>(cl::sycl::range<1>{1}, reduction(buf_4, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
 		}));
 
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
 
 		buffer<float, 2> buf_2{cl::sycl::range<2>{1, 2}};
-		CHECK_THROWS(tm.create_task([&](handler& cgh) { //
+		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(wrong_size_2)>(
 			    cl::sycl::range<2>{1, 1}, reduction(buf_2, cgh, cl::sycl::plus<float>{}), [=](celerity::item<2>, auto&) {});
 		}));
 
 		buffer<float, 3> buf_3{cl::sycl::range<3>{1, 2, 1}};
-		CHECK_THROWS(tm.create_task([&](handler& cgh) { //
+		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(wrong_size_3)>(
 			    cl::sycl::range<3>{1, 1, 1}, reduction(buf_3, cgh, cl::sycl::plus<float>{}), [=](celerity::item<3>, auto&) {});
 		}));
 
 		buffer<float, 2> buf_5{cl::sycl::range<2>{1, 1}};
-		CHECK_NOTHROW(tm.create_task([&](handler& cgh) { //
+		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(ok_size_2)>(cl::sycl::range<2>{1, 1}, reduction(buf_5, cgh, cl::sycl::plus<float>{}), [=](celerity::item<2>, auto&) {});
 		}));
 
 		buffer<float, 3> buf_6{cl::sycl::range<3>{1, 1, 1}};
-		CHECK_NOTHROW(tm.create_task([&](handler& cgh) { //
+		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(ok_size_3)>(
 			    cl::sycl::range<3>{1, 1, 1}, reduction(buf_6, cgh, cl::sycl::plus<float>{}), [=](celerity::item<3>, auto&) {});
 		}));

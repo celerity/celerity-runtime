@@ -65,7 +65,7 @@ struct task_manager_benchmark_context {
 
 	template <int KernelDims, typename CGF>
 	void create_task(range<KernelDims> global_range, CGF cgf) {
-		tm.create_task([=](handler& cgh) {
+		tm.submit_command_group([=](handler& cgh) {
 			cgf(cgh);
 			cgh.host_task(global_range, [](partition<KernelDims>) {});
 		});
@@ -92,7 +92,7 @@ struct graph_generator_benchmark_context {
 	template <int KernelDims, typename CGF>
 	void create_task(range<KernelDims> global_range, CGF cgf) {
 		// note: This ignores communication overhead with the scheduler thread
-		tm.create_task([=](handler& cgh) {
+		tm.submit_command_group([=](handler& cgh) {
 			cgf(cgh);
 			cgh.host_task(global_range, [](partition<KernelDims>) {});
 		});
@@ -193,7 +193,7 @@ struct scheduler_benchmark_context {
 
 	template <int KernelDims, typename CGF>
 	void create_task(range<KernelDims> global_range, CGF cgf) {
-		const auto tid = tm.create_task([=](handler& cgh) {
+		const auto tid = tm.submit_command_group([=](handler& cgh) {
 			cgf(cgh);
 			cgh.host_task(global_range, [](partition<KernelDims>) {});
 		});
