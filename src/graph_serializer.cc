@@ -11,8 +11,9 @@ namespace detail {
 
 	void graph_serializer::flush(task_id tid) { flush(cdag.task_commands(tid)); }
 
-	bool flushed_manually(const abstract_command* const cmd) {
-		// The initial epoch command is not flushed, so we cannot record dependencies on it
+	bool is_virtual_dependency(const abstract_command* const cmd) {
+		// The initial epoch command is not flushed, so including it in dependencies is not useful
+		// TODO we might want to generate and flush init tasks explicitly to avoid this kind of special casing
 		const auto ecmd = dynamic_cast<const epoch_command*>(cmd);
 		return ecmd && ecmd->get_tid() == task_manager::initial_epoch_task;
 	}
@@ -38,7 +39,7 @@ namespace detail {
 			// Iterate over first level of dependencies.
 			// These might either be commands from other tasks that have been flushed previously or generated data transfer / reduction commands.
 			for(auto d : cmd->get_dependencies()) {
-				if(!flushed_manually(d.node)) { cad.second.push_back(d.node->get_cid()); }
+				if(!is_virtual_dependency(d.node)) { cad.second.push_back(d.node->get_cid()); }
 
 				// Sanity check: All dependencies must be on the same node.
 				assert(d.node->get_nid() == cmd->get_nid());
@@ -79,7 +80,7 @@ namespace detail {
 				assert(isa<reduction_command>(dep) && isa<await_push_command>(dd.node));
 				flush_dependency(dd.node);
 			}
-			if(!flushed_manually(dd.node)) { dep_deps.push_back(dd.node->get_cid()); }
+			if(!is_virtual_dependency(dd.node)) { dep_deps.push_back(dd.node->get_cid()); }
 		}
 		serialize_and_flush(dep, dep_deps);
 	}
