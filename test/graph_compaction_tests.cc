@@ -288,17 +288,17 @@ namespace detail {
 		// Create bunch of tasks to trigger horizon cleanup
 		{
 			auto buf = mbf.create_buffer(buf_range);
-			task_id last_executed_horizon = 0;
+			task_id last_horizon_reached = task_manager::initial_epoch_task;
 			// We need 7 tasks to generate a pseudo-critical path length of 6 (3x2 horizon step size),
 			// and another one that triggers the actual deferred deletion.
 			for(int i = 0; i < 8; ++i) {
 				const auto tid = test_utils::build_and_flush(ctx, NUM_NODES,
 				    test_utils::add_compute_task<class UKN(generate_horizons)>(
 				        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, buf_range));
-				const auto current_horizon = task_manager_testspy::get_current_horizon(ctx.get_task_manager());
-				if(current_horizon && *current_horizon > last_executed_horizon) {
-					last_executed_horizon = *current_horizon;
-					ctx.get_task_manager().notify_horizon_reached(last_executed_horizon);
+				const auto current_horizion = task_manager_testspy::get_current_horizion(ctx.get_task_manager());
+				if(current_horizion && *current_horizion > last_horizon_reached) {
+					last_horizon_reached = *current_horizion;
+					ctx.get_task_manager().notify_horizon_reached(last_horizon_reached);
 				}
 			}
 		}
@@ -325,9 +325,9 @@ namespace detail {
 		CHECK(isa<horizon_command>(ctx.get_command_graph().get(new_last_writer_ids[0])));
 		CHECK(isa<horizon_command>(ctx.get_command_graph().get(new_last_writer_ids[1])));
 
-		const auto current_horizons = graph_generator_testspy::get_current_horizons(ctx.get_graph_generator());
+		const auto current_horizions = graph_generator_testspy::get_current_horizons(ctx.get_graph_generator());
 		INFO("previous horizons are being used");
-		CHECK(std::none_of(current_horizons.cbegin(), current_horizons.cend(),
+		CHECK(std::none_of(current_horizions.cbegin(), current_horizions.cend(),
 		    [&](const command_id cid) { return cid == new_last_writer_ids[0] || cid == new_last_writer_ids[1]; }));
 
 		test_utils::maybe_print_graphs(ctx);
@@ -483,7 +483,7 @@ namespace detail {
 		REQUIRE(tm.has_task(init_tid));
 		check_task_has_exact_dependencies("initial epoch task", init_tid, {});
 		REQUIRE(tm.has_task(writer_tid));
-		check_task_has_exact_dependencies("writer", writer_tid, {{init_tid, dependency_kind::TRUE_DEP, dependency_origin::current_epoch}});
+		check_task_has_exact_dependencies("writer", writer_tid, {{init_tid, dependency_kind::TRUE_DEP, dependency_origin::last_epoch}});
 		REQUIRE(tm.has_task(epoch_tid));
 		check_task_has_exact_dependencies("epoch before", epoch_tid, {{writer_tid, dependency_kind::TRUE_DEP, dependency_origin::execution_front}});
 
@@ -506,7 +506,7 @@ namespace detail {
 		REQUIRE(tm.has_task(reader_writer_tid));
 		check_task_has_exact_dependencies("reader-writer", reader_writer_tid, {{epoch_tid, dependency_kind::TRUE_DEP, dependency_origin::dataflow}});
 		REQUIRE(tm.has_task(late_writer_tid));
-		check_task_has_exact_dependencies("late writer", late_writer_tid, {{epoch_tid, dependency_kind::TRUE_DEP, dependency_origin::current_epoch}});
+		check_task_has_exact_dependencies("late writer", late_writer_tid, {{epoch_tid, dependency_kind::TRUE_DEP, dependency_origin::last_epoch}});
 		REQUIRE(tm.has_task(reader_tid));
 		check_task_has_exact_dependencies("reader", reader_tid,
 		    {

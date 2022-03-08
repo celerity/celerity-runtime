@@ -75,7 +75,7 @@ namespace detail {
 
 				compute_dependencies(tid);
 				if(queue) queue->require_collective_group(task_ref.get_collective_group_id());
-				prune_completed_tasks();
+				prune_tasks_before_last_epoch_reached();
 			}
 			invoke_callbacks(tid);
 			if(need_new_horizon()) { generate_horizon_task(); }
@@ -83,7 +83,7 @@ namespace detail {
 		}
 
 		/**
-		 * Inserts an epoch task that depends on the entire execution front and that immediately becomes the current current_epoch and the last writer
+		 * Inserts an epoch task that depends on the entire execution front and that immediately becomes the current epoch_for_new_tasks and the last writer
 		 * for all buffers.
 		 */
 		task_id generate_epoch_task(epoch_action action);
@@ -120,7 +120,7 @@ namespace detail {
 		std::optional<std::string> print_graph(size_t max_nodes) const;
 
 		/**
-		 * Blocks until an epoch task has executed on this node (or all nodes, if the current_epoch was created with `epoch_action::barrier`).
+		 * Blocks until an epoch task has executed on this node (or all nodes, if the epoch_for_new_tasks was created with `epoch_action::barrier`).
 		 */
 		void await_epoch(task_id epoch);
 
@@ -170,10 +170,10 @@ namespace detail {
 		task_id next_task_id = 1;
 		std::unordered_map<task_id, std::unique_ptr<task>> task_map;
 
-		// The current epoch is used as the last writer for host-initialized buffers.
+		// The active epoch is used as the last writer for host-initialized buffers.
 		// To ensure correct ordering, all tasks that have no other true-dependencies depend on this task.
 		// This is useful so we can correctly generate anti-dependencies onto tasks that read host-initialized buffers.
-		task_id current_epoch{initial_epoch_task};
+		task_id epoch_for_new_tasks{initial_epoch_task};
 
 		// We store a map of which task last wrote to a certain region of a buffer.
 		// NOTE: This represents the state after the latest performed pre-pass.
@@ -197,17 +197,17 @@ namespace detail {
 		int max_pseudo_critical_path_length = 0;
 		int current_horizon_critical_path_length = 0;
 
-		// The latest horizon task created. Will be applied as last writer once the next horizon is created.
+		// The latest horizon task created. Will be applied as the epoch for new tasks once the next horizon is created.
 		std::optional<task_id> current_horizon;
 
-		// The last horizon completed in the executor, will become the last_completed_epoch once the next horizon is completed as well.
+		// The last horizon processed by the executor will become the latest_epoch_reached once the next horizon is completed as well.
 		// Only accessed in task_manager::notify_*, which are always called from the executor thread - no locking needed.
-		std::optional<task_id> last_completed_horizon;
+		std::optional<task_id> latest_horizon_reached;
 
-		// The last epoch task that has been completed in the executor. Behind a monitor to allow awaiting this change from the main thread.
-		epoch_monitor last_completed_epoch{initial_epoch_task};
+		// The last epoch task that has been processed by the executor. Behind a monitor to allow awaiting this change from the main thread.
+		epoch_monitor latest_epoch_reached{initial_epoch_task};
 
-		// The last completed epoch that was used in task pruning. This allows skipping the pruning step if no new was completed since.
+		// The last epoch that was used in task pruning after being reached. This allows skipping the pruning step if no new was completed since.
 		task_id last_pruned_before{initial_epoch_task};
 
 		// Set of tasks with no dependents
@@ -225,16 +225,16 @@ namespace detail {
 
 		int get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
 
-		task_id collect_execution_front(std::unique_ptr<task> reducer);
+		task_id reduce_execution_front(std::unique_ptr<task> new_front);
 
-		void set_current_epoch(task_id epoch);
+		void set_epoch_for_new_tasks(task_id epoch);
 
 		const std::unordered_set<task*>& get_execution_front() { return execution_front; }
 
 		task_id generate_horizon_task();
 
 		// Needs to be called while task map accesses are safe (ie. mutex is locked)
-		void prune_completed_tasks();
+		void prune_tasks_before_last_epoch_reached();
 
 		void compute_dependencies(task_id tid);
 	};

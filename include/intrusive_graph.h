@@ -20,7 +20,7 @@ namespace detail {
 		dataflow,                       // buffer access dependencies generate task and command dependencies
 		collective_group_serialization, // all nodes must execute kernels within the same collective group in the same order
 		execution_front,                // horizons and epochs are temporally ordered after all preceding tasks or commands on the same node
-		current_epoch,                  // nodes without other true-dependencies require an edge to the current epoch for temporal ordering
+		last_epoch,                     // nodes without other true-dependencies require an edge to the last epoch for temporal ordering
 	};
 
 	// TODO: Move to utility header..?

@@ -19,7 +19,7 @@ namespace detail {
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			const auto epoch_cmd = cdag.create<epoch_command>(nid, task_manager::initial_epoch_task, epoch_action::none);
 			epoch_cmd->mark_as_flushed(); // there is no point in flushing the initial epoch command
-			node_data[nid].current_epoch = epoch_cmd->get_cid();
+			node_data[nid].epoch_for_new_commands = epoch_cmd->get_cid();
 		}
 	}
 
@@ -31,15 +31,16 @@ namespace detail {
 		for(auto i = 0u; i < num_nodes; ++i) {
 			all_nodes[i] = i;
 			node_data[i].buffer_last_writer.emplace(bid, range);
-			node_data[i].buffer_last_writer.at(bid).update_region(subrange_to_grid_box({cl::sycl::id<3>(), range}), node_data[i].current_epoch);
+			node_data[i].buffer_last_writer.at(bid).update_region(subrange_to_grid_box({cl::sycl::id<3>(), range}), node_data[i].epoch_for_new_commands);
 		}
 
 		buffer_states.emplace(bid, distributed_state{{range, std::move(all_nodes)}});
 	}
 
-	void graph_generator::per_node_data::set_current_epoch(const command_id epoch) {
+	void graph_generator::per_node_data::set_epoch_for_new_commands(const command_id epoch) {
 		// update "buffer_last_writer" and "last_collective_commands" structures to subsume pre-epoch commands
 		for(auto& blw_pair : buffer_last_writer) {
+			// TODO this could be optimized to something like cdag.apply_horizon(node_id, horizon_cmd) with much fewer internal operations
 			blw_pair.second.apply_to_values([epoch](const std::optional<command_id> cid) -> std::optional<command_id> {
 				if(!cid) return cid;
 				return {std::max(epoch, *cid)};
@@ -52,63 +53,23 @@ namespace detail {
 			cid = std::max(epoch, cid);
 		}
 
-		current_epoch = epoch;
+		epoch_for_new_commands = epoch;
 	}
 
-	void graph_generator::build_task(task_id tid, const std::vector<graph_transformer*>& transformers) {
+	void graph_generator::build_task(const task_id tid, const std::vector<graph_transformer*>& transformers) {
 		std::lock_guard<std::mutex> lock(buffer_mutex);
 		// TODO: Maybe assert that this task hasn't been processed before
 
 		auto tsk = task_mngr.get_task(tid);
+		const auto min_epoch_to_prune_before = min_epoch_for_new_commands;
 
-		std::optional<command_id> new_completed_epoch;
-
-		if(tsk->get_type() == task_type::HORIZON || tsk->get_type() == task_type::EPOCH) {
-			for(node_id nid = 0; nid < num_nodes; ++nid) {
-				auto& node = node_data.at(nid);
-				const auto apply_epoch = [&](const command_id cid) {
-					node.set_current_epoch(cid);
-					new_completed_epoch = new_completed_epoch ? std::min(*new_completed_epoch, cid) : cid;
-				};
-
-				abstract_command* new_front = nullptr;
-				if(tsk->get_type() == task_type::HORIZON) {
-					new_front = cdag.create<horizon_command>(nid, tid);
-					if(node.current_horizon) { apply_epoch(*node.current_horizon); }
-					node.current_horizon = new_front->get_cid();
-				} else if(tsk->get_type() == task_type::EPOCH) {
-					new_front = cdag.create<epoch_command>(nid, tid, tsk->get_epoch_action());
-					apply_epoch(new_front->get_cid());
-					node.current_horizon = std::nullopt;
-				}
-
-				// Make the horizon or epoch command depend on the previous execution front
-				const auto previous_execution_front = cdag.get_execution_front(nid);
-				for(const auto front_cmd : previous_execution_front) {
-					if(front_cmd != new_front) { cdag.add_dependency(new_front, front_cmd, dependency_kind::TRUE_DEP, dependency_origin::execution_front); }
-				}
-				assert(cdag.get_execution_front(nid).size() == 1 && *cdag.get_execution_front(nid).begin() == new_front);
-			}
-		} else if(tsk->get_type() == task_type::COLLECTIVE) {
-			for(size_t nid = 0; nid < num_nodes; ++nid) {
-				auto offset = cl::sycl::id<1>{nid};
-				auto range = cl::sycl::range<1>{1};
-				const auto sr = subrange_cast<3>(subrange<1>{offset, range});
-				auto* cmd = cdag.create<execution_command>(nid, tid, sr);
-
-				// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
-				// they are executed in the same order on every node.
-				auto cgid = tsk->get_collective_group_id();
-				auto& last_collective_commands = node_data.at(nid).last_collective_commands;
-				if(auto prev = last_collective_commands.find(cgid); prev != last_collective_commands.end()) {
-					cdag.add_dependency(cmd, cdag.get(prev->second), dependency_kind::TRUE_DEP, dependency_origin::collective_group_serialization);
-					last_collective_commands.erase(prev);
-				}
-				last_collective_commands.emplace(cgid, cmd->get_cid());
-			}
-		} else {
-			const auto sr = subrange<3>{tsk->get_global_offset(), tsk->get_global_size()};
-			cdag.create<execution_command>(0, tid, sr);
+		switch(tsk->get_type()) {
+		case task_type::EPOCH: generate_epoch_commands(tsk); break;
+		case task_type::HORIZON: generate_horizon_commands(tsk); break;
+		case task_type::COLLECTIVE: generate_collective_execution_commands(tsk); break;
+		case task_type::HOST_COMPUTE:
+		case task_type::DEVICE_COMPUTE:
+		case task_type::MASTER_NODE: generate_independent_execution_commands(tsk); break;
 		}
 
 		for(auto& t : transformers) {
@@ -139,34 +100,100 @@ namespace detail {
 			process_task_side_effect_requirements(tid);
 		}
 
-		// Commands without any other true-dependency must depend on the current epoch command to ensure they cannot be re-ordered before the epoch
-		for(const auto cmd : cdag.task_commands(tid)) {
-			if(const auto deps = cmd->get_dependencies();
-			    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::TRUE_DEP; })) {
-				auto current_epoch = node_data.at(cmd->get_nid()).current_epoch;
-				assert(cmd->get_cid() != current_epoch);
-				cdag.add_dependency(cmd, cdag.get(current_epoch), dependency_kind::TRUE_DEP, dependency_origin::current_epoch);
-			}
-		}
+		// Commands without any other true-dependency must depend on the active epoch command to ensure they cannot be re-ordered before the epoch
+		process_epoch_dependencies(tid);
 
 		// If a new epoch was completed in the CDAG before the current task, prune all predecessor commands of that epoch.
 		// Also removes these commands from command_buffer_reads (if it exists)
-		if(last_completed_epoch > last_pruned_epoch) {
-			cdag.erase_if([&](abstract_command* cmd) {
-				if(cmd->get_cid() < last_completed_epoch) {
-					assert(cmd->is_flushed() && "Cannot prune unflushed command");
-					command_buffer_reads.erase(cmd->get_cid());
-					return true;
-				}
-				return false;
-			});
-			last_pruned_epoch = last_completed_epoch;
+		prune_commands_before(min_epoch_to_prune_before);
+	}
+
+	void graph_generator::reduce_execution_front_to(abstract_command* const new_front) {
+		const auto nid = new_front->get_nid();
+		const auto previous_execution_front = cdag.get_execution_front(nid);
+		for(const auto front_cmd : previous_execution_front) {
+			if(front_cmd != new_front) { cdag.add_dependency(new_front, front_cmd, dependency_kind::TRUE_DEP, dependency_origin::execution_front); }
+		}
+		assert(cdag.get_execution_front(nid).size() == 1 && *cdag.get_execution_front(nid).begin() == new_front);
+	}
+
+	void graph_generator::generate_epoch_commands(const task* const tsk) {
+		assert(tsk->get_type() == task_type::EPOCH);
+
+		command_id min_new_epoch;
+		for(node_id nid = 0; nid < num_nodes; ++nid) {
+			auto& node = node_data.at(nid);
+
+			const auto epoch = cdag.create<epoch_command>(nid, tsk->get_id(), tsk->get_epoch_action());
+			const auto cid = epoch->get_cid();
+			if(nid == 0) { min_new_epoch = cid; }
+
+			node.set_epoch_for_new_commands(cid);
+			node.current_horizon = std::nullopt;
+
+			// Make the horizon or epoch command depend on the previous execution front
+			reduce_execution_front_to(epoch);
 		}
 
-		if(new_completed_epoch) {
-			assert(*new_completed_epoch > last_completed_epoch);
-			last_completed_epoch = *new_completed_epoch;
+		min_epoch_for_new_commands = min_new_epoch;
+	}
+
+	void graph_generator::generate_horizon_commands(const task* const tsk) {
+		assert(tsk->get_type() == task_type::HORIZON);
+
+		std::optional<command_id> min_new_epoch;
+		for(node_id nid = 0; nid < num_nodes; ++nid) {
+			auto& node = node_data.at(nid);
+
+			const auto horizon = cdag.create<horizon_command>(nid, tsk->get_id());
+			const auto cid = horizon->get_cid();
+
+			if(node.current_horizon) {
+				if(min_new_epoch) {
+					min_new_epoch = std::min(*min_new_epoch, *node.current_horizon);
+				} else {
+					min_new_epoch = node.current_horizon;
+				}
+				node.set_epoch_for_new_commands(*node.current_horizon);
+			}
+			node.current_horizon = cid;
+
+			// Make the horizon or epoch command depend on the previous execution front
+			reduce_execution_front_to(horizon);
 		}
+
+		if(min_new_epoch) {
+			assert(!min_new_epoch.has_value() || min_epoch_for_new_commands < *min_new_epoch);
+			min_epoch_for_new_commands = *min_new_epoch;
+		}
+	}
+
+	void graph_generator::generate_collective_execution_commands(const task* const tsk) {
+		assert(tsk->get_type() == task_type::COLLECTIVE);
+
+		for(size_t nid = 0; nid < num_nodes; ++nid) {
+			auto offset = cl::sycl::id<1>{nid};
+			auto range = cl::sycl::range<1>{1};
+			const auto sr = subrange_cast<3>(subrange<1>{offset, range});
+			auto* cmd = cdag.create<execution_command>(nid, tsk->get_id(), sr);
+
+			// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
+			// they are executed in the same order on every node.
+			auto cgid = tsk->get_collective_group_id();
+			auto& last_collective_commands = node_data.at(nid).last_collective_commands;
+			if(auto prev = last_collective_commands.find(cgid); prev != last_collective_commands.end()) {
+				cdag.add_dependency(cmd, cdag.get(prev->second), dependency_kind::TRUE_DEP, dependency_origin::collective_group_serialization);
+				last_collective_commands.erase(prev);
+			}
+			last_collective_commands.emplace(cgid, cmd->get_cid());
+		}
+	}
+
+	void graph_generator::generate_independent_execution_commands(const task* const tsk) {
+		assert(tsk->get_type() == task_type::HOST_COMPUTE || tsk->get_type() == task_type::DEVICE_COMPUTE || tsk->get_type() == task_type::MASTER_NODE);
+
+		const auto sr = subrange<3>{tsk->get_global_offset(), tsk->get_global_size()};
+		cdag.create<execution_command>(0, tsk->get_id(), sr);
 	}
 
 	using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<3>>>;
@@ -569,6 +596,31 @@ namespace detail {
 
 				cmd->debug_label += fmt::format("affect host-object {}\\n", hoid);
 			}
+		}
+	}
+
+	void graph_generator::process_epoch_dependencies(const task_id tid) {
+		for(const auto cmd : cdag.task_commands(tid)) {
+			if(const auto deps = cmd->get_dependencies();
+			    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::TRUE_DEP; })) {
+				auto last_epoch = node_data.at(cmd->get_nid()).epoch_for_new_commands;
+				assert(cmd->get_cid() != last_epoch);
+				cdag.add_dependency(cmd, cdag.get(last_epoch), dependency_kind::TRUE_DEP, dependency_origin::last_epoch);
+			}
+		}
+	}
+
+	void graph_generator::prune_commands_before(const command_id min_epoch) {
+		if(min_epoch > min_epoch_last_pruned_before) {
+			cdag.erase_if([&](abstract_command* cmd) {
+				if(cmd->get_cid() < min_epoch) {
+					assert(cmd->is_flushed() && "Cannot prune unflushed command");
+					command_buffer_reads.erase(cmd->get_cid());
+					return true;
+				}
+				return false;
+			});
+			min_epoch_last_pruned_before = min_epoch;
 		}
 	}
 
