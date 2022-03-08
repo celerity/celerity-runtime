@@ -329,17 +329,17 @@ namespace detail {
 
 		test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128})); });
 
-		auto current_horizon = task_manager_testspy::get_current_horizon(tm);
-		CHECK(!current_horizon.has_value());
+		auto current_horizion = task_manager_testspy::get_current_horizion(tm);
+		CHECK(!current_horizion.has_value());
 
 		const auto tid_c = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::read>(cgh, fixed<1>({0, 128})); });
 
-		current_horizon = task_manager_testspy::get_current_horizon(tm);
-		REQUIRE(current_horizon.has_value());
-		CHECK(*current_horizon == tid_c + 1);
+		current_horizion = task_manager_testspy::get_current_horizion(tm);
+		REQUIRE(current_horizion.has_value());
+		CHECK(*current_horizion == tid_c + 1);
 		CHECK(task_manager_testspy::get_num_horizons(tm) == 1);
 
-		auto horizon_dependencies = tm.get_task(*current_horizon)->get_dependencies();
+		auto horizon_dependencies = tm.get_task(*current_horizion)->get_dependencies();
 
 		CHECK(std::distance(horizon_dependencies.begin(), horizon_dependencies.end()) == 1);
 		CHECK(horizon_dependencies.begin()->node->get_id() == tid_c);
@@ -347,7 +347,7 @@ namespace detail {
 		std::set<task_id> expected_dependency_ids;
 
 		// current horizon is always part of the active task front
-		expected_dependency_ids.insert(*current_horizon);
+		expected_dependency_ids.insert(*current_horizion);
 		expected_dependency_ids.insert(test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {}));
 		expected_dependency_ids.insert(test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {}));
 		expected_dependency_ids.insert(test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {}));
@@ -359,12 +359,12 @@ namespace detail {
 		});
 		expected_dependency_ids.insert(tid_d);
 
-		current_horizon = task_manager_testspy::get_current_horizon(tm);
-		REQUIRE(current_horizon.has_value());
-		CHECK(*current_horizon == tid_d + 1);
+		current_horizion = task_manager_testspy::get_current_horizion(tm);
+		REQUIRE(current_horizion.has_value());
+		CHECK(*current_horizion == tid_d + 1);
 		CHECK(task_manager_testspy::get_num_horizons(tm) == 2);
 
-		horizon_dependencies = tm.get_task(*current_horizon)->get_dependencies();
+		horizon_dependencies = tm.get_task(*current_horizion)->get_dependencies();
 		CHECK(std::distance(horizon_dependencies.begin(), horizon_dependencies.end()) == 5);
 
 		std::set<task_id> actual_dependecy_ids;
@@ -398,7 +398,7 @@ namespace detail {
 			buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({32, 64}));
 		});
 
-		auto horizon = task_manager_testspy::get_current_horizon(tm);
+		auto horizon = task_manager_testspy::get_current_horizion(tm);
 		CHECK(task_manager_testspy::get_num_horizons(tm) == 1);
 		CHECK(horizon.has_value());
 
@@ -467,9 +467,9 @@ namespace detail {
 			// and another one that triggers the actual deferred deletion.
 			for(int i = 0; i < 8; ++i) {
 				const auto tid = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });
-				const auto current_horizon = task_manager_testspy::get_current_horizon(tm);
-				if(current_horizon && *current_horizon > last_executed_horizon) {
-					last_executed_horizon = *current_horizon;
+				const auto current_horizion = task_manager_testspy::get_current_horizion(tm);
+				if(current_horizion && *current_horizion > last_executed_horizon) {
+					last_executed_horizon = *current_horizion;
 					tm.notify_horizon_reached(last_executed_horizon);
 				}
 			}
@@ -485,10 +485,10 @@ namespace detail {
 		const auto* new_last_writer = deps.begin()->node;
 		CHECK(new_last_writer->get_type() == task_type::HORIZON);
 
-		const auto current_horizon = task_manager_testspy::get_current_horizon(tm);
-		REQUIRE(current_horizon);
+		const auto current_horizion = task_manager_testspy::get_current_horizion(tm);
+		REQUIRE(current_horizion);
 		INFO("previous horizon is being used");
-		CHECK(new_last_writer->get_id() < *current_horizon);
+		CHECK(new_last_writer->get_id() < *current_horizion);
 
 		test_utils::maybe_print_graph(tm);
 	}

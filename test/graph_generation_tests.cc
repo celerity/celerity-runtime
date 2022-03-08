@@ -656,12 +656,12 @@ namespace detail {
 			const auto cmd_a = get_single_command("a", tid_a, nid);
 			const auto a_deps = cmd_a->get_dependencies();
 			REQUIRE(std::distance(a_deps.begin(), a_deps.end()) == 1);
-			CHECK(a_deps.front().origin == dependency_origin::current_epoch);
+			CHECK(a_deps.front().origin == dependency_origin::last_epoch);
 
 			const auto cmd_b = get_single_command("b", tid_b, nid);
 			const auto b_deps = cmd_b->get_dependencies();
 			REQUIRE(std::distance(b_deps.begin(), b_deps.end()) == 1);
-			CHECK(b_deps.front().origin == dependency_origin::current_epoch);
+			CHECK(b_deps.front().origin == dependency_origin::last_epoch);
 
 			const auto cmd_epoch = get_single_command("epoch", tid_epoch, nid);
 			const auto epoch_deps = cmd_epoch->get_dependencies();
