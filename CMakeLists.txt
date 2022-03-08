@@ -198,9 +198,10 @@ set(SOURCES
 if(WIN32)
   set(SOURCES ${SOURCES} src/platform_specific/affinity.win.cc)
   set(SOURCES ${SOURCES} src/platform_specific/named_threads.win.cc)
-elseif(UNIX AND NOT APPLE)
-  set(SOURCES ${SOURCES} src/platform_specific/affinity.unix.cc)
 elseif(UNIX)
+  if(NOT APPLE)
+    set(SOURCES ${SOURCES} src/platform_specific/affinity.unix.cc)
+  endif()
   set(SOURCES ${SOURCES} src/platform_specific/named_threads.unix.cc)
 endif()
 
