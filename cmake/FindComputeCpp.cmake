@@ -2,6 +2,7 @@
 # This file is sourced from the ComputeCpp SDK and has been patched to allow find_package(ComputeCpp) to gracefully
 # report failure in case OpenCL is not found (find_package(OpenCL) is not REQUIRED any more) and avoid printing
 # warnings if the QUIET option is specified (if NOT ComputeCpp_FIND_QUIETLY).
+# also added spaces at start of forceIncludeFlags strings
 
 #.rst:
 # FindComputeCpp
@@ -365,9 +366,9 @@ function(__build_ir)
     # Add both source and the sycl files to the VS solution.
     target_sources(${SDK_BUILD_IR_TARGET} PUBLIC ${SDK_BUILD_IR_SOURCE} ${outputSyclFile})
 
-    set(forceIncludeFlags "/FI${includedFile} /TP")
+    set(forceIncludeFlags " /FI${includedFile} /TP")
   else()
-    set(forceIncludeFlags "-include ${includedFile} -x c++")
+    set(forceIncludeFlags " -include ${includedFile} -x c++")
   endif()
 
   set_property(
