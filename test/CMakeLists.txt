@@ -4,12 +4,27 @@ endif()
 
 include("${PROJECT_SOURCE_DIR}/vendor/Catch2/extras/ParseAndAddCatchTests.cmake")
 
+# Function for setting all relevant test parameters
+function(set_test_target_parameters TARGET SOURCE)
+  target_link_libraries(${TARGET} PUBLIC Catch2::Catch2)
+  set_property(TARGET ${TARGET} PROPERTY CXX_STANDARD 17)
+  set_property(TARGET ${TARGET} PROPERTY FOLDER "tests")
+  set_property(TARGET ${TARGET} PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+  if(MSVC)
+    target_compile_options(${TARGET} PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3 /bigobj)
+  elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(${TARGET} PRIVATE -Wall -Wextra -Wextra -Wno-unused-parameter -Wno-unused-variable)
+  endif()
+
+  add_celerity_to_target(TARGET ${TARGET} SOURCES ${SOURCE})
+endfunction()
+
 # Add includes to library so they show up in IDEs
 file(GLOB_RECURSE TEST_INCLUDES *.h)
 
 set(TEST_TARGETS
   accessor_tests
-  benchmarks
   buffer_manager_tests
   graph_generation_tests
   graph_gen_granularity_tests
@@ -25,40 +40,36 @@ set(TEST_TARGETS
 )
 
 add_library(unit_test_suite unit_test_suite.cc unit_test_suite_celerity.cc)
+set_test_target_parameters(unit_test_suite unit_test_suite_celerity.cc)
 
-target_link_libraries(
-  unit_test_suite
-  PUBLIC
-  Catch2::Catch2
-)
-
-set_property(TARGET unit_test_suite PROPERTY CXX_STANDARD 17)
-
-add_celerity_to_target(TARGET unit_test_suite SOURCES unit_test_suite_celerity.cc)
-
+set(TEST_OBJ_LIST "")
 foreach(TEST_TARGET ${TEST_TARGETS})
-
+  # Build test obj file
   set(TEST_SOURCE ${TEST_TARGET}.cc)
+  set(TEST_OBJ ${TEST_TARGET}_OBJ)
+  list(APPEND TEST_OBJ_LIST $<TARGET_OBJECTS:${TEST_OBJ}>)
 
-  # add test executable
-  add_executable(${TEST_TARGET} ${TEST_SOURCE} ${TEST_INCLUDES})
+  add_library(${TEST_OBJ} OBJECT ${TEST_SOURCE} ${TEST_INCLUDES})
+  set_test_target_parameters(${TEST_OBJ} ${TEST_SOURCE})
+
+  # Add test executable
+  add_executable(${TEST_TARGET} $<TARGET_OBJECTS:${TEST_OBJ}>)
   target_link_libraries(${TEST_TARGET} PRIVATE unit_test_suite)
-
-  set_property(TARGET ${TEST_TARGET} PROPERTY CXX_STANDARD 17)
-  set_property(TARGET ${TEST_TARGET} PROPERTY FOLDER "tests")
-
-  add_celerity_to_target(TARGET ${TEST_TARGET} SOURCES ${TEST_SOURCE})
-
-  if(MSVC)
-    target_compile_options(${TEST_TARGET} PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3 /bigobj)
-  elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-    target_compile_options(${TEST_TARGET} PRIVATE -Wall -Wextra -Wextra -Wno-unused-parameter -Wno-unused-variable)
-  endif()
-
+  set_test_target_parameters(${TEST_TARGET} "")
+  
   # We use the (undocumented) per-file function as we otherwise run into
   # problems with ComputeCpp's generated integration headers.
   ParseAndAddCatchTests_ParseFile(${TEST_SOURCE} ${TEST_TARGET})
-
 endforeach()
+
+# Add all_tests executable
+add_executable(all_tests ${TEST_OBJ_LIST})
+target_link_libraries(all_tests PRIVATE unit_test_suite)
+set_test_target_parameters(all_tests "")
+
+# Unit benchmark executable
+add_executable(benchmarks benchmarks.cc)
+target_link_libraries(benchmarks PRIVATE unit_test_suite)
+set_test_target_parameters(benchmarks benchmarks.cc)
 
 add_subdirectory(system)

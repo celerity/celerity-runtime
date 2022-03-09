@@ -12,8 +12,5 @@ if [[ $# -ne 0 ]]; then
 fi
 
 # Running "make test" is slow because CTest will spawn one process per test case, adding significant start-up costs.
-# We just call all test executables manually to get around this.
-find test -maxdepth 1 -executable -type f | while read test; do
-    echo -e "\n\n ---- Running ${test##*/} ----\n\n" >&2
-    bash /root/capture-backtrace.sh "$test"
-done
+# We just call the all_tests executable manually to get around this.
+bash /root/capture-backtrace.sh test/all_tests
