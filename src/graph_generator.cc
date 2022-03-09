@@ -497,7 +497,7 @@ namespace detail {
 				// need is mutual exclusion (i.e. a bi-directional pseudo-dependency).
 				nd.host_object_last_effects.insert_or_assign(hoid, cmd->get_cid());
 
-				cmd->debug_label += fmt::format("affect host-object {}\n", hoid);
+				cmd->debug_label += fmt::format("affect host-object {}\\n", hoid);
 			}
 		}
 	}
