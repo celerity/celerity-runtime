@@ -134,6 +134,8 @@ namespace test_utils {
 
 		detail::buffer_id get_id() const { return id; }
 
+		range<Dims> get_range() const { return size; }
+
 	  private:
 		friend class mock_buffer_factory;
 
