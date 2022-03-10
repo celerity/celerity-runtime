@@ -464,11 +464,9 @@ namespace detail {
 			{
 				auto info = bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
 				auto acc = info.buffer.get_access<cl::sycl::access::mode::read>();
-				bool valid = true;
 				for(size_t i = 0; i < 32; ++i) {
-					valid &= acc[i] == i;
+					REQUIRE_LOOP(acc[i] == i);
 				}
-				REQUIRE(valid);
 			}
 
 			// Finally, also check the other way round: Accessing the host buffer now doesn't generate a superfluous D -> H transfer.
@@ -483,11 +481,9 @@ namespace detail {
 			// Access host buffer. This should still contain the original data.
 			{
 				auto info = bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
-				bool valid = true;
 				for(size_t i = 0; i < 32; ++i) {
-					valid &= info.buffer.get_pointer()[i] == i;
+					REQUIRE_LOOP(info.buffer.get_pointer()[i] == i);
 				}
-				REQUIRE(valid);
 			}
 		}
 	}
@@ -695,11 +691,9 @@ namespace detail {
 			buffer_for_each<size_t, 1, cl::sycl::access::mode::read_write, class UKN(update_buffer)>(
 			    bid, tgt, {32}, {0}, [](cl::sycl::id<1> idx, size_t& value) { value += 1; });
 			auto data = bm.get_buffer_data(bid, {0, 0, 0}, {32, 1, 1});
-			bool valid = true;
 			for(size_t i = 0; i < 32; ++i) {
-				valid &= reinterpret_cast<size_t*>(data.get_pointer())[i] == i + 1;
+				REQUIRE_LOOP(reinterpret_cast<size_t*>(data.get_pointer())[i] == i + 1);
 			}
-			REQUIRE(valid);
 		};
 
 		SECTION("when newest data is on device") { run_test(access_target::DEVICE); }
@@ -711,11 +705,9 @@ namespace detail {
 			buffer_for_each<size_t, 1, cl::sycl::access::mode::discard_write, class UKN(write_second_half)>(
 			    bid, access_target::HOST, {16}, {16}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0] * 2; });
 			auto data = bm.get_buffer_data(bid, {0, 0, 0}, {32, 1, 1});
-			bool valid = true;
 			for(size_t i = 0; i < 32; ++i) {
-				valid &= reinterpret_cast<size_t*>(data.get_pointer())[i] == (i < 16 ? i : 2 * i);
+				REQUIRE_LOOP(reinterpret_cast<size_t*>(data.get_pointer())[i] == (i < 16 ? i : 2 * i));
 			}
-			REQUIRE(valid);
 		}
 	}
 
@@ -854,13 +846,11 @@ namespace detail {
 			cgh.get_submission_event().wait();
 
 			auto buf_info = bm.get_host_buffer<size_t, 2>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 32, 1), cl::sycl::id<3>(32, 0, 0));
-			bool valid = true;
 			for(size_t i = 32; i < 64; ++i) {
 				for(size_t j = 0; j < 32; ++j) {
-					valid &= (buf_info.buffer.get_pointer()[(i - buf_info.offset[0]) * 32 + j - buf_info.offset[1]] == i + j);
+					REQUIRE_LOOP(buf_info.buffer.get_pointer()[(i - buf_info.offset[0]) * 32 + j - buf_info.offset[1]] == i + j);
 				}
 			}
-			REQUIRE(valid);
 		}
 
 		SECTION("when using host buffers") {
@@ -872,13 +862,11 @@ namespace detail {
 				}
 			}
 			auto buf_info = bm.get_host_buffer<size_t, 2>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 32, 1), cl::sycl::id<3>(32, 0, 0));
-			bool valid = true;
 			for(size_t i = 32; i < 64; ++i) {
 				for(size_t j = 0; j < 32; ++j) {
-					valid &= (buf_info.buffer.get_pointer()[(i - buf_info.offset[0]) * 32 + j - buf_info.offset[1]] == i + j);
+					REQUIRE_LOOP(buf_info.buffer.get_pointer()[(i - buf_info.offset[0]) * 32 + j - buf_info.offset[1]] == i + j);
 				}
 			}
-			REQUIRE(valid);
 		}
 	}
 
@@ -948,14 +936,12 @@ namespace detail {
 			auto host_acc_b = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_b, {32}, {0});
 			auto host_acc_c = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_c, {32}, {0});
 			auto host_acc_d = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_d, {32}, {0});
-			bool valid = true;
 			for(size_t i = 0; i < 32; ++i) {
-				valid &= host_acc_a[i] == 1 * i;
-				valid &= host_acc_b[i] == 2 * i;
-				valid &= host_acc_c[i] == 3 * i;
-				valid &= host_acc_d[i] == 4 * i;
+				REQUIRE_LOOP(host_acc_a[i] == 1 * i);
+				REQUIRE_LOOP(host_acc_b[i] == 2 * i);
+				REQUIRE_LOOP(host_acc_c[i] == 3 * i);
+				REQUIRE_LOOP(host_acc_d[i] == 4 * i);
 			}
-			REQUIRE(valid);
 		}
 
 		SECTION("when using host buffers") {
@@ -994,14 +980,12 @@ namespace detail {
 			auto acc_b = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_b, {32}, {0});
 			auto acc_c = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_c, {32}, {0});
 			auto acc_d = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_d, {32}, {0});
-			bool valid = true;
 			for(size_t i = 0; i < 32; ++i) {
-				valid &= acc_a[i] == 1 * i;
-				valid &= acc_b[i] == 2 * i;
-				valid &= acc_c[i] == 3 * i;
-				valid &= acc_d[i] == 4 * i;
+				REQUIRE_LOOP(acc_a[i] == 1 * i);
+				REQUIRE_LOOP(acc_b[i] == 2 * i);
+				REQUIRE_LOOP(acc_c[i] == 3 * i);
+				REQUIRE_LOOP(acc_d[i] == 4 * i);
 			}
-			REQUIRE(valid);
 		}
 	}
 
@@ -1009,16 +993,14 @@ namespace detail {
 		auto& bm = get_buffer_manager();
 
 		auto check_values = [&](const cl::sycl::id<3>* ptr, cl::sycl::range<3> range) {
-			bool valid = true;
 			for(size_t i = 0; i < range[0]; ++i) {
 				for(size_t j = 0; j < range[1]; ++j) {
 					for(size_t k = 0; k < range[2]; ++k) {
 						const auto offset = i * range[1] * range[2] + j * range[2] + k;
-						valid &= ptr[offset] == cl::sycl::id<3>(i, j, k);
+						REQUIRE_LOOP(ptr[offset] == cl::sycl::id<3>(i, j, k));
 					}
 				}
 			}
-			REQUIRE(valid);
 		};
 
 		SECTION("for 1D buffers") {
