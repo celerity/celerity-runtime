@@ -96,7 +96,8 @@ namespace detail {
 			command_id cid = next_cmd_id++;
 			auto result = commands.emplace(std::make_pair(cid, new T(cid, std::forward<Args>(args)...)));
 			auto cmd = result.first->second.get();
-			if(!std::is_same<T, nop_command>::value) execution_fronts[cmd->get_nid()].insert(cmd);
+			auto& ef = execution_fronts[cmd->get_nid()];
+			if(!std::is_same<T, nop_command>::value) ef.insert(cmd);
 			auto tcmd = static_cast<T*>(cmd);
 			if constexpr(std::is_base_of_v<task_command, T>) { by_task[tcmd->get_tid()].emplace_back(tcmd); }
 			return tcmd;
