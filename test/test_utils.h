@@ -1,12 +1,13 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <ostream>
+#include <string>
+#include <unordered_set>
 
 #include <catch2/catch_test_macros.hpp>
-
 #include <celerity.h>
-#include <memory>
 
 #include "command.h"
 #include "command_graph.h"
@@ -25,6 +26,16 @@
 #define _UKN_CONCAT2(x, y) x##_##y
 #define _UKN_CONCAT(x, y) _UKN_CONCAT2(x, y)
 #define UKN(name) _UKN_CONCAT(name, __COUNTER__)
+
+/**
+ * REQUIRE_LOOP is a utility macro for performing Catch2 REQUIRE assertions inside of loops.
+ * The advantage over using a regular REQUIRE is that the number of reported assertions is much lower,
+ * as only the first iteration is actually passed on to Catch2 (useful when showing successful assertions with `-s`).
+ * If an expression result is false, it will also be forwarded to Catch2.
+ *
+ * NOTE: Since the checked expression will be evaluated twice, it must be idempotent!
+ */
+#define REQUIRE_LOOP(...) CELERITY_DETAIL_REQUIRE_LOOP(__VA_ARGS__)
 
 namespace celerity {
 namespace detail {
@@ -63,6 +74,31 @@ namespace detail {
 } // namespace detail
 
 namespace test_utils {
+	class require_loop_assertion_registry {
+	  public:
+		static require_loop_assertion_registry& get_instance() {
+			if(instance == nullptr) { instance = std::make_unique<require_loop_assertion_registry>(); }
+			return *instance;
+		}
+
+		void reset() { logged_lines.clear(); }
+
+		bool should_log(std::string line_info) {
+			auto [_, is_new] = logged_lines.emplace(std::move(line_info));
+			return is_new;
+		}
+
+	  private:
+		inline static std::unique_ptr<require_loop_assertion_registry> instance;
+		std::unordered_set<std::string> logged_lines{};
+	};
+
+#define CELERITY_DETAIL_REQUIRE_LOOP(...)                                                                                                                      \
+	if(celerity::test_utils::require_loop_assertion_registry::get_instance().should_log(std::string(__FILE__) + std::to_string(__LINE__))) {                   \
+		REQUIRE(__VA_ARGS__);                                                                                                                                  \
+	} else if(!(__VA_ARGS__)) {                                                                                                                                \
+		REQUIRE(__VA_ARGS__);                                                                                                                                  \
+	}
 
 	template <int Dims, typename F>
 	void for_each_in_range(sycl::range<Dims> range, sycl::id<Dims> offset, F&& f) {

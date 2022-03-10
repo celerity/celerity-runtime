@@ -365,11 +365,9 @@ namespace detail {
 				source_buffer[source_offset[0] + i] = source_offset[0] + i;
 			}
 			memcpy_strided(source_buffer.get(), target_buffer.get(), sizeof(size_t), source_range, source_offset, target_range, target_offset, copy_range);
-			bool valid = true;
 			for(size_t i = 0; i < copy_range[0]; ++i) {
-				valid &= target_buffer[target_offset[0] + i] == source_offset[0] + i;
+				REQUIRE_LOOP(target_buffer[target_offset[0] + i] == source_offset[0] + i);
 			}
-			REQUIRE(valid);
 		}
 
 		SECTION("strided 2D data") {
@@ -387,15 +385,13 @@ namespace detail {
 				}
 			}
 			memcpy_strided(source_buffer.get(), target_buffer.get(), sizeof(size_t), source_range, source_offset, target_range, target_offset, copy_range);
-			bool valid = true;
 			for(size_t i = 0; i < copy_range[0]; ++i) {
 				for(size_t j = 0; j < copy_range[1]; ++j) {
 					const auto id = target_offset + cl::sycl::id<2>{i, j};
 					const auto source_id = source_offset + cl::sycl::id<2>{i, j};
-					valid &= target_buffer[get_linear_index(target_range, id)] == source_id[0] * 10000 + source_id[1];
+					REQUIRE_LOOP(target_buffer[get_linear_index(target_range, id)] == source_id[0] * 10000 + source_id[1]);
 				}
 			}
-			REQUIRE(valid);
 		}
 
 		SECTION("strided 3D data") {
@@ -415,22 +411,17 @@ namespace detail {
 				}
 			}
 			memcpy_strided(source_buffer.get(), target_buffer.get(), sizeof(size_t), source_range, source_offset, target_range, target_offset, copy_range);
-			bool valid = true;
 			for(size_t i = 0; i < copy_range[0]; ++i) {
 				for(size_t j = 0; j < copy_range[1]; ++j) {
 					for(size_t k = 0; k < copy_range[2]; ++k) {
 						const auto id = target_offset + cl::sycl::id<3>{i, j, k};
 						const auto source_id = source_offset + cl::sycl::id<3>{i, j, k};
-						valid &= target_buffer[get_linear_index(target_range, id)] == source_id[0] * 10000 + source_id[1] * 100 + source_id[2];
-						if(!valid) {
-							printf("Unexpected value at %lu %lu %lu: %lu != %lu\n", id[0], id[1], id[2], target_buffer[get_linear_index(target_range, id)],
-							    source_id[0] * 10000 + source_id[1] * 100 + source_id[2]);
-							REQUIRE(false);
-						}
+						CAPTURE(
+						    id[0], id[1], id[2], target_buffer[get_linear_index(target_range, id)], source_id[0] * 10000 + source_id[1] * 100 + source_id[2]);
+						REQUIRE_LOOP(target_buffer[get_linear_index(target_range, id)] == source_id[0] * 10000 + source_id[1] * 100 + source_id[2]);
 					}
 				}
 			}
-			REQUIRE(valid);
 		}
 	}
 
@@ -457,16 +448,14 @@ namespace detail {
 		REQUIRE(data2.get_pointer() != data1.get_pointer());
 		REQUIRE(data2.get_size() == sizeof(size_t) * data2_range.size());
 
-		bool valid = true;
 		for(size_t i = 0; i < 2; ++i) {
 			for(size_t j = 0; j < 2; ++j) {
 				for(size_t k = 0; k < 4; ++k) {
-					valid &= reinterpret_cast<size_t*>(data2.get_pointer())[i * data2_range[1] * data2_range[2] + j * data2_range[2] + k]
-					         == (i + data2_offset[0]) * 100 + (j + data2_offset[1]) * 10 + (k + data2_offset[2]);
+					REQUIRE_LOOP(reinterpret_cast<size_t*>(data2.get_pointer())[i * data2_range[1] * data2_range[2] + j * data2_range[2] + k]
+					             == (i + data2_offset[0]) * 100 + (j + data2_offset[1]) * 10 + (k + data2_offset[2]));
 				}
 			}
 		}
-		REQUIRE(valid);
 
 		const auto data2_ptr = data2.get_pointer();
 		auto data3 = std::move(data2);

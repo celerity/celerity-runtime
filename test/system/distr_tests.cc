@@ -210,20 +210,20 @@ namespace detail {
 					auto local_linear_id = get_linear_index(local_range, local_id);
 					auto group_linear_id = get_linear_index(group_range, group_id);
 
-					REQUIRE(g[global_id].item.group_linear_id == group_linear_id);
-					REQUIRE(range_cast<Dims>(g[global_id].item.group_range) == group_range);
-					REQUIRE(id_cast<Dims>(g[global_id].item.local_id) == local_id);
-					REQUIRE(g[global_id].item.local_linear_id == local_linear_id);
-					REQUIRE(range_cast<Dims>(g[global_id].item.local_range) == local_range);
-					REQUIRE(id_cast<Dims>(g[global_id].item.global_id) == global_id);
-					REQUIRE(g[global_id].item.global_linear_id == global_linear_id);
-					REQUIRE(range_cast<Dims>(g[global_id].item.global_range) == global_range);
-					REQUIRE(id_cast<Dims>(g[global_id].group.group_id) == group_id);
-					REQUIRE(g[global_id].group.group_linear_id == group_linear_id);
-					REQUIRE(range_cast<Dims>(g[global_id].group.group_range) == group_range);
-					REQUIRE(id_cast<Dims>(g[global_id].group.local_id) == local_id);
-					REQUIRE(g[global_id].group.local_linear_id == local_linear_id);
-					REQUIRE(range_cast<Dims>(g[global_id].group.local_range) == local_range);
+					REQUIRE_LOOP(g[global_id].item.group_linear_id == group_linear_id);
+					REQUIRE_LOOP(range_cast<Dims>(g[global_id].item.group_range) == group_range);
+					REQUIRE_LOOP(id_cast<Dims>(g[global_id].item.local_id) == local_id);
+					REQUIRE_LOOP(g[global_id].item.local_linear_id == local_linear_id);
+					REQUIRE_LOOP(range_cast<Dims>(g[global_id].item.local_range) == local_range);
+					REQUIRE_LOOP(id_cast<Dims>(g[global_id].item.global_id) == global_id);
+					REQUIRE_LOOP(g[global_id].item.global_linear_id == global_linear_id);
+					REQUIRE_LOOP(range_cast<Dims>(g[global_id].item.global_range) == global_range);
+					REQUIRE_LOOP(id_cast<Dims>(g[global_id].group.group_id) == group_id);
+					REQUIRE_LOOP(g[global_id].group.group_linear_id == group_linear_id);
+					REQUIRE_LOOP(range_cast<Dims>(g[global_id].group.group_range) == group_range);
+					REQUIRE_LOOP(id_cast<Dims>(g[global_id].group.local_id) == local_id);
+					REQUIRE_LOOP(g[global_id].group.local_linear_id == local_linear_id);
+					REQUIRE_LOOP(range_cast<Dims>(g[global_id].group.local_range) == local_range);
 				}
 			});
 		});
