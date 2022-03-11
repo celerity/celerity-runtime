@@ -1,5 +1,3 @@
-#include "unit_test_suite_celerity.h"
-
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -92,7 +90,7 @@ namespace detail {
 			CHECK(total_range_dim0 == 320);
 		}
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	template <int Dims>
@@ -161,7 +159,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(read)>(
 		        tm, [&](handler& cgh) { buf.get_access<access_mode::read>(cgh, read_rm); }, buf_range / 2));
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 
 		CHECK(has_dependency(tm, read_tid, write_tid));
 

@@ -2,7 +2,6 @@
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 
 #include "sycl_wrappers.h"
-#include "unit_test_suite_celerity.h"
 
 #include <algorithm>
 #include <memory>

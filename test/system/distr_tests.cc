@@ -1,4 +1,4 @@
-#include "../unit_test_suite_celerity.h"
+#include "../test_utils.h"
 
 #include <algorithm>
 

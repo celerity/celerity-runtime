@@ -1,5 +1,3 @@
-#include "unit_test_suite_celerity.h"
-
 #include <array>
 #include <optional>
 #include <set>
@@ -141,7 +139,7 @@ namespace detail {
 
 		// graph_generator_testspy::print_buffer_last_writers(ctx.get_graph_generator(), buf_a.get_id());
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("horizons correctly deal with antidependencies", "[horizon][command-graph]") {
@@ -209,7 +207,7 @@ namespace detail {
 		CHECK(!write_b_dependencies.empty());
 		CHECK(write_b_dependencies.front().kind == dependency_kind::ANTI_DEP);
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("horizons are flushed correctly even if not directly dependent on tasks", "[horizon][command-graph]") {
@@ -254,7 +252,7 @@ namespace detail {
 		auto horizon_cmds = inspector.get_commands({}, {}, command_type::HORIZON);
 		CHECK(horizon_cmds.size() == 4);
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("previous horizons are used as last writers for host-initialized buffers", "[graph_generator][horizon][command-graph]") {
@@ -330,7 +328,7 @@ namespace detail {
 		CHECK(std::none_of(current_horizon_cmds.cbegin(), current_horizon_cmds.cend(),
 		    [&](auto* cmd) { return cmd->get_cid() == new_last_writer_ids[0] || cmd->get_cid() == new_last_writer_ids[1]; }));
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	static void check_task_commands_depend_on_horizon_only(
@@ -378,7 +376,7 @@ namespace detail {
 
 		check_task_commands_depend_on_horizon_only(first_collective, second_collective, dependency_kind::ORDER_DEP, ctx);
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("side-effect dependencies are correctly subsumed by horizons", "[graph_generator][command-graph][horizon]") {
@@ -407,7 +405,7 @@ namespace detail {
 
 		check_task_commands_depend_on_horizon_only(first_task, second_task, dependency_kind::TRUE_DEP, ctx);
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 } // namespace detail

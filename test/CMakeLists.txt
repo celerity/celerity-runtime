@@ -39,8 +39,8 @@ set(TEST_TARGETS
   task_graph_tests
 )
 
-add_library(unit_test_suite unit_test_suite.cc unit_test_suite_celerity.cc)
-set_test_target_parameters(unit_test_suite unit_test_suite_celerity.cc)
+add_library(test_main test_main.cc)
+set_test_target_parameters(test_main test_main.cc)
 
 set(TEST_OBJ_LIST "")
 foreach(TEST_TARGET ${TEST_TARGETS})
@@ -54,7 +54,7 @@ foreach(TEST_TARGET ${TEST_TARGETS})
 
   # Add test executable
   add_executable(${TEST_TARGET} $<TARGET_OBJECTS:${TEST_OBJ}>)
-  target_link_libraries(${TEST_TARGET} PRIVATE unit_test_suite)
+  target_link_libraries(${TEST_TARGET} PRIVATE test_main)
   set_test_target_parameters(${TEST_TARGET} "")
   
   # We use the (undocumented) per-file function as we otherwise run into
@@ -64,12 +64,12 @@ endforeach()
 
 # Add all_tests executable
 add_executable(all_tests ${TEST_OBJ_LIST})
-target_link_libraries(all_tests PRIVATE unit_test_suite)
+target_link_libraries(all_tests PRIVATE test_main)
 set_test_target_parameters(all_tests "")
 
 # Unit benchmark executable
 add_executable(benchmarks benchmarks.cc)
-target_link_libraries(benchmarks PRIVATE unit_test_suite)
+target_link_libraries(benchmarks PRIVATE test_main)
 set_test_target_parameters(benchmarks benchmarks.cc)
 
 add_subdirectory(system)

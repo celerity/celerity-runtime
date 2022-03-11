@@ -1,5 +1,3 @@
-#include "unit_test_suite_celerity.h"
-
 #include <unordered_set>
 
 #include <catch2/catch_test_macros.hpp>
@@ -102,7 +100,7 @@ namespace detail {
 			CHECK(have_local_dep);
 		}
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("single-node configurations do not generate reduction commands", "[graph_generator][command-graph][reductions]") {
@@ -129,7 +127,7 @@ namespace detail {
 		CHECK(has_dependency(tm, tid_consume, tid_reduce));
 		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::REDUCTION).empty());
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE(
@@ -154,7 +152,7 @@ namespace detail {
 
 		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::REDUCTION).empty());
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("graph_generator does not generate multiple reduction commands for redundant requirements", "[graph_generator][command-graph][reductions]") {
@@ -181,7 +179,7 @@ namespace detail {
 
 		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::REDUCTION).size() == 1);
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("graph_generator does not generate unnecessary anti-dependencies around reduction commands", "[graph_generator][command-graph][reductions]") {
@@ -211,7 +209,7 @@ namespace detail {
 			}
 		}
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("graph_generator designates a reduction initializer command that does not require transfers", "[graph_generator][command-graph][reductions]") {
@@ -246,7 +244,7 @@ namespace detail {
 		}
 		CHECK(have_initializers == 1);
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 } // namespace detail
