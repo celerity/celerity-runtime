@@ -24,7 +24,7 @@ namespace detail {
 		}
 	};
 
-	TEST_CASE("SYCL accessors receive correct backing-buffer relative ranges and offsets", "[accessor]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "SYCL accessors receive correct backing-buffer relative ranges and offsets", "[accessor]") {
 		distr_queue q;
 		buffer<int, 3> virtual_buf{cl::sycl::range<3>{1000, 1000, 1000}};
 		subrange<3> large_accessor_sr{{117, 118, 119}, {301, 302, 303}};
@@ -51,7 +51,7 @@ namespace detail {
 		});
 	}
 
-	TEST_CASE("accessors behave correctly for 0-dimensional master node kernels", "[accessor]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "accessors behave correctly for 0-dimensional master node kernels", "[accessor]") {
 		distr_queue q;
 		std::vector mem_a{42};
 		buffer<int, 1> buf_a(mem_a.data(), cl::sycl::range<1>{1});
@@ -68,7 +68,7 @@ namespace detail {
 		CHECK(out == 43);
 	}
 
-	TEST_CASE("accessors mode and target deduced correctly from SYCL 2020 tag types and no_init property", "[accessor]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "accessors mode and target deduced correctly from SYCL 2020 tag types and no_init property", "[accessor]") {
 		buffer<int, 1> buf_a(cl::sycl::range<1>(32));
 		auto& tm = runtime::get_instance().get_task_manager();
 		detail::task_id tid;
@@ -213,7 +213,7 @@ namespace detail {
 		REQUIRE(acc_check);
 	}
 
-	TEST_CASE("conflicts between producer-accessors and reductions are reported", "[task-manager]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "conflicts between producer-accessors and reductions are reported", "[task-manager]") {
 		runtime::init(nullptr, nullptr);
 		auto& tm = runtime::get_instance().get_task_manager();
 		auto& rm = runtime::get_instance().get_reduction_manager();
@@ -273,7 +273,7 @@ namespace detail {
 		CHECK(verified);
 	};
 
-	TEST_CASE("kernels gracefully handle access to empty buffers", "[accessor]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "kernels gracefully handle access to empty buffers", "[accessor]") {
 		distr_queue q;
 		buffer<int> buf{0};
 
@@ -282,7 +282,7 @@ namespace detail {
 		test_empty_access<access_mode::read>(q, buf);
 	}
 
-	TEST_CASE("kernels gracefully handle empty access ranges", "[accessor]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "kernels gracefully handle empty access ranges", "[accessor]") {
 		distr_queue q;
 		std::optional<buffer<int>> buf;
 
@@ -295,7 +295,7 @@ namespace detail {
 		test_empty_access<access_mode::read>(q, *buf);
 	}
 
-	TEST_CASE("host accessor get_allocation_window produces the correct memory layout", "[task][accessor]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "host accessor get_allocation_window produces the correct memory layout", "[task][accessor]") {
 		distr_queue q;
 
 		std::vector<char> memory1d(10);

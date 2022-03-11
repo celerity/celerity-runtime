@@ -9,8 +9,7 @@ extern bool print_graphs;
 // possible here. As such, we provide wrapper functions declarations to call within
 // the listener, which will be linked in from unit_test_suite_celerity, which is
 // compiled as SYCL code.
-namespace detail {
+namespace celerity::test_utils {
 void test_run_started_callback();
-void test_case_ended_callback();
 void test_run_ended_callback();
 } // namespace detail

@@ -22,7 +22,7 @@ namespace detail {
 		T operator()(T a, T b) const { return a < b ? b : a; }
 	};
 
-	TEST_CASE("simple reductions produce the expected results", "[reductions]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "simple reductions produce the expected results", "[reductions]") {
 		size_t N = 1000;
 		buffer<size_t, 1> sum_buf{{1}};
 		buffer<size_t, 1> max_buf{{1}};
@@ -64,7 +64,7 @@ namespace detail {
 
 	// Regression test: The host -> device transfer previously caused an illegal nested sycl::queue::submit call which deadlocks
 	// Distributed test, since the single-node case optimizes the reduction command away
-	TEST_CASE("reduction commands perform host -> device transfers if necessary", "[reductions]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "reduction commands perform host -> device transfers if necessary", "[reductions]") {
 		distr_queue q;
 
 		REQUIRE(runtime::get_instance().get_num_nodes() > 1);
@@ -83,7 +83,7 @@ namespace detail {
 		});
 	}
 
-	TEST_CASE("multiple chained reductions produce correct results", "[reductions]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "multiple chained reductions produce correct results", "[reductions]") {
 		distr_queue q;
 
 		const int N = 1000;
@@ -106,7 +106,8 @@ namespace detail {
 		});
 	}
 
-	TEST_CASE("subsequently requiring reduction results on different subsets of nodes produces correct data flow", "[reductions]") {
+	TEST_CASE_METHOD(
+	    test_utils::runtime_fixture, "subsequently requiring reduction results on different subsets of nodes produces correct data flow", "[reductions]") {
 		distr_queue q;
 
 		const int N = 1000;
@@ -161,7 +162,11 @@ namespace detail {
 		} group;
 	};
 
-	TEMPLATE_TEST_CASE_SIG("nd_item and group return correct execution space geometry", "[item]", ((int Dims), Dims), 1, 2, 3) {
+	template <int Dims>
+	class dimension_runtime_fixture : public test_utils::runtime_fixture {};
+
+	TEMPLATE_TEST_CASE_METHOD_SIG(
+	    dimension_runtime_fixture, "nd_item and group return correct execution space geometry", "[item]", ((int Dims), Dims), 1, 2, 3) {
 		distr_queue q;
 		auto n = runtime::get_instance().get_num_nodes();
 
@@ -224,7 +229,7 @@ namespace detail {
 		});
 	}
 
-	TEST_CASE("generating same task graph on different nodes", "[task-graph]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "generating same task graph on different nodes", "[task-graph]") {
 		distr_queue q;
 		REQUIRE(runtime::get_instance().get_num_nodes() > 1);
 
@@ -287,7 +292,7 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE("nodes do not receive commands for empty chunks", "[command-graph]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "nodes do not receive commands for empty chunks", "[command-graph]") {
 		distr_queue q;
 		auto n = runtime::get_instance().get_num_nodes();
 		REQUIRE(n > 1);

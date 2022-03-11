@@ -1,16 +1,17 @@
 #include "unit_test_suite_celerity.h"
 
-namespace detail {
+namespace celerity::test_utils {
+
 void test_run_started_callback() {
-	celerity::detail::runtime::enable_test_mode();
+	celerity::detail::runtime::test_mode_enter();
 }
-void test_case_ended_callback() {
-	if(celerity::detail::runtime::is_initialized()) { celerity::detail::runtime::teardown(); }
-}
+
 void test_run_ended_callback() {
-	celerity::detail::runtime::finish_test_mode();
+	celerity::detail::runtime::test_mode_exit();
 }
-} // namespace detail
+
+} // namespace celerity::test_utils
+
 
 void maybe_print_graph(celerity::detail::task_manager& tm) {
 	if(print_graphs) {

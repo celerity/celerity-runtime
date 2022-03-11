@@ -34,12 +34,22 @@ namespace detail {
 
 	std::unique_ptr<runtime> runtime::instance = nullptr;
 
+	void runtime::mpi_initialize_once(int* argc, char*** argv) {
+		assert(!mpi_initialized);
+		int provided;
+		MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
+		assert(provided == MPI_THREAD_MULTIPLE);
+		mpi_initialized = true;
+	}
+
+	void runtime::mpi_finalize_once() {
+		assert(mpi_initialized && !mpi_finalized && (!test_mode || !instance));
+		MPI_Finalize();
+		mpi_finalized = true;
+	}
+
 	void runtime::init(int* argc, char** argv[], cl::sycl::device* user_device) {
-		if(test_mode) {
-			instance.reset();
-			instance = std::unique_ptr<runtime>(new runtime(argc, argv, user_device));
-			return;
-		}
+		assert(!instance);
 		instance = std::unique_ptr<runtime>(new runtime(argc, argv, user_device));
 	}
 
@@ -82,10 +92,10 @@ namespace detail {
 	}
 
 	runtime::runtime(int* argc, char** argv[], cl::sycl::device* user_device) {
-		if(!test_mode) {
-			int provided;
-			MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
-			assert(provided == MPI_THREAD_MULTIPLE);
+		if(test_mode) {
+			assert(test_active && "initializing the runtime from a test without a runtime_fixture");
+		} else {
+			mpi_initialize_once(argc, argv);
 		}
 
 		int world_size;
@@ -163,7 +173,8 @@ namespace detail {
 			MPI_Test(&active_flushes.begin()->req, &done, MPI_STATUS_IGNORE);
 			if(done) { active_flushes.pop_front(); }
 		}
-		if(!test_mode) { MPI_Finalize(); }
+
+		if(!test_mode) { mpi_finalize_once(); }
 	}
 
 	void runtime::startup() {
@@ -261,6 +272,7 @@ namespace detail {
 	void runtime::handle_buffer_unregistered(buffer_id bid) { maybe_destroy_runtime(); }
 
 	void runtime::maybe_destroy_runtime() const {
+		if(test_active) return;
 		if(is_active) return;
 		if(is_shutting_down) return;
 		if(buffer_mngr->has_active_buffers()) return;
