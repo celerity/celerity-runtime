@@ -315,7 +315,30 @@ namespace test_utils {
 		static_cast<detail::prepass_handler&>(cgh).add_reduction<Dims>(rid);
 	}
 
-	class device_queue_fixture {
+	// This fixture (or a subclass) must be used by all tests that transitively use MPI.
+	class mpi_fixture {
+	  public:
+		mpi_fixture() { detail::runtime::test_require_mpi(); }
+
+		mpi_fixture(const mpi_fixture&) = delete;
+		mpi_fixture& operator=(const mpi_fixture&) = delete;
+	};
+
+	// This fixture (or a subclass) must be used by all tests that transitively instantiate the runtime.
+	class runtime_fixture : public mpi_fixture {
+	  public:
+		runtime_fixture() { detail::runtime::test_case_enter(); }
+
+		runtime_fixture(const runtime_fixture&) = delete;
+		runtime_fixture& operator=(const runtime_fixture&) = delete;
+
+		~runtime_fixture() {
+			if(!detail::runtime::test_runtime_was_instantiated()) { WARN("Test specified a runtime_fixture, but did not end up instantiating the runtime"); }
+			detail::runtime::test_case_exit();
+		}
+	};
+
+	class device_queue_fixture : public mpi_fixture { // mpi_fixture for config
 	  public:
 		~device_queue_fixture() { get_device_queue().get_sycl_queue().wait_and_throw(); }
 

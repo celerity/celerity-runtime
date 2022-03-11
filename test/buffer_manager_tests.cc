@@ -15,8 +15,8 @@
 namespace celerity {
 namespace detail {
 
-	TEST_CASE("buffer_manager allows buffer deallocation", "[buffer_manager][dealloc]") {
-		celerity::distr_queue q;
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer_manager allows buffer deallocation", "[buffer_manager][dealloc]") {
+		distr_queue q;
 		buffer_id b_id;
 		auto& bm = runtime::get_instance().get_buffer_manager();
 		auto& tm = runtime::get_instance().get_task_manager();

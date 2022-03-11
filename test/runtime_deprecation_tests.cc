@@ -69,7 +69,7 @@ namespace detail {
 		REQUIRE(host_acc[0] == 4096);
 	}
 
-	TEST_CASE("deprecated host_memory_layout continues to work", "[task][deprecated]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "deprecated host_memory_layout continues to work", "[task][deprecated]") {
 		distr_queue q;
 
 		std::vector<char> memory1d(10);
@@ -153,7 +153,7 @@ namespace detail {
 		});
 	}
 
-	TEST_CASE("Kernels receiving cl::sycl::item<Dims> (deprecated) continue to work", "[handler][deprecated]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "Kernels receiving cl::sycl::item<Dims> (deprecated) continue to work", "[handler][deprecated]") {
 		distr_queue q;
 
 		buffer<int, 1> buf1d{{1}};

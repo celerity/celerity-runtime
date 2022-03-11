@@ -83,6 +83,12 @@ namespace detail {
 		void broadcast_control_command(command_type cmd, const command_data& data);
 
 	  private:
+		inline static bool mpi_initialized = false;
+		inline static bool mpi_finalized = false;
+
+		static void mpi_initialize_once(int* argc, char*** argv);
+		static void mpi_finalize_once();
+
 		static std::unique_ptr<runtime> instance;
 
 		// Whether the runtime is active, i.e. between startup() and shutdown().
@@ -143,29 +149,45 @@ namespace detail {
 		// ---------------------------------------------------------------------------------------------------
 
 	  public:
-		/**
-		 * @brief Enables test mode, which ensures the MPI lifecycle methods are only called once per process.
-		 */
-		static void enable_test_mode() {
-			assert(!is_initialized() && !test_mode);
-			// Initialize normally one time to setup MPI
-			init(nullptr, nullptr, nullptr);
+		// Switches to test mode, where MPI will be initialized through test_case_enter() instead of runtime::runtime(). Called on Catch2 startup.
+		static void test_mode_enter() {
+			assert(!mpi_initialized);
 			test_mode = true;
-			teardown();
 		}
 
-		static void teardown() {
-			assert(test_mode);
+		// Finalizes MPI if it was ever initialized in test mode. Called on Catch2 shutdown.
+		static void test_mode_exit() {
+			assert(test_mode && !test_active && !mpi_finalized);
+			if(mpi_initialized) mpi_finalize_once();
+		}
+
+		// Initializes MPI for tests, if it was not initialized before
+		static void test_require_mpi() {
+			assert(test_mode && !test_active);
+			if(!mpi_initialized) mpi_initialize_once(nullptr, nullptr);
+		}
+
+		// Allows the runtime to be transitively instantiated in tests. Called from runtime_fixture.
+		static void test_case_enter() {
+			assert(test_mode && !test_active && mpi_initialized);
+			test_active = true;
+		}
+
+		static bool test_runtime_was_instantiated() {
+			assert(test_mode && test_active);
+			return instance != nullptr;
+		}
+
+		// Deletes the runtime instance, which happens only in tests. Called from runtime_fixture.
+		static void test_case_exit() {
+			assert(test_mode && test_active);
 			instance.reset();
-		}
-
-		static void finish_test_mode() {
-			assert(test_mode && !instance);
-			MPI_Finalize();
+			test_active = false;
 		}
 
 	  private:
 		inline static bool test_mode = false;
+		inline static bool test_active = false;
 	};
 
 } // namespace detail

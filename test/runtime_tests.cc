@@ -58,47 +58,48 @@ namespace detail {
 		static std::thread& get_exec_thrd(executor& exec) { return exec.exec_thrd; }
 	};
 
-	TEST_CASE("only a single distr_queue can be created", "[distr_queue][lifetime][dx]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "only a single distr_queue can be created", "[distr_queue][lifetime][dx]") {
 		distr_queue q1;
 		auto q2{q1}; // Copying is allowed
 		REQUIRE_THROWS_WITH(distr_queue{}, "Only one celerity::distr_queue can be created per process (but it can be copied!)");
 	}
 
-	TEST_CASE("distr_queue implicitly initializes the runtime", "[distr_queue][lifetime]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "distr_queue implicitly initializes the runtime", "[distr_queue][lifetime]") {
 		REQUIRE_FALSE(runtime::is_initialized());
 		distr_queue queue;
 		REQUIRE(runtime::is_initialized());
 	}
 
-	TEST_CASE("an explicit device can only be provided to distr_queue if runtime has not been initialized", "[distr_queue][lifetime]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "an explicit device can be provided to distr_queue", "[distr_queue][lifetime]") {
 		cl::sycl::default_selector selector;
 		cl::sycl::device device{selector};
-		{
+
+		SECTION("before the runtime is initialized") {
 			REQUIRE_FALSE(runtime::is_initialized());
 			REQUIRE_NOTHROW(distr_queue{device});
 		}
-		runtime::teardown();
-		{
+
+		SECTION("but not once the runtime has been initialized") {
 			REQUIRE_FALSE(runtime::is_initialized());
 			runtime::init(nullptr, nullptr);
 			REQUIRE_THROWS_WITH(distr_queue{device}, "Passing explicit device not possible, runtime has already been initialized.");
 		}
 	}
 
-	TEST_CASE("buffer implicitly initializes the runtime", "[distr_queue][lifetime]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer implicitly initializes the runtime", "[distr_queue][lifetime]") {
 		REQUIRE_FALSE(runtime::is_initialized());
 		buffer<float, 1> buf(cl::sycl::range<1>{1});
 		REQUIRE(runtime::is_initialized());
 	}
 
-	TEST_CASE("buffer can be copied", "[distr_queue][lifetime]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer can be copied", "[distr_queue][lifetime]") {
 		buffer<float, 1> buf_a{cl::sycl::range<1>{10}};
 		buffer<float, 1> buf_b{cl::sycl::range<1>{10}};
 		auto buf_c{buf_a};
 		buf_b = buf_c;
 	}
 
-	TEST_CASE("get_access can be called on const buffer", "[buffer]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "get_access can be called on const buffer", "[buffer]") {
 		buffer<float, 2> buf_a{cl::sycl::range<2>{32, 64}};
 		auto& tm = runtime::get_instance().get_task_manager();
 		const auto tid = test_utils::add_compute_task<class get_access_const>(
@@ -323,7 +324,7 @@ namespace detail {
 		REQUIRE(t3->get_debug_name() == "MyThirdKernel<int>");
 	}
 
-	TEST_CASE("basic SYNC command functionality", "[distr_queue][sync][control-flow]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "basic SYNC command functionality", "[distr_queue][sync][control-flow]") {
 		constexpr int N = 10;
 
 		distr_queue q;
@@ -481,7 +482,7 @@ namespace detail {
 		REQUIRE(data4.get_size() == sizeof(uint64_t) * 16 * 8 * 4);
 	}
 
-	TEST_CASE("collective host_task produces one item per rank", "[task]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "collective host_task produces one item per rank", "[task]") {
 		distr_queue{}.submit([=](handler& cgh) {
 			cgh.host_task(experimental::collective, [=](experimental::collective_partition part) {
 				CHECK(part.get_global_size().size() == runtime::get_instance().get_num_nodes());
@@ -490,7 +491,7 @@ namespace detail {
 		});
 	}
 
-	TEST_CASE("collective host_task share MPI communicator & thread iff they are on the same collective_group", "[task]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "collective host_task share MPI communicator & thread iff they are on the same collective_group", "[task]") {
 		std::thread::id default1_thread, default2_thread, primary1_thread, primary2_thread, secondary1_thread, secondary2_thread;
 		MPI_Comm default1_comm, default2_comm, primary1_comm, primary2_comm, secondary1_comm, secondary2_comm;
 
@@ -556,7 +557,7 @@ namespace detail {
 	template <int N>
 	constexpr inline int range_dims<cl::sycl::range<N>> = N;
 
-	TEST_CASE("range mappers are only invocable with correctly-dimensioned chunks", "[range-mapper]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "range mappers are only invocable with correctly-dimensioned chunks", "[range-mapper]") {
 		auto rmfn1 = [](chunk<2> chnk) -> subrange<3> { return {}; };
 		using rmfn1_t = decltype(rmfn1);
 		static_assert(!is_range_mapper_invocable<rmfn1_t, 1>);
@@ -653,7 +654,11 @@ namespace detail {
 	template <int Dims>
 	class linear_id_kernel;
 
-	TEMPLATE_TEST_CASE_SIG("item::get_id() includes global offset, item::get_linear_id() does not", "[item]", ((int Dims), Dims), 1, 2, 3) {
+	template <int Dims>
+	class dimension_runtime_fixture : public test_utils::runtime_fixture {};
+
+	TEMPLATE_TEST_CASE_METHOD_SIG(
+	    dimension_runtime_fixture, "item::get_id() includes global offset, item::get_linear_id() does not", "[item]", ((int Dims), Dims), 1, 2, 3) {
 		distr_queue q;
 
 		const int n = 3;
@@ -686,7 +691,7 @@ namespace detail {
 
 #if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 
-	TEST_CASE("attempting a reduction on buffers with size != 1 throws", "[task-manager]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "attempting a reduction on buffers with size != 1 throws", "[task-manager]") {
 		runtime::init(nullptr, nullptr, nullptr);
 		auto& tm = runtime::get_instance().get_task_manager();
 
@@ -729,7 +734,7 @@ namespace detail {
 
 #endif
 
-	TEST_CASE("handler::parallel_for accepts nd_range", "[handler]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler::parallel_for accepts nd_range", "[handler]") {
 		distr_queue q;
 
 		// Note: We assume a local range size of 64 here, this should be supported by most devices.
@@ -771,7 +776,7 @@ namespace detail {
 		CHECK_THROWS_WITH((celerity::nd_range<3>{{256, 256, 256}, {2, 1, 0}}), "global_range is not divisible by local_range");
 	}
 
-	TEST_CASE("nd_range kernels support local memory", "[handler]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "nd_range kernels support local memory", "[handler]") {
 		distr_queue q;
 		buffer<int, 1> out{64};
 
@@ -799,7 +804,7 @@ namespace detail {
 
 #if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 
-	TEST_CASE("reductions can be passed into nd_range kernels", "[handler]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "reductions can be passed into nd_range kernels", "[handler]") {
 		// Note: We assume a local range size of 16 here, this should be supported by most devices.
 
 		buffer<int, 1> b{cl::sycl::range<1>{1}};
@@ -813,7 +818,7 @@ namespace detail {
 
 #if CELERITY_FEATURE_UNNAMED_KERNELS
 
-	TEST_CASE("handler::parallel_for kernel names are optional", "[handler]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler::parallel_for kernel names are optional", "[handler]") {
 		distr_queue q;
 
 		// Note: We assume a local range size of 32 here, this should be supported by most devices.
@@ -851,7 +856,7 @@ namespace detail {
 #endif
 
 	// This test case requires actual command execution, which is why it is not in graph_compaction_tests
-	TEST_CASE("tasks behind the deletion horizon are deleted", "[task_manager][task-graph][task-horizon]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "tasks behind the deletion horizon are deleted", "[task_manager][task-graph][task-horizon]") {
 		using namespace cl::sycl::access;
 
 		distr_queue q;
@@ -946,7 +951,7 @@ namespace detail {
 	}
 #endif
 
-	TEST_CASE("side_effect API works as expected on a single node", "[side-effect]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "side_effect API works as expected on a single node", "[side-effect]") {
 		distr_queue q;
 
 		experimental::host_object owned_ho{std::vector<int>{}};
@@ -984,7 +989,7 @@ namespace detail {
 		CHECK(exterior == std::vector{1, 2});
 	}
 
-	TEST_CASE("thread names are set", "[threads]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "thread names are set", "[threads]") {
 		distr_queue q;
 
 		auto& rt = runtime::get_instance();
