@@ -1,5 +1,4 @@
 #include "sycl_wrappers.h"
-#include "unit_test_suite_celerity.h"
 
 #include <random>
 

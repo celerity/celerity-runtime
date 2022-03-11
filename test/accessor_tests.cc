@@ -1,5 +1,4 @@
 #include "sycl_wrappers.h"
-#include "unit_test_suite_celerity.h"
 
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>

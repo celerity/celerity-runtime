@@ -2,7 +2,6 @@
 #include "task.h"
 #include "task_manager.h"
 #include "types.h"
-#include "unit_test_suite_celerity.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
@@ -41,7 +40,7 @@ namespace detail {
 			const auto its = tm.get_task(tid_a)->get_dependents();
 			REQUIRE(std::distance(its.begin(), its.end()) == 1);
 
-			maybe_print_graph(tm);
+			test_utils::maybe_print_graph(tm);
 		}
 
 		SECTION("anti-dependencies") {
@@ -58,7 +57,7 @@ namespace detail {
 			const auto its = tm.get_task(tid_a)->get_dependents();
 			REQUIRE(std::distance(its.begin(), its.end()) == 1);
 
-			maybe_print_graph(tm);
+			test_utils::maybe_print_graph(tm);
 		}
 
 		// Here we also check that true dependencies always take precedence
@@ -78,7 +77,7 @@ namespace detail {
 				const auto its = tm.get_task(tid_a)->get_dependents();
 				REQUIRE(std::distance(its.begin(), its.end()) == 1);
 
-				maybe_print_graph(tm);
+				test_utils::maybe_print_graph(tm);
 			}
 
 			SECTION("if anti is declared first") {
@@ -96,7 +95,7 @@ namespace detail {
 				const auto its = tm.get_task(tid_a)->get_dependents();
 				REQUIRE(std::distance(its.begin(), its.end()) == 1);
 
-				maybe_print_graph(tm);
+				test_utils::maybe_print_graph(tm);
 			}
 		}
 	}
@@ -117,7 +116,7 @@ namespace detail {
 		const auto tid_c = test_utils::add_compute_task<class UKN(task_c)>(tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, fixed<1>{{64, 128}}); });
 		REQUIRE_FALSE(has_dependency(tm, tid_c, tid_a));
 
-		maybe_print_graph(tm);
+		test_utils::maybe_print_graph(tm);
 	}
 
 	TEST_CASE("task_manager correctly generates anti-dependencies", "[task_manager][task-graph]") {
@@ -146,7 +145,7 @@ namespace detail {
 		REQUIRE_FALSE(has_dependency(tm, tid_d, tid_a, dependency_kind::ANTI_DEP));
 		REQUIRE(has_dependency(tm, tid_d, tid_b, dependency_kind::ANTI_DEP));
 
-		maybe_print_graph(tm);
+		test_utils::maybe_print_graph(tm);
 	}
 
 	TEST_CASE("task_manager correctly handles host-initialized buffers", "[task_manager][task-graph]") {
@@ -175,7 +174,7 @@ namespace detail {
 		// Since task b is essentially reading uninitialized garbage, it doesn't make a difference if we write into it concurrently
 		REQUIRE_FALSE(has_dependency(tm, tid_d, tid_b, dependency_kind::ANTI_DEP));
 
-		maybe_print_graph(tm);
+		test_utils::maybe_print_graph(tm);
 	}
 
 	template <int Dims, typename Handler, typename Functor>
@@ -313,7 +312,7 @@ namespace detail {
 		const auto tid_d = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {});
 		check_path_length_and_front(tm, 2, {tid_c, tid_d});
 
-		maybe_print_graph(tm);
+		test_utils::maybe_print_graph(tm);
 	}
 
 	TEST_CASE("task horizons are being generated with correct dependencies", "[task_manager][task-graph][task-horizon]") {
@@ -440,7 +439,7 @@ namespace detail {
 			CHECK(region_map_a.get_region_values(make_region(64, 128)).front().second.value() == tid_11);
 		}
 
-		maybe_print_graph(tm);
+		test_utils::maybe_print_graph(tm);
 	}
 
 	TEST_CASE("previous task horizon is used as last writer for host-initialized buffers", "[task_manager][task-graph][task-horizon]") {
@@ -489,7 +488,7 @@ namespace detail {
 		INFO("previous horizon is being used");
 		CHECK(new_last_writer->get_id() < current_horizon->get_id());
 
-		maybe_print_graph(tm);
+		test_utils::maybe_print_graph(tm);
 	}
 
 	TEST_CASE("collective host tasks do not order-depend on their predecessor if it is shadowed by a horizon", "[task_manager][task-graph][task-horizon]") {
@@ -517,7 +516,7 @@ namespace detail {
 			CHECK(dep.kind == dependency_kind::ORDER_DEP);
 		}
 
-		maybe_print_graph(tm);
+		test_utils::maybe_print_graph(tm);
 	}
 
 	TEST_CASE("buffer accesses with empty ranges do not generate data-flow dependencies", "[task_manager][task-graph]") {
@@ -610,7 +609,7 @@ namespace detail {
 			CHECK(dep.kind == dependency_kind::TRUE_DEP);
 		}
 
-		maybe_print_graph(tm);
+		test_utils::maybe_print_graph(tm);
 	}
 } // namespace detail
 } // namespace celerity

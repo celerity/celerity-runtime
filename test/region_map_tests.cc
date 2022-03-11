@@ -1,5 +1,3 @@
-#include "unit_test_suite_celerity.h"
-
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_all.hpp>

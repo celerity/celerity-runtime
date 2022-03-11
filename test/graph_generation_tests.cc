@@ -1,5 +1,3 @@
-#include "unit_test_suite_celerity.h"
-
 #include <optional>
 #include <unordered_set>
 
@@ -117,7 +115,7 @@ namespace detail {
 			REQUIRE(inspector.has_dependency(*master_node_tasks.cbegin(), *await_pushes.cbegin()));
 			REQUIRE(inspector.has_dependency(*master_node_tasks.cbegin(), *(await_pushes.cbegin()++)));
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 
 		SECTION("if data is produced remotely but already available from an earlier task") {
@@ -139,7 +137,7 @@ namespace detail {
 			REQUIRE(master_node_tasks.size() == 1);
 			REQUIRE(inspector.has_dependency(*master_node_tasks.cbegin(), *await_pushes_b.cbegin()));
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 
 		SECTION("if data is produced locally") {
@@ -166,7 +164,7 @@ namespace detail {
 			REQUIRE(inspector.has_dependency(*computes_c.cbegin(), *computes_a.cbegin()));
 			REQUIRE(inspector.has_dependency(*computes_c.cbegin(), *computes_b.cbegin()));
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 	}
 
@@ -206,7 +204,7 @@ namespace detail {
 		// Right now this generates a push command from the second node to the first, which also doesn't make much sense
 		CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).empty());
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	// This is a highly constructed and unrealistic example, but we'd still like the behavior to be clearly defined.
@@ -258,7 +256,7 @@ namespace detail {
 		CHECK(inspector.has_dependency(*computes_b_node1.cbegin(), *computes_a_node1.cbegin()));
 		REQUIRE(inspector.has_dependency(*computes_b_node2.cbegin(), *computes_a_node2.cbegin()));
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	// This test covers implementation details rather than graph-level constructs, however it's important that we deal with this gracefully.
@@ -322,7 +320,7 @@ namespace detail {
 
 		REQUIRE_FALSE(inspector.has_dependency(*computes_c.cbegin(), *computes_b.cbegin()));
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("graph_generator generates anti-dependencies onto the original producer if no consumer exists in between", "[graph_generator][command-graph]") {
@@ -343,7 +341,7 @@ namespace detail {
 		CHECK(master_node_tasks_b.size() == 1);
 		REQUIRE(inspector.has_dependency(*master_node_tasks_b.cbegin(), *master_node_tasks_a.cbegin()));
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	// TODO: This test is too white-boxy. Come up with a different solution (ideally by simplifying the approach inside graph_generator).
@@ -399,7 +397,7 @@ namespace detail {
 			// ...however for the worker, there is.
 			REQUIRE(inspector.has_dependency(*computes_node1.cbegin(), *pushes_node1.cbegin()));
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 
 		SECTION("if the PUSH is generated after the execution command") {
@@ -442,7 +440,7 @@ namespace detail {
 			// ...however for the master, there is.
 			REQUIRE(inspector.has_dependency(*computes_master.cbegin(), *pushes_master.cbegin()));
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 	}
 
@@ -487,7 +485,7 @@ namespace detail {
 		// task_c should not have any anti-dependencies at all
 		REQUIRE(inspector.get_dependency_count(*computes_c.cbegin()) == 0);
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("graph_generator generates pseudo-dependencies for collective commands on the same collective group", "[graph_generator][collectives]") {
@@ -557,7 +555,7 @@ namespace detail {
 		CHECK(has_no_dependencies(tid_collective_explicit_2, tid_collective_implicit_2));
 		CHECK(has_dependencies_on_same_node(tid_collective_explicit_2, tid_collective_explicit_1));
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("side effects generate appropriate command-dependencies", "[graph_generator][command-graph][side-effect]") {

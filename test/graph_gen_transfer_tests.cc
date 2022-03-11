@@ -1,5 +1,3 @@
-#include "unit_test_suite_celerity.h"
-
 #include <unordered_set>
 
 #include <catch2/catch_test_macros.hpp>
@@ -58,7 +56,7 @@ namespace detail {
 		REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::AWAIT_PUSH).size() == 1);
 		REQUIRE(inspector.get_commands(std::nullopt, node_id(2), command_type::AWAIT_PUSH).size() == 1);
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("graph_generator doesn't generate data transfer commands for the same buffer and range more than once", "[graph_generator][command-graph]") {
@@ -86,7 +84,7 @@ namespace detail {
 			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 1);
 			REQUIRE(inspector.get_commands(std::nullopt, node_id(0), command_type::AWAIT_PUSH).size() == 1);
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 
 		SECTION("when used in the same task by different chunks on the same worker node") {
@@ -111,7 +109,7 @@ namespace detail {
 			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 1);
 			REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::AWAIT_PUSH).size() == 1);
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 
 		SECTION("when used in consecutive tasks") {
@@ -141,7 +139,7 @@ namespace detail {
 			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).size() == 1);
 			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 1);
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 
 		SECTION("when used in parallel tasks") {
@@ -169,7 +167,7 @@ namespace detail {
 			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH).size() == 1);
 			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH).size() == 1);
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 	}
 
@@ -223,7 +221,7 @@ namespace detail {
 		CHECK(inspector.get_commands(std::nullopt, node_id(1), command_type::AWAIT_PUSH).size() == 1);
 		CHECK(inspector.get_commands(std::nullopt, node_id(2), command_type::AWAIT_PUSH).size() == 1);
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("graph_generator consolidates PUSH commands for adjacent subranges", "[graph_generator][command-graph]") {
@@ -265,7 +263,7 @@ namespace detail {
 		REQUIRE(push_commands.size() == 1);
 		REQUIRE(inspector.get_dependency_count(*push_commands.cbegin()) == 2);
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("graph_generator builds dependencies to all local commands if a given range is produced by multiple", "[graph_generator][command-graph]") {
@@ -300,7 +298,7 @@ namespace detail {
 		auto master_cmd = *master_cmds.cbegin();
 		CHECK(inspector.get_dependency_count(master_cmd) == 3);
 
-		maybe_print_graphs(ctx);
+		test_utils::maybe_print_graphs(ctx);
 	}
 
 	TEST_CASE("graph_generator generates dependencies for PUSH commands", "[graph_generator][command-graph]") {
@@ -330,7 +328,7 @@ namespace detail {
 
 			REQUIRE(inspector.has_dependency(*pushes.cbegin(), *computes.cbegin()));
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 
 		SECTION("if data is produced by an AWAIT_PUSH command") {
@@ -383,7 +381,7 @@ namespace detail {
 			// The AWAIT_PUSH command has to wait until the MASTER_NODE in task_a is complete.
 			REQUIRE(inspector.has_dependency(*await_pushes.cbegin(), *master_node_tasks_a.cbegin()));
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 
 		SECTION("if writing to region used by PUSH command") {
@@ -417,7 +415,7 @@ namespace detail {
 
 			REQUIRE(inspector.has_dependency(*await_pushes.cbegin(), *pushes.cbegin()));
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 
 		SECTION("if writing to region used by another AWAIT_PUSH command") {
@@ -450,7 +448,7 @@ namespace detail {
 			REQUIRE_FALSE(inspector.has_dependency(*await_pushes.crbegin(), *await_pushes.cbegin()));
 			REQUIRE(inspector.has_dependency(*await_pushes.crbegin(), *master_node_tasks_b.cbegin()));
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 	}
 
@@ -504,7 +502,7 @@ namespace detail {
 			REQUIRE_FALSE(inspector.has_dependency(*computes_c.cbegin(), *computes_b.cbegin()));
 			REQUIRE_FALSE(inspector.has_dependency(*computes_c.cbegin(), *computes_a.cbegin()));
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 
 		SECTION("for AWAIT_PUSH commands") {
@@ -539,7 +537,7 @@ namespace detail {
 			REQUIRE(inspector.has_dependency(*await_pushes.cbegin(), *master_node_tasks_a.cbegin()));
 			REQUIRE_FALSE(inspector.has_dependency(*await_pushes.cbegin(), *master_node_tasks_b.cbegin()));
 
-			maybe_print_graphs(ctx);
+			test_utils::maybe_print_graphs(ctx);
 		}
 	}
 
