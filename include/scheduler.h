@@ -13,6 +13,41 @@ namespace detail {
 	class graph_generator;
 	class graph_serializer;
 
+	class background_loop {
+	  public:
+		virtual void loop() = 0;
+
+	  protected:
+		// non-virtual dtor cannot be used to destroy through a base class pointer
+		~background_loop() = default;
+	};
+
+	class background_thread {
+		friend struct background_thread_testspy;
+
+	  public:
+		static const std::string default_debug_name;
+
+		background_thread();
+		~background_thread();
+
+		void start(background_loop& lo, const std::string& debug_name = default_debug_name);
+		void wait();
+
+	  private:
+		static background_loop* const loop_empty;
+		static background_loop* const loop_shutdown;
+
+		std::mutex loop_mutex;
+		background_loop* loop = loop_empty;
+		std::condition_variable loop_changed;
+		std::thread thread{&background_thread::main, this};
+
+		void main();
+
+		void wait(std::unique_lock<std::mutex>& lk);
+	};
+
 	enum class scheduler_event_type { TASK_AVAILABLE, SHUTDOWN };
 
 	struct scheduler_event {
@@ -20,11 +55,11 @@ namespace detail {
 		size_t data;
 	};
 
-	class scheduler {
+	class scheduler final : private background_loop {
 		friend struct scheduler_testspy;
 
 	  public:
-		scheduler(graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes);
+		scheduler(background_thread& thrd, graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes);
 
 		void startup();
 
@@ -41,6 +76,7 @@ namespace detail {
 		bool is_idle() const noexcept;
 
 	  private:
+		background_thread& thrd;
 		graph_generator& ggen;
 		graph_serializer& gsrlzr;
 
@@ -50,12 +86,10 @@ namespace detail {
 
 		const size_t num_nodes;
 
-		std::thread worker_thread;
-
 		/**
-		 * This is called by the worker thread.
+		 * This is called by the background_thread.
 		 */
-		void schedule();
+		void loop() override;
 
 		void notify(scheduler_event_type type, size_t data);
 	};
