@@ -139,7 +139,8 @@ namespace detail {
 			ggen = std::make_shared<graph_generator>(num_nodes, *task_mngr, *reduction_mngr, *cdag);
 			gsrlzr = std::make_unique<graph_serializer>(*cdag,
 			    [this](node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies) { flush_command(target, pkg, dependencies); });
-			schdlr = std::make_unique<scheduler>(*ggen, *gsrlzr, num_nodes);
+			schdlr_thread = std::make_unique<background_thread>();
+			schdlr = std::make_unique<scheduler>(*schdlr_thread, *ggen, *gsrlzr, num_nodes);
 			task_mngr->register_task_callback([this](task_id tid, task_type type) { schdlr->notify_task_created(tid); });
 		}
 
@@ -151,6 +152,7 @@ namespace detail {
 	runtime::~runtime() {
 		if(is_master_node()) {
 			schdlr.reset();
+			schdlr_thread.reset();
 			gsrlzr.reset();
 			ggen.reset();
 			cdag.reset();

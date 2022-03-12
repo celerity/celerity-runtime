@@ -98,17 +98,16 @@ struct graph_generator_benchmark_context {
 };
 
 struct scheduler_benchmark_context {
-	// note: This will include thread creation / destruction overhead in the benchmark times.
 	const size_t num_nodes;
 	command_graph cdag;
 	graph_serializer gsrlzr{cdag, [](node_id, command_pkg, const std::vector<command_id>&) {}};
 	reduction_manager rm;
 	task_manager tm{num_nodes, nullptr, &rm};
 	graph_generator ggen{num_nodes, tm, rm, cdag};
-	scheduler schdlr{ggen, gsrlzr, num_nodes};
+	scheduler schdlr;
 	test_utils::mock_buffer_factory mbf{&tm, &ggen};
 
-	explicit scheduler_benchmark_context(size_t num_nodes) : num_nodes{num_nodes} { //
+	explicit scheduler_benchmark_context(background_thread& thrd, size_t num_nodes) : num_nodes{num_nodes}, schdlr{thrd, ggen, gsrlzr, num_nodes} {
 		schdlr.startup();
 	}
 
@@ -241,9 +240,10 @@ TEMPLATE_TEST_CASE_SIG("generating large command graphs for N nodes", "[benchmar
 }
 
 TEMPLATE_TEST_CASE_SIG("processing large graphs with a scheduler thread for N nodes", "[benchmark][scheduler]", ((size_t NumNodes), NumNodes), 1, 2, 4) {
-	BENCHMARK("soup topology") { generate_soup_graph(scheduler_benchmark_context{NumNodes}); };
-	BENCHMARK("chain topology") { generate_chain_graph(scheduler_benchmark_context{NumNodes}); };
-	BENCHMARK("map topology") { generate_tree_graph<TreeTopology::Map>(scheduler_benchmark_context{NumNodes}); };
-	BENCHMARK("reduce topology") { generate_tree_graph<TreeTopology::Reduce>(scheduler_benchmark_context{NumNodes}); };
-	BENCHMARK("wave_sim topology") { generate_wave_sim_graph(scheduler_benchmark_context{NumNodes}); };
+	background_thread thrd;
+	BENCHMARK("soup topology") { generate_soup_graph(scheduler_benchmark_context{thrd, NumNodes}); };
+	BENCHMARK("chain topology") { generate_chain_graph(scheduler_benchmark_context{thrd, NumNodes}); };
+	BENCHMARK("map topology") { generate_tree_graph<TreeTopology::Map>(scheduler_benchmark_context{thrd, NumNodes}); };
+	BENCHMARK("reduce topology") { generate_tree_graph<TreeTopology::Reduce>(scheduler_benchmark_context{thrd, NumNodes}); };
+	BENCHMARK("wave_sim topology") { generate_wave_sim_graph(scheduler_benchmark_context{thrd, NumNodes}); };
 }

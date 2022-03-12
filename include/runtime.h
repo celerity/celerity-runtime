@@ -26,6 +26,7 @@ namespace detail {
 	class graph_generator;
 	class graph_serializer;
 	class command_graph;
+	class background_thread;
 	class scheduler;
 	class executor;
 	class task_manager;
@@ -112,6 +113,7 @@ namespace detail {
 		std::unique_ptr<command_graph> cdag;
 		std::shared_ptr<graph_generator> ggen;
 		std::shared_ptr<graph_serializer> gsrlzr;
+		std::unique_ptr<background_thread> schdlr_thread;
 		std::unique_ptr<scheduler> schdlr;
 
 		std::unique_ptr<buffer_manager> buffer_mngr;
