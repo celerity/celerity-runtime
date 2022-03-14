@@ -114,7 +114,9 @@ namespace detail {
 
 		void generate_epoch_dependencies(abstract_command* cmd);
 
-		void generate_epoch_commands(const task& tsk);
+		std::vector<abstract_command*> generate_epoch_commands(const task& tsk);
+
+		void apply_epoch_commands(const std::vector<abstract_command*>& epochs);
 
 		void generate_horizon_commands(const task& tsk);
 

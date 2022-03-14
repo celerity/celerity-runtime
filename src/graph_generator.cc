@@ -40,8 +40,9 @@ namespace detail {
 		const auto tid = tsk.get_id();
 		const auto min_epoch_to_prune_before = m_min_epoch_for_new_commands;
 
+		std::vector<abstract_command*> epoch_commands_to_apply;
 		switch(tsk.get_type()) {
-		case task_type::epoch: generate_epoch_commands(tsk); break;
+		case task_type::epoch: epoch_commands_to_apply = generate_epoch_commands(tsk); break;
 		case task_type::horizon: generate_horizon_commands(tsk); break;
 		case task_type::collective: generate_collective_execution_commands(tsk); break;
 		case task_type::host_compute:
@@ -73,6 +74,11 @@ namespace detail {
 		// --> So that more advanced transformations can also take data transfers into account
 		process_task_data_requirements(tsk);
 		process_task_side_effect_requirements(tsk);
+
+		// Generating execution-front -> epoch dependencies and re-setting last_writers must happen after data dependencies are computed to ensure
+		//     a) that PUSHES for buffer captures are sequenced before their epoch
+		//     b) that we don't try to create dependencies from the epoch back to itself for buffer regions that are present locally
+		if(tsk.get_type() == task_type::epoch) { apply_epoch_commands(epoch_commands_to_apply); }
 
 		// Commands without any other true-dependency must depend on the active epoch command to ensure they cannot be re-ordered before the epoch
 		for(const auto cmd : m_cdag.task_commands(tid)) {
@@ -115,16 +121,22 @@ namespace detail {
 		assert(m_cdag.get_execution_front(nid).size() == 1 && *m_cdag.get_execution_front(nid).begin() == new_front);
 	}
 
-	void graph_generator::generate_epoch_commands(const task& tsk) {
+	std::vector<abstract_command*> graph_generator::generate_epoch_commands(const task& tsk) {
 		assert(tsk.get_type() == task_type::epoch);
+		std::vector<abstract_command*> epochs(m_num_nodes);
+		for(node_id nid = 0; nid < m_num_nodes; ++nid) {
+			epochs[nid] = m_cdag.create<epoch_command>(nid, tsk.get_id(), tsk.get_epoch_action());
+		}
+		return epochs;
+	}
 
-		command_id min_new_epoch;
+
+	void graph_generator::apply_epoch_commands(const std::vector<abstract_command*>& epochs) {
 		for(node_id nid = 0; nid < m_num_nodes; ++nid) {
 			auto& node = m_node_data.at(nid);
 
-			const auto epoch = m_cdag.create<epoch_command>(nid, tsk.get_id(), tsk.get_epoch_action());
+			const auto epoch = epochs[nid];
 			const auto cid = epoch->get_cid();
-			if(nid == 0) { min_new_epoch = cid; }
 
 			set_epoch_for_new_commands(node, cid);
 			node.current_horizon = std::nullopt;
@@ -133,7 +145,8 @@ namespace detail {
 			reduce_execution_front_to(epoch);
 		}
 
-		m_min_epoch_for_new_commands = min_new_epoch;
+		m_min_epoch_for_new_commands = epochs[0]->get_cid();
+		assert(std::all_of(epochs.begin(), epochs.end(), [&](const abstract_command* const cmd) { return cmd->get_cid() >= m_min_epoch_for_new_commands; }));
 	}
 
 	void graph_generator::generate_horizon_commands(const task& tsk) {
@@ -394,9 +407,7 @@ namespace detail {
 							const auto buffer_source_nodes = distributed->region_sources.get_region_values(req);
 							assert(!buffer_source_nodes.empty());
 
-							for(auto& box_and_sources : buffer_source_nodes) {
-								const auto& box = box_and_sources.first;
-								const auto& box_sources = box_and_sources.second;
+							for(const auto& [box, box_sources] : buffer_source_nodes) {
 								assert(!box_sources.empty());
 
 								if(std::find(box_sources.cbegin(), box_sources.cend(), nid) != box_sources.cend()) {
