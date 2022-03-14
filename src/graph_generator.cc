@@ -600,6 +600,16 @@ namespace detail {
 	}
 
 	void graph_generator::process_epoch_dependencies(const task_id tid) {
+		// No command must be re-ordered before its last preceding epoch to enforce the barrier semantics of epochs.
+		// To guarantee that each node has a transitive true dependency (=temporal dependency) on the epoch, it is enough to add an epoch -> command dependency
+		// to any command that has no other true dependencies itself and no graph traversal is necessary. This can be verified by a simple induction proof.
+
+		// As long the first epoch is present in the graph, all transitive dependencies will be visible and the initial epoch commands (tid 0) are the only
+		// commands with no true predecessor. As soon as the first epoch is pruned through the horizon mechanism however, more than one node with no true
+		// predecessor can appear (when visualizing the graph). This does not violate the ordering constraint however, because all "free-floating" nodes
+		// in that snapshot had a true-dependency chain to their predecessor epoch at the point they were flushed, which is sufficient for following the
+		// dependency chain from the executor perspective.
+
 		for(const auto cmd : cdag.task_commands(tid)) {
 			if(const auto deps = cmd->get_dependencies();
 			    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::TRUE_DEP; })) {
