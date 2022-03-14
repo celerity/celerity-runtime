@@ -192,6 +192,5 @@ namespace detail {
 			}
 		}
 	}
-
 } // namespace detail
 } // namespace celerity
