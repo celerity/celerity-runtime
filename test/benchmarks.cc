@@ -9,6 +9,7 @@
 
 using namespace celerity;
 using namespace celerity::detail;
+using namespace std::chrono_literals;
 
 struct bench_graph_node : intrusive_graph_node<bench_graph_node> {};
 
@@ -125,6 +126,27 @@ struct scheduler_benchmark_context {
 		schdlr.notify_task_created(tid);
 	}
 };
+
+template <typename BaseBenchmarkContext>
+struct submission_throttle_benchmark_context : public BaseBenchmarkContext {
+	const std::chrono::steady_clock::duration delay_per_submission;
+	std::chrono::steady_clock::time_point last_submission{};
+
+	template <typename... BaseCtorParams>
+	explicit submission_throttle_benchmark_context(std::chrono::steady_clock::duration delay_per_submission, BaseCtorParams&&... args)
+	    : BaseBenchmarkContext{std::forward<BaseCtorParams>(args)...}, delay_per_submission{delay_per_submission} {}
+
+	template <int KernelDims, typename CGF>
+	void create_task(range<KernelDims> global_range, CGF cgf) {
+		// "busy sleep" because system timer resolution is not high enough to get down to 10 us intervals
+		while(std::chrono::steady_clock::now() - last_submission < delay_per_submission)
+			;
+
+		BaseBenchmarkContext::create_task(global_range, cgf);
+		last_submission = std::chrono::steady_clock::now();
+	}
+};
+
 
 // The generate_* methods are [[noinline]] to make them visible in a profiler.
 
@@ -276,7 +298,19 @@ TEMPLATE_TEST_CASE_SIG("generating large command graphs for N nodes", "[benchmar
 	run_benchmarks([] { return graph_generator_benchmark_context{NumNodes}; });
 }
 
-TEMPLATE_TEST_CASE_SIG("processing large graphs with a scheduler thread for N nodes", "[benchmark][scheduler]", ((size_t NumNodes), NumNodes), 1, 4, 16) {
-	background_thread thrd;
-	run_benchmarks([&] { return scheduler_benchmark_context{thrd, NumNodes}; });
+TEMPLATE_TEST_CASE_SIG("building command graphs in a dedicated scheduler thread for N nodes", "[benchmark][scheduler]", ((size_t NumNodes), NumNodes), 1, 4) {
+	SECTION("reference: single-threaded immediate graph generation") {
+		run_benchmarks([&] { return graph_generator_benchmark_context{NumNodes}; });
+	}
+	SECTION("immediate submission to a scheduler thread") {
+		background_thread thrd;
+		run_benchmarks([&] { return scheduler_benchmark_context{thrd, NumNodes}; });
+	}
+	SECTION("reference: throttled single-threaded graph generation at 10 us per task") {
+		run_benchmarks([] { return submission_throttle_benchmark_context<graph_generator_benchmark_context>{10us, NumNodes}; });
+	}
+	SECTION("throttled submission to a scheduler thread at 10 us per task") {
+		background_thread thrd;
+		run_benchmarks([&] { return submission_throttle_benchmark_context<scheduler_benchmark_context>{10us, thrd, NumNodes}; });
+	}
 }
