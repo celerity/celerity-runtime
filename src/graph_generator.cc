@@ -101,7 +101,9 @@ namespace detail {
 		}
 
 		// Commands without any other true-dependency must depend on the active epoch command to ensure they cannot be re-ordered before the epoch
-		process_epoch_dependencies(tid);
+		for(const auto cmd : cdag.task_commands(tid)) {
+			generate_epoch_dependencies(cmd);
+		}
 
 		// If a new epoch was completed in the CDAG before the current task, prune all predecessor commands of that epoch.
 		// Also removes these commands from command_buffer_reads (if it exists)
@@ -442,6 +444,7 @@ namespace detail {
 
 									cdag.add_dependency(cmd, await_push_cmd, dependency_kind::TRUE_DEP, dependency_origin::dataflow);
 									generate_anti_dependencies(tid, bid, node_buffer_last_writer, box, await_push_cmd);
+									generate_epoch_dependencies(await_push_cmd);
 
 									// Remember the fact that we now have this valid buffer range on this node.
 									auto new_box_sources = box_sources;
@@ -489,6 +492,7 @@ namespace detail {
 
 							auto await_push_cmd = cdag.create<await_push_command>(nid, push_cmd);
 							cdag.add_dependency(reduce_cmd, await_push_cmd, dependency_kind::TRUE_DEP, dependency_origin::dataflow);
+							generate_epoch_dependencies(await_push_cmd);
 						}
 					}
 
@@ -599,7 +603,7 @@ namespace detail {
 		}
 	}
 
-	void graph_generator::process_epoch_dependencies(const task_id tid) {
+	void graph_generator::generate_epoch_dependencies(abstract_command* cmd) {
 		// No command must be re-ordered before its last preceding epoch to enforce the barrier semantics of epochs.
 		// To guarantee that each node has a transitive true dependency (=temporal dependency) on the epoch, it is enough to add an epoch -> command dependency
 		// to any command that has no other true dependencies itself and no graph traversal is necessary. This can be verified by a simple induction proof.
@@ -610,13 +614,11 @@ namespace detail {
 		// in that snapshot had a true-dependency chain to their predecessor epoch at the point they were flushed, which is sufficient for following the
 		// dependency chain from the executor perspective.
 
-		for(const auto cmd : cdag.task_commands(tid)) {
-			if(const auto deps = cmd->get_dependencies();
-			    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::TRUE_DEP; })) {
-				auto last_epoch = node_data.at(cmd->get_nid()).epoch_for_new_commands;
-				assert(cmd->get_cid() != last_epoch);
-				cdag.add_dependency(cmd, cdag.get(last_epoch), dependency_kind::TRUE_DEP, dependency_origin::last_epoch);
-			}
+		if(const auto deps = cmd->get_dependencies();
+		    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::TRUE_DEP; })) {
+			auto last_epoch = node_data.at(cmd->get_nid()).epoch_for_new_commands;
+			assert(cmd->get_cid() != last_epoch);
+			cdag.add_dependency(cmd, cdag.get(last_epoch), dependency_kind::TRUE_DEP, dependency_origin::last_epoch);
 		}
 	}
 

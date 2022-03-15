@@ -133,7 +133,7 @@ namespace detail {
 
 		void process_task_side_effect_requirements(task_id tid);
 
-		void process_epoch_dependencies(const task_id tid);
+		void generate_epoch_dependencies(abstract_command* cmd);
 
 		void generate_epoch_commands(const task* tsk);
 
