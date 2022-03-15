@@ -87,14 +87,14 @@ class distr_queue {
 	 */
 	void slow_full_sync() { // NOLINT(readability-convert-member-functions-to-static)
 		check_not_drained();
-		detail::runtime::get_instance().sync({}, {});
+		detail::runtime::get_instance().sync();
 	}
 
 	template <typename T>
 	typename experimental::capture<T>::value_type slow_full_sync(const experimental::capture<T>& cap) {
 		check_not_drained();
 		auto [buffer_captures, side_effects] = detail::capture_inspector::collect_requirements(std::tuple{cap});
-		detail::runtime::get_instance().sync(std::move(buffer_captures), std::move(side_effects));
+		const auto sync_guard = detail::runtime::get_instance().sync(std::move(buffer_captures), std::move(side_effects));
 		return std::get<0>(detail::capture_inspector::exfiltrate_by_copy(cap));
 	}
 
@@ -102,7 +102,7 @@ class distr_queue {
 	std::tuple<typename experimental::capture<Ts>::value_type...> slow_full_sync(const std::tuple<experimental::capture<Ts>...>& caps) {
 		check_not_drained();
 		auto [buffer_captures, side_effects] = detail::capture_inspector::collect_requirements(caps);
-		detail::runtime::get_instance().sync(std::move(buffer_captures), std::move(side_effects));
+		const auto sync_guard = detail::runtime::get_instance().sync(std::move(buffer_captures), std::move(side_effects));
 		return detail::capture_inspector::exfiltrate_by_copy(caps);
 	}
 

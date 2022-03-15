@@ -149,10 +149,17 @@ namespace detail {
 		/**
 		 * @brief Notifies the task manager that the given epoch has been executed on this node.
 		 *
+		 * If the epoch task is a barrier, this method will block until the main thread calls @ref resume_after_barrier.
+		 *
 		 * notify_horizon_reached and notify_epoch_reached must only ever be called from a single thread, but that thread does not have to be the main
 		 * thread.
 		 */
 		void notify_epoch_reached(task_id epoch_tid);
+
+		/**
+		 * @brief Resumes the executor thread after a completed barrier.
+		 */
+		void resume_after_barrier(task_id barrier_epoch_tid);
 
 		/**
 		 * Returns the number of tasks created during the lifetime of the task_manager,
@@ -204,6 +211,9 @@ namespace detail {
 
 		// The last epoch task that has been processed by the executor. Behind a monitor to allow awaiting this change from the main thread.
 		epoch_monitor m_latest_epoch_reached{initial_epoch_task};
+
+		// The last barrier epoch that was completed from the main thread by calling resume_after_barrier.
+		epoch_monitor m_latest_barrier_passed{initial_epoch_task};
 
 		// Set of tasks with no dependents
 		std::unordered_set<task*> m_execution_front;

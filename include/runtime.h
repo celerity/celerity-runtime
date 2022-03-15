@@ -40,6 +40,19 @@ namespace detail {
 		friend struct runtime_testspy;
 
 	  public:
+		class [[nodiscard]] sync_guard {
+			friend class runtime;
+
+		  public:
+			sync_guard(const sync_guard&) = delete;
+			sync_guard& operator=(const sync_guard&) = delete;
+			~sync_guard();
+
+		  private:
+			task_id m_barrier;
+			explicit sync_guard(task_id barrier) : m_barrier(barrier) {}
+		};
+
 		/**
 		 * @param user_device_or_selector This optional device (overriding any other device selection strategy) or device selector can be provided by the user.
 		 */
@@ -57,7 +70,9 @@ namespace detail {
 
 		void shutdown(buffer_capture_map capture_map, side_effect_map side_effect_map);
 
-		void sync(buffer_capture_map capture_map, side_effect_map side_effect_map);
+		void sync();
+
+		sync_guard sync(buffer_capture_map capture_map, side_effect_map side_effect_map);
 
 		bool is_master_node() const { return m_local_nid == 0; }
 

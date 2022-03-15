@@ -45,12 +45,27 @@ namespace detail {
 	void task_manager::notify_epoch_reached(task_id epoch_tid) {
 		// m_latest_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
 
-		assert(get_task(epoch_tid)->get_type() == task_type::epoch);
+		const auto tsk = get_task(epoch_tid);
+
+		assert(tsk->get_type() == task_type::epoch);
 		assert(!m_latest_horizon_reached || *m_latest_horizon_reached < epoch_tid);
 		assert(m_latest_epoch_reached.get() < epoch_tid);
 
 		m_latest_epoch_reached.set(epoch_tid);
 		m_latest_horizon_reached = std::nullopt; // Any non-applied horizon is now behind the epoch and will therefore never become an epoch itself
+
+		if(tsk->get_epoch_action() == epoch_action::barrier) {
+			// Wait for the main thread to call resume_after_barrier. This ensures that no commands can be executed before all captures have been exfiltrated.
+			// It is not sufficient for the main thread to stop submitting work, since e.g. AWAIT PUSH commands do not depend on a task definition.
+			m_latest_barrier_passed.await(epoch_tid);
+		}
+	}
+
+	void task_manager::resume_after_barrier(task_id barrier_epoch_tid) {
+		assert(get_task(barrier_epoch_tid)->get_type() == task_type::epoch);
+		assert(m_latest_epoch_reached.get() == barrier_epoch_tid);
+
+		m_latest_barrier_passed.set(barrier_epoch_tid);
 	}
 
 	void task_manager::await_epoch(task_id epoch) { m_latest_epoch_reached.await(epoch); }

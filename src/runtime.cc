@@ -232,10 +232,19 @@ namespace detail {
 		maybe_destroy_runtime();
 	}
 
-	void runtime::sync(buffer_capture_map capture_map, side_effect_map side_effect_map) {
-		const auto epoch = m_task_mngr->generate_epoch_task(epoch_action::barrier, std::move(capture_map), std::move(side_effect_map));
-		m_task_mngr->await_epoch(epoch);
+	void runtime::sync() {
+		const auto barrier = m_task_mngr->generate_epoch_task(epoch_action::barrier, {}, {});
+		m_task_mngr->await_epoch(barrier);
+		m_task_mngr->resume_after_barrier(barrier);
 	}
+
+	runtime::sync_guard runtime::sync(buffer_capture_map capture_map, side_effect_map side_effect_map) {
+		const auto barrier = m_task_mngr->generate_epoch_task(epoch_action::barrier, std::move(capture_map), std::move(side_effect_map));
+		m_task_mngr->await_epoch(barrier);
+		return sync_guard{barrier};
+	}
+
+	runtime::sync_guard::~sync_guard() { runtime::get_instance().get_task_manager().resume_after_barrier(m_barrier); }
 
 	task_manager& runtime::get_task_manager() const { return *m_task_mngr; }
 

@@ -73,7 +73,9 @@ namespace detail {
 		// then observing the execution times of barriers. TODO remove this once we have a better profiling workflow.
 		if(m_action == epoch_action::barrier) { MPI_Barrier(MPI_COMM_WORLD); }
 
+		// If this is a barrier, notify_epoch_reached will block until the main thread calls task_manager::resume_after_barrier().
 		m_task_mngr.notify_epoch_reached(data.tid);
+
 		return true;
 	};
 
