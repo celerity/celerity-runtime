@@ -620,7 +620,7 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE("epochs serialize commands on every node", "[graph_generator][command-graph][epoch]") {
+	TEST_CASE("epochs serialize task commands on every node", "[graph_generator][command-graph][epoch]") {
 		using namespace cl::sycl::access;
 
 		const size_t num_nodes = 2;
@@ -722,6 +722,74 @@ namespace detail {
 		}
 
 		maybe_print_graphs(ctx);
+	}
+
+	TEST_CASE("all commands have a transitive true-dependency on the preceding epoch", "[graph_generator][command-graph][epoch]") {
+		const size_t num_nodes = 2;
+		test_utils::cdag_test_context ctx(num_nodes);
+		test_utils::mock_buffer_factory mbf(ctx);
+		auto& tm = ctx.get_task_manager();
+		auto& inspector = ctx.get_inspector();
+
+		auto& cdag = ctx.get_command_graph();
+
+		tm.set_horizon_step(99); // no horizon interference
+
+		auto buf_1 = mbf.create_buffer(range<1>{num_nodes}, true /* host_initialized */);
+		auto buf_2 = mbf.create_buffer(range<1>{1});
+		auto buf_3 = mbf.create_buffer(range<1>{1});
+
+		test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(produce)>(
+		        tm,
+		        [&](handler& cgh) {
+			        buf_2.get_access<access_mode::discard_write>(cgh, all{});
+			        test_utils::add_reduction(cgh, ctx.get_reduction_manager(), buf_3, false);
+		        },
+		        range<1>{num_nodes}));
+
+		const auto epoch = test_utils::build_and_flush(ctx, num_nodes, tm.generate_epoch_task(epoch_action::none));
+
+		test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(overwrite)>(
+		        tm,
+		        [&](handler& cgh) {
+			        buf_1.get_access<access_mode::discard_write>(cgh, one_to_one{});
+			        buf_2.get_access<access_mode::read>(cgh, all{});
+		        },
+		        range<1>{num_nodes}));
+
+		test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(consume_reduction)>(
+		        tm, [&](handler& cgh) { buf_3.get_access<access_mode::read>(cgh, all{}); }, range<1>{num_nodes}));
+
+		maybe_print_graphs(ctx);
+
+		std::set<command_id> commands_after_epoch;
+		for(const auto cid : inspector.get_commands(std::nullopt, std::nullopt, std::nullopt)) {
+			if(cdag.has(cid)) { // commands before the epoch have been pruned already
+				commands_after_epoch.insert(cid);
+			}
+		}
+
+		// Iteratively build the set of commands transitively true-depending on an epoch
+		std::set<command_id> transitive_dependents;
+		std::set<command_id> dependent_front = inspector.get_commands(epoch, std::nullopt, std::nullopt);
+		while(!dependent_front.empty()) {
+			transitive_dependents.insert(dependent_front.begin(), dependent_front.end());
+
+			std::set<command_id> new_dependent_front;
+			for(const auto cid : dependent_front) {
+				const auto cmd = cdag.get(cid);
+				for(const auto& dep : cmd->get_dependents()) {
+					const auto dep_cid = dep.node->get_cid();
+					if(dep.kind == dependency_kind::TRUE_DEP && !transitive_dependents.count(dep_cid)) { new_dependent_front.insert(dep_cid); }
+				}
+			}
+			dependent_front = std::move(new_dependent_front);
+		}
+
+		CHECK(commands_after_epoch == transitive_dependents);
 	}
 
 } // namespace detail
