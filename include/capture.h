@@ -54,25 +54,31 @@ class capture;
 template <typename T, int Dims>
 class buffer_data {
   public:
-	buffer_data() : range{detail::zero_range} {}
+	buffer_data() : m_sr{{}, detail::zero_range} {}
 
-	explicit operator bool() const { return !data.empty(); }
+	explicit operator bool() const { return !m_data.empty(); }
 
-	celerity::range<Dims> get_range() const { return range; }
-	const T* get_pointer() const { return data.data(); }
-	T* get_pointer() { return data.data(); }
+	range<Dims> get_offset() const { return m_sr.offset; }
 
-	// TODO accessor semantics with operator[]; into_vector()
+	range<Dims> get_range() const { return m_sr.range; }
+
+	subrange<Dims> get_subrange() const { return m_sr; }
+
+	const std::vector<T>& get_data() const { return m_data; }
+
+	std::vector<T> into_data() && { return std::move(m_data); }
+
+	inline const T& operator[](id<Dims> index) const { return m_data[detail::get_linear_index(m_sr.range, index)]; }
+
+	inline detail::subscript_result_t<Dims, const buffer_data> operator[](size_t index) const { return detail::subscript<Dims>(*this, index); }
 
   private:
 	friend class capture<buffer<T, Dims>>;
 
-	celerity::range<Dims> range;
-	std::vector<T> data;
+	subrange<Dims> m_sr;
+	std::vector<T> m_data;
 
-	explicit buffer_data(celerity::range<Dims> range, std::vector<T> data) : range{range}, data{std::move(data)} {
-		assert(this->data.size() == this->range.size());
-	}
+	explicit buffer_data(subrange<Dims> sr, std::vector<T> data) : m_sr{sr}, m_data{std::move(data)} { assert(m_data.size() == m_sr.range.size()); }
 };
 
 template <typename T, int Dims>
@@ -80,32 +86,32 @@ class capture<buffer<T, Dims>> {
   public:
 	using value_type = buffer_data<T, Dims>;
 
-	explicit capture(buffer<T, Dims> buf) : buffer{std::move(buf)}, sr{{}, buffer.get_range()} {}
-	explicit capture(buffer<T, Dims> buf, const subrange<Dims>& sr) : buffer{std::move(buf)}, sr{sr} {}
+	explicit capture(buffer<T, Dims> buf) : m_buffer{std::move(buf)}, m_sr{{}, m_buffer.get_range()} {}
+	explicit capture(buffer<T, Dims> buf, const subrange<Dims>& sr) : m_buffer{std::move(buf)}, m_sr{sr} {}
 
   private:
 	friend struct detail::capture_inspector;
 
-	buffer<T, Dims> buffer;
-	subrange<Dims> sr;
+	buffer<T, Dims> m_buffer;
+	subrange<Dims> m_sr;
 
-	void record_requirements(detail::buffer_capture_map& accesses, detail::side_effect_map&) const {
-		accesses.add_read_access(detail::get_buffer_id(buffer), sr);
+	void record_requirements(detail::buffer_capture_map& captures, detail::side_effect_map&) const {
+		captures.add_read_access(detail::get_buffer_id(m_buffer), detail::subrange_cast<3>(m_sr));
 	}
 
 	value_type exfiltrate_by_copy() const {
 		auto& bm = detail::runtime::get_instance().get_buffer_manager();
 		const auto access_info =
-		    bm.get_host_buffer<T, Dims>(detail::get_buffer_id(buffer), access_mode::read, detail::range_cast<3>(sr.range), detail::id_cast<3>(sr.offset));
+		    bm.get_host_buffer<T, Dims>(detail::get_buffer_id(m_buffer), access_mode::read, detail::range_cast<3>(m_sr.range), detail::id_cast<3>(m_sr.offset));
 
 		// TODO this should be able to use host_buffer_storage::get_data
 		const auto allocation_window = buffer_allocation_window<T, Dims>{
 		    access_info.buffer.get_pointer(),
-		    buffer.get_range(),
+		    m_buffer.get_range(),
 		    access_info.buffer.get_range(),
-		    sr.range,
+		    m_sr.range,
 		    access_info.offset,
-		    sr.offset,
+		    m_sr.offset,
 		};
 		const auto allocation_range_3 = detail::range_cast<3>(allocation_window.get_allocation_range());
 		const auto window_range_3 = detail::range_cast<3>(allocation_window.get_window_range());
@@ -120,7 +126,7 @@ class capture<buffer<T, Dims>> {
 			}
 		}
 
-		return value_type{allocation_window.get_window_range(), std::move(data)};
+		return value_type{m_sr, std::move(data)};
 	}
 
 	value_type exfiltrate_by_move() const { return exfiltrate_by_copy(); }
@@ -139,20 +145,20 @@ class capture<host_object<T>> {
 
 	using value_type = T;
 
-	explicit capture(host_object<T> ho) : ho{std::move(ho)} {}
+	explicit capture(host_object<T> ho) : m_ho{std::move(ho)} {}
 
   private:
 	friend struct detail::capture_inspector;
 
-	host_object<T> ho;
+	host_object<T> m_ho;
 
 	void record_requirements(detail::buffer_capture_map&, detail::side_effect_map& side_effects) const {
-		side_effects.add_side_effect(ho.get_id(), side_effect_order::sequential);
+		side_effects.add_side_effect(m_ho.get_id(), side_effect_order::sequential);
 	}
 
-	value_type exfiltrate_by_copy() const { return value_type{std::as_const(*ho.get_object())}; }
+	value_type exfiltrate_by_copy() const { return value_type{std::as_const(*m_ho.get_object())}; }
 
-	value_type exfiltrate_by_move() const { return value_type{std::move(*ho.get_object())}; }
+	value_type exfiltrate_by_move() const { return value_type{std::move(*m_ho.get_object())}; }
 };
 
 template <typename T>

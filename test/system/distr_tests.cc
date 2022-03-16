@@ -361,7 +361,7 @@ namespace detail {
 		    q.slow_full_sync(std::tuple{experimental::capture{buf, subrange<3>{{1, 2, 3}, {1, 1, 1}}}, experimental::capture{obj}});
 
 		REQUIRE(gathered_from_master.get_range() == range<3>{1, 1, 1});
-		CHECK(gathered_from_master.get_pointer()[0] == 42);
+		CHECK(gathered_from_master[0][0][0] == 42);
 
 		int global_rank;
 		MPI_Comm_rank(MPI_COMM_WORLD, &global_rank);
@@ -375,7 +375,7 @@ namespace detail {
 		const auto drained_from_master = q.drain(experimental::capture{buf, subrange<3>{{1, 2, 3}, {1, 1, 1}}});
 
 		REQUIRE(drained_from_master.get_range() == range<3>{1, 1, 1});
-		CHECK(drained_from_master.get_pointer()[0] == 84);
+		CHECK(drained_from_master[0][0][0] == 84);
 	}
 
 } // namespace detail
