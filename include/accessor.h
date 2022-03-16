@@ -45,9 +45,6 @@ namespace detail {
 	template <typename TagT>
 	constexpr target deduce_access_target();
 
-	template <typename DataT, int Dims, cl::sycl::access::mode Mode, target Target, int Index>
-	class accessor_subscript_proxy;
-
 	struct accessor_testspy;
 
 // Hack: DPC++ and ComputeCpp do not implement the SYCL 2020 sycl::local_accessor default constructor yet and always require a handler for construction.
@@ -271,10 +268,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 #pragma GCC diagnostic pop
 
-	template <int D = Dims>
-	std::enable_if_t<(D > 1), detail::accessor_subscript_proxy<DataT, D, Mode, target::device, 1>> operator[](const size_t d0) const {
-		return {*this, d0};
-	}
+	inline detail::subscript_result_t<Dims, const accessor> operator[](const size_t index) const { return detail::subscript<Dims>(*this, index); }
 
 	friend bool operator==(const accessor& lhs, const accessor& rhs) {
 		return lhs.m_sycl_accessor == rhs.m_sycl_accessor && lhs.m_buffer_range == rhs.m_buffer_range && lhs.m_index_offset == rhs.m_index_offset;
@@ -456,10 +450,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		return *(get_buffer().get_pointer() + get_linear_offset(index));
 	}
 
-	template <int D = Dims>
-	std::enable_if_t<(D > 1), detail::accessor_subscript_proxy<DataT, D, Mode, target::host_task, 1>> operator[](const size_t d0) const {
-		return {*this, d0};
-	}
+	inline detail::subscript_result_t<Dims, const accessor> operator[](const size_t index) const { return detail::subscript<Dims>(*this, index); }
 
 	/**
 	 * @brief Returns a pointer to the underlying buffer.
@@ -627,11 +618,10 @@ class local_accessor {
 	std::add_pointer_t<value_type> get_pointer() const noexcept { return m_sycl_acc.get_pointer(); }
 
 	// Workaround: ComputeCpp's legacy clang-8 has trouble deducing the return type of operator[] with decltype(auto), so we derive it manually.
-	// TODO replace trailing return type with decltype(auto) once we require the new ComputeCpp (experimental) compiler.
-	template <typename Index>
-	inline auto operator[](const Index& index) const -> decltype(std::declval<const sycl_accessor&>()[index]) {
-		return m_sycl_acc[index];
-	}
+	// TODO replace decltype(...) with decltype(auto) once we require the new ComputeCpp (experimental) compiler.
+	inline decltype(std::declval<const sycl_accessor&>()[id<Dims>{}]) operator[](const id<Dims> index) const { return m_sycl_acc[index]; }
+
+	inline detail::subscript_result_t<Dims, const local_accessor> operator[](const size_t index) const { return detail::subscript<Dims>(*this, index); }
 
   private:
 	sycl_accessor m_sycl_acc;
@@ -708,47 +698,6 @@ namespace detail {
 			static_assert(constexpr_false<TagT>, "Invalid access tag, expecting one of celerity::{read_only,read_write,write_only}[_host_task]");
 		}
 	}
-
-
-	template <typename DataT, cl::sycl::access::mode Mode, target Target>
-	class accessor_subscript_proxy<DataT, 3, Mode, Target, 2> {
-		using AccessorT = celerity::accessor<DataT, 3, Mode, Target>;
-
-	  public:
-		accessor_subscript_proxy(const AccessorT& acc, const size_t d0, const size_t d1) : m_acc(acc), m_d0(d0), m_d1(d1) {}
-
-		decltype(std::declval<AccessorT>()[{0, 0, 0}]) operator[](const size_t d2) const { return m_acc[{m_d0, m_d1, d2}]; }
-
-	  private:
-		const AccessorT& m_acc;
-		size_t m_d0;
-		size_t m_d1;
-	};
-
-	template <typename DataT, int Dims, cl::sycl::access::mode Mode, target Target>
-	class accessor_subscript_proxy<DataT, Dims, Mode, Target, 1> {
-		template <int D>
-		using AccessorT = celerity::accessor<DataT, D, Mode, Target>;
-
-	  public:
-		accessor_subscript_proxy(const AccessorT<Dims>& acc, const size_t d0) : m_acc(acc), m_d0(d0) {}
-
-		// Note that we currently have to use SFINAE over constexpr-if + decltype(auto), as ComputeCpp 2.6.0 has
-		// problems inferring the correct type in some cases (e.g. when DataT == sycl::id<>).
-		template <int D = Dims>
-		std::enable_if_t<D == 2, decltype(std::declval<AccessorT<2>>()[{0, 0}])> operator[](const size_t d1) const {
-			return m_acc[{m_d0, d1}];
-		}
-
-		template <int D = Dims>
-		std::enable_if_t<D == 3, accessor_subscript_proxy<DataT, 3, Mode, Target, 2>> operator[](const size_t d1) const {
-			return {m_acc, m_d0, d1};
-		}
-
-	  private:
-		const AccessorT<Dims>& m_acc;
-		size_t m_d0;
-	};
 
 } // namespace detail
 
