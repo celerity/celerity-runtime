@@ -49,12 +49,8 @@ namespace detail {
 		static executor& get_exec(runtime& rt) { return *rt.exec; }
 	};
 
-	struct background_thread_testspy {
-		static std::thread& get_thread(background_thread& thrd) { return thrd.thread; }
-	};
-
 	struct scheduler_testspy {
-		static background_thread& get_thrd(scheduler& schdlr) { return schdlr.thrd; }
+		static std::thread& get_worker_thread(scheduler& schdlr) { return schdlr.worker_thread; }
 	};
 
 	struct executor_testspy {
@@ -989,7 +985,7 @@ namespace detail {
 		auto& exec = runtime_testspy::get_exec(rt);
 
 		if(rt.is_master_node()) {
-			const auto scheduler_thread_name = get_thread_name(background_thread_testspy::get_thread(scheduler_testspy::get_thrd(schdlr)).native_handle());
+			const auto scheduler_thread_name = get_thread_name(scheduler_testspy::get_worker_thread(schdlr).native_handle());
 			CHECK(scheduler_thread_name == "cy-scheduler");
 		}
 

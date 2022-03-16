@@ -8,70 +8,17 @@
 namespace celerity {
 namespace detail {
 
-	const std::string background_thread::default_debug_name = "cy-thread";
-	background_loop* const background_thread::loop_empty = nullptr;
-	background_loop* const background_thread::loop_shutdown = loop_empty + 1;
+	abstract_scheduler::abstract_scheduler(graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes)
+	    : ggen(ggen), gsrlzr(gsrlzr), num_nodes(num_nodes) {}
 
-	background_thread::background_thread() { set_thread_name(thread.native_handle(), default_debug_name); }
+	void abstract_scheduler::shutdown() { notify(scheduler_event_type::SHUTDOWN, 0); }
 
-	background_thread::~background_thread() {
-		{
-			std::unique_lock lk{loop_mutex};
-			wait(lk);
-			loop = loop_shutdown;
-			loop_changed.notify_one();
-		}
-		thread.join();
-	}
-
-	void background_thread::start(background_loop& lo, const std::string& debug_name) {
-		std::unique_lock lk{loop_mutex};
-		wait(lk);
-		loop = &lo;
-		loop_changed.notify_all();
-		set_thread_name(thread.native_handle(), debug_name);
-	}
-
-	void background_thread::wait() {
-		std::unique_lock lk{loop_mutex};
-		wait(lk);
-	}
-
-	void background_thread::main() {
-		std::unique_lock lk{loop_mutex};
-		for(;;) {
-			loop_changed.wait(lk, [this] { return loop != nullptr; });
-			if(loop == loop_shutdown) break;
-			loop->loop();
-			loop = nullptr;
-			loop_changed.notify_all();
-		}
-	}
-
-	void background_thread::wait(std::unique_lock<std::mutex>& lk) {
-		loop_changed.wait(lk, [this] {
-			assert(loop != loop_shutdown);
-			return loop == loop_empty;
-		});
-		set_thread_name(thread.native_handle(), default_debug_name);
-	}
-
-	scheduler::scheduler(background_thread& thrd, graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes)
-	    : thrd(thrd), ggen(ggen), gsrlzr(gsrlzr), num_nodes(num_nodes) {}
-
-	void scheduler::startup() { thrd.start(*this, "cy-scheduler"); }
-
-	void scheduler::shutdown() {
-		notify(scheduler_event_type::SHUTDOWN, 0);
-		thrd.wait();
-	}
-
-	bool scheduler::is_idle() const noexcept {
+	bool abstract_scheduler::is_idle() const noexcept {
 		std::lock_guard<std::mutex> lock(events_mutex);
 		return events.empty();
 	}
 
-	void scheduler::loop() {
+	void abstract_scheduler::schedule() {
 		std::unique_lock<std::mutex> lk(events_mutex);
 
 		while(true) {
@@ -92,12 +39,22 @@ namespace detail {
 		}
 	}
 
-	void scheduler::notify(scheduler_event_type type, size_t data) {
+	void abstract_scheduler::notify(scheduler_event_type type, size_t data) {
 		{
 			std::lock_guard<std::mutex> lk(events_mutex);
 			events.push({type, data});
 		}
 		events_cv.notify_one();
+	}
+
+	void scheduler::startup() {
+		worker_thread = std::thread(&scheduler::schedule, this);
+		set_thread_name(worker_thread.native_handle(), "cy-scheduler");
+	}
+
+	void scheduler::shutdown() {
+		abstract_scheduler::shutdown();
+		if(worker_thread.joinable()) { worker_thread.join(); }
 	}
 
 } // namespace detail

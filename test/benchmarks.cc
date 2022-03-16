@@ -99,6 +99,79 @@ struct graph_generator_benchmark_context {
 	}
 };
 
+// Keeps an OS thread around between benchmark iterations to avoid measuring thread creation overhead
+class restartable_thread {
+	struct empty {};
+	struct shutdown {};
+
+  public:
+	using thread_func = std::function<void()>;
+
+	~restartable_thread() {
+		{
+			std::unique_lock lk{mutex};
+			wait(lk);
+			next = shutdown{};
+			update.notify_one();
+		}
+		thread.join();
+	}
+
+	void start(std::function<void()> thread_func) {
+		std::unique_lock lk{mutex};
+		wait(lk);
+		next = std::move(thread_func);
+		update.notify_all();
+	}
+
+	void join() {
+		std::unique_lock lk{mutex};
+		wait(lk);
+	}
+
+  private:
+	std::mutex mutex;
+	std::variant<empty, thread_func, shutdown> next;
+	std::condition_variable update;
+	std::thread thread{&restartable_thread::main, this};
+
+	void main() {
+		std::unique_lock lk{mutex};
+		for(;;) {
+			update.wait(lk, [this] { return !std::holds_alternative<empty>(next); });
+			if(std::holds_alternative<shutdown>(next)) break;
+			std::get<thread_func>(next)();
+			next = empty{};
+			update.notify_all();
+		}
+	}
+
+	void wait(std::unique_lock<std::mutex>& lk) {
+		update.wait(lk, [this] {
+			assert(!std::holds_alternative<shutdown>(next));
+			return std::holds_alternative<empty>(next);
+		});
+	}
+};
+
+class benchmark_scheduler final : public abstract_scheduler {
+  public:
+	benchmark_scheduler(restartable_thread& worker_thread, graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes)
+	    : abstract_scheduler(ggen, gsrlzr, num_nodes), worker_thread(worker_thread) {}
+
+	void startup() override {
+		worker_thread.start([this] { schedule(); });
+	}
+
+	void shutdown() override {
+		abstract_scheduler::shutdown();
+		worker_thread.join();
+	}
+
+  private:
+	restartable_thread& worker_thread;
+};
+
 struct scheduler_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
@@ -106,10 +179,10 @@ struct scheduler_benchmark_context {
 	reduction_manager rm;
 	task_manager tm{num_nodes, nullptr, &rm};
 	graph_generator ggen{num_nodes, tm, rm, cdag};
-	scheduler schdlr;
+	benchmark_scheduler schdlr;
 	test_utils::mock_buffer_factory mbf{&tm, &ggen};
 
-	explicit scheduler_benchmark_context(background_thread& thrd, size_t num_nodes) : num_nodes{num_nodes}, schdlr{thrd, ggen, gsrlzr, num_nodes} {
+	explicit scheduler_benchmark_context(restartable_thread& thrd, size_t num_nodes) : num_nodes{num_nodes}, schdlr{thrd, ggen, gsrlzr, num_nodes} {
 		schdlr.startup();
 	}
 
@@ -289,14 +362,14 @@ TEMPLATE_TEST_CASE_SIG("building command graphs in a dedicated scheduler thread 
 		run_benchmarks([&] { return graph_generator_benchmark_context{NumNodes}; });
 	}
 	SECTION("immediate submission to a scheduler thread") {
-		background_thread thrd;
+		restartable_thread thrd;
 		run_benchmarks([&] { return scheduler_benchmark_context{thrd, NumNodes}; });
 	}
 	SECTION("reference: throttled single-threaded graph generation at 10 us per task") {
 		run_benchmarks([] { return submission_throttle_benchmark_context<graph_generator_benchmark_context>{10us, NumNodes}; });
 	}
 	SECTION("throttled submission to a scheduler thread at 10 us per task") {
-		background_thread thrd;
+		restartable_thread thrd;
 		run_benchmarks([&] { return submission_throttle_benchmark_context<scheduler_benchmark_context>{10us, thrd, NumNodes}; });
 	}
 }

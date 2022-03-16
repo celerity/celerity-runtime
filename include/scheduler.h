@@ -13,41 +13,6 @@ namespace detail {
 	class graph_generator;
 	class graph_serializer;
 
-	class background_loop {
-	  public:
-		virtual void loop() = 0;
-
-	  protected:
-		// non-virtual dtor cannot be used to destroy through a base class pointer
-		~background_loop() = default;
-	};
-
-	class background_thread {
-		friend struct background_thread_testspy;
-
-	  public:
-		static const std::string default_debug_name;
-
-		background_thread();
-		~background_thread();
-
-		void start(background_loop& lo, const std::string& debug_name = default_debug_name);
-		void wait();
-
-	  private:
-		static background_loop* const loop_empty;
-		static background_loop* const loop_shutdown;
-
-		std::mutex loop_mutex;
-		background_loop* loop = loop_empty;
-		std::condition_variable loop_changed;
-		std::thread thread{&background_thread::main, this};
-
-		void main();
-
-		void wait(std::unique_lock<std::mutex>& lk);
-	};
-
 	enum class scheduler_event_type { TASK_AVAILABLE, SHUTDOWN };
 
 	struct scheduler_event {
@@ -55,15 +20,16 @@ namespace detail {
 		size_t data;
 	};
 
-	class scheduler final : private background_loop {
-		friend struct scheduler_testspy;
-
+	// Abstract base class to allow different threading implementation in tests
+	class abstract_scheduler {
 	  public:
-		scheduler(background_thread& thrd, graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes);
+		abstract_scheduler(graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes);
 
-		void startup();
+		virtual ~abstract_scheduler() = default;
 
-		void shutdown();
+		virtual void startup() = 0;
+
+		virtual void shutdown();
 
 		/**
 		 * @brief Notifies the scheduler that a new task has been created and is ready for scheduling.
@@ -75,8 +41,13 @@ namespace detail {
 		 */
 		bool is_idle() const noexcept;
 
+	  protected:
+		/**
+		 * This is called by the worker thread.
+		 */
+		void schedule();
+
 	  private:
-		background_thread& thrd;
 		graph_generator& ggen;
 		graph_serializer& gsrlzr;
 
@@ -86,12 +57,21 @@ namespace detail {
 
 		const size_t num_nodes;
 
-		/**
-		 * This is called by the background_thread.
-		 */
-		void loop() override;
-
 		void notify(scheduler_event_type type, size_t data);
+	};
+
+	class scheduler final : public abstract_scheduler {
+		friend struct scheduler_testspy;
+
+	  public:
+		using abstract_scheduler::abstract_scheduler;
+
+		void startup() override;
+
+		void shutdown() override;
+
+	  private:
+		std::thread worker_thread;
 	};
 
 } // namespace detail
