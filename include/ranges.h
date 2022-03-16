@@ -5,6 +5,54 @@
 namespace celerity {
 namespace detail {
 
+	template <int TargetDims, typename Target, int SubscriptDim = 0>
+	class subscript_proxy;
+
+	template <int TargetDims, typename Target, int SubscriptDim = 0>
+	struct subscript_result {
+		using type = subscript_proxy<TargetDims, Target, SubscriptDim + 1>;
+	};
+
+	template <int TargetDims, typename Target>
+	struct subscript_result<TargetDims, Target, TargetDims - 1> {
+		using type = decltype(std::declval<Target&>()[std::declval<const id<TargetDims>&>()]);
+	};
+
+	// Workaround for old ComputeCpp "stable" compiler: We cannot use decltype(auto), because it will not infer lvalue references correctly
+	// TODO replace subscript_result and all its uses with decltype(auto) once we require the new ComputeCpp (experimental) compiler.
+	template <int TargetDims, typename Target, int SubscriptDim = 0>
+	using subscript_result_t = typename subscript_result<TargetDims, Target, SubscriptDim>::type;
+
+	template <int TargetDims, typename Target, int SubscriptDim>
+	inline subscript_result_t<TargetDims, Target, SubscriptDim> subscript(Target& tgt, id<TargetDims> id, const size_t index) {
+		static_assert(SubscriptDim < TargetDims);
+		id[SubscriptDim] = index;
+		if constexpr(SubscriptDim == TargetDims - 1) {
+			return tgt[std::as_const(id)];
+		} else {
+			return subscript_proxy<TargetDims, Target, SubscriptDim + 1>{tgt, id};
+		}
+	}
+
+	template <int TargetDims, typename Target>
+	inline subscript_result_t<TargetDims, Target> subscript(Target& tgt, const size_t index) {
+		return subscript<TargetDims, Target, 0>(tgt, id<TargetDims>{}, index);
+	}
+
+	template <int TargetDims, typename Target, int SubscriptDim>
+	class subscript_proxy {
+	  public:
+		subscript_proxy(Target& tgt, const id<TargetDims> id) : m_tgt(tgt), m_id(id) {}
+
+		inline subscript_result_t<TargetDims, Target, SubscriptDim> operator[](const size_t index) const {
+			return subscript<TargetDims, Target, SubscriptDim>(m_tgt, m_id, index);
+		}
+
+	  private:
+		Target& m_tgt;
+		id<TargetDims> m_id{};
+	};
+
 	inline size_t get_linear_index(const cl::sycl::range<1>& range, const cl::sycl::id<1>& index) { return index[0]; }
 
 	inline size_t get_linear_index(const cl::sycl::range<2>& range, const cl::sycl::id<2>& index) { return index[0] * range[1] + index[1]; }
