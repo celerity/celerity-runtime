@@ -70,7 +70,7 @@ namespace detail {
 			label += fmt::format("PUSH {} to {}\\n {}", pcmd->get_bid(), pcmd->get_target(), subrange_to_grid_box(pcmd->get_range()));
 		} else if(const auto apcmd = dynamic_cast<const await_push_command*>(cmd)) {
 			if(apcmd->get_source()->get_rid()) { label += fmt::format("(R{}) ", apcmd->get_source()->get_rid()); }
-			label += fmt::format("AWAIT PUSH {} from {}\n {}", apcmd->get_source()->get_bid(), apcmd->get_source()->get_nid(),
+			label += fmt::format("AWAIT PUSH {} from {}\\n {}", apcmd->get_source()->get_bid(), apcmd->get_source()->get_nid(),
 			    subrange_to_grid_box(apcmd->get_source()->get_range()));
 		} else if(const auto rrcmd = dynamic_cast<const reduction_command*>(cmd)) {
 			label += fmt::format("REDUCTION {}", rrcmd->get_rid());
