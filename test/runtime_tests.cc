@@ -54,7 +54,8 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "only a single distr_queue can be created", "[distr_queue][lifetime][dx]") {
 		distr_queue q1;
-		REQUIRE_THROWS_WITH(distr_queue{}, "Only one celerity::distr_queue can be created per process");
+		auto q2{q1}; // Copying is allowed
+		REQUIRE_THROWS_WITH(distr_queue{}, "Only one celerity::distr_queue can be created per process (but it can be copied!)");
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "distr_queue implicitly initializes the runtime", "[distr_queue][lifetime]") {

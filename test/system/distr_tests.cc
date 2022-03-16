@@ -372,7 +372,7 @@ namespace detail {
 			cgh.host_task(on_master_node, [=] { acc[{1, 2, 3}] *= 2; });
 		});
 
-		const auto drained_from_master = experimental::drain(std::move(q), experimental::capture{buf, subrange<3>{{1, 2, 3}, {1, 1, 1}}});
+		const auto drained_from_master = q.drain(experimental::capture{buf, subrange<3>{{1, 2, 3}, {1, 1, 1}}});
 
 		REQUIRE(drained_from_master.get_range() == range<3>{1, 1, 1});
 		CHECK(drained_from_master.get_pointer()[0] == 84);
