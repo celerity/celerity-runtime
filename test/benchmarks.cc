@@ -59,6 +59,7 @@ TEMPLATE_TEST_CASE_SIG("benchmark intrusive graph dependency handling with N nod
 
 
 struct task_manager_benchmark_context {
+	const size_t num_nodes = 1;
 	task_manager tm{1, nullptr, nullptr};
 	test_utils::mock_buffer_factory mbf{&tm};
 
@@ -152,75 +153,57 @@ struct submission_throttle_benchmark_context : public BaseBenchmarkContext {
 
 // Artificial: large set of disconnected tasks, does not generate horizons
 template <typename BenchmarkContext>
-[[gnu::noinline]] void generate_soup_graph(BenchmarkContext&& ctx) {
-	constexpr int num_tasks = 1000;
-	const range<1> buffer_range{2048};
-
-	for(int t = 0; t < num_tasks; ++t) {
-		ctx.create_task(buffer_range, [](handler& cgh) {});
+[[gnu::noinline]] BenchmarkContext&& generate_soup_graph(BenchmarkContext&& ctx, const size_t num_tasks) {
+	test_utils::mock_buffer<2> buf = ctx.mbf.create_buffer(range<2>{ctx.num_nodes, num_tasks}, true /* host_initialized */);
+	for(size_t t = 0; t < num_tasks; ++t) {
+		ctx.create_task(range<1>{ctx.num_nodes}, [&](handler& cgh) {
+			buf.get_access<access_mode::read_write>(cgh, [=](chunk<1> ck) { return subrange<2>{{ck.offset[0], t}, {ck.range[0], 1}}; });
+		});
 	}
+
+	return std::forward<BenchmarkContext>(ctx);
 }
 
-// Artificial: Generate a linear chain of dependent tasks
+// Artificial: Linear chain of dependent tasks, with all-to-all communication
 template <typename BenchmarkContext>
-[[gnu::noinline]] void generate_chain_graph(BenchmarkContext&& ctx) {
-	constexpr int num_tasks = 200;
-	const range<1> buffer_range{2048};
-
-	test_utils::mock_buffer<1> buffer = ctx.mbf.create_buffer(buffer_range);
-	for(int t = 0; t < num_tasks; ++t) {
-		ctx.create_task(buffer_range, [&](handler& cgh) { buffer.get_access<access_mode::read_write>(cgh, celerity::access::one_to_one()); });
+[[gnu::noinline]] BenchmarkContext&& generate_chain_graph(BenchmarkContext&& ctx, const size_t num_tasks) {
+	const range<2> global_range{ctx.num_nodes, ctx.num_nodes};
+	test_utils::mock_buffer<2> buf = ctx.mbf.create_buffer(global_range);
+	for(size_t t = 0; t < num_tasks; ++t) {
+		ctx.create_task(global_range, [&](handler& cgh) {
+			buf.get_access<access_mode::read>(cgh, [=](chunk<2> ck) { return subrange<2>{{ck.offset[1], ck.offset[0]}, {ck.range[1], ck.range[0]}}; });
+			buf.get_access<access_mode::write>(cgh, celerity::access::one_to_one{});
+		});
 	}
+
+	return std::forward<BenchmarkContext>(ctx);
 }
 
-// Artificial: Generate expanding (Map) or contracting (Reduce) tree of tasks
+// Artificial: Generate expanding (Map) or contracting (Reduce) tree of tasks, with gather/scatter communication
 enum class TreeTopology { Map, Reduce };
 
 template <TreeTopology Topology, typename BenchmarkContext>
-[[gnu::noinline]] void generate_tree_graph(BenchmarkContext&& ctx) {
-	constexpr int num_tasks = 100;
-	const range<1> buffer_range{2048};
+[[gnu::noinline]] BenchmarkContext&& generate_tree_graph(BenchmarkContext&& ctx, const size_t target_num_tasks) {
+	const size_t tree_breadth = static_cast<int>(pow(2, ceil(log2(target_num_tasks + 1)) - 1));
+	test_utils::mock_buffer<2> buf = ctx.mbf.create_buffer(range<2>{ctx.num_nodes, tree_breadth}, true /* host initialized */);
 
-	test_utils::mock_buffer<1> buffer = ctx.mbf.create_buffer(buffer_range);
-	test_utils::mock_buffer<1> buffer2 = ctx.mbf.create_buffer(buffer_range);
-
-	int numEpochs = std::log2(num_tasks);
-	int curEpochTasks = Topology == TreeTopology::Map ? 1 : 1 << numEpochs;
-	int sentinelEpoch = Topology == TreeTopology::Map ? numEpochs - 1 : 0;
-	int sentinelEpochMax = num_tasks - (curEpochTasks - 1); // how many tasks to generate at the last/first epoch to reach exactly numTasks
-
-	for(int e = 0; e < numEpochs; ++e) {
-		int taskCount = curEpochTasks;
-		if(e == sentinelEpoch) taskCount = sentinelEpochMax;
-
-		// build tasks for this epoch
-		for(int t = 0; t < taskCount; ++t) {
-			ctx.create_task(range<1>{1}, [&](celerity::handler& cgh) {
-				// mappers constructed to build a binary (potentially inverted) tree
-				auto read_mapper = [=](const celerity::chunk<1>& chunk) {
-					return Topology == TreeTopology::Map ? celerity::subrange<1>(t / 2, 1) : celerity::subrange<1>(t * 2, 2);
-				};
-				auto write_mapper = [=](const celerity::chunk<1>& chunk) { return celerity::subrange<1>(t, 1); };
-				buffer.get_access<access_mode::write>(cgh, write_mapper);
-				buffer2.get_access<access_mode::read>(cgh, read_mapper);
+	for(size_t exp_step = 1; exp_step <= tree_breadth; exp_step *= 2) {
+		const auto sr_range = Topology == TreeTopology::Map ? tree_breadth / exp_step : exp_step;
+		for(size_t sr_off = 0; sr_off < tree_breadth; sr_off += sr_range) {
+			ctx.create_task(range<1>{ctx.num_nodes}, [&](handler& cgh) {
+				buf.get_access<access_mode::read>(cgh, [=](chunk<1> ck) { return subrange<2>{{0, sr_off}, {ck.global_size[0], sr_range}}; });
+				buf.get_access<access_mode::write>(cgh, [=](chunk<1> ck) { return subrange<2>{{ck.offset[0], sr_off}, {ck.range[0], sr_range}}; });
 			});
 		}
-
-		// get ready for the next epoch
-		if(Topology == TreeTopology::Map) {
-			curEpochTasks *= 2;
-		} else {
-			curEpochTasks /= 2;
-		}
-		std::swap(buffer, buffer2);
 	}
+
+	return std::forward<BenchmarkContext>(ctx);
 }
 
 // graphs identical to the wave_sim example
 template <typename BenchmarkContext>
-[[gnu::noinline]] void generate_wave_sim_graph(BenchmarkContext&& ctx) {
+[[gnu::noinline]] BenchmarkContext&& generate_wave_sim_graph(BenchmarkContext&& ctx, const float T) {
 	constexpr int N = 512;
-	constexpr float T = 20;
 	constexpr float dt = 0.25f;
 
 	const auto fill = [&](test_utils::mock_buffer<2> u) {
@@ -248,13 +231,14 @@ template <typename BenchmarkContext>
 		std::swap(u, up);
 		t += dt;
 	}
+
+	return std::forward<BenchmarkContext>(ctx);
 }
 
 // Graph of a simple iterative Jacobi solver
 template <typename BenchmarkContext>
-[[gnu::noinline]] void generate_jacobi_graph(BenchmarkContext&& ctx) {
+[[gnu::noinline]] BenchmarkContext&& generate_jacobi_graph(BenchmarkContext&& ctx, const int steps) {
 	constexpr int N = 1024;
-	constexpr int steps = 50;
 
 	// Naming scheme from https://en.wikipedia.org/wiki/Jacobi_method#Python_example
 	test_utils::mock_buffer<2> A = ctx.mbf.create_buffer(range<2>{N, N}, true /* host initialized */);
@@ -266,8 +250,8 @@ template <typename BenchmarkContext>
 	ctx.create_task(range<1>{N}, [&](handler& cgh) { x.get_access<access_mode::discard_write>(cgh, celerity::access::one_to_one{}); });
 
 	constexpr auto one_to_one = celerity::access::one_to_one{};
-	constexpr auto rows = [](const chunk<2>& chnk) { return subrange<1>{chnk.offset[0], chnk.range[0]}; };
-	constexpr auto columns = [](const chunk<2>& chnk) { return subrange<1>{chnk.offset[1], chnk.range[1]}; };
+	constexpr auto rows = [](const chunk<2>& ck) { return subrange<1>{ck.offset[0], ck.range[0]}; };
+	constexpr auto columns = [](const chunk<2>& ck) { return subrange<1>{ck.offset[1], ck.range[1]}; };
 
 	for(int k = 0; k < steps; ++k) {
 		ctx.create_task(range<2>{N, N}, [&](handler& cgh) {
@@ -278,16 +262,18 @@ template <typename BenchmarkContext>
 		});
 		std::swap(x, x_new);
 	}
+
+	return std::forward<BenchmarkContext>(ctx);
 }
 
 template <typename BenchmarkContextFactory>
 void run_benchmarks(BenchmarkContextFactory&& make_ctx) {
-	BENCHMARK("soup topology") { generate_soup_graph(make_ctx()); };
-	BENCHMARK("chain topology") { generate_chain_graph(make_ctx()); };
-	BENCHMARK("map topology") { generate_tree_graph<TreeTopology::Map>(make_ctx()); };
-	BENCHMARK("reduce topology") { generate_tree_graph<TreeTopology::Reduce>(make_ctx()); };
-	BENCHMARK("wave_sim topology") { generate_wave_sim_graph(make_ctx()); };
-	BENCHMARK("jacobi topology") { generate_jacobi_graph(make_ctx()); };
+	BENCHMARK("soup topology") { generate_soup_graph(make_ctx(), 200); };
+	BENCHMARK("chain topology") { generate_chain_graph(make_ctx(), 30); };
+	BENCHMARK("map topology") { generate_tree_graph<TreeTopology::Map>(make_ctx(), 30); };
+	BENCHMARK("reduce topology") { generate_tree_graph<TreeTopology::Reduce>(make_ctx(), 30); };
+	BENCHMARK("wave_sim topology") { generate_wave_sim_graph(make_ctx(), 50); };
+	BENCHMARK("jacobi topology") { generate_jacobi_graph(make_ctx(), 50); };
 }
 
 TEST_CASE("generating large task graphs", "[benchmark][task-graph]") {
@@ -313,4 +299,22 @@ TEMPLATE_TEST_CASE_SIG("building command graphs in a dedicated scheduler thread 
 		background_thread thrd;
 		run_benchmarks([&] { return submission_throttle_benchmark_context<scheduler_benchmark_context>{10us, thrd, NumNodes}; });
 	}
+}
+
+template <typename BenchmarkContextFactory, typename BenchmarkContextConsumer>
+void debug_graphs(BenchmarkContextFactory&& make_ctx, BenchmarkContextConsumer&& debug_ctx) {
+	debug_ctx(generate_soup_graph(make_ctx(), 10));
+	debug_ctx(generate_chain_graph(make_ctx(), 5));
+	debug_ctx(generate_tree_graph<TreeTopology::Map>(make_ctx(), 7));
+	debug_ctx(generate_tree_graph<TreeTopology::Reduce>(make_ctx(), 7));
+	debug_ctx(generate_wave_sim_graph(make_ctx(), 2));
+	debug_ctx(generate_jacobi_graph(make_ctx(), 5));
+}
+
+TEST_CASE("printing benchmark task graphs", "[.][debug-graphs][task-graph]") {
+	debug_graphs([] { return task_manager_benchmark_context{}; }, [](auto&& ctx) { test_utils::maybe_print_graph(ctx.tm); });
+}
+
+TEST_CASE("printing benchmark command graphs", "[.][debug-graphs][command-graph]") {
+	debug_graphs([] { return graph_generator_benchmark_context{2}; }, [](auto&& ctx) { test_utils::maybe_print_graph(ctx.cdag); });
 }
