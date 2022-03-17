@@ -15,6 +15,13 @@ struct side_effect_order_tag {
 	inline static constexpr experimental::side_effect_order order = Order;
 };
 
+inline void add_side_effect_requirement(const host_object_id hoid, handler& cgh, experimental::side_effect_order order) {
+	if(detail::is_prepass_handler(cgh)) {
+		auto& prepass_cgh = static_cast<detail::prepass_handler&>(cgh);
+		prepass_cgh.add_requirement(hoid, order);
+	}
+};
+
 } // namespace celerity::detail
 
 namespace celerity::experimental {
@@ -36,24 +43,25 @@ class side_effect {
 	constexpr static inline side_effect_order order = Order;
 
 	explicit side_effect(const host_object<T>& object, handler& cgh, detail::side_effect_order_tag<Order> = {}) : m_object{object} {
-		if(detail::is_prepass_handler(cgh)) {
-			auto& prepass_cgh = static_cast<detail::prepass_handler&>(cgh);
-			prepass_cgh.add_requirement(object.get_id(), order);
-		}
+		detail::add_side_effect_requirement(m_object.get_id(), cgh, order);
 	}
 
-	template <typename U = T>
-	std::enable_if_t<!std::is_void_v<U>, object_type>& operator*() const {
-		return *m_object.get_object();
-	}
-
-	template <typename U = T>
-	std::enable_if_t<!std::is_void_v<U>, object_type>* operator->() const {
-		return m_object.get_object();
-	}
+	object_type& operator*() const { return *m_object.get_object(); }
+	object_type* operator->() const { return m_object.get_object(); }
 
   private:
 	host_object<T> m_object;
+};
+
+template <side_effect_order Order>
+class side_effect<void, Order> {
+  public:
+	using object_type = void;
+	constexpr static inline side_effect_order order = Order;
+
+	explicit side_effect(const host_object<void>& object, handler& cgh, detail::side_effect_order_tag<Order> = {}) {
+		detail::add_side_effect_requirement(object.get_id(), cgh, order);
+	}
 };
 
 template <typename T>
