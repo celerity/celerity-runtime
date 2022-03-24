@@ -1,0 +1,13 @@
+test case,part,benchmark name,samples,iterations,estimated,mean,low mean,high mean,std dev,low std dev,high std dev
+"benchmark intrusive graph dependency handling, N=1",0,creating nodes,100,5857,2342800,3.3807,3.3805,3.3809,0.0011,0.0009,0.0018
+"benchmark intrusive graph dependency handling, N=1",0,creating and adding dependencies,100,1014,2433600,24.7311,24.6979,24.8632,0.2997,0.0537,0.7042
+"benchmark intrusive graph dependency handling, N=1",0,adding and removing dependencies,100,1299,2468100,20.6055,20.5404,20.9178,0.6194,0.0241,1.4740
+"benchmark intrusive graph dependency handling, N=1",0,checking for dependencies,100,12292,2458400,2.1002,2.0966,2.1162,0.0328,0.0041,0.0777
+"benchmark intrusive graph dependency handling, N=10",0,creating nodes,100,622,2425800,38.3202,38.0406,39.6483,2.6464,0.0471,6.3030
+"benchmark intrusive graph dependency handling, N=10",0,creating and adding dependencies,100,95,2498500,253.7441,251.3401,257.5404,15.1475,11.2296,23.7305
+"benchmark intrusive graph dependency handling, N=10",0,adding and removing dependencies,100,106,2501600,245.0263,244.9562,245.1457,0.4559,0.3140,0.8182
+"benchmark intrusive graph dependency handling, N=10",0,checking for dependencies,100,722,2454800,36.1564,36.0115,36.7387,1.3578,0.1418,3.2249
+"benchmark intrusive graph dependency handling, N=100",0,creating nodes,100,61,2488800,442.5374,442.3508,442.8239,1.1580,0.8519,2.0191
+"benchmark intrusive graph dependency handling, N=100",0,creating and adding dependencies,100,6,2659200,4311.5800,4293.0150,4400.4717,176.7922,9.8374,420.8275
+"benchmark intrusive graph dependency handling, N=100",0,adding and removing dependencies,100,6,2589600,4010.6867,3989.9550,4111.0467,201.5374,7.6079,480.6736
+"benchmark intrusive graph dependency handling, N=100",0,checking for dependencies,100,13,2645500,2040.6669,2036.7431,2058.2300,36.4617,4.4453,86.4209
