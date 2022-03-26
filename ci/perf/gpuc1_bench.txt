@@ -104,11 +104,11 @@ chain topology                                 100             1      6.611 ms
                                         60.6874 us    60.3085 us    61.3234 us 
                                         2.43556 us     1.6868 us    3.58779 us 
                                                                                
-map topology                                   100             1    11.0109 ms 
+expanding tree topology                        100             1    11.0109 ms
                                         108.241 us    106.927 us    109.531 us 
                                         6.65731 us    6.42674 us    7.23249 us 
                                                                                
-reduce topology                                100             1    16.0505 ms 
+contracting tree topology                      100             1    16.0505 ms
                                          157.08 us     156.82 us    157.738 us 
                                         1.95406 us    916.958 ns    3.81677 us 
                                                                                
@@ -139,11 +139,11 @@ chain topology                                 100             1    27.8444 ms
                                         280.785 us    280.256 us    281.982 us 
                                         3.85864 us    2.11528 us    7.47205 us 
                                                                                
-map topology                                   100             1    39.2963 ms 
+expanding tree topology                        100             1    39.2963 ms
                                         392.809 us    392.318 us    393.637 us 
                                         3.16984 us    2.17134 us    4.67992 us 
                                                                                
-reduce topology                                100             1    48.8392 ms 
+contracting tree topology                      100             1    48.8392 ms
                                         489.535 us    489.061 us     490.21 us 
                                         2.86475 us    2.16986 us    3.69985 us 
                                                                                
@@ -174,11 +174,11 @@ chain topology                                 100             1    328.619 ms
                                         3.28591 ms    3.28431 ms    3.28754 ms 
                                         8.23746 us    7.33804 us     9.3567 us 
                                                                                
-map topology                                   100             1    656.362 ms 
+expanding tree topology                        100             1    656.362 ms
                                         6.52232 ms     6.4759 ms    6.54785 ms 
                                         171.315 us     109.98 us    244.109 us 
                                                                                
-reduce topology                                100             1    356.458 ms 
+contracting tree topology                      100             1    356.458 ms
                                         3.65887 ms    3.62627 ms    3.68019 ms 
                                         132.521 us      96.41 us    170.305 us 
                                                                                
@@ -209,11 +209,11 @@ chain topology                                 100             1     41.3983 s
                                          416.63 ms    415.712 ms    417.346 ms 
                                         4.10639 ms    3.40189 ms    5.32762 ms 
                                                                                
-map topology                                   100             1     43.6788 s 
+expanding tree topology                        100             1     43.6788 s
                                          429.87 ms    427.493 ms    432.087 ms 
                                         11.7664 ms    10.6778 ms    13.1724 ms 
                                                                                
-reduce topology                                100             1     13.2692 s 
+contracting tree topology                      100             1     13.2692 s
                                          129.55 ms    129.043 ms    130.003 ms 
                                         2.45671 ms    2.19246 ms    2.87405 ms 
                                                                                
@@ -245,11 +245,11 @@ chain topology                                 100             1    27.1377 ms
                                         259.042 us    255.742 us    262.504 us 
                                          17.349 us    16.7269 us    18.0959 us 
                                                                                
-map topology                                   100             1      37.93 ms 
+expanding tree topology                        100             1      37.93 ms
                                          381.45 us     377.08 us    385.155 us 
                                         20.4583 us    17.6477 us    22.7529 us 
                                                                                
-reduce topology                                100             1    47.2836 ms 
+contracting tree topology                      100             1    47.2836 ms
                                         477.091 us     471.59 us    481.674 us 
                                         25.6995 us    21.7664 us    28.9349 us 
                                                                                
@@ -281,11 +281,11 @@ chain topology                                 100             1    93.3715 ms
                                         945.146 us    920.734 us    971.394 us 
                                         128.472 us    110.943 us    151.441 us 
                                                                                
-map topology                                   100             1    111.222 ms 
+expanding tree topology                        100             1    111.222 ms
                                         1.26021 ms    1.21236 ms    1.31404 ms 
                                         259.502 us    230.241 us    290.074 us 
                                                                                
-reduce topology                                100             1    140.829 ms 
+contracting tree topology                      100             1    140.829 ms
                                         1.29287 ms    1.24607 ms    1.34532 ms 
                                         253.091 us    221.499 us    290.382 us 
                                                                                
@@ -317,11 +317,11 @@ chain topology                                 100             1    57.5002 ms
                                         582.354 us    581.807 us    583.123 us 
                                         3.29109 us    2.46418 us    4.33994 us 
                                                                                
-map topology                                   100             1    69.2673 ms 
+expanding tree topology                        100             1    69.2673 ms
                                         686.594 us    681.776 us    691.599 us 
                                         24.9524 us    23.1709 us    30.0807 us 
                                                                                
-reduce topology                                100             1    80.5997 ms 
+contracting tree topology                      100             1    80.5997 ms
                                         804.401 us    803.847 us    805.285 us 
                                         3.51098 us    2.50605 us    5.47595 us 
                                                                                
@@ -353,11 +353,11 @@ chain topology                                 100             1    166.051 ms
                                         1.58221 ms    1.50478 ms    1.67156 ms 
                                         423.903 us     360.06 us     493.27 us 
                                                                                
-map topology                                   100             1    172.732 ms 
+expanding tree topology                        100             1    172.732 ms
                                          2.2966 ms    2.21772 ms    2.37127 ms 
                                         391.784 us    361.789 us    423.326 us 
                                                                                
-reduce topology                                100             1    207.528 ms 
+contracting tree topology                      100             1    207.528 ms
                                         1.98351 ms    1.89633 ms    2.06866 ms 
                                         442.341 us    389.817 us    500.314 us 
                                                                                
@@ -389,11 +389,11 @@ chain topology                                 100             1    338.589 ms
                                         3.37986 ms    3.37852 ms    3.38126 ms 
                                         6.99732 us    6.04976 us    8.44377 us 
                                                                                
-map topology                                   100             1    666.739 ms 
+expanding tree topology                        100             1    666.739 ms
                                         6.60701 ms    6.54461 ms    6.65326 ms 
                                         272.264 us    217.945 us    322.691 us 
                                                                                
-reduce topology                                100             1    379.103 ms 
+contracting tree topology                      100             1    379.103 ms
                                         3.75273 ms     3.7207 ms    3.77252 ms 
                                         126.503 us    91.3047 us    165.895 us 
                                                                                
@@ -425,11 +425,11 @@ chain topology                                 100             1    592.978 ms
                                         4.44122 ms    4.27867 ms    4.64558 ms 
                                         928.008 us    777.027 us    1.12323 ms 
                                                                                
-map topology                                   100             1    751.417 ms 
+expanding tree topology                        100             1    751.417 ms
                                         7.99459 ms    7.75943 ms    8.28614 ms 
                                         1.32757 ms     1.1046 ms    1.59387 ms 
                                                                                
-reduce topology                                100             1    490.601 ms 
+contracting tree topology                      100             1    490.601 ms
                                          4.3071 ms     4.1611 ms    4.50613 ms 
                                         867.525 us    684.384 us    1.09668 ms 
                                                                                
@@ -461,11 +461,11 @@ chain topology                                 100             1    344.174 ms
                                         3.53857 ms    3.50006 ms      3.573 ms 
                                         184.742 us    170.016 us    195.056 us 
                                                                                
-map topology                                   100             1    702.871 ms 
+expanding tree topology                        100             1    702.871 ms
                                         6.58649 ms    6.51621 ms    6.65898 ms 
                                         364.356 us    347.712 us    379.208 us 
                                                                                
-reduce topology                                100             1    387.156 ms 
+contracting tree topology                      100             1    387.156 ms
                                         3.92634 ms    3.88144 ms    3.96703 ms 
                                         217.419 us    200.331 us    228.943 us 
                                                                                
@@ -497,11 +497,11 @@ chain topology                                 100             1    682.491 ms
                                         6.36963 ms    6.20825 ms     6.5369 ms 
                                         836.193 us    747.527 us    948.434 us 
                                                                                
-map topology                                   100             1     970.99 ms 
+expanding tree topology                        100             1     970.99 ms
                                         9.64736 ms    9.46017 ms    9.91348 ms 
                                         1.12541 ms    836.098 us    1.65908 ms 
                                                                                
-reduce topology                                100             1    680.713 ms 
+contracting tree topology                      100             1    680.713 ms
                                         7.10584 ms    6.84426 ms    7.36677 ms 
                                          1.3278 ms    1.20382 ms    1.49684 ms 
                                                                                
