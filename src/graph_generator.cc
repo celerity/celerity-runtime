@@ -131,12 +131,15 @@ namespace detail {
 				if(isa<task_command>(cmd) && static_cast<task_command*>(cmd)->get_tid() == tid) continue;
 
 				// So far we don't know whether the dependent actually intersects with the subrange we're writing
-				const auto& command_reads = command_buffer_reads[cmd->get_cid()];
-				const auto buffer_reads_it = command_reads.find(bid);
-				if(buffer_reads_it == command_reads.end()) continue; // The task might be a dependent because of another buffer
-				if(!GridRegion<3>::intersect(write_req, buffer_reads_it->second).empty()) {
-					has_dependents = true;
-					cdag.add_dependency(write_cmd, cmd, dependency_kind::ANTI_DEP);
+				if(const auto command_reads_it = command_buffer_reads.find(cmd->get_cid()); command_reads_it != command_buffer_reads.end()) {
+					const auto& command_reads = command_reads_it->second;
+					// The task might be a dependent because of another buffer
+					if(const auto buffer_reads_it = command_reads.find(bid); buffer_reads_it != command_reads.end()) {
+						if(!GridRegion<3>::intersect(write_req, buffer_reads_it->second).empty()) {
+							has_dependents = true;
+							cdag.add_dependency(write_cmd, cmd, dependency_kind::ANTI_DEP);
+						}
+					}
 				}
 			}
 
