@@ -57,14 +57,14 @@ namespace detail {
 	TEST_CASE("horizons prevent number of regions from growing indefinitely", "[horizon][command-graph]") {
 		using namespace cl::sycl::access;
 
-		constexpr int NUM_TIMESTEPS = 100;
+		constexpr int num_timesteps = 100;
+		constexpr int num_nodes = 3;
 
-		constexpr int NUM_NODES = 3;
-		test_utils::cdag_test_context ctx(NUM_NODES);
+		test_utils::cdag_test_context ctx(num_nodes);
 		auto& inspector = ctx.get_inspector();
 		test_utils::mock_buffer_factory mbf(ctx);
 		auto full_range = cl::sycl::range<1>(300);
-		auto buf_a = mbf.create_buffer<2>(cl::sycl::range<2>(NUM_TIMESTEPS, full_range.size()));
+		auto buf_a = mbf.create_buffer<2>(cl::sycl::range<2>(num_timesteps, full_range.size()));
 
 		const auto horizon_step_size = GENERATE(values({1, 3}));
 		const auto growing_reads = static_cast<bool>(GENERATE(values({0, 1}))); // use {ints} since Catch2 can't deal with {bool} because of vector<bool>
@@ -72,7 +72,7 @@ namespace detail {
 
 		ctx.get_task_manager().set_horizon_step(horizon_step_size);
 
-		for(int timestep = 0; timestep < NUM_TIMESTEPS; ++timestep) {
+		for(int timestep = 0; timestep < num_timesteps; ++timestep) {
 			const auto read_accessor = [t = timestep, grow = growing_reads](celerity::chunk<1> chnk) {
 				celerity::subrange<2> ret;
 				ret.range = cl::sycl::range<2>(grow ? t : 1, chnk.global_size.get(0));
@@ -87,7 +87,7 @@ namespace detail {
 				return ret;
 			};
 
-			test_utils::build_and_flush(ctx, NUM_NODES,
+			test_utils::build_and_flush(ctx, num_nodes,
 			    test_utils::add_compute_task<class growing_read_kernel>(
 			        ctx.get_task_manager(),
 			        [&](handler& cgh) {
@@ -97,19 +97,42 @@ namespace detail {
 			        full_range));
 		}
 
-		const auto buf_a_region_map_size = graph_generator_testspy::get_buffer_states_num_regions(ctx.get_graph_generator(), buf_a.get_id());
-		CHECK(buf_a_region_map_size <= NUM_NODES * 2 * horizon_step_size);
-		const auto buf_a_last_writer_map_size = graph_generator_testspy::get_buffer_last_writer_num_regions(ctx.get_graph_generator(), buf_a.get_id());
-		CHECK(buf_a_last_writer_map_size <= NUM_NODES * 2 * horizon_step_size);
-		for(node_id n = 0; n < NUM_NODES; ++n) {
-			CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() <= NUM_TIMESTEPS / horizon_step_size + 1);
-			CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() >= NUM_TIMESTEPS / horizon_step_size - 1);
+		// -1: The first task has no dependencies and thus does not increase the critical path length
+		const auto tasks_increasing_critical_path_length = num_timesteps - 1;
+		// ggen cleans up before the applied horizon as soon as the first task after the current horizon is created
+		const auto commands_after_last_horizon = tasks_increasing_critical_path_length % horizon_step_size;
+		const auto commands_contributing_to_writer_map = 1 /* horizon */ + horizon_step_size /* commands between horizons */ + commands_after_last_horizon;
+		const auto applied_horizons_remaining = commands_after_last_horizon > 0 ? 1 : 2;
+
+		// comparing with <= is range-mapper-independent
+		const auto buf_a_region_map_size = static_cast<int>(graph_generator_testspy::get_buffer_states_num_regions(ctx.get_graph_generator(), buf_a.get_id()));
+		CHECK(buf_a_region_map_size <= num_nodes * commands_contributing_to_writer_map);
+		const auto buf_a_last_writer_map_size =
+		    static_cast<int>(graph_generator_testspy::get_buffer_last_writer_num_regions(ctx.get_graph_generator(), buf_a.get_id()));
+		CHECK(buf_a_last_writer_map_size <= num_nodes * commands_contributing_to_writer_map);
+
+		// count all horizons that ever existed, because we compare against inspector recordings
+		const auto total_horizons_per_node = tasks_increasing_critical_path_length / horizon_step_size;
+		for(node_id n = 0; n < num_nodes; ++n) {
+			CAPTURE(n);
+			const auto total_horizons = static_cast<int>(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size());
+			CHECK(total_horizons == total_horizons_per_node);
 		}
 
+		// evaluate remaining entries in cdag and command_buffer_reads
+		const auto transfer_pairs_per_command = (num_nodes - 1 /* from and to all other nodes */);
+		const auto commands_per_task = 1 /* task command */ + 2 /* push and await */ * transfer_pairs_per_command;
+		const auto compute_tasks_remaining = applied_horizons_remaining * horizon_step_size + commands_after_last_horizon;
+		const auto horizons_remaining = applied_horizons_remaining + 1 /* current horizon */;
+
 		// also check that unused commands are deleted
-		CHECK(ctx.get_command_graph().command_count() <= NUM_NODES * 13 * horizon_step_size);
+		const auto commands_remaining = num_nodes * (compute_tasks_remaining * commands_per_task + horizons_remaining);
+		CHECK(static_cast<int>(ctx.get_command_graph().command_count()) == commands_remaining);
+
 		// and are removed from the read cache
-		CHECK(graph_generator_testspy::get_command_buffer_reads_size(ctx.get_graph_generator()) <= NUM_NODES * 6 * horizon_step_size);
+		const auto reads_per_task = 1 /* task command */ + transfer_pairs_per_command /* pushes */;
+		const auto cached_reads_remaining = num_nodes * compute_tasks_remaining * reads_per_task;
+		CHECK(static_cast<int>(graph_generator_testspy::get_command_buffer_reads_size(ctx.get_graph_generator())) == cached_reads_remaining);
 
 		// graph_generator_testspy::print_buffer_last_writers(ctx.get_graph_generator(), buf_a.get_id());
 
