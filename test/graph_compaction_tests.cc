@@ -4,6 +4,7 @@
 #include <unordered_set>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <celerity.h>
 
@@ -65,77 +66,50 @@ namespace detail {
 		auto full_range = cl::sycl::range<1>(300);
 		auto buf_a = mbf.create_buffer<2>(cl::sycl::range<2>(NUM_TIMESTEPS, full_range.size()));
 
-		auto buf_a_region_map_size = [&ctx, &buf_a] {
-			return graph_generator_testspy::get_buffer_states_num_regions(ctx.get_graph_generator(), buf_a.get_id());
-		};
-		auto buf_a_last_writer_map_size = [&ctx, &buf_a] {
-			return graph_generator_testspy::get_buffer_last_writer_num_regions(ctx.get_graph_generator(), buf_a.get_id());
-		};
+		const auto horizon_step_size = GENERATE(values({1, 3}));
+		const auto growing_reads = static_cast<bool>(GENERATE(values({0, 1}))); // use {ints} since Catch2 can't deal with {bool} because of vector<bool>
+		CAPTURE(horizon_step_size, growing_reads);
 
-		auto time_series_lambda = [&](bool growing_reads) {
-			for(int timestep = 0; timestep < NUM_TIMESTEPS; ++timestep) {
-				auto read_accessor = [t = timestep, grow = growing_reads](celerity::chunk<1> chnk) {
-					celerity::subrange<2> ret;
-					ret.range = cl::sycl::range<2>(grow ? t : 1, chnk.global_size.get(0));
-					ret.offset = cl::sycl::id<2>(grow ? 0 : std::max(t - 1, 0), 0);
-					return ret;
-				};
+		ctx.get_task_manager().set_horizon_step(horizon_step_size);
 
-				auto latest_write_accessor = [t = timestep](celerity::chunk<1> chnk) {
-					celerity::subrange<2> ret;
-					ret.range = cl::sycl::range<2>(1, chnk.range.size());
-					ret.offset = cl::sycl::id<2>(t, chnk.offset.get(0));
-					return ret;
-				};
+		for(int timestep = 0; timestep < NUM_TIMESTEPS; ++timestep) {
+			const auto read_accessor = [t = timestep, grow = growing_reads](celerity::chunk<1> chnk) {
+				celerity::subrange<2> ret;
+				ret.range = cl::sycl::range<2>(grow ? t : 1, chnk.global_size.get(0));
+				ret.offset = cl::sycl::id<2>(grow ? 0 : std::max(t - 1, 0), 0);
+				return ret;
+			};
 
-				test_utils::build_and_flush(ctx, NUM_NODES,
-				    test_utils::add_compute_task<class growing_read_kernel>(
-				        ctx.get_task_manager(),
-				        [&](handler& cgh) {
-					        buf_a.get_access<mode::read>(cgh, read_accessor);
-					        buf_a.get_access<mode::discard_write>(cgh, latest_write_accessor);
-				        },
-				        full_range));
-			}
-		};
+			const auto latest_write_accessor = [t = timestep](celerity::chunk<1> chnk) {
+				celerity::subrange<2> ret;
+				ret.range = cl::sycl::range<2>(1, chnk.range.size());
+				ret.offset = cl::sycl::id<2>(t, chnk.offset.get(0));
+				return ret;
+			};
 
-		SECTION("with horizon step size 1") {
-			ctx.get_task_manager().set_horizon_step(1);
-
-			SECTION("and a growing read pattern") { time_series_lambda(true); }
-			SECTION("and a latest-only read pattern") { time_series_lambda(false); }
-
-			CHECK(buf_a_region_map_size() <= NUM_NODES * 2);
-			CHECK(buf_a_last_writer_map_size() <= NUM_NODES * 2);
-			for(node_id n = 0; n < NUM_NODES; ++n) {
-				CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() <= NUM_TIMESTEPS);
-				CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() >= NUM_TIMESTEPS - 1);
-			}
-
-			// also check that unused commands are deleted
-			CHECK(ctx.get_command_graph().command_count() <= NUM_NODES * 13);
-			// and are removed from the read cache
-			CHECK(graph_generator_testspy::get_command_buffer_reads_size(ctx.get_graph_generator()) < NUM_NODES * 9);
+			test_utils::build_and_flush(ctx, NUM_NODES,
+			    test_utils::add_compute_task<class growing_read_kernel>(
+			        ctx.get_task_manager(),
+			        [&](handler& cgh) {
+				        buf_a.get_access<mode::read>(cgh, read_accessor);
+				        buf_a.get_access<mode::discard_write>(cgh, latest_write_accessor);
+			        },
+			        full_range));
 		}
 
-		SECTION("with horizon step size 3") {
-			ctx.get_task_manager().set_horizon_step(3);
-
-			SECTION("and a growing read pattern") { time_series_lambda(true); }
-			SECTION("and a latest-only read pattern") { time_series_lambda(false); }
-
-			CHECK(buf_a_region_map_size() <= NUM_NODES * 2 * 3);
-			CHECK(buf_a_last_writer_map_size() <= NUM_NODES * 2 * 3);
-			for(node_id n = 0; n < NUM_NODES; ++n) {
-				CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() <= NUM_TIMESTEPS / 3 + 1);
-				CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() >= NUM_TIMESTEPS / 3 - 1);
-			}
-
-			// also check that unused commands are deleted
-			CHECK(ctx.get_command_graph().command_count() <= NUM_NODES * 13 * 3);
-			// and are removed from the read cache
-			CHECK(graph_generator_testspy::get_command_buffer_reads_size(ctx.get_graph_generator()) < NUM_NODES * 9 * 3);
+		const auto buf_a_region_map_size = graph_generator_testspy::get_buffer_states_num_regions(ctx.get_graph_generator(), buf_a.get_id());
+		CHECK(buf_a_region_map_size <= NUM_NODES * 2 * horizon_step_size);
+		const auto buf_a_last_writer_map_size = graph_generator_testspy::get_buffer_last_writer_num_regions(ctx.get_graph_generator(), buf_a.get_id());
+		CHECK(buf_a_last_writer_map_size <= NUM_NODES * 2 * horizon_step_size);
+		for(node_id n = 0; n < NUM_NODES; ++n) {
+			CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() <= NUM_TIMESTEPS / horizon_step_size + 1);
+			CHECK(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size() >= NUM_TIMESTEPS / horizon_step_size - 1);
 		}
+
+		// also check that unused commands are deleted
+		CHECK(ctx.get_command_graph().command_count() <= NUM_NODES * 13 * horizon_step_size);
+		// and are removed from the read cache
+		CHECK(graph_generator_testspy::get_command_buffer_reads_size(ctx.get_graph_generator()) <= NUM_NODES * 6 * horizon_step_size);
 
 		// graph_generator_testspy::print_buffer_last_writers(ctx.get_graph_generator(), buf_a.get_id());
 
