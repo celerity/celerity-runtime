@@ -1,7 +1,5 @@
 #include <array>
 #include <optional>
-#include <set>
-#include <unordered_set>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
@@ -28,12 +26,6 @@ namespace detail {
 		static size_t get_num_regions(const region_map<T>& map) {
 			return map.region_values.size();
 		}
-		template <typename T>
-		static void print_regions(const region_map<T>& map) {
-			for(auto& reg : map.region_values) {
-				fmt::print("{} -> {}\n", reg.first, reg.second);
-			}
-		}
 	};
 
 	struct graph_generator_testspy {
@@ -46,9 +38,6 @@ namespace detail {
 		}
 		static size_t get_buffer_last_writer_num_regions(const graph_generator& ggen, const buffer_id bid) {
 			return region_map_testspy::get_num_regions(ggen.node_data.at(node_id{0}).buffer_last_writer.at(bid));
-		}
-		static void print_buffer_last_writers(const graph_generator& ggen, const buffer_id bid) {
-			region_map_testspy::print_regions(ggen.node_data.at(node_id{0}).buffer_last_writer.at(bid));
 		}
 		static size_t get_command_buffer_reads_size(const graph_generator& ggen) { return ggen.command_buffer_reads.size(); }
 		static const std::vector<horizon_command*>& get_current_horizon_cmds(const graph_generator& ggen) { return ggen.current_horizon_cmds; }
@@ -133,8 +122,6 @@ namespace detail {
 		const auto reads_per_task = 1 /* task command */ + transfer_pairs_per_command /* pushes */;
 		const auto cached_reads_remaining = num_nodes * compute_tasks_remaining * reads_per_task;
 		CHECK(static_cast<int>(graph_generator_testspy::get_command_buffer_reads_size(ctx.get_graph_generator())) == cached_reads_remaining);
-
-		// graph_generator_testspy::print_buffer_last_writers(ctx.get_graph_generator(), buf_a.get_id());
 
 		test_utils::maybe_print_graphs(ctx);
 	}
