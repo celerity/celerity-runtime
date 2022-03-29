@@ -1,8 +1,12 @@
+#include <random>
+
 #include <catch2/benchmark/catch_benchmark.hpp>
+#include <catch2/benchmark/catch_chronometer.hpp>
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
+#include "conflict_graph.h"
 #include "intrusive_graph.h"
 #include "task_manager.h"
 #include "test_utils.h"
@@ -469,4 +473,91 @@ TEST_CASE("printing benchmark task graphs", "[.][debug-graphs][task-graph]") {
 
 TEST_CASE("printing benchmark command graphs", "[.][debug-graphs][command-graph]") {
 	debug_graphs([] { return graph_generator_benchmark_context{2}; }, [](auto&& ctx) { test_utils::maybe_print_graph(ctx.cdag, ctx.tm); });
+}
+
+TEST_CASE("manage conflicts in a conflict graph", "[benchmar][conflict-graph]") {
+	constexpr int num_commands = 1000;
+	const size_t num_conflicts = GENERATE(values({10, 100, 1000, 10000}));
+	const uint32_t seed = 12345;
+
+	auto rng = std::minstd_rand{seed}; // NOLINT(cert-msc51-cpp) intentionally deterministic
+	const auto random_cid = [&] { return command_id{std::uniform_int_distribution<size_t>{0, num_conflicts - 1}(rng)}; };
+	std::unordered_multimap<command_id, command_id> conflict_map;
+	while(conflict_map.size() < num_conflicts) {
+		const auto first_cid = random_cid(), second_cid = random_cid();
+		if(second_cid != first_cid) { conflict_map.emplace(first_cid, second_cid); }
+	}
+
+	// vector has less iteration overhead than unordered_multimap
+	const std::vector<std::pair<command_id, command_id>> conflicts(conflict_map.begin(), conflict_map.end());
+
+	BENCHMARK_ADVANCED(fmt::format("adding {} conflicts", num_conflicts))(Catch::Benchmark::Chronometer meter) {
+		// vector has less iteration overhead than unordered_multimap
+		const std::vector<std::pair<command_id, command_id>> conflicts(conflict_map.begin(), conflict_map.end());
+		meter.measure([&] {
+			conflict_graph cg;
+			for(auto& cf : conflicts) {
+				cg.add_conflict(cf.first, cf.second);
+			}
+			return cg;
+		});
+	};
+
+	conflict_graph full_conflict_graph;
+	for(auto& cf : conflicts) {
+		full_conflict_graph.add_conflict(cf.first, cf.second);
+	}
+
+	BENCHMARK_ADVANCED(fmt::format("forgetting {} commands with {} conflicts", num_commands, num_conflicts))(Catch::Benchmark::Chronometer meter) {
+		std::vector<conflict_graph> input_conflict_graphs(meter.runs(), full_conflict_graph);
+		meter.measure([&](int i) {
+			auto& cg = input_conflict_graphs[i];
+			for(command_id cid = 0; cid < num_commands; ++cid) {
+				cg.forget_command(cid);
+			}
+		});
+	};
+
+	BENCHMARK_ADVANCED(fmt::format("testing for {} / {} conflicts", num_commands, num_conflicts))(Catch::Benchmark::Chronometer meter) {
+		std::vector<conflict_graph> input_conflict_graphs(meter.runs(), full_conflict_graph);
+		meter.measure([&](int i) {
+			bool has_any = false;
+			auto& cg = input_conflict_graphs[i];
+			for(command_id cid = 0; cid < num_commands; ++cid) {
+				has_any |= cg.has_conflict(cid, num_commands - 1 - cid);
+			}
+			return has_any;
+		});
+	};
+}
+
+TEST_CASE("find largest conflict free set among 1000 commands", "[benchmark][conflict-graph]") {
+	constexpr int num_commands = 1000;
+	constexpr int num_active_commands = 100;
+	const int num_conflicts = GENERATE(values({100, 1000, 10000}));
+	const uint32_t seed = 12345;
+
+	conflict_graph::command_set active_commands;
+	conflict_graph::command_set pending_commands;
+	for(command_id cid = 0; cid < num_commands; ++cid) {
+		(cid < num_active_commands ? active_commands : pending_commands).insert(cid);
+	}
+
+	conflict_graph cg;
+
+	auto rng = std::minstd_rand{seed}; // NOLINT(cert-msc51-cpp) intentionally deterministic
+	const auto random_cid = [&] { return command_id{std::uniform_int_distribution{0, num_commands - 1}(rng)}; };
+	for(int i = 0; i < num_conflicts; ++i) {
+		const auto first_cid = random_cid();
+		command_id second_cid = random_cid();
+		while(second_cid == first_cid || second_cid < num_active_commands || cg.has_conflict(first_cid, second_cid)) {
+			second_cid = random_cid();
+		}
+		cg.add_conflict(first_cid, second_cid);
+	}
+
+	BENCHMARK_ADVANCED(fmt::format("with {} conflicts", num_conflicts))(Catch::Benchmark::Chronometer meter) {
+		std::vector<conflict_graph::command_set> movable_pending_commands(meter.runs(), pending_commands);
+		meter.measure([&](int i) { return cg.largest_conflict_free_subset(std::move(movable_pending_commands[i]), active_commands); });
+	};
 }
