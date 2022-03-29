@@ -68,7 +68,7 @@ target_link_libraries(all_tests PRIVATE test_main)
 set_test_target_parameters(all_tests "")
 
 # Unit benchmark executable
-add_executable(benchmarks benchmarks.cc benchmark_csv_reporter.cc)
+add_executable(benchmarks benchmarks.cc benchmark_reporters.cc)
 target_link_libraries(benchmarks PRIVATE test_main)
 set_test_target_parameters(benchmarks benchmarks.cc)
 
