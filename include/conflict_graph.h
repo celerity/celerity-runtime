@@ -33,14 +33,15 @@ class conflict_graph {
 	}
 
 	void forget_command(const command_id cid) {
-		if(conflicts.erase(cid)) {
-			for(auto it = conflicts.begin(); it != conflicts.end();) {
-				if(it->first == cid || it->second == cid) {
-					it = conflicts.erase(it);
-				} else {
-					++it;
-				}
+		if(auto [first, last] = conflicts.equal_range(cid); first != last) {
+			for(auto it = first; it != last; ++it) {
+				const auto [back_first, back_last] = conflicts.equal_range(it->second);
+				const auto back_it = std::find_if(back_first, back_last, [=](const conflict_pair& cf) { return cf.second == cid; });
+				assert(back_it != back_last);
+				const auto after_erase = conflicts.erase(back_it);
+				if(last == back_it) last = after_erase; // edge case: erase can accidentally invalidate `last`, in that case we need to advance it
 			}
+			conflicts.erase(first, last);
 		}
 	}
 
