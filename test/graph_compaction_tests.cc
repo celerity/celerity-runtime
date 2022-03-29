@@ -92,10 +92,8 @@ namespace detail {
 			        full_range));
 		}
 
-		// -1: The first task has no dependencies and thus does not increase the critical path length
-		const auto tasks_increasing_critical_path_length = num_timesteps - 1;
 		// ggen cleans up before the applied horizon as soon as the first task after the current horizon is created
-		const auto commands_after_last_horizon = tasks_increasing_critical_path_length % horizon_step_size;
+		const auto commands_after_last_horizon = num_timesteps % horizon_step_size;
 		const auto commands_contributing_to_writer_map = 1 /* horizon */ + horizon_step_size /* commands between horizons */ + commands_after_last_horizon;
 		const auto applied_horizons_remaining = commands_after_last_horizon > 0 ? 1 : 2;
 
@@ -107,7 +105,7 @@ namespace detail {
 		CHECK(buf_a_last_writer_map_size <= num_nodes * commands_contributing_to_writer_map);
 
 		// count all horizons that ever existed, because we compare against inspector recordings
-		const auto total_horizons_per_node = tasks_increasing_critical_path_length / horizon_step_size;
+		const auto total_horizons_per_node = num_timesteps / horizon_step_size;
 		for(node_id n = 0; n < num_nodes; ++n) {
 			CAPTURE(n);
 			const auto total_horizons = static_cast<int>(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size());
