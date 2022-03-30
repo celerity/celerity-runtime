@@ -1,5 +1,3 @@
-#include <cstdio>
-
 #include <celerity.h>
 
 const size_t MAT_SIZE = 1024;
@@ -46,28 +44,22 @@ void multiply(celerity::distr_queue& queue, celerity::buffer<T, 2> mat_a, celeri
 }
 
 template <typename T>
-void verify(celerity::distr_queue& queue, celerity::buffer<T, 2> mat_a_buf, bool& verification_passed) {
-	// allow_by_ref is safe here as long as the caller of verify() ensures that verification_passed lives until the next synchronization point
-	queue.submit(celerity::allow_by_ref, [=, &verification_passed](celerity::handler& cgh) {
-		celerity::accessor result{mat_a_buf, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task};
-
-		cgh.host_task(mat_a_buf.get_range(), [=, &verification_passed](celerity::partition<2> part) {
-			auto sr = part.get_subrange();
-			for(size_t i = sr.offset[0]; i < sr.offset[0] + sr.range[0]; ++i) {
-				for(size_t j = sr.offset[0]; j < sr.offset[0] + sr.range[0]; ++j) {
-					const float received = result[{i, j}];
-					const float expected = i == j;
-					if(expected != received) {
-						fprintf(stderr, "VERIFICATION FAILED for element %zu,%zu: %f (received) != %f (expected)\n", i, j, received, expected);
-						verification_passed = false;
-						break;
-					}
-				}
-				if(!verification_passed) { break; }
+bool verify(celerity::experimental::buffer_data<T, 2> mat) {
+	// TODO this should really reduce into a buffer<bool> on the device, but not all backends currently support reductions
+	const auto range = mat.get_range();
+	bool verification_passed = true;
+	for(size_t i = 0; i < range[0]; ++i) {
+		for(size_t j = 0; j < range[1]; ++j) {
+			const float received = mat[i][j];
+			const float expected = i == j;
+			if(expected != received) {
+				CELERITY_ERROR("Verification failed for element {},{}: {} (received) != {} (expected)", i, j, received, expected);
+				verification_passed = false;
 			}
-			if(verification_passed) { printf("VERIFICATION PASSED!\n"); }
-		});
-	});
+		}
+	}
+	if(verification_passed) { CELERITY_INFO("Verification passed"); }
+	return verification_passed;
 }
 
 int main() {
@@ -87,9 +79,6 @@ int main() {
 	multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
 	multiply(queue, mat_b_buf, mat_c_buf, mat_a_buf);
 
-	bool verification_passed = true;
-	verify(queue, mat_a_buf, verification_passed);
-	queue.slow_full_sync(); // Wait for verification_passed to become available
-
-	return verification_passed ? EXIT_SUCCESS : EXIT_FAILURE;
+	auto mat_a_dump = queue.drain(celerity::experimental::capture{mat_a_buf});
+	return verify(mat_a_dump) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
