@@ -5,6 +5,7 @@
 #include <ostream>
 #include <regex>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -30,6 +31,11 @@ class benchmark_reporter_base : public Catch::StreamingReporterBase {
   public:
 	using StreamingReporterBase::StreamingReporterBase;
 
+	void benchmarkPreparing(Catch::StringRef benchmarkName) override {
+		StreamingReporterBase::benchmarkPreparing(benchmarkName);
+		test_case_benchmark_combinations.insert(get_test_case_name() + ": " + benchmarkName);
+	}
+
 	// TODO: Do we want to somehow report this?
 	void benchmarkFailed(Catch::StringRef benchmarkName) override { StreamingReporterBase::benchmarkFailed(benchmarkName); }
 
@@ -42,24 +48,34 @@ class benchmark_reporter_base : public Catch::StreamingReporterBase {
 
 	void testCasePartialEnded(Catch::TestCaseStats const& testCaseStats, uint64_t partNumber) override {
 		StreamingReporterBase::testCasePartialEnded(testCaseStats, partNumber);
-		// If the exact same set of sections was active as before, generators must have been involved.
-		if(active_sections == previous_active_sections) {
-			if(!did_print_generators_warning) {
-				fmt::print("WARNING: Using generators will result in indistinguishable test case columns.\n");
-				did_print_generators_warning = true;
-			}
-		}
-		std::swap(active_sections, previous_active_sections);
 		active_sections.clear();
 	}
 
+	void testRunEnded(Catch::TestRunStats const& testRunStats) override {
+		StreamingReporterBase::testRunEnded(testRunStats);
+		bool warning_printed = false;
+		for(auto it = test_case_benchmark_combinations.cbegin(); it != test_case_benchmark_combinations.cend(); ++it) {
+			const auto id = *it;
+			const auto count = test_case_benchmark_combinations.count(id);
+			if(count > 1) {
+				if(!warning_printed) {
+					fmt::print(stderr, "WARNING: Using generators will result in indistinguishable test cases. The following cases are ambiguous:\n");
+					warning_printed = true;
+				}
+				fmt::print(stderr, "\t{}\n", id);
+			}
+			// Same values are guaranteed to be contiguous; skip ahead.
+			std::advance(it, count - 1);
+		}
+		if(warning_printed) { fmt::print(stderr, "Consider naming benchmarks dynamically to avoid this.\n"); }
+	}
+
   protected:
-	std::string get_test_case_name() const { return fmt::format("{}", fmt::join(active_sections, " > ")); }
+	[[nodiscard]] std::string get_test_case_name() const { return fmt::format("{}", fmt::join(active_sections, " > ")); }
 
   private:
 	std::vector<std::string> active_sections;
-	std::vector<std::string> previous_active_sections;
-	bool did_print_generators_warning = false;
+	std::unordered_multiset<std::string> test_case_benchmark_combinations;
 };
 
 /**
@@ -77,12 +93,12 @@ class benchmark_csv_reporter : public benchmark_reporter_base {
 	static std::string getDescription() { return "Reporter for benchmarks in CSV format"; }
 
 	void testRunStarting(Catch::TestRunInfo const& testRunInfo) override {
-		StreamingReporterBase::testRunStarting(testRunInfo);
+		benchmark_reporter_base::testRunStarting(testRunInfo);
 		fmt::print(m_stream, "test case,benchmark name,samples,iterations,estimated,mean,low mean,high mean,std dev,low std dev,high std dev,raw\n");
 	}
 
 	void benchmarkEnded(Catch::BenchmarkStats<> const& benchmarkStats) override {
-		StreamingReporterBase::benchmarkEnded(benchmarkStats);
+		benchmark_reporter_base::benchmarkEnded(benchmarkStats);
 		auto& info = benchmarkStats.info;
 		fmt::print(m_stream, "{},{},{},{},{},", escape_csv(get_test_case_name()), escape_csv(info.name), info.samples, info.iterations, info.estimatedDuration);
 		fmt::print(m_stream, "{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},", benchmarkStats.mean.point.count(), benchmarkStats.mean.lower_bound.count(),
@@ -172,7 +188,7 @@ class benchmark_md_reporter : public benchmark_reporter_base {
 	static std::string getDescription() { return "Generates a Markdown report for benchmark results"; }
 
 	void testRunStarting(Catch::TestRunInfo const& testRunInfo) override {
-		StreamingReporterBase::testRunStarting(testRunInfo);
+		benchmark_reporter_base::testRunStarting(testRunInfo);
 
 		fmt::print(m_stream, "# Benchmark Results\n\n");
 
@@ -185,14 +201,14 @@ class benchmark_md_reporter : public benchmark_reporter_base {
 	}
 
 	void testRunEnded(Catch::TestRunStats const& testRunStats) override {
-		StreamingReporterBase::testRunEnded(testRunStats);
+		benchmark_reporter_base::testRunEnded(testRunStats);
 		fmt::print(m_stream, "\n\n");
 		results_printer.print(m_stream);
 		fmt::print(m_stream, "\nAll numbers are in nanoseconds.\n");
 	}
 
 	void benchmarkEnded(Catch::BenchmarkStats<> const& benchmarkStats) override {
-		StreamingReporterBase::benchmarkEnded(benchmarkStats);
+		benchmark_reporter_base::benchmarkEnded(benchmarkStats);
 
 		// Format numbers with ' as thousand separator and . as decimal separator.
 		constexpr auto format_result = [](std::chrono::duration<double, std::nano> ns) {
