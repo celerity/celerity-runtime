@@ -420,7 +420,7 @@ template <typename BenchmarkContext>
 
 template <typename BenchmarkContextFactory>
 void run_benchmarks(BenchmarkContextFactory&& make_ctx) {
-	BENCHMARK("soup topology") { generate_soup_graph(make_ctx(), 200); };
+	BENCHMARK("soup topology") { generate_soup_graph(make_ctx(), 100); };
 	BENCHMARK("chain topology") { generate_chain_graph(make_ctx(), 30); };
 	BENCHMARK("expanding tree topology") { generate_tree_graph<TreeTopology::Expanding>(make_ctx(), 30); };
 	BENCHMARK("contracting tree topology") { generate_tree_graph<TreeTopology::Contracting>(make_ctx(), 30); };
