@@ -1,7 +1,9 @@
 #include <algorithm>
 #include <chrono>
 #include <ctime>
+#include <limits>
 #include <locale>
+#include <numeric>
 #include <ostream>
 #include <regex>
 #include <string>
@@ -222,14 +224,19 @@ class benchmark_md_reporter : public benchmark_reporter_base {
 			return fmt::format("{}.{}", integral_formatted, fractional_formatted);
 		};
 
+		const auto min = std::reduce(benchmarkStats.samples.cbegin(), benchmarkStats.samples.cend(),
+		    std::chrono::duration<double, std::nano>(std::numeric_limits<double>::max()), [](auto& a, auto& b) { return std::min(a, b); });
+
 		results_printer.add_row({fmt::format("{}", get_test_case_name()), // Test case
 		    benchmarkStats.info.name,                                     // Benchmark name
+		    format_result(min),                                           // Min
 		    format_result(benchmarkStats.mean.point),                     // Mean
 		    format_result(benchmarkStats.standardDeviation.point)});      // Std dev
 	}
 
   private:
-	markdown_table_printer results_printer{{{"Test case", align::left}, {"Benchmark name", align::left}, {"Mean", align::right}, {"Std dev", align::right}}};
+	markdown_table_printer results_printer{
+	    {{"Test case", align::left}, {"Benchmark name", align::left}, {"Min", align::right}, {"Mean", align::right}, {"Std dev", align::right}}};
 };
 
 CATCH_REGISTER_REPORTER("celerity-benchmark-md", benchmark_md_reporter)
