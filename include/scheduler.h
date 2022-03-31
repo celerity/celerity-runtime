@@ -36,11 +36,6 @@ namespace detail {
 		 */
 		void notify_task_created(task_id tid) { notify(scheduler_event_type::TASK_AVAILABLE, tid); }
 
-		/**
-		 * @brief Returns true if the scheduler is idle (has no events to process).
-		 */
-		bool is_idle() const noexcept;
-
 	  protected:
 		/**
 		 * This is called by the worker thread.
