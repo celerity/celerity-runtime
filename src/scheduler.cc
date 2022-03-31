@@ -13,11 +13,6 @@ namespace detail {
 
 	void abstract_scheduler::shutdown() { notify(scheduler_event_type::SHUTDOWN, 0); }
 
-	bool abstract_scheduler::is_idle() const noexcept {
-		std::lock_guard<std::mutex> lock(events_mutex);
-		return events.empty();
-	}
-
 	void abstract_scheduler::schedule() {
 		std::unique_lock<std::mutex> lk(events_mutex);
 
