@@ -11,6 +11,7 @@
 #include "host_queue.h"
 #include "region_map.h"
 #include "task.h"
+#include "task_ring_buffer.h"
 #include "types.h"
 
 namespace celerity {
@@ -66,7 +67,7 @@ namespace detail {
 			task_id tid;
 			{
 				std::lock_guard lock(task_mutex);
-				tid = get_new_tid();
+				tid = task_buffer.reserve_new_tid();
 
 				prepass_handler cgh(tid, std::make_unique<command_group_storage<CGF>>(cgf), num_collective_nodes);
 				cgf(cgh);
@@ -75,7 +76,7 @@ namespace detail {
 
 				compute_dependencies(tid);
 				if(queue) queue->require_collective_group(task_ref.get_collective_group_id());
-				prune_tasks_before_latest_epoch_reached();
+				task_buffer.delete_up_to(latest_epoch_reached.get());
 			}
 			invoke_callbacks(tid);
 			if(need_new_horizon()) { generate_horizon_task(); }
@@ -127,7 +128,7 @@ namespace detail {
 		/**
 		 * @brief Shuts down the task_manager, freeing all stored tasks.
 		 */
-		void shutdown() { task_map.clear(); }
+		void shutdown() { task_buffer.clear(); }
 
 		void set_horizon_step(const int step) {
 			assert(step >= 0);
@@ -154,12 +155,12 @@ namespace detail {
 		 * Returns the number of tasks created during the lifetime of the task_manager,
 		 * including tasks that have already been deleted.
 		 */
-		task_id get_total_task_count() const { return next_task_id; }
+		int get_total_task_count() const { return task_buffer.get_total_task_count(); }
 
 		/**
 		 * Returns the number of tasks currently being managed by the task_manager.
 		 */
-		task_id get_current_task_count() const { return task_map.size(); }
+		int get_current_task_count() const { return task_buffer.get_current_task_count(); }
 
 	  private:
 		const size_t num_collective_nodes;
@@ -168,7 +169,7 @@ namespace detail {
 		reduction_manager* reduction_mngr;
 
 		task_id next_task_id = 1;
-		std::unordered_map<task_id, std::unique_ptr<task>> task_map;
+		task_ring_buffer<task_ringbuffer_size> task_buffer;
 
 		// The active epoch is used as the last writer for host-initialized buffers.
 		// This is useful so we can correctly generate anti-dependencies onto tasks that read host-initialized buffers.
@@ -184,7 +185,7 @@ namespace detail {
 		// Stores which host object was last affected by which task.
 		std::unordered_map<host_object_id, task_id> host_object_last_effects;
 
-		// For simplicity we use a single mutex to control access to all task-related (i.e. the task graph, task_map, ...) data structures.
+		// For simplicity we use a single mutex to control access to all task-related (i.e. the task graph, ...) data structures.
 		mutable std::mutex task_mutex;
 
 		std::vector<task_callback> task_callbacks;
@@ -207,13 +208,8 @@ namespace detail {
 		// The last epoch task that has been processed by the executor. Behind a monitor to allow awaiting this change from the main thread.
 		epoch_monitor latest_epoch_reached{initial_epoch_task};
 
-		// The last epoch that was used in task pruning after being reached. This allows skipping the pruning step if no new epoch was completed since.
-		task_id last_pruned_before{initial_epoch_task};
-
 		// Set of tasks with no dependents
 		std::unordered_set<task*> execution_front;
-
-		inline task_id get_new_tid() { return next_task_id++; }
 
 		task& register_task_internal(std::unique_ptr<task> task);
 
@@ -232,9 +228,6 @@ namespace detail {
 		const std::unordered_set<task*>& get_execution_front() { return execution_front; }
 
 		task_id generate_horizon_task();
-
-		// Needs to be called while task map accesses are safe (ie. mutex is locked)
-		void prune_tasks_before_latest_epoch_reached();
 
 		void compute_dependencies(task_id tid);
 	};

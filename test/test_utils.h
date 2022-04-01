@@ -45,7 +45,7 @@ namespace detail {
 
 		static int get_num_horizons(task_manager& tm) {
 			int horizon_counter = 0;
-			for(auto& [_, task_ptr] : tm.task_map) {
+			for(auto task_ptr : tm.task_buffer) {
 				if(task_ptr->get_type() == task_type::HORIZON) { horizon_counter++; }
 			}
 			return horizon_counter;
