@@ -36,13 +36,11 @@ namespace detail {
 		}
 	}
 
-	std::string print_task_graph(const std::unordered_map<task_id, std::unique_ptr<task>>& tdag) {
+	std::string print_task_graph(const task_ring_buffer<task_ringbuffer_size>& tdag) {
 		std::ostringstream ss;
 		ss << "digraph G { label=\"Task Graph\" ";
 
-		for(auto& it : tdag) {
-			const auto tsk = it.second.get();
-
+		for(auto tsk : tdag) {
 			std::unordered_map<std::string, std::string> props;
 			props["label"] = "\"" + get_task_label(tsk) + "\"";
 
