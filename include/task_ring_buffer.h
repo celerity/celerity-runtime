@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <memory>
 
 #include "task.h"
@@ -13,14 +14,11 @@ constexpr unsigned long task_ringbuffer_size = 1024;
 template <unsigned long N>
 class task_ring_buffer {
   public:
-	size_t get_total_task_count() const { return next_task_id; }
-	size_t get_current_task_count() const { return next_task_id - number_of_deleted_tasks; }
+	size_t get_total_task_count() const { return next_active_tid.load(); }
+	size_t get_current_task_count() const { return next_active_tid.load() - number_of_deleted_tasks; }
 
 	bool has_task(task_id tid) const {
-		// the nullptr check is necessary if the executor is waiting for a task to be available when its ID has been reserved
-		// but it has not been emplaced yet; This is safe since deletion always resets the unique_ptrs strictly prior
-		// to new reservations being possible
-		return tid >= number_of_deleted_tasks && tid < next_task_id && data[tid % N].get() != nullptr;
+		return tid >= number_of_deleted_tasks && tid < next_active_tid.load(); //
 	}
 
 	task* find_task(task_id tid) const { return has_task(tid) ? data[tid % N].get() : nullptr; }
@@ -39,7 +37,10 @@ class task_ring_buffer {
 
 	// task_id must have been reserved previously
 	void emplace(task_id tid, std::unique_ptr<task> task) {
-		data[tid % N] = std::move(task); //
+		task_id expected_tid = tid;
+		bool successfully_updated = next_active_tid.compare_exchange_strong(expected_tid, next_active_tid.load() + 1);
+		assert(successfully_updated); // this is the only allowed (and extant) pattern
+		data[tid % N] = std::move(task);
 	}
 
 	// may only be called by one thread
@@ -72,7 +73,11 @@ class task_ring_buffer {
 	task_buffer_iterator end() const { return task_buffer_iterator(next_task_id, *this); }
 
   private:
+	// the id of the next task that will be reserved
 	task_id next_task_id = 0;
+	// the next task id that will actually be emplaced
+	std::atomic<task_id> next_active_tid = task_id(0);
+	// the number of deleted tasks (which is implicitly the start of the active range of the ringbuffer)
 	std::atomic<unsigned long> number_of_deleted_tasks = 0;
 	std::array<std::unique_ptr<task>, N> data;
 
