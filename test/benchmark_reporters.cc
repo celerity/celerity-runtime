@@ -29,6 +29,17 @@ static std::string escape_csv(const std::string& str) {
 	return fmt::format("\"{}\"", std::regex_replace(str, re, "\"\""));
 }
 
+static std::string escape_md_partial(const std::string& str) {
+	// We only escape characters that
+	// - are likely to occur in a test case / benchmark name
+	// - have inline semantics (e.g. we don't expect a test case to start with a '-' or '>')
+	// - are likely not intended for formatting (e.g. using backticks to denote types/code is fine)
+	// - have a meaning in popular Markdown implementations (e.g. {} is reserved but not used)
+	if(str.find_first_of("*_|[]\\") == std::string::npos) return str;
+	const std::regex re(R"(([*_|[\]\\]))");
+	return std::regex_replace(str, re, "\\$1");
+}
+
 class benchmark_reporter_base : public Catch::StreamingReporterBase {
   public:
 	using StreamingReporterBase::StreamingReporterBase;
@@ -227,11 +238,11 @@ class benchmark_md_reporter : public benchmark_reporter_base {
 		const auto min = std::reduce(benchmarkStats.samples.cbegin(), benchmarkStats.samples.cend(),
 		    std::chrono::duration<double, std::nano>(std::numeric_limits<double>::max()), [](auto& a, auto& b) { return std::min(a, b); });
 
-		results_printer.add_row({fmt::format("{}", get_test_case_name()), // Test case
-		    benchmarkStats.info.name,                                     // Benchmark name
-		    format_result(min),                                           // Min
-		    format_result(benchmarkStats.mean.point),                     // Mean
-		    format_result(benchmarkStats.standardDeviation.point)});      // Std dev
+		results_printer.add_row({fmt::format("{}", escape_md_partial(get_test_case_name())), // Test case
+		    escape_md_partial(benchmarkStats.info.name),                                     // Benchmark name
+		    format_result(min),                                                              // Min
+		    format_result(benchmarkStats.mean.point),                                        // Mean
+		    format_result(benchmarkStats.standardDeviation.point)});                         // Std dev
 	}
 
   private:
