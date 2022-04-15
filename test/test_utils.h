@@ -41,7 +41,7 @@ namespace celerity {
 namespace detail {
 
 	struct task_manager_testspy {
-		static std::optional<task_id> get_current_horizion(task_manager& tm) { return tm.current_horizon; }
+		static std::optional<task_id> get_current_horizon(task_manager& tm) { return tm.current_horizon; }
 
 		static int get_num_horizons(task_manager& tm) {
 			int horizon_counter = 0;
@@ -252,7 +252,7 @@ namespace test_utils {
 		detail::graph_serializer& get_graph_serializer() { return *gsrlzr; }
 
 		detail::task_id build_task_horizons() {
-			const auto most_recently_generated_task_horizon = detail::task_manager_testspy::get_current_horizion(get_task_manager());
+			const auto most_recently_generated_task_horizon = detail::task_manager_testspy::get_current_horizon(get_task_manager());
 			if(most_recently_generated_task_horizon != most_recently_built_task_horizon) {
 				most_recently_built_task_horizon = most_recently_generated_task_horizon;
 				if(most_recently_built_task_horizon) {

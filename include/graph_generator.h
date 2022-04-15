@@ -76,8 +76,6 @@ namespace detail {
 			std::unordered_map<collective_group_id, command_id> last_collective_commands;
 			// Side effects on the same host object create true dependencies between task commands, so we track the last effect per host object on each node.
 			side_effect_map host_object_last_effects;
-
-			void set_epoch_for_new_commands(const command_id epoch);
 		};
 
 	  public:
@@ -101,9 +99,9 @@ namespace detail {
 
 		// After completing an epoch, we need to wait until it is flushed before pruning predecessors from the CDAG, otherwise dependencies will not be flushed.
 		// We generate the initial epoch commands manually starting from cid 0, so initializing these to 0 is correct.
-		detail::command_id min_epoch_for_new_commands = 0;
+		command_id min_epoch_for_new_commands = 0;
 		// Used to skip the pruning step if no new epoch has been completed.
-		detail::command_id min_epoch_last_pruned_before = 0;
+		command_id min_epoch_last_pruned_before = 0;
 
 		// NOTE: We have several data structures that keep track of the "global state" of the distributed program, across all tasks and nodes.
 		// While it might seem that this is problematic when the ordering of tasks can be chosen freely (by the scheduler),
@@ -123,6 +121,8 @@ namespace detail {
 
 		// This mutex mainly serves to protect per-buffer data structures, as new buffers might be added at any time.
 		std::mutex buffer_mutex;
+
+		void set_epoch_for_new_commands(per_node_data& node_data, const command_id epoch);
 
 		void reduce_execution_front_to(abstract_command* new_front);
 

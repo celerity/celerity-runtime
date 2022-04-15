@@ -137,7 +137,7 @@ namespace detail {
 		test_utils::cdag_test_context ctx(NUM_NODES);
 
 		// For this test, we need to generate 2 horizons but still have the first one be relevant
-		// after the second is generated -> use 2 buffers A and B, with a longer task chan on A, and write to B later
+		// after the second is generated -> use 2 buffers A and B, with a longer task chain on A, and write to B later
 		// step size is set to ensure expected horizons
 		ctx.get_task_manager().set_horizon_step(2);
 
@@ -276,7 +276,7 @@ namespace detail {
 			const auto cmds = inspector.get_commands(tid, std::nullopt, std::nullopt);
 			CHECK(cmds.size() == 2);
 			std::transform(cmds.begin(), cmds.end(), initial_last_writer_ids.begin(), [&](auto cid) {
-				// (Implementation detail: We can't use the inspector here b/c EPOCH commands are not flushed)
+				// (Implementation detail: We can't use the inspector here b/c the initial epoch commands are not flushed)
 				const auto deps = ctx.get_command_graph().get(cid)->get_dependencies();
 				REQUIRE(std::distance(deps.begin(), deps.end()) == 1);
 				return deps.begin()->node->get_cid();
@@ -293,9 +293,9 @@ namespace detail {
 				const auto tid = test_utils::build_and_flush(ctx, NUM_NODES,
 				    test_utils::add_compute_task<class UKN(generate_horizons)>(
 				        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, buf_range));
-				const auto current_horizion = task_manager_testspy::get_current_horizion(ctx.get_task_manager());
-				if(current_horizion && *current_horizion > last_horizon_reached) {
-					last_horizon_reached = *current_horizion;
+				const auto current_horizon = task_manager_testspy::get_current_horizon(ctx.get_task_manager());
+				if(current_horizon && *current_horizon > last_horizon_reached) {
+					last_horizon_reached = *current_horizon;
 					ctx.get_task_manager().notify_horizon_reached(last_horizon_reached);
 				}
 			}
@@ -323,9 +323,9 @@ namespace detail {
 		CHECK(isa<horizon_command>(ctx.get_command_graph().get(new_last_writer_ids[0])));
 		CHECK(isa<horizon_command>(ctx.get_command_graph().get(new_last_writer_ids[1])));
 
-		const auto current_horizions = graph_generator_testspy::get_current_horizons(ctx.get_graph_generator());
+		const auto current_horizons = graph_generator_testspy::get_current_horizons(ctx.get_graph_generator());
 		INFO("previous horizons are being used");
-		CHECK(std::none_of(current_horizions.cbegin(), current_horizions.cend(),
+		CHECK(std::none_of(current_horizons.cbegin(), current_horizons.cend(),
 		    [&](const command_id cid) { return cid == new_last_writer_ids[0] || cid == new_last_writer_ids[1]; }));
 
 		test_utils::maybe_print_graphs(ctx);
@@ -409,10 +409,11 @@ namespace detail {
 		auto& cdag = ctx.get_command_graph();
 		const auto first_commands = inspector.get_commands(first_task, std::nullopt, std::nullopt);
 		const auto second_commands = inspector.get_commands(second_task, std::nullopt, std::nullopt);
-		for(const auto second_cid : second_commands) {
-			for(const auto first_cid : first_commands) {
-				CHECK(!inspector.has_dependency(second_cid, first_cid));
-			}
+		CHECKED_IF(std::tuple{first_commands.size(), second_commands.size()} == std::tuple{1, 1}) {
+			const auto first_cid = *first_commands.begin();
+			const auto second_cid = *second_commands.begin();
+			CHECK(!inspector.has_dependency(second_cid, first_cid));
+
 			const auto second_deps = cdag.get(second_cid)->get_dependencies();
 			CHECK(std::distance(second_deps.begin(), second_deps.end()) == 1);
 			for(const auto& dep : second_deps) {
@@ -424,7 +425,7 @@ namespace detail {
 		test_utils::maybe_print_graphs(ctx);
 	}
 
-	TEST_CASE("finishing an epoch will prune all nodes of the preceding graph", "[task_manager][graph_generator][task-graph][command-graph][epoch]") {
+	TEST_CASE("reaching an epoch will prune all nodes of the preceding task graph", "[task_manager][task-graph][epoch]") {
 		using namespace cl::sycl::access;
 
 		constexpr int num_nodes = 2;

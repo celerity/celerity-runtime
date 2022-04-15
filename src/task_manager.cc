@@ -45,7 +45,7 @@ namespace detail {
 
 	void task_manager::notify_horizon_reached(task_id horizon_tid) {
 		// This method is called from the executor thread, but does not lock task_mutex to avoid lock-step execution with the main thread.
-		// last_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
+		// latest_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
 
 		assert(get_task(horizon_tid)->get_type() == task_type::HORIZON);
 		assert(!latest_horizon_reached || *latest_horizon_reached < horizon_tid);
@@ -59,14 +59,14 @@ namespace detail {
 
 	void task_manager::notify_epoch_reached(task_id epoch_tid) {
 		// This method is called from the executor thread, but does not lock task_mutex to avoid lock-step execution with the main thread.
-		// last_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
+		// latest_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
 
 		assert(get_task(epoch_tid)->get_type() == task_type::EPOCH);
 		assert(!latest_horizon_reached || *latest_horizon_reached < epoch_tid);
 		assert(latest_epoch_reached.get() < epoch_tid);
 
 		latest_epoch_reached.set(epoch_tid);   // The next call to submit_command_group() will prune all tasks before the last epoch reached
-		latest_horizon_reached = std::nullopt; // The last horizon reached is now behind the epoch and will therefore never become an epoch itself
+		latest_horizon_reached = std::nullopt; // Any non-applied horizon is now behind the epoch and will therefore never become an epoch itself
 	}
 
 	void task_manager::await_epoch(task_id epoch) { latest_epoch_reached.await(epoch); }
@@ -279,7 +279,7 @@ namespace detail {
 		return tid;
 	}
 
-	void task_manager::prune_tasks_before_last_epoch_reached() {
+	void task_manager::prune_tasks_before_latest_epoch_reached() {
 		const auto prune_before = latest_epoch_reached.get();
 		if(prune_before > last_pruned_before) {
 			for(auto iter = task_map.begin(); iter != task_map.end();) {

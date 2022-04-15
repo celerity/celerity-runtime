@@ -15,7 +15,8 @@ namespace detail {
 	graph_generator::graph_generator(size_t num_nodes, task_manager& tm, reduction_manager& rm, command_graph& cdag)
 	    : task_mngr(tm), reduction_mngr(rm), num_nodes(num_nodes), cdag(cdag) {
 		// Build initial epoch command for each node (these are required to properly handle anti-dependencies on host-initialized buffers).
-		// We manually generate the first set of commands; horizons are used later on (see generate_horizon).
+		// We manually generate the first set of commands, these will be replaced by applied horizons or explicit epochs down the line (see
+		// set_epoch_for_new_commands).
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			const auto epoch_cmd = cdag.create<epoch_command>(nid, task_manager::initial_epoch_task, epoch_action::none);
 			epoch_cmd->mark_as_flushed(); // there is no point in flushing the initial epoch command
@@ -35,25 +36,6 @@ namespace detail {
 		}
 
 		buffer_states.emplace(bid, distributed_state{{range, std::move(all_nodes)}});
-	}
-
-	void graph_generator::per_node_data::set_epoch_for_new_commands(const command_id epoch) {
-		// update "buffer_last_writer" and "last_collective_commands" structures to subsume pre-epoch commands
-		for(auto& blw_pair : buffer_last_writer) {
-			// TODO this could be optimized to something like cdag.apply_horizon(node_id, horizon_cmd) with much fewer internal operations
-			blw_pair.second.apply_to_values([epoch](const std::optional<command_id> cid) -> std::optional<command_id> {
-				if(!cid) return cid;
-				return {std::max(epoch, *cid)};
-			});
-		}
-		for(auto& [cgid, cid] : last_collective_commands) {
-			cid = std::max(epoch, cid);
-		}
-		for(auto& [cgid, cid] : host_object_last_effects) {
-			cid = std::max(epoch, cid);
-		}
-
-		epoch_for_new_commands = epoch;
 	}
 
 	void graph_generator::build_task(const task_id tid, const std::vector<graph_transformer*>& transformers) {
@@ -110,6 +92,28 @@ namespace detail {
 		prune_commands_before(min_epoch_to_prune_before);
 	}
 
+	void graph_generator::set_epoch_for_new_commands(per_node_data& node, const command_id epoch) { // NOLINT(readability-convert-member-functions-to-static)
+		// both an explicit epoch command and an applied horizon can be effective epochs
+		assert(isa<epoch_command>(cdag.get(epoch)) || isa<horizon_command>(cdag.get(epoch)));
+
+		// update "buffer_last_writer" and "last_collective_commands" structures to subsume pre-epoch commands
+		for(auto& blw_pair : node.buffer_last_writer) {
+			// TODO this could be optimized to something like cdag.apply_horizon(node_id, horizon_cmd) with much fewer internal operations
+			blw_pair.second.apply_to_values([epoch](const std::optional<command_id> cid) -> std::optional<command_id> {
+				if(!cid) return cid;
+				return {std::max(epoch, *cid)};
+			});
+		}
+		for(auto& [cgid, cid] : node.last_collective_commands) {
+			cid = std::max(epoch, cid);
+		}
+		for(auto& [cgid, cid] : node.host_object_last_effects) {
+			cid = std::max(epoch, cid);
+		}
+
+		node.epoch_for_new_commands = epoch;
+	}
+
 	void graph_generator::reduce_execution_front_to(abstract_command* const new_front) {
 		const auto nid = new_front->get_nid();
 		const auto previous_execution_front = cdag.get_execution_front(nid);
@@ -130,10 +134,10 @@ namespace detail {
 			const auto cid = epoch->get_cid();
 			if(nid == 0) { min_new_epoch = cid; }
 
-			node.set_epoch_for_new_commands(cid);
+			set_epoch_for_new_commands(node, cid);
 			node.current_horizon = std::nullopt;
 
-			// Make the horizon or epoch command depend on the previous execution front
+			// Make the epoch depend on the previous execution front
 			reduce_execution_front_to(epoch);
 		}
 
@@ -156,11 +160,11 @@ namespace detail {
 				} else {
 					min_new_epoch = node.current_horizon;
 				}
-				node.set_epoch_for_new_commands(*node.current_horizon);
+				set_epoch_for_new_commands(node, *node.current_horizon);
 			}
 			node.current_horizon = cid;
 
-			// Make the horizon or epoch command depend on the previous execution front
+			// Make the horizon depend on the previous execution front
 			reduce_execution_front_to(horizon);
 		}
 
