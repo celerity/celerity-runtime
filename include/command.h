@@ -218,8 +218,6 @@ namespace detail {
 			);
 			// clang-format on
 		}
-
-		// clang-format on
 	};
 
 } // namespace detail

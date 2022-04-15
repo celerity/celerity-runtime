@@ -75,7 +75,7 @@ namespace detail {
 
 				compute_dependencies(tid);
 				if(queue) queue->require_collective_group(task_ref.get_collective_group_id());
-				prune_tasks_before_last_epoch_reached();
+				prune_tasks_before_latest_epoch_reached();
 			}
 			invoke_callbacks(tid);
 			if(need_new_horizon()) { generate_horizon_task(); }
@@ -171,8 +171,8 @@ namespace detail {
 		std::unordered_map<task_id, std::unique_ptr<task>> task_map;
 
 		// The active epoch is used as the last writer for host-initialized buffers.
-		// To ensure correct ordering, all tasks that have no other true-dependencies depend on this task.
 		// This is useful so we can correctly generate anti-dependencies onto tasks that read host-initialized buffers.
+		// To ensure correct ordering, all tasks that have no other true-dependencies depend on this task.
 		task_id epoch_for_new_tasks{initial_epoch_task};
 
 		// We store a map of which task last wrote to a certain region of a buffer.
@@ -207,7 +207,7 @@ namespace detail {
 		// The last epoch task that has been processed by the executor. Behind a monitor to allow awaiting this change from the main thread.
 		epoch_monitor latest_epoch_reached{initial_epoch_task};
 
-		// The last epoch that was used in task pruning after being reached. This allows skipping the pruning step if no new was completed since.
+		// The last epoch that was used in task pruning after being reached. This allows skipping the pruning step if no new epoch was completed since.
 		task_id last_pruned_before{initial_epoch_task};
 
 		// Set of tasks with no dependents
@@ -234,7 +234,7 @@ namespace detail {
 		task_id generate_horizon_task();
 
 		// Needs to be called while task map accesses are safe (ie. mutex is locked)
-		void prune_tasks_before_last_epoch_reached();
+		void prune_tasks_before_latest_epoch_reached();
 
 		void compute_dependencies(task_id tid);
 	};

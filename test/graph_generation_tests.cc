@@ -743,7 +743,7 @@ namespace detail {
 		    test_utils::add_compute_task<class UKN(produce)>(
 		        tm,
 		        [&](handler& cgh) {
-			        buf_2.get_access<access_mode::discard_write>(cgh, all{});
+			        buf_2.get_access<access_mode::discard_write>(cgh, one_to_one{});
 			        test_utils::add_reduction(cgh, ctx.get_reduction_manager(), buf_3, false);
 		        },
 		        range<1>{num_nodes}));
