@@ -118,16 +118,11 @@ namespace detail {
 			MPI_Message msg;
 			MPI_Improbe(MPI_ANY_SOURCE, mpi_support::TAG_CMD, MPI_COMM_WORLD, &flag, &msg, &status);
 			if(flag == 1) {
-				// Commands should be small enough to block here (TODO: Re-evaluate this now that we also transfer dependencies)
-				command_queue.emplace<command_info>({});
-				auto& pkg = command_queue.back().pkg;
-				auto& dependencies = command_queue.back().dependencies;
-				int count;
-				MPI_Get_count(&status, MPI_CHAR, &count);
-				const size_t deps_size = count - sizeof(command_pkg);
-				dependencies.resize(deps_size / sizeof(command_id));
-				const auto data_type = mpi_support::build_single_use_composite_type({{sizeof(command_pkg), &pkg}, {deps_size, dependencies.data()}});
-				MPI_Mrecv(MPI_BOTTOM, 1, *data_type, &msg, &status);
+				int frame_bytes;
+				MPI_Get_count(&status, MPI_BYTE, &frame_bytes);
+				unique_frame_ptr<command_frame> frame(from_frame_bytes, static_cast<size_t>(frame_bytes));
+				MPI_Mrecv(frame.get_pointer(), frame_bytes, MPI_BYTE, &msg, &status);
+				command_queue.push({frame->pkg, std::vector(frame->dependencies, frame->dependencies + frame.get_payload_size())});
 
 				if(!first_command_received) {
 					metrics.initial_idle.pause();
@@ -137,7 +132,7 @@ namespace detail {
 			}
 
 			if(jobs.size() < MAX_CONCURRENT_JOBS && !command_queue.empty()) {
-				const auto info = command_queue.front();
+				const auto& info = command_queue.front();
 				if(!handle_command(info.pkg, info.dependencies)) {
 					// In case the command couldn't be handled, don't pop it from the queue.
 					continue;

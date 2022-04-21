@@ -111,10 +111,8 @@ namespace detail {
 		std::unique_ptr<executor> exec;
 
 		struct flush_handle {
-			command_pkg pkg;
-			std::vector<command_id> dependencies;
+			unique_frame_ptr<command_frame> frame;
 			MPI_Request req;
-			mpi_support::single_use_data_type data_type;
 		};
 		std::deque<flush_handle> active_flushes;
 

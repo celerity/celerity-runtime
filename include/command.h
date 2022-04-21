@@ -3,6 +3,7 @@
 #include <variant>
 
 #include "intrusive_graph.h"
+#include "mpi_support.h"
 #include "ranges.h"
 #include "task.h"
 #include "types.h"
@@ -218,6 +219,18 @@ namespace detail {
 			);
 			// clang-format on
 		}
+	};
+
+	struct command_frame {
+		using payload_type = command_id;
+
+		// variable-sized structure
+		command_frame() = default;
+		command_frame(const command_frame&) = delete;
+		command_frame& operator=(const command_frame&) = delete;
+
+		command_pkg pkg;
+		payload_type dependencies[0];
 	};
 
 } // namespace detail
