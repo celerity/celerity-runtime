@@ -1,56 +1,77 @@
 #pragma once
 
+#include <cassert>
+#include <memory>
 #include <utility>
-#include <vector>
 
-#include <mpi.h>
+namespace celerity::detail {
 
-namespace celerity {
-namespace detail {
-	namespace mpi_support {
+namespace mpi_support {
 
-		constexpr int TAG_CMD = 0;
-		constexpr int TAG_DATA_TRANSFER = 1;
-		constexpr int TAG_TELEMETRY = 2;
+	constexpr int TAG_CMD = 0;
+	constexpr int TAG_DATA_TRANSFER = 1;
+	constexpr int TAG_TELEMETRY = 2;
 
-		class single_use_data_type {
-		  public:
-			single_use_data_type() = default;
-			single_use_data_type(MPI_Datatype dt) : dt(dt){};
+} // namespace mpi_support
 
-			single_use_data_type(single_use_data_type&& other) noexcept { *this = std::move(other); }
-			single_use_data_type& operator=(single_use_data_type&& other) noexcept {
-				if(this != &other) {
-					dt = other.dt;
-					other.dt = MPI_DATATYPE_NULL;
-				}
-				return *this;
-			}
+struct from_payload_size_tag {
+} inline constexpr from_payload_size;
 
-			single_use_data_type(const single_use_data_type& other) = delete;
-			single_use_data_type& operator=(const single_use_data_type& other) = delete;
+struct from_frame_bytes_tag {
+} inline constexpr from_frame_bytes;
 
-			MPI_Datatype operator*() const { return dt; }
+/**
+ * Owning smart pointer for variable-sized structures with a 0-sized array of type Frame::payload_type as the last member.
+ */
+template <typename Frame>
+class unique_frame_ptr : private std::unique_ptr<Frame> {
+  private:
+	using impl = std::unique_ptr<Frame>;
 
-			~single_use_data_type() {
-				if(dt != MPI_DATATYPE_NULL) { MPI_Type_free(&dt); }
-			}
+  public:
+	using payload_type = typename Frame::payload_type;
 
-		  private:
-			MPI_Datatype dt = MPI_DATATYPE_NULL;
-		};
+	unique_frame_ptr() = default;
 
-		/**
-		 * @brief Constructs a new MPI data type for a particular list of blocks.
-		 *
-		 * The returned data type uses MPI_BYTE internally, with block displacements set to the given pointers, i.e. using the type
-		 * operates directly on the objects pointed to. This is useful e.g. when transferring multiple objects that don't exist in a contiguous memory region.
-		 *
-		 * @param blocks A list pairs of an object size (in bytes) and a pointer to the object
-		 * @returns A RAII-wrapped MPI data type
-		 */
-		single_use_data_type build_single_use_composite_type(const std::vector<std::pair<size_t, void*>>& blocks);
+	unique_frame_ptr(from_payload_size_tag, size_t payload_size)
+	    : impl(static_cast<Frame*>(operator new(frame_bytes_from_payload_size(payload_size)))), payload_size(payload_size) {
+		new(impl::get()) Frame; // permits later deletion through std::default_deleter
+	}
 
-	} // namespace mpi_support
-} // namespace detail
-} // namespace celerity
+	unique_frame_ptr(from_frame_bytes_tag, size_t frame_bytes)
+	    : impl(static_cast<Frame*>(operator new(frame_bytes))), payload_size(payload_size_from_frame_bytes(frame_bytes)) {
+		new(impl::get()) Frame; // permits later deletion through std::default_deleter
+	}
+
+	unique_frame_ptr(unique_frame_ptr&& other) noexcept : impl(static_cast<impl&&>(other)), payload_size(other.payload_size) { other.payload_size = 0; }
+
+	unique_frame_ptr& operator=(unique_frame_ptr&& other) noexcept {
+		static_cast<impl&>(*this) = static_cast<impl&&>(other);
+		payload_size = other.payload_size;
+		other.payload_size = 0;
+		return *this;
+	}
+
+	Frame* get_pointer() { return impl::get(); }
+	const Frame* get_pointer() const { return impl::get(); }
+	size_t get_payload_size() const { return payload_size; }
+	size_t get_frame_size_bytes() const { return frame_bytes_from_payload_size(payload_size); }
+
+	using impl::operator bool;
+	using impl::operator*;
+	using impl::operator->;
+
+  private:
+	size_t payload_size = 0;
+
+	static size_t frame_bytes_from_payload_size(size_t payload_size) { //
+		return sizeof(Frame) + sizeof(payload_type) * payload_size;
+	}
+
+	static size_t payload_size_from_frame_bytes(size_t frame_bytes) {
+		assert(frame_bytes >= sizeof(Frame) && (frame_bytes - sizeof(Frame)) % sizeof(payload_type) == 0);
+		return (frame_bytes - sizeof(Frame)) / sizeof(payload_type);
+	}
+};
+
+} // namespace celerity::detail

@@ -32,19 +32,25 @@ namespace detail {
 		void poll();
 
 	  private:
-		struct data_header {
+		struct data_frame {
+			using payload_type = std::byte;
+
+			// variable-sized structure
+			data_frame() = default;
+			data_frame(const data_frame&) = delete;
+			data_frame& operator=(const data_frame&) = delete;
+
 			buffer_id bid;
 			reduction_id rid; // zero if this does not belong to a reduction
 			subrange<3> sr;
 			command_id push_cid;
+			alignas(std::max_align_t) payload_type data[0];
 		};
 
 		struct transfer_in {
 			node_id source_nid;
 			MPI_Request request;
-			data_header header;
-			raw_buffer_data data;
-			mpi_support::single_use_data_type data_type;
+			unique_frame_ptr<data_frame> frame;
 		};
 
 		struct incoming_transfer_handle : transfer_handle {
@@ -54,9 +60,7 @@ namespace detail {
 		struct transfer_out {
 			std::shared_ptr<transfer_handle> handle;
 			MPI_Request request;
-			data_header header;
-			raw_buffer_data data;
-			mpi_support::single_use_data_type data_type;
+			unique_frame_ptr<data_frame> frame;
 		};
 
 		std::list<std::unique_ptr<transfer_in>> incoming_transfers;

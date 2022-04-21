@@ -182,7 +182,6 @@ set(SOURCES
   src/executor.cc
   src/graph_generator.cc
   src/graph_serializer.cc
-  src/mpi_support.cc
   src/print_graph.cc
   src/print_utils.cc
   src/runtime.cc
