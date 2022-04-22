@@ -77,7 +77,7 @@ struct task_manager_benchmark_context {
 struct graph_generator_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
-	graph_serializer gsrlzr{cdag, [](node_id, command_pkg, const std::vector<command_id>&) {}};
+	graph_serializer gsrlzr{cdag, [](node_id, unique_frame_ptr<command_frame>) {}};
 	reduction_manager rm;
 	task_manager tm{num_nodes, nullptr, &rm};
 	graph_generator ggen{num_nodes, tm, rm, cdag};
@@ -179,7 +179,7 @@ class benchmark_scheduler final : public abstract_scheduler {
 struct scheduler_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
-	graph_serializer gsrlzr{cdag, [](node_id, command_pkg, const std::vector<command_id>&) {}};
+	graph_serializer gsrlzr{cdag, [](node_id, unique_frame_ptr<command_frame>) {}};
 	reduction_manager rm;
 	task_manager tm{num_nodes, nullptr, &rm};
 	graph_generator ggen{num_nodes, tm, rm, cdag};

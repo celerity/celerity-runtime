@@ -137,8 +137,8 @@ namespace detail {
 		if(is_master_node()) {
 			cdag = std::make_unique<command_graph>();
 			ggen = std::make_shared<graph_generator>(num_nodes, *task_mngr, *reduction_mngr, *cdag);
-			gsrlzr = std::make_unique<graph_serializer>(*cdag,
-			    [this](node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies) { flush_command(target, pkg, dependencies); });
+			gsrlzr = std::make_unique<graph_serializer>(
+			    *cdag, [this](node_id target, unique_frame_ptr<command_frame> frame) { flush_command(target, std::move(frame)); });
 			schdlr = std::make_unique<scheduler>(*ggen, *gsrlzr, num_nodes);
 			task_mngr->register_task_callback([this](task_id tid) { schdlr->notify_task_created(tid); });
 		}
@@ -259,13 +259,9 @@ namespace detail {
 		instance.reset();
 	}
 
-	void runtime::flush_command(node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies) {
+	void runtime::flush_command(node_id target, unique_frame_ptr<command_frame> frame) {
 		// Even though command packages are small enough to use a blocking send we want to be able to send to the master node as well,
 		// which is why we have to use Isend after all. We also have to make sure that the buffer stays around until the send is complete.
-		unique_frame_ptr<command_frame> frame(from_payload_size, dependencies.size());
-		frame->pkg = pkg;
-		std::copy(dependencies.begin(), dependencies.end(), frame->dependencies);
-
 		MPI_Request req;
 		MPI_Isend(frame.get_pointer(), static_cast<int>(frame.get_frame_size_bytes()), MPI_BYTE, static_cast<int>(target), mpi_support::TAG_CMD, MPI_COMM_WORLD,
 		    &req);

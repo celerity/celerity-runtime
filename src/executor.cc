@@ -45,13 +45,7 @@ namespace detail {
 
 	void executor::run() {
 		bool done = false;
-
-		struct command_info {
-			command_pkg pkg;
-			std::vector<command_id> dependencies;
-		};
-		std::queue<command_info> command_queue;
-
+		std::queue<unique_frame_ptr<command_frame>> command_queue;
 		while(!done || !jobs.empty()) {
 			// Bail if a device error ocurred.
 			if(running_device_compute_jobs > 0) { d_queue.get_sycl_queue().throw_asynchronous(); }
@@ -122,7 +116,7 @@ namespace detail {
 				MPI_Get_count(&status, MPI_BYTE, &frame_bytes);
 				unique_frame_ptr<command_frame> frame(from_frame_bytes, static_cast<size_t>(frame_bytes));
 				MPI_Mrecv(frame.get_pointer(), frame_bytes, MPI_BYTE, &msg, &status);
-				command_queue.push({frame->pkg, std::vector(frame->dependencies, frame->dependencies + frame.get_payload_size())});
+				command_queue.push(std::move(frame));
 
 				if(!first_command_received) {
 					metrics.initial_idle.pause();
@@ -132,8 +126,7 @@ namespace detail {
 			}
 
 			if(jobs.size() < MAX_CONCURRENT_JOBS && !command_queue.empty()) {
-				const auto& info = command_queue.front();
-				if(!handle_command(info.pkg, info.dependencies)) {
+				if(!handle_command(command_queue.front())) {
 					// In case the command couldn't be handled, don't pop it from the queue.
 					continue;
 				}
@@ -146,23 +139,23 @@ namespace detail {
 		assert(running_device_compute_jobs == 0);
 	}
 
-	bool executor::handle_command(const command_pkg& pkg, const std::vector<command_id>& dependencies) {
+	bool executor::handle_command(const unique_frame_ptr<command_frame>& frame) {
 		// A worker might receive a task command before creating the corresponding task graph node
-		if(const auto tid = pkg.get_tid()) {
+		if(const auto tid = frame->pkg.get_tid()) {
 			if(!task_mngr.has_task(*tid)) { return false; }
 		}
 
-		switch(pkg.get_command_type()) {
-		case command_type::HORIZON: create_job<horizon_job>(pkg, dependencies, task_mngr); break;
-		case command_type::EPOCH: create_job<epoch_job>(pkg, dependencies, task_mngr); break;
-		case command_type::PUSH: create_job<push_job>(pkg, dependencies, *btm, buffer_mngr); break;
-		case command_type::AWAIT_PUSH: create_job<await_push_job>(pkg, dependencies, *btm); break;
-		case command_type::REDUCTION: create_job<reduction_job>(pkg, dependencies, reduction_mngr); break;
+		switch(frame->pkg.get_command_type()) {
+		case command_type::HORIZON: create_job<horizon_job>(frame, task_mngr); break;
+		case command_type::EPOCH: create_job<epoch_job>(frame, task_mngr); break;
+		case command_type::PUSH: create_job<push_job>(frame, *btm, buffer_mngr); break;
+		case command_type::AWAIT_PUSH: create_job<await_push_job>(frame, *btm); break;
+		case command_type::REDUCTION: create_job<reduction_job>(frame, reduction_mngr); break;
 		case command_type::EXECUTION:
-			if(task_mngr.get_task(std::get<execution_data>(pkg.data).tid)->get_execution_target() == execution_target::HOST) {
-				create_job<host_execute_job>(pkg, dependencies, h_queue, task_mngr, buffer_mngr);
+			if(task_mngr.get_task(frame->pkg.get_tid().value())->get_execution_target() == execution_target::HOST) {
+				create_job<host_execute_job>(frame, h_queue, task_mngr, buffer_mngr);
 			} else {
-				create_job<device_execute_job>(pkg, dependencies, d_queue, task_mngr, buffer_mngr, reduction_mngr, local_nid);
+				create_job<device_execute_job>(frame, d_queue, task_mngr, buffer_mngr, reduction_mngr, local_nid);
 			}
 			break;
 		default: assert(!"Unexpected command");

@@ -88,26 +88,29 @@ namespace detail {
 	void graph_serializer::serialize_and_flush(abstract_command* cmd, const std::vector<command_id>& dependencies) const {
 		assert(!cmd->is_flushed() && "Command has already been flushed.");
 
-		command_pkg pkg;
-		pkg.cid = cmd->get_cid();
+		unique_frame_ptr<command_frame> frame(from_payload_size, dependencies.size());
+
+		frame->pkg.cid = cmd->get_cid();
 		if(const auto* ecmd = dynamic_cast<epoch_command*>(cmd)) {
-			pkg.data = epoch_data{ecmd->get_tid(), ecmd->get_epoch_action()};
+			frame->pkg.data = epoch_data{ecmd->get_tid(), ecmd->get_epoch_action()};
 		} else if(const auto* xcmd = dynamic_cast<execution_command*>(cmd)) {
-			pkg.data = execution_data{xcmd->get_tid(), xcmd->get_execution_range(), xcmd->is_reduction_initializer()};
+			frame->pkg.data = execution_data{xcmd->get_tid(), xcmd->get_execution_range(), xcmd->is_reduction_initializer()};
 		} else if(const auto* pcmd = dynamic_cast<push_command*>(cmd)) {
-			pkg.data = push_data{pcmd->get_bid(), pcmd->get_rid(), pcmd->get_target(), pcmd->get_range()};
+			frame->pkg.data = push_data{pcmd->get_bid(), pcmd->get_rid(), pcmd->get_target(), pcmd->get_range()};
 		} else if(const auto* apcmd = dynamic_cast<await_push_command*>(cmd)) {
 			auto* source = apcmd->get_source();
-			pkg.data = await_push_data{source->get_bid(), source->get_rid(), source->get_nid(), source->get_cid(), source->get_range()};
+			frame->pkg.data = await_push_data{source->get_bid(), source->get_rid(), source->get_nid(), source->get_cid(), source->get_range()};
 		} else if(const auto* rcmd = dynamic_cast<reduction_command*>(cmd)) {
-			pkg.data = reduction_data{rcmd->get_rid()};
+			frame->pkg.data = reduction_data{rcmd->get_rid()};
 		} else if(const auto* hcmd = dynamic_cast<horizon_command*>(cmd)) {
-			pkg.data = horizon_data{hcmd->get_tid()};
+			frame->pkg.data = horizon_data{hcmd->get_tid()};
 		} else {
 			assert(false && "Unknown command");
 		}
 
-		flush_cb(cmd->get_nid(), pkg, dependencies);
+		std::copy(dependencies.begin(), dependencies.end(), frame->dependencies);
+
+		flush_cb(cmd->get_nid(), std::move(frame));
 		cmd->mark_as_flushed();
 	}
 
