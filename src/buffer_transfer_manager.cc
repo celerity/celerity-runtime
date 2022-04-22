@@ -20,16 +20,15 @@ namespace detail {
 		// --> This probably needs some kind of heuristic, as for small (e.g. ghost cell) transfers the overhead of threading is way too big
 		const push_data& data = std::get<push_data>(pkg.data);
 
-		const auto raw_data =
-		    runtime::get_instance().get_buffer_manager().get_buffer_data(data.bid, cl::sycl::range<3>(data.sr.offset[0], data.sr.offset[1], data.sr.offset[2]),
-		        cl::sycl::range<3>(data.sr.range[0], data.sr.range[1], data.sr.range[2]));
+		auto& bm = runtime::get_instance().get_buffer_manager();
+		const auto element_size = bm.get_buffer_info(data.bid).element_size;
 
-		unique_frame_ptr<data_frame> frame(from_payload_count, raw_data.get_size());
+		unique_frame_ptr<data_frame> frame(from_payload_count, data.sr.range.size() * element_size);
 		frame->sr = data.sr;
 		frame->bid = data.bid;
 		frame->rid = data.rid;
 		frame->push_cid = pkg.cid;
-		memcpy(frame->data, raw_data.get_pointer(), raw_data.get_size());
+		bm.get_buffer_data(data.bid, data.sr, frame->data);
 
 		CELERITY_TRACE("Ready to send {} of buffer {} ({} B) to {}", data.sr, data.bid, frame.get_size_bytes(), data.target);
 
@@ -146,21 +145,19 @@ namespace detail {
 
 	void buffer_transfer_manager::commit_transfer(transfer_in& transfer) {
 		const auto& frame = *transfer.frame;
-		const size_t elem_size = transfer.frame.get_payload_count() / (frame.sr.range[0] * frame.sr.range[1] * frame.sr.range[2]);
-		raw_buffer_data raw_data{elem_size, frame.sr.range};
-		memcpy(raw_data.get_pointer(), frame.data, raw_data.get_size());
+		unique_payload_ptr payload{std::move(transfer.frame)};
+
 		if(frame.rid) {
 			auto& rm = runtime::get_instance().get_reduction_manager();
 			// In some rare situations the local runtime might not yet know about this reduction. Busy wait until it does.
 			while(!rm.has_reduction(frame.rid)) {}
-			rm.push_overlapping_reduction_data(frame.rid, transfer.source_nid, std::move(raw_data));
+			rm.push_overlapping_reduction_data(frame.rid, transfer.source_nid, std::move(payload));
 		} else {
 			auto& bm = runtime::get_instance().get_buffer_manager();
 			// In some rare situations the local runtime might not yet know about this buffer. Busy wait until it does.
 			while(!bm.has_buffer(frame.bid)) {}
-			bm.set_buffer_data(frame.bid, frame.sr.offset, std::move(raw_data));
+			bm.set_buffer_data(frame.bid, frame.sr, std::move(payload));
 		}
-		transfer.frame = {};
 	}
 
 } // namespace detail

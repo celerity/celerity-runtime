@@ -583,10 +583,9 @@ namespace detail {
 			    bid, get_other_target(tgt), {64}, {0}, [](cl::sycl::id<1>, size_t& value) { value = 33; });
 
 			// Add transfer for second half on this side
-			std::vector<size_t> data(32, 77);
-			auto transfer = raw_buffer_data{sizeof(size_t), cl::sycl::range<3>(32, 1, 1)};
-			std::memcpy(transfer.get_pointer(), data.data(), sizeof(size_t) * data.size());
-			bm.set_buffer_data(bid, cl::sycl::id<3>(32, 0, 0), std::move(transfer));
+			unique_payload_ptr data{unique_payload_ptr::allocate_uninitialized<size_t>, 32};
+			std::uninitialized_fill_n(static_cast<size_t*>(data.get_pointer()), 32, size_t{77});
+			bm.set_buffer_data(bid, {{32, 0, 0}, {32, 1, 1}}, std::move(data));
 
 			// Check that transfer has been correctly ingested
 			{
@@ -619,10 +618,9 @@ namespace detail {
 
 			// Set full range to new value.
 			{
-				std::vector<size_t> other(128, 77);
-				auto data = raw_buffer_data{sizeof(size_t), cl::sycl::range<3>(128, 1, 1)};
-				std::memcpy(data.get_pointer(), other.data(), sizeof(size_t) * other.size());
-				bm.set_buffer_data(bid, cl::sycl::id<3>(0, 0, 0), std::move(data));
+				unique_payload_ptr data{unique_payload_ptr::allocate_uninitialized<size_t>, 128};
+				std::uninitialized_fill_n(static_cast<size_t*>(data.get_pointer()), 128, size_t{77});
+				bm.set_buffer_data(bid, {{0, 0, 0}, {128, 1, 1}}, std::move(data));
 			}
 
 			// Now read full range.
@@ -653,10 +651,9 @@ namespace detail {
 
 			// Set data that only partially overlaps with currently allocated range.
 			{
-				std::vector<size_t> init(64, 99);
-				auto data = raw_buffer_data{sizeof(size_t), cl::sycl::range<3>(64, 1, 1)};
-				std::memcpy(data.get_pointer(), init.data(), sizeof(size_t) * init.size());
-				bm.set_buffer_data(bid, cl::sycl::id<3>(32, 0, 0), std::move(data));
+				unique_payload_ptr data{unique_payload_ptr::allocate_uninitialized<size_t>, 64};
+				std::uninitialized_fill_n(static_cast<size_t*>(data.get_pointer()), 64, size_t{99});
+				bm.set_buffer_data(bid, {{32, 0, 0}, {64, 1, 1}}, std::move(data));
 			}
 
 			// Check that second half of buffer has been updated...
@@ -690,9 +687,10 @@ namespace detail {
 			    bid, get_other_target(tgt), {32}, {0}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0]; });
 			buffer_for_each<size_t, 1, cl::sycl::access::mode::read_write, class UKN(update_buffer)>(
 			    bid, tgt, {32}, {0}, [](cl::sycl::id<1> idx, size_t& value) { value += 1; });
-			auto data = bm.get_buffer_data(bid, {0, 0, 0}, {32, 1, 1});
+			std::vector<size_t> data(32);
+			bm.get_buffer_data(bid, {{0, 0, 0}, {32, 1, 1}}, data.data());
 			for(size_t i = 0; i < 32; ++i) {
-				REQUIRE_LOOP(reinterpret_cast<size_t*>(data.get_pointer())[i] == i + 1);
+				REQUIRE_LOOP(data[i] == i + 1);
 			}
 		};
 
@@ -704,9 +702,10 @@ namespace detail {
 			    bid, access_target::DEVICE, {16}, {0}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0]; });
 			buffer_for_each<size_t, 1, cl::sycl::access::mode::discard_write, class UKN(write_second_half)>(
 			    bid, access_target::HOST, {16}, {16}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0] * 2; });
-			auto data = bm.get_buffer_data(bid, {0, 0, 0}, {32, 1, 1});
+			std::vector<size_t> data(32);
+			bm.get_buffer_data(bid, {{0, 0, 0}, {32, 1, 1}}, data.data());
 			for(size_t i = 0; i < 32; ++i) {
-				REQUIRE_LOOP(reinterpret_cast<size_t*>(data.get_pointer())[i] == (i < 16 ? i : 2 * i));
+				REQUIRE_LOOP(data[i] == (i < 16 ? i : 2 * i));
 			}
 		}
 	}

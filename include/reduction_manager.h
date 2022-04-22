@@ -19,7 +19,7 @@ namespace detail {
 		explicit abstract_buffer_reduction(buffer_id bid, bool include_current_buffer_value) : info{bid, include_current_buffer_value} {}
 		virtual ~abstract_buffer_reduction() = default;
 
-		void push_overlapping_data(node_id source_nid, raw_buffer_data data) { overlapping_data.emplace_back(source_nid, std::move(data)); }
+		void push_overlapping_data(node_id source_nid, unique_payload_ptr data) { overlapping_data.emplace_back(source_nid, std::move(data)); }
 
 		virtual void reduce_to_buffer() = 0;
 
@@ -27,7 +27,7 @@ namespace detail {
 
 	  protected:
 		reduction_info info;
-		std::vector<std::pair<node_id, raw_buffer_data>> overlapping_data;
+		std::vector<std::pair<node_id, unique_payload_ptr>> overlapping_data;
 	};
 
 	template <typename DataT, int Dims, typename BinaryOperation>
@@ -41,9 +41,7 @@ namespace detail {
 
 			DataT acc = init;
 			for(auto& [nid, data] : overlapping_data) {
-				assert(data.get_range() == cl::sycl::range<3>(1, 1, 1));
-				DataT other = *static_cast<const DataT*>(data.get_pointer());
-				acc = op(acc, other);
+				acc = op(acc, *static_cast<const DataT*>(data.get_pointer()));
 			}
 
 			auto host_buf = runtime::get_instance().get_buffer_manager().get_host_buffer<DataT, Dims>(
@@ -76,7 +74,7 @@ namespace detail {
 			return reductions.at(rid)->get_info();
 		}
 
-		void push_overlapping_reduction_data(reduction_id rid, node_id source_nid, raw_buffer_data data) {
+		void push_overlapping_reduction_data(reduction_id rid, node_id source_nid, unique_payload_ptr data) {
 			std::lock_guard lock{mutex};
 			reductions.at(rid)->push_overlapping_data(source_nid, std::move(data));
 		}
