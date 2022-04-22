@@ -211,7 +211,10 @@ namespace detail {
 			auto tsk = task_mngr.get_task(data.tid);
 			for(auto rid : tsk->get_reductions()) {
 				auto reduction = reduction_mngr.get_reduction(rid);
-				reduction_mngr.push_overlapping_reduction_data(rid, local_nid, buffer_mngr.get_buffer_data(reduction.output_buffer_id, {}, {1, 1, 1}));
+				const auto element_size = buffer_mngr.get_buffer_info(reduction.output_buffer_id).element_size;
+				unique_payload_ptr operand{unique_payload_ptr::allocate_uninitialized<std::byte>, element_size};
+				buffer_mngr.get_buffer_data(reduction.output_buffer_id, {{}, {1, 1, 1}}, operand.get_pointer());
+				reduction_mngr.push_overlapping_reduction_data(rid, local_nid, std::move(operand));
 			}
 
 			if(queue.is_profiling_enabled()) {

@@ -30,10 +30,10 @@ namespace detail {
 		lifecycle_cb(buffer_lifecycle_event::UNREGISTERED, bid);
 	}
 
-	raw_buffer_data buffer_manager::get_buffer_data(buffer_id bid, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range) {
+	void buffer_manager::get_buffer_data(buffer_id bid, const subrange<3>& sr, void* out_linearized) {
 		std::unique_lock lock(mutex);
 		assert(buffers.count(bid) == 1 && (buffers.at(bid).device_buf.is_allocated() || buffers.at(bid).host_buf.is_allocated()));
-		auto data_locations = newest_data_location.at(bid).get_region_values(subrange_to_grid_box(subrange<3>(offset, range)));
+		auto data_locations = newest_data_location.at(bid).get_region_values(subrange_to_grid_box(sr));
 
 		// Slow path: We need to obtain current data from both host and device.
 		if(data_locations.size() > 1) {
@@ -42,34 +42,33 @@ namespace detail {
 
 			// Make sure newest data resides on the host.
 			// But first, we need to check whether the current host buffer is able to hold the full data range.
-			const auto info = is_resize_required(existing_buf, range, offset);
+			const auto info = is_resize_required(existing_buf, sr.range, sr.offset);
 			backing_buffer replacement_buf;
 			if(info.resize_required) {
-				// TODO: Do we really want to allocate host memory for this..? We could also make raw_buffer_data "coherent" directly.
+				// TODO: Do we really want to allocate host memory for this..? We could also make the buffer storage "coherent" directly.
 				replacement_buf = backing_buffer{std::unique_ptr<buffer_storage>(existing_buf.storage->make_new_of_same_type(info.new_range)), info.new_offset};
 			}
-			existing_buf = make_buffer_subrange_coherent(bid, access_mode::read, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
+			existing_buf = make_buffer_subrange_coherent(bid, access_mode::read, std::move(existing_buf), sr, std::move(replacement_buf));
 
-			data_locations = {{subrange_to_grid_box(subrange<3>(offset, range)), data_location::HOST}};
+			data_locations = {{subrange_to_grid_box(sr), data_location::HOST}};
 		}
 
 		// get_buffer_data will race with pending transfers for the same subrange. In case there are pending transfers and a host buffer does not exist yet,
 		// these transfers cannot easily be flushed here as creating a host buffer requires a templated context that knows about DataT.
-		assert(std::none_of(scheduled_transfers[bid].begin(), scheduled_transfers[bid].end(), [&](const transfer& t) {
-			return subrange_to_grid_box({offset, range}).intersectsWith(subrange_to_grid_box({t.target_offset, t.data.get_range()}));
-		}));
+		assert(std::none_of(scheduled_transfers[bid].begin(), scheduled_transfers[bid].end(),
+		    [&](const transfer& t) { return subrange_to_grid_box(sr).intersectsWith(subrange_to_grid_box(t.sr)); }));
 
 		if(data_locations[0].second == data_location::HOST || data_locations[0].second == data_location::HOST_AND_DEVICE) {
-			return buffers.at(bid).host_buf.storage->get_data(buffers.at(bid).host_buf.get_local_offset(offset), range);
+			return buffers.at(bid).host_buf.storage->get_data({buffers.at(bid).host_buf.get_local_offset(sr.offset), sr.range}, out_linearized);
 		}
 
-		return buffers.at(bid).device_buf.storage->get_data(buffers.at(bid).device_buf.get_local_offset(offset), range);
+		return buffers.at(bid).device_buf.storage->get_data({buffers.at(bid).device_buf.get_local_offset(sr.offset), sr.range}, out_linearized);
 	}
 
-	void buffer_manager::set_buffer_data(buffer_id bid, cl::sycl::id<3> offset, raw_buffer_data&& data) {
+	void buffer_manager::set_buffer_data(buffer_id bid, const subrange<3>& sr, unique_payload_ptr in_linearized) {
 		std::unique_lock lock(mutex);
 		assert(buffer_infos.count(bid) == 1);
-		scheduled_transfers[bid].push_back({std::move(data), offset});
+		scheduled_transfers[bid].push_back({std::move(in_linearized), sr});
 	}
 
 	bool buffer_manager::try_lock(buffer_lock_id id, const std::unordered_set<buffer_id>& buffers) {
@@ -150,7 +149,7 @@ namespace detail {
 			auto& scheduled_buffer_transfers = scheduled_transfers[bid];
 			remaining_transfers.reserve(scheduled_buffer_transfers.size() / 2);
 			for(auto& t : scheduled_buffer_transfers) {
-				auto t_region = subrange_to_grid_box({t.target_offset, t.data.get_range()});
+				auto t_region = subrange_to_grid_box(t.sr);
 
 				// Check whether this transfer applies to the current request.
 				auto t_minus_coherent_region = GridRegion<3>::difference(t_region, coherent_box);
@@ -167,10 +166,13 @@ namespace detail {
 						assert(detail::access::mode_traits::is_consumer(mode));
 						auto intersection = GridRegion<3>::intersect(t_region, coherent_box);
 						remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, intersection);
+						const auto element_size = buffer_infos.at(bid).element_size;
 						intersection.scanByBoxes([&](const GridBox<3>& box) {
 							auto sr = grid_box_to_subrange(box);
-							auto partial_t = t.data.copy(sr.offset - t.target_offset, sr.range);
-							target_buffer.storage->set_data(target_buffer.get_local_offset(sr.offset), std::move(partial_t));
+							// TODO can this temp buffer be avoided?
+							unique_payload_ptr tmp{unique_payload_ptr::allocate_uninitialized<std::byte>, sr.range.size() * element_size};
+							linearize_subrange(t.linearized.get_pointer(), tmp.get_pointer(), element_size, t.sr.range, {sr.offset - t.sr.offset, sr.range});
+							target_buffer.storage->set_data({target_buffer.get_local_offset(sr.offset), sr.range}, tmp.get_pointer());
 							updated_region = GridRegion<3>::merge(updated_region, box);
 						});
 					}
@@ -182,7 +184,7 @@ namespace detail {
 				// Transfer applies fully.
 				assert(detail::access::mode_traits::is_consumer(mode));
 				remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, t_region);
-				target_buffer.storage->set_data(target_buffer.get_local_offset(t.target_offset), std::move(t.data));
+				target_buffer.storage->set_data({target_buffer.get_local_offset(t.sr.offset), t.sr.range}, t.linearized.get_pointer());
 				updated_region = GridRegion<3>::merge(updated_region, t_region);
 			}
 			// The target buffer now has the newest data in this region.

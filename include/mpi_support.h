@@ -43,6 +43,8 @@ class unique_frame_ptr : private std::unique_ptr<Frame, unique_frame_delete<Fram
   private:
 	using impl = std::unique_ptr<Frame, unique_frame_delete<Frame>>;
 
+	friend class unique_payload_ptr;
+
   public:
 	using payload_type = typename Frame::payload_type;
 
@@ -86,6 +88,31 @@ class unique_frame_ptr : private std::unique_ptr<Frame, unique_frame_delete<Fram
 		}
 		return static_cast<Frame*>(mem);
 	}
+};
+
+class unique_payload_ptr : private std::unique_ptr<void, std::function<void(void*)>> {
+  private:
+	using impl = std::unique_ptr<void, std::function<void(void*)>>;
+
+  public:
+	template <typename T>
+	struct allocate_uninitialized_tag {};
+
+	template <typename T>
+	inline static constexpr allocate_uninitialized_tag<T> allocate_uninitialized;
+
+	unique_payload_ptr() noexcept = default;
+
+	template <typename T>
+	explicit unique_payload_ptr(allocate_uninitialized_tag<T>, size_t count) : impl(operator new(count * sizeof(T)), [](void* p) { operator delete(p); }) {}
+
+	template <typename Frame>
+	explicit unique_payload_ptr(unique_frame_ptr<Frame> frame) : impl(frame.release() + 1, [](void* p) { delete(static_cast<Frame*>(p) - 1); }) {}
+
+	void* get_pointer() { return impl::get(); }
+	const void* get_pointer() const { return impl::get(); }
+
+	using impl::operator bool;
 };
 
 } // namespace celerity::detail

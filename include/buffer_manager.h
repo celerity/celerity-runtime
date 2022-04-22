@@ -14,15 +14,13 @@
 #include "access_modes.h"
 #include "buffer_storage.h"
 #include "device_queue.h"
+#include "mpi_support.h"
 #include "ranges.h"
 #include "region_map.h"
 #include "types.h"
 
 namespace celerity {
 namespace detail {
-
-	class raw_buffer_data;
-
 
 	/**
 	 * The buffer_manager keeps track of all Celerity buffers currently existing within the runtime.
@@ -92,6 +90,7 @@ namespace detail {
 
 		struct buffer_info {
 			cl::sycl::range<3> range = {1, 1, 1};
+			size_t element_size = 0;
 			bool is_host_initialized;
 		};
 
@@ -124,7 +123,7 @@ namespace detail {
 			{
 				std::unique_lock lock(mutex);
 				bid = buffer_count++;
-				buffer_infos[bid] = buffer_info{range, is_host_initialized};
+				buffer_infos[bid] = buffer_info{range, sizeof(DataT), is_host_initialized};
 				newest_data_location.emplace(bid, region_map<data_location>(range, data_location::NOWHERE));
 
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
@@ -179,12 +178,8 @@ namespace detail {
 		 * TODO:
 		 * - Ideally we would transfer data directly out of the original buffer (at least on the host, need RDMA otherwise).
 		 * - We'd have to consider the data striding in the MPI data type we build.
-		 *
-		 * @param bid
-		 * @param offset
-		 * @param range
 		 */
-		raw_buffer_data get_buffer_data(buffer_id bid, const cl::sycl::id<3>& offset, const cl::sycl::range<3>& range);
+		void get_buffer_data(buffer_id bid, const subrange<3>& sr, void* out_linearized);
 
 		/**
 		 * Updates a buffer's content with the provided @p data.
@@ -195,7 +190,7 @@ namespace detail {
 		 * - Host buffer might not be large enough.
 		 * - H->D transfers currently work better for contiguous copies.
 		 */
-		void set_buffer_data(buffer_id bid, cl::sycl::id<3> offset, raw_buffer_data&& data);
+		void set_buffer_data(buffer_id bid, const subrange<3>& sr, unique_payload_ptr in_linearized);
 
 		template <typename DataT, int Dims>
 		access_info<DataT, Dims, device_buffer> get_device_buffer(
@@ -338,8 +333,8 @@ namespace detail {
 		};
 
 		struct transfer {
-			raw_buffer_data data;
-			cl::sycl::id<3> target_offset;
+			unique_payload_ptr linearized;
+			subrange<3> sr;
 		};
 
 		struct resize_info {
