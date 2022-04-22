@@ -127,7 +127,7 @@ namespace detail {
 		 */
 		void maybe_destroy_runtime() const;
 
-		void flush_command(node_id target, const command_pkg& pkg, const std::vector<command_id>& dependencies);
+		void flush_command(node_id target, unique_frame_ptr<command_frame> frame);
 
 		// ------------------------------------------ TESTING UTILS ------------------------------------------
 		// We have to jump through some hoops to be able to re-initialize the runtime for unit testing.

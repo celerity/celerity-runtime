@@ -3,18 +3,18 @@
 #include <functional>
 #include <vector>
 
+#include "command.h"
 #include "types.h"
 
 namespace celerity {
 namespace detail {
 
-	struct command_pkg;
 	class abstract_command;
 	class task_command;
 	class command_graph;
 
 	class graph_serializer {
-		using flush_callback = std::function<void(node_id, command_pkg, const std::vector<command_id>&)>;
+		using flush_callback = std::function<void(node_id, unique_frame_ptr<command_frame>)>;
 
 	  public:
 		/*
