@@ -24,18 +24,19 @@ namespace detail {
 		    runtime::get_instance().get_buffer_manager().get_buffer_data(data.bid, cl::sycl::range<3>(data.sr.offset[0], data.sr.offset[1], data.sr.offset[2]),
 		        cl::sycl::range<3>(data.sr.range[0], data.sr.range[1], data.sr.range[2]));
 
-		unique_frame_ptr<data_frame> frame(from_payload_size, raw_data.get_size());
+		unique_frame_ptr<data_frame> frame(from_payload_count, raw_data.get_size());
 		frame->sr = data.sr;
 		frame->bid = data.bid;
 		frame->rid = data.rid;
 		frame->push_cid = pkg.cid;
 		memcpy(frame->data, raw_data.get_pointer(), raw_data.get_size());
 
-		CELERITY_TRACE("Ready to send {} of buffer {} ({} B) to {}", data.sr, data.bid, frame.get_payload_size(), data.target);
+		CELERITY_TRACE("Ready to send {} of buffer {} ({} B) to {}", data.sr, data.bid, frame.get_size_bytes(), data.target);
 
 		// Start transmitting data
 		MPI_Request req;
-		MPI_Isend(frame.get_pointer(), static_cast<int>(frame.get_frame_size_bytes()), MPI_BYTE, static_cast<int>(data.target), mpi_support::TAG_DATA_TRANSFER,
+		assert(frame.get_size_bytes() <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		MPI_Isend(frame.get_pointer(), static_cast<int>(frame.get_size_bytes()), MPI_BYTE, static_cast<int>(data.target), mpi_support::TAG_DATA_TRANSFER,
 		    MPI_COMM_WORLD, &req);
 
 		auto transfer = std::make_unique<transfer_out>();
@@ -91,7 +92,7 @@ namespace detail {
 
 		auto transfer = std::make_unique<transfer_in>();
 		transfer->source_nid = static_cast<node_id>(status.MPI_SOURCE);
-		transfer->frame = unique_frame_ptr<data_frame>(from_frame_bytes, static_cast<size_t>(frame_bytes));
+		transfer->frame = unique_frame_ptr<data_frame>(from_size_bytes, static_cast<size_t>(frame_bytes));
 
 		// Start receiving data
 		MPI_Imrecv(transfer->frame.get_pointer(), frame_bytes, MPI_BYTE, &msg, &transfer->request);
@@ -145,7 +146,7 @@ namespace detail {
 
 	void buffer_transfer_manager::commit_transfer(transfer_in& transfer) {
 		const auto& frame = *transfer.frame;
-		const size_t elem_size = transfer.frame.get_payload_size() / (frame.sr.range[0] * frame.sr.range[1] * frame.sr.range[2]);
+		const size_t elem_size = transfer.frame.get_payload_count() / (frame.sr.range[0] * frame.sr.range[1] * frame.sr.range[2]);
 		raw_buffer_data raw_data{elem_size, frame.sr.range};
 		memcpy(raw_data.get_pointer(), frame.data, raw_data.get_size());
 		if(frame.rid) {

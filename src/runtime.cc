@@ -263,8 +263,8 @@ namespace detail {
 		// Even though command packages are small enough to use a blocking send we want to be able to send to the master node as well,
 		// which is why we have to use Isend after all. We also have to make sure that the buffer stays around until the send is complete.
 		MPI_Request req;
-		MPI_Isend(frame.get_pointer(), static_cast<int>(frame.get_frame_size_bytes()), MPI_BYTE, static_cast<int>(target), mpi_support::TAG_CMD, MPI_COMM_WORLD,
-		    &req);
+		MPI_Isend(
+		    frame.get_pointer(), static_cast<int>(frame.get_size_bytes()), MPI_BYTE, static_cast<int>(target), mpi_support::TAG_CMD, MPI_COMM_WORLD, &req);
 		active_flushes.push_back(flush_handle{std::move(frame), req});
 
 		// Cleanup finished transfers.

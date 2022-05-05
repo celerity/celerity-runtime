@@ -167,15 +167,15 @@ namespace test_utils {
 	  public:
 		auto get_cb() {
 			return [this](detail::node_id nid, detail::unique_frame_ptr<detail::command_frame> frame) {
-				for(size_t i = 0; i < frame.get_payload_size(); ++i) {
+#ifndef NDEBUG
+				for(const auto dcid : frame->iter_dependencies()) {
 					// Sanity check: All dependencies must have already been flushed
-					const auto& dep = frame->dependencies[i];
-					(void)dep;
-					assert(commands.count(dep) == 1);
+					assert(commands.count(dcid) == 1);
 				}
+#endif
 
 				const detail::command_id cid = frame->pkg.cid;
-				commands[cid] = {nid, frame->pkg, std::vector(frame->dependencies, frame->dependencies + frame.get_payload_size())};
+				commands[cid] = {nid, frame->pkg, std::vector(frame->iter_dependencies().begin(), frame->iter_dependencies().end())};
 				if(const auto tid = frame->pkg.get_tid()) { by_task[*tid].insert(cid); }
 				by_node[nid].insert(cid);
 			};

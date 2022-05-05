@@ -44,7 +44,7 @@ namespace detail {
 			reduction_id rid; // zero if this does not belong to a reduction
 			subrange<3> sr;
 			command_id push_cid;
-			alignas(std::max_align_t) payload_type data[0];
+			alignas(std::max_align_t) payload_type data[]; // max_align to allow reinterpret_casting a pointer to this member to any buffer element pointer
 		};
 
 		struct transfer_in {
