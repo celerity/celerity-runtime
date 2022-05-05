@@ -224,13 +224,17 @@ namespace detail {
 	struct command_frame {
 		using payload_type = command_id;
 
+		command_pkg pkg;
+		size_t num_dependencies = 0; // This information is duplicated from unique_frame_ptr::get_payload_count() so that we can still use a
+		                             // `const command_frame &` without its owning pointer
+		payload_type dependencies[];
+
 		// variable-sized structure
 		command_frame() = default;
 		command_frame(const command_frame&) = delete;
 		command_frame& operator=(const command_frame&) = delete;
 
-		command_pkg pkg;
-		payload_type dependencies[0];
+		iterable_range<const command_id*> iter_dependencies() const { return {dependencies, dependencies + num_dependencies}; }
 	};
 
 } // namespace detail

@@ -88,7 +88,7 @@ namespace detail {
 	void graph_serializer::serialize_and_flush(abstract_command* cmd, const std::vector<command_id>& dependencies) const {
 		assert(!cmd->is_flushed() && "Command has already been flushed.");
 
-		unique_frame_ptr<command_frame> frame(from_payload_size, dependencies.size());
+		unique_frame_ptr<command_frame> frame(from_payload_count, dependencies.size());
 
 		frame->pkg.cid = cmd->get_cid();
 		if(const auto* ecmd = dynamic_cast<epoch_command*>(cmd)) {
@@ -108,6 +108,7 @@ namespace detail {
 			assert(false && "Unknown command");
 		}
 
+		frame->num_dependencies = dependencies.size();
 		std::copy(dependencies.begin(), dependencies.end(), frame->dependencies);
 
 		flush_cb(cmd->get_nid(), std::move(frame));
