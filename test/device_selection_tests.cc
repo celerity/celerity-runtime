@@ -1,17 +1,34 @@
-#include "catch2/catch_test_macros.hpp"
-#include "catch2/generators/catch_generators.hpp"
-#include "catch2/matchers/catch_matchers_string.hpp"
-#include "spdlog/sinks/ostream_sink.h"
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
+
+#include "log.h" // Need to include before spdlog
+#include <spdlog/sinks/ostream_sink.h>
+
 #include "test_utils.h"
-#include <celerity.h>
+
+using dt = sycl::info::device_type;
 
 struct mock_platform;
+
+struct type_and_name {
+	dt type;
+	std::string name;
+};
+
 struct mock_device {
-	mock_device() : platform(nullptr), id(0), type(sycl::info::device_type::gpu) {}
+	mock_device() : id(0), type(dt::gpu), platform(nullptr) {}
 
-	mock_device(size_t id, mock_platform& platform, sycl::info::device_type type = sycl::info::device_type::gpu) : platform(&platform), id(id), type(type) {}
+	mock_device(size_t id, mock_platform& platform, dt type) : mock_device(id, platform, {type, fmt::format("Mock device {}", id)}){};
 
-	mock_platform& get_platform() const { return *platform; }
+	mock_device(size_t id, mock_platform& platform, const type_and_name& tan) : id(id), type(tan.type), name(tan.name), platform(&platform) {}
+
+	bool operator==(const mock_device& other) const { return other.id == id; }
+
+	mock_platform& get_platform() const {
+		assert(platform != nullptr);
+		return *platform;
+	}
 
 	template <sycl::info::device Param>
 	auto get_info() const {
@@ -19,32 +36,47 @@ struct mock_device {
 		if constexpr(Param == sycl::info::device::device_type) { return type; }
 	}
 
-	bool operator==(const mock_device& other) const { return other.id == id; }
+	dt get_type() const { return type; }
 
-	sycl::info::device_type get_type() const { return type; }
-
-	size_t get_id() { return id; }
+	size_t get_id() const { return id; }
 
   private:
-	mock_platform* platform;
-	std::string name = "bar";
 	size_t id;
-	sycl::info::device_type type;
+	dt type;
+	std::string name;
+	mock_platform* platform;
 };
+
+struct mock_platform_factory {
+  public:
+	template <typename... Args>
+	auto create_platforms(Args... args) {
+		return std::array<mock_platform, sizeof...(args)>{mock_platform(next_id++, args)...};
+	}
+
+  private:
+	size_t next_id = 0;
+};
+
 struct mock_platform {
-	mock_platform(size_t id) : id(id) {}
+	mock_platform(size_t id, std::optional<std::string> name) : id(id), name(name.has_value() ? std::move(*name) : fmt::format("Mock platform {}", id)) {}
 
-	void set_devices(std::vector<mock_device> devices) { this->devices = devices; }
+	template <typename... Args>
+	auto create_devices(Args... args) {
+		std::array<mock_device, sizeof...(args)> new_devices = {mock_device(next_device_id++, *this, args)...};
+		devices.insert(devices.end(), new_devices.begin(), new_devices.end());
+		return new_devices;
+	}
 
-	std::vector<mock_device> get_devices(sycl::info::device_type type = sycl::info::device_type::all) const {
-		if(type != sycl::info::device_type::all) {
+	std::vector<mock_device> get_devices(dt type = dt::all) const {
+		if(type != dt::all) {
 			std::vector<mock_device> devices_with_type;
 			for(auto device : devices) {
 				if(device.get_type() == type) { devices_with_type.emplace_back(device); }
 			}
 			return devices_with_type;
-		} else
-			return devices;
+		}
+		return devices;
 	}
 
 	template <sycl::info::platform Param>
@@ -52,18 +84,17 @@ struct mock_platform {
 		return name;
 	}
 
-	void set_info(std::string name) { this->name = name; }
+	bool operator==(const mock_platform& other) const { return other.id == id; }
+	bool operator!=(const mock_platform& other) const { return !(*this == other); }
 
-	bool operator!=(const mock_platform& other) const { return other.id != id; }
-
-	size_t get_id() { return id; }
+	size_t get_id() const { return id; }
 
   private:
-	std::vector<mock_device> devices;
 	size_t id;
-	std::string name = "foo";
+	std::string name;
+	size_t next_device_id = 0;
+	std::vector<mock_device> devices;
 };
-
 
 namespace celerity::detail {
 struct config_testspy {
@@ -74,194 +105,127 @@ struct config_testspy {
 
 TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prefers user specified device pointer", "[device-selection]") {
 	celerity::detail::config cfg(nullptr, nullptr);
+	mock_platform_factory mpf;
 
-	mock_platform tp(68);
-	mock_device td(42, tp);
-	tp.set_devices({td});
+	auto [mp] = mpf.create_platforms(std::nullopt);
+	auto md = mp.create_devices(dt::gpu)[0];
 
-	auto device = pick_device(cfg, td, std::vector<mock_platform>{tp});
-	CHECK(device == td);
+	auto device = pick_device(cfg, md, std::vector<mock_platform>{mp});
+	CHECK(device == md);
 }
 
 TEST_CASE_METHOD(celerity::test_utils::mpi_fixture,
-    "pick_device automatically selects a gpu device if available and otherwise falls back to the first device available", "[device-selection]") {
+    "pick_device automatically selects a gpu device if available, otherwise falls back to the first device available", "[device-selection]") {
 	celerity::detail::config cfg(nullptr, nullptr);
+	mock_platform_factory mpf;
 
-	using device_t = sycl::info::device_type;
-
-	auto dv_type_1 = GENERATE(as<sycl::info::device_type>(), device_t::gpu, device_t::accelerator, device_t::cpu, device_t::custom, device_t::host);
+	auto dv_type_1 = GENERATE(as<dt>(), dt::gpu, dt::accelerator, dt::cpu, dt::custom, dt::host);
 	CAPTURE(dv_type_1);
 
-	mock_platform tp_1(0);
-	mock_device td_1(0, tp_1, dv_type_1);
-	tp_1.set_devices({td_1});
-
-	auto dv_type_2 = GENERATE(as<sycl::info::device_type>(), device_t::gpu, device_t::accelerator, device_t::cpu, device_t::custom, device_t::host);
+	auto dv_type_2 = GENERATE(as<dt>(), dt::gpu, dt::accelerator, dt::cpu, dt::custom, dt::host);
 	CAPTURE(dv_type_2);
 
-	mock_platform tp_2(1);
-	mock_device td_2(1, tp_2, dv_type_2);
-	tp_2.set_devices({td_2});
+	auto [mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt);
 
-	auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{tp_1, tp_2});
-	if(dv_type_1 == device_t::gpu || (dv_type_1 != device_t::gpu && dv_type_2 != device_t::gpu)) {
-		CHECK(device == td_1);
+	auto md_1 = mp_1.create_devices(dv_type_1)[0];
+	auto md_2 = mp_2.create_devices(dv_type_2)[0];
+
+	auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_1, mp_2});
+	if(dv_type_1 == dt::gpu || (dv_type_1 != dt::gpu && dv_type_2 != dt::gpu)) {
+		CHECK(device == md_1);
 	} else {
-		CHECK(device == td_2);
+		CHECK(device == md_2);
 	}
 }
 
-TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device selects device using CELERITY_DEVICES", "[device-selection][device-cfg]") {
+TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device selects device using CELERITY_DEVICES", "[device-selection]") {
 	celerity::detail::config cfg(nullptr, nullptr);
+	mock_platform_factory mpf;
 
-	mock_platform tp_0(0);
-	mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-	tp_0.set_devices({td_1});
+	auto [mp_0, mp_1] = mpf.create_platforms(std::nullopt, std::nullopt);
+	mp_0.create_devices(dt::cpu, dt::gpu);
+	auto md = mp_1.create_devices(dt::gpu, dt::gpu, dt::cpu)[1];
 
-	mock_platform tp_1(1);
-	mock_device td_2(0, tp_1, sycl::info::device_type::gpu);
-	mock_device td_3(1, tp_1, sycl::info::device_type::gpu);
-	tp_1.set_devices({td_2, td_3});
-
-	celerity::detail::device_config d_cfg{tp_1.get_id(), td_3.get_id()};
+	celerity::detail::device_config d_cfg{1, 1};
 	celerity::detail::config_testspy::set_mock_device_cfg(cfg, d_cfg);
 
-	auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{tp_0, tp_1});
-	CHECK(device == td_3);
+	auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1});
+	CHECK(device == md);
 }
 
-TEST_CASE_METHOD(celerity::test_utils::mpi_fixture,
-    "pick_device selects a GPU for each local_rank or falls back to any type of sufficient device for all ranks", "[device-selection][host-cfg]") {
+TEST_CASE_METHOD(
+    celerity::test_utils::mpi_fixture, "pick_device attempts to select a unique device from a single platform for each local node", "[device-selection]") {
 	celerity::detail::config cfg(nullptr, nullptr);
 
-	SECTION("pick_device unique GPU per node") {
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
+	SECTION("preferring GPUs over other device types") {
+		mock_platform_factory mpf;
 
-		mock_platform tp_1(1);
-		mock_device td_2(1, tp_1, sycl::info::device_type::gpu);
-		mock_device td_3(2, tp_1, sycl::info::device_type::gpu);
-		mock_device td_4(3, tp_1, sycl::info::device_type::gpu);
-		mock_device td_5(4, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2, td_3, td_4, td_5});
+		const size_t node_count = 4;
+		const size_t local_rank = 3;
 
-		size_t node_count = 4;
-		size_t local_rank = 2;
-		size_t local_num_cpus = 1;
+		auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
+		mp_0.create_devices(dt::cpu);
+		auto md = mp_1.create_devices(dt::gpu, dt::gpu, dt::gpu, dt::gpu)[local_rank];
+		mp_2.create_devices(dt::accelerator, dt::accelerator, dt::accelerator, dt::accelerator);
 
-		celerity::detail::host_config h_cfg{node_count, local_rank, local_num_cpus};
+		celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
-		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{tp_0, tp_1});
-		CHECK(device == td_4);
+		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1, mp_2});
+		CHECK(device == md);
 	}
 
-	SECTION("pick_device prefers unique GPU over other devices") {
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
+	SECTION("falling back to other device types when an insufficient number of GPUs is available") {
+		mock_platform_factory mpf;
 
-		mock_platform tp_1(1);
-		mock_device td_2(1, tp_1, sycl::info::device_type::gpu);
-		mock_device td_3(2, tp_1, sycl::info::device_type::gpu);
-		mock_device td_4(3, tp_1, sycl::info::device_type::gpu);
-		mock_device td_5(4, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2, td_3, td_4, td_5});
+		const size_t node_count = 4;
+		const size_t local_rank = 2;
 
-		mock_platform tp_2(1);
-		mock_device td_6(5, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_7(6, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_8(7, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_9(8, tp_2, sycl::info::device_type::accelerator);
-		tp_2.set_devices({td_6, td_7, td_8, td_9});
+		auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
+		mp_0.create_devices(dt::cpu);
+		mp_1.create_devices(dt::gpu, dt::gpu, dt::gpu);
+		auto md = mp_2.create_devices(dt::accelerator, dt::accelerator, dt::accelerator, dt::accelerator)[local_rank];
 
-		size_t node_count = 4;
-		size_t local_rank = 3;
-		size_t local_num_cpus = 1;
-
-		celerity::detail::host_config h_cfg{node_count, local_rank, local_num_cpus};
+		celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
-		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{tp_0, tp_1, tp_2});
-		CHECK(device == td_5);
+		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1, mp_2});
+		CHECK(device == md);
 	}
 
-	SECTION("pick_device falls back to other devices with insufficient GPUs") {
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
+	SECTION("falling back to a single GPU for all nodes if an insufficient number of GPUs and other device types is available") {
+		mock_platform_factory mpf;
 
-		mock_platform tp_1(1);
-		mock_device td_2(1, tp_1, sycl::info::device_type::gpu);
-		mock_device td_3(2, tp_1, sycl::info::device_type::gpu);
-		mock_device td_4(3, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2, td_3, td_4});
+		auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
+		mp_0.create_devices(dt::cpu);
+		auto md = mp_1.create_devices(dt::gpu)[0];
+		mp_2.create_devices(dt::accelerator, dt::accelerator, dt::accelerator);
 
-		mock_platform tp_2(2);
-		mock_device td_5(4, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_6(5, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_7(6, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_8(7, tp_2, sycl::info::device_type::accelerator);
-		tp_2.set_devices({td_5, td_6, td_7, td_8});
+		const size_t node_count = 4;
+		const size_t local_rank = GENERATE(0, 3);
 
-		size_t node_count = 4;
-		size_t local_rank = 3;
-		size_t local_num_cpus = 1;
-
-		celerity::detail::host_config h_cfg{node_count, local_rank, local_num_cpus};
+		celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
-		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{tp_0, tp_1, tp_2});
-		CHECK(device == td_8);
+		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1, mp_2});
+		CHECK(device == md);
 	}
 
-	SECTION("pick_device prefers the first available GPU with insufficient GPUs and other devices") {
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
+	SECTION("falling back to a single device of any type for all nodes if an insufficient number of GPUs or other device types is available") {
+		mock_platform_factory mpf;
 
-		mock_platform tp_1(1);
-		mock_device td_2(1, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2});
+		auto [mp_0, mp_1] = mpf.create_platforms(std::nullopt, std::nullopt);
+		auto md = mp_0.create_devices(dt::cpu)[0];
+		mp_1.create_devices(dt::accelerator, dt::accelerator, dt::accelerator);
 
-		mock_platform tp_2(2);
-		mock_device td_3(2, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_4(3, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_5(4, tp_2, sycl::info::device_type::accelerator);
-		tp_2.set_devices({td_3, td_4, td_5});
+		const size_t node_count = 4;
+		const size_t local_rank = GENERATE(0, 3);
 
-		size_t node_count = 4;
-		size_t local_rank = 3;
-		size_t local_num_cpus = 1;
-
-		celerity::detail::host_config h_cfg{node_count, local_rank, local_num_cpus};
+		celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
-		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{tp_0, tp_1, tp_2});
-		CHECK(device == td_2);
-	}
-
-	SECTION("pick_device prefers the first available device(any) with no GPUs") {
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
-
-		mock_platform tp_1(1);
-		mock_device td_2(1, tp_1, sycl::info::device_type::accelerator);
-		mock_device td_3(2, tp_1, sycl::info::device_type::accelerator);
-		mock_device td_4(3, tp_1, sycl::info::device_type::accelerator);
-		tp_1.set_devices({td_2, td_3, td_4});
-
-		size_t node_count = 4;
-		size_t local_rank = 3;
-		size_t local_num_cpus = 1;
-
-		celerity::detail::host_config h_cfg{node_count, local_rank, local_num_cpus};
-		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
-
-		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{tp_0, tp_1});
-		CHECK(device == td_1);
+		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1});
+		CHECK(device == md);
 	}
 }
 
@@ -269,14 +233,14 @@ class log_capture {
   public:
 	log_capture(spdlog::level::level_enum level = spdlog::level::trace) {
 		auto logger = spdlog::default_logger();
-		auto ostream_info_sink = std::make_shared<spdlog::sinks::ostream_sink_st>(oss);
-		ostream_info_sink->set_level(level);
-		logger->sinks().push_back(ostream_info_sink);
+		ostream_sink = std::make_shared<spdlog::sinks::ostream_sink_st>(oss);
+		ostream_sink->set_level(level);
+		logger->sinks().push_back(ostream_sink);
 	}
 
 	~log_capture() {
 		auto logger = spdlog::default_logger();
-		// TODO: Assert that no other sink has been pushed in the meantime
+		assert(*logger->sinks().rbegin() == ostream_sink);
 		logger->sinks().pop_back();
 	}
 
@@ -284,145 +248,115 @@ class log_capture {
 
   private:
 	std::ostringstream oss;
+	std::shared_ptr<spdlog::sinks::ostream_sink_st> ostream_sink;
 };
 
-TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected info/warn messages", "[device-selection][msg]") {
+TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected info/warn messages", "[device-selection]") {
 	celerity::detail::config cfg(nullptr, nullptr);
-	SECTION("device_pointer is specified by the user") {
+	SECTION("when device pointer is specified by user") {
 		log_capture lc;
-		mock_platform tp(68);
-		mock_device td(42, tp);
-		tp.set_devices({{5, tp}, {7, tp}, {9, tp}});
+		mock_platform tp(68, "My platform");
+		auto td = tp.create_devices(dt::gpu, type_and_name{dt::gpu, "My device"}, dt::gpu)[1];
 
 		auto device = pick_device(cfg, td, std::vector<mock_platform>{tp});
-		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("Using platform 'foo', device 'bar' (specified by user)"));
+		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("Using platform 'My platform', device 'My device' (specified by user)"));
 	}
 
-	SECTION("CELERITY_DEVICE is set by the user") {
+	SECTION("when CELERITY_DEVICES is set") {
 		log_capture lc;
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
+		mock_platform_factory mpf;
 
-		mock_platform tp_1(1);
-		mock_device td_2(0, tp_1, sycl::info::device_type::gpu);
-		mock_device td_3(1, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2, td_3});
+		auto [mp_0, mp_1] = mpf.create_platforms(std::nullopt, "My platform");
+		mp_0.create_devices(dt::cpu);
+		mp_1.create_devices(dt::gpu, type_and_name{dt::gpu, "My device"});
 
-		celerity::detail::device_config d_cfg{td_3.get_id(), tp_1.get_id()};
+		celerity::detail::device_config d_cfg{1, 1};
 		celerity::detail::config_testspy::set_mock_device_cfg(cfg, d_cfg);
 
-		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{tp_0, tp_1});
-		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("Using platform 'foo', device 'bar' (set by CELERITY_DEVICES: platform 1, device 1)"));
+		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1});
+		CHECK_THAT(lc.get_log(),
+		    Catch::Matchers::ContainsSubstring("Using platform 'My platform', device 'My device' (set by CELERITY_DEVICES: platform 1, device 1)"));
 	}
 
-
-	SECTION("pick_device selects a gpu/any per node automaticaly") {
+	SECTION("when automatically selecting a device") {
 		log_capture lc;
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
+		mock_platform_factory mpf;
 
-		mock_platform tp_1(1);
-		mock_device td_2(0, tp_1, sycl::info::device_type::gpu);
-		mock_device td_3(1, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2, td_3});
+		auto [mp_0, mp_1] = mpf.create_platforms(std::nullopt, "My platform");
+		mp_0.create_devices(dt::cpu);
+		mp_1.create_devices(type_and_name{dt::gpu, "My device"}, dt::gpu);
 
-		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{tp_0, tp_1});
-		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("Using platform 'foo', device 'bar' (automatically selected platform 1, device 0)"));
+		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1});
+		CHECK_THAT(
+		    lc.get_log(), Catch::Matchers::ContainsSubstring("Using platform 'My platform', device 'My device' (automatically selected platform 1, device 0)"));
 	}
 
-	SECTION("pick_device can't find any platform with sufficient GPUs") {
+	SECTION("when it can't find a platform with a sufficient number of GPUs") {
 		log_capture lc{spdlog::level::warn};
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
+		mock_platform_factory mpf;
 
-		mock_platform tp_1(1);
-		mock_device td_2(0, tp_1, sycl::info::device_type::gpu);
-		mock_device td_3(1, tp_1, sycl::info::device_type::gpu);
-		mock_device td_4(2, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2, td_3, td_4});
+		auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
+		mp_0.create_devices(dt::cpu);
+		mp_1.create_devices(dt::gpu, dt::gpu, dt::gpu);
+		mp_2.create_devices(dt::accelerator, dt::accelerator, dt::accelerator, dt::accelerator);
 
-		mock_platform tp_2(1);
-		mock_device td_5(0, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_6(1, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_7(2, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_8(3, tp_2, sycl::info::device_type::accelerator);
-		tp_2.set_devices({td_5, td_6, td_7, td_8});
+		const size_t node_count = 4;
+		const size_t local_rank = 3;
 
-		size_t node_count = 4;
-		size_t local_rank = 3;
-		size_t local_num_cpus = 1;
-
-		celerity::detail::host_config h_cfg{node_count, local_rank, local_num_cpus};
+		celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
-		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{tp_0, tp_1, tp_2});
+		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1, mp_2});
 		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("No suitable platform found that can provide 4 GPU devices, and CELERITY_DEVICES not set"));
 	}
 
-	SECTION("pick_device can't find any platform with any type of sufficient device") {
+	SECTION("when it can't find a platform with a sufficient number of devices of any type") {
 		log_capture lc(spdlog::level::warn);
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
+		mock_platform_factory mpf;
+		auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
 
-		mock_platform tp_1(1);
-		mock_device td_2(0, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2});
+		mp_0.create_devices(dt::cpu);
+		mp_1.create_devices(dt::gpu);
+		mp_2.create_devices(dt::accelerator, dt::accelerator, dt::accelerator);
 
-		mock_platform tp_2(2);
-		mock_device td_3(0, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_4(1, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_5(2, tp_2, sycl::info::device_type::accelerator);
-		tp_2.set_devices({td_3, td_4, td_5});
+		const size_t node_count = 4;
+		const size_t local_rank = 3;
 
-		size_t node_count = 4;
-		size_t local_rank = 3;
-		size_t local_num_cpus = 1;
-
-		celerity::detail::host_config h_cfg{node_count, local_rank, local_num_cpus};
+		celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
-		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{tp_0, tp_1, tp_2});
+		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1, mp_2});
 		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("No suitable platform found that can provide 4 devices, and CELERITY_DEVICES not set"));
 	}
 
-	SECTION("CELERITY_DEVICE is set with invalid platform id") {
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
+	SECTION("when CELERITY_DEVICES contains an invalid platform id") {
+		mock_platform_factory mpf;
 
-		mock_platform tp_1(3);
-		mock_device td_2(0, tp_1, sycl::info::device_type::gpu);
-		mock_device td_3(1, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2, td_3});
+		auto [mp_0, mp_1] = mpf.create_platforms(std::nullopt, std::nullopt);
+		mp_0.create_devices(dt::cpu);
+		mp_1.create_devices(dt::gpu, dt::gpu);
 
-		celerity::detail::device_config d_cfg{tp_1.get_id(), td_3.get_id()};
+		celerity::detail::device_config d_cfg{3, 0};
 		celerity::detail::config_testspy::set_mock_device_cfg(cfg, d_cfg);
-		CHECK_THROWS_WITH(pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{tp_0, tp_1}),
+		CHECK_THROWS_WITH(pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1}),
 		    "Invalid platform id 3: Only 2 platforms available");
 	}
 
-	SECTION("CELERITY_DEVICE is set with invalid device id") {
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
+	SECTION("when CELERITY_DEVICES contains an invalid device id") {
+		mock_platform_factory mpf;
 
-		mock_platform tp_1(1);
-		mock_device td_2(4, tp_1, sycl::info::device_type::gpu);
-		mock_device td_3(5, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2, td_3});
+		auto [mp_0, mp_1] = mpf.create_platforms(std::nullopt, std::nullopt);
+		mp_0.create_devices(dt::cpu);
+		mp_1.create_devices(dt::gpu, dt::gpu);
 
-		celerity::detail::device_config d_cfg{tp_1.get_id(), td_3.get_id()};
+		celerity::detail::device_config d_cfg{1, 5};
 		celerity::detail::config_testspy::set_mock_device_cfg(cfg, d_cfg);
 
-		CHECK_THROWS_WITH(pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{tp_0, tp_1}),
+		CHECK_THROWS_WITH(pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1}),
 		    "Invalid device id 5: Only 2 devices available on platform 1");
 	}
 
-	SECTION("pick_device couldn't find any device") {
+	SECTION("when no device was selected") {
 		CHECK_THROWS_WITH(
 		    pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{}), "Automatic device selection failed: No device available");
 	}
@@ -430,8 +364,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected
 
 // The following test doesn't work with ComputeCpp backend, since the == operator behaves differently
 #if !defined(WORKAROUND_COMPUTECPP)
-TEST_CASE_METHOD(celerity::test_utils::runtime_fixture,
-    "runtime::init/distr_queue provides an overloaded constructor with device selector, testing sycl::device", "[distr_queue][ctor][sycl]") {
+TEST_CASE_METHOD(celerity::test_utils::runtime_fixture, "pick_device supports passing a device selector function", "[device-selection]") {
 	std::vector<sycl::device> devices = sycl::device::get_devices();
 	if(devices.size() < 2) {
 		WARN("Platforms must have 2 or more devices!");
@@ -452,256 +385,141 @@ TEST_CASE_METHOD(celerity::test_utils::runtime_fixture,
 }
 #endif
 
-TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "runtime::init/distr_queue provides an overloaded constructor with device selector, testing mock_device",
-    "[device-selection][ctor][mock-host-cfg]") {
+TEST_CASE("pick_device correctly selects according to device selector score", "[device-selection]") {
+	mock_platform_factory mpf;
+
+	auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
+	mp_0.create_devices(dt::cpu);
+	mp_1.create_devices(dt::gpu, dt::gpu, dt::gpu, dt::gpu);
+	auto md = mp_2.create_devices(dt::accelerator, dt::accelerator, dt::accelerator, dt::accelerator)[1];
+
+	auto device_selector = [md](const mock_device& d) -> int { return d == md ? 2 : 1; };
+
 	celerity::detail::config cfg(nullptr, nullptr);
+	auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{mp_0, mp_1, mp_2});
+	CHECK(device == md);
+}
 
-	SECTION("pick_device prefers a particular device over all") {
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
-		tp_0.set_info("foo_0");
+TEST_CASE("pick_device selects a unique device for each local node according to device selector score", "[device-selection]") {
+	log_capture lc;
+	mock_platform_factory mpf;
 
-		mock_platform tp_1(1);
-		mock_device td_2(1, tp_1, sycl::info::device_type::gpu);
-		mock_device td_3(2, tp_1, sycl::info::device_type::gpu);
-		mock_device td_4(3, tp_1, sycl::info::device_type::gpu);
-		mock_device td_5(4, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2, td_3, td_4, td_5});
-		tp_1.set_info("foo_1");
+	auto [mp_0, mp_1] = mpf.create_platforms(std::nullopt, std::nullopt);
+	mp_0.create_devices(dt::cpu);
+	mp_1.create_devices(dt::gpu, dt::gpu, dt::gpu);
 
-		mock_platform tp_2(2);
-		mock_device td_6(5, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_7(6, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_8(7, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_9(8, tp_2, sycl::info::device_type::accelerator);
-		tp_2.set_devices({td_6, td_7, td_8, td_9});
-		tp_2.set_info("foo_2");
+	mock_platform mp_2(2, "My platform");
+	auto md = mp_2.create_devices(dt::gpu, dt::gpu, dt::accelerator, dt::accelerator, dt::accelerator, type_and_name{dt::accelerator, "My device"})[5];
 
-		auto device_selector = [td_7](const mock_device& d) -> int { return d == td_7 ? 2 : 1; };
+	const size_t node_count = 4;
+	const size_t local_rank = 3;
 
-		auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{tp_0, tp_1, tp_2});
-		CHECK(device == td_7);
-	}
+	celerity::detail::host_config h_cfg{node_count, local_rank};
+	celerity::detail::config cfg(nullptr, nullptr);
+	celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
-	SECTION("pick_device prefers a group of devices") {
-		log_capture lc;
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
-		tp_0.set_info("foo_0");
+	auto device_selector = [](const mock_device& d) -> int { return d.get_type() == dt::accelerator ? 2 : 1; };
 
-		mock_platform tp_1(1);
-		mock_device td_2(1, tp_1, sycl::info::device_type::gpu);
-		mock_device td_3(2, tp_1, sycl::info::device_type::gpu);
-		mock_device td_4(3, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2, td_3, td_4});
-		tp_1.set_info("foo_1");
+	auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{mp_0, mp_1, mp_2});
+	CHECK_THAT(
+	    lc.get_log(), Catch::Matchers::ContainsSubstring("Using platform 'My platform', device 'My device' (device selector specified: platform 2, device 3)"));
+	CHECK(device == md);
+}
 
-		mock_platform tp_2(2);
-		mock_device td_5(4, tp_2, sycl::info::device_type::gpu);
-		mock_device td_6(5, tp_2, sycl::info::device_type::gpu);
-		mock_device td_7(6, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_8(7, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_9(8, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_10(9, tp_2, sycl::info::device_type::accelerator);
-		tp_2.set_devices({td_5, td_6, td_7, td_8, td_9, td_10});
-		tp_2.set_info("foo_2");
+TEST_CASE("pick_device selects the highest scoring device for all nodes if an insufficient number of total devices is available", "[device-selection]") {
+	log_capture lc(spdlog::level::warn);
+	mock_platform_factory mpf;
 
-		size_t node_count = 4;
-		size_t local_rank = 3;
-		size_t local_num_cpus = 1;
+	auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
+	mp_0.create_devices(dt::cpu);
+	mp_1.create_devices(dt::gpu);
+	auto md = mp_2.create_devices(dt::accelerator)[0];
 
-		celerity::detail::host_config h_cfg{node_count, local_rank, local_num_cpus};
-		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
+	const size_t node_count = 4;
+	const size_t local_rank = 3;
 
-		auto device_selector = [](const mock_device& d) -> int { return d.get_type() == sycl::info::device_type::accelerator ? 2 : 1; };
+	celerity::detail::host_config h_cfg{node_count, local_rank};
+	celerity::detail::config cfg(nullptr, nullptr);
+	celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
+	auto device_selector = [md](const mock_device& d) -> int { return d == md ? 2 : 1; };
 
-		auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{tp_0, tp_1, tp_2});
-		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("Using platform 'foo_2', device 'bar' (device selector specified: platform 2, device 3)"));
-		CHECK(device == td_10);
-	}
+	auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{mp_0, mp_1, mp_2});
+	CHECK_THAT(
+	    lc.get_log(), Catch::Matchers::ContainsSubstring("No suitable platform found that can provide 4 devices that match the specified device selector"));
+	CHECK(device == md);
+}
 
-	SECTION("pick_device prefers prioritised device with selector with insufficient devices") {
-		log_capture lc(spdlog::level::warn);
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
-		tp_0.set_info("foo_0");
+TEST_CASE("pick_device warns when highest scoring devices span multiple platforms", "[device-selection]") {
+	log_capture lc(spdlog::level::warn);
+	mock_platform_factory mpf;
 
-		mock_platform tp_1(1);
-		mock_device td_2(1, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2});
-		tp_1.set_info("foo_1");
+	auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
+	mp_0.create_devices(dt::cpu);
+	mp_1.create_devices(dt::accelerator, dt::gpu, dt::gpu, dt::gpu);
+	mp_2.create_devices(dt::gpu, dt::accelerator, dt::accelerator, dt::accelerator)[2];
 
-		mock_platform tp_2(2);
-		mock_device td_3(2, tp_2, sycl::info::device_type::accelerator);
-		tp_2.set_devices({td_3});
-		tp_2.set_info("foo_2");
+	const size_t node_count = 4;
+	const size_t local_rank = GENERATE(0, 3);
 
-		size_t node_count = 4;
-		size_t local_rank = 3;
-		size_t local_num_cpus = 1;
+	celerity::detail::host_config h_cfg{node_count, local_rank};
+	celerity::detail::config cfg(nullptr, nullptr);
+	celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
-		celerity::detail::host_config h_cfg{node_count, local_rank, local_num_cpus};
-		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
-		auto device_selector = [td_3](const mock_device& d) -> int { return d == td_3 ? 2 : 1; };
+	auto device_selector = [](const mock_device& d) -> int { return d.get_type() == dt::accelerator ? 2 : 1; };
 
-		auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{tp_0, tp_1, tp_2});
-		CHECK_THAT(
-		    lc.get_log(), Catch::Matchers::ContainsSubstring("No suitable platform found that can provide 4 devices that match the specified device selector"));
-		CHECK(device == td_3);
-	}
+	auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{mp_0, mp_1, mp_2});
+	INFO("Platform id" << device.get_platform().get_id() << " device id " << device.get_id());
+	CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("Selected devices are of different type and/or do not belong to the same platform"));
 
-	SECTION("pick_device can choose devices across platform with warnings") {
-		log_capture lc(spdlog::level::warn);
-
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
-		tp_0.set_info("foo_0");
-
-		mock_platform tp_1(1);
-		mock_device td_2(1, tp_1, sycl::info::device_type::accelerator);
-		mock_device td_3(2, tp_1, sycl::info::device_type::gpu);
-		mock_device td_4(3, tp_1, sycl::info::device_type::gpu);
-		mock_device td_5(4, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2, td_3, td_4, td_5});
-		tp_1.set_info("foo_1");
-
-		mock_platform tp_2(2);
-		mock_device td_6(5, tp_2, sycl::info::device_type::gpu);
-		mock_device td_7(6, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_8(7, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_9(8, tp_2, sycl::info::device_type::accelerator);
-		tp_2.set_devices({td_6, td_7, td_8, td_9});
-		tp_2.set_info("foo_2");
-
-		size_t node_count = 4;
-		size_t local_rank = 2;
-		size_t local_num_cpus = 1;
-
-		celerity::detail::host_config h_cfg{node_count, local_rank, local_num_cpus};
-		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
-
-		auto device_selector = [](const mock_device& d) -> int { return d.get_type() == sycl::info::device_type::accelerator ? 2 : 1; };
-
-		auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{tp_0, tp_1, tp_2});
-		INFO("Platform id" << device.get_platform().get_id() << " device id " << device.get_id());
-		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("Selected devices are of different type and/or do not belong to the same platform"));
-		CHECK(device == td_8);
-	}
-
-	SECTION("pick_device can choose different types of devices with warnings") {
-		log_capture lc(spdlog::level::warn);
-
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
-		tp_0.set_info("foo_0");
-
-		mock_platform tp_1(1);
-		mock_device td_2(1, tp_1, sycl::info::device_type::accelerator);
-		mock_device td_3(2, tp_1, sycl::info::device_type::gpu);
-		mock_device td_4(3, tp_1, sycl::info::device_type::gpu);
-		mock_device td_5(4, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2, td_3, td_4, td_5});
-		tp_1.set_info("foo_1");
-
-		mock_platform tp_2(2);
-		mock_device td_6(5, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_7(6, tp_2, sycl::info::device_type::gpu);
-		mock_device td_8(7, tp_2, sycl::info::device_type::gpu);
-		mock_device td_9(8, tp_2, sycl::info::device_type::gpu);
-		tp_2.set_devices({td_6, td_7, td_8, td_9});
-		tp_2.set_info("foo_2");
-
-		size_t node_count = 4;
-		size_t local_rank = 0;
-		size_t local_num_cpus = 1;
-
-		celerity::detail::host_config h_cfg{node_count, local_rank, local_num_cpus};
-		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
-
-		auto device_selector = [](const mock_device& d) -> int { return d.get_type() == sycl::info::device_type::accelerator ? 2 : 1; };
-
-		auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{tp_0, tp_1, tp_2});
-		INFO("Platform id" << device.get_platform().get_id() << " device id " << device.get_id());
-		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("Selected devices are of different type and/or do not belong to the same platform"));
-		CHECK(device == td_2);
-	}
-
-	SECTION("pick_device can choose different types of devices with insufficient devices in platforms with warnings") {
-		log_capture lc(spdlog::level::warn);
-
-		mock_platform tp_0(0);
-		mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-		tp_0.set_devices({td_1});
-		tp_0.set_info("foo_0");
-
-		mock_platform tp_1(1);
-		mock_device td_2(1, tp_1, sycl::info::device_type::accelerator);
-		mock_device td_3(2, tp_1, sycl::info::device_type::gpu);
-		mock_device td_4(3, tp_1, sycl::info::device_type::gpu);
-		mock_device td_5(4, tp_1, sycl::info::device_type::gpu);
-		tp_1.set_devices({td_2, td_3, td_4, td_5});
-		tp_1.set_info("foo_1");
-
-		mock_platform tp_2(2);
-		mock_device td_6(5, tp_2, sycl::info::device_type::accelerator);
-		mock_device td_7(6, tp_2, sycl::info::device_type::gpu);
-		mock_device td_8(7, tp_2, sycl::info::device_type::gpu);
-		tp_2.set_devices({td_6, td_7, td_8});
-		tp_2.set_info("foo_2");
-
-		size_t node_count = 4;
-		size_t local_rank = 1;
-		size_t local_num_cpus = 1;
-
-		celerity::detail::host_config h_cfg{node_count, local_rank, local_num_cpus};
-		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
-
-		auto device_selector = [](const mock_device& d) -> int { return d.get_type() == sycl::info::device_type::accelerator ? 2 : 1; };
-
-		auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{tp_0, tp_1, tp_2});
-		INFO("Platform id" << device.get_platform().get_id() << " device id " << device.get_id());
-		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("Selected devices are of different type and/or do not belong to the same platform"));
-		CHECK(device == td_6);
+	if(local_rank == 0) {
+		CHECK(device.get_platform() == mp_1);
+	} else {
+		CHECK(device.get_platform() == mp_2);
 	}
 }
 
-TEST_CASE_METHOD(
-    celerity::test_utils::mpi_fixture, "pick_device does not consider devices with a negative selector score", "[device-selection][msg][negative]") {
+TEST_CASE("pick_device warns when highest scoring devices are of different types", "[device-selection]") {
+	log_capture lc(spdlog::level::warn);
+	mock_platform_factory mpf;
+
+	auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
+	mp_0.create_devices(dt::cpu);
+	auto md = mp_1.create_devices(dt::accelerator, dt::gpu, dt::gpu, dt::gpu)[0];
+	mp_2.create_devices(dt::accelerator, dt::gpu, dt::gpu, dt::gpu);
+
+	const size_t node_count = 4;
+	const size_t local_rank = 0;
+
+	celerity::detail::host_config h_cfg{node_count, local_rank};
 	celerity::detail::config cfg(nullptr, nullptr);
-	log_capture lc;
-
-	mock_platform tp_0(0);
-	mock_device td_1(0, tp_0, sycl::info::device_type::cpu);
-	tp_0.set_devices({td_1});
-	tp_0.set_info("foo_0");
-
-	mock_platform tp_1(1);
-	mock_device td_2(1, tp_1, sycl::info::device_type::gpu);
-	mock_device td_3(2, tp_1, sycl::info::device_type::gpu);
-	mock_device td_4(3, tp_1, sycl::info::device_type::gpu);
-	mock_device td_5(4, tp_1, sycl::info::device_type::gpu);
-	tp_1.set_devices({td_2, td_3, td_4});
-	tp_1.set_info("foo_1");
-
-	mock_platform tp_2(2);
-	mock_device td_7(5, tp_2, sycl::info::device_type::gpu);
-	tp_2.set_devices({td_7});
-	tp_2.set_info("foo_2");
-
-	size_t node_count = 4;
-	size_t local_rank = 2;
-	size_t local_num_cpus = 1;
-
-	celerity::detail::host_config h_cfg{node_count, local_rank, local_num_cpus};
 	celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
-	auto device_selector = [](const mock_device& d) -> int { return d.get_type() == sycl::info::device_type::accelerator ? 1 : -1; };
+	auto device_selector = [](const mock_device& d) -> int { return d.get_type() == dt::accelerator ? 2 : 1; };
+
+	auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{mp_0, mp_1, mp_2});
+	INFO("Platform id" << device.get_platform().get_id() << " device id " << device.get_id());
+	CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("Selected devices are of different type and/or do not belong to the same platform"));
+	CHECK(device == md);
+}
+
+TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device does not consider devices with a negative selector score", "[device-selection]") {
+	celerity::detail::config cfg(nullptr, nullptr);
+	log_capture lc;
+	mock_platform_factory mpf;
+
+	auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
+	mp_0.create_devices(dt::cpu);
+	mp_1.create_devices(dt::gpu, dt::gpu, dt::gpu);
+	mp_2.create_devices(dt::gpu);
+
+	const size_t node_count = 4;
+	const size_t local_rank = 2;
+
+	celerity::detail::host_config h_cfg{node_count, local_rank};
+	celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
+
+	auto device_selector = [](const mock_device& d) -> int { return d.get_type() == dt::accelerator ? 1 : -1; };
 
 	CHECK_THROWS_WITH(
-	    pick_device(cfg, device_selector, std::vector<mock_platform>{tp_0, tp_1, tp_2}), "Device selection with device selector failed: No device available");
+	    pick_device(cfg, device_selector, std::vector<mock_platform>{mp_0, mp_1, mp_2}), "Device selection with device selector failed: No device available");
 }

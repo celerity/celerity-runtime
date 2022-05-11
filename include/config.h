@@ -10,7 +10,6 @@ namespace detail {
 	struct host_config {
 		size_t node_count;
 		size_t local_rank;
-		size_t local_num_cpus;
 	};
 
 	struct device_config {
