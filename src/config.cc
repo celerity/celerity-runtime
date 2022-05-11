@@ -180,17 +180,6 @@ namespace detail {
 			const auto result = get_env("CELERITY_FORCE_WG");
 			if(result.first) { CELERITY_WARN("Support for CELERITY_FORCE_WG has been removed with Celerity 0.3.0."); }
 		}
-
-		// -------------------------------- CELERITY_HOST_CPUS --------------------------------
-
-		{
-			host_cfg.local_num_cpus = std::thread::hardware_concurrency();
-			const auto result = get_env("CELERITY_HOST_CPUS");
-			if(result.first) {
-				const auto parsed = parse_uint(result.second.c_str());
-				if(parsed.first) { host_cfg.local_num_cpus = parsed.second; }
-			}
-		}
 	}
 } // namespace detail
 } // namespace celerity
