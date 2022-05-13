@@ -143,9 +143,9 @@ namespace detail {
 
 		const std::vector<reduction_id>& get_reductions() const { return reductions; }
 
-		epoch_action get_epoch_action() const { return epoch_action; }
+		detail::epoch_action get_epoch_action() const { return epoch_action; }
 
-		static std::unique_ptr<task> make_epoch(task_id tid, epoch_action action) {
+		static std::unique_ptr<task> make_epoch(task_id tid, detail::epoch_action action) {
 			return std::unique_ptr<task>(new task(tid, task_type::EPOCH, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}, action));
 		}
 
