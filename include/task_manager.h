@@ -70,8 +70,12 @@ namespace detail {
 				tid = task_buffer.reserve_new_tid();
 
 				prepass_handler cgh(tid, std::make_unique<command_group_storage<CGF>>(cgf), num_collective_nodes);
-				cgf(cgh);
-
+				try {
+					cgf(cgh);
+				} catch(...) {
+					task_buffer.revoke_reservation(tid);
+					throw;
+				}
 				task& task_ref = register_task_internal(std::move(cgh).into_task());
 
 				compute_dependencies(tid);
