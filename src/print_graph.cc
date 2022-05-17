@@ -36,7 +36,7 @@ namespace detail {
 		}
 	}
 
-	std::string print_task_graph(const task_ring_buffer<task_ringbuffer_size>& tdag) {
+	std::string print_task_graph(const task_ring_buffer& tdag) {
 		std::ostringstream ss;
 		ss << "digraph G { label=\"Task Graph\" ";
 
