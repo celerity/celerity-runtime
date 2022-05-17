@@ -35,6 +35,11 @@ class task_ring_buffer {
 		return ret;
 	}
 
+	void revoke_reservation(task_id tid) {
+		assert(tid == next_task_id - 1); // this is the only allowed (and extant) pattern
+		next_task_id--;
+	}
+
 	// task_id must have been reserved previously
 	void emplace(task_id tid, std::unique_ptr<task> task) {
 		task_id expected_tid = tid;
