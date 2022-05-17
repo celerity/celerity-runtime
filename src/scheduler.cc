@@ -14,30 +14,38 @@ namespace detail {
 	void abstract_scheduler::shutdown() { notify(scheduler_event_type::SHUTDOWN, 0); }
 
 	void abstract_scheduler::schedule() {
-		std::unique_lock<std::mutex> lk(events_mutex);
-
+		std::queue<scheduler_event> in_flight_events;
 		while(true) {
-			// TODO: We currently operate in lockstep with the main thread. This is less than ideal.
-			events_cv.wait(lk, [this] { return !events.empty(); });
-			const auto event = events.front();
-			events.pop();
+			{
+				std::unique_lock lk(events_mutex);
+				events_cv.wait(lk, [this] { return !available_events.empty(); });
+				std::swap(available_events, in_flight_events);
+			}
 
-			const task_id tid = event.data;
-			if(event.type == scheduler_event_type::TASK_AVAILABLE) {
+			while(!in_flight_events.empty()) {
+				const auto event = std::move(in_flight_events.front()); // NOLINT(performance-move-const-arg)
+				in_flight_events.pop();
+
+				if(event.type == scheduler_event_type::SHUTDOWN) {
+					assert(in_flight_events.empty());
+					return;
+				}
+
+				assert(event.type == scheduler_event_type::TASK_AVAILABLE);
+
+				const task_id tid = event.data;
+				assert(tsk != nullptr);
 				naive_split_transformer naive_split(num_nodes, num_nodes);
 				ggen.build_task(tid, {&naive_split});
 				gsrlzr.flush(tid);
-			} else if(event.type == scheduler_event_type::SHUTDOWN) {
-				assert(events.empty());
-				return;
 			}
 		}
 	}
 
 	void abstract_scheduler::notify(scheduler_event_type type, size_t data) {
 		{
-			std::lock_guard<std::mutex> lk(events_mutex);
-			events.push({type, data});
+			std::lock_guard lk(events_mutex);
+			available_events.push({type, data});
 		}
 		events_cv.notify_one();
 	}

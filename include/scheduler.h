@@ -46,7 +46,9 @@ namespace detail {
 		graph_generator& ggen;
 		graph_serializer& gsrlzr;
 
-		std::queue<scheduler_event> events;
+		std::queue<scheduler_event> available_events;
+		std::queue<scheduler_event> in_flight_events;
+
 		mutable std::mutex events_mutex;
 		std::condition_variable events_cv;
 
