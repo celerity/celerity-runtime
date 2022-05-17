@@ -9,9 +9,8 @@ namespace detail {
 	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, reduction_manager* reduction_mgr)
 	    : num_collective_nodes(num_collective_nodes), queue(queue), reduction_mngr(reduction_mgr) {
 		// We manually generate the initial epoch task, which we treat as if it has been reached immediately.
-		auto reserved_tid = task_buffer.reserve_new_tid();
-		assert(initial_epoch_task == reserved_tid);
-		task_buffer.emplace(initial_epoch_task, task::make_epoch(initial_epoch_task, epoch_action::none));
+		auto reserve = task_buffer.reserve_task_entry();
+		task_buffer.put(reserve, task::make_epoch(initial_epoch_task, epoch_action::none));
 	}
 
 	void task_manager::add_buffer(buffer_id bid, const cl::sycl::range<3>& range, bool host_initialized) {
@@ -186,10 +185,10 @@ namespace detail {
 		}
 	}
 
-	task& task_manager::register_task_internal(std::unique_ptr<task> task) {
+	task& task_manager::register_task_internal(task_ring_buffer::reservation& reserve, std::unique_ptr<task> task) {
 		auto& task_ref = *task;
 		assert(task != nullptr);
-		task_buffer.emplace(task->get_id(), std::move(task));
+		task_buffer.put(reserve, std::move(task));
 		execution_front.insert(&task_ref);
 		return task_ref;
 	}
@@ -208,14 +207,14 @@ namespace detail {
 		max_pseudo_critical_path_length = std::max(max_pseudo_critical_path_length, depender->get_pseudo_critical_path_length());
 	}
 
-	task_id task_manager::reduce_execution_front(std::unique_ptr<task> new_front) {
+	task_id task_manager::reduce_execution_front(task_ring_buffer::reservation& reserve, std::unique_ptr<task> new_front) {
 		// add dependencies from a copy of the front to this task
 		const auto current_front = execution_front;
 		for(task* front_task : current_front) {
 			add_dependency(new_front.get(), front_task, dependency_kind::TRUE_DEP, dependency_origin::execution_front);
 		}
 		assert(execution_front.empty());
-		return register_task_internal(std::move(new_front)).get_id();
+		return register_task_internal(reserve, std::move(new_front)).get_id();
 	}
 
 	void task_manager::set_epoch_for_new_tasks(const task_id epoch) {
@@ -238,12 +237,14 @@ namespace detail {
 
 	task_id task_manager::generate_horizon_task() {
 		// we are probably overzealous in locking here
-		task_id tid = task_buffer.reserve_new_tid();
+		task_id tid;
 		{
+			auto reserve = task_buffer.reserve_task_entry();
+			tid = reserve.get_tid();
 			std::lock_guard lock(task_mutex);
 			current_horizon_critical_path_length = max_pseudo_critical_path_length;
 			const auto previous_horizon = current_horizon;
-			current_horizon = reduce_execution_front(task::make_horizon_task(tid));
+			current_horizon = reduce_execution_front(reserve, task::make_horizon_task(tid));
 			if(previous_horizon) { set_epoch_for_new_tasks(*previous_horizon); }
 		}
 
@@ -254,10 +255,12 @@ namespace detail {
 
 	task_id task_manager::generate_epoch_task(epoch_action action) {
 		// we are probably overzealous in locking here
-		task_id tid = task_buffer.reserve_new_tid();
+		task_id tid;
 		{
+			auto reserve = task_buffer.reserve_task_entry();
+			tid = reserve.get_tid();
 			std::lock_guard lock(task_mutex);
-			const auto new_epoch = reduce_execution_front(task::make_epoch(tid, action));
+			const auto new_epoch = reduce_execution_front(reserve, task::make_epoch(tid, action));
 			compute_dependencies(new_epoch);
 			set_epoch_for_new_tasks(new_epoch);
 			current_horizon = std::nullopt; // this horizon is now behind the epoch_for_new_tasks, so it will never become an epoch itself

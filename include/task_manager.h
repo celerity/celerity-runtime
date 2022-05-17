@@ -67,16 +67,12 @@ namespace detail {
 			task_id tid;
 			{
 				std::lock_guard lock(task_mutex);
-				tid = task_buffer.reserve_new_tid();
+				auto reservation = task_buffer.reserve_task_entry();
+				tid = reservation.get_tid();
 
 				prepass_handler cgh(tid, std::make_unique<command_group_storage<CGF>>(cgf), num_collective_nodes);
-				try {
-					cgf(cgh);
-				} catch(...) {
-					task_buffer.revoke_reservation(tid);
-					throw;
-				}
-				task& task_ref = register_task_internal(std::move(cgh).into_task());
+				cgf(cgh);
+				task& task_ref = register_task_internal(reservation, std::move(cgh).into_task());
 
 				compute_dependencies(tid);
 				if(queue) queue->require_collective_group(task_ref.get_collective_group_id());
@@ -159,12 +155,12 @@ namespace detail {
 		 * Returns the number of tasks created during the lifetime of the task_manager,
 		 * including tasks that have already been deleted.
 		 */
-		int get_total_task_count() const { return task_buffer.get_total_task_count(); }
+		size_t get_total_task_count() const { return task_buffer.get_total_task_count(); }
 
 		/**
 		 * Returns the number of tasks currently being managed by the task_manager.
 		 */
-		int get_current_task_count() const { return task_buffer.get_current_task_count(); }
+		size_t get_current_task_count() const { return task_buffer.get_current_task_count(); }
 
 	  private:
 		const size_t num_collective_nodes;
@@ -173,7 +169,7 @@ namespace detail {
 		reduction_manager* reduction_mngr;
 
 		task_id next_task_id = 1;
-		task_ring_buffer<task_ringbuffer_size> task_buffer;
+		task_ring_buffer task_buffer;
 
 		// The active epoch is used as the last writer for host-initialized buffers.
 		// This is useful so we can correctly generate anti-dependencies onto tasks that read host-initialized buffers.
@@ -215,7 +211,7 @@ namespace detail {
 		// Set of tasks with no dependents
 		std::unordered_set<task*> execution_front;
 
-		task& register_task_internal(std::unique_ptr<task> task);
+		task& register_task_internal(task_ring_buffer::reservation& reserve, std::unique_ptr<task> task);
 
 		void invoke_callbacks(task_id tid);
 
@@ -225,7 +221,7 @@ namespace detail {
 
 		int get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
 
-		task_id reduce_execution_front(std::unique_ptr<task> new_front);
+		task_id reduce_execution_front(task_ring_buffer::reservation& reserve, std::unique_ptr<task> new_front);
 
 		void set_epoch_for_new_tasks(task_id epoch);
 
