@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <memory>
+#include <thread>
 
 #include "log.h"
 #include "task.h"
