@@ -196,7 +196,8 @@ namespace detail {
 		    : tid(tid), type(type), cgid(cgid), geometry(geometry), cgf(std::move(cgf)), access_map(std::move(access_map)),
 		      side_effects(std::move(side_effects)), reductions(std::move(reductions)), debug_name(std::move(debug_name)), epoch_action(epoch_action) {
 			assert(type == task_type::HOST_COMPUTE || type == task_type::DEVICE_COMPUTE || get_granularity().size() == 1);
-			assert((type != task_type::HOST_COMPUTE && type != task_type::COLLECTIVE && type != task_type::MASTER_NODE) || side_effects.empty());
+			// Only host tasks can have side effects
+			assert(this->side_effects.empty() || type == task_type::HOST_COMPUTE || type == task_type::COLLECTIVE || type == task_type::MASTER_NODE);
 		}
 	};
 
