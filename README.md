@@ -83,6 +83,9 @@ installed first.
 - [CMake](https://www.cmake.org) (3.13 or newer)
 - A C++17 compiler
 
+See the [platform support guide](docs/platform-support.md) on which library and OS versions are supported and
+automatically tested.
+
 Building can be as simple as calling `cmake && make`, depending on your setup
 you might however also have to provide some library paths etc.
 See our [installation guide](docs/installation.md) for more information.
