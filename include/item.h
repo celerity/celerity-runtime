@@ -298,7 +298,7 @@ void group_barrier(const group<Dims>& g, memory_scope scope = memory_scope_work_
 }
 
 
-#if !WORKAROUND_COMPUTECPP // no group primitives
+#if !WORKAROUND(COMPUTECPP, 2, 9) // no group primitives
 
 using cl::sycl::group_broadcast;
 
@@ -550,6 +550,6 @@ T inclusive_scan_over_group(const group<Dims>& g, V x, BinaryOperation binary_op
 #endif
 }
 
-#endif // !WORKAROUND_COMPUTECPP
+#endif // !WORKAROUND_COMPUTECPP || WORKAROUND(COMPUTECPP, 2, 10)
 
 } // namespace celerity
