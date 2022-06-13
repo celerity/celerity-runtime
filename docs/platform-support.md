@@ -27,9 +27,9 @@ Those are:
 
 | SYCL       | SYCL version                                                                   | OS           | Build type     |
 |------------|--------------------------------------------------------------------------------|--------------|----------------|
-| ComputeCpp | 2.6.0, 2.7.0, 2.8.0 (stable)                                                   | Ubuntu 20.04 | Debug          |
-| ComputeCpp | 2.9.0 (stable)                                                                 | Ubuntu 22.04 | Debug, Release |
-| ComputeCpp | 2.9.0 (experimental compiler)                                                  | Ubuntu 22.04 | Debug, Release |
+| ComputeCpp | 2.6.0, 2.7.0, 2.8.0, 2.9.0 (stable)                                            | Ubuntu 20.04 | Debug          |
+| ComputeCpp | 2.10.0 (stable)                                                                | Ubuntu 22.04 | Debug, Release |
+| ComputeCpp | 2.10.0 (experimental compiler)                                                 | Ubuntu 22.04 | Debug, Release |
 | DPC++      | [`7735139b`](https://github.com/intel/llvm/commit/7735139b)                    | Ubuntu 20.04 | Debug          |
 | DPC++      | [`HEAD`](https://github.com/intel/llvm/)                                       | Ubuntu 22.04 | Debug, Release |
 | hipSYCL    | [`7b00e2ef`](https://github.com/illuhad/hipSYCL/commit/7b00e2ef) (CUDA 11.0.3) | Ubuntu 20.04 | Debug          |
