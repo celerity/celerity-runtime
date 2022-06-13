@@ -36,7 +36,7 @@ inline constexpr detail::write_only_host_task_tag_t write_only_host_task;
 using cl::sycl::property_list;
 
 namespace property {
-#if WORKAROUND_COMPUTECPP
+#if WORKAROUND(COMPUTECPP, 2, 8)
 	struct no_init : cl::sycl::detail::property_base {
 		no_init() : cl::sycl::detail::property_base(static_cast<cl::sycl::detail::property_enum>(0)) {}
 	};

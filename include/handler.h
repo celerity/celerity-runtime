@@ -59,7 +59,7 @@ namespace detail {
 	template <typename KernelName>
 	constexpr bool is_unnamed_kernel = std::is_same_v<KernelName, unnamed_kernel>;
 
-#if WORKAROUND_COMPUTECPP
+#if WORKAROUND_COMPUTECPP // TODO only required for the stable, but not the experimental compiler
 	template <typename KernelName>
 	struct kernel_name_wrapper;
 #endif

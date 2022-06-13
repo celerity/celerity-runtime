@@ -60,7 +60,7 @@ namespace detail {
 	struct hack_accessor_specialization_type {};
 	using hack_null_sycl_handler = cl::sycl::accessor<celerity::detail::hack_accessor_specialization_type, 0, cl::sycl::access::mode::read,
 	    cl::sycl::access::target::host_buffer, cl::sycl::access::placeholder::true_t, void>;
-#elif WORKAROUND_COMPUTECPP
+#elif WORKAROUND(COMPUTECPP, 2, 9)
 	// ComputeCpp's sycl::handler has a protected constructor, so we expose it to the public through inheritance.
 	class hack_null_sycl_handler : public sycl::handler {
 	  public:
@@ -288,7 +288,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations" // target::gobal_buffer is now target::device, but only for very recent versions of DPC++
 	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>;
 #pragma GCC diagnostic pop
-#elif WORKAROUND_COMPUTECPP
+#elif WORKAROUND(COMPUTECPP, 2, 9)
 	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::device, cl::sycl::access::placeholder::true_t>;
 #else
 	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::target::device>;
@@ -638,7 +638,7 @@ class local_accessor {
 	cl::sycl::handler* const* eventual_sycl_cgh = nullptr;
 
 	static sycl_accessor make_placeholder_sycl_accessor() {
-#if WORKAROUND_DPCPP || WORKAROUND_COMPUTECPP
+#if WORKAROUND_DPCPP || WORKAROUND(COMPUTECPP, 2, 9)
 		detail::hack_null_sycl_handler null_cgh;
 		return sycl_accessor{detail::zero_range, null_cgh};
 #else
