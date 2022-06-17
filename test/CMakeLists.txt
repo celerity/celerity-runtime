@@ -37,6 +37,7 @@ set(TEST_TARGETS
   runtime_deprecation_tests
   sycl_tests
   task_graph_tests
+  task_ring_buffer_tests
   device_selection_tests
 )
 

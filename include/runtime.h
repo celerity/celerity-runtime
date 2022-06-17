@@ -55,9 +55,9 @@ namespace detail {
 		 */
 		void startup();
 
-		void shutdown() noexcept;
+		void shutdown();
 
-		void sync() noexcept;
+		void sync();
 
 		bool is_master_node() const { return local_nid == 0; }
 

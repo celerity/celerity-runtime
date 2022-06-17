@@ -9,8 +9,8 @@ namespace detail {
 	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, reduction_manager* reduction_mgr)
 	    : num_collective_nodes(num_collective_nodes), queue(queue), reduction_mngr(reduction_mgr) {
 		// We manually generate the initial epoch task, which we treat as if it has been reached immediately.
-		auto reserve = task_buffer.reserve_task_entry();
-		task_buffer.put(reserve, task::make_epoch(initial_epoch_task, epoch_action::none));
+		auto reserve = task_buffer.reserve_task_entry(await_free_task_slot_callback());
+		task_buffer.put(std::move(reserve), task::make_epoch(initial_epoch_task, epoch_action::none));
 	}
 
 	void task_manager::add_buffer(buffer_id bid, const cl::sycl::range<3>& range, bool host_initialized) {
@@ -34,16 +34,14 @@ namespace detail {
 	}
 
 	void task_manager::notify_horizon_reached(task_id horizon_tid) {
-		// This method is called from the executor thread, but does not lock task_mutex to avoid lock-step execution with the main thread.
-		// latest_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
-
 		assert(task_buffer.get_task(horizon_tid)->get_type() == task_type::HORIZON);
 		assert(!latest_horizon_reached || *latest_horizon_reached < horizon_tid);
 		assert(latest_epoch_reached.get() < horizon_tid);
 
-		if(latest_horizon_reached) {
-			latest_epoch_reached.set(*latest_horizon_reached); // The next call to submit_command_group() will prune all tasks before the epoch reached
-		}
+		assert(number_of_in_flight_horizons_and_epochs.load() > 0);
+		number_of_in_flight_horizons_and_epochs--;
+
+		if(latest_horizon_reached) { latest_epoch_reached.set(*latest_horizon_reached); }
 
 		latest_horizon_reached = horizon_tid;
 	}
@@ -56,7 +54,10 @@ namespace detail {
 		assert(!latest_horizon_reached || *latest_horizon_reached < epoch_tid);
 		assert(latest_epoch_reached.get() < epoch_tid);
 
-		latest_epoch_reached.set(epoch_tid);   // The next call to submit_command_group() will prune all tasks before the last epoch reached
+		assert(number_of_in_flight_horizons_and_epochs.load() > 0);
+		number_of_in_flight_horizons_and_epochs--;
+
+		latest_epoch_reached.set(epoch_tid);
 		latest_horizon_reached = std::nullopt; // Any non-applied horizon is now behind the epoch and will therefore never become an epoch itself
 	}
 
@@ -112,7 +113,6 @@ namespace detail {
 					// A valid use case (i.e., not reading garbage) for this is when the buffer has been initialized using a host pointer.
 					if(p.second == std::nullopt) continue;
 					const task_id last_writer = *p.second;
-					assert(task_buffer.has_task(last_writer));
 					add_dependency(tsk, task_buffer.get_task(last_writer), dependency_kind::TRUE_DEP, dependency_origin::dataflow);
 				}
 			}
@@ -126,7 +126,6 @@ namespace detail {
 				const auto last_writers = buffers_last_writers.at(bid).get_region_values(write_requirements);
 				for(auto& p : last_writers) {
 					if(p.second == std::nullopt) continue;
-					assert(task_buffer.has_task(*p.second));
 					task* last_writer = task_buffer.get_task(*p.second);
 
 					// Determine anti-dependencies by looking at all the dependents of the last writing task
@@ -185,10 +184,15 @@ namespace detail {
 		}
 	}
 
-	task& task_manager::register_task_internal(task_ring_buffer::reservation& reserve, std::unique_ptr<task> task) {
+	task& task_manager::register_task_internal(task_ring_buffer::reservation&& reserve, std::unique_ptr<task> task) {
 		auto& task_ref = *task;
 		assert(task != nullptr);
-		task_buffer.put(reserve, std::move(task));
+
+		if(task_ref.get_type() == task_type::EPOCH || task_ref.get_type() == task_type::HORIZON) {
+			number_of_in_flight_horizons_and_epochs++; //
+		}
+
+		task_buffer.put(std::move(reserve), std::move(task));
 		execution_front.insert(&task_ref);
 		return task_ref;
 	}
@@ -207,14 +211,14 @@ namespace detail {
 		max_pseudo_critical_path_length = std::max(max_pseudo_critical_path_length, depender->get_pseudo_critical_path_length());
 	}
 
-	task_id task_manager::reduce_execution_front(task_ring_buffer::reservation& reserve, std::unique_ptr<task> new_front) {
+	task_id task_manager::reduce_execution_front(task_ring_buffer::reservation&& reserve, std::unique_ptr<task> new_front) {
 		// add dependencies from a copy of the front to this task
 		const auto current_front = execution_front;
 		for(task* front_task : current_front) {
 			add_dependency(new_front.get(), front_task, dependency_kind::TRUE_DEP, dependency_origin::execution_front);
 		}
 		assert(execution_front.empty());
-		return register_task_internal(reserve, std::move(new_front)).get_id();
+		return register_task_internal(std::move(reserve), std::move(new_front)).get_id();
 	}
 
 	void task_manager::set_epoch_for_new_tasks(const task_id epoch) {
@@ -239,12 +243,12 @@ namespace detail {
 		// we are probably overzealous in locking here
 		task_id tid;
 		{
-			auto reserve = task_buffer.reserve_task_entry();
+			auto reserve = task_buffer.reserve_task_entry(await_free_task_slot_callback());
 			tid = reserve.get_tid();
 			std::lock_guard lock(task_mutex);
 			current_horizon_critical_path_length = max_pseudo_critical_path_length;
 			const auto previous_horizon = current_horizon;
-			current_horizon = reduce_execution_front(reserve, task::make_horizon_task(tid));
+			current_horizon = reduce_execution_front(std::move(reserve), task::make_horizon_task(tid));
 			if(previous_horizon) { set_epoch_for_new_tasks(*previous_horizon); }
 		}
 
@@ -257,10 +261,10 @@ namespace detail {
 		// we are probably overzealous in locking here
 		task_id tid;
 		{
-			auto reserve = task_buffer.reserve_task_entry();
+			auto reserve = task_buffer.reserve_task_entry(await_free_task_slot_callback());
 			tid = reserve.get_tid();
 			std::lock_guard lock(task_mutex);
-			const auto new_epoch = reduce_execution_front(reserve, task::make_epoch(tid, action));
+			const auto new_epoch = reduce_execution_front(std::move(reserve), task::make_epoch(tid, action));
 			compute_dependencies(new_epoch);
 			set_epoch_for_new_tasks(new_epoch);
 			current_horizon = std::nullopt; // this horizon is now behind the epoch_for_new_tasks, so it will never become an epoch itself
@@ -270,6 +274,20 @@ namespace detail {
 		// it's important that we don't hold the lock while doing this
 		invoke_callbacks(tid);
 		return tid;
+	}
+
+	task_ring_buffer::wait_callback task_manager::await_free_task_slot_callback() {
+		return [&](task_id previous_free_tid) {
+			if(number_of_in_flight_horizons_and_epochs == 0) {
+				// verify that the epoch didn't get reached between the invocation of the callback and the in flight check
+				if(latest_epoch_reached.get() < previous_free_tid + 1) {
+					throw std::runtime_error("Exhausted task slots with no horizons or epochs in flight."
+					                         "\nLikely due to generating a very large number of tasks with no dependencies.");
+				}
+			}
+			task_id reached_epoch = latest_epoch_reached.await(previous_free_tid + 1);
+			task_buffer.delete_up_to(reached_epoch);
+		};
 	}
 
 } // namespace detail
