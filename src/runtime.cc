@@ -185,7 +185,7 @@ namespace detail {
 		set_thread_name(get_current_thread_handle(), "cy-main");
 	}
 
-	void runtime::shutdown() noexcept {
+	void runtime::shutdown() {
 		assert(is_active);
 		is_shutting_down = true;
 
@@ -229,7 +229,7 @@ namespace detail {
 		maybe_destroy_runtime();
 	}
 
-	void runtime::sync() noexcept {
+	void runtime::sync() {
 		const auto epoch = task_mngr->generate_epoch_task(epoch_action::barrier);
 		task_mngr->await_epoch(epoch);
 	}

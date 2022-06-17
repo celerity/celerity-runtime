@@ -31,9 +31,10 @@ namespace detail {
 			return this_epoch;
 		}
 
-		void await(const task_id epoch) const {
+		task_id await(const task_id min_tid_reached) const {
 			std::unique_lock lock{mutex};
-			epoch_changed.wait(lock, [=] { return this_epoch >= epoch; });
+			epoch_changed.wait(lock, [=] { return this_epoch >= min_tid_reached; });
+			return this_epoch;
 		}
 
 		void set(const task_id epoch) {
@@ -67,15 +68,18 @@ namespace detail {
 			task_id tid;
 			{
 				std::lock_guard lock(task_mutex);
-				auto reservation = task_buffer.reserve_task_entry();
+				auto reservation = task_buffer.reserve_task_entry(await_free_task_slot_callback());
 				tid = reservation.get_tid();
 
 				prepass_handler cgh(tid, std::make_unique<command_group_storage<CGF>>(cgf), num_collective_nodes);
 				cgf(cgh);
-				task& task_ref = register_task_internal(reservation, std::move(cgh).into_task());
+				task& task_ref = register_task_internal(std::move(reservation), std::move(cgh).into_task());
 
 				compute_dependencies(tid);
 				if(queue) queue->require_collective_group(task_ref.get_collective_group_id());
+
+				// the following deletion is intentionally redundant with the one happening when waiting for free task slots
+				// we want to free tasks earlier than just when running out of slots
 				task_buffer.delete_up_to(latest_epoch_reached.get());
 			}
 			invoke_callbacks(tid);
@@ -168,7 +172,6 @@ namespace detail {
 
 		reduction_manager* reduction_mngr;
 
-		task_id next_task_id = 1;
 		task_ring_buffer task_buffer;
 
 		// The active epoch is used as the last writer for host-initialized buffers.
@@ -205,13 +208,16 @@ namespace detail {
 		// Only accessed in task_manager::notify_*, which are always called from the executor thread - no locking needed.
 		std::optional<task_id> latest_horizon_reached;
 
+		// The number of horizons and epochs in flight, used to detect stalling scenarios with very broad task graphs
+		std::atomic<int> number_of_in_flight_horizons_and_epochs = 0;
+
 		// The last epoch task that has been processed by the executor. Behind a monitor to allow awaiting this change from the main thread.
 		epoch_monitor latest_epoch_reached{initial_epoch_task};
 
 		// Set of tasks with no dependents
 		std::unordered_set<task*> execution_front;
 
-		task& register_task_internal(task_ring_buffer::reservation& reserve, std::unique_ptr<task> task);
+		task& register_task_internal(task_ring_buffer::reservation&& reserve, std::unique_ptr<task> task);
 
 		void invoke_callbacks(task_id tid);
 
@@ -221,7 +227,7 @@ namespace detail {
 
 		int get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
 
-		task_id reduce_execution_front(task_ring_buffer::reservation& reserve, std::unique_ptr<task> new_front);
+		task_id reduce_execution_front(task_ring_buffer::reservation&& reserve, std::unique_ptr<task> new_front);
 
 		void set_epoch_for_new_tasks(task_id epoch);
 
@@ -230,6 +236,9 @@ namespace detail {
 		task_id generate_horizon_task();
 
 		void compute_dependencies(task_id tid);
+
+		// Returns a callback which blocks until any epoch task has executed, freeing new task slots
+		task_ring_buffer::wait_callback await_free_task_slot_callback();
 	};
 
 } // namespace detail
