@@ -261,6 +261,7 @@ struct scheduler_benchmark_context {
 	test_utils::mock_buffer_factory mbf{&tm, &ggen};
 
 	explicit scheduler_benchmark_context(restartable_thread& thrd, size_t num_nodes) : num_nodes{num_nodes}, schdlr{thrd, ggen, gsrlzr, num_nodes} {
+		tm.register_task_callback([this](task_id tid) { schdlr.notify_task_created(tid); });
 		schdlr.startup();
 	}
 
@@ -272,11 +273,10 @@ struct scheduler_benchmark_context {
 
 	template <int KernelDims, typename CGF>
 	void create_task(range<KernelDims> global_range, CGF cgf) {
-		const auto tid = tm.submit_command_group([=](handler& cgh) {
+		tm.submit_command_group([=](handler& cgh) {
 			cgf(cgh);
 			cgh.host_task(global_range, [](partition<KernelDims>) {});
 		});
-		schdlr.notify_task_created(tid);
 	}
 };
 
