@@ -33,19 +33,19 @@ namespace detail {
 
 				assert(event.type == scheduler_event_type::TASK_AVAILABLE);
 
-				const task_id tid = event.data;
+				const task* tsk = event.tsk;
 				assert(tsk != nullptr);
 				naive_split_transformer naive_split(num_nodes, num_nodes);
-				ggen.build_task(tid, {&naive_split});
-				gsrlzr.flush(tid);
+				ggen.build_task(*tsk, {&naive_split});
+				gsrlzr.flush(tsk->get_id());
 			}
 		}
 	}
 
-	void abstract_scheduler::notify(scheduler_event_type type, size_t data) {
+	void abstract_scheduler::notify(scheduler_event_type type, const task* tsk) {
 		{
 			std::lock_guard lk(events_mutex);
-			available_events.push({type, data});
+			available_events.push({type, tsk});
 		}
 		events_cv.notify_one();
 	}

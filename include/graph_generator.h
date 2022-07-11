@@ -81,18 +81,16 @@ namespace detail {
 	  public:
 		/**
 		 * @param num_nodes Number of CELERITY nodes, including the master node.
-		 * @param tm
 		 * @param cdag The command graph this generator should operate on.
 		 */
-		graph_generator(size_t num_nodes, task_manager& tm, reduction_manager& rm, command_graph& cdag);
+		graph_generator(size_t num_nodes, reduction_manager& rm, command_graph& cdag);
 
 		void add_buffer(buffer_id bid, const cl::sycl::range<3>& range);
 
 		// Build the commands for a single task
-		void build_task(task_id tid, const std::vector<graph_transformer*>& transformers);
+		void build_task(const task& tsk, const std::vector<graph_transformer*>& transformers);
 
 	  private:
-		task_manager& task_mngr;
 		reduction_manager& reduction_mngr;
 		const size_t num_nodes;
 		command_graph& cdag;
@@ -129,19 +127,19 @@ namespace detail {
 		void generate_anti_dependencies(task_id tid, buffer_id bid, const region_map<std::optional<command_id>>& last_writers_map,
 		    const GridRegion<3>& write_req, abstract_command* write_cmd);
 
-		void process_task_data_requirements(task_id tid);
+		void process_task_data_requirements(const task& tsk);
 
-		void process_task_side_effect_requirements(task_id tid);
+		void process_task_side_effect_requirements(const task& tsk);
 
 		void generate_epoch_dependencies(abstract_command* cmd);
 
-		void generate_epoch_commands(const task* tsk);
+		void generate_epoch_commands(const task& tsk);
 
-		void generate_horizon_commands(const task* tsk);
+		void generate_horizon_commands(const task& tsk);
 
-		void generate_collective_execution_commands(const task* tsk);
+		void generate_collective_execution_commands(const task& tsk);
 
-		void generate_independent_execution_commands(const task* tsk);
+		void generate_independent_execution_commands(const task& tsk);
 
 		void prune_commands_before(const command_id min_epoch);
 	};

@@ -12,8 +12,7 @@
 namespace celerity {
 namespace detail {
 
-	graph_generator::graph_generator(size_t num_nodes, task_manager& tm, reduction_manager& rm, command_graph& cdag)
-	    : task_mngr(tm), reduction_mngr(rm), num_nodes(num_nodes), cdag(cdag) {
+	graph_generator::graph_generator(size_t num_nodes, reduction_manager& rm, command_graph& cdag) : reduction_mngr(rm), num_nodes(num_nodes), cdag(cdag) {
 		// Build initial epoch command for each node (these are required to properly handle anti-dependencies on host-initialized buffers).
 		// We manually generate the first set of commands, these will be replaced by applied horizons or explicit epochs down the line (see
 		// set_epoch_for_new_commands).
@@ -38,14 +37,14 @@ namespace detail {
 		buffer_states.emplace(bid, distributed_state{{range, std::move(all_nodes)}});
 	}
 
-	void graph_generator::build_task(const task_id tid, const std::vector<graph_transformer*>& transformers) {
+	void graph_generator::build_task(const task& tsk, const std::vector<graph_transformer*>& transformers) {
 		std::lock_guard<std::mutex> lock(buffer_mutex);
 		// TODO: Maybe assert that this task hasn't been processed before
 
-		auto tsk = task_mngr.get_task(tid);
+		const auto tid = tsk.get_id();
 		const auto min_epoch_to_prune_before = min_epoch_for_new_commands;
 
-		switch(tsk->get_type()) {
+		switch(tsk.get_type()) {
 		case task_type::EPOCH: generate_epoch_commands(tsk); break;
 		case task_type::HORIZON: generate_horizon_commands(tsk); break;
 		case task_type::COLLECTIVE: generate_collective_execution_commands(tsk); break;
@@ -55,11 +54,11 @@ namespace detail {
 		}
 
 		for(auto& t : transformers) {
-			t->transform_task(*tsk, cdag);
+			t->transform_task(tsk, cdag);
 		}
 
 		// Only execution tasks can have data requirements or reductions
-		if(tsk->get_execution_target() != execution_target::NONE) {
+		if(tsk.get_execution_target() != execution_target::NONE) {
 #ifndef NDEBUG
 			// It is currently undefined to split reduction-producer tasks into multiple chunks on the same node:
 			//   - Per-node reduction intermediate results are stored with fixed access to a single SYCL buffer, so multiple chunks on the same node will race
@@ -68,7 +67,7 @@ namespace detail {
 			//   - Inputs to the final reduction command are ordered by origin node ids to guarantee bit-identical results. It is not possible to distinguish
 			//     more than one chunk per node in the serialized commands, so different nodes can produce different final reduction results for non-associative
 			//     or non-commutative operations
-			if(!tsk->get_reductions().empty()) {
+			if(!tsk.get_reductions().empty()) {
 				std::unordered_set<node_id> producer_nids;
 				for(auto& cmd : cdag.task_commands(tid)) {
 					assert(producer_nids.insert(cmd->get_nid()).second);
@@ -78,8 +77,8 @@ namespace detail {
 
 			// TODO: At some point we might want to do this also before calling transformers
 			// --> So that more advanced transformations can also take data transfers into account
-			process_task_data_requirements(tid);
-			process_task_side_effect_requirements(tid);
+			process_task_data_requirements(tsk);
+			process_task_side_effect_requirements(tsk);
 		}
 
 		// Commands without any other true-dependency must depend on the active epoch command to ensure they cannot be re-ordered before the epoch
@@ -123,14 +122,14 @@ namespace detail {
 		assert(cdag.get_execution_front(nid).size() == 1 && *cdag.get_execution_front(nid).begin() == new_front);
 	}
 
-	void graph_generator::generate_epoch_commands(const task* const tsk) {
-		assert(tsk->get_type() == task_type::EPOCH);
+	void graph_generator::generate_epoch_commands(const task& tsk) {
+		assert(tsk.get_type() == task_type::EPOCH);
 
 		command_id min_new_epoch;
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			auto& node = node_data.at(nid);
 
-			const auto epoch = cdag.create<epoch_command>(nid, tsk->get_id(), tsk->get_epoch_action());
+			const auto epoch = cdag.create<epoch_command>(nid, tsk.get_id(), tsk.get_epoch_action());
 			const auto cid = epoch->get_cid();
 			if(nid == 0) { min_new_epoch = cid; }
 
@@ -144,14 +143,14 @@ namespace detail {
 		min_epoch_for_new_commands = min_new_epoch;
 	}
 
-	void graph_generator::generate_horizon_commands(const task* const tsk) {
-		assert(tsk->get_type() == task_type::HORIZON);
+	void graph_generator::generate_horizon_commands(const task& tsk) {
+		assert(tsk.get_type() == task_type::HORIZON);
 
 		std::optional<command_id> min_new_epoch;
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			auto& node = node_data.at(nid);
 
-			const auto horizon = cdag.create<horizon_command>(nid, tsk->get_id());
+			const auto horizon = cdag.create<horizon_command>(nid, tsk.get_id());
 			const auto cid = horizon->get_cid();
 
 			if(node.current_horizon) {
@@ -174,18 +173,18 @@ namespace detail {
 		}
 	}
 
-	void graph_generator::generate_collective_execution_commands(const task* const tsk) {
-		assert(tsk->get_type() == task_type::COLLECTIVE);
+	void graph_generator::generate_collective_execution_commands(const task& tsk) {
+		assert(tsk.get_type() == task_type::COLLECTIVE);
 
 		for(size_t nid = 0; nid < num_nodes; ++nid) {
 			auto offset = cl::sycl::id<1>{nid};
 			auto range = cl::sycl::range<1>{1};
 			const auto sr = subrange_cast<3>(subrange<1>{offset, range});
-			auto* cmd = cdag.create<execution_command>(nid, tsk->get_id(), sr);
+			auto* cmd = cdag.create<execution_command>(nid, tsk.get_id(), sr);
 
 			// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
 			// they are executed in the same order on every node.
-			auto cgid = tsk->get_collective_group_id();
+			auto cgid = tsk.get_collective_group_id();
 			auto& last_collective_commands = node_data.at(nid).last_collective_commands;
 			if(auto prev = last_collective_commands.find(cgid); prev != last_collective_commands.end()) {
 				cdag.add_dependency(cmd, cdag.get(prev->second), dependency_kind::TRUE_DEP, dependency_origin::collective_group_serialization);
@@ -195,23 +194,23 @@ namespace detail {
 		}
 	}
 
-	void graph_generator::generate_independent_execution_commands(const task* const tsk) {
-		assert(tsk->get_type() == task_type::HOST_COMPUTE || tsk->get_type() == task_type::DEVICE_COMPUTE || tsk->get_type() == task_type::MASTER_NODE);
+	void graph_generator::generate_independent_execution_commands(const task& tsk) {
+		assert(tsk.get_type() == task_type::HOST_COMPUTE || tsk.get_type() == task_type::DEVICE_COMPUTE || tsk.get_type() == task_type::MASTER_NODE);
 
-		const auto sr = subrange<3>{tsk->get_global_offset(), tsk->get_global_size()};
-		cdag.create<execution_command>(0, tsk->get_id(), sr);
+		const auto sr = subrange<3>{tsk.get_global_offset(), tsk.get_global_size()};
+		cdag.create<execution_command>(0, tsk.get_id(), sr);
 	}
 
 	using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<3>>>;
 
-	buffer_requirements_map get_buffer_requirements_for_mapped_access(const task* tsk, subrange<3> sr, const cl::sycl::range<3> global_size) {
+	buffer_requirements_map get_buffer_requirements_for_mapped_access(const task& tsk, subrange<3> sr, const cl::sycl::range<3> global_size) {
 		buffer_requirements_map result;
-		const auto& access_map = tsk->get_buffer_access_map();
+		const auto& access_map = tsk.get_buffer_access_map();
 		const auto buffers = access_map.get_accessed_buffers();
 		for(const buffer_id bid : buffers) {
 			const auto modes = access_map.get_access_modes(bid);
 			for(auto m : modes) {
-				result[bid][m] = access_map.get_requirements_for_access(bid, m, tsk->get_dimensions(), sr, global_size);
+				result[bid][m] = access_map.get_requirements_for_access(bid, m, tsk.get_dimensions(), sr, global_size);
 			}
 		}
 		return result;
@@ -272,8 +271,8 @@ namespace detail {
 		}
 	} // namespace
 
-	void graph_generator::process_task_data_requirements(task_id tid) {
-		const auto tsk = task_mngr.get_task(tid);
+	void graph_generator::process_task_data_requirements(const task& tsk) {
+		const task_id tid = tsk.get_id();
 
 		// Copy the list of task commands so we can safely modify the command graph in the loop below
 		// NOTE: We assume that none of these commands are deleted
@@ -287,7 +286,7 @@ namespace detail {
 		command_id reduction_initializer_cid = 0;
 		{
 			std::unordered_set<command_id> optimal_reduction_initializer_cids;
-			for(auto rid : tsk->get_reductions()) {
+			for(auto rid : tsk.get_reductions()) {
 				auto reduction = reduction_mngr.get_reduction(rid);
 				if(reduction.initialize_from_buffer) {
 					if(optimal_reduction_initializer_cids.empty()) {
@@ -343,14 +342,14 @@ namespace detail {
 
 			ecmd->set_is_reduction_initializer(cid == reduction_initializer_cid);
 
-			auto requirements = get_buffer_requirements_for_mapped_access(tsk, ecmd->get_execution_range(), tsk->get_global_size());
+			auto requirements = get_buffer_requirements_for_mapped_access(tsk, ecmd->get_execution_range(), tsk.get_global_size());
 
 			// Any reduction that includes the value previously found in the buffer (i.e. the absence of sycl::property::reduction::initialize_to_identity)
 			// must read that original value in the eventual reduction_command generated by a future buffer requirement. Since whenever a buffer is used as
 			// a reduction output, we replace its state with a pending_reduction_state, that original value would be lost. To avoid duplicating the buffer,
 			// we simply include it in the pre-reduced state of a single execution_command.
 			std::unordered_map<buffer_id, reduction_id> buffer_reduction_map;
-			for(auto rid : tsk->get_reductions()) {
+			for(auto rid : tsk.get_reductions()) {
 				auto reduction = reduction_mngr.get_reduction(rid);
 
 				auto rmode = cl::sycl::access::mode::discard_write;
@@ -526,7 +525,7 @@ namespace detail {
 		// If there is only one chunk/command, it already implicitly generates the final reduced value and the buffer does not need to be flagged as
 		// a pending reduction.
 		if(task_commands.size() > 1) {
-			for(auto rid : tsk->get_reductions()) {
+			for(auto rid : tsk.get_reductions()) {
 				auto bid = reduction_mngr.get_reduction(rid).output_buffer_id;
 				buffer_states.at(bid) = pending_reduction_state{rid, {}};
 			}
@@ -584,14 +583,14 @@ namespace detail {
 		}
 	}
 
-	void graph_generator::process_task_side_effect_requirements(const task_id tid) {
-		const auto tsk = task_mngr.get_task(tid);
-		if(tsk->get_side_effect_map().empty()) return; // skip the loop in the common case
+	void graph_generator::process_task_side_effect_requirements(const task& tsk) {
+		const task_id tid = tsk.get_id();
+		if(tsk.get_side_effect_map().empty()) return; // skip the loop in the common case
 
 		for(const auto cmd : cdag.task_commands(tid)) {
 			auto& nd = node_data.at(cmd->get_nid());
 
-			for(const auto& side_effect : tsk->get_side_effect_map()) {
+			for(const auto& side_effect : tsk.get_side_effect_map()) {
 				const auto [hoid, order] = side_effect;
 				if(const auto last_effect = nd.host_object_last_effects.find(hoid); last_effect != nd.host_object_last_effects.end()) {
 					// TODO once we have different side_effect_orders, their interaction will determine the dependency kind

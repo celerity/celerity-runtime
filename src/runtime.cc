@@ -136,11 +136,11 @@ namespace detail {
 		exec = std::make_unique<executor>(local_nid, *h_queue, *d_queue, *task_mngr, *buffer_mngr, *reduction_mngr);
 		if(is_master_node()) {
 			cdag = std::make_unique<command_graph>();
-			ggen = std::make_shared<graph_generator>(num_nodes, *task_mngr, *reduction_mngr, *cdag);
+			ggen = std::make_shared<graph_generator>(num_nodes, *reduction_mngr, *cdag);
 			gsrlzr = std::make_unique<graph_serializer>(
 			    *cdag, [this](node_id target, unique_frame_ptr<command_frame> frame) { flush_command(target, std::move(frame)); });
 			schdlr = std::make_unique<scheduler>(*ggen, *gsrlzr, num_nodes);
-			task_mngr->register_task_callback([this](task_id tid) { schdlr->notify_task_created(tid); });
+			task_mngr->register_task_callback([this](const task* tsk) { schdlr->notify_task_created(tsk); });
 		}
 
 		CELERITY_INFO(

@@ -18,7 +18,7 @@ namespace celerity {
 namespace detail {
 
 	class reduction_manager;
-	using task_callback = std::function<void(task_id)>;
+	using task_callback = std::function<void(const task*)>;
 
 	// Allows other threads to await an epoch change in the task manager.
 	// This is worth a separate class to encapsulate the synchronization behavior.
@@ -66,6 +66,7 @@ namespace detail {
 		template <typename CGF, typename... Hints>
 		task_id submit_command_group(CGF cgf, Hints... hints) {
 			task_id tid;
+			const task* tsk_ptr = nullptr;
 			{
 				std::lock_guard lock(task_mutex);
 				auto reservation = task_buffer.reserve_task_entry(await_free_task_slot_callback());
@@ -74,8 +75,9 @@ namespace detail {
 				prepass_handler cgh(tid, std::make_unique<command_group_storage<CGF>>(cgf), num_collective_nodes);
 				cgf(cgh);
 				task& task_ref = register_task_internal(std::move(reservation), std::move(cgh).into_task());
+				tsk_ptr = &task_ref;
 
-				compute_dependencies(tid);
+				compute_dependencies(task_ref);
 				if(queue) queue->require_collective_group(task_ref.get_collective_group_id());
 
 				// the following deletion is intentionally redundant with the one happening when waiting for free task slots
@@ -83,7 +85,7 @@ namespace detail {
 				// so that we can potentially reclaim additional resources such as buffers earlier
 				task_buffer.delete_up_to(latest_epoch_reached.get());
 			}
-			invoke_callbacks(tid);
+			invoke_callbacks(tsk_ptr);
 			if(need_new_horizon()) { generate_horizon_task(); }
 			return tid;
 		}
@@ -217,15 +219,15 @@ namespace detail {
 
 		task& register_task_internal(task_ring_buffer::reservation&& reserve, std::unique_ptr<task> task);
 
-		void invoke_callbacks(task_id tid);
+		void invoke_callbacks(const task* tsk) const;
 
-		void add_dependency(task* depender, task* dependee, dependency_kind kind, dependency_origin origin);
+		void add_dependency(task& depender, task& dependee, dependency_kind kind, dependency_origin origin);
 
 		inline bool need_new_horizon() const { return max_pseudo_critical_path_length - current_horizon_critical_path_length >= task_horizon_step_size; }
 
 		int get_max_pseudo_critical_path_length() const { return max_pseudo_critical_path_length; }
 
-		task_id reduce_execution_front(task_ring_buffer::reservation&& reserve, std::unique_ptr<task> new_front);
+		task& reduce_execution_front(task_ring_buffer::reservation&& reserve, std::unique_ptr<task> new_front);
 
 		void set_epoch_for_new_tasks(task_id epoch);
 
@@ -233,7 +235,7 @@ namespace detail {
 
 		task_id generate_horizon_task();
 
-		void compute_dependencies(task_id tid);
+		void compute_dependencies(task& tsk);
 
 		// Finds the first in-flight epoch, or returns the currently reached one if there are none in-flight
 		// Used in await_free_task_slot_callback to check for hangs

@@ -154,14 +154,14 @@ struct graph_generator_benchmark_context {
 	graph_serializer gsrlzr{cdag, [](node_id, unique_frame_ptr<command_frame>) {}};
 	reduction_manager rm;
 	task_manager tm{num_nodes, nullptr, &rm};
-	graph_generator ggen{num_nodes, tm, rm, cdag};
+	graph_generator ggen{num_nodes, rm, cdag};
 	test_utils::mock_buffer_factory mbf{&tm, &ggen};
 
 	explicit graph_generator_benchmark_context(size_t num_nodes) : num_nodes{num_nodes} {
-		tm.register_task_callback([this](const task_id tid) {
+		tm.register_task_callback([this](const task* tsk) {
 			naive_split_transformer transformer{this->num_nodes, this->num_nodes};
-			ggen.build_task(tid, {&transformer});
-			gsrlzr.flush(tid);
+			ggen.build_task(*tsk, {&transformer});
+			gsrlzr.flush(tsk->get_id());
 		});
 	}
 
@@ -256,12 +256,12 @@ struct scheduler_benchmark_context {
 	graph_serializer gsrlzr{cdag, [](node_id, unique_frame_ptr<command_frame>) {}};
 	reduction_manager rm;
 	task_manager tm{num_nodes, nullptr, &rm};
-	graph_generator ggen{num_nodes, tm, rm, cdag};
+	graph_generator ggen{num_nodes, rm, cdag};
 	benchmark_scheduler schdlr;
 	test_utils::mock_buffer_factory mbf{&tm, &ggen};
 
 	explicit scheduler_benchmark_context(restartable_thread& thrd, size_t num_nodes) : num_nodes{num_nodes}, schdlr{thrd, ggen, gsrlzr, num_nodes} {
-		tm.register_task_callback([this](task_id tid) { schdlr.notify_task_created(tid); });
+		tm.register_task_callback([this](const task* tsk) { schdlr.notify_task_created(tsk); });
 		schdlr.startup();
 	}
 
