@@ -245,7 +245,7 @@ namespace detail {
 	TEST_CASE("task_manager invokes callback upon task creation", "[task_manager]") {
 		task_manager tm{1, nullptr, nullptr};
 		size_t call_counter = 0;
-		tm.register_task_callback([&call_counter](task_id) { call_counter++; });
+		tm.register_task_callback([&call_counter](const task*) { call_counter++; });
 		cl::sycl::range<2> gs = {1, 1};
 		cl::sycl::id<2> go = {};
 		tm.submit_command_group([=](handler& cgh) { cgh.parallel_for<class kernel>(gs, go, [](auto) {}); });

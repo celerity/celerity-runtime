@@ -246,7 +246,7 @@ namespace test_utils {
 			rm = std::make_unique<detail::reduction_manager>();
 			tm = std::make_unique<detail::task_manager>(1 /* num_nodes */, nullptr /* host_queue */, rm.get());
 			cdag = std::make_unique<detail::command_graph>();
-			ggen = std::make_unique<detail::graph_generator>(num_nodes, *tm, *rm, *cdag);
+			ggen = std::make_unique<detail::graph_generator>(num_nodes, *rm, *cdag);
 			gsrlzr = std::make_unique<detail::graph_serializer>(*cdag, inspector.get_cb());
 			this->num_nodes = num_nodes;
 		}
@@ -265,7 +265,7 @@ namespace test_utils {
 				if(most_recently_built_task_horizon) {
 					// naive_split does not really do anything for horizons, but this mirrors the behavior of scheduler::schedule exactly.
 					detail::naive_split_transformer naive_split(num_nodes, num_nodes);
-					get_graph_generator().build_task(*most_recently_built_task_horizon, {&naive_split});
+					get_graph_generator().build_task(*tm->get_task(*most_recently_built_task_horizon), {&naive_split});
 					return *most_recently_built_task_horizon;
 				}
 			}
@@ -338,7 +338,7 @@ namespace test_utils {
 
 	inline detail::task_id build_and_flush(cdag_test_context& ctx, size_t num_nodes, size_t num_chunks, detail::task_id tid) {
 		detail::naive_split_transformer transformer{num_chunks, num_nodes};
-		ctx.get_graph_generator().build_task(tid, {&transformer});
+		ctx.get_graph_generator().build_task(*ctx.get_task_manager().get_task(tid), {&transformer});
 		ctx.get_graph_serializer().flush(tid);
 		if(const auto htid = ctx.build_task_horizons()) { ctx.get_graph_serializer().flush(htid); }
 		return tid;

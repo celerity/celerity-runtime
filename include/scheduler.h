@@ -5,19 +5,18 @@
 #include <queue>
 #include <thread>
 
-#include "types.h"
-
 namespace celerity {
 namespace detail {
 
 	class graph_generator;
 	class graph_serializer;
+	class task;
 
 	enum class scheduler_event_type { TASK_AVAILABLE, SHUTDOWN };
 
 	struct scheduler_event {
 		scheduler_event_type type;
-		size_t data;
+		const task* tsk;
 	};
 
 	// Abstract base class to allow different threading implementation in tests
@@ -34,7 +33,7 @@ namespace detail {
 		/**
 		 * @brief Notifies the scheduler that a new task has been created and is ready for scheduling.
 		 */
-		void notify_task_created(task_id tid) { notify(scheduler_event_type::TASK_AVAILABLE, tid); }
+		void notify_task_created(const task* tsk) { notify(scheduler_event_type::TASK_AVAILABLE, tsk); }
 
 	  protected:
 		/**
@@ -54,7 +53,7 @@ namespace detail {
 
 		const size_t num_nodes;
 
-		void notify(scheduler_event_type type, size_t data);
+		void notify(scheduler_event_type type, const task* tsk);
 	};
 
 	class scheduler final : public abstract_scheduler {
