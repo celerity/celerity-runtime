@@ -1,3 +1,8 @@
+# Clang-format coding style definitions for Celerity
+#
+# Due to some inconsistencies between releases we currently
+# use clang-format 14 as the authoritative version.
+
 BasedOnStyle: llvm
 
 AlignAfterOpenBracket: DontAlign
@@ -5,7 +10,7 @@ AlignOperands: true
 AlignTrailingComments: true
 AllowShortBlocksOnASingleLine: true
 AllowShortCaseLabelsOnASingleLine: true
-AllowShortFunctionsOnASingleLine: Inline
+AllowShortFunctionsOnASingleLine: true
 AllowShortIfStatementsOnASingleLine: true
 AllowShortLoopsOnASingleLine: false
 AlwaysBreakTemplateDeclarations: true
