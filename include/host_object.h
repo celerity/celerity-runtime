@@ -165,7 +165,7 @@ class host_object<void> {
 // The universal reference parameter T&& matches U& as well as U&& for object types U, but we don't want to implicitly invoke a copy constructor: the user
 // might have intended to either create a host_object<T&> (which requires a std::reference_wrapper parameter) or move-construct the interior.
 template <typename T>
-explicit host_object(T &&) -> host_object<detail::assert_host_object_ctor_param_is_rvalue_t<T>>;
+explicit host_object(T&&) -> host_object<detail::assert_host_object_ctor_param_is_rvalue_t<T>>;
 
 template <typename T>
 explicit host_object(std::reference_wrapper<T>) -> host_object<T&>;

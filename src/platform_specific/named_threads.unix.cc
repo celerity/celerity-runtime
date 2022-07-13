@@ -11,9 +11,7 @@ static_assert(std::is_same_v<std::thread::native_handle_type, pthread_t>, "Unexp
 
 constexpr auto PTHREAD_MAX_THREAD_NAME_LEN = 16;
 
-std::thread::native_handle_type get_current_thread_handle() {
-	return pthread_self();
-}
+std::thread::native_handle_type get_current_thread_handle() { return pthread_self(); }
 
 void set_thread_name(const std::thread::native_handle_type thread_handle, const std::string& name) {
 	auto truncated_name = name;

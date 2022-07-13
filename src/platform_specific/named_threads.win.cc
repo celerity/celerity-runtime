@@ -28,9 +28,7 @@ static inline std::wstring convert_string(const std::string& str) {
 	return dst;
 }
 
-std::thread::native_handle_type get_current_thread_handle() {
-	return GetCurrentThread();
-}
+std::thread::native_handle_type get_current_thread_handle() { return GetCurrentThread(); }
 
 void set_thread_name(const std::thread::native_handle_type thread_handle, const std::string& name) {
 	const auto wname = convert_string(name);
