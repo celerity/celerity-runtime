@@ -14,11 +14,61 @@ jobs:
       - id: skip-check
         uses: fkirc/skip-duplicate-actions@v3.4.1
         with:
-          concurrent_skipping: 'same_content_newer'
-          skip_after_successful_duplicate: 'true'
+          concurrent_skipping: "same_content_newer"
+          skip_after_successful_duplicate: "true"
           paths_ignore: '["**/*.md", "docs/**", "website/**"]'
           do_not_skip: '["workflow_dispatch", "schedule"]'
-          cancel_others: 'true'
+          cancel_others: "true"
+
+  # Run Clang-Tidy checks
+  #
+  # Note:
+  # - The action we use for this (ZedThree/clang-tidy-review) is a Docker action.
+  #   However, to obtain the required compile_commands.json file, we need our own
+  #   Docker container environment. We therefore run this job within a build container
+  #   and manually call the job's Python script.
+  # - This action currently only supports pull_request triggers (as it creates review
+  #   comments), so we have to run it regardless of skip-duplicate-action's outcome
+  #   (as otherwise pull_request triggers will usually be skipped due to the push
+  #   trigger already running).
+  #
+  # TODO: This should be combined with the report (or "lint") step, really
+  clang-tidy:
+    if: github.event.pull_request
+    runs-on: [self-hosted, nvidia]
+    env:
+      container-workspace: /__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}
+      build-dir: /root/build
+    container:
+      # We could run this for more than one implementation,
+      # but would likely end up with mostly duplicate diagnostics.
+      image: celerity-build/hipsycl:ubuntu22.04-HEAD
+      volumes:
+        - ccache:/ccache
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+      # We only want to configure CMake, so we build the "help" target,
+      # which doesn't actually do anything (other than print all targets).
+      - name: Configure CMake
+        run: bash -o pipefail -c "bash /root/build-celerity.sh ${{ env.container-workspace }} --build-type Debug --target help"
+      - name: Check clang-tidy
+        working-directory: ${{ env.build-dir }}
+        run: |
+          git clone https://github.com/ZedThree/clang-tidy-review.git
+          cd clang-tidy-review
+          git checkout v0.8.4
+          pip install -r ./requirements.txt
+          cd ${{ env.container-workspace }}
+          python3 ${{ env.build-dir }}/clang-tidy-review/review.py \
+            --clang_tidy_binary=clang-tidy \
+            --token=${{ github.token }} \
+            --repo=${{ github.repository }} \
+            --pr=${{ github.event.pull_request.number }} \
+            --build_dir=${{ env.build-dir }} \
+            --config_file=${{ env.container-workspace }}/.clang-tidy \
+            --include="*.h,*.cc,*.[ch]pp"
 
   build-and-test:
     needs: find-duplicate-workflows
