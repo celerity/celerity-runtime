@@ -1,0 +1,45 @@
+---
+#
+# Clang-Tidy configuration for Celerity.
+#
+# There are three usage scenarios:
+# 1. Automatic checks through an IDE (CLion, VsCode, ...)
+# 2. Running manually on select files (not recommended)
+#    `clang-tidy -p path/to/compile_commands.json file1 [file2, ...]`
+# 3. Running on a diff (also done during CI)
+#    `git diff -U0 --no-color | clang-tidy-diff.py -p1 -path path/to/compile_commands.json`
+#
+InheritParentConfig: false
+# See https://clang.llvm.org/extra/clang-tidy/checks/list.html for a full list of available checks.
+Checks: clang-diagnostic-*,clang-analyzer-*,readability-*,performance-*,cppcoreguidelines-*,mpi-*,-readability-uppercase-literal-suffix
+CheckOptions:
+  # Naming conventions
+  - key: readability-identifier-naming.ClassCase
+    value: lower_case
+  - key: readability-identifier-naming.ClassMethodCase
+    value: lower_case
+  - key: readability-identifier-naming.EnumCase
+    value: lower_case
+  - key: readability-identifier-naming.EnumConstantCase
+    value: lower_case
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.LocalVariableCase
+    value: lower_case
+  - key: readability-identifier-naming.ParameterCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberPrefix
+    value: m_
+  - key: readability-identifier-naming.TemplateParameterCase
+    value: CamelCase
+  # Other coding conventions
+  - key: readability-braces-around-statements.ShortStatementLines
+    # Allow control-flow statements w/o braces when on a single line
+    value: 1
+
+# Treat naming violations as errors
+WarningsAsErrors: "readability-identifier-naming"
+# Use .clang-format configuration for fixes
+FormatStyle: file
