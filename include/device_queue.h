@@ -18,6 +18,25 @@ namespace detail {
 
 	class task;
 
+#if WORKAROUND_HIPSYCL
+	template <typename T, typename U = void>
+	struct hipsycl_is_old_dag_api : std::false_type {};
+	template <typename T>
+	struct hipsycl_is_old_dag_api<T, std::void_t<decltype(T::dag())>> : std::true_type {};
+
+	// Unfortunately the API for flushing the DAG changed in 83e290ff, so we need to detect which version is available.
+	// See also: https://github.com/illuhad/hipSYCL/pull/749.
+	// Note that both functions need to be dependent names so that no invalid code is ever instantiated (hence the need for App and Queue).
+	template <typename App = hipsycl::rt::application, typename Queue = sycl::queue>
+	void hipsycl_flush_dag(Queue& queue) {
+		if constexpr(hipsycl_is_old_dag_api<App>::value) {
+			App::dag().flush_async();
+		} else {
+			queue.get_context().hipSYCL_runtime()->dag().flush_async();
+		}
+	}
+#endif
+
 	/**
 	 * The @p device_queue wraps the actual SYCL queue and is used to submit kernels.
 	 */
@@ -39,9 +58,9 @@ namespace detail {
 			auto evt = sycl_queue->submit([fn = std::forward<Fn>(fn)](cl::sycl::handler& sycl_handler) { fn(sycl_handler); });
 #if WORKAROUND_HIPSYCL
 			// hipSYCL does not guarantee that command groups are actually scheduled until an explicit await operation, which we cannot insert without
-			// blocking the executor loop (See https://github.com/illuhad/hipSYCL/issues/599). Instead, we explicitly flush the queue to be able to continue
+			// blocking the executor loop (see https://github.com/illuhad/hipSYCL/issues/599). Instead, we explicitly flush the queue to be able to continue
 			// using our polling-based approach.
-			hipsycl::rt::application::dag().flush_async();
+			hipsycl_flush_dag(*sycl_queue);
 #endif
 			return evt;
 		}
