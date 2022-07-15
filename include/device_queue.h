@@ -18,7 +18,7 @@ namespace detail {
 
 	class task;
 
-#if WORKAROUND_HIPSYCL
+#if CELERITY_WORKAROUND(HIPSYCL)
 	template <typename T, typename U = void>
 	struct hipsycl_is_old_dag_api : std::false_type {};
 	template <typename T>
@@ -56,7 +56,7 @@ namespace detail {
 		template <typename Fn>
 		cl::sycl::event submit(Fn&& fn) {
 			auto evt = sycl_queue->submit([fn = std::forward<Fn>(fn)](cl::sycl::handler& sycl_handler) { fn(sycl_handler); });
-#if WORKAROUND_HIPSYCL
+#if CELERITY_WORKAROUND(HIPSYCL)
 			// hipSYCL does not guarantee that command groups are actually scheduled until an explicit await operation, which we cannot insert without
 			// blocking the executor loop (see https://github.com/illuhad/hipSYCL/issues/599). Instead, we explicitly flush the queue to be able to continue
 			// using our polling-based approach.

@@ -69,7 +69,7 @@ TEMPLATE_TEST_CASE_METHOD_SIG(dim_device_queue_fixture, "ranged_sycl_access work
 template <access_mode, bool>
 class access_test_kernel;
 
-#if WORKAROUND_DPCPP || WORKAROUND(COMPUTECPP, 2, 7)
+#if CELERITY_WORKAROUND(DPCPP) || CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 7)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations" // target::gobal_buffer is now target::device, but only for very recent versions of DPC++
 constexpr auto sycl_target_device = cl::sycl::access::target::global_buffer;

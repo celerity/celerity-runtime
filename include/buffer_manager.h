@@ -231,7 +231,7 @@ namespace detail {
 				// We need two separate approaches here for hipSYCL and ComputeCpp, as hipSYCL currently (0.9.1) does
 				// not support reinterpreting buffers to other dimensionalities, while ComputeCpp (2.5.0) does not
 				// support filling buffers with arbitrary data types.
-#if WORKAROUND_HIPSYCL
+#if CELERITY_WORKAROUND(HIPSYCL)
 				DataT pattern;
 				memset(&pattern, test_mode_pattern, sizeof(DataT));
 #else
@@ -240,7 +240,7 @@ namespace detail {
 
 				queue.get_sycl_queue()
 				    .submit([&](cl::sycl::handler& cgh) {
-#if WORKAROUND_HIPSYCL
+#if CELERITY_WORKAROUND(HIPSYCL)
 					    auto acc = device_buf.template get_access<cl::sycl::access::mode::discard_write>(cgh);
 					    cgh.fill(acc, pattern);
 #else

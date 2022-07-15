@@ -363,7 +363,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected
 }
 
 // The following test doesn't work with ComputeCpp backend, since the == operator behaves differently
-#if !defined(WORKAROUND_COMPUTECPP)
+#if !CELERITY_WORKAROUND(COMPUTECPP)
 TEST_CASE_METHOD(celerity::test_utils::runtime_fixture, "pick_device supports passing a device selector function", "[device-selection]") {
 	std::vector<sycl::device> devices = sycl::device::get_devices();
 	if(devices.size() < 2) {

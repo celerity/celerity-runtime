@@ -3,46 +3,45 @@
 #include <CL/sycl.hpp>
 #include <sycl/sycl.hpp>
 
-// TODO: Don't pollute preprocessor namespace with generic "WORKAROUND" names, prefix with "CELERITY".
-
 #if defined(CELERITY_DPCPP)
-#define WORKAROUND_DPCPP 1
+#define CELERITY_WORKAROUND_DPCPP 1
 #else
-#define WORKAROUND_DPCPP 0
+#define CELERITY_WORKAROUND_DPCPP 0
 #endif
 
 #if defined(__COMPUTECPP__)
-#define WORKAROUND_COMPUTECPP 1
-#define CELERITY_DETAIL_WA_VERSION_MAJOR COMPUTECPP_VERSION_MAJOR
-#define CELERITY_DETAIL_WA_VERSION_MINOR COMPUTECPP_VERSION_MINOR
-#define CELERITY_DETAIL_WA_VERSION_PATCH COMPUTECPP_VERSION_PATCH
+#define CELERITY_WORKAROUND_COMPUTECPP 1
+#define CELERITY_WORKAROUND_VERSION_MAJOR COMPUTECPP_VERSION_MAJOR
+#define CELERITY_WORKAROUND_VERSION_MINOR COMPUTECPP_VERSION_MINOR
+#define CELERITY_WORKAROUND_VERSION_PATCH COMPUTECPP_VERSION_PATCH
 #else
-#define WORKAROUND_COMPUTECPP 0
+#define CELERITY_WORKAROUND_COMPUTECPP 0
 #endif
 
 #if defined(__HIPSYCL__)
-#define WORKAROUND_HIPSYCL 1
-#define CELERITY_DETAIL_WA_VERSION_MAJOR HIPSYCL_VERSION_MAJOR
-#define CELERITY_DETAIL_WA_VERSION_MINOR HIPSYCL_VERSION_MINOR
-#define CELERITY_DETAIL_WA_VERSION_PATCH HIPSYCL_VERSION_PATCH
+#define CELERITY_WORKAROUND_HIPSYCL 1
+#define CELERITY_WORKAROUND_VERSION_MAJOR HIPSYCL_VERSION_MAJOR
+#define CELERITY_WORKAROUND_VERSION_MINOR HIPSYCL_VERSION_MINOR
+#define CELERITY_WORKAROUND_VERSION_PATCH HIPSYCL_VERSION_PATCH
 #else
-#define WORKAROUND_HIPSYCL 0
+#define CELERITY_WORKAROUND_HIPSYCL 0
 #endif
 
-#define CELERITY_DETAIL_WA_CHECK_VERSION_1(major) (CELERITY_DETAIL_WA_VERSION_MAJOR <= major)
-#define CELERITY_DETAIL_WA_CHECK_VERSION_2(major, minor)                                                                                                       \
-	(CELERITY_DETAIL_WA_VERSION_MAJOR < major) || (CELERITY_DETAIL_WA_VERSION_MAJOR == major && CELERITY_DETAIL_WA_VERSION_MINOR <= minor)
-#define CELERITY_DETAIL_WA_CHECK_VERSION_3(major, minor, patch)                                                                                                \
-	(CELERITY_DETAIL_WA_VERSION_MAJOR < major) || (CELERITY_DETAIL_WA_VERSION_MAJOR == major && CELERITY_DETAIL_WA_VERSION_MINOR < minor)                      \
-	    || (CELERITY_DETAIL_WA_VERSION_MAJOR == major && CELERITY_DETAIL_WA_VERSION_MINOR == minor && CELERITY_DETAIL_WA_VERSION_PATCH <= patch)
+#define CELERITY_WORKAROUND_VERSION_LESS_OR_EQUAL_1(major) (CELERITY_WORKAROUND_VERSION_MAJOR <= major)
+#define CELERITY_WORKAROUND_VERSION_LESS_OR_EQUAL_2(major, minor)                                                                                              \
+	(CELERITY_WORKAROUND_VERSION_MAJOR < major) || (CELERITY_WORKAROUND_VERSION_MAJOR == major && CELERITY_WORKAROUND_VERSION_MINOR <= minor)
+#define CELERITY_WORKAROUND_VERSION_LESS_OR_EQUAL_3(major, minor, patch)                                                                                       \
+	(CELERITY_WORKAROUND_VERSION_MAJOR < major) || (CELERITY_WORKAROUND_VERSION_MAJOR == major && CELERITY_WORKAROUND_VERSION_MINOR < minor)                   \
+	    || (CELERITY_WORKAROUND_VERSION_MAJOR == major && CELERITY_WORKAROUND_VERSION_MINOR == minor && CELERITY_WORKAROUND_VERSION_PATCH <= patch)
 
-#define CELERITY_DETAIL_WA_GET_OVERLOAD(_1, _2, _3, NAME, ...) NAME
-#define CELERITY_DETAIL_WA_MSVC_WORKAROUND(x) x // Workaround for MSVC PP expansion behavior of __VA_ARGS__
-#define CELERITY_DETAIL_WA_CHECK_VERSION(...)                                                                                                                  \
-	CELERITY_DETAIL_WA_MSVC_WORKAROUND(CELERITY_DETAIL_WA_GET_OVERLOAD(                                                                                        \
-	    __VA_ARGS__, CELERITY_DETAIL_WA_CHECK_VERSION_3, CELERITY_DETAIL_WA_CHECK_VERSION_2, CELERITY_DETAIL_WA_CHECK_VERSION_1)(__VA_ARGS__))
+#define CELERITY_WORKAROUND_GET_OVERLOAD(_1, _2, _3, NAME, ...) NAME
+#define CELERITY_WORKAROUND_MSVC_VA_ARGS_EXPANSION(x) x // Workaround for MSVC PP expansion behavior of __VA_ARGS__
+#define CELERITY_WORKAROUND_VERSION_LESS_OR_EQUAL(...)                                                                                                         \
+	CELERITY_WORKAROUND_MSVC_VA_ARGS_EXPANSION(CELERITY_WORKAROUND_GET_OVERLOAD(__VA_ARGS__, CELERITY_WORKAROUND_VERSION_LESS_OR_EQUAL_3,                      \
+	    CELERITY_WORKAROUND_VERSION_LESS_OR_EQUAL_2, CELERITY_WORKAROUND_VERSION_LESS_OR_EQUAL_1)(__VA_ARGS__))
 
-#define WORKAROUND(impl, ...) (WORKAROUND_##impl == 1 && CELERITY_DETAIL_WA_CHECK_VERSION(__VA_ARGS__))
+#define CELERITY_WORKAROUND(impl) (CELERITY_WORKAROUND_##impl == 1)
+#define CELERITY_WORKAROUND_LESS_OR_EQUAL(impl, ...) (CELERITY_WORKAROUND(impl) && CELERITY_WORKAROUND_VERSION_LESS_OR_EQUAL(__VA_ARGS__))
 
 
 namespace celerity::detail {
@@ -88,7 +87,7 @@ using access_value_reference = typename access_value_trait<T, Mode, Target>::ref
 // SYCL implementations have differences in computing accessor indices involving offsets. The behavior changed between versions 1.2.1 and 2020, and there is a
 // bug to iron out for ComputeCpp 2.7.0. TODO The buffer_range parameter in all these methods can be removed once we stop supporting ComputeCpp < 2.8.0.
 
-#if WORKAROUND_HIPSYCL || WORKAROUND(COMPUTECPP, 2, 6)
+#if CELERITY_WORKAROUND(HIPSYCL) || CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 6)
 
 template <typename T, int Dims, sycl::access_mode Mode, sycl::access::target Target, sycl::access::placeholder IsPlaceholder>
 access_value_reference<T, Mode, Target> ranged_sycl_access(
@@ -97,7 +96,7 @@ access_value_reference<T, Mode, Target> ranged_sycl_access(
 	return acc[acc.get_offset() + index];
 }
 
-#elif WORKAROUND(COMPUTECPP, 2, 7)
+#elif CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 7)
 
 template <typename T, int Dims, sycl::access_mode Mode, sycl::access::target Target, sycl::access::placeholder IsPlaceholder>
 access_value_reference<T, Mode, Target> ranged_sycl_access(
