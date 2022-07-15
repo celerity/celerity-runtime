@@ -54,13 +54,13 @@ namespace detail {
 // Since there is no SYCL handler in the pre-pass, we abuse inheritance and friend declarations to conjure a temporary sycl::handler that can be passed to the
 // existing local_accessor constructor. This works because neither accessor implementation keep references to the handler internally or interacts with context
 // surrounding the fake handler instance.
-#if WORKAROUND_DPCPP
+#if CELERITY_WORKAROUND(DPCPP)
 	// The DPC++ handler declares `template<...> friend class accessor<...>`, so we specialize sycl::accessor with a made-up type and have it inherit from
 	// sycl::handler in order to be able to call the private constructor of sycl::handler.
 	struct hack_accessor_specialization_type {};
 	using hack_null_sycl_handler = cl::sycl::accessor<celerity::detail::hack_accessor_specialization_type, 0, cl::sycl::access::mode::read,
 	    cl::sycl::access::target::host_buffer, cl::sycl::access::placeholder::true_t, void>;
-#elif WORKAROUND(COMPUTECPP, 2, 9)
+#elif CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9)
 	// ComputeCpp's sycl::handler has a protected constructor, so we expose it to the public through inheritance.
 	class hack_null_sycl_handler : public sycl::handler {
 	  public:
@@ -70,7 +70,7 @@ namespace detail {
 
 	template <int Dims>
 	subrange<Dims> get_effective_sycl_accessor_subrange(id<Dims> device_buffer_offset, subrange<Dims> sr) {
-#if WORKAROUND_COMPUTECPP || WORKAROUND_DPCPP
+#if CELERITY_WORKAROUND(COMPUTECPP) || CELERITY_WORKAROUND(DPCPP)
 		// For ComputeCpp and DPC++, we allocate a unit-sized dummy backing buffer. ComputeCpp >= 2.8.0 does not support zero-sized placeholder accessors, so
 		// we simply create a unit-sized (SYCL) accessor instead.
 		if(sr.range.size() == 0) return {{}, unit_range};
@@ -81,7 +81,7 @@ namespace detail {
 } // namespace detail
 } // namespace celerity
 
-#if WORKAROUND_DPCPP
+#if CELERITY_WORKAROUND(DPCPP)
 // See declaration of celerity::detail::hack_accessor_specialization_type
 template <>
 class cl::sycl::accessor<celerity::detail::hack_accessor_specialization_type, 0, cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer,
@@ -283,12 +283,12 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
   private:
-#if WORKAROUND_DPCPP || WORKAROUND(COMPUTECPP, 2, 7)
+#if CELERITY_WORKAROUND(DPCPP) || CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 7)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations" // target::gobal_buffer is now target::device, but only for very recent versions of DPC++
 	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>;
 #pragma GCC diagnostic pop
-#elif WORKAROUND(COMPUTECPP, 2, 9)
+#elif CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9)
 	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::device, cl::sycl::access::placeholder::true_t>;
 #else
 	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::target::device>;
@@ -334,7 +334,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		if(detail::is_prepass_handler(cgh)) {
 			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
 			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, buff.get_range()));
-#if WORKAROUND_DPCPP
+#if CELERITY_WORKAROUND(DPCPP)
 			// DPC++ does not support SYCL 2020 default-constructible accessors and requires a buffer. As of 2021-08-18, DPC++ placeholder accessors do not
 			// keep a reference to the buffer on the host, so having the buffer go out of scope right away will not cause any problems.
 			cl::sycl::buffer<DataT, Dims> faux_buf{detail::range_cast<Dims>(range{1, 1, 1})};
@@ -581,7 +581,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 template <typename DataT, int Dims = 1>
 class local_accessor {
   private:
-#if WORKAROUND_DPCPP || WORKAROUND(COMPUTECPP, 2, 6)
+#if CELERITY_WORKAROUND(DPCPP) || CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 6)
 	using sycl_accessor = cl::sycl::accessor<DataT, Dims, cl::sycl::access::mode::read_write, cl::sycl::access::target::local>;
 #else
 	using sycl_accessor = cl::sycl::local_accessor<DataT, Dims>;
@@ -638,7 +638,7 @@ class local_accessor {
 	cl::sycl::handler* const* eventual_sycl_cgh = nullptr;
 
 	static sycl_accessor make_placeholder_sycl_accessor() {
-#if WORKAROUND_DPCPP || WORKAROUND(COMPUTECPP, 2, 9)
+#if CELERITY_WORKAROUND(DPCPP) || CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9)
 		detail::hack_null_sycl_handler null_cgh;
 		return sycl_accessor{detail::zero_range, null_cgh};
 #else

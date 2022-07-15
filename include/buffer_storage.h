@@ -181,7 +181,7 @@ namespace detail {
 
 			// ComputeCpp (as of version 2.5.0) expects the target pointer of an explicit copy operation to have the same size as the buffer.
 			// As a workaround, we copy the data manually using a kernel.
-#if WORKAROUND_COMPUTECPP
+#if CELERITY_WORKAROUND(COMPUTECPP)
 			cl::sycl::buffer<DataT, Dims> tmp_dst_buf(reinterpret_cast<DataT*>(result.get_pointer()), range_cast<Dims>(range));
 			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
 				const auto src_acc = buf.template get_access<cl::sycl::access::mode::read>(cgh, range_cast<Dims>(range), id_cast<Dims>(offset));
@@ -212,7 +212,7 @@ namespace detail {
 			auto buf = get_device_buffer();
 
 			// See above for why this workaround is needed.
-#if WORKAROUND_COMPUTECPP
+#if CELERITY_WORKAROUND(COMPUTECPP)
 			cl::sycl::buffer<DataT, Dims> tmp_src_buf(reinterpret_cast<DataT*>(data.get_pointer()), range_cast<Dims>(data.get_range()));
 			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
 				auto src_acc = tmp_src_buf.template get_access<cl::sycl::access::mode::read>(cgh);
@@ -245,7 +245,7 @@ namespace detail {
 		device_buffer<DataT, Dims> device_buf;
 
 		static celerity::range<Dims> make_device_buf_effective_range(sycl::range<Dims> range) {
-#if WORKAROUND_COMPUTECPP || WORKAROUND_DPCPP
+#if CELERITY_WORKAROUND(COMPUTECPP) || CELERITY_WORKAROUND(DPCPP)
 			// ComputeCpp and DPC++ do not support empty buffers, so we make a unit-sized dummy allocation instead.
 			for(int d = 0; d < Dims; ++d) {
 				range[d] = std::max(size_t{1}, range[d]);

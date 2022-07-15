@@ -97,7 +97,7 @@ struct subrange {
 	// underlying ComputeCpp's implementation of sycl::range. This generated array copy constructor receives a *non-const* lvalue instead of a const lvalue,
 	// which causes a const-mismatch -- but only when transitively called from the host_memory_layout runtime_test. Explicitly defining the constructor without
 	// delegating to range(const range&) seems to fix this.
-#if WORKAROUND_COMPUTECPP
+#if CELERITY_WORKAROUND(COMPUTECPP)
 	subrange(const subrange& other) { *this = other; }
 
 	subrange& operator=(const subrange& other) {

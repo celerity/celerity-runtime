@@ -59,7 +59,7 @@ namespace detail {
 	template <typename KernelName>
 	constexpr bool is_unnamed_kernel = std::is_same_v<KernelName, unnamed_kernel>;
 
-#if WORKAROUND_COMPUTECPP // TODO only required for the stable, but not the experimental compiler
+#if CELERITY_IS_OLD_COMPUTECPP_COMPILER
 	template <typename KernelName>
 	struct kernel_name_wrapper;
 #endif
@@ -67,7 +67,7 @@ namespace detail {
 	template <typename KernelName>
 	struct bound_kernel_name {
 		static_assert(!is_unnamed_kernel<KernelName>);
-#if WORKAROUND_COMPUTECPP
+#if CELERITY_IS_OLD_COMPUTECPP_COMPILER
 		using type = kernel_name_wrapper<KernelName>; // Suppress -Rsycl-kernel-naming diagnostic for local types
 #else
 		using type = KernelName;
@@ -443,8 +443,8 @@ namespace detail {
 		// As of SYCL 2020 kernel functors are passed as const references, so we explicitly capture by value here.
 		return [=](auto s_item_or_id, auto&... reducers) {
 			if constexpr(std::is_invocable_v<Kernel, celerity::item<Dims>, decltype(reducers)...>) {
-				if constexpr(WORKAROUND_DPCPP && std::is_same_v<id<Dims>, decltype(s_item_or_id)>) {
-					// WORKAROUND: DPC++ passes a sycl::id instead of a sycl::item to kernels alongside reductions
+				if constexpr(CELERITY_WORKAROUND(DPCPP) && std::is_same_v<id<Dims>, decltype(s_item_or_id)>) {
+					// CELERITY_WORKAROUND_LESS_OR_EQUAL: DPC++ passes a sycl::id instead of a sycl::item to kernels alongside reductions
 					invoke_kernel_with_celerity_item(kernel, s_item_or_id, global_range, global_offset, chunk_offset, reducers...);
 				} else {
 					// Explicit item constructor: ComputeCpp does not pass a sycl::item, but an implicitly convertible sycl::item_base (?) which does not have
@@ -662,7 +662,7 @@ auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation co
 #if !CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 	static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
-#if WORKAROUND_DPCPP
+#if CELERITY_WORKAROUND(DPCPP)
 	static_assert(Dims == 1, "DPC++ currently does not support reductions to buffers with dimensionality != 1");
 #endif
 	static_assert(cl::sycl::has_known_identity_v<BinaryOperation, DataT>,
