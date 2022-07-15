@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <list>
 #include <memory>
 #include <unordered_map>
@@ -46,6 +47,9 @@ namespace detail {
 			command_id push_cid;
 			alignas(std::max_align_t) payload_type data[]; // max_align to allow reinterpret_casting a pointer to this member to any buffer element pointer
 		};
+
+		// unique_frame_ptr assumes that the flexible payload member begins at exactly sizeof(Frame) bytes
+		static_assert(offsetof(data_frame, data) == sizeof(data_frame));
 
 		struct transfer_in {
 			node_id source_nid;
