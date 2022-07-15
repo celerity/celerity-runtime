@@ -27,6 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # make sure to keep this in sync with docs/platform-support.md
         include:
           - sycl: "computecpp"
             sycl-version: "2.6.0"

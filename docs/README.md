@@ -20,3 +20,4 @@
 
 1. [Overview](overview.md)
 2. [Core Principles](core-principles.md)
+3. [Platform Support](platform-support.md)
