@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <variant>
 
 #include "intrusive_graph.h"
@@ -236,6 +237,9 @@ namespace detail {
 
 		iterable_range<const command_id*> iter_dependencies() const { return {dependencies, dependencies + num_dependencies}; }
 	};
+
+	// unique_frame_ptr assumes that the flexible payload member begins at exactly sizeof(Frame) bytes
+	static_assert(offsetof(command_frame, dependencies) == sizeof(command_frame));
 
 } // namespace detail
 } // namespace celerity
