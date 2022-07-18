@@ -38,9 +38,6 @@ namespace detail {
 		assert(!latest_horizon_reached || *latest_horizon_reached < horizon_tid);
 		assert(latest_epoch_reached.get() < horizon_tid);
 
-		assert(number_of_in_flight_horizons_and_epochs.load() > 0);
-		number_of_in_flight_horizons_and_epochs--;
-
 		if(latest_horizon_reached) { latest_epoch_reached.set(*latest_horizon_reached); }
 
 		latest_horizon_reached = horizon_tid;
@@ -53,9 +50,6 @@ namespace detail {
 		assert(get_task(epoch_tid)->get_type() == task_type::EPOCH);
 		assert(!latest_horizon_reached || *latest_horizon_reached < epoch_tid);
 		assert(latest_epoch_reached.get() < epoch_tid);
-
-		assert(number_of_in_flight_horizons_and_epochs.load() > 0);
-		number_of_in_flight_horizons_and_epochs--;
 
 		latest_epoch_reached.set(epoch_tid);
 		latest_horizon_reached = std::nullopt; // Any non-applied horizon is now behind the epoch and will therefore never become an epoch itself
@@ -187,11 +181,6 @@ namespace detail {
 	task& task_manager::register_task_internal(task_ring_buffer::reservation&& reserve, std::unique_ptr<task> task) {
 		auto& task_ref = *task;
 		assert(task != nullptr);
-
-		if(task_ref.get_type() == task_type::EPOCH || task_ref.get_type() == task_type::HORIZON) {
-			number_of_in_flight_horizons_and_epochs++; //
-		}
-
 		task_buffer.put(std::move(reserve), std::move(task));
 		execution_front.insert(&task_ref);
 		return task_ref;
@@ -276,9 +265,26 @@ namespace detail {
 		return tid;
 	}
 
+	task_id task_manager::get_first_in_flight_epoch() const {
+		task_id current_horizon = 0;
+		task_id latest_epoch = latest_epoch_reached.get();
+		// we need either one epoch or two horizons that have yet to be executed
+		// so that it is possible for task slots to be freed in the future
+		for(const auto& tsk : task_buffer) {
+			if(tsk->get_id() <= latest_epoch) continue;
+			if(tsk->get_type() == task_type::EPOCH) {
+				return tsk->get_id();
+			} else if(tsk->get_type() == task_type::HORIZON) {
+				if(current_horizon) return current_horizon;
+				current_horizon = tsk->get_id();
+			}
+		}
+		return latest_epoch;
+	}
+
 	task_ring_buffer::wait_callback task_manager::await_free_task_slot_callback() {
 		return [&](task_id previous_free_tid) {
-			if(number_of_in_flight_horizons_and_epochs == 0) {
+			if(get_first_in_flight_epoch() == latest_epoch_reached.get()) {
 				// verify that the epoch didn't get reached between the invocation of the callback and the in flight check
 				if(latest_epoch_reached.get() < previous_free_tid + 1) {
 					throw std::runtime_error("Exhausted task slots with no horizons or epochs in flight."
