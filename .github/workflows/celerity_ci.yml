@@ -73,7 +73,7 @@ jobs:
   build-and-test:
     needs: find-duplicate-workflows
     if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
-    runs-on: ${{ matrix.platform }}
+    runs-on: slurm-${{ matrix.platform }}
     strategy:
       fail-fast: false
       matrix:
