@@ -79,7 +79,8 @@ namespace detail {
 				if(queue) queue->require_collective_group(task_ref.get_collective_group_id());
 
 				// the following deletion is intentionally redundant with the one happening when waiting for free task slots
-				// we want to free tasks earlier than just when running out of slots
+				// we want to free tasks earlier than just when running out of slots,
+				// so that we can potentially reclaim additional resources such as buffers earlier
 				task_buffer.delete_up_to(latest_epoch_reached.get());
 			}
 			invoke_callbacks(tid);
@@ -208,9 +209,6 @@ namespace detail {
 		// Only accessed in task_manager::notify_*, which are always called from the executor thread - no locking needed.
 		std::optional<task_id> latest_horizon_reached;
 
-		// The number of horizons and epochs in flight, used to detect stalling scenarios with very broad task graphs
-		std::atomic<int> number_of_in_flight_horizons_and_epochs = 0;
-
 		// The last epoch task that has been processed by the executor. Behind a monitor to allow awaiting this change from the main thread.
 		epoch_monitor latest_epoch_reached{initial_epoch_task};
 
@@ -236,6 +234,10 @@ namespace detail {
 		task_id generate_horizon_task();
 
 		void compute_dependencies(task_id tid);
+
+		// Finds the first in-flight epoch, or returns the currently reached one if there are none in-flight
+		// Used in await_free_task_slot_callback to check for hangs
+		task_id get_first_in_flight_epoch() const;
 
 		// Returns a callback which blocks until any epoch task has executed, freeing new task slots
 		task_ring_buffer::wait_callback await_free_task_slot_callback();
