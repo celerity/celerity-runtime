@@ -212,7 +212,7 @@ namespace detail {
 			for(auto rid : tsk->get_reductions()) {
 				auto reduction = reduction_mngr.get_reduction(rid);
 				const auto element_size = buffer_mngr.get_buffer_info(reduction.output_buffer_id).element_size;
-				unique_payload_ptr operand{unique_payload_ptr::allocate_uninitialized<std::byte>, element_size};
+				auto operand = make_uninitialized_payload<std::byte>(element_size);
 				buffer_mngr.get_buffer_data(reduction.output_buffer_id, {{}, {1, 1, 1}}, operand.get_pointer());
 				reduction_mngr.push_overlapping_reduction_data(rid, local_nid, std::move(operand));
 			}

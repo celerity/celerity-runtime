@@ -9,8 +9,8 @@
 #include "command.h"
 #include "config.h"
 #include "device_queue.h"
+#include "frame.h"
 #include "host_queue.h"
-#include "mpi_support.h"
 #include "types.h"
 
 namespace celerity {

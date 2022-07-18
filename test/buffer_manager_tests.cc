@@ -583,7 +583,7 @@ namespace detail {
 			    bid, get_other_target(tgt), {64}, {0}, [](cl::sycl::id<1>, size_t& value) { value = 33; });
 
 			// Add transfer for second half on this side
-			unique_payload_ptr data{unique_payload_ptr::allocate_uninitialized<size_t>, 32};
+			auto data = make_uninitialized_payload<size_t>(32);
 			std::uninitialized_fill_n(static_cast<size_t*>(data.get_pointer()), 32, size_t{77});
 			bm.set_buffer_data(bid, {{32, 0, 0}, {32, 1, 1}}, std::move(data));
 
@@ -618,7 +618,7 @@ namespace detail {
 
 			// Set full range to new value.
 			{
-				unique_payload_ptr data{unique_payload_ptr::allocate_uninitialized<size_t>, 128};
+				auto data = make_uninitialized_payload<size_t>(128);
 				std::uninitialized_fill_n(static_cast<size_t*>(data.get_pointer()), 128, size_t{77});
 				bm.set_buffer_data(bid, {{0, 0, 0}, {128, 1, 1}}, std::move(data));
 			}
@@ -651,7 +651,7 @@ namespace detail {
 
 			// Set data that only partially overlaps with currently allocated range.
 			{
-				unique_payload_ptr data{unique_payload_ptr::allocate_uninitialized<size_t>, 64};
+				auto data = make_uninitialized_payload<size_t>(64);
 				std::uninitialized_fill_n(static_cast<size_t*>(data.get_pointer()), 64, size_t{99});
 				bm.set_buffer_data(bid, {{32, 0, 0}, {64, 1, 1}}, std::move(data));
 			}

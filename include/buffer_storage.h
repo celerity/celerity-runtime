@@ -6,7 +6,7 @@
 
 #include <CL/sycl.hpp>
 
-#include "mpi_support.h"
+#include "payload.h"
 #include "ranges.h"
 #include "workaround.h"
 
@@ -260,7 +260,7 @@ namespace detail {
 		// TODO: Optimize for contiguous copies - we could do a single SYCL H->D copy directly.
 		else if(source.get_type() == buffer_type::HOST_BUFFER) {
 			auto& host_source = dynamic_cast<const host_buffer_storage<DataT, Dims>&>(source);
-			unique_payload_ptr tmp{unique_payload_ptr::allocate_uninitialized<DataT>, copy_range.size()};
+			auto tmp = make_uninitialized_payload<DataT>(copy_range.size());
 			host_source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
 			set_data(subrange{target_offset, copy_range}, static_cast<const DataT*>(tmp.get_pointer()));
 		}
@@ -278,7 +278,7 @@ namespace detail {
 		// TODO: Optimize for contiguous copies - we could do a single SYCL D->H copy directly.
 		if(source.get_type() == buffer_type::DEVICE_BUFFER) {
 			// This looks more convoluted than using a vector<DataT>, but that would break if DataT == bool
-			unique_payload_ptr tmp{unique_payload_ptr::allocate_uninitialized<DataT>, copy_range.size()};
+			auto tmp = make_uninitialized_payload<DataT>(copy_range.size());
 			source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
 			set_data(subrange{target_offset, copy_range}, static_cast<const DataT*>(tmp.get_pointer()));
 		}

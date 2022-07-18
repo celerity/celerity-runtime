@@ -170,7 +170,7 @@ namespace detail {
 						intersection.scanByBoxes([&](const GridBox<3>& box) {
 							auto sr = grid_box_to_subrange(box);
 							// TODO can this temp buffer be avoided?
-							unique_payload_ptr tmp{unique_payload_ptr::allocate_uninitialized<std::byte>, sr.range.size() * element_size};
+							auto tmp = make_uninitialized_payload<std::byte>(sr.range.size() * element_size);
 							linearize_subrange(t.linearized.get_pointer(), tmp.get_pointer(), element_size, t.sr.range, {sr.offset - t.sr.offset, sr.range});
 							target_buffer.storage->set_data({target_buffer.get_local_offset(sr.offset), sr.range}, tmp.get_pointer());
 							updated_region = GridRegion<3>::merge(updated_region, box);

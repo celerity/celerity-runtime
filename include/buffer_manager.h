@@ -15,6 +15,7 @@
 #include "buffer_storage.h"
 #include "device_queue.h"
 #include "mpi_support.h"
+#include "payload.h"
 #include "ranges.h"
 #include "region_map.h"
 #include "types.h"
