@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "command.h"
+#include "frame.h"
 #include "types.h"
 
 namespace celerity {

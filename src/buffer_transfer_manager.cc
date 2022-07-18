@@ -145,7 +145,7 @@ namespace detail {
 
 	void buffer_transfer_manager::commit_transfer(transfer_in& transfer) {
 		const auto& frame = *transfer.frame;
-		unique_payload_ptr payload{std::move(transfer.frame)};
+		auto payload = std::move(transfer.frame).into_payload_ptr();
 
 		if(frame.rid) {
 			auto& rm = runtime::get_instance().get_reduction_manager();

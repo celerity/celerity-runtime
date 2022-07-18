@@ -12,7 +12,7 @@
 
 #include "buffer_storage.h"
 #include "command.h"
-#include "mpi_support.h"
+#include "frame.h"
 #include "types.h"
 
 namespace celerity {

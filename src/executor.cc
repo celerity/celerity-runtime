@@ -3,6 +3,7 @@
 #include <queue>
 
 #include "distr_queue.h"
+#include "frame.h"
 #include "log.h"
 #include "mpi_support.h"
 #include "named_threads.h"
