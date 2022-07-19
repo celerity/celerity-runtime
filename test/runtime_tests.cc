@@ -12,6 +12,7 @@
 
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_all.hpp>
 
 #include <celerity.h>
@@ -47,6 +48,8 @@ namespace detail {
 		static scheduler& get_schdlr(runtime& rt) { return *rt.m_schdlr; }
 
 		static executor& get_exec(runtime& rt) { return *rt.m_exec; }
+
+		static size_t get_command_count(runtime& rt) { return rt.m_cdag->command_count(); }
 	};
 
 	struct scheduler_testspy {
@@ -992,6 +995,31 @@ namespace detail {
 	}
 
 #endif
+
+	void dry_run_with_nodes(const size_t nodes) {
+		const std::string dryrun_envvar_name = "CELERITY_DRY_RUN_NODES";
+		const auto ste = test_utils::set_test_env(dryrun_envvar_name, std::to_string(nodes));
+
+		distr_queue q;
+
+		auto& rt = runtime::get_instance();
+		auto& tm = rt.get_task_manager();
+		tm.set_horizon_step(2);
+
+		REQUIRE(rt.is_dry_run());
+
+		q.submit([=](handler& cgh) { cgh.host_task(range<1>{nodes * 2}, [](partition<1>) {}); });
+		q.slow_full_sync();
+
+		// (intial epoch + task + sync epoch) per node.
+		CHECK(runtime_testspy::get_command_count(rt) == 3 * nodes);
+		test_utils::maybe_print_graph(tm);
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "Dry run generates commands for an arbitrary number of simulated worker nodes", "[dryrun]") {
+		const size_t nodes = GENERATE(values({4, 8, 16}));
+		dry_run_with_nodes(nodes);
+	}
 
 } // namespace detail
 } // namespace celerity

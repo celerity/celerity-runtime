@@ -102,13 +102,19 @@ namespace detail {
 		MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 		m_num_nodes = world_size;
 
+		m_cfg = std::make_unique<config>(argc, argv);
+		if(m_cfg->is_dry_run()) {
+			if(m_num_nodes != 1) throw std::runtime_error("In order to run with CELERITY_DRY_RUN_NODES a single MPI process/rank must be used.\n");
+			m_num_nodes = m_cfg->get_dry_run_nodes();
+			CELERITY_WARN("Performing a dry run with {} simulated nodes", m_num_nodes);
+		}
+
 		int world_rank;
 		MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 		m_local_nid = world_rank;
 
 		spdlog::set_pattern(fmt::format("[%Y-%m-%d %H:%M:%S.%e] [{:0{}}] [%^%l%$] %v", world_rank, int(ceil(log10(world_size)))));
 
-		m_cfg = std::make_unique<config>(argc, argv);
 #ifndef __APPLE__
 		if(const uint32_t cores = affinity_cores_available(); cores < min_cores_needed) {
 			CELERITY_WARN("Celerity has detected that only {} logical cores are available to this process. It is recommended to assign at least {} "
@@ -257,6 +263,10 @@ namespace detail {
 	}
 
 	void runtime::flush_command(node_id target, unique_frame_ptr<command_frame> frame) {
+		if(is_dry_run()) {
+			// We only want to send epochs to the master node for slow full sync and shutdown.
+			if(target != 0 || frame->pkg.get_command_type() != command_type::epoch) return;
+		}
 		// Even though command packages are small enough to use a blocking send we want to be able to send to the master node as well,
 		// which is why we have to use Isend after all. We also have to make sure that the buffer stays around until the send is complete.
 		MPI_Request req;
