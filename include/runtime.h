@@ -77,6 +77,8 @@ namespace detail {
 
 		host_object_manager& get_host_object_manager() const;
 
+		bool is_dry_run() const { return m_cfg->is_dry_run(); }
+
 	  private:
 		inline static bool m_mpi_initialized = false;
 		inline static bool m_mpi_finalized = false;

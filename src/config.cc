@@ -180,6 +180,16 @@ namespace detail {
 			const auto result = get_env("CELERITY_FORCE_WG");
 			if(result.first) { CELERITY_WARN("Support for CELERITY_FORCE_WG has been removed with Celerity 0.3.0."); }
 		}
+
+		// -------------------------------- CELERITY_DRY_RUN_NODES ---------------------------------
+		{
+			const auto [is_set, value] = get_env("CELERITY_DRY_RUN_NODES");
+			if(is_set) {
+				const auto [is_valid, num_nodes] = parse_uint(value.c_str());
+				if(!is_valid) { CELERITY_WARN("CELERITY_DRY_RUN_NODES contains invalid value - will be ignored"); }
+				m_dry_run_nodes = num_nodes;
+			}
+		}
 	}
 } // namespace detail
 } // namespace celerity
