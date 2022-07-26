@@ -30,7 +30,7 @@ namespace experimental {
 
 				template <typename... Args>
 				void log_once(const std::string& format_string, Args&&... args) const {
-					if(this_nid == 0) { log(format_string, std::forward<Args>(args)...); }
+					if(m_this_nid == 0) { log(format_string, std::forward<Args>(args)...); }
 				}
 
 				template <typename... Args>
@@ -45,12 +45,13 @@ namespace experimental {
 
 				template <typename... Args>
 				void event(const std::string& format_string, Args&&... args) {
-					std::lock_guard lk{mutex};
+					std::lock_guard lk{m_mutex};
 					const auto now = bench_clock::now();
-					const auto dt =
-					    (last_event_tp != bench_clock::time_point{}) ? std::chrono::duration_cast<std::chrono::microseconds>(now - last_event_tp).count() : 0;
+					const auto dt = (m_last_event_tp != bench_clock::time_point{})
+					                    ? std::chrono::duration_cast<std::chrono::microseconds>(now - m_last_event_tp).count()
+					                    : 0;
 					log(format_string + " (+{}us)", std::forward<Args>(args)..., dt);
-					last_event_tp = now;
+					m_last_event_tp = now;
 				}
 
 			  private:
@@ -62,12 +63,12 @@ namespace experimental {
 					bench_clock::time_point start;
 				};
 
-				mutable std::mutex mutex;
+				mutable std::mutex m_mutex;
 
-				node_id this_nid;
-				section_id next_section_id = 0;
-				std::stack<section> sections;
-				bench_clock::time_point last_event_tp = {};
+				node_id m_this_nid;
+				section_id m_next_section_id = 0;
+				std::stack<section> m_sections;
+				bench_clock::time_point m_last_event_tp = {};
 
 				void begin_section(std::string name);
 				void end_section(const std::string& name);

@@ -19,14 +19,14 @@ namespace detail {
 	  public:
 		void resume();
 		void pause();
-		bool is_running() const { return running; }
-		std::chrono::microseconds get() const { return duration; }
+		bool is_running() const { return m_running; }
+		std::chrono::microseconds get() const { return m_duration; }
 
 	  private:
-		bool running = false;
-		std::chrono::steady_clock clock;
-		std::chrono::time_point<std::chrono::steady_clock> current_start;
-		std::chrono::microseconds duration = {};
+		bool m_running = false;
+		std::chrono::steady_clock m_clock;
+		std::chrono::time_point<std::chrono::steady_clock> m_current_start;
+		std::chrono::microseconds m_duration = {};
 	};
 
 	struct executor_metrics {
@@ -54,16 +54,16 @@ namespace detail {
 		void shutdown();
 
 	  private:
-		node_id local_nid;
-		host_queue& h_queue;
-		device_queue& d_queue;
-		task_manager& task_mngr;
+		node_id m_local_nid;
+		host_queue& m_h_queue;
+		device_queue& m_d_queue;
+		task_manager& m_task_mngr;
 		// FIXME: We currently need this for buffer locking in some jobs, which is a bit of a band-aid fix. Get rid of this at some point.
-		buffer_manager& buffer_mngr;
-		reduction_manager& reduction_mngr;
-		std::unique_ptr<buffer_transfer_manager> btm;
-		std::thread exec_thrd;
-		size_t running_device_compute_jobs = 0;
+		buffer_manager& m_buffer_mngr;
+		reduction_manager& m_reduction_mngr;
+		std::unique_ptr<buffer_transfer_manager> m_btm;
+		std::thread m_exec_thrd;
+		size_t m_running_device_compute_jobs = 0;
 
 		// Jobs are identified by the command id they're processing
 
@@ -74,22 +74,22 @@ namespace detail {
 			size_t unsatisfied_dependencies;
 		};
 
-		std::unordered_map<command_id, job_handle> jobs;
+		std::unordered_map<command_id, job_handle> m_jobs;
 
-		executor_metrics metrics;
-		bool first_command_received = false;
+		executor_metrics m_metrics;
+		bool m_first_command_received = false;
 
 		template <typename Job, typename... Args>
 		void create_job(const command_frame& frame, Args&&... args) {
 			const auto& pkg = frame.pkg;
-			jobs[pkg.cid] = {std::make_unique<Job>(pkg, std::forward<Args>(args)...), pkg.get_command_type(), {}, 0};
+			m_jobs[pkg.cid] = {std::make_unique<Job>(pkg, std::forward<Args>(args)...), pkg.get_command_type(), {}, 0};
 
 			// If job doesn't exist we assume it has already completed.
 			// This is true as long as we're respecting task-graph (anti-)dependencies when processing tasks.
 			for(const auto dcid : frame.iter_dependencies()) {
-				if(const auto it = jobs.find(dcid); it != jobs.end()) {
+				if(const auto it = m_jobs.find(dcid); it != m_jobs.end()) {
 					it->second.dependents.push_back(pkg.cid);
-					jobs[pkg.cid].unsatisfied_dependencies++;
+					m_jobs[pkg.cid].unsatisfied_dependencies++;
 				}
 			}
 		}

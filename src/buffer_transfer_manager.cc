@@ -42,7 +42,7 @@ namespace detail {
 		transfer->handle = t_handle;
 		transfer->request = req;
 		transfer->frame = std::move(frame);
-		outgoing_transfers.push_back(std::move(transfer));
+		m_outgoing_transfers.push_back(std::move(transfer));
 
 		return t_handle;
 	}
@@ -53,9 +53,9 @@ namespace detail {
 
 		std::shared_ptr<incoming_transfer_handle> t_handle;
 		// Check to see if we have (fully) received the push already
-		if(push_blackboard.count(data.source_cid) != 0) {
-			t_handle = push_blackboard[data.source_cid];
-			push_blackboard.erase(data.source_cid);
+		if(m_push_blackboard.count(data.source_cid) != 0) {
+			t_handle = m_push_blackboard[data.source_cid];
+			m_push_blackboard.erase(data.source_cid);
 			assert(t_handle->transfer != nullptr);
 			assert(t_handle->transfer->frame->bid == data.bid);
 			assert(t_handle->transfer->frame->rid == data.rid);
@@ -65,7 +65,7 @@ namespace detail {
 		} else {
 			t_handle = std::make_shared<incoming_transfer_handle>();
 			// Store new handle so we can mark it as complete when the push is received
-			push_blackboard[data.source_cid] = t_handle;
+			m_push_blackboard[data.source_cid] = t_handle;
 		}
 
 		return t_handle;
@@ -95,13 +95,13 @@ namespace detail {
 
 		// Start receiving data
 		MPI_Imrecv(transfer->frame.get_pointer(), frame_bytes, MPI_BYTE, &msg, &transfer->request);
-		incoming_transfers.push_back(std::move(transfer));
+		m_incoming_transfers.push_back(std::move(transfer));
 
 		CELERITY_TRACE("Receiving incoming data of size {} B from {}", frame_bytes, status.MPI_SOURCE);
 	}
 
 	void buffer_transfer_manager::update_incoming_transfers() {
-		for(auto it = incoming_transfers.begin(); it != incoming_transfers.end();) {
+		for(auto it = m_incoming_transfers.begin(); it != m_incoming_transfers.end();) {
 			auto& transfer = *it;
 			int flag;
 			MPI_Test(&transfer->request, &flag, MPI_STATUS_IGNORE);
@@ -112,25 +112,25 @@ namespace detail {
 
 			// Check whether we already have an await push request
 			std::shared_ptr<incoming_transfer_handle> t_handle = nullptr;
-			if(push_blackboard.count(transfer->frame->push_cid) != 0) {
-				t_handle = push_blackboard[transfer->frame->push_cid];
-				push_blackboard.erase(transfer->frame->push_cid);
+			if(m_push_blackboard.count(transfer->frame->push_cid) != 0) {
+				t_handle = m_push_blackboard[transfer->frame->push_cid];
+				m_push_blackboard.erase(transfer->frame->push_cid);
 				assert(t_handle.use_count() > 1 && "Dangling await push request");
 				t_handle->transfer = std::move(*it);
 				commit_transfer(*t_handle->transfer);
 				t_handle->complete = true;
 			} else {
 				t_handle = std::make_shared<incoming_transfer_handle>();
-				push_blackboard[transfer->frame->push_cid] = t_handle;
+				m_push_blackboard[transfer->frame->push_cid] = t_handle;
 				t_handle->transfer = std::move(*it);
 				t_handle->complete = true;
 			}
-			it = incoming_transfers.erase(it);
+			it = m_incoming_transfers.erase(it);
 		}
 	}
 
 	void buffer_transfer_manager::update_outgoing_transfers() {
-		for(auto it = outgoing_transfers.begin(); it != outgoing_transfers.end();) {
+		for(auto it = m_outgoing_transfers.begin(); it != m_outgoing_transfers.end();) {
 			auto& t = *it;
 			int flag;
 			MPI_Test(&t->request, &flag, MPI_STATUS_IGNORE);
@@ -139,7 +139,7 @@ namespace detail {
 				continue;
 			}
 			t->handle->complete = true;
-			it = outgoing_transfers.erase(it);
+			it = m_outgoing_transfers.erase(it);
 		}
 	}
 

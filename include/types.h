@@ -18,18 +18,18 @@ namespace detail {
 		using underlying_t = T;
 
 		constexpr PhantomType() = default;
-		constexpr PhantomType(T const& value) : value(value) {}
-		constexpr PhantomType(T&& value) : value(std::move(value)) {}
+		constexpr PhantomType(T const& value) : m_value(value) {}
+		constexpr PhantomType(T&& value) : m_value(std::move(value)) {}
 
 		// Allow implicit conversion to underlying type, otherwise it becomes too annoying to use.
 		// Luckily compilers won't do more than one user-defined conversion, so something like
 		// PhantomType1<T> -> T -> PhantomType2<T>, can't happen. Therefore we still retain
 		// strong typesafety between phantom types with the same underlying type.
-		constexpr operator T&() { return value; }
-		constexpr operator const T&() const { return value; }
+		constexpr operator T&() { return m_value; }
+		constexpr operator const T&() const { return m_value; }
 
 	  private:
-		T value;
+		T m_value;
 	};
 
 } // namespace detail

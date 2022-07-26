@@ -19,7 +19,7 @@ namespace detail {
 	struct accessor_testspy {
 		template <typename CelerityAccessor>
 		static auto& get_sycl_accessor(CelerityAccessor& celerity_acc) {
-			return celerity_acc.sycl_accessor;
+			return celerity_acc.m_sycl_accessor;
 		}
 	};
 

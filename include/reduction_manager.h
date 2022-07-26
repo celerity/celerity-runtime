@@ -34,14 +34,14 @@ namespace detail {
 	class buffer_reduction final : public abstract_buffer_reduction {
 	  public:
 		buffer_reduction(buffer_id bid, BinaryOperation op, DataT identity, bool include_current_buffer_value)
-		    : abstract_buffer_reduction(bid, include_current_buffer_value), op(op), init(identity) {}
+		    : abstract_buffer_reduction(bid, include_current_buffer_value), m_op(op), m_init(identity) {}
 
 		void reduce_to_buffer() override {
 			std::sort(overlapping_data.begin(), overlapping_data.end(), [](auto& lhs, auto& rhs) { return lhs.first < rhs.first; });
 
-			DataT acc = init;
+			DataT acc = m_init;
 			for(auto& [nid, data] : overlapping_data) {
-				acc = op(acc, *static_cast<const DataT*>(data.get_pointer()));
+				acc = m_op(acc, *static_cast<const DataT*>(data.get_pointer()));
 			}
 
 			auto host_buf = runtime::get_instance().get_buffer_manager().get_host_buffer<DataT, Dims>(
@@ -50,45 +50,45 @@ namespace detail {
 		}
 
 	  private:
-		BinaryOperation op;
-		DataT init;
+		BinaryOperation m_op;
+		DataT m_init;
 	};
 
 	class reduction_manager {
 	  public:
 		template <typename DataT, int Dims, typename BinaryOperation>
 		reduction_id create_reduction(const buffer_id bid, BinaryOperation op, DataT identity, bool include_current_buffer_value) {
-			std::lock_guard lock{mutex};
-			auto rid = next_rid++;
-			reductions.emplace(rid, std::make_unique<buffer_reduction<DataT, Dims, BinaryOperation>>(bid, op, identity, include_current_buffer_value));
+			std::lock_guard lock{m_mutex};
+			auto rid = m_next_rid++;
+			m_reductions.emplace(rid, std::make_unique<buffer_reduction<DataT, Dims, BinaryOperation>>(bid, op, identity, include_current_buffer_value));
 			return rid;
 		}
 
 		bool has_reduction(reduction_id rid) const {
-			std::lock_guard lock{mutex};
-			return reductions.count(rid) != 0;
+			std::lock_guard lock{m_mutex};
+			return m_reductions.count(rid) != 0;
 		}
 
 		reduction_info get_reduction(reduction_id rid) {
-			std::lock_guard lock{mutex};
-			return reductions.at(rid)->get_info();
+			std::lock_guard lock{m_mutex};
+			return m_reductions.at(rid)->get_info();
 		}
 
 		void push_overlapping_reduction_data(reduction_id rid, node_id source_nid, unique_payload_ptr data) {
-			std::lock_guard lock{mutex};
-			reductions.at(rid)->push_overlapping_data(source_nid, std::move(data));
+			std::lock_guard lock{m_mutex};
+			m_reductions.at(rid)->push_overlapping_data(source_nid, std::move(data));
 		}
 
 		void finish_reduction(reduction_id rid) {
-			std::lock_guard lock{mutex};
-			reductions.at(rid)->reduce_to_buffer();
-			reductions.erase(rid);
+			std::lock_guard lock{m_mutex};
+			m_reductions.at(rid)->reduce_to_buffer();
+			m_reductions.erase(rid);
 		}
 
 	  private:
-		mutable std::mutex mutex;
-		reduction_id next_rid = 1;
-		std::unordered_map<reduction_id, std::unique_ptr<abstract_buffer_reduction>> reductions;
+		mutable std::mutex m_mutex;
+		reduction_id m_next_rid = 1;
+		std::unordered_map<reduction_id, std::unique_ptr<abstract_buffer_reduction>> m_reductions;
 	};
 
 } // namespace detail

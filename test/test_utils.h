@@ -41,27 +41,27 @@ namespace celerity {
 namespace detail {
 
 	struct task_ring_buffer_testspy {
-		static void create_task_slot(task_ring_buffer& trb) { trb.number_of_deleted_tasks += 1; }
+		static void create_task_slot(task_ring_buffer& trb) { trb.m_number_of_deleted_tasks += 1; }
 	};
 
 	struct task_manager_testspy {
-		static std::optional<task_id> get_current_horizon(task_manager& tm) { return tm.current_horizon; }
+		static std::optional<task_id> get_current_horizon(task_manager& tm) { return tm.m_current_horizon; }
 
 		static int get_num_horizons(task_manager& tm) {
 			int horizon_counter = 0;
-			for(auto task_ptr : tm.task_buffer) {
+			for(auto task_ptr : tm.m_task_buffer) {
 				if(task_ptr->get_type() == task_type::horizon) { horizon_counter++; }
 			}
 			return horizon_counter;
 		}
 
-		static region_map<std::optional<task_id>> get_last_writer(task_manager& tm, const buffer_id bid) { return tm.buffers_last_writers.at(bid); }
+		static region_map<std::optional<task_id>> get_last_writer(task_manager& tm, const buffer_id bid) { return tm.m_buffers_last_writers.at(bid); }
 
 		static int get_max_pseudo_critical_path_length(task_manager& tm) { return tm.get_max_pseudo_critical_path_length(); }
 
 		static auto get_execution_front(task_manager& tm) { return tm.get_execution_front(); }
 
-		static void create_task_slot(task_manager& tm) { task_ring_buffer_testspy::create_task_slot(tm.task_buffer); }
+		static void create_task_slot(task_manager& tm) { task_ring_buffer_testspy::create_task_slot(tm.m_task_buffer); }
 	};
 
 	inline bool has_dependency(const task_manager& tm, task_id dependent, task_id dependency, dependency_kind kind = dependency_kind::true_dep) {

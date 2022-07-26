@@ -21,7 +21,7 @@ namespace detail {
 		/*
 		 * @param flush_cb Callback invoked for each command that is being flushed
 		 */
-		graph_serializer(command_graph& cdag, flush_callback flush_cb) : cdag(cdag), flush_cb(flush_cb) {}
+		graph_serializer(command_graph& cdag, flush_callback flush_cb) : m_cdag(cdag), m_flush_cb(flush_cb) {}
 
 		void flush(task_id tid);
 
@@ -33,8 +33,8 @@ namespace detail {
 		void flush(const std::vector<task_command*>& cmds);
 
 	  private:
-		command_graph& cdag;
-		flush_callback flush_cb;
+		command_graph& m_cdag;
+		flush_callback m_flush_cb;
 
 
 		void flush_dependency(abstract_command* dep) const;

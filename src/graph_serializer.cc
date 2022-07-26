@@ -9,7 +9,7 @@
 namespace celerity {
 namespace detail {
 
-	void graph_serializer::flush(task_id tid) { flush(cdag.task_commands(tid)); }
+	void graph_serializer::flush(task_id tid) { flush(m_cdag.task_commands(tid)); }
 
 	bool is_virtual_dependency(const abstract_command* const cmd) {
 		// The initial epoch command is not flushed, so including it in dependencies is not useful
@@ -111,7 +111,7 @@ namespace detail {
 		frame->num_dependencies = dependencies.size();
 		std::copy(dependencies.begin(), dependencies.end(), frame->dependencies);
 
-		flush_cb(cmd->get_nid(), std::move(frame));
+		m_flush_cb(cmd->get_nid(), std::move(frame));
 		cmd->mark_as_flushed();
 	}
 

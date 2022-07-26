@@ -44,22 +44,22 @@ class unique_frame_ptr : private std::unique_ptr<Frame, unique_frame_delete<Fram
 
 	unique_frame_ptr(from_payload_count_tag, size_t payload_count) : unique_frame_ptr(from_size_bytes, sizeof(Frame) + sizeof(payload_type) * payload_count) {}
 
-	unique_frame_ptr(from_size_bytes_tag, size_t size_bytes) : impl(make_frame(size_bytes)), size_bytes(size_bytes) {}
+	unique_frame_ptr(from_size_bytes_tag, size_t size_bytes) : impl(make_frame(size_bytes)), m_size_bytes(size_bytes) {}
 
-	unique_frame_ptr(unique_frame_ptr&& other) noexcept : impl(static_cast<impl&&>(other)), size_bytes(other.size_bytes) { other.size_bytes = 0; }
+	unique_frame_ptr(unique_frame_ptr&& other) noexcept : impl(static_cast<impl&&>(other)), m_size_bytes(other.m_size_bytes) { other.m_size_bytes = 0; }
 
 	unique_frame_ptr& operator=(unique_frame_ptr&& other) noexcept {
 		if(this == &other) return *this;                        // gracefully handle self-assignment
 		static_cast<impl&>(*this) = static_cast<impl&&>(other); // delegate to base class unique_ptr<Frame>::operator=() to delete previously held frame
-		size_bytes = other.size_bytes;
-		other.size_bytes = 0;
+		m_size_bytes = other.m_size_bytes;
+		other.m_size_bytes = 0;
 		return *this;
 	}
 
 	Frame* get_pointer() { return impl::get(); }
 	const Frame* get_pointer() const { return impl::get(); }
-	size_t get_size_bytes() const { return size_bytes; }
-	size_t get_payload_count() const { return (size_bytes - sizeof(Frame)) / sizeof(payload_type); }
+	size_t get_size_bytes() const { return m_size_bytes; }
+	size_t get_payload_count() const { return (m_size_bytes - sizeof(Frame)) / sizeof(payload_type); }
 
 	using impl::operator bool;
 	using impl::operator*;
@@ -73,7 +73,7 @@ class unique_frame_ptr : private std::unique_ptr<Frame, unique_frame_delete<Fram
 	}
 
   private:
-	size_t size_bytes = 0;
+	size_t m_size_bytes = 0;
 
 	static Frame* make_frame(const size_t size_bytes) {
 		assert(size_bytes >= sizeof(Frame));

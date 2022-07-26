@@ -33,22 +33,22 @@ namespace detail {
 	template <typename DataT, int Dims>
 	class host_buffer {
 	  public:
-		explicit host_buffer(cl::sycl::range<Dims> range) : range(range) {
+		explicit host_buffer(cl::sycl::range<Dims> range) : m_range(range) {
 			auto r3 = range_cast<3>(range);
-			data = std::make_unique<DataT[]>(r3[0] * r3[1] * r3[2]);
+			m_data = std::make_unique<DataT[]>(r3[0] * r3[1] * r3[2]);
 		}
 
-		cl::sycl::range<Dims> get_range() const { return range; };
+		cl::sycl::range<Dims> get_range() const { return m_range; };
 
-		DataT* get_pointer() { return data.get(); }
+		DataT* get_pointer() { return m_data.get(); }
 
-		const DataT* get_pointer() const { return data.get(); }
+		const DataT* get_pointer() const { return m_data.get(); }
 
-		bool operator==(const host_buffer& rhs) const { return data.get() == rhs.data.get(); }
+		bool operator==(const host_buffer& rhs) const { return m_data.get() == rhs.m_data.get(); }
 
 	  private:
-		cl::sycl::range<Dims> range;
-		std::unique_ptr<DataT[]> data;
+		cl::sycl::range<Dims> m_range;
+		std::unique_ptr<DataT[]> m_data;
 	};
 
 	enum class buffer_type { device_buffer, host_buffer };
@@ -58,11 +58,11 @@ namespace detail {
 		/**
 		 * @param range The size of the buffer
 		 */
-		buffer_storage(celerity::range<3> range, buffer_type type) : range(range), type(type) {}
+		buffer_storage(celerity::range<3> range, buffer_type type) : m_range(range), m_type(type) {}
 
-		celerity::range<3> get_range() const { return range; }
+		celerity::range<3> get_range() const { return m_range; }
 
-		buffer_type get_type() const { return type; }
+		buffer_type get_type() const { return m_type; }
 
 		/**
 		 * Returns the buffer size, in bytes.
@@ -88,8 +88,8 @@ namespace detail {
 		virtual ~buffer_storage() = default;
 
 	  private:
-		cl::sycl::range<3> range;
-		buffer_type type;
+		cl::sycl::range<3> m_range;
+		buffer_type m_type;
 	};
 
 	// FIXME: Remove this
@@ -102,12 +102,12 @@ namespace detail {
 	class device_buffer_storage : public buffer_storage {
 	  public:
 		device_buffer_storage(cl::sycl::range<Dims> range, cl::sycl::queue transfer_queue)
-		    : buffer_storage(range_cast<3>(range), buffer_type::device_buffer), transfer_queue(transfer_queue),
-		      device_buf(make_device_buf_effective_range(range)) {
+		    : buffer_storage(range_cast<3>(range), buffer_type::device_buffer), m_transfer_queue(transfer_queue),
+		      m_device_buf(make_device_buf_effective_range(range)) {
 			// We never want SYCL to do any buffer write-backs. While we don't pass any host pointers to SYCL buffers,
 			// meaning there shouldn't be any write-back in the first place, it doesn't hurt to make sure.
 			// (This was prompted by a hipSYCL bug that did superfluous write-backs).
-			device_buf.set_write_back(false);
+			m_device_buf.set_write_back(false);
 		}
 
 		size_t get_size() const override { return get_range().size() * sizeof(DataT); };
@@ -115,9 +115,9 @@ namespace detail {
 		/**
 		 * @brief Returns the underlying SYCL buffer.
 		 */
-		device_buffer<DataT, Dims>& get_device_buffer() { return device_buf; }
+		device_buffer<DataT, Dims>& get_device_buffer() { return m_device_buf; }
 
-		const device_buffer<DataT, Dims>& get_device_buffer() const { return device_buf; }
+		const device_buffer<DataT, Dims>& get_device_buffer() const { return m_device_buf; }
 
 		void get_data(const subrange<3>& sr, void* out_linearized) const override {
 			assert(Dims > 1 || (sr.offset[1] == 0 && sr.range[1] == 1));
@@ -129,7 +129,7 @@ namespace detail {
 			// As a workaround, we copy the data manually using a kernel.
 #if CELERITY_WORKAROUND(COMPUTECPP)
 			cl::sycl::buffer<DataT, Dims> tmp_dst_buf(static_cast<DataT*>(out_linearized), range_cast<Dims>(sr.range));
-			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
+			auto event = m_transfer_queue.submit([&](cl::sycl::handler& cgh) {
 				const auto src_acc = buf.template get_access<cl::sycl::access::mode::read>(cgh, range_cast<Dims>(sr.range), id_cast<Dims>(sr.offset));
 				const auto dst_acc = tmp_dst_buf.template get_access<cl::sycl::access::mode::discard_write>(cgh);
 				const auto src_buf_range = buf.get_range();
@@ -137,7 +137,7 @@ namespace detail {
 				    range_cast<Dims>(sr.range), [=](const sycl::id<Dims> id) { dst_acc[id] = ranged_sycl_access(src_acc, src_buf_range, id); });
 			});
 #else
-			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
+			auto event = m_transfer_queue.submit([&](cl::sycl::handler& cgh) {
 				auto acc = buf.template get_access<cl::sycl::access::mode::read>(cgh, range_cast<Dims>(sr.range), id_cast<Dims>(sr.offset));
 				cgh.copy(acc, static_cast<DataT*>(out_linearized));
 			});
@@ -156,7 +156,7 @@ namespace detail {
 			// See above for why this workaround is needed.
 #if CELERITY_WORKAROUND(COMPUTECPP)
 			cl::sycl::buffer<DataT, Dims> tmp_src_buf(static_cast<const DataT*>(in_linearized), range_cast<Dims>(sr.range));
-			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
+			auto event = m_transfer_queue.submit([&](cl::sycl::handler& cgh) {
 				auto src_acc = tmp_src_buf.template get_access<cl::sycl::access::mode::read>(cgh);
 				auto dst_acc = buf.template get_access<cl::sycl::access::mode::discard_write>(cgh, range_cast<Dims>(sr.range), id_cast<Dims>(sr.offset));
 				const auto dst_buf_range = buf.get_range();
@@ -164,7 +164,7 @@ namespace detail {
 				    range_cast<Dims>(sr.range), [=](const sycl::id<Dims> id) { ranged_sycl_access(dst_acc, dst_buf_range, id) = src_acc[id]; });
 			});
 #else
-			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
+			auto event = m_transfer_queue.submit([&](cl::sycl::handler& cgh) {
 				auto acc = buf.template get_access<cl::sycl::access::mode::discard_write>(cgh, range_cast<Dims>(sr.range), id_cast<Dims>(sr.offset));
 				cgh.copy(static_cast<const DataT*>(in_linearized), acc);
 			});
@@ -175,16 +175,16 @@ namespace detail {
 		}
 
 		buffer_storage* make_new_of_same_type(cl::sycl::range<3> range) const override {
-			return new device_buffer_storage<DataT, Dims>(range_cast<Dims>(range), transfer_queue);
+			return new device_buffer_storage<DataT, Dims>(range_cast<Dims>(range), m_transfer_queue);
 		}
 
 		void copy(const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) override;
 
-		cl::sycl::queue& get_transfer_queue() { return transfer_queue; }
+		cl::sycl::queue& get_transfer_queue() { return m_transfer_queue; }
 
 	  private:
-		mutable cl::sycl::queue transfer_queue;
-		device_buffer<DataT, Dims> device_buf;
+		mutable cl::sycl::queue m_transfer_queue;
+		device_buffer<DataT, Dims> m_device_buf;
 
 		static celerity::range<Dims> make_device_buf_effective_range(sycl::range<Dims> range) {
 #if CELERITY_WORKAROUND(COMPUTECPP) || CELERITY_WORKAROUND(DPCPP)
@@ -200,7 +200,7 @@ namespace detail {
 	template <typename DataT, int Dims>
 	class host_buffer_storage : public buffer_storage {
 	  public:
-		explicit host_buffer_storage(cl::sycl::range<Dims> range) : buffer_storage(range_cast<3>(range), buffer_type::host_buffer), host_buf(range) {}
+		explicit host_buffer_storage(cl::sycl::range<Dims> range) : buffer_storage(range_cast<3>(range), buffer_type::host_buffer), m_host_buf(range) {}
 
 		size_t get_size() const override { return get_range().size() * sizeof(DataT); };
 
@@ -208,7 +208,7 @@ namespace detail {
 			assert(Dims > 1 || (sr.offset[1] == 0 && sr.range[1] == 1));
 			assert(Dims > 2 || (sr.offset[2] == 0 && sr.range[2] == 1));
 
-			memcpy_strided(host_buf.get_pointer(), out_linearized, sizeof(DataT), range_cast<Dims>(host_buf.get_range()), id_cast<Dims>(sr.offset),
+			memcpy_strided(m_host_buf.get_pointer(), out_linearized, sizeof(DataT), range_cast<Dims>(m_host_buf.get_range()), id_cast<Dims>(sr.offset),
 			    range_cast<Dims>(sr.range), id_cast<Dims>(cl::sycl::id<3>{0, 0, 0}), range_cast<Dims>(sr.range));
 		}
 
@@ -216,20 +216,20 @@ namespace detail {
 			assert(Dims > 1 || (sr.offset[1] == 0 && sr.range[1] == 1));
 			assert(Dims > 2 || (sr.offset[2] == 0 && sr.range[2] == 1));
 
-			memcpy_strided(in_linearized, host_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(sr.range), id_cast<Dims>(cl::sycl::id<3>(0, 0, 0)),
-			    range_cast<Dims>(host_buf.get_range()), id_cast<Dims>(sr.offset), range_cast<Dims>(sr.range));
+			memcpy_strided(in_linearized, m_host_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(sr.range), id_cast<Dims>(cl::sycl::id<3>(0, 0, 0)),
+			    range_cast<Dims>(m_host_buf.get_range()), id_cast<Dims>(sr.offset), range_cast<Dims>(sr.range));
 		}
 
 		buffer_storage* make_new_of_same_type(cl::sycl::range<3> range) const override { return new host_buffer_storage<DataT, Dims>(range_cast<Dims>(range)); }
 
 		void copy(const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) override;
 
-		host_buffer<DataT, Dims>& get_host_buffer() { return host_buf; }
+		host_buffer<DataT, Dims>& get_host_buffer() { return m_host_buf; }
 
-		const host_buffer<DataT, Dims>& get_host_buffer() const { return host_buf; }
+		const host_buffer<DataT, Dims>& get_host_buffer() const { return m_host_buf; }
 
 	  private:
-		host_buffer<DataT, Dims> host_buf;
+		host_buffer<DataT, Dims> m_host_buf;
 	};
 
 	inline void assert_copy_is_in_range(const cl::sycl::range<3>& source_range, const cl::sycl::range<3>& target_range, const cl::sycl::id<3>& source_offset,
@@ -241,17 +241,17 @@ namespace detail {
 	template <typename DataT, int Dims>
 	void device_buffer_storage<DataT, Dims>::copy(
 	    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) {
-		assert_copy_is_in_range(source.get_range(), range_cast<3>(device_buf.get_range()), source_offset, target_offset, copy_range);
+		assert_copy_is_in_range(source.get_range(), range_cast<3>(m_device_buf.get_range()), source_offset, target_offset, copy_range);
 
 		if(source.get_type() == buffer_type::device_buffer) {
 			auto& device_source = dynamic_cast<const device_buffer_storage<DataT, Dims>&>(source);
-			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
+			auto event = m_transfer_queue.submit([&](cl::sycl::handler& cgh) {
 				// FIXME: Getting read access is currently not a const operation on SYCL buffers
 				// Resolve once https://github.com/KhronosGroup/SYCL-Docs/issues/10 has been clarified
 				auto source_acc = const_cast<device_buffer<DataT, Dims>&>(device_source.get_device_buffer())
 				                      .template get_access<cl::sycl::access::mode::read>(cgh, range_cast<Dims>(copy_range), id_cast<Dims>(source_offset));
 				auto target_acc =
-				    device_buf.template get_access<cl::sycl::access::mode::discard_write>(cgh, range_cast<Dims>(copy_range), id_cast<Dims>(target_offset));
+				    m_device_buf.template get_access<cl::sycl::access::mode::discard_write>(cgh, range_cast<Dims>(copy_range), id_cast<Dims>(target_offset));
 				cgh.copy(source_acc, target_acc);
 			});
 			event.wait();
@@ -273,7 +273,7 @@ namespace detail {
 	template <typename DataT, int Dims>
 	void host_buffer_storage<DataT, Dims>::copy(
 	    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) {
-		assert_copy_is_in_range(source.get_range(), range_cast<3>(host_buf.get_range()), source_offset, target_offset, copy_range);
+		assert_copy_is_in_range(source.get_range(), range_cast<3>(m_host_buf.get_range()), source_offset, target_offset, copy_range);
 
 		// TODO: Optimize for contiguous copies - we could do a single SYCL D->H copy directly.
 		if(source.get_type() == buffer_type::device_buffer) {
@@ -285,8 +285,8 @@ namespace detail {
 
 		else if(source.get_type() == buffer_type::host_buffer) {
 			auto& host_source = dynamic_cast<const host_buffer_storage<DataT, Dims>&>(source);
-			memcpy_strided(host_source.get_host_buffer().get_pointer(), host_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(host_source.get_range()),
-			    id_cast<Dims>(source_offset), range_cast<Dims>(host_buf.get_range()), range_cast<Dims>(target_offset), range_cast<Dims>(copy_range));
+			memcpy_strided(host_source.get_host_buffer().get_pointer(), m_host_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(host_source.get_range()),
+			    id_cast<Dims>(source_offset), range_cast<Dims>(m_host_buf.get_range()), range_cast<Dims>(target_offset), range_cast<Dims>(copy_range));
 		}
 
 		else {

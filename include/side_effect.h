@@ -18,7 +18,7 @@ class side_effect {
 	using object_type = typename host_object<T>::object_type;
 	constexpr static inline side_effect_order order = Order;
 
-	explicit side_effect(const host_object<T>& object, handler& cgh) : object{object} {
+	explicit side_effect(const host_object<T>& object, handler& cgh) : m_object{object} {
 		if(detail::is_prepass_handler(cgh)) {
 			auto& prepass_cgh = static_cast<detail::prepass_handler&>(cgh);
 			prepass_cgh.add_requirement(object.get_id(), order);
@@ -27,16 +27,16 @@ class side_effect {
 
 	template <typename U = T>
 	std::enable_if_t<!std::is_void_v<U>, object_type>& operator*() const {
-		return *object.get_object();
+		return *m_object.get_object();
 	}
 
 	template <typename U = T>
 	std::enable_if_t<!std::is_void_v<U>, object_type>* operator->() const {
-		return object.get_object();
+		return m_object.get_object();
 	}
 
   private:
-	host_object<T> object;
+	host_object<T> m_object;
 };
 
 template <typename T>

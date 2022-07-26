@@ -37,24 +37,24 @@ namespace detail {
 	struct buffer_manager_testspy {
 		template <typename DataT, int Dims>
 		static buffer_manager::access_info<DataT, Dims, device_buffer> get_device_buffer(buffer_manager& bm, buffer_id bid) {
-			std::unique_lock lock(bm.mutex);
-			auto& buf = bm.buffers.at(bid).device_buf;
+			std::unique_lock lock(bm.m_mutex);
+			auto& buf = bm.m_buffers.at(bid).device_buf;
 			return {dynamic_cast<device_buffer_storage<DataT, Dims>*>(buf.storage.get())->get_device_buffer(), id_cast<Dims>(buf.offset)};
 		}
 	};
 
 	struct runtime_testspy {
-		static scheduler& get_schdlr(runtime& rt) { return *rt.schdlr; }
+		static scheduler& get_schdlr(runtime& rt) { return *rt.m_schdlr; }
 
-		static executor& get_exec(runtime& rt) { return *rt.exec; }
+		static executor& get_exec(runtime& rt) { return *rt.m_exec; }
 	};
 
 	struct scheduler_testspy {
-		static std::thread& get_worker_thread(scheduler& schdlr) { return schdlr.worker_thread; }
+		static std::thread& get_worker_thread(scheduler& schdlr) { return schdlr.m_worker_thread; }
 	};
 
 	struct executor_testspy {
-		static std::thread& get_exec_thrd(executor& exec) { return exec.exec_thrd; }
+		static std::thread& get_exec_thrd(executor& exec) { return exec.m_exec_thrd; }
 	};
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "only a single distr_queue can be created", "[distr_queue][lifetime][dx]") {
@@ -892,17 +892,17 @@ namespace detail {
 		DWORD_PTR process_mask;
 #else
 		restore_process_affinity_fixture() {
-			const auto ret = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &process_mask);
+			const auto ret = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &m_process_mask);
 			REQUIRE(ret == 0);
 		}
 
 		~restore_process_affinity_fixture() {
-			const auto ret = pthread_setaffinity_np(pthread_self(), sizeof(process_mask), &process_mask);
+			const auto ret = pthread_setaffinity_np(pthread_self(), sizeof(m_process_mask), &m_process_mask);
 			REQUIRE(ret == 0);
 		}
 
 	  private:
-		cpu_set_t process_mask;
+		cpu_set_t m_process_mask;
 #endif
 	};
 

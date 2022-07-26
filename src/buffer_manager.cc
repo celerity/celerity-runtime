@@ -7,37 +7,37 @@
 namespace celerity {
 namespace detail {
 
-	buffer_manager::buffer_manager(device_queue& queue, buffer_lifecycle_callback lifecycle_cb) : queue(queue), lifecycle_cb(std::move(lifecycle_cb)) {}
+	buffer_manager::buffer_manager(device_queue& queue, buffer_lifecycle_callback lifecycle_cb) : m_queue(queue), m_lifecycle_cb(std::move(lifecycle_cb)) {}
 
 	void buffer_manager::unregister_buffer(buffer_id bid) noexcept {
 		{
-			std::unique_lock lock(mutex);
-			assert(buffer_infos.find(bid) != buffer_infos.end());
+			std::unique_lock lock(m_mutex);
+			assert(m_buffer_infos.find(bid) != m_buffer_infos.end());
 
 			// Log the allocation size for host and device
-			const auto& buf = buffers[bid];
+			const auto& buf = m_buffers[bid];
 			const size_t host_size = buf.host_buf.is_allocated() ? buf.host_buf.storage->get_size() : 0;
 			const size_t device_size = buf.device_buf.is_allocated() ? buf.device_buf.storage->get_size() : 0;
 
 			CELERITY_TRACE("Unregistering buffer {}. host size = {} B, device size = {} B", bid, host_size, device_size);
-			buffers.erase(bid);
-			buffer_infos.erase(bid);
+			m_buffers.erase(bid);
+			m_buffer_infos.erase(bid);
 
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-			buffer_types.erase(bid);
+			m_buffer_types.erase(bid);
 #endif
 		}
-		lifecycle_cb(buffer_lifecycle_event::unregistered, bid);
+		m_lifecycle_cb(buffer_lifecycle_event::unregistered, bid);
 	}
 
 	void buffer_manager::get_buffer_data(buffer_id bid, const subrange<3>& sr, void* out_linearized) {
-		std::unique_lock lock(mutex);
-		assert(buffers.count(bid) == 1 && (buffers.at(bid).device_buf.is_allocated() || buffers.at(bid).host_buf.is_allocated()));
-		auto data_locations = newest_data_location.at(bid).get_region_values(subrange_to_grid_box(sr));
+		std::unique_lock lock(m_mutex);
+		assert(m_buffers.count(bid) == 1 && (m_buffers.at(bid).device_buf.is_allocated() || m_buffers.at(bid).host_buf.is_allocated()));
+		auto data_locations = m_newest_data_location.at(bid).get_region_values(subrange_to_grid_box(sr));
 
 		// Slow path: We need to obtain current data from both host and device.
 		if(data_locations.size() > 1) {
-			auto& existing_buf = buffers[bid].host_buf;
+			auto& existing_buf = m_buffers[bid].host_buf;
 			assert(existing_buf.is_allocated());
 
 			// Make sure newest data resides on the host.
@@ -55,46 +55,46 @@ namespace detail {
 
 		// get_buffer_data will race with pending transfers for the same subrange. In case there are pending transfers and a host buffer does not exist yet,
 		// these transfers cannot easily be flushed here as creating a host buffer requires a templated context that knows about DataT.
-		assert(std::none_of(scheduled_transfers[bid].begin(), scheduled_transfers[bid].end(),
+		assert(std::none_of(m_scheduled_transfers[bid].begin(), m_scheduled_transfers[bid].end(),
 		    [&](const transfer& t) { return subrange_to_grid_box(sr).intersectsWith(subrange_to_grid_box(t.sr)); }));
 
 		if(data_locations[0].second == data_location::host || data_locations[0].second == data_location::host_and_device) {
-			return buffers.at(bid).host_buf.storage->get_data({buffers.at(bid).host_buf.get_local_offset(sr.offset), sr.range}, out_linearized);
+			return m_buffers.at(bid).host_buf.storage->get_data({m_buffers.at(bid).host_buf.get_local_offset(sr.offset), sr.range}, out_linearized);
 		}
 
-		return buffers.at(bid).device_buf.storage->get_data({buffers.at(bid).device_buf.get_local_offset(sr.offset), sr.range}, out_linearized);
+		return m_buffers.at(bid).device_buf.storage->get_data({m_buffers.at(bid).device_buf.get_local_offset(sr.offset), sr.range}, out_linearized);
 	}
 
 	void buffer_manager::set_buffer_data(buffer_id bid, const subrange<3>& sr, unique_payload_ptr in_linearized) {
-		std::unique_lock lock(mutex);
-		assert(buffer_infos.count(bid) == 1);
-		scheduled_transfers[bid].push_back({std::move(in_linearized), sr});
+		std::unique_lock lock(m_mutex);
+		assert(m_buffer_infos.count(bid) == 1);
+		m_scheduled_transfers[bid].push_back({std::move(in_linearized), sr});
 	}
 
 	bool buffer_manager::try_lock(buffer_lock_id id, const std::unordered_set<buffer_id>& buffers) {
-		assert(buffer_locks_by_id.count(id) == 0);
+		assert(m_buffer_locks_by_id.count(id) == 0);
 		for(auto bid : buffers) {
-			if(buffer_lock_infos[bid].is_locked) return false;
+			if(m_buffer_lock_infos[bid].is_locked) return false;
 		}
-		buffer_locks_by_id[id].reserve(buffers.size());
+		m_buffer_locks_by_id[id].reserve(buffers.size());
 		for(auto bid : buffers) {
-			buffer_lock_infos[bid] = {true, std::nullopt};
-			buffer_locks_by_id[id].push_back(bid);
+			m_buffer_lock_infos[bid] = {true, std::nullopt};
+			m_buffer_locks_by_id[id].push_back(bid);
 		}
 		return true;
 	}
 
 	void buffer_manager::unlock(buffer_lock_id id) {
-		assert(buffer_locks_by_id.count(id) != 0);
-		for(auto bid : buffer_locks_by_id[id]) {
-			buffer_lock_infos[bid] = {};
+		assert(m_buffer_locks_by_id.count(id) != 0);
+		for(auto bid : m_buffer_locks_by_id[id]) {
+			m_buffer_lock_infos[bid] = {};
 		}
-		buffer_locks_by_id.erase(id);
+		m_buffer_locks_by_id.erase(id);
 	}
 
 	bool buffer_manager::is_locked(buffer_id bid) const {
-		if(buffer_lock_infos.count(bid) == 0) return false;
-		return buffer_lock_infos.at(bid).is_locked;
+		if(m_buffer_lock_infos.count(bid) == 0) return false;
+		return m_buffer_lock_infos.at(bid).is_locked;
 	}
 
 	// TODO: Something we could look into is to dispatch all memory copies concurrently and wait for them in the end.
@@ -146,7 +146,7 @@ namespace detail {
 		{
 			GridRegion<3> updated_region;
 			std::vector<transfer> remaining_transfers;
-			auto& scheduled_buffer_transfers = scheduled_transfers[bid];
+			auto& scheduled_buffer_transfers = m_scheduled_transfers[bid];
 			remaining_transfers.reserve(scheduled_buffer_transfers.size() / 2);
 			for(auto& t : scheduled_buffer_transfers) {
 				auto t_region = subrange_to_grid_box(t.sr);
@@ -166,7 +166,7 @@ namespace detail {
 						assert(detail::access::mode_traits::is_consumer(mode));
 						auto intersection = GridRegion<3>::intersect(t_region, coherent_box);
 						remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, intersection);
-						const auto element_size = buffer_infos.at(bid).element_size;
+						const auto element_size = m_buffer_infos.at(bid).element_size;
 						intersection.scanByBoxes([&](const GridBox<3>& box) {
 							auto sr = grid_box_to_subrange(box);
 							// TODO can this temp buffer be avoided?
@@ -188,7 +188,7 @@ namespace detail {
 				updated_region = GridRegion<3>::merge(updated_region, t_region);
 			}
 			// The target buffer now has the newest data in this region.
-			newest_data_location.at(bid).update_region(updated_region, target_buffer_location);
+			m_newest_data_location.at(bid).update_region(updated_region, target_buffer_location);
 			scheduled_buffer_transfers = std::move(remaining_transfers);
 		}
 
@@ -212,7 +212,7 @@ namespace detail {
 			};
 
 			GridRegion<3> replicated_region;
-			auto& buffer_data_locations = newest_data_location.at(bid);
+			auto& buffer_data_locations = m_newest_data_location.at(bid);
 			const auto data_locations = buffer_data_locations.get_region_values(remaining_region_after_transfers);
 			for(auto& dl : data_locations) {
 				// Note that this assertion can fail in legitimate cases, e.g.
@@ -226,9 +226,9 @@ namespace detail {
 					}
 					// Copy from host, unless we are using a pure producer mode
 					else if(dl.second == data_location::host && detail::access::mode_traits::is_consumer(mode)) {
-						assert(buffers[bid].host_buf.is_allocated());
+						assert(m_buffers[bid].host_buf.is_allocated());
 						const auto box_sr = grid_box_to_subrange(dl.first);
-						const auto& host_buf = buffers[bid].host_buf;
+						const auto& host_buf = m_buffers[bid].host_buf;
 						target_buffer.storage->copy(
 						    *host_buf.storage, host_buf.get_local_offset(box_sr.offset), target_buffer.get_local_offset(box_sr.offset), box_sr.range);
 						replicated_region = GridRegion<3>::merge(replicated_region, dl.first);
@@ -236,9 +236,9 @@ namespace detail {
 				} else if(target_buffer.storage->get_type() == buffer_type::host_buffer) {
 					// Copy from device, unless we are using a pure producer mode
 					if(dl.second == data_location::device && detail::access::mode_traits::is_consumer(mode)) {
-						assert(buffers[bid].device_buf.is_allocated());
+						assert(m_buffers[bid].device_buf.is_allocated());
 						const auto box_sr = grid_box_to_subrange(dl.first);
-						const auto& device_buf = buffers[bid].device_buf;
+						const auto& device_buf = m_buffers[bid].device_buf;
 						target_buffer.storage->copy(
 						    *device_buf.storage, device_buf.get_local_offset(box_sr.offset), target_buffer.get_local_offset(box_sr.offset), box_sr.range);
 						replicated_region = GridRegion<3>::merge(replicated_region, dl.first);
@@ -254,13 +254,13 @@ namespace detail {
 			buffer_data_locations.update_region(replicated_region, data_location::host_and_device);
 		}
 
-		if(detail::access::mode_traits::is_producer(mode)) { newest_data_location.at(bid).update_region(coherent_box, target_buffer_location); }
+		if(detail::access::mode_traits::is_producer(mode)) { m_newest_data_location.at(bid).update_region(coherent_box, target_buffer_location); }
 
 		return target_buffer;
 	}
 
 	void buffer_manager::audit_buffer_access(buffer_id bid, bool requires_allocation, cl::sycl::access::mode mode) {
-		auto& lock_info = buffer_lock_infos[bid];
+		auto& lock_info = m_buffer_lock_infos[bid];
 
 		// Buffer locking is currently opt-in, so if this buffer isn't locked, we won't check anything else.
 		if(!lock_info.is_locked) return;

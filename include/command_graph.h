@@ -26,29 +26,29 @@ namespace detail {
 		using pointer = typename std::iterator_traits<Iterator>::pointer;
 		using iterator_category = std::forward_iterator_tag;
 
-		filter_iterator(Iterator begin, Iterator end, PredicateFn fn) : it(begin), end(end), fn(fn) { advance(); }
+		filter_iterator(Iterator begin, Iterator end, PredicateFn fn) : m_it(begin), m_end(end), m_fn(fn) { advance(); }
 
-		bool operator!=(const filter_iterator& rhs) { return it != rhs.it; }
+		bool operator!=(const filter_iterator& rhs) { return m_it != rhs.m_it; }
 
-		reference operator*() { return *it; }
-		reference operator->() { return *it; }
+		reference operator*() { return *m_it; }
+		reference operator->() { return *m_it; }
 
 		filter_iterator& operator++() {
-			if(it != end) {
-				++it;
+			if(m_it != m_end) {
+				++m_it;
 				advance();
 			}
 			return *this;
 		}
 
 	  private:
-		Iterator it;
-		const Iterator end;
-		PredicateFn fn;
+		Iterator m_it;
+		const Iterator m_end;
+		PredicateFn m_fn;
 
 		void advance() {
-			while(it != end && !fn(*it)) {
-				++it;
+			while(m_it != m_end && !m_fn(*m_it)) {
+				++m_it;
 			}
 		}
 	};
@@ -68,21 +68,21 @@ namespace detail {
 		using pointer = value_type*;
 		using iterator_category = std::forward_iterator_tag;
 
-		transform_iterator(Iterator it, TransformFn fn) : it(it), fn(fn) {}
+		transform_iterator(Iterator it, TransformFn fn) : m_it(it), m_fn(fn) {}
 
-		bool operator!=(const transform_iterator& rhs) { return it != rhs.it; }
+		bool operator!=(const transform_iterator& rhs) { return m_it != rhs.m_it; }
 
-		reference operator*() { return fn(*it); }
-		reference operator->() { return fn(*it); }
+		reference operator*() { return m_fn(*m_it); }
+		reference operator->() { return m_fn(*m_it); }
 
 		transform_iterator& operator++() {
-			++it;
+			++m_it;
 			return *this;
 		}
 
 	  private:
-		Iterator it;
-		TransformFn fn;
+		Iterator m_it;
+		TransformFn m_fn;
 	};
 
 	template <typename Iterator, typename TransformFn>
@@ -95,11 +95,11 @@ namespace detail {
 		template <typename T, typename... Args>
 		T* create(Args&&... args) {
 			static_assert(std::is_base_of<abstract_command, T>::value, "T must be derived from abstract_command");
-			auto unique_cmd = std::unique_ptr<T>{new T(next_cmd_id++, std::forward<Args>(args)...)}; // new, because ctors are private, but we are friends
+			auto unique_cmd = std::unique_ptr<T>{new T(m_next_cmd_id++, std::forward<Args>(args)...)}; // new, because ctors are private, but we are friends
 			const auto cmd = unique_cmd.get();
-			commands.emplace(std::pair{cmd->get_cid(), std::move(unique_cmd)});
-			if constexpr(std::is_base_of_v<task_command, T>) { by_task[cmd->get_tid()].emplace_back(cmd); }
-			execution_fronts[cmd->get_nid()].insert(cmd);
+			m_commands.emplace(std::pair{cmd->get_cid(), std::move(unique_cmd)});
+			if constexpr(std::is_base_of_v<task_command, T>) { m_by_task[cmd->get_tid()].emplace_back(cmd); }
+			m_execution_fronts[cmd->get_nid()].insert(cmd);
 			return cmd;
 		}
 
@@ -107,25 +107,25 @@ namespace detail {
 
 		void erase_if(std::function<bool(abstract_command*)> condition);
 
-		bool has(command_id cid) const { return commands.count(cid) == 1; }
+		bool has(command_id cid) const { return m_commands.count(cid) == 1; }
 
-		abstract_command* get(command_id cid) { return commands.at(cid).get(); }
+		abstract_command* get(command_id cid) { return m_commands.at(cid).get(); }
 
 		template <typename T>
 		T* get(command_id cid) {
 			// dynamic_cast with reference to force bad_cast to be thrown if type mismatches
-			return &dynamic_cast<T&>(*commands.at(cid));
+			return &dynamic_cast<T&>(*m_commands.at(cid));
 		}
 
-		size_t command_count() const { return commands.size(); }
-		size_t task_command_count(task_id tid) const { return by_task.at(tid).size(); }
+		size_t command_count() const { return m_commands.size(); }
+		size_t task_command_count(task_id tid) const { return m_by_task.at(tid).size(); }
 
 		auto all_commands() const {
 			const auto transform = [](auto& uptr) { return uptr.second.get(); };
-			return iterable_range{make_transform_iterator(commands.cbegin(), transform), make_transform_iterator(commands.cend(), transform)};
+			return iterable_range{make_transform_iterator(m_commands.cbegin(), transform), make_transform_iterator(m_commands.cend(), transform)};
 		}
 
-		auto& task_commands(task_id tid) { return by_task.at(tid); }
+		auto& task_commands(task_id tid) { return m_by_task.at(tid); }
 
 		std::optional<std::string> print_graph(size_t max_nodes, const task_manager& tm) const;
 
@@ -134,21 +134,21 @@ namespace detail {
 			assert(depender->get_nid() == dependee->get_nid()); // We cannot depend on commands executed on another node!
 			assert(dependee != depender);
 			depender->add_dependency({dependee, kind, origin});
-			execution_fronts[depender->get_nid()].erase(dependee);
+			m_execution_fronts[depender->get_nid()].erase(dependee);
 		}
 
 		void remove_dependency(abstract_command* depender, abstract_command* dependee) { depender->remove_dependency(dependee); }
 
-		const std::unordered_set<abstract_command*>& get_execution_front(node_id nid) const { return execution_fronts.at(nid); }
+		const std::unordered_set<abstract_command*>& get_execution_front(node_id nid) const { return m_execution_fronts.at(nid); }
 
 	  private:
-		command_id next_cmd_id = 0;
+		command_id m_next_cmd_id = 0;
 		// TODO: Consider storing commands in a contiguous memory data structure instead
-		std::unordered_map<command_id, std::unique_ptr<abstract_command>> commands;
-		std::unordered_map<task_id, std::vector<task_command*>> by_task;
+		std::unordered_map<command_id, std::unique_ptr<abstract_command>> m_commands;
+		std::unordered_map<task_id, std::vector<task_command*>> m_by_task;
 
 		// Set of per-node commands with no dependents
-		std::unordered_map<node_id, std::unordered_set<abstract_command*>> execution_fronts;
+		std::unordered_map<node_id, std::unordered_set<abstract_command*>> m_execution_fronts;
 	};
 
 } // namespace detail

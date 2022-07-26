@@ -82,10 +82,11 @@ class nd_range {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 	nd_range(cl::sycl::nd_range<Dims> s_range)
-	    : global_range(s_range.get_global_range()), local_range(s_range.get_local_range()), offset(s_range.get_offset()) {}
+	    : m_global_range(s_range.get_global_range()), m_local_range(s_range.get_local_range()), m_offset(s_range.get_offset()) {}
 #pragma GCC diagnostic pop
 
-	nd_range(range<Dims> global_range, range<Dims> local_range, id<Dims> offset = {}) : global_range(global_range), local_range(local_range), offset(offset) {
+	nd_range(range<Dims> global_range, range<Dims> local_range, id<Dims> offset = {})
+	    : m_global_range(global_range), m_local_range(local_range), m_offset(offset) {
 #ifndef __SYCL_DEVICE_ONLY__
 		for(int d = 0; d < Dims; ++d) {
 			if(local_range[d] == 0 || global_range[d] % local_range[d] != 0) { throw std::invalid_argument("global_range is not divisible by local_range"); }
@@ -93,23 +94,23 @@ class nd_range {
 #endif
 	}
 
-	operator cl::sycl::nd_range<Dims>() const { return cl::sycl::nd_range<Dims>{global_range, local_range, offset}; }
+	operator cl::sycl::nd_range<Dims>() const { return cl::sycl::nd_range<Dims>{m_global_range, m_local_range, m_offset}; }
 
-	range<Dims> get_global_range() const { return global_range; }
-	range<Dims> get_local_range() const { return local_range; }
-	range<Dims> get_group_range() const { return global_range / local_range; }
-	id<Dims> get_offset() const { return offset; }
+	range<Dims> get_global_range() const { return m_global_range; }
+	range<Dims> get_local_range() const { return m_local_range; }
+	range<Dims> get_group_range() const { return m_global_range / m_local_range; }
+	id<Dims> get_offset() const { return m_offset; }
 
 	friend bool operator==(const nd_range& lhs, const nd_range& rhs) {
-		return lhs.global_range == rhs.global_range && lhs.local_range == rhs.local_range && lhs.offset == rhs.offset;
+		return lhs.m_global_range == rhs.m_global_range && lhs.m_local_range == rhs.m_local_range && lhs.m_offset == rhs.m_offset;
 	}
 
 	friend bool operator!=(const nd_range& lhs, const nd_range& rhs) { return !(lhs == rhs); }
 
   private:
-	range<Dims> global_range;
-	range<Dims> local_range;
-	id<Dims> offset;
+	range<Dims> m_global_range;
+	range<Dims> m_local_range;
+	id<Dims> m_offset;
 };
 
 // Non-templated deduction guides allow construction of nd_range from range initializer lists like so: nd_range{{1, 2}, {3, 4}}

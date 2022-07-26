@@ -71,8 +71,8 @@ namespace detail {
 			int node_count = 0;
 			MPI_Comm_size(host_comm, &node_count);
 
-			host_cfg.local_rank = local_rank;
-			host_cfg.node_count = node_count;
+			m_host_cfg.local_rank = local_rank;
+			m_host_cfg.node_count = node_count;
 
 			MPI_Comm_free(&host_comm);
 		}
@@ -81,9 +81,9 @@ namespace detail {
 
 		{
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-			log_lvl = log_level::debug;
+			m_log_lvl = log_level::debug;
 #else
-			log_lvl = log_level::info;
+			m_log_lvl = log_level::info;
 #endif
 			const std::vector<std::pair<log_level, std::string>> possible_values = {
 			    {log_level::trace, "trace"},
@@ -100,7 +100,7 @@ namespace detail {
 				bool valid = false;
 				for(auto& pv : possible_values) {
 					if(result.second == pv.second) {
-						log_lvl = pv.first;
+						m_log_lvl = pv.first;
 						valid = true;
 						break;
 					}
@@ -115,7 +115,7 @@ namespace detail {
 					CELERITY_WARN(oss.str());
 				}
 			}
-			spdlog::set_level(log_lvl);
+			spdlog::set_level(m_log_lvl);
 		}
 
 		// ------------------------- CELERITY_GRAPH_PRINT_MAX_VERTS ---------------------------
@@ -123,9 +123,9 @@ namespace detail {
 		{
 			const auto [is_set, value] = get_env("CELERITY_GRAPH_PRINT_MAX_VERTS");
 			if(is_set) {
-				if(log_lvl > log_level::trace) { CELERITY_WARN("CELERITY_GRAPH_PRINT_MAX_VERTS: Graphs will only be printed for CELERITY_LOG_LEVEL=trace."); }
+				if(m_log_lvl > log_level::trace) { CELERITY_WARN("CELERITY_GRAPH_PRINT_MAX_VERTS: Graphs will only be printed for CELERITY_LOG_LEVEL=trace."); }
 				const auto [is_valid, parsed] = parse_uint(value.c_str());
-				if(is_valid) { graph_print_max_verts = parsed; }
+				if(is_valid) { m_graph_print_max_verts = parsed; }
 			}
 		}
 
@@ -139,22 +139,22 @@ namespace detail {
 				} else {
 					std::istringstream ss{value};
 					std::vector<std::string> values{std::istream_iterator<std::string>{ss}, std::istream_iterator<std::string>{}};
-					if(static_cast<long>(host_cfg.local_rank) > static_cast<long>(values.size()) - 2) {
-						throw std::runtime_error(fmt::format("Process has local rank {}, but CELERITY_DEVICES only includes {} device(s)", host_cfg.local_rank,
-						    values.empty() ? 0 : values.size() - 1));
+					if(static_cast<long>(m_host_cfg.local_rank) > static_cast<long>(values.size()) - 2) {
+						throw std::runtime_error(fmt::format("Process has local rank {}, but CELERITY_DEVICES only includes {} device(s)",
+						    m_host_cfg.local_rank, values.empty() ? 0 : values.size() - 1));
 					}
 
-					if(static_cast<long>(values.size()) - 1 > static_cast<long>(host_cfg.node_count)) {
+					if(static_cast<long>(values.size()) - 1 > static_cast<long>(m_host_cfg.node_count)) {
 						CELERITY_WARN("CELERITY_DEVICES contains {} device indices, but only {} worker processes were spawned on this host", values.size() - 1,
-						    host_cfg.node_count);
+						    m_host_cfg.node_count);
 					}
 
 					const auto pid_parsed = parse_uint(values[0].c_str());
-					const auto did_parsed = parse_uint(values[host_cfg.local_rank + 1].c_str());
+					const auto did_parsed = parse_uint(values[m_host_cfg.local_rank + 1].c_str());
 					if(!pid_parsed.first || !did_parsed.first) {
 						CELERITY_WARN("CELERITY_DEVICES contains invalid value(s) - will be ignored");
 					} else {
-						device_cfg = device_config{pid_parsed.second, did_parsed.second};
+						m_device_cfg = device_config{pid_parsed.second, did_parsed.second};
 					}
 				}
 			}
@@ -165,13 +165,13 @@ namespace detail {
 			const auto result = get_env("CELERITY_PROFILE_OCL");
 			if(result.first) {
 				CELERITY_WARN("CELERITY_PROFILE_OCL has been renamed to CELERITY_PROFILE_KERNEL with Celerity 0.3.0.");
-				enable_device_profiling = result.second == "1";
+				m_enable_device_profiling = result.second == "1";
 			}
 		}
 
 		{
 			const auto result = get_env("CELERITY_PROFILE_KERNEL");
-			if(result.first) { enable_device_profiling = result.second == "1"; }
+			if(result.first) { m_enable_device_profiling = result.second == "1"; }
 		}
 
 		// -------------------------------- CELERITY_FORCE_WG ---------------------------------

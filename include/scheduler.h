@@ -42,16 +42,16 @@ namespace detail {
 		void schedule();
 
 	  private:
-		graph_generator& ggen;
-		graph_serializer& gsrlzr;
+		graph_generator& m_ggen;
+		graph_serializer& m_gsrlzr;
 
-		std::queue<scheduler_event> available_events;
-		std::queue<scheduler_event> in_flight_events;
+		std::queue<scheduler_event> m_available_events;
+		std::queue<scheduler_event> m_in_flight_events;
 
-		mutable std::mutex events_mutex;
-		std::condition_variable events_cv;
+		mutable std::mutex m_events_mutex;
+		std::condition_variable m_events_cv;
 
-		const size_t num_nodes;
+		const size_t m_num_nodes;
 
 		void notify(scheduler_event_type type, const task* tsk);
 	};
@@ -67,7 +67,7 @@ namespace detail {
 		void shutdown() override;
 
 	  private:
-		std::thread worker_thread;
+		std::thread m_worker_thread;
 	};
 
 } // namespace detail

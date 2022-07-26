@@ -7,7 +7,7 @@ namespace detail {
 
 	std::unordered_set<buffer_id> buffer_access_map::get_accessed_buffers() const {
 		std::unordered_set<buffer_id> result;
-		for(auto& [bid, _] : map) {
+		for(auto& [bid, _] : m_map) {
 			result.emplace(bid);
 		}
 		return result;
@@ -15,7 +15,7 @@ namespace detail {
 
 	std::unordered_set<cl::sycl::access::mode> buffer_access_map::get_access_modes(buffer_id bid) const {
 		std::unordered_set<cl::sycl::access::mode> result;
-		for(auto [first, last] = map.equal_range(bid); first != last; ++first) {
+		for(auto [first, last] = m_map.equal_range(bid); first != last; ++first) {
 			result.insert(first->second->get_access_mode());
 		}
 		return result;
@@ -34,8 +34,8 @@ namespace detail {
 
 	GridRegion<3> buffer_access_map::get_requirements_for_access(
 	    buffer_id bid, cl::sycl::access::mode mode, int kernel_dims, const subrange<3>& sr, const cl::sycl::range<3>& global_size) const {
-		auto [first, last] = map.equal_range(bid);
-		if(first == map.end()) { return {}; }
+		auto [first, last] = m_map.equal_range(bid);
+		if(first == m_map.end()) { return {}; }
 
 		GridRegion<3> result;
 		for(auto iter = first; iter != last; ++iter) {

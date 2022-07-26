@@ -119,11 +119,11 @@ namespace experimental {
 	class collective_group {
 	  public:
 		/// Creates a new collective group with a globally unique id. This must only be called from the main thread.
-		collective_group() noexcept : cgid(next_cgid++) {}
+		collective_group() noexcept : m_cgid(next_cgid++) {}
 
 	  private:
 		friend class collective_tag_factory;
-		detail::collective_group_id cgid;
+		detail::collective_group_id m_cgid;
 		inline static size_t next_cgid = 1;
 	};
 
@@ -135,8 +135,8 @@ namespace experimental {
 	  private:
 		friend class collective_tag_factory;
 		friend class celerity::handler;
-		collective_tag(detail::collective_group_id cgid) : cgid(cgid) {}
-		detail::collective_group_id cgid;
+		collective_tag(detail::collective_group_id cgid) : m_cgid(cgid) {}
+		detail::collective_group_id m_cgid;
 	};
 
 	/**
@@ -149,8 +149,8 @@ namespace experimental {
 	 */
 	class collective_tag_factory {
 	  public:
-		operator experimental::collective_tag() const { return default_collective_group.cgid; }
-		experimental::collective_tag operator()(experimental::collective_group cg) const { return cg.cgid; }
+		operator experimental::collective_tag() const { return default_collective_group.m_cgid; }
+		experimental::collective_tag operator()(experimental::collective_group cg) const { return cg.m_cgid; }
 	};
 
 	/**
@@ -283,34 +283,35 @@ namespace detail {
 	class prepass_handler final : public handler {
 	  public:
 		explicit prepass_handler(task_id tid, std::unique_ptr<command_group_storage_base> cgf, size_t num_collective_nodes)
-		    : tid(tid), cgf(std::move(cgf)), num_collective_nodes(num_collective_nodes) {}
+		    : m_tid(tid), m_cgf(std::move(cgf)), m_num_collective_nodes(num_collective_nodes) {}
 
 		void add_requirement(buffer_id bid, std::unique_ptr<range_mapper_base> rm) {
-			assert(task == nullptr);
-			access_map.add_access(bid, std::move(rm));
+			assert(m_task == nullptr);
+			m_access_map.add_access(bid, std::move(rm));
 		}
 
 		void add_requirement(const host_object_id hoid, const experimental::side_effect_order order) {
-			assert(task == nullptr);
-			side_effects.add_side_effect(hoid, order);
+			assert(m_task == nullptr);
+			m_side_effects.add_side_effect(hoid, order);
 		}
 
 		template <int Dims>
 		void add_reduction(reduction_id rid) {
-			reductions.push_back(rid);
+			m_reductions.push_back(rid);
 		}
 
 		void create_host_compute_task(task_geometry geometry) {
-			assert(task == nullptr);
+			assert(m_task == nullptr);
 			if(geometry.global_size.size() == 0) {
 				// TODO this can be easily supported by not creating a task in case the execution range is empty
 				throw std::runtime_error{"The execution range of distributed host tasks must have at least one item"};
 			}
-			task = detail::task::make_host_compute(tid, geometry, std::move(cgf), std::move(access_map), std::move(side_effects), std::move(reductions));
+			m_task =
+			    detail::task::make_host_compute(m_tid, geometry, std::move(m_cgf), std::move(m_access_map), std::move(m_side_effects), std::move(m_reductions));
 		}
 
 		void create_device_compute_task(task_geometry geometry, std::string debug_name) {
-			assert(task == nullptr);
+			assert(m_task == nullptr);
 			if(geometry.global_size.size() == 0) {
 				// TODO unless reductions are involved, this can be easily supported by not creating a task in case the execution range is empty.
 				// Edge case: If the task includes reductions that specify property::reduction::initialize_to_identity, we need to create a task that sets
@@ -318,38 +319,39 @@ namespace detail {
 				// each node that reads from the reduction output buffer, initializing it to the identity value locally.
 				throw std::runtime_error{"The execution range of device tasks must have at least one item"};
 			}
-			if(!side_effects.empty()) { throw std::runtime_error{"Side effects cannot be used in device kernels"}; }
-			task = detail::task::make_device_compute(tid, geometry, std::move(cgf), std::move(access_map), std::move(reductions), std::move(debug_name));
+			if(!m_side_effects.empty()) { throw std::runtime_error{"Side effects cannot be used in device kernels"}; }
+			m_task =
+			    detail::task::make_device_compute(m_tid, geometry, std::move(m_cgf), std::move(m_access_map), std::move(m_reductions), std::move(debug_name));
 		}
 
 		void create_collective_task(collective_group_id cgid) {
-			assert(task == nullptr);
-			task = detail::task::make_collective(tid, cgid, num_collective_nodes, std::move(cgf), std::move(access_map), std::move(side_effects));
+			assert(m_task == nullptr);
+			m_task = detail::task::make_collective(m_tid, cgid, m_num_collective_nodes, std::move(m_cgf), std::move(m_access_map), std::move(m_side_effects));
 		}
 
 		void create_master_node_task() {
-			assert(task == nullptr);
-			task = detail::task::make_master_node(tid, std::move(cgf), std::move(access_map), std::move(side_effects));
+			assert(m_task == nullptr);
+			m_task = detail::task::make_master_node(m_tid, std::move(m_cgf), std::move(m_access_map), std::move(m_side_effects));
 		}
 
-		std::unique_ptr<class task> into_task() && { return std::move(task); }
+		std::unique_ptr<class task> into_task() && { return std::move(m_task); }
 
 	  protected:
 		bool is_prepass() const override { return true; }
 
 		const class task& get_task() const override {
-			assert(task != nullptr);
-			return *task;
+			assert(m_task != nullptr);
+			return *m_task;
 		}
 
 	  private:
-		task_id tid;
-		std::unique_ptr<command_group_storage_base> cgf;
-		buffer_access_map access_map;
-		side_effect_map side_effects;
-		std::vector<reduction_id> reductions;
-		std::unique_ptr<class task> task = nullptr;
-		size_t num_collective_nodes;
+		task_id m_tid;
+		std::unique_ptr<command_group_storage_base> m_cgf;
+		buffer_access_map m_access_map;
+		side_effect_map m_side_effects;
+		std::vector<reduction_id> m_reductions;
+		std::unique_ptr<class task> m_task = nullptr;
+		size_t m_num_collective_nodes;
 	};
 
 	class live_pass_handler : public handler {
@@ -382,12 +384,12 @@ namespace detail {
 	class live_pass_host_handler final : public live_pass_handler {
 	  public:
 		live_pass_host_handler(const class task* task, subrange<3> sr, bool initialize_reductions, host_queue& queue)
-		    : live_pass_handler(task, sr, initialize_reductions), queue(&queue) {}
+		    : live_pass_handler(task, sr, initialize_reductions), m_queue(&queue) {}
 
 		template <int Dims, typename Kernel>
 		void schedule(Kernel kernel) {
 			static_assert(Dims >= 0);
-			future = queue->submit(task->get_collective_group_id(), [kernel, global_size = task->get_global_size(), sr = sr](MPI_Comm) {
+			m_future = m_queue->submit(task->get_collective_group_id(), [kernel, global_size = task->get_global_size(), sr = sr](MPI_Comm) {
 				if constexpr(Dims > 0) {
 					const auto part = make_partition<Dims>(range_cast<Dims>(global_size), subrange_cast<Dims>(sr));
 					kernel(part);
@@ -404,17 +406,17 @@ namespace detail {
 
 		template <typename Kernel>
 		void schedule_collective(Kernel kernel) {
-			future = queue->submit(task->get_collective_group_id(), [kernel, global_size = task->get_global_size(), sr = sr](MPI_Comm comm) {
+			m_future = m_queue->submit(task->get_collective_group_id(), [kernel, global_size = task->get_global_size(), sr = sr](MPI_Comm comm) {
 				const auto part = make_collective_partition(range_cast<1>(global_size), subrange_cast<1>(sr), comm);
 				kernel(part);
 			});
 		}
 
-		std::future<host_queue::execution_info> into_future() { return std::move(future); }
+		std::future<host_queue::execution_info> into_future() { return std::move(m_future); }
 
 	  private:
-		host_queue* queue;
-		std::future<host_queue::execution_info> future;
+		host_queue* m_queue;
+		std::future<host_queue::execution_info> m_future;
 	};
 
 	template <typename Kernel, int Dims, typename... Reducers>
@@ -487,25 +489,25 @@ namespace detail {
 	class live_pass_device_handler final : public live_pass_handler {
 	  public:
 		live_pass_device_handler(const class task* task, subrange<3> sr, bool initialize_reductions, device_queue& d_queue)
-		    : live_pass_handler(task, sr, initialize_reductions), d_queue(&d_queue) {}
+		    : live_pass_handler(task, sr, initialize_reductions), m_d_queue(&d_queue) {}
 
 		template <typename CGF>
 		void submit_to_sycl(CGF&& cgf) {
-			event = d_queue->submit([&](cl::sycl::handler& cgh) {
-				this->eventual_cgh = &cgh;
+			m_event = m_d_queue->submit([&](cl::sycl::handler& cgh) {
+				this->m_eventual_cgh = &cgh;
 				std::forward<CGF>(cgf)(cgh);
-				this->eventual_cgh = nullptr;
+				this->m_eventual_cgh = nullptr;
 			});
 		}
 
-		cl::sycl::event get_submission_event() const { return event; }
+		cl::sycl::event get_submission_event() const { return m_event; }
 
-		cl::sycl::handler* const* get_eventual_sycl_cgh() const { return &eventual_cgh; }
+		cl::sycl::handler* const* get_eventual_sycl_cgh() const { return &m_eventual_cgh; }
 
 	  private:
-		device_queue* d_queue;
-		cl::sycl::handler* eventual_cgh = nullptr;
-		cl::sycl::event event;
+		device_queue* m_d_queue;
+		cl::sycl::handler* m_eventual_cgh = nullptr;
+		cl::sycl::event m_event;
 	};
 
 	template <typename DataT, int Dims, typename BinaryOperation, bool WithExplicitIdentity>
@@ -517,11 +519,11 @@ namespace detail {
 		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
 		cl::sycl::property_list props;
-		if(!d.include_current_buffer_value) { props = {cl::sycl::property::reduction::initialize_to_identity{}}; }
+		if(!d.m_include_current_buffer_value) { props = {cl::sycl::property::reduction::initialize_to_identity{}}; }
 		if constexpr(WithExplicitIdentity) {
-			return cl::sycl::reduction(*d.sycl_buffer, sycl_cgh, d.identity, d.op, props);
+			return cl::sycl::reduction(*d.m_sycl_buffer, sycl_cgh, d.m_identity, d.m_op, props);
 		} else {
-			return cl::sycl::reduction(*d.sycl_buffer, sycl_cgh, d.op, props);
+			return cl::sycl::reduction(*d.m_sycl_buffer, sycl_cgh, d.m_op, props);
 		}
 #endif
 	}
@@ -531,15 +533,15 @@ namespace detail {
 	  public:
 		reduction_descriptor(
 		    buffer_id bid, BinaryOperation combiner, DataT /* identity */, bool include_current_buffer_value, cl::sycl::buffer<DataT, Dims>* sycl_buffer)
-		    : bid(bid), op(combiner), include_current_buffer_value(include_current_buffer_value), sycl_buffer(sycl_buffer) {}
+		    : m_bid(bid), m_op(combiner), m_include_current_buffer_value(include_current_buffer_value), m_sycl_buffer(sycl_buffer) {}
 
 	  private:
 		friend auto make_sycl_reduction<DataT, Dims, BinaryOperation, false>(cl::sycl::handler&, const reduction_descriptor&);
 
-		buffer_id bid;
-		BinaryOperation op;
-		bool include_current_buffer_value;
-		cl::sycl::buffer<DataT, Dims>* sycl_buffer;
+		buffer_id m_bid;
+		BinaryOperation m_op;
+		bool m_include_current_buffer_value;
+		cl::sycl::buffer<DataT, Dims>* m_sycl_buffer;
 	};
 
 	template <typename DataT, int Dims, typename BinaryOperation>
@@ -547,16 +549,16 @@ namespace detail {
 	  public:
 		reduction_descriptor(
 		    buffer_id bid, BinaryOperation combiner, DataT identity, bool include_current_buffer_value, cl::sycl::buffer<DataT, Dims>* sycl_buffer)
-		    : bid(bid), op(combiner), identity(identity), include_current_buffer_value(include_current_buffer_value), sycl_buffer(sycl_buffer) {}
+		    : m_bid(bid), m_op(combiner), m_identity(identity), m_include_current_buffer_value(include_current_buffer_value), m_sycl_buffer(sycl_buffer) {}
 
 	  private:
 		friend auto make_sycl_reduction<DataT, Dims, BinaryOperation, true>(cl::sycl::handler&, const reduction_descriptor&);
 
-		buffer_id bid;
-		BinaryOperation op;
-		DataT identity{};
-		bool include_current_buffer_value;
-		cl::sycl::buffer<DataT, Dims>* sycl_buffer;
+		buffer_id m_bid;
+		BinaryOperation m_op;
+		DataT m_identity{};
+		bool m_include_current_buffer_value;
+		cl::sycl::buffer<DataT, Dims>* m_sycl_buffer;
 	};
 
 	template <bool WithExplicitIdentity, typename DataT, int Dims, typename BinaryOperation>
@@ -641,7 +643,7 @@ void handler::host_task(on_master_node_tag, Functor kernel) {
 template <typename Functor>
 void handler::host_task(experimental::collective_tag tag, Functor kernel) {
 	if(is_prepass()) {
-		dynamic_cast<detail::prepass_handler&>(*this).create_collective_task(tag.cgid);
+		dynamic_cast<detail::prepass_handler&>(*this).create_collective_task(tag.m_cgid);
 	} else {
 		dynamic_cast<detail::live_pass_host_handler&>(*this).schedule_collective(kernel);
 	}

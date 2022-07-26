@@ -85,7 +85,7 @@ class distr_queue {
 	void slow_full_sync() { detail::runtime::get_instance().sync(); } // NOLINT(readability-convert-member-functions-to-static)
 
   private:
-	std::shared_ptr<detail::distr_queue_tracker> tracker;
+	std::shared_ptr<detail::distr_queue_tracker> m_tracker;
 
 	void init(detail::device_or_selector device_or_selector) {
 		if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr, device_or_selector); }
@@ -94,7 +94,7 @@ class distr_queue {
 		} catch(detail::runtime_already_started_error&) {
 			throw std::runtime_error("Only one celerity::distr_queue can be created per process (but it can be copied!)");
 		}
-		tracker = std::make_shared<detail::distr_queue_tracker>();
+		m_tracker = std::make_shared<detail::distr_queue_tracker>();
 	}
 };
 

@@ -30,20 +30,20 @@ namespace detail {
 		friend class command_graph;
 
 	  protected:
-		abstract_command(command_id cid, node_id nid) : cid(cid), nid(nid) {}
+		abstract_command(command_id cid, node_id nid) : m_cid(cid), m_nid(nid) {}
 
 	  public:
 		virtual ~abstract_command() = 0;
 
-		command_id get_cid() const { return cid; }
+		command_id get_cid() const { return m_cid; }
 
-		node_id get_nid() const { return nid; }
+		node_id get_nid() const { return m_nid; }
 
 		void mark_as_flushed() {
-			assert(!flushed);
-			flushed = true;
+			assert(!m_flushed);
+			m_flushed = true;
 		}
-		bool is_flushed() const { return flushed; }
+		bool is_flushed() const { return m_flushed; }
 
 		// TODO: Consider only having this in debug builds
 		std::string debug_label;
@@ -54,72 +54,72 @@ namespace detail {
 		using parent_type::add_dependency;
 		using parent_type::remove_dependency;
 
-		command_id cid;
-		node_id nid;
-		bool flushed = false;
+		command_id m_cid;
+		node_id m_nid;
+		bool m_flushed = false;
 	};
 	inline abstract_command::~abstract_command() {}
 
 	class push_command final : public abstract_command {
 		friend class command_graph;
 		push_command(command_id cid, node_id nid, buffer_id bid, reduction_id rid, node_id target, subrange<3> push_range)
-		    : abstract_command(cid, nid), bid(bid), rid(rid), target(target), push_range(push_range) {}
+		    : abstract_command(cid, nid), m_bid(bid), m_rid(rid), m_target(target), m_push_range(push_range) {}
 
 	  public:
-		buffer_id get_bid() const { return bid; }
-		reduction_id get_rid() const { return rid; }
-		node_id get_target() const { return target; }
-		const subrange<3>& get_range() const { return push_range; }
+		buffer_id get_bid() const { return m_bid; }
+		reduction_id get_rid() const { return m_rid; }
+		node_id get_target() const { return m_target; }
+		const subrange<3>& get_range() const { return m_push_range; }
 
 	  private:
-		buffer_id bid;
-		reduction_id rid;
-		node_id target;
-		subrange<3> push_range;
+		buffer_id m_bid;
+		reduction_id m_rid;
+		node_id m_target;
+		subrange<3> m_push_range;
 	};
 
 	class await_push_command final : public abstract_command {
 		friend class command_graph;
-		await_push_command(command_id cid, node_id nid, push_command* source) : abstract_command(cid, nid), source(source) {}
+		await_push_command(command_id cid, node_id nid, push_command* source) : abstract_command(cid, nid), m_source(source) {}
 
 	  public:
-		push_command* get_source() const { return source; }
+		push_command* get_source() const { return m_source; }
 
 	  private:
-		push_command* source;
+		push_command* m_source;
 	};
 
 	class reduction_command final : public abstract_command {
 		friend class command_graph;
-		reduction_command(command_id cid, node_id nid, reduction_id rid) : abstract_command(cid, nid), rid(rid) {}
+		reduction_command(command_id cid, node_id nid, reduction_id rid) : abstract_command(cid, nid), m_rid(rid) {}
 
 	  public:
-		reduction_id get_rid() const { return rid; }
+		reduction_id get_rid() const { return m_rid; }
 
 	  private:
-		reduction_id rid;
+		reduction_id m_rid;
 	};
 
 	class task_command : public abstract_command {
 	  protected:
-		task_command(command_id cid, node_id nid, task_id tid) : abstract_command(cid, nid), tid(tid) {}
+		task_command(command_id cid, node_id nid, task_id tid) : abstract_command(cid, nid), m_tid(tid) {}
 
 	  public:
-		task_id get_tid() const { return tid; }
+		task_id get_tid() const { return m_tid; }
 
 	  private:
-		task_id tid;
+		task_id m_tid;
 	};
 
 	class epoch_command final : public task_command {
 		friend class command_graph;
-		epoch_command(const command_id& cid, const node_id& nid, const task_id& tid, epoch_action action) : task_command(cid, nid, tid), action(action) {}
+		epoch_command(const command_id& cid, const node_id& nid, const task_id& tid, epoch_action action) : task_command(cid, nid, tid), m_action(action) {}
 
 	  public:
-		epoch_action get_epoch_action() const { return action; }
+		epoch_action get_epoch_action() const { return m_action; }
 
 	  private:
-		epoch_action action;
+		epoch_action m_action;
 	};
 
 	class horizon_command final : public task_command {
@@ -132,18 +132,18 @@ namespace detail {
 
 	  protected:
 		execution_command(command_id cid, node_id nid, task_id tid, subrange<3> execution_range)
-		    : task_command(cid, nid, tid), execution_range(execution_range) {}
+		    : task_command(cid, nid, tid), m_execution_range(execution_range) {}
 
 	  public:
-		const subrange<3>& get_execution_range() const { return execution_range; }
+		const subrange<3>& get_execution_range() const { return m_execution_range; }
 
-		void set_is_reduction_initializer(bool is_initializer) { initialize_reductions = is_initializer; }
+		void set_is_reduction_initializer(bool is_initializer) { m_initialize_reductions = is_initializer; }
 
-		bool is_reduction_initializer() const { return initialize_reductions; }
+		bool is_reduction_initializer() const { return m_initialize_reductions; }
 
 	  private:
-		subrange<3> execution_range;
-		bool initialize_reductions = false;
+		subrange<3> m_execution_range;
+		bool m_initialize_reductions = false;
 	};
 
 	// ----------------------------------------------------------------------------------------------------------------

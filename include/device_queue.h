@@ -55,12 +55,12 @@ namespace detail {
 		 */
 		template <typename Fn>
 		cl::sycl::event submit(Fn&& fn) {
-			auto evt = sycl_queue->submit([fn = std::forward<Fn>(fn)](cl::sycl::handler& sycl_handler) { fn(sycl_handler); });
+			auto evt = m_sycl_queue->submit([fn = std::forward<Fn>(fn)](cl::sycl::handler& sycl_handler) { fn(sycl_handler); });
 #if CELERITY_WORKAROUND(HIPSYCL)
 			// hipSYCL does not guarantee that command groups are actually scheduled until an explicit await operation, which we cannot insert without
 			// blocking the executor loop (see https://github.com/illuhad/hipSYCL/issues/599). Instead, we explicitly flush the queue to be able to continue
 			// using our polling-based approach.
-			hipsycl_flush_dag(*sycl_queue);
+			hipsycl_flush_dag(*m_sycl_queue);
 #endif
 			return evt;
 		}
@@ -68,21 +68,21 @@ namespace detail {
 		/**
 		 * @brief Waits until all currently submitted operations have completed.
 		 */
-		void wait() { sycl_queue->wait_and_throw(); }
+		void wait() { m_sycl_queue->wait_and_throw(); }
 
 		/**
 		 * @brief Returns whether device profiling is enabled.
 		 */
-		bool is_profiling_enabled() const { return device_profiling_enabled; }
+		bool is_profiling_enabled() const { return m_device_profiling_enabled; }
 
 		cl::sycl::queue& get_sycl_queue() const {
-			assert(sycl_queue != nullptr);
-			return *sycl_queue;
+			assert(m_sycl_queue != nullptr);
+			return *m_sycl_queue;
 		}
 
 	  private:
-		std::unique_ptr<cl::sycl::queue> sycl_queue;
-		bool device_profiling_enabled = false;
+		std::unique_ptr<cl::sycl::queue> m_sycl_queue;
+		bool m_device_profiling_enabled = false;
 
 		void handle_async_exceptions(cl::sycl::exception_list el) const;
 	};

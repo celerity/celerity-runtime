@@ -27,19 +27,19 @@ namespace detail {
 	template <typename Iterator>
 	class iterable_range {
 	  public:
-		iterable_range(Iterator first, Iterator last) : first(first), last(last) {}
+		iterable_range(Iterator first, Iterator last) : m_first(first), m_last(last) {}
 
-		Iterator begin() const { return first; }
-		Iterator end() const { return last; }
-		friend Iterator begin(const iterable_range& ir) { return ir.first; }
-		friend Iterator end(const iterable_range& ir) { return ir.last; }
+		Iterator begin() const { return m_first; }
+		Iterator end() const { return m_last; }
+		friend Iterator begin(const iterable_range& ir) { return ir.m_first; }
+		friend Iterator end(const iterable_range& ir) { return ir.m_last; }
 
-		auto& front() const { return *first; }
-		bool empty() const { return first == last; }
+		auto& front() const { return *m_first; }
+		bool empty() const { return m_first == m_last; }
 
 	  private:
-		Iterator first;
-		Iterator last;
+		Iterator m_first;
+		Iterator m_last;
 	};
 
 	template <typename T>
@@ -58,20 +58,20 @@ namespace detail {
 
 	  protected:
 		~intrusive_graph_node() { // protected: Statically disallow destruction through base pointer, since dtor is not polymorphic
-			for(auto& dep : dependents) {
-				auto dep_it_end = static_cast<intrusive_graph_node*>(dep.node)->dependencies.end();
+			for(auto& dep : m_dependents) {
+				auto dep_it_end = static_cast<intrusive_graph_node*>(dep.node)->m_dependencies.end();
 				auto this_it =
-				    std::find_if(static_cast<intrusive_graph_node*>(dep.node)->dependencies.begin(), dep_it_end, [&](auto d) { return d.node == this; });
+				    std::find_if(static_cast<intrusive_graph_node*>(dep.node)->m_dependencies.begin(), dep_it_end, [&](auto d) { return d.node == this; });
 				assert(this_it != dep_it_end);
-				static_cast<intrusive_graph_node*>(dep.node)->dependencies.erase(this_it);
+				static_cast<intrusive_graph_node*>(dep.node)->m_dependencies.erase(this_it);
 			}
 
-			for(auto& dep : dependencies) {
-				auto dep_it_end = static_cast<intrusive_graph_node*>(dep.node)->dependents.end();
+			for(auto& dep : m_dependencies) {
+				auto dep_it_end = static_cast<intrusive_graph_node*>(dep.node)->m_dependents.end();
 				auto this_it =
-				    std::find_if(static_cast<intrusive_graph_node*>(dep.node)->dependents.begin(), dep_it_end, [&](auto d) { return d.node == this; });
+				    std::find_if(static_cast<intrusive_graph_node*>(dep.node)->m_dependents.begin(), dep_it_end, [&](auto d) { return d.node == this; });
 				assert(this_it != dep_it_end);
-				static_cast<intrusive_graph_node*>(dep.node)->dependents.erase(this_it);
+				static_cast<intrusive_graph_node*>(dep.node)->m_dependents.erase(this_it);
 			}
 		}
 
@@ -80,7 +80,7 @@ namespace detail {
 			// Check for (direct) cycles
 			assert(!has_dependent(dep.node));
 
-			if(const auto it = maybe_get_dep(dependencies, dep.node)) {
+			if(const auto it = maybe_get_dep(m_dependencies, dep.node)) {
 				// We assume that for dependency kinds A and B, max(A, B) is strong enough to satisfy both.
 				static_assert(dependency_kind::anti_dep < dependency_kind::true_dep);
 
@@ -90,7 +90,7 @@ namespace detail {
 					(*it)->origin = dep.origin; // This unfortunately loses origin information from the lesser dependency
 
 					// In this case we also have to upgrade corresponding dependent within dependency
-					auto this_it = maybe_get_dep(dep.node->dependents, static_cast<T*>(this));
+					auto this_it = maybe_get_dep(dep.node->m_dependents, static_cast<T*>(this));
 					assert(this_it != std::nullopt);
 					assert((*this_it)->kind != dep.kind);
 					(*this_it)->kind = dep.kind;
@@ -99,50 +99,51 @@ namespace detail {
 				return;
 			}
 
-			dependencies.emplace_back(dep);
-			dep.node->dependents.emplace_back(dependent{static_cast<T*>(this), dep.kind, dep.origin});
+			m_dependencies.emplace_back(dep);
+			dep.node->m_dependents.emplace_back(dependent{static_cast<T*>(this), dep.kind, dep.origin});
 
-			pseudo_critical_path_length = std::max(pseudo_critical_path_length, static_cast<intrusive_graph_node*>(dep.node)->pseudo_critical_path_length + 1);
+			m_pseudo_critical_path_length =
+			    std::max(m_pseudo_critical_path_length, static_cast<intrusive_graph_node*>(dep.node)->m_pseudo_critical_path_length + 1);
 		}
 
 		void remove_dependency(T* node) {
-			auto it = maybe_get_dep(dependencies, node);
+			auto it = maybe_get_dep(m_dependencies, node);
 			if(it != std::nullopt) {
 				{
-					auto& dep_dependents = static_cast<intrusive_graph_node*>((*it)->node)->dependents;
+					auto& dep_dependents = static_cast<intrusive_graph_node*>((*it)->node)->m_dependents;
 					auto this_it = maybe_get_dep(dep_dependents, static_cast<T*>(this));
 					assert(this_it != std::nullopt);
 					dep_dependents.erase(*this_it);
 				}
-				dependencies.erase(*it);
+				m_dependencies.erase(*it);
 			}
 		}
 
 		bool has_dependency(T* node, std::optional<dependency_kind> kind = std::nullopt) {
-			auto result = maybe_get_dep(dependencies, node);
+			auto result = maybe_get_dep(m_dependencies, node);
 			if(result == std::nullopt) return false;
 			return kind != std::nullopt ? (*result)->kind == kind : true;
 		}
 
 		bool has_dependent(T* node, std::optional<dependency_kind> kind = std::nullopt) {
-			auto result = maybe_get_dep(dependents, node);
+			auto result = maybe_get_dep(m_dependents, node);
 			if(result == std::nullopt) return false;
 			return kind != std::nullopt ? (*result)->kind == kind : true;
 		}
 
-		auto get_dependencies() const { return iterable_range{dependencies.cbegin(), dependencies.cend()}; }
-		auto get_dependents() const { return iterable_range{dependents.cbegin(), dependents.cend()}; }
+		auto get_dependencies() const { return iterable_range{m_dependencies.cbegin(), m_dependencies.cend()}; }
+		auto get_dependents() const { return iterable_range{m_dependents.cbegin(), m_dependents.cend()}; }
 
-		int get_pseudo_critical_path_length() const { return pseudo_critical_path_length; }
+		int get_pseudo_critical_path_length() const { return m_pseudo_critical_path_length; }
 
 	  private:
-		gch::small_vector<dependency> dependencies;
-		gch::small_vector<dependent> dependents;
+		gch::small_vector<dependency> m_dependencies;
+		gch::small_vector<dependent> m_dependents;
 
 		// This only (potentially) grows when adding dependencies,
 		// it never shrinks and does not take into account later changes further up in the dependency chain
 		// (that is all that is needed for celerity use).
-		int pseudo_critical_path_length = 0;
+		int m_pseudo_critical_path_length = 0;
 
 		template <typename Dep>
 		std::optional<typename gch::small_vector<Dep>::iterator> maybe_get_dep(gch::small_vector<Dep>& deps, T* node) {
