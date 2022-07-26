@@ -24,7 +24,7 @@ int main(int argc, char* argv[]) {
 	return returnCode;
 }
 
-struct GlobalSetupAndTeardown : Catch::EventListenerBase {
+struct global_setup_and_teardown : Catch::EventListenerBase {
 	using EventListenerBase::EventListenerBase;
 	void testCasePartialEnded(const Catch::TestCaseStats&, uint64_t) override {
 		// Reset REQUIRE_LOOP after each test case, section or generator value.
@@ -32,4 +32,4 @@ struct GlobalSetupAndTeardown : Catch::EventListenerBase {
 	}
 };
 
-CATCH_REGISTER_LISTENER(GlobalSetupAndTeardown);
+CATCH_REGISTER_LISTENER(global_setup_and_teardown);
