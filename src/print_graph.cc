@@ -15,7 +15,7 @@ namespace detail {
 
 	template <typename Dependency>
 	const char* dependency_style(const Dependency& dep) {
-		if(dep.kind == dependency_kind::ANTI_DEP) return "color=limegreen";
+		if(dep.kind == dependency_kind::anti_dep) return "color=limegreen";
 		switch(dep.origin) {
 		case dependency_origin::collective_group_serialization: return "color=blue";
 		case dependency_origin::execution_front: return "color=orange";
@@ -26,12 +26,12 @@ namespace detail {
 
 	std::string get_task_label(const task* tsk) {
 		switch(tsk->get_type()) {
-		case task_type::EPOCH: return fmt::format("Task {} (epoch)", tsk->get_id());
-		case task_type::HOST_COMPUTE: return fmt::format("Task {} (host-compute)", tsk->get_id());
-		case task_type::DEVICE_COMPUTE: return fmt::format("Task {} ({})", tsk->get_id(), tsk->get_debug_name());
-		case task_type::COLLECTIVE: return fmt::format("Task {} (collective #{})", tsk->get_id(), static_cast<size_t>(tsk->get_collective_group_id()));
-		case task_type::MASTER_NODE: return fmt::format("Task {} (master-node)", tsk->get_id());
-		case task_type::HORIZON: return fmt::format("Task {} (horizon)", tsk->get_id());
+		case task_type::epoch: return fmt::format("Task {} (epoch)", tsk->get_id());
+		case task_type::host_compute: return fmt::format("Task {} (host-compute)", tsk->get_id());
+		case task_type::device_compute: return fmt::format("Task {} ({})", tsk->get_id(), tsk->get_debug_name());
+		case task_type::collective: return fmt::format("Task {} (collective #{})", tsk->get_id(), static_cast<size_t>(tsk->get_collective_group_id()));
+		case task_type::master_node: return fmt::format("Task {} (master-node)", tsk->get_id());
+		case task_type::horizon: return fmt::format("Task {} (horizon)", tsk->get_id());
 		default: assert(false); return fmt::format("Task {} (unknown)", tsk->get_id());
 		}
 	}
@@ -63,22 +63,22 @@ namespace detail {
 	std::string get_command_label(const abstract_command* cmd) {
 		std::string label = fmt::format("[{}] Node {}:\\n", cmd->get_cid(), cmd->get_nid());
 		if(const auto ecmd = dynamic_cast<const epoch_command*>(cmd)) {
-			label += "EPOCH";
+			label += "epoch";
 			if(ecmd->get_epoch_action() == epoch_action::barrier) { label += " (barrier)"; }
 			if(ecmd->get_epoch_action() == epoch_action::shutdown) { label += " (shutdown)"; }
 		} else if(const auto xcmd = dynamic_cast<const execution_command*>(cmd)) {
-			label += fmt::format("EXECUTION {}\\n{}", subrange_to_grid_box(xcmd->get_execution_range()), cmd->debug_label);
+			label += fmt::format("execution {}\\n{}", subrange_to_grid_box(xcmd->get_execution_range()), cmd->debug_label);
 		} else if(const auto pcmd = dynamic_cast<const push_command*>(cmd)) {
 			if(pcmd->get_rid()) { label += fmt::format("(R{}) ", pcmd->get_rid()); }
-			label += fmt::format("PUSH {} to {}\\n {}", pcmd->get_bid(), pcmd->get_target(), subrange_to_grid_box(pcmd->get_range()));
+			label += fmt::format("push {} to {}\\n {}", pcmd->get_bid(), pcmd->get_target(), subrange_to_grid_box(pcmd->get_range()));
 		} else if(const auto apcmd = dynamic_cast<const await_push_command*>(cmd)) {
 			if(apcmd->get_source()->get_rid()) { label += fmt::format("(R{}) ", apcmd->get_source()->get_rid()); }
-			label += fmt::format("AWAIT PUSH {} from {}\\n {}", apcmd->get_source()->get_bid(), apcmd->get_source()->get_nid(),
+			label += fmt::format("await push {} from {}\\n {}", apcmd->get_source()->get_bid(), apcmd->get_source()->get_nid(),
 			    subrange_to_grid_box(apcmd->get_source()->get_range()));
 		} else if(const auto rrcmd = dynamic_cast<const reduction_command*>(cmd)) {
-			label += fmt::format("REDUCTION {}", rrcmd->get_rid());
+			label += fmt::format("reduction {}", rrcmd->get_rid());
 		} else if(const auto hcmd = dynamic_cast<const horizon_command*>(cmd)) {
-			label += "HORIZON";
+			label += "horizon";
 		} else {
 			assert(!"Unkown command");
 			return fmt::format("[{}] UNKNOWN\\n{}", cmd->get_cid(), cmd->debug_label);
@@ -127,7 +127,7 @@ namespace detail {
 				main_ss << fmt::format("{} -> {} [{}];", d.node->get_cid(), cmd->get_cid(), dependency_style(d));
 			}
 
-			// Add a dashed line to the corresponding PUSH
+			// Add a dashed line to the corresponding push
 			if(isa<await_push_command>(cmd)) {
 				auto await_push = static_cast<await_push_command*>(cmd);
 				main_ss << fmt::format("{} -> {} [style=dashed color=gray40];", await_push->get_source()->get_cid(), cmd->get_cid());

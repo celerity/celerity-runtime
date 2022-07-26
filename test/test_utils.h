@@ -50,7 +50,7 @@ namespace detail {
 		static int get_num_horizons(task_manager& tm) {
 			int horizon_counter = 0;
 			for(auto task_ptr : tm.task_buffer) {
-				if(task_ptr->get_type() == task_type::HORIZON) { horizon_counter++; }
+				if(task_ptr->get_type() == task_type::horizon) { horizon_counter++; }
 			}
 			return horizon_counter;
 		}
@@ -64,7 +64,7 @@ namespace detail {
 		static void create_task_slot(task_manager& tm) { task_ring_buffer_testspy::create_task_slot(tm.task_buffer); }
 	};
 
-	inline bool has_dependency(const task_manager& tm, task_id dependent, task_id dependency, dependency_kind kind = dependency_kind::TRUE_DEP) {
+	inline bool has_dependency(const task_manager& tm, task_id dependent, task_id dependency, dependency_kind kind = dependency_kind::true_dep) {
 		for(auto dep : tm.get_task(dependent)->get_dependencies()) {
 			if(dep.node->get_id() == dependency && dep.kind == kind) return true;
 		}
@@ -191,8 +191,8 @@ namespace test_utils {
 		    std::optional<detail::task_id> tid, std::optional<detail::node_id> nid, std::optional<detail::command_type> cmd) const {
 			// Sanity check: Not all commands have an associated task id
 			assert(tid == std::nullopt
-			       || (cmd == std::nullopt || cmd == detail::command_type::EXECUTION || cmd == detail::command_type::HORIZON
-			           || cmd == detail::command_type::EPOCH));
+			       || (cmd == std::nullopt || cmd == detail::command_type::execution || cmd == detail::command_type::horizon
+			           || cmd == detail::command_type::epoch));
 
 			std::set<detail::command_id> result;
 			std::transform(commands.cbegin(), commands.cend(), std::inserter(result, result.begin()), [](auto p) { return p.first; });

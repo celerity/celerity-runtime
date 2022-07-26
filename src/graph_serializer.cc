@@ -63,7 +63,7 @@ namespace detail {
 	}
 
 	void graph_serializer::flush_dependency(abstract_command* dep) const {
-		// Special casing for AWAIT_PUSH commands: Also flush the corresponding PUSH.
+		// Special casing for await_push commands: Also flush the corresponding push.
 		// This is necessary as we would otherwise not reach it when starting from task commands alone
 		// (unless there exists an anti-dependency, which is not true in most cases).
 		if(isa<await_push_command>(dep)) {

@@ -52,7 +52,7 @@ namespace detail {
 				buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
 				buf_b.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
 			});
-			CHECK(has_dependency(tm, tid_b, tid_a, dependency_kind::ANTI_DEP));
+			CHECK(has_dependency(tm, tid_b, tid_a, dependency_kind::anti_dep));
 
 			const auto its = tm.get_task(tid_a)->get_dependents();
 			REQUIRE(std::distance(its.begin(), its.end()) == 1);
@@ -72,7 +72,7 @@ namespace detail {
 					buf_b.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
 				});
 				CHECK(has_dependency(tm, tid_b, tid_a));
-				CHECK_FALSE(has_dependency(tm, tid_b, tid_a, dependency_kind::ANTI_DEP));
+				CHECK_FALSE(has_dependency(tm, tid_b, tid_a, dependency_kind::anti_dep));
 
 				const auto its = tm.get_task(tid_a)->get_dependents();
 				REQUIRE(std::distance(its.begin(), its.end()) == 1);
@@ -90,7 +90,7 @@ namespace detail {
 					buf_b.get_access<mode::read>(cgh, fixed<1>({0, 128}));
 				});
 				CHECK(has_dependency(tm, tid_b, tid_a));
-				CHECK_FALSE(has_dependency(tm, tid_b, tid_a, dependency_kind::ANTI_DEP));
+				CHECK_FALSE(has_dependency(tm, tid_b, tid_a, dependency_kind::anti_dep));
 
 				const auto its = tm.get_task(tid_a)->get_dependents();
 				REQUIRE(std::distance(its.begin(), its.end()) == 1);
@@ -136,14 +136,14 @@ namespace detail {
 		const auto tid_c = test_utils::add_compute_task<class UKN(task_c)>(tm, [&](handler& cgh) {
 			buf.get_access<mode::discard_write>(cgh, fixed<1>{{64, 64}});
 		});
-		REQUIRE(has_dependency(tm, tid_c, tid_a, dependency_kind::ANTI_DEP));
-		REQUIRE_FALSE(has_dependency(tm, tid_c, tid_b, dependency_kind::ANTI_DEP));
+		REQUIRE(has_dependency(tm, tid_c, tid_a, dependency_kind::anti_dep));
+		REQUIRE_FALSE(has_dependency(tm, tid_c, tid_b, dependency_kind::anti_dep));
 		// Overwrite the first half - now only an anti-dependency onto task_b should exist
 		const auto tid_d = test_utils::add_compute_task<class UKN(task_d)>(tm, [&](handler& cgh) {
 			buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 64}});
 		});
-		REQUIRE_FALSE(has_dependency(tm, tid_d, tid_a, dependency_kind::ANTI_DEP));
-		REQUIRE(has_dependency(tm, tid_d, tid_b, dependency_kind::ANTI_DEP));
+		REQUIRE_FALSE(has_dependency(tm, tid_d, tid_a, dependency_kind::anti_dep));
+		REQUIRE(has_dependency(tm, tid_d, tid_b, dependency_kind::anti_dep));
 
 		test_utils::maybe_print_graph(tm);
 	}
@@ -172,12 +172,12 @@ namespace detail {
 		const auto tid_c = test_utils::add_compute_task<class UKN(task_c)>(tm, [&](handler& cgh) {
 			host_init_buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}});
 		});
-		CHECK(has_dependency(tm, tid_c, tid_a, dependency_kind::ANTI_DEP));
+		CHECK(has_dependency(tm, tid_c, tid_a, dependency_kind::anti_dep));
 		const auto tid_d = test_utils::add_compute_task<class UKN(task_d)>(tm, [&](handler& cgh) {
 			non_host_init_buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}});
 		});
 		// Since task b is essentially reading uninitialized garbage, it doesn't make a difference if we write into it concurrently
-		CHECK_FALSE(has_dependency(tm, tid_d, tid_b, dependency_kind::ANTI_DEP));
+		CHECK_FALSE(has_dependency(tm, tid_d, tid_b, dependency_kind::anti_dep));
 
 		test_utils::maybe_print_graph(tm);
 	}
@@ -214,7 +214,7 @@ namespace detail {
 			const auto tid_b = test_utils::add_compute_task<class UKN(task_b)>(tm, [&](handler& cgh) {
 				buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}});
 			});
-			REQUIRE(has_dependency(tm, tid_b, tid_a, dependency_kind::ANTI_DEP));
+			REQUIRE(has_dependency(tm, tid_b, tid_a, dependency_kind::anti_dep));
 		}
 	}
 
@@ -242,7 +242,7 @@ namespace detail {
 				});
 				const bool pure_consumer = consumer_mode == mode::read;
 				const bool pure_producer = producer_mode == mode::discard_read_write || producer_mode == mode::discard_write;
-				REQUIRE(has_dependency(tm, tid_c, tid_b, pure_consumer || pure_producer ? dependency_kind::ANTI_DEP : dependency_kind::TRUE_DEP));
+				REQUIRE(has_dependency(tm, tid_c, tid_b, pure_consumer || pure_producer ? dependency_kind::anti_dep : dependency_kind::true_dep));
 			}
 		}
 	}
@@ -267,7 +267,7 @@ namespace detail {
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_1, tid_collective_explicit_2));
 
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_2, tid_master));
-		CHECK(has_dependency(tm, tid_collective_implicit_2, tid_collective_implicit_1, dependency_kind::TRUE_DEP));
+		CHECK(has_dependency(tm, tid_collective_implicit_2, tid_collective_implicit_1, dependency_kind::true_dep));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_2, tid_collective_explicit_1));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_implicit_2, tid_collective_explicit_2));
 
@@ -279,7 +279,7 @@ namespace detail {
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_explicit_2, tid_master));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_explicit_2, tid_collective_implicit_1));
 		CHECK_FALSE(has_any_dependency(tm, tid_collective_explicit_2, tid_collective_implicit_2));
-		CHECK(has_dependency(tm, tid_collective_explicit_2, tid_collective_explicit_1, dependency_kind::TRUE_DEP));
+		CHECK(has_dependency(tm, tid_collective_explicit_2, tid_collective_explicit_1, dependency_kind::true_dep));
 	}
 
 	void check_path_length_and_front(task_manager& tm, int path_length, std::unordered_set<task_id> exec_front) {
@@ -483,7 +483,7 @@ namespace detail {
 		const auto& deps = tm.get_task(tid)->get_dependencies();
 		CHECK(std::distance(deps.begin(), deps.end()) == 1);
 		const auto* new_last_writer = deps.begin()->node;
-		CHECK(new_last_writer->get_type() == task_type::HORIZON);
+		CHECK(new_last_writer->get_type() == task_type::horizon);
 
 		const auto current_horizon = task_manager_testspy::get_current_horizon(tm);
 		REQUIRE(current_horizon);
@@ -515,15 +515,15 @@ namespace detail {
 
 		const auto second_collective_deps = tm.get_task(second_collective)->get_dependencies();
 		const auto master_node_dep = std::find_if(second_collective_deps.begin(), second_collective_deps.end(),
-		    [](const task::dependency d) { return d.node->get_type() == task_type::MASTER_NODE; });
+		    [](const task::dependency d) { return d.node->get_type() == task_type::master_node; });
 		const auto horizon_dep = std::find_if(second_collective_deps.begin(), second_collective_deps.end(), //
-		    [](const task::dependency d) { return d.node->get_type() == task_type::HORIZON; });
+		    [](const task::dependency d) { return d.node->get_type() == task_type::horizon; });
 
 		CHECK(std::distance(second_collective_deps.begin(), second_collective_deps.end()) == 2);
 		REQUIRE(master_node_dep != second_collective_deps.end());
-		CHECK(master_node_dep->kind == dependency_kind::TRUE_DEP);
+		CHECK(master_node_dep->kind == dependency_kind::true_dep);
 		REQUIRE(horizon_dep != second_collective_deps.end());
-		CHECK(horizon_dep->kind == dependency_kind::TRUE_DEP);
+		CHECK(horizon_dep->kind == dependency_kind::true_dep);
 
 		test_utils::maybe_print_graph(tm);
 	}
@@ -555,7 +555,7 @@ namespace detail {
 
 		// TODO placeholder: complete with dependency types for other side effect orders
 		const auto expected_dependencies = std::unordered_map<std::pair<order, order>, std::optional<dependency_kind>, pair_hash>{
-		    {{order::sequential, order::sequential}, dependency_kind::TRUE_DEP}};
+		    {{order::sequential, order::sequential}, dependency_kind::true_dep}};
 
 		const auto order_a = GENERATE(values(side_effect_orders));
 		const auto order_b = GENERATE(values(side_effect_orders));
@@ -615,8 +615,8 @@ namespace detail {
 		CHECK(std::distance(second_deps.begin(), second_deps.end()) == 1);
 		for(const auto& dep : second_deps) {
 			const auto type = dep.node->get_type();
-			CHECK(type == task_type::HORIZON);
-			CHECK(dep.kind == dependency_kind::TRUE_DEP);
+			CHECK(type == task_type::horizon);
+			CHECK(dep.kind == dependency_kind::true_dep);
 		}
 
 		test_utils::maybe_print_graph(tm);
@@ -644,13 +644,13 @@ namespace detail {
 		CHECK(has_dependency(tm, tid_epoch, tid_b));
 		CHECK(has_dependency(tm, tid_c, tid_epoch));
 		CHECK_FALSE(has_any_dependency(tm, tid_c, tid_a));
-		CHECK(has_dependency(tm, tid_d, tid_epoch)); // needs a TRUE_DEP on barrier since it only has ANTI_DEPs otherwise
+		CHECK(has_dependency(tm, tid_d, tid_epoch)); // needs a true_dep on barrier since it only has anti_deps otherwise
 		CHECK_FALSE(has_any_dependency(tm, tid_d, tid_b));
 		CHECK(has_dependency(tm, tid_e, tid_epoch));
 		CHECK(has_dependency(tm, tid_f, tid_d));
 		CHECK_FALSE(has_any_dependency(tm, tid_f, tid_epoch));
-		CHECK(has_dependency(tm, tid_g, tid_f, dependency_kind::ANTI_DEP));
-		CHECK(has_dependency(tm, tid_g, tid_epoch)); // needs a TRUE_DEP on barrier since it only has ANTI_DEPs otherwise
+		CHECK(has_dependency(tm, tid_g, tid_f, dependency_kind::anti_dep));
+		CHECK(has_dependency(tm, tid_g, tid_epoch)); // needs a true_dep on barrier since it only has anti_deps otherwise
 
 		test_utils::maybe_print_graph(tm);
 	}
@@ -681,7 +681,7 @@ namespace detail {
 			const auto deps = tm.get_task(tid)->get_dependencies();
 			CHECK(std::distance(deps.begin(), deps.end()) == 1);
 			for(const auto& d : deps) {
-				CHECK(d.kind == dependency_kind::TRUE_DEP);
+				CHECK(d.kind == dependency_kind::true_dep);
 				CHECK(d.node->get_id() == tid_before);
 			}
 			tid_before = tid;

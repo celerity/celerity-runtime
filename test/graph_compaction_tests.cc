@@ -108,7 +108,7 @@ namespace detail {
 		const auto total_horizons_per_node = num_timesteps / horizon_step_size;
 		for(node_id n = 0; n < num_nodes; ++n) {
 			CAPTURE(n);
-			const auto total_horizons = static_cast<int>(inspector.get_commands(std::nullopt, n, command_type::HORIZON).size());
+			const auto total_horizons = static_cast<int>(inspector.get_commands(std::nullopt, n, command_type::horizon).size());
 			CHECK(total_horizons == total_horizons_per_node);
 		}
 
@@ -197,7 +197,7 @@ namespace detail {
 		REQUIRE(horizon_dep != deps.end());
 
 		// check that the dependee is the first horizon
-		auto horizon_cmds = inspector.get_commands({}, {}, command_type::HORIZON);
+		auto horizon_cmds = inspector.get_commands({}, {}, command_type::horizon);
 		CHECK(horizon_cmds.size() == 2);
 		CHECK(*horizon_dep == *horizon_cmds.cbegin());
 
@@ -205,7 +205,7 @@ namespace detail {
 		auto write_b_cmd = ctx.get_command_graph().get(*cmds.cbegin());
 		auto write_b_dependencies = write_b_cmd->get_dependencies();
 		CHECK(!write_b_dependencies.empty());
-		CHECK(write_b_dependencies.front().kind == dependency_kind::ANTI_DEP);
+		CHECK(write_b_dependencies.front().kind == dependency_kind::anti_dep);
 
 		test_utils::maybe_print_graphs(ctx);
 	}
@@ -249,7 +249,7 @@ namespace detail {
 		}
 
 		// check that all horizons were flushed
-		auto horizon_cmds = inspector.get_commands({}, {}, command_type::HORIZON);
+		auto horizon_cmds = inspector.get_commands({}, {}, command_type::horizon);
 		CHECK(horizon_cmds.size() == 4);
 
 		test_utils::maybe_print_graphs(ctx);
@@ -373,9 +373,9 @@ namespace detail {
 
 			CHECK(std::distance(second_deps.begin(), second_deps.end()) == 2);
 			REQUIRE(master_node_dep != second_deps.end());
-			CHECK(master_node_dep->kind == dependency_kind::TRUE_DEP);
+			CHECK(master_node_dep->kind == dependency_kind::true_dep);
 			REQUIRE(horizon_dep != second_deps.end());
-			CHECK(horizon_dep->kind == dependency_kind::TRUE_DEP);
+			CHECK(horizon_dep->kind == dependency_kind::true_dep);
 		}
 
 		test_utils::maybe_print_graphs(ctx);
@@ -417,7 +417,7 @@ namespace detail {
 			const auto second_deps = cdag.get(second_cid)->get_dependencies();
 			CHECK(std::distance(second_deps.begin(), second_deps.end()) == 1);
 			for(const auto& dep : second_deps) {
-				CHECK(dep.kind == dependency_kind::TRUE_DEP);
+				CHECK(dep.kind == dependency_kind::true_dep);
 				CHECK(isa<horizon_command>(dep.node));
 			}
 		}
@@ -482,9 +482,9 @@ namespace detail {
 		REQUIRE(tm.has_task(init_tid));
 		check_task_has_exact_dependencies("initial epoch task", init_tid, {});
 		REQUIRE(tm.has_task(writer_tid));
-		check_task_has_exact_dependencies("writer", writer_tid, {{init_tid, dependency_kind::TRUE_DEP, dependency_origin::last_epoch}});
+		check_task_has_exact_dependencies("writer", writer_tid, {{init_tid, dependency_kind::true_dep, dependency_origin::last_epoch}});
 		REQUIRE(tm.has_task(epoch_tid));
-		check_task_has_exact_dependencies("epoch before", epoch_tid, {{writer_tid, dependency_kind::TRUE_DEP, dependency_origin::execution_front}});
+		check_task_has_exact_dependencies("epoch before", epoch_tid, {{writer_tid, dependency_kind::true_dep, dependency_origin::execution_front}});
 
 		tm.notify_epoch_reached(epoch_tid);
 
@@ -503,15 +503,15 @@ namespace detail {
 		REQUIRE(tm.has_task(epoch_tid));
 		check_task_has_exact_dependencies("epoch after", epoch_tid, {});
 		REQUIRE(tm.has_task(reader_writer_tid));
-		check_task_has_exact_dependencies("reader-writer", reader_writer_tid, {{epoch_tid, dependency_kind::TRUE_DEP, dependency_origin::dataflow}});
+		check_task_has_exact_dependencies("reader-writer", reader_writer_tid, {{epoch_tid, dependency_kind::true_dep, dependency_origin::dataflow}});
 		REQUIRE(tm.has_task(late_writer_tid));
-		check_task_has_exact_dependencies("late writer", late_writer_tid, {{epoch_tid, dependency_kind::TRUE_DEP, dependency_origin::last_epoch}});
+		check_task_has_exact_dependencies("late writer", late_writer_tid, {{epoch_tid, dependency_kind::true_dep, dependency_origin::last_epoch}});
 		REQUIRE(tm.has_task(reader_tid));
 		check_task_has_exact_dependencies("reader", reader_tid,
 		    {
-		        {epoch_tid, dependency_kind::ANTI_DEP, dependency_origin::dataflow},
-		        {reader_writer_tid, dependency_kind::TRUE_DEP, dependency_origin::dataflow},
-		        {late_writer_tid, dependency_kind::TRUE_DEP, dependency_origin::dataflow},
+		        {epoch_tid, dependency_kind::anti_dep, dependency_origin::dataflow},
+		        {reader_writer_tid, dependency_kind::true_dep, dependency_origin::dataflow},
+		        {late_writer_tid, dependency_kind::true_dep, dependency_origin::dataflow},
 		    });
 
 		maybe_print_graphs(ctx);

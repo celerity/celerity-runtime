@@ -12,7 +12,7 @@ namespace detail {
 	class graph_serializer;
 	class task;
 
-	enum class scheduler_event_type { TASK_AVAILABLE, SHUTDOWN };
+	enum class scheduler_event_type { task_available, shutdown };
 
 	struct scheduler_event {
 		scheduler_event_type type;
@@ -33,7 +33,7 @@ namespace detail {
 		/**
 		 * @brief Notifies the scheduler that a new task has been created and is ready for scheduling.
 		 */
-		void notify_task_created(const task* tsk) { notify(scheduler_event_type::TASK_AVAILABLE, tsk); }
+		void notify_task_created(const task* tsk) { notify(scheduler_event_type::task_available, tsk); }
 
 	  protected:
 		/**

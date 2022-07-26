@@ -85,7 +85,7 @@ namespace detail {
 		friend struct buffer_manager_testspy;
 
 	  public:
-		enum class buffer_lifecycle_event { REGISTERED, UNREGISTERED };
+		enum class buffer_lifecycle_event { registered, unregistered };
 
 		using buffer_lifecycle_callback = std::function<void(buffer_lifecycle_event, buffer_id)>;
 
@@ -125,7 +125,7 @@ namespace detail {
 				std::unique_lock lock(mutex);
 				bid = buffer_count++;
 				buffer_infos[bid] = buffer_info{range, sizeof(DataT), is_host_initialized};
-				newest_data_location.emplace(bid, region_map<data_location>(range, data_location::NOWHERE));
+				newest_data_location.emplace(bid, region_map<data_location>(range, data_location::nowhere));
 
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 				buffer_types.emplace(bid, new buffer_type_guard<DataT, Dims>());
@@ -136,7 +136,7 @@ namespace detail {
 				auto info = get_host_buffer<DataT, Dims>(bid, cl::sycl::access::mode::discard_write, range, cl::sycl::id<3>(0, 0, 0));
 				std::memcpy(info.buffer.get_pointer(), host_init_ptr, range.size() * sizeof(DataT));
 			}
-			lifecycle_cb(buffer_lifecycle_event::REGISTERED, bid);
+			lifecycle_cb(buffer_lifecycle_event::registered, bid);
 			return bid;
 		}
 
@@ -344,7 +344,7 @@ namespace detail {
 			cl::sycl::range<3> new_range = {1, 1, 1};
 		};
 
-		enum class data_location { NOWHERE, HOST, DEVICE, HOST_AND_DEVICE };
+		enum class data_location { nowhere, host, device, host_and_device };
 
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 		struct buffer_type_guard_base {

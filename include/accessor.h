@@ -344,7 +344,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 #endif
 			return {static_cast<cl::sycl::handler* const*>(nullptr), sycl_accessor, id<Dims>{}, detail::zero_range};
 		} else {
-			if(detail::get_handler_execution_target(cgh) != detail::execution_target::DEVICE) {
+			if(detail::get_handler_execution_target(cgh) != detail::execution_target::device) {
 				throw std::runtime_error(
 				    "Calling accessor constructor with device target is only allowed in parallel_for tasks."
 				    "If you want to access this buffer from within a host task, please specialize the call using one of the *_host_task tags");
@@ -409,7 +409,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, buff.get_range()));
 		} else {
 			if constexpr(Target == target::host_task) {
-				if(detail::get_handler_execution_target(cgh) != detail::execution_target::HOST) {
+				if(detail::get_handler_execution_target(cgh) != detail::execution_target::host) {
 					throw std::runtime_error(
 					    "Calling accessor constructor with host_buffer target is only allowed in host tasks."
 					    "If you want to access this buffer from within a parallel_for task, please specialize the call using one of the non host tags");

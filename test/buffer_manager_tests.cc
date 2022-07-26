@@ -66,7 +66,7 @@ namespace detail {
 		REQUIRE(bm.get_buffer_info(0).range == cl::sycl::range<3>{1024, 1, 1});
 		REQUIRE(bm.get_buffer_info(0).is_host_initialized == false);
 		REQUIRE(cb_calls.size() == 1);
-		REQUIRE(cb_calls[0] == std::make_pair(buffer_manager::buffer_lifecycle_event::REGISTERED, buffer_id(0)));
+		REQUIRE(cb_calls[0] == std::make_pair(buffer_manager::buffer_lifecycle_event::registered, buffer_id(0)));
 
 		std::vector<float> host_buf(5 * 6 * 7);
 		bm.register_buffer<float, 3>({5, 6, 7}, host_buf.data());
@@ -74,11 +74,11 @@ namespace detail {
 		REQUIRE(bm.get_buffer_info(1).range == cl::sycl::range<3>{5, 6, 7});
 		REQUIRE(bm.get_buffer_info(1).is_host_initialized == true);
 		REQUIRE(cb_calls.size() == 2);
-		REQUIRE(cb_calls[1] == std::make_pair(buffer_manager::buffer_lifecycle_event::REGISTERED, buffer_id(1)));
+		REQUIRE(cb_calls[1] == std::make_pair(buffer_manager::buffer_lifecycle_event::registered, buffer_id(1)));
 
 		bm.unregister_buffer(0);
 		REQUIRE(cb_calls.size() == 3);
-		REQUIRE(cb_calls[2] == std::make_pair(buffer_manager::buffer_lifecycle_event::UNREGISTERED, buffer_id(0)));
+		REQUIRE(cb_calls[2] == std::make_pair(buffer_manager::buffer_lifecycle_event::unregistered, buffer_id(0)));
 		REQUIRE(bm.has_active_buffers());
 
 		bm.unregister_buffer(1);
@@ -197,8 +197,8 @@ namespace detail {
 			}
 		};
 
-		SECTION("when using 1D device buffers") { run_1D_test(access_target::DEVICE); }
-		SECTION("when using 1D host buffers") { run_1D_test(access_target::HOST); }
+		SECTION("when using 1D device buffers") { run_1D_test(access_target::device); }
+		SECTION("when using 1D host buffers") { run_1D_test(access_target::host); }
 
 		auto run_2D_test = [&](access_target tgt) {
 			auto bid = bm.register_buffer<size_t, 2>(cl::sycl::range<3>(128, 128, 1));
@@ -218,8 +218,8 @@ namespace detail {
 			}
 		};
 
-		SECTION("when using 2D device buffers") { run_2D_test(access_target::DEVICE); }
-		SECTION("when using 2D host buffers") { run_2D_test(access_target::HOST); }
+		SECTION("when using 2D device buffers") { run_2D_test(access_target::device); }
+		SECTION("when using 2D host buffers") { run_2D_test(access_target::host); }
 
 		// While the fix for bug that warranted adding a 2D test *should* also cover 3D buffers, it would be good to have a 3D test here as well.
 		// TODO: Can we also come up with a good 3D case?
@@ -263,11 +263,11 @@ namespace detail {
 			}
 		};
 
-		SECTION("when using device buffers") { run_test(access_target::DEVICE, false); }
-		SECTION("when using host buffers") { run_test(access_target::HOST, false); }
+		SECTION("when using device buffers") { run_test(access_target::device, false); }
+		SECTION("when using host buffers") { run_test(access_target::host, false); }
 
-		SECTION("unless accessed range does not fully cover previous buffer size (using device buffers)") { run_test(access_target::DEVICE, true); }
-		SECTION("unless accessed range does not fully cover previous buffer size (using host buffers)") { run_test(access_target::HOST, true); }
+		SECTION("unless accessed range does not fully cover previous buffer size (using device buffers)") { run_test(access_target::device, true); }
+		SECTION("unless accessed range does not fully cover previous buffer size (using host buffers)") { run_test(access_target::host, true); }
 	}
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager ensures coherence between device and host buffers", "[buffer_manager]") {
@@ -289,8 +289,8 @@ namespace detail {
 			REQUIRE(valid);
 		};
 
-		SECTION("when writing separate parts on host and device, verifying on device") { run_test1(access_target::DEVICE); }
-		SECTION("when writing separate parts on host and device, verifying on host") { run_test1(access_target::HOST); }
+		SECTION("when writing separate parts on host and device, verifying on device") { run_test1(access_target::device); }
+		SECTION("when writing separate parts on host and device, verifying on host") { run_test1(access_target::host); }
 
 		// This test can be run in two slightly different variations, as overwriting a larger range incurs
 		// a resize operation internally, which then leads to a somewhat different code path during the coherency update.
@@ -312,11 +312,11 @@ namespace detail {
 			REQUIRE(valid);
 		};
 
-		SECTION("when initializing on device, updating on host, verifying on device") { run_test2(access_target::DEVICE, 256); }
-		SECTION("when initializing on host, updating on device, verifying on host") { run_test2(access_target::HOST, 256); }
+		SECTION("when initializing on device, updating on host, verifying on device") { run_test2(access_target::device, 256); }
+		SECTION("when initializing on host, updating on device, verifying on host") { run_test2(access_target::host, 256); }
 
-		SECTION("when initializing on device, partially updating larger portion on host, verifying on device") { run_test2(access_target::DEVICE, 512); }
-		SECTION("when initializing on host, partially updating larger portion on device, verifying on host") { run_test2(access_target::HOST, 512); }
+		SECTION("when initializing on device, partially updating larger portion on host, verifying on device") { run_test2(access_target::device, 512); }
+		SECTION("when initializing on host, partially updating larger portion on device, verifying on host") { run_test2(access_target::host, 512); }
 	}
 
 	TEST_CASE_METHOD(
@@ -339,8 +339,8 @@ namespace detail {
 			REQUIRE(valid);
 		};
 
-		SECTION("when initializing on host, verifying on device") { run_test(access_target::DEVICE); }
-		SECTION("when initializing on device, verifying on host") { run_test(access_target::HOST); }
+		SECTION("when initializing on host, verifying on device") { run_test(access_target::device); }
+		SECTION("when initializing on device, verifying on host") { run_test(access_target::host); }
 	}
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture,
@@ -371,8 +371,8 @@ namespace detail {
 			}
 		};
 
-		SECTION("when using device buffers") { run_test(access_target::DEVICE); }
-		SECTION("when using host buffers") { run_test(access_target::HOST); }
+		SECTION("when using device buffers") { run_test(access_target::device); }
+		SECTION("when using host buffers") { run_test(access_target::host); }
 	}
 
 	/**
@@ -397,7 +397,7 @@ namespace detail {
 
 			// Initialize buffer on host.
 			buffer_for_each<size_t, 1, cl::sycl::access::mode::discard_write, class UKN(init)>(
-			    bid, access_target::HOST, {32}, {}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0]; });
+			    bid, access_target::host, {32}, {}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0]; });
 
 			// Read buffer on device. This makes the device buffer coherent with the host buffer.
 			bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
@@ -414,7 +414,7 @@ namespace detail {
 			// Verify that the data is still what we expect.
 			{
 				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
-				    bid, access_target::HOST, {32}, {0}, true, [](cl::sycl::id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
+				    bid, access_target::host, {32}, {0}, true, [](cl::sycl::id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
 				REQUIRE(valid);
 			}
 
@@ -427,7 +427,7 @@ namespace detail {
 			// Access device buffer. This should still contain the original data.
 			{
 				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
-				    bid, access_target::DEVICE, {32}, {0}, true, [](cl::sycl::id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
+				    bid, access_target::device, {32}, {0}, true, [](cl::sycl::id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
 				REQUIRE(valid);
 			}
 		}
@@ -443,7 +443,7 @@ namespace detail {
 
 			// Initialize buffer on device.
 			buffer_for_each<size_t, 1, cl::sycl::access::mode::discard_write, class UKN(init)>(
-			    bid, access_target::DEVICE, {32}, {}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0]; });
+			    bid, access_target::device, {32}, {}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0]; });
 
 			// Read buffer on host. This makes the host buffer coherent with the device buffer.
 			bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
@@ -521,8 +521,8 @@ namespace detail {
 			}
 		};
 
-		SECTION("when using device buffers") { run_test(access_target::DEVICE); }
-		SECTION("when using host buffers") { run_test(access_target::HOST); }
+		SECTION("when using device buffers") { run_test(access_target::device); }
+		SECTION("when using host buffers") { run_test(access_target::host); }
 	}
 
 	// This test is in response to a bug that was caused by computing the region to be retained upon buffer resizing as the bounding box of the coherence
@@ -569,8 +569,8 @@ namespace detail {
 			}
 		};
 
-		SECTION("when using device buffers") { run_test(access_target::DEVICE); }
-		SECTION("when using host buffers") { run_test(access_target::HOST); }
+		SECTION("when using device buffers") { run_test(access_target::device); }
+		SECTION("when using host buffers") { run_test(access_target::host); }
 	}
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager correctly updates buffer versioning for queued transfers", "[buffer_manager]") {
@@ -602,8 +602,8 @@ namespace detail {
 			}
 		};
 
-		SECTION("when using device buffers") { run_test(access_target::DEVICE); }
-		SECTION("when using host buffers") { run_test(access_target::HOST); }
+		SECTION("when using device buffers") { run_test(access_target::device); }
+		SECTION("when using host buffers") { run_test(access_target::host); }
 	}
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager prioritizes queued transfers over resize/coherency copies for the same ranges",
@@ -631,11 +631,11 @@ namespace detail {
 			}
 		};
 
-		SECTION("when initializing, resizing and verifying on device") { run_test(access_target::DEVICE, true, false); }
-		SECTION("when initializing, resizing and verifying on host") { run_test(access_target::HOST, true, false); }
+		SECTION("when initializing, resizing and verifying on device") { run_test(access_target::device, true, false); }
+		SECTION("when initializing, resizing and verifying on host") { run_test(access_target::host, true, false); }
 
-		SECTION("when initializing on host, verifying on device") { run_test(access_target::DEVICE, false, true); }
-		SECTION("when initializing on device, verifying on host") { run_test(access_target::HOST, false, true); }
+		SECTION("when initializing on host, verifying on device") { run_test(access_target::device, false, true); }
+		SECTION("when initializing on device, verifying on host") { run_test(access_target::host, false, true); }
 	}
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager correctly handles transfers that partially overlap with requested buffer range",
@@ -674,8 +674,8 @@ namespace detail {
 			}
 		};
 
-		SECTION("when using device buffers") { run_test(access_target::DEVICE); }
-		SECTION("when using host buffers") { run_test(access_target::HOST); }
+		SECTION("when using device buffers") { run_test(access_target::device); }
+		SECTION("when using host buffers") { run_test(access_target::host); }
 	}
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager returns the newest raw buffer data when requested", "[buffer_manager]") {
@@ -694,14 +694,14 @@ namespace detail {
 			}
 		};
 
-		SECTION("when newest data is on device") { run_test(access_target::DEVICE); }
-		SECTION("when newest data is on host") { run_test(access_target::HOST); }
+		SECTION("when newest data is on device") { run_test(access_target::device); }
+		SECTION("when newest data is on host") { run_test(access_target::host); }
 
 		SECTION("when newest data is split across host and device") {
 			buffer_for_each<size_t, 1, cl::sycl::access::mode::discard_write, class UKN(write_first_half)>(
-			    bid, access_target::DEVICE, {16}, {0}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0]; });
+			    bid, access_target::device, {16}, {0}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0]; });
 			buffer_for_each<size_t, 1, cl::sycl::access::mode::discard_write, class UKN(write_second_half)>(
-			    bid, access_target::HOST, {16}, {16}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0] * 2; });
+			    bid, access_target::host, {16}, {16}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0] * 2; });
 			std::vector<size_t> data(32);
 			bm.get_buffer_data(bid, {{0, 0, 0}, {32, 1, 1}}, data.data());
 			for(size_t i = 0; i < 32; ++i) {
@@ -725,18 +725,18 @@ namespace detail {
 
 		SECTION("when accessed on host") {
 			// Host buffers need to accomodate the full host-initialized data range.
-			REQUIRE(get_backing_buffer_range<size_t, 2>(bid, access_target::HOST, {7, 5}, {0, 0}) == cl::sycl::range<2>{SIZE, SIZE});
+			REQUIRE(get_backing_buffer_range<size_t, 2>(bid, access_target::host, {7, 5}, {0, 0}) == cl::sycl::range<2>{SIZE, SIZE});
 
-			bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, access_target::HOST, {7, 5}, {0, 0}, true,
+			bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, access_target::host, {7, 5}, {0, 0}, true,
 			    [](cl::sycl::id<2> idx, bool current, size_t value) { return current && (value == idx[0] * 5 + idx[1]); });
 			REQUIRE(valid);
 		}
 
 		SECTION("when accessed on device") {
 			// Device buffers still are only as large as required.
-			REQUIRE(get_backing_buffer_range<size_t, 2>(bid, access_target::DEVICE, {7, 5}, {0, 0}) == cl::sycl::range<2>{7, 5});
+			REQUIRE(get_backing_buffer_range<size_t, 2>(bid, access_target::device, {7, 5}, {0, 0}) == cl::sycl::range<2>{7, 5});
 
-			bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, access_target::DEVICE, {7, 5}, {0, 0}, true,
+			bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, access_target::device, {7, 5}, {0, 0}, true,
 			    [](cl::sycl::id<2> idx, bool current, size_t value) { return current && (value == idx[0] * 5 + idx[1]); });
 			REQUIRE(valid);
 		}
@@ -1005,7 +1005,7 @@ namespace detail {
 		SECTION("for 1D buffers") {
 			auto bid = bm.register_buffer<cl::sycl::id<3>, 1>(cl::sycl::range<3>(8, 1, 1));
 			buffer_for_each<cl::sycl::id<3>, 1, cl::sycl::access::mode::discard_write, class UKN(init)>(
-			    bid, access_target::DEVICE, {8}, {0}, [](cl::sycl::id<1> idx, cl::sycl::id<3>& value) { value = id_cast<3>(idx); });
+			    bid, access_target::device, {8}, {0}, [](cl::sycl::id<1> idx, cl::sycl::id<3>& value) { value = id_cast<3>(idx); });
 			auto acc = get_host_accessor<cl::sycl::id<3>, 1, cl::sycl::access::mode::read>(bid, {8}, {0});
 			check_values(acc.get_pointer(), {8, 1, 1});
 		}
@@ -1013,7 +1013,7 @@ namespace detail {
 		SECTION("for 2D buffers") {
 			auto bid = bm.register_buffer<cl::sycl::id<3>, 2>(cl::sycl::range<3>(8, 8, 1));
 			buffer_for_each<cl::sycl::id<3>, 2, cl::sycl::access::mode::discard_write, class UKN(init)>(
-			    bid, access_target::DEVICE, {8, 8}, {0, 0}, [](cl::sycl::id<2> idx, cl::sycl::id<3>& value) { value = id_cast<3>(idx); });
+			    bid, access_target::device, {8, 8}, {0, 0}, [](cl::sycl::id<2> idx, cl::sycl::id<3>& value) { value = id_cast<3>(idx); });
 			auto acc = get_host_accessor<cl::sycl::id<3>, 2, cl::sycl::access::mode::read>(bid, {8, 8}, {0, 0});
 			check_values(acc.get_pointer(), {8, 8, 1});
 		}
@@ -1021,7 +1021,7 @@ namespace detail {
 		SECTION("for 3D buffers") {
 			auto bid = bm.register_buffer<cl::sycl::id<3>, 3>(cl::sycl::range<3>(8, 8, 8));
 			buffer_for_each<cl::sycl::id<3>, 3, cl::sycl::access::mode::discard_write, class UKN(init)>(
-			    bid, access_target::DEVICE, {8, 8, 8}, {0, 0, 0}, [](cl::sycl::id<3> idx, cl::sycl::id<3>& value) { value = id_cast<3>(idx); });
+			    bid, access_target::device, {8, 8, 8}, {0, 0, 0}, [](cl::sycl::id<3> idx, cl::sycl::id<3>& value) { value = id_cast<3>(idx); });
 			auto acc = get_host_accessor<cl::sycl::id<3>, 3, cl::sycl::access::mode::read>(bid, {8, 8, 8}, {0, 0, 0});
 			check_values(acc.get_pointer(), {8, 8, 8});
 		}

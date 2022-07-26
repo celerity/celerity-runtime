@@ -51,7 +51,7 @@ namespace detail {
 		std::unique_ptr<DataT[]> data;
 	};
 
-	enum class buffer_type { DEVICE_BUFFER, HOST_BUFFER };
+	enum class buffer_type { device_buffer, host_buffer };
 
 	class buffer_storage {
 	  public:
@@ -102,7 +102,7 @@ namespace detail {
 	class device_buffer_storage : public buffer_storage {
 	  public:
 		device_buffer_storage(cl::sycl::range<Dims> range, cl::sycl::queue transfer_queue)
-		    : buffer_storage(range_cast<3>(range), buffer_type::DEVICE_BUFFER), transfer_queue(transfer_queue),
+		    : buffer_storage(range_cast<3>(range), buffer_type::device_buffer), transfer_queue(transfer_queue),
 		      device_buf(make_device_buf_effective_range(range)) {
 			// We never want SYCL to do any buffer write-backs. While we don't pass any host pointers to SYCL buffers,
 			// meaning there shouldn't be any write-back in the first place, it doesn't hurt to make sure.
@@ -200,7 +200,7 @@ namespace detail {
 	template <typename DataT, int Dims>
 	class host_buffer_storage : public buffer_storage {
 	  public:
-		explicit host_buffer_storage(cl::sycl::range<Dims> range) : buffer_storage(range_cast<3>(range), buffer_type::HOST_BUFFER), host_buf(range) {}
+		explicit host_buffer_storage(cl::sycl::range<Dims> range) : buffer_storage(range_cast<3>(range), buffer_type::host_buffer), host_buf(range) {}
 
 		size_t get_size() const override { return get_range().size() * sizeof(DataT); };
 
@@ -243,7 +243,7 @@ namespace detail {
 	    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) {
 		assert_copy_is_in_range(source.get_range(), range_cast<3>(device_buf.get_range()), source_offset, target_offset, copy_range);
 
-		if(source.get_type() == buffer_type::DEVICE_BUFFER) {
+		if(source.get_type() == buffer_type::device_buffer) {
 			auto& device_source = dynamic_cast<const device_buffer_storage<DataT, Dims>&>(source);
 			auto event = transfer_queue.submit([&](cl::sycl::handler& cgh) {
 				// FIXME: Getting read access is currently not a const operation on SYCL buffers
@@ -258,7 +258,7 @@ namespace detail {
 		}
 
 		// TODO: Optimize for contiguous copies - we could do a single SYCL H->D copy directly.
-		else if(source.get_type() == buffer_type::HOST_BUFFER) {
+		else if(source.get_type() == buffer_type::host_buffer) {
 			auto& host_source = dynamic_cast<const host_buffer_storage<DataT, Dims>&>(source);
 			auto tmp = make_uninitialized_payload<DataT>(copy_range.size());
 			host_source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
@@ -276,14 +276,14 @@ namespace detail {
 		assert_copy_is_in_range(source.get_range(), range_cast<3>(host_buf.get_range()), source_offset, target_offset, copy_range);
 
 		// TODO: Optimize for contiguous copies - we could do a single SYCL D->H copy directly.
-		if(source.get_type() == buffer_type::DEVICE_BUFFER) {
+		if(source.get_type() == buffer_type::device_buffer) {
 			// This looks more convoluted than using a vector<DataT>, but that would break if DataT == bool
 			auto tmp = make_uninitialized_payload<DataT>(copy_range.size());
 			source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
 			set_data(subrange{target_offset, copy_range}, static_cast<const DataT*>(tmp.get_pointer()));
 		}
 
-		else if(source.get_type() == buffer_type::HOST_BUFFER) {
+		else if(source.get_type() == buffer_type::host_buffer) {
 			auto& host_source = dynamic_cast<const host_buffer_storage<DataT, Dims>&>(source);
 			memcpy_strided(host_source.get_host_buffer().get_pointer(), host_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(host_source.get_range()),
 			    id_cast<Dims>(source_offset), range_cast<Dims>(host_buf.get_range()), range_cast<Dims>(target_offset), range_cast<Dims>(copy_range));

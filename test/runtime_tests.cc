@@ -267,7 +267,7 @@ namespace detail {
 		    },
 		    cl::sycl::range<2>{32, 128}, cl::sycl::id<2>{32, 24});
 		const auto tsk = tm.get_task(tid);
-		REQUIRE(tsk->get_type() == task_type::DEVICE_COMPUTE);
+		REQUIRE(tsk->get_type() == task_type::device_compute);
 		REQUIRE(tsk->get_dimensions() == 2);
 		REQUIRE(tsk->get_global_size() == cl::sycl::range<3>{32, 128, 1});
 		REQUIRE(tsk->get_global_offset() == cl::sycl::id<3>{32, 24, 0});
@@ -316,7 +316,7 @@ namespace detail {
 	template <typename T>
 	class MyThirdKernel;
 
-	TEST_CASE("DEVICE_COMPUTE tasks derive debug name from kernel name", "[task][!mayfail]") {
+	TEST_CASE("device_compute tasks derive debug name from kernel name", "[task][!mayfail]") {
 		auto tm = std::make_unique<detail::task_manager>(1, nullptr, nullptr);
 		auto t1 =
 		    tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));

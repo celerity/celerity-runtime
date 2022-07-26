@@ -34,7 +34,7 @@ namespace detail {
 	}
 
 	void task_manager::notify_horizon_reached(task_id horizon_tid) {
-		assert(task_buffer.get_task(horizon_tid)->get_type() == task_type::HORIZON);
+		assert(task_buffer.get_task(horizon_tid)->get_type() == task_type::horizon);
 		assert(!latest_horizon_reached || *latest_horizon_reached < horizon_tid);
 		assert(latest_epoch_reached.get() < horizon_tid);
 
@@ -47,7 +47,7 @@ namespace detail {
 		// This method is called from the executor thread, but does not lock task_mutex to avoid lock-step execution with the main thread.
 		// latest_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
 
-		assert(get_task(epoch_tid)->get_type() == task_type::EPOCH);
+		assert(get_task(epoch_tid)->get_type() == task_type::epoch);
 		assert(!latest_horizon_reached || *latest_horizon_reached < epoch_tid);
 		assert(latest_epoch_reached.get() < epoch_tid);
 
@@ -107,7 +107,7 @@ namespace detail {
 					// A valid use case (i.e., not reading garbage) for this is when the buffer has been initialized using a host pointer.
 					if(p.second == std::nullopt) continue;
 					const task_id last_writer = *p.second;
-					add_dependency(tsk, *task_buffer.get_task(last_writer), dependency_kind::TRUE_DEP, dependency_origin::dataflow);
+					add_dependency(tsk, *task_buffer.get_task(last_writer), dependency_kind::true_dep, dependency_origin::dataflow);
 				}
 			}
 
@@ -136,7 +136,7 @@ namespace detail {
 						    get_requirements(*dependent.node, bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
 						// Only add an anti-dependency if we are really writing over the region read by this task
 						if(!GridRegion<3>::intersect(write_requirements, dependent_read_requirements).empty()) {
-							add_dependency(tsk, *dependent.node, dependency_kind::ANTI_DEP, dependency_origin::dataflow);
+							add_dependency(tsk, *dependent.node, dependency_kind::anti_dep, dependency_origin::dataflow);
 							has_anti_dependents = true;
 						}
 					}
@@ -147,7 +147,7 @@ namespace detail {
 						// While it might not always make total sense to have anti-dependencies between (pure) producers without an
 						// intermediate consumer, we at least have a defined behavior, and the thus enforced ordering of tasks
 						// likely reflects what the user expects.
-						add_dependency(tsk, *last_writer, dependency_kind::ANTI_DEP, dependency_origin::dataflow);
+						add_dependency(tsk, *last_writer, dependency_kind::anti_dep, dependency_origin::dataflow);
 					}
 				}
 
@@ -158,14 +158,14 @@ namespace detail {
 		for(const auto& side_effect : tsk.get_side_effect_map()) {
 			const auto [hoid, order] = side_effect;
 			if(const auto last_effect = host_object_last_effects.find(hoid); last_effect != host_object_last_effects.end()) {
-				add_dependency(tsk, *task_buffer.get_task(last_effect->second), dependency_kind::TRUE_DEP, dependency_origin::dataflow);
+				add_dependency(tsk, *task_buffer.get_task(last_effect->second), dependency_kind::true_dep, dependency_origin::dataflow);
 			}
 			host_object_last_effects.insert_or_assign(hoid, tsk.get_id());
 		}
 
 		if(auto cgid = tsk.get_collective_group_id(); cgid != 0) {
 			if(auto prev = last_collective_tasks.find(cgid); prev != last_collective_tasks.end()) {
-				add_dependency(tsk, *task_buffer.get_task(prev->second), dependency_kind::TRUE_DEP, dependency_origin::collective_group_serialization);
+				add_dependency(tsk, *task_buffer.get_task(prev->second), dependency_kind::true_dep, dependency_origin::collective_group_serialization);
 				last_collective_tasks.erase(prev);
 			}
 			last_collective_tasks.emplace(cgid, tsk.get_id());
@@ -173,8 +173,8 @@ namespace detail {
 
 		// Tasks without any other true-dependency must depend on the last epoch to ensure they cannot be re-ordered before the epoch
 		if(const auto deps = tsk.get_dependencies();
-		    std::none_of(deps.begin(), deps.end(), [](const task::dependency d) { return d.kind == dependency_kind::TRUE_DEP; })) {
-			add_dependency(tsk, *task_buffer.get_task(epoch_for_new_tasks), dependency_kind::TRUE_DEP, dependency_origin::last_epoch);
+		    std::none_of(deps.begin(), deps.end(), [](const task::dependency d) { return d.kind == dependency_kind::true_dep; })) {
+			add_dependency(tsk, *task_buffer.get_task(epoch_for_new_tasks), dependency_kind::true_dep, dependency_origin::last_epoch);
 		}
 	}
 
@@ -203,7 +203,7 @@ namespace detail {
 		// add dependencies from a copy of the front to this task
 		const auto current_front = execution_front;
 		for(task* front_task : current_front) {
-			add_dependency(*new_front, *front_task, dependency_kind::TRUE_DEP, dependency_origin::execution_front);
+			add_dependency(*new_front, *front_task, dependency_kind::true_dep, dependency_origin::execution_front);
 		}
 		assert(execution_front.empty());
 		return register_task_internal(std::move(reserve), std::move(new_front));
@@ -271,9 +271,9 @@ namespace detail {
 		// so that it is possible for task slots to be freed in the future
 		for(const auto& tsk : task_buffer) {
 			if(tsk->get_id() <= latest_epoch) continue;
-			if(tsk->get_type() == task_type::EPOCH) {
+			if(tsk->get_type() == task_type::epoch) {
 				return tsk->get_id();
-			} else if(tsk->get_type() == task_type::HORIZON) {
+			} else if(tsk->get_type() == task_type::horizon) {
 				if(current_horizon) return current_horizon;
 				current_horizon = tsk->get_id();
 			}
