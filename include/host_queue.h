@@ -28,17 +28,17 @@ namespace detail {
 	class sized_partition_base {
 	  public:
 		explicit sized_partition_base(const celerity::range<Dims>& global_size, const subrange<Dims>& range)
-		    : global_size(range_cast<Dims>(global_size)), range(range) {}
+		    : m_global_size(range_cast<Dims>(global_size)), m_range(range) {}
 
 		/** The subrange handled by this host. */
-		const subrange<Dims>& get_subrange() const { return range; }
+		const subrange<Dims>& get_subrange() const { return m_range; }
 
 		/** The size of the entire iteration space */
-		const celerity::range<Dims>& get_global_size() const { return global_size; }
+		const celerity::range<Dims>& get_global_size() const { return m_global_size; }
 
 	  private:
-		celerity::range<Dims> global_size;
-		subrange<Dims> range;
+		celerity::range<Dims> m_global_size;
+		subrange<Dims> m_range;
 	};
 
 	template <int Dims>
@@ -114,15 +114,15 @@ namespace detail {
 
 		host_queue() {
 			// TODO what is a good thread count for the non-collective thread pool?
-			threads.emplace(std::piecewise_construct, std::tuple{0}, std::tuple{MPI_COMM_NULL, 4, id++});
+			m_threads.emplace(std::piecewise_construct, std::tuple{0}, std::tuple{MPI_COMM_NULL, 4, m_id++});
 		}
 
 		void require_collective_group(collective_group_id cgid) {
-			if(threads.find(cgid) != threads.end()) return;
+			if(m_threads.find(cgid) != m_threads.end()) return;
 			assert(cgid != 0);
 			MPI_Comm comm;
 			MPI_Comm_dup(MPI_COMM_WORLD, &comm);
-			threads.emplace(std::piecewise_construct, std::tuple{cgid}, std::tuple{comm, 1, id++});
+			m_threads.emplace(std::piecewise_construct, std::tuple{cgid}, std::tuple{comm, 1, m_id++});
 		}
 
 		template <typename Fn>
@@ -132,8 +132,8 @@ namespace detail {
 
 		template <typename Fn>
 		std::future<execution_info> submit(collective_group_id cgid, Fn&& fn) {
-			auto it = threads.find(cgid);
-			assert(it != threads.end());
+			auto it = m_threads.find(cgid);
+			assert(it != m_threads.end());
 			return it->second.thread.push([fn = std::forward<Fn>(fn), submit_time = std::chrono::steady_clock::now(), comm = it->second.comm](int) {
 				auto start_time = std::chrono::steady_clock::now();
 				try {
@@ -150,7 +150,7 @@ namespace detail {
 		 * @brief Waits until all currently submitted operations have completed.
 		 */
 		void wait() {
-			for(auto& ct : threads) {
+			for(auto& ct : m_threads) {
 				ct.second.thread.stop(true /* isWait */);
 			}
 		}
@@ -168,8 +168,8 @@ namespace detail {
 			}
 		};
 
-		std::unordered_map<collective_group_id, comm_thread> threads;
-		size_t id = 0;
+		std::unordered_map<collective_group_id, comm_thread> m_threads;
+		size_t m_id = 0;
 	};
 
 } // namespace detail

@@ -21,27 +21,27 @@ namespace celerity::detail {
 class host_object_manager {
   public:
 	host_object_id create_host_object() {
-		const std::lock_guard lock{mutex};
-		const auto id = next_id++;
-		objects.emplace(id);
+		const std::lock_guard lock{m_mutex};
+		const auto id = m_next_id++;
+		m_objects.emplace(id);
 		return id;
 	}
 
 	void destroy_host_object(const host_object_id id) {
-		const std::lock_guard lock{mutex};
-		objects.erase(id);
+		const std::lock_guard lock{m_mutex};
+		m_objects.erase(id);
 	}
 
 	// true-result only reliable if no calls to create_host_object() are pending
 	bool has_active_objects() const {
-		const std::lock_guard lock{mutex};
-		return !objects.empty();
+		const std::lock_guard lock{m_mutex};
+		return !m_objects.empty();
 	}
 
   private:
-	mutable std::mutex mutex;
-	host_object_id next_id = 0;
-	std::unordered_set<host_object_id> objects;
+	mutable std::mutex m_mutex;
+	host_object_id m_next_id = 0;
+	std::unordered_set<host_object_id> m_objects;
 };
 
 // Base for `state` structs in all host_object specializations: registers and unregisters host_objects with the host_object_manager.
@@ -91,16 +91,16 @@ class host_object {
   public:
 	using object_type = T;
 
-	host_object() : shared_state{std::make_shared<state>(std::in_place)} {}
+	host_object() : m_shared_state{std::make_shared<state>(std::in_place)} {}
 
-	explicit host_object(const T& obj) : shared_state{std::make_shared<state>(std::in_place, obj)} {}
+	explicit host_object(const T& obj) : m_shared_state{std::make_shared<state>(std::in_place, obj)} {}
 
-	explicit host_object(T&& obj) : shared_state{std::make_shared<state>(std::in_place, std::move(obj))} {}
+	explicit host_object(T&& obj) : m_shared_state{std::make_shared<state>(std::in_place, std::move(obj))} {}
 
 	/// Constructs the object in-place with the given constructor arguments.
 	template <typename... CtorParams>
 	explicit host_object(const std::in_place_t, CtorParams&&... ctor_args) // requiring std::in_place avoids overriding copy and move constructors
-	    : shared_state{std::make_shared<state>(std::in_place, std::forward<CtorParams>(ctor_args)...)} {}
+	    : m_shared_state{std::make_shared<state>(std::in_place, std::forward<CtorParams>(ctor_args)...)} {}
 
   private:
 	template <typename, side_effect_order>
@@ -113,10 +113,10 @@ class host_object {
 		explicit state(const std::in_place_t, CtorParams&&... ctor_args) : object{std::forward<CtorParams>(ctor_args)...} {}
 	};
 
-	detail::host_object_id get_id() const { return shared_state->id; }
-	T* get_object() const { return &shared_state->object; }
+	detail::host_object_id get_id() const { return m_shared_state->id; }
+	T* get_object() const { return &m_shared_state->object; }
 
-	std::shared_ptr<state> shared_state;
+	std::shared_ptr<state> m_shared_state;
 };
 
 template <typename T>
@@ -124,9 +124,9 @@ class host_object<T&> {
   public:
 	using object_type = T;
 
-	explicit host_object(T& obj) : shared_state{std::make_shared<state>(obj)} {}
+	explicit host_object(T& obj) : m_shared_state{std::make_shared<state>(obj)} {}
 
-	explicit host_object(const std::reference_wrapper<T> ref) : shared_state{std::make_shared<state>(ref.get())} {}
+	explicit host_object(const std::reference_wrapper<T> ref) : m_shared_state{std::make_shared<state>(ref.get())} {}
 
   private:
 	template <typename, side_effect_order>
@@ -138,10 +138,10 @@ class host_object<T&> {
 		explicit state(T& object) : object{object} {}
 	};
 
-	detail::host_object_id get_id() const { return shared_state->id; }
-	T* get_object() const { return &shared_state->object; }
+	detail::host_object_id get_id() const { return m_shared_state->id; }
+	T* get_object() const { return &m_shared_state->object; }
 
-	std::shared_ptr<state> shared_state;
+	std::shared_ptr<state> m_shared_state;
 };
 
 template <>
@@ -149,7 +149,7 @@ class host_object<void> {
   public:
 	using object_type = void;
 
-	explicit host_object() : shared_state{std::make_shared<state>()} {}
+	explicit host_object() : m_shared_state{std::make_shared<state>()} {}
 
   private:
 	template <typename, side_effect_order>
@@ -157,9 +157,9 @@ class host_object<void> {
 
 	struct state : detail::host_object_tracker {};
 
-	detail::host_object_id get_id() const { return shared_state->id; }
+	detail::host_object_id get_id() const { return m_shared_state->id; }
 
-	std::shared_ptr<state> shared_state;
+	std::shared_ptr<state> m_shared_state;
 };
 
 // The universal reference parameter T&& matches U& as well as U&& for object types U, but we don't want to implicitly invoke a copy constructor: the user

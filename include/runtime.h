@@ -59,17 +59,17 @@ namespace detail {
 
 		void sync();
 
-		bool is_master_node() const { return local_nid == 0; }
+		bool is_master_node() const { return m_local_nid == 0; }
 
-		size_t get_num_nodes() const { return num_nodes; }
+		size_t get_num_nodes() const { return m_num_nodes; }
 
 		task_manager& get_task_manager() const;
 
-		experimental::bench::detail::user_benchmarker& get_user_benchmarker() const { return *user_bench; }
+		experimental::bench::detail::user_benchmarker& get_user_benchmarker() const { return *m_user_bench; }
 
-		host_queue& get_host_queue() const { return *h_queue; }
+		host_queue& get_host_queue() const { return *m_h_queue; }
 
-		device_queue& get_device_queue() const { return *d_queue; }
+		device_queue& get_device_queue() const { return *m_d_queue; }
 
 		buffer_manager& get_buffer_manager() const;
 
@@ -78,8 +78,8 @@ namespace detail {
 		host_object_manager& get_host_object_manager() const;
 
 	  private:
-		inline static bool mpi_initialized = false;
-		inline static bool mpi_finalized = false;
+		inline static bool m_mpi_initialized = false;
+		inline static bool m_mpi_finalized = false;
 
 		static void mpi_initialize_once(int* argc, char*** argv);
 		static void mpi_finalize_once();
@@ -87,34 +87,34 @@ namespace detail {
 		static std::unique_ptr<runtime> instance;
 
 		// Whether the runtime is active, i.e. between startup() and shutdown().
-		bool is_active = false;
+		bool m_is_active = false;
 
-		bool is_shutting_down = false;
+		bool m_is_shutting_down = false;
 
-		std::unique_ptr<config> cfg;
-		std::unique_ptr<experimental::bench::detail::user_benchmarker> user_bench;
-		std::unique_ptr<host_queue> h_queue;
-		std::unique_ptr<device_queue> d_queue;
-		size_t num_nodes;
-		node_id local_nid;
+		std::unique_ptr<config> m_cfg;
+		std::unique_ptr<experimental::bench::detail::user_benchmarker> m_user_bench;
+		std::unique_ptr<host_queue> m_h_queue;
+		std::unique_ptr<device_queue> m_d_queue;
+		size_t m_num_nodes;
+		node_id m_local_nid;
 
 		// These management classes are only constructed on the master node.
-		std::unique_ptr<command_graph> cdag;
-		std::shared_ptr<graph_generator> ggen;
-		std::shared_ptr<graph_serializer> gsrlzr;
-		std::unique_ptr<scheduler> schdlr;
+		std::unique_ptr<command_graph> m_cdag;
+		std::shared_ptr<graph_generator> m_ggen;
+		std::shared_ptr<graph_serializer> m_gsrlzr;
+		std::unique_ptr<scheduler> m_schdlr;
 
-		std::unique_ptr<buffer_manager> buffer_mngr;
-		std::unique_ptr<reduction_manager> reduction_mngr;
-		std::unique_ptr<host_object_manager> host_object_mngr;
-		std::unique_ptr<task_manager> task_mngr;
-		std::unique_ptr<executor> exec;
+		std::unique_ptr<buffer_manager> m_buffer_mngr;
+		std::unique_ptr<reduction_manager> m_reduction_mngr;
+		std::unique_ptr<host_object_manager> m_host_object_mngr;
+		std::unique_ptr<task_manager> m_task_mngr;
+		std::unique_ptr<executor> m_exec;
 
 		struct flush_handle {
 			unique_frame_ptr<command_frame> frame;
 			MPI_Request req;
 		};
-		std::deque<flush_handle> active_flushes;
+		std::deque<flush_handle> m_active_flushes;
 
 		runtime(int* argc, char** argv[], device_or_selector user_device_or_selector);
 		runtime(const runtime&) = delete;
@@ -139,43 +139,43 @@ namespace detail {
 	  public:
 		// Switches to test mode, where MPI will be initialized through test_case_enter() instead of runtime::runtime(). Called on Catch2 startup.
 		static void test_mode_enter() {
-			assert(!mpi_initialized);
-			test_mode = true;
+			assert(!m_mpi_initialized);
+			m_test_mode = true;
 		}
 
 		// Finalizes MPI if it was ever initialized in test mode. Called on Catch2 shutdown.
 		static void test_mode_exit() {
-			assert(test_mode && !test_active && !mpi_finalized);
-			if(mpi_initialized) mpi_finalize_once();
+			assert(m_test_mode && !m_test_active && !m_mpi_finalized);
+			if(m_mpi_initialized) mpi_finalize_once();
 		}
 
 		// Initializes MPI for tests, if it was not initialized before
 		static void test_require_mpi() {
-			assert(test_mode && !test_active);
-			if(!mpi_initialized) mpi_initialize_once(nullptr, nullptr);
+			assert(m_test_mode && !m_test_active);
+			if(!m_mpi_initialized) mpi_initialize_once(nullptr, nullptr);
 		}
 
 		// Allows the runtime to be transitively instantiated in tests. Called from runtime_fixture.
 		static void test_case_enter() {
-			assert(test_mode && !test_active && mpi_initialized);
-			test_active = true;
+			assert(m_test_mode && !m_test_active && m_mpi_initialized);
+			m_test_active = true;
 		}
 
 		static bool test_runtime_was_instantiated() {
-			assert(test_mode && test_active);
+			assert(m_test_mode && m_test_active);
 			return instance != nullptr;
 		}
 
 		// Deletes the runtime instance, which happens only in tests. Called from runtime_fixture.
 		static void test_case_exit() {
-			assert(test_mode && test_active);
+			assert(m_test_mode && m_test_active);
 			instance.reset();
-			test_active = false;
+			m_test_active = false;
 		}
 
 	  private:
-		inline static bool test_mode = false;
-		inline static bool test_active = false;
+		inline static bool m_test_mode = false;
+		inline static bool m_test_active = false;
 	};
 
 } // namespace detail

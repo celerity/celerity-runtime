@@ -122,13 +122,13 @@ namespace detail {
 			buffer_id bid;
 			const bool is_host_initialized = host_init_ptr != nullptr;
 			{
-				std::unique_lock lock(mutex);
-				bid = buffer_count++;
-				buffer_infos[bid] = buffer_info{range, sizeof(DataT), is_host_initialized};
-				newest_data_location.emplace(bid, region_map<data_location>(range, data_location::nowhere));
+				std::unique_lock lock(m_mutex);
+				bid = m_buffer_count++;
+				m_buffer_infos[bid] = buffer_info{range, sizeof(DataT), is_host_initialized};
+				m_newest_data_location.emplace(bid, region_map<data_location>(range, data_location::nowhere));
 
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-				buffer_types.emplace(bid, new buffer_type_guard<DataT, Dims>());
+				m_buffer_types.emplace(bid, new buffer_type_guard<DataT, Dims>());
 #endif
 			}
 			if(is_host_initialized) {
@@ -136,7 +136,7 @@ namespace detail {
 				auto info = get_host_buffer<DataT, Dims>(bid, cl::sycl::access::mode::discard_write, range, cl::sycl::id<3>(0, 0, 0));
 				std::memcpy(info.buffer.get_pointer(), host_init_ptr, range.size() * sizeof(DataT));
 			}
-			lifecycle_cb(buffer_lifecycle_event::registered, bid);
+			m_lifecycle_cb(buffer_lifecycle_event::registered, bid);
 			return bid;
 		}
 
@@ -154,19 +154,19 @@ namespace detail {
 		 * This is useful in rare situations where worker nodes might receive data for buffers they haven't registered yet.
 		 */
 		bool has_buffer(buffer_id bid) const {
-			std::shared_lock lock(mutex);
-			return buffer_infos.count(bid) == 1;
+			std::shared_lock lock(m_mutex);
+			return m_buffer_infos.count(bid) == 1;
 		}
 
 		bool has_active_buffers() const {
-			std::shared_lock lock(mutex);
-			return !buffer_infos.empty();
+			std::shared_lock lock(m_mutex);
+			return !m_buffer_infos.empty();
 		}
 
 		const buffer_info& get_buffer_info(buffer_id bid) const {
-			std::shared_lock lock(mutex);
-			assert(buffer_infos.find(bid) != buffer_infos.end());
-			return buffer_infos.at(bid);
+			std::shared_lock lock(m_mutex);
+			assert(m_buffer_infos.find(bid) != m_buffer_infos.end());
+			return m_buffer_infos.at(bid);
 		}
 
 		/**
@@ -196,17 +196,18 @@ namespace detail {
 		template <typename DataT, int Dims>
 		access_info<DataT, Dims, device_buffer> get_device_buffer(
 		    buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
-			std::unique_lock lock(mutex);
+			std::unique_lock lock(m_mutex);
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-			assert((buffer_types.at(bid)->has_type<DataT, Dims>()));
+			assert((m_buffer_types.at(bid)->has_type<DataT, Dims>()));
 #endif
-			assert((range_cast<3>(offset + range) <= buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
+			assert((range_cast<3>(offset + range) <= m_buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
 
-			auto& existing_buf = buffers[bid].device_buf;
+			auto& existing_buf = m_buffers[bid].device_buf;
 			backing_buffer replacement_buf;
 
 			if(!existing_buf.is_allocated()) {
-				replacement_buf = backing_buffer{std::make_unique<device_buffer_storage<DataT, Dims>>(range_cast<Dims>(range), queue.get_sycl_queue()), offset};
+				replacement_buf =
+				    backing_buffer{std::make_unique<device_buffer_storage<DataT, Dims>>(range_cast<Dims>(range), m_queue.get_sycl_queue()), offset};
 			} else {
 				// FIXME: For large buffers we might not be able to store two copies in device memory at once.
 				// Instead, we'd first have to transfer everything to the host and free the old buffer before allocating the new one.
@@ -215,13 +216,13 @@ namespace detail {
 				const auto info = is_resize_required(existing_buf, range, offset);
 				if(info.resize_required) {
 					replacement_buf = backing_buffer{
-					    std::make_unique<device_buffer_storage<DataT, Dims>>(range_cast<Dims>(info.new_range), queue.get_sycl_queue()), info.new_offset};
+					    std::make_unique<device_buffer_storage<DataT, Dims>>(range_cast<Dims>(info.new_range), m_queue.get_sycl_queue()), info.new_offset};
 				}
 			}
 
 			audit_buffer_access(bid, replacement_buf.is_allocated(), mode);
 
-			if(test_mode && replacement_buf.is_allocated()) {
+			if(m_test_mode && replacement_buf.is_allocated()) {
 				auto device_buf = static_cast<device_buffer_storage<DataT, Dims>*>(replacement_buf.storage.get())->get_device_buffer();
 
 				// We need two separate approaches here for hipSYCL and ComputeCpp, as hipSYCL currently (0.9.1) does
@@ -234,7 +235,7 @@ namespace detail {
 				auto byte_buf = device_buf.template reinterpret<unsigned char, 1>();
 #endif
 
-				queue.get_sycl_queue()
+				m_queue.get_sycl_queue()
 				    .submit([&](cl::sycl::handler& cgh) {
 #if CELERITY_WORKAROUND(HIPSYCL)
 					    auto acc = device_buf.template get_access<cl::sycl::access::mode::discard_write>(cgh);
@@ -255,13 +256,13 @@ namespace detail {
 		template <typename DataT, int Dims>
 		access_info<DataT, Dims, host_buffer> get_host_buffer(
 		    buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
-			std::unique_lock lock(mutex);
+			std::unique_lock lock(m_mutex);
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-			assert((buffer_types.at(bid)->has_type<DataT, Dims>()));
+			assert((m_buffer_types.at(bid)->has_type<DataT, Dims>()));
 #endif
-			assert((range_cast<3>(offset + range) <= buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
+			assert((range_cast<3>(offset + range) <= m_buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
 
-			auto& existing_buf = buffers[bid].host_buf;
+			auto& existing_buf = m_buffers[bid].host_buf;
 			backing_buffer replacement_buf;
 
 			if(!existing_buf.is_allocated()) {
@@ -275,7 +276,7 @@ namespace detail {
 
 			audit_buffer_access(bid, replacement_buf.is_allocated(), mode);
 
-			if(test_mode && replacement_buf.is_allocated()) {
+			if(m_test_mode && replacement_buf.is_allocated()) {
 				auto& host_buf = static_cast<host_buffer_storage<DataT, Dims>*>(replacement_buf.storage.get())->get_host_buffer();
 				std::memset(host_buf.get_pointer(), test_mode_pattern, host_buf.get_range().size() * sizeof(DataT));
 			}
@@ -369,23 +370,23 @@ namespace detail {
 		};
 
 	  private:
-		device_queue& queue;
-		buffer_lifecycle_callback lifecycle_cb;
-		size_t buffer_count = 0;
-		mutable std::shared_mutex mutex;
-		std::unordered_map<buffer_id, buffer_info> buffer_infos;
-		std::unordered_map<buffer_id, virtual_buffer> buffers;
-		std::unordered_map<buffer_id, std::vector<transfer>> scheduled_transfers;
-		std::unordered_map<buffer_id, region_map<data_location>> newest_data_location;
+		device_queue& m_queue;
+		buffer_lifecycle_callback m_lifecycle_cb;
+		size_t m_buffer_count = 0;
+		mutable std::shared_mutex m_mutex;
+		std::unordered_map<buffer_id, buffer_info> m_buffer_infos;
+		std::unordered_map<buffer_id, virtual_buffer> m_buffers;
+		std::unordered_map<buffer_id, std::vector<transfer>> m_scheduled_transfers;
+		std::unordered_map<buffer_id, region_map<data_location>> m_newest_data_location;
 
-		std::unordered_map<buffer_id, buffer_lock_info> buffer_lock_infos;
-		std::unordered_map<buffer_lock_id, std::vector<buffer_id>> buffer_locks_by_id;
+		std::unordered_map<buffer_id, buffer_lock_info> m_buffer_lock_infos;
+		std::unordered_map<buffer_lock_id, std::vector<buffer_id>> m_buffer_locks_by_id;
 
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 		// Since we store buffers without type information (i.e., its data type and dimensionality),
 		// it is the user's responsibility to only request access to a buffer using the correct type.
 		// In debug builds we can help out a bit by remembering the type and asserting it on every access.
-		std::unordered_map<buffer_id, std::unique_ptr<buffer_type_guard_base>> buffer_types;
+		std::unordered_map<buffer_id, std::unique_ptr<buffer_type_guard_base>> m_buffer_types;
 #endif
 
 		static resize_info is_resize_required(const backing_buffer& buffer, cl::sycl::range<3> request_range, cl::sycl::id<3> request_offset) {
@@ -449,10 +450,10 @@ namespace detail {
 		 * @brief Enables test mode, ensuring that newly allocated buffers are always initialized to
 		 *        a known bit pattern, see buffer_manager::test_mode_pattern.
 		 */
-		void enable_test_mode() { test_mode = true; }
+		void enable_test_mode() { m_test_mode = true; }
 
 	  private:
-		bool test_mode = false;
+		bool m_test_mode = false;
 	};
 
 } // namespace detail

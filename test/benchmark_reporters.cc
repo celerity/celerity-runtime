@@ -46,7 +46,7 @@ class benchmark_reporter_base : public Catch::StreamingReporterBase {
 
 	void benchmarkPreparing(Catch::StringRef benchmark_name) override {
 		StreamingReporterBase::benchmarkPreparing(benchmark_name);
-		test_case_benchmark_combinations.insert(get_test_case_name() + ": " + benchmark_name);
+		m_test_case_benchmark_combinations.insert(get_test_case_name() + ": " + benchmark_name);
 	}
 
 	// TODO: Do we want to somehow report this?
@@ -56,20 +56,20 @@ class benchmark_reporter_base : public Catch::StreamingReporterBase {
 		StreamingReporterBase::sectionStarting(section_info);
 		// Each test case has an implicit section with the name of the test case itself,
 		// so there is no need to capture that separately.
-		active_sections.push_back(section_info.name);
+		m_active_sections.push_back(section_info.name);
 	}
 
 	void testCasePartialEnded(Catch::TestCaseStats const& test_case_stats, uint64_t part_number) override {
 		StreamingReporterBase::testCasePartialEnded(test_case_stats, part_number);
-		active_sections.clear();
+		m_active_sections.clear();
 	}
 
 	void testRunEnded(Catch::TestRunStats const& test_run_stats) override {
 		StreamingReporterBase::testRunEnded(test_run_stats);
 		bool warning_printed = false;
-		for(auto it = test_case_benchmark_combinations.cbegin(); it != test_case_benchmark_combinations.cend(); ++it) {
+		for(auto it = m_test_case_benchmark_combinations.cbegin(); it != m_test_case_benchmark_combinations.cend(); ++it) {
 			const auto id = *it;
-			const auto count = test_case_benchmark_combinations.count(id);
+			const auto count = m_test_case_benchmark_combinations.count(id);
 			if(count > 1) {
 				if(!warning_printed) {
 					fmt::print(stderr, "WARNING: Using generators will result in indistinguishable test cases. The following cases are ambiguous:\n");
@@ -84,11 +84,11 @@ class benchmark_reporter_base : public Catch::StreamingReporterBase {
 	}
 
   protected:
-	[[nodiscard]] std::string get_test_case_name() const { return fmt::format("{}", fmt::join(active_sections, " > ")); }
+	[[nodiscard]] std::string get_test_case_name() const { return fmt::format("{}", fmt::join(m_active_sections, " > ")); }
 
   private:
-	std::vector<std::string> active_sections;
-	std::unordered_multiset<std::string> test_case_benchmark_combinations;
+	std::vector<std::string> m_active_sections;
+	std::unordered_multiset<std::string> m_test_case_benchmark_combinations;
 };
 
 /**
@@ -141,18 +141,18 @@ class markdown_table_printer {
 
   public:
 	markdown_table_printer(const std::vector<std::pair<std::string, align>>& columns) {
-		std::transform(columns.cbegin(), columns.end(), std::back_inserter(this->columns), [](const auto& c) {
+		std::transform(columns.cbegin(), columns.end(), std::back_inserter(this->m_columns), [](const auto& c) {
 			const auto [name, alignment] = c;
 			return column{name, std::max(column::min_width, name.length()), alignment};
 		});
 	}
 
 	void add_row(std::vector<std::string> cells) {
-		if(cells.size() != columns.size()) { throw std::runtime_error("Column mismatch"); }
-		for(size_t i = 0; i < columns.size(); ++i) {
-			columns[i].width = std::max(columns[i].width, cells[i].length());
+		if(cells.size() != m_columns.size()) { throw std::runtime_error("Column mismatch"); }
+		for(size_t i = 0; i < m_columns.size(); ++i) {
+			m_columns[i].width = std::max(m_columns[i].width, cells[i].length());
 		}
-		rows.push_back(std::move(cells));
+		m_rows.push_back(std::move(cells));
 	}
 
 	void print(std::ostream& os) const {
@@ -165,14 +165,14 @@ class markdown_table_printer {
 
 		// Print column headers
 		fmt::print(os, "|");
-		for(const auto& [header, width, a] : columns) {
+		for(const auto& [header, width, a] : m_columns) {
 			fmt::print(os, align_fmt(" {: A{}} |", a), header, width);
 		}
 		fmt::print(os, "\n");
 
 		// Print separators
 		fmt::print(os, "|");
-		for(const auto& [_, width, a] : columns) {
+		for(const auto& [_, width, a] : m_columns) {
 			const char align_left = a != align::right ? ':' : '-';
 			const char align_right = a != align::left ? ':' : '-';
 			fmt::print(os, align_fmt(" {}{:-A{}}{} |", a), align_left, "", width - 2, align_right);
@@ -180,18 +180,18 @@ class markdown_table_printer {
 		fmt::print(os, "\n");
 
 		// Print rows
-		for(const auto& r : rows) {
+		for(const auto& r : m_rows) {
 			fmt::print(os, "|");
 			for(size_t i = 0; i < r.size(); ++i) {
-				fmt::print(os, align_fmt(" {: A{}} |", columns[i].alignment), r[i], columns[i].width);
+				fmt::print(os, align_fmt(" {: A{}} |", m_columns[i].alignment), r[i], m_columns[i].width);
 			}
 			fmt::print(os, "\n");
 		}
 	}
 
   private:
-	std::vector<column> columns;
-	std::vector<std::vector<std::string>> rows;
+	std::vector<column> m_columns;
+	std::vector<std::vector<std::string>> m_rows;
 };
 
 class benchmark_md_reporter : public benchmark_reporter_base {
@@ -216,7 +216,7 @@ class benchmark_md_reporter : public benchmark_reporter_base {
 	void testRunEnded(Catch::TestRunStats const& test_run_stats) override {
 		benchmark_reporter_base::testRunEnded(test_run_stats);
 		fmt::print(m_stream, "\n\n");
-		results_printer.print(m_stream);
+		m_results_printer.print(m_stream);
 		fmt::print(m_stream, "\nAll numbers are in nanoseconds.\n");
 	}
 
@@ -238,15 +238,15 @@ class benchmark_md_reporter : public benchmark_reporter_base {
 		const auto min = std::reduce(benchmark_stats.samples.cbegin(), benchmark_stats.samples.cend(),
 		    std::chrono::duration<double, std::nano>(std::numeric_limits<double>::max()), [](auto& a, auto& b) { return std::min(a, b); });
 
-		results_printer.add_row({fmt::format("{}", escape_md_partial(get_test_case_name())), // Test case
-		    escape_md_partial(benchmark_stats.info.name),                                    // Benchmark name
-		    format_result(min),                                                              // Min
-		    format_result(benchmark_stats.mean.point),                                       // Mean
-		    format_result(benchmark_stats.standardDeviation.point)});                        // Std dev
+		m_results_printer.add_row({fmt::format("{}", escape_md_partial(get_test_case_name())), // Test case
+		    escape_md_partial(benchmark_stats.info.name),                                      // Benchmark name
+		    format_result(min),                                                                // Min
+		    format_result(benchmark_stats.mean.point),                                         // Mean
+		    format_result(benchmark_stats.standardDeviation.point)});                          // Std dev
 	}
 
   private:
-	markdown_table_printer results_printer{
+	markdown_table_printer m_results_printer{
 	    {{"Test case", align::left}, {"Benchmark name", align::left}, {"Min", align::right}, {"Mean", align::right}, {"Std dev", align::right}}};
 };
 

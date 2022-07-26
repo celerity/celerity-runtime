@@ -187,47 +187,47 @@ class restartable_thread {
 
 	~restartable_thread() {
 		{
-			std::unique_lock lk{mutex};
+			std::unique_lock lk{m_mutex};
 			wait(lk);
-			next = shutdown{};
-			update.notify_one();
+			m_next = shutdown{};
+			m_update.notify_one();
 		}
-		thread.join();
+		m_thread.join();
 	}
 
 	void start(std::function<void()> thread_func) {
-		std::unique_lock lk{mutex};
+		std::unique_lock lk{m_mutex};
 		wait(lk);
-		next = std::move(thread_func);
-		update.notify_all();
+		m_next = std::move(thread_func);
+		m_update.notify_all();
 	}
 
 	void join() {
-		std::unique_lock lk{mutex};
+		std::unique_lock lk{m_mutex};
 		wait(lk);
 	}
 
   private:
-	std::mutex mutex;
-	std::variant<empty, thread_func, shutdown> next;
-	std::condition_variable update;
-	std::thread thread{&restartable_thread::main, this};
+	std::mutex m_mutex;
+	std::variant<empty, thread_func, shutdown> m_next;
+	std::condition_variable m_update;
+	std::thread m_thread{&restartable_thread::main, this};
 
 	void main() {
-		std::unique_lock lk{mutex};
+		std::unique_lock lk{m_mutex};
 		for(;;) {
-			update.wait(lk, [this] { return !std::holds_alternative<empty>(next); });
-			if(std::holds_alternative<shutdown>(next)) break;
-			std::get<thread_func>(next)();
-			next = empty{};
-			update.notify_all();
+			m_update.wait(lk, [this] { return !std::holds_alternative<empty>(m_next); });
+			if(std::holds_alternative<shutdown>(m_next)) break;
+			std::get<thread_func>(m_next)();
+			m_next = empty{};
+			m_update.notify_all();
 		}
 	}
 
 	void wait(std::unique_lock<std::mutex>& lk) {
-		update.wait(lk, [this] {
-			assert(!std::holds_alternative<shutdown>(next));
-			return std::holds_alternative<empty>(next);
+		m_update.wait(lk, [this] {
+			assert(!std::holds_alternative<shutdown>(m_next));
+			return std::holds_alternative<empty>(m_next);
 		});
 	}
 };
@@ -235,19 +235,19 @@ class restartable_thread {
 class benchmark_scheduler final : public abstract_scheduler {
   public:
 	benchmark_scheduler(restartable_thread& worker_thread, graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes)
-	    : abstract_scheduler(ggen, gsrlzr, num_nodes), worker_thread(worker_thread) {}
+	    : abstract_scheduler(ggen, gsrlzr, num_nodes), m_worker_thread(worker_thread) {}
 
 	void startup() override {
-		worker_thread.start([this] { schedule(); });
+		m_worker_thread.start([this] { schedule(); });
 	}
 
 	void shutdown() override {
 		abstract_scheduler::shutdown();
-		worker_thread.join();
+		m_worker_thread.join();
 	}
 
   private:
-	restartable_thread& worker_thread;
+	restartable_thread& m_worker_thread;
 };
 
 struct scheduler_benchmark_context {

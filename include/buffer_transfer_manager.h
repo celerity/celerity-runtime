@@ -67,13 +67,13 @@ namespace detail {
 			unique_frame_ptr<data_frame> frame;
 		};
 
-		std::list<std::unique_ptr<transfer_in>> incoming_transfers;
-		std::list<std::unique_ptr<transfer_out>> outgoing_transfers;
+		std::list<std::unique_ptr<transfer_in>> m_incoming_transfers;
+		std::list<std::unique_ptr<transfer_out>> m_outgoing_transfers;
 
 		// Here we store two types of handles:
 		//  - Incoming pushes that have not yet been requested through ::await_push
 		//  - Still outstanding pushes that have been requested through ::await_push
-		std::unordered_map<command_id, std::shared_ptr<incoming_transfer_handle>> push_blackboard;
+		std::unordered_map<command_id, std::shared_ptr<incoming_transfer_handle>> m_push_blackboard;
 
 		void poll_incoming_transfers();
 		void update_incoming_transfers();

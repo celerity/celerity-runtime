@@ -44,11 +44,11 @@ class buffer {
   public:
 	static_assert(Dims > 0, "0-dimensional buffers NYI");
 
-	buffer(const DataT* host_ptr, celerity::range<Dims> range) : range(range) {
+	buffer(const DataT* host_ptr, celerity::range<Dims> range) : m_range(range) {
 		if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr); }
 
-		lifetime_tracker = std::make_shared<detail::buffer_lifetime_tracker>();
-		id = lifetime_tracker->initialize<DataT, Dims>(detail::range_cast<3>(range), host_ptr);
+		m_lifetime_tracker = std::make_shared<detail::buffer_lifetime_tracker>();
+		m_id = m_lifetime_tracker->initialize<DataT, Dims>(detail::range_cast<3>(range), host_ptr);
 	}
 
 	buffer(celerity::range<Dims> range) : buffer(nullptr, range) {}
@@ -72,12 +72,12 @@ class buffer {
 		return accessor<DataT, Dims, Mode, Target>(*this, cgh, rmfn);
 	}
 
-	celerity::range<Dims> get_range() const { return range; }
+	celerity::range<Dims> get_range() const { return m_range; }
 
   private:
-	std::shared_ptr<detail::buffer_lifetime_tracker> lifetime_tracker = nullptr;
-	celerity::range<Dims> range;
-	detail::buffer_id id;
+	std::shared_ptr<detail::buffer_lifetime_tracker> m_lifetime_tracker = nullptr;
+	celerity::range<Dims> m_range;
+	detail::buffer_id m_id;
 
 	template <typename T, int D>
 	friend detail::buffer_id detail::get_buffer_id(const buffer<T, D>& buff);
@@ -87,7 +87,7 @@ namespace detail {
 
 	template <typename T, int D>
 	buffer_id get_buffer_id(const buffer<T, D>& buff) {
-		return buff.id;
+		return buff.m_id;
 	}
 
 } // namespace detail

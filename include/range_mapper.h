@@ -78,11 +78,11 @@ namespace detail {
 
 	class range_mapper_base {
 	  public:
-		explicit range_mapper_base(cl::sycl::access::mode am) : access_mode(am) {}
+		explicit range_mapper_base(cl::sycl::access::mode am) : m_access_mode(am) {}
 		range_mapper_base(const range_mapper_base& other) = delete;
 		range_mapper_base(range_mapper_base&& other) = delete;
 
-		cl::sycl::access::mode get_access_mode() const { return access_mode; }
+		cl::sycl::access::mode get_access_mode() const { return m_access_mode; }
 
 		virtual int get_buffer_dimensions() const = 0;
 
@@ -99,13 +99,14 @@ namespace detail {
 		virtual ~range_mapper_base() = default;
 
 	  private:
-		cl::sycl::access::mode access_mode;
+		cl::sycl::access::mode m_access_mode;
 	};
 
 	template <int BufferDims, typename Functor>
 	class range_mapper : public range_mapper_base {
 	  public:
-		range_mapper(Functor rmfn, cl::sycl::access::mode am, range<BufferDims> buffer_size) : range_mapper_base(am), rmfn(rmfn), buffer_size(buffer_size) {}
+		range_mapper(Functor rmfn, cl::sycl::access::mode am, range<BufferDims> buffer_size)
+		    : range_mapper_base(am), m_rmfn(rmfn), m_buffer_size(buffer_size) {}
 
 		int get_buffer_dimensions() const override { return BufferDims; }
 
@@ -120,14 +121,14 @@ namespace detail {
 		subrange<3> map_3(const chunk<3>& chnk) const override { return map<3>(chnk); }
 
 	  private:
-		Functor rmfn;
-		range<BufferDims> buffer_size;
+		Functor m_rmfn;
+		range<BufferDims> m_buffer_size;
 
 		template <int OtherBufferDims, int KernelDims>
 		subrange<OtherBufferDims> map(const chunk<KernelDims>& chnk) const {
 			if constexpr(OtherBufferDims == BufferDims) {
-				auto sr = invoke_range_mapper_for_kernel(rmfn, chnk, buffer_size);
-				return clamp_subrange_to_buffer_size(sr, buffer_size);
+				auto sr = invoke_range_mapper_for_kernel(m_rmfn, chnk, m_buffer_size);
+				return clamp_subrange_to_buffer_size(sr, m_buffer_size);
 			} else {
 				throw_invalid_range_mapper_result(OtherBufferDims, BufferDims, KernelDims);
 			}
@@ -163,15 +164,15 @@ namespace access {
 
 	template <int BufferDims>
 	struct fixed<BufferDims, BufferDims> {
-		fixed(const subrange<BufferDims>& sr) : sr(sr) {}
+		fixed(const subrange<BufferDims>& sr) : m_sr(sr) {}
 
 		template <int KernelDims>
 		subrange<BufferDims> operator()(const chunk<KernelDims>&) const {
-			return sr;
+			return m_sr;
 		}
 
 	  private:
-		subrange<BufferDims> sr;
+		subrange<BufferDims> m_sr;
 	};
 
 	template <int KernelDims, int BufferDims>
@@ -186,18 +187,18 @@ namespace access {
 
 	template <int Dims>
 	struct slice {
-		slice(size_t dim_idx) : dim_idx(dim_idx) { assert(dim_idx < Dims && "Invalid slice dimension index (starts at 0)"); }
+		slice(size_t dim_idx) : m_dim_idx(dim_idx) { assert(dim_idx < Dims && "Invalid slice dimension index (starts at 0)"); }
 
 		subrange<Dims> operator()(const chunk<Dims>& chnk) const {
 			subrange<Dims> result = chnk;
-			result.offset[dim_idx] = 0;
+			result.offset[m_dim_idx] = 0;
 			// Since we don't know the range of the buffer, we just set it way too high and let it be clamped to the correct range
-			result.range[dim_idx] = std::numeric_limits<size_t>::max();
+			result.range[m_dim_idx] = std::numeric_limits<size_t>::max();
 			return result;
 		}
 
 	  private:
-		size_t dim_idx;
+		size_t m_dim_idx;
 	};
 
 	template <int KernelDims = 0, int BufferDims = KernelDims>
@@ -218,25 +219,25 @@ namespace access {
 
 	template <int Dims>
 	struct neighborhood {
-		neighborhood(size_t dim0) : dim0(dim0), dim1(0), dim2(0) {}
+		neighborhood(size_t dim0) : m_dim0(dim0), m_dim1(0), m_dim2(0) {}
 
 		template <int D = Dims, std::enable_if_t<D >= 2, void*>...>
-		neighborhood(size_t dim0, size_t dim1) : dim0(dim0), dim1(dim1), dim2(0) {}
+		neighborhood(size_t dim0, size_t dim1) : m_dim0(dim0), m_dim1(dim1), m_dim2(0) {}
 
 		template <int D = Dims, std::enable_if_t<D == 3, void*>...>
-		neighborhood(size_t dim0, size_t dim1, size_t dim2) : dim0(dim0), dim1(dim1), dim2(dim2) {}
+		neighborhood(size_t dim0, size_t dim1, size_t dim2) : m_dim0(dim0), m_dim1(dim1), m_dim2(dim2) {}
 
 		subrange<Dims> operator()(const chunk<Dims>& chnk) const {
 			subrange<3> result = {celerity::detail::id_cast<3>(chnk.offset), celerity::detail::range_cast<3>(chnk.range)};
-			const id<3> delta = {dim0 < result.offset[0] ? dim0 : result.offset[0], dim1 < result.offset[1] ? dim1 : result.offset[1],
-			    dim2 < result.offset[2] ? dim2 : result.offset[2]};
+			const id<3> delta = {m_dim0 < result.offset[0] ? m_dim0 : result.offset[0], m_dim1 < result.offset[1] ? m_dim1 : result.offset[1],
+			    m_dim2 < result.offset[2] ? m_dim2 : result.offset[2]};
 			result.offset -= delta;
-			result.range += range<3>{dim0 + delta[0], dim1 + delta[1], dim2 + delta[2]};
+			result.range += range<3>{m_dim0 + delta[0], m_dim1 + delta[1], m_dim2 + delta[2]};
 			return detail::subrange_cast<Dims>(result);
 		}
 
 	  private:
-		size_t dim0, dim1, dim2;
+		size_t m_dim0, m_dim1, m_dim2;
 	};
 
 	neighborhood(size_t)->neighborhood<1>;
@@ -260,7 +261,7 @@ namespace experimental::access {
 
 	  public:
 		even_split() = default;
-		explicit even_split(const range<BufferDims>& granularity) : granularity(granularity) {}
+		explicit even_split(const range<BufferDims>& granularity) : m_granularity(granularity) {}
 
 		subrange<BufferDims> operator()(const chunk<1>& chunk, const range<BufferDims>& buffer_size) const {
 			if(chunk.global_size[0] == 0) { return {}; }
@@ -273,13 +274,14 @@ namespace experimental::access {
 			// 2. The first chunks in the range receive one additional granularity-sized block each to distribute most of the remainder
 			// 3. The last chunk additionally receives the not-granularity-sized part of the remainder, if any.
 
-			auto dim0_step = buffer_size[0] / (chunk.global_size[0] * granularity[0]) * granularity[0];
+			auto dim0_step = buffer_size[0] / (chunk.global_size[0] * m_granularity[0]) * m_granularity[0];
 			auto dim0_remainder = buffer_size[0] - chunk.global_size[0] * dim0_step;
 			auto dim0_range_in_this_chunk = chunk.range[0] * dim0_step;
-			auto sum_dim0_remainder_in_prev_chunks = std::min(dim0_remainder / granularity[0] * granularity[0], chunk.offset[0] * granularity[0]);
+			auto sum_dim0_remainder_in_prev_chunks = std::min(dim0_remainder / m_granularity[0] * m_granularity[0], chunk.offset[0] * m_granularity[0]);
 			if(dim0_remainder > sum_dim0_remainder_in_prev_chunks) {
-				dim0_range_in_this_chunk += std::min(chunk.range[0], (dim0_remainder - sum_dim0_remainder_in_prev_chunks) / granularity[0]) * granularity[0];
-				if(chunk.offset[0] + chunk.range[0] == chunk.global_size[0]) { dim0_range_in_this_chunk += dim0_remainder % granularity[0]; }
+				dim0_range_in_this_chunk +=
+				    std::min(chunk.range[0], (dim0_remainder - sum_dim0_remainder_in_prev_chunks) / m_granularity[0]) * m_granularity[0];
+				if(chunk.offset[0] + chunk.range[0] == chunk.global_size[0]) { dim0_range_in_this_chunk += dim0_remainder % m_granularity[0]; }
 			}
 			auto dim0_offset_in_this_chunk = chunk.offset[0] * dim0_step + sum_dim0_remainder_in_prev_chunks;
 
@@ -292,7 +294,7 @@ namespace experimental::access {
 		}
 
 	  private:
-		range<BufferDims> granularity = detail::range_cast<BufferDims>(range<3>(1, 1, 1));
+		range<BufferDims> m_granularity = detail::range_cast<BufferDims>(range<3>(1, 1, 1));
 	};
 
 } // namespace experimental::access

@@ -24,25 +24,25 @@ namespace detail {
 	struct region_map_testspy {
 		template <typename T>
 		static size_t get_num_regions(const region_map<T>& map) {
-			return map.region_values.size();
+			return map.m_region_values.size();
 		}
 	};
 
 	struct graph_generator_testspy {
 		static size_t get_buffer_states_num_regions(const graph_generator& ggen, const buffer_id bid) {
-			if(auto* distr_state = std::get_if<graph_generator::distributed_state>(&ggen.buffer_states.at(bid))) {
+			if(auto* distr_state = std::get_if<graph_generator::distributed_state>(&ggen.m_buffer_states.at(bid))) {
 				return region_map_testspy::get_num_regions(distr_state->region_sources);
 			} else {
 				return 1;
 			}
 		}
 		static size_t get_buffer_last_writer_num_regions(const graph_generator& ggen, const buffer_id bid) {
-			return region_map_testspy::get_num_regions(ggen.node_data.at(node_id{0}).buffer_last_writer.at(bid));
+			return region_map_testspy::get_num_regions(ggen.m_node_data.at(node_id{0}).buffer_last_writer.at(bid));
 		}
-		static size_t get_command_buffer_reads_size(const graph_generator& ggen) { return ggen.command_buffer_reads.size(); }
+		static size_t get_command_buffer_reads_size(const graph_generator& ggen) { return ggen.m_command_buffer_reads.size(); }
 		static std::vector<command_id> get_current_horizons(const graph_generator& ggen) {
 			std::vector<command_id> horizons;
-			for(const auto& [nid, data] : ggen.node_data) {
+			for(const auto& [nid, data] : ggen.m_node_data) {
 				if(data.current_horizon) { horizons.push_back(*data.current_horizon); }
 			}
 			return horizons;

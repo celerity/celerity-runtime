@@ -17,89 +17,89 @@ struct type_and_name {
 };
 
 struct mock_device {
-	mock_device() : id(0), type(dt::gpu), platform(nullptr) {}
+	mock_device() : m_id(0), m_type(dt::gpu), m_platform(nullptr) {}
 
 	mock_device(size_t id, mock_platform& platform, dt type) : mock_device(id, platform, {type, fmt::format("Mock device {}", id)}){};
 
-	mock_device(size_t id, mock_platform& platform, const type_and_name& tan) : id(id), type(tan.type), name(tan.name), platform(&platform) {}
+	mock_device(size_t id, mock_platform& platform, const type_and_name& tan) : m_id(id), m_type(tan.type), m_name(tan.name), m_platform(&platform) {}
 
-	bool operator==(const mock_device& other) const { return other.id == id; }
+	bool operator==(const mock_device& other) const { return other.m_id == m_id; }
 
 	mock_platform& get_platform() const {
-		assert(platform != nullptr);
-		return *platform;
+		assert(m_platform != nullptr);
+		return *m_platform;
 	}
 
 	template <sycl::info::device Param>
 	auto get_info() const {
-		if constexpr(Param == sycl::info::device::name) { return name; }
-		if constexpr(Param == sycl::info::device::device_type) { return type; }
+		if constexpr(Param == sycl::info::device::name) { return m_name; }
+		if constexpr(Param == sycl::info::device::device_type) { return m_type; }
 	}
 
-	dt get_type() const { return type; }
+	dt get_type() const { return m_type; }
 
-	size_t get_id() const { return id; }
+	size_t get_id() const { return m_id; }
 
   private:
-	size_t id;
-	dt type;
-	std::string name;
-	mock_platform* platform;
+	size_t m_id;
+	dt m_type;
+	std::string m_name;
+	mock_platform* m_platform;
 };
 
 struct mock_platform_factory {
   public:
 	template <typename... Args>
 	auto create_platforms(Args... args) {
-		return std::array<mock_platform, sizeof...(args)>{mock_platform(next_id++, args)...};
+		return std::array<mock_platform, sizeof...(args)>{mock_platform(m_next_id++, args)...};
 	}
 
   private:
-	size_t next_id = 0;
+	size_t m_next_id = 0;
 };
 
 struct mock_platform {
-	mock_platform(size_t id, std::optional<std::string> name) : id(id), name(name.has_value() ? std::move(*name) : fmt::format("Mock platform {}", id)) {}
+	mock_platform(size_t id, std::optional<std::string> name) : m_id(id), m_name(name.has_value() ? std::move(*name) : fmt::format("Mock platform {}", id)) {}
 
 	template <typename... Args>
 	auto create_devices(Args... args) {
-		std::array<mock_device, sizeof...(args)> new_devices = {mock_device(next_device_id++, *this, args)...};
-		devices.insert(devices.end(), new_devices.begin(), new_devices.end());
+		std::array<mock_device, sizeof...(args)> new_devices = {mock_device(m_next_device_id++, *this, args)...};
+		m_devices.insert(m_devices.end(), new_devices.begin(), new_devices.end());
 		return new_devices;
 	}
 
 	std::vector<mock_device> get_devices(dt type = dt::all) const {
 		if(type != dt::all) {
 			std::vector<mock_device> devices_with_type;
-			for(auto device : devices) {
+			for(auto device : m_devices) {
 				if(device.get_type() == type) { devices_with_type.emplace_back(device); }
 			}
 			return devices_with_type;
 		}
-		return devices;
+		return m_devices;
 	}
 
 	template <sycl::info::platform Param>
 	std::string get_info() const {
-		return name;
+		return m_name;
 	}
 
-	bool operator==(const mock_platform& other) const { return other.id == id; }
+	bool operator==(const mock_platform& other) const { return other.m_id == m_id; }
 	bool operator!=(const mock_platform& other) const { return !(*this == other); }
 
-	size_t get_id() const { return id; }
+	size_t get_id() const { return m_id; }
 
   private:
-	size_t id;
-	std::string name;
-	size_t next_device_id = 0;
-	std::vector<mock_device> devices;
+	size_t m_id;
+	std::string m_name;
+	size_t m_next_device_id = 0;
+	std::vector<mock_device> m_devices;
 };
 
 namespace celerity::detail {
 struct config_testspy {
-	static void set_mock_device_cfg(config& cfg, const device_config& d_cfg) { cfg.device_cfg = d_cfg; }
-	static void set_mock_host_cfg(config& cfg, const host_config& h_cfg) { cfg.host_cfg = h_cfg; }
+	static void set_mock_device_cfg(config& cfg, const device_config& d_cfg) { cfg.m_device_cfg = d_cfg; }
+	static void set_mock_host_cfg(config& cfg, const host_config& h_cfg) { cfg.m_host_cfg = h_cfg; }
 };
 } // namespace celerity::detail
 
@@ -233,22 +233,22 @@ class log_capture {
   public:
 	log_capture(spdlog::level::level_enum level = spdlog::level::trace) {
 		auto logger = spdlog::default_logger();
-		ostream_sink = std::make_shared<spdlog::sinks::ostream_sink_st>(oss);
-		ostream_sink->set_level(level);
-		logger->sinks().push_back(ostream_sink);
+		m_ostream_sink = std::make_shared<spdlog::sinks::ostream_sink_st>(m_oss);
+		m_ostream_sink->set_level(level);
+		logger->sinks().push_back(m_ostream_sink);
 	}
 
 	~log_capture() {
 		auto logger = spdlog::default_logger();
-		assert(*logger->sinks().rbegin() == ostream_sink);
+		assert(*logger->sinks().rbegin() == m_ostream_sink);
 		logger->sinks().pop_back();
 	}
 
-	std::string get_log() { return oss.str(); }
+	std::string get_log() { return m_oss.str(); }
 
   private:
-	std::ostringstream oss;
-	std::shared_ptr<spdlog::sinks::ostream_sink_st> ostream_sink;
+	std::ostringstream m_oss;
+	std::shared_ptr<spdlog::sinks::ostream_sink_st> m_ostream_sink;
 };
 
 TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected info/warn messages", "[device-selection]") {

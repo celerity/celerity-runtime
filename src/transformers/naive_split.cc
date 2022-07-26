@@ -57,7 +57,7 @@ namespace detail {
 		return result;
 	}
 
-	naive_split_transformer::naive_split_transformer(size_t num_chunks, size_t num_workers) : num_chunks(num_chunks), num_workers(num_workers) {
+	naive_split_transformer::naive_split_transformer(size_t num_chunks, size_t num_workers) : m_num_chunks(num_chunks), m_num_workers(num_workers) {
 		assert(num_chunks > 0);
 		assert(num_workers > 0);
 	}
@@ -75,19 +75,19 @@ namespace detail {
 		assert(std::distance(original->get_dependents().begin(), original->get_dependents().end()) == 0);
 
 		chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
-		const auto chunks = split_equal(full_chunk, tsk.get_granularity(), num_chunks, tsk.get_dimensions());
-		assert(chunks.size() <= num_chunks); // We may have created less than requested
+		const auto chunks = split_equal(full_chunk, tsk.get_granularity(), m_num_chunks, tsk.get_dimensions());
+		assert(chunks.size() <= m_num_chunks); // We may have created less than requested
 		assert(!chunks.empty());
 
 		// Assign each chunk to a node
 		// We assign chunks next to each other to the same worker (if there is more chunks than workers), as this is likely to produce less
 		// transfers between tasks than a round-robin assignment (for typical stencil codes).
 		// FIXME: This only works if the number of chunks is an integer multiple of the number of workers, e.g. 3 chunks for 2 workers degrades to RR.
-		const auto chunks_per_node = std::max<size_t>(1, chunks.size() / num_workers);
+		const auto chunks_per_node = std::max<size_t>(1, chunks.size() / m_num_workers);
 
 		for(size_t i = 0; i < chunks.size(); ++i) {
 			assert(chunks[i].range.size() != 0);
-			const node_id nid = (i / chunks_per_node) % num_workers;
+			const node_id nid = (i / chunks_per_node) % m_num_workers;
 			cdag.create<execution_command>(nid, tsk.get_id(), subrange{chunks[i]});
 		}
 

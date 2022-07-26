@@ -35,17 +35,17 @@ namespace detail {
 	std::unique_ptr<runtime> runtime::instance = nullptr;
 
 	void runtime::mpi_initialize_once(int* argc, char*** argv) {
-		assert(!mpi_initialized);
+		assert(!m_mpi_initialized);
 		int provided;
 		MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
 		assert(provided == MPI_THREAD_MULTIPLE);
-		mpi_initialized = true;
+		m_mpi_initialized = true;
 	}
 
 	void runtime::mpi_finalize_once() {
-		assert(mpi_initialized && !mpi_finalized && (!test_mode || !instance));
+		assert(m_mpi_initialized && !m_mpi_finalized && (!m_test_mode || !instance));
 		MPI_Finalize();
-		mpi_finalized = true;
+		m_mpi_finalized = true;
 	}
 
 	void runtime::init(int* argc, char** argv[], device_or_selector user_device_or_selector) {
@@ -92,23 +92,23 @@ namespace detail {
 	}
 
 	runtime::runtime(int* argc, char** argv[], device_or_selector user_device_or_selector) {
-		if(test_mode) {
-			assert(test_active && "initializing the runtime from a test without a runtime_fixture");
+		if(m_test_mode) {
+			assert(m_test_active && "initializing the runtime from a test without a runtime_fixture");
 		} else {
 			mpi_initialize_once(argc, argv);
 		}
 
 		int world_size;
 		MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-		num_nodes = world_size;
+		m_num_nodes = world_size;
 
 		int world_rank;
 		MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-		local_nid = world_rank;
+		m_local_nid = world_rank;
 
 		spdlog::set_pattern(fmt::format("[%Y-%m-%d %H:%M:%S.%e] [{:0{}}] [%^%l%$] %v", world_rank, int(ceil(log10(world_size)))));
 
-		cfg = std::make_unique<config>(argc, argv);
+		m_cfg = std::make_unique<config>(argc, argv);
 #ifndef __APPLE__
 		if(const uint32_t cores = affinity_cores_available(); cores < min_cores_needed) {
 			CELERITY_WARN("Celerity has detected that only {} logical cores are available to this process. It is recommended to assign at least {} "
@@ -116,13 +116,13 @@ namespace detail {
 			    cores, min_cores_needed);
 		}
 #endif
-		user_bench = std::make_unique<experimental::bench::detail::user_benchmarker>(*cfg, static_cast<node_id>(world_rank));
+		m_user_bench = std::make_unique<experimental::bench::detail::user_benchmarker>(*m_cfg, static_cast<node_id>(world_rank));
 
-		h_queue = std::make_unique<host_queue>();
-		d_queue = std::make_unique<device_queue>();
+		m_h_queue = std::make_unique<host_queue>();
+		m_d_queue = std::make_unique<device_queue>();
 
 		// Initialize worker classes (but don't start them up yet)
-		buffer_mngr = std::make_unique<buffer_manager>(*d_queue, [this](buffer_manager::buffer_lifecycle_event event, buffer_id bid) {
+		m_buffer_mngr = std::make_unique<buffer_manager>(*m_d_queue, [this](buffer_manager::buffer_lifecycle_event event, buffer_id bid) {
 			switch(event) {
 			case buffer_manager::buffer_lifecycle_event::registered: handle_buffer_registered(bid); break;
 			case buffer_manager::buffer_lifecycle_event::unregistered: handle_buffer_unregistered(bid); break;
@@ -130,92 +130,92 @@ namespace detail {
 			}
 		});
 
-		reduction_mngr = std::make_unique<reduction_manager>();
-		host_object_mngr = std::make_unique<host_object_manager>();
-		task_mngr = std::make_unique<task_manager>(num_nodes, h_queue.get(), reduction_mngr.get());
-		exec = std::make_unique<executor>(local_nid, *h_queue, *d_queue, *task_mngr, *buffer_mngr, *reduction_mngr);
+		m_reduction_mngr = std::make_unique<reduction_manager>();
+		m_host_object_mngr = std::make_unique<host_object_manager>();
+		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_h_queue.get(), m_reduction_mngr.get());
+		m_exec = std::make_unique<executor>(m_local_nid, *m_h_queue, *m_d_queue, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
 		if(is_master_node()) {
-			cdag = std::make_unique<command_graph>();
-			ggen = std::make_shared<graph_generator>(num_nodes, *reduction_mngr, *cdag);
-			gsrlzr = std::make_unique<graph_serializer>(
-			    *cdag, [this](node_id target, unique_frame_ptr<command_frame> frame) { flush_command(target, std::move(frame)); });
-			schdlr = std::make_unique<scheduler>(*ggen, *gsrlzr, num_nodes);
-			task_mngr->register_task_callback([this](const task* tsk) { schdlr->notify_task_created(tsk); });
+			m_cdag = std::make_unique<command_graph>();
+			m_ggen = std::make_shared<graph_generator>(m_num_nodes, *m_reduction_mngr, *m_cdag);
+			m_gsrlzr = std::make_unique<graph_serializer>(
+			    *m_cdag, [this](node_id target, unique_frame_ptr<command_frame> frame) { flush_command(target, std::move(frame)); });
+			m_schdlr = std::make_unique<scheduler>(*m_ggen, *m_gsrlzr, m_num_nodes);
+			m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
 		}
 
 		CELERITY_INFO(
 		    "Celerity runtime version {} running on {}. PID = {}, build type = {}", get_version_string(), get_sycl_version(), get_pid(), get_build_type());
-		d_queue->init(*cfg, user_device_or_selector);
+		m_d_queue->init(*m_cfg, user_device_or_selector);
 	}
 
 	runtime::~runtime() {
 		if(is_master_node()) {
-			schdlr.reset();
-			gsrlzr.reset();
-			ggen.reset();
-			cdag.reset();
+			m_schdlr.reset();
+			m_gsrlzr.reset();
+			m_ggen.reset();
+			m_cdag.reset();
 		}
 
-		exec.reset();
-		task_mngr.reset();
-		reduction_mngr.reset();
-		host_object_mngr.reset();
+		m_exec.reset();
+		m_task_mngr.reset();
+		m_reduction_mngr.reset();
+		m_host_object_mngr.reset();
 		// All buffers should have unregistered themselves by now.
-		assert(!buffer_mngr->has_active_buffers());
-		buffer_mngr.reset();
-		d_queue.reset();
-		h_queue.reset();
-		user_bench.reset();
+		assert(!m_buffer_mngr->has_active_buffers());
+		m_buffer_mngr.reset();
+		m_d_queue.reset();
+		m_h_queue.reset();
+		m_user_bench.reset();
 
 		// Make sure we free all of our MPI transfers before we finalize
-		while(!active_flushes.empty()) {
+		while(!m_active_flushes.empty()) {
 			int done;
-			MPI_Test(&active_flushes.begin()->req, &done, MPI_STATUS_IGNORE);
-			if(done) { active_flushes.pop_front(); }
+			MPI_Test(&m_active_flushes.begin()->req, &done, MPI_STATUS_IGNORE);
+			if(done) { m_active_flushes.pop_front(); }
 		}
 
-		if(!test_mode) { mpi_finalize_once(); }
+		if(!m_test_mode) { mpi_finalize_once(); }
 	}
 
 	void runtime::startup() {
-		if(is_active) { throw runtime_already_started_error(); }
-		is_active = true;
-		if(is_master_node()) { schdlr->startup(); }
-		exec->startup();
+		if(m_is_active) { throw runtime_already_started_error(); }
+		m_is_active = true;
+		if(is_master_node()) { m_schdlr->startup(); }
+		m_exec->startup();
 		set_thread_name(get_current_thread_handle(), "cy-main");
 	}
 
 	void runtime::shutdown() {
-		assert(is_active);
-		is_shutting_down = true;
+		assert(m_is_active);
+		m_is_shutting_down = true;
 
-		const auto shutdown_epoch = task_mngr->generate_epoch_task(epoch_action::shutdown);
+		const auto shutdown_epoch = m_task_mngr->generate_epoch_task(epoch_action::shutdown);
 
-		if(is_master_node()) { schdlr->shutdown(); }
+		if(is_master_node()) { m_schdlr->shutdown(); }
 
-		task_mngr->await_epoch(shutdown_epoch);
+		m_task_mngr->await_epoch(shutdown_epoch);
 
-		exec->shutdown();
-		d_queue->wait();
-		h_queue->wait();
+		m_exec->shutdown();
+		m_d_queue->wait();
+		m_h_queue->wait();
 
-		if(is_master_node() && cfg->get_log_level() == log_level::trace) {
-			const auto print_max_nodes = cfg->get_graph_print_max_verts();
+		if(is_master_node() && m_cfg->get_log_level() == log_level::trace) {
+			const auto print_max_nodes = m_cfg->get_graph_print_max_verts();
 			{
-				const auto graph_str = task_mngr->print_graph(print_max_nodes);
+				const auto graph_str = m_task_mngr->print_graph(print_max_nodes);
 				if(graph_str.has_value()) {
 					CELERITY_TRACE("Task graph:\n\n{}\n", *graph_str);
 				} else {
 					CELERITY_WARN("Task graph with {} vertices exceeds CELERITY_GRAPH_PRINT_MAX_VERTS={}. Skipping GraphViz output",
-					    task_mngr->get_current_task_count(), print_max_nodes);
+					    m_task_mngr->get_current_task_count(), print_max_nodes);
 				}
 			}
 			{
-				const auto graph_str = cdag->print_graph(print_max_nodes, *task_mngr);
+				const auto graph_str = m_cdag->print_graph(print_max_nodes, *m_task_mngr);
 				if(graph_str.has_value()) {
 					CELERITY_TRACE("Command graph:\n\n{}\n", *graph_str);
 				} else {
-					CELERITY_WARN("Command graph with {} vertices exceeds CELERITY_GRAPH_PRINT_MAX_VERTS={}. Skipping GraphViz output", cdag->command_count(),
+					CELERITY_WARN("Command graph with {} vertices exceeds CELERITY_GRAPH_PRINT_MAX_VERTS={}. Skipping GraphViz output", m_cdag->command_count(),
 					    print_max_nodes);
 				}
 			}
@@ -223,39 +223,39 @@ namespace detail {
 
 		// Shutting down the task_manager will cause all buffers captured inside command group functions to unregister.
 		// Since we check whether the runtime is still active upon unregistering, we have to set this to false first.
-		is_active = false;
-		task_mngr->shutdown();
-		is_shutting_down = false;
+		m_is_active = false;
+		m_task_mngr->shutdown();
+		m_is_shutting_down = false;
 		maybe_destroy_runtime();
 	}
 
 	void runtime::sync() {
-		const auto epoch = task_mngr->generate_epoch_task(epoch_action::barrier);
-		task_mngr->await_epoch(epoch);
+		const auto epoch = m_task_mngr->generate_epoch_task(epoch_action::barrier);
+		m_task_mngr->await_epoch(epoch);
 	}
 
-	task_manager& runtime::get_task_manager() const { return *task_mngr; }
+	task_manager& runtime::get_task_manager() const { return *m_task_mngr; }
 
-	buffer_manager& runtime::get_buffer_manager() const { return *buffer_mngr; }
+	buffer_manager& runtime::get_buffer_manager() const { return *m_buffer_mngr; }
 
-	reduction_manager& runtime::get_reduction_manager() const { return *reduction_mngr; }
+	reduction_manager& runtime::get_reduction_manager() const { return *m_reduction_mngr; }
 
-	host_object_manager& runtime::get_host_object_manager() const { return *host_object_mngr; }
+	host_object_manager& runtime::get_host_object_manager() const { return *m_host_object_mngr; }
 
 	void runtime::handle_buffer_registered(buffer_id bid) {
-		const auto& info = buffer_mngr->get_buffer_info(bid);
-		task_mngr->add_buffer(bid, info.range, info.is_host_initialized);
-		if(is_master_node()) ggen->add_buffer(bid, info.range);
+		const auto& info = m_buffer_mngr->get_buffer_info(bid);
+		m_task_mngr->add_buffer(bid, info.range, info.is_host_initialized);
+		if(is_master_node()) m_ggen->add_buffer(bid, info.range);
 	}
 
 	void runtime::handle_buffer_unregistered(buffer_id bid) { maybe_destroy_runtime(); }
 
 	void runtime::maybe_destroy_runtime() const {
-		if(test_active) return;
-		if(is_active) return;
-		if(is_shutting_down) return;
-		if(buffer_mngr->has_active_buffers()) return;
-		if(host_object_mngr->has_active_objects()) return;
+		if(m_test_active) return;
+		if(m_is_active) return;
+		if(m_is_shutting_down) return;
+		if(m_buffer_mngr->has_active_buffers()) return;
+		if(m_host_object_mngr->has_active_objects()) return;
 		instance.reset();
 	}
 
@@ -265,13 +265,13 @@ namespace detail {
 		MPI_Request req;
 		MPI_Isend(
 		    frame.get_pointer(), static_cast<int>(frame.get_size_bytes()), MPI_BYTE, static_cast<int>(target), mpi_support::TAG_CMD, MPI_COMM_WORLD, &req);
-		active_flushes.push_back(flush_handle{std::move(frame), req});
+		m_active_flushes.push_back(flush_handle{std::move(frame), req});
 
 		// Cleanup finished transfers.
 		// Just check the oldest flush. Since commands are small this will stay in equilibrium fairly quickly.
 		int done;
-		MPI_Test(&active_flushes.begin()->req, &done, MPI_STATUS_IGNORE);
-		if(done) { active_flushes.pop_front(); }
+		MPI_Test(&m_active_flushes.begin()->req, &done, MPI_STATUS_IGNORE);
+		if(done) { m_active_flushes.pop_front(); }
 	}
 
 } // namespace detail

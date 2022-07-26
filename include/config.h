@@ -26,9 +26,9 @@ namespace detail {
 		 */
 		config(int* argc, char** argv[]);
 
-		log_level get_log_level() const { return log_lvl; }
+		log_level get_log_level() const { return m_log_lvl; }
 
-		const host_config& get_host_config() const { return host_cfg; }
+		const host_config& get_host_config() const { return m_host_cfg; }
 
 		/**
 		 * Returns the platform and device id as set by the CELERITY_DEVICES environment variable.
@@ -38,17 +38,17 @@ namespace detail {
 		 *
 		 * TODO: Should we support multiple platforms on the same host as well?
 		 */
-		const std::optional<device_config>& get_device_config() const { return device_cfg; };
-		std::optional<bool> get_enable_device_profiling() const { return enable_device_profiling; };
+		const std::optional<device_config>& get_device_config() const { return m_device_cfg; };
+		std::optional<bool> get_enable_device_profiling() const { return m_enable_device_profiling; };
 
-		size_t get_graph_print_max_verts() const { return graph_print_max_verts; };
+		size_t get_graph_print_max_verts() const { return m_graph_print_max_verts; };
 
 	  private:
-		log_level log_lvl;
-		host_config host_cfg;
-		std::optional<device_config> device_cfg;
-		std::optional<bool> enable_device_profiling;
-		size_t graph_print_max_verts = 200;
+		log_level m_log_lvl;
+		host_config m_host_cfg;
+		std::optional<device_config> m_device_cfg;
+		std::optional<bool> m_enable_device_profiling;
+		size_t m_graph_print_max_verts = 200;
 	};
 
 } // namespace detail

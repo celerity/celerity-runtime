@@ -18,8 +18,8 @@ namespace detail {
 		void transform_task(const task& tsk, command_graph& cdag) override;
 
 	  private:
-		const size_t num_chunks;
-		const size_t num_workers;
+		const size_t m_num_chunks;
+		const size_t m_num_workers;
 	};
 
 } // namespace detail

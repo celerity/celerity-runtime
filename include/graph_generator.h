@@ -91,15 +91,15 @@ namespace detail {
 		void build_task(const task& tsk, const std::vector<graph_transformer*>& transformers);
 
 	  private:
-		reduction_manager& reduction_mngr;
-		const size_t num_nodes;
-		command_graph& cdag;
+		reduction_manager& m_reduction_mngr;
+		const size_t m_num_nodes;
+		command_graph& m_cdag;
 
 		// After completing an epoch, we need to wait until it is flushed before pruning predecessors from the CDAG, otherwise dependencies will not be flushed.
 		// We generate the initial epoch commands manually starting from cid 0, so initializing these to 0 is correct.
-		command_id min_epoch_for_new_commands = 0;
+		command_id m_min_epoch_for_new_commands = 0;
 		// Used to skip the pruning step if no new epoch has been completed.
-		command_id min_epoch_last_pruned_before = 0;
+		command_id m_min_epoch_last_pruned_before = 0;
 
 		// NOTE: We have several data structures that keep track of the "global state" of the distributed program, across all tasks and nodes.
 		// While it might seem that this is problematic when the ordering of tasks can be chosen freely (by the scheduler),
@@ -108,17 +108,17 @@ namespace detail {
 		// This is a data structure which keeps track of where (= on which node) valid regions of a buffer can be found.
 		// A valid region is any region that has not been written to on another node.
 		// This is updated with every task that is processed.
-		buffer_state_map buffer_states;
+		buffer_state_map m_buffer_states;
 
 		// For proper handling of anti-dependencies we also have to store for each command which buffer regions it reads.
 		// We do this because we cannot reconstruct the requirements from a command within the graph alone (e.g. for compute commands).
 		// While we could apply range mappers again etc., that is a bit wasteful. This is basically an optimization.
-		std::unordered_map<command_id, buffer_read_map> command_buffer_reads;
+		std::unordered_map<command_id, buffer_read_map> m_command_buffer_reads;
 
-		std::unordered_map<node_id, per_node_data> node_data;
+		std::unordered_map<node_id, per_node_data> m_node_data;
 
 		// This mutex mainly serves to protect per-buffer data structures, as new buffers might be added at any time.
-		std::mutex buffer_mutex;
+		std::mutex m_buffer_mutex;
 
 		void set_epoch_for_new_commands(per_node_data& node_data, const command_id epoch);
 
