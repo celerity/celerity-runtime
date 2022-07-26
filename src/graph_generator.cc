@@ -45,12 +45,12 @@ namespace detail {
 		const auto min_epoch_to_prune_before = min_epoch_for_new_commands;
 
 		switch(tsk.get_type()) {
-		case task_type::EPOCH: generate_epoch_commands(tsk); break;
-		case task_type::HORIZON: generate_horizon_commands(tsk); break;
-		case task_type::COLLECTIVE: generate_collective_execution_commands(tsk); break;
-		case task_type::HOST_COMPUTE:
-		case task_type::DEVICE_COMPUTE:
-		case task_type::MASTER_NODE: generate_independent_execution_commands(tsk); break;
+		case task_type::epoch: generate_epoch_commands(tsk); break;
+		case task_type::horizon: generate_horizon_commands(tsk); break;
+		case task_type::collective: generate_collective_execution_commands(tsk); break;
+		case task_type::host_compute:
+		case task_type::device_compute:
+		case task_type::master_node: generate_independent_execution_commands(tsk); break;
 		}
 
 		for(auto& t : transformers) {
@@ -58,7 +58,7 @@ namespace detail {
 		}
 
 		// Only execution tasks can have data requirements or reductions
-		if(tsk.get_execution_target() != execution_target::NONE) {
+		if(tsk.get_execution_target() != execution_target::none) {
 #ifndef NDEBUG
 			// It is currently undefined to split reduction-producer tasks into multiple chunks on the same node:
 			//   - Per-node reduction intermediate results are stored with fixed access to a single SYCL buffer, so multiple chunks on the same node will race
@@ -117,13 +117,13 @@ namespace detail {
 		const auto nid = new_front->get_nid();
 		const auto previous_execution_front = cdag.get_execution_front(nid);
 		for(const auto front_cmd : previous_execution_front) {
-			if(front_cmd != new_front) { cdag.add_dependency(new_front, front_cmd, dependency_kind::TRUE_DEP, dependency_origin::execution_front); }
+			if(front_cmd != new_front) { cdag.add_dependency(new_front, front_cmd, dependency_kind::true_dep, dependency_origin::execution_front); }
 		}
 		assert(cdag.get_execution_front(nid).size() == 1 && *cdag.get_execution_front(nid).begin() == new_front);
 	}
 
 	void graph_generator::generate_epoch_commands(const task& tsk) {
-		assert(tsk.get_type() == task_type::EPOCH);
+		assert(tsk.get_type() == task_type::epoch);
 
 		command_id min_new_epoch;
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
@@ -144,7 +144,7 @@ namespace detail {
 	}
 
 	void graph_generator::generate_horizon_commands(const task& tsk) {
-		assert(tsk.get_type() == task_type::HORIZON);
+		assert(tsk.get_type() == task_type::horizon);
 
 		std::optional<command_id> min_new_epoch;
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
@@ -174,7 +174,7 @@ namespace detail {
 	}
 
 	void graph_generator::generate_collective_execution_commands(const task& tsk) {
-		assert(tsk.get_type() == task_type::COLLECTIVE);
+		assert(tsk.get_type() == task_type::collective);
 
 		for(size_t nid = 0; nid < num_nodes; ++nid) {
 			auto offset = cl::sycl::id<1>{nid};
@@ -187,7 +187,7 @@ namespace detail {
 			auto cgid = tsk.get_collective_group_id();
 			auto& last_collective_commands = node_data.at(nid).last_collective_commands;
 			if(auto prev = last_collective_commands.find(cgid); prev != last_collective_commands.end()) {
-				cdag.add_dependency(cmd, cdag.get(prev->second), dependency_kind::TRUE_DEP, dependency_origin::collective_group_serialization);
+				cdag.add_dependency(cmd, cdag.get(prev->second), dependency_kind::true_dep, dependency_origin::collective_group_serialization);
 				last_collective_commands.erase(prev);
 			}
 			last_collective_commands.emplace(cgid, cmd->get_cid());
@@ -195,7 +195,7 @@ namespace detail {
 	}
 
 	void graph_generator::generate_independent_execution_commands(const task& tsk) {
-		assert(tsk.get_type() == task_type::HOST_COMPUTE || tsk.get_type() == task_type::DEVICE_COMPUTE || tsk.get_type() == task_type::MASTER_NODE);
+		assert(tsk.get_type() == task_type::host_compute || tsk.get_type() == task_type::device_compute || tsk.get_type() == task_type::master_node);
 
 		const auto sr = subrange<3>{tsk.get_global_offset(), tsk.get_global_size()};
 		cdag.create<execution_command>(0, tsk.get_id(), sr);
@@ -229,7 +229,7 @@ namespace detail {
 			bool has_dependents = false;
 			for(auto d : last_writer_cmd->get_dependents()) {
 				// Only consider true dependencies
-				if(d.kind != dependency_kind::TRUE_DEP) continue;
+				if(d.kind != dependency_kind::true_dep) continue;
 
 				const auto cmd = d.node;
 
@@ -243,7 +243,7 @@ namespace detail {
 					if(const auto buffer_reads_it = command_reads.find(bid); buffer_reads_it != command_reads.end()) {
 						if(!GridRegion<3>::intersect(write_req, buffer_reads_it->second).empty()) {
 							has_dependents = true;
-							cdag.add_dependency(write_cmd, cmd, dependency_kind::ANTI_DEP, dependency_origin::dataflow);
+							cdag.add_dependency(write_cmd, cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
 						}
 					}
 				}
@@ -252,9 +252,9 @@ namespace detail {
 			// In some cases (horizons, master node host task, weird discard_* constructs...)
 			// the last writer might not have any dependents. Just add the anti-dependency onto the writer itself then.
 			if(!has_dependents) {
-				cdag.add_dependency(write_cmd, last_writer_cmd, dependency_kind::ANTI_DEP, dependency_origin::dataflow);
+				cdag.add_dependency(write_cmd, last_writer_cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
 
-				// This is a good time to validate our assumption that every AWAIT_PUSH command has a dependent
+				// This is a good time to validate our assumption that every await_push command has a dependent
 				assert(!isa<await_push_command>(last_writer_cmd));
 			}
 		}
@@ -266,7 +266,7 @@ namespace detail {
 			auto sources = map.get_region_values(box);
 			for(const auto& source : sources) {
 				auto source_cmd = cdag.get(*source.second);
-				cdag.add_dependency(cmd, source_cmd, dependency_kind::TRUE_DEP, dependency_origin::dataflow);
+				cdag.add_dependency(cmd, source_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
 			}
 		}
 	} // namespace
@@ -330,7 +330,7 @@ namespace detail {
 		std::vector<std::tuple<node_id, buffer_id, GridRegion<3>, command_id>> per_node_last_writer_update_list;
 		std::unordered_map<buffer_id, std::vector<node_id>> buffer_reduction_resolve_list;
 
-		// Remember all generated PUSHes for determining intra-task anti-dependencies.
+		// Remember all generated pushes for determining intra-task anti-dependencies.
 		std::vector<push_command*> generated_pushes;
 
 		for(auto* cmd : task_commands) {
@@ -423,12 +423,12 @@ namespace detail {
 									continue;
 								}
 
-								// If not local, the original producer is the primary source (i.e., an execution_command, as opposed to an AWAIT_PUSH)
+								// If not local, the original producer is the primary source (i.e., an execution_command, as opposed to an await_push)
 								// it is used as the transfer source to avoid creating long dependency chains across nodes.
 								// TODO: For larger numbers of nodes this might become a bottleneck.
 								auto source_nid = box_sources[0];
 
-								// Generate PUSH command
+								// Generate push command
 								push_command* push_cmd;
 								{
 									push_cmd = cdag.create<push_command>(source_nid, bid, 0, nid, grid_box_to_subrange(box));
@@ -437,15 +437,15 @@ namespace detail {
 									// Store the read access on the pushing node
 									command_buffer_reads[push_cmd->get_cid()][bid] = GridRegion<3>::merge(command_buffer_reads[push_cmd->get_cid()][bid], box);
 
-									// Add dependencies on the source node between the PUSH and the commands that last wrote that box
+									// Add dependencies on the source node between the push and the commands that last wrote that box
 									add_dependencies_for_box(cdag, push_cmd, node_data.at(source_nid).buffer_last_writer.at(bid), box);
 								}
 
-								// Generate AWAIT_PUSH command
+								// Generate await_push command
 								{
 									auto await_push_cmd = cdag.create<await_push_command>(nid, push_cmd);
 
-									cdag.add_dependency(cmd, await_push_cmd, dependency_kind::TRUE_DEP, dependency_origin::dataflow);
+									cdag.add_dependency(cmd, await_push_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
 									generate_anti_dependencies(tid, bid, node_buffer_last_writer, box, await_push_cmd);
 									generate_epoch_dependencies(await_push_cmd);
 
@@ -494,12 +494,12 @@ namespace detail {
 							add_dependencies_for_box(cdag, push_cmd, node_data.at(source_nid).buffer_last_writer.at(bid), box);
 
 							auto await_push_cmd = cdag.create<await_push_command>(nid, push_cmd);
-							cdag.add_dependency(reduce_cmd, await_push_cmd, dependency_kind::TRUE_DEP, dependency_origin::dataflow);
+							cdag.add_dependency(reduce_cmd, await_push_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
 							generate_epoch_dependencies(await_push_cmd);
 						}
 					}
 
-					cdag.add_dependency(cmd, reduce_cmd, dependency_kind::TRUE_DEP, dependency_origin::dataflow);
+					cdag.add_dependency(cmd, reduce_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
 
 					// Unless this task also writes the reduction buffer, the reduction command becomes the last writer
 					if(!std::any_of(required_modes.begin(), required_modes.end(), detail::access::mode_traits::is_producer)) {
@@ -556,8 +556,8 @@ namespace detail {
 		}
 
 		// As the last step, we determine potential "intra-task" race conditions.
-		// These can happen in rare cases, when the node that PUSHes a buffer range also writes to that range within the same task.
-		// We cannot do this while generating the PUSH command, as we may not have the writing command recorded at that point.
+		// These can happen in rare cases, when the node that pushes a buffer range also writes to that range within the same task.
+		// We cannot do this while generating the push command, as we may not have the writing command recorded at that point.
 		for(auto cmd : generated_pushes) {
 			const auto push_cmd = static_cast<push_command*>(cmd);
 			const auto last_writers =
@@ -568,16 +568,16 @@ namespace detail {
 				const auto writer_cmd = cdag.get(*box_and_writer.second);
 				assert(writer_cmd != nullptr);
 
-				// We're only interested in writes that happen within the same task as the PUSH
+				// We're only interested in writes that happen within the same task as the push
 				if(isa<task_command>(writer_cmd) && static_cast<task_command*>(writer_cmd)->get_tid() == tid) {
-					// In certain situations the PUSH might have a true dependency on the last writer,
+					// In certain situations the push might have a true dependency on the last writer,
 					// in that case don't add an anti-dependency (as that would cause a cycle).
-					if(cmd->has_dependency(writer_cmd, dependency_kind::TRUE_DEP)) {
-						// This can currently only happen for AWAIT_PUSH commands.
+					if(cmd->has_dependency(writer_cmd, dependency_kind::true_dep)) {
+						// This can currently only happen for await_push commands.
 						assert(isa<await_push_command>(writer_cmd));
 						continue;
 					}
-					cdag.add_dependency(writer_cmd, push_cmd, dependency_kind::ANTI_DEP, dependency_origin::dataflow);
+					cdag.add_dependency(writer_cmd, push_cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
 				}
 			}
 		}
@@ -594,7 +594,7 @@ namespace detail {
 				const auto [hoid, order] = side_effect;
 				if(const auto last_effect = nd.host_object_last_effects.find(hoid); last_effect != nd.host_object_last_effects.end()) {
 					// TODO once we have different side_effect_orders, their interaction will determine the dependency kind
-					cdag.add_dependency(cmd, cdag.get(last_effect->second), dependency_kind::TRUE_DEP, dependency_origin::dataflow);
+					cdag.add_dependency(cmd, cdag.get(last_effect->second), dependency_kind::true_dep, dependency_origin::dataflow);
 				}
 
 				// Simplification: If there are multiple chunks per node, we generate true-dependencies between them in an arbitrary order, when all we really
@@ -618,10 +618,10 @@ namespace detail {
 		// dependency chain from the executor perspective.
 
 		if(const auto deps = cmd->get_dependencies();
-		    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::TRUE_DEP; })) {
+		    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::true_dep; })) {
 			auto last_epoch = node_data.at(cmd->get_nid()).epoch_for_new_commands;
 			assert(cmd->get_cid() != last_epoch);
-			cdag.add_dependency(cmd, cdag.get(last_epoch), dependency_kind::TRUE_DEP, dependency_origin::last_epoch);
+			cdag.add_dependency(cmd, cdag.get(last_epoch), dependency_kind::true_dep, dependency_origin::last_epoch);
 		}
 	}
 

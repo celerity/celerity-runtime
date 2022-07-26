@@ -124,8 +124,8 @@ namespace detail {
 		// Initialize worker classes (but don't start them up yet)
 		buffer_mngr = std::make_unique<buffer_manager>(*d_queue, [this](buffer_manager::buffer_lifecycle_event event, buffer_id bid) {
 			switch(event) {
-			case buffer_manager::buffer_lifecycle_event::REGISTERED: handle_buffer_registered(bid); break;
-			case buffer_manager::buffer_lifecycle_event::UNREGISTERED: handle_buffer_unregistered(bid); break;
+			case buffer_manager::buffer_lifecycle_event::registered: handle_buffer_registered(bid); break;
+			case buffer_manager::buffer_lifecycle_event::unregistered: handle_buffer_unregistered(bid); break;
 			default: assert(false && "Unexpected buffer lifecycle event");
 			}
 		});

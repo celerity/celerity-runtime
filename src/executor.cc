@@ -96,10 +96,10 @@ namespace detail {
 
 			// Process newly available jobs
 			if(!ready_jobs.empty()) {
-				// Make sure to start any PUSH jobs before other jobs, as on some platforms copying data from a compute device while
-				// also reading it from within a kernel is not supported. To avoid stalling other nodes, we thus perform the PUSH first.
+				// Make sure to start any push jobs before other jobs, as on some platforms copying data from a compute device while
+				// also reading it from within a kernel is not supported. To avoid stalling other nodes, we thus perform the push first.
 				std::sort(ready_jobs.begin(), ready_jobs.end(),
-				    [this](command_id a, command_id b) { return jobs[a].cmd == command_type::PUSH && jobs[b].cmd != command_type::PUSH; });
+				    [this](command_id a, command_id b) { return jobs[a].cmd == command_type::push && jobs[b].cmd != command_type::push; });
 				for(command_id cid : ready_jobs) {
 					auto* job = jobs.at(cid).job.get();
 					job->start();
@@ -148,13 +148,13 @@ namespace detail {
 		}
 
 		switch(frame.pkg.get_command_type()) {
-		case command_type::HORIZON: create_job<horizon_job>(frame, task_mngr); break;
-		case command_type::EPOCH: create_job<epoch_job>(frame, task_mngr); break;
-		case command_type::PUSH: create_job<push_job>(frame, *btm, buffer_mngr); break;
-		case command_type::AWAIT_PUSH: create_job<await_push_job>(frame, *btm); break;
-		case command_type::REDUCTION: create_job<reduction_job>(frame, reduction_mngr); break;
-		case command_type::EXECUTION:
-			if(task_mngr.get_task(frame.pkg.get_tid().value())->get_execution_target() == execution_target::HOST) {
+		case command_type::horizon: create_job<horizon_job>(frame, task_mngr); break;
+		case command_type::epoch: create_job<epoch_job>(frame, task_mngr); break;
+		case command_type::push: create_job<push_job>(frame, *btm, buffer_mngr); break;
+		case command_type::await_push: create_job<await_push_job>(frame, *btm); break;
+		case command_type::reduction: create_job<reduction_job>(frame, reduction_mngr); break;
+		case command_type::execution:
+			if(task_mngr.get_task(frame.pkg.get_tid().value())->get_execution_target() == execution_target::host) {
 				create_job<host_execute_job>(frame, h_queue, task_mngr, buffer_mngr);
 			} else {
 				create_job<device_execute_job>(frame, d_queue, task_mngr, buffer_mngr, reduction_mngr, local_nid);

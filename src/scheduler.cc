@@ -11,7 +11,7 @@ namespace detail {
 	abstract_scheduler::abstract_scheduler(graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes)
 	    : ggen(ggen), gsrlzr(gsrlzr), num_nodes(num_nodes) {}
 
-	void abstract_scheduler::shutdown() { notify(scheduler_event_type::SHUTDOWN, 0); }
+	void abstract_scheduler::shutdown() { notify(scheduler_event_type::shutdown, 0); }
 
 	void abstract_scheduler::schedule() {
 		std::queue<scheduler_event> in_flight_events;
@@ -26,12 +26,12 @@ namespace detail {
 				const auto event = std::move(in_flight_events.front()); // NOLINT(performance-move-const-arg)
 				in_flight_events.pop();
 
-				if(event.type == scheduler_event_type::SHUTDOWN) {
+				if(event.type == scheduler_event_type::shutdown) {
 					assert(in_flight_events.empty());
 					return;
 				}
 
-				assert(event.type == scheduler_event_type::TASK_AVAILABLE);
+				assert(event.type == scheduler_event_type::task_available);
 
 				const task* tsk = event.tsk;
 				assert(tsk != nullptr);

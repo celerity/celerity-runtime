@@ -12,8 +12,8 @@ namespace celerity {
 namespace detail {
 
 	enum class dependency_kind {
-		ANTI_DEP = 0, // Data anti-dependency, can be resolved by duplicating buffers
-		TRUE_DEP = 1, // True data flow or temporal dependency
+		anti_dep = 0, // Data anti-dependency, can be resolved by duplicating buffers
+		true_dep = 1, // True data flow or temporal dependency
 	};
 
 	enum class dependency_origin {
@@ -82,7 +82,7 @@ namespace detail {
 
 			if(const auto it = maybe_get_dep(dependencies, dep.node)) {
 				// We assume that for dependency kinds A and B, max(A, B) is strong enough to satisfy both.
-				static_assert(dependency_kind::ANTI_DEP < dependency_kind::TRUE_DEP);
+				static_assert(dependency_kind::anti_dep < dependency_kind::true_dep);
 
 				// Already exists, potentially upgrade to full dependency
 				if((*it)->kind < dep.kind) {

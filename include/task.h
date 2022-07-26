@@ -17,18 +17,18 @@ class handler;
 namespace detail {
 
 	enum class task_type {
-		EPOCH,
-		HOST_COMPUTE,   ///< host task with explicit global size and celerity-defined split
-		DEVICE_COMPUTE, ///< device compute task
-		COLLECTIVE,     ///< host task with implicit 1d global size = #ranks and fixed split
-		MASTER_NODE,    ///< zero-dimensional host task
-		HORIZON,        ///< task horizon
+		epoch,
+		host_compute,   ///< host task with explicit global size and celerity-defined split
+		device_compute, ///< device compute task
+		collective,     ///< host task with implicit 1d global size = #ranks and fixed split
+		master_node,    ///< zero-dimensional host task
+		horizon,        ///< task horizon
 	};
 
 	enum class execution_target {
-		NONE,
-		HOST,
-		DEVICE,
+		none,
+		host,
+		device,
 	};
 
 	enum class epoch_action {
@@ -127,17 +127,17 @@ namespace detail {
 
 		const std::string& get_debug_name() const { return debug_name; }
 
-		bool has_variable_split() const { return type == task_type::HOST_COMPUTE || type == task_type::DEVICE_COMPUTE; }
+		bool has_variable_split() const { return type == task_type::host_compute || type == task_type::device_compute; }
 
 		execution_target get_execution_target() const {
 			switch(type) {
-			case task_type::EPOCH: return execution_target::NONE;
-			case task_type::DEVICE_COMPUTE: return execution_target::DEVICE;
-			case task_type::HOST_COMPUTE:
-			case task_type::COLLECTIVE:
-			case task_type::MASTER_NODE: return execution_target::HOST;
-			case task_type::HORIZON: return execution_target::NONE;
-			default: assert(!"Unhandled task type"); return execution_target::NONE;
+			case task_type::epoch: return execution_target::none;
+			case task_type::device_compute: return execution_target::device;
+			case task_type::host_compute:
+			case task_type::collective:
+			case task_type::master_node: return execution_target::host;
+			case task_type::horizon: return execution_target::none;
+			default: assert(!"Unhandled task type"); return execution_target::none;
 			}
 		}
 
@@ -146,18 +146,18 @@ namespace detail {
 		detail::epoch_action get_epoch_action() const { return epoch_action; }
 
 		static std::unique_ptr<task> make_epoch(task_id tid, detail::epoch_action action) {
-			return std::unique_ptr<task>(new task(tid, task_type::EPOCH, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}, action));
+			return std::unique_ptr<task>(new task(tid, task_type::epoch, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}, action));
 		}
 
 		static std::unique_ptr<task> make_host_compute(task_id tid, task_geometry geometry, std::unique_ptr<command_group_storage_base> cgf,
 		    buffer_access_map access_map, side_effect_map side_effect_map, std::vector<reduction_id> reductions) {
-			return std::unique_ptr<task>(new task(tid, task_type::HOST_COMPUTE, collective_group_id{}, geometry, std::move(cgf), std::move(access_map),
+			return std::unique_ptr<task>(new task(tid, task_type::host_compute, collective_group_id{}, geometry, std::move(cgf), std::move(access_map),
 			    std::move(side_effect_map), std::move(reductions), {}, {}));
 		}
 
 		static std::unique_ptr<task> make_device_compute(task_id tid, task_geometry geometry, std::unique_ptr<command_group_storage_base> cgf,
 		    buffer_access_map access_map, std::vector<reduction_id> reductions, std::string debug_name) {
-			return std::unique_ptr<task>(new task(tid, task_type::DEVICE_COMPUTE, collective_group_id{}, geometry, std::move(cgf), std::move(access_map), {},
+			return std::unique_ptr<task>(new task(tid, task_type::device_compute, collective_group_id{}, geometry, std::move(cgf), std::move(access_map), {},
 			    std::move(reductions), std::move(debug_name), {}));
 		}
 
@@ -165,17 +165,17 @@ namespace detail {
 		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, side_effect_map side_effect_map) {
 			const task_geometry geometry{1, detail::range_cast<3>(cl::sycl::range<1>{num_collective_nodes}), {}, {1, 1, 1}};
 			return std::unique_ptr<task>(
-			    new task(tid, task_type::COLLECTIVE, cgid, geometry, std::move(cgf), std::move(access_map), std::move(side_effect_map), {}, {}, {}));
+			    new task(tid, task_type::collective, cgid, geometry, std::move(cgf), std::move(access_map), std::move(side_effect_map), {}, {}, {}));
 		}
 
 		static std::unique_ptr<task> make_master_node(
 		    task_id tid, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, side_effect_map side_effect_map) {
-			return std::unique_ptr<task>(new task(tid, task_type::MASTER_NODE, collective_group_id{}, task_geometry{}, std::move(cgf), std::move(access_map),
+			return std::unique_ptr<task>(new task(tid, task_type::master_node, collective_group_id{}, task_geometry{}, std::move(cgf), std::move(access_map),
 			    std::move(side_effect_map), {}, {}, {}));
 		}
 
 		static std::unique_ptr<task> make_horizon_task(task_id tid) {
-			return std::unique_ptr<task>(new task(tid, task_type::HORIZON, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}, {}));
+			return std::unique_ptr<task>(new task(tid, task_type::horizon, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}, {}));
 		}
 
 	  private:
@@ -195,9 +195,9 @@ namespace detail {
 		    detail::epoch_action epoch_action)
 		    : tid(tid), type(type), cgid(cgid), geometry(geometry), cgf(std::move(cgf)), access_map(std::move(access_map)),
 		      side_effects(std::move(side_effects)), reductions(std::move(reductions)), debug_name(std::move(debug_name)), epoch_action(epoch_action) {
-			assert(type == task_type::HOST_COMPUTE || type == task_type::DEVICE_COMPUTE || get_granularity().size() == 1);
+			assert(type == task_type::host_compute || type == task_type::device_compute || get_granularity().size() == 1);
 			// Only host tasks can have side effects
-			assert(this->side_effects.empty() || type == task_type::HOST_COMPUTE || type == task_type::COLLECTIVE || type == task_type::MASTER_NODE);
+			assert(this->side_effects.empty() || type == task_type::host_compute || type == task_type::collective || type == task_type::master_node);
 		}
 	};
 

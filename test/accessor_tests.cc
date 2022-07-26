@@ -203,7 +203,7 @@ namespace detail {
 			}
 		}
 
-		typename accessor_fixture<Dims>::access_target tgt = accessor_fixture<Dims>::access_target::HOST;
+		typename accessor_fixture<Dims>::access_target tgt = accessor_fixture<Dims>::access_target::host;
 		bool acc_check = accessor_fixture<Dims>::template buffer_reduce<size_t, Dims, class check_multi_dim_accessor<Dims>>(bid, tgt, range_cast<Dims>(range),
 		    {}, true,
 		    [range = range_cast<Dims>(range)](cl::sycl::id<Dims> idx, bool current, size_t value) { return current && value == get_linear_index(range, idx); });

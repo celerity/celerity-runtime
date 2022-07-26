@@ -27,7 +27,7 @@ namespace detail {
 			buffer_types.erase(bid);
 #endif
 		}
-		lifecycle_cb(buffer_lifecycle_event::UNREGISTERED, bid);
+		lifecycle_cb(buffer_lifecycle_event::unregistered, bid);
 	}
 
 	void buffer_manager::get_buffer_data(buffer_id bid, const subrange<3>& sr, void* out_linearized) {
@@ -50,7 +50,7 @@ namespace detail {
 			}
 			existing_buf = make_buffer_subrange_coherent(bid, access_mode::read, std::move(existing_buf), sr, std::move(replacement_buf));
 
-			data_locations = {{subrange_to_grid_box(sr), data_location::HOST}};
+			data_locations = {{subrange_to_grid_box(sr), data_location::host}};
 		}
 
 		// get_buffer_data will race with pending transfers for the same subrange. In case there are pending transfers and a host buffer does not exist yet,
@@ -58,7 +58,7 @@ namespace detail {
 		assert(std::none_of(scheduled_transfers[bid].begin(), scheduled_transfers[bid].end(),
 		    [&](const transfer& t) { return subrange_to_grid_box(sr).intersectsWith(subrange_to_grid_box(t.sr)); }));
 
-		if(data_locations[0].second == data_location::HOST || data_locations[0].second == data_location::HOST_AND_DEVICE) {
+		if(data_locations[0].second == data_location::host || data_locations[0].second == data_location::host_and_device) {
 			return buffers.at(bid).host_buf.storage->get_data({buffers.at(bid).host_buf.get_local_offset(sr.offset), sr.range}, out_linearized);
 		}
 
@@ -113,7 +113,7 @@ namespace detail {
 
 		if(coherent_sr.range.size() == 0) { return target_buffer; }
 
-		const auto target_buffer_location = target_buffer.storage->get_type() == buffer_type::HOST_BUFFER ? data_location::HOST : data_location::DEVICE;
+		const auto target_buffer_location = target_buffer.storage->get_type() == buffer_type::host_buffer ? data_location::host : data_location::device;
 
 		const auto coherent_box = subrange_to_grid_box(coherent_sr);
 
@@ -160,7 +160,7 @@ namespace detail {
 					// into the buffer, leaving the transfer around for future requests.
 					//
 					// NOTE: We currently assume that one of the requests will consume the FULL transfer. Only then we discard it.
-					// This assumption is valid right now, as the graph generator will not consolidate adjacent PUSHes for two (or more)
+					// This assumption is valid right now, as the graph generator will not consolidate adjacent pushes for two (or more)
 					// separate commands. This might however change in the future.
 					if(t_minus_coherent_region != t_region) {
 						assert(detail::access::mode_traits::is_consumer(mode));
@@ -219,13 +219,13 @@ namespace detail {
 				// when users manually handle uninitialized reads in the first iteration of some loop.
 				// assert(!previous_buffer.is_allocated() || dl.second != data_location::NOWHERE);
 
-				if(target_buffer.storage->get_type() == buffer_type::DEVICE_BUFFER) {
+				if(target_buffer.storage->get_type() == buffer_type::device_buffer) {
 					// Copy from device in case we are resizing an existing buffer
-					if((dl.second == data_location::DEVICE || dl.second == data_location::HOST_AND_DEVICE) && previous_buffer.is_allocated()) {
+					if((dl.second == data_location::device || dl.second == data_location::host_and_device) && previous_buffer.is_allocated()) {
 						maybe_retain_box(dl.first);
 					}
 					// Copy from host, unless we are using a pure producer mode
-					else if(dl.second == data_location::HOST && detail::access::mode_traits::is_consumer(mode)) {
+					else if(dl.second == data_location::host && detail::access::mode_traits::is_consumer(mode)) {
 						assert(buffers[bid].host_buf.is_allocated());
 						const auto box_sr = grid_box_to_subrange(dl.first);
 						const auto& host_buf = buffers[bid].host_buf;
@@ -233,9 +233,9 @@ namespace detail {
 						    *host_buf.storage, host_buf.get_local_offset(box_sr.offset), target_buffer.get_local_offset(box_sr.offset), box_sr.range);
 						replicated_region = GridRegion<3>::merge(replicated_region, dl.first);
 					}
-				} else if(target_buffer.storage->get_type() == buffer_type::HOST_BUFFER) {
+				} else if(target_buffer.storage->get_type() == buffer_type::host_buffer) {
 					// Copy from device, unless we are using a pure producer mode
-					if(dl.second == data_location::DEVICE && detail::access::mode_traits::is_consumer(mode)) {
+					if(dl.second == data_location::device && detail::access::mode_traits::is_consumer(mode)) {
 						assert(buffers[bid].device_buf.is_allocated());
 						const auto box_sr = grid_box_to_subrange(dl.first);
 						const auto& device_buf = buffers[bid].device_buf;
@@ -244,14 +244,14 @@ namespace detail {
 						replicated_region = GridRegion<3>::merge(replicated_region, dl.first);
 					}
 					// Copy from host in case we are resizing an existing buffer
-					else if((dl.second == data_location::HOST || dl.second == data_location::HOST_AND_DEVICE) && previous_buffer.is_allocated()) {
+					else if((dl.second == data_location::host || dl.second == data_location::host_and_device) && previous_buffer.is_allocated()) {
 						maybe_retain_box(dl.first);
 					}
 				}
 			}
 
 			// Finally, remember the fact that we replicated some regions to the new target location.
-			buffer_data_locations.update_region(replicated_region, data_location::HOST_AND_DEVICE);
+			buffer_data_locations.update_region(replicated_region, data_location::host_and_device);
 		}
 
 		if(detail::access::mode_traits::is_producer(mode)) { newest_data_location.at(bid).update_region(coherent_box, target_buffer_location); }

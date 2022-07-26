@@ -19,7 +19,7 @@ namespace test_utils {
 
 	class buffer_manager_fixture : public device_queue_fixture {
 	  public:
-		enum class access_target { HOST, DEVICE };
+		enum class access_target { host, device };
 
 		void initialize(detail::buffer_manager::buffer_lifecycle_callback cb = [](detail::buffer_manager::buffer_lifecycle_event, detail::buffer_id) {}) {
 			assert(!bm);
@@ -33,13 +33,13 @@ namespace test_utils {
 		}
 
 		static access_target get_other_target(access_target tgt) {
-			if(tgt == access_target::HOST) return access_target::DEVICE;
-			return access_target::HOST;
+			if(tgt == access_target::host) return access_target::device;
+			return access_target::host;
 		}
 
 		template <typename DataT, int Dims>
 		cl::sycl::range<Dims> get_backing_buffer_range(detail::buffer_id bid, access_target tgt, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset) {
-			if(tgt == access_target::HOST) {
+			if(tgt == access_target::host) {
 				auto info = bm->get_host_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, detail::range_cast<3>(range), detail::id_cast<3>(offset));
 				return info.buffer.get_range();
 			}
@@ -52,7 +52,7 @@ namespace test_utils {
 			const auto range3 = detail::range_cast<3>(range);
 			const auto offset3 = detail::id_cast<3>(offset);
 
-			if(tgt == access_target::HOST) {
+			if(tgt == access_target::host) {
 				auto info = bm->get_host_buffer<DataT, Dims>(bid, Mode, range3, offset3);
 				const auto buf_range = detail::range_cast<3>(info.buffer.get_range());
 				for(size_t i = offset3[0]; i < offset3[0] + range3[0]; ++i) {
@@ -67,7 +67,7 @@ namespace test_utils {
 				}
 			}
 
-			if(tgt == access_target::DEVICE) {
+			if(tgt == access_target::device) {
 				auto info = bm->get_device_buffer<DataT, Dims>(bid, Mode, range3, offset3);
 				const auto buf_offset = info.offset;
 				get_device_queue()
@@ -88,7 +88,7 @@ namespace test_utils {
 			const auto range3 = detail::range_cast<3>(range);
 			const auto offset3 = detail::id_cast<3>(offset);
 
-			if(tgt == access_target::HOST) {
+			if(tgt == access_target::host) {
 				auto info = bm->get_host_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, range3, offset3);
 				const auto buf_range = detail::range_cast<3>(info.buffer.get_range());
 				ReduceT result = init;

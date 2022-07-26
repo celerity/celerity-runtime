@@ -125,7 +125,7 @@ namespace detail {
 		test_utils::build_and_flush(ctx, num_nodes, tid_consume);
 
 		CHECK(has_dependency(tm, tid_consume, tid_reduce));
-		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::REDUCTION).empty());
+		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::reduction).empty());
 
 		test_utils::maybe_print_graphs(ctx);
 	}
@@ -150,7 +150,7 @@ namespace detail {
 			buf_0.get_access<mode::discard_write>(cgh, fixed<1>({0, 1}));
 		}));
 
-		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::REDUCTION).empty());
+		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::reduction).empty());
 
 		test_utils::maybe_print_graphs(ctx);
 	}
@@ -177,7 +177,7 @@ namespace detail {
 			buf_0.get_access<mode::write>(cgh, fixed<1>({0, 1}));
 		}));
 
-		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::REDUCTION).size() == 1);
+		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::reduction).size() == 1);
 
 		test_utils::maybe_print_graphs(ctx);
 	}
@@ -205,7 +205,7 @@ namespace detail {
 		auto& cdag = ctx.get_command_graph();
 		for(auto host_cid : inspector.get_commands(host_tid, std::nullopt, std::nullopt)) {
 			for(auto compute_cid : inspector.get_commands(compute_tid, std::nullopt, std::nullopt)) {
-				CHECK(!cdag.get(host_cid)->has_dependency(cdag.get(compute_cid), dependency_kind::ANTI_DEP));
+				CHECK(!cdag.get(host_cid)->has_dependency(cdag.get(compute_cid), dependency_kind::anti_dep));
 			}
 		}
 

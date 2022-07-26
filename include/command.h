@@ -13,7 +13,7 @@
 namespace celerity {
 namespace detail {
 
-	enum class command_type { EPOCH, HORIZON, EXECUTION, PUSH, AWAIT_PUSH, REDUCTION };
+	enum class command_type { epoch, horizon, execution, push, await_push, reduction };
 
 	// ----------------------------------------------------------------------------------------------------------------
 	// ------------------------------------------------ COMMAND GRAPH -------------------------------------------------
@@ -211,12 +211,12 @@ namespace detail {
 				    assert(!"calling get_command_type() on an empty command_pkg");
 				    std::terminate();
 			    },
-			    [](const horizon_data&) { return command_type::HORIZON; },
-			    [](const epoch_data&) { return command_type::EPOCH; },
-			    [](const execution_data&) { return command_type::EXECUTION; },
-			    [](const push_data&) { return command_type::PUSH; },
-			    [](const await_push_data&) { return command_type::AWAIT_PUSH; },
-			    [](const reduction_data&) { return command_type::REDUCTION; }
+			    [](const horizon_data&) { return command_type::horizon; },
+			    [](const epoch_data&) { return command_type::epoch; },
+			    [](const execution_data&) { return command_type::execution; },
+			    [](const push_data&) { return command_type::push; },
+			    [](const await_push_data&) { return command_type::await_push; },
+			    [](const reduction_data&) { return command_type::reduction; }
 			);
 			// clang-format on
 		}

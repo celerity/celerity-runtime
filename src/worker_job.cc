@@ -50,7 +50,7 @@ namespace detail {
 	// --------------------------------------------------- HORIZON --------------------------------------------------------
 	// --------------------------------------------------------------------------------------------------------------------
 
-	std::string horizon_job::get_description(const command_pkg& pkg) { return "HORIZON"; }
+	std::string horizon_job::get_description(const command_pkg& pkg) { return "horizon"; }
 
 	bool horizon_job::execute(const command_pkg& pkg) {
 		const auto data = std::get<horizon_data>(pkg.data);
@@ -62,7 +62,7 @@ namespace detail {
 	// ---------------------------------------------------- EPOCH ---------------------------------------------------------
 	// --------------------------------------------------------------------------------------------------------------------
 
-	std::string epoch_job::get_description(const command_pkg& pkg) { return "EPOCH"; }
+	std::string epoch_job::get_description(const command_pkg& pkg) { return "epoch"; }
 
 	bool epoch_job::execute(const command_pkg& pkg) {
 		const auto data = std::get<epoch_data>(pkg.data);
@@ -82,7 +82,7 @@ namespace detail {
 
 	std::string await_push_job::get_description(const command_pkg& pkg) {
 		const auto data = std::get<await_push_data>(pkg.data);
-		return fmt::format("AWAIT PUSH {} of buffer {} by node {}", data.sr, static_cast<size_t>(data.bid), static_cast<size_t>(data.source));
+		return fmt::format("await push {} of buffer {} by node {}", data.sr, static_cast<size_t>(data.bid), static_cast<size_t>(data.source));
 	}
 
 	bool await_push_job::execute(const command_pkg& pkg) {
@@ -97,7 +97,7 @@ namespace detail {
 
 	std::string push_job::get_description(const command_pkg& pkg) {
 		const auto data = std::get<push_data>(pkg.data);
-		return fmt::format("PUSH {} of buffer {} to node {}", data.sr, static_cast<size_t>(data.bid), static_cast<size_t>(data.target));
+		return fmt::format("push {} of buffer {} to node {}", data.sr, static_cast<size_t>(data.bid), static_cast<size_t>(data.target));
 	}
 
 	bool push_job::execute(const command_pkg& pkg) {
@@ -127,7 +127,7 @@ namespace detail {
 		return true;
 	}
 
-	std::string reduction_job::get_description(const command_pkg& pkg) { return "REDUCTION"; }
+	std::string reduction_job::get_description(const command_pkg& pkg) { return "reduction"; }
 
 	// --------------------------------------------------------------------------------------------------------------------
 	// --------------------------------------------------- HOST_EXECUTE ---------------------------------------------------
@@ -143,7 +143,7 @@ namespace detail {
 			const auto data = std::get<execution_data>(pkg.data);
 
 			auto tsk = task_mngr.get_task(data.tid);
-			assert(tsk->get_execution_target() == execution_target::HOST);
+			assert(tsk->get_execution_target() == execution_target::host);
 			assert(!data.initialize_reductions); // For now, we do not support reductions in host tasks
 
 			if(!buffer_mngr.try_lock(pkg.cid, tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
@@ -188,7 +188,7 @@ namespace detail {
 		if(!submitted) {
 			const auto data = std::get<execution_data>(pkg.data);
 			auto tsk = task_mngr.get_task(data.tid);
-			assert(tsk->get_execution_target() == execution_target::DEVICE);
+			assert(tsk->get_execution_target() == execution_target::device);
 
 			if(!buffer_mngr.try_lock(pkg.cid, tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
 

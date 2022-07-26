@@ -190,7 +190,7 @@ namespace detail {
 		CHECK(!inspector.has_dependency(read_cmds[1]->get_cid(), write_cmds[1]->get_cid()));
 
 		{
-			const auto pushes = inspector.get_commands(std::nullopt, std::nullopt, command_type::PUSH);
+			const auto pushes = inspector.get_commands(std::nullopt, std::nullopt, command_type::push);
 			REQUIRE(pushes.size() == 1);
 			const auto push_cmd = cdag.get<push_command>(*pushes.begin());
 			CHECK(push_cmd->get_nid() == 0);
@@ -198,7 +198,7 @@ namespace detail {
 		}
 
 		{
-			const auto await_pushes = inspector.get_commands(std::nullopt, std::nullopt, command_type::AWAIT_PUSH);
+			const auto await_pushes = inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push);
 			REQUIRE(await_pushes.size() == 1);
 			const auto await_push_cmd = cdag.get<await_push_command>(*await_pushes.begin());
 			CHECK(await_push_cmd->get_nid() == 1);
