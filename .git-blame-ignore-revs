@@ -4,18 +4,25 @@
 #   `git blame --ignore-revs-file .git-blame-ignore-revs`
 # Or set by default:
 #   `git config --global blame.ignoreRevsFile .git-blame-ignore-revs`
+#
+# !! NOTE: Updating this file in a PR together with the commits that are to be ignored
+#          will result in wrong hashes as GitHub's "Rebase & Merge" button always
+#          rebases the commits (even if it were not necessary).
+#
 
+# clang-tidy: Fix private variable naming in test headers
+ca94beef454e52348016bbb8358c81b4e5184c5a
 # clang-tidy: Fix readability-identifier-naming.PrivateMemberPrefix
-f445ce7df132c35ae1b77fc6a1c38ff47115f02c
+d36c506f2377599e10e2837a732af4658124fbb8
 # clang-tidy: Fix readability-identifier-naming.ParameterCase
-76e0791931bb01cd44feb4d21165d7735eeb6271
+98d7c199b513011a57dba0d508f33ba47a4494ea
 # clang-tidy: Fix readability-identifier-naming.LocalVariableCase
-b2056c59c1401c18851f2b189b2c8746dfd64e1c
+ed2b106eace142ffbbe9e34e48c7c26c8babb3db
 # clang-tidy: Fix readability-identifier-naming.FunctionCase
-64f332eac4baba8167ff2aa6ee708ae941e89bb6
+c3662a05abed37d7166b2e6cf851a7b3e02552dd
 # clang-tidy: Fix readability-identifier-naming.EnumConstantCase
-33228ff954d39990a21d2357e0f63ef30062c1fe
+4f9517329b5188fe854a2d9adaa09e857878f344
 # clang-tidy: Fix readability-identifier-naming.EnumCase
-2a397771ecbdd31bf0bc9ce1ab860478127dbf79
+f361c994b866a767e907a80c15dfb9d3ddc6c6cf
 # clang-tidy: Fix readability-identifier-naming.ClassCase
-b2f5f47eee4527d2466d62172ef8e34e2f1953a3
+f8756ac02791716c9bf580fbdd7e9611d80654da
