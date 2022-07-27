@@ -15,13 +15,13 @@ int main(int argc, char* argv[]) {
 
 	session.cli(cli);
 
-	int returnCode = session.applyCommandLine(argc, argv);
-	if(returnCode != 0) { return returnCode; }
+	int return_code = session.applyCommandLine(argc, argv);
+	if(return_code != 0) { return return_code; }
 
 	celerity::detail::runtime::test_mode_enter();
-	returnCode = session.run();
+	return_code = session.run();
 	celerity::detail::runtime::test_mode_exit();
-	return returnCode;
+	return return_code;
 }
 
 struct global_setup_and_teardown : Catch::EventListenerBase {

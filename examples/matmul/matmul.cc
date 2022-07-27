@@ -21,19 +21,19 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 
 		// Use local-memory tiling to avoid waiting on global memory too often
 		// Note: We assume a local range size of 64 here, this should be supported by most devices.
-		const size_t GROUP_SIZE = 8;
-		celerity::local_accessor<T, 2> scratch_a{{GROUP_SIZE, GROUP_SIZE}, cgh};
-		celerity::local_accessor<T, 2> scratch_b{{GROUP_SIZE, GROUP_SIZE}, cgh};
+		const size_t group_size = 8;
+		celerity::local_accessor<T, 2> scratch_a{{group_size, group_size}, cgh};
+		celerity::local_accessor<T, 2> scratch_b{{group_size, group_size}, cgh};
 
-		cgh.parallel_for<class mat_mul>(celerity::nd_range<2>{{MAT_SIZE, MAT_SIZE}, {GROUP_SIZE, GROUP_SIZE}}, [=](celerity::nd_item<2> item) {
+		cgh.parallel_for<class mat_mul>(celerity::nd_range<2>{{MAT_SIZE, MAT_SIZE}, {group_size, group_size}}, [=](celerity::nd_item<2> item) {
 			T sum{};
 			const auto lid = item.get_local_id();
-			for(size_t j = 0; j < MAT_SIZE; j += GROUP_SIZE) {
-				scratch_a[lid] = a[item.get_group(0) * GROUP_SIZE + lid[0]][j + lid[1]];
-				scratch_b[lid] = b[j + lid[0]][item.get_group(1) * GROUP_SIZE + lid[1]];
+			for(size_t j = 0; j < MAT_SIZE; j += group_size) {
+				scratch_a[lid] = a[item.get_group(0) * group_size + lid[0]][j + lid[1]];
+				scratch_b[lid] = b[j + lid[0]][item.get_group(1) * group_size + lid[1]];
 				celerity::group_barrier(item.get_group());
 
-				for(size_t k = 0; k < GROUP_SIZE; ++k) {
+				for(size_t k = 0; k < group_size; ++k) {
 					const auto a_ik = scratch_a[lid[0]][k];
 					const auto b_kj = scratch_b[k][lid[1]];
 					sum += a_ik * b_kj;

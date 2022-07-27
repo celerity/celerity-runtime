@@ -133,8 +133,8 @@ namespace detail {
 	TEST_CASE("horizons correctly deal with antidependencies", "[horizon][command-graph]") {
 		using namespace cl::sycl::access;
 
-		constexpr int NUM_NODES = 1;
-		test_utils::cdag_test_context ctx(NUM_NODES);
+		constexpr int num_nodes = 1;
+		test_utils::cdag_test_context ctx(num_nodes);
 
 		// For this test, we need to generate 2 horizons but still have the first one be relevant
 		// after the second is generated -> use 2 buffers A and B, with a longer task chain on A, and write to B later
@@ -149,7 +149,7 @@ namespace detail {
 		auto buf_b = mbf.create_buffer<1>(full_range);
 
 		// write to buf_a and buf_b
-		test_utils::build_and_flush(ctx, NUM_NODES,
+		test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(init_a_b)>(
 		        ctx.get_task_manager(),
 		        [&](handler& cgh) {
@@ -159,7 +159,7 @@ namespace detail {
 		        full_range));
 
 		// then read from buf_b to later induce anti-dependence
-		test_utils::build_and_flush(ctx, NUM_NODES,
+		test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(read_b_before_first_horizon)>(
 		        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::read>(cgh, one_to_one{}); }, full_range));
 
@@ -167,14 +167,14 @@ namespace detail {
 
 		// do 3 more read/writes on buf_a to generate another horizon and apply the first one
 		for(int i = 0; i < 3; ++i) {
-			test_utils::build_and_flush(ctx, NUM_NODES,
+			test_utils::build_and_flush(ctx, num_nodes,
 			    test_utils::add_compute_task<class UKN(buf_a_rw)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, one_to_one{}); }, full_range));
 		}
 
 		// now, do a write on buf_b which should generate an anti-dependency on the first horizon
 
-		auto write_b_after_first_horizon = test_utils::build_and_flush(ctx, NUM_NODES,
+		auto write_b_after_first_horizon = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(write_b_after_first_horizon)>(
 		        ctx.get_task_manager(),
 		        [&](handler& cgh) {
@@ -213,8 +213,8 @@ namespace detail {
 	TEST_CASE("horizons are flushed correctly even if not directly dependent on tasks", "[horizon][command-graph]") {
 		using namespace cl::sycl::access;
 
-		constexpr int NUM_NODES = 2;
-		test_utils::cdag_test_context ctx(NUM_NODES);
+		constexpr int num_nodes = 2;
+		test_utils::cdag_test_context ctx(num_nodes);
 
 		// For this test, we need to generate a horizon that attaches only
 		// to an execution front of "push", without directly attaching to any computes
@@ -228,22 +228,22 @@ namespace detail {
 		auto buf_a = mbf.create_buffer<1>(full_range);
 
 		// write to buf_a on all nodes
-		test_utils::build_and_flush(ctx, NUM_NODES,
+		test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(init_a)>(
 		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, one_to_one{}); }, full_range));
 
 		// perform another read-write step to ensure that horizons are generated as expected
-		test_utils::build_and_flush(ctx, NUM_NODES,
+		test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(rw_a)>(
 		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, one_to_one{}); }, full_range));
 
 		// now for the actual test, read only on node 0
 		test_utils::build_and_flush(
-		    ctx, NUM_NODES, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, all{}); }));
+		    ctx, num_nodes, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, all{}); }));
 
 		// build some additional read/write steps so that we reach deletion
 		for(int i = 0; i < 2; ++i) {
-			test_utils::build_and_flush(ctx, NUM_NODES,
+			test_utils::build_and_flush(ctx, num_nodes,
 			    test_utils::add_compute_task<class UKN(rw_a)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, one_to_one{}); }, full_range));
 		}
@@ -258,8 +258,8 @@ namespace detail {
 	TEST_CASE("previous horizons are used as last writers for host-initialized buffers", "[graph_generator][horizon][command-graph]") {
 		using namespace cl::sycl::access;
 
-		constexpr int NUM_NODES = 2;
-		test_utils::cdag_test_context ctx(NUM_NODES);
+		constexpr int num_nodes = 2;
+		test_utils::cdag_test_context ctx(num_nodes);
 
 		ctx.get_task_manager().set_horizon_step(2);
 
@@ -270,7 +270,7 @@ namespace detail {
 		std::array<command_id, 2> initial_last_writer_ids = {-1, -1};
 		{
 			auto buf = mbf.create_buffer(buf_range, true);
-			const auto tid = test_utils::build_and_flush(ctx, NUM_NODES,
+			const auto tid = test_utils::build_and_flush(ctx, num_nodes,
 			    test_utils::add_compute_task<class UKN(access_host_init_buf)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read_write>(cgh, one_to_one{}); }, buf_range));
 			const auto cmds = inspector.get_commands(tid, std::nullopt, std::nullopt);
@@ -290,7 +290,7 @@ namespace detail {
 			// We need 7 tasks to generate a pseudo-critical path length of 6 (3x2 horizon step size),
 			// and another one that triggers the actual deferred deletion.
 			for(int i = 0; i < 8; ++i) {
-				const auto tid = test_utils::build_and_flush(ctx, NUM_NODES,
+				const auto tid = test_utils::build_and_flush(ctx, num_nodes,
 				    test_utils::add_compute_task<class UKN(generate_horizons)>(
 				        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, buf_range));
 				const auto current_horizon = task_manager_testspy::get_current_horizon(ctx.get_task_manager());
@@ -307,7 +307,7 @@ namespace detail {
 		}
 
 		auto buf = mbf.create_buffer(buf_range, true);
-		const auto tid = test_utils::build_and_flush(ctx, NUM_NODES,
+		const auto tid = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(access_host_init_buf)>(
 		        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read_write>(cgh, one_to_one{}); }, buf_range));
 
