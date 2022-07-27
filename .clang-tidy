@@ -31,6 +31,9 @@ CheckOptions:
     value: "[A-Z]"
   - key: readability-identifier-naming.ParameterCase
     value: lower_case
+  - key: readability-identifier-naming.ParameterIgnoredRegexp
+    # Allow single-letter uppercase function parameters
+    value: "[A-Z]"
   - key: readability-identifier-naming.PrivateMemberCase
     value: lower_case
   - key: readability-identifier-naming.PrivateMemberPrefix

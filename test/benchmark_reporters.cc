@@ -44,28 +44,28 @@ class benchmark_reporter_base : public Catch::StreamingReporterBase {
   public:
 	using StreamingReporterBase::StreamingReporterBase;
 
-	void benchmarkPreparing(Catch::StringRef benchmarkName) override {
-		StreamingReporterBase::benchmarkPreparing(benchmarkName);
-		test_case_benchmark_combinations.insert(get_test_case_name() + ": " + benchmarkName);
+	void benchmarkPreparing(Catch::StringRef benchmark_name) override {
+		StreamingReporterBase::benchmarkPreparing(benchmark_name);
+		test_case_benchmark_combinations.insert(get_test_case_name() + ": " + benchmark_name);
 	}
 
 	// TODO: Do we want to somehow report this?
-	void benchmarkFailed(Catch::StringRef benchmarkName) override { StreamingReporterBase::benchmarkFailed(benchmarkName); }
+	void benchmarkFailed(Catch::StringRef benchmark_name) override { StreamingReporterBase::benchmarkFailed(benchmark_name); }
 
-	void sectionStarting(Catch::SectionInfo const& sectionInfo) override {
-		StreamingReporterBase::sectionStarting(sectionInfo);
+	void sectionStarting(Catch::SectionInfo const& section_info) override {
+		StreamingReporterBase::sectionStarting(section_info);
 		// Each test case has an implicit section with the name of the test case itself,
 		// so there is no need to capture that separately.
-		active_sections.push_back(sectionInfo.name);
+		active_sections.push_back(section_info.name);
 	}
 
-	void testCasePartialEnded(Catch::TestCaseStats const& testCaseStats, uint64_t partNumber) override {
-		StreamingReporterBase::testCasePartialEnded(testCaseStats, partNumber);
+	void testCasePartialEnded(Catch::TestCaseStats const& test_case_stats, uint64_t part_number) override {
+		StreamingReporterBase::testCasePartialEnded(test_case_stats, part_number);
 		active_sections.clear();
 	}
 
-	void testRunEnded(Catch::TestRunStats const& testRunStats) override {
-		StreamingReporterBase::testRunEnded(testRunStats);
+	void testRunEnded(Catch::TestRunStats const& test_run_stats) override {
+		StreamingReporterBase::testRunEnded(test_run_stats);
 		bool warning_printed = false;
 		for(auto it = test_case_benchmark_combinations.cbegin(); it != test_case_benchmark_combinations.cend(); ++it) {
 			const auto id = *it;
@@ -105,22 +105,22 @@ class benchmark_csv_reporter : public benchmark_reporter_base {
 
 	static std::string getDescription() { return "Reporter for benchmarks in CSV format"; } // NOLINT(readability-identifier-naming)
 
-	void testRunStarting(Catch::TestRunInfo const& testRunInfo) override {
-		benchmark_reporter_base::testRunStarting(testRunInfo);
+	void testRunStarting(Catch::TestRunInfo const& test_run_info) override {
+		benchmark_reporter_base::testRunStarting(test_run_info);
 		fmt::print(m_stream, "test case,benchmark name,samples,iterations,estimated,mean,low mean,high mean,std dev,low std dev,high std dev,raw\n");
 	}
 
-	void benchmarkEnded(Catch::BenchmarkStats<> const& benchmarkStats) override {
-		benchmark_reporter_base::benchmarkEnded(benchmarkStats);
-		auto& info = benchmarkStats.info;
+	void benchmarkEnded(Catch::BenchmarkStats<> const& benchmark_stats) override {
+		benchmark_reporter_base::benchmarkEnded(benchmark_stats);
+		auto& info = benchmark_stats.info;
 		fmt::print(m_stream, "{},{},{},{},{},", escape_csv(get_test_case_name()), escape_csv(info.name), info.samples, info.iterations, info.estimatedDuration);
-		fmt::print(m_stream, "{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},", benchmarkStats.mean.point.count(), benchmarkStats.mean.lower_bound.count(),
-		    benchmarkStats.mean.upper_bound.count(), benchmarkStats.standardDeviation.point.count(), benchmarkStats.standardDeviation.lower_bound.count(),
-		    benchmarkStats.standardDeviation.upper_bound.count());
+		fmt::print(m_stream, "{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},", benchmark_stats.mean.point.count(), benchmark_stats.mean.lower_bound.count(),
+		    benchmark_stats.mean.upper_bound.count(), benchmark_stats.standardDeviation.point.count(), benchmark_stats.standardDeviation.lower_bound.count(),
+		    benchmark_stats.standardDeviation.upper_bound.count());
 		// Finally print all raw values for custom analyses (as quoted comma-separated values).
 		std::vector<double> raw;
-		raw.reserve(benchmarkStats.samples.size());
-		std::transform(benchmarkStats.samples.cbegin(), benchmarkStats.samples.cend(), std::back_inserter(raw), [](auto& d) { return d.count(); });
+		raw.reserve(benchmark_stats.samples.size());
+		std::transform(benchmark_stats.samples.cbegin(), benchmark_stats.samples.cend(), std::back_inserter(raw), [](auto& d) { return d.count(); });
 		fmt::print(m_stream, "\"{:.4f}\"\n", fmt::join(raw, ","));
 		// Flush so we can watch results come in when writing to file
 		m_stream.flush();
@@ -200,8 +200,8 @@ class benchmark_md_reporter : public benchmark_reporter_base {
 
 	static std::string getDescription() { return "Generates a Markdown report for benchmark results"; } // NOLINT(readability-identifier-naming)
 
-	void testRunStarting(Catch::TestRunInfo const& testRunInfo) override {
-		benchmark_reporter_base::testRunStarting(testRunInfo);
+	void testRunStarting(Catch::TestRunInfo const& test_run_info) override {
+		benchmark_reporter_base::testRunStarting(test_run_info);
 
 		fmt::print(m_stream, "# Benchmark Results\n\n");
 
@@ -213,15 +213,15 @@ class benchmark_md_reporter : public benchmark_reporter_base {
 		meta_printer.print(m_stream);
 	}
 
-	void testRunEnded(Catch::TestRunStats const& testRunStats) override {
-		benchmark_reporter_base::testRunEnded(testRunStats);
+	void testRunEnded(Catch::TestRunStats const& test_run_stats) override {
+		benchmark_reporter_base::testRunEnded(test_run_stats);
 		fmt::print(m_stream, "\n\n");
 		results_printer.print(m_stream);
 		fmt::print(m_stream, "\nAll numbers are in nanoseconds.\n");
 	}
 
-	void benchmarkEnded(Catch::BenchmarkStats<> const& benchmarkStats) override {
-		benchmark_reporter_base::benchmarkEnded(benchmarkStats);
+	void benchmarkEnded(Catch::BenchmarkStats<> const& benchmark_stats) override {
+		benchmark_reporter_base::benchmarkEnded(benchmark_stats);
 
 		// Format numbers with ' as thousand separator and . as decimal separator.
 		constexpr auto format_result = [](std::chrono::duration<double, std::nano> ns) {
@@ -235,14 +235,14 @@ class benchmark_md_reporter : public benchmark_reporter_base {
 			return fmt::format("{}.{}", integral_formatted, fractional_formatted);
 		};
 
-		const auto min = std::reduce(benchmarkStats.samples.cbegin(), benchmarkStats.samples.cend(),
+		const auto min = std::reduce(benchmark_stats.samples.cbegin(), benchmark_stats.samples.cend(),
 		    std::chrono::duration<double, std::nano>(std::numeric_limits<double>::max()), [](auto& a, auto& b) { return std::min(a, b); });
 
 		results_printer.add_row({fmt::format("{}", escape_md_partial(get_test_case_name())), // Test case
-		    escape_md_partial(benchmarkStats.info.name),                                     // Benchmark name
+		    escape_md_partial(benchmark_stats.info.name),                                    // Benchmark name
 		    format_result(min),                                                              // Min
-		    format_result(benchmarkStats.mean.point),                                        // Mean
-		    format_result(benchmarkStats.standardDeviation.point)});                         // Std dev
+		    format_result(benchmark_stats.mean.point),                                       // Mean
+		    format_result(benchmark_stats.standardDeviation.point)});                        // Std dev
 	}
 
   private:
