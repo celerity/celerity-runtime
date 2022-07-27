@@ -171,7 +171,7 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager retains existing data when resizing buffers", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 
-		auto run_1D_test = [&](access_target tgt) {
+		auto run_1_d_test = [&](access_target tgt) {
 			auto bid = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(160, 1, 1));
 
 			// Request a 64 element buffer at offset 32 and initialize it with known values.
@@ -197,10 +197,10 @@ namespace detail {
 			}
 		};
 
-		SECTION("when using 1D device buffers") { run_1D_test(access_target::device); }
-		SECTION("when using 1D host buffers") { run_1D_test(access_target::host); }
+		SECTION("when using 1D device buffers") { run_1_d_test(access_target::device); }
+		SECTION("when using 1D host buffers") { run_1_d_test(access_target::host); }
 
-		auto run_2D_test = [&](access_target tgt) {
+		auto run_2_d_test = [&](access_target tgt) {
 			auto bid = bm.register_buffer<size_t, 2>(cl::sycl::range<3>(128, 128, 1));
 
 			// Request a set of columns and initialize it with known values.
@@ -218,8 +218,8 @@ namespace detail {
 			}
 		};
 
-		SECTION("when using 2D device buffers") { run_2D_test(access_target::device); }
-		SECTION("when using 2D host buffers") { run_2D_test(access_target::host); }
+		SECTION("when using 2D device buffers") { run_2_d_test(access_target::device); }
+		SECTION("when using 2D host buffers") { run_2_d_test(access_target::host); }
 
 		// While the fix for bug that warranted adding a 2D test *should* also cover 3D buffers, it would be good to have a 3D test here as well.
 		// TODO: Can we also come up with a good 3D case?
@@ -713,19 +713,19 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager correctly handles host-initialized buffers", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 
-		constexpr size_t SIZE = 64;
-		std::vector<size_t> host_buf(SIZE * SIZE);
+		constexpr size_t size = 64;
+		std::vector<size_t> host_buf(size * size);
 		for(size_t i = 0; i < 7; ++i) {
 			for(size_t j = 0; j < 5; ++j) {
-				host_buf[i * SIZE + j] = i * 5 + j;
+				host_buf[i * size + j] = i * 5 + j;
 			}
 		}
 
-		auto bid = bm.register_buffer<size_t, 2>(cl::sycl::range<3>(SIZE, SIZE, 1), host_buf.data());
+		auto bid = bm.register_buffer<size_t, 2>(cl::sycl::range<3>(size, size, 1), host_buf.data());
 
 		SECTION("when accessed on host") {
 			// Host buffers need to accomodate the full host-initialized data range.
-			REQUIRE(get_backing_buffer_range<size_t, 2>(bid, access_target::host, {7, 5}, {0, 0}) == cl::sycl::range<2>{SIZE, SIZE});
+			REQUIRE(get_backing_buffer_range<size_t, 2>(bid, access_target::host, {7, 5}, {0, 0}) == cl::sycl::range<2>{size, size});
 
 			bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, access_target::host, {7, 5}, {0, 0}, true,
 			    [](cl::sycl::id<2> idx, bool current, size_t value) { return current && (value == idx[0] * 5 + idx[1]); });

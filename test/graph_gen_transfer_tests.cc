@@ -174,8 +174,8 @@ namespace detail {
 	TEST_CASE("graph_generator uses original producer as source for push rather than building dependency chain", "[graph_generator][command-graph]") {
 		using namespace cl::sycl::access;
 
-		constexpr int NUM_NODES = 3;
-		test_utils::cdag_test_context ctx(NUM_NODES);
+		constexpr int num_nodes = 3;
+		test_utils::cdag_test_context ctx(num_nodes);
 		auto& inspector = ctx.get_inspector();
 		test_utils::mock_buffer_factory mbf(ctx);
 		auto full_range = cl::sycl::range<1>(300);
@@ -186,13 +186,13 @@ namespace detail {
 		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, one_to_one{}); }, full_range));
 
 		SECTION("when distributing a single reading task across nodes") {
-			test_utils::build_and_flush(ctx, NUM_NODES,
+			test_utils::build_and_flush(ctx, num_nodes,
 			    test_utils::add_compute_task<class UKN(producer)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, one_to_one{}); }, full_range));
 		}
 
 		SECTION("when distributing a single read-write task across nodes") {
-			test_utils::build_and_flush(ctx, NUM_NODES,
+			test_utils::build_and_flush(ctx, num_nodes,
 			    test_utils::add_compute_task<class UKN(producer)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, one_to_one{}); }, full_range));
 		}
@@ -201,16 +201,16 @@ namespace detail {
 			auto full_range_for_single_node = [=](node_id node) {
 				return [=](chunk<1> chnk) -> subrange<1> {
 					if(chnk.range == full_range) return chnk;
-					if(chnk.offset[0] == (full_range.size() / NUM_NODES) * node) { return {0, full_range}; }
+					if(chnk.offset[0] == (full_range.size() / num_nodes) * node) { return {0, full_range}; }
 					return {0, 0};
 				};
 			};
 
-			test_utils::build_and_flush(ctx, NUM_NODES,
+			test_utils::build_and_flush(ctx, num_nodes,
 			    test_utils::add_compute_task<class UKN(producer)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, full_range_for_single_node(1)); }, full_range));
 
-			test_utils::build_and_flush(ctx, NUM_NODES,
+			test_utils::build_and_flush(ctx, num_nodes,
 			    test_utils::add_compute_task<class UKN(producer)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, full_range_for_single_node(2)); }, full_range));
 		}

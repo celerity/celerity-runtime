@@ -38,17 +38,17 @@ int main(int argc, char* argv[]) {
 		stbi_image_free(image_data);
 	}
 
-	constexpr int FILTER_SIZE = 16;
+	constexpr int filter_size = 16;
 	constexpr float sigma = 3.f;
-	constexpr float PI = 3.141592f;
+	constexpr float pi = 3.141592f;
 
-	std::vector<float> gaussian_matrix(FILTER_SIZE * FILTER_SIZE);
-	for(size_t j = 0; j < FILTER_SIZE; ++j) {
-		for(size_t i = 0; i < FILTER_SIZE; ++i) {
-			const auto x = i - (FILTER_SIZE / 2);
-			const auto y = j - (FILTER_SIZE / 2);
-			const auto value = std::exp(-1.f * (x * x + y * y) / (2 * sigma * sigma)) / (2 * PI * sigma * sigma);
-			gaussian_matrix[j * FILTER_SIZE + i] = value;
+	std::vector<float> gaussian_matrix(filter_size * filter_size);
+	for(size_t j = 0; j < filter_size; ++j) {
+		for(size_t i = 0; i < filter_size; ++i) {
+			const auto x = i - (filter_size / 2);
+			const auto y = j - (filter_size / 2);
+			const auto value = std::exp(-1.f * (x * x + y * y) / (2 * sigma * sigma)) / (2 * pi * sigma * sigma);
+			gaussian_matrix[j * filter_size + i] = value;
 		}
 	}
 
@@ -57,15 +57,15 @@ int main(int argc, char* argv[]) {
 	celerity::buffer<sycl::float3, 2> image_input_buf(image_input.data(), celerity::range<2>(image_height, image_width));
 	celerity::buffer<sycl::float3, 2> image_tmp_buf(celerity::range<2>(image_height, image_width));
 
-	celerity::buffer<float, 2> gaussian_mat_buf(gaussian_matrix.data(), celerity::range<2>(FILTER_SIZE, FILTER_SIZE));
+	celerity::buffer<float, 2> gaussian_mat_buf(gaussian_matrix.data(), celerity::range<2>(filter_size, filter_size));
 
 	// Do a gaussian blur
 	queue.submit([=](celerity::handler& cgh) {
-		celerity::accessor in{image_input_buf, cgh, celerity::access::neighborhood{FILTER_SIZE / 2, FILTER_SIZE / 2}, celerity::read_only};
+		celerity::accessor in{image_input_buf, cgh, celerity::access::neighborhood{filter_size / 2, filter_size / 2}, celerity::read_only};
 		celerity::accessor gauss{gaussian_mat_buf, cgh, celerity::access::all{}, celerity::read_only};
 		celerity::accessor out{image_tmp_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 
-		cgh.parallel_for<class gaussian_blur>(celerity::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](celerity::item<2> item) {
+		cgh.parallel_for<class gaussian_blur>(celerity::range<2>(image_height, image_width), [=, fs = filter_size](celerity::item<2> item) {
 			using sycl::float3;
 			if(is_on_boundary(celerity::range<2>(image_height, image_width), fs, item)) {
 				out[item] = float3(0.f, 0.f, 0.f);
@@ -89,7 +89,7 @@ int main(int argc, char* argv[]) {
 		celerity::accessor in{image_tmp_buf, cgh, celerity::access::neighborhood{1, 1}, celerity::read_only};
 		celerity::accessor out{image_output_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 
-		cgh.parallel_for<class sharpen>(celerity::range<2>(image_height, image_width), [=, fs = FILTER_SIZE](celerity::item<2> item) {
+		cgh.parallel_for<class sharpen>(celerity::range<2>(image_height, image_width), [=, fs = filter_size](celerity::item<2> item) {
 			using sycl::float3;
 			if(is_on_boundary(celerity::range<2>(image_height, image_width), fs, item)) {
 				out[item] = float3(0.f, 0.f, 0.f);

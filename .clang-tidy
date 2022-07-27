@@ -26,6 +26,9 @@ CheckOptions:
     value: lower_case
   - key: readability-identifier-naming.LocalVariableCase
     value: lower_case
+  - key: readability-identifier-naming.LocalVariableIgnoredRegexp
+    # Allow single-letter uppercase variable names
+    value: "[A-Z]"
   - key: readability-identifier-naming.ParameterCase
     value: lower_case
   - key: readability-identifier-naming.PrivateMemberCase
