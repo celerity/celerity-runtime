@@ -22,14 +22,14 @@ namespace test_utils {
 		enum class access_target { host, device };
 
 		void initialize(detail::buffer_manager::buffer_lifecycle_callback cb = [](detail::buffer_manager::buffer_lifecycle_event, detail::buffer_id) {}) {
-			assert(!bm);
-			bm = std::make_unique<detail::buffer_manager>(get_device_queue(), cb);
-			bm->enable_test_mode();
+			assert(!m_bm);
+			m_bm = std::make_unique<detail::buffer_manager>(get_device_queue(), cb);
+			m_bm->enable_test_mode();
 		}
 
 		detail::buffer_manager& get_buffer_manager() {
-			if(!bm) initialize();
-			return *bm;
+			if(!m_bm) initialize();
+			return *m_bm;
 		}
 
 		static access_target get_other_target(access_target tgt) {
@@ -40,10 +40,10 @@ namespace test_utils {
 		template <typename DataT, int Dims>
 		cl::sycl::range<Dims> get_backing_buffer_range(detail::buffer_id bid, access_target tgt, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset) {
 			if(tgt == access_target::host) {
-				auto info = bm->get_host_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, detail::range_cast<3>(range), detail::id_cast<3>(offset));
+				auto info = m_bm->get_host_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, detail::range_cast<3>(range), detail::id_cast<3>(offset));
 				return info.buffer.get_range();
 			}
-			auto info = bm->get_device_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, detail::range_cast<3>(range), detail::id_cast<3>(offset));
+			auto info = m_bm->get_device_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, detail::range_cast<3>(range), detail::id_cast<3>(offset));
 			return info.buffer.get_range();
 		}
 
@@ -53,7 +53,7 @@ namespace test_utils {
 			const auto offset3 = detail::id_cast<3>(offset);
 
 			if(tgt == access_target::host) {
-				auto info = bm->get_host_buffer<DataT, Dims>(bid, Mode, range3, offset3);
+				auto info = m_bm->get_host_buffer<DataT, Dims>(bid, Mode, range3, offset3);
 				const auto buf_range = detail::range_cast<3>(info.buffer.get_range());
 				for(size_t i = offset3[0]; i < offset3[0] + range3[0]; ++i) {
 					for(size_t j = offset3[1]; j < offset3[1] + range3[1]; ++j) {
@@ -68,7 +68,7 @@ namespace test_utils {
 			}
 
 			if(tgt == access_target::device) {
-				auto info = bm->get_device_buffer<DataT, Dims>(bid, Mode, range3, offset3);
+				auto info = m_bm->get_device_buffer<DataT, Dims>(bid, Mode, range3, offset3);
 				const auto buf_offset = info.offset;
 				get_device_queue()
 				    .submit([&](cl::sycl::handler& cgh) {
@@ -89,7 +89,7 @@ namespace test_utils {
 			const auto offset3 = detail::id_cast<3>(offset);
 
 			if(tgt == access_target::host) {
-				auto info = bm->get_host_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, range3, offset3);
+				auto info = m_bm->get_host_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, range3, offset3);
 				const auto buf_range = detail::range_cast<3>(info.buffer.get_range());
 				ReduceT result = init;
 				for(size_t i = offset3[0]; i < offset3[0] + range3[0]; ++i) {
@@ -105,7 +105,7 @@ namespace test_utils {
 				return result;
 			}
 
-			auto info = bm->get_device_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, range3, offset3);
+			auto info = m_bm->get_device_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, range3, offset3);
 			const auto buf_offset = info.offset;
 			cl::sycl::buffer<ReduceT, 1> result_buf(1); // Use 1-dimensional instead of 0-dimensional since it's NYI in hipSYCL as of 0.8.1
 			// Simply do a serial reduction on the device as well
@@ -142,7 +142,7 @@ namespace test_utils {
 		template <typename DataT, int Dims, access_mode Mode>
 		accessor<DataT, Dims, Mode, target::device> get_device_accessor(
 		    detail::live_pass_device_handler& cgh, detail::buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
-			auto buf_info = bm->get_device_buffer<DataT, Dims>(bid, Mode, detail::range_cast<3>(range), detail::id_cast<3>(offset));
+			auto buf_info = m_bm->get_device_buffer<DataT, Dims>(bid, Mode, detail::range_cast<3>(range), detail::id_cast<3>(offset));
 			return detail::make_device_accessor<DataT, Dims, Mode>(cgh.get_eventual_sycl_cgh(), buf_info.buffer,
 			    detail::get_effective_sycl_accessor_subrange(buf_info.offset, subrange<Dims>(offset, range)), offset);
 		}
@@ -150,14 +150,14 @@ namespace test_utils {
 		template <typename DataT, int Dims, access_mode Mode>
 		accessor<DataT, Dims, Mode, target::host_task> get_host_accessor(
 		    detail::buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
-			auto buf_info = bm->get_host_buffer<DataT, Dims>(bid, Mode, detail::range_cast<3>(range), detail::id_cast<3>(offset));
+			auto buf_info = m_bm->get_host_buffer<DataT, Dims>(bid, Mode, detail::range_cast<3>(range), detail::id_cast<3>(offset));
 			return detail::make_host_accessor<DataT, Dims, Mode>(
-			    subrange<Dims>(offset, range), buf_info.buffer, buf_info.offset, detail::range_cast<Dims>(bm->get_buffer_info(bid).range));
+			    subrange<Dims>(offset, range), buf_info.buffer, buf_info.offset, detail::range_cast<Dims>(m_bm->get_buffer_info(bid).range));
 		}
 
 	  private:
-		bool initialized = false;
-		std::unique_ptr<detail::buffer_manager> bm;
+		bool m_initialized = false;
+		std::unique_ptr<detail::buffer_manager> m_bm;
 	};
 
 } // namespace test_utils
