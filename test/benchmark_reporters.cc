@@ -103,7 +103,7 @@ class benchmark_csv_reporter : public benchmark_reporter_base {
   public:
 	using benchmark_reporter_base::benchmark_reporter_base;
 
-	static std::string getDescription() { return "Reporter for benchmarks in CSV format"; }
+	static std::string getDescription() { return "Reporter for benchmarks in CSV format"; } // NOLINT(readability-identifier-naming)
 
 	void testRunStarting(Catch::TestRunInfo const& testRunInfo) override {
 		benchmark_reporter_base::testRunStarting(testRunInfo);
@@ -198,7 +198,7 @@ class benchmark_md_reporter : public benchmark_reporter_base {
   public:
 	using benchmark_reporter_base::benchmark_reporter_base;
 
-	static std::string getDescription() { return "Generates a Markdown report for benchmark results"; }
+	static std::string getDescription() { return "Generates a Markdown report for benchmark results"; } // NOLINT(readability-identifier-naming)
 
 	void testRunStarting(Catch::TestRunInfo const& testRunInfo) override {
 		benchmark_reporter_base::testRunStarting(testRunInfo);
