@@ -1,0 +1,21 @@
+# Revisions to ignore in git blame.
+#
+# Usage:
+#   `git blame --ignore-revs-file .git-blame-ignore-revs`
+# Or set by default:
+#   `git config --global blame.ignoreRevsFile .git-blame-ignore-revs`
+
+# clang-tidy: Fix readability-identifier-naming.PrivateMemberPrefix
+f445ce7df132c35ae1b77fc6a1c38ff47115f02c
+# clang-tidy: Fix readability-identifier-naming.ParameterCase
+76e0791931bb01cd44feb4d21165d7735eeb6271
+# clang-tidy: Fix readability-identifier-naming.LocalVariableCase
+b2056c59c1401c18851f2b189b2c8746dfd64e1c
+# clang-tidy: Fix readability-identifier-naming.FunctionCase
+64f332eac4baba8167ff2aa6ee708ae941e89bb6
+# clang-tidy: Fix readability-identifier-naming.EnumConstantCase
+33228ff954d39990a21d2357e0f63ef30062c1fe
+# clang-tidy: Fix readability-identifier-naming.EnumCase
+2a397771ecbdd31bf0bc9ce1ab860478127dbf79
+# clang-tidy: Fix readability-identifier-naming.ClassCase
+b2f5f47eee4527d2466d62172ef8e34e2f1953a3
