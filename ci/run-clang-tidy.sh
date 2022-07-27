@@ -33,12 +33,13 @@ if grep -q -- "--fix\(-errors\)\?" <<< "$@" ; then
 fi
 
 INCLUDE_DIR=$(readlink -f include)
+TEST_DIR=$(readlink -f test)
 SOURCES=$(find examples src test -name "*.cc")
 
 if [[ $RUN_PARALLEL -eq 1 ]]; then
     set -x
-    parallel "$CLANG_TIDY" --header-filter="$INCLUDE_DIR" "$@" -- $SOURCES
+    parallel "$CLANG_TIDY" --header-filter="$INCLUDE_DIR|$TEST_DIR" "$@" -- $SOURCES
 else
     set -x
-    "$CLANG_TIDY" --header-filter="$INCLUDE_DIR" "$@" $SOURCES
+    "$CLANG_TIDY" --header-filter="$INCLUDE_DIR|$TEST_DIR" "$@" $SOURCES
 fi
