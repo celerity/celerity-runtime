@@ -11,7 +11,19 @@
 #
 InheritParentConfig: false
 # See https://clang.llvm.org/extra/clang-tidy/checks/list.html for a full list of available checks.
-Checks: clang-diagnostic-*,clang-analyzer-*,readability-*,performance-*,cppcoreguidelines-*,mpi-*,-readability-uppercase-literal-suffix
+Checks:
+  -*,
+  readability-identifier-naming,
+  # TODO: Figure out which ones we want to (at least partially) enable
+  # bugprone-*,
+  # clang-analyzer-*,
+  # clang-diagnostic-*,
+  # cppcoreguidelines-*,
+  # mpi-*,
+  # performance-*,
+  # readability-*,
+  # -readability-uppercase-literal-suffix
+
 CheckOptions:
   # Naming conventions
   - key: readability-identifier-naming.ClassCase
