@@ -87,16 +87,16 @@ namespace test_utils {
 			return *instance;
 		}
 
-		void reset() { logged_lines.clear(); }
+		void reset() { m_logged_lines.clear(); }
 
 		bool should_log(std::string line_info) {
-			auto [_, is_new] = logged_lines.emplace(std::move(line_info));
+			auto [_, is_new] = m_logged_lines.emplace(std::move(line_info));
 			return is_new;
 		}
 
 	  private:
 		inline static std::unique_ptr<require_loop_assertion_registry> instance;
-		std::unordered_set<std::string> logged_lines{};
+		std::unordered_set<std::string> m_logged_lines{};
 	};
 
 #define CELERITY_DETAIL_REQUIRE_LOOP(...)                                                                                                                      \
@@ -134,21 +134,21 @@ namespace test_utils {
 		void get_access(handler& cgh, Functor rmfn) {
 			if(detail::is_prepass_handler(cgh)) {
 				auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh); // No live pass in tests
-				prepass_cgh.add_requirement(id, std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, size));
+				prepass_cgh.add_requirement(m_id, std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, m_size));
 			}
 		}
 
-		detail::buffer_id get_id() const { return id; }
+		detail::buffer_id get_id() const { return m_id; }
 
-		range<Dims> get_range() const { return size; }
+		range<Dims> get_range() const { return m_size; }
 
 	  private:
 		friend class mock_buffer_factory;
 
-		detail::buffer_id id;
-		cl::sycl::range<Dims> size;
+		detail::buffer_id m_id;
+		cl::sycl::range<Dims> m_size;
 
-		mock_buffer(detail::buffer_id id, cl::sycl::range<Dims> size) : id(id), size(size) {}
+		mock_buffer(detail::buffer_id id, cl::sycl::range<Dims> size) : m_id(id), m_size(size) {}
 	};
 
 	class mock_host_object {
@@ -156,17 +156,17 @@ namespace test_utils {
 		void add_side_effect(handler& cgh, const experimental::side_effect_order order) {
 			if(detail::is_prepass_handler(cgh)) {
 				auto& prepass_cgh = static_cast<detail::prepass_handler&>(cgh);
-				prepass_cgh.add_requirement(id, order);
+				prepass_cgh.add_requirement(m_id, order);
 			}
 		}
 
 	  private:
 		friend class mock_host_object_factory;
 
-		detail::host_object_id id;
+		detail::host_object_id m_id;
 
 	  public:
-		explicit mock_host_object(detail::host_object_id id) : id(id) {}
+		explicit mock_host_object(detail::host_object_id id) : m_id(id) {}
 	};
 
 	class cdag_inspector {
@@ -176,14 +176,14 @@ namespace test_utils {
 #ifndef NDEBUG
 				for(const auto dcid : frame->iter_dependencies()) {
 					// Sanity check: All dependencies must have already been flushed
-					assert(commands.count(dcid) == 1);
+					assert(m_commands.count(dcid) == 1);
 				}
 #endif
 
 				const detail::command_id cid = frame->pkg.cid;
-				commands[cid] = {nid, frame->pkg, std::vector(frame->iter_dependencies().begin(), frame->iter_dependencies().end())};
-				if(const auto tid = frame->pkg.get_tid()) { by_task[*tid].insert(cid); }
-				by_node[nid].insert(cid);
+				m_commands[cid] = {nid, frame->pkg, std::vector(frame->iter_dependencies().begin(), frame->iter_dependencies().end())};
+				if(const auto tid = frame->pkg.get_tid()) { m_by_task[*tid].insert(cid); }
+				m_by_node[nid].insert(cid);
 			};
 		}
 
@@ -195,16 +195,16 @@ namespace test_utils {
 			           || cmd == detail::command_type::epoch));
 
 			std::set<detail::command_id> result;
-			std::transform(commands.cbegin(), commands.cend(), std::inserter(result, result.begin()), [](auto p) { return p.first; });
+			std::transform(m_commands.cbegin(), m_commands.cend(), std::inserter(result, result.begin()), [](auto p) { return p.first; });
 
 			if(tid != std::nullopt) {
-				auto& task_set = by_task.at(*tid);
+				auto& task_set = m_by_task.at(*tid);
 				std::set<detail::command_id> new_result;
 				std::set_intersection(result.cbegin(), result.cend(), task_set.cbegin(), task_set.cend(), std::inserter(new_result, new_result.begin()));
 				result = std::move(new_result);
 			}
 			if(nid != std::nullopt) {
-				auto& node_set = by_node.at(*nid);
+				auto& node_set = m_by_node.at(*nid);
 				std::set<detail::command_id> new_result;
 				std::set_intersection(result.cbegin(), result.cend(), node_set.cbegin(), node_set.cend(), std::inserter(new_result, new_result.begin()));
 				result = std::move(new_result);
@@ -212,7 +212,7 @@ namespace test_utils {
 			if(cmd != std::nullopt) {
 				std::set<detail::command_id> new_result;
 				std::copy_if(result.cbegin(), result.cend(), std::inserter(new_result, new_result.begin()),
-				    [this, cmd](detail::command_id cid) { return commands.at(cid).pkg.get_command_type() == cmd; });
+				    [this, cmd](detail::command_id cid) { return m_commands.at(cid).pkg.get_command_type() == cmd; });
 				result = std::move(new_result);
 			}
 
@@ -220,13 +220,13 @@ namespace test_utils {
 		}
 
 		bool has_dependency(detail::command_id dependent, detail::command_id dependency) const {
-			const auto& deps = commands.at(dependent).dependencies;
+			const auto& deps = m_commands.at(dependent).dependencies;
 			return std::find(deps.cbegin(), deps.cend(), dependency) != deps.cend();
 		}
 
-		size_t get_dependency_count(detail::command_id dependent) const { return commands.at(dependent).dependencies.size(); }
+		size_t get_dependency_count(detail::command_id dependent) const { return m_commands.at(dependent).dependencies.size(); }
 
-		std::vector<detail::command_id> get_dependencies(detail::command_id dependent) const { return commands.at(dependent).dependencies; }
+		std::vector<detail::command_id> get_dependencies(detail::command_id dependent) const { return m_commands.at(dependent).dependencies; }
 
 	  private:
 		struct cmd_info {
@@ -235,80 +235,80 @@ namespace test_utils {
 			std::vector<detail::command_id> dependencies;
 		};
 
-		std::map<detail::command_id, cmd_info> commands;
-		std::map<detail::task_id, std::set<detail::command_id>> by_task;
-		std::map<experimental::bench::detail::node_id, std::set<detail::command_id>> by_node;
+		std::map<detail::command_id, cmd_info> m_commands;
+		std::map<detail::task_id, std::set<detail::command_id>> m_by_task;
+		std::map<experimental::bench::detail::node_id, std::set<detail::command_id>> m_by_node;
 	};
 
 	class cdag_test_context {
 	  public:
 		cdag_test_context(size_t num_nodes) {
-			rm = std::make_unique<detail::reduction_manager>();
-			tm = std::make_unique<detail::task_manager>(1 /* num_nodes */, nullptr /* host_queue */, rm.get());
-			cdag = std::make_unique<detail::command_graph>();
-			ggen = std::make_unique<detail::graph_generator>(num_nodes, *rm, *cdag);
-			gsrlzr = std::make_unique<detail::graph_serializer>(*cdag, inspector.get_cb());
-			this->num_nodes = num_nodes;
+			m_rm = std::make_unique<detail::reduction_manager>();
+			m_tm = std::make_unique<detail::task_manager>(1 /* num_nodes */, nullptr /* host_queue */, m_rm.get());
+			m_cdag = std::make_unique<detail::command_graph>();
+			m_ggen = std::make_unique<detail::graph_generator>(num_nodes, *m_rm, *m_cdag);
+			m_gsrlzr = std::make_unique<detail::graph_serializer>(*m_cdag, m_inspector.get_cb());
+			this->m_num_nodes = num_nodes;
 		}
 
-		detail::reduction_manager& get_reduction_manager() { return *rm; }
-		detail::task_manager& get_task_manager() { return *tm; }
-		detail::command_graph& get_command_graph() { return *cdag; }
-		detail::graph_generator& get_graph_generator() { return *ggen; }
-		cdag_inspector& get_inspector() { return inspector; }
-		detail::graph_serializer& get_graph_serializer() { return *gsrlzr; }
+		detail::reduction_manager& get_reduction_manager() { return *m_rm; }
+		detail::task_manager& get_task_manager() { return *m_tm; }
+		detail::command_graph& get_command_graph() { return *m_cdag; }
+		detail::graph_generator& get_graph_generator() { return *m_ggen; }
+		cdag_inspector& get_inspector() { return m_inspector; }
+		detail::graph_serializer& get_graph_serializer() { return *m_gsrlzr; }
 
 		detail::task_id build_task_horizons() {
 			const auto most_recently_generated_task_horizon = detail::task_manager_testspy::get_current_horizon(get_task_manager());
-			if(most_recently_generated_task_horizon != most_recently_built_task_horizon) {
-				most_recently_built_task_horizon = most_recently_generated_task_horizon;
-				if(most_recently_built_task_horizon) {
+			if(most_recently_generated_task_horizon != m_most_recently_built_task_horizon) {
+				m_most_recently_built_task_horizon = most_recently_generated_task_horizon;
+				if(m_most_recently_built_task_horizon) {
 					// naive_split does not really do anything for horizons, but this mirrors the behavior of scheduler::schedule exactly.
-					detail::naive_split_transformer naive_split(num_nodes, num_nodes);
-					get_graph_generator().build_task(*tm->get_task(*most_recently_built_task_horizon), {&naive_split});
-					return *most_recently_built_task_horizon;
+					detail::naive_split_transformer naive_split(m_num_nodes, m_num_nodes);
+					get_graph_generator().build_task(*m_tm->get_task(*m_most_recently_built_task_horizon), {&naive_split});
+					return *m_most_recently_built_task_horizon;
 				}
 			}
 			return 0;
 		}
 
 	  private:
-		std::unique_ptr<detail::reduction_manager> rm;
-		std::unique_ptr<detail::task_manager> tm;
-		std::unique_ptr<detail::command_graph> cdag;
-		std::unique_ptr<detail::graph_generator> ggen;
-		cdag_inspector inspector;
-		std::unique_ptr<detail::graph_serializer> gsrlzr;
-		size_t num_nodes;
-		std::optional<detail::task_id> most_recently_built_task_horizon;
+		std::unique_ptr<detail::reduction_manager> m_rm;
+		std::unique_ptr<detail::task_manager> m_tm;
+		std::unique_ptr<detail::command_graph> m_cdag;
+		std::unique_ptr<detail::graph_generator> m_ggen;
+		cdag_inspector m_inspector;
+		std::unique_ptr<detail::graph_serializer> m_gsrlzr;
+		size_t m_num_nodes;
+		std::optional<detail::task_id> m_most_recently_built_task_horizon;
 	};
 
 	class mock_buffer_factory {
 	  public:
-		explicit mock_buffer_factory(detail::task_manager* tm = nullptr, detail::graph_generator* ggen = nullptr) : task_mngr(tm), ggen(ggen) {}
-		explicit mock_buffer_factory(cdag_test_context& ctx) : task_mngr(&ctx.get_task_manager()), ggen(&ctx.get_graph_generator()) {}
+		explicit mock_buffer_factory(detail::task_manager* tm = nullptr, detail::graph_generator* ggen = nullptr) : m_task_mngr(tm), m_ggen(ggen) {}
+		explicit mock_buffer_factory(cdag_test_context& ctx) : m_task_mngr(&ctx.get_task_manager()), m_ggen(&ctx.get_graph_generator()) {}
 
 		template <int Dims>
 		mock_buffer<Dims> create_buffer(cl::sycl::range<Dims> size, bool mark_as_host_initialized = false) {
-			const detail::buffer_id bid = next_buffer_id++;
+			const detail::buffer_id bid = m_next_buffer_id++;
 			const auto buf = mock_buffer<Dims>(bid, size);
-			if(task_mngr != nullptr) { task_mngr->add_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
-			if(ggen != nullptr) { ggen->add_buffer(bid, detail::range_cast<3>(size)); }
+			if(m_task_mngr != nullptr) { m_task_mngr->add_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
+			if(m_ggen != nullptr) { m_ggen->add_buffer(bid, detail::range_cast<3>(size)); }
 			return buf;
 		}
 
 	  private:
-		detail::task_manager* task_mngr;
-		detail::graph_generator* ggen;
-		detail::buffer_id next_buffer_id = 0;
+		detail::task_manager* m_task_mngr;
+		detail::graph_generator* m_ggen;
+		detail::buffer_id m_next_buffer_id = 0;
 	};
 
 	class mock_host_object_factory {
 	  public:
-		mock_host_object create_host_object() { return mock_host_object{next_id++}; }
+		mock_host_object create_host_object() { return mock_host_object{m_next_id++}; }
 
 	  private:
-		detail::host_object_id next_id = 0;
+		detail::host_object_id m_next_id = 0;
 	};
 
 	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
@@ -388,17 +388,17 @@ namespace test_utils {
 		~device_queue_fixture() { get_device_queue().get_sycl_queue().wait_and_throw(); }
 
 		detail::device_queue& get_device_queue() {
-			if(!dq) {
-				cfg = std::make_unique<detail::config>(nullptr, nullptr);
-				dq = std::make_unique<detail::device_queue>();
-				dq->init(*cfg, detail::auto_select_device{});
+			if(!m_dq) {
+				m_cfg = std::make_unique<detail::config>(nullptr, nullptr);
+				m_dq = std::make_unique<detail::device_queue>();
+				m_dq->init(*m_cfg, detail::auto_select_device{});
 			}
-			return *dq;
+			return *m_dq;
 		}
 
 	  private:
-		std::unique_ptr<detail::config> cfg;
-		std::unique_ptr<detail::device_queue> dq;
+		std::unique_ptr<detail::config> m_cfg;
+		std::unique_ptr<detail::device_queue> m_dq;
 	};
 
 	// Printing of graphs can be enabled using the "--print-graphs" command line flag
