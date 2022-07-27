@@ -332,15 +332,15 @@ template <typename BenchmarkContext>
 }
 
 // Artificial: Generate expanding or contracting tree of tasks, with gather/scatter communication
-enum class TreeTopology { Expanding, Contracting };
+enum class tree_topology { Expanding, Contracting };
 
-template <TreeTopology Topology, typename BenchmarkContext>
+template <tree_topology Topology, typename BenchmarkContext>
 [[gnu::noinline]] BenchmarkContext&& generate_tree_graph(BenchmarkContext&& ctx, const size_t target_num_tasks) {
 	const size_t tree_breadth = static_cast<int>(pow(2, ceil(log2(target_num_tasks + 1)) - 1));
 	test_utils::mock_buffer<2> buf = ctx.mbf.create_buffer(range<2>{ctx.num_nodes, tree_breadth}, true /* host initialized */);
 
 	for(size_t exp_step = 1; exp_step <= tree_breadth; exp_step *= 2) {
-		const auto sr_range = Topology == TreeTopology::Expanding ? tree_breadth / exp_step : exp_step;
+		const auto sr_range = Topology == tree_topology::Expanding ? tree_breadth / exp_step : exp_step;
 		for(size_t sr_off = 0; sr_off < tree_breadth; sr_off += sr_range) {
 			ctx.create_task(range<1>{ctx.num_nodes}, [&](handler& cgh) {
 				buf.get_access<access_mode::read>(cgh, [=](chunk<1> ck) { return subrange<2>{{0, sr_off}, {ck.global_size[0], sr_range}}; });
@@ -422,8 +422,8 @@ template <typename BenchmarkContextFactory>
 void run_benchmarks(BenchmarkContextFactory&& make_ctx) {
 	BENCHMARK("soup topology") { generate_soup_graph(make_ctx(), 100); };
 	BENCHMARK("chain topology") { generate_chain_graph(make_ctx(), 30); };
-	BENCHMARK("expanding tree topology") { generate_tree_graph<TreeTopology::Expanding>(make_ctx(), 30); };
-	BENCHMARK("contracting tree topology") { generate_tree_graph<TreeTopology::Contracting>(make_ctx(), 30); };
+	BENCHMARK("expanding tree topology") { generate_tree_graph<tree_topology::Expanding>(make_ctx(), 30); };
+	BENCHMARK("contracting tree topology") { generate_tree_graph<tree_topology::Contracting>(make_ctx(), 30); };
 	BENCHMARK("wave_sim topology") { generate_wave_sim_graph(make_ctx(), 50); };
 	BENCHMARK("jacobi topology") { generate_jacobi_graph(make_ctx(), 50); };
 }
@@ -457,8 +457,8 @@ template <typename BenchmarkContextFactory, typename BenchmarkContextConsumer>
 void debug_graphs(BenchmarkContextFactory&& make_ctx, BenchmarkContextConsumer&& debug_ctx) {
 	debug_ctx(generate_soup_graph(make_ctx(), 10));
 	debug_ctx(generate_chain_graph(make_ctx(), 5));
-	debug_ctx(generate_tree_graph<TreeTopology::Expanding>(make_ctx(), 7));
-	debug_ctx(generate_tree_graph<TreeTopology::Contracting>(make_ctx(), 7));
+	debug_ctx(generate_tree_graph<tree_topology::Expanding>(make_ctx(), 7));
+	debug_ctx(generate_tree_graph<tree_topology::Contracting>(make_ctx(), 7));
 	debug_ctx(generate_wave_sim_graph(make_ctx(), 2));
 	debug_ctx(generate_jacobi_graph(make_ctx(), 5));
 }
