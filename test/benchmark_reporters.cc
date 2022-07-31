@@ -236,7 +236,7 @@ class benchmark_md_reporter : public benchmark_reporter_base {
 		};
 
 		const auto min = std::reduce(benchmark_stats.samples.cbegin(), benchmark_stats.samples.cend(),
-		    std::chrono::duration<double, std::nano>(std::numeric_limits<double>::max()), [](auto& a, auto& b) { return std::min(a, b); });
+		    std::chrono::duration<double, std::nano>(std::numeric_limits<double>::max()), [](const auto& a, const auto& b) { return std::min(a, b); });
 
 		m_results_printer.add_row({fmt::format("{}", escape_md_partial(get_test_case_name())), // Test case
 		    escape_md_partial(benchmark_stats.info.name),                                      // Benchmark name

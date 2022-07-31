@@ -456,7 +456,7 @@ TEST_CASE("pick_device warns when highest scoring devices span multiple platform
 	auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
 	mp_0.create_devices(dt::cpu);
 	mp_1.create_devices(dt::accelerator, dt::gpu, dt::gpu, dt::gpu);
-	mp_2.create_devices(dt::gpu, dt::accelerator, dt::accelerator, dt::accelerator)[2];
+	mp_2.create_devices(dt::gpu, dt::accelerator, dt::accelerator, dt::accelerator);
 
 	const size_t node_count = 4;
 	const size_t local_rank = GENERATE(0, 3);

@@ -1,10 +1,11 @@
 #pragma once
 
+#include <algorithm>
 #include <memory>
-
-#include <CL/sycl.hpp>
 #include <type_traits>
 #include <variant>
+
+#include <CL/sycl.hpp>
 
 #include "config.h"
 #include "workaround.h"

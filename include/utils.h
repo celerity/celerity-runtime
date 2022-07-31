@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <type_traits>
+#include <variant>
 
 namespace celerity::detail::utils {
 
