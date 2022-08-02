@@ -161,10 +161,12 @@ namespace detail {
 			ctpl::thread_pool thread;
 
 			comm_thread(MPI_Comm comm, size_t n_threads, size_t id) : comm(comm), thread(n_threads) {
+#if CELERITY_FEATURE_NAMED_THREADS
 				for(size_t i = 0; i < n_threads; ++i) {
 					auto& worker = thread.get_thread(i);
 					set_thread_name(worker.native_handle(), fmt::format("cy-worker-{}.{}", id, i));
 				}
+#endif
 			}
 		};
 

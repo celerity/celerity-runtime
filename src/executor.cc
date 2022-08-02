@@ -34,7 +34,9 @@ namespace detail {
 
 	void executor::startup() {
 		m_exec_thrd = std::thread(&executor::run, this);
+#if CELERITY_FEATURE_NAMED_THREADS
 		set_thread_name(m_exec_thrd.native_handle(), "cy-executor");
+#endif
 	}
 
 	void executor::shutdown() {

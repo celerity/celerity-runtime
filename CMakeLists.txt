@@ -199,14 +199,18 @@ set(SOURCES
   "${CMAKE_CURRENT_BINARY_DIR}/src/version.cc"
 )
 
+set(CELERITY_FEATURE_NAMED_THREADS OFF)
+
 if(WIN32)
   set(SOURCES ${SOURCES} src/platform_specific/affinity.win.cc)
   set(SOURCES ${SOURCES} src/platform_specific/named_threads.win.cc)
+  set(CELERITY_FEATURE_NAMED_THREADS ON)
 elseif(UNIX)
   if(NOT APPLE)
     set(SOURCES ${SOURCES} src/platform_specific/affinity.unix.cc)
+    set(SOURCES ${SOURCES} src/platform_specific/named_threads.unix.cc)
+    set(CELERITY_FEATURE_NAMED_THREADS ON)
   endif()
-  set(SOURCES ${SOURCES} src/platform_specific/named_threads.unix.cc)
 endif()
 
 add_library(
@@ -264,6 +268,7 @@ target_compile_definitions(celerity_runtime PUBLIC
   CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS=$<BOOL:${CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS}>
   CELERITY_FEATURE_LOCAL_ACCESSOR=$<BOOL:${CELERITY_FEATURE_LOCAL_ACCESSOR}>
   CELERITY_FEATURE_UNNAMED_KERNELS=$<BOOL:${CELERITY_FEATURE_UNNAMED_KERNELS}>
+  CELERITY_FEATURE_NAMED_THREADS=$<BOOL:${CELERITY_FEATURE_NAMED_THREADS}>
   CELERITY_IS_OLD_COMPUTECPP_COMPILER=$<BOOL:${CELERITY_IS_OLD_COMPUTECPP_COMPILER}>
 )
 

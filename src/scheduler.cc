@@ -52,7 +52,9 @@ namespace detail {
 
 	void scheduler::startup() {
 		m_worker_thread = std::thread(&scheduler::schedule, this);
+#if CELERITY_FEATURE_NAMED_THREADS
 		set_thread_name(m_worker_thread.native_handle(), "cy-scheduler");
+#endif
 	}
 
 	void scheduler::shutdown() {
