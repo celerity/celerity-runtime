@@ -208,9 +208,9 @@ if(WIN32)
 elseif(UNIX)
   if(NOT APPLE)
     set(SOURCES ${SOURCES} src/platform_specific/affinity.unix.cc)
-    set(SOURCES ${SOURCES} src/platform_specific/named_threads.unix.cc)
     set(CELERITY_FEATURE_NAMED_THREADS ON)
   endif()
+  set(SOURCES ${SOURCES} src/platform_specific/named_threads.unix.cc)
 endif()
 
 add_library(
