@@ -980,9 +980,6 @@ namespace detail {
 		const auto executor_thread_name = get_thread_name(executor_testspy::get_exec_thrd(exec).native_handle());
 		CHECK(executor_thread_name == "cy-executor");
 
-		const auto main_thread_name = get_thread_name(get_current_thread_handle());
-		CHECK(main_thread_name == "cy-main");
-
 		q.submit([](handler& cgh) {
 			cgh.host_task(experimental::collective, [&](experimental::collective_partition) {
 				const auto base_name = std::string("cy-worker-");

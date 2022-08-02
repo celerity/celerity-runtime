@@ -182,7 +182,6 @@ namespace detail {
 		m_is_active = true;
 		if(is_master_node()) { m_schdlr->startup(); }
 		m_exec->startup();
-		set_thread_name(get_current_thread_handle(), "cy-main");
 	}
 
 	void runtime::shutdown() {
