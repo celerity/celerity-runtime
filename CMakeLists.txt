@@ -158,6 +158,11 @@ macro(add_submodule_directory RELPATH)
 endmacro()
 
 add_submodule_directory(vendor/spdlog)
+if(WIN32)
+  # Catch2 uses custom top-level exception filters that conflict with MSMPI, which also uses their own filters.
+  # Disabling Windows SEH prevents Catch2 from using their own top-level exception filters.
+  set(CATCH_CONFIG_NO_WINDOWS_SEH ON)
+endif()
 add_submodule_directory(vendor/Catch2)
 
 configure_file(include/version.h.in include/version.h @ONLY)
