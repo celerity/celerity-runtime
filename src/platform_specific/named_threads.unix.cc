@@ -29,7 +29,7 @@ std::string get_thread_name([[maybe_unused]] const std::thread::native_handle_ty
 	assert(res == 0 && "Failed to get thread name");
 	return name; // Automatically strips null terminator
 #else
-	return "";
+	return {};
 #endif
 }
 
