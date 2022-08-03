@@ -59,7 +59,7 @@ namespace detail {
 	template <typename KernelName>
 	constexpr bool is_unnamed_kernel = std::is_same_v<KernelName, unnamed_kernel>;
 
-#if CELERITY_IS_OLD_COMPUTECPP_COMPILER
+#if CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER
 	template <typename KernelName>
 	struct kernel_name_wrapper;
 #endif
@@ -67,7 +67,7 @@ namespace detail {
 	template <typename KernelName>
 	struct bound_kernel_name {
 		static_assert(!is_unnamed_kernel<KernelName>);
-#if CELERITY_IS_OLD_COMPUTECPP_COMPILER
+#if CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER
 		using type = kernel_name_wrapper<KernelName>; // Suppress -Rsycl-kernel-naming diagnostic for local types
 #else
 		using type = KernelName;

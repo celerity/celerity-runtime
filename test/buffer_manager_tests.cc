@@ -50,7 +50,7 @@ namespace detail {
 	}
 
 // ComputeCPP based on Clang 8 segfaults in these tests
-#if !CELERITY_IS_OLD_COMPUTECPP_COMPILER
+#if !CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager keeps track of buffers", "[buffer_manager]") {
 		std::vector<std::pair<buffer_manager::buffer_lifecycle_event, buffer_id>> cb_calls;
@@ -1098,7 +1098,7 @@ namespace detail {
 		}
 	}
 
-#endif // CELERITY_IS_OLD_COMPUTECPP_COMPILER
+#endif // CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER
 
 } // namespace detail
 } // namespace celerity
