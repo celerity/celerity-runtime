@@ -78,6 +78,9 @@ int main() {
 	celerity::buffer<float, 2> mat_b_buf(range);
 	celerity::buffer<float, 2> mat_c_buf(range);
 
+	celerity::debug::set_buffer_name(mat_a_buf, "mat_a");
+	celerity::debug::set_buffer_name(mat_b_buf, "mat_b");
+
 	set_identity(queue, mat_a_buf);
 	set_identity(queue, mat_b_buf);
 

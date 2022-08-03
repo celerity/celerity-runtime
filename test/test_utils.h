@@ -46,6 +46,16 @@
 namespace celerity {
 namespace detail {
 
+	struct runtime_testspy {
+		static scheduler& get_schdlr(runtime& rt) { return *rt.m_schdlr; }
+		static executor& get_exec(runtime& rt) { return *rt.m_exec; }
+		static size_t get_command_count(runtime& rt) { return rt.m_cdag->command_count(); }
+		static command_graph& get_cdag(runtime& rt) { return *rt.m_cdag; }
+		static std::string print_graph(runtime& rt) {
+			return rt.m_cdag.get()->print_graph(std::numeric_limits<size_t>::max(), *rt.m_task_mngr, *rt.m_reduction_mngr, rt.m_buffer_mngr.get()).value();
+		}
+	};
+
 	struct task_ring_buffer_testspy {
 		static void create_task_slot(task_ring_buffer& trb) { trb.m_number_of_deleted_tasks += 1; }
 	};
@@ -426,7 +436,7 @@ namespace test_utils {
 	inline void maybe_print_graph(
 	    celerity::detail::command_graph& cdag, const celerity::detail::task_manager& tm, const celerity::detail::reduction_manager& rm) {
 		if(print_graphs) {
-			const auto graph_str = cdag.print_graph(std::numeric_limits<size_t>::max(), tm, rm);
+			const auto graph_str = cdag.print_graph(std::numeric_limits<size_t>::max(), tm, rm, {});
 			assert(graph_str.has_value());
 			CELERITY_INFO("Command graph:\n\n{}\n", *graph_str);
 		}

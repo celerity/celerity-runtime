@@ -93,6 +93,7 @@ namespace detail {
 			cl::sycl::range<3> range = {1, 1, 1};
 			size_t element_size = 0;
 			bool is_host_initialized;
+			std::string debug_name = {};
 		};
 
 		/**
@@ -163,7 +164,8 @@ namespace detail {
 			return !m_buffer_infos.empty();
 		}
 
-		const buffer_info& get_buffer_info(buffer_id bid) const {
+		// returning copy of struct because FOR NOW it is not called in any performance critical section.
+		buffer_info get_buffer_info(buffer_id bid) const {
 			std::shared_lock lock(m_mutex);
 			assert(m_buffer_infos.find(bid) != m_buffer_infos.end());
 			return m_buffer_infos.at(bid);
@@ -311,6 +313,16 @@ namespace detail {
 		void unlock(buffer_lock_id id);
 
 		bool is_locked(buffer_id bid) const;
+
+		void set_debug_name(const buffer_id bid, const std::string& debug_name) {
+			std::lock_guard lock(m_mutex);
+			m_buffer_infos.at(bid).debug_name = debug_name;
+		}
+
+		std::string get_debug_name(const buffer_id bid) const {
+			std::lock_guard lock(m_mutex);
+			return m_buffer_infos.at(bid).debug_name;
+		}
 
 	  private:
 		struct backing_buffer {
