@@ -965,7 +965,7 @@ namespace detail {
 		CHECK(exterior == std::vector{1, 2});
 	}
 
-#if CELERITY_FEATURE_NAMED_THREADS
+#if CELERITY_DETAIL_HAS_NAMED_THREADS
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "thread names are set", "[threads]") {
 		distr_queue q;
