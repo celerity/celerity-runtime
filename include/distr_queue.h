@@ -106,19 +106,19 @@ class distr_queue {
 		return detail::capture_inspector::exfiltrate_by_copy(caps);
 	}
 
-	void drain() { drain({}, {}); }
+	void drain() { drain_internal({}, {}); }
 
 	template <typename T>
 	typename experimental::capture<T>::value_type drain(const experimental::capture<T>& cap) {
 		auto [buffer_captures, side_effects] = detail::capture_inspector::collect_requirements(std::tuple{cap});
-		drain(std::move(buffer_captures), std::move(side_effects));
+		drain_internal(std::move(buffer_captures), std::move(side_effects));
 		return std::get<0>(detail::capture_inspector::exfiltrate_by_move(std::tuple{cap}));
 	}
 
 	template <typename... Ts>
 	std::tuple<typename experimental::capture<Ts>::value_type...> drain(const std::tuple<experimental::capture<Ts>...>& caps) {
 		auto [buffer_captures, side_effects] = detail::capture_inspector::collect_requirements(caps);
-		drain(std::move(buffer_captures), std::move(side_effects));
+		drain_internal(std::move(buffer_captures), std::move(side_effects));
 		return detail::capture_inspector::exfiltrate_by_move(caps);
 	}
 
@@ -140,7 +140,7 @@ class distr_queue {
 		return detail::runtime::get_instance().sync(std::move(buffer_captures), std::move(side_effects));
 	}
 
-	void drain(detail::buffer_capture_map buffer_captures, detail::side_effect_map side_effects) {
+	void drain_internal(detail::buffer_capture_map buffer_captures, detail::side_effect_map side_effects) {
 		check_not_drained(m_tracker);
 		detail::runtime::get_instance().shutdown(std::move(buffer_captures), std::move(side_effects));
 		m_tracker->set_drained();
