@@ -223,9 +223,11 @@ namespace detail {
 		    : m_tid(tid), m_type(type), m_cgid(cgid), m_geometry(geometry), m_cgf(std::move(cgf)), m_capture_map(std::move(capture_map)),
 		      m_access_map(std::move(access_map)), m_side_effects(std::move(side_effects)), m_reductions(std::move(reductions)),
 		      m_debug_name(std::move(debug_name)), m_epoch_action(epoch_action) {
+			// only compute tasks can be split
 			assert(type == task_type::host_compute || type == task_type::device_compute || get_granularity().size() == 1);
-			// Only host tasks can have side effects
-			assert(this->m_side_effects.empty() || type == task_type::host_compute || type == task_type::collective || type == task_type::master_node);
+			// only host tasks and epochs can have side effects (epochs have "reading" sequential side effects due to captures)
+			assert(m_side_effects.empty() || type == task_type::host_compute || type == task_type::collective || type == task_type::master_node
+			       || type == task_type::epoch);
 		}
 	};
 
