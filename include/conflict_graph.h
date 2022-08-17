@@ -15,12 +15,12 @@ class conflict_graph {
 
 	void add_conflict(const command_id a, const command_id b) {
 		assert(a != b);
-		conflicts.emplace(a, b);
-		conflicts.emplace(b, a);
+		m_conflicts.emplace(a, b);
+		m_conflicts.emplace(b, a);
 	}
 
 	bool has_conflict(const command_id a, const command_id b) const {
-		const auto [first, last] = conflicts.equal_range(a);
+		const auto [first, last] = m_conflicts.equal_range(a);
 		return std::find(first, last, conflict_pair{a, b}) != last;
 	}
 
@@ -28,20 +28,20 @@ class conflict_graph {
 	bool has_conflict_with_any_of(const command_id cid, const CommandSets&... sets) const {
 		static_assert(sizeof...(sets) >= 1);
 		static_assert((std::is_same_v<CommandSets, command_set> && ...));
-		const auto [first, last] = conflicts.equal_range(cid);
+		const auto [first, last] = m_conflicts.equal_range(cid);
 		return std::find_if(first, last, [&](const conflict_pair& cf) { return ((sets.find(cf.second) != sets.end()) || ...); }) != last;
 	}
 
 	void forget_command(const command_id cid) {
-		if(auto [first, last] = conflicts.equal_range(cid); first != last) {
+		if(auto [first, last] = m_conflicts.equal_range(cid); first != last) {
 			for(auto it = first; it != last; ++it) {
-				const auto [back_first, back_last] = conflicts.equal_range(it->second);
+				const auto [back_first, back_last] = m_conflicts.equal_range(it->second);
 				const auto back_it = std::find_if(back_first, back_last, [=](const conflict_pair& cf) { return cf.second == cid; });
 				assert(back_it != back_last);
-				const auto after_erase = conflicts.erase(back_it);
+				const auto after_erase = m_conflicts.erase(back_it);
 				if(last == back_it) last = after_erase; // edge case: erase can accidentally invalidate `last`, in that case we need to advance it
 			}
-			conflicts.erase(first, last);
+			m_conflicts.erase(first, last);
 		}
 	}
 
@@ -85,40 +85,40 @@ class conflict_graph {
 		  public:
 			backtracker(command_set known_conflict_free_pending_commands, command_set potentially_conflicting_pending_commands,
 			    const command_set& active_commands, const conflict_graph& cg)
-			    : cg(cg), active_commands(active_commands) {
+			    : m_cg(cg), m_active_commands(active_commands) {
 				const auto n_pending_commands = known_conflict_free_pending_commands.size() + potentially_conflicting_pending_commands.size();
-				pending_commands = std::move(potentially_conflicting_pending_commands);
-				best_candidate = std::move(known_conflict_free_pending_commands);
-				best_candidate.reserve(n_pending_commands);
-				candidate.reserve(n_pending_commands);
-				candidate.insert(best_candidate.begin(), best_candidate.end());
+				m_pending_commands = std::move(potentially_conflicting_pending_commands);
+				m_best_candidate = std::move(known_conflict_free_pending_commands);
+				m_best_candidate.reserve(n_pending_commands);
+				m_candidate.reserve(n_pending_commands);
+				m_candidate.insert(m_best_candidate.begin(), m_best_candidate.end());
 			}
 
 			command_set backtrack() && {
-				backtrack(pending_commands.begin());
-				return std::move(best_candidate);
+				backtrack(m_pending_commands.begin());
+				return std::move(m_best_candidate);
 			}
 
 		  private:
-			const conflict_graph& cg;
-			const command_set& active_commands;
-			command_set pending_commands;
-			command_set best_candidate, candidate;
-			size_t abandoned_candidates = 0;
+			const conflict_graph& m_cg;
+			const command_set& m_active_commands;
+			command_set m_pending_commands;
+			command_set m_best_candidate, m_candidate;
+			size_t m_abandoned_candidates = 0;
 
 			void backtrack(command_set::iterator it) noexcept { // NOLINT(misc-no-recursion)
-				while(it != pending_commands.end() && abandoned_candidates < backtracking_max_abandoned_candidates) {
+				while(it != m_pending_commands.end() && m_abandoned_candidates < backtracking_max_abandoned_candidates) {
 					const auto cid = *it++;
-					if(!cg.has_conflict_with_any_of(cid, active_commands, candidate)) {
-						candidate.insert(cid);
+					if(!m_cg.has_conflict_with_any_of(cid, m_active_commands, m_candidate)) {
+						m_candidate.insert(cid);
 						backtrack(it);
-						if(candidate.size() > best_candidate.size()) {
-							best_candidate.clear();
-							best_candidate.insert(candidate.begin(), candidate.end()); // don't re-allocate
+						if(m_candidate.size() > m_best_candidate.size()) {
+							m_best_candidate.clear();
+							m_best_candidate.insert(m_candidate.begin(), m_candidate.end()); // don't re-allocate
 						}
-						candidate.erase(cid);
+						m_candidate.erase(cid);
 					} else {
-						++abandoned_candidates;
+						++m_abandoned_candidates;
 					}
 				}
 			}
@@ -131,7 +131,7 @@ class conflict_graph {
 	using conflict_map = std::unordered_multimap<command_id, command_id>;
 	using conflict_pair = conflict_map::value_type;
 
-	conflict_map conflicts;
+	conflict_map m_conflicts;
 };
 
 } // namespace celerity::detail
