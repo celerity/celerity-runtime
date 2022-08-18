@@ -4,6 +4,12 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  # We use nightly builds to determine whether CI passes for "HEAD" revisions
+  # of DPC++ and hipSYCL. If so, these revisions are tagged as "latest" and
+  # used for all subsequent CI runs.
+  schedule:
+    # Every night at 05:00 UTC
+    - cron: "0 5 * * *"
 
 jobs:
   find-duplicate-workflows:
@@ -37,15 +43,20 @@ jobs:
     if: github.event.pull_request
     runs-on: [ self-hosted, slurm-nvidia ]
     env:
-      container-workspace: /__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}
+      container-workspace: <placeholder>
       build-dir: /root/build
     container:
       # We could run this for more than one implementation,
       # but would likely end up with mostly duplicate diagnostics.
-      image: celerity-build/hipsycl:ubuntu22.04-HEAD
+      image: celerity-build/hipsycl:ubuntu22.04-latest
       volumes:
         - ccache:/ccache
     steps:
+      # Here and in jobs below: We need to manually set the container workspace
+      # path as an environment variable, as (curiously) the `github.workspace` context
+      # variable contains the path on the container host (but $GITHUB_WORKSPACE is correct).
+      - name: Set container workspace environment variable
+        run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
       - uses: actions/checkout@v2
         with:
           submodules: true
@@ -70,89 +81,71 @@ jobs:
             --config_file=${{ env.container-workspace }}/.clang-tidy \
             --include="*.h,*.cc,*.[ch]pp"
 
-  build-and-test:
+  # We need to jump through some hoops to have different build matrices based on what triggered the workflow.
+  # For normal CI runs we want to build and test against everything except the "HEAD" revisions, whereas during
+  # nightly builds we *only* want those.
+  #
+  # Current workaround is to build the matrix as a JSON object which is then deserialized in the next job.
+  construct-build-matrix:
     needs: find-duplicate-workflows
+    if: needs.find-duplicate-workflows.outputs.should_skip != 'true'
+    runs-on: self-hosted
+    outputs:
+      matrix: ${{ steps.finalize-json-matrix.outputs.matrix }}
+    steps:
+      # Make sure to keep this in sync with docs/platform-support.md.
+      # Also ensure that the "ubuntu-version" between "HEAD" and "latest" builds remains the same.
+      - if: github.event_name != 'schedule'
+        run: |
+          echo 'json_matrix<<EOF' >> $GITHUB_ENV
+          cat <<EOF >> $GITHUB_ENV
+            { "sycl": "computecpp", "sycl-version": "2.6.0", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },\
+            { "sycl": "computecpp", "sycl-version": "2.7.0", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },\
+            { "sycl": "computecpp", "sycl-version": "2.8.0", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },\
+            { "sycl": "computecpp", "sycl-version": "2.9.0", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },\
+            { "sycl": "computecpp", "sycl-version": "2.10.0", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },\
+            { "sycl": "computecpp", "sycl-version": "2.10.0", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },\
+            { "sycl": "computecpp", "sycl-version": "2.10.0-experimental", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },\
+            { "sycl": "computecpp", "sycl-version": "2.10.0-experimental", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },\
+            { "sycl": "dpcpp", "sycl-version": "7735139b", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },\
+            { "sycl": "dpcpp", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },\
+            { "sycl": "dpcpp", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },\
+            { "sycl": "hipsycl", "sycl-version": "7b00e2ef", "ubuntu-version": "20.04", "platform": "nvidia", "build-type": "Debug" },\
+            { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Debug" },\
+            { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Release" }
+          EOF
+          echo "EOF" >> $GITHUB_ENV
+      - if: github.event_name == 'schedule'
+        run: |
+          echo 'json_matrix<<EOF' >> $GITHUB_ENV
+          cat <<EOF >> $GITHUB_ENV
+            { "sycl": "dpcpp", "sycl-version": "HEAD", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },\
+            { "sycl": "dpcpp", "sycl-version": "HEAD", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },\
+            { "sycl": "hipsycl", "sycl-version": "HEAD", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Debug" },\
+            { "sycl": "hipsycl", "sycl-version": "HEAD", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Release" }
+          EOF
+          echo "EOF" >> $GITHUB_ENV
+      - id: finalize-json-matrix
+        run: echo '::set-output name=matrix::{ "include":[${{ env.json_matrix }}] }'
+
+  build-and-test:
+    needs: [find-duplicate-workflows, construct-build-matrix]
     if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
     runs-on: [ self-hosted, "slurm-${{ matrix.platform }}" ]
     strategy:
       fail-fast: false
-      matrix:
-        # make sure to keep this in sync with docs/platform-support.md
-        include:
-          - sycl: "computecpp"
-            sycl-version: "2.6.0"
-            ubuntu-version: "20.04"
-            platform: "intel"
-            build-type: "Debug"
-          - sycl: "computecpp"
-            sycl-version: "2.7.0"
-            ubuntu-version: "20.04"
-            platform: "intel"
-            build-type: "Debug"
-          - sycl: "computecpp"
-            sycl-version: "2.8.0"
-            ubuntu-version: "20.04"
-            platform: "intel"
-            build-type: "Debug"
-          - sycl: "computecpp"
-            sycl-version: "2.9.0"
-            ubuntu-version: "22.04"
-            platform: "intel"
-            build-type: "Debug"
-          - sycl: "computecpp"
-            sycl-version: "2.10.0"
-            ubuntu-version: "22.04"
-            platform: "intel"
-            build-type: "Debug"
-          - sycl: "computecpp"
-            sycl-version: "2.10.0"
-            ubuntu-version: "22.04"
-            platform: "intel"
-            build-type: "Release"
-          - sycl: "computecpp"
-            sycl-version: "2.10.0-experimental"
-            ubuntu-version: "22.04"
-            platform: "intel"
-            build-type: "Debug"
-          - sycl: "computecpp"
-            sycl-version: "2.10.0-experimental"
-            ubuntu-version: "22.04"
-            platform: "intel"
-            build-type: "Release"
-          - sycl: "dpcpp"
-            sycl-version: "7735139b"
-            ubuntu-version: "20.04"
-            platform: "intel"
-            build-type: "Debug"
-          - sycl: "dpcpp"
-            sycl-version: "HEAD"
-            ubuntu-version: "22.04"
-            platform: "intel"
-            build-type: "Debug"
-          - sycl: "dpcpp"
-            sycl-version: "HEAD"
-            ubuntu-version: "22.04"
-            platform: "intel"
-            build-type: "Release"
-          - sycl: "hipsycl"
-            sycl-version: "7b00e2ef"
-            ubuntu-version: "20.04"
-            platform: "nvidia"
-            build-type: "Debug"
-          - sycl: "hipsycl"
-            sycl-version: "HEAD"
-            ubuntu-version: "22.04"
-            platform: "nvidia"
-            build-type: "Debug"
-          - sycl: "hipsycl"
-            sycl-version: "HEAD"
-            ubuntu-version: "22.04"
-            platform: "nvidia"
-            build-type: "Release"
-
+      matrix: ${{ fromJSON(needs.construct-build-matrix.outputs.matrix) }}
+    # These outputs are required by the image tagging step, only set during nightly builds.
+    outputs:
+      dpcpp-HEAD-Debug-works: ${{ steps.set-head-results.outputs.dpcpp-HEAD-Debug-works }}
+      dpcpp-HEAD-Release-works: ${{ steps.set-head-results.outputs.dpcpp-HEAD-Release-works }}
+      dpcpp-HEAD-ubuntu-version: ${{ steps.set-head-results.outputs.dpcpp-HEAD-ubuntu-version }}
+      hipsycl-HEAD-Debug-works: ${{ steps.set-head-results.outputs.hipsycl-HEAD-Debug-works }}
+      hipsycl-HEAD-Release-works: ${{ steps.set-head-results.outputs.hipsycl-HEAD-Release-works }}
+      hipsycl-HEAD-ubuntu-version: ${{ steps.set-head-results.outputs.hipsycl-HEAD-ubuntu-version }}
     env:
       build-name: ${{ matrix.platform }}-ubuntu${{ matrix.ubuntu-version }}-${{ matrix.sycl }}-${{ matrix.sycl-version }}-${{ matrix.build-type }}
-      container-workspace: /__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}
+      container-workspace: <placeholder>
       build-dir: /root/build
       examples-build-dir: /root/build-examples
     container:
@@ -160,6 +153,8 @@ jobs:
       volumes:
         - ccache:/ccache
     steps:
+      - name: Set container workspace environment variable
+        run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
       - name: Print exact SYCL revision used for this CI run
         run: cat /VERSION
       - uses: actions/checkout@v2
@@ -197,16 +192,59 @@ jobs:
             ${{ env.build-dir }}/*.trace
             ${{ env.examples-build-dir }}/*.trace
           if-no-files-found: ignore
+      - id: set-head-results
+        name: Set outputs for HEAD builds
+        if: matrix.sycl-version == 'HEAD'
+        run: |
+          echo "::set-output name=${{ matrix.sycl }}-HEAD-${{ matrix.build-type }}-works::1"
+          echo "::set-output name=${{ matrix.sycl }}-HEAD-ubuntu-version::${{ matrix.ubuntu-version }}"
+
+  # Tag "HEAD" images that built and tested successfully as "latest".
+  # This is only done for nightly builds.
+  tag-latest-containers:
+    needs: [find-duplicate-workflows, build-and-test]
+    # Run this step regardless of result of `build-and-test` (hence the `always()`),
+    # since we always want to tag images that were successful, even if others weren't.
+    if: always() && needs.find-duplicate-workflows.outputs.should_skip != 'true' && github.event_name == 'schedule'
+    runs-on: slurm-${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sycl: "dpcpp"
+            platform: "intel"
+          - sycl: "hipsycl"
+            platform: "nvidia"
+    env:
+      image-basename-dpcpp: celerity-build/dpcpp:ubuntu${{ needs.build-and-test.outputs.dpcpp-HEAD-ubuntu-version }}
+      image-basename-hipsycl: celerity-build/hipsycl:ubuntu${{ needs.build-and-test.outputs.hipsycl-HEAD-ubuntu-version }}
+    steps:
+      - if: matrix.sycl == 'dpcpp'
+        run: |
+          if [[ "${{ needs.build-and-test.outputs.dpcpp-HEAD-Debug-works }}" -eq 1 ]] && [[ "${{ needs.build-and-test.outputs.dpcpp-HEAD-Release-works }}" -eq 1 ]]; then
+            docker tag ${{ env.image-basename-dpcpp }}-HEAD ${{ env.image-basename-dpcpp }}-latest
+          else
+            exit 1
+          fi
+      - if: matrix.sycl == 'hipsycl'
+        run: |
+          if [[ "${{ needs.build-and-test.outputs.hipsycl-HEAD-Debug-works }}" -eq 1 ]] && [[ "${{ needs.build-and-test.outputs.hipsycl-HEAD-Release-works }}" -eq 1 ]]; then
+            docker tag ${{ env.image-basename-hipsycl }}-HEAD ${{ env.image-basename-hipsycl }}-latest
+          else
+            exit 1
+          fi
 
   report:
     needs: [find-duplicate-workflows, build-and-test]
     if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
     runs-on: [ self-hosted, slurm ]
     env:
-      container-workspace: /__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}
+      container-workspace: <placeholder>
     container:
       image: celerity-lint
     steps:
+      - name: Set container workspace environment variable
+        run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
       - uses: actions/checkout@v2
       - name: Check code formatting
         id: formatting
