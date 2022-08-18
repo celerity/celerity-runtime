@@ -45,9 +45,6 @@ namespace detail {
 		}
 		bool is_flushed() const { return m_flushed; }
 
-		// TODO: Consider only having this in debug builds
-		std::string debug_label;
-
 	  private:
 		// Should only be possible to add/remove dependencies using command_graph.
 		using parent_type = intrusive_graph_node<abstract_command>;
@@ -80,7 +77,7 @@ namespace detail {
 
 	class await_push_command final : public abstract_command {
 		friend class command_graph;
-		await_push_command(command_id cid, node_id nid, push_command* source) : abstract_command(cid, nid), m_source(source) {}
+		await_push_command(command_id cid, node_id nid, push_command* source) : abstract_command(cid, nid), m_source(source) { assert(source != nullptr); }
 
 	  public:
 		push_command* get_source() const { return m_source; }

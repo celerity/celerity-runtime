@@ -14,6 +14,7 @@
 namespace celerity {
 namespace detail {
 
+	class reduction_manager;
 	class task_manager;
 
 	// TODO: Could be extended (using SFINAE) to support additional iterator types (e.g. random access)
@@ -127,7 +128,7 @@ namespace detail {
 
 		auto& task_commands(task_id tid) { return m_by_task.at(tid); }
 
-		std::optional<std::string> print_graph(size_t max_nodes, const task_manager& tm) const;
+		std::optional<std::string> print_graph(size_t max_nodes, const task_manager& tm, const reduction_manager& rm) const;
 
 		// TODO unify dependency terminology to this
 		void add_dependency(abstract_command* depender, abstract_command* dependee, dependency_kind kind, dependency_origin origin) {
