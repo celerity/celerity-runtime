@@ -4,6 +4,17 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      test-head:
+        description: "Test against 'HEAD' revisions"
+        type: boolean
+        required: true
+        default: false
+      tag-latest:
+        description: "Tag 'HEAD' revisions as 'latest' if successful"
+        type: boolean
+        required: true
+        default: false
   # We use nightly builds to determine whether CI passes for "HEAD" revisions
   # of DPC++ and hipSYCL. If so, these revisions are tagged as "latest" and
   # used for all subsequent CI runs.
@@ -95,7 +106,7 @@ jobs:
     steps:
       # Make sure to keep this in sync with docs/platform-support.md.
       # Also ensure that the "ubuntu-version" between "HEAD" and "latest" builds remains the same.
-      - if: github.event_name != 'schedule'
+      - if: github.event_name != 'schedule' && inputs.test-head == false
         run: |
           echo 'json_matrix<<EOF' >> $GITHUB_ENV
           cat <<EOF >> $GITHUB_ENV
@@ -115,7 +126,7 @@ jobs:
             { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Release" }
           EOF
           echo "EOF" >> $GITHUB_ENV
-      - if: github.event_name == 'schedule'
+      - if: github.event_name == 'schedule' || inputs.test-head == true
         run: |
           echo 'json_matrix<<EOF' >> $GITHUB_ENV
           cat <<EOF >> $GITHUB_ENV
@@ -200,12 +211,12 @@ jobs:
           echo "::set-output name=${{ matrix.sycl }}-HEAD-ubuntu-version::${{ matrix.ubuntu-version }}"
 
   # Tag "HEAD" images that built and tested successfully as "latest".
-  # This is only done for nightly builds.
+  # This is only done for nightly builds (or when specifying the "tag-latest" option on manually triggered runs).
   tag-latest-containers:
     needs: [find-duplicate-workflows, build-and-test]
     # Run this step regardless of result of `build-and-test` (hence the `always()`),
     # since we always want to tag images that were successful, even if others weren't.
-    if: always() && needs.find-duplicate-workflows.outputs.should_skip != 'true' && github.event_name == 'schedule'
+    if: always() && needs.find-duplicate-workflows.outputs.should_skip != 'true' && (github.event_name == 'schedule' || (inputs.test-head && inputs.tag-latest))
     runs-on: slurm-${{ matrix.platform }}
     strategy:
       fail-fast: false
