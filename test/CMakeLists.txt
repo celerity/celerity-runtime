@@ -32,6 +32,7 @@ set(TEST_TARGETS
   graph_gen_transfer_tests
   graph_compaction_tests
   intrusive_graph_tests
+  print_graph_tests
   region_map_tests
   runtime_tests
   runtime_deprecation_tests
