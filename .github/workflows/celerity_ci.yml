@@ -7,7 +7,7 @@ on:
 
 jobs:
   find-duplicate-workflows:
-    runs-on: self-hosted
+    runs-on: [ self-hosted, slurm ]
     outputs:
       should_skip: ${{ steps.skip-check.outputs.should_skip }}
     steps:
@@ -35,7 +35,7 @@ jobs:
   # TODO: This should be combined with the report (or "lint") step, really
   clang-tidy:
     if: github.event.pull_request
-    runs-on: [self-hosted, nvidia]
+    runs-on: [ self-hosted, slurm-nvidia ]
     env:
       container-workspace: /__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}
       build-dir: /root/build
@@ -73,7 +73,7 @@ jobs:
   build-and-test:
     needs: find-duplicate-workflows
     if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
-    runs-on: slurm-${{ matrix.platform }}
+    runs-on: [ self-hosted, "slurm-${{ matrix.platform }}" ]
     strategy:
       fail-fast: false
       matrix:
@@ -201,7 +201,7 @@ jobs:
   report:
     needs: [find-duplicate-workflows, build-and-test]
     if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
-    runs-on: self-hosted
+    runs-on: [ self-hosted, slurm ]
     env:
       container-workspace: /__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}
     container:
