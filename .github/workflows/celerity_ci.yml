@@ -96,56 +96,35 @@ jobs:
   # For normal CI runs we want to build and test against everything except the "HEAD" revisions, whereas during
   # nightly builds we *only* want those.
   #
-  # Current workaround is to build the matrix as a JSON object which is then deserialized in the next job.
-  construct-build-matrix:
+  # Current workaround is to represent the matrix as a JSON object, which is then deserialized in the next job.
+  read-build-matrix:
     needs: find-duplicate-workflows
     if: needs.find-duplicate-workflows.outputs.should_skip != 'true'
     runs-on: self-hosted
     outputs:
-      matrix: ${{ steps.finalize-json-matrix.outputs.matrix }}
+      matrix: ${{ steps.read-json-matrix.outputs.matrix }}
     steps:
-      # Make sure to keep this in sync with docs/platform-support.md.
-      # Also ensure that the "ubuntu-version" between "HEAD" and "latest" builds remains the same.
-      - if: github.event_name != 'schedule' && inputs.test-head == false
+      - uses: actions/checkout@v2
+      - id: read-json-matrix
+        name: Read build matrix from file
+        shell: python
         run: |
-          echo 'json_matrix<<EOF' >> $GITHUB_ENV
-          cat <<EOF >> $GITHUB_ENV
-            { "sycl": "computecpp", "sycl-version": "2.6.0", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },\
-            { "sycl": "computecpp", "sycl-version": "2.7.0", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },\
-            { "sycl": "computecpp", "sycl-version": "2.8.0", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },\
-            { "sycl": "computecpp", "sycl-version": "2.9.0", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },\
-            { "sycl": "computecpp", "sycl-version": "2.10.0", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },\
-            { "sycl": "computecpp", "sycl-version": "2.10.0", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },\
-            { "sycl": "computecpp", "sycl-version": "2.10.0-experimental", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },\
-            { "sycl": "computecpp", "sycl-version": "2.10.0-experimental", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },\
-            { "sycl": "dpcpp", "sycl-version": "7735139b", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },\
-            { "sycl": "dpcpp", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },\
-            { "sycl": "dpcpp", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },\
-            { "sycl": "hipsycl", "sycl-version": "7b00e2ef", "ubuntu-version": "20.04", "platform": "nvidia", "build-type": "Debug" },\
-            { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Debug" },\
-            { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Release" }
-          EOF
-          echo "EOF" >> $GITHUB_ENV
-      - if: github.event_name == 'schedule' || inputs.test-head == true
-        run: |
-          echo 'json_matrix<<EOF' >> $GITHUB_ENV
-          cat <<EOF >> $GITHUB_ENV
-            { "sycl": "dpcpp", "sycl-version": "HEAD", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },\
-            { "sycl": "dpcpp", "sycl-version": "HEAD", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },\
-            { "sycl": "hipsycl", "sycl-version": "HEAD", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Debug" },\
-            { "sycl": "hipsycl", "sycl-version": "HEAD", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Release" }
-          EOF
-          echo "EOF" >> $GITHUB_ENV
-      - id: finalize-json-matrix
-        run: echo '::set-output name=matrix::{ "include":[${{ env.json_matrix }}] }'
+          import json
+          with open("${{ github.workspace }}/.github/workflows/build_matrix.json") as f:
+            matrices = json.load(f)
+            if '${{ github.event_name != 'schedule' && inputs.test-head == false }}' == 'true':
+              matrix = matrices['default']
+            else:
+              matrix = matrices['nightly']
+            print('::set-output name=matrix::{ "include":%s }' % json.dumps(matrix))
 
   build-and-test:
-    needs: [find-duplicate-workflows, construct-build-matrix]
+    needs: [find-duplicate-workflows, read-build-matrix]
     if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
     runs-on: [ self-hosted, "slurm-${{ matrix.platform }}" ]
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.construct-build-matrix.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.read-build-matrix.outputs.matrix) }}
     # These outputs are required by the image tagging step, only set during nightly builds.
     outputs:
       dpcpp-HEAD-Debug-works: ${{ steps.set-head-results.outputs.dpcpp-HEAD-Debug-works }}
