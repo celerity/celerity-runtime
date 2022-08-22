@@ -22,26 +22,63 @@ namespace detail {
 		}
 	}
 
-	std::string get_task_label(const task* tsk) {
-		switch(tsk->get_type()) {
-		case task_type::epoch: return fmt::format("Task {} (epoch)", tsk->get_id());
-		case task_type::host_compute: return fmt::format("Task {} (host-compute)", tsk->get_id());
-		case task_type::device_compute: return fmt::format("Task {} ({})", tsk->get_id(), tsk->get_debug_name());
-		case task_type::collective: return fmt::format("Task {} (collective #{})", tsk->get_id(), static_cast<size_t>(tsk->get_collective_group_id()));
-		case task_type::master_node: return fmt::format("Task {} (master-node)", tsk->get_id());
-		case task_type::horizon: return fmt::format("Task {} (horizon)", tsk->get_id());
-		default: assert(false); return fmt::format("Task {} (unknown)", tsk->get_id());
+	const char* task_type_string(const task_type tt) {
+		switch(tt) {
+		case task_type::epoch: return "epoch";
+		case task_type::host_compute: return "host-compute";
+		case task_type::device_compute: return "device-compute";
+		case task_type::collective: return "collective host";
+		case task_type::master_node: return "master-node host";
+		case task_type::horizon: return "horizon";
+		default: return "unknown";
 		}
 	}
 
-	std::string print_task_graph(const task_ring_buffer& tdag) {
+	std::string get_task_label(const task& tsk, const reduction_manager& rm) {
+		std::string label;
+		fmt::format_to(std::back_inserter(label), "T{}", tsk.get_id());
+		if(!tsk.get_debug_name().empty()) { fmt::format_to(std::back_inserter(label), " \"{}\" ", tsk.get_debug_name()); }
+
+		const auto execution_range = subrange<3>{tsk.get_global_offset(), tsk.get_global_size()};
+
+		fmt::format_to(std::back_inserter(label), "<br/><b>{}</b>", task_type_string(tsk.get_type()));
+		if(tsk.get_type() == task_type::host_compute || tsk.get_type() == task_type::device_compute) {
+			fmt::format_to(std::back_inserter(label), " {}", execution_range);
+		} else if(tsk.get_type() == task_type::collective) {
+			fmt::format_to(std::back_inserter(label), " in CG{}", tsk.get_collective_group_id());
+		}
+
+		for(auto rid : tsk.get_reductions()) {
+			const auto reduction = rm.get_reduction(rid);
+			const auto rmode = reduction.initialize_from_buffer ? access_mode::read_write : access_mode::discard_write;
+			const auto bid = reduction.output_buffer_id;
+			const auto req = GridRegion<3>{{1, 1, 1}};
+			fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> B{} {}", rid, detail::access::mode_traits::name(rmode), bid, req);
+		}
+
+		const auto& bam = tsk.get_buffer_access_map();
+		for(const auto bid : bam.get_accessed_buffers()) {
+			for(const auto mode : bam.get_access_modes(bid)) {
+				const auto req = bam.get_requirements_for_access(bid, mode, tsk.get_dimensions(), execution_range, tsk.get_global_size());
+				if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> B{} {}", detail::access::mode_traits::name(mode), bid, req); }
+			}
+		}
+
+		for(const auto& [hoid, order] : tsk.get_side_effect_map()) {
+			fmt::format_to(std::back_inserter(label), "<br/><i>affect</i> H{}", hoid);
+		}
+
+		return label;
+	}
+
+	std::string print_task_graph(const task_ring_buffer& tdag, const reduction_manager& rm) {
 		std::string dot = "digraph G {label=\"Task Graph\" ";
-		auto dot_append = std::back_inserter(dot);
 
 		for(auto tsk : tdag) {
-			fmt::format_to(dot_append, "{}[label=\"{}\"];", tsk->get_id(), get_task_label(tsk));
+			const auto shape = tsk->get_type() == task_type::epoch || tsk->get_type() == task_type::horizon ? "ellipse" : "box style=rounded";
+			fmt::format_to(std::back_inserter(dot), "{}[shape={} label=<{}>];", tsk->get_id(), shape, get_task_label(*tsk, rm));
 			for(auto d : tsk->get_dependencies()) {
-				fmt::format_to(dot_append, "{}->{}[{}];", d.node->get_id(), tsk->get_id(), dependency_style(d));
+				fmt::format_to(std::back_inserter(dot), "{}->{}[{}];", d.node->get_id(), tsk->get_id(), dependency_style(d));
 			}
 		}
 
@@ -53,29 +90,31 @@ namespace detail {
 		const command_id cid = cmd.get_cid();
 		const node_id nid = cmd.get_nid();
 
-		std::string label = fmt::format("[{}] Node {}:\\n", cid, nid);
-		auto label_append = std::back_inserter(label);
+		std::string label = fmt::format("C{} on N{}<br/>", cid, nid);
 
 		if(const auto ecmd = dynamic_cast<const epoch_command*>(&cmd)) {
-			label += "epoch";
+			label += "<b>epoch</b>";
 			if(ecmd->get_epoch_action() == epoch_action::barrier) { label += " (barrier)"; }
 			if(ecmd->get_epoch_action() == epoch_action::shutdown) { label += " (shutdown)"; }
 		} else if(const auto xcmd = dynamic_cast<const execution_command*>(&cmd)) {
-			fmt::format_to(label_append, "execution {}", subrange_to_grid_box(xcmd->get_execution_range()));
+			fmt::format_to(std::back_inserter(label), "<b>execution</b> {}", subrange_to_grid_box(xcmd->get_execution_range()));
 		} else if(const auto pcmd = dynamic_cast<const push_command*>(&cmd)) {
-			if(pcmd->get_rid()) { fmt::format_to(label_append, "(R{}) ", pcmd->get_rid()); }
-			fmt::format_to(label_append, "push {} to {}\\n{}", pcmd->get_bid(), pcmd->get_target(), subrange_to_grid_box(pcmd->get_range()));
+			if(pcmd->get_rid()) { fmt::format_to(std::back_inserter(label), "(R{}) ", pcmd->get_rid()); }
+			fmt::format_to(
+			    std::back_inserter(label), "<b>push</b> to N{}<br/>B{} {}", pcmd->get_target(), pcmd->get_bid(), subrange_to_grid_box(pcmd->get_range()));
 		} else if(const auto apcmd = dynamic_cast<const await_push_command*>(&cmd)) {
 			if(apcmd->get_source()->get_rid()) { label += fmt::format("(R{}) ", apcmd->get_source()->get_rid()); }
-			fmt::format_to(label_append, "await push {} from {}\\n{}", apcmd->get_source()->get_bid(), apcmd->get_source()->get_nid(),
+			fmt::format_to(std::back_inserter(label), "<b>await push</b> from N{}<br/>B{} {}", apcmd->get_source()->get_nid(), apcmd->get_source()->get_bid(),
 			    subrange_to_grid_box(apcmd->get_source()->get_range()));
 		} else if(const auto rrcmd = dynamic_cast<const reduction_command*>(&cmd)) {
-			fmt::format_to(label_append, "reduction R{}", rrcmd->get_rid());
+			const auto reduction = rm.get_reduction(rrcmd->get_rid());
+			const auto req = GridRegion<3>{{1, 1, 1}};
+			fmt::format_to(std::back_inserter(label), "<b>reduction</b> R{}<br/>B{} {}", rrcmd->get_rid(), reduction.output_buffer_id, req);
 		} else if(const auto hcmd = dynamic_cast<const horizon_command*>(&cmd)) {
-			label += "horizon";
+			label += "<b>horizon</b>";
 		} else {
 			assert(!"Unkown command");
-			label += "unknown";
+			label += "<b>unknown</b>";
 		}
 
 		if(const auto tcmd = dynamic_cast<const task_command*>(&cmd)) {
@@ -96,7 +135,7 @@ namespace detail {
 
 				const auto bid = reduction.output_buffer_id;
 				const auto req = GridRegion<3>{{1, 1, 1}};
-				fmt::format_to(label_append, "\\n(R{}) {} {} {}", rid, detail::access::mode_traits::name(rmode), bid, req);
+				fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> B{} {}", rid, detail::access::mode_traits::name(rmode), bid, req);
 			}
 
 			const auto& bam = tsk.get_buffer_access_map();
@@ -104,12 +143,12 @@ namespace detail {
 				for(const auto mode : bam.get_access_modes(bid)) {
 					const auto req = bam.get_requirements_for_access(bid, mode, tsk.get_dimensions(), execution_range, tsk.get_global_size());
 					// While uncommon, we do support chunks that don't require access to a particular buffer at all.
-					if(!req.empty()) { fmt::format_to(label_append, "\\n{} {} {}", detail::access::mode_traits::name(mode), bid, req); }
+					if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> B{} {}", detail::access::mode_traits::name(mode), bid, req); }
 				}
 			}
 
 			for(const auto& [hoid, order] : tsk.get_side_effect_map()) {
-				fmt::format_to(label_append, "\\naffect host-object {}", hoid);
+				fmt::format_to(std::back_inserter(label), "<br/><i>affect</i> H{}", hoid);
 			}
 		}
 
@@ -127,22 +166,31 @@ namespace detail {
 			const auto label = get_command_label(cmd, tm, rm);
 			const auto fontcolor = colors[cmd.get_nid() % (sizeof(colors) / sizeof(char*))];
 			const auto shape = isa<task_command>(&cmd) ? "box" : "ellipse";
-			return fmt::format("{}[label=\"{}\" fontcolor={} shape={}];", name, label, fontcolor, shape);
+			return fmt::format("{}[label=<{}> fontcolor={} shape={}];", name, label, fontcolor, shape);
 		};
 
 		for(const auto cmd : cdag.all_commands()) {
 			if(const auto tcmd = dynamic_cast<const task_command*>(cmd)) {
+				const auto tid = tcmd->get_tid();
 				// Add to subgraph as well
-				if(task_subgraph_dot.count(tcmd->get_tid()) == 0) {
+				if(task_subgraph_dot.count(tid) == 0) {
 					std::string task_label;
-					if(const auto tsk = tm.find_task(tcmd->get_tid())) {
-						task_label = get_task_label(tsk);
+					fmt::format_to(std::back_inserter(task_label), "T{} ", tid);
+					if(const auto tsk = tm.find_task(tid)) {
+						if(!tsk->get_debug_name().empty()) { fmt::format_to(std::back_inserter(task_label), "\"{}\" ", tsk->get_debug_name()); }
+						task_label += "(";
+						task_label += task_type_string(tsk->get_type());
+						if(tsk->get_type() == task_type::collective) {
+							fmt::format_to(std::back_inserter(task_label), " on CG{}", tsk->get_collective_group_id());
+						}
+						task_label += ")";
 					} else {
-						task_label = fmt::format("Task {} (deleted)", tcmd->get_tid());
+						task_label += "(deleted)";
 					}
-					task_subgraph_dot.emplace(tcmd->get_tid(), fmt::format("subgraph cluster_{}{{label=\"{}\";color=gray;", tcmd->get_tid(), task_label));
+					task_subgraph_dot.emplace(
+					    tid, fmt::format("subgraph cluster_{}{{label=<<font color=\"#606060\">{}</font>>;color=darkgray;", tid, task_label));
 				}
-				task_subgraph_dot[tcmd->get_tid()] += print_vertex(*cmd);
+				task_subgraph_dot[tid] += print_vertex(*cmd);
 			} else {
 				main_dot += print_vertex(*cmd);
 			}
