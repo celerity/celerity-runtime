@@ -29,7 +29,7 @@ namespace detail {
 
 	std::optional<std::string> task_manager::print_graph(size_t max_nodes) const {
 		std::lock_guard<std::mutex> lock(m_task_mutex);
-		if(m_task_buffer.get_current_task_count() <= max_nodes) { return detail::print_task_graph(m_task_buffer); }
+		if(m_task_buffer.get_current_task_count() <= max_nodes) { return detail::print_task_graph(m_task_buffer, *m_reduction_mngr); }
 		return std::nullopt;
 	}
 
