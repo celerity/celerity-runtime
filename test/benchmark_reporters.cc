@@ -2,7 +2,6 @@
 #include <chrono>
 #include <ctime>
 #include <limits>
-#include <locale>
 #include <numeric>
 #include <ostream>
 #include <regex>
@@ -223,18 +222,6 @@ class benchmark_md_reporter : public benchmark_reporter_base {
 	void benchmarkEnded(Catch::BenchmarkStats<> const& benchmark_stats) override {
 		benchmark_reporter_base::benchmarkEnded(benchmark_stats);
 
-		// Format numbers with ' as thousand separator and . as decimal separator.
-		constexpr auto format_result = [](std::chrono::duration<double, std::nano> ns) {
-			// fmt can only do thousands separators based on locale, so we need to do a character replacement afterwards.
-			// Also it only works on integral types, so we need to format the fractional part separately.
-			double integral;
-			const double fractional = std::modf(ns.count(), &integral);
-			auto integral_formatted = fmt::format(std::locale("en_US.UTF-8"), "{:L}", static_cast<int64_t>(integral));
-			std::replace(integral_formatted.begin(), integral_formatted.end(), ',', '\'');
-			const auto fractional_formatted = fmt::format("{:.2f}", fractional).substr(2);
-			return fmt::format("{}.{}", integral_formatted, fractional_formatted);
-		};
-
 		const auto min = std::reduce(benchmark_stats.samples.cbegin(), benchmark_stats.samples.cend(),
 		    std::chrono::duration<double, std::nano>(std::numeric_limits<double>::max()), [](const auto& a, const auto& b) { return std::min(a, b); });
 
@@ -248,6 +235,19 @@ class benchmark_md_reporter : public benchmark_reporter_base {
   private:
 	markdown_table_printer m_results_printer{
 	    {{"Test case", align::left}, {"Benchmark name", align::left}, {"Min", align::right}, {"Mean", align::right}, {"Std dev", align::right}}};
+
+	// Format numbers with ' as thousands separator and . as decimal separator.
+	static std::string format_result(std::chrono::duration<double, std::nano> duration) {
+		const auto ns = duration.count();
+		// Manually insert thousands separators into integral part to avoid relying on non-C locale
+		auto str = fmt::format("{:.2f}", ns);
+		const size_t first_separator = 3 /* integral digits */ + 1 /* dot */ + 2 /* decimal digits */;
+		const size_t separator_step = 3 /* integral digits */ + 1 /* previous thousands separator */;
+		for(size_t separator = first_separator; separator < str.length() - std::signbit(ns); separator += separator_step) {
+			str.insert(str.length() - separator, 1, '\'');
+		}
+		return str;
+	}
 };
 
 CATCH_REGISTER_REPORTER("celerity-benchmark-md", benchmark_md_reporter)
