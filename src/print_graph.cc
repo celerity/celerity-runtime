@@ -34,6 +34,32 @@ namespace detail {
 		}
 	}
 
+	void format_requirements(std::string& label, const task& tsk, subrange<3> execution_range, access_mode reduction_init_mode, const reduction_manager& rm) {
+		for(auto rid : tsk.get_reductions()) {
+			auto reduction = rm.get_reduction(rid);
+
+			auto rmode = cl::sycl::access::mode::discard_write;
+			if(reduction.initialize_from_buffer) { rmode = reduction_init_mode; }
+
+			const auto bid = reduction.output_buffer_id;
+			const auto req = GridRegion<3>{{1, 1, 1}};
+			fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> B{} {}", rid, detail::access::mode_traits::name(rmode), bid, req);
+		}
+
+		const auto& bam = tsk.get_buffer_access_map();
+		for(const auto bid : bam.get_accessed_buffers()) {
+			for(const auto mode : bam.get_access_modes(bid)) {
+				const auto req = bam.get_requirements_for_access(bid, mode, tsk.get_dimensions(), execution_range, tsk.get_global_size());
+				// While uncommon, we do support chunks that don't require access to a particular buffer at all.
+				if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> B{} {}", detail::access::mode_traits::name(mode), bid, req); }
+			}
+		}
+
+		for(const auto& [hoid, order] : tsk.get_side_effect_map()) {
+			fmt::format_to(std::back_inserter(label), "<br/><i>affect</i> H{}", hoid);
+		}
+	}
+
 	std::string get_task_label(const task& tsk, const reduction_manager& rm) {
 		std::string label;
 		fmt::format_to(std::back_inserter(label), "T{}", tsk.get_id());
@@ -48,25 +74,7 @@ namespace detail {
 			fmt::format_to(std::back_inserter(label), " in CG{}", tsk.get_collective_group_id());
 		}
 
-		for(auto rid : tsk.get_reductions()) {
-			const auto reduction = rm.get_reduction(rid);
-			const auto rmode = reduction.initialize_from_buffer ? access_mode::read_write : access_mode::discard_write;
-			const auto bid = reduction.output_buffer_id;
-			const auto req = GridRegion<3>{{1, 1, 1}};
-			fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> B{} {}", rid, detail::access::mode_traits::name(rmode), bid, req);
-		}
-
-		const auto& bam = tsk.get_buffer_access_map();
-		for(const auto bid : bam.get_accessed_buffers()) {
-			for(const auto mode : bam.get_access_modes(bid)) {
-				const auto req = bam.get_requirements_for_access(bid, mode, tsk.get_dimensions(), execution_range, tsk.get_global_size());
-				if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> B{} {}", detail::access::mode_traits::name(mode), bid, req); }
-			}
-		}
-
-		for(const auto& [hoid, order] : tsk.get_side_effect_map()) {
-			fmt::format_to(std::back_inserter(label), "<br/><i>affect</i> H{}", hoid);
-		}
+		format_requirements(label, tsk, execution_range, access_mode::read_write, rm);
 
 		return label;
 	}
@@ -127,29 +135,7 @@ namespace detail {
 				execution_range = ecmd->get_execution_range();
 			}
 
-			for(auto rid : tsk.get_reductions()) {
-				auto reduction = rm.get_reduction(rid);
-
-				auto rmode = cl::sycl::access::mode::discard_write;
-				if(reduction.initialize_from_buffer) { rmode = reduction_init_mode; }
-
-				const auto bid = reduction.output_buffer_id;
-				const auto req = GridRegion<3>{{1, 1, 1}};
-				fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> B{} {}", rid, detail::access::mode_traits::name(rmode), bid, req);
-			}
-
-			const auto& bam = tsk.get_buffer_access_map();
-			for(const auto bid : bam.get_accessed_buffers()) {
-				for(const auto mode : bam.get_access_modes(bid)) {
-					const auto req = bam.get_requirements_for_access(bid, mode, tsk.get_dimensions(), execution_range, tsk.get_global_size());
-					// While uncommon, we do support chunks that don't require access to a particular buffer at all.
-					if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> B{} {}", detail::access::mode_traits::name(mode), bid, req); }
-				}
-			}
-
-			for(const auto& [hoid, order] : tsk.get_side_effect_map()) {
-				fmt::format_to(std::back_inserter(label), "<br/><i>affect</i> H{}", hoid);
-			}
+			format_requirements(label, tsk, execution_range, reduction_init_mode, rm);
 		}
 
 		return label;
