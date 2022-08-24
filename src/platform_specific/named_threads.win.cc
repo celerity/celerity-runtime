@@ -14,7 +14,7 @@ static inline std::string convert_string(const std::wstring& str) {
 	const auto* src = str.c_str();
 	auto mbstate = std::mbstate_t{};
 	const auto len = std::wcsrtombs(nullptr, &src, 0, &mbstate);
-	auto dst = std::string(len, L'\0'); // Automatically includes space for the null terminator
+	auto dst = std::string(len, '\0'); // Automatically includes space for the null terminator
 	std::wcsrtombs(dst.data(), &src, dst.size(), &mbstate);
 	return dst;
 }
