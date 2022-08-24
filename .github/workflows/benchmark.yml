@@ -1,0 +1,36 @@
+name: Celerity Benchmarks
+
+on:
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: [ self-hosted, "slurm-nvidia-benchmark" ]
+    env:
+      container-workspace: /__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}
+      build-dir: /root/build
+    container:
+      image: celerity-build/hipsycl:ubuntu22.04-latest
+      volumes:
+        - ccache:/ccache
+    steps:
+      - name: Print exact SYCL revision used for this CI run
+        run: cat /VERSION
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+      - name: Build Celerity
+        run: bash /root/build-celerity.sh ${{ env.container-workspace }} --build-type Release --target benchmarks
+      - name: Run benchmarks
+        timeout-minutes: 30
+        working-directory: ${{ env.build-dir }}
+        run: ${{ env.container-workspace }}/ci/run-benchmarks.sh
+      - name: Upload results or stack traces
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: Benchmark Results
+          path: |
+            ${{ env.build-dir }}/gpuc2_bench.*
+            ${{ env.build-dir }}/*.trace
+          if-no-files-found: ignore
