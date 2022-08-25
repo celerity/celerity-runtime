@@ -136,10 +136,10 @@ namespace detail {
 		m_exec = std::make_unique<executor>(m_local_nid, *m_h_queue, *m_d_queue, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
 		if(is_master_node()) {
 			m_cdag = std::make_unique<command_graph>();
-			m_ggen = std::make_shared<graph_generator>(m_num_nodes, *m_reduction_mngr, *m_cdag);
-			m_gsrlzr = std::make_unique<graph_serializer>(
+			auto ggen = std::make_unique<graph_generator>(m_num_nodes, *m_reduction_mngr, *m_cdag);
+			auto gsrlzr = std::make_unique<graph_serializer>(
 			    *m_cdag, [this](node_id target, unique_frame_ptr<command_frame> frame) { flush_command(target, std::move(frame)); });
-			m_schdlr = std::make_unique<scheduler>(*m_ggen, *m_gsrlzr, m_num_nodes);
+			m_schdlr = std::make_unique<scheduler>(std::move(ggen), std::move(gsrlzr), m_num_nodes);
 			m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
 		}
 
@@ -151,8 +151,6 @@ namespace detail {
 	runtime::~runtime() {
 		if(is_master_node()) {
 			m_schdlr.reset();
-			m_gsrlzr.reset();
-			m_ggen.reset();
 			m_cdag.reset();
 		}
 

@@ -100,8 +100,6 @@ namespace detail {
 
 		// These management classes are only constructed on the master node.
 		std::unique_ptr<command_graph> m_cdag;
-		std::shared_ptr<graph_generator> m_ggen;
-		std::shared_ptr<graph_serializer> m_gsrlzr;
 		std::unique_ptr<scheduler> m_schdlr;
 
 		std::unique_ptr<buffer_manager> m_buffer_mngr;

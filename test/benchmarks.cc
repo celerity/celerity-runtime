@@ -135,7 +135,7 @@ TEST_CASE("benchmark task handling", "[benchmark][task]") {
 struct task_manager_benchmark_context {
 	const size_t num_nodes = 1;
 	task_manager tm{1, nullptr, nullptr};
-	test_utils::mock_buffer_factory mbf{&tm};
+	test_utils::mock_buffer_factory mbf{tm};
 
 	~task_manager_benchmark_context() { tm.generate_epoch_task(celerity::detail::epoch_action::shutdown); }
 
@@ -155,7 +155,7 @@ struct graph_generator_benchmark_context {
 	reduction_manager rm;
 	task_manager tm{num_nodes, nullptr, &rm};
 	graph_generator ggen{num_nodes, rm, cdag};
-	test_utils::mock_buffer_factory mbf{&tm, &ggen};
+	test_utils::mock_buffer_factory mbf{tm, ggen};
 
 	explicit graph_generator_benchmark_context(size_t num_nodes) : num_nodes{num_nodes} {
 		tm.register_task_callback([this](const task* tsk) {
@@ -234,8 +234,8 @@ class restartable_thread {
 
 class benchmark_scheduler final : public abstract_scheduler {
   public:
-	benchmark_scheduler(restartable_thread& worker_thread, graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes)
-	    : abstract_scheduler(ggen, gsrlzr, num_nodes), m_worker_thread(worker_thread) {}
+	benchmark_scheduler(restartable_thread& worker_thread, std::unique_ptr<graph_generator> ggen, std::unique_ptr<graph_serializer> gsrlzr, size_t num_nodes)
+	    : abstract_scheduler(std::move(ggen), std::move(gsrlzr), num_nodes), m_worker_thread(worker_thread) {}
 
 	void startup() override {
 		m_worker_thread.start([this] { schedule(); });
@@ -253,14 +253,15 @@ class benchmark_scheduler final : public abstract_scheduler {
 struct scheduler_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
-	graph_serializer gsrlzr{cdag, [](node_id, unique_frame_ptr<command_frame>) {}};
 	reduction_manager rm;
 	task_manager tm{num_nodes, nullptr, &rm};
-	graph_generator ggen{num_nodes, rm, cdag};
 	benchmark_scheduler schdlr;
-	test_utils::mock_buffer_factory mbf{&tm, &ggen};
+	test_utils::mock_buffer_factory mbf{tm, schdlr};
 
-	explicit scheduler_benchmark_context(restartable_thread& thrd, size_t num_nodes) : num_nodes{num_nodes}, schdlr{thrd, ggen, gsrlzr, num_nodes} {
+	explicit scheduler_benchmark_context(restartable_thread& thrd, size_t num_nodes)
+	    : num_nodes{num_nodes}, //
+	      schdlr{thrd, std::make_unique<graph_generator>(num_nodes, rm, cdag),
+	          std::make_unique<graph_serializer>(cdag, [](node_id, unique_frame_ptr<command_frame>) {}), num_nodes} {
 		tm.register_task_callback([this](const task* tsk) { schdlr.notify_task_created(tsk); });
 		schdlr.startup();
 	}

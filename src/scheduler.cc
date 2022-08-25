@@ -9,8 +9,11 @@
 namespace celerity {
 namespace detail {
 
-	abstract_scheduler::abstract_scheduler(graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes)
-	    : m_ggen(ggen), m_gsrlzr(gsrlzr), m_num_nodes(num_nodes) {}
+	abstract_scheduler::abstract_scheduler(std::unique_ptr<graph_generator> ggen, std::unique_ptr<graph_serializer> gsrlzr, size_t num_nodes)
+	    : m_ggen(std::move(ggen)), m_gsrlzr(std::move(gsrlzr)), m_num_nodes(num_nodes) {
+		assert(m_ggen != nullptr);
+		assert(m_gsrlzr != nullptr);
+	}
 
 	void abstract_scheduler::shutdown() { notify(event_shutdown{}); }
 
@@ -33,11 +36,11 @@ namespace detail {
 				    [this](const event_task_available& e) {
 					    assert(e.tsk != nullptr);
 					    naive_split_transformer naive_split(m_num_nodes, m_num_nodes);
-					    m_ggen.build_task(*e.tsk, {&naive_split});
-					    m_gsrlzr.flush(e.tsk->get_id());
+					    m_ggen->build_task(*e.tsk, {&naive_split});
+					    m_gsrlzr->flush(e.tsk->get_id());
 				    },
 				    [this](const event_buffer_registered& e) { //
-					    m_ggen.add_buffer(e.bid, e.range);
+					    m_ggen->add_buffer(e.bid, e.range);
 				    },
 				    [&](const event_shutdown&) {
 					    assert(in_flight_events.empty());

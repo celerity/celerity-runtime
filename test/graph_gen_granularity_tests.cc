@@ -141,7 +141,7 @@ namespace detail {
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
 
-		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+		test_utils::mock_buffer_factory mbf(ctx);
 		const range<1> buf_range{16};
 		auto buf = mbf.create_buffer(buf_range);
 

@@ -285,7 +285,10 @@ namespace test_utils {
 
 	class mock_buffer_factory {
 	  public:
-		explicit mock_buffer_factory(detail::task_manager* tm = nullptr, detail::graph_generator* ggen = nullptr) : m_task_mngr(tm), m_ggen(ggen) {}
+		explicit mock_buffer_factory() = default;
+		explicit mock_buffer_factory(detail::task_manager& tm) : m_task_mngr(&tm) {}
+		explicit mock_buffer_factory(detail::task_manager& tm, detail::graph_generator& ggen) : m_task_mngr(&tm), m_ggen(&ggen) {}
+		explicit mock_buffer_factory(detail::task_manager& tm, detail::abstract_scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
 		explicit mock_buffer_factory(cdag_test_context& ctx) : m_task_mngr(&ctx.get_task_manager()), m_ggen(&ctx.get_graph_generator()) {}
 
 		template <int Dims>
@@ -293,13 +296,15 @@ namespace test_utils {
 			const detail::buffer_id bid = m_next_buffer_id++;
 			const auto buf = mock_buffer<Dims>(bid, size);
 			if(m_task_mngr != nullptr) { m_task_mngr->add_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
+			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_registered(bid, detail::range_cast<3>(size)); }
 			if(m_ggen != nullptr) { m_ggen->add_buffer(bid, detail::range_cast<3>(size)); }
 			return buf;
 		}
 
 	  private:
-		detail::task_manager* m_task_mngr;
-		detail::graph_generator* m_ggen;
+		detail::task_manager* m_task_mngr = nullptr;
+		detail::abstract_scheduler* m_schdlr = nullptr;
+		detail::graph_generator* m_ggen = nullptr;
 		detail::buffer_id m_next_buffer_id = 0;
 	};
 

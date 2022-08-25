@@ -629,7 +629,7 @@ namespace detail {
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
 
-		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+		test_utils::mock_buffer_factory mbf(ctx);
 
 		auto& inspector = ctx.get_inspector();
 		auto& cdag = ctx.get_command_graph();
