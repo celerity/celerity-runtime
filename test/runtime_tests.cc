@@ -256,7 +256,7 @@ namespace detail {
 
 	TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][device_compute_task]") {
 		task_manager tm{1, nullptr, nullptr};
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<2>(64, 152));
 		auto buf_b = mbf.create_buffer(cl::sycl::range<3>(7, 21, 99));
 		const auto tid = test_utils::add_compute_task(

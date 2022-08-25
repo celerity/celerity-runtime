@@ -22,7 +22,7 @@ namespace detail {
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
 		auto& rm = ctx.get_reduction_manager();
-		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+		test_utils::mock_buffer_factory mbf(ctx);
 
 		auto range = cl::sycl::range<1>(64);
 		auto buf_0 = mbf.create_buffer(range);
@@ -110,7 +110,7 @@ namespace detail {
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
 		auto& rm = ctx.get_reduction_manager();
-		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+		test_utils::mock_buffer_factory mbf(ctx);
 
 		auto range = cl::sycl::range<1>(64);
 		auto buf_0 = mbf.create_buffer(range);
@@ -139,7 +139,7 @@ namespace detail {
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
 		auto& rm = ctx.get_reduction_manager();
-		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+		test_utils::mock_buffer_factory mbf(ctx);
 
 		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 
@@ -163,7 +163,7 @@ namespace detail {
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
 		auto& rm = ctx.get_reduction_manager();
-		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+		test_utils::mock_buffer_factory mbf(ctx);
 
 		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 
@@ -190,7 +190,7 @@ namespace detail {
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
 		auto& rm = ctx.get_reduction_manager();
-		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+		test_utils::mock_buffer_factory mbf(ctx);
 
 		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 
@@ -220,7 +220,7 @@ namespace detail {
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
 		auto& rm = ctx.get_reduction_manager();
-		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+		test_utils::mock_buffer_factory mbf(ctx);
 
 		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 

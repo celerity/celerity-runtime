@@ -345,7 +345,7 @@ namespace detail {
 
 		// generate exactly two horizons
 		auto& ggen = ctx.get_graph_generator();
-		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+		test_utils::mock_buffer_factory mbf(ctx);
 		auto buf = mbf.create_buffer(range<1>(1));
 		for(int i = 0; i < 4; ++i) {
 			test_utils::build_and_flush(
@@ -394,7 +394,7 @@ namespace detail {
 
 		// generate exactly two horizons
 		auto& ggen = ctx.get_graph_generator();
-		test_utils::mock_buffer_factory mbf(&tm, &ggen);
+		test_utils::mock_buffer_factory mbf(ctx);
 		auto buf = mbf.create_buffer(range<1>(1));
 		for(int i = 0; i < 5; ++i) {
 			test_utils::build_and_flush(

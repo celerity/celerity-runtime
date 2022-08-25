@@ -22,7 +22,7 @@ namespace detail {
 		using namespace cl::sycl::access;
 
 		task_manager tm{1, nullptr, nullptr};
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
 		auto buf_b = mbf.create_buffer(cl::sycl::range<1>(128));
 
@@ -104,7 +104,7 @@ namespace detail {
 		using namespace cl::sycl::access;
 
 		task_manager tm{1, nullptr, nullptr};
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
 
 		const auto tid_a = test_utils::add_compute_task<class UKN(task_a)>(tm, [&](handler& cgh) {
@@ -122,7 +122,7 @@ namespace detail {
 	TEST_CASE("task_manager correctly generates anti-dependencies", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
 		task_manager tm{1, nullptr, nullptr};
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
 
 		// Write to the full buffer
@@ -151,7 +151,7 @@ namespace detail {
 	TEST_CASE("task_manager correctly handles host-initialized buffers", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
 		task_manager tm{1, nullptr, nullptr};
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 		auto host_init_buf = mbf.create_buffer(cl::sycl::range<1>(128), true);
 		auto non_host_init_buf = mbf.create_buffer(cl::sycl::range<1>(128), false);
 		auto artificial_dependency_buf = mbf.create_buffer(cl::sycl::range<1>(1), false);
@@ -203,7 +203,7 @@ namespace detail {
 
 		for(const auto& mode_set : rw_mode_sets) {
 			task_manager tm{1, nullptr, nullptr};
-			test_utils::mock_buffer_factory mbf(&tm);
+			test_utils::mock_buffer_factory mbf(tm);
 			auto buf = mbf.create_buffer(cl::sycl::range<1>(128), true);
 
 			const auto tid_a = test_utils::add_compute_task<class UKN(task_a)>(tm, [&](handler& cgh) {
@@ -225,7 +225,7 @@ namespace detail {
 				CAPTURE(consumer_mode);
 				CAPTURE(producer_mode);
 				task_manager tm{1, nullptr, nullptr};
-				test_utils::mock_buffer_factory mbf(&tm);
+				test_utils::mock_buffer_factory mbf(tm);
 				auto buf = mbf.create_buffer(cl::sycl::range<1>(128), false);
 
 				const task_id tid_a = test_utils::add_compute_task<class UKN(task_a)>(tm, [&](handler& cgh) {
@@ -298,7 +298,7 @@ namespace detail {
 
 	TEST_CASE("task_manager keeps track of max pseudo critical path length and task front", "[task_manager][task-graph][task-front]") {
 		task_manager tm{1, nullptr, nullptr};
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
 
 		const auto tid_a = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
@@ -324,7 +324,7 @@ namespace detail {
 		task_manager tm{1, nullptr, nullptr};
 		tm.set_horizon_step(2);
 
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
 
 		test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128})); });
@@ -380,7 +380,7 @@ namespace detail {
 		task_manager tm{1, nullptr, nullptr};
 		tm.set_horizon_step(2);
 
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
 		auto buf_b = mbf.create_buffer(cl::sycl::range<1>(128));
 
@@ -447,7 +447,7 @@ namespace detail {
 		task_manager tm{1, nullptr, nullptr};
 		tm.set_horizon_step(2);
 
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 
 		task_id initial_last_writer_id = -1;
 		{
@@ -503,7 +503,7 @@ namespace detail {
 		const auto first_collective = test_utils::add_host_task(tm, experimental::collective, [&](handler& cgh) {});
 
 		// generate exactly two horizons
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 		auto buf = mbf.create_buffer(range<1>(1));
 		for(int i = 0; i < 4; ++i) {
 			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });
@@ -530,7 +530,7 @@ namespace detail {
 
 	TEST_CASE("buffer accesses with empty ranges do not generate data-flow dependencies", "[task_manager][task-graph]") {
 		task_manager tm{1, nullptr, nullptr};
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 		auto buf = mbf.create_buffer(range<2>(32, 32));
 
 		const auto write_sr = GENERATE(values({subrange<2>{{16, 16}, {0, 0}}, subrange<2>{{16, 16}, {8, 8}}}));
@@ -601,7 +601,7 @@ namespace detail {
 		    test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, experimental::side_effect_order::sequential); });
 
 		// generate exactly two horizons
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 		auto buf = mbf.create_buffer(range<1>(1));
 		for(int i = 0; i < 5; ++i) {
 			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });
@@ -624,7 +624,7 @@ namespace detail {
 
 	TEST_CASE("epochs create appropriate dependencies to predecessors and successors", "[task_manager][task-graph][epoch]") {
 		task_manager tm{1, nullptr, nullptr};
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 
 		auto buf_a = mbf.create_buffer(range<1>(1));
 		const auto tid_a = test_utils::add_compute_task<class UKN(task_a)>(tm, [&](handler& cgh) { buf_a.get_access<access_mode::discard_write>(cgh, all{}); });
@@ -659,7 +659,7 @@ namespace detail {
 		task_manager tm{1, nullptr, nullptr};
 		tm.set_horizon_step(2);
 
-		test_utils::mock_buffer_factory mbf(&tm);
+		test_utils::mock_buffer_factory mbf(tm);
 		auto buf = mbf.create_buffer(range<1>(1));
 		for(int i = 0; i < 3; ++i) {
 			test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });

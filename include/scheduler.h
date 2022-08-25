@@ -20,7 +20,7 @@ namespace detail {
 	// Abstract base class to allow different threading implementation in tests
 	class abstract_scheduler {
 	  public:
-		abstract_scheduler(graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes);
+		abstract_scheduler(std::unique_ptr<graph_generator> ggen, std::unique_ptr<graph_serializer> gsrlzr, size_t num_nodes);
 
 		virtual ~abstract_scheduler() = default;
 
@@ -52,8 +52,8 @@ namespace detail {
 		};
 		using event = std::variant<event_shutdown, event_task_available, event_buffer_registered>;
 
-		graph_generator& m_ggen;
-		graph_serializer& m_gsrlzr;
+		std::unique_ptr<graph_generator> m_ggen;
+		std::unique_ptr<graph_serializer> m_gsrlzr;
 
 		std::queue<event> m_available_events;
 		std::queue<event> m_in_flight_events;

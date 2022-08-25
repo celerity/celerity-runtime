@@ -215,7 +215,7 @@ namespace detail {
 		runtime::init(nullptr, nullptr);
 		auto& tm = runtime::get_instance().get_task_manager();
 		auto& rm = runtime::get_instance().get_reduction_manager();
-		test_utils::mock_buffer_factory mbf(&tm, nullptr);
+		test_utils::mock_buffer_factory mbf{tm};
 
 		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 
