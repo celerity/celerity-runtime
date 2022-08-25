@@ -4,6 +4,7 @@
 #include "graph_serializer.h"
 #include "named_threads.h"
 #include "transformers/naive_split.h"
+#include "utils.h"
 
 namespace celerity {
 namespace detail {
@@ -11,11 +12,12 @@ namespace detail {
 	abstract_scheduler::abstract_scheduler(graph_generator& ggen, graph_serializer& gsrlzr, size_t num_nodes)
 	    : m_ggen(ggen), m_gsrlzr(gsrlzr), m_num_nodes(num_nodes) {}
 
-	void abstract_scheduler::shutdown() { notify(scheduler_event_type::shutdown, 0); }
+	void abstract_scheduler::shutdown() { notify(event_shutdown{}); }
 
 	void abstract_scheduler::schedule() {
-		std::queue<scheduler_event> in_flight_events;
-		while(true) {
+		std::queue<event> in_flight_events;
+		bool shutdown = false;
+		while(!shutdown) {
 			{
 				std::unique_lock lk(m_events_mutex);
 				m_events_cv.wait(lk, [this] { return !m_available_events.empty(); });
@@ -26,26 +28,29 @@ namespace detail {
 				const auto event = std::move(in_flight_events.front()); // NOLINT(performance-move-const-arg)
 				in_flight_events.pop();
 
-				if(event.type == scheduler_event_type::shutdown) {
-					assert(in_flight_events.empty());
-					return;
-				}
-
-				assert(event.type == scheduler_event_type::task_available);
-
-				const task* tsk = event.tsk;
-				assert(tsk != nullptr);
-				naive_split_transformer naive_split(m_num_nodes, m_num_nodes);
-				m_ggen.build_task(*tsk, {&naive_split});
-				m_gsrlzr.flush(tsk->get_id());
+				utils::match(
+				    event,
+				    [this](const event_task_available& e) {
+					    assert(e.tsk != nullptr);
+					    naive_split_transformer naive_split(m_num_nodes, m_num_nodes);
+					    m_ggen.build_task(*e.tsk, {&naive_split});
+					    m_gsrlzr.flush(e.tsk->get_id());
+				    },
+				    [this](const event_buffer_registered& e) { //
+					    m_ggen.add_buffer(e.bid, e.range);
+				    },
+				    [&](const event_shutdown&) {
+					    assert(in_flight_events.empty());
+					    shutdown = true;
+				    });
 			}
 		}
 	}
 
-	void abstract_scheduler::notify(scheduler_event_type type, const task* tsk) {
+	void abstract_scheduler::notify(const event& evt) {
 		{
 			std::lock_guard lk(m_events_mutex);
-			m_available_events.push({type, tsk});
+			m_available_events.push(evt);
 		}
 		m_events_cv.notify_one();
 	}
