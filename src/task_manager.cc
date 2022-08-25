@@ -14,7 +14,6 @@ namespace detail {
 	}
 
 	void task_manager::add_buffer(buffer_id bid, const cl::sycl::range<3>& range, bool host_initialized) {
-		std::lock_guard<std::mutex> lock(m_task_mutex);
 		m_buffers_last_writers.emplace(bid, range);
 		if(host_initialized) { m_buffers_last_writers.at(bid).update_region(subrange_to_grid_box(subrange<3>({}, range)), m_epoch_for_new_tasks); }
 	}
@@ -28,7 +27,6 @@ namespace detail {
 	const task* task_manager::get_task(task_id tid) const { return m_task_buffer.get_task(tid); }
 
 	std::optional<std::string> task_manager::print_graph(size_t max_nodes) const {
-		std::lock_guard<std::mutex> lock(m_task_mutex);
 		if(m_task_buffer.get_current_task_count() <= max_nodes) { return detail::print_task_graph(m_task_buffer, *m_reduction_mngr); }
 		return std::nullopt;
 	}
@@ -232,7 +230,6 @@ namespace detail {
 		task* new_horizon;
 		{
 			auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
-			std::lock_guard lock(m_task_mutex);
 			m_current_horizon_critical_path_length = m_max_pseudo_critical_path_length;
 			const auto previous_horizon = m_current_horizon;
 			m_current_horizon = reserve.get_tid();
@@ -250,7 +247,6 @@ namespace detail {
 		task* new_epoch;
 		{
 			auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
-			std::lock_guard lock(m_task_mutex);
 			const auto tid = reserve.get_tid();
 			new_epoch = &reduce_execution_front(std::move(reserve), task::make_epoch(tid, action));
 			compute_dependencies(*new_epoch);

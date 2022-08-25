@@ -68,7 +68,6 @@ namespace detail {
 			task_id tid;
 			const task* tsk_ptr = nullptr;
 			{
-				std::lock_guard lock(m_task_mutex);
 				auto reservation = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
 				tid = reservation.get_tid();
 
@@ -190,9 +189,6 @@ namespace detail {
 
 		// Stores which host object was last affected by which task.
 		std::unordered_map<host_object_id, task_id> m_host_object_last_effects;
-
-		// For simplicity we use a single mutex to control access to all task-related (i.e. the task graph, ...) data structures.
-		mutable std::mutex m_task_mutex;
 
 		std::vector<task_callback> m_task_callbacks;
 
