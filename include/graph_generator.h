@@ -117,9 +117,6 @@ namespace detail {
 
 		std::unordered_map<node_id, per_node_data> m_node_data;
 
-		// This mutex mainly serves to protect per-buffer data structures, as new buffers might be added at any time.
-		std::mutex m_buffer_mutex;
-
 		void set_epoch_for_new_commands(per_node_data& node_data, const command_id epoch);
 
 		void reduce_execution_front_to(abstract_command* new_front);

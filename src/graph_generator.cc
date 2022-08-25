@@ -25,7 +25,6 @@ namespace detail {
 	}
 
 	void graph_generator::add_buffer(buffer_id bid, const cl::sycl::range<3>& range) {
-		std::lock_guard<std::mutex> lock(m_buffer_mutex);
 		// Initialize the whole range to all nodes, so that we always use local buffer ranges when they haven't been written to (on any node) yet.
 		// TODO: Consider better handling for when buffers are not host initialized
 		std::vector<node_id> all_nodes(m_num_nodes);
@@ -39,7 +38,6 @@ namespace detail {
 	}
 
 	void graph_generator::build_task(const task& tsk, const std::vector<graph_transformer*>& transformers) {
-		std::lock_guard<std::mutex> lock(m_buffer_mutex);
 		// TODO: Maybe assert that this task hasn't been processed before
 
 		const auto tid = tsk.get_id();
