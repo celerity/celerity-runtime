@@ -4,6 +4,10 @@
 #include <mutex>
 #include <queue>
 #include <thread>
+#include <variant>
+
+#include "ranges.h"
+#include "types.h"
 
 namespace celerity {
 namespace detail {
@@ -12,12 +16,6 @@ namespace detail {
 	class graph_serializer;
 	class task;
 
-	enum class scheduler_event_type { task_available, shutdown };
-
-	struct scheduler_event {
-		scheduler_event_type type;
-		const task* tsk;
-	};
 
 	// Abstract base class to allow different threading implementation in tests
 	class abstract_scheduler {
@@ -33,7 +31,9 @@ namespace detail {
 		/**
 		 * @brief Notifies the scheduler that a new task has been created and is ready for scheduling.
 		 */
-		void notify_task_created(const task* tsk) { notify(scheduler_event_type::task_available, tsk); }
+		void notify_task_created(const task* const tsk) { notify(event_task_available{tsk}); }
+
+		void notify_buffer_registered(const buffer_id bid, const celerity::range<3>& range) { notify(event_buffer_registered{bid, range}); }
 
 	  protected:
 		/**
@@ -42,18 +42,28 @@ namespace detail {
 		void schedule();
 
 	  private:
+		struct event_shutdown {};
+		struct event_task_available {
+			const task* tsk;
+		};
+		struct event_buffer_registered {
+			buffer_id bid;
+			celerity::range<3> range;
+		};
+		using event = std::variant<event_shutdown, event_task_available, event_buffer_registered>;
+
 		graph_generator& m_ggen;
 		graph_serializer& m_gsrlzr;
 
-		std::queue<scheduler_event> m_available_events;
-		std::queue<scheduler_event> m_in_flight_events;
+		std::queue<event> m_available_events;
+		std::queue<event> m_in_flight_events;
 
 		mutable std::mutex m_events_mutex;
 		std::condition_variable m_events_cv;
 
 		const size_t m_num_nodes;
 
-		void notify(scheduler_event_type type, const task* tsk);
+		void notify(const event& evt);
 	};
 
 	class scheduler final : public abstract_scheduler {
