@@ -65,27 +65,25 @@ namespace detail {
 
 		template <typename CGF, typename... Hints>
 		task_id submit_command_group(CGF cgf, Hints... hints) {
-			task_id tid;
-			const task* tsk_ptr = nullptr;
-			{
-				auto reservation = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
-				tid = reservation.get_tid();
+			auto reservation = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
+			const auto tid = reservation.get_tid();
 
-				prepass_handler cgh(tid, std::make_unique<command_group_storage<CGF>>(cgf), m_num_collective_nodes);
-				cgf(cgh);
-				task& task_ref = register_task_internal(std::move(reservation), std::move(cgh).into_task());
-				tsk_ptr = &task_ref;
+			prepass_handler cgh(tid, std::make_unique<command_group_storage<CGF>>(cgf), m_num_collective_nodes);
+			cgf(cgh);
 
-				compute_dependencies(task_ref);
-				if(m_queue) m_queue->require_collective_group(task_ref.get_collective_group_id());
+			task& tsk = register_task_internal(std::move(reservation), std::move(cgh).into_task());
+			compute_dependencies(tsk);
+			if(m_queue) m_queue->require_collective_group(tsk.get_collective_group_id());
 
-				// the following deletion is intentionally redundant with the one happening when waiting for free task slots
-				// we want to free tasks earlier than just when running out of slots,
-				// so that we can potentially reclaim additional resources such as buffers earlier
-				m_task_buffer.delete_up_to(m_latest_epoch_reached.get());
-			}
-			invoke_callbacks(tsk_ptr);
+			// the following deletion is intentionally redundant with the one happening when waiting for free task slots
+			// we want to free tasks earlier than just when running out of slots,
+			// so that we can potentially reclaim additional resources such as buffers earlier
+			m_task_buffer.delete_up_to(m_latest_epoch_reached.get());
+
+			invoke_callbacks(&tsk);
+
 			if(need_new_horizon()) { generate_horizon_task(); }
+
 			return tid;
 		}
 

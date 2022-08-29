@@ -32,6 +32,8 @@ namespace detail {
 	}
 
 	void task_manager::notify_horizon_reached(task_id horizon_tid) {
+		// m_latest_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
+
 		assert(m_task_buffer.get_task(horizon_tid)->get_type() == task_type::horizon);
 		assert(!m_latest_horizon_reached || *m_latest_horizon_reached < horizon_tid);
 		assert(m_latest_epoch_reached.get() < horizon_tid);
@@ -42,8 +44,7 @@ namespace detail {
 	}
 
 	void task_manager::notify_epoch_reached(task_id epoch_tid) {
-		// This method is called from the executor thread, but does not lock task_mutex to avoid lock-step execution with the main thread.
-		// latest_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
+		// m_latest_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
 
 		assert(get_task(epoch_tid)->get_type() == task_type::epoch);
 		assert(!m_latest_horizon_reached || *m_latest_horizon_reached < epoch_tid);
@@ -226,38 +227,33 @@ namespace detail {
 	}
 
 	task_id task_manager::generate_horizon_task() {
-		// we are probably overzealous in locking here
-		task* new_horizon;
-		{
-			auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
-			m_current_horizon_critical_path_length = m_max_pseudo_critical_path_length;
-			const auto previous_horizon = m_current_horizon;
-			m_current_horizon = reserve.get_tid();
-			new_horizon = &reduce_execution_front(std::move(reserve), task::make_horizon_task(*m_current_horizon));
-			if(previous_horizon) { set_epoch_for_new_tasks(*previous_horizon); }
-		}
+		auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
+		const auto tid = reserve.get_tid();
 
-		// it's important that we don't hold the lock while doing this
-		invoke_callbacks(new_horizon);
-		return new_horizon->get_id();
+		m_current_horizon_critical_path_length = m_max_pseudo_critical_path_length;
+		const auto previous_horizon = m_current_horizon;
+		m_current_horizon = tid;
+
+		task& new_horizon = reduce_execution_front(std::move(reserve), task::make_horizon_task(*m_current_horizon));
+		if(previous_horizon) { set_epoch_for_new_tasks(*previous_horizon); }
+
+		invoke_callbacks(&new_horizon);
+		return tid;
 	}
 
 	task_id task_manager::generate_epoch_task(epoch_action action) {
-		// we are probably overzealous in locking here
-		task* new_epoch;
-		{
-			auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
-			const auto tid = reserve.get_tid();
-			new_epoch = &reduce_execution_front(std::move(reserve), task::make_epoch(tid, action));
-			compute_dependencies(*new_epoch);
-			set_epoch_for_new_tasks(new_epoch->get_id());
-			m_current_horizon = std::nullopt; // this horizon is now behind the epoch_for_new_tasks, so it will never become an epoch itself
-			m_current_horizon_critical_path_length = m_max_pseudo_critical_path_length; // the explicit epoch resets the need to create horizons
-		}
+		auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
+		const auto tid = reserve.get_tid();
 
-		// it's important that we don't hold the lock while doing this
-		invoke_callbacks(new_epoch);
-		return new_epoch->get_id();
+		task& new_epoch = reduce_execution_front(std::move(reserve), task::make_epoch(tid, action));
+		compute_dependencies(new_epoch);
+		set_epoch_for_new_tasks(tid);
+
+		m_current_horizon = std::nullopt; // this horizon is now behind the epoch_for_new_tasks, so it will never become an epoch itself
+		m_current_horizon_critical_path_length = m_max_pseudo_critical_path_length; // the explicit epoch resets the need to create horizons
+
+		invoke_callbacks(&new_epoch);
+		return tid;
 	}
 
 	task_id task_manager::get_first_in_flight_epoch() const {
