@@ -6,7 +6,6 @@
 #include <limits>
 #include <utility>
 
-#include "buffer_manager.h"
 #include "buffer_transfer_manager.h"
 #include "command.h"
 #include "host_queue.h"
@@ -19,6 +18,7 @@ namespace detail {
 	class executor;
 	class task_manager;
 	class reduction_manager;
+	class buffer_manager;
 
 	class worker_job;
 
@@ -144,16 +144,16 @@ namespace detail {
 	// host-compute jobs, master-node tasks and collective host tasks
 	class host_execute_job : public worker_job {
 	  public:
-		host_execute_job(command_pkg pkg, detail::host_queue& queue, detail::task_manager& tm, buffer_manager& bm)
+		host_execute_job(command_pkg pkg, host_queue& queue, task_manager& tm, buffer_manager& bm)
 		    : worker_job(pkg), m_queue(queue), m_task_mngr(tm), m_buffer_mngr(bm) {
 			assert(pkg.get_command_type() == command_type::execution);
 		}
 
 	  private:
-		detail::host_queue& m_queue;
-		detail::task_manager& m_task_mngr;
-		detail::buffer_manager& m_buffer_mngr;
-		std::future<detail::host_queue::execution_info> m_future;
+		host_queue& m_queue;
+		task_manager& m_task_mngr;
+		buffer_manager& m_buffer_mngr;
+		std::future<host_queue::execution_info> m_future;
 		bool m_submitted = false;
 
 		bool execute(const command_pkg& pkg) override;
@@ -166,16 +166,16 @@ namespace detail {
 	 */
 	class device_execute_job : public worker_job {
 	  public:
-		device_execute_job(command_pkg pkg, detail::device_queue& queue, detail::task_manager& tm, buffer_manager& bm, reduction_manager& rm, node_id local_nid)
+		device_execute_job(command_pkg pkg, device_queue& queue, task_manager& tm, buffer_manager& bm, reduction_manager& rm, node_id local_nid)
 		    : worker_job(pkg), m_queue(queue), m_task_mngr(tm), m_buffer_mngr(bm), m_reduction_mngr(rm), m_local_nid(local_nid) {
 			assert(pkg.get_command_type() == command_type::execution);
 		}
 
 	  private:
-		detail::device_queue& m_queue;
-		detail::task_manager& m_task_mngr;
-		detail::buffer_manager& m_buffer_mngr;
-		detail::reduction_manager& m_reduction_mngr;
+		device_queue& m_queue;
+		task_manager& m_task_mngr;
+		buffer_manager& m_buffer_mngr;
+		reduction_manager& m_reduction_mngr;
 		node_id m_local_nid;
 		cl::sycl::event m_event;
 		bool m_submitted = false;

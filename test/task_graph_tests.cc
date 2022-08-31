@@ -554,7 +554,7 @@ namespace detail {
 		static constexpr auto side_effect_orders = {order::sequential};
 
 		// TODO placeholder: complete with dependency types for other side effect orders
-		const auto expected_dependencies = std::unordered_map<std::pair<order, order>, std::optional<dependency_kind>, pair_hash>{
+		const auto expected_dependencies = std::unordered_map<std::pair<order, order>, std::optional<dependency_kind>, utils::pair_hash>{
 		    {{order::sequential, order::sequential}, dependency_kind::true_dep}};
 
 		const auto order_a = GENERATE(values(side_effect_orders));
