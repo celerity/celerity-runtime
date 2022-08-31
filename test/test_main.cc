@@ -33,3 +33,6 @@ struct global_setup_and_teardown : Catch::EventListenerBase {
 };
 
 CATCH_REGISTER_LISTENER(global_setup_and_teardown);
+
+
+TEST_CASE("incompatible with code on master") { celerity::test_utils::mock_buffer_factory mbf(nullptr); }
