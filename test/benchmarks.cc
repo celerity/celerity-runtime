@@ -151,7 +151,7 @@ struct task_manager_benchmark_context {
 struct graph_generator_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
-	graph_serializer gsrlzr{cdag, [](node_id, unique_frame_ptr<command_frame>) {}};
+	graph_serializer gser{cdag, [](node_id, unique_frame_ptr<command_frame>) {}};
 	reduction_manager rm;
 	task_manager tm{num_nodes, nullptr, &rm};
 	graph_generator ggen{num_nodes, rm, cdag};
@@ -161,7 +161,7 @@ struct graph_generator_benchmark_context {
 		tm.register_task_callback([this](const task* tsk) {
 			naive_split_transformer transformer{this->num_nodes, this->num_nodes};
 			ggen.build_task(*tsk, {&transformer});
-			gsrlzr.flush(tsk->get_id());
+			gser.flush(tsk->get_id());
 		});
 	}
 
@@ -234,8 +234,8 @@ class restartable_thread {
 
 class benchmark_scheduler final : public abstract_scheduler {
   public:
-	benchmark_scheduler(restartable_thread& worker_thread, std::unique_ptr<graph_generator> ggen, std::unique_ptr<graph_serializer> gsrlzr, size_t num_nodes)
-	    : abstract_scheduler(std::move(ggen), std::move(gsrlzr), num_nodes), m_worker_thread(worker_thread) {}
+	benchmark_scheduler(restartable_thread& worker_thread, std::unique_ptr<graph_generator> ggen, std::unique_ptr<graph_serializer> gser, size_t num_nodes)
+	    : abstract_scheduler(std::move(ggen), std::move(gser), num_nodes), m_worker_thread(worker_thread) {}
 
 	void startup() override {
 		m_worker_thread.start([this] { schedule(); });
