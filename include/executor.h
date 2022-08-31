@@ -3,7 +3,6 @@
 #include <chrono>
 #include <thread>
 
-#include "buffer_manager.h"
 #include "buffer_transfer_manager.h"
 #include "worker_job.h"
 
@@ -14,6 +13,7 @@ namespace detail {
 	class host_queue;
 	class device_queue;
 	class task_manager;
+	class buffer_manager;
 
 	class duration_metric {
 	  public:

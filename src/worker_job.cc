@@ -2,6 +2,7 @@
 
 #include <spdlog/fmt/fmt.h>
 
+#include "buffer_manager.h"
 #include "device_queue.h"
 #include "handler.h"
 #include "reduction_manager.h"
