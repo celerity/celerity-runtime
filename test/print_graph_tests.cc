@@ -8,7 +8,7 @@ using celerity::access::one_to_one;
 TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 	reduction_manager rm;
 	task_manager tm{1, nullptr, &rm};
-	test_utils::mock_buffer_factory mbf(&tm);
+	test_utils::mock_buffer_factory mbf(tm);
 
 	auto range = cl::sycl::range<1>(64);
 	auto buf_0 = mbf.create_buffer(range);
@@ -54,7 +54,7 @@ TEST_CASE("command graph printing is unchanged", "[print_graph][command-graph]")
 	auto& tm = ctx.get_task_manager();
 	auto& ggen = ctx.get_graph_generator();
 	auto& rm = ctx.get_reduction_manager();
-	test_utils::mock_buffer_factory mbf(&tm, &ggen);
+	test_utils::mock_buffer_factory mbf(tm, ggen);
 
 	auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 
