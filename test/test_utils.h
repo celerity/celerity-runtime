@@ -247,7 +247,7 @@ namespace test_utils {
 			m_tm = std::make_unique<detail::task_manager>(1 /* num_nodes */, nullptr /* host_queue */, m_rm.get());
 			m_cdag = std::make_unique<detail::command_graph>();
 			m_ggen = std::make_unique<detail::graph_generator>(num_nodes, *m_rm, *m_cdag);
-			m_gsrlzr = std::make_unique<detail::graph_serializer>(*m_cdag, m_inspector.get_cb());
+			m_gser = std::make_unique<detail::graph_serializer>(*m_cdag, m_inspector.get_cb());
 			this->m_num_nodes = num_nodes;
 		}
 
@@ -256,7 +256,7 @@ namespace test_utils {
 		detail::command_graph& get_command_graph() { return *m_cdag; }
 		detail::graph_generator& get_graph_generator() { return *m_ggen; }
 		cdag_inspector& get_inspector() { return m_inspector; }
-		detail::graph_serializer& get_graph_serializer() { return *m_gsrlzr; }
+		detail::graph_serializer& get_graph_serializer() { return *m_gser; }
 
 		detail::task_id build_task_horizons() {
 			const auto most_recently_generated_task_horizon = detail::task_manager_testspy::get_current_horizon(get_task_manager());
@@ -278,7 +278,7 @@ namespace test_utils {
 		std::unique_ptr<detail::command_graph> m_cdag;
 		std::unique_ptr<detail::graph_generator> m_ggen;
 		cdag_inspector m_inspector;
-		std::unique_ptr<detail::graph_serializer> m_gsrlzr;
+		std::unique_ptr<detail::graph_serializer> m_gser;
 		size_t m_num_nodes;
 		std::optional<detail::task_id> m_most_recently_built_task_horizon;
 	};

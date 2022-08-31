@@ -137,9 +137,9 @@ namespace detail {
 		if(is_master_node()) {
 			m_cdag = std::make_unique<command_graph>();
 			auto ggen = std::make_unique<graph_generator>(m_num_nodes, *m_reduction_mngr, *m_cdag);
-			auto gsrlzr = std::make_unique<graph_serializer>(
+			auto gser = std::make_unique<graph_serializer>(
 			    *m_cdag, [this](node_id target, unique_frame_ptr<command_frame> frame) { flush_command(target, std::move(frame)); });
-			m_schdlr = std::make_unique<scheduler>(std::move(ggen), std::move(gsrlzr), m_num_nodes);
+			m_schdlr = std::make_unique<scheduler>(std::move(ggen), std::move(gser), m_num_nodes);
 			m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
 		}
 
