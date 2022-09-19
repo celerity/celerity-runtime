@@ -210,12 +210,11 @@ namespace detail {
 
 			const auto data = std::get<execution_data>(pkg.data);
 			auto tsk = m_task_mngr.get_task(data.tid);
-			for(auto rid : tsk->get_reductions()) {
-				auto reduction = m_reduction_mngr.get_reduction(rid);
-				const auto element_size = m_buffer_mngr.get_buffer_info(reduction.output_buffer_id).element_size;
+			for(const auto& reduction : tsk->get_reductions()) {
+				const auto element_size = m_buffer_mngr.get_buffer_info(reduction.bid).element_size;
 				auto operand = make_uninitialized_payload<std::byte>(element_size);
-				m_buffer_mngr.get_buffer_data(reduction.output_buffer_id, {{}, {1, 1, 1}}, operand.get_pointer());
-				m_reduction_mngr.push_overlapping_reduction_data(rid, m_local_nid, std::move(operand));
+				m_buffer_mngr.get_buffer_data(reduction.bid, {{}, {1, 1, 1}}, operand.get_pointer());
+				m_reduction_mngr.push_overlapping_reduction_data(reduction.rid, m_local_nid, std::move(operand));
 			}
 
 			if(m_queue.is_profiling_enabled()) {

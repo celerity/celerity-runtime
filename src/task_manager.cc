@@ -6,8 +6,7 @@
 namespace celerity {
 namespace detail {
 
-	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, reduction_manager* reduction_mgr)
-	    : m_num_collective_nodes(num_collective_nodes), m_queue(queue), m_reduction_mngr(reduction_mgr) {
+	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue) : m_num_collective_nodes(num_collective_nodes), m_queue(queue) {
 		// We manually generate the initial epoch task, which we treat as if it has been reached immediately.
 		auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
 		m_task_buffer.put(std::move(reserve), task::make_epoch(initial_epoch_task, epoch_action::none));
@@ -27,7 +26,7 @@ namespace detail {
 	const task* task_manager::get_task(task_id tid) const { return m_task_buffer.get_task(tid); }
 
 	std::optional<std::string> task_manager::print_graph(size_t max_nodes) const {
-		if(m_task_buffer.get_current_task_count() <= max_nodes) { return detail::print_task_graph(m_task_buffer, *m_reduction_mngr, nullptr); }
+		if(m_task_buffer.get_current_task_count() <= max_nodes) { return detail::print_task_graph(m_task_buffer, nullptr); }
 		return std::nullopt;
 	}
 
@@ -72,18 +71,16 @@ namespace detail {
 		const auto& access_map = tsk.get_buffer_access_map();
 
 		auto buffers = access_map.get_accessed_buffers();
-		for(auto rid : tsk.get_reductions()) {
-			assert(m_reduction_mngr != nullptr);
-			buffers.emplace(m_reduction_mngr->get_reduction(rid).output_buffer_id);
+		for(const auto& reduction : tsk.get_reductions()) {
+			buffers.emplace(reduction.bid);
 		}
 
 		for(const auto bid : buffers) {
 			const auto modes = access_map.get_access_modes(bid);
 
 			std::optional<reduction_info> reduction;
-			for(auto maybe_rid : tsk.get_reductions()) {
-				auto maybe_reduction = m_reduction_mngr->get_reduction(maybe_rid);
-				if(maybe_reduction.output_buffer_id == bid) {
+			for(const auto& maybe_reduction : tsk.get_reductions()) {
+				if(maybe_reduction.bid == bid) {
 					if(reduction) { throw std::runtime_error(fmt::format("Multiple reductions attempt to write buffer {} in task {}", bid, tsk.get_id())); }
 					reduction = maybe_reduction;
 				}
@@ -95,8 +92,7 @@ namespace detail {
 			}
 
 			// Determine reader dependencies
-			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_consumer)
-			    || (reduction.has_value() && reduction->initialize_from_buffer)) {
+			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_consumer) || (reduction.has_value() && reduction->init_from_buffer)) {
 				auto read_requirements = get_requirements(tsk, bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
 				if(reduction.has_value()) { read_requirements = GridRegion<3>::merge(read_requirements, GridRegion<3>{{1, 1, 1}}); }
 				const auto last_writers = m_buffers_last_writers.at(bid).get_region_values(read_requirements);

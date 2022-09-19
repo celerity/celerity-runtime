@@ -728,6 +728,7 @@ namespace detail {
 		const size_t num_nodes = 2;
 		test_utils::cdag_test_context ctx(num_nodes);
 		test_utils::mock_buffer_factory mbf(ctx);
+		test_utils::mock_reduction_factory mrf;
 		auto& tm = ctx.get_task_manager();
 		auto& inspector = ctx.get_inspector();
 
@@ -744,7 +745,7 @@ namespace detail {
 		        tm,
 		        [&](handler& cgh) {
 			        buf_2.get_access<access_mode::discard_write>(cgh, one_to_one{});
-			        test_utils::add_reduction(cgh, ctx.get_reduction_manager(), buf_3, false);
+			        test_utils::add_reduction(cgh, mrf, buf_3, false);
 		        },
 		        range<1>{num_nodes}));
 

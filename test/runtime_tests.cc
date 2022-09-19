@@ -238,7 +238,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager invokes callback upon task creation", "[task_manager]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		size_t call_counter = 0;
 		tm.register_task_callback([&call_counter](const task*) { call_counter++; });
 		cl::sycl::range<2> gs = {1, 1};
@@ -250,7 +250,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][device_compute_task]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<2>(64, 152));
 		auto buf_b = mbf.create_buffer(cl::sycl::range<3>(7, 21, 99));
@@ -312,7 +312,7 @@ namespace detail {
 	class MyThirdKernel;
 
 	TEST_CASE("device_compute tasks derive debug name from kernel name", "[task][!mayfail]") {
-		auto tm = std::make_unique<detail::task_manager>(1, nullptr, nullptr);
+		auto tm = std::make_unique<detail::task_manager>(1, nullptr);
 		auto t1 =
 		    tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(cl::sycl::range<1>{1}, [](cl::sycl::id<1>) {}); }));
 		auto t2 =

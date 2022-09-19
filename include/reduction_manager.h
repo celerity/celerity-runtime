@@ -9,43 +9,35 @@
 namespace celerity {
 namespace detail {
 
-	struct reduction_info {
-		buffer_id output_buffer_id = 0;
-		bool initialize_from_buffer = false;
-	};
-
 	class abstract_buffer_reduction {
 	  public:
-		explicit abstract_buffer_reduction(buffer_id bid, bool include_current_buffer_value) : info{bid, include_current_buffer_value} {}
+		explicit abstract_buffer_reduction(const buffer_id output_bid) : m_output_bid(output_bid) {}
 		virtual ~abstract_buffer_reduction() = default;
 
-		void push_overlapping_data(node_id source_nid, unique_payload_ptr data) { overlapping_data.emplace_back(source_nid, std::move(data)); }
+		void push_overlapping_data(node_id source_nid, unique_payload_ptr data) { m_overlapping_data.emplace_back(source_nid, std::move(data)); }
 
 		virtual void reduce_to_buffer() = 0;
 
-		reduction_info get_info() const { return info; }
-
 	  protected:
-		reduction_info info;
-		std::vector<std::pair<node_id, unique_payload_ptr>> overlapping_data;
+		buffer_id m_output_bid;
+		std::vector<std::pair<node_id, unique_payload_ptr>> m_overlapping_data;
 	};
 
 	template <typename DataT, int Dims, typename BinaryOperation>
 	class buffer_reduction final : public abstract_buffer_reduction {
 	  public:
-		buffer_reduction(buffer_id bid, BinaryOperation op, DataT identity, bool include_current_buffer_value)
-		    : abstract_buffer_reduction(bid, include_current_buffer_value), m_op(op), m_init(identity) {}
+		buffer_reduction(buffer_id output_bid, BinaryOperation op, DataT identity) : abstract_buffer_reduction(output_bid), m_op(op), m_init(identity) {}
 
 		void reduce_to_buffer() override {
-			std::sort(overlapping_data.begin(), overlapping_data.end(), [](auto& lhs, auto& rhs) { return lhs.first < rhs.first; });
+			std::sort(m_overlapping_data.begin(), m_overlapping_data.end(), [](auto& lhs, auto& rhs) { return lhs.first < rhs.first; });
 
 			DataT acc = m_init;
-			for(auto& [nid, data] : overlapping_data) {
+			for(auto& [nid, data] : m_overlapping_data) {
 				acc = m_op(acc, *static_cast<const DataT*>(data.get_pointer()));
 			}
 
 			auto host_buf = runtime::get_instance().get_buffer_manager().get_host_buffer<DataT, Dims>(
-			    info.output_buffer_id, cl::sycl::access::mode::discard_write, cl::sycl::range<3>{1, 1, 1}, cl::sycl::id<3>{});
+			    m_output_bid, cl::sycl::access::mode::discard_write, cl::sycl::range<3>{1, 1, 1}, cl::sycl::id<3>{});
 			*host_buf.buffer.get_pointer() = acc;
 		}
 
@@ -57,21 +49,16 @@ namespace detail {
 	class reduction_manager {
 	  public:
 		template <typename DataT, int Dims, typename BinaryOperation>
-		reduction_id create_reduction(const buffer_id bid, BinaryOperation op, DataT identity, bool include_current_buffer_value) {
+		reduction_id create_reduction(const buffer_id bid, BinaryOperation op, DataT identity) {
 			std::lock_guard lock{m_mutex};
-			auto rid = m_next_rid++;
-			m_reductions.emplace(rid, std::make_unique<buffer_reduction<DataT, Dims, BinaryOperation>>(bid, op, identity, include_current_buffer_value));
+			const auto rid = m_next_rid++;
+			m_reductions.emplace(rid, std::make_unique<buffer_reduction<DataT, Dims, BinaryOperation>>(bid, op, identity));
 			return rid;
 		}
 
 		bool has_reduction(reduction_id rid) const {
 			std::lock_guard lock{m_mutex};
 			return m_reductions.count(rid) != 0;
-		}
-
-		reduction_info get_reduction(reduction_id rid) const {
-			std::lock_guard lock{m_mutex};
-			return m_reductions.at(rid)->get_info();
 		}
 
 		void push_overlapping_reduction_data(reduction_id rid, node_id source_nid, unique_payload_ptr data) {

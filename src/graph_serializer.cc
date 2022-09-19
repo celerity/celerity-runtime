@@ -101,7 +101,7 @@ namespace detail {
 			auto* source = apcmd->get_source();
 			frame->pkg.data = await_push_data{source->get_bid(), source->get_rid(), source->get_nid(), source->get_cid(), source->get_range()};
 		} else if(const auto* rcmd = dynamic_cast<reduction_command*>(cmd)) {
-			frame->pkg.data = reduction_data{rcmd->get_rid()};
+			frame->pkg.data = reduction_data{rcmd->get_reduction_info().rid};
 		} else if(const auto* hcmd = dynamic_cast<horizon_command*>(cmd)) {
 			frame->pkg.data = horizon_data{hcmd->get_tid()};
 		} else {

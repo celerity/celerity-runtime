@@ -21,8 +21,8 @@ namespace detail {
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
-		auto& rm = ctx.get_reduction_manager();
 		test_utils::mock_buffer_factory mbf(ctx);
+		test_utils::mock_reduction_factory mrf;
 
 		auto range = cl::sycl::range<1>(64);
 		auto buf_0 = mbf.create_buffer(range);
@@ -40,7 +40,7 @@ namespace detail {
 		    tm,
 		    [&](handler& cgh) {
 			    buf_0.get_access<mode::read>(cgh, one_to_one{});
-			    test_utils::add_reduction(cgh, rm, buf_1, true /* include_current_buffer_value */);
+			    test_utils::add_reduction(cgh, mrf, buf_1, true /* include_current_buffer_value */);
 		    },
 		    range);
 		test_utils::build_and_flush(ctx, num_nodes, tid_reduce);
@@ -71,9 +71,9 @@ namespace detail {
 			auto* rcmd = dynamic_cast<reduction_command*>(ctx.get_command_graph().get(deps[0]));
 			REQUIRE(rcmd);
 			if(rid) {
-				CHECK(rcmd->get_rid() == rid);
+				CHECK(rcmd->get_reduction_info().rid == rid);
 			} else {
-				rid = rcmd->get_rid();
+				rid = rcmd->get_reduction_info().rid;
 			}
 
 			// Reduction commands have exactly one dependency to the local parent execution_command and one dependency to await_push_commands from all other
@@ -109,14 +109,14 @@ namespace detail {
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
-		auto& rm = ctx.get_reduction_manager();
 		test_utils::mock_buffer_factory mbf(ctx);
+		test_utils::mock_reduction_factory mrf;
 
 		auto range = cl::sycl::range<1>(64);
 		auto buf_0 = mbf.create_buffer(range);
 
 		const auto tid_reduce = test_utils::add_compute_task<class UKN(task_reduce)>(
-		    tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf_0, false /* include_current_buffer_value */); }, range);
+		    tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, buf_0, false /* include_current_buffer_value */); }, range);
 		test_utils::build_and_flush(ctx, num_nodes, tid_reduce);
 
 		const auto tid_consume = test_utils::add_compute_task<class UKN(task_consume)>(tm, [&](handler& cgh) {
@@ -138,13 +138,13 @@ namespace detail {
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
-		auto& rm = ctx.get_reduction_manager();
 		test_utils::mock_buffer_factory mbf(ctx);
+		test_utils::mock_reduction_factory mrf;
 
 		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 
 		test_utils::build_and_flush(ctx, num_nodes,
-		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf_0, false); }));
+		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, buf_0, false); }));
 
 		test_utils::build_and_flush(ctx, num_nodes, test_utils::add_compute_task<class UKN(task_discard)>(tm, [&](handler& cgh) {
 			buf_0.get_access<mode::discard_write>(cgh, fixed<1>({0, 1}));
@@ -162,14 +162,14 @@ namespace detail {
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
-		auto& rm = ctx.get_reduction_manager();
 		test_utils::mock_buffer_factory mbf(ctx);
+		test_utils::mock_reduction_factory mrf;
 
 		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 
 		test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(task_reduction)>(
-		        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf_0, false); }, {num_nodes, 1}));
+		        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, buf_0, false); }, {num_nodes, 1}));
 
 		test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 			buf_0.get_access<mode::read>(cgh, fixed<1>({0, 1}));
@@ -189,13 +189,13 @@ namespace detail {
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
-		auto& rm = ctx.get_reduction_manager();
 		test_utils::mock_buffer_factory mbf(ctx);
+		test_utils::mock_reduction_factory mrf;
 
 		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 
 		auto compute_tid = test_utils::build_and_flush(ctx, num_nodes,
-		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf_0, false); }));
+		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, buf_0, false); }));
 
 		auto host_tid = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 			buf_0.get_access<mode::read_write>(cgh, fixed<1>({0, 1}));
@@ -219,8 +219,8 @@ namespace detail {
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
-		auto& rm = ctx.get_reduction_manager();
 		test_utils::mock_buffer_factory mbf(ctx);
+		test_utils::mock_reduction_factory mrf;
 
 		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 
@@ -228,7 +228,7 @@ namespace detail {
 		    ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_0.get_access<mode::discard_write>(cgh, all{}); }));
 
 		auto compute_tid = test_utils::build_and_flush(ctx, num_nodes,
-		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf_0, true); }));
+		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, buf_0, true); }));
 
 		test_utils::build_and_flush(
 		    ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_0.get_access<mode::read>(cgh, all{}); }));

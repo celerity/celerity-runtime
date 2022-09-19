@@ -295,10 +295,7 @@ namespace detail {
 			m_side_effects.add_side_effect(hoid, order);
 		}
 
-		template <int Dims>
-		void add_reduction(reduction_id rid) {
-			m_reductions.push_back(rid);
-		}
+		void add_reduction(const reduction_info& rinfo) { m_reductions.push_back(rinfo); }
 
 		void create_host_compute_task(task_geometry geometry) {
 			assert(m_task == nullptr);
@@ -349,7 +346,7 @@ namespace detail {
 		std::unique_ptr<command_group_storage_base> m_cgf;
 		buffer_access_map m_access_map;
 		side_effect_map m_side_effects;
-		std::vector<reduction_id> m_reductions;
+		reduction_set m_reductions;
 		std::unique_ptr<class task> m_task = nullptr;
 		size_t m_num_collective_nodes;
 	};
@@ -577,8 +574,8 @@ namespace detail {
 		cl::sycl::buffer<DataT, Dims>* sycl_buffer = nullptr;
 
 		if(detail::is_prepass_handler(cgh)) {
-			auto rid = detail::runtime::get_instance().get_reduction_manager().create_reduction<DataT, Dims>(bid, op, identity, include_current_buffer_value);
-			static_cast<detail::prepass_handler&>(cgh).add_reduction<Dims>(rid);
+			auto rid = detail::runtime::get_instance().get_reduction_manager().create_reduction<DataT, Dims>(bid, op, identity);
+			static_cast<detail::prepass_handler&>(cgh).add_reduction(reduction_info{rid, bid, include_current_buffer_value});
 		} else {
 			include_current_buffer_value &= static_cast<detail::live_pass_handler&>(cgh).is_reduction_initializer();
 

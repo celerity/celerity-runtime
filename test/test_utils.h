@@ -52,7 +52,7 @@ namespace detail {
 		static size_t get_command_count(runtime& rt) { return rt.m_cdag->command_count(); }
 		static command_graph& get_cdag(runtime& rt) { return *rt.m_cdag; }
 		static std::string print_graph(runtime& rt) {
-			return rt.m_cdag.get()->print_graph(std::numeric_limits<size_t>::max(), *rt.m_task_mngr, *rt.m_reduction_mngr, rt.m_buffer_mngr.get()).value();
+			return rt.m_cdag.get()->print_graph(std::numeric_limits<size_t>::max(), *rt.m_task_mngr, rt.m_buffer_mngr.get()).value();
 		}
 	};
 
@@ -259,15 +259,13 @@ namespace test_utils {
 	class cdag_test_context {
 	  public:
 		cdag_test_context(size_t num_nodes) {
-			m_rm = std::make_unique<detail::reduction_manager>();
-			m_tm = std::make_unique<detail::task_manager>(1 /* num_nodes */, nullptr /* host_queue */, m_rm.get());
+			m_tm = std::make_unique<detail::task_manager>(1 /* num_nodes */, nullptr /* host_queue */);
 			m_cdag = std::make_unique<detail::command_graph>();
-			m_ggen = std::make_unique<detail::graph_generator>(num_nodes, *m_rm, *m_cdag);
+			m_ggen = std::make_unique<detail::graph_generator>(num_nodes, *m_cdag);
 			m_gser = std::make_unique<detail::graph_serializer>(*m_cdag, m_inspector.get_cb());
 			this->m_num_nodes = num_nodes;
 		}
 
-		detail::reduction_manager& get_reduction_manager() { return *m_rm; }
 		detail::task_manager& get_task_manager() { return *m_tm; }
 		detail::command_graph& get_command_graph() { return *m_cdag; }
 		detail::graph_generator& get_graph_generator() { return *m_ggen; }
@@ -289,7 +287,6 @@ namespace test_utils {
 		}
 
 	  private:
-		std::unique_ptr<detail::reduction_manager> m_rm;
 		std::unique_ptr<detail::task_manager> m_tm;
 		std::unique_ptr<detail::command_graph> m_cdag;
 		std::unique_ptr<detail::graph_generator> m_ggen;
@@ -373,12 +370,19 @@ namespace test_utils {
 	// Defaults to one node and chunk
 	inline detail::task_id build_and_flush(cdag_test_context& ctx, detail::task_id tid) { return build_and_flush(ctx, 1, 1, tid); }
 
+	class mock_reduction_factory {
+	  public:
+		detail::reduction_info create_reduction(const detail::buffer_id bid, const bool include_current_buffer_value) {
+			return detail::reduction_info{m_next_id++, bid, include_current_buffer_value};
+		}
+
+	  private:
+		detail::reduction_id m_next_id = 1;
+	};
+
 	template <int Dims>
-	void add_reduction(handler& cgh, detail::reduction_manager& rm, const mock_buffer<Dims>& vars, bool include_current_buffer_value) {
-		auto bid = vars.get_id();
-		auto rid = rm.create_reduction<int, Dims>(
-		    bid, [](int a, int b) { return a + b; }, 0, include_current_buffer_value);
-		static_cast<detail::prepass_handler&>(cgh).add_reduction<Dims>(rid);
+	void add_reduction(handler& cgh, mock_reduction_factory& mrf, const mock_buffer<Dims>& vars, bool include_current_buffer_value) {
+		static_cast<detail::prepass_handler&>(cgh).add_reduction(mrf.create_reduction(vars.get_id(), include_current_buffer_value));
 	}
 
 	// This fixture (or a subclass) must be used by all tests that transitively use MPI.
@@ -433,10 +437,9 @@ namespace test_utils {
 		}
 	}
 
-	inline void maybe_print_graph(
-	    celerity::detail::command_graph& cdag, const celerity::detail::task_manager& tm, const celerity::detail::reduction_manager& rm) {
+	inline void maybe_print_graph(celerity::detail::command_graph& cdag, const celerity::detail::task_manager& tm) {
 		if(print_graphs) {
-			const auto graph_str = cdag.print_graph(std::numeric_limits<size_t>::max(), tm, rm, {});
+			const auto graph_str = cdag.print_graph(std::numeric_limits<size_t>::max(), tm, {});
 			assert(graph_str.has_value());
 			CELERITY_INFO("Command graph:\n\n{}\n", *graph_str);
 		}
@@ -445,7 +448,7 @@ namespace test_utils {
 	inline void maybe_print_graphs(celerity::test_utils::cdag_test_context& ctx) {
 		if(print_graphs) {
 			maybe_print_graph(ctx.get_task_manager());
-			maybe_print_graph(ctx.get_command_graph(), ctx.get_task_manager(), ctx.get_reduction_manager());
+			maybe_print_graph(ctx.get_command_graph(), ctx.get_task_manager());
 		}
 	}
 

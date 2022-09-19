@@ -17,7 +17,6 @@
 namespace celerity {
 namespace detail {
 
-	class reduction_manager;
 	using task_callback = std::function<void(const task*)>;
 
 	// Allows other threads to await an epoch change in the task manager.
@@ -59,7 +58,7 @@ namespace detail {
 	  public:
 		constexpr inline static task_id initial_epoch_task = 0;
 
-		task_manager(size_t num_collective_nodes, host_queue* queue, reduction_manager* reduction_mgr);
+		task_manager(size_t num_collective_nodes, host_queue* queue);
 
 		virtual ~task_manager() = default;
 
@@ -169,8 +168,6 @@ namespace detail {
 	  private:
 		const size_t m_num_collective_nodes;
 		host_queue* m_queue;
-
-		reduction_manager* m_reduction_mngr;
 
 		task_ring_buffer m_task_buffer;
 
