@@ -46,7 +46,7 @@ namespace detail {
 
 	void executor::run() {
 		bool done = false;
-		std::queue<unique_frame_ptr<command_frame>> command_queue;
+		std::queue<shared_frame_ptr<command_frame>> command_queue;
 		while(!done || !m_jobs.empty()) {
 			// Bail if a device error ocurred.
 			if(m_running_device_compute_jobs > 0) { m_d_queue.get_sycl_queue().throw_asynchronous(); }
@@ -115,10 +115,13 @@ namespace detail {
 			if(flag == 1) {
 				int frame_bytes;
 				MPI_Get_count(&status, MPI_BYTE, &frame_bytes);
-				unique_frame_ptr<command_frame> frame(from_size_bytes, static_cast<size_t>(frame_bytes));
-				MPI_Mrecv(frame.get_pointer(), frame_bytes, MPI_BYTE, &msg, &status);
-				assert(frame->num_dependencies == frame.get_payload_count());
-				command_queue.push(std::move(frame));
+				auto frames = std::make_shared<frame_vector<command_frame>>(from_size_bytes, static_cast<size_t>(frame_bytes));
+				MPI_Mrecv(frames->get_pointer(), frame_bytes, MPI_BYTE, &msg, &status);
+
+				for(auto it = frames->begin(); it != frames->end(); ++it) {
+					assert(it->num_dependencies == it.get_payload_count());
+					command_queue.push(it.get_shared_from_this());
+				}
 
 				if(!m_first_command_received) {
 					m_metrics.initial_idle.pause();

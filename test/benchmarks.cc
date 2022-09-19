@@ -151,7 +151,7 @@ struct task_manager_benchmark_context {
 struct graph_generator_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
-	graph_serializer gser{cdag, [](node_id, unique_frame_ptr<command_frame>) {}};
+	graph_serializer gser{num_nodes, cdag, [](node_id, frame_vector<command_frame>) {}};
 	task_manager tm{num_nodes, nullptr};
 	graph_generator ggen{num_nodes, cdag};
 	test_utils::mock_buffer_factory mbf{tm, ggen};
@@ -259,7 +259,7 @@ struct scheduler_benchmark_context {
 	explicit scheduler_benchmark_context(restartable_thread& thrd, size_t num_nodes)
 	    : num_nodes{num_nodes}, //
 	      schdlr{thrd, std::make_unique<graph_generator>(num_nodes, cdag),
-	          std::make_unique<graph_serializer>(cdag, [](node_id, unique_frame_ptr<command_frame>) {}), num_nodes} {
+	          std::make_unique<graph_serializer>(num_nodes, cdag, [](node_id, frame_vector<command_frame>) {}), num_nodes} {
 		tm.register_task_callback([this](const task* tsk) { schdlr.notify_task_created(tsk); });
 		schdlr.startup();
 	}

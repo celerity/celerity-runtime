@@ -7,39 +7,34 @@
 #include "frame.h"
 #include "types.h"
 
-namespace celerity {
-namespace detail {
+namespace celerity::detail {
 
-	class abstract_command;
-	class task_command;
-	class command_graph;
+class abstract_command;
+class task_command;
+class command_graph;
 
-	class graph_serializer {
-		using flush_callback = std::function<void(node_id, unique_frame_ptr<command_frame>)>;
+class graph_serializer {
+	using flush_callback = std::function<void(node_id, frame_vector<command_frame>)>;
 
-	  public:
-		/*
-		 * @param flush_cb Callback invoked for each command that is being flushed
-		 */
-		graph_serializer(command_graph& cdag, flush_callback flush_cb) : m_cdag(cdag), m_flush_cb(flush_cb) {}
+  public:
+	/*
+	 * @param flush_cb Callback invoked for each command that is being flushed
+	 */
+	graph_serializer(size_t num_nodes, command_graph& cdag, flush_callback flush_cb);
 
-		void flush(task_id tid);
+	void flush(task_id tid);
 
-		/**
-		 * Serializes a list of task commands and their dependencies.
-		 *
-		 * @param cmds The task commands to serialize, all belonging to the same task.
-		 */
-		void flush(const std::vector<task_command*>& cmds);
+  private:
+	size_t m_num_nodes;
+	command_graph& m_cdag;
+	flush_callback m_flush_cb;
 
-	  private:
-		command_graph& m_cdag;
-		flush_callback m_flush_cb;
+	using command_vector = std::vector<const abstract_command*>;
+	using node_command_map = std::vector<command_vector>;
 
+	void collect_task_command(task_command* cmd, node_command_map& pending_node_cmds) const;
+	void collect_dependency(abstract_command* cmd, node_command_map& pending_node_cmds) const;
+	frame_vector<command_frame> serialize(const command_vector& cmds) const;
+};
 
-		void flush_dependency(abstract_command* dep) const;
-		void serialize_and_flush(abstract_command* cmd, const std::vector<command_id>& dependencies) const;
-	};
-
-} // namespace detail
-} // namespace celerity
+} // namespace celerity::detail

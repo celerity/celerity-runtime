@@ -144,7 +144,7 @@ namespace detail {
 			m_cdag = std::make_unique<command_graph>();
 			auto ggen = std::make_unique<graph_generator>(m_num_nodes, *m_cdag);
 			auto gser = std::make_unique<graph_serializer>(
-			    *m_cdag, [this](node_id target, unique_frame_ptr<command_frame> frame) { flush_command(target, std::move(frame)); });
+			    m_num_nodes, *m_cdag, [this](node_id target, frame_vector<command_frame> frames) { flush_commands(target, std::move(frames)); });
 			m_schdlr = std::make_unique<scheduler>(std::move(ggen), std::move(gser), m_num_nodes);
 			m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
 		}
@@ -262,17 +262,29 @@ namespace detail {
 		instance.reset();
 	}
 
-	void runtime::flush_command(node_id target, unique_frame_ptr<command_frame> frame) {
+	void runtime::flush_commands(node_id target, frame_vector<command_frame> frames) {
+		assert(frames.get_frame_count() > 0); // it is pointless to send empty command frames, so they should not be serialized in the first place
+
 		if(is_dry_run()) {
-			// We only want to send epochs to the master node for slow full sync and shutdown.
-			if(target != 0 || frame->pkg.get_command_type() != command_type::epoch) return;
+			// During a dry run, we only want to send epoch commands to the master node for slow full sync and shutdown.
+			const auto epoch_frame = std::find_if(frames.begin(), frames.end(), [](const auto& f) { return f.pkg.get_command_type() == command_type::epoch; });
+			if(target != 0 || epoch_frame == frames.end()) return;
+
+			// Since epoch commands can be packaged in with push/await-push commands, we need to re-write the frame vector to contain only the epoch.
+			frame_vector_layout<command_frame> rewrite_layout;
+			rewrite_layout.reserve_back(from_size_bytes, epoch_frame.get_size_bytes());
+			frame_vector_builder<command_frame> rewriter(rewrite_layout);
+			auto rewrite_epoch_frame = &rewriter.emplace_back(from_size_bytes, epoch_frame.get_size_bytes());
+			memcpy(rewrite_epoch_frame, &*epoch_frame, epoch_frame.get_size_bytes());
+			frames = std::move(rewriter).into_vector();
 		}
+
 		// Even though command packages are small enough to use a blocking send we want to be able to send to the master node as well,
 		// which is why we have to use Isend after all. We also have to make sure that the buffer stays around until the send is complete.
 		MPI_Request req;
 		MPI_Isend(
-		    frame.get_pointer(), static_cast<int>(frame.get_size_bytes()), MPI_BYTE, static_cast<int>(target), mpi_support::TAG_CMD, MPI_COMM_WORLD, &req);
-		m_active_flushes.push_back(flush_handle{std::move(frame), req});
+		    frames.get_pointer(), static_cast<int>(frames.get_size_bytes()), MPI_BYTE, static_cast<int>(target), mpi_support::TAG_CMD, MPI_COMM_WORLD, &req);
+		m_active_flushes.push_back(flush_handle{std::move(frames), req});
 
 		// Cleanup finished transfers.
 		// Just check the oldest flush. Since commands are small this will stay in equilibrium fairly quickly.

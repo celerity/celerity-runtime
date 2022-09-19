@@ -462,7 +462,7 @@ namespace detail {
 
 		CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::execution).size() == 1);
 		const auto computes_a = inspector.get_commands(tid_a, node_id(0), command_type::execution);
-		CHECK(computes_a.size() == 1);
+		REQUIRE(computes_a.size() == 1);
 
 		// task_b writes to the same buffer a
 		const auto tid_b = test_utils::build_and_flush(ctx, 1,
@@ -471,7 +471,7 @@ namespace detail {
 
 		CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::execution).size() == 1);
 		const auto computes_b = inspector.get_commands(tid_b, node_id(0), command_type::execution);
-		CHECK(computes_b.size() == 1);
+		REQUIRE(computes_b.size() == 1);
 		// task_b should have an anti-dependency onto task_a
 		REQUIRE(inspector.has_dependency(*computes_b.cbegin(), *computes_a.cbegin()));
 
@@ -482,9 +482,11 @@ namespace detail {
 
 		CHECK(inspector.get_commands(tid_c, std::nullopt, command_type::execution).size() == 1);
 		const auto computes_c = inspector.get_commands(tid_c, node_id(0), command_type::execution);
-		CHECK(computes_c.size() == 1);
-		// task_c should not have any anti-dependencies at all
-		REQUIRE(inspector.get_dependency_count(*computes_c.cbegin()) == 0);
+		REQUIRE(computes_c.size() == 1);
+		// task_c should only have a dependency on epoch commands
+		REQUIRE(inspector.get_dependency_count(*computes_c.cbegin()) == 1);
+		const command_id epoch_cid = 0; // there is 1 node with nid = 0, and by definition the initial epoch commands are enumerated as cid = nid
+		CHECK(inspector.has_dependency(*computes_c.cbegin(), epoch_cid));
 
 		test_utils::maybe_print_graphs(ctx);
 	}

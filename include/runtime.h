@@ -111,7 +111,7 @@ namespace detail {
 		std::unique_ptr<executor> m_exec;
 
 		struct flush_handle {
-			unique_frame_ptr<command_frame> frame;
+			frame_vector<command_frame> frames;
 			MPI_Request req;
 		};
 		std::deque<flush_handle> m_active_flushes;
@@ -128,7 +128,7 @@ namespace detail {
 		 */
 		void maybe_destroy_runtime() const;
 
-		void flush_command(node_id target, unique_frame_ptr<command_frame> frame);
+		void flush_commands(node_id target, frame_vector<command_frame> frames);
 
 		// ------------------------------------------ TESTING UTILS ------------------------------------------
 		// We have to jump through some hoops to be able to re-initialize the runtime for unit testing.

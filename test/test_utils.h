@@ -187,19 +187,32 @@ namespace test_utils {
 
 	class cdag_inspector {
 	  public:
+		explicit cdag_inspector(const size_t num_nodes) {
+			// Initial epoch commands are not flushed, so we generate them as flushed exactly like graph_generator would
+			const auto epoch_tid = detail::task_manager::initial_epoch_task;
+			const detail::epoch_data epoch_data{epoch_tid, detail::epoch_action::none};
+			for(size_t ncid = 0; ncid < num_nodes; ++ncid) {
+				m_commands.emplace(ncid, cmd_info{ncid, detail::command_pkg{ncid, epoch_data}, {}});
+				m_by_node[ncid].insert(ncid);
+				m_by_task[epoch_tid].insert(ncid);
+			}
+		}
+
 		auto get_cb() {
-			return [this](detail::node_id nid, detail::unique_frame_ptr<detail::command_frame> frame) {
+			return [this](detail::node_id nid, detail::frame_vector<detail::command_frame> frames) {
+				for(auto& frame : frames) {
 #ifndef NDEBUG
-				for(const auto dcid : frame->iter_dependencies()) {
-					// Sanity check: All dependencies must have already been flushed
-					assert(m_commands.count(dcid) == 1);
-				}
+					for(const auto dcid : frame.iter_dependencies()) {
+						// Sanity check: All dependencies must have already been flushed
+						assert(m_commands.count(dcid) == 1);
+					}
 #endif
 
-				const detail::command_id cid = frame->pkg.cid;
-				m_commands[cid] = {nid, frame->pkg, std::vector(frame->iter_dependencies().begin(), frame->iter_dependencies().end())};
-				if(const auto tid = frame->pkg.get_tid()) { m_by_task[*tid].insert(cid); }
-				m_by_node[nid].insert(cid);
+					const detail::command_id cid = frame.pkg.cid;
+					m_commands[cid] = {nid, frame.pkg, std::vector(frame.iter_dependencies().begin(), frame.iter_dependencies().end())};
+					if(const auto tid = frame.pkg.get_tid()) { m_by_task[*tid].insert(cid); }
+					m_by_node[nid].insert(cid);
+				}
 			};
 		}
 
@@ -253,17 +266,16 @@ namespace test_utils {
 
 		std::map<detail::command_id, cmd_info> m_commands;
 		std::map<detail::task_id, std::set<detail::command_id>> m_by_task;
-		std::map<experimental::bench::detail::node_id, std::set<detail::command_id>> m_by_node;
+		std::map<detail::node_id, std::set<detail::command_id>> m_by_node;
 	};
 
 	class cdag_test_context {
 	  public:
-		cdag_test_context(size_t num_nodes) {
+		cdag_test_context(const size_t num_nodes) : m_num_nodes(num_nodes), m_inspector(num_nodes) {
 			m_tm = std::make_unique<detail::task_manager>(1 /* num_nodes */, nullptr /* host_queue */);
 			m_cdag = std::make_unique<detail::command_graph>();
 			m_ggen = std::make_unique<detail::graph_generator>(num_nodes, *m_cdag);
-			m_gser = std::make_unique<detail::graph_serializer>(*m_cdag, m_inspector.get_cb());
-			this->m_num_nodes = num_nodes;
+			m_gser = std::make_unique<detail::graph_serializer>(num_nodes, *m_cdag, m_inspector.get_cb());
 		}
 
 		detail::task_manager& get_task_manager() { return *m_tm; }
@@ -287,12 +299,12 @@ namespace test_utils {
 		}
 
 	  private:
+		size_t m_num_nodes;
 		std::unique_ptr<detail::task_manager> m_tm;
 		std::unique_ptr<detail::command_graph> m_cdag;
 		std::unique_ptr<detail::graph_generator> m_ggen;
 		cdag_inspector m_inspector;
 		std::unique_ptr<detail::graph_serializer> m_gser;
-		size_t m_num_nodes;
 		std::optional<detail::task_id> m_most_recently_built_task_horizon;
 	};
 
