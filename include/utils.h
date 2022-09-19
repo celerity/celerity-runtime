@@ -42,4 +42,9 @@ struct pair_hash {
 	}
 };
 
+template <typename T>
+inline T ceil(T min, T mult) {
+	return (min + mult - 1) / mult * mult;
+}
+
 } // namespace celerity::detail::utils

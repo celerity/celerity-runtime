@@ -36,6 +36,7 @@ set(TEST_TARGETS
   region_map_tests
   runtime_tests
   runtime_deprecation_tests
+  serialization_tests
   sycl_tests
   task_graph_tests
   task_ring_buffer_tests
