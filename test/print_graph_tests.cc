@@ -9,9 +9,9 @@ using celerity::access::fixed;
 using celerity::access::one_to_one;
 
 TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
-	reduction_manager rm;
-	task_manager tm{1, nullptr, &rm};
+	task_manager tm{1, nullptr};
 	test_utils::mock_buffer_factory mbf(tm);
+	test_utils::mock_reduction_factory mrf;
 
 	auto range = cl::sycl::range<1>(64);
 	auto buf_0 = mbf.create_buffer(range);
@@ -27,7 +27,7 @@ TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 	    tm,
 	    [&](handler& cgh) {
 		    buf_0.get_access<access_mode::read>(cgh, one_to_one{});
-		    test_utils::add_reduction(cgh, rm, buf_1, true /* include_current_buffer_value */);
+		    test_utils::add_reduction(cgh, mrf, buf_1, true /* include_current_buffer_value */);
 	    },
 	    range);
 	test_utils::add_compute_task<class UKN(task_consume)>(
@@ -56,15 +56,15 @@ TEST_CASE("command graph printing is unchanged", "[print_graph][command-graph]")
 	test_utils::cdag_test_context ctx(num_nodes);
 	auto& tm = ctx.get_task_manager();
 	auto& ggen = ctx.get_graph_generator();
-	auto& rm = ctx.get_reduction_manager();
 	test_utils::mock_buffer_factory mbf(tm, ggen);
+	test_utils::mock_reduction_factory mrf;
 
 	auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 
 	// graph copied from graph_gen_reduction_tests "graph_generator does not generate multiple reduction commands for redundant requirements"
 
 	test_utils::build_and_flush(ctx, num_nodes,
-	    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, rm, buf_0, false); }, {num_nodes, 1}));
+	    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, buf_0, false); }, {num_nodes, 1}));
 	test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 		buf_0.get_access<access_mode::read>(cgh, fixed<1>({0, 1}));
 		buf_0.get_access<access_mode::read_write>(cgh, fixed<1>({0, 1}));
@@ -95,7 +95,7 @@ TEST_CASE("command graph printing is unchanged", "[print_graph][command-graph]")
 	    "N0<br/> B0 [[0,0,0] - [1,1,1]]> fontcolor=crimson shape=ellipse];6->11[];12[label=<C12 on N0<br/>(R1) <b>await push</b> from N1<br/> B0 [[0,0,0] - "
 	    "[1,1,1]]> fontcolor=black shape=ellipse];0->12[color=orchid];11->12[style=dashed color=gray40];}";
 
-	const auto dot = ctx.get_command_graph().print_graph(std::numeric_limits<size_t>::max(), tm, rm, {}).value();
+	const auto dot = ctx.get_command_graph().print_graph(std::numeric_limits<size_t>::max(), tm, {}).value();
 	CHECK(dot == expected);
 }
 

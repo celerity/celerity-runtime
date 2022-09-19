@@ -214,33 +214,33 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "conflicts between producer-accessors and reductions are reported", "[task-manager]") {
 		runtime::init(nullptr, nullptr);
 		auto& tm = runtime::get_instance().get_task_manager();
-		auto& rm = runtime::get_instance().get_reduction_manager();
 		test_utils::mock_buffer_factory mbf{tm};
+		test_utils::mock_reduction_factory mrf;
 
 		auto buf_0 = mbf.create_buffer(cl::sycl::range<1>{1});
 
 		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, rm, buf_0, false);
-			test_utils::add_reduction(cgh, rm, buf_0, false);
+			test_utils::add_reduction(cgh, mrf, buf_0, false);
+			test_utils::add_reduction(cgh, mrf, buf_0, false);
 		}));
 
 		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, rm, buf_0, false);
+			test_utils::add_reduction(cgh, mrf, buf_0, false);
 			buf_0.get_access<access_mode::read>(cgh, fixed<1>({0, 1}));
 		}));
 
 		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, rm, buf_0, false);
+			test_utils::add_reduction(cgh, mrf, buf_0, false);
 			buf_0.get_access<access_mode::write>(cgh, fixed<1>({0, 1}));
 		}));
 
 		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, rm, buf_0, false);
+			test_utils::add_reduction(cgh, mrf, buf_0, false);
 			buf_0.get_access<access_mode::read_write>(cgh, fixed<1>({0, 1}));
 		}));
 
 		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, rm, buf_0, false);
+			test_utils::add_reduction(cgh, mrf, buf_0, false);
 			buf_0.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 1}));
 		}));
 	}

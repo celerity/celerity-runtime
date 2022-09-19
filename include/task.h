@@ -74,6 +74,8 @@ namespace detail {
 		std::unordered_multimap<buffer_id, std::unique_ptr<range_mapper_base>> m_map;
 	};
 
+	using reduction_set = std::vector<reduction_info>;
+
 	class side_effect_map : private std::unordered_map<host_object_id, experimental::side_effect_order> {
 	  private:
 		using map_base = std::unordered_map<host_object_id, experimental::side_effect_order>;
@@ -141,22 +143,22 @@ namespace detail {
 			}
 		}
 
-		const std::vector<reduction_id>& get_reductions() const { return m_reductions; }
+		const reduction_set& get_reductions() const { return m_reductions; }
 
-		detail::epoch_action get_epoch_action() const { return m_epoch_action; }
+		epoch_action get_epoch_action() const { return m_epoch_action; }
 
 		static std::unique_ptr<task> make_epoch(task_id tid, detail::epoch_action action) {
 			return std::unique_ptr<task>(new task(tid, task_type::epoch, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}, action));
 		}
 
 		static std::unique_ptr<task> make_host_compute(task_id tid, task_geometry geometry, std::unique_ptr<command_group_storage_base> cgf,
-		    buffer_access_map access_map, side_effect_map side_effect_map, std::vector<reduction_id> reductions) {
+		    buffer_access_map access_map, side_effect_map side_effect_map, reduction_set reductions) {
 			return std::unique_ptr<task>(new task(tid, task_type::host_compute, collective_group_id{}, geometry, std::move(cgf), std::move(access_map),
 			    std::move(side_effect_map), std::move(reductions), {}, {}));
 		}
 
 		static std::unique_ptr<task> make_device_compute(task_id tid, task_geometry geometry, std::unique_ptr<command_group_storage_base> cgf,
-		    buffer_access_map access_map, std::vector<reduction_id> reductions, std::string debug_name) {
+		    buffer_access_map access_map, reduction_set reductions, std::string debug_name) {
 			return std::unique_ptr<task>(new task(tid, task_type::device_compute, collective_group_id{}, geometry, std::move(cgf), std::move(access_map), {},
 			    std::move(reductions), std::move(debug_name), {}));
 		}
@@ -186,12 +188,12 @@ namespace detail {
 		std::unique_ptr<command_group_storage_base> m_cgf;
 		buffer_access_map m_access_map;
 		detail::side_effect_map m_side_effects;
-		std::vector<reduction_id> m_reductions;
+		reduction_set m_reductions;
 		std::string m_debug_name;
 		detail::epoch_action m_epoch_action;
 
 		task(task_id tid, task_type type, collective_group_id cgid, task_geometry geometry, std::unique_ptr<command_group_storage_base> cgf,
-		    buffer_access_map access_map, detail::side_effect_map side_effects, std::vector<reduction_id> reductions, std::string debug_name,
+		    buffer_access_map access_map, detail::side_effect_map side_effects, reduction_set reductions, std::string debug_name,
 		    detail::epoch_action epoch_action)
 		    : m_tid(tid), m_type(type), m_cgid(cgid), m_geometry(geometry), m_cgf(std::move(cgf)), m_access_map(std::move(access_map)),
 		      m_side_effects(std::move(side_effects)), m_reductions(std::move(reductions)), m_debug_name(std::move(debug_name)), m_epoch_action(epoch_action) {

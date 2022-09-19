@@ -69,7 +69,7 @@ TEST_CASE("benchmark task handling", "[benchmark][task]") {
 
 	auto initialization_lambda = [&] {
 		highest_tid = 0;
-		tm = std::make_unique<task_manager>(1, nullptr, nullptr);
+		tm = std::make_unique<task_manager>(1, nullptr);
 		// we use this trick to force horizon creation without introducing dependency overhead in this microbenchmark
 		tm->set_horizon_step(0);
 	};
@@ -134,7 +134,7 @@ TEST_CASE("benchmark task handling", "[benchmark][task]") {
 
 struct task_manager_benchmark_context {
 	const size_t num_nodes = 1;
-	task_manager tm{1, nullptr, nullptr};
+	task_manager tm{1, nullptr};
 	test_utils::mock_buffer_factory mbf{tm};
 
 	~task_manager_benchmark_context() { tm.generate_epoch_task(celerity::detail::epoch_action::shutdown); }
@@ -152,9 +152,8 @@ struct graph_generator_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
 	graph_serializer gser{cdag, [](node_id, unique_frame_ptr<command_frame>) {}};
-	reduction_manager rm;
-	task_manager tm{num_nodes, nullptr, &rm};
-	graph_generator ggen{num_nodes, rm, cdag};
+	task_manager tm{num_nodes, nullptr};
+	graph_generator ggen{num_nodes, cdag};
 	test_utils::mock_buffer_factory mbf{tm, ggen};
 
 	explicit graph_generator_benchmark_context(size_t num_nodes) : num_nodes{num_nodes} {
@@ -253,14 +252,13 @@ class benchmark_scheduler final : public abstract_scheduler {
 struct scheduler_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
-	reduction_manager rm;
-	task_manager tm{num_nodes, nullptr, &rm};
+	task_manager tm{num_nodes, nullptr};
 	benchmark_scheduler schdlr;
 	test_utils::mock_buffer_factory mbf{tm, schdlr};
 
 	explicit scheduler_benchmark_context(restartable_thread& thrd, size_t num_nodes)
 	    : num_nodes{num_nodes}, //
-	      schdlr{thrd, std::make_unique<graph_generator>(num_nodes, rm, cdag),
+	      schdlr{thrd, std::make_unique<graph_generator>(num_nodes, cdag),
 	          std::make_unique<graph_serializer>(cdag, [](node_id, unique_frame_ptr<command_frame>) {}), num_nodes} {
 		tm.register_task_callback([this](const task* tsk) { schdlr.notify_task_created(tsk); });
 		schdlr.startup();
@@ -469,5 +467,5 @@ TEST_CASE("printing benchmark task graphs", "[.][debug-graphs][task-graph]") {
 }
 
 TEST_CASE("printing benchmark command graphs", "[.][debug-graphs][command-graph]") {
-	debug_graphs([] { return graph_generator_benchmark_context{2}; }, [](auto&& ctx) { test_utils::maybe_print_graph(ctx.cdag, ctx.tm, ctx.rm); });
+	debug_graphs([] { return graph_generator_benchmark_context{2}; }, [](auto&& ctx) { test_utils::maybe_print_graph(ctx.cdag, ctx.tm); });
 }

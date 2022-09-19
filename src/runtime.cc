@@ -138,11 +138,11 @@ namespace detail {
 
 		m_reduction_mngr = std::make_unique<reduction_manager>();
 		m_host_object_mngr = std::make_unique<host_object_manager>();
-		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_h_queue.get(), m_reduction_mngr.get());
+		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_h_queue.get());
 		m_exec = std::make_unique<executor>(m_local_nid, *m_h_queue, *m_d_queue, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
 		if(is_master_node()) {
 			m_cdag = std::make_unique<command_graph>();
-			auto ggen = std::make_unique<graph_generator>(m_num_nodes, *m_reduction_mngr, *m_cdag);
+			auto ggen = std::make_unique<graph_generator>(m_num_nodes, *m_cdag);
 			auto gser = std::make_unique<graph_serializer>(
 			    *m_cdag, [this](node_id target, unique_frame_ptr<command_frame> frame) { flush_command(target, std::move(frame)); });
 			m_schdlr = std::make_unique<scheduler>(std::move(ggen), std::move(gser), m_num_nodes);
@@ -214,7 +214,7 @@ namespace detail {
 				}
 			}
 			{
-				const auto graph_str = m_cdag->print_graph(print_max_nodes, *m_task_mngr, *m_reduction_mngr, m_buffer_mngr.get());
+				const auto graph_str = m_cdag->print_graph(print_max_nodes, *m_task_mngr, m_buffer_mngr.get());
 				if(graph_str.has_value()) {
 					CELERITY_TRACE("Command graph:\n\n{}\n", *graph_str);
 				} else {

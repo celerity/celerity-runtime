@@ -63,3 +63,13 @@ namespace celerity::experimental {
 enum class side_effect_order { sequential };
 
 }
+
+namespace celerity::detail {
+
+struct reduction_info {
+	reduction_id rid = 0;
+	buffer_id bid = 0;
+	bool init_from_buffer = false;
+};
+
+} // namespace celerity::detail

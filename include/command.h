@@ -88,13 +88,13 @@ namespace detail {
 
 	class reduction_command final : public abstract_command {
 		friend class command_graph;
-		reduction_command(command_id cid, node_id nid, reduction_id rid) : abstract_command(cid, nid), m_rid(rid) {}
+		reduction_command(command_id cid, node_id nid, const reduction_info& info) : abstract_command(cid, nid), m_info(info) {}
 
 	  public:
-		reduction_id get_rid() const { return m_rid; }
+		const reduction_info& get_reduction_info() const { return m_info; }
 
 	  private:
-		reduction_id m_rid;
+		reduction_info m_info;
 	};
 
 	class task_command : public abstract_command {

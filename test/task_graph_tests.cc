@@ -21,7 +21,7 @@ namespace detail {
 	TEST_CASE("task_manager does not create multiple dependencies between the same tasks", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
 
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
 		auto buf_b = mbf.create_buffer(cl::sycl::range<1>(128));
@@ -103,7 +103,7 @@ namespace detail {
 	TEST_CASE("task_manager respects range mapper results for finding dependencies", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
 
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
 
@@ -121,7 +121,7 @@ namespace detail {
 
 	TEST_CASE("task_manager correctly generates anti-dependencies", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
 		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
 
@@ -150,7 +150,7 @@ namespace detail {
 
 	TEST_CASE("task_manager correctly handles host-initialized buffers", "[task_manager][task-graph]") {
 		using namespace cl::sycl::access;
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
 		auto host_init_buf = mbf.create_buffer(cl::sycl::range<1>(128), true);
 		auto non_host_init_buf = mbf.create_buffer(cl::sycl::range<1>(128), false);
@@ -202,7 +202,7 @@ namespace detail {
 		const std::vector<std::vector<mode>> rw_mode_sets = {{mode::discard_read_write}, {mode::read_write}, {mode::atomic}, {mode::discard_write, mode::read}};
 
 		for(const auto& mode_set : rw_mode_sets) {
-			task_manager tm{1, nullptr, nullptr};
+			task_manager tm{1, nullptr};
 			test_utils::mock_buffer_factory mbf(tm);
 			auto buf = mbf.create_buffer(cl::sycl::range<1>(128), true);
 
@@ -224,7 +224,7 @@ namespace detail {
 			for(const auto& producer_mode : detail::access::producer_modes) {
 				CAPTURE(consumer_mode);
 				CAPTURE(producer_mode);
-				task_manager tm{1, nullptr, nullptr};
+				task_manager tm{1, nullptr};
 				test_utils::mock_buffer_factory mbf(tm);
 				auto buf = mbf.create_buffer(cl::sycl::range<1>(128), false);
 
@@ -248,7 +248,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager generates pseudo-dependencies for collective host tasks", "[task_manager][task-graph]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		experimental::collective_group group;
 		auto tid_master = test_utils::add_host_task(tm, on_master_node, [](handler&) {});
 		auto tid_collective_implicit_1 = test_utils::add_host_task(tm, experimental::collective, [](handler&) {});
@@ -297,7 +297,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager keeps track of max pseudo critical path length and task front", "[task_manager][task-graph][task-front]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
 		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
 
@@ -321,7 +321,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task horizons are being generated with correct dependencies", "[task_manager][task-graph][task-horizon]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		tm.set_horizon_step(2);
 
 		test_utils::mock_buffer_factory mbf(tm);
@@ -377,7 +377,7 @@ namespace detail {
 	static inline GridRegion<3> make_region(int min, int max) { return GridRegion<3>(GridPoint<3>(min, 0, 0), GridPoint<3>(max, 1, 1)); }
 
 	TEST_CASE("task horizons update previous writer data structure", "[task_manager][task-graph][task-horizon]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		tm.set_horizon_step(2);
 
 		test_utils::mock_buffer_factory mbf(tm);
@@ -444,7 +444,7 @@ namespace detail {
 	}
 
 	TEST_CASE("previous task horizon is used as last writer for host-initialized buffers", "[task_manager][task-graph][task-horizon]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		tm.set_horizon_step(2);
 
 		test_utils::mock_buffer_factory mbf(tm);
@@ -497,7 +497,7 @@ namespace detail {
 		// Regression test: the order-dependencies between host tasks in the same collective group are built by tracking the last task in each collective group.
 		// Once a horizon is inserted, new collective host tasks must order-depend on that horizon instead.
 
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		tm.set_horizon_step(2);
 
 		const auto first_collective = test_utils::add_host_task(tm, experimental::collective, [&](handler& cgh) {});
@@ -529,7 +529,7 @@ namespace detail {
 	}
 
 	TEST_CASE("buffer accesses with empty ranges do not generate data-flow dependencies", "[task_manager][task-graph]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
 		auto buf = mbf.create_buffer(range<2>(32, 32));
 
@@ -563,7 +563,7 @@ namespace detail {
 		CAPTURE(order_a);
 		CAPTURE(order_b);
 
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		test_utils::mock_host_object_factory mhof;
 
 		auto ho_common = mhof.create_host_object(); // should generate dependencies
@@ -592,7 +592,7 @@ namespace detail {
 	}
 
 	TEST_CASE("side-effect dependencies are correctly subsumed by horizons", "[task_manager][task-graph][task-horizon]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		tm.set_horizon_step(2);
 
 		test_utils::mock_host_object_factory mhof;
@@ -623,7 +623,7 @@ namespace detail {
 	}
 
 	TEST_CASE("epochs create appropriate dependencies to predecessors and successors", "[task_manager][task-graph][epoch]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
 
 		auto buf_a = mbf.create_buffer(range<1>(1));
@@ -656,7 +656,7 @@ namespace detail {
 	}
 
 	TEST_CASE("inserting epochs resets the need for horizons", "[task_manager][task-graph][task-horizon][epoch]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		tm.set_horizon_step(2);
 
 		test_utils::mock_buffer_factory mbf(tm);
@@ -672,7 +672,7 @@ namespace detail {
 	}
 
 	TEST_CASE("a sequence of epochs without intermediate tasks has defined behavior", "[task_manager][task-graph][epoch]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 
 		auto tid_before = task_manager::initial_epoch_task;
 		for(const auto action : {epoch_action::barrier, epoch_action::shutdown}) {

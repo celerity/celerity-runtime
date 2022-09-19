@@ -15,7 +15,6 @@ namespace celerity {
 namespace detail {
 
 	class task_manager;
-	class reduction_manager;
 	class graph_transformer;
 	class command_graph;
 	class abstract_command;
@@ -33,7 +32,7 @@ namespace detail {
 		// reduction will then be generated when the buffer is used in a subsequent read requirement. This avoids generating unnecessary reduction commands
 		// or multi-hop transfers.
 		struct pending_reduction_state {
-			reduction_id reduction;
+			reduction_info reduction;
 			std::vector<node_id> operand_sources;
 		};
 
@@ -69,7 +68,7 @@ namespace detail {
 		 * @param num_nodes Number of CELERITY nodes, including the master node.
 		 * @param cdag The command graph this generator should operate on.
 		 */
-		graph_generator(size_t num_nodes, reduction_manager& rm, command_graph& cdag);
+		graph_generator(size_t num_nodes, command_graph& cdag);
 
 		void add_buffer(buffer_id bid, const cl::sycl::range<3>& range);
 
@@ -77,7 +76,6 @@ namespace detail {
 		void build_task(const task& tsk, const std::vector<graph_transformer*>& transformers);
 
 	  private:
-		reduction_manager& m_reduction_mngr;
 		const size_t m_num_nodes;
 		command_graph& m_cdag;
 

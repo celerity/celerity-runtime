@@ -25,9 +25,8 @@ namespace detail {
 		}
 	}
 
-	std::optional<std::string> command_graph::print_graph(
-	    size_t max_nodes, const task_manager& tm, const reduction_manager& rm, const buffer_manager* bm) const {
-		if(command_count() <= max_nodes) { return detail::print_command_graph(*this, tm, rm, bm); }
+	std::optional<std::string> command_graph::print_graph(size_t max_nodes, const task_manager& tm, const buffer_manager* const bm) const {
+		if(command_count() <= max_nodes) { return detail::print_command_graph(*this, tm, bm); }
 		return std::nullopt;
 	}
 
