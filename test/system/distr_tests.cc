@@ -4,13 +4,13 @@
 
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <mpi.h>
-#include <spdlog/sinks/ostream_sink.h>
 
 #include <celerity.h>
 
-#include "ranges.h"
+#include "../log_test_utils.h"
 
 namespace celerity {
 namespace detail {
@@ -133,6 +133,37 @@ namespace detail {
 				CHECK(acc[0] == expected);
 			});
 		});
+	}
+
+	TEST_CASE_METHOD(
+	    test_utils::runtime_fixture, "runtime-shutdown graph printing works in the presence of a finished reduction", "[reductions][print_graph][smoke-test]") {
+		// init runtime early so the distr_queue ctor doesn't override the log level set by log_capture
+		runtime::init(nullptr, nullptr);
+		const bool is_master_node = runtime::get_instance().is_master_node();
+
+		test_utils::log_capture log_capture;
+
+		{
+			distr_queue q;
+			buffer<int, 1> sum(cl::sycl::range{1});
+			q.submit([=](handler& cgh) {
+				cgh.parallel_for<class UKN(produce)>(cl::sycl::range{100},
+				    reduction(sum, cgh, cl::sycl::plus<int>{}, cl::sycl::property::reduction::initialize_to_identity{}),
+				    [](celerity::item<1> item, auto& sum) {});
+			});
+			q.submit([=](handler& cgh) {
+				accessor acc{sum, cgh, celerity::access::all{}, celerity::read_only_host_task};
+				cgh.host_task(on_master_node, [] {});
+			});
+		} // shutdown runtime and print graph
+
+		if(is_master_node) {
+			using Catch::Matchers::ContainsSubstring;
+			const auto log = log_capture.get_log();
+			CHECK_THAT(log, ContainsSubstring("digraph G{label=\"Command Graph\""));
+			CHECK_THAT(log, ContainsSubstring("(R1) <b>await push</b> from N1"));
+			CHECK_THAT(log, ContainsSubstring("<b>reduction</b> R1<br/> B0 {[[0,0,0] - [1,1,1]]}"));
+		}
 	}
 
 #endif // CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
