@@ -48,7 +48,7 @@ namespace detail {
 	void executor::run() {
 		task_hydrator::make_available();
 		bool done = false;
-		std::queue<unique_frame_ptr<command_frame>> command_queue;
+
 		while(!done || !m_jobs.empty()) {
 			// Bail if a device error ocurred.
 			if(m_running_device_compute_jobs > 0) { m_d_queue.get_sycl_queue().throw_asynchronous(); }
@@ -89,7 +89,7 @@ namespace detail {
 				if(isa<device_execute_job>(job_handle.job.get())) {
 					m_running_device_compute_jobs--;
 				} else if(const auto epoch = dynamic_cast<epoch_job*>(job_handle.job.get()); epoch && epoch->get_epoch_action() == epoch_action::shutdown) {
-					assert(command_queue.empty());
+					assert(m_command_queue.empty());
 					done = true;
 				}
 
@@ -110,30 +110,17 @@ namespace detail {
 				}
 			}
 
-			MPI_Status status;
-			int flag;
-			MPI_Message msg;
-			MPI_Improbe(MPI_ANY_SOURCE, mpi_support::TAG_CMD, MPI_COMM_WORLD, &flag, &msg, &status);
-			if(flag == 1) {
-				int frame_bytes;
-				MPI_Get_count(&status, MPI_BYTE, &frame_bytes);
-				unique_frame_ptr<command_frame> frame(from_size_bytes, static_cast<size_t>(frame_bytes));
-				MPI_Mrecv(frame.get_pointer(), frame_bytes, MPI_BYTE, &msg, &status);
-				command_queue.push(std::move(frame));
-
-				if(!m_first_command_received) {
-					m_metrics.initial_idle.pause();
-					m_metrics.device_idle.resume();
-					m_first_command_received = true;
+			if(m_jobs.size() < MAX_CONCURRENT_JOBS) {
+				// TODO: Double-buffer command queue?
+				// FIXME: Don't hold lock while calling handle_command (it's annoying b/c handling can fail)
+				std::unique_lock lk(m_command_queue_mutex);
+				if(!m_command_queue.empty()) {
+					if(!handle_command(*m_command_queue.front())) {
+						// In case the command couldn't be handled, don't pop it from the queue.
+						continue;
+					}
+					m_command_queue.pop();
 				}
-			}
-
-			if(m_jobs.size() < MAX_CONCURRENT_JOBS && !command_queue.empty()) {
-				if(!handle_command(*command_queue.front())) {
-					// In case the command couldn't be handled, don't pop it from the queue.
-					continue;
-				}
-				command_queue.pop();
 			}
 
 			if(m_first_command_received) { update_metrics(); }
@@ -162,6 +149,7 @@ namespace detail {
 				create_job<device_execute_job>(frame, m_d_queue, m_task_mngr, m_buffer_mngr, m_reduction_mngr, m_local_nid);
 			}
 			break;
+		case command_type::data_request: create_job<data_request_job>(frame, *m_btm); break;
 		default: assert(!"Unexpected command");
 		}
 		return true;

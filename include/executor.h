@@ -48,6 +48,11 @@ namespace detail {
 
 		void startup();
 
+		void enqueue(unique_frame_ptr<command_frame> frame) {
+			std::scoped_lock lk(m_command_queue_mutex);
+			m_command_queue.push(std::move(frame));
+		}
+
 		/**
 		 * @brief Waits until all commands have been processed, and the SHUTDOWN command has been received.
 		 */
@@ -64,6 +69,9 @@ namespace detail {
 		std::unique_ptr<buffer_transfer_manager> m_btm;
 		std::thread m_exec_thrd;
 		size_t m_running_device_compute_jobs = 0;
+
+		std::mutex m_command_queue_mutex;
+		std::queue<unique_frame_ptr<command_frame>> m_command_queue;
 
 		// Jobs are identified by the command id they're processing
 

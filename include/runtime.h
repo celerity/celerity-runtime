@@ -23,7 +23,6 @@ namespace detail {
 
 	class buffer_manager;
 	class reduction_manager;
-	class graph_generator;
 	class graph_serializer;
 	class command_graph;
 	class scheduler;
@@ -58,8 +57,6 @@ namespace detail {
 		void shutdown();
 
 		void sync();
-
-		bool is_master_node() const { return m_local_nid == 0; }
 
 		size_t get_num_nodes() const { return m_num_nodes; }
 
@@ -128,6 +125,7 @@ namespace detail {
 		 */
 		void maybe_destroy_runtime() const;
 
+		// NOCOMMIT Remove
 		void flush_command(node_id target, unique_frame_ptr<command_frame> frame);
 
 		// ------------------------------------------ TESTING UTILS ------------------------------------------

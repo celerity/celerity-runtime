@@ -13,7 +13,7 @@
 namespace celerity {
 namespace detail {
 
-	enum class command_type { epoch, horizon, execution, push, await_push, reduction };
+	enum class command_type { epoch, horizon, execution, data_request, push, await_push, reduction };
 
 	// ----------------------------------------------------------------------------------------------------------------
 	// ------------------------------------------------ COMMAND GRAPH -------------------------------------------------
@@ -84,6 +84,22 @@ namespace detail {
 
 	  private:
 		push_command* m_source;
+	};
+
+	class data_request_command final : public abstract_command {
+		friend class command_graph;
+		data_request_command(command_id cid, node_id nid, buffer_id bid, node_id source, subrange<3> data_range)
+		    : abstract_command(cid, nid), m_bid(bid), m_source(source), m_data_range(data_range) {}
+
+	  public:
+		buffer_id get_bid() const { return m_bid; }
+		node_id get_source() const { return m_source; }
+		const subrange<3>& get_range() const { return m_data_range; }
+
+	  private:
+		buffer_id m_bid;
+		node_id m_source;
+		subrange<3> m_data_range;
 	};
 
 	class reduction_command final : public abstract_command {
@@ -177,11 +193,17 @@ namespace detail {
 		subrange<3> sr;
 	};
 
+	struct data_request_data { // ...
+		buffer_id bid;
+		node_id source;
+		subrange<3> sr;
+	};
+
 	struct reduction_data {
 		reduction_id rid;
 	};
 
-	using command_data = std::variant<std::monostate, horizon_data, epoch_data, execution_data, push_data, await_push_data, reduction_data>;
+	using command_data = std::variant<std::monostate, horizon_data, epoch_data, execution_data, push_data, await_push_data, data_request_data, reduction_data>;
 
 	/**
 	 * A command package is what is actually transferred between nodes.
@@ -213,6 +235,7 @@ namespace detail {
 			    [](const execution_data&) { return command_type::execution; },
 			    [](const push_data&) { return command_type::push; },
 			    [](const await_push_data&) { return command_type::await_push; },
+				[](const data_request_data&) { return command_type::data_request; },
 			    [](const reduction_data&) { return command_type::reduction; }
 			);
 			// clang-format on

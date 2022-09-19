@@ -129,6 +129,19 @@ namespace detail {
 		std::string get_description(const command_pkg& pkg) override;
 	};
 
+	class data_request_job : public worker_job {
+	  public:
+		data_request_job(command_pkg pkg, buffer_transfer_manager& btm) : worker_job(pkg), m_btm(btm) {
+			assert(pkg.get_command_type() == command_type::data_request);
+		}
+
+	  private:
+		buffer_transfer_manager& m_btm;
+
+		bool execute(const command_pkg& pkg) override;
+		std::string get_description(const command_pkg& pkg) override;
+	};
+
 	class reduction_job : public worker_job {
 	  public:
 		reduction_job(command_pkg pkg, reduction_manager& rm) : worker_job(pkg, std::tuple{"rid", std::get<reduction_data>(pkg.data).rid}), m_rm(rm) {

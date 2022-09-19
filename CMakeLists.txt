@@ -217,6 +217,7 @@ set(SOURCES
   src/device_queue.cc
   src/executor.cc
   src/graph_generator.cc
+  src/distributed_graph_generator.cc
   src/graph_serializer.cc
   src/print_graph.cc
   src/print_utils.cc

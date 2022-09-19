@@ -1,6 +1,8 @@
 #include "scheduler.h"
 
-#include "graph_generator.h"
+#include "distributed_graph_generator.h"
+#include "executor.h"
+#include "frame.h"
 #include "graph_serializer.h"
 #include "named_threads.h"
 #include "transformers/naive_split.h"
@@ -9,15 +11,20 @@
 namespace celerity {
 namespace detail {
 
-	abstract_scheduler::abstract_scheduler(std::unique_ptr<graph_generator> ggen, std::unique_ptr<graph_serializer> gser, size_t num_nodes)
-	    : m_ggen(std::move(ggen)), m_gser(std::move(gser)), m_num_nodes(num_nodes) {
-		assert(m_ggen != nullptr);
-		assert(m_gser != nullptr);
+	abstract_scheduler::abstract_scheduler(std::unique_ptr<distributed_graph_generator> dggen, executor& exec, size_t num_nodes)
+	    : m_dggen(std::move(dggen)), m_exec(exec), m_num_nodes(num_nodes) {
+		assert(m_dggen != nullptr);
 	}
 
 	void abstract_scheduler::shutdown() { notify(event_shutdown{}); }
 
 	void abstract_scheduler::schedule() {
+		// NOCOMMIT Get rid of this, no need to serialize commands
+		graph_serializer serializer(m_dggen->NOCOMMIT_get_cdag(), [this](node_id, unique_frame_ptr<command_frame> frame_ptr) {
+			//
+			m_exec.enqueue(std::move(frame_ptr));
+		});
+
 		std::queue<event> in_flight_events;
 		bool shutdown = false;
 		while(!shutdown) {
@@ -33,14 +40,14 @@ namespace detail {
 
 				utils::match(
 				    event,
-				    [this](const event_task_available& e) {
+				    [this, &serializer](const event_task_available& e) {
 					    assert(e.tsk != nullptr);
 					    naive_split_transformer naive_split(m_num_nodes, m_num_nodes);
-					    m_ggen->build_task(*e.tsk, {&naive_split});
-					    m_gser->flush(e.tsk->get_id());
+					    m_dggen->build_task(*e.tsk);
+					    serializer.flush(e.tsk->get_id());
 				    },
 				    [this](const event_buffer_registered& e) { //
-					    m_ggen->add_buffer(e.bid, e.range);
+					    m_dggen->add_buffer(e.bid, e.range);
 				    },
 				    [&](const event_shutdown&) {
 					    assert(in_flight_events.empty());

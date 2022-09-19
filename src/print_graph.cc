@@ -123,6 +123,9 @@ namespace detail {
 			const std::string bl = get_buffer_label(bm, apcmd->get_source()->get_bid());
 			fmt::format_to(std::back_inserter(label), "<b>await push</b> from N{}<br/> {} {}", apcmd->get_source()->get_nid(), bl,
 			    subrange_to_grid_box(apcmd->get_source()->get_range()));
+		} else if(const auto drcmd = dynamic_cast<const data_request_command*>(&cmd)) {
+			fmt::format_to(std::back_inserter(label), "<b>request data</b> from N{}<br/>B{} {}", drcmd->get_source(), drcmd->get_bid(),
+			    subrange_to_grid_box(drcmd->get_range()));
 		} else if(const auto rrcmd = dynamic_cast<const reduction_command*>(&cmd)) {
 			const auto& reduction = rrcmd->get_reduction_info();
 			const auto req = GridRegion<3>{{1, 1, 1}};

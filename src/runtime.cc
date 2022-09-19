@@ -17,8 +17,8 @@
 #include "buffer_manager.h"
 #include "cgf_diagnostics.h"
 #include "command_graph.h"
+#include "distributed_graph_generator.h"
 #include "executor.h"
-#include "graph_generator.h"
 #include "graph_serializer.h"
 #include "host_object.h"
 #include "log.h"
@@ -143,14 +143,12 @@ namespace detail {
 		m_host_object_mngr = std::make_unique<host_object_manager>();
 		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_h_queue.get());
 		m_exec = std::make_unique<executor>(m_local_nid, *m_h_queue, *m_d_queue, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
-		if(is_master_node()) {
-			m_cdag = std::make_unique<command_graph>();
-			auto ggen = std::make_unique<graph_generator>(m_num_nodes, *m_cdag);
-			auto gser = std::make_unique<graph_serializer>(
-			    *m_cdag, [this](node_id target, unique_frame_ptr<command_frame> frame) { flush_command(target, std::move(frame)); });
-			m_schdlr = std::make_unique<scheduler>(std::move(ggen), std::move(gser), m_num_nodes);
-			m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
-		}
+		m_cdag = std::make_unique<command_graph>();
+		auto dggen = std::make_unique<distributed_graph_generator>(m_num_nodes, m_local_nid, *m_cdag, *m_task_mngr);
+		auto gser = std::make_unique<graph_serializer>(
+		    *m_cdag, [this](node_id target, unique_frame_ptr<command_frame> frame) { flush_command(target, std::move(frame)); });
+		m_schdlr = std::make_unique<scheduler>(std::move(dggen), *m_exec, m_num_nodes);
+		m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
 
 		CELERITY_INFO(
 		    "Celerity runtime version {} running on {}. PID = {}, build type = {}", get_version_string(), get_sycl_version(), get_pid(), get_build_type());
@@ -161,11 +159,8 @@ namespace detail {
 	}
 
 	runtime::~runtime() {
-		if(is_master_node()) {
-			m_schdlr.reset();
-			m_cdag.reset();
-		}
-
+		m_schdlr.reset();
+		m_cdag.reset();
 		m_exec.reset();
 		m_task_mngr.reset();
 		m_reduction_mngr.reset();
@@ -193,7 +188,7 @@ namespace detail {
 	void runtime::startup() {
 		if(m_is_active) { throw runtime_already_started_error(); }
 		m_is_active = true;
-		if(is_master_node()) { m_schdlr->startup(); }
+		m_schdlr->startup();
 		m_exec->startup();
 	}
 
@@ -203,7 +198,7 @@ namespace detail {
 
 		const auto shutdown_epoch = m_task_mngr->generate_epoch_task(epoch_action::shutdown);
 
-		if(is_master_node()) { m_schdlr->shutdown(); }
+		m_schdlr->shutdown();
 
 		m_task_mngr->await_epoch(shutdown_epoch);
 
@@ -211,7 +206,7 @@ namespace detail {
 		m_d_queue->wait();
 		m_h_queue->wait();
 
-		if(is_master_node() && spdlog::should_log(log_level::trace)) {
+		if(spdlog::should_log(log_level::trace)) {
 			const auto print_max_nodes = m_cfg->get_graph_print_max_verts();
 			{
 				const auto graph_str = m_task_mngr->print_graph(print_max_nodes);
@@ -257,7 +252,7 @@ namespace detail {
 	void runtime::handle_buffer_registered(buffer_id bid) {
 		const auto& info = m_buffer_mngr->get_buffer_info(bid);
 		m_task_mngr->add_buffer(bid, info.range, info.is_host_initialized);
-		if(is_master_node()) m_schdlr->notify_buffer_registered(bid, info.range);
+		m_schdlr->notify_buffer_registered(bid, info.range);
 	}
 
 	void runtime::handle_buffer_unregistered(buffer_id bid) { maybe_destroy_runtime(); }

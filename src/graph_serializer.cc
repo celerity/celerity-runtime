@@ -100,6 +100,8 @@ namespace detail {
 		} else if(const auto* apcmd = dynamic_cast<await_push_command*>(cmd)) {
 			auto* source = apcmd->get_source();
 			frame->pkg.data = await_push_data{source->get_bid(), source->get_rid(), source->get_nid(), source->get_cid(), source->get_range()};
+		} else if(const auto* drcmd = dynamic_cast<data_request_command*>(cmd)) {
+			frame->pkg.data = data_request_data{drcmd->get_bid(), drcmd->get_source(), drcmd->get_range()};
 		} else if(const auto* rcmd = dynamic_cast<reduction_command*>(cmd)) {
 			frame->pkg.data = reduction_data{rcmd->get_reduction_info().rid};
 		} else if(const auto* hcmd = dynamic_cast<horizon_command*>(cmd)) {
