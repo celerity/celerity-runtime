@@ -202,7 +202,7 @@ namespace detail {
 		m_d_queue->wait();
 		m_h_queue->wait();
 
-		if(is_master_node() && m_cfg->get_log_level() == log_level::trace) {
+		if(is_master_node() && spdlog::should_log(log_level::trace)) {
 			const auto print_max_nodes = m_cfg->get_graph_print_max_verts();
 			{
 				const auto graph_str = m_task_mngr->print_graph(print_max_nodes);

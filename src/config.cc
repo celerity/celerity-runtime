@@ -10,7 +10,8 @@
 #include <mpi.h>
 
 #include "log.h"
-#include "workaround.h"
+
+#include <spdlog/sinks/sink.h>
 
 std::pair<bool, std::string> get_env(const char* key) {
 	bool exists = false;
@@ -81,9 +82,9 @@ namespace detail {
 
 		{
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-			m_log_lvl = log_level::debug;
+			auto log_lvl = log_level::debug;
 #else
-			m_log_lvl = log_level::info;
+			auto log_lvl = log_level::info;
 #endif
 			const std::vector<std::pair<log_level, std::string>> possible_values = {
 			    {log_level::trace, "trace"},
@@ -100,7 +101,7 @@ namespace detail {
 				bool valid = false;
 				for(auto& pv : possible_values) {
 					if(result.second == pv.second) {
-						m_log_lvl = pv.first;
+						log_lvl = pv.first;
 						valid = true;
 						break;
 					}
@@ -115,7 +116,14 @@ namespace detail {
 					CELERITY_WARN(oss.str());
 				}
 			}
-			spdlog::set_level(m_log_lvl);
+
+			// Set both the global log level and the default sink level so that the console logger adheres to CELERITY_LOG_LEVEL even if we temporarily
+			// override the global level in test_utils::log_capture.
+			// TODO do not modify global state in the constructor, but factor the LOG_LEVEL part out of detail::config entirely.
+			spdlog::set_level(log_lvl);
+			for(auto& sink : spdlog::default_logger_raw()->sinks()) {
+				sink->set_level(log_lvl);
+			}
 		}
 
 		// ------------------------- CELERITY_GRAPH_PRINT_MAX_VERTS ---------------------------
@@ -123,7 +131,9 @@ namespace detail {
 		{
 			const auto [is_set, value] = get_env("CELERITY_GRAPH_PRINT_MAX_VERTS");
 			if(is_set) {
-				if(m_log_lvl > log_level::trace) { CELERITY_WARN("CELERITY_GRAPH_PRINT_MAX_VERTS: Graphs will only be printed for CELERITY_LOG_LEVEL=trace."); }
+				if(spdlog::should_log(log_level::trace)) {
+					CELERITY_WARN("CELERITY_GRAPH_PRINT_MAX_VERTS: Graphs will only be printed for CELERITY_LOG_LEVEL=trace.");
+				}
 				const auto [is_valid, parsed] = parse_uint(value.c_str());
 				if(is_valid) { m_graph_print_max_verts = parsed; }
 			}

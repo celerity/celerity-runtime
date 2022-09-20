@@ -10,6 +10,7 @@
 #include <mpi.h>
 
 #include "config.h"
+#include "log.h"
 #include "named_threads.h"
 #include "types.h"
 

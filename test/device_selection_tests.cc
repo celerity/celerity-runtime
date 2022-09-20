@@ -2,9 +2,7 @@
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
-#include "log.h" // Need to include before spdlog
-#include <spdlog/sinks/ostream_sink.h>
-
+#include "log_test_utils.h"
 #include "test_utils.h"
 
 using dt = sycl::info::device_type;
@@ -229,41 +227,18 @@ TEST_CASE_METHOD(
 	}
 }
 
-class log_capture {
-  public:
-	log_capture(spdlog::level::level_enum level = spdlog::level::trace) {
-		auto logger = spdlog::default_logger();
-		m_ostream_sink = std::make_shared<spdlog::sinks::ostream_sink_st>(m_oss);
-		m_ostream_sink->set_level(level);
-		logger->sinks().push_back(m_ostream_sink);
-	}
-
-	~log_capture() {
-		auto logger = spdlog::default_logger();
-		assert(*logger->sinks().rbegin() == m_ostream_sink);
-		logger->sinks().pop_back();
-	}
-
-	std::string get_log() { return m_oss.str(); }
-
-  private:
-	std::ostringstream m_oss;
-	std::shared_ptr<spdlog::sinks::ostream_sink_st> m_ostream_sink;
-};
-
 TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected info/warn messages", "[device-selection]") {
 	celerity::detail::config cfg(nullptr, nullptr);
 	SECTION("when device pointer is specified by user") {
-		log_capture lc;
 		mock_platform tp(68, "My platform");
 		auto td = tp.create_devices(dt::gpu, type_and_name{dt::gpu, "My device"}, dt::gpu)[1];
 
+		celerity::test_utils::log_capture lc;
 		auto device = pick_device(cfg, td, std::vector<mock_platform>{tp});
 		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("Using platform 'My platform', device 'My device' (specified by user)"));
 	}
 
 	SECTION("when CELERITY_DEVICES is set") {
-		log_capture lc;
 		mock_platform_factory mpf;
 
 		auto [mp_0, mp_1] = mpf.create_platforms(std::nullopt, "My platform");
@@ -273,26 +248,26 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected
 		celerity::detail::device_config d_cfg{1, 1};
 		celerity::detail::config_testspy::set_mock_device_cfg(cfg, d_cfg);
 
+		celerity::test_utils::log_capture lc;
 		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1});
 		CHECK_THAT(lc.get_log(),
 		    Catch::Matchers::ContainsSubstring("Using platform 'My platform', device 'My device' (set by CELERITY_DEVICES: platform 1, device 1)"));
 	}
 
 	SECTION("when automatically selecting a device") {
-		log_capture lc;
 		mock_platform_factory mpf;
 
 		auto [mp_0, mp_1] = mpf.create_platforms(std::nullopt, "My platform");
 		mp_0.create_devices(dt::cpu);
 		mp_1.create_devices(type_and_name{dt::gpu, "My device"}, dt::gpu);
 
+		celerity::test_utils::log_capture lc;
 		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1});
 		CHECK_THAT(
 		    lc.get_log(), Catch::Matchers::ContainsSubstring("Using platform 'My platform', device 'My device' (automatically selected platform 1, device 0)"));
 	}
 
 	SECTION("when it can't find a platform with a sufficient number of GPUs") {
-		log_capture lc{spdlog::level::warn};
 		mock_platform_factory mpf;
 
 		auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
@@ -306,12 +281,12 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected
 		celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
+		celerity::test_utils::log_capture lc(spdlog::level::warn);
 		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1, mp_2});
 		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("No suitable platform found that can provide 4 GPU devices, and CELERITY_DEVICES not set"));
 	}
 
 	SECTION("when it can't find a platform with a sufficient number of devices of any type") {
-		log_capture lc(spdlog::level::warn);
 		mock_platform_factory mpf;
 		auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
 
@@ -325,6 +300,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected
 		celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
+		celerity::test_utils::log_capture lc(spdlog::level::warn);
 		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1, mp_2});
 		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("No suitable platform found that can provide 4 devices, and CELERITY_DEVICES not set"));
 	}
@@ -401,7 +377,6 @@ TEST_CASE("pick_device correctly selects according to device selector score", "[
 }
 
 TEST_CASE("pick_device selects a unique device for each local node according to device selector score", "[device-selection]") {
-	log_capture lc;
 	mock_platform_factory mpf;
 
 	auto [mp_0, mp_1] = mpf.create_platforms(std::nullopt, std::nullopt);
@@ -420,6 +395,7 @@ TEST_CASE("pick_device selects a unique device for each local node according to 
 
 	auto device_selector = [](const mock_device& d) -> int { return d.get_type() == dt::accelerator ? 2 : 1; };
 
+	celerity::test_utils::log_capture lc;
 	auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{mp_0, mp_1, mp_2});
 	CHECK_THAT(
 	    lc.get_log(), Catch::Matchers::ContainsSubstring("Using platform 'My platform', device 'My device' (device selector specified: platform 2, device 3)"));
@@ -427,7 +403,6 @@ TEST_CASE("pick_device selects a unique device for each local node according to 
 }
 
 TEST_CASE("pick_device selects the highest scoring device for all nodes if an insufficient number of total devices is available", "[device-selection]") {
-	log_capture lc(spdlog::level::warn);
 	mock_platform_factory mpf;
 
 	auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
@@ -443,6 +418,7 @@ TEST_CASE("pick_device selects the highest scoring device for all nodes if an in
 	celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 	auto device_selector = [md](const mock_device& d) -> int { return d == md ? 2 : 1; };
 
+	celerity::test_utils::log_capture lc(spdlog::level::warn);
 	auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{mp_0, mp_1, mp_2});
 	CHECK_THAT(
 	    lc.get_log(), Catch::Matchers::ContainsSubstring("No suitable platform found that can provide 4 devices that match the specified device selector"));
@@ -450,7 +426,6 @@ TEST_CASE("pick_device selects the highest scoring device for all nodes if an in
 }
 
 TEST_CASE("pick_device warns when highest scoring devices span multiple platforms", "[device-selection]") {
-	log_capture lc(spdlog::level::warn);
 	mock_platform_factory mpf;
 
 	auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
@@ -467,6 +442,7 @@ TEST_CASE("pick_device warns when highest scoring devices span multiple platform
 
 	auto device_selector = [](const mock_device& d) -> int { return d.get_type() == dt::accelerator ? 2 : 1; };
 
+	celerity::test_utils::log_capture lc(spdlog::level::warn);
 	auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{mp_0, mp_1, mp_2});
 	INFO("Platform id" << device.get_platform().get_id() << " device id " << device.get_id());
 	CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("Selected devices are of different type and/or do not belong to the same platform"));
@@ -479,7 +455,6 @@ TEST_CASE("pick_device warns when highest scoring devices span multiple platform
 }
 
 TEST_CASE("pick_device warns when highest scoring devices are of different types", "[device-selection]") {
-	log_capture lc(spdlog::level::warn);
 	mock_platform_factory mpf;
 
 	auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
@@ -496,6 +471,7 @@ TEST_CASE("pick_device warns when highest scoring devices are of different types
 
 	auto device_selector = [](const mock_device& d) -> int { return d.get_type() == dt::accelerator ? 2 : 1; };
 
+	celerity::test_utils::log_capture lc(spdlog::level::warn);
 	auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{mp_0, mp_1, mp_2});
 	INFO("Platform id" << device.get_platform().get_id() << " device id " << device.get_id());
 	CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring("Selected devices are of different type and/or do not belong to the same platform"));
@@ -504,7 +480,6 @@ TEST_CASE("pick_device warns when highest scoring devices are of different types
 
 TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device does not consider devices with a negative selector score", "[device-selection]") {
 	celerity::detail::config cfg(nullptr, nullptr);
-	log_capture lc;
 	mock_platform_factory mpf;
 
 	auto [mp_0, mp_1, mp_2] = mpf.create_platforms(std::nullopt, std::nullopt, std::nullopt);
@@ -519,7 +494,6 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device does not consid
 	celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
 	auto device_selector = [](const mock_device& d) -> int { return d.get_type() == dt::accelerator ? 1 : -1; };
-
 	CHECK_THROWS_WITH(
 	    pick_device(cfg, device_selector, std::vector<mock_platform>{mp_0, mp_1, mp_2}), "Device selection with device selector failed: No device available");
 }

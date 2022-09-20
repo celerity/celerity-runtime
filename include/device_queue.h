@@ -8,6 +8,7 @@
 #include <CL/sycl.hpp>
 
 #include "config.h"
+#include "log.h"
 #include "workaround.h"
 
 namespace celerity {
