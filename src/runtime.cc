@@ -24,6 +24,7 @@
 #include "log.h"
 #include "mpi_support.h"
 #include "named_threads.h"
+#include "print_graph.h"
 #include "scheduler.h"
 #include "task_manager.h"
 #include "user_bench.h"
@@ -208,7 +209,7 @@ namespace detail {
 
 		if(spdlog::should_log(log_level::trace)) {
 			const auto print_max_nodes = m_cfg->get_graph_print_max_verts();
-			{
+			if(m_local_nid == 0) { // It's the same across all nodes
 				const auto graph_str = m_task_mngr->print_graph(print_max_nodes);
 				if(graph_str.has_value()) {
 					CELERITY_TRACE("Task graph:\n\n{}\n", *graph_str);
@@ -218,12 +219,31 @@ namespace detail {
 				}
 			}
 			{
-				const auto graph_str = m_cdag->print_graph(print_max_nodes, *m_task_mngr, m_buffer_mngr.get());
-				if(graph_str.has_value()) {
-					CELERITY_TRACE("Command graph:\n\n{}\n", *graph_str);
-				} else {
+				const auto graph_str = m_cdag->print_graph(m_local_nid, print_max_nodes, *m_task_mngr, m_buffer_mngr.get());
+				if(!graph_str.has_value()) {
 					CELERITY_WARN("Command graph with {} vertices exceeds CELERITY_GRAPH_PRINT_MAX_VERTS={}. Skipping GraphViz output", m_cdag->command_count(),
 					    print_max_nodes);
+				}
+
+				// Send local graph to rank 0
+				if(m_local_nid != 0) {
+					const uint64_t size = graph_str.has_value() ? graph_str->size() : 0;
+					MPI_Send(&size, 1, MPI_UINT64_T, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);
+					if(size > 0) MPI_Send(graph_str->data(), size, MPI_BYTE, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);
+				} else {
+					std::vector<std::string> graphs;
+					if(graph_str.has_value()) graphs.push_back(*graph_str);
+					for(size_t i = 1; i < m_num_nodes; ++i) {
+						uint64_t size = 0;
+						MPI_Recv(&size, 1, MPI_UINT64_T, i, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+						if(size > 0) {
+							std::string graph;
+							graph.resize(size);
+							MPI_Recv(graph.data(), size, MPI_BYTE, i, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+							graphs.push_back(std::move(graph));
+						}
+					}
+					CELERITY_TRACE("Command graph:\n\n{}\n", combine_command_graphs(graphs));
 				}
 			}
 		}

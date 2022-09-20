@@ -52,7 +52,7 @@ namespace detail {
 		static size_t get_command_count(runtime& rt) { return rt.m_cdag->command_count(); }
 		static command_graph& get_cdag(runtime& rt) { return *rt.m_cdag; }
 		static std::string print_graph(runtime& rt) {
-			return rt.m_cdag.get()->print_graph(std::numeric_limits<size_t>::max(), *rt.m_task_mngr, rt.m_buffer_mngr.get()).value();
+			return rt.m_cdag.get()->print_graph(0, std::numeric_limits<size_t>::max(), *rt.m_task_mngr, rt.m_buffer_mngr.get()).value();
 		}
 	};
 

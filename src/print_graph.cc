@@ -154,18 +154,23 @@ namespace detail {
 		return label;
 	}
 
-	std::string print_command_graph(const command_graph& cdag, const task_manager& tm, const buffer_manager* const bm) {
+	std::string print_command_graph(const node_id local_nid, const command_graph& cdag, const task_manager& tm, const buffer_manager* const bm) {
 		std::string main_dot;
 		std::unordered_map<task_id, std::string> task_subgraph_dot;
+
+		const auto local_to_global_id = [local_nid](uint64_t id) {
+			// IDs in the DOT language may not start with a digit (unless the whole thing is a numeral)
+			return fmt::format("id_{}_{}", local_nid, id);
+		};
 
 		const auto print_vertex = [&](const abstract_command& cmd) {
 			static const char* const colors[] = {"black", "crimson", "dodgerblue4", "goldenrod", "maroon4", "springgreen2", "tan1", "chartreuse2"};
 
-			const auto name = cmd.get_cid();
+			const auto id = local_to_global_id(cmd.get_cid());
 			const auto label = get_command_label(cmd, tm, bm);
 			const auto fontcolor = colors[cmd.get_nid() % (sizeof(colors) / sizeof(char*))];
 			const auto shape = isa<task_command>(&cmd) ? "box" : "ellipse";
-			return fmt::format("{}[label=<{}> fontcolor={} shape={}];", name, label, fontcolor, shape);
+			return fmt::format("{}[label=<{}> fontcolor={} shape={}];", id, label, fontcolor, shape);
 		};
 
 		for(const auto cmd : cdag.all_commands()) {
@@ -186,8 +191,8 @@ namespace detail {
 					} else {
 						task_label += "(deleted)";
 					}
-					task_subgraph_dot.emplace(
-					    tid, fmt::format("subgraph cluster_{}{{label=<<font color=\"#606060\">{}</font>>;color=darkgray;", tid, task_label));
+					task_subgraph_dot.emplace(tid,
+					    fmt::format("subgraph cluster_{}{{label=<<font color=\"#606060\">{}</font>>;color=darkgray;", local_to_global_id(tid), task_label));
 				}
 				task_subgraph_dot[tid] += print_vertex(*cmd);
 			} else {
@@ -195,21 +200,33 @@ namespace detail {
 			}
 
 			for(const auto& d : cmd->get_dependencies()) {
-				fmt::format_to(std::back_inserter(main_dot), "{}->{}[{}];", d.node->get_cid(), cmd->get_cid(), dependency_style(d));
+				fmt::format_to(std::back_inserter(main_dot), "{}->{}[{}];", local_to_global_id(d.node->get_cid()), local_to_global_id(cmd->get_cid()),
+				    dependency_style(d));
 			}
 
 			// Add a dashed line to the corresponding push
 			if(const auto apcmd = dynamic_cast<const await_push_command*>(cmd)) {
-				fmt::format_to(std::back_inserter(main_dot), "{}->{}[style=dashed color=gray40];", apcmd->get_source()->get_cid(), cmd->get_cid());
+				fmt::format_to(std::back_inserter(main_dot), "{}->{}[style=dashed color=gray40];", local_to_global_id(apcmd->get_source()->get_cid()),
+				    local_to_global_id(cmd->get_cid()));
 			}
 		};
 
-		std::string result_dot = "digraph G{label=\"Command Graph\" ";
+		std::string result_dot = "digraph G{label=\"Command Graph\" "; // If this changes, also change in combine_command_graphs
 		for(auto& [sg_tid, sg_dot] : task_subgraph_dot) {
 			result_dot += sg_dot;
 			result_dot += "}";
 		}
 		result_dot += main_dot;
+		result_dot += "}";
+		return result_dot;
+	}
+
+	std::string combine_command_graphs(const std::vector<std::string>& graphs) {
+		const std::string preamble = "digraph G{label=\"Command Graph\" ";
+		std::string result_dot = preamble;
+		for(auto& g : graphs) {
+			result_dot += g.substr(preamble.size(), g.size() - preamble.size() - 1);
+		}
 		result_dot += "}";
 		return result_dot;
 	}
