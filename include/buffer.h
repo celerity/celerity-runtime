@@ -18,21 +18,17 @@ class buffer;
 
 namespace detail {
 
-	struct buffer_lifetime_tracker {
-		buffer_lifetime_tracker() = default;
-		template <typename DataT, int Dims>
-		buffer_id initialize(celerity::range<3> range, const DataT* host_init_ptr) {
-			id = runtime::get_instance().get_buffer_manager().register_buffer<DataT, Dims>(range, host_init_ptr);
-			return id;
-		}
-		buffer_lifetime_tracker(const buffer_lifetime_tracker&) = delete;
-		buffer_lifetime_tracker(buffer_lifetime_tracker&&) = delete;
-		~buffer_lifetime_tracker() noexcept { runtime::get_instance().get_buffer_manager().unregister_buffer(id); }
-		buffer_id id;
-	};
-
 	template <typename T, int D>
 	buffer_id get_buffer_id(const buffer<T, D>& buff);
+
+	template <typename DataT, int Dims>
+	void set_buffer_name(const celerity::buffer<DataT, Dims>& buff, const std::string& debug_name) {
+		buff.m_impl->debug_name = debug_name;
+	};
+	template <typename DataT, int Dims>
+	std::string get_buffer_name(const celerity::buffer<DataT, Dims>& buff) {
+		return buff.m_impl->debug_name;
+	};
 
 } // namespace detail
 
@@ -44,11 +40,9 @@ class buffer {
   public:
 	static_assert(Dims > 0, "0-dimensional buffers NYI");
 
-	buffer(const DataT* host_ptr, celerity::range<Dims> range) : m_range(range) {
+	buffer(const DataT* host_ptr, celerity::range<Dims> range) {
 		if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr); }
-
-		m_lifetime_tracker = std::make_shared<detail::buffer_lifetime_tracker>();
-		m_id = m_lifetime_tracker->initialize<DataT, Dims>(detail::range_cast<3>(range), host_ptr);
+		m_impl = std::make_shared<impl>(range, host_ptr);
 	}
 
 	buffer(celerity::range<Dims> range) : buffer(nullptr, range) {}
@@ -72,22 +66,36 @@ class buffer {
 		return accessor<DataT, Dims, Mode, Target>(*this, cgh, rmfn);
 	}
 
-	celerity::range<Dims> get_range() const { return m_range; }
+	celerity::range<Dims> get_range() const { return m_impl->range; }
 
   private:
-	std::shared_ptr<detail::buffer_lifetime_tracker> m_lifetime_tracker = nullptr;
-	celerity::range<Dims> m_range;
-	detail::buffer_id m_id;
+	struct impl {
+		impl(celerity::range<Dims> rng, const DataT* host_init_ptr) : range(rng) {
+			id = detail::runtime::get_instance().get_buffer_manager().register_buffer<DataT, Dims>(detail::range_cast<3>(range), host_init_ptr);
+		}
+		impl(const impl&) = delete;
+		impl(impl&&) = delete;
+		~impl() noexcept { detail::runtime::get_instance().get_buffer_manager().unregister_buffer(id); }
+		detail::buffer_id id;
+		celerity::range<Dims> range;
+		std::string debug_name;
+	};
+
+	std::shared_ptr<impl> m_impl = nullptr;
 
 	template <typename T, int D>
 	friend detail::buffer_id detail::get_buffer_id(const buffer<T, D>& buff);
+	template <typename T, int D>
+	friend void detail::set_buffer_name(const celerity::buffer<T, D>& buff, const std::string& debug_name);
+	template <typename T, int D>
+	friend std::string detail::get_buffer_name(const celerity::buffer<T, D>& buff);
 };
 
 namespace detail {
 
 	template <typename T, int D>
 	buffer_id get_buffer_id(const buffer<T, D>& buff) {
-		return buff.m_id;
+		return buff.m_impl->id;
 	}
 
 } // namespace detail

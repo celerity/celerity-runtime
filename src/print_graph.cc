@@ -34,7 +34,16 @@ namespace detail {
 		}
 	}
 
-	void format_requirements(std::string& label, const task& tsk, subrange<3> execution_range, access_mode reduction_init_mode, const reduction_manager& rm) {
+	std::string get_buffer_label(const buffer_manager* bm, const buffer_id bid) {
+		// if there is no buffer manager or no name defined, the name will be the buffer id.
+		// if there is a name we want "id name"
+		std::string name;
+		if(bm != nullptr) { name = bm->get_debug_name(bid); }
+		return !name.empty() ? fmt::format("B{} \"{}\"", bid, name) : fmt::format("B{}", bid);
+	}
+
+	void format_requirements(std::string& label, const task& tsk, subrange<3> execution_range, access_mode reduction_init_mode, const reduction_manager& rm,
+	    const buffer_manager* bm) {
 		for(auto rid : tsk.get_reductions()) {
 			auto reduction = rm.get_reduction(rid);
 
@@ -43,15 +52,17 @@ namespace detail {
 
 			const auto bid = reduction.output_buffer_id;
 			const auto req = GridRegion<3>{{1, 1, 1}};
-			fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> B{} {}", rid, detail::access::mode_traits::name(rmode), bid, req);
+			const std::string bl = get_buffer_label(bm, bid);
+			fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> {} {}", rid, detail::access::mode_traits::name(rmode), bl, req);
 		}
 
 		const auto& bam = tsk.get_buffer_access_map();
 		for(const auto bid : bam.get_accessed_buffers()) {
 			for(const auto mode : bam.get_access_modes(bid)) {
 				const auto req = bam.get_requirements_for_access(bid, mode, tsk.get_dimensions(), execution_range, tsk.get_global_size());
+				const std::string bl = get_buffer_label(bm, bid);
 				// While uncommon, we do support chunks that don't require access to a particular buffer at all.
-				if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> B{} {}", detail::access::mode_traits::name(mode), bid, req); }
+				if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> {} {}", detail::access::mode_traits::name(mode), bl, req); }
 			}
 		}
 
@@ -60,7 +71,7 @@ namespace detail {
 		}
 	}
 
-	std::string get_task_label(const task& tsk, const reduction_manager& rm) {
+	std::string get_task_label(const task& tsk, const reduction_manager& rm, const buffer_manager* bm) {
 		std::string label;
 		fmt::format_to(std::back_inserter(label), "T{}", tsk.get_id());
 		if(!tsk.get_debug_name().empty()) { fmt::format_to(std::back_inserter(label), " \"{}\" ", tsk.get_debug_name()); }
@@ -74,17 +85,17 @@ namespace detail {
 			fmt::format_to(std::back_inserter(label), " in CG{}", tsk.get_collective_group_id());
 		}
 
-		format_requirements(label, tsk, execution_range, access_mode::read_write, rm);
+		format_requirements(label, tsk, execution_range, access_mode::read_write, rm, bm);
 
 		return label;
 	}
 
-	std::string print_task_graph(const task_ring_buffer& tdag, const reduction_manager& rm) {
+	std::string print_task_graph(const task_ring_buffer& tdag, const reduction_manager& rm, const buffer_manager* bm) {
 		std::string dot = "digraph G {label=\"Task Graph\" ";
 
 		for(auto tsk : tdag) {
 			const auto shape = tsk->get_type() == task_type::epoch || tsk->get_type() == task_type::horizon ? "ellipse" : "box style=rounded";
-			fmt::format_to(std::back_inserter(dot), "{}[shape={} label=<{}>];", tsk->get_id(), shape, get_task_label(*tsk, rm));
+			fmt::format_to(std::back_inserter(dot), "{}[shape={} label=<{}>];", tsk->get_id(), shape, get_task_label(*tsk, rm, bm));
 			for(auto d : tsk->get_dependencies()) {
 				fmt::format_to(std::back_inserter(dot), "{}->{}[{}];", d.node->get_id(), tsk->get_id(), dependency_style(d));
 			}
@@ -94,7 +105,7 @@ namespace detail {
 		return dot;
 	}
 
-	std::string get_command_label(const abstract_command& cmd, const task_manager& tm, const reduction_manager& rm) {
+	std::string get_command_label(const abstract_command& cmd, const task_manager& tm, const reduction_manager& rm, const buffer_manager* bm) {
 		const command_id cid = cmd.get_cid();
 		const node_id nid = cmd.get_nid();
 
@@ -108,16 +119,18 @@ namespace detail {
 			fmt::format_to(std::back_inserter(label), "<b>execution</b> {}", subrange_to_grid_box(xcmd->get_execution_range()));
 		} else if(const auto pcmd = dynamic_cast<const push_command*>(&cmd)) {
 			if(pcmd->get_rid()) { fmt::format_to(std::back_inserter(label), "(R{}) ", pcmd->get_rid()); }
-			fmt::format_to(
-			    std::back_inserter(label), "<b>push</b> to N{}<br/>B{} {}", pcmd->get_target(), pcmd->get_bid(), subrange_to_grid_box(pcmd->get_range()));
+			const std::string bl = get_buffer_label(bm, pcmd->get_bid());
+			fmt::format_to(std::back_inserter(label), "<b>push</b> to N{}<br/> {} {}", pcmd->get_target(), bl, subrange_to_grid_box(pcmd->get_range()));
 		} else if(const auto apcmd = dynamic_cast<const await_push_command*>(&cmd)) {
 			if(apcmd->get_source()->get_rid()) { label += fmt::format("(R{}) ", apcmd->get_source()->get_rid()); }
-			fmt::format_to(std::back_inserter(label), "<b>await push</b> from N{}<br/>B{} {}", apcmd->get_source()->get_nid(), apcmd->get_source()->get_bid(),
+			const std::string bl = get_buffer_label(bm, apcmd->get_source()->get_bid());
+			fmt::format_to(std::back_inserter(label), "<b>await push</b> from N{}<br/> {} {}", apcmd->get_source()->get_nid(), bl,
 			    subrange_to_grid_box(apcmd->get_source()->get_range()));
 		} else if(const auto rrcmd = dynamic_cast<const reduction_command*>(&cmd)) {
 			const auto reduction = rm.get_reduction(rrcmd->get_rid());
 			const auto req = GridRegion<3>{{1, 1, 1}};
-			fmt::format_to(std::back_inserter(label), "<b>reduction</b> R{}<br/>B{} {}", rrcmd->get_rid(), reduction.output_buffer_id, req);
+			const std::string bl = get_buffer_label(bm, reduction.output_buffer_id);
+			fmt::format_to(std::back_inserter(label), "<b>reduction</b> R{}<br/> {} {}", rrcmd->get_rid(), bl, req);
 		} else if(const auto hcmd = dynamic_cast<const horizon_command*>(&cmd)) {
 			label += "<b>horizon</b>";
 		} else {
@@ -135,13 +148,13 @@ namespace detail {
 				execution_range = ecmd->get_execution_range();
 			}
 
-			format_requirements(label, tsk, execution_range, reduction_init_mode, rm);
+			format_requirements(label, tsk, execution_range, reduction_init_mode, rm, bm);
 		}
 
 		return label;
 	}
 
-	std::string print_command_graph(const command_graph& cdag, const task_manager& tm, const reduction_manager& rm) {
+	std::string print_command_graph(const command_graph& cdag, const task_manager& tm, const reduction_manager& rm, const buffer_manager* bm) {
 		std::string main_dot;
 		std::unordered_map<task_id, std::string> task_subgraph_dot;
 
@@ -149,7 +162,7 @@ namespace detail {
 			static const char* const colors[] = {"black", "crimson", "dodgerblue4", "goldenrod", "maroon4", "springgreen2", "tan1", "chartreuse2"};
 
 			const auto name = cmd.get_cid();
-			const auto label = get_command_label(cmd, tm, rm);
+			const auto label = get_command_label(cmd, tm, rm, bm);
 			const auto fontcolor = colors[cmd.get_nid() % (sizeof(colors) / sizeof(char*))];
 			const auto shape = isa<task_command>(&cmd) ? "box" : "ellipse";
 			return fmt::format("{}[label=<{}> fontcolor={} shape={}];", name, label, fontcolor, shape);

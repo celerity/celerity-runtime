@@ -27,7 +27,7 @@ namespace detail {
 	const task* task_manager::get_task(task_id tid) const { return m_task_buffer.get_task(tid); }
 
 	std::optional<std::string> task_manager::print_graph(size_t max_nodes) const {
-		if(m_task_buffer.get_current_task_count() <= max_nodes) { return detail::print_task_graph(m_task_buffer, *m_reduction_mngr); }
+		if(m_task_buffer.get_current_task_count() <= max_nodes) { return detail::print_task_graph(m_task_buffer, *m_reduction_mngr, nullptr); }
 		return std::nullopt;
 	}
 

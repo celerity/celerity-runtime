@@ -44,14 +44,6 @@ namespace detail {
 		}
 	};
 
-	struct runtime_testspy {
-		static scheduler& get_schdlr(runtime& rt) { return *rt.m_schdlr; }
-
-		static executor& get_exec(runtime& rt) { return *rt.m_exec; }
-
-		static size_t get_command_count(runtime& rt) { return rt.m_cdag->command_count(); }
-	};
-
 	struct scheduler_testspy {
 		static std::thread& get_worker_thread(scheduler& schdlr) { return schdlr.m_worker_thread; }
 	};
