@@ -6,23 +6,25 @@
 #include <utility>
 #include <variant>
 
-// TODO: Make this configurable through CMake?
-#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/fmt/ostr.h> // Enable formatting of types that support operator<<(std::ostream&, T)
 #include <spdlog/spdlog.h>
-
-// Enable formatting of types that support operator<<(std::ostream&, T)
-#include <spdlog/fmt/ostr.h>
 
 #include "print_utils.h"
 
 #define CELERITY_LOG_SET_SCOPED_CTX(ctx) CELERITY_DETAIL_LOG_SET_SCOPED_CTX(ctx)
 
-#define CELERITY_TRACE(...) SPDLOG_TRACE("{}{}", *celerity::detail::active_log_ctx, fmt::format(__VA_ARGS__))
-#define CELERITY_DEBUG(...) SPDLOG_DEBUG("{}{}", *celerity::detail::active_log_ctx, fmt::format(__VA_ARGS__))
-#define CELERITY_INFO(...) SPDLOG_INFO("{}{}", *celerity::detail::active_log_ctx, fmt::format(__VA_ARGS__))
-#define CELERITY_WARN(...) SPDLOG_WARN("{}{}", *celerity::detail::active_log_ctx, fmt::format(__VA_ARGS__))
-#define CELERITY_ERROR(...) SPDLOG_ERROR("{}{}", *celerity::detail::active_log_ctx, fmt::format(__VA_ARGS__))
-#define CELERITY_CRITICAL(...) SPDLOG_CRITICAL("{}{}", *celerity::detail::active_log_ctx, fmt::format(__VA_ARGS__))
+#define CELERITY_LOG(level, ...)                                                                                                                               \
+	(::spdlog::should_log(level)                                                                                                                               \
+	        ? SPDLOG_LOGGER_CALL(::spdlog::default_logger_raw(), level, "{}{}", *::celerity::detail::active_log_ctx, ::fmt::format(__VA_ARGS__))               \
+	        : (void)0)
+
+// TODO Add a macro similar to SPDLOG_ACTIVE_LEVEL, configurable through CMake
+#define CELERITY_TRACE(...) CELERITY_LOG(::celerity::detail::log_level::trace, __VA_ARGS__)
+#define CELERITY_DEBUG(...) CELERITY_LOG(::celerity::detail::log_level::debug, __VA_ARGS__)
+#define CELERITY_INFO(...) CELERITY_LOG(::celerity::detail::log_level::info, __VA_ARGS__)
+#define CELERITY_WARN(...) CELERITY_LOG(::celerity::detail::log_level::warn, __VA_ARGS__)
+#define CELERITY_ERROR(...) CELERITY_LOG(::celerity::detail::log_level::err, __VA_ARGS__)
+#define CELERITY_CRITICAL(...) CELERITY_LOG(::celerity::detail::log_level::critical, __VA_ARGS__)
 
 namespace celerity {
 namespace detail {
