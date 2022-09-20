@@ -1,8 +1,7 @@
 #pragma once
 
+#include <cstddef>
 #include <optional>
-
-#include "log.h"
 
 namespace celerity {
 namespace detail {
@@ -26,8 +25,6 @@ namespace detail {
 		 */
 		config(int* argc, char** argv[]);
 
-		log_level get_log_level() const { return m_log_lvl; }
-
 		const host_config& get_host_config() const { return m_host_cfg; }
 
 		/**
@@ -46,7 +43,6 @@ namespace detail {
 		size_t get_graph_print_max_verts() const { return m_graph_print_max_verts; };
 
 	  private:
-		log_level m_log_lvl;
 		host_config m_host_cfg;
 		std::optional<device_config> m_device_cfg;
 		std::optional<bool> m_enable_device_profiling;
