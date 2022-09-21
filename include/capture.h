@@ -52,9 +52,9 @@ template <typename>
 class capture;
 
 template <typename T, int Dims>
-class buffer_data {
+class buffer_snapshot {
   public:
-	buffer_data() : m_sr({}, detail::zero_range) {}
+	buffer_snapshot() : m_sr({}, detail::zero_range) {}
 
 	explicit operator bool() const { return !m_data.empty(); }
 
@@ -70,11 +70,11 @@ class buffer_data {
 
 	inline const T& operator[](id<Dims> index) const { return m_data[detail::get_linear_index(m_sr.range, index)]; }
 
-	inline detail::subscript_result_t<Dims, const buffer_data> operator[](size_t index) const { return detail::subscript<Dims>(*this, index); }
+	inline detail::subscript_result_t<Dims, const buffer_snapshot> operator[](size_t index) const { return detail::subscript<Dims>(*this, index); }
 
-	friend bool operator==(const buffer_data& lhs, const buffer_data& rhs) { return lhs.m_sr == rhs.m_sr && lhs.m_data == rhs.m_data; }
+	friend bool operator==(const buffer_snapshot& lhs, const buffer_snapshot& rhs) { return lhs.m_sr == rhs.m_sr && lhs.m_data == rhs.m_data; }
 
-	friend bool operator!=(const buffer_data& lhs, const buffer_data& rhs) { return !operator==(lhs, rhs); }
+	friend bool operator!=(const buffer_snapshot& lhs, const buffer_snapshot& rhs) { return !operator==(lhs, rhs); }
 
   private:
 	friend class capture<buffer<T, Dims>>;
@@ -82,13 +82,13 @@ class buffer_data {
 	subrange<Dims> m_sr;
 	std::vector<T> m_data;
 
-	explicit buffer_data(subrange<Dims> sr, std::vector<T> data) : m_sr(sr), m_data(std::move(data)) { assert(m_data.size() == m_sr.range.size()); }
+	explicit buffer_snapshot(subrange<Dims> sr, std::vector<T> data) : m_sr(sr), m_data(std::move(data)) { assert(m_data.size() == m_sr.range.size()); }
 };
 
 template <typename T, int Dims>
 class capture<buffer<T, Dims>> {
   public:
-	using value_type = buffer_data<T, Dims>;
+	using value_type = buffer_snapshot<T, Dims>;
 
 	explicit capture(buffer<T, Dims> buf) : m_buffer(std::move(buf)), m_sr({}, m_buffer.get_range()) {}
 	explicit capture(buffer<T, Dims> buf, const subrange<Dims>& sr) : m_buffer(std::move(buf)), m_sr(sr) {}
