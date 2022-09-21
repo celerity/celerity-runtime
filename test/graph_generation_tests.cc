@@ -814,7 +814,7 @@ namespace detail {
 		const auto tid_effect = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, experimental::collective, [&](handler& cgh) {
 			obj.add_side_effect(cgh, experimental::side_effect_order::sequential);
 		}));
-		const auto tid_effect_and_write = test_utils::build_and_flush(ctx, num_nodes,
+		const auto tid_write = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, celerity::access::all{}); }));
 
 		task_id tid_sync;
@@ -838,7 +838,7 @@ namespace detail {
 					if(sync_cmd->get_nid() == 0) {
 						REQUIRE(isa<task_command>(d.node));
 						const auto tid = static_cast<task_command*>(d.node)->get_tid();
-						CHECK((tid == tid_effect || tid == tid_effect_and_write));
+						CHECK((tid == tid_effect || tid == tid_write));
 					} else {
 						if(!isa<await_push_command>(d.node)) {
 							REQUIRE(isa<task_command>(d.node));
@@ -848,6 +848,10 @@ namespace detail {
 				}
 			}
 		}
+
+		// verify that data transfers are generated
+		CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::push).size() == 1);
+		CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push).size() == 1);
 
 		test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::read_write>(cgh, celerity::access::all{}); }));
@@ -877,6 +881,10 @@ namespace detail {
 				}
 			}
 		}
+
+		// verify that additional data transfers are generated
+		CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::push).size() == 2);
+		CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push).size() == 2);
 	}
 
 } // namespace detail
