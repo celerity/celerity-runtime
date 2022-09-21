@@ -90,19 +90,19 @@ class distr_queue {
 	 * In production, it should only be used at very coarse granularity (second scale).
 	 * @warning { This is very slow, as it drains all queues and synchronizes accross the entire cluster. }
 	 */
-	void slow_full_sync() { (void)slow_full_sync({}, {}); }
+	void slow_full_sync() { (void)slow_full_sync_internal({}, {}); }
 
 	template <typename T>
 	[[nodiscard]] typename experimental::capture<T>::value_type slow_full_sync(const experimental::capture<T>& cap) {
 		auto [buffer_captures, side_effects] = detail::capture_inspector::collect_requirements(std::tuple{cap});
-		const auto sync_guard = slow_full_sync(std::move(buffer_captures), std::move(side_effects));
+		const auto sync_guard = slow_full_sync_internal(std::move(buffer_captures), std::move(side_effects));
 		return std::get<0>(detail::capture_inspector::exfiltrate_by_copy(std::tuple{cap}));
 	}
 
 	template <typename... Ts>
 	[[nodiscard]] std::tuple<typename experimental::capture<Ts>::value_type...> slow_full_sync(const std::tuple<experimental::capture<Ts>...>& caps) {
 		auto [buffer_captures, side_effects] = detail::capture_inspector::collect_requirements(caps);
-		const auto sync_guard = slow_full_sync(std::move(buffer_captures), std::move(side_effects));
+		const auto sync_guard = slow_full_sync_internal(std::move(buffer_captures), std::move(side_effects));
 		return detail::capture_inspector::exfiltrate_by_copy(caps);
 	}
 
@@ -135,7 +135,7 @@ class distr_queue {
 		m_tracker = std::make_shared<detail::distr_queue_tracker>();
 	}
 
-	detail::runtime::sync_guard slow_full_sync(detail::buffer_capture_map buffer_captures, detail::side_effect_map side_effects) {
+	detail::runtime::sync_guard slow_full_sync_internal(detail::buffer_capture_map buffer_captures, detail::side_effect_map side_effects) {
 		check_not_drained(m_tracker);
 		return detail::runtime::get_instance().sync(std::move(buffer_captures), std::move(side_effects));
 	}

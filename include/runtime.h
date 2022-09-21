@@ -40,6 +40,9 @@ namespace detail {
 		friend struct runtime_testspy;
 
 	  public:
+		/**
+		 * RAII guard ensuring task_manager::resume_after_barrier is called after a capturing sync/shutdown even if exfiltrate_by_{copy,move} throws.
+		 */
 		class [[nodiscard]] sync_guard {
 			friend class runtime;
 
