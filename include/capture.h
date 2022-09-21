@@ -54,7 +54,7 @@ class capture;
 template <typename T, int Dims>
 class buffer_data {
   public:
-	buffer_data() : m_sr{{}, detail::zero_range} {}
+	buffer_data() : m_sr({}, detail::zero_range) {}
 
 	explicit operator bool() const { return !m_data.empty(); }
 
@@ -78,7 +78,7 @@ class buffer_data {
 	subrange<Dims> m_sr;
 	std::vector<T> m_data;
 
-	explicit buffer_data(subrange<Dims> sr, std::vector<T> data) : m_sr{sr}, m_data{std::move(data)} { assert(m_data.size() == m_sr.range.size()); }
+	explicit buffer_data(subrange<Dims> sr, std::vector<T> data) : m_sr(sr), m_data(std::move(data)) { assert(m_data.size() == m_sr.range.size()); }
 };
 
 template <typename T, int Dims>
@@ -86,8 +86,8 @@ class capture<buffer<T, Dims>> {
   public:
 	using value_type = buffer_data<T, Dims>;
 
-	explicit capture(buffer<T, Dims> buf) : m_buffer{std::move(buf)}, m_sr{{}, m_buffer.get_range()} {}
-	explicit capture(buffer<T, Dims> buf, const subrange<Dims>& sr) : m_buffer{std::move(buf)}, m_sr{sr} {}
+	explicit capture(buffer<T, Dims> buf) : m_buffer(std::move(buf)), m_sr({}, m_buffer.get_range()) {}
+	explicit capture(buffer<T, Dims> buf, const subrange<Dims>& sr) : m_buffer(std::move(buf)), m_sr(sr) {}
 
   private:
 	friend struct detail::capture_inspector;
@@ -145,7 +145,7 @@ class capture<host_object<T>> {
 
 	using value_type = T;
 
-	explicit capture(host_object<T> ho) : m_ho{std::move(ho)} {}
+	explicit capture(host_object<T> ho) : m_ho(std::move(ho)) {}
 
   private:
 	friend struct detail::capture_inspector;

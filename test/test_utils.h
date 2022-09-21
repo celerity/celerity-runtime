@@ -515,8 +515,8 @@ class capture;
 template <int Dims>
 class capture<test_utils::mock_buffer<Dims>> {
   public:
-	explicit capture(test_utils::mock_buffer<Dims> buf) : m_buffer{std::move(buf)}, m_sr{{}, m_buffer.get_range()} {}
-	explicit capture(test_utils::mock_buffer<Dims> buf, const subrange<Dims>& sr) : m_buffer{std::move(buf)}, m_sr{sr} {}
+	explicit capture(test_utils::mock_buffer<Dims> buf) : m_buffer(std::move(buf)), m_sr({}, m_buffer.get_range()) {}
+	explicit capture(test_utils::mock_buffer<Dims> buf, const subrange<Dims>& sr) : m_buffer(std::move(buf)), m_sr{sr} {}
 
   private:
 	friend struct detail::capture_inspector;
@@ -536,7 +536,7 @@ capture(test_utils::mock_buffer<Dims>, const subrange<Dims>&) -> capture<test_ut
 template <>
 class capture<test_utils::mock_host_object> {
   public:
-	explicit capture(test_utils::mock_host_object ho) : m_ho{std::move(ho)} {}
+	explicit capture(test_utils::mock_host_object ho) : m_ho(std::move(ho)) {}
 
   private:
 	friend struct detail::capture_inspector;
