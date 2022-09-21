@@ -43,6 +43,8 @@
  */
 #define REQUIRE_LOOP(...) CELERITY_DETAIL_REQUIRE_LOOP(__VA_ARGS__)
 
+class dist_cdag_test_context; // Forward decl b/c we want to be mock_buffer's friend
+
 namespace celerity {
 namespace detail {
 
@@ -157,6 +159,7 @@ namespace test_utils {
 
 	  private:
 		friend class mock_buffer_factory;
+		friend class ::dist_cdag_test_context;
 
 		detail::buffer_id m_id;
 		cl::sycl::range<Dims> m_size;
@@ -441,7 +444,7 @@ namespace test_utils {
 
 	inline void maybe_print_graph(celerity::detail::command_graph& cdag, const celerity::detail::task_manager& tm) {
 		if(print_graphs) {
-			const auto graph_str = cdag.print_graph(std::numeric_limits<size_t>::max(), tm, {});
+			const auto graph_str = cdag.print_graph(0, std::numeric_limits<size_t>::max(), tm, {});
 			assert(graph_str.has_value());
 			CELERITY_INFO("Command graph:\n\n{}\n", *graph_str);
 		}

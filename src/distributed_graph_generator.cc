@@ -137,6 +137,7 @@ void distributed_graph_generator::build_task(const task& tsk) {
 	//   - Find last writer tasks
 	//   - Apply inverse range mappers to find corresponding nodes
 	//   - Generate data transfers
+	//     => Having anti-dep predecessors for transfer commands is not ideal latency wise. But best solve this in executor.
 	//   - Update local region map
 	// 3. Update region map to reflect buffer state after task
 
@@ -164,6 +165,9 @@ void distributed_graph_generator::build_task(const task& tsk) {
 			for(const auto mode : required_modes) {
 				const auto& req = reqs_by_mode.at(mode);
 				if(detail::access::mode_traits::is_consumer(mode)) {
+					// Store the read access for determining anti-dependencies later on
+					m_command_buffer_reads[cid][bid] = GridRegion<3>::merge(m_command_buffer_reads[cid][bid], req);
+
 					const auto local_sources = last_writer_cmd.get_region_values(req);
 					GridRegion<3> missing_parts;
 					for(const auto& [box, cid] : local_sources) {
@@ -174,10 +178,12 @@ void distributed_graph_generator::build_task(const task& tsk) {
 						m_cdag.add_dependency(cmd, m_cdag.get(cid), dependency_kind::true_dep, dependency_origin::dataflow);
 					}
 
+					// TODO: This currently results in separate requests for each task that wrote a disjoint part. Do we want that? Or do we want to coalesce?
 					const auto task_sources = last_writer_task.get_region_values(missing_parts);
-					for(const auto& [box, tid] : task_sources) {
+					for(const auto& [box, src_tid] : task_sources) {
+						// TODO: Properly handle host-initialized buffers
 						assert(m_task_mngr.has_task(tid));
-						const auto& tsk = *m_task_mngr.get_task(tid);
+						const auto& tsk = *m_task_mngr.get_task(src_tid);
 
 						///////////////////////// DRY THIS UP ////////////////////////////////
 
@@ -187,13 +193,14 @@ void distributed_graph_generator::build_task(const task& tsk) {
 						for(size_t i = 0; i < chunks.size(); ++i) {
 							assert(chunks[i].range.size() != 0);
 							[[maybe_unused]] const node_id nid = (i / chunks_per_node) % m_num_nodes;
-							// NOCOMMIT: We conceptually assume a 1-to-1 access mode (which is required currently, but we should still codify this).
+							// NOCOMMIT: We currently assume a 1-to-1 access mode (while any bijection is legal).
 							const auto overlap =
 							    GridBox<3>::intersect(subrange_to_grid_box(chunks[i]), box); // NOCOMMIT TODO: Wait, couldn't this be a region..?
 							if(!overlap.empty()) {
 								assert(nid != m_local_nid);
 								auto dr_cmd = m_cdag.create<data_request_command>(m_local_nid, bid, nid, grid_box_to_subrange(overlap));
 								m_cdag.add_dependency(cmd, dr_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
+								generate_anti_dependencies(src_tid, bid, last_writer_cmd, overlap, dr_cmd);
 								// Remember that we have this data now
 								last_writer_cmd.update_region(overlap, dr_cmd->get_cid());
 							}
@@ -224,7 +231,52 @@ void distributed_graph_generator::build_task(const task& tsk) {
 		const auto& local_writes = per_buffer_local_writes[bid];
 		const auto remote_writes = GridRegion<3>::difference(global_writes, local_writes);
 		m_buffer_last_writer_task.at(bid).update_region(global_writes, tsk.get_id());
+		// FIXME: This prevents intra-node anti-dependencies from being detected. Need different solution...
 		m_buffer_last_writer.at(bid).update_region(remote_writes, no_command);
+	}
+}
+
+void distributed_graph_generator::generate_anti_dependencies(
+    task_id tid, buffer_id bid, const region_map<command_id>& last_writers_map, const GridRegion<3>& write_req, abstract_command* write_cmd) {
+	const auto last_writers = last_writers_map.get_region_values(write_req);
+	for(auto& box_and_writers : last_writers) {
+		if(box_and_writers.second == no_command) continue;
+		const command_id last_writer_cid = box_and_writers.second;
+		const auto last_writer_cmd = m_cdag.get(last_writer_cid);
+		assert(!isa<task_command>(last_writer_cmd) || static_cast<task_command*>(last_writer_cmd)->get_tid() != tid);
+
+		// Add anti-dependencies onto all dependents of the writer
+		bool has_dependents = false;
+		for(auto d : last_writer_cmd->get_dependents()) {
+			// Only consider true dependencies
+			if(d.kind != dependency_kind::true_dep) continue;
+
+			const auto cmd = d.node;
+
+			// We might have already generated new commands within the same task that also depend on this; in that case, skip it
+			if(isa<task_command>(cmd) && static_cast<task_command*>(cmd)->get_tid() == tid) continue;
+
+			// So far we don't know whether the dependent actually intersects with the subrange we're writing
+			if(const auto command_reads_it = m_command_buffer_reads.find(cmd->get_cid()); command_reads_it != m_command_buffer_reads.end()) {
+				const auto& command_reads = command_reads_it->second;
+				// The task might be a dependent because of another buffer
+				if(const auto buffer_reads_it = command_reads.find(bid); buffer_reads_it != command_reads.end()) {
+					if(!GridRegion<3>::intersect(write_req, buffer_reads_it->second).empty()) {
+						has_dependents = true;
+						m_cdag.add_dependency(write_cmd, cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
+					}
+				}
+			}
+		}
+
+		// In some cases (horizons, master node host task, weird discard_* constructs...)
+		// the last writer might not have any dependents. Just add the anti-dependency onto the writer itself then.
+		if(!has_dependents) {
+			m_cdag.add_dependency(write_cmd, last_writer_cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
+
+			// This is a good time to validate our assumption that every await_push command has a dependent
+			assert(!isa<await_push_command>(last_writer_cmd));
+		}
 	}
 }
 
