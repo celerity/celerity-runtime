@@ -247,5 +247,40 @@ namespace detail {
 		test_utils::maybe_print_graphs(ctx);
 	}
 
+	TEST_CASE("commands overwriting a buffer generate anti-dependencies on preceding reduction pushes", "[graph_generator][command-graph][reductions]") {
+		// regression test - this reproduces the essence of distr_tests "multiple chained reductions produce correct results"
+
+		size_t num_nodes = 2;
+		test_utils::cdag_test_context ctx(num_nodes);
+		auto& tm = ctx.get_task_manager();
+		test_utils::mock_buffer_factory mbf(ctx);
+		test_utils::mock_reduction_factory mrf;
+
+		auto sum = mbf.create_buffer(cl::sycl::range<1>{1});
+		const auto t1 = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(kernel)>(
+		        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, sum, false /* include_current_buffer_value */); }, cl::sycl::range{num_nodes}));
+		const auto t2 = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_compute_task<class UKN(kernel)>(
+		        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, sum, true /* include_current_buffer_value */); }, cl::sycl::range{num_nodes}));
+
+		const auto& inspector = ctx.get_inspector();
+		auto& cdag = ctx.get_command_graph();
+
+		const auto n0_pushes = inspector.get_commands(std::nullopt, 0, command_type::push);
+		REQUIRE(n0_pushes.size() == 1);
+		const auto n0_push = cdag.get(*n0_pushes.begin());
+
+		const auto n0_t2_execs = ctx.get_inspector().get_commands(t2, 0, command_type::execution);
+		REQUIRE(n0_t2_execs.size() == 1);
+		const auto n0_t2_ex = cdag.get(*n0_t2_execs.begin());
+
+		// N0 pushes the pending_reduction_state B0, then overwrites it
+		CHECK(n0_t2_ex->has_dependency(n0_push, dependency_kind::anti_dep));
+
+		test_utils::maybe_print_graphs(ctx);
+	}
+
+
 } // namespace detail
 } // namespace celerity
