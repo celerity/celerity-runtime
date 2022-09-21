@@ -93,14 +93,14 @@ class distr_queue {
 	void slow_full_sync() { (void)slow_full_sync({}, {}); }
 
 	template <typename T>
-	typename experimental::capture<T>::value_type slow_full_sync(const experimental::capture<T>& cap) {
+	[[nodiscard]] typename experimental::capture<T>::value_type slow_full_sync(const experimental::capture<T>& cap) {
 		auto [buffer_captures, side_effects] = detail::capture_inspector::collect_requirements(std::tuple{cap});
 		const auto sync_guard = slow_full_sync(std::move(buffer_captures), std::move(side_effects));
-		return std::get<0>(detail::capture_inspector::exfiltrate_by_copy(cap));
+		return std::get<0>(detail::capture_inspector::exfiltrate_by_copy(std::tuple{cap}));
 	}
 
 	template <typename... Ts>
-	std::tuple<typename experimental::capture<Ts>::value_type...> slow_full_sync(const std::tuple<experimental::capture<Ts>...>& caps) {
+	[[nodiscard]] std::tuple<typename experimental::capture<Ts>::value_type...> slow_full_sync(const std::tuple<experimental::capture<Ts>...>& caps) {
 		auto [buffer_captures, side_effects] = detail::capture_inspector::collect_requirements(caps);
 		const auto sync_guard = slow_full_sync(std::move(buffer_captures), std::move(side_effects));
 		return detail::capture_inspector::exfiltrate_by_copy(caps);
@@ -109,14 +109,14 @@ class distr_queue {
 	void drain() { drain_internal({}, {}); }
 
 	template <typename T>
-	typename experimental::capture<T>::value_type drain(const experimental::capture<T>& cap) {
+	[[nodiscard]] typename experimental::capture<T>::value_type drain(const experimental::capture<T>& cap) {
 		auto [buffer_captures, side_effects] = detail::capture_inspector::collect_requirements(std::tuple{cap});
 		drain_internal(std::move(buffer_captures), std::move(side_effects));
 		return std::get<0>(detail::capture_inspector::exfiltrate_by_move(std::tuple{cap}));
 	}
 
 	template <typename... Ts>
-	std::tuple<typename experimental::capture<Ts>::value_type...> drain(const std::tuple<experimental::capture<Ts>...>& caps) {
+	[[nodiscard]] std::tuple<typename experimental::capture<Ts>::value_type...> drain(const std::tuple<experimental::capture<Ts>...>& caps) {
 		auto [buffer_captures, side_effects] = detail::capture_inspector::collect_requirements(caps);
 		drain_internal(std::move(buffer_captures), std::move(side_effects));
 		return detail::capture_inspector::exfiltrate_by_move(caps);

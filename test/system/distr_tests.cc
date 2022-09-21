@@ -358,14 +358,18 @@ namespace detail {
 		});
 
 		const auto [gathered_from_master, host_rank] =
-		    q.slow_full_sync(std::tuple{experimental::capture{buf, subrange<3>{{1, 2, 3}, {1, 1, 1}}}, experimental::capture{obj}});
+		    q.slow_full_sync(std::tuple{experimental::capture(buf, subrange<3>({1, 2, 3}, {1, 1, 1})), experimental::capture{obj}});
+		const auto gathered_from_master_individual = q.slow_full_sync(experimental::capture(buf, subrange<3>({1, 2, 3}, {1, 1, 1})));
+		const auto host_rank_individual = q.slow_full_sync(experimental::capture(obj));
 
 		REQUIRE(gathered_from_master.get_range() == range<3>{1, 1, 1});
 		CHECK(gathered_from_master[0][0][0] == 42);
+		CHECK(gathered_from_master_individual == gathered_from_master);
 
 		int global_rank;
 		MPI_Comm_rank(MPI_COMM_WORLD, &global_rank);
 		CHECK(host_rank == global_rank);
+		CHECK(host_rank_individual == global_rank);
 
 		q.submit([=](handler& cgh) {
 			accessor acc{buf, cgh, celerity::access::all{}, read_write_host_task};

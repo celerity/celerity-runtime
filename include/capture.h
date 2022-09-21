@@ -72,6 +72,10 @@ class buffer_data {
 
 	inline detail::subscript_result_t<Dims, const buffer_data> operator[](size_t index) const { return detail::subscript<Dims>(*this, index); }
 
+	friend bool operator==(const buffer_data& lhs, const buffer_data& rhs) { return lhs.m_sr == rhs.m_sr && lhs.m_data == rhs.m_data; }
+
+	friend bool operator!=(const buffer_data& lhs, const buffer_data& rhs) { return !operator==(lhs, rhs); }
+
   private:
 	friend class capture<buffer<T, Dims>>;
 
