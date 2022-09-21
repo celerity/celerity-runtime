@@ -472,6 +472,8 @@ namespace detail {
 							add_dependencies_for_box(m_cdag, reduce_cmd, m_node_data.at(source_nid).buffer_last_writer.at(bid), box);
 						} else {
 							auto push_cmd = m_cdag.create<push_command>(source_nid, bid, reduction.rid, nid, sr);
+							generated_pushes.push_back(push_cmd);
+
 							m_command_buffer_reads[push_cmd->get_cid()][bid] = GridRegion<3>::merge(m_command_buffer_reads[push_cmd->get_cid()][bid], box);
 							add_dependencies_for_box(m_cdag, push_cmd, m_node_data.at(source_nid).buffer_last_writer.at(bid), box);
 
