@@ -137,6 +137,7 @@ class command_query {
 
 	bool empty() const { return count() == 0; }
 
+	// TODO: Use plural 'have_type'? Have both but singular throws if count > 1?
 	bool has_type(const command_type expected) const {
 		return for_all_commands([expected](const node_id nid, const abstract_command* cmd) {
 			const auto received = get_type(cmd);
