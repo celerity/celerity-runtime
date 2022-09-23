@@ -54,24 +54,20 @@ namespace detail {
 		using dependent = dependency;
 
 	  public:
-		intrusive_graph_node() { static_assert(std::is_base_of<intrusive_graph_node<T>, T>::value, "T must be child class (CRTP)"); }
+		intrusive_graph_node() { static_assert(std::is_base_of_v<intrusive_graph_node<T>, T>, "T must be child class (CRTP)"); }
 
 	  protected:
 		~intrusive_graph_node() { // protected: Statically disallow destruction through base pointer, since dtor is not polymorphic
 			for(auto& dep : m_dependents) {
-				auto dep_it_end = static_cast<intrusive_graph_node*>(dep.node)->m_dependencies.end();
-				auto this_it =
-				    std::find_if(static_cast<intrusive_graph_node*>(dep.node)->m_dependencies.begin(), dep_it_end, [&](auto d) { return d.node == this; });
-				assert(this_it != dep_it_end);
-				static_cast<intrusive_graph_node*>(dep.node)->m_dependencies.erase(this_it);
+				auto this_it = find_by_node(dep.node->m_dependencies, static_cast<T*>(this));
+				assert(this_it != dep.node->m_dependencies.end());
+				dep.node->m_dependencies.erase(this_it);
 			}
 
 			for(auto& dep : m_dependencies) {
-				auto dep_it_end = static_cast<intrusive_graph_node*>(dep.node)->m_dependents.end();
-				auto this_it =
-				    std::find_if(static_cast<intrusive_graph_node*>(dep.node)->m_dependents.begin(), dep_it_end, [&](auto d) { return d.node == this; });
-				assert(this_it != dep_it_end);
-				static_cast<intrusive_graph_node*>(dep.node)->m_dependents.erase(this_it);
+				auto this_it = find_by_node(dep.node->m_dependents, static_cast<T*>(this));
+				assert(this_it != dep.node->m_dependents.end());
+				dep.node->m_dependents.erase(this_it);
 			}
 		}
 
@@ -80,21 +76,21 @@ namespace detail {
 			// Check for (direct) cycles
 			assert(!has_dependent(dep.node));
 
-			if(const auto it = maybe_get_dep(m_dependencies, dep.node)) {
+			if(const auto it = find_by_node(m_dependencies, dep.node); it != m_dependencies.end()) {
 				// We assume that for dependency kinds A and B, max(A, B) is strong enough to satisfy both.
 				static_assert(dependency_kind::anti_dep < dependency_kind::true_dep);
 
 				// Already exists, potentially upgrade to full dependency
-				if((*it)->kind < dep.kind) {
-					(*it)->kind = dep.kind;
-					(*it)->origin = dep.origin; // This unfortunately loses origin information from the lesser dependency
+				if(it->kind < dep.kind) {
+					it->kind = dep.kind;
+					it->origin = dep.origin; // This unfortunately loses origin information from the lesser dependency
 
 					// In this case we also have to upgrade corresponding dependent within dependency
-					auto this_it = maybe_get_dep(dep.node->m_dependents, static_cast<T*>(this));
-					assert(this_it != std::nullopt);
-					assert((*this_it)->kind != dep.kind);
-					(*this_it)->kind = dep.kind;
-					(*this_it)->origin = dep.origin;
+					auto this_it = find_by_node(dep.node->m_dependents, static_cast<T*>(this));
+					assert(this_it != dep.node->m_dependents.end());
+					assert(this_it->kind != dep.kind);
+					this_it->kind = dep.kind;
+					this_it->origin = dep.origin;
 				}
 				return;
 			}
@@ -106,29 +102,24 @@ namespace detail {
 			    std::max(m_pseudo_critical_path_length, static_cast<intrusive_graph_node*>(dep.node)->m_pseudo_critical_path_length + 1);
 		}
 
-		void remove_dependency(T* node) {
-			auto it = maybe_get_dep(m_dependencies, node);
-			if(it != std::nullopt) {
-				{
-					auto& dep_dependents = static_cast<intrusive_graph_node*>((*it)->node)->m_dependents;
-					auto this_it = maybe_get_dep(dep_dependents, static_cast<T*>(this));
-					assert(this_it != std::nullopt);
-					dep_dependents.erase(*this_it);
-				}
-				m_dependencies.erase(*it);
+		void remove_dependency(const T* const node) {
+			if(const auto it = find_by_node(m_dependencies, node); it != m_dependencies.end()) {
+				auto& dep_dependents = static_cast<intrusive_graph_node*>(it->node)->m_dependents;
+				auto this_it = find_by_node(dep_dependents, static_cast<T*>(this));
+				assert(this_it != dep_dependents.end());
+				dep_dependents.erase(this_it);
+				m_dependencies.erase(it);
 			}
 		}
 
-		bool has_dependency(T* node, std::optional<dependency_kind> kind = std::nullopt) {
-			auto result = maybe_get_dep(m_dependencies, node);
-			if(result == std::nullopt) return false;
-			return kind != std::nullopt ? (*result)->kind == kind : true;
+		bool has_dependency(const T* const node, const std::optional<dependency_kind> kind = std::nullopt) const {
+			if(const auto it = find_by_node(m_dependencies, node); it != m_dependencies.end()) { return kind != std::nullopt ? it->kind == kind : true; }
+			return false;
 		}
 
-		bool has_dependent(T* node, std::optional<dependency_kind> kind = std::nullopt) {
-			auto result = maybe_get_dep(m_dependents, node);
-			if(result == std::nullopt) return false;
-			return kind != std::nullopt ? (*result)->kind == kind : true;
+		bool has_dependent(const T* const node, const std::optional<dependency_kind> kind = std::nullopt) const {
+			if(const auto it = find_by_node(m_dependents, node); it != m_dependents.end()) { return kind != std::nullopt ? it->kind == kind : true; }
+			return false;
 		}
 
 		auto get_dependencies() const { return iterable_range{m_dependencies.cbegin(), m_dependencies.cend()}; }
@@ -145,11 +136,10 @@ namespace detail {
 		// (that is all that is needed for celerity use).
 		int m_pseudo_critical_path_length = 0;
 
-		template <typename Dep>
-		std::optional<typename gch::small_vector<Dep>::iterator> maybe_get_dep(gch::small_vector<Dep>& deps, T* node) {
-			auto it = std::find_if(deps.begin(), deps.end(), [&](auto d) { return d.node == node; });
-			if(it == deps.end()) return std::nullopt;
-			return it;
+		template <typename Range>
+		static auto find_by_node(Range& rng, const T* const node) {
+			using std::begin, std::end;
+			return std::find_if(begin(rng), end(rng), [&](auto d) { return d.node == node; });
 		}
 	};
 
