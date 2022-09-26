@@ -355,27 +355,27 @@ namespace detail {
 	  public:
 		bool is_prepass() const final { return false; }
 
-		const class task& get_task() const final { return *task; }
+		const class task& get_task() const final { return *m_task; }
 
 		template <int BufferDims, typename RangeMapper>
 		subrange<BufferDims> apply_range_mapper(RangeMapper rm, const range<BufferDims>& buffer_range) const {
-			return invoke_range_mapper(task->get_dimensions(), rm, chunk{sr.offset, sr.range, task->get_global_size()}, buffer_range);
+			return invoke_range_mapper(m_task->get_dimensions(), rm, chunk{m_sr.offset, m_sr.range, m_task->get_global_size()}, buffer_range);
 		}
 
-		subrange<3> get_iteration_range() { return sr; }
+		subrange<3> get_iteration_range() { return m_sr; }
 
-		bool is_reduction_initializer() const { return initialize_reductions; }
+		bool is_reduction_initializer() const { return m_initialize_reductions; }
 
 	  protected:
 		live_pass_handler(const class task* task, subrange<3> sr, bool initialize_reductions)
-		    : task(std::move(task)), sr(sr), initialize_reductions(initialize_reductions) {}
+		    : m_task(std::move(task)), m_sr(sr), m_initialize_reductions(initialize_reductions) {}
 
-		const class task* task = nullptr;
+		const class task* m_task = nullptr;
 
 		// The subrange, when combined with the tasks global size, defines the chunk this handler executes.
-		subrange<3> sr;
+		subrange<3> m_sr;
 
-		bool initialize_reductions;
+		bool m_initialize_reductions;
 	};
 
 	class live_pass_host_handler final : public live_pass_handler {
@@ -386,7 +386,7 @@ namespace detail {
 		template <int Dims, typename Kernel>
 		void schedule(Kernel kernel) {
 			static_assert(Dims >= 0);
-			m_future = m_queue->submit(task->get_collective_group_id(), [kernel, global_size = task->get_global_size(), sr = sr](MPI_Comm) {
+			m_future = m_queue->submit(m_task->get_collective_group_id(), [kernel, global_size = m_task->get_global_size(), sr = m_sr](MPI_Comm) {
 				if constexpr(Dims > 0) {
 					const auto part = make_partition<Dims>(range_cast<Dims>(global_size), subrange_cast<Dims>(sr));
 					kernel(part);
@@ -403,7 +403,7 @@ namespace detail {
 
 		template <typename Kernel>
 		void schedule_collective(Kernel kernel) {
-			m_future = m_queue->submit(task->get_collective_group_id(), [kernel, global_size = task->get_global_size(), sr = sr](MPI_Comm comm) {
+			m_future = m_queue->submit(m_task->get_collective_group_id(), [kernel, global_size = m_task->get_global_size(), sr = m_sr](MPI_Comm comm) {
 				const auto part = make_collective_partition(range_cast<1>(global_size), subrange_cast<1>(sr), comm);
 				kernel(part);
 			});
