@@ -6,6 +6,7 @@
 # 1. Automatic checks through an IDE (CLion, VsCode, ...)
 # 2. Running manually on select files (not recommended)
 #    `clang-tidy -p path/to/compile_commands.json file1 [file2, ...]`
+#    Note: A script for running clang-tidy on all Celerity sources is provided in `ci/run-clang-tidy.sh`
 # 3. Running on a diff (also done during CI)
 #    `git diff -U0 --no-color | clang-tidy-diff.py -p1 -path path/to/compile_commands.json`
 #
@@ -14,8 +15,11 @@ InheritParentConfig: false
 Checks:
   -*,
   readability-identifier-naming,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-lambda-function-name,
+  -bugprone-macro-parentheses,
   # TODO: Figure out which ones we want to (at least partially) enable
-  # bugprone-*,
   # clang-analyzer-*,
   # clang-diagnostic-*,
   # cppcoreguidelines-*,

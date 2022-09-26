@@ -10,7 +10,7 @@ namespace celerity {
 namespace experimental {
 	namespace bench {
 		namespace detail {
-			user_benchmarker::~user_benchmarker() {
+			user_benchmarker::~user_benchmarker() noexcept(false) {
 				while(!m_sections.empty()) {
 					const auto sec = m_sections.top();
 					end_section(sec.name);

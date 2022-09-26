@@ -26,7 +26,7 @@ namespace experimental {
 				user_benchmarker(config& cfg, node_id this_nid);
 				user_benchmarker(const user_benchmarker&) = delete;
 				user_benchmarker(user_benchmarker&&) = delete;
-				~user_benchmarker();
+				~user_benchmarker() noexcept(false);
 
 				template <typename... Args>
 				void log_once(const std::string& format_string, Args&&... args) const {

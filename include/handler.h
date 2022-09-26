@@ -41,7 +41,7 @@ namespace detail {
 #if !defined(_MSC_VER)
 		const std::unique_ptr<char, void (*)(void*)> demangled(abi::__cxa_demangle(name.c_str(), nullptr, nullptr, nullptr), std::free);
 		const std::string demangled_s(demangled.get());
-		if(size_t lastc; (lastc = demangled_s.rfind(":")) != std::string::npos) {
+		if(size_t lastc = demangled_s.rfind(":"); lastc != std::string::npos) {
 			name = demangled_s.substr(lastc + 1, demangled_s.length() - lastc - 1);
 		} else {
 			name = demangled_s;
