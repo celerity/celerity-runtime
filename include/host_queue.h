@@ -69,7 +69,7 @@ class partition : public detail::sized_partition_base<Dims> {
  */
 class experimental::collective_partition : public partition<1> {
   public:
-	MPI_Comm get_collective_mpi_comm() const { return comm; }
+	MPI_Comm get_collective_mpi_comm() const { return m_comm; }
 
 	size_t get_node_index() const { return get_subrange().offset[0]; }
 
@@ -78,9 +78,9 @@ class experimental::collective_partition : public partition<1> {
   protected:
 	friend collective_partition detail::make_collective_partition(const celerity::range<1>& global_size, const subrange<1>& range, MPI_Comm comm);
 
-	MPI_Comm comm;
+	MPI_Comm m_comm;
 
-	collective_partition(const celerity::range<1>& global_size, const subrange<1>& range, MPI_Comm comm) : partition<1>(global_size, range), comm(comm) {}
+	collective_partition(const celerity::range<1>& global_size, const subrange<1>& range, MPI_Comm comm) : partition<1>(global_size, range), m_comm(comm) {}
 };
 
 template <>

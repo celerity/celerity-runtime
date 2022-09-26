@@ -46,6 +46,10 @@ CheckOptions:
   - key: readability-identifier-naming.ParameterIgnoredRegexp
     # Allow single-letter uppercase function parameters
     value: "[A-Z]"
+  - key: readability-identifier-naming.ProtectedMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.ProtectedMemberPrefix
+    value: m_
   - key: readability-identifier-naming.PrivateMemberCase
     value: lower_case
   - key: readability-identifier-naming.PrivateMemberPrefix
