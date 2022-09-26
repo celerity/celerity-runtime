@@ -13,7 +13,9 @@ namespace experimental {
 			user_benchmarker::~user_benchmarker() {
 				while(!m_sections.empty()) {
 					const auto sec = m_sections.top();
-					end_section(sec.name);
+					try {
+						end_section(sec.name);
+					} catch(...) {}
 				}
 			}
 
