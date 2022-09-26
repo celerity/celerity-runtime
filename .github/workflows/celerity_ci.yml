@@ -31,9 +31,8 @@ jobs:
       - id: skip-check
         uses: fkirc/skip-duplicate-actions@v3.4.1
         with:
-          concurrent_skipping: "same_content_newer"
-          skip_after_successful_duplicate: "true"
-          paths_ignore: '["**/*.md", "docs/**", "website/**"]'
+          concurrent_skipping: "never"
+          skip_after_successful_duplicate: "false"
           do_not_skip: '["workflow_dispatch", "schedule"]'
           cancel_others: "true"
 
