@@ -12,9 +12,7 @@
 #
 InheritParentConfig: false
 # See https://clang.llvm.org/extra/clang-tidy/checks/list.html for a full list of available checks.
-Checks:
-  -*,
-  readability-identifier-naming,
+Checks: -*,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   -bugprone-lambda-function-name,
@@ -22,14 +20,20 @@ Checks:
   misc-*,
   -misc-no-recursion
   -misc-non-private-member-variables-in-classes,
-  # TODO: Figure out which ones we want to (at least partially) enable
-  # clang-analyzer-*,
-  # clang-diagnostic-*,
-  # cppcoreguidelines-*,
-  # mpi-*,
-  # performance-*,
-  # readability-*,
-  # -readability-uppercase-literal-suffix
+  clang-analyzer-*,
+  clang-diagnostic-*,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-macro-usage,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  mpi-*,
+  performance-*,
+  readability-*,
+  -readability-avoid-const-params-in-decls
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-uppercase-literal-suffix,
 
 CheckOptions:
   ####################
