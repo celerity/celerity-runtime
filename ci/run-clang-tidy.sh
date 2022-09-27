@@ -17,7 +17,7 @@ if [[ ! -d src ]]; then
 fi
 
 CLANG_TIDY=${CLANG_TIDY:-clang-tidy}
-if [[ ! -x "$CLANG_TIDY" ]]; then
+if [[ ! -x "$(which $CLANG_TIDY)" ]]; then
     echo "Clang tidy executable \`$CLANG_TIDY\` does not exist. Set CLANG_TIDY environment variable to override."
     exit 1
 fi
