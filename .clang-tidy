@@ -30,7 +30,7 @@ Checks: -*,
   mpi-*,
   performance-*,
   readability-*,
-  -readability-avoid-const-params-in-decls
+  -readability-avoid-const-params-in-decls,
   -readability-identifier-length,
   -readability-magic-numbers,
   -readability-uppercase-literal-suffix,
