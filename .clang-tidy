@@ -18,7 +18,7 @@ Checks: -*,
   -bugprone-lambda-function-name,
   -bugprone-macro-parentheses,
   misc-*,
-  -misc-no-recursion
+  -misc-no-recursion,
   -misc-non-private-member-variables-in-classes,
   clang-analyzer-*,
   clang-diagnostic-*,
