@@ -27,6 +27,11 @@
 #include "transformers/naive_split.h"
 #include "types.h"
 
+// Clang-tidy doesn't like that Catch2's RAII helper for scoped INFO messages isn't qualified as `const`.
+// TODO: Fix in Catch2
+#undef INFO
+#define INFO(msg) const INTERNAL_CATCH_INFO("INFO", msg)
+
 // To avoid having to come up with tons of unique kernel names, we simply use the CPP counter.
 // This is non-standard but widely supported.
 #define _UKN_CONCAT2(x, y) x##_##y

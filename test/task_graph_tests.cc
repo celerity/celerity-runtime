@@ -249,7 +249,7 @@ namespace detail {
 
 	TEST_CASE("task_manager generates pseudo-dependencies for collective host tasks", "[task_manager][task-graph]") {
 		task_manager tm{1, nullptr};
-		experimental::collective_group group;
+		const experimental::collective_group group;
 		auto tid_master = test_utils::add_host_task(tm, on_master_node, [](handler&) {});
 		auto tid_collective_implicit_1 = test_utils::add_host_task(tm, experimental::collective, [](handler&) {});
 		auto tid_collective_implicit_2 = test_utils::add_host_task(tm, experimental::collective, [](handler&) {});
@@ -384,17 +384,17 @@ namespace detail {
 		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
 		auto buf_b = mbf.create_buffer(cl::sycl::range<1>(128));
 
-		task_id tid_1 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+		const task_id tid_1 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 			buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 64}));
 			buf_b.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
 		});
-		task_id tid_2 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+		const task_id tid_2 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 			buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({64, 64}));
 		});
-		task_id tid_3 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+		const task_id tid_3 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 			buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({32, 64}));
 		});
-		task_id tid_4 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+		const task_id tid_4 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 			buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({32, 64}));
 		});
 
@@ -402,10 +402,10 @@ namespace detail {
 		CHECK(task_manager_testspy::get_num_horizons(tm) == 1);
 		CHECK(horizon.has_value());
 
-		task_id tid_6 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+		const task_id tid_6 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 			buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128}));
 		});
-		task_id tid_7 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+		const task_id tid_7 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 			buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128}));
 		});
 
@@ -417,7 +417,7 @@ namespace detail {
 			CHECK(region_map_a.get_region_values(make_region(32, 96)).front().second.value() == tid_4);
 		}
 
-		task_id tid_8 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
+		const task_id tid_8 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 			buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128}));
 		});
 

@@ -81,7 +81,7 @@ constexpr auto sycl_target_device = cl::sycl::access::target::device;
 template <access_mode AccessMode, bool UsingPlaceholderAccessor>
 static auto make_device_accessor(sycl::buffer<int, 1>& buf, sycl::handler& cgh, const subrange<1>& sr) {
 	if constexpr(UsingPlaceholderAccessor) {
-		sycl::accessor<int, 1, AccessMode, sycl_target_device, sycl::access::placeholder::true_t> acc{buf, sr.range, sr.offset};
+		const sycl::accessor<int, 1, AccessMode, sycl_target_device, sycl::access::placeholder::true_t> acc{buf, sr.range, sr.offset};
 		cgh.require(acc);
 		return acc;
 	} else {
@@ -104,7 +104,7 @@ static void test_access(sycl::queue& q, sycl::buffer<int, 1>& test_buf, const su
 		 });
 	 }).wait_and_throw();
 
-	sycl::host_accessor verify_acc{verify_buf};
+	sycl::host_accessor const verify_acc{verify_buf};
 	CHECK(verify_acc[0]);
 };
 

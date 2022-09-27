@@ -149,7 +149,7 @@ namespace detail {
 
 	template <typename DeviceT, typename PlatformT, typename SelectorT>
 	bool try_find_one_device(
-	    std::string& how_selected, DeviceT& device, const std::vector<PlatformT>& platforms, const host_config& host_cfg, SelectorT selector) {
+	    std::string& /*how_selected*/, DeviceT& device, const std::vector<PlatformT>& platforms, const host_config& /*host_cfg*/, SelectorT selector) {
 		std::vector<DeviceT> platform_devices;
 		for(auto& p : platforms) {
 			auto p_devices = p.get_devices();
@@ -167,8 +167,8 @@ namespace detail {
 	};
 
 	template <typename DeviceT, typename PlatformT>
-	bool try_find_one_device(
-	    std::string& how_selected, DeviceT& device, const std::vector<PlatformT>& platforms, const host_config& host_cfg, sycl::info::device_type type) {
+	bool try_find_one_device(std::string& /*how_selected*/, DeviceT& device, const std::vector<PlatformT>& platforms, const host_config& /*host_cfg*/,
+	    sycl::info::device_type type) {
 		for(auto& p : platforms) {
 			for(auto& d : p.get_devices(type)) {
 				device = d;

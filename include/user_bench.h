@@ -45,7 +45,7 @@ namespace experimental {
 
 				template <typename... Args>
 				void event(const std::string& format_string, Args&&... args) {
-					std::lock_guard lk{m_mutex};
+					const std::lock_guard lk{m_mutex};
 					const auto now = bench_clock::now();
 					const auto dt = (m_last_event_tp != bench_clock::time_point{})
 					                    ? std::chrono::duration_cast<std::chrono::microseconds>(now - m_last_event_tp).count()

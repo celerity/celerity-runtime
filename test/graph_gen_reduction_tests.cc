@@ -17,7 +17,7 @@ namespace detail {
 
 	TEST_CASE("graph_generator generates reduction command trees", "[graph_generator][command-graph][reductions]") {
 		using namespace cl::sycl::access;
-		size_t num_nodes = 2;
+		const size_t num_nodes = 2;
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
@@ -105,7 +105,7 @@ namespace detail {
 
 	TEST_CASE("single-node configurations do not generate reduction commands", "[graph_generator][command-graph][reductions]") {
 		using namespace cl::sycl::access;
-		size_t num_nodes = 1;
+		const size_t num_nodes = 1;
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
@@ -134,7 +134,7 @@ namespace detail {
 	    "discarding the reduction result from a execution_command will not generate a reduction command", "[graph_generator][command-graph][reductions]") {
 		using namespace cl::sycl::access;
 
-		size_t num_nodes = 2;
+		const size_t num_nodes = 2;
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
@@ -158,7 +158,7 @@ namespace detail {
 	TEST_CASE("graph_generator does not generate multiple reduction commands for redundant requirements", "[graph_generator][command-graph][reductions]") {
 		using namespace cl::sycl::access;
 
-		size_t num_nodes = 4;
+		const size_t num_nodes = 4;
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
@@ -185,7 +185,7 @@ namespace detail {
 	TEST_CASE("graph_generator does not generate unnecessary anti-dependencies around reduction commands", "[graph_generator][command-graph][reductions]") {
 		using namespace cl::sycl::access;
 
-		size_t num_nodes = 2;
+		const size_t num_nodes = 2;
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
@@ -215,7 +215,7 @@ namespace detail {
 	TEST_CASE("graph_generator designates a reduction initializer command that does not require transfers", "[graph_generator][command-graph][reductions]") {
 		using namespace cl::sycl::access;
 
-		size_t num_nodes = 2;
+		const size_t num_nodes = 2;
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		auto& ggen = ctx.get_graph_generator();
@@ -250,7 +250,7 @@ namespace detail {
 	TEST_CASE("commands overwriting a buffer generate anti-dependencies on preceding reduction pushes", "[graph_generator][command-graph][reductions]") {
 		// regression test - this reproduces the essence of distr_tests "multiple chained reductions produce correct results"
 
-		size_t num_nodes = 2;
+		const size_t num_nodes = 2;
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& tm = ctx.get_task_manager();
 		test_utils::mock_buffer_factory mbf(ctx);

@@ -231,7 +231,7 @@ namespace detail {
 					{
 						size_t relative = global_linear_id;
 						for(int nd = 0; nd < Dims; ++nd) {
-							int d = Dims - 1 - nd;
+							int const d = Dims - 1 - nd;
 							global_id[d] = relative % global_range[d];
 							relative /= global_range[d];
 						}
@@ -269,29 +269,32 @@ namespace detail {
 		buffer<int, 1> buff_a(cl::sycl::range<1>{1});
 		q.submit([=](handler& cgh) {
 			accessor write_a{buff_a, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
-			cgh.parallel_for<class UKN(write_a)>(cl::sycl::range<1>{N}, [=](celerity::item<1> item) {});
+			cgh.parallel_for<class UKN(write_a)>(cl::sycl::range<1>{N}, [=](celerity::item<1>) { (void)write_a; });
 		});
 
 		buffer<int, 1> buff_b(cl::sycl::range<1>{1});
 		q.submit([=](handler& cgh) {
 			accessor write_b{buff_b, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
-			cgh.parallel_for<class UKN(write_b)>(cl::sycl::range<1>{N}, [=](celerity::item<1> item) {});
+			cgh.parallel_for<class UKN(write_b)>(cl::sycl::range<1>{N}, [=](celerity::item<1>) { (void)write_b; });
 		});
 
 		q.submit([=](handler& cgh) {
 			accessor read_write_a{buff_a, cgh, celerity::access::all{}, celerity::read_write};
-			cgh.parallel_for<class UKN(read_write_a)>(cl::sycl::range<1>{N}, [=](celerity::item<1> item) {});
+			cgh.parallel_for<class UKN(read_write_a)>(cl::sycl::range<1>{N}, [=](celerity::item<1>) { (void)read_write_a; });
 		});
 
 		q.submit([=](handler& cgh) {
 			accessor read_write_a{buff_a, cgh, celerity::access::all{}, celerity::read_write};
 			accessor read_write_b{buff_b, cgh, celerity::access::all{}, celerity::read_write};
-			cgh.parallel_for<class UKN(read_write_a_b)>(cl::sycl::range<1>{N}, [=](celerity::item<1> item) {});
+			cgh.parallel_for<class UKN(read_write_a_b)>(cl::sycl::range<1>{N}, [=](celerity::item<1>) {
+				(void)read_write_a;
+				(void)read_write_b;
+			});
 		});
 
 		q.submit([=](handler& cgh) {
 			accessor write_a{buff_a, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
-			cgh.parallel_for<class UKN(write_a_again)>(cl::sycl::range<1>{N}, [=](celerity::item<1> item) {});
+			cgh.parallel_for<class UKN(write_a_again)>(cl::sycl::range<1>{N}, [=](celerity::item<1>) { (void)write_a; });
 		});
 
 		q.slow_full_sync();

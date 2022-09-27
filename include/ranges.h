@@ -5,7 +5,7 @@
 namespace celerity {
 namespace detail {
 
-	inline size_t get_linear_index(const cl::sycl::range<1>& range, const cl::sycl::id<1>& index) { return index[0]; }
+	inline size_t get_linear_index(const cl::sycl::range<1>& /*range*/, const cl::sycl::id<1>& index) { return index[0]; }
 
 	inline size_t get_linear_index(const cl::sycl::range<2>& range, const cl::sycl::id<2>& index) { return index[0] * range[1] + index[1]; }
 

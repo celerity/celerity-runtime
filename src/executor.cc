@@ -100,7 +100,7 @@ namespace detail {
 				// also reading it from within a kernel is not supported. To avoid stalling other nodes, we thus perform the push first.
 				std::sort(ready_jobs.begin(), ready_jobs.end(),
 				    [this](command_id a, command_id b) { return m_jobs[a].cmd == command_type::push && m_jobs[b].cmd != command_type::push; });
-				for(command_id cid : ready_jobs) {
+				for(const command_id cid : ready_jobs) {
 					auto* job = m_jobs.at(cid).job.get();
 					job->start();
 					job->update();

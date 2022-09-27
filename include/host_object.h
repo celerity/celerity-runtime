@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "runtime.h"
-
+#include "utils.h"
 
 namespace celerity::experimental {
 
@@ -91,6 +91,12 @@ class host_object {
   public:
 	using object_type = T;
 
+	CELERITY_DETAIL_HACK_CLANG_TIDY_ALLOW_NON_CONST(host_object)
+	host_object(const host_object&) = default;
+	host_object(host_object&&) noexcept = default;
+	host_object& operator=(const host_object&) = default;
+	host_object& operator=(host_object&&) noexcept = default;
+
 	host_object() : m_shared_state{std::make_shared<state>(std::in_place)} {}
 
 	explicit host_object(const T& obj) : m_shared_state{std::make_shared<state>(std::in_place, obj)} {}
@@ -124,6 +130,12 @@ class host_object<T&> {
   public:
 	using object_type = T;
 
+	CELERITY_DETAIL_HACK_CLANG_TIDY_ALLOW_NON_CONST(host_object)
+	host_object(const host_object&) = default;
+	host_object(host_object&&) noexcept = default;
+	host_object& operator=(const host_object&) = default;
+	host_object& operator=(host_object&&) noexcept = default;
+
 	explicit host_object(T& obj) : m_shared_state{std::make_shared<state>(obj)} {}
 
 	explicit host_object(const std::reference_wrapper<T> ref) : m_shared_state{std::make_shared<state>(ref.get())} {}
@@ -148,6 +160,12 @@ template <>
 class host_object<void> {
   public:
 	using object_type = void;
+
+	CELERITY_DETAIL_HACK_CLANG_TIDY_ALLOW_NON_CONST(host_object)
+	host_object(const host_object&) = default;
+	host_object(host_object&&) noexcept = default;
+	host_object& operator=(const host_object&) = default;
+	host_object& operator=(host_object&&) noexcept = default;
 
 	explicit host_object() : m_shared_state{std::make_shared<state>()} {}
 

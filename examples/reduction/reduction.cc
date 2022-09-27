@@ -63,7 +63,8 @@ int main(int argc, char* argv[]) {
 	}
 
 	int image_width = 0, image_height = 0, image_channels = 0;
-	std::unique_ptr<uint8_t, decltype((stbi_image_free))> srgb_255_data{stbi_load(argv[1], &image_width, &image_height, &image_channels, 4), stbi_image_free};
+	const std::unique_ptr<uint8_t, decltype((stbi_image_free))> srgb_255_data{
+	    stbi_load(argv[1], &image_width, &image_height, &image_channels, 4), stbi_image_free};
 	assert(srgb_255_data != nullptr);
 
 	celerity::distr_queue q;

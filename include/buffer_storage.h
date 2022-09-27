@@ -232,8 +232,9 @@ namespace detail {
 		host_buffer<DataT, Dims> m_host_buf;
 	};
 
-	inline void assert_copy_is_in_range(const cl::sycl::range<3>& source_range, const cl::sycl::range<3>& target_range, const cl::sycl::id<3>& source_offset,
-	    const cl::sycl::id<3>& target_offset, const cl::sycl::range<3>& copy_range) {
+	inline void assert_copy_is_in_range([[maybe_unused]] const cl::sycl::range<3>& source_range, [[maybe_unused]] const cl::sycl::range<3>& target_range,
+	    [[maybe_unused]] const cl::sycl::id<3>& source_offset, [[maybe_unused]] const cl::sycl::id<3>& target_offset,
+	    [[maybe_unused]] const cl::sycl::range<3>& copy_range) {
 		assert(max_range(source_range, range_cast<3>(source_offset + copy_range)) == source_range);
 		assert(max_range(target_range, range_cast<3>(target_offset + copy_range)) == target_range);
 	}

@@ -26,8 +26,8 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "SYCL accessors receive correct backing-buffer relative ranges and offsets", "[accessor]") {
 		distr_queue q;
 		buffer<int, 3> virtual_buf{cl::sycl::range<3>{1000, 1000, 1000}};
-		subrange<3> large_accessor_sr{{117, 118, 119}, {301, 302, 303}};
-		subrange<3> small_accessor_sr{{207, 206, 205}, {101, 102, 103}};
+		const subrange<3> large_accessor_sr{{117, 118, 119}, {301, 302, 303}};
+		const subrange<3> small_accessor_sr{{207, 206, 205}, {101, 102, 103}};
 
 		q.submit([=](handler& cgh) {
 			accessor large_celerity_acc{virtual_buf, cgh, celerity::access::fixed{large_accessor_sr}, celerity::read_write};
@@ -35,7 +35,7 @@ namespace detail {
 			if(!is_prepass_handler(cgh)) {
 				auto& bm = runtime::get_instance().get_buffer_manager();
 				auto info = buffer_manager_testspy::get_device_buffer<int, 3>(bm, get_buffer_id(virtual_buf));
-				subrange<3> backing_buffer_sr{info.offset, info.buffer.get_range()};
+				const subrange<3> backing_buffer_sr{info.offset, info.buffer.get_range()};
 
 				auto& large_sycl_acc = accessor_testspy::get_sycl_accessor(large_celerity_acc);
 				auto& small_sycl_acc = accessor_testspy::get_sycl_accessor(small_celerity_acc);
@@ -76,20 +76,20 @@ namespace detail {
 			tid = test_utils::add_compute_task<class get_access_with_tag>(
 			    tm,
 			    [&](handler& cgh) {
-				    accessor acc1{buf_a, cgh, one_to_one{}, celerity::write_only};
-				    static_assert(std::is_same_v<accessor<int, 1, access_mode::write, target::device>, decltype(acc1)>);
+				    const accessor acc1{buf_a, cgh, one_to_one{}, celerity::write_only};
+				    static_assert(std::is_same_v<accessor<int, 1, access_mode::write, target::device>, std::remove_cv_t<decltype(acc1)>>);
 
-				    accessor acc2{buf_a, cgh, one_to_one{}, celerity::read_only};
-				    static_assert(std::is_same_v<accessor<int, 1, access_mode::read, target::device>, decltype(acc2)>);
+				    const accessor acc2{buf_a, cgh, one_to_one{}, celerity::read_only};
+				    static_assert(std::is_same_v<accessor<int, 1, access_mode::read, target::device>, std::remove_cv_t<decltype(acc2)>>);
 
-				    accessor acc3{buf_a, cgh, one_to_one{}, celerity::read_write};
-				    static_assert(std::is_same_v<accessor<int, 1, access_mode::read_write, target::device>, decltype(acc3)>);
+				    const accessor acc3{buf_a, cgh, one_to_one{}, celerity::read_write};
+				    static_assert(std::is_same_v<accessor<int, 1, access_mode::read_write, target::device>, std::remove_cv_t<decltype(acc3)>>);
 
-				    accessor acc4{buf_a, cgh, one_to_one{}, celerity::write_only, celerity::no_init};
-				    static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_write, target::device>, decltype(acc4)>);
+				    const accessor acc4{buf_a, cgh, one_to_one{}, celerity::write_only, celerity::no_init};
+				    static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_write, target::device>, std::remove_cv_t<decltype(acc4)>>);
 
-				    accessor acc5{buf_a, cgh, one_to_one{}, celerity::read_write, celerity::no_init};
-				    static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, target::device>, decltype(acc5)>);
+				    const accessor acc5{buf_a, cgh, one_to_one{}, celerity::read_write, celerity::no_init};
+				    static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, target::device>, std::remove_cv_t<decltype(acc5)>>);
 			    },
 			    buf_a.get_range());
 		}
@@ -102,20 +102,20 @@ namespace detail {
 				//   celerity::no_init or nothing.
 				// accessor acc0{buf_a, cgh, one_to_one{}, cl::sycl::write_only_host_task, celerity::property_list{celerity::no_init}};
 
-				accessor acc1{buf_a, cgh, one_to_one{}, celerity::write_only_host_task};
-				static_assert(std::is_same_v<accessor<int, 1, access_mode::write, target::host_task>, decltype(acc1)>);
+				const accessor acc1{buf_a, cgh, one_to_one{}, celerity::write_only_host_task};
+				static_assert(std::is_same_v<accessor<int, 1, access_mode::write, target::host_task>, std::remove_cv_t<decltype(acc1)>>);
 
-				accessor acc2{buf_a, cgh, one_to_one{}, celerity::read_only_host_task};
-				static_assert(std::is_same_v<accessor<int, 1, access_mode::read, target::host_task>, decltype(acc2)>);
+				const accessor acc2{buf_a, cgh, one_to_one{}, celerity::read_only_host_task};
+				static_assert(std::is_same_v<accessor<int, 1, access_mode::read, target::host_task>, std::remove_cv_t<decltype(acc2)>>);
 
-				accessor acc3{buf_a, cgh, fixed<1>{{0, 1}}, celerity::read_write_host_task};
-				static_assert(std::is_same_v<accessor<int, 1, access_mode::read_write, target::host_task>, decltype(acc3)>);
+				const accessor acc3{buf_a, cgh, fixed<1>{{0, 1}}, celerity::read_write_host_task};
+				static_assert(std::is_same_v<accessor<int, 1, access_mode::read_write, target::host_task>, std::remove_cv_t<decltype(acc3)>>);
 
-				accessor acc4{buf_a, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
-				static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_write, target::host_task>, decltype(acc4)>);
+				const accessor acc4{buf_a, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
+				static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_write, target::host_task>, std::remove_cv_t<decltype(acc4)>>);
 
-				accessor acc5{buf_a, cgh, one_to_one{}, celerity::read_write_host_task, celerity::no_init};
-				static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, target::host_task>, decltype(acc5)>);
+				const accessor acc5{buf_a, cgh, one_to_one{}, celerity::read_write_host_task, celerity::no_init};
+				static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, target::host_task>, std::remove_cv_t<decltype(acc5)>>);
 			});
 		}
 
@@ -174,12 +174,12 @@ namespace detail {
 			auto acc = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, cl::sycl::access::mode::discard_write>(
 			    cgh, bid, range_cast<Dims>(range), {});
 			cgh.parallel_for<class kernel_multi_dim_accessor_read_<Dims>>(range_cast<Dims>(range), [=](celerity::item<Dims> item) {
-				size_t i = item[0];
-				size_t j = item[1];
+				const size_t i = item[0];
+				const size_t j = item[1];
 				if constexpr(Dims == 2) {
 					acc[i][j] = acc_read[i][j];
 				} else {
-					size_t k = item[2];
+					const size_t k = item[2];
 					acc[i][j][k] = acc_read[i][j][k];
 				}
 			});
@@ -203,9 +203,9 @@ namespace detail {
 			}
 		}
 
-		typename accessor_fixture<Dims>::access_target tgt = accessor_fixture<Dims>::access_target::host;
-		bool acc_check = accessor_fixture<Dims>::template buffer_reduce<size_t, Dims, class check_multi_dim_accessor<Dims>>(bid, tgt, range_cast<Dims>(range),
-		    {}, true,
+		const typename accessor_fixture<Dims>::access_target tgt = accessor_fixture<Dims>::access_target::host;
+		const bool acc_check = accessor_fixture<Dims>::template buffer_reduce<size_t, Dims, class check_multi_dim_accessor<Dims>>(bid, tgt,
+		    range_cast<Dims>(range), {}, true,
 		    [range = range_cast<Dims>(range)](cl::sycl::id<Dims> idx, bool current, size_t value) { return current && value == get_linear_index(range, idx); });
 
 		REQUIRE(acc_check);
@@ -284,7 +284,7 @@ namespace detail {
 		distr_queue q;
 		std::optional<buffer<int>> buf;
 
-		int init = 0;
+		const int init = 0;
 		SECTION("when the buffer is uninitialized") { buf = buffer<int>{1}; };
 		SECTION("when the buffer is host-initialized") { buf = buffer<int>{&init, 1}; };
 

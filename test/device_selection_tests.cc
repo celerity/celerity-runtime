@@ -102,7 +102,7 @@ struct config_testspy {
 } // namespace celerity::detail
 
 TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prefers user specified device pointer", "[device-selection]") {
-	celerity::detail::config cfg(nullptr, nullptr);
+	const celerity::detail::config cfg(nullptr, nullptr);
 	mock_platform_factory mpf;
 
 	auto [mp] = mpf.create_platforms(std::nullopt);
@@ -114,7 +114,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prefers user sp
 
 TEST_CASE_METHOD(celerity::test_utils::mpi_fixture,
     "pick_device automatically selects a gpu device if available, otherwise falls back to the first device available", "[device-selection]") {
-	celerity::detail::config cfg(nullptr, nullptr);
+	const celerity::detail::config cfg(nullptr, nullptr);
 	mock_platform_factory mpf;
 
 	auto dv_type_1 = GENERATE(as<dt>(), dt::gpu, dt::accelerator, dt::cpu, dt::custom, dt::host);
@@ -144,7 +144,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device selects device 
 	mp_0.create_devices(dt::cpu, dt::gpu);
 	auto md = mp_1.create_devices(dt::gpu, dt::gpu, dt::cpu)[1];
 
-	celerity::detail::device_config d_cfg{1, 1};
+	const celerity::detail::device_config d_cfg{1, 1};
 	celerity::detail::config_testspy::set_mock_device_cfg(cfg, d_cfg);
 
 	auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1});
@@ -166,7 +166,7 @@ TEST_CASE_METHOD(
 		auto md = mp_1.create_devices(dt::gpu, dt::gpu, dt::gpu, dt::gpu)[local_rank];
 		mp_2.create_devices(dt::accelerator, dt::accelerator, dt::accelerator, dt::accelerator);
 
-		celerity::detail::host_config h_cfg{node_count, local_rank};
+		const celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
 		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1, mp_2});
@@ -184,7 +184,7 @@ TEST_CASE_METHOD(
 		mp_1.create_devices(dt::gpu, dt::gpu, dt::gpu);
 		auto md = mp_2.create_devices(dt::accelerator, dt::accelerator, dt::accelerator, dt::accelerator)[local_rank];
 
-		celerity::detail::host_config h_cfg{node_count, local_rank};
+		const celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
 		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1, mp_2});
@@ -202,7 +202,7 @@ TEST_CASE_METHOD(
 		const size_t node_count = 4;
 		const size_t local_rank = GENERATE(0, 3);
 
-		celerity::detail::host_config h_cfg{node_count, local_rank};
+		const celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
 		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1, mp_2});
@@ -219,7 +219,7 @@ TEST_CASE_METHOD(
 		const size_t node_count = 4;
 		const size_t local_rank = GENERATE(0, 3);
 
-		celerity::detail::host_config h_cfg{node_count, local_rank};
+		const celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
 		auto device = pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1});
@@ -245,7 +245,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected
 		mp_0.create_devices(dt::cpu);
 		mp_1.create_devices(dt::gpu, type_and_name{dt::gpu, "My device"});
 
-		celerity::detail::device_config d_cfg{1, 1};
+		celerity::detail::device_config const d_cfg{1, 1};
 		celerity::detail::config_testspy::set_mock_device_cfg(cfg, d_cfg);
 
 		celerity::test_utils::log_capture lc;
@@ -278,7 +278,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected
 		const size_t node_count = 4;
 		const size_t local_rank = 3;
 
-		celerity::detail::host_config h_cfg{node_count, local_rank};
+		const celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
 		celerity::test_utils::log_capture lc(spdlog::level::warn);
@@ -297,7 +297,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected
 		const size_t node_count = 4;
 		const size_t local_rank = 3;
 
-		celerity::detail::host_config h_cfg{node_count, local_rank};
+		const celerity::detail::host_config h_cfg{node_count, local_rank};
 		celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
 		celerity::test_utils::log_capture lc(spdlog::level::warn);
@@ -312,7 +312,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected
 		mp_0.create_devices(dt::cpu);
 		mp_1.create_devices(dt::gpu, dt::gpu);
 
-		celerity::detail::device_config d_cfg{3, 0};
+		celerity::detail::device_config const d_cfg{3, 0};
 		celerity::detail::config_testspy::set_mock_device_cfg(cfg, d_cfg);
 		CHECK_THROWS_WITH(pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1}),
 		    "Invalid platform id 3: Only 2 platforms available");
@@ -325,7 +325,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints expected
 		mp_0.create_devices(dt::cpu);
 		mp_1.create_devices(dt::gpu, dt::gpu);
 
-		celerity::detail::device_config d_cfg{1, 5};
+		celerity::detail::device_config const d_cfg{1, 5};
 		celerity::detail::config_testspy::set_mock_device_cfg(cfg, d_cfg);
 
 		CHECK_THROWS_WITH(pick_device(cfg, celerity::detail::auto_select_device{}, std::vector<mock_platform>{mp_0, mp_1}),
@@ -354,7 +354,7 @@ TEST_CASE_METHOD(celerity::test_utils::runtime_fixture, "pick_device supports pa
 
 	auto device_selector = [device](const sycl::device& d) -> int { return d == device ? 2 : 1; };
 
-	celerity::distr_queue q(device_selector);
+	const celerity::distr_queue q(device_selector);
 
 	auto& dq = celerity::detail::runtime::get_instance().get_device_queue();
 	CHECK(dq.get_sycl_queue().get_device() == device);
@@ -371,7 +371,7 @@ TEST_CASE("pick_device correctly selects according to device selector score", "[
 
 	auto device_selector = [md](const mock_device& d) -> int { return d == md ? 2 : 1; };
 
-	celerity::detail::config cfg(nullptr, nullptr);
+	const celerity::detail::config cfg(nullptr, nullptr);
 	auto device = pick_device(cfg, device_selector, std::vector<mock_platform>{mp_0, mp_1, mp_2});
 	CHECK(device == md);
 }
@@ -389,7 +389,7 @@ TEST_CASE("pick_device selects a unique device for each local node according to 
 	const size_t node_count = 4;
 	const size_t local_rank = 3;
 
-	celerity::detail::host_config h_cfg{node_count, local_rank};
+	const celerity::detail::host_config h_cfg{node_count, local_rank};
 	celerity::detail::config cfg(nullptr, nullptr);
 	celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
@@ -413,7 +413,7 @@ TEST_CASE("pick_device selects the highest scoring device for all nodes if an in
 	const size_t node_count = 4;
 	const size_t local_rank = 3;
 
-	celerity::detail::host_config h_cfg{node_count, local_rank};
+	const celerity::detail::host_config h_cfg{node_count, local_rank};
 	celerity::detail::config cfg(nullptr, nullptr);
 	celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 	auto device_selector = [md](const mock_device& d) -> int { return d == md ? 2 : 1; };
@@ -436,7 +436,7 @@ TEST_CASE("pick_device warns when highest scoring devices span multiple platform
 	const size_t node_count = 4;
 	const size_t local_rank = GENERATE(0, 3);
 
-	celerity::detail::host_config h_cfg{node_count, local_rank};
+	const celerity::detail::host_config h_cfg{node_count, local_rank};
 	celerity::detail::config cfg(nullptr, nullptr);
 	celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
@@ -465,7 +465,7 @@ TEST_CASE("pick_device warns when highest scoring devices are of different types
 	const size_t node_count = 4;
 	const size_t local_rank = 0;
 
-	celerity::detail::host_config h_cfg{node_count, local_rank};
+	const celerity::detail::host_config h_cfg{node_count, local_rank};
 	celerity::detail::config cfg(nullptr, nullptr);
 	celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
@@ -490,7 +490,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device does not consid
 	const size_t node_count = 4;
 	const size_t local_rank = 2;
 
-	celerity::detail::host_config h_cfg{node_count, local_rank};
+	const celerity::detail::host_config h_cfg{node_count, local_rank};
 	celerity::detail::config_testspy::set_mock_host_cfg(cfg, h_cfg);
 
 	auto device_selector = [](const mock_device& d) -> int { return d.get_type() == dt::accelerator ? 1 : -1; };

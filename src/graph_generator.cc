@@ -500,7 +500,7 @@ namespace detail {
 		}
 
 		for(auto [bid, nids] : buffer_reduction_resolve_list) {
-			GridBox<3> box{GridPoint<3>{1, 1, 1}};
+			const GridBox<3> box{GridPoint<3>{1, 1, 1}};
 			distributed_state state_after_reduction{cl::sycl::range<3>{1, 1, 1}};
 			state_after_reduction.region_sources.update_region(box, nids);
 			m_buffer_states.at(bid) = distributed_state{std::move(state_after_reduction)};

@@ -38,7 +38,7 @@ namespace detail {
 	struct buffer_manager_testspy {
 		template <typename DataT, int Dims>
 		static buffer_manager::access_info<DataT, Dims, device_buffer> get_device_buffer(buffer_manager& bm, buffer_id bid) {
-			std::unique_lock lock(bm.m_mutex);
+			const std::unique_lock lock(bm.m_mutex);
 			auto& buf = bm.m_buffers.at(bid).device_buf;
 			return {dynamic_cast<device_buffer_storage<DataT, Dims>*>(buf.storage.get())->get_device_buffer(), id_cast<Dims>(buf.offset)};
 		}
@@ -53,21 +53,21 @@ namespace detail {
 	};
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "only a single distr_queue can be created", "[distr_queue][lifetime][dx]") {
-		distr_queue q1;
+		const distr_queue q1;
 		auto q2{q1}; // Copying is allowed
 		REQUIRE_THROWS_WITH(distr_queue{}, "Only one celerity::distr_queue can be created per process (but it can be copied!)");
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "distr_queue implicitly initializes the runtime", "[distr_queue][lifetime]") {
 		REQUIRE_FALSE(runtime::is_initialized());
-		distr_queue queue;
+		const distr_queue queue;
 		REQUIRE(runtime::is_initialized());
 	}
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "an explicit device can be provided to distr_queue", "[distr_queue][lifetime]") {
-		cl::sycl::default_selector selector;
+		const cl::sycl::default_selector selector;
 		cl::sycl::device device{selector};
 
 		SECTION("before the runtime is initialized") {
@@ -85,7 +85,7 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer implicitly initializes the runtime", "[distr_queue][lifetime]") {
 		REQUIRE_FALSE(runtime::is_initialized());
-		buffer<float, 1> buf(cl::sycl::range<1>{1});
+		const buffer<float, 1> buf(cl::sycl::range<1>{1});
 		REQUIRE(runtime::is_initialized());
 	}
 
@@ -109,21 +109,21 @@ namespace detail {
 
 	TEST_CASE("range mapper results are clamped to buffer range", "[range-mapper]") {
 		const auto rmfn = [](chunk<3>) { return subrange<3>{{0, 100, 127}, {256, 64, 32}}; };
-		range_mapper rm{rmfn, cl::sycl::access::mode::read, cl::sycl::range<3>{128, 128, 128}};
+		const range_mapper rm{rmfn, cl::sycl::access::mode::read, cl::sycl::range<3>{128, 128, 128}};
 		auto sr = rm.map_3(chunk<3>{});
 		REQUIRE(sr.offset == cl::sycl::id<3>{0, 100, 127});
 		REQUIRE(sr.range == cl::sycl::range<3>{128, 28, 1});
 	}
 
 	TEST_CASE("one_to_one built-in range mapper behaves as expected", "[range-mapper]") {
-		range_mapper rm{one_to_one{}, cl::sycl::access::mode::read, cl::sycl::range<2>{128, 128}};
+		const range_mapper rm{one_to_one{}, cl::sycl::access::mode::read, cl::sycl::range<2>{128, 128}};
 		auto sr = rm.map_2(chunk<2>{{64, 32}, {32, 4}, {128, 128}});
 		REQUIRE(sr.offset == cl::sycl::id<2>{64, 32});
 		REQUIRE(sr.range == cl::sycl::range<2>{32, 4});
 	}
 
 	TEST_CASE("fixed built-in range mapper behaves as expected", "[range-mapper]") {
-		range_mapper rm{fixed<1>({{3}, {97}}), cl::sycl::access::mode::read, cl::sycl::range<1>{128}};
+		const range_mapper rm{fixed<1>({{3}, {97}}), cl::sycl::access::mode::read, cl::sycl::range<1>{128}};
 		auto sr = rm.map_1(chunk<2>{{64, 32}, {32, 4}, {128, 128}});
 		REQUIRE(sr.offset == cl::sycl::id<1>{3});
 		REQUIRE(sr.range == cl::sycl::range<1>{97});
@@ -131,19 +131,19 @@ namespace detail {
 
 	TEST_CASE("slice built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper rm{slice<3>(0), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 128, 128}};
+			const range_mapper rm{slice<3>(0), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 128, 128}};
 			auto sr = rm.map_3(chunk<3>{{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{0, 32, 32});
 			REQUIRE(sr.range == cl::sycl::range<3>{128, 32, 32});
 		}
 		{
-			range_mapper rm{slice<3>(1), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 128, 128}};
+			const range_mapper rm{slice<3>(1), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 128, 128}};
 			auto sr = rm.map_3(chunk<3>{{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{32, 0, 32});
 			REQUIRE(sr.range == cl::sycl::range<3>{32, 128, 32});
 		}
 		{
-			range_mapper rm{slice<3>(2), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 128, 128}};
+			const range_mapper rm{slice<3>(2), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 128, 128}};
 			auto sr = rm.map_3(chunk<3>{{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{32, 32, 0});
 			REQUIRE(sr.range == cl::sycl::range<3>{32, 32, 128});
@@ -152,19 +152,19 @@ namespace detail {
 
 	TEST_CASE("all built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper rm{all{}, cl::sycl::access::mode::read, cl::sycl::range<1>{128}};
+			const range_mapper rm{all{}, cl::sycl::access::mode::read, cl::sycl::range<1>{128}};
 			auto sr = rm.map_1(chunk<1>{});
 			REQUIRE(sr.offset == cl::sycl::id<1>{0});
 			REQUIRE(sr.range == cl::sycl::range<1>{128});
 		}
 		{
-			range_mapper rm{all{}, cl::sycl::access::mode::read, cl::sycl::range<2>{128, 64}};
+			const range_mapper rm{all{}, cl::sycl::access::mode::read, cl::sycl::range<2>{128, 64}};
 			auto sr = rm.map_2(chunk<1>{});
 			REQUIRE(sr.offset == cl::sycl::id<2>{0, 0});
 			REQUIRE(sr.range == cl::sycl::range<2>{128, 64});
 		}
 		{
-			range_mapper rm{all{}, cl::sycl::access::mode::read, cl::sycl::range<3>{128, 64, 32}};
+			const range_mapper rm{all{}, cl::sycl::access::mode::read, cl::sycl::range<3>{128, 64, 32}};
 			auto sr = rm.map_3(chunk<1>{});
 			REQUIRE(sr.offset == cl::sycl::id<3>{0, 0, 0});
 			REQUIRE(sr.range == cl::sycl::range<3>{128, 64, 32});
@@ -173,19 +173,19 @@ namespace detail {
 
 	TEST_CASE("neighborhood built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper rm{neighborhood<1>(10), cl::sycl::access::mode::read, cl::sycl::range<1>{128}};
+			const range_mapper rm{neighborhood<1>(10), cl::sycl::access::mode::read, cl::sycl::range<1>{128}};
 			auto sr = rm.map_1(chunk<1>{{15}, {10}, {128}});
 			REQUIRE(sr.offset == cl::sycl::id<1>{5});
 			REQUIRE(sr.range == cl::sycl::range<1>{30});
 		}
 		{
-			range_mapper rm{neighborhood<2>(10, 10), cl::sycl::access::mode::read, cl::sycl::range<2>{128, 128}};
+			const range_mapper rm{neighborhood<2>(10, 10), cl::sycl::access::mode::read, cl::sycl::range<2>{128, 128}};
 			auto sr = rm.map_2(chunk<2>{{5, 100}, {10, 20}, {128, 128}});
 			REQUIRE(sr.offset == cl::sycl::id<2>{0, 90});
 			REQUIRE(sr.range == cl::sycl::range<2>{25, 38});
 		}
 		{
-			range_mapper rm{neighborhood<3>(3, 4, 5), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 128, 128}};
+			const range_mapper rm{neighborhood<3>(3, 4, 5), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 128, 128}};
 			auto sr = rm.map_3(chunk<3>{{3, 4, 5}, {1, 1, 1}, {128, 128, 128}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{0, 0, 0});
 			REQUIRE(sr.range == cl::sycl::range<3>{7, 9, 11});
@@ -194,43 +194,43 @@ namespace detail {
 
 	TEST_CASE("even_split built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 345, 678}};
+			const range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 345, 678}};
 			auto sr = rm.map_3(chunk<1>{{0}, {1}, {8}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{0, 0, 0});
 			REQUIRE(sr.range == cl::sycl::range<3>{16, 345, 678});
 		}
 		{
-			range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 345, 678}};
+			const range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 345, 678}};
 			auto sr = rm.map_3(chunk<1>{{4}, {2}, {8}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{64, 0, 0});
 			REQUIRE(sr.range == cl::sycl::range<3>{32, 345, 678});
 		}
 		{
-			range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, cl::sycl::range<3>{131, 992, 613}};
+			const range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, cl::sycl::range<3>{131, 992, 613}};
 			auto sr = rm.map_3(chunk<1>{{5}, {2}, {7}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{95, 0, 0});
 			REQUIRE(sr.range == cl::sycl::range<3>{36, 992, 613});
 		}
 		{
-			range_mapper rm{even_split<3>(cl::sycl::range<3>(10, 1, 1)), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 345, 678}};
+			const range_mapper rm{even_split<3>(cl::sycl::range<3>(10, 1, 1)), cl::sycl::access::mode::read, cl::sycl::range<3>{128, 345, 678}};
 			auto sr = rm.map_3(chunk<1>{{0}, {1}, {8}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{0, 0, 0});
 			REQUIRE(sr.range == cl::sycl::range<3>{20, 345, 678});
 		}
 		{
-			range_mapper rm{even_split<3>(cl::sycl::range<3>(10, 1, 1)), cl::sycl::access::mode::read, cl::sycl::range<3>{131, 992, 613}};
+			const range_mapper rm{even_split<3>(cl::sycl::range<3>(10, 1, 1)), cl::sycl::access::mode::read, cl::sycl::range<3>{131, 992, 613}};
 			auto sr = rm.map_3(chunk<1>{{0}, {1}, {7}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{0, 0, 0});
 			REQUIRE(sr.range == cl::sycl::range<3>{20, 992, 613});
 		}
 		{
-			range_mapper rm{even_split<3>(cl::sycl::range<3>(10, 1, 1)), cl::sycl::access::mode::read, cl::sycl::range<3>{131, 992, 613}};
+			const range_mapper rm{even_split<3>(cl::sycl::range<3>(10, 1, 1)), cl::sycl::access::mode::read, cl::sycl::range<3>{131, 992, 613}};
 			auto sr = rm.map_3(chunk<1>{{5}, {2}, {7}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{100, 0, 0});
 			REQUIRE(sr.range == cl::sycl::range<3>{31, 992, 613});
 		}
 		{
-			range_mapper rm{even_split<3>(cl::sycl::range<3>(10, 1, 1)), cl::sycl::access::mode::read, cl::sycl::range<3>{236, 992, 613}};
+			const range_mapper rm{even_split<3>(cl::sycl::range<3>(10, 1, 1)), cl::sycl::access::mode::read, cl::sycl::range<3>{236, 992, 613}};
 			auto sr = rm.map_3(chunk<1>{{6}, {1}, {7}});
 			REQUIRE(sr.offset == cl::sycl::id<3>{200, 0, 0});
 			REQUIRE(sr.range == cl::sycl::range<3>{36, 992, 613});
@@ -241,8 +241,8 @@ namespace detail {
 		task_manager tm{1, nullptr};
 		size_t call_counter = 0;
 		tm.register_task_callback([&call_counter](const task*) { call_counter++; });
-		cl::sycl::range<2> gs = {1, 1};
-		cl::sycl::id<2> go = {};
+		const cl::sycl::range<2> gs = {1, 1};
+		const cl::sycl::id<2> go = {};
 		tm.submit_command_group([=](handler& cgh) { cgh.parallel_for<class kernel>(gs, go, [](auto) {}); });
 		REQUIRE(call_counter == 1);
 		tm.submit_command_group([](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
@@ -291,7 +291,7 @@ namespace detail {
 	}
 
 	TEST_CASE("tasks gracefully handle get_requirements() calls for buffers they don't access", "[task]") {
-		buffer_access_map bam;
+		const buffer_access_map bam;
 		const auto req = bam.get_requirements_for_access(0, cl::sycl::access::mode::read, 3, subrange<3>({0, 0, 0}, {100, 1, 1}), {100, 1, 1});
 		REQUIRE(req == subrange_to_grid_box(subrange<3>({0, 0, 0}, {0, 0, 0})));
 	}
@@ -529,7 +529,7 @@ namespace detail {
 	constexpr inline int range_dims<cl::sycl::range<N>> = N;
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "range mappers are only invocable with correctly-dimensioned chunks", "[range-mapper]") {
-		auto rmfn1 = [](chunk<2> chnk) -> subrange<3> { return {}; };
+		auto rmfn1 = [](chunk<2> /*chnk*/) -> subrange<3> { return {}; };
 		using rmfn1_t = decltype(rmfn1);
 		static_assert(!is_range_mapper_invocable<rmfn1_t, 1>);
 		static_assert(!is_range_mapper_invocable<rmfn1_t, 2>);
@@ -544,7 +544,7 @@ namespace detail {
 		static_assert(!is_range_mapper_invocable_for_kernel<rmfn1_t, 2, 3>);
 		static_assert(!is_range_mapper_invocable_for_kernel<rmfn1_t, 3, 3>);
 
-		auto rmfn2 = [](auto chnk, cl::sycl::range<2>) -> subrange<2> { return {}; };
+		auto rmfn2 = [](auto /*chnk*/, cl::sycl::range<2>) -> subrange<2> { return {}; };
 		using rmfn2_t = decltype(rmfn2);
 		static_assert(!is_range_mapper_invocable<rmfn2_t, 1>);
 		static_assert(is_range_mapper_invocable<rmfn2_t, 2>);
@@ -559,7 +559,7 @@ namespace detail {
 		static_assert(is_range_mapper_invocable_for_kernel<rmfn2_t, 2, 3>);
 		static_assert(!is_range_mapper_invocable_for_kernel<rmfn2_t, 3, 3>);
 
-		auto rmfn3 = [](chunk<3> chnk, auto range) -> subrange<range_dims<decltype(range)>> { return {}; };
+		auto rmfn3 = [](chunk<3> /*chnk*/, auto range) -> subrange<range_dims<decltype(range)>> { return {}; };
 		using rmfn3_t = decltype(rmfn3);
 		static_assert(is_range_mapper_invocable<rmfn3_t, 1>);
 		static_assert(is_range_mapper_invocable<rmfn3_t, 2>);
@@ -574,7 +574,7 @@ namespace detail {
 		static_assert(is_range_mapper_invocable_for_kernel<rmfn3_t, 2, 3>);
 		static_assert(is_range_mapper_invocable_for_kernel<rmfn3_t, 3, 3>);
 
-		auto rmfn4 = [](auto chnk, auto range) -> subrange<range_dims<decltype(range)>> { return {}; };
+		auto rmfn4 = [](auto /*chnk*/, auto range) -> subrange<range_dims<decltype(range)>> { return {}; };
 		using rmfn4_t = decltype(rmfn4);
 		static_assert(is_range_mapper_invocable<rmfn4_t, 1>);
 		static_assert(is_range_mapper_invocable<rmfn4_t, 2>);
@@ -839,7 +839,7 @@ namespace detail {
 		buffer<int, 1> buf_a(extents);
 		q.submit([=](handler& cgh) {
 			accessor acc{buf_a, cgh, celerity::access::all{}, celerity::write_only_host_task, celerity::no_init};
-			cgh.host_task(on_master_node, [] {});
+			cgh.host_task(on_master_node, [=] { (void)acc; });
 		});
 
 		SECTION("in a simple linear chain of tasks") {
@@ -849,7 +849,7 @@ namespace detail {
 			for(int i = 0; i < chain_length; ++i) {
 				q.submit([=](handler& cgh) {
 					accessor acc{buf_a, cgh, celerity::access::all{}, celerity::read_write_host_task};
-					cgh.host_task(on_master_node, [] {});
+					cgh.host_task(on_master_node, [=] { (void)acc; });
 				});
 
 				// we need to wait in each iteration, so that tasks are still generated after some have already been executed
@@ -937,6 +937,7 @@ namespace detail {
 			cgh.host_task(on_master_node, [=] {
 				(*append_owned).push_back(1);
 				(*append_ref).push_back(1);
+				(void)track_void;
 			});
 		});
 
@@ -947,6 +948,7 @@ namespace detail {
 			cgh.host_task(on_master_node, [=] {
 				append_owned->push_back(2);
 				append_ref->push_back(2);
+				(void)track_void;
 			});
 		});
 

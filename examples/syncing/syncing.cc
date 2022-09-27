@@ -2,7 +2,7 @@
 
 #include <celerity.h>
 
-int main(int argc, char* argv[]) {
+int main() {
 	constexpr size_t buf_size = 512;
 
 	celerity::distr_queue queue;

@@ -26,7 +26,7 @@ namespace detail {
 			b_id = celerity::detail::get_buffer_id(b);
 			q.submit([=](celerity::handler& cgh) {
 				celerity::accessor a{b, cgh, celerity::access::all(), celerity::write_only};
-				cgh.parallel_for<class UKN(i)>(b.get_range(), [=](celerity::item<1> it) {});
+				cgh.parallel_for<class UKN(i)>(b.get_range(), [=](celerity::item<1>) { (void)a; });
 			});
 			REQUIRE(bm.has_buffer(b_id));
 		}
@@ -36,7 +36,7 @@ namespace detail {
 		for(int i = 0; i < (new_horizon_step * 3 + 2); i++) {
 			q.submit([=](celerity::handler& cgh) {
 				celerity::accessor a{c, cgh, celerity::access::all(), celerity::write_only};
-				cgh.parallel_for<class UKN(i)>(c.get_range(), [=](celerity::item<1>) {});
+				cgh.parallel_for<class UKN(i)>(c.get_range(), [=](celerity::item<1>) { (void)a; });
 			});
 			// this sync is inside the loop because otherwise there is a race between the prepass and the executor informing the TDAG
 			// of the executed horizons, meaning that task deletion is not guaranteed.
@@ -180,7 +180,7 @@ namespace detail {
 
 			// Now request a 128 element buffer at offset 32, requiring the backing device buffer to be resized.
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {128}, {32}, true, [](cl::sycl::id<1> idx, bool current, size_t value) {
+				const bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {128}, {32}, true, [](cl::sycl::id<1> idx, bool current, size_t value) {
 					if(idx[0] < 96) return current && value == idx[0];
 					return current;
 				});
@@ -189,7 +189,7 @@ namespace detail {
 
 			// Finally, request 128 elements at offset 0, again requiring the backing device buffer to be resized.
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {128}, {0}, true, [](cl::sycl::id<1> idx, bool current, size_t value) {
+				const bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {128}, {0}, true, [](cl::sycl::id<1> idx, bool current, size_t value) {
 					if(idx[0] >= 32 && idx[0] < 96) return current && value == idx[0];
 					return current;
 				});
@@ -209,7 +209,7 @@ namespace detail {
 
 			// Now request a set of rows that partially intersect the columns from before, requiring the backing device buffer to be resized.
 			{
-				bool valid =
+				const bool valid =
 				    buffer_reduce<size_t, 2, class UKN(check)>(bid, tgt, {64, 128}, {64, 0}, true, [](cl::sycl::id<2> idx, bool current, size_t value) {
 					    if(idx[1] >= 64) return current && value == idx[0] * 100 + idx[1];
 					    return current;
@@ -251,7 +251,7 @@ namespace detail {
 
 			// Verify that the original 64 elements have not been retained during the resizing (unless we did a partial overwrite)
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {128}, {0}, true, [=](cl::sycl::id<1> idx, bool current, size_t value) {
+				const bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {128}, {0}, true, [=](cl::sycl::id<1> idx, bool current, size_t value) {
 					if(partial_overwrite) {
 						// If we did a partial overwrite, the first 32 elements should have been retained
 						if(idx[0] < 32) return current && value == 1337 + idx[0];
@@ -284,7 +284,7 @@ namespace detail {
 			    bid, get_other_target(tgt), {256}, {256}, [](cl::sycl::id<1> idx, size_t& value) { value = (512 - idx[0]) * 2; });
 
 			// Verify coherent full buffer is available on this side
-			bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {512}, {0}, true,
+			const bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {512}, {0}, true,
 			    [](cl::sycl::id<1> idx, bool current, size_t value) { return current && value == (idx[0] < 256 ? idx[0] : (512 - idx[0]) * 2); });
 			REQUIRE(valid);
 		};
@@ -304,7 +304,7 @@ namespace detail {
 			    bid, get_other_target(tgt), {overwrite_range}, {0}, [](cl::sycl::id<1> idx, size_t& value) { value = (idx[0] < 256 ? value * 2 : 33); });
 
 			// Verify result on this side
-			bool valid =
+			const bool valid =
 			    buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {overwrite_range}, {0}, true, [](cl::sycl::id<1> idx, bool current, size_t value) {
 				    if(idx[0] < 256) return current && value == idx[0] * 2;
 				    return current && value == 33;
@@ -334,8 +334,8 @@ namespace detail {
 			    bid, tgt, {128}, {0}, [](cl::sycl::id<1> idx, size_t& value) { /* NOP */ });
 
 			// Verify that buffer does not have initialized contents
-			bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {128}, {0}, true,
-			    [](cl::sycl::id<1> idx, bool current, size_t value) { return current && is_valid_buffer_test_mode_pattern(value); });
+			const bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {128}, {0}, true,
+			    [](cl::sycl::id<1> /*idx*/, bool current, size_t value) { return current && is_valid_buffer_test_mode_pattern(value); });
 			REQUIRE(valid);
 		};
 
@@ -361,12 +361,12 @@ namespace detail {
 
 			// Overwrite on this side using a pure producer mode, without requiring a resize
 			buffer_for_each<size_t, 1, cl::sycl::access::mode::discard_write, class UKN(overwrite)>(
-			    bid, tgt, {128}, {0}, [](cl::sycl::id<1> idx, size_t& value) { value = 33; });
+			    bid, tgt, {128}, {0}, [](cl::sycl::id<1> /*idx*/, size_t& value) { value = 33; });
 
 			// Verify that buffer contains new values
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
-				    bid, tgt, {128}, {0}, true, [](cl::sycl::id<1> idx, bool current, size_t value) { return current && value == 33; });
+				const bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
+				    bid, tgt, {128}, {0}, true, [](cl::sycl::id<1> /*idx*/, bool current, size_t value) { return current && value == 33; });
 				REQUIRE(valid);
 			}
 		};
@@ -413,7 +413,7 @@ namespace detail {
 
 			// Verify that the data is still what we expect.
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
+				const bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
 				    bid, access_target::host, {32}, {0}, true, [](cl::sycl::id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
 				REQUIRE(valid);
 			}
@@ -426,7 +426,7 @@ namespace detail {
 
 			// Access device buffer. This should still contain the original data.
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
+				const bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
 				    bid, access_target::device, {32}, {0}, true, [](cl::sycl::id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
 				REQUIRE(valid);
 			}
@@ -500,7 +500,7 @@ namespace detail {
 
 			// Request the first half on this side for reading, so that after this, the first half will exist on both sides.
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
+				const bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
 				    bid, tgt, {64}, {0}, true, [](cl::sycl::id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
 				CHECK(valid);
 				CHECK(get_backing_buffer_range<size_t, 1>(bid, tgt, {64}, {0}) == cl::sycl::range<1>{64});
@@ -513,7 +513,7 @@ namespace detail {
 			// TODO: This is a time-memory tradeoff and something we might want to change at some point.
 			//		 => In particular, if we won't need the first half ever again, this wastes both time and memory!
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
+				const bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
 				    bid, tgt, {64}, {64}, true, [](cl::sycl::id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
 				CHECK(valid);
 				// Check that the buffer has been resized to accomodate both halves.
@@ -540,7 +540,7 @@ namespace detail {
 
 			// Request a set of columns on this side, causing a coherence update.
 			{
-				bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, tgt, {128, 64}, {0, 64}, true,
+				const bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, tgt, {128, 64}, {0, 64}, true,
 				    [](cl::sycl::id<2> idx, bool current, size_t value) { return current && value == 1337 * idx[0] + 42 + idx[1]; });
 				CHECK(valid);
 			}
@@ -549,7 +549,7 @@ namespace detail {
 			// This resizing should retain the columns, but not introduce an additional coherence update in the empty area not covered by
 			// either the columns or rows (i.e., [0,0]-[64,64]).
 			{
-				bool valid =
+				const bool valid =
 				    buffer_reduce<size_t, 2, class UKN(check)>(bid, tgt, {64, 128}, {64, 0}, true, [](cl::sycl::id<2> idx, bool current, size_t value) {
 					    if(idx[1] >= 64) return current && value == 1337 * idx[0] + 42 + idx[1];
 					    return current;
@@ -563,8 +563,8 @@ namespace detail {
 
 			// While the backing buffer also includes the [0,0]-[64,64] region, this part should still be uninitialized.
 			{
-				bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, tgt, {64, 64}, {0, 0}, true,
-				    [=](cl::sycl::id<2> idx, bool current, size_t value) { return current && is_valid_buffer_test_mode_pattern(value); });
+				const bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, tgt, {64, 64}, {0, 0}, true,
+				    [=](cl::sycl::id<2> /*idx*/, bool current, size_t value) { return current && is_valid_buffer_test_mode_pattern(value); });
 				REQUIRE(valid);
 			}
 		};
@@ -589,14 +589,14 @@ namespace detail {
 
 			// Check that transfer has been correctly ingested
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check_second_half)>(
+				const bool valid = buffer_reduce<size_t, 1, class UKN(check_second_half)>(
 				    bid, tgt, {64}, {0}, true, [](cl::sycl::id<1> idx, bool current, size_t value) { return current && (value == (idx[0] < 32 ? 33 : 77)); });
 				REQUIRE(valid);
 			}
 
 			// Finally, check that accessing the other side now copies the transfer data as well
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check_second_half)>(bid, get_other_target(tgt), {64}, {0}, true,
+				const bool valid = buffer_reduce<size_t, 1, class UKN(check_second_half)>(bid, get_other_target(tgt), {64}, {0}, true,
 				    [](cl::sycl::id<1> idx, bool current, size_t value) { return current && (value == (idx[0] < 32 ? 33 : 77)); });
 				REQUIRE(valid);
 			}
@@ -625,7 +625,7 @@ namespace detail {
 
 			// Now read full range.
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
+				const bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
 				    bid, tgt, {96}, {0}, true, [](cl::sycl::id<1>, bool current, size_t value) { return current && value == 77; });
 				REQUIRE(valid);
 			}
@@ -658,7 +658,7 @@ namespace detail {
 
 			// Check that second half of buffer has been updated...
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {64}, {0}, true,
+				const bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {64}, {0}, true,
 				    [](cl::sycl::id<1> idx, bool current, size_t value) { return current && (value == (idx[0] < 32 ? idx[0] : 99)); });
 				REQUIRE(valid);
 			}
@@ -668,7 +668,7 @@ namespace detail {
 
 			// Check that remainder of buffer has been updated as well.
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {96}, {0}, true,
+				const bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {96}, {0}, true,
 				    [](cl::sycl::id<1> idx, bool current, size_t value) { return current && (value == (idx[0] < 32 ? idx[0] : 99)); });
 				REQUIRE(valid);
 			}
@@ -686,7 +686,7 @@ namespace detail {
 			buffer_for_each<size_t, 1, cl::sycl::access::mode::discard_write, class UKN(write_buffer)>(
 			    bid, get_other_target(tgt), {32}, {0}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0]; });
 			buffer_for_each<size_t, 1, cl::sycl::access::mode::read_write, class UKN(update_buffer)>(
-			    bid, tgt, {32}, {0}, [](cl::sycl::id<1> idx, size_t& value) { value += 1; });
+			    bid, tgt, {32}, {0}, [](cl::sycl::id<1> /*idx*/, size_t& value) { value += 1; });
 			std::vector<size_t> data(32);
 			bm.get_buffer_data(bid, {{0, 0, 0}, {32, 1, 1}}, data.data());
 			for(size_t i = 0; i < 32; ++i) {
@@ -727,7 +727,7 @@ namespace detail {
 			// Host buffers need to accomodate the full host-initialized data range.
 			REQUIRE(get_backing_buffer_range<size_t, 2>(bid, access_target::host, {7, 5}, {0, 0}) == cl::sycl::range<2>{size, size});
 
-			bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, access_target::host, {7, 5}, {0, 0}, true,
+			const bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, access_target::host, {7, 5}, {0, 0}, true,
 			    [](cl::sycl::id<2> idx, bool current, size_t value) { return current && (value == idx[0] * 5 + idx[1]); });
 			REQUIRE(valid);
 		}
@@ -736,7 +736,7 @@ namespace detail {
 			// Device buffers still are only as large as required.
 			REQUIRE(get_backing_buffer_range<size_t, 2>(bid, access_target::device, {7, 5}, {0, 0}) == cl::sycl::range<2>{7, 5});
 
-			bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, access_target::device, {7, 5}, {0, 0}, true,
+			const bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, access_target::device, {7, 5}, {0, 0}, true,
 			    [](cl::sycl::id<2> idx, bool current, size_t value) { return current && (value == idx[0] * 5 + idx[1]); });
 			REQUIRE(valid);
 		}
@@ -909,11 +909,11 @@ namespace detail {
 
 			cgh.parallel_for<class UKN(member_fn_test)>(range, [=](cl::sycl::id<1> id) {
 				// Copy ctor
-				decltype(device_acc_a1) device_acc_a2(device_acc_a1);
+				const decltype(device_acc_a1) device_acc_a2(device_acc_a1);
 				device_acc_a2[id] = 1 * id[0];
 
 				// Move ctor
-				decltype(device_acc_b1) device_acc_b2(std::move(device_acc_b1));
+				const decltype(device_acc_b1) device_acc_b2(std::move(device_acc_b1));
 				device_acc_b2[id] = 2 * id[0];
 
 				// Copy assignment
@@ -1099,7 +1099,7 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer_manager allows to set buffer debug names on  buffers", "[buffer_manager]") {
-		celerity::buffer<int, 1> buff_a(16);
+		const celerity::buffer<int, 1> buff_a(16);
 		std::string buff_name{"my_buffer"};
 		detail::runtime::get_instance().get_buffer_manager().set_debug_name(detail::get_buffer_id(buff_a), buff_name);
 		CHECK(detail::runtime::get_instance().get_buffer_manager().get_debug_name(detail::get_buffer_id(buff_a)) == buff_name);

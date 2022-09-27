@@ -123,7 +123,7 @@ namespace detail {
 			buffer_id bid;
 			const bool is_host_initialized = host_init_ptr != nullptr;
 			{
-				std::unique_lock lock(m_mutex);
+				const std::unique_lock lock(m_mutex);
 				bid = m_buffer_count++;
 				m_buffer_infos[bid] = buffer_info{range, sizeof(DataT), is_host_initialized};
 				m_newest_data_location.emplace(bid, region_map<data_location>(range, data_location::nowhere));
@@ -155,18 +155,18 @@ namespace detail {
 		 * This is useful in rare situations where worker nodes might receive data for buffers they haven't registered yet.
 		 */
 		bool has_buffer(buffer_id bid) const {
-			std::shared_lock lock(m_mutex);
+			const std::shared_lock lock(m_mutex);
 			return m_buffer_infos.count(bid) == 1;
 		}
 
 		bool has_active_buffers() const {
-			std::shared_lock lock(m_mutex);
+			const std::shared_lock lock(m_mutex);
 			return !m_buffer_infos.empty();
 		}
 
 		// returning copy of struct because FOR NOW it is not called in any performance critical section.
 		buffer_info get_buffer_info(buffer_id bid) const {
-			std::shared_lock lock(m_mutex);
+			const std::shared_lock lock(m_mutex);
 			assert(m_buffer_infos.find(bid) != m_buffer_infos.end());
 			return m_buffer_infos.at(bid);
 		}
@@ -198,7 +198,7 @@ namespace detail {
 		template <typename DataT, int Dims>
 		access_info<DataT, Dims, device_buffer> get_device_buffer(
 		    buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
-			std::unique_lock lock(m_mutex);
+			const std::unique_lock lock(m_mutex);
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 			assert((m_buffer_types.at(bid)->has_type<DataT, Dims>()));
 #endif
@@ -258,7 +258,7 @@ namespace detail {
 		template <typename DataT, int Dims>
 		access_info<DataT, Dims, host_buffer> get_host_buffer(
 		    buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
-			std::unique_lock lock(m_mutex);
+			const std::unique_lock lock(m_mutex);
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 			assert((m_buffer_types.at(bid)->has_type<DataT, Dims>()));
 #endif
@@ -315,12 +315,12 @@ namespace detail {
 		bool is_locked(buffer_id bid) const;
 
 		void set_debug_name(const buffer_id bid, const std::string& debug_name) {
-			std::lock_guard lock(m_mutex);
+			const std::lock_guard lock(m_mutex);
 			m_buffer_infos.at(bid).debug_name = debug_name;
 		}
 
 		std::string get_debug_name(const buffer_id bid) const {
-			std::lock_guard lock(m_mutex);
+			const std::lock_guard lock(m_mutex);
 			return m_buffer_infos.at(bid).debug_name;
 		}
 

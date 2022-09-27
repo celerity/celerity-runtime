@@ -22,7 +22,7 @@ namespace detail {
 	}
 
 	template <int KernelDims>
-	subrange<3> apply_range_mapper(range_mapper_base const* rm, const chunk<KernelDims>& chnk) {
+	subrange<3> apply_range_mapper(const range_mapper_base* rm, const chunk<KernelDims>& chnk) {
 		switch(rm->get_buffer_dimensions()) {
 		case 1: return subrange_cast<3>(rm->map_1(chnk));
 		case 2: return subrange_cast<3>(rm->map_2(chnk));
@@ -42,7 +42,7 @@ namespace detail {
 			auto rm = iter->second.get();
 			if(rm->get_access_mode() != mode) continue;
 
-			chunk<3> chnk{sr.offset, sr.range, global_size};
+			const chunk<3> chnk{sr.offset, sr.range, global_size};
 			subrange<3> req;
 			switch(kernel_dims) {
 			case 0:

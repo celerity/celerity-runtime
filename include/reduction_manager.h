@@ -50,24 +50,24 @@ namespace detail {
 	  public:
 		template <typename DataT, int Dims, typename BinaryOperation>
 		reduction_id create_reduction(const buffer_id bid, BinaryOperation op, DataT identity) {
-			std::lock_guard lock{m_mutex};
+			const std::lock_guard lock{m_mutex};
 			const auto rid = m_next_rid++;
 			m_reductions.emplace(rid, std::make_unique<buffer_reduction<DataT, Dims, BinaryOperation>>(bid, op, identity));
 			return rid;
 		}
 
 		bool has_reduction(reduction_id rid) const {
-			std::lock_guard lock{m_mutex};
+			const std::lock_guard lock{m_mutex};
 			return m_reductions.count(rid) != 0;
 		}
 
 		void push_overlapping_reduction_data(reduction_id rid, node_id source_nid, unique_payload_ptr data) {
-			std::lock_guard lock{m_mutex};
+			const std::lock_guard lock{m_mutex};
 			m_reductions.at(rid)->push_overlapping_data(source_nid, std::move(data));
 		}
 
 		void finish_reduction(reduction_id rid) {
-			std::lock_guard lock{m_mutex};
+			const std::lock_guard lock{m_mutex};
 			m_reductions.at(rid)->reduce_to_buffer();
 			m_reductions.erase(rid);
 		}

@@ -11,7 +11,7 @@ namespace detail {
 
 	void buffer_manager::unregister_buffer(buffer_id bid) noexcept {
 		{
-			std::unique_lock lock(m_mutex);
+			const std::unique_lock lock(m_mutex);
 			assert(m_buffer_infos.find(bid) != m_buffer_infos.end());
 
 			// Log the allocation size for host and device
@@ -31,7 +31,7 @@ namespace detail {
 	}
 
 	void buffer_manager::get_buffer_data(buffer_id bid, const subrange<3>& sr, void* out_linearized) {
-		std::unique_lock lock(m_mutex);
+		const std::unique_lock lock(m_mutex);
 		assert(m_buffers.count(bid) == 1 && (m_buffers.at(bid).device_buf.is_allocated() || m_buffers.at(bid).host_buf.is_allocated()));
 		auto data_locations = m_newest_data_location.at(bid).get_region_values(subrange_to_grid_box(sr));
 
@@ -66,7 +66,7 @@ namespace detail {
 	}
 
 	void buffer_manager::set_buffer_data(buffer_id bid, const subrange<3>& sr, unique_payload_ptr in_linearized) {
-		std::unique_lock lock(m_mutex);
+		const std::unique_lock lock(m_mutex);
 		assert(m_buffer_infos.count(bid) == 1);
 		m_scheduled_transfers[bid].push_back({std::move(in_linearized), sr});
 	}

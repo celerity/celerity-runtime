@@ -51,19 +51,19 @@ class benchmark_reporter_base : public Catch::StreamingReporterBase {
 	// TODO: Do we want to somehow report this?
 	void benchmarkFailed(Catch::StringRef benchmark_name) override { StreamingReporterBase::benchmarkFailed(benchmark_name); }
 
-	void sectionStarting(Catch::SectionInfo const& section_info) override {
+	void sectionStarting(const Catch::SectionInfo& section_info) override {
 		StreamingReporterBase::sectionStarting(section_info);
 		// Each test case has an implicit section with the name of the test case itself,
 		// so there is no need to capture that separately.
 		m_active_sections.push_back(section_info.name);
 	}
 
-	void testCasePartialEnded(Catch::TestCaseStats const& test_case_stats, uint64_t part_number) override {
+	void testCasePartialEnded(const Catch::TestCaseStats& test_case_stats, uint64_t part_number) override {
 		StreamingReporterBase::testCasePartialEnded(test_case_stats, part_number);
 		m_active_sections.clear();
 	}
 
-	void testRunEnded(Catch::TestRunStats const& test_run_stats) override {
+	void testRunEnded(const Catch::TestRunStats& test_run_stats) override {
 		StreamingReporterBase::testRunEnded(test_run_stats);
 		bool warning_printed = false;
 		for(auto it = m_test_case_benchmark_combinations.cbegin(); it != m_test_case_benchmark_combinations.cend(); ++it) {
@@ -104,12 +104,12 @@ class benchmark_csv_reporter : public benchmark_reporter_base {
 
 	static std::string getDescription() { return "Reporter for benchmarks in CSV format"; } // NOLINT(readability-identifier-naming)
 
-	void testRunStarting(Catch::TestRunInfo const& test_run_info) override {
+	void testRunStarting(const Catch::TestRunInfo& test_run_info) override {
 		benchmark_reporter_base::testRunStarting(test_run_info);
 		fmt::print(m_stream, "test case,benchmark name,samples,iterations,estimated,mean,low mean,high mean,std dev,low std dev,high std dev,raw\n");
 	}
 
-	void benchmarkEnded(Catch::BenchmarkStats<> const& benchmark_stats) override {
+	void benchmarkEnded(const Catch::BenchmarkStats<>& benchmark_stats) override {
 		benchmark_reporter_base::benchmarkEnded(benchmark_stats);
 		auto& info = benchmark_stats.info;
 		fmt::print(m_stream, "{},{},{},{},{},", escape_csv(get_test_case_name()), escape_csv(info.name), info.samples, info.iterations, info.estimatedDuration);
@@ -199,7 +199,7 @@ class benchmark_md_reporter : public benchmark_reporter_base {
 
 	static std::string getDescription() { return "Generates a Markdown report for benchmark results"; } // NOLINT(readability-identifier-naming)
 
-	void testRunStarting(Catch::TestRunInfo const& test_run_info) override {
+	void testRunStarting(const Catch::TestRunInfo& test_run_info) override {
 		benchmark_reporter_base::testRunStarting(test_run_info);
 
 		fmt::print(m_stream, "# Benchmark Results\n\n");
@@ -212,14 +212,14 @@ class benchmark_md_reporter : public benchmark_reporter_base {
 		meta_printer.print(m_stream);
 	}
 
-	void testRunEnded(Catch::TestRunStats const& test_run_stats) override {
+	void testRunEnded(const Catch::TestRunStats& test_run_stats) override {
 		benchmark_reporter_base::testRunEnded(test_run_stats);
 		fmt::print(m_stream, "\n\n");
 		m_results_printer.print(m_stream);
 		fmt::print(m_stream, "\nAll numbers are in nanoseconds.\n");
 	}
 
-	void benchmarkEnded(Catch::BenchmarkStats<> const& benchmark_stats) override {
+	void benchmarkEnded(const Catch::BenchmarkStats<>& benchmark_stats) override {
 		benchmark_reporter_base::benchmarkEnded(benchmark_stats);
 
 		const auto min = std::reduce(benchmark_stats.samples.cbegin(), benchmark_stats.samples.cend(),

@@ -54,7 +54,7 @@ static void read_hdf5_file(celerity::distr_queue& q, const celerity::buffer<floa
 }
 
 
-static void write_hdf5_file(celerity::distr_queue& q, const celerity::buffer<float, 2>& buffer, const char* file_name) {
+static void write_hdf5_file(celerity::distr_queue& q, celerity::buffer<float, 2> buffer, const char* file_name) {
 	q.submit([=](celerity::handler& cgh) {
 		celerity::accessor a{buffer, cgh, celerity::experimental::access::even_split<2>{}, celerity::read_only_host_task};
 		cgh.host_task(celerity::experimental::collective, [=](celerity::experimental::collective_partition part) {

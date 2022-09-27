@@ -19,6 +19,9 @@ Checks:
   -bugprone-easily-swappable-parameters,
   -bugprone-lambda-function-name,
   -bugprone-macro-parentheses,
+  misc-*,
+  -misc-no-recursion
+  -misc-non-private-member-variables-in-classes,
   # TODO: Figure out which ones we want to (at least partially) enable
   # clang-analyzer-*,
   # clang-diagnostic-*,
@@ -29,7 +32,9 @@ Checks:
   # -readability-uppercase-literal-suffix
 
 CheckOptions:
+  ####################
   # Naming conventions
+  ####################
   - key: readability-identifier-naming.ClassCase
     value: lower_case
   - key: readability-identifier-naming.ClassMethodCase
@@ -60,12 +65,21 @@ CheckOptions:
     value: m_
   - key: readability-identifier-naming.TemplateParameterCase
     value: CamelCase
+  ##########################
   # Other coding conventions
+  ##########################
   - key: readability-braces-around-statements.ShortStatementLines
     # Allow control-flow statements w/o braces when on a single line
     value: 1
+  ##########################
+  # Various check options
+  ##########################
+  - key: misc-const-correctness.TransformPointersAsValues
+    value: true
 
 # Treat naming violations as errors
+# TODO: Also add misc-const-correctness here once that's become more reliable (check again for Clang > 15)
 WarningsAsErrors: "readability-identifier-naming"
+
 # Use .clang-format configuration for fixes
 FormatStyle: file

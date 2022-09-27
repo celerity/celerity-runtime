@@ -26,7 +26,7 @@ namespace detail {
 		explicit epoch_monitor(const task_id epoch) : m_this_epoch(epoch) {}
 
 		task_id get() const {
-			std::lock_guard lock{m_mutex};
+			const std::lock_guard lock{m_mutex};
 			return m_this_epoch;
 		}
 
@@ -38,7 +38,7 @@ namespace detail {
 
 		void set(const task_id epoch) {
 			{
-				std::lock_guard lock{m_mutex};
+				const std::lock_guard lock{m_mutex};
 				assert(epoch >= m_this_epoch);
 				m_this_epoch = epoch;
 			}
@@ -63,7 +63,7 @@ namespace detail {
 		virtual ~task_manager() = default;
 
 		template <typename CGF, typename... Hints>
-		task_id submit_command_group(CGF cgf, Hints... hints) {
+		task_id submit_command_group(CGF cgf, Hints... /*hints*/) {
 			auto reservation = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
 			const auto tid = reservation.get_tid();
 

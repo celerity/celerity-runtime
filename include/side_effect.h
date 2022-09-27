@@ -4,7 +4,7 @@
 
 #include "handler.h"
 #include "host_object.h"
-
+#include "utils.h"
 
 namespace celerity::experimental {
 
@@ -17,6 +17,12 @@ class side_effect {
   public:
 	using object_type = typename host_object<T>::object_type;
 	constexpr static inline side_effect_order order = Order;
+
+	CELERITY_DETAIL_HACK_CLANG_TIDY_ALLOW_NON_CONST(side_effect)
+	side_effect(const side_effect&) = default;
+	side_effect(side_effect&&) noexcept = default;
+	side_effect& operator=(const side_effect&) = default;
+	side_effect& operator=(side_effect&&) noexcept = default;
 
 	explicit side_effect(const host_object<T>& object, handler& cgh) : m_object{object} {
 		if(detail::is_prepass_handler(cgh)) {

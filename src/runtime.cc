@@ -251,7 +251,7 @@ namespace detail {
 		if(is_master_node()) m_schdlr->notify_buffer_registered(bid, info.range);
 	}
 
-	void runtime::handle_buffer_unregistered(buffer_id bid) { maybe_destroy_runtime(); }
+	void runtime::handle_buffer_unregistered(buffer_id /*bid*/) { maybe_destroy_runtime(); }
 
 	void runtime::maybe_destroy_runtime() const {
 		if(m_test_active) return;

@@ -55,7 +55,7 @@ namespace detail {
 
 	void task_manager::await_epoch(task_id epoch) { m_latest_epoch_reached.await(epoch); }
 
-	GridRegion<3> get_requirements(task const& tsk, buffer_id bid, const std::vector<cl::sycl::access::mode> modes) {
+	GridRegion<3> get_requirements(const task& tsk, buffer_id bid, const std::vector<cl::sycl::access::mode> modes) {
 		const auto& access_map = tsk.get_buffer_access_map();
 		const subrange<3> full_range{tsk.get_global_offset(), tsk.get_global_size()};
 		GridRegion<3> result;
@@ -230,7 +230,7 @@ namespace detail {
 		const auto previous_horizon = m_current_horizon;
 		m_current_horizon = tid;
 
-		task& new_horizon = reduce_execution_front(std::move(reserve), task::make_horizon_task(*m_current_horizon));
+		const task& new_horizon = reduce_execution_front(std::move(reserve), task::make_horizon_task(*m_current_horizon));
 		if(previous_horizon) { set_epoch_for_new_tasks(*previous_horizon); }
 
 		invoke_callbacks(&new_horizon);
@@ -278,7 +278,7 @@ namespace detail {
 					                         "\nLikely due to generating a very large number of tasks with no dependencies.");
 				}
 			}
-			task_id reached_epoch = m_latest_epoch_reached.await(previous_free_tid + 1);
+			const task_id reached_epoch = m_latest_epoch_reached.await(previous_free_tid + 1);
 			m_task_buffer.delete_up_to(reached_epoch);
 		};
 	}

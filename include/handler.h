@@ -41,7 +41,7 @@ namespace detail {
 #if !defined(_MSC_VER)
 		const std::unique_ptr<char, void (*)(void*)> demangled(abi::__cxa_demangle(name.c_str(), nullptr, nullptr, nullptr), std::free);
 		const std::string demangled_s(demangled.get());
-		if(size_t lastc = demangled_s.rfind(":"); lastc != std::string::npos) {
+		if(const size_t lastc = demangled_s.rfind(":"); lastc != std::string::npos) {
 			name = demangled_s.substr(lastc + 1, demangled_s.length() - lastc - 1);
 		} else {
 			name = demangled_s;
@@ -262,7 +262,7 @@ class handler {
   private:
 	template <typename KernelFlavor, typename KernelName, int Dims, typename... ReductionsAndKernel, size_t... ReductionIndices>
 	void parallel_for_reductions_and_kernel(range<Dims> global_range, id<Dims> global_offset,
-	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_size, std::index_sequence<ReductionIndices...> indices,
+	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_size, std::index_sequence<ReductionIndices...> /*indices*/,
 	    ReductionsAndKernel&... kernel_and_reductions) {
 		auto args_tuple = std::forward_as_tuple(kernel_and_reductions...);
 		auto& kernel = std::get<sizeof...(kernel_and_reductions) - 1>(args_tuple);
@@ -511,7 +511,8 @@ namespace detail {
 	class reduction_descriptor;
 
 	template <typename DataT, int Dims, typename BinaryOperation, bool WithExplicitIdentity>
-	auto make_sycl_reduction(cl::sycl::handler& sycl_cgh, const reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>& d) {
+	auto make_sycl_reduction(
+	    [[maybe_unused]] cl::sycl::handler& sycl_cgh, [[maybe_unused]] const reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>& d) {
 #if !CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
@@ -559,7 +560,8 @@ namespace detail {
 	};
 
 	template <bool WithExplicitIdentity, typename DataT, int Dims, typename BinaryOperation>
-	auto make_reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation op, DataT identity, const cl::sycl::property_list& prop_list) {
+	auto make_reduction([[maybe_unused]] const buffer<DataT, Dims>& vars, [[maybe_unused]] handler& cgh, [[maybe_unused]] const BinaryOperation op,
+	    [[maybe_unused]] const DataT identity, [[maybe_unused]] const cl::sycl::property_list& prop_list) {
 #if !CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
@@ -657,7 +659,8 @@ void handler::host_task(range<Dims> global_range, id<Dims> global_offset, Functo
 }
 
 template <typename DataT, int Dims, typename BinaryOperation>
-auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
+auto reduction([[maybe_unused]] const buffer<DataT, Dims>& vars, [[maybe_unused]] handler& cgh, [[maybe_unused]] const BinaryOperation combiner,
+    [[maybe_unused]] const cl::sycl::property_list& prop_list = {}) {
 #if !CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 	static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
@@ -672,7 +675,8 @@ auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation co
 }
 
 template <typename DataT, int Dims, typename BinaryOperation>
-auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, const DataT identity, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
+auto reduction([[maybe_unused]] const buffer<DataT, Dims>& vars, [[maybe_unused]] handler& cgh, [[maybe_unused]] const DataT identity,
+    [[maybe_unused]] const BinaryOperation combiner, [[maybe_unused]] const cl::sycl::property_list& prop_list = {}) {
 #if !CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 	static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else

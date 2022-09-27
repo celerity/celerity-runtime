@@ -9,6 +9,7 @@
 #include "buffer_storage.h"
 #include "handler.h"
 #include "sycl_wrappers.h"
+#include "utils.h"
 
 namespace celerity {
 
@@ -221,17 +222,21 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	friend struct detail::accessor_testspy;
 
   public:
+	CELERITY_DETAIL_HACK_CLANG_TIDY_ALLOW_NON_CONST(accessor)
+	accessor(accessor&&) noexcept = default;
+	accessor& operator=(accessor&&) noexcept = default;
+
 	template <target Target = target::device, typename Functor>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) : accessor(construct<Target>(buff, cgh, rmfn)) {}
 
 	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag) : accessor(buff, cgh, rmfn) {}
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT /*tag*/) : accessor(buff, cgh, rmfn) {}
 
 	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property::no_init no_init) : accessor(buff, cgh, rmfn) {}
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT /*tag*/, property::no_init /*no_init*/) : accessor(buff, cgh, rmfn) {}
 
 	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property_list prop_list) {
+	accessor(const buffer<DataT, Dims>& /*buff*/, handler& /*cgh*/, Functor /*rmfn*/, TagT /*tag*/, property_list /*prop_list*/) {
 		// in this static assert it would be more relevant to use property_list type, but if a defined type is used then it is always false and
 		// always fails to compile. Hence we use a templated type so that it only produces a compile error when the ctr is called.
 		static_assert(detail::constexpr_false<TagT>,
@@ -249,6 +254,9 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		}
 		return *this;
 	}
+#else
+	accessor(const accessor&) = default;
+	accessor& operator=(const accessor&) = default;
 #endif
 
 	template <access_mode M = Mode, int D = Dims>
@@ -340,7 +348,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 			cl::sycl::buffer<DataT, Dims> faux_buf{detail::range_cast<Dims>(range{1, 1, 1})};
 			sycl_accessor_t sycl_accessor{faux_buf};
 #else
-			sycl_accessor_t sycl_accessor{};
+			const sycl_accessor_t sycl_accessor{};
 #endif
 			return {static_cast<cl::sycl::handler* const*>(nullptr), sycl_accessor, id<Dims>{}, detail::zero_range};
 		} else {
@@ -399,6 +407,18 @@ accessor(const buffer<T, D>& buff, handler& cgh, Functor rmfn, TagT tag, propert
 template <typename DataT, int Dims, access_mode Mode>
 class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_base<DataT, Dims, Mode, target::host_task> {
   public:
+	CELERITY_DETAIL_HACK_CLANG_TIDY_ALLOW_NON_CONST(accessor)
+	accessor(const accessor&) = default;
+	accessor& operator=(const accessor&) = default;
+	// The ComputeCpp legacy compiler seems to think that these can throw
+#if CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER
+	accessor(accessor&&) = default;
+	accessor& operator=(accessor&&) = default;
+#else
+	accessor(accessor&&) noexcept = default;
+	accessor& operator=(accessor&&) noexcept = default;
+#endif
+
 	template <target Target = target::host_task, typename Functor>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
 		static_assert(!std::is_same_v<Functor, range<Dims>>, "The accessor constructor overload for master-access tasks (now called 'host tasks') has "
@@ -430,17 +450,17 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	}
 
 	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag) : accessor(buff, cgh, rmfn) {}
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT /*tag*/) : accessor(buff, cgh, rmfn) {}
 
 	/**
 	 * TODO: As of ComputeCpp 2.5.0 they do not support no_init prop, hence this constructor is needed along with discard deduction guide.
 	 *    but once they do this should be replace for a constructor that takes a prop list as an argument.
 	 */
 	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property::no_init no_init) : accessor(buff, cgh, rmfn) {}
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT /*tag*/, property::no_init /*no_init*/) : accessor(buff, cgh, rmfn) {}
 
 	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property_list prop_list) {
+	accessor(const buffer<DataT, Dims>& /*buff*/, handler& /*cgh*/, Functor /*rmfn*/, TagT /*tag*/, property_list /*prop_list*/) {
 		static_assert(detail::constexpr_false<TagT>,
 		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
 		    "as a last argument in the constructor");
@@ -593,6 +613,10 @@ class local_accessor {
 	using reference = DataT&;
 	using const_reference = const DataT&;
 	using size_type = size_t;
+
+	CELERITY_DETAIL_HACK_CLANG_TIDY_ALLOW_NON_CONST(local_accessor)
+	local_accessor(local_accessor&&) noexcept = default;
+	local_accessor& operator=(local_accessor&&) noexcept = default;
 
 	local_accessor() : m_sycl_acc{make_placeholder_sycl_accessor()}, m_allocation_size(detail::zero_range) {}
 

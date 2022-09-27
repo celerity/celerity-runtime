@@ -52,7 +52,7 @@ TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 }
 
 TEST_CASE("command graph printing is unchanged", "[print_graph][command-graph]") {
-	size_t num_nodes = 4;
+	const size_t num_nodes = 4;
 	test_utils::cdag_test_context ctx(num_nodes);
 	auto& tm = ctx.get_task_manager();
 	auto& ggen = ctx.get_graph_generator();
@@ -101,7 +101,7 @@ TEST_CASE("command graph printing is unchanged", "[print_graph][command-graph]")
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "Buffer debug names show up in the generated graph", "[print_graph][buffer_names]") {
 	distr_queue q;
-	celerity::range<1> range(16);
+	const celerity::range<1> range(16);
 	celerity::buffer<int, 1> buff_a(range);
 	std::string buff_name{"my_buffer"};
 	celerity::debug::set_buffer_name(buff_a, buff_name);
@@ -109,7 +109,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "Buffer debug names show up in the
 
 	q.submit([=](handler& cgh) {
 		celerity::accessor acc{buff_a, cgh, celerity::access::all{}, celerity::write_only};
-		cgh.parallel_for<class UKN(print_graph_buffer_name)>(range, [=](item<1> item) {});
+		cgh.parallel_for<class UKN(print_graph_buffer_name)>(range, [=](item<1>) { (void)acc; });
 	});
 
 	// wait for commands to be generated in the scheduler thread

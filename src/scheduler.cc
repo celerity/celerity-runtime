@@ -52,7 +52,7 @@ namespace detail {
 
 	void abstract_scheduler::notify(const event& evt) {
 		{
-			std::lock_guard lk(m_events_mutex);
+			const std::lock_guard lk(m_events_mutex);
 			m_available_events.push(evt);
 		}
 		m_events_cv.notify_one();

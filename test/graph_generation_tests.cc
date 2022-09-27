@@ -520,7 +520,7 @@ namespace detail {
 			    depender, dependency, [](auto depender_cmd, auto dependency_cmd) { return !depender_cmd->has_dependency(dependency_cmd); });
 		};
 
-		experimental::collective_group group;
+		const experimental::collective_group group;
 		auto tid_master = test_utils::build_and_flush(ctx, 2, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler&) {}));
 		auto tid_collective_implicit_1 =
 		    test_utils::build_and_flush(ctx, 2, test_utils::add_host_task(ctx.get_task_manager(), experimental::collective, [&](handler&) {}));

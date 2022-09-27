@@ -10,6 +10,7 @@
 #include "ranges.h"
 #include "runtime.h"
 #include "sycl_wrappers.h"
+#include "utils.h"
 
 namespace celerity {
 
@@ -39,6 +40,8 @@ template <typename DataT, int Dims>
 class buffer {
   public:
 	static_assert(Dims > 0, "0-dimensional buffers NYI");
+
+	CELERITY_DETAIL_HACK_CLANG_TIDY_ALLOW_NON_CONST(buffer)
 
 	buffer(const DataT* host_ptr, celerity::range<Dims> range) {
 		if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr); }

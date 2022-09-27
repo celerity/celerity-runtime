@@ -27,6 +27,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "freeing task ring buffer capacity
 		q.submit(celerity::allow_by_ref, [=, &reached_ringbuffer_capacity](celerity::handler& cgh) {
 			celerity::accessor acc{dependency, cgh, celerity::access::all{}, celerity::read_write_host_task};
 			cgh.host_task(celerity::on_master_node, [=, &reached_ringbuffer_capacity] {
+				(void)acc;
 				while(!reached_ringbuffer_capacity.load())
 					; // we wait in all tasks so that we can make sure to fill the ring buffer completely
 					  // and therefore test that execution re-starts correctly once an epoch is reached

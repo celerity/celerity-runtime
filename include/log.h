@@ -56,7 +56,7 @@ namespace detail {
 	};
 
 #define CELERITY_DETAIL_LOG_SET_SCOPED_CTX(ctx)                                                                                                                \
-	log_ctx_setter _set_log_ctx_##__COUNTER__ { ctx }
+	const log_ctx_setter _set_log_ctx_##__COUNTER__ { ctx }
 
 	template <typename Tuple, typename Callback>
 	constexpr void tuple_for_each_pair_impl(const Tuple&, Callback&&, std::index_sequence<>) {}

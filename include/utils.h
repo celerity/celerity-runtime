@@ -3,7 +3,16 @@
 #include <cstdint>
 #include <functional>
 #include <type_traits>
+#include <utility>
 #include <variant>
+
+// Certain types such as buffers and accessors could technically be declared const in most
+// situations, as they are being captured by-value into the inner lambda, however we don't want
+// that as it gives the wrong semantic impression.
+// To work around this, we define a copy constructor that receives a non-const argument,
+// which tricks clang-tidy into thinking that the declaration cannot be made const.
+#define CELERITY_DETAIL_HACK_CLANG_TIDY_ALLOW_NON_CONST(type)                                                                                                  \
+	type(type& other) : type(std::as_const(other)) {}
 
 namespace celerity::detail::utils {
 

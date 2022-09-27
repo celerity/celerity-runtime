@@ -49,7 +49,7 @@ std::pair<bool, size_t> parse_uint(const char* str) {
 
 namespace celerity {
 namespace detail {
-	config::config(int* argc, char** argv[]) {
+	config::config(int* /*argc*/, char** /*argv*/[]) {
 		// TODO: At some point we might want to parse arguments from argv as well
 
 		{

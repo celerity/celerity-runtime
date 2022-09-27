@@ -51,7 +51,7 @@ namespace detail {
 	// --------------------------------------------------- HORIZON --------------------------------------------------------
 	// --------------------------------------------------------------------------------------------------------------------
 
-	std::string horizon_job::get_description(const command_pkg& pkg) { return "horizon"; }
+	std::string horizon_job::get_description(const command_pkg& /*pkg*/) { return "horizon"; }
 
 	bool horizon_job::execute(const command_pkg& pkg) {
 		const auto data = std::get<horizon_data>(pkg.data);
@@ -63,7 +63,7 @@ namespace detail {
 	// ---------------------------------------------------- EPOCH ---------------------------------------------------------
 	// --------------------------------------------------------------------------------------------------------------------
 
-	std::string epoch_job::get_description(const command_pkg& pkg) { return "epoch"; }
+	std::string epoch_job::get_description(const command_pkg& /*pkg*/) { return "epoch"; }
 
 	bool epoch_job::execute(const command_pkg& pkg) {
 		const auto data = std::get<epoch_data>(pkg.data);
@@ -128,7 +128,7 @@ namespace detail {
 		return true;
 	}
 
-	std::string reduction_job::get_description(const command_pkg& pkg) { return "reduction"; }
+	std::string reduction_job::get_description(const command_pkg& /*pkg*/) { return "reduction"; }
 
 	// --------------------------------------------------------------------------------------------------------------------
 	// --------------------------------------------------- HOST_EXECUTE ---------------------------------------------------

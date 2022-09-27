@@ -20,7 +20,7 @@ TEMPLATE_TEST_CASE_SIG("benchmark intrusive graph dependency handling with N nod
 	// existing nodes -- this is intentional; both cases are relevant in practise
 
 	BENCHMARK("creating nodes") {
-		bench_graph_node nodes[N];
+		const bench_graph_node nodes[N];
 		return nodes[N - 1].get_pseudo_critical_path_length(); // trick the compiler
 	};
 
@@ -376,7 +376,6 @@ template <typename BenchmarkContext>
 	step(up, u);
 
 	auto t = 0.0;
-	size_t i = 0;
 	while(t < T) {
 		step(up, u);
 		std::swap(u, up);

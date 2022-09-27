@@ -8,7 +8,7 @@ namespace detail {
 	struct buffer_manager_testspy {
 		template <typename DataT, int Dims>
 		static buffer_manager::access_info<DataT, Dims, device_buffer> get_device_buffer(buffer_manager& bm, buffer_id bid) {
-			std::unique_lock lock(bm.m_mutex);
+			const std::unique_lock lock(bm.m_mutex);
 			auto& buf = bm.m_buffers.at(bid).device_buf;
 			return {dynamic_cast<device_buffer_storage<DataT, Dims>*>(buf.storage.get())->get_device_buffer(), id_cast<Dims>(buf.offset)};
 		}
