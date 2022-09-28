@@ -88,11 +88,19 @@ int main() {
 	celerity::debug::set_buffer_name(mat_a_buf, "mat_a");
 	celerity::debug::set_buffer_name(mat_b_buf, "mat_b");
 
+	queue.slow_full_sync();
+	const auto before = std::chrono::steady_clock::now();
+
 	set_identity(queue, mat_a_buf, false);
 	set_identity(queue, mat_b_buf, true);
 
 	multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
 	multiply(queue, mat_b_buf, mat_c_buf, mat_a_buf);
+
+	queue.slow_full_sync();
+	const auto after = std::chrono::steady_clock::now();
+
+	fmt::print("Time: {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count());
 
 	bool verification_passed = true;
 	verify(queue, mat_a_buf, verification_passed);

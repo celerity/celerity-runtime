@@ -155,6 +155,9 @@ int main(int argc, char* argv[]) {
 		stream_append(queue, u, os); // Store initial state
 	}
 
+	queue.slow_full_sync();
+	const auto before = std::chrono::steady_clock::now();
+
 	auto t = 0.0;
 	size_t i = 0;
 	while(t < cfg.T) {
@@ -165,6 +168,11 @@ int main(int argc, char* argv[]) {
 		std::swap(u, up);
 		t += cfg.dt;
 	}
+
+	queue.slow_full_sync();
+	const auto after = std::chrono::steady_clock::now();
+
+	fmt::print("Time: {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count());
 
 	if(cfg.output_sample_rate > 0) { stream_close(queue, os); }
 
