@@ -59,31 +59,33 @@ namespace detail {
 
 	class push_command final : public abstract_command {
 		friend class command_graph;
-		push_command(command_id cid, node_id nid, buffer_id bid, reduction_id rid, node_id target, subrange<3> push_range)
-		    : abstract_command(cid, nid), m_bid(bid), m_rid(rid), m_target(target), m_push_range(push_range) {}
+		push_command(command_id cid, node_id nid, buffer_id bid, reduction_id rid, node_id target, transaction_id trid, subrange<3> push_range)
+		    : abstract_command(cid, nid), m_bid(bid), m_rid(rid), m_target(target), m_trid(trid), m_push_range(push_range) {}
 
 	  public:
 		buffer_id get_bid() const { return m_bid; }
 		reduction_id get_rid() const { return m_rid; }
 		node_id get_target() const { return m_target; }
+		transaction_id get_transaction_id() const { return m_trid; }
 		const subrange<3>& get_range() const { return m_push_range; }
 
 	  private:
 		buffer_id m_bid;
 		reduction_id m_rid;
 		node_id m_target;
+		transaction_id m_trid;
 		subrange<3> m_push_range;
 	};
 
 	class await_push_command final : public abstract_command {
 		friend class command_graph;
-		await_push_command(command_id cid, node_id nid, push_command* source) : abstract_command(cid, nid), m_source(source) { assert(source != nullptr); }
+		await_push_command(command_id cid, node_id nid, transaction_id trid) : abstract_command(cid, nid), m_trid(trid) {}
 
 	  public:
-		push_command* get_source() const { return m_source; }
+		transaction_id get_transaction_id() const { return m_trid; }
 
 	  private:
-		push_command* m_source;
+		transaction_id m_trid;
 	};
 
 	class data_request_command final : public abstract_command {

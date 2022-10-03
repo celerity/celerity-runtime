@@ -116,14 +116,110 @@ void distributed_graph_generator::build_task(const task& tsk) {
 	// FIXME: This only works if the number of chunks is an integer multiple of the number of workers, e.g. 3 chunks for 2 workers degrades to RR.
 	const auto chunks_per_node = std::max<size_t>(1, chunks.size() / m_num_nodes);
 
+	// for(size_t i = 0; i < chunks.size(); ++i) {
+	// 	assert(chunks[i].range.size() != 0);
+	// 	const node_id nid = (i / chunks_per_node) % m_num_nodes;
+	// 	if(nid == m_local_nid) {
+	// 		DEBUG_PRINT("Creating cmd for local chunk {}\n", chunks[i]);
+	// 		m_cdag.create<execution_command>(nid, tsk.get_id(), subrange{chunks[i]});
+	// 	}
+	// }
+
+
+	// NAIVE PUSH IMPLEMENTATION:
+	// Iterate over all remote chunks and find read requirements intersecting with owned buffer regions.
+	// Generate push commands for those regions; use per-node incrementing transaction id.
+	//	=> Need to use same task-based strategy to create one push for each last writer task.
+	// Iterate over all local chunks and find read requirements on remote data.
+	// Use current task-based approach to find last writers.
+
 	for(size_t i = 0; i < chunks.size(); ++i) {
-		assert(chunks[i].range.size() != 0);
 		const node_id nid = (i / chunks_per_node) % m_num_nodes;
-		if(nid == m_local_nid) {
+		const bool is_local_chunk = nid == m_local_nid;
+
+		auto requirements = get_buffer_requirements_for_mapped_access(tsk, chunks[i].range, tsk.get_global_size());
+
+		execution_command* cmd = nullptr;
+		if(is_local_chunk) {
 			DEBUG_PRINT("Creating cmd for local chunk {}\n", chunks[i]);
 			m_cdag.create<execution_command>(nid, tsk.get_id(), subrange{chunks[i]});
 		}
+
+		for(auto& [bid, reqs_by_mode] : requirements) {
+			auto& buffer_state = m_buffer_states.at(bid);
+
+			std::vector<access_mode> required_modes;
+			for(const auto mode : detail::access::all_modes) {
+				if(auto req_it = reqs_by_mode.find(mode); req_it != reqs_by_mode.end()) {
+					// While uncommon, we do support chunks that don't require access to a particular buffer at all.
+					if(!req_it->second.empty()) { required_modes.push_back(mode); }
+				}
+			}
+
+			for(const auto mode : required_modes) {
+				const auto& req = reqs_by_mode.at(mode);
+				if(detail::access::mode_traits::is_consumer(mode)) {
+					const auto local_sources = buffer_state.local_last_writer.get_region_values(req);
+
+					if(is_local_chunk) {
+						const auto local_sources = buffer_state.local_last_writer.get_region_values(req);
+						GridRegion<3> missing_parts;
+						for(const auto& [box, wcs] : local_sources) {
+							if(!wcs.is_fresh()) {
+								missing_parts = GridRegion<3>::merge(missing_parts, box);
+								continue;
+							}
+							m_cdag.add_dependency(cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
+						}
+
+						// TODO: This currently results in separate requests for each task that wrote a disjoint part. Do we want that? Or do we want to
+						// coalesce?
+						const auto task_sources = buffer_state.global_last_writer.get_region_values(missing_parts);
+						for(const auto& [box, src_tid] : task_sources) {
+							// TODO: Properly handle host-initialized buffers
+							assert(m_task_mngr.has_task(tid));
+							const auto& tsk = *m_task_mngr.get_task(src_tid);
+
+							///////////////////////// DRY THIS UP ////////////////////////////////
+
+							chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
+							const auto chunks = split_equal(full_chunk, tsk.get_granularity(), num_chunks, tsk.get_dimensions());
+							const auto chunks_per_node = std::max<size_t>(1, chunks.size() / m_num_nodes);
+							for(size_t i = 0; i < chunks.size(); ++i) {
+								assert(chunks[i].range.size() != 0);
+								[[maybe_unused]] const node_id nid = (i / chunks_per_node) % m_num_nodes;
+								// NOCOMMIT: We currently assume a 1-to-1 access mode (while any bijection is legal).
+								const auto overlap =
+								    GridBox<3>::intersect(subrange_to_grid_box(chunks[i]), box); // NOCOMMIT TODO: Wait, couldn't this be a region..?
+								if(!overlap.empty()) {
+									assert(nid != m_local_nid);
+									auto trid = m_per_node_transaction_ids[nid]++;
+									auto a_cmd = m_cdag.create<await_push_command>(trid);
+									m_cdag.add_dependency(cmd, a_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
+									generate_anti_dependencies(src_tid, bid, buffer_state.local_last_writer, overlap, dr_cmd);
+									// Remember that we have this data now
+									buffer_state.local_last_writer.update_region(overlap, dr_cmd->get_cid());
+								}
+							}
+
+							///////////////////////// DRY THIS UP ////////////////////////////////
+						}
+					} else {
+						// TODO: We may have to sort these by CID so that they are in sync with reader side (task based lookup)
+						for(const auto& [box, wcs] : local_sources) {
+							if(!wcs.is_fresh()) { continue; }
+							// Generate separate PUSH command for each last writer command for now
+							// TODO: Can we consolidate?
+							auto trid = m_per_node_transaction_ids[nid]++;
+							auto push_cmd = m_cdag.create<push_command>(m_local_nid, bid, 0, nid, grid_box_to_subrange(box));
+							// NOCOMMIT TODO Record read
+						}
+					}
+				}
+			}
+		}
 	}
+
 
 	////////////////////
 
@@ -138,6 +234,7 @@ void distributed_graph_generator::build_task(const task& tsk) {
 	//   - Update local region map
 	// 3. Update region map to reflect buffer state after task
 
+#if 0
 	const task_id tid = tsk.get_id();
 	const auto task_commands = m_cdag.task_commands(tid);
 	std::unordered_map<buffer_id, GridRegion<3>> per_buffer_local_writes;
@@ -215,6 +312,7 @@ void distributed_graph_generator::build_task(const task& tsk) {
 			}
 		}
 	}
+#endif
 
 	// Update task-level buffer states
 	auto requirements = get_buffer_requirements_for_mapped_access(tsk, subrange<3>(id<3>{}, tsk.get_global_size()), tsk.get_global_size());

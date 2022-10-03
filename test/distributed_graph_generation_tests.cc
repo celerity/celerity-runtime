@@ -373,6 +373,7 @@ task_id task_builder::step::submit() {
 	return tid;
 }
 
+#if 0
 TEST_CASE("FOO", "[bar]") {
 	dist_cdag_test_context dctx(2);
 
@@ -398,3 +399,30 @@ TEST_CASE("FOO", "[bar]") {
 	CHECK(transfers_d.count() == 2);
 	CHECK(cmds_b.has_successor(transfers_d, dependency_kind::anti_dep));
 }
+#else
+TEST_CASE("FOO PUSH", "[bar]") {
+	dist_cdag_test_context dctx(2);
+
+	const range<1> test_range = {128};
+
+	auto buf0 = dctx.create_buffer(test_range);
+	auto buf1 = dctx.create_buffer(test_range);
+
+	// FIXME: We can't use this for writing as we cannot invert it. Need higher-level mechanism.
+	const auto swap_rm = [test_range](chunk<1> chnk) { return subrange<1>{{test_range[0] - chnk.range[0] - chnk.offset[0]}, chnk.range}; };
+
+	dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, ::celerity::access::one_to_one{}).submit();
+	const auto tid_b = dctx.device_compute<class UKN(task_b)>(test_range).read(buf0, swap_rm).submit();
+	dctx.device_compute<class UKN(task_c)>(test_range).discard_write(buf0, ::celerity::access::one_to_one{}).submit();
+	const auto tid_d = dctx.device_compute<class UKN(task_d)>(test_range).read(buf0, swap_rm).submit();
+
+	// const auto cmds_b = dctx.query().find_all(tid_b);
+	// CHECK(cmds_b.count() == 2);
+	// CHECK(cmds_b.has_type(command_type::execution));
+
+	// const auto cmds_d = dctx.query().find_all(tid_d);
+	// const auto transfers_d = cmds_d.find_predecessors();
+	// CHECK(transfers_d.count() == 2);
+	// CHECK(cmds_b.has_successor(transfers_d, dependency_kind::anti_dep));
+}
+#endif

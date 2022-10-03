@@ -47,7 +47,7 @@ class distributed_graph_generator {
 
   public:
 	distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm)
-	    : m_num_nodes(num_nodes), m_local_nid(local_nid), m_cdag(cdag), m_task_mngr(tm) {}
+	    : m_num_nodes(num_nodes), m_local_nid(local_nid), m_cdag(cdag), m_task_mngr(tm), m_per_node_transaction_ids(num_nodes, 0) {}
 
 	void add_buffer(const buffer_id bid, const range<3>& range);
 
@@ -71,6 +71,7 @@ class distributed_graph_generator {
 	command_graph& m_cdag;
 	const task_manager& m_task_mngr;
 	std::unordered_map<buffer_id, buffer_state> m_buffer_states;
+	std::vector<transaction_id> m_per_node_transaction_ids;
 
 	// For proper handling of anti-dependencies we also have to store for each command which buffer regions it reads.
 	// We do this because we cannot reconstruct the requirements from a command within the graph alone (e.g. for compute commands).

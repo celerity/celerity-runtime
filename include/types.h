@@ -18,7 +18,7 @@ namespace detail {
 		using underlying_t = T;
 
 		constexpr PhantomType() = default;
-		constexpr PhantomType(T const& value) : m_value(value) {}
+		constexpr PhantomType(const T& value) : m_value(value) {}
 		constexpr PhantomType(T&& value) : m_value(std::move(value)) {}
 
 		// Allow implicit conversion to underlying type, otherwise it becomes too annoying to use.
@@ -56,6 +56,7 @@ MAKE_PHANTOM_TYPE(collective_group_id, size_t)
 MAKE_PHANTOM_TYPE(reduction_id, size_t)
 MAKE_PHANTOM_TYPE(host_object_id, size_t)
 MAKE_PHANTOM_TYPE(hydration_id, size_t);
+MAKE_PHANTOM_TYPE(transaction_id, size_t)
 
 
 // declared in this header for include-dependency reasons
