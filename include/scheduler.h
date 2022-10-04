@@ -19,7 +19,7 @@ namespace detail {
 	// Abstract base class to allow different threading implementation in tests
 	class abstract_scheduler {
 	  public:
-		abstract_scheduler(std::unique_ptr<distributed_graph_generator> dggen, executor& exec, size_t num_nodes);
+		abstract_scheduler(bool is_dry_run, std::unique_ptr<distributed_graph_generator> dggen, executor& exec, size_t num_nodes);
 
 		virtual ~abstract_scheduler() = default;
 
@@ -51,6 +51,7 @@ namespace detail {
 		};
 		using event = std::variant<event_shutdown, event_task_available, event_buffer_registered>;
 
+		bool m_is_dry_run;
 		std::unique_ptr<distributed_graph_generator> m_dggen;
 		executor& m_exec;
 

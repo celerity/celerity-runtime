@@ -148,7 +148,7 @@ namespace detail {
 		auto dggen = std::make_unique<distributed_graph_generator>(m_num_nodes, m_local_nid, *m_cdag, *m_task_mngr);
 		auto gser = std::make_unique<graph_serializer>(
 		    *m_cdag, [this](node_id target, unique_frame_ptr<command_frame> frame) { flush_command(target, std::move(frame)); });
-		m_schdlr = std::make_unique<scheduler>(std::move(dggen), *m_exec, m_num_nodes);
+		m_schdlr = std::make_unique<scheduler>(is_dry_run(), std::move(dggen), *m_exec, m_num_nodes);
 		m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
 
 		CELERITY_INFO(

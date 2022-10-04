@@ -11,8 +11,8 @@
 namespace celerity {
 namespace detail {
 
-	abstract_scheduler::abstract_scheduler(std::unique_ptr<distributed_graph_generator> dggen, executor& exec, size_t num_nodes)
-	    : m_dggen(std::move(dggen)), m_exec(exec), m_num_nodes(num_nodes) {
+	abstract_scheduler::abstract_scheduler(bool is_dry_run, std::unique_ptr<distributed_graph_generator> dggen, executor& exec, size_t num_nodes)
+	    : m_is_dry_run(is_dry_run), m_dggen(std::move(dggen)), m_exec(exec), m_num_nodes(num_nodes) {
 		assert(m_dggen != nullptr);
 	}
 
@@ -21,7 +21,7 @@ namespace detail {
 	void abstract_scheduler::schedule() {
 		// NOCOMMIT Get rid of this, no need to serialize commands
 		graph_serializer serializer(m_dggen->NOCOMMIT_get_cdag(), [this](node_id, unique_frame_ptr<command_frame> frame_ptr) {
-			//
+			if(m_is_dry_run && frame_ptr->pkg.get_command_type() != command_type::epoch) { return; }
 			m_exec.enqueue(std::move(frame_ptr));
 		});
 
