@@ -79,13 +79,20 @@ namespace detail {
 
 	class await_push_command final : public abstract_command {
 		friend class command_graph;
-		await_push_command(command_id cid, node_id nid, transaction_id trid) : abstract_command(cid, nid), m_trid(trid) {}
+		await_push_command(command_id cid, node_id nid, buffer_id bid, node_id source, transaction_id trid, subrange<3> range)
+		    : abstract_command(cid, nid), m_bid(bid), m_source(source), m_trid(trid), m_range(range) {}
 
 	  public:
+		buffer_id get_bid() const { return m_bid; }
+		node_id get_source() const { return m_source; }
 		transaction_id get_transaction_id() const { return m_trid; }
+		subrange<3> get_range() const { return m_range; }
 
 	  private:
+		buffer_id m_bid;
+		node_id m_source;
 		transaction_id m_trid;
+		subrange<3> m_range;
 	};
 
 	class data_request_command final : public abstract_command {
@@ -184,6 +191,7 @@ namespace detail {
 		buffer_id bid;
 		reduction_id rid;
 		node_id target;
+		transaction_id transaction;
 		subrange<3> sr;
 	};
 
@@ -191,7 +199,7 @@ namespace detail {
 		buffer_id bid;
 		reduction_id rid;
 		node_id source;
-		command_id source_cid;
+		transaction_id transaction;
 		subrange<3> sr;
 	};
 

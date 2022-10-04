@@ -38,7 +38,7 @@ namespace detail {
 		frame->sr = data.sr;
 		frame->bid = data.bid;
 		frame->rid = data.rid;
-		frame->push_cid = pkg.cid;
+		frame->trid = data.transaction;
 		bm.get_buffer_data(data.bid, data.sr, frame->data);
 
 		assert(frame.get_size_bytes() % send_recv_unit_bytes == 0);
@@ -66,9 +66,10 @@ namespace detail {
 
 		std::shared_ptr<incoming_transfer_handle> t_handle;
 		// Check to see if we have (fully) received the push already
-		if(m_push_blackboard.count(data.source_cid) != 0) {
-			t_handle = m_push_blackboard[data.source_cid];
-			m_push_blackboard.erase(data.source_cid);
+		const auto node_transaction = std::pair{data.source, data.transaction};
+		if(m_push_blackboard.count(node_transaction) != 0) {
+			t_handle = m_push_blackboard[node_transaction];
+			m_push_blackboard.erase(node_transaction);
 			assert(t_handle->transfer != nullptr);
 			assert(t_handle->transfer->frame->bid == data.bid);
 			assert(t_handle->transfer->frame->rid == data.rid);
@@ -78,7 +79,7 @@ namespace detail {
 		} else {
 			t_handle = std::make_shared<incoming_transfer_handle>();
 			// Store new handle so we can mark it as complete when the push is received
-			m_push_blackboard[data.source_cid] = t_handle;
+			m_push_blackboard[node_transaction] = t_handle;
 		}
 
 		return t_handle;
@@ -125,16 +126,17 @@ namespace detail {
 
 			// Check whether we already have an await push request
 			std::shared_ptr<incoming_transfer_handle> t_handle = nullptr;
-			if(m_push_blackboard.count(transfer->frame->push_cid) != 0) {
-				t_handle = m_push_blackboard[transfer->frame->push_cid];
-				m_push_blackboard.erase(transfer->frame->push_cid);
+			const auto node_transaction = std::pair{transfer->source_nid, transfer->frame->trid};
+			if(m_push_blackboard.count(node_transaction) != 0) {
+				t_handle = m_push_blackboard[node_transaction];
+				m_push_blackboard.erase(node_transaction);
 				assert(t_handle.use_count() > 1 && "Dangling await push request");
 				t_handle->transfer = std::move(*it);
 				commit_transfer(*t_handle->transfer);
 				t_handle->complete = true;
 			} else {
 				t_handle = std::make_shared<incoming_transfer_handle>();
-				m_push_blackboard[transfer->frame->push_cid] = t_handle;
+				m_push_blackboard[node_transaction] = t_handle;
 				t_handle->transfer = std::move(*it);
 				t_handle->complete = true;
 			}

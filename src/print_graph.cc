@@ -117,12 +117,13 @@ namespace detail {
 		} else if(const auto pcmd = dynamic_cast<const push_command*>(&cmd)) {
 			if(pcmd->get_rid()) { fmt::format_to(std::back_inserter(label), "(R{}) ", pcmd->get_rid()); }
 			const std::string bl = get_buffer_label(bm, pcmd->get_bid());
-			fmt::format_to(std::back_inserter(label), "<b>push</b> to N{}<br/> {} {}", pcmd->get_target(), bl, subrange_to_grid_box(pcmd->get_range()));
+			fmt::format_to(std::back_inserter(label), "<b>push</b> transaction {} to N{}<br/>B{} {}", pcmd->get_transaction_id(), pcmd->get_target(), bl,
+			    subrange_to_grid_box(pcmd->get_range()));
 		} else if(const auto apcmd = dynamic_cast<const await_push_command*>(&cmd)) {
-			if(apcmd->get_source()->get_rid()) { label += fmt::format("(R{}) ", apcmd->get_source()->get_rid()); }
-			const std::string bl = get_buffer_label(bm, apcmd->get_source()->get_bid());
-			fmt::format_to(std::back_inserter(label), "<b>await push</b> from N{}<br/> {} {}", apcmd->get_source()->get_nid(), bl,
-			    subrange_to_grid_box(apcmd->get_source()->get_range()));
+			// if(apcmd->get_source()->get_rid()) { label += fmt::format("(R{}) ", apcmd->get_source()->get_rid()); }
+			const std::string bl = get_buffer_label(bm, apcmd->get_bid());
+			fmt::format_to(std::back_inserter(label), "<b>await push</b> transaction {} from N{}<br/>B{} {}", apcmd->get_transaction_id(), apcmd->get_source(),
+			    bl, subrange_to_grid_box(apcmd->get_range()));
 		} else if(const auto drcmd = dynamic_cast<const data_request_command*>(&cmd)) {
 			fmt::format_to(std::back_inserter(label), "<b>request data</b> from N{}<br/>B{} {}", drcmd->get_source(), drcmd->get_bid(),
 			    subrange_to_grid_box(drcmd->get_range()));
@@ -205,10 +206,10 @@ namespace detail {
 			}
 
 			// Add a dashed line to the corresponding push
-			if(const auto apcmd = dynamic_cast<const await_push_command*>(cmd)) {
-				fmt::format_to(std::back_inserter(main_dot), "{}->{}[style=dashed color=gray40];", local_to_global_id(apcmd->get_source()->get_cid()),
-				    local_to_global_id(cmd->get_cid()));
-			}
+			// if(const auto apcmd = dynamic_cast<const await_push_command*>(cmd)) {
+			// 	fmt::format_to(std::back_inserter(main_dot), "{}->{}[style=dashed color=gray40];", local_to_global_id(apcmd->get_source()->get_cid()),
+			// 	    local_to_global_id(cmd->get_cid()));
+			// }
 		};
 
 		std::string result_dot = "digraph G{label=\"Command Graph\" "; // If this changes, also change in combine_command_graphs

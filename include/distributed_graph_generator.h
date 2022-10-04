@@ -17,19 +17,26 @@ class distributed_graph_generator {
 	// write_command_state is basically a command id with one bit of additional information:
 	// Whether the data written by this command is globally still the newest version ("fresh")
 	// or whether it has been superseded by a command on another node ("stale").
+	// => Now it's two bits: Also store whether data is replicated or not.
 	class write_command_state {
 		constexpr static int64_t mask = 1ull << 63;
+		constexpr static int64_t mask2 = 1ull << 62;
 		static_assert(sizeof(mask) == sizeof(command_id));
 
 	  public:
 		constexpr write_command_state() = default;
 		/* explicit(false) */ constexpr write_command_state(command_id cid) : m_cid(cid) {}
+		constexpr write_command_state(command_id cid, bool is_replicated) : m_cid(cid) {
+			if(is_replicated) { m_cid |= mask2; }
+		}
 
 		bool is_fresh() const { return !(m_cid & mask); }
 
+		bool is_replicated() const { return m_cid & mask2; }
+
 		void mark_as_stale() { m_cid |= mask; }
 
-		operator command_id() const { return m_cid & ~mask; }
+		operator command_id() const { return m_cid & ~mask & ~mask2; }
 
 		bool operator==(const write_command_state& other) const { return m_cid == other.m_cid; }
 

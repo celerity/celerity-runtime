@@ -373,8 +373,7 @@ task_id task_builder::step::submit() {
 	return tid;
 }
 
-#if 0
-TEST_CASE("FOO", "[bar]") {
+TEST_CASE("distributed push-model hello world", "[NOCOMMIT][dist-ggen]") {
 	dist_cdag_test_context dctx(2);
 
 	const range<1> test_range = {128};
@@ -385,44 +384,47 @@ TEST_CASE("FOO", "[bar]") {
 	// FIXME: We can't use this for writing as we cannot invert it. Need higher-level mechanism.
 	const auto swap_rm = [test_range](chunk<1> chnk) { return subrange<1>{{test_range[0] - chnk.range[0] - chnk.offset[0]}, chnk.range}; };
 
-	dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, ::celerity::access::one_to_one{}).submit();
+	const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, ::celerity::access::one_to_one{}).submit();
 	const auto tid_b = dctx.device_compute<class UKN(task_b)>(test_range).read(buf0, swap_rm).submit();
-	dctx.device_compute<class UKN(task_c)>(test_range).discard_write(buf0, ::celerity::access::one_to_one{}).submit();
+	const auto tid_c = dctx.device_compute<class UKN(task_c)>(test_range).discard_write(buf0, ::celerity::access::one_to_one{}).submit();
 	const auto tid_d = dctx.device_compute<class UKN(task_d)>(test_range).read(buf0, swap_rm).submit();
 
 	const auto cmds_b = dctx.query().find_all(tid_b);
 	CHECK(cmds_b.count() == 2);
 	CHECK(cmds_b.has_type(command_type::execution));
 
+	const auto pushes_c = dctx.query().find_all(tid_a).find_successors(dependency_kind::true_dep);
+	CHECK(pushes_c.count() == 2);
+	CHECK(pushes_c.has_type(command_type::push));
+
+	const auto pushes_d = dctx.query().find_all(tid_c).find_successors(dependency_kind::true_dep);
+	CHECK(pushes_d.count() == 2);
+	CHECK(pushes_d.has_type(command_type::push));
+
 	const auto cmds_d = dctx.query().find_all(tid_d);
-	const auto transfers_d = cmds_d.find_predecessors();
-	CHECK(transfers_d.count() == 2);
-	CHECK(cmds_b.has_successor(transfers_d, dependency_kind::anti_dep));
+	const auto await_pushes_d = cmds_d.find_predecessors();
+	CHECK(await_pushes_d.count() == 2);
+	CHECK(await_pushes_d.has_type(command_type::await_push));
+	CHECK(cmds_b.has_successor(await_pushes_d, dependency_kind::anti_dep));
 }
-#else
-TEST_CASE("FOO PUSH", "[bar]") {
+
+TEST_CASE("don't treat replicated data as owned", "[regression][dist-ggen]") {
 	dist_cdag_test_context dctx(2);
 
-	const range<1> test_range = {128};
+	const range<2> test_range = {128, 128};
 
 	auto buf0 = dctx.create_buffer(test_range);
 	auto buf1 = dctx.create_buffer(test_range);
 
-	// FIXME: We can't use this for writing as we cannot invert it. Need higher-level mechanism.
-	const auto swap_rm = [test_range](chunk<1> chnk) { return subrange<1>{{test_range[0] - chnk.range[0] - chnk.offset[0]}, chnk.range}; };
+	const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, ::celerity::access::one_to_one{}).submit();
+	const auto tid_b = dctx.device_compute<class UKN(task_b)>(test_range)
+	                       .read(buf0, ::celerity::access::slice<2>{0})
+	                       .discard_write(buf1, ::celerity::access::one_to_one{})
+	                       .submit();
 
-	dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, ::celerity::access::one_to_one{}).submit();
-	const auto tid_b = dctx.device_compute<class UKN(task_b)>(test_range).read(buf0, swap_rm).submit();
-	dctx.device_compute<class UKN(task_c)>(test_range).discard_write(buf0, ::celerity::access::one_to_one{}).submit();
-	const auto tid_d = dctx.device_compute<class UKN(task_d)>(test_range).read(buf0, swap_rm).submit();
-
-	// const auto cmds_b = dctx.query().find_all(tid_b);
-	// CHECK(cmds_b.count() == 2);
-	// CHECK(cmds_b.has_type(command_type::execution));
-
-	// const auto cmds_d = dctx.query().find_all(tid_d);
-	// const auto transfers_d = cmds_d.find_predecessors();
-	// CHECK(transfers_d.count() == 2);
-	// CHECK(cmds_b.has_successor(transfers_d, dependency_kind::anti_dep));
+	const auto pushes = dctx.query().find_all(command_type::push);
+	CHECK(pushes.count() == 2);
+	// Regression: Node 0 assumed that it owned the data it got pushed by node 1 for its chunk, so it generated a push for node 1's chunk.
+	CHECK(pushes.find_all(node_id(0)).count() == 1);
+	CHECK(pushes.find_all(node_id(1)).count() == 1);
 }
-#endif

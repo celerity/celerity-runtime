@@ -133,16 +133,17 @@ void distributed_graph_generator::build_task(const task& tsk) {
 	// Iterate over all local chunks and find read requirements on remote data.
 	// Use current task-based approach to find last writers.
 
+	std::unordered_map<buffer_id, GridRegion<3>> per_buffer_local_writes;
 	for(size_t i = 0; i < chunks.size(); ++i) {
 		const node_id nid = (i / chunks_per_node) % m_num_nodes;
 		const bool is_local_chunk = nid == m_local_nid;
 
-		auto requirements = get_buffer_requirements_for_mapped_access(tsk, chunks[i].range, tsk.get_global_size());
+		auto requirements = get_buffer_requirements_for_mapped_access(tsk, chunks[i], tsk.get_global_size());
 
 		execution_command* cmd = nullptr;
 		if(is_local_chunk) {
 			DEBUG_PRINT("Creating cmd for local chunk {}\n", chunks[i]);
-			m_cdag.create<execution_command>(nid, tsk.get_id(), subrange{chunks[i]});
+			cmd = m_cdag.create<execution_command>(nid, tsk.get_id(), subrange{chunks[i]});
 		}
 
 		for(auto& [bid, reqs_by_mode] : requirements) {
@@ -159,9 +160,10 @@ void distributed_graph_generator::build_task(const task& tsk) {
 			for(const auto mode : required_modes) {
 				const auto& req = reqs_by_mode.at(mode);
 				if(detail::access::mode_traits::is_consumer(mode)) {
-					const auto local_sources = buffer_state.local_last_writer.get_region_values(req);
-
 					if(is_local_chunk) {
+						// Store the read access for determining anti-dependencies later on
+						m_command_buffer_reads[cmd->get_cid()][bid] = GridRegion<3>::merge(m_command_buffer_reads[cmd->get_cid()][bid], req);
+
 						const auto local_sources = buffer_state.local_last_writer.get_region_values(req);
 						GridRegion<3> missing_parts;
 						for(const auto& [box, wcs] : local_sources) {
@@ -177,7 +179,7 @@ void distributed_graph_generator::build_task(const task& tsk) {
 						const auto task_sources = buffer_state.global_last_writer.get_region_values(missing_parts);
 						for(const auto& [box, src_tid] : task_sources) {
 							// TODO: Properly handle host-initialized buffers
-							assert(m_task_mngr.has_task(tid));
+							assert(m_task_mngr.has_task(tsk.get_id()));
 							const auto& tsk = *m_task_mngr.get_task(src_tid);
 
 							///////////////////////// DRY THIS UP ////////////////////////////////
@@ -194,27 +196,40 @@ void distributed_graph_generator::build_task(const task& tsk) {
 								if(!overlap.empty()) {
 									assert(nid != m_local_nid);
 									auto trid = m_per_node_transaction_ids[nid]++;
-									auto a_cmd = m_cdag.create<await_push_command>(trid);
+									auto a_cmd = m_cdag.create<await_push_command>(m_local_nid, bid, nid, trid, grid_box_to_subrange(overlap));
 									m_cdag.add_dependency(cmd, a_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
-									generate_anti_dependencies(src_tid, bid, buffer_state.local_last_writer, overlap, dr_cmd);
+									generate_anti_dependencies(src_tid, bid, buffer_state.local_last_writer, overlap, a_cmd);
 									// Remember that we have this data now
-									buffer_state.local_last_writer.update_region(overlap, dr_cmd->get_cid());
+									buffer_state.local_last_writer.update_region(overlap, {a_cmd->get_cid(), true});
 								}
 							}
 
 							///////////////////////// DRY THIS UP ////////////////////////////////
 						}
 					} else {
+						const auto local_sources = buffer_state.local_last_writer.get_region_values(req);
 						// TODO: We may have to sort these by CID so that they are in sync with reader side (task based lookup)
 						for(const auto& [box, wcs] : local_sources) {
-							if(!wcs.is_fresh()) { continue; }
+							if(!wcs.is_fresh() || wcs.is_replicated()) { continue; }
 							// Generate separate PUSH command for each last writer command for now
 							// TODO: Can we consolidate?
 							auto trid = m_per_node_transaction_ids[nid]++;
-							auto push_cmd = m_cdag.create<push_command>(m_local_nid, bid, 0, nid, grid_box_to_subrange(box));
-							// NOCOMMIT TODO Record read
+							auto push_cmd = m_cdag.create<push_command>(m_local_nid, bid, 0, nid, trid, grid_box_to_subrange(box));
+							m_cdag.add_dependency(push_cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
+
+							// Store the read access for determining anti-dependencies later on
+							m_command_buffer_reads[push_cmd->get_cid()][bid] = GridRegion<3>::merge(m_command_buffer_reads[push_cmd->get_cid()][bid], req);
 						}
 					}
+				}
+
+				if(is_local_chunk && detail::access::mode_traits::is_producer(mode)) {
+					generate_anti_dependencies(tsk.get_id(), bid, buffer_state.local_last_writer, req, cmd);
+
+					// NOCOMMIT Remember to not create intra-task anti-dependencies onto data requests for RW accesses
+					// NOCOMMIT Use update list to make RW accesses work
+					buffer_state.local_last_writer.update_region(req, cmd->get_cid());
+					per_buffer_local_writes[bid] = GridRegion<3>::merge(per_buffer_local_writes[bid], req);
 				}
 			}
 		}

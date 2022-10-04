@@ -46,7 +46,7 @@ namespace detail {
 			buffer_id bid;
 			reduction_id rid; // zero if this does not belong to a reduction
 			subrange<3> sr;
-			command_id push_cid;
+			transaction_id trid;
 			alignas(std::max_align_t) payload_type data[]; // max_align to allow reinterpret_casting a pointer to this member to any buffer element pointer
 		};
 
@@ -75,7 +75,7 @@ namespace detail {
 		// Here we store two types of handles:
 		//  - Incoming pushes that have not yet been requested through ::await_push
 		//  - Still outstanding pushes that have been requested through ::await_push
-		std::unordered_map<command_id, std::shared_ptr<incoming_transfer_handle>> m_push_blackboard;
+		std::unordered_map<std::pair<node_id, transaction_id>, std::shared_ptr<incoming_transfer_handle>, utils::pair_hash> m_push_blackboard;
 
 		mpi_support::data_type m_send_recv_unit;
 

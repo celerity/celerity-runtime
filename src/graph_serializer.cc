@@ -63,13 +63,14 @@ namespace detail {
 	}
 
 	void graph_serializer::flush_dependency(abstract_command* dep) const {
+		// NOCOMMIT: This seems to still work because of epochs. Not ideal but good enough for now.
 		// Special casing for await_push commands: Also flush the corresponding push.
 		// This is necessary as we would otherwise not reach it when starting from task commands alone
 		// (unless there exists an anti-dependency, which is not true in most cases).
-		if(isa<await_push_command>(dep)) {
-			const auto pcmd = static_cast<await_push_command*>(dep)->get_source();
-			if(!pcmd->is_flushed()) flush_dependency(pcmd);
-		}
+		// if(isa<await_push_command>(dep)) {
+		// 	const auto pcmd = static_cast<await_push_command*>(dep)->get_source();
+		// 	if(!pcmd->is_flushed()) flush_dependency(pcmd);
+		// }
 
 		std::vector<command_id> dep_deps;
 		// Iterate over second level of dependencies. These will usually be flushed already. One notable exception are reduction dependencies, which generate
@@ -96,10 +97,9 @@ namespace detail {
 		} else if(const auto* xcmd = dynamic_cast<execution_command*>(cmd)) {
 			frame->pkg.data = execution_data{xcmd->get_tid(), xcmd->get_execution_range(), xcmd->is_reduction_initializer()};
 		} else if(const auto* pcmd = dynamic_cast<push_command*>(cmd)) {
-			frame->pkg.data = push_data{pcmd->get_bid(), pcmd->get_rid(), pcmd->get_target(), pcmd->get_range()};
+			frame->pkg.data = push_data{pcmd->get_bid(), pcmd->get_rid(), pcmd->get_target(), pcmd->get_transaction_id(), pcmd->get_range()};
 		} else if(const auto* apcmd = dynamic_cast<await_push_command*>(cmd)) {
-			auto* source = apcmd->get_source();
-			frame->pkg.data = await_push_data{source->get_bid(), source->get_rid(), source->get_nid(), source->get_cid(), source->get_range()};
+			frame->pkg.data = await_push_data{apcmd->get_bid(), 0 /* FIXME */, apcmd->get_source(), apcmd->get_transaction_id(), apcmd->get_range()};
 		} else if(const auto* drcmd = dynamic_cast<data_request_command*>(cmd)) {
 			frame->pkg.data = data_request_data{drcmd->get_bid(), drcmd->get_source(), drcmd->get_range()};
 		} else if(const auto* rcmd = dynamic_cast<reduction_command*>(cmd)) {

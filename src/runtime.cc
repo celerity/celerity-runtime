@@ -243,6 +243,7 @@ namespace detail {
 							graphs.push_back(std::move(graph));
 						}
 					}
+					std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Avoid racing stdout
 					CELERITY_TRACE("Command graph:\n\n{}\n", combine_command_graphs(graphs));
 				}
 			}
