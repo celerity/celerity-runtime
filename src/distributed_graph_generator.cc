@@ -10,6 +10,16 @@
 
 namespace celerity::detail {
 
+distributed_graph_generator::distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm)
+    : m_num_nodes(num_nodes), m_local_nid(local_nid), m_cdag(cdag), m_task_mngr(tm) {
+	// Build initial epoch command (this is required to properly handle anti-dependencies on host-initialized buffers).
+	// We manually generate the first command, this will be replaced by applied horizons or explicit epochs down the line (see
+	// set_epoch_for_new_commands).
+	const auto epoch_cmd = cdag.create<epoch_command>(m_local_nid, task_manager::initial_epoch_task, epoch_action::none);
+	epoch_cmd->mark_as_flushed(); // there is no point in flushing the initial epoch command
+	m_epoch_for_new_commands = epoch_cmd->get_cid();
+}
+
 void distributed_graph_generator::add_buffer(const buffer_id bid, const range<3>& range) {
 	m_buffer_states.try_emplace(bid, buffer_state{range});
 	m_buffer_states.at(bid).local_last_writer.update_region(subrange_to_grid_box({id<3>(), range}), no_command);
@@ -92,15 +102,21 @@ static buffer_requirements_map get_buffer_requirements_for_mapped_access(const t
 void distributed_graph_generator::build_task(const task& tsk) {
 	if(tsk.get_type() == task_type::epoch) {
 		generate_epoch_command(tsk);
-		return;
-	}
-
-	if(tsk.get_type() == task_type::horizon) {
+	} else if(tsk.get_type() == task_type::horizon) {
 		generate_horizon_command(tsk);
-		return;
+	} else if(tsk.get_type() == task_type::device_compute || tsk.get_type() == task_type::host_compute) {
+		generate_execution_commands(tsk);
+	} else {
+		throw std::runtime_error("Task type NYI");
 	}
 
-	if(tsk.get_type() != task_type::device_compute && tsk.get_type() != task_type::host_compute) { throw std::runtime_error("Task type NYI"); }
+	// Commands without any other true-dependency must depend on the active epoch command to ensure they cannot be re-ordered before the epoch
+	for(const auto cmd : m_cdag.task_commands(tsk.get_id())) {
+		generate_epoch_dependencies(cmd);
+	}
+}
+
+void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 	assert(tsk.has_variable_split()); // NOCOMMIT Not true for master tasks (TODO: rename single-node tasks? or just make it the default?)
 
 	const size_t num_chunks = m_num_nodes; // TODO Make configurable
@@ -169,6 +185,7 @@ void distributed_graph_generator::build_task(const task& tsk) {
 							auto ap_cmd = m_cdag.create<await_push_command>(m_local_nid, bid, trid, missing_parts);
 							m_cdag.add_dependency(cmd, ap_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
 							generate_anti_dependencies(tsk.get_id(), bid, buffer_state.local_last_writer, missing_parts, ap_cmd);
+							generate_epoch_dependencies(ap_cmd);
 							// Remember that we have this data now
 							buffer_state.local_last_writer.update_region(missing_parts, {ap_cmd->get_cid(), true});
 						}
@@ -268,6 +285,15 @@ void distributed_graph_generator::generate_anti_dependencies(
 	}
 }
 
+void distributed_graph_generator::set_epoch_for_new_commands(const abstract_command* const epoch_or_horizon) {
+	// both an explicit epoch command and an applied horizon can be effective epochs
+	assert(isa<epoch_command>(epoch_or_horizon) || isa<horizon_command>(epoch_or_horizon));
+
+	// TODO: Apply epoch to data all tracking structures
+
+	m_epoch_for_new_commands = epoch_or_horizon->get_cid();
+}
+
 void distributed_graph_generator::reduce_execution_front_to(abstract_command* const new_front) {
 	const auto nid = new_front->get_nid();
 	const auto previous_execution_front = m_cdag.get_execution_front(nid);
@@ -281,6 +307,7 @@ void distributed_graph_generator::reduce_execution_front_to(abstract_command* co
 void distributed_graph_generator::generate_epoch_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::epoch);
 	const auto epoch = m_cdag.create<epoch_command>(m_local_nid, tsk.get_id(), tsk.get_epoch_action());
+	set_epoch_for_new_commands(epoch);
 	// Make the epoch depend on the previous execution front
 	reduce_execution_front_to(epoch);
 }
@@ -291,6 +318,24 @@ void distributed_graph_generator::generate_horizon_command(const task& tsk) {
 	const auto horizon = m_cdag.create<horizon_command>(m_local_nid, tsk.get_id());
 	// Make the horizon depend on the previous execution front
 	reduce_execution_front_to(horizon);
+}
+
+void distributed_graph_generator::generate_epoch_dependencies(abstract_command* cmd) {
+	// No command must be re-ordered before its last preceding epoch to enforce the barrier semantics of epochs.
+	// To guarantee that each node has a transitive true dependency (=temporal dependency) on the epoch, it is enough to add an epoch -> command dependency
+	// to any command that has no other true dependencies itself and no graph traversal is necessary. This can be verified by a simple induction proof.
+
+	// As long the first epoch is present in the graph, all transitive dependencies will be visible and the initial epoch commands (tid 0) are the only
+	// commands with no true predecessor. As soon as the first epoch is pruned through the horizon mechanism however, more than one node with no true
+	// predecessor can appear (when visualizing the graph). This does not violate the ordering constraint however, because all "free-floating" nodes
+	// in that snapshot had a true-dependency chain to their predecessor epoch at the point they were flushed, which is sufficient for following the
+	// dependency chain from the executor perspective.
+
+	if(const auto deps = cmd->get_dependencies();
+	    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::true_dep; })) {
+		assert(cmd->get_cid() != m_epoch_for_new_commands);
+		m_cdag.add_dependency(cmd, m_cdag.get(m_epoch_for_new_commands), dependency_kind::true_dep, dependency_origin::last_epoch);
+	}
 }
 
 } // namespace celerity::detail

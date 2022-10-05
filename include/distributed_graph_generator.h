@@ -51,8 +51,7 @@ class distributed_graph_generator {
 	};
 
   public:
-	distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm)
-	    : m_num_nodes(num_nodes), m_local_nid(local_nid), m_cdag(cdag), m_task_mngr(tm) {}
+	distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm);
 
 	void add_buffer(const buffer_id bid, const range<3>& range);
 
@@ -61,14 +60,20 @@ class distributed_graph_generator {
 	command_graph& NOCOMMIT_get_cdag() { return m_cdag; }
 
   private:
+	void generate_execution_commands(const task& tsk);
+
 	void generate_anti_dependencies(
 	    task_id tid, buffer_id bid, const region_map<write_command_state>& last_writers_map, const GridRegion<3>& write_req, abstract_command* write_cmd);
+
+	void set_epoch_for_new_commands(const abstract_command* const epoch_or_horizon);
 
 	void reduce_execution_front_to(abstract_command* const new_front);
 
 	void generate_epoch_command(const task& tsk);
 
 	void generate_horizon_command(const task& tsk);
+
+	void generate_epoch_dependencies(abstract_command* cmd);
 
   private:
 	using buffer_read_map = std::unordered_map<buffer_id, GridRegion<3>>;
@@ -78,6 +83,7 @@ class distributed_graph_generator {
 	command_graph& m_cdag;
 	const task_manager& m_task_mngr;
 	std::unordered_map<buffer_id, buffer_state> m_buffer_states;
+	command_id m_epoch_for_new_commands;
 
 	// For proper handling of anti-dependencies we also have to store for each command which buffer regions it reads.
 	// We do this because we cannot reconstruct the requirements from a command within the graph alone (e.g. for compute commands).
