@@ -70,6 +70,8 @@ class distributed_graph_generator {
 
 	void generate_epoch_command(const task& tsk);
 
+	void generate_horizon_command(const task& tsk);
+
   private:
 	using buffer_read_map = std::unordered_map<buffer_id, GridRegion<3>>;
 

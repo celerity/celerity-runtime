@@ -90,15 +90,17 @@ static buffer_requirements_map get_buffer_requirements_for_mapped_access(const t
 //       - Facilitate conflict resolution through copying
 //       - Facilitate partial execution ("sub splits")
 void distributed_graph_generator::build_task(const task& tsk) {
-	DEBUG_PRINT("Processing task {}\n", tsk.get_id());
-
 	if(tsk.get_type() == task_type::epoch) {
-		DEBUG_PRINT("Generating epoch\n");
 		generate_epoch_command(tsk);
 		return;
 	}
 
-	if(tsk.get_type() != task_type::device_compute && tsk.get_type() != task_type::host_compute) return; // NOCOMMIT
+	if(tsk.get_type() == task_type::horizon) {
+		generate_horizon_command(tsk);
+		return;
+	}
+
+	if(tsk.get_type() != task_type::device_compute && tsk.get_type() != task_type::host_compute) { throw std::runtime_error("Task type NYI"); }
 	assert(tsk.has_variable_split()); // NOCOMMIT Not true for master tasks (TODO: rename single-node tasks? or just make it the default?)
 
 	const size_t num_chunks = m_num_nodes; // TODO Make configurable
@@ -141,10 +143,7 @@ void distributed_graph_generator::build_task(const task& tsk) {
 		auto requirements = get_buffer_requirements_for_mapped_access(tsk, chunks[i], tsk.get_global_size());
 
 		execution_command* cmd = nullptr;
-		if(is_local_chunk) {
-			DEBUG_PRINT("Creating cmd for local chunk {}\n", chunks[i]);
-			cmd = m_cdag.create<execution_command>(nid, tsk.get_id(), subrange{chunks[i]});
-		}
+		if(is_local_chunk) { cmd = m_cdag.create<execution_command>(nid, tsk.get_id(), subrange{chunks[i]}); }
 
 		for(auto& [bid, reqs_by_mode] : requirements) {
 			auto& buffer_state = m_buffer_states.at(bid);
@@ -407,11 +406,20 @@ void distributed_graph_generator::reduce_execution_front_to(abstract_command* co
 	assert(m_cdag.get_execution_front(nid).size() == 1 && *m_cdag.get_execution_front(nid).begin() == new_front);
 }
 
+// NOCOMMIT TODO: Apply epoch to data structures
 void distributed_graph_generator::generate_epoch_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::epoch);
 	const auto epoch = m_cdag.create<epoch_command>(m_local_nid, tsk.get_id(), tsk.get_epoch_action());
 	// Make the epoch depend on the previous execution front
 	reduce_execution_front_to(epoch);
+}
+
+// NOCOMMIT TODO: Apply previous horizon to data structures
+void distributed_graph_generator::generate_horizon_command(const task& tsk) {
+	assert(tsk.get_type() == task_type::horizon);
+	const auto horizon = m_cdag.create<horizon_command>(m_local_nid, tsk.get_id());
+	// Make the horizon depend on the previous execution front
+	reduce_execution_front_to(horizon);
 }
 
 } // namespace celerity::detail
