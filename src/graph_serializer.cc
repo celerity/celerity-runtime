@@ -97,9 +97,18 @@ namespace detail {
 		} else if(const auto* xcmd = dynamic_cast<execution_command*>(cmd)) {
 			frame->pkg.data = execution_data{xcmd->get_tid(), xcmd->get_execution_range(), xcmd->is_reduction_initializer()};
 		} else if(const auto* pcmd = dynamic_cast<push_command*>(cmd)) {
-			frame->pkg.data = push_data{pcmd->get_bid(), pcmd->get_rid(), pcmd->get_target(), pcmd->get_transaction_id(), pcmd->get_range()};
+			frame->pkg.data = push_data{pcmd->get_bid(), pcmd->get_rid(), pcmd->get_target(), pcmd->get_transfer_id(), pcmd->get_range()};
 		} else if(const auto* apcmd = dynamic_cast<await_push_command*>(cmd)) {
-			frame->pkg.data = await_push_data{apcmd->get_bid(), 0 /* FIXME */, apcmd->get_source(), apcmd->get_transaction_id(), apcmd->get_range()};
+			subrange<3> region[await_push_data::max_subranges] = {};
+			size_t i = 0;
+			apcmd->get_region().scanByBoxes([&](const GridBox<3>& box) {
+				if(i >= await_push_data::max_subranges) throw std::runtime_error("NOPE");
+				region[i++] = grid_box_to_subrange(box);
+			});
+			auto apd = await_push_data{apcmd->get_bid(), 0 /* FIXME */, apcmd->get_transfer_id(), 0, {}};
+			apd.num_subranges = i;
+			std::memcpy(&apd.region[0], &region[0], sizeof(region));
+			frame->pkg.data = std::move(apd);
 		} else if(const auto* drcmd = dynamic_cast<data_request_command*>(cmd)) {
 			frame->pkg.data = data_request_data{drcmd->get_bid(), drcmd->get_source(), drcmd->get_range()};
 		} else if(const auto* rcmd = dynamic_cast<reduction_command*>(cmd)) {

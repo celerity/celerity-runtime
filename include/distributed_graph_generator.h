@@ -48,13 +48,11 @@ class distributed_graph_generator {
 
 	struct buffer_state {
 		region_map<write_command_state> local_last_writer;
-		// This is an optimization; we could also walk the task graph to figure this out each time we don't have newest data locally.
-		region_map<task_id> global_last_writer;
 	};
 
   public:
 	distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm)
-	    : m_num_nodes(num_nodes), m_local_nid(local_nid), m_cdag(cdag), m_task_mngr(tm), m_per_node_transaction_ids(num_nodes, 0) {}
+	    : m_num_nodes(num_nodes), m_local_nid(local_nid), m_cdag(cdag), m_task_mngr(tm) {}
 
 	void add_buffer(const buffer_id bid, const range<3>& range);
 
@@ -80,7 +78,6 @@ class distributed_graph_generator {
 	command_graph& m_cdag;
 	const task_manager& m_task_mngr;
 	std::unordered_map<buffer_id, buffer_state> m_buffer_states;
-	std::vector<transaction_id> m_per_node_transaction_ids;
 
 	// For proper handling of anti-dependencies we also have to store for each command which buffer regions it reads.
 	// We do this because we cannot reconstruct the requirements from a command within the graph alone (e.g. for compute commands).

@@ -59,40 +59,38 @@ namespace detail {
 
 	class push_command final : public abstract_command {
 		friend class command_graph;
-		push_command(command_id cid, node_id nid, buffer_id bid, reduction_id rid, node_id target, transaction_id trid, subrange<3> push_range)
+		push_command(command_id cid, node_id nid, buffer_id bid, reduction_id rid, node_id target, transfer_id trid, subrange<3> push_range)
 		    : abstract_command(cid, nid), m_bid(bid), m_rid(rid), m_target(target), m_trid(trid), m_push_range(push_range) {}
 
 	  public:
 		buffer_id get_bid() const { return m_bid; }
 		reduction_id get_rid() const { return m_rid; }
 		node_id get_target() const { return m_target; }
-		transaction_id get_transaction_id() const { return m_trid; }
+		transfer_id get_transfer_id() const { return m_trid; }
 		const subrange<3>& get_range() const { return m_push_range; }
 
 	  private:
 		buffer_id m_bid;
 		reduction_id m_rid;
 		node_id m_target;
-		transaction_id m_trid;
+		transfer_id m_trid;
 		subrange<3> m_push_range;
 	};
 
 	class await_push_command final : public abstract_command {
 		friend class command_graph;
-		await_push_command(command_id cid, node_id nid, buffer_id bid, node_id source, transaction_id trid, subrange<3> range)
-		    : abstract_command(cid, nid), m_bid(bid), m_source(source), m_trid(trid), m_range(range) {}
+		await_push_command(command_id cid, node_id nid, buffer_id bid, transfer_id trid, GridRegion<3> region)
+		    : abstract_command(cid, nid), m_bid(bid), m_trid(trid), m_region(region) {}
 
 	  public:
 		buffer_id get_bid() const { return m_bid; }
-		node_id get_source() const { return m_source; }
-		transaction_id get_transaction_id() const { return m_trid; }
-		subrange<3> get_range() const { return m_range; }
+		transfer_id get_transfer_id() const { return m_trid; }
+		GridRegion<3> get_region() const { return m_region; }
 
 	  private:
 		buffer_id m_bid;
-		node_id m_source;
-		transaction_id m_trid;
-		subrange<3> m_range;
+		transfer_id m_trid;
+		GridRegion<3> m_region;
 	};
 
 	class data_request_command final : public abstract_command {
@@ -191,16 +189,19 @@ namespace detail {
 		buffer_id bid;
 		reduction_id rid;
 		node_id target;
-		transaction_id transaction;
+		transfer_id trid;
 		subrange<3> sr;
 	};
 
 	struct await_push_data {
 		buffer_id bid;
 		reduction_id rid;
-		node_id source;
-		transaction_id transaction;
-		subrange<3> sr;
+		transfer_id trid;
+
+		// NOCOMMIT HACK: This is just so we don't have to rip the whole serialization mechanism out right now (GridRegion contains variable length data)
+		static constexpr size_t max_subranges = 32;
+		size_t num_subranges;
+		subrange<3> region[max_subranges];
 	};
 
 	struct data_request_data { // ...

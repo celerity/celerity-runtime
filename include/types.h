@@ -56,7 +56,7 @@ MAKE_PHANTOM_TYPE(collective_group_id, size_t)
 MAKE_PHANTOM_TYPE(reduction_id, size_t)
 MAKE_PHANTOM_TYPE(host_object_id, size_t)
 MAKE_PHANTOM_TYPE(hydration_id, size_t);
-MAKE_PHANTOM_TYPE(transaction_id, size_t)
+MAKE_PHANTOM_TYPE(transfer_id, size_t)
 
 
 // declared in this header for include-dependency reasons

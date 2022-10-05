@@ -17,6 +17,8 @@
 using namespace celerity;
 using namespace celerity::detail;
 
+namespace acc = celerity::access;
+
 class dist_cdag_test_context;
 
 class task_builder {
@@ -136,6 +138,15 @@ class command_query {
 	}
 
 	bool empty() const { return count() == 0; }
+
+	// Call the provided function once for each node, with a subquery containing commands only for that node.
+	template <typename PerNodeCallback>
+	void for_each_node(PerNodeCallback&& cb) const {
+		for(node_id nid = 0; nid < m_commands_by_node.size(); ++nid) {
+			UNSCOPED_INFO(fmt::format("On node {}", nid));
+			cb(find_all(nid));
+		}
+	}
 
 	// TODO: Use plural 'have_type'? Have both but singular throws if count > 1?
 	bool has_type(const command_type expected) const {
@@ -384,9 +395,9 @@ TEST_CASE("distributed push-model hello world", "[NOCOMMIT][dist-ggen]") {
 	// FIXME: We can't use this for writing as we cannot invert it. Need higher-level mechanism.
 	const auto swap_rm = [test_range](chunk<1> chnk) { return subrange<1>{{test_range[0] - chnk.range[0] - chnk.offset[0]}, chnk.range}; };
 
-	const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, ::celerity::access::one_to_one{}).submit();
+	const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 	const auto tid_b = dctx.device_compute<class UKN(task_b)>(test_range).read(buf0, swap_rm).submit();
-	const auto tid_c = dctx.device_compute<class UKN(task_c)>(test_range).discard_write(buf0, ::celerity::access::one_to_one{}).submit();
+	const auto tid_c = dctx.device_compute<class UKN(task_c)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 	const auto tid_d = dctx.device_compute<class UKN(task_d)>(test_range).read(buf0, swap_rm).submit();
 
 	const auto cmds_b = dctx.query().find_all(tid_b);
@@ -416,15 +427,30 @@ TEST_CASE("don't treat replicated data as owned", "[regression][dist-ggen]") {
 	auto buf0 = dctx.create_buffer(test_range);
 	auto buf1 = dctx.create_buffer(test_range);
 
-	const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, ::celerity::access::one_to_one{}).submit();
-	const auto tid_b = dctx.device_compute<class UKN(task_b)>(test_range)
-	                       .read(buf0, ::celerity::access::slice<2>{0})
-	                       .discard_write(buf1, ::celerity::access::one_to_one{})
-	                       .submit();
+	const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+	const auto tid_b = dctx.device_compute<class UKN(task_b)>(test_range).read(buf0, acc::slice<2>{0}).discard_write(buf1, acc::one_to_one{}).submit();
 
 	const auto pushes = dctx.query().find_all(command_type::push);
 	CHECK(pushes.count() == 2);
 	// Regression: Node 0 assumed that it owned the data it got pushed by node 1 for its chunk, so it generated a push for node 1's chunk.
-	CHECK(pushes.find_all(node_id(0)).count() == 1);
-	CHECK(pushes.find_all(node_id(1)).count() == 1);
+	pushes.for_each_node([](const auto& q) { CHECK(q.count() == 1); });
+}
+
+// NOCOMMIT TODO: Test that same transfer isn't being generated twice!!
+
+TEST_CASE("a single await push command can await multiple pushes", "[dist-ggen]") {
+	dist_cdag_test_context dctx(3);
+
+	const range<1> test_range = {128};
+
+	auto buf0 = dctx.create_buffer(test_range);
+
+	const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+	const auto tid_b = dctx.device_compute<class UKN(task_b)>(test_range).read(buf0, acc::all{}).submit();
+	dctx.query().find_all(command_type::await_push).for_each_node([](const auto& q) { CHECK(q.count() == 1); });
+	dctx.query().find_all(command_type::push).for_each_node([](const auto& q) { CHECK(q.count() == 2); });
+}
+
+TEST_CASE("data owners generate separate push commands for each last writer command", "[dist-ggen]") {
+	// TODO: Add this test to document the current behavior. OR: Make it a !shouldfail and check for a single command?
 }

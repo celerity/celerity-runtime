@@ -117,13 +117,12 @@ namespace detail {
 		} else if(const auto pcmd = dynamic_cast<const push_command*>(&cmd)) {
 			if(pcmd->get_rid()) { fmt::format_to(std::back_inserter(label), "(R{}) ", pcmd->get_rid()); }
 			const std::string bl = get_buffer_label(bm, pcmd->get_bid());
-			fmt::format_to(std::back_inserter(label), "<b>push</b> transaction {} to N{}<br/>B{} {}", pcmd->get_transaction_id(), pcmd->get_target(), bl,
+			fmt::format_to(std::back_inserter(label), "<b>push</b> transfer {} to N{}<br/>B{} {}", pcmd->get_transfer_id(), pcmd->get_target(), bl,
 			    subrange_to_grid_box(pcmd->get_range()));
 		} else if(const auto apcmd = dynamic_cast<const await_push_command*>(&cmd)) {
 			// if(apcmd->get_source()->get_rid()) { label += fmt::format("(R{}) ", apcmd->get_source()->get_rid()); }
 			const std::string bl = get_buffer_label(bm, apcmd->get_bid());
-			fmt::format_to(std::back_inserter(label), "<b>await push</b> transaction {} from N{}<br/>B{} {}", apcmd->get_transaction_id(), apcmd->get_source(),
-			    bl, subrange_to_grid_box(apcmd->get_range()));
+			fmt::format_to(std::back_inserter(label), "<b>await push</b> transfer {} <br/>B{} {}", apcmd->get_transfer_id(), bl, apcmd->get_region());
 		} else if(const auto drcmd = dynamic_cast<const data_request_command*>(&cmd)) {
 			fmt::format_to(std::back_inserter(label), "<b>request data</b> from N{}<br/>B{} {}", drcmd->get_source(), drcmd->get_bid(),
 			    subrange_to_grid_box(drcmd->get_range()));
@@ -140,6 +139,9 @@ namespace detail {
 		}
 
 		if(const auto tcmd = dynamic_cast<const task_command*>(&cmd)) {
+			if(!tm.has_task(tcmd->get_tid())) return label; // NOCOMMIT This is only needed while we do TDAG pruning but not CDAG pruning
+			assert(tm.has_task(tcmd->get_tid()));
+
 			const auto& tsk = *tm.get_task(tcmd->get_tid());
 
 			auto reduction_init_mode = access_mode::discard_write;

@@ -38,7 +38,7 @@ namespace detail {
 		frame->sr = data.sr;
 		frame->bid = data.bid;
 		frame->rid = data.rid;
-		frame->trid = data.transaction;
+		frame->trid = data.trid;
 		bm.get_buffer_data(data.bid, data.sr, frame->data);
 
 		assert(frame.get_size_bytes() % send_recv_unit_bytes == 0);
@@ -61,25 +61,35 @@ namespace detail {
 	}
 
 	std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::await_push(const command_pkg& pkg) {
+		// NOCOMMIT BTM Should have no notion of command_pkg...
 		assert(pkg.get_command_type() == command_type::await_push);
 		const auto& data = std::get<await_push_data>(pkg.data);
 
+		GridRegion<3> expected_region;
+		for(size_t i = 0; i < data.num_subranges; ++i) {
+			expected_region = GridRegion<3>::merge(expected_region, subrange_to_grid_box(data.region[i]));
+		}
+
 		std::shared_ptr<incoming_transfer_handle> t_handle;
-		// Check to see if we have (fully) received the push already
-		const auto node_transaction = std::pair{data.source, data.transaction};
-		if(m_push_blackboard.count(node_transaction) != 0) {
-			t_handle = m_push_blackboard[node_transaction];
-			m_push_blackboard.erase(node_transaction);
-			assert(t_handle->transfer != nullptr);
-			assert(t_handle->transfer->frame->bid == data.bid);
-			assert(t_handle->transfer->frame->rid == data.rid);
-			assert(t_handle->transfer->frame->sr == data.sr);
-			assert(t_handle->complete);
-			commit_transfer(*t_handle->transfer);
+		// Check to see if we have (fully) received the data already
+		const auto buffer_transfer = std::pair{data.bid, data.trid};
+		if(m_push_blackboard.count(buffer_transfer) != 0) {
+			t_handle = m_push_blackboard[buffer_transfer];
+			t_handle->set_expected_region(expected_region);
+			if(t_handle->received_full_region()) {
+				m_push_blackboard.erase(buffer_transfer);
+				t_handle->drain_transfers([&](std::unique_ptr<transfer_in> t) {
+					assert(t->frame->bid == data.bid);
+					assert(t->frame->rid == data.rid);
+					commit_transfer(*t);
+				});
+				t_handle->complete = true;
+			}
 		} else {
 			t_handle = std::make_shared<incoming_transfer_handle>();
+			t_handle->set_expected_region(expected_region);
 			// Store new handle so we can mark it as complete when the push is received
-			m_push_blackboard[node_transaction] = t_handle;
+			m_push_blackboard[buffer_transfer] = t_handle;
 		}
 
 		return t_handle;
@@ -126,19 +136,21 @@ namespace detail {
 
 			// Check whether we already have an await push request
 			std::shared_ptr<incoming_transfer_handle> t_handle = nullptr;
-			const auto node_transaction = std::pair{transfer->source_nid, transfer->frame->trid};
-			if(m_push_blackboard.count(node_transaction) != 0) {
-				t_handle = m_push_blackboard[node_transaction];
-				m_push_blackboard.erase(node_transaction);
-				assert(t_handle.use_count() > 1 && "Dangling await push request");
-				t_handle->transfer = std::move(*it);
-				commit_transfer(*t_handle->transfer);
-				t_handle->complete = true;
+			const auto buffer_transfer = std::pair{transfer->frame->bid, transfer->frame->trid};
+			if(m_push_blackboard.count(buffer_transfer) != 0) {
+				t_handle = m_push_blackboard[buffer_transfer];
+				t_handle->add_transfer(std::move(*it));
+
+				if(t_handle->received_full_region()) {
+					m_push_blackboard.erase(buffer_transfer);
+					assert(t_handle.use_count() > 1 && "Dangling await push request");
+					t_handle->drain_transfers([](std::unique_ptr<transfer_in> t) { commit_transfer(*t); });
+					t_handle->complete = true;
+				}
 			} else {
 				t_handle = std::make_shared<incoming_transfer_handle>();
-				m_push_blackboard[node_transaction] = t_handle;
-				t_handle->transfer = std::move(*it);
-				t_handle->complete = true;
+				m_push_blackboard[buffer_transfer] = t_handle;
+				t_handle->add_transfer(std::move(*it));
 			}
 			it = m_incoming_transfers.erase(it);
 		}
