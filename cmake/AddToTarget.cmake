@@ -8,8 +8,14 @@ if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
         "${one_value_args}"
         "${multi_value_args}"
         ${ARGN}
-        )
-    set(DPCPP_FLAGS "-fsycl;-sycl-std=2020;-fsycl-targets=${CELERITY_DPCPP_TARGETS};-DCELERITY_DPCPP=1;${DPCPP_FLAGS}")
+    )
+    list(PREPEND DPCPP_FLAGS
+      -fsycl
+      -sycl-std=2020
+      "-fsycl-targets=${CELERITY_DPCPP_TARGETS}"
+      -DCELERITY_DPCPP=1
+      -Wno-sycl-strict  # -Wsycl-strict produces false-positive warnings in DPC++'s own SYCL headers as of 2022-10-06
+    )
     target_compile_options(${ADD_SYCL_TARGET} PUBLIC ${DPCPP_FLAGS})
     target_link_options(${ADD_SYCL_TARGET} PUBLIC ${DPCPP_FLAGS})
   endfunction()
