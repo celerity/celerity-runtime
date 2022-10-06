@@ -225,9 +225,7 @@ class nd_item {
 
 	size_t get_group_range(int dimension) const { return m_group_range[dimension]; }
 
-#if !CELERITY_WORKAROUND(DPCPP) // no sub_group support
 	cl::sycl::sub_group get_sub_group() const { return m_sycl_item.get_sub_group(); }
-#endif
 
 	range<Dims> get_global_range() const { return m_global_range; }
 

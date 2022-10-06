@@ -283,12 +283,9 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
   private:
-#if CELERITY_WORKAROUND(DPCPP) || CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 7)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations" // target::gobal_buffer is now target::device, but only for very recent versions of DPC++
+#if CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 7)
 	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>;
-#pragma GCC diagnostic pop
-#elif CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9)
+#elif CELERITY_WORKAROUND(DPCPP) || CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9)
 	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::device, cl::sycl::access::placeholder::true_t>;
 #else
 	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::target::device>;
@@ -582,7 +579,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 template <typename DataT, int Dims = 1>
 class local_accessor {
   private:
-#if CELERITY_WORKAROUND(DPCPP) || CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 6)
+#if CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 6)
 	using sycl_accessor = cl::sycl::accessor<DataT, Dims, cl::sycl::access::mode::read_write, cl::sycl::access::target::local>;
 #else
 	using sycl_accessor = cl::sycl::local_accessor<DataT, Dims>;

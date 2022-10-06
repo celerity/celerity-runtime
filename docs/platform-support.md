@@ -15,8 +15,9 @@ The most recent version of Celerity aims to support the following environments:
   * or on CPUs via OpenMP
 * ComputeCpp ≥ version 2.6.0
   * on Intel hardware
-  * with [stable](https://developer.codeplay.com/products/computecpp/ce/download) and [experimental](https://developer.codeplay.com/products/computecpp/ce/download?experimental=true) compilers
-* DPC++ ≥ revision [`7735139b`](https://github.com/intel/llvm/commit/7735139b)
+  * with [stable](https://developer.codeplay.com/products/computecpp/ce/download)
+    and [experimental](https://developer.codeplay.com/products/computecpp/ce/download?experimental=true) compilers
+* DPC++ ≥ revision [`3fd08509`](https://github.com/intel/llvm/commit/3fd08509)
   * on Intel hardware
 
 ## Continuously Tested Configurations
@@ -30,7 +31,7 @@ Those are:
 | ComputeCpp | 2.6.0, 2.7.0, 2.8.0, 2.9.0 (stable)                                            | Ubuntu 20.04 | Debug          |
 | ComputeCpp | 2.10.0 (stable)                                                                | Ubuntu 22.04 | Debug, Release |
 | ComputeCpp | 2.10.0 (experimental compiler)                                                 | Ubuntu 22.04 | Debug, Release |
-| DPC++      | [`7735139b`](https://github.com/intel/llvm/commit/7735139b)                    | Ubuntu 20.04 | Debug          |
+| DPC++      | [`3fd08509`](https://github.com/intel/llvm/commit/3fd08509)                    | Ubuntu 20.04 | Debug          |
 | DPC++      | [`HEAD`](https://github.com/intel/llvm/)                                       | Ubuntu 22.04 | Debug, Release |
 | hipSYCL    | [`7b00e2ef`](https://github.com/illuhad/hipSYCL/commit/7b00e2ef) (CUDA 11.0.3) | Ubuntu 20.04 | Debug          |
 | hipSYCL    | [`HEAD`](https://github.com/illuhad/hipSYCL) (CUDA 11.7.0)                     | Ubuntu 22.04 | Debug, Release |

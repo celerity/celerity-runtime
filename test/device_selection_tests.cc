@@ -28,11 +28,19 @@ struct mock_device {
 		return *m_platform;
 	}
 
+#if CELERITY_WORKAROUND(HIPSYCL) || CELERITY_WORKAROUND(COMPUTECPP) // old API: device enum
 	template <sycl::info::device Param>
 	auto get_info() const {
 		if constexpr(Param == sycl::info::device::name) { return m_name; }
 		if constexpr(Param == sycl::info::device::device_type) { return m_type; }
 	}
+#else // new API: device tag type
+	template <typename Param>
+	auto get_info() const {
+		if constexpr(std::is_same_v<Param, sycl::info::device::name>) { return m_name; }
+		if constexpr(std::is_same_v<Param, sycl::info::device::device_type>) { return m_type; }
+	}
+#endif
 
 	dt get_type() const { return m_type; }
 
@@ -77,7 +85,11 @@ struct mock_platform {
 		return m_devices;
 	}
 
+#if CELERITY_WORKAROUND(HIPSYCL) || CELERITY_WORKAROUND(COMPUTECPP) // old API: platform enum
 	template <sycl::info::platform Param>
+#else // new API: platform tag type
+	template <typename Param>
+#endif
 	std::string get_info() const {
 		return m_name;
 	}
