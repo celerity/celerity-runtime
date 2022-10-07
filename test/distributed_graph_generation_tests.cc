@@ -491,15 +491,15 @@ struct distributed_graph_generator_testspy {
 };
 } // namespace celerity::detail
 
-// This was ported from graph_compaction_tests but simplified considerably
-TEST_CASE("horizons prevent number of regions from growing indefinitely", "[horizon][command-graph]") {
+// This started out as a port of "horizons prevent number of regions from growing indefinitely", but was then changed (and simplified) considerably
+TEST_CASE("horizons prevent tracking data structures from growing indefinitely", "[horizon][command-graph]") {
 	constexpr int num_timesteps = 100;
 
 	dist_cdag_test_context dctx(1);
 	const size_t buffer_width = 300;
 	auto buf_a = dctx.create_buffer(range<2>(num_timesteps, buffer_width));
 
-	const int horizon_step_size = GENERATE(values({1, 3}));
+	const int horizon_step_size = GENERATE(values({1, 2, 3}));
 	CAPTURE(horizon_step_size);
 
 	dctx.set_horizon_step(horizon_step_size);
@@ -520,20 +520,22 @@ TEST_CASE("horizons prevent number of regions from growing indefinitely", "[hori
 		};
 		dctx.device_compute<class UKN(timestep)>(range<1>(buffer_width)).read(buf_a, read_accessor).discard_write(buf_a, write_accessor).submit();
 
-		const size_t dt_since_last_applied_horizon = (t + 1) >= 2 * horizon_step_size ? (t + 1) % horizon_step_size : 0;
 		auto& ggen = dctx.get_graph_generator(0);
-		const auto num_regions = distributed_graph_generator_testspy::get_last_writer_num_regions(ggen, buf_a.get_id());
 
-		const size_t cmds_before_applied_horizon = (t + 1) >= 2 * horizon_step_size ? 1 : 0;
-		const size_t cmds_after_applied_horizon = std::min(t + 1, horizon_step_size + ((t + 1) % horizon_step_size));
-		const size_t uninitialized_regions = t != num_timesteps - 1 ? 1 : 0;
-		REQUIRE_LOOP(num_regions == cmds_before_applied_horizon + cmds_after_applied_horizon + uninitialized_regions);
+		// Assert once we've reached steady state as to not overcomplicate things
+		if(t > 2 * horizon_step_size) {
+			const auto num_regions = distributed_graph_generator_testspy::get_last_writer_num_regions(ggen, buf_a.get_id());
+			const size_t cmds_before_applied_horizon = 1;
+			const size_t cmds_after_applied_horizon = horizon_step_size + ((t + 1) % horizon_step_size);
+			const size_t uninitialized_regions = t != num_timesteps - 1 ? 1 : 0;
+			REQUIRE_LOOP(num_regions == cmds_before_applied_horizon + cmds_after_applied_horizon + uninitialized_regions);
 
-		// const size_t reads_per_timestep = 1 /* task command */ + (num_nodes - 1) /* all-to-all pushes */;
-		// const size_t dt_since_last_applied_horizon = 1 /* current timestep */ + t > 2 * horizon_step_size ? t % horizon_step_size : t;
+			// Pruning happens with a one step delay after a horizon has been applied
+			const size_t expected_reads = horizon_step_size + (t % horizon_step_size) + 1;
+			const size_t reads_per_timestep = t > 0 ? 1 : 0;
+			REQUIRE_LOOP(distributed_graph_generator_testspy::get_command_buffer_reads_size(ggen) == expected_reads);
+		}
 
-		// REQUIRE_LOOP(distributed_graph_generator_testspy::get_command_buffer_reads_size(ggen) == dt_since_last_applied_horizon * reads_per_timestep);
-		// NOCOMMIT TODO: Also test pruning?
-		// REQUIRE_LOOP(dctx.query().find_all(command_type::horizon).count() <= 2);
+		REQUIRE_LOOP(dctx.query().find_all(command_type::horizon).count() <= 3);
 	}
 }

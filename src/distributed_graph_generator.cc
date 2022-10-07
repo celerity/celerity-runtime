@@ -87,8 +87,6 @@ static buffer_requirements_map get_buffer_requirements_for_mapped_access(const t
 	return result;
 }
 
-#define DEBUG_PRINT(...) fmt::print(stderr, __VA_ARGS__)
-
 // Steps:
 // 1. Compute local chunk(s)
 // 2. Compute data sources
@@ -100,6 +98,8 @@ static buffer_requirements_map get_buffer_requirements_for_mapped_access(const t
 //       - Facilitate conflict resolution through copying
 //       - Facilitate partial execution ("sub splits")
 void distributed_graph_generator::build_task(const task& tsk) {
+	const auto epoch_to_prune_before = m_epoch_for_new_commands;
+
 	if(tsk.get_type() == task_type::epoch) {
 		generate_epoch_command(tsk);
 	} else if(tsk.get_type() == task_type::horizon) {
@@ -110,10 +110,13 @@ void distributed_graph_generator::build_task(const task& tsk) {
 		throw std::runtime_error("Task type NYI");
 	}
 
-	// Commands without any other true-dependency must depend on the active epoch command to ensure they cannot be re-ordered before the epoch
+	// Commands without any other true-dependency must depend on the active epoch command to ensure they cannot be re-ordered before the epoch.
 	for(const auto cmd : m_cdag.task_commands(tsk.get_id())) {
 		generate_epoch_dependencies(cmd);
 	}
+
+	// If a new epoch was completed in the CDAG before the current task, prune all predecessor commands of that epoch.
+	prune_commands_before(epoch_to_prune_before);
 }
 
 void distributed_graph_generator::generate_execution_commands(const task& tsk) {
@@ -207,7 +210,7 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 							m_cdag.add_dependency(push_cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
 
 							// Store the read access for determining anti-dependencies later on
-							m_command_buffer_reads[push_cmd->get_cid()][bid] = GridRegion<3>::merge(m_command_buffer_reads[push_cmd->get_cid()][bid], req);
+							m_command_buffer_reads[push_cmd->get_cid()][bid] = req;
 						}
 					}
 				}
@@ -359,6 +362,19 @@ void distributed_graph_generator::generate_epoch_dependencies(abstract_command* 
 	    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::true_dep; })) {
 		assert(cmd->get_cid() != m_epoch_for_new_commands);
 		m_cdag.add_dependency(cmd, m_cdag.get(m_epoch_for_new_commands), dependency_kind::true_dep, dependency_origin::last_epoch);
+	}
+}
+
+void distributed_graph_generator::prune_commands_before(const command_id epoch) {
+	if(epoch > m_epoch_last_pruned_before) {
+		m_cdag.erase_if([&](abstract_command* cmd) {
+			if(cmd->get_cid() < epoch) {
+				m_command_buffer_reads.erase(cmd->get_cid());
+				return true;
+			}
+			return false;
+		});
+		m_epoch_last_pruned_before = epoch;
 	}
 }
 

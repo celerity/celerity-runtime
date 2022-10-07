@@ -77,6 +77,8 @@ class distributed_graph_generator {
 
 	void generate_epoch_dependencies(abstract_command* cmd);
 
+	void prune_commands_before(const command_id epoch);
+
   private:
 	using buffer_read_map = std::unordered_map<buffer_id, GridRegion<3>>;
 
@@ -85,7 +87,8 @@ class distributed_graph_generator {
 	command_graph& m_cdag;
 	const task_manager& m_task_mngr;
 	std::unordered_map<buffer_id, buffer_state> m_buffer_states;
-	command_id m_epoch_for_new_commands;
+	command_id m_epoch_for_new_commands = 0;
+	command_id m_epoch_last_pruned_before = 0;
 	command_id m_current_horizon = no_command;
 
 	// For proper handling of anti-dependencies we also have to store for each command which buffer regions it reads.
