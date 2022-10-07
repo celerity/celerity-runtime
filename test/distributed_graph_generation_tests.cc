@@ -7,6 +7,7 @@
 #include <unordered_set>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators_range.hpp>
 
 #include <celerity.h>
 
@@ -334,9 +335,14 @@ class dist_cdag_test_context {
 
 	command_query query() { return command_query(m_cdags); }
 
+	void set_horizon_step(const int step) { m_tm->set_horizon_step(step); }
+
+	distributed_graph_generator& get_graph_generator(node_id nid) { return *m_dggens.at(nid); }
+
   private:
 	size_t m_num_nodes;
 	buffer_id m_next_buffer_id = 0;
+	std::optional<task_id> m_most_recently_built_horizon;
 	std::unique_ptr<reduction_manager> m_rm;
 	std::unique_ptr<task_manager> m_tm;
 	std::vector<std::unique_ptr<command_graph>> m_cdags;
@@ -348,6 +354,15 @@ class dist_cdag_test_context {
 		for(auto& dggen : m_dggens) {
 			dggen->build_task(*m_tm->get_task(tid));
 		}
+	}
+
+	void maybe_build_horizon() {
+		const auto current_horizon = task_manager_testspy::get_current_horizon(*m_tm);
+		if(m_most_recently_built_horizon != current_horizon) {
+			assert(current_horizon.has_value());
+			build_task(*current_horizon);
+		}
+		m_most_recently_built_horizon = current_horizon;
 	}
 
 	void maybe_print_graphs() {
@@ -380,6 +395,7 @@ task_id task_builder::step::submit() {
 		}
 	});
 	m_dctx.build_task(tid);
+	m_dctx.maybe_build_horizon();
 	m_actions.clear();
 	return tid;
 }
@@ -453,4 +469,71 @@ TEST_CASE("a single await push command can await multiple pushes", "[dist-ggen]"
 
 TEST_CASE("data owners generate separate push commands for each last writer command", "[dist-ggen]") {
 	// TODO: Add this test to document the current behavior. OR: Make it a !shouldfail and check for a single command?
+}
+
+// TODO: Move?
+namespace celerity::detail {
+
+// FIXME: Duplicated from graph_compaction_tests
+struct region_map_testspy {
+	template <typename T>
+	static size_t get_num_regions(const region_map<T>& map) {
+		return map.m_region_values.size();
+	}
+};
+
+struct distributed_graph_generator_testspy {
+	static size_t get_last_writer_num_regions(const distributed_graph_generator& dggen, const buffer_id bid) {
+		return region_map_testspy::get_num_regions(dggen.m_buffer_states.at(bid).local_last_writer);
+	}
+
+	static size_t get_command_buffer_reads_size(const distributed_graph_generator& dggen) { return dggen.m_command_buffer_reads.size(); }
+};
+} // namespace celerity::detail
+
+// This was ported from graph_compaction_tests but simplified considerably
+TEST_CASE("horizons prevent number of regions from growing indefinitely", "[horizon][command-graph]") {
+	constexpr int num_timesteps = 100;
+
+	dist_cdag_test_context dctx(1);
+	const size_t buffer_width = 300;
+	auto buf_a = dctx.create_buffer(range<2>(num_timesteps, buffer_width));
+
+	const int horizon_step_size = GENERATE(values({1, 3}));
+	CAPTURE(horizon_step_size);
+
+	dctx.set_horizon_step(horizon_step_size);
+
+	for(int t = 0; t < num_timesteps; ++t) {
+		CAPTURE(t);
+		const auto read_accessor = [=](celerity::chunk<1> chnk) {
+			celerity::subrange<2> ret;
+			ret.range = cl::sycl::range<2>(t, buffer_width);
+			ret.offset = cl::sycl::id<2>(0, 0);
+			return ret;
+		};
+		const auto write_accessor = [=](celerity::chunk<1> chnk) {
+			celerity::subrange<2> ret;
+			ret.range = cl::sycl::range<2>(1, buffer_width);
+			ret.offset = cl::sycl::id<2>(t, 0);
+			return ret;
+		};
+		dctx.device_compute<class UKN(timestep)>(range<1>(buffer_width)).read(buf_a, read_accessor).discard_write(buf_a, write_accessor).submit();
+
+		const size_t dt_since_last_applied_horizon = (t + 1) >= 2 * horizon_step_size ? (t + 1) % horizon_step_size : 0;
+		auto& ggen = dctx.get_graph_generator(0);
+		const auto num_regions = distributed_graph_generator_testspy::get_last_writer_num_regions(ggen, buf_a.get_id());
+
+		const size_t cmds_before_applied_horizon = (t + 1) >= 2 * horizon_step_size ? 1 : 0;
+		const size_t cmds_after_applied_horizon = std::min(t + 1, horizon_step_size + ((t + 1) % horizon_step_size));
+		const size_t uninitialized_regions = t != num_timesteps - 1 ? 1 : 0;
+		REQUIRE_LOOP(num_regions == cmds_before_applied_horizon + cmds_after_applied_horizon + uninitialized_regions);
+
+		// const size_t reads_per_timestep = 1 /* task command */ + (num_nodes - 1) /* all-to-all pushes */;
+		// const size_t dt_since_last_applied_horizon = 1 /* current timestep */ + t > 2 * horizon_step_size ? t % horizon_step_size : t;
+
+		// REQUIRE_LOOP(distributed_graph_generator_testspy::get_command_buffer_reads_size(ggen) == dt_since_last_applied_horizon * reads_per_timestep);
+		// NOCOMMIT TODO: Also test pruning?
+		// REQUIRE_LOOP(dctx.query().find_all(command_type::horizon).count() <= 2);
+	}
 }

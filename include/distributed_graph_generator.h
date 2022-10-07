@@ -14,6 +14,8 @@ class command_graph;
 class abstract_command;
 
 class distributed_graph_generator {
+	friend struct distributed_graph_generator_testspy;
+
 	// write_command_state is basically a command id with one bit of additional information:
 	// Whether the data written by this command is globally still the newest version ("fresh")
 	// or whether it has been superseded by a command on another node ("stale").
@@ -84,6 +86,7 @@ class distributed_graph_generator {
 	const task_manager& m_task_mngr;
 	std::unordered_map<buffer_id, buffer_state> m_buffer_states;
 	command_id m_epoch_for_new_commands;
+	command_id m_current_horizon = no_command;
 
 	// For proper handling of anti-dependencies we also have to store for each command which buffer regions it reads.
 	// We do this because we cannot reconstruct the requirements from a command within the graph alone (e.g. for compute commands).

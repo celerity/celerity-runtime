@@ -194,7 +194,7 @@ namespace detail {
 		std::vector<task_callback> m_task_callbacks;
 
 		// maximum critical path length in the task graph before inserting a horizon
-		int m_task_horizon_step_size = 100; // NOCOMMIT
+		int m_task_horizon_step_size = 2;
 
 		// This only (potentially) grows when adding dependencies,
 		// it never shrinks and does not take into account later changes further up in the dependency chain

@@ -152,6 +152,10 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 
 		for(auto& [bid, reqs_by_mode] : requirements) {
 			auto& buffer_state = m_buffer_states.at(bid);
+			// For "true writes" (= not replicated) we have to wait with updating the last writer
+			// map until all modes have been processed, as we'll otherwise end up with a cycle in
+			// the graph if a command both writes and reads the same buffer region.
+			GridRegion<3> written_region;
 
 			std::vector<access_mode> required_modes;
 			for(const auto mode : detail::access::all_modes) {
@@ -175,6 +179,9 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 								missing_parts = GridRegion<3>::merge(missing_parts, box);
 								continue;
 							}
+							// NEXT STEP: It seems like we are adding a dependency on the write access in same task.
+							// => We'll probably need an update list after all...
+							// Q: Does this even make sense? Why is the read access overlapping with the write? Check range mappers
 							m_cdag.add_dependency(cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
 						}
 
@@ -209,11 +216,12 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 					generate_anti_dependencies(tsk.get_id(), bid, buffer_state.local_last_writer, req, cmd);
 
 					// NOCOMMIT Remember to not create intra-task anti-dependencies onto data requests for RW accesses
-					// NOCOMMIT Use update list to make RW accesses work
-					buffer_state.local_last_writer.update_region(req, cmd->get_cid());
+					written_region = GridRegion<3>::merge(written_region, req);
 					per_buffer_local_writes[bid] = GridRegion<3>::merge(per_buffer_local_writes[bid], req);
 				}
 			}
+
+			if(!written_region.empty()) { buffer_state.local_last_writer.update_region(written_region, cmd->get_cid()); }
 		}
 	}
 
@@ -289,7 +297,15 @@ void distributed_graph_generator::set_epoch_for_new_commands(const abstract_comm
 	// both an explicit epoch command and an applied horizon can be effective epochs
 	assert(isa<epoch_command>(epoch_or_horizon) || isa<horizon_command>(epoch_or_horizon));
 
-	// TODO: Apply epoch to data all tracking structures
+	for(auto& [bid, bs] : m_buffer_states) {
+		// TODO this could be optimized to something like cdag.apply_horizon(node_id, horizon_cmd) with much fewer internal operations
+		bs.local_last_writer.apply_to_values([epoch_or_horizon](const write_command_state& wcs) {
+			if(wcs == no_command) return wcs;
+			auto new_wcs = write_command_state(std::max(epoch_or_horizon->get_cid(), static_cast<command_id>(wcs)), wcs.is_replicated());
+			if(!wcs.is_fresh()) new_wcs.mark_as_stale();
+			return new_wcs;
+		});
+	}
 
 	m_epoch_for_new_commands = epoch_or_horizon->get_cid();
 }
@@ -308,6 +324,7 @@ void distributed_graph_generator::generate_epoch_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::epoch);
 	const auto epoch = m_cdag.create<epoch_command>(m_local_nid, tsk.get_id(), tsk.get_epoch_action());
 	set_epoch_for_new_commands(epoch);
+	m_current_horizon = no_command;
 	// Make the epoch depend on the previous execution front
 	reduce_execution_front_to(epoch);
 }
@@ -316,6 +333,13 @@ void distributed_graph_generator::generate_epoch_command(const task& tsk) {
 void distributed_graph_generator::generate_horizon_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::horizon);
 	const auto horizon = m_cdag.create<horizon_command>(m_local_nid, tsk.get_id());
+
+	if(m_current_horizon != static_cast<command_id>(no_command)) {
+		// Apply the previous horizon
+		set_epoch_for_new_commands(m_cdag.get(m_current_horizon));
+	}
+	m_current_horizon = horizon->get_cid();
+
 	// Make the horizon depend on the previous execution front
 	reduce_execution_front_to(horizon);
 }
