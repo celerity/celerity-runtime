@@ -70,6 +70,12 @@ class task_builder {
 		buffer_access_step discard_write(BufferT& buf, RangeMapper rmfn) {
 			return chain<buffer_access_step>([&buf, rmfn](handler& cgh) { buf.template get_access<access_mode::discard_write>(cgh, rmfn); });
 		}
+
+		// FIXME: Misnomer (not a "buffer access")
+		template <typename HostObjT>
+		buffer_access_step affect(HostObjT& host_obj) {
+			return chain<buffer_access_step>([&host_obj](handler& cgh) { host_obj.add_side_effect(cgh, experimental::side_effect_order::sequential); });
+		}
 	};
 
   public:
@@ -77,6 +83,13 @@ class task_builder {
 	buffer_access_step device_compute(const range<Dims>& global_size) {
 		std::deque<action> actions;
 		actions.push_front([global_size](handler& cgh) { cgh.parallel_for<Name>(global_size, [](id<Dims>) {}); });
+		return buffer_access_step(m_dctx, std::move(actions));
+	}
+
+	template <int Dims>
+	buffer_access_step host_task(const range<Dims>& global_size) {
+		std::deque<action> actions;
+		actions.push_front([global_size](handler& cgh) { cgh.host_task(global_size, [](partition<Dims>) {}); });
 		return buffer_access_step(m_dctx, std::move(actions));
 	}
 
@@ -350,9 +363,16 @@ class dist_cdag_test_context {
 		return buf;
 	}
 
+	test_utils::mock_host_object create_host_object() { return test_utils::mock_host_object{m_next_host_object_id++}; }
+
 	template <typename Name = unnamed_kernel, int Dims>
 	auto device_compute(const range<Dims>& global_size) {
 		return task_builder(*this).device_compute<Name>(global_size);
+	}
+
+	template <int Dims>
+	auto host_task(const range<Dims>& global_size) {
+		return task_builder(*this).host_task(global_size);
 	}
 
 	command_query query() { return command_query(m_cdags); }
@@ -364,6 +384,7 @@ class dist_cdag_test_context {
   private:
 	size_t m_num_nodes;
 	buffer_id m_next_buffer_id = 0;
+	host_object_id m_next_host_object_id = 0;
 	std::optional<task_id> m_most_recently_built_horizon;
 	std::unique_ptr<reduction_manager> m_rm;
 	std::unique_ptr<task_manager> m_tm;
@@ -610,4 +631,15 @@ TEST_CASE("read_write access works", "[smoke-test]") {
 
 	dctx.device_compute(buf.get_range()).discard_write(buf, acc::one_to_one{}).submit();
 	dctx.device_compute(buf.get_range()).read_write(buf, acc::fixed<1>({{0, 64}})).submit();
+}
+
+// NOCOMMIT TODO: Test intra-task anti-dependencies
+
+TEST_CASE("side effect dependencies") {
+	dist_cdag_test_context dctx(1);
+	auto hobj = dctx.create_host_object();
+	const auto tid_a = dctx.host_task(range<1>(1)).affect(hobj).submit();
+	const auto tid_b = dctx.host_task(range<1>(1)).affect(hobj).submit();
+	CHECK(dctx.query().find_all(tid_a).has_successor(dctx.query().find_all(tid_b)));
+	// NOCOMMIT TODO: Test horizon / epoch subsumption as well
 }

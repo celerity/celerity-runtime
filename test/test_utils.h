@@ -173,6 +173,7 @@ namespace test_utils {
 
 	  private:
 		friend class mock_host_object_factory;
+		friend class ::dist_cdag_test_context;
 
 		detail::host_object_id m_id;
 

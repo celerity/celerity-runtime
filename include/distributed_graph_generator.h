@@ -91,6 +91,8 @@ class distributed_graph_generator {
 	void generate_anti_dependencies(
 	    task_id tid, buffer_id bid, const region_map_t<write_command_state>& last_writers_map, const GridRegion<3>& write_req, abstract_command* write_cmd);
 
+	void process_task_side_effect_requirements(const task& tsk);
+
 	void set_epoch_for_new_commands(const abstract_command* const epoch_or_horizon);
 
 	void reduce_execution_front_to(abstract_command* const new_front);
@@ -105,6 +107,7 @@ class distributed_graph_generator {
 
   private:
 	using buffer_read_map = std::unordered_map<buffer_id, GridRegion<3>>;
+	using side_effect_map = std::unordered_map<host_object_id, command_id>;
 
 	size_t m_num_nodes;
 	node_id m_local_nid;
@@ -119,6 +122,9 @@ class distributed_graph_generator {
 	// We do this because we cannot reconstruct the requirements from a command within the graph alone (e.g. for compute commands).
 	// While we could apply range mappers again etc., that is a bit wasteful. This is basically an optimization.
 	std::unordered_map<command_id, buffer_read_map> m_command_buffer_reads;
+
+	// Side effects on the same host object create true dependencies between task commands, so we track the last effect per host object.
+	side_effect_map m_host_object_last_effects;
 };
 
 } // namespace celerity::detail

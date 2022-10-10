@@ -279,6 +279,8 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 			}
 		}
 	}
+
+	process_task_side_effect_requirements(tsk);
 }
 
 void distributed_graph_generator::generate_anti_dependencies(
@@ -320,6 +322,26 @@ void distributed_graph_generator::generate_anti_dependencies(
 	}
 }
 
+void distributed_graph_generator::process_task_side_effect_requirements(const task& tsk) {
+	const task_id tid = tsk.get_id();
+	if(tsk.get_side_effect_map().empty()) return; // skip the loop in the common case
+	if(m_cdag.task_command_count(tid) == 0) return;
+
+	for(const auto cmd : m_cdag.task_commands(tid)) {
+		for(const auto& side_effect : tsk.get_side_effect_map()) {
+			const auto [hoid, order] = side_effect;
+			if(const auto last_effect = m_host_object_last_effects.find(hoid); last_effect != m_host_object_last_effects.end()) {
+				// TODO once we have different side_effect_orders, their interaction will determine the dependency kind
+				m_cdag.add_dependency(cmd, m_cdag.get(last_effect->second), dependency_kind::true_dep, dependency_origin::dataflow);
+			}
+
+			// Simplification: If there are multiple chunks per node, we generate true-dependencies between them in an arbitrary order, when all we really
+			// need is mutual exclusion (i.e. a bi-directional pseudo-dependency).
+			m_host_object_last_effects.insert_or_assign(hoid, cmd->get_cid());
+		}
+	}
+}
+
 void distributed_graph_generator::set_epoch_for_new_commands(const abstract_command* const epoch_or_horizon) {
 	// both an explicit epoch command and an applied horizon can be effective epochs
 	assert(isa<epoch_command>(epoch_or_horizon) || isa<horizon_command>(epoch_or_horizon));
@@ -332,6 +354,9 @@ void distributed_graph_generator::set_epoch_for_new_commands(const abstract_comm
 			if(!wcs.is_fresh()) new_wcs.mark_as_stale();
 			return new_wcs;
 		});
+	}
+	for(auto& [cgid, cid] : m_host_object_last_effects) {
+		cid = std::max(epoch_or_horizon->get_cid(), cid);
 	}
 
 	m_epoch_for_new_commands = epoch_or_horizon->get_cid();
