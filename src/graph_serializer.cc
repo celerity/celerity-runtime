@@ -9,7 +9,11 @@
 namespace celerity {
 namespace detail {
 
-	void graph_serializer::flush(task_id tid) { flush(m_cdag.task_commands(tid)); }
+	void graph_serializer::flush(task_id tid) {
+		// We may not have any commands for a given task on the local node
+		// NOCOMMIT This may cause issues with transfer commands not being flushed (at least not until the next horizon/epoch)
+		if(m_cdag.task_command_count(tid) > 0) { flush(m_cdag.task_commands(tid)); }
+	}
 
 	bool is_virtual_dependency(const abstract_command* const cmd) {
 		// The initial epoch command is not flushed, so including it in dependencies is not useful

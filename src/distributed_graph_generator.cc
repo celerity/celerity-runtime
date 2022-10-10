@@ -108,15 +108,18 @@ void distributed_graph_generator::build_task(const task& tsk) {
 		generate_epoch_command(tsk);
 	} else if(tsk.get_type() == task_type::horizon) {
 		generate_horizon_command(tsk);
-	} else if(tsk.get_type() == task_type::device_compute || tsk.get_type() == task_type::host_compute) {
+	} else if(tsk.get_type() == task_type::device_compute || tsk.get_type() == task_type::host_compute || tsk.get_type() == task_type::master_node) {
 		generate_execution_commands(tsk);
 	} else {
 		throw std::runtime_error("Task type NYI");
 	}
 
 	// Commands without any other true-dependency must depend on the active epoch command to ensure they cannot be re-ordered before the epoch.
-	for(const auto cmd : m_cdag.task_commands(tsk.get_id())) {
-		generate_epoch_dependencies(cmd);
+	// Need to check count b/c for some tasks we may not have generated any commands locally.
+	if(m_cdag.task_command_count(tsk.get_id()) > 0) {
+		for(const auto cmd : m_cdag.task_commands(tsk.get_id())) {
+			generate_epoch_dependencies(cmd);
+		}
 	}
 
 	// If a new epoch was completed in the CDAG before the current task, prune all predecessor commands of that epoch.
@@ -124,14 +127,17 @@ void distributed_graph_generator::build_task(const task& tsk) {
 }
 
 void distributed_graph_generator::generate_execution_commands(const task& tsk) {
-	assert(tsk.has_variable_split()); // NOCOMMIT Not true for master tasks (TODO: rename single-node tasks? or just make it the default?)
-
-	const size_t num_chunks = m_num_nodes; // TODO Make configurable
-
 	// TODO: Pieced together from naive_split_transformer. We can probably do without creating all chunks and discarding everything except our own.
 	// TODO: Or - maybe - we actually want to store all chunks somewhere b/c we'll probably need them frequently for lookups later on?
 	chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
-	const auto chunks = split_equal(full_chunk, tsk.get_granularity(), num_chunks, tsk.get_dimensions());
+	const size_t num_chunks = m_num_nodes; // TODO Make configurable
+	const auto chunks = ([&] {
+		if(tsk.has_variable_split()) {
+			return split_equal(full_chunk, tsk.get_granularity(), num_chunks, tsk.get_dimensions());
+		} else {
+			return std::vector<chunk<3>>{full_chunk};
+		}
+	})();
 	assert(chunks.size() <= num_chunks); // We may have created less than requested
 	assert(!chunks.empty());
 

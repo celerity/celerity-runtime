@@ -120,7 +120,10 @@ namespace detail {
 		}
 
 		size_t command_count() const { return m_commands.size(); }
-		size_t task_command_count(task_id tid) const { return m_by_task.at(tid).size(); }
+		size_t task_command_count(task_id tid) const {
+			if(m_by_task.count(tid) == 0) return 0;
+			return m_by_task.at(tid).size();
+		}
 
 		auto all_commands() const {
 			const auto transform = [](auto& uptr) { return uptr.second.get(); };
