@@ -62,6 +62,11 @@ class task_builder {
 		}
 
 		template <typename BufferT, typename RangeMapper>
+		buffer_access_step read_write(BufferT& buf, RangeMapper rmfn) {
+			return chain<buffer_access_step>([&buf, rmfn](handler& cgh) { buf.template get_access<access_mode::read_write>(cgh, rmfn); });
+		}
+
+		template <typename BufferT, typename RangeMapper>
 		buffer_access_step discard_write(BufferT& buf, RangeMapper rmfn) {
 			return chain<buffer_access_step>([&buf, rmfn](handler& cgh) { buf.template get_access<access_mode::discard_write>(cgh, rmfn); });
 		}
@@ -589,4 +594,20 @@ TEST_CASE("the same buffer range is not pushed twice") {
 		const auto push_cmd = dynamic_cast<const push_command*>(pushes_c.get_raw(0)[0]);
 		CHECK(subrange_cast<1>(push_cmd->get_range()) == subrange<1>({32}, {32}));
 	}
+}
+
+// TODO: I've removed an assertion in this same commit that caused problems when determining anti-dependencies for read-write accesses.
+// The difference to master-worker is that we now update the local_last_writer directly instead of using an update list when generating an await push.
+// This means that the write access finds the await push command as the last writer when determining anti-dependencies, which we then simply skip.
+// This should be fine as it already has a true dependency on it anyway (and the await push already has all transitive anti-dependencies it needs).
+// The order of processing accesses (producer/consumer) shouldn't matter either as we do defer the update of the last writer for the actual
+// execution command until all modes have been processed (i.e., we won't forget to generate the await push).
+// Go through this again and see if everything works as expected (in particular with multiple chunks).
+TEST_CASE("read_write access works", "[smoke-test]") {
+	dist_cdag_test_context dctx(2);
+
+	auto buf = dctx.create_buffer(range<1>(128));
+
+	dctx.device_compute(buf.get_range()).discard_write(buf, acc::one_to_one{}).submit();
+	dctx.device_compute(buf.get_range()).read_write(buf, acc::fixed<1>({{0, 64}})).submit();
 }

@@ -204,6 +204,7 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 						}
 
 						// There is data we don't yet have locally. Generate an await push command for it.
+						// NOCOMMIT FIXME: We currently generate an await push for uninitialized buffers as well (which then never gets fulfilled)
 						if(!missing_parts.empty()) {
 							// We simply use the task ID to, together with the buffer id, uniquely identify all pushes corresponding to this await push
 							const transfer_id trid = static_cast<transfer_id>(tsk.get_id());
@@ -283,15 +284,14 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 void distributed_graph_generator::generate_anti_dependencies(
     task_id tid, buffer_id bid, const region_map_t<write_command_state>& last_writers_map, const GridRegion<3>& write_req, abstract_command* write_cmd) {
 	const auto last_writers = last_writers_map.get_region_values(write_req);
-	for(auto& box_and_writers : last_writers) {
+	for(auto& [box, wcs] : last_writers) {
 		// FIXME: This is ugly. Region maps should be able to store sparse entries.
-		if(box_and_writers.second == no_command) continue;
-		const command_id last_writer_cid = box_and_writers.second;
-		const auto last_writer_cmd = m_cdag.get(last_writer_cid);
+		if(wcs == no_command) continue;
+		const auto last_writer_cmd = m_cdag.get(static_cast<command_id>(wcs));
 		assert(!isa<task_command>(last_writer_cmd) || static_cast<task_command*>(last_writer_cmd)->get_tid() != tid);
 
-		// Add anti-dependencies onto all dependents of the writer
-		bool has_dependents = false;
+		// Add anti-dependencies onto all successors of the writer
+		bool has_successors = false;
 		for(auto d : last_writer_cmd->get_dependents()) {
 			// Only consider true dependencies
 			if(d.kind != dependency_kind::true_dep) continue;
@@ -307,7 +307,7 @@ void distributed_graph_generator::generate_anti_dependencies(
 				// The task might be a dependent because of another buffer
 				if(const auto buffer_reads_it = command_reads.find(bid); buffer_reads_it != command_reads.end()) {
 					if(!GridRegion<3>::intersect(write_req, buffer_reads_it->second).empty()) {
-						has_dependents = true;
+						has_successors = true;
 						m_cdag.add_dependency(write_cmd, cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
 					}
 				}
@@ -315,13 +315,8 @@ void distributed_graph_generator::generate_anti_dependencies(
 		}
 
 		// In some cases (horizons, master node host task, weird discard_* constructs...)
-		// the last writer might not have any dependents. Just add the anti-dependency onto the writer itself then.
-		if(!has_dependents) {
-			m_cdag.add_dependency(write_cmd, last_writer_cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
-
-			// This is a good time to validate our assumption that every await_push command has a dependent
-			assert(!isa<await_push_command>(last_writer_cmd));
-		}
+		// the last writer might not have any successors. Just add the anti-dependency onto the writer itself then.
+		if(!has_successors) { m_cdag.add_dependency(write_cmd, last_writer_cmd, dependency_kind::anti_dep, dependency_origin::dataflow); }
 	}
 }
 
