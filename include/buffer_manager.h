@@ -92,6 +92,7 @@ namespace detail {
 		using host_buffer_factory = std::function<std::unique_ptr<buffer_storage>(const range<3>&)>;
 
 		struct buffer_info {
+			int dims = 0; // NOCOMMIT Added for cool region map w/o thinking about it too much. Is this redundant?
 			cl::sycl::range<3> range = {1, 1, 1};
 			size_t element_size = 0;
 			bool is_host_initialized;
@@ -139,7 +140,8 @@ namespace detail {
 					return std::make_unique<device_buffer_storage<DataT, Dims>>(range_cast<Dims>(r), q);
 				};
 				auto host_factory = [](const ::celerity::range<3>& r) { return std::make_unique<host_buffer_storage<DataT, Dims>>(range_cast<Dims>(r)); };
-				m_buffer_infos.emplace(bid, buffer_info{range, sizeof(DataT), is_host_initialized, {}, std::move(device_factory), std::move(host_factory)});
+				m_buffer_infos.emplace(
+				    bid, buffer_info{Dims, range, sizeof(DataT), is_host_initialized, {}, std::move(device_factory), std::move(host_factory)});
 				m_newest_data_location.emplace(bid, region_map<data_location>(range, data_location::nowhere));
 
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)

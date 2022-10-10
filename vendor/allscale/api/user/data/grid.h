@@ -366,8 +366,15 @@ namespace data {
 		/**
 		 * Added by psalz for CELERITY on 2018/03/19.
 		 */
-		point_type get_min() const { return min; }
-		point_type get_max() const { return max; }
+		const point_type& get_min() const { return min; }
+		const point_type& get_max() const { return max; }
+
+		/**
+		 * Added by psalz for CELERITY on 2020/07/13.
+		 * NOCOMMIT Oof - just roll own types...?
+		 */
+		point_type& get_min() { return min; }
+		point_type& get_max() { return max; }
 
 	};
 

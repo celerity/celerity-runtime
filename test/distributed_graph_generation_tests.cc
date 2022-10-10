@@ -11,6 +11,7 @@
 
 #include <celerity.h>
 
+#include "cool_region_map.h"
 #include "distributed_graph_generator.h"
 #include "print_graph.h"
 #include "test_utils.h"
@@ -323,7 +324,7 @@ class dist_cdag_test_context {
 		const auto buf = test_utils::mock_buffer<Dims>(bid, size);
 		m_tm->add_buffer(bid, range_cast<3>(size), mark_as_host_initialized);
 		for(auto& dggen : m_dggens) {
-			dggen->add_buffer(bid, range_cast<3>(size));
+			dggen->add_buffer(bid, range_cast<3>(size), Dims);
 		}
 		return buf;
 	}
@@ -479,6 +480,15 @@ struct region_map_testspy {
 	template <typename T>
 	static size_t get_num_regions(const region_map<T>& map) {
 		return map.m_region_values.size();
+	}
+	template <typename T>
+	static size_t get_num_regions(const my_cool_region_map_wrapper<T>& map) {
+		switch(map.dims) {
+		case 1: return std::get<1>(map.region_map).get_num_regions();
+		case 2: return std::get<2>(map.region_map).get_num_regions();
+		case 3: return std::get<3>(map.region_map).get_num_regions();
+		};
+		return -1;
 	}
 };
 

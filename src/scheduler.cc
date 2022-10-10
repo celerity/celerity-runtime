@@ -47,7 +47,7 @@ namespace detail {
 					    serializer.flush(e.tsk->get_id());
 				    },
 				    [this](const event_buffer_registered& e) { //
-					    m_dggen->add_buffer(e.bid, e.range);
+					    m_dggen->add_buffer(e.bid, e.range, e.dims);
 				    },
 				    [&](const event_shutdown&) {
 					    assert(in_flight_events.empty());

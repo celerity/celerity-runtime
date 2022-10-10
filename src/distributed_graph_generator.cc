@@ -20,8 +20,12 @@ distributed_graph_generator::distributed_graph_generator(const size_t num_nodes,
 	m_epoch_for_new_commands = epoch_cmd->get_cid();
 }
 
-void distributed_graph_generator::add_buffer(const buffer_id bid, const range<3>& range) {
+void distributed_graph_generator::add_buffer(const buffer_id bid, const range<3>& range, int dims) {
+#if USE_COOL_REGION_MAP
+	m_buffer_states.emplace(std::piecewise_construct, std::tuple{bid}, std::tuple{region_map_t<write_command_state>{range, dims}});
+#else
 	m_buffer_states.try_emplace(bid, buffer_state{range});
+#endif
 	m_buffer_states.at(bid).local_last_writer.update_region(subrange_to_grid_box({id<3>(), range}), no_command);
 }
 
@@ -252,7 +256,7 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 }
 
 void distributed_graph_generator::generate_anti_dependencies(
-    task_id tid, buffer_id bid, const region_map<write_command_state>& last_writers_map, const GridRegion<3>& write_req, abstract_command* write_cmd) {
+    task_id tid, buffer_id bid, const region_map_t<write_command_state>& last_writers_map, const GridRegion<3>& write_req, abstract_command* write_cmd) {
 	const auto last_writers = last_writers_map.get_region_values(write_req);
 	for(auto& box_and_writers : last_writers) {
 		// FIXME: This is ugly. Region maps should be able to store sparse entries.

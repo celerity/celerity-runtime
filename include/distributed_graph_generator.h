@@ -3,8 +3,18 @@
 #include <unordered_map>
 
 #include "ranges.h"
-#include "region_map.h"
 #include "types.h"
+
+#define USE_COOL_REGION_MAP 1
+#if USE_COOL_REGION_MAP
+#include "cool_region_map.h"
+template <typename T>
+using region_map_t = celerity::detail::my_cool_region_map_wrapper<T>;
+#else
+#include "region_map.h"
+template <typename T>
+using region_map_t = celerity::detail::region_map<T>;
+#endif
 
 namespace celerity::detail {
 
@@ -16,6 +26,7 @@ class abstract_command;
 class distributed_graph_generator {
 	friend struct distributed_graph_generator_testspy;
 
+  public: // NOCOMMIT need write_command_state public for std::hash specialization
 	// write_command_state is basically a command id with one bit of additional information:
 	// Whether the data written by this command is globally still the newest version ("fresh")
 	// or whether it has been superseded by a command on another node ("stale").
@@ -42,6 +53,8 @@ class distributed_graph_generator {
 
 		bool operator==(const write_command_state& other) const { return m_cid == other.m_cid; }
 
+		bool operator!=(const write_command_state& other) const { return !(*this == other); }
+
 	  private:
 		command_id m_cid;
 	};
@@ -49,13 +62,16 @@ class distributed_graph_generator {
 	inline static write_command_state no_command = write_command_state(static_cast<command_id>(-1));
 
 	struct buffer_state {
-		region_map<write_command_state> local_last_writer;
+		// NOCOMMIT Just a hack for cool region map. get rid of
+		buffer_state(region_map_t<write_command_state> lw) : local_last_writer(std::move(lw)) {}
+
+		region_map_t<write_command_state> local_last_writer;
 	};
 
   public:
 	distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm);
 
-	void add_buffer(const buffer_id bid, const range<3>& range);
+	void add_buffer(const buffer_id bid, const range<3>& range, int dims);
 
 	void build_task(const task& tsk);
 
@@ -65,7 +81,7 @@ class distributed_graph_generator {
 	void generate_execution_commands(const task& tsk);
 
 	void generate_anti_dependencies(
-	    task_id tid, buffer_id bid, const region_map<write_command_state>& last_writers_map, const GridRegion<3>& write_req, abstract_command* write_cmd);
+	    task_id tid, buffer_id bid, const region_map_t<write_command_state>& last_writers_map, const GridRegion<3>& write_req, abstract_command* write_cmd);
 
 	void set_epoch_for_new_commands(const abstract_command* const epoch_or_horizon);
 
@@ -98,3 +114,13 @@ class distributed_graph_generator {
 };
 
 } // namespace celerity::detail
+
+// NOCOMMIT Just for cool_region_map::get_num_regions - remove again?
+namespace std {
+template <>
+struct hash<celerity::detail::distributed_graph_generator::write_command_state> {
+	size_t operator()(const celerity::detail::distributed_graph_generator::write_command_state& wcs) const {
+		return std::hash<size_t>{}(static_cast<celerity::detail::command_id>(wcs));
+	}
+};
+} // namespace std
