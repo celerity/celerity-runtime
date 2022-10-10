@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bitset>
 #include <unordered_map>
 
 #include "ranges.h"
@@ -23,6 +24,10 @@ class task_manager;
 class command_graph;
 class abstract_command;
 
+// TODO: Make compile-time configurable
+constexpr size_t max_num_nodes = 256;
+using node_bitset = std::bitset<max_num_nodes>;
+
 class distributed_graph_generator {
 	friend struct distributed_graph_generator_testspy;
 
@@ -30,7 +35,8 @@ class distributed_graph_generator {
 	// write_command_state is basically a command id with one bit of additional information:
 	// Whether the data written by this command is globally still the newest version ("fresh")
 	// or whether it has been superseded by a command on another node ("stale").
-	// => Now it's two bits: Also store whether data is replicated or not.
+	// => Now it's two bits: Also store whether data is replicated or not (replicated from somewhere else, i.e., we are not the owner)
+	// 		=> TODO: Rename to is_owned or something? Or does that conceptually overlap with freshness?
 	class write_command_state {
 		constexpr static int64_t mask = 1ull << 63;
 		constexpr static int64_t mask2 = 1ull << 62;
@@ -63,9 +69,11 @@ class distributed_graph_generator {
 
 	struct buffer_state {
 		// NOCOMMIT Just a hack for cool region map. get rid of
-		buffer_state(region_map_t<write_command_state> lw) : local_last_writer(std::move(lw)) {}
+		buffer_state(region_map_t<write_command_state> lw, region_map_t<std::bitset<max_num_nodes>> rr)
+		    : local_last_writer(std::move(lw)), replicated_regions(std::move(rr)) {}
 
 		region_map_t<write_command_state> local_last_writer;
+		region_map_t<node_bitset> replicated_regions;
 	};
 
   public:

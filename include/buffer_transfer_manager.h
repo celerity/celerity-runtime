@@ -66,6 +66,7 @@ namespace detail {
 				assert(!complete);
 				const auto box = subrange_to_grid_box(t->frame->sr);
 				assert(GridRegion<3>::intersect(m_received_region, box).empty());
+				assert(!m_expected_region.has_value() || GridRegion<3>::difference(box, *m_expected_region).empty());
 				m_received_region = GridRegion<3>::merge(m_received_region, box);
 				m_transfers.push_back(std::move(t));
 			}

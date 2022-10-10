@@ -141,6 +141,16 @@ class command_query {
 
 	bool empty() const { return count() == 0; }
 
+	command_query subtract(const command_query& other) const {
+		assert(m_commands_by_node.size() == other.m_commands_by_node.size());
+		std::vector<std::unordered_set<const abstract_command*>> result(m_commands_by_node.size());
+		for(node_id nid = 0; nid < m_commands_by_node.size(); ++nid) {
+			std::copy_if(m_commands_by_node[nid].cbegin(), m_commands_by_node[nid].cend(), std::inserter(result[nid], result[nid].begin()),
+			    [&other, nid](const abstract_command* cmd) { return other.m_commands_by_node[nid].count(cmd) == 0; });
+		}
+		return command_query{std::move(result)};
+	}
+
 	// Call the provided function once for each node, with a subquery containing commands only for that node.
 	template <typename PerNodeCallback>
 	void for_each_node(PerNodeCallback&& cb) const {
@@ -184,6 +194,12 @@ class command_query {
 			}
 			return true;
 		});
+	}
+
+	std::vector<const abstract_command*> get_raw(const node_id nid) const {
+		std::vector<const abstract_command*> result;
+		std::copy(m_commands_by_node.at(nid).cbegin(), m_commands_by_node.at(nid).cend(), std::back_inserter(result));
+		return result;
 	}
 
   private:
@@ -319,7 +335,7 @@ class dist_cdag_test_context {
 	~dist_cdag_test_context() { maybe_print_graphs(); }
 
 	template <int Dims>
-	test_utils::mock_buffer<Dims> create_buffer(cl::sycl::range<Dims> size, bool mark_as_host_initialized = false) {
+	test_utils::mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
 		const buffer_id bid = m_next_buffer_id++;
 		const auto buf = test_utils::mock_buffer<Dims>(bid, size);
 		m_tm->add_buffer(bid, range_cast<3>(size), mark_as_host_initialized);
@@ -518,14 +534,14 @@ TEST_CASE("horizons prevent tracking data structures from growing indefinitely",
 		CAPTURE(t);
 		const auto read_accessor = [=](celerity::chunk<1> chnk) {
 			celerity::subrange<2> ret;
-			ret.range = cl::sycl::range<2>(t, buffer_width);
-			ret.offset = cl::sycl::id<2>(0, 0);
+			ret.range = range<2>(t, buffer_width);
+			ret.offset = id<2>(0, 0);
 			return ret;
 		};
 		const auto write_accessor = [=](celerity::chunk<1> chnk) {
 			celerity::subrange<2> ret;
-			ret.range = cl::sycl::range<2>(1, buffer_width);
-			ret.offset = cl::sycl::id<2>(t, 0);
+			ret.range = range<2>(1, buffer_width);
+			ret.offset = id<2>(t, 0);
 			return ret;
 		};
 		dctx.device_compute<class UKN(timestep)>(range<1>(buffer_width)).read(buf_a, read_accessor).discard_write(buf_a, write_accessor).submit();
@@ -547,5 +563,30 @@ TEST_CASE("horizons prevent tracking data structures from growing indefinitely",
 		}
 
 		REQUIRE_LOOP(dctx.query().find_all(command_type::horizon).count() <= 3);
+	}
+}
+
+TEST_CASE("the same buffer range is not pushed twice") {
+	dist_cdag_test_context dctx(2);
+	auto buf1 = dctx.create_buffer(range<1>(128));
+
+	dctx.device_compute<class UKN(task_a)>(buf1.get_range()).discard_write(buf1, acc::one_to_one{}).submit();
+	dctx.device_compute<class UKN(task_b)>(buf1.get_range()).read(buf1, acc::fixed<1>({{0}, {32}})).submit();
+
+	const auto pushes_b = dctx.query().find_all(command_type::push);
+	CHECK(pushes_b.count() == 1);
+
+	SECTION("when requesting the exact same range") {
+		dctx.device_compute<class UKN(task_c)>(buf1.get_range()).read(buf1, acc::fixed<1>({{0}, {32}})).submit();
+		const auto pushes_c = dctx.query().find_all(command_type::push).subtract(pushes_b);
+		CHECK(pushes_c.empty());
+	}
+
+	SECTION("when requesting a partially overlapping range") {
+		dctx.device_compute<class UKN(task_c)>(buf1.get_range()).read(buf1, acc::fixed<1>({{0}, {64}})).submit();
+		const auto pushes_c = dctx.query().find_all(command_type::push).subtract(pushes_b);
+		REQUIRE(pushes_c.count() == 1);
+		const auto push_cmd = dynamic_cast<const push_command*>(pushes_c.get_raw(0)[0]);
+		CHECK(subrange_cast<1>(push_cmd->get_range()) == subrange<1>({32}, {32}));
 	}
 }

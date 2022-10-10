@@ -112,7 +112,8 @@ namespace detail {
 
 	std::string push_job::get_description(const command_pkg& pkg) {
 		const auto data = std::get<push_data>(pkg.data);
-		return fmt::format("push {} of buffer {} to node {}", data.sr, static_cast<size_t>(data.bid), static_cast<size_t>(data.target));
+		return fmt::format("push {} of buffer {} transfer {} to node {}", data.sr, static_cast<size_t>(data.bid), static_cast<size_t>(data.trid),
+		    static_cast<size_t>(data.target));
 	}
 
 	bool push_job::execute(const command_pkg& pkg) {

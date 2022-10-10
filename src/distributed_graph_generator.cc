@@ -12,6 +12,10 @@ namespace celerity::detail {
 
 distributed_graph_generator::distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm)
     : m_num_nodes(num_nodes), m_local_nid(local_nid), m_cdag(cdag), m_task_mngr(tm) {
+	if(m_num_nodes > max_num_nodes) {
+		throw std::runtime_error(fmt::format("Number of nodes requested ({}) exceeds compile-time maximum of {}", m_num_nodes, max_num_nodes));
+	}
+
 	// Build initial epoch command (this is required to properly handle anti-dependencies on host-initialized buffers).
 	// We manually generate the first command, this will be replaced by applied horizons or explicit epochs down the line (see
 	// set_epoch_for_new_commands).
@@ -22,9 +26,10 @@ distributed_graph_generator::distributed_graph_generator(const size_t num_nodes,
 
 void distributed_graph_generator::add_buffer(const buffer_id bid, const range<3>& range, int dims) {
 #if USE_COOL_REGION_MAP
-	m_buffer_states.emplace(std::piecewise_construct, std::tuple{bid}, std::tuple{region_map_t<write_command_state>{range, dims}});
+	m_buffer_states.emplace(
+	    std::piecewise_construct, std::tuple{bid}, std::tuple{region_map_t<write_command_state>{range, dims}, region_map_t<node_bitset>{range, dims}});
 #else
-	m_buffer_states.try_emplace(bid, buffer_state{range});
+	m_buffer_states.try_emplace(bid, buffer_state{range, range});
 #endif
 	m_buffer_states.at(bid).local_last_writer.update_region(subrange_to_grid_box({id<3>(), range}), no_command);
 }
@@ -211,16 +216,27 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 						}
 					} else {
 						const auto local_sources = buffer_state.local_last_writer.get_region_values(req);
-						for(const auto& [box, wcs] : local_sources) {
+						for(const auto& [local_box, wcs] : local_sources) {
 							if(!wcs.is_fresh() || wcs.is_replicated()) { continue; }
-							// Generate separate PUSH command for each last writer command for now
-							// TODO: Can we consolidate?
-							const transfer_id trid = static_cast<transfer_id>(tsk.get_id());
-							auto push_cmd = m_cdag.create<push_command>(m_local_nid, bid, 0, nid, trid, grid_box_to_subrange(box));
-							m_cdag.add_dependency(push_cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
 
-							// Store the read access for determining anti-dependencies later on
-							m_command_buffer_reads[push_cmd->get_cid()][bid] = req;
+							// Check if we've already pushed this box
+							const auto replicated_boxes = buffer_state.replicated_regions.get_region_values(local_box);
+							for(const auto& [replicated_box, nodes] : replicated_boxes) {
+								if(nodes.test(nid)) continue;
+
+								// Generate separate PUSH command for each last writer command for now,
+								// possibly even multiple for partially already-replicated data
+								// TODO: Can we consolidate?
+								const transfer_id trid = static_cast<transfer_id>(tsk.get_id());
+								auto push_cmd = m_cdag.create<push_command>(m_local_nid, bid, 0, nid, trid, grid_box_to_subrange(replicated_box));
+								m_cdag.add_dependency(push_cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
+
+								// Store the read access for determining anti-dependencies later on
+								m_command_buffer_reads[push_cmd->get_cid()][bid] = replicated_box;
+
+								// Remember that we've replicated this region
+								buffer_state.replicated_regions.update_box(replicated_box, node_bitset{nodes}.set(nid));
+							}
 						}
 					}
 				}
@@ -234,7 +250,10 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 				}
 			}
 
-			if(!written_region.empty()) { buffer_state.local_last_writer.update_region(written_region, cmd->get_cid()); }
+			if(!written_region.empty()) {
+				buffer_state.local_last_writer.update_region(written_region, cmd->get_cid());
+				buffer_state.replicated_regions.update_region(written_region, node_bitset{});
+			}
 		}
 	}
 
