@@ -24,22 +24,22 @@ endfunction()
 file(GLOB_RECURSE TEST_INCLUDES *.h)
 
 set(TEST_TARGETS
-  accessor_tests
+  # accessor_tests
   backend_tests
-  buffer_manager_tests
+  # buffer_manager_tests
   distributed_graph_generation_tests
-  graph_generation_tests
-  graph_gen_granularity_tests
-  graph_gen_reduction_tests
-  graph_gen_transfer_tests
-  graph_compaction_tests
+  # graph_generation_tests
+  # graph_gen_granularity_tests
+  # graph_gen_reduction_tests
+  # graph_gen_transfer_tests
+  # graph_compaction_tests
   intrusive_graph_tests
-  print_graph_tests
+  # print_graph_tests
   region_map_tests
-  runtime_tests
+  # runtime_tests
   runtime_deprecation_tests
   sycl_tests
-  task_graph_tests
+  # task_graph_tests
   task_ring_buffer_tests
   device_selection_tests
 )
@@ -72,10 +72,10 @@ add_executable(all_tests ${TEST_OBJ_LIST})
 target_link_libraries(all_tests PRIVATE test_main)
 set_test_target_parameters(all_tests "")
 
-# Unit benchmark executable
-add_executable(benchmarks benchmarks.cc benchmark_reporters.cc)
-target_link_libraries(benchmarks PRIVATE test_main)
-set_test_target_parameters(benchmarks benchmarks.cc)
+# # Unit benchmark executable
+# add_executable(benchmarks benchmarks.cc benchmark_reporters.cc)
+# target_link_libraries(benchmarks PRIVATE test_main)
+# set_test_target_parameters(benchmarks benchmarks.cc)
 
 add_subdirectory(system)
 if(CELERITY_DETAIL_INTEGRATION_TESTING)
