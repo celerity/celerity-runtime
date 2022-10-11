@@ -579,8 +579,7 @@ TEST_CASE("horizons prevent tracking data structures from growing indefinitely",
 			const auto num_regions = distributed_graph_generator_testspy::get_last_writer_num_regions(ggen, buf_a.get_id());
 			const size_t cmds_before_applied_horizon = 1;
 			const size_t cmds_after_applied_horizon = horizon_step_size + ((t + 1) % horizon_step_size);
-			const size_t uninitialized_regions = t != num_timesteps - 1 ? 1 : 0;
-			REQUIRE_LOOP(num_regions == cmds_before_applied_horizon + cmds_after_applied_horizon + uninitialized_regions);
+			REQUIRE_LOOP(num_regions == cmds_before_applied_horizon + cmds_after_applied_horizon);
 
 			// Pruning happens with a one step delay after a horizon has been applied
 			const size_t expected_reads = horizon_step_size + (t % horizon_step_size) + 1;
@@ -642,4 +641,16 @@ TEST_CASE("side effect dependencies") {
 	const auto tid_b = dctx.host_task(range<1>(1)).affect(hobj).submit();
 	CHECK(dctx.query().find_all(tid_a).has_successor(dctx.query().find_all(tid_b)));
 	// NOCOMMIT TODO: Test horizon / epoch subsumption as well
+}
+
+TEST_CASE("reading from host-initialized or uninitialized buffers doesn't generate faulty await push commands") {
+	const int num_nodes = GENERATE(1, 2); // (We used to generate an await push even for a single node!)
+	dist_cdag_test_context dctx(num_nodes);
+
+	const auto test_range = range<1>(128);
+	auto host_init_buf = dctx.create_buffer(test_range, true);
+	auto uninit_buf = dctx.create_buffer(test_range, false);
+	const auto tid_a = dctx.device_compute(test_range).read(host_init_buf, acc::one_to_one{}).read(uninit_buf, acc::one_to_one{}).submit();
+	CHECK(dctx.query().find_all(command_type::await_push).empty());
+	CHECK(dctx.query().find_all(command_type::push).empty());
 }

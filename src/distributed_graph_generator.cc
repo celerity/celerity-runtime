@@ -31,7 +31,10 @@ void distributed_graph_generator::add_buffer(const buffer_id bid, const range<3>
 #else
 	m_buffer_states.try_emplace(bid, buffer_state{range, range});
 #endif
-	m_buffer_states.at(bid).local_last_writer.update_region(subrange_to_grid_box({id<3>(), range}), no_command);
+	// Mark contents as available locally (= don't generate await push commands) and fully replicated (= don't generate push commands).
+	// This is required when tasks access host-initialized or uninitialized buffers.
+	m_buffer_states.at(bid).local_last_writer.update_region(subrange_to_grid_box({id<3>(), range}), m_epoch_for_new_commands);
+	m_buffer_states.at(bid).replicated_regions.update_region(subrange_to_grid_box({id<3>(), range}), node_bitset{}.set());
 }
 
 // We simply split in the first dimension for now
@@ -204,8 +207,8 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 						}
 
 						// There is data we don't yet have locally. Generate an await push command for it.
-						// NOCOMMIT FIXME: We currently generate an await push for uninitialized buffers as well (which then never gets fulfilled)
 						if(!missing_parts.empty()) {
+							assert(m_num_nodes > 1);
 							// We simply use the task ID to, together with the buffer id, uniquely identify all pushes corresponding to this await push
 							const transfer_id trid = static_cast<transfer_id>(tsk.get_id());
 							auto ap_cmd = m_cdag.create<await_push_command>(m_local_nid, bid, trid, missing_parts);
@@ -287,8 +290,6 @@ void distributed_graph_generator::generate_anti_dependencies(
     task_id tid, buffer_id bid, const region_map_t<write_command_state>& last_writers_map, const GridRegion<3>& write_req, abstract_command* write_cmd) {
 	const auto last_writers = last_writers_map.get_region_values(write_req);
 	for(auto& [box, wcs] : last_writers) {
-		// FIXME: This is ugly. Region maps should be able to store sparse entries.
-		if(wcs == no_command) continue;
 		const auto last_writer_cmd = m_cdag.get(static_cast<command_id>(wcs));
 		assert(!isa<task_command>(last_writer_cmd) || static_cast<task_command*>(last_writer_cmd)->get_tid() != tid);
 
@@ -349,7 +350,6 @@ void distributed_graph_generator::set_epoch_for_new_commands(const abstract_comm
 	for(auto& [bid, bs] : m_buffer_states) {
 		// TODO this could be optimized to something like cdag.apply_horizon(node_id, horizon_cmd) with much fewer internal operations
 		bs.local_last_writer.apply_to_values([epoch_or_horizon](const write_command_state& wcs) {
-			if(wcs == no_command) return wcs;
 			auto new_wcs = write_command_state(std::max(epoch_or_horizon->get_cid(), static_cast<command_id>(wcs)), wcs.is_replicated());
 			if(!wcs.is_fresh()) new_wcs.mark_as_stale();
 			return new_wcs;
