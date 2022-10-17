@@ -109,7 +109,10 @@ static buffer_requirements_map get_buffer_requirements_for_mapped_access(const t
 //    => Consider these additional use cases:
 //       - Facilitate conflict resolution through copying
 //       - Facilitate partial execution ("sub splits")
-void distributed_graph_generator::build_task(const task& tsk) {
+std::unordered_set<abstract_command*> distributed_graph_generator::build_task(const task& tsk) {
+	assert(m_current_cmd_batch.empty());
+	[[maybe_unused]] const auto cmd_count_before = m_cdag.command_count();
+
 	const auto epoch_to_prune_before = m_epoch_for_new_commands;
 
 	if(tsk.get_type() == task_type::epoch) {
@@ -130,8 +133,13 @@ void distributed_graph_generator::build_task(const task& tsk) {
 		}
 	}
 
+	assert(m_cdag.command_count() - cmd_count_before == m_current_cmd_batch.size());
+
 	// If a new epoch was completed in the CDAG before the current task, prune all predecessor commands of that epoch.
 	prune_commands_before(epoch_to_prune_before);
+
+	assert(!m_current_cmd_batch.empty() || (tsk.get_type() == task_type::master_node && m_local_nid != 0));
+	return std::move(m_current_cmd_batch);
 }
 
 void distributed_graph_generator::generate_execution_commands(const task& tsk) {
@@ -169,7 +177,7 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 		auto requirements = get_buffer_requirements_for_mapped_access(tsk, chunks[i], tsk.get_global_size());
 
 		execution_command* cmd = nullptr;
-		if(is_local_chunk) { cmd = m_cdag.create<execution_command>(nid, tsk.get_id(), subrange{chunks[i]}); }
+		if(is_local_chunk) { cmd = create_command<execution_command>(nid, tsk.get_id(), subrange{chunks[i]}); }
 
 		for(auto& [bid, reqs_by_mode] : requirements) {
 			auto& buffer_state = m_buffer_states.at(bid);
@@ -211,7 +219,7 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 							assert(m_num_nodes > 1);
 							// We simply use the task ID to, together with the buffer id, uniquely identify all pushes corresponding to this await push
 							const transfer_id trid = static_cast<transfer_id>(tsk.get_id());
-							auto ap_cmd = m_cdag.create<await_push_command>(m_local_nid, bid, trid, missing_parts);
+							auto ap_cmd = create_command<await_push_command>(m_local_nid, bid, trid, missing_parts);
 							m_cdag.add_dependency(cmd, ap_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
 							generate_anti_dependencies(tsk.get_id(), bid, buffer_state.local_last_writer, missing_parts, ap_cmd);
 							generate_epoch_dependencies(ap_cmd);
@@ -232,7 +240,7 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 								// possibly even multiple for partially already-replicated data
 								// TODO: Can we consolidate?
 								const transfer_id trid = static_cast<transfer_id>(tsk.get_id());
-								auto push_cmd = m_cdag.create<push_command>(m_local_nid, bid, 0, nid, trid, grid_box_to_subrange(replicated_box));
+								auto push_cmd = create_command<push_command>(m_local_nid, bid, 0, nid, trid, grid_box_to_subrange(replicated_box));
 								m_cdag.add_dependency(push_cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
 
 								// Store the read access for determining anti-dependencies later on
@@ -374,7 +382,7 @@ void distributed_graph_generator::reduce_execution_front_to(abstract_command* co
 // NOCOMMIT TODO: Apply epoch to data structures
 void distributed_graph_generator::generate_epoch_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::epoch);
-	const auto epoch = m_cdag.create<epoch_command>(m_local_nid, tsk.get_id(), tsk.get_epoch_action());
+	const auto epoch = create_command<epoch_command>(m_local_nid, tsk.get_id(), tsk.get_epoch_action());
 	set_epoch_for_new_commands(epoch);
 	m_current_horizon = no_command;
 	// Make the epoch depend on the previous execution front
@@ -384,7 +392,7 @@ void distributed_graph_generator::generate_epoch_command(const task& tsk) {
 // NOCOMMIT TODO: Apply previous horizon to data structures
 void distributed_graph_generator::generate_horizon_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::horizon);
-	const auto horizon = m_cdag.create<horizon_command>(m_local_nid, tsk.get_id());
+	const auto horizon = create_command<horizon_command>(m_local_nid, tsk.get_id());
 
 	if(m_current_horizon != static_cast<command_id>(no_command)) {
 		// Apply the previous horizon

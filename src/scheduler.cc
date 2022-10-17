@@ -43,8 +43,8 @@ namespace detail {
 				    [this, &serializer](const event_task_available& e) {
 					    assert(e.tsk != nullptr);
 					    naive_split_transformer naive_split(m_num_nodes, m_num_nodes);
-					    m_dggen->build_task(*e.tsk);
-					    serializer.flush(e.tsk->get_id());
+					    const auto cmds = m_dggen->build_task(*e.tsk);
+					    serializer.flush(cmds);
 				    },
 				    [this](const event_buffer_registered& e) { //
 					    m_dggen->add_buffer(e.bid, e.range, e.dims);

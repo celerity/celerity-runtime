@@ -3,6 +3,7 @@
 #include <bitset>
 #include <unordered_map>
 
+#include "command_graph.h"
 #include "ranges.h"
 #include "types.h"
 
@@ -21,7 +22,6 @@ namespace celerity::detail {
 
 class task;
 class task_manager;
-class command_graph;
 class abstract_command;
 
 // TODO: Make compile-time configurable
@@ -81,11 +81,19 @@ class distributed_graph_generator {
 
 	void add_buffer(const buffer_id bid, const range<3>& range, int dims);
 
-	void build_task(const task& tsk);
+	std::unordered_set<abstract_command*> build_task(const task& tsk);
 
 	command_graph& NOCOMMIT_get_cdag() { return m_cdag; }
 
   private:
+	// Wrapper around command_graph::create that adds commands to current batch set.
+	template <typename T, typename... Args>
+	T* create_command(Args&&... args) {
+		auto* const cmd = m_cdag.create<T>(std::forward<Args>(args)...);
+		m_current_cmd_batch.insert(cmd);
+		return cmd;
+	}
+
 	void generate_execution_commands(const task& tsk);
 
 	void generate_anti_dependencies(
@@ -117,6 +125,9 @@ class distributed_graph_generator {
 	command_id m_epoch_for_new_commands = 0;
 	command_id m_epoch_last_pruned_before = 0;
 	command_id m_current_horizon = no_command;
+
+	// Batch of commands currently being generated. Returned (and thereby emptied) by build_task().
+	std::unordered_set<abstract_command*> m_current_cmd_batch;
 
 	// For proper handling of anti-dependencies we also have to store for each command which buffer regions it reads.
 	// We do this because we cannot reconstruct the requirements from a command within the graph alone (e.g. for compute commands).

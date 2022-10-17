@@ -1,3 +1,20 @@
+/**
+
+Thoughts on executor deadlock w/ PeterTh 2022-10-14:
+
+- Short term try sorting all commands before inserting into the executor queue: Push > await push > execute (and other commands). Or try AP > P (would still
+deadlock if #buffers > 20 though, so probably not a good idea)
+- Various longer term ideas:
+    - Have multiple queues for each command type (or at least the big 3). Limit the number of in-flight commands per type.
+      Hard limit on execution commands, "soft limit" on others: Start all P/AP commands that come before the first execution command currently in-flight
+      (here "before" means P/APs generated as part of the same task, would need to either generate them all before exec commands or somehow re-assign IDs).
+    - Polling on P/AP jobs is redundant w/ BTM.poll(). The BTM could just decrease all successor's dependency count once a transfer is done (e.g. via callback).
+    - Use pointers instead of IDs to cross reference inside the executor. Maybe even embed execution status into the CDAG nodes themselves.
+    - Distinguish between active (execute, push, ...) commands and passive (await push) commands. If there are no active commands running, keep adding
+      additional commands from the queue. Might need additional mechanism to avoid unbounded growth though (horizons?). It would be nice if we
+      could theoretically guarantee deadlock-free execution.
+*/
+
 #include "executor.h"
 
 #include <queue>
@@ -49,6 +66,10 @@ namespace detail {
 		task_hydrator::make_available();
 		bool done = false;
 
+		// namespace chr = std::chrono;
+		// using namespace std::chrono_literals;
+		// chr::steady_clock::time_point ts_last_change = chr::steady_clock::now() + 1s;
+
 		while(!done || !m_jobs.empty()) {
 			// Bail if a device error ocurred.
 			if(m_running_device_compute_jobs > 0) { m_d_queue.get_sycl_queue().throw_asynchronous(); }
@@ -93,6 +114,7 @@ namespace detail {
 					done = true;
 				}
 
+				// ts_last_change = chr::steady_clock::now();
 				it = m_jobs.erase(it);
 			}
 
@@ -103,6 +125,7 @@ namespace detail {
 				std::sort(ready_jobs.begin(), ready_jobs.end(),
 				    [this](command_id a, command_id b) { return m_jobs[a].cmd == command_type::push && m_jobs[b].cmd != command_type::push; });
 				for(command_id cid : ready_jobs) {
+					// ts_last_change = chr::steady_clock::now();
 					auto* job = m_jobs.at(cid).job.get();
 					job->start();
 					job->update();
@@ -119,11 +142,57 @@ namespace detail {
 						// In case the command couldn't be handled, don't pop it from the queue.
 						continue;
 					}
+					// ts_last_change = chr::steady_clock::now();
 					m_command_queue.pop();
 				}
 			}
 
 			if(m_first_command_received) { update_metrics(); }
+
+#if 0
+			// NOCOMMIT Add something like this, at least as a function that can be called from a GDB session (it might be hard to automatically detect deadlocks reliably).
+			if((chr::steady_clock::now() - ts_last_change) > 10s) {
+				std::this_thread::sleep_for(size_t(m_local_nid) * 100ms);
+
+				fmt::print("Executor is stuck!\n");
+				fmt::print("Jobs:\n");
+				for(auto& [id, jh] : m_jobs) {
+					fmt::print("\t{} [running={}]: {} | {} unfulfilled dependencies, successors: [{}]\n", id, jh.job->is_running(), jh.job->get_description(jh.job->m_pkg),
+					    jh.unsatisfied_dependencies, fmt::join(jh.dependents, ", "));
+				}
+
+				const auto foo = [this](const command_frame& frame) -> job_handle* {
+					switch(frame.pkg.get_command_type()) {
+					case command_type::horizon: return create_job<horizon_job>(frame, m_task_mngr); break;
+					case command_type::epoch: return create_job<epoch_job>(frame, m_task_mngr); break;
+					case command_type::push: return create_job<push_job>(frame, *m_btm, m_buffer_mngr); break;
+					case command_type::await_push: return create_job<await_push_job>(frame, *m_btm); break;
+					case command_type::reduction: return create_job<reduction_job>(frame, m_reduction_mngr); break;
+					case command_type::execution:
+						if(m_task_mngr.get_task(frame.pkg.get_tid().value())->get_execution_target() == execution_target::host) {
+							return create_job<host_execute_job>(frame, m_h_queue, m_task_mngr, m_buffer_mngr);
+						} else {
+							return create_job<device_execute_job>(frame, m_d_queue, m_task_mngr, m_buffer_mngr, m_reduction_mngr, m_local_nid);
+						}
+						break;
+					case command_type::data_request: create_job<data_request_job>(frame, *m_btm); break;
+					default: assert(!"Unexpected command");
+					}
+					return nullptr;
+				};
+
+				fmt::print("Next 5 commands in queue:\n");
+				for(int i = 0; i < 5 && !m_command_queue.empty(); ++i) {
+					auto& frame = *m_command_queue.front();
+					fmt::print("\t{}: {}\n", frame.pkg.cid, foo(frame)->job->get_description(frame.pkg));
+					m_command_queue.pop();
+				}
+
+				std::this_thread::sleep_for(
+				    (runtime::get_instance().get_num_nodes() - size_t(m_local_nid)) * 100ms); // Prevent mpirun to kill other jobs if we exit on this rank
+				raise(SIGKILL);
+			}
+#endif
 		}
 
 		assert(m_running_device_compute_jobs == 0);

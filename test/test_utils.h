@@ -363,8 +363,8 @@ namespace test_utils {
 	inline detail::task_id build_and_flush(cdag_test_context& ctx, size_t num_nodes, size_t num_chunks, detail::task_id tid) {
 		detail::naive_split_transformer transformer{num_chunks, num_nodes};
 		ctx.get_graph_generator().build_task(*ctx.get_task_manager().get_task(tid), {&transformer});
-		ctx.get_graph_serializer().flush(tid);
-		if(const auto htid = ctx.build_task_horizons()) { ctx.get_graph_serializer().flush(htid); }
+		// ctx.get_graph_serializer().flush(tid); // NOCOMMIT
+		// if(const auto htid = ctx.build_task_horizons()) { ctx.get_graph_serializer().flush(htid); }
 		return tid;
 	}
 

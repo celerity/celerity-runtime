@@ -1,7 +1,7 @@
 #pragma once
 
 #include <functional>
-#include <vector>
+#include <unordered_set>
 
 #include "command.h"
 #include "frame.h"
@@ -23,21 +23,15 @@ namespace detail {
 		 */
 		graph_serializer(command_graph& cdag, flush_callback flush_cb) : m_cdag(cdag), m_flush_cb(flush_cb) {}
 
-		void flush(task_id tid);
-
 		/**
-		 * Serializes a list of task commands and their dependencies.
-		 *
-		 * @param cmds The task commands to serialize, all belonging to the same task.
+		 * Serializes a set of commands. Assumes task commands all belong to the same task.
 		 */
-		void flush(const std::vector<task_command*>& cmds);
+		void flush(const std::unordered_set<abstract_command*>& cmds);
 
 	  private:
 		command_graph& m_cdag;
 		flush_callback m_flush_cb;
 
-
-		void flush_dependency(abstract_command* dep) const;
 		void serialize_and_flush(abstract_command* cmd, const std::vector<command_id>& dependencies) const;
 	};
 

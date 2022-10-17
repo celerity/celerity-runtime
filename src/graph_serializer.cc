@@ -9,12 +9,6 @@
 namespace celerity {
 namespace detail {
 
-	void graph_serializer::flush(task_id tid) {
-		// We may not have any commands for a given task on the local node
-		// NOCOMMIT This may cause issues with transfer commands not being flushed (at least not until the next horizon/epoch)
-		if(m_cdag.task_command_count(tid) > 0) { flush(m_cdag.task_commands(tid)); }
-	}
-
 	bool is_virtual_dependency(const abstract_command* const cmd) {
 		// The initial epoch command is not flushed, so including it in dependencies is not useful
 		// TODO we might want to generate and flush init tasks explicitly to avoid this kind of special casing
@@ -22,72 +16,52 @@ namespace detail {
 		return ecmd && ecmd->get_tid() == task_manager::initial_epoch_task;
 	}
 
-	void graph_serializer::flush(const std::vector<task_command*>& cmds) {
-#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-		task_id check_tid = task_id(-1);
-#endif
+	void graph_serializer::flush(const std::unordered_set<abstract_command*>& cmds) {
+		[[maybe_unused]] task_id check_tid = task_id(-1);
 
-		std::vector<std::pair<task_command*, std::vector<command_id>>> cmds_and_deps;
-		cmds_and_deps.reserve(cmds.size());
-		for(auto cmd : cmds) {
-#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-			// Verify that all commands belong to the same task
-			assert(check_tid == task_id(-1) || check_tid == cmd->get_tid());
-			check_tid = cmd->get_tid();
-#endif
+		// Separate push commands from task commands. We flush pushes first to avoid deadlocking the executor.
+		// This is always safe as no other unflushed command within a single task can precede a push.
+		std::vector<abstract_command*> push_cmds;
+		push_cmds.reserve(cmds.size() / 2);
+		std::vector<abstract_command*> task_cmds;
+		task_cmds.reserve(cmds.size() / 2); // Somewhat overzealous, we are likely to have more push commands
 
-			cmds_and_deps.emplace_back();
-			auto& cad = *cmds_and_deps.rbegin();
-			cad.first = cmd;
-
-			// Iterate over first level of dependencies.
-			// These might either be commands from other tasks that have been flushed previously or generated data transfer / reduction commands.
-			for(auto d : cmd->get_dependencies()) {
-				if(!is_virtual_dependency(d.node)) { cad.second.push_back(d.node->get_cid()); }
-
-				// Sanity check: All dependencies must be on the same node.
-				assert(d.node->get_nid() == cmd->get_nid());
-
-				if(auto* tcmd = dynamic_cast<task_command*>(d.node)) {
-					// Task command dependencies must be from a different task and have already been flushed.
-					assert(tcmd->get_tid() != cmd->get_tid());
-					assert(tcmd->is_flushed());
-					continue;
-				}
-
-				// Flush dependency right away
-				if(!d.node->is_flushed()) flush_dependency(d.node);
+		for(auto& cmd : cmds) {
+			if(isa<push_command>(cmd)) {
+				push_cmds.push_back(cmd);
+			} else if(isa<task_command>(cmd)) {
+				task_cmds.push_back(cmd);
 			}
 		}
 
-		// Finally, flush all the task commands.
-		for(auto& cad : cmds_and_deps) {
-			serialize_and_flush(cad.first, cad.second);
-		}
-	}
-
-	void graph_serializer::flush_dependency(abstract_command* dep) const {
-		// NOCOMMIT: This seems to still work because of epochs. Not ideal but good enough for now.
-		// Special casing for await_push commands: Also flush the corresponding push.
-		// This is necessary as we would otherwise not reach it when starting from task commands alone
-		// (unless there exists an anti-dependency, which is not true in most cases).
-		// if(isa<await_push_command>(dep)) {
-		// 	const auto pcmd = static_cast<await_push_command*>(dep)->get_source();
-		// 	if(!pcmd->is_flushed()) flush_dependency(pcmd);
-		// }
-
-		std::vector<command_id> dep_deps;
-		// Iterate over second level of dependencies. These will usually be flushed already. One notable exception are reduction dependencies, which generate
-		// a tree of push_await_commands and reduction_commands as a dependency.
-		// TODO: We could probably do some pruning here (e.g. omit tasks we know are already finished)
-		for(auto dd : dep->get_dependencies()) {
-			if(!dd.node->is_flushed()) {
-				assert(isa<reduction_command>(dep) && isa<await_push_command>(dd.node));
-				flush_dependency(dd.node);
+		// Flush a command and all of its unflushed predecessors, recursively. Usually this will only require one level of recursion.
+		// One notable exception are reductions, which generate a tree of await push commands and reduction commands as successors.
+		[[maybe_unused]] size_t flush_count = 0;
+		const auto flush_recursive = [this, &check_tid, &flush_count](abstract_command* cmd, auto recurse) -> void {
+			(void)check_tid;
+#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
+			if(isa<task_command>(cmd)) {
+				// Verify that all commands belong to the same task
+				assert(check_tid == task_id(-1) || check_tid == static_cast<task_command*>(cmd)->get_tid());
+				check_tid = static_cast<task_command*>(cmd)->get_tid();
 			}
-			if(!is_virtual_dependency(dd.node)) { dep_deps.push_back(dd.node->get_cid()); }
+#endif
+			std::vector<command_id> deps;
+			for(auto dep : cmd->get_dependencies()) {
+				if(!dep.node->is_flushed()) { recurse(dep.node, recurse); }
+				if(!is_virtual_dependency(dep.node)) { deps.push_back(dep.node->get_cid()); }
+			}
+			serialize_and_flush(cmd, deps);
+			flush_count++;
+		};
+
+		for(auto& cmds_ptr : {&push_cmds, &task_cmds}) {
+			for(auto& cmd : *cmds_ptr) {
+				flush_recursive(cmd, flush_recursive);
+			}
 		}
-		serialize_and_flush(dep, dep_deps);
+
+		assert(flush_count == cmds.size());
 	}
 
 	void graph_serializer::serialize_and_flush(abstract_command* cmd, const std::vector<command_id>& dependencies) const {
