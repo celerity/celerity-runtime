@@ -146,7 +146,7 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 	// TODO: Pieced together from naive_split_transformer. We can probably do without creating all chunks and discarding everything except our own.
 	// TODO: Or - maybe - we actually want to store all chunks somewhere b/c we'll probably need them frequently for lookups later on?
 	chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
-	const size_t num_chunks = m_num_nodes; // TODO Make configurable
+	const size_t num_chunks = m_num_nodes * 1; // TODO Make configurable
 	const auto chunks = ([&] {
 		if(tsk.has_variable_split()) {
 			return split_equal(full_chunk, tsk.get_granularity(), num_chunks, tsk.get_dimensions());
@@ -179,6 +179,8 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 		execution_command* cmd = nullptr;
 		if(is_local_chunk) { cmd = create_command<execution_command>(nid, tsk.get_id(), subrange{chunks[i]}); }
 
+		// We use the task id, together with the "chunk id" and the buffer id (stored separately) to match pushes against their corresponding await pushes
+		const transfer_id trid = static_cast<transfer_id>((tsk.get_id() << 32) | i);
 		for(auto& [bid, reqs_by_mode] : requirements) {
 			auto& buffer_state = m_buffer_states.at(bid);
 			// For "true writes" (= not replicated) we have to wait with updating the last writer
@@ -217,8 +219,6 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 						// There is data we don't yet have locally. Generate an await push command for it.
 						if(!missing_parts.empty()) {
 							assert(m_num_nodes > 1);
-							// We simply use the task ID to, together with the buffer id, uniquely identify all pushes corresponding to this await push
-							const transfer_id trid = static_cast<transfer_id>(tsk.get_id());
 							auto ap_cmd = create_command<await_push_command>(m_local_nid, bid, trid, missing_parts);
 							m_cdag.add_dependency(cmd, ap_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
 							generate_anti_dependencies(tsk.get_id(), bid, buffer_state.local_last_writer, missing_parts, ap_cmd);
@@ -239,7 +239,6 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 								// Generate separate PUSH command for each last writer command for now,
 								// possibly even multiple for partially already-replicated data
 								// TODO: Can we consolidate?
-								const transfer_id trid = static_cast<transfer_id>(tsk.get_id());
 								auto push_cmd = create_command<push_command>(m_local_nid, bid, 0, nid, trid, grid_box_to_subrange(replicated_box));
 								m_cdag.add_dependency(push_cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
 
