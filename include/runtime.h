@@ -8,9 +8,8 @@
 
 #include "command.h"
 #include "config.h"
-#include "device_queue.h"
 #include "frame.h"
-#include "host_queue.h"
+#include "local_devices.h"
 #include "types.h"
 
 namespace celerity {
@@ -64,9 +63,9 @@ namespace detail {
 
 		experimental::bench::detail::user_benchmarker& get_user_benchmarker() const { return *m_user_bench; }
 
-		host_queue& get_host_queue() const { return *m_h_queue; }
+		host_queue& get_host_queue() const { return m_local_devices->get_host_queue(); }
 
-		device_queue& get_device_queue() const { return *m_d_queue; }
+		device_queue& get_device_queue() const { return m_local_devices->get_device_queue(0); } // NOCOMMIT What do we even need this for anyway?
 
 		buffer_manager& get_buffer_manager() const;
 
@@ -92,8 +91,7 @@ namespace detail {
 
 		std::unique_ptr<config> m_cfg;
 		std::unique_ptr<experimental::bench::detail::user_benchmarker> m_user_bench;
-		std::unique_ptr<host_queue> m_h_queue;
-		std::unique_ptr<device_queue> m_d_queue;
+		std::unique_ptr<local_devices> m_local_devices;
 		size_t m_num_nodes;
 		node_id m_local_nid;
 

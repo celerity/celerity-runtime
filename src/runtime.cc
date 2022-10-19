@@ -128,11 +128,10 @@ namespace detail {
 
 		cgf_diagnostics::make_available();
 
-		m_h_queue = std::make_unique<host_queue>();
-		m_d_queue = std::make_unique<device_queue>();
+		m_local_devices = std::make_unique<local_devices>();
 
 		// Initialize worker classes (but don't start them up yet)
-		m_buffer_mngr = std::make_unique<buffer_manager>(*m_d_queue, [this](buffer_manager::buffer_lifecycle_event event, buffer_id bid) {
+		m_buffer_mngr = std::make_unique<buffer_manager>(*m_local_devices, [this](buffer_manager::buffer_lifecycle_event event, buffer_id bid) {
 			switch(event) {
 			case buffer_manager::buffer_lifecycle_event::registered: handle_buffer_registered(bid); break;
 			case buffer_manager::buffer_lifecycle_event::unregistered: handle_buffer_unregistered(bid); break;
@@ -142,8 +141,8 @@ namespace detail {
 
 		m_reduction_mngr = std::make_unique<reduction_manager>();
 		m_host_object_mngr = std::make_unique<host_object_manager>();
-		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_h_queue.get());
-		m_exec = std::make_unique<executor>(m_local_nid, *m_h_queue, *m_d_queue, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
+		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, &m_local_devices->get_host_queue());
+		m_exec = std::make_unique<executor>(m_local_nid, *m_local_devices, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
 		m_cdag = std::make_unique<command_graph>();
 		auto dggen = std::make_unique<distributed_graph_generator>(m_num_nodes, m_local_nid, *m_cdag, *m_task_mngr);
 		auto gser = std::make_unique<graph_serializer>(
@@ -153,10 +152,10 @@ namespace detail {
 
 		CELERITY_INFO(
 		    "Celerity runtime version {} running on {}. PID = {}, build type = {}", get_version_string(), get_sycl_version(), get_pid(), get_build_type());
-		m_d_queue->init(*m_cfg, user_device_or_selector);
 #if TRACY_ENABLE
 		CELERITY_WARN("Tracy integration is enabled (may incur overhead).");
 #endif
+		m_local_devices->init(*m_cfg /*, user_device_or_selector*/);
 	}
 
 	runtime::~runtime() {
@@ -169,11 +168,10 @@ namespace detail {
 		// All buffers should have unregistered themselves by now.
 		assert(!m_buffer_mngr->has_active_buffers());
 		m_buffer_mngr.reset();
-		m_d_queue.reset();
-		m_h_queue.reset();
 
 		cgf_diagnostics::teardown();
 
+		m_local_devices.reset();
 		m_user_bench.reset();
 
 		// Make sure we free all of our MPI transfers before we finalize
@@ -204,8 +202,7 @@ namespace detail {
 		m_task_mngr->await_epoch(shutdown_epoch);
 
 		m_exec->shutdown();
-		m_d_queue->wait();
-		m_h_queue->wait();
+		m_local_devices->wait_all();
 
 		if(spdlog::should_log(log_level::trace)) {
 			const auto print_max_nodes = m_cfg->get_graph_print_max_verts();

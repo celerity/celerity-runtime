@@ -21,6 +21,7 @@ deadlock if #buffers > 20 though, so probably not a good idea)
 
 #include "distr_queue.h"
 #include "frame.h"
+#include "local_devices.h"
 #include "log.h"
 #include "mpi_support.h"
 #include "named_threads.h"
@@ -43,9 +44,8 @@ namespace detail {
 		m_running = false;
 	}
 
-	executor::executor(
-	    node_id local_nid, host_queue& h_queue, device_queue& d_queue, task_manager& tm, buffer_manager& buffer_mngr, reduction_manager& reduction_mngr)
-	    : m_local_nid(local_nid), m_h_queue(h_queue), m_d_queue(d_queue), m_task_mngr(tm), m_buffer_mngr(buffer_mngr), m_reduction_mngr(reduction_mngr) {
+	executor::executor(node_id local_nid, local_devices& devices, task_manager& tm, buffer_manager& buffer_mngr, reduction_manager& reduction_mngr)
+	    : m_local_nid(local_nid), m_local_devices(devices), m_task_mngr(tm), m_buffer_mngr(buffer_mngr), m_reduction_mngr(reduction_mngr) {
 		m_btm = std::make_unique<buffer_transfer_manager>();
 		m_metrics.initial_idle.resume();
 	}
@@ -72,7 +72,12 @@ namespace detail {
 
 		while(!done || !m_jobs.empty()) {
 			// Bail if a device error ocurred.
-			if(m_running_device_compute_jobs > 0) { m_d_queue.get_sycl_queue().throw_asynchronous(); }
+			if(m_running_device_compute_jobs > 0) {
+				// NOCOMMIT FIXME: Ugh, that's not ideal - at least only check active devices. And maybe not in every iteration.
+				for(device_id did = 0; did < m_local_devices.num_compute_devices(); ++did) {
+					m_local_devices.get_device_queue(did).get_sycl_queue().throw_asynchronous();
+				}
+			}
 
 			// We poll transfers from here (in the same thread, interleaved with job updates),
 			// as it allows us to omit any sort of locking when interacting with the BTM through jobs.
@@ -213,9 +218,12 @@ namespace detail {
 		case command_type::reduction: create_job<reduction_job>(frame, m_reduction_mngr); break;
 		case command_type::execution:
 			if(m_task_mngr.get_task(frame.pkg.get_tid().value())->get_execution_target() == execution_target::host) {
-				create_job<host_execute_job>(frame, m_h_queue, m_task_mngr, m_buffer_mngr);
+				create_job<host_execute_job>(frame, m_local_devices.get_host_queue(), m_task_mngr, m_buffer_mngr);
 			} else {
-				create_job<device_execute_job>(frame, m_d_queue, m_task_mngr, m_buffer_mngr, m_reduction_mngr, m_local_nid);
+				static device_id NOCOMMIT_next_device = 0;
+
+				create_job<device_execute_job>(frame, m_local_devices.get_device_queue((NOCOMMIT_next_device++) % m_local_devices.num_compute_devices()),
+				    m_task_mngr, m_buffer_mngr, m_reduction_mngr, m_local_nid);
 			}
 			break;
 		case command_type::data_request: create_job<data_request_job>(frame, *m_btm); break;

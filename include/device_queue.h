@@ -10,6 +10,7 @@
 #include "backend/backend.h"
 #include "config.h"
 #include "log.h"
+#include "types.h"
 #include "workaround.h"
 
 namespace celerity {
@@ -45,6 +46,8 @@ namespace detail {
 	 */
 	class device_queue {
 	  public:
+		device_queue(device_id did, memory_id mid) : m_did(did), m_mid(mid) {}
+
 		/**
 		 * @brief Initializes the @p device_queue, selecting an appropriate device in the process.
 		 *
@@ -52,6 +55,12 @@ namespace detail {
 		 * @param user_device_or_selector Optionally a device (which will take precedence over any configuration) or a device selector can be provided.
 		 */
 		void init(const config& cfg, const device_or_selector& user_device_or_selector);
+
+		void init(const config& cfg, sycl::device device);
+
+		device_id get_id() const { return m_did; }
+
+		memory_id get_memory_id() const { return m_mid; }
 
 		/**
 		 * @brief Executes the kernel associated with task @p ctsk over the chunk @p chnk.
@@ -84,6 +93,8 @@ namespace detail {
 		}
 
 	  private:
+		device_id m_did;
+		memory_id m_mid;
 		std::unique_ptr<cl::sycl::queue> m_sycl_queue;
 		bool m_device_profiling_enabled = false;
 

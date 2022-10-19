@@ -7,7 +7,8 @@
 namespace celerity {
 namespace detail {
 
-	buffer_manager::buffer_manager(device_queue& queue, buffer_lifecycle_callback lifecycle_cb) : m_queue(queue), m_lifecycle_cb(std::move(lifecycle_cb)) {}
+	buffer_manager::buffer_manager(local_devices& devices, buffer_lifecycle_callback lifecycle_cb)
+	    : m_local_devices(devices), m_lifecycle_cb(std::move(lifecycle_cb)) {}
 
 	void buffer_manager::unregister_buffer(buffer_id bid) noexcept {
 		{
@@ -15,9 +16,11 @@ namespace detail {
 			assert(m_buffer_infos.find(bid) != m_buffer_infos.end());
 
 			// Log the allocation size for host and device
-			const auto& buf = m_buffers[bid];
-			const size_t host_size = buf.host_buf.is_allocated() ? buf.host_buf.storage->get_size() : 0;
-			const size_t device_size = buf.device_buf.is_allocated() ? buf.device_buf.storage->get_size() : 0;
+			const auto& buf = m_buffers.at(bid);
+			const size_t host_size =
+			    buf.get(m_local_devices.get_host_memory_id()).is_allocated() ? buf.get(m_local_devices.get_host_memory_id()).storage->get_size() : 0;
+			// const size_t device_size = buf.device_buf.is_allocated() ? buf.device_buf.storage->get_size() : 0;
+			const auto device_size = "NYI NOCOMMIT";
 
 			CELERITY_TRACE("Unregistering buffer {}. host size = {} B, device size = {} B", bid, host_size, device_size);
 			m_buffers.erase(bid);
@@ -32,13 +35,13 @@ namespace detail {
 
 	void buffer_manager::get_buffer_data(buffer_id bid, const subrange<3>& sr, void* out_linearized) {
 		std::unique_lock lock(m_mutex);
-		assert(m_buffers.count(bid) == 1 && (m_buffers.at(bid).device_buf.is_allocated() || m_buffers.at(bid).host_buf.is_allocated()));
+		// assert(m_buffers.count(bid) == 1 && (m_buffers.at(bid).device_buf.is_allocated() || m_buffers.at(bid).host_buf.is_allocated())); // NOCOMMIT
 		auto data_locations = m_newest_data_location.at(bid).get_region_values(subrange_to_grid_box(sr));
 
-		// Slow path: We need to obtain current data from both host and device.
+		// Slow path: We (may) need to obtain current data from multiple memories.
 		if(data_locations.size() > 1) {
-			auto& existing_buf = m_buffers[bid].host_buf;
-			assert(existing_buf.is_allocated());
+			auto& existing_buf = m_buffers.at(bid).get(m_local_devices.get_host_memory_id());
+			assert(existing_buf.is_allocated()); // NOCOMMIT This is probably not guaranteed now, right?
 
 			// Make sure newest data resides on the host.
 			// But first, we need to check whether the current host buffer is able to hold the full data range.
@@ -48,9 +51,10 @@ namespace detail {
 				// TODO: Do we really want to allocate host memory for this..? We could also make the buffer storage "coherent" directly.
 				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_host(info.new_range), info.new_offset};
 			}
-			existing_buf = make_buffer_subrange_coherent(bid, access_mode::read, std::move(existing_buf), sr, std::move(replacement_buf));
+			existing_buf = make_buffer_subrange_coherent(
+			    m_local_devices.get_host_memory_id(), bid, access_mode::read, std::move(existing_buf), sr, std::move(replacement_buf));
 
-			data_locations = {{subrange_to_grid_box(sr), data_location::host}};
+			data_locations = {{subrange_to_grid_box(sr), data_location{}.set(m_local_devices.get_host_memory_id())}};
 		}
 
 		// get_buffer_data will race with pending transfers for the same subrange. In case there are pending transfers and a host buffer does not exist yet,
@@ -58,11 +62,22 @@ namespace detail {
 		assert(std::none_of(m_scheduled_transfers[bid].begin(), m_scheduled_transfers[bid].end(),
 		    [&](const transfer& t) { return subrange_to_grid_box(sr).intersectsWith(subrange_to_grid_box(t.sr)); }));
 
-		if(data_locations[0].second == data_location::host || data_locations[0].second == data_location::host_and_device) {
-			return m_buffers.at(bid).host_buf.storage->get_data({m_buffers.at(bid).host_buf.get_local_offset(sr.offset), sr.range}, out_linearized);
+		if(data_locations[0].second.test(m_local_devices.get_host_memory_id())) {
+			return m_buffers.at(bid)
+			    .get(m_local_devices.get_host_memory_id())
+			    .storage->get_data({m_buffers.at(bid).get(m_local_devices.get_host_memory_id()).get_local_offset(sr.offset), sr.range}, out_linearized);
 		}
 
-		return m_buffers.at(bid).device_buf.storage->get_data({m_buffers.at(bid).device_buf.get_local_offset(sr.offset), sr.range}, out_linearized);
+		const memory_id source_mid = ([this, &data_locations] {
+			for(memory_id mid = 0; mid < m_local_devices.num_memories(); ++mid) {
+				// FIXME: We currently choose the first available memory as a source, should use a better strategy here (maybe random or based on current load)
+				if(data_locations[0].second.test(mid)) return mid;
+			}
+			assert(false && "Data region requested that is not available locally");
+			return memory_id(-1);
+		})(); // IIFE
+
+		return m_buffers.at(bid).get(source_mid).storage->get_data({m_buffers.at(bid).get(source_mid).get_local_offset(sr.offset), sr.range}, out_linearized);
 	}
 
 	void buffer_manager::set_buffer_data(buffer_id bid, const subrange<3>& sr, unique_payload_ptr in_linearized) {
@@ -72,15 +87,18 @@ namespace detail {
 	}
 
 	buffer_manager::access_info buffer_manager::access_device_buffer(
-	    buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
+	    const memory_id mid, buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
 		std::unique_lock lock(m_mutex);
 		assert((range_cast<3>(offset + range) <= m_buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
 
-		auto& existing_buf = m_buffers[bid].device_buf;
+		auto& device_queue = m_local_devices.get_close_device_queue(mid);
+
+		auto& existing_buf = m_buffers.at(bid).get(mid);
+		assert(!existing_buf.is_allocated() || existing_buf.storage->get_type() == buffer_type::device_buffer);
 		backing_buffer replacement_buf;
 
 		if(!existing_buf.is_allocated()) {
-			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(range, m_queue.get_sycl_queue()), offset};
+			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(range, device_queue.get_sycl_queue()), offset};
 		} else {
 			// FIXME: For large buffers we might not be able to store two copies in device memory at once.
 			// Instead, we'd first have to transfer everything to the host and free the old buffer before allocating the new one.
@@ -88,7 +106,7 @@ namespace detail {
 			// (AND that access request covers the entirety of the old buffer!)
 			const auto info = is_resize_required(existing_buf, range, offset);
 			if(info.resize_required) {
-				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, m_queue.get_sycl_queue()), info.new_offset};
+				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, device_queue.get_sycl_queue()), info.new_offset};
 			}
 		}
 
@@ -97,10 +115,10 @@ namespace detail {
 		if(m_test_mode && replacement_buf.is_allocated()) {
 			auto* ptr = replacement_buf.storage->get_pointer();
 			const auto bytes = replacement_buf.storage->get_size();
-			m_queue.get_sycl_queue().submit([&](cl::sycl::handler& cgh) { cgh.memset(ptr, test_mode_pattern, bytes); }).wait();
+			device_queue.get_sycl_queue().submit([&](cl::sycl::handler& cgh) { cgh.memset(ptr, test_mode_pattern, bytes); }).wait();
 		}
 
-		existing_buf = make_buffer_subrange_coherent(bid, mode, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
+		existing_buf = make_buffer_subrange_coherent(mid, bid, mode, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
 
 		return {existing_buf.storage->get_pointer(), existing_buf.storage->get_range(), existing_buf.offset};
 	}
@@ -110,7 +128,8 @@ namespace detail {
 		std::unique_lock lock(m_mutex);
 		assert((range_cast<3>(offset + range) <= m_buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
 
-		auto& existing_buf = m_buffers[bid].host_buf;
+		auto& existing_buf = m_buffers.at(bid).get(m_local_devices.get_host_memory_id());
+		assert(!existing_buf.is_allocated() || existing_buf.storage->get_type() == buffer_type::host_buffer);
 		backing_buffer replacement_buf;
 
 		if(!existing_buf.is_allocated()) {
@@ -128,7 +147,8 @@ namespace detail {
 			std::memset(ptr, test_mode_pattern, size);
 		}
 
-		existing_buf = make_buffer_subrange_coherent(bid, mode, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
+		existing_buf = make_buffer_subrange_coherent(
+		    m_local_devices.get_host_memory_id(), bid, mode, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
 
 		return {existing_buf.storage->get_pointer(), existing_buf.storage->get_range(), existing_buf.offset};
 	}
@@ -160,8 +180,8 @@ namespace detail {
 	}
 
 	// TODO: Something we could look into is to dispatch all memory copies concurrently and wait for them in the end.
-	buffer_manager::backing_buffer buffer_manager::make_buffer_subrange_coherent(
-	    buffer_id bid, cl::sycl::access::mode mode, backing_buffer existing_buffer, const subrange<3>& coherent_sr, backing_buffer replacement_buffer) {
+	buffer_manager::backing_buffer buffer_manager::make_buffer_subrange_coherent(const memory_id mid, buffer_id bid, cl::sycl::access::mode mode,
+	    backing_buffer existing_buffer, const subrange<3>& coherent_sr, backing_buffer replacement_buffer) {
 		backing_buffer target_buffer, previous_buffer;
 		if(replacement_buffer.is_allocated()) {
 			assert(!existing_buffer.is_allocated() || replacement_buffer.storage->get_type() == existing_buffer.storage->get_type());
@@ -174,8 +194,6 @@ namespace detail {
 		}
 
 		if(coherent_sr.range.size() == 0) { return target_buffer; }
-
-		const auto target_buffer_location = target_buffer.storage->get_type() == buffer_type::host_buffer ? data_location::host : data_location::device;
 
 		const auto coherent_box = subrange_to_grid_box(coherent_sr);
 
@@ -250,7 +268,13 @@ namespace detail {
 				updated_region = GridRegion<3>::merge(updated_region, t_region);
 			}
 			// The target buffer now has the newest data in this region.
-			m_newest_data_location.at(bid).update_region(updated_region, target_buffer_location);
+			{
+				// FIXME: DRY below
+				const auto locations = m_newest_data_location.at(bid).get_region_values(updated_region);
+				for(auto& [box, locs] : locations) {
+					m_newest_data_location.at(bid).update_region(box, data_location{locs}.set(mid));
+				}
+			}
 			scheduled_buffer_transfers = std::move(remaining_transfers);
 		}
 
@@ -276,47 +300,51 @@ namespace detail {
 			GridRegion<3> replicated_region;
 			auto& buffer_data_locations = m_newest_data_location.at(bid);
 			const auto data_locations = buffer_data_locations.get_region_values(remaining_region_after_transfers);
-			for(auto& dl : data_locations) {
+			for(auto& [box, locs] : data_locations) {
 				// Note that this assertion can fail in legitimate cases, e.g.
 				// when users manually handle uninitialized reads in the first iteration of some loop.
-				// assert(!previous_buffer.is_allocated() || dl.second != data_location::NOWHERE);
+				// assert(!previous_buffer.is_allocated() || !locs.none());
+				if(locs.none()) continue;
 
-				if(target_buffer.storage->get_type() == buffer_type::device_buffer) {
-					// Copy from device in case we are resizing an existing buffer
-					if((dl.second == data_location::device || dl.second == data_location::host_and_device) && previous_buffer.is_allocated()) {
-						maybe_retain_box(dl.first);
-					}
-					// Copy from host, unless we are using a pure producer mode
-					else if(dl.second == data_location::host && detail::access::mode_traits::is_consumer(mode)) {
-						assert(m_buffers[bid].host_buf.is_allocated());
-						const auto box_sr = grid_box_to_subrange(dl.first);
-						const auto& host_buf = m_buffers[bid].host_buf;
-						target_buffer.storage->copy(
-						    *host_buf.storage, host_buf.get_local_offset(box_sr.offset), target_buffer.get_local_offset(box_sr.offset), box_sr.range);
-						replicated_region = GridRegion<3>::merge(replicated_region, dl.first);
-					}
-				} else if(target_buffer.storage->get_type() == buffer_type::host_buffer) {
-					// Copy from device, unless we are using a pure producer mode
-					if(dl.second == data_location::device && detail::access::mode_traits::is_consumer(mode)) {
-						assert(m_buffers[bid].device_buf.is_allocated());
-						const auto box_sr = grid_box_to_subrange(dl.first);
-						const auto& device_buf = m_buffers[bid].device_buf;
-						target_buffer.storage->copy(
-						    *device_buf.storage, device_buf.get_local_offset(box_sr.offset), target_buffer.get_local_offset(box_sr.offset), box_sr.range);
-						replicated_region = GridRegion<3>::merge(replicated_region, dl.first);
-					}
-					// Copy from host in case we are resizing an existing buffer
-					else if((dl.second == data_location::host || dl.second == data_location::host_and_device) && previous_buffer.is_allocated()) {
-						maybe_retain_box(dl.first);
-					}
+				// Copy from same memory in case we are resizing an existing buffer
+				if(locs.test(mid)) {
+					if(previous_buffer.is_allocated()) { maybe_retain_box(box); }
+					continue;
 				}
+
+				// No need to copy data from a different memory if we are not going to read it.
+				if(!detail::access::mode_traits::is_consumer(mode)) { continue; }
+
+				const memory_id source_mid = ([this, locs = &locs] {
+					for(memory_id m = m_local_devices.num_memories() - 1; m > 0; --m) {
+						// FIXME: We currently choose the first available memory as a source (starting from the back to use host memory as a last resort),
+						// should use a better strategy here (maybe random or based on current load)
+						if(locs->test(m)) return m;
+					}
+					assert(false && "Data region requested that is not available locally");
+					return memory_id(-1);
+				})(); // IIFE
+
+				assert(source_mid != mid);
+				assert(m_buffers.at(bid).get(source_mid).is_allocated());
+				const auto box_sr = grid_box_to_subrange(box);
+				const auto& source_buffer = m_buffers.at(bid).get(source_mid);
+				target_buffer.storage->copy(
+				    *source_buffer.storage, source_buffer.get_local_offset(box_sr.offset), target_buffer.get_local_offset(box_sr.offset), box_sr.range);
+				replicated_region = GridRegion<3>::merge(replicated_region, box);
 			}
 
 			// Finally, remember the fact that we replicated some regions to the new target location.
-			buffer_data_locations.update_region(replicated_region, data_location::host_and_device);
+			{
+				// NOCOMMIT DRY above, could do this in a single update step. Also can we skip if producer mode?
+				const auto locations = m_newest_data_location.at(bid).get_region_values(replicated_region);
+				for(auto& [box, locs] : locations) {
+					m_newest_data_location.at(bid).update_region(box, data_location{locs}.set(mid));
+				}
+			}
 		}
 
-		if(detail::access::mode_traits::is_producer(mode)) { m_newest_data_location.at(bid).update_region(coherent_box, target_buffer_location); }
+		if(detail::access::mode_traits::is_producer(mode)) { m_newest_data_location.at(bid).update_region(coherent_box, data_location{}.set(mid)); }
 
 		return target_buffer;
 	}

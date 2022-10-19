@@ -57,6 +57,8 @@ MAKE_PHANTOM_TYPE(reduction_id, size_t)
 MAKE_PHANTOM_TYPE(host_object_id, size_t)
 MAKE_PHANTOM_TYPE(hydration_id, size_t);
 MAKE_PHANTOM_TYPE(transfer_id, size_t)
+MAKE_PHANTOM_TYPE(device_id, size_t);
+MAKE_PHANTOM_TYPE(memory_id, size_t);
 
 
 // declared in this header for include-dependency reasons

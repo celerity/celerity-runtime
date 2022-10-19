@@ -213,7 +213,7 @@ namespace detail {
 
 	std::string device_execute_job::get_description(const command_pkg& pkg) {
 		const auto data = std::get<execution_data>(pkg.data);
-		return fmt::format("DEVICE_EXECUTE {}", data.sr);
+		return fmt::format("DEVICE_EXECUTE {} on device {}", data.sr, m_queue.get_id());
 	}
 
 	bool device_execute_job::execute(const command_pkg& pkg) {
@@ -238,14 +238,14 @@ namespace detail {
 			for(size_t i = 0; i < access_map.get_num_accesses(); ++i) {
 				const auto [bid, mode] = access_map.get_nth_access(i);
 				const auto sr = grid_box_to_subrange(access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()));
-				const auto info = m_buffer_mngr.access_device_buffer(bid, mode, sr.range, sr.offset);
+				const auto info = m_buffer_mngr.access_device_buffer(m_queue.get_memory_id(), bid, mode, sr.range, sr.offset);
 				accessor_infos.push_back(task_hydrator::accessor_info{target::device, info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr});
 			}
 
 			for(size_t i = 0; i < reductions.size(); ++i) {
 				const auto& rd = reductions[i];
 				const auto mode = rd.init_from_buffer ? access_mode::read_write : access_mode::discard_write;
-				const auto info = m_buffer_mngr.access_device_buffer(rd.bid, mode, range<3>{1, 1, 1}, id<3>{});
+				const auto info = m_buffer_mngr.access_device_buffer(m_queue.get_memory_id(), rd.bid, mode, range<3>{1, 1, 1}, id<3>{});
 				reduction_infos.push_back(task_hydrator::reduction_info{info.ptr});
 			}
 
