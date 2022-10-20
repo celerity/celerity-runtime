@@ -48,7 +48,7 @@ namespace detail {
 		assert(!m_running);
 		m_running = true;
 
-		const auto desc = get_description(m_pkg);
+		const auto desc = fmt::format("cid={}: {}", m_pkg.cid, get_description(m_pkg));
 		m_tracy_lane.initialize();
 		switch(m_pkg.get_command_type()) {
 		case command_type::execution: m_tracy_lane.begin_phase("execution", desc, tracy::Color::ColorType::Blue); break;
@@ -123,7 +123,7 @@ namespace detail {
 			// If any other tasks are currently using this buffer for reading, we run into problems.
 			// To avoid this, we use a very crude buffer locking mechanism for now.
 			// FIXME: Get rid of this, replace with finer grained approach.
-			if(m_buffer_mngr.is_locked(data.bid)) { return false; }
+			if(m_buffer_mngr.is_locked(data.bid, 0 /* FIXME: Host memory id - should use host_queue::get_memory_id */)) { return false; }
 
 			CELERITY_TRACE("Submit buffer to BTM");
 			m_data_handle = m_btm.push(pkg);
@@ -173,7 +173,7 @@ namespace detail {
 			assert(tsk->get_execution_target() == execution_target::host);
 			assert(!data.initialize_reductions); // For now, we do not support reductions in host tasks
 
-			if(!m_buffer_mngr.try_lock(pkg.cid, tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
+			if(!m_buffer_mngr.try_lock(pkg.cid, m_queue.get_memory_id(), tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
 
 			CELERITY_TRACE("Execute live-pass, scheduling host task in thread pool");
 
@@ -222,7 +222,7 @@ namespace detail {
 			auto tsk = m_task_mngr.get_task(data.tid);
 			assert(tsk->get_execution_target() == execution_target::device);
 
-			if(!m_buffer_mngr.try_lock(pkg.cid, tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
+			if(!m_buffer_mngr.try_lock(pkg.cid, m_queue.get_memory_id(), tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
 
 			CELERITY_TRACE("Execute live-pass, submit kernel to SYCL");
 
@@ -250,6 +250,11 @@ namespace detail {
 			}
 
 			task_hydrator::get_instance().arm(std::move(accessor_infos), std::move(reduction_infos), [&]() { m_event = tsk->launch(m_queue, data.sr); });
+
+			{
+				const auto msg = fmt::format("{}: Job submitted to SYCL (blocked on transfers until now!)", pkg.cid);
+				TracyMessage(msg.c_str(), msg.size());
+			}
 
 			m_submitted = true;
 			CELERITY_TRACE("Kernel submitted to SYCL");

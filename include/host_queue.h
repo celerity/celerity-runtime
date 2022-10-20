@@ -113,10 +113,12 @@ namespace detail {
 			time_point end_time{};
 		};
 
-		host_queue() {
+		host_queue(const memory_id mid) : m_mid(mid) {
 			// TODO what is a good thread count for the non-collective thread pool?
 			m_threads.emplace(std::piecewise_construct, std::tuple{0}, std::tuple{MPI_COMM_NULL, 4, m_id++});
 		}
+
+		memory_id get_memory_id() const { return m_mid; }
 
 		void require_collective_group(collective_group_id cgid) {
 			const std::lock_guard lock(m_mutex); // called by main thread
@@ -175,6 +177,7 @@ namespace detail {
 		std::mutex m_mutex;
 		std::unordered_map<collective_group_id, comm_thread> m_threads;
 		size_t m_id = 0;
+		memory_id m_mid;
 	};
 
 } // namespace detail

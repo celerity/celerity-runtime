@@ -34,7 +34,7 @@ class local_devices {
 	void wait_all();
 
   private:
-	host_queue m_host_queue;
+	host_queue m_host_queue{get_host_memory_id()};
 	std::vector<device_queue> m_device_queues;
 };
 

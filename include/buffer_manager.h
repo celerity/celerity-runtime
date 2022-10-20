@@ -21,6 +21,7 @@
 #include "region_map.h"
 #include "sycl_wrappers.h"
 #include "types.h"
+#include "utils.h"
 
 namespace celerity {
 namespace detail {
@@ -251,14 +252,14 @@ namespace detail {
 		 *
 		 * @returns Returns true if the list of buffers was successfully locked.
 		 */
-		bool try_lock(buffer_lock_id, const std::unordered_set<buffer_id>& buffers);
+		bool try_lock(const buffer_lock_id, const memory_id mid, const std::unordered_set<buffer_id>& buffers);
 
 		/**
 		 * Unlocks all buffers that were previously locked with a call to try_lock with the given @p id.
 		 */
 		void unlock(buffer_lock_id id);
 
-		bool is_locked(buffer_id bid) const;
+		bool is_locked(const buffer_id bid, const memory_id mid) const;
 
 		void set_debug_name(const buffer_id bid, const std::string& debug_name) {
 			std::lock_guard lock(m_mutex);
@@ -350,8 +351,8 @@ namespace detail {
 		std::unordered_map<buffer_id, std::vector<transfer>> m_scheduled_transfers;
 		std::unordered_map<buffer_id, region_map<data_location>> m_newest_data_location;
 
-		std::unordered_map<buffer_id, buffer_lock_info> m_buffer_lock_infos;
-		std::unordered_map<buffer_lock_id, std::vector<buffer_id>> m_buffer_locks_by_id;
+		std::unordered_map<std::pair<buffer_id, memory_id>, buffer_lock_info, utils::pair_hash> m_buffer_lock_infos;
+		std::unordered_map<buffer_lock_id, std::vector<std::pair<buffer_id, memory_id>>> m_buffer_locks_by_id;
 
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 		// Since we store buffers without type information (i.e., its data type and dimensionality),
@@ -412,7 +413,7 @@ namespace detail {
 		 *	- If a buffer that has been accessed earlier needs to be resized (reallocated) now
 		 *	- If a buffer was previously accessed using a discard_* mode and is now accessed using a consumer mode
 		 */
-		void audit_buffer_access(buffer_id bid, bool requires_allocation, cl::sycl::access::mode mode);
+		void audit_buffer_access(const buffer_id bid, const memory_id mid, const bool requires_allocation, const access_mode mode);
 
 	  public:
 		static constexpr unsigned char test_mode_pattern = 0b10101010;
