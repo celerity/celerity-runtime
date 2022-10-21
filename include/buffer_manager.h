@@ -217,7 +217,10 @@ namespace detail {
 		access_info access_device_buffer(
 		    const memory_id mid, buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-			assert((m_buffer_types.at(bid)->has_type<DataT, Dims>()));
+			{
+				std::unique_lock lock(m_mutex);
+				assert((m_buffer_types.at(bid)->has_type<DataT, Dims>()));
+			}
 #endif
 			return access_device_buffer(mid, bid, mode, range, offset);
 		}

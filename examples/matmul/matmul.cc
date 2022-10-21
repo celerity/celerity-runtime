@@ -2,7 +2,7 @@
 
 #include <celerity.h>
 
-const size_t MAT_SIZE = 128;
+const size_t MAT_SIZE = 4096;
 
 template <typename T>
 void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat, bool reverse) {

@@ -183,6 +183,7 @@ namespace detail {
 	buffer_manager::backing_buffer buffer_manager::make_buffer_subrange_coherent(const memory_id mid, buffer_id bid, cl::sycl::access::mode mode,
 	    backing_buffer existing_buffer, const subrange<3>& coherent_sr, backing_buffer replacement_buffer) {
 		backing_buffer target_buffer, previous_buffer;
+		ZoneScopedN("make_buffer_subrange_coherent");
 		if(replacement_buffer.is_allocated()) {
 			assert(!existing_buffer.is_allocated() || replacement_buffer.storage->get_type() == existing_buffer.storage->get_type());
 			target_buffer = std::move(replacement_buffer);
