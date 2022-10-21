@@ -220,10 +220,9 @@ namespace detail {
 			if(m_task_mngr.get_task(frame.pkg.get_tid().value())->get_execution_target() == execution_target::host) {
 				create_job<host_execute_job>(frame, m_local_devices.get_host_queue(), m_task_mngr, m_buffer_mngr);
 			} else {
-				static device_id NOCOMMIT_next_device = 0;
-
-				create_job<device_execute_job>(frame, m_local_devices.get_device_queue((NOCOMMIT_next_device++) % m_local_devices.num_compute_devices()),
-				    m_task_mngr, m_buffer_mngr, m_reduction_mngr, m_local_nid);
+				const device_id did = std::get<execution_data>(frame.pkg.data).did;
+				assert(did < m_local_devices.num_compute_devices());
+				create_job<device_execute_job>(frame, m_local_devices.get_device_queue(did), m_task_mngr, m_buffer_mngr, m_reduction_mngr, m_local_nid);
 			}
 			break;
 		case command_type::data_request: create_job<data_request_job>(frame, *m_btm); break;

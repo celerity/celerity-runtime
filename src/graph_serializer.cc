@@ -73,7 +73,7 @@ namespace detail {
 		if(const auto* ecmd = dynamic_cast<epoch_command*>(cmd)) {
 			frame->pkg.data = epoch_data{ecmd->get_tid(), ecmd->get_epoch_action()};
 		} else if(const auto* xcmd = dynamic_cast<execution_command*>(cmd)) {
-			frame->pkg.data = execution_data{xcmd->get_tid(), xcmd->get_execution_range(), xcmd->is_reduction_initializer()};
+			frame->pkg.data = execution_data{xcmd->get_tid(), xcmd->get_execution_range(), xcmd->is_reduction_initializer(), xcmd->get_device_id()};
 		} else if(const auto* pcmd = dynamic_cast<push_command*>(cmd)) {
 			frame->pkg.data = push_data{pcmd->get_bid(), pcmd->get_rid(), pcmd->get_target(), pcmd->get_transfer_id(), pcmd->get_range()};
 		} else if(const auto* apcmd = dynamic_cast<await_push_command*>(cmd)) {

@@ -3,6 +3,9 @@
 namespace celerity::detail {
 
 void local_devices::init(const config& cfg) {
+	assert(!m_is_initialized);
+	m_is_initialized = true;
+
 	// NOCOMMIT We're simply selecting all GPUs for now
 	const auto all_devices = sycl::device::get_devices(sycl::info::device_type::gpu);
 	for(device_id did = 0; did < all_devices.size(); ++did) {

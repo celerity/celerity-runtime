@@ -77,7 +77,7 @@ class distributed_graph_generator {
 	};
 
   public:
-	distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm);
+	distributed_graph_generator(const size_t num_nodes, const size_t num_local_devices, const node_id local_nid, command_graph& cdag, const task_manager& tm);
 
 	void add_buffer(const buffer_id bid, const range<3>& range, int dims);
 
@@ -118,6 +118,7 @@ class distributed_graph_generator {
 	using side_effect_map = std::unordered_map<host_object_id, command_id>;
 
 	size_t m_num_nodes;
+	size_t m_num_local_devices;
 	node_id m_local_nid;
 	command_graph& m_cdag;
 	const task_manager& m_task_mngr;
