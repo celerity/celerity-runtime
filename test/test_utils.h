@@ -421,7 +421,7 @@ namespace test_utils {
 		detail::device_queue& get_device_queue() {
 			if(!m_dq) {
 				m_cfg = std::make_unique<detail::config>(nullptr, nullptr);
-				m_dq = std::make_unique<detail::device_queue>();
+				m_dq = std::make_unique<detail::device_queue>(0, 1);
 				m_dq->init(*m_cfg, detail::auto_select_device{});
 			}
 			return *m_dq;

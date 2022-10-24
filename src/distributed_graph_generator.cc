@@ -1,5 +1,7 @@
 #include "distributed_graph_generator.h"
 
+#include <tuple>
+
 #include "access_modes.h"
 #include "command.h"
 #include "command_graph.h"
@@ -155,8 +157,8 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 			return std::vector<chunk<3>>{full_chunk};
 		}
 	})();
-	assert(chunks.size() <= num_chunks); // We may have created less than requested
-	assert(!chunks.empty());
+	assert(distributed_chunks.size() <= num_chunks); // We may have created less than requested
+	assert(!distributed_chunks.empty());
 
 	// Assign each chunk to a node
 	// We assign chunks next to each other to the same worker (if there is more chunks than workers), as this is likely to produce less
@@ -171,6 +173,7 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 	//   Generate single await push command for each buffer that contains the entire region (will be fulfilled by one or more pushes).
 
 	std::unordered_map<buffer_id, GridRegion<3>> per_buffer_local_writes;
+	std::vector<std::tuple<buffer_id, GridRegion<3>, command_id>> local_last_writer_update_list;
 	for(size_t i = 0; i < distributed_chunks.size(); ++i) {
 		const node_id nid = (i / chunks_per_node) % m_num_nodes;
 		const bool is_local_chunk = nid == m_local_nid;
@@ -281,11 +284,18 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 				}
 
 				if(!written_region.empty()) {
-					buffer_state.local_last_writer.update_region(written_region, cmd->get_cid());
-					buffer_state.replicated_regions.update_region(written_region, node_bitset{});
+					// Even after all modes have been processed we can't do the update right away,
+					// as this could otherwise result in faulty intra-task dependencies between chunks.
+					local_last_writer_update_list.push_back(std::tuple{bid, written_region, cmd->get_cid()});
 				}
 			}
 		}
+	}
+
+	for(auto& [bid, region, cid] : local_last_writer_update_list) {
+		auto& buffer_state = m_buffer_states.at(bid);
+		buffer_state.local_last_writer.update_region(region, cid);
+		buffer_state.replicated_regions.update_region(region, node_bitset{});
 	}
 
 	// Update task-level buffer states

@@ -115,14 +115,15 @@ class command_query {
 
 	template <typename... Filters>
 	command_query find_all(Filters... filters) const {
-		static_assert(
-		    ((std::is_same_v<node_id, Filters> || std::is_same_v<task_id, Filters> || std::is_same_v<command_type, Filters>)&&...), "Unsupported filter");
+		static_assert(((std::is_same_v<node_id, Filters> || std::is_same_v<task_id, Filters> || std::is_same_v<command_type, Filters>
+		                  || std::is_same_v<command_id, Filters>)&&...),
+		    "Unsupported filter");
 
 		const auto node_filter = get_optional<node_id>(filters...);
 		const auto task_filter = get_optional<task_id>(filters...);
 		const auto type_filter = get_optional<command_type>(filters...);
-		// TODO: Do we want/need this? Currently IDs are not unique across nodes, which may be (is) confusing.
-		// const auto id_filter = get_optional<command_id>(filters...);
+		// Note that command ids are not unique across nodes!
+		const auto id_filter = get_optional<command_id>(filters...);
 
 		std::vector<std::unordered_set<const abstract_command*>> filtered(m_commands_by_node.size());
 		for(node_id nid = 0; nid < m_commands_by_node.size(); ++nid) {
@@ -134,6 +135,9 @@ class command_query {
 				}
 				if(type_filter.has_value()) {
 					if(get_type(cmd) != *type_filter) continue;
+				}
+				if(id_filter.has_value()) {
+					if(cmd->get_cid() != id_filter) continue;
 				}
 				filtered[nid].insert(cmd);
 			}
@@ -175,6 +179,18 @@ class command_query {
 		for(node_id nid = 0; nid < m_commands_by_node.size(); ++nid) {
 			UNSCOPED_INFO(fmt::format("On node {}", nid));
 			cb(find_all(nid));
+		}
+	}
+
+	// Call the provided function once for each command, with a subquery only containing that command.
+	template <typename PerCmdCallback>
+	void for_each_command(PerCmdCallback&& cb) const {
+		for(node_id nid = 0; nid < m_commands_by_node.size(); ++nid) {
+			for(auto* cmd : m_commands_by_node[nid]) {
+				UNSCOPED_INFO(fmt::format("Command {} on node {}", nid, cmd->get_cid()));
+				// We also need to filter by node here, as command ids are not globally unique!
+				cb(find_all(nid, cmd->get_cid()));
+			}
 		}
 	}
 
@@ -340,13 +356,13 @@ class dist_cdag_test_context {
 	friend class task_builder;
 
   public:
-	dist_cdag_test_context(size_t num_nodes) : m_num_nodes(num_nodes) {
+	dist_cdag_test_context(size_t num_nodes, size_t devices_per_node = 1) : m_num_nodes(num_nodes) {
 		m_rm = std::make_unique<reduction_manager>();
 		m_tm = std::make_unique<task_manager>(num_nodes, nullptr /* host_queue */);
 		// m_gser = std::make_unique<graph_serializer>(*m_cdag, m_inspector.get_cb());
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			m_cdags.emplace_back(std::make_unique<command_graph>());
-			m_dggens.emplace_back(std::make_unique<distributed_graph_generator>(num_nodes, nid, *m_cdags[nid], *m_tm));
+			m_dggens.emplace_back(std::make_unique<distributed_graph_generator>(num_nodes, devices_per_node, nid, *m_cdags[nid], *m_tm));
 		}
 	}
 
@@ -653,4 +669,18 @@ TEST_CASE("reading from host-initialized or uninitialized buffers doesn't genera
 	const auto tid_a = dctx.device_compute(test_range).read(host_init_buf, acc::one_to_one{}).read(uninit_buf, acc::one_to_one{}).submit();
 	CHECK(dctx.query().find_all(command_type::await_push).empty());
 	CHECK(dctx.query().find_all(command_type::push).empty());
+}
+
+// Regression test
+TEST_CASE("overlapping read/write access to the same buffer doesn't generate intra-task dependencies between chunks on the same worker") {
+	dist_cdag_test_context dctx(1, 2);
+
+	const auto test_range = range<1>(128);
+	auto buf = dctx.create_buffer(test_range, true);
+	dctx.device_compute(test_range).read(buf, acc::neighborhood<1>{1}).discard_write(buf, acc::one_to_one{}).submit();
+	CHECK(dctx.query().find_all(command_type::execution).count() == 2);
+	dctx.query().find_all(command_type::execution).for_each_command([](const auto& q) {
+		// Both commands should only depend on initial epoch, not each other
+		CHECK(q.find_predecessors().count() == 1);
+	});
 }
