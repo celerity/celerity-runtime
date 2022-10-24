@@ -213,7 +213,8 @@ namespace detail {
 
 	std::string device_execute_job::get_description(const command_pkg& pkg) {
 		const auto data = std::get<execution_data>(pkg.data);
-		return fmt::format("DEVICE_EXECUTE {} on device {}", data.sr, m_queue.get_id());
+		auto tsk = m_task_mngr.get_task(data.tid);
+		return fmt::format("DEVICE_EXECUTE '{}' {} on device {}", tsk->get_debug_name(), data.sr, m_queue.get_id());
 	}
 
 	bool device_execute_job::execute(const command_pkg& pkg) {
