@@ -9,6 +9,7 @@
 #include "buffer_storage.h"
 #include "handler.h"
 #include "sycl_wrappers.h"
+#include "task_hydrator.h"
 
 namespace celerity {
 
@@ -216,13 +217,13 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	static_assert(Mode != access_mode::atomic, "access_mode::atomic is not supported. Please use atomic_ref instead.");
 
 	template <target Target = target::device, typename Functor>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
+	accessor(buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
 
 	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag) : accessor(buff, cgh, rmfn) {}
+	accessor(buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag) : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
 
 	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property::no_init no_init) : accessor(buff, cgh, rmfn) {}
+	accessor(buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property::no_init no_init) : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
 
 	template <typename Functor, typename TagT>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property_list prop_list) {
@@ -230,6 +231,30 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
 		    "as a last argument in the constructor");
 	}
+
+	template <target Target = target::device, typename Functor>
+	[[deprecated("Creating accessor from const buffer is deprecated, capture buffer by reference instead")]] accessor(
+	    const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn)
+	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
+
+	template <typename Functor, typename TagT>
+	[[deprecated("Creating accessor from const buffer is deprecated, capture buffer by reference instead")]] accessor(
+	    const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag)
+	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
+
+	template <typename Functor, typename TagT>
+	[[deprecated("Creating accessor from const buffer is deprecated, capture buffer by reference instead")]] accessor(
+	    const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property::no_init no_init)
+	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
+
+#if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
+	accessor(const accessor& other) { copy_and_hydrate(other); }
+
+	accessor& operator=(const accessor& other) {
+		if(this != &other) { copy_and_hydrate(other); }
+		return *this;
+	}
+#endif
 
 	template <access_mode M = Mode, int D = Dims>
 	std::enable_if_t<detail::access::mode_traits::is_producer(M) && M != access_mode::atomic && (D > 0), DataT&> operator[](id<Dims> index) const {
@@ -257,43 +282,52 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	sycl::id<Dims> m_index_offset;
 	sycl::range<Dims> m_buffer_range = detail::zero_range;
 
+	template <typename Functor>
+	accessor(const ctor_internal_tag, const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
+		const auto hid =
+		    detail::add_requirement(cgh, detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, buff.get_range()));
+		detail::extend_lifetime(cgh, detail::get_lifetime_extending_state(buff));
+		m_device_ptr = detail::embed_hydration_id<DataT*>(hid);
+	}
+
 	// Constructor for tests, called through accessor_testspy.
 	accessor(DataT* ptr, id<Dims> index_offset, range<Dims> buffer_range) : m_device_ptr(ptr), m_index_offset(index_offset), m_buffer_range(buffer_range) {
+#if defined(__SYCL_DEVICE_ONLY__) || defined(SYCL_DEVICE_ONLY)
 #if CELERITY_WORKAROUND_HIPSYCL
 		static_assert(std::is_trivially_copyable_v<accessor>);
 #else
 		static_assert(sycl::is_device_copyable_v<accessor>);
 #endif
+#endif
 	}
 
-	template <typename Functor>
-	accessor(const ctor_internal_tag, const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
-		if(detail::is_prepass_handler(cgh)) {
-			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
-			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, buff.get_range()));
-		} else {
-			if(detail::get_handler_execution_target(cgh) != detail::execution_target::device) {
-				throw std::runtime_error(
-				    "Calling accessor constructor with device target is only allowed in parallel_for tasks."
-				    "If you want to access this buffer from within a host task, please specialize the call using one of the *_host_task tags");
+	// Constructor for tests, called through accessor_testspy.
+	accessor(detail::hydration_id hid, id<Dims> index_offset, range<Dims> buffer_range)
+	    : accessor(detail::embed_hydration_id<DataT*>(hid), index_offset, buffer_range) {}
+
+	void copy_and_hydrate(const accessor& other) {
+		m_device_ptr = other.m_device_ptr;
+		m_index_offset = other.m_index_offset;
+		m_buffer_range = other.m_buffer_range;
+
+#if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
+		if(detail::is_embedded_hydration_id(m_device_ptr)) {
+			if(detail::task_hydrator::is_available() && detail::task_hydrator::get_instance().can_hydrate()) {
+				const auto info = detail::task_hydrator::get_instance().hydrate_accessor(detail::extract_hydration_id(m_device_ptr));
+				assert(info.tgt == target::device);
+				m_device_ptr = static_cast<DataT*>(info.ptr);
+				m_index_offset = detail::id_cast<Dims>(info.buffer_offset);
+				m_buffer_range = detail::range_cast<Dims>(info.buffer_range);
 			}
-
-			auto& live_cgh = dynamic_cast<detail::live_pass_device_handler&>(cgh);
-			// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper manually.
-			const auto mapped_sr = live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range());
-			auto access_info = detail::runtime::get_instance().get_buffer_manager().access_device_buffer<DataT, Dims>(
-			    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(mapped_sr.range), detail::id_cast<3>(mapped_sr.offset));
-
-			m_device_ptr = static_cast<DataT*>(access_info.ptr);
-			m_index_offset = detail::id_cast<Dims>(access_info.backing_buffer_offset);
-			m_buffer_range = detail::range_cast<Dims>(access_info.backing_buffer_range);
 		}
+#endif
 	}
 
 	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_buffer_range, index - m_index_offset); }
 };
 
 // Celerity Accessor Deduction Guides
+// TODO: Make buffer non-const once corresponding (deprecated!) constructor overloads are removed
 template <typename T, int D, typename Functor, typename TagT>
 accessor(const buffer<T, D>& buff, handler& cgh, Functor rmfn, TagT tag)
     -> accessor<T, D, detail::deduce_access_mode<TagT>(), detail::deduce_access_target<std::remove_const_t<TagT>>()>;
@@ -306,59 +340,53 @@ template <typename T, int D, typename Functor, typename TagT>
 accessor(const buffer<T, D>& buff, handler& cgh, Functor rmfn, TagT tag, property_list prop_list)
     -> accessor<T, D, detail::deduce_access_mode_discard<TagT>(), detail::deduce_access_target<std::remove_const_t<TagT>>()>;
 
-//
-
 template <typename DataT, int Dims, access_mode Mode>
 class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_base<DataT, Dims, Mode, target::host_task> {
 	friend struct detail::accessor_testspy;
 
+	struct ctor_internal_tag {};
+
   public:
 	template <target Target = target::host_task, typename Functor>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
-		static_assert(!std::is_same_v<Functor, range<Dims>>, "The accessor constructor overload for master-access tasks (now called 'host tasks') has "
-		                                                     "been removed with Celerity 0.2.0. Please provide a range mapper instead.");
-
-		if(detail::is_prepass_handler(cgh)) {
-			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
-			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, buff.get_range()));
-		} else {
-			if constexpr(Target == target::host_task) {
-				if(detail::get_handler_execution_target(cgh) != detail::execution_target::host) {
-					throw std::runtime_error(
-					    "Calling accessor constructor with host_buffer target is only allowed in host tasks."
-					    "If you want to access this buffer from within a parallel_for task, please specialize the call using one of the non host tags");
-				}
-				auto& live_cgh = dynamic_cast<detail::live_pass_host_handler&>(cgh);
-				// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper
-				// manually.
-				const auto sr = live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range());
-				auto access_info = detail::runtime::get_instance().get_buffer_manager().access_host_buffer<DataT, Dims>(
-				    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(sr.range), detail::id_cast<3>(sr.offset));
-
-				m_mapped_subrange = sr;
-				m_host_ptr = static_cast<DataT*>(access_info.ptr);
-				m_index_offset = detail::id_cast<Dims>(access_info.backing_buffer_offset);
-				m_buffer_range = detail::range_cast<Dims>(access_info.backing_buffer_range);
-				m_virtual_buffer_range = buff.get_range();
-			}
-		}
-	}
+	accessor(buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
 
 	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag) : accessor(buff, cgh, rmfn) {}
+	accessor(buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag) : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
 
 	/**
 	 * TODO: As of ComputeCpp 2.5.0 they do not support no_init prop, hence this constructor is needed along with discard deduction guide.
 	 *    but once they do this should be replace for a constructor that takes a prop list as an argument.
 	 */
 	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property::no_init no_init) : accessor(buff, cgh, rmfn) {}
+	accessor(buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property::no_init no_init) : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
 
 	template <typename Functor, typename TagT>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property_list prop_list) {
 		static_assert(detail::constexpr_false<TagT>,
 		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
 		    "as a last argument in the constructor");
+	}
+
+	template <target Target = target::host_task, typename Functor>
+	[[deprecated("Creating accessor from const buffer is deprecated, capture buffer by reference instead")]] accessor(
+	    const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn)
+	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
+
+	template <typename Functor, typename TagT>
+	[[deprecated("Creating accessor from const buffer is deprecated, capture buffer by reference instead")]] accessor(
+	    const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag)
+	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
+
+	template <typename Functor, typename TagT>
+	[[deprecated("Creating accessor from const buffer is deprecated, capture buffer by reference instead")]] accessor(
+	    const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property::no_init no_init)
+	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
+
+	accessor(const accessor& other) { copy_and_hydrate(other); }
+
+	accessor& operator=(const accessor& other) {
+		if(this != &other) { copy_and_hydrate(other); }
+		return *this;
 	}
 
 	template <access_mode M = Mode, int D = Dims>
@@ -473,10 +501,44 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	// We only need this to check whether it is safe to call get_pointer() or not.
 	range<Dims> m_virtual_buffer_range = detail::zero_range;
 
+	template <target Target = target::host_task, typename Functor>
+	accessor(ctor_internal_tag, const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) : m_virtual_buffer_range(buff.get_range()) {
+		static_assert(!std::is_same_v<Functor, range<Dims>>, "The accessor constructor overload for master-access tasks (now called 'host tasks') has "
+		                                                     "been removed with Celerity 0.2.0. Please provide a range mapper instead.");
+		const auto hid =
+		    detail::add_requirement(cgh, detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, buff.get_range()));
+		detail::extend_lifetime(cgh, detail::get_lifetime_extending_state(buff));
+		m_host_ptr = detail::embed_hydration_id<DataT*>(hid);
+	}
+
 	// Constructor for tests, called through accessor_testspy.
 	accessor(subrange<Dims> mapped_subrange, DataT* ptr, id<Dims> backing_buffer_offset, range<Dims> backing_buffer_range, range<Dims> virtual_buffer_range)
 	    : m_mapped_subrange(mapped_subrange), m_host_ptr(ptr), m_index_offset(backing_buffer_offset), m_buffer_range(backing_buffer_range),
 	      m_virtual_buffer_range(virtual_buffer_range) {}
+
+	// Constructor for tests, called through accessor_testspy.
+	accessor(subrange<Dims> mapped_subrange, detail::hydration_id hid, id<Dims> backing_buffer_offset, range<Dims> backing_buffer_range,
+	    range<Dims> virtual_buffer_range)
+	    : accessor(mapped_subrange, detail::embed_hydration_id<DataT*>(hid), backing_buffer_offset, backing_buffer_range, virtual_buffer_range) {}
+
+	void copy_and_hydrate(const accessor& other) {
+		m_mapped_subrange = other.m_mapped_subrange;
+		m_host_ptr = other.m_host_ptr;
+		m_index_offset = other.m_index_offset;
+		m_buffer_range = other.m_buffer_range;
+		m_virtual_buffer_range = other.m_virtual_buffer_range;
+
+		if(detail::is_embedded_hydration_id(m_host_ptr)) {
+			if(detail::task_hydrator::is_available() && detail::task_hydrator::get_instance().can_hydrate()) {
+				const auto info = detail::task_hydrator::get_instance().hydrate_accessor(detail::extract_hydration_id(m_host_ptr));
+				assert(info.tgt == target::host_task);
+				m_host_ptr = static_cast<DataT*>(info.ptr);
+				m_index_offset = detail::id_cast<Dims>(info.buffer_offset);
+				m_buffer_range = detail::range_cast<Dims>(info.buffer_range);
+				m_mapped_subrange = detail::subrange_cast<Dims>(info.accessor_sr);
+			}
+		}
+	}
 
 	size_t get_linear_offset(id<Dims> index) const { return detail::get_linear_index(m_buffer_range, index - m_index_offset); }
 };
@@ -484,6 +546,8 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 
 template <typename DataT, int Dims = 1>
 class local_accessor {
+	friend struct detail::accessor_testspy;
+
   private:
 #if CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 6)
 	using sycl_accessor = cl::sycl::accessor<DataT, Dims, cl::sycl::access::mode::read_write, cl::sycl::access::target::local>;
@@ -500,16 +564,13 @@ class local_accessor {
 	local_accessor() : m_sycl_acc{make_placeholder_sycl_accessor()}, m_allocation_size(detail::zero_range) {}
 
 #if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
-	local_accessor(const range<Dims>& allocation_size, handler& cgh) : m_sycl_acc{make_placeholder_sycl_accessor()}, m_allocation_size(allocation_size) {
-		if(!detail::is_prepass_handler(cgh)) {
-			auto& device_handler = dynamic_cast<detail::live_pass_device_handler&>(cgh);
-			m_eventual_sycl_cgh = device_handler.get_eventual_sycl_cgh();
-		}
-	}
+	local_accessor(const range<Dims>& allocation_size, handler& cgh) : m_sycl_acc{make_placeholder_sycl_accessor()}, m_allocation_size(allocation_size) {}
 
 	local_accessor(const local_accessor& other)
-	    : m_sycl_acc(other.sycl_cgh() ? sycl_accessor{other.m_allocation_size, *other.sycl_cgh()} : other.m_sycl_acc),
-	      m_allocation_size(other.m_allocation_size), m_eventual_sycl_cgh(other.sycl_cgh() ? nullptr : other.m_eventual_sycl_cgh) {}
+	    : m_sycl_acc(detail::task_hydrator::is_available() && detail::task_hydrator::get_instance().has_sycl_handler() && other.m_allocation_size.size() > 0
+	                     ? sycl_accessor{other.m_allocation_size, detail::task_hydrator::get_instance().get_sycl_handler()}
+	                     : other.m_sycl_acc),
+	      m_allocation_size(other.m_allocation_size) {}
 #else
 	local_accessor(const range<Dims>& allocation_size, handler& cgh);
 	local_accessor(const local_accessor&) = default;
@@ -539,7 +600,9 @@ class local_accessor {
   private:
 	sycl_accessor m_sycl_acc;
 	range<Dims> m_allocation_size;
-	cl::sycl::handler* const* m_eventual_sycl_cgh = nullptr;
+
+	// Constructor for tests, called through accessor_testspy.
+	local_accessor(const range<Dims>& allocation_size) : m_sycl_acc{make_placeholder_sycl_accessor()}, m_allocation_size(allocation_size) {}
 
 	static sycl_accessor make_placeholder_sycl_accessor() {
 #if CELERITY_WORKAROUND(DPCPP) || CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9)
@@ -549,8 +612,6 @@ class local_accessor {
 		return sycl_accessor{};
 #endif
 	}
-
-	cl::sycl::handler* sycl_cgh() const { return m_eventual_sycl_cgh != nullptr ? *m_eventual_sycl_cgh : nullptr; }
 };
 
 

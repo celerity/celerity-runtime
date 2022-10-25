@@ -18,25 +18,35 @@ class side_effect {
 	using object_type = typename host_object<T>::object_type;
 	constexpr static inline side_effect_order order = Order;
 
-	explicit side_effect(const host_object<T>& object, handler& cgh) : m_object{object} {
-		if(detail::is_prepass_handler(cgh)) {
-			auto& prepass_cgh = static_cast<detail::prepass_handler&>(cgh);
-			prepass_cgh.add_requirement(object.get_id(), order);
-		}
+	explicit side_effect(const host_object<T>& object, handler& cgh) : m_object{object.get_object()} {
+		detail::add_requirement(cgh, object.get_id(), order);
+		detail::extend_lifetime(cgh, detail::get_lifetime_extending_state(object));
 	}
 
 	template <typename U = T>
 	std::enable_if_t<!std::is_void_v<U>, object_type>& operator*() const {
-		return *m_object.get_object();
+		return *m_object;
 	}
 
 	template <typename U = T>
 	std::enable_if_t<!std::is_void_v<U>, object_type>* operator->() const {
-		return m_object.get_object();
+		return m_object;
 	}
 
   private:
-	host_object<T> m_object;
+	object_type* m_object;
+};
+
+template <side_effect_order Order>
+class side_effect<void, Order> {
+  public:
+	using object_type = typename host_object<void>::object_type;
+	constexpr static inline side_effect_order order = Order;
+
+	explicit side_effect(const host_object<void>& object, handler& cgh) {
+		detail::add_requirement(cgh, object.get_id(), order);
+		detail::extend_lifetime(cgh, detail::get_lifetime_extending_state(object));
+	}
 };
 
 template <typename T>

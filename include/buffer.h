@@ -6,6 +6,7 @@
 #include <allscale/utils/functional_utils.h>
 
 #include "buffer_manager.h"
+#include "lifetime_extending_state.h"
 #include "range_mapper.h"
 #include "ranges.h"
 #include "runtime.h"
@@ -36,14 +37,11 @@ template <typename DataT, int Dims, access_mode Mode, target Target>
 class accessor;
 
 template <typename DataT, int Dims>
-class buffer {
+class buffer : public detail::lifetime_extending_state_wrapper {
   public:
 	static_assert(Dims > 0, "0-dimensional buffers NYI");
 
-	buffer(const DataT* host_ptr, celerity::range<Dims> range) {
-		if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr); }
-		m_impl = std::make_shared<impl>(range, host_ptr);
-	}
+	buffer(const DataT* host_ptr, celerity::range<Dims> range) { m_impl = std::make_shared<impl>(range, host_ptr); }
 
 	buffer(celerity::range<Dims> range) : buffer(nullptr, range) {}
 
@@ -60,17 +58,30 @@ class buffer {
 		return get_access<Mode, target::device, Functor>(cgh, rmfn);
 	}
 
-
 	template <access_mode Mode, target Target, typename Functor>
 	accessor<DataT, Dims, Mode, Target> get_access(handler& cgh, Functor rmfn) const {
 		return accessor<DataT, Dims, Mode, Target>(*this, cgh, rmfn);
 	}
 
+	template <access_mode Mode, typename Functor>
+	accessor<DataT, Dims, Mode, target::device> get_access(handler& cgh, Functor rmfn) {
+		return get_access<Mode, target::device, Functor>(cgh, rmfn);
+	}
+
+	template <access_mode Mode, target Target, typename Functor>
+	accessor<DataT, Dims, Mode, Target> get_access(handler& cgh, Functor rmfn) {
+		return accessor<DataT, Dims, Mode, Target>(*this, cgh, rmfn);
+	}
+
 	celerity::range<Dims> get_range() const { return m_impl->range; }
 
+  protected:
+	std::shared_ptr<detail::lifetime_extending_state> get_lifetime_extending_state() const override { return m_impl; }
+
   private:
-	struct impl {
+	struct impl : public detail::lifetime_extending_state {
 		impl(celerity::range<Dims> rng, const DataT* host_init_ptr) : range(rng) {
+			if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr); }
 			id = detail::runtime::get_instance().get_buffer_manager().register_buffer<DataT, Dims>(detail::range_cast<3>(range), host_init_ptr);
 		}
 		impl(const impl&) = delete;

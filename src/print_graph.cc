@@ -56,7 +56,7 @@ namespace detail {
 		const auto& bam = tsk.get_buffer_access_map();
 		for(const auto bid : bam.get_accessed_buffers()) {
 			for(const auto mode : bam.get_access_modes(bid)) {
-				const auto req = bam.get_requirements_for_access(bid, mode, tsk.get_dimensions(), execution_range, tsk.get_global_size());
+				const auto req = bam.get_mode_requirements(bid, mode, tsk.get_dimensions(), execution_range, tsk.get_global_size());
 				const std::string bl = get_buffer_label(bm, bid);
 				// While uncommon, we do support chunks that don't require access to a particular buffer at all.
 				if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> {} {}", detail::access::mode_traits::name(mode), bl, req); }

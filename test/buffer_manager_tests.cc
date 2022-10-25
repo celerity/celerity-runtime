@@ -24,7 +24,7 @@ namespace detail {
 		{
 			celerity::buffer<int, 1> b(celerity::range<1>(128));
 			b_id = celerity::detail::get_buffer_id(b);
-			q.submit([=](celerity::handler& cgh) {
+			q.submit([&](celerity::handler& cgh) {
 				celerity::accessor a{b, cgh, celerity::access::all(), celerity::write_only};
 				cgh.parallel_for<class UKN(i)>(b.get_range(), [=](celerity::item<1> it) {});
 			});
@@ -34,7 +34,7 @@ namespace detail {
 		// we need horizon_step_size * 3 + 1 tasks to generate the third horizon,
 		// and one extra task to trigger the clean_up process
 		for(int i = 0; i < (new_horizon_step * 3 + 2); i++) {
-			q.submit([=](celerity::handler& cgh) {
+			q.submit([&](celerity::handler& cgh) {
 				celerity::accessor a{c, cgh, celerity::access::all(), celerity::write_only};
 				cgh.parallel_for<class UKN(i)>(c.get_range(), [=](celerity::item<1>) {});
 			});
@@ -839,12 +839,11 @@ namespace detail {
 			const auto range = cl::sycl::range<2>(32, 32);
 			const auto offset = cl::sycl::id<2>(32, 0);
 			auto sr = subrange<3>(id_cast<3>(offset), range_cast<3>(range));
-			live_pass_device_handler cgh(nullptr, sr, true, dq);
 
-			get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(cgh, bid, {48, 32}, {16, 0});
-			auto acc = get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(cgh, bid, {32, 32}, {32, 0});
-			cgh.parallel_for<class UKN(write_buf)>(range, offset, [=](cl::sycl::id<2> id) { acc[id] = id[0] + id[1]; });
-			cgh.get_submission_event().wait();
+			get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(bid, {48, 32}, {16, 0});
+			auto acc = get_device_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(bid, {32, 32}, {32, 0});
+
+			test_utils::run_parallel_for<class UKN(write_buf)>(dq.get_sycl_queue(), range, offset, [=](cl::sycl::id<2> id) { acc[id] = id[0] + id[1]; });
 
 			auto buf_info = bm.access_host_buffer<size_t, 2>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 32, 1), cl::sycl::id<3>(32, 0, 0));
 			for(size_t i = 32; i < 64; ++i) {
@@ -885,33 +884,32 @@ namespace detail {
 		SECTION("when using device buffers") {
 			auto range = cl::sycl::range<1>(32);
 			auto sr = subrange<3>({}, range_cast<3>(range));
-			live_pass_device_handler cgh(nullptr, sr, true, dq);
 
 			// For device accessors we test this both on host and device
 
 			// Copy ctor
-			auto device_acc_a = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_a, {32}, {0});
+			auto device_acc_a = get_device_accessor<size_t, 1, access_mode::discard_write>(bid_a, {32}, {0});
 			decltype(device_acc_a) device_acc_a1(device_acc_a);
 
 			// Move ctor
-			auto device_acc_b = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_b, {32}, {0});
+			auto device_acc_b = get_device_accessor<size_t, 1, access_mode::discard_write>(bid_b, {32}, {0});
 			decltype(device_acc_b) device_acc_b1(std::move(device_acc_b));
 
 			// Copy assignment
-			auto device_acc_c = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_c, {32}, {0});
-			auto device_acc_c1 = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_a, {32}, {0});
+			auto device_acc_c = get_device_accessor<size_t, 1, access_mode::discard_write>(bid_c, {32}, {0});
+			auto device_acc_c1 = get_device_accessor<size_t, 1, access_mode::discard_write>(bid_a, {32}, {0});
 			device_acc_c1 = device_acc_c;
 
 			// Move assignment
-			auto device_acc_d = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_d, {32}, {0});
-			auto device_acc_d1 = get_device_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(cgh, bid_a, {32}, {0});
+			auto device_acc_d = get_device_accessor<size_t, 1, access_mode::discard_write>(bid_d, {32}, {0});
+			auto device_acc_d1 = get_device_accessor<size_t, 1, access_mode::discard_write>(bid_a, {32}, {0});
 			device_acc_d1 = std::move(device_acc_d);
 
 			// Hidden friends (equality operators)
 			REQUIRE(device_acc_a == device_acc_a1);
 			REQUIRE(device_acc_a1 != device_acc_b1);
 
-			cgh.parallel_for<class UKN(member_fn_test)>(range, [=](cl::sycl::id<1> id) {
+			test_utils::run_parallel_for<class UKN(member_fn_test)>(dq.get_sycl_queue(), range, {}, [=](cl::sycl::id<1> id) {
 				// Copy ctor
 				decltype(device_acc_a1) device_acc_a2(device_acc_a1);
 				device_acc_a2[id] = 1 * id[0];
@@ -933,12 +931,10 @@ namespace detail {
 				// Hidden friends (equality operators) are only required to be defined on the host
 			});
 
-			cgh.get_submission_event().wait();
-
-			auto host_acc_a = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_a, {32}, {0});
-			auto host_acc_b = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_b, {32}, {0});
-			auto host_acc_c = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_c, {32}, {0});
-			auto host_acc_d = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_d, {32}, {0});
+			auto host_acc_a = get_host_accessor<size_t, 1, access_mode::read>(bid_a, {32}, {0});
+			auto host_acc_b = get_host_accessor<size_t, 1, access_mode::read>(bid_b, {32}, {0});
+			auto host_acc_c = get_host_accessor<size_t, 1, access_mode::read>(bid_c, {32}, {0});
+			auto host_acc_d = get_host_accessor<size_t, 1, access_mode::read>(bid_d, {32}, {0});
 			for(size_t i = 0; i < 32; ++i) {
 				REQUIRE_LOOP(host_acc_a[i] == 1 * i);
 				REQUIRE_LOOP(host_acc_b[i] == 2 * i);
@@ -950,21 +946,21 @@ namespace detail {
 		SECTION("when using host buffers") {
 			{
 				// Copy ctor
-				auto acc_a = get_host_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(bid_a, {32}, {0});
+				auto acc_a = get_host_accessor<size_t, 1, access_mode::discard_write>(bid_a, {32}, {0});
 				decltype(acc_a) acc_a1(acc_a);
 
 				// Move ctor
-				auto acc_b = get_host_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(bid_b, {32}, {0});
+				auto acc_b = get_host_accessor<size_t, 1, access_mode::discard_write>(bid_b, {32}, {0});
 				decltype(acc_b) acc_b1(std::move(acc_b));
 
 				// Copy assignment
-				auto acc_c = get_host_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(bid_c, {32}, {0});
-				auto acc_c1 = get_host_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(bid_a, {32}, {0});
+				auto acc_c = get_host_accessor<size_t, 1, access_mode::discard_write>(bid_c, {32}, {0});
+				auto acc_c1 = get_host_accessor<size_t, 1, access_mode::discard_write>(bid_a, {32}, {0});
 				acc_c1 = acc_c;
 
 				// Move assignment
-				auto acc_d = get_host_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(bid_d, {32}, {0});
-				auto acc_d1 = get_host_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(bid_a, {32}, {0});
+				auto acc_d = get_host_accessor<size_t, 1, access_mode::discard_write>(bid_d, {32}, {0});
+				auto acc_d1 = get_host_accessor<size_t, 1, access_mode::discard_write>(bid_a, {32}, {0});
 				acc_d1 = std::move(acc_d);
 
 				// Hidden friends (equality operators)
@@ -979,10 +975,10 @@ namespace detail {
 				}
 			}
 
-			auto acc_a = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_a, {32}, {0});
-			auto acc_b = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_b, {32}, {0});
-			auto acc_c = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_c, {32}, {0});
-			auto acc_d = get_host_accessor<size_t, 1, cl::sycl::access::mode::read>(bid_d, {32}, {0});
+			auto acc_a = get_host_accessor<size_t, 1, access_mode::read>(bid_a, {32}, {0});
+			auto acc_b = get_host_accessor<size_t, 1, access_mode::read>(bid_b, {32}, {0});
+			auto acc_c = get_host_accessor<size_t, 1, access_mode::read>(bid_c, {32}, {0});
+			auto acc_d = get_host_accessor<size_t, 1, access_mode::read>(bid_d, {32}, {0});
 			for(size_t i = 0; i < 32; ++i) {
 				REQUIRE_LOOP(acc_a[i] == 1 * i);
 				REQUIRE_LOOP(acc_b[i] == 2 * i);
@@ -1039,28 +1035,37 @@ namespace detail {
 
 		const std::string error_msg = "Buffer cannot be accessed with expected stride";
 
+		// TODO: Use single lambda once https://github.com/KhronosGroup/SYCL-Docs/pull/351 is merged and implemented
+		auto get_pointer_1d = [this](const buffer_id bid, const range<1>& range, const id<1>& offset) {
+			get_host_accessor<size_t, 1, access_mode::discard_write>(bid, range, offset).get_pointer();
+		};
+
+		auto get_pointer_2d = [this](const buffer_id bid, const range<2>& range, const id<2>& offset) {
+			get_host_accessor<size_t, 2, access_mode::discard_write>(bid, range, offset).get_pointer();
+		};
+
 		// This is not allowed, as the backing buffer hasn't been allocated from offset 0, which means the pointer would point to offset 32.
-		REQUIRE_THROWS_WITH((get_host_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(bid_a, {32}, {32}).get_pointer()), error_msg);
+		REQUIRE_THROWS_WITH(get_pointer_1d(bid_a, {32}, {32}), error_msg);
 
 		// This is fine, as the backing buffer has been resized to start from 0 now.
-		REQUIRE_NOTHROW(get_host_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(bid_a, {64}, {0}).get_pointer());
+		REQUIRE_NOTHROW(get_pointer_1d(bid_a, {64}, {0}));
 
 		// This is now also okay, as the backing buffer starts at 0, and the pointer points to offset 0.
 		// (Same semantics as SYCL accessor with offset, i.e., UB outside of requested range).
-		REQUIRE_NOTHROW(get_host_accessor<size_t, 1, cl::sycl::access::mode::discard_write>(bid_a, {32}, {32}).get_pointer());
+		REQUIRE_NOTHROW(get_pointer_1d(bid_a, {32}, {32}));
 
 		// In 2D (and 3D) it's trickier, as the stride of the backing buffer must also match what the user expects.
 		// This is not allowed, even though the offset is 0.
-		REQUIRE_THROWS_WITH((get_host_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(bid_b, {64, 64}, {0, 0}).get_pointer()), error_msg);
+		REQUIRE_THROWS_WITH(get_pointer_2d(bid_b, {64, 64}, {0, 0}), error_msg);
 
 		// This is allowed, as we request the full buffer.
-		REQUIRE_NOTHROW(get_host_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(bid_b, {128, 128}, {0, 0}).get_pointer());
+		REQUIRE_NOTHROW(get_pointer_2d(bid_b, {128, 128}, {0, 0}));
 
 		// This is now allowed, as the backing buffer has the expected stride.
-		REQUIRE_NOTHROW(get_host_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(bid_b, {64, 64}, {0, 0}).get_pointer());
+		REQUIRE_NOTHROW(get_pointer_2d(bid_b, {64, 64}, {0, 0}));
 
 		// Passing an offset is now also possible.
-		REQUIRE_NOTHROW(get_host_accessor<size_t, 2, cl::sycl::access::mode::discard_write>(bid_b, {64, 64}, {32, 32}).get_pointer());
+		REQUIRE_NOTHROW(get_pointer_2d(bid_b, {64, 64}, {32, 32}));
 	}
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "empty access ranges do not inflate backing buffer allocations", "[buffer_manager]") {

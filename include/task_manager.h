@@ -67,10 +67,10 @@ namespace detail {
 			auto reservation = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
 			const auto tid = reservation.get_tid();
 
-			prepass_handler cgh(tid, std::make_unique<command_group_storage<CGF>>(cgf), m_num_collective_nodes);
+			handler cgh = make_command_group_handler(tid, m_num_collective_nodes);
 			cgf(cgh);
 
-			auto unique_tsk = std::move(cgh).into_task();
+			auto unique_tsk = into_task(std::move(cgh));
 
 			// Require the collective group before inserting the task into the ring buffer, otherwise the executor will try to schedule the collective host
 			// task on a collective-group thread that does not yet exist.

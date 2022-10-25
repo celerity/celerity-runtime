@@ -205,7 +205,7 @@ namespace detail {
 		auto write_b_cmd = ctx.get_command_graph().get(*cmds.cbegin());
 		auto write_b_dependencies = write_b_cmd->get_dependencies();
 		CHECK(!write_b_dependencies.empty());
-		CHECK(write_b_dependencies.front().kind == dependency_kind::anti_dep);
+		CHECK(std::any_of(write_b_dependencies.begin(), write_b_dependencies.end(), [](auto& dep) { return dep.kind == dependency_kind::anti_dep; }));
 
 		test_utils::maybe_print_graphs(ctx);
 	}

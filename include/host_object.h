@@ -6,8 +6,8 @@
 #include <unordered_set>
 #include <utility>
 
+#include "lifetime_extending_state.h"
 #include "runtime.h"
-
 
 namespace celerity::experimental {
 
@@ -45,7 +45,7 @@ class host_object_manager {
 };
 
 // Base for `state` structs in all host_object specializations: registers and unregisters host_objects with the host_object_manager.
-struct host_object_tracker {
+struct host_object_tracker : public lifetime_extending_state {
 	detail::host_object_id id{};
 
 	host_object_tracker() {
@@ -85,7 +85,7 @@ namespace celerity::experimental {
  * - `host_object<void>` does not carry internal state and can be used to track access to global variables or functions like `printf()`.
  */
 template <typename T>
-class host_object {
+class host_object : public detail::lifetime_extending_state_wrapper {
 	static_assert(std::is_object_v<T>); // disallow host_object<T&&> and host_object<function-type>
 
   public:
@@ -101,6 +101,9 @@ class host_object {
 	template <typename... CtorParams>
 	explicit host_object(const std::in_place_t, CtorParams&&... ctor_args) // requiring std::in_place avoids overriding copy and move constructors
 	    : m_shared_state{std::make_shared<state>(std::in_place, std::forward<CtorParams>(ctor_args)...)} {}
+
+  protected:
+	std::shared_ptr<detail::lifetime_extending_state> get_lifetime_extending_state() const override { return m_shared_state; }
 
   private:
 	template <typename, side_effect_order>
@@ -120,13 +123,16 @@ class host_object {
 };
 
 template <typename T>
-class host_object<T&> {
+class host_object<T&> : public detail::lifetime_extending_state_wrapper {
   public:
 	using object_type = T;
 
 	explicit host_object(T& obj) : m_shared_state{std::make_shared<state>(obj)} {}
 
 	explicit host_object(const std::reference_wrapper<T> ref) : m_shared_state{std::make_shared<state>(ref.get())} {}
+
+  protected:
+	std::shared_ptr<detail::lifetime_extending_state> get_lifetime_extending_state() const override { return m_shared_state; }
 
   private:
 	template <typename, side_effect_order>
@@ -145,11 +151,14 @@ class host_object<T&> {
 };
 
 template <>
-class host_object<void> {
+class host_object<void> : public detail::lifetime_extending_state_wrapper {
   public:
 	using object_type = void;
 
 	explicit host_object() : m_shared_state{std::make_shared<state>()} {}
+
+  protected:
+	std::shared_ptr<detail::lifetime_extending_state> get_lifetime_extending_state() const override { return m_shared_state; }
 
   private:
 	template <typename, side_effect_order>

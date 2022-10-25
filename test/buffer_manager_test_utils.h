@@ -15,10 +15,24 @@ namespace detail {
 		static accessor<DataT, Dims, Mode, target::host_task> make_host_accessor(Args&&... args) {
 			return {std::forward<Args>(args)...};
 		}
+
+		template <typename DataT, int Dims, typename... Args>
+		static local_accessor<DataT, Dims> make_local_accessor(Args&&... args) {
+			return {std::forward<Args>(args)...};
+		}
 	};
 } // namespace detail
 
 namespace test_utils {
+
+	// Convenience function for submitting parallel_for with global offset without having to create a CGF
+	template <typename KernelName = detail::unnamed_kernel, int Dims, typename KernelFn>
+	void run_parallel_for(sycl::queue& q, const range<Dims>& global_range, const id<Dims>& global_offset, KernelFn fn) {
+		q.submit([=](sycl::handler& cgh) {
+			cgh.parallel_for<KernelName>(global_range, detail::bind_simple_kernel(fn, global_range, global_offset, global_offset));
+		});
+		q.wait_and_throw();
+	}
 
 	class buffer_manager_fixture : public device_queue_fixture {
 	  public:
@@ -147,7 +161,7 @@ namespace test_utils {
 
 		template <typename DataT, int Dims, access_mode Mode>
 		accessor<DataT, Dims, Mode, target::device> get_device_accessor(
-		    detail::live_pass_device_handler& cgh, detail::buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
+		    detail::buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
 			auto buf_info = m_bm->access_device_buffer<DataT, Dims>(bid, Mode, detail::range_cast<3>(range), detail::id_cast<3>(offset));
 			return detail::accessor_testspy::make_device_accessor<DataT, Dims, Mode>(static_cast<DataT*>(buf_info.ptr),
 			    detail::id_cast<Dims>(buf_info.backing_buffer_offset), detail::range_cast<Dims>(buf_info.backing_buffer_range));

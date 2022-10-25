@@ -167,11 +167,7 @@ namespace detail {
 		}
 
 		// Deletes the runtime instance, which happens only in tests. Called from runtime_fixture.
-		static void test_case_exit() {
-			assert(m_test_mode && m_test_active);
-			instance.reset();
-			m_test_active = false;
-		}
+		static void test_case_exit();
 
 	  private:
 		inline static bool m_test_mode = false;

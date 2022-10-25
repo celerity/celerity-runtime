@@ -7,6 +7,7 @@
 #include "log.h"
 #include "mpi_support.h"
 #include "named_threads.h"
+#include "task_hydrator.h"
 
 // TODO: Get rid of this. (This could potentialy even cause deadlocks on large clusters)
 constexpr size_t MAX_CONCURRENT_JOBS = 20;
@@ -45,6 +46,7 @@ namespace detail {
 	}
 
 	void executor::run() {
+		task_hydrator::make_available();
 		bool done = false;
 		std::queue<unique_frame_ptr<command_frame>> command_queue;
 		while(!done || !m_jobs.empty()) {
@@ -138,6 +140,7 @@ namespace detail {
 		}
 
 		assert(m_running_device_compute_jobs == 0);
+		task_hydrator::teardown();
 	}
 
 	bool executor::handle_command(const command_frame& frame) {
