@@ -56,7 +56,7 @@ namespace detail {
 		buffer<int, 1> buf_a(mem_a.data(), cl::sycl::range<1>{1});
 		q.submit([=](handler& cgh) {
 			auto a = buf_a.get_access<cl::sycl::access::mode::read_write, target::host_task>(cgh, fixed<1>({0, 1}));
-			cgh.host_task(on_master_node, [=] { ++a[{0}]; });
+			cgh.host_task(on_master_node, [=] { ++a[0]; });
 		});
 		int out = 0;
 		q.submit(celerity::allow_by_ref, [=, &out](handler& cgh) {

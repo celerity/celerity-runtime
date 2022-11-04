@@ -670,6 +670,8 @@ namespace detail {
 			CHECK(inspector.has_dependency(cmd_epoch->get_cid(), cmd_b->get_cid()));
 		}
 
+		maybe_print_graphs(ctx);
+
 		auto buf = mbf.create_buffer(range<1>{1}, true /* host_initialized */);
 		const auto tid_c = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(task_c)>(
