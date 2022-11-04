@@ -91,16 +91,16 @@ class host_object {
   public:
 	using object_type = T;
 
-	host_object() : m_shared_state{std::make_shared<state>(std::in_place)} {}
+	host_object() : m_shared_state(std::make_shared<state>(std::in_place)) {}
 
-	explicit host_object(const T& obj) : m_shared_state{std::make_shared<state>(std::in_place, obj)} {}
+	explicit host_object(const T& obj) : m_shared_state(std::make_shared<state>(std::in_place, obj)) {}
 
-	explicit host_object(T&& obj) : m_shared_state{std::make_shared<state>(std::in_place, std::move(obj))} {}
+	explicit host_object(T&& obj) : m_shared_state(std::make_shared<state>(std::in_place, std::move(obj))) {}
 
 	/// Constructs the object in-place with the given constructor arguments.
 	template <typename... CtorParams>
 	explicit host_object(const std::in_place_t, CtorParams&&... ctor_args) // requiring std::in_place avoids overriding copy and move constructors
-	    : m_shared_state{std::make_shared<state>(std::in_place, std::forward<CtorParams>(ctor_args)...)} {}
+	    : m_shared_state(std::make_shared<state>(std::in_place, std::forward<CtorParams>(ctor_args)...)) {}
 
   private:
 	template <typename, side_effect_order>
@@ -110,7 +110,7 @@ class host_object {
 		T object;
 
 		template <typename... CtorParams>
-		explicit state(const std::in_place_t, CtorParams&&... ctor_args) : object{std::forward<CtorParams>(ctor_args)...} {}
+		explicit state(const std::in_place_t, CtorParams&&... ctor_args) : object(std::forward<CtorParams>(ctor_args)...) {}
 	};
 
 	detail::host_object_id get_id() const { return m_shared_state->id; }
@@ -124,9 +124,9 @@ class host_object<T&> {
   public:
 	using object_type = T;
 
-	explicit host_object(T& obj) : m_shared_state{std::make_shared<state>(obj)} {}
+	explicit host_object(T& obj) : m_shared_state(std::make_shared<state>(obj)) {}
 
-	explicit host_object(const std::reference_wrapper<T> ref) : m_shared_state{std::make_shared<state>(ref.get())} {}
+	explicit host_object(const std::reference_wrapper<T> ref) : m_shared_state(std::make_shared<state>(ref.get())) {}
 
   private:
 	template <typename, side_effect_order>
@@ -149,7 +149,7 @@ class host_object<void> {
   public:
 	using object_type = void;
 
-	explicit host_object() : m_shared_state{std::make_shared<state>()} {}
+	explicit host_object() : m_shared_state(std::make_shared<state>()) {}
 
   private:
 	template <typename, side_effect_order>
