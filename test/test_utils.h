@@ -184,6 +184,8 @@ namespace test_utils {
 			}
 		}
 
+		detail::host_object_id get_id() const { return m_id; }
+
 	  private:
 		friend class mock_host_object_factory;
 
