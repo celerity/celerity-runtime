@@ -70,6 +70,17 @@ struct assert_host_object_ctor_param_is_rvalue {
 template <typename T>
 using assert_host_object_ctor_param_is_rvalue_t = typename assert_host_object_ctor_param_is_rvalue<T>::type;
 
+template <typename T>
+host_object_id get_host_object_id(const experimental::host_object<T>& ho) {
+	return ho.get_id();
+}
+
+template <typename T>
+typename experimental::host_object<T>::instance_type& get_host_object_instance(const experimental::host_object<T>& ho) {
+	return ho.get_instance();
+}
+
+
 } // namespace celerity::detail
 
 namespace celerity::experimental {
@@ -89,7 +100,7 @@ class host_object {
 	static_assert(std::is_object_v<T>); // disallow host_object<T&&> and host_object<function-type>
 
   public:
-	using object_type = T;
+	using instance_type = T;
 
 	host_object() : m_shared_state(std::make_shared<state>(std::in_place)) {}
 
@@ -103,18 +114,21 @@ class host_object {
 	    : m_shared_state(std::make_shared<state>(std::in_place, std::forward<CtorParams>(ctor_args)...)) {}
 
   private:
-	template <typename, side_effect_order>
-	friend class side_effect;
+	template <typename U>
+	friend detail::host_object_id detail::get_host_object_id(const experimental::host_object<U>& ho);
+
+	template <typename U>
+	friend typename experimental::host_object<U>::instance_type& detail::get_host_object_instance(const experimental::host_object<U>& ho);
 
 	struct state : detail::host_object_tracker {
-		T object;
+		T instance;
 
 		template <typename... CtorParams>
-		explicit state(const std::in_place_t, CtorParams&&... ctor_args) : object(std::forward<CtorParams>(ctor_args)...) {}
+		explicit state(const std::in_place_t, CtorParams&&... ctor_args) : instance(std::forward<CtorParams>(ctor_args)...) {}
 	};
 
 	detail::host_object_id get_id() const { return m_shared_state->id; }
-	T* get_object() const { return &m_shared_state->object; }
+	T& get_instance() const { return m_shared_state->instance; }
 
 	std::shared_ptr<state> m_shared_state;
 };
@@ -122,24 +136,27 @@ class host_object {
 template <typename T>
 class host_object<T&> {
   public:
-	using object_type = T;
+	using instance_type = T;
 
 	explicit host_object(T& obj) : m_shared_state(std::make_shared<state>(obj)) {}
 
 	explicit host_object(const std::reference_wrapper<T> ref) : m_shared_state(std::make_shared<state>(ref.get())) {}
 
   private:
-	template <typename, side_effect_order>
-	friend class side_effect;
+	template <typename U>
+	friend detail::host_object_id detail::get_host_object_id(const experimental::host_object<U>& ho);
+
+	template <typename U>
+	friend typename experimental::host_object<U>::instance_type& detail::get_host_object_instance(const experimental::host_object<U>& ho);
 
 	struct state : detail::host_object_tracker {
-		T& object;
+		T& instance;
 
-		explicit state(T& object) : object{object} {}
+		explicit state(T& instance) : instance{instance} {}
 	};
 
 	detail::host_object_id get_id() const { return m_shared_state->id; }
-	T* get_object() const { return &m_shared_state->object; }
+	T& get_instance() const { return m_shared_state->instance; }
 
 	std::shared_ptr<state> m_shared_state;
 };
@@ -147,13 +164,13 @@ class host_object<T&> {
 template <>
 class host_object<void> {
   public:
-	using object_type = void;
+	using instance_type = void;
 
 	explicit host_object() : m_shared_state(std::make_shared<state>()) {}
 
   private:
-	template <typename, side_effect_order>
-	friend class side_effect;
+	template <typename U>
+	friend detail::host_object_id detail::get_host_object_id(const experimental::host_object<U>& ho);
 
 	struct state : detail::host_object_tracker {};
 
