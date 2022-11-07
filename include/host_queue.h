@@ -119,7 +119,9 @@ namespace detail {
 		}
 
 		void require_collective_group(collective_group_id cgid) {
-			if(m_threads.find(cgid) != m_threads.end()) return;
+			const std::lock_guard lock(m_mutex); // called by main thread
+			if(m_threads.count(cgid) > 0) return;
+
 			assert(cgid != 0);
 			MPI_Comm comm;
 			MPI_Comm_dup(MPI_COMM_WORLD, &comm);
@@ -133,9 +135,9 @@ namespace detail {
 
 		template <typename Fn>
 		std::future<execution_info> submit(collective_group_id cgid, Fn&& fn) {
-			auto it = m_threads.find(cgid);
-			assert(it != m_threads.end());
-			return it->second.thread.push([fn = std::forward<Fn>(fn), submit_time = std::chrono::steady_clock::now(), comm = it->second.comm](int) {
+			const std::lock_guard lock(m_mutex); // called by executor thread
+			auto& [comm, pool] = m_threads.at(cgid);
+			return pool.push([fn = std::forward<Fn>(fn), submit_time = std::chrono::steady_clock::now(), comm = comm](int) {
 				auto start_time = std::chrono::steady_clock::now();
 				try {
 					fn(comm);
@@ -151,24 +153,26 @@ namespace detail {
 		 * @brief Waits until all currently submitted operations have completed.
 		 */
 		void wait() {
-			for(auto& ct : m_threads) {
-				ct.second.thread.stop(true /* isWait */);
+			const std::lock_guard lock(m_mutex); // called by main thread - never contended because the executor is shut down at this point
+			for(auto& [_, ct] : m_threads) {
+				ct.pool.stop(true /* isWait */);
 			}
 		}
 
 	  private:
 		struct comm_thread {
 			MPI_Comm comm;
-			ctpl::thread_pool thread;
+			ctpl::thread_pool pool;
 
-			comm_thread(MPI_Comm comm, size_t n_threads, size_t id) : comm(comm), thread(n_threads) {
+			comm_thread(MPI_Comm comm, size_t n_threads, size_t id) : comm(comm), pool(n_threads) {
 				for(size_t i = 0; i < n_threads; ++i) {
-					auto& worker = thread.get_thread(i);
+					auto& worker = pool.get_thread(i);
 					set_thread_name(worker.native_handle(), fmt::format("cy-worker-{}.{}", id, i));
 				}
 			}
 		};
 
+		std::mutex m_mutex;
 		std::unordered_map<collective_group_id, comm_thread> m_threads;
 		size_t m_id = 0;
 	};
