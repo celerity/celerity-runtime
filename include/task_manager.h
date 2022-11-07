@@ -70,9 +70,15 @@ namespace detail {
 			prepass_handler cgh(tid, std::make_unique<command_group_storage<CGF>>(cgf), m_num_collective_nodes);
 			cgf(cgh);
 
-			task& tsk = register_task_internal(std::move(reservation), std::move(cgh).into_task());
+			auto unique_tsk = std::move(cgh).into_task();
+
+			// Require the collective group before inserting the task into the ring buffer, otherwise the executor will try to schedule the collective host
+			// task on a collective-group thread that does not yet exist.
+			// The queue pointer will be null in non-runtime tests.
+			if(m_queue) m_queue->require_collective_group(unique_tsk->get_collective_group_id());
+
+			auto& tsk = register_task_internal(std::move(reservation), std::move(unique_tsk));
 			compute_dependencies(tsk);
-			if(m_queue) m_queue->require_collective_group(tsk.get_collective_group_id());
 
 			// the following deletion is intentionally redundant with the one happening when waiting for free task slots
 			// we want to free tasks earlier than just when running out of slots,
