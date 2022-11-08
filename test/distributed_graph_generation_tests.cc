@@ -86,6 +86,13 @@ class task_builder {
 		return buffer_access_step(m_dctx, std::move(actions));
 	}
 
+	template <typename Name, int Dims>
+	buffer_access_step device_compute(const nd_range<Dims>& nd_range) {
+		std::deque<action> actions;
+		actions.push_front([nd_range](handler& cgh) { cgh.parallel_for<Name>(nd_range, [](nd_item<Dims>) {}); });
+		return buffer_access_step(m_dctx, std::move(actions));
+	}
+
 	template <int Dims>
 	buffer_access_step host_task(const range<Dims>& global_size) {
 		std::deque<action> actions;
@@ -386,6 +393,11 @@ class dist_cdag_test_context {
 		return task_builder(*this).device_compute<Name>(global_size);
 	}
 
+	template <typename Name = unnamed_kernel, int Dims>
+	auto device_compute(const nd_range<Dims>& nd_range) {
+		return task_builder(*this).device_compute<Name>(nd_range);
+	}
+
 	template <int Dims>
 	auto host_task(const range<Dims>& global_size) {
 		return task_builder(*this).host_task(global_size);
@@ -683,4 +695,30 @@ TEST_CASE("overlapping read/write access to the same buffer doesn't generate int
 		// Both commands should only depend on initial epoch, not each other
 		CHECK(q.find_predecessors().count() == 1);
 	});
+}
+
+TEST_CASE("local chunks can create multiple await push commands for a single push") {
+	dist_cdag_test_context dctx(2, 2);
+	const auto test_range = range<1>(128);
+	auto buf = dctx.create_buffer(test_range);
+	const auto transpose = [](celerity::chunk<1> chnk) { return celerity::subrange<1>(chnk.global_size[0] - chnk.offset[0] - chnk.range[0], chnk.range); };
+
+	// Since we currently create a separate push command for each last writer command, this just happens to work out.
+	SECTION("this works by accident") {
+		dctx.device_compute(test_range).discard_write(buf, acc::one_to_one{}).submit();
+		dctx.device_compute(test_range).read(buf, transpose).submit();
+		CHECK(dctx.query().find_all(command_type::push).count() == dctx.query().find_all(command_type::await_push).count());
+	}
+
+	SECTION("this is what we actually wanted") {
+		// Prevent additional local chunks from being created by using nd_range
+		dctx.device_compute(nd_range<1>(test_range, {64})).discard_write(buf, acc::one_to_one{}).submit();
+		dctx.device_compute(test_range).read(buf, transpose).submit();
+
+		// NOCOMMIT TODO: If would be sweet if we could somehow get the union region across all await pushes and check it against the corresponding push
+		CHECK(dctx.query().find_all(node_id(0), command_type::push).count() == 1);
+		CHECK(dctx.query().find_all(node_id(1), command_type::await_push).count() == 2);
+		CHECK(dctx.query().find_all(node_id(1), command_type::push).count() == 1);
+		CHECK(dctx.query().find_all(node_id(0), command_type::await_push).count() == 2);
+	}
 }

@@ -11,23 +11,32 @@
 #pragma clang diagnostic pop
 
 #include "buffer_storage.h"
-#include "command.h"
 #include "frame.h"
+#include "grid.h"
+#include "mpi_support.h"
 #include "types.h"
+#include "utils.h"
 
 namespace celerity {
 namespace detail {
 
+	class buffer_manager;
+	class reduction_manager;
+
 	class buffer_transfer_manager {
+		friend struct buffer_transfer_manager_testspy;
+
 	  public:
 		struct transfer_handle {
 			bool complete = false;
 		};
 
-		buffer_transfer_manager();
+		buffer_transfer_manager(buffer_manager& bm, reduction_manager& rm);
 
-		std::shared_ptr<const transfer_handle> push(const command_pkg& pkg);
-		std::shared_ptr<const transfer_handle> await_push(const command_pkg& pkg);
+		std::shared_ptr<const transfer_handle> push(
+		    const node_id target, const transfer_id trid, const buffer_id bid, const subrange<3>& sr, const reduction_id rid);
+		std::shared_ptr<const transfer_handle> await_push(
+		    const transfer_id trid, const buffer_id bid, const GridRegion<3>& expected_region, const reduction_id rid);
 
 		/**
 		 * @brief Polls for incoming transfers and updates the status of existing ones.
@@ -60,17 +69,25 @@ namespace detail {
 		};
 
 		struct incoming_transfer_handle : transfer_handle {
-			void set_expected_region(GridRegion<3> region) { m_expected_region = std::move(region); }
+			void expect_region(const GridRegion<3>& region) {
+				if(!m_expected_region.has_value()) {
+					m_expected_region = region;
+				} else {
+					// Multiple await push requests can be associated with this transfer. However, they all must require disjunct parts of the incoming data.
+					assert(GridRegion<3>::intersect(*m_expected_region, region).empty());
+					m_expected_region = GridRegion<3>::merge(*m_expected_region, region);
+				}
+			}
 
 			void add_transfer(std::unique_ptr<transfer_in>&& t) {
 				assert(!complete);
 				const auto box = subrange_to_grid_box(t->frame->sr);
 				assert(GridRegion<3>::intersect(m_received_region, box).empty());
-				assert(!m_expected_region.has_value() || GridRegion<3>::difference(box, *m_expected_region).empty());
 				m_received_region = GridRegion<3>::merge(m_received_region, box);
 				m_transfers.push_back(std::move(t));
 			}
 
+			// TODO: For multi-push-multi-await transfers we *could* further optimize this by trying to partially match against already completed transfers
 			bool received_full_region() const {
 				if(!m_expected_region.has_value()) return false;
 				return (m_received_region == *m_expected_region);
@@ -87,7 +104,7 @@ namespace detail {
 
 		  private:
 			std::vector<std::unique_ptr<transfer_in>> m_transfers;
-			std::optional<GridRegion<3>> m_expected_region; // This will only be set once the await push job has started
+			std::optional<GridRegion<3>> m_expected_region; // This will only be set once the (first) await push job has started
 			GridRegion<3> m_received_region;
 		};
 
@@ -96,6 +113,9 @@ namespace detail {
 			MPI_Request request;
 			unique_frame_ptr<data_frame> frame;
 		};
+
+		buffer_manager& m_buffer_mngr;
+		reduction_manager& m_reduction_mngr;
 
 		std::list<std::unique_ptr<transfer_in>> m_incoming_transfers;
 		std::list<std::unique_ptr<transfer_out>> m_outgoing_transfers;
@@ -111,7 +131,7 @@ namespace detail {
 		void update_incoming_transfers();
 		void update_outgoing_transfers();
 
-		static void commit_transfer(transfer_in& transfer);
+		void commit_transfer(transfer_in& transfer);
 	};
 
 } // namespace detail

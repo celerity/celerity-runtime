@@ -101,7 +101,14 @@ namespace detail {
 	}
 
 	bool await_push_job::execute(const command_pkg& pkg) {
-		if(m_data_handle == nullptr) { m_data_handle = m_btm.await_push(pkg); }
+		if(m_data_handle == nullptr) {
+			const auto data = std::get<await_push_data>(pkg.data);
+			GridRegion<3> expected_region;
+			for(size_t i = 0; i < data.num_subranges; ++i) {
+				expected_region = GridRegion<3>::merge(expected_region, subrange_to_grid_box(data.region[i]));
+			}
+			m_data_handle = m_btm.await_push(data.trid, data.bid, expected_region, data.rid);
+		}
 		return m_data_handle->complete;
 	}
 
@@ -126,7 +133,7 @@ namespace detail {
 			if(m_buffer_mngr.is_locked(data.bid, 0 /* FIXME: Host memory id - should use host_queue::get_memory_id */)) { return false; }
 
 			CELERITY_TRACE("Submit buffer to BTM");
-			m_data_handle = m_btm.push(pkg);
+			m_data_handle = m_btm.push(data.target, data.trid, data.bid, data.sr, data.rid);
 			CELERITY_TRACE("Buffer submitted to BTM");
 		}
 

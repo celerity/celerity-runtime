@@ -46,7 +46,7 @@ namespace detail {
 
 	executor::executor(node_id local_nid, local_devices& devices, task_manager& tm, buffer_manager& buffer_mngr, reduction_manager& reduction_mngr)
 	    : m_local_nid(local_nid), m_local_devices(devices), m_task_mngr(tm), m_buffer_mngr(buffer_mngr), m_reduction_mngr(reduction_mngr) {
-		m_btm = std::make_unique<buffer_transfer_manager>();
+		m_btm = std::make_unique<buffer_transfer_manager>(m_buffer_mngr, m_reduction_mngr);
 		m_metrics.initial_idle.resume();
 	}
 
