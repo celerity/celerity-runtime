@@ -41,7 +41,6 @@ namespace detail {
 		// Slow path: We (may) need to obtain current data from multiple memories.
 		if(data_locations.size() > 1) {
 			auto& existing_buf = m_buffers.at(bid).get(m_local_devices.get_host_memory_id());
-			assert(existing_buf.is_allocated()); // NOCOMMIT This is probably not guaranteed now, right?
 
 			// Make sure newest data resides on the host.
 			// But first, we need to check whether the current host buffer is able to hold the full data range.
@@ -243,6 +242,7 @@ namespace detail {
 					// NOTE: We currently assume that one of the requests will consume the FULL transfer. Only then we discard it.
 					// This assumption is valid right now, as the graph generator will not consolidate adjacent pushes for two (or more)
 					// separate commands. This might however change in the future.
+					// NOCOMMIT With distributed vs local chunks - I think the future is now?
 					if(t_minus_coherent_region != t_region) {
 						assert(detail::access::mode_traits::is_consumer(mode));
 						auto intersection = GridRegion<3>::intersect(t_region, coherent_box);
@@ -272,8 +272,9 @@ namespace detail {
 			{
 				// FIXME: DRY below
 				const auto locations = m_newest_data_location.at(bid).get_region_values(updated_region);
-				for(auto& [box, locs] : locations) {
-					m_newest_data_location.at(bid).update_region(box, data_location{locs}.set(mid));
+				for(auto& [box, _] : locations) {
+					// NOCOMMIT TODO: Add regression test: This used to be data_location{locs}.set(mid), i.e., the previous location remained valid.
+					m_newest_data_location.at(bid).update_region(box, data_location{}.set(mid));
 				}
 			}
 			scheduled_buffer_transfers = std::move(remaining_transfers);
@@ -317,7 +318,7 @@ namespace detail {
 				if(!detail::access::mode_traits::is_consumer(mode)) { continue; }
 
 				const memory_id source_mid = ([this, locs = &locs] {
-					for(memory_id m = m_local_devices.num_memories() - 1; m > 0; --m) {
+					for(memory_id m = m_local_devices.num_memories() - 1; m >= 0; --m) {
 						// FIXME: We currently choose the first available memory as a source (starting from the back to use host memory as a last resort),
 						// should use a better strategy here (maybe random or based on current load)
 						if(locs->test(m)) return m;

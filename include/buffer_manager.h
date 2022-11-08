@@ -365,7 +365,7 @@ namespace detail {
 #endif
 
 		static resize_info is_resize_required(const backing_buffer& buffer, cl::sycl::range<3> request_range, cl::sycl::id<3> request_offset) {
-			assert(buffer.is_allocated());
+			if(!buffer.is_allocated()) { return resize_info{true, request_offset, request_range}; }
 
 			// Empty-range buffer requirements never count towards the bounding box
 			if(request_range.size() == 0) { return resize_info{}; }
