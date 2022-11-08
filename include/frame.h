@@ -59,7 +59,6 @@ class unique_frame_ptr : private std::unique_ptr<Frame, unique_frame_delete<Fram
 	Frame* get_pointer() { return impl::get(); }
 	const Frame* get_pointer() const { return impl::get(); }
 	size_t get_size_bytes() const { return m_size_bytes; }
-	size_t get_payload_count() const { return (m_size_bytes - sizeof(Frame)) / sizeof(payload_type); }
 
 	using impl::operator bool;
 	using impl::operator*;

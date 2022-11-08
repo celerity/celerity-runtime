@@ -12,6 +12,17 @@
 namespace celerity {
 namespace detail {
 
+	inline constexpr size_t send_recv_unit_bytes = 64;
+
+	mpi_support::data_type make_send_recv_unit() {
+		MPI_Datatype unit;
+		MPI_Type_contiguous(send_recv_unit_bytes, MPI_BYTE, &unit);
+		MPI_Type_commit(&unit);
+		return mpi_support::data_type(unit);
+	}
+
+	buffer_transfer_manager::buffer_transfer_manager() : m_send_recv_unit(make_send_recv_unit()) {}
+
 	std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::push(const command_pkg& pkg) {
 		assert(pkg.get_command_type() == command_type::push);
 		auto t_handle = std::make_shared<transfer_handle>();
@@ -30,12 +41,13 @@ namespace detail {
 		frame->push_cid = pkg.cid;
 		bm.get_buffer_data(data.bid, data.sr, frame->data);
 
-		CELERITY_TRACE("Ready to send {} of buffer {} ({} B) to {}", data.sr, data.bid, frame.get_size_bytes(), data.target);
+		size_t frame_units = (frame.get_size_bytes() + send_recv_unit_bytes - 1) / send_recv_unit_bytes;
+		CELERITY_TRACE("Ready to send {} of buffer {} ({} * {}B) to {}", data.sr, data.bid, frame_units, send_recv_unit_bytes, data.target);
 
 		// Start transmitting data
 		MPI_Request req;
-		assert(frame.get_size_bytes() <= static_cast<size_t>(std::numeric_limits<int>::max()));
-		MPI_Isend(frame.get_pointer(), static_cast<int>(frame.get_size_bytes()), MPI_BYTE, static_cast<int>(data.target), mpi_support::TAG_DATA_TRANSFER,
+		assert(frame_units <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		MPI_Isend(frame.get_pointer(), static_cast<int>(frame_units), m_send_recv_unit, static_cast<int>(data.target), mpi_support::TAG_DATA_TRANSFER,
 		    MPI_COMM_WORLD, &req);
 
 		auto transfer = std::make_unique<transfer_out>();
@@ -86,18 +98,18 @@ namespace detail {
 			// No incoming transfers at the moment
 			return;
 		}
-		int frame_bytes;
-		MPI_Get_count(&status, MPI_BYTE, &frame_bytes);
+		int frame_units;
+		MPI_Get_count(&status, m_send_recv_unit, &frame_units);
 
 		auto transfer = std::make_unique<transfer_in>();
 		transfer->source_nid = static_cast<node_id>(status.MPI_SOURCE);
-		transfer->frame = unique_frame_ptr<data_frame>(from_size_bytes, static_cast<size_t>(frame_bytes));
+		transfer->frame = unique_frame_ptr<data_frame>(from_size_bytes, static_cast<size_t>(frame_units) * send_recv_unit_bytes);
 
 		// Start receiving data
-		MPI_Imrecv(transfer->frame.get_pointer(), frame_bytes, MPI_BYTE, &msg, &transfer->request);
+		MPI_Imrecv(transfer->frame.get_pointer(), frame_units, m_send_recv_unit, &msg, &transfer->request);
 		m_incoming_transfers.push_back(std::move(transfer));
 
-		CELERITY_TRACE("Receiving incoming data of size {} B from {}", frame_bytes, status.MPI_SOURCE);
+		CELERITY_TRACE("Receiving incoming data of size {} * {}B from {}", frame_units, send_recv_unit_bytes, status.MPI_SOURCE);
 	}
 
 	void buffer_transfer_manager::update_incoming_transfers() {

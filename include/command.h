@@ -223,8 +223,7 @@ namespace detail {
 		using payload_type = command_id;
 
 		command_pkg pkg;
-		size_t num_dependencies = 0; // This information is duplicated from unique_frame_ptr::get_payload_count() so that we can still use a
-		                             // `const command_frame &` without its owning pointer
+		size_t num_dependencies = 0;
 		payload_type dependencies[];
 
 		// variable-sized structure

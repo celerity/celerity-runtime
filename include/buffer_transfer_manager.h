@@ -24,6 +24,8 @@ namespace detail {
 			bool complete = false;
 		};
 
+		buffer_transfer_manager();
+
 		std::shared_ptr<const transfer_handle> push(const command_pkg& pkg);
 		std::shared_ptr<const transfer_handle> await_push(const command_pkg& pkg);
 
@@ -74,6 +76,8 @@ namespace detail {
 		//  - Incoming pushes that have not yet been requested through ::await_push
 		//  - Still outstanding pushes that have been requested through ::await_push
 		std::unordered_map<command_id, std::shared_ptr<incoming_transfer_handle>> m_push_blackboard;
+
+		mpi_support::data_type m_send_recv_unit;
 
 		void poll_incoming_transfers();
 		void update_incoming_transfers();
