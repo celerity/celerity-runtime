@@ -13,6 +13,7 @@
 #include <CL/sycl.hpp>
 
 #include "access_modes.h"
+#include "backend/backend.h"
 #include "buffer_storage.h"
 #include "local_devices.h"
 #include "mpi_support.h"
@@ -123,6 +124,8 @@ namespace detail {
 			 * This is the offset of the backing buffer relative to the requested virtual buffer.
 			 */
 			id<3> backing_buffer_offset;
+
+			backend::async_event pending_transfers;
 		};
 
 		using buffer_lock_id = size_t;
@@ -429,8 +432,8 @@ namespace detail {
 		 *	- Queued transfers are processed (if applicable).
 		 *  - The newest data locations are updated to reflect replicated data as well as newly written ranges (depending on access mode).
 		 */
-		backing_buffer make_buffer_subrange_coherent(const memory_id mid, buffer_id bid, cl::sycl::access::mode mode, backing_buffer existing_buffer,
-		    const subrange<3>& coherent_sr, backing_buffer replacement_buffer = backing_buffer{});
+		std::pair<backing_buffer, backend::async_event> make_buffer_subrange_coherent(const memory_id mid, buffer_id bid, cl::sycl::access::mode mode,
+		    backing_buffer existing_buffer, const subrange<3>& coherent_sr, backing_buffer replacement_buffer = backing_buffer{});
 
 		/**
 		 * Checks whether access to a currently locked buffer is safe.

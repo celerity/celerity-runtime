@@ -126,7 +126,8 @@ namespace detail {
 		 *
 		 * TODO: Consider making this non-blocking, returning an async handle instead.
 		 */
-		virtual void copy(const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) = 0;
+		virtual backend::async_event copy(
+		    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) = 0;
 
 		virtual ~buffer_storage() = default;
 
@@ -205,7 +206,8 @@ namespace detail {
 #endif
 		}
 
-		void copy(const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) override;
+		backend::async_event copy(
+		    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) override;
 
 #if USE_NDVBUFFER
 		// FIXME: Required for more efficient D->H copies (see host_buffer_storage::copy). Find cleaner API.
@@ -250,7 +252,8 @@ namespace detail {
 			    range_cast<Dims>(m_host_buf.get_range()), id_cast<Dims>(sr.offset), range_cast<Dims>(sr.range));
 		}
 
-		void copy(const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) override;
+		backend::async_event copy(
+		    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) override;
 
 		host_buffer<DataT, Dims>& get_host_buffer() { return m_host_buf; }
 
@@ -261,7 +264,7 @@ namespace detail {
 	};
 
 	template <typename DataT, int Dims>
-	void device_buffer_storage<DataT, Dims>::copy(
+	backend::async_event device_buffer_storage<DataT, Dims>::copy(
 	    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) {
 		ZoneScopedN("device_buffer_storage::copy");
 
@@ -279,7 +282,7 @@ namespace detail {
 			    {ndv::point<Dims>::make_from(source_offset), ndv::point<Dims>::make_from(source_offset + copy_range)},
 			    {ndv::point<Dims>::make_from(target_offset), ndv::point<Dims>::make_from(target_offset + copy_range)});
 #else
-			backend::memcpy_strided_device(m_owning_queue, device_source.m_device_buf.get_pointer(), m_device_buf.get_pointer(), sizeof(DataT),
+			return backend::memcpy_strided_device(m_owning_queue, device_source.m_device_buf.get_pointer(), m_device_buf.get_pointer(), sizeof(DataT),
 			    device_source.m_device_buf.get_range(), id_cast<Dims>(source_offset), m_device_buf.get_range(), id_cast<Dims>(target_offset),
 			    range_cast<Dims>(copy_range));
 #endif
@@ -306,10 +309,12 @@ namespace detail {
 		else {
 			assert(false);
 		}
+
+		return backend::async_event{};
 	}
 
 	template <typename DataT, int Dims>
-	void host_buffer_storage<DataT, Dims>::copy(
+	backend::async_event host_buffer_storage<DataT, Dims>::copy(
 	    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) {
 		ZoneScopedN("host_buffer_storage::copy");
 
@@ -346,6 +351,8 @@ namespace detail {
 		else {
 			assert(false);
 		}
+
+		return backend::async_event{};
 	}
 
 } // namespace detail

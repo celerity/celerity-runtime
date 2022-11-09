@@ -50,8 +50,10 @@ namespace detail {
 				// TODO: Do we really want to allocate host memory for this..? We could also make the buffer storage "coherent" directly.
 				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_host(info.new_range), info.new_offset};
 			}
-			existing_buf = make_buffer_subrange_coherent(
+			auto [coherent_buf, pending_transfers] = make_buffer_subrange_coherent(
 			    m_local_devices.get_host_memory_id(), bid, access_mode::read, std::move(existing_buf), sr, std::move(replacement_buf));
+			existing_buf = std::move(coherent_buf);
+			while(!pending_transfers.is_done()) {} // NOCOMMIT Add wait()?
 
 			data_locations = {{subrange_to_grid_box(sr), data_location{}.set(m_local_devices.get_host_memory_id())}};
 		}
@@ -196,9 +198,11 @@ namespace detail {
 			device_queue.get_sycl_queue().submit([&](cl::sycl::handler& cgh) { cgh.memset(ptr, test_mode_pattern, bytes); }).wait();
 		}
 
-		existing_buf = make_buffer_subrange_coherent(mid, bid, mode, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
+		auto [coherent_buf, pending_transfers] =
+		    make_buffer_subrange_coherent(mid, bid, mode, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
+		existing_buf = std::move(coherent_buf);
 
-		return {existing_buf.storage->get_pointer(), existing_buf.storage->get_range(), existing_buf.offset};
+		return {existing_buf.storage->get_pointer(), existing_buf.storage->get_range(), existing_buf.offset, std::move(pending_transfers)};
 	}
 
 	buffer_manager::access_info buffer_manager::access_host_buffer(
@@ -230,10 +234,12 @@ namespace detail {
 			std::memset(ptr, test_mode_pattern, size);
 		}
 
-		existing_buf = make_buffer_subrange_coherent(
+		auto [coherent_buf, pending_transfers] = make_buffer_subrange_coherent(
 		    m_local_devices.get_host_memory_id(), bid, mode, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
+		existing_buf = std::move(coherent_buf);
+		assert(pending_transfers.is_done()); // NOCOMMIT Host variants currently block
 
-		return {existing_buf.storage->get_pointer(), existing_buf.storage->get_range(), existing_buf.offset};
+		return {existing_buf.storage->get_pointer(), existing_buf.storage->get_range(), existing_buf.offset, std::move(pending_transfers)};
 	}
 
 	bool buffer_manager::try_lock(const buffer_lock_id id, const memory_id mid, const std::unordered_set<buffer_id>& buffers) {
@@ -263,8 +269,8 @@ namespace detail {
 	}
 
 	// TODO: Something we could look into is to dispatch all memory copies concurrently and wait for them in the end.
-	buffer_manager::backing_buffer buffer_manager::make_buffer_subrange_coherent(const memory_id mid, buffer_id bid, cl::sycl::access::mode mode,
-	    backing_buffer existing_buffer, const subrange<3>& coherent_sr, backing_buffer replacement_buffer) {
+	std::pair<buffer_manager::backing_buffer, backend::async_event> buffer_manager::make_buffer_subrange_coherent(const memory_id mid, buffer_id bid,
+	    cl::sycl::access::mode mode, backing_buffer existing_buffer, const subrange<3>& coherent_sr, backing_buffer replacement_buffer) {
 		backing_buffer target_buffer, previous_buffer;
 		ZoneScopedN("make_buffer_subrange_coherent");
 		if(replacement_buffer.is_allocated()) {
@@ -277,7 +283,7 @@ namespace detail {
 			previous_buffer = {};
 		}
 
-		if(coherent_sr.range.size() == 0) { return target_buffer; }
+		if(coherent_sr.range.size() == 0) { return std::pair{std::move(target_buffer), backend::async_event{}}; }
 
 		const auto coherent_box = subrange_to_grid_box(coherent_sr);
 
@@ -364,6 +370,8 @@ namespace detail {
 			scheduled_buffer_transfers = std::move(remaining_transfers);
 		}
 
+		backend::async_event pending_transfers;
+
 		if(!remaining_region_after_transfers.empty()) {
 			const auto maybe_retain_box = [&](const GridBox<3>& box) {
 				if(detail::access::mode_traits::is_consumer(mode)) {
@@ -377,8 +385,9 @@ namespace detail {
 					const auto remaining_region = GridRegion<3>::difference(box, coherent_box);
 					remaining_region.scanByBoxes([&](const GridBox<3>& small_box) {
 						const auto small_box_sr = grid_box_to_subrange(small_box);
-						target_buffer.storage->copy(*previous_buffer.storage, previous_buffer.get_local_offset(small_box_sr.offset),
+						auto evt = target_buffer.storage->copy(*previous_buffer.storage, previous_buffer.get_local_offset(small_box_sr.offset),
 						    target_buffer.get_local_offset(small_box_sr.offset), small_box_sr.range);
+						pending_transfers.merge(std::move(evt));
 					});
 				}
 			};
@@ -415,8 +424,9 @@ namespace detail {
 				assert(m_buffers.at(bid).get(source_mid).is_allocated());
 				const auto box_sr = grid_box_to_subrange(box);
 				const auto& source_buffer = m_buffers.at(bid).get(source_mid);
-				target_buffer.storage->copy(
+				auto evt = target_buffer.storage->copy(
 				    *source_buffer.storage, source_buffer.get_local_offset(box_sr.offset), target_buffer.get_local_offset(box_sr.offset), box_sr.range);
+				pending_transfers.merge(std::move(evt));
 				replicated_region = GridRegion<3>::merge(replicated_region, box);
 			}
 
@@ -432,7 +442,7 @@ namespace detail {
 
 		if(detail::access::mode_traits::is_producer(mode)) { m_newest_data_location.at(bid).update_region(coherent_box, data_location{}.set(mid)); }
 
-		return target_buffer;
+		return std::pair{std::move(target_buffer), std::move(pending_transfers)};
 	}
 
 	void buffer_manager::audit_buffer_access(const buffer_id bid, const memory_id mid, const bool requires_allocation, const access_mode mode) {

@@ -2,7 +2,9 @@
 
 #include <sycl/sycl.hpp>
 
+#include "backend/async_event.h"
 #include "backend/generic_backend.h"
+#include "backend/operations.h"
 #include "backend/traits.h"
 #include "backend/type.h"
 
@@ -45,10 +47,11 @@ inline std::string_view get_name(type type) {
 }
 
 template <int Dims>
-void memcpy_strided_device(sycl::queue& queue, const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const sycl::range<Dims>& source_range,
-    const sycl::id<Dims>& source_offset, const sycl::range<Dims>& target_range, const sycl::id<Dims>& target_offset, const sycl::range<Dims>& copy_range) {
-	backend_detail::specialize_for_backend<backend_detail::backend_operations>(get_effective_type(queue.get_device()), [&](auto op) {
-		decltype(op)::memcpy_strided_device(
+async_event memcpy_strided_device(sycl::queue& queue, const void* source_base_ptr, void* target_base_ptr, size_t elem_size,
+    const sycl::range<Dims>& source_range, const sycl::id<Dims>& source_offset, const sycl::range<Dims>& target_range, const sycl::id<Dims>& target_offset,
+    const sycl::range<Dims>& copy_range) {
+	return backend_detail::specialize_for_backend<backend_detail::backend_operations>(get_effective_type(queue.get_device()), [&](auto op) {
+		return decltype(op)::memcpy_strided_device(
 		    queue, source_base_ptr, target_base_ptr, elem_size, source_range, source_offset, target_range, target_offset, copy_range);
 	});
 }

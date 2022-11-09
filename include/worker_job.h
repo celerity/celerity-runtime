@@ -10,6 +10,7 @@
 #include "command.h"
 #include "host_queue.h"
 #include "log.h"
+#include "task_hydrator.h"
 
 namespace celerity {
 namespace detail {
@@ -195,6 +196,10 @@ namespace detail {
 		node_id m_local_nid;
 		cl::sycl::event m_event;
 		bool m_submitted = false;
+
+		std::vector<task_hydrator::accessor_info> m_accessor_infos;
+		std::vector<backend::async_event> m_accessor_transfer_events;
+		std::vector<task_hydrator::reduction_info> m_reduction_infos;
 
 		bool execute(const command_pkg& pkg) override;
 		std::string get_description(const command_pkg& pkg) override;

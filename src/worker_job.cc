@@ -226,51 +226,62 @@ namespace detail {
 
 	bool device_execute_job::execute(const command_pkg& pkg) {
 		if(!m_submitted) {
-			const auto data = std::get<execution_data>(pkg.data);
-			auto tsk = m_task_mngr.get_task(data.tid);
-			assert(tsk->get_execution_target() == execution_target::device);
+			// NOCOMMIT TODO This is not a good test b/c it wouldn't work for kernels without any accessors
+			if(m_accessor_infos.empty()) {
+				const auto data = std::get<execution_data>(pkg.data);
+				auto tsk = m_task_mngr.get_task(data.tid);
+				assert(tsk->get_execution_target() == execution_target::device);
 
-			if(!m_buffer_mngr.try_lock(pkg.cid, m_queue.get_memory_id(), tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
+				if(!m_buffer_mngr.try_lock(pkg.cid, m_queue.get_memory_id(), tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
 
-			CELERITY_TRACE("Execute live-pass, submit kernel to SYCL");
+				CELERITY_TRACE("Execute live-pass, submit kernel to SYCL");
 
-			const auto& access_map = tsk->get_buffer_access_map();
-			const auto& reductions = tsk->get_reductions();
-			// NOCOMMIT TODO I don't like that these are implicitly assumed to match the respective COIDs
-			// => IF we keep it that way, at least document this fact.
-			std::vector<task_hydrator::accessor_info> accessor_infos;
-			std::vector<task_hydrator::reduction_info> reduction_infos;
-			accessor_infos.reserve(access_map.get_num_accesses());
-			reduction_infos.reserve(reductions.size());
+				const auto& access_map = tsk->get_buffer_access_map();
+				const auto& reductions = tsk->get_reductions();
+				// NOCOMMIT TODO I don't like that these are implicitly assumed to match the respective COIDs
+				// => IF we keep it that way, at least document this fact.
+				m_accessor_infos.reserve(access_map.get_num_accesses());
+				m_accessor_transfer_events.reserve(access_map.get_num_accesses());
+				m_reduction_infos.reserve(reductions.size());
 
-			for(size_t i = 0; i < access_map.get_num_accesses(); ++i) {
-				const auto [bid, mode] = access_map.get_nth_access(i);
-				const auto sr = grid_box_to_subrange(access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()));
-				try {
-					const auto info = m_buffer_mngr.access_device_buffer(m_queue.get_memory_id(), bid, mode, sr.range, sr.offset);
-					accessor_infos.push_back(task_hydrator::accessor_info{target::device, info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr});
-				} catch(allocation_error& e) {
-					CELERITY_CRITICAL("Encountered allocation error while trying to prepare {}", get_description(pkg));
-					std::terminate();
+				for(size_t i = 0; i < access_map.get_num_accesses(); ++i) {
+					const auto [bid, mode] = access_map.get_nth_access(i);
+					const auto sr = grid_box_to_subrange(access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()));
+					try {
+						const auto info = m_buffer_mngr.access_device_buffer(m_queue.get_memory_id(), bid, mode, sr.range, sr.offset);
+						m_accessor_infos.push_back(
+						    task_hydrator::accessor_info{target::device, info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr});
+						m_accessor_transfer_events.push_back(std::move(info.pending_transfers));
+					} catch(allocation_error& e) {
+						CELERITY_CRITICAL("Encountered allocation error while trying to prepare {}", get_description(pkg));
+						std::terminate();
+					}
+				}
+
+				for(size_t i = 0; i < reductions.size(); ++i) {
+					const auto& rd = reductions[i];
+					const auto mode = rd.init_from_buffer ? access_mode::read_write : access_mode::discard_write;
+					const auto info = m_buffer_mngr.access_device_buffer(m_queue.get_memory_id(), rd.bid, mode, range<3>{1, 1, 1}, id<3>{});
+					while(!info.pending_transfers.is_done()) {} // There is probably no point in trying to overlap this with anything
+					m_reduction_infos.push_back(task_hydrator::reduction_info{info.ptr});
 				}
 			}
 
-			for(size_t i = 0; i < reductions.size(); ++i) {
-				const auto& rd = reductions[i];
-				const auto mode = rd.init_from_buffer ? access_mode::read_write : access_mode::discard_write;
-				const auto info = m_buffer_mngr.access_device_buffer(m_queue.get_memory_id(), rd.bid, mode, range<3>{1, 1, 1}, id<3>{});
-				reduction_infos.push_back(task_hydrator::reduction_info{info.ptr});
+			if(std::all_of(m_accessor_transfer_events.cbegin(), m_accessor_transfer_events.cend(), [](auto& te) { return te.is_done(); })) {
+				const auto data = std::get<execution_data>(pkg.data);
+				auto tsk = m_task_mngr.get_task(data.tid);
+				task_hydrator::get_instance().arm(
+				    std::move(m_accessor_infos), std::move(m_reduction_infos), [&]() { m_event = tsk->launch(m_queue, data.sr); });
+				{
+					const auto msg = fmt::format("{}: Job submitted to SYCL (blocked on transfers until now!)", pkg.cid);
+					TracyMessage(msg.c_str(), msg.size());
+				}
+
+				m_submitted = true;
+				CELERITY_TRACE("Kernel submitted to SYCL");
 			}
 
-			task_hydrator::get_instance().arm(std::move(accessor_infos), std::move(reduction_infos), [&]() { m_event = tsk->launch(m_queue, data.sr); });
-
-			{
-				const auto msg = fmt::format("{}: Job submitted to SYCL (blocked on transfers until now!)", pkg.cid);
-				TracyMessage(msg.c_str(), msg.size());
-			}
-
-			m_submitted = true;
-			CELERITY_TRACE("Kernel submitted to SYCL");
+			return false;
 		}
 
 		const auto status = m_event.get_info<cl::sycl::info::event::command_execution_status>();
