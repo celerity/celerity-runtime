@@ -248,8 +248,8 @@ target_include_directories(celerity_runtime PUBLIC
 # because they are not ABI compatible.
 if(WIN32 AND CELERITY_SYCL_IMPL STREQUAL "DPC++")
   set(SYCL_LIB
-    $<$<CONFIG:Debug>:sycld>
-    $<$<CONFIG:Release>:sycl>
+    $<$<CONFIG:Debug>:sycl6d>
+    $<$<CONFIG:Release>:sycl6>
   )
 endif()
 
