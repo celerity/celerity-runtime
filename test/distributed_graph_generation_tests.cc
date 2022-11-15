@@ -80,9 +80,9 @@ class task_builder {
 
   public:
 	template <typename Name, int Dims>
-	buffer_access_step device_compute(const range<Dims>& global_size) {
+	buffer_access_step device_compute(const range<Dims>& global_size, const id<Dims>& global_offset) {
 		std::deque<action> actions;
-		actions.push_front([global_size](handler& cgh) { cgh.parallel_for<Name>(global_size, [](id<Dims>) {}); });
+		actions.push_front([global_size, global_offset](handler& cgh) { cgh.parallel_for<Name>(global_size, global_offset, [](id<Dims>) {}); });
 		return buffer_access_step(m_dctx, std::move(actions));
 	}
 
@@ -389,8 +389,8 @@ class dist_cdag_test_context {
 	test_utils::mock_host_object create_host_object() { return test_utils::mock_host_object{m_next_host_object_id++}; }
 
 	template <typename Name = unnamed_kernel, int Dims>
-	auto device_compute(const range<Dims>& global_size) {
-		return task_builder(*this).device_compute<Name>(global_size);
+	auto device_compute(const range<Dims>& global_size, const id<Dims>& global_offset = {}) {
+		return task_builder(*this).device_compute<Name>(global_size, global_offset);
 	}
 
 	template <typename Name = unnamed_kernel, int Dims>
@@ -721,4 +721,15 @@ TEST_CASE("local chunks can create multiple await push commands for a single pus
 		CHECK(dctx.query().find_all(node_id(1), command_type::push).count() == 1);
 		CHECK(dctx.query().find_all(node_id(0), command_type::await_push).count() == 2);
 	}
+}
+
+// Regression test
+TEST_CASE("kernel offsets work correctly") {
+	dist_cdag_test_context dctx(1, 1);
+	const auto test_range = range<1>(128);
+	auto buf = dctx.create_buffer(test_range);
+
+	dctx.device_compute(test_range - range<1>(2), id<1>(1)).discard_write(buf, acc::one_to_one{}).submit();
+	dctx.device_compute(range<1>(1)).read(buf, acc::all{}).submit();
+	CHECK(dctx.query().find_all(command_type::await_push).count() == 0);
 }

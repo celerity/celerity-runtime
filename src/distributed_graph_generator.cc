@@ -299,7 +299,7 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 	}
 
 	// Update task-level buffer states
-	auto requirements = get_buffer_requirements_for_mapped_access(tsk, subrange<3>(id<3>{}, tsk.get_global_size()), tsk.get_global_size());
+	auto requirements = get_buffer_requirements_for_mapped_access(tsk, subrange<3>(tsk.get_global_offset(), tsk.get_global_size()), tsk.get_global_size());
 	for(auto& [bid, reqs_by_mode] : requirements) {
 		GridRegion<3> global_writes;
 		for(const auto mode : access::producer_modes) {
