@@ -44,16 +44,80 @@ void step(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::buf
 		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{1, 1}, celerity::read_only};
 
 		const auto size = up.get_range();
+		const auto step_y = (dt / delta.y()) * (dt / delta.y());
+		const auto step_x = (dt / delta.x()) * (dt / delta.x());
+		const auto a2 = Config::a * 2;
+
+#if 1
+		const celerity::range<2> local_size{32, 32};
+		celerity::local_accessor<T, 2> aux{local_size + celerity::range<2>{2, 2}, cgh};
+		cgh.parallel_for<KernelName>(celerity::nd_range<2>{size, local_size}, [=](celerity::nd_item<2> itm) {
+			const auto gid = itm.get_global_id();
+			const auto lid = itm.get_local_id();
+			const auto aux_id = lid + celerity::id<2>{1, 1};
+
+			aux[aux_id] = r_u[gid];
+
+			const size_t my = gid[0] > 0 ? gid[0] - 1 : gid[0];
+			const size_t mx = gid[1] > 0 ? gid[1] - 1 : gid[1];
+			const size_t py = gid[0] < size[0] - 1 ? gid[0] + 1 : gid[0];
+			const size_t px = gid[1] < size[1] - 1 ? gid[1] + 1 : gid[1];
+
+			// NOCOMMIT TODO: This is correct but slow. Improve loading strategy (group by warp!).
+
+			if(lid[0] == 0 || lid[1] == 0) {
+				aux[lid] = r_u[{my, mx}];
+				if(lid[1] == local_size[1] - 1) {
+					aux[lid + celerity::id{0, 1}] = r_u[{my, gid[1]}];
+					aux[lid + celerity::id{0, 2}] = r_u[{my, px}];
+					aux[lid + celerity::id{1, 2}] = r_u[{gid[0], px}];
+				}
+			}
+
+			if(lid[0] == local_size[0] - 1 || lid[1] == local_size[1] - 1) {
+				aux[lid + celerity::id<2>{2, 2}] = r_u[{py, px}];
+				if(lid[0] == local_size[0] - 1) {
+					aux[lid + celerity::id<2>{1, 0}] = r_u[{gid[0], mx}];
+					aux[lid + celerity::id<2>{2, 0}] = r_u[{py, mx}];
+					aux[lid + celerity::id<2>{2, 1}] = r_u[{py, gid[1]}];
+				}
+			}
+
+			celerity::group_barrier(itm.get_group());
+
+			// // Compute stencil
+
+			const float cur = aux[aux_id];
+
+			float lap = 0.f;
+			// // NOCOMMIT TODO Why doesn't plain initializer list work for local accessor?
+			lap += step_y * (aux[celerity::id<2>{aux_id[0] + 1, aux_id[1]}] - cur);
+			lap -= step_y * (cur - aux[celerity::id<2>{aux_id[0] - 1, aux_id[1]}]);
+			lap += step_x * (aux[celerity::id<2>{aux_id[0], aux_id[1] + 1}] - cur);
+			lap -= step_x * (cur - aux[celerity::id<2>{aux_id[0], aux_id[1] - 1}]);
+
+			rw_up[gid] = a2 * cur - Config::b * rw_up[gid] + Config::c * lap;
+		});
+#else
 		cgh.parallel_for<KernelName>(size, [=](celerity::item<2> item) {
 			const size_t py = item[0] < size[0] - 1 ? item[0] + 1 : item[0];
 			const size_t my = item[0] > 0 ? item[0] - 1 : item[0];
 			const size_t px = item[1] < size[1] - 1 ? item[1] + 1 : item[1];
 			const size_t mx = item[1] > 0 ? item[1] - 1 : item[1];
 
-			const float lap = (dt / delta.y()) * (dt / delta.y()) * ((r_u[{py, item[1]}] - r_u[item]) - (r_u[item] - r_u[{my, item[1]}]))
-			                  + (dt / delta.x()) * (dt / delta.x()) * ((r_u[{item[0], px}] - r_u[item]) - (r_u[item] - r_u[{item[0], mx}]));
-			rw_up[item] = Config::a * 2 * r_u[item] - Config::b * rw_up[item] + Config::c * lap;
+			const float cur = r_u[item];
+
+			float lap = 0.f;
+			lap += step_y * (r_u[{py, item[1]}] - cur);
+			lap -= step_y * (cur - r_u[{my, item[1]}]);
+			lap += step_x * (r_u[{item[0], px}] - cur);
+			lap -= step_x * (cur - r_u[{item[0], mx}]);
+
+			// const float lap = step_y * ((r_u[{py, item[1]}] - cur) - (cur - r_u[{my, item[1]}]))
+			//                   + step_x * ((r_u[{item[0], px}] - cur) - (cur - r_u[{item[0], mx}]));
+			rw_up[item] = a2 * cur - Config::b * rw_up[item] + Config::c * lap;
 		});
+#endif
 	});
 }
 
@@ -119,6 +183,23 @@ bool get_cli_arg(const arg_vector& args, const arg_vector::const_iterator& it, c
 	return false;
 }
 
+// FNV-1a hash, 64 bit length
+class hasher {
+  public:
+	using digest = uint64_t;
+	template <typename T>
+	void hash(const T& value) {
+		const unsigned char* bytes = reinterpret_cast<const unsigned char*>(&value);
+		for(int i = 0; i < sizeof(T); ++i) {
+			d = (d ^ bytes[i]) * 0x100000001b3ull;
+		}
+	}
+	digest get() const { return d; }
+
+  private:
+	digest d = 0xcbf29ce484222325ull;
+};
+
 int main(int argc, char* argv[]) {
 	// Parse command line arguments
 	const wave_sim_config cfg = ([&]() {
@@ -174,7 +255,22 @@ int main(int argc, char* argv[]) {
 	queue.slow_full_sync();
 	const auto after = std::chrono::steady_clock::now();
 
-	fmt::print("Time: {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count());
+	const double flops = cfg.N * cfg.N * 14.0 * (cfg.T / cfg.dt); // NOCOMMIT Is 14 right...?
+	const double gflops = flops / std::chrono::duration_cast<std::chrono::microseconds>(after - before).count() / 1000.0;
+	fmt::print("Time: {}ms ({:.2f} GFLOP/s)\n", std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count(), gflops);
+
+	queue.submit([=](celerity::handler& cgh) {
+		celerity::accessor acc{u, cgh, celerity::access::all{}, celerity::read_only_host_task};
+		cgh.host_task(celerity::on_master_node, [=]() {
+			hasher hsh;
+			for(size_t j = 0; j < u.get_range()[0]; ++j) {
+				for(size_t i = 0; i < u.get_range()[1]; ++i) {
+					hsh.hash(acc[{j, i}]);
+				}
+			}
+			fmt::print("Digest: {:x}\n", hsh.get());
+		});
+	});
 
 	if(cfg.output_sample_rate > 0) { stream_close(queue, os); }
 
