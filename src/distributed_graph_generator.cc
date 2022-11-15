@@ -178,13 +178,15 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 		const node_id nid = (i / chunks_per_node) % m_num_nodes;
 		const bool is_local_chunk = nid == m_local_nid;
 
+		const size_t NOCOMMIT_HACKY_OVERSUB = 1;
+
 		// Depending on whether this is a local chunk or not we may have to process a different set of "effective" chunks:
 		// Local chunks may be split up again to create enough work for all local devices.
 		// Processing remote chunks on the other hand doesn't require knowledge of the devices available on that particular node.
 		// The same push commands generated for a single remote chunk also apply to the effective chunks generated on that node.
 		std::vector<chunk<3>> effective_chunks;
 		if(is_local_chunk && m_num_local_devices > 1 && tsk.has_variable_split()) {
-			effective_chunks = split_equal(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices, tsk.get_dimensions());
+			effective_chunks = split_equal(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices * NOCOMMIT_HACKY_OVERSUB, tsk.get_dimensions());
 		} else {
 			effective_chunks.push_back(distributed_chunks[i]);
 		}
@@ -198,7 +200,8 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 			execution_command* cmd = nullptr;
 			if(is_local_chunk) {
 				cmd = create_command<execution_command>(nid, tsk.get_id(), subrange{chnk});
-				cmd->set_device_id(did++);
+				cmd->set_device_id(did / NOCOMMIT_HACKY_OVERSUB);
+				did++;
 			}
 
 			// We use the task id, together with the "chunk id" and the buffer id (stored separately) to match pushes against their corresponding await pushes
