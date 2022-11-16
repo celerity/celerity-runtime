@@ -146,6 +146,9 @@ namespace detail {
 #endif
 					auto* job = m_jobs.at(cid).job.get();
 
+					// TODO: We probably also want to limit the number of concurrent jobs that can be in preparation phase
+					if(!job->prepare()) continue;
+
 					if(isa<device_execute_job>(job)) {
 						const device_id did = static_cast<device_execute_job*>(job)->get_device_id();
 						if(m_active_compute_jobs_by_device[did] >= MAX_CONCURRENT_COMPUTES_PER_DEVICE) continue;

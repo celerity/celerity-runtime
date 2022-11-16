@@ -18,6 +18,12 @@ namespace detail {
 	// ----------------------------------------------------- GENERAL ------------------------------------------------------
 	// --------------------------------------------------------------------------------------------------------------------
 
+	bool worker_job::prepare() {
+		CELERITY_LOG_SET_SCOPED_CTX(m_lctx);
+		const auto result = prepare(m_pkg);
+		return result;
+	}
+
 	void worker_job::update() {
 		CELERITY_LOG_SET_SCOPED_CTX(m_lctx);
 		assert(m_running && !m_done);
@@ -224,38 +230,36 @@ namespace detail {
 		return fmt::format("DEVICE_EXECUTE task {} ('{}') {} on device {}", tsk->get_id(), tsk->get_debug_name(), data.sr, m_queue.get_id());
 	}
 
-	bool device_execute_job::execute(const command_pkg& pkg) {
-		if(!m_submitted) {
-			// NOCOMMIT TODO This is not a good test b/c it wouldn't work for kernels without any accessors
-			if(m_accessor_infos.empty()) {
-				const auto data = std::get<execution_data>(pkg.data);
-				auto tsk = m_task_mngr.get_task(data.tid);
-				assert(tsk->get_execution_target() == execution_target::device);
+	bool device_execute_job::prepare(const command_pkg& pkg) {
+		// NOCOMMIT TODO This is not a good test b/c it wouldn't work for kernels without any accessors
+		if(m_accessor_infos.empty()) {
+			const auto data = std::get<execution_data>(pkg.data);
+			auto tsk = m_task_mngr.get_task(data.tid);
+			assert(tsk->get_execution_target() == execution_target::device);
 
-				if(!m_buffer_mngr.try_lock(pkg.cid, m_queue.get_memory_id(), tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
+			if(!m_buffer_mngr.try_lock(pkg.cid, m_queue.get_memory_id(), tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
 
-				CELERITY_TRACE("Execute live-pass, submit kernel to SYCL");
+			CELERITY_TRACE("Execute live-pass, submit kernel to SYCL");
 
-				const auto& access_map = tsk->get_buffer_access_map();
-				const auto& reductions = tsk->get_reductions();
-				// NOCOMMIT TODO I don't like that these are implicitly assumed to match the respective COIDs
-				// => IF we keep it that way, at least document this fact.
-				m_accessor_infos.reserve(access_map.get_num_accesses());
-				m_accessor_transfer_events.reserve(access_map.get_num_accesses());
-				m_reduction_infos.reserve(reductions.size());
+			const auto& access_map = tsk->get_buffer_access_map();
+			const auto& reductions = tsk->get_reductions();
+			// NOCOMMIT TODO I don't like that these are implicitly assumed to match the respective COIDs
+			// => IF we keep it that way, at least document this fact.
+			m_accessor_infos.reserve(access_map.get_num_accesses());
+			m_accessor_transfer_events.reserve(access_map.get_num_accesses());
+			m_reduction_infos.reserve(reductions.size());
 
-				for(size_t i = 0; i < access_map.get_num_accesses(); ++i) {
-					const auto [bid, mode] = access_map.get_nth_access(i);
-					const auto sr = grid_box_to_subrange(access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()));
-					try {
-						const auto info = m_buffer_mngr.access_device_buffer(m_queue.get_memory_id(), bid, mode, sr.range, sr.offset);
-						m_accessor_infos.push_back(
-						    task_hydrator::accessor_info{target::device, info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr});
-						m_accessor_transfer_events.push_back(std::move(info.pending_transfers));
-					} catch(allocation_error& e) {
-						CELERITY_CRITICAL("Encountered allocation error while trying to prepare {}", get_description(pkg));
-						std::terminate();
-					}
+			for(size_t i = 0; i < access_map.get_num_accesses(); ++i) {
+				const auto [bid, mode] = access_map.get_nth_access(i);
+				const auto sr = grid_box_to_subrange(access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()));
+				try {
+					const auto info = m_buffer_mngr.access_device_buffer(m_queue.get_memory_id(), bid, mode, sr.range, sr.offset);
+					m_accessor_infos.push_back(
+					    task_hydrator::accessor_info{target::device, info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr});
+					m_accessor_transfer_events.push_back(std::move(info.pending_transfers));
+				} catch(allocation_error& e) {
+					CELERITY_CRITICAL("Encountered allocation error while trying to prepare {}", get_description(pkg));
+					std::terminate();
 				}
 
 				for(size_t i = 0; i < reductions.size(); ++i) {
@@ -267,21 +271,28 @@ namespace detail {
 				}
 			}
 
-			if(std::all_of(m_accessor_transfer_events.cbegin(), m_accessor_transfer_events.cend(), [](auto& te) { return te.is_done(); })) {
-				const auto data = std::get<execution_data>(pkg.data);
-				auto tsk = m_task_mngr.get_task(data.tid);
-				task_hydrator::get_instance().arm(
-				    std::move(m_accessor_infos), std::move(m_reduction_infos), [&]() { m_event = tsk->launch(m_queue, data.sr); });
-				{
-					const auto msg = fmt::format("{}: Job submitted to SYCL (blocked on transfers until now!)", pkg.cid);
-					TracyMessage(msg.c_str(), msg.size());
-				}
+			{
+				const auto msg = fmt::format("Preparing buffers for {} accesses", access_map.get_num_accesses());
+				TracyMessage(msg.c_str(), msg.size());
+				CELERITY_TRACE(msg);
+			}
+		}
 
-				m_submitted = true;
-				CELERITY_TRACE("Kernel submitted to SYCL");
+		return std::all_of(m_accessor_transfer_events.cbegin(), m_accessor_transfer_events.cend(), [](auto& te) { return te.is_done(); });
+	}
+
+	bool device_execute_job::execute(const command_pkg& pkg) {
+		if(!m_submitted) {
+			const auto data = std::get<execution_data>(pkg.data);
+			auto tsk = m_task_mngr.get_task(data.tid);
+			task_hydrator::get_instance().arm(std::move(m_accessor_infos), std::move(m_reduction_infos), [&]() { m_event = tsk->launch(m_queue, data.sr); });
+			{
+				const auto msg = fmt::format("{}: Job submitted to SYCL (blocked on transfers until now!)", pkg.cid);
+				TracyMessage(msg.c_str(), msg.size());
 			}
 
-			return false;
+			m_submitted = true;
+			CELERITY_TRACE("Kernel submitted to SYCL");
 		}
 
 		const auto status = m_event.get_info<cl::sycl::info::event::command_execution_status>();
