@@ -19,6 +19,26 @@ namespace celerity {
 class handler;
 
 namespace detail {
+	class hint_base {
+	  public:
+		virtual ~hint_base() = default;
+	};
+} // namespace detail
+
+// TODO: Move elsewhere
+namespace experimental::hints {
+	class oversubscribe : public detail::hint_base {
+	  public:
+		oversubscribe(size_t factor) : m_factor(factor) {}
+
+		[[nodiscard]] size_t get_factor() const { return m_factor; }
+
+	  private:
+		size_t m_factor;
+	};
+}; // namespace experimental::hints
+
+namespace detail {
 
 	enum class task_type {
 		epoch,
@@ -180,6 +200,20 @@ namespace detail {
 
 		void extend_lifetime(std::shared_ptr<lifetime_extending_state> state) { m_attached_state.emplace_back(std::move(state)); }
 
+		// TODO: What happens when the same hint is added several times?
+		// TODO: Are there combinations of hints that aren't allowed? Where would that be validated?
+		void add_hint(std::unique_ptr<hint_base>&& h) { m_hints.emplace_back(std::move(h)); }
+
+		// TODO: Should we be able to get hints at all, or should they manifest in property changes on the task itself?
+		template <typename Hint>
+		const Hint* get_hint() const {
+			static_assert(std::is_base_of_v<hint_base, Hint>, "Hint must extend hint_base");
+			for(auto& h : m_hints) {
+				if(auto* ptr = dynamic_cast<Hint*>(h.get()); ptr != nullptr) { return ptr; }
+			}
+			return nullptr;
+		}
+
 		static std::unique_ptr<task> make_epoch(task_id tid, detail::epoch_action action) {
 			return std::unique_ptr<task>(new task(tid, task_type::epoch, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}, action));
 		}
@@ -225,6 +259,7 @@ namespace detail {
 		std::string m_debug_name;
 		detail::epoch_action m_epoch_action;
 		std::vector<std::shared_ptr<lifetime_extending_state>> m_attached_state;
+		std::vector<std::unique_ptr<hint_base>> m_hints;
 
 		task(task_id tid, task_type type, collective_group_id cgid, task_geometry geometry, std::unique_ptr<command_launcher_storage_base> launcher,
 		    buffer_access_map access_map, detail::side_effect_map side_effects, reduction_set reductions, std::string debug_name,

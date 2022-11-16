@@ -160,6 +160,9 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 	assert(distributed_chunks.size() <= num_chunks); // We may have created less than requested
 	assert(!distributed_chunks.empty());
 
+	const auto* oversub_hint = tsk.get_hint<experimental::hints::oversubscribe>();
+	const size_t oversub_factor = oversub_hint != nullptr ? oversub_hint->get_factor() : 1;
+
 	// Assign each chunk to a node
 	// We assign chunks next to each other to the same worker (if there is more chunks than workers), as this is likely to produce less
 	// transfers between tasks than a round-robin assignment (for typical stencil codes).
@@ -178,15 +181,13 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 		const node_id nid = (i / chunks_per_node) % m_num_nodes;
 		const bool is_local_chunk = nid == m_local_nid;
 
-		const size_t NOCOMMIT_HACKY_OVERSUB = 1;
-
 		// Depending on whether this is a local chunk or not we may have to process a different set of "effective" chunks:
 		// Local chunks may be split up again to create enough work for all local devices.
 		// Processing remote chunks on the other hand doesn't require knowledge of the devices available on that particular node.
 		// The same push commands generated for a single remote chunk also apply to the effective chunks generated on that node.
 		std::vector<chunk<3>> effective_chunks;
 		if(is_local_chunk && m_num_local_devices > 1 && tsk.has_variable_split()) {
-			effective_chunks = split_equal(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices * NOCOMMIT_HACKY_OVERSUB, tsk.get_dimensions());
+			effective_chunks = split_equal(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices * oversub_factor, tsk.get_dimensions());
 		} else {
 			effective_chunks.push_back(distributed_chunks[i]);
 		}
@@ -200,7 +201,7 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 			execution_command* cmd = nullptr;
 			if(is_local_chunk) {
 				cmd = create_command<execution_command>(nid, tsk.get_id(), subrange{chnk});
-				cmd->set_device_id(did / NOCOMMIT_HACKY_OVERSUB);
+				cmd->set_device_id(did / oversub_factor);
 				did++;
 			}
 

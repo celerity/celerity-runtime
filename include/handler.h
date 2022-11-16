@@ -33,7 +33,10 @@ class handler;
 namespace experimental {
 	template <int Dims>
 	void constrain_split(handler& cgh, const range<Dims>& constraint);
-}
+
+	template <typename Hint>
+	void hint(handler& cgh, Hint&& h);
+} // namespace experimental
 
 namespace detail {
 	class device_queue;
@@ -409,6 +412,8 @@ class handler {
 	friend detail::hydration_id detail::add_reduction(handler& cgh, const detail::reduction_info& rinfo);
 	template <int Dims>
 	friend void experimental::constrain_split(handler& cgh, const range<Dims>& constraint);
+	template <typename Hint>
+	friend void experimental::hint(handler& cgh, Hint&& h);
 	friend void detail::extend_lifetime(handler& cgh, std::shared_ptr<detail::lifetime_extending_state> state);
 
 	detail::task_id m_tid;
@@ -422,6 +427,7 @@ class handler {
 	detail::hydration_id m_next_reduction_hydration_id = 1;
 	std::vector<std::shared_ptr<detail::lifetime_extending_state>> m_attached_state;
 	range<3> m_split_constraint = detail::unit_range;
+	std::vector<std::unique_ptr<detail::hint_base>> m_hints;
 
 	handler(detail::task_id tid, size_t num_collective_nodes) : m_tid(tid), m_num_collective_nodes(num_collective_nodes) {}
 
@@ -480,6 +486,12 @@ class handler {
 	void experimental_constrain_split(const range<Dims>& constraint) {
 		assert(m_task == nullptr);
 		m_split_constraint = detail::range_cast<3>(constraint);
+	}
+
+	template <typename Hint>
+	void experimental_hint(Hint&& h) {
+		static_assert(std::is_base_of_v<detail::hint_base, std::decay_t<Hint>>, "Incompatible hint");
+		m_hints.emplace_back(std::make_unique<std::decay_t<Hint>>(std::forward<Hint>(h)));
 	}
 
 	range<3> get_constrained_granularity(const range<3>& granularity) const {
@@ -599,6 +611,9 @@ class handler {
 		for(auto state : m_attached_state) {
 			m_task->extend_lifetime(std::move(state));
 		}
+		for(auto& h : m_hints) {
+			m_task->add_hint(std::move(h));
+		}
 		return std::move(m_task);
 	}
 };
@@ -652,6 +667,11 @@ namespace experimental {
 	template <int Dims>
 	void constrain_split(handler& cgh, const range<Dims>& constraint) {
 		cgh.experimental_constrain_split(constraint);
+	}
+
+	template <typename Hint>
+	void hint(handler& cgh, Hint&& h) {
+		cgh.experimental_hint(std::forward<Hint>(h));
 	}
 } // namespace experimental
 
