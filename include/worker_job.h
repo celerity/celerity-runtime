@@ -185,6 +185,8 @@ namespace detail {
 			assert(pkg.get_command_type() == command_type::execution);
 		}
 
+		device_id get_device_id() const { return m_queue.get_id(); }
+
 	  private:
 		device_queue& m_queue;
 		task_manager& m_task_mngr;

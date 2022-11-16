@@ -29,6 +29,7 @@ deadlock if #buffers > 20 though, so probably not a good idea)
 
 // TODO: Get rid of this. (This could potentialy even cause deadlocks on large clusters)
 constexpr size_t MAX_CONCURRENT_JOBS = 20;
+constexpr size_t MAX_CONCURRENT_COMPUTES_PER_DEVICE = 1;
 
 namespace celerity {
 namespace detail {
@@ -45,7 +46,8 @@ namespace detail {
 	}
 
 	executor::executor(node_id local_nid, local_devices& devices, task_manager& tm, buffer_manager& buffer_mngr, reduction_manager& reduction_mngr)
-	    : m_local_nid(local_nid), m_local_devices(devices), m_task_mngr(tm), m_buffer_mngr(buffer_mngr), m_reduction_mngr(reduction_mngr) {
+	    : m_local_nid(local_nid), m_local_devices(devices), m_active_compute_jobs_by_device(devices.num_compute_devices()), m_task_mngr(tm),
+	      m_buffer_mngr(buffer_mngr), m_reduction_mngr(reduction_mngr) {
 		m_btm = std::make_unique<buffer_transfer_manager>(m_buffer_mngr, m_reduction_mngr);
 		m_metrics.initial_idle.resume();
 	}
@@ -73,9 +75,9 @@ namespace detail {
 		while(!done || !m_jobs.empty()) {
 			// Bail if a device error ocurred.
 			if(m_running_device_compute_jobs > 0) {
-				// NOCOMMIT FIXME: Ugh, that's not ideal - at least only check active devices. And maybe not in every iteration.
+				// NOCOMMIT FIXME: Ugh, that's not ideal. Maybe not check in every iteration.
 				for(device_id did = 0; did < m_local_devices.num_compute_devices(); ++did) {
-					m_local_devices.get_device_queue(did).get_sycl_queue().throw_asynchronous();
+					if(m_active_compute_jobs_by_device[did] > 0) { m_local_devices.get_device_queue(did).get_sycl_queue().throw_asynchronous(); }
 				}
 			}
 
@@ -113,6 +115,8 @@ namespace detail {
 				}
 
 				if(isa<device_execute_job>(job_handle.job.get())) {
+					const device_id did = static_cast<device_execute_job*>(job_handle.job.get())->get_device_id();
+					m_active_compute_jobs_by_device[did]--;
 					m_running_device_compute_jobs--;
 				} else if(const auto epoch = dynamic_cast<epoch_job*>(job_handle.job.get()); epoch && epoch->get_epoch_action() == epoch_action::shutdown) {
 					assert(m_command_queue.empty());
@@ -132,9 +136,17 @@ namespace detail {
 				for(command_id cid : ready_jobs) {
 					// ts_last_change = chr::steady_clock::now();
 					auto* job = m_jobs.at(cid).job.get();
+
+					if(isa<device_execute_job>(job)) {
+						const device_id did = static_cast<device_execute_job*>(job)->get_device_id();
+						if(m_active_compute_jobs_by_device[did] >= MAX_CONCURRENT_COMPUTES_PER_DEVICE) continue;
+
+						m_active_compute_jobs_by_device[did]++;
+						m_running_device_compute_jobs++;
+					}
+
 					job->start();
 					job->update();
-					if(isa<device_execute_job>(job)) { m_running_device_compute_jobs++; }
 				}
 			}
 

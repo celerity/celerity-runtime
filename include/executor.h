@@ -59,6 +59,7 @@ namespace detail {
 	  private:
 		node_id m_local_nid;
 		local_devices& m_local_devices;
+		std::vector<size_t> m_active_compute_jobs_by_device;
 		task_manager& m_task_mngr;
 		// FIXME: We currently need this for buffer locking in some jobs, which is a bit of a band-aid fix. Get rid of this at some point.
 		buffer_manager& m_buffer_mngr;
