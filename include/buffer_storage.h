@@ -7,6 +7,7 @@
 #include <CL/sycl.hpp>
 
 #include "backend/backend.h"
+#include "device_queue.h"
 #include "payload.h"
 #include "ranges.h"
 #include "workaround.h"
@@ -31,31 +32,28 @@ namespace detail {
 	template <typename DataT, int Dims>
 	class device_buffer {
 	  public:
-		device_buffer(const range<Dims>& range, sycl::queue& queue) : m_range(range), m_queue(queue) {
-			if(m_range.size() != 0) {
-				m_device_ptr = sycl::malloc_device<DataT>(m_range.size(), m_queue);
-				assert(m_device_ptr != nullptr);
-			}
+		device_buffer(const range<Dims>& range, device_queue& queue) : m_range(range), m_queue(queue) {
+			if(m_range.size() != 0) { m_device_allocation = m_queue.malloc<DataT>(m_range.size()); }
 		}
 
-		~device_buffer() {
-			if(m_range.size() != 0) { sycl::free(m_device_ptr, m_queue); }
-		}
+		~device_buffer() { m_queue.free(std::move(m_device_allocation)); }
 
 		device_buffer(const device_buffer&) = delete;
 
 		range<Dims> get_range() const { return m_range; }
 
-		DataT* get_pointer() { return m_device_ptr; }
+		DataT* get_pointer() { return static_cast<DataT*>(m_device_allocation.ptr); }
 
-		const DataT* get_pointer() const { return m_device_ptr; }
+		const DataT* get_pointer() const { return static_cast<DataT*>(m_device_allocation.ptr); }
 
-		bool operator==(const device_buffer& rhs) const { return m_device_ptr == rhs.m_device_ptr && m_queue == rhs.m_queue && m_range == rhs.m_range; }
+		bool operator==(const device_buffer& rhs) const {
+			return m_device_allocation == rhs.m_device_allocation && m_queue == rhs.m_queue && m_range == rhs.m_range;
+		}
 
 	  private:
 		sycl::range<Dims> m_range;
-		sycl::queue m_queue;
-		DataT* m_device_ptr = nullptr;
+		device_queue& m_queue;
+		device_allocation m_device_allocation;
 	};
 
 	template <typename DataT, int Dims>
@@ -126,8 +124,9 @@ namespace detail {
 	template <typename DataT, int Dims>
 	class device_buffer_storage : public buffer_storage {
 	  public:
-		device_buffer_storage(range<Dims> range, sycl::queue owning_queue)
-		    : buffer_storage(range_cast<3>(range), buffer_type::device_buffer), m_owning_queue(std::move(owning_queue)), m_device_buf(range, m_owning_queue) {}
+		device_buffer_storage(range<Dims> range, device_queue& owning_queue)
+		    : buffer_storage(range_cast<3>(range), buffer_type::device_buffer), m_owning_queue(owning_queue.get_sycl_queue()),
+		      m_device_buf(range, owning_queue) {}
 
 		size_t get_size() const override { return get_range().size() * sizeof(DataT); };
 
@@ -158,8 +157,6 @@ namespace detail {
 		}
 
 		void copy(const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) override;
-
-		sycl::queue& get_owning_queue() { return m_owning_queue; }
 
 	  private:
 		mutable sycl::queue m_owning_queue;

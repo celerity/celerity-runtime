@@ -23,6 +23,8 @@ namespace detail {
 		const auto props = m_device_profiling_enabled ? cl::sycl::property_list{cl::sycl::property::queue::enable_profiling()} : cl::sycl::property_list{};
 		const auto handle_exceptions = cl::sycl::async_handler{[this](cl::sycl::exception_list el) { this->handle_async_exceptions(el); }};
 		m_sycl_queue = std::make_unique<cl::sycl::queue>(device, handle_exceptions, props);
+
+		m_global_mem_size = m_sycl_queue->get_device().get_info<sycl::info::device::global_mem_size>();
 	}
 
 	void device_queue::handle_async_exceptions(cl::sycl::exception_list el) const {

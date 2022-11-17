@@ -96,16 +96,59 @@ namespace detail {
 		assert(!existing_buf.is_allocated() || existing_buf.storage->get_type() == buffer_type::device_buffer);
 		backing_buffer replacement_buf;
 
+		const auto die = [&](const size_t allocation_size) {
+			std::string msg = fmt::format("Unable to allocate buffer {} of size {} on device {} (memory {}).\n", bid, allocation_size, device_queue.get_id(),
+			    device_queue.get_memory_id());
+			fmt::format_to(std::back_inserter(msg), "\nCurrent allocations on device {}:\n", device_queue.get_id());
+			size_t total_bytes = 0;
+			for(const auto& [bid, b] : m_buffers) {
+				const auto& bb = b.get(mid);
+				if(bb.is_allocated()) {
+					fmt::format_to(std::back_inserter(msg), "\tBuffer {}: {} bytes\n", bid, bb.storage->get_size());
+					total_bytes += bb.storage->get_size();
+				}
+			}
+			fmt::format_to(std::back_inserter(msg), "Total usage: {} / {} bytes ({:.1f}%).\n", total_bytes, device_queue.get_global_memory_size(),
+			    100 * static_cast<double>(total_bytes) / device_queue.get_global_memory_size());
+			throw std::runtime_error(msg);
+		};
+
 		if(!existing_buf.is_allocated()) {
-			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(range, device_queue.get_sycl_queue()), offset};
-		} else {
-			// FIXME: For large buffers we might not be able to store two copies in device memory at once.
-			// Instead, we'd first have to transfer everything to the host and free the old buffer before allocating the new one.
-			// TODO: What we CAN do however already is to free the old buffer early iff we're requesting a discard_* access!
-			// (AND that access request covers the entirety of the old buffer!)
-			const auto info = is_resize_required(existing_buf, range, offset);
-			if(info.resize_required) {
-				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, device_queue.get_sycl_queue()), info.new_offset};
+			const auto allocation_size = range.size() * m_buffer_infos.at(bid).element_size;
+			if(!can_allocate(device_queue.get_memory_id(), allocation_size)) {
+				// TODO: Unless this single allocation exceeds the total available memory on the device we don't need to abort right away,
+				// could evict other buffers first.
+				die(allocation_size);
+			}
+			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(range, device_queue), offset};
+		} else if(const auto info = is_resize_required(existing_buf, range, offset); info.resize_required) {
+			const auto element_size = m_buffer_infos.at(bid).element_size;
+			const auto allocation_size = info.new_range.size() * element_size;
+			if(can_allocate(device_queue.get_memory_id(), allocation_size)) {
+				// Easy path: We can just do the resize on the device directly
+				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, device_queue), info.new_offset};
+			} else {
+				ZoneScopedN("slow path: reallocate through host");
+
+				// Check if we can do the resize by going through host first (see if we'll be able to fit just the added elements of the resized buffer).
+				if(!can_allocate(device_queue.get_memory_id(), allocation_size - (existing_buf.storage->get_range().size() * element_size))) {
+					// TODO: Same thing as above
+					die(allocation_size);
+				}
+
+				// Do a faux host access with the *resized* range to retain all existing data from the device.
+				access_host_buffer_impl(bid, mode, info.new_range, info.new_offset);
+
+				// We now have all data "backed up" on the host, so we may deallocate the device buffer (via destructor).
+				const auto existing_buf_sr = subrange<3>{existing_buf.offset, existing_buf.storage->get_range()};
+				existing_buf = backing_buffer{};
+				auto locations = m_newest_data_location.at(bid).get_region_values(subrange_to_grid_box(existing_buf_sr));
+				for(auto& [box, locs] : locations) {
+					m_newest_data_location.at(bid).update_region(box, locs.reset(mid));
+				}
+
+				// Finally create the new device buffer. It will be made coherent with data from the host below.
+				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, device_queue), info.new_offset};
 			}
 		}
 
@@ -125,6 +168,11 @@ namespace detail {
 	buffer_manager::access_info buffer_manager::access_host_buffer(
 	    buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
 		std::unique_lock lock(m_mutex);
+		return access_host_buffer_impl(bid, mode, range, offset);
+	}
+
+	buffer_manager::access_info buffer_manager::access_host_buffer_impl(
+	    buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
 		assert((range_cast<3>(offset + range) <= m_buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
 
 		auto& existing_buf = m_buffers.at(bid).get(m_local_devices.get_host_memory_id());

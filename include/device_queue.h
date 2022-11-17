@@ -41,6 +41,29 @@ namespace detail {
 	}
 #endif
 
+	struct device_allocation {
+		device_allocation() = default;
+		device_allocation(void* ptr, size_t size) : ptr(ptr), size(size) {}
+		device_allocation(const device_allocation&) = delete;
+		device_allocation(device_allocation&& other) noexcept { *this = std::move(other); }
+		device_allocation& operator=(device_allocation&& other) noexcept {
+			if(this == &other) return *this;
+			ptr = other.ptr;
+			other.ptr = nullptr;
+			size = other.size;
+			other.size = 0;
+			return *this;
+		}
+
+		void* ptr = nullptr;
+		size_t size = 0;
+	};
+
+	class allocation_error : public std::runtime_error {
+	  public:
+		allocation_error(const std::string& msg) : std::runtime_error(msg) {}
+	};
+
 	/**
 	 * The @p device_queue wraps the actual SYCL queue and is used to submit kernels.
 	 */
@@ -77,6 +100,34 @@ namespace detail {
 			return evt;
 		}
 
+		// TODO: Memory management functions should probably be moved to a dedicated "memory" class.
+		template <typename T>
+		[[nodiscard]] device_allocation malloc(const size_t count) {
+			assert(m_sycl_queue != nullptr);
+			assert(m_global_mem_allocated + count * sizeof(T) < m_global_mem_size);
+			// TODO Use aligned allocation?
+			auto ptr = sycl::malloc_device<T>(count, *m_sycl_queue);
+			// m_device_ptr = sycl::aligned_alloc_device<DataT>(alignof(DataT), m_range.size(), m_queue);
+			if(ptr == nullptr) {
+				throw allocation_error(
+				    fmt::format("Allocation of {} byte on device {} (memory {}) failed; likely out of memory.", count * sizeof(T), m_did, m_mid));
+			}
+			m_global_mem_allocated += count * sizeof(T);
+			return device_allocation{ptr, count * sizeof(T)};
+		}
+
+		void free(device_allocation alloc) {
+			assert(m_sycl_queue != nullptr);
+			assert(alloc.size <= m_global_mem_allocated);
+			assert(alloc.ptr != nullptr || alloc.size == 0);
+			if(alloc.size != 0) { sycl::free(alloc.ptr, *m_sycl_queue); }
+			m_global_mem_allocated -= alloc.size;
+		}
+
+		size_t get_global_memory_size() const { return m_global_mem_size; }
+
+		size_t get_global_memory_allocated() const { return m_global_mem_allocated; }
+
 		/**
 		 * @brief Waits until all currently submitted operations have completed.
 		 */
@@ -95,6 +146,8 @@ namespace detail {
 	  private:
 		device_id m_did;
 		memory_id m_mid;
+		size_t m_global_mem_size = 0;
+		size_t m_global_mem_allocated = 0;
 		std::unique_ptr<cl::sycl::queue> m_sycl_queue;
 		bool m_device_profiling_enabled = false;
 

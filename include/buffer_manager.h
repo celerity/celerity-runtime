@@ -90,7 +90,7 @@ namespace detail {
 
 		using buffer_lifecycle_callback = std::function<void(buffer_lifecycle_event, buffer_id)>;
 
-		using device_buffer_factory = std::function<std::unique_ptr<buffer_storage>(const range<3>&, sycl::queue&)>;
+		using device_buffer_factory = std::function<std::unique_ptr<buffer_storage>(const range<3>&, device_queue&)>;
 		using host_buffer_factory = std::function<std::unique_ptr<buffer_storage>(const range<3>&)>;
 
 		struct buffer_info {
@@ -138,7 +138,7 @@ namespace detail {
 				std::unique_lock lock(m_mutex);
 				bid = m_buffer_count++;
 				m_buffers.emplace(std::piecewise_construct, std::tuple{bid}, std::tuple{m_local_devices.num_memories()});
-				auto device_factory = [](const ::celerity::range<3>& r, sycl::queue& q) {
+				auto device_factory = [](const ::celerity::range<3>& r, device_queue& q) {
 					return std::make_unique<device_buffer_storage<DataT, Dims>>(range_cast<Dims>(r), q);
 				};
 				auto host_factory = [](const ::celerity::range<3>& r) { return std::make_unique<host_buffer_storage<DataT, Dims>>(range_cast<Dims>(r)); };
@@ -231,7 +231,10 @@ namespace detail {
 		template <typename DataT, int Dims>
 		access_info access_host_buffer(buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-			assert((m_buffer_types.at(bid)->has_type<DataT, Dims>()));
+			{
+				std::unique_lock lock(m_mutex);
+				assert((m_buffer_types.at(bid)->has_type<DataT, Dims>()));
+			}
 #endif
 			return access_host_buffer(bid, mode, range, offset);
 		}
@@ -345,6 +348,9 @@ namespace detail {
 		};
 
 	  private:
+		// Leave some memory for other processes.
+		// TODO: Make configurable?
+		constexpr static double max_device_global_mem_usage = 0.98;
 		local_devices& m_local_devices;
 		buffer_lifecycle_callback m_lifecycle_cb;
 		size_t m_buffer_count = 0;
@@ -382,6 +388,20 @@ namespace detail {
 				result.new_range = range_cast<3>(id_cast<3>(max_range(old_abs_range, new_abs_range)) - result.new_offset);
 			}
 			return result;
+		}
+
+		// Implementation of access_host_buffer, does not lock mutex (called by access_device_buffer).
+		access_info access_host_buffer_impl(buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset);
+
+		/**
+		 * Returns whether an allocation of size can be made without exceeding max_global_mem_usage.
+		 * NOTE: SYCL does not provide us with a way of getting the actual current memory usage of a device, so this just a best effort guess.
+		 */
+		bool can_allocate(const memory_id mid, const size_t size) const {
+			const auto& device = m_local_devices.get_close_device_queue(mid);
+			const auto total = device.get_global_memory_size();
+			const auto current = device.get_global_memory_allocated();
+			return static_cast<double>(current + size) / total < max_device_global_mem_usage;
 		}
 
 		/**
