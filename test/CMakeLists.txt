@@ -43,6 +43,7 @@ set(TEST_TARGETS
   # task_graph_tests
   task_ring_buffer_tests
   device_selection_tests
+  ndvbuffer_tests
 )
 
 add_library(test_main test_main.cc)

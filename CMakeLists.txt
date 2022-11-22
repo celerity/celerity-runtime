@@ -15,6 +15,9 @@ set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CELERITY_CMAKE_DIR}")
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 
+# TODO: Make optional
+find_package(CUDAToolkit REQUIRED)
+
 set(CELERITY_SYCL_IMPL "OFF" CACHE STRING "hipSYCL|ComputeCpp|DPC++")
 
 include("${CELERITY_CMAKE_DIR}/TestDPCXX.cmake")
@@ -280,6 +283,7 @@ target_link_libraries(celerity_runtime PUBLIC
   gch::small_vector
   ${SYCL_LIB}
   Tracy::TracyClient
+  CUDA::cuda_driver
 )
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/backend)
