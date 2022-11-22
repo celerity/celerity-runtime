@@ -135,8 +135,8 @@ template <int Dims>
 class box {
   public:
 	box(point<Dims> min, point<Dims> max) : m_min(std::move(min)), m_max(std::move(max)) { assert(m_min < m_max); }
-	extent<Dims> get_range() const { return m_max - m_min; }
-	size_t size() const { return get_range().size(); }
+	extent<Dims> get_extent() const { return m_max - m_min; }
+	size_t size() const { return get_extent().size(); }
 	bool contains(const point<Dims>& pt) const {
 		for(int d = 0; d < Dims; ++d) {
 			if(pt[d] < m_min[d] || pt[d] >= m_max[d]) { return false; }
@@ -156,29 +156,29 @@ class box {
 
 // TODO: Only pass stride instead of full range?
 inline size_t get_linear_id(const extent<1>&, const point<1>& p) { return p[0]; }
-inline size_t get_linear_id(const extent<2>& r, const point<2>& p) { return (p[0] * r[1]) + p[1]; }
-inline size_t get_linear_id(const extent<3>& r, const point<3>& p) { return (p[0] * r[1] * r[2]) + (p[1] * r[2]) + p[2]; }
+inline size_t get_linear_id(const extent<2>& e, const point<2>& p) { return (p[0] * e[1]) + p[1]; }
+inline size_t get_linear_id(const extent<3>& e, const point<3>& p) { return (p[0] * e[1] * e[2]) + (p[1] * e[2]) + p[2]; }
 
 inline point<1> get_point_from_linear_id(const size_t linear_id, const extent<1>&) { return linear_id; }
-inline point<2> get_point_from_linear_id(const size_t linear_id, const extent<2>& r) { return {linear_id / r[1], linear_id % r[1]}; }
-inline point<3> get_point_from_linear_id(const size_t linear_id, const extent<3>& r) {
-	return {linear_id / (r[1] * r[2]), (linear_id % (r[1] * r[2])) / r[2], (linear_id % (r[1] * r[2])) % r[2]};
+inline point<2> get_point_from_linear_id(const size_t linear_id, const extent<2>& e) { return {linear_id / e[1], linear_id % e[1]}; }
+inline point<3> get_point_from_linear_id(const size_t linear_id, const extent<3>& e) {
+	return {linear_id / (e[1] * e[2]), (linear_id % (e[1] * e[2])) / e[2], (linear_id % (e[1] * e[2])) % e[2]};
 }
 
 template <typename T, int Dims>
 class accessor {
   public:
-	accessor(CUdeviceptr base_ptr, box<Dims> accessed_box, extent<Dims> buffer_range)
-	    : m_base_ptr(base_ptr), m_accessed_box(accessed_box), m_buffer_range(buffer_range) {}
+	accessor(CUdeviceptr base_ptr, box<Dims> accessed_box, extent<Dims> buffer_extent)
+	    : m_base_ptr(base_ptr), m_accessed_box(accessed_box), m_buffer_extent(buffer_extent) {}
 
-	// T& operator[](const point& pt) { return *(reinterpret_cast<T*>(m_base_ptr) + get_linear_id(m_buffer_range, pt)); }
+	// T& operator[](const point& pt) { return *(reinterpret_cast<T*>(m_base_ptr) + get_linear_id(m_buffer_extent, pt)); }
 
 	// For SYCL compatibility we need to be able to write to const accessors
-	T& operator[](const point<Dims>& pt) const { return *(reinterpret_cast<T*>(m_base_ptr) + get_linear_id(m_buffer_range, pt)); }
+	T& operator[](const point<Dims>& pt) const { return *(reinterpret_cast<T*>(m_base_ptr) + get_linear_id(m_buffer_extent, pt)); }
 
 	const box<Dims>& get_box() const { return m_accessed_box; }
 
-	const extent<Dims>& get_buffer_range() const { return m_buffer_range; }
+	const extent<Dims>& get_buffer_extent() const { return m_buffer_extent; }
 
 	T* get_pointer() { return reinterpret_cast<T*>(m_base_ptr); }
 	const T* get_pointer() const { return reinterpret_cast<T*>(m_base_ptr); }
@@ -186,7 +186,7 @@ class accessor {
   private:
 	CUdeviceptr m_base_ptr;
 	box<Dims> m_accessed_box;
-	extent<Dims> m_buffer_range;
+	extent<Dims> m_buffer_extent;
 };
 
 struct activate_cuda_context {
@@ -232,7 +232,7 @@ std::vector<CUdevice> get_peer_devices(CUdevice main_device) {
 template <typename T, int Dims>
 class buffer {
   public:
-	buffer(CUdevice dev, extent<Dims> r) : m_device(dev), m_range(std::move(r)) {
+	buffer(CUdevice dev, extent<Dims> ext) : m_device(dev), m_extent(std::move(ext)) {
 		CHECK_DRV(cuInit(0));
 		CHECK_DRV(cuDevicePrimaryCtxRetain(&m_context, m_device));
 		activate_cuda_context act{m_context};
@@ -255,7 +255,7 @@ class buffer {
 		assert(m_allocation_granularity % alignof(T) == 0);
 		assert(sizeof(T) <= m_allocation_granularity && "NYI"); // TODO: Need to deal with this case as well
 
-		m_virtual_size = get_padded_size(r.size() * sizeof(T));
+		m_virtual_size = get_padded_size(ext.size() * sizeof(T));
 		CHECK_DRV(cuMemAddressReserve(&m_base_ptr, m_virtual_size, 0, 0, 0));
 	}
 
@@ -271,7 +271,7 @@ class buffer {
 		CHECK_DRV(cuMemAddressFree(m_base_ptr, m_virtual_size));
 	}
 
-	const extent<Dims>& get_range() const { return m_range; }
+	const extent<Dims>& get_extent() const { return m_extent; }
 
 	accessor<T, Dims> access(const box<Dims>& b) {
 		activate_cuda_context act{m_context};
@@ -280,15 +280,15 @@ class buffer {
 		// => Note that for sizes larger than 1x granularity we may have to pad the address space reservation as well!
 		const size_t allocation_size = m_allocation_granularity;
 
-		assert(b.max() <= m_range);
+		assert(b.max() <= m_extent);
 
 		// NOCOMMIT TODO: Revisit - do we actually end up using resulting pointers from all three branches?
 		const auto advance = [this, &b](const CUdeviceptr ptr, const size_t add) {
 			assert(ptr >= m_base_ptr);
 			// Calculate positions within virtual space
-			const point<Dims> current_pt = get_point_from_linear_id((ptr - m_base_ptr) / sizeof(T), m_range);
-			const point<Dims> add_pt = get_point_from_linear_id((ptr - m_base_ptr + add) / sizeof(T), m_range);
-			assert((get_linear_id(m_range, add_pt) - get_linear_id(m_range, current_pt)) * sizeof(T) == add);
+			const point<Dims> current_pt = get_point_from_linear_id((ptr - m_base_ptr) / sizeof(T), m_extent);
+			const point<Dims> add_pt = get_point_from_linear_id((ptr - m_base_ptr + add) / sizeof(T), m_extent);
+			assert((get_linear_id(m_extent, add_pt) - get_linear_id(m_extent, current_pt)) * sizeof(T) == add);
 			point<Dims> next_pt = add_pt;
 			for(int d = Dims - 1; d > 0; --d) {
 				if(next_pt[d] < b.min()[d]) {
@@ -305,7 +305,7 @@ class buffer {
 
 			if(next_pt != add_pt) {
 				// We've advanced further than requested, need to re-align pointer
-				return align_ptr(false, m_base_ptr + get_linear_id(m_range, next_pt) * sizeof(T));
+				return align_ptr(false, m_base_ptr + get_linear_id(m_extent, next_pt) * sizeof(T));
 			}
 			// We're somewhere inside the accessed box (in dim2/dim1, we may be way past in dim0), simply add
 			return ptr + add;
@@ -318,8 +318,8 @@ class buffer {
 		// TODO: This could probably be optimized in two ways:
 		//  - Use a series of binary searches to figure out whether requested region is already covered
 		//  - Only start copying into new array once we know that we'll actually need to allocate
-		const CUdeviceptr start = align_ptr(false, m_base_ptr + get_linear_id(m_range, b.min()) * sizeof(T));
-		const CUdeviceptr end = align_ptr(true, m_base_ptr + (get_linear_id(m_range, b.max() - point<Dims>{1, 1, 1}) + 1) * sizeof(T)); // 1 element past max
+		const CUdeviceptr start = align_ptr(false, m_base_ptr + get_linear_id(m_extent, b.min()) * sizeof(T));
+		const CUdeviceptr end = align_ptr(true, m_base_ptr + (get_linear_id(m_extent, b.max() - point<Dims>{1, 1, 1}) + 1) * sizeof(T)); // 1 element past max
 		size_t i = 0;
 		CUdeviceptr current = start;
 		while(current < end) {
@@ -351,7 +351,7 @@ class buffer {
 
 		m_allocations = std::move(new_allocations);
 
-		return accessor<T, Dims>{m_base_ptr, b, m_range};
+		return accessor<T, Dims>{m_base_ptr, b, m_extent};
 	}
 
 	size_t get_allocated_size() const { return m_allocated_size; }
@@ -375,7 +375,7 @@ class buffer {
 	CUdevice m_device;
 	CUmemAllocationProp m_alloc_prop = {};
 	size_t m_allocation_granularity; // page size, essentially
-	extent<Dims> m_range;
+	extent<Dims> m_extent;
 	size_t m_virtual_size;
 	CUdeviceptr m_base_ptr;
 	// List of (distjoint) physical allocations
@@ -419,7 +419,7 @@ class buffer {
 #endif
 
 		// {
-		// 	const point pt = {(ptr - m_base_ptr) / (m_range[1] * sizeof(T)), ((ptr - m_base_ptr) / sizeof(T)) % m_range[1]};
+		// 	const point pt = {(ptr - m_base_ptr) / (m_extent[1] * sizeof(T)), ((ptr - m_base_ptr) / sizeof(T)) % m_extent[1]};
 		// 	printf("Allocating %zu bytes at %zu,%zu (%p)\n", padded_size, pt[0], pt[1], (void*)ptr);
 		// }
 

@@ -41,11 +41,11 @@ template <typename T, int Dims>
 void write_global_linear_ids(sycl::queue& q, ndv::accessor<T, Dims> acc) {
 	q.submit([=](sycl::handler& cgh) {
 		const auto b = acc.get_box();
-		const auto buffer_range = acc.get_buffer_range();
-		const sycl::range<Dims> r = b.get_range();
-		cgh.parallel_for(r, [=](sycl::item<Dims> itm) {
+		const auto buf_extent = acc.get_buffer_extent();
+		const sycl::range<Dims> e = b.get_extent();
+		cgh.parallel_for(e, [=](sycl::item<Dims> itm) {
 			const auto offset_id = coordinate_cast<ndv::point, Dims>(b.min() + itm.get_id());
-			acc[offset_id] = ndv::get_linear_id(buffer_range, offset_id);
+			acc[offset_id] = ndv::get_linear_id(buf_extent, offset_id);
 		});
 	});
 	q.wait();
@@ -55,20 +55,20 @@ void write_global_linear_ids(sycl::queue& q, ndv::accessor<T, Dims> acc) {
 template <typename T, int Dims>
 void verify_global_linear_ids(
     sycl::queue& q, ndv::buffer<T, Dims>& buf, ndv::accessor<T, Dims> acc, const std::optional<ndv::box<Dims>>& nonzero_region = std::nullopt) {
-	const auto buf_range = acc.get_buffer_range();
+	const auto buf_extent = acc.get_buffer_extent();
 	const auto box = acc.get_box();
-	range<Dims> acc_range = box.get_range();
-	std::vector<T> host_buf(acc_range.size());
+	const range<Dims> acc_extent = box.get_extent();
+	std::vector<T> host_buf(acc_extent.size());
 	cuCtxSetCurrent(buf.get_ctx());
 
-	memcpy_strided_device(q, acc.get_pointer(), host_buf.data(), sizeof(T), buf_range, box.min(), acc_range, sycl::id<Dims>{}, acc_range);
+	memcpy_strided_device(q, acc.get_pointer(), host_buf.data(), sizeof(T), buf_extent, box.min(), acc_extent, sycl::id<Dims>{}, acc_extent);
 
-	const auto acc_r3 = range_cast<3>(acc_range);
+	const auto acc_r3 = range_cast<3>(acc_extent);
 	for(size_t k = 0; k < acc_r3[0]; ++k) {
 		for(size_t j = 0; j < acc_r3[1]; ++j) {
 			for(size_t i = 0; i < acc_r3[2]; ++i) {
 				const auto offset_id = coordinate_cast<ndv::point, Dims>(box.min() + id_cast<Dims>(id<3>{k, j, i}));
-				size_t expected = ndv::get_linear_id(buf_range, offset_id);
+				size_t expected = ndv::get_linear_id(buf_extent, offset_id);
 				if(nonzero_region.has_value() && !nonzero_region->contains(ndv::point<Dims>{k, j, i})) { expected = 0; }
 				REQUIRE_LOOP(static_cast<size_t>(host_buf[(k * acc_r3[1] * acc_r3[2]) + (j * acc_r3[2]) + i]) == expected);
 			}
@@ -87,24 +87,24 @@ void verify_global_linear_ids(
 
 TEMPLATE_TEST_CASE_SIG("basic full access", "[ndvbuffer]", ((int Dims), Dims), 1, 2, 3) {
 	sycl::queue q{sycl::gpu_selector_v};
-	const ndv::extent<Dims> r{6, 7, 8};
-	ndv::buffer<size_t, Dims> buf{get_cuda_drv_device(q.get_device()), r};
-	auto acc = buf.access({{}, buf.get_range()});
+	const ndv::extent<Dims> ext{6, 7, 8};
+	ndv::buffer<size_t, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
+	auto acc = buf.access({{}, buf.get_extent()});
 	write_global_linear_ids(q, acc);
 	verify_global_linear_ids(q, buf, acc);
 }
 
 TEMPLATE_TEST_CASE_SIG("access with offset", "[ndvbuffer]", ((int Dims), Dims), 1, 2, 3) {
 	sycl::queue q{sycl::gpu_selector_v};
-	const ndv::extent<Dims> r{6, 7, 8};
-	const ndv::point<Dims> o{1, 2, 3};
-	ndv::buffer<size_t, Dims> buf{get_cuda_drv_device(q.get_device()), r};
-	auto acc = buf.access({o, r - ndv::extent<Dims>{1, 1, 1}});
+	const ndv::extent<Dims> ext{6, 7, 8};
+	const ndv::point<Dims> offset{1, 2, 3};
+	ndv::buffer<size_t, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
+	auto acc = buf.access({offset, ext - ndv::extent<Dims>{1, 1, 1}});
 	write_global_linear_ids(q, acc);
 	verify_global_linear_ids(q, buf, acc);
 }
 
-TEST_CASE("virtual buffer range can exceed physical device memory") {
+TEST_CASE("virtual buffer extent can exceed physical device memory") {
 	// NOCOMMIT TODO: Here and others: Need NVIDIA GPU! (Btw, how do we select devices in other tests suites..?)
 	sycl::queue q{sycl::gpu_selector_v};
 	const auto mem_size = q.get_device().get_info<sycl::info::device::global_mem_size>();
@@ -206,7 +206,7 @@ TEST_CASE("physical regions are allocated lazily upon access (3D)") {
 // TOOD: For some reason the pointers returned by cumMemAddressReserve do not seem to be "universal", i.e., CUDA cannot infer the corresponding context / device
 // from them. This is annoying because it means we cannot use cudaMemcpy with cudaMemcpyDefault. Instead we need to do an explicit cuMemcpyPeer...
 // It also means that we need to call cuCtxSetCurrent before doing a D2H copy.
-TEST_CASE("device to device copies") {
+TEST_CASE("WIP: why are returned pointers not 'UVA pointers' ?!") {
 	const auto print_ptr_attrs = [](CUdeviceptr ptr) {
 		CUcontext ctx;
 		CHECK_DRV(cuPointerGetAttribute(&ctx, CU_POINTER_ATTRIBUTE_CONTEXT, ptr));
