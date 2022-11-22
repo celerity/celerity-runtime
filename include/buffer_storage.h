@@ -209,6 +209,8 @@ namespace detail {
 
 		if(source.get_type() == buffer_type::device_buffer) {
 			auto& device_source = dynamic_cast<const device_buffer_storage<DataT, Dims>&>(source);
+			const auto msg = fmt::format("d2d {}", copy_range.size() * sizeof(DataT));
+			ZoneText(msg.c_str(), msg.size());
 			backend::memcpy_strided_device(m_owning_queue, device_source.m_device_buf.get_pointer(), m_device_buf.get_pointer(), sizeof(DataT),
 			    device_source.m_device_buf.get_range(), id_cast<Dims>(source_offset), m_device_buf.get_range(), id_cast<Dims>(target_offset),
 			    range_cast<Dims>(copy_range));
@@ -217,6 +219,8 @@ namespace detail {
 		// TODO: Optimize for contiguous copies - we could do a single SYCL H->D copy directly.
 		else if(source.get_type() == buffer_type::host_buffer) {
 			auto& host_source = dynamic_cast<const host_buffer_storage<DataT, Dims>&>(source);
+			const auto msg = fmt::format("h2d {}", copy_range.size() * sizeof(DataT));
+			ZoneText(msg.c_str(), msg.size());
 			// TODO: No need for intermediate copy with native backend 2D/3D copy capabilities
 			auto tmp = make_uninitialized_payload<DataT>(copy_range.size());
 			host_source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
@@ -231,10 +235,14 @@ namespace detail {
 	template <typename DataT, int Dims>
 	void host_buffer_storage<DataT, Dims>::copy(
 	    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) {
+		ZoneScopedN("host_buffer_storage::copy");
+
 		assert_copy_is_in_range(source.get_range(), range_cast<3>(m_host_buf.get_range()), source_offset, target_offset, copy_range);
 
 		// TODO: Optimize for contiguous copies - we could do a single SYCL D->H copy directly.
 		if(source.get_type() == buffer_type::device_buffer) {
+			const auto msg = fmt::format("d2h {}", copy_range.size() * sizeof(DataT));
+			ZoneText(msg.c_str(), msg.size());
 			// This looks more convoluted than using a vector<DataT>, but that would break if DataT == bool
 			// TODO: No need for intermediate copy with native backend 2D/3D copy capabilities
 			auto tmp = make_uninitialized_payload<DataT>(copy_range.size());
@@ -244,6 +252,8 @@ namespace detail {
 
 		else if(source.get_type() == buffer_type::host_buffer) {
 			auto& host_source = dynamic_cast<const host_buffer_storage<DataT, Dims>&>(source);
+			const auto msg = fmt::format("h2h {}", copy_range.size() * sizeof(DataT));
+			ZoneText(msg.c_str(), msg.size());
 			memcpy_strided(host_source.get_host_buffer().get_pointer(), m_host_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(host_source.get_range()),
 			    id_cast<Dims>(source_offset), range_cast<Dims>(m_host_buf.get_range()), range_cast<Dims>(target_offset), range_cast<Dims>(copy_range));
 		}
