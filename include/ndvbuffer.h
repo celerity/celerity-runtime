@@ -354,6 +354,52 @@ class buffer {
 		return accessor<T, Dims>{m_base_ptr, b, m_extent};
 	}
 
+	// TODO: Optimize for contiguous copies
+	// TODO: Make non-blocking
+	void copy(const buffer<T, Dims>& source, const box<Dims>& src_box, const box<Dims>& dst_box) {
+		activate_cuda_context act{m_context}; // Only needed for synchronize
+
+		assert(src_box.get_extent() == dst_box.get_extent());
+		access(dst_box); // Allocate memory
+
+		if(Dims == 1) {
+			CHECK_DRV(cuMemcpyPeer(m_base_ptr + get_linear_id(m_extent, dst_box.min()) * sizeof(T), m_context,
+			    source.m_base_ptr + get_linear_id(source.m_extent, src_box.min()) * sizeof(T), source.m_context, dst_box.size() * sizeof(T)));
+			CHECK_DRV(cuCtxSynchronize());
+			return;
+		}
+
+		// There is no cuMemcpy2DPeer, so we use cuMemcpy3DPeer for both 2D and 3D copies.
+		const auto fastest = [](const auto& c) { return c[Dims == 3 ? 2 : 1]; };
+		const auto middle = [](const auto& c) { return c[Dims == 3 ? 1 : 0]; };
+
+		CUDA_MEMCPY3D_PEER params = {};
+		params.Depth = Dims == 3 ? src_box.get_extent()[0] : 1;
+		params.Height = middle(src_box.get_extent());
+		params.WidthInBytes = fastest(src_box.get_extent()) * sizeof(T);
+
+		params.dstContext = m_context;
+		params.dstDevice = m_base_ptr;
+		params.dstHeight = middle(m_extent);
+		params.dstMemoryType = CU_MEMORYTYPE_DEVICE;
+		params.dstPitch = fastest(m_extent) * sizeof(T);
+		params.dstXInBytes = fastest(dst_box.min()) * sizeof(T);
+		params.dstY = middle(dst_box.min());
+		params.dstZ = Dims == 3 ? dst_box.min()[0] : 0;
+
+		params.srcContext = source.m_context;
+		params.srcDevice = source.m_base_ptr;
+		params.srcHeight = middle(source.m_extent);
+		params.srcMemoryType = CU_MEMORYTYPE_DEVICE;
+		params.srcPitch = fastest(source.m_extent) * sizeof(T);
+		params.srcXInBytes = fastest(src_box.min()) * sizeof(T);
+		params.srcY = middle(src_box.min());
+		params.srcZ = Dims == 3 ? src_box.min()[0] : 0;
+
+		CHECK_DRV(cuMemcpy3DPeer(&params));
+		CHECK_DRV(cuCtxSynchronize());
+	}
+
 	size_t get_allocated_size() const { return m_allocated_size; }
 
 	size_t get_allocation_granularity() const { return m_allocation_granularity; }

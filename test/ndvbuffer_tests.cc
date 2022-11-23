@@ -54,7 +54,7 @@ void write_global_linear_ids(sycl::queue& q, ndv::accessor<T, Dims> acc) {
 // FIXME: Buffer is only needed for getting context (see copy issue below)
 template <typename T, int Dims>
 void verify_global_linear_ids(
-    sycl::queue& q, ndv::buffer<T, Dims>& buf, ndv::accessor<T, Dims> acc, const std::optional<ndv::box<Dims>>& nonzero_region = std::nullopt) {
+    sycl::queue& q, ndv::buffer<T, Dims>& buf, ndv::accessor<T, Dims> acc, const std::optional<ndv::box<Dims>>& verify_region = std::nullopt) {
 	const auto buf_extent = acc.get_buffer_extent();
 	const auto box = acc.get_box();
 	const range<Dims> acc_extent = box.get_extent();
@@ -68,9 +68,10 @@ void verify_global_linear_ids(
 		for(size_t j = 0; j < acc_r3[1]; ++j) {
 			for(size_t i = 0; i < acc_r3[2]; ++i) {
 				const auto offset_id = coordinate_cast<ndv::point, Dims>(box.min() + id_cast<Dims>(id<3>{k, j, i}));
-				size_t expected = ndv::get_linear_id(buf_extent, offset_id);
-				if(nonzero_region.has_value() && !nonzero_region->contains(ndv::point<Dims>{k, j, i})) { expected = 0; }
-				REQUIRE_LOOP(static_cast<size_t>(host_buf[(k * acc_r3[1] * acc_r3[2]) + (j * acc_r3[2]) + i]) == expected);
+				const size_t expected = ndv::get_linear_id(buf_extent, offset_id);
+				if(!verify_region.has_value() || verify_region->contains(ndv::point<Dims>{k, j, i})) {
+					REQUIRE_LOOP(static_cast<size_t>(host_buf[(k * acc_r3[1] * acc_r3[2]) + (j * acc_r3[2]) + i]) == expected);
+				}
 			}
 		}
 	}
@@ -260,4 +261,26 @@ TEST_CASE("WIP: why are returned pointers not 'UVA pointers' ?!") {
 	CHECK_DRV(cuMemcpyPeer((CUdeviceptr)acc2.get_pointer(), buf2.get_ctx(), (CUdeviceptr)acc1.get_pointer(), buf1.get_ctx(), 8 * 8 * sizeof(size_t)));
 
 	verify_global_linear_ids(q2, buf2, acc2);
+}
+
+TEMPLATE_TEST_CASE_SIG("copy parts between buffers on different devices", "[ndvbuffer]", ((int Dims), Dims), 1, 2, 3) {
+	auto devices = sycl::device::get_devices(sycl::info::device_type::gpu);
+	REQUIRE(devices.size() >= 2);
+	sycl::queue q1{devices[0]};
+	sycl::queue q2{devices[1]};
+
+	const ndv::extent<Dims> ext{8, 7, 6};
+	ndv::buffer<size_t, Dims> buf1{get_cuda_drv_device(devices[0]), ext};
+	auto acc1 = buf1.access({{}, ext});
+	write_global_linear_ids(q1, acc1);
+
+	ndv::buffer<size_t, Dims> buf2{get_cuda_drv_device(devices[1]), ext};
+
+	const ndv::box<Dims> copy_box{{2, 1, 3}, {7, 6, 4}};
+	// TODO: Also copy between different locations (needs custom verification though)
+	buf2.copy(buf1, copy_box, copy_box);
+
+	auto acc2 = buf2.access({{}, ext});
+	// TODO: Negative testing - check that we don't copy anything other than copy_box
+	verify_global_linear_ids(q2, buf2, acc2, std::optional{copy_box});
 }
