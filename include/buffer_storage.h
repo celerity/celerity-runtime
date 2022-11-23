@@ -6,6 +6,14 @@
 
 #include <CL/sycl.hpp>
 
+// TODO: Works for now, but really needs to be a runtime switch depending on selected device
+#if defined(__HIPSYCL__) && defined(SYCL_EXT_HIPSYCL_BACKEND_CUDA)
+#define USE_NDVBUFFER 1
+#include "ndvbuffer.h"
+#else
+#define USE_NDVBUFFER 0
+#endif
+
 #include "backend/backend.h"
 #include "device_queue.h"
 #include "payload.h"
@@ -29,6 +37,7 @@ namespace detail {
 
 	void linearize_subrange(const void* source_base_ptr, void* target_ptr, size_t elem_size, const range<3>& source_range, const subrange<3>& copy_sr);
 
+#if !USE_NDVBUFFER
 	template <typename DataT, int Dims>
 	class device_buffer {
 	  public:
@@ -55,6 +64,7 @@ namespace detail {
 		device_queue& m_queue;
 		device_allocation m_device_allocation;
 	};
+#endif
 
 	template <typename DataT, int Dims>
 	class host_buffer {
@@ -97,6 +107,11 @@ namespace detail {
 
 		virtual void* get_pointer() = 0;
 
+		virtual const void* get_pointer() const = 0;
+
+		// TODO: This is just a mockup of what a backend-specific integration of ndvbuffer might look like
+		virtual bool supports_dynamic_resize() const { return false; }
+
 		virtual void get_data(const subrange<3>& sr, void* out_linearized) const = 0;
 
 		virtual void set_data(const subrange<3>& sr, const void* in_linearized) = 0;
@@ -126,41 +141,62 @@ namespace detail {
 	  public:
 		device_buffer_storage(range<Dims> range, device_queue& owning_queue)
 		    : buffer_storage(range_cast<3>(range), buffer_type::device_buffer), m_owning_queue(owning_queue.get_sycl_queue()),
-		      m_device_buf(range, owning_queue) {}
+#if USE_NDVBUFFER
+		      m_device_buf(sycl::get_native<sycl::backend::cuda>(m_owning_queue.get_device()), ndv::extent<Dims>::make_from(range))
+#else
+		      m_device_buf(range, owning_queue)
+#endif
+		{
+			// NOCOMMIT JUST TESTING: Allocate full buffer up front to see if it works as a drop-in replacement for legacy buffers
+			m_device_buf.access({{}, ndv::point<Dims>::make_from(range)});
+		}
 
+		// FIXME: This is no longer accurate for (sparsely allocated) ndv buffers (only an upper bound).
 		size_t get_size() const override { return get_range().size() * sizeof(DataT); };
 
 		void* get_pointer() override { return m_device_buf.get_pointer(); }
 
-		device_buffer<DataT, Dims>& get_device_buffer() { return m_device_buf; }
+		const void* get_pointer() const override { return m_device_buf.get_pointer(); }
 
-		const device_buffer<DataT, Dims>& get_device_buffer() const { return m_device_buf; }
+		bool supports_dynamic_resize() const override { return USE_NDVBUFFER; }
 
 		void get_data(const subrange<3>& sr, void* out_linearized) const override {
 			assert(Dims > 1 || (sr.offset[1] == 0 && sr.range[1] == 1));
 			assert(Dims > 2 || (sr.offset[2] == 0 && sr.range[2] == 1));
+#if USE_NDVBUFFER
+			const ndv::box<Dims> box = {ndv::point<Dims>::make_from(sr.offset), ndv::point<Dims>::make_from(sr.offset + sr.range)};
+			m_device_buf.copy_to(static_cast<DataT*>(out_linearized), ndv::extent<Dims>::make_from(sr.range), box, box);
+#else
 			assert_copy_is_in_range(range_cast<3>(m_device_buf.get_range()), sr.range, sr.offset, id<3>{}, sr.range);
-
 			// TODO: Ideally we'd make this non-blocking and return some sort of async handle that can be waited upon
 			backend::memcpy_strided_device(m_owning_queue, m_device_buf.get_pointer(), out_linearized, sizeof(DataT), m_device_buf.get_range(),
 			    id_cast<Dims>(sr.offset), range_cast<Dims>(sr.range), id<Dims>{}, range_cast<Dims>(sr.range));
+#endif
 		}
 
 		void set_data(const subrange<3>& sr, const void* in_linearized) override {
 			assert(Dims > 1 || (sr.offset[1] == 0 && sr.range[1] == 1));
 			assert(Dims > 2 || (sr.offset[2] == 0 && sr.range[2] == 1));
+#if USE_NDVBUFFER
+			const ndv::box<Dims> box = {ndv::point<Dims>::make_from(sr.offset), ndv::point<Dims>::make_from(sr.offset + sr.range)};
+			m_device_buf.copy_from(static_cast<const DataT*>(in_linearized), ndv::extent<Dims>::make_from(sr.range), box, box);
+#else
 			assert_copy_is_in_range(sr.range, range_cast<3>(m_device_buf.get_range()), id<3>{}, sr.offset, sr.range);
-
 			// TODO: Ideally we'd make this non-blocking and return some sort of async handle that can be waited upon
 			backend::memcpy_strided_device(m_owning_queue, in_linearized, m_device_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(sr.range), id<Dims>{},
 			    m_device_buf.get_range(), id_cast<Dims>(sr.offset), range_cast<Dims>(sr.range));
+#endif
 		}
 
 		void copy(const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) override;
 
 	  private:
 		mutable sycl::queue m_owning_queue;
+#if USE_NDVBUFFER
+		ndv::buffer<DataT, Dims> m_device_buf;
+#else
 		device_buffer<DataT, Dims> m_device_buf;
+#endif
 	};
 
 	template <typename DataT, int Dims>
@@ -171,6 +207,8 @@ namespace detail {
 		size_t get_size() const override { return get_range().size() * sizeof(DataT); };
 
 		void* get_pointer() override { return m_host_buf.get_pointer(); }
+
+		const void* get_pointer() const override { return m_host_buf.get_pointer(); }
 
 		void get_data(const subrange<3>& sr, void* out_linearized) const override {
 			assert(Dims > 1 || (sr.offset[1] == 0 && sr.range[1] == 1));
@@ -205,15 +243,24 @@ namespace detail {
 	    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) {
 		ZoneScopedN("device_buffer_storage::copy");
 
+#if !USE_NDVBUFFER
 		assert_copy_is_in_range(source.get_range(), range_cast<3>(m_device_buf.get_range()), source_offset, target_offset, copy_range);
+#endif
 
 		if(source.get_type() == buffer_type::device_buffer) {
 			auto& device_source = dynamic_cast<const device_buffer_storage<DataT, Dims>&>(source);
 			const auto msg = fmt::format("d2d {}", copy_range.size() * sizeof(DataT));
 			ZoneText(msg.c_str(), msg.size());
+
+#if USE_NDVBUFFER
+			m_device_buf.copy_from(device_source.m_device_buf,
+			    {ndv::point<Dims>::make_from(source_offset), ndv::point<Dims>::make_from(source_offset + copy_range)},
+			    {ndv::point<Dims>::make_from(target_offset), ndv::point<Dims>::make_from(target_offset + copy_range)});
+#else
 			backend::memcpy_strided_device(m_owning_queue, device_source.m_device_buf.get_pointer(), m_device_buf.get_pointer(), sizeof(DataT),
 			    device_source.m_device_buf.get_range(), id_cast<Dims>(source_offset), m_device_buf.get_range(), id_cast<Dims>(target_offset),
 			    range_cast<Dims>(copy_range));
+#endif
 		}
 
 		// TODO: Optimize for contiguous copies - we could do a single SYCL H->D copy directly.
@@ -221,10 +268,17 @@ namespace detail {
 			auto& host_source = dynamic_cast<const host_buffer_storage<DataT, Dims>&>(source);
 			const auto msg = fmt::format("h2d {}", copy_range.size() * sizeof(DataT));
 			ZoneText(msg.c_str(), msg.size());
+
+#if USE_NDVBUFFER
+			m_device_buf.copy_from(static_cast<const DataT*>(host_source.get_pointer()), ndv::extent<Dims>::make_from(host_source.get_range()),
+			    {ndv::point<Dims>::make_from(source_offset), ndv::point<Dims>::make_from(source_offset + copy_range)},
+			    {ndv::point<Dims>::make_from(target_offset), ndv::point<Dims>::make_from(target_offset + copy_range)});
+#else
 			// TODO: No need for intermediate copy with native backend 2D/3D copy capabilities
 			auto tmp = make_uninitialized_payload<DataT>(copy_range.size());
 			host_source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
 			set_data(subrange{target_offset, copy_range}, static_cast<const DataT*>(tmp.get_pointer()));
+#endif
 		}
 
 		else {

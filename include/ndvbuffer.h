@@ -112,14 +112,26 @@ class coordinate {
 	}
 };
 
+template <template <int> class OutType, int DimsOut>
+struct make_from_mixin {
+	template <template <int> class InType, int DimsIn>
+	static OutType<DimsOut> make_from(const InType<DimsIn>& other, const size_t fill = 0) {
+		OutType<DimsOut> result;
+		for(int o = 0; o < DimsOut; ++o) {
+			result[o] = o < DimsIn ? other[o] : fill;
+		}
+		return result;
+	}
+};
+
 template <int Dims>
-class point : public coordinate<Dims> {
+class point : public coordinate<Dims>, public make_from_mixin<point, Dims> {
   public:
 	using coordinate<Dims>::coordinate;
 };
 
 template <int Dims>
-class extent : public coordinate<Dims> {
+class extent : public coordinate<Dims>, public make_from_mixin<extent, Dims> {
   public:
 	using coordinate<Dims>::coordinate;
 	size_t size() const {
@@ -286,7 +298,7 @@ class buffer {
 		const auto advance = [this, &b](const CUdeviceptr ptr, const size_t add) {
 			assert(ptr >= m_base_ptr);
 			// Calculate positions within virtual space
-			const point<Dims> current_pt = get_point_from_linear_id((ptr - m_base_ptr) / sizeof(T), m_extent);
+			[[maybe_unused]] const point<Dims> current_pt = get_point_from_linear_id((ptr - m_base_ptr) / sizeof(T), m_extent);
 			const point<Dims> add_pt = get_point_from_linear_id((ptr - m_base_ptr + add) / sizeof(T), m_extent);
 			assert((get_linear_id(m_extent, add_pt) - get_linear_id(m_extent, current_pt)) * sizeof(T) == add);
 			point<Dims> next_pt = add_pt;
@@ -527,7 +539,13 @@ class buffer {
 
 	size_t get_allocation_granularity() const { return m_allocation_granularity; }
 
-	CUcontext get_ctx() const { return m_context; } // NOCOMMIT
+	T* get_pointer() { return reinterpret_cast<T*>(m_base_ptr); }
+
+	const T* get_pointer() const { return reinterpret_cast<const T*>(m_base_ptr); }
+
+	// TODO: Currently only needed for 1 test case (that is not really a test case)
+	// => However is needed when doing a device to device copy to/from a non-ndv buffer
+	CUcontext get_ctx() const { return m_context; }
 
   private:
 	// NOTE: In the future it might become possible to map parts of a physical allocation (APIs exist but are NYI),

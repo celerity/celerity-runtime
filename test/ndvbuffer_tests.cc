@@ -20,15 +20,6 @@ using namespace celerity::detail;
 
 namespace {
 
-template <template <int> class OutType, int DimsOut, template <int> class InType, int DimsIn>
-OutType<DimsOut> coordinate_cast(const InType<DimsIn>& other) {
-	OutType<DimsOut> result;
-	for(int o = 0; o < DimsOut; ++o) {
-		result[o] = o < DimsIn ? other[o] : 0;
-	}
-	return result;
-}
-
 CUdevice get_cuda_drv_device(const sycl::device& d) {
 	// TODO: It's not entirely clear whether this returns a CUDA runtime device or driver API device
 	const auto rt_dev = sycl::get_native<sycl::backend::cuda>(d);
@@ -44,7 +35,7 @@ void write_global_linear_ids(sycl::queue& q, ndv::accessor<T, Dims> acc) {
 		const auto buf_extent = acc.get_buffer_extent();
 		const sycl::range<Dims> e = b.get_extent();
 		cgh.parallel_for(e, [=](sycl::item<Dims> itm) {
-			const auto offset_id = coordinate_cast<ndv::point, Dims>(b.min() + itm.get_id());
+			const auto offset_id = ndv::point<Dims>::make_from(b.min() + itm.get_id());
 			acc[offset_id] = ndv::get_linear_id(buf_extent, offset_id);
 		});
 	});
@@ -66,7 +57,7 @@ void verify_global_linear_ids(
 	for(size_t k = 0; k < acc_r3[0]; ++k) {
 		for(size_t j = 0; j < acc_r3[1]; ++j) {
 			for(size_t i = 0; i < acc_r3[2]; ++i) {
-				const auto offset_id = coordinate_cast<ndv::point, Dims>(box.min() + id_cast<Dims>(id<3>{k, j, i}));
+				const auto offset_id = ndv::point<Dims>::make_from(box.min() + id_cast<Dims>(id<3>{k, j, i}));
 				const size_t expected = ndv::get_linear_id(buf_extent, offset_id);
 				if(!verify_region.has_value() || verify_region->contains(ndv::point<Dims>{k, j, i})) {
 					REQUIRE_LOOP(static_cast<size_t>(host_buf[(k * acc_r3[1] * acc_r3[2]) + (j * acc_r3[2]) + i]) == expected);
