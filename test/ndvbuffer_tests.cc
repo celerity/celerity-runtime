@@ -57,11 +57,10 @@ void verify_global_linear_ids(
     sycl::queue& q, ndv::buffer<T, Dims>& buf, ndv::accessor<T, Dims> acc, const std::optional<ndv::box<Dims>>& verify_region = std::nullopt) {
 	const auto buf_extent = acc.get_buffer_extent();
 	const auto box = acc.get_box();
-	const range<Dims> acc_extent = box.get_extent();
+	const auto acc_extent = box.get_extent();
 	std::vector<T> host_buf(acc_extent.size());
-	cuCtxSetCurrent(buf.get_ctx());
 
-	memcpy_strided_device(q, acc.get_pointer(), host_buf.data(), sizeof(T), buf_extent, box.min(), acc_extent, sycl::id<Dims>{}, acc_extent);
+	buf.copy_to(host_buf.data(), acc_extent, box, {{}, acc_extent});
 
 	const auto acc_r3 = range_cast<3>(acc_extent);
 	for(size_t k = 0; k < acc_r3[0]; ++k) {
@@ -269,6 +268,7 @@ TEMPLATE_TEST_CASE_SIG("copy parts between buffers on different devices", "[ndvb
 	sycl::queue q1{devices[0]};
 	sycl::queue q2{devices[1]};
 
+	// TODO: Also copy between differently sized buffers (needs custom verification though)
 	const ndv::extent<Dims> ext{8, 7, 6};
 	ndv::buffer<size_t, Dims> buf1{get_cuda_drv_device(devices[0]), ext};
 	auto acc1 = buf1.access({{}, ext});
@@ -278,9 +278,51 @@ TEMPLATE_TEST_CASE_SIG("copy parts between buffers on different devices", "[ndvb
 
 	const ndv::box<Dims> copy_box{{2, 1, 3}, {7, 6, 4}};
 	// TODO: Also copy between different locations (needs custom verification though)
-	buf2.copy(buf1, copy_box, copy_box);
+	buf2.copy_from(buf1, copy_box, copy_box);
 
 	auto acc2 = buf2.access({{}, ext});
 	// TODO: Negative testing - check that we don't copy anything other than copy_box
 	verify_global_linear_ids(q2, buf2, acc2, std::optional{copy_box});
+}
+
+// TODO: Also copy between different locations (needs custom verification though)
+TEMPLATE_TEST_CASE_SIG("copy from/to host memory", "[ndvbuffer]", ((int Dims), Dims), 1, 2, 3) {
+	sycl::queue q{sycl::gpu_selector_v};
+
+	// TODO: Also copy between differently sized buffers (needs custom verification though)
+	const ndv::extent<Dims> ext{8, 7, 6};
+	std::vector<size_t> host_buf(ext.size());
+
+	const auto host_for_each = [&ext](const auto& cb) {
+		for(size_t k = 0; k < ext[0]; ++k) {
+			for(size_t j = 0; j < (Dims > 1 ? ext[1] : 1); ++j) {
+				for(size_t i = 0; i < (Dims == 3 ? ext[2] : 1); ++i) {
+					cb(ndv::point<Dims>{k, j, i});
+				}
+			}
+		}
+	};
+
+	const ndv::box<Dims> copy_box{{2, 1, 3}, {7, 6, 4}};
+	ndv::buffer<size_t, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
+
+	SECTION("copy from host") {
+		host_for_each([&](const ndv::point<Dims>& pt) {
+			const auto linear_id = ndv::get_linear_id(ext, pt);
+			host_buf[linear_id] = linear_id;
+		});
+		buf.copy_from(host_buf.data(), ext, copy_box, copy_box);
+		auto acc = buf.access({{}, ext});
+		// TODO: Negative testing - check that we don't copy anything other than copy_box
+		verify_global_linear_ids(q, buf, acc, std::optional{copy_box});
+	}
+
+	SECTION("copy to host") {
+		write_global_linear_ids(q, buf.access({{}, ext}));
+		buf.copy_to(host_buf.data(), ext, copy_box, copy_box);
+		host_for_each([&](const ndv::point<Dims>& pt) {
+			const auto linear_id = ndv::get_linear_id(ext, pt);
+			if(copy_box.contains(pt)) { REQUIRE_LOOP(host_buf[linear_id] == linear_id); }
+		});
+	}
 }

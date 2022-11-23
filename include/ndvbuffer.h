@@ -202,7 +202,7 @@ struct activate_cuda_context {
 	[[maybe_unused]] CUcontext m_ctx;
 };
 
-std::vector<CUdevice> get_peer_devices(CUdevice main_device) {
+inline std::vector<CUdevice> get_peer_devices(CUdevice main_device) {
 	int num_devices;
 	CHECK_DRV(cuDeviceGetCount(&num_devices));
 
@@ -356,7 +356,7 @@ class buffer {
 
 	// TODO: Optimize for contiguous copies
 	// TODO: Make non-blocking
-	void copy(const buffer<T, Dims>& source, const box<Dims>& src_box, const box<Dims>& dst_box) {
+	void copy_from(const buffer<T, Dims>& src, const box<Dims>& src_box, const box<Dims>& dst_box) {
 		activate_cuda_context act{m_context}; // Only needed for synchronize
 
 		assert(src_box.get_extent() == dst_box.get_extent());
@@ -364,7 +364,7 @@ class buffer {
 
 		if(Dims == 1) {
 			CHECK_DRV(cuMemcpyPeer(m_base_ptr + get_linear_id(m_extent, dst_box.min()) * sizeof(T), m_context,
-			    source.m_base_ptr + get_linear_id(source.m_extent, src_box.min()) * sizeof(T), source.m_context, dst_box.size() * sizeof(T)));
+			    src.m_base_ptr + get_linear_id(src.m_extent, src_box.min()) * sizeof(T), src.m_context, dst_box.size() * sizeof(T)));
 			CHECK_DRV(cuCtxSynchronize());
 			return;
 		}
@@ -387,16 +387,139 @@ class buffer {
 		params.dstY = middle(dst_box.min());
 		params.dstZ = Dims == 3 ? dst_box.min()[0] : 0;
 
-		params.srcContext = source.m_context;
-		params.srcDevice = source.m_base_ptr;
-		params.srcHeight = middle(source.m_extent);
+		params.srcContext = src.m_context;
+		params.srcDevice = src.m_base_ptr;
+		params.srcHeight = middle(src.m_extent);
 		params.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-		params.srcPitch = fastest(source.m_extent) * sizeof(T);
+		params.srcPitch = fastest(src.m_extent) * sizeof(T);
 		params.srcXInBytes = fastest(src_box.min()) * sizeof(T);
 		params.srcY = middle(src_box.min());
 		params.srcZ = Dims == 3 ? src_box.min()[0] : 0;
 
 		CHECK_DRV(cuMemcpy3DPeer(&params));
+		CHECK_DRV(cuCtxSynchronize());
+	}
+
+	void copy_from(const T* src_ptr, const extent<Dims>& src_ext, const box<Dims>& src_box, const box<Dims>& dst_box) {
+		activate_cuda_context act{m_context};
+
+		assert(src_box.get_extent() <= src_ext);
+		assert(src_box.get_extent() == dst_box.get_extent());
+		access(dst_box); // Allocate memory
+
+		if(Dims == 1) {
+			CHECK_DRV(cuMemcpyHtoD(m_base_ptr + get_linear_id(m_extent, dst_box.min()) * sizeof(T),
+			    reinterpret_cast<const unsigned char*>(src_ptr) + get_linear_id(src_ext, src_box.min()) * sizeof(T), dst_box.size() * sizeof(T)));
+			CHECK_DRV(cuCtxSynchronize());
+			return;
+		}
+
+		if(Dims == 2) {
+			CUDA_MEMCPY2D params = {};
+			params.Height = src_box.get_extent()[0];
+			params.WidthInBytes = src_box.get_extent()[1] * sizeof(T);
+
+			params.dstDevice = m_base_ptr;
+			params.dstMemoryType = CU_MEMORYTYPE_DEVICE;
+			params.dstPitch = m_extent[1] * sizeof(T);
+			params.dstXInBytes = dst_box.min()[1] * sizeof(T);
+			params.dstY = dst_box.min()[0];
+
+			params.srcHost = src_ptr;
+			params.srcMemoryType = CU_MEMORYTYPE_HOST;
+			params.srcPitch = src_ext[1] * sizeof(T);
+			params.srcXInBytes = src_box.min()[1] * sizeof(T);
+			params.srcY = src_box.min()[0];
+
+			CHECK_DRV(cuMemcpy2D(&params));
+			CHECK_DRV(cuCtxSynchronize());
+			return;
+		}
+
+		CUDA_MEMCPY3D params = {};
+		params.Depth = src_box.get_extent()[0];
+		params.Height = src_box.get_extent()[1];
+		params.WidthInBytes = src_box.get_extent()[2] * sizeof(T);
+
+		params.dstDevice = m_base_ptr;
+		params.dstHeight = m_extent[1];
+		params.dstMemoryType = CU_MEMORYTYPE_DEVICE;
+		params.dstPitch = m_extent[2] * sizeof(T);
+		params.dstXInBytes = dst_box.min()[2] * sizeof(T);
+		params.dstY = dst_box.min()[1];
+		params.dstZ = dst_box.min()[0];
+
+		params.srcHost = src_ptr;
+		params.srcHeight = src_ext[1];
+		params.srcMemoryType = CU_MEMORYTYPE_HOST;
+		params.srcPitch = src_ext[2] * sizeof(T);
+		params.srcXInBytes = src_box.min()[2] * sizeof(T);
+		params.srcY = src_box.min()[1];
+		params.srcZ = src_box.min()[0];
+
+		CHECK_DRV(cuMemcpy3D(&params));
+		CHECK_DRV(cuCtxSynchronize());
+	}
+
+	// TODO: Can we keep this DRYer with copy_from?
+	void copy_to(T* dst_ptr, const extent<Dims>& dst_ext, const box<Dims>& src_box, const box<Dims>& dst_box) const {
+		activate_cuda_context act{m_context};
+
+		assert(dst_box.get_extent() <= dst_ext);
+		assert(src_box.get_extent() == dst_box.get_extent());
+		// TODO: Would be nice if we could assert that the src_box is allocated
+
+		if(Dims == 1) {
+			CHECK_DRV(cuMemcpyDtoH(reinterpret_cast<unsigned char*>(dst_ptr) + get_linear_id(dst_ext, dst_box.min()) * sizeof(T),
+			    m_base_ptr + get_linear_id(m_extent, src_box.min()) * sizeof(T), dst_box.size() * sizeof(T)));
+			CHECK_DRV(cuCtxSynchronize());
+			return;
+		}
+
+		if(Dims == 2) {
+			CUDA_MEMCPY2D params = {};
+			params.Height = src_box.get_extent()[0];
+			params.WidthInBytes = src_box.get_extent()[1] * sizeof(T);
+
+			params.dstHost = dst_ptr;
+			params.dstMemoryType = CU_MEMORYTYPE_HOST;
+			params.dstPitch = dst_ext[1] * sizeof(T);
+			params.dstXInBytes = dst_box.min()[1] * sizeof(T);
+			params.dstY = dst_box.min()[0];
+
+			params.srcDevice = m_base_ptr;
+			params.srcMemoryType = CU_MEMORYTYPE_DEVICE;
+			params.srcPitch = m_extent[1] * sizeof(T);
+			params.srcXInBytes = src_box.min()[1] * sizeof(T);
+			params.srcY = src_box.min()[0];
+
+			CHECK_DRV(cuMemcpy2D(&params));
+			CHECK_DRV(cuCtxSynchronize());
+			return;
+		}
+
+		CUDA_MEMCPY3D params = {};
+		params.Depth = src_box.get_extent()[0];
+		params.Height = src_box.get_extent()[1];
+		params.WidthInBytes = src_box.get_extent()[2] * sizeof(T);
+
+		params.dstHost = dst_ptr;
+		params.dstHeight = dst_ext[1];
+		params.dstMemoryType = CU_MEMORYTYPE_HOST;
+		params.dstPitch = dst_ext[2] * sizeof(T);
+		params.dstXInBytes = dst_box.min()[2] * sizeof(T);
+		params.dstY = dst_box.min()[1];
+		params.dstZ = dst_box.min()[0];
+
+		params.srcDevice = m_base_ptr;
+		params.srcHeight = m_extent[1];
+		params.srcMemoryType = CU_MEMORYTYPE_DEVICE;
+		params.srcPitch = m_extent[2] * sizeof(T);
+		params.srcXInBytes = src_box.min()[2] * sizeof(T);
+		params.srcY = src_box.min()[1];
+		params.srcZ = src_box.min()[0];
+
+		CHECK_DRV(cuMemcpy3D(&params));
 		CHECK_DRV(cuCtxSynchronize());
 	}
 
