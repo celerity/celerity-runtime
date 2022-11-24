@@ -272,5 +272,7 @@ int main(int argc, char* argv[]) {
 
 	if(cfg.output_sample_rate > 0) { stream_close(queue, os); }
 
+	queue.slow_full_sync();
+
 	return EXIT_SUCCESS;
 }

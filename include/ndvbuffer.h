@@ -416,6 +416,7 @@ class buffer {
 		activate_cuda_context act{m_context};
 
 		assert(src_box.get_extent() <= src_ext);
+		assert(src_box.max() <= src_ext);
 		assert(src_box.get_extent() == dst_box.get_extent());
 		access(dst_box); // Allocate memory
 
@@ -478,6 +479,7 @@ class buffer {
 		activate_cuda_context act{m_context};
 
 		assert(dst_box.get_extent() <= dst_ext);
+		assert(dst_box.max() <= dst_ext);
 		assert(src_box.get_extent() == dst_box.get_extent());
 		// TODO: Would be nice if we could assert that the src_box is allocated
 
