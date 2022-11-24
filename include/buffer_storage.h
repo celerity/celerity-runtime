@@ -150,8 +150,12 @@ namespace detail {
 		      m_device_buf(range, owning_queue)
 #endif
 		{
-			// NOCOMMIT JUST TESTING: Allocate full buffer up front to see if it works as a drop-in replacement for legacy buffers
-			m_device_buf.access({{}, ndv::point<Dims>::make_from(range)});
+		}
+
+		~device_buffer_storage() {
+#if USE_NDVBUFFER
+			CELERITY_DEBUG("Destroying ndvbuffer. Total allocation size: {} bytes.\n", m_device_buf.get_allocated_size());
+#endif
 		}
 
 		// FIXME: This is no longer accurate for (sparsely allocated) ndv buffers (only an upper bound).

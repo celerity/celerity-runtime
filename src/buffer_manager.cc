@@ -114,6 +114,13 @@ namespace detail {
 		};
 
 		if(!existing_buf.is_allocated()) {
+#if USE_NDVBUFFER
+			// Construct buffer with full virtual buffer range (this only allocates the address space, no memory)
+			// NOCOMMIT FIXME: Unfortunately this breaks our memory management (for OOM error message).
+			// Possible solution would be to add an allocator interface to ndv that is then implemented by device_queue.
+			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(m_buffer_infos.at(bid).range, device_queue), {}};
+			replacement_buf.storage->allocate(subrange{offset, range});
+#else
 			const auto allocation_size = range.size() * m_buffer_infos.at(bid).element_size;
 			if(!can_allocate(device_queue.get_memory_id(), allocation_size)) {
 				// TODO: Unless this single allocation exceeds the total available memory on the device we don't need to abort right away,
@@ -121,40 +128,36 @@ namespace detail {
 				die(allocation_size);
 			}
 			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(range, device_queue), offset};
+#endif
 		} else if(const auto info = is_resize_required(existing_buf, range, offset); info.resize_required) {
-			if(existing_buf.storage->supports_dynamic_allocation()) {
-				// NOCOMMIT FIXME: Unfortunately this breaks our memory management (for OOM error message).
-				// Possible solution would be to add an allocator interface to ndv that is then implemented by device_queue.
-				existing_buf.storage->allocate(subrange{offset, range});
+			assert(!existing_buf.storage->supports_dynamic_allocation());
+			const auto element_size = m_buffer_infos.at(bid).element_size;
+			const auto allocation_size = info.new_range.size() * element_size;
+			if(can_allocate(device_queue.get_memory_id(), allocation_size)) {
+				// Easy path: We can just do the resize on the device directly
+				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, device_queue), info.new_offset};
 			} else {
-				const auto element_size = m_buffer_infos.at(bid).element_size;
-				const auto allocation_size = info.new_range.size() * element_size;
-				if(can_allocate(device_queue.get_memory_id(), allocation_size)) {
-					// Easy path: We can just do the resize on the device directly
-					replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, device_queue), info.new_offset};
-				} else {
-					ZoneScopedN("slow path: reallocate through host");
+				ZoneScopedN("slow path: reallocate through host");
 
-					// Check if we can do the resize by going through host first (see if we'll be able to fit just the added elements of the resized buffer).
-					if(!can_allocate(device_queue.get_memory_id(), allocation_size - (existing_buf.storage->get_range().size() * element_size))) {
-						// TODO: Same thing as above
-						die(allocation_size);
-					}
-
-					// Do a faux host access with the *resized* range to retain all existing data from the device.
-					access_host_buffer_impl(bid, mode, info.new_range, info.new_offset);
-
-					// We now have all data "backed up" on the host, so we may deallocate the device buffer (via destructor).
-					const auto existing_buf_sr = subrange<3>{existing_buf.offset, existing_buf.storage->get_range()};
-					existing_buf = backing_buffer{};
-					auto locations = m_newest_data_location.at(bid).get_region_values(subrange_to_grid_box(existing_buf_sr));
-					for(auto& [box, locs] : locations) {
-						m_newest_data_location.at(bid).update_region(box, locs.reset(mid));
-					}
-
-					// Finally create the new device buffer. It will be made coherent with data from the host below.
-					replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, device_queue), info.new_offset};
+				// Check if we can do the resize by going through host first (see if we'll be able to fit just the added elements of the resized buffer).
+				if(!can_allocate(device_queue.get_memory_id(), allocation_size - (range.size() * element_size))) {
+					// TODO: Same thing as above
+					die(allocation_size);
 				}
+
+				// Do a faux host access with the *resized* range to retain all existing data from the device.
+				access_host_buffer_impl(bid, mode, info.new_range, info.new_offset);
+
+				// We now have all data "backed up" on the host, so we may deallocate the device buffer (via destructor).
+				const auto existing_buf_sr = subrange<3>{existing_buf.offset, existing_buf.storage->get_range()};
+				existing_buf = backing_buffer{};
+				auto locations = m_newest_data_location.at(bid).get_region_values(subrange_to_grid_box(existing_buf_sr));
+				for(auto& [box, locs] : locations) {
+					m_newest_data_location.at(bid).update_region(box, locs.reset(mid));
+				}
+
+				// Finally create the new device buffer. It will be made coherent with data from the host below.
+				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, device_queue), info.new_offset};
 			}
 		}
 
@@ -417,13 +420,15 @@ namespace detail {
 			return;
 		}
 
-		if(requires_allocation) {
-			// Re-allocation of a buffer that is currently being accessed never works.
-			throw std::runtime_error("You are requesting multiple accessors for the same buffer, with later ones requiring a larger part of the buffer, "
-			                         "causing a backing buffer reallocation. "
-			                         "This is currently unsupported. Try changing the order of your calls to buffer::get_access.");
-		}
+		// NOCOMMIT TODO: We can get rid of this with removal of multi-pass, and even more so with ndvbuffers.
+		// if(requires_allocation) {
+		// 	// Re-allocation of a buffer that is currently being accessed never works.
+		// 	throw std::runtime_error("You are requesting multiple accessors for the same buffer, with later ones requiring a larger part of the buffer, "
+		// 	                         "causing a backing buffer reallocation. "
+		// 	                         "This is currently unsupported. Try changing the order of your calls to buffer::get_access.");
+		// }
 
+		// NOCOMMIT TODO: We can get rid of this with removal of multi-pass!
 		if(!access::mode_traits::is_consumer(*lock_info.earlier_access_mode) && access::mode_traits::is_consumer(mode)) {
 			// Accessing a buffer using a pure producer mode followed by a consumer mode breaks our coherence bookkeeping.
 			throw std::runtime_error("You are requesting multiple accessors for the same buffer, using a discarding access mode first, followed by a "

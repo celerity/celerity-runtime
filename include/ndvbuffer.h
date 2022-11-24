@@ -112,6 +112,7 @@ class coordinate {
 	}
 };
 
+// TODO: Make fill a template parameter as well, use different defaults for point (0) and extent (1)?
 template <template <int> class OutType, int DimsOut>
 struct make_from_mixin {
 	template <template <int> class InType, int DimsIn>
@@ -269,6 +270,10 @@ class buffer {
 
 		m_virtual_size = get_padded_size(ext.size() * sizeof(T));
 		CHECK_DRV(cuMemAddressReserve(&m_base_ptr, m_virtual_size, 0, 0, 0));
+
+		// FIXME HACK: cuMemcpy3DPeer fails if the base address is not mapped to physical memory.
+		// For now we simply always allocate the first page. A better workaround might be to shift the base address in copy calls.
+		m_allocations.emplace_back(allocate(m_allocation_granularity, m_base_ptr));
 	}
 
 	buffer(const buffer&) = delete;
@@ -507,6 +512,11 @@ class buffer {
 			params.srcXInBytes = src_box.min()[1] * sizeof(T);
 			params.srcY = src_box.min()[0];
 
+			// FIXME: For some reason we get an "invalid argument" when using the base pointer + offset, even after ensuring the first page is allocated
+			// (see HACK in ctor). At this point I don't care enough to investigate further; just shift the base pointer.
+			params.srcDevice = m_base_ptr + src_box.min()[0] * m_extent[1] * sizeof(T);
+			params.srcY = 0;
+
 			CHECK_DRV(cuMemcpy2D(&params));
 			CHECK_DRV(cuCtxSynchronize());
 			return;
@@ -608,8 +618,8 @@ class buffer {
 #endif
 
 		// {
-		// 	const point pt = {(ptr - m_base_ptr) / (m_extent[1] * sizeof(T)), ((ptr - m_base_ptr) / sizeof(T)) % m_extent[1]};
-		// 	printf("Allocating %zu bytes at %zu,%zu (%p)\n", padded_size, pt[0], pt[1], (void*)ptr);
+		// 	const point<3> pt = point<3>::make_from(get_point_from_linear_id((ptr - m_base_ptr) / sizeof(T), m_extent));
+		// 	printf("%p: Allocating %zu bytes at %zu,%zu,%zu (%p).\n", (void*)this, padded_size, pt[0], pt[1], pt[2], (void*)ptr);
 		// }
 
 		m_allocated_size += padded_size;
