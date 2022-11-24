@@ -38,7 +38,7 @@ set(TEST_TARGETS
   # print_graph_tests
   region_map_tests
   # runtime_tests
-  runtime_deprecation_tests
+  # runtime_deprecation_tests
   sycl_tests
   # task_graph_tests
   task_ring_buffer_tests
