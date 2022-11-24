@@ -205,6 +205,11 @@ namespace detail {
 
 		void copy(const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) override;
 
+#if USE_NDVBUFFER
+		// FIXME: Required for more efficient D->H copies (see host_buffer_storage::copy). Find cleaner API.
+		const ndv::buffer<DataT, Dims>& get_ndv_buffer() const { return m_device_buf; }
+#endif
+
 	  private:
 		mutable sycl::queue m_owning_queue;
 #if USE_NDVBUFFER
@@ -312,12 +317,20 @@ namespace detail {
 		if(source.get_type() == buffer_type::device_buffer) {
 			const auto msg = fmt::format("d2h {}", copy_range.size() * sizeof(DataT));
 			ZoneText(msg.c_str(), msg.size());
+
+#if USE_NDVBUFFER
+			// TODO: It may still be beneficial to first copy into a pinned, dense host allocation. Or should we just allocate host buffers as pinned memory?
+			dynamic_cast<const device_buffer_storage<DataT, Dims>&>(source).get_ndv_buffer().copy_to(static_cast<DataT*>(m_host_buf.get_pointer()),
+			    ndv::extent<Dims>::make_from(m_host_buf.get_range()),
+			    {ndv::point<Dims>::make_from(source_offset), ndv::point<Dims>::make_from(source_offset + copy_range)},
+			    {ndv::point<Dims>::make_from(target_offset), ndv::point<Dims>::make_from(target_offset + copy_range)});
+#else
 			// This looks more convoluted than using a vector<DataT>, but that would break if DataT == bool
 			// TODO: No need for intermediate copy with native backend 2D/3D copy capabilities
-			// NOCOMMIT TODO !!!! NDV can copy directly
 			auto tmp = make_uninitialized_payload<DataT>(copy_range.size());
 			source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
 			set_data(subrange{target_offset, copy_range}, static_cast<const DataT*>(tmp.get_pointer()));
+#endif
 		}
 
 		else if(source.get_type() == buffer_type::host_buffer) {
