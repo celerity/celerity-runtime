@@ -203,10 +203,11 @@ class buffer_allocation_window {
 };
 
 /**
- * Celerity wrapper around SYCL accessors.
+ * Accessor for device buffers.
  *
  * @note The Celerity accessor currently does not support get_size, get_count, get_range, get_offset and get_pointer,
  * as their semantics in a distributed context are unclear.
+ * TODO: Revisit ^ with ndvbuffer
  */
 template <typename DataT, int Dims, access_mode Mode>
 class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base<DataT, Dims, Mode, target::device> {
@@ -280,7 +281,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
   private:
 	DataT* m_device_ptr = nullptr;
-	sycl::id<Dims> m_index_offset;
+	sycl::id<Dims> m_index_offset; // NOCOMMIT NDV - can get rid of!
 	sycl::range<Dims> m_buffer_range = detail::zero_range;
 
 	template <typename Functor>

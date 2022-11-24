@@ -110,7 +110,10 @@ namespace detail {
 		virtual const void* get_pointer() const = 0;
 
 		// TODO: This is just a mockup of what a backend-specific integration of ndvbuffer might look like
-		virtual bool supports_dynamic_resize() const { return false; }
+		// TODO: Naming - this should signal two things: Buffer can be resized in-place, and supports sparse backing allocations
+		virtual bool supports_dynamic_allocation() const { return false; }
+
+		virtual void allocate(const subrange<3>& sr) { assert(supports_dynamic_allocation()); }
 
 		virtual void get_data(const subrange<3>& sr, void* out_linearized) const = 0;
 
@@ -158,7 +161,13 @@ namespace detail {
 
 		const void* get_pointer() const override { return m_device_buf.get_pointer(); }
 
-		bool supports_dynamic_resize() const override { return USE_NDVBUFFER; }
+		bool supports_dynamic_allocation() const override { return USE_NDVBUFFER; }
+
+#if USE_NDVBUFFER
+		void allocate(const subrange<3>& sr) override {
+			m_device_buf.access({ndv::point<Dims>::make_from(sr.offset), ndv::point<Dims>::make_from(sr.offset + sr.range)});
+		}
+#endif
 
 		void get_data(const subrange<3>& sr, void* out_linearized) const override {
 			assert(Dims > 1 || (sr.offset[1] == 0 && sr.range[1] == 1));
@@ -301,6 +310,7 @@ namespace detail {
 			ZoneText(msg.c_str(), msg.size());
 			// This looks more convoluted than using a vector<DataT>, but that would break if DataT == bool
 			// TODO: No need for intermediate copy with native backend 2D/3D copy capabilities
+			// NOCOMMIT TODO !!!! NDV can copy directly
 			auto tmp = make_uninitialized_payload<DataT>(copy_range.size());
 			source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
 			set_data(subrange{target_offset, copy_range}, static_cast<const DataT*>(tmp.get_pointer()));

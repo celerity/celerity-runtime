@@ -141,6 +141,13 @@ namespace detail {
 				auto device_factory = [](const ::celerity::range<3>& r, device_queue& q) {
 					return std::make_unique<device_buffer_storage<DataT, Dims>>(range_cast<Dims>(r), q);
 				};
+#if USE_NDVBUFFER
+				// Construct full buffer once for each device (this only allocates the address space, no memory)
+				for(device_id did = 0; did < m_local_devices.num_compute_devices(); ++did) {
+					m_buffers.at(bid).get(m_local_devices.get_memory_id(did)) =
+					    backing_buffer{device_factory(range, m_local_devices.get_device_queue(did)), {}};
+				}
+#endif
 				auto host_factory = [](const ::celerity::range<3>& r) { return std::make_unique<host_buffer_storage<DataT, Dims>>(range_cast<Dims>(r)); };
 				m_buffer_infos.emplace(
 				    bid, buffer_info{Dims, range, sizeof(DataT), is_host_initialized, {}, std::move(device_factory), std::move(host_factory)});
