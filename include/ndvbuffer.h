@@ -270,10 +270,6 @@ class buffer {
 
 		m_virtual_size = get_padded_size(ext.size() * sizeof(T));
 		CHECK_DRV(cuMemAddressReserve(&m_base_ptr, m_virtual_size, 0, 0, 0));
-
-		// FIXME HACK: cuMemcpy3DPeer fails if the base address is not mapped to physical memory.
-		// For now we simply always allocate the first page. A better workaround might be to shift the base address in copy calls.
-		m_allocations.emplace_back(allocate(m_allocation_granularity, m_base_ptr));
 	}
 
 	buffer(const buffer&) = delete;
@@ -371,6 +367,11 @@ class buffer {
 		return accessor<T, Dims>{m_base_ptr, b, m_extent};
 	}
 
+// For some reason cuMemcpy3DPeer fails if the base address is not mapped to physical memory (presumably it tries to inspect the pointer attributes).
+// We work around this by shifting the base address to the first copied element and setting all offsets to zero.
+// To my knowledge this workaround is always required; the macro only exists for documentation purposes.
+#define UNMAPPED_BASE_PTR_WORKAROUND
+
 	// TODO: Optimize for contiguous copies
 	// TODO: Make non-blocking
 	void copy_from(const buffer<T, Dims>& src, const box<Dims>& src_box, const box<Dims>& dst_box) {
@@ -404,6 +405,13 @@ class buffer {
 		params.dstY = middle(dst_box.min());
 		params.dstZ = Dims == 3 ? dst_box.min()[0] : 0;
 
+#if defined(UNMAPPED_BASE_PTR_WORKAROUND)
+		params.dstDevice = m_base_ptr + get_linear_id(m_extent, dst_box.min()) * sizeof(T);
+		params.dstXInBytes = 0;
+		params.dstY = 0;
+		params.dstZ = 0;
+#endif
+
 		params.srcContext = src.m_context;
 		params.srcDevice = src.m_base_ptr;
 		params.srcHeight = middle(src.m_extent);
@@ -412,6 +420,13 @@ class buffer {
 		params.srcXInBytes = fastest(src_box.min()) * sizeof(T);
 		params.srcY = middle(src_box.min());
 		params.srcZ = Dims == 3 ? src_box.min()[0] : 0;
+
+#if defined(UNMAPPED_BASE_PTR_WORKAROUND)
+		params.srcDevice = src.m_base_ptr + get_linear_id(src.m_extent, src_box.min()) * sizeof(T);
+		params.srcXInBytes = 0;
+		params.srcY = 0;
+		params.srcZ = 0;
+#endif
 
 		CHECK_DRV(cuMemcpy3DPeer(&params));
 		CHECK_DRV(cuCtxSynchronize());
@@ -443,6 +458,12 @@ class buffer {
 			params.dstXInBytes = dst_box.min()[1] * sizeof(T);
 			params.dstY = dst_box.min()[0];
 
+#if defined(UNMAPPED_BASE_PTR_WORKAROUND)
+			params.dstDevice = m_base_ptr + get_linear_id(m_extent, dst_box.min()) * sizeof(T);
+			params.dstXInBytes = 0;
+			params.dstY = 0;
+#endif
+
 			params.srcHost = src_ptr;
 			params.srcMemoryType = CU_MEMORYTYPE_HOST;
 			params.srcPitch = src_ext[1] * sizeof(T);
@@ -466,6 +487,13 @@ class buffer {
 		params.dstXInBytes = dst_box.min()[2] * sizeof(T);
 		params.dstY = dst_box.min()[1];
 		params.dstZ = dst_box.min()[0];
+
+#if defined(UNMAPPED_BASE_PTR_WORKAROUND)
+		params.dstDevice = m_base_ptr + get_linear_id(m_extent, dst_box.min()) * sizeof(T);
+		params.dstXInBytes = 0;
+		params.dstY = 0;
+		params.dstZ = 0;
+#endif
 
 		params.srcHost = src_ptr;
 		params.srcHeight = src_ext[1];
@@ -512,10 +540,11 @@ class buffer {
 			params.srcXInBytes = src_box.min()[1] * sizeof(T);
 			params.srcY = src_box.min()[0];
 
-			// FIXME: For some reason we get an "invalid argument" when using the base pointer + offset, even after ensuring the first page is allocated
-			// (see HACK in ctor). At this point I don't care enough to investigate further; just shift the base pointer.
-			params.srcDevice = m_base_ptr + src_box.min()[0] * m_extent[1] * sizeof(T);
+#if defined(UNMAPPED_BASE_PTR_WORKAROUND)
+			params.srcDevice = m_base_ptr + get_linear_id(m_extent, src_box.min()) * sizeof(T);
+			params.srcXInBytes = 0;
 			params.srcY = 0;
+#endif
 
 			CHECK_DRV(cuMemcpy2D(&params));
 			CHECK_DRV(cuCtxSynchronize());
@@ -542,6 +571,13 @@ class buffer {
 		params.srcXInBytes = src_box.min()[2] * sizeof(T);
 		params.srcY = src_box.min()[1];
 		params.srcZ = src_box.min()[0];
+
+#if defined(UNMAPPED_BASE_PTR_WORKAROUND)
+		params.srcDevice = m_base_ptr + get_linear_id(m_extent, src_box.min()) * sizeof(T);
+		params.srcXInBytes = 0;
+		params.srcY = 0;
+		params.srcZ = 0;
+#endif
 
 		CHECK_DRV(cuMemcpy3D(&params));
 		CHECK_DRV(cuCtxSynchronize());

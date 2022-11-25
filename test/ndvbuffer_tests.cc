@@ -121,22 +121,19 @@ struct very_large_type {
 } // namespace
 
 TEST_CASE("physical regions are allocated lazily upon access (1D)") {
-	// FIXME: See "copy works even when first page is not allocated" below
-	const size_t hack_additional_allocation = 1;
-
 	sycl::queue q{sycl::gpu_selector_v};
 	ndv::buffer<very_large_type, 1> buf(get_cuda_drv_device(q.get_device()), {256});
 	REQUIRE(buf.get_allocation_granularity() == sizeof(very_large_type));
 
 	auto acc1 = buf.access({{10}, {15}});
 	write_global_linear_ids(q, acc1);
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 5 + hack_additional_allocation);
+	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 5);
 
 	buf.access({{8}, {15}});
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 7 + hack_additional_allocation);
+	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 7);
 
 	buf.access({{99}, {100}});
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 8 + hack_additional_allocation);
+	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 8);
 
 	buf.access({{0}, {2}});
 	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 10);
@@ -144,16 +141,13 @@ TEST_CASE("physical regions are allocated lazily upon access (1D)") {
 
 // FIXME: For some reason cudaMemcpy2D fails for very_large_type, so we cannot verify the global ids. It works when changing the size to 1 MiB...
 TEST_CASE("physical regions are allocated lazily upon access (2D)") {
-	// FIXME: See "copy works even when first page is not allocated" below
-	const size_t hack_additional_allocation = 1;
-
 	sycl::queue q{sycl::gpu_selector_v};
 	ndv::buffer<very_large_type, 2> buf(get_cuda_drv_device(q.get_device()), {8, 8});
 	REQUIRE(buf.get_allocation_granularity() == sizeof(very_large_type));
 
 	auto acc1 = buf.access({{1, 1}, {3, 3}});
 	write_global_linear_ids(q, acc1);
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 4 + hack_additional_allocation);
+	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 4);
 	// verify_global_linear_ids(q, buf, acc1);
 
 	buf.access({{0, 0}, {3, 3}});
@@ -183,16 +177,13 @@ TEST_CASE("physical regions are allocated lazily upon access (2D)") {
 }
 
 TEST_CASE("physical regions are allocated lazily upon access (3D)") {
-	// FIXME: See "copy works even when first page is not allocated" below
-	const size_t hack_additional_allocation = 1;
-
 	sycl::queue q{sycl::gpu_selector_v};
 	ndv::buffer<very_large_type, 3> buf(get_cuda_drv_device(q.get_device()), {8, 8, 8});
 	REQUIRE(buf.get_allocation_granularity() == sizeof(very_large_type));
 
 	auto acc1 = buf.access({{4, 4, 4}, {6, 6, 6}});
 	write_global_linear_ids(q, acc1);
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 8 + hack_additional_allocation);
+	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 8);
 
 	buf.access({{0, 0, 0}, {1, 1, 1}});
 	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 9);
@@ -264,21 +255,33 @@ TEST_CASE("WIP: why are returned pointers not 'UVA pointers' ?!") {
 
 // Smoke test: CUDA for some (of course undocumented!) reason also tries to inspect the base pointer passed into cuMemcpy3DPeer.
 // If that pointer is not mapped to a physical allocation, it fails with "invalid argument".
-TEST_CASE("copy works even when first page is not allocated", "[ndvbuffer]") {
+// We work around this by shifting the base pointer to the start of the copied box.
+TEMPLATE_TEST_CASE_SIG("copy works even when first page is not allocated", "[ndvbuffer]", ((int Dims), Dims), 1, 2, 3) {
 	sycl::queue q{sycl::gpu_selector_v};
 
-	// Need to do at least a 2D copy so we actually invoke cuMemcpy3DPeer internally.
-	const ndv::extent<2> ext{4, 1};
-	ndv::buffer<very_large_type, 2> buf1{get_cuda_drv_device(q.get_device()), ext};
-	const ndv::box<2> copy_box{{2, 0}, {3, 1}};
-	auto acc1 = buf1.access(copy_box);
-	write_global_linear_ids(q, acc1);
+	const ndv::extent<Dims> ext{5, 4, 3};
+	const ndv::box<Dims> copy_box{{3, 1, 2}, {4, 2, 3}};
 
-	ndv::buffer<very_large_type, 2> buf2{get_cuda_drv_device(q.get_device()), ext};
-	buf2.copy_from(buf1, copy_box, copy_box);
+	SECTION("copy from other buffer") {
+		ndv::buffer<very_large_type, Dims> buf1{get_cuda_drv_device(q.get_device()), ext};
+		buf1.access(copy_box);
+		const ndv::extent<Dims> offset{1, 1, 1};
+		ndv::buffer<very_large_type, Dims> buf2{get_cuda_drv_device(q.get_device()), ext + offset};
+		buf2.copy_from(buf1, copy_box, ndv::box<Dims>{copy_box.min() + offset, copy_box.max() + offset});
+	}
 
-	auto acc2 = buf2.access({{}, ext});
-	verify_global_linear_ids(q, buf2, acc2, std::optional{copy_box});
+	SECTION("copy from host buffer") {
+		const std::vector<very_large_type> host_buf(ext.size());
+		ndv::buffer<very_large_type, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
+		buf.copy_from(host_buf.data(), ext, copy_box, copy_box);
+	}
+
+	SECTION("copy to host buffer") {
+		ndv::buffer<very_large_type, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
+		buf.access(copy_box);
+		std::vector<very_large_type> host_buf(ext.size());
+		buf.copy_to(host_buf.data(), ext, copy_box, copy_box);
+	}
 }
 
 TEMPLATE_TEST_CASE_SIG("copy parts between buffers on different devices", "[ndvbuffer]", ((int Dims), Dims), 1, 2, 3) {
