@@ -280,6 +280,8 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
   private:
+	friend class experimental::interop_handle;
+
 	DataT* m_device_ptr = nullptr;
 	sycl::id<Dims> m_index_offset; // NOCOMMIT NDV - can get rid of!
 	sycl::range<Dims> m_buffer_range = detail::zero_range;

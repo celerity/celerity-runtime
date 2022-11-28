@@ -12,6 +12,7 @@
 #include "cgf_diagnostics.h"
 #include "device_queue.h"
 #include "host_queue.h"
+#include "interop_handle.h"
 #include "item.h"
 #include "range_mapper.h"
 #include "ranges.h"
@@ -340,6 +341,11 @@ class handler {
 		    reductions_and_kernel...);
 	}
 
+	template <int Dims, typename Functor>
+	void interop_task(const range<Dims>& global_range, Functor task_fn, std::string debug_name = "interop_task") {
+		create_interop_task(global_range, task_fn, std::move(debug_name));
+	}
+
 	/**
 	 * Schedules `kernel` to execute on the master node only. Call via `cgh.host_task(celerity::on_master_node, []...)`. The kernel is assumed to be invocable
 	 * with the signature `void(const celerity::partition<0> &)` or `void()`.
@@ -525,6 +531,34 @@ class handler {
 		}
 		// Note that cgf_diagnostics has a similar check, but we don't catch void side effects there.
 		if(!m_side_effects.empty()) { throw std::runtime_error{"Side effects cannot be used in device kernels"}; }
+		m_task =
+		    detail::task::make_device_compute(m_tid, geometry, std::move(launcher), std::move(m_access_map), std::move(m_reductions), std::move(debug_name));
+	}
+
+	template <int Dims, typename Functor>
+	void create_interop_task(const range<Dims>& global_range, Functor task_fn, std::string debug_name) {
+#if !defined(__HIPSYCL__) || !defined(HIPSYCL_PLATFORM_CUDA)
+		static_assert(detail::constexpr_false<Functor>, "interop_task is currently only supported on hipSYCL with the CUDA backend.");
+#endif
+
+		assert(m_task == nullptr);
+		assert(m_launcher == nullptr);
+
+		static_assert(std::is_invocable_v<Functor, experimental::interop_handle&, const partition<Dims>&>);
+		auto launch_fn = [=](detail::device_queue& q, const subrange<3> execution_sr) {
+			return q.submit([&](sycl::handler& cgh) {
+				cgh.hipSYCL_enqueue_custom_operation([=](sycl::interop_handle& sycl_ih) {
+					const auto part = detail::make_partition<Dims>(global_range, detail::subrange_cast<Dims>(execution_sr));
+					experimental::interop_handle ih{sycl_ih};
+					task_fn(ih, part);
+				});
+			});
+		};
+
+		// TODO: This is currently inconsistent with other task types, b/c we create the launcher right here instead of a separate function (prefer this way).
+		auto launcher = std::make_unique<detail::command_launcher_storage<decltype(launch_fn)>>(std::move(launch_fn));
+		const range<3> granularity = {1, 1, 1};
+		const detail::task_geometry geometry{Dims, detail::range_cast<3>(global_range), {}, get_constrained_granularity(granularity)};
 		m_task =
 		    detail::task::make_device_compute(m_tid, geometry, std::move(launcher), std::move(m_access_map), std::move(m_reductions), std::move(debug_name));
 	}

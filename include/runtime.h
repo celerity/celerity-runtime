@@ -67,6 +67,8 @@ namespace detail {
 
 		device_queue& get_device_queue() const { return m_local_devices->get_device_queue(0); } // NOCOMMIT What do we even need this for anyway?
 
+		local_devices& get_local_devices() const { return *m_local_devices; }
+
 		buffer_manager& get_buffer_manager() const;
 
 		reduction_manager& get_reduction_manager() const;
