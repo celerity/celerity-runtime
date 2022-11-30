@@ -36,6 +36,9 @@ namespace experimental::hints {
 	  private:
 		size_t m_factor;
 	};
+
+	class tiled_split : public detail::hint_base {};
+
 }; // namespace experimental::hints
 
 namespace detail {

@@ -256,7 +256,11 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 	const size_t num_chunks = m_num_nodes * 1; // TODO Make configurable (oversubscription - although we probably only want to do this for local chunks)
 	const auto distributed_chunks = ([&] {
 		if(tsk.has_variable_split()) {
-			return split_2d(full_chunk, tsk.get_granularity(), num_chunks);
+			if(tsk.get_hint<experimental::hints::tiled_split>() != nullptr) {
+				return split_2d(full_chunk, tsk.get_granularity(), num_chunks);
+			} else {
+				return split_1d(full_chunk, tsk.get_granularity(), num_chunks);
+			}
 		} else {
 			return std::vector<chunk<3>>{full_chunk};
 		}
@@ -291,7 +295,11 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 		// The same push commands generated for a single remote chunk also apply to the effective chunks generated on that node.
 		std::vector<chunk<3>> effective_chunks;
 		if(is_local_chunk && m_num_local_devices > 1 && tsk.has_variable_split()) {
-			effective_chunks = split_2d(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices * oversub_factor);
+			if(tsk.get_hint<experimental::hints::tiled_split>() != nullptr) {
+				effective_chunks = split_2d(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices * oversub_factor);
+			} else {
+				effective_chunks = split_1d(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices * oversub_factor);
+			}
 		} else {
 			effective_chunks.push_back(distributed_chunks[i]);
 		}
