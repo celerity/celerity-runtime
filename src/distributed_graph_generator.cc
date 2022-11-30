@@ -40,11 +40,10 @@ void distributed_graph_generator::add_buffer(const buffer_id bid, const range<3>
 	m_buffer_states.at(bid).replicated_regions.update_region(subrange_to_grid_box({id<3>(), range}), node_bitset{}.set());
 }
 
-// We simply split in the first dimension for now
-static std::vector<chunk<3>> split_equal(const chunk<3>& full_chunk, const range<3>& granularity, const size_t num_chunks, const int dims) {
+std::vector<chunk<3>> split_1d(const chunk<3>& full_chunk, const range<3>& granularity, const size_t num_chunks) {
 #ifndef NDEBUG
 	assert(num_chunks > 0);
-	for(int d = 0; d < dims; ++d) {
+	for(int d = 0; d < 3; ++d) {
 		assert(granularity[d] > 0);
 		assert(full_chunk.range[d] % granularity[d] == 0);
 	}
@@ -84,6 +83,111 @@ static std::vector<chunk<3>> split_equal(const chunk<3>& full_chunk, const range
 	assert(total_range_dim0 == full_chunk.range[0]);
 #endif
 
+	return result;
+}
+
+// TODO: Make the split dimensions configurable for 3D chunks?
+std::vector<chunk<3>> split_2d(const chunk<3>& full_chunk, const range<3>& granularity, const size_t num_chunks) {
+#ifndef NDEBUG
+	assert(num_chunks > 0);
+	for(int d = 0; d < 3; ++d) {
+		assert(granularity[d] > 0);
+		assert(full_chunk.range[d] % granularity[d] == 0);
+	}
+#endif
+
+	const auto assign_factors = [&full_chunk, &granularity, &num_chunks](const size_t factor) {
+		assert(num_chunks % factor == 0);
+		const size_t max_chunks[2] = {full_chunk.range[0] / granularity[0], full_chunk.range[1] / granularity[1]};
+		const size_t f0 = factor;
+		const size_t f1 = num_chunks / factor;
+
+		// Decide in which direction to split by first checking which
+		// factor assignment produces more chunks under the given constraints.
+		const std::array<size_t, 2> split0 = {std::min(f0, max_chunks[0]), std::min(f1, max_chunks[1])};
+		const std::array<size_t, 2> split1 = {std::min(f1, max_chunks[0]), std::min(f0, max_chunks[1])};
+		const auto count0 = split0[0] * split0[1];
+		const auto count1 = split1[0] * split1[1];
+
+		if(count0 == count1) {
+			// If we're tied for the number of chunks we can create, try some heuristics to decide.
+
+			// TODO: Yet another heuristic we should consider is how even chunk sizes are,
+			// i.e., how balanced the workload is.
+
+			// If domain is square(-ish), prefer splitting along slower dimension.
+			// (These bounds have been chosen arbitrarily!)
+			const float squareishness = std::sqrt(full_chunk.range.size()) / full_chunk.range[0];
+			if(squareishness > 0.95f && squareishness < 1.05f) { return (f0 >= f1) ? split0 : split1; }
+
+			// For non-square domains, prefer split that produces shorter edges (compare sum of circumferences)
+			const auto circ0 = full_chunk.range[0] / split0[0] + full_chunk.range[1] / split0[1];
+			const auto circ1 = full_chunk.range[0] / split1[0] + full_chunk.range[1] / split1[1];
+			return circ0 < circ1 ? split0 : split1;
+
+		} else if(count0 > count1) {
+			return split0;
+		} else {
+			return split1;
+		}
+	};
+
+	// Factorize num_chunks
+	// Try to find factors as close to the square root as possible, that also produce
+	// (or come close to) the requested number of chunks (under the given constraints).
+	size_t f = std::floor(std::sqrt(num_chunks));
+	std::array<size_t, 2> best_f_counts = {0, 0};
+	while(f >= 1) {
+		while(f > 1 && num_chunks % f != 0) {
+			f--;
+		}
+		const auto counts = assign_factors(f);
+		if(counts[0] * counts[1] > best_f_counts[0] * best_f_counts[1]) { best_f_counts = counts; }
+		if(counts[0] * counts[1] == num_chunks) { break; }
+		f--;
+	}
+
+	const auto actual_num_chunks = best_f_counts;
+	if(actual_num_chunks[0] * actual_num_chunks[1] != num_chunks) {
+		// TODO: Don't always warn here, do maybe once per task
+		CELERITY_WARN("Unable to create {} chunks, created {} instead.", num_chunks, actual_num_chunks[0] * actual_num_chunks[1]);
+	}
+
+	// TODO: Move to generic utility, can share between 1D and 2D split
+	const std::array<size_t, 2> ideal_chunk_size = {full_chunk.range[0] / actual_num_chunks[0], full_chunk.range[1] / actual_num_chunks[1]};
+	const std::array<size_t, 2> small_chunk_size = {
+	    (ideal_chunk_size[0] / granularity[0]) * granularity[0], (ideal_chunk_size[1] / granularity[1]) * granularity[1]};
+	const std::array<size_t, 2> large_chunk_size = {small_chunk_size[0] + granularity[0], small_chunk_size[1] + granularity[1]};
+	const std::array<size_t, 2> num_large_chunks = {(full_chunk.range[0] - small_chunk_size[0] * actual_num_chunks[0]) / granularity[0],
+	    (full_chunk.range[1] - small_chunk_size[1] * actual_num_chunks[1]) / granularity[1]};
+
+	std::vector<chunk<3>> result(actual_num_chunks[0] * actual_num_chunks[1], {full_chunk.offset, full_chunk.range, full_chunk.global_size});
+	id<3> offset = {0, 0, full_chunk.offset[2]};
+
+	for(size_t j = 0; j < actual_num_chunks[0]; ++j) {
+		range<2> chunk_size = {(j < num_large_chunks[0]) ? large_chunk_size[0] : small_chunk_size[0], 0};
+		for(size_t i = 0; i < actual_num_chunks[1]; ++i) {
+			chunk_size[1] = (i < num_large_chunks[1]) ? large_chunk_size[1] : small_chunk_size[1];
+			auto& chnk = result[j * actual_num_chunks[1] + i];
+			chnk.offset = offset;
+			chnk.range[0] = chunk_size[0];
+			chnk.range[1] = chunk_size[1];
+			offset[1] += chunk_size[1];
+		}
+		offset[0] += chunk_size[0];
+		offset[1] = 0;
+	}
+
+// Sanity check
+// TODO: Can we keep DRY with 1D variant?
+#ifndef NDEBUG
+	GridRegion<3> reconstructed_chunk;
+	for(auto& chnk : result) {
+		assert(GridRegion<3>::intersect(reconstructed_chunk, subrange_to_grid_box(chnk)).empty());
+		reconstructed_chunk = GridRegion<3>::merge(subrange_to_grid_box(chnk), reconstructed_chunk);
+	}
+	assert(GridRegion<3>::difference(reconstructed_chunk, subrange_to_grid_box(full_chunk)).empty());
+#endif
 	return result;
 }
 
@@ -152,7 +256,7 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 	const size_t num_chunks = m_num_nodes * 1; // TODO Make configurable (oversubscription - although we probably only want to do this for local chunks)
 	const auto distributed_chunks = ([&] {
 		if(tsk.has_variable_split()) {
-			return split_equal(full_chunk, tsk.get_granularity(), num_chunks, tsk.get_dimensions());
+			return split_2d(full_chunk, tsk.get_granularity(), num_chunks);
 		} else {
 			return std::vector<chunk<3>>{full_chunk};
 		}
@@ -187,7 +291,7 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 		// The same push commands generated for a single remote chunk also apply to the effective chunks generated on that node.
 		std::vector<chunk<3>> effective_chunks;
 		if(is_local_chunk && m_num_local_devices > 1 && tsk.has_variable_split()) {
-			effective_chunks = split_equal(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices * oversub_factor, tsk.get_dimensions());
+			effective_chunks = split_2d(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices * oversub_factor);
 		} else {
 			effective_chunks.push_back(distributed_chunks[i]);
 		}
@@ -205,7 +309,8 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 				did++;
 			}
 
-			// We use the task id, together with the "chunk id" and the buffer id (stored separately) to match pushes against their corresponding await pushes
+			// We use the task id, together with the "chunk id" and the buffer id (stored separately) to match pushes against their corresponding await
+			// pushes
 			const transfer_id trid = static_cast<transfer_id>((tsk.get_id() << 32) | i);
 			for(auto& [bid, reqs_by_mode] : requirements) {
 				auto& buffer_state = m_buffer_states.at(bid);
