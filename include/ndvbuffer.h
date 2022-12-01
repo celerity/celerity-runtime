@@ -14,6 +14,7 @@
 //     - In principle yes (see vectorAddMMAP CUDA sample), but I'm not sure how that would work for D2D memcpy between the same addresses then.
 //     - For USM we may need something like this though..?
 // - Look into vectorAddMMAP CUDA sample for some more pointers on requirements for using virtual memory with multiple devices
+// - Later: Explore sharing a single virtual address space across all local devices. Can this deliver acceptable performance with NVLink?
 
 #include <cassert>
 #include <chrono>
@@ -259,6 +260,14 @@ class buffer {
 			}
 		}
 
+		const auto peers = get_peer_devices(m_device); // This includes m_device
+		m_peer_rw_access_descs.resize(peers.size());
+		for(size_t i = 0; i < peers.size(); ++i) {
+			m_peer_rw_access_descs[i].location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+			m_peer_rw_access_descs[i].location.id = peers[i];
+			m_peer_rw_access_descs[i].flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+		}
+
 		m_alloc_prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
 		m_alloc_prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
 		m_alloc_prop.location.id = (int)m_device;
@@ -270,6 +279,22 @@ class buffer {
 
 		m_virtual_size = get_padded_size(ext.size() * sizeof(T));
 		CHECK_DRV(cuMemAddressReserve(&m_base_ptr, m_virtual_size, 0, 0, 0));
+
+		// CUDA for some (of course undocumented!) reason seems to check whether all pages in the copied region are mapped.
+		// We work around this by mapping all unallocated address ranges to a "zero page" using virtual aliasing.
+		// See also https://forums.developer.nvidia.com/t/strange-behavior-of-2d-3d-copies-in-partially-mapped-virtual-address-space/235533/2
+		{
+			CHECK_DRV(cuMemCreate(&m_zero_page_handle, m_allocation_granularity, &m_alloc_prop, 0));
+
+			// Set memory protection flags
+			for(CUdeviceptr ptr = m_base_ptr; ptr < m_base_ptr + m_virtual_size; ptr += m_allocation_granularity) {
+				// Map physical allocation into address range
+				CHECK_DRV(cuMemMap(ptr, m_allocation_granularity, 0, m_zero_page_handle, 0));
+				// Note that we need to set READ_WRITE access capabilities on these mappings as CUDA will complain otherwise.
+				// This means that we won't get out-of-bounds errors unfortunately.
+				CHECK_DRV(cuMemSetAccess(ptr, m_allocation_granularity, m_peer_rw_access_descs.data(), m_peer_rw_access_descs.size()));
+			}
+		}
 	}
 
 	buffer(const buffer&) = delete;
@@ -277,10 +302,20 @@ class buffer {
 
 	~buffer() {
 		activate_cuda_context act{m_context};
+		CUdeviceptr last_zero_page = m_base_ptr;
 		for(auto& a : m_allocations) {
+			while(last_zero_page < a.ptr) {
+				cuMemUnmap(last_zero_page, m_allocation_granularity);
+				last_zero_page += m_allocation_granularity;
+			}
 			CHECK_DRV(cuMemUnmap(a.ptr, a.size));
 			CHECK_DRV(cuMemRelease(a.handle));
 		}
+		while(last_zero_page < m_base_ptr + m_virtual_size) {
+			cuMemUnmap(last_zero_page, m_allocation_granularity);
+			last_zero_page += m_allocation_granularity;
+		}
+		cuMemRelease(m_zero_page_handle);
 		CHECK_DRV(cuMemAddressFree(m_base_ptr, m_virtual_size));
 	}
 
@@ -295,7 +330,6 @@ class buffer {
 
 		assert(b.max() <= m_extent);
 
-		// NOCOMMIT TODO: Revisit - do we actually end up using resulting pointers from all three branches?
 		const auto advance = [this, &b](const CUdeviceptr ptr, const size_t add) {
 			assert(ptr >= m_base_ptr);
 			// Calculate positions within virtual space
@@ -332,7 +366,7 @@ class buffer {
 		//  - Use a series of binary searches to figure out whether requested region is already covered
 		//  - Only start copying into new array once we know that we'll actually need to allocate
 		const CUdeviceptr start = align_ptr(false, m_base_ptr + get_linear_id(m_extent, b.min()) * sizeof(T));
-		const CUdeviceptr end = align_ptr(true, m_base_ptr + (get_linear_id(m_extent, b.max() - point<Dims>{1, 1, 1}) + 1) * sizeof(T)); // 1 element past max
+		const CUdeviceptr end = align_ptr(true, m_base_ptr + (get_linear_id(m_extent, b.max() - point<Dims>{1, 1, 1}) + 1) * sizeof(T)); // 1 element past last
 		size_t i = 0;
 		CUdeviceptr current = start;
 		while(current < end) {
@@ -367,17 +401,14 @@ class buffer {
 		return accessor<T, Dims>{m_base_ptr, b, m_extent};
 	}
 
-// For some reason cuMemcpy3DPeer fails if the base address is not mapped to physical memory (presumably it tries to inspect the pointer attributes).
-// We work around this by shifting the base address to the first copied element and setting all offsets to zero.
-// To my knowledge this workaround is always required; the macro only exists for documentation purposes.
-#define UNMAPPED_BASE_PTR_WORKAROUND
-
 	// TODO: Optimize for contiguous copies
 	// TODO: Make non-blocking
 	void copy_from(const buffer<T, Dims>& src, const box<Dims>& src_box, const box<Dims>& dst_box) {
 		activate_cuda_context act{m_context}; // Only needed for synchronize
 
 		assert(src_box.get_extent() == dst_box.get_extent());
+		assert(src_box.max() <= src.get_extent());
+		assert(dst_box.max() <= m_extent);
 		access(dst_box); // Allocate memory
 
 		if(Dims == 1) {
@@ -405,13 +436,6 @@ class buffer {
 		params.dstY = middle(dst_box.min());
 		params.dstZ = Dims == 3 ? dst_box.min()[0] : 0;
 
-#if defined(UNMAPPED_BASE_PTR_WORKAROUND)
-		params.dstDevice = m_base_ptr + get_linear_id(m_extent, dst_box.min()) * sizeof(T);
-		params.dstXInBytes = 0;
-		params.dstY = 0;
-		params.dstZ = 0;
-#endif
-
 		params.srcContext = src.m_context;
 		params.srcDevice = src.m_base_ptr;
 		params.srcHeight = middle(src.m_extent);
@@ -421,13 +445,6 @@ class buffer {
 		params.srcY = middle(src_box.min());
 		params.srcZ = Dims == 3 ? src_box.min()[0] : 0;
 
-#if defined(UNMAPPED_BASE_PTR_WORKAROUND)
-		params.srcDevice = src.m_base_ptr + get_linear_id(src.m_extent, src_box.min()) * sizeof(T);
-		params.srcXInBytes = 0;
-		params.srcY = 0;
-		params.srcZ = 0;
-#endif
-
 		CHECK_DRV(cuMemcpy3DPeer(&params));
 		CHECK_DRV(cuCtxSynchronize());
 	}
@@ -435,9 +452,9 @@ class buffer {
 	void copy_from(const T* src_ptr, const extent<Dims>& src_ext, const box<Dims>& src_box, const box<Dims>& dst_box) {
 		activate_cuda_context act{m_context};
 
-		assert(src_box.get_extent() <= src_ext);
-		assert(src_box.max() <= src_ext);
 		assert(src_box.get_extent() == dst_box.get_extent());
+		assert(src_box.max() <= src_ext);
+		assert(dst_box.max() <= m_extent);
 		access(dst_box); // Allocate memory
 
 		if(Dims == 1) {
@@ -457,12 +474,6 @@ class buffer {
 			params.dstPitch = m_extent[1] * sizeof(T);
 			params.dstXInBytes = dst_box.min()[1] * sizeof(T);
 			params.dstY = dst_box.min()[0];
-
-#if defined(UNMAPPED_BASE_PTR_WORKAROUND)
-			params.dstDevice = m_base_ptr + get_linear_id(m_extent, dst_box.min()) * sizeof(T);
-			params.dstXInBytes = 0;
-			params.dstY = 0;
-#endif
 
 			params.srcHost = src_ptr;
 			params.srcMemoryType = CU_MEMORYTYPE_HOST;
@@ -488,13 +499,6 @@ class buffer {
 		params.dstY = dst_box.min()[1];
 		params.dstZ = dst_box.min()[0];
 
-#if defined(UNMAPPED_BASE_PTR_WORKAROUND)
-		params.dstDevice = m_base_ptr + get_linear_id(m_extent, dst_box.min()) * sizeof(T);
-		params.dstXInBytes = 0;
-		params.dstY = 0;
-		params.dstZ = 0;
-#endif
-
 		params.srcHost = src_ptr;
 		params.srcHeight = src_ext[1];
 		params.srcMemoryType = CU_MEMORYTYPE_HOST;
@@ -511,9 +515,9 @@ class buffer {
 	void copy_to(T* dst_ptr, const extent<Dims>& dst_ext, const box<Dims>& src_box, const box<Dims>& dst_box) const {
 		activate_cuda_context act{m_context};
 
-		assert(dst_box.get_extent() <= dst_ext);
-		assert(dst_box.max() <= dst_ext);
 		assert(src_box.get_extent() == dst_box.get_extent());
+		assert(src_box.max() <= m_extent);
+		assert(dst_box.max() <= dst_ext);
 		// TODO: Would be nice if we could assert that the src_box is allocated
 
 		if(Dims == 1) {
@@ -540,12 +544,6 @@ class buffer {
 			params.srcXInBytes = src_box.min()[1] * sizeof(T);
 			params.srcY = src_box.min()[0];
 
-#if defined(UNMAPPED_BASE_PTR_WORKAROUND)
-			params.srcDevice = m_base_ptr + get_linear_id(m_extent, src_box.min()) * sizeof(T);
-			params.srcXInBytes = 0;
-			params.srcY = 0;
-#endif
-
 			CHECK_DRV(cuMemcpy2D(&params));
 			CHECK_DRV(cuCtxSynchronize());
 			return;
@@ -571,13 +569,6 @@ class buffer {
 		params.srcXInBytes = src_box.min()[2] * sizeof(T);
 		params.srcY = src_box.min()[1];
 		params.srcZ = src_box.min()[0];
-
-#if defined(UNMAPPED_BASE_PTR_WORKAROUND)
-		params.srcDevice = m_base_ptr + get_linear_id(m_extent, src_box.min()) * sizeof(T);
-		params.srcXInBytes = 0;
-		params.srcY = 0;
-		params.srcZ = 0;
-#endif
 
 		CHECK_DRV(cuMemcpy3D(&params));
 		CHECK_DRV(cuCtxSynchronize());
@@ -609,6 +600,7 @@ class buffer {
 	CUcontext m_context;
 	CUdevice m_device;
 	CUmemAllocationProp m_alloc_prop = {};
+	std::vector<CUmemAccessDesc> m_peer_rw_access_descs = {};
 	size_t m_allocation_granularity; // page size, essentially
 	extent<Dims> m_extent;
 	size_t m_virtual_size;
@@ -616,6 +608,7 @@ class buffer {
 	// List of (distjoint) physical allocations
 	// Sorted by mapped pointers, ascending
 	std::vector<physical_allocation> m_allocations;
+	CUmemGenericAllocationHandle m_zero_page_handle;
 	size_t m_allocated_size = 0;
 
 	size_t get_padded_size(const size_t size) const { return ((size + m_allocation_granularity - 1) / m_allocation_granularity) * m_allocation_granularity; }
@@ -633,20 +626,12 @@ class buffer {
 		CHECK_DRV(cuMemCreate(&alloc_handle, padded_size, &m_alloc_prop, 0));
 		// TODO: assert(is_aligned(ptr))
 
+		// Unmap zero page
+		CHECK_DRV(cuMemUnmap(ptr, m_allocation_granularity));
+
 		// Map physical allocation into address range
 		CHECK_DRV(cuMemMap(ptr, padded_size, 0, alloc_handle, 0));
-
-		// Set memory protection flags
-		// NOCOMMIT FIXME: Don't do this every time
-		const auto peers = get_peer_devices(m_device); // This includes m_device
-		std::vector<CUmemAccessDesc> access_descs(peers.size());
-		for(size_t i = 0; i < peers.size(); ++i) {
-			access_descs[i].location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-			access_descs[i].location.id = peers[i];
-			access_descs[i].flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-		}
-
-		CHECK_DRV(cuMemSetAccess(ptr, padded_size, access_descs.data(), access_descs.size()));
+		CHECK_DRV(cuMemSetAccess(ptr, padded_size, m_peer_rw_access_descs.data(), m_peer_rw_access_descs.size()));
 
 #if !defined(NDEBUG)
 		// Initialize memory with known pattern for debugging

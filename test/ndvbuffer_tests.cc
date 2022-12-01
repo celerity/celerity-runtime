@@ -74,12 +74,39 @@ void verify_global_linear_ids(
 // - [x] Move to exclusive upper bound
 // - [x] Add support for 1D/3D buffers
 // - [ ] Device selection?
-// - [ ] D2D copies? Do they work? Is the address space virtualized across all devices?!
+// - [x] D2D copies? Do they work? Is the address space virtualized across all devices?!
+
+namespace {
+
+template <size_t Size>
+struct type_of_size {
+	type_of_size() {
+		static_assert(sizeof(type_of_size<Size>) == Size);
+		*this = size_t(0);
+	}
+	type_of_size(size_t v) { *this = v; }
+	type_of_size& operator=(size_t v) {
+		*reinterpret_cast<size_t*>(data) = v;
+		return *this;
+	}
+	operator size_t&() { return *reinterpret_cast<size_t*>(data); }
+	unsigned char data[Size];
+};
+
+// TODO: This assumes a fixed page size ("allocation granularity") of 2 MiB. Need to make more generic.
+constexpr size_t page_size = 2 * 1024 * 1024;
+using one_page_t = type_of_size<page_size>;
+
+// Since pages are quite large, using basic types such as size_t does not exercise all branches
+// in our allocation logic (unless we use very large extents, which makes it harder to debug things).
+using quarter_page_t = type_of_size<page_size / 4>;
+
+} // namespace
 
 TEMPLATE_TEST_CASE_SIG("basic full access", "[ndvbuffer]", ((int Dims), Dims), 1, 2, 3) {
 	sycl::queue q{sycl::gpu_selector_v};
 	const ndv::extent<Dims> ext{6, 7, 8};
-	ndv::buffer<size_t, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
+	ndv::buffer<quarter_page_t, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
 	auto acc = buf.access({{}, buf.get_extent()});
 	write_global_linear_ids(q, acc);
 	verify_global_linear_ids(q, buf, acc);
@@ -88,15 +115,15 @@ TEMPLATE_TEST_CASE_SIG("basic full access", "[ndvbuffer]", ((int Dims), Dims), 1
 TEMPLATE_TEST_CASE_SIG("access with offset", "[ndvbuffer]", ((int Dims), Dims), 1, 2, 3) {
 	sycl::queue q{sycl::gpu_selector_v};
 	const ndv::extent<Dims> ext{6, 7, 8};
-	const ndv::point<Dims> offset{1, 2, 3};
-	ndv::buffer<size_t, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
+	const ndv::point<Dims> offset{1, 0, 3};
+	ndv::buffer<quarter_page_t, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
 	auto acc = buf.access({offset, ext - ndv::extent<Dims>{1, 1, 1}});
 	write_global_linear_ids(q, acc);
 	verify_global_linear_ids(q, buf, acc);
 }
 
 TEST_CASE("virtual buffer extent can exceed physical device memory") {
-	// NOCOMMIT TODO: Here and others: Need NVIDIA GPU! (Btw, how do we select devices in other tests suites..?)
+	// NOCOMMIT TODO: Here and others: Need NVIDIA GPU! (Btw, how do we select devices in other test suites..?)
 	sycl::queue q{sycl::gpu_selector_v};
 	const auto mem_size = q.get_device().get_info<sycl::info::device::global_mem_size>();
 	ndv::buffer<char, 1> buf{get_cuda_drv_device(q.get_device()), {mem_size * 2}};
@@ -105,91 +132,88 @@ TEST_CASE("virtual buffer extent can exceed physical device memory") {
 	verify_global_linear_ids(q, buf, acc);
 }
 
-namespace {
-// TODO: This assumes a fixed granularity (2 MiB). Need to make more generic.
-struct very_large_type {
-	very_large_type() { *this = size_t(0); }
-	very_large_type(size_t v) { *this = v; }
-	very_large_type& operator=(size_t v) {
-		*reinterpret_cast<size_t*>(data) = v;
-		return *this;
-	}
-	operator size_t&() { return *reinterpret_cast<size_t*>(data); }
+// TEMPLATE_TEST_CASE_SIG("buffers may contain types whose size does not evenly divide page size", "[ndvbuffer]", ((int Dims), Dims), 1, 2, 3) {
+// 	sycl::queue q{sycl::gpu_selector_v};
 
-	unsigned char data[2 * 1024 * 1024];
-};
-} // namespace
+// 	// FIXME: Hardcoded for 2 MiB page size.
+// 	struct my_type {
+// 		unsigned char data[48];
+// 	};
+
+// 	ndv::buffer<my_type, 1> buf(get_cuda_drv_device(q.get_device()), {256});
+// 	REQUIRE(buf.get_allocation_granularity() % sizeof(my_type) != 0);
+// }
+
 
 TEST_CASE("physical regions are allocated lazily upon access (1D)") {
 	sycl::queue q{sycl::gpu_selector_v};
-	ndv::buffer<very_large_type, 1> buf(get_cuda_drv_device(q.get_device()), {256});
-	REQUIRE(buf.get_allocation_granularity() == sizeof(very_large_type));
+	ndv::buffer<one_page_t, 1> buf(get_cuda_drv_device(q.get_device()), {256});
+	REQUIRE(buf.get_allocation_granularity() == sizeof(one_page_t));
 
 	auto acc1 = buf.access({{10}, {15}});
 	write_global_linear_ids(q, acc1);
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 5);
+	CHECK(buf.get_allocated_size() / sizeof(one_page_t) == 5);
 
 	buf.access({{8}, {15}});
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 7);
+	CHECK(buf.get_allocated_size() / sizeof(one_page_t) == 7);
 
 	buf.access({{99}, {100}});
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 8);
+	CHECK(buf.get_allocated_size() / sizeof(one_page_t) == 8);
 
 	buf.access({{0}, {2}});
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 10);
+	CHECK(buf.get_allocated_size() / sizeof(one_page_t) == 10);
 }
 
-// FIXME: For some reason cudaMemcpy2D fails for very_large_type, so we cannot verify the global ids. It works when changing the size to 1 MiB...
 TEST_CASE("physical regions are allocated lazily upon access (2D)") {
 	sycl::queue q{sycl::gpu_selector_v};
-	ndv::buffer<very_large_type, 2> buf(get_cuda_drv_device(q.get_device()), {8, 8});
-	REQUIRE(buf.get_allocation_granularity() == sizeof(very_large_type));
+	ndv::buffer<one_page_t, 2> buf(get_cuda_drv_device(q.get_device()), {8, 8});
+	REQUIRE(buf.get_allocation_granularity() == sizeof(one_page_t));
 
 	auto acc1 = buf.access({{1, 1}, {3, 3}});
 	write_global_linear_ids(q, acc1);
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 4);
-	// verify_global_linear_ids(q, buf, acc1);
+	CHECK(buf.get_allocated_size() / sizeof(one_page_t) == 4);
+	verify_global_linear_ids(q, buf, acc1);
 
-	buf.access({{0, 0}, {3, 3}});
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 9);
-	// verify_global_linear_ids(q, buf, acc2, ndv::extent{{1, 1}, {2, 2}});
+	auto acc2 = buf.access({{0, 0}, {3, 3}});
+	CHECK(buf.get_allocated_size() / sizeof(one_page_t) == 9);
+	verify_global_linear_ids(q, buf, acc2, std::optional{ndv::box<2>{{1, 1}, {3, 3}}});
 
-	buf.access({{0, 0}, {4, 4}});
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 16);
-	// verify_global_linear_ids(q, buf, acc3, ndv::extent{{1, 1}, {2, 2}});
+	auto acc3 = buf.access({{0, 0}, {4, 4}});
+	CHECK(buf.get_allocated_size() / sizeof(one_page_t) == 16);
+	verify_global_linear_ids(q, buf, acc3, std::optional{ndv::box<2>{{1, 1}, {3, 3}}});
 
 	// Create disjoint allocation at various locations relative to existing one ("to the side", "below", ...).
 	// TODO: Probably not exhaustive
 	SECTION("pattern 1") {
 		buf.access({{4, 4}, {6, 6}});
-		CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 20);
+		CHECK(buf.get_allocated_size() / sizeof(one_page_t) == 20);
 	}
 
 	SECTION("pattern 2") {
 		buf.access({{0, 4}, {2, 6}});
-		CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 20);
+		CHECK(buf.get_allocated_size() / sizeof(one_page_t) == 20);
 	}
 
 	SECTION("pattern 3") {
 		buf.access({{1, 4}, {3, 6}});
-		CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 20);
+		CHECK(buf.get_allocated_size() / sizeof(one_page_t) == 20);
 	}
 }
 
 TEST_CASE("physical regions are allocated lazily upon access (3D)") {
 	sycl::queue q{sycl::gpu_selector_v};
-	ndv::buffer<very_large_type, 3> buf(get_cuda_drv_device(q.get_device()), {8, 8, 8});
-	REQUIRE(buf.get_allocation_granularity() == sizeof(very_large_type));
+	ndv::buffer<one_page_t, 3> buf(get_cuda_drv_device(q.get_device()), {8, 8, 8});
+	REQUIRE(buf.get_allocation_granularity() == sizeof(one_page_t));
 
 	auto acc1 = buf.access({{4, 4, 4}, {6, 6, 6}});
 	write_global_linear_ids(q, acc1);
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 8);
+	CHECK(buf.get_allocated_size() / sizeof(one_page_t) == 8);
 
 	buf.access({{0, 0, 0}, {1, 1, 1}});
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 9);
+	CHECK(buf.get_allocated_size() / sizeof(one_page_t) == 9);
 
 	buf.access({{7, 7, 7}, {8, 8, 8}});
-	CHECK(buf.get_allocated_size() / sizeof(very_large_type) == 10);
+	CHECK(buf.get_allocated_size() / sizeof(one_page_t) == 10);
 
 	// TODO: Test more access patterns
 }
@@ -253,33 +277,33 @@ TEST_CASE("WIP: why are returned pointers not 'UVA pointers' ?!") {
 	verify_global_linear_ids(q2, buf2, acc2);
 }
 
-// Smoke test: CUDA for some (of course undocumented!) reason also tries to inspect the base pointer passed into cuMemcpy3DPeer.
-// If that pointer is not mapped to a physical allocation, it fails with "invalid argument".
-// We work around this by shifting the base pointer to the start of the copied box.
-TEMPLATE_TEST_CASE_SIG("copy works even when first page is not allocated", "[ndvbuffer]", ((int Dims), Dims), 1, 2, 3) {
+// Smoke test: CUDA for some (of course undocumented!) reason seems to check whether all pages in the copied region are mapped.
+// We work around this by mapping all unallocated address ranges to a "zero page" using virtual aliasing.
+// See also https://forums.developer.nvidia.com/t/strange-behavior-of-2d-3d-copies-in-partially-mapped-virtual-address-space/235533/2
+TEMPLATE_TEST_CASE_SIG("copy works when stride skips over non-allocated pages", "[ndvbuffer]", ((int Dims), Dims), 1, 2, 3) {
 	sycl::queue q{sycl::gpu_selector_v};
 
-	const ndv::extent<Dims> ext{5, 4, 3};
-	const ndv::box<Dims> copy_box{{3, 1, 2}, {4, 2, 3}};
+	const ndv::extent<Dims> ext{9, 4, 7};
+	const ndv::box<Dims> copy_box{{3, 1, 2}, {5, 2, 3}};
 
 	SECTION("copy from other buffer") {
-		ndv::buffer<very_large_type, Dims> buf1{get_cuda_drv_device(q.get_device()), ext};
+		ndv::buffer<one_page_t, Dims> buf1{get_cuda_drv_device(q.get_device()), ext};
 		buf1.access(copy_box);
 		const ndv::extent<Dims> offset{1, 1, 1};
-		ndv::buffer<very_large_type, Dims> buf2{get_cuda_drv_device(q.get_device()), ext + offset};
+		ndv::buffer<one_page_t, Dims> buf2{get_cuda_drv_device(q.get_device()), ext + offset};
 		buf2.copy_from(buf1, copy_box, ndv::box<Dims>{copy_box.min() + offset, copy_box.max() + offset});
 	}
 
 	SECTION("copy from host buffer") {
-		const std::vector<very_large_type> host_buf(ext.size());
-		ndv::buffer<very_large_type, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
+		const std::vector<one_page_t> host_buf(ext.size());
+		ndv::buffer<one_page_t, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
 		buf.copy_from(host_buf.data(), ext, copy_box, copy_box);
 	}
 
 	SECTION("copy to host buffer") {
-		ndv::buffer<very_large_type, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
+		ndv::buffer<one_page_t, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
 		buf.access(copy_box);
-		std::vector<very_large_type> host_buf(ext.size());
+		std::vector<one_page_t> host_buf(ext.size());
 		buf.copy_to(host_buf.data(), ext, copy_box, copy_box);
 	}
 }
@@ -292,11 +316,11 @@ TEMPLATE_TEST_CASE_SIG("copy parts between buffers on different devices", "[ndvb
 
 	// TODO: Also copy between differently sized buffers (needs custom verification though)
 	const ndv::extent<Dims> ext{8, 7, 6};
-	ndv::buffer<size_t, Dims> buf1{get_cuda_drv_device(devices[0]), ext};
+	ndv::buffer<quarter_page_t, Dims> buf1{get_cuda_drv_device(devices[0]), ext};
 	auto acc1 = buf1.access({{}, ext});
 	write_global_linear_ids(q1, acc1);
 
-	ndv::buffer<size_t, Dims> buf2{get_cuda_drv_device(devices[1]), ext};
+	ndv::buffer<quarter_page_t, Dims> buf2{get_cuda_drv_device(devices[1]), ext};
 
 	const ndv::box<Dims> copy_box{{2, 1, 3}, {7, 6, 4}};
 	// TODO: Also copy between different locations (needs custom verification though)
@@ -313,7 +337,7 @@ TEMPLATE_TEST_CASE_SIG("copy from/to host memory", "[ndvbuffer]", ((int Dims), D
 
 	// TODO: Also copy between differently sized buffers (needs custom verification though)
 	const ndv::extent<Dims> ext{8, 7, 6};
-	std::vector<size_t> host_buf(ext.size());
+	std::vector<quarter_page_t> host_buf(ext.size());
 
 	const auto host_for_each = [&ext](const auto& cb) {
 		for(size_t k = 0; k < ext[0]; ++k) {
@@ -326,7 +350,7 @@ TEMPLATE_TEST_CASE_SIG("copy from/to host memory", "[ndvbuffer]", ((int Dims), D
 	};
 
 	const ndv::box<Dims> copy_box{{2, 1, 3}, {7, 6, 4}};
-	ndv::buffer<size_t, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
+	ndv::buffer<quarter_page_t, Dims> buf{get_cuda_drv_device(q.get_device()), ext};
 
 	SECTION("copy from host") {
 		host_for_each([&](const ndv::point<Dims>& pt) {
@@ -344,7 +368,7 @@ TEMPLATE_TEST_CASE_SIG("copy from/to host memory", "[ndvbuffer]", ((int Dims), D
 		buf.copy_to(host_buf.data(), ext, copy_box, copy_box);
 		host_for_each([&](const ndv::point<Dims>& pt) {
 			const auto linear_id = ndv::get_linear_id(ext, pt);
-			if(copy_box.contains(pt)) { REQUIRE_LOOP(host_buf[linear_id] == linear_id); }
+			if(copy_box.contains(pt)) { REQUIRE_LOOP(static_cast<size_t>(host_buf[linear_id]) == linear_id); }
 		});
 	}
 }
