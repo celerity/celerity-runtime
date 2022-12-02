@@ -3,18 +3,25 @@
 
 // Attempting to build truly virtualized n-dimensional buffers on top of CUDA 10.2 virtual memory facilities.
 
-// Open questions:
-// - How expensive is to create a physical allocation? Can we e.g. create a separate one for each "line" (slower index)
+// - Q: How expensive is to create a physical allocation? Can we e.g. create a separate one for each "line" (slower index)
 //   in a 2D buffer?
-// - How expensive is it to map a physical allocation? If allocating is expensive but mapping is cheap, we can maintain
+//   A: It's expensive (on the order of 0.5ms), using fewer, larger allocations could result in big perf boost.
+// - Q: How expensive is it to map a physical allocation? If allocating is expensive but mapping is cheap, we can maintain
 //   pool of allocations, grow exponentially as needed.
+//   A: Mapping is very cheap (< 1us), however setting access flags is surprisingly expensive (> 1ms).
+
+// TODO:
+// - Get rid of zero page workaround for 2D/3D copy in sparsely allocated buffer (if it turns out to be a bug; as of CUDA 11.8)
+// - Use different (larger) page sizes when possible. Currently difficult to do w/ zero page workaround.
+//   => Consider having an allocator that is shared between instances, which maintains multiple bins for `(1, 2, 4, 8, ...) x granularity` physical allocations,
+//      which can then individually be grown exponentially as needed (dynamically releasing unused blocks to shift resources between bins).
 // - Look into CUDAs support for sparse allocations (?). What is that?
 // - Later: Consider how to make interface compatible with mdspan
-// - Could we have a single virtual address space across all local devices?
-//     - In principle yes (see vectorAddMMAP CUDA sample), but I'm not sure how that would work for D2D memcpy between the same addresses then.
-//     - For USM we may need something like this though..?
+// - Investigate having single virtual address space across all local devices
+//     - See vectorAddMMAP CUDA sample
+//     - Can this deliver acceptable performance with NVLink?
+//     - For USM we may have to do this..?
 // - Look into vectorAddMMAP CUDA sample for some more pointers on requirements for using virtual memory with multiple devices
-// - Later: Explore sharing a single virtual address space across all local devices. Can this deliver acceptable performance with NVLink?
 
 #include <cassert>
 #include <chrono>
@@ -296,9 +303,27 @@ class buffer {
 	}
 
 	buffer(const buffer&) = delete;
-	buffer(buffer&&) = default;
+
+	buffer(buffer&& other)
+	    : m_context(other.m_context), m_device(other.m_device), m_alloc_prop(std::move(other.m_alloc_prop)),
+	      m_peer_rw_access_descs(std::move(other.m_peer_rw_access_descs)), m_allocation_granularity(other.m_allocation_granularity), m_extent(other.m_extent),
+	      m_virtual_size(other.m_virtual_size), m_base_ptr(other.m_base_ptr), m_allocations(std::move(other.m_allocations)),
+	      m_zero_page_handle(other.m_zero_page_handle), m_allocated_size(std::move(other.m_allocated_size)) {
+		other.m_context = 0;
+		other.m_allocation_granularity = 0;
+		other.m_extent = extent<Dims>{};
+		other.m_virtual_size = 0;
+		other.m_base_ptr = 0;
+		other.m_zero_page_handle = 0;
+		other.m_allocated_size = 0;
+	}
 
 	~buffer() {
+		if(m_base_ptr == 0 && m_virtual_size == 0) {
+			// We have been moved from, do nothing.
+			return;
+		}
+
 		activate_cuda_context act{m_context};
 		CUdeviceptr last_zero_page = m_base_ptr;
 		for(auto& a : m_allocations) {

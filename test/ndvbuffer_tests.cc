@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -6,6 +7,7 @@
 #include <type_traits>
 #include <unordered_set>
 
+#include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators_range.hpp>
@@ -120,6 +122,34 @@ TEMPLATE_TEST_CASE_SIG("access with offset", "[ndvbuffer]", ((int Dims), Dims), 
 	auto acc = buf.access({offset, ext - ndv::extent<Dims>{1, 1, 1}});
 	write_global_linear_ids(q, acc);
 	verify_global_linear_ids(q, buf, acc);
+}
+
+TEST_CASE("buffer can be moved", "[ndvbuffer]") {
+	sycl::queue q{sycl::gpu_selector_v};
+	const ndv::extent<1> ext{32};
+	ndv::buffer<quarter_page_t, 1> buf1{get_cuda_drv_device(q.get_device()), ext};
+	write_global_linear_ids(q, buf1.access({{}, 16}));
+
+	const auto extent = buf1.get_extent();
+	const auto alloc_size = buf1.get_allocated_size();
+	const auto granularity = buf1.get_allocation_granularity();
+	const auto ctx = buf1.get_ctx();
+	const auto ptr = buf1.get_pointer();
+
+	ndv::buffer<quarter_page_t, 1> buf2{std::move(buf1)};
+	CHECK(buf2.get_extent() == extent);
+	CHECK(buf1.get_extent() == ndv::extent<1>{});
+	CHECK(buf2.get_allocated_size() == alloc_size);
+	CHECK(buf1.get_allocated_size() == 0);
+	CHECK(buf2.get_allocation_granularity() == granularity);
+	CHECK(buf1.get_allocation_granularity() == 0);
+	CHECK(buf2.get_ctx() == ctx);
+	CHECK(buf1.get_ctx() == 0);
+	CHECK(buf2.get_pointer() == ptr);
+	CHECK(buf1.get_pointer() == 0);
+
+	write_global_linear_ids(q, buf2.access({16, 32}));
+	verify_global_linear_ids(q, buf2, buf2.access({{}, ext}));
 }
 
 TEST_CASE("virtual buffer extent can exceed physical device memory") {
@@ -374,5 +404,272 @@ TEMPLATE_TEST_CASE_SIG("copy from/to host memory", "[ndvbuffer]", ((int Dims), D
 			const auto linear_id = ndv::get_linear_id(ext, pt);
 			if(copy_box.contains(pt)) { REQUIRE_LOOP(static_cast<size_t>(host_buf[linear_id]) == linear_id); }
 		});
+	}
+}
+
+// Had to roll my own benchmark utility b/c Catch2 doesn't allow control over the number of benchmark runs,
+// which leads us to run out of GPU memory. See also https://github.com/catchorg/Catch2/issues/2150
+template <typename SetupCb, typename RunCb, typename TeardownCb>
+void run_benchmark(const std::string& name, const size_t iterations, SetupCb setup, RunCb run, TeardownCb teardown) {
+	const auto format_duration = [](const double& us) {
+		std::vector<std::string> units = {"us", "ms", "s"};
+		size_t unit_i = 0;
+		double v = us;
+		while(v > 1000 && unit_i < units.size()) {
+			v /= 1000;
+			unit_i++;
+		}
+		return fmt::format("{:.2f}{}", v, units[unit_i]);
+	};
+
+	const size_t warmups = std::max(size_t(1), iterations / 10);
+	setup(warmups);
+	for(size_t i = 0; i < warmups; ++i) {
+		run(i);
+	}
+	teardown(warmups);
+
+	setup(iterations);
+	std::vector<std::chrono::microseconds> times(iterations);
+	for(size_t i = 0; i < iterations; ++i) {
+		const auto before = std::chrono::steady_clock::now();
+		run(i);
+		const auto after = std::chrono::steady_clock::now();
+		times[i] = std::chrono::duration_cast<std::chrono::microseconds>(after - before);
+	}
+	teardown(iterations);
+
+	std::sort(times.begin(), times.end());
+	const auto sum = std::accumulate(times.begin(), times.end(), std::chrono::microseconds{0});
+	const double avg = sum.count() / double(iterations);
+	const auto min = times.front().count();
+	const auto max = times.back().count();
+	const auto median = iterations % 2 == 1 ? double(times[iterations / 2].count()) : (times[iterations / 2].count() + times[iterations / 2 + 1].count()) / 2.0;
+	fmt::print("{}\n\tavg={}, median={}, min={}, max={}\n\n", name, format_duration(avg), format_duration(median), format_duration(min), format_duration(max));
+}
+
+// NOTE: We are currently measuring performance for working with single pages (e.g. 2 MiB).
+//       Allocating larger blocks would be a lot more efficient in practice.
+TEST_CASE("CUDA baseline performance") {
+	sycl::queue q{sycl::gpu_selector_v};
+	const auto device_mem_size = q.get_device().get_info<sycl::info::device::global_mem_size>();
+	CUcontext ctx;
+	CHECK_DRV(cuInit(0));
+	CHECK_DRV(cuDevicePrimaryCtxRetain(&ctx, get_cuda_drv_device(q.get_device())));
+	ndv::activate_cuda_context act{ctx};
+
+	CUmemAllocationProp props = {};
+	props.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+	props.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+	props.location.id = get_cuda_drv_device(q.get_device());
+	size_t granularity = 0;
+	CHECK_DRV(cuMemGetAllocationGranularity(&granularity, &props, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+
+	{
+		const size_t iterations = 100;
+		REQUIRE(device_mem_size >= granularity * iterations);
+		std::vector<CUmemGenericAllocationHandle> alloc_handles;
+		run_benchmark(
+		    "allocating one page", iterations,
+		    [&](const size_t n) {
+			    alloc_handles.clear();
+			    alloc_handles.resize(n);
+		    },
+		    [&](const size_t i) { CHECK_DRV(cuMemCreate(&alloc_handles[i], granularity, &props, 0)); },
+		    [&](const size_t n) {
+			    for(size_t i = 0; i < n; ++i) {
+				    CHECK_DRV(cuMemRelease(alloc_handles[i]));
+			    }
+		    });
+	}
+
+	// FIXME: Results fluctuate wildly (100-800us), but hand-rolled benchmark is seemingly always faster (e.g. 193us vs 135us) - what is going on?
+	// (NOTE: This is actually broken in that the inner callback runs multiple times, thus leaking memory!)
+	// BENCHMARK_ADVANCED("allocating one page")(Catch::Benchmark::Chronometer meter) {
+	// 	CUmemGenericAllocationHandle alloc_handle;
+	// 	meter.measure([&] { CHECK_DRV(cuMemCreate(&alloc_handle, granularity, &props, 0)); });
+	// 	cuMemRelease(alloc_handle);
+	// };
+
+	{
+		const size_t iterations = 50;
+		const size_t alloc_size = 100 * 1024 * 1024;
+		const size_t num_pages = alloc_size / granularity;
+		REQUIRE(device_mem_size >= alloc_size * iterations);
+		std::vector<CUmemGenericAllocationHandle> alloc_handles;
+		run_benchmark(
+		    "allocating 100 MiB worth of pages", iterations,
+		    [&](const size_t n) {
+			    alloc_handles.clear();
+			    alloc_handles.resize(n * num_pages);
+		    },
+		    [&](const size_t i) {
+			    for(size_t j = 0; j < num_pages; ++j) {
+				    CHECK_DRV(cuMemCreate(&alloc_handles[i * num_pages + j], granularity, &props, 0));
+			    }
+		    },
+		    [&](const size_t n) {
+			    for(size_t i = 0; i < n * num_pages; ++i) {
+				    CHECK_DRV(cuMemRelease(alloc_handles[i]));
+			    }
+		    });
+	}
+
+	const size_t virtual_size = 100ull * 1024 * 1024 * 1024;
+	CUdeviceptr base_ptr = 0;
+	CHECK_DRV(cuMemAddressReserve(&base_ptr, virtual_size, 0, 0, 0));
+
+	{
+		const size_t iterations = 100;
+		REQUIRE(device_mem_size >= iterations * granularity);
+		std::vector<CUmemGenericAllocationHandle> alloc_handles(iterations, {});
+		for(size_t i = 0; i < iterations; ++i) {
+			CHECK_DRV(cuMemCreate(&alloc_handles[i], granularity, &props, 0));
+		}
+		run_benchmark(
+		    "mapping one page", iterations, [&](const size_t n) {},
+		    [&](const size_t i) { CHECK_DRV(cuMemMap(base_ptr + i * granularity, granularity, 0, alloc_handles[i], 0)); },
+		    [&](const size_t n) {
+			    for(size_t i = 0; i < n; ++i) {
+				    CHECK_DRV(cuMemUnmap(base_ptr + i * granularity, granularity));
+			    }
+		    });
+		for(size_t i = 0; i < iterations; ++i) {
+			CHECK_DRV(cuMemRelease(alloc_handles[i]));
+		}
+	}
+
+	{
+		const size_t iterations = 50;
+		const size_t alloc_size = 100 * 1024 * 1024;
+		const size_t num_pages = alloc_size / granularity;
+		REQUIRE(device_mem_size >= alloc_size * iterations);
+		std::vector<CUmemGenericAllocationHandle> alloc_handles(num_pages * iterations, {});
+		for(size_t i = 0; i < num_pages * iterations; ++i) {
+			CHECK_DRV(cuMemCreate(&alloc_handles[i], granularity, &props, 0));
+		}
+		run_benchmark(
+		    "mapping 100 MiB worth of pages", iterations, [&](const size_t n) {},
+		    [&](const size_t i) {
+			    for(size_t j = 0; j < num_pages; ++j) {
+				    CHECK_DRV(cuMemMap(base_ptr + (i * num_pages + j) * granularity, granularity, 0, alloc_handles[i], 0));
+			    }
+		    },
+		    [&](const size_t n) {
+			    for(size_t i = 0; i < n * num_pages; ++i) {
+				    CHECK_DRV(cuMemUnmap(base_ptr + i * granularity, granularity));
+			    }
+		    });
+		for(size_t i = 0; i < num_pages * iterations; ++i) {
+			CHECK_DRV(cuMemRelease(alloc_handles[i]));
+		}
+	}
+
+	for(bool in_bulk : {false, true}) {
+		const size_t iterations = 50;
+		const size_t alloc_size = 100 * 1024 * 1024;
+		const size_t num_pages = alloc_size / granularity;
+		REQUIRE(device_mem_size >= alloc_size * iterations);
+		std::vector<CUmemGenericAllocationHandle> alloc_handles(num_pages * iterations, {});
+		for(size_t i = 0; i < num_pages * iterations; ++i) {
+			CHECK_DRV(cuMemCreate(&alloc_handles[i], granularity, &props, 0));
+			CHECK_DRV(cuMemMap(base_ptr + i * granularity, granularity, 0, alloc_handles[i], 0));
+		}
+		CUmemAccessDesc desc;
+		desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+		desc.location.id = get_cuda_drv_device(q.get_device());
+		desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+		const auto title = fmt::format("setting access flags on 100 MiB worth of pages ({})", in_bulk ? "in bulk" : "one by one");
+		run_benchmark(
+		    title, iterations, [&](const size_t n) {},
+		    [&](const size_t i) {
+			    if(in_bulk) {
+				    CHECK_DRV(cuMemSetAccess(base_ptr + i * num_pages * granularity, num_pages * granularity, &desc, 1));
+			    } else {
+				    for(size_t j = 0; j < num_pages; ++j) {
+					    CHECK_DRV(cuMemSetAccess(base_ptr + (i * num_pages + j) * granularity, granularity, &desc, 1));
+				    }
+			    }
+		    },
+		    [&](const size_t n) {});
+		for(size_t i = 0; i < num_pages * iterations; ++i) {
+			CHECK_DRV(cuMemUnmap(base_ptr + i * granularity, granularity));
+			CHECK_DRV(cuMemRelease(alloc_handles[i]));
+		}
+	}
+
+	{
+		const size_t iterations = 50;
+		const size_t alloc_size = 100 * 1024 * 1024;
+		const size_t num_pages = alloc_size / granularity;
+		REQUIRE(device_mem_size >= alloc_size * iterations);
+		std::vector<CUmemGenericAllocationHandle> alloc_handles(num_pages * iterations, {});
+		for(size_t i = 0; i < num_pages * iterations; ++i) {
+			CHECK_DRV(cuMemCreate(&alloc_handles[i], granularity, &props, 0));
+		}
+		CUmemAccessDesc desc;
+		desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+		desc.location.id = get_cuda_drv_device(q.get_device());
+		desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+		run_benchmark(
+		    "unmapping 100 MiB worth of pages (with set access flags)", iterations,
+		    [&](const size_t n) {
+			    for(size_t i = 0; i < n * num_pages; ++i) {
+				    CHECK_DRV(cuMemMap(base_ptr + i * granularity, granularity, 0, alloc_handles[i], 0));
+				    CHECK_DRV(cuMemSetAccess(base_ptr + i * granularity, granularity, &desc, 1));
+			    }
+		    },
+		    [&](const size_t i) {
+			    for(size_t j = 0; j < num_pages; ++j) {
+				    CHECK_DRV(cuMemUnmap(base_ptr + (i * num_pages + j) * granularity, granularity));
+			    }
+		    },
+		    [&](const size_t n) {});
+		for(size_t i = 0; i < num_pages * iterations; ++i) {
+			CHECK_DRV(cuMemRelease(alloc_handles[i]));
+		}
+	}
+
+	CHECK_DRV(cuMemAddressFree(base_ptr, virtual_size));
+}
+
+TEST_CASE("buffer performance") {
+	sycl::queue q{sycl::gpu_selector_v};
+	const auto device_mem_size = q.get_device().get_info<sycl::info::device::global_mem_size>();
+
+	{
+		const size_t iterations = 50;
+		const size_t alloc_size = 100 * 1024 * 1024;
+		const size_t num_pages = alloc_size / page_size;
+		REQUIRE(device_mem_size >= iterations * alloc_size);
+
+		std::vector<ndv::buffer<one_page_t, 1>> buffers;
+		run_benchmark(
+		    "allocating a 100 MiB buffer", iterations,
+		    [&](const size_t n) {
+			    buffers.clear();
+			    for(size_t i = 0; i < n; ++i) {
+				    buffers.emplace_back(get_cuda_drv_device(q.get_device()), ndv::extent<1>{num_pages});
+			    }
+		    },
+		    [&](const size_t i) {
+			    buffers[i].access({{}, {num_pages}});
+		    },
+		    [&](const size_t n) {});
+	}
+
+	{
+		const size_t iterations = 50;
+		const size_t alloc_size = 100 * 1024 * 1024;
+		const size_t num_pages = alloc_size / page_size;
+		REQUIRE(device_mem_size >= iterations * alloc_size);
+		ndv::buffer<one_page_t, 1> buf{get_cuda_drv_device(q.get_device()), ndv::extent<1>{num_pages}};
+		buf.access({{}, {num_pages}});
+		run_benchmark(
+		    "accessing 100 MiB of already allocated memory", iterations, [&](const size_t n) {},
+		    [&](const size_t i) {
+			    buf.access({{}, {num_pages}});
+		    },
+		    [&](const size_t n) {});
 	}
 }
