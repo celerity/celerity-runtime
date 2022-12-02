@@ -241,8 +241,6 @@ inline std::vector<CUdevice> get_peer_devices(CUdevice main_device) {
 	return peer_devices;
 }
 
-// TODO: Also need to consider alignment requirements of T?
-// => I think actual alignment needs to be lcm(cuda alignment, alignof(T))
 template <typename T, int Dims>
 class buffer {
   public:
@@ -335,7 +333,10 @@ class buffer {
 			// Calculate positions within virtual space
 			[[maybe_unused]] const point<Dims> current_pt = get_point_from_linear_id((ptr - m_base_ptr) / sizeof(T), m_extent);
 			const point<Dims> add_pt = get_point_from_linear_id((ptr - m_base_ptr + add) / sizeof(T), m_extent);
-			assert((get_linear_id(m_extent, add_pt) - get_linear_id(m_extent, current_pt)) * sizeof(T) == add);
+			// If `add` is not a multiple of sizeof(T), we may end up add at a slightly different address if we linearize the points again.
+			// That's fine as we either advance to `ptr + add` or to a different point altogether (which will then be re-aligned anyway).
+			[[maybe_unused]] const auto diff = ((get_linear_id(m_extent, add_pt) - get_linear_id(m_extent, current_pt)) * sizeof(T));
+			assert((add >= diff ? add - diff : diff - add) <= m_allocation_granularity % sizeof(T));
 			point<Dims> next_pt = add_pt;
 			for(int d = Dims - 1; d > 0; --d) {
 				if(next_pt[d] < b.min()[d]) {
@@ -352,7 +353,7 @@ class buffer {
 
 			if(next_pt != add_pt) {
 				// We've advanced further than requested, need to re-align pointer
-				return align_ptr(false, m_base_ptr + get_linear_id(m_extent, next_pt) * sizeof(T));
+				return page_align_ptr(false, m_base_ptr + get_linear_id(m_extent, next_pt) * sizeof(T));
 			}
 			// We're somewhere inside the accessed box (in dim2/dim1, we may be way past in dim0), simply add
 			return ptr + add;
@@ -365,8 +366,9 @@ class buffer {
 		// TODO: This could probably be optimized in two ways:
 		//  - Use a series of binary searches to figure out whether requested region is already covered
 		//  - Only start copying into new array once we know that we'll actually need to allocate
-		const CUdeviceptr start = align_ptr(false, m_base_ptr + get_linear_id(m_extent, b.min()) * sizeof(T));
-		const CUdeviceptr end = align_ptr(true, m_base_ptr + (get_linear_id(m_extent, b.max() - point<Dims>{1, 1, 1}) + 1) * sizeof(T)); // 1 element past last
+		const CUdeviceptr start = page_align_ptr(false, m_base_ptr + get_linear_id(m_extent, b.min()) * sizeof(T));
+		const CUdeviceptr end =
+		    page_align_ptr(true, m_base_ptr + (get_linear_id(m_extent, b.max() - point<Dims>{1, 1, 1}) + 1) * sizeof(T)); // 1 element past last
 		size_t i = 0;
 		CUdeviceptr current = start;
 		while(current < end) {
@@ -613,8 +615,8 @@ class buffer {
 
 	size_t get_padded_size(const size_t size) const { return ((size + m_allocation_granularity - 1) / m_allocation_granularity) * m_allocation_granularity; }
 
-	// Aligns pointer to first aligned address before (up=false) or after (up=true) ptr (unless it is already aligned)
-	CUdeviceptr align_ptr(bool up, const CUdeviceptr ptr) const {
+	// Aligns pointer to first page-aligned address before (up=false) or after (up=true) ptr (unless it is already aligned)
+	CUdeviceptr page_align_ptr(bool up, const CUdeviceptr ptr) const {
 		return ((ptr + (up ? (m_allocation_granularity - 1) : 0)) / m_allocation_granularity) * m_allocation_granularity;
 	}
 

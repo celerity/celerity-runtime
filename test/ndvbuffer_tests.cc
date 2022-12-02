@@ -132,18 +132,22 @@ TEST_CASE("virtual buffer extent can exceed physical device memory") {
 	verify_global_linear_ids(q, buf, acc);
 }
 
-// TEMPLATE_TEST_CASE_SIG("buffers may contain types whose size does not evenly divide page size", "[ndvbuffer]", ((int Dims), Dims), 1, 2, 3) {
-// 	sycl::queue q{sycl::gpu_selector_v};
+TEMPLATE_TEST_CASE_SIG("buffers may contain types whose size does not evenly divide page size", "[ndvbuffer]", ((int Dims), Dims), 1, 2, 3) {
+	sycl::queue q{sycl::gpu_selector_v};
 
-// 	// FIXME: Hardcoded for 2 MiB page size.
-// 	struct my_type {
-// 		unsigned char data[48];
-// 	};
+	// FIXME: Hardcoded for 2 MiB page size.
+	using my_type = type_of_size<48>;
 
-// 	ndv::buffer<my_type, 1> buf(get_cuda_drv_device(q.get_device()), {256});
-// 	REQUIRE(buf.get_allocation_granularity() % sizeof(my_type) != 0);
-// }
+	const size_t buf_size = 2 * (page_size / sizeof(my_type)); // Ensure we'll need two pages to cover the allocation
+	ndv::buffer<my_type, 1> buf1(get_cuda_drv_device(q.get_device()), {buf_size});
+	REQUIRE(buf1.get_allocation_granularity() % sizeof(my_type) != 0);
+	const ndv::box<1> copy_box{{buf_size / 2 - 100}, {buf_size / 2 + 100}};
+	write_global_linear_ids(q, buf1.access(copy_box));
 
+	ndv::buffer<my_type, 1> buf2(get_cuda_drv_device(q.get_device()), {buf_size});
+	buf2.copy_from(buf1, copy_box, copy_box);
+	verify_global_linear_ids(q, buf2, buf1.access(copy_box));
+}
 
 TEST_CASE("physical regions are allocated lazily upon access (1D)") {
 	sycl::queue q{sycl::gpu_selector_v};
