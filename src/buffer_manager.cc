@@ -96,7 +96,7 @@ namespace detail {
 		assert(!existing_buf.is_allocated() || existing_buf.storage->get_type() == buffer_type::device_buffer);
 		backing_buffer replacement_buf;
 
-		const auto die = [&](const size_t allocation_size) {
+		[[maybe_unused]] const auto die = [&](const size_t allocation_size) {
 			std::string msg = fmt::format("Unable to allocate buffer {} of size {} on device {} (memory {}).\n", bid, allocation_size, device_queue.get_id(),
 			    device_queue.get_memory_id());
 			fmt::format_to(std::back_inserter(msg), "\nCurrent allocations on device {}:\n", device_queue.get_id());
@@ -129,36 +129,42 @@ namespace detail {
 			}
 			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(range, device_queue), offset};
 #endif
-		} else if(const auto info = is_resize_required(existing_buf, range, offset); info.resize_required) {
-			assert(!existing_buf.storage->supports_dynamic_allocation());
-			const auto element_size = m_buffer_infos.at(bid).element_size;
-			const auto allocation_size = info.new_range.size() * element_size;
-			if(can_allocate(device_queue.get_memory_id(), allocation_size)) {
-				// Easy path: We can just do the resize on the device directly
-				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, device_queue), info.new_offset};
-			} else {
-				ZoneScopedN("slow path: reallocate through host");
+		} else {
+#if USE_NDVBUFFER
+			existing_buf.storage->allocate(subrange{offset, range});
+#else
+			if(const auto info = is_resize_required(existing_buf, range, offset); info.resize_required) {
+				assert(!existing_buf.storage->supports_dynamic_allocation());
+				const auto element_size = m_buffer_infos.at(bid).element_size;
+				const auto allocation_size = info.new_range.size() * element_size;
+				if(can_allocate(device_queue.get_memory_id(), allocation_size)) {
+					// Easy path: We can just do the resize on the device directly
+					replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, device_queue), info.new_offset};
+				} else {
+					ZoneScopedN("slow path: reallocate through host");
 
-				// Check if we can do the resize by going through host first (see if we'll be able to fit just the added elements of the resized buffer).
-				if(!can_allocate(device_queue.get_memory_id(), allocation_size - (range.size() * element_size))) {
-					// TODO: Same thing as above
-					die(allocation_size);
+					// Check if we can do the resize by going through host first (see if we'll be able to fit just the added elements of the resized buffer).
+					if(!can_allocate(device_queue.get_memory_id(), allocation_size - (range.size() * element_size))) {
+						// TODO: Same thing as above
+						die(allocation_size);
+					}
+
+					// Do a faux host access with the *resized* range to retain all existing data from the device.
+					access_host_buffer_impl(bid, mode, info.new_range, info.new_offset);
+
+					// We now have all data "backed up" on the host, so we may deallocate the device buffer (via destructor).
+					const auto existing_buf_sr = subrange<3>{existing_buf.offset, existing_buf.storage->get_range()};
+					existing_buf = backing_buffer{};
+					auto locations = m_newest_data_location.at(bid).get_region_values(subrange_to_grid_box(existing_buf_sr));
+					for(auto& [box, locs] : locations) {
+						m_newest_data_location.at(bid).update_region(box, locs.reset(mid));
+					}
+
+					// Finally create the new device buffer. It will be made coherent with data from the host below.
+					replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, device_queue), info.new_offset};
 				}
-
-				// Do a faux host access with the *resized* range to retain all existing data from the device.
-				access_host_buffer_impl(bid, mode, info.new_range, info.new_offset);
-
-				// We now have all data "backed up" on the host, so we may deallocate the device buffer (via destructor).
-				const auto existing_buf_sr = subrange<3>{existing_buf.offset, existing_buf.storage->get_range()};
-				existing_buf = backing_buffer{};
-				auto locations = m_newest_data_location.at(bid).get_region_values(subrange_to_grid_box(existing_buf_sr));
-				for(auto& [box, locs] : locations) {
-					m_newest_data_location.at(bid).update_region(box, locs.reset(mid));
-				}
-
-				// Finally create the new device buffer. It will be made coherent with data from the host below.
-				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, device_queue), info.new_offset};
 			}
+#endif
 		}
 
 		audit_buffer_access(bid, mid, replacement_buf.is_allocated(), mode);
