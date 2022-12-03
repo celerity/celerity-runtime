@@ -6,8 +6,10 @@
 
 #include <CL/sycl.hpp>
 
+#define USE_NDVBUFFER 0
+
 // TODO: Works for now, but really needs to be a runtime switch depending on selected device
-#if defined(__HIPSYCL__) && defined(SYCL_EXT_HIPSYCL_BACKEND_CUDA)
+#if !defined(USE_NDVBUFFER) && defined(__HIPSYCL__) && defined(SYCL_EXT_HIPSYCL_BACKEND_CUDA)
 #define USE_NDVBUFFER 1
 #include "ndvbuffer.h"
 #else
