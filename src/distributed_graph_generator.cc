@@ -162,7 +162,7 @@ std::vector<chunk<3>> split_2d(const chunk<3>& full_chunk, const range<3>& granu
 	    (full_chunk.range[1] - small_chunk_size[1] * actual_num_chunks[1]) / granularity[1]};
 
 	std::vector<chunk<3>> result(actual_num_chunks[0] * actual_num_chunks[1], {full_chunk.offset, full_chunk.range, full_chunk.global_size});
-	id<3> offset = {0, 0, full_chunk.offset[2]};
+	id<3> offset = full_chunk.offset;
 
 	for(size_t j = 0; j < actual_num_chunks[0]; ++j) {
 		range<2> chunk_size = {(j < num_large_chunks[0]) ? large_chunk_size[0] : small_chunk_size[0], 0};
@@ -175,7 +175,7 @@ std::vector<chunk<3>> split_2d(const chunk<3>& full_chunk, const range<3>& granu
 			offset[1] += chunk_size[1];
 		}
 		offset[0] += chunk_size[0];
-		offset[1] = 0;
+		offset[1] = full_chunk.offset[1];
 	}
 
 // Sanity check

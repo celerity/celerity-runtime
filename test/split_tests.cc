@@ -205,6 +205,22 @@ TEST_CASE("kitchen sink", "[split]") {
 	}
 }
 
+TEST_CASE("2D split preserves offset of original chunk", "[split]") {
+	const auto full_chunk = chunk<3>{{37, 42, 0}, {64, 64, 1}, {128, 128, 1}};
+	const auto chunks = split_2d(full_chunk, unit_range, 4);
+
+	CHECK(chunks[0].offset == id<3>{37, 42, 0});
+	CHECK(chunks[1].offset == id<3>{37, 42 + 32, 0});
+	CHECK(chunks[2].offset == id<3>{37 + 32, 42 + 0, 0});
+	CHECK(chunks[3].offset == id<3>{37 + 32, 42 + 32, 0});
+
+	check_2d_split(full_chunk, chunks,
+	    {
+	        {32, {32, 32}}, //
+	        {32, {32, 32}}  //
+	    });
+}
+
 // TODO:
 // - 2D split preserves offset of original chunk
 // - 2D split preserves third dimension
