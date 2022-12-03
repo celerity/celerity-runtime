@@ -277,6 +277,8 @@ namespace detail {
 			return m_buffer_infos.at(bid).debug_name;
 		}
 
+		bool NOMERGE_warn_on_device_buffer_resize = false;
+
 	  private:
 		struct backing_buffer {
 			std::unique_ptr<buffer_storage> storage = nullptr;
