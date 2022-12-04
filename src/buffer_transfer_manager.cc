@@ -59,26 +59,25 @@ namespace detail {
 
 	std::shared_ptr<const buffer_transfer_manager::transfer_handle> buffer_transfer_manager::await_push(
 	    const transfer_id trid, const buffer_id bid, const GridRegion<3>& expected_region, const reduction_id rid) {
-		std::shared_ptr<incoming_transfer_handle> t_handle;
+		std::shared_ptr<transfer_handle> t_handle;
 		// Check to see if we have (fully) received the data already
 		const auto buffer_transfer = std::pair{bid, trid};
-		if(m_push_blackboard.count(buffer_transfer) != 0) {
-			t_handle = m_push_blackboard[buffer_transfer];
-			t_handle->expect_region(expected_region);
-			if(t_handle->received_full_region()) {
-				m_push_blackboard.erase(buffer_transfer);
-				t_handle->drain_transfers([&](std::unique_ptr<transfer_in> t) {
+		if(auto rm_it = m_requests.find(buffer_transfer); rm_it != m_requests.end()) {
+			request_manager& rm = rm_it->second;
+			t_handle = rm.request_region(expected_region);
+			if(rm.can_drain()) {
+				rm.drain_transfers([&](std::unique_ptr<transfer_in> t) {
 					assert(t->frame->bid == bid);
 					assert(t->frame->rid == rid);
 					commit_transfer(*t);
 				});
-				t_handle->complete = true;
+				if(rm.fully_drained()) { m_requests.erase(buffer_transfer); }
 			}
 		} else {
-			t_handle = std::make_shared<incoming_transfer_handle>();
-			t_handle->expect_region(expected_region);
-			// Store new handle so we can mark it as complete when the push is received
-			m_push_blackboard[buffer_transfer] = t_handle;
+			request_manager rm;
+			t_handle = rm.request_region(expected_region);
+			// Store new manager so we can match against it once the transfer received
+			m_requests.try_emplace(buffer_transfer, std::move(rm));
 		}
 
 		return t_handle;
@@ -124,23 +123,21 @@ namespace detail {
 			}
 
 			// Check whether we already have an await push request
-			std::shared_ptr<incoming_transfer_handle> t_handle = nullptr;
 			const auto buffer_transfer = std::pair{transfer->frame->bid, transfer->frame->trid};
-			if(m_push_blackboard.count(buffer_transfer) != 0) {
-				t_handle = m_push_blackboard[buffer_transfer];
-				t_handle->add_transfer(std::move(*it));
-
-				if(t_handle->received_full_region()) {
-					m_push_blackboard.erase(buffer_transfer);
-					assert(t_handle.use_count() > 1 && "Dangling await push request");
-					t_handle->drain_transfers([this](std::unique_ptr<transfer_in> t) { commit_transfer(*t); });
-					t_handle->complete = true;
+			if(auto rm_it = m_requests.find(buffer_transfer); rm_it != m_requests.end()) {
+				request_manager& rm = rm_it->second;
+				rm.add_transfer(std::move(*it));
+				if(rm.can_drain()) {
+					rm.drain_transfers([&](std::unique_ptr<transfer_in> t) { commit_transfer(*t); });
+					if(rm.fully_drained()) { m_requests.erase(buffer_transfer); }
 				}
 			} else {
-				t_handle = std::make_shared<incoming_transfer_handle>();
-				m_push_blackboard[buffer_transfer] = t_handle;
-				t_handle->add_transfer(std::move(*it));
+				request_manager rm;
+				rm.add_transfer(std::move(*it));
+				// Store new manager so we can match against it once the corresponding await push is posted
+				m_requests.try_emplace(buffer_transfer, std::move(rm));
 			}
+
 			it = m_incoming_transfers.erase(it);
 		}
 	}
