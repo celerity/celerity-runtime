@@ -76,6 +76,12 @@ class task_builder {
 		buffer_access_step affect(HostObjT& host_obj) {
 			return chain<buffer_access_step>([&host_obj](handler& cgh) { host_obj.add_side_effect(cgh, experimental::side_effect_order::sequential); });
 		}
+
+		// FIXME: Misnomer (not a "buffer access")
+		template <typename Hint>
+		buffer_access_step hint(Hint hint) {
+			return chain<buffer_access_step>([&hint](handler& cgh) { experimental::hint(cgh, hint); });
+		}
 	};
 
   public:
@@ -732,4 +738,36 @@ TEST_CASE("kernel offsets work correctly") {
 	dctx.device_compute(test_range - range<1>(2), id<1>(1)).discard_write(buf, acc::one_to_one{}).submit();
 	dctx.device_compute(range<1>(1)).read(buf, acc::all{}).submit();
 	CHECK(dctx.query().find_all(command_type::await_push).count() == 0);
+}
+
+TEST_CASE("per-device 2d oversubscribed chunks cover the same region as the corresponding original chunks would have") {
+	dist_cdag_test_context dctx(1, 4);
+	const auto test_range = range<2>(128, 128);
+
+	const auto tid_a = dctx.device_compute(test_range).hint(experimental::hints::tiled_split{}).submit();
+	const auto tid_b = dctx.device_compute(test_range).hint(experimental::hints::tiled_split{}).hint(experimental::hints::oversubscribe{4}).submit();
+
+	GridRegion<3> full_chunks_by_device[4];
+	CHECK(dctx.query().find_all(tid_a).count() == 4);
+	for(const auto* acmd : dctx.query().find_all(tid_a).get_raw(0)) {
+		REQUIRE_LOOP(isa<execution_command>(acmd));
+		auto& ecmd = *static_cast<const execution_command*>(acmd);
+		auto& chnk = full_chunks_by_device[ecmd.get_device_id()];
+		REQUIRE_LOOP(chnk.empty());
+		chnk = subrange_to_grid_box(ecmd.get_execution_range());
+	}
+
+	CHECK(dctx.query().find_all(tid_b).count() == 16);
+	for(const auto* acmd : dctx.query().find_all(tid_b).get_raw(0)) {
+		REQUIRE_LOOP(isa<execution_command>(acmd));
+		auto& ecmd = *static_cast<const execution_command*>(acmd);
+		auto& chnk = full_chunks_by_device[ecmd.get_device_id()];
+		REQUIRE_LOOP(!chnk.empty());
+		REQUIRE_LOOP(!GridRegion<3>::intersect(chnk, subrange_to_grid_box(ecmd.get_execution_range())).empty());
+		chnk = GridRegion<3>::difference(chnk, subrange_to_grid_box(ecmd.get_execution_range()));
+	}
+
+	for(size_t i = 0; i < 4; ++i) {
+		REQUIRE_LOOP(full_chunks_by_device[i].empty());
+	}
 }

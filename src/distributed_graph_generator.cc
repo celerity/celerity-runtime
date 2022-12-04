@@ -296,7 +296,19 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 		std::vector<chunk<3>> effective_chunks;
 		if(is_local_chunk && m_num_local_devices > 1 && tsk.has_variable_split()) {
 			if(tsk.get_hint<experimental::hints::tiled_split>() != nullptr) {
-				effective_chunks = split_2d(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices * oversub_factor);
+				auto per_device_chunks = split_2d(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices);
+				if(oversub_factor == 1) {
+					effective_chunks = per_device_chunks;
+				} else {
+					// Since 2D chunks are not sorted by device, we have to do the oversubscription separately in a loop.
+					// FIXME: This is getting a bit too convoluted.
+					effective_chunks.reserve(per_device_chunks.size() * oversub_factor); // Assuming we can do the full split
+					for(auto& dc : per_device_chunks) {
+						auto oversub_chunks = split_2d(dc, tsk.get_granularity(), oversub_factor);
+						effective_chunks.insert(
+						    effective_chunks.end(), std::make_move_iterator(oversub_chunks.begin()), std::make_move_iterator(oversub_chunks.end()));
+					}
+				}
 			} else {
 				effective_chunks = split_1d(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices * oversub_factor);
 			}
