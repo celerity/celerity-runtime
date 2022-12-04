@@ -68,9 +68,14 @@ namespace detail {
 		task_hydrator::make_available();
 		bool done = false;
 
-		// namespace chr = std::chrono;
-		// using namespace std::chrono_literals;
-		// chr::steady_clock::time_point ts_last_change = chr::steady_clock::now() + 1s;
+// It's called "attempt" b/c we might produce false positives for long-running compute jobs
+// NOTE: Enabling this is not enough atm, requires minor changes to worker_job and create_job().
+#define ATTEMPT_DEADLOCK_DETECTION 0
+#if ATTEMPT_DEADLOCK_DETECTION
+		namespace chr = std::chrono;
+		using namespace std::chrono_literals;
+		chr::steady_clock::time_point ts_last_change = chr::steady_clock::now() + 1s;
+#endif
 
 		while(!done || !m_jobs.empty()) {
 			// Bail if a device error ocurred.
@@ -123,7 +128,9 @@ namespace detail {
 					done = true;
 				}
 
-				// ts_last_change = chr::steady_clock::now();
+#if ATTEMPT_DEADLOCK_DETECTION
+				ts_last_change = chr::steady_clock::now();
+#endif
 				it = m_jobs.erase(it);
 			}
 
@@ -134,7 +141,9 @@ namespace detail {
 				std::sort(ready_jobs.begin(), ready_jobs.end(),
 				    [this](command_id a, command_id b) { return m_jobs[a].cmd == command_type::push && m_jobs[b].cmd != command_type::push; });
 				for(command_id cid : ready_jobs) {
-					// ts_last_change = chr::steady_clock::now();
+#if ATTEMPT_DEADLOCK_DETECTION
+					ts_last_change = chr::steady_clock::now();
+#endif
 					auto* job = m_jobs.at(cid).job.get();
 
 					if(isa<device_execute_job>(job)) {
@@ -159,23 +168,26 @@ namespace detail {
 						// In case the command couldn't be handled, don't pop it from the queue.
 						continue;
 					}
-					// ts_last_change = chr::steady_clock::now();
+#if ATTEMPT_DEADLOCK_DETECTION
+					ts_last_change = chr::steady_clock::now();
+#endif
 					m_command_queue.pop();
 				}
 			}
 
 			if(m_first_command_received) { update_metrics(); }
 
-#if 0
-			// NOCOMMIT Add something like this, at least as a function that can be called from a GDB session (it might be hard to automatically detect deadlocks reliably).
+#if ATTEMPT_DEADLOCK_DETECTION
+			// NOCOMMIT Add something like this, at least as a function that can be called from a GDB session (it might be hard to automatically detect
+			// deadlocks reliably).
 			if((chr::steady_clock::now() - ts_last_change) > 10s) {
 				std::this_thread::sleep_for(size_t(m_local_nid) * 100ms);
 
 				fmt::print("Executor is stuck!\n");
 				fmt::print("Jobs:\n");
 				for(auto& [id, jh] : m_jobs) {
-					fmt::print("\t{} [running={}]: {} | {} unfulfilled dependencies, successors: [{}]\n", id, jh.job->is_running(), jh.job->get_description(jh.job->m_pkg),
-					    jh.unsatisfied_dependencies, fmt::join(jh.dependents, ", "));
+					fmt::print("\t{} [running={}]: {} | {} unfulfilled dependencies, successors: [{}]\n", id, jh.job->is_running(),
+					    jh.job->get_description(jh.job->m_pkg), jh.unsatisfied_dependencies, fmt::join(jh.dependents, ", "));
 				}
 
 				const auto foo = [this](const command_frame& frame) -> job_handle* {
@@ -187,9 +199,10 @@ namespace detail {
 					case command_type::reduction: return create_job<reduction_job>(frame, m_reduction_mngr); break;
 					case command_type::execution:
 						if(m_task_mngr.get_task(frame.pkg.get_tid().value())->get_execution_target() == execution_target::host) {
-							return create_job<host_execute_job>(frame, m_h_queue, m_task_mngr, m_buffer_mngr);
+							return create_job<host_execute_job>(frame, m_local_devices.get_host_queue(), m_task_mngr, m_buffer_mngr);
 						} else {
-							return create_job<device_execute_job>(frame, m_d_queue, m_task_mngr, m_buffer_mngr, m_reduction_mngr, m_local_nid);
+							return create_job<device_execute_job>(frame, m_local_devices.get_device_queue(std::get<execution_data>(frame.pkg.data).did),
+							    m_task_mngr, m_buffer_mngr, m_reduction_mngr, m_local_nid);
 						}
 						break;
 					case command_type::data_request: create_job<data_request_job>(frame, *m_btm); break;
