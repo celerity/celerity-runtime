@@ -148,14 +148,28 @@ namespace detail {
 				} else {
 					ZoneScopedN("slow path: reallocate through host");
 
+					bool spill_to_host = false;
 					// Check if we can do the resize by going through host first (see if we'll be able to fit just the added elements of the resized buffer).
-					if(!can_allocate(device_queue.get_memory_id(), allocation_size - (range.size() * element_size))) {
-						// TODO: Same thing as above
-						die(allocation_size);
+					if(!can_allocate(device_queue.get_memory_id(), allocation_size - (existing_buf.storage->get_range().size() * element_size))) {
+						// Final attempt: Check if we can create a new buffer with the requested size if we spill everything else to the host.
+						if(can_allocate(device_queue.get_memory_id(), range.size() * element_size, existing_buf.storage->get_range().size() * element_size)) {
+							spill_to_host = true;
+						} else {
+							// TODO: Same thing as above
+							die(allocation_size);
+						}
 					}
 
-					// Do a faux host access with the *resized* range to retain all existing data from the device.
-					access_host_buffer_impl(bid, mode, info.new_range, info.new_offset);
+					// Use faux host accesses retain all data from the device (except what is going to be discarded anyway).
+					// TODO: This could be made more efficient, currently it may cause multiple consecutive resizes.
+					GridRegion<3> retain_region = subrange_to_grid_box(subrange<3>{existing_buf.offset, existing_buf.storage->get_range()});
+					if(!access::mode_traits::is_consumer(mode)) {
+						retain_region = GridRegion<3>::difference(retain_region, subrange_to_grid_box(subrange<3>{offset, range}));
+					}
+					retain_region.scanByBoxes([&](const GridBox<3>& box) {
+						const auto sr = grid_box_to_subrange(box);
+						access_host_buffer_impl(bid, access_mode::read, sr.range, sr.offset);
+					});
 
 					// We now have all data "backed up" on the host, so we may deallocate the device buffer (via destructor).
 					const auto existing_buf_sr = subrange<3>{existing_buf.offset, existing_buf.storage->get_range()};
@@ -166,7 +180,9 @@ namespace detail {
 					}
 
 					// Finally create the new device buffer. It will be made coherent with data from the host below.
-					replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, device_queue), info.new_offset};
+					// If we have to spill to host, only allocate the currently requested subrange. Otherwise use bounding box of existing and new range.
+					replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(spill_to_host ? range : info.new_range, device_queue),
+					    spill_to_host ? offset : info.new_offset};
 				}
 			}
 #endif

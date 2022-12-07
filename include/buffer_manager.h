@@ -399,11 +399,12 @@ namespace detail {
 		 * Returns whether an allocation of size can be made without exceeding max_global_mem_usage.
 		 * NOTE: SYCL does not provide us with a way of getting the actual current memory usage of a device, so this just a best effort guess.
 		 */
-		bool can_allocate(const memory_id mid, const size_t size) const {
+		bool can_allocate(const memory_id mid, const size_t size, const size_t assume_freed = 0) const {
 			const auto& device = m_local_devices.get_close_device_queue(mid);
 			const auto total = device.get_global_memory_size();
 			const auto current = device.get_global_memory_allocated();
-			return static_cast<double>(current + size) / total < max_device_global_mem_usage;
+			assert(assume_freed <= current);
+			return static_cast<double>(current - assume_freed + size) / total < max_device_global_mem_usage;
 		}
 
 		/**
