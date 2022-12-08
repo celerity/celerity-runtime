@@ -28,7 +28,7 @@ deadlock if #buffers > 20 though, so probably not a good idea)
 #include "task_hydrator.h"
 
 // TODO: Get rid of this. (This could potentialy even cause deadlocks on large clusters)
-constexpr size_t MAX_CONCURRENT_JOBS = 20;
+constexpr size_t MAX_CONCURRENT_JOBS = 50;
 constexpr size_t MAX_CONCURRENT_COMPUTES_PER_DEVICE = 1;
 
 namespace celerity {
