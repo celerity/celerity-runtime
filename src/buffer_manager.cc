@@ -110,7 +110,7 @@ namespace detail {
 			}
 			fmt::format_to(std::back_inserter(msg), "Total usage: {} / {} bytes ({:.1f}%).\n", total_bytes, device_queue.get_global_memory_size(),
 			    100 * static_cast<double>(total_bytes) / device_queue.get_global_memory_size());
-			throw std::runtime_error(msg);
+			throw allocation_error(msg);
 		};
 
 		if(!existing_buf.is_allocated()) {

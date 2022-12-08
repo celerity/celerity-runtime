@@ -105,12 +105,20 @@ namespace detail {
 		[[nodiscard]] device_allocation malloc(const size_t count) {
 			assert(m_sycl_queue != nullptr);
 			assert(m_global_mem_allocated + count * sizeof(T) < m_global_mem_size);
-			// TODO Use aligned allocation?
-			auto ptr = sycl::malloc_device<T>(count, *m_sycl_queue);
-			// m_device_ptr = sycl::aligned_alloc_device<DataT>(alignof(DataT), m_range.size(), m_queue);
+			CELERITY_DEBUG("Allocating {} bytes on device {} (memory {})", count * sizeof(T), m_did, m_mid);
+			T* ptr = nullptr;
+			try {
+				// TODO Use aligned allocation?
+				ptr = sycl::malloc_device<T>(count, *m_sycl_queue);
+				// m_device_ptr = sycl::aligned_alloc_device<DataT>(alignof(DataT), m_range.size(), m_queue);
+			} catch(sycl::exception e) {
+				CELERITY_CRITICAL("sycl::malloc_device failed with exception: {}", e.what());
+				ptr = nullptr;
+			}
 			if(ptr == nullptr) {
 				throw allocation_error(
-				    fmt::format("Allocation of {} byte on device {} (memory {}) failed; likely out of memory.", count * sizeof(T), m_did, m_mid));
+				    fmt::format("Allocation of {} bytes on device {} (memory {}) failed; likely out of memory. Currently allocated: {} bytes.",
+				        count * sizeof(T), m_did, m_mid, m_global_mem_allocated));
 			}
 			m_global_mem_allocated += count * sizeof(T);
 			return device_allocation{ptr, count * sizeof(T)};
@@ -120,6 +128,7 @@ namespace detail {
 			assert(m_sycl_queue != nullptr);
 			assert(alloc.size <= m_global_mem_allocated);
 			assert(alloc.ptr != nullptr || alloc.size == 0);
+			CELERITY_DEBUG("Freeing {} bytes on device {} (memory {})", alloc.size, m_did, m_mid);
 			if(alloc.size != 0) { sycl::free(alloc.ptr, *m_sycl_queue); }
 			m_global_mem_allocated -= alloc.size;
 		}
