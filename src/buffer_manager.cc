@@ -243,6 +243,9 @@ namespace detail {
 	}
 
 	bool buffer_manager::try_lock(const buffer_lock_id id, const memory_id mid, const std::unordered_set<buffer_id>& buffers) {
+		// NOCOMMIT EXTREME HACK
+		if(NOMERGE_warn_on_device_buffer_resize) { return true; }
+
 		assert(m_buffer_locks_by_id.count(id) == 0);
 		for(auto bid : buffers) {
 			if(m_buffer_lock_infos[std::pair{bid, mid}].is_locked) return false;
@@ -271,8 +274,8 @@ namespace detail {
 	// TODO: Something we could look into is to dispatch all memory copies concurrently and wait for them in the end.
 	std::pair<buffer_manager::backing_buffer, backend::async_event> buffer_manager::make_buffer_subrange_coherent(const memory_id mid, buffer_id bid,
 	    cl::sycl::access::mode mode, backing_buffer existing_buffer, const subrange<3>& coherent_sr, backing_buffer replacement_buffer) {
-		backing_buffer target_buffer, previous_buffer;
 		ZoneScopedN("make_buffer_subrange_coherent");
+		backing_buffer target_buffer, previous_buffer;
 		if(replacement_buffer.is_allocated()) {
 			assert(!existing_buffer.is_allocated() || replacement_buffer.storage->get_type() == existing_buffer.storage->get_type());
 			target_buffer = std::move(replacement_buffer);
@@ -343,6 +346,7 @@ namespace detail {
 							// TODO can this temp buffer be avoided?
 							auto tmp = make_uninitialized_payload<std::byte>(sr.range.size() * element_size);
 							linearize_subrange(t.linearized.get_pointer(), tmp.get_pointer(), element_size, t.sr.range, {sr.offset - t.sr.offset, sr.range});
+							ZoneScopedN("ingest transfer (partial)");
 							target_buffer.storage->set_data({target_buffer.get_local_offset(sr.offset), sr.range}, tmp.get_pointer());
 							updated_region = GridRegion<3>::merge(updated_region, box);
 						});
@@ -352,6 +356,7 @@ namespace detail {
 					continue;
 				}
 
+				ZoneScopedN("ingest transfer (full)");
 				// Transfer applies fully.
 				assert(detail::access::mode_traits::is_consumer(mode));
 				remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, t_region);

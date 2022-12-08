@@ -20,7 +20,16 @@ namespace detail {
 
 	bool worker_job::prepare() {
 		CELERITY_LOG_SET_SCOPED_CTX(m_lctx);
+
+		if(!m_tracy_lane.is_initialized()) {
+			m_tracy_lane.initialize();
+			const auto desc = fmt::format("cid={}: {}", m_pkg.cid, get_description(m_pkg));
+			m_tracy_lane.begin_phase("preparation", desc, tracy::Color::ColorType::Pink);
+		}
+
+		m_tracy_lane.activate();
 		const auto result = prepare(m_pkg);
+		m_tracy_lane.deactivate();
 		return result;
 	}
 
@@ -53,16 +62,13 @@ namespace detail {
 		CELERITY_LOG_SET_SCOPED_CTX(m_lctx);
 		assert(!m_running);
 		m_running = true;
-
 		const auto desc = fmt::format("cid={}: {}", m_pkg.cid, get_description(m_pkg));
-		m_tracy_lane.initialize();
 		switch(m_pkg.get_command_type()) {
 		case command_type::execution: m_tracy_lane.begin_phase("execution", desc, tracy::Color::ColorType::Blue); break;
 		case command_type::push: m_tracy_lane.begin_phase("push", desc, tracy::Color::ColorType::Red); break;
 		case command_type::await_push: m_tracy_lane.begin_phase("await push", desc, tracy::Color::ColorType::Yellow); break;
 		default: m_tracy_lane.begin_phase("other", desc, tracy::Color::ColorType::Gray); break;
 		}
-
 		CELERITY_DEBUG("Starting job: {}", desc);
 		m_start_time = std::chrono::steady_clock::now();
 	}
@@ -231,6 +237,8 @@ namespace detail {
 	}
 
 	bool device_execute_job::prepare(const command_pkg& pkg) {
+		if(m_async_transfers_done) return true;
+
 		// NOCOMMIT TODO This is not a good test b/c it wouldn't work for kernels without any accessors
 		if(m_accessor_infos.empty()) {
 			const auto data = std::get<execution_data>(pkg.data);
@@ -278,7 +286,15 @@ namespace detail {
 			}
 		}
 
-		return std::all_of(m_accessor_transfer_events.cbegin(), m_accessor_transfer_events.cend(), [](auto& te) { return te.is_done(); });
+		if(!m_async_transfers_done
+		    && std::all_of(m_accessor_transfer_events.cbegin(), m_accessor_transfer_events.cend(), [](auto& te) { return te.is_done(); })) {
+			m_async_transfers_done = true;
+			const auto msg = fmt::format("{}: Async transfers done", pkg.cid);
+			TracyMessage(msg.c_str(), msg.size());
+			return true;
+		}
+
+		return false;
 	}
 
 	bool device_execute_job::execute(const command_pkg& pkg) {
@@ -286,11 +302,6 @@ namespace detail {
 			const auto data = std::get<execution_data>(pkg.data);
 			auto tsk = m_task_mngr.get_task(data.tid);
 			task_hydrator::get_instance().arm(std::move(m_accessor_infos), std::move(m_reduction_infos), [&]() { m_event = tsk->launch(m_queue, data.sr); });
-			{
-				const auto msg = fmt::format("{}: Job submitted to SYCL (blocked on transfers until now!)", pkg.cid);
-				TracyMessage(msg.c_str(), msg.size());
-			}
-
 			m_submitted = true;
 			CELERITY_TRACE("Kernel submitted to SYCL");
 		}

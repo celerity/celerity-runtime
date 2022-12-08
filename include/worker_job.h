@@ -204,6 +204,7 @@ namespace detail {
 		std::vector<task_hydrator::accessor_info> m_accessor_infos;
 		std::vector<backend::async_event> m_accessor_transfer_events;
 		std::vector<task_hydrator::reduction_info> m_reduction_infos;
+		bool m_async_transfers_done = false;
 
 		bool prepare(const command_pkg& pkg) override;
 		bool execute(const command_pkg& pkg) override;

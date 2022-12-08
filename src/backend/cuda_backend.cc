@@ -34,9 +34,9 @@ backend::async_event memcpy_strided_device_cuda(sycl::queue& queue, const void* 
     const sycl::range<1>& copy_range) {
 	(void)queue;
 	const size_t line_size = elem_size * copy_range[0];
-	const auto ret = cudaMemcpy(static_cast<char*>(target_base_ptr) + elem_size * get_linear_index(target_range, target_offset),
+	const auto ret = cudaMemcpyAsync(static_cast<char*>(target_base_ptr) + elem_size * get_linear_index(target_range, target_offset),
 	    static_cast<const char*>(source_base_ptr) + elem_size * get_linear_index(source_range, source_offset), line_size, cudaMemcpyDefault);
-	if(ret != cudaSuccess) throw std::runtime_error("cudaMemcpy failed");
+	if(ret != cudaSuccess) throw std::runtime_error("cudaMemcpyAsync failed");
 	return backend::async_event{std::make_shared<cuda_event_wrapper>(create_and_record_cuda_event(0))};
 }
 
@@ -46,10 +46,10 @@ backend::async_event memcpy_strided_device_cuda(sycl::queue& queue, const void* 
 	(void)queue;
 	const auto source_base_offset = get_linear_index(source_range, source_offset);
 	const auto target_base_offset = get_linear_index(target_range, target_offset);
-	const auto ret = cudaMemcpy2D(static_cast<char*>(target_base_ptr) + elem_size * target_base_offset, target_range[1] * elem_size,
+	const auto ret = cudaMemcpy2DAsync(static_cast<char*>(target_base_ptr) + elem_size * target_base_offset, target_range[1] * elem_size,
 	    static_cast<const char*>(source_base_ptr) + elem_size * source_base_offset, source_range[1] * elem_size, copy_range[1] * elem_size, copy_range[0],
 	    cudaMemcpyDefault);
-	if(ret != cudaSuccess) throw std::runtime_error("cudaMemcpy2D failed");
+	if(ret != cudaSuccess) throw std::runtime_error("cudaMemcpy2DAsync failed");
 	return backend::async_event{std::make_shared<cuda_event_wrapper>(create_and_record_cuda_event(0))};
 }
 
@@ -64,8 +64,8 @@ backend::async_event memcpy_strided_device_cuda(sycl::queue& queue, const void* 
 	parms.dstPtr = make_cudaPitchedPtr(target_base_ptr, target_range[2] * elem_size, target_range[2], target_range[1]);
 	parms.extent = {copy_range[2] * elem_size, copy_range[1], copy_range[0]};
 	parms.kind = cudaMemcpyDefault;
-	const auto ret = cudaMemcpy3D(&parms);
-	if(ret != cudaSuccess) throw std::runtime_error("cudaMemcpy3D failed");
+	const auto ret = cudaMemcpy3DAsync(&parms);
+	if(ret != cudaSuccess) throw std::runtime_error("cudaMemcpy3DAsync failed");
 	return backend::async_event{std::make_shared<cuda_event_wrapper>(create_and_record_cuda_event(0))};
 }
 

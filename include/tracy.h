@@ -31,6 +31,14 @@ struct tracy_static_context {
 // Workaround for https://github.com/wolfpld/tracy/issues/426
 class tracy_async_lane {
   public:
+	bool is_initialized() const {
+#if TRACY_ENABLE
+		return m_started;
+#else
+		return true;
+#endif
+	}
+
 	void initialize() {
 #if TRACY_ENABLE
 		assert(!m_started);
