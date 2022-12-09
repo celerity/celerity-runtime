@@ -14,3 +14,6 @@
 [submodule "vendor/tracy"]
 	path = vendor/tracy
 	url = https://github.com/wolfpld/tracy.git
+[submodule "vendor/memory"]
+	path = vendor/memory
+	url = https://github.com/foonathan/memory

@@ -184,18 +184,19 @@ namespace test_utils {
 	class cdag_inspector {
 	  public:
 		auto get_cb() {
-			return [this](detail::node_id nid, detail::unique_frame_ptr<detail::command_frame> frame) {
-#ifndef NDEBUG
-				for(const auto dcid : frame->iter_dependencies()) {
-					// Sanity check: All dependencies must have already been flushed
-					assert(m_commands.count(dcid) == 1);
-				}
-#endif
+			return [](detail::node_id nid, detail::command_pkg frame) {
+				// FIXME: Serializer no longer produces a frame
+// #ifndef NDEBUG
+// 				for(const auto dcid : frame->iter_dependencies()) {
+// 					// Sanity check: All dependencies must have already been flushed
+// 					assert(m_commands.count(dcid) == 1);
+// 				}
+// #endif
 
-				const detail::command_id cid = frame->pkg.cid;
-				m_commands[cid] = {nid, frame->pkg, std::vector(frame->iter_dependencies().begin(), frame->iter_dependencies().end())};
-				if(const auto tid = frame->pkg.get_tid()) { m_by_task[*tid].insert(cid); }
-				m_by_node[nid].insert(cid);
+// 				const detail::command_id cid = frame->pkg.cid;
+// 				m_commands[cid] = {nid, frame->pkg, std::vector(frame->iter_dependencies().begin(), frame->iter_dependencies().end())};
+// 				if(const auto tid = frame->pkg.get_tid()) { m_by_task[*tid].insert(cid); }
+// 				m_by_node[nid].insert(cid);
 			};
 		}
 

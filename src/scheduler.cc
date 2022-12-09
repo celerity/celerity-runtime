@@ -20,9 +20,9 @@ namespace detail {
 
 	void abstract_scheduler::schedule() {
 		// NOCOMMIT Get rid of this, no need to serialize commands
-		graph_serializer serializer(m_dggen->NOCOMMIT_get_cdag(), [this](node_id, unique_frame_ptr<command_frame> frame_ptr) {
-			if(m_is_dry_run && frame_ptr->pkg.get_command_type() != command_type::epoch) { return; }
-			m_exec.enqueue(std::move(frame_ptr));
+		graph_serializer serializer(m_dggen->NOCOMMIT_get_cdag(), [this](node_id, command_pkg pkg) {
+			if(m_is_dry_run && pkg.get_command_type() != command_type::epoch) { return; }
+			m_exec.enqueue(std::move(pkg));
 		});
 
 		std::queue<event> in_flight_events;

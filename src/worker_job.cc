@@ -135,8 +135,10 @@ namespace detail {
 		    static_cast<size_t>(data.target));
 	}
 
-	bool push_job::execute(const command_pkg& pkg) {
-		if(m_data_handle == nullptr) {
+	inline constexpr size_t send_recv_unit_bytes = 64; // NOCOMMIT FIXME: Copy of value in buffer_transfer_manager.cc
+
+	bool push_job::prepare(const command_pkg& pkg) {
+		if(m_frame.get_pointer() == nullptr) {
 			const auto data = std::get<push_data>(pkg.data);
 			// Getting buffer data from the buffer manager may incur a host-side buffer reallocation.
 			// If any other tasks are currently using this buffer for reading, we run into problems.
@@ -144,11 +146,26 @@ namespace detail {
 			// FIXME: Get rid of this, replace with finer grained approach.
 			if(m_buffer_mngr.is_locked(data.bid, 0 /* FIXME: Host memory id - should use host_queue::get_memory_id */)) { return false; }
 
-			CELERITY_TRACE("Submit buffer to BTM");
-			m_data_handle = m_btm.push(data.target, data.trid, data.bid, data.sr, data.rid);
-			CELERITY_TRACE("Buffer submitted to BTM");
+			const auto element_size = m_buffer_mngr.get_buffer_info(data.bid).element_size;
+			unique_frame_ptr<buffer_transfer_manager::data_frame> frame(
+			    from_payload_count, data.sr.range.size() * element_size, /* packet_size_bytes */ send_recv_unit_bytes);
+			frame->sr = data.sr;
+			frame->bid = data.bid;
+			frame->rid = data.rid;
+			frame->trid = data.trid;
+			m_frame_transfer_event = m_buffer_mngr.get_buffer_data(data.bid, data.sr, frame->data);
+			m_frame = std::move(frame);
 		}
+		return m_frame_transfer_event.is_done();
+	}
 
+	bool push_job::execute(const command_pkg& pkg) {
+		const auto data = std::get<push_data>(pkg.data);
+		if(m_data_handle == nullptr) {
+			assert(m_frame_transfer_event.is_done());
+			CELERITY_TRACE("Submit buffer to BTM");
+			m_data_handle = m_btm.push(data.target, std::move(m_frame));
+		}
 		return m_data_handle->complete;
 	}
 

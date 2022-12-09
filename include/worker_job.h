@@ -128,8 +128,11 @@ namespace detail {
 	  private:
 		buffer_transfer_manager& m_btm;
 		buffer_manager& m_buffer_mngr;
+		unique_frame_ptr<buffer_transfer_manager::data_frame> m_frame;
+		backend::async_event m_frame_transfer_event;
 		std::shared_ptr<const buffer_transfer_manager::transfer_handle> m_data_handle = nullptr;
 
+		bool prepare(const command_pkg& pkg) override;
 		bool execute(const command_pkg& pkg) override;
 		std::string get_description(const command_pkg& pkg) override;
 	};
@@ -141,7 +144,7 @@ namespace detail {
 		}
 
 	  private:
-		buffer_transfer_manager& m_btm;
+		[[maybe_unused]] buffer_transfer_manager& m_btm;
 
 		bool execute(const command_pkg& pkg) override;
 		std::string get_description(const command_pkg& pkg) override;

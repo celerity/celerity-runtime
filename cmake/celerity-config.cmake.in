@@ -28,6 +28,7 @@ endif()
 find_dependency(Tracy REQUIRED)
 # TODO: Make optional
 find_dependency(CUDAToolkit REQUIRED)
+find_dependency(FOONATHAN_MEMORY REQUIRED) 
 
 if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
   if(NOT DEFINED HIPSYCL_TARGETS AND NOT "@HIPSYCL_TARGETS@" STREQUAL "")

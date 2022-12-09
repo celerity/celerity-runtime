@@ -199,6 +199,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tracy)
 
+FetchContent_Declare(
+  memory
+  GIT_REPOSITORY ${CMAKE_CURRENT_LIST_DIR}/vendor/memory
+  GIT_TAG 62a41ddcf
+  GIT_SHALLOW TRUE
+  GIT_PROGRESS TRUE
+)
+FetchContent_MakeAvailable(memory)
+
 configure_file(include/version.h.in include/version.h @ONLY)
 
 # Add includes to library so they show up in IDEs
@@ -284,6 +293,7 @@ target_link_libraries(celerity_runtime PUBLIC
   ${SYCL_LIB}
   Tracy::TracyClient
   CUDA::cuda_driver
+  foonathan_memory
 )
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/backend)

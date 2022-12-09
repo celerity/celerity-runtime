@@ -35,25 +35,6 @@ namespace detail {
 			bool complete = false;
 		};
 
-		buffer_transfer_manager(buffer_manager& bm, reduction_manager& rm);
-
-		~buffer_transfer_manager() {
-			assert(m_incoming_transfers.empty());
-			assert(m_outgoing_transfers.empty());
-			assert(m_requests.empty());
-		}
-
-		std::shared_ptr<const transfer_handle> push(
-		    const node_id target, const transfer_id trid, const buffer_id bid, const subrange<3>& sr, const reduction_id rid);
-		std::shared_ptr<const transfer_handle> await_push(
-		    const transfer_id trid, const buffer_id bid, const GridRegion<3>& expected_region, const reduction_id rid);
-
-		/**
-		 * @brief Polls for incoming transfers and updates the status of existing ones.
-		 */
-		void poll();
-
-	  private:
 		struct data_frame {
 			using payload_type = std::byte;
 
@@ -72,6 +53,25 @@ namespace detail {
 		// unique_frame_ptr assumes that the flexible payload member begins at exactly sizeof(Frame) bytes
 		static_assert(offsetof(data_frame, data) == sizeof(data_frame));
 
+		buffer_transfer_manager(buffer_manager& bm, reduction_manager& rm);
+
+		~buffer_transfer_manager() {
+			assert(m_incoming_transfers.empty());
+			assert(m_outgoing_transfers.empty());
+			assert(m_requests.empty());
+		}
+
+		// TODO: Receiving data_frame is not great for encapsulation... Instead provide member function to get a frame + transfer event?
+		std::shared_ptr<const transfer_handle> push(const node_id target, unique_frame_ptr<data_frame> frame);
+		std::shared_ptr<const transfer_handle> await_push(
+		    const transfer_id trid, const buffer_id bid, const GridRegion<3>& expected_region, const reduction_id rid);
+
+		/**
+		 * @brief Polls for incoming transfers and updates the status of existing ones.
+		 */
+		void poll();
+
+	  private:
 		struct transfer_in {
 			node_id source_nid;
 			MPI_Request request;

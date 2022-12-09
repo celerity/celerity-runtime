@@ -146,8 +146,6 @@ namespace detail {
 		m_exec = std::make_unique<executor>(m_local_nid, *m_local_devices, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
 		m_cdag = std::make_unique<command_graph>();
 		auto dggen = std::make_unique<distributed_graph_generator>(m_num_nodes, m_local_devices->num_compute_devices(), m_local_nid, *m_cdag, *m_task_mngr);
-		auto gser = std::make_unique<graph_serializer>(
-		    *m_cdag, [this](node_id target, unique_frame_ptr<command_frame> frame) { flush_command(target, std::move(frame)); });
 		m_schdlr = std::make_unique<scheduler>(is_dry_run(), std::move(dggen), *m_exec, m_num_nodes);
 		m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
 
@@ -223,6 +221,7 @@ namespace detail {
 				}
 
 				// Send local graph to rank 0
+				// FIXME: This actually deadlocks if CELERITY_LOG_LEVEL is not trace for every node!
 				if(m_local_nid != 0) {
 					const uint64_t size = graph_str.has_value() ? graph_str->size() : 0;
 					MPI_Send(&size, 1, MPI_UINT64_T, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);

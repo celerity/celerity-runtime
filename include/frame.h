@@ -2,6 +2,7 @@
 
 #include <cassert>
 
+#include "host_allocator.h"
 #include "payload.h"
 
 namespace celerity::detail {
@@ -12,28 +13,13 @@ struct from_payload_count_tag {
 struct from_size_bytes_tag {
 } inline constexpr from_size_bytes;
 
-// unique_frame_ptr manually `operator new`s the underlying frame memory, placement-new-constructs the frame and casts it to a frame pointer.
-// I'm convinced that I'm actually, technically allowed to use the resulting frame pointer in a delete-expression and therefore keep `std::default_delete` as
-// the deleter type for `unique_frame_ptr::impl`: Following the standard, delete-expression requires its operand to originate from a new-expression,
-// and placement-new is defined to be a new-expression. The following implicit call to operator delete is also legal, since memory was obtained from
-// `operator new`. Despite the beauty of this standards loophole, @BlackMark29A and @PeterTh couldn't be convinced to let me merge it :(   -- @fknorr
-template <typename Frame>
-struct unique_frame_delete {
-	void operator()(Frame* frame) const {
-		if(frame) {
-			frame->~Frame();
-			operator delete(frame);
-		}
-	}
-};
-
 /**
  * Owning smart pointer for variable-sized structures with a 0-sized array of type Frame::payload_type as the last member.
  */
 template <typename Frame>
-class unique_frame_ptr : private std::unique_ptr<Frame, unique_frame_delete<Frame>> {
+class unique_frame_ptr : private std::unique_ptr<Frame, std::function<void(Frame*)>> {
   private:
-	using impl = std::unique_ptr<Frame, unique_frame_delete<Frame>>;
+	using impl = std::unique_ptr<Frame, std::function<void(Frame*)>>;
 
 	friend class unique_payload_ptr;
 
@@ -46,7 +32,10 @@ class unique_frame_ptr : private std::unique_ptr<Frame, unique_frame_delete<Fram
 	    : unique_frame_ptr(from_size_bytes, sizeof(Frame) + sizeof(payload_type) * payload_count, packet_size_bytes) {}
 
 	unique_frame_ptr(from_size_bytes_tag, size_t size_bytes, size_t packet_size_bytes = 1)
-	    : impl(make_frame(pad_to_packet_size(size_bytes, packet_size_bytes))), m_size_bytes(pad_to_packet_size(size_bytes, packet_size_bytes)) {}
+
+	    : impl(make_frame(pad_to_packet_size(size_bytes, packet_size_bytes)),
+	        [size_bytes, packet_size_bytes](Frame* frame) { delete_frame(frame, pad_to_packet_size(size_bytes, packet_size_bytes)); }),
+	      m_size_bytes(pad_to_packet_size(size_bytes, packet_size_bytes)) {}
 
 	unique_frame_ptr(unique_frame_ptr&& other) noexcept : impl(static_cast<impl&&>(other)), m_size_bytes(other.m_size_bytes) { other.m_size_bytes = 0; }
 
@@ -67,7 +56,9 @@ class unique_frame_ptr : private std::unique_ptr<Frame, unique_frame_delete<Fram
 	using impl::operator->;
 
 	unique_payload_ptr into_payload_ptr() && {
-		unique_payload_ptr::deleter_type deleter{delete_frame_from_payload}; // allocate deleter (aka std::function) first so `result` construction is noexcept
+		unique_payload_ptr::deleter_type deleter{[size_bytes = m_size_bytes](void* ptr) {
+			delete_frame_from_payload(ptr, size_bytes);
+		}}; // allocate deleter (aka std::function) first so `result` construction is noexcept
 		const auto frame = this->release();
 		const auto payload = reinterpret_cast<typename Frame::payload_type*>(frame + 1); // payload is located at +sizeof(Frame) bytes (+1 Frame object)
 		return unique_payload_ptr{payload, std::move(deleter)};
@@ -79,11 +70,11 @@ class unique_frame_ptr : private std::unique_ptr<Frame, unique_frame_delete<Fram
 	static Frame* make_frame(const size_t size_bytes) {
 		assert(size_bytes >= sizeof(Frame));
 		assert((size_bytes - sizeof(Frame)) % sizeof(payload_type) == 0);
-		const auto mem = operator new(size_bytes);
+		const auto mem = host_allocator::get_instance().allocate(size_bytes);
 		try {
 			new(mem) Frame;
 		} catch(...) {
-			operator delete(mem);
+			host_allocator::get_instance().free(mem, size_bytes);
 			throw;
 		}
 		return static_cast<Frame*>(mem);
@@ -94,10 +85,19 @@ class unique_frame_ptr : private std::unique_ptr<Frame, unique_frame_delete<Fram
 	}
 
   private:
-	static void delete_frame_from_payload(void* const type_erased_payload) {
+	static void delete_frame(Frame* frame, const size_t size_bytes) {
+		if(frame) {
+			assert(size_bytes != 0);
+			frame->~Frame();
+			host_allocator::get_instance().free(frame, size_bytes);
+		}
+	}
+
+	static void delete_frame_from_payload(void* const type_erased_payload, const size_t size_bytes) {
 		const auto payload = static_cast<typename Frame::payload_type*>(type_erased_payload);
 		const auto frame = reinterpret_cast<Frame*>(payload) - 1; // frame header is located at -sizeof(Frame) bytes (-1 Frame object)
-		delete frame;
+		assert(size_bytes != 0);
+		host_allocator::get_instance().free(frame, size_bytes);
 	}
 };
 

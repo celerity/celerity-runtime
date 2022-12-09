@@ -4,7 +4,6 @@
 #include <unordered_set>
 
 #include "command.h"
-#include "frame.h"
 #include "types.h"
 
 namespace celerity {
@@ -15,7 +14,7 @@ namespace detail {
 	class command_graph;
 
 	class graph_serializer {
-		using flush_callback = std::function<void(node_id, unique_frame_ptr<command_frame>)>;
+		using flush_callback = std::function<void(node_id, command_pkg)>;
 
 	  public:
 		/*
@@ -29,10 +28,10 @@ namespace detail {
 		void flush(const std::unordered_set<abstract_command*>& cmds);
 
 	  private:
-		command_graph& m_cdag;
+		[[maybe_unused]] command_graph& m_cdag;
 		flush_callback m_flush_cb;
 
-		void serialize_and_flush(abstract_command* cmd, const std::vector<command_id>& dependencies) const;
+		void serialize_and_flush(abstract_command* cmd, std::vector<command_id> dependencies) const;
 	};
 
 } // namespace detail

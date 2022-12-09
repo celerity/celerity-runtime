@@ -61,6 +61,8 @@ class buffer_transfer_manager_fixture : public test_utils::mpi_fixture {
 
 	buffer_transfer_manager& get_buffer_transfer_manager() { return *m_buffer_transfer_mngr; }
 
+	buffer_manager& get_buffer_manager() { return *m_buffer_mngr; }
+
   private:
 	int m_num_ranks = 0;
 	int m_rank = -1;
@@ -71,6 +73,18 @@ class buffer_transfer_manager_fixture : public test_utils::mpi_fixture {
 	std::unique_ptr<buffer_transfer_manager> m_buffer_transfer_mngr;
 };
 
+unique_frame_ptr<buffer_transfer_manager::data_frame> make_data_frame(
+    buffer_manager& bm, const transfer_id trid, const buffer_id bid, const subrange<3>& sr, const reduction_id rid) {
+	const auto element_size = bm.get_buffer_info(bid).element_size;
+	unique_frame_ptr<buffer_transfer_manager::data_frame> frame(from_payload_count, sr.range.size() * element_size);
+	frame->sr = sr;
+	frame->bid = bid;
+	frame->rid = rid;
+	frame->trid = trid;
+	auto evt = bm.get_buffer_data(bid, sr, frame->data);
+	evt.wait();
+	return frame;
+}
 
 } // namespace
 
@@ -78,6 +92,7 @@ class buffer_transfer_manager_fixture : public test_utils::mpi_fixture {
 TEST_CASE_METHOD(buffer_transfer_manager_fixture, "multiple pushes can satisfy a single await push") {
 	require_num_ranks(2);
 	buffer_transfer_manager& btm = get_buffer_transfer_manager();
+	buffer_manager& bm = get_buffer_manager();
 
 	const auto bid = create_buffer(128);
 	const transfer_id trid = 123;
@@ -88,8 +103,8 @@ TEST_CASE_METHOD(buffer_transfer_manager_fixture, "multiple pushes can satisfy a
 	const auto sr_2 = subrange<3>({96, 0, 0}, {32, 1, 1});
 
 	if(get_rank() == 0) {
-		const auto handle_1 = btm.push(1, trid, bid, sr_1, rid);
-		const auto handle_2 = btm.push(1, trid, bid, sr_2, rid);
+		const auto handle_1 = btm.push(1, make_data_frame(bm, trid, bid, sr_1, rid));
+		const auto handle_2 = btm.push(1, make_data_frame(bm, trid, bid, sr_2, rid));
 		poll_until(btm, [&]() { return handle_1->complete && handle_2->complete; });
 		SUCCEED();
 	}
@@ -107,6 +122,7 @@ TEST_CASE_METHOD(buffer_transfer_manager_fixture, "multiple pushes can satisfy a
 TEST_CASE_METHOD(buffer_transfer_manager_fixture, "a single push can satisfy multiple await pushes") {
 	require_num_ranks(2);
 	buffer_transfer_manager& btm = get_buffer_transfer_manager();
+	buffer_manager& bm = get_buffer_manager();
 
 	const auto bid = create_buffer(128);
 	const transfer_id trid = 123;
@@ -115,7 +131,7 @@ TEST_CASE_METHOD(buffer_transfer_manager_fixture, "a single push can satisfy mul
 	const auto sr = subrange<3>({32, 0, 0}, {64, 1, 1});
 
 	if(get_rank() == 0) {
-		const auto handle = btm.push(1, trid, bid, sr, rid);
+		const auto handle = btm.push(1, make_data_frame(bm, trid, bid, sr, rid));
 		poll_until(btm, [&]() { return handle->complete; });
 		SUCCEED();
 	}
@@ -132,6 +148,7 @@ TEST_CASE_METHOD(buffer_transfer_manager_fixture, "a single push can satisfy mul
 TEST_CASE_METHOD(buffer_transfer_manager_fixture, "multiple pushes can satisfy multiple await pushes for a single transfer") {
 	require_num_ranks(2);
 	buffer_transfer_manager& btm = get_buffer_transfer_manager();
+	buffer_manager& bm = get_buffer_manager();
 
 	const auto bid = create_buffer(128);
 	const transfer_id trid = 123;
@@ -142,8 +159,8 @@ TEST_CASE_METHOD(buffer_transfer_manager_fixture, "multiple pushes can satisfy m
 	const auto sr_2 = subrange<3>({96, 0, 0}, {32, 1, 1});
 
 	if(get_rank() == 0) {
-		const auto handle_1 = btm.push(1, trid, bid, sr_1, rid);
-		const auto handle_2 = btm.push(1, trid, bid, sr_2, rid);
+		const auto handle_1 = btm.push(1, make_data_frame(bm, trid, bid, sr_1, rid));
+		const auto handle_2 = btm.push(1, make_data_frame(bm, trid, bid, sr_2, rid));
 		poll_until(btm, [&]() { return handle_1->complete && handle_2->complete; });
 		SUCCEED();
 	}

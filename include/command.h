@@ -231,6 +231,9 @@ namespace detail {
 		command_id cid{};
 		command_data data;
 
+		// FIXME: Just a quick hack to get command serialization to work w/o command_frame
+		std::vector<command_id> dependencies;
+
 		std::optional<task_id> get_tid() const {
 			// clang-format off
 			return utils::match(data,
@@ -261,6 +264,7 @@ namespace detail {
 		}
 	};
 
+	// NOCOMMIT: No longer needed
 	struct command_frame {
 		using payload_type = command_id;
 

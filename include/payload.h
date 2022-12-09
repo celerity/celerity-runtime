@@ -4,6 +4,8 @@
 #include <memory>
 #include <utility>
 
+#include "host_allocator.h"
+
 namespace celerity::detail {
 
 /*

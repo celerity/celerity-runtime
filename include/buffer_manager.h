@@ -203,7 +203,7 @@ namespace detail {
 		 * - Ideally we would transfer data directly out of the original buffer (at least on the host, need RDMA otherwise).
 		 * - We'd have to consider the data striding in the MPI data type we build.
 		 */
-		void get_buffer_data(buffer_id bid, const subrange<3>& sr, void* out_linearized);
+		backend::async_event get_buffer_data(buffer_id bid, const subrange<3>& sr, void* out_linearized);
 
 		/**
 		 * Updates a buffer's content with the provided @p data.

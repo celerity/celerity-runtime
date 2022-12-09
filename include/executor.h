@@ -46,9 +46,9 @@ namespace detail {
 
 		void startup();
 
-		void enqueue(unique_frame_ptr<command_frame> frame) {
+		void enqueue(command_pkg pkg) {
 			std::scoped_lock lk(m_command_queue_mutex);
-			m_command_queue.push(std::move(frame));
+			m_command_queue.push(std::move(pkg));
 		}
 
 		/**
@@ -69,7 +69,7 @@ namespace detail {
 		size_t m_running_device_compute_jobs = 0;
 
 		std::mutex m_command_queue_mutex;
-		std::queue<unique_frame_ptr<command_frame>> m_command_queue;
+		std::queue<command_pkg> m_command_queue;
 
 		// Jobs are identified by the command id they're processing
 
@@ -86,13 +86,12 @@ namespace detail {
 		bool m_first_command_received = false;
 
 		template <typename Job, typename... Args>
-		void create_job(const command_frame& frame, Args&&... args) {
-			const auto& pkg = frame.pkg;
+		void create_job(const command_pkg& pkg, Args&&... args) {
 			m_jobs[pkg.cid] = {std::make_unique<Job>(pkg, std::forward<Args>(args)...), pkg.get_command_type(), {}, 0};
 
 			// If job doesn't exist we assume it has already completed.
 			// This is true as long as we're respecting task-graph (anti-)dependencies when processing tasks.
-			for(const auto dcid : frame.iter_dependencies()) {
+			for(const auto dcid : pkg.dependencies) {
 				if(const auto it = m_jobs.find(dcid); it != m_jobs.end()) {
 					it->second.dependents.push_back(pkg.cid);
 					m_jobs[pkg.cid].unsatisfied_dependencies++;
@@ -101,7 +100,7 @@ namespace detail {
 		}
 
 		void run();
-		bool handle_command(const command_frame& frame);
+		bool handle_command(const command_pkg& pkg);
 
 		void update_metrics();
 	};

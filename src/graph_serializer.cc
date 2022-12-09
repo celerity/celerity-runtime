@@ -64,18 +64,18 @@ namespace detail {
 		assert(flush_count == cmds.size());
 	}
 
-	void graph_serializer::serialize_and_flush(abstract_command* cmd, const std::vector<command_id>& dependencies) const {
+	void graph_serializer::serialize_and_flush(abstract_command* cmd, std::vector<command_id> dependencies) const {
 		assert(!cmd->is_flushed() && "Command has already been flushed.");
 
-		unique_frame_ptr<command_frame> frame(from_payload_count, dependencies.size());
+		command_pkg pkg;
 
-		frame->pkg.cid = cmd->get_cid();
+		pkg.cid = cmd->get_cid();
 		if(const auto* ecmd = dynamic_cast<epoch_command*>(cmd)) {
-			frame->pkg.data = epoch_data{ecmd->get_tid(), ecmd->get_epoch_action()};
+			pkg.data = epoch_data{ecmd->get_tid(), ecmd->get_epoch_action()};
 		} else if(const auto* xcmd = dynamic_cast<execution_command*>(cmd)) {
-			frame->pkg.data = execution_data{xcmd->get_tid(), xcmd->get_execution_range(), xcmd->is_reduction_initializer(), xcmd->get_device_id()};
+			pkg.data = execution_data{xcmd->get_tid(), xcmd->get_execution_range(), xcmd->is_reduction_initializer(), xcmd->get_device_id()};
 		} else if(const auto* pcmd = dynamic_cast<push_command*>(cmd)) {
-			frame->pkg.data = push_data{pcmd->get_bid(), pcmd->get_rid(), pcmd->get_target(), pcmd->get_transfer_id(), pcmd->get_range()};
+			pkg.data = push_data{pcmd->get_bid(), pcmd->get_rid(), pcmd->get_target(), pcmd->get_transfer_id(), pcmd->get_range()};
 		} else if(const auto* apcmd = dynamic_cast<await_push_command*>(cmd)) {
 			subrange<3> region[await_push_data::max_subranges] = {};
 			size_t i = 0;
@@ -86,21 +86,20 @@ namespace detail {
 			auto apd = await_push_data{apcmd->get_bid(), 0 /* FIXME */, apcmd->get_transfer_id(), 0, {}};
 			apd.num_subranges = i;
 			std::memcpy(&apd.region[0], &region[0], sizeof(region));
-			frame->pkg.data = std::move(apd);
+			pkg.data = std::move(apd);
 		} else if(const auto* drcmd = dynamic_cast<data_request_command*>(cmd)) {
-			frame->pkg.data = data_request_data{drcmd->get_bid(), drcmd->get_source(), drcmd->get_range()};
+			pkg.data = data_request_data{drcmd->get_bid(), drcmd->get_source(), drcmd->get_range()};
 		} else if(const auto* rcmd = dynamic_cast<reduction_command*>(cmd)) {
-			frame->pkg.data = reduction_data{rcmd->get_reduction_info().rid};
+			pkg.data = reduction_data{rcmd->get_reduction_info().rid};
 		} else if(const auto* hcmd = dynamic_cast<horizon_command*>(cmd)) {
-			frame->pkg.data = horizon_data{hcmd->get_tid()};
+			pkg.data = horizon_data{hcmd->get_tid()};
 		} else {
 			assert(false && "Unknown command");
 		}
 
-		frame->num_dependencies = dependencies.size();
-		std::copy(dependencies.begin(), dependencies.end(), frame->dependencies);
+		pkg.dependencies = std::move(dependencies);
 
-		m_flush_cb(cmd->get_nid(), std::move(frame));
+		m_flush_cb(cmd->get_nid(), std::move(pkg));
 		cmd->mark_as_flushed();
 	}
 
