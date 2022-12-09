@@ -206,7 +206,7 @@ class hasher {
 	template <typename T>
 	void hash(const T& value) {
 		const unsigned char* bytes = reinterpret_cast<const unsigned char*>(&value);
-		for(int i = 0; i < sizeof(T); ++i) {
+		for(size_t i = 0; i < sizeof(T); ++i) {
 			d = (d ^ bytes[i]) * 0x100000001b3ull;
 		}
 	}
@@ -289,10 +289,12 @@ int main(int argc, char* argv[]) {
 
 	// const double flops = cfg.N * cfg.N * 14.0 * (cfg.T / cfg.dt); // NOCOMMIT Is 14 right...?
 	// const double gflops = flops / std::chrono::duration_cast<std::chrono::microseconds>(after - before).count() / 1000.0;
-	const double bytes = cfg.N * cfg.N * (cfg.T / cfg.dt) * sizeof(DataT) * (6 + 1); // 6 reads, 1 write
+	const double bytes = cfg.N * cfg.N * (cfg.T / cfg.dt) * sizeof(DataT); // * (6 + 1); // 6 reads, 1 write
 	const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(after - before).count();
 	const double gbs = bytes / (dt * 1000.0);
-	fmt::print("Time: {}ms ({:.2f} GB/s)\n", dt / 1000, gbs);
+	int rank;
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	if(rank == 0) { fmt::print("Time: {}ms ({:.2f} GB/s)\n", dt / 1000, gbs); }
 
 	if(cfg.N * cfg.N * sizeof(DataT) < 10ull * 1024 * 1024 * 1024) {
 		queue.submit([=](celerity::handler& cgh) {
