@@ -9,6 +9,7 @@ namespace celerity::version {
 constexpr int major = CELERITY_VERSION_MAJOR;
 constexpr int minor = CELERITY_VERSION_MINOR;
 constexpr int patch = CELERITY_VERSION_PATCH;
+extern const char* build_type;
 extern const char* const git_revision;
 extern const bool git_dirty;
 

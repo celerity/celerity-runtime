@@ -199,6 +199,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tracy)
 
+# !! CAUTION: This library actually has debug features with non-negligible overhead enabled in RelWithDebInfo builds.
+# TODO: There is an option to disable these - should we?
 FetchContent_Declare(
   memory
   GIT_REPOSITORY ${CMAKE_CURRENT_LIST_DIR}/vendor/memory
@@ -344,6 +346,7 @@ add_custom_target(
   COMMENT "Generating src/version.cc"
   COMMAND "${CMAKE_COMMAND}"
     -D "CELERITY_SOURCE_DIR=${CMAKE_CURRENT_LIST_DIR}"
+    -D "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
     -P "${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateVersionSource.cmake"
   DEPENDS
     "${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateVersionSource.cmake"

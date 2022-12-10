@@ -74,11 +74,8 @@ namespace detail {
 	}
 
 	static const char* get_build_type() {
-#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-		return "debug";
-#else
-		return "release";
-#endif
+		// TODO: We may want to differentiate between the library build type (this) and user program build type.
+		return version::build_type;
 	}
 
 	static std::string get_sycl_version() {
