@@ -30,8 +30,8 @@ class unique_payload_ptr : private std::unique_ptr<void, std::function<void(void
 template <typename T>
 unique_payload_ptr make_uninitialized_payload(const size_t count) {
 	// allocate deleter (aka std::function) first so construction unique_payload_ptr is noexcept
-	unique_payload_ptr::deleter_type deleter{[](void* const p) { operator delete(p); }};
-	const auto payload = operator new(count * sizeof(T));
+	unique_payload_ptr::deleter_type deleter{[size_bytes = count * sizeof(T)](void* const p) { host_allocator::get_instance().free(p, size_bytes); }};
+	const auto payload = host_allocator::get_instance().allocate(count * sizeof(T));
 	return unique_payload_ptr{payload, std::move(deleter)};
 }
 

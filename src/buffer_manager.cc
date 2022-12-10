@@ -156,6 +156,8 @@ namespace detail {
 					if(!can_allocate(device_queue.get_memory_id(), allocation_size - (existing_buf.storage->get_range().size() * element_size))) {
 						// Final attempt: Check if we can create a new buffer with the requested size if we spill everything else to the host.
 						if(can_allocate(device_queue.get_memory_id(), range.size() * element_size, existing_buf.storage->get_range().size() * element_size)) {
+							CELERITY_WARN("Spilling buffer {} on memory {}, existing size {}, to enable acecss {}\n", bid, mid,
+							    subrange<3>(existing_buf.offset, existing_buf.storage->get_range()), subrange<3>(offset, range));
 							spill_to_host = true;
 						} else {
 							// TODO: Same thing as above
@@ -334,7 +336,20 @@ namespace detail {
 
 				// Check whether this transfer applies to the current request.
 				auto t_minus_coherent_region = GridRegion<3>::difference(t_region, coherent_box);
-				if(!t_minus_coherent_region.empty()) {
+
+				// FIXME: This whole section probably needs an overhaul.
+				// If we can fit the entire transfer into the buffer currently being updated, prefer that over partial ingestion (which is SLOW).
+				// This is safe to do because we model multiple GPUs as a single big buffer on the CDAG level, which means that
+				//  - since this transfer exists, its corresponding await push has already completed
+				//  - the command causing this coherence update is a true successor of said await push
+				//  - there can be no active anti-dependencies onto the non-overlapping parts of this buffer
+				bool fits_target = false;
+				if(GridRegion<3>::intersect(t_region, subrange_to_grid_box(subrange<3>(target_buffer.offset, target_buffer.storage->get_range())))
+				    == t_region) {
+					fits_target = true;
+				}
+
+				if(!t_minus_coherent_region.empty() && !fits_target) {
 					// Check if transfer applies partially.
 					// This might happen in certain situations, when two different commands partially overlap in their required buffer ranges.
 					// We currently handle this by only copying the part of the transfer that intersects with the requested buffer range
@@ -350,11 +365,12 @@ namespace detail {
 						remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, intersection);
 						const auto element_size = m_buffer_infos.at(bid).element_size;
 						intersection.scanByBoxes([&](const GridBox<3>& box) {
+							ZoneScopedN("ingest transfer (partial)");
 							auto sr = grid_box_to_subrange(box);
 							// TODO can this temp buffer be avoided?
 							auto tmp = make_uninitialized_payload<std::byte>(sr.range.size() * element_size);
+							// FIXME: THIS MUST BE AVOIDED AT ALL COSTS! On Marconi-100 I've seen this take ~100ms for a 16 MiB buffer ?!
 							linearize_subrange(t.linearized.get_pointer(), tmp.get_pointer(), element_size, t.sr.range, {sr.offset - t.sr.offset, sr.range});
-							ZoneScopedN("ingest transfer (partial)");
 							auto evt = target_buffer.storage->set_data({target_buffer.get_local_offset(sr.offset), sr.range}, tmp.get_pointer());
 							evt.hack_attach_payload(std::move(tmp)); // FIXME
 							pending_transfers.merge(std::move(evt));
