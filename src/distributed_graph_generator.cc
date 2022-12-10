@@ -294,39 +294,45 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 		// Processing remote chunks on the other hand doesn't require knowledge of the devices available on that particular node.
 		// The same push commands generated for a single remote chunk also apply to the effective chunks generated on that node.
 		std::vector<chunk<3>> effective_chunks;
+		std::vector<device_id> device_assignments;
 		if(is_local_chunk && m_num_local_devices > 1 && tsk.has_variable_split()) {
-			if(tsk.get_hint<experimental::hints::tiled_split>() != nullptr) {
-				auto per_device_chunks = split_2d(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices);
-				if(oversub_factor == 1) {
-					effective_chunks = per_device_chunks;
-				} else {
-					// Since 2D chunks are not sorted by device, we have to do the oversubscription separately in a loop.
-					// FIXME: This is getting a bit too convoluted.
-					effective_chunks.reserve(per_device_chunks.size() * oversub_factor); // Assuming we can do the full split
-					for(auto& dc : per_device_chunks) {
-						auto oversub_chunks = split_2d(dc, tsk.get_granularity(), oversub_factor);
-						effective_chunks.insert(
-						    effective_chunks.end(), std::make_move_iterator(oversub_chunks.begin()), std::make_move_iterator(oversub_chunks.end()));
-					}
-				}
+			const bool tiled_split = (tsk.get_hint<experimental::hints::tiled_split>() != nullptr);
+			auto per_device_chunks = tiled_split ? split_2d(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices)
+			                                     : split_1d(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices);
+			if(oversub_factor == 1) {
+				effective_chunks = per_device_chunks;
+				device_assignments.resize(m_num_local_devices);
+				std::iota(device_assignments.begin(), device_assignments.end(), 0);
 			} else {
-				effective_chunks = split_1d(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices * oversub_factor);
+				effective_chunks.reserve(per_device_chunks.size() * oversub_factor); // Assuming we can do the full split
+				device_id did = 0;
+				for(auto& dc : per_device_chunks) {
+					auto oversub_chunks =
+					    tiled_split ? split_2d(dc, tsk.get_granularity(), oversub_factor) : split_1d(dc, tsk.get_granularity(), oversub_factor);
+					effective_chunks.insert(
+					    effective_chunks.end(), std::make_move_iterator(oversub_chunks.begin()), std::make_move_iterator(oversub_chunks.end()));
+					device_assignments.resize(device_assignments.size() + oversub_chunks.size());
+					std::fill(device_assignments.end() - oversub_chunks.size(), device_assignments.end(), did);
+					did++;
+				}
 			}
 		} else {
 			effective_chunks.push_back(distributed_chunks[i]);
+			device_assignments.push_back(0);
 		}
+
+		assert(!is_local_chunk || !tsk.has_variable_split() || effective_chunks.size() == device_assignments.size());
 
 		// CELERITY_CRITICAL("Chunk {}: Processing {} effective chunks", i, effective_chunks.size()); // NOCOMMIT
 
-		device_id did = 0;
-		for(const auto& chnk : effective_chunks) {
+		for(size_t j = 0; j < effective_chunks.size(); ++j) {
+			const auto& chnk = effective_chunks[j];
 			auto requirements = get_buffer_requirements_for_mapped_access(tsk, chnk, tsk.get_global_size());
 
 			execution_command* cmd = nullptr;
 			if(is_local_chunk) {
 				cmd = create_command<execution_command>(nid, tsk.get_id(), subrange{chnk});
-				cmd->set_device_id(did / oversub_factor);
-				did++;
+				cmd->set_device_id(device_assignments[j]);
 			}
 
 			// We use the task id, together with the "chunk id" and the buffer id (stored separately) to match pushes against their corresponding await
