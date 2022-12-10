@@ -355,7 +355,7 @@ namespace detail {
 	  private:
 		// Leave some memory for other processes.
 		// TODO: Make configurable?
-		constexpr static double max_device_global_mem_usage = 0.98;
+		constexpr static double max_device_global_mem_usage = 0.95;
 		local_devices& m_local_devices;
 		buffer_lifecycle_callback m_lifecycle_cb;
 		size_t m_buffer_count = 0;

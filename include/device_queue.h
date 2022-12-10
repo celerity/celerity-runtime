@@ -114,11 +114,16 @@ namespace detail {
 			} catch(sycl::exception e) {
 				CELERITY_CRITICAL("sycl::malloc_device failed with exception: {}", e.what());
 				ptr = nullptr;
+			} catch(...) {
+				CELERITY_CRITICAL("sycl::malloc_device failed, unknown exception type");
+				ptr = nullptr;
 			}
+			// TODO: Unfortuntely it looks like hipSYCL currently does return a pointer (to somewhere?) even if the allocation fails.
+			//       The error is then reported asynchronously later on, which makes it difficult to trace back to the culprit.
 			if(ptr == nullptr) {
 				throw allocation_error(
-				    fmt::format("Allocation of {} bytes on device {} (memory {}) failed; likely out of memory. Currently allocated: {} bytes.",
-				        count * sizeof(T), m_did, m_mid, m_global_mem_allocated));
+				    fmt::format("Allocation of {} bytes on device {} (memory {}) failed; likely out of memory. Currently allocated: {} out of {} bytes.",
+				        count * sizeof(T), m_did, m_mid, m_global_mem_allocated, m_global_mem_size));
 			}
 			m_global_mem_allocated += count * sizeof(T);
 			return device_allocation{ptr, count * sizeof(T)};
