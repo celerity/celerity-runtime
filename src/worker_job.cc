@@ -278,10 +278,10 @@ namespace detail {
 				const auto [bid, mode] = access_map.get_nth_access(i);
 				const auto sr = grid_box_to_subrange(access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()));
 				try {
-					const auto info = m_buffer_mngr.access_device_buffer(m_queue.get_memory_id(), bid, mode, sr.range, sr.offset);
+					auto info = m_buffer_mngr.access_device_buffer(m_queue.get_memory_id(), bid, mode, sr.range, sr.offset);
 					m_accessor_infos.push_back(
 					    task_hydrator::accessor_info{target::device, info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr});
-					m_accessor_transfer_events.push_back(std::move(info.pending_transfers));
+					m_accessor_transfer_events.emplace_back(std::move(info.pending_transfers));
 				} catch(allocation_error& e) {
 					CELERITY_CRITICAL("Encountered allocation error while trying to prepare {}", get_description(pkg));
 					std::terminate();
@@ -332,7 +332,8 @@ namespace detail {
 			for(const auto& reduction : tsk->get_reductions()) {
 				const auto element_size = m_buffer_mngr.get_buffer_info(reduction.bid).element_size;
 				auto operand = make_uninitialized_payload<std::byte>(element_size);
-				m_buffer_mngr.get_buffer_data(reduction.bid, {{}, {1, 1, 1}}, operand.get_pointer());
+				const auto evt = m_buffer_mngr.get_buffer_data(reduction.bid, {{}, {1, 1, 1}}, operand.get_pointer());
+				evt.wait();
 				m_reduction_mngr.push_overlapping_reduction_data(reduction.rid, m_local_nid, std::move(operand));
 			}
 

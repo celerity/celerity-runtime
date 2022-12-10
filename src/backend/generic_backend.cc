@@ -56,8 +56,9 @@ backend::async_event memcpy_strided_device_generic(sycl::queue& queue, const voi
 	for(size_t i = 0; i < copy_range[0]; ++i) {
 		const auto* const source_ptr = static_cast<const char*>(source_base_ptr) + elem_size * (source_base_offset + i * (source_range[1] * source_range[2]));
 		auto* const target_ptr = static_cast<char*>(target_base_ptr) + elem_size * (target_base_offset + i * (target_range[1] * target_range[2]));
-		memcpy_strided_device_generic(queue, source_ptr, target_ptr, elem_size, {source_range[1], source_range[2]}, {source_offset[1], source_offset[2]},
-		    {target_range[1], target_range[2]}, {target_offset[1], target_offset[2]}, {copy_range[1], copy_range[2]});
+		auto e = memcpy_strided_device_generic(queue, source_ptr, target_ptr, elem_size, {source_range[1], source_range[2]},
+		    {source_offset[1], source_offset[2]}, {target_range[1], target_range[2]}, {target_offset[1], target_offset[2]}, {copy_range[1], copy_range[2]});
+		e.wait();
 	}
 	// NOCOMMIT FIXME: Return aggregate event
 	return backend::async_event{};

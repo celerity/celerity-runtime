@@ -5,6 +5,7 @@
 #include <memory>
 
 #include <CL/sycl.hpp>
+#include <gch/small_vector.hpp>
 
 #define USE_NDVBUFFER 0
 
@@ -117,15 +118,14 @@ namespace detail {
 
 		virtual void allocate(const subrange<3>& sr) { assert(supports_dynamic_allocation()); }
 
-		[[nodiscard]] virtual backend::async_event get_data(const subrange<3>& sr, void* out_linearized) const = 0;
+		virtual backend::async_event get_data(const subrange<3>& sr, void* out_linearized) const = 0;
 
-		[[nodiscard]] virtual backend::async_event set_data(const subrange<3>& sr, const void* in_linearized) = 0;
+		virtual backend::async_event set_data(const subrange<3>& sr, const void* in_linearized) = 0;
 
 		/**
 		 * Copy data from the given source buffer into this buffer.
 		 */
 		[[nodiscard]] virtual backend::async_event copy(
-
 		    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) = 0;
 
 		virtual ~buffer_storage() = default;
@@ -182,6 +182,7 @@ namespace detail {
 			const ndv::box<Dims> src_box = {ndv::point<Dims>::make_from(sr.offset), ndv::point<Dims>::make_from(sr.offset + sr.range)};
 			const ndv::box<Dims> dst_box = {{}, ndv::point<Dims>::make_from(sr.range)};
 			m_device_buf.copy_to(static_cast<DataT*>(out_linearized), ndv::extent<Dims>::make_from(sr.range), src_box, dst_box);
+			assert(false && "Figure out how to integrate with async_event");
 #else
 			assert_copy_is_in_range(range_cast<3>(m_device_buf.get_range()), sr.range, sr.offset, id<3>{}, sr.range);
 			return backend::memcpy_strided_device(m_owning_queue, m_device_buf.get_pointer(), out_linearized, sizeof(DataT), m_device_buf.get_range(),
@@ -196,6 +197,7 @@ namespace detail {
 			const ndv::box<Dims> src_box = {{}, ndv::point<Dims>::make_from(sr.range)};
 			const ndv::box<Dims> dst_box = {ndv::point<Dims>::make_from(sr.offset), ndv::point<Dims>::make_from(sr.offset + sr.range)};
 			m_device_buf.copy_from(static_cast<const DataT*>(in_linearized), ndv::extent<Dims>::make_from(sr.range), src_box, dst_box);
+			assert(false && "Figure out how to integrate with async_event");
 #else
 			assert_copy_is_in_range(sr.range, range_cast<3>(m_device_buf.get_range()), id<3>{}, sr.offset, sr.range);
 			return backend::memcpy_strided_device(m_owning_queue, in_linearized, m_device_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(sr.range),
@@ -300,8 +302,10 @@ namespace detail {
 #else
 			// TODO: No need for intermediate copy with native backend 2D/3D copy capabilities
 			auto tmp = make_uninitialized_payload<DataT>(copy_range.size());
-			host_source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
-			set_data(subrange{target_offset, copy_range}, static_cast<const DataT*>(tmp.get_pointer()));
+			// FIXME: What we really want here is to chain two asynchronous operations. Currently not possible...
+			const auto evt = host_source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
+			evt.wait();
+			return set_data(subrange{target_offset, copy_range}, static_cast<const DataT*>(tmp.get_pointer()));
 #endif
 		}
 
@@ -335,10 +339,10 @@ namespace detail {
 			// TODO: No need for intermediate copy with native backend 2D/3D copy capabilities
 			auto tmp = make_uninitialized_payload<DataT>(copy_range.size());
 			// FIXME: What we really want here is to chain two asynchronous operations. Currently not possible...
-			auto evt1 = source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
-			while(!evt1.is_done()) {}
-			auto evt2 = set_data(subrange{target_offset, copy_range}, static_cast<const DataT*>(tmp.get_pointer()));
-			while(!evt2.is_done()) {}
+			const auto evt1 = source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
+			evt1.wait();
+			const auto evt2 = set_data(subrange{target_offset, copy_range}, static_cast<const DataT*>(tmp.get_pointer()));
+			evt2.wait();
 #endif
 		}
 

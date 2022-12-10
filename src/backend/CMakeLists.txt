@@ -10,8 +10,15 @@ if(CELERITY_ENABLE_CUDA_BACKEND AND NOT CUDAToolkit_FOUND)
 endif()
 
 add_library(celerity_backends STATIC backend.cc generic_backend.cc)
-target_include_directories(celerity_backends PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(celerity_backends PRIVATE
+  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/vendor/small_vector/source/include
+)
 add_sycl_to_target(TARGET celerity_backends SOURCES)
+target_link_libraries(celerity_backends PRIVATE
+  spdlog::spdlog
+  foonathan_memory
+)
 
 if(CELERITY_ENABLE_CUDA_BACKEND)
   target_sources(celerity_backends PRIVATE cuda_backend.cc)

@@ -356,6 +356,7 @@ namespace detail {
 							linearize_subrange(t.linearized.get_pointer(), tmp.get_pointer(), element_size, t.sr.range, {sr.offset - t.sr.offset, sr.range});
 							ZoneScopedN("ingest transfer (partial)");
 							auto evt = target_buffer.storage->set_data({target_buffer.get_local_offset(sr.offset), sr.range}, tmp.get_pointer());
+							evt.hack_attach_payload(std::move(tmp)); // FIXME
 							pending_transfers.merge(std::move(evt));
 							updated_region = GridRegion<3>::merge(updated_region, box);
 						});
@@ -370,6 +371,7 @@ namespace detail {
 				assert(detail::access::mode_traits::is_consumer(mode));
 				remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, t_region);
 				auto evt = target_buffer.storage->set_data({target_buffer.get_local_offset(t.sr.offset), t.sr.range}, t.linearized.get_pointer());
+				evt.hack_attach_payload(std::move(t.linearized)); // FIXME
 				pending_transfers.merge(std::move(evt));
 				updated_region = GridRegion<3>::merge(updated_region, t_region);
 			}
