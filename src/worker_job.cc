@@ -25,6 +25,7 @@ namespace detail {
 			m_tracy_lane.initialize();
 			const auto desc = fmt::format("cid={}: {}", m_pkg.cid, get_description(m_pkg));
 			m_tracy_lane.begin_phase("preparation", desc, tracy::Color::ColorType::Pink);
+			CELERITY_DEBUG("Preparing job: {}", desc);
 		}
 
 		m_tracy_lane.activate();
@@ -139,6 +140,7 @@ namespace detail {
 
 	bool push_job::prepare(const command_pkg& pkg) {
 		if(m_frame.get_pointer() == nullptr) {
+			ZoneScopedN("push_job::prepare");
 			const auto data = std::get<push_data>(pkg.data);
 			// Getting buffer data from the buffer manager may incur a host-side buffer reallocation.
 			// If any other tasks are currently using this buffer for reading, we run into problems.
@@ -273,7 +275,11 @@ namespace detail {
 			m_accessor_infos.reserve(access_map.get_num_accesses());
 			m_accessor_transfer_events.reserve(access_map.get_num_accesses());
 			m_reduction_infos.reserve(reductions.size());
-
+			{
+				const auto msg = fmt::format("Preparing buffers for {} accesses", access_map.get_num_accesses());
+				TracyMessage(msg.c_str(), msg.size());
+				CELERITY_TRACE(msg);
+			}
 			for(size_t i = 0; i < access_map.get_num_accesses(); ++i) {
 				const auto [bid, mode] = access_map.get_nth_access(i);
 				const auto sr = grid_box_to_subrange(access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()));
@@ -294,12 +300,6 @@ namespace detail {
 					while(!info.pending_transfers.is_done()) {} // There is probably no point in trying to overlap this with anything
 					m_reduction_infos.push_back(task_hydrator::reduction_info{info.ptr});
 				}
-			}
-
-			{
-				const auto msg = fmt::format("Preparing buffers for {} accesses", access_map.get_num_accesses());
-				TracyMessage(msg.c_str(), msg.size());
-				CELERITY_TRACE(msg);
 			}
 		}
 
