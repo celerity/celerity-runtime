@@ -195,7 +195,11 @@ namespace detail {
 
 				while(!to_visit.empty()) {
 					const size_t t_idx = to_visit.front();
-					assert(visited_transfers.count(t_idx) == 0);
+					// If two transfers share more than one request, we may end up enqueuing them several times.
+					if(visited_transfers.count(t_idx)) {
+						to_visit.pop();
+						continue;
+					}
 					visited_transfers.insert(t_idx);
 					auto& ts = m_transfers[t_idx];
 					to_visit.pop();
@@ -216,7 +220,8 @@ namespace detail {
 						for(size_t j : rs.transfers) {
 							if(j == t_idx) continue;
 							to_visit.push(j);
-							assert(visited_transfers.count(j) == 0); // NOCOMMIT TODO: Think about this - can it happen?
+							// NOCOMMIT TODO: Think about this - can it happen? Possibly with 3 transfers that share requests?
+							assert(visited_transfers.count(j) == 0);
 						}
 					}
 				}
