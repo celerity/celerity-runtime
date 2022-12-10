@@ -270,6 +270,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	queue.slow_full_sync();
+	printf("Run starts now\n");
 	celerity::detail::runtime::get_instance().get_buffer_manager().NOMERGE_warn_on_device_buffer_resize = true;
 	const auto before = std::chrono::steady_clock::now();
 
@@ -292,9 +293,7 @@ int main(int argc, char* argv[]) {
 	const double bytes = cfg.N * cfg.N * (cfg.T / cfg.dt) * sizeof(DataT); // * (6 + 1); // 6 reads, 1 write
 	const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(after - before).count();
 	const double gbs = bytes / (dt * 1000.0);
-	int rank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-	if(rank == 0) { fmt::print("Time: {}ms ({:.2f} GB/s)\n", dt / 1000, gbs); }
+	fmt::print("Time: {}ms ({:.2f} GB/s)\n", dt / 1000, gbs);
 
 	if(cfg.N * cfg.N * sizeof(DataT) < 10ull * 1024 * 1024 * 1024) {
 		queue.submit([=](celerity::handler& cgh) {
