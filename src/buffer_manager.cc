@@ -62,7 +62,7 @@ namespace detail {
 		// get_buffer_data will race with pending transfers for the same subrange. In case there are pending transfers and a host buffer does not exist yet,
 		// these transfers cannot easily be flushed here as creating a host buffer requires a templated context that knows about DataT.
 		assert(std::none_of(m_scheduled_transfers[bid].begin(), m_scheduled_transfers[bid].end(),
-		    [&](const transfer& t) { return subrange_to_grid_box(sr).intersectsWith(subrange_to_grid_box(t.sr)); }));
+		    [&](const transfer& t) { return !GridRegion<3>::intersect(subrange_to_grid_box(sr), t.unconsumed).empty(); }));
 
 		if(data_locations[0].second.test(m_local_devices.get_host_memory_id())) {
 			return m_buffers.at(bid)
@@ -85,7 +85,7 @@ namespace detail {
 	void buffer_manager::set_buffer_data(buffer_id bid, const subrange<3>& sr, unique_payload_ptr in_linearized) {
 		std::unique_lock lock(m_mutex);
 		assert(m_buffer_infos.count(bid) == 1);
-		m_scheduled_transfers[bid].push_back({std::move(in_linearized), sr});
+		m_scheduled_transfers[bid].push_back({std::move(in_linearized), sr, subrange_to_grid_box(sr)});
 	}
 
 	buffer_manager::access_info buffer_manager::access_device_buffer(
@@ -332,64 +332,66 @@ namespace detail {
 			auto& scheduled_buffer_transfers = m_scheduled_transfers[bid];
 			remaining_transfers.reserve(scheduled_buffer_transfers.size() / 2);
 			for(auto& t : scheduled_buffer_transfers) {
-				auto t_region = subrange_to_grid_box(t.sr);
-
 				// Check whether this transfer applies to the current request.
-				auto t_minus_coherent_region = GridRegion<3>::difference(t_region, coherent_box);
+				const auto unconsumed_minus_coherent_region = GridRegion<3>::difference(t.unconsumed, coherent_box);
 
-				// FIXME: This whole section probably needs an overhaul.
-				// If we can fit the entire transfer into the buffer currently being updated, prefer that over partial ingestion (which is SLOW).
-				// This is safe to do because we model multiple GPUs as a single big buffer on the CDAG level, which means that
-				//  - since this transfer exists, its corresponding await push has already completed
-				//  - the command causing this coherence update is a true successor of said await push
-				//  - there can be no active anti-dependencies onto the non-overlapping parts of this buffer
-				bool fits_target = false;
-				if(GridRegion<3>::intersect(t_region, subrange_to_grid_box(subrange<3>(target_buffer.offset, target_buffer.storage->get_range())))
-				    == t_region) {
-					fits_target = true;
+				if(unconsumed_minus_coherent_region == t.unconsumed) {
+					// Transfer does not apply - continue.
+					remaining_transfers.emplace_back(std::move(t));
+					continue;
 				}
 
-				if(!t_minus_coherent_region.empty() && !fits_target) {
-					// Check if transfer applies partially.
-					// This might happen in certain situations, when two different commands partially overlap in their required buffer ranges.
-					// We currently handle this by only copying the part of the transfer that intersects with the requested buffer range
-					// into the buffer, leaving the transfer around for future requests.
-					//
-					// NOTE: We currently assume that one of the requests will consume the FULL transfer. Only then we discard it.
-					// This assumption is valid right now, as the graph generator will not consolidate adjacent pushes for two (or more)
-					// separate commands. This might however change in the future.
-					// NOCOMMIT With distributed vs local chunks - I think the future is now?
-					if(t_minus_coherent_region != t_region) {
-						assert(detail::access::mode_traits::is_consumer(mode));
-						auto intersection = GridRegion<3>::intersect(t_region, coherent_box);
-						remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, intersection);
-						const auto element_size = m_buffer_infos.at(bid).element_size;
-						intersection.scanByBoxes([&](const GridBox<3>& box) {
-							ZoneScopedN("ingest transfer (partial)");
-							auto sr = grid_box_to_subrange(box);
-							// TODO can this temp buffer be avoided?
-							auto tmp = make_uninitialized_payload<std::byte>(sr.range.size() * element_size);
-							// FIXME: THIS MUST BE AVOIDED AT ALL COSTS! On Marconi-100 I've seen this take ~100ms for a 16 MiB buffer ?!
-							linearize_subrange(t.linearized.get_pointer(), tmp.get_pointer(), element_size, t.sr.range, {sr.offset - t.sr.offset, sr.range});
-							auto evt = target_buffer.storage->set_data({target_buffer.get_local_offset(sr.offset), sr.range}, tmp.get_pointer());
-							evt.hack_attach_payload(std::move(tmp)); // FIXME
-							pending_transfers.merge(std::move(evt));
-							updated_region = GridRegion<3>::merge(updated_region, box);
-						});
+				// We can't be receiving something that we are going to overwrite immediately.
+				assert(detail::access::mode_traits::is_consumer(mode));
+
+				const bool is_partially_consumed = t.unconsumed != subrange_to_grid_box(t.sr);
+
+				//
+				//
+				// There was a bug. It caused me great pain.
+				//
+				//
+				// TOOD: Partial ingestion w/ multiple devices can lead to the same portion being ingested multiple times,
+				//       overriding newer data in the process. I'm still not entirely sure how it happens => Needs further investigation.
+				//       Surfaced in Cahn-Hilliard, 2D split 4x oversubscribed with 2 nodes and at least 2 GPUs each.
+				//
+				// Current workaround is to keep track of which parts of a transfer have already been ingested. This is not ideal
+				// b/c it means that we are likely to have a lot more partial transfers, which are SLOW.
+				//
+				if(!unconsumed_minus_coherent_region.empty() || is_partially_consumed) {
+					assert(detail::access::mode_traits::is_consumer(mode));
+					const auto intersection = GridRegion<3>::intersect(t.unconsumed, coherent_box);
+					remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, intersection);
+					const auto element_size = m_buffer_infos.at(bid).element_size;
+					intersection.scanByBoxes([&](const GridBox<3>& box) {
+						ZoneScopedN("ingest transfer (partial)");
+						const auto sr = grid_box_to_subrange(box);
+						// TODO can this temp buffer be avoided?
+						auto tmp = make_uninitialized_payload<std::byte>(sr.range.size() * element_size);
+						// FIXME: THIS MUST BE AVOIDED AT ALL COSTS! On Marconi-100 I've seen this take ~100ms for a 16 MiB buffer ?!
+						linearize_subrange(t.linearized.get_pointer(), tmp.get_pointer(), element_size, t.sr.range, {sr.offset - t.sr.offset, sr.range});
+						auto evt = target_buffer.storage->set_data({target_buffer.get_local_offset(sr.offset), sr.range}, tmp.get_pointer());
+						evt.hack_attach_payload(std::move(tmp)); // FIXME
+						pending_transfers.merge(std::move(evt));
+						updated_region = GridRegion<3>::merge(updated_region, box);
+					});
+
+					t.unconsumed = GridRegion<3>::difference(t.unconsumed, intersection);
+
+					if(!t.unconsumed.empty()) {
+						// Transfer only applied partially - which means we have to keep it around.
+						remaining_transfers.emplace_back(std::move(t));
 					}
-					// Transfer only applies partially, or not at all - which means we have to keep it around.
-					remaining_transfers.emplace_back(std::move(t));
 					continue;
 				}
 
 				ZoneScopedN("ingest transfer (full)");
 				// Transfer applies fully.
-				assert(detail::access::mode_traits::is_consumer(mode));
-				remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, t_region);
+				remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, t.unconsumed);
 				auto evt = target_buffer.storage->set_data({target_buffer.get_local_offset(t.sr.offset), t.sr.range}, t.linearized.get_pointer());
 				evt.hack_attach_payload(std::move(t.linearized)); // FIXME
 				pending_transfers.merge(std::move(evt));
-				updated_region = GridRegion<3>::merge(updated_region, t_region);
+				updated_region = GridRegion<3>::merge(updated_region, t.unconsumed);
 			}
 			// The target buffer now has the newest data in this region.
 			{

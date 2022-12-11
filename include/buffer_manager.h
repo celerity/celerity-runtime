@@ -319,7 +319,8 @@ namespace detail {
 
 		struct transfer {
 			unique_payload_ptr linearized;
-			subrange<3> sr;
+			subrange<3> sr;           // where this transfer fits into the virtual buffer
+			GridRegion<3> unconsumed; // which parts of it haven't been ingested onto a target memory yet
 		};
 
 		struct resize_info {
