@@ -128,6 +128,11 @@ namespace detail {
 		[[nodiscard]] virtual backend::async_event copy(
 		    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) = 0;
 
+		// FIXME Just hacking - this assumes source has same dimensionality
+		// FIXME: Need to pass SYCL queue for copying to host... ugh
+		virtual backend::async_event copy_from_device_raw(sycl::queue& q, void* source_ptr, const range<3>& source_range, const id<3>& source_offset,
+		    const id<3>& target_offset, const range<3>& copy_range) = 0;
+
 		virtual ~buffer_storage() = default;
 
 	  private:
@@ -159,6 +164,8 @@ namespace detail {
 			CELERITY_DEBUG("Destroying ndvbuffer. Total allocation size: {} bytes.\n", m_device_buf.get_allocated_size());
 #endif
 		}
+
+		sycl::queue& get_owning_queue() { return m_owning_queue; }
 
 		// FIXME: This is no longer accurate for (sparsely allocated) ndv buffers (only an upper bound).
 		size_t get_size() const override { return get_range().size() * sizeof(DataT); };
@@ -208,6 +215,9 @@ namespace detail {
 		backend::async_event copy(
 		    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) override;
 
+		backend::async_event copy_from_device_raw(sycl::queue& q, void* source_ptr, const range<3>& source_range, const id<3>& source_offset,
+		    const id<3>& target_offset, const range<3>& copy_range) override;
+
 #if USE_NDVBUFFER
 		// FIXME: Required for more efficient D->H copies (see host_buffer_storage::copy). Find cleaner API.
 		const ndv::buffer<DataT, Dims>& get_ndv_buffer() const { return m_device_buf; }
@@ -255,6 +265,9 @@ namespace detail {
 
 		backend::async_event copy(
 		    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) override;
+
+		backend::async_event copy_from_device_raw(sycl::queue& q, void* source_ptr, const range<3>& source_range, const id<3>& source_offset,
+		    const id<3>& target_offset, const range<3>& copy_range) override;
 
 		host_buffer<DataT, Dims>& get_host_buffer() { return m_host_buf; }
 
@@ -317,6 +330,13 @@ namespace detail {
 	}
 
 	template <typename DataT, int Dims>
+	backend::async_event device_buffer_storage<DataT, Dims>::copy_from_device_raw(
+	    sycl::queue& q, void* source_ptr, const range<3>& source_range, const id<3>& source_offset, const id<3>& target_offset, const range<3>& copy_range) {
+		return backend::memcpy_strided_device(m_owning_queue, source_ptr, m_device_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(source_range),
+		    id_cast<Dims>(source_offset), m_device_buf.get_range(), id_cast<Dims>(target_offset), range_cast<Dims>(copy_range));
+	}
+
+	template <typename DataT, int Dims>
 	backend::async_event host_buffer_storage<DataT, Dims>::copy(
 	    const buffer_storage& source, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range) {
 		ZoneScopedN("host_buffer_storage::copy");
@@ -359,6 +379,13 @@ namespace detail {
 		}
 
 		return backend::async_event{};
+	}
+
+	template <typename DataT, int Dims>
+	backend::async_event host_buffer_storage<DataT, Dims>::copy_from_device_raw(
+	    sycl::queue& q, void* source_ptr, const range<3>& source_range, const id<3>& source_offset, const id<3>& target_offset, const range<3>& copy_range) {
+		return backend::memcpy_strided_device(q, source_ptr, m_host_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(source_range),
+		    id_cast<Dims>(source_offset), m_host_buf.get_range(), id_cast<Dims>(target_offset), range_cast<Dims>(copy_range));
 	}
 
 } // namespace detail

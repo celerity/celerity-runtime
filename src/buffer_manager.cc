@@ -82,10 +82,34 @@ namespace detail {
 		return m_buffers.at(bid).get(source_mid).storage->get_data({m_buffers.at(bid).get(source_mid).get_local_offset(sr.offset), sr.range}, out_linearized);
 	}
 
+	buffer_manager::staging_buffer& buffer_manager::get_free_staging_buffer(const size_t size) {
+		for(auto& sb : m_staging_buffers) {
+			// TODO: At least do best fit...
+			if(sb->is_free && sb->buffer.get_size() >= size) {
+				sb->is_free = false;
+				// CELERITY_WARN("Returning free staging buffer {}", (void*)sb->buffer.get_pointer());
+				return *sb;
+			}
+		}
+		CELERITY_WARN("Allocating new staging buffer");
+		// FIXME: Not memory aware
+		auto& device = m_local_devices.get_device_queue(m_next_staging_allocation_device);
+		// Do at least 10 MiB
+		auto buf = std::make_unique<staging_buffer>(std::max(size, size_t(10) * 1024 * 1024), device);
+		m_staging_buffers.emplace_back(std::move(buf));
+		return *m_staging_buffers.back();
+	}
+
 	void buffer_manager::set_buffer_data(buffer_id bid, const subrange<3>& sr, unique_payload_ptr in_linearized) {
 		std::unique_lock lock(m_mutex);
 		assert(m_buffer_infos.count(bid) == 1);
-		m_scheduled_transfers[bid].push_back({std::move(in_linearized), sr, subrange_to_grid_box(sr)});
+
+		// Find free staging buffer
+		auto& staging_buf = get_free_staging_buffer(sr.range.size() * m_buffer_infos[bid].element_size);
+		auto evt = backend::memcpy_strided_device(staging_buf.buffer.get_owning_queue(), in_linearized.get_pointer(), staging_buf.buffer.get_pointer(),
+		    sizeof(m_buffer_infos[bid].element_size), range<1>(sr.range.size()), id<1>{}, range<1>(sr.range.size()), id<1>{}, range<1>(sr.range.size()));
+		evt.wait(); // FIXME This should be async as well...
+		m_scheduled_transfers[bid].push_back(buffer_manager::transfer{staging_buf, sr});
 	}
 
 	buffer_manager::access_info buffer_manager::access_device_buffer(
@@ -362,16 +386,20 @@ namespace detail {
 					assert(detail::access::mode_traits::is_consumer(mode));
 					const auto intersection = GridRegion<3>::intersect(t.unconsumed, coherent_box);
 					remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, intersection);
-					const auto element_size = m_buffer_infos.at(bid).element_size;
+					// const auto element_size = m_buffer_infos.at(bid).element_size;
 					intersection.scanByBoxes([&](const GridBox<3>& box) {
 						ZoneScopedN("ingest transfer (partial)");
 						const auto sr = grid_box_to_subrange(box);
 						// TODO can this temp buffer be avoided?
-						auto tmp = make_uninitialized_payload<std::byte>(sr.range.size() * element_size);
+						// auto tmp = make_uninitialized_payload<std::byte>(sr.range.size() * element_size);
 						// FIXME: THIS MUST BE AVOIDED AT ALL COSTS! On Marconi-100 I've seen this take ~100ms for a 16 MiB buffer ?!
-						linearize_subrange(t.linearized.get_pointer(), tmp.get_pointer(), element_size, t.sr.range, {sr.offset - t.sr.offset, sr.range});
-						auto evt = target_buffer.storage->set_data({target_buffer.get_local_offset(sr.offset), sr.range}, tmp.get_pointer());
-						evt.hack_attach_payload(std::move(tmp)); // FIXME
+						// linearize_subrange(t.linearized.get_pointer(), tmp.get_pointer(), element_size, t.sr.range, {sr.offset - t.sr.offset, sr.range});
+						// auto evt = target_buffer.storage->set_data({target_buffer.get_local_offset(sr.offset), sr.range}, tmp.get_pointer());
+						// target_buffer.storage->copy(, cl::sycl::id<3> source_offset, cl::sycl::id<3> target_offset, cl::sycl::range<3> copy_range)
+						auto evt = target_buffer.storage->copy_from_device_raw(t.get_buffer().get_owning_queue(), t.get_buffer().get_pointer(), t.sr.range,
+						    sr.offset - t.sr.offset, target_buffer.get_local_offset(sr.offset), sr.range);
+						// auto evt = target_buffer.storage->copy(t.get_buffer(), sr.offset - t.sr.offset, target_buffer.get_local_offset(sr.offset), sr.range);
+						// evt.hack_attach_payload(std::move(tmp)); // FIXME
 						pending_transfers.merge(std::move(evt));
 						updated_region = GridRegion<3>::merge(updated_region, box);
 					});
@@ -388,8 +416,11 @@ namespace detail {
 				ZoneScopedN("ingest transfer (full)");
 				// Transfer applies fully.
 				remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, t.unconsumed);
-				auto evt = target_buffer.storage->set_data({target_buffer.get_local_offset(t.sr.offset), t.sr.range}, t.linearized.get_pointer());
-				evt.hack_attach_payload(std::move(t.linearized)); // FIXME
+				// auto evt = target_buffer.storage->set_data({target_buffer.get_local_offset(t.sr.offset), t.sr.range}, t.linearized.get_pointer());
+				auto evt = target_buffer.storage->copy_from_device_raw(t.get_buffer().get_owning_queue(), t.get_buffer().get_pointer(), t.sr.range, id<3>{},
+				    target_buffer.get_local_offset(t.sr.offset), t.sr.range);
+				// auto evt = target_buffer.storage->copy(t.get_buffer(), id<3>{}, target_buffer.get_local_offset(t.sr.offset), t.sr.range);
+				// evt.hack_attach_payload(std::move(t.linearized)); // FIXME
 				pending_transfers.merge(std::move(evt));
 				updated_region = GridRegion<3>::merge(updated_region, t.unconsumed);
 			}

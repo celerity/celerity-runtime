@@ -95,6 +95,7 @@ static_assert(foonathan::memory::is_raw_allocator<cuda_pinned_memory_allocator>:
 static_assert(foonathan::memory::is_composable_allocator<cuda_pinned_memory_allocator>::value);
 
 // FIXME: Ideally this shouldn't be a singleton; should probably be somehow tied to host_queue and/or buffer_manager. Works for now.
+// TODO: If remains a singleton it shouldn't be constructible :P
 class host_allocator {
   public:
 	static host_allocator& get_instance() {
