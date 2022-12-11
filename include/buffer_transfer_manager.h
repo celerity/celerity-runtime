@@ -82,10 +82,29 @@ namespace detail {
 		  public:
 			request_manager() = default;
 			request_manager(const request_manager&) = delete;
-			request_manager(request_manager&&) = default;
+
+			request_manager(request_manager&& other) {
+				m_transfers = std::move(other.m_transfers);
+				m_requests = std::move(other.m_requests);
+				m_drainable_transfers = std::move(other.m_drainable_transfers);
+				m_drain_count = other.m_drain_count;
+				other.m_drain_count = 0;
 
 #if defined(CELERITY_DEBUG)
-			~request_manager() { assert(m_received_region == m_expected_region); }
+				m_expected_region = other.m_expected_region;
+				other.m_expected_region = std::nullopt;
+				m_received_region = other.m_received_region;
+				other.m_received_region = GridRegion<3>{};
+#endif
+			}
+
+#if defined(CELERITY_DEBUG)
+			~request_manager() {
+				if(m_expected_region.has_value()) {
+					assert(m_received_region == *m_expected_region);
+					assert(m_drain_count == m_transfers.size());
+				}
+			}
 #endif
 
 			std::shared_ptr<transfer_handle> request_region(GridRegion<3> region) {
@@ -109,7 +128,7 @@ namespace detail {
 
 			void add_transfer(std::unique_ptr<transfer_in>&& t) {
 #if defined(CELERITY_DEBUG)
-				assert(m_received_region != m_expected_region);
+				assert(!m_expected_region.has_value() || m_received_region != *m_expected_region);
 				const auto box = subrange_to_grid_box(t->frame->sr);
 				assert(GridRegion<3>::intersect(m_received_region, box).empty());
 				m_received_region = GridRegion<3>::merge(m_received_region, box);
@@ -167,8 +186,8 @@ namespace detail {
 			size_t m_drain_count = 0;
 
 #if defined(CELERITY_DEBUG)
-			std::optional<GridRegion<3>> m_expected_region; // This will only be set once the (first) await push job has started
-			GridRegion<3> m_received_region;
+			std::optional<GridRegion<3>> m_expected_region = std::nullopt; // This will only be set once the (first) await push job has started
+			GridRegion<3> m_received_region = {};
 #endif
 
 			void match(const size_t transfer_idx, const size_t request_idx) {

@@ -64,7 +64,7 @@ namespace detail {
 			request_manager rm;
 			t_handle = rm.request_region(expected_region);
 			// Store new manager so we can match against it once the transfer received
-			m_requests.try_emplace(buffer_transfer, std::move(rm));
+			m_requests.emplace(buffer_transfer, std::move(rm));
 		}
 
 		return t_handle;
@@ -122,7 +122,7 @@ namespace detail {
 				request_manager rm;
 				rm.add_transfer(std::move(*it));
 				// Store new manager so we can match against it once the corresponding await push is posted
-				m_requests.try_emplace(buffer_transfer, std::move(rm));
+				m_requests.emplace(buffer_transfer, std::move(rm));
 			}
 
 			it = m_incoming_transfers.erase(it);
