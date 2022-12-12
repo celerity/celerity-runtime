@@ -34,14 +34,15 @@ namespace detail {
 		auto& bm = runtime::get_instance().get_buffer_manager();
 		const auto element_size = bm.get_buffer_info(data.bid).element_size;
 
-		unique_frame_ptr<data_frame> frame(from_payload_count, data.sr.range.size() * element_size);
+		unique_frame_ptr<data_frame> frame(from_payload_count, data.sr.range.size() * element_size, /* packet_size_bytes */ send_recv_unit_bytes);
 		frame->sr = data.sr;
 		frame->bid = data.bid;
 		frame->rid = data.rid;
 		frame->push_cid = pkg.cid;
 		bm.get_buffer_data(data.bid, data.sr, frame->data);
 
-		size_t frame_units = (frame.get_size_bytes() + send_recv_unit_bytes - 1) / send_recv_unit_bytes;
+		assert(frame.get_size_bytes() % send_recv_unit_bytes == 0);
+		const size_t frame_units = frame.get_size_bytes() / send_recv_unit_bytes;
 		CELERITY_TRACE("Ready to send {} of buffer {} ({} * {}B) to {}", data.sr, data.bid, frame_units, send_recv_unit_bytes, data.target);
 
 		// Start transmitting data
