@@ -42,9 +42,11 @@ class unique_frame_ptr : private std::unique_ptr<Frame, unique_frame_delete<Fram
 
 	unique_frame_ptr() = default;
 
-	unique_frame_ptr(from_payload_count_tag, size_t payload_count) : unique_frame_ptr(from_size_bytes, sizeof(Frame) + sizeof(payload_type) * payload_count) {}
+	unique_frame_ptr(from_payload_count_tag, size_t payload_count, size_t packet_size_bytes = 1)
+	    : unique_frame_ptr(from_size_bytes, sizeof(Frame) + sizeof(payload_type) * payload_count, packet_size_bytes) {}
 
-	unique_frame_ptr(from_size_bytes_tag, size_t size_bytes) : impl(make_frame(size_bytes)), m_size_bytes(size_bytes) {}
+	unique_frame_ptr(from_size_bytes_tag, size_t size_bytes, size_t packet_size_bytes = 1)
+	    : impl(make_frame(pad_to_packet_size(size_bytes, packet_size_bytes))), m_size_bytes(pad_to_packet_size(size_bytes, packet_size_bytes)) {}
 
 	unique_frame_ptr(unique_frame_ptr&& other) noexcept : impl(static_cast<impl&&>(other)), m_size_bytes(other.m_size_bytes) { other.m_size_bytes = 0; }
 
@@ -87,6 +89,9 @@ class unique_frame_ptr : private std::unique_ptr<Frame, unique_frame_delete<Fram
 		return static_cast<Frame*>(mem);
 	}
 
+	static size_t pad_to_packet_size(const size_t size_bytes, const size_t packet_size_bytes) {
+		return (size_bytes + packet_size_bytes - 1) / packet_size_bytes * packet_size_bytes;
+	}
 
   private:
 	static void delete_frame_from_payload(void* const type_erased_payload) {
