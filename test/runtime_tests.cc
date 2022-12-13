@@ -1102,5 +1102,30 @@ namespace detail {
 		CHECK(v2.get() == 2);
 		CHECK(v3.get() == 3);
 	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "fences extract data from buffers", "[runtime][fence]") {
+		buffer<int, 2> buf(range<2>(4, 4));
+		distr_queue q;
+
+		q.submit([=](handler& cgh) {
+			accessor acc(buf, cgh, all{}, write_only, no_init);
+			cgh.parallel_for<class UKN(init)>(buf.get_range(), [=](celerity::item<2> item) { acc[item] = item.get_linear_id(); });
+		});
+
+		const auto check_snapshot = [&](const subrange<2>& sr, const std::vector<int>& expected_data) {
+			const auto snapshot = experimental::fence(q, buf, sr).get();
+			CHECK(snapshot.get_subrange() == sr);
+			CHECK(memcmp(snapshot.get_data(), expected_data.data(), expected_data.size() * sizeof(int)) == 0);
+		};
+
+		// Each of these should require its own device-host transfers. Do not use generators / sections, because we want them to happen sequentially.
+		check_snapshot(subrange<2>({0, 3}, {1, 1}), std::vector{3});
+		check_snapshot(subrange<2>({2, 2}, {2, 1}), std::vector{10, 14});
+		check_snapshot(subrange<2>({}, buf.get_range()), [&] {
+			std::vector<int> all_data(buf.get_range().size());
+			std::iota(all_data.begin(), all_data.end(), 0);
+			return all_data;
+		}());
+	}
 } // namespace detail
 } // namespace celerity

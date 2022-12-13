@@ -131,6 +131,8 @@ namespace detail {
 			fmt::format_to(std::back_inserter(label), "<b>reduction</b> R{}<br/> {} {}", reduction.rid, bl, req);
 		} else if(const auto hcmd = dynamic_cast<const horizon_command*>(&cmd)) {
 			label += "<b>horizon</b>";
+		} else if(const auto fcmd = dynamic_cast<const fence_command*>(&cmd)) {
+			label += "<b>fence</b>";
 		} else {
 			assert(!"Unkown command");
 			label += "<b>unknown</b>";
