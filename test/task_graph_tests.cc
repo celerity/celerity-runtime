@@ -690,5 +690,22 @@ namespace detail {
 		test_utils::maybe_print_graph(tm);
 	}
 
+	TEST_CASE("fences introduce dependencies on host objects", "[task_manager][task-graph][fence]") {
+		task_manager tm{1, nullptr};
+		test_utils::mock_host_object_factory mhof;
+		auto ho = mhof.create_host_object();
+
+		const auto tid_a = test_utils::add_host_task(
+		    tm, celerity::experimental::collective, [&](handler& cgh) { ho.add_side_effect(cgh, experimental::side_effect_order::sequential); });
+		const auto tid_fence = test_utils::add_fence_task(tm, ho);
+		const auto tid_b = test_utils::add_host_task(
+		    tm, celerity::experimental::collective, [&](handler& cgh) { ho.add_side_effect(cgh, experimental::side_effect_order::sequential); });
+
+		CHECK(has_dependency(tm, tid_fence, tid_a));
+		CHECK(has_dependency(tm, tid_b, tid_fence));
+
+		test_utils::maybe_print_graph(tm);
+	}
+
 } // namespace detail
 } // namespace celerity

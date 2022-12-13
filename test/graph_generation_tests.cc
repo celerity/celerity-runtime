@@ -795,5 +795,41 @@ namespace detail {
 		CHECK(commands_after_epoch == transitive_dependents);
 	}
 
+	TEST_CASE("fences introduce dependencies on host objects", "[graph_generator][command-graph][fence]") {
+		const size_t num_nodes = 2;
+		test_utils::cdag_test_context ctx(num_nodes);
+		test_utils::mock_buffer_factory mbf(ctx);
+		test_utils::mock_host_object_factory mhof;
+		auto& tm = ctx.get_task_manager();
+		auto& inspector = ctx.get_inspector();
+
+		auto& cdag = ctx.get_command_graph();
+
+		auto ho = mhof.create_host_object();
+
+		const auto tid_a = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, celerity::experimental::collective, [&](handler& cgh) {
+			ho.add_side_effect(cgh, experimental::side_effect_order::sequential);
+		}));
+		const auto tid_fence = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_fence_task(tm, ho));
+		const auto tid_b = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, celerity::experimental::collective, [&](handler& cgh) {
+			ho.add_side_effect(cgh, experimental::side_effect_order::sequential);
+		}));
+
+		for(node_id nid = 0; nid < num_nodes; ++nid) {
+			const auto cmds_a = inspector.get_commands(tid_a, nid, std::nullopt);
+			const auto cmds_fence = inspector.get_commands(tid_fence, nid, std::nullopt);
+			const auto cmds_b = inspector.get_commands(tid_b, nid, std::nullopt);
+
+			REQUIRE(cmds_a.size() == 1);
+			REQUIRE(cmds_fence.size() == 1);
+			REQUIRE(cmds_b.size() == 1);
+
+			CHECK(inspector.has_dependency(*cmds_fence.begin(), *cmds_a.begin()));
+			CHECK(inspector.has_dependency(*cmds_b.begin(), *cmds_fence.begin()));
+		}
+
+		maybe_print_graphs(ctx);
+	}
+
 } // namespace detail
 } // namespace celerity

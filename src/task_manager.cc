@@ -230,7 +230,7 @@ namespace detail {
 		const auto previous_horizon = m_current_horizon;
 		m_current_horizon = tid;
 
-		task& new_horizon = reduce_execution_front(std::move(reserve), task::make_horizon_task(*m_current_horizon));
+		task& new_horizon = reduce_execution_front(std::move(reserve), task::make_horizon(*m_current_horizon));
 		if(previous_horizon) { set_epoch_for_new_tasks(*previous_horizon); }
 
 		invoke_callbacks(&new_horizon);
@@ -249,6 +249,15 @@ namespace detail {
 		m_current_horizon_critical_path_length = m_max_pseudo_critical_path_length; // the explicit epoch resets the need to create horizons
 
 		invoke_callbacks(&new_epoch);
+		return tid;
+	}
+
+	task_id task_manager::generate_fence_task(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<fence_promise> fence_promise) {
+		auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
+		const auto tid = reserve.get_tid();
+		task& tsk = register_task_internal(std::move(reserve), task::make_fence(tid, std::move(access_map), std::move(side_effects), std::move(fence_promise)));
+		compute_dependencies(tsk);
+		invoke_callbacks(&tsk);
 		return tid;
 	}
 

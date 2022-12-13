@@ -4,11 +4,26 @@
 #include <type_traits>
 
 #include "device_queue.h"
+#include "host_object.h"
 #include "runtime.h"
 #include "task_manager.h"
 
 namespace celerity {
 namespace detail {
+
+	template <typename T>
+	class host_object_fence_promise : public detail::fence_promise {
+	  public:
+		explicit host_object_fence_promise(const experimental::host_object<T>& obj) : m_host_object(obj) {}
+
+		std::future<T> get_future() { return m_promise.get_future(); }
+
+		void fulfill() override { m_promise.set_value(std::as_const(detail::get_host_object_instance(m_host_object))); }
+
+	  private:
+		experimental::host_object<T> m_host_object;
+		std::promise<T> m_promise;
+	};
 
 	class distr_queue_tracker {
 	  public:
@@ -99,3 +114,17 @@ class distr_queue {
 };
 
 } // namespace celerity
+
+namespace celerity::experimental {
+
+template <typename T>
+std::future<T> fence(celerity::distr_queue& q, const experimental::host_object<T>& obj) {
+	detail::side_effect_map side_effects;
+	side_effects.add_side_effect(detail::get_host_object_id(obj), experimental::side_effect_order::sequential);
+	auto promise = std::make_unique<detail::host_object_fence_promise<T>>(obj);
+	auto future = promise->get_future();
+	detail::runtime::get_instance().get_task_manager().generate_fence_task({}, std::move(side_effects), std::move(promise));
+	return future;
+}
+
+} // namespace celerity::experimental

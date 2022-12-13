@@ -231,5 +231,22 @@ namespace detail {
 		return false;
 	}
 
+	// --------------------------------------------------------------------------------------------------------------------
+	// -------------------------------------------------------- FENCE -----------------------------------------------------
+	// --------------------------------------------------------------------------------------------------------------------
+
+	std::string fence_job::get_description(const command_pkg& pkg) { return fmt::format("FENCE"); }
+
+	bool fence_job::execute(const command_pkg& pkg) {
+		const auto data = std::get<fence_data>(pkg.data);
+		const auto tsk = m_task_mngr.get_task(data.tid);
+		const auto promise = tsk->get_fence_promise();
+		assert(promise != nullptr);
+
+		promise->fulfill();
+
+		return true;
+	}
+
 } // namespace detail
 } // namespace celerity

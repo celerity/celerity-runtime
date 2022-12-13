@@ -184,5 +184,16 @@ namespace detail {
 		std::string get_description(const command_pkg& pkg) override;
 	};
 
+	class fence_job : public worker_job {
+	  public:
+		fence_job(command_pkg pkg, task_manager& tm) : worker_job(pkg), m_task_mngr(tm) { assert(pkg.get_command_type() == command_type::fence); }
+
+	  private:
+		task_manager& m_task_mngr;
+
+		bool execute(const command_pkg& pkg) override;
+		std::string get_description(const command_pkg& pkg) override;
+	};
+
 } // namespace detail
 } // namespace celerity
