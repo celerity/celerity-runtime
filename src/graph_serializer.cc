@@ -104,6 +104,8 @@ namespace detail {
 			frame->pkg.data = reduction_data{rcmd->get_reduction_info().rid};
 		} else if(const auto* hcmd = dynamic_cast<horizon_command*>(cmd)) {
 			frame->pkg.data = horizon_data{hcmd->get_tid()};
+		} else if(const auto* fcmd = dynamic_cast<fence_command*>(cmd)) {
+			frame->pkg.data = fence_data{fcmd->get_tid()};
 		} else {
 			assert(false && "Unknown command");
 		}

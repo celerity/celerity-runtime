@@ -30,6 +30,7 @@ namespace detail {
 		case task_type::collective: return "collective host";
 		case task_type::master_node: return "master-node host";
 		case task_type::horizon: return "horizon";
+		case task_type::fence: return "fence";
 		default: return "unknown";
 		}
 	}

@@ -23,6 +23,7 @@ namespace detail {
 		collective,     ///< host task with implicit 1d global size = #ranks and fixed split
 		master_node,    ///< zero-dimensional host task
 		horizon,        ///< task horizon
+		fence,
 	};
 
 	enum class execution_target {
@@ -96,6 +97,13 @@ namespace detail {
 		void add_side_effect(host_object_id hoid, experimental::side_effect_order order);
 	};
 
+	class fence_promise {
+	  public:
+		virtual ~fence_promise() = default;
+
+		virtual void fulfill() = 0;
+	};
+
 	struct task_geometry {
 		int dimensions = 0;
 		cl::sycl::range<3> global_size{0, 0, 0};
@@ -138,7 +146,8 @@ namespace detail {
 			case task_type::host_compute:
 			case task_type::collective:
 			case task_type::master_node: return execution_target::host;
-			case task_type::horizon: return execution_target::none;
+			case task_type::horizon:
+			case task_type::fence: return execution_target::none;
 			default: assert(!"Unhandled task type"); return execution_target::none;
 			}
 		}
@@ -147,37 +156,45 @@ namespace detail {
 
 		epoch_action get_epoch_action() const { return m_epoch_action; }
 
+		fence_promise* get_fence_promise() const { return m_fence_promise.get(); }
+
 		static std::unique_ptr<task> make_epoch(task_id tid, detail::epoch_action action) {
-			return std::unique_ptr<task>(new task(tid, task_type::epoch, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}, action));
+			return std::unique_ptr<task>(new task(tid, task_type::epoch, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}, action, nullptr));
 		}
 
 		static std::unique_ptr<task> make_host_compute(task_id tid, task_geometry geometry, std::unique_ptr<command_group_storage_base> cgf,
 		    buffer_access_map access_map, side_effect_map side_effect_map, reduction_set reductions) {
 			return std::unique_ptr<task>(new task(tid, task_type::host_compute, collective_group_id{}, geometry, std::move(cgf), std::move(access_map),
-			    std::move(side_effect_map), std::move(reductions), {}, {}));
+			    std::move(side_effect_map), std::move(reductions), {}, {}, nullptr));
 		}
 
 		static std::unique_ptr<task> make_device_compute(task_id tid, task_geometry geometry, std::unique_ptr<command_group_storage_base> cgf,
 		    buffer_access_map access_map, reduction_set reductions, std::string debug_name) {
 			return std::unique_ptr<task>(new task(tid, task_type::device_compute, collective_group_id{}, geometry, std::move(cgf), std::move(access_map), {},
-			    std::move(reductions), std::move(debug_name), {}));
+			    std::move(reductions), std::move(debug_name), {}, nullptr));
 		}
 
 		static std::unique_ptr<task> make_collective(task_id tid, collective_group_id cgid, size_t num_collective_nodes,
 		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, side_effect_map side_effect_map) {
 			const task_geometry geometry{1, detail::range_cast<3>(cl::sycl::range<1>{num_collective_nodes}), {}, {1, 1, 1}};
 			return std::unique_ptr<task>(
-			    new task(tid, task_type::collective, cgid, geometry, std::move(cgf), std::move(access_map), std::move(side_effect_map), {}, {}, {}));
+			    new task(tid, task_type::collective, cgid, geometry, std::move(cgf), std::move(access_map), std::move(side_effect_map), {}, {}, {}, nullptr));
 		}
 
 		static std::unique_ptr<task> make_master_node(
 		    task_id tid, std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, side_effect_map side_effect_map) {
 			return std::unique_ptr<task>(new task(tid, task_type::master_node, collective_group_id{}, task_geometry{}, std::move(cgf), std::move(access_map),
-			    std::move(side_effect_map), {}, {}, {}));
+			    std::move(side_effect_map), {}, {}, {}, nullptr));
 		}
 
-		static std::unique_ptr<task> make_horizon_task(task_id tid) {
-			return std::unique_ptr<task>(new task(tid, task_type::horizon, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}, {}));
+		static std::unique_ptr<task> make_horizon(task_id tid) {
+			return std::unique_ptr<task>(new task(tid, task_type::horizon, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}, {}, nullptr));
+		}
+
+		static std::unique_ptr<task> make_fence(
+		    task_id tid, buffer_access_map access_map, side_effect_map side_effect_map, std::unique_ptr<fence_promise> fence_promise) {
+			return std::unique_ptr<task>(new task(tid, task_type::fence, collective_group_id{}, task_geometry{}, nullptr, std::move(access_map),
+			    std::move(side_effect_map), {}, {}, {}, std::move(fence_promise)));
 		}
 
 	  private:
@@ -191,15 +208,18 @@ namespace detail {
 		reduction_set m_reductions;
 		std::string m_debug_name;
 		detail::epoch_action m_epoch_action;
+		std::unique_ptr<fence_promise> m_fence_promise;
 
 		task(task_id tid, task_type type, collective_group_id cgid, task_geometry geometry, std::unique_ptr<command_group_storage_base> cgf,
 		    buffer_access_map access_map, detail::side_effect_map side_effects, reduction_set reductions, std::string debug_name,
-		    detail::epoch_action epoch_action)
+		    detail::epoch_action epoch_action, std::unique_ptr<fence_promise> fence_promise)
 		    : m_tid(tid), m_type(type), m_cgid(cgid), m_geometry(geometry), m_cgf(std::move(cgf)), m_access_map(std::move(access_map)),
-		      m_side_effects(std::move(side_effects)), m_reductions(std::move(reductions)), m_debug_name(std::move(debug_name)), m_epoch_action(epoch_action) {
+		      m_side_effects(std::move(side_effects)), m_reductions(std::move(reductions)), m_debug_name(std::move(debug_name)), m_epoch_action(epoch_action),
+		      m_fence_promise(std::move(fence_promise)) {
 			assert(type == task_type::host_compute || type == task_type::device_compute || get_granularity().size() == 1);
 			// Only host tasks can have side effects
-			assert(this->m_side_effects.empty() || type == task_type::host_compute || type == task_type::collective || type == task_type::master_node);
+			assert(this->m_side_effects.empty() || type == task_type::host_compute || type == task_type::collective || type == task_type::master_node
+			       || type == task_type::fence);
 		}
 	};
 

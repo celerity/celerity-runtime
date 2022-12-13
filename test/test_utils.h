@@ -364,6 +364,12 @@ namespace test_utils {
 		});
 	}
 
+	inline detail::task_id add_fence_task(detail::task_manager& tm, mock_host_object ho) {
+		detail::side_effect_map side_effects;
+		side_effects.add_side_effect(ho.get_id(), experimental::side_effect_order::sequential);
+		return tm.generate_fence_task({}, std::move(side_effects), nullptr);
+	}
+
 	inline detail::task_id build_and_flush(cdag_test_context& ctx, size_t num_nodes, size_t num_chunks, detail::task_id tid) {
 		detail::naive_split_transformer transformer{num_chunks, num_nodes};
 		ctx.get_graph_generator().build_task(*ctx.get_task_manager().get_task(tid), {&transformer});
