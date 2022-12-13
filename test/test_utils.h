@@ -370,6 +370,19 @@ namespace test_utils {
 		return tm.generate_fence_task({}, std::move(side_effects), nullptr);
 	}
 
+	template <int Dims>
+	inline detail::task_id add_fence_task(detail::task_manager& tm, mock_buffer<Dims> buf, subrange<Dims> sr) {
+		detail::buffer_access_map access_map;
+		access_map.add_access(buf.get_id(),
+		    std::make_unique<detail::range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), access_mode::read, buf.get_range()));
+		return tm.generate_fence_task(std::move(access_map), {}, nullptr);
+	}
+
+	template <int Dims>
+	inline detail::task_id add_fence_task(detail::task_manager& tm, mock_buffer<Dims> buf) {
+		return add_fence_task(tm, buf, {{}, buf.get_range()});
+	}
+
 	inline detail::task_id build_and_flush(cdag_test_context& ctx, size_t num_nodes, size_t num_chunks, detail::task_id tid) {
 		detail::naive_split_transformer transformer{num_chunks, num_nodes};
 		ctx.get_graph_generator().build_task(*ctx.get_task_manager().get_task(tid), {&transformer});

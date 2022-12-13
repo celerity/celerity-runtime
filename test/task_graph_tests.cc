@@ -707,5 +707,20 @@ namespace detail {
 		test_utils::maybe_print_graph(tm);
 	}
 
+	TEST_CASE("fences introduce data dependencies and movement", "[task_manager][task-graph][fence]") {
+		task_manager tm(1, nullptr);
+		test_utils::mock_buffer_factory mbf(tm);
+		auto buf = mbf.create_buffer<1>({1});
+
+		const auto tid_a = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });
+		const auto tid_fence = test_utils::add_fence_task(tm, buf);
+		const auto tid_b = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });
+
+		CHECK(has_dependency(tm, tid_fence, tid_a));
+		CHECK(has_dependency(tm, tid_b, tid_fence, dependency_kind::anti_dep));
+
+		test_utils::maybe_print_graph(tm);
+	}
+
 } // namespace detail
 } // namespace celerity

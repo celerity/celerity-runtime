@@ -360,6 +360,9 @@ namespace detail {
 					// We need to add a proper requirement here because bid might itself be in pending_reduction_state
 					requirements[reduction.bid][rmode] = GridRegion<3>{{1, 1, 1}};
 				}
+			} else {
+				// tasks without an execution range (e.g. fences) can still have fixed or all-accesses.
+				requirements = get_buffer_requirements_for_mapped_access(tsk, {}, {});
 			}
 
 			for(auto& it : requirements) {

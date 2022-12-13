@@ -798,20 +798,17 @@ namespace detail {
 	TEST_CASE("fences introduce dependencies on host objects", "[graph_generator][command-graph][fence]") {
 		const size_t num_nodes = 2;
 		test_utils::cdag_test_context ctx(num_nodes);
-		test_utils::mock_buffer_factory mbf(ctx);
-		test_utils::mock_host_object_factory mhof;
 		auto& tm = ctx.get_task_manager();
 		auto& inspector = ctx.get_inspector();
 
-		auto& cdag = ctx.get_command_graph();
-
+		test_utils::mock_host_object_factory mhof;
 		auto ho = mhof.create_host_object();
 
 		const auto tid_a = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, celerity::experimental::collective, [&](handler& cgh) {
 			ho.add_side_effect(cgh, experimental::side_effect_order::sequential);
 		}));
 		const auto tid_fence = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_fence_task(tm, ho));
-		const auto tid_b = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, celerity::experimental::collective, [&](handler& cgh) {
+		const auto tid_b = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, experimental::collective, [&](handler& cgh) {
 			ho.add_side_effect(cgh, experimental::side_effect_order::sequential);
 		}));
 
@@ -829,6 +826,45 @@ namespace detail {
 		}
 
 		maybe_print_graphs(ctx);
+	}
+
+	TEST_CASE("fences introduce dependencies on buffers", "[graph_generator][command-graph][fence]") {
+		const size_t num_nodes = 2;
+		test_utils::cdag_test_context ctx(num_nodes);
+		auto& tm = ctx.get_task_manager();
+		auto& inspector = ctx.get_inspector();
+
+		test_utils::mock_buffer_factory mbf(ctx);
+		auto buf = mbf.create_buffer<1>({1});
+
+		const auto tid_a = test_utils::build_and_flush(
+		    ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); }));
+		const auto tid_fence = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_fence_task(tm, buf));
+		const auto tid_b = test_utils::build_and_flush(ctx, num_nodes,
+		    test_utils::add_host_task(tm, experimental::collective, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); }));
+
+		maybe_print_graphs(ctx);
+
+		for(node_id nid = 0; nid < num_nodes; ++nid) {
+			const auto cmds_a = inspector.get_commands(tid_a, nid, std::nullopt);
+			const auto cmds_push = inspector.get_commands(std::nullopt, nid, command_type::push);
+			const auto cmds_await = inspector.get_commands(std::nullopt, nid, command_type::await_push);
+			const auto cmds_fence = inspector.get_commands(tid_fence, nid, std::nullopt);
+			const auto cmds_b = inspector.get_commands(tid_b, nid, std::nullopt);
+
+			REQUIRE(cmds_fence.size() == 1);
+			REQUIRE(cmds_b.size() == 1);
+			REQUIRE(cmds_a.size() == (nid == 0));
+			REQUIRE(cmds_push.size() == (nid == 0));
+			REQUIRE(cmds_await.size() == (nid == 1));
+			if(nid == 0) {
+				CHECK(inspector.has_dependency(*cmds_fence.begin(), *cmds_a.begin()));
+				CHECK(inspector.has_dependency(*cmds_push.begin(), *cmds_a.begin()));
+			} else {
+				CHECK(inspector.has_dependency(*cmds_fence.begin(), *cmds_await.begin()));
+			}
+			CHECK(inspector.has_dependency(*cmds_b.begin(), *cmds_fence.begin()));
+		}
 	}
 
 } // namespace detail
