@@ -130,30 +130,32 @@ int main(int argc, char* argv[]) {
 	}
 
 	if(argc == 4 && strcmp(argv[1], "--compare") == 0) {
-		bool equal = true;
-		{
-			celerity::distr_queue q;
+		celerity::distr_queue q;
 
-			celerity::buffer<float, 2> left(celerity::range<2>{N, N});
-			celerity::buffer<float, 2> right(celerity::range<2>{N, N});
+		celerity::buffer<float, 2> left(celerity::range<2>{N, N});
+		celerity::buffer<float, 2> right(celerity::range<2>{N, N});
+		celerity::buffer<bool> equal(1);
 
-			read_hdf5_file(q, left, argv[2]);
-			read_hdf5_file(q, right, argv[3]);
+		read_hdf5_file(q, left, argv[2]);
+		read_hdf5_file(q, right, argv[3]);
 
-			q.submit(celerity::allow_by_ref, [=, &equal](celerity::handler& cgh) {
-				celerity::accessor a{left, cgh, celerity::access::all{}, celerity::read_only_host_task};
-				celerity::accessor b{right, cgh, celerity::access::all{}, celerity::read_only_host_task};
-				cgh.host_task(celerity::on_master_node, [=, &equal] {
-					for(size_t i = 0; i < N; ++i) {
-						for(size_t j = 0; j < N; ++j) {
-							equal &= a[{i, j}] == b[{i, j}];
-						}
+		q.submit([=](celerity::handler& cgh) {
+			celerity::accessor a{left, cgh, celerity::access::all{}, celerity::read_only_host_task};
+			celerity::accessor b{right, cgh, celerity::access::all{}, celerity::read_only_host_task};
+			celerity::accessor e{equal, cgh, celerity::access::all{}, celerity::write_only_host_task, celerity::no_init};
+			cgh.host_task(celerity::on_master_node, [=] {
+				e[0] = true;
+				for(size_t i = 0; i < N; ++i) {
+					for(size_t j = 0; j < N; ++j) {
+						e[0] &= a[{i, j}] == b[{i, j}];
 					}
-					fprintf(stderr, "=> Files are %sequal\n", equal ? "" : "NOT ");
-				});
+				}
 			});
-		}
-		return equal ? EXIT_SUCCESS : EXIT_FAILURE;
+		});
+
+		const auto files_equal = celerity::experimental::fence(q, equal).get().get_data()[0];
+		fprintf(stderr, "=> Files are %sequal\n", files_equal ? "" : "NOT ");
+		return files_equal ? EXIT_SUCCESS : EXIT_FAILURE;
 	}
 
 	fprintf(stderr,
