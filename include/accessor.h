@@ -257,7 +257,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 
 	template <access_mode M = Mode, int D = Dims>
-	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](id<Dims> index) const {
+	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), const DataT&> operator[](id<Dims> index) const {
 		return detail::ranged_sycl_access(m_sycl_accessor, m_buffer_range, index - m_index_offset);
 	}
 
@@ -452,7 +452,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	}
 
 	template <access_mode M = Mode, int D = Dims>
-	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), DataT> operator[](id<Dims> index) const {
+	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), const DataT&> operator[](id<Dims> index) const {
 		return *(get_buffer().get_pointer() + get_linear_offset(index));
 	}
 
