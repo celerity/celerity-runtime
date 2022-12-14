@@ -8,6 +8,7 @@
 #include "buffer.h"
 #include "debug.h"
 #include "distr_queue.h"
+#include "fence.h"
 #include "side_effect.h"
 #include "user_bench.h"
 #include "version.h"
