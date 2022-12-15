@@ -106,13 +106,6 @@ struct mock_platform {
 	std::vector<mock_device> m_devices;
 };
 
-namespace celerity::detail {
-struct config_testspy {
-	static void set_mock_device_cfg(config& cfg, const device_config& d_cfg) { cfg.m_device_cfg = d_cfg; }
-	static void set_mock_host_cfg(config& cfg, const host_config& h_cfg) { cfg.m_host_cfg = h_cfg; }
-};
-} // namespace celerity::detail
-
 TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prefers user specified device pointer", "[device-selection]") {
 	celerity::detail::config cfg(nullptr, nullptr);
 	mock_platform_factory mpf;

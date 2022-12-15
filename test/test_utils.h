@@ -80,6 +80,14 @@ namespace detail {
 		static void create_task_slot(task_manager& tm) { task_ring_buffer_testspy::create_task_slot(tm.m_task_buffer); }
 	};
 
+
+	struct config_testspy {
+		static void set_mock_device_cfg(config& cfg, const device_config& d_cfg) { cfg.m_device_cfg = d_cfg; }
+		static void set_mock_host_cfg(config& cfg, const host_config& h_cfg) { cfg.m_host_cfg = h_cfg; }
+		static std::optional<device_config> get_device_config(config& cfg) { return cfg.m_device_cfg; }
+	};
+
+
 	inline bool has_dependency(const task_manager& tm, task_id dependent, task_id dependency, dependency_kind kind = dependency_kind::true_dep) {
 		for(auto dep : tm.get_task(dependent)->get_dependencies()) {
 			if(dep.node->get_id() == dependency && dep.kind == kind) return true;

@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <optional>
+#include <string_view>
+#include <vector>
 
 namespace celerity {
 namespace detail {
@@ -47,7 +49,7 @@ namespace detail {
 		std::optional<device_config> m_device_cfg;
 		std::optional<bool> m_enable_device_profiling;
 		size_t m_graph_print_max_verts = 200;
-		int m_dry_run_nodes = 0;
+		size_t m_dry_run_nodes = 0;
 	};
 
 } // namespace detail

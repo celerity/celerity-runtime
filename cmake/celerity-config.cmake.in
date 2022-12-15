@@ -22,6 +22,7 @@ find_dependency(Threads REQUIRED)
 find_dependency(fmt REQUIRED)
 find_dependency(spdlog REQUIRED)
 find_dependency(small_vector REQUIRED)
+find_dependency(libenvpp REQUIRED)
 
 if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
   if(NOT DEFINED HIPSYCL_TARGETS AND NOT "@HIPSYCL_TARGETS@" STREQUAL "")

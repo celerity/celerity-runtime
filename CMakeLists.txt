@@ -64,7 +64,7 @@ else()
     set(CELERITY_SYCL_IMPL "${AVAILABLE_SYCL_IMPLS}")
     message(STATUS "Automatically chooosing ${CELERITY_SYCL_IMPL} because it is the only SYCL implementation available")
   endif()
-endif ()
+endif()
 
 set(CELERITY_DPCPP_TARGETS "spir64" CACHE STRING "Intel DPC++ targets")
 if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
@@ -179,6 +179,9 @@ endif()
 fetch_content_from_submodule(Catch2 vendor/Catch2)
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 
+set(LIBENVPP_INSTALL ON CACHE BOOL "" FORCE)
+fetch_content_from_submodule(libenvpp vendor/libenvpp)
+
 configure_file(include/version.h.in include/version.h @ONLY)
 
 # Add includes to library so they show up in IDEs
@@ -259,6 +262,7 @@ target_link_libraries(celerity_runtime PUBLIC
   fmt::fmt
   spdlog::spdlog
   gch::small_vector
+  libenvpp::libenvpp
   ${SYCL_LIB}
 )
 

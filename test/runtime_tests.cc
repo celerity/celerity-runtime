@@ -15,6 +15,8 @@
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_all.hpp>
 
+#include <libenvpp/env.hpp>
+
 #include <celerity.h>
 
 #include "affinity.h"
@@ -1011,6 +1013,74 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "Dry run generates commands for an arbitrary number of simulated worker nodes", "[dryrun]") {
 		const size_t nodes = GENERATE(values({4, 8, 16}));
 		dry_run_with_nodes(nodes);
+	}
+
+	TEST_CASE_METHOD(test_utils::mpi_fixture, "Config reads environment variables correctly", "[env-vars][config]") {
+		std::unordered_map<std::string, std::string> valid_test_env_vars{
+		    {"CELERITY_LOG_LEVEL", "debug"},
+		    {"CELERITY_GRAPH_PRINT_MAX_VERTS", "1"},
+		    {"CELERITY_DEVICES", "1 1"},
+		    {"CELERITY_PROFILE_KERNEL", "1"},
+		    {"CELERITY_DRY_RUN_NODES", "4"},
+		};
+
+		const auto test_env = env::scoped_test_environment(valid_test_env_vars);
+		auto cfg = config(nullptr, nullptr);
+
+		CHECK(spdlog::get_level() == spdlog::level::debug);
+		CHECK(cfg.get_graph_print_max_verts() == 1);
+		const auto dev_cfg = config_testspy::get_device_config(cfg);
+		REQUIRE(dev_cfg != std::nullopt);
+		CHECK(dev_cfg->platform_id == 1);
+		CHECK(dev_cfg->device_id == 1);
+		const auto has_prof = cfg.get_enable_device_profiling();
+		REQUIRE(has_prof.has_value());
+		CHECK((*has_prof) == true);
+		CHECK(cfg.get_dry_run_nodes() == 4);
+	}
+
+	TEST_CASE_METHOD(test_utils::mpi_fixture, "Config reports incorrect environment varibles", "[env-vars][config]") {
+		const std::string error_string{"Failed to parse/validate environment variables."};
+		{
+			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_LOG_LEVEL", "a"}};
+			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
+		}
+
+		{
+			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_GRAPH_PRINT_MAX_VERTS", "a"}};
+			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
+		}
+
+		{
+			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_DEVICES", "a"}};
+			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
+		}
+
+		{
+			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_DRY_RUN_NODES", "a"}};
+			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
+		}
+
+		{
+			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_PROFILE_KERNEL", "a"}};
+			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
+		}
+		{
+			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_FORCE_WG", "a"}};
+			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
+		}
+
+		{
+			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_PROFILE_OCL", "a"}};
+			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
+		}
 	}
 
 } // namespace detail
