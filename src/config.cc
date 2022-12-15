@@ -5,7 +5,6 @@
 #include <sstream>
 #include <string_view>
 #include <thread>
-#include <vector>
 
 #include <mpi.h>
 
@@ -13,110 +12,170 @@
 
 #include <spdlog/sinks/sink.h>
 
-std::pair<bool, std::string> get_env(const char* key) {
-	bool exists = false;
-	std::string str;
-#ifdef _MSC_VER
-	char* buf;
-	_dupenv_s(&buf, nullptr, key);
-	if(buf != nullptr) {
-		exists = true;
-		str = buf;
-		delete buf;
-	}
-#else
-	const auto value = std::getenv(key);
-	if(value != nullptr) {
-		exists = true;
-		str = value;
-	}
-#endif
+#include <libenvpp/env.hpp>
 
-	std::string_view sv = str;
-	sv.remove_prefix(std::min(sv.find_first_not_of(" "), sv.size()));
-	sv.remove_suffix(std::min(sv.size() - sv.find_last_not_of(" ") - 1, sv.size()));
-
-	return {exists, std::string{sv}};
+static std::vector<std::string> split(const std::string_view str, const char delimiter) {
+	auto result = std::vector<std::string>{};
+	auto sstream = std::istringstream(std::string(str));
+	auto item = std::string{};
+	while(std::getline(sstream, item, delimiter)) {
+		result.push_back(std::move(item));
+	}
+	return result;
 }
 
-std::pair<bool, size_t> parse_uint(const char* str) {
-	errno = 0;
-	char* eptr = nullptr;
-	const auto value = std::strtoul(str, &eptr, 10);
-	if(errno == 0 && eptr != str) { return {true, value}; }
-	return {false, 0};
+namespace env {
+template <>
+struct default_parser<celerity::detail::log_level> {
+	celerity::detail::log_level operator()(const std::string_view str) const {
+		const std::vector<std::pair<celerity::detail::log_level, std::string>> possible_values = {
+		    {celerity::detail::log_level::trace, "trace"},
+		    {celerity::detail::log_level::debug, "debug"},
+		    {celerity::detail::log_level::info, "info"},
+		    {celerity::detail::log_level::warn, "warn"},
+		    {celerity::detail::log_level::err, "err"},
+		    {celerity::detail::log_level::critical, "critical"},
+		    {celerity::detail::log_level::off, "off"},
+		};
+
+		auto lvl = celerity::detail::log_level::info;
+		bool valid = false;
+		for(const auto& pv : possible_values) {
+			if(str == pv.second) {
+				lvl = pv.first;
+				valid = true;
+				break;
+			}
+		}
+		auto err_msg = fmt::format("Unable to parse '{}'. Possible values are:", str);
+		for(size_t i = 0; i < possible_values.size(); ++i) {
+			err_msg += fmt::format(" {}{}", possible_values[i].second, (i < possible_values.size() - 1 ? ", " : "."));
+		}
+		if(!valid) throw parser_error{err_msg};
+
+		return lvl;
+	}
+};
+} // namespace env
+
+namespace {
+
+size_t parse_validate_graph_print_max_verts(const std::string_view str) {
+	const auto gmpv = env::default_parser<size_t>{}(str);
+	if(!spdlog::should_log(celerity::detail::log_level::trace)) {
+		CELERITY_WARN("CELERITY_GRAPH_PRINT_MAX_VERTS: Graphs will only be printed for CELERITY_LOG_LEVEL=trace.");
+	}
+	CELERITY_DEBUG("CELERITY_GRAPH_PRINT_MAX_VERTS={}.", gmpv);
+	return gmpv;
 }
+
+bool parse_validate_profile_kernel(const std::string_view str) {
+	const auto pk = env::default_parser<bool>{}(str);
+	CELERITY_DEBUG("CELERITY_PROFILE_KERNEL={}.", pk ? "on" : "off");
+	return pk;
+}
+
+size_t parse_validate_dry_run_nodes(const std::string_view str) {
+	const size_t drn = env::default_parser<size_t>{}(str);
+	int world_size = 0;
+	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+	if(world_size != 1) throw std::runtime_error("In order to run with CELERITY_DRY_RUN_NODES a single MPI process/rank must be used.");
+	CELERITY_WARN("Performing a dry run with {} simulated nodes", drn);
+	return drn;
+}
+
+std::vector<size_t> parse_validate_devices(const std::string_view str, const celerity::detail::host_config host_cfg) {
+	std::vector<size_t> devices;
+	const auto split_str = split(str, ' ');
+	// Delegate parsing of primitive types to the default_parser
+	for(size_t i = 0; i < split_str.size(); ++i) {
+		devices.push_back(env::default_parser<size_t>{}(split_str[i]));
+	}
+	if(devices.size() < 2) {
+		throw env::validation_error{fmt::format(
+		    "Found {} IDs.\nExpected the following format: CELERITY_DEVICES=\"<platform_id> <first device_id> <second device_id> ... <nth device_id>\"",
+		    devices.size())};
+	}
+
+	if(static_cast<long>(host_cfg.local_rank) > static_cast<long>(devices.size()) - 2) {
+		throw env::validation_error{fmt::format(
+		    "Process has local rank {}, but CELERITY_DEVICES only includes {} device(s)", host_cfg.local_rank, devices.empty() ? 0 : devices.size() - 1)};
+	}
+	if(static_cast<long>(devices.size()) - 1 > static_cast<long>(host_cfg.node_count)) {
+		throw env::validation_error{fmt::format(
+		    "CELERITY_DEVICES contains {} device indices, but only {} worker processes were spawned on this host", devices.size() - 1, host_cfg.node_count)};
+	}
+
+	return devices;
+}
+
+bool parse_validate_force_wg(const std::string_view str) {
+	throw env::validation_error{"Support for CELERITY_FORCE_WG has been removed with Celerity 0.3.0."};
+	return false;
+}
+
+bool parse_validate_profile_ocl(const std::string_view str) {
+	throw env::validation_error{"CELERITY_PROFILE_OCL has been renamed to CELERITY_PROFILE_KERNEL with Celerity 0.3.0."};
+	return false;
+}
+
+} // namespace
 
 namespace celerity {
 namespace detail {
+
 	config::config(int* argc, char** argv[]) {
 		// TODO: At some point we might want to parse arguments from argv as well
 
-		{
-			// Determine the "host config", i.e., how many nodes are spawned on this host,
-			// and what this node's local rank is. We do this by finding all world-ranks
-			// that can use a shared-memory transport (if running on OpenMPI, use the
-			// per-host split instead).
+		// Determine the "host config", i.e., how many nodes are spawned on this host,
+		// and what this node's local rank is. We do this by finding all world-ranks
+		// that can use a shared-memory transport (if running on OpenMPI, use the
+		// per-host split instead).
 #ifdef OPEN_MPI
 #define SPLIT_TYPE OMPI_COMM_TYPE_HOST
 #else
-			// TODO: Assert that shared memory is available (i.e. not explicitly disabled)
+		// TODO: Assert that shared memory is available (i.e. not explicitly disabled)
 #define SPLIT_TYPE MPI_COMM_TYPE_SHARED
 #endif
-			MPI_Comm host_comm;
-			MPI_Comm_split_type(MPI_COMM_WORLD, SPLIT_TYPE, 0, MPI_INFO_NULL, &host_comm);
+		MPI_Comm host_comm = nullptr;
+		MPI_Comm_split_type(MPI_COMM_WORLD, SPLIT_TYPE, 0, MPI_INFO_NULL, &host_comm);
 
-			int local_rank = 0;
-			MPI_Comm_rank(host_comm, &local_rank);
+		int local_rank = 0;
+		MPI_Comm_rank(host_comm, &local_rank);
 
-			int node_count = 0;
-			MPI_Comm_size(host_comm, &node_count);
+		int node_count = 0;
+		MPI_Comm_size(host_comm, &node_count);
 
-			m_host_cfg.local_rank = local_rank;
-			m_host_cfg.node_count = node_count;
+		m_host_cfg.local_rank = local_rank;
+		m_host_cfg.node_count = node_count;
 
-			MPI_Comm_free(&host_comm);
-		}
+		MPI_Comm_free(&host_comm);
 
-		// ------------------------------- CELERITY_LOG_LEVEL ---------------------------------
+		auto pref = env::prefix("CELERITY");
+		const auto env_log_level = pref.register_option<log_level>(
+		    "LOG_LEVEL", {log_level::trace, log_level::debug, log_level::info, log_level::warn, log_level::err, log_level::critical, log_level::off});
+		const auto env_gpmv =
+		    pref.register_variable<size_t>("GRAPH_PRINT_MAX_VERTS", [](const std::string_view str) { return parse_validate_graph_print_max_verts(str); });
+		const auto env_devs =
+		    pref.register_variable<std::vector<size_t>>("DEVICES", [this](const std::string_view str) { return parse_validate_devices(str, m_host_cfg); });
+		const auto env_profile_kernel =
+		    pref.register_variable<bool>("PROFILE_KERNEL", [](const std::string_view str) { return parse_validate_profile_kernel(str); });
+		const auto env_dry_run_nodes =
+		    pref.register_variable<size_t>("DRY_RUN_NODES", [](const std::string_view str) { return parse_validate_dry_run_nodes(str); });
+		[[maybe_unused]] const auto env_force_wg =
+		    pref.register_variable<bool>("FORCE_WG", [](const std::string_view str) { return parse_validate_force_wg(str); });
+		[[maybe_unused]] const auto env_profile_ocl =
+		    pref.register_variable<bool>("PROFILE_OCL", [](const std::string_view str) { return parse_validate_profile_ocl(str); });
 
-		{
+		const auto parsed_and_validated_envs = pref.parse_and_validate();
+		if(parsed_and_validated_envs.ok()) {
+			// ------------------------------- CELERITY_LOG_LEVEL ---------------------------------
+
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-			auto log_lvl = log_level::debug;
+			const auto log_lvl = parsed_and_validated_envs.get_or(env_log_level, log_level::debug);
 #else
-			auto log_lvl = log_level::info;
+			const auto log_lvl = parsed_and_validated_envs.get_or(env_log_level, log_level::info);
 #endif
-			const std::vector<std::pair<log_level, std::string>> possible_values = {
-			    {log_level::trace, "trace"},
-			    {log_level::debug, "debug"},
-			    {log_level::info, "info"},
-			    {log_level::warn, "warn"},
-			    {log_level::err, "err"},
-			    {log_level::critical, "critical"},
-			    {log_level::off, "off"},
-			};
-
-			const auto result = get_env("CELERITY_LOG_LEVEL");
-			if(result.first) {
-				bool valid = false;
-				for(auto& pv : possible_values) {
-					if(result.second == pv.second) {
-						log_lvl = pv.first;
-						valid = true;
-						break;
-					}
-				}
-				if(!valid) {
-					std::ostringstream oss;
-					oss << "Invalid value \"" << result.second << "\" provided for CELERITY_LOG_LEVEL. ";
-					oss << "Possible values are: ";
-					for(size_t i = 0; i < possible_values.size(); ++i) {
-						oss << possible_values[i].second << (i < possible_values.size() - 1 ? ", " : ".");
-					}
-					CELERITY_WARN(oss.str());
-				}
-			}
-
 			// Set both the global log level and the default sink level so that the console logger adheres to CELERITY_LOG_LEVEL even if we temporarily
 			// override the global level in test_utils::log_capture.
 			// TODO do not modify global state in the constructor, but factor the LOG_LEVEL part out of detail::config entirely.
@@ -124,81 +183,39 @@ namespace detail {
 			for(auto& sink : spdlog::default_logger_raw()->sinks()) {
 				sink->set_level(log_lvl);
 			}
-		}
 
-		// ------------------------- CELERITY_GRAPH_PRINT_MAX_VERTS ---------------------------
+			// ------------------------- CELERITY_GRAPH_PRINT_MAX_VERTS ---------------------------
 
-		{
-			const auto [is_set, value] = get_env("CELERITY_GRAPH_PRINT_MAX_VERTS");
-			if(is_set) {
-				if(spdlog::should_log(log_level::trace)) {
-					CELERITY_WARN("CELERITY_GRAPH_PRINT_MAX_VERTS: Graphs will only be printed for CELERITY_LOG_LEVEL=trace.");
-				}
-				const auto [is_valid, parsed] = parse_uint(value.c_str());
-				if(is_valid) { m_graph_print_max_verts = parsed; }
+			const auto has_gpmv = parsed_and_validated_envs.get(env_gpmv);
+			if(has_gpmv) { m_graph_print_max_verts = *has_gpmv; }
+
+			// --------------------------------- CELERITY_DEVICES ---------------------------------
+
+			const auto has_devs = parsed_and_validated_envs.get(env_devs);
+			if(has_devs) {
+				const auto pid_parsed = (*has_devs)[0];
+				const auto did_parsed = (*has_devs)[m_host_cfg.local_rank + 1];
+				m_device_cfg = device_config{pid_parsed, did_parsed};
 			}
-		}
 
-		// --------------------------------- CELERITY_DEVICES ---------------------------------
+			// ----------------------------- CELERITY_PROFILE_KERNEL ------------------------------
 
-		{
-			const auto [is_set, value] = get_env("CELERITY_DEVICES");
-			if(is_set) {
-				if(value.empty()) {
-					CELERITY_WARN("CELERITY_DEVICES is set but empty - ignoring");
-				} else {
-					std::istringstream ss{value};
-					std::vector<std::string> values{std::istream_iterator<std::string>{ss}, std::istream_iterator<std::string>{}};
-					if(static_cast<long>(m_host_cfg.local_rank) > static_cast<long>(values.size()) - 2) {
-						throw std::runtime_error(fmt::format("Process has local rank {}, but CELERITY_DEVICES only includes {} device(s)",
-						    m_host_cfg.local_rank, values.empty() ? 0 : values.size() - 1));
-					}
+			const auto has_profile_kernel = parsed_and_validated_envs.get(env_profile_kernel);
+			if(has_profile_kernel) { m_enable_device_profiling = *has_profile_kernel; }
 
-					if(static_cast<long>(values.size()) - 1 > static_cast<long>(m_host_cfg.node_count)) {
-						CELERITY_WARN("CELERITY_DEVICES contains {} device indices, but only {} worker processes were spawned on this host", values.size() - 1,
-						    m_host_cfg.node_count);
-					}
+			// -------------------------------- CELERITY_DRY_RUN_NODES ---------------------------------
 
-					const auto pid_parsed = parse_uint(values[0].c_str());
-					const auto did_parsed = parse_uint(values[m_host_cfg.local_rank + 1].c_str());
-					if(!pid_parsed.first || !did_parsed.first) {
-						CELERITY_WARN("CELERITY_DEVICES contains invalid value(s) - will be ignored");
-					} else {
-						m_device_cfg = device_config{pid_parsed.second, did_parsed.second};
-					}
-				}
+			const auto has_dry_run_nodes = parsed_and_validated_envs.get(env_dry_run_nodes);
+			if(has_dry_run_nodes) { m_dry_run_nodes = *has_dry_run_nodes; }
+
+		} else {
+			for(const auto& warn : parsed_and_validated_envs.warnings()) {
+				CELERITY_ERROR(warn.what());
 			}
-		}
-
-		// ----------------------------- CELERITY_PROFILE_KERNEL ------------------------------
-		{
-			const auto result = get_env("CELERITY_PROFILE_OCL");
-			if(result.first) {
-				CELERITY_WARN("CELERITY_PROFILE_OCL has been renamed to CELERITY_PROFILE_KERNEL with Celerity 0.3.0.");
-				m_enable_device_profiling = result.second == "1";
+			for(const auto& err : parsed_and_validated_envs.errors()) {
+				CELERITY_ERROR(err.what());
 			}
-		}
-
-		{
-			const auto result = get_env("CELERITY_PROFILE_KERNEL");
-			if(result.first) { m_enable_device_profiling = result.second == "1"; }
-		}
-
-		// -------------------------------- CELERITY_FORCE_WG ---------------------------------
-
-		{
-			const auto result = get_env("CELERITY_FORCE_WG");
-			if(result.first) { CELERITY_WARN("Support for CELERITY_FORCE_WG has been removed with Celerity 0.3.0."); }
-		}
-
-		// -------------------------------- CELERITY_DRY_RUN_NODES ---------------------------------
-		{
-			const auto [is_set, value] = get_env("CELERITY_DRY_RUN_NODES");
-			if(is_set) {
-				const auto [is_valid, num_nodes] = parse_uint(value.c_str());
-				if(!is_valid) { CELERITY_WARN("CELERITY_DRY_RUN_NODES contains invalid value - will be ignored"); }
-				m_dry_run_nodes = num_nodes;
-			}
+			throw std::runtime_error("Failed to parse/validate environment variables.");
 		}
 	}
 } // namespace detail

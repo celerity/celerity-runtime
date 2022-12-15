@@ -103,11 +103,7 @@ namespace detail {
 		m_num_nodes = world_size;
 
 		m_cfg = std::make_unique<config>(argc, argv);
-		if(m_cfg->is_dry_run()) {
-			if(m_num_nodes != 1) throw std::runtime_error("In order to run with CELERITY_DRY_RUN_NODES a single MPI process/rank must be used.\n");
-			m_num_nodes = m_cfg->get_dry_run_nodes();
-			CELERITY_WARN("Performing a dry run with {} simulated nodes", m_num_nodes);
-		}
+		if(m_cfg->is_dry_run()) { m_num_nodes = m_cfg->get_dry_run_nodes(); }
 
 		int world_rank;
 		MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
