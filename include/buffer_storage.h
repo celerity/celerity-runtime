@@ -316,9 +316,10 @@ namespace detail {
 			// TODO: No need for intermediate copy with native backend 2D/3D copy capabilities
 			auto tmp = make_uninitialized_payload<DataT>(copy_range.size());
 			// FIXME: What we really want here is to chain two asynchronous operations. Currently not possible...
-			const auto evt = host_source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
-			evt.wait();
-			return set_data(subrange{target_offset, copy_range}, static_cast<const DataT*>(tmp.get_pointer()));
+			const auto evt1 = host_source.get_data(subrange{source_offset, copy_range}, static_cast<DataT*>(tmp.get_pointer()));
+			evt1.wait();
+			const auto evt2 = set_data(subrange{target_offset, copy_range}, static_cast<const DataT*>(tmp.get_pointer()));
+			evt2.wait();
 #endif
 		}
 
