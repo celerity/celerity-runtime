@@ -152,33 +152,31 @@ endif()
 # 3rdparty dependencies
 include(FetchContent)
 
+macro(fetch_content_from_submodule DEPNAME RELPATH)
+  if(NOT EXISTS "${PROJECT_SOURCE_DIR}/${RELPATH}/CMakeLists.txt")
+    message(FATAL_ERROR "The git submodule ${RELPATH} is missing.\nTry running `git submodule update --init`.")
+  endif()
+  FetchContent_Declare(${DEPNAME}
+    URL "${PROJECT_SOURCE_DIR}/${RELPATH}"
+  )
+  FetchContent_MakeAvailable(${DEPNAME})
+endmacro()
+
 set(FMT_INSTALL ON CACHE BOOL "" FORCE)
-FetchContent_Declare(fmt
-  URL "${CMAKE_CURRENT_SOURCE_DIR}/vendor/fmt"
-)
-FetchContent_MakeAvailable(fmt)
+fetch_content_from_submodule(fmt vendor/fmt)
 
 set(SPDLOG_INSTALL ON CACHE BOOL "" FORCE)
 set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
-FetchContent_Declare(spdlog
-  URL "${CMAKE_CURRENT_SOURCE_DIR}/vendor/spdlog"
-)
-FetchContent_MakeAvailable(spdlog)
+fetch_content_from_submodule(spdlog vendor/spdlog)
 
-FetchContent_Declare(small_vector
-  URL "${CMAKE_CURRENT_SOURCE_DIR}/vendor/small_vector"
-)
-FetchContent_MakeAvailable(small_vector)
+fetch_content_from_submodule(small_vector vendor/small_vector)
 
 if(WIN32)
   # Catch2 uses custom top-level exception filters that conflict with MSMPI, which also uses their own filters.
   # Disabling Windows SEH prevents Catch2 from using their own top-level exception filters.
   set(CATCH_CONFIG_NO_WINDOWS_SEH ON)
 endif()
-FetchContent_Declare(Catch2
-  URL "${CMAKE_CURRENT_SOURCE_DIR}/vendor/Catch2"
-)
-FetchContent_MakeAvailable(Catch2)
+fetch_content_from_submodule(Catch2 vendor/Catch2)
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 
 configure_file(include/version.h.in include/version.h @ONLY)
