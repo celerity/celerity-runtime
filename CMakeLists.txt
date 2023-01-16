@@ -154,22 +154,19 @@ include(FetchContent)
 
 set(FMT_INSTALL ON CACHE BOOL "" FORCE)
 FetchContent_Declare(fmt
-  GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-  GIT_TAG 8.0.1
+  URL "${CMAKE_CURRENT_SOURCE_DIR}/vendor/fmt"
 )
 FetchContent_MakeAvailable(fmt)
 
 set(SPDLOG_INSTALL ON CACHE BOOL "" FORCE)
 set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
 FetchContent_Declare(spdlog
-  GIT_REPOSITORY https://github.com/gabime/spdlog.git
-  GIT_TAG v1.9.2
+  URL "${CMAKE_CURRENT_SOURCE_DIR}/vendor/spdlog"
 )
 FetchContent_MakeAvailable(spdlog)
 
 FetchContent_Declare(small_vector
-  GIT_REPOSITORY https://github.com/gharveymn/small_vector.git
-  GIT_TAG 7d42370ceb084485fe8caaf85b2753eab363b57b
+  URL "${CMAKE_CURRENT_SOURCE_DIR}/vendor/small_vector"
 )
 FetchContent_MakeAvailable(small_vector)
 
@@ -179,8 +176,7 @@ if(WIN32)
   set(CATCH_CONFIG_NO_WINDOWS_SEH ON)
 endif()
 FetchContent_Declare(Catch2
-  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-  GIT_TAG v3.1.0
+  URL "${CMAKE_CURRENT_SOURCE_DIR}/vendor/Catch2"
 )
 FetchContent_MakeAvailable(Catch2)
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
