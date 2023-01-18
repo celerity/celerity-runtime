@@ -150,20 +150,34 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # 3rdparty dependencies
-macro(add_submodule_directory RELPATH)
+include(FetchContent)
+
+macro(fetch_content_from_submodule DEPNAME RELPATH)
   if(NOT EXISTS "${PROJECT_SOURCE_DIR}/${RELPATH}/CMakeLists.txt")
-    message(SEND_ERROR "${RELPATH} is missing, perform a git submodule update")
+    message(FATAL_ERROR "The git submodule ${RELPATH} is missing.\nTry running `git submodule update --init`.")
   endif()
-	add_subdirectory("${RELPATH}")
+  FetchContent_Declare(${DEPNAME}
+    URL "${PROJECT_SOURCE_DIR}/${RELPATH}"
+  )
+  FetchContent_MakeAvailable(${DEPNAME})
 endmacro()
 
-add_submodule_directory(vendor/spdlog)
+set(FMT_INSTALL ON CACHE BOOL "" FORCE)
+fetch_content_from_submodule(fmt vendor/fmt)
+
+set(SPDLOG_INSTALL ON CACHE BOOL "" FORCE)
+set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
+fetch_content_from_submodule(spdlog vendor/spdlog)
+
+fetch_content_from_submodule(small_vector vendor/small_vector)
+
 if(WIN32)
   # Catch2 uses custom top-level exception filters that conflict with MSMPI, which also uses their own filters.
   # Disabling Windows SEH prevents Catch2 from using their own top-level exception filters.
   set(CATCH_CONFIG_NO_WINDOWS_SEH ON)
 endif()
-add_submodule_directory(vendor/Catch2)
+fetch_content_from_submodule(Catch2 vendor/Catch2)
+list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 
 configure_file(include/version.h.in include/version.h @ONLY)
 
@@ -228,8 +242,6 @@ target_include_directories(celerity_runtime PUBLIC
   $<INSTALL_INTERFACE:include/celerity>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor>
   $<INSTALL_INTERFACE:include/celerity/vendor>
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/small_vector/source/include>
-  $<INSTALL_INTERFACE:include/celerity/vendor/small_vector/include>
 )
 
 # With DPC++ on windows the correct release (sycl) / debug (sycld) library needs to be linked,
@@ -244,7 +256,9 @@ endif()
 target_link_libraries(celerity_runtime PUBLIC
   Threads::Threads
   MPI::MPI_CXX
+  fmt::fmt
   spdlog::spdlog
+  gch::small_vector
   ${SYCL_LIB}
 )
 
@@ -290,7 +304,7 @@ add_custom_target(
 add_dependencies(celerity_runtime celerity_version)
 
 if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
-	target_link_libraries(celerity_runtime PUBLIC ComputeCpp::ComputeCpp)
+  target_link_libraries(celerity_runtime PUBLIC ComputeCpp::ComputeCpp)
 endif()
 
 set(DEVICE_SOURCES "")
@@ -329,39 +343,6 @@ add_subdirectory(test)
 
 include(CMakePackageConfigHelpers)
 
-# Install 3rdparty spdlog under celerity/vendor
-set(config_targets_file spdlogConfigTargets.cmake) # This variable is used in spdlogConfig.cmake.in
-set(spdlog_PROJECT_CONFIG_OUT "${CMAKE_CURRENT_BINARY_DIR}/vendor/spdlog/spdlogConfig.cmake")
-set(spdlog_VERSION_CONFIG_FILE "${CMAKE_CURRENT_BINARY_DIR}/vendor/spdlog/spdlogConfigVersion.cmake")
-install(
-	DIRECTORY vendor/spdlog/include/spdlog/
-	DESTINATION include/celerity/vendor/spdlog
-)
-install(
-	TARGETS spdlog
-	EXPORT spdlog
-	DESTINATION lib/celerity/vendor
-)
-install(
-	EXPORT spdlog
-	DESTINATION lib/celerity/vendor/cmake
-	NAMESPACE spdlog::
-	FILE spdlogConfigTargets.cmake
-)
-configure_package_config_file(
-  vendor/spdlog/cmake/spdlogConfig.cmake.in
-  "${spdlog_PROJECT_CONFIG_OUT}"
-  INSTALL_DESTINATION lib/celerity/vendor/cmake
-)
-write_basic_package_version_file(
-	"${spdlog_VERSION_CONFIG_FILE}"
-	VERSION ${spdlog_VERSION}
-	COMPATIBILITY SameMajorVersion
-)
-install(FILES "${spdlog_PROJECT_CONFIG_OUT}" "${spdlog_VERSION_CONFIG_FILE}"
-	DESTINATION lib/celerity/vendor/cmake
-)
-
 # Install celerity
 install(
   DIRECTORY ${PROJECT_SOURCE_DIR}/include/
@@ -379,10 +360,6 @@ install(
 install(
   FILES ${PROJECT_SOURCE_DIR}/vendor/ctpl_stl.h
   DESTINATION include/celerity/vendor
-)
-install(
-  FILES ${PROJECT_SOURCE_DIR}/vendor/small_vector/source/include/gch/small_vector.hpp
-  DESTINATION include/celerity/vendor/small_vector/include/gch
 )
 install(
   TARGETS celerity_runtime
