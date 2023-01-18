@@ -20,8 +20,10 @@ namespace detail {
 	void worker_job::update() {
 		CELERITY_LOG_SET_SCOPED_CTX(m_lctx);
 		assert(m_running && !m_done);
+		m_tracy_lane.activate();
 		const auto before = std::chrono::steady_clock::now();
 		m_done = execute(m_pkg);
+		m_tracy_lane.deactivate();
 
 		// TODO: We may want to make benchmarking optional with a macro
 		const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - before);
@@ -35,6 +37,8 @@ namespace detail {
 			const auto execution_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - m_start_time).count();
 			CELERITY_DEBUG("Job finished after {}us. Polling avg={}, min={}, max={}, samples={}", execution_time, bench_avg, m_bench_min.count(),
 			    m_bench_max.count(), m_bench_sample_count);
+
+			m_tracy_lane.destroy();
 		}
 	}
 
@@ -43,7 +47,16 @@ namespace detail {
 		assert(!m_running);
 		m_running = true;
 
-		CELERITY_DEBUG("Starting job: {}", get_description(m_pkg));
+		const auto desc = get_description(m_pkg);
+		m_tracy_lane.initialize();
+		switch(m_pkg.get_command_type()) {
+		case command_type::execution: m_tracy_lane.begin_phase("execution", desc, tracy::Color::ColorType::Blue); break;
+		case command_type::push: m_tracy_lane.begin_phase("push", desc, tracy::Color::ColorType::Red); break;
+		case command_type::await_push: m_tracy_lane.begin_phase("await push", desc, tracy::Color::ColorType::Yellow); break;
+		default: m_tracy_lane.begin_phase("other", desc, tracy::Color::ColorType::Gray); break;
+		}
+
+		CELERITY_DEBUG("Starting job: {}", desc);
 		m_start_time = std::chrono::steady_clock::now();
 	}
 

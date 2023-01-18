@@ -179,6 +179,23 @@ endif()
 fetch_content_from_submodule(Catch2 vendor/Catch2)
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 
+include(FetchContent)
+set(TRACY_FIBERS ON CACHE BOOL "" FORCE)
+set(TRACY_STATIC ON CACHE BOOL "" FORCE)
+set(TRACY_DELAYED_INIT ON CACHE BOOL "" FORCE)
+set(TRACY_MANUAL_LIFETIME ON CACHE BOOL "" FORCE)
+option(ENABLE_TRACY_SUPPORT "" OFF)
+# FIXME: Instead of just setting this, don't include Tracy at all when ENABLE_TRACY_SUPPORT is OFF
+set(TRACY_ENABLE ${ENABLE_TRACY_SUPPORT} CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  tracy
+  GIT_REPOSITORY ${CMAKE_CURRENT_LIST_DIR}/vendor/tracy
+  GIT_TAG v0.9
+  GIT_SHALLOW TRUE
+  GIT_PROGRESS TRUE
+)
+FetchContent_MakeAvailable(tracy)
+
 configure_file(include/version.h.in include/version.h @ONLY)
 
 # Add includes to library so they show up in IDEs
@@ -260,7 +277,20 @@ target_link_libraries(celerity_runtime PUBLIC
   spdlog::spdlog
   gch::small_vector
   ${SYCL_LIB}
+  Tracy::TracyClient
 )
+
+if(MSVC)
+  target_compile_options(celerity_runtime PUBLIC
+    $<BUILD_INTERFACE:/FI"${CMAKE_CURRENT_LIST_DIR}/include/tracy.h">
+    $<INSTALL_INTERFACE:/FI"${CMAKE_INSTALL_PREFIX}/include/celerity/tracy.h">
+  )
+else()
+  target_compile_options(celerity_runtime PUBLIC
+    $<BUILD_INTERFACE:-include "${CMAKE_CURRENT_LIST_DIR}/include/tracy.h">
+    $<INSTALL_INTERFACE:-include "${CMAKE_INSTALL_PREFIX}/include/celerity/tracy.h">
+  )
+endif()
 
 # For debug builds, we set the CELERITY_DETAIL_ENABLE_DEBUG preprocessor flag,
 # which allows Celerity to control debug functionality within headers regardless
@@ -323,6 +353,9 @@ if(MSVC)
   target_compile_options(celerity_runtime PRIVATE /MP /W3)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self)
+  if(CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo")
+    target_compile_options(celerity_runtime PUBLIC -march=native)
+  endif()
 endif()
 
 target_compile_options(celerity_runtime PUBLIC "${CELERITY_CXX_FLAGS}")

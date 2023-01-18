@@ -51,6 +51,7 @@ namespace detail {
 		size_t m_bench_sample_count = 0;
 		std::chrono::microseconds m_bench_min = std::numeric_limits<std::chrono::microseconds>::max();
 		std::chrono::microseconds m_bench_max = std::numeric_limits<std::chrono::microseconds>::min();
+		tracy_async_lane m_tracy_lane;
 
 		template <typename... Es>
 		log_context make_log_context(const command_pkg& pkg, const std::tuple<Es...>& ctx = {}) {
