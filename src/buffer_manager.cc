@@ -107,7 +107,7 @@ namespace detail {
 		// Find free staging buffer
 		auto& staging_buf = get_free_staging_buffer(sr.range.size() * m_buffer_infos[bid].element_size);
 		auto evt = backend::memcpy_strided_device(staging_buf.buffer.get_owning_queue(), in_linearized.get_pointer(), staging_buf.buffer.get_pointer(),
-		    sizeof(m_buffer_infos[bid].element_size), range<1>(sr.range.size()), id<1>{}, range<1>(sr.range.size()), id<1>{}, range<1>(sr.range.size()));
+		    m_buffer_infos[bid].element_size, range<1>(sr.range.size()), id<1>{}, range<1>(sr.range.size()), id<1>{}, range<1>(sr.range.size()));
 		evt.wait(); // FIXME This should be async as well...
 		m_scheduled_transfers[bid].push_back(buffer_manager::transfer{staging_buf, sr});
 	}
