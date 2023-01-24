@@ -386,13 +386,14 @@ namespace detail {
 		mutable std::shared_mutex m_mutex;
 		std::unordered_map<buffer_id, buffer_info> m_buffer_infos;
 		std::unordered_map<buffer_id, virtual_buffer> m_buffers;
-		std::unordered_map<buffer_id, std::vector<transfer>> m_scheduled_transfers;
 		std::unordered_map<buffer_id, region_map<data_location>> m_newest_data_location;
 
 		// FIXME: Extremely crude and stupid
 		std::vector<std::unique_ptr<staging_buffer>> m_staging_buffers;
 		device_id m_next_staging_allocation_device = 0;
 		staging_buffer& get_free_staging_buffer(const size_t size);
+
+		std::unordered_map<buffer_id, std::vector<transfer>> m_scheduled_transfers; // references on m_staging_buffers
 
 		std::unordered_map<std::pair<buffer_id, memory_id>, buffer_lock_info, utils::pair_hash> m_buffer_lock_infos;
 		std::unordered_map<buffer_lock_id, std::vector<std::pair<buffer_id, memory_id>>> m_buffer_locks_by_id;
