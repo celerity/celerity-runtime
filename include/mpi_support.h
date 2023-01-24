@@ -2,11 +2,14 @@
 
 #include <mpi.h>
 
+#include "types.h"
+
 namespace celerity::detail::mpi_support {
 
 constexpr int TAG_CMD = 0;
 constexpr int TAG_DATA_TRANSFER = 1;
 constexpr int TAG_TELEMETRY = 2;
+constexpr node_id MASTER_NODE_ID = 0;
 
 class data_type {
   public:
