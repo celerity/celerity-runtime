@@ -189,11 +189,10 @@ namespace access {
 	struct slice {
 		slice(size_t dim_idx) : m_dim_idx(dim_idx) { assert(dim_idx < Dims && "Invalid slice dimension index (starts at 0)"); }
 
-		subrange<Dims> operator()(const chunk<Dims>& chnk) const {
+		subrange<Dims> operator()(const chunk<Dims>& chnk, const range<Dims>& buffer_size) const {
 			subrange<Dims> result = chnk;
 			result.offset[m_dim_idx] = 0;
-			// Since we don't know the range of the buffer, we just set it way too high and let it be clamped to the correct range
-			result.range[m_dim_idx] = std::numeric_limits<size_t>::max();
+			result.range[m_dim_idx] = buffer_size[m_dim_idx];
 			return result;
 		}
 
