@@ -297,11 +297,11 @@ void distributed_graph_generator::generate_execution_commands(const task& tsk) {
 		std::vector<device_id> device_assignments;
 		if(is_local_chunk && m_num_local_devices > 1 && tsk.has_variable_split()) {
 			const bool tiled_split = (tsk.get_hint<experimental::hints::tiled_split>() != nullptr);
-			auto per_device_chunks = tiled_split ? split_2d(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices)
-			                                     : split_1d(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices);
+			const auto split = tiled_split ? split_2d : split_1d;
+			const auto per_device_chunks = split(distributed_chunks[i], tsk.get_granularity(), m_num_local_devices);
 			if(oversub_factor == 1) {
 				effective_chunks = per_device_chunks;
-				device_assignments.resize(m_num_local_devices);
+				device_assignments.resize(per_device_chunks.size());
 				std::iota(device_assignments.begin(), device_assignments.end(), 0);
 			} else {
 				effective_chunks.reserve(per_device_chunks.size() * oversub_factor); // Assuming we can do the full split
