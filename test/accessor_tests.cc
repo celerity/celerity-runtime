@@ -33,66 +33,51 @@ namespace detail {
 		CHECK(out == 43);
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "accessors mode and target deduced correctly from SYCL 2020 tag types and no_init property", "[accessor]") {
-		buffer<int, 1> buf_a(cl::sycl::range<1>(32));
-		auto& tm = runtime::get_instance().get_task_manager();
-		detail::task_id tid;
+	TEST_CASE("accessor's access mode and target are deduced correctly from SYCL 2020 tag types and no_init property", "[accessor]") {
+		using buf_t = buffer<int, 1>&;
 
-		SECTION("Device Accessors") {
-			tid = test_utils::add_compute_task<class get_access_with_tag>(
-			    tm,
-			    [&](handler& cgh) {
-				    accessor acc1{buf_a, cgh, one_to_one{}, celerity::write_only};
-				    static_assert(std::is_same_v<accessor<int, 1, access_mode::write, target::device>, decltype(acc1)>);
+		SECTION("device accessors") {
+			// This currently throws an error at runtime, because we cannot infer whether the access is a discard_* from the property list parameter.
+			using acc0 = decltype(accessor{std::declval<buf_t>(), std::declval<handler&>(), one_to_one{}, celerity::write_only, celerity::property_list{}});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::discard_write, target::device>, acc0>);
 
-				    accessor acc2{buf_a, cgh, one_to_one{}, celerity::read_only};
-				    static_assert(std::is_same_v<accessor<int, 1, access_mode::read, target::device>, decltype(acc2)>);
+			using acc1 = decltype(accessor{std::declval<buf_t>(), std::declval<handler&>(), one_to_one{}, celerity::write_only});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::write, target::device>, acc1>);
 
-				    accessor acc3{buf_a, cgh, one_to_one{}, celerity::read_write};
-				    static_assert(std::is_same_v<accessor<int, 1, access_mode::read_write, target::device>, decltype(acc3)>);
+			using acc2 = decltype(accessor{std::declval<buf_t>(), std::declval<handler&>(), one_to_one{}, celerity::read_only});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::read, target::device>, acc2>);
 
-				    accessor acc4{buf_a, cgh, one_to_one{}, celerity::write_only, celerity::no_init};
-				    static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_write, target::device>, decltype(acc4)>);
+			using acc3 = decltype(accessor{std::declval<buf_t>(), std::declval<handler&>(), one_to_one{}, celerity::read_write});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::read_write, target::device>, acc3>);
 
-				    accessor acc5{buf_a, cgh, one_to_one{}, celerity::read_write, celerity::no_init};
-				    static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, target::device>, decltype(acc5)>);
-			    },
-			    buf_a.get_range());
+			using acc4 = decltype(accessor{std::declval<buf_t>(), std::declval<handler&>(), one_to_one{}, celerity::write_only, celerity::no_init});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::discard_write, target::device>, acc4>);
+
+			using acc5 = decltype(accessor{std::declval<buf_t>(), std::declval<handler&>(), one_to_one{}, celerity::read_write, celerity::no_init});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, target::device>, acc5>);
 		}
 
+		SECTION("host accessors") {
+			// This currently throws an error at runtime, because we cannot infer whether the access is a discard_* from the property list parameter.
+			using acc0 =
+			    decltype(accessor{std::declval<buf_t>(), std::declval<handler&>(), one_to_one{}, celerity::write_only_host_task, celerity::property_list{}});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::discard_write, target::host_task>, acc0>);
 
-		SECTION("Host Accessors") {
-			tid = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
-				//   The following line is commented because it produces a compile error but it is still a case we wanted to test.
-				//   Since we can not check the content of a property list at compile time, for now it is only accepted to pass either the property
-				//   celerity::no_init or nothing.
-				// accessor acc0{buf_a, cgh, one_to_one{}, cl::sycl::write_only_host_task, celerity::property_list{celerity::no_init}};
+			using acc1 = decltype(accessor{std::declval<buf_t>(), std::declval<handler&>(), one_to_one{}, celerity::write_only_host_task});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::write, target::host_task>, acc1>);
 
-				accessor acc1{buf_a, cgh, one_to_one{}, celerity::write_only_host_task};
-				static_assert(std::is_same_v<accessor<int, 1, access_mode::write, target::host_task>, decltype(acc1)>);
+			using acc2 = decltype(accessor{std::declval<buf_t>(), std::declval<handler&>(), one_to_one{}, celerity::read_only_host_task});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::read, target::host_task>, acc2>);
 
-				accessor acc2{buf_a, cgh, one_to_one{}, celerity::read_only_host_task};
-				static_assert(std::is_same_v<accessor<int, 1, access_mode::read, target::host_task>, decltype(acc2)>);
+			using acc3 = decltype(accessor{std::declval<buf_t>(), std::declval<handler&>(), one_to_one{}, celerity::read_write_host_task});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::read_write, target::host_task>, acc3>);
 
-				accessor acc3{buf_a, cgh, fixed<1>{{0, 1}}, celerity::read_write_host_task};
-				static_assert(std::is_same_v<accessor<int, 1, access_mode::read_write, target::host_task>, decltype(acc3)>);
+			using acc4 = decltype(accessor{std::declval<buf_t>(), std::declval<handler&>(), one_to_one{}, celerity::write_only_host_task, celerity::no_init});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::discard_write, target::host_task>, acc4>);
 
-				accessor acc4{buf_a, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
-				static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_write, target::host_task>, decltype(acc4)>);
-
-				accessor acc5{buf_a, cgh, one_to_one{}, celerity::read_write_host_task, celerity::no_init};
-				static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, target::host_task>, decltype(acc5)>);
-			});
+			using acc5 = decltype(accessor{std::declval<buf_t>(), std::declval<handler&>(), one_to_one{}, celerity::read_write_host_task, celerity::no_init});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, target::host_task>, acc5>);
 		}
-
-		const auto tsk = tm.get_task(tid);
-		const auto buff_id = detail::get_buffer_id(buf_a);
-
-		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(access_mode::write) == 1);
-		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(access_mode::read) == 1);
-		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(access_mode::read_write) == 1);
-		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(access_mode::discard_write) == 1);
-		REQUIRE(tsk->get_buffer_access_map().get_access_modes(buff_id).count(access_mode::discard_read_write) == 1);
 	}
 
 	template <int>
