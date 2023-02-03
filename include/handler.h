@@ -428,13 +428,6 @@ namespace detail {
 		kernel(make_nd_item<Dims>(s_item, global_range, global_offset, chunk_offset, group_range, group_offset), reducers...);
 	}
 
-	template <typename Kernel, int Dims, typename... Reducers>
-	[[deprecated("Support for kernels receiving cl::sycl::item<Dims> will be removed in the future, change parameter type to celerity::item<Dims>")]] //
-	inline void
-	invoke_kernel_with_sycl_item(const Kernel& kernel, const cl::sycl::item<Dims>& s_item, Reducers&... reducers) {
-		kernel(s_item, reducers...);
-	}
-
 	template <typename Kernel, int Dims>
 	auto bind_simple_kernel(const Kernel& kernel, const range<Dims>& global_range, const id<Dims>& global_offset, const id<Dims>& chunk_offset) {
 		// The current mechanism for hydrating the SYCL placeholder accessors inside Celerity accessors requires that the kernel functor
@@ -451,11 +444,9 @@ namespace detail {
 					invoke_kernel_with_celerity_item(
 					    kernel, cl::sycl::item<Dims>{s_item_or_id}.get_id(), global_range, global_offset, chunk_offset, reducers...);
 				}
-			} else if constexpr(std::is_invocable_v<Kernel, cl::sycl::item<Dims>, decltype(reducers)...>) {
-				invoke_kernel_with_sycl_item(kernel, cl::sycl::item<Dims>{s_item_or_id}, reducers...);
 			} else {
-				static_assert(constexpr_false<decltype(reducers)...>, "Kernel function must be invocable with celerity::item<Dims> (or cl::sycl::item<Dims>, "
-				                                                      "deprecated) and as many reducer objects as reductions passed to parallel_for");
+				static_assert(constexpr_false<decltype(reducers)...>, "Kernel function must be invocable with celerity::item<Dims> "
+				                                                      "and as many reducer objects as reductions passed to parallel_for");
 			}
 		};
 	}
