@@ -7,6 +7,7 @@
 #include "access_modes.h"
 #include "buffer.h"
 #include "buffer_storage.h"
+#include "cgf_diagnostics.h"
 #include "handler.h"
 #include "sycl_wrappers.h"
 #include "task_hydrator.h"
@@ -312,6 +313,10 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
 #if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
 		if(detail::is_embedded_hydration_id(m_device_ptr)) {
+			if(detail::cgf_diagnostics::is_available()) {
+				detail::cgf_diagnostics::get_instance().register_accessor(detail::extract_hydration_id(m_device_ptr), detail::execution_target::device);
+			}
+
 			if(detail::task_hydrator::is_available() && detail::task_hydrator::get_instance().can_hydrate()) {
 				const auto info = detail::task_hydrator::get_instance().hydrate_accessor(detail::extract_hydration_id(m_device_ptr));
 				assert(info.tgt == target::device);
@@ -529,6 +534,10 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		m_virtual_buffer_range = other.m_virtual_buffer_range;
 
 		if(detail::is_embedded_hydration_id(m_host_ptr)) {
+			if(detail::cgf_diagnostics::is_available()) {
+				detail::cgf_diagnostics::get_instance().register_accessor(detail::extract_hydration_id(m_host_ptr), detail::execution_target::host);
+			}
+
 			if(detail::task_hydrator::is_available() && detail::task_hydrator::get_instance().can_hydrate()) {
 				const auto info = detail::task_hydrator::get_instance().hydrate_accessor(detail::extract_hydration_id(m_host_ptr));
 				assert(info.tgt == target::host_task);

@@ -2,9 +2,9 @@
 
 #include <type_traits>
 
+#include "cgf_diagnostics.h"
 #include "handler.h"
 #include "host_object.h"
-
 
 namespace celerity::experimental {
 
@@ -19,8 +19,13 @@ class side_effect {
 	constexpr static inline side_effect_order order = Order;
 
 	explicit side_effect(const host_object<T>& object, handler& cgh) : m_object{object.get_object()} {
-		detail::add_requirement(cgh, object.get_id(), order);
+		detail::add_requirement(cgh, object.get_id(), order, false);
 		detail::extend_lifetime(cgh, detail::get_lifetime_extending_state(object));
+	}
+
+	side_effect(const side_effect& other) {
+		m_object = other.m_object;
+		if(detail::cgf_diagnostics::is_available()) { detail::cgf_diagnostics::get_instance().register_side_effect(); }
 	}
 
 	template <typename U = T>
@@ -44,9 +49,11 @@ class side_effect<void, Order> {
 	constexpr static inline side_effect_order order = Order;
 
 	explicit side_effect(const host_object<void>& object, handler& cgh) {
-		detail::add_requirement(cgh, object.get_id(), order);
+		detail::add_requirement(cgh, object.get_id(), order, true);
 		detail::extend_lifetime(cgh, detail::get_lifetime_extending_state(object));
 	}
+
+	// Note: We don't register the side effect with CGF diagnostics b/c it makes little sense to capture void side effects.
 };
 
 template <typename T>

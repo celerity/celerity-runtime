@@ -584,32 +584,32 @@ namespace detail {
 		buffer<int, 2> buf{{10, 10}};
 
 		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
-			buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<1>{10}, [=](celerity::item<1>) {});
+			auto acc = buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<1>{10}, [=](celerity::item<1>) { (void)acc; });
 		}),
 		    "Invalid range mapper dimensionality: 1-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<1> nor "
 		    "(chunk<1>, range<2>) to produce subrange<2>");
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<2>{10, 10}, [=](celerity::item<2>) {});
+			auto acc = buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<2>{10, 10}, [=](celerity::item<2>) { (void)acc; });
 		}));
 
 		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
-			buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](celerity::item<3>) {});
+			auto acc = buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
 		}),
 		    "Invalid range mapper dimensionality: 3-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<3> nor "
 		    "(chunk<3>, range<2>) to produce subrange<2>");
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			buf.get_access<cl::sycl::access::mode::read>(cgh, all{});
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](celerity::item<3>) {});
+			auto acc = buf.get_access<cl::sycl::access::mode::read>(cgh, all{});
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
 		}));
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			buf.get_access<cl::sycl::access::mode::read>(cgh, all{});
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](celerity::item<3>) {});
+			auto acc = buf.get_access<cl::sycl::access::mode::read>(cgh, all{});
+			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
 		}));
 	}
 
@@ -817,6 +817,152 @@ namespace detail {
 
 #endif
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when accessor target does not match command type", "[handler]") {
+		distr_queue q;
+		buffer<size_t, 1> buf0{1};
+		buffer<size_t, 1> buf1{1};
+
+		CHECK_THROWS_WITH(([&] {
+			q.submit([&](handler& cgh) {
+				accessor acc0{buf1, cgh, one_to_one{}, write_only_host_task};
+				accessor acc1{buf0, cgh, one_to_one{}, write_only};
+				cgh.parallel_for(range<1>(1), [=](item<1>) {
+					(void)acc0;
+					(void)acc1;
+				});
+			});
+		})(),
+		    "Accessor 0 for buffer 1 has wrong target ('host_task' instead of 'device').");
+
+		CHECK_THROWS_WITH(([&] {
+			q.submit([&](handler& cgh) {
+				accessor acc0{buf1, cgh, one_to_one{}, write_only_host_task};
+				accessor acc1{buf0, cgh, one_to_one{}, write_only};
+				cgh.host_task(on_master_node, [=]() {
+					(void)acc0;
+					(void)acc1;
+				});
+			});
+		})(),
+		    "Accessor 1 for buffer 0 has wrong target ('device' instead of 'host_task').");
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when accessing host objects within device tasks", "[handler]") {
+		distr_queue q;
+		experimental::host_object<size_t> ho;
+
+		CHECK_THROWS_WITH(([&] {
+			q.submit([&](handler& cgh) {
+				experimental::side_effect se{ho, cgh};
+				cgh.parallel_for(range<1>(1), [=](item<1>) { (void)se; });
+			});
+		})(),
+		    "Side effects can only be used in host tasks.");
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when not all accessors / side-effects are copied into the kernel", "[handler]") {
+		distr_queue q;
+
+		buffer<size_t, 1> buf0{1};
+		buffer<size_t, 1> buf1{1};
+		experimental::host_object<size_t> ho;
+
+		CHECK_THROWS_WITH(([&] {
+			q.submit([&](handler& cgh) {
+				accessor acc0{buf0, cgh, one_to_one{}, write_only};
+				accessor acc1{buf1, cgh, one_to_one{}, write_only};
+				cgh.parallel_for(range<1>(1), [acc0, &acc1](item<1>) {
+					(void)acc0;
+					(void)acc1;
+				});
+			});
+		})(),
+		    "Accessor 1 for buffer 1 is not being copied into the kernel. This indicates a bug. Make sure the accessor is captured by value and not by "
+		    "reference, or remove it entirely.");
+
+		CHECK_THROWS_WITH(([&] {
+			q.submit([&](handler& cgh) {
+				accessor acc0{buf0, cgh, one_to_one{}, write_only_host_task};
+				accessor acc1{buf1, cgh, one_to_one{}, write_only_host_task};
+				cgh.host_task(on_master_node, [&acc0, acc1]() {
+					(void)acc0;
+					(void)acc1;
+				});
+			});
+		})(),
+		    "Accessor 0 for buffer 0 is not being copied into the kernel. This indicates a bug. Make sure the accessor is captured by value and not by "
+		    "reference, or remove it entirely.");
+
+		CHECK_THROWS_WITH(([&] {
+			q.submit([&](handler& cgh) {
+				accessor acc0{buf0, cgh, one_to_one{}, write_only_host_task};
+				experimental::side_effect se{ho, cgh};
+				cgh.host_task(on_master_node, [acc0, &se]() {
+					(void)acc0;
+					(void)se;
+				});
+			});
+		})(),
+		    "The number of side effects copied into the kernel is fewer (0) than expected (1). This may be indicative of a bug. Make sure all side effects are "
+		    "captured by value and not by reference, and remove unused ones.");
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler does not throw when void side effects are not copied into a kernel", "[handler]") {
+		distr_queue q;
+
+		experimental::host_object<void> ho;
+
+		CHECK_NOTHROW(([&] {
+			q.submit([&](handler& cgh) {
+				experimental::side_effect se{ho, cgh};
+				cgh.host_task(on_master_node, []() {});
+			});
+		})());
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler recognizes copies of same accessor being captured multiple times", "[handler]") {
+		distr_queue q;
+		buffer<size_t, 1> buf1{1};
+
+		CHECK_THROWS_WITH(([&] {
+			q.submit([&](handler& cgh) {
+				accessor acc1{buf1, cgh, one_to_one{}, write_only};
+				auto acc1a = acc1;
+				accessor acc2{buf1, cgh, one_to_one{}, write_only};
+				cgh.parallel_for(range<1>(1), [acc1, acc1a, &acc2 /* oops! */](item<1>) {
+					(void)acc1;
+					(void)acc1a;
+					(void)acc2;
+				});
+			});
+		})(),
+		    "Accessor 1 for buffer 0 is not being copied into the kernel. This indicates a bug. Make sure the accessor is captured by value and not by "
+		    "reference, or remove it entirely.");
+	}
+
+	// Since the diagnostic is based on a simple count, we currently cannot tell whether
+	// a single side effect is copied several times (which is fine), versus another not being copied.
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler recognizes copies of same side-effect being captured multiple times", "[handler][!shouldfail]") {
+		distr_queue q;
+
+		experimental::host_object<size_t> ho1;
+		experimental::host_object<size_t> ho2;
+
+		CHECK_THROWS_WITH(([&] {
+			q.submit([&](handler& cgh) {
+				experimental::side_effect se1{ho1, cgh};
+				auto se2 = se1;
+				experimental::side_effect se3{ho2, cgh};
+				cgh.host_task(on_master_node, [se1, se2, &se3 /* oops! */]() {
+					(void)se1;
+					(void)se2;
+					(void)se3;
+				});
+			});
+		})(),
+		    "(NYI)");
+	}
+
 	// This test case requires actual command execution, which is why it is not in graph_compaction_tests
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "tasks behind the deletion horizon are deleted", "[task_manager][task-graph][task-horizon]") {
 		using namespace cl::sycl::access;
@@ -830,7 +976,7 @@ namespace detail {
 		buffer<int, 1> buf_a(extents);
 		q.submit([&](handler& cgh) {
 			accessor acc{buf_a, cgh, celerity::access::all{}, celerity::write_only_host_task, celerity::no_init};
-			cgh.host_task(on_master_node, [] {});
+			cgh.host_task(on_master_node, [=] { (void)acc; });
 		});
 
 		SECTION("in a simple linear chain of tasks") {
@@ -840,7 +986,7 @@ namespace detail {
 			for(int i = 0; i < chain_length; ++i) {
 				q.submit([&](handler& cgh) {
 					accessor acc{buf_a, cgh, celerity::access::all{}, celerity::read_write_host_task};
-					cgh.host_task(on_master_node, [] {});
+					cgh.host_task(on_master_node, [=] { (void)acc; });
 				});
 
 				// we need to wait in each iteration, so that tasks are still generated after some have already been executed

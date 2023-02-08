@@ -15,6 +15,7 @@
 #include "affinity.h"
 #include "buffer.h"
 #include "buffer_manager.h"
+#include "cgf_diagnostics.h"
 #include "command_graph.h"
 #include "executor.h"
 #include "graph_generator.h"
@@ -124,6 +125,8 @@ namespace detail {
 #endif
 		m_user_bench = std::make_unique<experimental::bench::detail::user_benchmarker>(*m_cfg, static_cast<node_id>(world_rank));
 
+		cgf_diagnostics::make_available();
+
 		m_h_queue = std::make_unique<host_queue>();
 		m_d_queue = std::make_unique<device_queue>();
 
@@ -172,6 +175,9 @@ namespace detail {
 		m_buffer_mngr.reset();
 		m_d_queue.reset();
 		m_h_queue.reset();
+
+		cgf_diagnostics::teardown();
+
 		m_user_bench.reset();
 
 		// Make sure we free all of our MPI transfers before we finalize

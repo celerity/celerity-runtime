@@ -9,6 +9,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include "buffer.h"
+#include "cgf_diagnostics.h"
 #include "device_queue.h"
 #include "host_queue.h"
 #include "item.h"
@@ -36,7 +37,7 @@ namespace detail {
 	handler make_command_group_handler(const task_id tid, const size_t num_collective_nodes);
 	std::unique_ptr<task> into_task(handler&& cgh);
 	hydration_id add_requirement(handler& cgh, const buffer_id bid, std::unique_ptr<range_mapper_base> rm);
-	void add_requirement(handler& cgh, const host_object_id hoid, const experimental::side_effect_order order);
+	void add_requirement(handler& cgh, const host_object_id hoid, const experimental::side_effect_order order, const bool is_void);
 	hydration_id add_reduction(handler& cgh, const reduction_info& rinfo);
 	void extend_lifetime(handler& cgh, std::shared_ptr<detail::lifetime_extending_state> state);
 
@@ -398,13 +399,14 @@ class handler {
 	friend handler detail::make_command_group_handler(const detail::task_id tid, const size_t num_collective_nodes);
 	friend std::unique_ptr<detail::task> detail::into_task(handler&& cgh);
 	friend detail::hydration_id detail::add_requirement(handler& cgh, const detail::buffer_id bid, std::unique_ptr<detail::range_mapper_base> rm);
-	friend void detail::add_requirement(handler& cgh, const detail::host_object_id hoid, const experimental::side_effect_order order);
+	friend void detail::add_requirement(handler& cgh, const detail::host_object_id hoid, const experimental::side_effect_order order, const bool is_void);
 	friend detail::hydration_id detail::add_reduction(handler& cgh, const detail::reduction_info& rinfo);
 	friend void detail::extend_lifetime(handler& cgh, std::shared_ptr<detail::lifetime_extending_state> state);
 
 	detail::task_id m_tid;
 	detail::buffer_access_map m_access_map;
 	detail::side_effect_map m_side_effects;
+	size_t m_non_void_side_effects_count = 0;
 	detail::reduction_set m_reductions;
 	std::unique_ptr<detail::task> m_task = nullptr;
 	size_t m_num_collective_nodes;
@@ -450,9 +452,10 @@ class handler {
 		return m_next_accessor_hydration_id++;
 	}
 
-	void add_requirement(const detail::host_object_id hoid, const experimental::side_effect_order order) {
+	void add_requirement(const detail::host_object_id hoid, const experimental::side_effect_order order, const bool is_void) {
 		assert(m_task == nullptr);
 		m_side_effects.add_side_effect(hoid, order);
+		if(!is_void) { m_non_void_side_effects_count++; }
 	}
 
 	[[nodiscard]] detail::hydration_id add_reduction(const detail::reduction_info& rinfo) {
@@ -482,6 +485,7 @@ class handler {
 			// each node that reads from the reduction output buffer, initializing it to the identity value locally.
 			throw std::runtime_error{"The execution range of device tasks must have at least one item"};
 		}
+		// Note that cgf_diagnostics has a similar check, but we don't catch void side effects there.
 		if(!m_side_effects.empty()) { throw std::runtime_error{"Side effects cannot be used in device kernels"}; }
 		m_task =
 		    detail::task::make_device_compute(m_tid, geometry, std::move(launcher), std::move(m_access_map), std::move(m_reductions), std::move(debug_name));
@@ -501,6 +505,10 @@ class handler {
 	auto make_device_kernel_launcher(const range<Dims>& global_range, const id<Dims>& global_offset,
 	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel kernel, Reductions... reductions) {
 		static_assert(std::is_copy_constructible_v<std::decay_t<Kernel>>, "Kernel functor must be copyable"); // Required for hydration
+
+		// Check whether all accessors are being captured by value etc.
+		// Although the diagnostics should always be available, we currently disable it for some test cases.
+		if(detail::cgf_diagnostics::is_available()) { detail::cgf_diagnostics::get_instance().check_device_kernel(kernel, m_access_map); }
 
 		auto fn = [=](detail::device_queue& q, const subrange<3> execution_sr) {
 			return q.submit([&](sycl::handler& cgh) {
@@ -527,6 +535,12 @@ class handler {
 	auto make_host_task_launcher(const range<3>& global_range, const detail::collective_group_id cgid, Kernel kernel) {
 		static_assert(std::is_copy_constructible_v<std::decay_t<Kernel>>, "Kernel functor must be copyable"); // Required for hydration
 		static_assert(Dims >= 0);
+
+		// Check whether all accessors are being captured by value etc.
+		// Although the diagnostics should always be available, we currently disable it for some test cases.
+		if(detail::cgf_diagnostics::is_available()) {
+			detail::cgf_diagnostics::get_instance().check_host_kernel(kernel, m_access_map, m_non_void_side_effects_count);
+		}
 
 		auto fn = [kernel, cgid, global_range](detail::host_queue& q, const subrange<3>& sr) {
 			return q.submit(cgid, [kernel, global_range, sr](MPI_Comm comm) {
@@ -573,8 +587,8 @@ namespace detail {
 		return cgh.add_requirement(bid, std::move(rm));
 	}
 
-	inline void add_requirement(handler& cgh, const host_object_id hoid, const experimental::side_effect_order order) {
-		return cgh.add_requirement(hoid, order);
+	inline void add_requirement(handler& cgh, const host_object_id hoid, const experimental::side_effect_order order, const bool is_void) {
+		return cgh.add_requirement(hoid, order, is_void);
 	}
 
 	[[nodiscard]] inline hydration_id add_reduction(handler& cgh, const detail::reduction_info& rinfo) { return cgh.add_reduction(rinfo); }
