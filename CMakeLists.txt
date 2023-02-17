@@ -295,6 +295,7 @@ target_link_libraries(celerity_runtime PUBLIC
   ${SYCL_LIB}
   Tracy::TracyClient
   CUDA::cuda_driver
+  # TODO: This seems to prevent mixing debug/release builds of celerity and user applications
   foonathan_memory
 )
 
