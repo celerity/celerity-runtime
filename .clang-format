@@ -26,6 +26,7 @@ KeepEmptyLinesAtTheStartOfBlocks: false
 MaxEmptyLinesToKeep: 2
 NamespaceIndentation: Inner
 PointerAlignment: Left
+QualifierAlignment: Left
 SpaceAfterCStyleCast: false
 SpaceBeforeParens: Never
 SpaceInEmptyParentheses: false
