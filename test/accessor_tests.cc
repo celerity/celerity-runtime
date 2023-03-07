@@ -16,40 +16,6 @@ namespace detail {
 	using celerity::access::fixed;
 	using celerity::access::one_to_one;
 
-	struct accessor_testspy {
-		template <typename CelerityAccessor>
-		static auto& get_sycl_accessor(CelerityAccessor& celerity_acc) {
-			return celerity_acc.m_sycl_accessor;
-		}
-	};
-
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "SYCL accessors receive correct backing-buffer relative ranges and offsets", "[accessor]") {
-		distr_queue q;
-		buffer<int, 3> virtual_buf{cl::sycl::range<3>{1000, 1000, 1000}};
-		subrange<3> large_accessor_sr{{117, 118, 119}, {301, 302, 303}};
-		subrange<3> small_accessor_sr{{207, 206, 205}, {101, 102, 103}};
-
-		q.submit([=](handler& cgh) {
-			accessor large_celerity_acc{virtual_buf, cgh, celerity::access::fixed{large_accessor_sr}, celerity::read_write};
-			accessor small_celerity_acc{virtual_buf, cgh, celerity::access::fixed{small_accessor_sr}, celerity::read_write};
-			if(!is_prepass_handler(cgh)) {
-				auto& bm = runtime::get_instance().get_buffer_manager();
-				auto info = buffer_manager_testspy::get_device_buffer<int, 3>(bm, get_buffer_id(virtual_buf));
-				subrange<3> backing_buffer_sr{info.offset, info.buffer.get_range()};
-
-				auto& large_sycl_acc = accessor_testspy::get_sycl_accessor(large_celerity_acc);
-				auto& small_sycl_acc = accessor_testspy::get_sycl_accessor(small_celerity_acc);
-
-				CHECK(large_sycl_acc.get_range() == large_accessor_sr.range);
-				CHECK(small_sycl_acc.get_range() == small_accessor_sr.range);
-				CHECK(large_sycl_acc.get_offset() == large_accessor_sr.offset - backing_buffer_sr.offset);
-				CHECK(small_sycl_acc.get_offset() == small_accessor_sr.offset - backing_buffer_sr.offset);
-				CHECK(small_sycl_acc.get_offset() == large_sycl_acc.get_offset() + (small_accessor_sr.offset - large_accessor_sr.offset));
-			}
-			cgh.parallel_for<class UKN(dummy)>(cl::sycl::range<3>{1, 1, 1}, [](celerity::item<3>) {});
-		});
-	}
-
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "accessors behave correctly for 0-dimensional master node kernels", "[accessor]") {
 		distr_queue q;
 		std::vector mem_a{42};

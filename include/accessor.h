@@ -68,16 +68,6 @@ namespace detail {
 	};
 #endif
 
-	template <int Dims>
-	subrange<Dims> get_effective_sycl_accessor_subrange(id<Dims> device_buffer_offset, subrange<Dims> sr) {
-#if CELERITY_WORKAROUND(COMPUTECPP) || CELERITY_WORKAROUND(DPCPP)
-		// For ComputeCpp and DPC++, we allocate a unit-sized dummy backing buffer. ComputeCpp >= 2.8.0 does not support zero-sized placeholder accessors, so
-		// we simply create a unit-sized (SYCL) accessor instead.
-		if(sr.range.size() == 0) return {{}, unit_range};
-#endif
-		return {sr.offset - device_buffer_offset, sr.range};
-	}
-
 } // namespace detail
 } // namespace celerity
 
@@ -220,9 +210,13 @@ template <typename DataT, int Dims, access_mode Mode>
 class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base<DataT, Dims, Mode, target::device> {
 	friend struct detail::accessor_testspy;
 
+	struct ctor_internal_tag {};
+
   public:
+	static_assert(Mode != access_mode::atomic, "access_mode::atomic is not supported. Please use atomic_ref instead.");
+
 	template <target Target = target::device, typename Functor>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) : accessor(construct<Target>(buff, cgh, rmfn)) {}
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
 
 	template <typename Functor, typename TagT>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag) : accessor(buff, cgh, rmfn) {}
@@ -232,44 +226,20 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
 	template <typename Functor, typename TagT>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, TagT tag, property_list prop_list) {
-		// in this static assert it would be more relevant to use property_list type, but if a defined type is used then it is always false and
-		// always fails to compile. Hence we use a templated type so that it only produces a compile error when the ctr is called.
 		static_assert(detail::constexpr_false<TagT>,
 		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
 		    "as a last argument in the constructor");
 	}
 
-#if !defined(__SYCL_DEVICE_ONLY__)
-	accessor(const accessor& other) : m_sycl_accessor(other.m_sycl_accessor) { init_from(other); }
-
-	accessor& operator=(const accessor& other) {
-		if(this != &other) {
-			m_sycl_accessor = other.m_sycl_accessor;
-			init_from(other);
-		}
-		return *this;
-	}
-#endif
-
 	template <access_mode M = Mode, int D = Dims>
 	std::enable_if_t<detail::access::mode_traits::is_producer(M) && M != access_mode::atomic && (D > 0), DataT&> operator[](id<Dims> index) const {
-		return detail::ranged_sycl_access(m_sycl_accessor, m_buffer_range, index - m_index_offset);
+		return m_device_ptr[get_linear_offset(index)];
 	}
 
 	template <access_mode M = Mode, int D = Dims>
 	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), const DataT&> operator[](id<Dims> index) const {
-		return detail::ranged_sycl_access(m_sycl_accessor, m_buffer_range, index - m_index_offset);
+		return m_device_ptr[get_linear_offset(index)];
 	}
-
-#pragma GCC diagnostic push
-	// Ignore deprecation warnings emitted by SYCL implementations (e.g. hipSYCL)
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-	template <access_mode M = Mode, int D = Dims>
-	[[deprecated("Atomic accessors are deprecated as of SYCL 2020")]] std::enable_if_t<M == access_mode::atomic && (D > 0), cl::sycl::atomic<DataT>> operator[](
-	    id<Dims> index) const {
-		return detail::ranged_sycl_access(m_sycl_accessor, m_buffer_range, index - m_index_offset);
-	}
-#pragma GCC diagnostic pop
 
 	template <int D = Dims>
 	std::enable_if_t<(D > 1), detail::accessor_subscript_proxy<DataT, D, Mode, target::device, 1>> operator[](const size_t d0) const {
@@ -277,105 +247,50 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 
 	friend bool operator==(const accessor& lhs, const accessor& rhs) {
-		return lhs.m_sycl_accessor == rhs.m_sycl_accessor && lhs.m_buffer_range == rhs.m_buffer_range && lhs.m_index_offset == rhs.m_index_offset;
+		return lhs.m_device_ptr == rhs.m_device_ptr && lhs.m_buffer_range == rhs.m_buffer_range && lhs.m_index_offset == rhs.m_index_offset;
 	}
 
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
   private:
-#if CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 7)
-	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::global_buffer, cl::sycl::access::placeholder::true_t>;
-#elif CELERITY_WORKAROUND(DPCPP) || CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9)
-	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::access::target::device, cl::sycl::access::placeholder::true_t>;
-#else
-	using sycl_accessor_t = cl::sycl::accessor<DataT, Dims, Mode, cl::sycl::target::device>;
-#endif
-
-	template <typename T, int D, access_mode M, typename... Args>
-	friend accessor<T, D, M, target::device> detail::make_device_accessor(Args&&...);
-
-	// see init_from
-	cl::sycl::handler* const* m_eventual_sycl_cgh = nullptr;
-	sycl_accessor_t m_sycl_accessor;
+	DataT* m_device_ptr = nullptr;
 	sycl::id<Dims> m_index_offset;
-	sycl::range<Dims> m_buffer_range = detail::zero_range; // TODO remove this togehter with ComputeCpp < 2.8.0 support
+	sycl::range<Dims> m_buffer_range = detail::zero_range;
 
-	accessor(
-	    cl::sycl::handler* const* eventual_sycl_cgh, cl::sycl::buffer<DataT, Dims>& buffer, const subrange<Dims>& effective_subrange, id<Dims> index_offset)
-	    : m_eventual_sycl_cgh(eventual_sycl_cgh),
-	      // We pass a range and offset here to avoid interference from SYCL, but the offset must be relative to the *backing buffer*.
-	      m_sycl_accessor(sycl_accessor_t(buffer, effective_subrange.range, effective_subrange.offset)), m_index_offset(index_offset),
-	      m_buffer_range(buffer.get_range()) {
-		// SYCL 1.2.1 dictates that all kernel parameters must have standard layout.
-		// However, since we are wrapping a SYCL accessor, this assertion fails for some implementations,
-		// as it is currently unclear whether SYCL accessors must also have standard layout.
-		// See https://github.com/KhronosGroup/SYCL-Docs/issues/94
-		// static_assert(std::is_standard_layout<accessor>::value, "accessor must have standard layout");
+	// Constructor for tests, called through accessor_testspy.
+	accessor(DataT* ptr, id<Dims> index_offset, range<Dims> buffer_range) : m_device_ptr(ptr), m_index_offset(index_offset), m_buffer_range(buffer_range) {
+#if CELERITY_WORKAROUND_HIPSYCL
+		static_assert(std::is_trivially_copyable_v<accessor>);
+#else
+		static_assert(sycl::is_device_copyable_v<accessor>);
+#endif
 	}
 
-	// For DPC++, we must call the sycl_accessor_t constructor with arguments that need to be computed beforehand, so we pass the results from construct()
-	// throught to the accessor(constructor_args) ctor.
-	using constructor_args = std::tuple<cl::sycl::handler* const*, sycl_accessor_t, id<Dims>, range<Dims>>;
-
-	explicit accessor(constructor_args&& args)
-	    : m_eventual_sycl_cgh(std::get<0>(args)), m_sycl_accessor(std::get<1>(args)), m_index_offset(std::get<2>(args)), m_buffer_range(std::get<3>(args)) {
-		// SYCL 1.2.1 dictates that all kernel parameters must have standard layout.
-		// However, since we are wrapping a SYCL accessor, this assertion fails for some implementations,
-		// as it is currently unclear whether SYCL accessors must also have standard layout.
-		// See https://github.com/KhronosGroup/SYCL-Docs/issues/94
-		// static_assert(std::is_standard_layout<accessor>::value, "accessor must have standard layout");
-	}
-
-	template <target Target, typename Functor>
-	static constructor_args construct(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
+	template <typename Functor>
+	accessor(const ctor_internal_tag, const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
 		if(detail::is_prepass_handler(cgh)) {
 			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
 			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, buff.get_range()));
-#if CELERITY_WORKAROUND(DPCPP)
-			// DPC++ does not support SYCL 2020 default-constructible accessors and requires a buffer. As of 2021-08-18, DPC++ placeholder accessors do not
-			// keep a reference to the buffer on the host, so having the buffer go out of scope right away will not cause any problems.
-			cl::sycl::buffer<DataT, Dims> faux_buf{detail::range_cast<Dims>(range{1, 1, 1})};
-			sycl_accessor_t sycl_accessor{faux_buf};
-#else
-			sycl_accessor_t sycl_accessor{};
-#endif
-			return {static_cast<cl::sycl::handler* const*>(nullptr), sycl_accessor, id<Dims>{}, detail::zero_range};
 		} else {
 			if(detail::get_handler_execution_target(cgh) != detail::execution_target::device) {
 				throw std::runtime_error(
 				    "Calling accessor constructor with device target is only allowed in parallel_for tasks."
 				    "If you want to access this buffer from within a host task, please specialize the call using one of the *_host_task tags");
 			}
-			auto& live_cgh = dynamic_cast<detail::live_pass_device_handler&>(cgh);
-			auto eventual_sycl_cgh = live_cgh.get_eventual_sycl_cgh();
 
+			auto& live_cgh = dynamic_cast<detail::live_pass_device_handler&>(cgh);
 			// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper manually.
 			const auto mapped_sr = live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range());
-			const auto access_info = detail::runtime::get_instance().get_buffer_manager().get_device_buffer<DataT, Dims>(
+			auto access_info = detail::runtime::get_instance().get_buffer_manager().access_device_buffer<DataT, Dims>(
 			    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(mapped_sr.range), detail::id_cast<3>(mapped_sr.offset));
-			const auto effective_sr = detail::get_effective_sycl_accessor_subrange(access_info.offset, mapped_sr);
-			const auto sycl_accessor = sycl_accessor_t(access_info.buffer, effective_sr.range, effective_sr.offset);
 
-			return {eventual_sycl_cgh, sycl_accessor, mapped_sr.offset, access_info.buffer.get_range()};
+			m_device_ptr = static_cast<DataT*>(access_info.ptr);
+			m_index_offset = detail::id_cast<Dims>(access_info.backing_buffer_offset);
+			m_buffer_range = detail::range_cast<Dims>(access_info.backing_buffer_range);
 		}
 	}
 
-	void init_from(const accessor& other) {
-		m_eventual_sycl_cgh = other.m_eventual_sycl_cgh;
-		m_index_offset = other.m_index_offset;
-		m_buffer_range = other.m_buffer_range;
-
-		// The call to sycl::handler::require must happen inside the SYCL CGF, but since get_access within the Celerity CGF is executed before
-		// the submission to SYCL, it needs to be deferred. We capture a reference to a SYCL handler pointer owned by the live pass handler that is
-		// initialized once the SYCL CGF is entered. We then abuse the copy constructor that is called implicitly when the lambda is copied for the SYCL
-		// kernel submission to call require().
-#if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
-		if(m_eventual_sycl_cgh != nullptr && *m_eventual_sycl_cgh != nullptr) {
-			(*m_eventual_sycl_cgh)->require(m_sycl_accessor);
-			m_eventual_sycl_cgh = nullptr; // only `require` once
-		}
-#endif
-	}
+	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_buffer_range, index - m_index_offset); }
 };
 
 // Celerity Accessor Deduction Guides
@@ -395,6 +310,8 @@ accessor(const buffer<T, D>& buff, handler& cgh, Functor rmfn, TagT tag, propert
 
 template <typename DataT, int Dims, access_mode Mode>
 class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_base<DataT, Dims, Mode, target::host_task> {
+	friend struct detail::accessor_testspy;
+
   public:
 	template <target Target = target::host_task, typename Functor>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
@@ -415,12 +332,13 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 				// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper
 				// manually.
 				const auto sr = live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range());
-				auto access_info = detail::runtime::get_instance().get_buffer_manager().get_host_buffer<DataT, Dims>(
+				auto access_info = detail::runtime::get_instance().get_buffer_manager().access_host_buffer<DataT, Dims>(
 				    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(sr.range), detail::id_cast<3>(sr.offset));
 
 				m_mapped_subrange = sr;
-				m_optional_buffer = &access_info.buffer;
-				m_index_offset = access_info.offset;
+				m_host_ptr = static_cast<DataT*>(access_info.ptr);
+				m_index_offset = detail::id_cast<Dims>(access_info.backing_buffer_offset);
+				m_buffer_range = detail::range_cast<Dims>(access_info.backing_buffer_range);
 				m_virtual_buffer_range = buff.get_range();
 			}
 		}
@@ -445,12 +363,12 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 
 	template <access_mode M = Mode, int D = Dims>
 	std::enable_if_t<detail::access::mode_traits::is_producer(M) && (D > 0), DataT&> operator[](id<Dims> index) const {
-		return *(get_buffer().get_pointer() + get_linear_offset(index));
+		return *(m_host_ptr + get_linear_offset(index));
 	}
 
 	template <access_mode M = Mode, int D = Dims>
 	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), const DataT&> operator[](id<Dims> index) const {
-		return *(get_buffer().get_pointer() + get_linear_offset(index));
+		return *(m_host_ptr + get_linear_offset(index));
 	}
 
 	template <int D = Dims>
@@ -475,15 +393,14 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		if(m_index_offset != detail::id_cast<Dims>(id<3>{0, 0, 0})) { illegal_access = true; }
 		// We can be a bit more lenient for 1D buffers, in that the backing buffer doesn't have to have the full size.
 		// (Dereferencing the pointer outside of the requested range is UB anyways).
-		if(Dims > 1 && get_buffer().get_range() != m_virtual_buffer_range) { illegal_access = true; }
+		if(Dims > 1 && m_buffer_range != m_virtual_buffer_range) { illegal_access = true; }
 		if(illegal_access) { throw std::logic_error("Buffer cannot be accessed with expected stride"); }
-		return get_buffer().get_pointer();
+		return m_host_ptr;
 	}
 
 	friend bool operator==(const accessor& lhs, const accessor& rhs) {
-		return (lhs.m_optional_buffer == rhs.m_optional_buffer
-		           || (lhs.m_optional_buffer && rhs.m_optional_buffer && *lhs.m_optional_buffer == *rhs.m_optional_buffer))
-		       && lhs.m_index_offset == rhs.m_index_offset;
+		return lhs.m_host_ptr == rhs.m_host_ptr && lhs.m_mapped_subrange == rhs.m_mapped_subrange && lhs.m_buffer_range == rhs.m_buffer_range
+		       && lhs.m_virtual_buffer_range == rhs.m_virtual_buffer_range && lhs.m_index_offset == rhs.m_index_offset;
 	}
 
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
@@ -501,9 +418,9 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		(void)part;
 
 		return {
-		    get_buffer().get_pointer(),
+		    m_host_ptr,
 		    m_virtual_buffer_range,
-		    get_buffer().get_range(),
+		    m_buffer_range,
 		    m_mapped_subrange.range,
 		    m_index_offset,
 		    m_mapped_subrange.offset,
@@ -530,49 +447,38 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		for(int d = 0; d < Dims; ++d) {
 			dimensions[d] = {/* global_size */ m_virtual_buffer_range[d],
 			    /* global_offset */ m_mapped_subrange.offset[d],
-			    /* local_size */ get_buffer().get_range()[d],
+			    /* local_size */ m_buffer_range[d],
 			    /* local_offset */ m_mapped_subrange.offset[d] - m_index_offset[d],
 			    /* extent */ m_mapped_subrange.range[d]};
 		}
 
-		return {get_buffer().get_pointer(), host_memory_layout{dimensions}};
+		return {m_host_ptr, host_memory_layout{dimensions}};
 	}
 #pragma GCC diagnostic pop
 
   private:
-	template <typename T, int D, access_mode M, typename... Args>
-	friend accessor<T, D, M, target::host_task> detail::make_host_accessor(Args&&...);
-
 	// Subange of the accessor, as set by the range mapper or requested by the user (master node host tasks only).
 	// This does not necessarily correspond to the backing buffer's range.
 	subrange<Dims> m_mapped_subrange;
 
-	mutable detail::host_buffer<DataT, Dims>* m_optional_buffer = nullptr;
+	DataT* m_host_ptr = nullptr;
 
 	// Offset of the backing buffer relative to the virtual buffer.
 	id<Dims> m_index_offset;
 
+	// Range of the backing buffer.
+	range<Dims> m_buffer_range = detail::zero_range;
+
 	// The range of the Celerity buffer as created by the user.
 	// We only need this to check whether it is safe to call get_pointer() or not.
-	range<Dims> m_virtual_buffer_range = detail::range_cast<Dims>(range<3>(0, 0, 0));
+	range<Dims> m_virtual_buffer_range = detail::zero_range;
 
-	/**
-	 * Constructor for pre-pass.
-	 */
-	accessor() = default;
+	// Constructor for tests, called through accessor_testspy.
+	accessor(subrange<Dims> mapped_subrange, DataT* ptr, id<Dims> backing_buffer_offset, range<Dims> backing_buffer_range, range<Dims> virtual_buffer_range)
+	    : m_mapped_subrange(mapped_subrange), m_host_ptr(ptr), m_index_offset(backing_buffer_offset), m_buffer_range(backing_buffer_range),
+	      m_virtual_buffer_range(virtual_buffer_range) {}
 
-	/**
-	 * Constructor for live-pass.
-	 */
-	accessor(subrange<Dims> mapped_subrange, detail::host_buffer<DataT, Dims>& buffer, id<Dims> backing_buffer_offset, range<Dims> virtual_buffer_range)
-	    : m_mapped_subrange(mapped_subrange), m_optional_buffer(&buffer), m_index_offset(backing_buffer_offset), m_virtual_buffer_range(virtual_buffer_range) {}
-
-	detail::host_buffer<DataT, Dims>& get_buffer() const {
-		assert(m_optional_buffer != nullptr);
-		return *m_optional_buffer;
-	}
-
-	size_t get_linear_offset(id<Dims> index) const { return detail::get_linear_index(get_buffer().get_range(), index - m_index_offset); }
+	size_t get_linear_offset(id<Dims> index) const { return detail::get_linear_index(m_buffer_range, index - m_index_offset); }
 };
 
 
@@ -649,15 +555,6 @@ class local_accessor {
 
 
 namespace detail {
-	template <typename DataT, int Dims, access_mode Mode, typename... Args>
-	accessor<DataT, Dims, Mode, target::device> make_device_accessor(Args&&... args) {
-		return {std::forward<Args>(args)...};
-	}
-
-	template <typename DataT, int Dims, access_mode Mode, typename... Args>
-	accessor<DataT, Dims, Mode, target::host_task> make_host_accessor(Args&&... args) {
-		return {std::forward<Args>(args)...};
-	}
 
 	template <typename TagT>
 	constexpr access_mode deduce_access_mode() {

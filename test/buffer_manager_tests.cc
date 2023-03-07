@@ -93,50 +93,50 @@ namespace detail {
 			auto buf_info = access_buffer(1024, 0);
 
 			// Even though we registered the buffer with a size of 3072, the actual backing buffer is only 1024
-			REQUIRE(buf_info.buffer.get_range() == cl::sycl::range<1>(1024));
+			REQUIRE(buf_info.backing_buffer_range == cl::sycl::range<3>(1024, 1, 1));
 
 			// Requesting smaller portions of the buffer will re-use the existing backing buffer
 			for(auto s = 512; s > 2; s >>= 2) {
 				auto smallbuf_info = access_buffer(s, 0);
-				REQUIRE(smallbuf_info.buffer == buf_info.buffer);
+				REQUIRE_LOOP(smallbuf_info.ptr == buf_info.ptr);
 			}
 
 			// As long as we're not exceeding the original 1024 items, changing the offset will also re-use the backing buffer
 			for(auto o = 512; o > 2; o >>= 2) {
 				auto smallbuf_info = access_buffer(512, o);
-				REQUIRE(smallbuf_info.buffer == buf_info.buffer);
+				REQUIRE_LOOP(smallbuf_info.ptr == buf_info.ptr);
 			}
 
 			// If we however exceed the original 1024 by passing an offset, the backing buffer will be resized
 			{
 				auto buf_info = access_buffer(1024, 512);
 				// Since the BM cannot discard the previous contents at offset 0, the new buffer includes them as well
-				REQUIRE(buf_info.buffer.get_range() == cl::sycl::range<1>(1024 + 512));
+				REQUIRE(buf_info.backing_buffer_range == range<3>(1024 + 512, 1, 1));
 			}
 
 			// Likewise, requesting a larger range will cause the backing buffer to be resized
 			{
 				auto buf_info = access_buffer(2048, 0);
-				REQUIRE(buf_info.buffer.get_range() == cl::sycl::range<1>(2048));
+				REQUIRE(buf_info.backing_buffer_range == range<3>(2048, 1, 1));
 			}
 
 			// Lastly, requesting a totally different (non-overlapping) sub-range will require the buffer to be resized
 			// such that it contains both the previous and the new ranges.
 			{
 				auto buf_info = access_buffer(512, 2560);
-				REQUIRE(buf_info.buffer.get_range() == cl::sycl::range<1>(3072));
+				REQUIRE(buf_info.backing_buffer_range == range<3>(3072, 1, 1));
 			}
 		};
 
 		SECTION("when using device buffers") {
 			run_test([&bm, bid](size_t range, size_t offset) {
-				return bm.get_device_buffer<float, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(range, 1, 1), cl::sycl::id<3>(offset, 0, 0));
+				return bm.access_device_buffer<float, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(range, 1, 1), cl::sycl::id<3>(offset, 0, 0));
 			});
 		}
 
 		SECTION("when using host buffers") {
 			run_test([&bm, bid](size_t range, size_t offset) {
-				return bm.get_host_buffer<float, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(range, 1, 1), cl::sycl::id<3>(offset, 0, 0));
+				return bm.access_host_buffer<float, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(range, 1, 1), cl::sycl::id<3>(offset, 0, 0));
 			});
 		}
 	}
@@ -148,22 +148,22 @@ namespace detail {
 
 		auto run_test = [&](auto access_buffer) {
 			// The returned offset indicates where the backing buffer starts, relative to the virtual buffer.
-			REQUIRE(access_buffer(1024, 1024).offset == cl::sycl::id<1>(1024));
-			REQUIRE(access_buffer(1024, 512).offset == cl::sycl::id<1>(512));
-			REQUIRE(access_buffer(1024, 1024).offset == cl::sycl::id<1>(512));
-			REQUIRE(access_buffer(256, 1024).offset == cl::sycl::id<1>(512));
-			REQUIRE(access_buffer(1024, 0).offset == cl::sycl::id<1>(0));
+			REQUIRE(access_buffer(1024, 1024).backing_buffer_offset == cl::sycl::id<3>(1024, 0, 0));
+			REQUIRE(access_buffer(1024, 512).backing_buffer_offset == cl::sycl::id<3>(512, 0, 0));
+			REQUIRE(access_buffer(1024, 1024).backing_buffer_offset == cl::sycl::id<3>(512, 0, 0));
+			REQUIRE(access_buffer(256, 1024).backing_buffer_offset == cl::sycl::id<3>(512, 0, 0));
+			REQUIRE(access_buffer(1024, 0).backing_buffer_offset == cl::sycl::id<3>(0, 0, 0));
 		};
 
 		SECTION("when using device buffers") {
 			run_test([&bm, bid](size_t range, size_t offset) {
-				return bm.get_device_buffer<float, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(range, 1, 1), cl::sycl::id<3>(offset, 0, 0));
+				return bm.access_device_buffer<float, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(range, 1, 1), cl::sycl::id<3>(offset, 0, 0));
 			});
 		}
 
 		SECTION("when using host buffers") {
 			run_test([&bm, bid](size_t range, size_t offset) {
-				return bm.get_host_buffer<float, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(range, 1, 1), cl::sycl::id<3>(offset, 0, 0));
+				return bm.access_host_buffer<float, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(range, 1, 1), cl::sycl::id<3>(offset, 0, 0));
 			});
 		}
 	}
@@ -387,12 +387,13 @@ namespace detail {
 		auto bid = bm.register_buffer<size_t, 1>(cl::sycl::range<3>(32, 1, 1));
 
 		SECTION("when using device buffers") {
-			host_buffer<size_t, 1>* host_buf;
+			size_t* host_ptr = nullptr;
 
 			// Remember host buffer for later.
 			{
-				auto info = bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::discard_write, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
-				host_buf = &info.buffer;
+				auto info =
+				    bm.access_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::discard_write, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
+				host_ptr = static_cast<size_t*>(info.ptr);
 			}
 
 			// Initialize buffer on host.
@@ -400,16 +401,16 @@ namespace detail {
 			    bid, access_target::host, {32}, {}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0]; });
 
 			// Read buffer on device. This makes the device buffer coherent with the host buffer.
-			bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
+			bm.access_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
 
 			// Here we cheat: We override the host data using the pointer we kept from before, without telling the BM (which is not allowed).
 			for(size_t i = 0; i < 32; ++i) {
-				host_buf->get_pointer()[i] = 33;
+				host_ptr[i] = 33;
 			}
 
 			// Now access the buffer on device again for reading and writing. The buffer manager should realize that the newest version is already on the
 			// device. After this, the device holds the newest version of the buffer.
-			bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read_write, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
+			bm.access_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read_write, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
 
 			// Verify that the data is still what we expect.
 			{
@@ -421,7 +422,7 @@ namespace detail {
 			// Finally, also check the other way round: Accessing the device buffer now doesn't generate a superfluous H -> D transfer.
 			// First, we cheat again.
 			for(size_t i = 0; i < 32; ++i) {
-				host_buf->get_pointer()[i] = 34;
+				host_ptr[i] = 34;
 			}
 
 			// Access device buffer. This should still contain the original data.
@@ -433,12 +434,13 @@ namespace detail {
 		}
 
 		SECTION("when using host buffers") {
-			cl::sycl::buffer<size_t, 1>* device_buf;
+			size_t* device_ptr = nullptr;
 
 			// Remember device buffer for later.
 			{
-				auto info = bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::discard_write, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
-				device_buf = &info.buffer;
+				auto info =
+				    bm.access_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::discard_write, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
+				device_ptr = static_cast<size_t*>(info.ptr);
 			}
 
 			// Initialize buffer on device.
@@ -446,26 +448,26 @@ namespace detail {
 			    bid, access_target::device, {32}, {}, [](cl::sycl::id<1> idx, size_t& value) { value = idx[0]; });
 
 			// Read buffer on host. This makes the host buffer coherent with the device buffer.
-			bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
+			bm.access_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
 
 			// Here we cheat: We override the device data using the pointer we kept from before, without telling the BM (which is not allowed).
 			dq.get_sycl_queue()
 			    .submit([&](cl::sycl::handler& cgh) {
-				    auto acc = device_buf->get_access<cl::sycl::access::mode::discard_write>(cgh);
-				    cgh.parallel_for<bind_kernel_name<class UKN(overwrite_buf)>>(cl::sycl::range<1>(32), [=](cl::sycl::item<1> item) { acc[item] = 33; });
+				    cgh.parallel_for<bind_kernel_name<class UKN(overwrite_buf)>>(sycl::range<1>(32), [=](sycl::item<1> item) { device_ptr[item[0]] = 33; });
 			    })
 			    .wait();
 
 			// Now access the buffer on host again for reading and writing. The buffer manager should realize that the newest version is already on the
 			// host. After this, the host holds the newest version of the buffer.
-			bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read_write, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
+			bm.access_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read_write, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
 
 			// Verify that the data is still what we expect.
 			{
-				auto info = bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
-				auto acc = info.buffer.get_access<cl::sycl::access::mode::read>();
+				auto info = bm.access_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
+				std::vector<size_t> tmp_host(info.backing_buffer_range.size());
+				dq.get_sycl_queue().memcpy(tmp_host.data(), info.ptr, sizeof(size_t) * info.backing_buffer_range.size()).wait();
 				for(size_t i = 0; i < 32; ++i) {
-					REQUIRE_LOOP(acc[i] == i);
+					REQUIRE_LOOP(tmp_host[i] == i);
 				}
 			}
 
@@ -473,16 +475,16 @@ namespace detail {
 			// First, we cheat again.
 			dq.get_sycl_queue()
 			    .submit([&](cl::sycl::handler& cgh) {
-				    auto acc = device_buf->get_access<cl::sycl::access::mode::discard_write>(cgh);
-				    cgh.parallel_for<bind_kernel_name<class UKN(overwrite_buf)>>(cl::sycl::range<1>(32), [=](cl::sycl::item<1> item) { acc[item] = 34; });
+				    cgh.parallel_for<bind_kernel_name<class UKN(overwrite_buf)>>(
+				        cl::sycl::range<1>(32), [=](cl::sycl::item<1> item) { device_ptr[item[0]] = 34; });
 			    })
 			    .wait();
 
 			// Access host buffer. This should still contain the original data.
 			{
-				auto info = bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
+				auto info = bm.access_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 1, 1), cl::sycl::id<3>(0, 0, 0));
 				for(size_t i = 0; i < 32; ++i) {
-					REQUIRE_LOOP(info.buffer.get_pointer()[i] == i);
+					REQUIRE_LOOP(static_cast<size_t*>(info.ptr)[i] == i);
 				}
 			}
 		}
@@ -801,29 +803,29 @@ namespace detail {
 
 		SECTION("when running on device, requiring resize on second access") {
 			run_test([&]() {
-				bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {64, 1, 1}, {0, 0, 0});
-				REQUIRE_THROWS_WITH((bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {128, 1, 1}, {0, 0, 0})), resize_error_msg);
+				bm.access_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {64, 1, 1}, {0, 0, 0});
+				REQUIRE_THROWS_WITH((bm.access_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {128, 1, 1}, {0, 0, 0})), resize_error_msg);
 			});
 		}
 
 		SECTION("when running on host, requiring resize on second access") {
 			run_test([&]() {
-				bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {64, 1, 1}, {0, 0, 0});
-				REQUIRE_THROWS_WITH((bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {128, 1, 1}, {0, 0, 0})), resize_error_msg);
+				bm.access_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {64, 1, 1}, {0, 0, 0});
+				REQUIRE_THROWS_WITH((bm.access_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {128, 1, 1}, {0, 0, 0})), resize_error_msg);
 			});
 		}
 
 		SECTION("when running on device, using consumer after discard access") {
 			run_test([&]() {
-				bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::discard_write, {64, 1, 1}, {0, 0, 0});
-				REQUIRE_THROWS_WITH((bm.get_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {64, 1, 1}, {0, 0, 0})), discard_error_msg);
+				bm.access_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::discard_write, {64, 1, 1}, {0, 0, 0});
+				REQUIRE_THROWS_WITH((bm.access_device_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {64, 1, 1}, {0, 0, 0})), discard_error_msg);
 			});
 		}
 
 		SECTION("when running on host, using consumer after discard access") {
 			run_test([&]() {
-				bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::discard_write, {64, 1, 1}, {0, 0, 0});
-				REQUIRE_THROWS_WITH((bm.get_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {64, 1, 1}, {0, 0, 0})), discard_error_msg);
+				bm.access_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::discard_write, {64, 1, 1}, {0, 0, 0});
+				REQUIRE_THROWS_WITH((bm.access_host_buffer<size_t, 1>(bid, cl::sycl::access::mode::read, {64, 1, 1}, {0, 0, 0})), discard_error_msg);
 			});
 		}
 	}
@@ -844,10 +846,11 @@ namespace detail {
 			cgh.parallel_for<class UKN(write_buf)>(range, offset, [=](cl::sycl::id<2> id) { acc[id] = id[0] + id[1]; });
 			cgh.get_submission_event().wait();
 
-			auto buf_info = bm.get_host_buffer<size_t, 2>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 32, 1), cl::sycl::id<3>(32, 0, 0));
+			auto buf_info = bm.access_host_buffer<size_t, 2>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 32, 1), cl::sycl::id<3>(32, 0, 0));
 			for(size_t i = 32; i < 64; ++i) {
 				for(size_t j = 0; j < 32; ++j) {
-					REQUIRE_LOOP(buf_info.buffer.get_pointer()[(i - buf_info.offset[0]) * 32 + j - buf_info.offset[1]] == i + j);
+					REQUIRE_LOOP(
+					    static_cast<size_t*>(buf_info.ptr)[(i - buf_info.backing_buffer_offset[0]) * 32 + j - buf_info.backing_buffer_offset[1]] == i + j);
 				}
 			}
 		}
@@ -860,10 +863,11 @@ namespace detail {
 					acc[{i, j}] = i + j;
 				}
 			}
-			auto buf_info = bm.get_host_buffer<size_t, 2>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 32, 1), cl::sycl::id<3>(32, 0, 0));
+			auto buf_info = bm.access_host_buffer<size_t, 2>(bid, cl::sycl::access::mode::read, cl::sycl::range<3>(32, 32, 1), cl::sycl::id<3>(32, 0, 0));
 			for(size_t i = 32; i < 64; ++i) {
 				for(size_t j = 0; j < 32; ++j) {
-					REQUIRE_LOOP(buf_info.buffer.get_pointer()[(i - buf_info.offset[0]) * 32 + j - buf_info.offset[1]] == i + j);
+					REQUIRE_LOOP(
+					    static_cast<size_t*>(buf_info.ptr)[(i - buf_info.backing_buffer_offset[0]) * 32 + j - buf_info.backing_buffer_offset[1]] == i + j);
 				}
 			}
 		}
@@ -1069,32 +1073,31 @@ namespace detail {
 		const auto access_1_empty = access_1_sr.range.size() == 0;
 		CAPTURE(access_1_empty);
 		const auto backing_buffer_1 =
-		    bm.get_device_buffer<int, 2>(bid, access_mode::discard_write, range_cast<3>(access_1_sr.range), id_cast<3>(access_1_sr.offset));
-		const auto backing_buffer_1_identity = &backing_buffer_1.buffer;
+		    bm.access_device_buffer<int, 2>(bid, access_mode::discard_write, range_cast<3>(access_1_sr.range), id_cast<3>(access_1_sr.offset));
+		auto* const backing_buffer_1_ptr = backing_buffer_1.ptr;
 		if(access_1_empty) {
-			CHECK(backing_buffer_1.buffer.get_range().size() <= 1); // <= 1: We allocate a unit-size backing buffer as a workaround for some backends
+			CHECK(backing_buffer_1.backing_buffer_range.size() == 0);
 		} else {
-			CHECK(backing_buffer_1.buffer.get_range() == access_1_sr.range);
-			CHECK(backing_buffer_1.offset == access_1_sr.offset);
+			CHECK(range_cast<2>(backing_buffer_1.backing_buffer_range) == access_1_sr.range);
+			CHECK(id_cast<2>(backing_buffer_1.backing_buffer_offset) == access_1_sr.offset);
 		}
 
 		const auto access_2_empty = access_2_sr.range.size() == 0;
 		CAPTURE(access_2_empty);
-		const auto backing_buffer_2 = bm.get_device_buffer<int, 2>(bid, access_mode::write, range_cast<3>(access_2_sr.range), id_cast<3>(access_2_sr.offset));
-		const auto backing_buffer_2_identity = &backing_buffer_2.buffer;
+		const auto backing_buffer_2 =
+		    bm.access_device_buffer<int, 2>(bid, access_mode::write, range_cast<3>(access_2_sr.range), id_cast<3>(access_2_sr.offset));
+		auto* const backing_buffer_2_ptr = backing_buffer_2.ptr;
 		if(access_2_empty) {
-			CHECK(backing_buffer_2_identity == backing_buffer_1_identity); // no re-allocation was made
+			CHECK(backing_buffer_2_ptr == backing_buffer_1_ptr); // no re-allocation was made
 		}
 		if(access_2_empty && !access_1_empty) {
-			CHECK(backing_buffer_1.buffer.get_range() == access_1_sr.range);
-			CHECK(backing_buffer_1.offset == access_1_sr.offset);
+			CHECK(range_cast<2>(backing_buffer_1.backing_buffer_range) == access_1_sr.range);
+			CHECK(id_cast<2>(backing_buffer_1.backing_buffer_offset) == access_1_sr.offset);
 		}
-		if(access_1_empty && access_2_empty) {
-			CHECK(backing_buffer_2.buffer.get_range().size() <= 1); // <= 1: We allocate a unit-size backing buffer as a workaround for some backends
-		}
+		if(access_1_empty && access_2_empty) { CHECK(backing_buffer_2.backing_buffer_range.size() == 0); }
 		if(access_1_empty && !access_2_empty) {
-			CHECK(backing_buffer_2.buffer.get_range() == access_2_sr.range);
-			CHECK(backing_buffer_2.offset == access_2_sr.offset);
+			CHECK(range_cast<2>(backing_buffer_2.backing_buffer_range) == access_2_sr.range);
+			CHECK(id_cast<2>(backing_buffer_2.backing_buffer_offset) == access_2_sr.offset);
 		}
 	}
 

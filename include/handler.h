@@ -511,16 +511,16 @@ namespace detail {
 	class reduction_descriptor;
 
 	template <typename DataT, int Dims, typename BinaryOperation, bool WithExplicitIdentity>
-	auto make_sycl_reduction(cl::sycl::handler& sycl_cgh, const reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>& d) {
+	auto make_sycl_reduction(const reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>& d) {
 #if !CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
 		cl::sycl::property_list props;
 		if(!d.m_include_current_buffer_value) { props = {cl::sycl::property::reduction::initialize_to_identity{}}; }
 		if constexpr(WithExplicitIdentity) {
-			return cl::sycl::reduction(*d.m_sycl_buffer, sycl_cgh, d.m_identity, d.m_op, props);
+			return sycl::reduction(d.m_device_ptr, d.m_identity, d.m_op, props);
 		} else {
-			return cl::sycl::reduction(*d.m_sycl_buffer, sycl_cgh, d.m_op, props);
+			return sycl::reduction(d.m_device_ptr, d.m_op, props);
 		}
 #endif
 	}
@@ -528,34 +528,32 @@ namespace detail {
 	template <typename DataT, int Dims, typename BinaryOperation>
 	class reduction_descriptor<DataT, Dims, BinaryOperation, false /* WithExplicitIdentity */> {
 	  public:
-		reduction_descriptor(
-		    buffer_id bid, BinaryOperation combiner, DataT /* identity */, bool include_current_buffer_value, cl::sycl::buffer<DataT, Dims>* sycl_buffer)
-		    : m_bid(bid), m_op(combiner), m_include_current_buffer_value(include_current_buffer_value), m_sycl_buffer(sycl_buffer) {}
+		reduction_descriptor(buffer_id bid, BinaryOperation combiner, DataT /* identity */, bool include_current_buffer_value, DataT* device_ptr)
+		    : m_bid(bid), m_op(combiner), m_include_current_buffer_value(include_current_buffer_value), m_device_ptr(device_ptr) {}
 
 	  private:
-		friend auto make_sycl_reduction<DataT, Dims, BinaryOperation, false>(cl::sycl::handler&, const reduction_descriptor&);
+		friend auto make_sycl_reduction<DataT, Dims, BinaryOperation, false>(const reduction_descriptor&);
 
 		buffer_id m_bid;
 		BinaryOperation m_op;
 		bool m_include_current_buffer_value;
-		cl::sycl::buffer<DataT, Dims>* m_sycl_buffer;
+		DataT* m_device_ptr;
 	};
 
 	template <typename DataT, int Dims, typename BinaryOperation>
 	class reduction_descriptor<DataT, Dims, BinaryOperation, true /* WithExplicitIdentity */> {
 	  public:
-		reduction_descriptor(
-		    buffer_id bid, BinaryOperation combiner, DataT identity, bool include_current_buffer_value, cl::sycl::buffer<DataT, Dims>* sycl_buffer)
-		    : m_bid(bid), m_op(combiner), m_identity(identity), m_include_current_buffer_value(include_current_buffer_value), m_sycl_buffer(sycl_buffer) {}
+		reduction_descriptor(buffer_id bid, BinaryOperation combiner, DataT identity, bool include_current_buffer_value, DataT* device_ptr)
+		    : m_bid(bid), m_op(combiner), m_identity(identity), m_include_current_buffer_value(include_current_buffer_value), m_device_ptr(device_ptr) {}
 
 	  private:
-		friend auto make_sycl_reduction<DataT, Dims, BinaryOperation, true>(cl::sycl::handler&, const reduction_descriptor&);
+		friend auto make_sycl_reduction<DataT, Dims, BinaryOperation, true>(const reduction_descriptor&);
 
 		buffer_id m_bid;
 		BinaryOperation m_op;
 		DataT m_identity{};
 		bool m_include_current_buffer_value;
-		cl::sycl::buffer<DataT, Dims>* m_sycl_buffer;
+		DataT* m_device_ptr;
 	};
 
 	template <bool WithExplicitIdentity, typename DataT, int Dims, typename BinaryOperation>
@@ -571,22 +569,21 @@ namespace detail {
 
 		auto bid = detail::get_buffer_id(vars);
 		auto include_current_buffer_value = !prop_list.has_property<celerity::property::reduction::initialize_to_identity>();
-		cl::sycl::buffer<DataT, Dims>* sycl_buffer = nullptr;
+		DataT* device_ptr = nullptr;
 
 		if(detail::is_prepass_handler(cgh)) {
 			auto rid = detail::runtime::get_instance().get_reduction_manager().create_reduction<DataT, Dims>(bid, op, identity);
 			static_cast<detail::prepass_handler&>(cgh).add_reduction(reduction_info{rid, bid, include_current_buffer_value});
 		} else {
-			include_current_buffer_value &= static_cast<detail::live_pass_handler&>(cgh).is_reduction_initializer();
+			auto& device_handler = static_cast<detail::live_pass_device_handler&>(cgh);
+			include_current_buffer_value &= device_handler.is_reduction_initializer();
 
 			auto mode = cl::sycl::access_mode::discard_write;
 			if(include_current_buffer_value) { mode = cl::sycl::access_mode::read_write; }
-			sycl_buffer = &runtime::get_instance()
-			                   .get_buffer_manager()
-			                   .get_device_buffer<DataT, Dims>(bid, mode, range<3>{1, 1, 1}, id<3>{}) //
-			                   .buffer;
+			device_ptr =
+			    static_cast<DataT*>(runtime::get_instance().get_buffer_manager().access_device_buffer<DataT, Dims>(bid, mode, range<3>{1, 1, 1}, id<3>{}).ptr);
 		}
-		return detail::reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>{bid, op, identity, include_current_buffer_value, sycl_buffer};
+		return detail::reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>{bid, op, identity, include_current_buffer_value, device_ptr};
 #endif
 	}
 
@@ -617,10 +614,10 @@ void handler::parallel_for_kernel_and_reductions(range<Dims> global_range, id<Di
 		} else if constexpr(!CELERITY_FEATURE_SCALAR_REDUCTIONS && sizeof...(reductions) > 1) {
 			static_assert(detail::constexpr_false<Kernel>, "DPC++ currently does not support more than one reduction variable per kernel");
 		} else if constexpr(std::is_same_v<KernelFlavor, detail::simple_kernel_flavor>) {
-			detail::invoke_sycl_parallel_for<KernelName>(cgh, chunk_range, detail::make_sycl_reduction(cgh, reductions)...,
-			    detail::bind_simple_kernel(kernel, global_range, global_offset, chunk_offset));
+			detail::invoke_sycl_parallel_for<KernelName>(
+			    cgh, chunk_range, detail::make_sycl_reduction(reductions)..., detail::bind_simple_kernel(kernel, global_range, global_offset, chunk_offset));
 		} else if constexpr(std::is_same_v<KernelFlavor, detail::nd_range_kernel_flavor>) {
-			detail::invoke_sycl_parallel_for<KernelName>(cgh, cl::sycl::nd_range{chunk_range, local_range}, detail::make_sycl_reduction(cgh, reductions)...,
+			detail::invoke_sycl_parallel_for<KernelName>(cgh, cl::sycl::nd_range{chunk_range, local_range}, detail::make_sycl_reduction(reductions)...,
 			    detail::bind_nd_range_kernel(kernel, global_range, global_offset, chunk_offset, global_range / local_range, chunk_offset / local_range));
 		} else {
 			static_assert(detail::constexpr_false<KernelFlavor>);

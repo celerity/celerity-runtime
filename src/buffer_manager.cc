@@ -46,7 +46,7 @@ namespace detail {
 			backing_buffer replacement_buf;
 			if(info.resize_required) {
 				// TODO: Do we really want to allocate host memory for this..? We could also make the buffer storage "coherent" directly.
-				replacement_buf = backing_buffer{std::unique_ptr<buffer_storage>(existing_buf.storage->make_new_of_same_type(info.new_range)), info.new_offset};
+				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_host(info.new_range), info.new_offset};
 			}
 			existing_buf = make_buffer_subrange_coherent(bid, access_mode::read, std::move(existing_buf), sr, std::move(replacement_buf));
 
@@ -71,7 +71,69 @@ namespace detail {
 		m_scheduled_transfers[bid].push_back({std::move(in_linearized), sr});
 	}
 
-	bool buffer_manager::try_lock(buffer_lock_id id, const std::unordered_set<buffer_id>& buffers) {
+	buffer_manager::access_info buffer_manager::access_device_buffer(
+	    buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
+		std::unique_lock lock(m_mutex);
+		assert((range_cast<3>(offset + range) <= m_buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
+
+		auto& existing_buf = m_buffers[bid].device_buf;
+		backing_buffer replacement_buf;
+
+		if(!existing_buf.is_allocated()) {
+			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(range, m_queue.get_sycl_queue()), offset};
+		} else {
+			// FIXME: For large buffers we might not be able to store two copies in device memory at once.
+			// Instead, we'd first have to transfer everything to the host and free the old buffer before allocating the new one.
+			// TODO: What we CAN do however already is to free the old buffer early iff we're requesting a discard_* access!
+			// (AND that access request covers the entirety of the old buffer!)
+			const auto info = is_resize_required(existing_buf, range, offset);
+			if(info.resize_required) {
+				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, m_queue.get_sycl_queue()), info.new_offset};
+			}
+		}
+
+		audit_buffer_access(bid, replacement_buf.is_allocated(), mode);
+
+		if(m_test_mode && replacement_buf.is_allocated()) {
+			auto* ptr = replacement_buf.storage->get_pointer();
+			const auto bytes = replacement_buf.storage->get_size();
+			m_queue.get_sycl_queue().submit([&](cl::sycl::handler& cgh) { cgh.memset(ptr, test_mode_pattern, bytes); }).wait();
+		}
+
+		existing_buf = make_buffer_subrange_coherent(bid, mode, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
+
+		return {existing_buf.storage->get_pointer(), existing_buf.storage->get_range(), existing_buf.offset};
+	}
+
+	buffer_manager::access_info buffer_manager::access_host_buffer(
+	    buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
+		std::unique_lock lock(m_mutex);
+		assert((range_cast<3>(offset + range) <= m_buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
+
+		auto& existing_buf = m_buffers[bid].host_buf;
+		backing_buffer replacement_buf;
+
+		if(!existing_buf.is_allocated()) {
+			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_host(range), offset};
+		} else {
+			const auto info = is_resize_required(existing_buf, range, offset);
+			if(info.resize_required) { replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_host(info.new_range), info.new_offset}; }
+		}
+
+		audit_buffer_access(bid, replacement_buf.is_allocated(), mode);
+
+		if(m_test_mode && replacement_buf.is_allocated()) {
+			auto* ptr = replacement_buf.storage->get_pointer();
+			const auto size = replacement_buf.storage->get_size();
+			std::memset(ptr, test_mode_pattern, size);
+		}
+
+		existing_buf = make_buffer_subrange_coherent(bid, mode, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
+
+		return {existing_buf.storage->get_pointer(), existing_buf.storage->get_range(), existing_buf.offset};
+	}
+
+	bool buffer_manager::try_lock(const buffer_lock_id id, const std::unordered_set<buffer_id>& buffers) {
 		assert(m_buffer_locks_by_id.count(id) == 0);
 		for(auto bid : buffers) {
 			if(m_buffer_lock_infos[bid].is_locked) return false;
