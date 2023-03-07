@@ -83,12 +83,12 @@ class buffer_fence_promise final : public detail::fence_promise {
 	std::future<experimental::buffer_snapshot<DataT, Dims>> get_future() { return m_promise.get_future(); }
 
 	void fulfill() override {
-		const auto access_info = runtime::get_instance().get_buffer_manager().get_host_buffer<DataT, Dims>(
+		const auto access_info = runtime::get_instance().get_buffer_manager().access_host_buffer<DataT, Dims>(
 		    get_buffer_id(m_buffer), access_mode::read, range_cast<3>(m_subrange.range), id_cast<3>(m_subrange.offset));
-		assert((access_info.offset <= m_subrange.offset) == id_cast<Dims>(id<3>(true, true, true)));
+		assert((id_cast<Dims>(access_info.backing_buffer_offset) <= m_subrange.offset) == id_cast<Dims>(id<3>(true, true, true)));
 		auto data = std::make_unique<DataT[]>(m_subrange.range.size());
-		memcpy_strided(access_info.buffer.get_pointer(), data.get(), sizeof(DataT), access_info.buffer.get_range(), m_subrange.offset - access_info.offset,
-		    m_subrange.range, {}, m_subrange.range);
+		memcpy_strided(static_cast<DataT*>(access_info.ptr), data.get(), sizeof(DataT), range_cast<Dims>(access_info.backing_buffer_range),
+		    m_subrange.offset - id_cast<Dims>(access_info.backing_buffer_offset), m_subrange.range, {}, m_subrange.range);
 		m_promise.set_value(experimental::buffer_snapshot<DataT, Dims>(m_subrange, std::move(data)));
 	}
 
