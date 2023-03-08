@@ -502,3 +502,57 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device does not consid
 	CHECK_THROWS_WITH(
 	    pick_device(cfg, device_selector, std::vector<mock_platform>{mp_0, mp_1, mp_2}), "Device selection with device selector failed: No device available");
 }
+
+TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints information about device backend") {
+	using namespace celerity;
+	using namespace celerity::detail;
+
+	config cfg(nullptr, nullptr);
+
+	const auto devices = sycl::device::get_devices();
+	std::optional<sycl::device> generic_device;
+	std::optional<sycl::device> cuda_device;
+
+	for(const auto& d : devices) {
+		if(backend::get_type(d) == backend::type::cuda) {
+			cuda_device = d;
+		} else {
+			generic_device = d;
+		}
+	}
+
+	test_utils::log_capture lc(spdlog::level::debug);
+
+	SECTION("warns when using generic backend") {
+		if(!generic_device.has_value()) {
+			SKIP("No generic device available");
+		} else {
+			pick_device(cfg, *generic_device, std::vector<sycl::platform>{});
+			CHECK_THAT(lc.get_log(),
+			    Catch::Matchers::ContainsSubstring(
+			        fmt::format("No backend specialization available for selected platform '{}', falling back to generic. Performance may be degraded.",
+			            generic_device->get_platform().get_info<sycl::info::platform::name>())));
+		}
+	}
+
+	SECTION("informs user when using specialized backend") {
+		if(!cuda_device.has_value() || !backend_detail::is_enabled_v<backend::type::cuda>) {
+			SKIP("No CUDA device available or CUDA backend not enabled");
+		} else {
+			pick_device(cfg, *cuda_device, std::vector<sycl::platform>{});
+			CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring(fmt::format("Using CUDA backend for selected platform '{}'.",
+			                             cuda_device->get_platform().get_info<sycl::info::platform::name>())));
+		}
+	}
+
+	SECTION("warns when specialized backend is not enabled") {
+		if(!cuda_device.has_value() || backend_detail::is_enabled_v<backend::type::cuda>) {
+			SKIP("No CUDA device available or CUDA backend is enabled");
+		} else {
+			pick_device(cfg, *cuda_device, std::vector<sycl::platform>{});
+			CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring(
+			                             fmt::format("Selected platform '{}' is compatible with specialized CUDA backend, but it has not been compiled.",
+			                                 cuda_device->get_platform().get_info<sycl::info::platform::name>())));
+		}
+	}
+}

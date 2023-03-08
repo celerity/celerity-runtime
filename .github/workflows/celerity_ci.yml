@@ -171,14 +171,17 @@ jobs:
         timeout-minutes: 5
         working-directory: ${{ env.build-dir }}
         run: ${{ env.container-workspace }}/ci/run-unit-tests.sh
-      - name: Run integration tests
+      - name: Run examples
         timeout-minutes: 5
         # We build examples twice, but only run the installed version (which probably has more failure modes)
         working-directory: ${{ env.examples-build-dir }}
-        run: ${{ env.container-workspace }}/ci/run-integration-tests.sh /data/Lenna.png 1 2 4
+        run: ${{ env.container-workspace }}/ci/run-examples.sh /data/Lenna.png 1 2 4
       - name: Run system tests
         working-directory: ${{ env.build-dir }}
         run: ${{ env.container-workspace }}/ci/run-system-tests.sh 2 4
+      - name: Run integration tests
+        working-directory: ${{ env.build-dir }}
+        run: ${{ env.container-workspace }}/test/integration/run-integration-tests.py . ${{ matrix.platform }}
       - name: Upload stack traces (if any)
         if: always()
         uses: actions/upload-artifact@v2

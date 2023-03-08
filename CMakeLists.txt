@@ -268,6 +268,9 @@ target_link_libraries(celerity_runtime PUBLIC
   ${SYCL_LIB}
 )
 
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/backend)
+target_link_libraries(celerity_runtime PUBLIC celerity_backends)
+
 # For debug builds, we set the CELERITY_DETAIL_ENABLE_DEBUG preprocessor flag,
 # which allows Celerity to control debug functionality within headers regardless
 # of a user target's build type. (This flag is not intended to be modified by
@@ -368,7 +371,7 @@ install(
   DESTINATION include/celerity/vendor
 )
 install(
-  TARGETS celerity_runtime
+  TARGETS celerity_runtime celerity_backends
   EXPORT install_exports
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
