@@ -21,6 +21,9 @@ find_dependency(Threads REQUIRED)
 find_dependency(fmt REQUIRED)
 find_dependency(spdlog REQUIRED)
 find_dependency(small_vector REQUIRED)
+if(@CELERITY_ENABLE_CUDA_BACKEND@)
+  find_dependency(CUDAToolkit REQUIRED)
+endif()
 # TODO: Only do this when ENABLE_TRACY_SUPPORT is ON
 find_dependency(Tracy REQUIRED)
 

@@ -280,6 +280,9 @@ target_link_libraries(celerity_runtime PUBLIC
   Tracy::TracyClient
 )
 
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/backend)
+target_link_libraries(celerity_runtime PUBLIC celerity_backends)
+
 if(MSVC)
   target_compile_options(celerity_runtime PUBLIC
     $<BUILD_INTERFACE:/FI"${CMAKE_CURRENT_LIST_DIR}/include/tracy.h">
@@ -395,7 +398,7 @@ install(
   DESTINATION include/celerity/vendor
 )
 install(
-  TARGETS celerity_runtime
+  TARGETS celerity_runtime celerity_backends
   EXPORT install_exports
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib

@@ -7,6 +7,7 @@
 
 #include <CL/sycl.hpp>
 
+#include "backend/backend.h"
 #include "config.h"
 #include "log.h"
 #include "workaround.h"
@@ -244,6 +245,21 @@ namespace detail {
 		const auto platform_name = device.get_platform().template get_info<sycl::info::platform::name>();
 		const auto device_name = device.template get_info<sycl::info::device::name>();
 		CELERITY_INFO("Using platform '{}', device '{}' ({})", platform_name, device_name, how_selected);
+
+		if constexpr(std::is_same_v<DeviceT, sycl::device>) {
+			if(backend::get_effective_type(device) == backend::type::generic) {
+				if(backend::get_type(device) == backend::type::unknown) {
+					CELERITY_WARN("No backend specialization available for selected platform '{}', falling back to generic. Performance may be degraded.",
+					    device.get_platform().template get_info<sycl::info::platform::name>());
+				} else {
+					CELERITY_WARN("Selected platform '{}' is compatible with specialized {} backend, but it has not been compiled.",
+					    device.get_platform().template get_info<sycl::info::platform::name>(), backend::get_name(backend::get_type(device)));
+				}
+			} else {
+				CELERITY_DEBUG("Using {} backend for selected platform '{}'.", backend::get_name(backend::get_effective_type(device)),
+				    device.get_platform().template get_info<sycl::info::platform::name>());
+			}
+		}
 
 		return device;
 	}

@@ -6,6 +6,7 @@
 
 #include <CL/sycl.hpp>
 
+#include "backend/backend.h"
 #include "payload.h"
 #include "ranges.h"
 #include "workaround.h"
@@ -24,19 +25,6 @@ namespace detail {
 	void memcpy_strided(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const cl::sycl::range<3>& source_range,
 	    const cl::sycl::id<3>& source_offset, const cl::sycl::range<3>& target_range, const cl::sycl::id<3>& target_offset,
 	    const cl::sycl::range<3>& copy_range);
-
-	// SYCL 2020 doesn't include any strided overloads for memcpy, so much like on the host, we have to roll our own.
-	void memcpy_strided_device(cl::sycl::queue& queue, const void* source_base_ptr, void* target_base_ptr, size_t elem_size,
-	    const cl::sycl::range<1>& source_range, const cl::sycl::id<1>& source_offset, const cl::sycl::range<1>& target_range,
-	    const cl::sycl::id<1>& target_offset, const cl::sycl::range<1>& copy_range);
-
-	void memcpy_strided_device(cl::sycl::queue& queue, const void* source_base_ptr, void* target_base_ptr, size_t elem_size,
-	    const cl::sycl::range<2>& source_range, const cl::sycl::id<2>& source_offset, const cl::sycl::range<2>& target_range,
-	    const cl::sycl::id<2>& target_offset, const cl::sycl::range<2>& copy_range);
-
-	void memcpy_strided_device(cl::sycl::queue& queue, const void* source_base_ptr, void* target_base_ptr, size_t elem_size,
-	    const cl::sycl::range<3>& source_range, const cl::sycl::id<3>& source_offset, const cl::sycl::range<3>& target_range,
-	    const cl::sycl::id<3>& target_offset, const cl::sycl::range<3>& copy_range);
 
 	void linearize_subrange(const void* source_base_ptr, void* target_ptr, size_t elem_size, const range<3>& source_range, const subrange<3>& copy_sr);
 
@@ -155,8 +143,8 @@ namespace detail {
 			assert_copy_is_in_range(range_cast<3>(m_device_buf.get_range()), sr.range, sr.offset, id<3>{}, sr.range);
 
 			// TODO: Ideally we'd make this non-blocking and return some sort of async handle that can be waited upon
-			memcpy_strided_device(m_owning_queue, m_device_buf.get_pointer(), out_linearized, sizeof(DataT), m_device_buf.get_range(), id_cast<Dims>(sr.offset),
-			    range_cast<Dims>(sr.range), id<Dims>{}, range_cast<Dims>(sr.range));
+			backend::memcpy_strided_device(m_owning_queue, m_device_buf.get_pointer(), out_linearized, sizeof(DataT), m_device_buf.get_range(),
+			    id_cast<Dims>(sr.offset), range_cast<Dims>(sr.range), id<Dims>{}, range_cast<Dims>(sr.range));
 		}
 
 		void set_data(const subrange<3>& sr, const void* in_linearized) override {
@@ -165,7 +153,7 @@ namespace detail {
 			assert_copy_is_in_range(sr.range, range_cast<3>(m_device_buf.get_range()), id<3>{}, sr.offset, sr.range);
 
 			// TODO: Ideally we'd make this non-blocking and return some sort of async handle that can be waited upon
-			memcpy_strided_device(m_owning_queue, in_linearized, m_device_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(sr.range), id<Dims>{},
+			backend::memcpy_strided_device(m_owning_queue, in_linearized, m_device_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(sr.range), id<Dims>{},
 			    m_device_buf.get_range(), id_cast<Dims>(sr.offset), range_cast<Dims>(sr.range));
 		}
 
@@ -222,7 +210,7 @@ namespace detail {
 
 		if(source.get_type() == buffer_type::device_buffer) {
 			auto& device_source = dynamic_cast<const device_buffer_storage<DataT, Dims>&>(source);
-			memcpy_strided_device(m_owning_queue, device_source.m_device_buf.get_pointer(), m_device_buf.get_pointer(), sizeof(DataT),
+			backend::memcpy_strided_device(m_owning_queue, device_source.m_device_buf.get_pointer(), m_device_buf.get_pointer(), sizeof(DataT),
 			    device_source.m_device_buf.get_range(), id_cast<Dims>(source_offset), m_device_buf.get_range(), id_cast<Dims>(target_offset),
 			    range_cast<Dims>(copy_range));
 		}
