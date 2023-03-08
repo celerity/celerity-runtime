@@ -25,6 +25,7 @@ file(GLOB_RECURSE TEST_INCLUDES *.h)
 
 set(TEST_TARGETS
   accessor_tests
+  backend_tests
   buffer_manager_tests
   graph_generation_tests
   graph_gen_granularity_tests
@@ -76,3 +77,6 @@ target_link_libraries(benchmarks PRIVATE test_main)
 set_test_target_parameters(benchmarks benchmarks.cc)
 
 add_subdirectory(system)
+if(CELERITY_DETAIL_INTEGRATION_TESTING)
+  add_subdirectory(integration)
+endif()
