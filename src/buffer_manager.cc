@@ -269,9 +269,6 @@ namespace detail {
 	}
 
 	bool buffer_manager::try_lock(const buffer_lock_id id, const memory_id mid, const std::unordered_set<buffer_id>& buffers) {
-		// NOCOMMIT EXTREME HACK
-		if(NOMERGE_warn_on_device_buffer_resize) { return true; }
-
 		assert(m_buffer_locks_by_id.count(id) == 0);
 		for(auto bid : buffers) {
 			if(m_buffer_lock_infos[std::pair{bid, mid}].is_locked) return false;
@@ -285,12 +282,6 @@ namespace detail {
 	}
 
 	void buffer_manager::unlock(buffer_lock_id id) {
-		// NOCOMMIT EXTREME HACK
-		if(NOMERGE_warn_on_device_buffer_resize) {
-			// We probably didn't lock in the first place, avoid running into assertion below
-			return;
-		}
-
 		assert(m_buffer_locks_by_id.count(id) != 0);
 		for(auto bid : m_buffer_locks_by_id[id]) {
 			m_buffer_lock_infos[bid] = {};
