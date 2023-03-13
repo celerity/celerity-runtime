@@ -134,7 +134,7 @@ int main(int argc, char* argv[]) {
 
 		celerity::buffer<float, 2> left(celerity::range<2>{N, N});
 		celerity::buffer<float, 2> right(celerity::range<2>{N, N});
-		celerity::buffer<bool> equal(1);
+		celerity::buffer<bool> equal(1); // buffer instead of host object so result is broadcast to all hosts on the fence() below
 
 		read_hdf5_file(q, left, argv[2]);
 		read_hdf5_file(q, right, argv[3]);
@@ -153,7 +153,7 @@ int main(int argc, char* argv[]) {
 			});
 		});
 
-		const auto files_equal = celerity::experimental::fence(q, equal).get().get_data()[0];
+		const auto files_equal = celerity::experimental::fence(q, equal).get()[0];
 		fprintf(stderr, "=> Files are %sequal\n", files_equal ? "" : "NOT ");
 		return files_equal ? EXIT_SUCCESS : EXIT_FAILURE;
 	}

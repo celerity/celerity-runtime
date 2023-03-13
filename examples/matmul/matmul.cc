@@ -91,6 +91,6 @@ int main() {
 	verify(queue, mat_c_buf, passed_buf);
 
 	// The value of `passed` can differ between hosts if only part of the verification failed.
-	const auto passed = celerity::experimental::fence(queue, passed_buf).get();
+	const auto passed = celerity::experimental::fence(queue, passed_buf).get()[0];
 	return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }
