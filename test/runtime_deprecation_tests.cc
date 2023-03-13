@@ -134,27 +134,5 @@ namespace detail {
 		});
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "Kernels receiving cl::sycl::item<Dims> (deprecated) continue to work", "[handler][deprecated]") {
-		distr_queue q;
-
-		buffer<int, 1> buf1d{{1}};
-		q.submit([=](handler& cgh) {
-			accessor acc{buf1d, cgh, celerity::access::one_to_one{}, celerity::read_write, celerity::no_init};
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<1>{1}, [=](cl::sycl::item<1> id) { acc[id] = 0; });
-		});
-
-		buffer<int, 2> buf2d{{1, 1}};
-		q.submit([=](handler& cgh) {
-			accessor acc{buf2d, cgh, celerity::access::one_to_one{}, celerity::read_write, celerity::no_init};
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<2>{1, 1}, [=](cl::sycl::item<2> id) { acc[id] = 0; });
-		});
-
-		buffer<int, 3> buf3d{{1, 1, 1}};
-		q.submit([=](handler& cgh) {
-			accessor acc{buf3d, cgh, celerity::access::one_to_one{}, celerity::read_write, celerity::no_init};
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range<3>{1, 1, 1}, [=](cl::sycl::item<3> id) { acc[id] = 0; });
-		});
-	}
-
 } // namespace detail
 } // namespace celerity

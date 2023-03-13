@@ -417,22 +417,15 @@ namespace detail {
 	};
 
 	template <typename Kernel, int Dims, typename... Reducers>
-	inline void invoke_kernel_with_celerity_item(const Kernel& kernel, const id<Dims>& s_id, const range<Dims>& global_range, const id<Dims>& global_offset,
+	inline void invoke_kernel(const Kernel& kernel, const id<Dims>& s_id, const range<Dims>& global_range, const id<Dims>& global_offset,
 	    const id<Dims>& chunk_offset, Reducers&... reducers) {
 		kernel(make_item<Dims>(s_id + chunk_offset, global_offset, global_range), reducers...);
 	}
 
 	template <typename Kernel, int Dims, typename... Reducers>
-	inline void invoke_kernel_with_celerity_nd_item(const Kernel& kernel, const cl::sycl::nd_item<Dims>& s_item, const range<Dims>& global_range,
-	    const id<Dims>& global_offset, const id<Dims>& chunk_offset, const range<Dims>& group_range, const id<Dims>& group_offset, Reducers&... reducers) {
+	inline void invoke_kernel(const Kernel& kernel, const cl::sycl::nd_item<Dims>& s_item, const range<Dims>& global_range, const id<Dims>& global_offset,
+	    const id<Dims>& chunk_offset, const range<Dims>& group_range, const id<Dims>& group_offset, Reducers&... reducers) {
 		kernel(make_nd_item<Dims>(s_item, global_range, global_offset, chunk_offset, group_range, group_offset), reducers...);
-	}
-
-	template <typename Kernel, int Dims, typename... Reducers>
-	[[deprecated("Support for kernels receiving cl::sycl::item<Dims> will be removed in the future, change parameter type to celerity::item<Dims>")]] //
-	inline void
-	invoke_kernel_with_sycl_item(const Kernel& kernel, const cl::sycl::item<Dims>& s_item, Reducers&... reducers) {
-		kernel(s_item, reducers...);
 	}
 
 	template <typename Kernel, int Dims>
@@ -441,21 +434,15 @@ namespace detail {
 		// capturing those accessors is copied at least once during submission (see also live_pass_device_handler::submit_to_sycl).
 		// As of SYCL 2020 kernel functors are passed as const references, so we explicitly capture by value here.
 		return [=](auto s_item_or_id, auto&... reducers) {
-			if constexpr(std::is_invocable_v<Kernel, celerity::item<Dims>, decltype(reducers)...>) {
-				if constexpr(CELERITY_WORKAROUND(DPCPP) && std::is_same_v<id<Dims>, decltype(s_item_or_id)>) {
-					// CELERITY_WORKAROUND_LESS_OR_EQUAL: DPC++ passes a sycl::id instead of a sycl::item to kernels alongside reductions
-					invoke_kernel_with_celerity_item(kernel, s_item_or_id, global_range, global_offset, chunk_offset, reducers...);
-				} else {
-					// Explicit item constructor: ComputeCpp does not pass a sycl::item, but an implicitly convertible sycl::item_base (?) which does not have
-					// `sycl::id<> get_id()`
-					invoke_kernel_with_celerity_item(
-					    kernel, cl::sycl::item<Dims>{s_item_or_id}.get_id(), global_range, global_offset, chunk_offset, reducers...);
-				}
-			} else if constexpr(std::is_invocable_v<Kernel, cl::sycl::item<Dims>, decltype(reducers)...>) {
-				invoke_kernel_with_sycl_item(kernel, cl::sycl::item<Dims>{s_item_or_id}, reducers...);
+			static_assert(std::is_invocable_v<Kernel, celerity::item<Dims>, decltype(reducers)...>,
+			    "Kernel function must be invocable with celerity::item<Dims> and as many reducer objects as reductions passed to parallel_for");
+			if constexpr(CELERITY_WORKAROUND(DPCPP) && std::is_same_v<id<Dims>, decltype(s_item_or_id)>) {
+				// CELERITY_WORKAROUND_LESS_OR_EQUAL: DPC++ passes a sycl::id instead of a sycl::item to kernels alongside reductions
+				invoke_kernel(kernel, s_item_or_id, global_range, global_offset, chunk_offset, reducers...);
 			} else {
-				static_assert(constexpr_false<decltype(reducers)...>, "Kernel function must be invocable with celerity::item<Dims> (or cl::sycl::item<Dims>, "
-				                                                      "deprecated) and as many reducer objects as reductions passed to parallel_for");
+				// Explicit item constructor: ComputeCpp does not pass a sycl::item, but an implicitly convertible sycl::item_base (?) which does not have
+				// `sycl::id<> get_id()`
+				invoke_kernel(kernel, cl::sycl::item<Dims>{s_item_or_id}.get_id(), global_range, global_offset, chunk_offset, reducers...);
 			}
 		};
 	}
@@ -466,7 +453,7 @@ namespace detail {
 		return [=](cl::sycl::nd_item<Dims> s_item, auto&... reducers) {
 			static_assert(std::is_invocable_v<Kernel, celerity::nd_item<Dims>, decltype(reducers)...>,
 			    "Kernel function must be invocable with celerity::nd_item<Dims> or and as many reducer objects as reductions passed to parallel_for");
-			invoke_kernel_with_celerity_nd_item(kernel, s_item, global_range, global_offset, chunk_offset, group_range, group_offset, reducers...);
+			invoke_kernel(kernel, s_item, global_range, global_offset, chunk_offset, group_range, group_offset, reducers...);
 		};
 	}
 
