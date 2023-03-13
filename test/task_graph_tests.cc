@@ -707,7 +707,7 @@ namespace detail {
 		test_utils::maybe_print_graph(tm);
 	}
 
-	TEST_CASE("fences introduce data dependencies and movement", "[task_manager][task-graph][fence]") {
+	TEST_CASE("fences introduce data dependencies", "[task_manager][task-graph][fence]") {
 		task_manager tm(1, nullptr);
 		test_utils::mock_buffer_factory mbf(tm);
 		auto buf = mbf.create_buffer<1>({1});

@@ -835,13 +835,13 @@ namespace detail {
 		auto& inspector = ctx.get_inspector();
 
 		test_utils::mock_buffer_factory mbf(ctx);
-		auto buf = mbf.create_buffer<1>({1});
+		auto buf = mbf.create_buffer<1>({num_nodes});
 
 		const auto tid_a = test_utils::build_and_flush(
 		    ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); }));
 		const auto tid_fence = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_fence_task(tm, buf));
 		const auto tid_b = test_utils::build_and_flush(ctx, num_nodes,
-		    test_utils::add_host_task(tm, experimental::collective, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); }));
+		    test_utils::add_host_task(tm, experimental::collective, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, one_to_one{}); }));
 
 		maybe_print_graphs(ctx);
 

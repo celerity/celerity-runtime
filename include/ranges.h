@@ -137,7 +137,7 @@ struct subrange {
 	static constexpr int dims = Dims;
 
 	celerity::id<Dims> offset;
-	celerity::range<Dims> range = detail::range_cast<Dims>(celerity::range<3>(0, 0, 0));
+	celerity::range<Dims> range = detail::zero_range;
 
 	subrange() = default;
 
