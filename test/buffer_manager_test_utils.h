@@ -41,7 +41,7 @@ namespace test_utils {
 		}
 
 		template <typename DataT, int Dims>
-		range<Dims> get_backing_buffer_range(detail::buffer_id bid, access_target tgt, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset) {
+		range<Dims> get_backing_buffer_range(detail::buffer_id bid, access_target tgt, celerity::range<Dims> range, celerity::id<Dims> offset) {
 			if(tgt == access_target::host) {
 				const auto info = m_bm->access_host_buffer<DataT, Dims>(bid, access_mode::read, {offset, range});
 				return detail::range_cast<Dims>(info.backing_buffer_range);
@@ -51,7 +51,7 @@ namespace test_utils {
 		}
 
 		template <typename DataT, int Dims, cl::sycl::access::mode Mode, typename KernelName = class buffer_for_each, typename Callback>
-		void buffer_for_each(detail::buffer_id bid, access_target tgt, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset, Callback cb) {
+		void buffer_for_each(detail::buffer_id bid, access_target tgt, celerity::range<Dims> range, celerity::id<Dims> offset, Callback cb) {
 			const auto range3 = detail::range_cast<3>(range);
 			const auto offset3 = detail::id_cast<3>(offset);
 
@@ -61,8 +61,8 @@ namespace test_utils {
 				for(size_t i = offset3[0]; i < offset3[0] + range3[0]; ++i) {
 					for(size_t j = offset3[1]; j < offset3[1] + range3[1]; ++j) {
 						for(size_t k = offset3[2]; k < offset3[2] + range3[2]; ++k) {
-							const auto global_idx = cl::sycl::id<3>(i, j, k);
-							const cl::sycl::id<3> local_idx = global_idx - info.backing_buffer_offset;
+							const auto global_idx = celerity::id(i, j, k);
+							const celerity::id<3> local_idx = global_idx - info.backing_buffer_offset;
 							const size_t linear_idx = local_idx[0] * buf_range[1] * buf_range[2] + local_idx[1] * buf_range[2] + local_idx[2];
 							cb(detail::id_cast<Dims>(global_idx), static_cast<DataT*>(info.ptr)[linear_idx]);
 						}
@@ -75,10 +75,10 @@ namespace test_utils {
 				const auto buf_offset = detail::id_cast<Dims>(info.backing_buffer_offset);
 				const auto buf_range = detail::range_cast<Dims>(info.backing_buffer_range);
 				get_device_queue()
-				    .submit([&](cl::sycl::handler& cgh) {
+				    .submit([&](sycl::handler& cgh) {
 					    auto ptr = info.ptr;
-					    cgh.parallel_for<detail::bind_kernel_name<KernelName>>(range, [=](cl::sycl::id<Dims> global_idx) {
-						    global_idx += offset;
+					    cgh.parallel_for<detail::bind_kernel_name<KernelName>>(sycl::range<Dims>(range), [=](sycl::id<Dims> s_global_idx) {
+						    auto global_idx = celerity::id(s_global_idx) + offset;
 						    const auto local_idx = global_idx - buf_offset;
 						    cb(global_idx, static_cast<DataT*>(ptr)[detail::get_linear_index(buf_range, local_idx)]);
 					    });
@@ -88,7 +88,7 @@ namespace test_utils {
 		}
 
 		template <typename DataT, int Dims, typename KernelName = class buffer_reduce, typename ReduceT, typename Operation>
-		ReduceT buffer_reduce(detail::buffer_id bid, access_target tgt, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset, ReduceT init, Operation op) {
+		ReduceT buffer_reduce(detail::buffer_id bid, access_target tgt, celerity::range<Dims> range, celerity::id<Dims> offset, ReduceT init, Operation op) {
 			const auto range3 = detail::range_cast<3>(range);
 			const auto offset3 = detail::id_cast<3>(offset);
 
@@ -99,8 +99,8 @@ namespace test_utils {
 				for(size_t i = offset3[0]; i < offset3[0] + range3[0]; ++i) {
 					for(size_t j = offset3[1]; j < offset3[1] + range3[1]; ++j) {
 						for(size_t k = offset3[2]; k < offset3[2] + range3[2]; ++k) {
-							const auto global_idx = cl::sycl::id<3>(i, j, k);
-							const cl::sycl::id<3> local_idx = global_idx - info.backing_buffer_offset;
+							const auto global_idx = celerity::id<3>(i, j, k);
+							const celerity::id<3> local_idx = global_idx - info.backing_buffer_offset;
 							const size_t linear_idx = local_idx[0] * buf_range[1] * buf_range[2] + local_idx[1] * buf_range[2] + local_idx[2];
 							result = op(detail::id_cast<Dims>(global_idx), result, static_cast<DataT*>(info.ptr)[linear_idx]);
 						}
@@ -123,8 +123,8 @@ namespace test_utils {
 					    for(size_t i = offset3[0]; i < offset3[0] + range3[0]; ++i) {
 						    for(size_t j = offset3[1]; j < offset3[1] + range3[1]; ++j) {
 							    for(size_t k = offset3[2]; k < offset3[2] + range3[2]; ++k) {
-								    const auto global_idx = cl::sycl::id<3>(i, j, k);
-								    const cl::sycl::id<3> local_idx = global_idx - buf_offset;
+								    const auto global_idx = celerity::id<3>(i, j, k);
+								    const celerity::id<3> local_idx = global_idx - buf_offset;
 								    result_acc[0] = op(detail::id_cast<Dims>(global_idx), result_acc[0],
 								        ptr[detail::get_linear_index(detail::range_cast<Dims>(buf_range), detail::id_cast<Dims>(local_idx))]);
 							    }
@@ -147,7 +147,7 @@ namespace test_utils {
 
 		template <typename DataT, int Dims, access_mode Mode>
 		accessor<DataT, Dims, Mode, target::device> get_device_accessor(
-		    detail::live_pass_device_handler& cgh, detail::buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
+		    detail::live_pass_device_handler& cgh, detail::buffer_id bid, const celerity::range<Dims>& range, const celerity::id<Dims>& offset) {
 			auto buf_info = m_bm->access_device_buffer<DataT, Dims>(bid, Mode, {offset, range});
 			return detail::accessor_testspy::make_device_accessor<DataT, Dims, Mode>(static_cast<DataT*>(buf_info.ptr),
 			    detail::id_cast<Dims>(buf_info.backing_buffer_offset), detail::range_cast<Dims>(buf_info.backing_buffer_range));
@@ -155,7 +155,7 @@ namespace test_utils {
 
 		template <typename DataT, int Dims, access_mode Mode>
 		accessor<DataT, Dims, Mode, target::host_task> get_host_accessor(
-		    detail::buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
+		    detail::buffer_id bid, const celerity::range<Dims>& range, const celerity::id<Dims>& offset) {
 			auto buf_info = m_bm->access_host_buffer<DataT, Dims>(bid, Mode, {offset, range});
 			return detail::accessor_testspy::make_host_accessor<DataT, Dims, Mode>(subrange<Dims>(offset, range), static_cast<DataT*>(buf_info.ptr),
 			    detail::id_cast<Dims>(buf_info.backing_buffer_offset), detail::range_cast<Dims>(buf_info.backing_buffer_range),

@@ -21,14 +21,14 @@ namespace detail {
 		}
 	}
 
-	void graph_generator::add_buffer(buffer_id bid, const cl::sycl::range<3>& range) {
+	void graph_generator::add_buffer(buffer_id bid, const celerity::range<3>& range) {
 		// Initialize the whole range to all nodes, so that we always use local buffer ranges when they haven't been written to (on any node) yet.
 		// TODO: Consider better handling for when buffers are not host initialized
 		std::vector<node_id> all_nodes(m_num_nodes);
 		for(auto i = 0u; i < m_num_nodes; ++i) {
 			all_nodes[i] = i;
 			m_node_data[i].buffer_last_writer.emplace(bid, range);
-			m_node_data[i].buffer_last_writer.at(bid).update_region(subrange_to_grid_box({cl::sycl::id<3>(), range}), m_node_data[i].epoch_for_new_commands);
+			m_node_data[i].buffer_last_writer.at(bid).update_region(subrange_to_grid_box({celerity::id<3>(), range}), m_node_data[i].epoch_for_new_commands);
 		}
 
 		m_buffer_states.emplace(bid, distributed_state{{range, std::move(all_nodes)}});
@@ -173,8 +173,8 @@ namespace detail {
 		assert(tsk.get_type() == task_type::collective);
 
 		for(size_t nid = 0; nid < m_num_nodes; ++nid) {
-			auto offset = cl::sycl::id<1>{nid};
-			auto range = cl::sycl::range<1>{1};
+			auto offset = celerity::id<1>{nid};
+			auto range = celerity::range<1>{1};
 			const auto sr = subrange_cast<3>(subrange<1>{offset, range});
 			auto* cmd = m_cdag.create<execution_command>(nid, tsk.get_id(), sr);
 
@@ -206,7 +206,7 @@ namespace detail {
 
 	using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<cl::sycl::access::mode, GridRegion<3>>>;
 
-	buffer_requirements_map get_buffer_requirements_for_mapped_access(const task& tsk, subrange<3> sr, const cl::sycl::range<3> global_size) {
+	buffer_requirements_map get_buffer_requirements_for_mapped_access(const task& tsk, subrange<3> sr, const celerity::range<3> global_size) {
 		buffer_requirements_map result;
 		const auto& access_map = tsk.get_buffer_access_map();
 		const auto buffers = access_map.get_accessed_buffers();
@@ -509,7 +509,7 @@ namespace detail {
 
 		for(auto [bid, nids] : buffer_reduction_resolve_list) {
 			GridBox<3> box{GridPoint<3>{1, 1, 1}};
-			distributed_state state_after_reduction{cl::sycl::range<3>{1, 1, 1}};
+			distributed_state state_after_reduction{celerity::range<3>{1, 1, 1}};
 			state_after_reduction.region_sources.update_region(box, nids);
 			m_buffer_states.at(bid) = distributed_state{std::move(state_after_reduction)};
 		}

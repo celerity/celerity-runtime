@@ -229,12 +229,12 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 
 	template <access_mode M = Mode, int D = Dims>
-	std::enable_if_t<detail::access::mode_traits::is_producer(M) && M != access_mode::atomic && (D > 0), DataT&> operator[](id<Dims> index) const {
+	std::enable_if_t<detail::access::mode_traits::is_producer(M) && M != access_mode::atomic && (D > 0), DataT&> operator[](const id<Dims>& index) const {
 		return m_device_ptr[get_linear_offset(index)];
 	}
 
 	template <access_mode M = Mode, int D = Dims>
-	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), const DataT&> operator[](id<Dims> index) const {
+	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), const DataT&> operator[](const id<Dims>& index) const {
 		return m_device_ptr[get_linear_offset(index)];
 	}
 
@@ -248,8 +248,8 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
   private:
 	DataT* m_device_ptr = nullptr;
-	sycl::id<Dims> m_index_offset;
-	sycl::range<Dims> m_buffer_range = detail::zero_range;
+	celerity::id<Dims> m_index_offset;
+	celerity::range<Dims> m_buffer_range = detail::zero_range;
 
 	// Constructor for tests, called through accessor_testspy.
 	accessor(DataT* ptr, id<Dims> index_offset, range<Dims> buffer_range) : m_device_ptr(ptr), m_index_offset(index_offset), m_buffer_range(buffer_range) {
@@ -358,12 +358,12 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	}
 
 	template <access_mode M = Mode, int D = Dims>
-	std::enable_if_t<detail::access::mode_traits::is_producer(M) && (D > 0), DataT&> operator[](id<Dims> index) const {
+	std::enable_if_t<detail::access::mode_traits::is_producer(M) && (D > 0), DataT&> operator[](const id<Dims>& index) const {
 		return m_host_ptr[get_linear_offset(index)];
 	}
 
 	template <access_mode M = Mode, int D = Dims>
-	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), const DataT&> operator[](id<Dims> index) const {
+	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M) && (D > 0), const DataT&> operator[](const id<Dims>& index) const {
 		return m_host_ptr[get_linear_offset(index)];
 	}
 
@@ -471,7 +471,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	    : m_mapped_subrange(mapped_subrange), m_host_ptr(ptr), m_index_offset(backing_buffer_offset), m_buffer_range(backing_buffer_range),
 	      m_virtual_buffer_range(virtual_buffer_range) {}
 
-	size_t get_linear_offset(id<Dims> index) const { return detail::get_linear_index(m_buffer_range, index - m_index_offset); }
+	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_buffer_range, index - m_index_offset); }
 };
 
 
@@ -501,7 +501,7 @@ class local_accessor {
 	}
 
 	local_accessor(const local_accessor& other)
-	    : m_sycl_acc(other.sycl_cgh() ? sycl_accessor{other.m_allocation_size, *other.sycl_cgh()} : other.m_sycl_acc),
+	    : m_sycl_acc(other.sycl_cgh() ? sycl_accessor{sycl::range<Dims>(other.m_allocation_size), *other.sycl_cgh()} : other.m_sycl_acc),
 	      m_allocation_size(other.m_allocation_size), m_eventual_sycl_cgh(other.sycl_cgh() ? nullptr : other.m_eventual_sycl_cgh) {}
 #else
 	local_accessor(const range<Dims>& allocation_size, handler& cgh);
@@ -522,11 +522,12 @@ class local_accessor {
 
 	std::add_pointer_t<value_type> get_pointer() const noexcept { return m_sycl_acc.get_pointer(); }
 
-	// Workaround: ComputeCpp's legacy clang-8 has trouble deducing the return type of operator[] with decltype(auto), so we derive it manually.
-	// TODO replace decltype(...) with decltype(auto) once we require the new ComputeCpp (experimental) compiler.
-	inline decltype(std::declval<const sycl_accessor&>()[id<Dims>{}]) operator[](const id<Dims> index) const { return m_sycl_acc[index]; }
+	template <int D = Dims>
+	std::enable_if_t<(D > 0), DataT&> operator[](const id<Dims>& index) const {
+		return m_sycl_acc[sycl::id<Dims>(index)];
+	}
 
-	inline detail::subscript_result_t<Dims, const local_accessor> operator[](const size_t index) const { return detail::subscript<Dims>(*this, index); }
+	inline detail::subscript_result_t<Dims, const local_accessor> operator[](const size_t dim0) const { return detail::subscript<Dims>(*this, dim0); }
 
   private:
 	sycl_accessor m_sycl_acc;
@@ -536,7 +537,7 @@ class local_accessor {
 	static sycl_accessor make_placeholder_sycl_accessor() {
 #if CELERITY_WORKAROUND(DPCPP) || CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9)
 		detail::hack_null_sycl_handler null_cgh;
-		return sycl_accessor{detail::zero_range, null_cgh};
+		return sycl_accessor{sycl::range<sycl_dims>(celerity::range<sycl_dims>(detail::zero_range)), null_cgh};
 #else
 		return sycl_accessor{};
 #endif

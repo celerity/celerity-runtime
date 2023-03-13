@@ -131,9 +131,9 @@ namespace test_utils {
 	}
 
 	template <int Dims, typename F>
-	void for_each_in_range(sycl::range<Dims> range, sycl::id<Dims> offset, F&& f) {
+	void for_each_in_range(celerity::range<Dims> range, celerity::id<Dims> offset, F&& f) {
 		const auto range3 = detail::range_cast<3>(range);
-		sycl::id<3> index;
+		celerity::id<3> index;
 		for(index[0] = 0; index[0] < range3[0]; ++index[0]) {
 			for(index[1] = 0; index[1] < range3[1]; ++index[1]) {
 				for(index[2] = 0; index[2] < range3[2]; ++index[2]) {
@@ -144,7 +144,7 @@ namespace test_utils {
 	}
 
 	template <int Dims, typename F>
-	void for_each_in_range(sycl::range<Dims> range, F&& f) {
+	void for_each_in_range(celerity::range<Dims> range, F&& f) {
 		for_each_in_range(range, {}, f);
 	}
 
@@ -170,9 +170,9 @@ namespace test_utils {
 		friend class mock_buffer_factory;
 
 		detail::buffer_id m_id;
-		cl::sycl::range<Dims> m_size;
+		celerity::range<Dims> m_size;
 
-		mock_buffer(detail::buffer_id id, cl::sycl::range<Dims> size) : m_id(id), m_size(size) {}
+		mock_buffer(detail::buffer_id id, celerity::range<Dims> size) : m_id(id), m_size(size) {}
 	};
 
 	class mock_host_object {
@@ -315,7 +315,7 @@ namespace test_utils {
 		explicit mock_buffer_factory(cdag_test_context& ctx) : m_task_mngr(&ctx.get_task_manager()), m_ggen(&ctx.get_graph_generator()) {}
 
 		template <int Dims>
-		mock_buffer<Dims> create_buffer(cl::sycl::range<Dims> size, bool mark_as_host_initialized = false) {
+		mock_buffer<Dims> create_buffer(celerity::range<Dims> size, bool mark_as_host_initialized = false) {
 			const detail::buffer_id bid = m_next_buffer_id++;
 			const auto buf = mock_buffer<Dims>(bid, size);
 			if(m_task_mngr != nullptr) { m_task_mngr->add_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
@@ -341,10 +341,10 @@ namespace test_utils {
 
 	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
 	detail::task_id add_compute_task(
-	    detail::task_manager& tm, CGF cgf, cl::sycl::range<KernelDims> global_size = {1, 1}, cl::sycl::id<KernelDims> global_offset = {}) {
+	    detail::task_manager& tm, CGF cgf, celerity::range<KernelDims> global_size = {1, 1}, celerity::id<KernelDims> global_offset = {}) {
 		return tm.submit_command_group([&, gs = global_size, go = global_offset](handler& cgh) {
 			cgf(cgh);
-			cgh.parallel_for<KernelName>(gs, go, [](cl::sycl::id<KernelDims>) {});
+			cgh.parallel_for<KernelName>(gs, go, [](celerity::id<KernelDims>) {});
 		});
 	}
 
@@ -537,8 +537,8 @@ namespace test_utils {
 namespace Catch {
 
 template <int Dims>
-struct StringMaker<cl::sycl::id<Dims>> {
-	static std::string convert(const cl::sycl::id<Dims>& value) {
+struct StringMaker<celerity::id<Dims>> {
+	static std::string convert(const celerity::id<Dims>& value) {
 		switch(Dims) {
 		case 1: return fmt::format("{{{}}}", value[0]);
 		case 2: return fmt::format("{{{}, {}}}", value[0], value[1]);
@@ -549,8 +549,8 @@ struct StringMaker<cl::sycl::id<Dims>> {
 };
 
 template <int Dims>
-struct StringMaker<cl::sycl::range<Dims>> {
-	static std::string convert(const cl::sycl::range<Dims>& value) {
+struct StringMaker<celerity::range<Dims>> {
+	static std::string convert(const celerity::range<Dims>& value) {
 		switch(Dims) {
 		case 1: return fmt::format("{{{}}}", value[0]);
 		case 2: return fmt::format("{{{}, {}}}", value[0], value[1]);

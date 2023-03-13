@@ -22,15 +22,15 @@ namespace detail {
 
 		auto simple_1d = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(simple_1d)>(
-		        tm, [&](handler& cgh) {}, cl::sycl::range<1>{255}));
+		        tm, [&](handler& cgh) {}, celerity::range<1>{255}));
 
 		auto simple_2d = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(simple_2d)>(
-		        tm, [&](handler& cgh) {}, cl::sycl::range<2>{255, 19}));
+		        tm, [&](handler& cgh) {}, celerity::range<2>{255, 19}));
 
 		auto simple_3d = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(simple_3d)>(
-		        tm, [&](handler& cgh) {}, cl::sycl::range<3>{255, 19, 31}));
+		        tm, [&](handler& cgh) {}, celerity::range<3>{255, 19, 31}));
 
 		auto perfect_1d = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_nd_range_compute_task<class UKN(perfect_1d)>(
