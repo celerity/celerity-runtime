@@ -28,9 +28,9 @@ class buffer_snapshot {
   public:
 	buffer_snapshot() = default;
 
-	buffer_snapshot(buffer_snapshot&& other) : m_sr(other.m_sr), m_data(std::move(other.m_data)) { other.m_sr = {}; }
+	buffer_snapshot(buffer_snapshot&& other) noexcept : m_sr(other.m_sr), m_data(std::move(other.m_data)) { other.m_sr = {}; }
 
-	buffer_snapshot& operator=(buffer_snapshot&& other) {
+	buffer_snapshot& operator=(buffer_snapshot&& other) noexcept {
 		m_sr = other.m_sr, other.m_sr = {};
 		m_data = std::move(other.m_data);
 	}
@@ -43,9 +43,9 @@ class buffer_snapshot {
 
 	const T* get_data() const { return m_data.get(); }
 
-	inline const T& operator[](id<Dims> index) const { return m_data[detail::get_linear_index(m_sr.range, index)]; }
+	inline const T& operator[](const id<Dims> index) const { return m_data[detail::get_linear_index(m_sr.range, index)]; }
 
-	inline detail::subscript_result_t<Dims, const buffer_snapshot> operator[](size_t index) const { return detail::subscript<Dims>(*this, index); }
+	inline detail::subscript_result_t<Dims, const buffer_snapshot> operator[](const size_t index) const { return detail::subscript<Dims>(*this, index); }
 
   private:
 	template <typename U, int Dims2>
@@ -62,7 +62,7 @@ class buffer_snapshot {
 namespace celerity::detail {
 
 template <typename T>
-class host_object_fence_promise : public detail::fence_promise {
+class host_object_fence_promise final : public detail::fence_promise {
   public:
 	explicit host_object_fence_promise(const experimental::host_object<T>& obj) : m_host_object(obj) {}
 
@@ -76,7 +76,7 @@ class host_object_fence_promise : public detail::fence_promise {
 };
 
 template <typename DataT, int Dims>
-class buffer_fence_promise : public detail::fence_promise {
+class buffer_fence_promise final : public detail::fence_promise {
   public:
 	explicit buffer_fence_promise(const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) : m_buffer(buf), m_subrange(sr) {}
 
@@ -109,7 +109,7 @@ namespace celerity::experimental {
  * fence and wait operations or ensure that other independent command groups are eligible to run while the fence is executed.
  */
 template <typename T>
-[[nodiscard]] std::future<T> fence(celerity::distr_queue&, const experimental::host_object<T>& obj) {
+[[nodiscard]] std::future<T> fence(celerity::distr_queue& /* unused */, const experimental::host_object<T>& obj) {
 	static_assert(std::is_object_v<T>, "host_object<T&> and host_object<void> are not allowed as parameters to fence()");
 
 	detail::side_effect_map side_effects;
@@ -127,7 +127,7 @@ template <typename T>
  * fence and wait operations or ensure that other independent command groups are eligible to run while the fence is executed.
  */
 template <typename DataT, int Dims>
-[[nodiscard]] std::future<buffer_snapshot<DataT, Dims>> fence(celerity::distr_queue&, const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) {
+[[nodiscard]] std::future<buffer_snapshot<DataT, Dims>> fence(celerity::distr_queue& /* unused */, const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) {
 	detail::buffer_access_map access_map;
 	access_map.add_access(detail::get_buffer_id(buf),
 	    std::make_unique<detail::range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), access_mode::read, buf.get_range()));

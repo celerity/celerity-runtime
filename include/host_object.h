@@ -110,7 +110,7 @@ class host_object {
 
 	/// Constructs the object in-place with the given constructor arguments.
 	template <typename... CtorParams>
-	explicit host_object(const std::in_place_t, CtorParams&&... ctor_args) // requiring std::in_place avoids overriding copy and move constructors
+	explicit host_object(const std::in_place_t /* tag */, CtorParams&&... ctor_args) // requiring std::in_place avoids overriding copy and move constructors
 	    : m_shared_state(std::make_shared<state>(std::in_place, std::forward<CtorParams>(ctor_args)...)) {}
 
   private:
@@ -124,7 +124,7 @@ class host_object {
 		T instance;
 
 		template <typename... CtorParams>
-		explicit state(const std::in_place_t, CtorParams&&... ctor_args) : instance(std::forward<CtorParams>(ctor_args)...) {}
+		explicit state(const std::in_place_t /* tag */, CtorParams&&... ctor_args) : instance(std::forward<CtorParams>(ctor_args)...) {}
 	};
 
 	detail::host_object_id get_id() const { return m_shared_state->id; }

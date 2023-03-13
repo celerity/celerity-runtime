@@ -1109,7 +1109,7 @@ namespace detail {
 
 		q.submit([=](handler& cgh) {
 			accessor acc(buf, cgh, all{}, write_only, no_init);
-			cgh.parallel_for<class UKN(init)>(buf.get_range(), [=](celerity::item<2> item) { acc[item] = item.get_linear_id(); });
+			cgh.parallel_for<class UKN(init)>(buf.get_range(), [=](celerity::item<2> item) { acc[item] = static_cast<int>(item.get_linear_id()); });
 		});
 
 		const auto check_snapshot = [&](const subrange<2>& sr, const std::vector<int>& expected_data) {

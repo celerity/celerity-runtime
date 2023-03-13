@@ -154,14 +154,14 @@ int main(int argc, char* argv[]) {
 		});
 
 		const auto files_equal = celerity::experimental::fence(q, equal).get()[0];
-		fprintf(stderr, "=> Files are %sequal\n", files_equal ? "" : "NOT ");
+		fmt::print(stderr, "=> Files are {}equal\n", files_equal ? "" : "NOT ");
 		return files_equal ? EXIT_SUCCESS : EXIT_FAILURE;
 	}
 
-	fprintf(stderr,
-	    "Usage: %s --generate <out-file>               to generate random data\n"
-	    "       %s --transpose <in-file> <out-file>    to transpose\n"
-	    "       %s --compare <in-file> <out-file>      to compare for equality\n",
-	    argv[0], argv[0], argv[0]);
+	fmt::print(stderr,
+	    "Usage: {0} --generate <out-file>               to generate random data\n"
+	    "       {0} --transpose <in-file> <out-file>    to transpose\n"
+	    "       {0} --compare <in-file> <out-file>      to compare for equality\n",
+	    argv[0]);
 	return EXIT_FAILURE;
 }
