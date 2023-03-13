@@ -55,7 +55,7 @@ MAKE_PHANTOM_TYPE(command_id, size_t)
 MAKE_PHANTOM_TYPE(collective_group_id, size_t)
 MAKE_PHANTOM_TYPE(reduction_id, size_t)
 MAKE_PHANTOM_TYPE(host_object_id, size_t)
-MAKE_PHANTOM_TYPE(hydration_id, size_t);
+MAKE_PHANTOM_TYPE(hydration_id, size_t)
 MAKE_PHANTOM_TYPE(transfer_id, size_t)
 MAKE_PHANTOM_TYPE(device_id, size_t);
 MAKE_PHANTOM_TYPE(memory_id, size_t);
@@ -69,6 +69,12 @@ enum class side_effect_order { sequential };
 }
 
 namespace celerity::detail {
+
+constexpr memory_id host_memory_id = 0;
+
+inline constexpr collective_group_id non_collective(0);
+inline constexpr collective_group_id implicit_collective(1);
+inline constexpr collective_group_id first_explicit_collective(2);
 
 struct reduction_info {
 	reduction_id rid = 0;

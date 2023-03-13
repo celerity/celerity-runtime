@@ -43,6 +43,12 @@ namespace detail {
 	}
 
 	void linearize_subrange(const void* source_base_ptr, void* target_ptr, size_t elem_size, const range<3>& source_range, const subrange<3>& copy_sr) {
+#if TRACY_ENABLE
+		ZoneScoped;
+		const auto zone_text = fmt::format("{}", copy_sr);
+		ZoneText(zone_text.data(), zone_text.size());
+#endif
+
 		assert((id_cast<3>(copy_sr.offset) < id_cast<3>(source_range)) == cl::sycl::id<3>(1, 1, 1));
 		assert((id_cast<3>(copy_sr.offset + copy_sr.range) <= id_cast<3>(source_range)) == cl::sycl::id<3>(1, 1, 1));
 

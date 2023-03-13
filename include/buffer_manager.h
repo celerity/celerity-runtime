@@ -91,7 +91,7 @@ namespace detail {
 
 		using buffer_lifecycle_callback = std::function<void(buffer_lifecycle_event, buffer_id)>;
 
-		using device_buffer_factory = std::function<std::unique_ptr<buffer_storage>(const range<3>&, device_queue&)>;
+		using device_buffer_factory = std::function<std::unique_ptr<buffer_storage>(const range<3>&, device_queue&, cudaStream_t)>;
 		using host_buffer_factory = std::function<std::unique_ptr<buffer_storage>(const range<3>&)>;
 
 		struct buffer_info {
@@ -108,7 +108,7 @@ namespace detail {
 		/**
 		 * When requesting access to a host or device buffer through the buffer_manager, this is what is returned.
 		 */
-		struct access_info {
+		struct [[nodiscard("contains an async_event")]] access_info {
 			/**
 			 * This is a pointer into the *currently used* backing buffer for the requested virtual buffer.
 			 * This reference can become stale if the backing buffer needs to be resized by a subsequent access.
@@ -141,13 +141,14 @@ namespace detail {
 				std::unique_lock lock(m_mutex);
 				bid = m_buffer_count++;
 				m_buffers.emplace(std::piecewise_construct, std::tuple{bid}, std::tuple{m_local_devices.num_memories()});
-				auto device_factory = [](const ::celerity::range<3>& r, device_queue& q) {
-					return std::make_unique<device_buffer_storage<DataT, Dims>>(range_cast<Dims>(r), q);
+				auto device_factory = [](const ::celerity::range<3>& r, device_queue& q, cudaStream_t copy_stream) {
+					return std::make_unique<device_buffer_storage<DataT, Dims>>(range_cast<Dims>(r), q, copy_stream);
 				};
 				auto host_factory = [](const ::celerity::range<3>& r) { return std::make_unique<host_buffer_storage<DataT, Dims>>(range_cast<Dims>(r)); };
 				m_buffer_infos.emplace(
 				    bid, buffer_info{Dims, range, sizeof(DataT), is_host_initialized, {}, std::move(device_factory), std::move(host_factory)});
 				m_newest_data_location.emplace(bid, region_map<data_location>(range, data_location{}));
+				m_authoritative_source.emplace(bid, region_map<std::optional<memory_id>>(range, std::nullopt));
 
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 				m_buffer_types.emplace(bid, new buffer_type_guard<DataT, Dims>());
@@ -214,7 +215,21 @@ namespace detail {
 		 * - Host buffer might not be large enough.
 		 * - H->D transfers currently work better for contiguous copies.
 		 */
-		void set_buffer_data(buffer_id bid, const subrange<3>& sr, unique_payload_ptr in_linearized);
+		void set_buffer_data(buffer_id bid, const subrange<3>& sr, shared_payload_ptr in_linearized);
+
+		/**
+		 * Checks whether a broadcast for the given buffer and subrange is possible (i.e. all device memory is already allocated).
+		 *
+		 * @returns Returns true if the broadcast can be immediately performed, false if the broadcast is not possible.
+		 */
+		bool is_broadcast_possible(buffer_id bid, const subrange<3>& sr) const;
+
+		/**
+		 * Eagerly broadcasts the provided payload into all device memories for this buffer.
+		 *
+		 * Precondition: all device buffers must be allocated, and must not require resizing
+		 */
+		void immediately_broadcast_data(buffer_id bid, const subrange<3>& sr, void* in_linearized);
 
 		template <typename DataT, int Dims>
 		access_info access_device_buffer(
@@ -317,33 +332,23 @@ namespace detail {
 			std::vector<backing_buffer> m_backing_buffers;
 		};
 
-		struct staging_buffer {
-			staging_buffer(const size_t size, device_queue& queue) : buffer(range<1>(size), queue) {}
-
-			bool is_free = false;
-			device_buffer_storage<std::byte, 1> buffer;
-		};
-
 		struct transfer {
-			transfer(staging_buffer& buf, subrange<3> sr) : unconsumed(subrange_to_grid_box(sr)), sr(sr), m_buf(buf) {}
+			transfer(shared_payload_ptr linearized, subrange<3> sr) : unconsumed(subrange_to_grid_box(sr)), sr(sr), linearized(std::move(linearized)) {}
 
-			transfer(const transfer&) = delete;
-			transfer(transfer&& other) : unconsumed(std::move(other.unconsumed)), sr(std::move(other.sr)), m_buf(other.m_buf) { other.sr = {}; }
+			transfer(transfer&& other) noexcept : unconsumed(std::move(other.unconsumed)), sr(other.sr), linearized(std::move(other.linearized)) {
+				other.sr = {};
+			}
 
-			~transfer() {
-				if(sr.range.size() != 0) {
-					// CELERITY_WARN("Marking staging buffer as free {}", (void*)m_buf.buffer.get_pointer());
-					m_buf.is_free = true;
-				}
+			transfer& operator=(transfer&& other) noexcept {
+				unconsumed = std::move(other.unconsumed);
+				sr = other.sr, other.sr = {};
+				linearized = std::move(other.linearized);
+				return *this;
 			}
 
 			GridRegion<3> unconsumed; // which parts of it haven't been ingested onto a target memory yet
 			subrange<3> sr;           // where this transfer fits into the virtual buffer
-
-			device_buffer_storage<std::byte, 1>& get_buffer() { return m_buf.buffer; }
-
-		  private:
-			staging_buffer& m_buf;
+			shared_payload_ptr linearized;
 		};
 
 		struct resize_info {
@@ -387,12 +392,7 @@ namespace detail {
 		std::unordered_map<buffer_id, buffer_info> m_buffer_infos;
 		std::unordered_map<buffer_id, virtual_buffer> m_buffers;
 		std::unordered_map<buffer_id, region_map<data_location>> m_newest_data_location;
-
-		// FIXME: Extremely crude and stupid
-		std::vector<std::unique_ptr<staging_buffer>> m_staging_buffers;
-		device_id m_next_staging_allocation_device = 0;
-		staging_buffer& get_free_staging_buffer(const size_t size);
-
+		std::unordered_map<buffer_id, region_map<std::optional<memory_id>>> m_authoritative_source;
 		std::unordered_map<buffer_id, std::vector<transfer>> m_scheduled_transfers; // references on m_staging_buffers
 
 		std::unordered_map<std::pair<buffer_id, memory_id>, buffer_lock_info, utils::pair_hash> m_buffer_lock_infos;
@@ -404,6 +404,12 @@ namespace detail {
 		// In debug builds we can help out a bit by remembering the type and asserting it on every access.
 		std::unordered_map<buffer_id, std::unique_ptr<buffer_type_guard_base>> m_buffer_types;
 #endif
+
+		// NOCOMMIT
+		struct delete_cuda_stream {
+			void operator()(cudaStream_t s) { CELERITY_CUDA_CHECK(cudaStreamDestroy, s); }
+		};
+		std::unordered_map<device_id, std::unique_ptr<CUstream_st, delete_cuda_stream>> m_cuda_copy_streams;
 
 		static resize_info is_resize_required(const backing_buffer& buffer, cl::sycl::range<3> request_range, cl::sycl::id<3> request_offset) {
 			if(!buffer.is_allocated()) { return resize_info{true, request_offset, request_range}; }

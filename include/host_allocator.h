@@ -2,6 +2,7 @@
 
 #include <foonathan/memory/fallback_allocator.hpp>
 #include <foonathan/memory/memory_pool.hpp>
+#include <foonathan/memory/segregator.hpp>
 
 #include <sycl/sycl.hpp>
 
@@ -32,7 +33,10 @@ class cuda_pinned_memory_allocator {
 		// FIXME: We just assume that we're in a compatible CUDA context
 		const auto ret = cudaHostAlloc(&ptr, size, cudaHostAllocDefault | cudaHostAllocPortable);
 		if(ret != cudaSuccess) {
-			if(ret != cudaErrorMemoryAllocation) { CELERITY_ERROR("Call to cudaAllocHost failed due to unknown error"); }
+			if(ret != cudaErrorMemoryAllocation) {
+				CELERITY_CRITICAL("cudaHostAlloc: {}", cudaGetErrorString(ret));
+				abort();
+			}
 			return nullptr;
 		}
 		assert(reinterpret_cast<uintptr_t>(ptr) % alignment == 0);
@@ -41,8 +45,10 @@ class cuda_pinned_memory_allocator {
 	}
 
 	bool try_deallocate_node(void* node, const std::size_t size, const std::size_t alignment) {
-		const auto ret = cudaFreeHost(node);
-		if(ret != cudaSuccess) return false; // This might not have been a pinned allocation
+		if(const auto ret = cudaFreeHost(node); ret != cudaSuccess) {
+			fprintf(stderr, "cudaFreeHost: %s\n", cudaGetErrorString(ret));
+			return false; // This might not have been a pinned allocation
+		}
 		m_current_allocation -= size;
 		return true;
 	}
@@ -58,7 +64,11 @@ class cuda_pinned_memory_allocator {
 		// FIXME: We just assume that we're in a compatible CUDA context
 		const auto ret = cudaHostAlloc(&ptr, size, cudaHostAllocDefault | cudaHostAllocPortable);
 		if(ret != cudaSuccess) {
-			CELERITY_ERROR("Call to cudaAllocHost failed ({})", ret == cudaErrorMemoryAllocation ? "out of memory" : "unknown error");
+			if(ret != cudaErrorMemoryAllocation) {
+				CELERITY_CRITICAL("cudaHostAlloc: {}", cudaGetErrorString(ret));
+				abort();
+			}
+			CELERITY_ERROR("cudaHostAlloc", cudaGetErrorString(ret));
 			throw std::bad_alloc();
 		}
 		assert(reinterpret_cast<uintptr_t>(ptr) % alignment == 0);
@@ -69,9 +79,10 @@ class cuda_pinned_memory_allocator {
 	void deallocate_node(void* node, const std::size_t size, const std::size_t alignment) noexcept {
 		// FIXME: Can't log here because of static destruction order (spdlog no longer exists). => Don't use singleton for this.
 		// CELERITY_TRACE("Freeing {} bytes of pinned memory", size);
-		const auto ret = cudaFreeHost(node);
-		if(ret != cudaSuccess) {
+		if(const auto ret = cudaFreeHost(node); ret != cudaSuccess) {
 			// CELERITY_ERROR("Call to cudaFreeHost failed");
+			fprintf(stderr, "cudaFreeHost: %s\n", cudaGetErrorString(ret));
+			abort();
 		} else {
 			m_current_allocation -= size;
 		}
@@ -95,49 +106,49 @@ static_assert(foonathan::memory::is_raw_allocator<cuda_pinned_memory_allocator>:
 static_assert(foonathan::memory::is_composable_allocator<cuda_pinned_memory_allocator>::value);
 
 // FIXME: Ideally this shouldn't be a singleton; should probably be somehow tied to host_queue and/or buffer_manager. Works for now.
-// TODO: If remains a singleton it shouldn't be constructible :P
 class host_allocator {
   public:
 	static host_allocator& get_instance() {
-		if(instance == nullptr) { instance = std::make_unique<host_allocator>(); }
+		if(instance == nullptr) { instance = new host_allocator(); }
 		return *instance;
 	}
 
 	void* allocate(const size_t size) {
+		CELERITY_TRACE("allocating {} bytes on pinned memory pool, capacity left {} bytes", size, m_allocator.capacity_left());
 		// TODO: Make this templated to get alignof(T)?
-		const auto alignment = 1;
-		const auto node_size = get_pool_node_size();
+		// const auto alignment = 1;
+		const auto node_size = m_allocator.node_size();
 		const auto count = (size + node_size - 1) / node_size;
-		return m_allocator.allocate_array(count, node_size, alignment);
+		return m_allocator.allocate_array(count);
 	}
 
 	void free(void* ptr, const size_t size) {
-		const auto alignment = 1;
-		const auto node_size = get_pool_node_size();
+		// const auto alignment = 1;
+		const auto node_size = m_allocator.node_size();
 		const auto count = (size + node_size - 1) / node_size;
-		m_allocator.deallocate_array(ptr, count, node_size, alignment);
+		m_allocator.deallocate_array(ptr, count);
+		CELERITY_TRACE("deallocated {} bytes from pinned memory pool, capacity left {} bytes", size, m_allocator.capacity_left());
 	}
 
   private:
-	using memory_pool_t = foonathan::memory::memory_pool<foonathan::memory::node_pool, cuda_pinned_memory_allocator>;
-	using fallback_allocator_t = foonathan::memory::fallback_allocator<memory_pool_t, foonathan::memory::default_allocator>;
+	using memory_pool_t = foonathan::memory::memory_pool<foonathan::memory::array_pool, cuda_pinned_memory_allocator>;
+	// TODO fallback should use the cuda_pinned_memory_allocator directly for sizes > block_size, but we must not hide allocator bugs that way
+	// using fallback_allocator_t = foonathan::memory::fallback_allocator<memory_pool_t, foonathan::memory::null_allocator>;
 
-	inline static std::unique_ptr<host_allocator> instance;
+	inline static host_allocator* instance = nullptr; // singleton - leak on purpose to avoid static destruction order issues
 
-	static size_t get_pool_node_size() {
+	host_allocator() = default;
+
+	static memory_pool_t construct_allocator() {
 		using namespace foonathan::memory::literals;
-		return 10_MiB; // TODO: Figure out a good tradeoff here
-	}
-
-	static fallback_allocator_t construct_allocator() {
-		using namespace foonathan::memory::literals;
-		const auto max_pinned_memory = 8_GiB; // FIXME: This should be a configurable percentage of total host memory
-		auto pool = memory_pool_t(get_pool_node_size(), 1_GiB, max_pinned_memory);
-		return fallback_allocator_t{std::move(pool), foonathan::memory::default_allocator{}};
+		const auto pool_node_size = 1_MiB;      // pool returns memory in this granularity
+		const auto block_size = 256_MiB;          // pool allocates backing memory in this granularity (will be the maximum allocation size!)
+		const auto max_pinned_memory = 256_GiB; // FIXME: This should be a configurable percentage of total host memory
+		return memory_pool_t(pool_node_size, block_size, max_pinned_memory);
 	}
 
   private:
-	fallback_allocator_t m_allocator = construct_allocator();
+	memory_pool_t m_allocator = construct_allocator();
 };
 
 } // namespace celerity::detail

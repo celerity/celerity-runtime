@@ -10,6 +10,7 @@ if(CELERITY_ENABLE_CUDA_BACKEND AND NOT CUDAToolkit_FOUND)
 endif()
 
 add_library(celerity_backends STATIC backend.cc generic_backend.cc)
+set_property(TARGET celerity_backends PROPERTY CXX_STANDARD 17)
 target_include_directories(celerity_backends PRIVATE
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_SOURCE_DIR}/vendor/small_vector/source/include

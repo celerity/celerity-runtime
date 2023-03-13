@@ -143,15 +143,15 @@ TEMPLATE_TEST_CASE_SIG("memcpy_strided_device allows to copy between the same de
 
 	// Note: This may also be the generic backend
 	SECTION("using automatically selected backend") {
-		auto evt = backend::memcpy_strided_device(
-		    get_a_queue(src, tgt), src.ptr, tgt.ptr, sizeof(size_t), cp.source_range, cp.source_offset, cp.target_range, cp.target_offset, cp.copy_range);
+		auto evt = backend::memcpy_strided_device(get_a_queue(src, tgt), src.ptr, tgt.ptr, sizeof(size_t), cp.source_range, cp.source_offset, cp.target_range,
+		    cp.target_offset, cp.copy_range, nullptr);
 		// NOCOMMIT FIXME: SYCL event for generic backend never seems to complete for hipSYCL@2498022 - bug?
 		while(!evt.is_done()) {}
 	}
 
 	SECTION("using generic backend") {
-		auto evt = backend_detail::backend_operations<backend::type::generic>::memcpy_strided_device(
-		    get_a_queue(src, tgt), src.ptr, tgt.ptr, sizeof(size_t), cp.source_range, cp.source_offset, cp.target_range, cp.target_offset, cp.copy_range);
+		auto evt = backend_detail::backend_operations<backend::type::generic>::memcpy_strided_device(get_a_queue(src, tgt), src.ptr, tgt.ptr, sizeof(size_t),
+		    cp.source_range, cp.source_offset, cp.target_range, cp.target_offset, cp.copy_range, nullptr);
 		while(!evt.is_done()) {}
 	}
 

@@ -13,6 +13,8 @@ namespace celerity::detail {
  */
 class unique_payload_ptr : private std::unique_ptr<void, std::function<void(void*)>> {
   private:
+	friend class shared_payload_ptr;
+
 	using impl = std::unique_ptr<void, std::function<void(void*)>>;
 
   public:
@@ -22,6 +24,24 @@ class unique_payload_ptr : private std::unique_ptr<void, std::function<void(void
 	unique_payload_ptr(void* const ptr, deleter_type&& deleter) : impl{ptr, std::move(deleter)} {}
 
 	void* get_pointer() { return impl::get(); }
+	const void* get_pointer() const { return impl::get(); }
+
+	using impl::operator bool;
+};
+
+/*
+ * Owning smart pointer for arbitrary structures with a type-erased deleter.
+ */
+class shared_payload_ptr : private std::shared_ptr<const void> {
+  private:
+	using impl = std::shared_ptr<const void>;
+
+  public:
+	shared_payload_ptr() noexcept = default;
+	shared_payload_ptr(unique_payload_ptr&& owning) : impl(static_cast<unique_payload_ptr::impl&&>(owning)) {}
+	shared_payload_ptr(const shared_payload_ptr& base, const size_t offset_bytes)
+	    : impl(static_cast<const impl&>(base), static_cast<const std::byte*>(base.get_pointer()) + offset_bytes) {}
+
 	const void* get_pointer() const { return impl::get(); }
 
 	using impl::operator bool;
