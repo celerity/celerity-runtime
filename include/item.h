@@ -40,14 +40,13 @@ namespace detail {
 	struct sycl_group_has_get_group_id<Group, std::void_t<decltype(std::declval<Group>().get_group_id())>> : public std::true_type {};
 
 	template <int Dims>
-	id<Dims> get_sycl_group_id(const cl::sycl::group<Dims>& grp) {
-		if constexpr(sycl_group_has_get_group_id<cl::sycl::group<Dims>>::value) {
-			return grp.get_group_id();
+	celerity::id<Dims> get_sycl_group_id(const sycl::group<Dims>& grp) {
+		if constexpr(sycl_group_has_get_group_id<sycl::group<Dims>>::value) {
+			return celerity::id(grp.get_group_id());
 		} else {
-			return grp.get_id();
+			return celerity::id(grp.get_id());
 		}
 	}
-
 
 	template <int Dims>
 	inline cl::sycl::nd_item<Dims>& get_sycl_item(nd_item<Dims>& nd_item) {
@@ -125,11 +124,11 @@ class group {
 
 	size_t get_group_id(int dimension) const { return m_group_id[dimension]; }
 
-	id<Dims> get_local_id() const { return m_sycl_item.get_local_id(); }
+	id<Dims> get_local_id() const { return id(m_sycl_item.get_local_id()); }
 
 	size_t get_local_id(int dimension) const { return m_sycl_item.get_local_id(dimension); }
 
-	range<Dims> get_local_range() const { return m_sycl_item.get_local_range(); }
+	range<Dims> get_local_range() const { return range(m_sycl_item.get_local_range()); }
 
 	size_t get_local_range(int dimension) const { return m_sycl_item.get_local_range(dimension); }
 
@@ -137,7 +136,7 @@ class group {
 
 	size_t get_group_range(int dimension) const { return m_group_range[dimension]; }
 
-	range<Dims> get_max_local_range() const { return m_sycl_item.get_max_local_range(); }
+	range<Dims> get_max_local_range() const { return range(m_sycl_item.get_max_local_range()); }
 
 	size_t operator[](int dimension) const { return m_group_id[dimension]; }
 
@@ -205,11 +204,11 @@ class nd_item {
 
 	id<Dims> get_global_id() const { return m_global_id; }
 
-	size_t get_global_id(int dimension) const { return m_global_id[dimension]; }
+	size_t get_global_id(const int dimension) const { return m_global_id[dimension]; }
 
 	size_t get_global_linear_id() const { return detail::get_linear_index(m_global_range, m_global_id); }
 
-	id<Dims> get_local_id() const { return m_sycl_item.get_local_id(); }
+	id<Dims> get_local_id() const { return id(m_sycl_item.get_local_id()); }
 
 	size_t get_local_id(int dimension) const { return m_sycl_item.get_local_id(dimension); }
 
@@ -217,45 +216,45 @@ class nd_item {
 
 	group<Dims> get_group() const { return detail::make_group<Dims>(m_sycl_item, m_group_id, m_group_range); }
 
-	size_t get_group(int dimension) const { return m_group_id[dimension]; }
+	size_t get_group(const int dimension) const { return m_group_id[dimension]; }
 
 	size_t get_group_linear_id() const { return detail::get_linear_index(m_group_range, m_group_id); }
 
 	range<Dims> get_group_range() const { return m_group_range; }
 
-	size_t get_group_range(int dimension) const { return m_group_range[dimension]; }
+	size_t get_group_range(const int dimension) const { return m_group_range[dimension]; }
 
-	cl::sycl::sub_group get_sub_group() const { return m_sycl_item.get_sub_group(); }
+	sycl::sub_group get_sub_group() const { return m_sycl_item.get_sub_group(); }
 
 	range<Dims> get_global_range() const { return m_global_range; }
 
-	size_t get_global_range(int dimension) const { return m_global_range[dimension]; }
+	size_t get_global_range(const int dimension) const { return m_global_range[dimension]; }
 
-	range<Dims> get_local_range() const { return m_sycl_item.get_local_range(); }
+	range<Dims> get_local_range() const { return range(m_sycl_item.get_local_range()); }
 
-	size_t get_local_range(int dimension) const { return m_sycl_item.get_local_range(dimension); }
+	size_t get_local_range(const int dimension) const { return m_sycl_item.get_local_range(dimension); }
 
 	id<Dims> get_offset() const { return m_global_offset; }
 
-	celerity::nd_range<Dims> get_nd_range() const { return celerity::nd_range<Dims>{m_global_range, m_sycl_item.get_local_range(), m_global_offset}; }
+	celerity::nd_range<Dims> get_nd_range() const { return celerity::nd_range<Dims>(get_global_range(), get_local_range(), get_offset()); }
 
 	template <typename T>
-	cl::sycl::device_event async_work_group_copy(decorated_local_ptr<T> dest, decorated_global_ptr<T> src, size_t num_elements) const {
+	sycl::device_event async_work_group_copy(decorated_local_ptr<T> dest, decorated_global_ptr<T> src, size_t num_elements) const {
 		return m_sycl_item.async_work_group_copy(dest, src, num_elements);
 	}
 
 	template <typename T>
-	cl::sycl::device_event async_work_group_copy(decorated_global_ptr<T> dest, decorated_local_ptr<T> src, size_t num_elements) const {
+	sycl::device_event async_work_group_copy(decorated_global_ptr<T> dest, decorated_local_ptr<T> src, size_t num_elements) const {
 		return m_sycl_item.async_work_group_copy(dest, src, num_elements);
 	}
 
 	template <typename T>
-	cl::sycl::device_event async_work_group_copy(decorated_local_ptr<T> dest, decorated_global_ptr<T> src, size_t num_elements, size_t src_stride) const {
+	sycl::device_event async_work_group_copy(decorated_local_ptr<T> dest, decorated_global_ptr<T> src, size_t num_elements, size_t src_stride) const {
 		return m_sycl_item.async_work_group_copy(dest, src, num_elements, src_stride);
 	}
 
 	template <typename T>
-	cl::sycl::device_event async_work_group_copy(decorated_global_ptr<T> dest, decorated_local_ptr<T> src, size_t num_elements, size_t dest_stride) const {
+	sycl::device_event async_work_group_copy(decorated_global_ptr<T> dest, decorated_local_ptr<T> src, size_t num_elements, size_t dest_stride) const {
 		return m_sycl_item.async_work_group_copy(dest, src, num_elements, dest_stride);
 	}
 
@@ -283,8 +282,8 @@ class nd_item {
 
 	explicit nd_item(const cl::sycl::nd_item<Dims>& sycl_item, const range<Dims>& global_range, const id<Dims>& global_offset, const id<Dims>& chunk_offset,
 	    const range<Dims>& group_range, const id<Dims>& group_offset)
-	    : m_sycl_item(sycl_item), m_global_id(chunk_offset + sycl_item.get_global_id()), m_global_offset(global_offset), m_global_range(global_range),
-	      m_group_id(group_offset + detail::get_sycl_group_id(sycl_item.get_group())), m_group_range(group_range) {}
+	    : m_sycl_item(sycl_item), m_global_id(chunk_offset + celerity::id(sycl_item.get_global_id())), m_global_offset(global_offset),
+	      m_global_range(global_range), m_group_id(group_offset + detail::get_sycl_group_id(sycl_item.get_group())), m_group_range(group_range) {}
 };
 
 
@@ -312,7 +311,7 @@ inline T group_broadcast(const group<Dims>& g, T x, size_t local_linear_id) {
 
 template <int Dims, typename T>
 inline T group_broadcast(const group<Dims>& g, T x, const id<Dims>& local_id) {
-	return cl::sycl::group_broadcast(detail::get_sycl_item(g).get_group(), x, local_id);
+	return cl::sycl::group_broadcast(detail::get_sycl_item(g).get_group(), x, sycl::id<Dims>(local_id));
 };
 
 
@@ -435,7 +434,7 @@ using cl::sycl::select_from_group;
 
 template <int Dims, typename T>
 T select_from_group(const group<Dims>& g, T x, size_t remote_local_id) {
-	return cl::sycl::select_from_group(detail::get_sycl_item(g).get_group(), x, remote_local_id);
+	return cl::sycl::select_from_group(detail::get_sycl_item(g).get_group(), x, sycl::id<Dims>(remote_local_id));
 }
 
 #endif

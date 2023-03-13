@@ -32,7 +32,7 @@ namespace detail {
 		 * @param extent The maximum extent of a region that can be stored within the map (i.e. all regions are subsets of this).
 		 * @param default_value The default value is used to initialize the entire extent
 		 */
-		region_map(cl::sycl::range<3> extent, ValueType default_value = ValueType{}) : m_extent(extent) {
+		region_map(celerity::range<3> extent, ValueType default_value = ValueType{}) : m_extent(extent) {
 			m_default_initialized = GridRegion<3>(sycl_id_to_grid_point(extent));
 			m_region_values.push_back(std::make_pair(m_default_initialized, default_value));
 		}
@@ -108,7 +108,7 @@ namespace detail {
 		}
 
 	  private:
-		cl::sycl::range<3> m_extent;
+		celerity::range<3> m_extent;
 		// We keep track which parts are default initialized for merging
 		GridRegion<3> m_default_initialized;
 		// TODO: Look into using a different data structure for this.

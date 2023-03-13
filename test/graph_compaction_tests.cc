@@ -58,8 +58,8 @@ namespace detail {
 		test_utils::cdag_test_context ctx(num_nodes);
 		auto& inspector = ctx.get_inspector();
 		test_utils::mock_buffer_factory mbf(ctx);
-		auto full_range = cl::sycl::range<1>(300);
-		auto buf_a = mbf.create_buffer<2>(cl::sycl::range<2>(num_timesteps, full_range.size()));
+		auto full_range = celerity::range<1>(300);
+		auto buf_a = mbf.create_buffer<2>(celerity::range<2>(num_timesteps, full_range.size()));
 
 		const auto horizon_step_size = GENERATE(values({1, 3}));
 		const auto growing_reads = static_cast<bool>(GENERATE(values({0, 1}))); // use {ints} since Catch2 can't deal with {bool} because of vector<bool>
@@ -70,15 +70,15 @@ namespace detail {
 		for(int timestep = 0; timestep < num_timesteps; ++timestep) {
 			const auto read_accessor = [t = timestep, grow = growing_reads](celerity::chunk<1> chnk) {
 				celerity::subrange<2> ret;
-				ret.range = cl::sycl::range<2>(grow ? t : 1, chnk.global_size.get(0));
-				ret.offset = cl::sycl::id<2>(grow ? 0 : std::max(t - 1, 0), 0);
+				ret.range = celerity::range<2>(grow ? t : 1, chnk.global_size.get(0));
+				ret.offset = celerity::id<2>(grow ? 0 : std::max(t - 1, 0), 0);
 				return ret;
 			};
 
 			const auto latest_write_accessor = [t = timestep](celerity::chunk<1> chnk) {
 				celerity::subrange<2> ret;
-				ret.range = cl::sycl::range<2>(1, chnk.range.size());
-				ret.offset = cl::sycl::id<2>(t, chnk.offset.get(0));
+				ret.range = celerity::range<2>(1, chnk.range.size());
+				ret.offset = celerity::id<2>(t, chnk.offset.get(0));
 				return ret;
 			};
 
@@ -144,7 +144,7 @@ namespace detail {
 		auto& inspector = ctx.get_inspector();
 		auto& cdag = ctx.get_command_graph();
 		test_utils::mock_buffer_factory mbf(ctx);
-		auto full_range = cl::sycl::range<1>(100);
+		auto full_range = celerity::range<1>(100);
 		auto buf_a = mbf.create_buffer<1>(full_range);
 		auto buf_b = mbf.create_buffer<1>(full_range);
 
@@ -224,7 +224,7 @@ namespace detail {
 
 		auto& inspector = ctx.get_inspector();
 		test_utils::mock_buffer_factory mbf(ctx);
-		auto full_range = cl::sycl::range<1>(100);
+		auto full_range = celerity::range<1>(100);
 		auto buf_a = mbf.create_buffer<1>(full_range);
 
 		// write to buf_a on all nodes
@@ -265,7 +265,7 @@ namespace detail {
 
 		auto& inspector = ctx.get_inspector();
 		test_utils::mock_buffer_factory mbf(ctx);
-		const auto buf_range = cl::sycl::range<1>(100);
+		const auto buf_range = celerity::range<1>(100);
 
 		std::array<command_id, 2> initial_last_writer_ids = {-1, -1};
 		{

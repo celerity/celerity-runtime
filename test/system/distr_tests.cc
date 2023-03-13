@@ -33,19 +33,19 @@ namespace detail {
 #if !CELERITY_FEATURE_SCALAR_REDUCTIONS // DPC++ can handle at most 1 reduction variable per kernel
 		q.submit([=](handler& cgh) {
 			auto sum_r = reduction(sum_buf, cgh, cl::sycl::plus<size_t>{}, initialize_to_identity);
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range{N}, cl::sycl::id{1}, sum_r, [=](celerity::item<1> item, auto& sum) { sum += item.get_id(0); });
+			cgh.parallel_for<class UKN(kernel)>(celerity::range{N}, celerity::id{1}, sum_r, [=](celerity::item<1> item, auto& sum) { sum += item.get_id(0); });
 		});
 
 		q.submit([=](handler& cgh) {
 			auto max_r = reduction(max_buf, cgh, size_t{0}, unknown_identity_maximum<size_t>{}, initialize_to_identity);
 			cgh.parallel_for<class UKN(kernel)>(
-			    cl::sycl::range{N}, cl::sycl::id{1}, max_r, [=](celerity::item<1> item, auto& max) { max.combine(item.get_id(0)); });
+			    celerity::range{N}, celerity::id{1}, max_r, [=](celerity::item<1> item, auto& max) { max.combine(item.get_id(0)); });
 		});
 #else
 		q.submit([=](handler& cgh) {
 			auto sum_r = reduction(sum_buf, cgh, cl::sycl::plus<size_t>{}, initialize_to_identity);
 			auto max_r = reduction(max_buf, cgh, size_t{0}, unknown_identity_maximum<size_t>{}, initialize_to_identity);
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range{N}, cl::sycl::id{1}, sum_r, max_r, [=](celerity::item<1> item, auto& sum, auto& max) {
+			cgh.parallel_for<class UKN(kernel)>(celerity::range{N}, celerity::id{1}, sum_r, max_r, [=](celerity::item<1> item, auto& sum, auto& max) {
 				sum += item.get_id(0);
 				max.combine(item.get_id(0));
 			});
@@ -71,9 +71,9 @@ namespace detail {
 
 		const int N = 1000;
 		const int init = 42;
-		buffer<int, 1> sum(&init, cl::sycl::range{1});
+		buffer<int, 1> sum(&init, celerity::range{1});
 		q.submit([=](handler& cgh) {
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range{N}, reduction(sum, cgh, cl::sycl::plus<int>{} /* don't initialize to identity */),
+			cgh.parallel_for<class UKN(kernel)>(celerity::range{N}, reduction(sum, cgh, cl::sycl::plus<int>{} /* don't initialize to identity */),
 			    [=](celerity::item<1> item, auto& sum) { sum += 1; });
 		});
 
@@ -88,15 +88,15 @@ namespace detail {
 
 		const int N = 1000;
 
-		buffer<int, 1> sum(cl::sycl::range{1});
+		buffer<int, 1> sum(celerity::range{1});
 		q.submit([=](handler& cgh) {
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range{N},
+			cgh.parallel_for<class UKN(kernel)>(celerity::range{N},
 			    reduction(sum, cgh, cl::sycl::plus<int>{}, cl::sycl::property::reduction::initialize_to_identity{}),
 			    [=](celerity::item<1> item, auto& sum) { sum += 1; });
 		});
 
 		q.submit([=](handler& cgh) {
-			cgh.parallel_for<class UKN(kernel)>(cl::sycl::range{N}, reduction(sum, cgh, cl::sycl::plus<int>{} /* include previous reduction result */),
+			cgh.parallel_for<class UKN(kernel)>(celerity::range{N}, reduction(sum, cgh, cl::sycl::plus<int>{} /* include previous reduction result */),
 			    [=](celerity::item<1> item, auto& sum) { sum += 2; });
 		});
 
@@ -112,9 +112,9 @@ namespace detail {
 
 		const int N = 1000;
 
-		buffer<int, 1> sum(cl::sycl::range{1});
+		buffer<int, 1> sum(celerity::range{1});
 		q.submit([=](handler& cgh) {
-			cgh.parallel_for<class UKN(produce)>(cl::sycl::range{N},
+			cgh.parallel_for<class UKN(produce)>(celerity::range{N},
 			    reduction(sum, cgh, cl::sycl::plus<int>{}, cl::sycl::property::reduction::initialize_to_identity{}),
 			    [=](celerity::item<1> item, auto& sum) { sum += static_cast<int>(item.get_linear_id()); });
 		});
@@ -145,9 +145,9 @@ namespace detail {
 
 		{
 			distr_queue q;
-			buffer<int, 1> sum(cl::sycl::range{1});
+			buffer<int, 1> sum(celerity::range{1});
 			q.submit([=](handler& cgh) {
-				cgh.parallel_for<class UKN(produce)>(cl::sycl::range{100},
+				cgh.parallel_for<class UKN(produce)>(celerity::range{100},
 				    reduction(sum, cgh, cl::sycl::plus<int>{}, cl::sycl::property::reduction::initialize_to_identity{}),
 				    [](celerity::item<1> item, auto& sum) {});
 			});
@@ -175,21 +175,21 @@ namespace detail {
 	struct geometry {
 		struct {
 			size_t group_linear_id = 0;
-			cl::sycl::range<3> group_range = zero_range;
-			cl::sycl::id<3> local_id;
+			celerity::range<3> group_range = zero_range;
+			celerity::id<3> local_id;
 			size_t local_linear_id = 0;
-			cl::sycl::range<3> local_range = zero_range;
-			cl::sycl::id<3> global_id;
+			celerity::range<3> local_range = zero_range;
+			celerity::id<3> global_id;
 			size_t global_linear_id = 0;
-			cl::sycl::range<3> global_range = zero_range;
+			celerity::range<3> global_range = zero_range;
 		} item;
 		struct {
-			cl::sycl::id<3> group_id;
+			celerity::id<3> group_id;
 			size_t group_linear_id = 0;
-			cl::sycl::range<3> group_range = zero_range;
-			cl::sycl::id<3> local_id;
+			celerity::range<3> group_range = zero_range;
+			celerity::id<3> local_id;
 			size_t local_linear_id = 0;
-			cl::sycl::range<3> local_range = zero_range;
+			celerity::range<3> local_range = zero_range;
 		} group;
 	};
 
@@ -203,10 +203,10 @@ namespace detail {
 
 		// Note: We assume a local range size of 165 here, this may not be supported by all devices.
 
-		auto global_range = range_cast<Dims>(cl::sycl::range<3>{n * 4 * 3, 3 * 5, 2 * 11});
-		auto local_range = range_cast<Dims>(cl::sycl::range<3>{3, 5, 11});
+		auto global_range = range_cast<Dims>(celerity::range<3>{n * 4 * 3, 3 * 5, 2 * 11});
+		auto local_range = range_cast<Dims>(celerity::range<3>{3, 5, 11});
 		auto group_range = global_range / local_range;
-		auto global_offset = id_cast<Dims>(cl::sycl::id<3>{47, 53, 59});
+		auto global_offset = id_cast<Dims>(celerity::id<3>{47, 53, 59});
 
 		buffer<geometry, Dims> geo(global_range);
 
@@ -227,7 +227,7 @@ namespace detail {
 			accessor g{geo, cgh, celerity::access::all{}, read_only_host_task};
 			cgh.host_task(on_master_node, [=] {
 				for(size_t global_linear_id = 0; global_linear_id < global_range.size(); ++global_linear_id) {
-					cl::sycl::id<Dims> global_id;
+					celerity::id<Dims> global_id;
 					{
 						size_t relative = global_linear_id;
 						for(int nd = 0; nd < Dims; ++nd) {
@@ -266,32 +266,32 @@ namespace detail {
 
 		constexpr int N = 1000;
 
-		buffer<int, 1> buff_a(cl::sycl::range<1>{1});
+		buffer<int, 1> buff_a(celerity::range<1>{1});
 		q.submit([=](handler& cgh) {
 			accessor write_a{buff_a, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
-			cgh.parallel_for<class UKN(write_a)>(cl::sycl::range<1>{N}, [=](celerity::item<1> item) {});
+			cgh.parallel_for<class UKN(write_a)>(celerity::range<1>{N}, [=](celerity::item<1> item) {});
 		});
 
-		buffer<int, 1> buff_b(cl::sycl::range<1>{1});
+		buffer<int, 1> buff_b(celerity::range<1>{1});
 		q.submit([=](handler& cgh) {
 			accessor write_b{buff_b, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
-			cgh.parallel_for<class UKN(write_b)>(cl::sycl::range<1>{N}, [=](celerity::item<1> item) {});
+			cgh.parallel_for<class UKN(write_b)>(celerity::range<1>{N}, [=](celerity::item<1> item) {});
 		});
 
 		q.submit([=](handler& cgh) {
 			accessor read_write_a{buff_a, cgh, celerity::access::all{}, celerity::read_write};
-			cgh.parallel_for<class UKN(read_write_a)>(cl::sycl::range<1>{N}, [=](celerity::item<1> item) {});
+			cgh.parallel_for<class UKN(read_write_a)>(celerity::range<1>{N}, [=](celerity::item<1> item) {});
 		});
 
 		q.submit([=](handler& cgh) {
 			accessor read_write_a{buff_a, cgh, celerity::access::all{}, celerity::read_write};
 			accessor read_write_b{buff_b, cgh, celerity::access::all{}, celerity::read_write};
-			cgh.parallel_for<class UKN(read_write_a_b)>(cl::sycl::range<1>{N}, [=](celerity::item<1> item) {});
+			cgh.parallel_for<class UKN(read_write_a_b)>(celerity::range<1>{N}, [=](celerity::item<1> item) {});
 		});
 
 		q.submit([=](handler& cgh) {
 			accessor write_a{buff_a, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
-			cgh.parallel_for<class UKN(write_a_again)>(cl::sycl::range<1>{N}, [=](celerity::item<1> item) {});
+			cgh.parallel_for<class UKN(write_a_again)>(celerity::range<1>{N}, [=](celerity::item<1> item) {});
 		});
 
 		q.slow_full_sync();

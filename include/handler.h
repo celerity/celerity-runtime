@@ -417,9 +417,9 @@ namespace detail {
 	};
 
 	template <typename Kernel, int Dims, typename... Reducers>
-	inline void invoke_kernel(const Kernel& kernel, const id<Dims>& s_id, const range<Dims>& global_range, const id<Dims>& global_offset,
+	inline void invoke_kernel(const Kernel& kernel, const sycl::id<Dims>& s_id, const range<Dims>& global_range, const id<Dims>& global_offset,
 	    const id<Dims>& chunk_offset, Reducers&... reducers) {
-		kernel(make_item<Dims>(s_id + chunk_offset, global_offset, global_range), reducers...);
+		kernel(make_item<Dims>(celerity::id<Dims>(s_id) + chunk_offset, global_offset, global_range), reducers...);
 	}
 
 	template <typename Kernel, int Dims, typename... Reducers>
@@ -436,7 +436,7 @@ namespace detail {
 		return [=](auto s_item_or_id, auto&... reducers) {
 			static_assert(std::is_invocable_v<Kernel, celerity::item<Dims>, decltype(reducers)...>,
 			    "Kernel function must be invocable with celerity::item<Dims> and as many reducer objects as reductions passed to parallel_for");
-			if constexpr(CELERITY_WORKAROUND(DPCPP) && std::is_same_v<id<Dims>, decltype(s_item_or_id)>) {
+			if constexpr(CELERITY_WORKAROUND(DPCPP) && std::is_same_v<sycl::id<Dims>, decltype(s_item_or_id)>) {
 				// CELERITY_WORKAROUND_LESS_OR_EQUAL: DPC++ passes a sycl::id instead of a sycl::item to kernels alongside reductions
 				invoke_kernel(kernel, s_item_or_id, global_range, global_offset, chunk_offset, reducers...);
 			} else {
@@ -601,10 +601,11 @@ void handler::parallel_for_kernel_and_reductions(range<Dims> global_range, id<Di
 		} else if constexpr(!CELERITY_FEATURE_SCALAR_REDUCTIONS && sizeof...(reductions) > 1) {
 			static_assert(detail::constexpr_false<Kernel>, "DPC++ currently does not support more than one reduction variable per kernel");
 		} else if constexpr(std::is_same_v<KernelFlavor, detail::simple_kernel_flavor>) {
-			detail::invoke_sycl_parallel_for<KernelName>(
-			    cgh, chunk_range, detail::make_sycl_reduction(reductions)..., detail::bind_simple_kernel(kernel, global_range, global_offset, chunk_offset));
+			detail::invoke_sycl_parallel_for<KernelName>(cgh, sycl::range<Dims>(chunk_range), detail::make_sycl_reduction(reductions)...,
+			    detail::bind_simple_kernel(kernel, global_range, global_offset, chunk_offset));
 		} else if constexpr(std::is_same_v<KernelFlavor, detail::nd_range_kernel_flavor>) {
-			detail::invoke_sycl_parallel_for<KernelName>(cgh, cl::sycl::nd_range{chunk_range, local_range}, detail::make_sycl_reduction(reductions)...,
+			detail::invoke_sycl_parallel_for<KernelName>(cgh, cl::sycl::nd_range{sycl::range<Dims>(chunk_range), sycl::range<Dims>(local_range)},
+			    detail::make_sycl_reduction(reductions)...,
 			    detail::bind_nd_range_kernel(kernel, global_range, global_offset, chunk_offset, global_range / local_range, chunk_offset / local_range));
 		} else {
 			static_assert(detail::constexpr_false<KernelFlavor>);

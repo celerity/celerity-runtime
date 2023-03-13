@@ -27,9 +27,9 @@ namespace detail {
 		const auto chunk1d = chunk<1>{1, 2, 3};
 		const auto chunk2d = chunk<2>{{1, 1}, {2, 2}, {3, 3}};
 		const auto chunk3d = chunk<3>{{1, 1, 1}, {2, 2, 2}, {3, 3, 3}};
-		const auto range1d = cl::sycl::range<1>{4};
-		const auto range2d = cl::sycl::range<2>{4, 4};
-		const auto range3d = cl::sycl::range<3>{4, 4, 4};
+		const auto range1d = range<1>{4};
+		const auto range2d = range<2>{4, 4};
+		const auto range3d = range<3>{4, 4, 4};
 		const auto subrange1d = subrange<1>{{}, range1d};
 		const auto subrange2d = subrange<2>{{}, range2d};
 		const auto subrange3d = subrange<3>{{}, range3d};
@@ -54,7 +54,7 @@ namespace detail {
 		distr_queue q;
 
 		std::vector<char> memory1d(10);
-		buffer<char, 1> buf1d(memory1d.data(), cl::sycl::range<1>(10));
+		buffer<char, 1> buf1d(memory1d.data(), range<1>(10));
 
 		q.submit([=](handler& cgh) {
 			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, target::host_task>(cgh, all{});
@@ -72,7 +72,7 @@ namespace detail {
 
 		q.submit([=](handler& cgh) {
 			auto b = buf1d.get_access<cl::sycl::access::mode::discard_write, target::host_task>(cgh, one_to_one{});
-			cgh.host_task(cl::sycl::range<1>(6), cl::sycl::id<1>(2), [=](partition<1> part) {
+			cgh.host_task(range<1>(6), id<1>(2), [=](partition<1> part) {
 				auto [ptr, layout] = b.get_host_memory(part);
 				auto& dims = layout.get_dimensions();
 				REQUIRE(dims.size() == 1);
@@ -86,11 +86,11 @@ namespace detail {
 		});
 
 		std::vector<char> memory2d(10 * 10);
-		buffer<char, 2> buf2d(memory2d.data(), cl::sycl::range<2>(10, 10));
+		buffer<char, 2> buf2d(memory2d.data(), range<2>(10, 10));
 
 		q.submit([=](handler& cgh) {
 			auto b = buf2d.get_access<cl::sycl::access::mode::discard_write, target::host_task>(cgh, one_to_one{});
-			cgh.host_task(cl::sycl::range<2>(5, 6), cl::sycl::id<2>(1, 2), [=](partition<2> part) {
+			cgh.host_task(range<2>(5, 6), id<2>(1, 2), [=](partition<2> part) {
 				auto [ptr, layout] = b.get_host_memory(part);
 				auto& dims = layout.get_dimensions();
 				REQUIRE(dims.size() == 2);
@@ -107,11 +107,11 @@ namespace detail {
 		});
 
 		std::vector<char> memory3d(10 * 10 * 10);
-		buffer<char, 3> buf3d(memory3d.data(), cl::sycl::range<3>(10, 10, 10));
+		buffer<char, 3> buf3d(memory3d.data(), range<3>(10, 10, 10));
 
 		q.submit([=](handler& cgh) {
 			auto b = buf3d.get_access<cl::sycl::access::mode::discard_write, target::host_task>(cgh, one_to_one{});
-			cgh.host_task(cl::sycl::range<3>(5, 6, 7), cl::sycl::id<3>(1, 2, 3), [=](partition<3> part) {
+			cgh.host_task(range<3>(5, 6, 7), id<3>(1, 2, 3), [=](partition<3> part) {
 				auto [ptr, layout] = b.get_host_memory(part);
 				auto& dims = layout.get_dimensions();
 				REQUIRE(dims.size() == 3);

@@ -12,7 +12,7 @@ namespace detail {
 		m_task_buffer.put(std::move(reserve), task::make_epoch(initial_epoch_task, epoch_action::none));
 	}
 
-	void task_manager::add_buffer(buffer_id bid, const cl::sycl::range<3>& range, bool host_initialized) {
+	void task_manager::add_buffer(buffer_id bid, const celerity::range<3>& range, bool host_initialized) {
 		m_buffers_last_writers.emplace(bid, range);
 		if(host_initialized) { m_buffers_last_writers.at(bid).update_region(subrange_to_grid_box(subrange<3>({}, range)), m_epoch_for_new_tasks); }
 	}

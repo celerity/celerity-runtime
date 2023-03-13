@@ -92,7 +92,7 @@ namespace detail {
 		using host_buffer_factory = std::function<std::unique_ptr<buffer_storage>(const range<3>&)>;
 
 		struct buffer_info {
-			cl::sycl::range<3> range = {1, 1, 1};
+			celerity::range<3> range = {1, 1, 1};
 			size_t element_size = 0;
 			bool is_host_initialized;
 			std::string debug_name = {};
@@ -128,7 +128,7 @@ namespace detail {
 		buffer_manager(device_queue& queue, buffer_lifecycle_callback lifecycle_cb);
 
 		template <typename DataT, int Dims>
-		buffer_id register_buffer(cl::sycl::range<3> range, const DataT* host_init_ptr = nullptr) {
+		buffer_id register_buffer(celerity::range<3> range, const DataT* host_init_ptr = nullptr) {
 			buffer_id bid;
 			const bool is_host_initialized = host_init_ptr != nullptr;
 			{
@@ -268,10 +268,10 @@ namespace detail {
 	  private:
 		struct backing_buffer {
 			std::unique_ptr<buffer_storage> storage = nullptr;
-			cl::sycl::id<3> offset;
+			celerity::id<3> offset;
 
-			backing_buffer(std::unique_ptr<buffer_storage> storage, cl::sycl::id<3> offset) : storage(std::move(storage)), offset(offset) {}
-			backing_buffer() : backing_buffer(nullptr, cl::sycl::id<3>{0, 0, 0}) {}
+			backing_buffer(std::unique_ptr<buffer_storage> storage, celerity::id<3> offset) : storage(std::move(storage)), offset(offset) {}
+			backing_buffer() : backing_buffer(nullptr, celerity::id<3>{0, 0, 0}) {}
 
 			bool is_allocated() const { return storage != nullptr; }
 
@@ -279,7 +279,7 @@ namespace detail {
 			 * A backing buffer is often smaller than the "virtual" buffer that Celerity applications operate on.
 			 * Given an offset in the virtual buffer, this function returns the local offset, relative to the backing buffer.
 			 */
-			cl::sycl::id<3> get_local_offset(const cl::sycl::id<3>& virtual_offset) const { return virtual_offset - offset; }
+			celerity::id<3> get_local_offset(const celerity::id<3>& virtual_offset) const { return virtual_offset - offset; }
 		};
 
 		struct virtual_buffer {
@@ -294,8 +294,8 @@ namespace detail {
 
 		struct resize_info {
 			bool resize_required = false;
-			cl::sycl::id<3> new_offset = {};
-			cl::sycl::range<3> new_range = {1, 1, 1};
+			celerity::id<3> new_offset = {};
+			celerity::range<3> new_range = {1, 1, 1};
 		};
 
 		enum class data_location { nowhere, host, device, host_and_device };
@@ -341,17 +341,17 @@ namespace detail {
 		std::unordered_map<buffer_id, std::unique_ptr<buffer_type_guard_base>> m_buffer_types;
 #endif
 
-		static resize_info is_resize_required(const backing_buffer& buffer, cl::sycl::range<3> request_range, cl::sycl::id<3> request_offset) {
+		static resize_info is_resize_required(const backing_buffer& buffer, celerity::range<3> request_range, celerity::id<3> request_offset) {
 			assert(buffer.is_allocated());
 
 			// Empty-range buffer requirements never count towards the bounding box
 			if(request_range.size() == 0) { return resize_info{}; }
 			if(buffer.storage->get_range().size() == 0) { return resize_info{true, request_offset, request_range}; }
 
-			const cl::sycl::range<3> old_abs_range = range_cast<3>(buffer.offset + buffer.storage->get_range());
-			const cl::sycl::range<3> new_abs_range = range_cast<3>(request_offset + request_range);
-			const bool is_inside_old_range = ((request_offset >= buffer.offset) == cl::sycl::id<3>(true, true, true))
-			                                 && ((new_abs_range <= old_abs_range) == cl::sycl::range<3>(true, true, true));
+			const celerity::range<3> old_abs_range = range_cast<3>(buffer.offset + buffer.storage->get_range());
+			const celerity::range<3> new_abs_range = range_cast<3>(request_offset + request_range);
+			const bool is_inside_old_range = ((request_offset >= buffer.offset) == celerity::id<3>(true, true, true))
+			                                 && ((new_abs_range <= old_abs_range) == celerity::range<3>(true, true, true));
 			resize_info result;
 			if(!is_inside_old_range) {
 				result.resize_required = true;

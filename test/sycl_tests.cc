@@ -38,7 +38,7 @@ TEST_CASE_METHOD(test_utils::device_queue_fixture, "SYCL has working simple scal
 	sycl::buffer<int> buf{1};
 
 	get_device_queue().get_sycl_queue().submit([&](sycl::handler& cgh) {
-		cgh.parallel_for(range<1>{N}, sycl::reduction(buf, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
+		cgh.parallel_for(sycl::range<1>{N}, sycl::reduction(buf, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
 		    [](auto, auto& r) { r.combine(1); });
 	});
 

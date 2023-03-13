@@ -23,8 +23,8 @@ namespace detail {
 
 		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
-		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
-		auto buf_b = mbf.create_buffer(cl::sycl::range<1>(128));
+		auto buf_a = mbf.create_buffer(celerity::range<1>(128));
+		auto buf_b = mbf.create_buffer(celerity::range<1>(128));
 
 		SECTION("true dependencies") {
 			const auto tid_a = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
@@ -105,7 +105,7 @@ namespace detail {
 
 		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
-		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
+		auto buf = mbf.create_buffer(celerity::range<1>(128));
 
 		const auto tid_a = test_utils::add_compute_task<class UKN(task_a)>(tm, [&](handler& cgh) {
 			buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 64}});
@@ -123,7 +123,7 @@ namespace detail {
 		using namespace cl::sycl::access;
 		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
-		auto buf = mbf.create_buffer(cl::sycl::range<1>(128));
+		auto buf = mbf.create_buffer(celerity::range<1>(128));
 
 		// Write to the full buffer
 		const auto tid_a = test_utils::add_compute_task<class UKN(task_a)>(tm, [&](handler& cgh) {
@@ -152,9 +152,9 @@ namespace detail {
 		using namespace cl::sycl::access;
 		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
-		auto host_init_buf = mbf.create_buffer(cl::sycl::range<1>(128), true);
-		auto non_host_init_buf = mbf.create_buffer(cl::sycl::range<1>(128), false);
-		auto artificial_dependency_buf = mbf.create_buffer(cl::sycl::range<1>(1), false);
+		auto host_init_buf = mbf.create_buffer(celerity::range<1>(128), true);
+		auto non_host_init_buf = mbf.create_buffer(celerity::range<1>(128), false);
+		auto artificial_dependency_buf = mbf.create_buffer(celerity::range<1>(1), false);
 
 		const auto tid_a = test_utils::add_compute_task<class UKN(task_a)>(tm, [&](handler& cgh) {
 			host_init_buf.get_access<mode::read>(cgh, fixed<1>{{0, 128}});
@@ -204,7 +204,7 @@ namespace detail {
 		for(const auto& mode_set : rw_mode_sets) {
 			task_manager tm{1, nullptr};
 			test_utils::mock_buffer_factory mbf(tm);
-			auto buf = mbf.create_buffer(cl::sycl::range<1>(128), true);
+			auto buf = mbf.create_buffer(celerity::range<1>(128), true);
 
 			const auto tid_a = test_utils::add_compute_task<class UKN(task_a)>(tm, [&](handler& cgh) {
 				for(const auto& m : mode_set) {
@@ -226,7 +226,7 @@ namespace detail {
 				CAPTURE(producer_mode);
 				task_manager tm{1, nullptr};
 				test_utils::mock_buffer_factory mbf(tm);
-				auto buf = mbf.create_buffer(cl::sycl::range<1>(128), false);
+				auto buf = mbf.create_buffer(celerity::range<1>(128), false);
 
 				const task_id tid_a = test_utils::add_compute_task<class UKN(task_a)>(tm, [&](handler& cgh) {
 					dispatch_get_access(buf, cgh, producer_mode, fixed<1>{{0, 128}});
@@ -299,7 +299,7 @@ namespace detail {
 	TEST_CASE("task_manager keeps track of max pseudo critical path length and task front", "[task_manager][task-graph][task-front]") {
 		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
-		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
+		auto buf_a = mbf.create_buffer(celerity::range<1>(128));
 
 		const auto tid_a = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 			buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
@@ -325,7 +325,7 @@ namespace detail {
 		tm.set_horizon_step(2);
 
 		test_utils::mock_buffer_factory mbf(tm);
-		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
+		auto buf_a = mbf.create_buffer(celerity::range<1>(128));
 
 		test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128})); });
 
@@ -381,8 +381,8 @@ namespace detail {
 		tm.set_horizon_step(2);
 
 		test_utils::mock_buffer_factory mbf(tm);
-		auto buf_a = mbf.create_buffer(cl::sycl::range<1>(128));
-		auto buf_b = mbf.create_buffer(cl::sycl::range<1>(128));
+		auto buf_a = mbf.create_buffer(celerity::range<1>(128));
+		auto buf_b = mbf.create_buffer(celerity::range<1>(128));
 
 		task_id tid_1 = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
 			buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 64}));
@@ -451,7 +451,7 @@ namespace detail {
 
 		task_id initial_last_writer_id = -1;
 		{
-			auto buf = mbf.create_buffer(cl::sycl::range<1>(1), true);
+			auto buf = mbf.create_buffer(celerity::range<1>(1), true);
 			const auto tid = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::read_write>(cgh, all{}); });
 			const auto& deps = tm.get_task(tid)->get_dependencies();
 			CHECK(std::distance(deps.begin(), deps.end()) == 1);
@@ -461,7 +461,7 @@ namespace detail {
 
 		// Create a bunch of tasks to trigger horizon cleanup
 		{
-			auto buf = mbf.create_buffer(cl::sycl::range<1>(1));
+			auto buf = mbf.create_buffer(celerity::range<1>(1));
 			task_id last_executed_horizon = 0;
 			// We need 7 tasks to generate a pseudo-critical path length of 6 (3x2 horizon step size),
 			// and another one that triggers the actual deferred deletion.
@@ -478,7 +478,7 @@ namespace detail {
 		INFO("initial last writer with id " << initial_last_writer_id << " has been deleted");
 		CHECK_FALSE(tm.has_task(initial_last_writer_id));
 
-		auto buf = mbf.create_buffer(cl::sycl::range<1>(1), true);
+		auto buf = mbf.create_buffer(celerity::range<1>(1), true);
 		const auto tid = test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::read_write>(cgh, all{}); });
 		const auto& deps = tm.get_task(tid)->get_dependencies();
 		CHECK(std::distance(deps.begin(), deps.end()) == 1);

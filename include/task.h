@@ -69,7 +69,7 @@ namespace detail {
 		 * @returns The region obtained by merging the results of all range-mappers for this buffer and mode
 		 */
 		GridRegion<3> get_requirements_for_access(
-		    buffer_id bid, cl::sycl::access::mode mode, int kernel_dims, const subrange<3>& sr, const cl::sycl::range<3>& global_size) const;
+		    buffer_id bid, cl::sycl::access::mode mode, int kernel_dims, const subrange<3>& sr, const celerity::range<3>& global_size) const;
 
 	  private:
 		std::unordered_multimap<buffer_id, std::unique_ptr<range_mapper_base>> m_map;
@@ -109,9 +109,9 @@ namespace detail {
 
 	struct task_geometry {
 		int dimensions = 0;
-		cl::sycl::range<3> global_size{0, 0, 0};
-		cl::sycl::id<3> global_offset{};
-		cl::sycl::range<3> granularity{1, 1, 1};
+		celerity::range<3> global_size{0, 0, 0};
+		celerity::id<3> global_offset{};
+		celerity::range<3> granularity{1, 1, 1};
 	};
 
 	class task : public intrusive_graph_node<task> {
@@ -132,11 +132,11 @@ namespace detail {
 
 		int get_dimensions() const { return m_geometry.dimensions; }
 
-		cl::sycl::range<3> get_global_size() const { return m_geometry.global_size; }
+		celerity::range<3> get_global_size() const { return m_geometry.global_size; }
 
-		cl::sycl::id<3> get_global_offset() const { return m_geometry.global_offset; }
+		celerity::id<3> get_global_offset() const { return m_geometry.global_offset; }
 
-		cl::sycl::range<3> get_granularity() const { return m_geometry.granularity; }
+		celerity::range<3> get_granularity() const { return m_geometry.granularity; }
 
 		const std::string& get_debug_name() const { return m_debug_name; }
 
@@ -179,7 +179,7 @@ namespace detail {
 
 		static std::unique_ptr<task> make_collective(task_id tid, collective_group_id cgid, size_t num_collective_nodes,
 		    std::unique_ptr<command_group_storage_base> cgf, buffer_access_map access_map, side_effect_map side_effect_map) {
-			const task_geometry geometry{1, detail::range_cast<3>(cl::sycl::range<1>{num_collective_nodes}), {}, {1, 1, 1}};
+			const task_geometry geometry{1, detail::range_cast<3>(celerity::range<1>{num_collective_nodes}), {}, {1, 1, 1}};
 			return std::unique_ptr<task>(
 			    new task(tid, task_type::collective, cgid, geometry, std::move(cgf), std::move(access_map), std::move(side_effect_map), {}, {}, {}, nullptr));
 		}
