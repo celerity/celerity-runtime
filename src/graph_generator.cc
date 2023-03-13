@@ -70,10 +70,12 @@ namespace detail {
 		}
 #endif
 
-		// TODO: At some point we might want to do this also before calling transformers
-		// --> So that more advanced transformations can also take data transfers into account
-		process_task_data_requirements(tsk);
-		process_task_side_effect_requirements(tsk);
+		if(tsk.get_type() != task_type::epoch && tsk.get_type() != task_type::horizon) { // shortcut: horizons and epochs cannot have data requirements
+			// TODO: At some point we might want to do this also before calling transformers
+			// --> So that more advanced transformations can also take data transfers into account
+			process_task_data_requirements(tsk);
+			process_task_side_effect_requirements(tsk);
+		}
 
 		// Commands without any other true-dependency must depend on the active epoch command to ensure they cannot be re-ordered before the epoch
 		for(const auto cmd : m_cdag.task_commands(tid)) {
