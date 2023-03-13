@@ -99,6 +99,9 @@ namespace detail {
 
 	class fence_promise {
 	  public:
+		fence_promise() = default;
+		fence_promise(const fence_promise&) = delete;
+		fence_promise& operator=(const fence_promise&) = delete;
 		virtual ~fence_promise() = default;
 
 		virtual void fulfill() = 0;

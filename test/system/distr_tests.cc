@@ -363,7 +363,7 @@ namespace detail {
 		REQUIRE(gathered_from_master.get_range() == range<3>{1, 1, 1});
 		CHECK(gathered_from_master[0][0][0] == 42);
 
-		int global_rank;
+		int global_rank = -1;
 		MPI_Comm_rank(MPI_COMM_WORLD, &global_rank);
 		CHECK(host_rank == global_rank);
 	}
