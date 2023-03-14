@@ -5,6 +5,13 @@
 namespace celerity::detail::backend_detail {
 
 void memcpy_strided_device_generic(sycl::queue& queue, const void* source_base_ptr, void* target_base_ptr, size_t elem_size,
+    const celerity::range<0>& /* source_range */, const celerity::id<0>& /* source_offset */, const celerity::range<0>& /* target_range */,
+    const celerity::id<0>& /* target_offset */, const celerity::range<0>& /* copy_range */) {
+	auto evt = queue.memcpy(target_base_ptr, source_base_ptr, elem_size);
+	evt.wait();
+}
+
+void memcpy_strided_device_generic(sycl::queue& queue, const void* source_base_ptr, void* target_base_ptr, size_t elem_size,
     const celerity::range<1>& source_range, const celerity::id<1>& source_offset, const celerity::range<1>& target_range, const celerity::id<1>& target_offset,
     const celerity::range<1>& copy_range) {
 	const size_t line_size = elem_size * copy_range[0];

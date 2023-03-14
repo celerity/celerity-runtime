@@ -3,6 +3,12 @@
 namespace celerity {
 namespace detail {
 
+	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const celerity::range<0>& /* source_range */,
+	    const celerity::id<0>& /* source_offset */, const celerity::range<0>& /* target_range */, const celerity::id<0>& /* target_offset */,
+	    const celerity::range<0>& /* copy_range */) {
+		std::memcpy(target_base_ptr, source_base_ptr, elem_size);
+	}
+
 	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const celerity::range<1>& source_range,
 	    const celerity::id<1>& source_offset, const celerity::range<1>& target_range, const celerity::id<1>& target_offset,
 	    const celerity::range<1>& copy_range) {
@@ -46,8 +52,8 @@ namespace detail {
 		assert((id_cast<3>(copy_sr.offset) < id_cast<3>(source_range)) == celerity::id<3>(1, 1, 1));
 		assert((id_cast<3>(copy_sr.offset + copy_sr.range) <= id_cast<3>(source_range)) == celerity::id<3>(1, 1, 1));
 
-		if(source_range[2] == 1) {
-			if(source_range[1] == 1) {
+		if(source_range[2] <= 1) {
+			if(source_range[1] <= 1) {
 				memcpy_strided_host(source_base_ptr, target_ptr, elem_size, range_cast<1>(source_range), range_cast<1>(copy_sr.offset),
 				    range_cast<1>(copy_sr.range), celerity::id<1>(0), range_cast<1>(copy_sr.range));
 			} else {
