@@ -19,12 +19,12 @@ namespace detail {
 	}
 
 	template <int Dims>
-	inline group<Dims> make_group(const cl::sycl::nd_item<Dims>& sycl_item, const id<Dims>& group_id, const range<Dims>& group_range) {
+	inline group<Dims> make_group(const sycl::nd_item<std::max(1, Dims)>& sycl_item, const id<Dims>& group_id, const range<Dims>& group_range) {
 		return group<Dims>{sycl_item, group_id, group_range};
 	}
 
 	template <int Dims>
-	nd_item<Dims> make_nd_item(const cl::sycl::nd_item<Dims>& sycl_item, const range<Dims>& global_range, const id<Dims>& global_offset,
+	nd_item<Dims> make_nd_item(const sycl::nd_item<std::max(1, Dims)>& sycl_item, const range<Dims>& global_range, const id<Dims>& global_offset,
 	    const id<Dims>& chunk_offset, const range<Dims>& group_range, const id<Dims>& group_offset) {
 		return nd_item<Dims>{sycl_item, global_range, global_offset, chunk_offset, group_range, group_offset};
 	}
@@ -49,22 +49,22 @@ namespace detail {
 	}
 
 	template <int Dims>
-	inline cl::sycl::nd_item<Dims>& get_sycl_item(nd_item<Dims>& nd_item) {
+	inline sycl::nd_item<std::max(1, Dims)>& get_sycl_item(nd_item<Dims>& nd_item) {
 		return nd_item.m_sycl_item;
 	}
 
 	template <int Dims>
-	inline const cl::sycl::nd_item<Dims>& get_sycl_item(const nd_item<Dims>& nd_item) {
+	inline const sycl::nd_item<std::max(1, Dims)>& get_sycl_item(const nd_item<Dims>& nd_item) {
 		return nd_item.m_sycl_item;
 	}
 
 	template <int Dims>
-	inline cl::sycl::nd_item<Dims>& get_sycl_item(group<Dims>& g) {
+	inline sycl::nd_item<std::max(1, Dims)>& get_sycl_item(group<Dims>& g) {
 		return g.m_sycl_item;
 	}
 
 	template <int Dims>
-	inline const cl::sycl::nd_item<Dims>& get_sycl_item(const group<Dims>& g) {
+	inline const sycl::nd_item<std::max(1, Dims)>& get_sycl_item(const group<Dims>& g) {
 		return g.m_sycl_item;
 	}
 
@@ -176,22 +176,24 @@ class group {
 	}
 
   private:
+	constexpr static int sycl_dims = std::max(1, Dims);
+
 	// We capture SYCL `item` instead of `group` to provide celerity::group_barrier based on SYCL 1.2.1 nd_item.barrier()
 	// TODO consider capturing `group` once ComputeCpp resolves this issue (if that benefits us e.g. wrt. struct size)
-	cl::sycl::nd_item<Dims> m_sycl_item;
+	cl::sycl::nd_item<sycl_dims> m_sycl_item;
 	id<Dims> m_group_id;
 	range<Dims> m_group_range;
 
 	template <int D>
-	friend group<D> celerity::detail::make_group(const cl::sycl::nd_item<D>& sycl_item, const id<D>& group_id, const range<D>& group_range);
+	friend group<D> celerity::detail::make_group(const cl::sycl::nd_item<std::max(1, D)>& sycl_item, const id<D>& group_id, const range<D>& group_range);
 
 	template <int D>
-	friend cl::sycl::nd_item<D>& celerity::detail::get_sycl_item(group<D>&);
+	friend sycl::nd_item<std::max(1, D)>& celerity::detail::get_sycl_item(group<D>&);
 
 	template <int D>
-	friend const cl::sycl::nd_item<D>& celerity::detail::get_sycl_item(const group<D>&);
+	friend const sycl::nd_item<std::max(1, D)>& celerity::detail::get_sycl_item(const group<D>&);
 
-	explicit group(const cl::sycl::nd_item<Dims>& sycl_item, const id<Dims>& group_id, const range<Dims>& group_range)
+	explicit group(const sycl::nd_item<sycl_dims>& sycl_item, const id<Dims>& group_id, const range<Dims>& group_range)
 	    : m_sycl_item(sycl_item), m_group_id(group_id), m_group_range(group_range) {}
 };
 
@@ -264,7 +266,9 @@ class nd_item {
 	}
 
   private:
-	cl::sycl::nd_item<Dims> m_sycl_item;
+	constexpr static int sycl_dims = std::max(1, Dims);
+
+	cl::sycl::nd_item<sycl_dims> m_sycl_item;
 	id<Dims> m_global_id;
 	id<Dims> m_global_offset;
 	range<Dims> m_global_range;
@@ -272,18 +276,20 @@ class nd_item {
 	range<Dims> m_group_range;
 
 	template <int D>
-	friend nd_item<D> celerity::detail::make_nd_item(const cl::sycl::nd_item<D>&, const range<D>&, const id<D>&, const id<D>&, const range<D>&, const id<D>&);
+	friend nd_item<D> celerity::detail::make_nd_item(
+	    const cl::sycl::nd_item<std::max(1, D)>&, const range<D>&, const id<D>&, const id<D>&, const range<D>&, const id<D>&);
 
 	template <int D>
-	friend cl::sycl::nd_item<D>& celerity::detail::get_sycl_item(group<D>& nd_item);
+	friend cl::sycl::nd_item<std::max(1, D)>& celerity::detail::get_sycl_item(group<D>& nd_item);
 
 	template <int D>
-	friend const cl::sycl::nd_item<D>& celerity::detail::get_sycl_item(const group<D>& nd_item);
+	friend const cl::sycl::nd_item<std::max(1, D)>& celerity::detail::get_sycl_item(const group<D>& nd_item);
 
-	explicit nd_item(const cl::sycl::nd_item<Dims>& sycl_item, const range<Dims>& global_range, const id<Dims>& global_offset, const id<Dims>& chunk_offset,
-	    const range<Dims>& group_range, const id<Dims>& group_offset)
-	    : m_sycl_item(sycl_item), m_global_id(chunk_offset + celerity::id(sycl_item.get_global_id())), m_global_offset(global_offset),
-	      m_global_range(global_range), m_group_id(group_offset + detail::get_sycl_group_id(sycl_item.get_group())), m_group_range(group_range) {}
+	explicit nd_item(const sycl::nd_item<std::max(1, Dims)>& sycl_item, const range<Dims>& global_range, const id<Dims>& global_offset,
+	    const id<Dims>& chunk_offset, const range<Dims>& group_range, const id<Dims>& group_offset)
+	    : m_sycl_item(sycl_item), m_global_id(chunk_offset + detail::id_cast<Dims>(celerity::id(sycl_item.get_global_id()))), m_global_offset(global_offset),
+	      m_global_range(global_range), m_group_id(group_offset + detail::id_cast<Dims>(detail::get_sycl_group_id(sycl_item.get_group()))),
+	      m_group_range(group_range) {}
 };
 
 
