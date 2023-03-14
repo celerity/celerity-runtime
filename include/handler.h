@@ -542,7 +542,6 @@ class handler {
 #endif
 
 		assert(m_task == nullptr);
-		assert(m_launcher == nullptr);
 
 		static_assert(std::is_invocable_v<Functor, experimental::interop_handle&, const partition<Dims>&>);
 		auto launch_fn = [=](detail::device_queue& q, const subrange<3> execution_sr) {
