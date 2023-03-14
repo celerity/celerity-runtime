@@ -322,7 +322,7 @@ class accessor<DataT, 0, Mode, target::device> : public detail::accessor_base<Da
 	template <access_mode TagModeNoInit>
 	accessor(const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<Mode, TagModeNoInit, target::device> /* tag */) : accessor(buff, cgh) {}
 
-	template <access_mode TagMode>
+	template <access_mode TagMode, access_mode M = Mode, typename = std::enable_if_t<detail::access::mode_traits::is_producer(M)>>
 	accessor(
 	    const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<TagMode, Mode, target::device> /* tag */, const property::no_init /* no_init */)
 	    : accessor(buff, cgh) {}
@@ -407,7 +407,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	 * TODO: As of ComputeCpp 2.5.0 they do not support no_init prop, hence this constructor is needed along with discard deduction guide.
 	 *    but once they do this should be replace for a constructor that takes a prop list as an argument.
 	 */
-	template <typename Functor, access_mode TagMode>
+	template <typename Functor, access_mode TagMode, access_mode M = Mode, typename = std::enable_if_t<detail::access::mode_traits::is_producer(M)>>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::host_task> /* tag */,
 	    const property::no_init& /* no_init */)
 	    : accessor(buff, cgh, rmfn) {}
@@ -566,7 +566,7 @@ class accessor<DataT, 0, Mode, target::host_task> : public detail::accessor_base
 	 * TODO: As of ComputeCpp 2.5.0 they do not support no_init prop, hence this constructor is needed along with discard deduction guide.
 	 *    but once they do this should be replace for a constructor that takes a prop list as an argument.
 	 */
-	template <access_mode TagMode>
+	template <access_mode TagMode, access_mode M = Mode, typename = std::enable_if_t<detail::access::mode_traits::is_producer(M)>>
 	accessor(
 	    const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<TagMode, Mode, target::host_task> /* tag */, const property::no_init /* no_init */)
 	    : accessor(buff, cgh) {}
