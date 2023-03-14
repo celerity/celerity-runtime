@@ -6,19 +6,6 @@
 
 namespace celerity {
 
-namespace detail {
-
-	struct read_only_tag_t {};
-	struct read_write_tag_t {};
-	struct write_only_tag_t {};
-	struct read_only_host_task_tag_t {};
-	struct read_write_host_task_tag_t {};
-	struct write_only_host_task_tag_t {};
-
-	using memory_scope_ut = std::underlying_type_t<cl::sycl::memory_scope>;
-
-} // namespace detail
-
 using access_mode = cl::sycl::access::mode;
 
 enum class target {
@@ -26,12 +13,41 @@ enum class target {
 	host_task,
 };
 
-inline constexpr detail::read_only_tag_t read_only;
-inline constexpr detail::read_write_tag_t read_write;
-inline constexpr detail::write_only_tag_t write_only;
-inline constexpr detail::read_only_host_task_tag_t read_only_host_task;
-inline constexpr detail::read_write_host_task_tag_t read_write_host_task;
-inline constexpr detail::write_only_host_task_tag_t write_only_host_task;
+} // namespace celerity
+
+namespace celerity::detail {
+
+template <access_mode Mode, access_mode NoInitMode, target Target>
+struct access_tag {};
+
+template <access_mode Mode, access_mode NoInitMode, target Target>
+constexpr access_mode get_access_mode(access_tag<Mode, NoInitMode, Target>) {
+	return Mode;
+}
+
+template <access_mode Mode, access_mode NoInitMode, target Target>
+constexpr access_mode get_no_init_access_mode(access_tag<Mode, NoInitMode, Target>) {
+	static_assert(NoInitMode != Mode, "the specified access mode tag is incompatible with no_init");
+	return NoInitMode;
+}
+
+template <access_mode Mode, access_mode NoInitMode, target Target>
+constexpr target get_access_target(access_tag<Mode, NoInitMode, Target>) {
+	return Target;
+}
+
+using memory_scope_ut = std::underlying_type_t<cl::sycl::memory_scope>;
+
+} // namespace celerity::detail
+
+namespace celerity {
+
+inline constexpr detail::access_tag<access_mode::read, access_mode::read, target::device> read_only;
+inline constexpr detail::access_tag<access_mode::write, access_mode::discard_write, target::device> write_only;
+inline constexpr detail::access_tag<access_mode::read_write, access_mode::discard_read_write, target::device> read_write;
+inline constexpr detail::access_tag<access_mode::read, access_mode::read, target::host_task> read_only_host_task;
+inline constexpr detail::access_tag<access_mode::write, access_mode::discard_write, target::host_task> write_only_host_task;
+inline constexpr detail::access_tag<access_mode::read_write, access_mode::discard_read_write, target::host_task> read_write_host_task;
 
 using cl::sycl::property_list;
 
