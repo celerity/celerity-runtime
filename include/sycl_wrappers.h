@@ -20,22 +20,6 @@ namespace celerity::detail {
 template <access_mode Mode, access_mode NoInitMode, target Target>
 struct access_tag {};
 
-template <access_mode Mode, access_mode NoInitMode, target Target>
-constexpr access_mode get_access_mode(access_tag<Mode, NoInitMode, Target>) {
-	return Mode;
-}
-
-template <access_mode Mode, access_mode NoInitMode, target Target>
-constexpr access_mode get_no_init_access_mode(access_tag<Mode, NoInitMode, Target>) {
-	static_assert(NoInitMode != Mode, "the specified access mode tag is incompatible with no_init");
-	return NoInitMode;
-}
-
-template <access_mode Mode, access_mode NoInitMode, target Target>
-constexpr target get_access_target(access_tag<Mode, NoInitMode, Target>) {
-	return Target;
-}
-
 using memory_scope_ut = std::underlying_type_t<cl::sycl::memory_scope>;
 
 } // namespace celerity::detail
