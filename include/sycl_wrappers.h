@@ -6,7 +6,7 @@
 
 namespace celerity {
 
-using access_mode = cl::sycl::access::mode;
+using access_mode = sycl::access::mode;
 
 enum class target {
 	device,

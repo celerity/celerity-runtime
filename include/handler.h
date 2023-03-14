@@ -566,8 +566,8 @@ namespace detail {
 			auto& device_handler = static_cast<detail::live_pass_device_handler&>(cgh);
 			include_current_buffer_value &= device_handler.is_reduction_initializer();
 
-			auto mode = cl::sycl::access_mode::discard_write;
-			if(include_current_buffer_value) { mode = cl::sycl::access_mode::read_write; }
+			auto mode = access_mode::discard_write;
+			if(include_current_buffer_value) { mode = access_mode::read_write; }
 			device_ptr = static_cast<DataT*>(
 			    runtime::get_instance().get_buffer_manager().access_device_buffer<DataT, Dims>(bid, mode, subrange_cast<Dims>(subrange<3>{{}, {1, 1, 1}})).ptr);
 		}
