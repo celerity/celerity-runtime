@@ -251,6 +251,11 @@ namespace detail {
 					if(!can_allocate(device_queue.get_memory_id(), allocation_size - (existing_buf.storage->get_range().size() * element_size))) {
 						// Final attempt: Check if we can create a new buffer with the requested size if we spill everything else to the host.
 						if(can_allocate(device_queue.get_memory_id(), range.size() * element_size, existing_buf.storage->get_range().size() * element_size)) {
+							{
+								// NOCOMMIT Just for CCGrid 23 CR benchmarks  (in general: make opt-in through env var?)
+								CELERITY_CRITICAL("OOM - will not attempt spilling");
+								die(allocation_size);
+							}
 							CELERITY_WARN("Spilling buffer {} on memory {}, existing size {}, to enable acecss {}\n", bid, mid,
 							    subrange<3>(existing_buf.offset, existing_buf.storage->get_range()), subrange<3>(offset, range));
 							spill_to_host = true;
