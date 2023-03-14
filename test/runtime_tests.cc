@@ -1179,5 +1179,40 @@ namespace detail {
 		});
 	}
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "0-dimensional kernels work as expected", "[buffer]") {
+		constexpr float value_a = 13.37f;
+		constexpr float value_b = 42.0f;
+
+		buffer<float, 0> buf_a(value_a);
+		buffer<float, 0> buf_b(value_a);
+		buffer<float, 0> buf_c(value_a);
+
+		distr_queue q;
+
+		q.submit([=](handler& cgh) {
+			accessor acc_a(buf_a, cgh, write_only, no_init);
+			cgh.parallel_for<class UKN(device)>(range<0>(), [=](item<0> /* it */) { *acc_a = value_b; });
+		});
+		q.submit([=](handler& cgh) {
+			accessor acc_b(buf_b, cgh, write_only, no_init);
+			cgh.parallel_for<class UKN(device)>(nd_range<0>(), [=](nd_item<0> /* it */) { *acc_b = value_b; });
+		});
+		q.submit([=](handler& cgh) {
+			accessor acc_c(buf_c, cgh, write_only_host_task, no_init);
+			cgh.host_task(range<0>(), [=](partition<0> /* part */) { *acc_c = value_b; });
+		});
+
+		q.submit([=](handler& cgh) {
+			accessor acc_a(buf_a, cgh, read_only_host_task);
+			accessor acc_b(buf_b, cgh, read_only_host_task);
+			accessor acc_c(buf_c, cgh, read_only_host_task);
+			cgh.host_task(on_master_node, [=] {
+				CHECK(*acc_a == value_b);
+				CHECK(*acc_b == value_b);
+				CHECK(*acc_c == value_b);
+			});
+		});
+	}
+
 } // namespace detail
 } // namespace celerity

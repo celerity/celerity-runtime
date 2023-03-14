@@ -417,14 +417,14 @@ namespace detail {
 	};
 
 	template <typename Kernel, int Dims, typename... Reducers>
-	inline void invoke_kernel(const Kernel& kernel, const sycl::id<Dims>& s_id, const range<Dims>& global_range, const id<Dims>& global_offset,
+	inline void invoke_kernel(const Kernel& kernel, const sycl::id<std::max(1, Dims)>& s_id, const range<Dims>& global_range, const id<Dims>& global_offset,
 	    const id<Dims>& chunk_offset, Reducers&... reducers) {
-		kernel(make_item<Dims>(celerity::id<Dims>(s_id) + chunk_offset, global_offset, global_range), reducers...);
+		kernel(make_item<Dims>(id_cast<Dims>(id<std::max(1, Dims)>(s_id)) + chunk_offset, global_offset, global_range), reducers...);
 	}
 
 	template <typename Kernel, int Dims, typename... Reducers>
-	inline void invoke_kernel(const Kernel& kernel, const cl::sycl::nd_item<Dims>& s_item, const range<Dims>& global_range, const id<Dims>& global_offset,
-	    const id<Dims>& chunk_offset, const range<Dims>& group_range, const id<Dims>& group_offset, Reducers&... reducers) {
+	inline void invoke_kernel(const Kernel& kernel, const cl::sycl::nd_item<std::max(1, Dims)>& s_item, const range<Dims>& global_range,
+	    const id<Dims>& global_offset, const id<Dims>& chunk_offset, const range<Dims>& group_range, const id<Dims>& group_offset, Reducers&... reducers) {
 		kernel(make_nd_item<Dims>(s_item, global_range, global_offset, chunk_offset, group_range, group_offset), reducers...);
 	}
 
@@ -434,6 +434,7 @@ namespace detail {
 		// capturing those accessors is copied at least once during submission (see also live_pass_device_handler::submit_to_sycl).
 		// As of SYCL 2020 kernel functors are passed as const references, so we explicitly capture by value here.
 		return [=](auto s_item_or_id, auto&... reducers) {
+			constexpr int sycl_dims = std::max(1, Dims);
 			static_assert(std::is_invocable_v<Kernel, celerity::item<Dims>, decltype(reducers)...>,
 			    "Kernel function must be invocable with celerity::item<Dims> and as many reducer objects as reductions passed to parallel_for");
 			if constexpr(CELERITY_WORKAROUND(DPCPP) && std::is_same_v<sycl::id<Dims>, decltype(s_item_or_id)>) {
@@ -442,7 +443,7 @@ namespace detail {
 			} else {
 				// Explicit item constructor: ComputeCpp does not pass a sycl::item, but an implicitly convertible sycl::item_base (?) which does not have
 				// `sycl::id<> get_id()`
-				invoke_kernel(kernel, cl::sycl::item<Dims>{s_item_or_id}.get_id(), global_range, global_offset, chunk_offset, reducers...);
+				invoke_kernel(kernel, cl::sycl::item<sycl_dims>{s_item_or_id}.get_id(), global_range, global_offset, chunk_offset, reducers...);
 			}
 		};
 	}
@@ -450,7 +451,7 @@ namespace detail {
 	template <typename Kernel, int Dims>
 	auto bind_nd_range_kernel(const Kernel& kernel, const range<Dims>& global_range, const id<Dims>& global_offset, const id<Dims> chunk_offset,
 	    const range<Dims>& group_range, const id<Dims>& group_offset) {
-		return [=](cl::sycl::nd_item<Dims> s_item, auto&... reducers) {
+		return [=](sycl::nd_item<std::max(1, Dims)> s_item, auto&... reducers) {
 			static_assert(std::is_invocable_v<Kernel, celerity::nd_item<Dims>, decltype(reducers)...>,
 			    "Kernel function must be invocable with celerity::nd_item<Dims> or and as many reducer objects as reductions passed to parallel_for");
 			invoke_kernel(kernel, s_item, global_range, global_offset, chunk_offset, group_range, group_offset, reducers...);
@@ -596,15 +597,20 @@ void handler::parallel_for_kernel_and_reductions(range<Dims> global_range, id<Di
 	auto chunk_offset = detail::id_cast<Dims>(sr.offset);
 
 	device_handler.submit_to_sycl([&](cl::sycl::handler& cgh) {
+		constexpr int sycl_dims = std::max(1, Dims);
+
 		if constexpr(!CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS && sizeof...(reductions) > 0) {
 			static_assert(detail::constexpr_false<Kernel>, "Reductions are not supported by your SYCL implementation");
 		} else if constexpr(!CELERITY_FEATURE_SCALAR_REDUCTIONS && sizeof...(reductions) > 1) {
 			static_assert(detail::constexpr_false<Kernel>, "DPC++ currently does not support more than one reduction variable per kernel");
 		} else if constexpr(std::is_same_v<KernelFlavor, detail::simple_kernel_flavor>) {
-			detail::invoke_sycl_parallel_for<KernelName>(cgh, sycl::range<Dims>(chunk_range), detail::make_sycl_reduction(reductions)...,
+			const auto sycl_global_range = sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(chunk_range));
+			detail::invoke_sycl_parallel_for<KernelName>(cgh, sycl_global_range, detail::make_sycl_reduction(reductions)...,
 			    detail::bind_simple_kernel(kernel, global_range, global_offset, chunk_offset));
 		} else if constexpr(std::is_same_v<KernelFlavor, detail::nd_range_kernel_flavor>) {
-			detail::invoke_sycl_parallel_for<KernelName>(cgh, cl::sycl::nd_range{sycl::range<Dims>(chunk_range), sycl::range<Dims>(local_range)},
+			const auto sycl_global_range = sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(chunk_range));
+			const auto sycl_local_range = sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(local_range));
+			detail::invoke_sycl_parallel_for<KernelName>(cgh, cl::sycl::nd_range(sycl_global_range, sycl_local_range),
 			    detail::make_sycl_reduction(reductions)...,
 			    detail::bind_nd_range_kernel(kernel, global_range, global_offset, chunk_offset, global_range / local_range, chunk_offset / local_range));
 		} else {
