@@ -73,4 +73,5 @@ struct reduction_info {
 	bool init_from_buffer = false;
 };
 
+constexpr node_id master_node = 0;
 } // namespace celerity::detail

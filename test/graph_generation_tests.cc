@@ -109,9 +109,9 @@ namespace detail {
 				buf_a.get_access<mode::read>(cgh, fixed<1>({0, 100}));
 				buf_b.get_access<mode::read>(cgh, fixed<1>({0, 100}));
 			}));
-			const auto await_pushes = inspector.get_commands(std::nullopt, node_id(0), command_type::await_push);
+			const auto await_pushes = inspector.get_commands(std::nullopt, master_node, command_type::await_push);
 			REQUIRE(await_pushes.size() == 2);
-			const auto master_node_tasks = inspector.get_commands(tid_c, node_id(0), command_type::execution);
+			const auto master_node_tasks = inspector.get_commands(tid_c, master_node, command_type::execution);
 			CHECK(master_node_tasks.size() == 1);
 			REQUIRE(inspector.has_dependency(*master_node_tasks.cbegin(), *await_pushes.cbegin()));
 			REQUIRE(inspector.has_dependency(*master_node_tasks.cbegin(), *(await_pushes.cbegin()++)));
@@ -127,14 +127,14 @@ namespace detail {
 			test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
 				buf_a.get_access<mode::read>(cgh, fixed<1>({0, 100}));
 			}));
-			const auto await_pushes_b = inspector.get_commands(std::nullopt, node_id(0), command_type::await_push);
+			const auto await_pushes_b = inspector.get_commands(std::nullopt, master_node, command_type::await_push);
 			REQUIRE(await_pushes_b.size() == 1);
 			const auto tid_c = test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
 				buf_a.get_access<mode::read>(cgh, fixed<1>({0, 100}));
 			}));
 			// Assert that the number of await_pushes hasn't changed (i.e., none were added)
-			REQUIRE(inspector.get_commands(std::nullopt, node_id(0), command_type::await_push).size() == 1);
-			const auto master_node_tasks = inspector.get_commands(tid_c, node_id(0), command_type::execution);
+			REQUIRE(inspector.get_commands(std::nullopt, master_node, command_type::await_push).size() == 1);
+			const auto master_node_tasks = inspector.get_commands(tid_c, master_node, command_type::execution);
 			REQUIRE(master_node_tasks.size() == 1);
 			REQUIRE(inspector.has_dependency(*master_node_tasks.cbegin(), *await_pushes_b.cbegin()));
 
@@ -334,11 +334,11 @@ namespace detail {
 		const auto tid_a = test_utils::build_and_flush(ctx, 3, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
 			buf.get_access<mode::discard_write>(cgh, fixed<1>({0, 100}));
 		}));
-		const auto master_node_tasks_a = inspector.get_commands(tid_a, node_id(0), command_type::execution);
+		const auto master_node_tasks_a = inspector.get_commands(tid_a, master_node, command_type::execution);
 		const auto tid_b = test_utils::build_and_flush(ctx, 3, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
 			buf.get_access<mode::discard_write>(cgh, fixed<1>({0, 100}));
 		}));
-		const auto master_node_tasks_b = inspector.get_commands(tid_b, node_id(0), command_type::execution);
+		const auto master_node_tasks_b = inspector.get_commands(tid_b, master_node, command_type::execution);
 		CHECK(master_node_tasks_b.size() == 1);
 		REQUIRE(inspector.has_dependency(*master_node_tasks_b.cbegin(), *master_node_tasks_a.cbegin()));
 
@@ -384,9 +384,9 @@ namespace detail {
 			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push).size() == 2);
 			CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::execution).size() == 2);
 
-			const auto pushes_master = inspector.get_commands(std::nullopt, node_id(0), command_type::push);
+			const auto pushes_master = inspector.get_commands(std::nullopt, master_node, command_type::push);
 			CHECK(pushes_master.size() == 1);
-			const auto computes_master = inspector.get_commands(tid_b, node_id(0), command_type::execution);
+			const auto computes_master = inspector.get_commands(tid_b, master_node, command_type::execution);
 			CHECK(computes_master.size() == 1);
 			// Since the master node does not write to the buffer, there is no anti-dependency...
 			REQUIRE_FALSE(inspector.has_dependency(*computes_master.cbegin(), *pushes_master.cbegin()));
@@ -434,9 +434,9 @@ namespace detail {
 			// Since the worker node does not write to the buffer, there is no anti-dependency...
 			REQUIRE_FALSE(inspector.has_dependency(*computes_node1.cbegin(), *pushes_node1.cbegin()));
 
-			const auto pushes_master = inspector.get_commands(std::nullopt, node_id(0), command_type::push);
+			const auto pushes_master = inspector.get_commands(std::nullopt, master_node, command_type::push);
 			CHECK(pushes_master.size() == 1);
-			const auto computes_master = inspector.get_commands(tid_b, node_id(0), command_type::execution);
+			const auto computes_master = inspector.get_commands(tid_b, master_node, command_type::execution);
 			CHECK(computes_master.size() == 1);
 			// ...however for the master, there is.
 			REQUIRE(inspector.has_dependency(*computes_master.cbegin(), *pushes_master.cbegin()));
