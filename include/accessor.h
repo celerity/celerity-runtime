@@ -212,10 +212,11 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	static_assert(Mode != access_mode::atomic, "access_mode::atomic is not supported. Please use atomic_ref instead.");
 
 	template <typename Functor>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) {
 		if(detail::is_prepass_handler(cgh)) {
 			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
-			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, buff.get_range()));
+			using range_mapper = detail::range_mapper<Dims, std::decay_t<Functor>>; // decay function type to function pointer
+			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<range_mapper>(rmfn, Mode, buff.get_range()));
 		} else {
 			if(detail::get_handler_execution_target(cgh) != detail::execution_target::device) {
 				throw std::runtime_error(
@@ -235,16 +236,19 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		}
 	}
 
-	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, const TagT /* tag */) : accessor(buff, cgh, rmfn) {}
-
-	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, const TagT /* tag */, const property::no_init /* tag */)
+	template <typename Functor, access_mode TagModeNoInit>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, TagModeNoInit, target::device> /* tag */)
 	    : accessor(buff, cgh, rmfn) {}
 
-	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn, const TagT /* tag */, const property_list& /* prop_list */) {
-		static_assert(detail::constexpr_false<TagT>,
+	template <typename Functor, access_mode TagMode>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::device> /* tag */,
+	    const property::no_init /* no_init */)
+	    : accessor(buff, cgh, rmfn) {}
+
+	template <typename Functor, access_mode TagMode, access_mode TagModeNoInit>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, TagModeNoInit, target::device> /* tag */,
+	    const property_list& /* prop_list */) {
+		static_assert(detail::constexpr_false<Functor>,
 		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
 		    "as a last argument in the constructor");
 	}
@@ -282,23 +286,10 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 
 	template <typename Functor>
-	accessor(const ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {}
+	accessor(const ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) {}
 
 	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_buffer_range, index - m_index_offset); }
 };
-
-// Celerity Accessor Deduction Guides
-template <typename T, int D, typename Functor, typename TagT>
-accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const TagT tag)
-    -> accessor<T, D, detail::deduce_access_mode<TagT>(), detail::deduce_access_target<std::remove_const_t<TagT>>()>;
-
-template <typename T, int D, typename Functor, typename TagT>
-accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const TagT tag, property::no_init no_init)
-    -> accessor<T, D, detail::deduce_access_mode_discard<TagT>(), detail::deduce_access_target<std::remove_const_t<TagT>>()>;
-
-template <typename T, int D, typename Functor, typename TagT>
-accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const TagT tag, const property_list& prop_list)
-    -> accessor<T, D, detail::deduce_access_mode_discard<TagT>(), detail::deduce_access_target<std::remove_const_t<TagT>>()>;
 
 template <typename DataT, access_mode Mode>
 class accessor<DataT, 0, Mode, target::device> : public detail::accessor_base<DataT, 0, Mode, target::device> {
@@ -328,15 +319,18 @@ class accessor<DataT, 0, Mode, target::device> : public detail::accessor_base<Da
 		}
 	}
 
-	template <typename TagT>
-	accessor(const buffer<DataT, 0>& buff, handler& cgh, const TagT /* tag */) : accessor(buff, cgh) {}
+	template <access_mode TagModeNoInit>
+	accessor(const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<Mode, TagModeNoInit, target::device> /* tag */) : accessor(buff, cgh) {}
 
-	template <typename TagT>
-	accessor(const buffer<DataT, 0>& buff, handler& cgh, const TagT /* tag */, const property::no_init /* tag */) : accessor(buff, cgh) {}
+	template <access_mode TagMode>
+	accessor(
+	    const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<TagMode, Mode, target::device> /* tag */, const property::no_init /* no_init */)
+	    : accessor(buff, cgh) {}
 
-	template <typename TagT>
-	accessor(const buffer<DataT, 0>& buff, handler& cgh, const TagT /* tag */, property_list prop_list) {
-		static_assert(detail::constexpr_false<TagT>,
+	template <access_mode TagMode, access_mode TagModeNoInit>
+	accessor(const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, target::device> /* tag */,
+	    const property_list& /* prop_list */) {
+		static_assert(detail::constexpr_false<std::integral_constant<access_mode, TagMode>>,
 		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
 		    "as a last argument in the constructor");
 	}
@@ -367,19 +361,6 @@ class accessor<DataT, 0, Mode, target::device> : public detail::accessor_base<Da
 #endif
 	}
 };
-
-// Celerity Accessor Deduction Guides
-template <typename T, typename TagT>
-accessor(const buffer<T, 0>& buff, handler& cgh, const TagT tag)
-    -> accessor<T, 0, detail::deduce_access_mode<TagT>(), detail::deduce_access_target<std::remove_const_t<TagT>>()>;
-
-template <typename T, typename TagT>
-accessor(const buffer<T, 0>& buff, handler& cgh, const TagT tag, const property::no_init no_init)
-    -> accessor<T, 0, detail::deduce_access_mode_discard<TagT>(), detail::deduce_access_target<std::remove_const_t<TagT>>()>;
-
-template <typename T, typename TagT>
-accessor(const buffer<T, 0>& buff, handler& cgh, const TagT tag, const property_list& prop_list)
-    -> accessor<T, 0, detail::deduce_access_mode_discard<TagT>(), detail::deduce_access_target<std::remove_const_t<TagT>>()>;
 
 //
 
@@ -418,20 +399,23 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		}
 	}
 
-	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const TagT /* tag */) : accessor(buff, cgh, rmfn) {}
+	template <typename Functor, access_mode TagModeNoInit>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, TagModeNoInit, target::host_task> /* tag */)
+	    : accessor(buff, cgh, rmfn) {}
 
 	/**
 	 * TODO: As of ComputeCpp 2.5.0 they do not support no_init prop, hence this constructor is needed along with discard deduction guide.
 	 *    but once they do this should be replace for a constructor that takes a prop list as an argument.
 	 */
-	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const TagT /* tag */, const property::no_init /* no_init */)
+	template <typename Functor, access_mode TagMode>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::host_task> /* tag */,
+	    const property::no_init& /* no_init */)
 	    : accessor(buff, cgh, rmfn) {}
 
-	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const TagT /* tag */, const property_list& /* prop_list */) {
-		static_assert(detail::constexpr_false<TagT>,
+	template <typename Functor, access_mode TagMode, access_mode TagModeNoInit>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, TagModeNoInit, target::host_task> /* tag */,
+	    const property_list& /* prop_list */) {
+		static_assert(detail::constexpr_false<Functor>,
 		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
 		    "as a last argument in the constructor");
 	}
@@ -575,19 +559,22 @@ class accessor<DataT, 0, Mode, target::host_task> : public detail::accessor_base
 		}
 	}
 
-	template <typename TagT>
-	accessor(const buffer<DataT, 0>& buff, handler& cgh, const TagT /* tag */) : accessor(buff, cgh) {}
+	template <access_mode TagModeNoInit>
+	accessor(const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<Mode, TagModeNoInit, target::host_task> /* tag */) : accessor(buff, cgh) {}
 
 	/**
 	 * TODO: As of ComputeCpp 2.5.0 they do not support no_init prop, hence this constructor is needed along with discard deduction guide.
 	 *    but once they do this should be replace for a constructor that takes a prop list as an argument.
 	 */
-	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, 0>& buff, handler& cgh, const TagT /* tag */, const property::no_init /* no_init */) : accessor(buff, cgh, 0) {}
+	template <access_mode TagMode>
+	accessor(
+	    const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<TagMode, Mode, target::host_task> /* tag */, const property::no_init /* no_init */)
+	    : accessor(buff, cgh) {}
 
-	template <typename Functor, typename TagT>
-	accessor(const buffer<DataT, 0>& buff, handler& cgh, const TagT /* tag */, const property_list& /* prop_list */) {
-		static_assert(detail::constexpr_false<TagT>,
+	template <access_mode TagMode, access_mode TagModeNoInit>
+	accessor(const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, target::host_task> /* tag */,
+	    const property_list& /* prop_list */) {
+		static_assert(detail::constexpr_false<std::integral_constant<access_mode, TagMode>>,
 		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
 		    "as a last argument in the constructor");
 	}
@@ -609,6 +596,29 @@ class accessor<DataT, 0, Mode, target::host_task> : public detail::accessor_base
   private:
 	DataT* m_host_ptr = nullptr;
 };
+
+
+template <typename T, int D, access_mode Mode, access_mode ModeNoInit, target Target>
+accessor(const buffer<T, D>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, D, Mode, Target>;
+
+template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
+accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, D, Mode, Target>;
+
+template <typename T, int D, access_mode Mode, access_mode ModeNoInit, target Target>
+accessor(const buffer<T, D>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property::no_init no_init)
+    -> accessor<T, D, ModeNoInit, Target>;
+
+template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
+accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property::no_init no_init)
+    -> accessor<T, D, ModeNoInit, Target>;
+
+template <typename T, int D, access_mode Mode, access_mode ModeNoInit, target Target>
+accessor(const buffer<T, D>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props)
+    -> accessor<T, D, Mode, Target>;
+
+template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
+accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props)
+    -> accessor<T, D, Mode, Target>;
 
 
 template <typename DataT, int Dims = 1>
@@ -693,57 +703,5 @@ class local_accessor {
 
 	sycl::range<sycl_dims> sycl_allocation_size() const { return sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(m_allocation_size)); }
 };
-
-
-namespace detail {
-
-	template <typename TagT>
-	constexpr access_mode deduce_access_mode() {
-		if constexpr(std::is_same_v<const TagT, decltype(celerity::read_only)> || //
-		             std::is_same_v<const TagT, decltype(celerity::read_only_host_task)>) {
-			return access_mode::read;
-		} else if constexpr(std::is_same_v<const TagT, decltype(celerity::read_write)> || //
-		                    std::is_same_v<const TagT, decltype(celerity::read_write_host_task)>) {
-			return access_mode::read_write;
-		} else if constexpr(std::is_same_v<const TagT, decltype(celerity::write_only)> || //
-		                    std::is_same_v<const TagT, decltype(celerity::write_only_host_task)>) {
-			return access_mode::write;
-		} else {
-			static_assert(constexpr_false<TagT>, "Invalid access tag, expecting one of celerity::{read_only,read_write,write_only}[_host_task]");
-		}
-	}
-
-	template <typename TagT>
-	constexpr access_mode deduce_access_mode_discard() {
-		if constexpr(std::is_same_v<const TagT, decltype(celerity::read_only)> || //
-		             std::is_same_v<const TagT, decltype(celerity::read_only_host_task)>) {
-			static_assert(constexpr_false<TagT>, "Invalid access mode + no_init");
-		} else if constexpr(std::is_same_v<const TagT, decltype(celerity::read_write)> || //
-		                    std::is_same_v<const TagT, decltype(celerity::read_write_host_task)>) {
-			return access_mode::discard_read_write;
-		} else if constexpr(std::is_same_v<const TagT, decltype(celerity::write_only)> || //
-		                    std::is_same_v<const TagT, decltype(celerity::write_only_host_task)>) {
-			return access_mode::discard_write;
-		} else {
-			static_assert(constexpr_false<TagT>, "Invalid access tag, expecting one of celerity::{read_only,read_write,write_only}[_host_task]");
-		}
-	}
-
-	template <typename TagT>
-	constexpr target deduce_access_target() {
-		if constexpr(std::is_same_v<const TagT, decltype(celerity::read_only)> ||  //
-		             std::is_same_v<const TagT, decltype(celerity::read_write)> || //
-		             std::is_same_v<const TagT, decltype(celerity::write_only)>) {
-			return target::device;
-		} else if constexpr(std::is_same_v<const TagT, decltype(celerity::read_only_host_task)> ||  //
-		                    std::is_same_v<const TagT, decltype(celerity::read_write_host_task)> || //
-		                    std::is_same_v<const TagT, decltype(celerity::write_only_host_task)>) {
-			return target::host_task;
-		} else {
-			static_assert(constexpr_false<TagT>, "Invalid access tag, expecting one of celerity::{read_only,read_write,write_only}[_host_task]");
-		}
-	}
-
-} // namespace detail
 
 } // namespace celerity
