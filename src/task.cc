@@ -24,6 +24,7 @@ namespace detail {
 	template <int KernelDims>
 	subrange<3> apply_range_mapper(const range_mapper_base* rm, const chunk<KernelDims>& chnk) {
 		switch(rm->get_buffer_dimensions()) {
+		case 0: return subrange_cast<3>(subrange<0>());
 		case 1: return subrange_cast<3>(rm->map_1(chnk));
 		case 2: return subrange_cast<3>(rm->map_2(chnk));
 		case 3: return rm->map_3(chnk);

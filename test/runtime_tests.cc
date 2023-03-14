@@ -1118,5 +1118,66 @@ namespace detail {
 			return all_data;
 		}());
 	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "kernels can access 0-dimensional buffers", "[buffer]") {
+		constexpr float value_a = 13.37f;
+		constexpr float value_b = 42.0f;
+
+		buffer<float, 0> buf_0 = value_a;
+		buffer<float, 1> buf_1(100);
+
+		distr_queue q;
+		q.submit([=](handler& cgh) {
+			accessor acc_0(buf_0, cgh, read_write_host_task);
+			cgh.host_task(on_master_node, [=] {
+				CHECK(*acc_0 == value_a);
+				*acc_0 = value_b;
+			});
+		});
+		q.submit([=](handler& cgh) {
+			accessor acc_0(buf_0, cgh, read_only);
+			accessor acc_1(buf_1, cgh, one_to_one(), write_only, no_init);
+			cgh.parallel_for<class UKN(device)>(buf_1.get_range(), [=](item<1> it) { acc_1[it] = *acc_0; });
+		});
+		q.submit([=](handler& cgh) {
+			accessor acc_1(buf_1, cgh, all(), read_only_host_task);
+			cgh.host_task(on_master_node, [=] {
+				for(size_t i = 0; i < buf_1.get_range().size(); ++i) {
+					REQUIRE_LOOP(acc_1[i] == value_b);
+				}
+			});
+		});
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "0-dimensional local accessors behave as expected", "[buffer]") {
+		constexpr float value_a = 13.37f;
+		constexpr float value_b = 42.0f;
+
+		buffer<float, 1> buf_1(32);
+
+		distr_queue q;
+		q.submit([=](handler& cgh) {
+			accessor acc_1(buf_1, cgh, one_to_one(), write_only, no_init);
+			cgh.parallel_for<class UKN(device)>(buf_1.get_range(), [=](item<1> it) { acc_1[it] = value_a; });
+		});
+		q.submit([=](handler& cgh) {
+			accessor acc_1(buf_1, cgh, one_to_one(), write_only);
+			local_accessor<float, 0> local_0(cgh);
+			cgh.parallel_for<class UKN(device)>(nd_range(buf_1.get_range(), buf_1.get_range()), [=](nd_item<1> it) {
+				if(it.get_local_id() == 0) { *local_0 = value_b; }
+				group_barrier(it.get_group());
+				acc_1[it.get_global_id()] = *local_0;
+			});
+		});
+		q.submit([=](handler& cgh) {
+			accessor acc_1(buf_1, cgh, all(), read_only_host_task);
+			cgh.host_task(on_master_node, [=] {
+				for(size_t i = 0; i < buf_1.get_range().size(); ++i) {
+					REQUIRE_LOOP(acc_1[i] == value_b);
+				}
+			});
+		});
+	}
+
 } // namespace detail
 } // namespace celerity

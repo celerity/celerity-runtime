@@ -14,6 +14,10 @@
 namespace celerity {
 namespace detail {
 
+	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const celerity::range<0>& source_range,
+	    const celerity::id<0>& source_offset, const celerity::range<0>& target_range, const celerity::id<0>& target_offset,
+	    const celerity::range<0>& copy_range);
+
 	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const celerity::range<1>& source_range,
 	    const celerity::id<1>& source_offset, const celerity::range<1>& target_range, const celerity::id<1>& target_offset,
 	    const celerity::range<1>& copy_range);
@@ -152,6 +156,7 @@ namespace detail {
 		}
 
 		void set_data(const subrange<3>& sr, const void* in_linearized) override {
+			assert(Dims > 0 || (sr.offset[0] == 0 && sr.range[0] == 1));
 			assert(Dims > 1 || (sr.offset[1] == 0 && sr.range[1] == 1));
 			assert(Dims > 2 || (sr.offset[2] == 0 && sr.range[2] == 1));
 			assert_copy_is_in_range(sr.range, range_cast<3>(m_device_buf.get_range()), id<3>{}, sr.offset, sr.range);

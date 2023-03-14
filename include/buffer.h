@@ -38,14 +38,20 @@ class accessor;
 template <typename DataT, int Dims>
 class buffer {
   public:
-	static_assert(Dims > 0, "0-dimensional buffers NYI");
+	static_assert(Dims <= 3);
 
-	buffer(const DataT* host_ptr, celerity::range<Dims> range) {
+	template <int D = Dims, typename = std::enable_if_t<D == 0>>
+	buffer() : buffer(nullptr, {}) {}
+
+	explicit buffer(const DataT* host_ptr, celerity::range<Dims> range) {
 		if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr); }
 		m_impl = std::make_shared<impl>(range, host_ptr);
 	}
 
-	buffer(celerity::range<Dims> range) : buffer(nullptr, range) {}
+	explicit buffer(celerity::range<Dims> range) : buffer(nullptr, range) {}
+
+	template <int D = Dims, typename = std::enable_if_t<D == 0>>
+	buffer(const DataT& value) : buffer(&value, {}) {}
 
 	buffer(const buffer&) = default;
 	buffer(buffer&&) = default;
@@ -66,7 +72,7 @@ class buffer {
 		return accessor<DataT, Dims, Mode, Target>(*this, cgh, rmfn);
 	}
 
-	celerity::range<Dims> get_range() const { return m_impl->range; }
+	const celerity::range<Dims>& get_range() const { return m_impl->range; }
 
   private:
 	struct impl {
