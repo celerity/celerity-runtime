@@ -293,7 +293,7 @@ int main(int argc, char* argv[]) {
 	const double bytes = cfg.N * cfg.N * (cfg.T / cfg.dt) * sizeof(DataT); // * (6 + 1); // 6 reads, 1 write
 	const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(after - before).count();
 	const double gbs = bytes / (dt * 1000.0);
-	fmt::print("Time: {}ms ({:.2f} GB/s)\n", dt / 1000, gbs);
+	fmt::print("Time: {}ms ({:.2f} GB/s) ({:.2f} GigaCells/s)\n", dt / 1000, gbs, (cfg.N * cfg.N * (cfg.T / cfg.dt) / 1000.0) / dt);
 
 	if(cfg.N * cfg.N * sizeof(DataT) < 10ull * 1024 * 1024 * 1024) {
 		queue.submit([=](celerity::handler& cgh) {
