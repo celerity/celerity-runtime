@@ -14,15 +14,15 @@
 namespace celerity {
 namespace detail {
 
-	void memcpy_strided(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const cl::sycl::range<1>& source_range,
+	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const cl::sycl::range<1>& source_range,
 	    const cl::sycl::id<1>& source_offset, const cl::sycl::range<1>& target_range, const cl::sycl::id<1>& target_offset,
 	    const cl::sycl::range<1>& copy_range);
 
-	void memcpy_strided(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const cl::sycl::range<2>& source_range,
+	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const cl::sycl::range<2>& source_range,
 	    const cl::sycl::id<2>& source_offset, const cl::sycl::range<2>& target_range, const cl::sycl::id<2>& target_offset,
 	    const cl::sycl::range<2>& copy_range);
 
-	void memcpy_strided(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const cl::sycl::range<3>& source_range,
+	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const cl::sycl::range<3>& source_range,
 	    const cl::sycl::id<3>& source_offset, const cl::sycl::range<3>& target_range, const cl::sycl::id<3>& target_offset,
 	    const cl::sycl::range<3>& copy_range);
 
@@ -183,7 +183,7 @@ namespace detail {
 			assert(Dims > 2 || (sr.offset[2] == 0 && sr.range[2] == 1));
 			assert_copy_is_in_range(range_cast<3>(m_host_buf.get_range()), sr.range, sr.offset, id<3>{}, sr.range);
 
-			memcpy_strided(m_host_buf.get_pointer(), out_linearized, sizeof(DataT), range_cast<Dims>(m_host_buf.get_range()), id_cast<Dims>(sr.offset),
+			memcpy_strided_host(m_host_buf.get_pointer(), out_linearized, sizeof(DataT), range_cast<Dims>(m_host_buf.get_range()), id_cast<Dims>(sr.offset),
 			    range_cast<Dims>(sr.range), id_cast<Dims>(cl::sycl::id<3>{0, 0, 0}), range_cast<Dims>(sr.range));
 		}
 
@@ -192,7 +192,7 @@ namespace detail {
 			assert(Dims > 2 || (sr.offset[2] == 0 && sr.range[2] == 1));
 			assert_copy_is_in_range(sr.range, range_cast<3>(m_host_buf.get_range()), id<3>{}, sr.offset, sr.range);
 
-			memcpy_strided(in_linearized, m_host_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(sr.range), id_cast<Dims>(cl::sycl::id<3>(0, 0, 0)),
+			memcpy_strided_host(in_linearized, m_host_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(sr.range), id_cast<Dims>(cl::sycl::id<3>(0, 0, 0)),
 			    range_cast<Dims>(m_host_buf.get_range()), id_cast<Dims>(sr.offset), range_cast<Dims>(sr.range));
 		}
 
@@ -248,7 +248,7 @@ namespace detail {
 
 		else if(source.get_type() == buffer_type::host_buffer) {
 			auto& host_source = dynamic_cast<const host_buffer_storage<DataT, Dims>&>(source);
-			memcpy_strided(host_source.get_host_buffer().get_pointer(), m_host_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(host_source.get_range()),
+			memcpy_strided_host(host_source.get_host_buffer().get_pointer(), m_host_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(host_source.get_range()),
 			    id_cast<Dims>(source_offset), range_cast<Dims>(m_host_buf.get_range()), range_cast<Dims>(target_offset), range_cast<Dims>(copy_range));
 		}
 
