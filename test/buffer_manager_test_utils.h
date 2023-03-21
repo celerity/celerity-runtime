@@ -43,12 +43,10 @@ namespace test_utils {
 		template <typename DataT, int Dims>
 		range<Dims> get_backing_buffer_range(detail::buffer_id bid, access_target tgt, cl::sycl::range<Dims> range, cl::sycl::id<Dims> offset) {
 			if(tgt == access_target::host) {
-				const auto info =
-				    m_bm->access_host_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, detail::range_cast<3>(range), detail::id_cast<3>(offset));
+				const auto info = m_bm->access_host_buffer<DataT, Dims>(bid, access_mode::read, {offset, range});
 				return detail::range_cast<Dims>(info.backing_buffer_range);
 			}
-			const auto info =
-			    m_bm->access_device_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, detail::range_cast<3>(range), detail::id_cast<3>(offset));
+			const auto info = m_bm->access_device_buffer<DataT, Dims>(bid, access_mode::read, {offset, range});
 			return detail::range_cast<Dims>(info.backing_buffer_range);
 		}
 
@@ -58,7 +56,7 @@ namespace test_utils {
 			const auto offset3 = detail::id_cast<3>(offset);
 
 			if(tgt == access_target::host) {
-				const auto info = m_bm->access_host_buffer<DataT, Dims>(bid, Mode, range3, offset3);
+				const auto info = m_bm->access_host_buffer<DataT, Dims>(bid, Mode, {offset, range});
 				const auto buf_range = detail::range_cast<3>(info.backing_buffer_range);
 				for(size_t i = offset3[0]; i < offset3[0] + range3[0]; ++i) {
 					for(size_t j = offset3[1]; j < offset3[1] + range3[1]; ++j) {
@@ -73,7 +71,7 @@ namespace test_utils {
 			}
 
 			if(tgt == access_target::device) {
-				const auto info = m_bm->access_device_buffer<DataT, Dims>(bid, Mode, range3, offset3);
+				const auto info = m_bm->access_device_buffer<DataT, Dims>(bid, Mode, {offset, range});
 				const auto buf_offset = detail::id_cast<Dims>(info.backing_buffer_offset);
 				const auto buf_range = detail::range_cast<Dims>(info.backing_buffer_range);
 				get_device_queue()
@@ -95,7 +93,7 @@ namespace test_utils {
 			const auto offset3 = detail::id_cast<3>(offset);
 
 			if(tgt == access_target::host) {
-				const auto info = m_bm->access_host_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, range3, offset3);
+				const auto info = m_bm->access_host_buffer<DataT, Dims>(bid, access_mode::read, {offset, range});
 				const auto buf_range = info.backing_buffer_range;
 				ReduceT result = init;
 				for(size_t i = offset3[0]; i < offset3[0] + range3[0]; ++i) {
@@ -111,7 +109,7 @@ namespace test_utils {
 				return result;
 			}
 
-			const auto info = m_bm->access_device_buffer<DataT, Dims>(bid, cl::sycl::access::mode::read, range3, offset3);
+			const auto info = m_bm->access_device_buffer<DataT, Dims>(bid, access_mode::read, {offset, range});
 			const auto buf_offset = info.backing_buffer_offset;
 			const auto buf_range = info.backing_buffer_range;
 			cl::sycl::buffer<ReduceT, 1> result_buf(1); // Use 1-dimensional instead of 0-dimensional since it's NYI in hipSYCL as of 0.8.1
@@ -150,7 +148,7 @@ namespace test_utils {
 		template <typename DataT, int Dims, access_mode Mode>
 		accessor<DataT, Dims, Mode, target::device> get_device_accessor(
 		    detail::live_pass_device_handler& cgh, detail::buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
-			auto buf_info = m_bm->access_device_buffer<DataT, Dims>(bid, Mode, detail::range_cast<3>(range), detail::id_cast<3>(offset));
+			auto buf_info = m_bm->access_device_buffer<DataT, Dims>(bid, Mode, {offset, range});
 			return detail::accessor_testspy::make_device_accessor<DataT, Dims, Mode>(static_cast<DataT*>(buf_info.ptr),
 			    detail::id_cast<Dims>(buf_info.backing_buffer_offset), detail::range_cast<Dims>(buf_info.backing_buffer_range));
 		}
@@ -158,7 +156,7 @@ namespace test_utils {
 		template <typename DataT, int Dims, access_mode Mode>
 		accessor<DataT, Dims, Mode, target::host_task> get_host_accessor(
 		    detail::buffer_id bid, const cl::sycl::range<Dims>& range, const cl::sycl::id<Dims>& offset) {
-			auto buf_info = m_bm->access_host_buffer<DataT, Dims>(bid, Mode, detail::range_cast<3>(range), detail::id_cast<3>(offset));
+			auto buf_info = m_bm->access_host_buffer<DataT, Dims>(bid, Mode, {offset, range});
 			return detail::accessor_testspy::make_host_accessor<DataT, Dims, Mode>(subrange<Dims>(offset, range), static_cast<DataT*>(buf_info.ptr),
 			    detail::id_cast<Dims>(buf_info.backing_buffer_offset), detail::range_cast<Dims>(buf_info.backing_buffer_range),
 			    detail::range_cast<Dims>(m_bm->get_buffer_info(bid).range));

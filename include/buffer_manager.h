@@ -148,7 +148,7 @@ namespace detail {
 			}
 			if(is_host_initialized) {
 				// We need to access the full range for host-initialized buffers.
-				auto info = access_host_buffer(bid, cl::sycl::access::mode::discard_write, range, cl::sycl::id<3>(0, 0, 0));
+				auto info = access_host_buffer(bid, access_mode::discard_write, {{}, range});
 				std::memcpy(info.ptr, host_init_ptr, range.size() * sizeof(DataT));
 			}
 			m_lifecycle_cb(buffer_lifecycle_event::registered, bid);
@@ -210,24 +210,24 @@ namespace detail {
 		void set_buffer_data(buffer_id bid, const subrange<3>& sr, unique_payload_ptr in_linearized);
 
 		template <typename DataT, int Dims>
-		access_info access_device_buffer(buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
+		access_info access_device_buffer(buffer_id bid, access_mode mode, const subrange<Dims>& sr) {
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 			assert((m_buffer_types.at(bid)->has_type<DataT, Dims>()));
 #endif
-			return access_device_buffer(bid, mode, range, offset);
+			return access_device_buffer(bid, mode, subrange_cast<3>(sr));
 		}
 
-		access_info access_device_buffer(buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset);
+		access_info access_device_buffer(buffer_id bid, access_mode mode, const subrange<3>& sr);
 
 		template <typename DataT, int Dims>
-		access_info access_host_buffer(buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
+		access_info access_host_buffer(buffer_id bid, access_mode mode, const subrange<Dims>& sr) {
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 			assert((m_buffer_types.at(bid)->has_type<DataT, Dims>()));
 #endif
-			return access_host_buffer(bid, mode, range, offset);
+			return access_host_buffer(bid, mode, subrange_cast<3>(sr));
 		}
 
-		access_info access_host_buffer(buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset);
+		access_info access_host_buffer(buffer_id bid, cl::sycl::access::mode mode, const subrange<3>& sr);
 
 		/**
 		 * @brief Tries to lock the given list of @p buffers using the given lock @p id.
