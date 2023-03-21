@@ -275,8 +275,8 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 			auto& live_cgh = dynamic_cast<detail::live_pass_device_handler&>(cgh);
 			// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper manually.
 			const auto mapped_sr = live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range());
-			const auto access_info = detail::runtime::get_instance().get_buffer_manager().access_device_buffer<DataT, Dims>(
-			    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(mapped_sr.range), detail::id_cast<3>(mapped_sr.offset));
+			const auto access_info =
+			    detail::runtime::get_instance().get_buffer_manager().access_device_buffer<DataT, Dims>(detail::get_buffer_id(buff), Mode, mapped_sr);
 
 			m_device_ptr = static_cast<DataT*>(access_info.ptr);
 			m_index_offset = detail::id_cast<Dims>(access_info.backing_buffer_offset);
@@ -326,8 +326,8 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 				// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper
 				// manually.
 				const auto sr = live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range());
-				const auto access_info = detail::runtime::get_instance().get_buffer_manager().access_host_buffer<DataT, Dims>(
-				    detail::get_buffer_id(buff), Mode, detail::range_cast<3>(sr.range), detail::id_cast<3>(sr.offset));
+				const auto access_info =
+				    detail::runtime::get_instance().get_buffer_manager().access_host_buffer<DataT, Dims>(detail::get_buffer_id(buff), Mode, sr);
 
 				m_mapped_subrange = sr;
 				m_host_ptr = static_cast<DataT*>(access_info.ptr);

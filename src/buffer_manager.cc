@@ -71,22 +71,21 @@ namespace detail {
 		m_scheduled_transfers[bid].push_back({std::move(in_linearized), sr});
 	}
 
-	buffer_manager::access_info buffer_manager::access_device_buffer(
-	    buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
+	buffer_manager::access_info buffer_manager::access_device_buffer(buffer_id bid, access_mode mode, const subrange<3>& sr) {
 		std::unique_lock lock(m_mutex);
-		assert((range_cast<3>(offset + range) <= m_buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
+		assert((range_cast<3>(sr.offset + sr.range) <= m_buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
 
 		auto& existing_buf = m_buffers[bid].device_buf;
 		backing_buffer replacement_buf;
 
 		if(!existing_buf.is_allocated()) {
-			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(range, m_queue.get_sycl_queue()), offset};
+			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(sr.range, m_queue.get_sycl_queue()), sr.offset};
 		} else {
 			// FIXME: For large buffers we might not be able to store two copies in device memory at once.
 			// Instead, we'd first have to transfer everything to the host and free the old buffer before allocating the new one.
 			// TODO: What we CAN do however already is to free the old buffer early iff we're requesting a discard_* access!
 			// (AND that access request covers the entirety of the old buffer!)
-			const auto info = is_resize_required(existing_buf, range, offset);
+			const auto info = is_resize_required(existing_buf, sr.range, sr.offset);
 			if(info.resize_required) {
 				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, m_queue.get_sycl_queue()), info.new_offset};
 			}
@@ -100,23 +99,22 @@ namespace detail {
 			m_queue.get_sycl_queue().submit([&](cl::sycl::handler& cgh) { cgh.memset(ptr, test_mode_pattern, bytes); }).wait();
 		}
 
-		existing_buf = make_buffer_subrange_coherent(bid, mode, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
+		existing_buf = make_buffer_subrange_coherent(bid, mode, std::move(existing_buf), {sr.offset, sr.range}, std::move(replacement_buf));
 
 		return {existing_buf.storage->get_pointer(), existing_buf.storage->get_range(), existing_buf.offset};
 	}
 
-	buffer_manager::access_info buffer_manager::access_host_buffer(
-	    buffer_id bid, cl::sycl::access::mode mode, const cl::sycl::range<3>& range, const cl::sycl::id<3>& offset) {
+	buffer_manager::access_info buffer_manager::access_host_buffer(buffer_id bid, access_mode mode, const subrange<3>& sr) {
 		std::unique_lock lock(m_mutex);
-		assert((range_cast<3>(offset + range) <= m_buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
+		assert((range_cast<3>(sr.offset + sr.range) <= m_buffer_infos.at(bid).range) == cl::sycl::range<3>(true, true, true));
 
 		auto& existing_buf = m_buffers[bid].host_buf;
 		backing_buffer replacement_buf;
 
 		if(!existing_buf.is_allocated()) {
-			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_host(range), offset};
+			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_host(sr.range), sr.offset};
 		} else {
-			const auto info = is_resize_required(existing_buf, range, offset);
+			const auto info = is_resize_required(existing_buf, sr.range, sr.offset);
 			if(info.resize_required) { replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_host(info.new_range), info.new_offset}; }
 		}
 
@@ -128,7 +126,7 @@ namespace detail {
 			std::memset(ptr, test_mode_pattern, size);
 		}
 
-		existing_buf = make_buffer_subrange_coherent(bid, mode, std::move(existing_buf), {offset, range}, std::move(replacement_buf));
+		existing_buf = make_buffer_subrange_coherent(bid, mode, std::move(existing_buf), {sr.offset, sr.range}, std::move(replacement_buf));
 
 		return {existing_buf.storage->get_pointer(), existing_buf.storage->get_range(), existing_buf.offset};
 	}
