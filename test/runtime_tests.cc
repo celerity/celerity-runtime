@@ -358,7 +358,7 @@ namespace detail {
 			for(size_t i = 0; i < copy_range[0]; ++i) {
 				source_buffer[source_offset[0] + i] = source_offset[0] + i;
 			}
-			memcpy_strided(source_buffer.get(), target_buffer.get(), sizeof(size_t), source_range, source_offset, target_range, target_offset, copy_range);
+			memcpy_strided_host(source_buffer.get(), target_buffer.get(), sizeof(size_t), source_range, source_offset, target_range, target_offset, copy_range);
 			for(size_t i = 0; i < copy_range[0]; ++i) {
 				REQUIRE_LOOP(target_buffer[target_offset[0] + i] == source_offset[0] + i);
 			}
@@ -378,7 +378,7 @@ namespace detail {
 					source_buffer[get_linear_index(source_range, id)] = id[0] * 10000 + id[1];
 				}
 			}
-			memcpy_strided(source_buffer.get(), target_buffer.get(), sizeof(size_t), source_range, source_offset, target_range, target_offset, copy_range);
+			memcpy_strided_host(source_buffer.get(), target_buffer.get(), sizeof(size_t), source_range, source_offset, target_range, target_offset, copy_range);
 			for(size_t i = 0; i < copy_range[0]; ++i) {
 				for(size_t j = 0; j < copy_range[1]; ++j) {
 					const auto id = target_offset + cl::sycl::id<2>{i, j};
@@ -404,7 +404,7 @@ namespace detail {
 					}
 				}
 			}
-			memcpy_strided(source_buffer.get(), target_buffer.get(), sizeof(size_t), source_range, source_offset, target_range, target_offset, copy_range);
+			memcpy_strided_host(source_buffer.get(), target_buffer.get(), sizeof(size_t), source_range, source_offset, target_range, target_offset, copy_range);
 			for(size_t i = 0; i < copy_range[0]; ++i) {
 				for(size_t j = 0; j < copy_range[1]; ++j) {
 					for(size_t k = 0; k < copy_range[2]; ++k) {
