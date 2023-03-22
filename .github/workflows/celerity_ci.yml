@@ -161,6 +161,12 @@ jobs:
           path: ${{ env.build-name }}.log
       - name: Build examples against installed Celerity
         run: bash /root/build-examples.sh ${{ env.container-workspace }}/examples --build-type ${{ matrix.build-type }}
+      # Limit DPC++ to Level-Zero devices (instead of e.g. also showing OpenCL or CUDA devices).
+      # Most importantly, despite its naming, this currently also avoids the "Unified Runtime over Level-Zero", which
+      # doesn't seem to be quite ready for production use yet (= it crashes).
+      - name: Limit visible devices
+        run: |
+          echo "ONEAPI_DEVICE_SELECTOR=level_zero:*" >> $GITHUB_ENV
       - name: Run unit tests
         timeout-minutes: 5
         working-directory: ${{ env.build-dir }}
