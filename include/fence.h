@@ -28,22 +28,22 @@ class buffer_snapshot {
   public:
 	buffer_snapshot() = default;
 
-	buffer_snapshot(buffer_snapshot&& other) noexcept : m_sr(other.m_sr), m_data(std::move(other.m_data)) { other.m_sr = {}; }
+	buffer_snapshot(buffer_snapshot&& other) noexcept : m_subrange(other.m_subrange), m_data(std::move(other.m_data)) { other.m_subrange = {}; }
 
 	buffer_snapshot& operator=(buffer_snapshot&& other) noexcept {
-		m_sr = other.m_sr, other.m_sr = {};
+		m_subrange = other.m_subrange, other.m_subrange = {};
 		m_data = std::move(other.m_data);
 	}
 
-	id<Dims> get_offset() const { return m_sr.offset; }
+	id<Dims> get_offset() const { return m_subrange.offset; }
 
-	range<Dims> get_range() const { return m_sr.range; }
+	range<Dims> get_range() const { return m_subrange.range; }
 
-	subrange<Dims> get_subrange() const { return m_sr; }
+	subrange<Dims> get_subrange() const { return m_subrange; }
 
 	const T* get_data() const { return m_data.get(); }
 
-	inline const T& operator[](const id<Dims> index) const { return m_data[detail::get_linear_index(m_sr.range, index)]; }
+	inline const T& operator[](const id<Dims> index) const { return m_data[detail::get_linear_index(m_subrange.range, index)]; }
 
 	inline detail::subscript_result_t<Dims, const buffer_snapshot> operator[](const size_t index) const { return detail::subscript<Dims>(*this, index); }
 
@@ -51,10 +51,10 @@ class buffer_snapshot {
 	template <typename U, int Dims2>
 	friend class detail::buffer_fence_promise;
 
-	subrange<Dims> m_sr;
+	subrange<Dims> m_subrange;
 	std::unique_ptr<T[]> m_data; // cannot use std::vector here because of vector<bool> m(
 
-	explicit buffer_snapshot(subrange<Dims> sr, std::unique_ptr<T[]> data) : m_sr(sr), m_data(std::move(data)) {}
+	explicit buffer_snapshot(subrange<Dims> sr, std::unique_ptr<T[]> data) : m_subrange(sr), m_data(std::move(data)) {}
 };
 
 } // namespace celerity::experimental

@@ -214,16 +214,16 @@ namespace detail {
 		command_type get_command_type() const {
 			// clang-format off
 			return utils::match(data,
-			    [](const std::monostate&) -> command_type {
-				    assert(!"calling get_command_type() on an empty command_pkg");
-				    std::terminate();
-			    },
-			    [](const horizon_data&) { return command_type::horizon; },
-			    [](const epoch_data&) { return command_type::epoch; },
-			    [](const execution_data&) { return command_type::execution; },
-			    [](const push_data&) { return command_type::push; },
-			    [](const await_push_data&) { return command_type::await_push; },
-			    [](const reduction_data&) { return command_type::reduction; },
+				[](const std::monostate&) -> command_type {
+					assert(!"calling get_command_type() on an empty command_pkg");
+					std::terminate();
+				},
+				[](const horizon_data&) { return command_type::horizon; },
+				[](const epoch_data&) { return command_type::epoch; },
+				[](const execution_data&) { return command_type::execution; },
+				[](const push_data&) { return command_type::push; },
+				[](const await_push_data&) { return command_type::await_push; },
+				[](const reduction_data&) { return command_type::reduction; },
 				[](const fence_data&) { return command_type::fence; }
 			);
 			// clang-format on
