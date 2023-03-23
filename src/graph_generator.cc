@@ -364,7 +364,7 @@ namespace detail {
 				}
 			} else {
 				// tasks without an execution range (e.g. fences) can still have fixed or all-accesses.
-				requirements = get_buffer_requirements_for_mapped_access(tsk, {}, {});
+				requirements = get_buffer_requirements_for_mapped_access(tsk, {}, zero_range);
 			}
 
 			for(auto& it : requirements) {
