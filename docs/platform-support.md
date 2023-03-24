@@ -13,12 +13,10 @@ The most recent version of Celerity aims to support the following environments:
   * CUDA ≥ 11.0
   * on NVIDIA hardware with compute capability ≥ 7.0
   * or on CPUs via OpenMP
-* ComputeCpp ≥ version 2.6.0
-  * on Intel hardware
-  * with [stable](https://developer.codeplay.com/products/computecpp/ce/download)
-    and [experimental](https://developer.codeplay.com/products/computecpp/ce/download?experimental=true) compilers
 * DPC++ ≥ revision [`3fd08509`](https://github.com/intel/llvm/commit/3fd08509)
   * on Intel hardware
+
+ComputeCpp is currently not supported.
 
 ## Continuously Tested Configurations
 
@@ -28,9 +26,6 @@ Those are:
 
 | SYCL       | SYCL version                                                                   | OS           | Build type     |
 |------------|--------------------------------------------------------------------------------|--------------|----------------|
-| ComputeCpp | 2.6.0, 2.7.0, 2.8.0, 2.9.0 (stable)                                            | Ubuntu 20.04 | Debug          |
-| ComputeCpp | 2.10.0 (stable)                                                                | Ubuntu 22.04 | Debug, Release |
-| ComputeCpp | 2.10.0 (experimental compiler)                                                 | Ubuntu 22.04 | Debug, Release |
 | DPC++      | [`3fd08509`](https://github.com/intel/llvm/commit/3fd08509)                    | Ubuntu 20.04 | Debug          |
 | DPC++      | [`HEAD`](https://github.com/intel/llvm/)                                       | Ubuntu 22.04 | Debug, Release |
 | hipSYCL    | [`7b00e2ef`](https://github.com/illuhad/hipSYCL/commit/7b00e2ef) (CUDA 11.0.3) | Ubuntu 20.04 | Debug          |

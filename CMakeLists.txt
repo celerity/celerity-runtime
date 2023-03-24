@@ -73,6 +73,8 @@ endif()
 
 set(CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER OFF)
 if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
+  message(FATAL "ComputeCpp is currently not supported.") # Comment out this error if you want to build against ComputeCpp anyway.
+
   # Determining the compiler version would usually be a job for FindComputeCpp, but since we're vendoring it, we try
   # to avoid introducing unnecessary changes.
   # TODO Replace this once FindComputeCpp supports distinguishing old and new ("experimental") compilers natively.
