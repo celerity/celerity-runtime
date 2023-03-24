@@ -1,14 +1,6 @@
 {
     "NOTE": "Make sure to keep this in sync with docs/platform-support.md. Also ensure that the 'ubuntu-version' between 'HEAD' and 'latest' builds remains the same.",
     "default": [
-        { "sycl": "computecpp", "sycl-version": "2.6.0", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },
-        { "sycl": "computecpp", "sycl-version": "2.7.0", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },
-        { "sycl": "computecpp", "sycl-version": "2.8.0", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },
-        { "sycl": "computecpp", "sycl-version": "2.9.0", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },
-        { "sycl": "computecpp", "sycl-version": "2.10.0", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },
-        { "sycl": "computecpp", "sycl-version": "2.10.0", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },
-        { "sycl": "computecpp", "sycl-version": "2.10.0-experimental", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },
-        { "sycl": "computecpp", "sycl-version": "2.10.0-experimental", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },
         { "sycl": "dpcpp", "sycl-version": "3fd08509", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },
         { "sycl": "dpcpp", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },
         { "sycl": "dpcpp", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },
