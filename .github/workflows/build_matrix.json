@@ -1,10 +1,10 @@
 {
     "NOTE": "Make sure to keep this in sync with docs/platform-support.md. Also ensure that the 'ubuntu-version' between 'HEAD' and 'latest' builds remains the same.",
     "default": [
-        { "sycl": "dpcpp", "sycl-version": "3fd08509", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },
+        { "sycl": "dpcpp", "sycl-version": "61e51015", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },
         { "sycl": "dpcpp", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },
         { "sycl": "dpcpp", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },
-        { "sycl": "hipsycl", "sycl-version": "7b00e2ef", "ubuntu-version": "20.04", "platform": "nvidia", "build-type": "Debug" },
+        { "sycl": "hipsycl", "sycl-version": "24980221", "ubuntu-version": "20.04", "platform": "nvidia", "build-type": "Debug" },
         { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Debug" },
         { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Release" }
     ],
