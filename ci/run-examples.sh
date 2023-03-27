@@ -65,7 +65,7 @@ for e in "${!EXAMPLES[@]}"; do
     for n in "${NUM_NODES[@]}"; do
         echo -e "\n\n ---- Running \"$NAME\" on $n node(s) ----\n\n" >&2
         rm -rf "$ARTIFACT" # Delete artifact before each run to make sure it is actually created
-        mpirun -n "$n" bash /root/capture-backtrace.sh "${CMD[@]}"
+        mpirun --bind-to none -n "$n" bash /root/capture-backtrace.sh "${CMD[@]}"
         if [ -n "$ARTIFACT" ]; then
             if [ "$n" -eq "${NUM_NODES[0]}" ]; then
                 expected_checksum=$(md5sum "$ARTIFACT")
