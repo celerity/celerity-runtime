@@ -29,4 +29,4 @@ Those are:
 | DPC++      | [`61e51015`](https://github.com/intel/llvm/commit/61e51015)                    | Ubuntu 20.04 | Debug          |
 | DPC++      | [`HEAD`](https://github.com/intel/llvm/)                                       | Ubuntu 22.04 | Debug, Release |
 | hipSYCL    | [`24980221`](https://github.com/illuhad/hipSYCL/commit/24980221) (CUDA 11.0.3) | Ubuntu 20.04 | Debug          |
-| hipSYCL    | [`HEAD`](https://github.com/illuhad/hipSYCL) (CUDA 11.7.0)                     | Ubuntu 22.04 | Debug, Release |
+| hipSYCL    | [`HEAD`](https://github.com/illuhad/hipSYCL) (CUDA 12.1.0)                     | Ubuntu 22.04 | Debug, Release |
