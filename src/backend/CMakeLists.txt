@@ -1,12 +1,25 @@
+set(CUDA_OR_CUDA_TOOLKIT_FOUND FALSE)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.17")
+  find_package(CUDAToolkit)
+  set(CUDA_OR_CUDA_TOOLKIT_FOUND ${CUDAToolkit_FOUND})
+else()
+  find_package(CUDA)
+  set(CUDA_OR_CUDA_TOOLKIT_FOUND ${CUDA_FOUND})
+endif()
+
 find_package(CUDAToolkit QUIET)
 # find_package(LevelZero QUIET) # TODO: Need find module?
 # find_package(ROCM QUIET) # TODO: Need find module?
 
 # TODO: Make conditional on CELERITY_SYCL_IMPL?
-option(CELERITY_ENABLE_CUDA_BACKEND "Enable optimized code paths for CUDA backends" ${CUDAToolkit_FOUND})
+option(CELERITY_ENABLE_CUDA_BACKEND "Enable optimized code paths for CUDA backends" ${CUDA_OR_CUDA_TOOLKIT_FOUND})
 if(CELERITY_ENABLE_CUDA_BACKEND AND NOT CUDAToolkit_FOUND)
   # Run find_package again to emit error message
-  find_package(CUDAToolkit REQUIRED)
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.17")
+    find_package(CUDAToolkit REQUIRED)
+  else()
+    find_package(CUDA REQUIRED)
+  endif()
 endif()
 
 add_library(celerity_backends STATIC backend.cc generic_backend.cc)
@@ -17,7 +30,12 @@ add_sycl_to_target(TARGET celerity_backends SOURCES)
 
 if(CELERITY_ENABLE_CUDA_BACKEND)
   target_sources(celerity_backends PRIVATE cuda_backend.cc)
-  target_link_libraries(celerity_backends PUBLIC CUDA::cudart)
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.17")
+    target_link_libraries(celerity_backends PUBLIC CUDA::cudart)
+  else()
+    target_link_libraries(celerity_backends PUBLIC ${CUDA_LIBRARIES})
+    target_include_directories(celerity_backends PUBLIC ${CUDA_INCLUDE_DIRS})
+  endif()
   target_compile_definitions(celerity_backends PUBLIC "CELERITY_DETAIL_BACKEND_CUDA_ENABLED=1")
   message(STATUS "CUDA backend enabled")
 endif()
