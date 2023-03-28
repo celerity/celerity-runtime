@@ -68,19 +68,19 @@ namespace detail {
 				//   celerity::no_init or nothing.
 				// accessor acc0{buf_a, cgh, one_to_one{}, cl::sycl::write_only_host_task, celerity::property_list{celerity::no_init}};
 
-				accessor acc1{buf_a, cgh, one_to_one{}, celerity::write_only_host_task};
+				accessor acc1{buf_a, cgh, fixed<1>{{0, 1}}, celerity::write_only_host_task};
 				static_assert(std::is_same_v<accessor<int, 1, access_mode::write, target::host_task>, decltype(acc1)>);
 
-				accessor acc2{buf_a, cgh, one_to_one{}, celerity::read_only_host_task};
+				accessor acc2{buf_a, cgh, fixed<1>{{0, 1}}, celerity::read_only_host_task};
 				static_assert(std::is_same_v<accessor<int, 1, access_mode::read, target::host_task>, decltype(acc2)>);
 
 				accessor acc3{buf_a, cgh, fixed<1>{{0, 1}}, celerity::read_write_host_task};
 				static_assert(std::is_same_v<accessor<int, 1, access_mode::read_write, target::host_task>, decltype(acc3)>);
 
-				accessor acc4{buf_a, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
+				accessor acc4{buf_a, cgh, fixed<1>{{0, 1}}, celerity::write_only_host_task, celerity::no_init};
 				static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_write, target::host_task>, decltype(acc4)>);
 
-				accessor acc5{buf_a, cgh, one_to_one{}, celerity::read_write_host_task, celerity::no_init};
+				accessor acc5{buf_a, cgh, fixed<1>{{0, 1}}, celerity::read_write_host_task, celerity::no_init};
 				static_assert(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, target::host_task>, decltype(acc5)>);
 			});
 		}
