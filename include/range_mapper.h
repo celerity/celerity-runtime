@@ -24,7 +24,8 @@ namespace detail {
 	                                                      || is_range_mapper_invocable_for_chunk_and_global_size<Functor, BufferDims, KernelDims>;
 
 	template <typename Functor, int BufferDims>
-	constexpr bool is_range_mapper_invocable = is_range_mapper_invocable_for_kernel<Functor, BufferDims, 1>    //
+	constexpr bool is_range_mapper_invocable = is_range_mapper_invocable_for_kernel<Functor, BufferDims, 0>    //
+	                                           || is_range_mapper_invocable_for_kernel<Functor, BufferDims, 1> //
 	                                           || is_range_mapper_invocable_for_kernel<Functor, BufferDims, 2> //
 	                                           || is_range_mapper_invocable_for_kernel<Functor, BufferDims, 3>;
 
@@ -41,7 +42,7 @@ namespace detail {
 
 	template <int KernelDims, int BufferDims, typename Functor>
 	subrange<BufferDims> invoke_range_mapper_for_kernel(Functor&& fn, const celerity::chunk<KernelDims>& chunk, const range<BufferDims>& buffer_size) {
-		static_assert(KernelDims >= 1 && KernelDims <= 3 && BufferDims >= 1 && BufferDims <= 3);
+		static_assert(KernelDims >= 0 && KernelDims <= 3 && BufferDims >= 0 && BufferDims <= 3);
 		if constexpr(is_range_mapper_invocable_for_chunk_and_global_size<Functor, BufferDims, KernelDims>) {
 			return std::forward<Functor>(fn)(chunk, buffer_size);
 		} else if constexpr(is_range_mapper_invocable_for_chunk_only<Functor, BufferDims, KernelDims>) {
@@ -65,9 +66,7 @@ namespace detail {
 		static_assert(is_range_mapper_invocable<Functor, BufferDims>);
 		subrange<BufferDims> sr;
 		switch(kernel_dims) {
-		case 0:
-			[[fallthrough]]; // range is not defined for the 0d case, but since only constant range mappers are useful in the 0d-kernel case
-			                 // anyway, we require range mappers to take at least 1d subranges
+		case 0: sr = invoke_range_mapper_for_kernel(fn, chunk_cast<0>(chunk), buffer_size); break;
 		case 1: sr = invoke_range_mapper_for_kernel(fn, chunk_cast<1>(chunk), buffer_size); break;
 		case 2: sr = invoke_range_mapper_for_kernel(fn, chunk_cast<2>(chunk), buffer_size); break;
 		case 3: sr = invoke_range_mapper_for_kernel(fn, chunk_cast<3>(chunk), buffer_size); break;
@@ -86,12 +85,15 @@ namespace detail {
 
 		virtual int get_buffer_dimensions() const = 0;
 
+		virtual subrange<1> map_1(const chunk<0>& chnk) const = 0;
 		virtual subrange<1> map_1(const chunk<1>& chnk) const = 0;
 		virtual subrange<1> map_1(const chunk<2>& chnk) const = 0;
 		virtual subrange<1> map_1(const chunk<3>& chnk) const = 0;
+		virtual subrange<2> map_2(const chunk<0>& chnk) const = 0;
 		virtual subrange<2> map_2(const chunk<1>& chnk) const = 0;
 		virtual subrange<2> map_2(const chunk<2>& chnk) const = 0;
 		virtual subrange<2> map_2(const chunk<3>& chnk) const = 0;
+		virtual subrange<3> map_3(const chunk<0>& chnk) const = 0;
 		virtual subrange<3> map_3(const chunk<1>& chnk) const = 0;
 		virtual subrange<3> map_3(const chunk<2>& chnk) const = 0;
 		virtual subrange<3> map_3(const chunk<3>& chnk) const = 0;
@@ -110,12 +112,15 @@ namespace detail {
 
 		int get_buffer_dimensions() const override { return BufferDims; }
 
+		subrange<1> map_1(const chunk<0>& chnk) const override { return map<1>(chnk); }
 		subrange<1> map_1(const chunk<1>& chnk) const override { return map<1>(chnk); }
 		subrange<1> map_1(const chunk<2>& chnk) const override { return map<1>(chnk); }
 		subrange<1> map_1(const chunk<3>& chnk) const override { return map<1>(chnk); }
+		subrange<2> map_2(const chunk<0>& chnk) const override { return map<2>(chnk); }
 		subrange<2> map_2(const chunk<1>& chnk) const override { return map<2>(chnk); }
 		subrange<2> map_2(const chunk<2>& chnk) const override { return map<2>(chnk); }
 		subrange<2> map_2(const chunk<3>& chnk) const override { return map<2>(chnk); }
+		subrange<3> map_3(const chunk<0>& chnk) const override { return map<3>(chnk); }
 		subrange<3> map_3(const chunk<1>& chnk) const override { return map<3>(chnk); }
 		subrange<3> map_3(const chunk<2>& chnk) const override { return map<3>(chnk); }
 		subrange<3> map_3(const chunk<3>& chnk) const override { return map<3>(chnk); }
@@ -157,7 +162,7 @@ namespace access {
 	struct [[deprecated("Explicitly-dimensioned range mappers are deprecated, remove template arguments from celerity::one_to_one")]] one_to_one
 	    : one_to_one<0>{};
 
-	one_to_one()->one_to_one<>;
+	one_to_one() -> one_to_one<>;
 
 	template <int KernelDims, int BufferDims = KernelDims>
 	struct fixed;
@@ -214,7 +219,7 @@ namespace access {
 	template <int KernelDims, int BufferDims>
 	struct [[deprecated("Explicitly-dimensioned range mappers are deprecated, remove template arguments from celerity::all")]] all : all<0, 0>{};
 
-	all()->all<>;
+	all() -> all<>;
 
 	template <int Dims>
 	struct neighborhood {

@@ -46,9 +46,7 @@ namespace detail {
 			chunk<3> chnk{sr.offset, sr.range, global_size};
 			subrange<3> req;
 			switch(kernel_dims) {
-			case 0:
-				[[fallthrough]]; // celerity::range is not defined for the 0d case, but since only constant range mappers are useful in the 0d-kernel case
-				                 // anyway, we require range mappers to take at least 1d subranges
+			case 0: req = apply_range_mapper<0>(rm, chunk_cast<0>(chnk)); break;
 			case 1: req = apply_range_mapper<1>(rm, chunk_cast<1>(chnk)); break;
 			case 2: req = apply_range_mapper<2>(rm, chunk_cast<2>(chnk)); break;
 			case 3: req = apply_range_mapper<3>(rm, chunk_cast<3>(chnk)); break;
