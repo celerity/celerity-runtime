@@ -11,11 +11,11 @@ namespace detail {
 
 	using namespace allscale::api::user::data;
 
-	inline GridPoint<1> sycl_id_to_grid_point(celerity::range<1> range) { return GridPoint<1>(range[0]); }
+	inline GridPoint<1> id_to_grid_point(celerity::id<1> id) { return GridPoint<1>(id[0]); }
 
-	inline GridPoint<2> sycl_id_to_grid_point(celerity::range<2> range) { return GridPoint<2>(range[0], range[1]); }
+	inline GridPoint<2> id_to_grid_point(celerity::id<2> id) { return GridPoint<2>(id[0], id[1]); }
 
-	inline GridPoint<3> sycl_id_to_grid_point(celerity::range<3> range) { return GridPoint<3>(range[0], range[1], range[2]); }
+	inline GridPoint<3> id_to_grid_point(celerity::id<3> id) { return GridPoint<3>(id[0], id[1], id[2]); }
 
 	// The AllScale classes use a different template type for dimensions (size_t), which can lead to some type inference issues.
 	// We thus have to provide all instantiations explicitly as overloads below.
@@ -23,8 +23,7 @@ namespace detail {
 
 		template <int Dims>
 		GridBox<Dims> subrange_to_grid_box(const subrange<Dims>& sr) {
-			const auto end = detail::range_cast<Dims>(sr.offset) + sr.range;
-			return GridBox<Dims>(sycl_id_to_grid_point(detail::range_cast<Dims>(sr.offset)), sycl_id_to_grid_point(end));
+			return GridBox<Dims>(id_to_grid_point(sr.offset), id_to_grid_point(sr.offset + sr.range));
 		}
 
 		template <int Dims>

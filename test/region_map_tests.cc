@@ -12,10 +12,7 @@
 namespace celerity {
 namespace detail {
 
-	GridBox<3> make_grid_box(celerity::range<3> range, celerity::id<3> offset = {}) {
-		const auto end = celerity::detail::range_cast<3>(offset) + range;
-		return {sycl_id_to_grid_point(celerity::detail::range_cast<3>(offset)), sycl_id_to_grid_point(end)};
-	}
+	GridBox<3> make_grid_box(celerity::range<3> range, celerity::id<3> offset = {}) { return {id_to_grid_point(offset), id_to_grid_point(offset + range)}; }
 
 	GridRegion<3> make_grid_region(celerity::range<3> range, celerity::id<3> offset = {}) { return GridRegion<3>(make_grid_box(range, offset)); }
 

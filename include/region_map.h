@@ -33,7 +33,7 @@ namespace detail {
 		 * @param default_value The default value is used to initialize the entire extent
 		 */
 		region_map(celerity::range<3> extent, ValueType default_value = ValueType{}) : m_extent(extent) {
-			m_default_initialized = GridRegion<3>(sycl_id_to_grid_point(extent));
+			m_default_initialized = GridRegion<3>(id_to_grid_point(id(extent)));
 			m_region_values.push_back(std::make_pair(m_default_initialized, default_value));
 		}
 
