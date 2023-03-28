@@ -335,5 +335,110 @@ namespace detail {
 		});
 	}
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "kernels can access 0-dimensional buffers", "[buffer]") {
+		constexpr float value_a = 13.37f;
+		constexpr float value_b = 42.0f;
+
+		buffer<float, 0> buf_0 = value_a;
+		buffer<float, 1> buf_1(100);
+
+		distr_queue q;
+		q.submit([=](handler& cgh) {
+			accessor acc_0(buf_0, cgh, read_write_host_task);
+			cgh.host_task(on_master_node, [=] {
+				CHECK(*acc_0 == value_a);
+				*acc_0 = value_b;
+			});
+		});
+		q.submit([=](handler& cgh) {
+			accessor acc_0(buf_0, cgh, read_only);
+			accessor acc_1(buf_1, cgh, one_to_one(), write_only, no_init);
+			cgh.parallel_for<class UKN(device)>(buf_1.get_range(), [=](item<1> it) { acc_1[it] = *acc_0; });
+		});
+		q.submit([=](handler& cgh) {
+			accessor acc_1(buf_1, cgh, all(), read_only_host_task);
+			cgh.host_task(on_master_node, [=] {
+				for(size_t i = 0; i < buf_1.get_range().size(); ++i) {
+					REQUIRE_LOOP(acc_1[i] == value_b);
+				}
+			});
+		});
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "0-dimensional kernels can access arbitrary-dimensional buffers", "[buffer]") {
+		buffer<float, 0> buf_0d;
+		buffer<float, 1> buf_1d({100});
+		buffer<float, 2> buf_2d({10, 10});
+		buffer<float, 3> buf_3d({5, 5, 5});
+
+		distr_queue q;
+		q.submit([=](handler& cgh) {
+			accessor acc_0d(buf_0d, cgh, write_only, no_init);
+			accessor acc_1d(buf_1d, cgh, all(), write_only, no_init);
+			accessor acc_2d(buf_2d, cgh, all(), write_only, no_init);
+			accessor acc_3d(buf_3d, cgh, all(), write_only, no_init);
+			cgh.parallel_for<class UKN(device)>(range<0>(), [=](item<0>) {
+				*acc_0d = 1;
+				acc_1d[99] = 2;
+				acc_2d[9][9] = 3;
+				acc_3d[4][4][4] = 4;
+			});
+		});
+		q.submit([=](handler& cgh) {
+			accessor acc_0d(buf_0d, cgh, read_write_host_task);
+			accessor acc_1d(buf_1d, cgh, all(), read_write_host_task);
+			accessor acc_2d(buf_2d, cgh, all(), read_write_host_task);
+			accessor acc_3d(buf_3d, cgh, all(), read_write_host_task);
+			cgh.host_task(range<0>(), [=](partition<0>) {
+				*acc_0d += 9;
+				acc_1d[99] += 9;
+				acc_2d[9][9] += 9;
+				acc_3d[4][4][4] += 9;
+			});
+		});
+		q.submit([=](handler& cgh) {
+			accessor acc_0d(buf_0d, cgh, read_only_host_task);
+			accessor acc_1d(buf_1d, cgh, all(), read_only_host_task);
+			accessor acc_2d(buf_2d, cgh, all(), read_only_host_task);
+			accessor acc_3d(buf_3d, cgh, all(), read_only_host_task);
+			cgh.host_task(on_master_node, [=] {
+				CHECK(*acc_0d == 10);
+				CHECK(acc_1d[99] == 11);
+				CHECK(acc_2d[9][9] == 12);
+				CHECK(acc_3d[4][4][4] == 13);
+			});
+		});
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "0-dimensional local accessors behave as expected", "[buffer]") {
+		constexpr float value_a = 13.37f;
+		constexpr float value_b = 42.0f;
+
+		buffer<float, 1> buf_1(32);
+
+		distr_queue q;
+		q.submit([=](handler& cgh) {
+			accessor acc_1(buf_1, cgh, one_to_one(), write_only, no_init);
+			cgh.parallel_for<class UKN(device)>(buf_1.get_range(), [=](item<1> it) { acc_1[it] = value_a; });
+		});
+		q.submit([=](handler& cgh) {
+			accessor acc_1(buf_1, cgh, one_to_one(), write_only);
+			local_accessor<float, 0> local_0(cgh);
+			cgh.parallel_for<class UKN(device)>(nd_range(buf_1.get_range(), buf_1.get_range()), [=](nd_item<1> it) {
+				if(it.get_local_id() == 0) { *local_0 = value_b; }
+				group_barrier(it.get_group());
+				acc_1[it.get_global_id()] = *local_0;
+			});
+		});
+		q.submit([=](handler& cgh) {
+			accessor acc_1(buf_1, cgh, all(), read_only_host_task);
+			cgh.host_task(on_master_node, [=] {
+				for(size_t i = 0; i < buf_1.get_range().size(); ++i) {
+					REQUIRE_LOOP(acc_1[i] == value_b);
+				}
+			});
+		});
+	}
+
 } // namespace detail
 } // namespace celerity
