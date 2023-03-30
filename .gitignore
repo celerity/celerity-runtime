@@ -1,7 +1,10 @@
 CMakeSettings.json
+compile_commands.json
 build
+build_*
 install
+.cache/
 .vs/
+.vscode/
 .idea/
 /tags
-

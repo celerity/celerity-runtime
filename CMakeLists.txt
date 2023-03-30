@@ -9,6 +9,9 @@ message(VERBOSE "Celerity version is ${CELERITY_VERSION_MAJOR}.${CELERITY_VERSIO
 
 project(celerity_runtime VERSION ${Celerity_VERSION} LANGUAGES CXX)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+option(CELERITY_USE_MIMALLOC "Use the mimalloc memory allocator" ON)
 
 set(CELERITY_CMAKE_DIR "${PROJECT_SOURCE_DIR}/cmake")
 set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CELERITY_CMAKE_DIR}")
@@ -62,7 +65,7 @@ else()
       "Please choose one implementation using -DCELERITY_SYCL_IMPL=hipSYCL|ComputeCpp|DPC++.")
   else()
     set(CELERITY_SYCL_IMPL "${AVAILABLE_SYCL_IMPLS}")
-    message(STATUS "Automatically chooosing ${CELERITY_SYCL_IMPL} because it is the only SYCL implementation available")
+    message(STATUS "Automatically choosing ${CELERITY_SYCL_IMPL} because it is the only SYCL implementation available")
   endif()
 endif()
 
@@ -184,6 +187,15 @@ list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 set(LIBENVPP_INSTALL ON CACHE BOOL "" FORCE)
 fetch_content_from_submodule(libenvpp vendor/libenvpp)
 
+if(CELERITY_USE_MIMALLOC)
+  set(MI_OVERRIDE ON CACHE BOOL "" FORCE)
+  set(MI_BUILD_SHARED ON CACHE BOOL "" FORCE)
+  set(MI_BUILD_STATIC OFF CACHE BOOL "" FORCE)
+  set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
+  set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  fetch_content_from_submodule(mimalloc vendor/mimalloc)
+endif()
+
 configure_file(include/version.h.in include/version.h @ONLY)
 
 # Add includes to library so they show up in IDEs
@@ -258,6 +270,10 @@ if(WIN32 AND CELERITY_SYCL_IMPL STREQUAL "DPC++")
   )
 endif()
 
+if(CELERITY_USE_MIMALLOC)
+  target_link_libraries(celerity_runtime PUBLIC mimalloc)
+endif()
+
 target_link_libraries(celerity_runtime PUBLIC
   Threads::Threads
   MPI::MPI_CXX
@@ -287,6 +303,7 @@ target_compile_definitions(celerity_runtime PUBLIC
   $<BUILD_INTERFACE:
     $<$<CONFIG:Debug>:CELERITY_DETAIL_ENABLE_DEBUG>
   >
+  CELERITY_USE_MIMALLOC=$<BOOL:${CELERITY_USE_MIMALLOC}>
   CELERITY_FEATURE_SCALAR_REDUCTIONS=$<BOOL:${CELERITY_FEATURE_SCALAR_REDUCTIONS}>
   CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS=$<BOOL:${CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS}>
   CELERITY_FEATURE_LOCAL_ACCESSOR=$<BOOL:${CELERITY_FEATURE_LOCAL_ACCESSOR}>
