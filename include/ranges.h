@@ -70,7 +70,7 @@ class coordinate {
 
 	friend constexpr bool operator!=(const Interface& lhs, const Interface& rhs) { return !(lhs == rhs); }
 
-#define CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(op)                                                                                                \
+#define CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(op)                                                                                         \
 	friend constexpr Interface operator op(const Interface& lhs, const Interface& rhs) {                                                                       \
 		Interface result;                                                                                                                                      \
 		for(int d = 0; d < Dims; ++d) {                                                                                                                        \
@@ -86,24 +86,26 @@ class coordinate {
 		return result;                                                                                                                                         \
 	}
 
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(+)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(-)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(*)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(/)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(%)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(<<)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(>>)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(&)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(|)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(^)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(&&)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(||)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(<)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(>)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(<=)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(>=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(+)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(-)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(*)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(/)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(%)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(<<)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(>>)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(&)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(|)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(^)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(&&)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(||)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(<)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(>)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(<=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR(>=)
 
-#define CELERITY_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(op)                                                                                             \
+#undef CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR
+
+#define CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(op)                                                                                      \
 	friend constexpr Interface& operator op(Interface& lhs, const Interface& rhs) {                                                                            \
 		for(int d = 0; d < Dims; ++d) {                                                                                                                        \
 			lhs.m_values[d] op rhs.m_values[d];                                                                                                                \
@@ -117,18 +119,20 @@ class coordinate {
 		return lhs;                                                                                                                                            \
 	}
 
-	CELERITY_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(+=)
-	CELERITY_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(-=)
-	CELERITY_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(*=)
-	CELERITY_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(/=)
-	CELERITY_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(%=)
-	CELERITY_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(<<=)
-	CELERITY_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(>>=)
-	CELERITY_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(&=)
-	CELERITY_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(|=)
-	CELERITY_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(^=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(+=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(-=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(*=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(/=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(%=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(<<=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(>>=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(&=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(|=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(^=)
 
-#define CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(op)                                                                                                \
+#undef CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR
+
+#define CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(op)                                                                                         \
 	friend constexpr Interface operator op(const size_t& lhs, const Interface& rhs) {                                                                          \
 		Interface result;                                                                                                                                      \
 		for(int d = 0; d < Dims; ++d) {                                                                                                                        \
@@ -137,24 +141,26 @@ class coordinate {
 		return result;                                                                                                                                         \
 	}
 
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(+)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(-)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(*)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(/)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(%)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(<<)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(>>)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(&)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(|)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(^)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(&&)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(||)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(<)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(>)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(<=)
-	CELERITY_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(>=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(+)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(-)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(*)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(/)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(%)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(<<)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(>>)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(&)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(|)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(^)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(&&)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(||)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(<)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(>)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(<=)
+	CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR(>=)
 
-#define CELERITY_DEFINE_COORDINATE_UNARY_COPY_OPERATOR(op)                                                                                                     \
+#undef CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_RHS_OPERATOR
+
+#define CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_COPY_OPERATOR(op)                                                                                              \
 	friend constexpr Interface operator op(const Interface& rhs) {                                                                                             \
 		Interface result;                                                                                                                                      \
 		for(int d = 0; d < Dims; ++d) {                                                                                                                        \
@@ -163,10 +169,12 @@ class coordinate {
 		return result;                                                                                                                                         \
 	}
 
-	CELERITY_DEFINE_COORDINATE_UNARY_COPY_OPERATOR(+)
-	CELERITY_DEFINE_COORDINATE_UNARY_COPY_OPERATOR(-)
+	CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_COPY_OPERATOR(+)
+	CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_COPY_OPERATOR(-)
 
-#define CELERITY_DEFINE_COORDINATE_UNARY_PREFIX_OPERATOR(op)                                                                                                   \
+#undef CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_COPY_OPERATOR
+
+#define CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_PREFIX_OPERATOR(op)                                                                                            \
 	friend constexpr Interface& operator op(Interface& rhs) {                                                                                                  \
 		for(int d = 0; d < Dims; ++d) {                                                                                                                        \
 			op rhs[d];                                                                                                                                         \
@@ -174,10 +182,12 @@ class coordinate {
 		return rhs;                                                                                                                                            \
 	}
 
-	CELERITY_DEFINE_COORDINATE_UNARY_PREFIX_OPERATOR(++)
-	CELERITY_DEFINE_COORDINATE_UNARY_PREFIX_OPERATOR(--)
+	CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_PREFIX_OPERATOR(++)
+	CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_PREFIX_OPERATOR(--)
 
-#define CELERITY_DEFINE_COORDINATE_UNARY_POSTFIX_OPERATOR(op)                                                                                                  \
+#undef CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_PREFIX_OPERATOR
+
+#define CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_POSTFIX_OPERATOR(op)                                                                                           \
 	friend constexpr Interface operator op(Interface& lhs, int) {                                                                                              \
 		Interface result = lhs;                                                                                                                                \
 		for(int d = 0; d < Dims; ++d) {                                                                                                                        \
@@ -186,8 +196,10 @@ class coordinate {
 		return result;                                                                                                                                         \
 	}
 
-	CELERITY_DEFINE_COORDINATE_UNARY_POSTFIX_OPERATOR(++)
-	CELERITY_DEFINE_COORDINATE_UNARY_POSTFIX_OPERATOR(--)
+	CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_POSTFIX_OPERATOR(++)
+	CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_POSTFIX_OPERATOR(--)
+
+#undef CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_POSTFIX_OPERATOR
 
   private:
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS coordinate_storage<Dims> m_values;
