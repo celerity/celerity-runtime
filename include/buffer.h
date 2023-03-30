@@ -61,15 +61,24 @@ class buffer {
 
 	~buffer() {}
 
-	template <access_mode Mode, typename Functor>
+	template <access_mode Mode, typename Functor, int D = Dims, std::enable_if_t<(D > 0), int> = 0>
 	accessor<DataT, Dims, Mode, target::device> get_access(handler& cgh, Functor rmfn) const {
 		return get_access<Mode, target::device, Functor>(cgh, rmfn);
 	}
 
+	template <access_mode Mode, typename Functor, int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	accessor<DataT, Dims, Mode, target::device> get_access(handler& cgh) const {
+		return get_access<Mode, target::device, Functor>(cgh);
+	}
 
-	template <access_mode Mode, target Target, typename Functor>
+	template <access_mode Mode, target Target, typename Functor, int D = Dims, std::enable_if_t<(D > 0), int> = 0>
 	accessor<DataT, Dims, Mode, Target> get_access(handler& cgh, Functor rmfn) const {
 		return accessor<DataT, Dims, Mode, Target>(*this, cgh, rmfn);
+	}
+
+	template <access_mode Mode, target Target, typename Functor, int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	accessor<DataT, Dims, Mode, Target> get_access(handler& cgh) const {
+		return accessor<DataT, Dims, Mode, Target>(*this, cgh);
 	}
 
 	const celerity::range<Dims>& get_range() const { return m_impl->range; }
