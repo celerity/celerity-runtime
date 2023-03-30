@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sycl_wrappers.h"
+#include "workaround.h"
 
 namespace celerity {
 
@@ -189,7 +190,7 @@ class coordinate {
 	CELERITY_DEFINE_COORDINATE_UNARY_POSTFIX_OPERATOR(--)
 
   private:
-	coordinate_storage<Dims> m_values;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS coordinate_storage<Dims> m_values;
 };
 
 template <typename InterfaceOut, typename InterfaceIn, int DimsIn>
@@ -429,6 +430,8 @@ namespace detail {
 		Target& m_tgt;
 		id<TargetDims> m_id{};
 	};
+
+	inline size_t get_linear_index(const celerity::range<0>& /* range */, const celerity::id<0>& /* index */) { return 0; }
 
 	inline size_t get_linear_index(const celerity::range<1>& range, const celerity::id<1>& index) { return index[0]; }
 

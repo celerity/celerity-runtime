@@ -227,7 +227,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
 	template <typename Functor, access_mode TagMode>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::device> /* tag */,
-	    const property::no_init /* no_init */)
+	    const property::no_init& /* no_init */)
 	    : accessor(buff, cgh, rmfn) {}
 
 	template <typename Functor, access_mode TagMode, access_mode TagModeNoInit>
@@ -238,17 +238,46 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		    "as a last argument in the constructor");
 	}
 
+	template <int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh) : accessor(buff, cgh, access::all()) {}
+
+	template <access_mode TagModeNoInit, int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const detail::access_tag<Mode, TagModeNoInit, target::device> tag)
+	    : accessor(buff, cgh, access::all(), tag) {}
+
+	template <access_mode TagMode, int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const detail::access_tag<TagMode, Mode, target::device> tag, const property::no_init& no_init)
+	    : accessor(buff, cgh, access::all(), tag, no_init) {}
+
+	template <access_mode TagMode, access_mode TagModeNoInit, int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	accessor(
+	    const buffer<DataT, Dims>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, target::device> tag, const property_list& prop_list)
+	    : accessor(buff, cgh, access::all(), tag, prop_list) {}
+
 	template <access_mode M = Mode>
-	std::enable_if_t<detail::access::mode_traits::is_producer(M), DataT&> operator[](const id<Dims>& index) const {
+	inline std::enable_if_t<detail::access::mode_traits::is_producer(M), DataT&> operator[](const id<Dims>& index) const {
 		return m_device_ptr[get_linear_offset(index)];
 	}
 
 	template <access_mode M = Mode>
-	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator[](const id<Dims>& index) const {
+	inline std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator[](const id<Dims>& index) const {
 		return m_device_ptr[get_linear_offset(index)];
 	}
 
-	inline detail::subscript_result_t<Dims, const accessor> operator[](const size_t index) const { return detail::subscript<Dims>(*this, index); }
+	template <int D = Dims>
+	inline std::enable_if_t<(D > 0), detail::subscript_result_t<D, const accessor>> operator[](const size_t index) const {
+		return detail::subscript<D>(*this, index);
+	}
+
+	template <access_mode M = Mode>
+	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), DataT&> operator*() const {
+		return *m_device_ptr;
+	}
+
+	template <access_mode M = Mode>
+	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator*() const {
+		return *m_device_ptr;
+	}
 
 	friend bool operator==(const accessor& lhs, const accessor& rhs) {
 		return lhs.m_device_ptr == rhs.m_device_ptr && lhs.m_buffer_range == rhs.m_buffer_range && lhs.m_index_offset == rhs.m_index_offset;
@@ -258,8 +287,8 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
   private:
 	DataT* m_device_ptr = nullptr;
-	celerity::id<Dims> m_index_offset;
-	celerity::range<Dims> m_buffer_range = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::id<Dims> m_index_offset;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> m_buffer_range = detail::zero_range;
 
 	// Constructor for tests, called through accessor_testspy.
 	accessor(DataT* ptr, id<Dims> index_offset, range<Dims> buffer_range) : m_device_ptr(ptr), m_index_offset(index_offset), m_buffer_range(buffer_range) {
@@ -275,79 +304,6 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
 	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_buffer_range, index - m_index_offset); }
 };
-
-template <typename DataT, access_mode Mode>
-class accessor<DataT, 0, Mode, target::device> : public detail::accessor_base<DataT, 0, Mode, target::device> {
-	friend struct detail::accessor_testspy;
-
-	struct ctor_internal_tag {};
-
-  public:
-	static_assert(Mode != access_mode::atomic, "access_mode::atomic is not supported. Please use atomic_ref instead.");
-
-	accessor(const buffer<DataT, 0>& buff, handler& cgh) {
-		if(detail::is_prepass_handler(cgh)) {
-			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
-			auto rmfn = access::all();
-			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<0, decltype(rmfn)>>(rmfn, Mode, buff.get_range()));
-		} else {
-			if(detail::get_handler_execution_target(cgh) != detail::execution_target::device) {
-				throw std::runtime_error(
-				    "Calling accessor constructor with device target is only allowed in parallel_for tasks."
-				    "If you want to access this buffer from within a host task, please specialize the call using one of the *_host_task tags");
-			}
-
-			// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper manually.
-			auto access_info =
-			    detail::runtime::get_instance().get_buffer_manager().access_device_buffer<DataT, 0>(detail::get_buffer_id(buff), Mode, subrange<0>());
-			m_device_ptr = static_cast<DataT*>(access_info.ptr);
-		}
-	}
-
-	template <access_mode TagModeNoInit>
-	accessor(const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<Mode, TagModeNoInit, target::device> /* tag */) : accessor(buff, cgh) {}
-
-	template <access_mode TagMode, access_mode M = Mode, typename = std::enable_if_t<detail::access::mode_traits::is_producer(M)>>
-	accessor(
-	    const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<TagMode, Mode, target::device> /* tag */, const property::no_init /* no_init */)
-	    : accessor(buff, cgh) {}
-
-	template <access_mode TagMode, access_mode TagModeNoInit>
-	accessor(const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, target::device> /* tag */,
-	    const property_list& /* prop_list */) {
-		static_assert(detail::constexpr_false<std::integral_constant<access_mode, TagMode>>,
-		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
-		    "as a last argument in the constructor");
-	}
-
-	template <access_mode M = Mode>
-	std::enable_if_t<detail::access::mode_traits::is_producer(M), DataT&> operator*() const {
-		return *m_device_ptr;
-	}
-
-	template <access_mode M = Mode>
-	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator*() const {
-		return *m_device_ptr;
-	}
-
-	friend bool operator==(const accessor& lhs, const accessor& rhs) { return lhs.m_device_ptr == rhs.m_device_ptr; }
-
-	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
-
-  private:
-	DataT* m_device_ptr = nullptr;
-
-	// Constructor for tests, called through accessor_testspy.
-	explicit accessor(DataT* ptr) : m_device_ptr(ptr) {
-#if CELERITY_WORKAROUND_HIPSYCL
-		static_assert(std::is_trivially_copyable_v<accessor>);
-#else
-		static_assert(sycl::is_device_copyable_v<accessor>);
-#endif
-	}
-};
-
-//
 
 template <typename DataT, int Dims, access_mode Mode>
 class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_base<DataT, Dims, Mode, target::host_task> {
@@ -405,17 +361,46 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		    "as a last argument in the constructor");
 	}
 
+	template <int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh) : accessor(buff, cgh, access::all()) {}
+
+	template <access_mode TagModeNoInit, int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const detail::access_tag<Mode, TagModeNoInit, target::host_task> tag)
+	    : accessor(buff, cgh, access::all(), tag) {}
+
+	template <access_mode TagMode, int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const detail::access_tag<TagMode, Mode, target::host_task> tag, const property::no_init& no_init)
+	    : accessor(buff, cgh, access::all(), tag, no_init) {}
+
+	template <access_mode TagMode, access_mode TagModeNoInit, int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	accessor(
+	    const buffer<DataT, Dims>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, target::host_task> tag, const property_list& prop_list)
+	    : accessor(buff, cgh, access::all(), tag, prop_list) {}
+
 	template <access_mode M = Mode>
-	std::enable_if_t<detail::access::mode_traits::is_producer(M), DataT&> operator[](const id<Dims>& index) const {
+	inline std::enable_if_t<detail::access::mode_traits::is_producer(M), DataT&> operator[](const id<Dims>& index) const {
 		return m_host_ptr[get_linear_offset(index)];
 	}
 
 	template <access_mode M = Mode>
-	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator[](const id<Dims>& index) const {
+	inline std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator[](const id<Dims>& index) const {
 		return m_host_ptr[get_linear_offset(index)];
 	}
 
-	inline detail::subscript_result_t<Dims, const accessor> operator[](const size_t index) const { return detail::subscript<Dims>(*this, index); }
+	template <int D = Dims>
+	inline std::enable_if_t<(D > 0), detail::subscript_result_t<D, const accessor>> operator[](const size_t index) const {
+		return detail::subscript<D>(*this, index);
+	}
+
+	template <access_mode M = Mode>
+	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), DataT&> operator*() const {
+		return *m_host_ptr;
+	}
+
+	template <access_mode M = Mode>
+	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator*() const {
+		return *m_host_ptr;
+	}
 
 	/**
 	 * @brief Returns a pointer to the underlying buffer.
@@ -505,14 +490,14 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	DataT* m_host_ptr = nullptr;
 
 	// Offset of the backing buffer relative to the virtual buffer.
-	id<Dims> m_index_offset;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_index_offset;
 
 	// Range of the backing buffer.
-	range<Dims> m_buffer_range = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_buffer_range = detail::zero_range;
 
 	// The range of the Celerity buffer as created by the user.
 	// We only need this to check whether it is safe to call get_pointer() or not.
-	range<Dims> m_virtual_buffer_range = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_virtual_buffer_range = detail::zero_range;
 
 	// Constructor for tests, called through accessor_testspy.
 	accessor(subrange<Dims> mapped_subrange, DataT* ptr, id<Dims> backing_buffer_offset, range<Dims> backing_buffer_range, range<Dims> virtual_buffer_range)
@@ -520,66 +505,6 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	      m_virtual_buffer_range(virtual_buffer_range) {}
 
 	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_buffer_range, index - m_index_offset); }
-};
-
-template <typename DataT, access_mode Mode>
-class accessor<DataT, 0, Mode, target::host_task> : public detail::accessor_base<DataT, 0, Mode, target::host_task> {
-	friend struct detail::accessor_testspy;
-
-  public:
-	accessor(const buffer<DataT, 0>& buff, handler& cgh) {
-		if(detail::is_prepass_handler(cgh)) {
-			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
-			auto rmfn = access::all();
-			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<detail::range_mapper<0, decltype(rmfn)>>(rmfn, Mode, buff.get_range()));
-		} else {
-			if(detail::get_handler_execution_target(cgh) != detail::execution_target::host) {
-				throw std::runtime_error(
-				    "Calling accessor constructor with host_buffer target is only allowed in host tasks."
-				    "If you want to access this buffer from within a parallel_for task, please specialize the call using one of the non host tags");
-			}
-			auto access_info =
-			    detail::runtime::get_instance().get_buffer_manager().access_host_buffer<DataT, 0>(detail::get_buffer_id(buff), Mode, subrange<0>());
-			m_host_ptr = static_cast<DataT*>(access_info.ptr);
-		}
-	}
-
-	template <access_mode TagModeNoInit>
-	accessor(const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<Mode, TagModeNoInit, target::host_task> /* tag */) : accessor(buff, cgh) {}
-
-	/**
-	 * TODO: As of ComputeCpp 2.5.0 they do not support no_init prop, hence this constructor is needed along with discard deduction guide.
-	 *    but once they do this should be replace for a constructor that takes a prop list as an argument.
-	 */
-	template <access_mode TagMode, access_mode M = Mode, typename = std::enable_if_t<detail::access::mode_traits::is_producer(M)>>
-	accessor(
-	    const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<TagMode, Mode, target::host_task> /* tag */, const property::no_init /* no_init */)
-	    : accessor(buff, cgh) {}
-
-	template <access_mode TagMode, access_mode TagModeNoInit>
-	accessor(const buffer<DataT, 0>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, target::host_task> /* tag */,
-	    const property_list& /* prop_list */) {
-		static_assert(detail::constexpr_false<std::integral_constant<access_mode, TagMode>>,
-		    "Currently it is not accepted to pass a property list to an accessor constructor. Please use the property celerity::no_init "
-		    "as a last argument in the constructor");
-	}
-
-	template <access_mode M = Mode>
-	std::enable_if_t<detail::access::mode_traits::is_producer(M), DataT&> operator*() const {
-		return *m_host_ptr;
-	}
-
-	template <access_mode M = Mode>
-	std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator*() const {
-		return *m_host_ptr;
-	}
-
-	friend bool operator==(const accessor& lhs, const accessor& rhs) { return lhs.m_host_ptr == rhs.m_host_ptr; }
-
-	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
-
-  private:
-	DataT* m_host_ptr = nullptr;
 };
 
 
@@ -658,16 +583,19 @@ class local_accessor {
 
 	std::add_pointer_t<value_type> get_pointer() const noexcept { return m_sycl_acc.get_pointer(); }
 
-	template <int D = Dims>
-	std::enable_if_t<(D > 0), DataT&> operator[](const id<Dims>& index) const {
-		return m_sycl_acc[sycl::id<sycl_dims>(index)];
+	inline DataT& operator[](const id<Dims>& index) const {
+		if constexpr(Dims == 0) {
+			return m_sycl_acc[sycl::id<1>(0)];
+		} else {
+			return m_sycl_acc[sycl::id<Dims>(index)];
+		}
 	}
 
 	inline detail::subscript_result_t<Dims, const local_accessor> operator[](const size_t dim0) const { return detail::subscript<Dims>(*this, dim0); }
 
 	template <int D = Dims>
 	std::enable_if_t<D == 0, DataT&> operator*() const {
-		return m_sycl_acc[0];
+		return m_sycl_acc[sycl::id<1>(0)];
 	}
 
   private:

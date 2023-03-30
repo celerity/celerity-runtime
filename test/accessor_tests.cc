@@ -58,14 +58,24 @@ namespace detail {
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, target::device>, acc5>);
 
 			// This currently throws an error at runtime, because we cannot infer whether the access is a discard_* from the property list parameter.
-			using acc6 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), celerity::write_only, celerity::property_list{}});
+			using acc6 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), all(), celerity::write_only, celerity::property_list{}});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::write, target::device>, acc6>);
 
-			using acc7 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), celerity::read_only});
+			using acc7 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), all(), celerity::read_only});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::read, target::device>, acc7>);
 
-			using acc8 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), celerity::write_only, celerity::no_init});
+			using acc8 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), all(), celerity::write_only, celerity::no_init});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::discard_write, target::device>, acc8>);
+
+			// This currently throws an error at runtime, because we cannot infer whether the access is a discard_* from the property list parameter.
+			using acc9 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), celerity::write_only, celerity::property_list{}});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::write, target::device>, acc9>);
+
+			using acc10 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), celerity::read_only});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::read, target::device>, acc10>);
+
+			using acc11 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), celerity::write_only, celerity::no_init});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::discard_write, target::device>, acc11>);
 		}
 
 		SECTION("host accessors") {
@@ -90,14 +100,25 @@ namespace detail {
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, target::host_task>, acc5>);
 
 			// This currently throws an error at runtime, because we cannot infer whether the access is a discard_* from the property list parameter.
-			using acc6 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), celerity::write_only_host_task, celerity::property_list{}});
+			using acc6 =
+			    decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), all(), celerity::write_only_host_task, celerity::property_list{}});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::write, target::host_task>, acc6>);
 
-			using acc7 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), celerity::read_only_host_task});
+			using acc7 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), all(), celerity::read_only_host_task});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::read, target::host_task>, acc7>);
 
-			using acc8 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), celerity::write_only_host_task, celerity::no_init});
+			using acc8 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), all(), celerity::write_only_host_task, celerity::no_init});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::discard_write, target::host_task>, acc8>);
+
+			// This currently throws an error at runtime, because we cannot infer whether the access is a discard_* from the property list parameter.
+			using acc9 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), celerity::write_only_host_task, celerity::property_list{}});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::write, target::host_task>, acc9>);
+
+			using acc10 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), celerity::read_only_host_task});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::read, target::host_task>, acc10>);
+
+			using acc11 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), celerity::write_only_host_task, celerity::no_init});
+			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::discard_write, target::host_task>, acc11>);
 		}
 	}
 
@@ -352,14 +373,19 @@ namespace detail {
 		q.submit([=](handler& cgh) {
 			accessor acc_0(buf_0, cgh, read_write_host_task);
 			cgh.host_task(on_master_node, [=] {
+				CHECK(acc_0[id<0>()] == value_a);
 				CHECK(*acc_0 == value_a);
+				acc_0[id<0>()] = value_b;
 				*acc_0 = value_b;
 			});
 		});
 		q.submit([=](handler& cgh) {
 			accessor acc_0(buf_0, cgh, read_only);
 			accessor acc_1(buf_1, cgh, one_to_one(), write_only, no_init);
-			cgh.parallel_for<class UKN(device)>(buf_1.get_range(), [=](item<1> it) { acc_1[it] = *acc_0; });
+			cgh.parallel_for<class UKN(device)>(buf_1.get_range(), [=](item<1> it) {
+				acc_1[it] = acc_0[id<0>()];
+				acc_1[it] = *acc_0;
+			});
 		});
 		q.submit([=](handler& cgh) {
 			accessor acc_1(buf_1, cgh, all(), read_only_host_task);
@@ -379,36 +405,39 @@ namespace detail {
 
 		distr_queue q;
 		q.submit([=](handler& cgh) {
-			accessor acc_0d(buf_0d, cgh, write_only, no_init);
+			accessor acc_0d(buf_0d, cgh, all(), write_only, no_init);
 			accessor acc_1d(buf_1d, cgh, all(), write_only, no_init);
 			accessor acc_2d(buf_2d, cgh, all(), write_only, no_init);
 			accessor acc_3d(buf_3d, cgh, all(), write_only, no_init);
 			cgh.parallel_for<class UKN(device)>(range<0>(), [=](item<0>) {
 				*acc_0d = 1;
+				acc_0d[id<0>()] = 1;
 				acc_1d[99] = 2;
 				acc_2d[9][9] = 3;
 				acc_3d[4][4][4] = 4;
 			});
 		});
 		q.submit([=](handler& cgh) {
-			accessor acc_0d(buf_0d, cgh, read_write_host_task);
+			accessor acc_0d(buf_0d, cgh, all(), read_write_host_task);
 			accessor acc_1d(buf_1d, cgh, all(), read_write_host_task);
 			accessor acc_2d(buf_2d, cgh, all(), read_write_host_task);
 			accessor acc_3d(buf_3d, cgh, all(), read_write_host_task);
 			cgh.host_task(range<0>(), [=](partition<0>) {
-				*acc_0d += 9;
+				*acc_0d += 4;
+				acc_0d[id<0>()] += 5;
 				acc_1d[99] += 9;
 				acc_2d[9][9] += 9;
 				acc_3d[4][4][4] += 9;
 			});
 		});
 		q.submit([=](handler& cgh) {
-			accessor acc_0d(buf_0d, cgh, read_only_host_task);
+			accessor acc_0d(buf_0d, cgh, all(), read_only_host_task);
 			accessor acc_1d(buf_1d, cgh, all(), read_only_host_task);
 			accessor acc_2d(buf_2d, cgh, all(), read_only_host_task);
 			accessor acc_3d(buf_3d, cgh, all(), read_only_host_task);
 			cgh.host_task(on_master_node, [=] {
 				CHECK(*acc_0d == 10);
+				CHECK(acc_0d[id<0>()] == 10);
 				CHECK(acc_1d[99] == 11);
 				CHECK(acc_2d[9][9] == 12);
 				CHECK(acc_3d[4][4][4] == 13);
@@ -431,9 +460,13 @@ namespace detail {
 			accessor acc_1(buf_1, cgh, one_to_one(), write_only);
 			local_accessor<float, 0> local_0(cgh);
 			cgh.parallel_for<class UKN(device)>(nd_range(buf_1.get_range(), buf_1.get_range()), [=](nd_item<1> it) {
-				if(it.get_local_id() == 0) { *local_0 = value_b; }
+				if(it.get_local_id() == 0) {
+					*local_0 = value_b;
+					local_0[id<0>()] = value_b;
+				}
 				group_barrier(it.get_group());
 				acc_1[it.get_global_id()] = *local_0;
+				acc_1[it.get_global_id()] = local_0[id<0>()];
 			});
 		});
 		q.submit([=](handler& cgh) {
