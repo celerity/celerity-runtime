@@ -29,21 +29,6 @@ namespace detail {
 		using const_reference = const DataT&;
 	};
 
-	template <typename DataT, int Dims, access_mode Mode, typename... Args>
-	accessor<DataT, Dims, Mode, target::device> make_device_accessor(Args&&...);
-
-	template <typename DataT, int Dims, access_mode Mode, typename... Args>
-	accessor<DataT, Dims, Mode, target::host_task> make_host_accessor(Args&&...);
-
-	template <typename TagT>
-	constexpr access_mode deduce_access_mode();
-
-	template <typename TagT>
-	constexpr access_mode deduce_access_mode_discard();
-
-	template <typename TagT>
-	constexpr target deduce_access_target();
-
 	struct accessor_testspy;
 
 // Hack: DPC++ and ComputeCpp do not implement the SYCL 2020 sycl::local_accessor default constructor yet and always require a handler for construction.
@@ -598,27 +583,27 @@ class accessor<DataT, 0, Mode, target::host_task> : public detail::accessor_base
 };
 
 
-template <typename T, int D, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, D>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, D, Mode, Target>;
-
 template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
 accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, D, Mode, Target>;
-
-template <typename T, int D, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, D>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property::no_init no_init)
-    -> accessor<T, D, ModeNoInit, Target>;
 
 template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
 accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property::no_init no_init)
     -> accessor<T, D, ModeNoInit, Target>;
 
-template <typename T, int D, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, D>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props)
-    -> accessor<T, D, Mode, Target>;
-
 template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
 accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props)
     -> accessor<T, D, Mode, Target>;
+
+template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
+accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, 0, Mode, Target>;
+
+template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
+accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property::no_init no_init)
+    -> accessor<T, 0, ModeNoInit, Target>;
+
+template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
+accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props)
+    -> accessor<T, 0, Mode, Target>;
 
 
 template <typename DataT, int Dims = 1>
