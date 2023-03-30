@@ -1119,6 +1119,19 @@ namespace detail {
 		}());
 	}
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "fences extract data from 0-dimensional buffers", "[runtime][fence]") {
+		buffer<int, 0> buf;
+		distr_queue q;
+
+		q.submit([=](handler& cgh) {
+			accessor acc(buf, cgh, write_only, no_init);
+			cgh.parallel_for<class UKN(init)>(buf.get_range(), [=](celerity::item<0> item) { *acc = 42; });
+		});
+
+		const auto snapshot = experimental::fence(q, buf).get();
+		CHECK(*snapshot == 42);
+	}
+
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "0-dimensional kernels work as expected", "[buffer]") {
 		constexpr float value_a = 13.37f;
 		constexpr float value_b = 42.0f;
