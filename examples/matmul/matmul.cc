@@ -47,14 +47,14 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 
 // TODO this should really reduce into a buffer<bool> on the device, but not all backends currently support reductions
 template <typename T>
-void verify(celerity::distr_queue& queue, celerity::buffer<T, 2> mat_c, celerity::buffer<bool> passed_buf) {
+void verify(celerity::distr_queue& queue, celerity::buffer<T, 2> mat_c, celerity::buffer<bool, 0> passed_buf) {
 	queue.submit([=](celerity::handler& cgh) {
 		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task};
 		// omitting no_init here to force verification failure if the kernel does not execute for some reason:
-		celerity::accessor passed{passed_buf, cgh, celerity::access::all{}, celerity::write_only_host_task};
+		celerity::accessor passed{passed_buf, cgh, celerity::write_only_host_task};
 
 		cgh.host_task(mat_c.get_range(), [=](celerity::partition<2> part) {
-			passed[0] = true;
+			*passed = true;
 			const auto& sr = part.get_subrange();
 			for(size_t i = sr.offset[0]; i < sr.offset[0] + sr.range[0]; ++i) {
 				for(size_t j = sr.offset[1]; j < sr.offset[1] + sr.range[1]; ++j) {
@@ -62,11 +62,11 @@ void verify(celerity::distr_queue& queue, celerity::buffer<T, 2> mat_c, celerity
 					const float expected = i == j;
 					if(expected != received) {
 						CELERITY_ERROR("Verification failed for element {},{}: {} (received) != {} (expected)", i, j, received, expected);
-						passed[0] = false;
+						*passed = false;
 					}
 				}
 			}
-			if(passed[0]) { CELERITY_INFO("Verification passed for {}", part.get_subrange()); }
+			if(*passed) { CELERITY_INFO("Verification passed for {}", part.get_subrange()); }
 		});
 	});
 }
@@ -88,11 +88,10 @@ int main() {
 	multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
 	multiply(queue, mat_b_buf, mat_c_buf, mat_a_buf);
 
-	const bool passed_init = false;
-	celerity::buffer<bool> passed_buf(&passed_init, 1);
+	celerity::buffer<bool, 0> passed_buf = false;
 	verify(queue, mat_c_buf, passed_buf);
 
 	// The value of `passed` can differ between hosts if only part of the verification failed.
-	const auto passed = celerity::experimental::fence(queue, passed_buf).get()[0];
+	const auto passed = *celerity::experimental::fence(queue, passed_buf).get();
 	return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }
