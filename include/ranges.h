@@ -164,7 +164,7 @@ class coordinate {
 	friend constexpr Interface operator op(const Interface& rhs) {                                                                                             \
 		Interface result;                                                                                                                                      \
 		for(int d = 0; d < Dims; ++d) {                                                                                                                        \
-			result[d] = op rhs;                                                                                                                                \
+			result[d] = op rhs[d];                                                                                                                             \
 		}                                                                                                                                                      \
 		return result;                                                                                                                                         \
 	}
