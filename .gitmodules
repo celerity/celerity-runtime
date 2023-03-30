@@ -13,3 +13,6 @@
 [submodule "vendor/libenvpp"]
 	path = vendor/libenvpp
 	url = https://github.com/ph3at/libenvpp.git
+[submodule "vendor/mimalloc"]
+	path = vendor/mimalloc
+	url = https://github.com/microsoft/mimalloc.git

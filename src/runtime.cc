@@ -12,6 +12,11 @@
 
 #include <mpi.h>
 
+#if CELERITY_USE_MIMALLOC
+// override default new/delete operators to use the mimalloc memory allocator
+#include <mimalloc-new-delete.h>
+#endif
+
 #include "affinity.h"
 #include "buffer.h"
 #include "buffer_manager.h"
@@ -76,6 +81,14 @@ namespace detail {
 		return "debug";
 #else
 		return "release";
+#endif
+	}
+
+	static const char* get_mimalloc_string() {
+#if CELERITY_USE_MIMALLOC
+		return "using mimalloc";
+#else
+		return "using the default allocator";
 #endif
 	}
 
@@ -145,8 +158,8 @@ namespace detail {
 			m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
 		}
 
-		CELERITY_INFO(
-		    "Celerity runtime version {} running on {}. PID = {}, build type = {}", get_version_string(), get_sycl_version(), get_pid(), get_build_type());
+		CELERITY_INFO("Celerity runtime version {} running on {}. PID = {}, build type = {}, {}", get_version_string(), get_sycl_version(), get_pid(),
+		    get_build_type(), get_mimalloc_string());
 		m_d_queue->init(*m_cfg, user_device_or_selector);
 	}
 
