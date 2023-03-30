@@ -35,6 +35,7 @@ set(TEST_TARGETS
   intrusive_graph_tests
   print_graph_tests
   region_map_tests
+  range_tests
   runtime_tests
   runtime_deprecation_tests
   sycl_tests
