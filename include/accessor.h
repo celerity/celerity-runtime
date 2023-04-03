@@ -197,38 +197,16 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	static_assert(Mode != access_mode::atomic, "access_mode::atomic is not supported. Please use atomic_ref instead.");
 
 	template <typename Functor>
-	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) {
-		if(detail::is_prepass_handler(cgh)) {
-			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
-			using range_mapper = detail::range_mapper<Dims, std::decay_t<Functor>>; // decay function type to function pointer
-			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<range_mapper>(rmfn, Mode, buff.get_range()));
-		} else {
-			if(detail::get_handler_execution_target(cgh) != detail::execution_target::device) {
-				throw std::runtime_error(
-				    "Calling accessor constructor with device target is only allowed in parallel_for tasks."
-				    "If you want to access this buffer from within a host task, please specialize the call using one of the *_host_task tags");
-			}
-
-			auto& live_cgh = dynamic_cast<detail::live_pass_device_handler&>(cgh);
-			// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper manually.
-			const auto mapped_sr = live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range());
-			auto access_info =
-			    detail::runtime::get_instance().get_buffer_manager().access_device_buffer<DataT, Dims>(detail::get_buffer_id(buff), Mode, mapped_sr);
-
-			m_device_ptr = static_cast<DataT*>(access_info.ptr);
-			m_index_offset = detail::id_cast<Dims>(access_info.backing_buffer_offset);
-			m_buffer_range = detail::range_cast<Dims>(access_info.backing_buffer_range);
-		}
-	}
+	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) : accessor(ctor_internal_tag(), buff, cgh, rmfn) {}
 
 	template <typename Functor, access_mode TagModeNoInit>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, TagModeNoInit, target::device> /* tag */)
-	    : accessor(buff, cgh, rmfn) {}
+	    : accessor(ctor_internal_tag(), buff, cgh, rmfn) {}
 
 	template <typename Functor, access_mode TagMode>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::device> /* tag */,
 	    const property::no_init& /* no_init */)
-	    : accessor(buff, cgh, rmfn) {}
+	    : accessor(ctor_internal_tag(), buff, cgh, rmfn) {}
 
 	template <typename Functor, access_mode TagMode, access_mode TagModeNoInit>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, TagModeNoInit, target::device> /* tag */,
@@ -300,7 +278,29 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 
 	template <typename Functor>
-	accessor(const ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) {}
+	accessor(const ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) {
+		if(detail::is_prepass_handler(cgh)) {
+			auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh);
+			using range_mapper = detail::range_mapper<Dims, std::decay_t<Functor>>; // decay function type to function pointer
+			prepass_cgh.add_requirement(detail::get_buffer_id(buff), std::make_unique<range_mapper>(rmfn, Mode, buff.get_range()));
+		} else {
+			if(detail::get_handler_execution_target(cgh) != detail::execution_target::device) {
+				throw std::runtime_error(
+				    "Calling accessor constructor with device target is only allowed in parallel_for tasks."
+				    "If you want to access this buffer from within a host task, please specialize the call using one of the *_host_task tags");
+			}
+
+			auto& live_cgh = dynamic_cast<detail::live_pass_device_handler&>(cgh);
+			// It's difficult to figure out which stored range mapper corresponds to this constructor call, which is why we just call the raw mapper manually.
+			const auto mapped_sr = live_cgh.apply_range_mapper<Dims>(rmfn, buff.get_range());
+			auto access_info =
+			    detail::runtime::get_instance().get_buffer_manager().access_device_buffer<DataT, Dims>(detail::get_buffer_id(buff), Mode, mapped_sr);
+
+			m_device_ptr = static_cast<DataT*>(access_info.ptr);
+			m_index_offset = detail::id_cast<Dims>(access_info.backing_buffer_offset);
+			m_buffer_range = detail::range_cast<Dims>(access_info.backing_buffer_range);
+		}
+	}
 
 	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_buffer_range, index - m_index_offset); }
 };
