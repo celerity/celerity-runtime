@@ -31,36 +31,8 @@ namespace detail {
 
 	struct accessor_testspy;
 
-// Hack: DPC++ and ComputeCpp do not implement the SYCL 2020 sycl::local_accessor default constructor yet and always require a handler for construction.
-// Since there is no SYCL handler in the pre-pass, we abuse inheritance and friend declarations to conjure a temporary sycl::handler that can be passed to the
-// existing local_accessor constructor. This works because neither accessor implementation keep references to the handler internally or interacts with context
-// surrounding the fake handler instance.
-#if CELERITY_WORKAROUND(DPCPP)
-	// The DPC++ handler declares `template<...> friend class accessor<...>`, so we specialize sycl::accessor with a made-up type and have it inherit from
-	// sycl::handler in order to be able to call the private constructor of sycl::handler.
-	struct hack_accessor_specialization_type {};
-	using hack_null_sycl_handler = cl::sycl::accessor<celerity::detail::hack_accessor_specialization_type, 0, cl::sycl::access::mode::read,
-	    cl::sycl::access::target::host_buffer, cl::sycl::access::placeholder::true_t, void>;
-#elif CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9)
-	// ComputeCpp's sycl::handler has a protected constructor, so we expose it to the public through inheritance.
-	class hack_null_sycl_handler : public sycl::handler {
-	  public:
-		hack_null_sycl_handler() : sycl::handler(nullptr) {}
-	};
-#endif
-
 } // namespace detail
 } // namespace celerity
-
-#if CELERITY_WORKAROUND(DPCPP)
-// See declaration of celerity::detail::hack_accessor_specialization_type
-template <>
-class cl::sycl::accessor<celerity::detail::hack_accessor_specialization_type, 0, cl::sycl::access::mode::read, cl::sycl::access::target::host_buffer,
-    cl::sycl::access::placeholder::true_t, void> : public handler {
-  public:
-	accessor() : handler{nullptr, false} {}
-};
-#endif
 
 namespace celerity {
 
@@ -641,13 +613,13 @@ class local_accessor {
 	using const_reference = const DataT&;
 	using size_type = size_t;
 
-	local_accessor() : m_sycl_acc{make_placeholder_sycl_accessor()}, m_allocation_size(detail::zero_range) {}
+	local_accessor() : m_sycl_acc{}, m_allocation_size(detail::zero_range) {}
 
 	template <int D = Dims, typename = std::enable_if_t<D == 0>>
 	local_accessor(handler& cgh) : local_accessor(range<0>(), cgh) {}
 
 #if !defined(__SYCL_DEVICE_ONLY__) && !defined(SYCL_DEVICE_ONLY)
-	local_accessor(const range<Dims>& allocation_size, handler& cgh) : m_sycl_acc{make_placeholder_sycl_accessor()}, m_allocation_size(allocation_size) {
+	local_accessor(const range<Dims>& allocation_size, handler& cgh) : m_sycl_acc{}, m_allocation_size(allocation_size) {
 		if(!detail::is_prepass_handler(cgh)) {
 			auto& device_handler = dynamic_cast<detail::live_pass_device_handler&>(cgh);
 			m_eventual_sycl_cgh = device_handler.get_eventual_sycl_cgh();
@@ -726,15 +698,6 @@ class local_accessor {
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_allocation_size;
 	cl::sycl::handler* const* m_eventual_sycl_cgh = nullptr;
 	// TODO after multi-pass removal: verify that sizeof(celerity::local_accessor) == sizeof(sycl::local_accessor) in accessor_tests (currently [!shouldfail])
-
-	static sycl_accessor make_placeholder_sycl_accessor() {
-#if CELERITY_WORKAROUND(DPCPP) || CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9)
-		detail::hack_null_sycl_handler null_cgh;
-		return sycl_accessor{sycl::range<sycl_dims>(celerity::range<sycl_dims>(detail::zero_range)), null_cgh};
-#else
-		return sycl_accessor{};
-#endif
-	}
 
 	cl::sycl::handler* sycl_cgh() const { return m_eventual_sycl_cgh != nullptr ? *m_eventual_sycl_cgh : nullptr; }
 
