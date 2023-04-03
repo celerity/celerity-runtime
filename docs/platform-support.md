@@ -9,8 +9,8 @@ sidebar_label: Platform Support
 The most recent version of Celerity aims to support the following environments:
 
 * hipSYCL ≥ revision [`24980221`](https://github.com/illuhad/hipSYCL/commit/24980221), with
-  * Clang ≥ 10.0
   * CUDA ≥ 11.0
+  * Clang ≥ 10.0 for CUDA &lt; 12.0, Clang ≥ 16.0 for CUDA ≥ 12.0
   * on NVIDIA hardware with compute capability ≥ 7.0
   * or on CPUs via OpenMP
 * DPC++ ≥ revision [`61e51015`](https://github.com/intel/llvm/commit/61e51015)
@@ -24,9 +24,10 @@ We automatically verify Celerity's build process and test suites against a selec
 
 Those are:
 
-| SYCL       | SYCL version                                                                   | OS           | Build type     |
-|------------|--------------------------------------------------------------------------------|--------------|----------------|
-| DPC++      | [`61e51015`](https://github.com/intel/llvm/commit/61e51015)                    | Ubuntu 20.04 | Debug          |
-| DPC++      | [`HEAD`](https://github.com/intel/llvm/)                                       | Ubuntu 22.04 | Debug, Release |
-| hipSYCL    | [`24980221`](https://github.com/illuhad/hipSYCL/commit/24980221) (CUDA 11.0.3) | Ubuntu 20.04 | Debug          |
-| hipSYCL    | [`HEAD`](https://github.com/illuhad/hipSYCL) (CUDA 12.1.0)                     | Ubuntu 22.04 | Debug, Release |
+| SYCL       | SYCL version                                                                             | OS           | Build type     |
+|------------|------------------------------------------------------------------------------------------|--------------|----------------|
+| DPC++      | [`61e51015`](https://github.com/intel/llvm/commit/61e51015)                              | Ubuntu 20.04 | Debug          |
+| DPC++      | [`HEAD`](https://github.com/intel/llvm/)                                                 | Ubuntu 22.04 | Debug, Release |
+| hipSYCL    | [`24980221`](https://github.com/illuhad/hipSYCL/commit/24980221) (Clang 10, CUDA 11.0.3) | Ubuntu 20.04 | Debug          |
+| hipSYCL    | [`24980221`](https://github.com/illuhad/hipSYCL/commit/24980221) (Clang 14, CUDA 11.8.0) | Ubuntu 22.04 | Debug, Release |
+| hipSYCL    | [`HEAD`](https://github.com/illuhad/hipSYCL) (Clang 16, CUDA 12.1.0)\*                   | Ubuntu 23.04 | Debug, Release |
