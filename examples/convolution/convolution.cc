@@ -101,7 +101,9 @@ int main(int argc, char* argv[]) {
 			sum -= in[{item[0] + 1, item[1]}];
 			sum -= in[{item[0], item[1] - 1}];
 			sum -= in[{item[0], item[1] + 1}];
-			out[item] = fmin(float3(1.f, 1.f, 1.f), sum);
+			out[item].x() = sycl::fmin(1.f, sum.x());
+			out[item].y() = sycl::fmin(1.f, sum.y());
+			out[item].z() = sycl::fmin(1.f, sum.z());
 		});
 	});
 
