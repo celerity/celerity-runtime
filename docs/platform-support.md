@@ -31,3 +31,20 @@ Those are:
 | hipSYCL    | [`24980221`](https://github.com/illuhad/hipSYCL/commit/24980221) (Clang 10, CUDA 11.0.3) | Ubuntu 20.04 | Debug          |
 | hipSYCL    | [`24980221`](https://github.com/illuhad/hipSYCL/commit/24980221) (Clang 14, CUDA 11.8.0) | Ubuntu 22.04 | Debug, Release |
 | hipSYCL    | [`HEAD`](https://github.com/illuhad/hipSYCL) (Clang 16, CUDA 12.1.0)\*                   | Ubuntu 23.04 | Debug, Release |
+
+\* currently requires a patch for an illegal macro definition in CUDA:
+  
+```diff
+--- a/include/crt/host_defines.h	2023-04-03 14:40:16.471254404 +0200
++++ b/include/crt/host_defines.h	2023-03-23 22:07:22.000000000 +0100
+@@ -70,7 +70,7 @@
+ #define __no_return__ \
+         __attribute__((noreturn))
+         
+-#if defined(__CUDACC__) || defined(__CUDA_ARCH__) || defined(__CUDA_LIBDEVICE__)
++#if (defined(__CUDACC__) || defined(__CUDA_ARCH__) || defined(__CUDA_LIBDEVICE__)) && !defined(__clang__)
+ /* gcc allows users to define attributes with underscores, 
+    e.g., __attribute__((__noinline__)).
+    Consider a non-CUDA source file (e.g. .cpp) that has the 
+
+```
