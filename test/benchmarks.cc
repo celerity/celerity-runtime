@@ -368,8 +368,8 @@ template <typename BenchmarkContext>
 		});
 	};
 
-	auto up = ctx.mbf.create_buffer(celerity::range<2>(N, N));
-	auto u = ctx.mbf.create_buffer(celerity::range<2>(N, N));
+	auto up = ctx.mbf.create_buffer(range<2>(N, N));
+	auto u = ctx.mbf.create_buffer(range<2>(N, N));
 
 	fill(u);
 	fill(up);

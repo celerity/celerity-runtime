@@ -106,7 +106,7 @@ namespace detail {
 
 	buffer_manager::access_info buffer_manager::access_host_buffer(buffer_id bid, access_mode mode, const subrange<3>& sr) {
 		std::unique_lock lock(m_mutex);
-		assert((range_cast<3>(sr.offset + sr.range) <= m_buffer_infos.at(bid).range) == celerity::range<3>(true, true, true));
+		assert((range_cast<3>(sr.offset + sr.range) <= m_buffer_infos.at(bid).range) == range(true, true, true));
 
 		auto& existing_buf = m_buffers[bid].host_buf;
 		backing_buffer replacement_buf;
@@ -190,10 +190,10 @@ namespace detail {
 		assert(coherent_box.area() <= retain_region.area());
 		assert(GridRegion<3>::difference(coherent_box, retain_region).empty());
 		// Also check that the new target buffer could actually fit the entire retain region.
-		assert((grid_box_to_subrange(retain_region.boundingBox()).offset >= target_buffer.offset) == celerity::id<3>(true, true, true));
+		assert((grid_box_to_subrange(retain_region.boundingBox()).offset >= target_buffer.offset) == id(true, true, true));
 		assert((grid_box_to_subrange(retain_region.boundingBox()).offset + grid_box_to_subrange(retain_region.boundingBox()).range
 		           <= target_buffer.offset + target_buffer.storage->get_range())
-		       == celerity::id<3>(true, true, true));
+		       == id(true, true, true));
 
 		// Check whether we have any scheduled transfers that overlap with the requested subrange, and if so, apply them.
 		// For this, we are not interested in the retain region (but we need to remember what parts will NOT have to be retained afterwards).

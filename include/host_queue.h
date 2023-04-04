@@ -28,28 +28,28 @@ namespace detail {
 	template <int Dims>
 	class sized_partition_base {
 	  public:
-		explicit sized_partition_base(const celerity::range<Dims>& global_size, const subrange<Dims>& range)
+		explicit sized_partition_base(const range<Dims>& global_size, const subrange<Dims>& range)
 		    : m_global_size(range_cast<Dims>(global_size)), m_range(range) {}
 
 		/** The subrange handled by this host. */
 		const subrange<Dims>& get_subrange() const { return m_range; }
 
 		/** The size of the entire iteration space */
-		const celerity::range<Dims>& get_global_size() const { return m_global_size; }
+		const range<Dims>& get_global_size() const { return m_global_size; }
 
 	  private:
-		celerity::range<Dims> m_global_size;
+		range<Dims> m_global_size;
 		subrange<Dims> m_range;
 	};
 
 	template <int Dims>
-	partition<Dims> make_partition(const celerity::range<Dims>& global_size, const subrange<Dims>& range) {
+	partition<Dims> make_partition(const range<Dims>& global_size, const subrange<Dims>& range) {
 		return partition<Dims>(global_size, range);
 	}
 
 	partition<0> make_0d_partition();
 
-	experimental::collective_partition make_collective_partition(const celerity::range<1>& global_size, const subrange<1>& range, MPI_Comm comm);
+	experimental::collective_partition make_collective_partition(const range<1>& global_size, const subrange<1>& range, MPI_Comm comm);
 
 } // namespace detail
 
@@ -59,9 +59,9 @@ namespace detail {
 template <int Dims>
 class partition : public detail::sized_partition_base<Dims> {
   protected:
-	friend partition<Dims> detail::make_partition<Dims>(const celerity::range<Dims>& global_size, const subrange<Dims>& range);
+	friend partition<Dims> detail::make_partition<Dims>(const range<Dims>& global_size, const subrange<Dims>& range);
 
-	partition(const celerity::range<Dims>& global_size, const subrange<Dims>& range) : detail::sized_partition_base<Dims>(global_size, range) {}
+	partition(const range<Dims>& global_size, const subrange<Dims>& range) : detail::sized_partition_base<Dims>(global_size, range) {}
 };
 
 /**
@@ -76,11 +76,11 @@ class experimental::collective_partition : public partition<1> {
 	size_t get_num_nodes() const { return get_global_size()[0]; }
 
   protected:
-	friend collective_partition detail::make_collective_partition(const celerity::range<1>& global_size, const subrange<1>& range, MPI_Comm comm);
+	friend collective_partition detail::make_collective_partition(const range<1>& global_size, const subrange<1>& range, MPI_Comm comm);
 
 	MPI_Comm m_comm;
 
-	collective_partition(const celerity::range<1>& global_size, const subrange<1>& range, MPI_Comm comm) : partition<1>(global_size, range), m_comm(comm) {}
+	collective_partition(const range<1>& global_size, const subrange<1>& range, MPI_Comm comm) : partition<1>(global_size, range), m_comm(comm) {}
 };
 
 template <>
@@ -94,7 +94,7 @@ class partition<0> {
 
 namespace detail {
 
-	inline experimental::collective_partition make_collective_partition(const celerity::range<1>& global_size, const subrange<1>& range, MPI_Comm comm) {
+	inline experimental::collective_partition make_collective_partition(const range<1>& global_size, const subrange<1>& range, MPI_Comm comm) {
 		return experimental::collective_partition(global_size, range, comm);
 	}
 

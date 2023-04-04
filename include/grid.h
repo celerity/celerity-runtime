@@ -11,11 +11,11 @@ namespace detail {
 
 	using namespace allscale::api::user::data;
 
-	inline GridPoint<1> id_to_grid_point(celerity::id<1> id) { return GridPoint<1>(id[0]); }
+	inline GridPoint<1> id_to_grid_point(id<1> id) { return GridPoint<1>(id[0]); }
 
-	inline GridPoint<2> id_to_grid_point(celerity::id<2> id) { return GridPoint<2>(id[0], id[1]); }
+	inline GridPoint<2> id_to_grid_point(id<2> id) { return GridPoint<2>(id[0], id[1]); }
 
-	inline GridPoint<3> id_to_grid_point(celerity::id<3> id) { return GridPoint<3>(id[0], id[1], id[2]); }
+	inline GridPoint<3> id_to_grid_point(id<3> id) { return GridPoint<3>(id[0], id[1], id[2]); }
 
 	// The AllScale classes use a different template type for dimensions (size_t), which can lead to some type inference issues.
 	// We thus have to provide all instantiations explicitly as overloads below.
@@ -30,8 +30,8 @@ namespace detail {
 		subrange<Dims> grid_box_to_subrange(const GridBox<Dims>& box) {
 			const auto& box_min = box.get_min();
 			const auto& box_max = box.get_max();
-			celerity::id<Dims> min;
-			celerity::id<Dims> max;
+			id<Dims> min;
+			id<Dims> max;
 			for(int i = 0; i < Dims; ++i) {
 				min[i] = box_min[i];
 				max[i] = box_max[i];

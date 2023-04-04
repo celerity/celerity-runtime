@@ -59,7 +59,7 @@ TEST_CASE("command graph printing is unchanged", "[print_graph][command-graph]")
 	test_utils::mock_buffer_factory mbf(tm, ggen);
 	test_utils::mock_reduction_factory mrf;
 
-	auto buf_0 = mbf.create_buffer(celerity::range<1>{1});
+	auto buf_0 = mbf.create_buffer(range<1>{1});
 
 	// graph copied from graph_gen_reduction_tests "graph_generator does not generate multiple reduction commands for redundant requirements"
 

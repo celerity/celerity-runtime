@@ -131,9 +131,9 @@ namespace test_utils {
 	}
 
 	template <int Dims, typename F>
-	void for_each_in_range(celerity::range<Dims> range, celerity::id<Dims> offset, F&& f) {
+	void for_each_in_range(range<Dims> range, id<Dims> offset, F&& f) {
 		const auto range3 = detail::range_cast<3>(range);
-		celerity::id<3> index;
+		id<3> index;
 		for(index[0] = 0; index[0] < range3[0]; ++index[0]) {
 			for(index[1] = 0; index[1] < range3[1]; ++index[1]) {
 				for(index[2] = 0; index[2] < range3[2]; ++index[2]) {
@@ -144,7 +144,7 @@ namespace test_utils {
 	}
 
 	template <int Dims, typename F>
-	void for_each_in_range(celerity::range<Dims> range, F&& f) {
+	void for_each_in_range(range<Dims> range, F&& f) {
 		for_each_in_range(range, {}, f);
 	}
 
@@ -170,9 +170,9 @@ namespace test_utils {
 		friend class mock_buffer_factory;
 
 		detail::buffer_id m_id;
-		celerity::range<Dims> m_size;
+		range<Dims> m_size;
 
-		mock_buffer(detail::buffer_id id, celerity::range<Dims> size) : m_id(id), m_size(size) {}
+		mock_buffer(detail::buffer_id id, range<Dims> size) : m_id(id), m_size(size) {}
 	};
 
 	class mock_host_object {
@@ -315,7 +315,7 @@ namespace test_utils {
 		explicit mock_buffer_factory(cdag_test_context& ctx) : m_task_mngr(&ctx.get_task_manager()), m_ggen(&ctx.get_graph_generator()) {}
 
 		template <int Dims>
-		mock_buffer<Dims> create_buffer(celerity::range<Dims> size, bool mark_as_host_initialized = false) {
+		mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
 			const detail::buffer_id bid = m_next_buffer_id++;
 			const auto buf = mock_buffer<Dims>(bid, size);
 			if(m_task_mngr != nullptr) { m_task_mngr->add_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
@@ -340,11 +340,10 @@ namespace test_utils {
 	};
 
 	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
-	detail::task_id add_compute_task(
-	    detail::task_manager& tm, CGF cgf, celerity::range<KernelDims> global_size = {1, 1}, celerity::id<KernelDims> global_offset = {}) {
+	detail::task_id add_compute_task(detail::task_manager& tm, CGF cgf, range<KernelDims> global_size = {1, 1}, id<KernelDims> global_offset = {}) {
 		return tm.submit_command_group([&, gs = global_size, go = global_offset](handler& cgh) {
 			cgf(cgh);
-			cgh.parallel_for<KernelName>(gs, go, [](celerity::id<KernelDims>) {});
+			cgh.parallel_for<KernelName>(gs, go, [](id<KernelDims>) {});
 		});
 	}
 

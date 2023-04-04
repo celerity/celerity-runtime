@@ -12,12 +12,12 @@
 namespace celerity {
 namespace detail {
 
-	GridBox<3> make_grid_box(celerity::range<3> range, celerity::id<3> offset = {}) { return {id_to_grid_point(offset), id_to_grid_point(offset + range)}; }
+	GridBox<3> make_grid_box(range<3> range, id<3> offset = {}) { return {id_to_grid_point(offset), id_to_grid_point(offset + range)}; }
 
-	GridRegion<3> make_grid_region(celerity::range<3> range, celerity::id<3> offset = {}) { return GridRegion<3>(make_grid_box(range, offset)); }
+	GridRegion<3> make_grid_region(range<3> range, id<3> offset = {}) { return GridRegion<3>(make_grid_box(range, offset)); }
 
 	TEST_CASE("region_map correctly handles region updates", "[region_map]") {
-		region_map<std::string> rm(celerity::range<3>(256, 128, 1));
+		region_map<std::string> rm(range<3>(256, 128, 1));
 
 		rm.update_region(make_grid_region({256, 1, 1}), "foo");
 		{
@@ -43,7 +43,7 @@ namespace detail {
 		// returned boxes. This somewhat relies on implementation details of
 		// region_map<>::get_region_values.
 		// TODO: We may want to test this directly instead
-		region_map<std::unordered_set<size_t>> rm(celerity::range<3>(256, 1, 1));
+		region_map<std::unordered_set<size_t>> rm(range<3>(256, 1, 1));
 		rm.update_region(make_grid_region({64, 1, 1}, {64, 0, 0}), {1});
 		rm.update_region(make_grid_region({64, 1, 1}, {192, 0, 0}), {1});
 
@@ -65,8 +65,8 @@ namespace detail {
 	}
 
 	TEST_CASE("region_map correctly merges with other instance", "[region_map]") {
-		region_map<size_t> rm1(celerity::range<3>(128, 64, 32));
-		region_map<size_t> rm2(celerity::range<3>(128, 64, 32));
+		region_map<size_t> rm1(range<3>(128, 64, 32));
+		region_map<size_t> rm2(range<3>(128, 64, 32));
 		rm1.update_region(make_grid_region({128, 64, 32}, {0, 0, 0}), 5);
 		rm2.update_region(make_grid_region({128, 8, 1}, {0, 24, 0}), 1);
 		rm2.update_region(make_grid_region({128, 24, 1}, {0, 0, 0}), 2);
@@ -87,7 +87,7 @@ namespace detail {
 		REQUIRE(rvs[3].second == 1);
 
 		// Attempting to merge region maps with incompatible extents should throw
-		const region_map<size_t> rm_incompat(celerity::range<3>(128, 64, 30));
+		const region_map<size_t> rm_incompat(range<3>(128, 64, 30));
 		REQUIRE_THROWS_WITH(rm1.merge(rm_incompat), Catch::Matchers::Equals("Incompatible region map"));
 	}
 

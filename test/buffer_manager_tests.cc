@@ -22,7 +22,7 @@ namespace detail {
 		constexpr int new_horizon_step = 2;
 		tm.set_horizon_step(new_horizon_step);
 		{
-			celerity::buffer<int, 1> b(celerity::range<1>(128));
+			celerity::buffer<int, 1> b(range<1>(128));
 			b_id = celerity::detail::get_buffer_id(b);
 			q.submit([=](celerity::handler& cgh) {
 				celerity::accessor a{b, cgh, celerity::access::all(), celerity::write_only};
@@ -30,7 +30,7 @@ namespace detail {
 			});
 			REQUIRE(bm.has_buffer(b_id));
 		}
-		celerity::buffer<int, 1> c(celerity::range<1>(128));
+		celerity::buffer<int, 1> c(range<1>(128));
 		// we need horizon_step_size * 3 + 1 tasks to generate the third horizon,
 		// and one extra task to trigger the clean_up process
 		for(int i = 0; i < (new_horizon_step * 3 + 2); i++) {
@@ -63,7 +63,7 @@ namespace detail {
 		bm.register_buffer<float, 1>({1024, 1, 1});
 		REQUIRE(bm.has_buffer(0));
 		REQUIRE(bm.has_active_buffers());
-		REQUIRE(bm.get_buffer_info(0).range == celerity::range<3>{1024, 1, 1});
+		REQUIRE(bm.get_buffer_info(0).range == range<3>{1024, 1, 1});
 		REQUIRE(bm.get_buffer_info(0).is_host_initialized == false);
 		REQUIRE(cb_calls.size() == 1);
 		REQUIRE(cb_calls[0] == std::make_pair(buffer_manager::buffer_lifecycle_event::registered, buffer_id(0)));
@@ -71,7 +71,7 @@ namespace detail {
 		std::vector<float> host_buf(5 * 6 * 7);
 		bm.register_buffer<float, 3>({5, 6, 7}, host_buf.data());
 		REQUIRE(bm.has_buffer(1));
-		REQUIRE(bm.get_buffer_info(1).range == celerity::range<3>{5, 6, 7});
+		REQUIRE(bm.get_buffer_info(1).range == range<3>{5, 6, 7});
 		REQUIRE(bm.get_buffer_info(1).is_host_initialized == true);
 		REQUIRE(cb_calls.size() == 2);
 		REQUIRE(cb_calls[1] == std::make_pair(buffer_manager::buffer_lifecycle_event::registered, buffer_id(1)));
@@ -87,13 +87,13 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager creates appropriately sized buffers as needed", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
-		auto bid = bm.register_buffer<float, 1>(celerity::range<3>(3072, 1, 1));
+		auto bid = bm.register_buffer<float, 1>(range<3>(3072, 1, 1));
 
 		auto run_test = [&](auto access_buffer) {
 			auto buf_info = access_buffer(1024, 0);
 
 			// Even though we registered the buffer with a size of 3072, the actual backing buffer is only 1024
-			REQUIRE(buf_info.backing_buffer_range == celerity::range<3>(1024, 1, 1));
+			REQUIRE(buf_info.backing_buffer_range == range<3>(1024, 1, 1));
 
 			// Requesting smaller portions of the buffer will re-use the existing backing buffer
 			for(auto s = 512; s > 2; s >>= 2) {
@@ -140,15 +140,15 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager returns correct access offset for backing buffers larger than the requested range",
 	    "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
-		auto bid = bm.register_buffer<float, 1>(celerity::range<3>(2048, 1, 1));
+		auto bid = bm.register_buffer<float, 1>(range<3>(2048, 1, 1));
 
 		auto run_test = [&](auto access_buffer) {
 			// The returned offset indicates where the backing buffer starts, relative to the virtual buffer.
-			REQUIRE(access_buffer(1024, 1024).backing_buffer_offset == celerity::id<3>(1024, 0, 0));
-			REQUIRE(access_buffer(1024, 512).backing_buffer_offset == celerity::id<3>(512, 0, 0));
-			REQUIRE(access_buffer(1024, 1024).backing_buffer_offset == celerity::id<3>(512, 0, 0));
-			REQUIRE(access_buffer(256, 1024).backing_buffer_offset == celerity::id<3>(512, 0, 0));
-			REQUIRE(access_buffer(1024, 0).backing_buffer_offset == celerity::id<3>(0, 0, 0));
+			REQUIRE(access_buffer(1024, 1024).backing_buffer_offset == id<3>(1024, 0, 0));
+			REQUIRE(access_buffer(1024, 512).backing_buffer_offset == id<3>(512, 0, 0));
+			REQUIRE(access_buffer(1024, 1024).backing_buffer_offset == id<3>(512, 0, 0));
+			REQUIRE(access_buffer(256, 1024).backing_buffer_offset == id<3>(512, 0, 0));
+			REQUIRE(access_buffer(1024, 0).backing_buffer_offset == id<3>(0, 0, 0));
 		};
 
 		SECTION("when using device buffers") {
@@ -164,11 +164,11 @@ namespace detail {
 		auto& bm = get_buffer_manager();
 
 		auto run_1_d_test = [&](access_target tgt) {
-			auto bid = bm.register_buffer<size_t, 1>(celerity::range<3>(160, 1, 1));
+			auto bid = bm.register_buffer<size_t, 1>(range<3>(160, 1, 1));
 
 			// Request a 64 element buffer at offset 32 and initialize it with known values.
 			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(partial_init)>(
-			    bid, tgt, {64}, {32}, [](celerity::id<1> idx, size_t& value) { value = idx[0]; });
+			    bid, tgt, {64}, {32}, [](id<1> idx, size_t& value) { value = idx[0]; });
 
 			// Now request a 128 element buffer at offset 32, requiring the backing device buffer to be resized.
 			{
@@ -193,7 +193,7 @@ namespace detail {
 		SECTION("when using 1D host buffers") { run_1_d_test(access_target::host); }
 
 		auto run_2_d_test = [&](access_target tgt) {
-			auto bid = bm.register_buffer<size_t, 2>(celerity::range<3>(128, 128, 1));
+			auto bid = bm.register_buffer<size_t, 2>(range<3>(128, 128, 1));
 
 			// Request a set of columns and initialize it with known values.
 			buffer_for_each<size_t, 2, access_mode::discard_write, class UKN(partial_init)>(
@@ -228,7 +228,7 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager does not retain existing data when resizing buffer using a pure producer access mode",
 	    "[buffer_manager][performance]") {
 		auto& bm = get_buffer_manager();
-		auto bid = bm.register_buffer<size_t, 1>(celerity::range<3>(128, 1, 1));
+		auto bid = bm.register_buffer<size_t, 1>(range<3>(128, 1, 1));
 
 		auto run_test = [&](access_target tgt, bool partial_overwrite) {
 			// Initialize 64 element buffer at offset 0
@@ -241,7 +241,7 @@ namespace detail {
 
 			// Verify that the original 64 elements have not been retained during the resizing (unless we did a partial overwrite)
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {128}, {0}, true, [=](celerity::id<1> idx, bool current, size_t value) {
+				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {128}, {0}, true, [=](id<1> idx, bool current, size_t value) {
 					if(partial_overwrite) {
 						// If we did a partial overwrite, the first 32 elements should have been retained
 						if(idx[0] < 32) return current && value == 1337 + idx[0];
@@ -262,12 +262,12 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager ensures coherence between device and host buffers", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
-		auto bid = bm.register_buffer<size_t, 1>(celerity::range<3>(512, 1, 1));
+		auto bid = bm.register_buffer<size_t, 1>(range<3>(512, 1, 1));
 
 		auto run_test1 = [&](access_target tgt) {
 			// Initialize first half of buffer on this side
 			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(init_first_half)>(
-			    bid, tgt, {256}, {0}, [](celerity::id<1> idx, size_t& value) { value = idx[0]; });
+			    bid, tgt, {256}, {0}, [](id<1> idx, size_t& value) { value = idx[0]; });
 
 			// Initialize second half of buffer on other side
 			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(init_second_half)>(
@@ -275,7 +275,7 @@ namespace detail {
 
 			// Verify coherent full buffer is available on this side
 			bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {512}, {0}, true,
-			    [](celerity::id<1> idx, bool current, size_t value) { return current && value == (idx[0] < 256 ? idx[0] : (512 - idx[0]) * 2); });
+			    [](id<1> idx, bool current, size_t value) { return current && value == (idx[0] < 256 ? idx[0] : (512 - idx[0]) * 2); });
 			REQUIRE(valid);
 		};
 
@@ -293,11 +293,10 @@ namespace detail {
 			    bid, get_other_target(tgt), {overwrite_range}, {0}, [](id<1> idx, size_t& value) { value = (idx[0] < 256 ? value * 2 : 33); });
 
 			// Verify result on this side
-			bool valid =
-			    buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {overwrite_range}, {0}, true, [](celerity::id<1> idx, bool current, size_t value) {
-				    if(idx[0] < 256) return current && value == idx[0] * 2;
-				    return current && value == 33;
-			    });
+			bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {overwrite_range}, {0}, true, [](id<1> idx, bool current, size_t value) {
+				if(idx[0] < 256) return current && value == idx[0] * 2;
+				return current && value == 33;
+			});
 			REQUIRE(valid);
 		};
 
@@ -311,20 +310,19 @@ namespace detail {
 	TEST_CASE_METHOD(
 	    test_utils::buffer_manager_fixture, "buffer_manager does not ensure coherence when access mode is pure producer", "[buffer_manager][performance]") {
 		auto& bm = get_buffer_manager();
-		auto bid = bm.register_buffer<size_t, 1>(celerity::range<3>(128, 1, 1));
+		auto bid = bm.register_buffer<size_t, 1>(range<3>(128, 1, 1));
 
 		auto run_test = [&](access_target tgt) {
 			// Initialize on other side
 			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(init)>(
-			    bid, get_other_target(tgt), {128}, {0}, [](celerity::id<1> idx, size_t& value) { value = 1337 + idx[0]; });
+			    bid, get_other_target(tgt), {128}, {0}, [](id<1> idx, size_t& value) { value = 1337 + idx[0]; });
 
 			// Overwrite on this side (but not really) using a pure producer mode
-			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(faux_overwrite)>(
-			    bid, tgt, {128}, {0}, [](celerity::id<1> idx, size_t& value) { /* NOP */ });
+			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(faux_overwrite)>(bid, tgt, {128}, {0}, [](id<1> idx, size_t& value) { /* NOP */ });
 
 			// Verify that buffer does not have initialized contents
-			bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {128}, {0}, true,
-			    [](celerity::id<1> idx, bool current, size_t value) { return current && is_valid_buffer_test_mode_pattern(value); });
+			bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
+			    bid, tgt, {128}, {0}, true, [](id<1> idx, bool current, size_t value) { return current && is_valid_buffer_test_mode_pattern(value); });
 			REQUIRE(valid);
 		};
 
@@ -335,7 +333,7 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture,
 	    "buffer_manager correctly updates buffer versioning for pure producer accesses that do not require a resize", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
-		auto bid = bm.register_buffer<size_t, 1>(celerity::range<3>(128, 1, 1));
+		auto bid = bm.register_buffer<size_t, 1>(range<3>(128, 1, 1));
 
 		auto run_test = [&](access_target tgt) {
 			// Initialize on other side
@@ -347,13 +345,12 @@ namespace detail {
 			buffer_for_each<size_t, 1, access_mode::read, class UKN(force_copy2)>(bid, tgt, {1}, {127}, [](id<1> idx, size_t value) { /* NOP */ });
 
 			// Overwrite on this side using a pure producer mode, without requiring a resize
-			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(overwrite)>(
-			    bid, tgt, {128}, {0}, [](celerity::id<1> idx, size_t& value) { value = 33; });
+			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(overwrite)>(bid, tgt, {128}, {0}, [](id<1> idx, size_t& value) { value = 33; });
 
 			// Verify that buffer contains new values
 			{
 				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
-				    bid, tgt, {128}, {0}, true, [](celerity::id<1> idx, bool current, size_t value) { return current && value == 33; });
+				    bid, tgt, {128}, {0}, true, [](id<1> idx, bool current, size_t value) { return current && value == 33; });
 				REQUIRE(valid);
 			}
 		};
@@ -371,7 +368,7 @@ namespace detail {
 		auto& bm = get_buffer_manager();
 		auto& dq = get_device_queue();
 
-		auto bid = bm.register_buffer<size_t, 1>(celerity::range<3>(32, 1, 1));
+		auto bid = bm.register_buffer<size_t, 1>(range<3>(32, 1, 1));
 
 		SECTION("when using device buffers") {
 			size_t* host_ptr = nullptr;
@@ -401,7 +398,7 @@ namespace detail {
 			// Verify that the data is still what we expect.
 			{
 				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
-				    bid, access_target::host, {32}, {0}, true, [](celerity::id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
+				    bid, access_target::host, {32}, {0}, true, [](id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
 				REQUIRE(valid);
 			}
 
@@ -414,7 +411,7 @@ namespace detail {
 			// Access device buffer. This should still contain the original data.
 			{
 				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
-				    bid, access_target::device, {32}, {0}, true, [](celerity::id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
+				    bid, access_target::device, {32}, {0}, true, [](id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
 				REQUIRE(valid);
 			}
 		}
@@ -477,19 +474,19 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager retains data that exists on both host and device when resizing buffers",
 	    "[buffer_manager][performance]") {
 		auto& bm = get_buffer_manager();
-		auto bid = bm.register_buffer<size_t, 1>(celerity::range<3>(128, 1, 1));
+		auto bid = bm.register_buffer<size_t, 1>(range<3>(128, 1, 1));
 
 		auto run_test = [&](access_target tgt) {
 			// Initialize full buffer on other side.
 			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(init)>(
-			    bid, get_other_target(tgt), {128}, {0}, [](celerity::id<1> idx, size_t& value) { value = idx[0]; });
+			    bid, get_other_target(tgt), {128}, {0}, [](id<1> idx, size_t& value) { value = idx[0]; });
 
 			// Request the first half on this side for reading, so that after this, the first half will exist on both sides.
 			{
 				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
-				    bid, tgt, {64}, {0}, true, [](celerity::id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
+				    bid, tgt, {64}, {0}, true, [](id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
 				CHECK(valid);
-				CHECK(get_backing_buffer_range<size_t, 1>(bid, tgt, {64}, {0}) == celerity::range<1>{64});
+				CHECK(get_backing_buffer_range<size_t, 1>(bid, tgt, {64}, {0}) == range<1>{64});
 			}
 
 			// Now request the second half on this side for reading.
@@ -500,10 +497,10 @@ namespace detail {
 			//		 => In particular, if we won't need the first half ever again, this wastes both time and memory!
 			{
 				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
-				    bid, tgt, {64}, {64}, true, [](celerity::id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
+				    bid, tgt, {64}, {64}, true, [](id<1> idx, bool current, size_t value) { return current && value == idx[0]; });
 				CHECK(valid);
 				// Check that the buffer has been resized to accomodate both halves.
-				REQUIRE(get_backing_buffer_range<size_t, 1>(bid, tgt, {64}, {64}) == celerity::range<1>{128});
+				REQUIRE(get_backing_buffer_range<size_t, 1>(bid, tgt, {64}, {64}) == range<1>{128});
 			}
 		};
 
@@ -517,17 +514,17 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager does not introduce superfluous coherence updates when retaining 2D buffers",
 	    "[buffer_manager][performance]") {
 		auto& bm = get_buffer_manager();
-		auto bid = bm.register_buffer<size_t, 2>(celerity::range<3>(128, 128, 1));
+		auto bid = bm.register_buffer<size_t, 2>(range<3>(128, 128, 1));
 
 		auto run_test = [&](access_target tgt) {
 			// Initialize whole buffer to known value on other side.
 			buffer_for_each<size_t, 2, access_mode::discard_write, class UKN(init)>(
-			    bid, get_other_target(tgt), {128, 128}, {0, 0}, [](celerity::id<2> idx, size_t& value) { value = 1337 * idx[0] + 42 + idx[1]; });
+			    bid, get_other_target(tgt), {128, 128}, {0, 0}, [](id<2> idx, size_t& value) { value = 1337 * idx[0] + 42 + idx[1]; });
 
 			// Request a set of columns on this side, causing a coherence update.
 			{
-				bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, tgt, {128, 64}, {0, 64}, true,
-				    [](celerity::id<2> idx, bool current, size_t value) { return current && value == 1337 * idx[0] + 42 + idx[1]; });
+				bool valid = buffer_reduce<size_t, 2, class UKN(check)>(
+				    bid, tgt, {128, 64}, {0, 64}, true, [](id<2> idx, bool current, size_t value) { return current && value == 1337 * idx[0] + 42 + idx[1]; });
 				CHECK(valid);
 			}
 
@@ -535,22 +532,21 @@ namespace detail {
 			// This resizing should retain the columns, but not introduce an additional coherence update in the empty area not covered by
 			// either the columns or rows (i.e., [0,0]-[64,64]).
 			{
-				bool valid =
-				    buffer_reduce<size_t, 2, class UKN(check)>(bid, tgt, {64, 128}, {64, 0}, true, [](celerity::id<2> idx, bool current, size_t value) {
-					    if(idx[1] >= 64) return current && value == 1337 * idx[0] + 42 + idx[1];
-					    return current;
-				    });
+				bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, tgt, {64, 128}, {64, 0}, true, [](id<2> idx, bool current, size_t value) {
+					if(idx[1] >= 64) return current && value == 1337 * idx[0] + 42 + idx[1];
+					return current;
+				});
 				CHECK(valid);
 			}
 
 			// Do a faux overwrite on this side to ensure that no coherence update will be done for the next call to buffer_reduce.
 			buffer_for_each<size_t, 2, access_mode::discard_write, class UKN(faux_overwrite)>(
-			    bid, tgt, {128, 128}, {0, 0}, [](celerity::id<2> idx, size_t& value) { /* NOP */ });
+			    bid, tgt, {128, 128}, {0, 0}, [](id<2> idx, size_t& value) { /* NOP */ });
 
 			// While the backing buffer also includes the [0,0]-[64,64] region, this part should still be uninitialized.
 			{
 				bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, tgt, {64, 64}, {0, 0}, true,
-				    [=](celerity::id<2> idx, bool current, size_t value) { return current && is_valid_buffer_test_mode_pattern(value); });
+				    [=](id<2> idx, bool current, size_t value) { return current && is_valid_buffer_test_mode_pattern(value); });
 				REQUIRE(valid);
 			}
 		};
@@ -561,12 +557,12 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager correctly updates buffer versioning for queued transfers", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
-		auto bid = bm.register_buffer<size_t, 1>(celerity::range<3>(64, 1, 1));
+		auto bid = bm.register_buffer<size_t, 1>(range<3>(64, 1, 1));
 
 		auto run_test = [&](access_target tgt) {
 			// Initialize buffer on the other side
 			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(initialize)>(
-			    bid, get_other_target(tgt), {64}, {0}, [](celerity::id<1>, size_t& value) { value = 33; });
+			    bid, get_other_target(tgt), {64}, {0}, [](id<1>, size_t& value) { value = 33; });
 
 			// Add transfer for second half on this side
 			auto data = make_uninitialized_payload<size_t>(32);
@@ -576,14 +572,14 @@ namespace detail {
 			// Check that transfer has been correctly ingested
 			{
 				bool valid = buffer_reduce<size_t, 1, class UKN(check_second_half)>(
-				    bid, tgt, {64}, {0}, true, [](celerity::id<1> idx, bool current, size_t value) { return current && (value == (idx[0] < 32 ? 33 : 77)); });
+				    bid, tgt, {64}, {0}, true, [](id<1> idx, bool current, size_t value) { return current && (value == (idx[0] < 32 ? 33 : 77)); });
 				REQUIRE(valid);
 			}
 
 			// Finally, check that accessing the other side now copies the transfer data as well
 			{
 				bool valid = buffer_reduce<size_t, 1, class UKN(check_second_half)>(bid, get_other_target(tgt), {64}, {0}, true,
-				    [](celerity::id<1> idx, bool current, size_t value) { return current && (value == (idx[0] < 32 ? 33 : 77)); });
+				    [](id<1> idx, bool current, size_t value) { return current && (value == (idx[0] < 32 ? 33 : 77)); });
 				REQUIRE(valid);
 			}
 		};
@@ -595,12 +591,12 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager prioritizes queued transfers over resize/coherency copies for the same ranges",
 	    "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
-		auto bid = bm.register_buffer<size_t, 1>(celerity::range<3>(128, 1, 1));
+		auto bid = bm.register_buffer<size_t, 1>(range<3>(128, 1, 1));
 
 		auto run_test = [&](access_target tgt, bool resize, bool coherency) {
 			// Write first half of buffer.
 			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(write_buf)>(
-			    bid, coherency ? get_other_target(tgt) : tgt, {resize ? size_t(64) : size_t(128)}, {0}, [](celerity::id<1>, size_t& value) { value = 33; });
+			    bid, coherency ? get_other_target(tgt) : tgt, {resize ? size_t(64) : size_t(128)}, {0}, [](id<1>, size_t& value) { value = 33; });
 
 			// Set full range to new value.
 			{
@@ -612,7 +608,7 @@ namespace detail {
 			// Now read full range.
 			{
 				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
-				    bid, tgt, {96}, {0}, true, [](celerity::id<1>, bool current, size_t value) { return current && value == 77; });
+				    bid, tgt, {96}, {0}, true, [](id<1>, bool current, size_t value) { return current && value == 77; });
 				REQUIRE(valid);
 			}
 		};
@@ -628,12 +624,11 @@ namespace detail {
 	    "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
 
-		auto bid = bm.register_buffer<size_t, 1>(celerity::range<3>(128, 1, 1));
+		auto bid = bm.register_buffer<size_t, 1>(range<3>(128, 1, 1));
 
 		auto run_test = [&](access_target tgt) {
 			// Initialize first half of buffer with linear index.
-			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(init)>(
-			    bid, tgt, {64}, {0}, [](celerity::id<1> idx, size_t& value) { value = idx[0]; });
+			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(init)>(bid, tgt, {64}, {0}, [](id<1> idx, size_t& value) { value = idx[0]; });
 
 			// Set data that only partially overlaps with currently allocated range.
 			{
@@ -644,8 +639,8 @@ namespace detail {
 
 			// Check that second half of buffer has been updated...
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {64}, {0}, true,
-				    [](celerity::id<1> idx, bool current, size_t value) { return current && (value == (idx[0] < 32 ? idx[0] : 99)); });
+				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
+				    bid, tgt, {64}, {0}, true, [](id<1> idx, bool current, size_t value) { return current && (value == (idx[0] < 32 ? idx[0] : 99)); });
 				REQUIRE(valid);
 			}
 
@@ -654,8 +649,8 @@ namespace detail {
 
 			// Check that remainder of buffer has been updated as well.
 			{
-				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(bid, tgt, {96}, {0}, true,
-				    [](celerity::id<1> idx, bool current, size_t value) { return current && (value == (idx[0] < 32 ? idx[0] : 99)); });
+				bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
+				    bid, tgt, {96}, {0}, true, [](id<1> idx, bool current, size_t value) { return current && (value == (idx[0] < 32 ? idx[0] : 99)); });
 				REQUIRE(valid);
 			}
 		};
@@ -666,13 +661,12 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager returns the newest raw buffer data when requested", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
-		auto bid = bm.register_buffer<size_t, 1>(celerity::range<3>(32, 1, 1));
+		auto bid = bm.register_buffer<size_t, 1>(range<3>(32, 1, 1));
 
 		auto run_test = [&](access_target tgt) {
 			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(write_buffer)>(
-			    bid, get_other_target(tgt), {32}, {0}, [](celerity::id<1> idx, size_t& value) { value = idx[0]; });
-			buffer_for_each<size_t, 1, access_mode::read_write, class UKN(update_buffer)>(
-			    bid, tgt, {32}, {0}, [](celerity::id<1> idx, size_t& value) { value += 1; });
+			    bid, get_other_target(tgt), {32}, {0}, [](id<1> idx, size_t& value) { value = idx[0]; });
+			buffer_for_each<size_t, 1, access_mode::read_write, class UKN(update_buffer)>(bid, tgt, {32}, {0}, [](id<1> idx, size_t& value) { value += 1; });
 			std::vector<size_t> data(32);
 			bm.get_buffer_data(bid, {{0, 0, 0}, {32, 1, 1}}, data.data());
 			for(size_t i = 0; i < 32; ++i) {
@@ -685,9 +679,9 @@ namespace detail {
 
 		SECTION("when newest data is split across host and device") {
 			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(write_first_half)>(
-			    bid, access_target::device, {16}, {0}, [](celerity::id<1> idx, size_t& value) { value = idx[0]; });
+			    bid, access_target::device, {16}, {0}, [](id<1> idx, size_t& value) { value = idx[0]; });
 			buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(write_second_half)>(
-			    bid, access_target::host, {16}, {16}, [](celerity::id<1> idx, size_t& value) { value = idx[0] * 2; });
+			    bid, access_target::host, {16}, {16}, [](id<1> idx, size_t& value) { value = idx[0] * 2; });
 			std::vector<size_t> data(32);
 			bm.get_buffer_data(bid, {{0, 0, 0}, {32, 1, 1}}, data.data());
 			for(size_t i = 0; i < 32; ++i) {
@@ -707,23 +701,23 @@ namespace detail {
 			}
 		}
 
-		auto bid = bm.register_buffer<size_t, 2>(celerity::range<3>(size, size, 1), host_buf.data());
+		auto bid = bm.register_buffer<size_t, 2>(range<3>(size, size, 1), host_buf.data());
 
 		SECTION("when accessed on host") {
 			// Host buffers need to accomodate the full host-initialized data range.
-			REQUIRE(get_backing_buffer_range<size_t, 2>(bid, access_target::host, {7, 5}, {0, 0}) == celerity::range<2>{size, size});
+			REQUIRE(get_backing_buffer_range<size_t, 2>(bid, access_target::host, {7, 5}, {0, 0}) == range<2>{size, size});
 
 			bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, access_target::host, {7, 5}, {0, 0}, true,
-			    [](celerity::id<2> idx, bool current, size_t value) { return current && (value == idx[0] * 5 + idx[1]); });
+			    [](id<2> idx, bool current, size_t value) { return current && (value == idx[0] * 5 + idx[1]); });
 			REQUIRE(valid);
 		}
 
 		SECTION("when accessed on device") {
 			// Device buffers still are only as large as required.
-			REQUIRE(get_backing_buffer_range<size_t, 2>(bid, access_target::device, {7, 5}, {0, 0}) == celerity::range<2>{7, 5});
+			REQUIRE(get_backing_buffer_range<size_t, 2>(bid, access_target::device, {7, 5}, {0, 0}) == range<2>{7, 5});
 
 			bool valid = buffer_reduce<size_t, 2, class UKN(check)>(bid, access_target::device, {7, 5}, {0, 0}, true,
-			    [](celerity::id<2> idx, bool current, size_t value) { return current && (value == idx[0] * 5 + idx[1]); });
+			    [](id<2> idx, bool current, size_t value) { return current && (value == idx[0] * 5 + idx[1]); });
 			REQUIRE(valid);
 		}
 	}
@@ -768,7 +762,7 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager throws if accessing locked buffers in unsupported order", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
-		auto bid = bm.register_buffer<size_t, 1>(celerity::range<3>(128, 1, 1));
+		auto bid = bm.register_buffer<size_t, 1>(range<3>(128, 1, 1));
 
 		task_id tid = 0;
 		auto run_test = [&](auto test_fn) {
@@ -817,17 +811,17 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "accessor correctly handles backing buffer offsets", "[accessor][buffer_manager]") {
 		auto& bm = get_buffer_manager();
 		auto& dq = get_device_queue();
-		auto bid = bm.register_buffer<size_t, 2>(celerity::range<3>(64, 32, 1));
+		auto bid = bm.register_buffer<size_t, 2>(range<3>(64, 32, 1));
 
 		SECTION("when using device buffers") {
 			const auto range = celerity::range<2>(32, 32);
-			const auto offset = celerity::id<2>(32, 0);
+			const auto offset = id<2>(32, 0);
 			auto sr = subrange<3>(id_cast<3>(offset), range_cast<3>(range));
 			live_pass_device_handler cgh(nullptr, sr, true, dq);
 
 			get_device_accessor<size_t, 2, access_mode::discard_write>(cgh, bid, {48, 32}, {16, 0});
 			auto acc = get_device_accessor<size_t, 2, access_mode::discard_write>(cgh, bid, {32, 32}, {32, 0});
-			cgh.parallel_for<class UKN(write_buf)>(range, offset, [=](celerity::id<2> id) { acc[id] = id[0] + id[1]; });
+			cgh.parallel_for<class UKN(write_buf)>(range, offset, [=](id<2> id) { acc[id] = id[0] + id[1]; });
 			cgh.get_submission_event().wait();
 
 			auto buf_info = bm.access_host_buffer<size_t, 2>(bid, access_mode::read, {{32, 0}, {32, 32}});
@@ -861,10 +855,10 @@ namespace detail {
 		auto& bm = get_buffer_manager();
 		auto& dq = get_device_queue();
 
-		auto bid_a = bm.register_buffer<size_t, 1>(celerity::range<3>(32, 1, 1));
-		auto bid_b = bm.register_buffer<size_t, 1>(celerity::range<3>(32, 1, 1));
-		auto bid_c = bm.register_buffer<size_t, 1>(celerity::range<3>(32, 1, 1));
-		auto bid_d = bm.register_buffer<size_t, 1>(celerity::range<3>(32, 1, 1));
+		auto bid_a = bm.register_buffer<size_t, 1>(range<3>(32, 1, 1));
+		auto bid_b = bm.register_buffer<size_t, 1>(range<3>(32, 1, 1));
+		auto bid_c = bm.register_buffer<size_t, 1>(range<3>(32, 1, 1));
+		auto bid_d = bm.register_buffer<size_t, 1>(range<3>(32, 1, 1));
 
 		SECTION("when using device buffers") {
 			auto range = celerity::range<1>(32);
@@ -895,7 +889,7 @@ namespace detail {
 			REQUIRE(device_acc_a == device_acc_a1);
 			REQUIRE(device_acc_a1 != device_acc_b1);
 
-			cgh.parallel_for<class UKN(member_fn_test)>(range, [=](celerity::id<1> id) {
+			cgh.parallel_for<class UKN(member_fn_test)>(range, [=](id<1> id) {
 				// Copy ctor
 				decltype(device_acc_a1) device_acc_a2(device_acc_a1);
 				device_acc_a2[id] = 1 * id[0];
@@ -979,38 +973,38 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "host accessor supports get_pointer", "[accessor]") {
 		auto& bm = get_buffer_manager();
 
-		auto check_values = [&](const celerity::id<3>* ptr, celerity::range<3> range) {
+		auto check_values = [&](const id<3>* ptr, range<3> range) {
 			for(size_t i = 0; i < range[0]; ++i) {
 				for(size_t j = 0; j < range[1]; ++j) {
 					for(size_t k = 0; k < range[2]; ++k) {
 						const auto offset = i * range[1] * range[2] + j * range[2] + k;
-						REQUIRE_LOOP(ptr[offset] == celerity::id<3>(i, j, k));
+						REQUIRE_LOOP(ptr[offset] == id<3>(i, j, k));
 					}
 				}
 			}
 		};
 
 		SECTION("for 1D buffers") {
-			auto bid = bm.register_buffer<celerity::id<3>, 1>(celerity::range<3>(8, 1, 1));
-			buffer_for_each<celerity::id<3>, 1, access_mode::discard_write, class UKN(init)>(
-			    bid, access_target::device, {8}, {0}, [](celerity::id<1> idx, celerity::id<3>& value) { value = id_cast<3>(idx); });
-			auto acc = get_host_accessor<celerity::id<3>, 1, access_mode::read>(bid, {8}, {0});
+			auto bid = bm.register_buffer<id<3>, 1>(range<3>(8, 1, 1));
+			buffer_for_each<id<3>, 1, access_mode::discard_write, class UKN(init)>(
+			    bid, access_target::device, {8}, {0}, [](id<1> idx, id<3>& value) { value = id_cast<3>(idx); });
+			auto acc = get_host_accessor<id<3>, 1, access_mode::read>(bid, {8}, {0});
 			check_values(acc.get_pointer(), {8, 1, 1});
 		}
 
 		SECTION("for 2D buffers") {
-			auto bid = bm.register_buffer<celerity::id<3>, 2>(celerity::range<3>(8, 8, 1));
-			buffer_for_each<celerity::id<3>, 2, access_mode::discard_write, class UKN(init)>(
-			    bid, access_target::device, {8, 8}, {0, 0}, [](celerity::id<2> idx, celerity::id<3>& value) { value = id_cast<3>(idx); });
-			auto acc = get_host_accessor<celerity::id<3>, 2, access_mode::read>(bid, {8, 8}, {0, 0});
+			auto bid = bm.register_buffer<id<3>, 2>(range<3>(8, 8, 1));
+			buffer_for_each<id<3>, 2, access_mode::discard_write, class UKN(init)>(
+			    bid, access_target::device, {8, 8}, {0, 0}, [](id<2> idx, id<3>& value) { value = id_cast<3>(idx); });
+			auto acc = get_host_accessor<id<3>, 2, access_mode::read>(bid, {8, 8}, {0, 0});
 			check_values(acc.get_pointer(), {8, 8, 1});
 		}
 
 		SECTION("for 3D buffers") {
-			auto bid = bm.register_buffer<celerity::id<3>, 3>(celerity::range<3>(8, 8, 8));
-			buffer_for_each<celerity::id<3>, 3, access_mode::discard_write, class UKN(init)>(
-			    bid, access_target::device, {8, 8, 8}, {0, 0, 0}, [](celerity::id<3> idx, celerity::id<3>& value) { value = id_cast<3>(idx); });
-			auto acc = get_host_accessor<celerity::id<3>, 3, access_mode::read>(bid, {8, 8, 8}, {0, 0, 0});
+			auto bid = bm.register_buffer<id<3>, 3>(range<3>(8, 8, 8));
+			buffer_for_each<id<3>, 3, access_mode::discard_write, class UKN(init)>(
+			    bid, access_target::device, {8, 8, 8}, {0, 0, 0}, [](id<3> idx, id<3>& value) { value = id_cast<3>(idx); });
+			auto acc = get_host_accessor<id<3>, 3, access_mode::read>(bid, {8, 8, 8}, {0, 0, 0});
 			check_values(acc.get_pointer(), {8, 8, 8});
 		}
 	}
@@ -1018,8 +1012,8 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture,
 	    "host accessor throws when calling get_pointer for a backing buffer with different stride or nonzero offset", "[accessor]") {
 		auto& bm = get_buffer_manager();
-		auto bid_a = bm.register_buffer<size_t, 1>(celerity::range<3>(128, 1, 1));
-		auto bid_b = bm.register_buffer<size_t, 2>(celerity::range<3>(128, 128, 1));
+		auto bid_a = bm.register_buffer<size_t, 1>(range<3>(128, 1, 1));
+		auto bid_b = bm.register_buffer<size_t, 2>(range<3>(128, 128, 1));
 
 		const std::string error_msg = "Buffer cannot be accessed with expected stride";
 
@@ -1049,7 +1043,7 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "empty access ranges do not inflate backing buffer allocations", "[buffer_manager]") {
 		auto& bm = get_buffer_manager();
-		const auto bid = bm.register_buffer<int, 2>(celerity::range<3>(32, 32, 1));
+		const auto bid = bm.register_buffer<int, 2>(range<3>(32, 32, 1));
 
 		const auto access_1_sr = GENERATE(values({subrange<2>{{1, 1}, {0, 0}}, subrange<2>{{0, 0}, {8, 8}}}));
 		const auto access_2_sr = GENERATE(values({subrange<2>{{16, 16}, {0, 0}}, subrange<2>{{16, 16}, {8, 8}}}));

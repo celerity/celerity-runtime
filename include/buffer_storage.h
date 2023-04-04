@@ -14,21 +14,17 @@
 namespace celerity {
 namespace detail {
 
-	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const celerity::range<0>& source_range,
-	    const celerity::id<0>& source_offset, const celerity::range<0>& target_range, const celerity::id<0>& target_offset,
-	    const celerity::range<0>& copy_range);
+	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const range<0>& source_range, const id<0>& source_offset,
+	    const range<0>& target_range, const id<0>& target_offset, const range<0>& copy_range);
 
-	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const celerity::range<1>& source_range,
-	    const celerity::id<1>& source_offset, const celerity::range<1>& target_range, const celerity::id<1>& target_offset,
-	    const celerity::range<1>& copy_range);
+	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const range<1>& source_range, const id<1>& source_offset,
+	    const range<1>& target_range, const id<1>& target_offset, const range<1>& copy_range);
 
-	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const celerity::range<2>& source_range,
-	    const celerity::id<2>& source_offset, const celerity::range<2>& target_range, const celerity::id<2>& target_offset,
-	    const celerity::range<2>& copy_range);
+	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const range<2>& source_range, const id<2>& source_offset,
+	    const range<2>& target_range, const id<2>& target_offset, const range<2>& copy_range);
 
-	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const celerity::range<3>& source_range,
-	    const celerity::id<3>& source_offset, const celerity::range<3>& target_range, const celerity::id<3>& target_offset,
-	    const celerity::range<3>& copy_range);
+	void memcpy_strided_host(const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const range<3>& source_range, const id<3>& source_offset,
+	    const range<3>& target_range, const id<3>& target_offset, const range<3>& copy_range);
 
 	void linearize_subrange(const void* source_base_ptr, void* target_ptr, size_t elem_size, const range<3>& source_range, const subrange<3>& copy_sr);
 
@@ -60,7 +56,7 @@ namespace detail {
 		bool operator==(const device_buffer& rhs) const { return m_device_ptr == rhs.m_device_ptr && m_queue == rhs.m_queue && m_range == rhs.m_range; }
 
 	  private:
-		celerity::range<Dims> m_range;
+		range<Dims> m_range;
 		sycl::queue m_queue;
 		DataT* m_device_ptr = nullptr;
 	};
@@ -68,12 +64,12 @@ namespace detail {
 	template <typename DataT, int Dims>
 	class host_buffer {
 	  public:
-		explicit host_buffer(celerity::range<Dims> range) : m_range(range) {
+		explicit host_buffer(range<Dims> range) : m_range(range) {
 			auto r3 = range_cast<3>(range);
 			m_data = std::make_unique<DataT[]>(r3[0] * r3[1] * r3[2]);
 		}
 
-		celerity::range<Dims> get_range() const { return m_range; };
+		range<Dims> get_range() const { return m_range; };
 
 		DataT* get_pointer() { return m_data.get(); }
 
@@ -82,7 +78,7 @@ namespace detail {
 		bool operator==(const host_buffer& rhs) const { return m_data.get() == rhs.m_data.get(); }
 
 	  private:
-		celerity::range<Dims> m_range;
+		range<Dims> m_range;
 		std::unique_ptr<DataT[]> m_data;
 	};
 
@@ -93,9 +89,9 @@ namespace detail {
 		/**
 		 * @param range The size of the buffer
 		 */
-		buffer_storage(celerity::range<3> range, buffer_type type) : m_range(range), m_type(type) {}
+		buffer_storage(range<3> range, buffer_type type) : m_range(range), m_type(type) {}
 
-		celerity::range<3> get_range() const { return m_range; }
+		range<3> get_range() const { return m_range; }
 
 		buffer_type get_type() const { return m_type; }
 
@@ -115,12 +111,12 @@ namespace detail {
 		 *
 		 * TODO: Consider making this non-blocking, returning an async handle instead.
 		 */
-		virtual void copy(const buffer_storage& source, celerity::id<3> source_offset, celerity::id<3> target_offset, celerity::range<3> copy_range) = 0;
+		virtual void copy(const buffer_storage& source, id<3> source_offset, id<3> target_offset, range<3> copy_range) = 0;
 
 		virtual ~buffer_storage() = default;
 
 	  private:
-		celerity::range<3> m_range;
+		range<3> m_range;
 		buffer_type m_type;
 	};
 
@@ -166,7 +162,7 @@ namespace detail {
 			    m_device_buf.get_range(), id_cast<Dims>(sr.offset), range_cast<Dims>(sr.range));
 		}
 
-		void copy(const buffer_storage& source, celerity::id<3> source_offset, celerity::id<3> target_offset, celerity::range<3> copy_range) override;
+		void copy(const buffer_storage& source, id<3> source_offset, id<3> target_offset, range<3> copy_range) override;
 
 		sycl::queue& get_owning_queue() { return m_owning_queue; }
 
@@ -178,7 +174,7 @@ namespace detail {
 	template <typename DataT, int Dims>
 	class host_buffer_storage : public buffer_storage {
 	  public:
-		explicit host_buffer_storage(celerity::range<Dims> range) : buffer_storage(range_cast<3>(range), buffer_type::host_buffer), m_host_buf(range) {}
+		explicit host_buffer_storage(range<Dims> range) : buffer_storage(range_cast<3>(range), buffer_type::host_buffer), m_host_buf(range) {}
 
 		size_t get_size() const override { return get_range().size() * sizeof(DataT); };
 
@@ -190,7 +186,7 @@ namespace detail {
 			assert_copy_is_in_range(range_cast<3>(m_host_buf.get_range()), sr.range, sr.offset, id<3>{}, sr.range);
 
 			memcpy_strided_host(m_host_buf.get_pointer(), out_linearized, sizeof(DataT), range_cast<Dims>(m_host_buf.get_range()), id_cast<Dims>(sr.offset),
-			    range_cast<Dims>(sr.range), id_cast<Dims>(celerity::id<3>{0, 0, 0}), range_cast<Dims>(sr.range));
+			    range_cast<Dims>(sr.range), id<Dims>(), range_cast<Dims>(sr.range));
 		}
 
 		void set_data(const subrange<3>& sr, const void* in_linearized) override {
@@ -198,11 +194,11 @@ namespace detail {
 			assert(Dims > 2 || (sr.offset[2] == 0 && sr.range[2] == 1));
 			assert_copy_is_in_range(sr.range, range_cast<3>(m_host_buf.get_range()), id<3>{}, sr.offset, sr.range);
 
-			memcpy_strided_host(in_linearized, m_host_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(sr.range), id_cast<Dims>(celerity::id<3>(0, 0, 0)),
+			memcpy_strided_host(in_linearized, m_host_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(sr.range), id<Dims>(),
 			    range_cast<Dims>(m_host_buf.get_range()), id_cast<Dims>(sr.offset), range_cast<Dims>(sr.range));
 		}
 
-		void copy(const buffer_storage& source, celerity::id<3> source_offset, celerity::id<3> target_offset, celerity::range<3> copy_range) override;
+		void copy(const buffer_storage& source, id<3> source_offset, id<3> target_offset, range<3> copy_range) override;
 
 		host_buffer<DataT, Dims>& get_host_buffer() { return m_host_buf; }
 
@@ -213,8 +209,7 @@ namespace detail {
 	};
 
 	template <typename DataT, int Dims>
-	void device_buffer_storage<DataT, Dims>::copy(
-	    const buffer_storage& source, celerity::id<3> source_offset, celerity::id<3> target_offset, celerity::range<3> copy_range) {
+	void device_buffer_storage<DataT, Dims>::copy(const buffer_storage& source, id<3> source_offset, id<3> target_offset, range<3> copy_range) {
 		assert_copy_is_in_range(source.get_range(), range_cast<3>(m_device_buf.get_range()), source_offset, target_offset, copy_range);
 
 		if(source.get_type() == buffer_type::device_buffer) {
@@ -239,8 +234,7 @@ namespace detail {
 	}
 
 	template <typename DataT, int Dims>
-	void host_buffer_storage<DataT, Dims>::copy(
-	    const buffer_storage& source, celerity::id<3> source_offset, celerity::id<3> target_offset, celerity::range<3> copy_range) {
+	void host_buffer_storage<DataT, Dims>::copy(const buffer_storage& source, id<3> source_offset, id<3> target_offset, range<3> copy_range) {
 		assert_copy_is_in_range(source.get_range(), range_cast<3>(m_host_buf.get_range()), source_offset, target_offset, copy_range);
 
 		// TODO: Optimize for contiguous copies - we could do a single SYCL D->H copy directly.

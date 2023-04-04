@@ -34,7 +34,7 @@ namespace detail {
 	}
 
 	GridRegion<3> buffer_access_map::get_requirements_for_access(
-	    buffer_id bid, cl::sycl::access::mode mode, int kernel_dims, const subrange<3>& sr, const celerity::range<3>& global_size) const {
+	    buffer_id bid, cl::sycl::access::mode mode, int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const {
 		auto [first, last] = m_map.equal_range(bid);
 		if(first == m_map.end()) { return {}; }
 

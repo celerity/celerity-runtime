@@ -11,7 +11,7 @@ namespace celerity {
 namespace detail {
 
 	// We simply split in the first dimension for now
-	static std::vector<chunk<3>> split_equal(const chunk<3>& full_chunk, const celerity::range<3>& granularity, const size_t num_chunks, const int dims) {
+	static std::vector<chunk<3>> split_equal(const chunk<3>& full_chunk, const range<3>& granularity, const size_t num_chunks, const int dims) {
 #ifndef NDEBUG
 		assert(num_chunks > 0);
 		for(int d = 0; d < dims; ++d) {

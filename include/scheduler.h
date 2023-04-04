@@ -33,7 +33,7 @@ namespace detail {
 		 */
 		void notify_task_created(const task* const tsk) { notify(event_task_available{tsk}); }
 
-		void notify_buffer_registered(const buffer_id bid, const celerity::range<3>& range) { notify(event_buffer_registered{bid, range}); }
+		void notify_buffer_registered(const buffer_id bid, const range<3>& range) { notify(event_buffer_registered{bid, range}); }
 
 	  protected:
 		/**
