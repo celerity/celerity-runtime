@@ -78,19 +78,19 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer implicitly initializes the runtime", "[distr_queue][lifetime]") {
 		REQUIRE_FALSE(runtime::is_initialized());
-		buffer<float, 1> buf(celerity::range<1>{1});
+		buffer<float, 1> buf(range<1>{1});
 		REQUIRE(runtime::is_initialized());
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer can be copied", "[distr_queue][lifetime]") {
-		buffer<float, 1> buf_a{celerity::range<1>{10}};
-		buffer<float, 1> buf_b{celerity::range<1>{10}};
+		buffer<float, 1> buf_a{range<1>{10}};
+		buffer<float, 1> buf_b{range<1>{10}};
 		auto buf_c{buf_a};
 		buf_b = buf_c;
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "get_access can be called on const buffer", "[buffer]") {
-		buffer<float, 2> buf_a{celerity::range<2>{32, 64}};
+		buffer<float, 2> buf_a{range<2>{32, 64}};
 		auto& tm = runtime::get_instance().get_task_manager();
 		const auto tid = test_utils::add_compute_task<class get_access_const>(
 		    tm, [buf_a /* capture by value */](handler& cgh) { buf_a.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{}); }, buf_a.get_range());
@@ -102,131 +102,131 @@ namespace detail {
 
 	TEST_CASE("range mapper results are clamped to buffer range", "[range-mapper]") {
 		const auto rmfn = [](chunk<3>) { return subrange<3>{{0, 100, 127}, {256, 64, 32}}; };
-		range_mapper rm{rmfn, cl::sycl::access::mode::read, celerity::range<3>{128, 128, 128}};
+		range_mapper rm{rmfn, cl::sycl::access::mode::read, range<3>{128, 128, 128}};
 		auto sr = rm.map_3(chunk<3>{});
-		REQUIRE(sr.offset == celerity::id<3>{0, 100, 127});
-		REQUIRE(sr.range == celerity::range<3>{128, 28, 1});
+		REQUIRE(sr.offset == id<3>{0, 100, 127});
+		REQUIRE(sr.range == range<3>{128, 28, 1});
 	}
 
 	TEST_CASE("one_to_one built-in range mapper behaves as expected", "[range-mapper]") {
-		range_mapper rm{one_to_one{}, cl::sycl::access::mode::read, celerity::range<2>{128, 128}};
+		range_mapper rm{one_to_one{}, cl::sycl::access::mode::read, range<2>{128, 128}};
 		auto sr = rm.map_2(chunk<2>{{64, 32}, {32, 4}, {128, 128}});
-		REQUIRE(sr.offset == celerity::id<2>{64, 32});
-		REQUIRE(sr.range == celerity::range<2>{32, 4});
+		REQUIRE(sr.offset == id<2>{64, 32});
+		REQUIRE(sr.range == range<2>{32, 4});
 	}
 
 	TEST_CASE("fixed built-in range mapper behaves as expected", "[range-mapper]") {
-		range_mapper rm{fixed<1>({{3}, {97}}), cl::sycl::access::mode::read, celerity::range<1>{128}};
+		range_mapper rm{fixed<1>({{3}, {97}}), cl::sycl::access::mode::read, range<1>{128}};
 		auto sr = rm.map_1(chunk<2>{{64, 32}, {32, 4}, {128, 128}});
-		REQUIRE(sr.offset == celerity::id<1>{3});
-		REQUIRE(sr.range == celerity::range<1>{97});
+		REQUIRE(sr.offset == id<1>{3});
+		REQUIRE(sr.range == range<1>{97});
 	}
 
 	TEST_CASE("slice built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper rm{slice<3>(0), cl::sycl::access::mode::read, celerity::range<3>{128, 128, 128}};
+			range_mapper rm{slice<3>(0), cl::sycl::access::mode::read, range<3>{128, 128, 128}};
 			auto sr = rm.map_3(chunk<3>{{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
-			REQUIRE(sr.offset == celerity::id<3>{0, 32, 32});
-			REQUIRE(sr.range == celerity::range<3>{128, 32, 32});
+			REQUIRE(sr.offset == id<3>{0, 32, 32});
+			REQUIRE(sr.range == range<3>{128, 32, 32});
 		}
 		{
-			range_mapper rm{slice<3>(1), cl::sycl::access::mode::read, celerity::range<3>{128, 128, 128}};
+			range_mapper rm{slice<3>(1), cl::sycl::access::mode::read, range<3>{128, 128, 128}};
 			auto sr = rm.map_3(chunk<3>{{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
-			REQUIRE(sr.offset == celerity::id<3>{32, 0, 32});
-			REQUIRE(sr.range == celerity::range<3>{32, 128, 32});
+			REQUIRE(sr.offset == id<3>{32, 0, 32});
+			REQUIRE(sr.range == range<3>{32, 128, 32});
 		}
 		{
-			range_mapper rm{slice<3>(2), cl::sycl::access::mode::read, celerity::range<3>{128, 128, 128}};
+			range_mapper rm{slice<3>(2), cl::sycl::access::mode::read, range<3>{128, 128, 128}};
 			auto sr = rm.map_3(chunk<3>{{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
-			REQUIRE(sr.offset == celerity::id<3>{32, 32, 0});
-			REQUIRE(sr.range == celerity::range<3>{32, 32, 128});
+			REQUIRE(sr.offset == id<3>{32, 32, 0});
+			REQUIRE(sr.range == range<3>{32, 32, 128});
 		}
 	}
 
 	TEST_CASE("all built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper rm{all{}, cl::sycl::access::mode::read, celerity::range<1>{128}};
+			range_mapper rm{all{}, cl::sycl::access::mode::read, range<1>{128}};
 			auto sr = rm.map_1(chunk<1>{});
-			REQUIRE(sr.offset == celerity::id<1>{0});
-			REQUIRE(sr.range == celerity::range<1>{128});
+			REQUIRE(sr.offset == id<1>{0});
+			REQUIRE(sr.range == range<1>{128});
 		}
 		{
-			range_mapper rm{all{}, cl::sycl::access::mode::read, celerity::range<2>{128, 64}};
+			range_mapper rm{all{}, cl::sycl::access::mode::read, range<2>{128, 64}};
 			auto sr = rm.map_2(chunk<1>{});
-			REQUIRE(sr.offset == celerity::id<2>{0, 0});
-			REQUIRE(sr.range == celerity::range<2>{128, 64});
+			REQUIRE(sr.offset == id<2>{0, 0});
+			REQUIRE(sr.range == range<2>{128, 64});
 		}
 		{
-			range_mapper rm{all{}, cl::sycl::access::mode::read, celerity::range<3>{128, 64, 32}};
+			range_mapper rm{all{}, cl::sycl::access::mode::read, range<3>{128, 64, 32}};
 			auto sr = rm.map_3(chunk<1>{});
-			REQUIRE(sr.offset == celerity::id<3>{0, 0, 0});
-			REQUIRE(sr.range == celerity::range<3>{128, 64, 32});
+			REQUIRE(sr.offset == id<3>{0, 0, 0});
+			REQUIRE(sr.range == range<3>{128, 64, 32});
 		}
 	}
 
 	TEST_CASE("neighborhood built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper rm{neighborhood<1>(10), cl::sycl::access::mode::read, celerity::range<1>{128}};
+			range_mapper rm{neighborhood<1>(10), cl::sycl::access::mode::read, range<1>{128}};
 			auto sr = rm.map_1(chunk<1>{{15}, {10}, {128}});
-			REQUIRE(sr.offset == celerity::id<1>{5});
-			REQUIRE(sr.range == celerity::range<1>{30});
+			REQUIRE(sr.offset == id<1>{5});
+			REQUIRE(sr.range == range<1>{30});
 		}
 		{
-			range_mapper rm{neighborhood<2>(10, 10), cl::sycl::access::mode::read, celerity::range<2>{128, 128}};
+			range_mapper rm{neighborhood<2>(10, 10), cl::sycl::access::mode::read, range<2>{128, 128}};
 			auto sr = rm.map_2(chunk<2>{{5, 100}, {10, 20}, {128, 128}});
-			REQUIRE(sr.offset == celerity::id<2>{0, 90});
-			REQUIRE(sr.range == celerity::range<2>{25, 38});
+			REQUIRE(sr.offset == id<2>{0, 90});
+			REQUIRE(sr.range == range<2>{25, 38});
 		}
 		{
-			range_mapper rm{neighborhood<3>(3, 4, 5), cl::sycl::access::mode::read, celerity::range<3>{128, 128, 128}};
+			range_mapper rm{neighborhood<3>(3, 4, 5), cl::sycl::access::mode::read, range<3>{128, 128, 128}};
 			auto sr = rm.map_3(chunk<3>{{3, 4, 5}, {1, 1, 1}, {128, 128, 128}});
-			REQUIRE(sr.offset == celerity::id<3>{0, 0, 0});
-			REQUIRE(sr.range == celerity::range<3>{7, 9, 11});
+			REQUIRE(sr.offset == id<3>{0, 0, 0});
+			REQUIRE(sr.range == range<3>{7, 9, 11});
 		}
 	}
 
 	TEST_CASE("even_split built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, celerity::range<3>{128, 345, 678}};
+			range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, range<3>{128, 345, 678}};
 			auto sr = rm.map_3(chunk<1>{{0}, {1}, {8}});
-			REQUIRE(sr.offset == celerity::id<3>{0, 0, 0});
-			REQUIRE(sr.range == celerity::range<3>{16, 345, 678});
+			REQUIRE(sr.offset == id<3>{0, 0, 0});
+			REQUIRE(sr.range == range<3>{16, 345, 678});
 		}
 		{
-			range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, celerity::range<3>{128, 345, 678}};
+			range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, range<3>{128, 345, 678}};
 			auto sr = rm.map_3(chunk<1>{{4}, {2}, {8}});
-			REQUIRE(sr.offset == celerity::id<3>{64, 0, 0});
-			REQUIRE(sr.range == celerity::range<3>{32, 345, 678});
+			REQUIRE(sr.offset == id<3>{64, 0, 0});
+			REQUIRE(sr.range == range<3>{32, 345, 678});
 		}
 		{
-			range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, celerity::range<3>{131, 992, 613}};
+			range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, range<3>{131, 992, 613}};
 			auto sr = rm.map_3(chunk<1>{{5}, {2}, {7}});
-			REQUIRE(sr.offset == celerity::id<3>{95, 0, 0});
-			REQUIRE(sr.range == celerity::range<3>{36, 992, 613});
+			REQUIRE(sr.offset == id<3>{95, 0, 0});
+			REQUIRE(sr.range == range<3>{36, 992, 613});
 		}
 		{
-			range_mapper rm{even_split<3>(celerity::range<3>(10, 1, 1)), cl::sycl::access::mode::read, celerity::range<3>{128, 345, 678}};
+			range_mapper rm{even_split<3>(range<3>(10, 1, 1)), cl::sycl::access::mode::read, range<3>{128, 345, 678}};
 			auto sr = rm.map_3(chunk<1>{{0}, {1}, {8}});
-			REQUIRE(sr.offset == celerity::id<3>{0, 0, 0});
-			REQUIRE(sr.range == celerity::range<3>{20, 345, 678});
+			REQUIRE(sr.offset == id<3>{0, 0, 0});
+			REQUIRE(sr.range == range<3>{20, 345, 678});
 		}
 		{
-			range_mapper rm{even_split<3>(celerity::range<3>(10, 1, 1)), cl::sycl::access::mode::read, celerity::range<3>{131, 992, 613}};
+			range_mapper rm{even_split<3>(range<3>(10, 1, 1)), cl::sycl::access::mode::read, range<3>{131, 992, 613}};
 			auto sr = rm.map_3(chunk<1>{{0}, {1}, {7}});
-			REQUIRE(sr.offset == celerity::id<3>{0, 0, 0});
-			REQUIRE(sr.range == celerity::range<3>{20, 992, 613});
+			REQUIRE(sr.offset == id<3>{0, 0, 0});
+			REQUIRE(sr.range == range<3>{20, 992, 613});
 		}
 		{
-			range_mapper rm{even_split<3>(celerity::range<3>(10, 1, 1)), cl::sycl::access::mode::read, celerity::range<3>{131, 992, 613}};
+			range_mapper rm{even_split<3>(range<3>(10, 1, 1)), cl::sycl::access::mode::read, range<3>{131, 992, 613}};
 			auto sr = rm.map_3(chunk<1>{{5}, {2}, {7}});
-			REQUIRE(sr.offset == celerity::id<3>{100, 0, 0});
-			REQUIRE(sr.range == celerity::range<3>{31, 992, 613});
+			REQUIRE(sr.offset == id<3>{100, 0, 0});
+			REQUIRE(sr.range == range<3>{31, 992, 613});
 		}
 		{
-			range_mapper rm{even_split<3>(celerity::range<3>(10, 1, 1)), cl::sycl::access::mode::read, celerity::range<3>{236, 992, 613}};
+			range_mapper rm{even_split<3>(range<3>(10, 1, 1)), cl::sycl::access::mode::read, range<3>{236, 992, 613}};
 			auto sr = rm.map_3(chunk<1>{{6}, {1}, {7}});
-			REQUIRE(sr.offset == celerity::id<3>{200, 0, 0});
-			REQUIRE(sr.range == celerity::range<3>{36, 992, 613});
+			REQUIRE(sr.offset == id<3>{200, 0, 0});
+			REQUIRE(sr.range == range<3>{36, 992, 613});
 		}
 	}
 
@@ -234,8 +234,8 @@ namespace detail {
 		task_manager tm{1, nullptr};
 		size_t call_counter = 0;
 		tm.register_task_callback([&call_counter](const task*) { call_counter++; });
-		celerity::range<2> gs = {1, 1};
-		celerity::id<2> go = {};
+		range<2> gs = {1, 1};
+		id<2> go = {};
 		tm.submit_command_group([=](handler& cgh) { cgh.parallel_for<class kernel>(gs, go, [](auto) {}); });
 		REQUIRE(call_counter == 1);
 		tm.submit_command_group([](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
@@ -245,20 +245,20 @@ namespace detail {
 	TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][device_compute_task]") {
 		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
-		auto buf_a = mbf.create_buffer(celerity::range<2>(64, 152));
-		auto buf_b = mbf.create_buffer(celerity::range<3>(7, 21, 99));
+		auto buf_a = mbf.create_buffer(range<2>(64, 152));
+		auto buf_b = mbf.create_buffer(range<3>(7, 21, 99));
 		const auto tid = test_utils::add_compute_task(
 		    tm,
 		    [&](handler& cgh) {
 			    buf_a.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
 			    buf_b.get_access<cl::sycl::access::mode::discard_read_write>(cgh, fixed{subrange<3>{{}, {5, 18, 74}}});
 		    },
-		    celerity::range<2>{32, 128}, celerity::id<2>{32, 24});
+		    range<2>{32, 128}, id<2>{32, 24});
 		const auto tsk = tm.get_task(tid);
 		REQUIRE(tsk->get_type() == task_type::device_compute);
 		REQUIRE(tsk->get_dimensions() == 2);
-		REQUIRE(tsk->get_global_size() == celerity::range<3>{32, 128, 1});
-		REQUIRE(tsk->get_global_offset() == celerity::id<3>{32, 24, 0});
+		REQUIRE(tsk->get_global_size() == range<3>{32, 128, 1});
+		REQUIRE(tsk->get_global_offset() == id<3>{32, 24, 0});
 
 		auto& bam = tsk->get_buffer_access_map();
 		const auto bufs = bam.get_accessed_buffers();
@@ -277,8 +277,8 @@ namespace detail {
 
 	TEST_CASE("buffer_access_map merges multiple accesses with the same mode", "[task][device_compute_task]") {
 		buffer_access_map bam;
-		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{3, 0}, {10, 20}}, cl::sycl::access::mode::read, celerity::range<2>{30, 30}));
-		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{10, 0}, {7, 20}}, cl::sycl::access::mode::read, celerity::range<2>{30, 30}));
+		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{3, 0}, {10, 20}}, cl::sycl::access::mode::read, range<2>{30, 30}));
+		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{10, 0}, {7, 20}}, cl::sycl::access::mode::read, range<2>{30, 30}));
 		const auto req = bam.get_requirements_for_access(0, cl::sycl::access::mode::read, 2, subrange<3>({0, 0, 0}, {100, 100, 1}), {100, 100, 1});
 		REQUIRE(req == subrange_to_grid_box(subrange<3>({3, 0, 0}, {14, 20, 1})));
 	}
@@ -306,12 +306,9 @@ namespace detail {
 
 	TEST_CASE("device_compute tasks derive debug name from kernel name", "[task][!mayfail]") {
 		auto tm = std::make_unique<detail::task_manager>(1, nullptr);
-		auto t1 =
-		    tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(celerity::range<1>{1}, [](celerity::id<1>) {}); }));
-		auto t2 =
-		    tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(celerity::range<1>{1}, [](celerity::id<1>) {}); }));
-		auto t3 =
-		    tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(celerity::range<1>{1}, [](celerity::id<1>) {}); }));
+		auto t1 = tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(range<1>{1}, [](id<1>) {}); }));
+		auto t2 = tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(range<1>{1}, [](id<1>) {}); }));
+		auto t3 = tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(range<1>{1}, [](id<1>) {}); }));
 		REQUIRE(t1->get_debug_name() == "MyFirstKernel");
 		REQUIRE(t2->get_debug_name() == "MySecondKernel");
 		REQUIRE(t3->get_debug_name() == "MyThirdKernel<int>");
@@ -326,7 +323,7 @@ namespace detail {
 
 		q.submit([=](handler& cgh) {
 			auto b = buff.get_access<cl::sycl::access::mode::discard_write>(cgh, one_to_one{});
-			cgh.parallel_for<class sync_test>(celerity::range<1>(N), [=](celerity::item<1> item) { b[item] = item.get_linear_id(); });
+			cgh.parallel_for<class sync_test>(range<1>(N), [=](celerity::item<1> item) { b[item] = item.get_linear_id(); });
 		});
 
 		q.submit(allow_by_ref, [&](handler& cgh) {
@@ -348,11 +345,11 @@ namespace detail {
 
 	TEST_CASE("memcpy_strided correctly copies") {
 		SECTION("strided 1D data") {
-			const celerity::range<1> source_range{128};
-			const celerity::id<1> source_offset{32};
-			const celerity::range<1> target_range{64};
-			const celerity::id<1> target_offset{16};
-			const celerity::range<1> copy_range{32};
+			const range<1> source_range{128};
+			const id<1> source_offset{32};
+			const range<1> target_range{64};
+			const id<1> target_offset{16};
+			const range<1> copy_range{32};
 			const auto source_buffer = std::make_unique<size_t[]>(source_range.size());
 			const auto target_buffer = std::make_unique<size_t[]>(target_range.size());
 			for(size_t i = 0; i < copy_range[0]; ++i) {
@@ -365,11 +362,11 @@ namespace detail {
 		}
 
 		SECTION("strided 2D data") {
-			const celerity::range<2> source_range{128, 96};
-			const celerity::id<2> source_offset{32, 24};
-			const celerity::range<2> target_range{64, 48};
-			const celerity::id<2> target_offset{16, 32};
-			const celerity::range<2> copy_range{32, 8};
+			const range<2> source_range{128, 96};
+			const id<2> source_offset{32, 24};
+			const range<2> target_range{64, 48};
+			const id<2> target_offset{16, 32};
+			const range<2> copy_range{32, 8};
 			const auto source_buffer = std::make_unique<size_t[]>(source_range.size());
 			const auto target_buffer = std::make_unique<size_t[]>(target_range.size());
 			for(size_t i = 0; i < copy_range[0]; ++i) {
@@ -389,11 +386,11 @@ namespace detail {
 		}
 
 		SECTION("strided 3D data") {
-			const celerity::range<3> source_range{128, 96, 48};
-			const celerity::id<3> source_offset{32, 24, 16};
-			const celerity::range<3> target_range{64, 48, 24};
-			const celerity::id<3> target_offset{16, 32, 4};
-			const celerity::range<3> copy_range{32, 8, 16};
+			const range<3> source_range{128, 96, 48};
+			const id<3> source_offset{32, 24, 16};
+			const range<3> target_range{64, 48, 24};
+			const id<3> target_offset{16, 32, 4};
+			const range<3> copy_range{32, 8, 16};
 			const auto source_buffer = std::make_unique<size_t[]>(source_range.size());
 			const auto target_buffer = std::make_unique<size_t[]>(target_range.size());
 			for(size_t i = 0; i < copy_range[0]; ++i) {
@@ -420,7 +417,7 @@ namespace detail {
 	}
 
 	TEST_CASE("linearize_subrange works as expected") {
-		const celerity::range<3> data1_range{3, 5, 7};
+		const range<3> data1_range{3, 5, 7};
 		std::vector<size_t> data1(data1_range.size());
 
 		for(size_t i = 0; i < data1_range[0]; ++i) {
@@ -431,8 +428,8 @@ namespace detail {
 			}
 		}
 
-		const celerity::range<3> data2_range{2, 2, 4};
-		const celerity::id<3> data2_offset{1, 2, 2};
+		const range<3> data2_range{2, 2, 4};
+		const id<3> data2_offset{1, 2, 2};
 		std::vector<size_t> data2(data2_range.size());
 		linearize_subrange(data1.data(), data2.data(), sizeof(size_t), data1_range, {data2_offset, data2_range});
 
@@ -519,7 +516,7 @@ namespace detail {
 	template <typename T>
 	extern const int range_dims;
 	template <int N>
-	constexpr inline int range_dims<celerity::range<N>> = N;
+	constexpr inline int range_dims<range<N>> = N;
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "range mappers are only invocable with correctly-dimensioned chunks", "[range-mapper]") {
 		auto rmfn1 = [](chunk<2> chnk) -> subrange<3> { return {}; };
@@ -537,7 +534,7 @@ namespace detail {
 		static_assert(!is_range_mapper_invocable_for_kernel<rmfn1_t, 2, 3>);
 		static_assert(!is_range_mapper_invocable_for_kernel<rmfn1_t, 3, 3>);
 
-		auto rmfn2 = [](auto chnk, celerity::range<2>) -> subrange<2> { return {}; };
+		auto rmfn2 = [](auto chnk, range<2>) -> subrange<2> { return {}; };
 		using rmfn2_t = decltype(rmfn2);
 		static_assert(!is_range_mapper_invocable<rmfn2_t, 1>);
 		static_assert(is_range_mapper_invocable<rmfn2_t, 2>);
@@ -587,31 +584,31 @@ namespace detail {
 
 		CHECK_THROWS_WITH(q.submit([=](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
-			cgh.parallel_for<class UKN(kernel)>(celerity::range<1>{10}, [=](celerity::item<1>) {});
+			cgh.parallel_for<class UKN(kernel)>(range<1>{10}, [=](celerity::item<1>) {});
 		}),
 		    "Invalid range mapper dimensionality: 1-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<1> nor "
 		    "(chunk<1>, range<2>) to produce subrange<2>");
 
 		CHECK_NOTHROW(q.submit([=](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
-			cgh.parallel_for<class UKN(kernel)>(celerity::range<2>{10, 10}, [=](celerity::item<2>) {});
+			cgh.parallel_for<class UKN(kernel)>(range<2>{10, 10}, [=](celerity::item<2>) {});
 		}));
 
 		CHECK_THROWS_WITH(q.submit([=](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
-			cgh.parallel_for<class UKN(kernel)>(celerity::range<3>{10, 10, 10}, [=](celerity::item<3>) {});
+			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) {});
 		}),
 		    "Invalid range mapper dimensionality: 3-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<3> nor "
 		    "(chunk<3>, range<2>) to produce subrange<2>");
 
 		CHECK_NOTHROW(q.submit([=](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, all{});
-			cgh.parallel_for<class UKN(kernel)>(celerity::range<3>{10, 10, 10}, [=](celerity::item<3>) {});
+			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) {});
 		}));
 
 		CHECK_NOTHROW(q.submit([=](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, all{});
-			cgh.parallel_for<class UKN(kernel)>(celerity::range<3>{10, 10, 10}, [=](celerity::item<3>) {});
+			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) {});
 		}));
 	}
 
@@ -626,12 +623,12 @@ namespace detail {
 		distr_queue q;
 
 		const int n = 3;
-		const auto global_offset = detail::id_cast<Dims>(celerity::id<3>{4, 5, 6});
+		const auto global_offset = detail::id_cast<Dims>(id<3>{4, 5, 6});
 
 		buffer<size_t, 2> linear_id{{n, Dims + 1}};
 		q.submit([=](handler& cgh) {
 			accessor a{linear_id, cgh, celerity::access::all{}, write_only, no_init}; // all RM is sane because runtime_tests runs single-node
-			cgh.parallel_for<linear_id_kernel<Dims>>(detail::range_cast<Dims>(celerity::range<3>{n, 1, 1}), global_offset, [=](celerity::item<Dims> item) {
+			cgh.parallel_for<linear_id_kernel<Dims>>(detail::range_cast<Dims>(range<3>{n, 1, 1}), global_offset, [=](celerity::item<Dims> item) {
 				auto i = (item.get_id() - item.get_offset())[0];
 				for(int d = 0; d < Dims; ++d) {
 					a[i][d] = item[d];
@@ -659,39 +656,36 @@ namespace detail {
 		runtime::init(nullptr, nullptr);
 		auto& tm = runtime::get_instance().get_task_manager();
 
-		buffer<float, 1> buf_1{celerity::range<1>{2}};
+		buffer<float, 1> buf_1{range<1>{2}};
 		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(wrong_size_1)>(celerity::range<1>{1}, reduction(buf_1, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
+			cgh.parallel_for<class UKN(wrong_size_1)>(range<1>{1}, reduction(buf_1, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
 		}));
 
-		buffer<float, 1> buf_4{celerity::range<1>{1}};
+		buffer<float, 1> buf_4{range<1>{1}};
 		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_1)>(celerity::range<1>{1}, reduction(buf_4, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
+			cgh.parallel_for<class UKN(ok_size_1)>(range<1>{1}, reduction(buf_4, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
 		}));
 
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
 
-		buffer<float, 2> buf_2{celerity::range<2>{1, 2}};
+		buffer<float, 2> buf_2{range<2>{1, 2}};
 		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(wrong_size_2)>(
-			    celerity::range<2>{1, 1}, reduction(buf_2, cgh, cl::sycl::plus<float>{}), [=](celerity::item<2>, auto&) {});
+			cgh.parallel_for<class UKN(wrong_size_2)>(range<2>{1, 1}, reduction(buf_2, cgh, cl::sycl::plus<float>{}), [=](celerity::item<2>, auto&) {});
 		}));
 
-		buffer<float, 3> buf_3{celerity::range<3>{1, 2, 1}};
+		buffer<float, 3> buf_3{range<3>{1, 2, 1}};
 		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(wrong_size_3)>(
-			    celerity::range<3>{1, 1, 1}, reduction(buf_3, cgh, cl::sycl::plus<float>{}), [=](celerity::item<3>, auto&) {});
+			cgh.parallel_for<class UKN(wrong_size_3)>(range<3>{1, 1, 1}, reduction(buf_3, cgh, cl::sycl::plus<float>{}), [=](celerity::item<3>, auto&) {});
 		}));
 
-		buffer<float, 2> buf_5{celerity::range<2>{1, 1}};
+		buffer<float, 2> buf_5{range<2>{1, 1}};
 		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_2)>(celerity::range<2>{1, 1}, reduction(buf_5, cgh, cl::sycl::plus<float>{}), [=](celerity::item<2>, auto&) {});
+			cgh.parallel_for<class UKN(ok_size_2)>(range<2>{1, 1}, reduction(buf_5, cgh, cl::sycl::plus<float>{}), [=](celerity::item<2>, auto&) {});
 		}));
 
-		buffer<float, 3> buf_6{celerity::range<3>{1, 1, 1}};
+		buffer<float, 3> buf_6{range<3>{1, 1, 1}};
 		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_3)>(
-			    celerity::range<3>{1, 1, 1}, reduction(buf_6, cgh, cl::sycl::plus<float>{}), [=](celerity::item<3>, auto&) {});
+			cgh.parallel_for<class UKN(ok_size_3)>(range<3>{1, 1, 1}, reduction(buf_6, cgh, cl::sycl::plus<float>{}), [=](celerity::item<3>, auto&) {});
 		}));
 #endif
 	}
@@ -771,9 +765,9 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "reductions can be passed into nd_range kernels", "[handler]") {
 		// Note: We assume a local range size of 16 here, this should be supported by most devices.
 
-		buffer<int, 1> b{celerity::range<1>{1}};
+		buffer<int, 1> b{range<1>{1}};
 		distr_queue{}.submit([=](handler& cgh) {
-			cgh.parallel_for<class UKN(kernel)>(celerity::nd_range{celerity::range<2>{8, 8}, celerity::range<2>{4, 4}}, reduction(b, cgh, cl::sycl::plus<>{}),
+			cgh.parallel_for<class UKN(kernel)>(celerity::nd_range{range<2>{8, 8}, range<2>{4, 4}}, reduction(b, cgh, cl::sycl::plus<>{}),
 			    [](nd_item<2> item, auto& sum) { sum += item.get_global_linear_id(); });
 		});
 	}
@@ -788,13 +782,13 @@ namespace detail {
 		// Note: We assume a local range size of 32 here, this should be supported by most devices.
 
 		// without name
-		q.submit([](handler& cgh) { cgh.parallel_for(celerity::range<1>{64}, [](item<1> item) {}); });
+		q.submit([](handler& cgh) { cgh.parallel_for(range<1>{64}, [](item<1> item) {}); });
 		q.submit([=](handler& cgh) { cgh.parallel_for(celerity::nd_range<1>{64, 32}, [](nd_item<1> item) {}); });
 #if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 		buffer<int> b{{1}};
 		q.submit([=](handler& cgh) {
 			cgh.parallel_for(
-			    celerity::range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
+			    range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
 		});
 		q.submit([=](handler& cgh) {
 			cgh.parallel_for(celerity::nd_range<1>{64, 32}, reduction(b, cgh, cl::sycl::plus<int>{}),
@@ -803,12 +797,12 @@ namespace detail {
 #endif
 
 		// with name
-		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(simple_kernel_with_name)>(celerity::range<1>{64}, [=](item<1> item) {}); });
+		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(simple_kernel_with_name)>(range<1>{64}, [=](item<1> item) {}); });
 		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(nd_range_kernel_with_name)>(celerity::nd_range<1>{64, 32}, [=](nd_item<1> item) {}); });
 #if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 		q.submit([=](handler& cgh) {
 			cgh.parallel_for<class UKN(simple_kernel_with_name_and_reductions)>(
-			    celerity::range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
+			    range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
 		});
 		q.submit([=](handler& cgh) {
 			cgh.parallel_for<class UKN(nd_range_kernel_with_name_and_reductions)>(celerity::nd_range<1>{64, 32}, reduction(b, cgh, cl::sycl::plus<int>{}),

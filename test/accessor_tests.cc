@@ -19,7 +19,7 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "accessors behave correctly for 0-dimensional master node kernels", "[accessor]") {
 		distr_queue q;
 		std::vector mem_a{42};
-		buffer<int, 1> buf_a(mem_a.data(), celerity::range<1>{1});
+		buffer<int, 1> buf_a(mem_a.data(), range<1>{1});
 		q.submit([=](handler& cgh) {
 			auto a = buf_a.get_access<cl::sycl::access::mode::read_write, target::host_task>(cgh, fixed<1>({0, 1}));
 			cgh.host_task(on_master_node, [=] { ++a[0]; });
@@ -143,7 +143,7 @@ namespace detail {
 		// 2. new device_buffer_storage<DataT, Dims>::device_buffer_storage()
 		//
 		// Stripping the device_buffer_storage constructor call in device code (where it is never actually called, this is all pure host code) through
-		// #if __SYCL_DEVICE_ONLY__ did get rid of the segfault, but caused the test to fail with a heap corruption at runtime. Instead, replacing celerity::id
+		// #if __SYCL_DEVICE_ONLY__ did get rid of the segfault, but caused the test to fail with a heap corruption at runtime. Instead, replacing id
 		// with size_t seems to resolve the problem.
 
 		const auto range = celerity::range<3>(2, 3, 4);
@@ -198,8 +198,7 @@ namespace detail {
 
 		typename accessor_fixture<Dims>::access_target tgt = accessor_fixture<Dims>::access_target::host;
 		bool acc_check = accessor_fixture<Dims>::template buffer_reduce<size_t, Dims, class check_multi_dim_accessor<Dims>>(bid, tgt, range_cast<Dims>(range),
-		    {}, true,
-		    [range = range_cast<Dims>(range)](celerity::id<Dims> idx, bool current, size_t value) { return current && value == get_linear_index(range, idx); });
+		    {}, true, [range = range_cast<Dims>(range)](id<Dims> idx, bool current, size_t value) { return current && value == get_linear_index(range, idx); });
 
 		REQUIRE(acc_check);
 	}
@@ -210,7 +209,7 @@ namespace detail {
 		test_utils::mock_buffer_factory mbf{tm};
 		test_utils::mock_reduction_factory mrf;
 
-		auto buf_0 = mbf.create_buffer(celerity::range<1>{1});
+		auto buf_0 = mbf.create_buffer(range<1>{1});
 
 		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_conflict)>(tm, [&](handler& cgh) {
 			test_utils::add_reduction(cgh, mrf, buf_0, false);
@@ -290,7 +289,7 @@ namespace detail {
 		distr_queue q;
 
 		std::vector<char> memory1d(10);
-		buffer<char, 1> buf1d(memory1d.data(), celerity::range<1>(10));
+		buffer<char, 1> buf1d(memory1d.data(), range<1>(10));
 
 		q.submit([=](handler& cgh) {
 			accessor b{buf1d, cgh, all{}, celerity::write_only_host_task, celerity::no_init};
@@ -306,7 +305,7 @@ namespace detail {
 
 		q.submit([=](handler& cgh) {
 			accessor b{buf1d, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
-			cgh.host_task(celerity::range<1>(6), celerity::id<1>(2), [=](partition<1> part) {
+			cgh.host_task(range<1>(6), id<1>(2), [=](partition<1> part) {
 				auto aw = b.get_allocation_window(part);
 				CHECK(aw.get_window_offset_in_buffer()[0] == 2);
 				CHECK(aw.get_window_offset_in_allocation()[0] <= 2);
@@ -318,11 +317,11 @@ namespace detail {
 		});
 
 		std::vector<char> memory2d(10 * 10);
-		buffer<char, 2> buf2d(memory2d.data(), celerity::range<2>(10, 10));
+		buffer<char, 2> buf2d(memory2d.data(), range<2>(10, 10));
 
 		q.submit([=](handler& cgh) {
 			accessor b{buf2d, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
-			cgh.host_task(celerity::range<2>(5, 6), celerity::id<2>(1, 2), [=](partition<2> part) {
+			cgh.host_task(range<2>(5, 6), id<2>(1, 2), [=](partition<2> part) {
 				auto aw = b.get_allocation_window(part);
 				CHECK(aw.get_window_offset_in_buffer()[0] == 1);
 				CHECK(aw.get_buffer_range()[0] == 10);
@@ -337,11 +336,11 @@ namespace detail {
 		});
 
 		std::vector<char> memory3d(10 * 10 * 10);
-		buffer<char, 3> buf3d(memory3d.data(), celerity::range<3>(10, 10, 10));
+		buffer<char, 3> buf3d(memory3d.data(), range<3>(10, 10, 10));
 
 		q.submit([=](handler& cgh) {
 			accessor b{buf3d, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
-			cgh.host_task(celerity::range<3>(5, 6, 7), celerity::id<3>(1, 2, 3), [=](partition<3> part) {
+			cgh.host_task(range<3>(5, 6, 7), id<3>(1, 2, 3), [=](partition<3> part) {
 				auto aw = b.get_allocation_window(part);
 				CHECK(aw.get_window_offset_in_buffer()[0] == 1);
 				CHECK(aw.get_window_offset_in_allocation()[0] <= 1);

@@ -43,12 +43,12 @@ class buffer {
 	template <int D = Dims, typename = std::enable_if_t<D == 0>>
 	buffer() : buffer(nullptr, {}) {}
 
-	explicit buffer(const DataT* host_ptr, celerity::range<Dims> range) {
+	explicit buffer(const DataT* host_ptr, range<Dims> range) {
 		if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr); }
 		m_impl = std::make_shared<impl>(range, host_ptr);
 	}
 
-	explicit buffer(celerity::range<Dims> range) : buffer(nullptr, range) {}
+	explicit buffer(range<Dims> range) : buffer(nullptr, range) {}
 
 	template <int D = Dims, typename = std::enable_if_t<D == 0>>
 	buffer(const DataT& value) : buffer(&value, {}) {}
@@ -81,11 +81,11 @@ class buffer {
 		return accessor<DataT, Dims, Mode, Target>(*this, cgh);
 	}
 
-	const celerity::range<Dims>& get_range() const { return m_impl->range; }
+	const range<Dims>& get_range() const { return m_impl->range; }
 
   private:
 	struct impl {
-		impl(celerity::range<Dims> rng, const DataT* host_init_ptr) : range(rng) {
+		impl(range<Dims> rng, const DataT* host_init_ptr) : range(rng) {
 			id = detail::runtime::get_instance().get_buffer_manager().register_buffer<DataT, Dims>(detail::range_cast<3>(range), host_init_ptr);
 		}
 		impl(const impl&) = delete;

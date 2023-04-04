@@ -70,7 +70,7 @@ namespace detail {
 		 */
 		graph_generator(size_t num_nodes, command_graph& cdag);
 
-		void add_buffer(buffer_id bid, const celerity::range<3>& range);
+		void add_buffer(buffer_id bid, const range<3>& range);
 
 		// Build the commands for a single task
 		void build_task(const task& tsk, const std::vector<graph_transformer*>& transformers);

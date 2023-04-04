@@ -265,8 +265,8 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
   private:
 	DataT* m_device_ptr = nullptr;
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::id<Dims> m_index_offset;
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> m_buffer_range = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_index_offset;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_buffer_range = detail::zero_range;
 
 	// Constructor for tests, called through accessor_testspy.
 	accessor(DataT* ptr, id<Dims> index_offset, range<Dims> buffer_range) : m_device_ptr(ptr), m_index_offset(index_offset), m_buffer_range(buffer_range) {

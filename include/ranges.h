@@ -443,15 +443,13 @@ namespace detail {
 		id<TargetDims> m_id{};
 	};
 
-	inline size_t get_linear_index(const celerity::range<0>& /* range */, const celerity::id<0>& /* index */) { return 0; }
+	inline size_t get_linear_index(const range<0>& /* range */, const id<0>& /* index */) { return 0; }
 
-	inline size_t get_linear_index(const celerity::range<1>& range, const celerity::id<1>& index) { return index[0]; }
+	inline size_t get_linear_index(const range<1>& range, const id<1>& index) { return index[0]; }
 
-	inline size_t get_linear_index(const celerity::range<2>& range, const celerity::id<2>& index) { return index[0] * range[1] + index[1]; }
+	inline size_t get_linear_index(const range<2>& range, const id<2>& index) { return index[0] * range[1] + index[1]; }
 
-	inline size_t get_linear_index(const celerity::range<3>& range, const celerity::id<3>& index) {
-		return index[0] * range[1] * range[2] + index[1] * range[2] + index[2];
-	}
+	inline size_t get_linear_index(const range<3>& range, const id<3>& index) { return index[0] * range[1] * range[2] + index[1] * range[2] + index[2]; }
 
 #define MAKE_COMPONENT_WISE_BINARY_FN(name, range_type, op)                                                                                                    \
 	template <int Dims>                                                                                                                                        \
@@ -476,13 +474,13 @@ template <int Dims>
 struct chunk {
 	static constexpr int dimensions = Dims;
 
-	celerity::id<Dims> offset;
+	id<Dims> offset;
 	celerity::range<Dims> range = detail::zero_range;
 	celerity::range<Dims> global_size = detail::zero_range;
 
 	chunk() = default;
 
-	chunk(const celerity::id<Dims>& offset, const celerity::range<Dims>& range, const celerity::range<Dims>& global_size)
+	chunk(const id<Dims>& offset, const celerity::range<Dims>& range, const celerity::range<Dims>& global_size)
 	    : offset(offset), range(range), global_size(global_size) {}
 
 	friend bool operator==(const chunk& lhs, const chunk& rhs) {
@@ -495,12 +493,12 @@ template <int Dims>
 struct subrange {
 	static constexpr int dimensions = Dims;
 
-	celerity::id<Dims> offset;
+	id<Dims> offset;
 	celerity::range<Dims> range = detail::zero_range;
 
 	subrange() = default;
 
-	subrange(const celerity::id<Dims>& offset, const celerity::range<Dims>& range) : offset(offset), range(range) {}
+	subrange(const id<Dims>& offset, const celerity::range<Dims>& range) : offset(offset), range(range) {}
 
 	subrange(const chunk<Dims>& other) : offset(other.offset), range(other.range) {}
 

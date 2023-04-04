@@ -141,7 +141,7 @@ namespace detail {
 		test_utils::mock_buffer_factory mbf(ctx);
 		test_utils::mock_reduction_factory mrf;
 
-		auto buf_0 = mbf.create_buffer(celerity::range<1>{1});
+		auto buf_0 = mbf.create_buffer(range<1>{1});
 
 		test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, buf_0, false); }));
@@ -165,7 +165,7 @@ namespace detail {
 		test_utils::mock_buffer_factory mbf(ctx);
 		test_utils::mock_reduction_factory mrf;
 
-		auto buf_0 = mbf.create_buffer(celerity::range<1>{1});
+		auto buf_0 = mbf.create_buffer(range<1>{1});
 
 		test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(task_reduction)>(
@@ -192,7 +192,7 @@ namespace detail {
 		test_utils::mock_buffer_factory mbf(ctx);
 		test_utils::mock_reduction_factory mrf;
 
-		auto buf_0 = mbf.create_buffer(celerity::range<1>{1});
+		auto buf_0 = mbf.create_buffer(range<1>{1});
 
 		auto compute_tid = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, buf_0, false); }));
@@ -222,7 +222,7 @@ namespace detail {
 		test_utils::mock_buffer_factory mbf(ctx);
 		test_utils::mock_reduction_factory mrf;
 
-		auto buf_0 = mbf.create_buffer(celerity::range<1>{1});
+		auto buf_0 = mbf.create_buffer(range<1>{1});
 
 		test_utils::build_and_flush(
 		    ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_0.get_access<mode::discard_write>(cgh, all{}); }));
@@ -256,13 +256,13 @@ namespace detail {
 		test_utils::mock_buffer_factory mbf(ctx);
 		test_utils::mock_reduction_factory mrf;
 
-		auto sum = mbf.create_buffer(celerity::range<1>{1});
+		auto sum = mbf.create_buffer(range<1>{1});
 		const auto t1 = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(kernel)>(
-		        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, sum, false /* include_current_buffer_value */); }, celerity::range{num_nodes}));
+		        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, sum, false /* include_current_buffer_value */); }, range{num_nodes}));
 		const auto t2 = test_utils::build_and_flush(ctx, num_nodes,
 		    test_utils::add_compute_task<class UKN(kernel)>(
-		        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, sum, true /* include_current_buffer_value */); }, celerity::range{num_nodes}));
+		        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, sum, true /* include_current_buffer_value */); }, range{num_nodes}));
 
 		const auto& inspector = ctx.get_inspector();
 		auto& cdag = ctx.get_command_graph();

@@ -18,7 +18,7 @@ namespace detail {
 		using underlying_t = T;
 
 		constexpr PhantomType() = default;
-		constexpr PhantomType(T const& value) : m_value(value) {}
+		constexpr PhantomType(const T& value) : m_value(value) {}
 		constexpr PhantomType(T&& value) : m_value(std::move(value)) {}
 
 		// Allow implicit conversion to underlying type, otherwise it becomes too annoying to use.
