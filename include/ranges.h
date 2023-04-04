@@ -290,10 +290,10 @@ class range : public detail::coordinate<range<Dims>, Dims> {
 	    : coordinate(detail::make_from, in, /* default_value= */ 1) {}
 };
 
-range() -> range<0>;
-range(size_t) -> range<1>;
-range(size_t, size_t) -> range<2>;
-range(size_t, size_t, size_t) -> range<3>;
+range()->range<0>;
+range(size_t)->range<1>;
+range(size_t, size_t)->range<2>;
+range(size_t, size_t, size_t)->range<3>;
 
 template <int Dims>
 class id : public detail::coordinate<id<Dims>, Dims> {
@@ -335,10 +335,10 @@ class id : public detail::coordinate<id<Dims>, Dims> {
 	    : coordinate(detail::make_from, in, /* default_value= */ 0) {}
 };
 
-id() -> id<0>;
-id(size_t) -> id<1>;
-id(size_t, size_t) -> id<2>;
-id(size_t, size_t, size_t) -> id<3>;
+id()->id<0>;
+id(size_t)->id<1>;
+id(size_t, size_t)->id<2>;
+id(size_t, size_t, size_t)->id<3>;
 
 // We re-implement nd_range to un-deprecate kernel offsets
 template <int Dims>
@@ -383,12 +383,12 @@ class nd_range {
 
 // Non-templated deduction guides allow construction of nd_range from range initializer lists like so: nd_range{{1, 2}, {3, 4}}
 // ... except, currently, for ComputeCpp which uses an outdated Clang (TODO)
-nd_range(range<1> global_range, range<1> local_range, id<1> offset) -> nd_range<1>;
-nd_range(range<1> global_range, range<1> local_range) -> nd_range<1>;
-nd_range(range<2> global_range, range<2> local_range, id<2> offset) -> nd_range<2>;
-nd_range(range<2> global_range, range<2> local_range) -> nd_range<2>;
-nd_range(range<3> global_range, range<3> local_range, id<3> offset) -> nd_range<3>;
-nd_range(range<3> global_range, range<3> local_range) -> nd_range<3>;
+nd_range(range<1> global_range, range<1> local_range, id<1> offset)->nd_range<1>;
+nd_range(range<1> global_range, range<1> local_range)->nd_range<1>;
+nd_range(range<2> global_range, range<2> local_range, id<2> offset)->nd_range<2>;
+nd_range(range<2> global_range, range<2> local_range)->nd_range<2>;
+nd_range(range<3> global_range, range<3> local_range, id<3> offset)->nd_range<3>;
+nd_range(range<3> global_range, range<3> local_range)->nd_range<3>;
 
 } // namespace celerity
 
