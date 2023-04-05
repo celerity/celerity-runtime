@@ -251,7 +251,7 @@ class range : public detail::coordinate<range<Dims>, Dims> {
 	}
 
 	template <int D = Dims, typename = std::enable_if_t<D >= 1 && D <= 3>>
-	explicit range(const sycl::range<Dims>& sycl_range) {
+	range(const sycl::range<Dims>& sycl_range) {
 		for(int d = 0; d < Dims; ++d) {
 			(*this)[d] = sycl_range[d];
 		}
@@ -266,7 +266,7 @@ class range : public detail::coordinate<range<Dims>, Dims> {
 	}
 
 	template <int D = Dims, typename = std::enable_if_t<D >= 1 && D <= 3>>
-	explicit operator sycl::range<Dims>() const {
+	operator sycl::range<Dims>() const {
 		if constexpr(Dims == 1) {
 			return {(*this)[0]};
 		} else if constexpr(Dims == 2) {
@@ -309,14 +309,14 @@ class id : public detail::coordinate<id<Dims>, Dims> {
 	constexpr id(const range<Dims>& range) : coordinate(detail::make_from, range) {}
 
 	template <int D = Dims, typename = std::enable_if_t<D >= 1 && D <= 3>>
-	explicit id(const sycl::id<Dims>& sycl_id) {
+	id(const sycl::id<Dims>& sycl_id) {
 		for(int d = 0; d < Dims; ++d) {
 			(*this)[d] = sycl_id[d];
 		}
 	}
 
 	template <int D = Dims, typename = std::enable_if_t<D >= 1 && D <= 3>>
-	explicit operator sycl::id<Dims>() const {
+	operator sycl::id<Dims>() const {
 		if constexpr(Dims == 1) {
 			return {(*this)[0]};
 		} else if constexpr(Dims == 2) {
