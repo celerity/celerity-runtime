@@ -372,8 +372,10 @@ namespace detail {
 		q.submit([=](handler& cgh) {
 			accessor acc_0(buf_0, cgh, read_write_host_task);
 			cgh.host_task(on_master_node, [=] {
-				CHECK(acc_0[id<0>()] == value_a);
+				CHECK(acc_0 == value_a);
 				CHECK(*acc_0 == value_a);
+				CHECK(*acc_0.operator->() == value_a);
+				CHECK(acc_0[id<0>()] == value_a);
 				acc_0[id<0>()] = value_b;
 				*acc_0 = value_b;
 			});
@@ -382,8 +384,10 @@ namespace detail {
 			accessor acc_0(buf_0, cgh, read_only);
 			accessor acc_1(buf_1, cgh, one_to_one(), write_only, no_init);
 			cgh.parallel_for<class UKN(device)>(buf_1.get_range(), [=](item<1> it) {
-				acc_1[it] = acc_0[id<0>()];
+				acc_1[it] = acc_0;
 				acc_1[it] = *acc_0;
+				acc_1[it] = *acc_0.operator->();
+				acc_1[it] = acc_0[id<0>()];
 			});
 		});
 		q.submit([=](handler& cgh) {
@@ -409,7 +413,9 @@ namespace detail {
 			accessor acc_2d(buf_2d, cgh, all(), write_only, no_init);
 			accessor acc_3d(buf_3d, cgh, all(), write_only, no_init);
 			cgh.parallel_for<class UKN(device)>(range<0>(), [=](item<0>) {
+				acc_0d = 1;
 				*acc_0d = 1;
+				*acc_0d.operator->() = 1;
 				acc_0d[id<0>()] = 1;
 				acc_1d[99] = 2;
 				acc_2d[9][9] = 3;
@@ -422,8 +428,11 @@ namespace detail {
 			accessor acc_2d(buf_2d, cgh, all(), read_write_host_task);
 			accessor acc_3d(buf_3d, cgh, all(), read_write_host_task);
 			cgh.host_task(range<0>(), [=](partition<0>) {
-				*acc_0d += 4;
-				acc_0d[id<0>()] += 5;
+				float& ref_0d = acc_0d;
+				ref_0d += 1;
+				*acc_0d += 2;
+				*acc_0d.operator->() += 3;
+				acc_0d[id<0>()] += 3;
 				acc_1d[99] += 9;
 				acc_2d[9][9] += 9;
 				acc_3d[4][4][4] += 9;
@@ -435,7 +444,9 @@ namespace detail {
 			accessor acc_2d(buf_2d, cgh, all(), read_only_host_task);
 			accessor acc_3d(buf_3d, cgh, all(), read_only_host_task);
 			cgh.host_task(on_master_node, [=] {
+				CHECK(acc_0d == 10);
 				CHECK(*acc_0d == 10);
+				CHECK(*acc_0d.operator->() == 10);
 				CHECK(acc_0d[id<0>()] == 10);
 				CHECK(acc_1d[99] == 11);
 				CHECK(acc_2d[9][9] == 12);
@@ -460,11 +471,15 @@ namespace detail {
 			local_accessor<float, 0> local_0(cgh);
 			cgh.parallel_for<class UKN(device)>(nd_range(buf_1.get_range(), buf_1.get_range()), [=](nd_item<1> it) {
 				if(it.get_local_id() == 0) {
+					local_0 = value_b;
 					*local_0 = value_b;
+					*local_0.operator->() = value_b;
 					local_0[id<0>()] = value_b;
 				}
 				group_barrier(it.get_group());
+				acc_1[it.get_global_id()] = local_0;
 				acc_1[it.get_global_id()] = *local_0;
+				acc_1[it.get_global_id()] = *local_0.operator->();
 				acc_1[it.get_global_id()] = local_0[id<0>()];
 			});
 		});
