@@ -20,16 +20,19 @@ namespace celerity::detail {
 struct make_from_t {
 } inline static constexpr make_from;
 
-// We need a specialized storage type to avoid generating a `size_t values[0]` array which clang interprets as dynamically-sized
-template <int Dims>
+// We need a specialized storage type for coordinates to avoid generating a `size_t values[0]` array which clang interprets as dynamically-sized.
+// By specializing on the Interface type, id<> and range<> become distinct types "all the way down", so both an id<0> and a range<0> can be included as struct
+// members with [[no_unique_address]] within another struct and to actually overlap. This is required to ensure that 0-dimensional accessors are pointer-sized,
+// and would otherwise be prohibited by strict-aliasing rules (because two identical pointers with the same type must point to the same object).
+template <typename Interface, int Dims>
 struct coordinate_storage {
 	constexpr size_t operator[](int dimension) const { return values[dimension]; }
 	constexpr size_t& operator[](int dimension) { return values[dimension]; }
 	size_t values[Dims] = {};
 };
 
-template <>
-struct coordinate_storage<0> {
+template <typename Interface>
+struct coordinate_storage<Interface, 0> {
 	constexpr size_t operator[](int /* dimension */) const { return 0; }
 	// This is UB, but also unreachable. Unfortunately we can't call __builtin_unreachable from a constexpr function.
 	constexpr size_t& operator[](int /* dimension */) { return *static_cast<size_t*>(static_cast<void*>(this)); }
@@ -202,7 +205,7 @@ class coordinate {
 #undef CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_POSTFIX_OPERATOR
 
   private:
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS coordinate_storage<Dims> m_values;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS coordinate_storage<Interface, Dims> m_values;
 };
 
 template <typename InterfaceOut, typename InterfaceIn, int DimsIn>
@@ -340,7 +343,7 @@ id(size_t)->id<1>;
 id(size_t, size_t)->id<2>;
 id(size_t, size_t, size_t)->id<3>;
 
-// We re-implement nd_range to un-deprecate kernel offsets
+// Celerity nd_range does not deprecate kernel offsets since we can support them at no additional cost in the distributed model.
 template <int Dims>
 class nd_range {
   public:
@@ -376,9 +379,9 @@ class nd_range {
 	friend bool operator!=(const nd_range& lhs, const nd_range& rhs) { return !(lhs == rhs); }
 
   private:
-	range<Dims> m_global_range;
-	range<Dims> m_local_range;
-	id<Dims> m_offset;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_global_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_local_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_offset;
 };
 
 // Non-templated deduction guides allow construction of nd_range from range initializer lists like so: nd_range{{1, 2}, {3, 4}}
@@ -474,9 +477,9 @@ template <int Dims>
 struct chunk {
 	static constexpr int dimensions = Dims;
 
-	id<Dims> offset;
-	celerity::range<Dims> range = detail::zero_range;
-	celerity::range<Dims> global_size = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> offset;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> range = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> global_size = detail::zero_range;
 
 	chunk() = default;
 
@@ -493,8 +496,8 @@ template <int Dims>
 struct subrange {
 	static constexpr int dimensions = Dims;
 
-	id<Dims> offset;
-	celerity::range<Dims> range = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> offset;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> range = detail::zero_range;
 
 	subrange() = default;
 

@@ -507,5 +507,21 @@ namespace detail {
 		});
 	}
 
+	TEST_CASE("0-dimensional accessors are pointer-sized", "[accessor]") {
+		if(!CELERITY_DETAIL_HAS_NO_UNIQUE_ADDRESS) SKIP("[[no_unique_address]] not available on this compiler");
+
+		// these checks are not static_asserts because they depend on an (optional) compiler layout optimization
+		CHECK(sizeof(accessor<int, 0, access_mode::read, target::device>) == sizeof(int*));
+		CHECK(sizeof(accessor<int, 0, access_mode::read, target::host_task>) == sizeof(int*));
+	}
+
+	TEST_CASE("0-dimensional local accessor has no overhead over SYCL", "[accessor][!shouldfail]") {
+		//  TODO after multi-pass removal: drop !shouldfail (see TODO in local_accessor definition)
+		if(!CELERITY_DETAIL_HAS_NO_UNIQUE_ADDRESS) SKIP("[[no_unique_address]] not available on this compiler");
+
+		// this check is not a static_assert because it depends on an (optional) compiler layout optimization
+		CHECK(sizeof(local_accessor<int, 0>) == sizeof(accessor_testspy::declval_sycl_accessor<local_accessor<int, 0>>()));
+	}
+
 } // namespace detail
 } // namespace celerity

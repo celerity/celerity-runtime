@@ -337,10 +337,10 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 			auto access_info = detail::runtime::get_instance().get_buffer_manager().access_host_buffer<DataT, Dims>(detail::get_buffer_id(buff), Mode, sr);
 
 			m_mapped_subrange = sr;
-			m_host_ptr = static_cast<DataT*>(access_info.ptr);
 			m_index_offset = detail::id_cast<Dims>(access_info.backing_buffer_offset);
 			m_buffer_range = detail::range_cast<Dims>(access_info.backing_buffer_range);
 			m_virtual_buffer_range = buff.get_range();
+			m_host_ptr = static_cast<DataT*>(access_info.ptr);
 		}
 	}
 
@@ -489,9 +489,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
   private:
 	// Subange of the accessor, as set by the range mapper or requested by the user (master node host tasks only).
 	// This does not necessarily correspond to the backing buffer's range.
-	subrange<Dims> m_mapped_subrange;
-
-	DataT* m_host_ptr = nullptr;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS subrange<Dims> m_mapped_subrange;
 
 	// Offset of the backing buffer relative to the virtual buffer.
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_index_offset;
@@ -503,10 +501,13 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	// We only need this to check whether it is safe to call get_pointer() or not.
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_virtual_buffer_range = detail::zero_range;
 
+	// m_host_ptr must be defined *last* for it to overlap with the sequence of range and id members in the 0-dimensional case
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS DataT* m_host_ptr = nullptr;
+
 	// Constructor for tests, called through accessor_testspy.
 	accessor(subrange<Dims> mapped_subrange, DataT* ptr, id<Dims> backing_buffer_offset, range<Dims> backing_buffer_range, range<Dims> virtual_buffer_range)
-	    : m_mapped_subrange(mapped_subrange), m_host_ptr(ptr), m_index_offset(backing_buffer_offset), m_buffer_range(backing_buffer_range),
-	      m_virtual_buffer_range(virtual_buffer_range) {}
+	    : m_mapped_subrange(mapped_subrange), m_index_offset(backing_buffer_offset), m_buffer_range(backing_buffer_range),
+	      m_virtual_buffer_range(virtual_buffer_range), m_host_ptr(ptr) {}
 
 	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_buffer_range, index - m_index_offset); }
 };
@@ -537,6 +538,8 @@ accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, 
 
 template <typename DataT, int Dims = 1>
 class local_accessor {
+	friend struct detail::accessor_testspy;
+
 	static_assert(Dims <= 3);
 
   private:
@@ -606,8 +609,9 @@ class local_accessor {
 
   private:
 	sycl_accessor m_sycl_acc;
-	range<Dims> m_allocation_size;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_allocation_size;
 	cl::sycl::handler* const* m_eventual_sycl_cgh = nullptr;
+	// TODO after multi-pass removal: verify that sizeof(celerity::local_accessor) == sizeof(sycl::local_accessor) in accessor_tests (currently [!shouldfail])
 
 	static sycl_accessor make_placeholder_sycl_accessor() {
 #if CELERITY_WORKAROUND(DPCPP) || CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9)
