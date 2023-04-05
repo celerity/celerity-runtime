@@ -196,6 +196,8 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
   public:
 	static_assert(Mode != access_mode::atomic, "access_mode::atomic is not supported. Please use atomic_ref instead.");
 
+	accessor() noexcept = default;
+
 	template <typename Functor>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) : accessor(ctor_internal_tag(), buff, cgh, rmfn) {}
 
@@ -311,6 +313,8 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 
   public:
 	static_assert(Mode != access_mode::atomic, "access_mode::atomic is not supported.");
+
+	accessor() noexcept = default;
 
 	template <typename Functor>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) {
@@ -549,6 +553,8 @@ class local_accessor {
 	using reference = DataT&;
 	using const_reference = const DataT&;
 	using size_type = size_t;
+
+	local_accessor() : m_sycl_acc{make_placeholder_sycl_accessor()}, m_allocation_size(detail::zero_range) {}
 
 	template <int D = Dims, typename = std::enable_if_t<D == 0>>
 	local_accessor(handler& cgh) : local_accessor(range<0>(), cgh) {}

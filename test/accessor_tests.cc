@@ -478,5 +478,34 @@ namespace detail {
 		});
 	}
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "accessors are default-constructible", "[accessor]") {
+		buffer<float, 0> buf_0;
+		buffer<float, 1> buf_1(1);
+
+		distr_queue q;
+
+		q.submit([=](handler& cgh) {
+			accessor<float, 0, access_mode::discard_write, target::device> device_acc_0;
+			accessor<float, 1, access_mode::discard_write, target::device> device_acc_1;
+			local_accessor<float, 0> local_acc_0;
+			local_accessor<float, 1> local_acc_1;
+
+			device_acc_0 = decltype(device_acc_0)(buf_0, cgh, all());
+			device_acc_1 = decltype(device_acc_1)(buf_1, cgh, all());
+			local_acc_0 = decltype(local_acc_0)(cgh);
+			local_acc_1 = decltype(local_acc_1)(1, cgh);
+			cgh.parallel_for<class UKN(device_kernel_1)>(
+			    nd_range(1, 1), [=](nd_item<1> /* it */) { (void)device_acc_0, (void)local_acc_0, (void)device_acc_1, (void)local_acc_1; });
+		});
+
+		q.submit([=](handler& cgh) {
+			accessor<float, 0, access_mode::discard_write, target::host_task> host_acc_0;
+			accessor<float, 1, access_mode::discard_write, target::host_task> host_acc_1;
+			host_acc_0 = decltype(host_acc_0)(buf_0, cgh, all());
+			host_acc_1 = decltype(host_acc_1)(buf_1, cgh, all());
+			cgh.host_task(on_master_node, [=] { (void)host_acc_0, (void)host_acc_1; });
+		});
+	}
+
 } // namespace detail
 } // namespace celerity
