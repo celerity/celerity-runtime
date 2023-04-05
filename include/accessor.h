@@ -234,6 +234,26 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	    const buffer<DataT, Dims>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, target::device> tag, const property_list& prop_list)
 	    : accessor(buff, cgh, access::all(), tag, prop_list) {}
 
+	// explicitly defaulted because we define operator=(value_type) for Dims == 0
+	accessor(const accessor&) = default;
+	accessor(accessor&&) noexcept = default;
+	accessor& operator=(const accessor&) = default;
+	accessor& operator=(accessor&&) noexcept = default;
+
+	// SYCL allows assigning values to accessors directly in the 0-dimensional case
+
+	template <int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	const accessor& operator=(const DataT& other) const {
+		*m_device_ptr = other;
+		return *this;
+	}
+
+	template <int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	const accessor& operator=(DataT&& other) const {
+		*m_device_ptr = std::move(other);
+		return *this;
+	}
+
 	template <access_mode M = Mode>
 	inline std::enable_if_t<detail::access::mode_traits::is_producer(M), DataT&> operator[](const id<Dims>& index) const {
 		return m_device_ptr[get_linear_offset(index)];
@@ -249,6 +269,18 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		return detail::subscript<D>(*this, index);
 	}
 
+	template <access_mode M = Mode, std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), int> = 0>
+	inline operator DataT&() const {
+		return *m_device_ptr;
+	}
+
+	template <access_mode M = Mode, std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), int> = 0>
+	inline operator const DataT&() const {
+		return *m_device_ptr;
+	}
+
+	// we provide operator* and operator-> in addition to SYCL's operator reference() as we feel it better represents the pointer semantics of accessors
+
 	template <access_mode M = Mode>
 	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), DataT&> operator*() const {
 		return *m_device_ptr;
@@ -257,6 +289,16 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	template <access_mode M = Mode>
 	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator*() const {
 		return *m_device_ptr;
+	}
+
+	template <access_mode M = Mode>
+	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), DataT*> operator->() const {
+		return m_device_ptr;
+	}
+
+	template <access_mode M = Mode>
+	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), const DataT*> operator->() const {
+		return m_device_ptr;
 	}
 
 	friend bool operator==(const accessor& lhs, const accessor& rhs) {
@@ -381,6 +423,26 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	    const buffer<DataT, Dims>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, target::host_task> tag, const property_list& prop_list)
 	    : accessor(buff, cgh, access::all(), tag, prop_list) {}
 
+	// explicitly defaulted because we define operator=(value_type) for Dims == 0
+	accessor(const accessor&) = default;
+	accessor(accessor&&) noexcept = default;
+	accessor& operator=(const accessor&) = default;
+	accessor& operator=(accessor&&) noexcept = default;
+
+	// SYCL allows assigning values to accessors directly in the 0-dimensional case
+
+	template <int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	const accessor& operator=(const DataT& other) const {
+		*m_host_ptr = other;
+		return *this;
+	}
+
+	template <int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	const accessor& operator=(DataT&& other) const {
+		*m_host_ptr = std::move(other);
+		return *this;
+	}
+
 	template <access_mode M = Mode>
 	inline std::enable_if_t<detail::access::mode_traits::is_producer(M), DataT&> operator[](const id<Dims>& index) const {
 		return m_host_ptr[get_linear_offset(index)];
@@ -396,6 +458,18 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		return detail::subscript<D>(*this, index);
 	}
 
+	template <access_mode M = Mode, std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), int> = 0>
+	inline operator DataT&() const {
+		return *m_host_ptr;
+	}
+
+	template <access_mode M = Mode, std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), int> = 0>
+	inline operator const DataT&() const {
+		return *m_host_ptr;
+	}
+
+	// we provide operator* and operator-> in addition to SYCL's operator reference() as we feel it better represents the pointer semantics of accessors
+
 	template <access_mode M = Mode>
 	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), DataT&> operator*() const {
 		return *m_host_ptr;
@@ -404,6 +478,16 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	template <access_mode M = Mode>
 	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator*() const {
 		return *m_host_ptr;
+	}
+
+	template <access_mode M = Mode>
+	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), DataT*> operator->() const {
+		return m_host_ptr;
+	}
+
+	template <access_mode M = Mode>
+	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), const DataT*> operator->() const {
+		return m_host_ptr;
 	}
 
 	/**
@@ -579,6 +663,21 @@ class local_accessor {
 #endif
 
 	local_accessor& operator=(const local_accessor&) = default;
+	local_accessor& operator=(local_accessor&&) = default;
+
+	// SYCL allows assigning values to accessors directly in the 0-dimensional case
+
+	template <int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	const local_accessor& operator=(const DataT& other) const {
+		m_sycl_acc[sycl::id<1>(0)] = other;
+		return *this;
+	}
+
+	template <int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	const local_accessor& operator=(DataT&& other) const {
+		m_sycl_acc[sycl::id<1>(0)] = std::move(other);
+		return *this;
+	}
 
 	size_type byte_size() const noexcept { return m_allocation_size.size() * sizeof(value_type); }
 
@@ -600,11 +699,26 @@ class local_accessor {
 		}
 	}
 
-	inline detail::subscript_result_t<Dims, const local_accessor> operator[](const size_t dim0) const { return detail::subscript<Dims>(*this, dim0); }
+	template <int D = Dims>
+	inline std::enable_if_t<(D > 0), detail::subscript_result_t<Dims, const local_accessor>> operator[](const size_t dim0) const {
+		return detail::subscript<Dims>(*this, dim0);
+	}
+
+	template <int D = Dims, std::enable_if_t<D == 0, int> = 0>
+	operator DataT&() const {
+		return m_sycl_acc[sycl::id<1>(0)];
+	}
+
+	// we provide operator* and operator-> in addition to SYCL's operator reference() as we feel it better represents the pointer semantics of accessors
 
 	template <int D = Dims>
 	std::enable_if_t<D == 0, DataT&> operator*() const {
 		return m_sycl_acc[sycl::id<1>(0)];
+	}
+
+	template <int D = Dims>
+	std::enable_if_t<D == 0, DataT*> operator->() const {
+		return &m_sycl_acc[sycl::id<1>(0)];
 	}
 
   private:
