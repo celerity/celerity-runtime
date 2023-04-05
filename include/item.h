@@ -42,9 +42,9 @@ namespace detail {
 	template <int Dims>
 	celerity::id<Dims> get_sycl_group_id(const sycl::group<Dims>& grp) {
 		if constexpr(sycl_group_has_get_group_id<sycl::group<Dims>>::value) {
-			return celerity::id(grp.get_group_id());
+			return grp.get_group_id();
 		} else {
-			return celerity::id(grp.get_id());
+			return grp.get_id();
 		}
 	}
 
@@ -124,11 +124,11 @@ class group {
 
 	size_t get_group_id(int dimension) const { return m_group_id[dimension]; }
 
-	id<Dims> get_local_id() const { return id(m_sycl_item.get_local_id()); }
+	id<Dims> get_local_id() const { return m_sycl_item.get_local_id(); }
 
 	size_t get_local_id(int dimension) const { return m_sycl_item.get_local_id(dimension); }
 
-	range<Dims> get_local_range() const { return range(m_sycl_item.get_local_range()); }
+	range<Dims> get_local_range() const { return m_sycl_item.get_local_range(); }
 
 	size_t get_local_range(int dimension) const { return m_sycl_item.get_local_range(dimension); }
 
@@ -136,7 +136,7 @@ class group {
 
 	size_t get_group_range(int dimension) const { return m_group_range[dimension]; }
 
-	range<Dims> get_max_local_range() const { return range(m_sycl_item.get_max_local_range()); }
+	range<Dims> get_max_local_range() const { return m_sycl_item.get_max_local_range(); }
 
 	size_t operator[](int dimension) const { return m_group_id[dimension]; }
 
@@ -210,7 +210,7 @@ class nd_item {
 
 	size_t get_global_linear_id() const { return detail::get_linear_index(m_global_range, m_global_id); }
 
-	id<Dims> get_local_id() const { return id(m_sycl_item.get_local_id()); }
+	id<Dims> get_local_id() const { return m_sycl_item.get_local_id(); }
 
 	size_t get_local_id(int dimension) const { return m_sycl_item.get_local_id(dimension); }
 
@@ -232,7 +232,7 @@ class nd_item {
 
 	size_t get_global_range(const int dimension) const { return m_global_range[dimension]; }
 
-	range<Dims> get_local_range() const { return range(m_sycl_item.get_local_range()); }
+	range<Dims> get_local_range() const { return m_sycl_item.get_local_range(); }
 
 	size_t get_local_range(const int dimension) const { return m_sycl_item.get_local_range(dimension); }
 
