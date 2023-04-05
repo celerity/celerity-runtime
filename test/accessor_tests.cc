@@ -33,7 +33,7 @@ namespace detail {
 		CHECK(out == 43);
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "accessors mode and target deduced correctly from SYCL 2020 tag types and no_init property", "[accessor]") {
+	TEST_CASE("accessors mode and target deduced correctly from SYCL 2020 tag types and no_init property", "[accessor]") {
 		using buf1d_t = buffer<int, 1>&;
 		using buf0d_t = buffer<int, 0>&;
 
