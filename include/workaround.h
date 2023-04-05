@@ -44,7 +44,9 @@
 #define CELERITY_WORKAROUND_LESS_OR_EQUAL(impl, ...) (CELERITY_WORKAROUND(impl) && CELERITY_WORKAROUND_VERSION_LESS_OR_EQUAL(__VA_ARGS__))
 
 #if __has_cpp_attribute(no_unique_address) // C++20, but implemented as an extension for earlier standards in Clang
+#define CELERITY_DETAIL_HAS_NO_UNIQUE_ADDRESS true
 #define CELERITY_DETAIL_NO_UNIQUE_ADDRESS [[no_unique_address]]
 #else
+#define CELERITY_DETAIL_HAS_NO_UNIQUE_ADDRESS false
 #define CELERITY_DETAIL_NO_UNIQUE_ADDRESS
 #endif

@@ -15,6 +15,12 @@ namespace detail {
 		static accessor<DataT, Dims, Mode, target::host_task> make_host_accessor(Args&&... args) {
 			return {std::forward<Args>(args)...};
 		}
+
+		// It appears to be impossible to make a private member type visible through a typedef here, so we opt for a declval-like function declaration instead
+		template <typename LocalAccessor>
+		static typename LocalAccessor::sycl_accessor declval_sycl_accessor() {
+			static_assert(constexpr_false<LocalAccessor>, "declval_sycl_accessor cannot be used in an evaluated context");
+		}
 	};
 } // namespace detail
 

@@ -146,4 +146,16 @@ TEMPLATE_TEST_CASE("coordinate operations behave as expected", "[range]", range<
 	}
 }
 
+TEST_CASE("0-dimensional ranges are empty types", "[range]") {
+	if(!CELERITY_DETAIL_HAS_NO_UNIQUE_ADDRESS) SKIP("[[no_unique_address]] not available");
+
+	// these checks are not static_asserts because they depend on an (optional) compiler layout optimization. Note that is_empty_v<T> does not imply
+	// sizeof(T) == 1 (false at least for chunk<0>, which has two range<0> members that can not overlap due to strict-aliasing rules)
+	CHECK(std::is_empty_v<range<0>>);
+	CHECK(std::is_empty_v<id<0>>);
+	CHECK(std::is_empty_v<nd_range<0>>);
+	CHECK(std::is_empty_v<chunk<0>>);
+	CHECK(std::is_empty_v<subrange<0>>);
+}
+
 } // namespace celerity::detail
