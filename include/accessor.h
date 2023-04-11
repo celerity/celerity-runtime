@@ -307,6 +307,8 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	friend struct detail::accessor_testspy;
 
   public:
+	static_assert(Mode != access_mode::atomic, "access_mode::atomic is not supported.");
+
 	template <target Target = target::host_task, typename Functor>
 	accessor(const buffer<DataT, Dims>& buff, handler& cgh, Functor rmfn) {
 		static_assert(!std::is_same_v<Functor, range<Dims>>, "The accessor constructor overload for master-access tasks (now called 'host tasks') has "
