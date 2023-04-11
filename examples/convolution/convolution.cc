@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
 	celerity::buffer<float, 2> gaussian_mat_buf(gaussian_matrix.data(), celerity::range<2>(filter_size, filter_size));
 
 	// Do a gaussian blur
-	queue.submit([=](celerity::handler& cgh) {
+	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor in{image_input_buf, cgh, celerity::access::neighborhood{filter_size / 2, filter_size / 2}, celerity::read_only};
 		celerity::accessor gauss{gaussian_mat_buf, cgh, celerity::access::all{}, celerity::read_only};
 		celerity::accessor out{image_tmp_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
@@ -85,7 +85,7 @@ int main(int argc, char* argv[]) {
 	celerity::buffer<sycl::float3, 2> image_output_buf(celerity::range<2>(image_height, image_width));
 
 	// Now apply a sharpening kernel
-	queue.submit([=](celerity::handler& cgh) {
+	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor in{image_tmp_buf, cgh, celerity::access::neighborhood{1, 1}, celerity::read_only};
 		celerity::accessor out{image_output_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 
@@ -107,7 +107,7 @@ int main(int argc, char* argv[]) {
 		});
 	});
 
-	queue.submit([=](celerity::handler& cgh) {
+	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor out{image_output_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
 
 		cgh.host_task(celerity::on_master_node, [=] {

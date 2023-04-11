@@ -24,7 +24,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "freeing task ring buffer capacity
 	celerity::buffer<int, 1> dependency{1};
 
 	for(size_t i = 0; i < task_ringbuffer_size + 10; ++i) {
-		q.submit(celerity::allow_by_ref, [=, &reached_ringbuffer_capacity](celerity::handler& cgh) {
+		q.submit([&](celerity::handler& cgh) {
 			celerity::accessor acc{dependency, cgh, celerity::access::all{}, celerity::read_write_host_task};
 			cgh.host_task(celerity::on_master_node, [=, &reached_ringbuffer_capacity] {
 				while(!reached_ringbuffer_capacity.load())

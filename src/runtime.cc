@@ -290,5 +290,14 @@ namespace detail {
 		if(done) { m_active_flushes.pop_front(); }
 	}
 
+	void runtime::test_case_exit() {
+		assert(m_test_mode && m_test_active);
+		// We need to delete all tasks manually first, b/c objects that have their lifetime
+		// extended by tasks (buffers, host objects) will attempt to shut down the runtime.
+		if(instance != nullptr) { instance->m_task_mngr.reset(); }
+		instance.reset();
+		m_test_active = false;
+	}
+
 } // namespace detail
 } // namespace celerity

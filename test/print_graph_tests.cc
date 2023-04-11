@@ -75,8 +75,8 @@ TEST_CASE("command graph printing is unchanged", "[print_graph][command-graph]")
 	// replace the `expected` value with the new dot graph.
 	const auto expected =
 	    "digraph G{label=\"Command Graph\" subgraph cluster_2{label=<<font color=\"#606060\">T2 (master-node host)</font>>;color=darkgray;9[label=<C9 on "
-	    "N0<br/><b>execution</b> [[0,0,0] - [0,0,0]]<br/><i>read</i> B0 {[[0,0,0] - [1,1,1]]}<br/><i>read_write</i> B0 {[[0,0,0] - "
-	    "[1,1,1]]}<br/><i>write</i> "
+	    "N0<br/><b>execution</b> [[0,0,0] - [0,0,0]]<br/><i>write</i> B0 {[[0,0,0] - [1,1,1]]}<br/><i>read_write</i> B0 {[[0,0,0] - "
+	    "[1,1,1]]}<br/><i>read</i> "
 	    "B0 {[[0,0,0] - [1,1,1]]}> fontcolor=black shape=box];}subgraph cluster_1{label=<<font color=\"#606060\">T1 \"task_reduction_8\" "
 	    "(device-compute)</font>>;color=darkgray;5[label=<C5 on N0<br/><b>execution</b> [[0,0,0] - [1,1,1]]<br/>(R1) <i>discard_write</i> B0 {[[0,0,0] - "
 	    "[1,1,1]]}> fontcolor=black shape=box];6[label=<C6 on N1<br/><b>execution</b> [[1,0,0] - [2,1,1]]<br/>(R1) <i>discard_write</i> B0 {[[0,0,0] - "
@@ -107,7 +107,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "Buffer debug names show up in the
 	celerity::debug::set_buffer_name(buff_a, buff_name);
 	CHECK(celerity::debug::get_buffer_name(buff_a) == buff_name);
 
-	q.submit([=](handler& cgh) {
+	q.submit([&](handler& cgh) {
 		celerity::accessor acc{buff_a, cgh, celerity::access::all{}, celerity::write_only};
 		cgh.parallel_for<class UKN(print_graph_buffer_name)>(range, [=](item<1> item) {});
 	});

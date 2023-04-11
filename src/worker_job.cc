@@ -3,6 +3,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include "buffer_manager.h"
+#include "closure_hydrator.h"
 #include "device_queue.h"
 #include "handler.h"
 #include "reduction_manager.h"
@@ -149,14 +150,20 @@ namespace detail {
 
 			if(!m_buffer_mngr.try_lock(pkg.cid, tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
 
-			CELERITY_TRACE("Execute live-pass, scheduling host task in thread pool");
+			CELERITY_TRACE("Scheduling host task in thread pool");
 
-			// Note that for host tasks, there is no indirection through a queue->submit step like there is for SYCL tasks. The CGF is executed directly,
-			// which then schedules task in the thread pool through the host_queue.
-			auto& cgf = tsk->get_command_group();
-			live_pass_host_handler cgh(tsk, data.sr, data.initialize_reductions, m_queue);
-			cgf(cgh);
-			m_future = cgh.into_future();
+			const auto& access_map = tsk->get_buffer_access_map();
+			std::vector<closure_hydrator::accessor_info> access_infos;
+			access_infos.reserve(access_map.get_num_accesses());
+			for(size_t i = 0; i < access_map.get_num_accesses(); ++i) {
+				const auto [bid, mode] = access_map.get_nth_access(i);
+				const auto sr = grid_box_to_subrange(access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()));
+				const auto info = m_buffer_mngr.access_host_buffer(bid, mode, sr);
+				access_infos.push_back(closure_hydrator::accessor_info{info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr});
+			}
+
+			closure_hydrator::get_instance().arm(target::host_task, std::move(access_infos));
+			m_future = tsk->launch(m_queue, data.sr);
 
 			assert(m_future.valid());
 			m_submitted = true;
@@ -193,12 +200,31 @@ namespace detail {
 
 			if(!m_buffer_mngr.try_lock(pkg.cid, tsk->get_buffer_access_map().get_accessed_buffers())) { return false; }
 
-			CELERITY_TRACE("Execute live-pass, submit kernel to SYCL");
+			CELERITY_TRACE("Submit kernel to SYCL");
 
-			live_pass_device_handler cgh(tsk, data.sr, data.initialize_reductions, m_queue);
-			auto& cgf = tsk->get_command_group();
-			cgf(cgh);
-			m_event = cgh.get_submission_event();
+			const auto& access_map = tsk->get_buffer_access_map();
+			const auto& reductions = tsk->get_reductions();
+			std::vector<closure_hydrator::accessor_info> accessor_infos;
+			std::vector<void*> reduction_ptrs;
+			accessor_infos.reserve(access_map.get_num_accesses());
+			reduction_ptrs.reserve(reductions.size());
+
+			for(size_t i = 0; i < access_map.get_num_accesses(); ++i) {
+				const auto [bid, mode] = access_map.get_nth_access(i);
+				const auto sr = grid_box_to_subrange(access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()));
+				const auto info = m_buffer_mngr.access_device_buffer(bid, mode, sr);
+				accessor_infos.push_back(closure_hydrator::accessor_info{info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr});
+			}
+
+			for(size_t i = 0; i < reductions.size(); ++i) {
+				const auto& rd = reductions[i];
+				const auto mode = rd.init_from_buffer ? access_mode::read_write : access_mode::discard_write;
+				const auto info = m_buffer_mngr.access_device_buffer(rd.bid, mode, subrange<3>{{}, range<3>{1, 1, 1}});
+				reduction_ptrs.push_back(info.ptr);
+			}
+
+			closure_hydrator::get_instance().arm(target::device, std::move(accessor_infos));
+			m_event = tsk->launch(m_queue, data.sr, reduction_ptrs, data.initialize_reductions);
 
 			m_submitted = true;
 			CELERITY_TRACE("Kernel submitted to SYCL");

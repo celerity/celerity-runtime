@@ -93,7 +93,7 @@ namespace detail {
 		buffer<float, 2> buf_a{range<2>{32, 64}};
 		auto& tm = runtime::get_instance().get_task_manager();
 		const auto tid = test_utils::add_compute_task<class get_access_const>(
-		    tm, [buf_a /* capture by value */](handler& cgh) { buf_a.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{}); }, buf_a.get_range());
+		    tm, [&](handler& cgh) { buf_a.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{}); }, buf_a.get_range());
 		const auto tsk = tm.get_task(tid);
 		const auto bufs = tsk->get_buffer_access_map().get_accessed_buffers();
 		REQUIRE(bufs.size() == 1);
@@ -267,10 +267,10 @@ namespace detail {
 		REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_b.get_id()) != bufs.cend());
 		REQUIRE(bam.get_access_modes(buf_a.get_id()).count(cl::sycl::access::mode::read) == 1);
 		REQUIRE(bam.get_access_modes(buf_b.get_id()).count(cl::sycl::access::mode::discard_read_write) == 1);
-		const auto reqs_a = bam.get_requirements_for_access(
+		const auto reqs_a = bam.get_mode_requirements(
 		    buf_a.get_id(), cl::sycl::access::mode::read, tsk->get_dimensions(), {tsk->get_global_offset(), tsk->get_global_size()}, tsk->get_global_size());
 		REQUIRE(reqs_a == subrange_to_grid_box(subrange<3>({32, 24, 0}, {32, 128, 1})));
-		const auto reqs_b = bam.get_requirements_for_access(buf_b.get_id(), cl::sycl::access::mode::discard_read_write, tsk->get_dimensions(),
+		const auto reqs_b = bam.get_mode_requirements(buf_b.get_id(), cl::sycl::access::mode::discard_read_write, tsk->get_dimensions(),
 		    {tsk->get_global_offset(), tsk->get_global_size()}, tsk->get_global_size());
 		REQUIRE(reqs_b == subrange_to_grid_box(subrange<3>({}, {5, 18, 74})));
 	}
@@ -279,22 +279,14 @@ namespace detail {
 		buffer_access_map bam;
 		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{3, 0}, {10, 20}}, cl::sycl::access::mode::read, range<2>{30, 30}));
 		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{10, 0}, {7, 20}}, cl::sycl::access::mode::read, range<2>{30, 30}));
-		const auto req = bam.get_requirements_for_access(0, cl::sycl::access::mode::read, 2, subrange<3>({0, 0, 0}, {100, 100, 1}), {100, 100, 1});
+		const auto req = bam.get_mode_requirements(0, cl::sycl::access::mode::read, 2, subrange<3>({0, 0, 0}, {100, 100, 1}), {100, 100, 1});
 		REQUIRE(req == subrange_to_grid_box(subrange<3>({3, 0, 0}, {14, 20, 1})));
 	}
 
 	TEST_CASE("tasks gracefully handle get_requirements() calls for buffers they don't access", "[task]") {
 		buffer_access_map bam;
-		const auto req = bam.get_requirements_for_access(0, cl::sycl::access::mode::read, 3, subrange<3>({0, 0, 0}, {100, 1, 1}), {100, 1, 1});
+		const auto req = bam.get_mode_requirements(0, cl::sycl::access::mode::read, 3, subrange<3>({0, 0, 0}, {100, 1, 1}), {100, 1, 1});
 		REQUIRE(req == subrange_to_grid_box(subrange<3>({0, 0, 0}, {0, 0, 0})));
-	}
-
-	TEST_CASE("safe command group functions must not capture by reference", "[lifetime][dx]") {
-		int value = 123;
-		const auto unsafe = [&]() { return value + 1; };
-		REQUIRE_FALSE(is_safe_cgf<decltype(unsafe)>);
-		const auto safe = [=]() { return value + 1; };
-		REQUIRE(is_safe_cgf<decltype(safe)>);
 	}
 
 	namespace foo {
@@ -321,12 +313,12 @@ namespace detail {
 		buffer<int, 1> buff(N);
 		std::vector<int> host_buff(N);
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			auto b = buff.get_access<cl::sycl::access::mode::discard_write>(cgh, one_to_one{});
 			cgh.parallel_for<class sync_test>(range<1>(N), [=](celerity::item<1> item) { b[item] = item.get_linear_id(); });
 		});
 
-		q.submit(allow_by_ref, [&](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			auto b = buff.get_access<cl::sycl::access::mode::read, target::host_task>(cgh, celerity::access::fixed<1>{{{}, buff.get_range()}});
 			cgh.host_task(on_master_node, [=, &host_buff] {
 				std::this_thread::sleep_for(std::chrono::milliseconds(10)); // give the synchronization more time to fail
@@ -461,37 +453,37 @@ namespace detail {
 			experimental::collective_group primary_group;
 			experimental::collective_group secondary_group;
 
-			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
+			q.submit([&](handler& cgh) {
 				cgh.host_task(experimental::collective, [&](experimental::collective_partition part) {
 					default1_thread = std::this_thread::get_id();
 					default1_comm = part.get_collective_mpi_comm();
 				});
 			});
-			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
+			q.submit([&](handler& cgh) {
 				cgh.host_task(experimental::collective(primary_group), [&](experimental::collective_partition part) {
 					primary1_thread = std::this_thread::get_id();
 					primary1_comm = part.get_collective_mpi_comm();
 				});
 			});
-			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
+			q.submit([&](handler& cgh) {
 				cgh.host_task(experimental::collective(secondary_group), [&](experimental::collective_partition part) {
 					secondary1_thread = std::this_thread::get_id();
 					secondary1_comm = part.get_collective_mpi_comm();
 				});
 			});
-			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
+			q.submit([&](handler& cgh) {
 				cgh.host_task(experimental::collective, [&](experimental::collective_partition part) {
 					default2_thread = std::this_thread::get_id();
 					default2_comm = part.get_collective_mpi_comm();
 				});
 			});
-			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
+			q.submit([&](handler& cgh) {
 				cgh.host_task(experimental::collective(primary_group), [&](experimental::collective_partition part) {
 					primary2_thread = std::this_thread::get_id();
 					primary2_comm = part.get_collective_mpi_comm();
 				});
 			});
-			q.submit(celerity::allow_by_ref, [&](handler& cgh) {
+			q.submit([&](handler& cgh) {
 				cgh.host_task(experimental::collective(secondary_group), [&](experimental::collective_partition part) {
 					secondary2_thread = std::this_thread::get_id();
 					secondary2_comm = part.get_collective_mpi_comm();
@@ -582,31 +574,31 @@ namespace detail {
 		distr_queue q;
 		buffer<int, 2> buf{{10, 10}};
 
-		CHECK_THROWS_WITH(q.submit([=](handler& cgh) {
+		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
 			cgh.parallel_for<class UKN(kernel)>(range<1>{10}, [=](celerity::item<1>) {});
 		}),
 		    "Invalid range mapper dimensionality: 1-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<1> nor "
 		    "(chunk<1>, range<2>) to produce subrange<2>");
 
-		CHECK_NOTHROW(q.submit([=](handler& cgh) {
+		CHECK_NOTHROW(q.submit([&](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
 			cgh.parallel_for<class UKN(kernel)>(range<2>{10, 10}, [=](celerity::item<2>) {});
 		}));
 
-		CHECK_THROWS_WITH(q.submit([=](handler& cgh) {
+		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
 			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) {});
 		}),
 		    "Invalid range mapper dimensionality: 3-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<3> nor "
 		    "(chunk<3>, range<2>) to produce subrange<2>");
 
-		CHECK_NOTHROW(q.submit([=](handler& cgh) {
+		CHECK_NOTHROW(q.submit([&](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, all{});
 			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) {});
 		}));
 
-		CHECK_NOTHROW(q.submit([=](handler& cgh) {
+		CHECK_NOTHROW(q.submit([&](handler& cgh) {
 			buf.get_access<cl::sycl::access::mode::read>(cgh, all{});
 			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) {});
 		}));
@@ -626,7 +618,7 @@ namespace detail {
 		const auto global_offset = detail::id_cast<Dims>(id<3>{4, 5, 6});
 
 		buffer<size_t, 2> linear_id{{n, Dims + 1}};
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor a{linear_id, cgh, celerity::access::all{}, write_only, no_init}; // all RM is sane because runtime_tests runs single-node
 			cgh.parallel_for<linear_id_kernel<Dims>>(detail::range_cast<Dims>(range<3>{n, 1, 1}), global_offset, [=](celerity::item<Dims> item) {
 				auto i = (item.get_id() - item.get_offset())[0];
@@ -636,7 +628,7 @@ namespace detail {
 				a[i][Dims] = item.get_linear_id();
 			});
 		});
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor a{linear_id, cgh, celerity::access::all{}, read_only_host_task};
 			cgh.host_task(on_master_node, [=] {
 				for(int i = 0; i < n; ++i) {
@@ -737,7 +729,7 @@ namespace detail {
 
 		// Note: We assume a local range size of 32 here, this should be supported by most devices.
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			local_accessor<int> la{32, cgh};
 			accessor ga{out, cgh, celerity::access::one_to_one{}, write_only};
 			cgh.parallel_for<class UKN(device_kernel)>(celerity::nd_range<1>{64, 32}, [=](nd_item<1> item) {
@@ -747,7 +739,7 @@ namespace detail {
 			});
 		});
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor ga{out, cgh, celerity::access::all{}, read_only_host_task};
 			cgh.host_task(on_master_node, [=] {
 				for(size_t i = 0; i < 64; ++i) {
@@ -762,7 +754,7 @@ namespace detail {
 		// Note: We assume a local range size of 16 here, this should be supported by most devices.
 
 		buffer<int, 1> b{range<1>{1}};
-		distr_queue{}.submit([=](handler& cgh) {
+		distr_queue{}.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(kernel)>(celerity::nd_range{range<2>{8, 8}, range<2>{4, 4}}, reduction(b, cgh, cl::sycl::plus<>{}),
 			    [](nd_item<2> item, auto& sum) { sum += item.get_global_linear_id(); });
 		});
@@ -783,11 +775,11 @@ namespace detail {
 		q.submit([=](handler& cgh) { cgh.parallel_for(celerity::nd_range<1>{64, 32}, [](nd_item<1> item) {}); });
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		buffer<int> b{{1}};
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			cgh.parallel_for(
 			    range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
 		});
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			cgh.parallel_for(celerity::nd_range<1>{64, 32}, reduction(b, cgh, cl::sycl::plus<int>{}),
 			    [=](nd_item<1> item, auto& r) { r += static_cast<int>(item.get_global_linear_id()); });
 		});
@@ -797,11 +789,11 @@ namespace detail {
 		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(simple_kernel_with_name)>(range<1>{64}, [=](item<1> item) {}); });
 		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(nd_range_kernel_with_name)>(celerity::nd_range<1>{64, 32}, [=](nd_item<1> item) {}); });
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(simple_kernel_with_name_and_reductions)>(
 			    range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
 		});
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(nd_range_kernel_with_name_and_reductions)>(celerity::nd_range<1>{64, 32}, reduction(b, cgh, cl::sycl::plus<int>{}),
 			    [=](nd_item<1> item, auto& r) { r += static_cast<int>(item.get_global_linear_id()); });
 		});
@@ -821,7 +813,7 @@ namespace detail {
 		constexpr int extents = 16;
 
 		buffer<int, 1> buf_a(extents);
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc{buf_a, cgh, celerity::access::all{}, celerity::write_only_host_task, celerity::no_init};
 			cgh.host_task(on_master_node, [] {});
 		});
@@ -831,7 +823,7 @@ namespace detail {
 			constexpr int task_limit = 15;
 
 			for(int i = 0; i < chain_length; ++i) {
-				q.submit([=](handler& cgh) {
+				q.submit([&](handler& cgh) {
 					accessor acc{buf_a, cgh, celerity::access::all{}, celerity::read_write_host_task};
 					cgh.host_task(on_master_node, [] {});
 				});
@@ -845,6 +837,74 @@ namespace detail {
 			q.slow_full_sync();
 			CHECK(tm.get_current_task_count() < task_limit);
 		}
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "tasks extend the lifetime of buffers and host objects", "[task_manager]") {
+		std::weak_ptr<lifetime_extending_state> buffer_state_1;
+		std::weak_ptr<lifetime_extending_state> buffer_state_2;
+		std::weak_ptr<lifetime_extending_state> buffer_state_3;
+		std::weak_ptr<lifetime_extending_state> host_object_state;
+
+		distr_queue q;
+		auto& tm = runtime::get_instance().get_task_manager();
+		tm.set_horizon_step(2);
+
+		std::promise<void> wait_for_this;
+
+		const size_t have_reduction = CELERITY_FEATURE_SCALAR_REDUCTIONS;
+
+		{
+			// Buffers and host object go out of scope before tasks has completed
+			buffer<size_t, 1> buf_1{32};
+			buffer<size_t, 1> buf_2{32};
+			buffer<size_t, 1> buf_3{1};
+			experimental::host_object<size_t> ho;
+			buffer_state_1 = get_lifetime_extending_state(buf_1);
+			buffer_state_2 = get_lifetime_extending_state(buf_2);
+			buffer_state_3 = get_lifetime_extending_state(buf_3);
+			host_object_state = get_lifetime_extending_state(ho);
+			q.submit([&](handler& cgh) {
+				accessor acc{buf_1, cgh, celerity::access::all{}, celerity::write_only_host_task};
+				experimental::side_effect se{ho, cgh};
+				cgh.host_task(on_master_node, [=, &wait_for_this] {
+					(void)acc;
+					(void)se;
+					wait_for_this.get_future().wait();
+				});
+			});
+			q.submit([&](handler& cgh) {
+				accessor acc_1{buf_1, cgh, celerity::access::one_to_one{}, celerity::read_only};
+				accessor acc_2{buf_2, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
+				auto red = reduction(buf_3, cgh, std::plus<>());
+				cgh.parallel_for(range<1>{32}, red, [=](item<1>, auto&) {
+#else
+				cgh.parallel_for(range<1>{32}, [=](item<1>) {
+#endif
+					(void)acc_1;
+					(void)acc_2;
+				});
+			});
+			CHECK(buffer_state_1.use_count() == 3);
+			CHECK(buffer_state_2.use_count() == 2);
+			CHECK(buffer_state_3.use_count() == 1 + have_reduction);
+			CHECK(host_object_state.use_count() == 2);
+		}
+
+		CHECK(buffer_state_1.use_count() == 2);
+		CHECK(buffer_state_2.use_count() == 1);
+		CHECK(buffer_state_3.use_count() == have_reduction);
+		CHECK(host_object_state.use_count() == 1);
+		wait_for_this.set_value();
+		// Now trigger deletion of the task (which should then also delete the buffer and host object).
+		q.slow_full_sync();
+		// We currently only delete tasks when submitting new tasks (and not when creating epochs), so we have to submit a no-op here.
+		q.submit([](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
+		q.slow_full_sync();
+		CHECK(buffer_state_1.use_count() == 0);
+		CHECK(buffer_state_2.use_count() == 0);
+		CHECK(buffer_state_3.use_count() == 0);
+		CHECK(host_object_state.use_count() == 0);
 	}
 
 #ifndef __APPLE__
@@ -914,7 +974,7 @@ namespace detail {
 		experimental::host_object ref_ho{std::ref(exterior)};
 		experimental::host_object void_ho;
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			experimental::side_effect append_owned{owned_ho, cgh};
 			experimental::side_effect append_ref{ref_ho, cgh};
 			experimental::side_effect track_void{void_ho, cgh};
@@ -924,7 +984,7 @@ namespace detail {
 			});
 		});
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			experimental::side_effect append_owned{owned_ho, cgh};
 			experimental::side_effect append_ref{ref_ho, cgh};
 			experimental::side_effect track_void{void_ho, cgh};
@@ -934,7 +994,7 @@ namespace detail {
 			});
 		});
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			experimental::side_effect check_owned{owned_ho, cgh};
 			cgh.host_task(on_master_node, [=] { CHECK(*check_owned == std::vector{1, 2}); });
 		});
@@ -1069,13 +1129,13 @@ namespace detail {
 		experimental::host_object<int> ho{1};
 		distr_queue q;
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			experimental::side_effect e(ho, cgh);
 			cgh.host_task(on_master_node, [=] { *e = 2; });
 		});
 		auto v2 = experimental::fence(q, ho);
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			experimental::side_effect e(ho, cgh);
 			cgh.host_task(on_master_node, [=] { *e = 3; });
 		});
@@ -1089,7 +1149,7 @@ namespace detail {
 		buffer<int, 2> buf(range<2>(4, 4));
 		distr_queue q;
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc(buf, cgh, all{}, write_only, no_init);
 			cgh.parallel_for<class UKN(init)>(buf.get_range(), [=](celerity::item<2> item) { acc[item] = static_cast<int>(item.get_linear_id()); });
 		});
@@ -1114,7 +1174,7 @@ namespace detail {
 		buffer<int, 0> buf;
 		distr_queue q;
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc(buf, cgh, write_only, no_init);
 			cgh.parallel_for<class UKN(init)>(buf.get_range(), [=](celerity::item<0> item) { *acc = 42; });
 		});
@@ -1133,20 +1193,20 @@ namespace detail {
 
 		distr_queue q;
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc_a(buf_a, cgh, write_only, no_init);
 			cgh.parallel_for<class UKN(device)>(range<0>(), [=](item<0> /* it */) { *acc_a = value_b; });
 		});
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc_b(buf_b, cgh, write_only, no_init);
 			cgh.parallel_for<class UKN(device)>(nd_range<0>(), [=](nd_item<0> /* it */) { *acc_b = value_b; });
 		});
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc_c(buf_c, cgh, write_only_host_task, no_init);
 			cgh.host_task(range<0>(), [=](partition<0> /* part */) { *acc_c = value_b; });
 		});
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc_a(buf_a, cgh, read_only_host_task);
 			accessor acc_b(buf_b, cgh, read_only_host_task);
 			accessor acc_c(buf_c, cgh, read_only_host_task);

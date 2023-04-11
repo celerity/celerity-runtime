@@ -134,5 +134,32 @@ namespace detail {
 		});
 	}
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture,
+	    "distr_queue::submit(allow_by_ref_t, ...) and creation of accessors/side-effects/reductions from const buffers/host-objects continues to work",
+	    "[handler][deprecated]") {
+		distr_queue q;
+		buffer<size_t, 1> buf{32};
+		buffer<size_t, 1> reduction_buf{1};
+		experimental::host_object<size_t> ho;
+		int my_int = 33;
+		q.submit(allow_by_ref, [= /* capture buffer/host-object by value */, &my_int](handler& cgh) {
+			accessor acc{buf, cgh, celerity::access::all{}, celerity::write_only_host_task};
+			experimental::side_effect se{ho, cgh};
+			cgh.host_task(on_master_node, [=, &my_int] {
+				(void)acc;
+				(void)se;
+				my_int = 42;
+			});
+		});
+		q.submit([= /* capture by value */](handler& cgh) {
+			accessor acc{buf, cgh, celerity::access::one_to_one{}, celerity::read_only};
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
+			auto red = reduction(reduction_buf, cgh, std::plus<size_t>{});
+#endif
+			cgh.parallel_for(range<1>{32}, [=](item<1>) { (void)acc; });
+		});
+		SUCCEED();
+	}
+
 } // namespace detail
 } // namespace celerity

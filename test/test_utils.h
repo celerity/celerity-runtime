@@ -158,10 +158,7 @@ namespace test_utils {
 	  public:
 		template <cl::sycl::access::mode Mode, typename Functor>
 		void get_access(handler& cgh, Functor rmfn) {
-			if(detail::is_prepass_handler(cgh)) {
-				auto& prepass_cgh = dynamic_cast<detail::prepass_handler&>(cgh); // No live pass in tests
-				prepass_cgh.add_requirement(m_id, std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, m_size));
-			}
+			(void)detail::add_requirement(cgh, m_id, std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, m_size));
 		}
 
 		detail::buffer_id get_id() const { return m_id; }
@@ -179,12 +176,7 @@ namespace test_utils {
 
 	class mock_host_object {
 	  public:
-		void add_side_effect(handler& cgh, const experimental::side_effect_order order) {
-			if(detail::is_prepass_handler(cgh)) {
-				auto& prepass_cgh = static_cast<detail::prepass_handler&>(cgh);
-				prepass_cgh.add_requirement(m_id, order);
-			}
-		}
+		void add_side_effect(handler& cgh, const experimental::side_effect_order order) { (void)detail::add_requirement(cgh, m_id, order); }
 
 		detail::host_object_id get_id() const { return m_id; }
 
@@ -412,7 +404,7 @@ namespace test_utils {
 
 	template <int Dims>
 	void add_reduction(handler& cgh, mock_reduction_factory& mrf, const mock_buffer<Dims>& vars, bool include_current_buffer_value) {
-		static_cast<detail::prepass_handler&>(cgh).add_reduction(mrf.create_reduction(vars.get_id(), include_current_buffer_value));
+		detail::add_reduction(cgh, mrf.create_reduction(vars.get_id(), include_current_buffer_value));
 	}
 
 	// This fixture (or a subclass) must be used by all tests that transitively use MPI.

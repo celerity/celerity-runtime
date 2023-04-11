@@ -26,6 +26,9 @@ int main(int argc, char* argv[]) {
 
 struct global_setup_and_teardown : Catch::EventListenerBase {
 	using EventListenerBase::EventListenerBase;
+
+	void testRunStarting(const Catch::TestRunInfo& /* info */) override { celerity::detail::closure_hydrator::make_available(); }
+
 	void testCasePartialEnded(const Catch::TestCaseStats&, uint64_t) override {
 		// Reset REQUIRE_LOOP after each test case, section or generator value.
 		celerity::test_utils::require_loop_assertion_registry::get_instance().reset();
