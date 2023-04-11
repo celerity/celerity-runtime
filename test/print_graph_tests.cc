@@ -109,7 +109,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "Buffer debug names show up in the
 
 	q.submit([&](handler& cgh) {
 		celerity::accessor acc{buff_a, cgh, celerity::access::all{}, celerity::write_only};
-		cgh.parallel_for<class UKN(print_graph_buffer_name)>(range, [=](item<1> item) {});
+		cgh.parallel_for<class UKN(print_graph_buffer_name)>(range, [=](item<1> item) { (void)acc; });
 	});
 
 	// wait for commands to be generated in the scheduler thread
