@@ -6,7 +6,7 @@ const size_t MAT_SIZE = 1024;
 
 template <typename T>
 void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat) {
-	queue.submit([=](celerity::handler& cgh) {
+	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw{mat, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for<class set_identity_kernel>(mat.get_range(), [=](celerity::item<2> item) { dw[item] = item[0] == item[1]; });
 	});
@@ -14,7 +14,7 @@ void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat) {
 
 template <typename T>
 void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
-	queue.submit([=](celerity::handler& cgh) {
+	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor a{mat_a, cgh, celerity::access::slice<2>(1), celerity::read_only};
 		celerity::accessor b{mat_b, cgh, celerity::access::slice<2>(0), celerity::read_only};
 		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
@@ -48,7 +48,7 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 // TODO this should really reduce into a buffer<bool> on the device, but not all backends currently support reductions
 template <typename T>
 void verify(celerity::distr_queue& queue, celerity::buffer<T, 2> mat_c, celerity::experimental::host_object<bool> passed_obj) {
-	queue.submit([=](celerity::handler& cgh) {
+	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task};
 		celerity::experimental::side_effect passed{passed_obj, cgh};
 

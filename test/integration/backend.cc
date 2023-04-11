@@ -14,7 +14,7 @@ void test_copy(celerity::distr_queue& q) {
 	celerity::buffer<size_t, Dims> buf(celerity::detail::range_cast<Dims>(celerity::range<3>{5, 7, 9}));
 
 	// Initialize on device
-	q.submit([=](celerity::handler& cgh) {
+	q.submit([&](celerity::handler& cgh) {
 		celerity::accessor acc{buf, cgh, celerity::access::one_to_one<>{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for<kernel_name<class init, Dims>>(buf.get_range(), [=](celerity::item<Dims> itm) { acc[itm] = itm.get_linear_id(); });
 	});
@@ -22,7 +22,7 @@ void test_copy(celerity::distr_queue& q) {
 	// Check and modify partially on host
 	const auto sr = celerity::detail::subrange_cast<Dims>(celerity::subrange<3>{{1, 2, 3}, {3, 4, 5}});
 	const auto sr3 = celerity::detail::subrange_cast<3>(sr);
-	q.submit([=](celerity::handler& cgh) {
+	q.submit([&](celerity::handler& cgh) {
 		celerity::accessor acc{buf, cgh, celerity::access::fixed<Dims>{sr}, celerity::read_write_host_task};
 		cgh.host_task(celerity::on_master_node, [=]() {
 			for(size_t k = 0; k < sr3.range[0]; ++k) {
@@ -39,13 +39,13 @@ void test_copy(celerity::distr_queue& q) {
 	});
 
 	// Modify everything on device
-	q.submit([=](celerity::handler& cgh) {
+	q.submit([&](celerity::handler& cgh) {
 		celerity::accessor acc{buf, cgh, celerity::access::one_to_one<>{}, celerity::read_write};
 		cgh.parallel_for<kernel_name<class modify, Dims>>(buf.get_range(), [=](celerity::item<Dims> itm) { acc[itm] += 1; });
 	});
 
 	// Check everything on host
-	q.submit([=](celerity::handler& cgh) {
+	q.submit([&](celerity::handler& cgh) {
 		celerity::accessor acc{buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		cgh.host_task(celerity::on_master_node, [=]() {
 			const auto r3 = celerity::detail::range_cast<3>(buf.get_range());

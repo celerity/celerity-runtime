@@ -15,14 +15,14 @@ namespace detail {
 		~distr_queue_tracker() { runtime::get_instance().shutdown(); }
 	};
 
-	template <typename CGF>
-	constexpr bool is_safe_cgf = std::is_standard_layout<CGF>::value;
-
 } // namespace detail
 
-struct allow_by_ref_t {};
+struct [[deprecated("This tag type is no longer required to capture by reference")]] allow_by_ref_t{};
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 inline constexpr allow_by_ref_t allow_by_ref{};
+#pragma GCC diagnostic pop
 
 class distr_queue {
   public:
@@ -51,28 +51,19 @@ class distr_queue {
 	 * Submits a command group to the queue.
 	 *
 	 * Invoke via `q.submit(celerity::allow_by_ref, [&](celerity::handler &cgh) {...})`.
-	 *
-	 * With this overload, CGF may capture by-reference. This may lead to lifetime issues with asynchronous execution, so using the `submit(cgf)` overload is
-	 * preferred in the common case.
 	 */
 	template <typename CGF>
-	void submit(allow_by_ref_t, CGF cgf) { // NOLINT(readability-convert-member-functions-to-static)
-		// (Note while this function could be made static, it must not be! Otherwise we can't be sure the runtime has been initialized.)
-		detail::runtime::get_instance().get_task_manager().submit_command_group(std::move(cgf));
+	[[deprecated("This overload is no longer required to capture by reference")]] void submit(allow_by_ref_t /* tag */, CGF cgf) {
+		submit(std::move(cgf));
 	}
 
 	/**
 	 * Submits a command group to the queue.
-	 *
-	 * CGF must not capture by reference. This is a conservative safety check to avoid lifetime issues when command groups are executed asynchronously.
-	 *
-	 * If you know what you are doing, you can use the `allow_by_ref` overload of `submit` to bypass this check.
 	 */
 	template <typename CGF>
-	void submit(CGF cgf) {
-		static_assert(detail::is_safe_cgf<CGF>, "The provided command group function is not multi-pass execution safe. Please make sure to only capture by "
-		                                        "value. If you know what you're doing, use submit(celerity::allow_by_ref, ...).");
-		submit(allow_by_ref, std::move(cgf));
+	void submit(CGF cgf) { // NOLINT(readability-convert-member-functions-to-static)
+		// (Note while this function could be made static, it must not be! Otherwise we can't be sure the runtime has been initialized.)
+		detail::runtime::get_instance().get_task_manager().submit_command_group(std::move(cgf));
 	}
 
 	/**

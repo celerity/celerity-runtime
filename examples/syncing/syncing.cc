@@ -9,14 +9,14 @@ int main(int argc, char* argv[]) {
 	celerity::buffer<size_t, 1> buf(buf_size);
 
 	// Initialize buffer in a distributed device kernel
-	queue.submit([=](celerity::handler& cgh) {
+	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor b{buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for<class write_linear_id>(buf.get_range(), [=](celerity::item<1> item) { b[item] = item.get_linear_id(); });
 	});
 
 	// Process values on the host
 	std::vector<size_t> host_buf(buf_size);
-	queue.submit(celerity::allow_by_ref, [=, &host_buf](celerity::handler& cgh) {
+	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor b{buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		cgh.host_task(celerity::experimental::collective, [=, &host_buf](celerity::experimental::collective_partition) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(100)); // give the synchronization more time to fail

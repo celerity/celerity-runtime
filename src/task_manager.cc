@@ -60,7 +60,7 @@ namespace detail {
 		const subrange<3> full_range{tsk.get_global_offset(), tsk.get_global_size()};
 		GridRegion<3> result;
 		for(auto m : modes) {
-			result = GridRegion<3>::merge(result, access_map.get_requirements_for_access(bid, m, tsk.get_dimensions(), full_range, tsk.get_global_size()));
+			result = GridRegion<3>::merge(result, access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), full_range, tsk.get_global_size()));
 		}
 		return result;
 	}

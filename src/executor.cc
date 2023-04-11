@@ -2,6 +2,7 @@
 
 #include <queue>
 
+#include "closure_hydrator.h"
 #include "distr_queue.h"
 #include "frame.h"
 #include "log.h"
@@ -45,6 +46,7 @@ namespace detail {
 	}
 
 	void executor::run() {
+		closure_hydrator::make_available();
 		bool done = false;
 		std::queue<unique_frame_ptr<command_frame>> command_queue;
 		while(!done || !m_jobs.empty()) {
@@ -138,6 +140,7 @@ namespace detail {
 		}
 
 		assert(m_running_device_compute_jobs == 0);
+		closure_hydrator::teardown();
 	}
 
 	bool executor::handle_command(const command_frame& frame) {

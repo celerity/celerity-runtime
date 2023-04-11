@@ -21,10 +21,33 @@ namespace detail {
 		static typename LocalAccessor::sycl_accessor declval_sycl_accessor() {
 			static_assert(constexpr_false<LocalAccessor>, "declval_sycl_accessor cannot be used in an evaluated context");
 		}
+
+		template <typename DataT, int Dims, typename... Args>
+		static local_accessor<DataT, Dims> make_local_accessor(Args&&... args) {
+			return local_accessor<DataT, Dims>{std::forward<Args>(args)...};
+		}
+
+		template <typename DataT, int Dims, access_mode Mode, target Tgt>
+		static DataT* get_pointer(const accessor<DataT, Dims, Mode, Tgt>& acc) {
+			if constexpr(Tgt == target::device) {
+				return acc.m_device_ptr;
+			} else {
+				return acc.m_host_ptr;
+			}
+		}
 	};
 } // namespace detail
 
 namespace test_utils {
+
+	// Convenience function for submitting parallel_for with global offset without having to create a CGF
+	template <typename KernelName = detail::unnamed_kernel, int Dims, typename KernelFn>
+	void run_parallel_for(sycl::queue& q, const range<Dims>& global_range, const id<Dims>& global_offset, KernelFn fn) {
+		q.submit([=](sycl::handler& cgh) {
+			cgh.parallel_for<KernelName>(sycl::range<Dims>{global_range}, detail::bind_simple_kernel(fn, global_range, global_offset, global_offset));
+		});
+		q.wait_and_throw();
+	}
 
 	class buffer_manager_fixture : public device_queue_fixture {
 	  public:
@@ -152,8 +175,7 @@ namespace test_utils {
 		}
 
 		template <typename DataT, int Dims, access_mode Mode>
-		accessor<DataT, Dims, Mode, target::device> get_device_accessor(
-		    detail::live_pass_device_handler& cgh, detail::buffer_id bid, const range<Dims>& range, const id<Dims>& offset) {
+		accessor<DataT, Dims, Mode, target::device> get_device_accessor(detail::buffer_id bid, const range<Dims>& range, const id<Dims>& offset) {
 			auto buf_info = m_bm->access_device_buffer<DataT, Dims>(bid, Mode, {offset, range});
 			return detail::accessor_testspy::make_device_accessor<DataT, Dims, Mode>(static_cast<DataT*>(buf_info.ptr),
 			    detail::id_cast<Dims>(buf_info.backing_buffer_offset), detail::range_cast<Dims>(buf_info.backing_buffer_range));

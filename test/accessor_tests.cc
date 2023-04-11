@@ -2,12 +2,16 @@
 
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <celerity.h>
 
 #include "ranges.h"
 
 #include "buffer_manager_test_utils.h"
+#include "log_test_utils.h"
+
+// NOTE: There are some additional accessor tests in buffer_manager_tests.cc
 
 namespace celerity {
 namespace detail {
@@ -20,12 +24,12 @@ namespace detail {
 		distr_queue q;
 		std::vector mem_a{42};
 		buffer<int, 1> buf_a(mem_a.data(), range<1>{1});
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			auto a = buf_a.get_access<cl::sycl::access::mode::read_write, target::host_task>(cgh, fixed<1>({0, 1}));
 			cgh.host_task(on_master_node, [=] { ++a[0]; });
 		});
 		int out = 0;
-		q.submit(celerity::allow_by_ref, [=, &out](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			auto a = buf_a.get_access<cl::sycl::access::mode::read, target::host_task>(cgh, fixed<1>({0, 1}));
 			cgh.host_task(on_master_node, [=, &out] { out = a[0]; });
 		});
@@ -38,9 +42,12 @@ namespace detail {
 		using buf0d_t = buffer<int, 0>&;
 
 		SECTION("device accessors") {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 			// This currently throws an error at runtime, because we cannot infer whether the access is a discard_* from the property list parameter.
 			using acc0 = decltype(accessor{std::declval<buf1d_t>(), std::declval<handler&>(), one_to_one{}, celerity::write_only, celerity::property_list{}});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::write, target::device>, acc0>);
+#pragma GCC diagnostic pop
 
 			using acc1 = decltype(accessor{std::declval<buf1d_t>(), std::declval<handler&>(), one_to_one{}, celerity::write_only});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::write, target::device>, acc1>);
@@ -57,9 +64,12 @@ namespace detail {
 			using acc5 = decltype(accessor{std::declval<buf1d_t>(), std::declval<handler&>(), one_to_one{}, celerity::read_write, celerity::no_init});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, target::device>, acc5>);
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 			// This currently throws an error at runtime, because we cannot infer whether the access is a discard_* from the property list parameter.
 			using acc6 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), all(), celerity::write_only, celerity::property_list{}});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::write, target::device>, acc6>);
+#pragma GCC diagnostic pop
 
 			using acc7 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), all(), celerity::read_only});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::read, target::device>, acc7>);
@@ -79,10 +89,13 @@ namespace detail {
 		}
 
 		SECTION("host accessors") {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 			// This currently throws an error at runtime, because we cannot infer whether the access is a discard_* from the property list parameter.
 			using acc0 =
 			    decltype(accessor{std::declval<buf1d_t>(), std::declval<handler&>(), one_to_one{}, celerity::write_only_host_task, celerity::property_list{}});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::write, target::host_task>, acc0>);
+#pragma GCC diagnostic pop
 
 			using acc1 = decltype(accessor{std::declval<buf1d_t>(), std::declval<handler&>(), one_to_one{}, celerity::write_only_host_task});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::write, target::host_task>, acc1>);
@@ -99,10 +112,13 @@ namespace detail {
 			using acc5 = decltype(accessor{std::declval<buf1d_t>(), std::declval<handler&>(), one_to_one{}, celerity::read_write_host_task, celerity::no_init});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 1, access_mode::discard_read_write, target::host_task>, acc5>);
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 			// This currently throws an error at runtime, because we cannot infer whether the access is a discard_* from the property list parameter.
 			using acc6 =
 			    decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), all(), celerity::write_only_host_task, celerity::property_list{}});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::write, target::host_task>, acc6>);
+#pragma GCC diagnostic pop
 
 			using acc7 = decltype(accessor{std::declval<buf0d_t>(), std::declval<handler&>(), all(), celerity::read_only_host_task});
 			STATIC_REQUIRE(std::is_same_v<accessor<int, 0, access_mode::read, target::host_task>, acc7>);
@@ -152,37 +168,31 @@ namespace detail {
 
 		auto& q = accessor_fixture<Dims>::get_device_queue();
 		auto sr = subrange<3>({}, range);
-		live_pass_device_handler cgh(nullptr, sr, true, q);
 
 		// this kernel initializes the buffer what will be read after.
-		auto acc_write =
-		    accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, cl::sycl::access::mode::discard_write>(cgh, bid, range_cast<Dims>(range), {});
-		cgh.parallel_for<class kernel_multi_dim_accessor_write_<Dims>>(
-		    range_cast<Dims>(range), [=](celerity::item<Dims> item) { acc_write[item] = item.get_linear_id(); });
-		cgh.get_submission_event().wait();
+		auto acc_write = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, access_mode::discard_write>(bid, range_cast<Dims>(range), {});
+		test_utils::run_parallel_for<class kernel_multi_dim_accessor_write_<Dims>>(accessor_fixture<Dims>::get_device_queue().get_sycl_queue(),
+		    range_cast<Dims>(range), {}, [=](celerity::item<Dims> item) { acc_write[item] = item.get_linear_id(); });
 
 		SECTION("for device buffers") {
-			auto acc_read =
-			    accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, cl::sycl::access::mode::read>(cgh, bid, range_cast<Dims>(range), {});
-			auto acc = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, cl::sycl::access::mode::discard_write>(
-			    cgh, bid, range_cast<Dims>(range), {});
-			cgh.parallel_for<class kernel_multi_dim_accessor_read_<Dims>>(range_cast<Dims>(range), [=](celerity::item<Dims> item) {
-				size_t i = item[0];
-				size_t j = item[1];
-				if constexpr(Dims == 2) {
-					acc[i][j] = acc_read[i][j];
-				} else {
-					size_t k = item[2];
-					acc[i][j][k] = acc_read[i][j][k];
-				}
-			});
-			cgh.get_submission_event().wait();
+			auto acc_read = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, access_mode::read>(bid, range_cast<Dims>(range), {});
+			auto acc = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, access_mode::discard_write>(bid, range_cast<Dims>(range), {});
+			test_utils::run_parallel_for<class kernel_multi_dim_accessor_read_<Dims>>(
+			    accessor_fixture<Dims>::get_device_queue().get_sycl_queue(), range_cast<Dims>(range), {}, [=](celerity::item<Dims> item) {
+				    size_t i = item[0];
+				    size_t j = item[1];
+				    if constexpr(Dims == 2) {
+					    acc[i][j] = acc_read[i][j];
+				    } else {
+					    size_t k = item[2];
+					    acc[i][j][k] = acc_read[i][j][k];
+				    }
+			    });
 		}
 
 		SECTION("for host buffers") {
-			auto acc_read = accessor_fixture<Dims>::template get_host_accessor<size_t, Dims, cl::sycl::access::mode::read>(bid, range_cast<Dims>(range), {});
-			auto acc =
-			    accessor_fixture<Dims>::template get_host_accessor<size_t, Dims, cl::sycl::access::mode::discard_write>(bid, range_cast<Dims>(range), {});
+			auto acc_read = accessor_fixture<Dims>::template get_host_accessor<size_t, Dims, access_mode::read>(bid, range_cast<Dims>(range), {});
+			auto acc = accessor_fixture<Dims>::template get_host_accessor<size_t, Dims, access_mode::discard_write>(bid, range_cast<Dims>(range), {});
 			for(size_t i = 0; i < range[0]; i++) {
 				for(size_t j = 0; j < range[1]; j++) {
 					for(size_t k = 0; k < (Dims == 2 ? 1 : range[2]); k++) {
@@ -245,7 +255,7 @@ namespace detail {
 		CAPTURE(Mode);
 		bool verified = false;
 		buffer<bool> verify_buf{&verified, 1};
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			// access with offset == buffer range just to mess with things
 			const auto offset = id_cast<1>(test_buf.get_range());
 			const auto test_acc = test_buf.get_access<Mode>(cgh, [=](chunk<1>) { return subrange<1>{offset, 0}; });
@@ -255,7 +265,7 @@ namespace detail {
 				verify_acc[0] = true;
 			});
 		});
-		q.submit(allow_by_ref, [&](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			const accessor verify_acc{verify_buf, cgh, all{}, read_only_host_task};
 			cgh.host_task(on_master_node, [=, &verified] { verified = verify_acc[0]; });
 		});
@@ -291,7 +301,7 @@ namespace detail {
 		std::vector<char> memory1d(10);
 		buffer<char, 1> buf1d(memory1d.data(), range<1>(10));
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor b{buf1d, cgh, all{}, celerity::write_only_host_task, celerity::no_init};
 			cgh.host_task(on_master_node, [=](partition<0> part) {
 				auto aw = b.get_allocation_window(part);
@@ -303,7 +313,7 @@ namespace detail {
 			});
 		});
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor b{buf1d, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
 			cgh.host_task(range<1>(6), id<1>(2), [=](partition<1> part) {
 				auto aw = b.get_allocation_window(part);
@@ -319,7 +329,7 @@ namespace detail {
 		std::vector<char> memory2d(10 * 10);
 		buffer<char, 2> buf2d(memory2d.data(), range<2>(10, 10));
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor b{buf2d, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
 			cgh.host_task(range<2>(5, 6), id<2>(1, 2), [=](partition<2> part) {
 				auto aw = b.get_allocation_window(part);
@@ -338,7 +348,7 @@ namespace detail {
 		std::vector<char> memory3d(10 * 10 * 10);
 		buffer<char, 3> buf3d(memory3d.data(), range<3>(10, 10, 10));
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor b{buf3d, cgh, one_to_one{}, celerity::write_only_host_task, celerity::no_init};
 			cgh.host_task(range<3>(5, 6, 7), id<3>(1, 2, 3), [=](partition<3> part) {
 				auto aw = b.get_allocation_window(part);
@@ -369,7 +379,7 @@ namespace detail {
 		buffer<float, 1> buf_1(100);
 
 		distr_queue q;
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc_0(buf_0, cgh, read_write_host_task);
 			cgh.host_task(on_master_node, [=] {
 				CHECK(acc_0 == value_a);
@@ -380,7 +390,7 @@ namespace detail {
 				*acc_0 = value_b;
 			});
 		});
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc_0(buf_0, cgh, read_only);
 			accessor acc_1(buf_1, cgh, one_to_one(), write_only, no_init);
 			cgh.parallel_for<class UKN(device)>(buf_1.get_range(), [=](item<1> it) {
@@ -390,7 +400,7 @@ namespace detail {
 				acc_1[it] = acc_0[id<0>()];
 			});
 		});
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc_1(buf_1, cgh, all(), read_only_host_task);
 			cgh.host_task(on_master_node, [=] {
 				for(size_t i = 0; i < buf_1.get_range().size(); ++i) {
@@ -407,7 +417,7 @@ namespace detail {
 		buffer<float, 3> buf_3d({5, 5, 5});
 
 		distr_queue q;
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc_0d(buf_0d, cgh, all(), write_only, no_init);
 			accessor acc_1d(buf_1d, cgh, all(), write_only, no_init);
 			accessor acc_2d(buf_2d, cgh, all(), write_only, no_init);
@@ -422,7 +432,7 @@ namespace detail {
 				acc_3d[4][4][4] = 4;
 			});
 		});
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc_0d(buf_0d, cgh, all(), read_write_host_task);
 			accessor acc_1d(buf_1d, cgh, all(), read_write_host_task);
 			accessor acc_2d(buf_2d, cgh, all(), read_write_host_task);
@@ -438,7 +448,7 @@ namespace detail {
 				acc_3d[4][4][4] += 9;
 			});
 		});
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc_0d(buf_0d, cgh, all(), read_only_host_task);
 			accessor acc_1d(buf_1d, cgh, all(), read_only_host_task);
 			accessor acc_2d(buf_2d, cgh, all(), read_only_host_task);
@@ -462,11 +472,11 @@ namespace detail {
 		buffer<float, 1> buf_1(32);
 
 		distr_queue q;
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc_1(buf_1, cgh, one_to_one(), write_only, no_init);
 			cgh.parallel_for<class UKN(device)>(buf_1.get_range(), [=](item<1> it) { acc_1[it] = value_a; });
 		});
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc_1(buf_1, cgh, one_to_one(), write_only);
 			local_accessor<float, 0> local_0(cgh);
 			cgh.parallel_for<class UKN(device)>(nd_range(buf_1.get_range(), buf_1.get_range()), [=](nd_item<1> it) {
@@ -483,7 +493,7 @@ namespace detail {
 				acc_1[it.get_global_id()] = local_0[id<0>()];
 			});
 		});
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor acc_1(buf_1, cgh, all(), read_only_host_task);
 			cgh.host_task(on_master_node, [=] {
 				for(size_t i = 0; i < buf_1.get_range().size(); ++i) {
@@ -499,7 +509,7 @@ namespace detail {
 
 		distr_queue q;
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor<float, 0, access_mode::discard_write, target::device> device_acc_0;
 			accessor<float, 1, access_mode::discard_write, target::device> device_acc_1;
 			local_accessor<float, 0> local_acc_0;
@@ -513,7 +523,7 @@ namespace detail {
 			    nd_range(1, 1), [=](nd_item<1> /* it */) { (void)device_acc_0, (void)local_acc_0, (void)device_acc_1, (void)local_acc_1; });
 		});
 
-		q.submit([=](handler& cgh) {
+		q.submit([&](handler& cgh) {
 			accessor<float, 0, access_mode::discard_write, target::host_task> host_acc_0;
 			accessor<float, 1, access_mode::discard_write, target::host_task> host_acc_1;
 			host_acc_0 = decltype(host_acc_0)(buf_0, cgh, all());
@@ -530,12 +540,105 @@ namespace detail {
 		CHECK(sizeof(accessor<int, 0, access_mode::read, target::host_task>) == sizeof(int*));
 	}
 
-	TEST_CASE("0-dimensional local accessor has no overhead over SYCL", "[accessor][!shouldfail]") {
-		//  TODO after multi-pass removal: drop !shouldfail (see TODO in local_accessor definition)
+	TEST_CASE("0-dimensional local accessor has no overhead over SYCL", "[accessor]") {
 		if(!CELERITY_DETAIL_HAS_NO_UNIQUE_ADDRESS) SKIP("[[no_unique_address]] not available on this compiler");
 
 		// this check is not a static_assert because it depends on an (optional) compiler layout optimization
 		CHECK(sizeof(local_accessor<int, 0>) == sizeof(accessor_testspy::declval_sycl_accessor<local_accessor<int, 0>>()));
+	}
+
+	TEST_CASE_METHOD(accessor_fixture<0>, "closure_hydrator provides correct pointers to host and device accessors", "[closure_hydrator][accessor]") {
+		auto& bm = get_buffer_manager();
+		auto bid = bm.register_buffer<size_t, 1>({100, 1, 1});
+		auto& q = get_device_queue();
+
+		SECTION("host accessor") {
+			auto access_info = bm.access_host_buffer<size_t, 1>(bid, access_mode::discard_write, {{}, {100}});
+			std::vector<closure_hydrator::accessor_info> infos;
+			infos.push_back({access_info.ptr, access_info.backing_buffer_range, access_info.backing_buffer_offset, subrange<3>{{}, {100, 1, 1}}});
+			auto acc = accessor_testspy::make_host_accessor<size_t, 1, access_mode::discard_write>(subrange<1>({}, {100}), hydration_id(1),
+			    detail::id_cast<1>(access_info.backing_buffer_offset), detail::range_cast<1>(access_info.backing_buffer_range),
+			    detail::range_cast<1>(bm.get_buffer_info(bid).range));
+			CHECK(accessor_testspy::get_pointer(acc) != access_info.ptr);
+			closure_hydrator::get_instance().arm(target::host_task, std::move(infos));
+			const auto run_check = closure_hydrator::get_instance().hydrate<target::host_task>(
+			    [&, hydrated_acc = acc] { CHECK(accessor_testspy::get_pointer(hydrated_acc) == access_info.ptr); });
+			run_check();
+		}
+
+		SECTION("device accessor") {
+			auto access_info = bm.access_device_buffer<size_t, 1>(bid, access_mode::discard_write, {{}, {100}});
+			std::vector<closure_hydrator::accessor_info> infos;
+			infos.push_back({access_info.ptr, access_info.backing_buffer_range, access_info.backing_buffer_offset, subrange<3>{{}, {100, 1, 1}}});
+			auto acc = accessor_testspy::make_device_accessor<size_t, 1, access_mode::discard_write>(
+			    hydration_id(1), id_cast<1>(access_info.backing_buffer_offset), detail::range_cast<1>(access_info.backing_buffer_range));
+			CHECK(accessor_testspy::get_pointer(acc) != access_info.ptr);
+			accessor<size_t, 1, access_mode::discard_write, target::device> hydrated_acc;
+			closure_hydrator::get_instance().arm(target::device, std::move(infos));
+			q.get_sycl_queue().submit([&](sycl::handler& cgh) {
+				closure_hydrator::get_instance().hydrate<target::device>(cgh, [&hydrated_acc, acc]() { hydrated_acc = acc; })(/* call to hydrate */);
+				cgh.single_task<class UKN(nop)>([] {});
+			});
+			CHECK(accessor_testspy::get_pointer(hydrated_acc) == access_info.ptr);
+		}
+	}
+
+	TEST_CASE_METHOD(accessor_fixture<0>, "closure_hydrator correctly handles unused and duplicate accessors", "[closure_hydrator][accessor]") {
+		auto& bm = get_buffer_manager();
+		auto& q = get_device_queue();
+
+		std::vector<closure_hydrator::accessor_info> infos;
+		hydration_id next_hid = 1;
+		auto create_accessor = [&](const buffer_id bid) {
+			auto access_info = bm.access_host_buffer<size_t, 1>(bid, access_mode::discard_write, {{}, {10}});
+			infos.push_back({access_info.ptr, access_info.backing_buffer_range, access_info.backing_buffer_offset, subrange<3>{{}, {10, 1, 1}}});
+			auto acc = accessor_testspy::make_host_accessor<size_t, 1, access_mode::discard_write>(subrange<1>({}, {10}), next_hid++,
+			    id_cast<1>(access_info.backing_buffer_offset), detail::range_cast<1>(access_info.backing_buffer_range),
+			    detail::range_cast<1>(bm.get_buffer_info(bid).range));
+			return std::pair{acc, access_info.ptr};
+		};
+
+		const auto bid1 = bm.register_buffer<size_t, 1>({10, 1, 1});
+		[[maybe_unused]] const auto [acc1, ptr1] = create_accessor(bid1);
+		const auto bid2 = bm.register_buffer<size_t, 1>({20, 1, 1});
+		const auto [acc2, ptr2] = create_accessor(bid2);
+		const auto bid3 = bm.register_buffer<size_t, 1>({30, 1, 1});
+		[[maybe_unused]] const auto [acc3, ptr3] = create_accessor(bid3);
+		const auto bid4 = bm.register_buffer<size_t, 1>({40, 1, 1});
+		const auto [acc4, ptr4] = create_accessor(bid4);
+		auto acc5 = acc4;
+
+		auto closure = [acc2 = acc2, acc4 = acc4, acc5 = acc5] {
+			return std::tuple{accessor_testspy::get_pointer(acc2), accessor_testspy::get_pointer(acc4), accessor_testspy::get_pointer(acc5)};
+		};
+		closure_hydrator::get_instance().arm(target::host_task, std::move(infos));
+		auto hydrated_closure = closure_hydrator::get_instance().hydrate<target::host_task>(closure);
+		CHECK(ptr2 == std::get<0>(hydrated_closure()));
+		CHECK(ptr4 == std::get<1>(hydrated_closure()));
+		CHECK(ptr4 == std::get<2>(hydrated_closure()));
+	}
+
+	TEST_CASE_METHOD(accessor_fixture<0>, "closure_hydrator correctly hydrates local_accessor", "[closure_hydrator][accessor][smoke-test]") {
+		auto& q = get_device_queue();
+		auto local_acc = accessor_testspy::make_local_accessor<size_t, 1>(range<1>(2));
+		size_t* const result = sycl::malloc_device<size_t>(2, q.get_sycl_queue());
+		auto closure = [=](sycl::nd_item<1> itm) {
+			// We can't really check pointers or anything, so this is a smoke test
+			local_acc[itm.get_local_id()] = 100 + itm.get_local_id(0) * 10;
+			sycl::group_barrier(itm.get_group());
+			// Write other item's value
+			result[itm.get_local_id(0)] = local_acc[1 - itm.get_local_id()];
+		};
+		closure_hydrator::get_instance().arm(target::device, {});
+		q.submit([&](sycl::handler& cgh) {
+			 auto hydrated_closure = closure_hydrator::get_instance().hydrate<target::device>(cgh, closure);
+			 cgh.parallel_for(sycl::nd_range<1>{{2}, {2}}, [=](sycl::nd_item<1> itm) { hydrated_closure(itm); });
+		 }).wait_and_throw();
+		size_t result_host[2];
+		q.get_sycl_queue().memcpy(&result_host[0], result, 2 * sizeof(size_t)).wait_and_throw();
+		CHECK(result_host[0] == 110);
+		CHECK(result_host[1] == 100);
+		sycl::free(result, q.get_sycl_queue());
 	}
 
 } // namespace detail

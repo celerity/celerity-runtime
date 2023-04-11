@@ -27,8 +27,8 @@ static std::pair<hid_t, hid_t> allocation_window_to_dataspace(const celerity::bu
 }
 
 
-static void read_hdf5_file(celerity::distr_queue& q, const celerity::buffer<float, 2>& buffer, const char* file_name) {
-	q.submit([=](celerity::handler& cgh) {
+static void read_hdf5_file(celerity::distr_queue& q, celerity::buffer<float, 2>& buffer, const char* file_name) {
+	q.submit([&](celerity::handler& cgh) {
 		celerity::accessor a{buffer, cgh, celerity::experimental::access::even_split<2>{}, celerity::write_only_host_task, celerity::no_init};
 		cgh.host_task(celerity::experimental::collective, [=](celerity::experimental::collective_partition part) {
 			auto plist = H5Pcreate(H5P_FILE_ACCESS);
@@ -54,8 +54,8 @@ static void read_hdf5_file(celerity::distr_queue& q, const celerity::buffer<floa
 }
 
 
-static void write_hdf5_file(celerity::distr_queue& q, const celerity::buffer<float, 2>& buffer, const char* file_name) {
-	q.submit([=](celerity::handler& cgh) {
+static void write_hdf5_file(celerity::distr_queue& q, celerity::buffer<float, 2>& buffer, const char* file_name) {
+	q.submit([&](celerity::handler& cgh) {
 		celerity::accessor a{buffer, cgh, celerity::experimental::access::even_split<2>{}, celerity::read_only_host_task};
 		cgh.host_task(celerity::experimental::collective, [=](celerity::experimental::collective_partition part) {
 			auto plist = H5Pcreate(H5P_FILE_ACCESS);
@@ -116,7 +116,7 @@ int main(int argc, char* argv[]) {
 
 		read_hdf5_file(q, in, argv[2]);
 
-		q.submit([=](celerity::handler& cgh) {
+		q.submit([&](celerity::handler& cgh) {
 			celerity::accessor a{in, cgh, celerity::access::one_to_one{}, celerity::read_only};
 			celerity::accessor b{out, cgh, transposed, celerity::write_only, celerity::no_init};
 			cgh.parallel_for<class transpose>(celerity::range<2>{N, N}, [=](celerity::item<2> item) {
@@ -139,7 +139,7 @@ int main(int argc, char* argv[]) {
 		read_hdf5_file(q, left, argv[2]);
 		read_hdf5_file(q, right, argv[3]);
 
-		q.submit([=](celerity::handler& cgh) {
+		q.submit([&](celerity::handler& cgh) {
 			celerity::accessor a{left, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			celerity::accessor b{right, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			celerity::accessor e{equal, cgh, celerity::write_only_host_task, celerity::no_init};

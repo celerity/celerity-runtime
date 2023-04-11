@@ -14,29 +14,47 @@ namespace celerity::experimental {
  */
 template <typename T, side_effect_order Order = side_effect_order::sequential>
 class side_effect {
+	struct ctor_internal_tag {};
+
   public:
 	using instance_type = typename host_object<T>::instance_type;
 	constexpr static inline side_effect_order order = Order;
 
-	explicit side_effect(const host_object<T>& object, handler& cgh) : m_object(object) {
-		if(detail::is_prepass_handler(cgh)) {
-			auto& prepass_cgh = static_cast<detail::prepass_handler&>(cgh);
-			prepass_cgh.add_requirement(detail::get_host_object_id(object), order);
-		}
-	}
+	explicit side_effect(host_object<T>& object, handler& cgh) : side_effect(ctor_internal_tag{}, object, cgh) {}
+
+	[[deprecated("Creating side_effect from const host_object is deprecated, capture host_object by reference instead")]] explicit side_effect(
+	    const host_object<T>& object, handler& cgh)
+	    : side_effect(ctor_internal_tag{}, object, cgh) {}
 
 	template <typename U = T>
 	std::enable_if_t<!std::is_void_v<U>, instance_type>& operator*() const {
-		return detail::get_host_object_instance(m_object);
+		return *m_instance;
 	}
 
 	template <typename U = T>
 	std::enable_if_t<!std::is_void_v<U>, instance_type>* operator->() const {
-		return &detail::get_host_object_instance(m_object);
+		return m_instance;
 	}
 
   private:
-	host_object<T> m_object;
+	instance_type* m_instance;
+
+	side_effect(ctor_internal_tag /* tag */, const host_object<T>& object, handler& cgh) : m_instance{&detail::get_host_object_instance(object)} {
+		detail::add_requirement(cgh, detail::get_host_object_id(object), order);
+		detail::extend_lifetime(cgh, detail::get_lifetime_extending_state(object));
+	}
+};
+
+template <side_effect_order Order>
+class side_effect<void, Order> {
+  public:
+	using instance_type = typename host_object<void>::instance_type;
+	constexpr static inline side_effect_order order = Order;
+
+	explicit side_effect(const host_object<void>& object, handler& cgh) {
+		detail::add_requirement(cgh, detail::get_host_object_id(object), order);
+		detail::extend_lifetime(cgh, detail::get_lifetime_extending_state(object));
+	}
 };
 
 template <typename T>
