@@ -2,9 +2,9 @@
 
 #include <type_traits>
 
+#include "cgf_diagnostics.h"
 #include "handler.h"
 #include "host_object.h"
-
 
 namespace celerity::experimental {
 
@@ -26,6 +26,10 @@ class side_effect {
 	    const host_object<T>& object, handler& cgh)
 	    : side_effect(ctor_internal_tag{}, object, cgh) {}
 
+	side_effect(const side_effect& other) : m_instance(other.m_instance) {
+		if(detail::cgf_diagnostics::is_available()) { detail::cgf_diagnostics::get_instance().register_side_effect(); }
+	}
+
 	template <typename U = T>
 	std::enable_if_t<!std::is_void_v<U>, instance_type>& operator*() const {
 		return *m_instance;
@@ -40,7 +44,7 @@ class side_effect {
 	instance_type* m_instance;
 
 	side_effect(ctor_internal_tag /* tag */, const host_object<T>& object, handler& cgh) : m_instance{&detail::get_host_object_instance(object)} {
-		detail::add_requirement(cgh, detail::get_host_object_id(object), order);
+		detail::add_requirement(cgh, detail::get_host_object_id(object), order, false);
 		detail::extend_lifetime(cgh, detail::get_lifetime_extending_state(object));
 	}
 };
@@ -52,9 +56,11 @@ class side_effect<void, Order> {
 	constexpr static inline side_effect_order order = Order;
 
 	explicit side_effect(const host_object<void>& object, handler& cgh) {
-		detail::add_requirement(cgh, detail::get_host_object_id(object), order);
+		detail::add_requirement(cgh, detail::get_host_object_id(object), order, true);
 		detail::extend_lifetime(cgh, detail::get_lifetime_extending_state(object));
 	}
+
+	// Note: We don't register the side effect with CGF diagnostics b/c it makes little sense to capture void side effects.
 };
 
 template <typename T>

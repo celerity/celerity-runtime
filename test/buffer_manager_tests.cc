@@ -26,7 +26,7 @@ namespace detail {
 			b_id = celerity::detail::get_buffer_id(b);
 			q.submit([&](celerity::handler& cgh) {
 				celerity::accessor a{b, cgh, celerity::access::all(), celerity::write_only};
-				cgh.parallel_for<class UKN(i)>(b.get_range(), [=](celerity::item<1> it) {});
+				cgh.parallel_for<class UKN(i)>(b.get_range(), [=](celerity::item<1> it) { (void)a; });
 			});
 			REQUIRE(bm.has_buffer(b_id));
 		}
@@ -36,7 +36,7 @@ namespace detail {
 		for(int i = 0; i < (new_horizon_step * 3 + 2); i++) {
 			q.submit([&](celerity::handler& cgh) {
 				celerity::accessor a{c, cgh, celerity::access::all(), celerity::write_only};
-				cgh.parallel_for<class UKN(i)>(c.get_range(), [=](celerity::item<1>) {});
+				cgh.parallel_for<class UKN(i)>(c.get_range(), [=](celerity::item<1>) { (void)a; });
 			});
 			// this sync is inside the loop because otherwise there is a race between this thread and the executor informing the TDAG
 			// of the executed horizons, meaning that task deletion is not guaranteed.

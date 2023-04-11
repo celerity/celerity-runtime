@@ -176,7 +176,7 @@ namespace test_utils {
 
 	class mock_host_object {
 	  public:
-		void add_side_effect(handler& cgh, const experimental::side_effect_order order) { (void)detail::add_requirement(cgh, m_id, order); }
+		void add_side_effect(handler& cgh, const experimental::side_effect_order order) { (void)detail::add_requirement(cgh, m_id, order, true); }
 
 		detail::host_object_id get_id() const { return m_id; }
 
@@ -335,26 +335,36 @@ namespace test_utils {
 
 	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
 	detail::task_id add_compute_task(detail::task_manager& tm, CGF cgf, range<KernelDims> global_size = {1, 1}, id<KernelDims> global_offset = {}) {
+		// Here and below: Using these functions will cause false-positive CGF diagnostic errors, b/c we are not capturing any accessors.
+		// TODO: For many test cases using these functions it may actually be preferable to circumvent the whole handler mechanism entirely.
+		detail::cgf_diagnostics::teardown();
 		return tm.submit_command_group([&, gs = global_size, go = global_offset](handler& cgh) {
 			cgf(cgh);
 			cgh.parallel_for<KernelName>(gs, go, [](id<KernelDims>) {});
 		});
+		detail::cgf_diagnostics::make_available();
 	}
 
 	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
 	detail::task_id add_nd_range_compute_task(detail::task_manager& tm, CGF cgf, celerity::nd_range<KernelDims> execution_range = {{1, 1}, {1, 1}}) {
+		// (See above).
+		detail::cgf_diagnostics::teardown();
 		return tm.submit_command_group([&, er = execution_range](handler& cgh) {
 			cgf(cgh);
 			cgh.parallel_for<KernelName>(er, [](nd_item<KernelDims>) {});
 		});
+		detail::cgf_diagnostics::make_available();
 	}
 
 	template <typename Spec, typename CGF>
 	detail::task_id add_host_task(detail::task_manager& tm, Spec spec, CGF cgf) {
+		// (See above).
+		detail::cgf_diagnostics::teardown();
 		return tm.submit_command_group([&](handler& cgh) {
 			cgf(cgh);
 			cgh.host_task(spec, [](auto...) {});
 		});
+		detail::cgf_diagnostics::make_available();
 	}
 
 	inline detail::task_id add_fence_task(detail::task_manager& tm, mock_host_object ho) {
