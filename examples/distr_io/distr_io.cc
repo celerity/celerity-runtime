@@ -134,7 +134,7 @@ int main(int argc, char* argv[]) {
 
 		celerity::buffer<float, 2> left(celerity::range<2>{N, N});
 		celerity::buffer<float, 2> right(celerity::range<2>{N, N});
-		celerity::buffer<bool> equal(1); // buffer instead of host object so result is broadcast to all hosts on the fence() below
+		celerity::buffer<bool, 0> equal; // buffer instead of host object so result is broadcast to all hosts on the fence() below
 
 		read_hdf5_file(q, left, argv[2]);
 		read_hdf5_file(q, right, argv[3]);
@@ -142,18 +142,18 @@ int main(int argc, char* argv[]) {
 		q.submit([=](celerity::handler& cgh) {
 			celerity::accessor a{left, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			celerity::accessor b{right, cgh, celerity::access::all{}, celerity::read_only_host_task};
-			celerity::accessor e{equal, cgh, celerity::access::all{}, celerity::write_only_host_task, celerity::no_init};
+			celerity::accessor e{equal, cgh, celerity::write_only_host_task, celerity::no_init};
 			cgh.host_task(celerity::on_master_node, [=] {
-				e[0] = true;
+				*e = true;
 				for(size_t i = 0; i < N; ++i) {
 					for(size_t j = 0; j < N; ++j) {
-						e[0] &= a[{i, j}] == b[{i, j}];
+						*e &= a[{i, j}] == b[{i, j}];
 					}
 				}
 			});
 		});
 
-		const auto files_equal = celerity::experimental::fence(q, equal).get()[0];
+		const bool files_equal = *celerity::experimental::fence(q, equal).get();
 		fmt::print(stderr, "=> Files are {}equal\n", files_equal ? "" : "NOT ");
 		return files_equal ? EXIT_SUCCESS : EXIT_FAILURE;
 	}
