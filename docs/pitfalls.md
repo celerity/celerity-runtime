@@ -26,34 +26,30 @@ if(rand() > 1337) {
 
 Celerity tasks submitted to the `celerity::distr_queue` are executed
 _asynchronously_ at a later point in time. This means that the stack
-surrounding a Celerity command group function might
-have been unwound by the time it is being called.
+surrounding a command function ("kernel") may have been unwound by the time it
+is being invoked.
 
-For this reason Celerity by default enforces that tasks only capture
-surrounding variables by value, rather than by reference. If you know what
-you are doing and would like to disable this check, you can use the
-`distr_queue::submit` overload accepting reference captures:
+While Celerity and the underlying SYCL implementation will try to detect and
+prevent certain types of common errors (for example capturing accessors by
+reference), not all mistakes can be caught reliably.
 
-```cpp
-celerity::distr_queue q;
-bool flag = false;
-q.submit(celerity::allow_by_ref, [&flag](celerity::handler &cgh) {...});
-```
-
-Also, similar to SYCL kernels, both host and device kernels must not capture accessors
-or other values from the command group function by reference since the kernels will
-outlive it. To avoid mistakes, make it a habit to **never use by-reference capture
-defaults**, even when using `allow_by_ref`:
+In particular when using [host tasks](host-tasks.md), it is important to ensure
+that all values that are captured by reference outlive the task:
 
 ```cpp
-celerity::distr_queue q;
-celerity::buffer<int, 1> buf;
-bool flag = false;
-q.submit(celerity::allow_by_ref, [=, &flag](celerity::handler &cgh) {
-	celerity::accessor acc{buffer, cgh, celerity::access::all{},
-			celerity::read_only_host_task};
-    cgh.host_task(celerity::on_master_node, [=, &flag] {
-        flag = acc[0] == 42;
+int global_variable = 22;
+
+void some_function(celerity::distr_queue& q) {
+    int local_variable = 42;
+    q.submit([&](celerity::handler& cgh) {
+        cgh.host_task([&] {
+            printf("%d\n", global_variable); // safe, global variable outlives task
+            printf("%d\n", local_variable); // dangling reference!
+        });
     });
-});
+}
 ```
+
+> Celerity supports experimental APIs that can replace most if not all uses for reference captures.
+> See `celerity::experimental::host_object`, `celerity::experimental::side_effect` and
+> `celerity::experimental::fence`.

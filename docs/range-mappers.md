@@ -38,7 +38,7 @@ following command group specifies two different range mappers (whose
 definition is omitted) for buffers `buf_a` and `buf_b`:
 
 ```cpp
-queue.submit([=](celerity::handler& cgh) {
+queue.submit([&](celerity::handler& cgh) {
 	celerity::accessor r_a{cgh, buf_a, my_mapper, celerity::read_only};
 	celerity::accessor dw_b{cgh, buf_b, other_mapper, celerity::write_only, celerity::no_init};
 

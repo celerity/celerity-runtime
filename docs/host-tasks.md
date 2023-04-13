@@ -29,7 +29,7 @@ the `*_host_task` selector must be used for selecting the access mode.
 ```cpp
 celerity::distr_queue q;
 celerity::buffer<float, 1> result;
-q.submit([=](celerity::handler &cgh) {
+q.submit([&](celerity::handler &cgh) {
 	celerity::accessor acc{buffer, cgh, celerity::access::all{},
 			celerity::read_only_host_task};
     cgh.host_task(celerity::on_master_node, [=]{
@@ -54,7 +54,7 @@ this node receives:
 
 ```cpp
 celerity::distr_queue q;
-q.submit([=](celerity::handler &cgh) {
+q.submit([&](celerity::handler &cgh) {
     cgh.host_task(celerity::range<1>(100), [=](celerity::partition<1> part) {
         printf("This node received %zu items\n", part.get_subrange().range[0]);
     });
@@ -116,10 +116,10 @@ operations eligible to be run concurrently, Celerity can be notified of this by 
 celerity::distr_queue q;
 celerity::experimental::collective_group first_group;
 celerity::experimental::collective_group second_group;
-q.submit([=](celerity::handler &cgh) {
+q.submit([&](celerity::handler &cgh) {
     cgh.host_task(celerity::experimental::collective(first_group), []...);
 });
-q.submit([=](celerity::handler &cgh) {
+q.submit([&](celerity::handler &cgh) {
     cgh.host_task(celerity::experimental::collective(second_group), []...);
 });
 ```
@@ -142,7 +142,7 @@ splitting them along the first (slowest) dimension into contiguous memory portio
 ```cpp
 celerity::distr_queue q;
 celerity::buffer<float, 2> buf;
-q.submit([=](celerity::handler& cgh) {
+q.submit([&](celerity::handler& cgh) {
 	celerity::accessor acc{buffer, cgh,
 			celerity::experimental::access::even_split<2>{},
 			celerity::read_only_host_task};
