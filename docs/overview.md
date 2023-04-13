@@ -19,20 +19,20 @@ internally by the Celerity runtime system:
   </p>
 </video>
 
-Everything starts with the _Prepass_, which is similar to normal program
-execution. However, whenever a relevant Celerity queue operation -- such as
-`submit` -- is encountered, this pass does not
-actually fully execute the related _kernel_ code (marked in color in the
-video). Instead, this code, together with some dependency and scheduling
-metainformation, is recorded in the Celerity **task graph**.
+Everything starts with the user program, which is executed in single program,
+multipe data (SPMD) fashion by all MPI ranks. Whenever a relevant Celerity
+queue operation -- such as `submit` -- is encountered, the associated _kernel_
+code (marked in color in the video) is not executed directly. Instead, this
+code, together with some dependency and scheduling metainformation, is recorded
+in the Celerity **task graph**.
 
-Concurrently with the Prepass, a _Scheduler_ thread constructs a more
+Concurrently with the user program, a _scheduler_ thread constructs a more
 detailed **command graph** from existing task graph nodes. This command graph
 includes individual instructions for each node in the system, and also
 encodes all necessary data transfers to maintain the consistent view of data
 which would be expected if the program were to be executed on a single node.
 
-On each _Worker_ node the command graph is asynchronously consumed and
+On each _worker_ node the command graph is asynchronously consumed and
 executed, which finally leads to actually running the computations described
 by each kernel in the input program, distributed among the GPUs in the
 cluster.

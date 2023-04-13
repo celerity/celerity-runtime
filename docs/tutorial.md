@@ -119,7 +119,7 @@ Now we are ready to do the actual edge detection. For this we will write a
 are specified in Celerity is very similar to how it is done in SYCL:
 
 ```cpp
-queue.submit([=](celerity::handler& cgh) {
+queue.submit([&](celerity::handler& cgh) {
     // TODO: Buffer accessors
     cgh.parallel_for<class MyEdgeDetectionKernel>(
         celerity::range<2>(img_height - 2, img_width - 2),
@@ -252,7 +252,7 @@ handler by calling `celerity::handler::host_task`. Add the following code at the
 your `main()` function:
 
 ```cpp
-queue.submit([=](celerity::handler& cgh) {
+queue.submit([&](celerity::handler& cgh) {
 	celerity::accessor out{edge_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
     cgh.host_task(celerity::on_master_node, [=]() {
         stbi_write_png("result.png", img_width, img_height, 1, out.get_pointer(), 0);
