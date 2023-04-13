@@ -47,11 +47,10 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 
 // TODO this should really reduce into a buffer<bool> on the device, but not all backends currently support reductions
 template <typename T>
-void verify(celerity::distr_queue& queue, celerity::buffer<T, 2> mat_c, celerity::buffer<bool, 0> passed_buf) {
+void verify(celerity::distr_queue& queue, celerity::buffer<T, 2> mat_c, celerity::experimental::host_object<bool> passed_obj) {
 	queue.submit([=](celerity::handler& cgh) {
 		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task};
-		// omitting no_init here to force verification failure if the kernel does not execute for some reason:
-		celerity::accessor passed{passed_buf, cgh, celerity::write_only_host_task};
+		celerity::experimental::side_effect passed{passed_obj, cgh};
 
 		cgh.host_task(mat_c.get_range(), [=](celerity::partition<2> part) {
 			*passed = true;
@@ -88,10 +87,11 @@ int main() {
 	multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
 	multiply(queue, mat_b_buf, mat_c_buf, mat_a_buf);
 
-	celerity::buffer<bool, 0> passed_buf = false;
-	verify(queue, mat_c_buf, passed_buf);
+	// each node verifies part of the result, so we pass per-node verification results through a host object
+	celerity::experimental::host_object<bool> passed_obj(false);
+	verify(queue, mat_c_buf, passed_obj);
 
 	// The value of `passed` can differ between hosts if only part of the verification failed.
-	const auto passed = *celerity::experimental::fence(queue, passed_buf).get();
+	const bool passed = celerity::experimental::fence(queue, passed_obj).get();
 	return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }
