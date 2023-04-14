@@ -28,10 +28,9 @@ static auto make_device_accessor(sycl::buffer<int, 1>& buf, sycl::handler& cgh, 
 	}
 }
 
-#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
-
 // If this test fails, celerity can't reliably support reductions on the user's combination of backend and hardware
 TEST_CASE_METHOD(test_utils::device_queue_fixture, "SYCL has working simple scalar reductions", "[sycl][reductions]") {
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 	const size_t N = GENERATE(64, 512, 1024, 4096);
 	CAPTURE(N);
 
@@ -44,9 +43,10 @@ TEST_CASE_METHOD(test_utils::device_queue_fixture, "SYCL has working simple scal
 
 	sycl::host_accessor acc{buf};
 	CHECK(static_cast<size_t>(acc[0]) == N);
-}
-
+#else
+	SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
 #endif
+}
 
 TEST_CASE("SYCL implements by-value equality-comparison of device information", "[sycl][device-selection][!mayfail]") {
 	constexpr static auto get_devices = [] {

@@ -44,7 +44,7 @@ namespace property {
 	using cl::sycl::property::no_init;
 #endif
 
-#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 	namespace reduction {
 		using cl::sycl::property::reduction::initialize_to_identity;
 	}
