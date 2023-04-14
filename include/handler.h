@@ -500,7 +500,7 @@ namespace detail {
 
 	template <typename DataT, int Dims, typename BinaryOperation, bool WithExplicitIdentity>
 	auto make_sycl_reduction(const reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>& d) {
-#if !CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
+#if !CELERITY_FEATURE_SCALAR_REDUCTIONS
 		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
 		cl::sycl::property_list props;
@@ -546,7 +546,7 @@ namespace detail {
 
 	template <bool WithExplicitIdentity, typename DataT, int Dims, typename BinaryOperation>
 	auto make_reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation op, DataT identity, const cl::sycl::property_list& prop_list) {
-#if !CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
+#if !CELERITY_FEATURE_SCALAR_REDUCTIONS
 		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
 		if(vars.get_range().size() != 1) {
@@ -599,10 +599,8 @@ void handler::parallel_for_kernel_and_reductions(range<Dims> global_range, id<Di
 	device_handler.submit_to_sycl([&](cl::sycl::handler& cgh) {
 		constexpr int sycl_dims = std::max(1, Dims);
 
-		if constexpr(!CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS && sizeof...(reductions) > 0) {
+		if constexpr(!CELERITY_FEATURE_SCALAR_REDUCTIONS && sizeof...(reductions) > 0) {
 			static_assert(detail::constexpr_false<Kernel>, "Reductions are not supported by your SYCL implementation");
-		} else if constexpr(!CELERITY_FEATURE_SCALAR_REDUCTIONS && sizeof...(reductions) > 1) {
-			static_assert(detail::constexpr_false<Kernel>, "DPC++ currently does not support more than one reduction variable per kernel");
 		} else if constexpr(std::is_same_v<KernelFlavor, detail::simple_kernel_flavor>) {
 			const auto sycl_global_range = sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(chunk_range));
 			detail::invoke_sycl_parallel_for<KernelName>(cgh, sycl_global_range, detail::make_sycl_reduction(reductions)...,
@@ -649,12 +647,9 @@ void handler::host_task(range<Dims> global_range, id<Dims> global_offset, Functo
 
 template <typename DataT, int Dims, typename BinaryOperation>
 auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
-#if !CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
+#if !CELERITY_FEATURE_SCALAR_REDUCTIONS
 	static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
-#if CELERITY_WORKAROUND(DPCPP)
-	static_assert(Dims == 1, "DPC++ currently does not support reductions to buffers with dimensionality != 1");
-#endif
 	static_assert(cl::sycl::has_known_identity_v<BinaryOperation, DataT>,
 	    "Celerity does not currently support reductions without an identity. Either specialize "
 	    "cl::sycl::known_identity or use the reduction() overload taking an identity at runtime");
@@ -664,7 +659,7 @@ auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation co
 
 template <typename DataT, int Dims, typename BinaryOperation>
 auto reduction(const buffer<DataT, Dims>& vars, handler& cgh, const DataT identity, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
-#if !CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
+#if !CELERITY_FEATURE_SCALAR_REDUCTIONS
 	static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
 	static_assert(!cl::sycl::has_known_identity_v<BinaryOperation, DataT>, "Identity is known to SYCL, remove the identity parameter from reduction()");

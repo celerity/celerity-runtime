@@ -27,7 +27,7 @@ add_example(matmul)
 add_example(syncing)
 add_example(wave_sim)
 
-if(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS)
+if(CELERITY_FEATURE_SCALAR_REDUCTIONS)
   add_example(reduction)
 endif()
 

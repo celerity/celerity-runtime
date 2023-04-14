@@ -45,22 +45,10 @@ higher-dimensional reduction outputs will only become available once SYCL suppor
 
 ### No Broad Support Across SYCL Implementations
 
-Only hipSYCL provides a complete implementation of SYCL 2020 reduction variables at the moment, but
-requires [a patch](https://github.com/illuhad/hipSYCL/pull/578). Installing this version of hipSYCL will
-enable you to run the `reduction` Celerity example.
+Only DPC++ provides a complete implementation of SYCL 2020 reduction variables at the moment,
+while hipSYCL requires [a patch](https://github.com/illuhad/hipSYCL/pull/578).
+Installing this version of hipSYCL will enable you to run the `reduction` Celerity example.
 
-DPC++ currently implements an incompatible version of reductions from an earlier Intel proposal.
-Celerity can partially work around this API difference, but not without limitations:
-
-- Reduction output buffers can only be 1-dimensional
-- Calls to `parallel_for` can receive at most one reduction
-
-ComputeCpp does not support reductions at all as of version 2.6.0, so Celerity does not expose them for this backend.
-
-Celerity provides feature-detection macros for reduction support, both in CMake (`ON` or `OFF`) and
-as C++ macros (always defined to `0` or `1`):
-
-- `CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS` for (at least) the limited reduction support provided
-  by DPC++.
-- `CELERITY_FEATURE_SCALAR_REDUCTIONS` for the full reduction support provided by a 2020-conformant
-  SYCL implementation. Implies `CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS`.
+Celerity provides the `CELERITY_FEATURE_SCALAR_REDUCTIONS` feature-detection
+macro for reduction support, both in CMake (`ON` or `OFF`) and as C++ macros
+(always defined to `0` or `1`).

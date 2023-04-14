@@ -15,14 +15,13 @@
 namespace celerity {
 namespace detail {
 
-#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
-
 	template <typename T>
 	struct unknown_identity_maximum {
 		T operator()(T a, T b) const { return a < b ? b : a; }
 	};
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "simple reductions produce the expected results", "[reductions]") {
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		size_t N = 1000;
 		buffer<size_t, 1> sum_buf{{1}};
 		buffer<size_t, 1> max_buf{{1}};
@@ -30,17 +29,6 @@ namespace detail {
 		distr_queue q;
 		const auto initialize_to_identity = cl::sycl::property::reduction::initialize_to_identity{};
 
-#if !CELERITY_FEATURE_SCALAR_REDUCTIONS // DPC++ can handle at most 1 reduction variable per kernel
-		q.submit([=](handler& cgh) {
-			auto sum_r = reduction(sum_buf, cgh, cl::sycl::plus<size_t>{}, initialize_to_identity);
-			cgh.parallel_for<class UKN(kernel)>(range{N}, id{1}, sum_r, [=](celerity::item<1> item, auto& sum) { sum += item.get_id(0); });
-		});
-
-		q.submit([=](handler& cgh) {
-			auto max_r = reduction(max_buf, cgh, size_t{0}, unknown_identity_maximum<size_t>{}, initialize_to_identity);
-			cgh.parallel_for<class UKN(kernel)>(range{N}, id{1}, max_r, [=](celerity::item<1> item, auto& max) { max.combine(item.get_id(0)); });
-		});
-#else
 		q.submit([=](handler& cgh) {
 			auto sum_r = reduction(sum_buf, cgh, cl::sycl::plus<size_t>{}, initialize_to_identity);
 			auto max_r = reduction(max_buf, cgh, size_t{0}, unknown_identity_maximum<size_t>{}, initialize_to_identity);
@@ -49,7 +37,6 @@ namespace detail {
 				max.combine(item.get_id(0));
 			});
 		});
-#endif
 
 		q.submit([=](handler& cgh) {
 			accessor sum_acc{sum_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
@@ -59,11 +46,15 @@ namespace detail {
 				CHECK(max_acc[0] == N);
 			});
 		});
+#else
+		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
+#endif
 	}
 
 	// Regression test: The host -> device transfer previously caused an illegal nested sycl::queue::submit call which deadlocks
 	// Distributed test, since the single-node case optimizes the reduction command away
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "reduction commands perform host -> device transfers if necessary", "[reductions]") {
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		distr_queue q;
 
 		REQUIRE(runtime::get_instance().get_num_nodes() > 1);
@@ -80,9 +71,13 @@ namespace detail {
 			accessor acc{sum, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			cgh.host_task(on_master_node, [=] { CHECK(acc[0] == N + init); });
 		});
+#else
+		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
+#endif
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "multiple chained reductions produce correct results", "[reductions]") {
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		distr_queue q;
 
 		const int N = 1000;
@@ -102,10 +97,14 @@ namespace detail {
 			accessor acc{sum, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			cgh.host_task(on_master_node, [=] { CHECK(acc[0] == 3 * N); });
 		});
+#else
+		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
+#endif
 	}
 
 	TEST_CASE_METHOD(
 	    test_utils::runtime_fixture, "subsequently requiring reduction results on different subsets of nodes produces correct data flow", "[reductions]") {
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		distr_queue q;
 
 		const int N = 1000;
@@ -130,10 +129,14 @@ namespace detail {
 				CHECK(acc[0] == expected);
 			});
 		});
+#else
+		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
+#endif
 	}
 
 	TEST_CASE_METHOD(
 	    test_utils::runtime_fixture, "runtime-shutdown graph printing works in the presence of a finished reduction", "[reductions][print_graph][smoke-test]") {
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		// init runtime early so the distr_queue ctor doesn't override the log level set by log_capture
 		runtime::init(nullptr, nullptr);
 		const bool is_master_node = runtime::get_instance().is_master_node();
@@ -161,9 +164,10 @@ namespace detail {
 			CHECK_THAT(log, ContainsSubstring("(R1) <b>await push</b> from N1"));
 			CHECK_THAT(log, ContainsSubstring("<b>reduction</b> R1<br/> B0 {[[0,0,0] - [1,1,1]]}"));
 		}
+#else
+		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
+#endif
 	}
-
-#endif // CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
 
 	template <int Dims>
 	class kernel_name_nd_geometry;

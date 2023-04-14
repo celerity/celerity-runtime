@@ -650,9 +650,8 @@ namespace detail {
 		});
 	}
 
-#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
-
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "attempting a reduction on buffers with size != 1 throws", "[task-manager]") {
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		runtime::init(nullptr, nullptr);
 		auto& tm = runtime::get_instance().get_task_manager();
 
@@ -665,8 +664,6 @@ namespace detail {
 		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(ok_size_1)>(range<1>{1}, reduction(buf_4, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
 		}));
-
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 
 		buffer<float, 2> buf_2{range<2>{1, 2}};
 		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
@@ -687,10 +684,10 @@ namespace detail {
 		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(ok_size_3)>(range<3>{1, 1, 1}, reduction(buf_6, cgh, cl::sycl::plus<float>{}), [=](celerity::item<3>, auto&) {});
 		}));
+#else
+		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
 #endif
 	}
-
-#endif
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler::parallel_for accepts nd_range", "[handler]") {
 		distr_queue q;
@@ -760,9 +757,8 @@ namespace detail {
 		});
 	}
 
-#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
-
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "reductions can be passed into nd_range kernels", "[handler]") {
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		// Note: We assume a local range size of 16 here, this should be supported by most devices.
 
 		buffer<int, 1> b{range<1>{1}};
@@ -770,9 +766,10 @@ namespace detail {
 			cgh.parallel_for<class UKN(kernel)>(celerity::nd_range{range<2>{8, 8}, range<2>{4, 4}}, reduction(b, cgh, cl::sycl::plus<>{}),
 			    [](nd_item<2> item, auto& sum) { sum += item.get_global_linear_id(); });
 		});
-	}
-
+#else
+		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
 #endif
+	}
 
 #if CELERITY_FEATURE_UNNAMED_KERNELS
 
@@ -784,7 +781,7 @@ namespace detail {
 		// without name
 		q.submit([](handler& cgh) { cgh.parallel_for(range<1>{64}, [](item<1> item) {}); });
 		q.submit([=](handler& cgh) { cgh.parallel_for(celerity::nd_range<1>{64, 32}, [](nd_item<1> item) {}); });
-#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		buffer<int> b{{1}};
 		q.submit([=](handler& cgh) {
 			cgh.parallel_for(
@@ -799,7 +796,7 @@ namespace detail {
 		// with name
 		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(simple_kernel_with_name)>(range<1>{64}, [=](item<1> item) {}); });
 		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(nd_range_kernel_with_name)>(celerity::nd_range<1>{64, 32}, [=](nd_item<1> item) {}); });
-#if CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS
+#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		q.submit([=](handler& cgh) {
 			cgh.parallel_for<class UKN(simple_kernel_with_name_and_reductions)>(
 			    range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
