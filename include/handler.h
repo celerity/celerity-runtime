@@ -305,25 +305,27 @@ namespace detail {
 class handler {
   public:
 	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
-	void parallel_for(range<Dims> global_range, ReductionsAndKernel... reductions_and_kernel) {
+	void parallel_for(range<Dims> global_range, ReductionsAndKernel&&... reductions_and_kernel) {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
-		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(
-		    global_range, id<Dims>(), detail::no_local_size{}, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
+		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(global_range, id<Dims>(),
+		    detail::no_local_size{}, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{},
+		    std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
 	}
 
 	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
-	void parallel_for(range<Dims> global_range, id<Dims> global_offset, ReductionsAndKernel... reductions_and_kernel) {
+	void parallel_for(range<Dims> global_range, id<Dims> global_offset, ReductionsAndKernel&&... reductions_and_kernel) {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
-		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(
-		    global_range, global_offset, detail::no_local_size{}, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, reductions_and_kernel...);
+		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(global_range, global_offset,
+		    detail::no_local_size{}, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{},
+		    std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
 	}
 
 	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
-	void parallel_for(celerity::nd_range<Dims> execution_range, ReductionsAndKernel... reductions_and_kernel) {
+	void parallel_for(celerity::nd_range<Dims> execution_range, ReductionsAndKernel&&... reductions_and_kernel) {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
 		parallel_for_reductions_and_kernel<detail::nd_range_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(execution_range.get_global_range(),
 		    execution_range.get_offset(), execution_range.get_local_range(), std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{},
-		    reductions_and_kernel...);
+		    std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
 	}
 
 	/**
@@ -337,8 +339,8 @@ class handler {
 	 * may require different lifetimes for captures. See `celerity::allow_by_ref` for more information on this topic.
 	 */
 	template <typename Functor>
-	void host_task(on_master_node_tag /* tag */, Functor kernel) {
-		auto launcher = make_host_task_launcher<0, false>(detail::zero_range, 0, kernel);
+	void host_task(on_master_node_tag /* tag */, Functor&& kernel) {
+		auto launcher = make_host_task_launcher<0, false>(detail::zero_range, 0, std::forward<Functor>(kernel));
 		create_master_node_task(std::move(launcher));
 	}
 
@@ -356,9 +358,9 @@ class handler {
 	 * and all host kernel invocations are executed in a single thread on each host.
 	 */
 	template <typename Functor>
-	void host_task(experimental::collective_tag tag, Functor kernel) {
+	void host_task(experimental::collective_tag tag, Functor&& kernel) {
 		// FIXME: We should not have to know how the global range is determined for collective tasks to create the launcher
-		auto launcher = make_host_task_launcher<1, true>(range<3>{m_num_collective_nodes, 1, 1}, tag.m_cgid, kernel);
+		auto launcher = make_host_task_launcher<1, true>(range<3>{m_num_collective_nodes, 1, 1}, tag.m_cgid, std::forward<Functor>(kernel));
 		create_collective_task(tag.m_cgid, std::move(launcher));
 	}
 
@@ -375,9 +377,9 @@ class handler {
 	 * another node. If you need guarantees about execution order
 	 */
 	template <int Dims, typename Functor>
-	void host_task(range<Dims> global_range, id<Dims> global_offset, Functor kernel) {
+	void host_task(range<Dims> global_range, id<Dims> global_offset, Functor&& kernel) {
 		const detail::task_geometry geometry{Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), {1, 1, 1}};
-		auto launcher = make_host_task_launcher<Dims, false>(detail::range_cast<3>(global_range), 0, kernel);
+		auto launcher = make_host_task_launcher<Dims, false>(detail::range_cast<3>(global_range), 0, std::forward<Functor>(kernel));
 		create_host_compute_task(geometry, std::move(launcher));
 	}
 
@@ -385,8 +387,8 @@ class handler {
 	 * Like `host_task(range<Dims> global_range, id<Dims> global_offset, Functor kernel)`, but with a `global_offset` of zero.
 	 */
 	template <int Dims, typename Functor>
-	void host_task(range<Dims> global_range, Functor task) {
-		host_task(global_range, {}, task);
+	void host_task(range<Dims> global_range, Functor&& kernel) {
+		host_task(global_range, {}, std::forward<Functor>(kernel));
 	}
 
   private:
@@ -412,16 +414,16 @@ class handler {
 	template <typename KernelFlavor, typename KernelName, int Dims, typename... ReductionsAndKernel, size_t... ReductionIndices>
 	void parallel_for_reductions_and_kernel(range<Dims> global_range, id<Dims> global_offset,
 	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_size, std::index_sequence<ReductionIndices...> indices,
-	    ReductionsAndKernel&... kernel_and_reductions) {
+	    ReductionsAndKernel&&... kernel_and_reductions) {
 		auto args_tuple = std::forward_as_tuple(kernel_and_reductions...);
-		auto& kernel = std::get<sizeof...(kernel_and_reductions) - 1>(args_tuple);
+		auto&& kernel = std::get<sizeof...(kernel_and_reductions) - 1>(args_tuple);
 		parallel_for_kernel_and_reductions<KernelFlavor, KernelName>(
-		    global_range, global_offset, local_size, kernel, std::get<ReductionIndices>(args_tuple)...);
+		    global_range, global_offset, local_size, std::forward<decltype(kernel)>(kernel), std::get<ReductionIndices>(args_tuple)...);
 	}
 
 	template <typename KernelFlavor, typename KernelName, int Dims, typename Kernel, typename... Reductions>
 	void parallel_for_kernel_and_reductions(range<Dims> global_range, id<Dims> global_offset,
-	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel& kernel, Reductions&... reductions) {
+	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel&& kernel, Reductions&... reductions) {
 		if constexpr(!CELERITY_FEATURE_SCALAR_REDUCTIONS && sizeof...(reductions) > 0) {
 			static_assert(detail::constexpr_false<Kernel>, "Reductions are not supported by your SYCL implementation");
 		}
@@ -434,7 +436,7 @@ class handler {
 		}
 		const detail::task_geometry geometry{Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), granularity};
 		auto launcher = make_device_kernel_launcher<KernelFlavor, KernelName, Dims>(
-		    global_range, global_offset, local_range, kernel, std::index_sequence_for<Reductions...>(), reductions...);
+		    global_range, global_offset, local_range, std::forward<Kernel>(kernel), std::index_sequence_for<Reductions...>(), reductions...);
 		create_device_compute_task(geometry, detail::kernel_debug_name<KernelName>(), std::move(launcher));
 	}
 
@@ -494,7 +496,7 @@ class handler {
 
 	template <typename KernelFlavor, typename KernelName, int Dims, typename Kernel, size_t... ReductionIndices, typename... Reductions>
 	auto make_device_kernel_launcher(const range<Dims>& global_range, const id<Dims>& global_offset,
-	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel kernel,
+	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel&& kernel,
 	    std::index_sequence<ReductionIndices...> /* indices */, Reductions... reductions) {
 		static_assert(std::is_copy_constructible_v<std::decay_t<Kernel>>, "Kernel functor must be copyable"); // Required for hydration
 
@@ -529,7 +531,7 @@ class handler {
 	}
 
 	template <int Dims, bool Collective, typename Kernel>
-	auto make_host_task_launcher(const range<3>& global_range, const detail::collective_group_id cgid, Kernel kernel) {
+	auto make_host_task_launcher(const range<3>& global_range, const detail::collective_group_id cgid, Kernel&& kernel) {
 		static_assert(std::is_copy_constructible_v<std::decay_t<Kernel>>, "Kernel functor must be copyable"); // Required for hydration
 		static_assert(Dims >= 0);
 
