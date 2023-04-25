@@ -239,6 +239,9 @@ namespace detail {
 			}
 		}
 
+		m_buffer_mngr->print_performance_metrics();
+		m_exec->print_performance_metrics();
+
 		// Shutting down the task_manager will cause all buffers captured inside command group functions to unregister.
 		// Since we check whether the runtime is still active upon unregistering, we have to set this to false first.
 		m_is_active = false;

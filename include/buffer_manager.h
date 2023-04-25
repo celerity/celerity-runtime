@@ -265,6 +265,11 @@ namespace detail {
 			return m_buffer_infos.at(bid).debug_name;
 		}
 
+		void print_performance_metrics() const {
+			std::lock_guard lock(m_mutex);
+			CELERITY_INFO("BM: Lock attempts {} - resizes done {}", m_failed_lock_attempts, m_resizes_counter);
+		}
+
 	  private:
 		struct backing_buffer {
 			std::unique_ptr<buffer_storage> storage = nullptr;
@@ -326,6 +331,9 @@ namespace detail {
 		buffer_lifecycle_callback m_lifecycle_cb;
 		size_t m_buffer_count = 0;
 		mutable std::shared_mutex m_mutex;
+		// Counts failed attempts at locking any of the buffer locks.
+		unsigned int m_failed_lock_attempts = 0;
+		unsigned int m_resizes_counter = 0;
 		std::unordered_map<buffer_id, buffer_info> m_buffer_infos;
 		std::unordered_map<buffer_id, virtual_buffer> m_buffers;
 		std::unordered_map<buffer_id, std::vector<transfer>> m_scheduled_transfers;
@@ -343,7 +351,6 @@ namespace detail {
 
 		static resize_info is_resize_required(const backing_buffer& buffer, range<3> request_range, id<3> request_offset) {
 			assert(buffer.is_allocated());
-
 			// Empty-range buffer requirements never count towards the bounding box
 			if(request_range.size() == 0) { return resize_info{}; }
 			if(buffer.storage->get_range().size() == 0) { return resize_info{true, request_offset, request_range}; }

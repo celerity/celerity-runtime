@@ -53,6 +53,8 @@ namespace detail {
 		 */
 		void shutdown();
 
+		void print_performance_metrics() const { m_btm->print_performance_metrics(); }
+
 	  private:
 		node_id m_local_nid;
 		host_queue& m_h_queue;

@@ -45,6 +45,7 @@ namespace detail {
 			const auto info = is_resize_required(existing_buf, sr.range, sr.offset);
 			backing_buffer replacement_buf;
 			if(info.resize_required) {
+				m_resizes_counter++;
 				// TODO: Do we really want to allocate host memory for this..? We could also make the buffer storage "coherent" directly.
 				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_host(info.new_range), info.new_offset};
 			}
@@ -87,6 +88,7 @@ namespace detail {
 			// (AND that access request covers the entirety of the old buffer!)
 			const auto info = is_resize_required(existing_buf, sr.range, sr.offset);
 			if(info.resize_required) {
+				m_resizes_counter++;
 				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, m_queue.get_sycl_queue()), info.new_offset};
 			}
 		}
@@ -115,7 +117,10 @@ namespace detail {
 			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_host(sr.range), sr.offset};
 		} else {
 			const auto info = is_resize_required(existing_buf, sr.range, sr.offset);
-			if(info.resize_required) { replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_host(info.new_range), info.new_offset}; }
+			if(info.resize_required) {
+				m_resizes_counter++;
+				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_host(info.new_range), info.new_offset};
+			}
 		}
 
 		audit_buffer_access(bid, replacement_buf.is_allocated(), mode);
@@ -134,7 +139,10 @@ namespace detail {
 	bool buffer_manager::try_lock(const buffer_lock_id id, const std::unordered_set<buffer_id>& buffers) {
 		assert(m_buffer_locks_by_id.count(id) == 0);
 		for(auto bid : buffers) {
-			if(m_buffer_lock_infos[bid].is_locked) return false;
+			if(m_buffer_lock_infos[bid].is_locked) {
+				m_failed_lock_attempts++;
+				return false;
+			}
 		}
 		m_buffer_locks_by_id[id].reserve(buffers.size());
 		for(auto bid : buffers) {

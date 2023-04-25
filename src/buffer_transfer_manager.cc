@@ -51,6 +51,8 @@ namespace detail {
 		MPI_Isend(frame.get_pointer(), static_cast<int>(frame_units), m_send_recv_unit, static_cast<int>(data.target), mpi_support::TAG_DATA_TRANSFER,
 		    MPI_COMM_WORLD, &req);
 
+		m_bytes_transfered += frame.get_size_bytes();
+
 		auto transfer = std::make_unique<transfer_out>();
 		transfer->handle = t_handle;
 		transfer->request = req;
@@ -172,6 +174,8 @@ namespace detail {
 			bm.set_buffer_data(frame.bid, frame.sr, std::move(payload));
 		}
 	}
+
+	void buffer_transfer_manager::print_performance_metrics() const { CELERITY_INFO("BTM: bytes transfer {}", m_bytes_transfered); }
 
 } // namespace detail
 } // namespace celerity

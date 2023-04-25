@@ -34,6 +34,8 @@ namespace detail {
 		 */
 		void poll();
 
+		void print_performance_metrics() const;
+
 	  private:
 		struct data_frame {
 			using payload_type = std::byte;
@@ -84,6 +86,8 @@ namespace detail {
 		void update_outgoing_transfers();
 
 		static void commit_transfer(transfer_in& transfer);
+
+		size_t m_bytes_transfered = 0;
 	};
 
 } // namespace detail
