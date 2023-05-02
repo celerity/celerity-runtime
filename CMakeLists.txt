@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.13)
 
+if (CMAKE_CURRENT_BINARY_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  message(FATAL_ERROR "Celerity does not support in-source builds.\nPlease use a dedicated build directory and remove ${CMAKE_CURRENT_BINARY_DIR}/CMakeCache.txt and ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles")
+endif()
+
 file(STRINGS "VERSION" Celerity_VERSION)
 string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)" _ "${Celerity_VERSION}")
 set(CELERITY_VERSION_MAJOR ${CMAKE_MATCH_1})
