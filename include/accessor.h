@@ -301,15 +301,16 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 
 	friend bool operator==(const accessor& lhs, const accessor& rhs) {
-		return lhs.m_device_ptr == rhs.m_device_ptr && lhs.m_buffer_range == rhs.m_buffer_range && lhs.m_index_offset == rhs.m_index_offset;
+		return lhs.m_device_ptr == rhs.m_device_ptr && lhs.m_backing_buffer_range == rhs.m_backing_buffer_range
+		       && lhs.m_backing_buffer_offset == rhs.m_backing_buffer_offset;
 	}
 
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
   private:
 	DataT* m_device_ptr = nullptr;
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_index_offset;
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_buffer_range = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_backing_buffer_offset;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_backing_buffer_range = detail::zero_range;
 
 	template <typename Functor>
 	accessor(const ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) {
@@ -320,8 +321,8 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 
 	// Constructor for tests, called through accessor_testspy.
-	accessor(DataT* const ptr, const id<Dims>& index_offset, const range<Dims>& buffer_range)
-	    : m_device_ptr(ptr), m_index_offset(index_offset), m_buffer_range(buffer_range) {
+	accessor(DataT* const ptr, const id<Dims>& backing_buffer_offset, const range<Dims>& backing_buffer_range)
+	    : m_device_ptr(ptr), m_backing_buffer_offset(backing_buffer_offset), m_backing_buffer_range(backing_buffer_range) {
 #if defined(__SYCL_DEVICE_ONLY__)
 #if CELERITY_WORKAROUND_HIPSYCL // hipSYCL does not yet implement is_device_copyable_v
 		static_assert(std::is_trivially_copyable_v<accessor>);
@@ -332,13 +333,13 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 
 	// Constructor for tests, called through accessor_testspy.
-	accessor(const detail::hydration_id hid, const id<Dims>& index_offset, const range<Dims>& buffer_range)
-	    : accessor(detail::embed_hydration_id<DataT*>(hid), index_offset, buffer_range) {}
+	accessor(const detail::hydration_id hid, const id<Dims>& backing_buffer_offset, const range<Dims>& backing_buffer_range)
+	    : accessor(detail::embed_hydration_id<DataT*>(hid), backing_buffer_offset, backing_buffer_range) {}
 
 	void copy_and_hydrate(const accessor& other) {
 		m_device_ptr = other.m_device_ptr;
-		m_index_offset = other.m_index_offset;
-		m_buffer_range = other.m_buffer_range;
+		m_backing_buffer_offset = other.m_backing_buffer_offset;
+		m_backing_buffer_range = other.m_backing_buffer_range;
 
 #if !defined(__SYCL_DEVICE_ONLY__)
 		if(detail::is_embedded_hydration_id(m_device_ptr)) {
@@ -349,14 +350,14 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 			if(detail::closure_hydrator::is_available() && detail::closure_hydrator::get_instance().is_hydrating()) {
 				const auto info = detail::closure_hydrator::get_instance().get_accessor_info<target::device>(detail::extract_hydration_id(m_device_ptr));
 				m_device_ptr = static_cast<DataT*>(info.ptr);
-				m_index_offset = detail::id_cast<Dims>(info.buffer_offset);
-				m_buffer_range = detail::range_cast<Dims>(info.buffer_range);
+				m_backing_buffer_offset = detail::id_cast<Dims>(info.backing_buffer_offset);
+				m_backing_buffer_range = detail::range_cast<Dims>(info.backing_buffer_range);
 			}
 		}
 #endif
 	}
 
-	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_buffer_range, index - m_index_offset); }
+	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_backing_buffer_range, index - m_backing_buffer_offset); }
 };
 
 template <typename DataT, int Dims, access_mode Mode>
@@ -513,17 +514,18 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	 */
 	DataT* get_pointer() const {
 		bool illegal_access = false;
-		if(m_index_offset != detail::id_cast<Dims>(id<3>{0, 0, 0})) { illegal_access = true; }
+		if(m_backing_buffer_offset != detail::id_cast<Dims>(id<3>{0, 0, 0})) { illegal_access = true; }
 		// We can be a bit more lenient for 1D buffers, in that the backing buffer doesn't have to have the full size.
 		// (Dereferencing the pointer outside of the requested range is UB anyways).
-		if(Dims > 1 && m_buffer_range != m_virtual_buffer_range) { illegal_access = true; }
+		if(Dims > 1 && m_backing_buffer_range != m_virtual_buffer_range) { illegal_access = true; }
 		if(illegal_access) { throw std::logic_error("Buffer cannot be accessed with expected stride"); }
 		return m_host_ptr;
 	}
 
 	friend bool operator==(const accessor& lhs, const accessor& rhs) {
-		return lhs.m_host_ptr == rhs.m_host_ptr && lhs.m_mapped_subrange == rhs.m_mapped_subrange && lhs.m_buffer_range == rhs.m_buffer_range
-		       && lhs.m_virtual_buffer_range == rhs.m_virtual_buffer_range && lhs.m_index_offset == rhs.m_index_offset;
+		return lhs.m_host_ptr == rhs.m_host_ptr && lhs.m_accessed_virtual_subrange == rhs.m_accessed_virtual_subrange
+		       && lhs.m_backing_buffer_range == rhs.m_backing_buffer_range && lhs.m_virtual_buffer_range == rhs.m_virtual_buffer_range
+		       && lhs.m_backing_buffer_offset == rhs.m_backing_buffer_offset;
 	}
 
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
@@ -543,10 +545,10 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		return {
 		    m_host_ptr,
 		    m_virtual_buffer_range,
-		    m_buffer_range,
-		    m_mapped_subrange.range,
-		    m_index_offset,
-		    m_mapped_subrange.offset,
+		    m_backing_buffer_range,
+		    m_accessed_virtual_subrange.range,
+		    m_backing_buffer_offset,
+		    m_accessed_virtual_subrange.offset,
 		};
 	}
 
@@ -569,10 +571,10 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		host_memory_layout::dimension_vector dimensions(Dims);
 		for(int d = 0; d < Dims; ++d) {
 			dimensions[d] = {/* global_size */ m_virtual_buffer_range[d],
-			    /* global_offset */ m_mapped_subrange.offset[d],
-			    /* local_size */ m_buffer_range[d],
-			    /* local_offset */ m_mapped_subrange.offset[d] - m_index_offset[d],
-			    /* extent */ m_mapped_subrange.range[d]};
+			    /* global_offset */ m_accessed_virtual_subrange.offset[d],
+			    /* local_size */ m_backing_buffer_range[d],
+			    /* local_offset */ m_accessed_virtual_subrange.offset[d] - m_backing_buffer_offset[d],
+			    /* extent */ m_accessed_virtual_subrange.range[d]};
 		}
 
 		return {m_host_ptr, host_memory_layout{dimensions}};
@@ -582,13 +584,13 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
   private:
 	// Subange of the accessor, as set by the range mapper or requested by the user (master node host tasks only).
 	// This does not necessarily correspond to the backing buffer's range.
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS subrange<Dims> m_mapped_subrange;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS subrange<Dims> m_accessed_virtual_subrange;
 
 	// Offset of the backing buffer relative to the virtual buffer.
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_index_offset;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_backing_buffer_offset;
 
 	// Range of the backing buffer.
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_buffer_range = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_backing_buffer_range = detail::zero_range;
 
 	// The range of the Celerity buffer as created by the user.
 	// We only need this to check whether it is safe to call get_pointer() or not.
@@ -606,21 +608,21 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	}
 
 	// Constructor for tests, called through accessor_testspy.
-	accessor(const subrange<Dims> mapped_subrange, DataT* const ptr, const id<Dims>& backing_buffer_offset, const range<Dims>& backing_buffer_range,
+	accessor(const subrange<Dims> accessed_virtual_subrange, DataT* const ptr, const id<Dims>& backing_buffer_offset, const range<Dims>& backing_buffer_range,
 	    const range<Dims>& virtual_buffer_range)
-	    : m_mapped_subrange(mapped_subrange), m_index_offset(backing_buffer_offset), m_buffer_range(backing_buffer_range),
+	    : m_accessed_virtual_subrange(accessed_virtual_subrange), m_backing_buffer_offset(backing_buffer_offset), m_backing_buffer_range(backing_buffer_range),
 	      m_virtual_buffer_range(virtual_buffer_range), m_host_ptr(ptr) {}
 
 	// Constructor for tests, called through accessor_testspy.
-	accessor(const subrange<Dims>& mapped_subrange, const detail::hydration_id hid, const id<Dims>& backing_buffer_offset,
+	accessor(const subrange<Dims>& accessed_virtual_subrange, const detail::hydration_id hid, const id<Dims>& backing_buffer_offset,
 	    const range<Dims>& backing_buffer_range, range<Dims> virtual_buffer_range)
-	    : accessor(mapped_subrange, detail::embed_hydration_id<DataT*>(hid), backing_buffer_offset, backing_buffer_range, virtual_buffer_range) {}
+	    : accessor(accessed_virtual_subrange, detail::embed_hydration_id<DataT*>(hid), backing_buffer_offset, backing_buffer_range, virtual_buffer_range) {}
 
 	void copy_and_hydrate(const accessor& other) {
-		m_mapped_subrange = other.m_mapped_subrange;
+		m_accessed_virtual_subrange = other.m_accessed_virtual_subrange;
 		m_host_ptr = other.m_host_ptr;
-		m_index_offset = other.m_index_offset;
-		m_buffer_range = other.m_buffer_range;
+		m_backing_buffer_offset = other.m_backing_buffer_offset;
+		m_backing_buffer_range = other.m_backing_buffer_range;
 		m_virtual_buffer_range = other.m_virtual_buffer_range;
 
 		if(detail::is_embedded_hydration_id(m_host_ptr)) {
@@ -631,14 +633,14 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 			if(detail::closure_hydrator::is_available() && detail::closure_hydrator::get_instance().is_hydrating()) {
 				const auto info = detail::closure_hydrator::get_instance().get_accessor_info<target::host_task>(detail::extract_hydration_id(m_host_ptr));
 				m_host_ptr = static_cast<DataT*>(info.ptr);
-				m_index_offset = detail::id_cast<Dims>(info.buffer_offset);
-				m_buffer_range = detail::range_cast<Dims>(info.buffer_range);
-				m_mapped_subrange = detail::subrange_cast<Dims>(info.accessor_sr);
+				m_backing_buffer_offset = detail::id_cast<Dims>(info.backing_buffer_offset);
+				m_backing_buffer_range = detail::range_cast<Dims>(info.backing_buffer_range);
+				m_accessed_virtual_subrange = detail::subrange_cast<Dims>(info.accessed_virtual_subrange);
 			}
 		}
 	}
 
-	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_buffer_range, index - m_index_offset); }
+	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_backing_buffer_range, index - m_backing_buffer_offset); }
 };
 
 #undef CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR
