@@ -59,9 +59,9 @@ class closure_hydrator {
   public:
 	struct accessor_info {
 		void* ptr;
-		range<3> buffer_range;
-		id<3> buffer_offset;
-		subrange<3> accessor_sr;
+		range<3> backing_buffer_range;
+		id<3> backing_buffer_offset;
+		subrange<3> accessed_virtual_subrange;
 	};
 
 	closure_hydrator(const closure_hydrator&) = delete;
