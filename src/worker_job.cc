@@ -212,20 +212,25 @@ namespace detail {
 			for(size_t i = 0; i < access_map.get_num_accesses(); ++i) {
 				const auto [bid, mode] = access_map.get_nth_access(i);
 				const auto sr = grid_box_to_subrange(access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()));
-				const auto info = m_buffer_mngr.access_device_buffer(bid, mode, sr);
 
+				try {
+					const auto info = m_buffer_mngr.access_device_buffer(bid, mode, sr);
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-				auto* const oob_idx = sycl::malloc_shared<id<3>>(2, m_queue.get_sycl_queue());
-				assert(oob_idx != nullptr);
-				constexpr size_t size_t_max = std::numeric_limits<size_t>::max();
-				const auto buffer_dims = m_buffer_mngr.get_buffer_info(bid).dimensions;
-				oob_idx[0] = id<3>{size_t_max, buffer_dims > 1 ? size_t_max : 0, buffer_dims == 3 ? size_t_max : 0};
-				oob_idx[1] = id<3>{1, 1, 1};
-				m_oob_indices_per_accessor.push_back(oob_idx);
-				accessor_infos.push_back(closure_hydrator::accessor_info{info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr, oob_idx});
+					auto* const oob_idx = sycl::malloc_shared<id<3>>(2, m_queue.get_sycl_queue());
+					assert(oob_idx != nullptr);
+					constexpr size_t size_t_max = std::numeric_limits<size_t>::max();
+					const auto buffer_dims = m_buffer_mngr.get_buffer_info(bid).dimensions;
+					oob_idx[0] = id<3>{size_t_max, buffer_dims > 1 ? size_t_max : 0, buffer_dims == 3 ? size_t_max : 0};
+					oob_idx[1] = id<3>{1, 1, 1};
+					m_oob_indices_per_accessor.push_back(oob_idx);
+					accessor_infos.push_back(closure_hydrator::accessor_info{info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr, oob_idx});
 #else
-				accessor_infos.push_back(closure_hydrator::accessor_info{info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr});
+					accessor_infos.push_back(closure_hydrator::accessor_info{info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr});
 #endif
+				} catch(allocation_error& e) {
+					CELERITY_CRITICAL("Encountered allocation error while trying to prepare {}", get_description(pkg));
+					std::terminate();
+				}
 			}
 
 			for(size_t i = 0; i < reductions.size(); ++i) {

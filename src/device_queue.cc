@@ -20,6 +20,8 @@ namespace detail {
 		auto device = std::visit(
 		    [&cfg](const auto& value) { return ::celerity::detail::pick_device(cfg, value, cl::sycl::platform::get_platforms()); }, user_device_or_selector);
 		m_sycl_queue = std::make_unique<cl::sycl::queue>(device, handle_exceptions, props);
+
+		m_global_mem_total_size_bytes = m_sycl_queue->get_device().get_info<sycl::info::device::global_mem_size>();
 	}
 
 	void device_queue::handle_async_exceptions(cl::sycl::exception_list el) const {

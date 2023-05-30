@@ -78,16 +78,79 @@ namespace detail {
 		auto& existing_buf = m_buffers[bid].device_buf;
 		backing_buffer replacement_buf;
 
+		const auto die = [&](const size_t allocation_size_bytes) {
+			std::string msg = fmt::format("Unable to allocate buffer {} of size {}.\n", bid, allocation_size_bytes);
+			fmt::format_to(std::back_inserter(msg), "\nCurrent allocations:\n");
+			size_t total_bytes = 0;
+			for(const auto& [bid, b] : m_buffers) {
+				if(b.device_buf.is_allocated()) {
+					fmt::format_to(std::back_inserter(msg), "\tBuffer {}: {} bytes\n", bid, b.device_buf.storage->get_size());
+					total_bytes += b.device_buf.storage->get_size();
+				}
+			}
+			fmt::format_to(std::back_inserter(msg), "Total usage: {} / {} bytes ({:.1f}%).\n", total_bytes, m_queue.get_global_memory_total_size_bytes(),
+			    100 * static_cast<double>(total_bytes) / static_cast<double>(m_queue.get_global_memory_total_size_bytes()));
+			throw allocation_error(msg);
+		};
+
 		if(!existing_buf.is_allocated()) {
-			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(sr.range, m_queue.get_sycl_queue()), sr.offset};
-		} else {
-			// FIXME: For large buffers we might not be able to store two copies in device memory at once.
-			// Instead, we'd first have to transfer everything to the host and free the old buffer before allocating the new one.
-			// TODO: What we CAN do however already is to free the old buffer early iff we're requesting a discard_* access!
-			// (AND that access request covers the entirety of the old buffer!)
-			const auto info = is_resize_required(existing_buf, sr.range, sr.offset);
-			if(info.resize_required) {
-				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, m_queue.get_sycl_queue()), info.new_offset};
+			const auto allocation_size_bytes = sr.range.size() * m_buffer_infos.at(bid).element_size;
+			if(!can_allocate(allocation_size_bytes)) {
+				// TODO: Unless this single allocation exceeds the total available memory on the device we don't need to abort right away,
+				// could evict other buffers first.
+				die(allocation_size_bytes);
+			}
+			replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(sr.range, m_queue), sr.offset};
+		} else if(const auto info = is_resize_required(existing_buf, sr.range, sr.offset); info.resize_required) {
+			const auto element_size = m_buffer_infos.at(bid).element_size;
+			const auto allocation_size_bytes = info.new_range.size() * element_size;
+			if(can_allocate(allocation_size_bytes)) {
+				// Easy path: We can just do the resize on the device directly
+				replacement_buf = backing_buffer{m_buffer_infos.at(bid).construct_device(info.new_range, m_queue), info.new_offset};
+			} else {
+				bool spill_to_host = false;
+				// Check if we can do the resize by going through host first (see if we'll be able to fit just the added elements of the resized buffer).
+				if(!can_allocate(allocation_size_bytes - (existing_buf.storage->get_range().size() * element_size))) {
+					// Final attempt: Check if we can create a new buffer with the requested size if we spill everything else to the host.
+					if(can_allocate(sr.range.size() * element_size, existing_buf.storage->get_range().size() * element_size)) {
+						spill_to_host = true;
+					} else {
+						// TODO: Same thing as above (could evict other buffers first)
+						die(allocation_size_bytes);
+					}
+				}
+
+				if(spill_to_host) {
+					CELERITY_WARN("Buffer {} cannot be resized to fit fully into device memory, spilling partially to host and only storing requested range on "
+					              "device. Performance may be degraded.",
+					    bid);
+				} else {
+					CELERITY_WARN("Resize of buffer {} requires temporarily copying to host memory. Performance may be degraded.", bid);
+				}
+
+				// Use faux host accesses to retain all data from the device (except what is going to be discarded anyway).
+				// TODO: This could be made more efficient, currently it may cause multiple consecutive resizes.
+				GridRegion<3> retain_region = subrange_to_grid_box(subrange<3>{existing_buf.offset, existing_buf.storage->get_range()});
+				if(!access::mode_traits::is_consumer(mode)) {
+					retain_region = GridRegion<3>::difference(retain_region, subrange_to_grid_box(subrange<3>{sr.offset, sr.range}));
+				}
+				retain_region.scanByBoxes([&](const GridBox<3>& box) {
+					const auto sr = grid_box_to_subrange(box);
+					access_host_buffer_impl(bid, access_mode::read, subrange<3>{sr.offset, sr.range});
+				});
+
+				// We now have all data "backed up" on the host, so we may deallocate the device buffer (via destructor).
+				existing_buf = backing_buffer{};
+				auto locations = m_newest_data_location.at(bid).get_region_values(retain_region);
+				for(auto& [box, locs] : locations) {
+					assert(locs == data_location::host_and_device);
+					m_newest_data_location.at(bid).update_region(box, data_location::host);
+				}
+
+				// Finally create the new device buffer. It will be made coherent with data from the host below.
+				// If we have to spill to host, only allocate the currently requested subrange. Otherwise use bounding box of existing and new range.
+				replacement_buf = backing_buffer{
+				    m_buffer_infos.at(bid).construct_device(spill_to_host ? sr.range : info.new_range, m_queue), spill_to_host ? sr.offset : info.new_offset};
 			}
 		}
 
@@ -106,7 +169,11 @@ namespace detail {
 
 	buffer_manager::access_info buffer_manager::access_host_buffer(buffer_id bid, access_mode mode, const subrange<3>& sr) {
 		std::unique_lock lock(m_mutex);
-		assert((range_cast<3>(sr.offset + sr.range) <= m_buffer_infos.at(bid).range) == range(true, true, true));
+		return access_host_buffer_impl(bid, mode, sr);
+	}
+
+	buffer_manager::access_info buffer_manager::access_host_buffer_impl(const buffer_id bid, const access_mode mode, const subrange<3>& sr) {
+		assert((range_cast<3>(sr.offset + sr.range) <= m_buffer_infos.at(bid).range) == range<3>(true, true, true));
 
 		auto& existing_buf = m_buffers[bid].host_buf;
 		backing_buffer replacement_buf;
