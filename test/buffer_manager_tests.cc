@@ -4,12 +4,14 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators_range.hpp>
 #include <catch2/matchers/catch_matchers_exception.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <celerity.h>
 
 #include "ranges.h"
 
 #include "buffer_manager_test_utils.h"
+#include "log_test_utils.h"
 
 namespace celerity {
 namespace detail {
@@ -1087,6 +1089,212 @@ namespace detail {
 		std::string buff_name{"my_buffer"};
 		detail::runtime::get_instance().get_buffer_manager().set_debug_name(detail::get_buffer_id(buff_a), buff_name);
 		CHECK(detail::runtime::get_instance().get_buffer_manager().get_debug_name(detail::get_buffer_id(buff_a)) == buff_name);
+	}
+
+	TEST_CASE_METHOD(test_utils::device_queue_fixture, "device_queue allows to allocate device memory and query usage", "[device_queue]") {
+		auto& dq = get_device_queue();
+		const auto one_quarter = dq.get_global_memory_total_size_bytes() / 4;
+		auto alloc1 = dq.malloc<char>(one_quarter);
+		CHECK(alloc1.size_bytes == one_quarter);
+		CHECK(dq.get_global_memory_allocated_bytes() == one_quarter);
+		auto alloc2 = dq.malloc<char>(2 * one_quarter);
+		CHECK(alloc2.size_bytes == 2 * one_quarter);
+		CHECK(dq.get_global_memory_allocated_bytes() == 3 * one_quarter);
+		dq.free(alloc1);
+		CHECK(dq.get_global_memory_allocated_bytes() == 2 * one_quarter);
+		dq.free(alloc2);
+	}
+
+	TEST_CASE_METHOD(test_utils::device_queue_fixture, "device_queue throws on allocation if device is out of memory", "[device_queue]") {
+#if CELERITY_DPCPP
+		SKIP("DPC++ swaps to system memory instead of failing");
+#else
+		auto& dq = get_device_queue();
+		const auto one_quarter = dq.get_global_memory_total_size_bytes() / 4;
+		// The device queue expects the user to keep track of memory usage (and asserts that an allocation will fit),
+		// so we have to allocate manually through SYCL to trigger an OOM error.
+		auto my_queue = sycl::queue{dq.get_sycl_queue().get_device(), [](const sycl::exception_list&) {}};
+		auto* const ptr = sycl::malloc_device(2 * one_quarter, my_queue);
+		CHECK(ptr != nullptr);
+		auto alloc1 = dq.malloc<char>(one_quarter);
+		CHECK_THROWS_MATCHES(dq.malloc<char>(2 * one_quarter), allocation_error,
+		    Catch::Matchers::Message(fmt::format("Allocation of {} bytes failed; likely out of memory. Currently allocated: {} out of {} bytes.",
+		        2 * one_quarter, one_quarter, dq.get_global_memory_total_size_bytes())));
+		dq.free(alloc1);
+		sycl::free(ptr, my_queue);
+		auto alloc2 = dq.malloc<char>(2 * one_quarter);
+		dq.free(alloc2);
+#endif
+	}
+
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager can resize large buffers by going through the host", "[buffer_manager]") {
+		auto& bm = get_buffer_manager();
+
+		// Set memory usage limit to something low so the test doesn't run forever
+		const size_t buf_size_bytes = 100 * sizeof(size_t);
+		REQUIRE(buf_size_bytes < get_device_queue().get_global_memory_total_size_bytes());
+		bm.set_max_device_global_memory_usage(
+		    static_cast<double>(buf_size_bytes) / static_cast<double>(get_device_queue().get_global_memory_total_size_bytes()));
+
+		const auto one_quarter_elements = buf_size_bytes / (4 * sizeof(size_t));
+		const auto bid = bm.register_buffer<size_t, 1>(range<3>(4 * one_quarter_elements, 1, 1));
+
+		// Initialize buffer to use 75% of available device memory
+		buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(write_linear_id)>(
+		    bid, access_target::device, {3 * one_quarter_elements}, {0}, [](id<1> idx, size_t& value) { value = idx[0]; });
+		const auto dinfo1 = bm.access_device_buffer<size_t, 1>(bid, access_mode::read, {{}, {3 * one_quarter_elements}});
+
+		test_utils::log_capture lc(spdlog::level::warn);
+
+		// Now access one additional element, which requires a resize
+		buffer_for_each<size_t, 1, access_mode::read_write, class UKN(update)>(
+		    bid, access_target::device, {3 * one_quarter_elements + 1}, {0}, [=](id<1> idx, size_t& value) {
+			    value *= 2;
+			    if(idx[0] == 3 * one_quarter_elements) { value = 1337; }
+		    });
+		const auto dinfo2 = bm.access_device_buffer<size_t, 1>(bid, access_mode::read, {{}, {3 * one_quarter_elements + 1}});
+
+		// Sanity check: Did we actually reallocate the buffer?
+		CHECK_FALSE((dinfo1.ptr == dinfo2.ptr && dinfo1.backing_buffer_offset == dinfo2.backing_buffer_offset
+		             && dinfo1.backing_buffer_range == dinfo2.backing_buffer_range));
+
+		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring(
+		                             fmt::format("Resize of buffer {} requires temporarily copying to host memory. Performance may be degraded.", bid)));
+
+		// Verify that data was correctly copied back from host
+		bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
+		    bid, access_target::device, {3 * one_quarter_elements}, {0}, true, [=](id<1> idx, bool current, size_t value) {
+			    if(idx[0] == 3 * one_quarter_elements) { return current && value == 1337; }
+			    return current && (value == idx[0] * 2);
+		    });
+		REQUIRE(valid);
+	}
+
+	TEST_CASE_METHOD(
+	    test_utils::buffer_manager_fixture, "buffer_manager does not retain regions that will be overwritten when resizing through host", "[buffer_manager]") {
+		auto& bm = get_buffer_manager();
+
+		// Set memory usage limit to something low so the test doesn't run forever
+		const size_t buf_size_bytes = 100 * sizeof(size_t);
+		REQUIRE(buf_size_bytes < get_device_queue().get_global_memory_total_size_bytes());
+		bm.set_max_device_global_memory_usage(
+		    static_cast<double>(buf_size_bytes) / static_cast<double>(get_device_queue().get_global_memory_total_size_bytes()));
+
+		const auto one_quarter_elements = buf_size_bytes / (4 * sizeof(size_t));
+		const auto bid = bm.register_buffer<size_t, 1>(range<3>(4 * one_quarter_elements, 1, 1));
+
+		// Initialize full buffer on host with known values
+		buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(write_linear_id)>(
+		    bid, access_target::host, {4 * one_quarter_elements}, {0}, [](id<1> idx, size_t& value) { value = idx[0]; });
+		const auto hinfo1 = bm.access_host_buffer<size_t, 1>(bid, access_mode::read, {{}, {4 * one_quarter_elements}});
+
+		// Allocate 0-75 of buffer on device
+		buffer_for_each<size_t, 1, access_mode::read_write, class UKN(update)>(
+		    bid, access_target::device, {3 * one_quarter_elements}, {0}, [](id<1> idx, size_t& value) { value *= 2; });
+		const auto dinfo1 = bm.access_device_buffer<size_t, 1>(bid, access_mode::read, {{}, {3 * one_quarter_elements}});
+
+		// Now access 25-75 + 1, forcing reallocation. Important: Use discarding access mode so 25-75 does not need to be retained on host
+		buffer_for_each<size_t, 1, access_mode::discard_write, class UKN(overwrite)>(
+		    bid, access_target::device, {2 * one_quarter_elements + 1}, {one_quarter_elements}, [](id<1> idx, size_t& value) { value = 3 * idx[0]; });
+		const auto dinfo2 = bm.access_device_buffer<size_t, 1>(bid, access_mode::read, {{one_quarter_elements}, {2 * one_quarter_elements + 1}});
+
+		// Sanity check: Did we actually reallocate the buffer?
+		CHECK_FALSE((dinfo1.ptr == dinfo2.ptr && dinfo1.backing_buffer_offset == dinfo2.backing_buffer_offset
+		             && dinfo1.backing_buffer_range == dinfo2.backing_buffer_range));
+
+		// Access full buffer on host
+		const auto hinfo2 = bm.access_host_buffer<size_t, 1>(bid, access_mode::read, {{}, {100}});
+		// Host buffer should not have been reallocated
+		CHECK((hinfo1.ptr == hinfo2.ptr && hinfo1.backing_buffer_offset == hinfo2.backing_buffer_offset
+		       && hinfo1.backing_buffer_range == hinfo2.backing_buffer_range));
+		const size_t* const hptr = static_cast<size_t*>(hinfo1.ptr);
+
+		// Retained from device
+		for(size_t i = 0; i < 25; ++i) {
+			REQUIRE_LOOP(hptr[i] == i * 2);
+		}
+		// Updated on device
+		for(size_t i = 25; i < 76; ++i) {
+			REQUIRE_LOOP(hptr[i] == i * 3);
+		}
+		// Initial host values
+		for(size_t i = 76; i < 100; ++i) {
+			REQUIRE_LOOP(hptr[i] == i);
+		}
+	}
+
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager spills unused parts to host for large accesses", "[buffer_manager]") {
+		auto& bm = get_buffer_manager();
+
+		// Set memory usage limit to something low so the test doesn't run forever
+		const size_t buf_size_bytes = 100 * sizeof(size_t);
+		REQUIRE(buf_size_bytes < get_device_queue().get_global_memory_total_size_bytes());
+		bm.set_max_device_global_memory_usage(
+		    static_cast<double>(buf_size_bytes) / static_cast<double>(get_device_queue().get_global_memory_total_size_bytes()));
+
+		const auto bid = bm.register_buffer<size_t, 2>(range<3>(100, 100, 1));
+
+		// Access "top left" of buffer first
+		buffer_for_each<size_t, 2, access_mode::discard_write, class UKN(write_linear_id)>(
+		    bid, access_target::device, {8, 8}, {0, 0}, [](id<2> idx, size_t& value) { value = idx[0] * 100 + idx[1]; });
+		const auto dinfo1 = bm.access_device_buffer<size_t, 2>(bid, access_mode::read, {{}, {8, 8}});
+
+		test_utils::log_capture lc(spdlog::level::warn);
+
+		// Now access "bottom right", which normally would result in the full buffer to be allocated
+		buffer_for_each<size_t, 2, access_mode::discard_write, class UKN(write_linear_id)>(
+		    bid, access_target::device, {8, 8}, {91, 91}, [](id<2> idx, size_t& value) { value = idx[0] * 100 + idx[1]; });
+		const auto dinfo2 = bm.access_device_buffer<size_t, 2>(bid, access_mode::read, {{91, 91}, {8, 8}});
+
+		// Sanity check: Did we actually reallocate the buffer?
+		CHECK_FALSE((dinfo1.ptr == dinfo2.ptr && dinfo1.backing_buffer_offset == dinfo2.backing_buffer_offset
+		             && dinfo1.backing_buffer_range == dinfo2.backing_buffer_range));
+
+		CHECK_THAT(
+		    lc.get_log(), Catch::Matchers::ContainsSubstring(fmt::format("Buffer {} cannot be resized to fit fully into device memory, spilling partially to "
+		                                                                 "host and only storing requested range on device. Performance may be degraded.",
+		                      bid)));
+
+		// Verify that data is fully available on the host
+		const auto acc = get_host_accessor<size_t, 2, access_mode::read>(bid, {100, 100}, {0, 0});
+		for(size_t i = 0; i < 8; ++i) {
+			for(size_t j = 0; j < 8; ++j) {
+				REQUIRE_LOOP(acc[i][j] == i * 100 + j);
+				REQUIRE_LOOP(acc[91 + i][91 + j] == (91 + i) * 100 + 91 + j);
+			}
+		}
+	}
+
+	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager throws if buffer access exceeds available memory", "[buffer_manager]") {
+		using Catch::Matchers::ContainsSubstring;
+		using Catch::Matchers::MessageMatches;
+		auto& bm = get_buffer_manager();
+
+		const size_t global_mem_size_bytes = get_device_queue().get_global_memory_total_size_bytes();
+		const auto one_quarter_elements = global_mem_size_bytes / (4 * sizeof(size_t));
+		const auto bid0 = bm.register_buffer<size_t, 1>(range<3>(10 * one_quarter_elements, 1, 1));
+		const auto bid1 = bm.register_buffer<size_t, 1>(range<3>(10 * one_quarter_elements, 1, 1));
+
+		bm.access_device_buffer(bid0, access_mode::discard_write, subrange<3>{{}, {one_quarter_elements, 1, 1}});
+
+		// Order of listed buffers is implementation defined (unordered_map), so we match them separately
+		const auto error_msg = fmt::format("Unable to allocate buffer {} of size {}.\n\nCurrent allocations:", bid1, 4 * one_quarter_elements * sizeof(size_t));
+		const auto buf0_size = fmt::format("Buffer {}: {} bytes", bid0, one_quarter_elements * sizeof(size_t));
+
+		SECTION("upon first creation") {
+			CHECK_THROWS_MATCHES(bm.access_device_buffer(bid1, access_mode::discard_write, subrange<3>{{}, {4 * one_quarter_elements, 1, 1}}), allocation_error,
+			    MessageMatches(ContainsSubstring(error_msg) && ContainsSubstring(buf0_size)
+			                   && ContainsSubstring(fmt::format("Total usage: {} / {} bytes ({:.1f}%)", one_quarter_elements * sizeof(size_t),
+			                       global_mem_size_bytes, 100 * static_cast<double>(one_quarter_elements * sizeof(size_t)) / global_mem_size_bytes))));
+		}
+		SECTION("upon resizing") {
+			const auto buf1_size = fmt::format("Buffer {}: {} bytes", bid1, 2 * one_quarter_elements * sizeof(size_t));
+			CHECK_NOTHROW(bm.access_device_buffer(bid1, access_mode::discard_write, subrange<3>{{}, {2 * one_quarter_elements, 1, 1}}));
+			CHECK_THROWS_MATCHES(bm.access_device_buffer(bid1, access_mode::discard_write, subrange<3>{{}, {4 * one_quarter_elements, 1, 1}}), allocation_error,
+			    MessageMatches(ContainsSubstring(error_msg) && ContainsSubstring(buf0_size) && ContainsSubstring(buf1_size)
+			                   && ContainsSubstring(fmt::format("Total usage: {} / {} bytes ({:.1f}%)", 3 * one_quarter_elements * sizeof(size_t),
+			                       global_mem_size_bytes, 100 * static_cast<double>(3 * one_quarter_elements * sizeof(size_t)) / global_mem_size_bytes))));
+		}
 	}
 
 #endif // CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER

@@ -40,6 +40,16 @@ namespace detail {
 	}
 #endif
 
+	struct device_allocation {
+		void* ptr = nullptr;
+		size_t size_bytes = 0;
+	};
+
+	class allocation_error : public std::runtime_error {
+	  public:
+		allocation_error(const std::string& msg) : std::runtime_error(msg) {}
+	};
+
 	/**
 	 * The @p device_queue wraps the actual SYCL queue and is used to submit kernels.
 	 */
@@ -68,6 +78,40 @@ namespace detail {
 			return evt;
 		}
 
+		template <typename T>
+		[[nodiscard]] device_allocation malloc(const size_t count) {
+			const size_t size_bytes = count * sizeof(T);
+			assert(m_sycl_queue != nullptr);
+			assert(m_global_mem_allocated_bytes + size_bytes < m_global_mem_total_size_bytes);
+			CELERITY_DEBUG("Allocating {} bytes on device", size_bytes);
+			T* ptr = nullptr;
+			try {
+				ptr = sycl::aligned_alloc_device<T>(alignof(T), count, *m_sycl_queue);
+			} catch(sycl::exception& e) {
+				CELERITY_CRITICAL("sycl::aligned_alloc_device failed with exception: {}", e.what());
+				ptr = nullptr;
+			}
+			if(ptr == nullptr) {
+				throw allocation_error(fmt::format("Allocation of {} bytes failed; likely out of memory. Currently allocated: {} out of {} bytes.",
+				    count * sizeof(T), m_global_mem_allocated_bytes, m_global_mem_total_size_bytes));
+			}
+			m_global_mem_allocated_bytes += size_bytes;
+			return device_allocation{ptr, size_bytes};
+		}
+
+		void free(device_allocation alloc) {
+			assert(m_sycl_queue != nullptr);
+			assert(alloc.size_bytes <= m_global_mem_allocated_bytes);
+			assert(alloc.ptr != nullptr || alloc.size_bytes == 0);
+			CELERITY_DEBUG("Freeing {} bytes on device", alloc.size_bytes);
+			if(alloc.size_bytes != 0) { sycl::free(alloc.ptr, *m_sycl_queue); }
+			m_global_mem_allocated_bytes -= alloc.size_bytes;
+		}
+
+		size_t get_global_memory_total_size_bytes() const { return m_global_mem_total_size_bytes; }
+
+		size_t get_global_memory_allocated_bytes() const { return m_global_mem_allocated_bytes; }
+
 		/**
 		 * @brief Waits until all currently submitted operations have completed.
 		 */
@@ -84,6 +128,8 @@ namespace detail {
 		}
 
 	  private:
+		size_t m_global_mem_total_size_bytes = 0;
+		size_t m_global_mem_allocated_bytes = 0;
 		std::unique_ptr<cl::sycl::queue> m_sycl_queue;
 		bool m_device_profiling_enabled = false;
 
