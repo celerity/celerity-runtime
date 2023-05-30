@@ -29,7 +29,7 @@ jobs:
       should_skip: ${{ steps.skip-check.outputs.should_skip }}
     steps:
       - id: skip-check
-        uses: fkirc/skip-duplicate-actions@v3.4.1
+        uses: fkirc/skip-duplicate-actions@v5.3.0
         with:
           concurrent_skipping: "never"
           skip_after_successful_duplicate: "false"
@@ -67,7 +67,7 @@ jobs:
       # variable contains the path on the container host (but $GITHUB_WORKSPACE is correct).
       - name: Set container workspace environment variable
         run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           submodules: true
       # We only want to configure CMake, so we build the "help" target,
@@ -104,19 +104,21 @@ jobs:
     outputs:
       matrix: ${{ steps.read-json-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - id: read-json-matrix
         name: Read build matrix from file
         shell: python
         run: |
           import json
+          import os
           with open("${{ github.workspace }}/.github/workflows/build_matrix.json") as f:
             matrices = json.load(f)
             if '${{ github.event_name != 'schedule' && inputs.test-head == false }}' == 'true':
               matrix = matrices['default']
             else:
               matrix = matrices['nightly']
-            print('::set-output name=matrix::{ "include":%s }' % json.dumps(matrix))
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+              print('matrix={ "include":%s }' % json.dumps(matrix), file=fh)
 
   build-and-test:
     needs: [find-duplicate-workflows, read-build-matrix]
@@ -147,7 +149,7 @@ jobs:
         run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
       - name: Print exact SYCL revision used for this CI run
         run: cat /VERSION
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           submodules: true
       - name: Build and install Celerity
@@ -155,7 +157,7 @@ jobs:
       # Upload build log for report step
       - name: Upload build logs
         if: always()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ${{ env.build-name }}
           path: ${{ env.build-name }}.log
@@ -184,7 +186,7 @@ jobs:
         run: ${{ env.container-workspace }}/test/integration/run-integration-tests.py . ${{ matrix.platform }}
       - name: Upload stack traces (if any)
         if: always()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ${{ env.build-name }}
           path: |
@@ -195,8 +197,8 @@ jobs:
         name: Set outputs for HEAD builds
         if: matrix.sycl-version == 'HEAD'
         run: |
-          echo "::set-output name=${{ matrix.sycl }}-HEAD-${{ matrix.build-type }}-works::1"
-          echo "::set-output name=${{ matrix.sycl }}-HEAD-ubuntu-version::${{ matrix.ubuntu-version }}"
+          echo "${{ matrix.sycl }}-HEAD-${{ matrix.build-type }}-works=1 >> $GITHUB_OUTPUT"
+          echo "${{ matrix.sycl }}-HEAD-ubuntu-version=${{ matrix.ubuntu-version }} >> $GITHUB_OUTPUT"
 
   # Tag "HEAD" images that built and tested successfully as "latest".
   # This is only done for nightly builds (or when specifying the "tag-latest" option on manually triggered runs).
@@ -244,7 +246,7 @@ jobs:
     steps:
       - name: Set container workspace environment variable
         run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Check code formatting
         id: formatting
         working-directory: ${{ env.container-workspace }}
@@ -252,7 +254,7 @@ jobs:
         run: |
           unformatted=$("./ci/find-unformatted-files.sh")
           unformatted=${unformatted//$'\n'/'%0A'}
-          echo "::set-output name=unformatted-files::$unformatted"
+          echo "unformatted-files=$unformatted >> $GITHUB_OUTPUT"
       - uses: "celerity/ci-report-action@v6"
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
