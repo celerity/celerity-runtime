@@ -146,12 +146,12 @@ namespace detail {
 			    test_utils::add_compute_task<class UKN(task_a)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{100}));
 			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::execution).size() == 1);
-			const auto computes_a = inspector.get_commands(tid_a, node_id(0), command_type::execution);
+			const auto computes_a = inspector.get_commands(tid_a, master_node, command_type::execution);
 			const auto tid_b = test_utils::build_and_flush(ctx, 1,
 			    test_utils::add_compute_task<class UKN(task_b)>(
 			        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{100}));
 			CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::execution).size() == 1);
-			const auto computes_b = inspector.get_commands(tid_b, node_id(0), command_type::execution);
+			const auto computes_b = inspector.get_commands(tid_b, master_node, command_type::execution);
 			const auto tid_c = test_utils::build_and_flush(ctx, 1,
 			    test_utils::add_compute_task<class UKN(task_c)>(
 			        ctx.get_task_manager(),
@@ -161,7 +161,7 @@ namespace detail {
 			        },
 			        range<1>{100}));
 			CHECK(inspector.get_commands(tid_c, std::nullopt, command_type::execution).size() == 1);
-			const auto computes_c = inspector.get_commands(tid_c, node_id(0), command_type::execution);
+			const auto computes_c = inspector.get_commands(tid_c, master_node, command_type::execution);
 			REQUIRE(inspector.has_dependency(*computes_c.cbegin(), *computes_a.cbegin()));
 			REQUIRE(inspector.has_dependency(*computes_c.cbegin(), *computes_b.cbegin()));
 
@@ -461,7 +461,7 @@ namespace detail {
 		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, one_to_one{}); }, range<1>{100}));
 
 		CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::execution).size() == 1);
-		const auto computes_a = inspector.get_commands(tid_a, node_id(0), command_type::execution);
+		const auto computes_a = inspector.get_commands(tid_a, master_node, command_type::execution);
 		CHECK(computes_a.size() == 1);
 
 		// task_b writes to the same buffer a
@@ -470,7 +470,7 @@ namespace detail {
 		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{100}));
 
 		CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::execution).size() == 1);
-		const auto computes_b = inspector.get_commands(tid_b, node_id(0), command_type::execution);
+		const auto computes_b = inspector.get_commands(tid_b, master_node, command_type::execution);
 		CHECK(computes_b.size() == 1);
 		// task_b should have an anti-dependency onto task_a
 		REQUIRE(inspector.has_dependency(*computes_b.cbegin(), *computes_a.cbegin()));
@@ -481,7 +481,7 @@ namespace detail {
 		        ctx.get_task_manager(), [&](handler& cgh) { buf_b.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{100}));
 
 		CHECK(inspector.get_commands(tid_c, std::nullopt, command_type::execution).size() == 1);
-		const auto computes_c = inspector.get_commands(tid_c, node_id(0), command_type::execution);
+		const auto computes_c = inspector.get_commands(tid_c, master_node, command_type::execution);
 		CHECK(computes_c.size() == 1);
 		// task_c should not have any anti-dependencies at all
 		REQUIRE(inspector.get_dependency_count(*computes_c.cbegin()) == 0);

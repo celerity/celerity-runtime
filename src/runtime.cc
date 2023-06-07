@@ -280,8 +280,9 @@ namespace detail {
 	void runtime::flush_command(node_id target, unique_frame_ptr<command_frame> frame) {
 		if(is_dry_run()) {
 			// Only flush epochs (for slow_full_sync / shutdown) and horizons (for deleting tasks from the ring buffer).
-			if(target != master_node || (frame->pkg.get_command_type() != command_type::epoch && frame->pkg.get_command_type() != command_type::horizon))
+			if(target != master_node || (frame->pkg.get_command_type() != command_type::epoch && frame->pkg.get_command_type() != command_type::horizon)) {
 				return;
+			}
 		}
 		// Even though command packages are small enough to use a blocking send we want to be able to send to the master node as well,
 		// which is why we have to use Isend after all. We also have to make sure that the buffer stays around until the send is complete.
