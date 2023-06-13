@@ -59,7 +59,7 @@ namespace detail {
 
 		void sync();
 
-		bool is_master_node() const { return m_local_nid == 0; }
+		bool is_master_node() const { return m_local_nid == master_node_id; }
 
 		size_t get_num_nodes() const { return m_num_nodes; }
 
