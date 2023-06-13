@@ -195,7 +195,11 @@ namespace detail {
 
 		std::vector<task_callback> m_task_callbacks;
 
-		// maximum critical path length in the task graph before inserting a horizon
+		// Maximum critical path length in the task graph before inserting a horizon
+		// While it seems like this value could have a significant performance impact and might need to be tweaked per-platform,
+		// benchmarking results so far indicate that as long as some sufficiently small value is chosen, there is a broad range
+		// of values which all provide good performance results across a variety of workloads.
+		// More information can be found in this paper: https://link.springer.com/chapter/10.1007/978-3-031-32316-4_2
 		int m_task_horizon_step_size = 4;
 
 		// This only (potentially) grows when adding dependencies,
