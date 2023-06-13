@@ -21,3 +21,7 @@
 1. [Overview](overview.md)
 2. [Core Principles](core-principles.md)
 3. [Platform Support](platform-support.md)
+
+## Celerity Videos
+
+1. [Introduction to SYCL and Celerity](https://www.youtube.com/watch?v=xK_tCN9nm4Q)
