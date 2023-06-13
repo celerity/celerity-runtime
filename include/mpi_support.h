@@ -2,8 +2,6 @@
 
 #include <mpi.h>
 
-#include "types.h"
-
 namespace celerity::detail::mpi_support {
 
 constexpr int TAG_CMD = 0;
