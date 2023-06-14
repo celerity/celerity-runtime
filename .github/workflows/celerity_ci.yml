@@ -23,6 +23,21 @@ on:
     - cron: "0 5 * * *"
 
 jobs:
+  check-perf-impact:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.0'
+    - name: Check performance impact
+      run: ruby ./ci/check-perf-impact.rb
+    - name: Report performance impact
+      uses: thollander/actions-comment-pull-request@v2
+      with:
+        filePath: check_perf_message.txt
+
   find-duplicate-workflows:
     runs-on: [ self-hosted, slurm ]
     outputs:
