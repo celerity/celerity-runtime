@@ -213,7 +213,19 @@ namespace detail {
 				const auto [bid, mode] = access_map.get_nth_access(i);
 				const auto sr = grid_box_to_subrange(access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()));
 				const auto info = m_buffer_mngr.access_device_buffer(bid, mode, sr);
+
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+				auto* const oob_idx = sycl::malloc_shared<id<3>>(2, m_queue.get_sycl_queue());
+				assert(oob_idx != nullptr);
+				constexpr size_t size_t_max = std::numeric_limits<size_t>::max();
+				const auto buffer_dims = m_buffer_mngr.get_buffer_info(bid).dimensions;
+				oob_idx[0] = id<3>{size_t_max, buffer_dims > 1 ? size_t_max : 0, buffer_dims == 3 ? size_t_max : 0};
+				oob_idx[1] = id<3>{1, 1, 1};
+				m_oob_indices_per_accessor.push_back(oob_idx);
+				accessor_infos.push_back(closure_hydrator::accessor_info{info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr, oob_idx});
+#else
 				accessor_infos.push_back(closure_hydrator::accessor_info{info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr});
+#endif
 			}
 
 			for(size_t i = 0; i < reductions.size(); ++i) {
@@ -233,9 +245,27 @@ namespace detail {
 		const auto status = m_event.get_info<cl::sycl::info::event::command_execution_status>();
 		if(status == cl::sycl::info::event_command_status::complete) {
 			m_buffer_mngr.unlock(pkg.cid);
-
 			const auto data = std::get<execution_data>(pkg.data);
 			auto tsk = m_task_mngr.get_task(data.tid);
+
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+			for(size_t i = 0; i < m_oob_indices_per_accessor.size(); ++i) {
+				const id<3>& oob_min = m_oob_indices_per_accessor[i][0];
+				const id<3>& oob_max = m_oob_indices_per_accessor[i][1];
+
+				if(oob_max != id<3>{1, 1, 1}) {
+					const auto& access_map = tsk->get_buffer_access_map();
+					const auto acc_sr =
+					    grid_box_to_subrange(access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()));
+					const auto oob_sr = subrange<3>(oob_min, range_cast<3>(oob_max - oob_min));
+					CELERITY_ERROR("Out-of-bounds access in kernel '{}' detected: Accessor {} for buffer {} attempted to access indices between {} which are "
+					               "outside of mapped subrange {}",
+					    tsk->get_debug_name(), i, access_map.get_nth_access(i).first, oob_sr, acc_sr);
+				}
+				sycl::free(m_oob_indices_per_accessor[i], m_queue.get_sycl_queue());
+			}
+#endif
+
 			for(const auto& reduction : tsk->get_reductions()) {
 				const auto element_size = m_buffer_mngr.get_buffer_info(reduction.bid).element_size;
 				auto operand = make_uninitialized_payload<std::byte>(element_size);

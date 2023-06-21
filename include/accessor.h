@@ -254,12 +254,23 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 
 	template <access_mode M = Mode>
-	inline std::enable_if_t<detail::access::mode_traits::is_producer(M), DataT&> operator[](const id<Dims>& index) const {
-		return m_device_ptr[get_linear_offset(index)];
-	}
-
-	template <access_mode M = Mode>
-	inline std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator[](const id<Dims>& index) const {
+	inline std::conditional_t<detail::access::mode_traits::is_producer(M), DataT&, const DataT&> operator[](const id<Dims>& index) const {
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+		// We currently don't support boundary checking for accessors created using accessor_testspy::make_device_accessor,
+		// which does not set m_oob_indices.
+		if(m_oob_indices != nullptr) {
+			const id<Dims> all_true = detail::id_cast<Dims>(id<3>(true, true, true));
+			const bool is_within_bounds_lo = (index >= m_accessed_virtual_subrange.offset) == all_true;
+			const bool is_within_bounds_hi = (index < (m_accessed_virtual_subrange.offset + m_accessed_virtual_subrange.range)) == all_true;
+			if((!is_within_bounds_lo || !is_within_bounds_hi)) {
+				for(int d = 0; d < Dims; ++d) {
+					sycl::atomic_ref<size_t, sycl::memory_order::relaxed, sycl::memory_scope::device>{m_oob_indices[0][d]}.fetch_min(index[d]);
+					sycl::atomic_ref<size_t, sycl::memory_order::relaxed, sycl::memory_scope::device>{m_oob_indices[1][d]}.fetch_max(index[d] + 1);
+				}
+				return m_oob_fallback_value;
+			}
+		}
+#endif
 		return m_device_ptr[get_linear_offset(index)];
 	}
 
@@ -311,6 +322,12 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	DataT* m_device_ptr = nullptr;
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_backing_buffer_offset;
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_backing_buffer_range = detail::zero_range;
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+	id<3>* m_oob_indices = nullptr;
+	subrange<Dims> m_accessed_virtual_subrange = {};
+	// This value (or a reference to it) is returned for all out-of-bounds accesses.
+	mutable DataT m_oob_fallback_value = DataT{};
+#endif
 
 	template <typename Functor>
 	accessor(const ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) {
@@ -340,6 +357,10 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		m_device_ptr = other.m_device_ptr;
 		m_backing_buffer_offset = other.m_backing_buffer_offset;
 		m_backing_buffer_range = other.m_backing_buffer_range;
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+		m_oob_indices = other.m_oob_indices;
+		m_accessed_virtual_subrange = other.m_accessed_virtual_subrange;
+#endif
 
 #if !defined(__SYCL_DEVICE_ONLY__)
 		if(detail::is_embedded_hydration_id(m_device_ptr)) {
@@ -352,6 +373,10 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 				m_device_ptr = static_cast<DataT*>(info.ptr);
 				m_backing_buffer_offset = detail::id_cast<Dims>(info.backing_buffer_offset);
 				m_backing_buffer_range = detail::range_cast<Dims>(info.backing_buffer_range);
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+				m_oob_indices = info.out_of_bounds_indices;
+				m_accessed_virtual_subrange = detail::subrange_cast<Dims>(info.accessed_virtual_subrange);
+#endif
 			}
 		}
 #endif

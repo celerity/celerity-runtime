@@ -62,6 +62,10 @@ class closure_hydrator {
 		range<3> backing_buffer_range;
 		id<3> backing_buffer_offset;
 		subrange<3> accessed_virtual_subrange;
+
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+		id<3>* out_of_bounds_indices = nullptr;
+#endif
 	};
 
 	closure_hydrator(const closure_hydrator&) = delete;

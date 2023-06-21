@@ -15,7 +15,20 @@ project(celerity_runtime VERSION ${Celerity_VERSION} LANGUAGES CXX)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(ENABLE_ACC_CHECK ON)
+else()
+  set(ENABLE_ACC_CHECK OFF)
+endif()
+
 option(CELERITY_USE_MIMALLOC "Use the mimalloc memory allocator" ON)
+option(CELERITY_ACCESSOR_BOUNDARY_CHECK "Enable accessor boundary check" ${ENABLE_ACC_CHECK})
+
+if(CELERITY_ACCESSOR_BOUNDARY_CHECK)
+  message(STATUS "Accessor boundary check enabled - this will impact kernel performance")
+endif()
+
+unset(ENABLE_ACC_CHECK)
 
 set(CELERITY_CMAKE_DIR "${PROJECT_SOURCE_DIR}/cmake")
 set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CELERITY_CMAKE_DIR}")
@@ -313,6 +326,7 @@ target_compile_definitions(celerity_runtime PUBLIC
   CELERITY_FEATURE_UNNAMED_KERNELS=$<BOOL:${CELERITY_FEATURE_UNNAMED_KERNELS}>
   CELERITY_DETAIL_HAS_NAMED_THREADS=$<BOOL:${CELERITY_DETAIL_HAS_NAMED_THREADS}>
   CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER=$<BOOL:${CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER}>
+  CELERITY_ACCESSOR_BOUNDARY_CHECK=$<BOOL:${CELERITY_ACCESSOR_BOUNDARY_CHECK}>
 )
 
 # Collect version information from git in src/version.cc. This target is always out of date, but the timestamp
