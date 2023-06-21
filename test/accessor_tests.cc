@@ -534,6 +534,9 @@ namespace detail {
 
 	TEST_CASE("0-dimensional accessors are pointer-sized", "[accessor]") {
 		if(!CELERITY_DETAIL_HAS_NO_UNIQUE_ADDRESS) SKIP("[[no_unique_address]] not available on this compiler");
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+		SKIP("no accessor size guarantees when CELERITY_ACCESSOR_BOUNDARY_CHECK=1.");
+#endif
 
 		// these checks are not static_asserts because they depend on an (optional) compiler layout optimization
 		CHECK(sizeof(accessor<int, 0, access_mode::read, target::device>) == sizeof(int*));
@@ -639,6 +642,41 @@ namespace detail {
 		CHECK(result_host[0] == 110);
 		CHECK(result_host[1] == 100);
 		sycl::free(result, q.get_sycl_queue());
+	}
+
+	template <int>
+	class oob_fixture : public test_utils::runtime_fixture {};
+
+	template <int>
+	class acc_out_of_bounds_kernel {};
+
+	TEMPLATE_TEST_CASE_METHOD_SIG(oob_fixture, "accessor reports out-of-bounds accesses", "[accessor][oob]", ((int Dims), Dims), 1, 2, 3) {
+#if !CELERITY_ACCESSOR_BOUNDARY_CHECK
+		SKIP("CELERITY_ACCESSOR_BOUNDARY_CHECK=0");
+#endif
+
+		buffer<int, Dims> buff(range_cast<Dims>(range<3>{10, 20, 30}));
+		const auto accessible_sr = subrange_cast<Dims>(subrange<3>{{5, 10, 15}, {1, 2, 3}});
+		const auto oob_idx_lo = id_cast<Dims>(id<3>{1, 2, 3});
+		const auto oob_idx_hi = id_cast<Dims>(id<3>{7, 13, 25});
+		distr_queue q;
+
+		celerity::test_utils::log_capture lc;
+
+		q.submit([&](handler& cgh) {
+			accessor acc(buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only, celerity::no_init);
+			cgh.parallel_for<acc_out_of_bounds_kernel<Dims>>(range<Dims>(unit_range), [=](item<Dims>) {
+				acc[oob_idx_lo] = 0;
+				acc[oob_idx_hi] = 0;
+			});
+		});
+		q.slow_full_sync();
+
+		const auto attempted_sr = subrange<3>{id_cast<3>(oob_idx_lo), range_cast<3>(oob_idx_hi - oob_idx_lo + id_cast<Dims>(range<Dims>(unit_range)))};
+		const auto error_message = fmt::format("Out-of-bounds access in kernel 'acc_out_of_bounds_kernel<{}>' detected: Accessor 0 for buffer 0 attempted to "
+		                                       "access indices between {} which are outside of mapped subrange {}",
+		    Dims, attempted_sr, subrange_cast<3>(accessible_sr));
+		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring(error_message));
 	}
 
 } // namespace detail
