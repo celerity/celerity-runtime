@@ -1,5 +1,8 @@
 #include <array>
 #include <optional>
+#include <random>
+#include <set>
+#include <unordered_set>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
@@ -7,7 +10,7 @@
 #include <celerity.h>
 
 #include "access_modes.h"
-
+#include "region_map.h"
 #include "test_utils.h"
 
 namespace celerity {
@@ -22,22 +25,33 @@ namespace detail {
 	}
 
 	struct region_map_testspy {
+		// TODO: Consider switching to counting unique values here instead
+		//       This does not change any test's outcome, but better reflects the intent
+		//       Currently not possible as we store non-hashable vectors of commands
 		template <typename T>
-		static size_t get_num_regions(const region_map<T>& map) {
-			return map.m_region_values.size();
+		static size_t get_num_entries(const region_map<T>& map) {
+			size_t num_entries = 0;
+			const auto cb = [&num_entries](const auto& /* box */, const T& /* value */) { num_entries++; };
+			switch(map.m_dims) {
+			case 0: return 1; break;
+			case 1: map.template get_map<1>().for_each(cb); break;
+			case 2: map.template get_map<2>().for_each(cb); break;
+			case 3: map.template get_map<3>().for_each(cb); break;
+			}
+			return num_entries;
 		}
 	};
 
 	struct graph_generator_testspy {
-		static size_t get_buffer_states_num_regions(const graph_generator& ggen, const buffer_id bid) {
+		static size_t get_buffer_states_num_entries(const graph_generator& ggen, const buffer_id bid) {
 			if(auto* distr_state = std::get_if<graph_generator::distributed_state>(&ggen.m_buffer_states.at(bid))) {
-				return region_map_testspy::get_num_regions(distr_state->region_sources);
+				return region_map_testspy::get_num_entries(distr_state->region_sources);
 			} else {
 				return 1;
 			}
 		}
-		static size_t get_buffer_last_writer_num_regions(const graph_generator& ggen, const buffer_id bid) {
-			return region_map_testspy::get_num_regions(ggen.m_node_data.at(node_id{0}).buffer_last_writer.at(bid));
+		static size_t get_buffer_last_writer_num_entries(const graph_generator& ggen, const buffer_id bid) {
+			return region_map_testspy::get_num_entries(ggen.m_node_data.at(node_id{0}).buffer_last_writer.at(bid));
 		}
 		static size_t get_command_buffer_reads_size(const graph_generator& ggen) { return ggen.m_command_buffer_reads.size(); }
 		static std::vector<command_id> get_current_horizons(const graph_generator& ggen) {
@@ -98,10 +112,10 @@ namespace detail {
 		const auto applied_horizons_remaining = commands_after_last_horizon > 0 ? 1 : 2;
 
 		// comparing with <= is range-mapper-independent
-		const auto buf_a_region_map_size = static_cast<int>(graph_generator_testspy::get_buffer_states_num_regions(ctx.get_graph_generator(), buf_a.get_id()));
+		const auto buf_a_region_map_size = static_cast<int>(graph_generator_testspy::get_buffer_states_num_entries(ctx.get_graph_generator(), buf_a.get_id()));
 		CHECK(buf_a_region_map_size <= num_nodes * commands_contributing_to_writer_map);
 		const auto buf_a_last_writer_map_size =
-		    static_cast<int>(graph_generator_testspy::get_buffer_last_writer_num_regions(ctx.get_graph_generator(), buf_a.get_id()));
+		    static_cast<int>(graph_generator_testspy::get_buffer_last_writer_num_entries(ctx.get_graph_generator(), buf_a.get_id()));
 		CHECK(buf_a_last_writer_map_size <= num_nodes * commands_contributing_to_writer_map);
 
 		// count all horizons that ever existed, because we compare against inspector recordings

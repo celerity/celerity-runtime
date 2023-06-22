@@ -21,17 +21,19 @@ namespace detail {
 		}
 	}
 
-	void graph_generator::add_buffer(buffer_id bid, const range<3>& range) {
+	void graph_generator::add_buffer(buffer_id bid, const int dims, const range<3>& range) {
 		// Initialize the whole range to all nodes, so that we always use local buffer ranges when they haven't been written to (on any node) yet.
 		// TODO: Consider better handling for when buffers are not host initialized
 		std::vector<node_id> all_nodes(m_num_nodes);
 		for(auto i = 0u; i < m_num_nodes; ++i) {
 			all_nodes[i] = i;
-			m_node_data[i].buffer_last_writer.emplace(bid, range);
+			m_node_data[i].buffer_last_writer.emplace(std::piecewise_construct, std::tuple{bid}, std::tuple{range, dims});
 			m_node_data[i].buffer_last_writer.at(bid).update_region(subrange_to_grid_box({id<3>(), range}), m_node_data[i].epoch_for_new_commands);
 		}
 
-		m_buffer_states.emplace(bid, distributed_state{{range, std::move(all_nodes)}});
+		distributed_state state{{range, dims}};
+		state.region_sources.update_box(subrange_to_grid_box({id<3>(), range}), all_nodes);
+		m_buffer_states.emplace(bid, std::move(state));
 	}
 
 	void graph_generator::build_task(const task& tsk, const std::vector<graph_transformer*>& transformers) {
@@ -509,7 +511,8 @@ namespace detail {
 
 		for(auto [bid, nids] : buffer_reduction_resolve_list) {
 			GridBox<3> box{GridPoint<3>{1, 1, 1}};
-			distributed_state state_after_reduction{range<3>{1, 1, 1}};
+			// We just treat this buffer as 1-dimensional, regardless of its actual dimensionality (as it must be unit-sized anyway)
+			distributed_state state_after_reduction{{range<3>{1, 1, 1}, 1}};
 			state_after_reduction.region_sources.update_region(box, nids);
 			m_buffer_states.at(bid) = distributed_state{std::move(state_after_reduction)};
 		}

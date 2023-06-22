@@ -3,6 +3,7 @@
 #include <map>
 #include <memory>
 #include <ostream>
+#include <set>
 #include <string>
 #include <unordered_set>
 
@@ -21,6 +22,7 @@
 #include "graph_generator.h"
 #include "graph_serializer.h"
 #include "range_mapper.h"
+#include "region_map.h"
 #include "runtime.h"
 #include "scheduler.h"
 #include "task_manager.h"
@@ -73,7 +75,7 @@ namespace detail {
 			return horizon_counter;
 		}
 
-		static region_map<std::optional<task_id>> get_last_writer(task_manager& tm, const buffer_id bid) { return tm.m_buffers_last_writers.at(bid); }
+		static const region_map<std::optional<task_id>>& get_last_writer(task_manager& tm, const buffer_id bid) { return tm.m_buffers_last_writers.at(bid); }
 
 		static int get_max_pseudo_critical_path_length(task_manager& tm) { return tm.get_max_pseudo_critical_path_length(); }
 
@@ -312,9 +314,9 @@ namespace test_utils {
 		mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
 			const detail::buffer_id bid = m_next_buffer_id++;
 			const auto buf = mock_buffer<Dims>(bid, size);
-			if(m_task_mngr != nullptr) { m_task_mngr->add_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
-			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_registered(bid, detail::range_cast<3>(size)); }
-			if(m_ggen != nullptr) { m_ggen->add_buffer(bid, detail::range_cast<3>(size)); }
+			if(m_task_mngr != nullptr) { m_task_mngr->add_buffer(bid, Dims, detail::range_cast<3>(size), mark_as_host_initialized); }
+			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_registered(bid, Dims, detail::range_cast<3>(size)); }
+			if(m_ggen != nullptr) { m_ggen->add_buffer(bid, Dims, detail::range_cast<3>(size)); }
 			return buf;
 		}
 
