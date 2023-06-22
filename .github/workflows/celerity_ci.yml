@@ -23,268 +23,239 @@ on:
     - cron: "0 5 * * *"
 
 jobs:
-  check-perf-impact:
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
+  find-duplicate-workflows:
+    runs-on: [ self-hosted, slurm ]
+    outputs:
+      should_skip: ${{ steps.skip-check.outputs.should_skip }}
     steps:
-    - uses: actions/checkout@v3
-    - uses: ruby/setup-ruby@v1
-      with:
-        ruby-version: '3.0'
-    - name: Install plot generation dependencies
-      run: |
-        sudo apt-get install libmagickwand-dev
-        gem install gruff
-    - name: Analyze performance impact
-      run: ruby ./ci/check-perf-impact.rb
-    - name: Upload boxplots to imgur
-      id: imgur_step
-      uses: devicons/public-upload-to-imgur@v2.2.2
-      with:
-        path: box_*.png
-        client_id: ${{secrets.IMGUR_CLIENT_ID}}
-    - name: Add images to message
-      env:
-        PLOT_IMG_URLS: ${{ steps.imgur_step.outputs.imgur_urls }}
-      run: ruby ./ci/check-perf-impact.rb
-    - name: Report performance impact
-      uses: thollander/actions-comment-pull-request@v2
-      with:
-        filePath: check_perf_message.txt
+      - id: skip-check
+        uses: fkirc/skip-duplicate-actions@v5.3.0
+        with:
+          concurrent_skipping: "never"
+          skip_after_successful_duplicate: "false"
+          do_not_skip: '["workflow_dispatch", "schedule"]'
+          cancel_others: "true"
 
-  # find-duplicate-workflows:
-  #   runs-on: [ self-hosted, slurm ]
-  #   outputs:
-  #     should_skip: ${{ steps.skip-check.outputs.should_skip }}
-  #   steps:
-  #     - id: skip-check
-  #       uses: fkirc/skip-duplicate-actions@v5.3.0
-  #       with:
-  #         concurrent_skipping: "never"
-  #         skip_after_successful_duplicate: "false"
-  #         do_not_skip: '["workflow_dispatch", "schedule"]'
-  #         cancel_others: "true"
+  # Run Clang-Tidy checks
+  #
+  # Note:
+  # - The action we use for this (ZedThree/clang-tidy-review) is a Docker action.
+  #   However, to obtain the required compile_commands.json file, we need our own
+  #   Docker container environment. We therefore run this job within a build container
+  #   and manually call the job's Python script.
+  # - This action currently only supports pull_request triggers (as it creates review
+  #   comments), so we have to run it regardless of skip-duplicate-action's outcome
+  #   (as otherwise pull_request triggers will usually be skipped due to the push
+  #   trigger already running).
+  #
+  # TODO: This should be combined with the report (or "lint") step, really
+  clang-tidy:
+    if: github.event.pull_request
+    runs-on: [ self-hosted, slurm-nvidia ]
+    env:
+      container-workspace: <placeholder>
+      build-dir: /root/build
+    container:
+      # We could run this for more than one implementation,
+      # but would likely end up with mostly duplicate diagnostics.
+      image: celerity-build/hipsycl:ubuntu22.04-latest
+      volumes:
+        - ccache:/ccache
+    steps:
+      # Here and in jobs below: We need to manually set the container workspace
+      # path as an environment variable, as (curiously) the `github.workspace` context
+      # variable contains the path on the container host (but $GITHUB_WORKSPACE is correct).
+      - name: Set container workspace environment variable
+        run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      # We only want to configure CMake, so we build the "help" target,
+      # which doesn't actually do anything (other than print all targets).
+      - name: Configure CMake
+        run: bash -o pipefail -c "bash /root/build-celerity.sh ${{ env.container-workspace }} --build-type Debug --target help"
+      - name: Check clang-tidy
+        working-directory: ${{ env.build-dir }}
+        run: |
+          git clone https://github.com/ZedThree/clang-tidy-review.git
+          cd clang-tidy-review
+          git checkout v0.9.0
+          pip install -r ./requirements.txt
+          cd ${{ env.container-workspace }}
+          python3 ${{ env.build-dir }}/clang-tidy-review/review.py \
+            --clang_tidy_binary=clang-tidy \
+            --token=${{ github.token }} \
+            --repo=${{ github.repository }} \
+            --pr=${{ github.event.pull_request.number }} \
+            --build_dir=${{ env.build-dir }} \
+            --config_file=${{ env.container-workspace }}/.clang-tidy \
+            --include="*.h,*.cc,*.[ch]pp" \
+            --lgtm-comment-body=""
 
-  # # Run Clang-Tidy checks
-  # #
-  # # Note:
-  # # - The action we use for this (ZedThree/clang-tidy-review) is a Docker action.
-  # #   However, to obtain the required compile_commands.json file, we need our own
-  # #   Docker container environment. We therefore run this job within a build container
-  # #   and manually call the job's Python script.
-  # # - This action currently only supports pull_request triggers (as it creates review
-  # #   comments), so we have to run it regardless of skip-duplicate-action's outcome
-  # #   (as otherwise pull_request triggers will usually be skipped due to the push
-  # #   trigger already running).
-  # #
-  # # TODO: This should be combined with the report (or "lint") step, really
-  # clang-tidy:
-  #   if: github.event.pull_request
-  #   runs-on: [ self-hosted, slurm-nvidia ]
-  #   env:
-  #     container-workspace: <placeholder>
-  #     build-dir: /root/build
-  #   container:
-  #     # We could run this for more than one implementation,
-  #     # but would likely end up with mostly duplicate diagnostics.
-  #     image: celerity-build/hipsycl:ubuntu22.04-latest
-  #     volumes:
-  #       - ccache:/ccache
-  #   steps:
-  #     # Here and in jobs below: We need to manually set the container workspace
-  #     # path as an environment variable, as (curiously) the `github.workspace` context
-  #     # variable contains the path on the container host (but $GITHUB_WORKSPACE is correct).
-  #     - name: Set container workspace environment variable
-  #       run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
-  #     - uses: actions/checkout@v3
-  #       with:
-  #         submodules: true
-  #     # We only want to configure CMake, so we build the "help" target,
-  #     # which doesn't actually do anything (other than print all targets).
-  #     - name: Configure CMake
-  #       run: bash -o pipefail -c "bash /root/build-celerity.sh ${{ env.container-workspace }} --build-type Debug --target help"
-  #     - name: Check clang-tidy
-  #       working-directory: ${{ env.build-dir }}
-  #       run: |
-  #         git clone https://github.com/ZedThree/clang-tidy-review.git
-  #         cd clang-tidy-review
-  #         git checkout v0.9.0
-  #         pip install -r ./requirements.txt
-  #         cd ${{ env.container-workspace }}
-  #         python3 ${{ env.build-dir }}/clang-tidy-review/review.py \
-  #           --clang_tidy_binary=clang-tidy \
-  #           --token=${{ github.token }} \
-  #           --repo=${{ github.repository }} \
-  #           --pr=${{ github.event.pull_request.number }} \
-  #           --build_dir=${{ env.build-dir }} \
-  #           --config_file=${{ env.container-workspace }}/.clang-tidy \
-  #           --include="*.h,*.cc,*.[ch]pp" \
-  #           --lgtm-comment-body=""
+  # We need to jump through some hoops to have different build matrices based on what triggered the workflow.
+  # For normal CI runs we want to build and test against everything except the "HEAD" revisions, whereas during
+  # nightly builds we *only* want those.
+  #
+  # Current workaround is to represent the matrix as a JSON object, which is then deserialized in the next job.
+  read-build-matrix:
+    needs: find-duplicate-workflows
+    if: needs.find-duplicate-workflows.outputs.should_skip != 'true'
+    runs-on: self-hosted
+    outputs:
+      matrix: ${{ steps.read-json-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v3
+      - id: read-json-matrix
+        name: Read build matrix from file
+        shell: python
+        run: |
+          import json
+          import os
+          with open("${{ github.workspace }}/.github/workflows/build_matrix.json") as f:
+            matrices = json.load(f)
+            if '${{ github.event_name != 'schedule' && inputs.test-head == false }}' == 'true':
+              matrix = matrices['default']
+            else:
+              matrix = matrices['nightly']
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+              print('matrix={ "include":%s }' % json.dumps(matrix), file=fh)
 
-  # # We need to jump through some hoops to have different build matrices based on what triggered the workflow.
-  # # For normal CI runs we want to build and test against everything except the "HEAD" revisions, whereas during
-  # # nightly builds we *only* want those.
-  # #
-  # # Current workaround is to represent the matrix as a JSON object, which is then deserialized in the next job.
-  # read-build-matrix:
-  #   needs: find-duplicate-workflows
-  #   if: needs.find-duplicate-workflows.outputs.should_skip != 'true'
-  #   runs-on: self-hosted
-  #   outputs:
-  #     matrix: ${{ steps.read-json-matrix.outputs.matrix }}
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #     - id: read-json-matrix
-  #       name: Read build matrix from file
-  #       shell: python
-  #       run: |
-  #         import json
-  #         import os
-  #         with open("${{ github.workspace }}/.github/workflows/build_matrix.json") as f:
-  #           matrices = json.load(f)
-  #           if '${{ github.event_name != 'schedule' && inputs.test-head == false }}' == 'true':
-  #             matrix = matrices['default']
-  #           else:
-  #             matrix = matrices['nightly']
-  #           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
-  #             print('matrix={ "include":%s }' % json.dumps(matrix), file=fh)
+  build-and-test:
+    needs: [find-duplicate-workflows, read-build-matrix]
+    if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
+    runs-on: [ self-hosted, "slurm-${{ matrix.platform }}" ]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.read-build-matrix.outputs.matrix) }}
+    # These outputs are required by the image tagging step, only set during nightly builds.
+    outputs:
+      dpcpp-HEAD-Debug-works: ${{ steps.set-head-results.outputs.dpcpp-HEAD-Debug-works }}
+      dpcpp-HEAD-Release-works: ${{ steps.set-head-results.outputs.dpcpp-HEAD-Release-works }}
+      dpcpp-HEAD-ubuntu-version: ${{ steps.set-head-results.outputs.dpcpp-HEAD-ubuntu-version }}
+      hipsycl-HEAD-Debug-works: ${{ steps.set-head-results.outputs.hipsycl-HEAD-Debug-works }}
+      hipsycl-HEAD-Release-works: ${{ steps.set-head-results.outputs.hipsycl-HEAD-Release-works }}
+      hipsycl-HEAD-ubuntu-version: ${{ steps.set-head-results.outputs.hipsycl-HEAD-ubuntu-version }}
+    env:
+      build-name: ${{ matrix.platform }}-ubuntu${{ matrix.ubuntu-version }}-${{ matrix.sycl }}-${{ matrix.sycl-version }}-${{ matrix.build-type }}
+      container-workspace: <placeholder>
+      build-dir: /root/build
+      examples-build-dir: /root/build-examples
+    container:
+      image: celerity-build/${{ matrix.sycl }}:ubuntu${{ matrix.ubuntu-version }}-${{ matrix.sycl-version }}
+      volumes:
+        - ccache:/ccache
+    steps:
+      - name: Set container workspace environment variable
+        run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
+      - name: Print exact SYCL revision used for this CI run
+        run: cat /VERSION
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: Build and install Celerity
+        run: bash -o pipefail -c "bash /root/build-celerity.sh ${{ env.container-workspace }} --build-type ${{ matrix.build-type }} --target install 2>&1 | tee ${{ env.build-name }}.log"
+      # Upload build log for report step
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.build-name }}
+          path: ${{ env.build-name }}.log
+      - name: Build examples against installed Celerity
+        run: bash /root/build-examples.sh ${{ env.container-workspace }}/examples --build-type ${{ matrix.build-type }}
+      # Limit DPC++ to Level-Zero devices (instead of e.g. also showing OpenCL or CUDA devices).
+      # Most importantly, despite its naming, this currently also avoids the "Unified Runtime over Level-Zero", which
+      # doesn't seem to be quite ready for production use yet (= it crashes).
+      - name: Limit visible devices
+        run: |
+          echo "ONEAPI_DEVICE_SELECTOR=level_zero:*" >> $GITHUB_ENV
+      - name: Run unit tests
+        timeout-minutes: 5
+        working-directory: ${{ env.build-dir }}
+        run: ${{ env.container-workspace }}/ci/run-unit-tests.sh
+      - name: Run examples
+        timeout-minutes: 5
+        # We build examples twice, but only run the installed version (which probably has more failure modes)
+        working-directory: ${{ env.examples-build-dir }}
+        run: ${{ env.container-workspace }}/ci/run-examples.sh /data/Lenna.png 1 2 4
+      - name: Run system tests
+        working-directory: ${{ env.build-dir }}
+        run: ${{ env.container-workspace }}/ci/run-system-tests.sh 2 4
+      - name: Run integration tests
+        working-directory: ${{ env.build-dir }}
+        run: ${{ env.container-workspace }}/test/integration/run-integration-tests.py . ${{ matrix.platform }}
+      - name: Upload stack traces (if any)
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.build-name }}
+          path: |
+            ${{ env.build-dir }}/*.trace
+            ${{ env.examples-build-dir }}/*.trace
+          if-no-files-found: ignore
+      - id: set-head-results
+        name: Set outputs for HEAD builds
+        if: matrix.sycl-version == 'HEAD'
+        run: |
+          echo "${{ matrix.sycl }}-HEAD-${{ matrix.build-type }}-works=1 >> $GITHUB_OUTPUT"
+          echo "${{ matrix.sycl }}-HEAD-ubuntu-version=${{ matrix.ubuntu-version }} >> $GITHUB_OUTPUT"
 
-  # build-and-test:
-  #   needs: [find-duplicate-workflows, read-build-matrix]
-  #   if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
-  #   runs-on: [ self-hosted, "slurm-${{ matrix.platform }}" ]
-  #   strategy:
-  #     fail-fast: false
-  #     matrix: ${{ fromJSON(needs.read-build-matrix.outputs.matrix) }}
-  #   # These outputs are required by the image tagging step, only set during nightly builds.
-  #   outputs:
-  #     dpcpp-HEAD-Debug-works: ${{ steps.set-head-results.outputs.dpcpp-HEAD-Debug-works }}
-  #     dpcpp-HEAD-Release-works: ${{ steps.set-head-results.outputs.dpcpp-HEAD-Release-works }}
-  #     dpcpp-HEAD-ubuntu-version: ${{ steps.set-head-results.outputs.dpcpp-HEAD-ubuntu-version }}
-  #     hipsycl-HEAD-Debug-works: ${{ steps.set-head-results.outputs.hipsycl-HEAD-Debug-works }}
-  #     hipsycl-HEAD-Release-works: ${{ steps.set-head-results.outputs.hipsycl-HEAD-Release-works }}
-  #     hipsycl-HEAD-ubuntu-version: ${{ steps.set-head-results.outputs.hipsycl-HEAD-ubuntu-version }}
-  #   env:
-  #     build-name: ${{ matrix.platform }}-ubuntu${{ matrix.ubuntu-version }}-${{ matrix.sycl }}-${{ matrix.sycl-version }}-${{ matrix.build-type }}
-  #     container-workspace: <placeholder>
-  #     build-dir: /root/build
-  #     examples-build-dir: /root/build-examples
-  #   container:
-  #     image: celerity-build/${{ matrix.sycl }}:ubuntu${{ matrix.ubuntu-version }}-${{ matrix.sycl-version }}
-  #     volumes:
-  #       - ccache:/ccache
-  #   steps:
-  #     - name: Set container workspace environment variable
-  #       run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
-  #     - name: Print exact SYCL revision used for this CI run
-  #       run: cat /VERSION
-  #     - uses: actions/checkout@v3
-  #       with:
-  #         submodules: true
-  #     - name: Build and install Celerity
-  #       run: bash -o pipefail -c "bash /root/build-celerity.sh ${{ env.container-workspace }} --build-type ${{ matrix.build-type }} --target install 2>&1 | tee ${{ env.build-name }}.log"
-  #     # Upload build log for report step
-  #     - name: Upload build logs
-  #       if: always()
-  #       uses: actions/upload-artifact@v3
-  #       with:
-  #         name: ${{ env.build-name }}
-  #         path: ${{ env.build-name }}.log
-  #     - name: Build examples against installed Celerity
-  #       run: bash /root/build-examples.sh ${{ env.container-workspace }}/examples --build-type ${{ matrix.build-type }}
-  #     # Limit DPC++ to Level-Zero devices (instead of e.g. also showing OpenCL or CUDA devices).
-  #     # Most importantly, despite its naming, this currently also avoids the "Unified Runtime over Level-Zero", which
-  #     # doesn't seem to be quite ready for production use yet (= it crashes).
-  #     - name: Limit visible devices
-  #       run: |
-  #         echo "ONEAPI_DEVICE_SELECTOR=level_zero:*" >> $GITHUB_ENV
-  #     - name: Run unit tests
-  #       timeout-minutes: 5
-  #       working-directory: ${{ env.build-dir }}
-  #       run: ${{ env.container-workspace }}/ci/run-unit-tests.sh
-  #     - name: Run examples
-  #       timeout-minutes: 5
-  #       # We build examples twice, but only run the installed version (which probably has more failure modes)
-  #       working-directory: ${{ env.examples-build-dir }}
-  #       run: ${{ env.container-workspace }}/ci/run-examples.sh /data/Lenna.png 1 2 4
-  #     - name: Run system tests
-  #       working-directory: ${{ env.build-dir }}
-  #       run: ${{ env.container-workspace }}/ci/run-system-tests.sh 2 4
-  #     - name: Run integration tests
-  #       working-directory: ${{ env.build-dir }}
-  #       run: ${{ env.container-workspace }}/test/integration/run-integration-tests.py . ${{ matrix.platform }}
-  #     - name: Upload stack traces (if any)
-  #       if: always()
-  #       uses: actions/upload-artifact@v3
-  #       with:
-  #         name: ${{ env.build-name }}
-  #         path: |
-  #           ${{ env.build-dir }}/*.trace
-  #           ${{ env.examples-build-dir }}/*.trace
-  #         if-no-files-found: ignore
-  #     - id: set-head-results
-  #       name: Set outputs for HEAD builds
-  #       if: matrix.sycl-version == 'HEAD'
-  #       run: |
-  #         echo "${{ matrix.sycl }}-HEAD-${{ matrix.build-type }}-works=1 >> $GITHUB_OUTPUT"
-  #         echo "${{ matrix.sycl }}-HEAD-ubuntu-version=${{ matrix.ubuntu-version }} >> $GITHUB_OUTPUT"
+  # Tag "HEAD" images that built and tested successfully as "latest".
+  # This is only done for nightly builds (or when specifying the "tag-latest" option on manually triggered runs).
+  tag-latest-containers:
+    needs: [find-duplicate-workflows, build-and-test]
+    # Run this step regardless of result of `build-and-test` (hence the `always()`),
+    # since we always want to tag images that were successful, even if others weren't.
+    if: always() && needs.find-duplicate-workflows.outputs.should_skip != 'true' && (github.event_name == 'schedule' || (inputs.test-head && inputs.tag-latest))
+    runs-on: slurm-${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sycl: "dpcpp"
+            platform: "intel"
+          - sycl: "hipsycl"
+            platform: "nvidia"
+    env:
+      image-basename-dpcpp: celerity-build/dpcpp:ubuntu${{ needs.build-and-test.outputs.dpcpp-HEAD-ubuntu-version }}
+      image-basename-hipsycl: celerity-build/hipsycl:ubuntu${{ needs.build-and-test.outputs.hipsycl-HEAD-ubuntu-version }}
+    steps:
+      - if: matrix.sycl == 'dpcpp'
+        run: |
+          if [[ "${{ needs.build-and-test.outputs.dpcpp-HEAD-Debug-works }}" -eq 1 ]] && [[ "${{ needs.build-and-test.outputs.dpcpp-HEAD-Release-works }}" -eq 1 ]]; then
+            docker tag ${{ env.image-basename-dpcpp }}-HEAD ${{ env.image-basename-dpcpp }}-latest
+          else
+            exit 1
+          fi
+      - if: matrix.sycl == 'hipsycl'
+        run: |
+          if [[ "${{ needs.build-and-test.outputs.hipsycl-HEAD-Debug-works }}" -eq 1 ]] && [[ "${{ needs.build-and-test.outputs.hipsycl-HEAD-Release-works }}" -eq 1 ]]; then
+            docker tag ${{ env.image-basename-hipsycl }}-HEAD ${{ env.image-basename-hipsycl }}-latest
+          else
+            exit 1
+          fi
 
-  # # Tag "HEAD" images that built and tested successfully as "latest".
-  # # This is only done for nightly builds (or when specifying the "tag-latest" option on manually triggered runs).
-  # tag-latest-containers:
-  #   needs: [find-duplicate-workflows, build-and-test]
-  #   # Run this step regardless of result of `build-and-test` (hence the `always()`),
-  #   # since we always want to tag images that were successful, even if others weren't.
-  #   if: always() && needs.find-duplicate-workflows.outputs.should_skip != 'true' && (github.event_name == 'schedule' || (inputs.test-head && inputs.tag-latest))
-  #   runs-on: slurm-${{ matrix.platform }}
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       include:
-  #         - sycl: "dpcpp"
-  #           platform: "intel"
-  #         - sycl: "hipsycl"
-  #           platform: "nvidia"
-  #   env:
-  #     image-basename-dpcpp: celerity-build/dpcpp:ubuntu${{ needs.build-and-test.outputs.dpcpp-HEAD-ubuntu-version }}
-  #     image-basename-hipsycl: celerity-build/hipsycl:ubuntu${{ needs.build-and-test.outputs.hipsycl-HEAD-ubuntu-version }}
-  #   steps:
-  #     - if: matrix.sycl == 'dpcpp'
-  #       run: |
-  #         if [[ "${{ needs.build-and-test.outputs.dpcpp-HEAD-Debug-works }}" -eq 1 ]] && [[ "${{ needs.build-and-test.outputs.dpcpp-HEAD-Release-works }}" -eq 1 ]]; then
-  #           docker tag ${{ env.image-basename-dpcpp }}-HEAD ${{ env.image-basename-dpcpp }}-latest
-  #         else
-  #           exit 1
-  #         fi
-  #     - if: matrix.sycl == 'hipsycl'
-  #       run: |
-  #         if [[ "${{ needs.build-and-test.outputs.hipsycl-HEAD-Debug-works }}" -eq 1 ]] && [[ "${{ needs.build-and-test.outputs.hipsycl-HEAD-Release-works }}" -eq 1 ]]; then
-  #           docker tag ${{ env.image-basename-hipsycl }}-HEAD ${{ env.image-basename-hipsycl }}-latest
-  #         else
-  #           exit 1
-  #         fi
-
-  # report:
-  #   needs: [find-duplicate-workflows, build-and-test]
-  #   if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
-  #   runs-on: [ self-hosted, slurm ]
-  #   env:
-  #     container-workspace: <placeholder>
-  #   container:
-  #     image: celerity-lint
-  #   steps:
-  #     - name: Set container workspace environment variable
-  #       run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
-  #     - uses: actions/checkout@v3
-  #     - name: Check code formatting
-  #       id: formatting
-  #       working-directory: ${{ env.container-workspace }}
-  #       shell: bash
-  #       run: |
-  #         unformatted=$("./ci/find-unformatted-files.sh")
-  #         unformatted=${unformatted//$'\n'/'%0A'}
-  #         echo "unformatted-files=$unformatted >> $GITHUB_OUTPUT"
-  #     - uses: "celerity/ci-report-action@v6"
-  #       with:
-  #         gh-token: ${{ secrets.GITHUB_TOKEN }}
-  #         unformatted-files: ${{ steps.formatting.outputs.unformatted-files }}
+  report:
+    needs: [find-duplicate-workflows, build-and-test]
+    if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
+    runs-on: [ self-hosted, slurm ]
+    env:
+      container-workspace: <placeholder>
+    container:
+      image: celerity-lint
+    steps:
+      - name: Set container workspace environment variable
+        run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
+      - uses: actions/checkout@v3
+      - name: Check code formatting
+        id: formatting
+        working-directory: ${{ env.container-workspace }}
+        shell: bash
+        run: |
+          unformatted=$("./ci/find-unformatted-files.sh")
+          unformatted=${unformatted//$'\n'/'%0A'}
+          echo "unformatted-files=$unformatted >> $GITHUB_OUTPUT"
+      - uses: "celerity/ci-report-action@v6"
+        with:
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
+          unformatted-files: ${{ steps.formatting.outputs.unformatted-files }}

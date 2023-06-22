@@ -1,6 +1,7 @@
 require 'csv'
 require 'gruff'
 require 'json'
+require 'digest'
 
 # information regarding the benchmark file
 BENCH_FN = 'ci/perf/gpuc2_bench.csv'
@@ -9,17 +10,12 @@ NAME_COL_1 = 0     # first name column
 NAME_COL_2 = 1     # second name column
 RAW_DATA_COL = 11  # raw data column (array of runs)
 
-if !File.exists?(BENCH_FN)
-  puts "Benchmark file #{BENCH_FN} not found.\nExecute this script from the repo root directory."
-  exit(-1)
-end
-
 # customizing chart generation
 MAX_CHARTS_PER_IMAGE = 10   # maximum number of comparisons in a single image
 CHART_COLOR_WHEEL=[         # colors to use for boxes (cyclic)
-  '#AA1111','#BB4444','#11AA11','#44BB44','#1111AA','#4444BB',
-  '#AAAA11','#BBBB44','#AA11AA','#BB44BB','#11AAAA','#44BBBB',
-  '#111111','#444444']
+'#AA1111','#BB4444','#11AA11','#44BB44','#1111AA','#4444BB',
+'#AAAA11','#BBBB44','#AA11AA','#BB44BB','#11AAAA','#44BBBB',
+'#111111','#444444']
 GRAPH_WIDTH = 1200          # width of the generated image
 THUMB_WIDTH = 120           # width of the thumbnail shown in the PR comment
 
@@ -30,6 +26,21 @@ MAX_BENCHMARKS_TO_LIST = 3  # if more than this nubmer of benchmarks is affected
 
 # file name for the message that will be posted
 MESSAGE_FN = "#{ENV['GITHUB_WORKSPACE']}/check_perf_message.txt"
+
+if !File.exists?(BENCH_FN)
+  puts "Benchmark file #{BENCH_FN} not found.\nExecute this script from the repo root directory."
+  exit(-1)
+end
+
+# prevent duplicate comments for the same benchmark results (by comparing csv hash)
+bench_file_digest = Digest::MD5.file(BENCH_FN).hexdigest
+if /Check-perf-impact results:[^(]*\((.*)\)/ =~ ENV["PREV_COMMENT_BODY"]
+  if bench_file_digest == $1
+    puts "Same csv already processed, early exit"
+    `echo "done=true" >> $GITHUB_OUTPUT`
+    exit 
+  end
+end
 
 # in this case, we are just being invoked again to append the previously uploaded images to the message
 if File.exists?(MESSAGE_FN) 
@@ -95,21 +106,23 @@ if new_data != old_data
     return ret
   end
 
-  new_data_map = new_data_map.sort_by { |k,v| mean(v) }
   in_chart = false
   significant_change_in_this_chart = false
   cur_chart_start_mean = 0
   cur_chart_idx = 0
   cur_img_idx = 0
   g = nil
-  new_data_map.each do |bench_name, new_bench_raw|
+  old_data_map.sort_by { |k,v| mean(v) }.each do |bench_name, old_bench_raw|
+    # skip deleted benchmarks
+    next unless new_data_map.key?(bench_name)
+
     # finish the current chart if we have reached the maximum per image
     # or if the relative y axis difference becomes too large
-    if in_chart && (cur_chart_start_mean < mean(new_bench_raw) / 20 ||
+    if in_chart && (cur_chart_start_mean < mean(old_bench_raw) / 20 ||
                     cur_chart_idx >= MAX_CHARTS_PER_IMAGE)
 
       # ~ 10 subdivisions
-      g.y_axis_increment = mean(new_bench_raw) / 10
+      g.y_axis_increment = mean(old_bench_raw) / 10
       # generate image
       img = g.to_image()
       if significant_change_in_this_chart
@@ -134,13 +147,13 @@ if new_data != old_data
 
       in_chart = true
       significant_change_in_this_chart = false
-      cur_chart_start_mean = mean(new_bench_raw)
+      cur_chart_start_mean = mean(old_bench_raw)
       cur_chart_idx = 0
     end
 
     # add old and new boxes to chart
-    old_bench_raw = old_data_map[bench_name]
     g.data bench_name, old_bench_raw, get_wheel_color
+    new_bench_raw = new_data_map[bench_name]
     g.data nil, new_bench_raw, get_wheel_color
 
     # check if there was a significant difference
@@ -166,17 +179,27 @@ def report_benchmark_list(list)
 end
 
 # generate PR message
-message = "**Check-perf-impact results:**  \n"
+message = "**Check-perf-impact results:** (#{bench_file_digest})  \n"
 if new_data == old_data
-  message += ":question: No new benchmark data submitted. :question:  \nPlease re-run the microbenchmarks and include the results if your commit could potentially aBBect performance."
+  message += ":question: No new benchmark data submitted. :question:  \nPlease re-run the microbenchmarks and include the results if your commit could potentially affect performance."
 else
   if !significantly_slower_benchmarks.empty?
-    message += ":warning: Significant slowdown in some microbenchmark results: "
+    message += ":warning: Significant **slowdown** in some microbenchmark results: "
     message += report_benchmark_list(significantly_slower_benchmarks) + "  \n"
   end
   if !significantly_faster_benchmarks.empty?
-    message += ":rocket: Significant speedup in some microbenchmark results: "
+    message += ":rocket: Significant **speedup** in some microbenchmark results: "
     message += report_benchmark_list(significantly_faster_benchmarks) + "  \n"
+  end
+  added_benchmarks = new_data_map.keys - old_data_map.keys
+  if !added_benchmarks.empty?
+    message += ":heavy_plus_sign: **Added** microbenchmark(s): "
+    message += report_benchmark_list(added_benchmarks) + "  \n"
+  end
+  removed_benchmarks = old_data_map.keys - new_data_map.keys
+  if !removed_benchmarks.empty?
+    message += ":heavy_minus_sign: **Removed** microbenchmark(s): "
+    message += report_benchmark_list(removed_benchmarks) + "  \n"
   end
   if significantly_slower_benchmarks.empty? && significantly_faster_benchmarks.empty?
     message += ":heavy_check_mark: No significant performance change in the microbenchmark set. You are good to go!"
