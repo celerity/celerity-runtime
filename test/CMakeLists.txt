@@ -81,3 +81,21 @@ add_subdirectory(system)
 if(CELERITY_DETAIL_INTEGRATION_TESTING)
   add_subdirectory(integration)
 endif()
+
+# Optionally link region map tests against Cairo for debug drawing
+
+find_path(CAIRO_INCLUDE_DIRS
+    NAMES cairo.h
+    PATH_SUFFIXES cairo
+)
+
+find_library(CAIRO_LIBRARIES
+    NAMES cairo
+)
+
+if(CAIRO_INCLUDE_DIRS AND CAIRO_LIBRARIES)
+  target_compile_definitions(region_map_tests_OBJ PRIVATE CELERITY_DETAIL_HAVE_CAIRO=1)
+  target_include_directories(region_map_tests_OBJ PRIVATE ${CAIRO_INCLUDE_DIRS})
+  target_link_libraries(region_map_tests PRIVATE ${CAIRO_LIBRARIES})
+  target_link_libraries(all_tests PRIVATE ${CAIRO_LIBRARIES})
+endif()

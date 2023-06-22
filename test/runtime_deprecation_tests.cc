@@ -12,7 +12,6 @@
 #include <celerity.h>
 
 #include "ranges.h"
-#include "region_map.h"
 
 #include "buffer_manager_test_utils.h"
 

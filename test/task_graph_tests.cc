@@ -410,7 +410,7 @@ namespace detail {
 
 		{
 			INFO("check that previous tasks are still last writers before the first horizon is applied");
-			auto region_map_a = task_manager_testspy::get_last_writer(tm, buf_a.get_id());
+			const auto& region_map_a = task_manager_testspy::get_last_writer(tm, buf_a.get_id());
 			CHECK(region_map_a.get_region_values(make_region(0, 32)).front().second.value() == tid_1);
 			CHECK(region_map_a.get_region_values(make_region(96, 128)).front().second.value() == tid_2);
 			CHECK(region_map_a.get_region_values(make_region(32, 96)).front().second.value() == tid_4);
@@ -424,7 +424,7 @@ namespace detail {
 
 		{
 			INFO("check that only the previous horizon is the last writer of buff_a");
-			auto region_map_a = task_manager_testspy::get_last_writer(tm, buf_a.get_id());
+			const auto& region_map_a = task_manager_testspy::get_last_writer(tm, buf_a.get_id());
 			CHECK(region_map_a.get_region_values(make_region(0, 128)).front().second.value() == *horizon);
 		}
 
@@ -434,7 +434,7 @@ namespace detail {
 
 		{
 			INFO("check that the previous horizon and task 11 are last writers of buff_a");
-			auto region_map_a = task_manager_testspy::get_last_writer(tm, buf_a.get_id());
+			const auto& region_map_a = task_manager_testspy::get_last_writer(tm, buf_a.get_id());
 			CHECK(region_map_a.get_region_values(make_region(0, 64)).front().second.value() == *horizon);
 			CHECK(region_map_a.get_region_values(make_region(64, 128)).front().second.value() == tid_9);
 		}

@@ -40,7 +40,7 @@ namespace detail {
 					    m_gser->flush(e.tsk->get_id());
 				    },
 				    [this](const event_buffer_registered& e) { //
-					    m_ggen->add_buffer(e.bid, e.range);
+					    m_ggen->add_buffer(e.bid, e.dims, e.range);
 				    },
 				    [&](const event_shutdown&) {
 					    assert(in_flight_events.empty());
