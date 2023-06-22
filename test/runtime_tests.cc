@@ -23,7 +23,6 @@
 #include "executor.h"
 #include "named_threads.h"
 #include "ranges.h"
-#include "region_map.h"
 
 #include "test_utils.h"
 

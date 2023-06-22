@@ -109,7 +109,7 @@ namespace detail {
 		 * @brief Adds a new buffer for dependency tracking
 		 * @arg host_initialized Whether this buffer has been initialized using a host pointer (i.e., it contains useful data before any write-task)
 		 */
-		void add_buffer(buffer_id bid, const range<3>& range, bool host_initialized);
+		void add_buffer(buffer_id bid, const int dims, const range<3>& range, bool host_initialized);
 
 		/**
 		 * Returns the specified task if it still exists, nullptr otherwise.

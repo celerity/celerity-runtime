@@ -162,12 +162,12 @@ namespace detail {
 		// #if __SYCL_DEVICE_ONLY__ did get rid of the segfault, but caused the test to fail with a heap corruption at runtime. Instead, replacing id
 		// with size_t seems to resolve the problem.
 
-		const auto range = celerity::range<3>(2, 3, 4);
+		const auto range = range_cast<Dims>(celerity::range<3>(2, 3, 4));
 		auto& bm = accessor_fixture<Dims>::get_buffer_manager();
-		auto bid = bm.template register_buffer<size_t, Dims>(range);
+		auto bid = bm.template register_buffer<size_t, Dims>(range_cast<3>(range));
 
 		auto& q = accessor_fixture<Dims>::get_device_queue();
-		auto sr = subrange<3>({}, range);
+		auto sr = subrange<3>({}, range_cast<3>(range));
 
 		// this kernel initializes the buffer what will be read after.
 		auto acc_write = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, access_mode::discard_write>(bid, range_cast<Dims>(range), {});
