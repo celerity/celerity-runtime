@@ -714,6 +714,30 @@ namespace region_map_detail {
 			}
 		}
 
+		auto format_to(fmt::format_context::iterator out, const size_t level) const {
+			const auto padding = std::string(2 * level, ' ');
+			auto bounding_box = get_bounding_box();
+			if(!m_contains_leaves) {
+				out = fmt::format_to(out, "{}inner node with bbox {} and {} children:\n", padding, bounding_box, m_children.size());
+				for(size_t i = 0; i < m_children.size(); ++i) {
+					out = get_child_node(i).format_to(out, level + 1);
+				}
+			} else {
+				out = fmt::format_to(out, "{}leaf node with bbox {} and {} values:\n", padding, bounding_box, m_children.size());
+				const auto value_padding = std::string(2 * (level + 1), ' ');
+				for(size_t i = 0; i < m_children.size(); ++i) {
+					auto& v = get_child_value(i);
+					out = fmt::format_to(out, "{}{} : ", value_padding, m_child_boxes[i]);
+					if constexpr(fmt::is_formattable<ValueType>::value) {
+						out = fmt::format_to(out, "{}\n", v);
+					} else {
+						out = fmt::format_to(out, "(value not printable)\n");
+					}
+				}
+			}
+			return out;
+		}
+
 	  private:
 		template <typename RegionMap>
 		friend void sanity_check_region_map(const RegionMap& rm);
@@ -784,29 +808,6 @@ namespace region_map_detail {
 			return result;
 #endif
 			return {};
-		}
-
-		void print(std::ostream& os, size_t level = 0) const {
-			const auto padding = std::string(2 * level, ' ');
-			auto bounding_box = get_bounding_box();
-			if(!m_contains_leaves) {
-				fmt::print(os, "{}inner node with bbox {} and {} children:\n", padding, bounding_box, m_children.size());
-				for(size_t i = 0; i < m_children.size(); ++i) {
-					get_child_node(i).print(os, level + 1);
-				}
-			} else {
-				fmt::print(os, "{}leaf node with bbox {} and {} values:\n", padding, bounding_box, m_children.size());
-				const auto value_padding = std::string(2 * (level + 1), ' ');
-				for(size_t i = 0; i < m_children.size(); ++i) {
-					auto& v = get_child_value(i);
-					fmt::print(os, "{}{} : ", value_padding, m_child_boxes[i]);
-					if constexpr(fmt::is_formattable<ValueType>::value) {
-						fmt::print(os, "{}\n", v);
-					} else {
-						os << "(value not printable)\n";
-					}
-				}
-			}
 		}
 	};
 
@@ -1037,9 +1038,9 @@ namespace region_map_detail {
 			return results_merged;
 		}
 
-		friend std::ostream& operator<<(std::ostream& os, const region_map_impl& crm) {
-			crm.print(os);
-			return os;
+		auto format_to(fmt::format_context::iterator out) const {
+			out = fmt::format_to(out, "Region Map\n");
+			return m_root->format_to(out, 0);
 		}
 
 		range<Dims> get_extent() const { return grid_box_to_subrange(m_extent).range; }
@@ -1218,11 +1219,6 @@ namespace region_map_detail {
 			m_merge_candidates = std::move(merge_candidates);
 		}
 
-		void print(std::ostream& os) const {
-			os << "Region Map\n";
-			m_root->print(os, 0);
-		}
-
 		/**
 		 * Invokes the provided callback for every entry (box/value pair) within the region map,
 		 * for debugging / testing / instrumentation.
@@ -1367,6 +1363,14 @@ class region_map {
 		case 2: get_map<2>().apply_to_values(f); break;
 		case 3: get_map<3>().apply_to_values(f); break;
 		default: assert(false);
+		}
+	}
+
+	auto format_to(fmt::format_context::iterator out) const {
+		switch(m_dims) {
+		case 1: return get_map<1>().format_to(out);
+		case 2: return get_map<2>().format_to(out);
+		case 3: return get_map<3>().format_to(out);
 		}
 	}
 
