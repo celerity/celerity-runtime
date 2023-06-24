@@ -375,8 +375,8 @@ namespace detail {
 			resize_info result;
 			if(!is_inside_old_range) {
 				result.resize_required = true;
-				result.new_offset = min_id(request_offset, buffer.offset);
-				result.new_range = range_cast<3>(id_cast<3>(max_range(old_abs_range, new_abs_range)) - result.new_offset);
+				result.new_offset = id_min(request_offset, buffer.offset);
+				result.new_range = range_cast<3>(id_cast<3>(range_max(old_abs_range, new_abs_range)) - result.new_offset);
 			}
 			return result;
 		}

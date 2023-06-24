@@ -186,9 +186,8 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		// We currently don't support boundary checking for accessors created using accessor_testspy::make_device_accessor,
 		// which does not set m_oob_indices.
 		if(m_oob_indices != nullptr) {
-			const id<Dims> all_true = detail::id_cast<Dims>(id<3>(true, true, true));
-			const bool is_within_bounds_lo = (index >= m_accessed_virtual_subrange.offset) == all_true;
-			const bool is_within_bounds_hi = (index < (m_accessed_virtual_subrange.offset + m_accessed_virtual_subrange.range)) == all_true;
+			const bool is_within_bounds_lo = all_true(index >= m_accessed_virtual_subrange.offset);
+			const bool is_within_bounds_hi = all_true(index < (m_accessed_virtual_subrange.offset + m_accessed_virtual_subrange.range));
 			if((!is_within_bounds_lo || !is_within_bounds_hi)) {
 				for(int d = 0; d < Dims; ++d) {
 					sycl::atomic_ref<size_t, sycl::memory_order::relaxed, sycl::memory_scope::device>{m_oob_indices[0][d]}.fetch_min(index[d]);

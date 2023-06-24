@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cassert>
+
 #include <CL/sycl.hpp>
 #include <sycl/sycl.hpp>
 
@@ -40,4 +42,10 @@
 #else
 #define CELERITY_DETAIL_HAS_NO_UNIQUE_ADDRESS false
 #define CELERITY_DETAIL_NO_UNIQUE_ADDRESS
+#endif
+
+#if CELERITY_DETAIL_ENABLE_DEBUG && !defined(__SYCL_DEVICE_ONLY__)
+#define CELERITY_DETAIL_ASSERT_ON_HOST(...) assert(__VA_ARGS__)
+#else
+#define CELERITY_DETAIL_ASSERT_ON_HOST(...)
 #endif

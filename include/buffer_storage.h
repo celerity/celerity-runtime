@@ -116,8 +116,8 @@ namespace detail {
 
 	inline void assert_copy_is_in_range(
 	    const range<3>& source_range, const range<3>& target_range, const id<3>& source_offset, const id<3>& target_offset, const range<3>& copy_range) {
-		assert(max_range(source_range, range_cast<3>(source_offset + copy_range)) == source_range);
-		assert(max_range(target_range, range_cast<3>(target_offset + copy_range)) == target_range);
+		assert(range_max(source_range, range_cast<3>(source_offset + copy_range)) == source_range);
+		assert(range_max(target_range, range_cast<3>(target_offset + copy_range)) == target_range);
 	}
 
 	template <typename DataT, int Dims>

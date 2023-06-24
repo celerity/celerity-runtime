@@ -93,7 +93,7 @@ class buffer_fence_promise final : public detail::fence_promise {
 	void fulfill() override {
 		const auto access_info =
 		    runtime::get_instance().get_buffer_manager().access_host_buffer<DataT, Dims>(get_buffer_id(m_buffer), access_mode::read, m_subrange);
-		assert((id_cast<Dims>(access_info.backing_buffer_offset) <= m_subrange.offset) == id_cast<Dims>(id<3>(true, true, true)));
+		assert(all_true(id_cast<Dims>(access_info.backing_buffer_offset) <= m_subrange.offset));
 		auto data = std::make_unique<DataT[]>(m_subrange.range.size());
 		memcpy_strided_host(access_info.ptr, data.get(), sizeof(DataT), range_cast<Dims>(access_info.backing_buffer_range),
 		    m_subrange.offset - id_cast<Dims>(access_info.backing_buffer_offset), m_subrange.range, {}, m_subrange.range);
