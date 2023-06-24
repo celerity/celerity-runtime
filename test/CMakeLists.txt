@@ -32,6 +32,7 @@ set(TEST_TARGETS
   graph_gen_reduction_tests
   graph_gen_transfer_tests
   graph_compaction_tests
+  grid_tests
   intrusive_graph_tests
   print_graph_tests
   region_map_tests
@@ -68,6 +69,8 @@ foreach(TEST_TARGET ${TEST_TARGETS})
   ParseAndAddCatchTests_ParseFile(${TEST_SOURCE} ${TEST_TARGET})
 endforeach()
 
+target_sources(grid_tests PRIVATE benchmark_reporters.cc) # TODO HACK
+
 # Add all_tests executable
 add_executable(all_tests ${TEST_OBJ_LIST})
 target_link_libraries(all_tests PRIVATE test_main)
@@ -95,8 +98,11 @@ find_library(CAIRO_LIBRARIES
 )
 
 if(CAIRO_INCLUDE_DIRS AND CAIRO_LIBRARIES)
-  target_compile_definitions(region_map_tests_OBJ PRIVATE CELERITY_DETAIL_HAVE_CAIRO=1)
-  target_include_directories(region_map_tests_OBJ PRIVATE ${CAIRO_INCLUDE_DIRS})
-  target_link_libraries(region_map_tests PRIVATE ${CAIRO_LIBRARIES})
+  message(STATUS "Building tests with cairo support: ${CAIRO_LIBRARIES}")
+  foreach(TEST_TARGET region_map_tests;grid_tests)
+    target_compile_definitions(${TEST_TARGET}_OBJ PRIVATE CELERITY_DETAIL_HAVE_CAIRO=1)
+    target_include_directories(${TEST_TARGET}_OBJ PRIVATE ${CAIRO_INCLUDE_DIRS})
+    target_link_libraries(${TEST_TARGET} PRIVATE ${CAIRO_LIBRARIES})
+  endforeach()
   target_link_libraries(all_tests PRIVATE ${CAIRO_LIBRARIES})
 endif()

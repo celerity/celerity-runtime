@@ -1,5 +1,7 @@
 #pragma once
 
+#include "catch2/benchmark/catch_clock.hpp"
+#include "catch2/benchmark/catch_optimizer.hpp"
 #include <map>
 #include <memory>
 #include <ostream>
@@ -355,6 +357,11 @@ namespace test_utils {
 		}
 	}
 
+	template <typename T>
+	void black_hole(T&& v) {
+		Catch::Benchmark::keep_memory(&v);
+	}
+
 } // namespace test_utils
 } // namespace celerity
 
@@ -368,7 +375,7 @@ struct StringMaker<celerity::id<Dims>> {
 		case 1: return fmt::format("{{{}}}", value[0]);
 		case 2: return fmt::format("{{{}, {}}}", value[0], value[1]);
 		case 3: return fmt::format("{{{}, {}, {}}}", value[0], value[1], value[2]);
-		default: return {};
+		default: return "{}";
 		}
 	}
 };
@@ -380,7 +387,7 @@ struct StringMaker<celerity::range<Dims>> {
 		case 1: return fmt::format("{{{}}}", value[0]);
 		case 2: return fmt::format("{{{}, {}}}", value[0], value[1]);
 		case 3: return fmt::format("{{{}, {}, {}}}", value[0], value[1], value[2]);
-		default: return {};
+		default: return "{}";
 		}
 	}
 };
