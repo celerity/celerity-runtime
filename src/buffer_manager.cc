@@ -73,7 +73,7 @@ namespace detail {
 
 	buffer_manager::access_info buffer_manager::access_device_buffer(buffer_id bid, access_mode mode, const subrange<3>& sr) {
 		std::unique_lock lock(m_mutex);
-		assert((range_cast<3>(sr.offset + sr.range) <= m_buffer_infos.at(bid).range) == range<3>(true, true, true));
+		assert(all_true(range_cast<3>(sr.offset + sr.range) <= m_buffer_infos.at(bid).range));
 
 		auto& existing_buf = m_buffers[bid].device_buf;
 		backing_buffer replacement_buf;
@@ -173,7 +173,7 @@ namespace detail {
 	}
 
 	buffer_manager::access_info buffer_manager::access_host_buffer_impl(const buffer_id bid, const access_mode mode, const subrange<3>& sr) {
-		assert((range_cast<3>(sr.offset + sr.range) <= m_buffer_infos.at(bid).range) == range<3>(true, true, true));
+		assert(all_true(range_cast<3>(sr.offset + sr.range) <= m_buffer_infos.at(bid).range));
 
 		auto& existing_buf = m_buffers[bid].host_buf;
 		backing_buffer replacement_buf;
