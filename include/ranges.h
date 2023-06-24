@@ -26,8 +26,16 @@ struct make_from_t {
 // and would otherwise be prohibited by strict-aliasing rules (because two identical pointers with the same type must point to the same object).
 template <typename Interface, int Dims>
 struct coordinate_storage {
-	constexpr size_t operator[](int dimension) const { return values[dimension]; }
-	constexpr size_t& operator[](int dimension) { return values[dimension]; }
+	constexpr size_t operator[](int dimension) const {
+		CELERITY_DETAIL_ASSERT_ON_HOST(dimension < Dims);
+		return values[dimension];
+	}
+
+	constexpr size_t& operator[](int dimension) {
+		CELERITY_DETAIL_ASSERT_ON_HOST(dimension < Dims);
+		return values[dimension];
+	}
+
 	size_t values[Dims] = {};
 };
 
@@ -59,7 +67,7 @@ class coordinate {
 	template <typename... Values, typename = std::enable_if_t<sizeof...(Values) + 1 == Dims && (... && std::is_convertible_v<Values, size_t>)>>
 	constexpr coordinate(const size_t dim_0, const Values... dim_n) : m_values{{dim_0, static_cast<size_t>(dim_n)...}} {}
 
-	constexpr size_t get(int dimension) { return m_values[dimension]; }
+	constexpr size_t get(int dimension) const { return m_values[dimension]; }
 	constexpr size_t& operator[](int dimension) { return m_values[dimension]; }
 	constexpr size_t operator[](int dimension) const { return m_values[dimension]; }
 
@@ -208,18 +216,19 @@ class coordinate {
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS coordinate_storage<Interface, Dims> m_values;
 };
 
-template <typename InterfaceOut, typename InterfaceIn, int DimsIn>
-InterfaceOut coordinate_cast(const coordinate<InterfaceIn, DimsIn>& in) {
+template <typename InterfaceOut, typename InterfaceIn>
+InterfaceOut coordinate_cast(const InterfaceIn& in) {
+	CELERITY_DETAIL_ASSERT_ON_HOST(in.get_min_dimensions() <= InterfaceOut::dimensions);
 	return InterfaceOut(make_from, in);
 }
 
-template <int DimsOut, typename InterfaceIn, int DimsIn>
-range<DimsOut> range_cast(const coordinate<InterfaceIn, DimsIn>& in) {
+template <int DimsOut, typename InterfaceIn>
+range<DimsOut> range_cast(const InterfaceIn& in) {
 	return coordinate_cast<range<DimsOut>>(in);
 }
 
-template <int DimsOut, typename InterfaceIn, int DimsIn>
-id<DimsOut> id_cast(const coordinate<InterfaceIn, DimsIn>& in) {
+template <int DimsOut, typename InterfaceIn>
+id<DimsOut> id_cast(const InterfaceIn& in) {
 	return coordinate_cast<id<DimsOut>>(in);
 }
 
@@ -279,11 +288,19 @@ class range : public detail::coordinate<range<Dims>, Dims> {
 		}
 	}
 
+	/// Returns the smallest dimensionality that `*this` can be `range_cast` to.
+	int get_min_dimensions() const {
+		for(int dims = Dims; dims > 0; --dims) {
+			if((*this)[dims - 1] > 1) return dims;
+		}
+		return 0;
+	}
+
   private:
 	friend class detail::coordinate<range<Dims>, Dims>;
 
-	template <typename InterfaceOut, typename InterfaceIn, int DimsIn>
-	friend InterfaceOut detail::coordinate_cast(const detail::coordinate<InterfaceIn, DimsIn>& in);
+	template <typename InterfaceOut, typename InterfaceIn>
+	friend InterfaceOut detail::coordinate_cast(const InterfaceIn& in);
 
 	template <typename Default = void, int D = Dims, typename = std::enable_if_t<D != 0>>
 	constexpr range() noexcept {}
@@ -329,9 +346,17 @@ class id : public detail::coordinate<id<Dims>, Dims> {
 		}
 	}
 
+	/// Returns the smallest dimensionality that `*this` can be `id_cast` to.
+	int get_min_dimensions() const {
+		for(int dims = Dims; dims > 0; --dims) {
+			if((*this)[dims - 1] > 0) { return dims; }
+		}
+		return 0;
+	}
+
   private:
-	template <typename InterfaceOut, typename InterfaceIn, int DimsIn>
-	friend InterfaceOut detail::coordinate_cast(const detail::coordinate<InterfaceIn, DimsIn>& in);
+	template <typename InterfaceOut, typename InterfaceIn>
+	friend InterfaceOut detail::coordinate_cast(const InterfaceIn& in);
 
 	template <typename InterfaceIn, int DimsIn>
 	constexpr id(const detail::make_from_t /* tag */, const detail::coordinate<InterfaceIn, DimsIn>& in)
@@ -422,9 +447,7 @@ namespace detail {
 	  public:
 		subscript_proxy(Target& tgt, const id<TargetDims> id) : m_tgt(tgt), m_id(id) {}
 
-		inline decltype(auto) operator[](const size_t index) const {
-			return subscript<TargetDims, Target, SubscriptDim>(m_tgt, m_id, index);
-		}
+		inline decltype(auto) operator[](const size_t index) const { return subscript<TargetDims, Target, SubscriptDim>(m_tgt, m_id, index); }
 
 	  private:
 		Target& m_tgt;
@@ -439,9 +462,9 @@ namespace detail {
 
 	inline size_t get_linear_index(const range<3>& range, const id<3>& index) { return index[0] * range[1] * range[2] + index[1] * range[2] + index[2]; }
 
-#define MAKE_COMPONENT_WISE_BINARY_FN(name, range_type, op)                                                                                                    \
+#define CELERITY_DETAIL_MAKE_COMPONENT_WISE_FN(name, coord, op)                                                                                                \
 	template <int Dims>                                                                                                                                        \
-	range_type<Dims> name(const range_type<Dims>& a, const range_type<Dims>& b) {                                                                              \
+	coord<Dims> name(const coord<Dims>& a, const coord<Dims>& b) {                                                                                             \
 		auto result = a;                                                                                                                                       \
 		for(int d = 0; d < Dims; ++d) {                                                                                                                        \
 			result[d] = op(result[d], b[d]);                                                                                                                   \
@@ -449,12 +472,21 @@ namespace detail {
 		return result;                                                                                                                                         \
 	}
 
-	MAKE_COMPONENT_WISE_BINARY_FN(min_range, range, std::min)
-	MAKE_COMPONENT_WISE_BINARY_FN(max_range, range, std::max)
-	MAKE_COMPONENT_WISE_BINARY_FN(min_id, id, std::min)
-	MAKE_COMPONENT_WISE_BINARY_FN(max_id, id, std::max)
+	CELERITY_DETAIL_MAKE_COMPONENT_WISE_FN(range_min, range, std::min)
+	CELERITY_DETAIL_MAKE_COMPONENT_WISE_FN(range_max, range, std::max)
+	CELERITY_DETAIL_MAKE_COMPONENT_WISE_FN(id_min, id, std::min)
+	CELERITY_DETAIL_MAKE_COMPONENT_WISE_FN(id_max, id, std::max)
 
-#undef MAKE_COMPONENT_WISE_BINARY_FN
+#undef CELERITY_DETAIL_MAKE_COMPONENT_WISE_FN
+
+	template <typename Interface, int Dims>
+	bool all_true(const coordinate<Interface, Dims> &bools) {
+		for(int d = 0; d < Dims; ++d) {
+			CELERITY_DETAIL_ASSERT_ON_HOST(bools[d] == 0 || bools[d] == 1);
+			if(bools[d] == 0) return false;
+		}
+		return true;
+	}
 
 } // namespace detail
 
@@ -471,6 +503,9 @@ struct chunk {
 	chunk(const id<Dims>& offset, const celerity::range<Dims>& range, const celerity::range<Dims>& global_size)
 	    : offset(offset), range(range), global_size(global_size) {}
 
+	/// Returns the smallest dimensionality that `*this` can be `chunk_cast` to.
+	int get_min_dimensions() const { return std::max({offset.get_min_dimensions(), range.get_min_dimensions(), global_size.get_min_dimensions()}); }
+
 	friend bool operator==(const chunk& lhs, const chunk& rhs) {
 		return lhs.offset == rhs.offset && lhs.range == rhs.range && lhs.global_size == rhs.global_size;
 	}
@@ -485,10 +520,11 @@ struct subrange {
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> range = detail::zero_range;
 
 	subrange() = default;
-
 	subrange(const id<Dims>& offset, const celerity::range<Dims>& range) : offset(offset), range(range) {}
-
 	subrange(const chunk<Dims>& other) : offset(other.offset), range(other.range) {}
+
+	/// Returns the smallest dimensionality that `*this` can be `subrange_cast` to.
+	int get_min_dimensions() const { return std::max({offset.get_min_dimensions(), range.get_min_dimensions()}); }
 
 	friend bool operator==(const subrange& lhs, const subrange& rhs) { return lhs.offset == rhs.offset && lhs.range == rhs.range; }
 	friend bool operator!=(const subrange& lhs, const subrange& rhs) { return !operator==(lhs, rhs); }
@@ -498,11 +534,13 @@ namespace detail {
 
 	template <int Dims, int OtherDims>
 	chunk<Dims> chunk_cast(const chunk<OtherDims>& other) {
+		CELERITY_DETAIL_ASSERT_ON_HOST(other.get_min_dimensions() <= Dims);
 		return chunk{detail::id_cast<Dims>(other.offset), detail::range_cast<Dims>(other.range), detail::range_cast<Dims>(other.global_size)};
 	}
 
 	template <int Dims, int OtherDims>
 	subrange<Dims> subrange_cast(const subrange<OtherDims>& other) {
+		CELERITY_DETAIL_ASSERT_ON_HOST(other.get_min_dimensions() <= Dims);
 		return subrange{detail::id_cast<Dims>(other.offset), detail::range_cast<Dims>(other.range)};
 	}
 

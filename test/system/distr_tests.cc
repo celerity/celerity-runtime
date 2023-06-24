@@ -215,7 +215,7 @@ namespace detail {
 			cgh.parallel_for<kernel_name_nd_geometry<Dims>>(celerity::nd_range{global_range, local_range}, /* global_offset,*/ [=](nd_item<Dims> item) {
 				auto group = item.get_group();
 				g[item.get_global_id()] = geometry{//
-				    {item.get_group_linear_id(), range_cast<3>(item.get_group_range()), range_cast<3>(item.get_local_id()), item.get_local_linear_id(),
+				    {item.get_group_linear_id(), range_cast<3>(item.get_group_range()), id_cast<3>(item.get_local_id()), item.get_local_linear_id(),
 				        range_cast<3>(item.get_local_range()), id_cast<3>(item.get_global_id()), item.get_global_linear_id(),
 				        range_cast<3>(item.get_global_range())},
 				    {id_cast<3>(group.get_group_id()), group.get_group_linear_id(), range_cast<3>(group.get_group_range()), id_cast<3>(group.get_local_id()),
