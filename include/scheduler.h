@@ -12,15 +12,14 @@
 namespace celerity {
 namespace detail {
 
-	class graph_generator;
-	class graph_serializer;
+	class distributed_graph_generator;
+	class executor;
 	class task;
-
 
 	// Abstract base class to allow different threading implementation in tests
 	class abstract_scheduler {
 	  public:
-		abstract_scheduler(std::unique_ptr<graph_generator> ggen, std::unique_ptr<graph_serializer> gser, size_t num_nodes);
+		abstract_scheduler(const bool is_dry_run, std::unique_ptr<distributed_graph_generator> dggen, executor& exec);
 
 		virtual ~abstract_scheduler() = default;
 
@@ -41,6 +40,10 @@ namespace detail {
 		 */
 		void schedule();
 
+		// Constructor for tests that does not require an executor
+		abstract_scheduler(const bool is_dry_run, std::unique_ptr<distributed_graph_generator> dggen)
+		    : m_is_dry_run(is_dry_run), m_dggen(std::move(dggen)), m_exec(nullptr) {}
+
 	  private:
 		struct event_shutdown {};
 		struct event_task_available {
@@ -53,16 +56,15 @@ namespace detail {
 		};
 		using event = std::variant<event_shutdown, event_task_available, event_buffer_registered>;
 
-		std::unique_ptr<graph_generator> m_ggen;
-		std::unique_ptr<graph_serializer> m_gser;
+		bool m_is_dry_run;
+		std::unique_ptr<distributed_graph_generator> m_dggen;
+		executor* m_exec; // Pointer instead of reference so we can omit for tests / benchmarks
 
 		std::queue<event> m_available_events;
 		std::queue<event> m_in_flight_events;
 
 		mutable std::mutex m_events_mutex;
 		std::condition_variable m_events_cv;
-
-		const size_t m_num_nodes;
 
 		void notify(const event& evt);
 	};

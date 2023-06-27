@@ -1,286 +1,216 @@
-#include <unordered_set>
-
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
-#include <celerity.h>
+#include "distributed_graph_generator_test_utils.h"
 
-#include "access_modes.h"
+#include "distributed_graph_generator.h"
 
-#include "test_utils.h"
+using namespace celerity;
+using namespace celerity::detail;
+using namespace celerity::test_utils;
 
-namespace celerity {
-namespace detail {
+namespace acc = celerity::access;
 
-	using celerity::access::all;
-	using celerity::access::fixed;
-	using celerity::access::one_to_one;
+TEST_CASE("distributed_graph_generator generates reduction command trees", "[distributed_distributed_graph_generator][command-graph][reductions]") {
+	dist_cdag_test_context dctx(2);
 
-	TEST_CASE("graph_generator generates reduction command trees", "[graph_generator][command-graph][reductions]") {
-		using namespace cl::sycl::access;
-		size_t num_nodes = 2;
-		test_utils::cdag_test_context ctx(num_nodes);
-		auto& tm = ctx.get_task_manager();
-		auto& ggen = ctx.get_graph_generator();
-		test_utils::mock_buffer_factory mbf(ctx);
-		test_utils::mock_reduction_factory mrf;
+	const range<1> test_range = {64};
+	auto buf0 = dctx.create_buffer(test_range);
+	auto buf1 = dctx.create_buffer(range<1>{1});
 
-		auto range = celerity::range<1>(64);
-		auto buf_0 = mbf.create_buffer(range);
-		auto buf_1 = mbf.create_buffer(celerity::range<1>(1));
+	const auto tid_initialize = dctx.device_compute<class UKN(initialize_1)>(test_range).discard_write(buf1, acc::one_to_one{}).submit();
+	const auto tid_produce = dctx.device_compute<class UKN(produce_0)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+	const auto tid_reduce =
+	    dctx.device_compute<class UKN(reduce)>(test_range).read(buf0, acc::one_to_one{}).reduce(buf1, true /* include_current_buffer_value */).submit();
+	const auto tid_consume = dctx.device_compute<class UKN(consume_1)>(test_range).read(buf1, acc::all{}).submit();
 
-		const auto tid_initialize = test_utils::add_compute_task<class UKN(task_initialize)>(
-		    tm, [&](handler& cgh) { buf_1.get_access<mode::discard_write>(cgh, one_to_one{}); }, range);
-		test_utils::build_and_flush(ctx, num_nodes, tid_initialize);
+	CHECK(has_dependency(dctx.get_task_manager(), tid_reduce, tid_initialize));
+	CHECK(has_dependency(dctx.get_task_manager(), tid_reduce, tid_produce));
+	CHECK(has_dependency(dctx.get_task_manager(), tid_consume, tid_reduce));
 
-		const auto tid_produce = test_utils::add_compute_task<class UKN(task_produce)>(
-		    tm, [&](handler& cgh) { buf_0.get_access<mode::discard_write>(cgh, one_to_one{}); }, range);
-		test_utils::build_and_flush(ctx, num_nodes, tid_produce);
+	CHECK(dctx.query(node_id(0), tid_initialize).have_successors(dctx.query(node_id(0), tid_reduce)));
+	CHECK(dctx.query(tid_produce).have_successors(dctx.query(tid_reduce)));
+	// Reduction commands have exactly one dependency to the local parent execution_command and one dependency to an await_push command
+	CHECK(dctx.query(tid_reduce).have_successors(dctx.query(command_type::reduction)));
+	CHECK(dctx.query(command_type::await_push).have_successors(dctx.query(command_type::reduction)));
+	// Each consume command has a reduction as its direct predecessor
+	CHECK(dctx.query(command_type::reduction).have_successors(dctx.query(tid_consume), dependency_kind::true_dep));
+}
 
-		const auto tid_reduce = test_utils::add_compute_task<class UKN(task_reduce)>(
-		    tm,
-		    [&](handler& cgh) {
-			    buf_0.get_access<mode::read>(cgh, one_to_one{});
-			    test_utils::add_reduction(cgh, mrf, buf_1, true /* include_current_buffer_value */);
-		    },
-		    range);
-		test_utils::build_and_flush(ctx, num_nodes, tid_reduce);
+TEST_CASE("single-node configurations do not generate reduction commands", "[distributed_graph_generator][command-graph][reductions]") {
+	dist_cdag_test_context dctx(1);
 
-		const auto tid_consume = test_utils::add_compute_task<class UKN(task_consume)>(
-		    tm,
-		    [&](handler& cgh) {
-			    buf_1.get_access<mode::read>(cgh, fixed<1>({0, 1}));
-		    },
-		    range);
-		test_utils::build_and_flush(ctx, num_nodes, tid_consume);
+	const range<1> test_range = {64};
+	auto buf0 = dctx.create_buffer(range<1>(1));
 
-		CHECK(has_dependency(tm, tid_reduce, tid_initialize));
-		CHECK(has_dependency(tm, tid_reduce, tid_produce));
-		CHECK(has_dependency(tm, tid_consume, tid_reduce));
+	dctx.device_compute<class UKN(reduce)>(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
+	dctx.device_compute<class UKN(consume)>(test_range).read(buf0, acc::all{}).submit();
+	CHECK(dctx.query(command_type::reduction).empty());
+}
 
-		auto consume_cmds = ctx.get_inspector().get_commands(tid_consume, std::nullopt, std::nullopt);
-		CHECK(consume_cmds.size() == num_nodes);
+TEST_CASE("discarding the reduction result from a execution_command will not generate a reduction command",
+    "[distributed_graph_generator][command-graph][reductions]") {
+	dist_cdag_test_context dctx(2);
 
-		auto reduce_task_cmds = ctx.get_inspector().get_commands(tid_reduce, std::nullopt, std::nullopt);
-		CHECK(reduce_task_cmds.size() == num_nodes);
+	const range<1> test_range = {64};
+	auto buf0 = dctx.create_buffer(range<1>(1));
 
-		reduction_id rid = 0;
-		for(auto cid : consume_cmds) {
-			// Each consume command has a reduction as its direct predecessor
-			auto deps = ctx.get_inspector().get_dependencies(cid);
-			REQUIRE(deps.size() == 1);
-			auto* rcmd = dynamic_cast<reduction_command*>(ctx.get_command_graph().get(deps[0]));
-			REQUIRE(rcmd);
-			if(rid) {
-				CHECK(rcmd->get_reduction_info().rid == rid);
-			} else {
-				rid = rcmd->get_reduction_info().rid;
-			}
+	const auto tid_reduce = dctx.device_compute<class UKN(reduce)>(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
+	const auto tid_discard = dctx.device_compute<class UKN(discard)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+	// Now consume the result to check that the buffer was no longer in a pending reduction state (=> regression test)
+	dctx.device_compute<class UKN(consume)>(test_range).read(buf0, acc::one_to_one{}).submit();
+	CHECK(dctx.query(command_type::reduction).empty());
+	// On node 0 (where buf0 is actually being overwritten) there should be an anti-dependency between the two
+	CHECK(dctx.query(node_id(0), tid_reduce).have_successors(dctx.query(node_id(0), tid_discard), dependency_kind::anti_dep));
+}
 
-			// Reduction commands have exactly one dependency to the local parent execution_command and one dependency to await_push_commands from all other
-			// nodes
-			auto rdeps = ctx.get_inspector().get_dependencies(deps[0]);
-			CHECK(rdeps.size() == num_nodes);
-			bool have_local_dep = false;
-			std::unordered_set<node_id> await_push_sources;
-			for(auto rdcid : rdeps) {
-				auto* rdcmd = ctx.get_command_graph().get(rdcid);
-				if(auto* tdcmd = dynamic_cast<task_command*>(rdcmd)) {
-					CHECK(!have_local_dep);
-					have_local_dep = true;
-				} else {
-					auto* apdcmd = dynamic_cast<await_push_command*>(rdcmd);
-					REQUIRE(apdcmd);
-					CHECK(apdcmd->get_source()->get_rid() == rid);
-					auto source_nid = apdcmd->get_source()->get_nid();
-					CHECK(source_nid != rcmd->get_nid());
-					CHECK(!await_push_sources.count(source_nid));
-					await_push_sources.emplace(source_nid);
-				}
-			}
-			CHECK(have_local_dep);
+TEST_CASE("distributed_graph_generator does not generate multiple reduction commands for redundant requirements",
+    "[distributed_graph_generator][command-graph][reductions]") {
+	dist_cdag_test_context dctx(4);
+
+	const range<1> test_range = {64};
+	auto buf0 = dctx.create_buffer(range<1>(1));
+
+	dctx.device_compute<class UKN(reduce)>(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
+
+	SECTION("in a single task") {
+		dctx.master_node_host_task().read(buf0, acc::all{}).read_write(buf0, acc::all{}).write(buf0, acc::all{}).submit();
+		CHECK(dctx.query(command_type::reduction).count() == 1);
+	}
+
+	SECTION("across multiple tasks") {
+		dctx.master_node_host_task().read(buf0, acc::all{}).submit();
+		dctx.master_node_host_task().read_write(buf0, acc::all{}).submit();
+		dctx.master_node_host_task().write(buf0, acc::all{}).submit();
+		CHECK(dctx.query(command_type::reduction).count() == 1);
+	}
+}
+
+TEST_CASE("distributed_graph_generator does not generate unnecessary anti-dependencies around reduction commands",
+    "[distributed_graph_generator][command-graph][reductions]") {
+	dist_cdag_test_context dctx(1);
+
+	const range<1> test_range = {64};
+	auto buf0 = dctx.create_buffer(range<1>(1));
+
+	const auto tid_reduce = dctx.device_compute<class UKN(reduce)>(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
+	const auto tid_host = dctx.master_node_host_task().read_write(buf0, acc::all{}).submit();
+	CHECK_FALSE(dctx.query(tid_reduce).have_successors(dctx.query(tid_host), dependency_kind::anti_dep));
+}
+
+TEST_CASE(
+    "commands overwriting a buffer generate anti-dependencies on preceding reduction pushes", "[distributed_graph_generator][command-graph][reductions]") {
+	// regression test - this reproduces the essence of distr_tests "multiple chained reductions produce correct results"
+	const size_t num_nodes = 2;
+	dist_cdag_test_context dctx(num_nodes);
+
+	auto buf0 = dctx.create_buffer(range<1>(1));
+
+	dctx.device_compute<class UKN(reduce_a)>(range<1>(num_nodes)).reduce(buf0, false /* include_current_buffer_value */).submit();
+	const auto tid_b = dctx.device_compute<class UKN(reduce_b)>(range<1>(num_nodes)).reduce(buf0, true /* include_current_buffer_value */).submit();
+
+	const auto n1_pushes = dctx.query(node_id(1), command_type::push);
+	const auto n1_tb_execs = dctx.query(node_id(1), tid_b);
+	CHECK(n1_pushes.have_successors(n1_tb_execs, dependency_kind::anti_dep));
+}
+
+TEST_CASE("distributed_graph_generator forwards final reduction result if required by another node in a later task",
+    "[distributed_graph_generator][command-graph][reductions]") {
+	dist_cdag_test_context dctx(4);
+
+	const range<1> test_range = {64};
+	auto buf0 = dctx.create_buffer(range<1>(1));
+
+	dctx.device_compute<class UKN(reduce)>(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
+	dctx.master_node_host_task().read(buf0, acc::all{}).submit();
+	dctx.collective_host_task().read(buf0, acc::all{}).submit();
+
+	// There should only be a single reduction on node 0
+	CHECK(dctx.query(command_type::reduction).count() == 1);
+	// ...and the result is subsequently pushed to all other nodes
+	CHECK(dctx.query(command_type::reduction).find_successors(command_type::push).count() == 3);
+}
+
+TEST_CASE("multiple chained reductions produce appropriate data transfers", "[distributed_graph_generator][command-graph][reductions]") {
+	const size_t num_nodes = 2;
+	dist_cdag_test_context dctx(num_nodes);
+
+	auto buf0 = dctx.create_buffer(range<1>(1));
+
+	dctx.device_compute<class UKN(reduce_a)>(range<1>(num_nodes)).reduce(buf0, false /* include_current_buffer_value */).submit();
+	dctx.device_compute<class UKN(reduce_b)>(range<1>(num_nodes)).reduce(buf0, true /* include_current_buffer_value */).submit();
+	const auto reduction1 = dctx.query(command_type::reduction);
+	CHECK(reduction1.count() == 1);
+	dctx.master_node_host_task().read(buf0, acc::all{}).submit();
+	const auto reduction2 = dctx.query(command_type::reduction).subtract(reduction1);
+	CHECK(reduction2.count() == 1);
+
+	// Both reductions are preceeded by await_pushes
+	CHECK(reduction1.find_predecessors(command_type::await_push, dependency_kind::true_dep).count() == 1);
+	CHECK(reduction2.find_predecessors(command_type::await_push, dependency_kind::true_dep).count() == 1);
+
+	CHECK(dctx.query(node_id(0), command_type::push).empty());
+	CHECK(dctx.query(node_id(1), command_type::push).count() == 2);
+}
+
+TEST_CASE("reductions that overwrite the previous buffer contents do not generate data transfers", "[distributed_graph_generator][command-graph][reductions]") {
+	dist_cdag_test_context dctx(2);
+
+	const range<1> test_range = {64};
+	auto buf0 = dctx.create_buffer(range<1>(1));
+
+	const auto only1 = [&](chunk<1> chnk) -> subrange<1> {
+		if(chnk.range == chnk.global_size) return {0, 1};
+		switch(chnk.offset[0]) {
+		case 0: return {0, 0};
+		case 32: return {0, 1};
+		default: FAIL("Unexpected offset");
 		}
+		return {};
+	};
+	// Node 1 initializes the buffer, then both nodes reduce into it without keeping the data from task_a.
+	dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, only1).submit();
+	dctx.device_compute<class UKN(task_b)>(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
+	// This should not generate any data transfers.
+	CHECK(dctx.query(command_type::push).empty());
+	CHECK(dctx.query(command_type::await_push).empty());
+}
 
-		test_utils::maybe_print_graphs(ctx);
+TEST_CASE("nodes that do not own pending reduction don't include it in final reduction result", "[distributed_graph_generator][command-graph][reductions]") {
+	dist_cdag_test_context dctx(3);
+	auto buf0 = dctx.create_buffer(range<1>(1));
+
+	dctx.device_compute<class UKN(reduce)>(nd_range<1>(64, 32)).reduce(buf0, false /* include_current_buffer_value */).submit();
+	CHECK(dctx.query(command_type::execution).count() == 2);
+
+	SECTION("remote reductions generate empty notification-only pushes") {
+		dctx.master_node_host_task().read(buf0, acc::all{}).submit();
+		const auto pushes = dctx.query(command_type::push);
+		CHECK(pushes.count() == 2);
+		auto push2 = pushes.get_raw(2);
+		REQUIRE(push2.size() == 1);
+		CHECK(dynamic_cast<const push_command*>(push2[0])->get_range().range.size() == 0);
+		// The push only has a dependency on the initial epoch
+		CHECK(dctx.query()
+		          .find_all(node_id(2), command_type::epoch)
+		          .have_successors(pushes.find_all(node_id(2)), dependency_kind::true_dep, dependency_origin::last_epoch));
 	}
 
-	TEST_CASE("single-node configurations do not generate reduction commands", "[graph_generator][command-graph][reductions]") {
-		using namespace cl::sycl::access;
-		size_t num_nodes = 1;
-		test_utils::cdag_test_context ctx(num_nodes);
-		auto& tm = ctx.get_task_manager();
-		auto& ggen = ctx.get_graph_generator();
-		test_utils::mock_buffer_factory mbf(ctx);
-		test_utils::mock_reduction_factory mrf;
-
-		auto range = celerity::range<1>(64);
-		auto buf_0 = mbf.create_buffer(range);
-
-		const auto tid_reduce = test_utils::add_compute_task<class UKN(task_reduce)>(
-		    tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, buf_0, false /* include_current_buffer_value */); }, range);
-		test_utils::build_and_flush(ctx, num_nodes, tid_reduce);
-
-		const auto tid_consume = test_utils::add_compute_task<class UKN(task_consume)>(tm, [&](handler& cgh) {
-			buf_0.get_access<mode::read>(cgh, fixed<1>({0, 1}));
-		});
-		test_utils::build_and_flush(ctx, num_nodes, tid_consume);
-
-		CHECK(has_dependency(tm, tid_consume, tid_reduce));
-		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::reduction).empty());
-
-		test_utils::maybe_print_graphs(ctx);
+	SECTION("local reductions don't have a dependency on the last writer") {
+		// The last writer in this case is the initial epoch
+		dctx.device_compute<class UKN(consume)>(range<1>(96)).read(buf0, acc::all{}).submit();
+		const auto predecessors = dctx.query(node_id(2), command_type::reduction).find_predecessors(dependency_kind::true_dep);
+		CHECK(predecessors.count() == 1);
+		CHECK(predecessors.have_type(command_type::await_push));
 	}
+}
 
-	TEST_CASE(
-	    "discarding the reduction result from a execution_command will not generate a reduction command", "[graph_generator][command-graph][reductions]") {
-		using namespace cl::sycl::access;
+TEST_CASE("reductions that do not include the current value generate anti-dependencies onto previous writer",
+    "[distributed_graph_generator][command-graph][reductions]") {
+	dist_cdag_test_context dctx(1);
+	auto buf0 = dctx.create_buffer(range<1>(1));
 
-		size_t num_nodes = 2;
-		test_utils::cdag_test_context ctx(num_nodes);
-		auto& tm = ctx.get_task_manager();
-		auto& ggen = ctx.get_graph_generator();
-		test_utils::mock_buffer_factory mbf(ctx);
-		test_utils::mock_reduction_factory mrf;
-
-		auto buf_0 = mbf.create_buffer(range<1>{1});
-
-		test_utils::build_and_flush(ctx, num_nodes,
-		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, buf_0, false); }));
-
-		test_utils::build_and_flush(ctx, num_nodes, test_utils::add_compute_task<class UKN(task_discard)>(tm, [&](handler& cgh) {
-			buf_0.get_access<mode::discard_write>(cgh, fixed<1>({0, 1}));
-		}));
-
-		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::reduction).empty());
-
-		test_utils::maybe_print_graphs(ctx);
-	}
-
-	TEST_CASE("graph_generator does not generate multiple reduction commands for redundant requirements", "[graph_generator][command-graph][reductions]") {
-		using namespace cl::sycl::access;
-
-		size_t num_nodes = 4;
-		test_utils::cdag_test_context ctx(num_nodes);
-		auto& tm = ctx.get_task_manager();
-		auto& ggen = ctx.get_graph_generator();
-		test_utils::mock_buffer_factory mbf(ctx);
-		test_utils::mock_reduction_factory mrf;
-
-		auto buf_0 = mbf.create_buffer(range<1>{1});
-
-		test_utils::build_and_flush(ctx, num_nodes,
-		    test_utils::add_compute_task<class UKN(task_reduction)>(
-		        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, buf_0, false); }, {num_nodes, 1}));
-
-		test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
-			buf_0.get_access<mode::read>(cgh, fixed<1>({0, 1}));
-			buf_0.get_access<mode::read_write>(cgh, fixed<1>({0, 1}));
-			buf_0.get_access<mode::write>(cgh, fixed<1>({0, 1}));
-		}));
-
-		CHECK(ctx.get_inspector().get_commands(std::nullopt, std::nullopt, command_type::reduction).size() == 1);
-
-		test_utils::maybe_print_graphs(ctx);
-	}
-
-	TEST_CASE("graph_generator does not generate unnecessary anti-dependencies around reduction commands", "[graph_generator][command-graph][reductions]") {
-		using namespace cl::sycl::access;
-
-		size_t num_nodes = 2;
-		test_utils::cdag_test_context ctx(num_nodes);
-		auto& tm = ctx.get_task_manager();
-		auto& ggen = ctx.get_graph_generator();
-		test_utils::mock_buffer_factory mbf(ctx);
-		test_utils::mock_reduction_factory mrf;
-
-		auto buf_0 = mbf.create_buffer(range<1>{1});
-
-		auto compute_tid = test_utils::build_and_flush(ctx, num_nodes,
-		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, buf_0, false); }));
-
-		auto host_tid = test_utils::build_and_flush(ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) {
-			buf_0.get_access<mode::read_write>(cgh, fixed<1>({0, 1}));
-		}));
-
-		auto& inspector = ctx.get_inspector();
-		auto& cdag = ctx.get_command_graph();
-		for(auto host_cid : inspector.get_commands(host_tid, std::nullopt, std::nullopt)) {
-			for(auto compute_cid : inspector.get_commands(compute_tid, std::nullopt, std::nullopt)) {
-				CHECK(!cdag.get(host_cid)->has_dependency(cdag.get(compute_cid), dependency_kind::anti_dep));
-			}
-		}
-
-		test_utils::maybe_print_graphs(ctx);
-	}
-
-	TEST_CASE("graph_generator designates a reduction initializer command that does not require transfers", "[graph_generator][command-graph][reductions]") {
-		using namespace cl::sycl::access;
-
-		size_t num_nodes = 2;
-		test_utils::cdag_test_context ctx(num_nodes);
-		auto& tm = ctx.get_task_manager();
-		auto& ggen = ctx.get_graph_generator();
-		test_utils::mock_buffer_factory mbf(ctx);
-		test_utils::mock_reduction_factory mrf;
-
-		auto buf_0 = mbf.create_buffer(range<1>{1});
-
-		test_utils::build_and_flush(
-		    ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_0.get_access<mode::discard_write>(cgh, all{}); }));
-
-		auto compute_tid = test_utils::build_and_flush(ctx, num_nodes,
-		    test_utils::add_compute_task<class UKN(task_reduction)>(tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, buf_0, true); }));
-
-		test_utils::build_and_flush(
-		    ctx, num_nodes, test_utils::add_host_task(tm, on_master_node, [&](handler& cgh) { buf_0.get_access<mode::read>(cgh, all{}); }));
-
-		// Although there are two writing tasks
-		auto& inspector = ctx.get_inspector();
-		auto& cdag = ctx.get_command_graph();
-		size_t have_initializers = 0;
-		for(auto cid : inspector.get_commands(compute_tid, std::nullopt, std::nullopt)) {
-			auto* ecmd = dynamic_cast<execution_command*>(cdag.get(cid));
-			CHECK((ecmd->get_nid() == 0) == ecmd->is_reduction_initializer());
-			have_initializers += ecmd->is_reduction_initializer();
-		}
-		CHECK(have_initializers == 1);
-
-		test_utils::maybe_print_graphs(ctx);
-	}
-
-	TEST_CASE("commands overwriting a buffer generate anti-dependencies on preceding reduction pushes", "[graph_generator][command-graph][reductions]") {
-		// regression test - this reproduces the essence of distr_tests "multiple chained reductions produce correct results"
-
-		size_t num_nodes = 2;
-		test_utils::cdag_test_context ctx(num_nodes);
-		auto& tm = ctx.get_task_manager();
-		test_utils::mock_buffer_factory mbf(ctx);
-		test_utils::mock_reduction_factory mrf;
-
-		auto sum = mbf.create_buffer(range<1>{1});
-		const auto t1 = test_utils::build_and_flush(ctx, num_nodes,
-		    test_utils::add_compute_task<class UKN(kernel)>(
-		        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, sum, false /* include_current_buffer_value */); }, range{num_nodes}));
-		const auto t2 = test_utils::build_and_flush(ctx, num_nodes,
-		    test_utils::add_compute_task<class UKN(kernel)>(
-		        tm, [&](handler& cgh) { test_utils::add_reduction(cgh, mrf, sum, true /* include_current_buffer_value */); }, range{num_nodes}));
-
-		const auto& inspector = ctx.get_inspector();
-		auto& cdag = ctx.get_command_graph();
-
-		const auto n0_pushes = inspector.get_commands(std::nullopt, 0, command_type::push);
-		REQUIRE(n0_pushes.size() == 1);
-		const auto n0_push = cdag.get(*n0_pushes.begin());
-
-		const auto n0_t2_execs = ctx.get_inspector().get_commands(t2, 0, command_type::execution);
-		REQUIRE(n0_t2_execs.size() == 1);
-		const auto n0_t2_ex = cdag.get(*n0_t2_execs.begin());
-
-		// N0 pushes the pending_reduction_state B0, then overwrites it
-		CHECK(n0_t2_ex->has_dependency(n0_push, dependency_kind::anti_dep));
-
-		test_utils::maybe_print_graphs(ctx);
-	}
-
-
-} // namespace detail
-} // namespace celerity
+	const auto tid_write = dctx.master_node_host_task().discard_write(buf0, acc::all{}).submit();
+	const auto tid_reduce = dctx.device_compute<class UKN(reduce)>(range<1>(1)).reduce(buf0, false /* include_current_buffer_value */).submit();
+	CHECK(dctx.query(tid_write).have_successors(dctx.query(tid_reduce), dependency_kind::anti_dep));
+}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <unordered_set>
 #include <vector>
 
 #include "command.h"
@@ -15,30 +16,23 @@ namespace detail {
 	class command_graph;
 
 	class graph_serializer {
-		using flush_callback = std::function<void(node_id, unique_frame_ptr<command_frame>)>;
+		using flush_callback = std::function<void(command_pkg&&)>;
 
 	  public:
 		/*
 		 * @param flush_cb Callback invoked for each command that is being flushed
 		 */
-		graph_serializer(command_graph& cdag, flush_callback flush_cb) : m_cdag(cdag), m_flush_cb(flush_cb) {}
-
-		void flush(task_id tid);
+		graph_serializer(flush_callback flush_cb) : m_flush_cb(std::move(flush_cb)) {}
 
 		/**
-		 * Serializes a list of task commands and their dependencies.
-		 *
-		 * @param cmds The task commands to serialize, all belonging to the same task.
+		 * Serializes a set of commands. Assumes task commands all belong to the same task.
 		 */
-		void flush(const std::vector<task_command*>& cmds);
+		void flush(const std::unordered_set<abstract_command*>& cmds);
 
 	  private:
-		command_graph& m_cdag;
 		flush_callback m_flush_cb;
 
-
-		void flush_dependency(abstract_command* dep) const;
-		void serialize_and_flush(abstract_command* cmd, const std::vector<command_id>& dependencies) const;
+		void serialize_and_flush(abstract_command* cmd, std::vector<command_id>&& dependencies) const;
 	};
 
 } // namespace detail

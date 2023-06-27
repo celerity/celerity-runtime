@@ -139,7 +139,6 @@ namespace detail {
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		// init runtime early so the distr_queue ctor doesn't override the log level set by log_capture
 		runtime::init(nullptr, nullptr);
-		const bool is_master_node = runtime::get_instance().is_master_node();
 
 		test_utils::log_capture log_capture;
 
@@ -157,11 +156,11 @@ namespace detail {
 			});
 		} // shutdown runtime and print graph
 
-		if(is_master_node) {
+		if(runtime::get_instance().get_local_nid() == 0) { // We log graphs only on node 0
 			using Catch::Matchers::ContainsSubstring;
 			const auto log = log_capture.get_log();
 			CHECK_THAT(log, ContainsSubstring("digraph G{label=\"Command Graph\""));
-			CHECK_THAT(log, ContainsSubstring("(R1) <b>await push</b> from N1"));
+			CHECK_THAT(log, ContainsSubstring("(R1) <b>await push</b>"));
 			CHECK_THAT(log, ContainsSubstring("<b>reduction</b> R1<br/> B0 {[[0,0,0] - [1,1,1]]}"));
 		}
 #else
@@ -267,26 +266,26 @@ namespace detail {
 
 		constexpr int N = 1000;
 
-		buffer<int, 1> buff_a(range<1>{1});
+		buffer<int, 1> buff_a(N);
 		q.submit([&](handler& cgh) {
-			accessor write_a{buff_a, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
+			accessor write_a{buff_a, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 			cgh.parallel_for<class UKN(write_a)>(range<1>{N}, [=](celerity::item<1> item) { (void)write_a; });
 		});
 
-		buffer<int, 1> buff_b(range<1>{1});
+		buffer<int, 1> buff_b(N);
 		q.submit([&](handler& cgh) {
-			accessor write_b{buff_b, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
+			accessor write_b{buff_b, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 			cgh.parallel_for<class UKN(write_b)>(range<1>{N}, [=](celerity::item<1> item) { (void)write_b; });
 		});
 
 		q.submit([&](handler& cgh) {
-			accessor read_write_a{buff_a, cgh, celerity::access::all{}, celerity::read_write};
+			accessor read_write_a{buff_a, cgh, celerity::access::one_to_one{}, celerity::read_write};
 			cgh.parallel_for<class UKN(read_write_a)>(range<1>{N}, [=](celerity::item<1> item) { (void)read_write_a; });
 		});
 
 		q.submit([&](handler& cgh) {
-			accessor read_write_a{buff_a, cgh, celerity::access::all{}, celerity::read_write};
-			accessor read_write_b{buff_b, cgh, celerity::access::all{}, celerity::read_write};
+			accessor read_write_a{buff_a, cgh, celerity::access::one_to_one{}, celerity::read_write};
+			accessor read_write_b{buff_b, cgh, celerity::access::one_to_one{}, celerity::read_write};
 			cgh.parallel_for<class UKN(read_write_a_b)>(range<1>{N}, [=](celerity::item<1> item) {
 				(void)read_write_a;
 				(void)read_write_b;
@@ -294,7 +293,7 @@ namespace detail {
 		});
 
 		q.submit([&](handler& cgh) {
-			accessor write_a{buff_a, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
+			accessor write_a{buff_a, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 			cgh.parallel_for<class UKN(write_a_again)>(range<1>{N}, [=](celerity::item<1> item) { (void)write_a; });
 		});
 

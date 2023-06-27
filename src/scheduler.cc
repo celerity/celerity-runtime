@@ -1,23 +1,29 @@
 #include "scheduler.h"
 
-#include "graph_generator.h"
+#include "distributed_graph_generator.h"
+#include "executor.h"
+#include "frame.h"
 #include "graph_serializer.h"
 #include "named_threads.h"
-#include "transformers/naive_split.h"
 #include "utils.h"
 
 namespace celerity {
 namespace detail {
 
-	abstract_scheduler::abstract_scheduler(std::unique_ptr<graph_generator> ggen, std::unique_ptr<graph_serializer> gser, size_t num_nodes)
-	    : m_ggen(std::move(ggen)), m_gser(std::move(gser)), m_num_nodes(num_nodes) {
-		assert(m_ggen != nullptr);
-		assert(m_gser != nullptr);
+	abstract_scheduler::abstract_scheduler(bool is_dry_run, std::unique_ptr<distributed_graph_generator> dggen, executor& exec)
+	    : m_is_dry_run(is_dry_run), m_dggen(std::move(dggen)), m_exec(&exec) {
+		assert(m_dggen != nullptr);
 	}
 
 	void abstract_scheduler::shutdown() { notify(event_shutdown{}); }
 
 	void abstract_scheduler::schedule() {
+		graph_serializer serializer([this](command_pkg&& pkg) {
+			if(m_is_dry_run && pkg.get_command_type() != command_type::epoch) { return; }
+			// Executor may not be set during tests / benchmarks
+			if(m_exec != nullptr) { m_exec->enqueue(std::move(pkg)); }
+		});
+
 		std::queue<event> in_flight_events;
 		bool shutdown = false;
 		while(!shutdown) {
@@ -33,14 +39,13 @@ namespace detail {
 
 				utils::match(
 				    event,
-				    [this](const event_task_available& e) {
+				    [&](const event_task_available& e) {
 					    assert(e.tsk != nullptr);
-					    naive_split_transformer naive_split(m_num_nodes, m_num_nodes);
-					    m_ggen->build_task(*e.tsk, {&naive_split});
-					    m_gser->flush(e.tsk->get_id());
+					    const auto cmds = m_dggen->build_task(*e.tsk);
+					    serializer.flush(cmds);
 				    },
-				    [this](const event_buffer_registered& e) { //
-					    m_ggen->add_buffer(e.bid, e.dims, e.range);
+				    [&](const event_buffer_registered& e) { //
+					    m_dggen->add_buffer(e.bid, e.dims, e.range);
 				    },
 				    [&](const event_shutdown&) {
 					    assert(in_flight_events.empty());

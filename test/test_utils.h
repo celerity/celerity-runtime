@@ -19,14 +19,13 @@
 #include "command.h"
 #include "command_graph.h"
 #include "device_queue.h"
-#include "graph_generator.h"
+#include "distributed_graph_generator.h"
 #include "graph_serializer.h"
 #include "range_mapper.h"
 #include "region_map.h"
 #include "runtime.h"
 #include "scheduler.h"
 #include "task_manager.h"
-#include "transformers/naive_split.h"
 #include "types.h"
 
 // To avoid having to come up with tons of unique kernel names, we simply use the CPP counter.
@@ -56,7 +55,7 @@ namespace detail {
 		static size_t get_command_count(runtime& rt) { return rt.m_cdag->command_count(); }
 		static command_graph& get_cdag(runtime& rt) { return *rt.m_cdag; }
 		static std::string print_graph(runtime& rt) {
-			return rt.m_cdag.get()->print_graph(std::numeric_limits<size_t>::max(), *rt.m_task_mngr, rt.m_buffer_mngr.get()).value();
+			return rt.m_cdag->print_graph(0, std::numeric_limits<size_t>::max(), *rt.m_task_mngr, rt.m_buffer_mngr.get()).value();
 		}
 	};
 
@@ -154,6 +153,7 @@ namespace test_utils {
 
 	class mock_buffer_factory;
 	class mock_host_object_factory;
+	class dist_cdag_test_context;
 
 	template <int Dims>
 	class mock_buffer {
@@ -169,6 +169,7 @@ namespace test_utils {
 
 	  private:
 		friend class mock_buffer_factory;
+		friend class dist_cdag_test_context;
 
 		detail::buffer_id m_id;
 		range<Dims> m_size;
@@ -184,6 +185,7 @@ namespace test_utils {
 
 	  private:
 		friend class mock_host_object_factory;
+		friend class dist_cdag_test_context;
 
 		detail::host_object_id m_id;
 
@@ -191,124 +193,12 @@ namespace test_utils {
 		explicit mock_host_object(detail::host_object_id id) : m_id(id) {}
 	};
 
-	class cdag_inspector {
-	  public:
-		auto get_cb() {
-			return [this](detail::node_id nid, detail::unique_frame_ptr<detail::command_frame> frame) {
-#ifndef NDEBUG
-				for(const auto dcid : frame->iter_dependencies()) {
-					// Sanity check: All dependencies must have already been flushed
-					assert(m_commands.count(dcid) == 1);
-				}
-#endif
-
-				const detail::command_id cid = frame->pkg.cid;
-				m_commands[cid] = {nid, frame->pkg, std::vector(frame->iter_dependencies().begin(), frame->iter_dependencies().end())};
-				if(const auto tid = frame->pkg.get_tid()) { m_by_task[*tid].insert(cid); }
-				m_by_node[nid].insert(cid);
-			};
-		}
-
-		std::set<detail::command_id> get_commands(
-		    std::optional<detail::task_id> tid, std::optional<detail::node_id> nid, std::optional<detail::command_type> cmd) const {
-			// Sanity check: Not all commands have an associated task id
-			assert(tid == std::nullopt
-			       || (cmd == std::nullopt || cmd == detail::command_type::execution || cmd == detail::command_type::horizon
-			           || cmd == detail::command_type::epoch));
-
-			std::set<detail::command_id> result;
-			std::transform(m_commands.cbegin(), m_commands.cend(), std::inserter(result, result.begin()), [](auto p) { return p.first; });
-
-			if(tid != std::nullopt) {
-				auto& task_set = m_by_task.at(*tid);
-				std::set<detail::command_id> new_result;
-				std::set_intersection(result.cbegin(), result.cend(), task_set.cbegin(), task_set.cend(), std::inserter(new_result, new_result.begin()));
-				result = std::move(new_result);
-			}
-			if(nid != std::nullopt) {
-				auto& node_set = m_by_node.at(*nid);
-				std::set<detail::command_id> new_result;
-				std::set_intersection(result.cbegin(), result.cend(), node_set.cbegin(), node_set.cend(), std::inserter(new_result, new_result.begin()));
-				result = std::move(new_result);
-			}
-			if(cmd != std::nullopt) {
-				std::set<detail::command_id> new_result;
-				std::copy_if(result.cbegin(), result.cend(), std::inserter(new_result, new_result.begin()),
-				    [this, cmd](detail::command_id cid) { return m_commands.at(cid).pkg.get_command_type() == cmd; });
-				result = std::move(new_result);
-			}
-
-			return result;
-		}
-
-		bool has_dependency(detail::command_id dependent, detail::command_id dependency) const {
-			const auto& deps = m_commands.at(dependent).dependencies;
-			return std::find(deps.cbegin(), deps.cend(), dependency) != deps.cend();
-		}
-
-		size_t get_dependency_count(detail::command_id dependent) const { return m_commands.at(dependent).dependencies.size(); }
-
-		std::vector<detail::command_id> get_dependencies(detail::command_id dependent) const { return m_commands.at(dependent).dependencies; }
-
-	  private:
-		struct cmd_info {
-			detail::node_id nid;
-			detail::command_pkg pkg;
-			std::vector<detail::command_id> dependencies;
-		};
-
-		std::map<detail::command_id, cmd_info> m_commands;
-		std::map<detail::task_id, std::set<detail::command_id>> m_by_task;
-		std::map<experimental::bench::detail::node_id, std::set<detail::command_id>> m_by_node;
-	};
-
-	class cdag_test_context {
-	  public:
-		cdag_test_context(size_t num_nodes) {
-			m_tm = std::make_unique<detail::task_manager>(1 /* num_nodes */, nullptr /* host_queue */);
-			m_cdag = std::make_unique<detail::command_graph>();
-			m_ggen = std::make_unique<detail::graph_generator>(num_nodes, *m_cdag);
-			m_gser = std::make_unique<detail::graph_serializer>(*m_cdag, m_inspector.get_cb());
-			this->m_num_nodes = num_nodes;
-		}
-
-		detail::task_manager& get_task_manager() { return *m_tm; }
-		detail::command_graph& get_command_graph() { return *m_cdag; }
-		detail::graph_generator& get_graph_generator() { return *m_ggen; }
-		cdag_inspector& get_inspector() { return m_inspector; }
-		detail::graph_serializer& get_graph_serializer() { return *m_gser; }
-
-		detail::task_id build_task_horizons() {
-			const auto most_recently_generated_task_horizon = detail::task_manager_testspy::get_current_horizon(get_task_manager());
-			if(most_recently_generated_task_horizon != m_most_recently_built_task_horizon) {
-				m_most_recently_built_task_horizon = most_recently_generated_task_horizon;
-				if(m_most_recently_built_task_horizon) {
-					// naive_split does not really do anything for horizons, but this mirrors the behavior of scheduler::schedule exactly.
-					detail::naive_split_transformer naive_split(m_num_nodes, m_num_nodes);
-					get_graph_generator().build_task(*m_tm->get_task(*m_most_recently_built_task_horizon), {&naive_split});
-					return *m_most_recently_built_task_horizon;
-				}
-			}
-			return 0;
-		}
-
-	  private:
-		std::unique_ptr<detail::task_manager> m_tm;
-		std::unique_ptr<detail::command_graph> m_cdag;
-		std::unique_ptr<detail::graph_generator> m_ggen;
-		cdag_inspector m_inspector;
-		std::unique_ptr<detail::graph_serializer> m_gser;
-		size_t m_num_nodes;
-		std::optional<detail::task_id> m_most_recently_built_task_horizon;
-	};
-
 	class mock_buffer_factory {
 	  public:
 		explicit mock_buffer_factory() = default;
 		explicit mock_buffer_factory(detail::task_manager& tm) : m_task_mngr(&tm) {}
-		explicit mock_buffer_factory(detail::task_manager& tm, detail::graph_generator& ggen) : m_task_mngr(&tm), m_ggen(&ggen) {}
+		explicit mock_buffer_factory(detail::task_manager& tm, detail::distributed_graph_generator& dggen) : m_task_mngr(&tm), m_dggen(&dggen) {}
 		explicit mock_buffer_factory(detail::task_manager& tm, detail::abstract_scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
-		explicit mock_buffer_factory(cdag_test_context& ctx) : m_task_mngr(&ctx.get_task_manager()), m_ggen(&ctx.get_graph_generator()) {}
 
 		template <int Dims>
 		mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
@@ -316,14 +206,14 @@ namespace test_utils {
 			const auto buf = mock_buffer<Dims>(bid, size);
 			if(m_task_mngr != nullptr) { m_task_mngr->add_buffer(bid, Dims, detail::range_cast<3>(size), mark_as_host_initialized); }
 			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_registered(bid, Dims, detail::range_cast<3>(size)); }
-			if(m_ggen != nullptr) { m_ggen->add_buffer(bid, Dims, detail::range_cast<3>(size)); }
+			if(m_dggen != nullptr) { m_dggen->add_buffer(bid, Dims, detail::range_cast<3>(size)); }
 			return buf;
 		}
 
 	  private:
 		detail::task_manager* m_task_mngr = nullptr;
 		detail::abstract_scheduler* m_schdlr = nullptr;
-		detail::graph_generator* m_ggen = nullptr;
+		detail::distributed_graph_generator* m_dggen = nullptr;
 		detail::buffer_id m_next_buffer_id = 0;
 	};
 
@@ -387,22 +277,6 @@ namespace test_utils {
 	inline detail::task_id add_fence_task(detail::task_manager& tm, mock_buffer<Dims> buf) {
 		return add_fence_task(tm, buf, {{}, buf.get_range()});
 	}
-
-	inline detail::task_id build_and_flush(cdag_test_context& ctx, size_t num_nodes, size_t num_chunks, detail::task_id tid) {
-		detail::naive_split_transformer transformer{num_chunks, num_nodes};
-		ctx.get_graph_generator().build_task(*ctx.get_task_manager().get_task(tid), {&transformer});
-		ctx.get_graph_serializer().flush(tid);
-		if(const auto htid = ctx.build_task_horizons()) { ctx.get_graph_serializer().flush(htid); }
-		return tid;
-	}
-
-	// Defaults to the same number of chunks as nodes
-	inline detail::task_id build_and_flush(cdag_test_context& ctx, size_t num_nodes, detail::task_id tid) {
-		return build_and_flush(ctx, num_nodes, num_nodes, tid);
-	}
-
-	// Defaults to one node and chunk
-	inline detail::task_id build_and_flush(cdag_test_context& ctx, detail::task_id tid) { return build_and_flush(ctx, 1, 1, tid); }
 
 	class mock_reduction_factory {
 	  public:
@@ -473,16 +347,9 @@ namespace test_utils {
 
 	inline void maybe_print_graph(celerity::detail::command_graph& cdag, const celerity::detail::task_manager& tm) {
 		if(print_graphs) {
-			const auto graph_str = cdag.print_graph(std::numeric_limits<size_t>::max(), tm, {});
+			const auto graph_str = cdag.print_graph(0, std::numeric_limits<size_t>::max(), tm, {});
 			assert(graph_str.has_value());
 			CELERITY_INFO("Command graph:\n\n{}\n", *graph_str);
-		}
-	}
-
-	inline void maybe_print_graphs(celerity::test_utils::cdag_test_context& ctx) {
-		if(print_graphs) {
-			maybe_print_graph(ctx.get_task_manager());
-			maybe_print_graph(ctx.get_command_graph(), ctx.get_task_manager());
 		}
 	}
 
