@@ -21,8 +21,10 @@ THUMB_WIDTH = 120           # width of the thumbnail shown in the PR comment
 
 # reporting thresholds
 THRESHOLD_SLOW = 1.1
-THRESHOLD_FAST = 0.9
-MAX_BENCHMARKS_TO_LIST = 3  # if more than this nubmer of benchmarks is affected, just report the count
+THRESHOLD_FAST = 1 / THRESHOLD_SLOW
+# a small offset to reduce the reporting impact of really short-running (nanosecond-range) benchmarks
+FLAT_THRESHOLD_OFFSET = 2
+MAX_BENCHMARKS_TO_LIST = 3  # if more than this number of benchmarks is affected, just report the count
 
 # file name for the message that will be posted
 MESSAGE_FN = "#{ENV['GITHUB_WORKSPACE']}/check_perf_message.txt"
@@ -88,13 +90,24 @@ throw "failed git fetch for #{base_ver}!" unless $?.success?
 new_data_map, new_data = get_data_for_version()
 old_data_map, old_data = get_data_for_version("origin/" + base_ver)
 
+# statistics utilities
+def mean(array)
+  return nil if array.empty?
+  array.reduce(:+) / array.size
+end
+def median(array)
+  return nil if array.empty?
+  sorted = array.sort
+  len = sorted.length
+  (sorted[(len - 1) / 2] + sorted[len / 2]) / 2.0
+end
+def scalar_add(array, val)
+  array.map { |elem| elem+val}
+end
+
 significantly_slower_benchmarks = []
 significantly_faster_benchmarks = []
-
-# statistics utility
-def mean(x)
-  x.reduce(:+) / x.size
-end
+relative_times = []
 
 # perform further analysis and generate box plots if the data changed
 if new_data != old_data
@@ -107,11 +120,33 @@ if new_data != old_data
   end
 
   in_chart = false
-  significant_change_in_this_chart = false
+  significant_perf_improvement_in_this_chart = false
+  significant_perf_reduction_in_this_chart = false
   cur_chart_start_mean = 0
   cur_chart_idx = 0
   cur_img_idx = 0
   g = nil
+  prev_mean = 1
+
+  # closure for completing the current in-progress chart
+  finish_chart = Proc.new do
+    # generate a usable number of subdivisions
+    g.y_axis_increment = prev_mean / 7
+    # generate image
+    img = g.to_image()
+    # if there was a significant change, add border to image
+    if significant_perf_improvement_in_this_chart && significant_perf_reduction_in_this_chart
+      img.border!(8, 8, '#FFFF00')
+    elsif significant_perf_improvement_in_this_chart
+      img.border!(8, 8, '#00FF00')
+    elsif significant_perf_reduction_in_this_chart
+      img.border!(8, 8, '#FF0000')
+    end
+    img.write("box_#{cur_img_idx}.png")
+    cur_img_idx += 1
+    in_chart = false
+  end
+
   old_data_map.sort_by { |k,v| mean(v) }.each do |bench_name, old_bench_raw|
     # skip deleted benchmarks
     next unless new_data_map.key?(bench_name)
@@ -120,18 +155,7 @@ if new_data != old_data
     # or if the relative y axis difference becomes too large
     if in_chart && (cur_chart_start_mean < mean(old_bench_raw) / 20 ||
                     cur_chart_idx >= MAX_CHARTS_PER_IMAGE)
-
-      # ~ 10 subdivisions
-      g.y_axis_increment = mean(old_bench_raw) / 10
-      # generate image
-      img = g.to_image()
-      if significant_change_in_this_chart
-        # if there was a significant change, add border to image
-        img.border!(8, 8, '#FF0000')
-      end
-      img.write("box_#{cur_img_idx}.png")
-      cur_img_idx += 1
-      in_chart = false
+      finish_chart.()
     end
 
     # start a new chart
@@ -146,7 +170,8 @@ if new_data != old_data
       g.legend_margin = 2
 
       in_chart = true
-      significant_change_in_this_chart = false
+      significant_perf_improvement_in_this_chart = false
+      significant_perf_reduction_in_this_chart = false
       cur_chart_start_mean = mean(old_bench_raw)
       cur_chart_idx = 0
     end
@@ -157,16 +182,25 @@ if new_data != old_data
     g.data nil, new_bench_raw, get_wheel_color
 
     # check if there was a significant difference
-    rel_difference = mean(new_bench_raw) / mean(old_bench_raw)
+    new_median = median(scalar_add(new_bench_raw, FLAT_THRESHOLD_OFFSET))
+    old_median = median(scalar_add(old_bench_raw, FLAT_THRESHOLD_OFFSET))
+    rel_difference = new_median / old_median
+    relative_times << rel_difference
+    # we output these for easy inspection in the CI log
+    puts "%3.2f <= %s" % [rel_difference, bench_name]
     if rel_difference > THRESHOLD_SLOW
       significantly_slower_benchmarks << bench_name
-      significant_change_in_this_chart = true
+      significant_perf_reduction_in_this_chart = true
     elsif rel_difference < THRESHOLD_FAST
       significantly_faster_benchmarks << bench_name
-      significant_change_in_this_chart = true
+      significant_perf_improvement_in_this_chart = true
     end
+
+    prev_mean = mean(old_bench_raw)
     cur_chart_idx += 1
   end
+  # don't forget to finish the last chart!
+  finish_chart.()
 end
 
 # helper for message generation
@@ -179,9 +213,10 @@ def report_benchmark_list(list)
 end
 
 # generate PR message
-message = "**Check-perf-impact results:** (#{bench_file_digest})  \n"
+message = "**Check-perf-impact results:** (#{bench_file_digest})\n\n"
 if new_data == old_data
-  message += ":question: No new benchmark data submitted. :question:  \nPlease re-run the microbenchmarks and include the results if your commit could potentially affect performance."
+  message += ":question: No new benchmark data submitted. :question:  \n"
+  message += "Please re-run the microbenchmarks and include the results if your commit could potentially affect performance."
 else
   if !significantly_slower_benchmarks.empty?
     message += ":warning: Significant **slowdown** in some microbenchmark results: "
@@ -202,8 +237,9 @@ else
     message += report_benchmark_list(removed_benchmarks) + "  \n"
   end
   if significantly_slower_benchmarks.empty? && significantly_faster_benchmarks.empty?
-    message += ":heavy_check_mark: No significant performance change in the microbenchmark set. You are good to go!"
+    message += ":heavy_check_mark: No significant performance change in the microbenchmark set. You are good to go!  \n"
   end
+  message += "\nOverall relative execution time: **%3.2fx** (mean of relative medians)\n" % mean(relative_times)
 end
 puts message
 
