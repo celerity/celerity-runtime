@@ -228,7 +228,7 @@ set(SOURCES
   src/config.cc
   src/device_queue.cc
   src/executor.cc
-  src/graph_generator.cc
+  src/distributed_graph_generator.cc
   src/graph_serializer.cc
   src/print_graph.cc
   src/print_utils.cc
@@ -236,7 +236,6 @@ set(SOURCES
   src/scheduler.cc
   src/task.cc
   src/task_manager.cc
-  src/transformers/naive_split.cc
   src/user_bench.cc
   src/worker_job.cc
   "${CMAKE_CURRENT_BINARY_DIR}/src/version.cc"

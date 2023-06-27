@@ -103,9 +103,8 @@ namespace detail {
 		return dot;
 	}
 
-	std::string get_command_label(const abstract_command& cmd, const task_manager& tm, const buffer_manager* const bm) {
+	std::string get_command_label(const node_id nid, const abstract_command& cmd, const task_manager& tm, const buffer_manager* const bm) {
 		const command_id cid = cmd.get_cid();
-		const node_id nid = cmd.get_nid();
 
 		std::string label = fmt::format("C{} on N{}<br/>", cid, nid);
 
@@ -116,14 +115,14 @@ namespace detail {
 		} else if(const auto xcmd = dynamic_cast<const execution_command*>(&cmd)) {
 			fmt::format_to(std::back_inserter(label), "<b>execution</b> {}", subrange_to_grid_box(xcmd->get_execution_range()));
 		} else if(const auto pcmd = dynamic_cast<const push_command*>(&cmd)) {
-			if(pcmd->get_rid()) { fmt::format_to(std::back_inserter(label), "(R{}) ", pcmd->get_rid()); }
+			if(pcmd->get_reduction_id() != 0) { fmt::format_to(std::back_inserter(label), "(R{}) ", pcmd->get_reduction_id()); }
 			const std::string bl = get_buffer_label(bm, pcmd->get_bid());
-			fmt::format_to(std::back_inserter(label), "<b>push</b> to N{}<br/> {} {}", pcmd->get_target(), bl, subrange_to_grid_box(pcmd->get_range()));
+			fmt::format_to(std::back_inserter(label), "<b>push</b> transfer {} to N{}<br/>B{} {}", pcmd->get_transfer_id(), pcmd->get_target(), bl,
+			    subrange_to_grid_box(pcmd->get_range()));
 		} else if(const auto apcmd = dynamic_cast<const await_push_command*>(&cmd)) {
-			if(apcmd->get_source()->get_rid()) { label += fmt::format("(R{}) ", apcmd->get_source()->get_rid()); }
-			const std::string bl = get_buffer_label(bm, apcmd->get_source()->get_bid());
-			fmt::format_to(std::back_inserter(label), "<b>await push</b> from N{}<br/> {} {}", apcmd->get_source()->get_nid(), bl,
-			    subrange_to_grid_box(apcmd->get_source()->get_range()));
+			if(apcmd->get_reduction_id() != 0) { label += fmt::format("(R{}) ", apcmd->get_reduction_id()); }
+			const std::string bl = get_buffer_label(bm, apcmd->get_bid());
+			fmt::format_to(std::back_inserter(label), "<b>await push</b> transfer {} <br/>B{} {}", apcmd->get_transfer_id(), bl, apcmd->get_region());
 		} else if(const auto rrcmd = dynamic_cast<const reduction_command*>(&cmd)) {
 			const auto& reduction = rrcmd->get_reduction_info();
 			const auto req = GridRegion<3>{{1, 1, 1}};
@@ -139,6 +138,8 @@ namespace detail {
 		}
 
 		if(const auto tcmd = dynamic_cast<const task_command*>(&cmd)) {
+			assert(tm.has_task(tcmd->get_tid()));
+
 			const auto& tsk = *tm.get_task(tcmd->get_tid());
 
 			auto reduction_init_mode = access_mode::discard_write;
@@ -154,18 +155,23 @@ namespace detail {
 		return label;
 	}
 
-	std::string print_command_graph(const command_graph& cdag, const task_manager& tm, const buffer_manager* const bm) {
+	std::string print_command_graph(const node_id local_nid, const command_graph& cdag, const task_manager& tm, const buffer_manager* const bm) {
 		std::string main_dot;
 		std::unordered_map<task_id, std::string> task_subgraph_dot;
+
+		const auto local_to_global_id = [local_nid](uint64_t id) {
+			// IDs in the DOT language may not start with a digit (unless the whole thing is a numeral)
+			return fmt::format("id_{}_{}", local_nid, id);
+		};
 
 		const auto print_vertex = [&](const abstract_command& cmd) {
 			static const char* const colors[] = {"black", "crimson", "dodgerblue4", "goldenrod", "maroon4", "springgreen2", "tan1", "chartreuse2"};
 
-			const auto name = cmd.get_cid();
-			const auto label = get_command_label(cmd, tm, bm);
-			const auto fontcolor = colors[cmd.get_nid() % (sizeof(colors) / sizeof(char*))];
-			const auto shape = isa<task_command>(&cmd) ? "box" : "ellipse";
-			return fmt::format("{}[label=<{}> fontcolor={} shape={}];", name, label, fontcolor, shape);
+			const auto id = local_to_global_id(cmd.get_cid());
+			const auto label = get_command_label(local_nid, cmd, tm, bm);
+			const auto* const fontcolor = colors[local_nid % (sizeof(colors) / sizeof(char*))];
+			const auto* const shape = isa<task_command>(&cmd) ? "box" : "ellipse";
+			return fmt::format("{}[label=<{}> fontcolor={} shape={}];", id, label, fontcolor, shape);
 		};
 
 		for(const auto cmd : cdag.all_commands()) {
@@ -186,8 +192,8 @@ namespace detail {
 					} else {
 						task_label += "(deleted)";
 					}
-					task_subgraph_dot.emplace(
-					    tid, fmt::format("subgraph cluster_{}{{label=<<font color=\"#606060\">{}</font>>;color=darkgray;", tid, task_label));
+					task_subgraph_dot.emplace(tid,
+					    fmt::format("subgraph cluster_{}{{label=<<font color=\"#606060\">{}</font>>;color=darkgray;", local_to_global_id(tid), task_label));
 				}
 				task_subgraph_dot[tid] += print_vertex(*cmd);
 			} else {
@@ -195,21 +201,27 @@ namespace detail {
 			}
 
 			for(const auto& d : cmd->get_dependencies()) {
-				fmt::format_to(std::back_inserter(main_dot), "{}->{}[{}];", d.node->get_cid(), cmd->get_cid(), dependency_style(d));
-			}
-
-			// Add a dashed line to the corresponding push
-			if(const auto apcmd = dynamic_cast<const await_push_command*>(cmd)) {
-				fmt::format_to(std::back_inserter(main_dot), "{}->{}[style=dashed color=gray40];", apcmd->get_source()->get_cid(), cmd->get_cid());
+				fmt::format_to(std::back_inserter(main_dot), "{}->{}[{}];", local_to_global_id(d.node->get_cid()), local_to_global_id(cmd->get_cid()),
+				    dependency_style(d));
 			}
 		};
 
-		std::string result_dot = "digraph G{label=\"Command Graph\" ";
+		std::string result_dot = "digraph G{label=\"Command Graph\" "; // If this changes, also change in combine_command_graphs
 		for(auto& [sg_tid, sg_dot] : task_subgraph_dot) {
 			result_dot += sg_dot;
 			result_dot += "}";
 		}
 		result_dot += main_dot;
+		result_dot += "}";
+		return result_dot;
+	}
+
+	std::string combine_command_graphs(const std::vector<std::string>& graphs) {
+		const std::string preamble = "digraph G{label=\"Command Graph\" ";
+		std::string result_dot = preamble;
+		for(const auto& g : graphs) {
+			result_dot += g.substr(preamble.size(), g.size() - preamble.size() - 1);
+		}
 		result_dot += "}";
 		return result_dot;
 	}

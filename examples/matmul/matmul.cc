@@ -2,13 +2,24 @@
 
 #include <celerity.h>
 
+#if !defined(NDEBUG)
+const size_t MAT_SIZE = 128;
+#else
 const size_t MAT_SIZE = 1024;
+#endif
 
 template <typename T>
-void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat) {
+void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat, bool reverse) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw{mat, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-		cgh.parallel_for<class set_identity_kernel>(mat.get_range(), [=](celerity::item<2> item) { dw[item] = item[0] == item[1]; });
+		const auto range = mat.get_range();
+		cgh.parallel_for<class set_identity_kernel>(range, [=](celerity::item<2> item) {
+			if(!reverse) {
+				dw[item] = item[0] == item[1];
+			} else {
+				dw[item] = item[0] == (range[1] - item[1] - 1);
+			}
+		});
 	});
 }
 
@@ -81,15 +92,15 @@ int main() {
 	celerity::debug::set_buffer_name(mat_a_buf, "mat_a");
 	celerity::debug::set_buffer_name(mat_b_buf, "mat_b");
 
-	set_identity(queue, mat_a_buf);
-	set_identity(queue, mat_b_buf);
+	set_identity(queue, mat_a_buf, false);
+	set_identity(queue, mat_b_buf, true);
 
 	multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
 	multiply(queue, mat_b_buf, mat_c_buf, mat_a_buf);
 
 	// each node verifies part of the result, so we pass per-node verification results through a host object
 	celerity::experimental::host_object<bool> passed_obj(false);
-	verify(queue, mat_c_buf, passed_obj);
+	verify(queue, mat_a_buf, passed_obj);
 
 	// The value of `passed` can differ between hosts if only part of the verification failed.
 	const bool passed = celerity::experimental::fence(queue, passed_obj).get();

@@ -84,7 +84,7 @@ namespace detail {
 
 	std::string await_push_job::get_description(const command_pkg& pkg) {
 		const auto data = std::get<await_push_data>(pkg.data);
-		return fmt::format("await push {} of buffer {} by node {}", data.sr, static_cast<size_t>(data.bid), static_cast<size_t>(data.source));
+		return fmt::format("await push of buffer {} transfer {}", static_cast<size_t>(data.bid), static_cast<size_t>(data.trid));
 	}
 
 	bool await_push_job::execute(const command_pkg& pkg) {
@@ -99,7 +99,8 @@ namespace detail {
 
 	std::string push_job::get_description(const command_pkg& pkg) {
 		const auto data = std::get<push_data>(pkg.data);
-		return fmt::format("push {} of buffer {} to node {}", data.sr, static_cast<size_t>(data.bid), static_cast<size_t>(data.target));
+		return fmt::format("push {} of buffer {} transfer {} to node {}", data.sr, static_cast<size_t>(data.bid), static_cast<size_t>(data.trid),
+		    static_cast<size_t>(data.target));
 	}
 
 	bool push_job::execute(const command_pkg& pkg) {

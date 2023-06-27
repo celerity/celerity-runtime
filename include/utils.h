@@ -42,4 +42,35 @@ struct pair_hash {
 	}
 };
 
+namespace utils_detail {
+
+	template <typename... Without, typename... ToKeep, typename T, typename... Ts>
+	static auto tuple_without_impl(const std::tuple<ToKeep...>& to_keep, const std::tuple<T, Ts...>& to_check) {
+		if constexpr((std::is_same_v<T, Without> || ...)) {
+			if constexpr(sizeof...(Ts) == 0) {
+				return to_keep;
+			} else {
+				return tuple_without_impl<Without...>(to_keep, std::tuple{std::get<Ts>(to_check)...});
+			}
+		} else {
+			if constexpr(sizeof...(Ts) == 0) {
+				return std::tuple_cat(to_keep, to_check);
+			} else {
+				return tuple_without_impl<Without...>(std::tuple_cat(to_keep, std::tuple{std::get<T>(to_check)}), std::tuple{std::get<Ts>(to_check)...});
+			}
+		}
+	}
+
+} // namespace utils_detail
+
+template <typename... Without, typename... Ts>
+static auto tuple_without(const std::tuple<Ts...>& tuple) {
+	if constexpr(sizeof...(Ts) > 0) {
+		return utils_detail::tuple_without_impl<Without...>({}, tuple);
+	} else {
+		return tuple;
+	}
+}
+
+
 } // namespace celerity::detail::utils

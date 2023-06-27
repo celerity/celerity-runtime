@@ -1,541 +1,260 @@
-#include <unordered_set>
-
 #include <catch2/catch_test_macros.hpp>
-#include <catch2/internal/catch_enforce.hpp> // for CATCH_ERROR
 
-#include <celerity.h>
+#include "distributed_graph_generator_test_utils.h"
 
-#include "access_modes.h"
+#include "distributed_graph_generator.h"
 
-#include "test_utils.h"
+using namespace celerity;
+using namespace celerity::detail;
+using namespace celerity::test_utils;
 
-namespace celerity {
-namespace detail {
+namespace acc = celerity::access;
 
-	using celerity::access::fixed;
-	using celerity::access::one_to_one;
+TEST_CASE("distributed_graph_generator generates required data transfer commands", "[distributed_graph_generator][command-graph]") {
+	dist_cdag_test_context dctx(4);
 
-	TEST_CASE("graph_generator generates required data transfer commands", "[graph_generator][command-graph]") {
-		using namespace cl::sycl::access;
+	const range<1> test_range = {256};
+	auto buf = dctx.create_buffer(test_range);
 
-		test_utils::cdag_test_context ctx(4);
-		auto& inspector = ctx.get_inspector();
+	auto rm = [](chunk<1> chnk) -> subrange<1> {
+		switch(chnk.offset[0]) {
+		case 0: return chnk;
+		case 64: return {128, 64};
+		case 128: return {64, 64};
+		case 192: return chnk;
+		default: FAIL("Unexpected offset");
+		}
+		return {};
+	};
+	const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, rm).submit();
+	dctx.query(tid_a).for_each_node([](const auto& q) { CHECK(q.find_all(command_type::execution).count() == 1); });
 
-		test_utils::mock_buffer_factory mbf(ctx);
-		auto buf = mbf.create_buffer(range<1>(300));
+	dctx.device_compute<class UKN(task_b)>(test_range).read(buf, acc::one_to_one{}).submit();
+	CHECK(dctx.query(command_type::push).count() == 2);
+	CHECK(dctx.query(command_type::push, node_id(1)).count() == 1);
+	CHECK(dctx.query(command_type::push, node_id(2)).count() == 1);
+	CHECK(dctx.query(command_type::await_push).count() == 2);
+	CHECK(dctx.query(command_type::await_push, node_id(1)).count() == 1);
+	CHECK(dctx.query(command_type::await_push, node_id(2)).count() == 1);
+}
 
-		const auto tid_a = test_utils::build_and_flush(ctx, 4,
-		    test_utils::add_compute_task<class UKN(task_a)>(
-		        ctx.get_task_manager(),
-		        [&](handler& cgh) {
-			        buf.get_access<mode::discard_write>(cgh, [](chunk<1> chnk) {
-				        switch(chnk.offset[0]) {
-				        case 0: return subrange<1>(chnk);
-				        case 75: return subrange<1>(150, 75);
-				        case 150: return subrange<1>(75, 75);
-				        case 225: return subrange<1>(chnk);
-				        default: CATCH_ERROR("Unexpected offset");
-				        }
-			        });
-		        },
-		        range<1>{300}));
+TEST_CASE("distributed_graph_generator doesn't generate data transfer commands for the same buffer and range more than once",
+    "[distributed_graph_generator][command-graph]") {
+	dist_cdag_test_context dctx(2);
 
-		CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::execution).size() == 4);
-		CHECK(inspector.get_commands(tid_a, node_id(1), command_type::execution).size() == 1);
-		CHECK(inspector.get_commands(tid_a, node_id(2), command_type::execution).size() == 1);
-		CHECK(inspector.get_commands(tid_a, node_id(3), command_type::execution).size() == 1);
+	const range<1> test_range = {128};
+	auto buf0 = dctx.create_buffer(test_range);
 
-		test_utils::build_and_flush(ctx, 4,
-		    test_utils::add_compute_task<class UKN(task_b)>(
-		        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, one_to_one{}); }, range<1>{300}));
-
-		REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::push).size() == 2);
-		REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::push).size() == 1);
-		REQUIRE(inspector.get_commands(std::nullopt, node_id(2), command_type::push).size() == 1);
-		REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push).size() == 2);
-		REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::await_push).size() == 1);
-		REQUIRE(inspector.get_commands(std::nullopt, node_id(2), command_type::await_push).size() == 1);
-
-		test_utils::maybe_print_graphs(ctx);
+	SECTION("when used in the same task") {
+		dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+		// Both of theses are consumer modes, meaning that both have a requirement on the buffer range produced in task_a
+		dctx.master_node_host_task().read(buf0, acc::all{}).write(buf0, acc::all{}).submit();
+		CHECK(dctx.query(command_type::push, node_id(1)).count() == 1);
+		CHECK(dctx.query(command_type::await_push, node_id(0)).count() == 1);
 	}
 
-	TEST_CASE("graph_generator doesn't generate data transfer commands for the same buffer and range more than once", "[graph_generator][command-graph]") {
-		using namespace cl::sycl::access;
-
-		test_utils::cdag_test_context ctx(2);
-		auto& inspector = ctx.get_inspector();
-		test_utils::mock_buffer_factory mbf(ctx);
-		auto buf_a = mbf.create_buffer(range<1>(100));
-
-		SECTION("when used in the same task") {
-			test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_a)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{100}));
-
-			test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				// Both of theses are consumer modes, meaning that both have a requirement on the buffer range produced in task_a
-				buf_a.get_access<mode::read>(cgh, fixed<1>({0, 100}));
-				buf_a.get_access<mode::write>(cgh, fixed<1>({0, 100}));
-			}));
-
-			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::execution).size() == 3);
-			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, master_node_id, command_type::await_push).size() == 1);
-
-			test_utils::maybe_print_graphs(ctx);
-		}
-
-		SECTION("when used in the same task by different chunks on the same worker node") {
-			test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](auto& mah) {
-				buf_a.get_access<mode::discard_write>(mah, fixed<1>({0, 100}));
-			}));
-			// Create 4 chunks, two of which will be assigned to the worker node
-			const auto tid_b = test_utils::build_and_flush(ctx, 2, 4,
-			    test_utils::add_compute_task<class task_b>(
-			        ctx.get_task_manager(),
-			        [&](auto& cgh) {
-				        // All chunks read the same subrange (the full buffer)
-				        buf_a.get_access<mode::read>(cgh, fixed<1>{{0, 100}});
-			        },
-			        range<1>(100)));
-
-			CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::execution).size() == 4);
-			const auto computes = inspector.get_commands(tid_b, node_id(1), command_type::execution);
-			CHECK(computes.size() == 2);
-			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, master_node_id, command_type::push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::await_push).size() == 1);
-
-			test_utils::maybe_print_graphs(ctx);
-		}
-
-		SECTION("when used in consecutive tasks") {
-			auto buf_b = mbf.create_buffer(range<1>(100));
-
-			test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_a)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{100}));
-
-			test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				buf_a.get_access<mode::read>(cgh, fixed<1>({0, 100}));
-				buf_b.get_access<mode::discard_write>(cgh, fixed<1>({0, 100}));
-			}));
-
-			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, master_node_id, command_type::await_push).size() == 1);
-
-			test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				buf_a.get_access<mode::read>(cgh, fixed<1>({0, 100}));
-				buf_b.get_access<mode::read>(cgh, fixed<1>({0, 100}));
-			}));
-
-			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::execution).size() == 4);
-			// Assert that the number of pushes / await_pushes hasn't changed
-			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push).size() == 1);
-
-			test_utils::maybe_print_graphs(ctx);
-		}
-
-		SECTION("when used in parallel tasks") {
-			const auto tid_a = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_a)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{100}));
-
-			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::execution).size() == 2);
-
-			test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				buf_a.get_access<mode::read>(cgh, fixed<1>({0, 100}));
-			}));
-
-			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, node_id(1), command_type::push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, master_node_id, command_type::await_push).size() == 1);
-
-			test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				buf_a.get_access<mode::read>(cgh, fixed<1>({0, 100}));
-			}));
-
-			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::execution).size() == 4);
-			// Assert that the number of pushes / await_pushes hasn't changed
-			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::push).size() == 1);
-			REQUIRE(inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push).size() == 1);
-
-			test_utils::maybe_print_graphs(ctx);
-		}
+	SECTION("when used in the same task by different chunks on the same worker node") {
+		// FIXME: Bring this back once we support oversubscription
+		SKIP("Oversubscription NYI");
 	}
 
-	TEST_CASE("graph_generator uses original producer as source for push rather than building dependency chain", "[graph_generator][command-graph]") {
-		using namespace cl::sycl::access;
+	SECTION("when used in consecutive tasks") {
+		auto buf1 = dctx.create_buffer(test_range);
+		dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+		dctx.master_node_host_task().read(buf0, acc::all{}).discard_write(buf1, acc::all{}).submit();
+		CHECK(dctx.query(command_type::push, node_id(1)).count() == 1);
+		CHECK(dctx.query(command_type::await_push, node_id(0)).count() == 1);
+		dctx.master_node_host_task().read(buf0, acc::all{}).read(buf1, acc::all{}).submit();
+		// Assert that the number of pushes / await_pushes hasn't changed
+		CHECK(dctx.query(command_type::push, node_id(1)).count() == 1);
+		CHECK(dctx.query(command_type::await_push, node_id(0)).count() == 1);
+	}
 
-		constexpr int num_nodes = 3;
-		test_utils::cdag_test_context ctx(num_nodes);
-		auto& inspector = ctx.get_inspector();
-		test_utils::mock_buffer_factory mbf(ctx);
-		auto full_range = range<1>(300);
-		auto buf_a = mbf.create_buffer(full_range);
+	SECTION("when used in parallel tasks") {
+		dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+		dctx.master_node_host_task().read(buf0, acc::all{}).submit();
+		CHECK(dctx.query(command_type::push, node_id(1)).count() == 1);
+		CHECK(dctx.query(command_type::await_push, node_id(0)).count() == 1);
+		dctx.master_node_host_task().read(buf0, acc::all{}).submit();
+		// Assert that the number of pushes / await_pushes hasn't changed
+		CHECK(dctx.query(command_type::push, node_id(1)).count() == 1);
+		CHECK(dctx.query(command_type::await_push, node_id(0)).count() == 1);
+	}
+}
 
-		test_utils::build_and_flush(ctx, 1,
-		    test_utils::add_compute_task<class UKN(producer)>(
-		        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::discard_write>(cgh, one_to_one{}); }, full_range));
+TEST_CASE("distributed_graph_generator uses original producer as source for push rather than building dependency chain",
+    "[distributed_graph_generator][command-graph]") {
+	const size_t num_nodes = 3;
+	dist_cdag_test_context dctx(num_nodes);
 
-		SECTION("when distributing a single reading task across nodes") {
-			test_utils::build_and_flush(ctx, num_nodes,
-			    test_utils::add_compute_task<class UKN(producer)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, one_to_one{}); }, full_range));
-		}
+	const range<1> test_range = {300};
+	auto buf = dctx.create_buffer(test_range);
 
-		SECTION("when distributing a single read-write task across nodes") {
-			test_utils::build_and_flush(ctx, num_nodes,
-			    test_utils::add_compute_task<class UKN(producer)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read_write>(cgh, one_to_one{}); }, full_range));
-		}
+	dctx.master_node_host_task().discard_write(buf, acc::all{}).submit();
 
-		SECTION("when running multiple reading task on separate nodes") {
-			auto full_range_for_single_node = [=](node_id node) {
-				return [=](chunk<1> chnk) -> subrange<1> {
-					if(chnk.range == full_range) return chnk;
-					if(chnk.offset[0] == (full_range.size() / num_nodes) * node) { return {0, full_range}; }
-					return {0, 0};
-				};
+	SECTION("when distributing a single reading task across nodes") {
+		dctx.device_compute<class UKN(task_b)>(test_range).read(buf, acc::one_to_one{}).submit();
+	}
+
+	SECTION("when distributing a single read-write task across nodes") {
+		dctx.device_compute<class UKN(task_c)>(test_range).read_write(buf, acc::one_to_one{}).submit();
+	}
+
+	SECTION("when running multiple reading tasks on separate nodes") {
+		auto full_range_for_single_node = [=](node_id node) {
+			return [=](chunk<1> chnk) -> subrange<1> {
+				if(chnk.range == chnk.global_size) return chnk;
+				if(chnk.offset[0] == (test_range.size() / num_nodes) * node) { return {0, test_range}; }
+				return {0, 0};
 			};
-
-			test_utils::build_and_flush(ctx, num_nodes,
-			    test_utils::add_compute_task<class UKN(producer)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, full_range_for_single_node(1)); }, full_range));
-
-			test_utils::build_and_flush(ctx, num_nodes,
-			    test_utils::add_compute_task<class UKN(producer)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf_a.get_access<mode::read>(cgh, full_range_for_single_node(2)); }, full_range));
-		}
-
-		CHECK(inspector.get_commands(std::nullopt, node_id(0), command_type::push).size() == 2);
-		CHECK(inspector.get_commands(std::nullopt, node_id(1), command_type::push).size() == 0);
-		CHECK(inspector.get_commands(std::nullopt, node_id(2), command_type::push).size() == 0);
-		CHECK(inspector.get_commands(std::nullopt, node_id(1), command_type::await_push).size() == 1);
-		CHECK(inspector.get_commands(std::nullopt, node_id(2), command_type::await_push).size() == 1);
-
-		test_utils::maybe_print_graphs(ctx);
+		};
+		dctx.device_compute<class UKN(task_d)>(test_range).read(buf, full_range_for_single_node(1)).submit();
+		dctx.device_compute<class UKN(task_e)>(test_range).read(buf, full_range_for_single_node(2)).submit();
 	}
 
-	TEST_CASE("graph_generator consolidates push commands for adjacent subranges", "[graph_generator][command-graph]") {
-		using namespace cl::sycl::access;
+	CHECK(dctx.query(node_id(0), command_type::push).count() == 2);
+	CHECK(dctx.query(command_type::push).count() == 2);
+	CHECK(dctx.query(node_id(1), command_type::await_push).count() == 1);
+	CHECK(dctx.query(node_id(2), command_type::await_push).count() == 1);
+}
 
-		test_utils::cdag_test_context ctx(2);
-		auto& inspector = ctx.get_inspector();
+// NOTE: This behavior changed between master/worker and distributed scheduling; we no longer consolidate pushes.
+//       In part this is because of the way data is being tracked (on a per-command last writer basis),
+//       however importantly it also enables better communication/computation overlapping in some cases.
+//       This behavior may change again in the future!
+TEST_CASE("distributed_graph_generator consolidates push commands for adjacent subranges", "[distributed_graph_generator][command-graph][!shouldfail]") {
+	dist_cdag_test_context dctx(2);
 
-		test_utils::mock_buffer_factory mbf(ctx);
-		auto buf = mbf.create_buffer(range<1>(128));
+	const range<1> test_range = {128};
+	auto buf = dctx.create_buffer(test_range);
 
-		const auto tid_a = test_utils::build_and_flush(ctx, 2,
-		    test_utils::add_compute_task<class UKN(task_a)>(
-		        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{64}, id<1>{0}));
-		CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::execution).size() == 2);
+	const auto tid_a = dctx.device_compute<class UKN(task_a)>(range<1>{test_range[0] / 2}).discard_write(buf, acc::one_to_one{}).submit();
+	// Swap the two chunks so we write a contiguous range on node 1 across tasks a and b
+	const auto swap_rm = [](chunk<1> chnk) -> subrange<1> {
+		if(chnk.range == chnk.global_size) return chnk;
+		switch(chnk.offset[0]) {
+		case 64: return {96, 32};
+		case 96: return {64, 32};
+		default: FAIL("Unexpected offset");
+		}
+		return {};
+	};
+	const auto tid_b = dctx.device_compute<class UKN(task_b)>(range<1>{test_range[0] / 2}, id<1>{test_range[0] / 2}).discard_write(buf, swap_rm).submit();
+	dctx.master_node_host_task().read(buf, acc::all{}).submit();
 
-		const auto tid_b = test_utils::build_and_flush(ctx, 2,
-		    test_utils::add_compute_task<class UKN(task_b)>(
-		        ctx.get_task_manager(),
-		        [&](handler& cgh) {
-			        // Swap the two chunks so we write a contiguous range on the worker node across tasks a and b
-			        buf.get_access<mode::discard_write>(cgh, [](chunk<1> chnk) {
-				        switch(chnk.offset[0]) {
-				        case 64: return subrange<1>(96, 32);
-				        case 96: return subrange<1>(64, 32);
-				        default: CATCH_ERROR("Unexpected offset");
-				        }
-			        });
-		        },
-		        range<1>{64}, id<1>{64}));
-		CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::execution).size() == 2);
+	CHECK(dctx.query(command_type::push).count() == 1);
+	CHECK(dctx.query(tid_a).have_successors(dctx.query(command_type::push)));
+	CHECK(dctx.query(tid_b).have_successors(dctx.query(command_type::push)));
+}
 
-		test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-			buf.get_access<mode::read>(cgh, fixed<1>({0, 128}));
-		}));
+TEST_CASE("distributed_graph_generator builds dependencies to all local commands if a given range is produced by multiple",
+    "[distributed_graph_generator][command-graph]") {
+	dist_cdag_test_context dctx(1);
 
-		auto push_commands = inspector.get_commands(std::nullopt, node_id(1), command_type::push);
-		REQUIRE(push_commands.size() == 1);
-		REQUIRE(inspector.get_dependency_count(*push_commands.cbegin()) == 2);
+	const range<1> test_range = {96};
+	const range<1> one_third = {test_range / 3};
+	auto buf = dctx.create_buffer(test_range);
 
-		test_utils::maybe_print_graphs(ctx);
+	const auto tid_a = dctx.device_compute<class UKN(task_a)>(one_third, id<1>{0 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
+	const auto tid_b = dctx.device_compute<class UKN(task_b)>(one_third, id<1>{1 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
+	const auto tid_c = dctx.device_compute<class UKN(task_c)>(one_third, id<1>{2 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
+
+	const auto tid_d = dctx.device_compute<class UKN(task_d)>(test_range).read(buf, acc::one_to_one{}).submit();
+	CHECK(dctx.query(tid_a).have_successors(dctx.query(tid_d)));
+	CHECK(dctx.query(tid_b).have_successors(dctx.query(tid_d)));
+	CHECK(dctx.query(tid_c).have_successors(dctx.query(tid_d)));
+}
+
+TEST_CASE("distributed_graph_generator generates dependencies for push commands", "[distributed_graph_generator][command-graph]") {
+	dist_cdag_test_context dctx(2);
+
+	const range<1> test_range = {128};
+	auto buf = dctx.create_buffer(test_range);
+
+	const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, acc::one_to_one{}).submit();
+	dctx.master_node_host_task().read(buf, acc::all{}).submit();
+	CHECK(dctx.query(tid_a).have_successors(dctx.query(command_type::push)));
+}
+
+TEST_CASE("distributed_graph_generator generates anti-dependencies for await_push commands", "[distributed_graph_generator][command-graph]") {
+	dist_cdag_test_context dctx(2);
+
+	const range<1> test_range = {128};
+	auto buf = dctx.create_buffer(test_range, true);
+
+	SECTION("if writing to region used by execution command") {
+		// Node 0 starts by reading from buf (which is host-initialized)
+		const auto tid_a = dctx.master_node_host_task().read(buf, acc::all{}).submit();
+		// Then both nodes write to it
+		dctx.device_compute<class UKN(task_b)>(test_range).discard_write(buf, acc::one_to_one{}).submit();
+		// Node 0 reads it again, generating a transfer
+		dctx.master_node_host_task().read(buf, acc::all{}).submit();
+		// The await_push command has to wait until task_a is complete
+		CHECK(dctx.query(node_id(0), tid_a).have_successors(dctx.query(node_id(0), command_type::await_push), dependency_kind::anti_dep));
 	}
 
-	TEST_CASE("graph_generator builds dependencies to all local commands if a given range is produced by multiple", "[graph_generator][command-graph]") {
-		using namespace cl::sycl::access;
-
-		test_utils::cdag_test_context ctx(1);
-		auto& inspector = ctx.get_inspector();
-
-		test_utils::mock_buffer_factory mbf(ctx);
-		auto buf = mbf.create_buffer(range<1>(128));
-
-		test_utils::build_and_flush(ctx, 1,
-		    test_utils::add_compute_task<class UKN(task_a)>(
-		        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{64}, id<1>{0}));
-		test_utils::build_and_flush(ctx, 1,
-		    test_utils::add_compute_task<class UKN(task_b)>(
-		        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{32}, id<1>{64}));
-		test_utils::build_and_flush(ctx, 1,
-		    test_utils::add_compute_task<class UKN(task_c)>(
-		        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{32}, id<1>{96}));
-
-		auto master_task = test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-			buf.get_access<mode::read>(cgh, fixed<1>({0, 128}));
-		}));
-
-		auto master_cmds = inspector.get_commands(master_task, std::nullopt, std::nullopt);
-		CHECK(master_cmds.size() == 1);
-
-		auto master_cmd = *master_cmds.cbegin();
-		CHECK(inspector.get_dependency_count(master_cmd) == 3);
-
-		test_utils::maybe_print_graphs(ctx);
+	SECTION("if writing to region used by push command") {
+		// Both nodes write to buffer
+		dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, acc::one_to_one{}).submit();
+		// Node 0 reads and writes the buffer, generating a push
+		dctx.master_node_host_task().read_write(buf, acc::all{}).submit();
+		// Finally, both nodes read the buffer again, requiring an await_push on node 1
+		// Note that in this example the await_push is never at risk of actually running concurrently with the first push to node 0, as they are effectively
+		// in a distributed dependency relationship, however more complex examples could give rise to situations where this can happen.
+		dctx.device_compute<class UKN(task_c)>(test_range).read(buf, acc::one_to_one{}).submit();
+		CHECK(
+		    dctx.query().find_all(node_id(1), command_type::push).have_successors(dctx.query(node_id(1), command_type::await_push), dependency_kind::anti_dep));
 	}
 
-	TEST_CASE("graph_generator generates dependencies for push commands", "[graph_generator][command-graph]") {
-		using namespace cl::sycl::access;
+	SECTION("if writing to region written by another await_push command") {
+		// Both nodes write to buffer
+		dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, acc::one_to_one{}).submit();
+		// Node 0 reads the whole buffer
+		const auto tid_b = dctx.master_node_host_task().read(buf, acc::all{}).submit();
+		const auto first_await_push = dctx.query(command_type::await_push);
+		CHECK(first_await_push.count() == 1);
+		// Both nodes write it again
+		dctx.device_compute<class UKN(task_c)>(test_range).discard_write(buf, acc::one_to_one{}).submit();
+		// Node 0 reads it again
+		dctx.master_node_host_task().read(buf, acc::all{}).submit();
+		const auto second_await_push = dctx.query(command_type::await_push).subtract(first_await_push);
+		// The first await push last wrote the data, but the anti-dependency is delegated to the reading successor task
+		CHECK(dctx.query(tid_b).have_successors(second_await_push));
+	}
+}
 
-		test_utils::cdag_test_context ctx(2);
-		auto& inspector = ctx.get_inspector();
+TEST_CASE("distributed_graph_generator generates anti-dependencies with subrange precision", "[distributed_graph_generator][command-graph]") {
+	dist_cdag_test_context dctx(2);
 
-		SECTION("if data is produced by an execution command") {
-			test_utils::mock_buffer_factory mbf(ctx);
-			auto buf = mbf.create_buffer(range<1>(100));
+	const range<1> test_range = {128};
+	auto buf = dctx.create_buffer(test_range, true);
 
-			const auto tid_a = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_a)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{100}));
-			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::execution).size() == 2);
-			const auto computes = inspector.get_commands(tid_a, node_id(1), command_type::execution);
-			CHECK(computes.size() == 1);
-
-			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::push).empty());
-			test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				buf.get_access<mode::read>(cgh, fixed<1>({0, 100}));
-			}));
-			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::push).size() == 1);
-			const auto pushes = inspector.get_commands(std::nullopt, node_id(1), command_type::push);
-			CHECK(pushes.size() == 1);
-
-			REQUIRE(inspector.has_dependency(*pushes.cbegin(), *computes.cbegin()));
-
-			test_utils::maybe_print_graphs(ctx);
-		}
-
-		SECTION("if data is produced by an await_push command") {
-			// There currently is no good way of reliably testing this because the source node for a push is currently
-			// selected "randomly" (i.e. the first in an unordered_set is used, ordering depends on STL implementation)
-			// TODO: Revisit in the future
-		}
+	SECTION("for execution commands") {
+		// task_a writes the first half
+		const auto tid_a = dctx.device_compute<class UKN(task_a)>(range<1>(test_range[0] / 2)).discard_write(buf, acc::one_to_one{}).submit();
+		// task_b reads the first half
+		const auto tid_b = dctx.device_compute<class UKN(task_b)>(range<1>(test_range[0] / 2)).read(buf, acc::one_to_one{}).submit();
+		// task_c writes the second half
+		const auto tid_c =
+		    dctx.device_compute<class UKN(task_c)>(range<1>(test_range[0] / 2), id<1>(test_range[0] / 2)).discard_write(buf, acc::one_to_one{}).submit();
+		// task_c should not have an anti-dependency onto task_b (or task_a)
+		CHECK_FALSE(dctx.query(tid_a).have_successors(dctx.query(tid_c), dependency_kind::anti_dep));
+		CHECK_FALSE(dctx.query(tid_b).have_successors(dctx.query(tid_c), dependency_kind::anti_dep));
 	}
 
-	TEST_CASE("graph_generator generates anti-dependencies for await_push commands", "[graph_generator][command-graph]") {
-		using namespace cl::sycl::access;
-
-		test_utils::cdag_test_context ctx(2);
-		auto& inspector = ctx.get_inspector();
-		test_utils::mock_buffer_factory mbf(ctx);
-		auto buf = mbf.create_buffer(range<1>(100), true);
-
-		SECTION("if writing to region used by execution command") {
-			// The master node starts by reading from buf (which is host-initialized)
-			const auto tid_a = test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				buf.get_access<mode::read>(cgh, fixed<1>({0, 100}));
-			}));
-
-			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::execution).size() == 1);
-			const auto master_node_tasks_a = inspector.get_commands(tid_a, master_node_id, command_type::execution);
-			CHECK(master_node_tasks_a.size() == 1);
-
-			// Meanwhile, the worker node writes to buf
-			const auto tid_b = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_b)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::write>(cgh, one_to_one{}); }, range<1>{100}));
-
-			CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::execution).size() == 2);
-			const auto computes_b_0 = inspector.get_commands(tid_b, master_node_id, command_type::execution);
-			CHECK(computes_b_0.size() == 1);
-			CHECK(inspector.has_dependency(*computes_b_0.cbegin(), *master_node_tasks_a.cbegin()));
-
-			// Finally the master node reads again from buf, which is now the version written to by the worker node.
-			const auto tid_c = test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				buf.get_access<mode::read>(cgh, fixed<1>({0, 100}));
-			}));
-
-			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push).size() == 1);
-			const auto await_pushes = inspector.get_commands(std::nullopt, master_node_id, command_type::await_push);
-			CHECK(await_pushes.size() == 1);
-			const auto master_node_tasks_c = inspector.get_commands(tid_c, master_node_id, command_type::execution);
-			CHECK(master_node_tasks_c.size() == 1);
-			CHECK(inspector.has_dependency(*master_node_tasks_c.cbegin(), *await_pushes.cbegin()));
-
-			// The await_push command has to wait until the master_node_id in task_a is complete.
-			REQUIRE(inspector.has_dependency(*await_pushes.cbegin(), *master_node_tasks_a.cbegin()));
-
-			test_utils::maybe_print_graphs(ctx);
-		}
-
-		SECTION("if writing to region used by push command") {
-			// Worker node writes to buf
-			const auto tid_a = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_a)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::write>(cgh, one_to_one{}); }, range<1>{100}));
-
-			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::execution).size() == 2);
-
-			// Master node reads from buf, requiring a push, while also writing to it
-			test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				buf.get_access<mode::read_write>(cgh, fixed<1>({0, 100}));
-			}));
-
-			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::push).size() == 1);
-			const auto pushes = inspector.get_commands(std::nullopt, node_id(1), command_type::push);
-			CHECK(pushes.size() == 1);
-
-			// Finally, the worker node reads buf again, requiring an await_push
-			// Note that in this example the await_push can never occur during the push to master, as they are effectively
-			// in a distributed dependency relationship, however more complex examples could give rise to situations where this can happen.
-			const auto tid_c = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_c)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::read>(cgh, one_to_one{}); }, range<1>{100}));
-
-			CHECK(inspector.get_commands(tid_c, std::nullopt, command_type::execution).size() == 2);
-			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push).size() == 2);
-			const auto await_pushes = inspector.get_commands(std::nullopt, node_id(1), command_type::await_push);
-			CHECK(await_pushes.size() == 1);
-
-			REQUIRE(inspector.has_dependency(*await_pushes.cbegin(), *pushes.cbegin()));
-
-			test_utils::maybe_print_graphs(ctx);
-		}
-
-		SECTION("if writing to region used by another await_push command") {
-			const auto tid_a = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_a)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{100}));
-
-			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::execution).size() == 2);
-
-			const auto tid_b = test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				buf.get_access<mode::read>(cgh, fixed<1>({0, 100}));
-			}));
-			CHECK(inspector.get_commands(std::nullopt, master_node_id, command_type::await_push).size() == 1);
-			const auto master_node_tasks_b = inspector.get_commands(tid_b, master_node_id, command_type::execution);
-			CHECK(master_node_tasks_b.size() == 1);
-
-			const auto tid_c = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_c)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{100}));
-
-			CHECK(inspector.get_commands(tid_c, std::nullopt, command_type::execution).size() == 2);
-
-			test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				buf.get_access<mode::read>(cgh, fixed<1>({0, 100}));
-			}));
-			const auto await_pushes = inspector.get_commands(std::nullopt, master_node_id, command_type::await_push);
-			CHECK(await_pushes.size() == 2);
-
-			// The anti-dependency is delegated to the reader (i.e. the master_node_task)
-			REQUIRE_FALSE(inspector.has_dependency(*await_pushes.crbegin(), *await_pushes.cbegin()));
-			REQUIRE(inspector.has_dependency(*await_pushes.crbegin(), *master_node_tasks_b.cbegin()));
-
-			test_utils::maybe_print_graphs(ctx);
-		}
+	SECTION("for await_push commands") {
+		// task_a writes the full buffer
+		const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, acc::one_to_one{}).submit();
+		// task_b reads the second half
+		const auto tid_b = dctx.master_node_host_task().read(buf, acc::fixed<1>{{test_range[0] / 2, test_range[0] / 2}}).submit();
+		// task_c writes to the first half
+		dctx.device_compute<class UKN(task_c)>(range<1>(test_range[0] / 2)).discard_write(buf, acc::one_to_one{}).submit();
+		// task_d reads the first half
+		const auto tid_d = dctx.master_node_host_task().read(buf, acc::fixed<1>{{0, test_range[0] / 2}}).submit();
+		// This should generate an await_push command that does NOT have an anti-dependency onto task_b, only task_a
+		const auto await_push = dctx.query(tid_d).find_predecessors(command_type::await_push);
+		CHECK(await_push.count() == 1);
+		CHECK(dctx.query(node_id(0), tid_a).have_successors(await_push, dependency_kind::anti_dep));
+		CHECK_FALSE(dctx.query(node_id(0), tid_b).have_successors(await_push, dependency_kind::anti_dep));
 	}
-
-	TEST_CASE("graph_generator generates anti-dependencies with subrange precision", "[graph_generator][command-graph]") {
-		using namespace cl::sycl::access;
-
-		test_utils::cdag_test_context ctx(2);
-		auto& inspector = ctx.get_inspector();
-		test_utils::mock_buffer_factory mbf(ctx);
-		auto buf = mbf.create_buffer(range<1>(100));
-
-		SECTION("for execution commands") {
-			// task_a writes the first half
-			const auto tid_a = test_utils::build_and_flush(ctx, 1,
-			    test_utils::add_compute_task<class UKN(task_a)>(
-			        ctx.get_task_manager(),
-			        [&](handler& cgh) {
-				        buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 50}});
-			        },
-			        range<1>{100}));
-			CHECK(inspector.get_commands(tid_a, std::nullopt, command_type::execution).size() == 1);
-			const auto computes_a = inspector.get_commands(tid_a, master_node_id, command_type::execution);
-			CHECK(computes_a.size() == 1);
-
-			// task_b reads the first half
-			const auto tid_b = test_utils::build_and_flush(ctx, 1,
-			    test_utils::add_compute_task<class UKN(task_b)>(
-			        ctx.get_task_manager(),
-			        [&](handler& cgh) {
-				        buf.get_access<mode::read>(cgh, fixed<1>{{0, 50}});
-			        },
-			        range<1>{100}));
-			CHECK(inspector.get_commands(tid_b, std::nullopt, command_type::execution).size() == 1);
-			const auto computes_b = inspector.get_commands(tid_b, master_node_id, command_type::execution);
-			CHECK(computes_b.size() == 1);
-			CHECK(inspector.has_dependency(*computes_b.cbegin(), *computes_a.cbegin()));
-
-			// task_c writes the second half
-			const auto tid_c = test_utils::build_and_flush(ctx, 1,
-			    test_utils::add_compute_task<class UKN(task_c)>(
-			        ctx.get_task_manager(),
-			        [&](handler& cgh) {
-				        buf.get_access<mode::discard_write>(cgh, fixed<1>{{50, 50}});
-			        },
-			        range<1>{100}));
-			CHECK(inspector.get_commands(tid_c, std::nullopt, command_type::execution).size() == 1);
-			const auto computes_c = inspector.get_commands(tid_c, master_node_id, command_type::execution);
-			CHECK(computes_c.size() == 1);
-
-			// task_c should not have an anti-dependency onto task_b (or task_a)
-			REQUIRE_FALSE(inspector.has_dependency(*computes_c.cbegin(), *computes_b.cbegin()));
-			REQUIRE_FALSE(inspector.has_dependency(*computes_c.cbegin(), *computes_a.cbegin()));
-
-			test_utils::maybe_print_graphs(ctx);
-		}
-
-		SECTION("for await_push commands") {
-			// task_a writes the full buffer
-			const auto tid_a = test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				buf.get_access<mode::discard_write>(cgh, fixed<1>({0, 100}));
-			}));
-			const auto master_node_tasks_a = inspector.get_commands(tid_a, master_node_id, command_type::execution);
-			CHECK(master_node_tasks_a.size() == 1);
-
-			// task_b only reads the second half
-			const auto tid_b = test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				buf.get_access<mode::read>(cgh, fixed<1>({50, 50}));
-			}));
-			const auto master_node_tasks_b = inspector.get_commands(tid_b, master_node_id, command_type::execution);
-			CHECK(master_node_tasks_b.size() == 1);
-
-			// task_c writes to the first half
-			const auto tid_c = test_utils::build_and_flush(ctx, 2,
-			    test_utils::add_compute_task<class UKN(task_c)>(
-			        ctx.get_task_manager(), [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, one_to_one{}); }, range<1>{50}));
-			CHECK(inspector.get_commands(tid_c, std::nullopt, command_type::execution).size() == 2);
-
-			// task_d reads the first half
-			test_utils::build_and_flush(ctx, test_utils::add_host_task(ctx.get_task_manager(), on_master_node, [&](handler& cgh) {
-				buf.get_access<mode::read>(cgh, fixed<1>({0, 50}));
-			}));
-
-			// This should generate an await_push command that does NOT have an anti-dependency onto task_b, only task_a
-			CHECK(inspector.get_commands(std::nullopt, std::nullopt, command_type::await_push).size() == 1);
-			const auto await_pushes = inspector.get_commands(std::nullopt, master_node_id, command_type::await_push);
-			REQUIRE(inspector.has_dependency(*await_pushes.cbegin(), *master_node_tasks_a.cbegin()));
-			REQUIRE_FALSE(inspector.has_dependency(*await_pushes.cbegin(), *master_node_tasks_b.cbegin()));
-
-			test_utils::maybe_print_graphs(ctx);
-		}
-	}
-
-} // namespace detail
-} // namespace celerity
+}

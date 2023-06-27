@@ -1177,10 +1177,8 @@ namespace detail {
 		auto& schdlr = runtime_testspy::get_schdlr(rt);
 		auto& exec = runtime_testspy::get_exec(rt);
 
-		if(rt.is_master_node()) {
-			const auto scheduler_thread_name = get_thread_name(scheduler_testspy::get_worker_thread(schdlr).native_handle());
-			CHECK(scheduler_thread_name == "cy-scheduler");
-		}
+		const auto scheduler_thread_name = get_thread_name(scheduler_testspy::get_worker_thread(schdlr).native_handle());
+		CHECK(scheduler_thread_name == "cy-scheduler");
 
 		const auto executor_thread_name = get_thread_name(executor_testspy::get_exec_thrd(exec).native_handle());
 		CHECK(executor_thread_name == "cy-executor");
@@ -1196,9 +1194,9 @@ namespace detail {
 
 #endif
 
-	void dry_run_with_nodes(const size_t nodes) {
+	void dry_run_with_nodes(const size_t num_nodes) {
 		const std::string dryrun_envvar_name = "CELERITY_DRY_RUN_NODES";
-		const auto ste = test_utils::set_test_env(dryrun_envvar_name, std::to_string(nodes));
+		const auto ste = test_utils::set_test_env(dryrun_envvar_name, std::to_string(num_nodes));
 
 		distr_queue q;
 
@@ -1208,17 +1206,26 @@ namespace detail {
 
 		REQUIRE(rt.is_dry_run());
 
-		q.submit([=](handler& cgh) { cgh.host_task(range<1>{nodes * 2}, [](partition<1>) {}); });
+		buffer<int, 1> buf{range<1>(10)};
+		q.submit([&](handler& cgh) {
+			accessor acc{buf, cgh, all{}, write_only_host_task, no_init};
+			cgh.host_task(on_master_node, [=] { (void)acc; });
+		});
+		q.submit([&](handler& cgh) {
+			accessor acc{buf, cgh, all{}, read_only_host_task};
+			cgh.host_task(range<1>{num_nodes * 2}, [=](partition<1>) { (void)acc; });
+		});
 		q.slow_full_sync();
 
-		// (intial epoch + task + sync epoch) per node.
-		CHECK(runtime_testspy::get_command_count(rt) == 3 * nodes);
+		// intial epoch + master-node task + 1 push per node + host task + sync epoch
+		// (dry runs currently always simulate node 0, hence the master-node task)
+		CHECK(runtime_testspy::get_command_count(rt) == 4 + num_nodes);
 		test_utils::maybe_print_graph(tm);
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "Dry run generates commands for an arbitrary number of simulated worker nodes", "[dryrun]") {
-		const size_t nodes = GENERATE(values({4, 8, 16}));
-		dry_run_with_nodes(nodes);
+		const size_t num_nodes = GENERATE(values({4, 8, 16}));
+		dry_run_with_nodes(num_nodes);
 	}
 
 	TEST_CASE_METHOD(test_utils::mpi_fixture, "Config reads environment variables correctly", "[env-vars][config]") {

@@ -4,8 +4,6 @@
 #include <limits>
 #include <memory>
 
-#include <mpi.h>
-
 #include "command.h"
 #include "config.h"
 #include "device_queue.h"
@@ -23,7 +21,6 @@ namespace detail {
 
 	class buffer_manager;
 	class reduction_manager;
-	class graph_generator;
 	class graph_serializer;
 	class command_graph;
 	class scheduler;
@@ -59,7 +56,7 @@ namespace detail {
 
 		void sync();
 
-		bool is_master_node() const { return m_local_nid == master_node_id; }
+		node_id get_local_nid() const { return m_local_nid; }
 
 		size_t get_num_nodes() const { return m_num_nodes; }
 
@@ -110,12 +107,6 @@ namespace detail {
 		std::unique_ptr<task_manager> m_task_mngr;
 		std::unique_ptr<executor> m_exec;
 
-		struct flush_handle {
-			unique_frame_ptr<command_frame> frame;
-			MPI_Request req;
-		};
-		std::deque<flush_handle> m_active_flushes;
-
 		runtime(int* argc, char** argv[], device_or_selector user_device_or_selector);
 		runtime(const runtime&) = delete;
 		runtime(runtime&&) = delete;
@@ -127,8 +118,6 @@ namespace detail {
 		 * @brief Destroys the runtime if it is no longer active and all buffers have been unregistered.
 		 */
 		void maybe_destroy_runtime() const;
-
-		void flush_command(node_id target, unique_frame_ptr<command_frame> frame);
 
 		// ------------------------------------------ TESTING UTILS ------------------------------------------
 		// We have to jump through some hoops to be able to re-initialize the runtime for unit testing.

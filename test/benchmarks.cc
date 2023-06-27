@@ -3,6 +3,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
+#include "command_graph.h"
+#include "distributed_graph_generator.h"
+#include "executor.h"
 #include "intrusive_graph.h"
 #include "task_manager.h"
 #include "test_utils.h"
@@ -151,16 +154,15 @@ struct task_manager_benchmark_context {
 struct graph_generator_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
-	graph_serializer gser{cdag, [](node_id, unique_frame_ptr<command_frame>) {}};
+	graph_serializer gser{[](command_pkg&&) {}};
 	task_manager tm{num_nodes, nullptr};
-	graph_generator ggen{num_nodes, cdag};
-	test_utils::mock_buffer_factory mbf{tm, ggen};
+	distributed_graph_generator dggen;
+	test_utils::mock_buffer_factory mbf;
 
-	explicit graph_generator_benchmark_context(size_t num_nodes) : num_nodes{num_nodes} {
+	explicit graph_generator_benchmark_context(size_t num_nodes) : num_nodes{num_nodes}, dggen{num_nodes, 0 /* local_nid */, cdag, tm}, mbf{tm, dggen} {
 		tm.register_task_callback([this](const task* tsk) {
-			naive_split_transformer transformer{this->num_nodes, this->num_nodes};
-			ggen.build_task(*tsk, {&transformer});
-			gser.flush(tsk->get_id());
+			const auto cmds = dggen.build_task(*tsk);
+			gser.flush(cmds);
 		});
 	}
 
@@ -233,8 +235,8 @@ class restartable_thread {
 
 class benchmark_scheduler final : public abstract_scheduler {
   public:
-	benchmark_scheduler(restartable_thread& worker_thread, std::unique_ptr<graph_generator> ggen, std::unique_ptr<graph_serializer> gser, size_t num_nodes)
-	    : abstract_scheduler(std::move(ggen), std::move(gser), num_nodes), m_worker_thread(worker_thread) {}
+	benchmark_scheduler(restartable_thread& worker_thread, std::unique_ptr<distributed_graph_generator> dggen)
+	    : abstract_scheduler(false, std::move(dggen)), m_worker_thread(worker_thread) {}
 
 	void startup() override {
 		m_worker_thread.start([this] { schedule(); });
@@ -254,12 +256,11 @@ struct scheduler_benchmark_context {
 	command_graph cdag;
 	task_manager tm{num_nodes, nullptr};
 	benchmark_scheduler schdlr;
-	test_utils::mock_buffer_factory mbf{tm, schdlr};
+	test_utils::mock_buffer_factory mbf;
 
 	explicit scheduler_benchmark_context(restartable_thread& thrd, size_t num_nodes)
 	    : num_nodes{num_nodes}, //
-	      schdlr{thrd, std::make_unique<graph_generator>(num_nodes, cdag),
-	          std::make_unique<graph_serializer>(cdag, [](node_id, unique_frame_ptr<command_frame>) {}), num_nodes} {
+	      schdlr{thrd, std::make_unique<distributed_graph_generator>(num_nodes, 0 /* local_nid */, cdag, tm)}, mbf{tm, schdlr} {
 		tm.register_task_callback([this](const task* tsk) { schdlr.notify_task_created(tsk); });
 		schdlr.startup();
 	}

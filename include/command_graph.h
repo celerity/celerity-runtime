@@ -101,7 +101,7 @@ namespace detail {
 			const auto cmd = unique_cmd.get();
 			m_commands.emplace(std::pair{cmd->get_cid(), std::move(unique_cmd)});
 			if constexpr(std::is_base_of_v<task_command, T>) { m_by_task[cmd->get_tid()].emplace_back(cmd); }
-			m_execution_fronts[cmd->get_nid()].insert(cmd);
+			m_execution_front.insert(cmd);
 			return cmd;
 		}
 
@@ -120,7 +120,10 @@ namespace detail {
 		}
 
 		size_t command_count() const { return m_commands.size(); }
-		size_t task_command_count(task_id tid) const { return m_by_task.at(tid).size(); }
+		size_t task_command_count(task_id tid) const {
+			if(m_by_task.count(tid) == 0) return 0;
+			return m_by_task.at(tid).size();
+		}
 
 		auto all_commands() const {
 			const auto transform = [](auto& uptr) { return uptr.second.get(); };
@@ -129,19 +132,30 @@ namespace detail {
 
 		auto& task_commands(task_id tid) { return m_by_task.at(tid); }
 
-		std::optional<std::string> print_graph(size_t max_nodes, const task_manager& tm, const buffer_manager* bm) const;
+		std::optional<std::string> print_graph(const node_id local_nid, const size_t max_nodes, const task_manager& tm, const buffer_manager* bm) const;
 
-		// TODO unify dependency terminology to this
 		void add_dependency(abstract_command* depender, abstract_command* dependee, dependency_kind kind, dependency_origin origin) {
-			assert(depender->get_nid() == dependee->get_nid()); // We cannot depend on commands executed on another node!
 			assert(dependee != depender);
 			depender->add_dependency({dependee, kind, origin});
-			m_execution_fronts[depender->get_nid()].erase(dependee);
+			m_execution_front.erase(dependee);
+
+			// Sanity check: For non-dataflow dependencies the commands can only be of specific types
+			if(origin == dependency_origin::execution_front) { assert(isa<epoch_command>(depender) || isa<horizon_command>(depender)); }
+			if(origin == dependency_origin::collective_group_serialization) {
+				assert(isa<execution_command>(depender));
+				// The original execution command may have been subsumed by a horizon / epoch
+				assert(isa<execution_command>(dependee) || isa<epoch_command>(dependee) || isa<horizon_command>(dependee));
+			}
+			if(origin == dependency_origin::last_epoch) { assert(isa<epoch_command>(dependee) || isa<horizon_command>(dependee)); }
+
+			// Sanity check for unit tests, where we may have multiple CDAGS
+			assert(m_commands.at(depender->get_cid()).get() == depender);
+			assert(m_commands.at(dependee->get_cid()).get() == dependee);
 		}
 
 		void remove_dependency(abstract_command* depender, abstract_command* dependee) { depender->remove_dependency(dependee); }
 
-		const std::unordered_set<abstract_command*>& get_execution_front(node_id nid) const { return m_execution_fronts.at(nid); }
+		const std::unordered_set<abstract_command*>& get_execution_front() const { return m_execution_front; }
 
 	  private:
 		command_id m_next_cmd_id = 0;
@@ -149,8 +163,7 @@ namespace detail {
 		std::unordered_map<command_id, std::unique_ptr<abstract_command>> m_commands;
 		std::unordered_map<task_id, std::vector<task_command*>> m_by_task;
 
-		// Set of per-node commands with no dependents
-		std::unordered_map<node_id, std::unordered_set<abstract_command*>> m_execution_fronts;
+		std::unordered_set<abstract_command*> m_execution_front;
 	};
 
 } // namespace detail
