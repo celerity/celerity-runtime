@@ -5,7 +5,6 @@ require 'digest'
 
 # information regarding the benchmark file
 BENCH_FN = 'ci/perf/gpuc2_bench.csv'
-MEAN_COL = 5       # column containing the mean value
 NAME_COL_1 = 0     # first name column
 NAME_COL_2 = 1     # second name column
 RAW_DATA_COL = 11  # raw data column (array of runs)
@@ -142,7 +141,7 @@ if new_data != old_data
     elsif significant_perf_reduction_in_this_chart
       img.border!(8, 8, '#FF0000')
     end
-    img.write("box_#{cur_img_idx}.png")
+    img.write("box_%03d.png" % cur_img_idx)
     cur_img_idx += 1
     in_chart = false
   end
@@ -168,6 +167,7 @@ if new_data != old_data
       g.legend_font_size = 9
       g.legend_box_size = 10
       g.legend_margin = 2
+      g.y_axis_label = "Time (nanoseconds)"
 
       in_chart = true
       significant_perf_improvement_in_this_chart = false
