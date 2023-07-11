@@ -147,28 +147,15 @@ namespace detail {
 
 namespace access {
 
-	template <int Dims = 0>
-	struct one_to_one;
-
-	template <>
-	struct one_to_one<0> {
+	struct one_to_one {
 		template <int Dims>
 		subrange<Dims> operator()(const chunk<Dims>& chnk) const {
 			return chnk;
 		}
 	};
 
-	template <int Dims>
-	struct [[deprecated("Explicitly-dimensioned range mappers are deprecated, remove template arguments from celerity::one_to_one")]] one_to_one
-	    : one_to_one<0>{};
-
-	one_to_one()->one_to_one<>;
-
-	template <int KernelDims, int BufferDims = KernelDims>
-	struct fixed;
-
 	template <int BufferDims>
-	struct fixed<BufferDims, BufferDims> {
+	struct fixed {
 		fixed(const subrange<BufferDims>& sr) : m_sr(sr) {}
 
 		template <int KernelDims>
@@ -180,19 +167,9 @@ namespace access {
 		subrange<BufferDims> m_sr;
 	};
 
-	template <int KernelDims, int BufferDims>
-	struct fixed : fixed<BufferDims, BufferDims> {
-		[[deprecated("Explicitly-dimensioned range mappers are deprecated, remove first template argument from celerity::fixed")]] //
-		fixed(const subrange<BufferDims>& sr)
-		    : fixed<BufferDims, BufferDims>(sr) {}
-	};
-
-	template <int BufferDims>
-	fixed(subrange<BufferDims>) -> fixed<BufferDims>;
-
 	template <int Dims>
 	struct slice {
-		slice(size_t dim_idx) : m_dim_idx(dim_idx) { assert(dim_idx < Dims && "Invalid slice dimension index (starts at 0)"); }
+		explicit slice(const size_t dim_idx) : m_dim_idx(dim_idx) { assert(dim_idx < Dims && "Invalid slice dimension index (starts at 0)"); }
 
 		subrange<Dims> operator()(const chunk<Dims>& chnk, const range<Dims>& buffer_size) const {
 			subrange<Dims> result = chnk;
@@ -205,21 +182,12 @@ namespace access {
 		size_t m_dim_idx;
 	};
 
-	template <int KernelDims = 0, int BufferDims = KernelDims>
-	struct all;
-
-	template <>
-	struct all<0, 0> {
+	struct all {
 		template <int KernelDims, int BufferDims>
-		subrange<BufferDims> operator()(const chunk<KernelDims>&, const range<BufferDims>& buffer_size) const {
+		subrange<BufferDims> operator()(const chunk<KernelDims>& /* chnk */, const range<BufferDims>& buffer_size) const {
 			return {{}, buffer_size};
 		}
 	};
-
-	template <int KernelDims, int BufferDims>
-	struct [[deprecated("Explicitly-dimensioned range mappers are deprecated, remove template arguments from celerity::all")]] all : all<0, 0>{};
-
-	all()->all<>;
 
 	template <int Dims>
 	struct neighborhood {

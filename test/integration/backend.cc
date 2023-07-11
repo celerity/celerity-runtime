@@ -15,7 +15,7 @@ void test_copy(celerity::distr_queue& q) {
 
 	// Initialize on device
 	q.submit([&](celerity::handler& cgh) {
-		celerity::accessor acc{buf, cgh, celerity::access::one_to_one<>{}, celerity::write_only, celerity::no_init};
+		celerity::accessor acc{buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for<kernel_name<class init, Dims>>(buf.get_range(), [=](celerity::item<Dims> itm) { acc[itm] = itm.get_linear_id(); });
 	});
 
@@ -40,7 +40,7 @@ void test_copy(celerity::distr_queue& q) {
 
 	// Modify everything on device
 	q.submit([&](celerity::handler& cgh) {
-		celerity::accessor acc{buf, cgh, celerity::access::one_to_one<>{}, celerity::read_write};
+		celerity::accessor acc{buf, cgh, celerity::access::one_to_one{}, celerity::read_write};
 		cgh.parallel_for<kernel_name<class modify, Dims>>(buf.get_range(), [=](celerity::item<Dims> itm) { acc[itm] += 1; });
 	});
 
