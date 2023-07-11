@@ -39,79 +39,6 @@ namespace detail {
 namespace celerity {
 
 /**
- * Maps slices of the accessor backing buffer present on a host to the virtual global range of the Celerity buffer.
- */
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-class [[deprecated("host_memory_layout will be removed in favor of buffer_allocation_window in a future version of Celerity")]] host_memory_layout {
-  public:
-	/**
-	 * Layout map for a single dimension describing the offset and strides of its hyperplanes.
-	 *
-	 * - A zero-dimensional layout corresponds to an individual data item and is not explicitly modelled in the dimension vector.
-	 * - A one-dimensional layout is an interval of one-dimensional space and is fully described by global and local offsets and a count of data items (aka
-	 * 0-dimensional hyperplanes).
-	 * - A two-dimensional layout is modelled as an interval of rows, which manifests as an offset (a multiple of the row width) and a stride (the row width
-	 * itself). Each row (aka 1-dimensional hyperplane) is modelled by the same one-dimensional layout.
-	 * - and so on for arbitrary dimensioned layouts.
-	 */
-	class [[deprecated("host_memory_layout will be removed in favor of buffer_allocation_window in a future version of Celerity")]] dimension {
-	  public:
-		dimension() noexcept = default;
-
-		dimension(size_t global_size, size_t global_offset, size_t local_size, size_t local_offset, size_t extent)
-		    : m_global_size(global_size), m_global_offset(global_offset), m_local_size(local_size), m_local_offset(local_offset), m_extent(extent) {
-			assert(global_offset >= local_offset);
-			assert(global_size >= local_size);
-		}
-
-		size_t get_global_size() const { return m_global_size; }
-
-		size_t get_local_size() const { return m_local_size; }
-
-		size_t get_global_offset() const { return m_global_offset; }
-
-		size_t get_local_offset() const { return m_local_offset; }
-
-		size_t get_extent() const { return m_extent; }
-
-	  private:
-		size_t m_global_size{};
-		size_t m_global_offset{};
-		size_t m_local_size{};
-		size_t m_local_offset{};
-		size_t m_extent{};
-	};
-
-	class [[deprecated("host_memory_layout will be removed in favor of buffer_allocation_window in a future version of Celerity")]] dimension_vector {
-	  public:
-		dimension_vector(size_t size) : m_this_size(size) {}
-
-		dimension& operator[](size_t idx) { return m_values[idx]; }
-		const dimension& operator[](size_t idx) const { return m_values[idx]; }
-
-		size_t size() const { return m_this_size; }
-
-	  private:
-		/**
-		 * Since contiguous dimensions can be merged when generating the memory layout, host_memory_layout is not generic over a fixed dimension count
-		 */
-		constexpr static size_t max_dimensionality = 4;
-		std::array<dimension, max_dimensionality> m_values;
-		size_t m_this_size;
-	};
-
-	explicit host_memory_layout(const dimension_vector& dimensions) : m_dimensions(dimensions) {}
-
-	/** The layout maps per dimension, in descending dimensionality */
-	const dimension_vector& get_dimensions() const { return m_dimensions; }
-
-  private:
-	dimension_vector m_dimensions;
-};
-#pragma GCC diagnostic pop
-
-/**
  * In addition to the usual per-item access through the subscript operator, accessors in distributed and collective host tasks can access the underlying memory
  * of the node-local copy of a buffer directly through `accessor::get_allocation_window()`. Celerity does not replicate buffers fully on all nodes unless
  * necessary, instead keeping an allocation of a subset that is resized as needed.
@@ -576,35 +503,6 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		    m_accessed_virtual_subrange.offset,
 		};
 	}
-
-	/**
-	 * Returns a pointer to the host-local backing buffer along with a mapping to the global virtual buffer.
-	 *
-	 * Each host keeps only part of the global (virtual) buffer locally. The layout information can be used, for example, to perform distributed I/O on the
-	 * partial buffer present at each host.
-	 */
-	// TODO remove this together with host_memory_layout after a grace period
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-	template <int KernelDims>
-	[[deprecated("get_host_memory will be removed in a future version of Celerity. Use get_allocation_window instead")]] std::pair<DataT*, host_memory_layout>
-	get_host_memory(const partition<KernelDims>& part) const {
-		// We already know the range mapper output for "chunk" from the constructor. The parameter is a purely semantic dependency which ensures that
-		// this function is not called outside a host task.
-		(void)part;
-
-		host_memory_layout::dimension_vector dimensions(Dims);
-		for(int d = 0; d < Dims; ++d) {
-			dimensions[d] = {/* global_size */ m_virtual_buffer_range[d],
-			    /* global_offset */ m_accessed_virtual_subrange.offset[d],
-			    /* local_size */ m_backing_buffer_range[d],
-			    /* local_offset */ m_accessed_virtual_subrange.offset[d] - m_backing_buffer_offset[d],
-			    /* extent */ m_accessed_virtual_subrange.range[d]};
-		}
-
-		return {m_host_ptr, host_memory_layout{dimensions}};
-	}
-#pragma GCC diagnostic pop
 
   private:
 	// Subange of the accessor, as set by the range mapper or requested by the user (master node host tasks only).
