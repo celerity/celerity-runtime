@@ -14,20 +14,22 @@ requires an API extension that we call **range mappers**.
 
 ## Overview
 
-Range mappers are functions that map a portion of kernel execution, a
+Range mappers are functors that map a portion of kernel execution, a
 so-called **chunk**, to a subrange of a buffer that is being accessed by the
-kernel. More concretely, they are functions with the following signature:
-
+kernel. More concretely, for a kernel with iteration-range dimensionality
+`KernelDims` that accesses a buffer with dimensionality `BufferDims`, the range
+mapper must be callable with at least one of the following signatures:
 ```cpp
-template<int KernelDims, int BufferDims>
-celerity::subrange<BufferDims> fn(celerity::chunk<KernelDims>);
+celerity::subrange<BufferDims> range_mapper(celerity::chunk<KernelDims> chnk);
+celerity::subrange<BufferDims> range_mapper(celerity::chunk<KernelDims> chnk,
+        celerity::range<BufferDims> buffer_range);
 ```
 
-Note that there are two template parameters, one for the kernel chunk, and
-another for the buffer. This means that in general, the dimensionality of a
-kernel does not have to match that of the buffer(s) it operates on. For
-example, a two-dimensional kernel might access a one-dimensional buffer, or
-vice-versa.
+`KernelDims` and `BufferDims` can either be constants matching the kernel
+and buffer definitions or originate from template parameters.
+In general, the dimensionality of a kernel does not have to match that of
+the buffer(s) it operates on. For example, a two-dimensional kernel might
+access a one-dimensional buffer, or vice-versa.
 
 ### Usage
 
@@ -42,7 +44,7 @@ queue.submit([&](celerity::handler& cgh) {
 	celerity::accessor r_a{cgh, buf_a, my_mapper, celerity::read_only};
 	celerity::accessor dw_b{cgh, buf_b, other_mapper, celerity::write_only, celerity::no_init};
 
-    cgh.parallel_for<>(...);
+    cgh.parallel_for(...);
 });
 ```
 
@@ -64,7 +66,7 @@ chunk without changes:
 
 ```cpp
 template<int Dims>
-celerity::subrange<Dims> one_to_one(celerity::chunk<Dims> chnk) {
+celerity::subrange<Dims> my_one_to_one(celerity::chunk<Dims> chnk) {
     return celerity::subrange<Dims>(chnk);
 }
 ```
@@ -88,8 +90,8 @@ chunk to a subrange. This requires that the dimensionality of the kernel and
 buffer matches.
 
 ```cpp
-template <int Dims>
-struct one_to_one {
+struct celerity::access::one_to_one {
+    template <int Dims>
     subrange<Dims> operator()(chunk<Dims> chnk) const;
 };
 ```
@@ -104,8 +106,8 @@ multiplication.
 
 ```cpp
 template <int Dims>
-struct slice {
-    slice(size_t dim_idx);
+struct celerity::access::slice {
+    explicit slice(size_t dim_idx);
 
     subrange<Dims> operator()(chunk<Dims> chnk) const;
 };
@@ -120,7 +122,7 @@ codes.
 
 ```cpp
 template <int Dims>
-struct neighborhood {
+struct celerity::access::neighborhood {
     neighborhood(size_t dim0);
     /* only available if Dims >= 2 */
     neighborhood(size_t dim0, size_t dim1);
@@ -139,10 +141,11 @@ commonly used in situations where all worker nodes need access to a fixed
 section of a buffer, for example a filter to apply during a convolution.
 
 ```cpp
-template <int KernelDims, int BufferDims = KernelDims>
-struct fixed {
+template <int BufferDims>
+struct celerity::access::fixed {
     fixed(subrange<BufferDims> sr);
 
+    template <int KernelDims>
     subrange<BufferDims> operator()(chunk<KernelDims>) const;
 };
 ```
@@ -154,9 +157,9 @@ chunk. This is a special case of the `fixed` range mapper and is provided for
 convenience.
 
 ```cpp
-template <int KernelDims, int BufferDims = KernelDims>
-struct all {
-    subrange<BufferDims> operator()(chunk<KernelDims>) const;
+struct celerity::access::all {
+    template <int KernelDims, int BufferDims>
+    subrange<BufferDims> operator()(chunk<KernelDims>, range<BufferDims>) const;
 };
 ```
 
@@ -165,7 +168,7 @@ struct all {
 Range mappers must fulfill certain requirements in order to be considered
 valid.
 
-- A range mapper must be _monotonous_, meaning that the result for any given
+- A range mapper must be _monotonic_, meaning that the result for any given
   work item must not change depending on the other items, i.e., the given input
   chunk. Given the kernel domain `K`, a buffer domain `B` and a range mapper
   `r: K -> B`, it must hold that `for all a,b that are subsets of K: if a is a subset of b, then r(a) is a subset of r(b)`.
