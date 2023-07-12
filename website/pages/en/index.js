@@ -103,13 +103,41 @@ class Index extends React.Component {
       </Block>
     );
 
-    const Disclaimer = () => (
-      <div className="section celerity-disclaimer">
-        <strong>Disclaimer:</strong> Celerity is a research project first and
-        foremost, and is still in early development. While it does work for
-        certain applications, it probably does not fully support your use case
-        just yet. We'd however love for you to give it a try and tell us about
-        how you could imagine using Celerity for your projects in the future.
+    const Example = () => (
+      <div class="code-example">
+      <MarkdownBlock class="code-example">
+      {`\`\`\`cpp
+#include <celerity.h>
+using namespace celerity;
+
+// naive, but distributed matrix-vector multiplication!
+int main() {
+    // (1) declare virtualized input and output buffers
+    constexpr size_t size = 256;
+    buffer<float, 2> matrix{{size, size}};
+    buffer<float, 1> vector{{size}};
+    buffer<float, 1> result{{size}};
+
+    distr_queue q;
+    q.submit([&](handler &cgh) {
+        // (2) specify data access patterns to enable distributed execution
+        accessor m(matrix, cgh, [size](chunk<1> chnk) {
+            return subrange<2>({chnk.offset[0], 0}, {chnk.range[0], size});
+        }, read_only);
+        accessor v(vector, cgh, access::one_to_one(), read_only);
+        accessor r(result, cgh, access::one_to_one(), write_only, no_init);
+
+        // (3) launch the parallel computation
+        cgh.parallel_for(range<1>(size), [=](item<1> item) {
+            r[item] = 0;
+            for (size_t i = 0; i < size; ++i) {
+                r[item] += m[item.get_id(0)][i] * v[i];
+            }
+        });
+    });
+}
+\`\`\``}
+      </MarkdownBlock>
       </div>
     );
 
@@ -117,8 +145,8 @@ class Index extends React.Component {
       <div className="home-page">
         <HomeSplash siteConfig={siteConfig} language={language} />
         <div className="mainContainer">
+          <Example />
           <Features />
-          <Disclaimer />
         </div>
       </div>
     );

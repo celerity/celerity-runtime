@@ -68,6 +68,12 @@ hr.separator {
   margin: 0 30px;
 }
 
+.code-example {
+  display: block;
+  max-width: 90ex;
+  margin: 0 auto;
+}
+
 @media (max-width: 768px) {
   .uni-logos {
     margin-top: -20px;
