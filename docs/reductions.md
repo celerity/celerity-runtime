@@ -45,9 +45,7 @@ higher-dimensional reduction outputs will only become available once SYCL suppor
 
 ### No Broad Support Across SYCL Implementations
 
-Only DPC++ provides a complete implementation of SYCL 2020 reduction variables at the moment,
-while hipSYCL requires [a patch](https://github.com/illuhad/hipSYCL/pull/578).
-Installing this version of hipSYCL will enable you to run the `reduction` Celerity example.
+Currently only DPC++ provides an implementation of SYCL 2020 reduction variables that Celerity can build upon.
 
 Celerity provides the `CELERITY_FEATURE_SCALAR_REDUCTIONS` feature-detection
 macro for reduction support, both in CMake (`ON` or `OFF`) and as C++ macros
