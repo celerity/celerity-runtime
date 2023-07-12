@@ -1093,15 +1093,15 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::device_queue_fixture, "device_queue allows to allocate device memory and query usage", "[device_queue]") {
 		auto& dq = get_device_queue();
-		const auto one_quarter = dq.get_global_memory_total_size_bytes() / 4;
-		auto alloc1 = dq.malloc<char>(one_quarter);
-		CHECK(alloc1.size_bytes == one_quarter);
-		CHECK(dq.get_global_memory_allocated_bytes() == one_quarter);
-		auto alloc2 = dq.malloc<char>(2 * one_quarter);
-		CHECK(alloc2.size_bytes == 2 * one_quarter);
-		CHECK(dq.get_global_memory_allocated_bytes() == 3 * one_quarter);
+		const size_t ten_mib = 1024ul * 1024ul * 10ul;
+		auto alloc1 = dq.malloc<char>(ten_mib);
+		CHECK(alloc1.size_bytes == ten_mib);
+		CHECK(dq.get_global_memory_allocated_bytes() == ten_mib);
+		auto alloc2 = dq.malloc<char>(2 * ten_mib);
+		CHECK(alloc2.size_bytes == 2 * ten_mib);
+		CHECK(dq.get_global_memory_allocated_bytes() == 3 * ten_mib);
 		dq.free(alloc1);
-		CHECK(dq.get_global_memory_allocated_bytes() == 2 * one_quarter);
+		CHECK(dq.get_global_memory_allocated_bytes() == 2 * ten_mib);
 		dq.free(alloc2);
 	}
 
