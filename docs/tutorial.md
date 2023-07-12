@@ -139,11 +139,6 @@ to buffers, informing the runtime system exactly how we plan to access
 different buffers from within our kernels. This is done through **buffer
 accessors**, which we will create in a minute.
 
-> Attentive readers might have noticed that unlike in SYCL, Celerity command
-> groups capture surrounding variables _by value_ rather than by reference.
-> For more information on why this is important, see [Common
-> Pitfalls](pitfalls.md).
-
 The actual kernel code that will be executed on our compute device(s) resides
 within the last argument to the `celerity::handler::parallel_for` function -
 again concisely written as a lambda expression. Let us continue by fleshing
