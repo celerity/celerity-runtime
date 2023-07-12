@@ -33,14 +33,6 @@ platforms.
 > hipSYCL is currently available on Linux and has experimental/partial support
 > for OSX and Windows.
 
-### ComputeCpp
-
-ComputeCpp is a proprietary SYCL implementation by Codeplay. Binary
-distributions can be downloaded from [Codeplay's
-website](https://developer.codeplay.com/home/).
-
-> ComputeCpp is available for both Linux and Windows.
-
 ### DPC++
 
 Intel's LLVM fork [DPC++](https://github.com/intel/llvm) brings SYCL to the
@@ -53,6 +45,8 @@ To launch kernels on Intel GPUs, you will also need to install a recent version 
 result in mysterious segfaults in the DPC++ SYCL library!)
 
 > Celerity works with DPC++ on Linux.
+
+Until its discontinuation in July 2023, Celerity also supported ComputeCpp as a SYCL implementation.
 
 ## Configuring CMake
 
@@ -73,12 +67,6 @@ platform. Here are a couple of examples:
 cmake -G Ninja .. -DCMAKE_PREFIX_PATH="<path-to-hipsycl-install>" -DHIPSYCL_TARGETS="cuda:sm_52" -DCMAKE_INSTALL_PREFIX="<install-path>" -DCMAKE_BUILD_TYPE=Release
 ```
 
-<!--ComputeCpp + Unix Makefiles-->
-
-```
-cmake -G "Unix Makefiles" .. -DComputeCpp_DIR="<path-to-computecpp-install>" -DCMAKE_INSTALL_PREFIX="<install-path>" -DCMAKE_BUILD_TYPE=Release
-```
-
 <!-- DPC++ + Unix Makefiles-->
 
 ```
@@ -88,10 +76,10 @@ cmake -G "Unix Makefiles" .. -DCMAKE_CXX_COMPILER="/path/to/dpc++/bin/clang++" -
 <!--END_DOCUSAURUS_CODE_TABS-->
 
 In case multiple SYCL implementations are in CMake's search path, you can disambiguate them
-using `-DCELERITY_SYCL_IMPL=hipSYCL|ComputeCpp|DPC++`.
+using `-DCELERITY_SYCL_IMPL=hipSYCL|DPC++`.
 
-Note that the `CMAKE_PREFIX_PATH` and `ComputeCpp_DIR` parameters should only
-be required if you installed SYCL in a non-standard location. See the [CMake
+Note that the `CMAKE_PREFIX_PATH` parameter should only be required if you
+installed SYCL in a non-standard location. See the [CMake
 documentation](https://cmake.org/documentation/) as well as the documentation
 for your SYCL implementation for more information on the other parameters.
 

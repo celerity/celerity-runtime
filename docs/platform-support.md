@@ -16,7 +16,7 @@ The most recent version of Celerity aims to support the following environments:
 * DPC++ ≥ revision [`61e51015`](https://github.com/intel/llvm/commit/61e51015)
   * on Intel hardware
 
-ComputeCpp is currently not supported.
+ComputeCpp is no longer supported since its discontinuation.
 
 ## Continuously Tested Configurations
 
