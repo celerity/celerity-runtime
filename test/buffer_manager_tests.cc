@@ -1266,6 +1266,9 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager throws if buffer access exceeds available memory", "[buffer_manager]") {
+#if CELERITY_DPCPP
+		SKIP("DPC++ swaps to system memory instead of failing");
+#else  // CELERITY_DPCPP
 		using Catch::Matchers::ContainsSubstring;
 		using Catch::Matchers::MessageMatches;
 		auto& bm = get_buffer_manager();
@@ -1295,6 +1298,7 @@ namespace detail {
 			                   && ContainsSubstring(fmt::format("Total usage: {} / {} bytes ({:.1f}%)", 3 * one_quarter_elements * sizeof(size_t),
 			                       global_mem_size_bytes, 100 * static_cast<double>(3 * one_quarter_elements * sizeof(size_t)) / global_mem_size_bytes))));
 		}
+#endif // CELERITY_DPCPP
 	}
 
 #endif // CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER
