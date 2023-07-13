@@ -6,6 +6,78 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic
 Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2023-07-13
+
+We recommend using the following SYCL versions with this release:
+
+- DPC++: 61e51015 or newer
+- hipSYCL: 24980221 or newer
+
+See our [platform support guide](docs/platform-support.md) for a complete list of all officially supported configurations.
+
+## Added
+
+- Introduce new experimental `host_object` and `side_effect` APIs to express non-buffer dependencies between host tasks (#68, 7a5326a)
+- Add new `CELERITY_GRAPH_PRINT_MAX_VERTS` config options (#80, d3dd722)
+- Named threads for better debugging (#98, 25d769d, #131, ff5fbec)
+- Add support for passing device selectors to distr_queue constructor (#113, 556b6f2)
+- Add new `CELERITY_DRY_RUN_NODES` environment variable to simulate the scheduling of an application on a large number of nodes (without execution or data transfers) (#125, 299ebbf)
+- Add ability to name buffers for debugging (#132, 1076522)
+- Introduce experimental `fence` API for accessing buffer and host-object data from the main thread (#151, 6b803f8)
+- Introduce backend system for vendor-specific code paths (#162, 750f32a)
+- Add `CELERITY_USE_MIMALLOC` CMake configuration option to use the mimalloc allocator (enabled by default) (#170, 234e3d2)
+- Support 0-dimensional buffers, accessors and kernels (#163, 0685d94)
+- Introduce new diagnostics utility for detecting erroneous reference captures into kernel functions, as well as unused accessors (#173, ff7ed02)
+- Introduce `CELERITY_ACCESSOR_BOUNDARY_CHECK` CMake option to detect out-of-bounds buffer accesses inside device kernels (enabled by default for debug builds) (#178, 2c738c8)
+- Print more helpful error message when buffer allocations exceed available device memory (#179, 79f97c2)
+
+## Changed
+
+- Update spdlog to 1.9.2 (#80, a178828)
+- Overhaul logging mechanism (#80, 1b19bfc)
+- Improve graph dependency tracking performance (#100, c9dab18)
+- Improve task lookup performance (#112, 5139256)
+- Introduce epochs as a mechanism for in-graph synchronization (#86, 61dd07e)
+- Miscellaneous performance improvements (#115, 9a099d2, #137, b0254fd, #138, 02258c0, #145, f0b53ce)
+- Improve scheduler performance by reducing lock contention (#111, 4547b5f)
+- Improve graph generation and printing performance (#133, 8122798)
+- Use [libenvpp](https://github.com/ph3at/libenvpp) to validate all `CELERITY_*` environment variables (#158, b2ced9b)
+- Use native ("USM") pointers instead of SYCL buffers for backing buffer allocations (#162, 44497b3)
+- Implement `range` and `id` types instead of aliasing SYCL types (#163, 0685d94)
+- Disallow in-source builds (#176, 0a96d15)
+- Lift restrictions on reductions for DPC++ (#175, efff21b)
+- Remove multi-pass mechanism to allow reference capture of buffers and host-objects into command group functions, in alignment with the SYCL 2020 API (#173, 0a743c7)
+- Drastically improve performance of buffer data location tracking (#184, adff79e)
+- Switch to distributed scheduling model (#186, 0970bff)
+
+## Deprecated
+
+- Passing `sycl::device` to `distr_queue` constructor (use a device selector instead) (#113, 556b6f2)
+- Capturing buffers and host objects by value into command group functions (capture by reference instead) (#173, 0a743c7)
+- `allow_by_ref` is no longer required to capture references into command group functions (#173, 0a743c7)
+
+## Removed
+
+- Removed support for ComputeCpp (discontinued) (#167, 68367dd)
+- Removed deprecated `host_memory_layout` (use `buffer_allocation_window` instead) (#187, f5e6510)
+- Removed deprecated kernel dimension template parameter on `one_to_one`, `fixed` and `all` range mappers (#187, 40a12a4)
+- Kernels can no longer receive `sycl::item` (use `celerity::item` instead), this was already broken in 0.3.2 (#163, 67ccacc)
+
+## Fixed
+
+- Improve performance for buffer transfers on IBM Spectrum MPI (#114, c60527f)
+- Increase size limit on individual buffer transfer operations from 2 GiB to 128 GiB (#153, 972682f)
+- Fix race between creating collective groups and submitting host tasks (#152, 0a4fca5)
+- Align read-accessor `operator[]` with SYCL 2020 spec by returning const-reference instead of value (#156, 5011ded)
+
+## Internal
+
+- Add microbenchmark suite (#100, c2853ca, #107, 51f5bc5)
+- Update Catch2 to v3.3 (#102, 9a6f19d, #129, 0d1e36a, #162, 5aa33d6)
+- Add all_tests unit test executable (#104, c12b052)
+- Add custom CSV and Markdown reporters (#109, ba3af8b)
+- Introduce automatic clang-tidy checks for CI (#128, ca94bee)
+
 ## [0.3.2] - 2022-02-17
 
 ### Added
