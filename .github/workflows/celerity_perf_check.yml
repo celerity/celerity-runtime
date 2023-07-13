@@ -1,0 +1,45 @@
+name: Celerity Performance Check
+
+on: pull_request
+
+jobs:
+  check-perf-impact:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.0'
+    - name: Install plot generation dependencies
+      run: |
+        sudo apt-get install libmagickwand-dev
+        gem install gruff
+    - name: Find previous perf comment
+      uses: peter-evans/find-comment@v2
+      id: fc
+      with:
+        issue-number: ${{ github.event.number }}
+        body-includes: "Check-perf-impact results"
+        direction: last
+    - name: Analyze performance impact
+      id: analysis
+      run: ruby ./ci/check-perf-impact.rb
+      env:
+        PREV_COMMENT_BODY: ${{ steps.fc.outputs.comment-body }}
+    - if: steps.analysis.outputs.done != 'true'
+      name: Upload boxplots to imgur
+      id: imgur_step
+      uses: devicons/public-upload-to-imgur@v2.2.2
+      with:
+        path: box_*.png
+        client_id: ${{secrets.IMGUR_CLIENT_ID}}
+    - if: steps.analysis.outputs.done != 'true'
+      name: Add images to message
+      env:
+        PLOT_IMG_URLS: ${{ steps.imgur_step.outputs.imgur_urls }}
+      run: ruby ./ci/check-perf-impact.rb
+    - if: steps.analysis.outputs.done != 'true'
+      name: Report performance impact
+      uses: thollander/actions-comment-pull-request@v2
+      with:
+        filePath: check_perf_message.txt
