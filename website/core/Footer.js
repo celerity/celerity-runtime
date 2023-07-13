@@ -40,6 +40,7 @@ class Footer extends React.Component {
           </div>
           <div>
             <h5>Community</h5>
+            <a href="https://discord.gg/k8vWTPB">Celerity Discord</a>
             <a
               href="https://stackoverflow.com/questions/tagged/celerity-hpc"
               target="_blank"
@@ -47,10 +48,10 @@ class Footer extends React.Component {
             >
               Stack Overflow
             </a>
-            <a href="https://discord.gg/k8vWTPB">Celerity Chat</a>
           </div>
           <div>
             <h5>More</h5>
+            <a href={this.pageUrl("research")}>Research</a>
             <a href={this.pageUrl("contribute")}>Contribute</a>
             <a
               href={this.props.config.repoUrl}

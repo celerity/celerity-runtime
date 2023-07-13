@@ -70,7 +70,6 @@ class Index extends React.Component {
 
     const Block = props => (
       <Container
-        padding={["bottom", "top"]}
         id={props.id}
         background={props.background}
       >
@@ -138,6 +137,9 @@ int main() {
 }
 \`\`\``}
       </MarkdownBlock>
+        <div class="code-title">
+          Complete Celerity Code Sample for Distributed Multi-GPU Matrix-vector Multiplication  
+        </div>
       </div>
     );
 
@@ -145,8 +147,8 @@ int main() {
       <div className="home-page">
         <HomeSplash siteConfig={siteConfig} language={language} />
         <div className="mainContainer">
-          <Example />
           <Features />
+          <Example />
         </div>
       </div>
     );
