@@ -4,8 +4,6 @@ title: Overview
 sidebar_label: Overview
 ---
 
-> **This section is still a work in progress.**
-
 ## Celerity Execution Overview
 
 The following diagram illustrates the basics of how programs are executed
@@ -24,7 +22,8 @@ detailed **command graph** from existing task graph nodes. This command graph
 includes individual instructions for the given node in the system, and also
 encodes all necessary data transfers to maintain a consistent view of data
 as it would be expected if the program were to be executed on a single node.  
-In the Celerity **distributed scheduling** scheme, only the subset of the command graph necessary for executing locally relevant
+In the Celerity **distributed scheduling** scheme (introduced with Celerity 0.4.0),
+only the subset of the command graph necessary for executing locally relevant
 commands is created on each node, so e.g. if nodes 0 and 1 communicate with each
 other locally, node 2 need not be aware of the related commands.
 
@@ -38,8 +37,8 @@ in several aspects:
 
 - The details of data allocations, exchange and execution are omitted.
 - For this illustration, there are only three nodes in the system.
-- In practice, Horizons constrain the tasks and commands being actively processed
-  by the system into a sliding window.
+- In practice, *[Horizons](https://link.springer.com/chapter/10.1007/978-3-031-32316-4_2)*
+  constrain the tasks and commands being actively processed by the system into a sliding window.
 
 Despite these simplifications, this illustration captures the basic execution
 principle of the Celerity runtime, and hopefully also makes the reasons for
