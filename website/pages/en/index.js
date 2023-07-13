@@ -103,9 +103,9 @@ class Index extends React.Component {
     );
 
     const Example = () => (
-      <div class="code-example">
-      <MarkdownBlock class="code-example">
-      {`\`\`\`cpp
+      <div className="code-example">
+        <MarkdownBlock>
+{`\`\`\`cpp
 #include <celerity.h>
 using namespace celerity;
 
@@ -136,8 +136,8 @@ int main() {
     });
 }
 \`\`\``}
-      </MarkdownBlock>
-        <div class="code-title">
+        </MarkdownBlock>
+        <div className="code-title">
           Complete Celerity Code Sample for Distributed Multi-GPU Matrix-vector Multiplication  
         </div>
       </div>

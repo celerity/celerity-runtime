@@ -77,9 +77,10 @@ hr.separator {
 
 .code-title {
   position: absolute;
-  bottom: -1em;
+  bottom: -20px;
   width: 100%;
   padding: 3px;
+  border-radius: 3px;
   text-align: center;
   color: white;
   background: linear-gradient(
@@ -88,7 +89,6 @@ hr.separator {
     rgb(200, 110, 132) 35%,
     rgb(74, 102, 176) 100%
   );
-  border-radius: 3px;
 }
 
 @media (max-width: 768px) {
