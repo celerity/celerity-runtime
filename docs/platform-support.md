@@ -4,8 +4,6 @@ title: Officially Supported Platforms
 sidebar_label: Platform Support
 ---
 
-# Officially Supported Platforms
-
 The most recent version of Celerity aims to support the following environments:
 
 * hipSYCL ≥ revision [`24980221`](https://github.com/illuhad/hipSYCL/commit/24980221), with

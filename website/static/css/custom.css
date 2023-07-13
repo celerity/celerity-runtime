@@ -28,7 +28,7 @@ blockquote {
 /* Custom classes */
 
 hr.separator {
-  margin: 3em 0;
+  margin: 4em 0;
 }
 
 .celerity-logo {
@@ -65,13 +65,30 @@ hr.separator {
 
 .uni-logos img {
   height: 100px;
-  margin: 0 30px;
+  margin: 30px;
 }
 
 .code-example {
   display: block;
   max-width: 90ex;
   margin: 0 auto;
+  position: relative;
+}
+
+.code-title {
+  position: absolute;
+  bottom: -1em;
+  width: 100%;
+  padding: 3px;
+  text-align: center;
+  color: white;
+  background: linear-gradient(
+    90deg,
+    rgb(245, 139, 105) 0%,
+    rgb(200, 110, 132) 35%,
+    rgb(74, 102, 176) 100%
+  );
+  border-radius: 3px;
 }
 
 @media (max-width: 768px) {

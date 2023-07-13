@@ -10,6 +10,7 @@ const siteConfig = {
   headerLinks: [
     { doc: "getting-started", label: "Docs" },
     // { blog: true, label: "Blog" },
+    { page: "research", label: "Research" },
     { page: "contribute", label: "Contribute" },
     { href: "https://github.com/celerity/celerity-runtime", label: "GitHub" },
   ],
