@@ -27,7 +27,7 @@ only the subset of the command graph necessary for executing locally relevant
 commands is created on each node, so e.g. if nodes 0 and 1 communicate with each
 other locally, node 2 need not be aware of the related commands.
 
-On each node the jobs encoded withing the command graph are asynchronously
+On each node the jobs encoded within the command graph are asynchronously
 consumed by __executor threads__, which finally leads to actually running the
 computations described by each kernel in the input program, distributed among 
 the GPUs in the cluster.
@@ -37,7 +37,7 @@ in several aspects:
 
 - The details of data allocations, exchange and execution are omitted.
 - For this illustration, there are only three nodes in the system.
-- In practice, *[Horizons](https://link.springer.com/chapter/10.1007/978-3-031-32316-4_2)*
+- In practice, *[Horizons](../research)*
   constrain the tasks and commands being actively processed by the system into a sliding window.
 
 Despite these simplifications, this illustration captures the basic execution
