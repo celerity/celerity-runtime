@@ -18,7 +18,7 @@ represents the de-facto standard in HPC nowadays.
 
 ## Picking a SYCL Implementation
 
-Celerity currently supports three different SYCL implementations. If you're
+Celerity currently supports two different SYCL implementations. If you're
 simply giving Celerity a try, the choice does not matter all that much. For
 more advanced use cases or specific hardware setups it might however make
 sense to prefer one over the other.

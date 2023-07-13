@@ -14,10 +14,10 @@ in order to maintain data coherence across the cluster. When a kernel exhibits a
 access pattern, two core requirements are easy to violate from user code – even when using
 Celerity's built-in range mappers.
 
-> A work item `item` must never access the buffer outside the range of `range_mapper(chunk)`,
-> where `chunk` is any chunk of the iteration space that contains `item`. Out-of-bounds accesses
-> can be detected at runtime by enabling the `CELERITY_ACCESSOR_BOUNDARY_CHECK` CMake option at
-> the cost of some runtime overhead (enabled by default in debug builds).
+### Out-Of-Bounds Accesses
+
+A work item `item` must never access the buffer outside the range of `range_mapper(chunk)`,
+where `chunk` is any chunk of the iteration space that contains `item`:
 
 ```cpp
 // INCORRECT example: access pattern inside the kernel does not follow the range mapper
@@ -31,10 +31,14 @@ celerity::distr_queue().submit([&](celerity::handler &cgh) {
 });
 ```
 
-> Range mappers for `write_only` or `read_write` accessors must never produce overlapping buffer
-> ranges for non-overlapping chunks of the iteration space. This means that none of the `all`,
-> `fixed`, `neighborhood` or `slice` built-in range mappers can be used for a writing access
-> (unless the kernel only operates on a single work item).
+> Out-of-bounds accesses can be detected at runtime by enabling the
+> `CELERITY_ACCESSOR_BOUNDARY_CHECK` CMake option at the cost of some runtime
+> overhead (enabled by default in debug builds).
+
+### Overlapping Writes
+
+Range mappers for `write_only` or `read_write` accessors must never produce overlapping buffer
+ranges for non-overlapping chunks of the iteration space.
 
 A likely beginner mistake is to violate the second constraint when implementing a **stencil code**.
 The first intuition might be to operate on a single buffer using a `read_write` accessor together
@@ -79,6 +83,10 @@ for (int i = 0; i < N; ++i) {
 Note that this is not just a Celerity limitation, but inherent to the implementation of stencils
 on GPUs, which must avoid races between reads and writes through a strategy like double-buffering
 anyway.
+
+> None of the `all`, `fixed`, `neighborhood` or `slice` built-in range mappers
+> can be used for a writing access (unless the kernel only operates on a single
+> work item).
 
 ## Illegal Reference Captures in Kernel and Host Task Functions
 
