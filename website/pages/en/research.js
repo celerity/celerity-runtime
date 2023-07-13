@@ -12,7 +12,7 @@ function formatDOI(doi) {
 
 function formatVid(vid) {
   if (vid == null) return "";
-  return `  \n**[Video](vid)**`;
+  return `  \n**[Video](${vid})**`;
 }
 
 const publications = [
