@@ -15,6 +15,7 @@ CONV_IMG="$1"; shift
 NUM_NODES=("$@")
 
 EXAMPLES=(
+    "hello_world"
     "matmul"
     "convolution"
     "wave_sim"
@@ -26,9 +27,11 @@ IS_OPTIONAL=(
     ""
     ""
     ""
+    ""
     "yes"
 )
 PARAMS=(
+    ""
     ""
     "$CONV_IMG"
     "-T 15 --dt 0.5 --sample-rate 2"
@@ -36,6 +39,7 @@ PARAMS=(
     "$CONV_IMG"
 )
 ARTIFACTS=(
+    ""
     ""
     "output.png"
     "wave_sim_result.bin"
