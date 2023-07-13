@@ -64,11 +64,11 @@ celerity::buffer<float, 2> input({256, 256});
 celerity::buffer<float, 2> output({256, 256}); // double buffering
 for (int i = 0; i < N; ++i) {
     q.submit([&](celerity::handler &cgh) {
-        celerity::accessor read(buf, cgh, celerity::access::neighborhood(1, 1),
+        celerity::accessor read(input, cgh, celerity::access::neighborhood(1, 1),
                 celerity::read_only);
-        celerity::accessor write(buf, cgh, celerity::access::one_to_one(),
+        celerity::accessor write(output, cgh, celerity::access::one_to_one(),
                 celerity::write_only, celerity::no_init);
-        cgh.parallel_for(output.get_range(), [=](celerity::item<1> item) {
+        cgh.parallel_for(output.get_range(), [=](celerity::item<2> item) {
             write[item] = read[...] + read[...] + /* ... stencil code */;
         });
     });
