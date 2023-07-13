@@ -120,9 +120,7 @@ int main() {
     distr_queue q;
     q.submit([&](handler &cgh) {
         // (2) specify data access patterns to enable distributed execution
-        accessor m(matrix, cgh, [size](chunk<1> chnk) {
-            return subrange<2>({chnk.offset[0], 0}, {chnk.range[0], size});
-        }, read_only);
+        accessor m(matrix, cgh, access::components(access::kernel_dim(0), access::all()), read_only);
         accessor v(vector, cgh, access::one_to_one(), read_only);
         accessor r(result, cgh, access::one_to_one(), write_only, no_init);
 
