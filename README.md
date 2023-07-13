@@ -77,7 +77,6 @@ installed first.
 
 - A supported SYCL implementation, either
     - [hipSYCL](https://github.com/illuhad/hipsycl),
-    - [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp), or
     - [DPC++](https://github.com/intel/llvm)
 - A MPI 2 implementation (tested with OpenMPI 4.0, MPICH 3.3 should work as well)
 - [CMake](https://www.cmake.org) (3.13 or newer)
@@ -127,11 +126,3 @@ Celerity's runtime behavior:
   task/command graphs can have above which their GraphViz output will be omitted.
 - `CELERITY_DRY_RUN_NODES` takes a number and simulates a run with that many nodes
   without actually executing the commands.
-
-## Disclaimer
-
-Celerity is a research project first and foremost, and is still in
-early development. While it does work for certain applications, it probably
-does not fully support your use case just yet. We'd however love for you to
-give it a try and tell us about how you could imagine using Celerity for your
-projects in the future!
