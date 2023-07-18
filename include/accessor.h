@@ -248,7 +248,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
   private:
 	DataT* m_device_ptr = nullptr;
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_backing_buffer_offset;
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_backing_buffer_range = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_backing_buffer_range = detail::zeros;
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 	id<3>* m_oob_indices = nullptr;
 	subrange<Dims> m_accessed_virtual_subrange = {};
@@ -513,11 +513,11 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_backing_buffer_offset;
 
 	// Range of the backing buffer.
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_backing_buffer_range = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_backing_buffer_range = detail::zeros;
 
 	// The range of the Celerity buffer as created by the user.
 	// We only need this to check whether it is safe to call get_pointer() or not.
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_virtual_buffer_range = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_virtual_buffer_range = detail::zeros;
 
 	// m_host_ptr must be defined *last* for it to overlap with the sequence of range and id members in the 0-dimensional case
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS DataT* m_host_ptr = nullptr;
@@ -610,7 +610,7 @@ class local_accessor {
 	using const_reference = const DataT&;
 	using size_type = size_t;
 
-	local_accessor() : m_sycl_acc{}, m_allocation_size(detail::zero_range) {}
+	local_accessor() : m_sycl_acc{}, m_allocation_size(detail::zeros) {}
 
 	template <int D = Dims, typename = std::enable_if_t<D == 0>>
 	local_accessor(handler& cgh) : local_accessor(range<0>(), cgh) {}

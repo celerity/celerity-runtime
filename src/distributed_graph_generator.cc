@@ -152,7 +152,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 		if(tsk.get_type() == task_type::collective || tsk.get_type() == task_type::fence) {
 			std::vector<chunk<3>> chunks;
 			for(size_t nid = 0; nid < m_num_nodes; ++nid) {
-				chunks.push_back(chunk_cast<3>(chunk<1>{id<1>{nid}, unit_range, {m_num_nodes}}));
+				chunks.push_back(chunk_cast<3>(chunk<1>{id<1>{nid}, ones, {m_num_nodes}}));
 			}
 			return chunks;
 		}
@@ -273,7 +273,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 				wcs.mark_as_stale();
 				// We just treat this buffer as 1-dimensional, regardless of its actual dimensionality (as it must be unit-sized anyway)
 				post_reduction_buffer_states.emplace(std::piecewise_construct, std::tuple{bid},
-				    std::tuple{region_map<write_command_state>{unit_range, 1, wcs}, region_map<node_bitset>{unit_range, 1, node_bitset{}}});
+				    std::tuple{region_map<write_command_state>{ones, 1, wcs}, region_map<node_bitset>{ones, 1, node_bitset{}}});
 			}
 
 			if(is_pending_reduction && !generate_reduction) {

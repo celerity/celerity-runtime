@@ -223,11 +223,10 @@ id<DimsOut> id_cast(const coordinate<InterfaceIn, DimsIn>& in) {
 	return coordinate_cast<id<DimsOut>>(in);
 }
 
-struct zero_range_t {
-} inline static constexpr zero_range;
-struct unit_range_t {
-} inline static constexpr unit_range;
-
+struct zeros_t {
+} inline static constexpr zeros;
+struct ones_t {
+} inline static constexpr ones;
 
 }; // namespace celerity::detail
 
@@ -245,9 +244,9 @@ class range : public detail::coordinate<range<Dims>, Dims> {
 	template <typename... Values, typename = std::enable_if_t<sizeof...(Values) + 1 == Dims>>
 	constexpr range(const size_t dim_0, const Values... dim_n) : coordinate(dim_0, dim_n...) {}
 
-	constexpr range(const detail::zero_range_t /* tag */) {}
+	constexpr range(const detail::zeros_t /* tag */) {}
 
-	constexpr range(const detail::unit_range_t /* tag */) {
+	constexpr range(const detail::ones_t /* tag */) {
 		for(int d = 0; d < Dims; ++d) {
 			(*this)[d] = 1;
 		}
@@ -310,6 +309,14 @@ class id : public detail::coordinate<id<Dims>, Dims> {
 	constexpr id(const size_t dim_0, const Values... dim_n) : coordinate(dim_0, dim_n...) {}
 
 	constexpr id(const range<Dims>& range) : coordinate(detail::make_from, range) {}
+
+	constexpr id(const detail::zeros_t /* tag */) {}
+
+	constexpr id(const detail::ones_t /* tag */) {
+		for(int d = 0; d < Dims; ++d) {
+			(*this)[d] = 1;
+		}
+	}
 
 	template <int D = Dims, typename = std::enable_if_t<D >= 1 && D <= 3>>
 	id(const sycl::id<Dims>& sycl_id) {
@@ -422,7 +429,7 @@ namespace detail {
 	  public:
 		subscript_proxy(Target& tgt, const id<TargetDims> id) : m_tgt(tgt), m_id(id) {}
 
-		inline decltype(auto) operator[](const size_t index) const {
+		inline decltype(auto) operator[](const size_t index) const { //
 			return subscript<TargetDims, Target, SubscriptDim>(m_tgt, m_id, index);
 		}
 
@@ -463,8 +470,8 @@ struct chunk {
 	static constexpr int dimensions = Dims;
 
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> offset;
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> range = detail::zero_range;
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> global_size = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> range = detail::zeros;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> global_size = detail::zeros;
 
 	chunk() = default;
 
@@ -482,7 +489,7 @@ struct subrange {
 	static constexpr int dimensions = Dims;
 
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> offset;
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> range = detail::zero_range;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> range = detail::zeros;
 
 	subrange() = default;
 

@@ -13,7 +13,7 @@ template <int Dims>
 inline constexpr id<Dims> zero_coordinate<id<Dims>> = id<Dims>();
 
 template <int Dims>
-inline constexpr range<Dims> zero_coordinate<range<Dims>> = zero_range;
+inline constexpr range<Dims> zero_coordinate<range<Dims>> = zeros;
 
 template <typename Coordinate>
 inline constexpr Coordinate make_coordinate(const std::initializer_list<size_t>& init) {
@@ -156,6 +156,68 @@ TEST_CASE("0-dimensional ranges are empty types", "[range]") {
 	CHECK(std::is_empty_v<nd_range<0>>);
 	CHECK(std::is_empty_v<chunk<0>>);
 	CHECK(std::is_empty_v<subrange<0>>);
+}
+
+TEST_CASE("for_each_item behaves as expected", "[host_utils]") {
+	SECTION("for 0-dimensional partitions") {
+		const auto test_partition_0d = detail::make_0d_partition();
+		int call_count = 0;
+		experimental::for_each_item(test_partition_0d, [&](const item<0> item) { call_count++; });
+		CHECK(call_count == 1);
+	}
+
+	SECTION("for 1-dimensional partitions") {
+		const celerity::range<1> global = {10};
+		const celerity::subrange<1> range = {2, 5};
+		const auto test_partition_1d = detail::make_partition(global, range);
+		std::vector<int> call_counts(global.size(), 0);
+		experimental::for_each_item(test_partition_1d, [&](const item<1> item) {
+			CHECK(item.get_offset() == range.offset);
+			CHECK(item.get_range() == global);
+			call_counts[item.get_id(0)]++;
+		});
+		for(size_t i = 0; i < global[0]; ++i) {
+			CHECK(call_counts[i] == ((i >= range.offset && i < range.offset + range.range).get(0) ? 1 : 0));
+		}
+	}
+
+	SECTION("for 2-dimensional partitions") {
+		const celerity::range<2> global = {10, 6};
+		const celerity::subrange<2> range = {{4, 2}, {3, 1}};
+		const auto test_partition_2d = detail::make_partition(global, range);
+		std::vector<std::vector<int>> call_counts(global[0], std::vector<int>(global[1], 0));
+		experimental::for_each_item(test_partition_2d, [&](const item<2> item) {
+			CHECK(item.get_offset() == range.offset);
+			CHECK(item.get_range() == global);
+			call_counts[item[0]][item[1]]++;
+		});
+		for(size_t i = 0; i < global[0]; ++i) {
+			for(size_t j = 0; j < global[1]; ++j) {
+				const celerity::id<2> item = {i, j};
+				CHECK(call_counts[i][j] == ((item >= range.offset && item < range.offset + range.range) == celerity::id{1, 1} ? 1 : 0));
+			}
+		}
+	}
+
+	SECTION("for 3-dimensional partitions") {
+		const celerity::range<3> global = {8, 6, 3};
+		const celerity::subrange<3> range = {{2, 0, 1}, {5, 1, 2}};
+		const auto test_partition_3d = detail::make_partition(global, range);
+		std::vector<std::vector<std::vector<int>>> call_counts(global[0], std::vector<std::vector<int>>(global[1], std::vector<int>(global[2], 0)));
+		experimental::for_each_item(test_partition_3d, [&](const item<3> item) {
+			CHECK(item.get_offset() == range.offset);
+			CHECK(item.get_range() == global);
+			call_counts[item[0]][item[1]][item[2]]++;
+		});
+		for(size_t i = 0; i < global[0]; ++i) {
+			for(size_t j = 0; j < global[1]; ++j) {
+				for(size_t k = 0; k < global[2]; ++k) {
+					const celerity::id<3> item = {i, j, k};
+					CHECK(call_counts[i][j][k] == ((item >= range.offset && item < range.offset + range.range) == celerity::id{1, 1, 1} ? 1 : 0));
+				}
+			}
+		}
+	}
 }
 
 } // namespace celerity::detail

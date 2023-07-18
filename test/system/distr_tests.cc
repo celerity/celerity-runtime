@@ -177,21 +177,21 @@ namespace detail {
 	struct geometry {
 		struct {
 			size_t group_linear_id = 0;
-			range<3> group_range = zero_range;
+			range<3> group_range = zeros;
 			id<3> local_id;
 			size_t local_linear_id = 0;
-			range<3> local_range = zero_range;
+			range<3> local_range = zeros;
 			id<3> global_id;
 			size_t global_linear_id = 0;
-			range<3> global_range = zero_range;
+			range<3> global_range = zeros;
 		} item;
 		struct {
 			id<3> group_id;
 			size_t group_linear_id = 0;
-			range<3> group_range = zero_range;
+			range<3> group_range = zeros;
 			id<3> local_id;
 			size_t local_linear_id = 0;
-			range<3> local_range = zero_range;
+			range<3> local_range = zeros;
 		} group;
 	};
 
