@@ -9,6 +9,7 @@
 #include "debug.h"
 #include "distr_queue.h"
 #include "fence.h"
+#include "host_utils.h"
 #include "side_effect.h"
 #include "user_bench.h"
 #include "version.h"

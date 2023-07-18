@@ -315,7 +315,7 @@ class handler {
 	 */
 	template <typename Functor>
 	void host_task(on_master_node_tag /* tag */, Functor&& kernel) {
-		auto launcher = make_host_task_launcher<0, false>(detail::zero_range, 0, std::forward<Functor>(kernel));
+		auto launcher = make_host_task_launcher<0, false>(detail::zeros, 0, std::forward<Functor>(kernel));
 		create_master_node_task(std::move(launcher));
 	}
 

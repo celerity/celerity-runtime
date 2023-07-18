@@ -67,7 +67,7 @@ TEMPLATE_TEST_CASE_SIG("distributed_graph_generator does not create empty chunks
 	const size_t num_nodes = 3;
 	dist_cdag_test_context dctx(num_nodes);
 
-	range<Dims> task_range = zero_range;
+	range<Dims> task_range = zeros;
 	task_id tid = -1;
 
 	SECTION("for simple tasks") {
