@@ -507,6 +507,10 @@ class handler {
 
 	template <int Dims, bool Collective, typename Kernel>
 	auto make_host_task_launcher(const range<3>& global_range, const detail::collective_group_id cgid, Kernel&& kernel) {
+		static_assert(Collective || std::is_invocable_v<Kernel> || std::is_invocable_v<Kernel, const partition<Dims>>,
+		    "Kernel for host task must be invocable with either no arguments or a celerity::partition<Dims>");
+		static_assert(!Collective || std::is_invocable_v<Kernel> || std::is_invocable_v<Kernel, const experimental::collective_partition>,
+		    "Kernel for collective host task must be invocable with either no arguments or a celerity::experimental::collective_partition");
 		static_assert(std::is_copy_constructible_v<std::decay_t<Kernel>>, "Kernel functor must be copyable"); // Required for hydration
 		static_assert(Dims >= 0);
 
