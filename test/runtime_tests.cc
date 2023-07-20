@@ -1188,9 +1188,10 @@ namespace detail {
 
 #endif
 
+	const std::string dryrun_envvar_name = "CELERITY_DRY_RUN_NODES";
+
 	void dry_run_with_nodes(const size_t num_nodes) {
-		const std::string dryrun_envvar_name = "CELERITY_DRY_RUN_NODES";
-		const auto ste = test_utils::set_test_env(dryrun_envvar_name, std::to_string(num_nodes));
+		env::scoped_test_environment ste(std::unordered_map<std::string, std::string>{{dryrun_envvar_name, std::to_string(num_nodes)}});
 
 		distr_queue q;
 
@@ -1220,6 +1221,27 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "Dry run generates commands for an arbitrary number of simulated worker nodes", "[dryrun]") {
 		const size_t num_nodes = GENERATE(values({4, 8, 16}));
 		dry_run_with_nodes(num_nodes);
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "Dry run proceeds on fences", "[dryrun]") {
+		env::scoped_test_environment ste(std::unordered_map<std::string, std::string>{{dryrun_envvar_name, "1"}});
+
+		distr_queue q;
+
+		auto& rt = runtime::get_instance();
+		auto& tm = rt.get_task_manager();
+
+		REQUIRE(rt.is_dry_run());
+
+		buffer<bool, 0> buf{false};
+		q.submit([&](handler& cgh) {
+			accessor acc{buf, cgh, all{}, write_only_host_task};
+			cgh.host_task(on_master_node, [=] { acc = true; });
+		});
+
+		auto ret = experimental::fence(q, buf);
+		bool val = *ret.get(); // this will hang if fences are not processed in the dry run
+		CHECK_FALSE(val);      // extra check that the task was not actually executed
 	}
 
 	TEST_CASE_METHOD(test_utils::mpi_fixture, "Config reads environment variables correctly", "[env-vars][config]") {

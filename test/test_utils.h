@@ -353,55 +353,6 @@ namespace test_utils {
 		}
 	}
 
-	class set_test_env {
-	  public:
-#ifdef _WIN32
-		set_test_env(const std::string& env, const std::string& val) : m_env_var_name(env) {
-			//  We use the ANSI version of Get/Set, because it does not require type conversion of char to wchar_t, and we can safely do this
-			//  because we are not mutating the text and therefore can treat them as raw bytes without having to worry about the text encoding.
-			const auto name_size = GetEnvironmentVariableA(env.c_str(), nullptr, 0);
-			if(name_size > 0) {
-				m_original_value.resize(name_size);
-				const auto res = GetEnvironmentVariableA(env.c_str(), m_original_value.data(), name_size);
-				assert(res != 0 && "Failed to get celerity environment variable");
-			}
-			const auto res = SetEnvironmentVariableA(env.c_str(), val.c_str());
-			assert(res != 0 && "Failed to set celerity environment variable");
-		}
-
-		~set_test_env() {
-			if(m_original_value.empty()) {
-				const auto res = SetEnvironmentVariableA(m_env_var_name.c_str(), NULL);
-				assert(res != 0 && "Failed to delete celerity environment variable");
-			} else {
-				const auto res = SetEnvironmentVariableA(m_env_var_name.c_str(), m_original_value.c_str());
-				assert(res != 0 && "Failed to reset celerity environment variable");
-			}
-		}
-
-#else
-		set_test_env(const std::string& env, const std::string& val) {
-			const char* has_value = std::getenv(env.c_str());
-			if(has_value != nullptr) { m_original_value = has_value; }
-			const auto res = setenv(env.c_str(), val.c_str(), 1);
-			assert(res == 0 && "Failed to set celerity environment variable");
-			m_env_var_name = env;
-		}
-		~set_test_env() {
-			if(m_original_value.empty()) {
-				const auto res = unsetenv(m_env_var_name.c_str());
-				assert(res == 0 && "Failed to unset celerity environment variable");
-			} else {
-				const auto res = setenv(m_env_var_name.c_str(), m_original_value.c_str(), 1);
-				assert(res == 0 && "Failed to reset celerity environment variable");
-			}
-		}
-#endif
-	  private:
-		std::string m_env_var_name;
-		std::string m_original_value;
-	};
-
 } // namespace test_utils
 } // namespace celerity
 
