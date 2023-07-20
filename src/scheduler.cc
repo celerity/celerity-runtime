@@ -19,7 +19,14 @@ namespace detail {
 
 	void abstract_scheduler::schedule() {
 		graph_serializer serializer([this](command_pkg&& pkg) {
-			if(m_is_dry_run && pkg.get_command_type() != command_type::epoch) { return; }
+			if(m_is_dry_run && pkg.get_command_type() != command_type::epoch && pkg.get_command_type() != command_type::fence) {
+				// in dry runs, skip everything except epochs and fences
+				return;
+			}
+			if(m_is_dry_run && pkg.get_command_type() == command_type::fence) {
+				CELERITY_WARN("Encountered a \"fence\" command while \"CELERITY_DRY_RUN_NODES\" is set. "
+				              "The result of this operation will not match the expected output of an actual run.");
+			}
 			// Executor may not be set during tests / benchmarks
 			if(m_exec != nullptr) { m_exec->enqueue(std::move(pkg)); }
 		});
