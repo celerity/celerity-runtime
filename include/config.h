@@ -37,9 +37,10 @@ namespace detail {
 		 *
 		 * TODO: Should we support multiple platforms on the same host as well?
 		 */
-		const std::optional<device_config>& get_device_config() const { return m_device_cfg; };
-		std::optional<bool> get_enable_device_profiling() const { return m_enable_device_profiling; };
-		bool is_dry_run() const { return m_dry_run_nodes > 0; };
+		const std::optional<device_config>& get_device_config() const { return m_device_cfg; }
+		std::optional<bool> get_enable_device_profiling() const { return m_enable_device_profiling; }
+		bool is_dry_run() const { return m_dry_run_nodes > 0; }
+		bool is_recording() const { return m_recording; }
 		int get_dry_run_nodes() const { return m_dry_run_nodes; }
 
 		size_t get_graph_print_max_verts() const { return m_graph_print_max_verts; };
@@ -50,6 +51,7 @@ namespace detail {
 		std::optional<bool> m_enable_device_profiling;
 		size_t m_graph_print_max_verts = 200;
 		size_t m_dry_run_nodes = 0;
+		bool m_recording = false;
 	};
 
 } // namespace detail

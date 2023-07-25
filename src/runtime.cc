@@ -148,7 +148,9 @@ namespace detail {
 
 		m_reduction_mngr = std::make_unique<reduction_manager>();
 		m_host_object_mngr = std::make_unique<host_object_manager>();
-		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_h_queue.get());
+		std::optional<task_recorder> t_rec;
+		if(m_cfg->is_recording()) t_rec = task_recorder{};
+		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_h_queue.get(), t_rec);
 		m_exec = std::make_unique<executor>(m_num_nodes, m_local_nid, *m_h_queue, *m_d_queue, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
 		m_cdag = std::make_unique<command_graph>();
 		auto dggen = std::make_unique<distributed_graph_generator>(m_num_nodes, m_local_nid, *m_cdag, *m_task_mngr);

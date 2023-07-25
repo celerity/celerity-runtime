@@ -230,7 +230,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager invokes callback upon task creation", "[task_manager]") {
-		task_manager tm{1, nullptr};
+		task_manager tm{1, nullptr, {}};
 		size_t call_counter = 0;
 		tm.register_task_callback([&call_counter](const task*) { call_counter++; });
 		range<2> gs = {1, 1};
@@ -242,7 +242,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][device_compute_task]") {
-		task_manager tm{1, nullptr};
+		task_manager tm{1, nullptr, {}};
 		test_utils::mock_buffer_factory mbf(tm);
 		auto buf_a = mbf.create_buffer(range<2>(64, 152));
 		auto buf_b = mbf.create_buffer(range<3>(7, 21, 99));
@@ -296,7 +296,7 @@ namespace detail {
 	class MyThirdKernel;
 
 	TEST_CASE("device_compute tasks derive debug name from kernel name", "[task][!mayfail]") {
-		auto tm = std::make_unique<detail::task_manager>(1, nullptr);
+		auto tm = std::make_unique<detail::task_manager>(1, nullptr, task_recorder{});
 		auto t1 = tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(range<1>{1}, [](id<1>) {}); }));
 		auto t2 = tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(range<1>{1}, [](id<1>) {}); }));
 		auto t3 = tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(range<1>{1}, [](id<1>) {}); }));
@@ -1273,15 +1273,14 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::mpi_fixture, "Config reads environment variables correctly", "[env-vars][config]") {
-		std::unordered_map<std::string, std::string> valid_test_env_vars{
-		    {"CELERITY_LOG_LEVEL", "debug"},
+		const auto var = std::string("debug");
+		const auto test_env = env::scoped_test_environment({
+		    {"CELERITY_LOG_LEVEL", var},
 		    {"CELERITY_GRAPH_PRINT_MAX_VERTS", "1"},
 		    {"CELERITY_DEVICES", "1 1"},
 		    {"CELERITY_PROFILE_KERNEL", "1"},
 		    {"CELERITY_DRY_RUN_NODES", "4"},
-		};
-
-		const auto test_env = env::scoped_test_environment(valid_test_env_vars);
+		});
 		auto cfg = config(nullptr, nullptr);
 
 		CHECK(spdlog::get_level() == spdlog::level::debug);

@@ -16,6 +16,7 @@
 #include "device_queue.h"
 #include "mpi_support.h"
 #include "payload.h"
+#include "print_graph.h"
 #include "ranges.h"
 #include "region_map.h"
 #include "sycl_wrappers.h"
@@ -276,6 +277,7 @@ namespace detail {
 		void set_debug_name(const buffer_id bid, const std::string& debug_name) {
 			std::lock_guard lock(m_mutex);
 			m_buffer_infos.at(bid).debug_name = debug_name;
+			detail::record_buffer_name(bid, debug_name);
 		}
 
 		std::string get_debug_name(const buffer_id bid) const {

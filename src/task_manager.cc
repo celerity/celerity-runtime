@@ -6,10 +6,13 @@
 namespace celerity {
 namespace detail {
 
-	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue) : m_num_collective_nodes(num_collective_nodes), m_queue(queue) {
+	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, std::optional<detail::task_recorder> recorder) //
+	    : m_num_collective_nodes(num_collective_nodes), m_queue(queue), m_task_recorder(std::move(recorder)) {
 		// We manually generate the initial epoch task, which we treat as if it has been reached immediately.
 		auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
-		m_task_buffer.put(std::move(reserve), task::make_epoch(initial_epoch_task, epoch_action::none));
+		auto initial_epoch = task::make_epoch(initial_epoch_task, epoch_action::none);
+		if(m_task_recorder) m_task_recorder->record_task(*initial_epoch);
+		m_task_buffer.put(std::move(reserve), std::move(initial_epoch));
 	}
 
 	void task_manager::add_buffer(buffer_id bid, const int dims, const range<3>& range, bool host_initialized) {
@@ -26,7 +29,7 @@ namespace detail {
 	const task* task_manager::get_task(task_id tid) const { return m_task_buffer.get_task(tid); }
 
 	std::optional<std::string> task_manager::print_graph(size_t max_nodes) const {
-		if(m_task_buffer.get_current_task_count() <= max_nodes) { return detail::print_task_graph(m_task_buffer, nullptr); }
+		if(m_task_recorder && m_task_buffer.get_current_task_count() <= max_nodes) { return detail::print_task_graph(*m_task_recorder); }
 		return std::nullopt;
 	}
 
@@ -185,6 +188,7 @@ namespace detail {
 		for(const auto& cb : m_task_callbacks) {
 			cb(tsk);
 		}
+		if(m_task_recorder) m_task_recorder->record_task(*tsk);
 	}
 
 	void task_manager::add_dependency(task& depender, task& dependee, dependency_kind kind, dependency_origin origin) {
