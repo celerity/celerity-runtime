@@ -9,6 +9,7 @@
 #include <mpi.h>
 
 #include "log.h"
+#include "print_graph.h"
 
 #include <spdlog/sinks/sink.h>
 
@@ -162,6 +163,7 @@ namespace detail {
 		    pref.register_variable<bool>("PROFILE_KERNEL", [](const std::string_view str) { return parse_validate_profile_kernel(str); });
 		const auto env_dry_run_nodes =
 		    pref.register_variable<size_t>("DRY_RUN_NODES", [](const std::string_view str) { return parse_validate_dry_run_nodes(str); });
+		const auto env_recording = pref.register_variable<bool>("RECORDING");
 		[[maybe_unused]] const auto env_force_wg =
 		    pref.register_variable<bool>("FORCE_WG", [](const std::string_view str) { return parse_validate_force_wg(str); });
 		[[maybe_unused]] const auto env_profile_ocl =
@@ -207,6 +209,8 @@ namespace detail {
 
 			const auto has_dry_run_nodes = parsed_and_validated_envs.get(env_dry_run_nodes);
 			if(has_dry_run_nodes) { m_dry_run_nodes = *has_dry_run_nodes; }
+
+			m_recording = parsed_and_validated_envs.get_or(env_recording, false);
 
 		} else {
 			for(const auto& warn : parsed_and_validated_envs.warnings()) {

@@ -58,7 +58,7 @@ namespace detail {
 	  public:
 		constexpr inline static task_id initial_epoch_task = 0;
 
-		task_manager(size_t num_collective_nodes, host_queue* queue);
+		task_manager(size_t num_collective_nodes, host_queue* queue, std::optional<detail::task_recorder> recorder);
 
 		virtual ~task_manager() = default;
 
@@ -219,6 +219,9 @@ namespace detail {
 
 		// Set of tasks with no dependents
 		std::unordered_set<task*> m_execution_front;
+
+		// An optional task_recorder which records information about tasks for e.g. printing graphs.
+		mutable std::optional<detail::task_recorder> m_task_recorder;
 
 		task& register_task_internal(task_ring_buffer::reservation&& reserve, std::unique_ptr<task> task);
 

@@ -375,7 +375,7 @@ class dist_cdag_test_context {
   public:
 	dist_cdag_test_context(size_t num_nodes) : m_num_nodes(num_nodes) {
 		m_rm = std::make_unique<reduction_manager>();
-		m_tm = std::make_unique<task_manager>(num_nodes, nullptr /* host_queue */);
+		m_tm = std::make_unique<task_manager>(num_nodes, nullptr /* host_queue */, task_recorder{});
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			m_cdags.emplace_back(std::make_unique<command_graph>());
 			m_dggens.emplace_back(std::make_unique<distributed_graph_generator>(num_nodes, nid, *m_cdags[nid], *m_tm));

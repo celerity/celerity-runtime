@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <libenvpp/env.hpp>
 
 #include "distributed_graph_generator_test_utils.h"
 #include "test_utils.h"
@@ -108,4 +109,41 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "Buffer debug names show up in the
 
 	const auto dot = runtime_testspy::print_graph(celerity::detail::runtime::get_instance());
 	CHECK(dot == expected);
+}
+
+TEST_CASE_METHOD(test_utils::runtime_fixture, "Full task graph is printed if CELERITY_RECORDING is set", "[print_graph]") {
+	std::unordered_map<std::string, std::string> settings{{"CELERITY_RECORDING", "1"}};
+	env::scoped_test_environment tenv(settings);
+
+	distr_queue q;
+	celerity::range<1> range(16);
+	celerity::buffer<int, 1> buff_a(range);
+
+	// set small horizon step size so that we do not need to generate a very large graph to test this functionality
+	auto& tm = celerity::detail::runtime::get_instance().get_task_manager();
+	tm.set_horizon_step(1);
+
+	for(int i = 0; i < 3; ++i) {
+		q.submit([&](handler& cgh) {
+			celerity::accessor acc_a{buff_a, cgh, acc::one_to_one{}, celerity::read_write};
+			cgh.parallel_for<class UKN(full_graph_printing)>(range, [=](item<1> item) { (void)acc_a; });
+		});
+	}
+
+	q.slow_full_sync();
+
+	// Smoke test: It is valid for the dot output to change with updates to graph generation. If this test fails, verify that the printed graph is sane and
+	// complete, and if so, replace the `expected` value with the new dot graph.
+	const auto expected = //
+	    "digraph G {label=\"Task Graph\" 7[shape=ellipse label=<T7<br/><b>epoch</b>>];6->7[color=orange];6[shape=ellipse "
+	    "label=<T6<br/><b>horizon</b>>];5->6[color=orange];4->6[color=orange];5[shape=box style=rounded label=<T5<br/><b>device-compute</b> [0,0,0] - "
+	    "[16,1,1]<br/><i>read_write</i> B0 {[[0,0,0] - [16,1,1]]}>];3->5[];4[shape=ellipse "
+	    "label=<T4<br/><b>horizon</b>>];3->4[color=orange];2->4[color=orange];3[shape=box style=rounded label=<T3<br/><b>device-compute</b> [0,0,0] - "
+	    "[16,1,1]<br/><i>read_write</i> B0 {[[0,0,0] - [16,1,1]]}>];1->3[];2[shape=ellipse label=<T2<br/><b>horizon</b>>];1->2[color=orange];1[shape=box "
+	    "style=rounded label=<T1<br/><b>device-compute</b> [0,0,0] - [16,1,1]<br/><i>read_write</i> B0 {[[0,0,0] - "
+	    "[16,1,1]]}>];0->1[color=orchid];0[shape=ellipse label=<T0<br/><b>epoch</b>>];}";
+
+	// const auto dot = runtime_testspy::print_graph(celerity::detail::runtime::get_instance());
+	const auto dot = tm.print_graph(256);
+	CHECK(*dot == expected);
 }
