@@ -43,13 +43,10 @@ namespace detail {
 		bool is_recording() const { return m_recording; }
 		int get_dry_run_nodes() const { return m_dry_run_nodes; }
 
-		size_t get_graph_print_max_verts() const { return m_graph_print_max_verts; };
-
 	  private:
 		host_config m_host_cfg;
 		std::optional<device_config> m_device_cfg;
 		std::optional<bool> m_enable_device_profiling;
-		size_t m_graph_print_max_verts = 200;
 		size_t m_dry_run_nodes = 0;
 		bool m_recording = false;
 	};

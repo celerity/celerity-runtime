@@ -5,6 +5,7 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <libenvpp/env.hpp>
 
 #include <mpi.h>
 
@@ -261,6 +262,7 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "generating same task graph on different nodes", "[task-graph]") {
+		env::scoped_test_environment tenv(recording_enabled_env_setting);
 		distr_queue q;
 		REQUIRE(runtime::get_instance().get_num_nodes() > 1);
 
@@ -308,14 +310,13 @@ namespace detail {
 		MPI_Comm test_communicator;
 		MPI_Comm_create(MPI_COMM_WORLD, world_group, &test_communicator);
 
-		const auto graph_str = runtime::get_instance().get_task_manager().print_graph(100);
-		REQUIRE(graph_str.has_value());
-		const int graph_str_length = graph_str->length();
+		const auto graph_str = runtime::get_instance().get_task_manager().print_task_graph();
+		const int graph_str_length = static_cast<int>(graph_str.length());
 		REQUIRE(graph_str_length > 0);
 
 		if(global_rank == 1) {
 			MPI_Send(&graph_str_length, 1, MPI_INT, 0, 0, test_communicator);
-			MPI_Send(graph_str->c_str(), graph_str_length, MPI_BYTE, 0, 0, test_communicator);
+			MPI_Send(graph_str.c_str(), graph_str_length, MPI_BYTE, 0, 0, test_communicator);
 		} else if(global_rank == 0) {
 			int rec_graph_str_length = 0;
 			MPI_Recv(&rec_graph_str_length, 1, MPI_INT, 1, 0, test_communicator, MPI_STATUS_IGNORE);

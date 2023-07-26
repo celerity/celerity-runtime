@@ -9,6 +9,7 @@
 
 #include "handler.h"
 #include "host_queue.h"
+#include "print_graph.h"
 #include "region_map.h"
 #include "task.h"
 #include "task_ring_buffer.h"
@@ -129,7 +130,7 @@ namespace detail {
 		 */
 		const task* get_task(task_id tid) const;
 
-		std::optional<std::string> print_graph(size_t max_nodes) const;
+		std::string print_task_graph() const;
 
 		/**
 		 * Blocks until an epoch task has executed on this node (or all nodes, if the epoch_for_new_tasks was created with `epoch_action::barrier`).

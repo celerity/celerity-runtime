@@ -296,10 +296,10 @@ namespace detail {
 	class MyThirdKernel;
 
 	TEST_CASE("device_compute tasks derive debug name from kernel name", "[task][!mayfail]") {
-		auto tm = std::make_unique<detail::task_manager>(1, nullptr, task_recorder{});
-		auto t1 = tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(range<1>{1}, [](id<1>) {}); }));
-		auto t2 = tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(range<1>{1}, [](id<1>) {}); }));
-		auto t3 = tm->get_task(tm->submit_command_group([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(range<1>{1}, [](id<1>) {}); }));
+		auto tm = detail::task_manager(1, nullptr, {});
+		const auto t1 = tm.get_task(tm.submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(range<1>{1}, [](id<1>) {}); }));
+		const auto t2 = tm.get_task(tm.submit_command_group([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(range<1>{1}, [](id<1>) {}); }));
+		const auto t3 = tm.get_task(tm.submit_command_group([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(range<1>{1}, [](id<1>) {}); }));
 		REQUIRE(t1->get_debug_name() == "MyFirstKernel");
 		REQUIRE(t2->get_debug_name() == "MySecondKernel");
 		REQUIRE(t3->get_debug_name() == "MyThirdKernel<int>");
@@ -1274,17 +1274,17 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::mpi_fixture, "Config reads environment variables correctly", "[env-vars][config]") {
 		const auto var = std::string("debug");
-		const auto test_env = env::scoped_test_environment({
+		const std::unordered_map<std::string, std::string> env_map{
 		    {"CELERITY_LOG_LEVEL", var},
-		    {"CELERITY_GRAPH_PRINT_MAX_VERTS", "1"},
 		    {"CELERITY_DEVICES", "1 1"},
 		    {"CELERITY_PROFILE_KERNEL", "1"},
 		    {"CELERITY_DRY_RUN_NODES", "4"},
-		});
+		    {"CELERITY_RECORDING", "true"},
+		};
+		const auto test_env = env::scoped_test_environment(env_map);
 		auto cfg = config(nullptr, nullptr);
 
 		CHECK(spdlog::get_level() == spdlog::level::debug);
-		CHECK(cfg.get_graph_print_max_verts() == 1);
 		const auto dev_cfg = config_testspy::get_device_config(cfg);
 		REQUIRE(dev_cfg != std::nullopt);
 		CHECK(dev_cfg->platform_id == 1);
@@ -1293,6 +1293,7 @@ namespace detail {
 		REQUIRE(has_prof.has_value());
 		CHECK((*has_prof) == true);
 		CHECK(cfg.get_dry_run_nodes() == 4);
+		CHECK(cfg.is_recording() == true);
 	}
 
 	TEST_CASE_METHOD(test_utils::mpi_fixture, "config reports incorrect environment varibles", "[env-vars][config]") {

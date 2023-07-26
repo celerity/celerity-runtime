@@ -49,14 +49,14 @@
 namespace celerity {
 namespace detail {
 
+	const std::unordered_map<std::string, std::string> recording_enabled_env_setting{{"CELERITY_RECORDING", "1"}};
+
 	struct runtime_testspy {
 		static scheduler& get_schdlr(runtime& rt) { return *rt.m_schdlr; }
 		static executor& get_exec(runtime& rt) { return *rt.m_exec; }
 		static size_t get_command_count(runtime& rt) { return rt.m_cdag->command_count(); }
 		static command_graph& get_cdag(runtime& rt) { return *rt.m_cdag; }
-		static std::string print_graph(runtime& rt) {
-			return rt.m_cdag->print_graph(0, std::numeric_limits<size_t>::max(), *rt.m_task_mngr, rt.m_buffer_mngr.get()).value();
-		}
+		static std::string print_graph(runtime& rt) { return rt.m_schdlr->print_command_graph(); }
 	};
 
 	struct task_ring_buffer_testspy {
@@ -340,19 +340,12 @@ namespace test_utils {
 	inline bool print_graphs = false;
 
 	inline void maybe_print_graph(celerity::detail::task_manager& tm) {
-		if(print_graphs) {
-			const auto graph_str = tm.print_graph(std::numeric_limits<size_t>::max());
-			assert(graph_str.has_value());
-			CELERITY_INFO("Task graph:\n\n{}\n", *graph_str);
-		}
+		if(print_graphs) { CELERITY_INFO("Task graph:\n\n{}\n", tm.print_task_graph()); }
 	}
 
-	inline void maybe_print_graph(celerity::detail::command_graph& cdag, const celerity::detail::task_manager& tm) {
-		if(print_graphs) {
-			const auto graph_str = cdag.print_graph(0, std::numeric_limits<size_t>::max(), tm, {});
-			assert(graph_str.has_value());
-			CELERITY_INFO("Command graph:\n\n{}\n", *graph_str);
-		}
+	template <typename CommandPrinter>
+	inline void maybe_print_command_graph(const CommandPrinter& cmdp) {
+		if(print_graphs) { CELERITY_INFO("Command graph:\n\n{}\n", cmdp.print_command_graph()); }
 	}
 
 	struct task_test_context {

@@ -378,7 +378,7 @@ class dist_cdag_test_context {
 		m_tm = std::make_unique<task_manager>(num_nodes, nullptr /* host_queue */, task_recorder{});
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			m_cdags.emplace_back(std::make_unique<command_graph>());
-			m_dggens.emplace_back(std::make_unique<distributed_graph_generator>(num_nodes, nid, *m_cdags[nid], *m_tm));
+			m_dggens.emplace_back(std::make_unique<distributed_graph_generator>(num_nodes, nid, *m_cdags[nid], *m_tm, command_recorder{m_tm.get(), nullptr}));
 		}
 	}
 
@@ -497,10 +497,7 @@ class dist_cdag_test_context {
 
 			std::vector<std::string> graphs;
 			for(node_id nid = 0; nid < m_num_nodes; ++nid) {
-				const auto& cdag = m_cdags[nid];
-				const auto graph = cdag->print_graph(nid, std::numeric_limits<size_t>::max(), *m_tm, nullptr);
-				assert(graph.has_value());
-				graphs.push_back(*graph);
+				graphs.push_back(m_dggens[nid]->print_command_graph());
 			}
 			CELERITY_INFO("Command graph:\n\n{}\n", combine_command_graphs(graphs));
 		}
