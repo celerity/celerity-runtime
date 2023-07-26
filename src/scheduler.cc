@@ -17,6 +17,8 @@ namespace detail {
 
 	void abstract_scheduler::shutdown() { notify(event_shutdown{}); }
 
+	std::string abstract_scheduler::print_command_graph() const { return m_dggen->print_command_graph(); }
+
 	void abstract_scheduler::schedule() {
 		graph_serializer serializer([this](command_pkg&& pkg) {
 			if(m_is_dry_run && pkg.get_command_type() != command_type::epoch && pkg.get_command_type() != command_type::horizon

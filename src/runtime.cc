@@ -149,11 +149,13 @@ namespace detail {
 		m_reduction_mngr = std::make_unique<reduction_manager>();
 		m_host_object_mngr = std::make_unique<host_object_manager>();
 		std::optional<task_recorder> t_rec;
-		if(m_cfg->is_recording()) t_rec = task_recorder{};
+		if(m_cfg->is_recording()) t_rec = task_recorder{m_buffer_mngr.get()};
 		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_h_queue.get(), t_rec);
 		m_exec = std::make_unique<executor>(m_num_nodes, m_local_nid, *m_h_queue, *m_d_queue, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
 		m_cdag = std::make_unique<command_graph>();
-		auto dggen = std::make_unique<distributed_graph_generator>(m_num_nodes, m_local_nid, *m_cdag, *m_task_mngr);
+		std::optional<command_recorder> c_rec;
+		if(m_cfg->is_recording()) c_rec = command_recorder{m_task_mngr.get(), m_buffer_mngr.get()};
+		auto dggen = std::make_unique<distributed_graph_generator>(m_num_nodes, m_local_nid, *m_cdag, *m_task_mngr, c_rec);
 		m_schdlr = std::make_unique<scheduler>(is_dry_run(), std::move(dggen), *m_exec);
 		m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
 
@@ -203,32 +205,22 @@ namespace detail {
 		m_d_queue->wait();
 		m_h_queue->wait();
 
-		if(spdlog::should_log(log_level::trace)) {
-			const auto print_max_nodes = m_cfg->get_graph_print_max_verts();
+		if(spdlog::should_log(log_level::trace) && m_cfg->is_recording()) {
 			if(m_local_nid == 0) { // It's the same across all nodes
-				const auto graph_str = m_task_mngr->print_graph(print_max_nodes);
-				if(graph_str.has_value()) {
-					CELERITY_TRACE("Task graph:\n\n{}\n", *graph_str);
-				} else {
-					CELERITY_WARN("Task graph with {} vertices exceeds CELERITY_GRAPH_PRINT_MAX_VERTS={}. Skipping GraphViz output",
-					    m_task_mngr->get_current_task_count(), print_max_nodes);
-				}
+				const auto graph_str = m_task_mngr->print_task_graph();
+				CELERITY_TRACE("Task graph:\n\n{}\n", graph_str);
 			}
 			{
-				const auto graph_str = m_cdag->print_graph(m_local_nid, print_max_nodes, *m_task_mngr, m_buffer_mngr.get());
-				if(!graph_str.has_value()) {
-					CELERITY_WARN("Command graph with {} vertices exceeds CELERITY_GRAPH_PRINT_MAX_VERTS={}. Skipping GraphViz output", m_cdag->command_count(),
-					    print_max_nodes);
-				}
+				const auto graph_str = m_schdlr->print_command_graph();
 
 				// Send local graph to rank 0
 				if(m_local_nid != 0) {
-					const uint64_t size = graph_str.has_value() ? graph_str->size() : 0;
+					const uint64_t size = graph_str.size();
 					MPI_Send(&size, 1, MPI_UINT64_T, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);
-					if(size > 0) MPI_Send(graph_str->data(), static_cast<int>(size), MPI_BYTE, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);
+					if(size > 0) MPI_Send(graph_str.data(), static_cast<int>(size), MPI_BYTE, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);
 				} else {
 					std::vector<std::string> graphs;
-					if(graph_str.has_value()) graphs.push_back(*graph_str);
+					graphs.push_back(graph_str);
 					for(size_t i = 1; i < m_num_nodes; ++i) {
 						uint64_t size = 0;
 						MPI_Recv(&size, 1, MPI_UINT64_T, static_cast<int>(i), mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD, MPI_STATUS_IGNORE);

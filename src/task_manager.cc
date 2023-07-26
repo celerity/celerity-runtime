@@ -28,9 +28,10 @@ namespace detail {
 	// we don't need to worry about thread-safety after returning the task pointer.
 	const task* task_manager::get_task(task_id tid) const { return m_task_buffer.get_task(tid); }
 
-	std::optional<std::string> task_manager::print_graph(size_t max_nodes) const {
-		if(m_task_recorder && m_task_buffer.get_current_task_count() <= max_nodes) { return detail::print_task_graph(*m_task_recorder); }
-		return std::nullopt;
+	std::string task_manager::print_task_graph() const {
+		if(m_task_recorder) { return detail::print_task_graph(*m_task_recorder); }
+		CELERITY_ERROR("Trying to print task graph, but no recorder available");
+		return "";
 	}
 
 	void task_manager::notify_horizon_reached(task_id horizon_tid) {

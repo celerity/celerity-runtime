@@ -1,7 +1,5 @@
 #include "command_graph.h"
 
-#include "print_graph.h"
-
 namespace celerity {
 namespace detail {
 
@@ -23,12 +21,6 @@ namespace detail {
 				++it;
 			}
 		}
-	}
-
-	std::optional<std::string> command_graph::print_graph(
-	    const node_id local_nid, const size_t max_nodes, const task_manager& tm, const buffer_manager* const bm) const {
-		if(command_count() <= max_nodes) { return detail::print_command_graph(local_nid, *this, tm, bm); }
-		return std::nullopt;
 	}
 
 } // namespace detail

@@ -5,6 +5,7 @@
 #include <variant>
 
 #include "command_graph.h"
+#include "print_graph.h"
 #include "ranges.h"
 #include "region_map.h"
 #include "types.h"
@@ -73,13 +74,16 @@ class distributed_graph_generator {
 	};
 
   public:
-	distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm);
+	distributed_graph_generator(
+	    const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm, const std::optional<detail::command_recorder>& recorder);
 
 	void add_buffer(const buffer_id bid, const int dims, const range<3>& range);
 
 	std::unordered_set<abstract_command*> build_task(const task& tsk);
 
 	command_graph& get_command_graph() { return m_cdag; }
+
+	std::string print_command_graph() const;
 
   private:
 	// Wrapper around command_graph::create that adds commands to current batch set.
@@ -140,6 +144,8 @@ class distributed_graph_generator {
 
 	// Side effects on the same host object create true dependencies between task commands, so we track the last effect per host object.
 	side_effect_map m_host_object_last_effects;
+
+	std::optional<detail::command_recorder> m_recorder;
 };
 
 } // namespace celerity::detail

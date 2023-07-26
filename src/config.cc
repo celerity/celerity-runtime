@@ -9,7 +9,6 @@
 #include <mpi.h>
 
 #include "log.h"
-#include "print_graph.h"
 
 #include <spdlog/sinks/sink.h>
 
@@ -62,12 +61,9 @@ struct default_parser<celerity::detail::log_level> {
 namespace {
 
 size_t parse_validate_graph_print_max_verts(const std::string_view str) {
-	const auto gmpv = env::default_parser<size_t>{}(str);
-	if(!spdlog::should_log(celerity::detail::log_level::trace)) {
-		CELERITY_WARN("CELERITY_GRAPH_PRINT_MAX_VERTS: Graphs will only be printed for CELERITY_LOG_LEVEL=trace.");
-	}
-	CELERITY_DEBUG("CELERITY_GRAPH_PRINT_MAX_VERTS={}.", gmpv);
-	return gmpv;
+	throw env::validation_error{"Support for CELERITY_GRAPH_PRINT_MAX_VERTS has been removed with Celerity 0.5.0.\n"
+	                            "Opt into graph recording by setting CELERITY_RECORDING."};
+	return 0;
 }
 
 bool parse_validate_profile_kernel(const std::string_view str) {
@@ -155,15 +151,12 @@ namespace detail {
 		auto pref = env::prefix("CELERITY");
 		const auto env_log_level = pref.register_option<log_level>(
 		    "LOG_LEVEL", {log_level::trace, log_level::debug, log_level::info, log_level::warn, log_level::err, log_level::critical, log_level::off});
-		const auto env_gpmv =
-		    pref.register_variable<size_t>("GRAPH_PRINT_MAX_VERTS", [](const std::string_view str) { return parse_validate_graph_print_max_verts(str); });
 		const auto env_devs =
 		    pref.register_variable<std::vector<size_t>>("DEVICES", [this](const std::string_view str) { return parse_validate_devices(str, m_host_cfg); });
-		const auto env_profile_kernel =
-		    pref.register_variable<bool>("PROFILE_KERNEL", [](const std::string_view str) { return parse_validate_profile_kernel(str); });
-		const auto env_dry_run_nodes =
-		    pref.register_variable<size_t>("DRY_RUN_NODES", [](const std::string_view str) { return parse_validate_dry_run_nodes(str); });
+		const auto env_profile_kernel = pref.register_variable<bool>("PROFILE_KERNEL", parse_validate_profile_kernel);
+		const auto env_dry_run_nodes = pref.register_variable<size_t>("DRY_RUN_NODES", parse_validate_dry_run_nodes);
 		const auto env_recording = pref.register_variable<bool>("RECORDING");
+		[[maybe_unused]] const auto env_gpmv = pref.register_variable<size_t>("GRAPH_PRINT_MAX_VERTS", parse_validate_graph_print_max_verts);
 		[[maybe_unused]] const auto env_force_wg =
 		    pref.register_variable<bool>("FORCE_WG", [](const std::string_view str) { return parse_validate_force_wg(str); });
 		[[maybe_unused]] const auto env_profile_ocl =
@@ -185,11 +178,6 @@ namespace detail {
 			for(auto& sink : spdlog::default_logger_raw()->sinks()) {
 				sink->set_level(log_lvl);
 			}
-
-			// ------------------------- CELERITY_GRAPH_PRINT_MAX_VERTS ---------------------------
-
-			const auto has_gpmv = parsed_and_validated_envs.get(env_gpmv);
-			if(has_gpmv) { m_graph_print_max_verts = *has_gpmv; }
 
 			// --------------------------------- CELERITY_DEVICES ---------------------------------
 
