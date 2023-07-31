@@ -210,31 +210,11 @@ namespace detail {
 				const auto graph_str = m_task_mngr->print_task_graph();
 				CELERITY_TRACE("Task graph:\n\n{}\n", graph_str);
 			}
-			{
-				const auto graph_str = m_schdlr->print_command_graph();
-
-				// Send local graph to rank 0
-				if(m_local_nid != 0) {
-					const uint64_t size = graph_str.size();
-					MPI_Send(&size, 1, MPI_UINT64_T, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);
-					if(size > 0) MPI_Send(graph_str.data(), static_cast<int>(size), MPI_BYTE, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);
-				} else {
-					std::vector<std::string> graphs;
-					graphs.push_back(graph_str);
-					for(size_t i = 1; i < m_num_nodes; ++i) {
-						uint64_t size = 0;
-						MPI_Recv(&size, 1, MPI_UINT64_T, static_cast<int>(i), mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-						if(size > 0) {
-							std::string graph;
-							graph.resize(size);
-							MPI_Recv(graph.data(), static_cast<int>(size), MPI_BYTE, static_cast<int>(i), mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD,
-							    MPI_STATUS_IGNORE);
-							graphs.push_back(std::move(graph));
-						}
-					}
-					std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Avoid racing on stdout with other nodes (funneled through mpirun)
-					CELERITY_TRACE("Command graph:\n\n{}\n", combine_command_graphs(graphs));
-				}
+			// must be called on all nodes
+			auto cmd_graph = gather_command_graph();
+			if(m_local_nid == 0) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Avoid racing on stdout with other nodes (funneled through mpirun)
+				CELERITY_TRACE("Command graph:\n\n{}\n", cmd_graph);
 			}
 		}
 
@@ -258,6 +238,33 @@ namespace detail {
 	reduction_manager& runtime::get_reduction_manager() const { return *m_reduction_mngr; }
 
 	host_object_manager& runtime::get_host_object_manager() const { return *m_host_object_mngr; }
+
+	std::string runtime::gather_command_graph() const {
+		const auto graph_str = m_schdlr->print_command_graph();
+
+		// Send local graph to rank 0
+		if(m_local_nid != 0) {
+			const uint64_t size = graph_str.size();
+			MPI_Send(&size, 1, MPI_UINT64_T, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);
+			if(size > 0) MPI_Send(graph_str.data(), static_cast<int>(size), MPI_BYTE, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);
+			return "";
+		} else {
+			std::vector<std::string> graphs;
+			graphs.push_back(graph_str);
+			for(size_t i = 1; i < m_num_nodes; ++i) {
+				uint64_t size = 0;
+				MPI_Recv(&size, 1, MPI_UINT64_T, static_cast<int>(i), mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+				if(size > 0) {
+					std::string graph;
+					graph.resize(size);
+					MPI_Recv(
+					    graph.data(), static_cast<int>(size), MPI_BYTE, static_cast<int>(i), mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+					graphs.push_back(std::move(graph));
+				}
+			}
+			return combine_command_graphs(graphs);
+		}
+	}
 
 	void runtime::handle_buffer_registered(buffer_id bid) {
 		const auto& info = m_buffer_mngr->get_buffer_info(bid);
