@@ -4,7 +4,7 @@ if [[ ! -d examples || ! -d CMakeFiles ]]; then
     echo "Warning: This script should be run from within a build directory" >&2
 fi
 
-if [[ $# -le 1 ]]; then
+if [[ $# -lt 1 ]]; then
     echo "Usage: $0 <num nodes> [<num nodes>...]" >&2
     exit 1
 fi

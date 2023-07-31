@@ -75,6 +75,9 @@ namespace detail {
 
 		host_object_manager& get_host_object_manager() const;
 
+		// returns the combined command graph of all nodes on node 0, an empty string on other nodes
+		std::string gather_command_graph() const;
+
 		bool is_dry_run() const { return m_cfg->is_dry_run(); }
 
 	  private:
