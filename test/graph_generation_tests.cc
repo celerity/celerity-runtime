@@ -81,23 +81,19 @@ TEST_CASE("distributed_graph_generator generates dependencies for execution comm
 		dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 		dctx.device_compute<class UKN(task_b)>(test_range).discard_write(buf1, acc::one_to_one{}).submit();
 		const auto tid_c = dctx.master_node_host_task().read(buf0, acc::all{}).read(buf1, acc::all{}).submit();
-
-		const auto await_pushes = dctx.query(master_node_id, command_type::await_push);
-		CHECK(await_pushes.count() == 2);
-		await_pushes.have_successors(dctx.query(tid_c));
+		CHECK(dctx.query(master_node_id, command_type::await_push).assert_count(2).have_successors(dctx.query(tid_c), dependency_kind::true_dep));
 	}
 
 	SECTION("if data is produced remotely but already available from an earlier task") {
 		dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 		dctx.master_node_host_task().read(buf0, acc::all{}).submit();
-		const auto await_pushes = dctx.query(master_node_id, command_type::await_push);
-		CHECK(await_pushes.count() == 1);
+		const auto await_pushes = dctx.query(master_node_id, command_type::await_push).assert_count(1);
 
 		const auto tid_c = dctx.master_node_host_task().read(buf0, acc::all{}).submit();
 		// Assert that the number of await_pushes hasn't changed (i.e., none were added)
 		CHECK(dctx.query(master_node_id, command_type::await_push).count() == await_pushes.count());
 		// ...and the command for task c depends on the earlier await_push
-		CHECK(await_pushes.have_successors(dctx.query(tid_c)));
+		CHECK(await_pushes.have_successors(dctx.query(tid_c), dependency_kind::true_dep));
 	}
 
 	SECTION("if data is produced locally") {
@@ -107,6 +103,24 @@ TEST_CASE("distributed_graph_generator generates dependencies for execution comm
 		CHECK(dctx.query(tid_a).have_successors(dctx.query(tid_c)));
 		CHECK(dctx.query(tid_b).have_successors(dctx.query(tid_c)));
 	}
+}
+
+TEST_CASE("distributed_graph_generator builds dependencies to all local commands if a given range is produced by multiple",
+    "[distributed_graph_generator][command-graph]") {
+	dist_cdag_test_context dctx(1);
+
+	const range<1> test_range = {96};
+	const range<1> one_third = {test_range / 3};
+	auto buf = dctx.create_buffer(test_range);
+
+	const auto tid_a = dctx.device_compute<class UKN(task_a)>(one_third, id<1>{0 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
+	const auto tid_b = dctx.device_compute<class UKN(task_b)>(one_third, id<1>{1 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
+	const auto tid_c = dctx.device_compute<class UKN(task_c)>(one_third, id<1>{2 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
+
+	const auto tid_d = dctx.device_compute<class UKN(task_d)>(test_range).read(buf, acc::one_to_one{}).submit();
+	CHECK(dctx.query(tid_a).have_successors(dctx.query(tid_d)));
+	CHECK(dctx.query(tid_b).have_successors(dctx.query(tid_d)));
+	CHECK(dctx.query(tid_c).have_successors(dctx.query(tid_d)));
 }
 
 // This test case currently fails and exists for documentation purposes:
@@ -283,24 +297,24 @@ TEST_CASE("distributed_graph_generator generates pseudo-dependencies for collect
 	CHECK_FALSE(dctx.query(tid_collective_explicit_1).have_successors(dctx.query(tid_a)));
 	CHECK_FALSE(dctx.query(tid_collective_explicit_2).have_successors(dctx.query(tid_a)));
 
-	CHECK_FALSE(dctx.query(tid_a).have_successors(dctx.query(tid_collective_implicit_1)));
+	CHECK_FALSE(dctx.query(tid_a).assert_count(1).have_successors(dctx.query(master_node_id, tid_collective_implicit_1)));
 	CHECK_FALSE(dctx.query(tid_collective_implicit_2).have_successors(dctx.query(tid_collective_implicit_1)));
 	CHECK_FALSE(dctx.query(tid_collective_explicit_1).have_successors(dctx.query(tid_collective_implicit_1)));
 	CHECK_FALSE(dctx.query(tid_collective_explicit_2).have_successors(dctx.query(tid_collective_implicit_1)));
 
-	CHECK_FALSE(dctx.query(tid_a).have_successors(dctx.query(tid_collective_implicit_2)));
+	CHECK_FALSE(dctx.query(tid_a).assert_count(1).have_successors(dctx.query(master_node_id, tid_collective_implicit_2)));
 	CHECK(dctx.query()
 	          .find_all(tid_collective_implicit_1)
 	          .have_successors(dctx.query(tid_collective_implicit_2), dependency_kind::true_dep, dependency_origin::collective_group_serialization));
 	CHECK_FALSE(dctx.query(tid_collective_explicit_1).have_successors(dctx.query(tid_collective_implicit_2)));
 	CHECK_FALSE(dctx.query(tid_collective_explicit_2).have_successors(dctx.query(tid_collective_implicit_2)));
 
-	CHECK_FALSE(dctx.query(tid_a).have_successors(dctx.query(tid_collective_explicit_1)));
+	CHECK_FALSE(dctx.query(tid_a).assert_count(1).have_successors(dctx.query(master_node_id, tid_collective_explicit_1)));
 	CHECK_FALSE(dctx.query(tid_collective_implicit_1).have_successors(dctx.query(tid_collective_explicit_1)));
 	CHECK_FALSE(dctx.query(tid_collective_implicit_2).have_successors(dctx.query(tid_collective_explicit_1)));
 	CHECK_FALSE(dctx.query(tid_collective_explicit_1).have_successors(dctx.query(tid_collective_explicit_1)));
 
-	CHECK_FALSE(dctx.query(tid_a).have_successors(dctx.query(tid_collective_explicit_2)));
+	CHECK_FALSE(dctx.query(tid_a).assert_count(1).have_successors(dctx.query(master_node_id, tid_collective_explicit_2)));
 	CHECK_FALSE(dctx.query(tid_collective_implicit_1).have_successors(dctx.query(tid_collective_explicit_2)));
 	CHECK_FALSE(dctx.query(tid_collective_implicit_2).have_successors(dctx.query(tid_collective_explicit_2)));
 	CHECK(dctx.query()
@@ -341,10 +355,8 @@ TEST_CASE("side effects generate appropriate command-dependencies", "[distribute
 	CHECK(dctx.query(tid_1).find_predecessors(command_type::epoch).count() == 2);
 
 	const auto expected_2 = expected_dependencies.at({order_a, order_b});
-	dctx.query(tid_2).for_each_node([&](const auto& q) {
-		CHECK(q.find_predecessors().count() == expected_2.has_value());
-		if(expected_2) { CHECK(q.find_predecessors(tid_1).count() == 1); }
-	});
+	CHECK(dctx.query(tid_2).find_predecessors().count_per_node() == expected_2.has_value());
+	if(expected_2) { CHECK(dctx.query(tid_2).find_predecessors(tid_1).count_per_node() == 1); }
 }
 
 TEST_CASE("epochs serialize task commands on every node", "[distributed_graph_generator][command-graph][epoch]") {
@@ -360,18 +372,14 @@ TEST_CASE("epochs serialize task commands on every node", "[distributed_graph_ge
 	const auto tid_b = dctx.device_compute(node_range).submit();
 	const auto tid_epoch_1 = dctx.epoch(epoch_action::none);
 
-	for(node_id nid = 0; nid < num_nodes; ++nid) {
-		CAPTURE(nid);
-
-		CHECK(dctx.query(nid, tid_init).count() == 1);
-		CHECK(dctx.query(nid, tid_a).count() == 1);
-		CHECK(dctx.query(nid, tid_b).count() == 1);
-		CHECK(dctx.query(nid, tid_epoch_1).count() == 1);
-		CHECK(dctx.query(nid, tid_init).have_successors(dctx.query(nid, tid_a), dependency_kind::true_dep, dependency_origin::last_epoch));
-		CHECK(dctx.query(nid, tid_init).have_successors(dctx.query(nid, tid_b), dependency_kind::true_dep, dependency_origin::last_epoch));
-		CHECK(dctx.query().find_all(nid, tid_a).have_successors(dctx.query(nid, tid_epoch_1), dependency_kind::true_dep, dependency_origin::execution_front));
-		CHECK(dctx.query().find_all(nid, tid_b).have_successors(dctx.query(nid, tid_epoch_1), dependency_kind::true_dep, dependency_origin::execution_front));
-	}
+	CHECK(dctx.query(tid_init).count_per_node() == 1);
+	CHECK(dctx.query(tid_a).count_per_node() == 1);
+	CHECK(dctx.query(tid_b).count_per_node() == 1);
+	CHECK(dctx.query(tid_epoch_1).count_per_node() == 1);
+	CHECK(dctx.query(tid_init).have_successors(dctx.query(tid_a), dependency_kind::true_dep, dependency_origin::last_epoch));
+	CHECK(dctx.query(tid_init).have_successors(dctx.query(tid_b), dependency_kind::true_dep, dependency_origin::last_epoch));
+	CHECK(dctx.query().find_all(tid_a).have_successors(dctx.query(tid_epoch_1), dependency_kind::true_dep, dependency_origin::execution_front));
+	CHECK(dctx.query().find_all(tid_b).have_successors(dctx.query(tid_epoch_1), dependency_kind::true_dep, dependency_origin::execution_front));
 
 	// commands always depend on the *last* epoch
 
@@ -380,15 +388,11 @@ TEST_CASE("epochs serialize task commands on every node", "[distributed_graph_ge
 	const auto tid_c = dctx.device_compute(node_range).read_write(buf, celerity::access::one_to_one()).submit();
 	const auto tid_d = dctx.device_compute(node_range).discard_write(buf, celerity::access::one_to_one()).submit();
 
-	for(node_id nid = 0; nid < num_nodes; ++nid) {
-		CAPTURE(nid);
-
-		CHECK(dctx.query(nid, tid_c).count() == 1);
-		CHECK(dctx.query(nid, tid_d).count() == 1);
-		CHECK(dctx.query(nid, tid_epoch_1).have_successors(dctx.query(nid, tid_c), dependency_kind::true_dep, dependency_origin::dataflow));
-		CHECK(dctx.query().find_all(nid, tid_epoch_1).have_successors(dctx.query(nid, tid_d), dependency_kind::true_dep, dependency_origin::last_epoch));
-		CHECK(dctx.query(nid, tid_c).have_successors(dctx.query(nid, tid_d), dependency_kind::anti_dep));
-	}
+	CHECK(dctx.query(tid_c).count_per_node() == 1);
+	CHECK(dctx.query(tid_d).count_per_node() == 1);
+	CHECK(dctx.query(tid_epoch_1).have_successors(dctx.query(tid_c), dependency_kind::true_dep, dependency_origin::dataflow));
+	CHECK(dctx.query().find_all(tid_epoch_1).have_successors(dctx.query(tid_d), dependency_kind::true_dep, dependency_origin::last_epoch));
+	CHECK(dctx.query(tid_c).have_successors(dctx.query(tid_d), dependency_kind::anti_dep));
 
 	// TODO we should test that dependencies never pass over epochs.
 	// Doing this properly needs dist_cdag_test_context to keep commands alive even when the dggen deletes them after inserting the new epoch
@@ -402,12 +406,9 @@ TEST_CASE("a sequence of epochs without intermediate commands has defined behavi
 	for(const auto action : {epoch_action::barrier, epoch_action::shutdown}) {
 		const auto tid = dctx.epoch(action);
 		CAPTURE(tid_before, tid);
-		for(node_id nid = 0; nid < num_nodes; ++nid) {
-			CAPTURE(nid);
-			CHECK(dctx.query(tid, nid).find_predecessors().count() == 1);
-			CHECK(dctx.query(tid_before, nid).find_successors().count() == 1);
-			CHECK(dctx.query(tid_before, nid).have_successors(dctx.query(tid), dependency_kind::true_dep));
-		}
+		CHECK(dctx.query(tid).find_predecessors().count_per_node() == 1);
+		CHECK(dctx.query(tid_before).find_successors().count_per_node() == 1);
+		CHECK(dctx.query(tid_before).have_successors(dctx.query(tid), dependency_kind::true_dep));
 		tid_before = tid;
 	}
 }
@@ -465,13 +466,9 @@ TEST_CASE("fences introduce dependencies on host objects", "[distributed_graph_g
 	const auto tid_fence = dctx.fence(ho);
 	const auto tid_b = dctx.collective_host_task().affect(ho).submit();
 
-	for(node_id nid = 0; nid < num_nodes; ++nid) {
-		CAPTURE(nid);
-
-		CHECK(dctx.query(nid, tid_a).count() == 1);
-		CHECK(dctx.query(nid, tid_a).have_successors(dctx.query(nid, tid_fence)));
-		CHECK(dctx.query(nid, tid_fence).have_successors(dctx.query(nid, tid_b)));
-	}
+	CHECK(dctx.query(tid_a).count_per_node() == 1);
+	CHECK(dctx.query(tid_a).have_successors(dctx.query(tid_fence)));
+	CHECK(dctx.query(tid_fence).have_successors(dctx.query(tid_b)));
 }
 
 TEST_CASE("fences introduce dependencies on buffers", "[distributed_graph_generator][command-graph][fence]") {

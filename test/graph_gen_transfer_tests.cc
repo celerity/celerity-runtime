@@ -27,7 +27,7 @@ TEST_CASE("distributed_graph_generator generates required data transfer commands
 		return {};
 	};
 	const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, rm).submit();
-	dctx.query(tid_a).for_each_node([](const auto& q) { CHECK(q.find_all(command_type::execution).count() == 1); });
+	CHECK(dctx.query(tid_a, command_type::execution).count_per_node() == 1);
 
 	dctx.device_compute<class UKN(task_b)>(test_range).read(buf, acc::one_to_one{}).submit();
 	CHECK(dctx.query(command_type::push).count() == 2);
@@ -147,24 +147,6 @@ TEST_CASE("distributed_graph_generator consolidates push commands for adjacent s
 	CHECK(dctx.query(tid_b).have_successors(dctx.query(command_type::push)));
 }
 
-TEST_CASE("distributed_graph_generator builds dependencies to all local commands if a given range is produced by multiple",
-    "[distributed_graph_generator][command-graph]") {
-	dist_cdag_test_context dctx(1);
-
-	const range<1> test_range = {96};
-	const range<1> one_third = {test_range / 3};
-	auto buf = dctx.create_buffer(test_range);
-
-	const auto tid_a = dctx.device_compute<class UKN(task_a)>(one_third, id<1>{0 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
-	const auto tid_b = dctx.device_compute<class UKN(task_b)>(one_third, id<1>{1 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
-	const auto tid_c = dctx.device_compute<class UKN(task_c)>(one_third, id<1>{2 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
-
-	const auto tid_d = dctx.device_compute<class UKN(task_d)>(test_range).read(buf, acc::one_to_one{}).submit();
-	CHECK(dctx.query(tid_a).have_successors(dctx.query(tid_d)));
-	CHECK(dctx.query(tid_b).have_successors(dctx.query(tid_d)));
-	CHECK(dctx.query(tid_c).have_successors(dctx.query(tid_d)));
-}
-
 TEST_CASE("distributed_graph_generator generates dependencies for push commands", "[distributed_graph_generator][command-graph]") {
 	dist_cdag_test_context dctx(2);
 
@@ -217,7 +199,7 @@ TEST_CASE("distributed_graph_generator generates anti-dependencies for await_pus
 		dctx.device_compute<class UKN(task_c)>(test_range).discard_write(buf, acc::one_to_one{}).submit();
 		// Node 0 reads it again
 		dctx.master_node_host_task().read(buf, acc::all{}).submit();
-		const auto second_await_push = dctx.query(command_type::await_push).subtract(first_await_push);
+		const auto second_await_push = dctx.query(command_type::await_push) - first_await_push;
 		// The first await push last wrote the data, but the anti-dependency is delegated to the reading successor task
 		CHECK(dctx.query(tid_b).have_successors(second_await_push));
 	}
