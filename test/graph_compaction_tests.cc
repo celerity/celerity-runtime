@@ -214,9 +214,7 @@ TEST_CASE("side-effect dependencies are correctly subsumed by horizons", "[distr
 
 	// This must depend on the first horizon, not first_task
 	const auto second_task = dctx.master_node_host_task().affect(ho, experimental::side_effect_order::sequential).submit();
-	const auto predecessors = dctx.query(second_task).find_predecessors();
-	CHECK(predecessors.count() == 1);
-	CHECK(predecessors.have_type(command_type::horizon));
+	CHECK(dctx.query(second_task).find_predecessors().assert_count(1).have_type(command_type::horizon));
 }
 
 TEST_CASE("reaching an epoch will prune all nodes of the preceding task graph", "[task_manager][task-graph][epoch]") {

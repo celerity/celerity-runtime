@@ -142,7 +142,7 @@ TEST_CASE("multiple chained reductions produce appropriate data transfers", "[di
 	const auto reduction1 = dctx.query(command_type::reduction);
 	CHECK(reduction1.count() == 1);
 	dctx.master_node_host_task().read(buf0, acc::all{}).submit();
-	const auto reduction2 = dctx.query(command_type::reduction).subtract(reduction1);
+	const auto reduction2 = dctx.query(command_type::reduction) - reduction1;
 	CHECK(reduction2.count() == 1);
 
 	// Both reductions are preceeded by await_pushes
@@ -199,9 +199,7 @@ TEST_CASE("nodes that do not own pending reduction don't include it in final red
 	SECTION("local reductions don't have a dependency on the last writer") {
 		// The last writer in this case is the initial epoch
 		dctx.device_compute<class UKN(consume)>(range<1>(96)).read(buf0, acc::all{}).submit();
-		const auto predecessors = dctx.query(node_id(2), command_type::reduction).find_predecessors(dependency_kind::true_dep);
-		CHECK(predecessors.count() == 1);
-		CHECK(predecessors.have_type(command_type::await_push));
+		CHECK(dctx.query(node_id(2), command_type::reduction).find_predecessors(dependency_kind::true_dep).assert_count(1).have_type(command_type::await_push));
 	}
 }
 
