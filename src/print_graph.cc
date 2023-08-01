@@ -44,10 +44,22 @@ namespace detail {
 			}
 			return ret;
 		}
+
+		// removes initial template qualifiers to simplify, and escapes '<' and '>' in the given name,
+		// so that it can be successfully used in a dot graph label that uses HTML, and is hopefully readable
+		std::string simplify_and_escape_name(const std::string& name) {
+			// simplify
+			auto first_opening_pos = name.find('<');
+			auto namespace_qual_end_pos = name.rfind(':', first_opening_pos);
+			auto simplified = namespace_qual_end_pos != std::string::npos ? name.substr(namespace_qual_end_pos + 1) : name;
+			// escape
+			simplified = std::regex_replace(simplified, std::regex("<"), "&lt;");
+			return std::regex_replace(simplified, std::regex(">"), "&gt;");
+		}
 	} // namespace
 
 	task_printing_information::task_printing_information(const task& from, const buffer_manager* buff_man)
-	    : m_tid(from.get_id()), m_debug_name(from.get_debug_name()), m_cgid(from.get_collective_group_id()), m_type(from.get_type()),
+	    : m_tid(from.get_id()), m_debug_name(simplify_and_escape_name(from.get_debug_name())), m_cgid(from.get_collective_group_id()), m_type(from.get_type()),
 	      m_geometry(from.get_geometry()), m_reductions(build_reduction_list(from, buff_man)), m_accesses(build_access_list(from, buff_man)),
 	      m_side_effect_map(from.get_side_effect_map()), m_dependencies(build_task_dependency_list(from)) {}
 
@@ -171,7 +183,7 @@ namespace detail {
 		}
 
 		std::string get_task_name(const abstract_command& cmd, const task_manager* task_man) {
-			if(const auto* tsk = get_task_for(cmd, task_man)) return tsk->get_debug_name();
+			if(const auto* tsk = get_task_for(cmd, task_man)) return simplify_and_escape_name(tsk->get_debug_name());
 			return {};
 		}
 

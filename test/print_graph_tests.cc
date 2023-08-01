@@ -189,3 +189,32 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 		CHECK(runtime_testspy::print_graph(celerity::detail::runtime::get_instance()) == expected);
 	}
 }
+
+namespace test_ns {
+namespace x {
+	enum class ec { a, b };
+}
+template <test_ns::x::ec X>
+class name_class {};
+
+template <test_ns::x::ec X>
+void compute(task_manager& tm, mock_buffer<1> buf, const celerity::range<1> range) {
+	test_utils::add_compute_task<name_class<X>>(
+	    tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
+}
+} // namespace test_ns
+
+TEST_CASE("task-graph names are escaped", "[print_graph][task-graph][task-name]") {
+	task_recorder tr;
+	task_manager tm{1, nullptr, tr};
+	test_utils::mock_buffer_factory mbf(tm);
+	test_utils::mock_reduction_factory mrf;
+
+	auto range = celerity::range<1>(64);
+	auto buf = mbf.create_buffer(range);
+
+	test_ns::compute<test_ns::x::ec::a>(tm, buf, range);
+
+	const auto* escaped_name = "\"name_class&lt;(test_ns::x::ec)0&gt;\"";
+	REQUIRE_THAT(tm.print_task_graph(), Catch::Matchers::ContainsSubstring(escaped_name));
+}
