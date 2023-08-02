@@ -14,7 +14,7 @@ struct access_record {
 	const buffer_id bid;
 	const std::string buffer_name;
 	const access_mode mode;
-	const GridRegion<3> req;
+	const region<3> req;
 };
 using access_list = std::vector<access_record>;
 
@@ -80,7 +80,7 @@ struct command_record {
 	const std::optional<buffer_id> buffer_id;
 	const std::string buffer_name;
 	const std::optional<node_id> target;
-	const std::optional<GridRegion<3>> await_region;
+	const std::optional<region<3>> await_region;
 	const std::optional<subrange<3>> push_range;
 	const std::optional<transfer_id> transfer_id;
 	const std::optional<task_id> task_id;

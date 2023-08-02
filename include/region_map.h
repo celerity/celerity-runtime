@@ -37,7 +37,7 @@ namespace region_map_detail {
 	constexpr size_t min_children = 2;
 
 	template <int D, int Dims>
-	bool is_lo_inside(const GridBox<Dims>& a, const GridBox<Dims>& b) {
+	bool is_lo_inside(const box<Dims>& a, const box<Dims>& b) {
 		static_assert(D < Dims);
 		const auto a_min = a.get_min();
 		if(a_min[D] <= b.get_min()[D]) return false;
@@ -46,7 +46,7 @@ namespace region_map_detail {
 	}
 
 	template <int D, int Dims>
-	bool is_hi_inside(const GridBox<Dims>& a, const GridBox<Dims>& b) {
+	bool is_hi_inside(const box<Dims>& a, const box<Dims>& b) {
 		static_assert(D < Dims);
 		const auto a_max = a.get_max();
 		if(a_max[D] <= b.get_min()[D]) return false;
@@ -54,8 +54,8 @@ namespace region_map_detail {
 		return true;
 	}
 
-	template <size_t Dims>
-	GridBox<Dims> compute_bounding_box(const GridBox<Dims>& a, const GridBox<Dims>& b) {
+	template <int Dims>
+	box<Dims> compute_bounding_box(const box<Dims>& a, const box<Dims>& b) {
 		const auto min_a = a.get_min();
 		const auto min_b = b.get_min();
 		const auto max_a = a.get_max();
@@ -69,13 +69,13 @@ namespace region_map_detail {
 		return {new_min, new_max};
 	}
 
-	template <size_t Dims>
-	bool do_overlap(const GridBox<Dims>& a, const GridBox<Dims>& b) {
-		return a.intersectsWith(b);
+	template <int Dims>
+	bool do_overlap(const box<Dims>& a, const box<Dims>& b) {
+		return !box_intersection(a, b).empty();
 	}
 
-	template <size_t Dims>
-	bool is_inside(const GridBox<Dims>& box, const GridPoint<Dims>& point) {
+	template <int Dims>
+	bool is_inside(const box<Dims>& box, const id<Dims>& point) {
 		auto box_min = box.get_min();
 		auto box_max = box.get_max();
 		bool inside = true;
@@ -84,17 +84,6 @@ namespace region_map_detail {
 			inside &= box_min[d] <= point[d] && box_max[d] > point[d];
 		}
 		return inside;
-	}
-
-	template <size_t DimsOut, size_t DimsIn>
-	GridBox<DimsOut> box_cast(const GridBox<DimsIn>& other) {
-		GridPoint<DimsOut> min;
-		GridPoint<DimsOut> max;
-		for(size_t o = 0; o < DimsOut; ++o) {
-			min[o] = o < DimsIn ? other.get_min()[o] : 0;
-			max[o] = o < DimsIn ? other.get_max()[o] : 1;
-		}
-		return GridBox<DimsOut>(min, max);
 	}
 
 	/**
@@ -111,7 +100,7 @@ namespace region_map_detail {
 		rm.m_root->sanity_check_bounding_boxes();
 
 		size_t max_depth = 0;
-		std::queue<std::pair<GridBox<RegionMap::dimensions>, const typename RegionMap::types::inner_node_type*>> node_queue;
+		std::queue<std::pair<box<RegionMap::dimensions>, const typename RegionMap::types::inner_node_type*>> node_queue;
 		node_queue.push(std::make_pair(rm.m_root->get_bounding_box(), rm.m_root.get()));
 
 		while(!node_queue.empty()) {
@@ -138,13 +127,13 @@ namespace region_map_detail {
 #endif
 	}
 
-	template <typename ValueType, size_t Dims>
+	template <typename ValueType, int Dims>
 	class inner_node;
 
 	/**
 	 * Convenience types shared by inner_node and region_map_impl.
 	 */
-	template <typename ValueType, size_t Dims>
+	template <typename ValueType, int Dims>
 	class region_map_types {
 	  public:
 		static_assert(Dims <= 3);
@@ -152,30 +141,30 @@ namespace region_map_detail {
 		using inner_node_type = inner_node<ValueType, Dims>;
 		using unique_inner_node_ptr = std::unique_ptr<inner_node_type>;
 		using inner_node_child_type = std::variant<unique_inner_node_ptr, ValueType>;
-		using entry = std::pair<GridBox<Dims>, ValueType>;
+		using entry = std::pair<box<Dims>, ValueType>;
 
 		struct insert_node_action {
-			GridBox<Dims> box;
+			box<Dims> box;
 			ValueType value;
 			bool processed_locally = false;
 		};
 
 		struct erase_node_action {
-			GridBox<Dims> box;
+			box<Dims> box;
 			bool processed_locally = false;
 		};
 
 		using update_action = std::variant<insert_node_action, erase_node_action>;
-		using orphan = std::pair<GridBox<Dims>, inner_node_child_type>;
+		using orphan = std::pair<box<Dims>, inner_node_child_type>;
 
 		struct insert_result {
 			unique_inner_node_ptr spilled_node;
 			// This should always be the same as spilled_node->get_bounding_box (TODO: assert?)
-			GridBox<Dims> spilled_box;
+			box<Dims> spilled_box;
 		};
 	};
 
-	template <typename ValueType, size_t Dims>
+	template <typename ValueType, int Dims>
 	class inner_node {
 		friend struct celerity::detail::region_map_testspy;
 
@@ -232,7 +221,7 @@ namespace region_map_detail {
 		 * @param actions The list of erase and insert actions required to create a hole for the new entry.
 		 * @returns True if a localized update operation was performed that may require a bounding box recomputation.
 		 */
-		bool update_box(const GridBox<Dims>& box, const ValueType& value, std::vector<typename types::update_action>& actions) {
+		bool update_box(const box<Dims>& box, const ValueType& value, std::vector<typename types::update_action>& actions) {
 			if(!m_contains_leaves) {
 				bool any_child_did_local_update = false;
 				for(size_t i = 0; i < m_child_boxes.size(); ++i) {
@@ -269,21 +258,31 @@ namespace region_map_detail {
 
 				// Partial overlap. Check in each dimension which sides of the box intersect with the current box, creating new boxes along the way.
 				// TODO PERF: A split may not even be necessary, if the value remains the same. Is this something worth optimizing for?
-				GridBox<Dims> remainder = child_box;
+				detail::box<Dims> remainder = child_box;
 
 				const auto& child_value = get_child_value(i);
 
 				const auto split_along = [&](const auto dim) {
 					if(is_lo_inside<dim.value, Dims>(box, child_box)) {
-						auto new_box = remainder;
-						new_box.get_max()[dim.value] = box.get_min()[dim.value];
-						remainder.get_min()[dim.value] = box.get_min()[dim.value];
+						auto new_box_max = remainder.get_max();
+						new_box_max[dim.value] = box.get_min()[dim.value];
+						const auto new_box = detail::box(remainder.get_min(), new_box_max);
+
+						auto new_remainder_min = remainder.get_min();
+						new_remainder_min[dim.value] = box.get_min()[dim.value];
+						remainder = detail::box(new_remainder_min, remainder.get_max());
+
 						actions.push_back(typename types::insert_node_action{new_box, child_value});
 					}
 					if(is_hi_inside<dim.value, Dims>(box, child_box)) {
-						auto new_box = remainder;
-						new_box.get_min()[dim.value] = box.get_max()[dim.value];
-						remainder.get_max()[dim.value] = box.get_max()[dim.value];
+						auto new_box_min = remainder.get_min();
+						new_box_min[dim.value] = box.get_max()[dim.value];
+						const auto new_box = detail::box(new_box_min, remainder.get_max());
+
+						auto new_remainder_max = remainder.get_max();
+						new_remainder_max[dim.value] = box.get_max()[dim.value];
+						remainder = detail::box(remainder.get_min(), new_remainder_max);
+
 						actions.push_back(typename types::insert_node_action{new_box, child_value});
 					}
 				};
@@ -362,14 +361,14 @@ namespace region_map_detail {
 		 *
 		 * TODO: Structurally very similar to insert_subtree - can we DRY up?
 		 */
-		std::optional<typename types::insert_result> insert(const GridBox<Dims>& box, const ValueType& value) {
+		std::optional<typename types::insert_result> insert(const box<Dims>& box, const ValueType& value) {
 			if(!m_contains_leaves) {
 				// Value belongs deeper into the tree. Find child that best fits it.
 				// TODO PERF: Resolve ties in area increase according to [Guttman 1984]
 				size_t best_i = std::numeric_limits<size_t>::max();
 				size_t smallest_area_delta = std::numeric_limits<size_t>::max();
 				for(size_t i = 0; i < m_child_boxes.size(); ++i) {
-					const auto area_delta = compute_bounding_box(m_child_boxes[i], box).area() - m_child_boxes[i].area();
+					const auto area_delta = compute_bounding_box(m_child_boxes[i], box).get_area() - m_child_boxes[i].get_area();
 					if(area_delta < smallest_area_delta) {
 						smallest_area_delta = area_delta;
 						best_i = i;
@@ -433,8 +432,8 @@ namespace region_map_detail {
 			// Greedily assign all values to groups, O(N^2)
 			auto bbox1 = m_child_boxes[seed1];
 			auto bbox2 = m_child_boxes[seed2];
-			auto area1 = bbox1.area();
-			auto area2 = bbox2.area();
+			auto area1 = bbox1.get_area();
+			auto area2 = bbox2.get_area();
 			std::vector<bool> assigned(m_children.size(), false);
 			assigned[seed1] = true;
 			assigned[seed2] = true;
@@ -442,7 +441,7 @@ namespace region_map_detail {
 			while(num_assigned < m_children.size()) {
 				size_t smallest_area_delta = std::numeric_limits<size_t>::max();
 				size_t smallest_i = std::numeric_limits<size_t>::max();
-				GridBox<Dims> smallest_bbox;
+				detail::box<Dims> smallest_bbox;
 				size_t smallest_area = 0;
 				size_t target_node = 0;
 
@@ -451,8 +450,8 @@ namespace region_map_detail {
 
 					const auto new_bbox1 = compute_bounding_box(m_child_boxes[i], bbox1);
 					const auto new_bbox2 = compute_bounding_box(m_child_boxes[i], bbox2);
-					const auto new_area1 = new_bbox1.area();
-					const auto new_area2 = new_bbox2.area();
+					const auto new_area1 = new_bbox1.get_area();
+					const auto new_area2 = new_bbox2.get_area();
 
 					const auto ad1 = (new_area1 - area1);
 					const auto ad2 = (new_area2 - area2);
@@ -514,7 +513,7 @@ namespace region_map_detail {
 		 *
 		 * TODO: Structurally very similar to insert - can we DRY up?
 		 */
-		std::optional<typename types::insert_result> insert_subtree(const GridBox<Dims>& box, std::unique_ptr<inner_node<ValueType, Dims>>&& subtree) {
+		std::optional<typename types::insert_result> insert_subtree(const box<Dims>& box, std::unique_ptr<inner_node<ValueType, Dims>>&& subtree) {
 			assert(!m_contains_leaves);
 			assert(subtree->m_depth > m_depth);
 
@@ -525,7 +524,7 @@ namespace region_map_detail {
 				size_t best_i = std::numeric_limits<size_t>::max();
 				size_t smallest_area_delta = std::numeric_limits<size_t>::max();
 				for(size_t i = 0; i < m_child_boxes.size(); ++i) {
-					const auto area_delta = compute_bounding_box(m_child_boxes[i], box).area() - m_child_boxes[i].area();
+					const auto area_delta = compute_bounding_box(m_child_boxes[i], box).get_area() - m_child_boxes[i].get_area();
 					if(area_delta < smallest_area_delta) {
 						smallest_area_delta = area_delta;
 						best_i = i;
@@ -576,7 +575,7 @@ namespace region_map_detail {
 				const auto new_bbox2 = compute_bounding_box(bbox2, m_child_boxes[i]);
 
 				// Assign value to node that results in smaller area increase.
-				if((new_bbox1.area() - bbox1.area()) < (new_bbox2.area() - bbox2.area())) {
+				if((new_bbox1.get_area() - bbox1.get_area()) < (new_bbox2.get_area() - bbox2.get_area())) {
 					node1->insert_child_node(m_child_boxes[i], std::move(std::get<typename types::unique_inner_node_ptr>(m_children[i])));
 					bbox1 = new_bbox1;
 				} else {
@@ -607,7 +606,7 @@ namespace region_map_detail {
 		 * @param orphans A list of entries or subtrees that were orphaned due to dissolving a node.
 		 * @returns True if the box was erased in this subtree.
 		 */
-		bool erase(const GridBox<Dims>& box, std::vector<typename types::orphan>& orphans) {
+		bool erase(const box<Dims>& box, std::vector<typename types::orphan>& orphans) {
 			bool did_erase = false;
 
 			if(!m_contains_leaves) {
@@ -649,7 +648,7 @@ namespace region_map_detail {
 		/**
 		 * Recursively finds all entries that intersect with box.
 		 */
-		void query(const GridBox<Dims>& box, std::vector<typename types::entry>& intersecting) const {
+		void query(const box<Dims>& box, std::vector<typename types::entry>& intersecting) const {
 			if(!m_contains_leaves) {
 				for(size_t i = 0; i < m_children.size(); ++i) {
 					if(do_overlap<Dims>(m_child_boxes[i], box)) { get_child_node(i).query(box, intersecting); }
@@ -664,7 +663,7 @@ namespace region_map_detail {
 		/**
 		 * Returns the entry containing a given point, if such an entry exists.
 		 */
-		std::optional<typename types::entry> point_query(const GridPoint<Dims>& point) const {
+		std::optional<typename types::entry> point_query(const id<Dims>& point) const {
 			for(size_t i = 0; i < m_children.size(); ++i) {
 				if(is_inside<Dims>(m_child_boxes[i], point)) {
 					if(!m_contains_leaves) {
@@ -688,16 +687,16 @@ namespace region_map_detail {
 		}
 
 		// NOTE: Not O(1)!
-		GridBox<Dims> get_bounding_box() const {
+		box<Dims> get_bounding_box() const {
 			assert(!m_child_boxes.empty());
-			GridBox<Dims> bbox = m_child_boxes[0];
+			box<Dims> bbox = m_child_boxes[0];
 			for(size_t i = 1; i < m_child_boxes.size(); ++i) {
 				bbox = compute_bounding_box(bbox, m_child_boxes[i]);
 			}
 			return bbox;
 		}
 
-		void insert_child_node(const GridBox<Dims>& box, std::unique_ptr<inner_node>&& node) {
+		void insert_child_node(const box<Dims>& box, std::unique_ptr<inner_node>&& node) {
 			assert(m_children.size() < max_children + 1); // During splits we temporarily go one above the max
 			m_child_boxes.push_back(box);
 			m_children.emplace_back(std::move(node));
@@ -746,7 +745,7 @@ namespace region_map_detail {
 
 		bool m_contains_leaves;
 		// TODO PERF: Consider storing these in small vectors
-		std::vector<GridBox<Dims>> m_child_boxes;
+		std::vector<box<Dims>> m_child_boxes;
 		std::vector<typename types::inner_node_child_type> m_children;
 
 		inner_node& get_child_node(size_t index) { return *std::get<typename types::unique_inner_node_ptr>(m_children[index]); }
@@ -755,12 +754,12 @@ namespace region_map_detail {
 		ValueType& get_child_value(size_t index) { return std::get<ValueType>(m_children[index]); }
 		const ValueType& get_child_value(size_t index) const { return std::get<ValueType>(m_children[index]); }
 
-		void insert_child_value(const GridBox<Dims>& box, const ValueType& value) {
+		void insert_child_value(const box<Dims>& box, const ValueType& value) {
 			assert(m_children.size() < max_children + 1); // During splits we temporarily go one above the max
 #if !defined(NDEBUG)
 			for(auto& b : m_child_boxes) {
 				// New box must not overlap with any other
-				assert(GridRegion<Dims>::intersect(b, box).empty());
+				assert(box_intersection(b, box).empty());
 			}
 #endif
 			m_child_boxes.push_back(box);
@@ -779,7 +778,7 @@ namespace region_map_detail {
 			size_t worst_j = std::numeric_limits<size_t>::max();
 			for(size_t i = 0; i < m_child_boxes.size(); ++i) {
 				for(size_t j = i + 1; j < m_child_boxes.size(); ++j) {
-					const auto area = compute_bounding_box(m_child_boxes[i], m_child_boxes[j]).area();
+					const auto area = compute_bounding_box(m_child_boxes[i], m_child_boxes[j]).get_area();
 					if(area > worst_area) {
 						worst_area = area;
 						worst_i = i;
@@ -794,14 +793,14 @@ namespace region_map_detail {
 
 		bool is_underfull() const { return m_children.size() < min_children; }
 
-		GridBox<Dims> sanity_check_bounding_boxes() const {
+		box<Dims> sanity_check_bounding_boxes() const {
 #if !defined(NDEBUG)
-			// After an erase this node might not have any children. Return empty box in that case.
-			if(m_child_boxes.empty()) { return box_cast<Dims>(GridBox<3>({0, 0, 0}, {0, 0, 0})); }
+			// After an erase this node might not have any children. Return empty box in that case. TODO this breaks for Dims == 0 (where area is always 1)!
+			if(m_child_boxes.empty()) { return box_cast<Dims>(box<3>({0, 0, 0}, {0, 0, 0})); }
 
-			GridBox<Dims> result = m_child_boxes[0];
+			box<Dims> result = m_child_boxes[0];
 			for(size_t i = 1; i < m_child_boxes.size(); ++i) {
-				const GridBox<Dims> child_box = m_contains_leaves ? m_child_boxes[i] : get_child_node(i).sanity_check_bounding_boxes();
+				const box<Dims> child_box = m_contains_leaves ? m_child_boxes[i] : get_child_node(i).sanity_check_bounding_boxes();
 				assert(m_child_boxes[i] == child_box);
 				result = compute_bounding_box(result, child_box);
 			}
@@ -811,24 +810,17 @@ namespace region_map_detail {
 		}
 	};
 
-	inline void assert_dimensionality(const GridBox<3>& box, const int dims) {
+	inline void assert_dimensionality(const box<3>& box, const int dims) {
 #if !defined(NDEBUG)
-		const auto& min = box.get_min();
-		const auto& max = box.get_max();
-		if(dims < 3) {
-			assert(min[2] == 0);
-			assert(max[2] == 1);
-		}
-		if(dims == 1) {
-			assert(min[1] == 0);
-			assert(max[1] == 1);
-		}
+		assert(box.get_min_dimensions() <= dims);
 #endif
 	}
 
-	inline void assert_dimensionality(const GridRegion<3>& reg, const int dims) {
+	inline void assert_dimensionality(const region<3>& reg, const int dims) {
 #if !defined(NDEBUG)
-		reg.scanByBoxes([&](const GridBox<3>& box) { assert_dimensionality(box, dims); });
+		for(const auto& box : reg.get_boxes()) {
+			assert_dimensionality(box, dims);
+		}
 #endif
 	}
 
@@ -844,7 +836,7 @@ namespace region_map_detail {
 	 * TODO PERF: Try to minimize the number of value copies we do during intermediate steps (e.g. when merging)
 	 * TODO PERF: Look into bulk-loading algorithms for updating multiple boxes at once
 	 */
-	template <typename ValueType, size_t Dims>
+	template <typename ValueType, int Dims>
 	class region_map_impl {
 		friend struct celerity::detail::region_map_testspy;
 		using types = region_map_types<ValueType, Dims>;
@@ -854,8 +846,7 @@ namespace region_map_detail {
 		static constexpr size_t dimensions = Dims;
 
 		region_map_impl(const range<Dims>& extent, ValueType default_value = ValueType{})
-		    : m_extent(subrange_to_grid_box(subrange<Dims>{id_cast<Dims>(id<3>{0, 0, 0}), extent})),
-		      m_root(std::make_unique<typename types::inner_node_type>(true, 0)) {
+		    : m_extent(subrange<Dims>({}, extent)), m_root(std::make_unique<typename types::inner_node_type>(true, 0)) {
 			m_root->insert(this->m_extent, default_value);
 		}
 
@@ -879,10 +870,10 @@ namespace region_map_detail {
 		 *   3) Attempt to merge the box as well as any other newly created boxes
 		 *      with their surrounding entries.
 		 */
-		void update_box(const GridBox<Dims>& box, const ValueType& value) {
+		void update_box(const box<Dims>& box, const ValueType& value) {
 			assert(m_root != nullptr && "Moved from?");
 
-			const auto clamped_box = GridBox<Dims>::intersect(m_extent, box);
+			const auto clamped_box = box_intersection(m_extent, box);
 
 			// This can happen e.g. for empty buffers, or if the box is
 			// completely outside the region map's extent for some reason.
@@ -904,18 +895,18 @@ namespace region_map_detail {
 
 #if !defined(NDEBUG)
 			// Sanity check: Erased and inserted boxes must cover the same space
-			GridRegion<Dims> erased;
-			GridRegion<Dims> inserted;
+			region<Dims> erased;
+			region<Dims> inserted;
 			for(const auto& a : m_update_actions) {
 				utils::match(
 				    a,
 				    [&](const typename types::erase_node_action& erase_action) {
-					    assert(GridRegion<Dims>::intersect(erased, erase_action.box).empty());
-					    erased = GridRegion<Dims>::merge(erased, erase_action.box);
+					    assert(region_intersection(erased, erase_action.box).empty());
+					    erased = region_union(erased, erase_action.box);
 				    },
 				    [&](const typename types::insert_node_action& insert_action) {
-					    assert(GridRegion<Dims>::intersect(inserted, insert_action.box).empty());
-					    inserted = GridRegion<Dims>::merge(inserted, insert_action.box);
+					    assert(region_intersection(inserted, insert_action.box).empty());
+					    inserted = region_union(inserted, insert_action.box);
 				    });
 			}
 			assert(erased == inserted);
@@ -968,7 +959,7 @@ namespace region_map_detail {
 		 *
 		 * TODO PERF: In most cases we are unlikely to store the returned values, and the copy is unnecessary. Return const reference instead?
 		 */
-		std::vector<typename types::entry> get_region_values(const GridBox<Dims>& request) const {
+		std::vector<typename types::entry> get_region_values(const box<Dims>& request) const {
 			assert(m_root != nullptr && "Moved from?");
 
 			m_query_results_raw.clear();
@@ -993,7 +984,7 @@ namespace region_map_detail {
 					clamped_min[d] = std::max(v_min[d], r_min[d]);
 					clamped_max[d] = std::min(v_max[d], r_max[d]);
 				}
-				m_query_results_clamped.push_back(std::make_pair(GridBox<Dims>{clamped_min, clamped_max}, v));
+				m_query_results_clamped.push_back(std::make_pair(box<Dims>{clamped_min, clamped_max}, v));
 			}
 #else
 			std::swap(m_query_results_raw, m_query_results_clamped);
@@ -1043,7 +1034,7 @@ namespace region_map_detail {
 			return m_root->format_to(out, 0);
 		}
 
-		range<Dims> get_extent() const { return grid_box_to_subrange(m_extent).range; }
+		range<Dims> get_extent() const { return m_extent.get_range(); }
 
 	  private:
 		template <typename RegionMap>
@@ -1051,7 +1042,7 @@ namespace region_map_detail {
 
 		// The extent specifies the boundaries for the region map to which all entries are clamped,
 		// and which initially contains the default value. Currently always starts at [0,0,0].
-		GridBox<Dims> m_extent;
+		box<Dims> m_extent;
 
 		std::unique_ptr<typename types::inner_node_type> m_root;
 
@@ -1069,7 +1060,7 @@ namespace region_map_detail {
 		 * Inserts a new entry into the tree.
 		 * Precondition: The insert location must be empty.
 		 */
-		void insert(const GridBox<Dims>& box, const ValueType& value) {
+		void insert(const box<Dims>& box, const ValueType& value) {
 			auto ret = m_root->insert(box, value);
 			if(ret.has_value()) { reroot(std::move(*ret)); }
 		}
@@ -1077,7 +1068,7 @@ namespace region_map_detail {
 		/**
 		 * Inserts a subtree (either from a dissolved parent or after a split) into the tree.
 		 */
-		void insert_subtree(const GridBox<Dims>& box, typename types::unique_inner_node_ptr&& subtree) {
+		void insert_subtree(const box<Dims>& box, typename types::unique_inner_node_ptr&& subtree) {
 			auto ret = m_root->insert_subtree(box, std::move(subtree));
 			if(ret.has_value()) { reroot(std::move(*ret)); }
 		}
@@ -1099,7 +1090,7 @@ namespace region_map_detail {
 		 * Erases a box from the tree. If the parent box becomes underfull it is dissolved and its children
 		 * are reinserted.
 		 */
-		void erase(const GridBox<Dims>& box) {
+		void erase(const box<Dims>& box) {
 			m_erase_orphans.clear();
 			[[maybe_unused]] const auto did_erase = m_root->erase(box, m_erase_orphans);
 			assert(did_erase);
@@ -1122,7 +1113,7 @@ namespace region_map_detail {
 		 * Calculates whether two boxes can be merged. In order to be mergeable, the two boxes
 		 * have to touch in one dimension and match exactly in all remaining dimensions.
 		 */
-		bool can_merge(const GridBox<Dims>& box_a, const GridBox<Dims>& box_b) const {
+		bool can_merge(const box<Dims>& box_a, const box<Dims>& box_b) const {
 			bool adjacent = false;
 			for(size_t d = 0; d < Dims; ++d) {
 				if(box_a.get_min()[d] != box_b.get_min()[d] || box_a.get_max()[d] != box_b.get_max()[d]) {
@@ -1146,10 +1137,10 @@ namespace region_map_detail {
 		void try_merge(std::vector<typename types::entry>&& merge_candidates) {
 #if !defined(NDEBUG)
 			// Sanity check: Merge candidates do not overlap
-			GridRegion<Dims> candidate_union;
+			region<Dims> candidate_union;
 			for(auto& [box, value] : merge_candidates) {
-				assert(GridRegion<Dims>::intersect(candidate_union, box).empty());
-				candidate_union = GridRegion<Dims>::merge(candidate_union, box);
+				assert(region_intersection(candidate_union, box).empty());
+				candidate_union = region_union(candidate_union, box);
 			}
 #endif
 
@@ -1170,7 +1161,7 @@ namespace region_map_detail {
 					for(size_t d = 0; d < Dims; ++d) {
 						const auto min = box.get_min();
 						const auto max = box.get_max();
-						std::optional<GridBox<Dims>> other_box;
+						std::optional<detail::box<Dims>> other_box;
 						if(min[d] > 0) {
 							auto probe = min;
 							probe[d] -= 1;
@@ -1236,9 +1227,9 @@ namespace region_map_detail {
 	  public:
 		region_map_impl(const range<0>& /* extent */, ValueType default_value) : m_value(default_value) {}
 
-		void update_box(const GridBox<1>& /* box */, const ValueType& value) { m_value = value; }
+		void update_box(const box<1>& /* box */, const ValueType& value) { m_value = value; }
 
-		std::vector<std::pair<GridBox<1>, ValueType>> get_region_values(const GridBox<1>& /* request */) const { return {{GridBox<1>{0, 1}, m_value}}; }
+		std::vector<std::pair<box<1>, ValueType>> get_region_values(const box<1>& /* request */) const { return {{box<1>{0, 1}, m_value}}; }
 
 		template <typename Functor>
 		void apply_to_values(const Functor& f) {
@@ -1267,7 +1258,7 @@ class region_map {
 	 */
 	region_map(range<3> extent, int dims, ValueType default_value = ValueType{}) : m_dims(dims) {
 		using namespace region_map_detail;
-		assert_dimensionality(subrange_to_grid_box(subrange<3>{id<3>{}, extent}), dims);
+		assert_dimensionality(box<3>(subrange<3>{id<3>{}, extent}), dims);
 		switch(m_dims) {
 		case 0: m_region_map.template emplace<region_map_impl<ValueType, 0>>(range_cast<0>(extent), default_value); break;
 		case 1: m_region_map.template emplace<region_map_impl<ValueType, 1>>(range_cast<1>(extent), default_value); break;
@@ -1280,15 +1271,17 @@ class region_map {
 	/**
 	 * Sets a new value for the provided region within the region map.
 	 */
-	void update_region(const GridRegion<3>& region, const ValueType& value) {
+	void update_region(const region<3>& region, const ValueType& value) {
 		region_map_detail::assert_dimensionality(region, m_dims);
-		region.scanByBoxes([&](const GridBox<3>& box) { update_box(box, value); });
+		for(const auto& box : region.get_boxes()) {
+			update_box(box, value);
+		}
 	}
 
 	/**
 	 * Sets a new value for the provided box within the region map.
 	 */
-	void update_box(const GridBox<3>& box, const ValueType& value) {
+	void update_box(const box<3>& box, const ValueType& value) {
 		using namespace region_map_detail;
 		switch(m_dims) {
 		case 0: get_map<0>().update_box(box_cast<1>(box), value); break;
@@ -1304,13 +1297,13 @@ class region_map {
 	 *
 	 * @returns A list of boxes clamped to the request region, and their associated values.
 	 */
-	std::vector<std::pair<GridBox<3>, ValueType>> get_region_values(const GridRegion<3>& request) const {
+	std::vector<std::pair<box<3>, ValueType>> get_region_values(const region<3>& request) const {
 		region_map_detail::assert_dimensionality(request, m_dims);
-		std::vector<std::pair<GridBox<3>, ValueType>> results;
-		request.scanByBoxes([&](const GridBox<3>& box) {
+		std::vector<std::pair<box<3>, ValueType>> results;
+		for(const auto& box : request.get_boxes()) {
 			const auto r = get_region_values(box);
 			results.insert(results.begin(), r.cbegin(), r.cend());
-		});
+		}
 		return results;
 	}
 
@@ -1319,9 +1312,9 @@ class region_map {
 	 *
 	 * @returns A list of boxes clamped to the request box, and their associated values.
 	 */
-	std::vector<std::pair<GridBox<3>, ValueType>> get_region_values(const GridBox<3>& request) const {
+	std::vector<std::pair<box<3>, ValueType>> get_region_values(const box<3>& request) const {
 		using namespace region_map_detail;
-		std::vector<std::pair<GridBox<3>, ValueType>> results;
+		std::vector<std::pair<box<3>, ValueType>> results;
 		switch(m_dims) {
 		// TODO: AllScale box doesn't support 0 dimensions, fall back to 1
 		case 0: {

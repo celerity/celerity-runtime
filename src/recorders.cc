@@ -100,7 +100,7 @@ std::optional<node_id> get_target(const abstract_command& cmd) {
 	return {};
 }
 
-std::optional<GridRegion<3>> get_await_region(const abstract_command& cmd) {
+std::optional<region<3>> get_await_region(const abstract_command& cmd) {
 	if(const auto* await_push_cmd = dynamic_cast<const await_push_command*>(&cmd)) return await_push_cmd->get_region();
 	return {};
 }

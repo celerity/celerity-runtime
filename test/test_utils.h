@@ -1,7 +1,5 @@
 #pragma once
 
-#include "catch2/benchmark/catch_clock.hpp"
-#include "catch2/benchmark/catch_optimizer.hpp"
 #include <map>
 #include <memory>
 #include <ostream>
@@ -15,6 +13,7 @@
 #include <windows.h>
 #endif
 
+#include <catch2/benchmark/catch_optimizer.hpp> // for keep_memory()
 #include <catch2/catch_test_macros.hpp>
 #include <celerity.h>
 
@@ -367,35 +366,73 @@ namespace test_utils {
 		Catch::Benchmark::keep_memory(&v);
 	}
 
+	// truncate_*(): unchecked versions of *_cast() with signatures friendly to parameter type inference
+
+	template <int Dims>
+	range<Dims> truncate_range(const range<3>& r3) {
+		static_assert(Dims <= 3);
+		range<Dims> r = detail::zeros;
+		for(int d = 0; d < Dims; ++d) {
+			r[d] = r3[d];
+		}
+		return r;
+	}
+
+	template <int Dims>
+	id<Dims> truncate_id(const id<3>& i3) {
+		static_assert(Dims <= 3);
+		id<Dims> i;
+		for(int d = 0; d < Dims; ++d) {
+			i[d] = i3[d];
+		}
+		return i;
+	}
+
+	template <int Dims>
+	subrange<Dims> truncate_subrange(const subrange<3>& sr3) {
+		return subrange<Dims>(truncate_id<Dims>(sr3.offset), truncate_range<Dims>(sr3.range));
+	}
+
+	template <int Dims>
+	subrange<Dims> truncate_chunk(const chunk<3>& ck3) {
+		return chunk<Dims>(truncate_id<Dims>(ck3.offset), truncate_range<Dims>(ck3.range), truncate_range<Dims>(ck3.global_size));
+	}
+
+	template <int Dims>
+	detail::box<Dims> truncate_box(const detail::box<3>& b3) {
+		return detail::box<Dims>(truncate_id<Dims>(b3.get_min()), truncate_id<Dims>(b3.get_max()));
+	}
+
 } // namespace test_utils
 } // namespace celerity
 
 
 namespace Catch {
 
-template <int Dims>
-struct StringMaker<celerity::id<Dims>> {
-	static std::string convert(const celerity::id<Dims>& value) {
-		switch(Dims) {
-		case 1: return fmt::format("{{{}}}", value[0]);
-		case 2: return fmt::format("{{{}, {}}}", value[0], value[1]);
-		case 3: return fmt::format("{{{}, {}, {}}}", value[0], value[1], value[2]);
-		default: return "{}";
-		}
+template <typename A, typename B>
+struct StringMaker<std::pair<A, B>> {
+	static std::string convert(const std::pair<A, B>& v) {
+		return fmt::format("({}, {})", Catch::Detail::stringify(v.first), Catch::Detail::stringify(v.second));
 	}
 };
 
-template <int Dims>
-struct StringMaker<celerity::range<Dims>> {
-	static std::string convert(const celerity::range<Dims>& value) {
-		switch(Dims) {
-		case 1: return fmt::format("{{{}}}", value[0]);
-		case 2: return fmt::format("{{{}, {}}}", value[0], value[1]);
-		case 3: return fmt::format("{{{}, {}, {}}}", value[0], value[1], value[2]);
-		default: return "{}";
-		}
-	}
+template <typename T>
+struct StringMaker<std::optional<T>> {
+	static std::string convert(const std::optional<T>& v) { return v.has_value() ? Catch::Detail::stringify(*v) : "null"; }
 };
+
+#define CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER_FOR_DIMS(Type)                                                                                        \
+	template <int Dims>                                                                                                                                        \
+	struct StringMaker<Type<Dims>> {                                                                                                                           \
+		static std::string convert(const Type<Dims>& v) { return fmt::format("{}", v); }                                                                       \
+	};
+
+CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER_FOR_DIMS(celerity::id)
+CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER_FOR_DIMS(celerity::range)
+CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER_FOR_DIMS(celerity::subrange)
+CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER_FOR_DIMS(celerity::chunk)
+CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER_FOR_DIMS(celerity::detail::box)
+CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER_FOR_DIMS(celerity::detail::region)
 
 template <>
 struct StringMaker<sycl::device> {

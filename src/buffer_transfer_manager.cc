@@ -64,7 +64,7 @@ namespace detail {
 		assert(pkg.get_command_type() == command_type::await_push);
 		const auto& data = std::get<await_push_data>(pkg.data);
 
-		GridRegion<3> expected_region = data.region;
+		const auto &expected_region = data.region;
 
 		std::shared_ptr<incoming_transfer_handle> t_handle;
 		// Check to see if we have (fully) received the data already

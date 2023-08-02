@@ -63,23 +63,23 @@ namespace detail {
 		struct incoming_transfer_handle : transfer_handle {
 			incoming_transfer_handle(const size_t num_nodes) : m_num_nodes(num_nodes) {}
 
-			void set_expected_region(GridRegion<3> region) { m_expected_region = std::move(region); }
+			void set_expected_region(region<3> region) { m_expected_region = std::move(region); }
 
 			void add_transfer(std::unique_ptr<transfer_in>&& t) {
 				assert(!complete);
 				assert(t->frame->rid == 0 || m_is_reduction || m_transfers.empty()); // Either all or none
 				m_is_reduction = t->frame->rid != 0;
-				const auto box = subrange_to_grid_box(t->frame->sr);
-				assert(GridRegion<3>::intersect(m_received_region, box).empty() || m_is_reduction);
-				assert(!m_expected_region.has_value() || GridRegion<3>::difference(box, *m_expected_region).empty());
-				m_received_region = GridRegion<3>::merge(m_received_region, box);
+				const auto box = detail::box(t->frame->sr);
+				assert(region_intersection(m_received_region, box).empty() || m_is_reduction);
+				assert(!m_expected_region.has_value() || region_difference(box, *m_expected_region).empty());
+				m_received_region = region_union(m_received_region, box);
 				m_transfers.push_back(std::move(t));
 			}
 
 			bool received_full_region() const {
 				if(!m_expected_region.has_value()) return false;
 				if(m_is_reduction) {
-					assert(m_expected_region->area() == 1);
+					assert(m_expected_region->get_area() == 1);
 					// For reductions we're waiting to receive one message per peer
 					return m_transfers.size() == m_num_nodes - 1;
 				}
@@ -99,8 +99,8 @@ namespace detail {
 			size_t m_num_nodes; // Number of nodes in the system, required for reductions
 			bool m_is_reduction = false;
 			std::vector<std::unique_ptr<transfer_in>> m_transfers;
-			std::optional<GridRegion<3>> m_expected_region; // This will only be set once the await push job has started
-			GridRegion<3> m_received_region;
+			std::optional<region<3>> m_expected_region; // This will only be set once the await push job has started
+			region<3> m_received_region;
 		};
 
 		struct transfer_out {

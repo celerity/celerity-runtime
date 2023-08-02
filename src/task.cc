@@ -33,17 +33,17 @@ namespace detail {
 		return subrange<3>{};
 	}
 
-	GridRegion<3> buffer_access_map::get_mode_requirements(
+	region<3> buffer_access_map::get_mode_requirements(
 	    const buffer_id bid, const access_mode mode, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const {
-		GridRegion<3> result;
+		std::vector<box<3>> boxes;
 		for(size_t i = 0; i < m_accesses.size(); ++i) {
 			if(m_accesses[i].first != bid || m_accesses[i].second->get_access_mode() != mode) continue;
-			result = GridRegion<3>::merge(result, get_requirements_for_nth_access(i, kernel_dims, sr, global_size));
+			boxes.push_back(get_requirements_for_nth_access(i, kernel_dims, sr, global_size));
 		}
-		return result;
+		return region(std::move(boxes));
 	}
 
-	GridBox<3> buffer_access_map::get_requirements_for_nth_access(
+	box<3> buffer_access_map::get_requirements_for_nth_access(
 	    const size_t n, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const {
 		const auto& [_, rm] = m_accesses[n];
 
@@ -56,7 +56,7 @@ namespace detail {
 		case 3: req = apply_range_mapper<3>(rm.get(), chunk_cast<3>(chnk)); break;
 		default: assert(!"Unreachable");
 		}
-		return subrange_to_grid_box(req);
+		return req;
 	}
 
 	void side_effect_map::add_side_effect(const host_object_id hoid, const experimental::side_effect_order order) {
