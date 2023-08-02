@@ -162,7 +162,7 @@ namespace detail {
 		// #if __SYCL_DEVICE_ONLY__ did get rid of the segfault, but caused the test to fail with a heap corruption at runtime. Instead, replacing id
 		// with size_t seems to resolve the problem.
 
-		const auto range = range_cast<Dims>(celerity::range<3>(2, 3, 4));
+		const auto range = test_utils::truncate_range<Dims>({2, 3, 4});
 		auto& bm = accessor_fixture<Dims>::get_buffer_manager();
 		auto bid = bm.template register_buffer<size_t, Dims>(range_cast<3>(range));
 
@@ -170,15 +170,15 @@ namespace detail {
 		auto sr = subrange<3>({}, range_cast<3>(range));
 
 		// this kernel initializes the buffer what will be read after.
-		auto acc_write = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, access_mode::discard_write>(bid, range_cast<Dims>(range), {});
+		auto acc_write = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, access_mode::discard_write>(bid, range, {});
 		test_utils::run_parallel_for<class kernel_multi_dim_accessor_write_<Dims>>(accessor_fixture<Dims>::get_device_queue().get_sycl_queue(),
-		    range_cast<Dims>(range), {}, [=](celerity::item<Dims> item) { acc_write[item] = item.get_linear_id(); });
+		    range, {}, [=](celerity::item<Dims> item) { acc_write[item] = item.get_linear_id(); });
 
 		SECTION("for device buffers") {
-			auto acc_read = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, access_mode::read>(bid, range_cast<Dims>(range), {});
-			auto acc = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, access_mode::discard_write>(bid, range_cast<Dims>(range), {});
+			auto acc_read = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, access_mode::read>(bid, range, {});
+			auto acc = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, access_mode::discard_write>(bid, range, {});
 			test_utils::run_parallel_for<class kernel_multi_dim_accessor_read_<Dims>>(
-			    accessor_fixture<Dims>::get_device_queue().get_sycl_queue(), range_cast<Dims>(range), {}, [=](celerity::item<Dims> item) {
+			    accessor_fixture<Dims>::get_device_queue().get_sycl_queue(), range, {}, [=](celerity::item<Dims> item) {
 				    size_t i = item[0];
 				    size_t j = item[1];
 				    if constexpr(Dims == 2) {
@@ -191,8 +191,8 @@ namespace detail {
 		}
 
 		SECTION("for host buffers") {
-			auto acc_read = accessor_fixture<Dims>::template get_host_accessor<size_t, Dims, access_mode::read>(bid, range_cast<Dims>(range), {});
-			auto acc = accessor_fixture<Dims>::template get_host_accessor<size_t, Dims, access_mode::discard_write>(bid, range_cast<Dims>(range), {});
+			auto acc_read = accessor_fixture<Dims>::template get_host_accessor<size_t, Dims, access_mode::read>(bid, range, {});
+			auto acc = accessor_fixture<Dims>::template get_host_accessor<size_t, Dims, access_mode::discard_write>(bid, range, {});
 			for(size_t i = 0; i < range[0]; i++) {
 				for(size_t j = 0; j < range[1]; j++) {
 					for(size_t k = 0; k < (Dims == 2 ? 1 : range[2]); k++) {
@@ -207,8 +207,8 @@ namespace detail {
 		}
 
 		typename accessor_fixture<Dims>::access_target tgt = accessor_fixture<Dims>::access_target::host;
-		bool acc_check = accessor_fixture<Dims>::template buffer_reduce<size_t, Dims, class check_multi_dim_accessor<Dims>>(bid, tgt, range_cast<Dims>(range),
-		    {}, true, [range = range_cast<Dims>(range)](id<Dims> idx, bool current, size_t value) { return current && value == get_linear_index(range, idx); });
+		bool acc_check = accessor_fixture<Dims>::template buffer_reduce<size_t, Dims, class check_multi_dim_accessor<Dims>>(bid, tgt, range,
+		    {}, true, [range = range](id<Dims> idx, bool current, size_t value) { return current && value == get_linear_index(range, idx); });
 
 		REQUIRE(acc_check);
 	}
@@ -257,7 +257,7 @@ namespace detail {
 		buffer<bool> verify_buf{&verified, 1};
 		q.submit([&](handler& cgh) {
 			// access with offset == buffer range just to mess with things
-			const auto offset = id_cast<1>(test_buf.get_range());
+			const auto offset = id(test_buf.get_range());
 			const auto test_acc = test_buf.get_access<Mode>(cgh, [=](chunk<1>) { return subrange<1>{offset, 0}; });
 			const auto verify_acc = verify_buf.get_access<access_mode::write>(cgh, one_to_one{});
 			cgh.parallel_for<empty_access_kernel<Mode>>(range<1>{1}, [=](item<1>) {
@@ -654,10 +654,10 @@ namespace detail {
 #if !CELERITY_ACCESSOR_BOUNDARY_CHECK
 		SKIP("CELERITY_ACCESSOR_BOUNDARY_CHECK=0");
 #endif
-		buffer<int, Dims> buff(range_cast<Dims>(range<3>{10, 20, 30}));
-		const auto accessible_sr = subrange_cast<Dims>(subrange<3>{{5, 10, 15}, {1, 2, 3}});
-		const auto oob_idx_lo = id_cast<Dims>(id<3>{1, 2, 3});
-		const auto oob_idx_hi = id_cast<Dims>(id<3>{7, 13, 25});
+		buffer<int, Dims> buff(test_utils::truncate_range<Dims>({10, 20, 30}));
+		const auto accessible_sr = test_utils::truncate_subrange<Dims>({{5, 10, 15}, {1, 2, 3}});
+		const auto oob_idx_lo = test_utils::truncate_id<Dims>({1, 2, 3});
+		const auto oob_idx_hi = test_utils::truncate_id<Dims>({7, 13, 25});
 
 		// we need to be careful about the orderign of the construction and destruction
 		// of the Celerity queue and the log capturing utility here

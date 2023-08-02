@@ -161,7 +161,7 @@ namespace detail {
 			const auto log = log_capture.get_log();
 			CHECK_THAT(log, ContainsSubstring("digraph G{label=\"Command Graph\""));
 			CHECK_THAT(log, ContainsSubstring("(R1) <b>await push</b>"));
-			CHECK_THAT(log, ContainsSubstring("<b>reduction</b> R1<br/> B0 {[[0,0,0] - [1,1,1]]}"));
+			CHECK_THAT(log, ContainsSubstring("<b>reduction</b> R1<br/> B0 {[0,0,0] - [1,1,1]}"));
 		}
 #else
 		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
@@ -203,10 +203,10 @@ namespace detail {
 
 		// Note: We assume a local range size of 165 here, this may not be supported by all devices.
 
-		auto global_range = range_cast<Dims>(range<3>{n * 4 * 3, 3 * 5, 2 * 11});
-		auto local_range = range_cast<Dims>(range<3>{3, 5, 11});
-		auto group_range = global_range / local_range;
-		auto global_offset = id_cast<Dims>(id<3>{47, 53, 59});
+		const auto global_range = test_utils::truncate_range<Dims>({n * 4 * 3, 3 * 5, 2 * 11});
+		const auto local_range = test_utils::truncate_range<Dims>({3, 5, 11});
+		const auto group_range = global_range / local_range;
+		const auto global_offset = test_utils::truncate_id<Dims>({47, 53, 59});
 
 		buffer<geometry, Dims> geo(global_range);
 

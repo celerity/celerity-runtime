@@ -268,10 +268,10 @@ namespace detail {
 		REQUIRE(bam.get_access_modes(buf_b.get_id()).count(cl::sycl::access::mode::discard_read_write) == 1);
 		const auto reqs_a = bam.get_mode_requirements(
 		    buf_a.get_id(), cl::sycl::access::mode::read, tsk->get_dimensions(), {tsk->get_global_offset(), tsk->get_global_size()}, tsk->get_global_size());
-		REQUIRE(reqs_a == subrange_to_grid_box(subrange<3>({32, 24, 0}, {32, 128, 1})));
+		REQUIRE(reqs_a == box(subrange<3>({32, 24, 0}, {32, 128, 1})));
 		const auto reqs_b = bam.get_mode_requirements(buf_b.get_id(), cl::sycl::access::mode::discard_read_write, tsk->get_dimensions(),
 		    {tsk->get_global_offset(), tsk->get_global_size()}, tsk->get_global_size());
-		REQUIRE(reqs_b == subrange_to_grid_box(subrange<3>({}, {5, 18, 74})));
+		REQUIRE(reqs_b == box(subrange<3>({}, {5, 18, 74})));
 	}
 
 	TEST_CASE("buffer_access_map merges multiple accesses with the same mode", "[task][device_compute_task]") {
@@ -279,13 +279,13 @@ namespace detail {
 		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{3, 0}, {10, 20}}, cl::sycl::access::mode::read, range<2>{30, 30}));
 		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{10, 0}, {7, 20}}, cl::sycl::access::mode::read, range<2>{30, 30}));
 		const auto req = bam.get_mode_requirements(0, cl::sycl::access::mode::read, 2, subrange<3>({0, 0, 0}, {100, 100, 1}), {100, 100, 1});
-		REQUIRE(req == subrange_to_grid_box(subrange<3>({3, 0, 0}, {14, 20, 1})));
+		REQUIRE(req == box(subrange<3>({3, 0, 0}, {14, 20, 1})));
 	}
 
 	TEST_CASE("tasks gracefully handle get_requirements() calls for buffers they don't access", "[task]") {
 		buffer_access_map bam;
 		const auto req = bam.get_mode_requirements(0, cl::sycl::access::mode::read, 3, subrange<3>({0, 0, 0}, {100, 1, 1}), {100, 1, 1});
-		REQUIRE(req == subrange_to_grid_box(subrange<3>({0, 0, 0}, {0, 0, 0})));
+		REQUIRE(req == box<3>());
 	}
 
 	namespace foo {
@@ -614,12 +614,12 @@ namespace detail {
 		distr_queue q;
 
 		const int n = 3;
-		const auto global_offset = detail::id_cast<Dims>(id<3>{4, 5, 6});
+		const auto global_offset = test_utils::truncate_id<Dims>({4, 5, 6});
 
 		buffer<size_t, 2> linear_id{{n, Dims + 1}};
 		q.submit([&](handler& cgh) {
 			accessor a{linear_id, cgh, celerity::access::all{}, write_only, no_init}; // all RM is sane because runtime_tests runs single-node
-			cgh.parallel_for<linear_id_kernel<Dims>>(detail::range_cast<Dims>(range<3>{n, 1, 1}), global_offset, [=](celerity::item<Dims> item) {
+			cgh.parallel_for<linear_id_kernel<Dims>>(detail::range_cast<Dims>(range<1>{n}), global_offset, [=](celerity::item<Dims> item) {
 				auto i = (item.get_id() - item.get_offset())[0];
 				for(int d = 0; d < Dims; ++d) {
 					a[i][d] = item[d];

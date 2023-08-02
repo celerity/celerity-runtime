@@ -49,7 +49,7 @@ namespace detail {
 			auto rmode = cl::sycl::access::mode::discard_write;
 			if(reduction.init_from_buffer) { rmode = reduction_init_mode; }
 
-			const auto req = GridRegion<3>{{1, 1, 1}};
+			const region req = box<3>{{0, 0, 0}, {1, 1, 1}};
 			const std::string bl = get_buffer_label(bm, reduction.bid);
 			fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> {} {}", reduction.rid, detail::access::mode_traits::name(rmode), bl, req);
 		}
@@ -113,19 +113,19 @@ namespace detail {
 			if(ecmd->get_epoch_action() == epoch_action::barrier) { label += " (barrier)"; }
 			if(ecmd->get_epoch_action() == epoch_action::shutdown) { label += " (shutdown)"; }
 		} else if(const auto xcmd = dynamic_cast<const execution_command*>(&cmd)) {
-			fmt::format_to(std::back_inserter(label), "<b>execution</b> {}", subrange_to_grid_box(xcmd->get_execution_range()));
+			fmt::format_to(std::back_inserter(label), "<b>execution</b> {}", xcmd->get_execution_range());
 		} else if(const auto pcmd = dynamic_cast<const push_command*>(&cmd)) {
 			if(pcmd->get_reduction_id() != 0) { fmt::format_to(std::back_inserter(label), "(R{}) ", pcmd->get_reduction_id()); }
 			const std::string bl = get_buffer_label(bm, pcmd->get_bid());
 			fmt::format_to(std::back_inserter(label), "<b>push</b> transfer {} to N{}<br/>B{} {}", pcmd->get_transfer_id(), pcmd->get_target(), bl,
-			    subrange_to_grid_box(pcmd->get_range()));
+			    pcmd->get_range());
 		} else if(const auto apcmd = dynamic_cast<const await_push_command*>(&cmd)) {
 			if(apcmd->get_reduction_id() != 0) { label += fmt::format("(R{}) ", apcmd->get_reduction_id()); }
 			const std::string bl = get_buffer_label(bm, apcmd->get_bid());
 			fmt::format_to(std::back_inserter(label), "<b>await push</b> transfer {} <br/>B{} {}", apcmd->get_transfer_id(), bl, apcmd->get_region());
 		} else if(const auto rrcmd = dynamic_cast<const reduction_command*>(&cmd)) {
 			const auto& reduction = rrcmd->get_reduction_info();
-			const auto req = GridRegion<3>{{1, 1, 1}};
+			const region req = box<3>{{0, 0, 0}, {1, 1, 1}};
 			const auto bl = get_buffer_label(bm, reduction.bid);
 			fmt::format_to(std::back_inserter(label), "<b>reduction</b> R{}<br/> {} {}", reduction.rid, bl, req);
 		} else if(const auto hcmd = dynamic_cast<const horizon_command*>(&cmd)) {

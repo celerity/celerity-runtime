@@ -42,11 +42,11 @@ TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 	// replace the `expected` value with the new dot graph.
 	const auto expected =
 	    "digraph G {label=\"Task Graph\" 0[shape=ellipse label=<T0<br/><b>epoch</b>>];1[shape=box style=rounded label=<T1 \"task_initialize_2\" "
-	    "<br/><b>device-compute</b> [0,0,0] - [64,1,1]<br/><i>discard_write</i> B1 {[[0,0,0] - [1,1,1]]}>];0->1[color=orchid];2[shape=box style=rounded "
-	    "label=<T2 \"task_produce_3\" <br/><b>device-compute</b> [0,0,0] - [64,1,1]<br/><i>discard_write</i> B0 {[[0,0,0] - "
-	    "[64,1,1]]}>];0->2[color=orchid];3[shape=box style=rounded label=<T3 \"task_reduce_4\" <br/><b>device-compute</b> [0,0,0] - [64,1,1]<br/>(R1) "
-	    "<i>read_write</i> B1 {[[0,0,0] - [1,1,1]]}<br/><i>read</i> B0 {[[0,0,0] - [64,1,1]]}>];1->3[];2->3[];4[shape=box style=rounded label=<T4 "
-	    "\"task_consume_5\" <br/><b>device-compute</b> [0,0,0] - [64,1,1]<br/><i>read</i> B1 {[[0,0,0] - [1,1,1]]}>];3->4[];}";
+	    "<br/><b>device-compute</b> [0,0,0] - [64,1,1]<br/><i>discard_write</i> B1 {[0,0,0] - [1,1,1]}>];0->1[color=orchid];2[shape=box style=rounded "
+	    "label=<T2 \"task_produce_3\" <br/><b>device-compute</b> [0,0,0] - [64,1,1]<br/><i>discard_write</i> B0 {[0,0,0] - "
+	    "[64,1,1]}>];0->2[color=orchid];3[shape=box style=rounded label=<T3 \"task_reduce_4\" <br/><b>device-compute</b> [0,0,0] - [64,1,1]<br/>(R1) "
+	    "<i>read_write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read</i> B0 {[0,0,0] - [64,1,1]}>];1->3[];2->3[];4[shape=box style=rounded label=<T4 "
+	    "\"task_consume_5\" <br/><b>device-compute</b> [0,0,0] - [64,1,1]<br/><i>read</i> B1 {[0,0,0] - [1,1,1]}>];3->4[];}";
 
 	const auto dot = tm.print_graph(std::numeric_limits<size_t>::max()).value();
 	CHECK(dot == expected);
@@ -66,15 +66,15 @@ TEST_CASE("command graph printing is unchanged", "[print_graph][command-graph]")
 	const auto expected =
 	    "digraph G{label=\"Command Graph\" subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 (epoch)</font>>;color=darkgray;id_0_0[label=<C0 on "
 	    "N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font color=\"#606060\">T1 \"reduce_8\" "
-	    "(device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [[0,0,0] - [1,1,1]]<br/>(R1) <i>discard_write</i> B0 {[[0,0,0] - "
-	    "[1,1,1]]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 \"consume_9\" "
-	    "(device-compute)</font>>;color=darkgray;id_0_2[label=<C2 on N0<br/><b>execution</b> [[0,0,0] - [1,1,1]]<br/><i>read</i> B0 {[[0,0,0] - "
-	    "[1,1,1]]}<br/><i>read_write</i> B0 {[[0,0,0] - [1,1,1]]}<br/><i>write</i> B0 {[[0,0,0] - [1,1,1]]}> fontcolor=black shape=box];}id_0_7[label=<C7 on "
-	    "N0<br/>(R1) <b>push</b> transfer 8589934595 to N3<br/>BB0 [[0,0,0] - [1,1,1]]> fontcolor=black shape=ellipse];id_0_1->id_0_7[];id_0_6[label=<C6 on "
-	    "N0<br/>(R1) <b>push</b> transfer 8589934594 to N2<br/>BB0 [[0,0,0] - [1,1,1]]> fontcolor=black shape=ellipse];id_0_1->id_0_6[];id_0_5[label=<C5 on "
-	    "N0<br/>(R1) <b>push</b> transfer 8589934593 to N1<br/>BB0 [[0,0,0] - [1,1,1]]> fontcolor=black shape=ellipse];id_0_1->id_0_5[];id_0_4[label=<C4 on "
-	    "N0<br/>(R1) <b>await push</b> transfer 8589934592 <br/>BB0 {[[0,0,0] - [1,1,1]]}> fontcolor=black "
-	    "shape=ellipse];id_0_0->id_0_4[color=orchid];id_0_3[label=<C3 on N0<br/><b>reduction</b> R1<br/> B0 {[[0,0,0] - [1,1,1]]}> fontcolor=black "
+	    "(device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [0,0,0] - [1,1,1]<br/>(R1) <i>discard_write</i> B0 {[0,0,0] - "
+	    "[1,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 \"consume_9\" "
+	    "(device-compute)</font>>;color=darkgray;id_0_2[label=<C2 on N0<br/><b>execution</b> [0,0,0] - [1,1,1]<br/><i>read</i> B0 {[0,0,0] - "
+	    "[1,1,1]}<br/><i>read_write</i> B0 {[0,0,0] - [1,1,1]}<br/><i>write</i> B0 {[0,0,0] - [1,1,1]}> fontcolor=black shape=box];}id_0_7[label=<C7 on "
+	    "N0<br/>(R1) <b>push</b> transfer 8589934595 to N3<br/>BB0 [0,0,0] - [1,1,1]> fontcolor=black shape=ellipse];id_0_1->id_0_7[];id_0_6[label=<C6 on "
+	    "N0<br/>(R1) <b>push</b> transfer 8589934594 to N2<br/>BB0 [0,0,0] - [1,1,1]> fontcolor=black shape=ellipse];id_0_1->id_0_6[];id_0_5[label=<C5 on "
+	    "N0<br/>(R1) <b>push</b> transfer 8589934593 to N1<br/>BB0 [0,0,0] - [1,1,1]> fontcolor=black shape=ellipse];id_0_1->id_0_5[];id_0_4[label=<C4 on "
+	    "N0<br/>(R1) <b>await push</b> transfer 8589934592 <br/>BB0 {[0,0,0] - [1,1,1]}> fontcolor=black "
+	    "shape=ellipse];id_0_0->id_0_4[color=orchid];id_0_3[label=<C3 on N0<br/><b>reduction</b> R1<br/> B0 {[0,0,0] - [1,1,1]}> fontcolor=black "
 	    "shape=ellipse];id_0_1->id_0_3[];id_0_4->id_0_3[];id_0_3->id_0_2[];id_0_5->id_0_2[color=limegreen];id_0_6->id_0_2[color=limegreen];id_0_7->id_0_2["
 	    "color=limegreen];id_0_0->id_0_1[color=orchid];}";
 
@@ -104,8 +104,8 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "Buffer debug names show up in the
 	const auto expected =
 	    "digraph G{label=\"Command Graph\" subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 (epoch)</font>>;color=darkgray;id_0_0[label=<C0 on "
 	    "N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font color=\"#606060\">T1 \"print_graph_buffer_name_12\" "
-	    "(device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [[0,0,0] - [16,1,1]]<br/><i>write</i> B0 \"my_buffer\" {[[0,0,0] "
-	    "- [16,1,1]]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 (epoch)</font>>;color=darkgray;id_0_2[label=<C2 "
+	    "(device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [0,0,0] - [16,1,1]<br/><i>write</i> B0 \"my_buffer\" {[0,0,0] "
+	    "- [16,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 (epoch)</font>>;color=darkgray;id_0_2[label=<C2 "
 	    "on N0<br/><b>epoch</b> (barrier)> fontcolor=black shape=box];}id_0_1->id_0_2[color=orange];id_0_0->id_0_1[];}";
 
 	const auto dot = runtime_testspy::print_graph(celerity::detail::runtime::get_instance());

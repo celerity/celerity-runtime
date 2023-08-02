@@ -33,7 +33,7 @@ namespace detail {
 	void buffer_manager::get_buffer_data(buffer_id bid, const subrange<3>& sr, void* out_linearized) {
 		std::unique_lock lock(m_mutex);
 		assert(m_buffers.count(bid) == 1 && (m_buffers.at(bid).device_buf.is_allocated() || m_buffers.at(bid).host_buf.is_allocated()));
-		auto data_locations = m_newest_data_location.at(bid).get_region_values(subrange_to_grid_box(sr));
+		auto data_locations = m_newest_data_location.at(bid).get_region_values(region(sr));
 
 		// Slow path: We need to obtain current data from both host and device.
 		if(data_locations.size() > 1) {
@@ -50,13 +50,13 @@ namespace detail {
 			}
 			existing_buf = make_buffer_subrange_coherent(bid, access_mode::read, std::move(existing_buf), sr, std::move(replacement_buf));
 
-			data_locations = {{subrange_to_grid_box(sr), data_location::host}};
+			data_locations = {{box(sr), data_location::host}};
 		}
 
 		// get_buffer_data will race with pending transfers for the same subrange. In case there are pending transfers and a host buffer does not exist yet,
 		// these transfers cannot easily be flushed here as creating a host buffer requires a templated context that knows about DataT.
 		assert(std::none_of(m_scheduled_transfers[bid].begin(), m_scheduled_transfers[bid].end(),
-		    [&](const transfer& t) { return subrange_to_grid_box(sr).intersectsWith(subrange_to_grid_box(t.sr)); }));
+		    [&](const transfer& t) { return !box_intersection(box(sr), box(t.sr)).empty(); }));
 
 		if(data_locations[0].second == data_location::host || data_locations[0].second == data_location::host_and_device) {
 			return m_buffers.at(bid).host_buf.storage->get_data({m_buffers.at(bid).host_buf.get_local_offset(sr.offset), sr.range}, out_linearized);
@@ -130,14 +130,11 @@ namespace detail {
 
 				// Use faux host accesses to retain all data from the device (except what is going to be discarded anyway).
 				// TODO: This could be made more efficient, currently it may cause multiple consecutive resizes.
-				GridRegion<3> retain_region = subrange_to_grid_box(subrange<3>{existing_buf.offset, existing_buf.storage->get_range()});
-				if(!access::mode_traits::is_consumer(mode)) {
-					retain_region = GridRegion<3>::difference(retain_region, subrange_to_grid_box(subrange<3>{sr.offset, sr.range}));
+				region retain_region(subrange(existing_buf.offset, existing_buf.storage->get_range()));
+				if(!access::mode_traits::is_consumer(mode)) { retain_region = region_difference(retain_region, region(sr)); }
+				for(const subrange<3> sr : retain_region.get_boxes()) {
+					access_host_buffer_impl(bid, access_mode::read, sr);
 				}
-				retain_region.scanByBoxes([&](const GridBox<3>& box) {
-					const auto sr = grid_box_to_subrange(box);
-					access_host_buffer_impl(bid, access_mode::read, subrange<3>{sr.offset, sr.range});
-				});
 
 				// We now have all data "backed up" on the host, so we may deallocate the device buffer (via destructor).
 				existing_buf = backing_buffer{};
@@ -242,24 +239,21 @@ namespace detail {
 
 		const auto target_buffer_location = target_buffer.storage->get_type() == buffer_type::host_buffer ? data_location::host : data_location::device;
 
-		const auto coherent_box = subrange_to_grid_box(coherent_sr);
+		const auto coherent_box = box(coherent_sr);
 
 		// If a previous buffer is provided, we may have to retain some or all of the existing data.
-		const GridRegion<3> retain_region = ([&]() {
-			GridRegion<3> result = coherent_box;
-			if(previous_buffer.is_allocated()) {
-				result = GridRegion<3>::merge(result, subrange_to_grid_box({previous_buffer.offset, previous_buffer.storage->get_range()}));
-			}
-			return result;
+		const region<3> retain_region = ([&]() {
+			std::vector<box<3>> boxes{coherent_box};
+			if(previous_buffer.is_allocated()) { boxes.push_back(subrange(previous_buffer.offset, previous_buffer.storage->get_range())); }
+			return region(std::move(boxes));
 		})(); // IIFE
 
 		// Sanity check: Retain region must be at least as large as coherence box (and fully overlap).
-		assert(coherent_box.area() <= retain_region.area());
-		assert(GridRegion<3>::difference(coherent_box, retain_region).empty());
+		assert(coherent_box.get_area() <= retain_region.get_area());
+		assert(region_difference(coherent_box, retain_region).empty());
 		// Also check that the new target buffer could actually fit the entire retain region.
-		assert((grid_box_to_subrange(retain_region.boundingBox()).offset >= target_buffer.offset) == id(true, true, true));
-		assert((grid_box_to_subrange(retain_region.boundingBox()).offset + grid_box_to_subrange(retain_region.boundingBox()).range
-		           <= target_buffer.offset + target_buffer.storage->get_range())
+		assert((bounding_box(retain_region).get_offset() >= target_buffer.offset) == id(true, true, true));
+		assert((bounding_box(retain_region).get_offset() + bounding_box(retain_region).get_range() <= target_buffer.offset + target_buffer.storage->get_range())
 		       == id(true, true, true));
 
 		// Check whether we have any scheduled transfers that overlap with the requested subrange, and if so, apply them.
@@ -271,15 +265,15 @@ namespace detail {
 		if(detail::access::mode_traits::is_consumer(mode))
 #endif
 		{
-			GridRegion<3> updated_region;
+			std::vector<box<3>> updated_region_boxes;
 			std::vector<transfer> remaining_transfers;
 			auto& scheduled_buffer_transfers = m_scheduled_transfers[bid];
 			remaining_transfers.reserve(scheduled_buffer_transfers.size() / 2);
 			for(auto& t : scheduled_buffer_transfers) {
-				auto t_region = subrange_to_grid_box(t.sr);
+				auto t_box = box(t.sr);
 
 				// Check whether this transfer applies to the current request.
-				auto t_minus_coherent_region = GridRegion<3>::difference(t_region, coherent_box);
+				auto t_minus_coherent_region = region_difference(t_box, coherent_box);
 				if(!t_minus_coherent_region.empty()) {
 					// Check if transfer applies partially.
 					// This might happen in certain situations, when two different commands partially overlap in their required buffer ranges.
@@ -289,19 +283,19 @@ namespace detail {
 					// NOTE: We currently assume that one of the requests will consume the FULL transfer. Only then we discard it.
 					// This assumption is valid right now, as the graph generator will not consolidate adjacent pushes for two (or more)
 					// separate commands. This might however change in the future.
-					if(t_minus_coherent_region != t_region) {
+					if(t_minus_coherent_region != t_box) {
 						assert(detail::access::mode_traits::is_consumer(mode));
-						auto intersection = GridRegion<3>::intersect(t_region, coherent_box);
-						remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, intersection);
+						auto intersection = region(box_intersection(t_box, coherent_box)); // TODO this can be a box instead of a region!
+						remaining_region_after_transfers = region_difference(remaining_region_after_transfers, intersection);
 						const auto element_size = m_buffer_infos.at(bid).element_size;
-						intersection.scanByBoxes([&](const GridBox<3>& box) {
-							auto sr = grid_box_to_subrange(box);
+						for(const auto& box : intersection.get_boxes()) {
+							auto sr = box.get_subrange();
 							// TODO can this temp buffer be avoided?
 							auto tmp = make_uninitialized_payload<std::byte>(sr.range.size() * element_size);
 							linearize_subrange(t.linearized.get_pointer(), tmp.get_pointer(), element_size, t.sr.range, {sr.offset - t.sr.offset, sr.range});
 							target_buffer.storage->set_data({target_buffer.get_local_offset(sr.offset), sr.range}, tmp.get_pointer());
-							updated_region = GridRegion<3>::merge(updated_region, box);
-						});
+							updated_region_boxes.push_back(box);
+						}
 					}
 					// Transfer only applies partially, or not at all - which means we have to keep it around.
 					remaining_transfers.emplace_back(std::move(t));
@@ -310,35 +304,35 @@ namespace detail {
 
 				// Transfer applies fully.
 				assert(detail::access::mode_traits::is_consumer(mode));
-				remaining_region_after_transfers = GridRegion<3>::difference(remaining_region_after_transfers, t_region);
+				remaining_region_after_transfers = region_difference(remaining_region_after_transfers, t_box);
 				target_buffer.storage->set_data({target_buffer.get_local_offset(t.sr.offset), t.sr.range}, t.linearized.get_pointer());
-				updated_region = GridRegion<3>::merge(updated_region, t_region);
+				updated_region_boxes.push_back(t_box);
 			}
 			// The target buffer now has the newest data in this region.
-			m_newest_data_location.at(bid).update_region(updated_region, target_buffer_location);
+			m_newest_data_location.at(bid).update_region(region(std::move(updated_region_boxes)), target_buffer_location);
 			scheduled_buffer_transfers = std::move(remaining_transfers);
 		}
 
 		if(!remaining_region_after_transfers.empty()) {
-			const auto maybe_retain_box = [&](const GridBox<3>& box) {
+			const auto maybe_retain_box = [&](const box<3>& box) {
 				if(detail::access::mode_traits::is_consumer(mode)) {
 					// If we are accessing the buffer using a consumer mode, we have to retain the full previous contents, otherwise...
-					const auto box_sr = grid_box_to_subrange(box);
+					const auto box_sr = box.get_subrange();
 					target_buffer.storage->copy(
 					    *previous_buffer.storage, previous_buffer.get_local_offset(box_sr.offset), target_buffer.get_local_offset(box_sr.offset), box_sr.range);
 				} else {
 					// ...check if there are parts of the previous buffer that we are not going to overwrite (and thus have to retain).
 					// If so, copy only those parts.
-					const auto remaining_region = GridRegion<3>::difference(box, coherent_box);
-					remaining_region.scanByBoxes([&](const GridBox<3>& small_box) {
-						const auto small_box_sr = grid_box_to_subrange(small_box);
+					const auto remaining_region = region_difference(box, coherent_box);
+					for(const auto& small_box : remaining_region.get_boxes()) {
+						const auto small_box_sr = small_box.get_subrange();
 						target_buffer.storage->copy(*previous_buffer.storage, previous_buffer.get_local_offset(small_box_sr.offset),
 						    target_buffer.get_local_offset(small_box_sr.offset), small_box_sr.range);
-					});
+					}
 				}
 			};
 
-			GridRegion<3> replicated_region;
+			std::vector<box<3>> replicated_boxes;
 			auto& buffer_data_locations = m_newest_data_location.at(bid);
 			const auto data_locations = buffer_data_locations.get_region_values(remaining_region_after_transfers);
 			for(auto& dl : data_locations) {
@@ -354,21 +348,21 @@ namespace detail {
 					// Copy from host, unless we are using a pure producer mode
 					else if(dl.second == data_location::host && detail::access::mode_traits::is_consumer(mode)) {
 						assert(m_buffers[bid].host_buf.is_allocated());
-						const auto box_sr = grid_box_to_subrange(dl.first);
+						const auto box_sr = dl.first.get_subrange();
 						const auto& host_buf = m_buffers[bid].host_buf;
 						target_buffer.storage->copy(
 						    *host_buf.storage, host_buf.get_local_offset(box_sr.offset), target_buffer.get_local_offset(box_sr.offset), box_sr.range);
-						replicated_region = GridRegion<3>::merge(replicated_region, dl.first);
+						replicated_boxes.push_back(dl.first);
 					}
 				} else if(target_buffer.storage->get_type() == buffer_type::host_buffer) {
 					// Copy from device, unless we are using a pure producer mode
 					if(dl.second == data_location::device && detail::access::mode_traits::is_consumer(mode)) {
 						assert(m_buffers[bid].device_buf.is_allocated());
-						const auto box_sr = grid_box_to_subrange(dl.first);
+						const auto box_sr = dl.first.get_subrange();
 						const auto& device_buf = m_buffers[bid].device_buf;
 						target_buffer.storage->copy(
 						    *device_buf.storage, device_buf.get_local_offset(box_sr.offset), target_buffer.get_local_offset(box_sr.offset), box_sr.range);
-						replicated_region = GridRegion<3>::merge(replicated_region, dl.first);
+						replicated_boxes.push_back(dl.first);
 					}
 					// Copy from host in case we are resizing an existing buffer
 					else if((dl.second == data_location::host || dl.second == data_location::host_and_device) && previous_buffer.is_allocated()) {
@@ -378,7 +372,7 @@ namespace detail {
 			}
 
 			// Finally, remember the fact that we replicated some regions to the new target location.
-			buffer_data_locations.update_region(replicated_region, data_location::host_and_device);
+			buffer_data_locations.update_region(region(std::move(replicated_boxes)), data_location::host_and_device);
 		}
 
 		if(detail::access::mode_traits::is_producer(mode)) { m_newest_data_location.at(bid).update_region(coherent_box, target_buffer_location); }

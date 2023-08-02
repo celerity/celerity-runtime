@@ -193,7 +193,6 @@ set(SOURCES
   src/graph_serializer.cc
   src/grid.cc
   src/print_graph.cc
-  src/print_utils.cc
   src/runtime.cc
   src/scheduler.cc
   src/task.cc

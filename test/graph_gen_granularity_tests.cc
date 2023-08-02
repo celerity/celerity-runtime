@@ -71,13 +71,13 @@ TEMPLATE_TEST_CASE_SIG("distributed_graph_generator does not create empty chunks
 	task_id tid = -1;
 
 	SECTION("for simple tasks") {
-		task_range = range_cast<Dims>(range<3>(2, 2, 2));
+		task_range = truncate_range<Dims>({2, 2, 2});
 		tid = dctx.device_compute<simple_task<Dims>>(task_range).submit();
 	}
 
 	SECTION("for nd-range tasks") {
-		task_range = range_cast<Dims>(range<3>(16, 2, 2));
-		const auto local_range = range_cast<Dims>(range<3>(8, 1, 1));
+		task_range = truncate_range<Dims>({16, 2, 2});
+		const auto local_range = truncate_range<Dims>({8, 1, 1});
 		tid = dctx.device_compute<nd_range_task<Dims>>(nd_range<Dims>(task_range, local_range)).submit();
 	}
 

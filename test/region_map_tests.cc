@@ -19,12 +19,12 @@
 using namespace celerity;
 using namespace celerity::detail;
 
-template <typename ValueType, size_t Dims>
+template <typename ValueType, int Dims>
 using region_map_impl = region_map_detail::region_map_impl<ValueType, Dims>;
 
 namespace celerity::detail {
 struct region_map_testspy {
-	template <typename ValueType, size_t Dims, typename Callback>
+	template <typename ValueType, int Dims, typename Callback>
 	static void traverse(const region_map_impl<ValueType, Dims>& rm, const Callback& cb) {
 		auto recurse = [&cb](auto& node, const size_t level, auto& r) -> void {
 			for(size_t i = 0; i < node.m_child_boxes.size(); ++i) {
@@ -39,44 +39,44 @@ struct region_map_testspy {
 		recurse(*rm.m_root, 0, recurse);
 	}
 
-	template <typename ValueType, size_t Dims>
+	template <typename ValueType, int Dims>
 	static size_t get_num_leaf_nodes(const region_map_impl<ValueType, Dims>& rm) {
 		size_t num_leaf_nodes = 0;
-		traverse(rm, [&num_leaf_nodes](
-		                 const size_t /* level */, const GridBox<Dims>& /* box */, const std::optional<ValueType>& value, const size_t /* num_children */) {
-			if(value.has_value()) { num_leaf_nodes++; }
-		});
+		traverse(rm,
+		    [&num_leaf_nodes](const size_t /* level */, const box<Dims>& /* box */, const std::optional<ValueType>& value, const size_t /* num_children */) {
+			    if(value.has_value()) { num_leaf_nodes++; }
+		    });
 		return num_leaf_nodes;
 	}
 
-	template <typename ValueType, size_t Dims>
+	template <typename ValueType, int Dims>
 	static size_t get_depth(const region_map_impl<ValueType, Dims>& rm) {
 		size_t depth = 1;
-		traverse(rm, [&depth](const size_t level, const GridBox<Dims>& /* box */, const std::optional<ValueType>& /* value */,
-		                 const size_t /* num_children */) { depth = std::max(depth, level + 1); });
+		traverse(rm, [&depth](const size_t level, const box<Dims>& /* box */, const std::optional<ValueType>& /* value */, const size_t /* num_children */) {
+			depth = std::max(depth, level + 1);
+		});
 		return depth;
 	}
 
-	template <typename ValueType, size_t Dims>
+	template <typename ValueType, int Dims>
 	static double compute_overlap(const region_map_impl<ValueType, Dims>& rm) {
-		std::vector<std::vector<GridBox<Dims>>> boxes_by_level;
-		traverse(
-		    rm, [&boxes_by_level](const size_t level, const GridBox<Dims>& box, const std::optional<ValueType>& /* value */, const size_t /* num_children */) {
-			    while(boxes_by_level.size() < level + 1) {
-				    boxes_by_level.push_back({});
-			    }
-			    boxes_by_level[level].push_back(box);
-		    });
+		std::vector<std::vector<box<Dims>>> boxes_by_level;
+		traverse(rm, [&boxes_by_level](const size_t level, const box<Dims>& box, const std::optional<ValueType>& /* value */, const size_t /* num_children */) {
+			while(boxes_by_level.size() < level + 1) {
+				boxes_by_level.push_back({});
+			}
+			boxes_by_level[level].push_back(box);
+		});
 
 		const size_t num_levels = boxes_by_level.size();
-		std::vector<GridRegion<Dims>> box_union_by_level(num_levels, GridRegion<Dims>{});
+		std::vector<region<Dims>> box_union_by_level(num_levels, region<Dims>{});
 		size_t total_overlap_area = 0;
 
 		for(size_t l = 0; l < num_levels; ++l) {
 			size_t overlap = 0;
 			for(auto& b : boxes_by_level[l]) {
-				overlap += GridRegion<Dims>::intersect(box_union_by_level[l], b).area();
-				box_union_by_level[l] = GridRegion<Dims>::merge(box_union_by_level[l], b);
+				overlap += region_intersection(box_union_by_level[l], b).get_area();
+				box_union_by_level[l] = region_union(box_union_by_level[l], b);
 			}
 			total_overlap_area += overlap;
 
@@ -88,20 +88,20 @@ struct region_map_testspy {
 		}
 
 		// We return a percentage value of how much area in the entire rm is overlapping (this may exceed 1)
-		return static_cast<double>(total_overlap_area) / (rm.m_extent.area() * num_levels);
+		return static_cast<double>(total_overlap_area) / (rm.m_extent.get_area() * num_levels);
 	}
 
-	template <typename ValueType, size_t Dims>
-	static void erase(region_map_impl<ValueType, Dims>& rm, const GridBox<Dims>& box) {
+	template <typename ValueType, int Dims>
+	static void erase(region_map_impl<ValueType, Dims>& rm, const box<Dims>& box) {
 		rm.erase(box);
 	}
 
-	template <typename ValueType, size_t Dims>
-	static void insert(region_map_impl<ValueType, Dims>& rm, const GridBox<Dims>& box, const ValueType& value) {
+	template <typename ValueType, int Dims>
+	static void insert(region_map_impl<ValueType, Dims>& rm, const box<Dims>& box, const ValueType& value) {
 		rm.insert(box, value);
 	}
 
-	template <typename ValueType, size_t Dims>
+	template <typename ValueType, int Dims>
 	static void try_merge(region_map_impl<ValueType, Dims>& rm, std::vector<typename region_map_impl<ValueType, Dims>::types::entry> candidates) {
 		rm.try_merge(std::move(candidates));
 	}
@@ -126,7 +126,7 @@ void draw(const region_map_impl<ValueType, 2>& rm) {
 	cairo_select_font_face(cr, "sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
 	cairo_set_font_size(cr, 10.0);
 
-	region_map_testspy::traverse(rm, [&](const size_t level, const GridBox<2>& box, const std::optional<int>& value, const size_t num_children) {
+	region_map_testspy::traverse(rm, [&](const size_t level, const box<2>& box, const std::optional<int>& value, const size_t num_children) {
 		const auto min = box.get_min();
 		const auto max = box.get_max();
 		const float inset = 3.f;
@@ -183,7 +183,7 @@ void draw(const region_map_impl<ValueType, 2>& rm) {
 TEST_CASE("region_map::try_merge does not attempt to merge intermediate results that no longer exist", "[region_map]") {
 	region_map_impl<int, 2> rm({99, 99}, -1);
 
-	std::vector<std::pair<GridBox<2>, int>> entries = {
+	std::vector<std::pair<box<2>, int>> entries = {
 	    // These first three entries will be merged
 	    {{{0, 0}, {33, 66}}, 1},
 	    {{{33, 0}, {66, 66}}, 1},
@@ -215,7 +215,7 @@ TEST_CASE("region_map::try_merge does not attempt to merge intermediate results 
 	} while(0)
 
 TEST_CASE("region_map can be moved", "[region_map]") {
-	constexpr int64_t size = 128;
+	constexpr size_t size = 128;
 	const int default_value = -1;
 	region_map_impl<int, 1> rm1{{size}, default_value};
 	rm1.update_box({0, size}, 1337);
@@ -243,9 +243,9 @@ TEST_CASE("region_map handles basic operations in 0D", "[region_map]") {
 }
 
 TEST_CASE("region_map handles basic operations in 1D", "[region_map]") {
-	constexpr int64_t size = 128;
-	const int default_value = -1;
-	region_map_impl<int, 1> rm{{size}, default_value};
+	constexpr size_t size = 128;
+	const size_t default_value = std::numeric_limits<size_t>::max();
+	region_map_impl<size_t, 1> rm{{size}, default_value};
 
 	SECTION("query default value") {
 		const auto results = rm.get_region_values({0, size});
@@ -276,22 +276,22 @@ TEST_CASE("region_map handles basic operations in 1D", "[region_map]") {
 	}
 
 	SECTION("update multiple") {
-		constexpr int num_parts = 16;
-		constexpr int slice = size / num_parts;
+		constexpr size_t num_parts = 16;
+		constexpr size_t slice = size / num_parts;
 		// Iteratively split line into multiple parts
-		for(int64_t i = 0; i < num_parts; ++i) {
-			rm.update_box(GridBox<1>{i * slice, i * slice + slice}, static_cast<int>(i));
+		for(size_t i = 0; i < num_parts; ++i) {
+			rm.update_box(box<1>{i * slice, i * slice + slice}, i);
 			const auto results = rm.get_region_values({0, size});
 			REQUIRE_LOOP(results.size() == static_cast<size_t>(i + (i < (num_parts - 1) ? 2 : 1)));
-			for(int64_t j = 0; j < i + 1; ++j) {
+			for(size_t j = 0; j < i + 1; ++j) {
 				REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [j, slice](auto& r) {
-					return r == std::pair{GridBox<1>{j * slice, j * slice + slice}, static_cast<int>(j)};
+					return r == std::pair{box<1>{j * slice, j * slice + slice}, j};
 				}));
 			}
 			if(i < num_parts - 1) {
 				// Check that original value still exists
 				REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [i, slice](auto& r) {
-					return r == std::pair{GridBox<1>{(i + 1) * slice, size}, -1};
+					return r == std::pair{box<1>{(i + 1) * slice, size}, std::numeric_limits<size_t>::max()};
 				}));
 			}
 		}
@@ -299,10 +299,10 @@ TEST_CASE("region_map handles basic operations in 1D", "[region_map]") {
 }
 
 TEST_CASE("region_map handles basic operations in 2D", "[region_map]") {
-	constexpr int64_t height = 128;
-	constexpr int64_t width = 192;
-	constexpr int default_value = -1;
-	region_map_impl<int, 2> rm{{height, width}, default_value};
+	constexpr size_t height = 128;
+	constexpr size_t width = 192;
+	constexpr size_t default_value = std::numeric_limits<size_t>::max();
+	region_map_impl<size_t, 2> rm{{height, width}, default_value};
 
 	SECTION("query default value") {
 		const auto results = rm.get_region_values({{0, 0}, {height, width}});
@@ -346,71 +346,70 @@ TEST_CASE("region_map handles basic operations in 2D", "[region_map]") {
 	}
 
 	SECTION("update multiple") {
-		constexpr int num_rows = 16;
-		constexpr int row_height = height / num_rows;
+		constexpr size_t num_rows = 16;
+		constexpr size_t row_height = height / num_rows;
 		// Iteratively split domain into multiple rows
-		for(int64_t i = 0; i < num_rows; ++i) {
-			rm.update_box(GridBox<2>{{i * row_height, 0}, {i * row_height + row_height, width}}, static_cast<int>(i));
+		for(size_t i = 0; i < num_rows; ++i) {
+			rm.update_box(box<2>{{i * row_height, 0}, {i * row_height + row_height, width}}, i);
 			const auto results = rm.get_region_values({{0, 0}, {height, width}});
 			// Until the last iteration we have to account for the original value.
 			REQUIRE_LOOP(results.size() == static_cast<size_t>(i + (i < (num_rows - 1) ? 2 : 1)));
-			for(int64_t j = 0; j < i + 1; ++j) {
+			for(size_t j = 0; j < i + 1; ++j) {
 				REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [j, row_height](auto& r) {
-					return r == std::pair{GridBox<2>{{j * row_height, 0}, {j * row_height + row_height, width}}, static_cast<int>(j)};
+					return r == std::pair{box<2>{{j * row_height, 0}, {j * row_height + row_height, width}}, j};
 				}));
 			}
 			if(i < num_rows - 1) {
 				// Check that original value still exists
 				CHECK(std::any_of(results.begin(), results.end(), [i, row_height, default_value](auto& r) {
-					return r == std::pair{GridBox<2>{{(i + 1) * row_height, 0}, {height, width}}, default_value};
+					return r == std::pair{box<2>{{(i + 1) * row_height, 0}, {height, width}}, default_value};
 				}));
 			}
 		}
 
 		// Now drive a center column through all of them
-		rm.update_box(GridBox<2>{{0, 48}, {height, 80}}, -2);
+		rm.update_box(box<2>{{0, 48}, {height, 80}}, std::numeric_limits<size_t>::max() - 2);
 		const auto results = rm.get_region_values({{0, 0}, {height, width}});
-		CHECK(std::any_of(results.begin(), results.end(), [](auto& r) { return r == std::pair{GridBox<2>{{0, 48}, {height, 80}}, -2}; }));
+		CHECK(std::any_of(results.begin(), results.end(), [](auto& r) {
+			return r == std::pair{box<2>{{0, 48}, {height, 80}}, std::numeric_limits<size_t>::max() - 2};
+		}));
 
-		for(int64_t i = 0; i < num_rows; ++i) {
+		for(size_t i = 0; i < num_rows; ++i) {
 			REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [i, row_height](auto& r) {
-				return r == std::pair{GridBox<2>{{i * row_height, 0}, {i * row_height + row_height, 48}}, static_cast<int>(i)};
+				return r == std::pair{box<2>{{i * row_height, 0}, {i * row_height + row_height, 48}}, i};
 			}));
 			REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [i, row_height](auto& r) {
-				return r == std::pair{GridBox<2>{{i * row_height, 80}, {i * row_height + row_height, width}}, static_cast<int>(i)};
+				return r == std::pair{box<2>{{i * row_height, 80}, {i * row_height + row_height, width}}, i};
 			}));
 		}
 	}
 
 	SECTION("update growing from two sides") {
-		constexpr int num_rows = 16;
-		constexpr int row_height = height / num_rows;
+		constexpr size_t num_rows = 16;
+		constexpr size_t row_height = height / num_rows;
 		// Iteratively split domain into multiple rows, working inwards from two sides
-		for(int64_t i = 0; i < num_rows / 2; ++i) {
-			rm.update_box(GridBox<2>{{i * row_height, 0}, {i * row_height + row_height, width}}, static_cast<int>(i));
-			rm.update_box(
-			    GridBox<2>{{(num_rows - 1 - i) * row_height, 0}, {(num_rows - 1 - i) * row_height + row_height, width}}, num_rows + static_cast<int>(i));
+		for(size_t i = 0; i < num_rows / 2; ++i) {
+			rm.update_box(box<2>{{i * row_height, 0}, {i * row_height + row_height, width}}, i);
+			rm.update_box(box<2>{{(num_rows - 1 - i) * row_height, 0}, {(num_rows - 1 - i) * row_height + row_height, width}}, num_rows + i);
 
 			const auto results = rm.get_region_values({{0, 0}, {height, width}});
 
 			// Until the last iteration we have to account for the original value.
-			REQUIRE_LOOP(results.size() == static_cast<size_t>(2 * (i + 1) + (i < (num_rows / 2 - 1) ? 1 : 0)));
+			REQUIRE_LOOP(results.size() == 2 * (i + 1) + (i < (num_rows / 2 - 1) ? 1 : 0));
 
-			for(int64_t j = 0; j < i + 1; ++j) {
+			for(size_t j = 0; j < i + 1; ++j) {
 				REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [j, row_height](auto& r) {
-					return r == std::pair{GridBox<2>{{j * row_height, 0}, {j * row_height + row_height, width}}, static_cast<int>(j)};
+					return r == std::pair{box<2>{{j * row_height, 0}, {j * row_height + row_height, width}}, j};
 				}));
 				REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [j, row_height, num_rows](auto& r) {
-					return r
-					       == std::pair{GridBox<2>{{(num_rows - 1 - j) * row_height, 0}, {(num_rows - 1 - j) * row_height + row_height, width}},
-					           num_rows + static_cast<int>(j)};
+					return r == std::pair{box<2>{{(num_rows - 1 - j) * row_height, 0}, {(num_rows - 1 - j) * row_height + row_height, width}}, num_rows + j};
 				}));
 			}
 
 			if(i < num_rows / 2 - 1) {
 				// Check that original value still exists
 				REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [i, row_height, num_rows, default_value](auto& r) {
-					return r == std::pair{GridBox<2>{{(i + 1) * row_height, 0}, {(num_rows - 1 - i) * row_height, width}}, default_value};
+					return r == std::pair{box<2>{{(i + 1) * row_height, 0}, {(num_rows - 1 - i) * row_height, width}}, default_value};
 				}));
 			}
 		}
@@ -418,15 +417,15 @@ TEST_CASE("region_map handles basic operations in 2D", "[region_map]") {
 
 	// TODO: Also in 1D/3D?
 	SECTION("update boxes random order") {
-		std::vector<std::pair<GridBox<2>, int>> update_boxes;
-		int x = 100;
-		constexpr int box_height = height / 16;
-		constexpr int box_width = width / 16;
-		for(int64_t i = 0; i < 16; ++i) {
-			for(int64_t j = 0; j < 16; ++j) {
-				const GridPoint<2> min = {i * box_height, j * box_width};
-				const GridPoint<2> max = min + GridPoint<2>{box_height, box_width};
-				update_boxes.push_back(std::pair{GridBox<2>{min, max}, x++});
+		std::vector<std::pair<box<2>, size_t>> update_boxes;
+		size_t x = 100;
+		constexpr size_t box_height = height / 16;
+		constexpr size_t box_width = width / 16;
+		for(size_t i = 0; i < 16; ++i) {
+			for(size_t j = 0; j < 16; ++j) {
+				const id<2> min = {i * box_height, j * box_width};
+				const id<2> max = min + id<2>{box_height, box_width};
+				update_boxes.push_back(std::pair{box<2>{min, max}, x++});
 			}
 		}
 		std::mt19937 g(123);
@@ -447,11 +446,11 @@ TEST_CASE("region_map handles basic operations in 2D", "[region_map]") {
 }
 
 TEST_CASE("region_map handles basic operations in 3D", "[region_map]") {
-	constexpr int64_t depth = 128;
-	constexpr int64_t height = 192;
-	constexpr int64_t width = 256;
-	constexpr int default_value = -1;
-	region_map_impl<int, 3> rm{{depth, height, width}, default_value};
+	constexpr size_t depth = 128;
+	constexpr size_t height = 192;
+	constexpr size_t width = 256;
+	constexpr size_t default_value = std::numeric_limits<size_t>::max();
+	region_map_impl<size_t, 3> rm{{depth, height, width}, default_value};
 
 	SECTION("query default value") {
 		const auto results = rm.get_region_values({{0, 0, 0}, {depth, height, width}});
@@ -511,30 +510,31 @@ TEST_CASE("region_map handles basic operations in 3D", "[region_map]") {
 }
 
 TEMPLATE_TEST_CASE_SIG("region_map updates get clamped to extent", "[region_map]", ((int Dims), Dims), 1, 2, 3) {
-	const auto extent = range_cast<Dims>(range<3>(64, 96, 128));
-	const auto full_box = GridBox<3>{{0, 0, 0}, {64, 96, 128}};
-	region_map_impl<int, Dims> rm{extent, 0};
+	const auto extent = test_utils::truncate_range<Dims>({64, 96, 128});
+	const auto full_box = test_utils::truncate_box<Dims>({{0, 0, 0}, {64, 96, 128}});
+	region_map_impl<size_t, Dims> rm{extent, 0};
 
-	const auto exceeding_box = region_map_detail::box_cast<Dims>(GridBox<3>({-32, -16, -8}, {72, 102, 136}));
+	// TODO boxes based on ids cannot be negative, so we cannot test clamping of the minimum at the moment
+	const auto exceeding_box = box<Dims>({}, test_utils::truncate_range<Dims>({72, 102, 136}));
 
 	rm.update_box(exceeding_box, 1337);
 	const auto results = rm.get_region_values(exceeding_box);
-	CHECK_RESULTS(results, {region_map_detail::box_cast<Dims>(full_box), 1337});
+	CHECK_RESULTS(results, {full_box, 1337});
 }
 
 // This doesn't test anything in paticular, more of a smoke test.
 TEST_CASE("region_map correctly handles complex queries", "[region_map]") {
-	region_map_impl<int, 2> rm{{5, 9}, 99999};
+	region_map_impl<size_t, 2> rm{{5, 9}, 99999};
 
-	const std::initializer_list<GridBox<2>> data = {{{0, 0}, {2, 3}}, {{2, 0}, {5, 2}}, {{2, 2}, {5, 3}}, {{0, 3}, {3, 4}}, {{3, 3}, {4, 4}}, {{4, 3}, {5, 4}},
+	const std::initializer_list<box<2>> data = {{{0, 0}, {2, 3}}, {{2, 0}, {5, 2}}, {{2, 2}, {5, 3}}, {{0, 3}, {3, 4}}, {{3, 3}, {4, 4}}, {{4, 3}, {5, 4}},
 	    {{0, 4}, {1, 9}}, {{1, 4}, {3, 9}}, {{3, 4}, {5, 6}}, {{3, 6}, {5, 7}}, {{3, 7}, {4, 9}}, {{4, 7}, {5, 9}}};
 
 	for(size_t i = 0; i < data.size(); ++i) {
-		rm.update_box(*(data.begin() + i), static_cast<int>(i));
+		rm.update_box(*(data.begin() + i), i);
 	}
 
 	SECTION("query single boxes") {
-		const auto query_and_check = [&](const GridBox<2>& box, int expected) {
+		const auto query_and_check = [&](const box<2>& box, size_t expected) {
 			const auto results = rm.get_region_values(box);
 			REQUIRE(results.size() == 1);
 			CHECK(results[0] == std::pair{box, expected});
@@ -552,7 +552,7 @@ TEST_CASE("region_map correctly handles complex queries", "[region_map]") {
 	}
 
 	SECTION("query overlapping") {
-		const auto query_and_check = [&](const GridBox<2>& box, const std::vector<std::pair<GridBox<2>, int>>& expected) {
+		const auto query_and_check = [&](const box<2>& box, const std::vector<std::pair<celerity::detail::box<2>, size_t>>& expected) {
 			const auto results = rm.get_region_values(box);
 			CHECK(results.size() == expected.size());
 			for(const auto& e : expected) {
@@ -577,9 +577,9 @@ TEST_CASE("region_map correctly handles complex queries", "[region_map]") {
 }
 
 TEST_CASE("region map merges entries with the same value upon update in 1D", "[region_map]") {
-	constexpr int64_t size = 128;
-	constexpr int default_value = -1;
-	region_map_impl<int, 1> rm{{size}, default_value};
+	constexpr size_t size = 128;
+	constexpr size_t default_value = std::numeric_limits<size_t>::max();
+	region_map_impl<size_t, 1> rm{{size}, default_value};
 
 	SECTION("simple merge") {
 		rm.update_box({0, 64}, 3);
@@ -598,10 +598,10 @@ TEST_CASE("region map merges entries with the same value upon update in 1D", "[r
 }
 
 TEST_CASE("region map merges entries with the same value upon update in 2D", "[region_map]") {
-	constexpr int64_t height = 64;
-	constexpr int64_t width = 128;
-	constexpr int default_value = -1;
-	region_map_impl<int, 2> rm{{height, width}, default_value};
+	constexpr size_t height = 64;
+	constexpr size_t width = 128;
+	constexpr size_t default_value = std::numeric_limits<size_t>::max();
+	region_map_impl<size_t, 2> rm{{height, width}, default_value};
 
 	SECTION("simple merge") {
 		rm.update_box({{0, 0}, {height, 64}}, 3);
@@ -622,13 +622,13 @@ TEST_CASE("region map merges entries with the same value upon update in 2D", "[r
 	SECTION("merge cascade") {
 		// Same as before, but ensure that the tree is several levels deep
 		// Start by filling the tree with "horizontal bars" of decreasing length, preventing any merges between them
-		for(int64_t i = 0; i < height / 2; ++i) {
+		for(size_t i = 0; i < height / 2; ++i) {
 			rm.update_box({{i * 2, 0}, {i * 2 + 2, width - 2 - i * 2}}, 3);
 		}
 		CHECK(region_map_testspy::get_num_leaf_nodes(rm) == 2 * (height / 2)); // Every bar creates two entries (old and new value)
 		CHECK(region_map_testspy::get_depth(rm) > 2);                          // Tree should be several levels deep by now
 		// Now update the values of the vertical bars, skip last one to prevent merge
-		for(int64_t i = 0; i < (height / 2) - 1; ++i) {
+		for(size_t i = 0; i < (height / 2) - 1; ++i) {
 			rm.update_box({{i * 2, width - 2 - i * 2}, {height, width - 2 - i * 2 + 2}}, 3);
 		}
 		CHECK(region_map_testspy::get_num_leaf_nodes(rm) == 2 * (height / 2)); // No merges so far
@@ -642,11 +642,11 @@ TEST_CASE("region map merges entries with the same value upon update in 2D", "[r
 }
 
 TEST_CASE("region map merges entries with the same value upon update in 3D", "[region_map]") {
-	constexpr int64_t depth = 64;
-	constexpr int64_t height = 96;
-	constexpr int64_t width = 128;
-	constexpr int default_value = -1;
-	region_map_impl<int, 3> rm{{depth, height, width}, default_value};
+	constexpr size_t depth = 64;
+	constexpr size_t height = 96;
+	constexpr size_t width = 128;
+	constexpr size_t default_value = std::numeric_limits<size_t>::max();
+	region_map_impl<size_t, 3> rm{{depth, height, width}, default_value};
 
 	SECTION("simple merge, quasi 1D") {
 		rm.update_box({{0, 0, 0}, {depth, 64, width}}, 3);
@@ -668,10 +668,10 @@ TEST_CASE("region map merges entries with the same value upon update in 3D", "[r
 // NOTE: Merging on query is not required (or possible) in 1D: All merges will be done on update.
 
 TEST_CASE("region_map merges truncated result boxes with the same value upon querying in 2D", "[region_map]") {
-	constexpr int64_t height = 5;
-	constexpr int64_t width = 9;
-	constexpr int default_value = -1;
-	region_map_impl<int, 2> rm{{height, width}, default_value};
+	constexpr size_t height = 5;
+	constexpr size_t width = 9;
+	constexpr size_t default_value = std::numeric_limits<size_t>::max();
+	region_map_impl<size_t, 2> rm{{height, width}, default_value};
 
 	SECTION("simple merge") {
 		// Set up in such a way that values cannot be merged upon update
@@ -696,19 +696,17 @@ TEST_CASE("region_map merges truncated result boxes with the same value upon que
 		// The exact result is ambiguous depending on how boxes were merged. However there should always be 3
 		CHECK(results.size() == 3);
 		// One is the non-mergeable default-initialized section
-		CHECK(std::any_of(results.begin(), results.end(), [default_value](auto& r) {
-			return r == std::pair{GridBox<2>{{3, 3}, {height, width}}, default_value};
-		}));
+		CHECK(std::any_of(results.begin(), results.end(), [default_value](auto& r) { return r == std::pair{box<2>{{3, 3}, {height, width}}, default_value}; }));
 		// The other two are either of these two variants
 		const bool variant_1 = std::any_of(results.begin(), results.end(), [](auto& r) {
-			return r == std::pair{GridBox<2>{{1, 1}, {height, 3}}, 3};
+			return r == std::pair{box<2>{{1, 1}, {height, 3}}, size_t(3)};
 		}) && std::any_of(results.begin(), results.end(), [](auto& r) {
-			return r == std::pair{GridBox<2>{{1, 3}, {3, width}}, 3};
+			return r == std::pair{box<2>{{1, 3}, {3, width}}, size_t(3)};
 		});
 		const bool variant_2 = std::any_of(results.begin(), results.end(), [](auto& r) {
-			return r == std::pair{GridBox<2>{{1, 1}, {3, width}}, 3};
+			return r == std::pair{box<2>{{1, 1}, {3, width}}, size_t(3)};
 		}) && std::any_of(results.begin(), results.end(), [](auto& r) {
-			return r == std::pair{GridBox<2>{{3, 1}, {height, 3}}, 3};
+			return r == std::pair{box<2>{{3, 1}, {height, 3}}, size_t(3)};
 		});
 		CHECK(variant_1 != variant_2);
 	}
@@ -717,11 +715,11 @@ TEST_CASE("region_map merges truncated result boxes with the same value upon que
 }
 
 TEST_CASE("region_map merges truncated result boxes with the same value upon querying in 3D", "[region_map]") {
-	constexpr int64_t depth = 32;
-	constexpr int64_t height = 64;
-	constexpr int64_t width = 96;
-	constexpr int default_value = -1;
-	region_map_impl<int, 3> rm{{depth, height, width}, default_value};
+	constexpr size_t depth = 32;
+	constexpr size_t height = 64;
+	constexpr size_t width = 96;
+	constexpr size_t default_value = std::numeric_limits<size_t>::max();
+	region_map_impl<size_t, 3> rm{{depth, height, width}, default_value};
 
 	SECTION("simple merge") {
 		// Setup in such a way that values cannot be merged upon update
@@ -739,11 +737,11 @@ TEST_CASE("region_map merges truncated result boxes with the same value upon que
 }
 
 TEST_CASE("region_map supports apply_to_values", "[region_map]") {
-	constexpr int64_t size = 128;
-	constexpr int default_value = -1;
-	region_map_impl<int, 1> rm{{size}, default_value};
+	constexpr size_t size = 128;
+	constexpr size_t default_value = std::numeric_limits<size_t>::max();
+	region_map_impl<size_t, 1> rm{{size}, default_value};
 
-	const auto query_and_check = [&](const GridBox<1>& box, int expected) {
+	const auto query_and_check = [&](const box<1>& box, size_t expected) {
 		const auto results = rm.get_region_values(box);
 		CHECK(results.size() == 1);
 		CHECK(results[0] == std::pair{box, expected});
@@ -755,7 +753,7 @@ TEST_CASE("region_map supports apply_to_values", "[region_map]") {
 	rm.update_box({96, size}, 4);
 
 	SECTION("basic value update") {
-		rm.apply_to_values([](int v) { return v * v; });
+		rm.apply_to_values([](size_t v) { return v * v; });
 		query_and_check({0, 32}, 1);
 		query_and_check({32, 64}, 4);
 		query_and_check({64, 96}, 9);
@@ -764,7 +762,7 @@ TEST_CASE("region_map supports apply_to_values", "[region_map]") {
 
 	SECTION("same values are merged after update") {
 		CHECK(region_map_testspy::get_num_leaf_nodes(rm) == 4);
-		rm.apply_to_values([](int v) { return v != 2 ? 42 : 1337; });
+		rm.apply_to_values([](size_t v) -> size_t { return v != 2 ? 42 : 1337; });
 		CHECK(region_map_testspy::get_num_leaf_nodes(rm) == 3);
 		query_and_check({0, 32}, 42);
 		query_and_check({32, 64}, 1337);
@@ -776,22 +774,22 @@ TEST_CASE("region_map supports apply_to_values", "[region_map]") {
 TEST_CASE("inserting consecutive boxes results in zero overlap", "[region_map][performance]") {
 	const bool row_wise_insert = GENERATE(true, false);
 
-	const int64_t height = 64;
-	const int64_t width = 128;
-	region_map_impl<int64_t, 2> rm{{height, width}, -1};
+	const size_t height = 64;
+	const size_t width = 128;
+	region_map_impl<size_t, 2> rm{{height, width}, std::numeric_limits<size_t>::max()};
 
-	const int64_t count_sqrt = 4;
+	const size_t count_sqrt = 4;
 	REQUIRE(height % count_sqrt == 0);
 	REQUIRE(width % count_sqrt == 0);
 
-	const auto insert_box = [&](const int64_t i, const int64_t j) {
-		const GridPoint<2> min = {i * (height / count_sqrt), j * (width / count_sqrt)};
-		const GridPoint<2> max = min + GridPoint<2>{height / count_sqrt, width / count_sqrt};
+	const auto insert_box = [&](const size_t i, const size_t j) {
+		const id<2> min = {i * (height / count_sqrt), j * (width / count_sqrt)};
+		const id<2> max = min + id<2>{height / count_sqrt, width / count_sqrt};
 		rm.update_box({min, max}, i * count_sqrt + j);
 	};
 
-	for(int64_t i = 0; i < count_sqrt; ++i) {
-		for(int64_t j = 0; j < count_sqrt; ++j) {
+	for(size_t i = 0; i < count_sqrt; ++i) {
+		for(size_t j = 0; j < count_sqrt; ++j) {
 			if(row_wise_insert) {
 				insert_box(i, j);
 			} else {

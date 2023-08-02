@@ -44,11 +44,11 @@ void verify_copied_linear_ids(const size_t* host_buf, const range<Dims>& source_
 
 template <int Dims>
 struct copy_parameters {
-	range<Dims> source_range = range_cast<Dims>(range<3>(5, 7, 11));
-	range<Dims> target_range = range_cast<Dims>(range<3>(13, 17, 19));
-	range<Dims> copy_range = range_cast<Dims>(range<3>(2, 4, 8));
-	id<Dims> source_offset = id_cast<Dims>(id<3>(2, 2, 2));
-	id<Dims> target_offset = id_cast<Dims>(id<3>(3, 5, 7));
+	range<Dims> source_range = test_utils::truncate_range<Dims>({5, 7, 11});
+	range<Dims> target_range = test_utils::truncate_range<Dims>({13, 17, 19});
+	range<Dims> copy_range = test_utils::truncate_range<Dims>({2, 4, 8});
+	id<Dims> source_offset = test_utils::truncate_id<Dims>({2, 2, 2});
+	id<Dims> target_offset = test_utils::truncate_id<Dims>({3, 5, 7});
 };
 
 template <int Dims>
