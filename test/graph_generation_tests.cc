@@ -66,7 +66,7 @@ TEST_CASE("isa<> RTTI helper correctly handles command hierarchies", "[rtti][com
 	REQUIRE(utils::isa<execution_command>(hec));
 	auto* const pc = cdag.create<push_command>(0, 0, 0, 0, subrange<3>{});
 	REQUIRE(utils::isa<abstract_command>(pc));
-	auto* const apc = cdag.create<await_push_command>(0, 0, 0, GridRegion<3>{});
+	auto* const apc = cdag.create<await_push_command>(0, 0, 0, region<3>{});
 	REQUIRE(utils::isa<abstract_command>(apc));
 }
 

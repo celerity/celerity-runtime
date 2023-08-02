@@ -163,7 +163,7 @@ namespace detail {
 			const auto log = log_capture.get_log();
 			CHECK_THAT(log, ContainsSubstring("digraph G{label=\"Command Graph\""));
 			CHECK_THAT(log, ContainsSubstring("(R1) <b>await push</b>"));
-			CHECK_THAT(log, ContainsSubstring("<b>reduction</b> R1<br/> B0 {[[0,0,0] - [1,1,1]]}"));
+			CHECK_THAT(log, ContainsSubstring("<b>reduction</b> R1<br/> B0 {[0,0,0] - [1,1,1]}"));
 		}
 #else
 		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
@@ -205,10 +205,10 @@ namespace detail {
 
 		// Note: We assume a local range size of 165 here, this may not be supported by all devices.
 
-		auto global_range = range_cast<Dims>(range<3>{n * 4 * 3, 3 * 5, 2 * 11});
-		auto local_range = range_cast<Dims>(range<3>{3, 5, 11});
-		auto group_range = global_range / local_range;
-		auto global_offset = id_cast<Dims>(id<3>{47, 53, 59});
+		const auto global_range = test_utils::truncate_range<Dims>({n * 4 * 3, 3 * 5, 2 * 11});
+		const auto local_range = test_utils::truncate_range<Dims>({3, 5, 11});
+		const auto group_range = global_range / local_range;
+		const auto global_offset = test_utils::truncate_id<Dims>({47, 53, 59});
 
 		buffer<geometry, Dims> geo(global_range);
 
@@ -217,7 +217,7 @@ namespace detail {
 			cgh.parallel_for<kernel_name_nd_geometry<Dims>>(celerity::nd_range{global_range, local_range}, /* global_offset,*/ [=](nd_item<Dims> item) {
 				auto group = item.get_group();
 				g[item.get_global_id()] = geometry{//
-				    {item.get_group_linear_id(), range_cast<3>(item.get_group_range()), range_cast<3>(item.get_local_id()), item.get_local_linear_id(),
+				    {item.get_group_linear_id(), range_cast<3>(item.get_group_range()), id_cast<3>(item.get_local_id()), item.get_local_linear_id(),
 				        range_cast<3>(item.get_local_range()), id_cast<3>(item.get_global_id()), item.get_global_linear_id(),
 				        range_cast<3>(item.get_global_range())},
 				    {id_cast<3>(group.get_group_id()), group.get_group_linear_id(), range_cast<3>(group.get_group_range()), id_cast<3>(group.get_local_id()),
@@ -408,22 +408,22 @@ namespace detail {
 			const std::string expected =
 			    "digraph G{label=\"Command Graph\" subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 (epoch)</font>>;color=darkgray;id_0_0[label=<C0 "
 			    "on N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font color=\"#606060\">T1 \"unnamed_kernel\" "
-			    "(device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [[0,0,0] - [8,16,1]]<br/><i>read_write</i> B0 {[[0,0,0] - "
-			    "[8,16,1]]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 "
+			    "(device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [0,0,0] + [8,16,1]<br/><i>read_write</i> B0 {[0,0,0] - "
+			    "[8,16,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 "
 			    "(horizon)</font>>;color=darkgray;id_0_2[label=<C2 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph cluster_id_0_3{label=<<font "
-			    "color=\"#606060\">T3 \"unnamed_kernel\" (device-compute)</font>>;color=darkgray;id_0_3[label=<C3 on N0<br/><b>execution</b> [[0,0,0] - "
-			    "[8,16,1]]<br/><i>read_write</i> B0 {[[0,0,0] - [8,16,1]]}> fontcolor=black shape=box];}subgraph cluster_id_0_4{label=<<font "
+			    "color=\"#606060\">T3 \"unnamed_kernel\" (device-compute)</font>>;color=darkgray;id_0_3[label=<C3 on N0<br/><b>execution</b> [0,0,0] + "
+			    "[8,16,1]<br/><i>read_write</i> B0 {[0,0,0] - [8,16,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_4{label=<<font "
 			    "color=\"#606060\">T4 (horizon)</font>>;color=darkgray;id_0_4[label=<C4 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph "
 			    "cluster_id_0_5{label=<<font color=\"#606060\">T5 (epoch)</font>>;color=darkgray;id_0_5[label=<C5 on N0<br/><b>epoch</b> (barrier)> "
 			    "fontcolor=black "
 			    "shape=box];}id_0_0->id_0_1[];id_0_1->id_0_2[color=orange];id_0_1->id_0_3[];id_0_3->id_0_4[color=orange];id_0_2->id_0_4[color=orange];id_0_4->"
 			    "id_0_5[color=orange];subgraph cluster_id_1_0{label=<<font color=\"#606060\">T0 (epoch)</font>>;color=darkgray;id_1_0[label=<C0 on "
 			    "N1<br/><b>epoch</b>> fontcolor=crimson shape=box];}subgraph cluster_id_1_1{label=<<font color=\"#606060\">T1 \"unnamed_kernel\" "
-			    "(device-compute)</font>>;color=darkgray;id_1_1[label=<C1 on N1<br/><b>execution</b> [[8,0,0] - [16,16,1]]<br/><i>read_write</i> B0 {[[8,0,0] "
-			    "- [16,16,1]]}> fontcolor=crimson shape=box];}subgraph cluster_id_1_2{label=<<font color=\"#606060\">T2 "
+			    "(device-compute)</font>>;color=darkgray;id_1_1[label=<C1 on N1<br/><b>execution</b> [8,0,0] + [8,16,1]<br/><i>read_write</i> B0 {[8,0,0] "
+			    "- [16,16,1]}> fontcolor=crimson shape=box];}subgraph cluster_id_1_2{label=<<font color=\"#606060\">T2 "
 			    "(horizon)</font>>;color=darkgray;id_1_2[label=<C2 on N1<br/><b>horizon</b>> fontcolor=crimson shape=box];}subgraph "
 			    "cluster_id_1_3{label=<<font color=\"#606060\">T3 \"unnamed_kernel\" (device-compute)</font>>;color=darkgray;id_1_3[label=<C3 on "
-			    "N1<br/><b>execution</b> [[8,0,0] - [16,16,1]]<br/><i>read_write</i> B0 {[[8,0,0] - [16,16,1]]}> fontcolor=crimson shape=box];}subgraph "
+			    "N1<br/><b>execution</b> [8,0,0] + [8,16,1]<br/><i>read_write</i> B0 {[8,0,0] - [16,16,1]}> fontcolor=crimson shape=box];}subgraph "
 			    "cluster_id_1_4{label=<<font color=\"#606060\">T4 (horizon)</font>>;color=darkgray;id_1_4[label=<C4 on N1<br/><b>horizon</b>> "
 			    "fontcolor=crimson shape=box];}subgraph cluster_id_1_5{label=<<font color=\"#606060\">T5 (epoch)</font>>;color=darkgray;id_1_5[label=<C5 on "
 			    "N1<br/><b>epoch</b> (barrier)> fontcolor=crimson "

@@ -70,14 +70,14 @@ namespace detail {
 
 	class await_push_command final : public abstract_command {
 		friend class command_graph;
-		await_push_command(command_id cid, buffer_id bid, reduction_id rid, transfer_id trid, GridRegion<3> region)
+		await_push_command(command_id cid, buffer_id bid, reduction_id rid, transfer_id trid, region<3> region)
 		    : abstract_command(cid), m_bid(bid), m_rid(rid), m_trid(trid), m_region(std::move(region)) {}
 
 	  public:
 		buffer_id get_bid() const { return m_bid; }
 		reduction_id get_reduction_id() const { return m_rid; }
 		transfer_id get_transfer_id() const { return m_trid; }
-		GridRegion<3> get_region() const { return m_region; }
+		region<3> get_region() const { return m_region; }
 
 	  private:
 		buffer_id m_bid;
@@ -85,7 +85,7 @@ namespace detail {
 		// but it allows us to sanity check that they match as well as include the ID during graph printing.
 		reduction_id m_rid;
 		transfer_id m_trid;
-		GridRegion<3> m_region;
+		region<3> m_region;
 	};
 
 	class reduction_command final : public abstract_command {
@@ -184,7 +184,7 @@ namespace detail {
 		buffer_id bid;
 		reduction_id rid;
 		transfer_id trid;
-		GridRegion<3> region;
+		region<3> region;
 	};
 
 	struct reduction_data {

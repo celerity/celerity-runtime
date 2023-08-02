@@ -17,7 +17,7 @@ namespace detail {
 
 	void task_manager::add_buffer(buffer_id bid, const int dims, const range<3>& range, bool host_initialized) {
 		m_buffers_last_writers.emplace(std::piecewise_construct, std::tuple{bid}, std::tuple{range, dims});
-		if(host_initialized) { m_buffers_last_writers.at(bid).update_region(subrange_to_grid_box(subrange<3>({}, range)), m_epoch_for_new_tasks); }
+		if(host_initialized) { m_buffers_last_writers.at(bid).update_region(subrange<3>({}, range), m_epoch_for_new_tasks); }
 	}
 
 	const task* task_manager::find_task(task_id tid) const { return m_task_buffer.find_task(tid); }
@@ -53,14 +53,15 @@ namespace detail {
 
 	void task_manager::await_epoch(task_id epoch) { m_latest_epoch_reached.await(epoch); }
 
-	GridRegion<3> get_requirements(const task& tsk, buffer_id bid, const std::vector<cl::sycl::access::mode> modes) {
+	region<3> get_requirements(const task& tsk, buffer_id bid, const std::vector<cl::sycl::access::mode>& modes) {
 		const auto& access_map = tsk.get_buffer_access_map();
 		const subrange<3> full_range{tsk.get_global_offset(), tsk.get_global_size()};
-		GridRegion<3> result;
+		std::vector<box<3>> boxes;
 		for(auto m : modes) {
-			result = GridRegion<3>::merge(result, access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), full_range, tsk.get_global_size()));
+			const auto req = access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), full_range, tsk.get_global_size());
+			boxes.insert(boxes.end(), req.get_boxes().begin(), req.get_boxes().end());
 		}
-		return result;
+		return region(std::move(boxes));
 	}
 
 	void task_manager::compute_dependencies(task& tsk) {
@@ -72,6 +73,8 @@ namespace detail {
 		for(const auto& reduction : tsk.get_reductions()) {
 			buffers.emplace(reduction.bid);
 		}
+
+		const box<3> scalar_box({0, 0, 0}, {1, 1, 1});
 
 		for(const auto bid : buffers) {
 			const auto modes = access_map.get_access_modes(bid);
@@ -92,7 +95,7 @@ namespace detail {
 			// Determine reader dependencies
 			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_consumer) || (reduction.has_value() && reduction->init_from_buffer)) {
 				auto read_requirements = get_requirements(tsk, bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
-				if(reduction.has_value()) { read_requirements = GridRegion<3>::merge(read_requirements, GridRegion<3>{{1, 1, 1}}); }
+				if(reduction.has_value()) { read_requirements = region_union(read_requirements, scalar_box); }
 				const auto last_writers = m_buffers_last_writers.at(bid).get_region_values(read_requirements);
 
 				for(auto& p : last_writers) {
@@ -107,7 +110,7 @@ namespace detail {
 			// Update last writers and determine anti-dependencies
 			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_producer) || reduction.has_value()) {
 				auto write_requirements = get_requirements(tsk, bid, {detail::access::producer_modes.cbegin(), detail::access::producer_modes.cend()});
-				if(reduction.has_value()) { write_requirements = GridRegion<3>::merge(write_requirements, GridRegion<3>{{1, 1, 1}}); }
+				if(reduction.has_value()) { write_requirements = region_union(write_requirements, scalar_box); }
 				if(write_requirements.empty()) continue;
 
 				const auto last_writers = m_buffers_last_writers.at(bid).get_region_values(write_requirements);
@@ -128,7 +131,7 @@ namespace detail {
 						const auto dependent_read_requirements =
 						    get_requirements(*dependent.node, bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
 						// Only add an anti-dependency if we are really writing over the region read by this task
-						if(!GridRegion<3>::intersect(write_requirements, dependent_read_requirements).empty()) {
+						if(!region_intersection(write_requirements, dependent_read_requirements).empty()) {
 							add_dependency(tsk, *dependent.node, dependency_kind::anti_dep, dependency_origin::dataflow);
 							has_anti_dependents = true;
 						}

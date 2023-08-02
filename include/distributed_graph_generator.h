@@ -100,7 +100,7 @@ class distributed_graph_generator {
 	void generate_distributed_commands(const task& tsk);
 
 	void generate_anti_dependencies(
-	    task_id tid, buffer_id bid, const region_map<write_command_state>& last_writers_map, const GridRegion<3>& write_req, abstract_command* write_cmd);
+	    task_id tid, buffer_id bid, const region_map<write_command_state>& last_writers_map, const region<3>& write_req, abstract_command* write_cmd);
 
 	void process_task_side_effect_requirements(const task& tsk);
 
@@ -117,7 +117,7 @@ class distributed_graph_generator {
 	void prune_commands_before(const command_id epoch);
 
   private:
-	using buffer_read_map = std::unordered_map<buffer_id, GridRegion<3>>;
+	using buffer_read_map = std::unordered_map<buffer_id, region<3>>;
 	using side_effect_map = std::unordered_map<host_object_id, command_id>;
 
 	size_t m_num_nodes;

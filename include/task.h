@@ -104,10 +104,10 @@ namespace detail {
 		 *
 		 * @returns The region obtained by merging the results of all range-mappers for this buffer and mode
 		 */
-		GridRegion<3> get_mode_requirements(
+		region<3> get_mode_requirements(
 		    const buffer_id bid, const access_mode mode, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const;
 
-		GridBox<3> get_requirements_for_nth_access(const size_t n, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const;
+		box<3> get_requirements_for_nth_access(const size_t n, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const;
 
 	  private:
 		std::vector<std::pair<buffer_id, std::unique_ptr<range_mapper_base>>> m_accesses;

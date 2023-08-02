@@ -44,9 +44,9 @@ void format_requirements(std::string& label, const reduction_list& reductions, c
     const access_mode reduction_init_mode) {
 	for(const auto& [rid, bid, buffer_name, init_from_buffer] : reductions) {
 		auto rmode = init_from_buffer ? reduction_init_mode : cl::sycl::access::mode::discard_write;
-		const auto req = GridRegion<3>{{1, 1, 1}};
+		const region scalar_region(box<3>({0, 0, 0}, {1, 1, 1}));
 		const std::string bl = get_buffer_label(bid, buffer_name);
-		fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> {} {}", rid, detail::access::mode_traits::name(rmode), bl, req);
+		fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> {} {}", rid, detail::access::mode_traits::name(rmode), bl, scalar_region);
 	}
 
 	for(const auto& [bid, buffer_name, mode, req] : accesses) {
@@ -111,12 +111,12 @@ std::string get_command_label(const node_id local_nid, const command_record& cmd
 		if(cmd.epoch_action == epoch_action::shutdown) { label += " (shutdown)"; }
 	} break;
 	case command_type::execution: {
-		fmt::format_to(std::back_inserter(label), "<b>execution</b> {}", subrange_to_grid_box(cmd.execution_range.value()));
+		fmt::format_to(std::back_inserter(label), "<b>execution</b> {}", cmd.execution_range.value());
 	} break;
 	case command_type::push: {
 		add_reduction_id_if_reduction();
-		fmt::format_to(std::back_inserter(label), "<b>push</b> transfer {} to N{}<br/>B{} {}", //
-		    cmd.transfer_id.value(), cmd.target.value(), buffer_label, subrange_to_grid_box(cmd.push_range.value()));
+		fmt::format_to(std::back_inserter(label), "<b>push</b> transfer {} to N{}<br/>B{} {}", cmd.transfer_id.value(), cmd.target.value(), buffer_label,
+		    cmd.push_range.value());
 	} break;
 	case command_type::await_push: {
 		add_reduction_id_if_reduction();
@@ -124,7 +124,8 @@ std::string get_command_label(const node_id local_nid, const command_record& cmd
 		    cmd.transfer_id.value(), buffer_label, cmd.await_region.value());
 	} break;
 	case command_type::reduction: {
-		fmt::format_to(std::back_inserter(label), "<b>reduction</b> R{}<br/> {} {}", cmd.reduction_id.value(), buffer_label, GridRegion<3>{{1, 1, 1}});
+		const region scalar_region(box<3>({0, 0, 0}, {1, 1, 1}));
+		fmt::format_to(std::back_inserter(label), "<b>reduction</b> R{}<br/> {} {}", cmd.reduction_id.value(), buffer_label, scalar_region);
 	} break;
 	case command_type::horizon: {
 		label += "<b>horizon</b>";

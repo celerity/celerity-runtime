@@ -391,7 +391,7 @@ namespace detail {
 		CHECK(horizon_tsk->get_dependencies().size() == 3);
 	}
 
-	static inline GridRegion<3> make_region(int min, int max) { return GridRegion<3>(GridPoint<3>(min, 0, 0), GridPoint<3>(max, 1, 1)); }
+	static inline region<3> make_region(size_t min, size_t max) { return box<3>({min, 0, 0}, {max, 1, 1}); }
 
 	TEST_CASE("task horizons update previous writer data structure", "[task_manager][task-graph][task-horizon]") {
 		auto tt = test_utils::task_test_context{};
