@@ -40,6 +40,10 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "freeing task ring buffer capacity
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "deadlock in task ring buffer due to slot exhaustion is reported", "[task_ring_buffer]") {
 	celerity::distr_queue q;
+
+	// set a high maximum so that we can actually run out of slots
+	runtime::get_instance().get_task_manager().set_horizon_max_parallelism(task_ringbuffer_size * 16);
+
 	CHECK_THROWS_WITH(
 	    [&] {
 		    for(size_t i = 0; i < task_ringbuffer_size + 1; ++i) {

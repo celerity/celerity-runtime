@@ -193,6 +193,15 @@ namespace detail {
 		m_max_pseudo_critical_path_length = std::max(m_max_pseudo_critical_path_length, depender.get_pseudo_critical_path_length());
 	}
 
+	bool task_manager::need_new_horizon() const {
+		const bool need_seq_horizon = m_max_pseudo_critical_path_length - m_current_horizon_critical_path_length >= m_task_horizon_step_size;
+		const bool need_para_horizon = static_cast<int>(m_execution_front.size()) >= m_task_horizon_max_parallelism;
+		const bool need_horizon = need_seq_horizon || need_para_horizon;
+		CELERITY_TRACE("Horizon decision: {} - seq: {} para: {} - crit_p: {} exec_f: {}", need_horizon, need_seq_horizon, need_para_horizon,
+		    m_current_horizon_critical_path_length, m_execution_front.size());
+		return need_horizon;
+	}
+
 	task& task_manager::reduce_execution_front(task_ring_buffer::reservation&& reserve, std::unique_ptr<task> new_front) {
 		// add dependencies from a copy of the front to this task
 		const auto current_front = m_execution_front;

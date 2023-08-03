@@ -356,6 +356,41 @@ namespace detail {
 		CHECK(expected_dependency_ids == actual_dependecy_ids);
 	}
 
+	TEST_CASE("task horizons are being generated for the parallelism limit", "[task_manager][task-graph][task-horizon]") {
+		auto tt = test_utils::task_test_context{};
+
+		// we set a high step but low max parallelism to make sure that all horizons in this test are generated due to the parallelism limit,
+		// regardless of what the defaults for these values are
+		tt.tm.set_horizon_step(256);
+		const auto max_para = 3;
+		tt.tm.set_horizon_max_parallelism(max_para);
+
+		const auto buff_size = 128;
+		const auto num_tasks = 9;
+		const auto buff_elem_per_task = buff_size / num_tasks;
+		auto buf_a = tt.mbf.create_buffer(range<1>(buff_size));
+
+		auto current_horizon = task_manager_testspy::get_current_horizon(tt.tm);
+		CHECK_FALSE(current_horizon.has_value());
+
+		for(int i = 0; i < num_tasks; ++i) {
+			const auto offset = buff_elem_per_task * i;
+			test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
+				buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({offset, buff_elem_per_task}));
+			});
+		}
+
+		// divided by "max_para - 1" since there is also always the previous horizon in the set
+		const auto expected_num_horizons = num_tasks / (max_para - 1);
+		CHECK(task_manager_testspy::get_num_horizons(tt.tm) == expected_num_horizons);
+
+		// the most recent horizon should have 3 predecessors: 1 other horizon and 2 host tasks we generated
+		current_horizon = task_manager_testspy::get_current_horizon(tt.tm);
+		REQUIRE(current_horizon.has_value());
+		const auto& horizon_tsk = tt.tm.get_task(current_horizon.value());
+		CHECK(horizon_tsk->get_dependencies().size() == 3);
+	}
+
 	static inline GridRegion<3> make_region(int min, int max) { return GridRegion<3>(GridPoint<3>(min, 0, 0), GridPoint<3>(max, 1, 1)); }
 
 	TEST_CASE("task horizons update previous writer data structure", "[task_manager][task-graph][task-horizon]") {
