@@ -46,7 +46,7 @@ class buffer_snapshot {
 	inline const T& operator[](const id<Dims> index) const { return m_data[detail::get_linear_index(m_subrange.range, index)]; }
 
 	template <int D = Dims, std::enable_if_t<(D > 0), int> = 0>
-	inline detail::subscript_result_t<Dims, const buffer_snapshot> operator[](const size_t index) const {
+	inline decltype(auto) operator[](const size_t index) const {
 		return detail::subscript<Dims>(*this, index);
 	}
 
