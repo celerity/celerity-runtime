@@ -36,6 +36,7 @@ namespace detail {
 
 		auto& front() const { return *m_first; }
 		bool empty() const { return m_first == m_last; }
+		size_t size() const { return std::distance(m_first, m_last); }
 
 	  private:
 		Iterator m_first;

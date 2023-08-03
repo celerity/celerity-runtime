@@ -146,6 +146,11 @@ namespace detail {
 			m_task_horizon_step_size = step;
 		}
 
+		void set_horizon_max_parallelism(const int para) {
+			assert(para >= 1);
+			m_task_horizon_max_parallelism = para;
+		}
+
 		/**
 		 * @brief Notifies the task manager that the given horizon has been executed (used for task deletion).
 		 *
@@ -202,9 +207,14 @@ namespace detail {
 		// More information can be found in this paper: https://link.springer.com/chapter/10.1007/978-3-031-32316-4_2
 		int m_task_horizon_step_size = 4;
 
+		// Maximum number of independent tasks (task graph breadth) allowed in a single horizon step
+		int m_task_horizon_max_parallelism = 64;
+
 		// This only (potentially) grows when adding dependencies,
 		// it never shrinks and does not take into account later changes further up in the dependency chain
 		int m_max_pseudo_critical_path_length = 0;
+
+		// The maximum critical path length of tasks within the current horizon frame
 		int m_current_horizon_critical_path_length = 0;
 
 		// The latest horizon task created. Will be applied as the epoch for new tasks once the next horizon is created.
@@ -229,7 +239,7 @@ namespace detail {
 
 		void add_dependency(task& depender, task& dependee, dependency_kind kind, dependency_origin origin);
 
-		inline bool need_new_horizon() const { return m_max_pseudo_critical_path_length - m_current_horizon_critical_path_length >= m_task_horizon_step_size; }
+		bool need_new_horizon() const;
 
 		int get_max_pseudo_critical_path_length() const { return m_max_pseudo_critical_path_length; }
 
