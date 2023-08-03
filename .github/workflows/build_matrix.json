@@ -4,9 +4,9 @@
         { "sycl": "dpcpp", "sycl-version": "61e51015", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },
         { "sycl": "dpcpp", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },
         { "sycl": "dpcpp", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },
-        { "sycl": "hipsycl", "sycl-version": "24980221", "ubuntu-version": "20.04", "platform": "nvidia", "build-type": "Debug" },
-        { "sycl": "hipsycl", "sycl-version": "24980221", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Debug" },
-        { "sycl": "hipsycl", "sycl-version": "24980221", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Release" },
+        { "sycl": "hipsycl", "sycl-version": "d2bd9fc7", "ubuntu-version": "20.04", "platform": "nvidia", "build-type": "Debug" },
+        { "sycl": "hipsycl", "sycl-version": "d2bd9fc7", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Debug" },
+        { "sycl": "hipsycl", "sycl-version": "d2bd9fc7", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Release" },
         { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "23.04", "platform": "nvidia", "build-type": "Debug" },
         { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "23.04", "platform": "nvidia", "build-type": "Release" }
     ],

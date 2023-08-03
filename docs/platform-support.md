@@ -6,7 +6,7 @@ sidebar_label: Platform Support
 
 The most recent version of Celerity aims to support the following environments:
 
-* hipSYCL ≥ revision [`24980221`](https://github.com/illuhad/hipSYCL/commit/24980221), with
+* hipSYCL ≥ revision [`d2bd9fc7`](https://github.com/illuhad/hipSYCL/commit/d2bd9fc7), with
   * CUDA ≥ 11.0
   * Clang ≥ 10.0 for CUDA &lt; 12.0, Clang ≥ 16.0 for CUDA ≥ 12.0
   * on NVIDIA hardware with compute capability ≥ 7.0
@@ -26,9 +26,9 @@ Those are:
 |------------|------------------------------------------------------------------------------------------|--------------|----------------|
 | DPC++      | [`61e51015`](https://github.com/intel/llvm/commit/61e51015)                              | Ubuntu 20.04 | Debug          |
 | DPC++      | [`HEAD`](https://github.com/intel/llvm/)                                                 | Ubuntu 22.04 | Debug, Release |
-| hipSYCL    | [`24980221`](https://github.com/illuhad/hipSYCL/commit/24980221) (Clang 10, CUDA 11.0.3) | Ubuntu 20.04 | Debug          |
-| hipSYCL    | [`24980221`](https://github.com/illuhad/hipSYCL/commit/24980221) (Clang 14, CUDA 11.8.0) | Ubuntu 22.04 | Debug, Release |
-| hipSYCL    | [`HEAD`](https://github.com/illuhad/hipSYCL) (Clang 16, CUDA 12.1.0)\*                   | Ubuntu 23.04 | Debug, Release |
+| hipSYCL    | [`d2bd9fc7`](https://github.com/illuhad/hipSYCL/commit/d2bd9fc7) (Clang 10, CUDA 11.0.3) | Ubuntu 20.04 | Debug          |
+| hipSYCL    | [`d2bd9fc7`](https://github.com/illuhad/hipSYCL/commit/d2bd9fc7) (Clang 14, CUDA 11.8.0) | Ubuntu 22.04 | Debug, Release |
+| hipSYCL    | [`HEAD`](https://github.com/illuhad/hipSYCL) (Clang 16, CUDA 12.2.0)\*                   | Ubuntu 23.04 | Debug, Release |
 
 \* currently requires a patch for an illegal macro definition in CUDA:
   
