@@ -201,8 +201,8 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		return m_device_ptr[get_linear_offset(index)];
 	}
 
-	template <int D = Dims>
-	inline std::enable_if_t<(D > 0), detail::subscript_result_t<D, const accessor>> operator[](const size_t index) const {
+	template <int D = Dims, std::enable_if_t<(D > 0), int> = 0>
+	inline decltype(auto) operator[](const size_t index) const {
 		return detail::subscript<D>(*this, index);
 	}
 
@@ -415,8 +415,8 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		return m_host_ptr[get_linear_offset(index)];
 	}
 
-	template <int D = Dims>
-	inline std::enable_if_t<(D > 0), detail::subscript_result_t<D, const accessor>> operator[](const size_t index) const {
+	template <int D = Dims, std::enable_if_t<(D > 0), int> = 0>
+	inline decltype(auto) operator[](const size_t index) const {
 		return detail::subscript<D>(*this, index);
 	}
 
@@ -666,8 +666,8 @@ class local_accessor {
 		}
 	}
 
-	template <int D = Dims>
-	inline std::enable_if_t<(D > 0), detail::subscript_result_t<Dims, const local_accessor>> operator[](const size_t dim0) const {
+	template <int D = Dims, std::enable_if_t<(D > 0), int> = 0>
+	inline decltype(auto) operator[](const size_t dim0) const {
 		return detail::subscript<Dims>(*this, dim0);
 	}
 
