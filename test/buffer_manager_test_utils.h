@@ -106,7 +106,7 @@ namespace test_utils {
 				get_device_queue()
 				    .submit([&](sycl::handler& cgh) {
 					    auto ptr = info.ptr;
-					    cgh.parallel_for<detail::bind_kernel_name<KernelName>>(sycl::range<Dims>(range), [=](sycl::id<Dims> s_global_idx) {
+					    cgh.parallel_for<KernelName>(sycl::range<Dims>(range), [=](sycl::id<Dims> s_global_idx) {
 						    auto global_idx = celerity::id(s_global_idx) + offset;
 						    const auto local_idx = global_idx - buf_offset;
 						    cb(global_idx, static_cast<DataT*>(ptr)[detail::get_linear_index(buf_range, local_idx)]);
@@ -147,7 +147,7 @@ namespace test_utils {
 			    .submit([&](cl::sycl::handler& cgh) {
 				    auto ptr = static_cast<DataT*>(info.ptr);
 				    auto result_acc = result_buf.template get_access<cl::sycl::access::mode::read_write>(cgh);
-				    cgh.single_task<detail::bind_kernel_name<KernelName>>([=]() {
+				    cgh.single_task<KernelName>([=]() {
 					    result_acc[0] = init;
 					    for(size_t i = offset3[0]; i < offset3[0] + range3[0]; ++i) {
 						    for(size_t j = offset3[1]; j < offset3[1] + range3[1]; ++j) {

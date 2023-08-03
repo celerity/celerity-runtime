@@ -36,13 +36,7 @@ inline constexpr detail::access_tag<access_mode::read_write, access_mode::discar
 using cl::sycl::property_list;
 
 namespace property {
-#if CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 8)
-	struct no_init : cl::sycl::detail::property_base {
-		no_init() : cl::sycl::detail::property_base(static_cast<cl::sycl::detail::property_enum>(0)) {}
-	};
-#else
 	using cl::sycl::property::no_init;
-#endif
 
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
 	namespace reduction {

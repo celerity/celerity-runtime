@@ -602,11 +602,7 @@ class local_accessor {
   private:
 	constexpr static int sycl_dims = std::max(1, Dims);
 
-#if CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 6)
-	using sycl_accessor = cl::sycl::accessor<DataT, sycl_dims, cl::sycl::access::mode::read_write, cl::sycl::access::target::local>;
-#else
 	using sycl_accessor = cl::sycl::local_accessor<DataT, sycl_dims>;
-#endif
 
   public:
 	using value_type = DataT;

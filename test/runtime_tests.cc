@@ -688,27 +688,21 @@ namespace detail {
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(nd_range_1)>(celerity::nd_range<1>{{256}, {64}}, [](nd_item<1> item) {
 				group_barrier(item.get_group());
-#if !CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9) // no group primitives
 				group_broadcast(item.get_group(), 42);
-#endif
 			});
 		}));
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(nd_range_2)>(celerity::nd_range<2>{{64, 64}, {8, 8}}, [](nd_item<2> item) {
 				group_barrier(item.get_group());
-#if !CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9) // no group primitives
 				group_broadcast(item.get_group(), 42, 25);
-#endif
 			});
 		}));
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(nd_range_3)>(celerity::nd_range<3>{{16, 16, 16}, {4, 4, 4}}, [](nd_item<3> item) {
 				group_barrier(item.get_group());
-#if !CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 9) // no group primitives
 				group_broadcast(item.get_group(), 42, {1, 2, 3});
-#endif
 			});
 		}));
 	}

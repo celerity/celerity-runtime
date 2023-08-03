@@ -66,24 +66,6 @@ namespace detail {
 	template <typename KernelName>
 	constexpr bool is_unnamed_kernel = std::is_same_v<KernelName, unnamed_kernel>;
 
-#if CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER
-	template <typename KernelName>
-	struct kernel_name_wrapper;
-#endif
-
-	template <typename KernelName>
-	struct bound_kernel_name {
-		static_assert(!is_unnamed_kernel<KernelName>);
-#if CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER
-		using type = kernel_name_wrapper<KernelName>; // Suppress -Rsycl-kernel-naming diagnostic for local types
-#else
-		using type = KernelName;
-#endif
-	};
-
-	template <typename KernelName>
-	using bind_kernel_name = typename bound_kernel_name<KernelName>::type;
-
 	struct simple_kernel_flavor {};
 	struct nd_range_kernel_flavor {};
 
@@ -227,7 +209,7 @@ namespace detail {
 			cgh.parallel_for(std::forward<Params>(args)...);
 #endif
 		} else {
-			cgh.parallel_for<detail::bind_kernel_name<KernelName>>(std::forward<Params>(args)...);
+			cgh.parallel_for<KernelName>(std::forward<Params>(args)...);
 		}
 	}
 
