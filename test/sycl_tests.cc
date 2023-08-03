@@ -11,16 +11,10 @@ class dim_device_queue_fixture : public test_utils::device_queue_fixture {};
 template <access_mode, bool>
 class access_test_kernel;
 
-#if CELERITY_WORKAROUND_LESS_OR_EQUAL(COMPUTECPP, 2, 7)
-constexpr auto sycl_target_device = cl::sycl::access::target::global_buffer;
-#else
-constexpr auto sycl_target_device = cl::sycl::access::target::device;
-#endif
-
 template <access_mode AccessMode, bool UsingPlaceholderAccessor>
 static auto make_device_accessor(sycl::buffer<int, 1>& buf, sycl::handler& cgh, const subrange<1>& sr) {
 	if constexpr(UsingPlaceholderAccessor) {
-		sycl::accessor<int, 1, AccessMode, sycl_target_device, sycl::access::placeholder::true_t> acc{buf, sr.range, sr.offset};
+		sycl::accessor<int, 1, AccessMode, sycl::target::device, sycl::access::placeholder::true_t> acc{buf, sr.range, sr.offset};
 		cgh.require(acc);
 		return acc;
 	} else {

@@ -51,9 +51,6 @@ namespace detail {
 		test_utils::maybe_print_graph(celerity::detail::runtime::get_instance().get_task_manager());
 	}
 
-// ComputeCPP based on Clang 8 segfaults in these tests
-#if !CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER
-
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager keeps track of buffers", "[buffer_manager]") {
 		std::vector<std::pair<buffer_manager::buffer_lifecycle_event, buffer_id>> cb_calls;
 		initialize([&](buffer_manager::buffer_lifecycle_event e, buffer_id bid) { cb_calls.push_back({e, bid}); });
@@ -437,7 +434,7 @@ namespace detail {
 			// Here we cheat: We override the device data using the pointer we kept from before, without telling the BM (which is not allowed).
 			dq.get_sycl_queue()
 			    .submit([&](cl::sycl::handler& cgh) {
-				    cgh.parallel_for<bind_kernel_name<class UKN(overwrite_buf)>>(sycl::range<1>(32), [=](sycl::item<1> item) { device_ptr[item[0]] = 33; });
+				    cgh.parallel_for<class UKN(overwrite_buf)>(sycl::range<1>(32), [=](sycl::item<1> item) { device_ptr[item[0]] = 33; });
 			    })
 			    .wait();
 
@@ -459,7 +456,7 @@ namespace detail {
 			// First, we cheat again.
 			dq.get_sycl_queue()
 			    .submit([&](cl::sycl::handler& cgh) {
-				    cgh.parallel_for<bind_kernel_name<class UKN(overwrite_buf)>>(sycl::range<1>(32), [=](cl::sycl::item<1> item) { device_ptr[item[0]] = 34; });
+				    cgh.parallel_for<class UKN(overwrite_buf)>(sycl::range<1>(32), [=](cl::sycl::item<1> item) { device_ptr[item[0]] = 34; });
 			    })
 			    .wait();
 
@@ -1300,8 +1297,6 @@ namespace detail {
 		}
 #endif // CELERITY_DPCPP
 	}
-
-#endif // CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER
 
 } // namespace detail
 } // namespace celerity

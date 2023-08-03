@@ -21,25 +21,6 @@ namespace detail {
 
 	class task;
 
-#if CELERITY_WORKAROUND(HIPSYCL)
-	template <typename T, typename U = void>
-	struct hipsycl_is_old_dag_api : std::false_type {};
-	template <typename T>
-	struct hipsycl_is_old_dag_api<T, std::void_t<decltype(T::dag())>> : std::true_type {};
-
-	// Unfortunately the API for flushing the DAG changed in 83e290ff, so we need to detect which version is available.
-	// See also: https://github.com/illuhad/hipSYCL/pull/749.
-	// Note that both functions need to be dependent names so that no invalid code is ever instantiated (hence the need for App and Queue).
-	template <typename App = hipsycl::rt::application, typename Queue = sycl::queue>
-	void hipsycl_flush_dag(Queue& queue) {
-		if constexpr(hipsycl_is_old_dag_api<App>::value) {
-			App::dag().flush_async();
-		} else {
-			queue.get_context().hipSYCL_runtime()->dag().flush_async();
-		}
-	}
-#endif
-
 	struct device_allocation {
 		void* ptr = nullptr;
 		size_t size_bytes = 0;
@@ -73,7 +54,7 @@ namespace detail {
 			// hipSYCL does not guarantee that command groups are actually scheduled until an explicit await operation, which we cannot insert without
 			// blocking the executor loop (see https://github.com/illuhad/hipSYCL/issues/599). Instead, we explicitly flush the queue to be able to continue
 			// using our polling-based approach.
-			hipsycl_flush_dag(*m_sycl_queue);
+			m_sycl_queue->get_context().hipSYCL_runtime()->dag().flush_async();
 #endif
 			return evt;
 		}

@@ -35,7 +35,7 @@ set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CELERITY_CMAKE_DIR}")
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 
-set(CELERITY_SYCL_IMPL "OFF" CACHE STRING "hipSYCL|ComputeCpp|DPC++")
+set(CELERITY_SYCL_IMPL "OFF" CACHE STRING "hipSYCL|DPC++")
 
 include("${CELERITY_CMAKE_DIR}/TestDPCXX.cmake")
 test_cxx_compiler_is_dpcpp(CXX_COMPILER_IS_DPCPP)
@@ -47,8 +47,6 @@ endif()
 set(hipSYCL_MIN_VERSION "0.9.1")
 if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
   find_package(hipSYCL ${hipSYCL_MIN_VERSION} CONFIG REQUIRED)
-elseif(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
-  find_package(ComputeCpp REQUIRED)
 elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
   if(NOT CXX_COMPILER_IS_DPCPP)
     message(FATAL_ERROR "CELERITY_SYCL_IMPL set to DPC++, but CXX compiler at ${CMAKE_CXX_COMPILER} is not DPC++")
@@ -66,20 +64,13 @@ else()
     list(APPEND AVAILABLE_SYCL_IMPLS hipSYCL)
   endif()
 
-  find_package(ComputeCpp QUIET)
-  if(ComputeCpp_FOUND)
-    message(STATUS "Found ComputeCpp ${ComputeCpp_VERSION}: ${ComputeCpp_DIR}")
-    list(APPEND AVAILABLE_SYCL_IMPLS ComputeCpp)
-  endif()
-
   list(LENGTH AVAILABLE_SYCL_IMPLS NUM_AVAILABLE_SYCL_IMPLS)
   if(NUM_AVAILABLE_SYCL_IMPLS EQUAL 0)
-    message(FATAL_ERROR "No SYCL implementation found. You might need to add an install path for hipSYCL or "
-      "ComputeCpp to CMAKE_PREFIX_PATH.")
+    message(FATAL_ERROR "No SYCL implementation found. You might need to add an install path for hipSYCL to CMAKE_PREFIX_PATH.")
   elseif(NUM_AVAILABLE_SYCL_IMPLS GREATER 1)
     list(JOIN AVAILABLE_SYCL_IMPLS " and " AVAILABLE_SYCL_IMPLS_STR)
     message(FATAL_ERROR "More than one SYCL implementation available: Found ${AVAILABLE_SYCL_IMPLS_STR}. "
-      "Please choose one implementation using -DCELERITY_SYCL_IMPL=hipSYCL|ComputeCpp|DPC++.")
+      "Please choose one implementation using -DCELERITY_SYCL_IMPL=hipSYCL|DPC++.")
   else()
     set(CELERITY_SYCL_IMPL "${AVAILABLE_SYCL_IMPLS}")
     message(STATUS "Automatically choosing ${CELERITY_SYCL_IMPL} because it is the only SYCL implementation available")
@@ -89,38 +80,6 @@ endif()
 set(CELERITY_DPCPP_TARGETS "spir64" CACHE STRING "Intel DPC++ targets")
 if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
   message(STATUS "DPC++ will target ${CELERITY_DPCPP_TARGETS}")
-endif()
-
-set(CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER OFF)
-if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
-  message(FATAL "ComputeCpp is currently not supported.") # Comment out this error if you want to build against ComputeCpp anyway.
-
-  # Determining the compiler version would usually be a job for FindComputeCpp, but since we're vendoring it, we try
-  # to avoid introducing unnecessary changes.
-  # TODO Replace this once FindComputeCpp supports distinguishing old and new ("experimental") compilers natively.
-
-  execute_process(
-    COMMAND "${ComputeCpp_DEVICE_COMPILER_EXECUTABLE}" --version
-    RESULT_VARIABLE COMPUTECPP_COMPILER_STATUS
-    OUTPUT_VARIABLE COMPUTECPP_COMPILER_VERSION_STRING)
-  if(NOT COMPUTECPP_COMPILER_STATUS EQUAL 0)
-    message(FATAL_ERROR "Could not invoke ComputeCpp compiler at ${ComputeCpp_DEVICE_COMPILER_EXECUTABLE}")
-  endif()
-
-  string(REGEX REPLACE ".*clang version ([0-9]+\\.[0-9]+\\.[0-9]+).*" "\\1" COMPUTECPP_COMPILER_VERSION
-    "${COMPUTECPP_COMPILER_VERSION_STRING}")
-  if(NOT COMPUTECPP_COMPILER_VERSION MATCHES "[0-9]+\\.[0-9]+\\.[0-9]+")
-    message(FATAL_ERROR "Could not determine ComputeCpp version")
-  endif()
-  message(STATUS "Your installation of ComputeCpp is based on Clang ${COMPUTECPP_COMPILER_VERSION}")
-
-  list(APPEND CELERITY_CXX_FLAGS -DSYCL_LANGUAGE_VERSION=COMPUTECPP_SYCL_VERSION_2020)
-  if(COMPUTECPP_COMPILER_VERSION VERSION_GREATER_EQUAL 13.0.0)
-    list(APPEND COMPUTECPP_DEVICE_COMPILER_FLAGS -sycl-std=2020)
-  else()
-    list(APPEND COMPUTECPP_DEVICE_COMPILER_FLAGS -DSYCL_LANGUAGE_VERSION=COMPUTECPP_SYCL_VERSION_2020)
-    set(CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER ON)
-  endif()
 endif()
 
 if(WIN32)
@@ -151,12 +110,6 @@ elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
   set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
 else()
   set(CELERITY_FEATURE_SCALAR_REDUCTIONS OFF)
-endif()
-
-if(NOT CELERITY_SYCL_IMPL STREQUAL ComputeCpp)
-  set(CELERITY_FEATURE_UNNAMED_KERNELS ON)
-else()
-  set(CELERITY_FEATURE_UNNAMED_KERNELS OFF)
 endif()
 
 set(CELERITY_RUNTIME_LIBRARY celerity_runtime)
@@ -301,6 +254,7 @@ target_link_libraries(celerity_runtime PUBLIC celerity_backends)
 # Deprecated feature flags
 set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS ${CELERITY_FEATURE_SCALAR_REDUCTIONS})
 set(CELERITY_FEATURE_LOCAL_ACCESSOR ON)
+set(CELERITY_FEATURE_UNNAMED_KERNELS ON)
 
 # For debug builds, we set the CELERITY_DETAIL_ENABLE_DEBUG preprocessor flag,
 # which allows Celerity to control debug functionality within headers regardless
@@ -324,7 +278,6 @@ target_compile_definitions(celerity_runtime PUBLIC
   CELERITY_FEATURE_LOCAL_ACCESSOR=$<BOOL:${CELERITY_FEATURE_LOCAL_ACCESSOR}>
   CELERITY_FEATURE_UNNAMED_KERNELS=$<BOOL:${CELERITY_FEATURE_UNNAMED_KERNELS}>
   CELERITY_DETAIL_HAS_NAMED_THREADS=$<BOOL:${CELERITY_DETAIL_HAS_NAMED_THREADS}>
-  CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER=$<BOOL:${CELERITY_DETAIL_IS_OLD_COMPUTECPP_COMPILER}>
   CELERITY_ACCESSOR_BOUNDARY_CHECK=$<BOOL:${CELERITY_ACCESSOR_BOUNDARY_CHECK}>
 )
 
@@ -345,20 +298,9 @@ add_custom_target(
 )
 add_dependencies(celerity_runtime celerity_version)
 
-if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
-  target_link_libraries(celerity_runtime PUBLIC ComputeCpp::ComputeCpp)
-endif()
-
-set(DEVICE_SOURCES "")
-if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
-  # For hipSYCL we have to pass all source files into add_sycl_to_target
-  # Don't just do it in general (yields better ComputeCpp build performance)
-  set(DEVICE_SOURCES ${SOURCES})
-endif()
-
 add_sycl_to_target(
   TARGET celerity_runtime
-  SOURCES ${DEVICE_SOURCES}
+  SOURCES ${SOURCES}
 )
 
 if(MSVC)
@@ -433,12 +375,7 @@ install(FILES
   DESTINATION lib/cmake/Celerity
 )
 
-if(CELERITY_SYCL_IMPL STREQUAL ComputeCpp)
-  install(FILES
-    "${PROJECT_SOURCE_DIR}/cmake/FindComputeCpp.cmake"
-    DESTINATION lib/cmake/Celerity
-  )
-elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
+if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
   install(FILES
     "${PROJECT_SOURCE_DIR}/cmake/TestDPCXX.cmake"
     "${PROJECT_SOURCE_DIR}/cmake/sycl_test.cpp"
