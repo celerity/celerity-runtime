@@ -450,57 +450,6 @@ TEMPLATE_TEST_CASE_SIG("normalizing a fully mergeable tiling of boxes", "[grid]"
 	}
 }
 
-template <int Dims>
-GridBox<Dims> to_legacy_box(const box<Dims>& b) {
-	GridPoint<Dims> min;
-	GridPoint<Dims> max;
-	for(int d = 0; d < Dims; ++d) {
-		min[d] = b.get_min()[d];
-		max[d] = b.get_max()[d];
-	}
-	return GridBox<Dims>(min, max);
-}
-
-template <int Dims>
-std::vector<GridBox<Dims>> to_legacy_boxes(const std::vector<box<Dims>>& boxes) {
-	std::vector<GridBox<Dims>> legacy_boxes(boxes.size());
-	std::transform(boxes.begin(), boxes.end(), legacy_boxes.begin(), to_legacy_box<Dims>);
-	return legacy_boxes;
-}
-
-template <size_t Dims>
-GridRegion<Dims> legacy_union(const std::vector<GridBox<Dims>>& boxes) {
-	auto it = boxes.begin();
-	GridRegion<Dims> r(*it++);
-	while(it != boxes.end()) {
-		r = GridRegion<Dims>::merge(r, *it++);
-	}
-	return r;
-}
-
-TEMPLATE_TEST_CASE_SIG("legacy: computing the union of a fully mergeable tiling of boxes", "[legacy-grid]", ((int Dims), Dims), 1, 2, 3) {
-	const auto [label, n] = GENERATE(values<std::tuple<const char*, size_t>>({
-	    {"small", 4},
-	    {"medium", 50},
-	    {"large", 1000},
-	}));
-
-	const size_t n_per_side = llrint(pow(n, 1.0 / Dims));
-
-	const auto boxes_nd = create_box_tiling<Dims>(n_per_side);
-	const auto legacy_boxes_nd = to_legacy_boxes(boxes_nd);
-
-	// TODO not entirely fair, we could do a tree-merge for comparison
-	BENCHMARK(fmt::format("{}, native", label)) { return legacy_union(legacy_boxes_nd); };
-
-	if constexpr(Dims < 3) {
-		const auto boxes_3d = grid_detail::boxes_cast<3>(boxes_nd);
-		const auto legacy_boxes_3d = to_legacy_boxes(boxes_3d);
-
-		BENCHMARK(fmt::format("{}, embedded in 3d", label)) { return legacy_union(legacy_boxes_3d); };
-	}
-}
-
 // TODO: benchmark small box sets - we want low constant overhead for the common case
 
 TEST_CASE("region union - 2d", "[grid]") {
@@ -706,43 +655,6 @@ TEST_CASE("performing set operations between randomized regions - 3d", "[grid]")
 	test_utils::black_hole(region_difference(inputs_3d[0], inputs_3d[1]));
 }
 
-TEST_CASE("legacy: performing set operations between randomized regions - 2d", "[legacy-grid]") {
-	const auto [label, grid_size, max_box_size, num_boxes] = GENERATE(values<std::tuple<const char*, size_t, size_t, size_t>>({
-	    {"small", 10, 5, 4},
-	    {"medium", 50, 1, 50},
-	    {"large", 200, 20, 100},
-	}));
-
-	const std::vector inputs_2d{
-	    region(create_random_boxes<2>(grid_size, max_box_size, num_boxes, 13)), region(create_random_boxes<2>(grid_size, max_box_size, num_boxes, 37))};
-	const std::vector inputs_3d{region_cast<3>(inputs_2d[0]), region_cast<3>(inputs_2d[1])};
-
-	const std::vector legacy_inputs_2d{legacy_union(to_legacy_boxes(inputs_2d[0].get_boxes())), legacy_union(to_legacy_boxes(inputs_2d[1].get_boxes()))};
-	const std::vector legacy_inputs_3d{legacy_union(to_legacy_boxes(inputs_3d[0].get_boxes())), legacy_union(to_legacy_boxes(inputs_3d[1].get_boxes()))};
-
-	BENCHMARK(fmt::format("union, {}, native", label)) { return GridRegion<2>::merge(legacy_inputs_2d[0], legacy_inputs_2d[1]); };
-	BENCHMARK(fmt::format("union, {}, embedded in 3d", label)) { return GridRegion<3>::merge(legacy_inputs_3d[0], legacy_inputs_3d[1]); };
-	BENCHMARK(fmt::format("intersection, {}, native", label)) { return GridRegion<2>::intersect(legacy_inputs_2d[0], legacy_inputs_2d[1]); };
-	BENCHMARK(fmt::format("intersection, {}, embedded in 3d", label)) { return GridRegion<3>::intersect(legacy_inputs_3d[0], legacy_inputs_3d[1]); };
-	BENCHMARK(fmt::format("difference, {}, native", label)) { return GridRegion<2>::difference(legacy_inputs_2d[0], legacy_inputs_2d[1]); };
-	BENCHMARK(fmt::format("difference, {}, embedded in 3d", label)) { return GridRegion<3>::difference(legacy_inputs_3d[0], legacy_inputs_3d[1]); };
-}
-
-TEST_CASE("legacy: performing set operations between randomized regions - 3d", "[legacy-grid]") {
-	const auto [label, grid_size, max_box_size, num_boxes] = GENERATE(values<std::tuple<const char*, size_t, size_t, size_t>>({
-	    {"small", 10, 5, 4},
-	    //{"medium", 50, 1, 50},
-	    //{"large", 200, 20, 100},
-	}));
-
-	const std::vector inputs_3d{legacy_union(to_legacy_boxes(create_random_boxes<3>(grid_size, max_box_size, num_boxes, 13))),
-	    legacy_union(to_legacy_boxes(create_random_boxes<3>(grid_size, max_box_size, num_boxes, 37)))};
-
-	BENCHMARK(fmt::format("union, {}, native", label)) { return GridRegion<3>::merge(inputs_3d[0], inputs_3d[1]); };
-	BENCHMARK(fmt::format("intersection, {}, native", label)) { return GridRegion<3>::intersect(inputs_3d[0], inputs_3d[1]); };
-	BENCHMARK(fmt::format("difference, {}, native", label)) { return GridRegion<3>::difference(inputs_3d[0], inputs_3d[1]); };
-}
-
 std::vector<box<2>> create_interlocking_boxes(const size_t num_boxes_per_side) {
 	std::vector<box<2>> boxes;
 	for(size_t i = 0; i < num_boxes_per_side; ++i) {
@@ -765,19 +677,4 @@ TEST_CASE("normalizing a fully mergeable, complex tiling of boxes - 2d", "[grid]
 	BENCHMARK(fmt::format("{}, embedded in 3d", label)) { return grid_detail::normalize(std::vector(boxes_3d)); };
 
 	render_boxes(boxes_2d, fmt::format("{}-input", label));
-}
-
-TEST_CASE("legacy: normalizing a fully mergeable, complex tiling of boxes - 2d", "[legacy-grid]") {
-	const auto [label, n] = GENERATE(values<std::tuple<const char*, size_t>>({
-	    {"small", 10},
-	    {"large", 200},
-	}));
-
-	const auto boxes_2d = create_interlocking_boxes(n);
-	const auto legacy_boxes_2d = to_legacy_boxes(boxes_2d);
-	const auto boxes_3d = grid_detail::boxes_cast<3>(boxes_2d);
-	const auto legacy_boxes_3d = to_legacy_boxes(boxes_3d);
-
-	BENCHMARK(fmt::format("{}, native", label)) { return legacy_union(legacy_boxes_2d); };
-	BENCHMARK(fmt::format("{}, embedded in 3d", label)) { return legacy_union(legacy_boxes_3d); };
 }
