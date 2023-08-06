@@ -348,10 +348,6 @@ install(
   DESTINATION include/celerity
 )
 install(
-  DIRECTORY ${PROJECT_SOURCE_DIR}/vendor/allscale/
-  DESTINATION include/celerity/vendor/allscale
-)
-install(
   FILES ${PROJECT_SOURCE_DIR}/vendor/ctpl_stl.h
   DESTINATION include/celerity/vendor
 )
