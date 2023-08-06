@@ -3,7 +3,6 @@
 #include <memory>
 
 #include <CL/sycl.hpp>
-#include <allscale/utils/functional_utils.h>
 
 #include "buffer_manager.h"
 #include "lifetime_extending_state.h"
