@@ -15,7 +15,7 @@ def run_backend_discovery_and_copy_test(build_dir: str, backend: Optional[Litera
     backend_config = [f"-DCELERITY_ENABLE_CUDA_BACKEND={'ON' if backend == 'CUDA' and enabled else 'OFF'}"]
     cmake_args = ["-DCELERITY_DETAIL_INTEGRATION_TESTING=ON"] + backend_config
     subprocess.run(["cmake", celerity_dir] + cmake_args, cwd=build_dir, check=True)
-    subprocess.run(["cmake", "--build", ".", "--target", "backend"], cwd=build_dir, check=True)
+    subprocess.run(["cmake", "--build", ".", "--target", "backend", "-j", str(os.cpu_count())], cwd=build_dir, check=True)
 
     exe = os.path.join(build_dir, "test/integration/backend")
 
