@@ -19,12 +19,6 @@ namespace detail {
 	// ------------------------------------------------ COMMAND GRAPH -------------------------------------------------
 	// ----------------------------------------------------------------------------------------------------------------
 
-	// TODO: Consider using LLVM-style RTTI for better performance
-	template <typename T, typename P>
-	bool isa(P* p) {
-		return dynamic_cast<T*>(const_cast<std::remove_const_t<P>*>(p)) != nullptr;
-	}
-
 	// TODO: Consider adding a mechanism (during debug builds?) to assert that dependencies can only exist between commands on the same node
 	class abstract_command : public intrusive_graph_node<abstract_command> {
 		friend class command_graph;

@@ -220,7 +220,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 				// we have to include it in exactly one of the per-node intermediate reductions.
 				for(const auto& reduction : tsk.get_reductions()) {
 					if(nid == reduction_initializer_nid && reduction.init_from_buffer) {
-						static_cast<execution_command*>(cmd)->set_is_reduction_initializer(true);
+						utils::as<execution_command>(cmd)->set_is_reduction_initializer(true);
 						break;
 					}
 				}
@@ -313,7 +313,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 								// possibly even multiple for partially already-replicated data.
 								// TODO: Can and/or should we consolidate?
 								auto* const push_cmd = create_command<push_command>(bid, 0, nid, trid, grid_box_to_subrange(replicated_box));
-								assert(!isa<await_push_command>(m_cdag.get(wcs)) && "Attempting to push non-owned data?!");
+								assert(!utils::isa<await_push_command>(m_cdag.get(wcs)) && "Attempting to push non-owned data?!");
 								m_cdag.add_dependency(push_cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
 								generated_pushes.push_back(push_cmd);
 
@@ -450,13 +450,13 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 			assert(writer_cmd != nullptr);
 
 			// We're only interested in writes that happen within the same task as the push
-			if(isa<task_command>(writer_cmd) && static_cast<task_command*>(writer_cmd)->get_tid() == tsk.get_id()) {
+			if(utils::isa<task_command>(writer_cmd) && utils::as<task_command>(writer_cmd)->get_tid() == tsk.get_id()) {
 				// In certain situations the push might have a true dependency on the last writer,
 				// in that case don't add an anti-dependency (as that would cause a cycle).
 				// TODO: Is this still possible? We don't have a unit test exercising this branch...
 				if(push_cmd->has_dependency(writer_cmd, dependency_kind::true_dep)) {
 					// This can currently only happen for await_push commands.
-					assert(isa<await_push_command>(writer_cmd));
+					assert(utils::isa<await_push_command>(writer_cmd));
 					continue;
 				}
 				m_cdag.add_dependency(writer_cmd, push_cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
@@ -495,7 +495,7 @@ void distributed_graph_generator::generate_anti_dependencies(
 	const auto last_writers = last_writers_map.get_region_values(write_req);
 	for(const auto& [box, wcs] : last_writers) {
 		auto* const last_writer_cmd = m_cdag.get(static_cast<command_id>(wcs));
-		assert(!isa<task_command>(last_writer_cmd) || static_cast<task_command*>(last_writer_cmd)->get_tid() != tid);
+		assert(!utils::isa<task_command>(last_writer_cmd) || utils::as<task_command>(last_writer_cmd)->get_tid() != tid);
 
 		// Add anti-dependencies onto all successors of the writer
 		bool has_successors = false;
@@ -506,7 +506,7 @@ void distributed_graph_generator::generate_anti_dependencies(
 			auto* const cmd = d.node;
 
 			// We might have already generated new commands within the same task that also depend on this; in that case, skip it
-			if(isa<task_command>(cmd) && static_cast<task_command*>(cmd)->get_tid() == tid) continue;
+			if(utils::isa<task_command>(cmd) && utils::as<task_command>(cmd)->get_tid() == tid) continue;
 
 			// So far we don't know whether the dependent actually intersects with the subrange we're writing
 			if(const auto command_reads_it = m_command_buffer_reads.find(cmd->get_cid()); command_reads_it != m_command_buffer_reads.end()) {
@@ -549,7 +549,7 @@ void distributed_graph_generator::process_task_side_effect_requirements(const ta
 
 void distributed_graph_generator::set_epoch_for_new_commands(const abstract_command* const epoch_or_horizon) {
 	// both an explicit epoch command and an applied horizon can be effective epochs
-	assert(isa<epoch_command>(epoch_or_horizon) || isa<horizon_command>(epoch_or_horizon));
+	assert(utils::isa<epoch_command>(epoch_or_horizon) || utils::isa<horizon_command>(epoch_or_horizon));
 
 	for(auto& [bid, bs] : m_buffer_states) {
 		bs.local_last_writer.apply_to_values([epoch_or_horizon](const write_command_state& wcs) {

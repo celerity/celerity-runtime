@@ -170,7 +170,7 @@ namespace detail {
 			const auto id = local_to_global_id(cmd.get_cid());
 			const auto label = get_command_label(local_nid, cmd, tm, bm);
 			const auto* const fontcolor = colors[local_nid % (sizeof(colors) / sizeof(char*))];
-			const auto* const shape = isa<task_command>(&cmd) ? "box" : "ellipse";
+			const auto* const shape = utils::isa<task_command>(&cmd) ? "box" : "ellipse";
 			return fmt::format("{}[label=<{}> fontcolor={} shape={}];", id, label, fontcolor, shape);
 		};
 

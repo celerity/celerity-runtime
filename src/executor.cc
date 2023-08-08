@@ -86,7 +86,7 @@ namespace detail {
 					if(m_jobs[d].unsatisfied_dependencies == 0) { ready_jobs.push_back(d); }
 				}
 
-				if(isa<device_execute_job>(job_handle.job.get())) {
+				if(utils::isa<device_execute_job>(job_handle.job.get())) {
 					m_running_device_compute_jobs--;
 				} else if(const auto epoch = dynamic_cast<epoch_job*>(job_handle.job.get()); epoch && epoch->get_epoch_action() == epoch_action::shutdown) {
 					assert(m_command_queue.empty());
@@ -106,7 +106,7 @@ namespace detail {
 					auto* job = m_jobs.at(cid).job.get();
 					job->start();
 					job->update();
-					if(isa<device_execute_job>(job)) { m_running_device_compute_jobs++; }
+					if(utils::isa<device_execute_job>(job)) { m_running_device_compute_jobs++; }
 				}
 			}
 

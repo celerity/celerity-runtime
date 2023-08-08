@@ -27,9 +27,9 @@ namespace detail {
 		task_cmds.reserve(cmds.size() / 2); // Somewhat overzealous, we are likely to have more push commands
 
 		for(const auto& cmd : cmds) {
-			if(isa<push_command>(cmd)) {
+			if(utils::isa<push_command>(cmd)) {
 				push_cmds.push_back(cmd);
-			} else if(isa<task_command>(cmd)) {
+			} else if(utils::isa<task_command>(cmd)) {
 				task_cmds.push_back(cmd);
 			}
 		}
@@ -40,10 +40,10 @@ namespace detail {
 		const auto flush_recursive = [this, &check_tid, &flush_count](abstract_command* cmd, auto recurse) -> void {
 			(void)check_tid;
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-			if(isa<task_command>(cmd)) {
+			if(utils::isa<task_command>(cmd)) {
 				// Verify that all commands belong to the same task
-				assert(check_tid == task_id(-1) || check_tid == static_cast<task_command*>(cmd)->get_tid());
-				check_tid = static_cast<task_command*>(cmd)->get_tid();
+				assert(check_tid == task_id(-1) || check_tid == utils::as<task_command>(cmd)->get_tid());
+				check_tid = utils::as<task_command>(cmd)->get_tid();
 			}
 #endif
 			std::vector<command_id> deps;

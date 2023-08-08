@@ -7,6 +7,17 @@
 
 namespace celerity::detail::utils {
 
+template <typename T, typename P>
+bool isa(const P* p) {
+	return dynamic_cast<const T*>(p) != nullptr;
+}
+
+template <typename T, typename P>
+auto as(P* p) {
+	assert(isa<T>(p));
+	return static_cast<std::conditional_t<std::is_const_v<P>, const T*, T*>>(p);
+}
+
 template <typename BitMaskT>
 constexpr inline uint32_t popcount(const BitMaskT bit_mask) noexcept {
 	static_assert(std::is_integral_v<BitMaskT> && std::is_unsigned_v<BitMaskT>, "popcount argument needs to be an unsigned integer type.");

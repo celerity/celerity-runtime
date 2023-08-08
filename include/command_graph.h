@@ -140,13 +140,13 @@ namespace detail {
 			m_execution_front.erase(dependee);
 
 			// Sanity check: For non-dataflow dependencies the commands can only be of specific types
-			if(origin == dependency_origin::execution_front) { assert(isa<epoch_command>(depender) || isa<horizon_command>(depender)); }
+			if(origin == dependency_origin::execution_front) { assert(utils::isa<epoch_command>(depender) || utils::isa<horizon_command>(depender)); }
 			if(origin == dependency_origin::collective_group_serialization) {
-				assert(isa<execution_command>(depender));
+				assert(utils::isa<execution_command>(depender));
 				// The original execution command may have been subsumed by a horizon / epoch
-				assert(isa<execution_command>(dependee) || isa<epoch_command>(dependee) || isa<horizon_command>(dependee));
+				assert(utils::isa<execution_command>(dependee) || utils::isa<epoch_command>(dependee) || utils::isa<horizon_command>(dependee));
 			}
-			if(origin == dependency_origin::last_epoch) { assert(isa<epoch_command>(dependee) || isa<horizon_command>(dependee)); }
+			if(origin == dependency_origin::last_epoch) { assert(utils::isa<epoch_command>(dependee) || utils::isa<horizon_command>(dependee)); }
 
 			// Sanity check for unit tests, where we may have multiple CDAGS
 			assert(m_commands.at(depender->get_cid()).get() == depender);

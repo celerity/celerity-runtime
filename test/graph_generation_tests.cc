@@ -61,13 +61,13 @@ TEST_CASE("command_graph keeps track of execution front", "[command_graph][comma
 TEST_CASE("isa<> RTTI helper correctly handles command hierarchies", "[rtti][command-graph]") {
 	command_graph cdag;
 	auto* const np = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none);
-	REQUIRE(isa<abstract_command>(np));
+	REQUIRE(utils::isa<abstract_command>(np));
 	auto* const hec = cdag.create<execution_command>(0, subrange<3>{});
-	REQUIRE(isa<execution_command>(hec));
+	REQUIRE(utils::isa<execution_command>(hec));
 	auto* const pc = cdag.create<push_command>(0, 0, 0, 0, subrange<3>{});
-	REQUIRE(isa<abstract_command>(pc));
+	REQUIRE(utils::isa<abstract_command>(pc));
 	auto* const apc = cdag.create<await_push_command>(0, 0, 0, GridRegion<3>{});
-	REQUIRE(isa<abstract_command>(apc));
+	REQUIRE(utils::isa<abstract_command>(apc));
 }
 
 TEST_CASE("distributed_graph_generator generates dependencies for execution commands", "[distributed_graph_generator][command-graph]") {
