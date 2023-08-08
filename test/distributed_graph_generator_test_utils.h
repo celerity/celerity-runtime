@@ -157,8 +157,8 @@ class command_query {
 			if(node_filter.has_value() && *node_filter != nid) continue;
 			for(const auto* cmd : m_commands_by_node[nid]) {
 				if(task_filter.has_value()) {
-					if(!isa<task_command>(cmd)) continue;
-					if(static_cast<const task_command*>(cmd)->get_tid() != *task_filter) continue;
+					if(!utils::isa<task_command>(cmd)) continue;
+					if(utils::as<task_command>(cmd)->get_tid() != *task_filter) continue;
 				}
 				if(type_filter.has_value()) {
 					if(get_type(cmd) != *type_filter) continue;
@@ -345,13 +345,13 @@ class command_query {
 	}
 
 	static command_type get_type(const abstract_command* cmd) {
-		if(isa<epoch_command>(cmd)) return command_type::epoch;
-		if(isa<horizon_command>(cmd)) return command_type::horizon;
-		if(isa<execution_command>(cmd)) return command_type::execution;
-		if(isa<push_command>(cmd)) return command_type::push;
-		if(isa<await_push_command>(cmd)) return command_type::await_push;
-		if(isa<reduction_command>(cmd)) return command_type::reduction;
-		if(isa<fence_command>(cmd)) return command_type::fence;
+		if(utils::isa<epoch_command>(cmd)) return command_type::epoch;
+		if(utils::isa<horizon_command>(cmd)) return command_type::horizon;
+		if(utils::isa<execution_command>(cmd)) return command_type::execution;
+		if(utils::isa<push_command>(cmd)) return command_type::push;
+		if(utils::isa<await_push_command>(cmd)) return command_type::await_push;
+		if(utils::isa<reduction_command>(cmd)) return command_type::reduction;
+		if(utils::isa<fence_command>(cmd)) return command_type::fence;
 		throw query_exception("Unknown command type");
 	}
 
