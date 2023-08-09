@@ -156,6 +156,9 @@ namespace detail {
 		const auto env_profile_kernel = pref.register_variable<bool>("PROFILE_KERNEL", parse_validate_profile_kernel);
 		const auto env_dry_run_nodes = pref.register_variable<size_t>("DRY_RUN_NODES", parse_validate_dry_run_nodes);
 		const auto env_recording = pref.register_variable<bool>("RECORDING");
+		constexpr int horizon_max = 1024 * 64;
+		const auto env_horizon_step = pref.register_range<int>("HORIZON_STEP", 1, horizon_max);
+		const auto env_horizon_max_para = pref.register_range<int>("HORIZON_MAX_PARALLELISM", 1, horizon_max);
 		[[maybe_unused]] const auto env_gpmv = pref.register_variable<size_t>("GRAPH_PRINT_MAX_VERTS", parse_validate_graph_print_max_verts);
 		[[maybe_unused]] const auto env_force_wg =
 		    pref.register_variable<bool>("FORCE_WG", [](const std::string_view str) { return parse_validate_force_wg(str); });
@@ -199,6 +202,8 @@ namespace detail {
 			if(has_dry_run_nodes) { m_dry_run_nodes = *has_dry_run_nodes; }
 
 			m_recording = parsed_and_validated_envs.get_or(env_recording, false);
+			m_horizon_step = parsed_and_validated_envs.get(env_horizon_step);
+			m_horizon_max_parallelism = parsed_and_validated_envs.get(env_horizon_max_para);
 
 		} else {
 			for(const auto& warn : parsed_and_validated_envs.warnings()) {

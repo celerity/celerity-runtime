@@ -42,6 +42,8 @@ namespace detail {
 		bool is_dry_run() const { return m_dry_run_nodes > 0; }
 		bool is_recording() const { return m_recording; }
 		int get_dry_run_nodes() const { return m_dry_run_nodes; }
+		std::optional<int> get_horizon_step() const { return m_horizon_step; }
+		std::optional<int> get_horizon_max_parallelism() const { return m_horizon_max_parallelism; }
 
 	  private:
 		host_config m_host_cfg;
@@ -49,6 +51,8 @@ namespace detail {
 		std::optional<bool> m_enable_device_profiling;
 		size_t m_dry_run_nodes = 0;
 		bool m_recording = false;
+		std::optional<int> m_horizon_step;
+		std::optional<int> m_horizon_max_parallelism;
 	};
 
 } // namespace detail
