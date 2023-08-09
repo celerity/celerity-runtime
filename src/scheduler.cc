@@ -19,8 +19,9 @@ namespace detail {
 
 	void abstract_scheduler::schedule() {
 		graph_serializer serializer([this](command_pkg&& pkg) {
-			if(m_is_dry_run && pkg.get_command_type() != command_type::epoch && pkg.get_command_type() != command_type::fence) {
-				// in dry runs, skip everything except epochs and fences
+			if(m_is_dry_run && pkg.get_command_type() != command_type::epoch && pkg.get_command_type() != command_type::horizon
+			    && pkg.get_command_type() != command_type::fence) {
+				// in dry runs, skip everything except epochs, horizons and fences
 				return;
 			}
 			if(m_is_dry_run && pkg.get_command_type() == command_type::fence) {
