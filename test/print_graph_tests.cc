@@ -10,29 +10,27 @@ using namespace celerity::test_utils;
 namespace acc = celerity::access;
 
 TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
-	task_manager tm{1, nullptr};
-	test_utils::mock_buffer_factory mbf(tm);
-	test_utils::mock_reduction_factory mrf;
+	auto tt = test_utils::task_test_context{};
 
 	auto range = celerity::range<1>(64);
-	auto buf_0 = mbf.create_buffer(range);
-	auto buf_1 = mbf.create_buffer(celerity::range<1>(1));
+	auto buf_0 = tt.mbf.create_buffer(range);
+	auto buf_1 = tt.mbf.create_buffer(celerity::range<1>(1));
 
 	// graph copied from graph_gen_reduction_tests "distributed_graph_generator generates reduction command trees"
 
 	test_utils::add_compute_task<class UKN(task_initialize)>(
-	    tm, [&](handler& cgh) { buf_1.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
+	    tt.tm, [&](handler& cgh) { buf_1.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
 	test_utils::add_compute_task<class UKN(task_produce)>(
-	    tm, [&](handler& cgh) { buf_0.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
+	    tt.tm, [&](handler& cgh) { buf_0.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
 	test_utils::add_compute_task<class UKN(task_reduce)>(
-	    tm,
+	    tt.tm,
 	    [&](handler& cgh) {
 		    buf_0.get_access<access_mode::read>(cgh, acc::one_to_one{});
-		    test_utils::add_reduction(cgh, mrf, buf_1, true /* include_current_buffer_value */);
+		    test_utils::add_reduction(cgh, tt.mrf, buf_1, true /* include_current_buffer_value */);
 	    },
 	    range);
 	test_utils::add_compute_task<class UKN(task_consume)>(
-	    tm,
+	    tt.tm,
 	    [&](handler& cgh) {
 		    buf_1.get_access<access_mode::read>(cgh, acc::fixed<1>({0, 1}));
 	    },
@@ -40,7 +38,7 @@ TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 
 	// Smoke test: It is valid for the dot output to change with updates to graph generation. If this test fails, verify that the printed graph is sane and
 	// replace the `expected` value with the new dot graph.
-	const auto expected =
+	const std::string expected =
 	    "digraph G {label=\"Task Graph\" 0[shape=ellipse label=<T0<br/><b>epoch</b>>];1[shape=box style=rounded label=<T1 \"task_initialize_2\" "
 	    "<br/><b>device-compute</b> [0,0,0] - [64,1,1]<br/><i>discard_write</i> B1 {[[0,0,0] - [1,1,1]]}>];0->1[color=orchid];2[shape=box style=rounded "
 	    "label=<T2 \"task_produce_3\" <br/><b>device-compute</b> [0,0,0] - [64,1,1]<br/><i>discard_write</i> B0 {[[0,0,0] - "
@@ -48,7 +46,7 @@ TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 	    "<i>read_write</i> B1 {[[0,0,0] - [1,1,1]]}<br/><i>read</i> B0 {[[0,0,0] - [64,1,1]]}>];1->3[];2->3[];4[shape=box style=rounded label=<T4 "
 	    "\"task_consume_5\" <br/><b>device-compute</b> [0,0,0] - [64,1,1]<br/><i>read</i> B1 {[[0,0,0] - [1,1,1]]}>];3->4[];}";
 
-	const auto dot = tm.print_graph(std::numeric_limits<size_t>::max()).value();
+	const auto dot = tt.tm.print_graph(std::numeric_limits<size_t>::max()).value();
 	CHECK(dot == expected);
 }
 

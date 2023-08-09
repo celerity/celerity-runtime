@@ -48,7 +48,6 @@ namespace detail {
 		REQUIRE_FALSE(bm.has_buffer(b_id));
 
 		// TODO: check whether error was printed or not
-		test_utils::maybe_print_graph(celerity::detail::runtime::get_instance().get_task_manager());
 	}
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager keeps track of buffers", "[buffer_manager]") {

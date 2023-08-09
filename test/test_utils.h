@@ -355,6 +355,16 @@ namespace test_utils {
 		}
 	}
 
+	struct task_test_context {
+		detail::task_manager tm;
+		mock_buffer_factory mbf;
+		mock_host_object_factory mhof;
+		mock_reduction_factory mrf;
+
+		task_test_context() : tm(1, nullptr), mbf(tm) {}
+		~task_test_context() { maybe_print_graph(tm); }
+	};
+
 } // namespace test_utils
 } // namespace celerity
 
