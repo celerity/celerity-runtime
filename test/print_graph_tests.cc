@@ -49,7 +49,7 @@ TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 	    "<i>read_write</i> B1 {[[0,0,0] - [1,1,1]]}<br/><i>read</i> B0 {[[0,0,0] - [64,1,1]]}>];1->3[];2->3[];4[shape=box style=rounded label=<T4 "
 	    "\"task_consume_5\" <br/><b>device-compute</b> [0,0,0] - [64,1,1]<br/><i>read</i> B1 {[[0,0,0] - [1,1,1]]}>];3->4[];}";
 
-	CHECK(tt.tm.print_task_graph() == expected);
+	CHECK(print_task_graph(tt.trec) == expected);
 }
 
 namespace {
@@ -91,13 +91,13 @@ TEST_CASE("command graph printing is unchanged", "[print_graph][command-graph]")
 	    "[[0,0,0] - [1,1,1]]> fontcolor=black shape=ellipse];id_0_1->id_0_7[];}";
 
 	// fully check node 0
-	const auto dot0 = dctx.get_graph_generator(0).print_command_graph();
+	const auto dot0 = dctx.print_command_graph(0);
 	CHECK(dot0 == expected);
 
 	// only check the rough string length and occurence count of N1/N2... for other nodes
 	const int expected_occurences = count_occurences(expected, "N0");
 	for(size_t i = 1; i < num_nodes; ++i) {
-		const auto dot_n = dctx.get_graph_generator(i).print_command_graph();
+		const auto dot_n = dctx.print_command_graph(i);
 		REQUIRE_THAT(dot_n.size(), Catch::Matchers::WithinAbs(expected.size(), 50));
 		CHECK(count_occurences(dot_n, fmt::format("N{}", i)) == expected_occurences);
 	}
@@ -122,13 +122,13 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer debug names show up in the
 	q.slow_full_sync();
 
 	using Catch::Matchers::ContainsSubstring;
-	const auto expected_substring = "B0 \"my_buffer\"";
+	const std::string expected_substring = "B0 \"my_buffer\"";
 	SECTION("in the task graph") {
-		const auto dot = celerity::detail::runtime::get_instance().get_task_manager().print_task_graph();
+		const auto dot = runtime_testspy::print_task_graph(celerity::detail::runtime::get_instance());
 		REQUIRE_THAT(dot, ContainsSubstring(expected_substring));
 	}
 	SECTION("in the command graph") {
-		const auto dot = runtime_testspy::print_graph(celerity::detail::runtime::get_instance());
+		const auto dot = runtime_testspy::print_command_graph(0, celerity::detail::runtime::get_instance());
 		REQUIRE_THAT(dot, ContainsSubstring(expected_substring));
 	}
 }
@@ -166,7 +166,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 		    "<br/><b>device-compute</b> [0,0,0] - [16,1,1]<br/><i>read_write</i> B0 {[[0,0,0] - [16,1,1]]}>];3->5[];6[shape=ellipse "
 		    "label=<T6<br/><b>horizon</b>>];5->6[color=orange];4->6[color=orange];7[shape=ellipse label=<T7<br/><b>epoch</b>>];6->7[color=orange];}";
 
-		CHECK(tm.print_task_graph() == expected);
+		CHECK(runtime_testspy::print_task_graph(celerity::detail::runtime::get_instance()) == expected);
 	}
 
 	SECTION("command graph") {
@@ -186,7 +186,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 		    "shape=box];}id_0_0->id_0_1[];id_0_1->id_0_2[color=orange];id_0_1->id_0_3[];id_0_3->id_0_4[color=orange];id_0_2->id_0_4[color=orange];id_0_3->id_0_"
 		    "5[];id_0_5->id_0_6[color=orange];id_0_4->id_0_6[color=orange];id_0_6->id_0_7[color=orange];}";
 
-		CHECK(runtime_testspy::print_graph(celerity::detail::runtime::get_instance()) == expected);
+		CHECK(runtime_testspy::print_command_graph(0, celerity::detail::runtime::get_instance()) == expected);
 	}
 }
 
@@ -205,16 +205,13 @@ void compute(task_manager& tm, mock_buffer<1> buf, const celerity::range<1> rang
 } // namespace test_ns
 
 TEST_CASE("task-graph names are escaped", "[print_graph][task-graph][task-name]") {
-	task_recorder tr;
-	task_manager tm{1, nullptr, tr};
-	test_utils::mock_buffer_factory mbf(tm);
-	test_utils::mock_reduction_factory mrf;
+	auto tt = test_utils::task_test_context{};
 
 	auto range = celerity::range<1>(64);
-	auto buf = mbf.create_buffer(range);
+	auto buf = tt.mbf.create_buffer(range);
 
-	test_ns::compute<test_ns::x::ec::a>(tm, buf, range);
+	test_ns::compute<test_ns::x::ec::a>(tt.tm, buf, range);
 
 	const auto* escaped_name = "\"name_class&lt;(test_ns::x::ec)0&gt;\"";
-	REQUIRE_THAT(tm.print_task_graph(), Catch::Matchers::ContainsSubstring(escaped_name));
+	REQUIRE_THAT(print_task_graph(tt.trec), Catch::Matchers::ContainsSubstring(escaped_name));
 }

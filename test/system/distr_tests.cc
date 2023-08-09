@@ -138,6 +138,7 @@ namespace detail {
 	TEST_CASE_METHOD(
 	    test_utils::runtime_fixture, "runtime-shutdown graph printing works in the presence of a finished reduction", "[reductions][print_graph][smoke-test]") {
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
+		env::scoped_test_environment test_env(recording_enabled_env_setting);
 		// init runtime early so the distr_queue ctor doesn't override the log level set by log_capture
 		runtime::init(nullptr, nullptr);
 
@@ -310,7 +311,7 @@ namespace detail {
 		MPI_Comm test_communicator;
 		MPI_Comm_create(MPI_COMM_WORLD, world_group, &test_communicator);
 
-		const auto graph_str = runtime::get_instance().get_task_manager().print_task_graph();
+		const auto graph_str = runtime_testspy::print_task_graph(runtime::get_instance());
 		const int graph_str_length = static_cast<int>(graph_str.length());
 		REQUIRE(graph_str_length > 0);
 

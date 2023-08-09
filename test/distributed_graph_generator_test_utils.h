@@ -375,14 +375,16 @@ class dist_cdag_test_context {
   public:
 	dist_cdag_test_context(size_t num_nodes) : m_num_nodes(num_nodes) {
 		m_rm = std::make_unique<reduction_manager>();
-		m_tm = std::make_unique<task_manager>(num_nodes, nullptr /* host_queue */, task_recorder{});
+		m_task_recorder = std::make_unique<task_recorder>();
+		m_tm = std::make_unique<task_manager>(num_nodes, nullptr /* host_queue */, m_task_recorder.get());
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			m_cdags.emplace_back(std::make_unique<command_graph>());
-			m_dggens.emplace_back(std::make_unique<distributed_graph_generator>(num_nodes, nid, *m_cdags[nid], *m_tm, command_recorder{m_tm.get(), nullptr}));
+			m_cmd_recorders.emplace_back(std::make_unique<command_recorder>(m_tm.get(), nullptr));
+			m_dggens.emplace_back(std::make_unique<distributed_graph_generator>(num_nodes, nid, *m_cdags[nid], *m_tm, m_cmd_recorders[nid].get()));
 		}
 	}
 
-	~dist_cdag_test_context() { maybe_print_graphs(); }
+	~dist_cdag_test_context() { maybe_log_graphs(); }
 
 	dist_cdag_test_context(const dist_cdag_test_context&) = delete;
 	dist_cdag_test_context(dist_cdag_test_context&&) = delete;
@@ -461,6 +463,9 @@ class dist_cdag_test_context {
 
 	distributed_graph_generator& get_graph_generator(node_id nid) { return *m_dggens.at(nid); }
 
+	[[nodiscard]] std::string print_task_graph() { return detail::print_task_graph(*m_task_recorder); }
+	[[nodiscard]] std::string print_command_graph(node_id nid) { return detail::print_command_graph(nid, *m_cmd_recorders[nid]); }
+
   private:
 	size_t m_num_nodes;
 	buffer_id m_next_buffer_id = 0;
@@ -469,8 +474,10 @@ class dist_cdag_test_context {
 	std::optional<task_id> m_most_recently_built_horizon;
 	std::unique_ptr<reduction_manager> m_rm;
 	std::unique_ptr<task_manager> m_tm;
+	std::unique_ptr<task_recorder> m_task_recorder;
 	std::vector<std::unique_ptr<command_graph>> m_cdags;
 	std::vector<std::unique_ptr<distributed_graph_generator>> m_dggens;
+	std::vector<std::unique_ptr<command_recorder>> m_cmd_recorders;
 
 	reduction_info create_reduction(const buffer_id bid, const bool include_current_buffer_value) {
 		return reduction_info{m_next_reduction_id++, bid, include_current_buffer_value};
@@ -491,13 +498,12 @@ class dist_cdag_test_context {
 		m_most_recently_built_horizon = current_horizon;
 	}
 
-	void maybe_print_graphs() {
+	void maybe_log_graphs() {
 		if(test_utils::print_graphs) {
-			test_utils::maybe_print_graph(*m_tm);
-
+			CELERITY_INFO("Task graph:\n\n{}\n", print_task_graph());
 			std::vector<std::string> graphs;
 			for(node_id nid = 0; nid < m_num_nodes; ++nid) {
-				graphs.push_back(m_dggens[nid]->print_command_graph());
+				graphs.push_back(print_command_graph(nid));
 			}
 			CELERITY_INFO("Command graph:\n\n{}\n", combine_command_graphs(graphs));
 		}

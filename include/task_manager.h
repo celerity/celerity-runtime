@@ -9,7 +9,6 @@
 
 #include "handler.h"
 #include "host_queue.h"
-#include "print_graph.h"
 #include "region_map.h"
 #include "task.h"
 #include "task_ring_buffer.h"
@@ -17,6 +16,8 @@
 
 namespace celerity {
 namespace detail {
+
+	class task_recorder;
 
 	using task_callback = std::function<void(const task*)>;
 
@@ -59,7 +60,7 @@ namespace detail {
 	  public:
 		constexpr inline static task_id initial_epoch_task = 0;
 
-		task_manager(size_t num_collective_nodes, host_queue* queue, std::optional<detail::task_recorder> recorder);
+		task_manager(size_t num_collective_nodes, host_queue* queue, detail::task_recorder* recorder);
 
 		virtual ~task_manager() = default;
 
@@ -129,8 +130,6 @@ namespace detail {
 		 * Asserts that the specified task exists and returns a non-null pointer to the task object.
 		 */
 		const task* get_task(task_id tid) const;
-
-		std::string print_task_graph() const;
 
 		/**
 		 * Blocks until an epoch task has executed on this node (or all nodes, if the epoch_for_new_tasks was created with `epoch_action::barrier`).
@@ -222,7 +221,7 @@ namespace detail {
 		std::unordered_set<task*> m_execution_front;
 
 		// An optional task_recorder which records information about tasks for e.g. printing graphs.
-		mutable std::optional<detail::task_recorder> m_task_recorder;
+		mutable detail::task_recorder* m_task_recorder;
 
 		task& register_task_internal(task_ring_buffer::reservation&& reserve, std::unique_ptr<task> task);
 

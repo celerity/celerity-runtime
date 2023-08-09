@@ -34,8 +34,6 @@ namespace detail {
 
 		void notify_buffer_registered(const buffer_id bid, const int dims, const range<3>& range) { notify(event_buffer_registered{bid, dims, range}); }
 
-		std::string print_command_graph() const;
-
 	  protected:
 		/**
 		 * This is called by the worker thread.

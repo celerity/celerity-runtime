@@ -21,6 +21,7 @@
 #include "device_queue.h"
 #include "distributed_graph_generator.h"
 #include "graph_serializer.h"
+#include "print_graph.h"
 #include "range_mapper.h"
 #include "region_map.h"
 #include "runtime.h"
@@ -56,7 +57,8 @@ namespace detail {
 		static executor& get_exec(runtime& rt) { return *rt.m_exec; }
 		static size_t get_command_count(runtime& rt) { return rt.m_cdag->command_count(); }
 		static command_graph& get_cdag(runtime& rt) { return *rt.m_cdag; }
-		static std::string print_graph(runtime& rt) { return rt.m_schdlr->print_command_graph(); }
+		static std::string print_task_graph(runtime& rt) { return detail::print_task_graph(*rt.m_task_recorder); }
+		static std::string print_command_graph(const node_id local_nid, runtime& rt) { return detail::print_command_graph(local_nid, *rt.m_command_recorder); }
 	};
 
 	struct task_ring_buffer_testspy {
@@ -339,13 +341,12 @@ namespace test_utils {
 	// Printing of graphs can be enabled using the "--print-graphs" command line flag
 	inline bool print_graphs = false;
 
-	inline void maybe_print_graph(celerity::detail::task_manager& tm) {
-		if(print_graphs) { CELERITY_INFO("Task graph:\n\n{}\n", tm.print_task_graph()); }
+	inline void maybe_print_task_graph(const detail::task_recorder& trec) {
+		if(print_graphs) { CELERITY_INFO("Task graph:\n\n{}\n", detail::print_task_graph(trec)); }
 	}
 
-	template <typename CommandPrinter>
-	inline void maybe_print_command_graph(const CommandPrinter& cmdp) {
-		if(print_graphs) { CELERITY_INFO("Command graph:\n\n{}\n", cmdp.print_command_graph()); }
+	inline void maybe_print_command_graph(const detail::node_id local_nid, const detail::command_recorder& crec) {
+		if(print_graphs) { CELERITY_INFO("Command graph:\n\n{}\n", detail::print_command_graph(local_nid, crec)); }
 	}
 
 	struct task_test_context {
@@ -355,8 +356,8 @@ namespace test_utils {
 		mock_host_object_factory mhof;
 		mock_reduction_factory mrf;
 
-		task_test_context() : tm(1, nullptr, trec), mbf(tm) {}
-		~task_test_context() { maybe_print_graph(tm); }
+		task_test_context() : tm(1, nullptr, &trec), mbf(tm) {}
+		~task_test_context() { maybe_print_task_graph(trec); }
 	};
 
 } // namespace test_utils

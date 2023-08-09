@@ -3,13 +3,14 @@
 #include "access_modes.h"
 #include "command.h"
 #include "command_graph.h"
+#include "recorders.h"
 #include "task.h"
 #include "task_manager.h"
 
 namespace celerity::detail {
 
 distributed_graph_generator::distributed_graph_generator(
-    const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm, const std::optional<detail::command_recorder>& recorder)
+    const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm, detail::command_recorder* recorder)
     : m_num_nodes(num_nodes), m_local_nid(local_nid), m_cdag(cdag), m_task_mngr(tm), m_recorder(recorder) {
 	if(m_num_nodes > max_num_nodes) {
 		throw std::runtime_error(fmt::format("Number of nodes requested ({}) exceeds compile-time maximum of {}", m_num_nodes, max_num_nodes));
@@ -20,7 +21,7 @@ distributed_graph_generator::distributed_graph_generator(
 	// set_epoch_for_new_commands).
 	auto* const epoch_cmd = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none);
 	epoch_cmd->mark_as_flushed(); // there is no point in flushing the initial epoch command
-	if(m_recorder.has_value()) m_recorder->record_command(*epoch_cmd);
+	if(m_recorder != nullptr) m_recorder->record_command(*epoch_cmd);
 	m_epoch_for_new_commands = epoch_cmd->get_cid();
 }
 
@@ -135,19 +136,13 @@ std::unordered_set<abstract_command*> distributed_graph_generator::build_task(co
 	prune_commands_before(epoch_to_prune_before);
 
 	// If we have a command_recorder, record the current batch of commands
-	if(m_recorder) {
+	if(m_recorder != nullptr) {
 		for(const auto& cmd : m_current_cmd_batch) {
 			m_recorder->record_command(*cmd);
 		}
 	}
 
 	return std::move(m_current_cmd_batch);
-}
-
-std::string distributed_graph_generator::print_command_graph() const {
-	if(m_recorder.has_value()) { return detail::print_command_graph(m_local_nid, m_recorder.value()); }
-	CELERITY_ERROR("Trying to print command graph, but no recorder available");
-	return "";
 }
 
 void distributed_graph_generator::generate_distributed_commands(const task& tsk) {

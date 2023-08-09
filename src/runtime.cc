@@ -148,14 +148,12 @@ namespace detail {
 
 		m_reduction_mngr = std::make_unique<reduction_manager>();
 		m_host_object_mngr = std::make_unique<host_object_manager>();
-		std::optional<task_recorder> t_rec;
-		if(m_cfg->is_recording()) t_rec = task_recorder{m_buffer_mngr.get()};
-		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_h_queue.get(), t_rec);
+		if(m_cfg->is_recording()) m_task_recorder = std::make_unique<task_recorder>(m_buffer_mngr.get());
+		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_h_queue.get(), m_task_recorder.get());
 		m_exec = std::make_unique<executor>(m_num_nodes, m_local_nid, *m_h_queue, *m_d_queue, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
 		m_cdag = std::make_unique<command_graph>();
-		std::optional<command_recorder> c_rec;
-		if(m_cfg->is_recording()) c_rec = command_recorder{m_task_mngr.get(), m_buffer_mngr.get()};
-		auto dggen = std::make_unique<distributed_graph_generator>(m_num_nodes, m_local_nid, *m_cdag, *m_task_mngr, c_rec);
+		if(m_cfg->is_recording()) m_command_recorder = std::make_unique<command_recorder>(m_task_mngr.get(), m_buffer_mngr.get());
+		auto dggen = std::make_unique<distributed_graph_generator>(m_num_nodes, m_local_nid, *m_cdag, *m_task_mngr, m_command_recorder.get());
 		m_schdlr = std::make_unique<scheduler>(is_dry_run(), std::move(dggen), *m_exec);
 		m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
 
@@ -176,6 +174,8 @@ namespace detail {
 		m_buffer_mngr.reset();
 		m_d_queue.reset();
 		m_h_queue.reset();
+		m_command_recorder.reset();
+		m_task_recorder.reset();
 
 		cgf_diagnostics::teardown();
 
@@ -207,7 +207,8 @@ namespace detail {
 
 		if(spdlog::should_log(log_level::trace) && m_cfg->is_recording()) {
 			if(m_local_nid == 0) { // It's the same across all nodes
-				const auto graph_str = m_task_mngr->print_task_graph();
+				assert(m_task_recorder.get() != nullptr);
+				const auto graph_str = detail::print_task_graph(*m_task_recorder);
 				CELERITY_TRACE("Task graph:\n\n{}\n", graph_str);
 			}
 			// must be called on all nodes
@@ -240,30 +241,32 @@ namespace detail {
 	host_object_manager& runtime::get_host_object_manager() const { return *m_host_object_mngr; }
 
 	std::string runtime::gather_command_graph() const {
-		const auto graph_str = m_schdlr->print_command_graph();
+		assert(m_command_recorder.get() != nullptr);
+		const auto graph_str = print_command_graph(m_local_nid, *m_command_recorder);
 
-		// Send local graph to rank 0
+		// Send local graph to rank 0 on all other nodes
 		if(m_local_nid != 0) {
-			const uint64_t size = graph_str.size();
-			MPI_Send(&size, 1, MPI_UINT64_T, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);
-			if(size > 0) MPI_Send(graph_str.data(), static_cast<int>(size), MPI_BYTE, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);
+			const uint64_t usize = graph_str.size();
+			assert(usize < std::numeric_limits<int32_t>::max());
+			const int32_t size = static_cast<int32_t>(usize);
+			MPI_Send(&size, 1, MPI_INT32_T, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);
+			if(size > 0) MPI_Send(graph_str.data(), static_cast<int32_t>(size), MPI_BYTE, 0, mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD);
 			return "";
-		} else {
-			std::vector<std::string> graphs;
-			graphs.push_back(graph_str);
-			for(size_t i = 1; i < m_num_nodes; ++i) {
-				uint64_t size = 0;
-				MPI_Recv(&size, 1, MPI_UINT64_T, static_cast<int>(i), mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-				if(size > 0) {
-					std::string graph;
-					graph.resize(size);
-					MPI_Recv(
-					    graph.data(), static_cast<int>(size), MPI_BYTE, static_cast<int>(i), mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-					graphs.push_back(std::move(graph));
-				}
-			}
-			return combine_command_graphs(graphs);
 		}
+		// On node 0, receive and combine
+		std::vector<std::string> graphs;
+		graphs.push_back(graph_str);
+		for(size_t i = 1; i < m_num_nodes; ++i) {
+			int32_t size = 0;
+			MPI_Recv(&size, 1, MPI_INT32_T, static_cast<int>(i), mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			if(size > 0) {
+				std::string graph;
+				graph.resize(size);
+				MPI_Recv(graph.data(), size, MPI_BYTE, static_cast<int>(i), mpi_support::TAG_PRINT_GRAPH, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+				graphs.push_back(std::move(graph));
+			}
+		}
+		return combine_command_graphs(graphs);
 	}
 
 	void runtime::handle_buffer_registered(buffer_id bid) {

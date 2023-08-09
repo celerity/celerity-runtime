@@ -230,7 +230,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager invokes callback upon task creation", "[task_manager]") {
-		task_manager tm{1, nullptr, {}};
+		task_manager tm{1, nullptr, nullptr};
 		size_t call_counter = 0;
 		tm.register_task_callback([&call_counter](const task*) { call_counter++; });
 		range<2> gs = {1, 1};
@@ -242,7 +242,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][device_compute_task]") {
-		task_manager tm{1, nullptr, {}};
+		task_manager tm{1, nullptr, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
 		auto buf_a = mbf.create_buffer(range<2>(64, 152));
 		auto buf_b = mbf.create_buffer(range<3>(7, 21, 99));
@@ -1273,9 +1273,8 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::mpi_fixture, "Config reads environment variables correctly", "[env-vars][config]") {
-		const auto var = std::string("debug");
 		const std::unordered_map<std::string, std::string> env_map{
-		    {"CELERITY_LOG_LEVEL", var},
+		    {"CELERITY_LOG_LEVEL", "debug"},
 		    {"CELERITY_DEVICES", "1 1"},
 		    {"CELERITY_PROFILE_KERNEL", "1"},
 		    {"CELERITY_DRY_RUN_NODES", "4"},
