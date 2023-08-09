@@ -11,6 +11,11 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 ## Added
 
 - Introduce new experimental `for_each_item` utility to iterate over a celerity range (#199)
+- Add new environment variables `CELERITY_HORIZON_STEP` and `CELERITY_HORIZON_MAX_PARALLELISM` to control Horizon generation (#199)
+
+## Changed
+
+- Added breadth-triggered Horizons. Improves performance in some scenarios, and prevents programs with many independent tasks from running out of task queue space (#199)
 
 ## [0.4.1] - 2023-09-08
 
