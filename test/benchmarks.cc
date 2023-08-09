@@ -72,7 +72,7 @@ TEST_CASE("benchmark task handling", "[benchmark][task]") {
 
 	auto initialization_lambda = [&] {
 		highest_tid = 0;
-		tm = std::make_unique<task_manager>(1, nullptr, no_task_recorder);
+		tm = std::make_unique<task_manager>(1, nullptr, nullptr);
 		// we use this trick to force horizon creation without introducing dependency overhead in this microbenchmark
 		tm->set_horizon_step(0);
 	};
@@ -137,7 +137,8 @@ TEST_CASE("benchmark task handling", "[benchmark][task]") {
 
 struct task_manager_benchmark_context {
 	const size_t num_nodes = 1;
-	task_manager tm{1, nullptr, {}};
+	task_recorder trec;
+	task_manager tm{1, nullptr, test_utils::print_graphs ? &trec : nullptr};
 	test_utils::mock_buffer_factory mbf{tm};
 
 	~task_manager_benchmark_context() { tm.generate_epoch_task(celerity::detail::epoch_action::shutdown); }
@@ -155,12 +156,14 @@ struct graph_generator_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
 	graph_serializer gser{[](command_pkg&&) {}};
-	task_manager tm{num_nodes, nullptr, {}};
+	task_recorder trec;
+	task_manager tm{num_nodes, nullptr, test_utils::print_graphs ? &trec : nullptr};
+	command_recorder crec;
 	distributed_graph_generator dggen;
 	test_utils::mock_buffer_factory mbf;
 
 	explicit graph_generator_benchmark_context(size_t num_nodes)
-	    : num_nodes{num_nodes}, dggen{num_nodes, 0 /* local_nid */, cdag, tm, no_command_recorder}, mbf{tm, dggen} {
+	    : num_nodes{num_nodes}, crec(&tm), dggen{num_nodes, 0 /* local_nid */, cdag, tm, test_utils::print_graphs ? &crec : nullptr}, mbf{tm, dggen} {
 		tm.register_task_callback([this](const task* tsk) {
 			const auto cmds = dggen.build_task(*tsk);
 			gser.flush(cmds);
@@ -260,8 +263,8 @@ struct scheduler_benchmark_context {
 	test_utils::mock_buffer_factory mbf;
 
 	explicit scheduler_benchmark_context(restartable_thread& thrd, size_t num_nodes)
-	    : num_nodes{num_nodes},                                                                                                     //
-	      schdlr{thrd, std::make_unique<distributed_graph_generator>(num_nodes, 0 /* local_nid */, cdag, tm, no_command_recorder)}, //
+	    : num_nodes{num_nodes},                                                                                         //
+	      schdlr{thrd, std::make_unique<distributed_graph_generator>(num_nodes, 0 /* local_nid */, cdag, tm, nullptr)}, //
 	      mbf{tm, schdlr} {
 		tm.register_task_callback([this](const task* tsk) { schdlr.notify_task_created(tsk); });
 		schdlr.startup();
@@ -466,9 +469,9 @@ void debug_graphs(BenchmarkContextFactory&& make_ctx, BenchmarkContextConsumer&&
 }
 
 TEST_CASE("printing benchmark task graphs", "[.][debug-graphs][task-graph]") {
-	debug_graphs([] { return task_manager_benchmark_context{}; }, [](auto&& ctx) { test_utils::maybe_print_graph(ctx.tm); });
+	debug_graphs([] { return task_manager_benchmark_context{}; }, [](auto&& ctx) { test_utils::maybe_print_task_graph(ctx.trec); });
 }
 
 TEST_CASE("printing benchmark command graphs", "[.][debug-graphs][command-graph]") {
-	debug_graphs([] { return graph_generator_benchmark_context{2}; }, [](auto&& ctx) { test_utils::maybe_print_command_graph(ctx.dggen); });
+	debug_graphs([] { return graph_generator_benchmark_context{2}; }, [](auto&& ctx) { test_utils::maybe_print_command_graph(0, ctx.crec); });
 }

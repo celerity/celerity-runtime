@@ -678,8 +678,9 @@ namespace detail {
 		}
 
 		const auto attempted_sr = subrange<3>{id_cast<3>(oob_idx_lo), range_cast<3>(oob_idx_hi - oob_idx_lo + id_cast<Dims>(range<Dims>(unit_range)))};
-		const auto error_message = fmt::format("Out-of-bounds access in kernel 'acc_out_of_bounds_kernel<{}>' detected: Accessor 0 for buffer 0 attempted to "
-		                                       "access indices between {} which are outside of mapped subrange {}",
+		const auto error_message = fmt::format("Out-of-bounds access in kernel 'celerity::detail::acc_out_of_bounds_kernel<{}>' "
+		                                       "detected: Accessor 0 for buffer 0 attempted to access indices "
+		                                       "between {} which are outside of mapped subrange {}",
 		    Dims, attempted_sr, subrange_cast<3>(accessible_sr));
 		CHECK_THAT(lc->get_log(), Catch::Matchers::ContainsSubstring(error_message));
 	}

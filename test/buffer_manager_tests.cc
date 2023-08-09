@@ -46,8 +46,6 @@ namespace detail {
 		}
 		// require buffer b was indeed unregistered.
 		REQUIRE_FALSE(bm.has_buffer(b_id));
-
-		// TODO: check whether error was printed or not
 	}
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager keeps track of buffers", "[buffer_manager]") {

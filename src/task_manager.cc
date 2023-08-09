@@ -1,17 +1,17 @@
 #include "task_manager.h"
 
 #include "access_modes.h"
-#include "print_graph.h"
+#include "recorders.h"
 
 namespace celerity {
 namespace detail {
 
-	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, std::optional<detail::task_recorder> recorder) //
-	    : m_num_collective_nodes(num_collective_nodes), m_queue(queue), m_task_recorder(std::move(recorder)) {
+	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, detail::task_recorder* recorder) //
+	    : m_num_collective_nodes(num_collective_nodes), m_queue(queue), m_task_recorder(recorder) {
 		// We manually generate the initial epoch task, which we treat as if it has been reached immediately.
 		auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
 		auto initial_epoch = task::make_epoch(initial_epoch_task, epoch_action::none);
-		if(m_task_recorder) m_task_recorder->record_task(*initial_epoch);
+		if(m_task_recorder != nullptr) m_task_recorder->record_task(*initial_epoch);
 		m_task_buffer.put(std::move(reserve), std::move(initial_epoch));
 	}
 
@@ -27,12 +27,6 @@ namespace detail {
 	// Note that we assume tasks are not modified after their initial creation, which is why
 	// we don't need to worry about thread-safety after returning the task pointer.
 	const task* task_manager::get_task(task_id tid) const { return m_task_buffer.get_task(tid); }
-
-	std::string task_manager::print_task_graph() const {
-		if(m_task_recorder) { return detail::print_task_graph(*m_task_recorder); }
-		CELERITY_ERROR("Trying to print task graph, but no recorder available");
-		return "";
-	}
 
 	void task_manager::notify_horizon_reached(task_id horizon_tid) {
 		// m_latest_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
@@ -189,7 +183,7 @@ namespace detail {
 		for(const auto& cb : m_task_callbacks) {
 			cb(tsk);
 		}
-		if(m_task_recorder) m_task_recorder->record_task(*tsk);
+		if(m_task_recorder != nullptr) m_task_recorder->record_task(*tsk);
 	}
 
 	void task_manager::add_dependency(task& depender, task& dependee, dependency_kind kind, dependency_origin origin) {
