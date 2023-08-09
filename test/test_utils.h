@@ -66,6 +66,8 @@ namespace detail {
 	struct task_manager_testspy {
 		static std::optional<task_id> get_current_horizon(task_manager& tm) { return tm.m_current_horizon; }
 
+		static std::optional<task_id> get_latest_horizon_reached(task_manager& tm) { return tm.m_latest_horizon_reached; }
+
 		static int get_num_horizons(task_manager& tm) {
 			int horizon_counter = 0;
 			for(auto task_ptr : tm.m_task_buffer) {
