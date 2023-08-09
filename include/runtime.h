@@ -9,6 +9,7 @@
 #include "device_queue.h"
 #include "frame.h"
 #include "host_queue.h"
+#include "print_graph.h"
 #include "types.h"
 
 namespace celerity {

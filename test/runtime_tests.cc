@@ -1215,7 +1215,6 @@ namespace detail {
 		// intial epoch + master-node task + 1 push per node + host task + sync epoch
 		// (dry runs currently always simulate node 0, hence the master-node task)
 		CHECK(runtime_testspy::get_command_count(rt) == 4 + num_nodes);
-		test_utils::maybe_print_graph(tm);
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "dry run generates commands for an arbitrary number of simulated worker nodes", "[dryrun]") {
