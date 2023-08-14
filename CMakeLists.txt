@@ -21,7 +21,6 @@ else()
   set(ENABLE_ACC_CHECK OFF)
 endif()
 
-option(CELERITY_USE_MIMALLOC "Use the mimalloc memory allocator" ON)
 option(CELERITY_ACCESSOR_BOUNDARY_CHECK "Enable accessor boundary check" ${ENABLE_ACC_CHECK})
 
 if(CELERITY_ACCESSOR_BOUNDARY_CHECK)
@@ -118,6 +117,15 @@ include("${CMAKE_CURRENT_LIST_DIR}/cmake/AddToTarget.cmake")
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)
 endif()
+
+if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
+  # See https://github.com/oneapi-src/unified-runtime/issues/803
+  message(STATUS "Not enabling mimalloc by default because it breaks with oneAPI plugin loading")
+  set(CELERITY_USE_MIMALLOC_DEFAULT OFF)
+else()
+  set(CELERITY_USE_MIMALLOC_DEFAULT ON)
+endif()
+option(CELERITY_USE_MIMALLOC "Use the mimalloc memory allocator" ${CELERITY_USE_MIMALLOC_DEFAULT})
 
 # 3rdparty dependencies
 include(FetchContent)
