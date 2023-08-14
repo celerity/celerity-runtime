@@ -47,8 +47,8 @@ set(TEST_TARGETS
   device_selection_tests
 )
 
-add_library(test_main test_main.cc)
-set_test_target_parameters(test_main test_main.cc)
+add_library(test_main test_main.cc grid_test_utils.cc)
+set_test_target_parameters(test_main test_main.cc grid_test_utils.cc)
 
 set(TEST_OBJ_LIST "")
 foreach(TEST_TARGET ${TEST_TARGETS})
@@ -70,17 +70,15 @@ foreach(TEST_TARGET ${TEST_TARGETS})
   ParseAndAddCatchTests_ParseFile(${TEST_SOURCE} ${TEST_TARGET})
 endforeach()
 
-target_sources(grid_tests PRIVATE benchmark_reporters.cc) # TODO HACK
-
 # Add all_tests executable
 add_executable(all_tests ${TEST_OBJ_LIST})
 target_link_libraries(all_tests PRIVATE test_main)
 set_test_target_parameters(all_tests "")
 
 # Unit benchmark executable
-add_executable(benchmarks benchmarks.cc system_benchmarks.cc benchmark_reporters.cc)
+add_executable(benchmarks dag_benchmarks.cc grid_benchmarks.cc system_benchmarks.cc benchmark_reporters.cc)
 target_link_libraries(benchmarks PRIVATE test_main)
-set_test_target_parameters(benchmarks benchmarks.cc system_benchmarks.cc)
+set_test_target_parameters(benchmarks dag_benchmarks.cc grid_benchmarks.cc system_benchmarks.cc)
 
 add_subdirectory(system)
 if(CELERITY_DETAIL_INTEGRATION_TESTING)
@@ -100,9 +98,9 @@ find_library(CAIRO_LIBRARIES
 
 if(CAIRO_INCLUDE_DIRS AND CAIRO_LIBRARIES)
   message(STATUS "Building tests with cairo support: ${CAIRO_LIBRARIES}")
-  foreach(TEST_TARGET region_map_tests;grid_tests)
-    target_compile_definitions(${TEST_TARGET}_OBJ PRIVATE CELERITY_DETAIL_HAVE_CAIRO=1)
-    target_include_directories(${TEST_TARGET}_OBJ PRIVATE ${CAIRO_INCLUDE_DIRS})
+  foreach(TEST_TARGET region_map_tests;region_map_tests_OBJ;test_main)
+    target_compile_definitions(${TEST_TARGET} PRIVATE CELERITY_DETAIL_HAVE_CAIRO=1)
+    target_include_directories(${TEST_TARGET} PRIVATE ${CAIRO_INCLUDE_DIRS})
     target_link_libraries(${TEST_TARGET} PRIVATE ${CAIRO_LIBRARIES})
   endforeach()
   target_link_libraries(all_tests PRIVATE ${CAIRO_LIBRARIES})
