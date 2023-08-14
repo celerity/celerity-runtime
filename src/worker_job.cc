@@ -217,7 +217,7 @@ namespace detail {
 				try {
 					const auto info = m_buffer_mngr.access_device_buffer(bid, mode, sr);
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-					auto* const oob_idx = sycl::malloc_shared<id<3>>(2, m_queue.get_sycl_queue());
+					auto* const oob_idx = sycl::malloc_host<id<3>>(2, m_queue.get_sycl_queue());
 					assert(oob_idx != nullptr);
 					constexpr size_t size_t_max = std::numeric_limits<size_t>::max();
 					const auto buffer_dims = m_buffer_mngr.get_buffer_info(bid).dimensions;
