@@ -152,7 +152,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 		if(tsk.get_type() == task_type::collective || tsk.get_type() == task_type::fence) {
 			std::vector<chunk<3>> chunks;
 			for(size_t nid = 0; nid < m_num_nodes; ++nid) {
-				chunks.push_back(chunk_cast<3>(chunk<1>{id<1>{nid}, ones, {m_num_nodes}}));
+				chunks.push_back(chunk_cast<3>(chunk<1>{id<1>{tsk.get_type() == task_type::collective ? nid : 0}, ones, {m_num_nodes}}));
 			}
 			return chunks;
 		}
