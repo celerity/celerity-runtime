@@ -124,7 +124,14 @@ TEMPLATE_TEST_CASE_SIG("memcpy_strided_device allows to copy between the same de
 	const size_t platform_id = GENERATE(Catch::Generators::range(size_t(0), sycl::platform::get_platforms().size()));
 	const auto test_type = GENERATE(copy_test_type::intra_device, copy_test_type::inter_device, copy_test_type::host_to_device, copy_test_type::device_to_host);
 	CAPTURE(platform_id, test_type);
+
 	const auto platform = sycl::platform::get_platforms()[platform_id];
+	CAPTURE(platform.get_info<sycl::info::platform::name>());
+
+	if(platform.get_info<sycl::info::platform::name>().substr(0, 5) == "Intel" && test_type == copy_test_type::inter_device) {
+		SKIP("Inter-GPU copy appears to currently be broken on Intel OpenCL / Level Zero");
+	}
+
 	auto [src, tgt] = ([&] {
 		try {
 			return select_source_and_target(test_type, platform);
