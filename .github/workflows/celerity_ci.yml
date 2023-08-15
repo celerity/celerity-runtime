@@ -1,5 +1,8 @@
 name: Celerity CI
 
+permissions:
+  pull-requests: write  # required for clang-tidy / report actions when the PR originates from a fork
+
 on:
   push:
   pull_request:
