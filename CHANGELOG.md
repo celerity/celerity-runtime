@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic
 Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2023-09-08
+
+We recommend using the following SYCL versions with this release:
+
+- DPC++: 61e51015 or newer
+- hipSYCL: d2bd9fc7 or newer
+
+See our [platform support guide](docs/platform-support.md) for a complete list of all officially supported configurations.
+
+### Fixed
+
+- Fix the behavior of dry runs (`CELERITY_DRY_RUN_NODES`) in the presence of fences or graph horizons (#196, 069f5029)
+- Compatibility with recent hipSYCL >= d2bd9fc7 (#200, b174df7d)
+- Compatibility with recent versions of Intel oneAPI and Arc-series dedicated GPUs (requires deactivating mimalloc, #203, c1519624)
+- Work around a [bug in DPC++](https://github.com/intel/llvm/issues/10982) that breaks selection of the non-default device (#210, 2b652f8)
+
+### Removed
+
+- Remove outdated workarounds for unsupported SYCL versions (#200, 85b7479c)
+
 ## [0.4.0] - 2023-07-13
 
 We recommend using the following SYCL versions with this release:
@@ -15,7 +35,7 @@ We recommend using the following SYCL versions with this release:
 
 See our [platform support guide](docs/platform-support.md) for a complete list of all officially supported configurations.
 
-## Added
+### Added
 
 - Introduce new experimental `host_object` and `side_effect` APIs to express non-buffer dependencies between host tasks (#68, 7a5326a)
 - Add new `CELERITY_GRAPH_PRINT_MAX_VERTS` config options (#80, d3dd722)
@@ -31,7 +51,7 @@ See our [platform support guide](docs/platform-support.md) for a complete list o
 - Introduce `CELERITY_ACCESSOR_BOUNDARY_CHECK` CMake option to detect out-of-bounds buffer accesses inside device kernels (enabled by default for debug builds) (#178, 2c738c8)
 - Print more helpful error message when buffer allocations exceed available device memory (#179, 79f97c2)
 
-## Changed
+### Changed
 
 - Update spdlog to 1.9.2 (#80, a178828)
 - Overhaul logging mechanism (#80, 1b19bfc)
@@ -50,27 +70,27 @@ See our [platform support guide](docs/platform-support.md) for a complete list o
 - Drastically improve performance of buffer data location tracking (#184, adff79e)
 - Switch to distributed scheduling model (#186, 0970bff)
 
-## Deprecated
+### Deprecated
 
 - Passing `sycl::device` to `distr_queue` constructor (use a device selector instead) (#113, 556b6f2)
 - Capturing buffers and host objects by value into command group functions (capture by reference instead) (#173, 0a743c7)
 - `allow_by_ref` is no longer required to capture references into command group functions (#173, 0a743c7)
 
-## Removed
+### Removed
 
 - Removed support for ComputeCpp (discontinued) (#167, 68367dd)
 - Removed deprecated `host_memory_layout` (use `buffer_allocation_window` instead) (#187, f5e6510)
 - Removed deprecated kernel dimension template parameter on `one_to_one`, `fixed` and `all` range mappers (#187, 40a12a4)
 - Kernels can no longer receive `sycl::item` (use `celerity::item` instead), this was already broken in 0.3.2 (#163, 67ccacc)
 
-## Fixed
+### Fixed
 
 - Improve performance for buffer transfers on IBM Spectrum MPI (#114, c60527f)
 - Increase size limit on individual buffer transfer operations from 2 GiB to 128 GiB (#153, 972682f)
 - Fix race between creating collective groups and submitting host tasks (#152, 0a4fca5)
 - Align read-accessor `operator[]` with SYCL 2020 spec by returning const-reference instead of value (#156, 5011ded)
 
-## Internal
+### Internal
 
 - Add microbenchmark suite (#100, c2853ca, #107, 51f5bc5)
 - Update Catch2 to v3.3 (#102, 9a6f19d, #129, 0d1e36a, #162, 5aa33d6)
