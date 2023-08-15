@@ -12,7 +12,9 @@ The most recent version of Celerity aims to support the following environments:
   * on NVIDIA hardware with compute capability ≥ 7.0
   * or on CPUs via OpenMP
 * DPC++ ≥ revision [`61e51015`](https://github.com/intel/llvm/commit/61e51015)
-  * on Intel hardware
+  * [Intel Compute Runtime](https://github.com/intel/compute-runtime) ≥ 23.22.26516.18
+  * [oneAPI Level Zero](https://github.com/oneapi-src/level-zero) ≥ 1.9.9
+  * on integrated and dedicated Intel GPUs
 
 ComputeCpp is no longer supported since its discontinuation.
 
@@ -20,18 +22,18 @@ ComputeCpp is no longer supported since its discontinuation.
 
 We automatically verify Celerity's build process and test suites against a select number of system configurations.
 
-Those are:
+Those are (CRT = Intel Compute Runtime, L0 = oneAPI Level Zero):
 
-| SYCL       | SYCL version                                                                             | OS           | Build type     |
-|------------|------------------------------------------------------------------------------------------|--------------|----------------|
-| DPC++      | [`61e51015`](https://github.com/intel/llvm/commit/61e51015)                              | Ubuntu 20.04 | Debug          |
-| DPC++      | [`HEAD`](https://github.com/intel/llvm/)                                                 | Ubuntu 22.04 | Debug, Release |
-| hipSYCL    | [`d2bd9fc7`](https://github.com/illuhad/hipSYCL/commit/d2bd9fc7) (Clang 10, CUDA 11.0.3) | Ubuntu 20.04 | Debug          |
-| hipSYCL    | [`d2bd9fc7`](https://github.com/illuhad/hipSYCL/commit/d2bd9fc7) (Clang 14, CUDA 11.8.0) | Ubuntu 22.04 | Debug, Release |
-| hipSYCL    | [`HEAD`](https://github.com/illuhad/hipSYCL) (Clang 16, CUDA 12.2.0)\*                   | Ubuntu 23.04 | Debug, Release |
+| SYCL       | SYCL version                                                                                   | OS           | GPU             | Build type     |
+|------------|--------------------------------------------------------------------------------------------|--------------|-----------------|----------------|
+| DPC++      | [`61e51015`](https://github.com/intel/llvm/commit/61e51015) (CRT 23.22.26516.18, L0 1.9.9) | Ubuntu 20.04 | Intel Arc 770   | Debug          |
+| DPC++      | [`HEAD`](https://github.com/intel/llvm/) (CRT 23.22.26516.18, L0 1.11.0)                   | Ubuntu 22.04 | Intel Arc 770   | Debug, Release |
+| hipSYCL    | [`d2bd9fc7`](https://github.com/illuhad/hipSYCL/commit/d2bd9fc7) (Clang 10, CUDA 11.0.3)   | Ubuntu 20.04 | NVIDIA RTX 2070 | Debug          |
+| hipSYCL    | [`d2bd9fc7`](https://github.com/illuhad/hipSYCL/commit/d2bd9fc7) (Clang 14, CUDA 11.8.0)   | Ubuntu 22.04 | NVIDIA RTX 2070 | Debug, Release |
+| hipSYCL    | [`HEAD`](https://github.com/illuhad/hipSYCL) (Clang 16, CUDA 12.2.0)\*                     | Ubuntu 23.04 | NVIDIA RTX 2070 | Debug, Release |
 
 \* currently requires a patch for an illegal macro definition in CUDA:
-  
+
 ```diff
 --- a/include/crt/host_defines.h	2023-04-03 14:40:16.471254404 +0200
 +++ b/include/crt/host_defines.h	2023-03-23 22:07:22.000000000 +0100
