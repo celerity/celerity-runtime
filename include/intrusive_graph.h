@@ -2,11 +2,9 @@
 
 #include <algorithm>
 #include <cassert>
-#include <list>
 #include <optional>
 #include <type_traits>
-
-#include <gch/small_vector.hpp>
+#include <vector>
 
 namespace celerity {
 namespace detail {
@@ -128,8 +126,8 @@ namespace detail {
 		int get_pseudo_critical_path_length() const { return m_pseudo_critical_path_length; }
 
 	  private:
-		gch::small_vector<dependency> m_dependencies;
-		gch::small_vector<dependent> m_dependents;
+		std::vector<dependency> m_dependencies;
+		std::vector<dependent> m_dependents;
 
 		// This only (potentially) grows when adding dependencies,
 		// it never shrinks and does not take into account later changes further up in the dependency chain
