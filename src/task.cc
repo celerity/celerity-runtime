@@ -35,7 +35,7 @@ namespace detail {
 
 	region<3> buffer_access_map::get_mode_requirements(
 	    const buffer_id bid, const access_mode mode, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const {
-		std::vector<box<3>> boxes;
+		box_vector<3> boxes;
 		for(size_t i = 0; i < m_accesses.size(); ++i) {
 			if(m_accesses[i].first != bid || m_accesses[i].second->get_access_mode() != mode) continue;
 			boxes.push_back(get_requirements_for_nth_access(i, kernel_dims, sr, global_size));

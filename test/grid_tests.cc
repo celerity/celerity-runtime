@@ -1,3 +1,4 @@
+#include "grid.h"
 #include "grid_test_utils.h"
 
 #include <algorithm>
@@ -18,14 +19,14 @@ TEST_CASE("split_box dissects boxes as expected - 3d", "[grid]") {
 	    {0, 4, 8, 12},
 	    {8, 9},
 	};
-	std::vector<box<3>> expected{
+	box_vector<3> expected{
 	    {{0, 0, 0}, {4, 8, 5}},
 	    {{0, 8, 0}, {4, 9, 5}},
 	    {{4, 0, 0}, {7, 8, 5}},
 	    {{4, 8, 0}, {7, 9, 5}},
 	};
 
-	std::vector<box<3>> split;
+	box_vector<3> split;
 	grid_detail::dissect_box(input_box, cuts, split, 0);
 
 	std::sort(split.begin(), split.end(), box_coordinate_order());
@@ -34,7 +35,7 @@ TEST_CASE("split_box dissects boxes as expected - 3d", "[grid]") {
 }
 
 template <int MergeDim, int Dims>
-void test_directional_merge(std::vector<box<Dims>> unmerged, std::vector<box<Dims>> merged) {
+void test_directional_merge(box_vector<Dims> unmerged, box_vector<Dims> merged) {
 	CAPTURE(MergeDim);
 	std::minstd_rand rng(42);
 	std::shuffle(unmerged.begin(), unmerged.end(), rng);
@@ -47,13 +48,13 @@ void test_directional_merge(std::vector<box<Dims>> unmerged, std::vector<box<Dim
 }
 
 TEST_CASE("directional merge of non-overlapping boxes - 1d", "[grid]") {
-	const std::vector<box<1>> unmerged{
+	const box_vector<1> unmerged{
 	    {{0}, {2}},
 	    {{2}, {4}},
 	    {{4}, {8}},
 	    {{10}, {12}},
 	};
-	const std::vector<box<1>> merged{
+	const box_vector<1> merged{
 	    {{0}, {8}},
 	    {{10}, {12}},
 	};
@@ -61,14 +62,14 @@ TEST_CASE("directional merge of non-overlapping boxes - 1d", "[grid]") {
 }
 
 TEST_CASE("directional merge of overlapping boxes - 1d", "[grid]") {
-	const std::vector<box<1>> unmerged{
+	const box_vector<1> unmerged{
 	    {{0}, {6}},
 	    {{2}, {4}},
 	    {{8}, {12}},
 	    {{10}, {16}},
 	    {{16}, {18}},
 	};
-	const std::vector<box<1>> merged{
+	const box_vector<1> merged{
 	    {{0}, {6}},
 	    {{8}, {18}},
 	};
@@ -76,7 +77,7 @@ TEST_CASE("directional merge of overlapping boxes - 1d", "[grid]") {
 }
 
 TEST_CASE("directional merge of non-overlapping boxes - 2d", "[grid]") {
-	const std::vector<box<2>> unmerged{
+	const box_vector<2> unmerged{
 	    {{0, 0}, {2, 2}},
 	    {{0, 2}, {2, 4}},
 	    {{0, 4}, {2, 6}},
@@ -88,7 +89,7 @@ TEST_CASE("directional merge of non-overlapping boxes - 2d", "[grid]") {
 	    {{4, 8}, {6, 10}},
 	};
 
-	const std::vector<box<2>> merged_dim0{
+	const box_vector<2> merged_dim0{
 	    {{0, 0}, {2, 2}},
 	    {{0, 2}, {4, 4}},
 	    {{0, 4}, {6, 6}},
@@ -97,7 +98,7 @@ TEST_CASE("directional merge of non-overlapping boxes - 2d", "[grid]") {
 	};
 	test_directional_merge<0>(unmerged, merged_dim0);
 
-	const std::vector<box<2>> merged_dim1{
+	const box_vector<2> merged_dim1{
 	    {{0, 0}, {2, 6}},
 	    {{2, 2}, {4, 8}},
 	    {{4, 4}, {6, 10}},
@@ -110,7 +111,7 @@ TEST_CASE("directional merge of non-overlapping boxes - 2d", "[grid]") {
 }
 
 TEST_CASE("directional merge of overlapping boxes - 2d", "[grid]") {
-	const std::vector<box<2>> unmerged{
+	const box_vector<2> unmerged{
 	    {{0, 0}, {12, 3}},
 	    {{0, 1}, {12, 4}},
 	    {{0, 4}, {12, 6}},
@@ -121,7 +122,7 @@ TEST_CASE("directional merge of overlapping boxes - 2d", "[grid]") {
 	    {{8, 0}, {10, 12}},
 	};
 
-	const std::vector<box<2>> merged_dim0{
+	const box_vector<2> merged_dim0{
 	    {{0, 0}, {12, 3}},
 	    {{0, 1}, {12, 4}},
 	    {{0, 4}, {12, 6}},
@@ -131,7 +132,7 @@ TEST_CASE("directional merge of overlapping boxes - 2d", "[grid]") {
 	};
 	test_directional_merge<0>(unmerged, merged_dim0);
 
-	const std::vector<box<2>> merged_dim1{
+	const box_vector<2> merged_dim1{
 	    {{0, 0}, {12, 6}},
 	    {{0, 8}, {12, 10}},
 	    {{0, 0}, {3, 12}},
@@ -147,7 +148,7 @@ TEST_CASE("directional merge of overlapping boxes - 2d", "[grid]") {
 }
 
 TEST_CASE("directional merge of non-overlapping 3d boxes", "[grid]") {
-	const std::vector<box<3>> unmerged{
+	const box_vector<3> unmerged{
 	    {{0, 0, 2}, {2, 2, 4}},
 	    {{0, 2, 0}, {2, 4, 2}},
 	    {{0, 2, 2}, {2, 4, 4}},
@@ -157,7 +158,7 @@ TEST_CASE("directional merge of non-overlapping 3d boxes", "[grid]") {
 	    {{2, 2, 2}, {4, 4, 4}},
 	};
 
-	const std::vector<box<3>> merged_dim0{
+	const box_vector<3> merged_dim0{
 	    {{0, 0, 2}, {4, 2, 4}},
 	    {{0, 2, 0}, {4, 4, 2}},
 	    {{0, 2, 2}, {4, 4, 4}},
@@ -165,7 +166,7 @@ TEST_CASE("directional merge of non-overlapping 3d boxes", "[grid]") {
 	};
 	test_directional_merge<0>(unmerged, merged_dim0);
 
-	const std::vector<box<3>> merged_dim1{
+	const box_vector<3> merged_dim1{
 	    {{0, 2, 0}, {2, 4, 2}},
 	    {{0, 0, 2}, {2, 4, 4}},
 	    {{2, 0, 0}, {4, 4, 2}},
@@ -173,7 +174,7 @@ TEST_CASE("directional merge of non-overlapping 3d boxes", "[grid]") {
 	};
 	test_directional_merge<1>(unmerged, merged_dim1);
 
-	const std::vector<box<3>> merged_dim2{
+	const box_vector<3> merged_dim2{
 	    {{0, 0, 2}, {2, 2, 4}},
 	    {{0, 2, 0}, {2, 4, 4}},
 	    {{2, 0, 0}, {4, 2, 4}},
@@ -183,19 +184,19 @@ TEST_CASE("directional merge of non-overlapping 3d boxes", "[grid]") {
 }
 
 TEST_CASE("region normalization removes overlaps - 2d", "[grid]") {
-	const std::vector<box<2>> overlapping{
+	const box_vector<2> overlapping{
 	    {{0, 0}, {4, 4}},
 	    {{2, 2}, {6, 6}},
 	    {{4, 8}, {5, 9}},
 	};
-	std::vector<box<2>> normalized{
+	box_vector<2> normalized{
 	    {{0, 0}, {2, 4}},
 	    {{2, 0}, {4, 6}},
 	    {{4, 2}, {6, 6}},
 	    {{4, 8}, {5, 9}},
 	};
 
-	const auto result = grid_detail::normalize(std::vector(overlapping));
+	const auto result = grid_detail::normalize(test_utils::copy(overlapping));
 	std::sort(normalized.begin(), normalized.end(), box_coordinate_order());
 	CHECK(result == normalized);
 
@@ -205,20 +206,20 @@ TEST_CASE("region normalization removes overlaps - 2d", "[grid]") {
 }
 
 TEST_CASE("region normalization maximizes extent of fast dimensions - 2d", "[grid]") {
-	const std::vector<box<2>> input{
+	const box_vector<2> input{
 	    {{0, 0}, {8, 2}},
 	    {{0, 2}, {2, 4}},
 	    {{6, 2}, {8, 4}},
 	    {{0, 4}, {8, 6}},
 	};
-	std::vector<box<2>> normalized{
+	box_vector<2> normalized{
 	    {{0, 0}, {2, 6}},
 	    {{2, 0}, {6, 2}},
 	    {{2, 4}, {6, 6}},
 	    {{6, 0}, {8, 6}},
 	};
 
-	const auto result = grid_detail::normalize(std::vector(input));
+	const auto result = grid_detail::normalize(test_utils::copy(input));
 	std::sort(normalized.begin(), normalized.end(), box_coordinate_order());
 	CHECK(result == normalized);
 
@@ -241,7 +242,7 @@ TEST_CASE("region union - 2d", "[grid]") {
 	    {{4, 7}, {6, 9}},
 	}};
 
-	std::vector<box<2>> expected{
+	box_vector<2> expected{
 	    {{0, 0}, {2, 3}},
 	    {{2, 0}, {3, 6}},
 	    {{3, 3}, {4, 6}},
@@ -278,7 +279,7 @@ TEST_CASE("region intersection - 2d", "[grid]") {
 	    {{2, 9}, {3, 14}},
 	}};
 
-	std::vector<box<2>> expected{
+	box_vector<2> expected{
 	    {{3, 4}, {6, 6}},
 	    {{7, 2}, {9, 4}},
 	    {{2, 9}, {3, 11}},
@@ -309,7 +310,7 @@ TEST_CASE("region difference - 2d", "[grid]") {
 	    {{7, 1}, {11, 5}},
 	}};
 
-	std::vector<box<2>> expected{
+	box_vector<2> expected{
 	    {{0, 0}, {1, 6}},
 	    {{1, 0}, {3, 1}},
 	    {{3, 0}, {4, 2}},
@@ -331,13 +332,13 @@ TEST_CASE("region difference - 2d", "[grid]") {
 }
 
 TEST_CASE("region normalization - 0d", "[grid]") {
-	std::vector<box<0>> r;
+	box_vector<0> r;
 	auto n = r;
-	CHECK(grid_detail::normalize(std::vector(r)).empty());
+	CHECK(grid_detail::normalize(test_utils::copy(r)).empty());
 	r.emplace_back();
-	CHECK(grid_detail::normalize(std::vector(r)) == std::vector{{box<0>()}});
+	CHECK(grid_detail::normalize(test_utils::copy(r)) == box_vector<0>{{box<0>()}});
 	r.emplace_back();
-	CHECK(grid_detail::normalize(std::vector(r)) == std::vector{{box<0>()}});
+	CHECK(grid_detail::normalize(test_utils::copy(r)) == box_vector<0>{{box<0>()}});
 }
 
 TEST_CASE("region union - 0d", "[grid]") {

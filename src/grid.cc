@@ -209,12 +209,12 @@ BidirectionalIterator merge_connected_boxes_along_dim(const BidirectionalIterato
 }
 
 // explicit instantiations for tests (might otherwise be inlined)
-template std::vector<box<1>>::iterator merge_connected_boxes_along_dim<0, 1>(std::vector<box<1>>::iterator first, std::vector<box<1>>::iterator last);
-template std::vector<box<2>>::iterator merge_connected_boxes_along_dim<0, 2>(std::vector<box<2>>::iterator first, std::vector<box<2>>::iterator last);
-template std::vector<box<2>>::iterator merge_connected_boxes_along_dim<1, 2>(std::vector<box<2>>::iterator first, std::vector<box<2>>::iterator last);
-template std::vector<box<3>>::iterator merge_connected_boxes_along_dim<0, 3>(std::vector<box<3>>::iterator first, std::vector<box<3>>::iterator last);
-template std::vector<box<3>>::iterator merge_connected_boxes_along_dim<1, 3>(std::vector<box<3>>::iterator first, std::vector<box<3>>::iterator last);
-template std::vector<box<3>>::iterator merge_connected_boxes_along_dim<2, 3>(std::vector<box<3>>::iterator first, std::vector<box<3>>::iterator last);
+template box_vector<1>::iterator merge_connected_boxes_along_dim<0, 1>(box_vector<1>::iterator first, box_vector<1>::iterator last);
+template box_vector<2>::iterator merge_connected_boxes_along_dim<0, 2>(box_vector<2>::iterator first, box_vector<2>::iterator last);
+template box_vector<2>::iterator merge_connected_boxes_along_dim<1, 2>(box_vector<2>::iterator first, box_vector<2>::iterator last);
+template box_vector<3>::iterator merge_connected_boxes_along_dim<0, 3>(box_vector<3>::iterator first, box_vector<3>::iterator last);
+template box_vector<3>::iterator merge_connected_boxes_along_dim<1, 3>(box_vector<3>::iterator first, box_vector<3>::iterator last);
+template box_vector<3>::iterator merge_connected_boxes_along_dim<2, 3>(box_vector<3>::iterator first, box_vector<3>::iterator last);
 
 // For higher-dimensional regions, the order in which dimensions are merged is relevant for the shape of the resulting box set. We merge along the last
 // ("fastest") dimension first to make sure the resulting boxes cover the largest possible extent of contiguous memory when are applied to buffers.
@@ -238,7 +238,7 @@ BidirectionalIterator merge_connected_boxes(const BidirectionalIterator first, B
 // Split a box into parts according to dissection lines in `cuts`, where `cuts` is indexed by component dimension. This function is not generic
 // over EffectiveDims, rather, `cuts` will have 1 <= n <= StorageDims entries to indicate along how many dimensions the box should be dissected.
 template <int StorageDims>
-void dissect_box(const box<StorageDims>& in_box, const std::vector<std::vector<size_t>>& cuts, std::vector<box<StorageDims>>& out_dissected, int dim) {
+void dissect_box(const box<StorageDims>& in_box, const std::vector<std::vector<size_t>>& cuts, box_vector<StorageDims>& out_dissected, int dim) {
 	assert(dim < static_cast<int>(cuts.size()));
 
 	const auto& dim_cuts = cuts[static_cast<size_t>(dim)];
@@ -276,13 +276,13 @@ void dissect_box(const box<StorageDims>& in_box, const std::vector<std::vector<s
 }
 
 // explicit instantiations for tests (might otherwise be inlined)
-template void dissect_box(const box<2>& in_box, const std::vector<std::vector<size_t>>& cuts, std::vector<box<2>>& out_dissected, int dim);
-template void dissect_box(const box<3>& in_box, const std::vector<std::vector<size_t>>& cuts, std::vector<box<3>>& out_dissected, int dim);
+template void dissect_box(const box<2>& in_box, const std::vector<std::vector<size_t>>& cuts, box_vector<2>& out_dissected, int dim);
+template void dissect_box(const box<3>& in_box, const std::vector<std::vector<size_t>>& cuts, box_vector<3>& out_dissected, int dim);
 
 // Apply dissect_box to all boxes in a range, with a shortcut if no cuts are to be done.
 template <typename InputIterator>
 void dissect_boxes(const InputIterator first, const InputIterator last, const std::vector<std::vector<size_t>>& cuts,
-    std::vector<typename std::iterator_traits<InputIterator>::value_type>& out_dissected) {
+    box_vector<std::iterator_traits<InputIterator>::value_type::dimensions>& out_dissected) {
 	if(!cuts.empty()) {
 		for(auto it = first; it != last; ++it) {
 			dissect_box(*it, cuts, out_dissected, 0);
@@ -309,13 +309,13 @@ std::vector<size_t> collect_dissection_lines(const InputIterator first, const In
 }
 
 template <int EffectiveDims, int StorageDims>
-void normalize_impl(std::vector<box<StorageDims>>& boxes) {
+void normalize_impl(box_vector<StorageDims>& boxes) {
 	static_assert(EffectiveDims <= StorageDims);
 	assert(!boxes.empty());
 
 	if constexpr(EffectiveDims == 0) {
 		// all 0d boxes are identical
-		boxes.resize(1);
+		boxes.resize(1, box<StorageDims>());
 	} else if constexpr(EffectiveDims == 1) {
 		// merge_connected_boxes will sort and merge - this is already the complete 1d normalization
 		boxes.erase(merge_connected_boxes<EffectiveDims>(boxes.begin(), boxes.end()), boxes.end());
@@ -333,7 +333,7 @@ void normalize_impl(std::vector<box<StorageDims>>& boxes) {
 			cuts[static_cast<size_t>(d)] = collect_dissection_lines(boxes.begin(), boxes.end(), d);
 		}
 
-		std::vector<box<StorageDims>> disjoint_boxes;
+		box_vector<StorageDims> disjoint_boxes;
 		dissect_boxes(boxes.begin(), boxes.end(), cuts, disjoint_boxes);
 		boxes = std::move(disjoint_boxes);
 
@@ -375,7 +375,7 @@ decltype(auto) dispatch_effective_dims(int effective_dims, F&& f) {
 // There is exactly one sequence of boxes for any set of points that fulfills 1-4, meaning that an "==" comparison of normalized tilings would be equivalent
 // to an equality comparision of the covered point sets.
 template <int Dims>
-void normalize(std::vector<box<Dims>>& boxes) {
+void normalize(box_vector<Dims>& boxes) {
 	boxes.erase(std::remove_if(boxes.begin(), boxes.end(), std::mem_fn(&box<Dims>::empty)), boxes.end());
 	if(boxes.size() <= 1) return;
 
@@ -388,10 +388,10 @@ void normalize(std::vector<box<Dims>>& boxes) {
 }
 
 // explicit instantiations for tests (might otherwise be inlined into region::region)
-template void normalize(std::vector<box<0>>& boxes);
-template void normalize(std::vector<box<1>>& boxes);
-template void normalize(std::vector<box<2>>& boxes);
-template void normalize(std::vector<box<3>>& boxes);
+template void normalize(box_vector<0>& boxes);
+template void normalize(box_vector<1>& boxes);
+template void normalize(box_vector<2>& boxes);
+template void normalize(box_vector<3>& boxes);
 
 template <int EffectiveDims, int StorageDims>
 region<StorageDims> region_intersection_impl(const region<StorageDims>& lhs, const region<StorageDims>& rhs) {
@@ -399,7 +399,7 @@ region<StorageDims> region_intersection_impl(const region<StorageDims>& lhs, con
 
 	// O(N * M). This can probably be improved for large inputs by dissecting either lhs or rhs by the lines of the other and then performing an interval
 	// search similar to how remove_pairwise_covered operates.
-	std::vector<box<StorageDims>> intersection;
+	box_vector<StorageDims> intersection;
 	for(const auto& left : lhs.get_boxes()) {
 		for(const auto& right : rhs.get_boxes()) {
 			if(const auto box = grid_detail::box_intersection<EffectiveDims>(left, right); !box.empty()) { intersection.push_back(box); }
@@ -424,7 +424,7 @@ region<StorageDims> region_intersection_impl(const region<StorageDims>& lhs, con
 
 // Complete the region_difference operation with an already dissected left-hand side and knowledge of effective dimensionality.
 template <int EffectiveDims, int StorageDims>
-void apply_region_difference(std::vector<box<StorageDims>>& dissected_left, const region<StorageDims>& rhs) {
+void apply_region_difference(box_vector<StorageDims>& dissected_left, const region<StorageDims>& rhs) {
 	static_assert(EffectiveDims <= StorageDims);
 
 	// O(N * M) remove all dissected boxes from lhs that are fully covered by any box in rhs
@@ -450,16 +450,16 @@ void apply_region_difference(std::vector<box<StorageDims>>& dissected_left, cons
 namespace celerity::detail {
 
 template <int Dims>
-region<Dims>::region(const box& single_box) : region(std::vector{single_box}) {} // still need to normalize in case single_box is empty
+region<Dims>::region(const box& single_box) : region(box_vector{single_box}) {} // still need to normalize in case single_box is empty
 
 template <int Dims>
 region<Dims>::region(const subrange<Dims>& single_sr) : region(box(single_sr)) {}
 
 template <int Dims>
-region<Dims>::region(std::vector<box>&& boxes) : region(grid_detail::normalized, (/* in-place */ grid_detail::normalize(boxes), /* then */ std::move(boxes))) {}
+region<Dims>::region(box_vector&& boxes) : region(grid_detail::normalized, (/* in-place */ grid_detail::normalize(boxes), /* then */ std::move(boxes))) {}
 
 template <int Dims>
-region<Dims>::region(grid_detail::normalized_t /* tag */, std::vector<box>&& boxes) : m_boxes(std::move(boxes)) {}
+region<Dims>::region(grid_detail::normalized_t /* tag */, box_vector&& boxes) : m_boxes(std::move(boxes)) {}
 
 template class region<0>;
 template class region<1>;
@@ -472,7 +472,7 @@ region<Dims> region_union(const region<Dims>& lhs, const region<Dims>& rhs) {
 	if(lhs.empty()) return rhs;
 	if(rhs.empty()) return lhs;
 
-	std::vector<box<Dims>> box_union;
+	box_vector<Dims> box_union;
 	box_union.reserve(lhs.get_boxes().size() + rhs.get_boxes().size());
 	box_union.insert(box_union.end(), lhs.get_boxes().begin(), lhs.get_boxes().end());
 	box_union.insert(box_union.end(), rhs.get_boxes().begin(), rhs.get_boxes().end());
@@ -518,7 +518,7 @@ region<Dims> region_difference(const region<Dims>& lhs, const region<Dims>& rhs)
 	}
 
 	// 2. dissect lhs according to the lines of rhs, so that any overlap between lhs and rhs is turned into an lhs box fully covered by an rhs box
-	std::vector<box<Dims>> dissected_left;
+	box_vector<Dims> dissected_left;
 	grid_detail::dissect_boxes(lhs.get_boxes().begin(), lhs.get_boxes().end(), cuts, dissected_left);
 
 	grid_detail::dispatch_effective_dims<Dims>(effective_dims, [&](const auto effective_dims) { //

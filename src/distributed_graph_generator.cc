@@ -293,7 +293,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 
 					if(is_local_chunk && !is_pending_reduction) {
 						const auto local_sources = buffer_state.local_last_writer.get_region_values(req);
-						std::vector<box<3>> missing_part_boxes;
+						box_vector<3> missing_part_boxes;
 						for(const auto& [box, wcs] : local_sources) {
 							if(box.empty()) continue;
 							if(!wcs.is_fresh()) {
@@ -479,7 +479,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 	// Determine which local data is fresh/stale based on task-level writes.
 	auto requirements = get_buffer_requirements_for_mapped_access(tsk, subrange<3>(tsk.get_global_offset(), tsk.get_global_size()), tsk.get_global_size());
 	for(auto& [bid, reqs_by_mode] : requirements) {
-		std::vector<box<3>> global_write_boxes;
+		box_vector<3> global_write_boxes;
 		for(const auto mode : access::producer_modes) {
 			if(reqs_by_mode.count(mode) == 0) continue;
 			const auto& by_mode = reqs_by_mode.at(mode);
