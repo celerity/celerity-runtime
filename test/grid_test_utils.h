@@ -5,7 +5,7 @@ namespace celerity::test_utils {
 
 struct partition_vector_order {
 	template <int Dims>
-	bool operator()(const std::vector<detail::box<Dims>>& lhs, const std::vector<detail::box<Dims>>& rhs) {
+	bool operator()(const detail::box_vector<Dims>& lhs, const detail::box_vector<Dims>& rhs) {
 		if(lhs.size() < rhs.size()) return true;
 		if(lhs.size() > rhs.size()) return false;
 		constexpr detail::box_coordinate_order box_order;
@@ -17,6 +17,6 @@ struct partition_vector_order {
 	}
 };
 
-void render_boxes(const std::vector<detail::box<2>>& boxes, const std::string_view suffix = "region");
+void render_boxes(const detail::box_vector<2>& boxes, const std::string_view suffix = "region");
 
 }

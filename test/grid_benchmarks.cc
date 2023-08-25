@@ -13,11 +13,11 @@ using namespace celerity;
 using namespace celerity::detail;
 
 template <int Dims>
-std::vector<box<Dims>> create_random_boxes(const size_t grid_size, const size_t max_box_size, const size_t num_boxes, const uint32_t seed) {
+box_vector<Dims> create_random_boxes(const size_t grid_size, const size_t max_box_size, const size_t num_boxes, const uint32_t seed) {
 	std::minstd_rand rng(seed);
 	std::uniform_int_distribution<size_t> offset_dist(0, grid_size - 1);
 	std::binomial_distribution<size_t> range_dist(max_box_size - 1, 0.5);
-	std::vector<box<Dims>> boxes;
+	box_vector<Dims> boxes;
 	while(boxes.size() < num_boxes) {
 		subrange<Dims> sr;
 		bool inbounds = true;
@@ -39,14 +39,14 @@ TEST_CASE("normalizing randomized box sets - 2d", "[benchmark][grid]") {
 	}));
 
 	const auto input_2d = create_random_boxes<2>(grid_size, max_box_size, num_boxes, 42);
-	BENCHMARK(fmt::format("{}, native", label)) { return grid_detail::normalize(std::vector(input_2d)); };
+	BENCHMARK(fmt::format("{}, native", label)) { return grid_detail::normalize(test_utils::copy(input_2d)); };
 
-	const auto input_3d = grid_detail::boxes_cast<3>(input_2d);
-	BENCHMARK(fmt::format("{}, embedded in 3d", label)) { return grid_detail::normalize(std::vector(input_3d)); };
+	const auto input_3d = boxes_cast<3>(input_2d);
+	BENCHMARK(fmt::format("{}, embedded in 3d", label)) { return grid_detail::normalize(test_utils::copy(input_3d)); };
 
-	const auto normalized_2d = grid_detail::normalize(std::vector(input_2d));
-	const auto normalized_3d = grid_detail::normalize(std::vector(input_3d));
-	CHECK(normalized_3d == grid_detail::boxes_cast<3>(normalized_2d));
+	const auto normalized_2d = grid_detail::normalize(test_utils::copy(input_2d));
+	const auto normalized_3d = grid_detail::normalize(test_utils::copy(input_3d));
+	CHECK(normalized_3d == boxes_cast<3>(normalized_2d));
 
 	test_utils::render_boxes(input_2d, fmt::format("{}-input", label));
 	test_utils::render_boxes(normalized_2d, fmt::format("{}-normalized", label));
@@ -60,18 +60,18 @@ TEST_CASE("normalizing randomized box sets - 3d", "[benchmark][grid]") {
 	}));
 
 	const auto input_3d = create_random_boxes<3>(grid_size, max_box_size, num_boxes, 42);
-	BENCHMARK(fmt::format("{} - native", label)) { return grid_detail::normalize(std::vector(input_3d)); };
-	test_utils::black_hole(grid_detail::normalize(std::vector(input_3d))); // to attach a profiler
+	BENCHMARK(fmt::format("{} - native", label)) { return grid_detail::normalize(test_utils::copy(input_3d)); };
+	test_utils::black_hole(grid_detail::normalize(test_utils::copy(input_3d))); // to attach a profiler
 }
 
 template <int Dims>
-std::vector<box<Dims>> create_box_tiling(const size_t n_per_side) {
+box_vector<Dims> create_box_tiling(const size_t n_per_side) {
 	const size_t length = 5;
 	size_t n_linear = 1;
 	for(int d = 0; d < Dims; ++d) {
 		n_linear *= n_per_side;
 	}
-	std::vector<box<Dims>> boxes(n_linear);
+	box_vector<Dims> boxes(n_linear, box<Dims>());
 	for(size_t i = 0; i < n_linear; ++i) {
 		subrange<Dims> sr;
 		auto dist_i = i;
@@ -95,14 +95,14 @@ TEMPLATE_TEST_CASE_SIG("normalizing a fully mergeable tiling of boxes", "[benchm
 	const size_t n_per_side = llrint(pow(n, 1.0 / Dims));
 
 	const auto boxes_nd = create_box_tiling<Dims>(n_per_side);
-	const auto normalized_nd = grid_detail::normalize(std::vector(boxes_nd));
+	const auto normalized_nd = grid_detail::normalize(test_utils::copy(boxes_nd));
 	CHECK(normalized_nd.size() == 1);
 
-	BENCHMARK(fmt::format("{}, native", label)) { return grid_detail::normalize(std::vector(boxes_nd)); };
+	BENCHMARK(fmt::format("{}, native", label)) { return grid_detail::normalize(test_utils::copy(boxes_nd)); };
 
 	if constexpr(Dims < 3) {
-		const auto boxes_3d = grid_detail::boxes_cast<3>(boxes_nd);
-		BENCHMARK(fmt::format("{}, embedded in 3d", label)) { return grid_detail::normalize(std::vector(boxes_3d)); };
+		const auto boxes_3d = boxes_cast<3>(boxes_nd);
+		BENCHMARK(fmt::format("{}, embedded in 3d", label)) { return grid_detail::normalize(test_utils::copy(boxes_3d)); };
 	}
 
 	if constexpr(Dims == 2) {
@@ -168,8 +168,8 @@ TEST_CASE("performing set operations between randomized regions - 3d", "[benchma
 	test_utils::black_hole(region_difference(inputs_3d[0], inputs_3d[1]));
 }
 
-std::vector<box<2>> create_interlocking_boxes(const size_t num_boxes_per_side) {
-	std::vector<box<2>> boxes;
+box_vector<2> create_interlocking_boxes(const size_t num_boxes_per_side) {
+	box_vector<2> boxes;
 	for(size_t i = 0; i < num_boxes_per_side; ++i) {
 		boxes.emplace_back(id<2>(i, i), id<2>(i + 1, num_boxes_per_side));
 		boxes.emplace_back(id<2>(i + 1, i), id<2>(num_boxes_per_side, i + 1));
@@ -184,10 +184,10 @@ TEST_CASE("normalizing a fully mergeable, complex tiling of boxes - 2d", "[bench
 	}));
 
 	const auto boxes_2d = create_interlocking_boxes(n);
-	const auto boxes_3d = grid_detail::boxes_cast<3>(boxes_2d);
+	const auto boxes_3d = boxes_cast<3>(boxes_2d);
 
-	BENCHMARK(fmt::format("{}, native", label)) { return grid_detail::normalize(std::vector(boxes_2d)); };
-	BENCHMARK(fmt::format("{}, embedded in 3d", label)) { return grid_detail::normalize(std::vector(boxes_3d)); };
+	BENCHMARK(fmt::format("{}, native", label)) { return grid_detail::normalize(test_utils::copy(boxes_2d)); };
+	BENCHMARK(fmt::format("{}, embedded in 3d", label)) { return grid_detail::normalize(test_utils::copy(boxes_3d)); };
 
 	test_utils::render_boxes(boxes_2d, fmt::format("{}-input", label));
 }

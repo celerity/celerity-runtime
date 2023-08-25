@@ -31,7 +31,7 @@ std::array<float, 3> hsl2rgb(const float h, const float s, const float l) {
 	return {r, g, b};
 }
 
-void render_boxes(const std::vector<box<2>>& boxes, const std::string_view suffix) {
+void render_boxes(const box_vector<2>& boxes, const std::string_view suffix) {
 #if CELERITY_DETAIL_HAVE_CAIRO
 	const auto env = std::getenv("CELERITY_RENDER_REGIONS");
 	if(env == nullptr || env[0] == 0) return;

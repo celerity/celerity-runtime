@@ -243,7 +243,7 @@ namespace detail {
 
 		// If a previous buffer is provided, we may have to retain some or all of the existing data.
 		const region<3> retain_region = ([&]() {
-			std::vector<box<3>> boxes{coherent_box};
+			box_vector<3> boxes{coherent_box};
 			if(previous_buffer.is_allocated()) { boxes.push_back(subrange(previous_buffer.offset, previous_buffer.storage->get_range())); }
 			return region(std::move(boxes));
 		})(); // IIFE
@@ -265,7 +265,7 @@ namespace detail {
 		if(detail::access::mode_traits::is_consumer(mode))
 #endif
 		{
-			std::vector<box<3>> updated_region_boxes;
+			box_vector<3> updated_region_boxes;
 			std::vector<transfer> remaining_transfers;
 			auto& scheduled_buffer_transfers = m_scheduled_transfers[bid];
 			remaining_transfers.reserve(scheduled_buffer_transfers.size() / 2);
@@ -332,7 +332,7 @@ namespace detail {
 				}
 			};
 
-			std::vector<box<3>> replicated_boxes;
+			box_vector<3> replicated_boxes;
 			auto& buffer_data_locations = m_newest_data_location.at(bid);
 			const auto data_locations = buffer_data_locations.get_region_values(remaining_region_after_transfers);
 			for(auto& dl : data_locations) {

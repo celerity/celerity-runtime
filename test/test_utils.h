@@ -361,6 +361,12 @@ namespace test_utils {
 		~task_test_context() { maybe_print_task_graph(trec); }
 	};
 
+	// explicitly invoke a copy constructor without repeating the type
+	template <typename T>
+	T copy(const T& v) {
+		return v;
+	}
+
 	template <typename T>
 	void black_hole(T&& v) {
 		Catch::Benchmark::keep_memory(&v);

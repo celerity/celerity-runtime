@@ -5,6 +5,8 @@
 #include <limits>
 #include <numeric>
 
+#include <gch/small_vector.hpp>
+
 #include "ranges.h"
 #include "workaround.h"
 
@@ -201,23 +203,35 @@ struct box_coordinate_order {
 	}
 };
 
+template <int Dims>
+using box_vector = gch::small_vector<box<Dims>>;
+
+template <int DimsOut, int DimsIn>
+box_vector<DimsOut> boxes_cast(const box_vector<DimsIn>& in) {
+	assert(grid_detail::get_min_dimensions(in.begin(), in.end()) <= DimsOut);
+	box_vector<DimsOut> out(in.size(), box<DimsOut>());
+	std::transform(in.begin(), in.end(), out.begin(), box_cast<DimsOut, DimsIn>);
+	return out;
+}
+
 /// An arbitrary-dimensional set of points described by a normalized tiling of boxes.
 template <int Dims>
 class region {
   public:
 	constexpr static int dimensions = Dims;
 	using box = detail::box<Dims>;
+	using box_vector = detail::box_vector<Dims>;
 
 	region() = default;
 	region(const box& single_box);
 	region(const subrange<Dims>& single_sr);
 
 	/// Constructs a region by normalizing an arbitrary, potentially-overlapping tiling of boxes.
-	explicit region(std::vector<box>&& boxes);
+	explicit region(box_vector&& boxes);
 
-	const std::vector<box>& get_boxes() const& { return m_boxes; }
+	const box_vector& get_boxes() const& { return m_boxes; }
 
-	std::vector<box> into_boxes() && { return std::move(m_boxes); }
+	box_vector into_boxes() && { return std::move(m_boxes); }
 
 	bool empty() const { return m_boxes.empty(); }
 
@@ -236,26 +250,18 @@ class region {
 	template <int D, typename... P>
 	friend region<D> grid_detail::make_region(P&&... args);
 
-	std::vector<box> m_boxes;
+	box_vector m_boxes;
 
-	region(grid_detail::normalized_t, std::vector<box>&& boxes);
+	region(grid_detail::normalized_t, box_vector&& boxes);
 };
 
 } // namespace celerity::detail
 
 namespace celerity::detail::grid_detail {
 
-template <int DimsOut, int DimsIn>
-std::vector<box<DimsOut>> boxes_cast(const std::vector<box<DimsIn>>& in) {
-	assert(get_min_dimensions(in.begin(), in.end()) <= DimsOut);
-	std::vector<box<DimsOut>> out(in.size());
-	std::transform(in.begin(), in.end(), out.begin(), [](const box<DimsIn>& box) { return box_cast<DimsOut>(box); });
-	return out;
-}
-
 // forward-declaration for tests (explicitly instantiated)
 template <int StorageDims>
-void dissect_box(const box<StorageDims>& in_box, const std::vector<std::vector<size_t>>& cuts, std::vector<box<StorageDims>>& out_dissected, int dim);
+void dissect_box(const box<StorageDims>& in_box, const std::vector<std::vector<size_t>>& cuts, box_vector<StorageDims>& out_dissected, int dim);
 
 // forward-declaration for tests (explicitly instantiated)
 template <int MergeDim, int EffectiveDims, typename BidirectionalIterator>
@@ -263,11 +269,11 @@ BidirectionalIterator merge_connected_boxes_along_dim(const BidirectionalIterato
 
 // forward-declaration for tests (explicitly instantiated)
 template <int Dims>
-void normalize(std::vector<box<Dims>>& boxes);
+void normalize(box_vector<Dims>& boxes);
 
 // rvalue shortcut for normalize(lvalue)
 template <int Dims>
-std::vector<box<Dims>>&& normalize(std::vector<box<Dims>>&& boxes) {
+box_vector<Dims>&& normalize(box_vector<Dims>&& boxes) {
 	normalize(boxes);
 	return std::move(boxes);
 }
@@ -280,7 +286,7 @@ template <int DimsOut, int DimsIn>
 region<DimsOut> region_cast(const region<DimsIn>& in) {
 	assert(in.get_min_dimensions() <= DimsOut);
 	// a normalized region will remain normalized after the cast
-	return grid_detail::make_region<DimsOut>(grid_detail::normalized, grid_detail::boxes_cast<DimsOut>(in.get_boxes()));
+	return grid_detail::make_region<DimsOut>(grid_detail::normalized, boxes_cast<DimsOut>(in.get_boxes()));
 }
 
 template <int Dims>
@@ -303,7 +309,7 @@ region<Dims> region_union(const box<Dims>& lhs, const region<Dims>& rhs) {
 
 template <int Dims>
 region<Dims> region_union(const box<Dims>& lhs, const box<Dims>& rhs) {
-	return region(std::vector{lhs, rhs});
+	return region(box_vector<Dims>{lhs, rhs});
 }
 
 template <int Dims>

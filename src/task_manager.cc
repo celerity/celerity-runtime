@@ -56,7 +56,7 @@ namespace detail {
 	region<3> get_requirements(const task& tsk, buffer_id bid, const std::vector<cl::sycl::access::mode>& modes) {
 		const auto& access_map = tsk.get_buffer_access_map();
 		const subrange<3> full_range{tsk.get_global_offset(), tsk.get_global_size()};
-		std::vector<box<3>> boxes;
+		box_vector<3> boxes;
 		for(auto m : modes) {
 			const auto req = access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), full_range, tsk.get_global_size());
 			boxes.insert(boxes.end(), req.get_boxes().begin(), req.get_boxes().end());
