@@ -96,6 +96,7 @@ struct host_or_device {
 
 std::pair<host_or_device, host_or_device> select_source_and_target(const copy_test_type test_type, const sycl::platform& platform) {
 	const auto devices = platform.get_devices();
+	if(devices.empty()) { throw std::runtime_error(fmt::format("Platform {} has no devices", platform.get_info<sycl::info::platform::name>())); }
 	switch(test_type) {
 	case copy_test_type::intra_device: {
 		return std::pair{host_or_device{sycl::queue{devices[0]}}, host_or_device{sycl::queue{devices[0]}}};
