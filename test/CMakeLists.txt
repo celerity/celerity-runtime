@@ -75,9 +75,9 @@ target_link_libraries(all_tests PRIVATE test_main)
 set_test_target_parameters(all_tests "")
 
 # Unit benchmark executable
-add_executable(benchmarks benchmarks.cc benchmark_reporters.cc)
+add_executable(benchmarks benchmarks.cc system_benchmarks.cc benchmark_reporters.cc)
 target_link_libraries(benchmarks PRIVATE test_main)
-set_test_target_parameters(benchmarks benchmarks.cc)
+set_test_target_parameters(benchmarks benchmarks.cc system_benchmarks.cc)
 
 add_subdirectory(system)
 if(CELERITY_DETAIL_INTEGRATION_TESTING)
