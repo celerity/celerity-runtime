@@ -57,6 +57,23 @@ TEST_CASE("distributed_graph_generator respects task granularity when splitting"
 	}
 }
 
+TEST_CASE("distributed_graph_generator respects split constraints", "[distributed_graph_generator]") {
+	const size_t num_nodes = 4;
+	dist_cdag_test_context dctx(num_nodes);
+
+	// Split constraints use the same underlying mechanisms as task granularity (tested above), so we'll keep this brief
+	const auto tid_a = dctx.device_compute<class UKN(task)>(range<1>{128}).constrain_split(range<1>{64}).submit();
+	REQUIRE(dctx.query(tid_a).count() == 2);
+	CHECK(dynamic_cast<const execution_command*>(dctx.query(tid_a).get_raw(0)[0])->get_execution_range().range == range<3>{64, 1, 1});
+	CHECK(dynamic_cast<const execution_command*>(dctx.query(tid_a).get_raw(1)[0])->get_execution_range().range == range<3>{64, 1, 1});
+
+	// The more interesting aspect is that a constrained nd-range kernel uses the least common multiple of the two constraints
+	const auto tid_b = dctx.device_compute<class UKN(task)>(nd_range<1>{{192}, {32}}).constrain_split(range<1>{3}).submit();
+	REQUIRE(dctx.query(tid_b).count() == 2);
+	CHECK(dynamic_cast<const execution_command*>(dctx.query(tid_b).get_raw(0)[0])->get_execution_range().range == range<3>{96, 1, 1});
+	CHECK(dynamic_cast<const execution_command*>(dctx.query(tid_b).get_raw(1)[0])->get_execution_range().range == range<3>{96, 1, 1});
+}
+
 template <int Dims>
 class simple_task;
 
