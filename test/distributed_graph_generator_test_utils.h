@@ -76,6 +76,11 @@ class task_builder {
 			return chain<step>([&host_obj, order](handler& cgh) { host_obj.add_side_effect(cgh, order); });
 		}
 
+		template <int Dims>
+		step constrain_split(const range<Dims>& constraint) {
+			return chain<step>([constraint](handler& cgh) { experimental::constrain_split(cgh, constraint); });
+		}
+
 	  private:
 		dist_cdag_test_context& m_dctx;
 		std::deque<action> m_actions;

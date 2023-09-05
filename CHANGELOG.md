@@ -12,6 +12,7 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 
 - Introduce new experimental `for_each_item` utility to iterate over a celerity range (#199)
 - Add new environment variables `CELERITY_HORIZON_STEP` and `CELERITY_HORIZON_MAX_PARALLELISM` to control Horizon generation (#199)
+- Add new `experimental::constrain_split` API to limit how a kernel can be split (#?)
 
 ## Changed
 

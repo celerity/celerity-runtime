@@ -28,8 +28,34 @@
 #endif
 
 namespace celerity {
-
 class handler;
+}
+
+namespace celerity::experimental {
+
+/**
+ * Constrains the granularity at which a task's global range can be split into chunks.
+ *
+ * In some situations an output buffer access is only guaranteed to write to non-overlapping subranges
+ * if the task is split in a certain way. For example when computing the row-wise sum of a 2D matrix into
+ * a 1D vector, a split constraint is required to ensure that each element of the vector is written by
+ * exactly one chunk.
+ *
+ * Another use case is for performance optimization, for example when the creation of lots of small chunks
+ * would result in hardware under-utilization and excessive data transfers.
+ *
+ * Since ND-range parallel_for kernels are already constrained to be split with group size granularity,
+ * adding an additional constraint on top results in an effective constraint of LCM(group size, constraint).
+ *
+ * The constraint (or effective constraint) must evenly divide the global range.
+ * This function has no effect when called for a task without a user-provided global range.
+ */
+template <int Dims>
+void constrain_split(handler& cgh, const range<Dims>& constraint);
+
+} // namespace celerity::experimental
+
+namespace celerity {
 
 namespace detail {
 	class device_queue;
@@ -355,7 +381,8 @@ class handler {
 	 */
 	template <int Dims, typename Functor>
 	void host_task(range<Dims> global_range, id<Dims> global_offset, Functor&& kernel) {
-		const detail::task_geometry geometry{Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), {1, 1, 1}};
+		const detail::task_geometry geometry{
+		    Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), get_constrained_granularity(global_range, range<Dims>(detail::ones))};
 		auto launcher = make_host_task_launcher<Dims, false>(detail::range_cast<3>(global_range), 0, std::forward<Functor>(kernel));
 		create_host_compute_task(geometry, std::move(launcher));
 	}
@@ -374,6 +401,8 @@ class handler {
 	friend detail::hydration_id detail::add_requirement(handler& cgh, const detail::buffer_id bid, std::unique_ptr<detail::range_mapper_base> rm);
 	friend void detail::add_requirement(handler& cgh, const detail::host_object_id hoid, const experimental::side_effect_order order, const bool is_void);
 	friend void detail::add_reduction(handler& cgh, const detail::reduction_info& rinfo);
+	template <int Dims>
+	friend void experimental::constrain_split(handler& cgh, const range<Dims>& constraint);
 	friend void detail::extend_lifetime(handler& cgh, std::shared_ptr<detail::lifetime_extending_state> state);
 
 	friend void detail::set_task_name(handler& cgh, const std::string& debug_name);
@@ -388,6 +417,7 @@ class handler {
 	detail::hydration_id m_next_accessor_hydration_id = 1;
 	std::vector<std::shared_ptr<detail::lifetime_extending_state>> m_attached_state;
 	std::optional<std::string> m_usr_def_task_name;
+	range<3> m_split_constraint = detail::ones;
 
 	handler(detail::task_id tid, size_t num_collective_nodes) : m_tid(tid), m_num_collective_nodes(num_collective_nodes) {}
 
@@ -414,7 +444,8 @@ class handler {
 				granularity[d] = local_range[d];
 			}
 		}
-		const detail::task_geometry geometry{Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), granularity};
+		const detail::task_geometry geometry{Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset),
+		    get_constrained_granularity(global_range, detail::range_cast<Dims>(granularity))};
 		auto launcher = make_device_kernel_launcher<KernelFlavor, KernelName, Dims>(
 		    global_range, global_offset, local_range, std::forward<Kernel>(kernel), std::index_sequence_for<Reductions...>(), reductions...);
 		create_device_compute_task(geometry, detail::kernel_debug_name<KernelName>(), std::move(launcher));
@@ -438,6 +469,27 @@ class handler {
 	}
 
 	void extend_lifetime(std::shared_ptr<detail::lifetime_extending_state> state) { m_attached_state.emplace_back(std::move(state)); }
+
+	template <int Dims>
+	void experimental_constrain_split(const range<Dims>& constraint) {
+		assert(m_task == nullptr);
+		m_split_constraint = detail::range_cast<3>(constraint);
+	}
+
+	template <int Dims>
+	range<3> get_constrained_granularity(const range<Dims>& global_size, const range<Dims>& granularity) const {
+		range<3> result = detail::range_cast<3>(granularity);
+		for(int i = 0; i < Dims; ++i) {
+			const auto lcm = std::lcm(granularity[i], m_split_constraint[i]);
+			if(lcm == 0) { throw std::runtime_error("Split constraint cannot be 0"); }
+			result[i] = lcm;
+		}
+		if(global_size % detail::range_cast<Dims>(result) != range<Dims>(detail::zeros)) {
+			throw std::runtime_error(fmt::format("The{}split constraint {} does not evenly divide the kernel global size {}",
+			    granularity.size() > 1 ? " effective " : " ", detail::range_cast<Dims>(result), global_size));
+		}
+		return result;
+	}
 
 	void create_host_compute_task(detail::task_geometry geometry, std::unique_ptr<detail::command_launcher_storage_base> launcher) {
 		assert(m_task == nullptr);
@@ -637,3 +689,10 @@ template <typename DataT, int Dims, typename BinaryOperation>
 }
 
 } // namespace celerity
+
+namespace celerity::experimental {
+template <int Dims>
+void constrain_split(handler& cgh, const range<Dims>& constraint) {
+	cgh.experimental_constrain_split(constraint);
+}
+} // namespace celerity::experimental

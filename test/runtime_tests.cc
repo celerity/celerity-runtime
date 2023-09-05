@@ -778,6 +778,42 @@ namespace detail {
 
 #endif
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws if effective split constraint does not evenly divide global size", "[handler]") {
+		distr_queue q;
+
+		const auto submit = [&q](auto range, auto constraint) {
+			q.submit([&](handler& cgh) {
+				experimental::constrain_split(cgh, constraint);
+				cgh.parallel_for(range, [=](auto) {});
+			});
+		};
+
+		CHECK_THROWS_WITH(submit(range<1>{10}, range<1>{0}), "Split constraint cannot be 0");
+		CHECK_THROWS_WITH(submit(range<2>{10, 10}, range<2>{2, 0}), "Split constraint cannot be 0");
+		CHECK_THROWS_WITH(submit(range<3>{10, 10, 10}, range<3>{2, 2, 0}), "Split constraint cannot be 0");
+
+		CHECK_NOTHROW(submit(range<1>{10}, range<1>{2}));
+		CHECK_NOTHROW(submit(range<2>{10, 8}, range<2>{2, 4}));
+		CHECK_NOTHROW(submit(range<3>{10, 8, 16}, range<3>{2, 4, 8}));
+
+		CHECK_THROWS_WITH(submit(range<1>{10}, range<1>{3}), "The split constraint [3] does not evenly divide the kernel global size [10]");
+		CHECK_THROWS_WITH(submit(range<2>{10, 8}, range<2>{2, 5}), "The split constraint [2,5] does not evenly divide the kernel global size [10,8]");
+		CHECK_THROWS_WITH(
+		    submit(range<3>{10, 8, 16}, range<3>{2, 4, 9}), "The split constraint [2,4,9] does not evenly divide the kernel global size [10,8,16]");
+
+		CHECK_THROWS_WITH(submit(range<1>{10}, range<1>{20}), "The split constraint [20] does not evenly divide the kernel global size [10]");
+
+		CHECK_NOTHROW(submit(nd_range<1>{100, 10}, range<1>{2}));
+		CHECK_NOTHROW(submit(nd_range<2>{{100, 80}, {10, 20}}, range<2>{2, 4}));
+		CHECK_NOTHROW(submit(nd_range<3>{{100, 80, 60}, {1, 2, 30}}, range<3>{2, 4, 20}));
+
+		CHECK_THROWS_WITH(submit(nd_range<1>{100, 10}, range<1>{3}), "The effective split constraint [30] does not evenly divide the kernel global size [100]");
+		CHECK_THROWS_WITH(submit(nd_range<2>{{100, 80}, {10, 20}}, range<2>{2, 3}),
+		    "The effective split constraint [10,60] does not evenly divide the kernel global size [100,80]");
+		CHECK_THROWS_WITH(submit(nd_range<3>{{100, 80, 60}, {1, 2, 30}}, range<3>{1, 2, 40}),
+		    "The effective split constraint [1,2,120] does not evenly divide the kernel global size [100,80,60]");
+	}
+
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when accessor target does not match command type", "[handler]") {
 		distr_queue q;
 		buffer<size_t, 1> buf0{1};
