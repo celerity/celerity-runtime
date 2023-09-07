@@ -156,6 +156,10 @@ namespace detail {
 		std::future<host_queue::execution_info> m_future;
 		bool m_submitted = false;
 
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+		std::vector<std::vector<id<3>>> m_oob_indices_per_accessor;
+#endif
+
 		bool execute(const command_pkg& pkg) override;
 		std::string get_description(const command_pkg& pkg) override;
 	};

@@ -406,6 +406,22 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 
 	template <access_mode M = Mode>
 	inline std::enable_if_t<detail::access::mode_traits::is_producer(M), DataT&> operator[](const id<Dims>& index) const {
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+		if(m_oob_indices != nullptr) {
+			const bool is_within_bounds_lo = all_true(index >= m_accessed_virtual_subrange.offset);
+			const bool is_within_bounds_hi = all_true(index < (m_accessed_virtual_subrange.offset + m_accessed_virtual_subrange.range));
+
+			if((!is_within_bounds_lo || !is_within_bounds_hi)) {
+				std::lock_guard<std::mutex> guard(m_oob_mutex);
+				for(int d = 0; d < Dims; ++d) {
+					m_oob_indices[0][d] = std::min(m_oob_indices[0][d], index[d]);
+					m_oob_indices[1][d] = std::max(m_oob_indices[1][d], index[d] + 1);
+				}
+				return m_oob_fallback_value;
+			}
+		}
+#endif
+
 		return m_host_ptr[get_linear_offset(index)];
 	}
 
@@ -521,6 +537,16 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	// m_host_ptr must be defined *last* for it to overlap with the sequence of range and id members in the 0-dimensional case
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS DataT* m_host_ptr = nullptr;
 
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+	id<3>* m_oob_indices = nullptr;
+	// This mutex has to be inline static, since accessors are copyable making the mutex otherwise useless.
+	// It is a workaround until atomic_ref() can be used on m_oob_indices in c++20.
+	inline static std::mutex m_oob_mutex;
+
+	// This value (or a reference to it) is returned for all out-of-bounds accesses.
+	mutable DataT m_oob_fallback_value = DataT{};
+#endif
+
 	template <target Target = target::host_task, typename Functor>
 	accessor(ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) : m_virtual_buffer_range(buff.get_range()) {
 		using range_mapper = detail::range_mapper<Dims, std::decay_t<Functor>>; // decay function type to function pointer
@@ -547,6 +573,10 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		m_backing_buffer_range = other.m_backing_buffer_range;
 		m_virtual_buffer_range = other.m_virtual_buffer_range;
 
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+		m_oob_indices = other.m_oob_indices;
+#endif
+
 		if(detail::is_embedded_hydration_id(m_host_ptr)) {
 			if(detail::cgf_diagnostics::is_available() && detail::cgf_diagnostics::get_instance().is_checking()) {
 				detail::cgf_diagnostics::get_instance().register_accessor(detail::extract_hydration_id(m_host_ptr), target::host_task);
@@ -558,6 +588,10 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 				m_backing_buffer_offset = detail::id_cast<Dims>(info.backing_buffer_offset);
 				m_backing_buffer_range = detail::range_cast<Dims>(info.backing_buffer_range);
 				m_accessed_virtual_subrange = detail::subrange_cast<Dims>(info.accessed_virtual_subrange);
+
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+				m_oob_indices = info.out_of_bounds_indices;
+#endif
 			}
 		}
 	}
