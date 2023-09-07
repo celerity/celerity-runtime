@@ -160,7 +160,21 @@ namespace detail {
 				const auto [bid, mode] = access_map.get_nth_access(i);
 				const auto sr = access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()).get_subrange();
 				const auto info = m_buffer_mngr.access_host_buffer(bid, mode, sr);
+
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+				// oob_indices[0] contains the lower bound oob indices
+				// oob_indices[1] contains the upper bound oob indices
+				std::vector<id<3>> oob_indices{2};
+				constexpr size_t size_t_max = std::numeric_limits<size_t>::max();
+				const auto buffer_dims = m_buffer_mngr.get_buffer_info(bid).dimensions;
+				oob_indices[0] = id<3>{size_t_max, buffer_dims > 1 ? size_t_max : 0, buffer_dims == 3 ? size_t_max : 0};
+				oob_indices[1] = id<3>{0, 0, 0};
+				access_infos.push_back(
+				    closure_hydrator::accessor_info{info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr, oob_indices.data()});
+				m_oob_indices_per_accessor.push_back(std::move(oob_indices));
+#else
 				access_infos.push_back(closure_hydrator::accessor_info{info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr});
+#endif
 			}
 
 			closure_hydrator::get_instance().arm(target::host_task, std::move(access_infos));
@@ -174,6 +188,27 @@ namespace detail {
 		assert(m_future.valid());
 		if(m_future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
 			m_buffer_mngr.unlock(pkg.cid);
+
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+			const auto data = std::get<execution_data>(pkg.data);
+			auto tsk = m_task_mngr.get_task(data.tid);
+
+			for(size_t i = 0; i < m_oob_indices_per_accessor.size(); ++i) {
+				const id<3>& oob_min = m_oob_indices_per_accessor[i][0];
+				const id<3>& oob_max = m_oob_indices_per_accessor[i][1];
+
+				if(oob_max != id<3>{0, 0, 0}) {
+					const auto& access_map = tsk->get_buffer_access_map();
+					const auto acc_sr = access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()).get_subrange();
+					const auto oob_sr = subrange<3>(oob_min, range_cast<3>(oob_max - oob_min));
+					const auto buffer_id = access_map.get_nth_access(i).first;
+					const auto buffer_name = m_buffer_mngr.get_debug_name(buffer_id);
+					CELERITY_ERROR("Out-of-bounds access in host task detected: Accessor {} for buffer {} attempted to access indices between {} which are "
+					               "outside of mapped subrange {}",
+					    i, (buffer_name.empty() ? fmt::format("{}", buffer_id) : buffer_name), oob_sr, acc_sr);
+				}
+			}
+#endif
 
 			auto info = m_future.get();
 			CELERITY_TRACE("Delta time submit -> start: {}us, start -> end: {}us",
@@ -217,14 +252,16 @@ namespace detail {
 				try {
 					const auto info = m_buffer_mngr.access_device_buffer(bid, mode, sr);
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-					auto* const oob_idx = sycl::malloc_host<id<3>>(2, m_queue.get_sycl_queue());
-					assert(oob_idx != nullptr);
+					// oob_indices[0] contains the lower bound oob indices
+					// oob_indices[1] contains the upper bound oob indices
+					auto* const oob_indices = sycl::malloc_host<id<3>>(2, m_queue.get_sycl_queue());
+					assert(oob_indices != nullptr);
 					constexpr size_t size_t_max = std::numeric_limits<size_t>::max();
 					const auto buffer_dims = m_buffer_mngr.get_buffer_info(bid).dimensions;
-					oob_idx[0] = id<3>{size_t_max, buffer_dims > 1 ? size_t_max : 0, buffer_dims == 3 ? size_t_max : 0};
-					oob_idx[1] = id<3>{1, 1, 1};
-					m_oob_indices_per_accessor.push_back(oob_idx);
-					accessor_infos.push_back(closure_hydrator::accessor_info{info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr, oob_idx});
+					oob_indices[0] = id<3>{size_t_max, buffer_dims > 1 ? size_t_max : 0, buffer_dims == 3 ? size_t_max : 0};
+					oob_indices[1] = id<3>{0, 0, 0};
+					m_oob_indices_per_accessor.push_back(oob_indices);
+					accessor_infos.push_back(closure_hydrator::accessor_info{info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr, oob_indices});
 #else
 					accessor_infos.push_back(closure_hydrator::accessor_info{info.ptr, info.backing_buffer_range, info.backing_buffer_offset, sr});
 #endif
@@ -259,13 +296,15 @@ namespace detail {
 				const id<3>& oob_min = m_oob_indices_per_accessor[i][0];
 				const id<3>& oob_max = m_oob_indices_per_accessor[i][1];
 
-				if(oob_max != id<3>{1, 1, 1}) {
+				if(oob_max != id<3>{0, 0, 0}) {
 					const auto& access_map = tsk->get_buffer_access_map();
 					const auto acc_sr = access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()).get_subrange();
 					const auto oob_sr = subrange<3>(oob_min, range_cast<3>(oob_max - oob_min));
+					const auto buffer_id = access_map.get_nth_access(i).first;
+					const auto buffer_name = m_buffer_mngr.get_debug_name(buffer_id);
 					CELERITY_ERROR("Out-of-bounds access in kernel '{}' detected: Accessor {} for buffer {} attempted to access indices between {} which are "
 					               "outside of mapped subrange {}",
-					    tsk->get_debug_name(), i, access_map.get_nth_access(i).first, oob_sr, acc_sr);
+					    tsk->get_debug_name(), i, (buffer_name.empty() ? fmt::format("{}", buffer_id) : buffer_name), oob_sr, acc_sr);
 				}
 				sycl::free(m_oob_indices_per_accessor[i], m_queue.get_sycl_queue());
 			}
