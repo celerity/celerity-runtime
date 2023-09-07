@@ -8,22 +8,9 @@ namespace celerity::detail {
 
 // Naming
 
-// removes initial template qualifiers to simplify, and escapes '<' and '>' in the given name,
-// so that it can be successfully used in a dot graph label that uses HTML, and is hopefully readable
-std::string simplify_and_escape_name(const std::string& name) {
-	// simplify
-	auto first_opening_pos = name.find('<');
-	auto namespace_qual_end_pos = name.rfind(':', first_opening_pos);
-	auto simplified = namespace_qual_end_pos != std::string::npos ? name.substr(namespace_qual_end_pos + 1) : name;
-	// escape
-	simplified = std::regex_replace(simplified, std::regex("<"), "&lt;");
-	return std::regex_replace(simplified, std::regex(">"), "&gt;");
-}
-
 std::string get_buffer_name(const buffer_id bid, const buffer_manager* buff_man) {
 	return buff_man != nullptr ? buff_man->get_buffer_info(bid).debug_name : "";
 }
-
 
 // Tasks
 
@@ -57,7 +44,7 @@ task_dependency_list build_task_dependency_list(const task& tsk) {
 }
 
 task_record::task_record(const task& from, const buffer_manager* buff_mngr)
-    : tid(from.get_id()), debug_name(simplify_and_escape_name(from.get_debug_name())), cgid(from.get_collective_group_id()), type(from.get_type()),
+    : tid(from.get_id()), debug_name(utils::simplify_task_name(from.get_debug_name())), cgid(from.get_collective_group_id()), type(from.get_type()),
       geometry(from.get_geometry()), reductions(build_reduction_list(from, buff_mngr)), accesses(build_access_list(from, buff_mngr)),
       side_effect_map(from.get_side_effect_map()), dependencies(build_task_dependency_list(from)) {}
 
@@ -181,7 +168,7 @@ command_dependency_list build_command_dependency_list(const abstract_command& cm
 }
 
 std::string get_task_name(const abstract_command& cmd, const task_manager* task_mngr) {
-	if(const auto* tsk = get_task_for(cmd, task_mngr)) return simplify_and_escape_name(tsk->get_debug_name());
+	if(const auto* tsk = get_task_for(cmd, task_mngr)) return utils::simplify_task_name(tsk->get_debug_name());
 	return {};
 }
 

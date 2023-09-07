@@ -44,15 +44,13 @@ namespace detail {
 
 	template <typename Name>
 	std::string kernel_debug_name() {
+		// we need to typeid a pointer, since the name is often undefined
 		std::string name = typeid(Name*).name();
 #if !defined(_MSC_VER)
 		const std::unique_ptr<char, void (*)(void*)> demangled(abi::__cxa_demangle(name.c_str(), nullptr, nullptr, nullptr), std::free);
 		name = demangled.get();
-#elif defined(_MSC_VER)
-		if(size_t lastc, id_end; (lastc = name.rfind(":")) != std::string::npos && (id_end = name.find(" ", lastc)) != std::string::npos) {
-			name = name.substr(lastc + 1, id_end - lastc);
-		}
 #endif
+		// get rid of the pointer "*"
 		return name.substr(0, name.length() - 1);
 	}
 

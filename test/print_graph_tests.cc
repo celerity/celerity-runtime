@@ -190,19 +190,8 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 	}
 }
 
-namespace test_ns {
-namespace x {
-	enum class ec { a, b };
-}
-template <test_ns::x::ec X>
+template <int X>
 class name_class {};
-
-template <test_ns::x::ec X>
-void compute(task_manager& tm, mock_buffer<1> buf, const celerity::range<1> range) {
-	test_utils::add_compute_task<name_class<X>>(
-	    tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
-}
-} // namespace test_ns
 
 TEST_CASE("task-graph names are escaped", "[print_graph][task-graph][task-name]") {
 	auto tt = test_utils::task_test_context{};
@@ -210,8 +199,9 @@ TEST_CASE("task-graph names are escaped", "[print_graph][task-graph][task-name]"
 	auto range = celerity::range<1>(64);
 	auto buf = tt.mbf.create_buffer(range);
 
-	test_ns::compute<test_ns::x::ec::a>(tt.tm, buf, range);
+	test_utils::add_compute_task<name_class<5>>(
+	    tt.tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
 
-	const auto* escaped_name = "\"name_class&lt;(test_ns::x::ec)0&gt;\"";
+	const auto* escaped_name = "\"name_class&lt;...&gt;\"";
 	REQUIRE_THAT(print_task_graph(tt.trec), Catch::Matchers::ContainsSubstring(escaped_name));
 }

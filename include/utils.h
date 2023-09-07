@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <type_traits>
 #include <variant>
 
@@ -83,5 +84,10 @@ static auto tuple_without(const std::tuple<Ts...>& tuple) {
 	}
 }
 
+// fiddles out the base name of a task from a full, demangled input type name
+std::string simplify_task_name(const std::string& demangled_type_name);
+
+// escapes "<", ">", and "&" with their corresponding HTML escape sequences
+std::string escape_for_dot_label(std::string str);
 
 } // namespace celerity::detail::utils

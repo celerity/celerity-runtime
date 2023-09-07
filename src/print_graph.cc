@@ -63,7 +63,7 @@ void format_requirements(std::string& label, const reduction_list& reductions, c
 std::string get_task_label(const task_record& tsk) {
 	std::string label;
 	fmt::format_to(std::back_inserter(label), "T{}", tsk.tid);
-	if(!tsk.debug_name.empty()) { fmt::format_to(std::back_inserter(label), " \"{}\" ", tsk.debug_name); }
+	if(!tsk.debug_name.empty()) { fmt::format_to(std::back_inserter(label), " \"{}\" ", utils::escape_for_dot_label(tsk.debug_name)); }
 
 	fmt::format_to(std::back_inserter(label), "<br/><b>{}</b>", task_type_string(tsk.type));
 	if(tsk.type == task_type::host_compute || tsk.type == task_type::device_compute) {
@@ -180,7 +180,7 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 			if(task_subgraph_dot.count(tid) == 0) {
 				std::string task_label;
 				fmt::format_to(std::back_inserter(task_label), "T{} ", tid);
-				if(!cmd->task_name.empty()) { fmt::format_to(std::back_inserter(task_label), "\"{}\" ", cmd->task_name); }
+				if(!cmd->task_name.empty()) { fmt::format_to(std::back_inserter(task_label), "\"{}\" ", utils::escape_for_dot_label(cmd->task_name)); }
 				task_label += "(";
 				task_label += task_type_string(cmd->task_type.value());
 				if(cmd->task_type == task_type::collective) { fmt::format_to(std::back_inserter(task_label), " on CG{}", cmd->collective_group_id.value()); }
