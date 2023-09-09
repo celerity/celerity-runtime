@@ -369,7 +369,7 @@ decltype(auto) dispatch_effective_dims(int effective_dims, F&& f) {
 
 // For any set of boxes, find the unique box tiling that covers the same points and is subject to the following constraints:
 //   1. the extent of every box is maximized along the last dimension, then along the second-to-last dimension, and so forth.
-//	 2. no two boxes within the tiling intersect (i.e. cover a common point).
+//   2. no two boxes within the tiling intersect (i.e. cover a common point).
 //   3. the tiling contains no empty boxes.
 //   4. the normalized sequence is sorted according to box_coordinate_order.
 // There is exactly one sequence of boxes for any set of points that fulfills 1-4, meaning that an "==" comparison of normalized tilings would be equivalent

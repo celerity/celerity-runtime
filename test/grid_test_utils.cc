@@ -7,7 +7,6 @@
 using namespace celerity;
 using namespace celerity::detail;
 
-// forward declarations for functions not exposed in grid.h
 namespace celerity::test_utils {
 
 // input: h as an angle in [0,360] and s,l in [0,1] - output: r,g,b in [0,1]
