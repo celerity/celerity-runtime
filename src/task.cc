@@ -43,8 +43,7 @@ namespace detail {
 		return region(std::move(boxes));
 	}
 
-	box<3> buffer_access_map::get_requirements_for_nth_access(
-	    const size_t n, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const {
+	box<3> buffer_access_map::get_requirements_for_nth_access(const size_t n, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const {
 		const auto& [_, rm] = m_accesses[n];
 
 		chunk<3> chnk{sr.offset, sr.range, global_size};

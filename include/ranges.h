@@ -489,7 +489,7 @@ namespace detail {
 #undef CELERITY_DETAIL_MAKE_COMPONENT_WISE_FN
 
 	template <typename Interface, int Dims>
-	bool all_true(const coordinate<Interface, Dims> &bools) {
+	bool all_true(const coordinate<Interface, Dims>& bools) {
 		for(int d = 0; d < Dims; ++d) {
 			CELERITY_DETAIL_ASSERT_ON_HOST(bools[d] == 0 || bools[d] == 1);
 			if(bools[d] == 0) return false;

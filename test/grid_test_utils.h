@@ -19,4 +19,4 @@ struct partition_vector_order {
 
 void render_boxes(const detail::box_vector<2>& boxes, const std::string_view suffix = "region");
 
-}
+} // namespace celerity::test_utils
