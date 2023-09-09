@@ -39,8 +39,8 @@ region<Dims> make_region(Params&&... args) {
 }
 
 template <typename InputIterator>
-int get_min_dimensions(const InputIterator first, const InputIterator last) {
-	return std::accumulate(first, last, 0, [](const int min_dims, const auto& box) { return std::max(min_dims, box.get_min_dimensions()); });
+int get_effective_dims(const InputIterator first, const InputIterator last) {
+	return std::accumulate(first, last, 0, [](const int min_dims, const auto& box) { return std::max(min_dims, box.get_effective_dims()); });
 }
 
 } // namespace celerity::detail::grid_detail
@@ -101,7 +101,7 @@ class box /* class instead of struct: enforces min <= max invariant */ {
 	size_t get_area() const { return get_range().size(); }
 
 	/// Returns the smallest dimensionality that `*this` can be `box_cast` to.
-	int get_min_dimensions() const {
+	int get_effective_dims() const {
 		if(empty()) return 1; // edge case: a 0-dimensional box is always non-empty
 		for(int dims = Dims; dims > 0; --dims) {
 			if(m_max[dims - 1] > 1) { return dims; }
@@ -143,7 +143,7 @@ class box /* class instead of struct: enforces min <= max invariant */ {
 /// Boxes can be cast between dimensionalities as long as no information is lost (i.e. a cast to a higher dimensionality is always round-trip safe).
 template <int DimsOut, int DimsIn>
 box<DimsOut> box_cast(const box<DimsIn>& in) {
-	CELERITY_DETAIL_ASSERT_ON_HOST(in.get_min_dimensions() <= DimsOut);
+	CELERITY_DETAIL_ASSERT_ON_HOST(in.get_effective_dims() <= DimsOut);
 	return box<DimsOut>(subrange_cast<DimsOut>(in.get_subrange())); // cast through subrange to fill missing range dimensions with 1s
 }
 
@@ -208,7 +208,7 @@ using box_vector = gch::small_vector<box<Dims>>;
 
 template <int DimsOut, int DimsIn>
 box_vector<DimsOut> boxes_cast(const box_vector<DimsIn>& in) {
-	assert(grid_detail::get_min_dimensions(in.begin(), in.end()) <= DimsOut);
+	assert(grid_detail::get_effective_dims(in.begin(), in.end()) <= DimsOut);
 	box_vector<DimsOut> out(in.size(), box<DimsOut>());
 	std::transform(in.begin(), in.end(), out.begin(), box_cast<DimsOut, DimsIn>);
 	return out;
@@ -241,7 +241,7 @@ class region {
 	}
 
 	/// Returns the smallest dimensionality that `*this` can be `region_cast` to.
-	int get_min_dimensions() const { return grid_detail::get_min_dimensions(m_boxes.begin(), m_boxes.end()); }
+	int get_effective_dims() const { return grid_detail::get_effective_dims(m_boxes.begin(), m_boxes.end()); }
 
 	friend bool operator==(const region& lhs, const region& rhs) { return lhs.m_boxes == rhs.m_boxes; }
 	friend bool operator!=(const region& lhs, const region& rhs) { return !(lhs == rhs); }
@@ -284,7 +284,7 @@ namespace celerity::detail {
 
 template <int DimsOut, int DimsIn>
 region<DimsOut> region_cast(const region<DimsIn>& in) {
-	assert(in.get_min_dimensions() <= DimsOut);
+	assert(in.get_effective_dims() <= DimsOut);
 	// a normalized region will remain normalized after the cast
 	return grid_detail::make_region<DimsOut>(grid_detail::normalized, boxes_cast<DimsOut>(in.get_boxes()));
 }

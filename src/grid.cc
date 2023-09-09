@@ -4,7 +4,7 @@ namespace celerity::detail::grid_detail {
 
 // Regions have a storage dimensionality (the `Dims` template parameter of `class region`) and an effective dimensionality that is smaller iff all contained
 // boxes are effectively the result of casting e.g. box<2> to box<3>, or the described region "accidentally" is a lower-dimensional slice of the full space.
-// This property is detected at runtime through {box,region}::get_min_dimensions(), and all region-algorithm implementations are generic over both StorageDims
+// This property is detected at runtime through {box,region}::get_effective_dims(), and all region-algorithm implementations are generic over both StorageDims
 // and EffectiveDims to optimize for the embedding of arbitrary-dimensional regions into region<3> as it commonly happens in the runtime.
 
 // 2-connectivity for 1d boxes, 4-connectivity for 2d boxes and 6-connectivity for 3d boxes.
@@ -379,7 +379,7 @@ void normalize(box_vector<Dims>& boxes) {
 	boxes.erase(std::remove_if(boxes.begin(), boxes.end(), std::mem_fn(&box<Dims>::empty)), boxes.end());
 	if(boxes.size() <= 1) return;
 
-	const auto effective_dims = get_min_dimensions(boxes.begin(), boxes.end());
+	const auto effective_dims = get_effective_dims(boxes.begin(), boxes.end());
 	assert(effective_dims <= Dims);
 
 	dispatch_effective_dims<Dims>(effective_dims, [&](const auto effective_dims) { //
@@ -489,7 +489,7 @@ region<Dims> region_intersection(const region<Dims>& lhs, const region<Dims>& rh
 	// shortcut-evaluate trivial cases
 	if(lhs.empty() || rhs.empty()) return {};
 
-	const auto effective_dims = std::max(lhs.get_min_dimensions(), rhs.get_min_dimensions());
+	const auto effective_dims = std::max(lhs.get_effective_dims(), rhs.get_effective_dims());
 	return grid_detail::dispatch_effective_dims<Dims>(effective_dims, [&](const auto effective_dims) { //
 		return grid_detail::region_intersection_impl<effective_dims.value>(lhs, rhs);
 	});
@@ -508,7 +508,7 @@ region<Dims> region_difference(const region<Dims>& lhs, const region<Dims>& rhs)
 
 	// the resulting effective_dims can never be greater than the lhs dimension, but the difference operator must still operate on all available dimensions
 	// to correctly identify overlapping boxes
-	const auto effective_dims = std::max(lhs.get_min_dimensions(), rhs.get_min_dimensions());
+	const auto effective_dims = std::max(lhs.get_effective_dims(), rhs.get_effective_dims());
 	assert(effective_dims <= Dims);
 
 	// 1. collect dissection lines (in *all* dimensions) from rhs

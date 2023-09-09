@@ -812,7 +812,7 @@ namespace region_map_detail {
 
 	inline void assert_dimensionality(const box<3>& box, const int dims) {
 #if !defined(NDEBUG)
-		assert(box.get_min_dimensions() <= dims);
+		assert(box.get_effective_dims() <= dims);
 #endif
 	}
 

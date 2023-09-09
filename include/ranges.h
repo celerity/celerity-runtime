@@ -216,21 +216,11 @@ class coordinate {
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS coordinate_storage<Interface, Dims> m_values;
 };
 
-template <typename InterfaceOut, typename InterfaceIn>
-InterfaceOut coordinate_cast(const InterfaceIn& in) {
-	CELERITY_DETAIL_ASSERT_ON_HOST(in.get_min_dimensions() <= InterfaceOut::dimensions);
-	return InterfaceOut(make_from, in);
-}
+template <int DimsOut, typename InterfaceIn>
+range<DimsOut> range_cast(const InterfaceIn& in);
 
 template <int DimsOut, typename InterfaceIn>
-range<DimsOut> range_cast(const InterfaceIn& in) {
-	return coordinate_cast<range<DimsOut>>(in);
-}
-
-template <int DimsOut, typename InterfaceIn>
-id<DimsOut> id_cast(const InterfaceIn& in) {
-	return coordinate_cast<id<DimsOut>>(in);
-}
+id<DimsOut> id_cast(const InterfaceIn& in);
 
 struct zeros_t {
 } inline static constexpr zeros;
@@ -287,19 +277,11 @@ class range : public detail::coordinate<range<Dims>, Dims> {
 		}
 	}
 
-	/// Returns the smallest dimensionality that `*this` can be `range_cast` to.
-	int get_min_dimensions() const {
-		for(int dims = Dims; dims > 0; --dims) {
-			if((*this)[dims - 1] > 1) return dims;
-		}
-		return 0;
-	}
-
   private:
 	friend class detail::coordinate<range<Dims>, Dims>;
 
-	template <typename InterfaceOut, typename InterfaceIn>
-	friend InterfaceOut detail::coordinate_cast(const InterfaceIn& in);
+	template <int DimsOut, typename InterfaceIn>
+	friend range<DimsOut> detail::range_cast(const InterfaceIn& in);
 
 	template <typename Default = void, int D = Dims, typename = std::enable_if_t<D != 0>>
 	constexpr range() noexcept {}
@@ -353,17 +335,9 @@ class id : public detail::coordinate<id<Dims>, Dims> {
 		}
 	}
 
-	/// Returns the smallest dimensionality that `*this` can be `id_cast` to.
-	int get_min_dimensions() const {
-		for(int dims = Dims; dims > 0; --dims) {
-			if((*this)[dims - 1] > 0) { return dims; }
-		}
-		return 0;
-	}
-
   private:
-	template <typename InterfaceOut, typename InterfaceIn>
-	friend InterfaceOut detail::coordinate_cast(const InterfaceIn& in);
+	template <int DimsOut, typename InterfaceIn>
+	friend id<DimsOut> detail::id_cast(const InterfaceIn& in);
 
 	template <typename InterfaceIn, int DimsIn>
 	constexpr id(const detail::make_from_t /* tag */, const detail::coordinate<InterfaceIn, DimsIn>& in)
@@ -512,9 +486,6 @@ struct chunk {
 	chunk(const id<Dims>& offset, const celerity::range<Dims>& range, const celerity::range<Dims>& global_size)
 	    : offset(offset), range(range), global_size(global_size) {}
 
-	/// Returns the smallest dimensionality that `*this` can be `chunk_cast` to.
-	int get_min_dimensions() const { return std::max({offset.get_min_dimensions(), range.get_min_dimensions(), global_size.get_min_dimensions()}); }
-
 	friend bool operator==(const chunk& lhs, const chunk& rhs) {
 		return lhs.offset == rhs.offset && lhs.range == rhs.range && lhs.global_size == rhs.global_size;
 	}
@@ -532,27 +503,66 @@ struct subrange {
 	subrange(const id<Dims>& offset, const celerity::range<Dims>& range) : offset(offset), range(range) {}
 	subrange(const chunk<Dims>& other) : offset(other.offset), range(other.range) {}
 
-	/// Returns the smallest dimensionality that `*this` can be `subrange_cast` to.
-	int get_min_dimensions() const { return std::max({offset.get_min_dimensions(), range.get_min_dimensions()}); }
-
 	friend bool operator==(const subrange& lhs, const subrange& rhs) { return lhs.offset == rhs.offset && lhs.range == rhs.range; }
 	friend bool operator!=(const subrange& lhs, const subrange& rhs) { return !operator==(lhs, rhs); }
 };
 
-namespace detail {
-
-	template <int Dims, int OtherDims>
-	chunk<Dims> chunk_cast(const chunk<OtherDims>& other) {
-		CELERITY_DETAIL_ASSERT_ON_HOST(other.get_min_dimensions() <= Dims);
-		return chunk{detail::id_cast<Dims>(other.offset), detail::range_cast<Dims>(other.range), detail::range_cast<Dims>(other.global_size)};
-	}
-
-	template <int Dims, int OtherDims>
-	subrange<Dims> subrange_cast(const subrange<OtherDims>& other) {
-		CELERITY_DETAIL_ASSERT_ON_HOST(other.get_min_dimensions() <= Dims);
-		return subrange{detail::id_cast<Dims>(other.offset), detail::range_cast<Dims>(other.range)};
-	}
-
-} // namespace detail
-
 } // namespace celerity
+
+namespace celerity::detail {
+
+/// Returns the smallest dimensionality that the range can be `range_cast` to.
+template <int Dims>
+int get_effective_dims(const range<Dims>& range) {
+	for(int dims = Dims; dims > 0; --dims) {
+		if(range[dims - 1] > 1) return dims;
+	}
+	return 0;
+}
+
+template <int DimsOut, typename InterfaceIn>
+range<DimsOut> range_cast(const InterfaceIn& in) {
+	CELERITY_DETAIL_ASSERT_ON_HOST(get_effective_dims(in) <= DimsOut);
+	return range<DimsOut>(make_from, in);
+}
+
+/// Returns the smallest dimensionality that the id can be `id_cast` to.
+template <int Dims>
+int get_effective_dims(const id<Dims>& id) {
+	for(int dims = Dims; dims > 0; --dims) {
+		if(id[dims - 1] > 0) { return dims; }
+	}
+	return 0;
+}
+
+template <int DimsOut, typename InterfaceIn>
+id<DimsOut> id_cast(const InterfaceIn& in) {
+	CELERITY_DETAIL_ASSERT_ON_HOST(get_effective_dims(in) <= DimsOut);
+	return id<DimsOut>(make_from, in);
+}
+
+/// Returns the smallest dimensionality that the chunk can be `chunk_cast` to.
+template <int Dims>
+int get_effective_dims(const chunk<Dims>& ck) {
+	return std::max({get_effective_dims(ck.offset), get_effective_dims(ck.range), get_effective_dims(ck.global_size)});
+}
+
+/// Returns the smallest dimensionality that the subrange can be `subrange_cast` to.
+template <int Dims>
+int get_effective_dims(const subrange<Dims>& sr) {
+	return std::max(get_effective_dims(sr.offset), get_effective_dims(sr.range));
+}
+
+template <int Dims, int OtherDims>
+chunk<Dims> chunk_cast(const chunk<OtherDims>& other) {
+	CELERITY_DETAIL_ASSERT_ON_HOST(get_effective_dims(other) <= Dims);
+	return chunk{detail::id_cast<Dims>(other.offset), detail::range_cast<Dims>(other.range), detail::range_cast<Dims>(other.global_size)};
+}
+
+template <int Dims, int OtherDims>
+subrange<Dims> subrange_cast(const subrange<OtherDims>& other) {
+	CELERITY_DETAIL_ASSERT_ON_HOST(get_effective_dims(other) <= Dims);
+	return subrange{detail::id_cast<Dims>(other.offset), detail::range_cast<Dims>(other.range)};
+}
+
+} // namespace celerity::detail
