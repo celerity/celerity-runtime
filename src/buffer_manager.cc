@@ -285,17 +285,15 @@ namespace detail {
 					// separate commands. This might however change in the future.
 					if(t_minus_coherent_region != t_box) {
 						assert(detail::access::mode_traits::is_consumer(mode));
-						auto intersection = region(box_intersection(t_box, coherent_box)); // TODO this can be a box instead of a region!
+						auto intersection = box_intersection(t_box, coherent_box);
 						remaining_region_after_transfers = region_difference(remaining_region_after_transfers, intersection);
 						const auto element_size = m_buffer_infos.at(bid).element_size;
-						for(const auto& box : intersection.get_boxes()) {
-							auto sr = box.get_subrange();
-							// TODO can this temp buffer be avoided?
-							auto tmp = make_uninitialized_payload<std::byte>(sr.range.size() * element_size);
-							linearize_subrange(t.linearized.get_pointer(), tmp.get_pointer(), element_size, t.sr.range, {sr.offset - t.sr.offset, sr.range});
-							target_buffer.storage->set_data({target_buffer.get_local_offset(sr.offset), sr.range}, tmp.get_pointer());
-							updated_region_boxes.push_back(box);
-						}
+						auto sr = intersection.get_subrange();
+						// TODO can this temp buffer be avoided?
+						auto tmp = make_uninitialized_payload<std::byte>(sr.range.size() * element_size);
+						linearize_subrange(t.linearized.get_pointer(), tmp.get_pointer(), element_size, t.sr.range, {sr.offset - t.sr.offset, sr.range});
+						target_buffer.storage->set_data({target_buffer.get_local_offset(sr.offset), sr.range}, tmp.get_pointer());
+						updated_region_boxes.push_back(intersection);
 					}
 					// Transfer only applies partially, or not at all - which means we have to keep it around.
 					remaining_transfers.emplace_back(std::move(t));
