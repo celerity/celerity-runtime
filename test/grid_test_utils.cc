@@ -109,4 +109,4 @@ void render_boxes(const box_vector<2>& boxes, const std::string_view suffix) {
 #endif
 }
 
-}
+} // namespace celerity::test_utils

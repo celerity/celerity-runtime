@@ -261,8 +261,7 @@ namespace detail {
 
 				if(oob_max != id<3>{1, 1, 1}) {
 					const auto& access_map = tsk->get_buffer_access_map();
-					const auto acc_sr =
-					    access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()).get_subrange();
+					const auto acc_sr = access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()).get_subrange();
 					const auto oob_sr = subrange<3>(oob_min, range_cast<3>(oob_max - oob_min));
 					CELERITY_ERROR("Out-of-bounds access in kernel '{}' detected: Accessor {} for buffer {} attempted to access indices between {} which are "
 					               "outside of mapped subrange {}",

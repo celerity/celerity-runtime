@@ -171,8 +171,8 @@ namespace detail {
 
 		// this kernel initializes the buffer what will be read after.
 		auto acc_write = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, access_mode::discard_write>(bid, range, {});
-		test_utils::run_parallel_for<class kernel_multi_dim_accessor_write_<Dims>>(accessor_fixture<Dims>::get_device_queue().get_sycl_queue(),
-		    range, {}, [=](celerity::item<Dims> item) { acc_write[item] = item.get_linear_id(); });
+		test_utils::run_parallel_for<class kernel_multi_dim_accessor_write_<Dims>>(
+		    accessor_fixture<Dims>::get_device_queue().get_sycl_queue(), range, {}, [=](celerity::item<Dims> item) { acc_write[item] = item.get_linear_id(); });
 
 		SECTION("for device buffers") {
 			auto acc_read = accessor_fixture<Dims>::template get_device_accessor<size_t, Dims, access_mode::read>(bid, range, {});
@@ -207,8 +207,8 @@ namespace detail {
 		}
 
 		typename accessor_fixture<Dims>::access_target tgt = accessor_fixture<Dims>::access_target::host;
-		bool acc_check = accessor_fixture<Dims>::template buffer_reduce<size_t, Dims, class check_multi_dim_accessor<Dims>>(bid, tgt, range,
-		    {}, true, [range = range](id<Dims> idx, bool current, size_t value) { return current && value == get_linear_index(range, idx); });
+		bool acc_check = accessor_fixture<Dims>::template buffer_reduce<size_t, Dims, class check_multi_dim_accessor<Dims>>(
+		    bid, tgt, range, {}, true, [range = range](id<Dims> idx, bool current, size_t value) { return current && value == get_linear_index(range, idx); });
 
 		REQUIRE(acc_check);
 	}
