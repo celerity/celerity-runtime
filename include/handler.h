@@ -13,6 +13,7 @@
 #include "cgf_diagnostics.h"
 #include "closure_hydrator.h"
 #include "device_queue.h"
+#include "hint.h"
 #include "host_queue.h"
 #include "item.h"
 #include "range_mapper.h"
@@ -391,6 +392,8 @@ class handler {
 	friend void detail::add_reduction(handler& cgh, const detail::reduction_info& rinfo);
 	template <int Dims>
 	friend void experimental::constrain_split(handler& cgh, const range<Dims>& constraint);
+	template <typename Hint>
+	friend void experimental::hint(handler& cgh, Hint&& h);
 	friend void detail::extend_lifetime(handler& cgh, std::shared_ptr<detail::lifetime_extending_state> state);
 
 	friend void detail::set_task_name(handler& cgh, const std::string& debug_name);
@@ -406,6 +409,7 @@ class handler {
 	std::vector<std::shared_ptr<detail::lifetime_extending_state>> m_attached_state;
 	std::optional<std::string> m_usr_def_task_name;
 	range<3> m_split_constraint = detail::ones;
+	std::vector<std::unique_ptr<detail::hint_base>> m_hints;
 
 	handler(detail::task_id tid, size_t num_collective_nodes) : m_tid(tid), m_num_collective_nodes(num_collective_nodes) {}
 
@@ -462,6 +466,19 @@ class handler {
 	void experimental_constrain_split(const range<Dims>& constraint) {
 		assert(m_task == nullptr);
 		m_split_constraint = detail::range_cast<3>(constraint);
+	}
+
+	template <typename Hint>
+	void experimental_hint(Hint&& hint) {
+		static_assert(std::is_base_of_v<detail::hint_base, std::decay_t<Hint>>, "Hint must extend hint_base");
+		static_assert(std::is_move_constructible_v<Hint>, "Hint must be move-constructible");
+		for(auto& h : m_hints) {
+			// We currently don't allow more than one hint of the same type for simplicity; this could be loosened in the future.
+			auto& hr = *h; // Need to do this here to avoid -Wpotentially-evaluated-expression
+			if(typeid(hr) == typeid(hint)) { throw std::runtime_error("Providing more than one hint of the same type is not allowed"); }
+			h->validate(hint);
+		}
+		m_hints.emplace_back(std::make_unique<std::decay_t<Hint>>(std::forward<Hint>(hint)));
 	}
 
 	template <int Dims>
@@ -604,6 +621,9 @@ class handler {
 		for(auto state : m_attached_state) {
 			m_task->extend_lifetime(std::move(state));
 		}
+		for(auto& h : m_hints) {
+			m_task->add_hint(std::move(h));
+		}
 		return std::move(m_task);
 	}
 };
@@ -682,5 +702,10 @@ namespace celerity::experimental {
 template <int Dims>
 void constrain_split(handler& cgh, const range<Dims>& constraint) {
 	cgh.experimental_constrain_split(constraint);
+}
+
+template <typename Hint>
+void hint(handler& cgh, Hint&& hint) {
+	cgh.experimental_hint(std::forward<Hint>(hint));
 }
 } // namespace celerity::experimental
