@@ -68,8 +68,8 @@ namespace detail {
 
 		virtual ~task_manager() = default;
 
-		template <typename CGF, typename... Hints>
-		task_id submit_command_group(CGF cgf, Hints... hints) {
+		template <typename CGF>
+		task_id submit_command_group(CGF cgf) {
 			auto reservation = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
 			const auto tid = reservation.get_tid();
 

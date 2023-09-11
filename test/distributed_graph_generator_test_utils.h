@@ -85,6 +85,11 @@ class task_builder {
 			return chain<step>([constraint](handler& cgh) { experimental::constrain_split(cgh, constraint); });
 		}
 
+		template <typename Hint>
+		step hint(Hint hint) {
+			return chain<step>([&hint](handler& cgh) { experimental::hint(cgh, hint); });
+		}
+
 	  private:
 		dist_cdag_test_context& m_dctx;
 		std::deque<action> m_actions;
