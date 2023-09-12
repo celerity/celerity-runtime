@@ -7,27 +7,6 @@ namespace celerity::detail::grid_detail {
 // This property is detected at runtime through {box,region}::get_effective_dims(), and all region-algorithm implementations are generic over both StorageDims
 // and EffectiveDims to optimize for the embedding of arbitrary-dimensional regions into region<3> as it commonly happens in the runtime.
 
-// 2-connectivity for 1d boxes, 4-connectivity for 2d boxes and 6-connectivity for 3d boxes.
-template <int EffectiveDims, int StorageDims>
-bool boxes_connected(const box<StorageDims>& box1, const box<StorageDims>& box2) {
-	static_assert(EffectiveDims <= StorageDims);
-
-	if(box1.empty() || box2.empty()) return false;
-
-	bool touching = false;
-	for(int d = 0; d < EffectiveDims; ++d) {
-		const auto min = std::max(box1.get_min()[d], box2.get_min()[d]);
-		const auto max = std::min(box1.get_max()[d], box2.get_max()[d]);
-		if(min[d] > max[d]) return false; // fully disconnected, even across corners
-		if(min[d] == max[d]) {
-			// when boxes are touching (but not intersecting) in more than one dimension, they can only be connected via corners
-			if(touching) return false;
-			touching = true;
-		}
-	}
-	return true;
-}
-
 // Like detail::box_intersection, but aware of effective dimensionality
 template <int EffectiveDims, int StorageDims>
 box<StorageDims> box_intersection(const box<StorageDims>& box1, const box<StorageDims>& box2) {
@@ -60,81 +39,6 @@ bool box_covers(const box<StorageDims>& top, const box<StorageDims>& bottom) {
 		if(bottom.get_max()[d] > top.get_max()[d]) return false;
 	}
 	return true;
-}
-
-// O(N^2) remove any box A != B for which box_covers(B, A) is true
-template <int EffectiveDims, typename BidirectionalIterator>
-BidirectionalIterator remove_pairwise_covered(BidirectionalIterator first, BidirectionalIterator last) {
-	for(auto top = first; top != last; ++top) {
-	top_replaced:
-		for(auto bottom = std::next(top); bottom != last;) {
-			if(box_covers<EffectiveDims>(*top, *bottom)) {
-				*bottom = *--last;
-			} else if(box_covers<EffectiveDims>(*bottom, *top)) {
-				*top = *bottom;
-				*bottom = *--last;
-				goto top_replaced; // NOLINT(cppcoreguidelines-avoid-goto)
-			} else {
-				++bottom;
-			}
-		}
-	}
-	return last;
-}
-
-// Partition a range of boxes into intervals described by a grid of dissection lines, and invoke a user function on each partition.
-template <typename BidirectionalIterator, typename Fn>
-void for_each_dissection_interval(BidirectionalIterator first, BidirectionalIterator last, const std::vector<std::vector<size_t>>& cuts, Fn&& f, int dim = 0) {
-	using box_type = typename std::iterator_traits<BidirectionalIterator>::value_type;
-
-	assert(first != last);
-
-	if(cuts.size() <= static_cast<size_t>(dim)) {
-		// We are past the last dissected dimension, so the interval is just our entire input range
-		f(first, last);
-		return;
-	}
-
-	// Since boxes can never cross a dissection line, we can partition the range into dissection intervals by sorting along one dimension
-	std::sort(first, last, [dim](const box_type& lhs, const box_type& rhs) { return lhs.get_min()[dim] < rhs.get_min()[dim]; });
-
-	auto next_cut = cuts[dim].begin();
-	while(first != last) {
-		// The current box `first` always belongs to our interval. Now find, in O(log N), the dissection line that marks the end of this interval
-		next_cut = std::upper_bound(next_cut, cuts[dim].end(), first->get_min()[dim]);
-		assert(next_cut != cuts[dim].end());
-
-		// Find, in O(log N), the end iterator of our interval by searching the first item that is "right" of the dissection line
-		const auto next = std::lower_bound(first, last, *next_cut, [dim](const box_type& lhs, const size_t cut) { return lhs.get_min()[dim] < cut; });
-
-		// Recurse into the found interval along the next (faster) dimension
-		for_each_dissection_interval(first, next, cuts, f, dim + 1);
-
-		first = next;
-	}
-}
-
-// Like remove_pairwise_covered(first, last), but at lower average complexity for a range of boxes that are dissected according to `cuts`.
-template <int EffectiveDims, typename BidirectionalIterator>
-BidirectionalIterator remove_pairwise_covered(BidirectionalIterator first, BidirectionalIterator last, const std::vector<std::vector<size_t>>& cuts) {
-	using box_type [[maybe_unused]] = typename std::iterator_traits<BidirectionalIterator>::value_type;
-
-	assert(cuts.size() <= EffectiveDims);
-	assert(std::all_of(cuts.begin(), cuts.end(), [](const std::vector<size_t>& dim_cuts) { return std::is_sorted(dim_cuts.begin(), dim_cuts.end()); }));
-
-	if(first == last || std::next(first) == last) return last;
-
-	// We compact the range in-place after each removal by left-shifting each de-duplicated range
-	auto last_out = first;
-
-	for_each_dissection_interval(first, last, cuts, [&](const BidirectionalIterator i_first, const BidirectionalIterator i_last) {
-		// Delegate the interval to the O(N^2) overload of remove_pairwise_covered
-		const auto last_retained = remove_pairwise_covered<EffectiveDims>(i_first, i_last);
-		// for_each_dissection_interval will not touch [first, i_last) after this iteration
-		last_out = std::move(i_first, last_retained, last_out);
-	});
-
-	return last_out;
 }
 
 // In a range of boxes that are identical in all dimensions except MergeDim, merge all connected boxes ("unconditional directional merge")
@@ -327,26 +231,20 @@ void normalize_impl(box_vector<StorageDims>& boxes) {
 		assert(!boxes.empty());
 		if(boxes.size() == 1) return;
 
-		// 1. dissect boxes along the edges of all other boxes (except the last, "fastest" dim) to create the "maximally mergeable set" of small boxes for step
+		// 1. dissect boxes along the edges of all other boxes (except the last, "fastest" dim) to create the "maximally mergeable set" of boxes for step 2
 		std::vector<std::vector<size_t>> cuts(EffectiveDims - 1);
 		for(int d = 0; d < EffectiveDims - 1; ++d) {
 			cuts[static_cast<size_t>(d)] = collect_dissection_lines(boxes.begin(), boxes.end(), d);
 		}
 
-		box_vector<StorageDims> disjoint_boxes;
-		dissect_boxes(boxes.begin(), boxes.end(), cuts, disjoint_boxes);
-		boxes = std::move(disjoint_boxes);
+		box_vector<StorageDims> dissected_boxes;
+		dissect_boxes(boxes.begin(), boxes.end(), cuts, dissected_boxes);
+		boxes = std::move(dissected_boxes);
 
-		// 2. remove all overlap by removing pairwise coverings
-		const auto first = boxes.begin();
-		auto last = boxes.end();
-		last = remove_pairwise_covered<EffectiveDims>(first, last, cuts);
+		// 2. the dissected tiling of boxes only potentially overlaps in the fastest dimension - merge where possible
+		boxes.erase(merge_connected_boxes<EffectiveDims>(boxes.begin(), boxes.end()), boxes.end());
 
-		// 3. merge the overlap-free tiling of boxes where possible
-		last = merge_connected_boxes<EffectiveDims>(first, last);
-		boxes.erase(last, boxes.end());
-
-		// 4. normalize box order
+		// 3. normalize box order
 		std::sort(boxes.begin(), boxes.end(), box_coordinate_order());
 	}
 }

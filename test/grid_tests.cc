@@ -1,5 +1,6 @@
 #include "grid.h"
 #include "grid_test_utils.h"
+#include "test_utils.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -226,6 +227,27 @@ TEST_CASE("region normalization maximizes extent of fast dimensions - 2d", "[gri
 	test_utils::render_boxes(input, "input");
 	test_utils::render_boxes(result, "result");
 	test_utils::render_boxes(normalized, "normalized");
+}
+
+// we used to have a separate step to remove overlaps between dissected boxes - unnecessarily, as splitting + merging already takes care of that!
+TEMPLATE_TEST_CASE_SIG("region normalization removes fully covered boxes", "[grid]", ((int Dims), Dims), 1, 2, 3) {
+	const box_vector<Dims> input{
+	    {test_utils::truncate_id<Dims>({1, 1, 1}), test_utils::truncate_id<Dims>({9, 9, 9})},
+	    {test_utils::truncate_id<Dims>({1, 1, 1}), test_utils::truncate_id<Dims>({7, 7, 7})},
+	    {test_utils::truncate_id<Dims>({3, 3, 3}), test_utils::truncate_id<Dims>({7, 7, 7})},
+	};
+	const box_vector<Dims> normalized{
+	    {test_utils::truncate_id<Dims>({1, 1, 1}), test_utils::truncate_id<Dims>({9, 9, 9})},
+	};
+
+	const auto result = grid_detail::normalize(test_utils::copy(input));
+	CHECK(result == normalized);
+
+	if constexpr(Dims == 2) {
+		test_utils::render_boxes(input, "input");
+		test_utils::render_boxes(result, "result");
+		test_utils::render_boxes(normalized, "normalized");
+	}
 }
 
 TEST_CASE("region union - 2d", "[grid]") {
