@@ -42,6 +42,8 @@ namespace detail {
 	void add_reduction(handler& cgh, const reduction_info& rinfo);
 	void extend_lifetime(handler& cgh, std::shared_ptr<detail::lifetime_extending_state> state);
 
+	void set_task_name(handler& cgh, const std::string& debug_name);
+
 	template <typename Name>
 	std::string kernel_debug_name() {
 		// we need to typeid a pointer, since the name is often undefined
@@ -374,6 +376,8 @@ class handler {
 	friend void detail::add_reduction(handler& cgh, const detail::reduction_info& rinfo);
 	friend void detail::extend_lifetime(handler& cgh, std::shared_ptr<detail::lifetime_extending_state> state);
 
+	friend void detail::set_task_name(handler &cgh, const std::string& debug_name);
+
 	detail::task_id m_tid;
 	detail::buffer_access_map m_access_map;
 	detail::side_effect_map m_side_effects;
@@ -383,6 +387,7 @@ class handler {
 	size_t m_num_collective_nodes;
 	detail::hydration_id m_next_accessor_hydration_id = 1;
 	std::vector<std::shared_ptr<detail::lifetime_extending_state>> m_attached_state;
+	std::optional<std::string> m_usr_def_task_name;
 
 	handler(detail::task_id tid, size_t num_collective_nodes) : m_tid(tid), m_num_collective_nodes(num_collective_nodes) {}
 
@@ -442,6 +447,8 @@ class handler {
 		}
 		m_task =
 		    detail::task::make_host_compute(m_tid, geometry, std::move(launcher), std::move(m_access_map), std::move(m_side_effects), std::move(m_reductions));
+
+		m_task->set_debug_name(m_usr_def_task_name.value_or(""));
 	}
 
 	void create_device_compute_task(detail::task_geometry geometry, std::string debug_name, std::unique_ptr<detail::command_launcher_storage_base> launcher) {
@@ -456,17 +463,24 @@ class handler {
 		// Note that cgf_diagnostics has a similar check, but we don't catch void side effects there.
 		if(!m_side_effects.empty()) { throw std::runtime_error{"Side effects cannot be used in device kernels"}; }
 		m_task =
-		    detail::task::make_device_compute(m_tid, geometry, std::move(launcher), std::move(m_access_map), std::move(m_reductions), std::move(debug_name));
+		    detail::task::make_device_compute(m_tid, geometry, std::move(launcher), std::move(m_access_map), std::move(m_reductions));
+
+		m_task->set_debug_name(m_usr_def_task_name.value_or(debug_name));
+		
 	}
 
 	void create_collective_task(detail::collective_group_id cgid, std::unique_ptr<detail::command_launcher_storage_base> launcher) {
 		assert(m_task == nullptr);
 		m_task = detail::task::make_collective(m_tid, cgid, m_num_collective_nodes, std::move(launcher), std::move(m_access_map), std::move(m_side_effects));
+
+		m_task->set_debug_name(m_usr_def_task_name.value_or(""));
 	}
 
 	void create_master_node_task(std::unique_ptr<detail::command_launcher_storage_base> launcher) {
 		assert(m_task == nullptr);
 		m_task = detail::task::make_master_node(m_tid, std::move(launcher), std::move(m_access_map), std::move(m_side_effects));
+
+		m_task->set_debug_name(m_usr_def_task_name.value_or(""));
 	}
 
 	template <typename KernelFlavor, typename KernelName, int Dims, typename Kernel, size_t... ReductionIndices, typename... Reductions>
@@ -573,6 +587,10 @@ namespace detail {
 	inline void add_reduction(handler& cgh, const detail::reduction_info& rinfo) { return cgh.add_reduction(rinfo); }
 
 	inline void extend_lifetime(handler& cgh, std::shared_ptr<detail::lifetime_extending_state> state) { cgh.extend_lifetime(std::move(state)); }
+
+	inline void set_task_name(handler& cgh, const std::string& debug_name) {
+		cgh.m_usr_def_task_name = {debug_name};
+	}
 
 	// TODO: The _impl functions in detail only exist during the grace period for deprecated reductions on const buffers; move outside again afterwards.
 	template <typename DataT, int Dims, typename BinaryOperation>
