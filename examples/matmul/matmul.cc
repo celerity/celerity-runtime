@@ -13,6 +13,8 @@ void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat, bool 
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw{mat, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		const auto range = mat.get_range();
+
+		celerity::debug::set_task_name(cgh, "set identity");
 		cgh.parallel_for<class set_identity_kernel>(range, [=](celerity::item<2> item) {
 			if(!reverse) {
 				dw[item] = item[0] == item[1];
@@ -36,6 +38,7 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 		celerity::local_accessor<T, 2> scratch_a{{group_size, group_size}, cgh};
 		celerity::local_accessor<T, 2> scratch_b{{group_size, group_size}, cgh};
 
+		celerity::debug::set_task_name(cgh, "matrix multiplication");
 		cgh.parallel_for<class mat_mul>(celerity::nd_range<2>{{MAT_SIZE, MAT_SIZE}, {group_size, group_size}}, [=](celerity::nd_item<2> item) {
 			T sum{};
 			const auto lid = item.get_local_id();
@@ -63,6 +66,7 @@ void verify(celerity::distr_queue& queue, celerity::buffer<T, 2> mat_c, celerity
 		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task};
 		celerity::experimental::side_effect passed{passed_obj, cgh};
 
+		celerity::debug::set_task_name(cgh, "verification");
 		cgh.host_task(mat_c.get_range(), [=](celerity::partition<2> part) {
 			*passed = true;
 			const auto& sr = part.get_subrange();

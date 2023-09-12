@@ -1,6 +1,7 @@
 #include <string>
 
 #include "buffer.h"
+#include "handler.h"
 
 namespace celerity {
 namespace debug {
@@ -14,5 +15,8 @@ namespace debug {
 		return detail::get_buffer_name(buff);
 	}
 
+	inline void set_task_name(celerity::handler& cgh, const std::string& debug_name) {
+		detail::set_task_name(cgh, debug_name);
+	}
 } // namespace debug
 } // namespace celerity
