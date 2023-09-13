@@ -295,8 +295,11 @@ template <int EffectiveDims, int StorageDims>
 region<StorageDims> region_intersection_impl(const region<StorageDims>& lhs, const region<StorageDims>& rhs) {
 	static_assert(EffectiveDims <= StorageDims);
 
-	// O(N * M). This can probably be improved for large inputs by dissecting either lhs or rhs by the lines of the other and then performing an interval
-	// search similar to how remove_pairwise_covered operates.
+	// O(N * M) naively collect intersections of box pairs.
+	// There might be a way to optimize this further through sorting one side and finding potentially intersecting boxes through lower_bound + upper_bound.
+	// I have previously attempted to implement this entirely without box_intersection by dissecting both sides by the union of their dissection lines,
+	// sorting both by box_coordinate_order and finding common boxes through std::set_intersection. Practically this turned out to be slower, sometimes
+	// by several orders of magnitude, as the number of dissected boxes can grow to O((N * M) ^ EffectiveDims).
 	box_vector<StorageDims> intersection;
 	for(const auto& left : lhs.get_boxes()) {
 		for(const auto& right : rhs.get_boxes()) {
@@ -325,7 +328,8 @@ template <int EffectiveDims, int StorageDims>
 void apply_region_difference(box_vector<StorageDims>& dissected_left, const region<StorageDims>& rhs) {
 	static_assert(EffectiveDims <= StorageDims);
 
-	// O(N * M) remove all dissected boxes from lhs that are fully covered by any box in rhs
+	// O(N * M) remove all dissected boxes from lhs that are fully covered by any box in rhs.
+	// For further optimization potential see the comments on region_intersection_impl.
 	const auto first_left = dissected_left.begin();
 	auto last_left = dissected_left.end();
 	for(const auto& right : rhs.get_boxes()) {
