@@ -51,9 +51,13 @@ struct fmt::formatter<celerity::detail::region<Dims>> : fmt::formatter<celerity:
 };
 
 template <int Dims>
-struct fmt::formatter<celerity::subrange<Dims>> : fmt::formatter<celerity::detail::box<Dims>> {
+struct fmt::formatter<celerity::subrange<Dims>> : fmt::formatter<celerity::id<Dims>> {
 	format_context::iterator format(const celerity::subrange<Dims>& sr, format_context& ctx) const {
-		return fmt::formatter<celerity::detail::box<Dims>>::format(celerity::detail::box(sr), ctx);
+		auto out = ctx.out();
+		out = formatter<celerity::id<Dims>>::format(sr.offset, ctx);
+		out = std::copy_n(" + ", 3, out);
+		out = formatter<celerity::id<Dims>>::format(celerity::id(sr.range), ctx); // cast to id to avoid multiple inheritance
+		return out;
 	}
 };
 
