@@ -19,9 +19,7 @@ TEST_CASE("debug names can be set and retrieved from tasks", "[debug]") {
 	auto tt = test_utils::task_test_context{};
 
 	SECTION("Host Task") {
-		const auto tid_a = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-			celerity::debug::set_task_name(cgh, task_name);
-		});
+		const auto tid_a = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { celerity::debug::set_task_name(cgh, task_name); });
 
 		const auto tid_b = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {});
 
@@ -30,9 +28,7 @@ TEST_CASE("debug names can be set and retrieved from tasks", "[debug]") {
 	}
 
 	SECTION("Compute Task") {
-		const auto tid_a = test_utils::add_compute_task<class compute_task>(tt.tm, [&](handler& cgh) {
-			celerity::debug::set_task_name(cgh, task_name);
-		});
+		const auto tid_a = test_utils::add_compute_task<class compute_task>(tt.tm, [&](handler& cgh) { celerity::debug::set_task_name(cgh, task_name); });
 
 		const auto tid_b = test_utils::add_compute_task<class compute_task_unnamed>(tt.tm, [&](handler& cgh) {});
 
@@ -41,9 +37,8 @@ TEST_CASE("debug names can be set and retrieved from tasks", "[debug]") {
 	}
 
 	SECTION("ND Range Task") {
-		const auto tid_a = test_utils::add_nd_range_compute_task<class nd_range_task>(tt.tm, [&](handler& cgh) {
-			celerity::debug::set_task_name(cgh, task_name);
-		});
+		const auto tid_a =
+		    test_utils::add_nd_range_compute_task<class nd_range_task>(tt.tm, [&](handler& cgh) { celerity::debug::set_task_name(cgh, task_name); });
 
 		const auto tid_b = test_utils::add_compute_task<class nd_range_task_unnamed>(tt.tm, [&](handler& cgh) {});
 
@@ -55,13 +50,14 @@ TEST_CASE("debug names can be set and retrieved from tasks", "[debug]") {
 TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer_manager allows to set buffer debug names on  buffers", "[buffer_manager]") {
 	celerity::buffer<int, 1> buff_a(16);
 	std::string buff_name{"my_buffer"};
+	std::string buffer_label{fmt::format("B{} \"{}\"", detail::get_buffer_id(buff_a), buff_name)};
 	celerity::detail::runtime::get_instance().get_buffer_manager().set_debug_name(celerity::detail::get_buffer_id(buff_a), buff_name);
-	CHECK(celerity::detail::runtime::get_instance().get_buffer_manager().get_debug_name(celerity::detail::get_buffer_id(buff_a)) == buff_name);
+	CHECK(detail::runtime::get_instance().get_buffer_manager().get_debug_label(detail::get_buffer_id(buff_a)) == buffer_label);
 }
 
 
 namespace foo {
-	class MySecondKernel;
+class MySecondKernel;
 }
 
 template <typename T>
