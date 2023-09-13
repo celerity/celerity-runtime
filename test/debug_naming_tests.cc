@@ -50,8 +50,9 @@ TEST_CASE("debug names can be set and retrieved from tasks", "[debug]") {
 TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer_manager allows to set buffer debug names on  buffers", "[buffer_manager]") {
 	celerity::buffer<int, 1> buff_a(16);
 	std::string buff_name{"my_buffer"};
+	std::string buffer_label{fmt::format("B{} \"{}\"", detail::get_buffer_id(buff_a), buff_name)};
 	celerity::detail::runtime::get_instance().get_buffer_manager().set_debug_name(celerity::detail::get_buffer_id(buff_a), buff_name);
-	CHECK(celerity::detail::runtime::get_instance().get_buffer_manager().get_debug_name(celerity::detail::get_buffer_id(buff_a)) == buff_name);
+	CHECK(detail::runtime::get_instance().get_buffer_manager().get_debug_label(detail::get_buffer_id(buff_a)) == buffer_label);
 }
 
 

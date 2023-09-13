@@ -34,25 +34,17 @@ const char* task_type_string(const task_type tt) {
 	}
 }
 
-std::string get_buffer_label(const buffer_id bid, const std::string& name = "") {
-	// if there is no name defined, the name will be the buffer id.
-	// if there is a name we want "id name"
-	return !name.empty() ? fmt::format("B{} \"{}\"", bid, name) : fmt::format("B{}", bid);
-}
-
 void format_requirements(std::string& label, const reduction_list& reductions, const access_list& accesses, const side_effect_map& side_effects,
     const access_mode reduction_init_mode) {
 	for(const auto& [rid, bid, buffer_name, init_from_buffer] : reductions) {
 		auto rmode = init_from_buffer ? reduction_init_mode : cl::sycl::access::mode::discard_write;
 		const region scalar_region(box<3>({0, 0, 0}, {1, 1, 1}));
-		const std::string bl = get_buffer_label(bid, buffer_name);
-		fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> {} {}", rid, detail::access::mode_traits::name(rmode), bl, scalar_region);
+		fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> {} {}", rid, detail::access::mode_traits::name(rmode), buffer_name, scalar_region);
 	}
 
 	for(const auto& [bid, buffer_name, mode, req] : accesses) {
-		const std::string bl = get_buffer_label(bid, buffer_name);
 		// While uncommon, we do support chunks that don't require access to a particular buffer at all.
-		if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> {} {}", detail::access::mode_traits::name(mode), bl, req); }
+		if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> {} {}", detail::access::mode_traits::name(mode), buffer_name, req); }
 	}
 
 	for(const auto& [hoid, order] : side_effects) {
@@ -102,7 +94,7 @@ std::string get_command_label(const node_id local_nid, const command_record& cmd
 	auto add_reduction_id_if_reduction = [&]() {
 		if(cmd.reduction_id.has_value() && cmd.reduction_id != 0) { fmt::format_to(std::back_inserter(label), "(R{}) ", cmd.reduction_id.value()); }
 	};
-	const std::string buffer_label = cmd.buffer_id.has_value() ? get_buffer_label(cmd.buffer_id.value(), cmd.buffer_name) : "";
+	const std::string buffer_label = cmd.buffer_id.has_value() ? cmd.buffer_name : "";
 
 	switch(cmd.type) {
 	case command_type::epoch: {

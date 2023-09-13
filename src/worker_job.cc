@@ -202,10 +202,9 @@ namespace detail {
 					const auto acc_sr = access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()).get_subrange();
 					const auto oob_sr = subrange<3>(oob_min, range_cast<3>(oob_max - oob_min));
 					const auto buffer_id = access_map.get_nth_access(i).first;
-					const auto buffer_name = m_buffer_mngr.get_debug_name(buffer_id);
 					CELERITY_ERROR("Out-of-bounds access in host task detected: Accessor {} for buffer {} attempted to access indices between {} which are "
 					               "outside of mapped subrange {}",
-					    i, (buffer_name.empty() ? fmt::format("{}", buffer_id) : buffer_name), oob_sr, acc_sr);
+					    i, m_buffer_mngr.get_debug_label(buffer_id), oob_sr, acc_sr);
 				}
 			}
 #endif
@@ -301,10 +300,9 @@ namespace detail {
 					const auto acc_sr = access_map.get_requirements_for_nth_access(i, tsk->get_dimensions(), data.sr, tsk->get_global_size()).get_subrange();
 					const auto oob_sr = subrange<3>(oob_min, range_cast<3>(oob_max - oob_min));
 					const auto buffer_id = access_map.get_nth_access(i).first;
-					const auto buffer_name = m_buffer_mngr.get_debug_name(buffer_id);
 					CELERITY_ERROR("Out-of-bounds access in kernel '{}' detected: Accessor {} for buffer {} attempted to access indices between {} which are "
 					               "outside of mapped subrange {}",
-					    tsk->get_debug_name(), i, (buffer_name.empty() ? fmt::format("{}", buffer_id) : buffer_name), oob_sr, acc_sr);
+					    tsk->get_debug_name(), i, m_buffer_mngr.get_debug_label(buffer_id), oob_sr, acc_sr);
 				}
 				sycl::free(m_oob_indices_per_accessor[i], m_queue.get_sycl_queue());
 			}

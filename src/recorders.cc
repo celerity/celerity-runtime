@@ -9,7 +9,7 @@ namespace celerity::detail {
 // Naming
 
 std::string get_buffer_name(const buffer_id bid, const buffer_manager* buff_man) {
-	return buff_man != nullptr ? buff_man->get_buffer_info(bid).debug_name : "";
+	return buff_man != nullptr ? buff_man->get_debug_label(bid) : fmt::format("B{}", bid);
 }
 
 // Tasks
@@ -91,7 +91,7 @@ std::optional<buffer_id> get_buffer_id(const abstract_command& cmd) {
 }
 
 std::string get_cmd_buffer_name(const std::optional<buffer_id>& bid, const buffer_manager* buff_mngr) {
-	if(buff_mngr == nullptr || !bid.has_value()) return "";
+	if(!bid.has_value()) return "";
 	return get_buffer_name(bid.value(), buff_mngr);
 }
 

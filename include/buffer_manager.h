@@ -278,9 +278,13 @@ namespace detail {
 			m_buffer_infos.at(bid).debug_name = debug_name;
 		}
 
-		std::string get_debug_name(const buffer_id bid) const {
-			std::lock_guard lock(m_mutex);
-			return m_buffer_infos.at(bid).debug_name;
+		std::string get_debug_label(const buffer_id bid) const {
+			std::string name;
+			{
+				std::lock_guard lock(m_mutex);
+				name = m_buffer_infos.at(bid).debug_name;
+			}
+			return !name.empty() ? fmt::format("B{} \"{}\"", bid, name) : fmt::format("B{}", bid);
 		}
 
 	  private:
