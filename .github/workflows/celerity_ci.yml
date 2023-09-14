@@ -197,8 +197,8 @@ jobs:
         name: Set outputs for HEAD builds
         if: matrix.sycl-version == 'HEAD'
         run: |
-          echo "${{ matrix.sycl }}-HEAD-${{ matrix.build-type }}-works=1 >> $GITHUB_OUTPUT"
-          echo "${{ matrix.sycl }}-HEAD-ubuntu-version=${{ matrix.ubuntu-version }} >> $GITHUB_OUTPUT"
+          echo "${{ matrix.sycl }}-HEAD-${{ matrix.build-type }}-works=1" >> "$GITHUB_OUTPUT"
+          echo "${{ matrix.sycl }}-HEAD-ubuntu-version=${{ matrix.ubuntu-version }}" >> "$GITHUB_OUTPUT"
 
   # Tag "HEAD" images that built and tested successfully as "latest".
   # This is only done for nightly builds (or when specifying the "tag-latest" option on manually triggered runs).
@@ -253,8 +253,11 @@ jobs:
         shell: bash
         run: |
           unformatted=$("./ci/find-unformatted-files.sh")
-          unformatted=${unformatted//$'\n'/'%0A'}
-          echo "unformatted-files=$unformatted >> $GITHUB_OUTPUT"
+          {
+            echo 'unformatted-files<<EOF'
+            echo "$unformatted"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
       - uses: "celerity/ci-report-action@v6"
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
