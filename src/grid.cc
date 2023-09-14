@@ -43,33 +43,33 @@ bool box_covers(const box<StorageDims>& top, const box<StorageDims>& bottom) {
 
 // In a range of boxes that are identical in all dimensions except MergeDim, merge all connected boxes ("unconditional directional merge")
 template <int MergeDim, typename BidirectionalIterator>
-BidirectionalIterator merge_connected_intervals(BidirectionalIterator first, BidirectionalIterator last) {
+BidirectionalIterator merge_connected_intervals(BidirectionalIterator begin, BidirectionalIterator end) {
 	using box_type = typename std::iterator_traits<BidirectionalIterator>::value_type;
 
-	if(first == last || std::next(first) == last) return last; // common-case shortcut: no merge is possible
+	if(begin == end || std::next(begin) == end) return end; // common-case shortcut: no merge is possible
 
 	// Sort by interval starting point
-	std::sort(first, last, [](const box_type& lhs, const box_type& rhs) { return lhs.get_min()[MergeDim] < rhs.get_min()[MergeDim]; });
+	std::sort(begin, end, [](const box_type& lhs, const box_type& rhs) { return lhs.get_min()[MergeDim] < rhs.get_min()[MergeDim]; });
 
 	// The range is both read and written from left-to-right, avoiding repeated left-shifts for compaction
-	auto last_out = first;
+	auto out_end = begin;
 
 	// Merge all connected boxes along MergeDim in O(N) by replacing each connected sequence with its bounding box
-	while(first != last) {
-		const auto merged_min = first->get_min();
-		auto merged_max = first->get_max();
-		for(++first; first != last && first->get_min()[MergeDim] <= merged_max[MergeDim]; ++first) {
-			merged_max[MergeDim] = std::max(merged_max[MergeDim], first->get_max()[MergeDim]);
+	while(begin != end) {
+		const auto merged_min = begin->get_min();
+		auto merged_max = begin->get_max();
+		for(++begin; begin != end && begin->get_min()[MergeDim] <= merged_max[MergeDim]; ++begin) {
+			merged_max[MergeDim] = std::max(merged_max[MergeDim], begin->get_max()[MergeDim]);
 		}
-		*last_out++ = make_box<box_type::dimensions>(grid_detail::non_empty, merged_min, merged_max);
+		*out_end++ = make_box<box_type::dimensions>(grid_detail::non_empty, merged_min, merged_max);
 	}
 
-	return last_out;
+	return out_end;
 }
 
 // In an arbitrary range of boxes, merge all boxes that are identical in all dimensions except MergeDim ("conditional directional merge").
 template <int MergeDim, int EffectiveDims, typename BidirectionalIterator>
-BidirectionalIterator merge_connected_boxes_along_dim(const BidirectionalIterator first, const BidirectionalIterator last) {
+BidirectionalIterator merge_connected_boxes_along_dim(const BidirectionalIterator begin, const BidirectionalIterator end) {
 	using box_type = typename std::iterator_traits<BidirectionalIterator>::value_type;
 	static_assert(EffectiveDims <= box_type::dimensions);
 	static_assert(MergeDim < EffectiveDims);
@@ -87,56 +87,56 @@ BidirectionalIterator merge_connected_boxes_along_dim(const BidirectionalIterato
 	};
 
 	if constexpr(EffectiveDims == 1) {
-		return merge_connected_intervals<MergeDim>(first, last);
+		return merge_connected_intervals<MergeDim>(begin, end);
 	} else {
-		// partition [first, last) into sequences of boxes that are potentially mergeable wrt/ the dimensions orthogonal to MergeDim.
+		// partition [begin, end) into sequences of boxes that are potentially mergeable wrt/ the dimensions orthogonal to MergeDim.
 		// This reduces complexity from O(n^3) to O(n log n) + O(m^3), where m is the longest mergeable sequence in that regard.
-		std::sort(first, last, orthogonal_to_merge_dim);
+		std::sort(begin, end, orthogonal_to_merge_dim);
 
-		// we want the result to be contiguous in [first, last_out), so in each iteration, we merge all boxes of a MergeDim-equal partition at their original
+		// we want the result to be contiguous in [begin, out_end), so in each iteration, we merge all boxes of a MergeDim-equal partition at their original
 		// position in the iterator range; and then shift the merged range back to fill any gap left by merge of a previous partition.
-		auto last_out = first;
+		auto out_end = begin;
 
-		for(auto first_equal = first; first_equal != last;) {
+		for(auto equal_begin = begin; equal_begin != end;) {
 			// O(n) std::find_if could be replaced by O(log n) std::partition_point, but we expect the number of "equal" elements to be small
-			const auto last_equal = std::find_if(std::next(first_equal), last, [&](const box_type& box) {
-				return orthogonal_to_merge_dim(*first_equal, box); // true if box is in a partition _after_ *first_equal
+			const auto equal_end = std::find_if(std::next(equal_begin), end, [&](const box_type& box) {
+				return orthogonal_to_merge_dim(*equal_begin, box); // true if box is in a partition _after_ *equal_begin
 			});
-			const auto last_merged = merge_connected_intervals<MergeDim>(first_equal, last_equal);
+			const auto merged_end = merge_connected_intervals<MergeDim>(equal_begin, equal_end);
 			// shift the newly merged boxes to the left to close any gap opened by the merge of a previous partition
-			last_out = std::move(first_equal, last_merged, last_out);
-			first_equal = last_equal;
+			out_end = std::move(equal_begin, merged_end, out_end);
+			equal_begin = equal_end;
 		}
 
-		return last_out;
+		return out_end;
 	}
 }
 
 // explicit instantiations for tests (might otherwise be inlined)
-template box_vector<1>::iterator merge_connected_boxes_along_dim<0, 1>(box_vector<1>::iterator first, box_vector<1>::iterator last);
-template box_vector<2>::iterator merge_connected_boxes_along_dim<0, 2>(box_vector<2>::iterator first, box_vector<2>::iterator last);
-template box_vector<2>::iterator merge_connected_boxes_along_dim<1, 2>(box_vector<2>::iterator first, box_vector<2>::iterator last);
-template box_vector<3>::iterator merge_connected_boxes_along_dim<0, 3>(box_vector<3>::iterator first, box_vector<3>::iterator last);
-template box_vector<3>::iterator merge_connected_boxes_along_dim<1, 3>(box_vector<3>::iterator first, box_vector<3>::iterator last);
-template box_vector<3>::iterator merge_connected_boxes_along_dim<2, 3>(box_vector<3>::iterator first, box_vector<3>::iterator last);
+template box_vector<1>::iterator merge_connected_boxes_along_dim<0, 1>(box_vector<1>::iterator begin, box_vector<1>::iterator end);
+template box_vector<2>::iterator merge_connected_boxes_along_dim<0, 2>(box_vector<2>::iterator begin, box_vector<2>::iterator end);
+template box_vector<2>::iterator merge_connected_boxes_along_dim<1, 2>(box_vector<2>::iterator begin, box_vector<2>::iterator end);
+template box_vector<3>::iterator merge_connected_boxes_along_dim<0, 3>(box_vector<3>::iterator begin, box_vector<3>::iterator end);
+template box_vector<3>::iterator merge_connected_boxes_along_dim<1, 3>(box_vector<3>::iterator begin, box_vector<3>::iterator end);
+template box_vector<3>::iterator merge_connected_boxes_along_dim<2, 3>(box_vector<3>::iterator begin, box_vector<3>::iterator end);
 
 // For higher-dimensional regions, the order in which dimensions are merged is relevant for the shape of the resulting box set. We merge along the last
 // ("fastest") dimension first to make sure the resulting boxes cover the largest possible extent of contiguous memory when are applied to buffers.
 template <int MergeDim, int EffectiveDims, typename BidirectionalIterator>
-BidirectionalIterator merge_connected_boxes_recurse(const BidirectionalIterator first, BidirectionalIterator last) {
+BidirectionalIterator merge_connected_boxes_recurse(const BidirectionalIterator begin, BidirectionalIterator end) {
 	static_assert(MergeDim >= 0 && MergeDim < EffectiveDims);
-	last = merge_connected_boxes_along_dim<MergeDim, EffectiveDims>(first, last);
-	if constexpr(MergeDim > 0) { last = merge_connected_boxes_recurse<MergeDim - 1, EffectiveDims>(first, last); }
-	return last;
+	end = merge_connected_boxes_along_dim<MergeDim, EffectiveDims>(begin, end);
+	if constexpr(MergeDim > 0) { end = merge_connected_boxes_recurse<MergeDim - 1, EffectiveDims>(begin, end); }
+	return end;
 }
 
 // Merge all adjacent boxes that are connected and identical in all except a single dimension.
 template <int EffectiveDims, typename BidirectionalIterator>
-BidirectionalIterator merge_connected_boxes(const BidirectionalIterator first, BidirectionalIterator last) {
+BidirectionalIterator merge_connected_boxes(const BidirectionalIterator begin, BidirectionalIterator end) {
 	using box_type = typename std::iterator_traits<BidirectionalIterator>::value_type;
 	static_assert(EffectiveDims <= box_type::dimensions);
-	if constexpr(EffectiveDims > 0) { last = merge_connected_boxes_recurse<EffectiveDims - 1, EffectiveDims>(first, last); }
-	return last;
+	if constexpr(EffectiveDims > 0) { end = merge_connected_boxes_recurse<EffectiveDims - 1, EffectiveDims>(begin, end); }
+	return end;
 }
 
 // Split a box into parts according to dissection lines in `cuts`, where `cuts` is indexed by component dimension. This function is not generic
@@ -185,30 +185,30 @@ template void dissect_box(const box<3>& in_box, const std::vector<std::vector<si
 
 // Apply dissect_box to all boxes in a range, with a shortcut if no cuts are to be done.
 template <typename InputIterator>
-void dissect_boxes(const InputIterator first, const InputIterator last, const std::vector<std::vector<size_t>>& cuts,
+void dissect_boxes(const InputIterator begin, const InputIterator end, const std::vector<std::vector<size_t>>& cuts,
     box_vector<std::iterator_traits<InputIterator>::value_type::dimensions>& out_dissected) {
 	if(!cuts.empty()) {
-		for(auto it = first; it != last; ++it) {
+		for(auto it = begin; it != end; ++it) {
 			dissect_box(*it, cuts, out_dissected, 0);
 		}
 	} else {
-		out_dissected.insert(out_dissected.end(), first, last);
+		out_dissected.insert(out_dissected.end(), begin, end);
 	}
 }
 
 // Collect the sorted, unique list of box start- and end points along a single dimension. These can then be used in dissect_boxes.
 template <typename InputIterator>
-std::vector<size_t> collect_dissection_lines(const InputIterator first, const InputIterator last, int dim) {
+std::vector<size_t> collect_dissection_lines(const InputIterator begin, const InputIterator end, int dim) {
 	std::vector<size_t> cuts;
 	// allocating 2*N integers might seem wasteful, but this has negligible runtime in the profiler and is already algorithmically optimal at O(N log N)
-	cuts.reserve(std::distance(first, last) * 2);
-	for(auto it = first; it != last; ++it) {
+	cuts.reserve(std::distance(begin, end) * 2);
+	for(auto it = begin; it != end; ++it) {
 		cuts.push_back(it->get_min()[dim]);
 		cuts.push_back(it->get_max()[dim]);
 	}
 	std::sort(cuts.begin(), cuts.end());
 	cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
-	assert(first == last || cuts.size() >= 2);
+	assert(begin == end || cuts.size() >= 2);
 	return cuts;
 }
 
@@ -308,18 +308,18 @@ region<StorageDims> region_intersection_impl(const region<StorageDims>& lhs, con
 	}
 
 	// No dissection step is necessary as the intersection of two normalized tilings is already "maximally mergeable".
-	const auto first = intersection.begin();
-	auto last = intersection.end();
-	last = grid_detail::merge_connected_boxes<EffectiveDims>(first, last);
+	const auto begin = intersection.begin();
+	auto end = intersection.end();
+	end = grid_detail::merge_connected_boxes<EffectiveDims>(begin, end);
 
 	// intersected_boxes retains the sorting from lhs, but for Dims > 1, the intersection can shift min-points such that the box_coordinate_order reverses.
 	if constexpr(EffectiveDims > 1) {
-		std::sort(first, last, box_coordinate_order());
+		std::sort(begin, end, box_coordinate_order());
 	} else {
-		assert(std::is_sorted(first, last, box_coordinate_order()));
+		assert(std::is_sorted(begin, end, box_coordinate_order()));
 	}
 
-	intersection.erase(last, intersection.end());
+	intersection.erase(end, intersection.end());
 	return grid_detail::make_region<StorageDims>(grid_detail::normalized, std::move(intersection));
 }
 
@@ -330,12 +330,12 @@ void apply_region_difference(box_vector<StorageDims>& dissected_left, const regi
 
 	// O(N * M) remove all dissected boxes from lhs that are fully covered by any box in rhs.
 	// For further optimization potential see the comments on region_intersection_impl.
-	const auto first_left = dissected_left.begin();
-	auto last_left = dissected_left.end();
+	const auto left_begin = dissected_left.begin();
+	auto left_end = dissected_left.end();
 	for(const auto& right : rhs.get_boxes()) {
-		for(auto left_it = first_left; left_it != last_left;) {
+		for(auto left_it = left_begin; left_it != left_end;) {
 			if(grid_detail::box_covers<EffectiveDims>(right, *left_it)) {
-				*left_it = *--last_left;
+				*left_it = *--left_end;
 			} else {
 				++left_it;
 			}
@@ -343,8 +343,8 @@ void apply_region_difference(box_vector<StorageDims>& dissected_left, const regi
 	}
 
 	// merge the now non-overlapping boxes
-	last_left = grid_detail::merge_connected_boxes<EffectiveDims>(first_left, last_left);
-	dissected_left.erase(last_left, dissected_left.end());
+	left_end = grid_detail::merge_connected_boxes<EffectiveDims>(left_begin, left_end);
+	dissected_left.erase(left_end, dissected_left.end());
 }
 
 } // namespace celerity::detail::grid_detail

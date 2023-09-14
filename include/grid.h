@@ -39,8 +39,8 @@ region<Dims> make_region(Params&&... args) {
 }
 
 template <typename InputIterator>
-int get_effective_dims(const InputIterator first, const InputIterator last) {
-	return std::accumulate(first, last, 0, [](const int min_dims, const auto& box) { return std::max(min_dims, box.get_effective_dims()); });
+int get_effective_dims(const InputIterator begin, const InputIterator end) {
+	return std::accumulate(begin, end, 0, [](const int min_dims, const auto& box) { return std::max(min_dims, box.get_effective_dims()); });
 }
 
 } // namespace celerity::detail::grid_detail
@@ -159,15 +159,15 @@ box<Dims> bounding_box(const box<Dims>& box1, const box<Dims>& box2) {
 }
 
 template <typename InputIterator>
-auto bounding_box(InputIterator first, const InputIterator last) {
+auto bounding_box(InputIterator begin, const InputIterator end) {
 	using box_type = typename std::iterator_traits<InputIterator>::value_type;
-	if(first == last) {
+	if(begin == end) {
 		assert(box_type::dimensions > 0); // box<0> can never be empty
 		return box_type();
 	}
 
-	const auto init = *first;
-	return std::accumulate(++first, last, init, bounding_box<box_type::dimensions>);
+	const auto init = *begin;
+	return std::accumulate(++begin, end, init, bounding_box<box_type::dimensions>);
 }
 
 template <typename Range>
@@ -265,7 +265,7 @@ void dissect_box(const box<StorageDims>& in_box, const std::vector<std::vector<s
 
 // forward-declaration for tests (explicitly instantiated)
 template <int MergeDim, int EffectiveDims, typename BidirectionalIterator>
-BidirectionalIterator merge_connected_boxes_along_dim(const BidirectionalIterator first, const BidirectionalIterator last);
+BidirectionalIterator merge_connected_boxes_along_dim(const BidirectionalIterator begin, const BidirectionalIterator end);
 
 // forward-declaration for tests (explicitly instantiated)
 template <int Dims>
