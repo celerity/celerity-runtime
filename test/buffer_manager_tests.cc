@@ -1078,13 +1078,6 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer_manager allows to set buffer debug names on  buffers", "[buffer_manager]") {
-		celerity::buffer<int, 1> buff_a(16);
-		std::string buff_name{"my_buffer"};
-		detail::runtime::get_instance().get_buffer_manager().set_debug_name(detail::get_buffer_id(buff_a), buff_name);
-		CHECK(detail::runtime::get_instance().get_buffer_manager().get_debug_name(detail::get_buffer_id(buff_a)) == buff_name);
-	}
-
 	TEST_CASE_METHOD(test_utils::device_queue_fixture, "device_queue allows to allocate device memory and query usage", "[device_queue]") {
 		auto& dq = get_device_queue();
 		const size_t ten_mib = 1024ul * 1024ul * 10ul;

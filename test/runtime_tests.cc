@@ -288,23 +288,6 @@ namespace detail {
 		REQUIRE(req == subrange_to_grid_box(subrange<3>({0, 0, 0}, {0, 0, 0})));
 	}
 
-	namespace foo {
-		class MySecondKernel;
-	}
-
-	template <typename T>
-	class MyThirdKernel;
-
-	TEST_CASE("device_compute tasks derive debug name from kernel name", "[task]") {
-		auto tm = detail::task_manager(1, nullptr, {});
-		const auto t1 = tm.get_task(tm.submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(range<1>{1}, [](id<1>) {}); }));
-		const auto t2 = tm.get_task(tm.submit_command_group([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(range<1>{1}, [](id<1>) {}); }));
-		const auto t3 = tm.get_task(tm.submit_command_group([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(range<1>{1}, [](id<1>) {}); }));
-		CHECK(utils::simplify_task_name(t1->get_debug_name()) == "MyFirstKernel");
-		CHECK(utils::simplify_task_name(t2->get_debug_name()) == "MySecondKernel");
-		CHECK(utils::simplify_task_name(t3->get_debug_name()) == "MyThirdKernel<...>");
-	}
-
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "basic SYNC command functionality", "[distr_queue][sync][control-flow]") {
 		constexpr int N = 10;
 
