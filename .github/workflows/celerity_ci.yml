@@ -258,7 +258,7 @@ jobs:
             echo "$unformatted"
             echo EOF
           } >> "$GITHUB_OUTPUT"
-      - uses: "celerity/ci-report-action@v6"
+      - uses: "celerity/ci-report-action@v7"
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           unformatted-files: ${{ steps.formatting.outputs.unformatted-files }}
