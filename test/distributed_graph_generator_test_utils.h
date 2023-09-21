@@ -471,7 +471,7 @@ class dist_cdag_test_context {
 	dist_cdag_test_context(size_t num_nodes) : m_num_nodes(num_nodes), m_tm(num_nodes, nullptr /* host_queue */, &m_task_recorder) {
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			m_cdags.emplace_back(std::make_unique<command_graph>());
-			m_cmd_recorders.emplace_back(std::make_unique<command_recorder>(&m_tm, nullptr));
+			m_cmd_recorders.emplace_back(std::make_unique<command_recorder>());
 			m_dggens.emplace_back(std::make_unique<distributed_graph_generator>(num_nodes, nid, *m_cdags[nid], m_tm, m_cmd_recorders[nid].get()));
 		}
 	}
@@ -491,6 +491,7 @@ class dist_cdag_test_context {
 		for(auto& dggen : m_dggens) {
 			dggen->add_buffer(bid, Dims, range_cast<3>(size));
 		}
+		m_buffer_recorder.create_buffer(bid);
 		return buf;
 	}
 
@@ -555,8 +556,10 @@ class dist_cdag_test_context {
 
 	distributed_graph_generator& get_graph_generator(node_id nid) { return *m_dggens.at(nid); }
 
-	[[nodiscard]] std::string print_task_graph() { return detail::print_task_graph(m_task_recorder); }
-	[[nodiscard]] std::string print_command_graph(node_id nid) { return detail::print_command_graph(nid, *m_cmd_recorders[nid]); }
+	[[nodiscard]] std::string print_task_graph() { return detail::print_task_graph(m_task_recorder, m_buffer_recorder); }
+	[[nodiscard]] std::string print_command_graph(node_id nid) {
+		return detail::print_command_graph(nid, *m_cmd_recorders[nid], m_task_recorder, m_buffer_recorder);
+	}
 
   private:
 	size_t m_num_nodes;
@@ -565,6 +568,7 @@ class dist_cdag_test_context {
 	reduction_id m_next_reduction_id = 1; // Start from 1 as rid 0 designates "no reduction" in push commands
 	std::optional<task_id> m_most_recently_built_horizon;
 	reduction_manager m_rm;
+	buffer_recorder m_buffer_recorder;
 	task_recorder m_task_recorder;
 	task_manager m_tm;
 	std::vector<std::unique_ptr<command_graph>> m_cdags;

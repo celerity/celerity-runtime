@@ -132,6 +132,12 @@ namespace detail {
 #endif
 		m_user_bench = std::make_unique<experimental::bench::detail::user_benchmarker>(*m_cfg, static_cast<node_id>(world_rank));
 
+		if(m_cfg->is_recording()) {
+			m_buffer_recorder = std::make_unique<buffer_recorder>();
+			m_task_recorder = std::make_unique<task_recorder>();
+			m_command_recorder = std::make_unique<command_recorder>();
+		}
+
 		cgf_diagnostics::make_available();
 
 		m_h_queue = std::make_unique<host_queue>();
@@ -142,19 +148,19 @@ namespace detail {
 			switch(event) {
 			case buffer_manager::buffer_lifecycle_event::registered: handle_buffer_registered(bid); break;
 			case buffer_manager::buffer_lifecycle_event::unregistered: handle_buffer_unregistered(bid); break;
+			case buffer_manager::buffer_lifecycle_event::set_debug_name: handle_set_buffer_debug_name(bid, m_buffer_mngr->get_debug_name(bid)); break;
 			default: assert(false && "Unexpected buffer lifecycle event");
 			}
 		});
 
+
 		m_reduction_mngr = std::make_unique<reduction_manager>();
 		m_host_object_mngr = std::make_unique<host_object_manager>();
-		if(m_cfg->is_recording()) m_task_recorder = std::make_unique<task_recorder>(m_buffer_mngr.get());
 		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_h_queue.get(), m_task_recorder.get());
 		if(m_cfg->get_horizon_step()) m_task_mngr->set_horizon_step(m_cfg->get_horizon_step().value());
 		if(m_cfg->get_horizon_max_parallelism()) m_task_mngr->set_horizon_max_parallelism(m_cfg->get_horizon_max_parallelism().value());
 		m_exec = std::make_unique<executor>(m_num_nodes, m_local_nid, *m_h_queue, *m_d_queue, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
 		m_cdag = std::make_unique<command_graph>();
-		if(m_cfg->is_recording()) m_command_recorder = std::make_unique<command_recorder>(m_task_mngr.get(), m_buffer_mngr.get());
 		auto dggen = std::make_unique<distributed_graph_generator>(m_num_nodes, m_local_nid, *m_cdag, *m_task_mngr, m_command_recorder.get());
 		m_schdlr = std::make_unique<scheduler>(is_dry_run(), std::move(dggen), *m_exec);
 		m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
@@ -210,7 +216,7 @@ namespace detail {
 		if(spdlog::should_log(log_level::trace) && m_cfg->is_recording()) {
 			if(m_local_nid == 0) { // It's the same across all nodes
 				assert(m_task_recorder.get() != nullptr);
-				const auto graph_str = detail::print_task_graph(*m_task_recorder);
+				const auto graph_str = detail::print_task_graph(*m_task_recorder, *m_buffer_recorder);
 				CELERITY_TRACE("Task graph:\n\n{}\n", graph_str);
 			}
 			// must be called on all nodes
@@ -244,7 +250,7 @@ namespace detail {
 
 	std::string runtime::gather_command_graph() const {
 		assert(m_command_recorder.get() != nullptr);
-		const auto graph_str = print_command_graph(m_local_nid, *m_command_recorder);
+		const auto graph_str = print_command_graph(m_local_nid, *m_command_recorder, *m_task_recorder, *m_buffer_recorder);
 
 		// Send local graph to rank 0 on all other nodes
 		if(m_local_nid != 0) {
@@ -271,13 +277,24 @@ namespace detail {
 		return combine_command_graphs(graphs);
 	}
 
-	void runtime::handle_buffer_registered(buffer_id bid) {
+	void runtime::handle_buffer_registered(const buffer_id bid) {
 		const auto& info = m_buffer_mngr->get_buffer_info(bid);
 		m_task_mngr->add_buffer(bid, info.dimensions, info.range, info.is_host_initialized);
 		m_schdlr->notify_buffer_registered(bid, info.dimensions, info.range);
+		if(m_cfg->is_recording()) {
+			assert(m_buffer_recorder != nullptr);
+			m_buffer_recorder->create_buffer(bid);
+		}
 	}
 
-	void runtime::handle_buffer_unregistered(buffer_id bid) { maybe_destroy_runtime(); }
+	void runtime::handle_set_buffer_debug_name(const buffer_id bid, const std::string& name) {
+		if(m_cfg->is_recording()) {
+			assert(m_buffer_recorder != nullptr);
+			m_buffer_recorder->set_buffer_debug_name(bid, name);
+		}
+	}
+
+	void runtime::handle_buffer_unregistered(const buffer_id bid) { maybe_destroy_runtime(); }
 
 	void runtime::maybe_destroy_runtime() const {
 		if(m_test_active) return;

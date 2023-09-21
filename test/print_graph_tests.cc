@@ -49,7 +49,7 @@ TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 	    "<i>read_write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read</i> B0 {[0,0,0] - [64,1,1]}>];1->3[];2->3[];4[shape=box style=rounded label=<T4 "
 	    "\"task_consume_5\" <br/><b>device-compute</b> [0,0,0] + [64,1,1]<br/><i>read</i> B1 {[0,0,0] - [1,1,1]}>];3->4[];}";
 
-	CHECK(print_task_graph(tt.trec) == expected);
+	CHECK(print_task_graph(tt.trec, tt.mbf.get_buffer_recorder()) == expected);
 }
 
 namespace {
@@ -114,7 +114,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer debug names show up in the
 	CHECK(celerity::debug::get_buffer_name(buff_a) == buff_name);
 
 	q.submit([&](handler& cgh) {
-		celerity::accessor acc_a{buff_a, cgh, acc::all{}, celerity::write_only};
+		celerity::accessor acc_a{buff_a, cgh, acc::one_to_one{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for<class UKN(print_graph_buffer_name)>(range, [=](item<1> item) { (void)acc_a; });
 	});
 
@@ -203,5 +203,5 @@ TEST_CASE("task-graph names are escaped", "[print_graph][task-graph][task-name]"
 	    tt.tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
 
 	const auto* escaped_name = "\"name_class&lt;...&gt;\"";
-	REQUIRE_THAT(print_task_graph(tt.trec), Catch::Matchers::ContainsSubstring(escaped_name));
+	REQUIRE_THAT(print_task_graph(tt.trec, tt.mbf.get_buffer_recorder()), Catch::Matchers::ContainsSubstring(escaped_name));
 }

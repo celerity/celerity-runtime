@@ -24,6 +24,7 @@
 #include "graph_serializer.h"
 #include "print_graph.h"
 #include "range_mapper.h"
+#include "recorders.h"
 #include "region_map.h"
 #include "runtime.h"
 #include "scheduler.h"
@@ -58,8 +59,10 @@ namespace detail {
 		static executor& get_exec(runtime& rt) { return *rt.m_exec; }
 		static size_t get_command_count(runtime& rt) { return rt.m_cdag->command_count(); }
 		static command_graph& get_cdag(runtime& rt) { return *rt.m_cdag; }
-		static std::string print_task_graph(runtime& rt) { return detail::print_task_graph(*rt.m_task_recorder); }
-		static std::string print_command_graph(const node_id local_nid, runtime& rt) { return detail::print_command_graph(local_nid, *rt.m_command_recorder); }
+		static std::string print_task_graph(runtime& rt) { return detail::print_task_graph(*rt.m_task_recorder, *rt.m_buffer_recorder); }
+		static std::string print_command_graph(const node_id local_nid, runtime& rt) {
+			return detail::print_command_graph(local_nid, *rt.m_command_recorder, *rt.m_task_recorder, *rt.m_buffer_recorder);
+		}
 	};
 
 	struct task_ring_buffer_testspy {
@@ -212,14 +215,18 @@ namespace test_utils {
 			if(m_task_mngr != nullptr) { m_task_mngr->add_buffer(bid, Dims, detail::range_cast<3>(size), mark_as_host_initialized); }
 			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_registered(bid, Dims, detail::range_cast<3>(size)); }
 			if(m_dggen != nullptr) { m_dggen->add_buffer(bid, Dims, detail::range_cast<3>(size)); }
+			m_brec.create_buffer(bid);
 			return buf;
 		}
+
+		const detail::buffer_recorder& get_buffer_recorder() const { return m_brec; }
 
 	  private:
 		detail::task_manager* m_task_mngr = nullptr;
 		detail::abstract_scheduler* m_schdlr = nullptr;
 		detail::distributed_graph_generator* m_dggen = nullptr;
 		detail::buffer_id m_next_buffer_id = 0;
+		detail::buffer_recorder m_brec;
 	};
 
 	class mock_host_object_factory {
@@ -342,12 +349,13 @@ namespace test_utils {
 	// Printing of graphs can be enabled using the "--print-graphs" command line flag
 	inline bool print_graphs = false;
 
-	inline void maybe_print_task_graph(const detail::task_recorder& trec) {
-		if(print_graphs) { CELERITY_INFO("Task graph:\n\n{}\n", detail::print_task_graph(trec)); }
+	inline void maybe_print_task_graph(const detail::task_recorder& trec, const detail::buffer_recorder& brec) {
+		if(print_graphs) { CELERITY_INFO("Task graph:\n\n{}\n", detail::print_task_graph(trec, brec)); }
 	}
 
-	inline void maybe_print_command_graph(const detail::node_id local_nid, const detail::command_recorder& crec) {
-		if(print_graphs) { CELERITY_INFO("Command graph:\n\n{}\n", detail::print_command_graph(local_nid, crec)); }
+	inline void maybe_print_command_graph(
+	    const detail::node_id local_nid, const detail::command_recorder& crec, const detail::task_recorder& trec, const detail::buffer_recorder& brec) {
+		if(print_graphs) { CELERITY_INFO("Command graph:\n\n{}\n", detail::print_command_graph(local_nid, crec, trec, brec)); }
 	}
 
 	struct task_test_context {
@@ -358,7 +366,7 @@ namespace test_utils {
 		mock_reduction_factory mrf;
 
 		task_test_context() : tm(1, nullptr, &trec), mbf(tm) {}
-		~task_test_context() { maybe_print_task_graph(trec); }
+		~task_test_context() { maybe_print_task_graph(trec, mbf.get_buffer_recorder()); }
 	};
 
 	// explicitly invoke a copy constructor without repeating the type

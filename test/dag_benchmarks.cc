@@ -163,7 +163,7 @@ struct graph_generator_benchmark_context {
 	test_utils::mock_buffer_factory mbf;
 
 	explicit graph_generator_benchmark_context(size_t num_nodes)
-	    : num_nodes{num_nodes}, crec(&tm), dggen{num_nodes, 0 /* local_nid */, cdag, tm, test_utils::print_graphs ? &crec : nullptr}, mbf{tm, dggen} {
+	    : num_nodes{num_nodes}, dggen{num_nodes, 0 /* local_nid */, cdag, tm, test_utils::print_graphs ? &crec : nullptr}, mbf{tm, dggen} {
 		tm.register_task_callback([this](const task* tsk) {
 			const auto cmds = dggen.build_task(*tsk);
 			gser.flush(cmds);
@@ -469,9 +469,11 @@ void debug_graphs(BenchmarkContextFactory&& make_ctx, BenchmarkContextConsumer&&
 }
 
 TEST_CASE("printing benchmark task graphs", "[.][debug-graphs][task-graph]") {
-	debug_graphs([] { return task_manager_benchmark_context{}; }, [](auto&& ctx) { test_utils::maybe_print_task_graph(ctx.trec); });
+	debug_graphs(
+	    [] { return task_manager_benchmark_context{}; }, [](auto&& ctx) { test_utils::maybe_print_task_graph(ctx.trec, ctx.mbf.get_buffer_recorder()); });
 }
 
 TEST_CASE("printing benchmark command graphs", "[.][debug-graphs][command-graph]") {
-	debug_graphs([] { return graph_generator_benchmark_context{2}; }, [](auto&& ctx) { test_utils::maybe_print_command_graph(0, ctx.crec); });
+	debug_graphs([] { return graph_generator_benchmark_context{2}; },
+	    [](auto&& ctx) { test_utils::maybe_print_command_graph(0, ctx.crec, ctx.trec, ctx.mbf.get_buffer_recorder()); });
 }

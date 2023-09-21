@@ -21,7 +21,7 @@ distributed_graph_generator::distributed_graph_generator(
 	// set_epoch_for_new_commands).
 	auto* const epoch_cmd = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none);
 	epoch_cmd->mark_as_flushed(); // there is no point in flushing the initial epoch command
-	if(m_recorder != nullptr) m_recorder->record_command(*epoch_cmd);
+	if(m_recorder != nullptr) m_recorder->record_command(*epoch_cmd, nullptr);
 	m_epoch_for_new_commands = epoch_cmd->get_cid();
 }
 
@@ -138,7 +138,7 @@ std::unordered_set<abstract_command*> distributed_graph_generator::build_task(co
 	// If we have a command_recorder, record the current batch of commands
 	if(m_recorder != nullptr) {
 		for(const auto& cmd : m_current_cmd_batch) {
-			m_recorder->record_command(*cmd);
+			m_recorder->record_command(*cmd, utils::isa<task_command>(cmd) ? &tsk : nullptr);
 		}
 	}
 

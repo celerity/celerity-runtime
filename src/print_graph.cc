@@ -6,6 +6,7 @@
 #include "command.h"
 #include "command_graph.h"
 #include "grid.h"
+#include "recorders.h"
 #include "task_manager.h"
 
 namespace celerity::detail {
@@ -41,16 +42,16 @@ std::string get_buffer_label(const buffer_id bid, const std::string& name = "") 
 }
 
 void format_requirements(std::string& label, const reduction_list& reductions, const access_list& accesses, const side_effect_map& side_effects,
-    const access_mode reduction_init_mode) {
-	for(const auto& [rid, bid, buffer_name, init_from_buffer] : reductions) {
+    const access_mode reduction_init_mode, const buffer_recorder& brec) {
+	for(const auto& [rid, bid, init_from_buffer] : reductions) {
 		auto rmode = init_from_buffer ? reduction_init_mode : cl::sycl::access::mode::discard_write;
-		const region scalar_region(box<3>({0, 0, 0}, {1, 1, 1}));
-		const std::string bl = get_buffer_label(bid, buffer_name);
-		fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> {} {}", rid, detail::access::mode_traits::name(rmode), bl, scalar_region);
+		const auto req = region(box<3>{{0, 0, 0}, {1, 1, 1}});
+		const std::string bl = get_buffer_label(bid, brec.get_buffer(bid).debug_name);
+		fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> {} {}", rid, detail::access::mode_traits::name(rmode), bl, req);
 	}
 
-	for(const auto& [bid, buffer_name, mode, req] : accesses) {
-		const std::string bl = get_buffer_label(bid, buffer_name);
+	for(const auto& [bid, mode, req] : accesses) {
+		const std::string bl = get_buffer_label(bid, brec.get_buffer(bid).debug_name);
 		// While uncommon, we do support chunks that don't require access to a particular buffer at all.
 		if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> {} {}", detail::access::mode_traits::name(mode), bl, req); }
 	}
@@ -60,7 +61,7 @@ void format_requirements(std::string& label, const reduction_list& reductions, c
 	}
 }
 
-std::string get_task_label(const task_record& tsk) {
+std::string get_task_label(const task_record& tsk, const buffer_recorder& brec) {
 	std::string label;
 	fmt::format_to(std::back_inserter(label), "T{}", tsk.tid);
 	if(!tsk.debug_name.empty()) { fmt::format_to(std::back_inserter(label), " \"{}\" ", utils::escape_for_dot_label(tsk.debug_name)); }
@@ -72,19 +73,19 @@ std::string get_task_label(const task_record& tsk) {
 		fmt::format_to(std::back_inserter(label), " in CG{}", tsk.cgid);
 	}
 
-	format_requirements(label, tsk.reductions, tsk.accesses, tsk.side_effect_map, access_mode::read_write);
+	format_requirements(label, tsk.reductions, tsk.accesses, tsk.side_effect_map, access_mode::read_write, brec);
 
 	return label;
 }
 
-std::string print_task_graph(const task_recorder& recorder) {
+std::string print_task_graph(const task_recorder& trec, const buffer_recorder& brec) {
 	std::string dot = "digraph G {label=\"Task Graph\" ";
 
-	CELERITY_DEBUG("print_task_graph, {} entries", recorder.get_tasks().size());
+	CELERITY_DEBUG("print_task_graph, {} entries", trec.get_tasks().size());
 
-	for(const auto& tsk : recorder.get_tasks()) {
+	for(const auto& tsk : trec.get_tasks()) {
 		const char* shape = tsk.type == task_type::epoch || tsk.type == task_type::horizon ? "ellipse" : "box style=rounded";
-		fmt::format_to(std::back_inserter(dot), "{}[shape={} label=<{}>];", tsk.tid, shape, get_task_label(tsk));
+		fmt::format_to(std::back_inserter(dot), "{}[shape={} label=<{}>];", tsk.tid, shape, get_task_label(tsk, brec));
 		for(auto d : tsk.dependencies) {
 			fmt::format_to(std::back_inserter(dot), "{}->{}[{}];", d.node, tsk.tid, dependency_style(d));
 		}
@@ -94,7 +95,7 @@ std::string print_task_graph(const task_recorder& recorder) {
 	return dot;
 }
 
-std::string get_command_label(const node_id local_nid, const command_record& cmd) {
+std::string get_command_label(const node_id local_nid, const command_record& cmd, const task_recorder& trec, const buffer_recorder& brec) {
 	const command_id cid = cmd.cid;
 
 	std::string label = fmt::format("C{} on N{}<br/>", cid, local_nid);
@@ -102,7 +103,7 @@ std::string get_command_label(const node_id local_nid, const command_record& cmd
 	auto add_reduction_id_if_reduction = [&]() {
 		if(cmd.reduction_id.has_value() && cmd.reduction_id != 0) { fmt::format_to(std::back_inserter(label), "(R{}) ", cmd.reduction_id.value()); }
 	};
-	const std::string buffer_label = cmd.buffer_id.has_value() ? get_buffer_label(cmd.buffer_id.value(), cmd.buffer_name) : "";
+	const std::string buffer_label = cmd.buffer_id.has_value() ? get_buffer_label(*cmd.buffer_id, brec.get_buffer(*cmd.buffer_id).debug_name) : "";
 
 	switch(cmd.type) {
 	case command_type::epoch: {
@@ -136,11 +137,10 @@ std::string get_command_label(const node_id local_nid, const command_record& cmd
 	default: assert(!"Unkown command"); label += "<b>unknown</b>";
 	}
 
-	if(cmd.task_id.has_value() && cmd.task_geometry.has_value()) {
+	if(cmd.task_id.has_value()) {
+		const auto& tsk = trec.get_task(*cmd.task_id);
 		auto reduction_init_mode = cmd.is_reduction_initializer ? cl::sycl::access::mode::read_write : access_mode::discard_write;
-
-		format_requirements(label, cmd.reductions.value_or(reduction_list{}), cmd.accesses.value_or(access_list{}),
-		    cmd.side_effects.value_or(side_effect_map{}), reduction_init_mode);
+		format_requirements(label, tsk.reductions, cmd.accesses.value_or(access_list()), tsk.side_effect_map, reduction_init_mode, brec);
 	}
 
 	return label;
@@ -148,7 +148,7 @@ std::string get_command_label(const node_id local_nid, const command_record& cmd
 
 const std::string command_graph_preamble = "digraph G{label=\"Command Graph\" ";
 
-std::string print_command_graph(const node_id local_nid, const command_recorder& recorder) {
+std::string print_command_graph(const node_id local_nid, const command_recorder& crec, const task_recorder& trec, const buffer_recorder& brec) {
 	std::string main_dot;
 	std::map<task_id, std::string> task_subgraph_dot; // this map must be ordered!
 
@@ -161,7 +161,7 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 		static const char* const colors[] = {"black", "crimson", "dodgerblue4", "goldenrod", "maroon4", "springgreen2", "tan1", "chartreuse2"};
 
 		const auto id = local_to_global_id(cmd.cid);
-		const auto label = get_command_label(local_nid, cmd);
+		const auto label = get_command_label(local_nid, cmd, trec, brec);
 		const auto* const fontcolor = colors[local_nid % (sizeof(colors) / sizeof(char*))];
 		const auto* const shape = cmd.task_id.has_value() ? "box" : "ellipse";
 		return fmt::format("{}[label=<{}> fontcolor={} shape={}];", id, label, fontcolor, shape);
@@ -169,22 +169,24 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 
 	// we want to iterate over our command records in a sorted order, without moving everything around, and we aren't in C++20 (yet)
 	std::vector<const command_record*> sorted_cmd_pointers;
-	for(const auto& cmd : recorder.get_commands()) {
+	for(const auto& cmd : crec.get_commands()) {
 		sorted_cmd_pointers.push_back(&cmd);
 	}
 	std::sort(sorted_cmd_pointers.begin(), sorted_cmd_pointers.end(), [](const auto* a, const auto* b) { return a->cid < b->cid; });
 
 	for(const auto& cmd : sorted_cmd_pointers) {
 		if(cmd->task_id.has_value()) {
-			const auto tid = cmd->task_id.value();
+			const auto tid = *cmd->task_id;
+			const auto& tsk = trec.get_task(tid);
+
 			// Add to subgraph as well
 			if(task_subgraph_dot.count(tid) == 0) {
 				std::string task_label;
 				fmt::format_to(std::back_inserter(task_label), "T{} ", tid);
-				if(!cmd->task_name.empty()) { fmt::format_to(std::back_inserter(task_label), "\"{}\" ", utils::escape_for_dot_label(cmd->task_name)); }
+				if(!tsk.debug_name.empty()) { fmt::format_to(std::back_inserter(task_label), "\"{}\" ", tsk.debug_name); }
 				task_label += "(";
-				task_label += task_type_string(cmd->task_type.value());
-				if(cmd->task_type == task_type::collective) { fmt::format_to(std::back_inserter(task_label), " on CG{}", cmd->collective_group_id.value()); }
+				task_label += task_type_string(tsk.type);
+				if(tsk.type == task_type::collective) { fmt::format_to(std::back_inserter(task_label), " on CG{}", tsk.cgid); }
 				task_label += ")";
 
 				task_subgraph_dot.emplace(

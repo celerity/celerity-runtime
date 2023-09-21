@@ -111,6 +111,7 @@ namespace detail {
 		std::unique_ptr<task_manager> m_task_mngr;
 		std::unique_ptr<executor> m_exec;
 
+		std::unique_ptr<detail::buffer_recorder> m_buffer_recorder;
 		std::unique_ptr<detail::task_recorder> m_task_recorder;
 		std::unique_ptr<detail::command_recorder> m_command_recorder;
 
@@ -119,6 +120,7 @@ namespace detail {
 		runtime(runtime&&) = delete;
 
 		void handle_buffer_registered(buffer_id bid);
+		void handle_set_buffer_debug_name(buffer_id bid, const std::string& name);
 		void handle_buffer_unregistered(buffer_id bid);
 
 		/**

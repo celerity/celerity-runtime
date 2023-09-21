@@ -84,7 +84,7 @@ namespace detail {
 		friend struct buffer_manager_testspy;
 
 	  public:
-		enum class buffer_lifecycle_event { registered, unregistered };
+		enum class buffer_lifecycle_event { registered, unregistered, set_debug_name };
 
 		using buffer_lifecycle_callback = std::function<void(buffer_lifecycle_event, buffer_id)>;
 
@@ -274,8 +274,11 @@ namespace detail {
 		bool is_locked(buffer_id bid) const;
 
 		void set_debug_name(const buffer_id bid, const std::string& debug_name) {
-			std::lock_guard lock(m_mutex);
-			m_buffer_infos.at(bid).debug_name = debug_name;
+			{
+				std::lock_guard lock(m_mutex);
+				m_buffer_infos.at(bid).debug_name = debug_name;
+			}
+			m_lifecycle_cb(buffer_lifecycle_event::set_debug_name, bid);
 		}
 
 		std::string get_debug_name(const buffer_id bid) const {
