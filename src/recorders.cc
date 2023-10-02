@@ -48,8 +48,19 @@ task_record::task_record(const task& from, const buffer_manager* buff_mngr)
       reductions(build_reduction_list(from, buff_mngr)), accesses(build_access_list(from, buff_mngr)), side_effect_map(from.get_side_effect_map()),
       dependencies(build_task_dependency_list(from)) {}
 
-void task_recorder::record_task(const task& tsk) { //
+void task_recorder::record_task(const task& tsk) {
 	m_recorded_tasks.emplace_back(tsk, m_buff_mngr);
+	invoke_callbacks(m_recorded_tasks.back());
+}
+
+void task_recorder::add_callback(task_callback callback) { //
+	m_callbacks.push_back(std::move(callback));
+}
+
+void task_recorder::invoke_callbacks(const task_record& tsk) const {
+	for(const auto& cb : m_callbacks) {
+		cb(tsk);
+	}
 }
 
 // Commands

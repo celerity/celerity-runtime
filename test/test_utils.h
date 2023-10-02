@@ -21,6 +21,7 @@
 #include "command_graph.h"
 #include "device_queue.h"
 #include "distributed_graph_generator.h"
+#include "divergence_block_chain.h"
 #include "graph_serializer.h"
 #include "print_graph.h"
 #include "range_mapper.h"
@@ -60,6 +61,7 @@ namespace detail {
 		static command_graph& get_cdag(runtime& rt) { return *rt.m_cdag; }
 		static std::string print_task_graph(runtime& rt) { return detail::print_task_graph(*rt.m_task_recorder); }
 		static std::string print_command_graph(const node_id local_nid, runtime& rt) { return detail::print_command_graph(local_nid, *rt.m_command_recorder); }
+		static divergence_checker_detail::divergence_block_chain& get_divergence_block_chain(runtime& rt) { return rt.m_divergence_check->m_block_chain; }
 	};
 
 	struct task_ring_buffer_testspy {

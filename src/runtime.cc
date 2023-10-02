@@ -26,6 +26,7 @@
 #include "executor.h"
 #include "host_object.h"
 #include "log.h"
+#include "mpi_communicator.h"
 #include "mpi_support.h"
 #include "named_threads.h"
 #include "print_graph.h"
@@ -176,6 +177,13 @@ namespace detail {
 		m_schdlr = std::make_unique<scheduler>(is_dry_run(), std::move(dggen), *m_exec);
 		m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
 
+		if(m_cfg->is_recording()) {
+			MPI_Comm comm = nullptr;
+			MPI_Comm_dup(MPI_COMM_WORLD, &comm);
+			m_divergence_check =
+			    std::make_unique<divergence_checker_detail::divergence_checker>(*m_task_recorder, std::make_unique<mpi_communicator>(comm), m_test_mode);
+		}
+
 		CELERITY_INFO("Celerity runtime version {} running on {}. PID = {}, build type = {}, {}", get_version_string(), get_sycl_version(), get_pid(),
 		    get_build_type(), get_mimalloc_string());
 		m_d_queue->init(*m_cfg, user_device_or_selector);
@@ -224,17 +232,27 @@ namespace detail {
 		m_d_queue->wait();
 		m_h_queue->wait();
 
-		if(spdlog::should_log(log_level::trace) && m_cfg->is_recording()) {
-			if(m_local_nid == 0) { // It's the same across all nodes
-				assert(m_task_recorder.get() != nullptr);
-				const auto graph_str = detail::print_task_graph(*m_task_recorder);
-				CELERITY_TRACE("Task graph:\n\n{}\n", graph_str);
+		if(m_cfg->is_recording()) {
+			if(spdlog::should_log(log_level::trace)) {
+				if(m_local_nid == 0) { // It's the same across all nodes
+					assert(m_task_recorder.get() != nullptr);
+					const auto graph_str = detail::print_task_graph(*m_task_recorder);
+					CELERITY_TRACE("Task graph:\n\n{}\n", graph_str);
+				}
+				// must be called on all nodes
+				auto cmd_graph = gather_command_graph();
+				if(m_local_nid == 0) {
+					std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Avoid racing on stdout with other nodes (funneled through mpirun)
+					CELERITY_TRACE("Command graph:\n\n{}\n", cmd_graph);
+				}
 			}
-			// must be called on all nodes
-			auto cmd_graph = gather_command_graph();
-			if(m_local_nid == 0) {
-				std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Avoid racing on stdout with other nodes (funneled through mpirun)
-				CELERITY_TRACE("Command graph:\n\n{}\n", cmd_graph);
+
+			if(m_divergence_check != nullptr) {
+				// Sychronize all nodes before reseting shuch that we don't get into a deadlock
+				MPI_Barrier(MPI_COMM_WORLD);
+				m_divergence_check.reset();
+			} else {
+				CELERITY_WARN("Divergence block chain not initialized");
 			}
 		}
 

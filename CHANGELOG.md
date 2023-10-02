@@ -13,6 +13,7 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 - Introduce new experimental `for_each_item` utility to iterate over a celerity range (#199)
 - Add new environment variables `CELERITY_HORIZON_STEP` and `CELERITY_HORIZON_MAX_PARALLELISM` to control Horizon generation (#199)
 - Add new `experimental::constrain_split` API to limit how a kernel can be split (#?)
+- Add divergence check blockchain for automatic detection of diverging tasks in debug mode (#217)
 - `distr_queue::fence` and `buffer_snapshot` are now stable, subsuming the `experimental::` APIs of the same name (#225)
 - Celerity now warns at runtime when a task declares reads from uninitialized buffers or writes with overlapping ranges between nodes (#224)
 - Introduce new `experimental::hint` API for providing the runtime with additional information on how to execute a task (#227)

@@ -7,6 +7,7 @@
 #include "command.h"
 #include "config.h"
 #include "device_queue.h"
+#include "divergence_block_chain.h"
 #include "frame.h"
 #include "host_queue.h"
 #include "recorders.h"
@@ -100,6 +101,8 @@ namespace detail {
 		std::unique_ptr<device_queue> m_d_queue;
 		size_t m_num_nodes;
 		node_id m_local_nid;
+
+		std::unique_ptr<divergence_checker_detail::divergence_checker> m_divergence_check;
 
 		// These management classes are only constructed on the master node.
 		std::unique_ptr<command_graph> m_cdag;

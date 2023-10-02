@@ -48,6 +48,7 @@ set(TEST_TARGETS
   test_utils_tests
   utils_tests
   device_selection_tests
+  divergence_check_tests
 )
 
 add_library(test_main test_main.cc grid_test_utils.cc)

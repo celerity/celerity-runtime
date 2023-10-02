@@ -186,6 +186,7 @@ set(SOURCES
   src/command_graph.cc
   src/config.cc
   src/device_queue.cc
+  src/divergence_block_chain.cc
   src/executor.cc
   src/distributed_graph_generator.cc
   src/graph_serializer.cc
