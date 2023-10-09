@@ -376,7 +376,7 @@ class handler {
 	friend void detail::add_reduction(handler& cgh, const detail::reduction_info& rinfo);
 	friend void detail::extend_lifetime(handler& cgh, std::shared_ptr<detail::lifetime_extending_state> state);
 
-	friend void detail::set_task_name(handler &cgh, const std::string& debug_name);
+	friend void detail::set_task_name(handler& cgh, const std::string& debug_name);
 
 	detail::task_id m_tid;
 	detail::buffer_access_map m_access_map;
@@ -462,11 +462,9 @@ class handler {
 		}
 		// Note that cgf_diagnostics has a similar check, but we don't catch void side effects there.
 		if(!m_side_effects.empty()) { throw std::runtime_error{"Side effects cannot be used in device kernels"}; }
-		m_task =
-		    detail::task::make_device_compute(m_tid, geometry, std::move(launcher), std::move(m_access_map), std::move(m_reductions));
+		m_task = detail::task::make_device_compute(m_tid, geometry, std::move(launcher), std::move(m_access_map), std::move(m_reductions));
 
 		m_task->set_debug_name(m_usr_def_task_name.value_or(debug_name));
-		
 	}
 
 	void create_collective_task(detail::collective_group_id cgid, std::unique_ptr<detail::command_launcher_storage_base> launcher) {
@@ -588,9 +586,7 @@ namespace detail {
 
 	inline void extend_lifetime(handler& cgh, std::shared_ptr<detail::lifetime_extending_state> state) { cgh.extend_lifetime(std::move(state)); }
 
-	inline void set_task_name(handler& cgh, const std::string& debug_name) {
-		cgh.m_usr_def_task_name = {debug_name};
-	}
+	inline void set_task_name(handler& cgh, const std::string& debug_name) { cgh.m_usr_def_task_name = {debug_name}; }
 
 	// TODO: The _impl functions in detail only exist during the grace period for deprecated reductions on const buffers; move outside again afterwards.
 	template <typename DataT, int Dims, typename BinaryOperation>
