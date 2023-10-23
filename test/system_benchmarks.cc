@@ -55,11 +55,81 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor r{buffer, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		celerity::accessor succ{success_buffer, cgh, celerity::access::all{}, celerity::write_only_host_task};
-		cgh.host_task(celerity::on_master_node_tag{}, [=]() {
+		cgh.host_task(celerity::on_master_node, [=]() {
 			celerity::experimental::for_each_item(buffer.get_range(), [=](celerity::item<2> item) {
 				size_t expected = item.get_linear_id() + (num_repeats * bench_repeats);
 				if(r[item] != expected) {
 					fmt::print("Mismatch at {}: {} != {}\n", item.get_linear_id(), r[item], expected);
+					succ = false;
+				}
+			});
+		});
+	});
+	CHECK(*experimental::fence(queue, success_buffer).get() == true);
+}
+
+TEMPLATE_TEST_CASE_METHOD_SIG(
+    bench_runtime_fixture, "benchmark stencil pattern with N time steps", "[benchmark][system-benchmarks][stencil]", ((int N), N), 50, 1000) {
+	constexpr size_t num_iterations = N;
+	constexpr int side_length = 128; // sufficiently small to notice large-scale changes in runtime overhead
+
+#ifndef NDEBUG
+	if(N > 50) { SKIP("Skipping larger-scale benchmark in debug build to save CI time"); }
+#endif
+
+	celerity::distr_queue queue;
+
+	const auto size = celerity::range<2>(side_length, side_length);
+	celerity::buffer<float, 2> buffer_a(size);
+	celerity::buffer<float, 2> buffer_b(size);
+
+	// initialize buffer_a
+	queue.submit([&](celerity::handler& cgh) {
+		celerity::accessor w{buffer_a, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+		cgh.parallel_for(size, [=](celerity::item<2> item) {
+			// checkerboard
+			w[item] = ((item.get_id(0) % 2) ^ (item.get_id(1) % 2)) == 0 ? 1.f : 0.f;
+		});
+	});
+	queue.slow_full_sync();
+
+	BENCHMARK("iterations") {
+		for(size_t r = 0; r < num_iterations; ++r) {
+			queue.submit([&](celerity::handler& cgh) {
+				celerity::accessor read{buffer_a, cgh, celerity::access::neighborhood(1, 1), celerity::read_only};
+				celerity::accessor write{buffer_b, cgh, celerity::access::one_to_one(), celerity::write_only, celerity::no_init};
+				cgh.parallel_for(size, [=](celerity::item<2> item) {
+					float sum = 0.f;
+					float included_items = 0.f;
+					for(int i = -1; i <= 1; ++i) {
+						const int x = static_cast<int>(item.get_id(0)) + i;
+						if(x < 0 || x >= side_length) continue;
+						for(int j = -1; j <= 1; ++j) {
+							const int y = static_cast<int>(item.get_id(1)) + j;
+							if(y < 0 || y >= side_length) continue;
+							sum += read[{static_cast<size_t>(x), static_cast<size_t>(y)}];
+							included_items += 1.f;
+						}
+					}
+					write[item] = 0.5f * read[item] + 0.5f * sum / included_items;
+				});
+			});
+			std::swap(buffer_a, buffer_b);
+		}
+		queue.slow_full_sync();
+	};
+
+	// check result
+	celerity::buffer<bool, 0> success_buffer = true;
+	queue.submit([&](celerity::handler& cgh) {
+		celerity::accessor r{buffer_a, cgh, celerity::access::all{}, celerity::read_only_host_task};
+		celerity::accessor succ{success_buffer, cgh, celerity::access::all{}, celerity::write_only_host_task};
+		cgh.host_task(celerity::on_master_node, [=]() {
+			celerity::experimental::for_each_item(buffer_a.get_range(), [=](celerity::item<2> item) {
+				constexpr float expected = 0.5f;
+				constexpr float epsilon = 0.01f;
+				if(std::fabs(r[item] - expected) > epsilon) {
+					fmt::print("Mismatch at {}/{}: {} !~= {} +/- {}\n", item.get_id(0), item.get_id(1), r[item], expected, epsilon);
 					succ = false;
 				}
 			});
