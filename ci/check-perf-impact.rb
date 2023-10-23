@@ -5,9 +5,9 @@ require 'digest'
 
 # information regarding the benchmark file
 BENCH_FN = 'ci/perf/gpuc2_bench.csv'
-NAME_COL_1 = 0     # first name column
-NAME_COL_2 = 1     # second name column
-RAW_DATA_COL = 11  # raw data column (array of runs)
+NAME_COL_1 = "test case"       # first name column
+NAME_COL_2 = "benchmark name"  # second name column
+RAW_DATA_COL = "raw"           # raw data column (array of runs)
 
 # customizing chart generation
 MAX_CHARTS_PER_IMAGE = 10   # maximum number of comparisons in a single image
@@ -67,9 +67,9 @@ def get_data_for_version(version = nil)
     throw "failed git checkout (cmd: #{cmd})!" unless $?.success?
   end
   # read the data
-  data = CSV.read(BENCH_FN)
+  data = CSV.read(BENCH_FN, headers: true)
   bench_data_map = {}
-  data[1..].each do |row|
+  data.each do |row|
     raw_data = row[RAW_DATA_COL].delete_prefix('"').delete_suffix('"').split(",").map(&:to_f)
     bench_data_map[row[NAME_COL_1]+" / "+row[NAME_COL_2]] = raw_data
   end
@@ -78,7 +78,7 @@ def get_data_for_version(version = nil)
     `git restore --staged #{BENCH_FN}`
     `git restore #{BENCH_FN}`
   end
-  # return the geometric mean, benchmark data map, and full data set
+  # return the benchmark data map, and full data set
   return bench_data_map, data
 end
 
