@@ -17,7 +17,7 @@ using namespace std::chrono_literals;
 struct bench_graph_node : intrusive_graph_node<bench_graph_node> {};
 
 // try to cover the dependency counts we'll see in practice
-TEMPLATE_TEST_CASE_SIG("benchmark intrusive graph dependency handling with N nodes", "[benchmark][intrusive_graph_node]", ((int N), N), 1, 10, 100) {
+TEMPLATE_TEST_CASE_SIG("benchmark intrusive graph dependency handling with N nodes", "[benchmark][group:graph-nodes]", ((int N), N), 1, 10, 100) {
 	// note that bench_graph_nodes are created/destroyed *within* the BENCHMARK
 	// in the first two cases while the latter 2 cases only operate on already
 	// existing nodes -- this is intentional; both cases are relevant in practise
@@ -60,7 +60,7 @@ TEMPLATE_TEST_CASE_SIG("benchmark intrusive graph dependency handling with N nod
 	};
 }
 
-TEST_CASE("benchmark task handling", "[benchmark][task]") {
+TEST_CASE("benchmark task handling", "[benchmark][group:task-graph]") {
 	using namespace std::chrono_literals;
 	std::unique_ptr<task_manager> tm;
 
@@ -433,15 +433,16 @@ void run_benchmarks(BenchmarkContextFactory&& make_ctx) {
 	BENCHMARK("jacobi topology") { generate_jacobi_graph(make_ctx(), 50); };
 }
 
-TEST_CASE("generating large task graphs", "[benchmark][task-graph]") {
+TEST_CASE("generating large task graphs", "[benchmark][group:task-graph]") {
 	run_benchmarks([] { return task_manager_benchmark_context{}; });
 }
 
-TEMPLATE_TEST_CASE_SIG("generating large command graphs for N nodes", "[benchmark][command-graph]", ((size_t NumNodes), NumNodes), 1, 4, 16) {
+TEMPLATE_TEST_CASE_SIG("generating large command graphs for N nodes", "[benchmark][group:command-graph]", ((size_t NumNodes), NumNodes), 1, 4, 16) {
 	run_benchmarks([] { return graph_generator_benchmark_context{NumNodes}; });
 }
 
-TEMPLATE_TEST_CASE_SIG("building command graphs in a dedicated scheduler thread for N nodes", "[benchmark][scheduler]", ((size_t NumNodes), NumNodes), 1, 4) {
+TEMPLATE_TEST_CASE_SIG(
+    "building command graphs in a dedicated scheduler thread for N nodes", "[benchmark][group:scheduler]", ((size_t NumNodes), NumNodes), 1, 4) {
 	SECTION("reference: single-threaded immediate graph generation") {
 		run_benchmarks([&] { return graph_generator_benchmark_context{NumNodes}; });
 	}

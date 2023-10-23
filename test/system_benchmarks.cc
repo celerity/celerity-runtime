@@ -13,7 +13,7 @@ template <int Dims>
 class bench_runtime_fixture : public test_utils::runtime_fixture {};
 
 TEMPLATE_TEST_CASE_METHOD_SIG(
-    bench_runtime_fixture, "benchmark independent task pattern with N tasks", "[benchmark][system-benchmarks][indep-tasks]", ((int N), N), 100, 1000, 5000) {
+    bench_runtime_fixture, "benchmark independent task pattern with N tasks", "[benchmark][group:system][indep-tasks]", ((int N), N), 100, 1000, 5000) {
 	constexpr size_t num_tasks = N;
 	constexpr size_t num_repeats = 2;
 	constexpr size_t items_per_task = 256;
@@ -69,7 +69,7 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 }
 
 TEMPLATE_TEST_CASE_METHOD_SIG(
-    bench_runtime_fixture, "benchmark stencil pattern with N time steps", "[benchmark][system-benchmarks][stencil]", ((int N), N), 50, 1000) {
+    bench_runtime_fixture, "benchmark stencil pattern with N time steps", "[benchmark][group:system][stencil]", ((int N), N), 50, 1000) {
 	constexpr size_t num_iterations = N;
 	constexpr int side_length = 128; // sufficiently small to notice large-scale changes in runtime overhead
 

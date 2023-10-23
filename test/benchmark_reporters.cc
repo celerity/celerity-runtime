@@ -106,7 +106,7 @@ class benchmark_csv_reporter : public benchmark_reporter_base {
 
 	void testRunStarting(const Catch::TestRunInfo& test_run_info) override {
 		benchmark_reporter_base::testRunStarting(test_run_info);
-		fmt::print(m_stream, "test case,benchmark name,samples,iterations,estimated,mean,low mean,high mean,std dev,low std dev,high std dev,raw\n");
+		fmt::print(m_stream, "test case,benchmark name,samples,iterations,estimated,mean,low mean,high mean,std dev,low std dev,high std dev,tags,raw\n");
 	}
 
 	void benchmarkEnded(const Catch::BenchmarkStats<>& benchmark_stats) override {
@@ -116,6 +116,11 @@ class benchmark_csv_reporter : public benchmark_reporter_base {
 		fmt::print(m_stream, "{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},", benchmark_stats.mean.point.count(), benchmark_stats.mean.lower_bound.count(),
 		    benchmark_stats.mean.upper_bound.count(), benchmark_stats.standardDeviation.point.count(), benchmark_stats.standardDeviation.lower_bound.count(),
 		    benchmark_stats.standardDeviation.upper_bound.count());
+		// Print the benchmark tags for tool-based processing and categorization (as quoted comma-separated values)
+		const auto& tci = currentTestCaseInfo;
+		std::vector<std::string> tags;
+		std::transform(tci->tags.cbegin(), tci->tags.cend(), std::back_inserter(tags), [](const Catch::Tag& t) { return std::string(t.original); });
+		fmt::print(m_stream, "\"{}\",", fmt::join(tags, ","));
 		// Finally print all raw values for custom analyses (as quoted comma-separated values).
 		std::vector<double> raw;
 		raw.reserve(benchmark_stats.samples.size());
