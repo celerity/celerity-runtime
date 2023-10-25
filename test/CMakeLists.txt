@@ -106,3 +106,7 @@ if(CAIRO_INCLUDE_DIRS AND CAIRO_LIBRARIES)
   endforeach()
   target_link_libraries(all_tests PRIVATE ${CAIRO_LIBRARIES})
 endif()
+
+if(CMAKE_BUILD_TYPE STREQUAL Debug)
+  add_subdirectory(debug)
+endif()
