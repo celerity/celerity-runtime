@@ -473,6 +473,12 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 				}
 				m_cdag.add_dependency(writer_cmd, push_cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
 			}
+
+			// reduction commands will overwrite their buffer, so they must anti-depend on their partial-result push-commands
+			if(utils::isa<reduction_command>(writer_cmd)
+			    && utils::as<reduction_command>(writer_cmd)->get_reduction_info().rid == push_cmd->get_reduction_id()) {
+				m_cdag.add_dependency(writer_cmd, push_cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
+			}
 		}
 	}
 

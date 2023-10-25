@@ -212,3 +212,18 @@ TEST_CASE("reductions that do not include the current value generate anti-depend
 	const auto tid_reduce = dctx.device_compute<class UKN(reduce)>(range<1>(1)).reduce(buf0, false /* include_current_buffer_value */).submit();
 	CHECK(dctx.query(tid_write).have_successors(dctx.query(tid_reduce), dependency_kind::anti_dep));
 }
+
+TEST_CASE("reduction commands anti-depend on their partial-result push commands", "[distributed_graph_generator][command-graph][reductions]") {
+	const size_t num_nodes = 2;
+	dist_cdag_test_context dctx(2);
+	auto buf = dctx.create_buffer(range<1>(1));
+
+	const auto tid_producer = dctx.device_compute(range<1>(num_nodes)).reduce(buf, false /* include_current_buffer_value */).submit();
+	const auto tid_consumer = dctx.device_compute(range<1>(num_nodes)).read(buf, acc::all{}).submit();
+
+	CHECK(dctx.query(tid_producer)
+	          .assert_count_per_node(1)
+	          .find_successors(command_type::push, dependency_kind::true_dep)
+	          .assert_count_per_node(1)
+	          .have_successors(dctx.query(command_type::reduction).assert_count_per_node(1), dependency_kind::anti_dep));
+}
