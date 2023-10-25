@@ -1,0 +1,2 @@
+add_executable(pretty_printables pretty_printables.cc)
+add_celerity_to_target(TARGET pretty_printables SOURCES pretty_printables.cc)

@@ -178,6 +178,9 @@ jobs:
         # We build examples twice, but only run the installed version (which probably has more failure modes)
         working-directory: ${{ env.examples-build-dir }}
         run: ${{ env.container-workspace }}/ci/run-examples.sh /data/Lenna.png 1 2 4
+      - name: Run debugging tests
+        if: matrix.build-type == 'Debug' && matrix.sycl == 'hipsycl' # newer DPC++ generates DWARF5 which is incompatible with Ubuntu 20.04's GDB
+        run: ${{ env.container-workspace }}/test/debug/pretty-print-test.py ${{ env.build-dir }}/test/debug/pretty_printables
       - name: Run system tests
         working-directory: ${{ env.build-dir }}
         run: ${{ env.container-workspace }}/ci/run-system-tests.sh 2 4
