@@ -27,9 +27,9 @@ using node_bitset = std::bitset<max_num_nodes>;
  *   - Whether this data has been replicated from somewhere else, i.e., we are not the original producer
  */
 class write_command_state {
-	constexpr static int64_t fresh_bit = 1ll << 63;
+	constexpr static int64_t stale_bit = 1ll << 63;
 	constexpr static int64_t replicated_bit = 1ll << 62;
-	static_assert(sizeof(fresh_bit) == sizeof(command_id));
+	static_assert(sizeof(stale_bit) == sizeof(command_id));
 
   public:
 	constexpr write_command_state() = default;
@@ -40,13 +40,13 @@ class write_command_state {
 		if(is_replicated) { m_cid |= replicated_bit; }
 	}
 
-	bool is_fresh() const { return (m_cid & fresh_bit) == 0u; }
+	bool is_fresh() const { return (m_cid & stale_bit) == 0u; }
 
 	bool is_replicated() const { return (m_cid & replicated_bit) != 0u; }
 
-	void mark_as_stale() { m_cid |= fresh_bit; }
+	void mark_as_stale() { m_cid |= stale_bit; }
 
-	operator command_id() const { return m_cid & ~fresh_bit & ~replicated_bit; }
+	operator command_id() const { return m_cid & ~stale_bit & ~replicated_bit; }
 
 	friend bool operator==(const write_command_state& lhs, const write_command_state& rhs) { return lhs.m_cid == rhs.m_cid; }
 
