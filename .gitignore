@@ -8,3 +8,4 @@ install
 .vscode/
 .idea/
 /tags
+__pycache__/
