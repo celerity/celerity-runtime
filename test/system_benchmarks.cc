@@ -65,7 +65,7 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 			});
 		});
 	});
-	CHECK(*experimental::fence(queue, success_buffer).get() == true);
+	CHECK(*queue.fence(success_buffer).get() == true);
 }
 
 TEMPLATE_TEST_CASE_METHOD_SIG(
@@ -135,5 +135,5 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 			});
 		});
 	});
-	CHECK(*experimental::fence(queue, success_buffer).get() == true);
+	CHECK(*queue.fence(success_buffer).get() == true);
 }

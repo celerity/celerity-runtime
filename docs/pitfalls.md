@@ -116,9 +116,9 @@ void some_function(celerity::distr_queue& q) {
 }
 ```
 
-> Celerity supports experimental APIs that can replace most if not all uses for reference captures.
-> See `celerity::experimental::host_object`, `celerity::experimental::side_effect` and
-> `celerity::experimental::fence`.
+> Celerity supports APIs that can replace most if not all uses for reference captures.
+> See `celerity::distr_queue::fence`, `celerity::experimental::host_object` and
+> `celerity::experimental::side_effect`.
 
 ## Diverging Host-Execution on Different Nodes
 

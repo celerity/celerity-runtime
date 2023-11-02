@@ -1257,7 +1257,7 @@ namespace detail {
 			cgh.host_task(on_master_node, [=] { acc = true; });
 		});
 
-		auto ret = experimental::fence(q, buf);
+		auto ret = q.fence(buf);
 		REQUIRE(ret.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
 		CHECK_FALSE(*ret.get()); // extra check that the task was not actually executed
 
@@ -1366,13 +1366,13 @@ namespace detail {
 			experimental::side_effect e(ho, cgh);
 			cgh.host_task(on_master_node, [=] { *e = 2; });
 		});
-		auto v2 = experimental::fence(q, ho);
+		auto v2 = q.fence(ho);
 
 		q.submit([&](handler& cgh) {
 			experimental::side_effect e(ho, cgh);
 			cgh.host_task(on_master_node, [=] { *e = 3; });
 		});
-		auto v3 = experimental::fence(q, ho);
+		auto v3 = q.fence(ho);
 
 		CHECK(v2.get() == 2);
 		CHECK(v3.get() == 3);
@@ -1388,7 +1388,7 @@ namespace detail {
 		});
 
 		const auto check_snapshot = [&](const subrange<2>& sr, const std::vector<int>& expected_data) {
-			const auto snapshot = experimental::fence(q, buf, sr).get();
+			const auto snapshot = q.fence(buf, sr).get();
 			CHECK(snapshot.get_subrange() == sr);
 			CHECK(memcmp(snapshot.get_data(), expected_data.data(), expected_data.size() * sizeof(int)) == 0);
 		};
@@ -1412,7 +1412,7 @@ namespace detail {
 			cgh.parallel_for<class UKN(init)>(buf.get_range(), [=](celerity::item<0> item) { *acc = 42; });
 		});
 
-		const auto snapshot = experimental::fence(q, buf).get();
+		const auto snapshot = q.fence(buf).get();
 		CHECK(*snapshot == 42);
 	}
 

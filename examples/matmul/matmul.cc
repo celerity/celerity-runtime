@@ -107,6 +107,6 @@ int main() {
 	verify(queue, mat_a_buf, passed_obj);
 
 	// The value of `passed` can differ between hosts if only part of the verification failed.
-	const bool passed = celerity::experimental::fence(queue, passed_obj).get();
+	const bool passed = queue.fence(passed_obj).get();
 	return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

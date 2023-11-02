@@ -14,6 +14,6 @@ int main() {
 		cgh.parallel_for(str_buffer.get_range(), [=](celerity::item<1> item) { str_acc[item] -= 1; });
 	});
 
-	auto output = celerity::experimental::fence(queue, str_buffer);
+	auto output = queue.fence(str_buffer);
 	std::cout << output.get().get_data() << std::endl;
 }

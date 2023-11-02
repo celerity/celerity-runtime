@@ -36,7 +36,7 @@ for (;;) {
             [=](celerity::item<1> item, auto& err) { err += ...; });
     });
     // `fence` will capture buffer contents once all writes have completed
-    auto future = celerity::experimental::fence(q, error);
+    auto future = q.fence(error);
     // optionally submit more work here to avoid stalling the async execution
     const float err = *future.get();
     if (err < epsilon) break;

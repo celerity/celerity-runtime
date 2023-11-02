@@ -3,25 +3,23 @@
 #include <memory>
 #include <type_traits>
 
-#include "accessor.h"
-#include "buffer_manager.h"
+#include "buffer_storage.h"
+#include "distr_queue.h"
 #include "host_object.h"
 #include "runtime.h"
 #include "task_manager.h"
 
-namespace celerity {
-class distr_queue;
-}
-
 namespace celerity::detail {
+
 template <typename DataT, int Dims>
 class buffer_fence_promise;
-}
 
-namespace celerity::experimental {
+} // namespace celerity::detail
+
+namespace celerity {
 
 /**
- * Owned representation of buffer contents as captured by celerity::experimental::fence.
+ * Owned representation of buffer contents as captured by celerity::distr_queue::fence.
  */
 template <typename T, int Dims>
 class buffer_snapshot {
@@ -65,7 +63,7 @@ class buffer_snapshot {
 	explicit buffer_snapshot(subrange<Dims> sr, std::unique_ptr<T[]> data) : m_subrange(sr), m_data(std::move(data)) {}
 };
 
-} // namespace celerity::experimental
+} // namespace celerity
 
 namespace celerity::detail {
 
@@ -88,7 +86,7 @@ class buffer_fence_promise final : public detail::fence_promise {
   public:
 	explicit buffer_fence_promise(const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) : m_buffer(buf), m_subrange(sr) {}
 
-	std::future<experimental::buffer_snapshot<DataT, Dims>> get_future() { return m_promise.get_future(); }
+	std::future<buffer_snapshot<DataT, Dims>> get_future() { return m_promise.get_future(); }
 
 	void fulfill() override {
 		const auto access_info =
@@ -97,27 +95,21 @@ class buffer_fence_promise final : public detail::fence_promise {
 		auto data = std::make_unique<DataT[]>(m_subrange.range.size());
 		memcpy_strided_host(access_info.ptr, data.get(), sizeof(DataT), range_cast<Dims>(access_info.backing_buffer_range),
 		    m_subrange.offset - id_cast<Dims>(access_info.backing_buffer_offset), m_subrange.range, {}, m_subrange.range);
-		m_promise.set_value(experimental::buffer_snapshot<DataT, Dims>(m_subrange, std::move(data)));
+		m_promise.set_value(buffer_snapshot<DataT, Dims>(m_subrange, std::move(data)));
 	}
 
   private:
 	buffer<DataT, Dims> m_buffer;
 	subrange<Dims> m_subrange;
-	std::promise<experimental::buffer_snapshot<DataT, Dims>> m_promise;
+	std::promise<buffer_snapshot<DataT, Dims>> m_promise;
 };
 
 } // namespace celerity::detail
 
-namespace celerity::experimental {
+namespace celerity {
 
-/**
- * Asynchronously captures the value of a host object by copy, introducing the same dependencies as a side-effect would.
- *
- * Waiting on the returned future in the application thread can stall scheduling of more work. To hide latency, either submit more command groups between
- * fence and wait operations or ensure that other independent command groups are eligible to run while the fence is executed.
- */
 template <typename T>
-[[nodiscard]] std::future<T> fence(celerity::distr_queue& /* unused */, const experimental::host_object<T>& obj) {
+std::future<T> distr_queue::fence(const experimental::host_object<T>& obj) {
 	static_assert(std::is_object_v<T>, "host_object<T&> and host_object<void> are not allowed as parameters to fence()");
 
 	detail::side_effect_map side_effects;
@@ -128,14 +120,8 @@ template <typename T>
 	return future;
 }
 
-/**
- * Asynchronously captures the contents of a buffer subrange, introducing the same dependencies as a read-accessor would.
- *
- * Waiting on the returned future in the application thread can stall scheduling of more work. To hide latency, either submit more command groups between
- * fence and wait operations or ensure that other independent command groups are eligible to run while the fence is executed.
- */
 template <typename DataT, int Dims>
-[[nodiscard]] std::future<buffer_snapshot<DataT, Dims>> fence(celerity::distr_queue& /* unused */, const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) {
+std::future<buffer_snapshot<DataT, Dims>> distr_queue::fence(const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) {
 	detail::buffer_access_map access_map;
 	access_map.add_access(detail::get_buffer_id(buf),
 	    std::make_unique<detail::range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), access_mode::read, buf.get_range()));
@@ -145,15 +131,16 @@ template <typename DataT, int Dims>
 	return future;
 }
 
-/**
- * Asynchronously captures the contents of an entire buffer, introducing the same dependencies as a read-accessor would.
- *
- * Waiting on the returned future in the application thread can stall scheduling of more work. To hide latency, either submit more command groups between
- * fence and wait operations or ensure that other independent command groups are eligible to run while the fence is executed.
- */
-template <typename DataT, int Dims>
-[[nodiscard]] std::future<buffer_snapshot<DataT, Dims>> fence(celerity::distr_queue& q, const buffer<DataT, Dims>& buf) {
-	return fence(q, buf, {{}, buf.get_range()});
+} // namespace celerity
+
+namespace celerity::experimental {
+
+template <typename T, int Dims>
+using buffer_snapshot [[deprecated("buffer_snapshot is no longer experimental, use celerity::buffer_snapshot")]] = celerity::buffer_snapshot<T, Dims>;
+
+template <typename... Params>
+[[deprecated("fence is no longer experimental, use celerity::distr_queue::fence")]] [[nodiscard]] auto fence(celerity::distr_queue& q, const Params&... args) {
+	return q.fence(args...);
 }
 
 } // namespace celerity::experimental

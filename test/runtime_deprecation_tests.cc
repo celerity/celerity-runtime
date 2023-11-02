@@ -45,5 +45,26 @@ namespace detail {
 		SUCCEED();
 	}
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "experimental::fence continues to work", "[deprecated][fence]") {
+		distr_queue q;
+
+		std::vector<int> init(16);
+		std::iota(init.begin(), init.end(), 0);
+		buffer<int, 1> buf(init.data(), init.size());
+
+		experimental::host_object<int> ho(42);
+
+		experimental::buffer_snapshot<int, 1> full_snapshot = experimental::fence(q, buf).get();
+		experimental::buffer_snapshot<int, 1> partial_snapshot = experimental::fence(q, buf, subrange<1>(8, 8)).get();
+		int ho_value = experimental::fence(q, ho).get();
+
+		CHECK(full_snapshot.get_range() == range<1>(16));
+		CHECK(std::equal(init.begin(), init.end(), full_snapshot.get_data()));
+		CHECK(partial_snapshot.get_range() == range<1>(8));
+		CHECK(partial_snapshot.get_offset() == id<1>(8));
+		CHECK(std::equal(init.begin() + 8, init.end(), partial_snapshot.get_data()));
+		CHECK(ho_value == 42);
+	}
+
 } // namespace detail
 } // namespace celerity
