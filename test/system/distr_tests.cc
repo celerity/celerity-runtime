@@ -362,8 +362,8 @@ namespace detail {
 			cgh.host_task(on_master_node, [=] { acc[{1, 2, 3}] = 42; });
 		});
 
-		const auto gathered_from_master = experimental::fence(q, buf, subrange<3>({1, 2, 3}, {1, 1, 1})).get();
-		const auto host_rank = experimental::fence(q, obj).get();
+		const auto gathered_from_master = q.fence(buf, subrange<3>({1, 2, 3}, {1, 1, 1})).get();
+		const auto host_rank = q.fence(obj).get();
 
 		REQUIRE(gathered_from_master.get_range() == range<3>{1, 1, 1});
 		CHECK(gathered_from_master[0][0][0] == 42);

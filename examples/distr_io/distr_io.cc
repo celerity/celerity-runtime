@@ -153,7 +153,7 @@ int main(int argc, char* argv[]) {
 			});
 		});
 
-		const bool files_equal = *celerity::experimental::fence(q, equal).get();
+		const bool files_equal = *q.fence(equal).get();
 		fmt::print(stderr, "=> Files are {}equal\n", files_equal ? "" : "NOT ");
 		return files_equal ? EXIT_SUCCESS : EXIT_FAILURE;
 	}
