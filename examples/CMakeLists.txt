@@ -27,6 +27,8 @@ add_example(matmul)
 add_example(syncing)
 add_example(wave_sim)
 add_example(reduction)
+add_example(compressed)
+add_example(compressed_actually)
 
 if(CELERITY_ENABLE_MPI)
   find_package(PkgConfig QUIET)
