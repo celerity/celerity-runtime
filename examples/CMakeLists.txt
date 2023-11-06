@@ -28,6 +28,8 @@ add_example(matmul)
 add_example(syncing)
 add_example(wave_sim)
 add_example(reduction)
+add_example(compressed)
+add_example(compressed_actually)
 
 find_package(PkgConfig QUIET)
 set(HDF5_FOUND OFF)
