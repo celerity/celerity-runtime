@@ -9,6 +9,7 @@
 #include "buffer_storage.h"
 #include "cgf_diagnostics.h"
 #include "closure_hydrator.h"
+#include "compression.h"
 #include "handler.h"
 #include "sycl_wrappers.h"
 
@@ -17,12 +18,12 @@ namespace celerity {
 template <int Dims>
 class partition;
 
-template <typename DataT, int Dims, access_mode Mode, target Target>
+template <typename DataT, int Dims, access_mode Mode, target Target, typename Compression>
 class accessor;
 
 namespace detail {
 
-	template <typename DataT, int Dims, access_mode Mode, target Target>
+	template <typename DataT, int Dims, access_mode Mode, target Target, typename Compression>
 	class accessor_base {
 	  public:
 		static_assert(Dims <= 3, "accessors can only have 3 dimensions or less");
@@ -78,7 +79,7 @@ class buffer_allocation_window {
 	    : m_allocation(allocation), m_buffer_range(buffer_range), m_allocation_range(allocation_range), m_window_range(window_range),
 	      m_allocation_offset_in_buffer(allocation_offset_in_buffer), m_window_offset_in_buffer(window_offset_in_buffer) {}
 
-	template <typename, int, access_mode, target>
+	template <typename, int, access_mode, target, typename>
 	friend class accessor;
 };
 
@@ -91,7 +92,8 @@ class buffer_allocation_window {
  * as their semantics in a distributed context are unclear.
  */
 template <typename DataT, int Dims, access_mode Mode>
-class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base<DataT, Dims, Mode, target::device> {
+class accessor<DataT, Dims, Mode, target::device, compression::uncompressed>
+    : public detail::accessor_base<DataT, Dims, Mode, target::device, compression::uncompressed> {
 	friend struct detail::accessor_testspy;
 
 	struct ctor_internal_tag {};
@@ -312,7 +314,8 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 };
 
 template <typename DataT, int Dims, access_mode Mode>
-class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_base<DataT, Dims, Mode, target::host_task> {
+class accessor<DataT, Dims, Mode, target::host_task, compression::uncompressed>
+    : public detail::accessor_base<DataT, Dims, Mode, target::host_task, compression::uncompressed> {
 	friend struct detail::accessor_testspy;
 
 	struct ctor_internal_tag {};
@@ -602,27 +605,28 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 #undef CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR
 
 // TODO: Make buffer non-const once corresponding (deprecated!) constructor overloads are removed
-template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, D, Mode, Target>;
+template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target, typename Compression = compression::uncompressed>
+accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag)
+    -> accessor<T, D, Mode, Target, Compression>;
 
-template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
+template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target, typename Compression = compression::uncompressed>
 accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property::no_init no_init)
-    -> accessor<T, D, ModeNoInit, Target>;
+    -> accessor<T, D, ModeNoInit, Target, Compression>;
 
-template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
+template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target, typename Compression = compression::uncompressed>
 accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props)
-    -> accessor<T, D, Mode, Target>;
+    -> accessor<T, D, Mode, Target, Compression>;
 
-template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, 0, Mode, Target>;
+template <typename T, access_mode Mode, access_mode ModeNoInit, target Target, typename Compression = compression::uncompressed>
+accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, 0, Mode, Target, Compression>;
 
-template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
+template <typename T, access_mode Mode, access_mode ModeNoInit, target Target, typename Compression = compression::uncompressed>
 accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property::no_init no_init)
-    -> accessor<T, 0, ModeNoInit, Target>;
+    -> accessor<T, 0, ModeNoInit, Target, Compression>;
 
-template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
+template <typename T, access_mode Mode, access_mode ModeNoInit, target Target, typename Compression = compression::uncompressed>
 accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props)
-    -> accessor<T, 0, Mode, Target>;
+    -> accessor<T, 0, Mode, Target, Compression>;
 
 
 template <typename DataT, int Dims = 1>

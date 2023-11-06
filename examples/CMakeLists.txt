@@ -27,6 +27,8 @@ add_example(hello_world)
 add_example(matmul)
 add_example(syncing)
 add_example(wave_sim)
+add_example(compressed)
+add_example(compressed_actually)
 
 if(CELERITY_FEATURE_SCALAR_REDUCTIONS)
   add_example(reduction)
