@@ -194,6 +194,7 @@ set(SOURCES
   src/recorders.cc
   src/runtime.cc
   src/scheduler.cc
+  src/split.cc
   src/task.cc
   src/task_manager.cc
   src/user_bench.cc

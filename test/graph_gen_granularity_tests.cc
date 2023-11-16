@@ -74,6 +74,16 @@ TEST_CASE("distributed_graph_generator respects split constraints", "[distribute
 	CHECK(dynamic_cast<const execution_command*>(dctx.query(tid_b).get_raw(1)[0])->get_execution_range().range == range<3>{96, 1, 1});
 }
 
+TEST_CASE("distributed_graph_generator creates 2-dimensional chunks when providing the split_2d hint", "[distributed_graph_generator][split][task-hints]") {
+	const size_t num_nodes = 4;
+	dist_cdag_test_context dctx(num_nodes);
+	const auto tid_a = dctx.device_compute<class UKN(task)>(range<2>{128, 128}).hint(experimental::hints::split_2d{}).submit();
+	REQUIRE(dctx.query(tid_a).count() == 4);
+	for(node_id nid = 0; nid < 4; ++nid) {
+		CHECK(dynamic_cast<const execution_command*>(dctx.query(tid_a).get_raw(nid)[0])->get_execution_range().range == range<3>{64, 64, 1});
+	}
+}
+
 template <int Dims>
 class simple_task;
 

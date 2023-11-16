@@ -55,3 +55,20 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "hints can ensure combinations wit
 		CHECK_THROWS_WITH(experimental::hint(cgh, my_hint{1336}), "not leet enough");
 	});
 }
+
+TEST_CASE_METHOD(test_utils::runtime_fixture, "split_1d and split_2d hints cannot be combined", "[task-hints]") {
+	celerity::runtime::init(nullptr, nullptr);
+	auto& tm = detail::runtime::get_instance().get_task_manager();
+	SECTION("1d then 2d") {
+		test_utils::add_compute_task<class UKN(hint_task)>(tm, [&](handler& cgh) {
+			CHECK_NOTHROW(experimental::hint(cgh, experimental::hints::split_1d{}));
+			CHECK_THROWS_WITH(experimental::hint(cgh, experimental::hints::split_2d{}), "Cannot combine split_1d and split_2d hints");
+		});
+	}
+	SECTION("2d then 1d") {
+		test_utils::add_compute_task<class UKN(hint_task)>(tm, [&](handler& cgh) {
+			CHECK_NOTHROW(experimental::hint(cgh, experimental::hints::split_2d{}));
+			CHECK_THROWS_WITH(experimental::hint(cgh, experimental::hints::split_1d{}), "Cannot combine split_1d and split_2d hints");
+		});
+	}
+}
