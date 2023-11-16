@@ -32,4 +32,31 @@ class hint_base {
 
 } // namespace celerity::detail
 
-namespace celerity::experimental::hints {}; // namespace celerity::experimental::hints
+namespace celerity::experimental::hints {
+
+/**
+ * Suggests that the task should be split into 1D chunks.
+ * This is currently the default behavior.
+ */
+class split_1d : public detail::hint_base {
+  private:
+	void validate(const hint_base& other) const override;
+};
+
+/**
+ * Suggests that the task should be split into 2D chunks.
+ */
+class split_2d : public detail::hint_base {
+  private:
+	void validate(const hint_base& other) const override;
+};
+
+inline void split_1d::validate(const hint_base& other) const {
+	if(dynamic_cast<const split_2d*>(&other) != nullptr) { throw std::runtime_error("Cannot combine split_1d and split_2d hints"); }
+}
+
+inline void split_2d::validate(const hint_base& other) const {
+	if(dynamic_cast<const split_1d*>(&other) != nullptr) { throw std::runtime_error("Cannot combine split_1d and split_2d hints"); }
+}
+
+}; // namespace celerity::experimental::hints

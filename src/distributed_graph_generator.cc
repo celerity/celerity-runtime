@@ -4,6 +4,7 @@
 #include "command.h"
 #include "command_graph.h"
 #include "recorders.h"
+#include "split.h"
 #include "task.h"
 #include "task_manager.h"
 
@@ -33,53 +34,6 @@ void distributed_graph_generator::add_buffer(const buffer_id bid, const int dims
 	// This is required when tasks access host-initialized or uninitialized buffers.
 	m_buffer_states.at(bid).local_last_writer.update_region(subrange<3>({}, range), m_epoch_for_new_commands);
 	m_buffer_states.at(bid).replicated_regions.update_region(subrange<3>({}, range), node_bitset{}.set());
-}
-
-// We simply split in the first dimension for now
-static std::vector<chunk<3>> split_equal(const chunk<3>& full_chunk, const range<3>& granularity, const size_t num_chunks, const int dims) {
-#ifndef NDEBUG
-	assert(num_chunks > 0);
-	for(int d = 0; d < dims; ++d) {
-		assert(granularity[d] > 0);
-		assert(full_chunk.range[d] % granularity[d] == 0);
-	}
-#endif
-
-	// Due to split granularity requirements or if num_workers > global_size[0],
-	// we may not be able to create the requested number of chunks.
-	const auto actual_num_chunks = std::min(num_chunks, full_chunk.range[0] / granularity[0]);
-
-	// If global range is not divisible by (actual_num_chunks * granularity),
-	// assign ceil(quotient) to the first few chunks and floor(quotient) to the remaining
-	const auto small_chunk_size_dim0 = full_chunk.range[0] / (actual_num_chunks * granularity[0]) * granularity[0];
-	const auto large_chunk_size_dim0 = small_chunk_size_dim0 + granularity[0];
-	const auto num_large_chunks = (full_chunk.range[0] - small_chunk_size_dim0 * actual_num_chunks) / granularity[0];
-	assert(num_large_chunks * large_chunk_size_dim0 + (actual_num_chunks - num_large_chunks) * small_chunk_size_dim0 == full_chunk.range[0]);
-
-	std::vector<chunk<3>> result(actual_num_chunks, {full_chunk.offset, full_chunk.range, full_chunk.global_size});
-	for(auto i = 0u; i < num_large_chunks; ++i) {
-		result[i].range[0] = large_chunk_size_dim0;
-		result[i].offset[0] += i * large_chunk_size_dim0;
-	}
-	for(auto i = num_large_chunks; i < actual_num_chunks; ++i) {
-		result[i].range[0] = small_chunk_size_dim0;
-		result[i].offset[0] += num_large_chunks * large_chunk_size_dim0 + (i - num_large_chunks) * small_chunk_size_dim0;
-	}
-
-#ifndef NDEBUG
-	size_t total_range_dim0 = 0;
-	for(size_t i = 0; i < result.size(); ++i) {
-		total_range_dim0 += result[i].range[0];
-		if(i == 0) {
-			assert(result[i].offset[0] == full_chunk.offset[0]);
-		} else {
-			assert(result[i].offset[0] == result[i - 1].offset[0] + result[i - 1].range[0]);
-		}
-	}
-	assert(total_range_dim0 == full_chunk.range[0]);
-#endif
-
-	return result;
 }
 
 using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<access_mode, region<3>>>;
@@ -179,7 +133,13 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 			}
 			return chunks;
 		}
-		if(tsk.has_variable_split()) { return split_equal(full_chunk, tsk.get_granularity(), num_chunks, tsk.get_dimensions()); }
+		if(tsk.has_variable_split()) {
+			if(tsk.get_hint<experimental::hints::split_1d>() != nullptr) {
+				// no-op, keeping this for documentation purposes
+			}
+			if(tsk.get_hint<experimental::hints::split_2d>() != nullptr) { return split_2d(full_chunk, tsk.get_granularity(), num_chunks); }
+			return split_1d(full_chunk, tsk.get_granularity(), num_chunks);
+		}
 		return std::vector<chunk<3>>{full_chunk};
 	})();
 	assert(chunks.size() <= num_chunks); // We may have created less than requested
