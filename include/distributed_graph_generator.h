@@ -2,7 +2,6 @@
 
 #include <bitset>
 #include <unordered_map>
-#include <variant>
 
 #include "command_graph.h"
 #include "ranges.h"
@@ -65,6 +64,7 @@ class distributed_graph_generator {
 		buffer_state(region_map<write_command_state> lw, region_map<std::bitset<max_num_nodes>> rr)
 		    : local_last_writer(std::move(lw)), replicated_regions(std::move(rr)), pending_reduction(std::nullopt) {}
 
+		region<3> initialized_region; // for detecting uninitialized reads (only if policies.uninitialized_read != error_policy::ignore)
 		region_map<write_command_state> local_last_writer;
 		region_map<node_bitset> replicated_regions;
 
@@ -75,10 +75,15 @@ class distributed_graph_generator {
 	};
 
   public:
-	distributed_graph_generator(
-	    const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm, detail::command_recorder* recorder);
+	struct policy_set {
+		error_policy uninitialized_read_error = error_policy::throw_exception;
+		error_policy overlapping_write_error = error_policy::throw_exception;
+	};
 
-	void add_buffer(const buffer_id bid, const int dims, const range<3>& range);
+	distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm,
+	    detail::command_recorder* recorder, const policy_set& policy = default_policy_set());
+
+	void add_buffer(const buffer_id bid, const int dims, const range<3>& range, bool host_initialized);
 
 	std::unordered_set<abstract_command*> build_task(const task& tsk);
 
@@ -116,12 +121,19 @@ class distributed_graph_generator {
 
 	void prune_commands_before(const command_id epoch);
 
+	void report_overlapping_writes(const task& tsk, const box_vector<3>& local_chunks) const;
+
   private:
 	using buffer_read_map = std::unordered_map<buffer_id, region<3>>;
 	using side_effect_map = std::unordered_map<host_object_id, command_id>;
 
+	// default-constructs a policy_set - this must be a function because we can't use the implicit default constructor of policy_set, which has member
+	// initializers, within its surrounding class (Clang)
+	constexpr static policy_set default_policy_set() { return {}; }
+
 	size_t m_num_nodes;
 	node_id m_local_nid;
+	policy_set m_policy;
 	command_graph& m_cdag;
 	const task_manager& m_task_mngr;
 	std::unordered_map<buffer_id, buffer_state> m_buffer_states;

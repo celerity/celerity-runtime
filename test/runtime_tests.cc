@@ -1,7 +1,5 @@
 #include "sycl_wrappers.h"
 
-#include <random>
-
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -24,6 +22,7 @@
 #include "named_threads.h"
 #include "ranges.h"
 
+#include "log_test_utils.h"
 #include "test_utils.h"
 
 namespace celerity {
@@ -89,10 +88,12 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "get_access can be called on const buffer", "[buffer]") {
-		buffer<float, 2> buf_a{range<2>{32, 64}};
+		const range<2> range{32, 64};
+		std::vector<float> init(range.size());
+		buffer<float, 2> buf_a{init.data(), range};
 		auto& tm = runtime::get_instance().get_task_manager();
 		const auto tid = test_utils::add_compute_task<class get_access_const>(
-		    tm, [&](handler& cgh) { buf_a.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{}); }, buf_a.get_range());
+		    tm, [&](handler& cgh) { buf_a.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{}); }, range);
 		const auto tsk = tm.get_task(tid);
 		const auto bufs = tsk->get_buffer_access_map().get_accessed_buffers();
 		REQUIRE(bufs.size() == 1);
@@ -244,7 +245,7 @@ namespace detail {
 	TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][device_compute_task]") {
 		task_manager tm{1, nullptr, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
-		auto buf_a = mbf.create_buffer(range<2>(64, 152));
+		auto buf_a = mbf.create_buffer(range<2>(64, 152), true /* host_initialized */);
 		auto buf_b = mbf.create_buffer(range<3>(7, 21, 99));
 		const auto tid = test_utils::add_compute_task(
 		    tm,
@@ -557,19 +558,19 @@ namespace detail {
 		buffer<int, 2> buf{{10, 10}};
 
 		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
-			auto acc = buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
+			auto acc = buf.get_access<cl::sycl::access::mode::discard_write>(cgh, one_to_one{});
 			cgh.parallel_for<class UKN(kernel)>(range<1>{10}, [=](celerity::item<1>) { (void)acc; });
 		}),
 		    "Invalid range mapper dimensionality: 1-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<1> nor "
 		    "(chunk<1>, range<2>) to produce subrange<2>");
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			auto acc = buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
+			auto acc = buf.get_access<cl::sycl::access::mode::discard_write>(cgh, one_to_one{});
 			cgh.parallel_for<class UKN(kernel)>(range<2>{10, 10}, [=](celerity::item<2>) { (void)acc; });
 		}));
 
 		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
-			auto acc = buf.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
+			auto acc = buf.get_access<cl::sycl::access::mode::discard_write>(cgh, one_to_one{});
 			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
 		}),
 		    "Invalid range mapper dimensionality: 3-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<3> nor "
@@ -631,32 +632,38 @@ namespace detail {
 
 		buffer<float, 1> buf_1{range<1>{2}};
 		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(wrong_size_1)>(range<1>{1}, reduction(buf_1, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
+			cgh.parallel_for<class UKN(wrong_size_1)>(
+			    range<1>{1}, reduction(buf_1, cgh, cl::sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<1>, auto&) {});
 		}));
 
 		buffer<float, 1> buf_4{range<1>{1}};
 		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_1)>(range<1>{1}, reduction(buf_4, cgh, cl::sycl::plus<float>{}), [=](celerity::item<1>, auto&) {});
+			cgh.parallel_for<class UKN(ok_size_1)>(
+			    range<1>{1}, reduction(buf_4, cgh, cl::sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<1>, auto&) {});
 		}));
 
 		buffer<float, 2> buf_2{range<2>{1, 2}};
 		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(wrong_size_2)>(range<2>{1, 1}, reduction(buf_2, cgh, cl::sycl::plus<float>{}), [=](celerity::item<2>, auto&) {});
+			cgh.parallel_for<class UKN(wrong_size_2)>(range<2>{1, 1},
+			    reduction(buf_2, cgh, cl::sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<2>, auto&) {});
 		}));
 
 		buffer<float, 3> buf_3{range<3>{1, 2, 1}};
 		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(wrong_size_3)>(range<3>{1, 1, 1}, reduction(buf_3, cgh, cl::sycl::plus<float>{}), [=](celerity::item<3>, auto&) {});
+			cgh.parallel_for<class UKN(wrong_size_3)>(range<3>{1, 1, 1},
+			    reduction(buf_3, cgh, cl::sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<3>, auto&) {});
 		}));
 
 		buffer<float, 2> buf_5{range<2>{1, 1}};
 		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_2)>(range<2>{1, 1}, reduction(buf_5, cgh, cl::sycl::plus<float>{}), [=](celerity::item<2>, auto&) {});
+			cgh.parallel_for<class UKN(ok_size_2)>(range<2>{1, 1},
+			    reduction(buf_5, cgh, cl::sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<2>, auto&) {});
 		}));
 
 		buffer<float, 3> buf_6{range<3>{1, 1, 1}};
 		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_3)>(range<3>{1, 1, 1}, reduction(buf_6, cgh, cl::sycl::plus<float>{}), [=](celerity::item<3>, auto&) {});
+			cgh.parallel_for<class UKN(ok_size_3)>(range<3>{1, 1, 1},
+			    reduction(buf_6, cgh, cl::sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<3>, auto&) {});
 		}));
 #else
 		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
@@ -707,7 +714,7 @@ namespace detail {
 
 		q.submit([&](handler& cgh) {
 			local_accessor<int> la{32, cgh};
-			accessor ga{out, cgh, celerity::access::one_to_one{}, write_only};
+			accessor ga{out, cgh, celerity::access::one_to_one{}, write_only, no_init};
 			cgh.parallel_for<class UKN(device_kernel)>(celerity::nd_range<1>{64, 32}, [=](nd_item<1> item) {
 				la[item.get_local_id()] = static_cast<int>(item.get_global_linear_id());
 				group_barrier(item.get_group());
@@ -731,8 +738,9 @@ namespace detail {
 
 		buffer<int, 1> b{range<1>{1}};
 		distr_queue{}.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(kernel)>(celerity::nd_range{range<2>{8, 8}, range<2>{4, 4}}, reduction(b, cgh, cl::sycl::plus<>{}),
-			    [](nd_item<2> item, auto& sum) { sum += item.get_global_linear_id(); });
+			cgh.parallel_for<class UKN(kernel)>(celerity::nd_range{range<2>{8, 8}, range<2>{4, 4}},
+			    reduction(b, cgh, cl::sycl::plus<int>{}, property::reduction::initialize_to_identity()),
+			    [](nd_item<2> item, auto& sum) { sum += static_cast<int>(item.get_global_linear_id()); });
 		});
 #else
 		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
@@ -752,8 +760,8 @@ namespace detail {
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		buffer<int> b{{1}};
 		q.submit([&](handler& cgh) {
-			cgh.parallel_for(
-			    range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
+			cgh.parallel_for(range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}, property::reduction::initialize_to_identity()),
+			    [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
 		});
 		q.submit([&](handler& cgh) {
 			cgh.parallel_for(celerity::nd_range<1>{64, 32}, reduction(b, cgh, cl::sycl::plus<int>{}),
@@ -1383,7 +1391,7 @@ namespace detail {
 		distr_queue q;
 
 		q.submit([&](handler& cgh) {
-			accessor acc(buf, cgh, all{}, write_only, no_init);
+			accessor acc(buf, cgh, one_to_one(), write_only, no_init);
 			cgh.parallel_for<class UKN(init)>(buf.get_range(), [=](celerity::item<2> item) { acc[item] = static_cast<int>(item.get_linear_id()); });
 		});
 
@@ -1449,6 +1457,42 @@ namespace detail {
 				CHECK(*acc_c == value_b);
 			});
 		});
+	}
+
+	TEST_CASE_METHOD(
+	    test_utils::runtime_fixture, "runtime warns on uninitialized reads iff access pattern diagnostics are enabled", "[runtime][diagnostics]") //
+	{
+		buffer<int, 1> buf(1);
+
+		std::unique_ptr<celerity::test_utils::log_capture> lc;
+		{
+			distr_queue q;
+			lc = std::make_unique<celerity::test_utils::log_capture>();
+
+			SECTION("in device kernels") {
+				q.submit([&](handler& cgh) {
+					accessor acc(buf, cgh, celerity::access::all(), celerity::read_only);
+					cgh.parallel_for(range(1), [=](item<1>) { (void)acc; });
+				});
+			}
+
+			SECTION("in host tasks") {
+				q.submit([&](handler& cgh) {
+					accessor acc(buf, cgh, celerity::access::all(), celerity::read_only_host_task);
+					cgh.host_task(on_master_node, [=] { (void)acc; });
+				});
+			}
+
+			q.slow_full_sync();
+		}
+
+		const auto error_message =
+		    "declares a reading access on uninitialized B0 {[0,0,0] - [1,1,1]}. Make sure to construct the accessor with no_init if possible.";
+#if CELERITY_ACCESS_PATTERN_DIAGNOSTICS
+		CHECK_THAT(lc->get_log(), Catch::Matchers::ContainsSubstring(error_message));
+#else
+		CHECK_THAT(lc->get_log(), !Catch::Matchers::ContainsSubstring(error_message));
+#endif
 	}
 
 } // namespace detail

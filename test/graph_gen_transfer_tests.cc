@@ -2,8 +2,6 @@
 
 #include "distributed_graph_generator_test_utils.h"
 
-#include "distributed_graph_generator.h"
-
 using namespace celerity;
 using namespace celerity::detail;
 using namespace celerity::test_utils;
@@ -16,26 +14,15 @@ TEST_CASE("distributed_graph_generator generates required data transfer commands
 	const range<1> test_range = {256};
 	auto buf = dctx.create_buffer(test_range);
 
-	auto rm = [](chunk<1> chnk) -> subrange<1> {
-		switch(chnk.offset[0]) {
-		case 0: return chnk;
-		case 64: return {128, 64};
-		case 128: return {64, 64};
-		case 192: return chnk;
-		default: FAIL("Unexpected offset");
-		}
-		return {};
-	};
+	const auto rm = [&](const chunk<1>& chnk) { return subrange(id(test_range[0] - chnk.offset[0] - chnk.range[0]), chnk.range); };
 	const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, rm).submit();
 	CHECK(dctx.query(tid_a, command_type::execution).count_per_node() == 1);
 
 	dctx.device_compute<class UKN(task_b)>(test_range).read(buf, acc::one_to_one{}).submit();
-	CHECK(dctx.query(command_type::push).count() == 2);
-	CHECK(dctx.query(command_type::push, node_id(1)).count() == 1);
-	CHECK(dctx.query(command_type::push, node_id(2)).count() == 1);
-	CHECK(dctx.query(command_type::await_push).count() == 2);
-	CHECK(dctx.query(command_type::await_push, node_id(1)).count() == 1);
-	CHECK(dctx.query(command_type::await_push, node_id(2)).count() == 1);
+	CHECK(dctx.query(command_type::push).count() == 4);
+	CHECK(dctx.query(command_type::push).count_per_node() == 1);
+	CHECK(dctx.query(command_type::await_push).count() == 4);
+	CHECK(dctx.query(command_type::await_push).count_per_node() == 1);
 }
 
 TEST_CASE("distributed_graph_generator doesn't generate data transfer commands for the same buffer and range more than once",

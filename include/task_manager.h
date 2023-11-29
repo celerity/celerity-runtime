@@ -58,9 +58,13 @@ namespace detail {
 		using buffer_writers_map = std::unordered_map<buffer_id, region_map<std::optional<task_id>>>;
 
 	  public:
+		struct policy_set {
+			error_policy uninitialized_read_error = error_policy::throw_exception;
+		};
+
 		constexpr inline static task_id initial_epoch_task = 0;
 
-		task_manager(size_t num_collective_nodes, host_queue* queue, detail::task_recorder* recorder);
+		task_manager(size_t num_collective_nodes, host_queue* queue, detail::task_recorder* recorder, const policy_set& policy = default_policy_set());
 
 		virtual ~task_manager() = default;
 
@@ -179,8 +183,13 @@ namespace detail {
 		size_t get_current_task_count() const { return m_task_buffer.get_current_task_count(); }
 
 	  private:
+		// default-constructs a policy_set - this must be a function because we can't use the implicit default constructor of policy_set, which has member
+		// initializers, within its surrounding class (Clang)
+		constexpr static policy_set default_policy_set() { return {}; }
+
 		const size_t m_num_collective_nodes;
 		host_queue* m_queue;
+		policy_set m_policy;
 
 		task_ring_buffer m_task_buffer;
 

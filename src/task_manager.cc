@@ -6,8 +6,8 @@
 namespace celerity {
 namespace detail {
 
-	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, detail::task_recorder* recorder) //
-	    : m_num_collective_nodes(num_collective_nodes), m_queue(queue), m_task_recorder(recorder) {
+	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, detail::task_recorder* recorder, const policy_set& error_policy)
+	    : m_num_collective_nodes(num_collective_nodes), m_queue(queue), m_policy(error_policy), m_task_recorder(recorder) {
 		// We manually generate the initial epoch task, which we treat as if it has been reached immediately.
 		auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
 		auto initial_epoch = task::make_epoch(initial_epoch_task, epoch_action::none);
@@ -98,12 +98,20 @@ namespace detail {
 				if(reduction.has_value()) { read_requirements = region_union(read_requirements, scalar_box); }
 				const auto last_writers = m_buffers_last_writers.at(bid).get_region_values(read_requirements);
 
-				for(auto& p : last_writers) {
-					// This indicates that the buffer is being used for the first time by this task, or all previous tasks also only read from it.
-					// A valid use case (i.e., not reading garbage) for this is when the buffer has been initialized using a host pointer.
-					if(p.second == std::nullopt) continue;
-					const task_id last_writer = *p.second;
-					add_dependency(tsk, *m_task_buffer.get_task(last_writer), dependency_kind::true_dep, dependency_origin::dataflow);
+				box_vector<3> uninitialized_reads;
+				for(const auto& [box, writer] : last_writers) {
+					// host-initialized buffers are last-written by the current epoch
+					if(writer.has_value()) {
+						add_dependency(tsk, *m_task_buffer.get_task(*writer), dependency_kind::true_dep, dependency_origin::dataflow);
+					} else if(m_policy.uninitialized_read_error != error_policy::ignore) {
+						uninitialized_reads.push_back(box);
+					}
+				}
+				if(!uninitialized_reads.empty()) {
+					// TODO this should output the full buffer debug label, but we don't want to pull in buffer_manager for this because its days are numbered
+					utils::report_error(m_policy.uninitialized_read_error,
+					    "{} declares a reading access on uninitialized B{} {}. Make sure to construct the accessor with no_init if possible.",
+					    print_task_debug_label(tsk, true /* title case */), bid, region(std::move(uninitialized_reads)));
 				}
 			}
 

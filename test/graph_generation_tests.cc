@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
 
 #include "distributed_graph_generator_test_utils.h"
 
@@ -121,27 +122,6 @@ TEST_CASE("distributed_graph_generator builds dependencies to all local commands
 	CHECK(dctx.query(tid_a).have_successors(dctx.query(tid_d)));
 	CHECK(dctx.query(tid_b).have_successors(dctx.query(tid_d)));
 	CHECK(dctx.query(tid_c).have_successors(dctx.query(tid_d)));
-}
-
-// This test case currently fails and exists for documentation purposes:
-//	- Having fixed write access to a buffer results in unclear semantics when it comes to splitting the task into chunks.
-//  - We could check for write access when using the built-in fixed range mapper and warn / throw.
-//		- But of course this is the easy case; the user could just as well write the same by hand.
-//
-// Really the most sensible thing to do might be to check whether chunks write to overlapping regions and abort if so.
-TEST_CASE("distributed_graph_generator handles fixed write access", "[distributed_graph_generator][command-graph][!shouldfail]") {
-	dist_cdag_test_context dctx(2);
-
-	const range<1> test_range = {128};
-	auto buf0 = dctx.create_buffer(test_range);
-
-	const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::all{}).submit();
-	// Another solution could be to not split the task at all
-	CHECK(dctx.query(tid_a).count() == 1);
-
-	dctx.device_compute<class UKN(task_b)>(test_range).read(buf0, acc::all{}).submit();
-	// Right now this generates push commands, which also doesn't make much sense
-	CHECK(dctx.query(command_type::push).empty());
 }
 
 // This is a highly constructed and unrealistic example, but we'd still like the behavior to be clearly defined.
@@ -497,5 +477,53 @@ TEST_CASE("fences introduce dependencies on buffers", "[distributed_graph_genera
 		}
 		CHECK(dctx.query(tid_b, nid).count() == 1);
 		CHECK(dctx.query(tid_fence, nid).have_successors(dctx.query(tid_b, nid)));
+	}
+}
+
+TEST_CASE("distributed_graph_generator throws in tests if it detects an uninitialized read", "[distributed_graph_generator]") {
+	const size_t num_nodes = 2;
+	const range<1> node_range{num_nodes};
+
+	dist_cdag_test_context::policy_set policy;
+	policy.tm.uninitialized_read_error = error_policy::ignore; // otherwise we get task-level errors first
+
+	dist_cdag_test_context dctx(num_nodes, policy);
+
+	SECTION("on a fully uninitialized buffer") {
+		auto buf = dctx.create_buffer<1>({1});
+		CHECK_THROWS_WITH((dctx.device_compute(node_range).name("uninitialized").read(buf, acc::all()).submit()),
+		    "Command C1 on N0, which executes [0,0,0] - [1,1,1] of device kernel T1 \"uninitialized\", reads B0 {[0,0,0] - [1,1,1]}, which has not been "
+		    "written by any node.");
+	}
+
+	SECTION("on a partially, locally initialized buffer") {
+		auto buf = dctx.create_buffer<1>(node_range);
+		dctx.device_compute(range(1)).discard_write(buf, acc::one_to_one()).submit();
+		CHECK_THROWS_WITH((dctx.device_compute(node_range).read(buf, acc::all()).submit()),
+		    "Command C2 on N0, which executes [0,0,0] - [1,1,1] of device kernel T2, reads B0 {[1,0,0] - [2,1,1]}, which has not been written by any node.");
+	}
+
+	SECTION("on a partially, remotely initialized buffer") {
+		auto buf = dctx.create_buffer<1>(node_range);
+		dctx.device_compute(range(1)).discard_write(buf, acc::one_to_one()).submit();
+		CHECK_THROWS_WITH((dctx.device_compute(node_range).read(buf, acc::one_to_one()).submit()),
+		    "Command C1 on N1, which executes [1,0,0] - [2,1,1] of device kernel T2, reads B0 {[1,0,0] - [2,1,1]}, which has not been written by any node.");
+	}
+}
+
+TEST_CASE("distributed_graph_generator throws in tests if it detects overlapping writes", "[distributed_graph_generator]") {
+	dist_cdag_test_context dctx(2);
+	auto buf = dctx.create_buffer<2>({20, 20});
+
+	SECTION("on all-write") {
+		CHECK_THROWS_WITH((dctx.device_compute(buf.get_range()).discard_write(buf, acc::all()).submit()),
+		    "Device kernel T1 has overlapping writes between multiple nodes in B0 {[0,0,0] - [20,20,1]}. Choose a non-overlapping "
+		    "range mapper for the write access or constrain the split to make the access non-overlapping.");
+	}
+
+	SECTION("on neighborhood-write") {
+		CHECK_THROWS_WITH((dctx.host_task(buf.get_range()).name("host neighborhood").discard_write(buf, acc::neighborhood(1, 1)).submit()),
+		    "Host-compute task T1 \"host neighborhood\" has overlapping writes between multiple nodes in B0 {[9,0,0] - [11,20,1]}. Choose a non-overlapping "
+		    "range mapper for the write access or constrain the split to make the access non-overlapping.");
 	}
 }
