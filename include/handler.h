@@ -22,11 +22,6 @@
 #include "types.h"
 #include "workaround.h"
 
-#if !defined(_MSC_VER)
-// Required for kernel name demangling in Clang
-#include <cxxabi.h>
-#endif
-
 namespace celerity {
 class handler;
 }
@@ -70,22 +65,15 @@ namespace detail {
 
 	void set_task_name(handler& cgh, const std::string& debug_name);
 
-	template <typename Name>
-	std::string kernel_debug_name() {
-		// we need to typeid a pointer, since the name is often undefined
-		std::string name = typeid(Name*).name();
-#if !defined(_MSC_VER)
-		const std::unique_ptr<char, void (*)(void*)> demangled(abi::__cxa_demangle(name.c_str(), nullptr, nullptr, nullptr), std::free);
-		name = demangled.get();
-#endif
-		// get rid of the pointer "*"
-		return name.substr(0, name.length() - 1);
-	}
-
 	struct unnamed_kernel {};
 
 	template <typename KernelName>
 	constexpr bool is_unnamed_kernel = std::is_same_v<KernelName, unnamed_kernel>;
+
+	template <typename KernelName>
+	std::string kernel_debug_name() {
+		return !is_unnamed_kernel<KernelName> ? utils::get_simplified_type_name<KernelName>() : std::string{};
+	}
 
 	struct simple_kernel_flavor {};
 	struct nd_range_kernel_flavor {};

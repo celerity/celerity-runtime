@@ -2,9 +2,16 @@
 
 #include <cstdint>
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <typeinfo>
 #include <variant>
+
+#include <fmt/format.h>
+
+#include "types.h"
+
 
 namespace celerity::detail::utils {
 
@@ -84,10 +91,18 @@ static auto tuple_without(const std::tuple<Ts...>& tuple) {
 	}
 }
 
-// fiddles out the base name of a task from a full, demangled input type name
-std::string simplify_task_name(const std::string& demangled_type_name);
+/// Fiddles out the base name of a (possibly templated) struct or class from a full (possibly mangled) type name.
+/// The input parameter should be `typeid(Struct*)`, i.e. a _pointer_ to the desired struct type.
+std::string get_simplified_type_name_from_pointer(const std::type_info& pointer_type_info);
 
-// escapes "<", ">", and "&" with their corresponding HTML escape sequences
+/// Fiddles out the base name of a (possibly templated) struct or class from a full (possibly mangled) type name.
+template <typename Struct>
+std::string get_simplified_type_name() {
+	// Using a pointer will also make this function work types that have no definitions, which commonly happens for kernel name type.
+	return get_simplified_type_name_from_pointer(typeid(Struct*));
+}
+
+/// Escapes "<", ">", and "&" with their corresponding HTML escape sequences
 std::string escape_for_dot_label(std::string str);
 
 } // namespace celerity::detail::utils

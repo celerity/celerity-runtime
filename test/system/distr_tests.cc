@@ -397,7 +397,7 @@ namespace detail {
 
 		q.slow_full_sync();
 
-		const auto graph = celerity::detail::runtime::get_instance().gather_command_graph();
+		const auto dot = celerity::detail::runtime::get_instance().gather_command_graph();
 
 		// only check on master node, since that is where the graph is gathered
 		int global_rank = 0;
@@ -407,32 +407,30 @@ namespace detail {
 			// sane and complete, and if so, replace the `expected` values with the new dot graph.
 			const std::string expected =
 			    "digraph G{label=\"Command Graph\" subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 (epoch)</font>>;color=darkgray;id_0_0[label=<C0 "
-			    "on N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font color=\"#606060\">T1 \"unnamed_kernel\" "
-			    "(device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [0,0,0] + [8,16,1]<br/><i>read_write</i> B0 {[0,0,0] - "
+			    "on N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font color=\"#606060\">T1 "
+			    "(device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [0,0,0] + [8,16,1]<br/><i>discard_write</i> B0 {[0,0,0] - "
 			    "[8,16,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 "
 			    "(horizon)</font>>;color=darkgray;id_0_2[label=<C2 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph cluster_id_0_3{label=<<font "
-			    "color=\"#606060\">T3 \"unnamed_kernel\" (device-compute)</font>>;color=darkgray;id_0_3[label=<C3 on N0<br/><b>execution</b> [0,0,0] + "
-			    "[8,16,1]<br/><i>read_write</i> B0 {[0,0,0] - [8,16,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_4{label=<<font "
-			    "color=\"#606060\">T4 (horizon)</font>>;color=darkgray;id_0_4[label=<C4 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph "
-			    "cluster_id_0_5{label=<<font color=\"#606060\">T5 (epoch)</font>>;color=darkgray;id_0_5[label=<C5 on N0<br/><b>epoch</b> (barrier)> "
-			    "fontcolor=black "
-			    "shape=box];}id_0_0->id_0_1[];id_0_1->id_0_2[color=orange];id_0_1->id_0_3[];id_0_3->id_0_4[color=orange];id_0_2->id_0_4[color=orange];id_0_4->"
-			    "id_0_5[color=orange];subgraph cluster_id_1_0{label=<<font color=\"#606060\">T0 (epoch)</font>>;color=darkgray;id_1_0[label=<C0 on "
-			    "N1<br/><b>epoch</b>> fontcolor=crimson shape=box];}subgraph cluster_id_1_1{label=<<font color=\"#606060\">T1 \"unnamed_kernel\" "
-			    "(device-compute)</font>>;color=darkgray;id_1_1[label=<C1 on N1<br/><b>execution</b> [8,0,0] + [8,16,1]<br/><i>read_write</i> B0 {[8,0,0] "
-			    "- [16,16,1]}> fontcolor=crimson shape=box];}subgraph cluster_id_1_2{label=<<font color=\"#606060\">T2 "
-			    "(horizon)</font>>;color=darkgray;id_1_2[label=<C2 on N1<br/><b>horizon</b>> fontcolor=crimson shape=box];}subgraph "
-			    "cluster_id_1_3{label=<<font color=\"#606060\">T3 \"unnamed_kernel\" (device-compute)</font>>;color=darkgray;id_1_3[label=<C3 on "
-			    "N1<br/><b>execution</b> [8,0,0] + [8,16,1]<br/><i>read_write</i> B0 {[8,0,0] - [16,16,1]}> fontcolor=crimson shape=box];}subgraph "
-			    "cluster_id_1_4{label=<<font color=\"#606060\">T4 (horizon)</font>>;color=darkgray;id_1_4[label=<C4 on N1<br/><b>horizon</b>> "
-			    "fontcolor=crimson shape=box];}subgraph cluster_id_1_5{label=<<font color=\"#606060\">T5 (epoch)</font>>;color=darkgray;id_1_5[label=<C5 on "
-			    "N1<br/><b>epoch</b> (barrier)> fontcolor=crimson "
-			    "shape=box];}id_1_0->id_1_1[];id_1_1->id_1_2[color=orange];id_1_1->id_1_3[];id_1_3->id_1_4[color=orange];id_1_2->id_1_4[color=orange];id_1_4->"
-			    "id_1_5[color=orange];}";
+			    "color=\"#606060\">T3 (device-compute)</font>>;color=darkgray;id_0_3[label=<C3 on N0<br/><b>execution</b> [0,0,0] + "
+			    "[8,16,1]<br/><i>read_write</i> B0 {[0,0,0] - [8,16,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_4{label=<<font color=\"#606060\">T4 "
+			    "(horizon)</font>>;color=darkgray;id_0_4[label=<C4 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph cluster_id_0_5{label=<<font "
+			    "color=\"#606060\">T5 (epoch)</font>>;color=darkgray;id_0_5[label=<C5 on N0<br/><b>epoch</b> (barrier)> fontcolor=black "
+			    "shape=box];}id_0_0->id_0_1[color=orchid];id_0_1->id_0_2[color=orange];id_0_1->id_0_3[];id_0_3->id_0_4[color=orange];id_0_2->id_0_4[color="
+			    "orange];id_0_4->id_0_5[color=orange];subgraph cluster_id_1_0{label=<<font color=\"#606060\">T0 "
+			    "(epoch)</font>>;color=darkgray;id_1_0[label=<C0 on N1<br/><b>epoch</b>> fontcolor=crimson shape=box];}subgraph cluster_id_1_1{label=<<font "
+			    "color=\"#606060\">T1 (device-compute)</font>>;color=darkgray;id_1_1[label=<C1 on N1<br/><b>execution</b> [8,0,0] + "
+			    "[8,16,1]<br/><i>discard_write</i> B0 {[8,0,0] - [16,16,1]}> fontcolor=crimson shape=box];}subgraph cluster_id_1_2{label=<<font "
+			    "color=\"#606060\">T2 (horizon)</font>>;color=darkgray;id_1_2[label=<C2 on N1<br/><b>horizon</b>> fontcolor=crimson shape=box];}subgraph "
+			    "cluster_id_1_3{label=<<font color=\"#606060\">T3 (device-compute)</font>>;color=darkgray;id_1_3[label=<C3 on N1<br/><b>execution</b> [8,0,0] "
+			    "+ [8,16,1]<br/><i>read_write</i> B0 {[8,0,0] - [16,16,1]}> fontcolor=crimson shape=box];}subgraph cluster_id_1_4{label=<<font "
+			    "color=\"#606060\">T4 (horizon)</font>>;color=darkgray;id_1_4[label=<C4 on N1<br/><b>horizon</b>> fontcolor=crimson shape=box];}subgraph "
+			    "cluster_id_1_5{label=<<font color=\"#606060\">T5 (epoch)</font>>;color=darkgray;id_1_5[label=<C5 on N1<br/><b>epoch</b> (barrier)> "
+			    "fontcolor=crimson "
+			    "shape=box];}id_1_0->id_1_1[color=orchid];id_1_1->id_1_2[color=orange];id_1_1->id_1_3[];id_1_3->id_1_4[color=orange];id_1_2->id_1_4[color="
+			    "orange];id_1_4->id_1_5[color=orange];}";
 
-			CHECK(graph == expected);
-
-			std::cout << "....... \n\n" << graph << "\n------------------------------\n\n";
+			CHECK(dot == expected);
+			if(dot != expected) { fmt::print("\n{}:\n\ngot:\n\n{}\n\nexpected:\n\n{}\n\n", Catch::getResultCapture().getCurrentTestName(), dot, expected); }
 		}
 	}
 

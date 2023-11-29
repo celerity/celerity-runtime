@@ -21,18 +21,18 @@ TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 
 	// graph copied from graph_gen_reduction_tests "distributed_graph_generator generates reduction command trees"
 
-	test_utils::add_compute_task<class UKN(task_initialize)>(
+	test_utils::add_compute_task(
 	    tt.tm, [&](handler& cgh) { buf_1.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
-	test_utils::add_compute_task<class UKN(task_produce)>(
+	test_utils::add_compute_task(
 	    tt.tm, [&](handler& cgh) { buf_0.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
-	test_utils::add_compute_task<class UKN(task_reduce)>(
+	test_utils::add_compute_task(
 	    tt.tm,
 	    [&](handler& cgh) {
 		    buf_0.get_access<access_mode::read>(cgh, acc::one_to_one{});
 		    test_utils::add_reduction(cgh, tt.mrf, buf_1, true /* include_current_buffer_value */);
 	    },
 	    range);
-	test_utils::add_compute_task<class UKN(task_consume)>(
+	test_utils::add_compute_task(
 	    tt.tm,
 	    [&](handler& cgh) {
 		    buf_1.get_access<access_mode::read>(cgh, acc::fixed<1>({0, 1}));
@@ -42,14 +42,15 @@ TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 	// Smoke test: It is valid for the dot output to change with updates to graph generation. If this test fails, verify that the printed graph is sane and
 	// replace the `expected` value with the new dot graph.
 	const std::string expected =
-	    "digraph G {label=\"Task Graph\" 0[shape=ellipse label=<T0<br/><b>epoch</b>>];1[shape=box style=rounded label=<T1 \"task_initialize_2\" "
-	    "<br/><b>device-compute</b> [0,0,0] + [64,1,1]<br/><i>discard_write</i> B1 {[0,0,0] - [1,1,1]}>];0->1[color=orchid];2[shape=box style=rounded "
-	    "label=<T2 \"task_produce_3\" <br/><b>device-compute</b> [0,0,0] + [64,1,1]<br/><i>discard_write</i> B0 {[0,0,0] - "
-	    "[64,1,1]}>];0->2[color=orchid];3[shape=box style=rounded label=<T3 \"task_reduce_4\" <br/><b>device-compute</b> [0,0,0] + [64,1,1]<br/>(R1) "
-	    "<i>read_write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read</i> B0 {[0,0,0] - [64,1,1]}>];1->3[];2->3[];4[shape=box style=rounded label=<T4 "
-	    "\"task_consume_5\" <br/><b>device-compute</b> [0,0,0] + [64,1,1]<br/><i>read</i> B1 {[0,0,0] - [1,1,1]}>];3->4[];}";
+	    "digraph G {label=\"Task Graph\" 0[shape=ellipse label=<T0<br/><b>epoch</b>>];1[shape=box style=rounded label=<T1<br/><b>device-compute</b> [0,0,0] + "
+	    "[64,1,1]<br/><i>discard_write</i> B1 {[0,0,0] - [1,1,1]}>];0->1[color=orchid];2[shape=box style=rounded label=<T2<br/><b>device-compute</b> [0,0,0] + "
+	    "[64,1,1]<br/><i>discard_write</i> B0 {[0,0,0] - [64,1,1]}>];0->2[color=orchid];3[shape=box style=rounded label=<T3<br/><b>device-compute</b> [0,0,0] "
+	    "+ [64,1,1]<br/>(R1) <i>read_write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read</i> B0 {[0,0,0] - [64,1,1]}>];1->3[];2->3[];4[shape=box style=rounded "
+	    "label=<T4<br/><b>device-compute</b> [0,0,0] + [64,1,1]<br/><i>read</i> B1 {[0,0,0] - [1,1,1]}>];3->4[];}";
 
-	CHECK(print_task_graph(tt.trec) == expected);
+	const auto dot = print_task_graph(tt.trec);
+	CHECK(dot == expected);
+	if(dot != expected) { fmt::print("\n{}:\n\ngot:\n\n{}\n\nexpected:\n\n{}\n\n", Catch::getResultCapture().getCurrentTestName(), dot, expected); };
 }
 
 namespace {
@@ -68,38 +69,45 @@ TEST_CASE("command graph printing is unchanged", "[print_graph][command-graph]")
 	size_t num_nodes = 4;
 	dist_cdag_test_context dctx(num_nodes);
 
-	auto buf_0 = dctx.create_buffer(range<1>{1});
+	auto buf_0 = dctx.create_buffer(range(1));
+	auto buf_1 = dctx.create_buffer(range(num_nodes));
 
-	dctx.device_compute<class UKN(reduce)>(range<1>(num_nodes)).reduce(buf_0, false).submit();
-	dctx.device_compute<class UKN(consume)>(range<1>(num_nodes)).read(buf_0, acc::all{}).read_write(buf_0, acc::all{}).write(buf_0, acc::all{}).submit();
+	dctx.device_compute(range<1>(num_nodes)) //
+	    .discard_write(buf_1, acc::one_to_one{})
+	    .reduce(buf_0, false)
+	    .submit();
+	dctx.device_compute(range<1>(num_nodes)).read(buf_0, acc::all{}).read_write(buf_1, acc::one_to_one{}).write(buf_1, acc::one_to_one{}).submit();
 
 	// Smoke test: It is valid for the dot output to change with updates to graph generation. If this test fails, verify that the printed graph is sane and
 	// replace the `expected` value with the new dot graph.
 	const std::string expected =
 	    "digraph G{label=\"Command Graph\" subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 (epoch)</font>>;color=darkgray;id_0_0[label=<C0 on "
-	    "N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font color=\"#606060\">T1 \"reduce_8\" "
+	    "N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font color=\"#606060\">T1 "
 	    "(device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [0,0,0] + [1,1,1]<br/>(R1) <i>discard_write</i> B0 {[0,0,0] - "
-	    "[1,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 \"consume_9\" "
+	    "[1,1,1]}<br/><i>discard_write</i> B1 {[0,0,0] - [1,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 "
 	    "(device-compute)</font>>;color=darkgray;id_0_2[label=<C2 on N0<br/><b>execution</b> [0,0,0] + [1,1,1]<br/><i>read</i> B0 {[0,0,0] - "
-	    "[1,1,1]}<br/><i>read_write</i> B0 {[0,0,0] - [1,1,1]}<br/><i>write</i> B0 {[0,0,0] - [1,1,1]}> fontcolor=black "
-	    "shape=box];}id_0_0->id_0_1[color=orchid];id_0_3->id_0_2[];id_0_5->id_0_2[color=limegreen];id_0_6->id_0_2[color=limegreen];id_0_7->id_0_2[color="
-	    "limegreen];id_0_3[label=<C3 on N0<br/><b>reduction</b> R1<br/> B0 {[0,0,0] - [1,1,1]}> fontcolor=black "
-	    "shape=ellipse];id_0_1->id_0_3[];id_0_4->id_0_3[];id_0_4[label=<C4 on N0<br/>(R1) <b>await push</b> transfer 8589934592 <br/>BB0 {[0,0,0] - "
-	    "[1,1,1]}> fontcolor=black shape=ellipse];id_0_0->id_0_4[color=orchid];id_0_5[label=<C5 on N0<br/>(R1) <b>push</b> transfer 8589934593 to N1<br/>BB0 "
-	    "[0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_1->id_0_5[];id_0_6[label=<C6 on N0<br/>(R1) <b>push</b> transfer 8589934594 to N2<br/>BB0 "
-	    "[0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_1->id_0_6[];id_0_7[label=<C7 on N0<br/>(R1) <b>push</b> transfer 8589934595 to N3<br/>BB0 "
-	    "[0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_1->id_0_7[];}";
+	    "[1,1,1]}<br/><i>read_write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>write</i> B1 {[0,0,0] - [1,1,1]}> fontcolor=black "
+	    "shape=box];}id_0_0->id_0_1[color=orchid];id_0_1->id_0_2[];id_0_3->id_0_2[];id_0_3[label=<C3 on N0<br/><b>reduction</b> R1<br/> B0 {[0,0,0] - "
+	    "[1,1,1]}> fontcolor=black "
+	    "shape=ellipse];id_0_1->id_0_3[];id_0_4->id_0_3[];id_0_5->id_0_3[color=limegreen];id_0_6->id_0_3[color=limegreen];id_0_7->id_0_3[color=limegreen];id_0_"
+	    "4[label=<C4 on N0<br/>(R1) <b>await push</b> transfer 8589934592 <br/>BB0 {[0,0,0] - [1,1,1]}> fontcolor=black "
+	    "shape=ellipse];id_0_0->id_0_4[color=orchid];id_0_5[label=<C5 on N0<br/>(R1) <b>push</b> transfer 8589934593 to N1<br/>BB0 [0,0,0] + [1,1,1]> "
+	    "fontcolor=black shape=ellipse];id_0_1->id_0_5[];id_0_6[label=<C6 on N0<br/>(R1) <b>push</b> transfer 8589934594 to N2<br/>BB0 [0,0,0] + [1,1,1]> "
+	    "fontcolor=black shape=ellipse];id_0_1->id_0_6[];id_0_7[label=<C7 on N0<br/>(R1) <b>push</b> transfer 8589934595 to N3<br/>BB0 [0,0,0] + [1,1,1]> "
+	    "fontcolor=black shape=ellipse];id_0_1->id_0_7[];}";
 
 	// fully check node 0
 	const auto dot0 = dctx.print_command_graph(0);
 	CHECK(dot0 == expected);
+	if(dot0 != expected) { fmt::print("\n{}:\n\ngot:\n\n{}\n\nexpected:\n\n{}\n\n", Catch::getResultCapture().getCurrentTestName(), dot0, expected); };
 
 	// only check the rough string length and occurence count of N1/N2... for other nodes
 	const int expected_occurences = count_occurences(expected, "N0");
-	for(size_t i = 1; i < num_nodes; ++i) {
-		const auto dot_n = dctx.print_command_graph(i);
-		REQUIRE_THAT(dot_n.size(), Catch::Matchers::WithinAbs(expected.size(), 50));
-		CHECK(count_occurences(dot_n, fmt::format("N{}", i)) == expected_occurences);
+	for(node_id nid = 1; nid < num_nodes; ++nid) {
+		CAPTURE(nid);
+		const auto dot_n = dctx.print_command_graph(nid);
+		CHECK_THAT(dot_n.size(), Catch::Matchers::WithinAbs(expected.size(), 50));
+		CHECK(count_occurences(dot_n, fmt::format("N{}", nid)) == expected_occurences);
 	}
 }
 
@@ -114,8 +122,8 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer debug names show up in the
 	CHECK(celerity::debug::get_buffer_name(buff_a) == buff_name);
 
 	q.submit([&](handler& cgh) {
-		celerity::accessor acc_a{buff_a, cgh, acc::all{}, celerity::write_only};
-		cgh.parallel_for<class UKN(print_graph_buffer_name)>(range, [=](item<1> item) { (void)acc_a; });
+		celerity::accessor acc_a{buff_a, cgh, acc::one_to_one{}, celerity::write_only, celerity::no_init};
+		cgh.parallel_for(range, [=](item<1> item) { (void)acc_a; });
 	});
 
 	// wait for commands to be generated in the scheduler thread
@@ -138,7 +146,8 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 
 	distr_queue q;
 	celerity::range<1> range(16);
-	celerity::buffer<int, 1> buff_a(range);
+	std::vector<int> init(range.size());
+	celerity::buffer<int, 1> buff_a(init.data(), range);
 
 	// set small horizon step size so that we do not need to generate a very large graph to test this functionality
 	auto& tm = celerity::detail::runtime::get_instance().get_task_manager();
@@ -147,7 +156,8 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 	for(int i = 0; i < 3; ++i) {
 		q.submit([&](handler& cgh) {
 			celerity::accessor acc_a{buff_a, cgh, acc::one_to_one{}, celerity::read_write};
-			cgh.parallel_for<class UKN(full_graph_printing)>(range, [=](item<1> item) { (void)acc_a; });
+			celerity::debug::set_task_name(cgh, "kernel");
+			cgh.parallel_for(range, [=](item<1> item) { (void)acc_a; });
 		});
 	}
 
@@ -158,35 +168,43 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 
 	SECTION("task graph") {
 		const auto* expected =
-		    "digraph G {label=\"Task Graph\" 0[shape=ellipse label=<T0<br/><b>epoch</b>>];1[shape=box style=rounded label=<T1 \"full_graph_printing_17\" "
-		    "<br/><b>device-compute</b> [0,0,0] + [16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];0->1[color=orchid];2[shape=ellipse "
-		    "label=<T2<br/><b>horizon</b>>];1->2[color=orange];3[shape=box style=rounded label=<T3 \"full_graph_printing_17\" <br/><b>device-compute</b> "
-		    "[0,0,0] + [16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];1->3[];4[shape=ellipse "
-		    "label=<T4<br/><b>horizon</b>>];3->4[color=orange];2->4[color=orange];5[shape=box style=rounded label=<T5 \"full_graph_printing_17\" "
-		    "<br/><b>device-compute</b> [0,0,0] + [16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];3->5[];6[shape=ellipse "
+		    "digraph G {label=\"Task Graph\" 0[shape=ellipse label=<T0<br/><b>epoch</b>>];1[shape=box style=rounded label=<T1 \"kernel\" "
+		    "<br/><b>device-compute</b> [0,0,0] + [16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];0->1[];2[shape=ellipse "
+		    "label=<T2<br/><b>horizon</b>>];1->2[color=orange];3[shape=box style=rounded label=<T3 \"kernel\" <br/><b>device-compute</b> [0,0,0] + "
+		    "[16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];1->3[];4[shape=ellipse "
+		    "label=<T4<br/><b>horizon</b>>];3->4[color=orange];2->4[color=orange];5[shape=box style=rounded label=<T5 \"kernel\" <br/><b>device-compute</b> "
+		    "[0,0,0] + [16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];3->5[];6[shape=ellipse "
 		    "label=<T6<br/><b>horizon</b>>];5->6[color=orange];4->6[color=orange];7[shape=ellipse label=<T7<br/><b>epoch</b>>];6->7[color=orange];}";
 
-		CHECK(runtime_testspy::print_task_graph(celerity::detail::runtime::get_instance()) == expected);
+		const auto dot = runtime_testspy::print_task_graph(celerity::detail::runtime::get_instance());
+		CHECK(dot == expected);
+		if(dot != expected) {
+			fmt::print("\n{} (task graph):\n\ngot:\n\n{}\n\nexpected:\n\n{}\n\n", Catch::getResultCapture().getCurrentTestName(), dot, expected);
+		};
 	}
 
 	SECTION("command graph") {
 		const auto* expected =
 		    "digraph G{label=\"Command Graph\" subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 (epoch)</font>>;color=darkgray;id_0_0[label=<C0 on "
-		    "N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font color=\"#606060\">T1 \"full_graph_printing_17\" "
+		    "N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font color=\"#606060\">T1 \"kernel\" "
 		    "(device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [0,0,0] + [16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - "
 		    "[16,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 "
 		    "(horizon)</font>>;color=darkgray;id_0_2[label=<C2 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph cluster_id_0_3{label=<<font "
-		    "color=\"#606060\">T3 \"full_graph_printing_17\" (device-compute)</font>>;color=darkgray;id_0_3[label=<C3 on N0<br/><b>execution</b> [0,0,0] + "
+		    "color=\"#606060\">T3 \"kernel\" (device-compute)</font>>;color=darkgray;id_0_3[label=<C3 on N0<br/><b>execution</b> [0,0,0] + "
 		    "[16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_4{label=<<font color=\"#606060\">T4 "
 		    "(horizon)</font>>;color=darkgray;id_0_4[label=<C4 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph cluster_id_0_5{label=<<font "
-		    "color=\"#606060\">T5 \"full_graph_printing_17\" (device-compute)</font>>;color=darkgray;id_0_5[label=<C5 on N0<br/><b>execution</b> [0,0,0] + "
+		    "color=\"#606060\">T5 \"kernel\" (device-compute)</font>>;color=darkgray;id_0_5[label=<C5 on N0<br/><b>execution</b> [0,0,0] + "
 		    "[16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_6{label=<<font color=\"#606060\">T6 "
 		    "(horizon)</font>>;color=darkgray;id_0_6[label=<C6 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph cluster_id_0_7{label=<<font "
 		    "color=\"#606060\">T7 (epoch)</font>>;color=darkgray;id_0_7[label=<C7 on N0<br/><b>epoch</b> (barrier)> fontcolor=black "
 		    "shape=box];}id_0_0->id_0_1[];id_0_1->id_0_2[color=orange];id_0_1->id_0_3[];id_0_3->id_0_4[color=orange];id_0_2->id_0_4[color=orange];id_0_3->id_0_"
 		    "5[];id_0_5->id_0_6[color=orange];id_0_4->id_0_6[color=orange];id_0_6->id_0_7[color=orange];}";
 
-		CHECK(runtime_testspy::print_command_graph(0, celerity::detail::runtime::get_instance()) == expected);
+		const auto dot = runtime_testspy::print_command_graph(0, celerity::detail::runtime::get_instance());
+		CHECK(dot == expected);
+		if(dot != expected) {
+			fmt::print("\n{} (command graph):\n\ngot:\n\n{}\n\nexpected:\n\n{}\n\n", Catch::getResultCapture().getCurrentTestName(), dot, expected);
+		};
 	}
 }
 

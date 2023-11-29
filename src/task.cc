@@ -1,6 +1,8 @@
 #include "task.h"
 
-#include <algorithm>
+#include "access_modes.h"
+#include "utils.h"
+
 
 namespace celerity {
 namespace detail {
@@ -62,5 +64,26 @@ namespace detail {
 		// TODO for multiple side effects on the same hoid, find the weakest order satisfying all of them
 		emplace(hoid, order);
 	}
+
+	std::string print_task_debug_label(const task& tsk, bool title_case) {
+		const auto type_string = [&] {
+			switch(tsk.get_type()) {
+			case task_type::epoch: return "epoch";
+			case task_type::host_compute: return "host-compute task";
+			case task_type::device_compute: return "device kernel";
+			case task_type::collective: return "collective host task";
+			case task_type::master_node: return "master-node host task";
+			case task_type::horizon: return "horizon";
+			case task_type::fence: return "fence";
+			default: return "unknown task";
+			}
+		}();
+
+		auto label = fmt::format("{} T{}", type_string, tsk.get_id());
+		if(title_case) { label[0] = static_cast<char>(std::toupper(label[0])); }
+		if(!tsk.get_debug_name().empty()) { fmt::format_to(std::back_inserter(label), " \"{}\"", tsk.get_debug_name()); }
+		return label;
+	}
+
 } // namespace detail
 } // namespace celerity
