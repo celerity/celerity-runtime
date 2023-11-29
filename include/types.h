@@ -75,4 +75,12 @@ struct reduction_info {
 };
 
 constexpr node_id master_node_id = 0;
+
+enum class error_policy {
+	ignore,
+	log_warning,
+	log_error,
+	throw_exception,
+};
+
 } // namespace celerity::detail

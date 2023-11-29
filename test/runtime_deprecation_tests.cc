@@ -27,7 +27,7 @@ namespace detail {
 		experimental::host_object<size_t> ho;
 		int my_int = 33;
 		q.submit(allow_by_ref, [= /* capture buffer/host-object by value */, &my_int](handler& cgh) {
-			accessor acc{buf, cgh, celerity::access::all{}, celerity::write_only_host_task};
+			accessor acc{buf, cgh, celerity::access::all{}, celerity::write_only_host_task, celerity::no_init};
 			experimental::side_effect se{ho, cgh};
 			cgh.host_task(on_master_node, [=, &my_int] {
 				(void)acc;

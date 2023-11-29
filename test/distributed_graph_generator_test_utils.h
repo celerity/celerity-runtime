@@ -477,11 +477,17 @@ class dist_cdag_test_context {
 	friend class task_builder;
 
   public:
-	dist_cdag_test_context(size_t num_nodes) : m_num_nodes(num_nodes), m_tm(num_nodes, nullptr /* host_queue */, &m_task_recorder) {
+	struct policy_set {
+		task_manager::policy_set tm;
+		distributed_graph_generator::policy_set dggen;
+	};
+
+	dist_cdag_test_context(const size_t num_nodes, const policy_set& policy = {})
+	    : m_num_nodes(num_nodes), m_tm(num_nodes, nullptr /* host_queue */, &m_task_recorder, policy.tm) {
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			m_cdags.emplace_back(std::make_unique<command_graph>());
 			m_cmd_recorders.emplace_back(std::make_unique<command_recorder>(&m_tm, nullptr));
-			m_dggens.emplace_back(std::make_unique<distributed_graph_generator>(num_nodes, nid, *m_cdags[nid], m_tm, m_cmd_recorders[nid].get()));
+			m_dggens.emplace_back(std::make_unique<distributed_graph_generator>(num_nodes, nid, *m_cdags[nid], m_tm, m_cmd_recorders[nid].get(), policy.dggen));
 		}
 	}
 
@@ -498,7 +504,7 @@ class dist_cdag_test_context {
 		const auto buf = test_utils::mock_buffer<Dims>(bid, size);
 		m_tm.add_buffer(bid, Dims, range_cast<3>(size), mark_as_host_initialized);
 		for(auto& dggen : m_dggens) {
-			dggen->add_buffer(bid, Dims, range_cast<3>(size));
+			dggen->add_buffer(bid, Dims, range_cast<3>(size), mark_as_host_initialized);
 		}
 		return buf;
 	}

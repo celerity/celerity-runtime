@@ -273,5 +273,8 @@ namespace detail {
 
 	[[nodiscard]] std::string print_task_debug_label(const task& tsk, bool title_case = false);
 
+	/// Determines which overlapping regions appear between write accesses when the iteration space of `tsk` is split into `chunks`.
+	std::unordered_map<buffer_id, region<3>> detect_overlapping_writes(const task& tsk, const box_vector<3>& chunks);
+
 } // namespace detail
 } // namespace celerity

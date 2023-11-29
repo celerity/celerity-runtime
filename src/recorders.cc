@@ -44,9 +44,9 @@ task_dependency_list build_task_dependency_list(const task& tsk) {
 }
 
 task_record::task_record(const task& from, const buffer_manager* buff_mngr)
-    : tid(from.get_id()), debug_name(from.get_debug_name()), cgid(from.get_collective_group_id()), type(from.get_type()),
-      geometry(from.get_geometry()), reductions(build_reduction_list(from, buff_mngr)), accesses(build_access_list(from, buff_mngr)),
-      side_effect_map(from.get_side_effect_map()), dependencies(build_task_dependency_list(from)) {}
+    : tid(from.get_id()), debug_name(from.get_debug_name()), cgid(from.get_collective_group_id()), type(from.get_type()), geometry(from.get_geometry()),
+      reductions(build_reduction_list(from, buff_mngr)), accesses(build_access_list(from, buff_mngr)), side_effect_map(from.get_side_effect_map()),
+      dependencies(build_task_dependency_list(from)) {}
 
 void task_recorder::record_task(const task& tsk) { //
 	m_recorded_tasks.emplace_back(tsk, m_buff_mngr);

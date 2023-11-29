@@ -10,8 +10,8 @@
 namespace celerity::detail {
 
 distributed_graph_generator::distributed_graph_generator(
-    const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm, detail::command_recorder* recorder)
-    : m_num_nodes(num_nodes), m_local_nid(local_nid), m_cdag(cdag), m_task_mngr(tm), m_recorder(recorder) {
+    const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm, detail::command_recorder* recorder, const policy_set& policy)
+    : m_num_nodes(num_nodes), m_local_nid(local_nid), m_policy(policy), m_cdag(cdag), m_task_mngr(tm), m_recorder(recorder) {
 	if(m_num_nodes > max_num_nodes) {
 		throw std::runtime_error(fmt::format("Number of nodes requested ({}) exceeds compile-time maximum of {}", m_num_nodes, max_num_nodes));
 	}
@@ -25,9 +25,10 @@ distributed_graph_generator::distributed_graph_generator(
 	m_epoch_for_new_commands = epoch_cmd->get_cid();
 }
 
-void distributed_graph_generator::add_buffer(const buffer_id bid, const int dims, const range<3>& range) {
+void distributed_graph_generator::add_buffer(const buffer_id bid, const int dims, const range<3>& range, bool host_initialized) {
 	m_buffer_states.emplace(
 	    std::piecewise_construct, std::tuple{bid}, std::tuple{region_map<write_command_state>{range, dims}, region_map<node_bitset>{range, dims}});
+	if(host_initialized && m_policy.uninitialized_read_error != error_policy::ignore) { m_buffer_states.at(bid).initialized_region = box(subrange({}, range)); }
 	// Mark contents as available locally (= don't generate await push commands) and fully replicated (= don't generate push commands).
 	// This is required when tasks access host-initialized or uninitialized buffers.
 	m_buffer_states.at(bid).local_last_writer.update_region(subrange<3>({}, range), m_epoch_for_new_commands);
@@ -145,8 +146,30 @@ std::unordered_set<abstract_command*> distributed_graph_generator::build_task(co
 	return std::move(m_current_cmd_batch);
 }
 
+void distributed_graph_generator::report_overlapping_writes(const task& tsk, const box_vector<3>& local_chunks) const {
+	const chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
+
+	// Since this check is run distributed on every node, we avoid quadratic behavior by only checking for conflicts between all local chunks and the
+	// region-union of remote chunks. This way, every conflict will be reported by at least one node.
+	const box<3> global_chunk(subrange(full_chunk.offset, full_chunk.range));
+	auto remote_chunks = region_difference(global_chunk, region(box_vector<3>(local_chunks))).into_boxes();
+
+	// detect_overlapping_writes takes a single box_vector, so we concatenate local and global chunks (the order does not matter)
+	auto distributed_chunks = std::move(remote_chunks);
+	distributed_chunks.insert(distributed_chunks.end(), local_chunks.begin(), local_chunks.end());
+
+	if(const auto overlapping_writes = detect_overlapping_writes(tsk, distributed_chunks); !overlapping_writes.empty()) {
+		auto error = fmt::format("{} has overlapping writes between multiple nodes in", print_task_debug_label(tsk, true /* title case */));
+		for(const auto& [bid, overlap] : overlapping_writes) {
+			fmt::format_to(std::back_inserter(error), " B{} {}", bid, overlap);
+		}
+		error += ". Choose a non-overlapping range mapper for the write access or constrain the split to make the access non-overlapping.";
+		utils::report_error(m_policy.overlapping_write_error, "{}", error);
+	}
+}
+
 void distributed_graph_generator::generate_distributed_commands(const task& tsk) {
-	chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
+	const chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
 	const size_t num_chunks = m_num_nodes * 1; // TODO Make configurable
 	const auto chunks = ([&] {
 		if(tsk.get_type() == task_type::collective || tsk.get_type() == task_type::fence) {
@@ -177,6 +200,9 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 
 	// Remember all generated pushes for determining intra-task anti-dependencies.
 	std::vector<push_command*> generated_pushes;
+
+	// Collect all local chunks for detecting overlapping writes between all local chunks and the union of remote chunks in a distributed manner.
+	box_vector<3> local_chunks;
 
 	// In the master/worker model, we used to try and find the node best suited for initializing multiple
 	// reductions that do not initialize_to_identity based on current data distribution.
@@ -249,6 +275,8 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 				}
 				m_last_collective_commands.emplace(cgid, cmd->get_cid());
 			}
+
+			local_chunks.push_back(subrange(chunks[i].offset, chunks[i].range));
 		}
 
 		// We use the task id, together with the "chunk id" and the buffer id (stored separately) to match pushes against their corresponding await pushes
@@ -283,9 +311,15 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 				// TODO the per-node reduction result is discarded - warn user about dead store
 			}
 
+			region<3> uninitialized_reads;
 			for(const auto mode : required_modes) {
 				const auto& req = reqs_by_mode.at(mode);
 				if(detail::access::mode_traits::is_consumer(mode)) {
+					if(is_local_chunk && m_policy.uninitialized_read_error != error_policy::ignore
+					    && !bounding_box(buffer_state.initialized_region).covers(bounding_box(req.get_boxes()))) {
+						uninitialized_reads = region_union(uninitialized_reads, region_difference(req, buffer_state.initialized_region));
+					}
+
 					if(is_local_chunk) {
 						// Store the read access for determining anti-dependencies later on
 						m_command_buffer_reads[cmd->get_cid()][bid] = region_union(m_command_buffer_reads[cmd->get_cid()][bid], req);
@@ -353,7 +387,17 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 				}
 			}
 
+			if(!uninitialized_reads.empty()) {
+				utils::report_error(m_policy.uninitialized_read_error,
+				    "Command C{} on N{}, which executes {} of {}, reads B{} {}, which has not been written by any node.", cmd->get_cid(), m_local_nid,
+				    box(subrange(chunks[i].offset, chunks[i].range)), print_task_debug_label(tsk), bid, detail::region(std::move(uninitialized_reads)));
+			}
+
 			if(generate_reduction) {
+				if(m_policy.uninitialized_read_error != error_policy::ignore) {
+					post_reduction_buffer_states.at(bid).initialized_region = scalar_reduction_box;
+				}
+
 				const auto& reduction = *buffer_state.pending_reduction;
 
 				const auto local_last_writer = buffer_state.local_last_writer.get_region_values(scalar_reduction_box);
@@ -401,6 +445,9 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 			}
 		}
 	}
+
+	// Check for and report overlapping writes between local chunks, and between local and remote chunks.
+	if(m_policy.overlapping_write_error != error_policy::ignore) { report_overlapping_writes(tsk, local_chunks); }
 
 	// For buffers that were in a pending reduction state and a reduction was generated
 	// (i.e., the result was not discarded), set their new state.
@@ -501,6 +548,10 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 		assert(region_difference(local_writes, global_writes).empty()); // Local writes have to be a subset of global writes
 		const auto remote_writes = region_difference(global_writes, local_writes);
 		auto& buffer_state = m_buffer_states.at(bid);
+
+		if(m_policy.uninitialized_read_error != error_policy::ignore) {
+			buffer_state.initialized_region = region_union(buffer_state.initialized_region, global_writes);
+		}
 
 		// TODO: We need a way of updating regions in place! E.g. apply_to_values(box, callback)
 		auto boxes_and_cids = buffer_state.local_last_writer.get_region_values(remote_writes);

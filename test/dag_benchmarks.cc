@@ -135,10 +135,20 @@ TEST_CASE("benchmark task handling", "[benchmark][group:task-graph]") {
 }
 
 
+// these policies are equivalent to the ones used by `runtime` (except that we throw exceptions here for benchmark-debugging purposes)
+static constexpr task_manager::policy_set benchmark_task_manager_policy = {
+    /* uninitialized_read_error */ CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::throw_exception : error_policy::ignore,
+};
+static constexpr distributed_graph_generator::policy_set benchmark_command_graph_generator_policy{
+    /* uninitialized_read_error */ error_policy::ignore, // uninitialized reads already detected by task manager
+    /* overlapping_write_error */ CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::throw_exception : error_policy::ignore,
+};
+
+
 struct task_manager_benchmark_context {
 	const size_t num_nodes = 1;
 	task_recorder trec;
-	task_manager tm{1, nullptr, test_utils::print_graphs ? &trec : nullptr};
+	task_manager tm{1, nullptr, test_utils::print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
 	test_utils::mock_buffer_factory mbf{tm};
 
 	~task_manager_benchmark_context() { tm.generate_epoch_task(celerity::detail::epoch_action::shutdown); }
@@ -152,18 +162,19 @@ struct task_manager_benchmark_context {
 	}
 };
 
+
 struct graph_generator_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
 	graph_serializer gser{[](command_pkg&&) {}};
 	task_recorder trec;
-	task_manager tm{num_nodes, nullptr, test_utils::print_graphs ? &trec : nullptr};
-	command_recorder crec;
-	distributed_graph_generator dggen;
-	test_utils::mock_buffer_factory mbf;
+	task_manager tm{num_nodes, nullptr, test_utils::print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
+	command_recorder crec{&tm};
+	distributed_graph_generator dggen{
+	    num_nodes, 0 /* local_nid */, cdag, tm, test_utils::print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
+	test_utils::mock_buffer_factory mbf{tm, dggen};
 
-	explicit graph_generator_benchmark_context(size_t num_nodes)
-	    : num_nodes{num_nodes}, crec(&tm), dggen{num_nodes, 0 /* local_nid */, cdag, tm, test_utils::print_graphs ? &crec : nullptr}, mbf{tm, dggen} {
+	explicit graph_generator_benchmark_context(size_t num_nodes) : num_nodes{num_nodes} {
 		tm.register_task_callback([this](const task* tsk) {
 			const auto cmds = dggen.build_task(*tsk);
 			gser.flush(cmds);
@@ -258,13 +269,13 @@ class benchmark_scheduler final : public abstract_scheduler {
 struct scheduler_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
-	task_manager tm{num_nodes, nullptr, {}};
+	task_manager tm{num_nodes, nullptr, {}, benchmark_task_manager_policy};
 	benchmark_scheduler schdlr;
 	test_utils::mock_buffer_factory mbf;
 
 	explicit scheduler_benchmark_context(restartable_thread& thrd, size_t num_nodes)
-	    : num_nodes{num_nodes},                                                                                         //
-	      schdlr{thrd, std::make_unique<distributed_graph_generator>(num_nodes, 0 /* local_nid */, cdag, tm, nullptr)}, //
+	    : num_nodes{num_nodes}, schdlr{thrd, std::make_unique<distributed_graph_generator>(
+	                                             num_nodes, 0 /* local_nid */, cdag, tm, nullptr, benchmark_command_graph_generator_policy)},
 	      mbf{tm, schdlr} {
 		tm.register_task_callback([this](const task* tsk) { schdlr.notify_task_created(tsk); });
 		schdlr.startup();
@@ -325,7 +336,7 @@ template <typename BenchmarkContext>
 template <typename BenchmarkContext>
 [[gnu::noinline]] BenchmarkContext&& generate_chain_graph(BenchmarkContext&& ctx, const size_t num_tasks) {
 	const range<2> global_range{ctx.num_nodes, ctx.num_nodes};
-	test_utils::mock_buffer<2> buf = ctx.mbf.create_buffer(global_range);
+	test_utils::mock_buffer<2> buf = ctx.mbf.create_buffer(global_range, true /* host initialized */);
 	for(size_t t = 0; t < num_tasks; ++t) {
 		ctx.create_task(global_range, [&](handler& cgh) {
 			buf.get_access<access_mode::read>(cgh, [=](chunk<2> ck) { return subrange<2>{{ck.offset[1], ck.offset[0]}, {ck.range[1], ck.range[0]}}; });

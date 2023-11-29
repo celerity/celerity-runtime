@@ -53,7 +53,7 @@ namespace detail {
 					    serializer.flush(cmds);
 				    },
 				    [&](const event_buffer_registered& e) { //
-					    m_dggen->add_buffer(e.bid, e.dims, e.range);
+					    m_dggen->add_buffer(e.bid, e.dims, e.range, e.host_initialized);
 				    },
 				    [&](const event_shutdown&) {
 					    assert(in_flight_events.empty());
