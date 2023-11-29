@@ -2,9 +2,25 @@
 
 #include <regex>
 
+#if !defined(_MSC_VER)
+// Required for kernel name demangling in Clang
+#include <cxxabi.h>
+#endif
+
+
 namespace celerity::detail::utils {
 
-std::string simplify_task_name(const std::string& demangled_type_name) {
+std::string get_simplified_type_name_from_pointer(const std::type_info& pointer_type_info) {
+#if !defined(_MSC_VER)
+	const std::unique_ptr<char, void (*)(void*)> demangle_buffer(abi::__cxa_demangle(pointer_type_info.name(), nullptr, nullptr, nullptr), std::free);
+	std::string demangled_type_name = demangle_buffer.get();
+#else
+	std::string demangled_type_name = pointer_type_info.name();
+#endif
+
+	// get rid of the pointer "*"
+	if(!demangled_type_name.empty() && demangled_type_name.back() == '*') { demangled_type_name.pop_back(); }
+
 	if(demangled_type_name.length() < 2) return demangled_type_name;
 	bool templated = false;
 	// there are two options:

@@ -230,7 +230,7 @@ namespace test_utils {
 		detail::host_object_id m_next_id = 0;
 	};
 
-	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
+	template <typename KernelName = detail::unnamed_kernel, typename CGF, int KernelDims = 2>
 	detail::task_id add_compute_task(detail::task_manager& tm, CGF cgf, range<KernelDims> global_size = {1, 1}, id<KernelDims> global_offset = {}) {
 		// Here and below: Using these functions will cause false-positive CGF diagnostic errors, b/c we are not capturing any accessors.
 		// TODO: For many test cases using these functions it may actually be preferable to circumvent the whole handler mechanism entirely.
@@ -242,7 +242,7 @@ namespace test_utils {
 		detail::cgf_diagnostics::make_available();
 	}
 
-	template <typename KernelName = class test_task, typename CGF, int KernelDims = 2>
+	template <typename KernelName = detail::unnamed_kernel, typename CGF, int KernelDims = 2>
 	detail::task_id add_nd_range_compute_task(detail::task_manager& tm, CGF cgf, celerity::nd_range<KernelDims> execution_range = {{1, 1}, {1, 1}}) {
 		// (See above).
 		detail::cgf_diagnostics::teardown();

@@ -689,15 +689,14 @@ namespace detail {
 		const auto attempted_sr =
 		    subrange<3>{id_cast<3>(oob_idx_lo), range_cast<3>(oob_idx_hi - oob_idx_lo + id_cast<Dims>(range<Dims>(ones))) - range_cast<3>(range<Dims>(zeros))};
 		const auto unnamed_error_message =
-		    fmt::format("Out-of-bounds access in kernel 'celerity::detail::acc_out_of_bounds_kernel<{}>' detected: Accessor 0 for buffer B0 attempted to "
+		    fmt::format("Out-of-bounds access in kernel 'acc_out_of_bounds_kernel<...>' detected: Accessor 0 for buffer B0 attempted to "
 		                "access indices between {} which are outside of mapped subrange {}",
-		        Dims, attempted_sr, subrange_cast<3>(accessible_sr));
+		        attempted_sr, subrange_cast<3>(accessible_sr));
 		CHECK_THAT(lc->get_log(), Catch::Matchers::ContainsSubstring(unnamed_error_message));
 
-		const auto named_error_message = fmt::format(
-		    "Out-of-bounds access in kernel 'celerity::detail::acc_out_of_bounds_kernel<{}>' detected: Accessor 1 for buffer B1 \"{}\" attempted to "
-		    "access indices between {} which are outside of mapped subrange {}",
-		    Dims, buffer_name, attempted_sr, subrange_cast<3>(accessible_sr));
+		const auto named_error_message = fmt::format("Out-of-bounds access in kernel 'acc_out_of_bounds_kernel<...>' detected: Accessor 1 for buffer B1 \"{}\" "
+		                                             "attempted to access indices between {} which are outside of mapped subrange {}",
+		    buffer_name, attempted_sr, subrange_cast<3>(accessible_sr));
 		CHECK_THAT(lc->get_log(), Catch::Matchers::ContainsSubstring(named_error_message));
 	}
 

@@ -44,7 +44,7 @@ task_dependency_list build_task_dependency_list(const task& tsk) {
 }
 
 task_record::task_record(const task& from, const buffer_manager* buff_mngr)
-    : tid(from.get_id()), debug_name(utils::simplify_task_name(from.get_debug_name())), cgid(from.get_collective_group_id()), type(from.get_type()),
+    : tid(from.get_id()), debug_name(from.get_debug_name()), cgid(from.get_collective_group_id()), type(from.get_type()),
       geometry(from.get_geometry()), reductions(build_reduction_list(from, buff_mngr)), accesses(build_access_list(from, buff_mngr)),
       side_effect_map(from.get_side_effect_map()), dependencies(build_task_dependency_list(from)) {}
 
@@ -168,7 +168,7 @@ command_dependency_list build_command_dependency_list(const abstract_command& cm
 }
 
 std::string get_task_name(const abstract_command& cmd, const task_manager* task_mngr) {
-	if(const auto* tsk = get_task_for(cmd, task_mngr)) return utils::simplify_task_name(tsk->get_debug_name());
+	if(const auto* tsk = get_task_for(cmd, task_mngr)) return tsk->get_debug_name();
 	return {};
 }
 

@@ -271,5 +271,7 @@ namespace detail {
 		}
 	};
 
+	[[nodiscard]] std::string print_task_debug_label(const task& tsk, bool title_case = false);
+
 } // namespace detail
 } // namespace celerity

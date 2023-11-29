@@ -48,6 +48,10 @@ class task_builder {
 
 		task_id submit();
 
+		step name(const std::string& name) {
+			return chain<step>([&name](handler& cgh) { celerity::debug::set_task_name(cgh, name); });
+		}
+
 		template <typename BufferT, typename RangeMapper>
 		step read(BufferT& buf, RangeMapper rmfn) {
 			return chain<step>([&buf, rmfn](handler& cgh) { buf.template get_access<access_mode::read>(cgh, rmfn); });

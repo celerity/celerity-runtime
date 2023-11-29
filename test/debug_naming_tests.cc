@@ -68,7 +68,7 @@ TEST_CASE("device_compute tasks derive debug name from kernel name", "[task]") {
 	const auto t1 = tm.get_task(tm.submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(range<1>{1}, [](id<1>) {}); }));
 	const auto t2 = tm.get_task(tm.submit_command_group([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(range<1>{1}, [](id<1>) {}); }));
 	const auto t3 = tm.get_task(tm.submit_command_group([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(range<1>{1}, [](id<1>) {}); }));
-	CHECK(utils::simplify_task_name(t1->get_debug_name()) == "MyFirstKernel");
-	CHECK(utils::simplify_task_name(t2->get_debug_name()) == "MySecondKernel");
-	CHECK(utils::simplify_task_name(t3->get_debug_name()) == "MyThirdKernel<...>");
+	CHECK(t1->get_debug_name() == "MyFirstKernel");
+	CHECK(t2->get_debug_name() == "MySecondKernel");
+	CHECK(t3->get_debug_name() == "MyThirdKernel<...>");
 }
