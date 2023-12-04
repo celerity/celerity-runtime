@@ -76,8 +76,8 @@ class distributed_graph_generator {
 
   public:
 	struct policy_set {
-		error_policy uninitialized_read_error = error_policy::throw_exception;
-		error_policy overlapping_write_error = error_policy::throw_exception;
+		error_policy uninitialized_read_error = error_policy::panic;
+		error_policy overlapping_write_error = error_policy::panic;
 	};
 
 	distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm,

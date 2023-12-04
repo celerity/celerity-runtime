@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <functional>
-#include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
@@ -105,19 +104,32 @@ std::string get_simplified_type_name() {
 /// Escapes "<", ">", and "&" with their corresponding HTML escape sequences
 std::string escape_for_dot_label(std::string str);
 
-template <typename... FmtParams>
-[[noreturn]] void throw_error(FmtParams&&... fmt_args) {
-	throw std::runtime_error(fmt::format(std::forward<FmtParams>(fmt_args)...));
+enum class panic_solution {
+	log_and_abort,     ///< default
+	throw_logic_error, ///< enabled in unit tests to detect and recover from panics
+};
+
+/// Globally and atomically sets the behavior of `utils::panic()`.
+void set_panic_solution(panic_solution solution);
+
+/// Either throws or aborts with a message, depending on the global `panic_solution` setting.
+[[noreturn]] void panic(const std::string& msg);
+
+/// Either throws or aborts with a message, depending on the global `panic_solution` setting.
+template <typename... FmtParams, std::enable_if_t<sizeof...(FmtParams) >= 2, int> = 0>
+[[noreturn]] void panic(const FmtParams&... fmt_args) {
+	// TODO also receive a std::source_location with C++20.
+	panic(fmt::format(fmt_args...));
 }
 
-template <typename... FmtParams>
-void report_error(const error_policy policy, FmtParams&&... fmt_args) {
-	switch(policy) {
-	case error_policy::ignore: break;
-	case error_policy::log_warning: CELERITY_WARN(std::forward<FmtParams>(fmt_args)...); break;
-	case error_policy::log_error: CELERITY_ERROR(std::forward<FmtParams>(fmt_args)...); break;
-	case error_policy::throw_exception: throw_error(std::forward<FmtParams>(fmt_args)...); break;
-	}
+/// Ignores, logs, or panics on an error depending on the `error_policy`.
+void report_error(const error_policy policy, const std::string& msg);
+
+/// Ignores, logs, or panics on an error depending on the `error_policy`.
+template <typename... FmtParams, std::enable_if_t<sizeof...(FmtParams) >= 2, int> = 0>
+void report_error(const error_policy policy, const FmtParams&... fmt_args) {
+	// TODO also receive a std::source_location with C++20.
+	if(policy != error_policy::ignore) { report_error(policy, fmt::format(fmt_args...)); }
 }
 
 } // namespace celerity::detail::utils

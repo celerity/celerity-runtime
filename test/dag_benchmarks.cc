@@ -137,11 +137,11 @@ TEST_CASE("benchmark task handling", "[benchmark][group:task-graph]") {
 
 // these policies are equivalent to the ones used by `runtime` (except that we throw exceptions here for benchmark-debugging purposes)
 static constexpr task_manager::policy_set benchmark_task_manager_policy = {
-    /* uninitialized_read_error */ CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::throw_exception : error_policy::ignore,
+    /* uninitialized_read_error */ CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::panic : error_policy::ignore,
 };
 static constexpr distributed_graph_generator::policy_set benchmark_command_graph_generator_policy{
     /* uninitialized_read_error */ error_policy::ignore, // uninitialized reads already detected by task manager
-    /* overlapping_write_error */ CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::throw_exception : error_policy::ignore,
+    /* overlapping_write_error */ CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::panic : error_policy::ignore,
 };
 
 
