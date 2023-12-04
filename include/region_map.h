@@ -9,7 +9,7 @@
 #include <variant>
 #include <vector>
 
-#include <spdlog/fmt/fmt.h>
+#include <fmt/format.h>
 
 #include "grid.h"
 #include "utils.h"

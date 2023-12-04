@@ -9,7 +9,7 @@
 #include <vector>
 
 #include <catch2/catch_message.hpp>
-#include <spdlog/fmt/fmt.h>
+#include <fmt/format.h>
 
 #include "access_modes.h"
 #include "command_graph.h"

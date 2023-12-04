@@ -4,7 +4,7 @@
 #include <type_traits>
 
 #include <CL/sycl.hpp>
-#include <spdlog/fmt/fmt.h>
+#include <fmt/format.h>
 
 #include "ranges.h"
 
