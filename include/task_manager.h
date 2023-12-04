@@ -59,7 +59,7 @@ namespace detail {
 
 	  public:
 		struct policy_set {
-			error_policy uninitialized_read_error = error_policy::throw_exception;
+			error_policy uninitialized_read_error = error_policy::panic;
 		};
 
 		constexpr inline static task_id initial_epoch_task = 0;

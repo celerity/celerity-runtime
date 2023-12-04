@@ -80,7 +80,7 @@ enum class error_policy {
 	ignore,
 	log_warning,
 	log_error,
-	throw_exception,
+	panic,
 };
 
 } // namespace celerity::detail
