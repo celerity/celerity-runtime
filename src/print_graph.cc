@@ -1,7 +1,6 @@
 #include "print_graph.h"
 
-#include <spdlog/fmt/fmt.h>
-#include <spdlog/fmt/ostr.h>
+#include <fmt/format.h>
 
 #include "command.h"
 #include "command_graph.h"

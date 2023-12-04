@@ -6,7 +6,6 @@
 #include <utility>
 #include <variant>
 
-#include <spdlog/fmt/ostr.h> // Enable formatting of types that support operator<<(std::ostream&, T)
 #include <spdlog/spdlog.h>
 
 #include "print_utils.h"
