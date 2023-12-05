@@ -106,12 +106,12 @@ std::string get_command_label(const node_id local_nid, const command_record& cmd
 	} break;
 	case command_type::push: {
 		add_reduction_id_if_reduction();
-		fmt::format_to(std::back_inserter(label), "<b>push</b> transfer {} to N{}<br/>B{} {}", cmd.transfer_id.value(), cmd.target.value(), buffer_label,
-		    cmd.push_range.value());
+		fmt::format_to(
+		    std::back_inserter(label), "<b>push</b> {} to N{}<br/>{} {}", cmd.transfer_id.value(), cmd.target.value(), buffer_label, cmd.push_range.value());
 	} break;
 	case command_type::await_push: {
 		add_reduction_id_if_reduction();
-		fmt::format_to(std::back_inserter(label), "<b>await push</b> transfer {} <br/>B{} {}", //
+		fmt::format_to(std::back_inserter(label), "<b>await push</b> {} <br/>{} {}", //
 		    cmd.transfer_id.value(), buffer_label, cmd.await_region.value());
 	} break;
 	case command_type::reduction: {

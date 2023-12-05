@@ -452,6 +452,14 @@ struct StringMaker<std::optional<T>> {
 	static std::string convert(const std::optional<T>& v) { return v.has_value() ? Catch::Detail::stringify(*v) : "null"; }
 };
 
+#define CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER(Type)                                                                                                 \
+	template <>                                                                                                                                                \
+	struct StringMaker<Type> {                                                                                                                                 \
+		static std::string convert(const Type& v) { return fmt::format("{}", v); }                                                                             \
+	};
+
+CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER(celerity::detail::transfer_id)
+
 #define CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER_FOR_DIMS(Type)                                                                                        \
 	template <int Dims>                                                                                                                                        \
 	struct StringMaker<Type<Dims>> {                                                                                                                           \

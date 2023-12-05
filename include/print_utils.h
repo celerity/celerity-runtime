@@ -89,7 +89,8 @@ CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(collective_group_i
 CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(reduction_id)
 CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(host_object_id)
 CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(hydration_id)
-CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(transfer_id)
+
+#undef CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS
 
 
 template <>
@@ -119,5 +120,21 @@ struct fmt::formatter<celerity::detail::dependency_origin> : fmt::formatter<std:
 			}
 		}();
 		return std::copy(repr.begin(), repr.end(), ctx.out());
+	}
+};
+
+template <>
+struct fmt::formatter<celerity::detail::transfer_id> {
+	constexpr format_parse_context::iterator parse(format_parse_context& ctx) { return ctx.begin(); }
+
+	format_context::iterator format(const celerity::detail::transfer_id& trid, format_context& ctx) const {
+		const auto [tid, bid, rid] = trid;
+		auto out = ctx.out();
+		if(rid != celerity::detail::no_reduction_id) {
+			out = fmt::format_to(out, "T{}.B{}.R{}", tid, bid, rid);
+		} else {
+			out = fmt::format_to(out, "T{}.B{}", tid, bid);
+		}
+		return ctx.out();
 	}
 };

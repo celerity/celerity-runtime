@@ -32,18 +32,16 @@ namespace detail {
 		const push_data& data = std::get<push_data>(pkg.data);
 
 		auto& bm = runtime::get_instance().get_buffer_manager();
-		const auto element_size = bm.get_buffer_info(data.bid).element_size;
+		const auto element_size = bm.get_buffer_info(data.trid.bid).element_size;
 
 		unique_frame_ptr<data_frame> frame(from_payload_count, data.sr.range.size() * element_size, /* packet_size_bytes */ send_recv_unit_bytes);
 		frame->sr = data.sr;
-		frame->bid = data.bid;
-		frame->rid = data.rid;
 		frame->trid = data.trid;
-		bm.get_buffer_data(data.bid, data.sr, frame->data);
+		bm.get_buffer_data(data.trid.bid, data.sr, frame->data);
 
 		assert(frame.get_size_bytes() % send_recv_unit_bytes == 0);
 		const size_t frame_units = frame.get_size_bytes() / send_recv_unit_bytes;
-		CELERITY_TRACE("Ready to send {} of buffer {} ({} * {}B) to {}", data.sr, data.bid, frame_units, send_recv_unit_bytes, data.target);
+		CELERITY_TRACE("Ready to send {} of buffer {} ({} * {}B) to {}", data.sr, data.trid.bid, frame_units, send_recv_unit_bytes, data.target);
 
 		// Start transmitting data
 		MPI_Request req;
@@ -68,15 +66,13 @@ namespace detail {
 
 		std::shared_ptr<incoming_transfer_handle> t_handle;
 		// Check to see if we have (fully) received the data already
-		const auto buffer_transfer = std::pair{data.bid, data.trid};
-		if(m_push_blackboard.count(buffer_transfer) != 0) {
-			t_handle = m_push_blackboard[buffer_transfer];
+		if(m_push_blackboard.count(data.trid) != 0) {
+			t_handle = m_push_blackboard[data.trid];
 			t_handle->set_expected_region(expected_region);
 			if(t_handle->received_full_region()) {
-				m_push_blackboard.erase(buffer_transfer);
+				m_push_blackboard.erase(data.trid);
 				t_handle->drain_transfers([&](std::unique_ptr<transfer_in> t) {
-					assert(t->frame->bid == data.bid);
-					assert(t->frame->rid == data.rid);
+					assert(t->frame->trid == data.trid);
 					commit_transfer(*t);
 				});
 				t_handle->complete = true;
@@ -85,7 +81,7 @@ namespace detail {
 			t_handle = std::make_shared<incoming_transfer_handle>(m_num_nodes);
 			t_handle->set_expected_region(expected_region);
 			// Store new handle so we can mark it as complete when the push is received
-			m_push_blackboard[buffer_transfer] = t_handle;
+			m_push_blackboard[data.trid] = t_handle;
 		}
 
 		return t_handle;
@@ -132,20 +128,20 @@ namespace detail {
 
 			// Check whether we already have an await push request
 			std::shared_ptr<incoming_transfer_handle> t_handle = nullptr;
-			const auto buffer_transfer = std::pair{transfer->frame->bid, transfer->frame->trid};
-			if(m_push_blackboard.count(buffer_transfer) != 0) {
-				t_handle = m_push_blackboard[buffer_transfer];
+			const auto& trid = transfer->frame->trid;
+			if(m_push_blackboard.count(trid) != 0) {
+				t_handle = m_push_blackboard[trid];
 				t_handle->add_transfer(std::move(*it));
 
 				if(t_handle->received_full_region()) {
-					m_push_blackboard.erase(buffer_transfer);
+					m_push_blackboard.erase(trid);
 					assert(t_handle.use_count() > 1 && "Dangling await push request");
 					t_handle->drain_transfers([](std::unique_ptr<transfer_in> t) { commit_transfer(*t); });
 					t_handle->complete = true;
 				}
 			} else {
 				t_handle = std::make_shared<incoming_transfer_handle>(m_num_nodes);
-				m_push_blackboard[buffer_transfer] = t_handle;
+				m_push_blackboard[trid] = t_handle;
 				t_handle->add_transfer(std::move(*it));
 			}
 			it = m_incoming_transfers.erase(it);
@@ -170,17 +166,17 @@ namespace detail {
 		const auto& frame = *transfer.frame;
 		auto payload = std::move(transfer.frame).into_payload_ptr();
 
-		if(frame.rid) {
+		if(frame.trid.rid != no_reduction_id) {
 			auto& rm = runtime::get_instance().get_reduction_manager();
 			// In some rare situations the local runtime might not yet know about this reduction. Busy wait until it does.
-			while(!rm.has_reduction(frame.rid)) {}
+			while(!rm.has_reduction(frame.trid.rid)) {}
 			// The push may not include any data if the source node does not own any part of the pending reduction
-			if(frame.sr.range.size() != 0) { rm.push_overlapping_reduction_data(frame.rid, transfer.source_nid, std::move(payload)); }
+			if(frame.sr.range.size() != 0) { rm.push_overlapping_reduction_data(frame.trid.rid, transfer.source_nid, std::move(payload)); }
 		} else {
 			auto& bm = runtime::get_instance().get_buffer_manager();
 			// In some rare situations the local runtime might not yet know about this buffer. Busy wait until it does.
-			while(!bm.has_buffer(frame.bid)) {}
-			bm.set_buffer_data(frame.bid, frame.sr, std::move(payload));
+			while(!bm.has_buffer(frame.trid.bid)) {}
+			bm.set_buffer_data(frame.trid.bid, frame.sr, std::move(payload));
 		}
 	}
 

@@ -86,7 +86,7 @@ namespace detail {
 
 	std::string await_push_job::get_description(const command_pkg& pkg) {
 		const auto data = std::get<await_push_data>(pkg.data);
-		return fmt::format("await push of buffer {} transfer {}", static_cast<size_t>(data.bid), static_cast<size_t>(data.trid));
+		return fmt::format("await push of {}", data.trid);
 	}
 
 	bool await_push_job::execute(const command_pkg& pkg) {
@@ -101,8 +101,7 @@ namespace detail {
 
 	std::string push_job::get_description(const command_pkg& pkg) {
 		const auto data = std::get<push_data>(pkg.data);
-		return fmt::format("push {} of buffer {} transfer {} to node {}", data.sr, static_cast<size_t>(data.bid), static_cast<size_t>(data.trid),
-		    static_cast<size_t>(data.target));
+		return fmt::format("push {} of {} to node {}", data.sr, data.trid, static_cast<size_t>(data.target));
 	}
 
 	bool push_job::execute(const command_pkg& pkg) {
@@ -112,7 +111,7 @@ namespace detail {
 			// If any other tasks are currently using this buffer for reading, we run into problems.
 			// To avoid this, we use a very crude buffer locking mechanism for now.
 			// FIXME: Get rid of this, replace with finer grained approach.
-			if(m_buffer_mngr.is_locked(data.bid)) { return false; }
+			if(m_buffer_mngr.is_locked(data.trid.bid)) { return false; }
 
 			CELERITY_TRACE("Submit buffer to BTM");
 			m_data_handle = m_btm.push(pkg);

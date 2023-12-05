@@ -90,11 +90,11 @@ TEST_CASE("command graph printing is unchanged", "[print_graph][command-graph]")
 	    "shape=box];}id_0_0->id_0_1[color=orchid];id_0_1->id_0_2[];id_0_3->id_0_2[];id_0_3[label=<C3 on N0<br/><b>reduction</b> R1<br/> B0 {[0,0,0] - "
 	    "[1,1,1]}> fontcolor=black "
 	    "shape=ellipse];id_0_1->id_0_3[];id_0_4->id_0_3[];id_0_5->id_0_3[color=limegreen];id_0_6->id_0_3[color=limegreen];id_0_7->id_0_3[color=limegreen];id_0_"
-	    "4[label=<C4 on N0<br/>(R1) <b>await push</b> transfer 8589934592 <br/>BB0 {[0,0,0] - [1,1,1]}> fontcolor=black "
-	    "shape=ellipse];id_0_0->id_0_4[color=orchid];id_0_5[label=<C5 on N0<br/>(R1) <b>push</b> transfer 8589934593 to N1<br/>BB0 [0,0,0] + [1,1,1]> "
-	    "fontcolor=black shape=ellipse];id_0_1->id_0_5[];id_0_6[label=<C6 on N0<br/>(R1) <b>push</b> transfer 8589934594 to N2<br/>BB0 [0,0,0] + [1,1,1]> "
-	    "fontcolor=black shape=ellipse];id_0_1->id_0_6[];id_0_7[label=<C7 on N0<br/>(R1) <b>push</b> transfer 8589934595 to N3<br/>BB0 [0,0,0] + [1,1,1]> "
-	    "fontcolor=black shape=ellipse];id_0_1->id_0_7[];}";
+	    "4[label=<C4 on N0<br/>(R1) <b>await push</b> T2.B0.R1 <br/>B0 {[0,0,0] - [1,1,1]}> fontcolor=black "
+	    "shape=ellipse];id_0_0->id_0_4[color=orchid];id_0_5[label=<C5 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N1<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black "
+	    "shape=ellipse];id_0_1->id_0_5[];id_0_6[label=<C6 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N2<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black "
+	    "shape=ellipse];id_0_1->id_0_6[];id_0_7[label=<C7 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N3<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black "
+	    "shape=ellipse];id_0_1->id_0_7[];}";
 
 	// fully check node 0
 	const auto dot0 = dctx.print_command_graph(0);

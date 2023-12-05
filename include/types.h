@@ -40,7 +40,8 @@ CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(collective_group_id, size_t)
 CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(reduction_id, size_t)
 CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(host_object_id, size_t)
 CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(hydration_id, size_t)
-CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(transfer_id, size_t)
+
+#undef CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS
 
 // verify properties of type conversion as documented for CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS
 static_assert(std::is_standard_layout_v<celerity::detail::hydration_id> && std::is_trivially_default_constructible_v<celerity::detail::hydration_id>);
@@ -65,6 +66,34 @@ struct reduction_info {
 
 constexpr node_id master_node_id = 0;
 
+inline constexpr reduction_id no_reduction_id = 0;
+
+/// Uniquely identifies one version of a buffer's (distributed) data at task granularity. The structure is used to tie together the sending and receiving ends
+/// of peer-to-peer data transfers.
+struct transfer_id {
+	/// The first task (by order of task id) to require this version of the buffer.
+	task_id consumer_tid = -1;
+
+	/// The buffer's id.
+	buffer_id bid = -1;
+
+	/// The reduction the data belongs to. If `!= no_reduction_id`, the transferred data consists of partial results that will be consumed by a subsequent
+	/// reduction command to produce the final value.
+	///
+	/// Since a task cannot require data both as part of a reduction and with its final value at the same time, this field is not necessary to identify the
+	/// transfer version, but is used for sanity checks. It might become additionally valuable once we allow the user to specify the buffer subrange each
+	/// reduction is targeting.
+	reduction_id rid = no_reduction_id;
+
+	transfer_id() = default;
+	transfer_id(const task_id consumer_tid, const buffer_id bid, const reduction_id rid = no_reduction_id) : consumer_tid(consumer_tid), bid(bid), rid(rid) {}
+
+	friend bool operator==(const transfer_id& lhs, const transfer_id& rhs) {
+		return lhs.consumer_tid == rhs.consumer_tid && lhs.bid == rhs.bid && lhs.rid == rhs.rid;
+	}
+	friend bool operator!=(const transfer_id& lhs, const transfer_id& rhs) { return !(lhs == rhs); }
+};
+
 enum class error_policy {
 	ignore,
 	log_warning,
@@ -73,3 +102,8 @@ enum class error_policy {
 };
 
 } // namespace celerity::detail
+
+template <>
+struct std::hash<celerity::detail::transfer_id> {
+	std::size_t operator()(const celerity::detail::transfer_id& t) const noexcept; // defined in utils.cc
+};
