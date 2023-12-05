@@ -58,9 +58,12 @@ jobs:
     container:
       # We could run this for more than one implementation,
       # but would likely end up with mostly duplicate diagnostics.
-      image: celerity-build/hipsycl:ubuntu22.04-latest
+      image: ghcr.io/celerity/celerity-build/hipsycl:ubuntu22.04-latest
       volumes:
         - ccache:/ccache
+      credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       # Here and in jobs below: We need to manually set the container workspace
       # path as an environment variable, as (curiously) the `github.workspace` context
@@ -141,9 +144,12 @@ jobs:
       build-dir: /root/build
       examples-build-dir: /root/build-examples
     container:
-      image: celerity-build/${{ matrix.sycl }}:ubuntu${{ matrix.ubuntu-version }}-${{ matrix.sycl-version }}
+      image: ghcr.io/celerity/celerity-build/${{ matrix.sycl }}:ubuntu${{ matrix.ubuntu-version }}-${{ matrix.sycl-version }}
       volumes:
         - ccache:/ccache
+      credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Set container workspace environment variable
         run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
@@ -220,13 +226,22 @@ jobs:
           - sycl: "hipsycl"
             platform: "nvidia"
     env:
-      image-basename-dpcpp: celerity-build/dpcpp:ubuntu${{ needs.build-and-test.outputs.dpcpp-HEAD-ubuntu-version }}
-      image-basename-hipsycl: celerity-build/hipsycl:ubuntu${{ needs.build-and-test.outputs.hipsycl-HEAD-ubuntu-version }}
+      image-basename-dpcpp: ghcr.io/celerity/celerity-build/dpcpp:ubuntu${{ needs.build-and-test.outputs.dpcpp-HEAD-ubuntu-version }}
+      image-basename-hipsycl: ghcr.io/celerity/celerity-build/hipsycl:ubuntu${{ needs.build-and-test.outputs.hipsycl-HEAD-ubuntu-version }}
+    permissions:
+      packages: write
     steps:
+      - name: Log into Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - if: matrix.sycl == 'dpcpp'
         run: |
           if [[ "${{ needs.build-and-test.outputs.dpcpp-HEAD-Debug-works }}" -eq 1 ]] && [[ "${{ needs.build-and-test.outputs.dpcpp-HEAD-Release-works }}" -eq 1 ]]; then
             docker tag ${{ env.image-basename-dpcpp }}-HEAD ${{ env.image-basename-dpcpp }}-latest
+            docker push ${{ env.image-basename-dpcpp }}-latest
           else
             exit 1
           fi
@@ -234,6 +249,7 @@ jobs:
         run: |
           if [[ "${{ needs.build-and-test.outputs.hipsycl-HEAD-Debug-works }}" -eq 1 ]] && [[ "${{ needs.build-and-test.outputs.hipsycl-HEAD-Release-works }}" -eq 1 ]]; then
             docker tag ${{ env.image-basename-hipsycl }}-HEAD ${{ env.image-basename-hipsycl }}-latest
+            docker push ${{ env.image-basename-hipsycl }}-latest
           else
             exit 1
           fi
@@ -245,7 +261,10 @@ jobs:
     env:
       container-workspace: <placeholder>
     container:
-      image: celerity-lint
+      image: ghcr.io/celerity/celerity-lint
+      credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Set container workspace environment variable
         run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
