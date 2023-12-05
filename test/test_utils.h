@@ -1,9 +1,6 @@
 #pragma once
 
-#include <map>
 #include <memory>
-#include <ostream>
-#include <set>
 #include <string>
 #include <unordered_set>
 
@@ -17,6 +14,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <celerity.h>
 
+#include "accessor.h"
 #include "command.h"
 #include "command_graph.h"
 #include "device_queue.h"
@@ -87,7 +85,6 @@ namespace detail {
 
 		static void create_task_slot(task_manager& tm) { task_ring_buffer_testspy::create_task_slot(tm.m_task_buffer); }
 	};
-
 
 	struct config_testspy {
 		static void set_mock_device_cfg(config& cfg, const device_config& d_cfg) { cfg.m_device_cfg = d_cfg; }
@@ -334,6 +331,9 @@ namespace test_utils {
 		~runtime_fixture();
 	};
 
+	template <int>
+	struct runtime_fixture_dims : test_utils::runtime_fixture {};
+
 	class device_queue_fixture : public mpi_fixture { // mpi_fixture for config
 	  public:
 		device_queue_fixture() = default;
@@ -348,6 +348,20 @@ namespace test_utils {
 	  private:
 		std::unique_ptr<detail::config> m_cfg;
 		std::unique_ptr<detail::device_queue> m_dq;
+	};
+
+	class sycl_queue_fixture : public device_queue_fixture {
+	  public:
+		sycl::queue& get_sycl_queue() { return get_device_queue().get_sycl_queue(); }
+
+		// Convenience function for submitting parallel_for with global offset without having to create a CGF
+		template <int Dims, typename KernelFn>
+		void parallel_for(const range<Dims>& global_range, const id<Dims>& global_offset, KernelFn fn) {
+			get_sycl_queue().submit([=](sycl::handler& cgh) {
+				cgh.parallel_for(sycl::range<Dims>{global_range}, detail::bind_simple_kernel(fn, global_range, global_offset, global_offset));
+			});
+			get_sycl_queue().wait_and_throw();
+		}
 	};
 
 	// Printing of graphs can be enabled using the "--print-graphs" command line flag
