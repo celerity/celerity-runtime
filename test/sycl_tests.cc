@@ -5,9 +5,6 @@
 
 namespace celerity::detail {
 
-template <int Dims>
-class dim_device_queue_fixture : public test_utils::device_queue_fixture {};
-
 template <access_mode, bool>
 class access_test_kernel;
 
@@ -23,14 +20,14 @@ static auto make_device_accessor(sycl::buffer<int, 1>& buf, sycl::handler& cgh, 
 }
 
 // If this test fails, celerity can't reliably support reductions on the user's combination of backend and hardware
-TEST_CASE_METHOD(test_utils::device_queue_fixture, "SYCL has working simple scalar reductions", "[sycl][reductions]") {
+TEST_CASE_METHOD(test_utils::sycl_queue_fixture, "SYCL has working simple scalar reductions", "[sycl][reductions]") {
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
 	const size_t N = GENERATE(64, 512, 1024, 4096);
 	CAPTURE(N);
 
 	sycl::buffer<int> buf{1};
 
-	get_device_queue().get_sycl_queue().submit([&](sycl::handler& cgh) {
+	get_sycl_queue().submit([&](sycl::handler& cgh) {
 		cgh.parallel_for(sycl::range<1>{N}, sycl::reduction(buf, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
 		    [](auto, auto& r) { r.combine(1); });
 	});

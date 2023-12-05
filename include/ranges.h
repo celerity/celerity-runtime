@@ -475,9 +475,9 @@ struct chunk {
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> range = detail::zeros;
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> global_size = detail::zeros;
 
-	chunk() = default;
+	constexpr chunk() = default;
 
-	chunk(const id<Dims>& offset, const celerity::range<Dims>& range, const celerity::range<Dims>& global_size)
+	constexpr chunk(const id<Dims>& offset, const celerity::range<Dims>& range, const celerity::range<Dims>& global_size)
 	    : offset(offset), range(range), global_size(global_size) {}
 
 	friend bool operator==(const chunk& lhs, const chunk& rhs) {
@@ -493,9 +493,9 @@ struct subrange {
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> offset;
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> range = detail::zeros;
 
-	subrange() = default;
-	subrange(const id<Dims>& offset, const celerity::range<Dims>& range) : offset(offset), range(range) {}
-	subrange(const chunk<Dims>& other) : offset(other.offset), range(other.range) {}
+	constexpr subrange() = default;
+	constexpr subrange(const id<Dims>& offset, const celerity::range<Dims>& range) : offset(offset), range(range) {}
+	constexpr subrange(const chunk<Dims>& other) : offset(other.offset), range(other.range) {}
 
 	friend bool operator==(const subrange& lhs, const subrange& rhs) { return lhs.offset == rhs.offset && lhs.range == rhs.range; }
 	friend bool operator!=(const subrange& lhs, const subrange& rhs) { return !operator==(lhs, rhs); }

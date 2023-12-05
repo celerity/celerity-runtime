@@ -8,6 +8,7 @@
 
 #include <celerity.h>
 #include <iterator>
+#include <set>
 
 #include "test_utils.h"
 
