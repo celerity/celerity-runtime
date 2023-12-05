@@ -349,27 +349,33 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 							buffer_state.local_last_writer.update_region(missing_parts, {ap_cmd->get_cid(), true /* is_replicated */});
 						}
 					} else if(!is_pending_reduction) {
+						// We generate separate push command for each last writer command for now, possibly even multiple for partially already-replicated data.
+						// TODO: Can and/or should we consolidate?
 						const auto local_sources = buffer_state.local_last_writer.get_region_values(req);
 						for(const auto& [local_box, wcs] : local_sources) {
 							if(!wcs.is_fresh() || wcs.is_replicated()) { continue; }
 
-							// Check if we've already pushed this box
-							const auto replicated_boxes = buffer_state.replicated_regions.get_region_values(local_box);
-							for(const auto& [replicated_box, nodes] : replicated_boxes) {
+							// Make sure we don't push anything we've already pushed to this node before
+							box_vector<3> non_replicated_boxes;
+							for(const auto& [replicated_box, nodes] : buffer_state.replicated_regions.get_region_values(local_box)) {
 								if(nodes.test(nid)) continue;
+								non_replicated_boxes.push_back(replicated_box);
+							}
 
-								// Generate separate push command for each last writer command for now,
-								// possibly even multiple for partially already-replicated data.
-								// TODO: Can and/or should we consolidate?
-								auto* const push_cmd = create_command<push_command>(bid, 0, nid, trid, replicated_box.get_subrange());
+							// Merge all connected boxes to determine final set of pushes
+							const auto push_region = region<3>(std::move(non_replicated_boxes));
+							for(auto& push_box : push_region.get_boxes()) {
+								auto* const push_cmd = create_command<push_command>(bid, 0, nid, trid, push_box.get_subrange());
 								assert(!utils::isa<await_push_command>(m_cdag.get(wcs)) && "Attempting to push non-owned data?!");
 								m_cdag.add_dependency(push_cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
 								generated_pushes.push_back(push_cmd);
 
 								// Store the read access for determining anti-dependencies later on
-								m_command_buffer_reads[push_cmd->get_cid()][bid] = replicated_box;
+								m_command_buffer_reads[push_cmd->get_cid()][bid] = push_box;
+							}
 
-								// Remember that we've replicated this region
+							// Remember that we've replicated this region
+							for(const auto& [replicated_box, nodes] : buffer_state.replicated_regions.get_region_values(push_region)) {
 								buffer_state.replicated_regions.update_box(replicated_box, node_bitset{nodes}.set(nid));
 							}
 						}
