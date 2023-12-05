@@ -24,6 +24,7 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 
 - In edge cases, command graph generation would fail to generate await-push commands when re-distributing reduction results (#223)
 - Command graph generation was missing an anti-dependency between push-commands of partial reduction results and the final reduction command (#223)
+- Don't create multiple smaller push-commands instead of a single large one in some rare situations (#229)
 
 ## [0.4.1] - 2023-09-08
 

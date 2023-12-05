@@ -134,6 +134,35 @@ TEST_CASE("distributed_graph_generator consolidates push commands for adjacent s
 	CHECK(dctx.query(tid_b).have_successors(dctx.query(command_type::push)));
 }
 
+// Regression test: While we generate separate pushes for each last writer (see above), unless a last writer box gets fragmented
+// further by subsequent writes, we should only ever generate a single push command. This was not the case, because we additionally have
+// to check whether the data in question has already been (partially) replicated to the target node. Without a subsequent merging step,
+// the number of pushes was effectively being dictated by the replication map, NOT the last writer.
+TEST_CASE(
+    "distributed_graph_generator does not unnecessarily divide push commands due to partial replication", "[distributed_graph_generator][command-graph]") {
+	dist_cdag_test_context dctx(3);
+
+	const range<1> test_range = {96};
+	auto buf = dctx.create_buffer(test_range);
+	dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, acc::one_to_one{}).submit();
+	// Assuming standard 1D split
+	CHECK(subrange_cast<1>(dynamic_cast<const execution_command&>(*dctx.query().get_raw(0)[0]).get_execution_range()) == subrange<1>{0, 32});
+	CHECK(subrange_cast<1>(dynamic_cast<const execution_command&>(*dctx.query().get_raw(1)[0]).get_execution_range()) == subrange<1>{32, 32});
+	CHECK(subrange_cast<1>(dynamic_cast<const execution_command&>(*dctx.query().get_raw(2)[0]).get_execution_range()) == subrange<1>{64, 32});
+	// Require partial data from nodes 1 and 2
+	dctx.master_node_host_task().read(buf, acc::fixed{subrange<1>{48, 32}}).submit();
+	const auto pushes1 = dctx.query(command_type::push);
+	CHECK(pushes1.count() == 2);
+	// Now exchange data between nodes 1 and 2. Node 0 doesn't read anything.
+	auto rm = [](const chunk<1>& chnk) {
+		if(chnk.offset[0] + chnk.range[0] >= 64) return subrange<1>{32, 64};
+		return subrange<1>{0, 0};
+	};
+	dctx.device_compute<class UKN(task_c)>(test_range).read(buf, rm).submit();
+	const auto pushes2 = dctx.query(command_type::push) - pushes1;
+	CHECK(pushes2.count() == 2);
+}
+
 TEST_CASE("distributed_graph_generator generates dependencies for push commands", "[distributed_graph_generator][command-graph]") {
 	dist_cdag_test_context dctx(2);
 
