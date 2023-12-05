@@ -44,8 +44,6 @@ namespace detail {
 			data_frame(const data_frame&) = delete;
 			data_frame& operator=(const data_frame&) = delete;
 
-			buffer_id bid;
-			reduction_id rid; // zero if this does not belong to a reduction
 			subrange<3> sr;
 			transfer_id trid;
 			alignas(std::max_align_t) payload_type data[]; // max_align to allow reinterpret_casting a pointer to this member to any buffer element pointer
@@ -67,8 +65,8 @@ namespace detail {
 
 			void add_transfer(std::unique_ptr<transfer_in>&& t) {
 				assert(!complete);
-				assert(t->frame->rid == 0 || m_is_reduction || m_transfers.empty()); // Either all or none
-				m_is_reduction = t->frame->rid != 0;
+				assert(t->frame->trid.rid == no_reduction_id || m_is_reduction || m_transfers.empty()); // Either all or none
+				m_is_reduction = t->frame->trid.rid != no_reduction_id;
 				const auto box = detail::box(t->frame->sr);
 				assert(region_intersection(m_received_region, box).empty() || m_is_reduction);
 				assert(!m_expected_region.has_value() || region_difference(box, *m_expected_region).empty());
@@ -117,7 +115,7 @@ namespace detail {
 		// Here we store two types of handles:
 		//  - Incoming pushes that have not yet been requested through ::await_push
 		//  - Still outstanding pushes that have been requested through ::await_push
-		std::unordered_map<std::pair<buffer_id, transfer_id>, std::shared_ptr<incoming_transfer_handle>, utils::pair_hash> m_push_blackboard;
+		std::unordered_map<transfer_id, std::shared_ptr<incoming_transfer_handle>> m_push_blackboard;
 
 		mpi_support::data_type m_send_recv_unit;
 

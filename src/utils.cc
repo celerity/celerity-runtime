@@ -94,3 +94,12 @@ void report_error(const error_policy policy, const std::string& msg) {
 }
 
 } // namespace celerity::detail::utils
+
+
+// implemented here because types.h must not depend on utils.h
+std::size_t std::hash<celerity::detail::transfer_id>::operator()(const celerity::detail::transfer_id& t) const noexcept {
+	auto hash = std::hash<celerity::detail::task_id>{}(t.consumer_tid);
+	celerity::detail::utils::hash_combine(hash, std::hash<celerity::detail::buffer_id>{}(t.bid));
+	celerity::detail::utils::hash_combine(hash, std::hash<celerity::detail::reduction_id>{}(t.rid));
+	return hash;
+}

@@ -76,9 +76,9 @@ namespace detail {
 		} else if(const auto* xcmd = dynamic_cast<execution_command*>(cmd)) {
 			pkg.data = execution_data{xcmd->get_tid(), xcmd->get_execution_range(), xcmd->is_reduction_initializer()};
 		} else if(const auto* pcmd = dynamic_cast<push_command*>(cmd)) {
-			pkg.data = push_data{pcmd->get_bid(), pcmd->get_reduction_id(), pcmd->get_target(), pcmd->get_transfer_id(), pcmd->get_range()};
+			pkg.data = push_data{pcmd->get_target(), pcmd->get_transfer_id(), pcmd->get_range()};
 		} else if(const auto* apcmd = dynamic_cast<await_push_command*>(cmd)) {
-			pkg.data = await_push_data{apcmd->get_bid(), apcmd->get_reduction_id(), apcmd->get_transfer_id(), apcmd->get_region()};
+			pkg.data = await_push_data{apcmd->get_transfer_id(), apcmd->get_region()};
 		} else if(const auto* rcmd = dynamic_cast<reduction_command*>(cmd)) {
 			pkg.data = reduction_data{rcmd->get_reduction_info().rid};
 		} else if(const auto* hcmd = dynamic_cast<horizon_command*>(cmd)) {

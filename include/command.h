@@ -50,19 +50,15 @@ namespace detail {
 
 	class push_command final : public abstract_command {
 		friend class command_graph;
-		push_command(command_id cid, buffer_id bid, reduction_id rid, node_id target, transfer_id trid, subrange<3> push_range)
-		    : abstract_command(cid), m_bid(bid), m_rid(rid), m_target(target), m_trid(trid), m_push_range(push_range) {}
+		push_command(const command_id cid, const node_id target, const transfer_id& trid, const subrange<3>& push_range)
+		    : abstract_command(cid), m_target(target), m_trid(trid), m_push_range(push_range) {}
 
 	  public:
-		buffer_id get_bid() const { return m_bid; }
-		reduction_id get_reduction_id() const { return m_rid; }
 		node_id get_target() const { return m_target; }
-		transfer_id get_transfer_id() const { return m_trid; }
+		const transfer_id& get_transfer_id() const { return m_trid; }
 		const subrange<3>& get_range() const { return m_push_range; }
 
 	  private:
-		buffer_id m_bid;
-		reduction_id m_rid;
 		node_id m_target;
 		transfer_id m_trid;
 		subrange<3> m_push_range;
@@ -70,20 +66,14 @@ namespace detail {
 
 	class await_push_command final : public abstract_command {
 		friend class command_graph;
-		await_push_command(command_id cid, buffer_id bid, reduction_id rid, transfer_id trid, region<3> region)
-		    : abstract_command(cid), m_bid(bid), m_rid(rid), m_trid(trid), m_region(std::move(region)) {}
+		await_push_command(const command_id cid, const transfer_id& trid, region<3> region)
+		    : abstract_command(cid), m_trid(trid), m_region(std::move(region)) {}
 
 	  public:
-		buffer_id get_bid() const { return m_bid; }
-		reduction_id get_reduction_id() const { return m_rid; }
-		transfer_id get_transfer_id() const { return m_trid; }
-		region<3> get_region() const { return m_region; }
+		const transfer_id& get_transfer_id() const { return m_trid; }
+		const region<3>& get_region() const { return m_region; }
 
 	  private:
-		buffer_id m_bid;
-		// Having the reduction ID here isn't strictly required for matching against incoming pushes,
-		// but it allows us to sanity check that they match as well as include the ID during graph printing.
-		reduction_id m_rid;
 		transfer_id m_trid;
 		region<3> m_region;
 	};
@@ -173,16 +163,12 @@ namespace detail {
 	};
 
 	struct push_data {
-		buffer_id bid;
-		reduction_id rid;
 		node_id target;
 		transfer_id trid;
 		subrange<3> sr;
 	};
 
 	struct await_push_data {
-		buffer_id bid;
-		reduction_id rid;
 		transfer_id trid;
 		detail::region<3> region;
 	};

@@ -34,7 +34,7 @@ TEST_CASE("command_graph allows to iterate over all raw command pointers", "[com
 	std::unordered_set<abstract_command*> cmds;
 	cmds.insert(cdag.create<execution_command>(0, subrange<3>{}));
 	cmds.insert(cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none));
-	cmds.insert(cdag.create<push_command>(0, 0, 0, 0, subrange<3>{}));
+	cmds.insert(cdag.create<push_command>(0, transfer_id(0, 0, 0), subrange<3>{}));
 	for(auto* cmd : cdag.all_commands()) {
 		REQUIRE(cmds.find(cmd) != cmds.end());
 		cmds.erase(cmd);
@@ -67,9 +67,9 @@ TEST_CASE("isa<> RTTI helper correctly handles command hierarchies", "[rtti][com
 	REQUIRE(utils::isa<abstract_command>(np));
 	auto* const hec = cdag.create<execution_command>(0, subrange<3>{});
 	REQUIRE(utils::isa<execution_command>(hec));
-	auto* const pc = cdag.create<push_command>(0, 0, 0, 0, subrange<3>{});
+	auto* const pc = cdag.create<push_command>(0, transfer_id(0, 0, 0), subrange<3>{});
 	REQUIRE(utils::isa<abstract_command>(pc));
-	auto* const apc = cdag.create<await_push_command>(0, 0, 0, region<3>{});
+	auto* const apc = cdag.create<await_push_command>(transfer_id(0, 0, 0), region<3>{});
 	REQUIRE(utils::isa<abstract_command>(apc));
 }
 

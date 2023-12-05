@@ -30,8 +30,8 @@ TEST_CASE("command_query::find_all supports various filters", "[command_query]")
 	auto* exe1_0 = cdags[1]->create<execution_command>(task_id(0), subrange<3>{});
 	auto* exe1_1 = cdags[1]->create<execution_command>(task_id(1), subrange<3>{});
 
-	auto* push0 = cdags[0]->create<push_command>(buffer_id(0), reduction_id(0), node_id(1), transfer_id(0), subrange<3>{});
-	auto* push1 = cdags[1]->create<push_command>(buffer_id(0), reduction_id(0), node_id(0), transfer_id(0), subrange<3>{});
+	auto* push0 = cdags[0]->create<push_command>(node_id(1), transfer_id(task_id(2), buffer_id(0), no_reduction_id), subrange<3>{});
+	auto* push1 = cdags[1]->create<push_command>(node_id(0), transfer_id(task_id(2), buffer_id(0), no_reduction_id), subrange<3>{});
 
 	const auto check_result = [](const command_query& query, const std::unordered_set<const abstract_command*>& expected) {
 		CHECK(query.count() == expected.size());
