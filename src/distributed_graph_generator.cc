@@ -173,6 +173,10 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 	const box<3> empty_reduction_box({0, 0, 0}, {0, 0, 0});
 	const box<3> scalar_reduction_box({0, 0, 0}, {1, 1, 1});
 
+	// NOMERGE: make clang-tidy complain
+	std::array<size_t, 3> foo;
+	printf("%zu\n", foo[tsk.get_id()]);
+
 	// Iterate over all chunks, distinguish between local / remote chunks and normal / reduction access.
 	//
 	// Normal buffer access:

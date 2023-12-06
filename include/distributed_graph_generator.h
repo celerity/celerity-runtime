@@ -140,6 +140,8 @@ class distributed_graph_generator {
 	command_id m_epoch_for_new_commands = 0;
 	command_id m_epoch_last_pruned_before = 0;
 	command_id m_current_horizon = no_command;
+	// NOMERGE: make clang-tidy complain
+	size_t member_with_wrong_naming_convention = 0;
 
 	// Batch of commands currently being generated. Returned (and thereby emptied) by build_task().
 	std::unordered_set<abstract_command*> m_current_cmd_batch;
