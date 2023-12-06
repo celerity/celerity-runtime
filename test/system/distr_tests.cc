@@ -11,7 +11,6 @@
 
 #include <celerity.h>
 
-#include "../log_test_utils.h"
 
 namespace celerity {
 namespace detail {
@@ -139,10 +138,6 @@ namespace detail {
 	    test_utils::runtime_fixture, "runtime-shutdown graph printing works in the presence of a finished reduction", "[reductions][print_graph][smoke-test]") {
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		env::scoped_test_environment test_env(print_graphs_env_setting);
-		// init runtime early so the distr_queue ctor doesn't override the log level set by log_capture
-		runtime::init(nullptr, nullptr);
-
-		test_utils::log_capture log_capture;
 
 		{
 			distr_queue q;
@@ -159,11 +154,9 @@ namespace detail {
 		} // shutdown runtime and print graph
 
 		if(runtime::get_instance().get_local_nid() == 0) { // We log graphs only on node 0
-			using Catch::Matchers::ContainsSubstring;
-			const auto log = log_capture.get_log();
-			CHECK_THAT(log, ContainsSubstring("digraph G{label=\"Command Graph\""));
-			CHECK_THAT(log, ContainsSubstring("(R1) <b>await push</b>"));
-			CHECK_THAT(log, ContainsSubstring("<b>reduction</b> R1<br/> B0 {[0,0,0] - [1,1,1]}"));
+			CHECK(test_utils::log_contains_substring(log_level::info, "digraph G{label=\"Command Graph\""));
+			CHECK(test_utils::log_contains_substring(log_level::info, "(R1) <b>await push</b>"));
+			CHECK(test_utils::log_contains_substring(log_level::info, "<b>reduction</b> R1<br/> B0 {[0,0,0] - [1,1,1]}"));
 		}
 #else
 		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
@@ -440,40 +433,33 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime logs errors on overlapping writes between commands iff access pattern diagnostics are enabled",
 	    "[runtime][diagnostics]") //
 	{
-		std::unique_ptr<celerity::test_utils::log_capture> lc;
-		{
-			distr_queue q;
-			const auto num_nodes = runtime::get_instance().get_num_nodes();
-			if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
+		test_utils::allow_max_log_level(detail::log_level::err);
 
-			lc = std::make_unique<celerity::test_utils::log_capture>();
+		distr_queue q;
+		const auto num_nodes = runtime::get_instance().get_num_nodes();
+		if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
 
-			buffer<int, 1> buf(1);
+		buffer<int, 1> buf(1);
 
-			SECTION("in distributed device kernels") {
-				q.submit([&](handler& cgh) {
-					accessor acc(buf, cgh, celerity::access::all(), write_only, no_init);
-					cgh.parallel_for(range(num_nodes), [=](item<1>) { (void)acc; });
-				});
-			}
-
-			SECTION("in collective host tasks") {
-				q.submit([&](handler& cgh) {
-					accessor acc(buf, cgh, celerity::access::all(), write_only_host_task, no_init);
-					cgh.host_task(celerity::experimental::collective, [=](experimental::collective_partition) { (void)acc; });
-				});
-			}
-
-			q.slow_full_sync();
+		SECTION("in distributed device kernels") {
+			q.submit([&](handler& cgh) {
+				accessor acc(buf, cgh, celerity::access::all(), write_only, no_init);
+				cgh.parallel_for(range(num_nodes), [=](item<1>) { (void)acc; });
+			});
 		}
+
+		SECTION("in collective host tasks") {
+			q.submit([&](handler& cgh) {
+				accessor acc(buf, cgh, celerity::access::all(), write_only_host_task, no_init);
+				cgh.host_task(celerity::experimental::collective, [=](experimental::collective_partition) { (void)acc; });
+			});
+		}
+
+		q.slow_full_sync();
 
 		const auto error_message = "has overlapping writes between multiple nodes in B0 {[0,0,0] - [1,1,1]}. Choose a non-overlapping range mapper for the "
 		                           "write access or constrain the split to make the access non-overlapping.";
-#if CELERITY_ACCESS_PATTERN_DIAGNOSTICS
-		CHECK_THAT(lc->get_log(), Catch::Matchers::ContainsSubstring(error_message));
-#else
-		CHECK_THAT(lc->get_log(), !Catch::Matchers::ContainsSubstring(error_message));
-#endif
+		CHECK(test_utils::log_contains_substring(log_level::err, error_message) == CELERITY_ACCESS_PATTERN_DIAGNOSTICS);
 	}
 
 } // namespace detail

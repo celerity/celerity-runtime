@@ -2,8 +2,8 @@
 
 #include <cstddef>
 #include <optional>
-#include <string_view>
-#include <vector>
+
+#include "log.h"
 
 namespace celerity {
 namespace detail {
@@ -26,6 +26,8 @@ namespace detail {
 		 * Initializes the @p config by parsing environment variables and passed arguments.
 		 */
 		config(int* argc, char** argv[]);
+
+		log_level get_log_level() const { return m_log_lvl; }
 
 		const host_config& get_host_config() const { return m_host_cfg; }
 
@@ -50,6 +52,7 @@ namespace detail {
 		std::optional<int> get_horizon_max_parallelism() const { return m_horizon_max_parallelism; }
 
 	  private:
+		log_level m_log_lvl;
 		host_config m_host_cfg;
 		std::optional<device_config> m_device_cfg;
 		std::optional<bool> m_enable_device_profiling;

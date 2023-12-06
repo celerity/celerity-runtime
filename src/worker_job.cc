@@ -19,7 +19,8 @@ namespace detail {
 	// --------------------------------------------------------------------------------------------------------------------
 
 	void worker_job::update() {
-		CELERITY_LOG_SET_SCOPED_CTX(m_lctx);
+		set_log_context_guard lctx_guard(m_lctx);
+
 		assert(m_running && !m_done);
 		const auto before = std::chrono::steady_clock::now();
 		m_done = execute(m_pkg);
@@ -40,7 +41,8 @@ namespace detail {
 	}
 
 	void worker_job::start() {
-		CELERITY_LOG_SET_SCOPED_CTX(m_lctx);
+		set_log_context_guard lctx_guard(m_lctx);
+
 		assert(!m_running);
 		m_running = true;
 
