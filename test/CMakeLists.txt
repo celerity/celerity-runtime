@@ -50,8 +50,8 @@ set(TEST_TARGETS
   device_selection_tests
 )
 
-add_library(test_main test_main.cc grid_test_utils.cc)
-set_test_target_parameters(test_main test_main.cc grid_test_utils.cc)
+add_library(test_main test_main.cc test_utils.cc grid_test_utils.cc)
+set_test_target_parameters(test_main test_main.cc test_utils.cc grid_test_utils.cc)
 
 set(TEST_OBJ_LIST "")
 foreach(TEST_TARGET ${TEST_TARGETS})

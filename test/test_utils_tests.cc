@@ -208,3 +208,16 @@ TEST_CASE("most operations fail when called on an empty query", "[command_query]
 	CHECK_THROWS_WITH(query.have_successors(command_query_testspy::create_for({})), "Operation 'have_successors' not allowed on empty query");
 	CHECK_THROWS_WITH(query.have_type(command_type::epoch), "Operation 'have_type' not allowed on empty query");
 }
+
+TEST_CASE("tests that log any message in excess of level::info fail by default", "[test_utils][log][!shouldfail]") { CELERITY_WARN("spooky message!"); }
+
+// This is a non-default (i.e. manual) test, because it aborts when passing
+TEST_CASE("tests that log messages in excess of level::info from a secondary thread abort", "[test_utils][log][!shouldfail][.]") {
+	std::thread([] { CELERITY_WARN("abort() in 3... 2... 1..."); }).join();
+}
+
+TEST_CASE("test_utils::set_max_expected_log_level() allows tests with warning / error messages to pass", "[test_utils][log]") {
+	test_utils::allow_max_log_level(spdlog::level::err);
+	CELERITY_WARN("spooky message!");
+	CELERITY_ERROR("spooky message!");
+}

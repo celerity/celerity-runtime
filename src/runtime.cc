@@ -121,7 +121,10 @@ namespace detail {
 		MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 		m_local_nid = world_rank;
 
-		spdlog::set_pattern(fmt::format("[%Y-%m-%d %H:%M:%S.%e] [{:0{}}] [%^%l%$] %v", world_rank, int(ceil(log10(world_size)))));
+		if(!m_test_mode) { // do not touch logger settings in tests, where the full (trace) logs are captured
+			spdlog::set_level(m_cfg->get_log_level());
+			spdlog::set_pattern(fmt::format("[%Y-%m-%d %H:%M:%S.%e] [{:0{}}] [%^%l%$] %v", world_rank, int(ceil(log10(world_size)))));
+		}
 
 #ifndef __APPLE__
 		if(const uint32_t cores = affinity_cores_available(); cores < min_cores_needed) {

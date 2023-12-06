@@ -21,7 +21,8 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "freeing task ring buffer capacity
 		reached_ringbuffer_capacity = true;
 	});
 
-	celerity::buffer<int, 1> dependency{1};
+	int init = 42;
+	celerity::buffer<int, 1> dependency{&init, 1};
 
 	for(size_t i = 0; i < task_ringbuffer_size + 10; ++i) {
 		q.submit([&](celerity::handler& cgh) {

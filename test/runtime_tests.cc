@@ -22,7 +22,6 @@
 #include "named_threads.h"
 #include "ranges.h"
 
-#include "log_test_utils.h"
 #include "test_utils.h"
 
 namespace celerity {
@@ -627,6 +626,8 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "attempting a reduction on buffers with size != 1 throws", "[task-manager]") {
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
+		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
+
 		runtime::init(nullptr, nullptr);
 		auto& tm = runtime::get_instance().get_task_manager();
 
@@ -787,6 +788,7 @@ namespace detail {
 #endif
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws if effective split constraint does not evenly divide global size", "[handler]") {
+		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
 		distr_queue q;
 
 		const auto submit = [&q](auto range, auto constraint) {
@@ -823,6 +825,8 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when accessor target does not match command type", "[handler]") {
+		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
+
 		distr_queue q;
 		buffer<size_t, 1> buf0{1};
 		buffer<size_t, 1> buf1{1};
@@ -861,6 +865,8 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when accessing host objects within device tasks", "[handler]") {
+		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
+
 		distr_queue q;
 #if !defined(__SYCL_COMPILER_VERSION) // TODO: This may break when using hipSYCL w/ DPC++ as compiler
 		experimental::host_object<size_t> ho;
@@ -878,6 +884,8 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when not all accessors / side-effects are copied into the kernel", "[handler]") {
+		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
+
 		distr_queue q;
 
 		buffer<size_t, 1> buf0{1};
@@ -930,8 +938,9 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler does not throw when void side effects are not copied into a kernel", "[handler]") {
-		distr_queue q;
+		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
 
+		distr_queue q;
 		experimental::host_object<void> ho;
 
 		CHECK_NOTHROW(([&] {
@@ -946,6 +955,8 @@ namespace detail {
 	// This test checks that the diagnostic is not simply implemented by counting the number captured of accessors;
 	// instead it can distinguish between different accessors and copies of the same accessor.
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler recognizes copies of same accessor being captured multiple times", "[handler]") {
+		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
+
 		distr_queue q;
 		buffer<size_t, 1> buf1{1};
 
@@ -1049,7 +1060,7 @@ namespace detail {
 			buffer_state_3 = get_lifetime_extending_state(buf_3);
 			host_object_state = get_lifetime_extending_state(ho);
 			q.submit([&](handler& cgh) {
-				accessor acc{buf_1, cgh, celerity::access::all{}, celerity::write_only_host_task};
+				accessor acc{buf_1, cgh, celerity::access::all{}, celerity::write_only_host_task, celerity::no_init};
 				experimental::side_effect se{ho, cgh};
 				cgh.host_task(on_master_node, [=, &wait_for_this] {
 					(void)acc;
@@ -1061,7 +1072,7 @@ namespace detail {
 				accessor acc_1{buf_1, cgh, celerity::access::one_to_one{}, celerity::read_only};
 				accessor acc_2{buf_2, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
-				auto red = reduction(buf_3, cgh, std::plus<>());
+				auto red = reduction(buf_3, cgh, std::plus<>(), property::reduction::initialize_to_identity{});
 				cgh.parallel_for(range<1>{32}, red, [=](item<1>, auto&) {
 #else
 				cgh.parallel_for(range<1>{32}, [=](item<1>) {
@@ -1245,19 +1256,19 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "dry run generates commands for an arbitrary number of simulated worker nodes", "[dryrun]") {
+		test_utils::allow_max_log_level(detail::log_level::warn); // dry run unconditionally warns when enabled
+
 		const size_t num_nodes = GENERATE(values({4, 8, 16}));
 		dry_run_with_nodes(num_nodes);
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "dry run proceeds on fences", "[dryrun]") {
+		test_utils::allow_max_log_level(detail::log_level::warn); // dry run unconditionally warns when enabled
+
 		env::scoped_test_environment ste(std::unordered_map<std::string, std::string>{{dryrun_envvar_name, "1"}});
 
 		distr_queue q;
-
-		auto& rt = runtime::get_instance();
-		auto& tm = rt.get_task_manager();
-
-		REQUIRE(rt.is_dry_run());
+		REQUIRE(runtime::get_instance().is_dry_run());
 
 		buffer<bool, 0> buf{false};
 		q.submit([&](handler& cgh) {
@@ -1269,10 +1280,12 @@ namespace detail {
 		REQUIRE(ret.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
 		CHECK_FALSE(*ret.get()); // extra check that the task was not actually executed
 
-		// TODO: check that a warning is generated once the issues with log_capture are resolved
+		CHECK(test_utils::log_contains_substring(log_level::warn, "Encountered a \"fence\" command while \"CELERITY_DRY_RUN_NODES\" is set"));
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "dry run processes horizons", "[dryrun]") {
+		test_utils::allow_max_log_level(detail::log_level::warn); // dry run unconditionally warns when enabled
+
 		env::scoped_test_environment ste(std::unordered_map<std::string, std::string>{{dryrun_envvar_name, "1"}});
 
 		distr_queue q;
@@ -1300,6 +1313,8 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::mpi_fixture, "Config reads environment variables correctly", "[env-vars][config]") {
+		test_utils::allow_max_log_level(detail::log_level::warn); // setting CELERITY_DRY_RUN_NODES unconditionally warns
+
 		const std::unordered_map<std::string, std::string> env_map{
 		    {"CELERITY_LOG_LEVEL", "debug"},
 		    {"CELERITY_DEVICES", "1 1"},
@@ -1310,7 +1325,7 @@ namespace detail {
 		const auto test_env = env::scoped_test_environment(env_map);
 		auto cfg = config(nullptr, nullptr);
 
-		CHECK(spdlog::get_level() == spdlog::level::debug);
+		CHECK(cfg.get_log_level() == spdlog::level::debug);
 		const auto dev_cfg = config_testspy::get_device_config(cfg);
 		REQUIRE(dev_cfg != std::nullopt);
 		CHECK(dev_cfg->platform_id == 1);
@@ -1323,6 +1338,8 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::mpi_fixture, "config reports incorrect environment varibles", "[env-vars][config]") {
+		test_utils::allow_max_log_level(detail::log_level::err);
+
 		const std::string error_string{"Failed to parse/validate environment variables."};
 		{
 			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_LOG_LEVEL", "a"}};
@@ -1462,37 +1479,34 @@ namespace detail {
 	TEST_CASE_METHOD(
 	    test_utils::runtime_fixture, "runtime warns on uninitialized reads iff access pattern diagnostics are enabled", "[runtime][diagnostics]") //
 	{
+		test_utils::allow_max_log_level(log_level::warn);
+
+		distr_queue q;
 		buffer<int, 1> buf(1);
 
-		std::unique_ptr<celerity::test_utils::log_capture> lc;
-		{
-			distr_queue q;
-			lc = std::make_unique<celerity::test_utils::log_capture>();
+		std::string expected_warning_message;
 
-			SECTION("in device kernels") {
-				q.submit([&](handler& cgh) {
-					accessor acc(buf, cgh, celerity::access::all(), celerity::read_only);
-					cgh.parallel_for(range(1), [=](item<1>) { (void)acc; });
-				});
-			}
-
-			SECTION("in host tasks") {
-				q.submit([&](handler& cgh) {
-					accessor acc(buf, cgh, celerity::access::all(), celerity::read_only_host_task);
-					cgh.host_task(on_master_node, [=] { (void)acc; });
-				});
-			}
-
-			q.slow_full_sync();
+		SECTION("in device kernels") {
+			q.submit([&](handler& cgh) {
+				accessor acc(buf, cgh, celerity::access::all(), celerity::read_only);
+				cgh.parallel_for(range(1), [=](item<1>) { (void)acc; });
+			});
+			expected_warning_message = "Device kernel T1 declares a reading access on uninitialized B0 {[0,0,0] - [1,1,1]}. Make sure to construct the "
+			                           "accessor with no_init if possible.";
 		}
 
-		const auto error_message =
-		    "declares a reading access on uninitialized B0 {[0,0,0] - [1,1,1]}. Make sure to construct the accessor with no_init if possible.";
-#if CELERITY_ACCESS_PATTERN_DIAGNOSTICS
-		CHECK_THAT(lc->get_log(), Catch::Matchers::ContainsSubstring(error_message));
-#else
-		CHECK_THAT(lc->get_log(), !Catch::Matchers::ContainsSubstring(error_message));
-#endif
+		SECTION("in host tasks") {
+			q.submit([&](handler& cgh) {
+				accessor acc(buf, cgh, celerity::access::all(), celerity::read_only_host_task);
+				cgh.host_task(on_master_node, [=] { (void)acc; });
+			});
+			expected_warning_message = "Master-node host task T1 declares a reading access on uninitialized B0 {[0,0,0] - [1,1,1]}. Make sure to construct the "
+			                           "accessor with no_init if possible.";
+		}
+
+		q.slow_full_sync();
+
+		CHECK(test_utils::log_contains_exact(log_level::warn, expected_warning_message) == CELERITY_ACCESS_PATTERN_DIAGNOSTICS);
 	}
 
 } // namespace detail

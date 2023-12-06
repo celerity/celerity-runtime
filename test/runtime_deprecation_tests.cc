@@ -38,7 +38,7 @@ namespace detail {
 		q.submit([= /* capture by value */](handler& cgh) {
 			accessor acc{buf, cgh, celerity::access::one_to_one{}, celerity::read_only};
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
-			auto red = reduction(reduction_buf, cgh, std::plus<size_t>{});
+			auto red = reduction(reduction_buf, cgh, std::plus<size_t>{}, property::reduction::initialize_to_identity{});
 #endif
 			cgh.parallel_for(range<1>{32}, [=](item<1>) { (void)acc; });
 		});

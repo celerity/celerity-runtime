@@ -71,16 +71,16 @@ void set_panic_solution(panic_solution solution) { g_panic_solution.store(soluti
 
 [[noreturn]] void panic(const std::string& msg) {
 	switch(g_panic_solution.load(std::memory_order_relaxed)) {
-	case celerity::detail::utils::panic_solution::throw_logic_error: //
+	case celerity::detail::utils::panic_solution::throw_logic_error: {
 		throw std::logic_error(msg);
+	}
 	case celerity::detail::utils::panic_solution::log_and_abort:
-	default:
-		if(spdlog::should_log(spdlog::level::critical)) {
-			CELERITY_CRITICAL("panic: {}", msg);
-		} else {
-			fmt::print(stderr, "celerity-runtime panic: {}\n", msg);
-		}
+	default: {
+		// Print directly instead of logging: The abort message must not be hidden by log level setting, and in tests would be captured without the logging
+		// infrastructure having a chance of dumping the logs due to the abort.
+		fmt::print(stderr, "celerity-runtime panic: {}\n", msg);
 		std::abort();
+	}
 	}
 }
 

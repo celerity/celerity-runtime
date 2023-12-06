@@ -170,17 +170,10 @@ namespace detail {
 			// ------------------------------- CELERITY_LOG_LEVEL ---------------------------------
 
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
-			const auto log_lvl = parsed_and_validated_envs.get_or(env_log_level, log_level::debug);
+			m_log_lvl = parsed_and_validated_envs.get_or(env_log_level, log_level::debug);
 #else
-			const auto log_lvl = parsed_and_validated_envs.get_or(env_log_level, log_level::info);
+			m_log_lvl = parsed_and_validated_envs.get_or(env_log_level, log_level::info);
 #endif
-			// Set both the global log level and the default sink level so that the console logger adheres to CELERITY_LOG_LEVEL even if we temporarily
-			// override the global level in test_utils::log_capture.
-			// TODO do not modify global state in the constructor, but factor the LOG_LEVEL part out of detail::config entirely.
-			spdlog::set_level(log_lvl);
-			for(auto& sink : spdlog::default_logger_raw()->sinks()) {
-				sink->set_level(log_lvl);
-			}
 
 			// --------------------------------- CELERITY_DEVICES ---------------------------------
 

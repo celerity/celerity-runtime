@@ -9,7 +9,6 @@
 #include "ranges.h"
 
 #include "buffer_manager_test_utils.h"
-#include "log_test_utils.h"
 
 // NOTE: There are some additional accessor tests in buffer_manager_tests.cc
 
@@ -654,6 +653,10 @@ namespace detail {
 #if !CELERITY_ACCESSOR_BOUNDARY_CHECK
 		SKIP("CELERITY_ACCESSOR_BOUNDARY_CHECK=0");
 #endif
+		test_utils::allow_max_log_level(spdlog::level::err);
+
+		distr_queue q;
+
 		buffer<int, Dims> unnamed_buff(test_utils::truncate_range<Dims>({10, 20, 30}));
 		buffer<int, Dims> named_buff(test_utils::truncate_range<Dims>({10, 20, 30}));
 		const auto accessible_sr = test_utils::truncate_subrange<Dims>({{5, 10, 15}, {1, 2, 3}});
@@ -663,28 +666,19 @@ namespace detail {
 
 		celerity::debug::set_buffer_name(named_buff, buffer_name);
 
-		// we need to be careful about the ordering of the construction and destruction
-		// of the Celerity queue and the log capturing utility here
-		std::unique_ptr<celerity::test_utils::log_capture> lc;
-		{
-			distr_queue q;
+		q.submit([&](handler& cgh) {
+			accessor unnamed_acc(unnamed_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only, celerity::no_init);
+			accessor named_acc(named_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only, celerity::no_init);
 
-			lc = std::make_unique<celerity::test_utils::log_capture>();
+			cgh.parallel_for<acc_out_of_bounds_kernel<Dims>>(range<Dims>(ones), [=](item<Dims>) {
+				unnamed_acc[oob_idx_lo] = 0;
+				unnamed_acc[oob_idx_hi] = 0;
 
-			q.submit([&](handler& cgh) {
-				accessor unnamed_acc(unnamed_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only, celerity::no_init);
-				accessor named_acc(named_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only, celerity::no_init);
-
-				cgh.parallel_for<acc_out_of_bounds_kernel<Dims>>(range<Dims>(ones), [=](item<Dims>) {
-					unnamed_acc[oob_idx_lo] = 0;
-					unnamed_acc[oob_idx_hi] = 0;
-
-					named_acc[oob_idx_lo] = 0;
-					named_acc[oob_idx_hi] = 0;
-				});
+				named_acc[oob_idx_lo] = 0;
+				named_acc[oob_idx_hi] = 0;
 			});
-			q.slow_full_sync();
-		}
+		});
+		q.slow_full_sync();
 
 		const auto attempted_sr =
 		    subrange<3>{id_cast<3>(oob_idx_lo), range_cast<3>(oob_idx_hi - oob_idx_lo + id_cast<Dims>(range<Dims>(ones))) - range_cast<3>(range<Dims>(zeros))};
@@ -692,18 +686,22 @@ namespace detail {
 		    fmt::format("Out-of-bounds access in kernel 'acc_out_of_bounds_kernel<...>' detected: Accessor 0 for buffer B0 attempted to "
 		                "access indices between {} which are outside of mapped subrange {}",
 		        attempted_sr, subrange_cast<3>(accessible_sr));
-		CHECK_THAT(lc->get_log(), Catch::Matchers::ContainsSubstring(unnamed_error_message));
+		CHECK(test_utils::log_contains_substring(log_level::err, unnamed_error_message));
 
 		const auto named_error_message = fmt::format("Out-of-bounds access in kernel 'acc_out_of_bounds_kernel<...>' detected: Accessor 1 for buffer B1 \"{}\" "
 		                                             "attempted to access indices between {} which are outside of mapped subrange {}",
 		    buffer_name, attempted_sr, subrange_cast<3>(accessible_sr));
-		CHECK_THAT(lc->get_log(), Catch::Matchers::ContainsSubstring(named_error_message));
+		CHECK(test_utils::log_contains_substring(log_level::err, named_error_message));
 	}
 
 	TEMPLATE_TEST_CASE_METHOD_SIG(oob_fixture, "host accessor reports out-of-bounds accesses", "[accessor][oob]", ((int Dims), Dims), 1, 2, 3) {
 #if !CELERITY_ACCESSOR_BOUNDARY_CHECK
 		SKIP("CELERITY_ACCESSOR_BOUNDARY_CHECK=0");
 #endif
+		test_utils::allow_max_log_level(spdlog::level::err);
+
+		distr_queue q;
+
 		buffer<int, Dims> unnamed_buff(test_utils::truncate_range<Dims>({10, 20, 30}));
 		buffer<int, Dims> named_buff(test_utils::truncate_range<Dims>({10, 20, 30}));
 		const auto accessible_sr = test_utils::truncate_subrange<Dims>({{5, 10, 15}, {1, 2, 3}});
@@ -713,41 +711,32 @@ namespace detail {
 
 		celerity::debug::set_buffer_name(named_buff, buffer_name);
 
-		// we need to be careful about the ordering of the construction and destruction
-		// of the Celerity queue and the log capturing utility here
-		std::unique_ptr<celerity::test_utils::log_capture> lc;
-		{
-			distr_queue q;
+		q.submit([&](handler& cgh) {
+			accessor unnamed_acc(unnamed_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only_host_task, celerity::no_init);
+			accessor nambed_acc(named_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only_host_task, celerity::no_init);
 
-			lc = std::make_unique<celerity::test_utils::log_capture>();
+			cgh.host_task(range<Dims>(ones), [=](partition<Dims>) {
+				unnamed_acc[oob_idx_lo] = 0;
+				unnamed_acc[oob_idx_hi] = 0;
 
-			q.submit([&](handler& cgh) {
-				accessor unnamed_acc(unnamed_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only_host_task, celerity::no_init);
-				accessor nambed_acc(named_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only_host_task, celerity::no_init);
-
-				cgh.host_task(range<Dims>(ones), [=](partition<Dims>) {
-					unnamed_acc[oob_idx_lo] = 0;
-					unnamed_acc[oob_idx_hi] = 0;
-
-					nambed_acc[oob_idx_lo] = 0;
-					nambed_acc[oob_idx_hi] = 0;
-				});
+				nambed_acc[oob_idx_lo] = 0;
+				nambed_acc[oob_idx_hi] = 0;
 			});
+		});
 
-			q.slow_full_sync();
-		}
+		q.slow_full_sync();
 
 		const auto attempted_sr =
 		    subrange<3>{id_cast<3>(oob_idx_lo), range_cast<3>(oob_idx_hi - oob_idx_lo + id_cast<Dims>(range<Dims>(ones))) - range_cast<3>(range<Dims>(zeros))};
 		const auto unnamed_error_message = fmt::format("Out-of-bounds access in host task detected: Accessor 0 for buffer B0 attempted to "
 		                                               "access indices between {} which are outside of mapped subrange {}",
 		    attempted_sr, subrange_cast<3>(accessible_sr));
-		CHECK_THAT(lc->get_log(), Catch::Matchers::ContainsSubstring(unnamed_error_message));
+		CHECK(test_utils::log_contains_substring(log_level::err, unnamed_error_message));
 
 		const auto named_error_message = fmt::format("Out-of-bounds access in host task detected: Accessor 1 for buffer B1 \"{}\" attempted to "
 		                                             "access indices between {} which are outside of mapped subrange {}",
 		    buffer_name, attempted_sr, subrange_cast<3>(accessible_sr));
-		CHECK_THAT(lc->get_log(), Catch::Matchers::ContainsSubstring(named_error_message));
+		CHECK(test_utils::log_contains_substring(log_level::err, named_error_message));
 	}
 } // namespace detail
 } // namespace celerity

@@ -11,7 +11,6 @@
 #include "ranges.h"
 
 #include "buffer_manager_test_utils.h"
-#include "log_test_utils.h"
 
 namespace celerity {
 namespace detail {
@@ -27,7 +26,7 @@ namespace detail {
 			celerity::buffer<int, 1> b(range<1>(128));
 			b_id = celerity::detail::get_buffer_id(b);
 			q.submit([&](celerity::handler& cgh) {
-				celerity::accessor a{b, cgh, celerity::access::all(), celerity::write_only};
+				celerity::accessor a{b, cgh, celerity::access::all(), celerity::write_only, celerity::no_init};
 				cgh.parallel_for<class UKN(i)>(b.get_range(), [=](celerity::item<1> it) { (void)a; });
 			});
 			REQUIRE(bm.has_buffer(b_id));
@@ -37,7 +36,7 @@ namespace detail {
 		// and one extra task to trigger the clean_up process
 		for(int i = 0; i < (new_horizon_step * 3 + 2); i++) {
 			q.submit([&](celerity::handler& cgh) {
-				celerity::accessor a{c, cgh, celerity::access::all(), celerity::write_only};
+				celerity::accessor a{c, cgh, celerity::access::all(), celerity::write_only, celerity::no_init};
 				cgh.parallel_for<class UKN(i)>(c.get_range(), [=](celerity::item<1>) { (void)a; });
 			});
 			// this sync is inside the loop because otherwise there is a race between this thread and the executor informing the TDAG
@@ -1115,6 +1114,8 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager can resize large buffers by going through the host", "[buffer_manager]") {
+		test_utils::allow_max_log_level(log_level::warn);
+
 		auto& bm = get_buffer_manager();
 
 		// Set memory usage limit to something low so the test doesn't run forever
@@ -1131,8 +1132,6 @@ namespace detail {
 		    bid, access_target::device, {3 * one_quarter_elements}, {0}, [](id<1> idx, size_t& value) { value = idx[0]; });
 		const auto dinfo1 = bm.access_device_buffer<size_t, 1>(bid, access_mode::read, {{}, {3 * one_quarter_elements}});
 
-		test_utils::log_capture lc(spdlog::level::warn);
-
 		// Now access one additional element, which requires a resize
 		buffer_for_each<size_t, 1, access_mode::read_write, class UKN(update)>(
 		    bid, access_target::device, {3 * one_quarter_elements + 1}, {0}, [=](id<1> idx, size_t& value) {
@@ -1145,8 +1144,8 @@ namespace detail {
 		CHECK_FALSE((dinfo1.ptr == dinfo2.ptr && dinfo1.backing_buffer_offset == dinfo2.backing_buffer_offset
 		             && dinfo1.backing_buffer_range == dinfo2.backing_buffer_range));
 
-		CHECK_THAT(lc.get_log(), Catch::Matchers::ContainsSubstring(
-		                             fmt::format("Resize of buffer {} requires temporarily copying to host memory. Performance may be degraded.", bid)));
+		CHECK(test_utils::log_contains_exact(
+		    log_level::warn, fmt::format("Resize of buffer {} requires temporarily copying to host memory. Performance may be degraded.", bid)));
 
 		// Verify that data was correctly copied back from host
 		bool valid = buffer_reduce<size_t, 1, class UKN(check)>(
@@ -1159,6 +1158,8 @@ namespace detail {
 
 	TEST_CASE_METHOD(
 	    test_utils::buffer_manager_fixture, "buffer_manager does not retain regions that will be overwritten when resizing through host", "[buffer_manager]") {
+		test_utils::allow_max_log_level(spdlog::level::warn); // buffer_manager warns when resizing through host
+
 		auto& bm = get_buffer_manager();
 
 		// Set memory usage limit to something low so the test doesn't run forever
@@ -1211,6 +1212,8 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::buffer_manager_fixture, "buffer_manager spills unused parts to host for large accesses", "[buffer_manager]") {
+		test_utils::allow_max_log_level(log_level::warn);
+
 		auto& bm = get_buffer_manager();
 
 		// Set memory usage limit to something low so the test doesn't run forever
@@ -1226,8 +1229,6 @@ namespace detail {
 		    bid, access_target::device, {8, 8}, {0, 0}, [](id<2> idx, size_t& value) { value = idx[0] * 100 + idx[1]; });
 		const auto dinfo1 = bm.access_device_buffer<size_t, 2>(bid, access_mode::read, {{}, {8, 8}});
 
-		test_utils::log_capture lc(spdlog::level::warn);
-
 		// Now access "bottom right", which normally would result in the full buffer to be allocated
 		buffer_for_each<size_t, 2, access_mode::discard_write, class UKN(write_linear_id)>(
 		    bid, access_target::device, {8, 8}, {91, 91}, [](id<2> idx, size_t& value) { value = idx[0] * 100 + idx[1]; });
@@ -1237,10 +1238,10 @@ namespace detail {
 		CHECK_FALSE((dinfo1.ptr == dinfo2.ptr && dinfo1.backing_buffer_offset == dinfo2.backing_buffer_offset
 		             && dinfo1.backing_buffer_range == dinfo2.backing_buffer_range));
 
-		CHECK_THAT(
-		    lc.get_log(), Catch::Matchers::ContainsSubstring(fmt::format("Buffer {} cannot be resized to fit fully into device memory, spilling partially to "
-		                                                                 "host and only storing requested range on device. Performance may be degraded.",
-		                      bid)));
+		CHECK(test_utils::log_contains_exact(
+		    log_level::warn, fmt::format("Buffer {} cannot be resized to fit fully into device memory,"
+		                                 " spilling partially to host and only storing requested range on device. Performance may be degraded.",
+		                         bid)));
 
 		// Verify that data is fully available on the host
 		const auto acc = get_host_accessor<size_t, 2, access_mode::read>(bid, {100, 100}, {0, 0});
