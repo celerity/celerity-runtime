@@ -91,8 +91,8 @@ jobs:
             --repo=${{ github.repository }} \
             --pr=${{ github.event.pull_request.number }} \
             --build_dir=${{ env.build-dir }} \
+            --config_file=${{ env.container-workspace }}/.clang-tidy \
             --include="*.h,*.cc,*.[ch]pp" \
-            --clang_tidy_checks="" \
             --lgtm-comment-body=""
 
   # We need to jump through some hoops to have different build matrices based on what triggered the workflow.
