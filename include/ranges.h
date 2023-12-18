@@ -235,7 +235,7 @@ struct std::hash<celerity::detail::coordinate<Interface, Dims>> {
 	std::size_t operator()(const celerity::detail::coordinate<Interface, Dims>& r) const noexcept {
 		std::size_t seed = 0;
 		for(int i = 0; i < Dims; ++i) {
-			celerity::detail::utils::hash_combine(seed, std::hash<int>{}(r[i]));
+			celerity::detail::utils::hash_combine(seed, std::hash<size_t>{}(r[i]));
 		}
 		return seed;
 	};

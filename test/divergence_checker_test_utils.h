@@ -1,13 +1,12 @@
 #pragma once
 
-#include "divergence_block_chain.h"
+#include "divergence_checker.h"
 
 using namespace celerity;
 using namespace celerity::detail;
 using namespace celerity::detail::divergence_checker_detail;
 
-namespace celerity::detail::divergence_checker_detail {
-struct divergence_block_chain_testspy {
+struct divergence_checker_detail::divergence_block_chain_testspy {
 	static per_node_task_hashes pre_check(divergence_block_chain& div_test, const int max_size) {
 		div_test.add_new_hashes();
 		div_test.collect_hash_counts();
@@ -38,7 +37,6 @@ struct divergence_block_chain_testspy {
 
 	static void set_last_cleared(divergence_block_chain& div_test, std::chrono::time_point<std::chrono::steady_clock> time) { div_test.m_last_cleared = time; }
 };
-} // namespace celerity::detail::divergence_checker_detail
 
 namespace celerity::test_utils {
 // Note: this is only a simulator for this specific case. In the general case, we should use something more sophisticated for tracking the allgather
@@ -137,4 +135,5 @@ class divergence_test_communicator_provider {
 	tracker<inplace_data> m_inplace_data{m_num_nodes};
 	tracker<gather_data> m_gather_data{m_num_nodes};
 };
+
 } // namespace celerity::test_utils

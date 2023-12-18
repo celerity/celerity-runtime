@@ -11,7 +11,7 @@
 
 #include <celerity.h>
 
-#include "../divergence_check_test_utils.h"
+#include "../divergence_checker_test_utils.h"
 #include "../log_test_utils.h"
 
 namespace celerity {
@@ -478,6 +478,10 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "Check divergence of different nodes", "[divergence]") {
+#if !CELERITY_DIVERGENCE_CHECK
+		SKIP("Distributed divergence boundary check only enabled when CELERITY_DIVERGENCE_CHECK=ON");
+#endif
+
 		env::scoped_test_environment tenv(recording_enabled_env_setting);
 
 		runtime::init(nullptr, nullptr);
@@ -542,12 +546,13 @@ namespace detail {
 		}
 
 		// create the check text
-		std::string check_text = "After 10 seconds of waiting nodes ";
-
-		for(unsigned long i = 0; i < n; ++i) {
-			if(i % 2 == 1) { check_text += std::to_string(i) + ", "; }
+		std::string check_text = fmt::format("After 10 seconds of waiting, node(s)");
+		std::vector<node_id> stuck_nodes;
+		for(node_id nid = 0; nid < n; ++nid) {
+			// every second node in this test is stuck
+			if(nid % 2 == 1) { stuck_nodes.push_back(nid); }
 		}
-
+		check_text += fmt::format(" {} ", fmt::join(stuck_nodes, ","));
 		check_text += "did not move to the next task. The runtime might be stuck.";
 
 		if(rank == 0) {

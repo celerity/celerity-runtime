@@ -7,10 +7,6 @@
 #include "communicator.h"
 #include "recorders.h"
 
-namespace celerity::detail {
-struct runtime_testspy;
-}
-
 namespace celerity::detail::divergence_checker_detail {
 using task_hash = size_t;
 using divergence_map = std::unordered_map<task_hash, std::vector<node_id>>;
@@ -67,34 +63,38 @@ class divergence_block_chain {
 	std::vector<task_record> m_task_records;
 	size_t m_tasks_checked = 0;
 	size_t m_hashes_added = 0;
+	task_hash m_last_hash = 0;
 
 	std::vector<int> m_per_node_hash_counts;
 	std::mutex m_task_records_mutex;
 
 	std::chrono::time_point<std::chrono::steady_clock> m_last_cleared = std::chrono::steady_clock::now();
+	std::chrono::seconds m_time_of_last_warning = std::chrono::seconds(0);
 
 	std::unique_ptr<communicator> m_communicator;
 
-	void divergence_out(const divergence_map& check_map, const int task_num);
+	void reprot_divergence(const divergence_map& check_map, const int task_num);
 
 	void add_new_hashes();
 	void clear(const int min_progress);
 	std::pair<int, int> collect_hash_counts();
 	per_node_task_hashes collect_hashes(const int min_hash_count) const;
-	divergence_map create_check_map(const per_node_task_hashes& task_hashes, const int task_num) const;
+	divergence_map create_divergence_map(const per_node_task_hashes& task_hashes, const int task_num) const;
 
-	void check_for_deadlock() const;
+	void check_for_deadlock();
 
-	static void log_node_divergences(const divergence_map& check_map, const int task_num);
+	static void log_node_divergences(const divergence_map& check_map, const int task_id);
 	static void log_task_record(const divergence_map& check_map, const task_record& task, const task_hash hash);
 	void log_task_record_once(const divergence_map& check_map, const int task_num);
 
 	void add_new_task(const task_record& task);
 	task_record thread_save_get_task_record(const size_t task_num);
 };
+}; // namespace celerity::detail::divergence_checker_detail
 
+namespace celerity::detail {
 class divergence_checker {
-	friend struct ::celerity::detail::runtime_testspy;
+	friend struct runtime_testspy;
 
   public:
 	divergence_checker(task_recorder& task_recorder, std::unique_ptr<communicator> comm, bool test_mode = false)
@@ -111,6 +111,10 @@ class divergence_checker {
 	~divergence_checker() { stop(); }
 
   private:
+	std::thread m_thread;
+	bool m_is_running = false;
+	divergence_checker_detail::divergence_block_chain m_block_chain;
+
 	void start() {
 		m_thread = std::thread(&divergence_checker::run, this);
 		m_is_running = true;
@@ -129,9 +133,5 @@ class divergence_checker {
 			std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}
 	}
-
-	std::thread m_thread;
-	bool m_is_running = false;
-	divergence_block_chain m_block_chain;
 };
-}; // namespace celerity::detail::divergence_checker_detail
+}; // namespace celerity::detail

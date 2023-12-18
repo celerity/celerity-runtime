@@ -1,14 +1,55 @@
-#include "divergence_block_chain.h"
+#include "divergence_checker.h"
 
 namespace celerity::detail::divergence_checker_detail {
+bool divergence_block_chain::check_for_divergence() {
+	add_new_hashes();
+
+	const auto [min_hash_count, max_hash_count] = collect_hash_counts();
+
+	if(min_hash_count == 0) {
+		if(max_hash_count != 0 && m_local_nid == 0) {
+			check_for_deadlock();
+		} else if(max_hash_count == 0) {
+			return true;
+		}
+		return false;
+	}
+
+	const per_node_task_hashes task_hashes = collect_hashes(min_hash_count);
+
+	for(int j = 0; j < min_hash_count; ++j) {
+		const divergence_map check_map = create_divergence_map(task_hashes, j);
+
+		// If there is more than one hash for this task, we have a divergence!
+		if(check_map.size() > 1) { reprot_divergence(check_map, j); }
+	}
+
+	clear(min_hash_count);
+
+	return false;
+}
+
+void divergence_block_chain::reprot_divergence(const divergence_map& check_map, const int task_num) {
+	if(m_local_nid == 0) { log_node_divergences(check_map, task_num + static_cast<int>(m_tasks_checked) + 1); }
+
+	// sleep for local_nid * 100 ms such that we have a no lock synchronized output
+	std::this_thread::sleep_for(std::chrono::milliseconds(m_local_nid * 100));
+
+	log_task_record_once(check_map, task_num);
+
+	m_communicator->barrier();
+
+	throw std::runtime_error("Divergence in task graph detected");
+}
 
 void divergence_block_chain::add_new_hashes() {
 	std::lock_guard<std::mutex> lock(m_task_records_mutex);
 	for(size_t i = m_hashes_added; i < m_task_records.size(); ++i) {
-		std::size_t seed = m_local_hashes.empty() ? 0 : m_local_hashes.back();
+		std::size_t seed = m_local_hashes.empty() ? m_last_hash : m_local_hashes.back();
 		celerity::detail::utils::hash_combine(seed, std::hash<task_record>{}(m_task_records[i]));
 		m_local_hashes.push_back(seed);
 	}
+	m_last_hash = m_local_hashes.empty() ? m_last_hash : m_local_hashes.back();
 	m_hashes_added = m_task_records.size();
 }
 
@@ -38,36 +79,36 @@ per_node_task_hashes divergence_block_chain::collect_hashes(const int min_hash_c
 }
 
 
-divergence_map divergence_block_chain::create_check_map(const per_node_task_hashes& task_hashes, const int task_num) const {
+divergence_map divergence_block_chain::create_divergence_map(const per_node_task_hashes& task_hashes, const int task_num) const {
 	divergence_map check_map;
-	for(size_t i = 0; i < m_num_nodes; ++i) {
-		check_map[task_hashes(i, task_num)].push_back(i);
+	for(node_id nid = 0; nid < m_num_nodes; ++nid) {
+		check_map[task_hashes(nid, task_num)].push_back(nid);
 	}
 	return check_map;
 }
 
-void divergence_block_chain::check_for_deadlock() const {
+void divergence_block_chain::check_for_deadlock() {
 	auto diff = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - m_last_cleared);
-	static auto last = std::chrono::seconds(0);
 
-	if(diff >= std::chrono::seconds(10) && diff - last >= std::chrono::seconds(5)) {
-		std::string warning = fmt::format("After {} seconds of waiting nodes", diff.count());
+	if(diff >= std::chrono::seconds(10) && diff - m_time_of_last_warning >= std::chrono::seconds(5)) {
+		std::string warning = fmt::format("After {} seconds of waiting, node(s)", diff.count());
 
-		for(size_t i = 0; i < m_num_nodes; ++i) {
-			if(m_per_node_hash_counts[i] == 0) { warning += fmt::format(" {},", i); }
+		std::vector<node_id> stuck_nodes;
+		for(node_id nid = 0; nid < m_num_nodes; ++nid) {
+			if(m_per_node_hash_counts[nid] == 0) stuck_nodes.push_back(nid);
 		}
-
-		warning += " did not move to the next task. The runtime might be stuck.";
+		warning += fmt::format(" {} ", fmt::join(stuck_nodes, ","));
+		warning += "did not move to the next task. The runtime might be stuck.";
 
 		CELERITY_WARN("{}", warning);
-		last = diff;
+		m_time_of_last_warning = diff;
 	}
 }
 
-void divergence_block_chain::log_node_divergences(const divergence_map& check_map, const int task_num) {
-	std::string error = fmt::format("Divergence detected in task graph at index {}:\n\n", task_num);
+void divergence_block_chain::log_node_divergences(const divergence_map& check_map, const int task_id) {
+	std::string error = fmt::format("Divergence detected. Task Nr {} diverges on nodes:\n\n", task_id);
 	for(auto& [hash, nodes] : check_map) {
-		error += fmt::format("{:#x} on nodes ", hash);
+		error += fmt::format("Following task-hash {:#x} resulted on {} ", hash, nodes.size() > 1 ? "nodes" : "node ");
 		for(auto& node : nodes) {
 			error += fmt::format("{} ", node);
 		}
@@ -115,11 +156,6 @@ void divergence_block_chain::log_task_record(const divergence_map& check_map, co
 	CELERITY_ERROR("{}", task_record_output);
 }
 
-task_record divergence_block_chain::thread_save_get_task_record(const size_t task_num) {
-	std::lock_guard<std::mutex> lock(m_task_records_mutex);
-	return m_task_records[task_num];
-}
-
 void divergence_block_chain::log_task_record_once(const divergence_map& check_map, const int task_num) {
 	for(auto& [hash, nodes] : check_map) {
 		if(nodes[0] == m_local_nid) {
@@ -129,49 +165,14 @@ void divergence_block_chain::log_task_record_once(const divergence_map& check_ma
 	}
 }
 
-bool divergence_block_chain::check_for_divergence() {
-	add_new_hashes();
-
-	const auto [min_hash_count, max_hash_count] = collect_hash_counts();
-
-	if(min_hash_count == 0) {
-		if(max_hash_count != 0 && m_local_nid == 0) {
-			check_for_deadlock();
-		} else if(max_hash_count == 0) {
-			return true;
-		}
-		return false;
-	}
-
-	const per_node_task_hashes task_graphs = collect_hashes(min_hash_count);
-
-	for(int j = 0; j < min_hash_count; ++j) {
-		const divergence_map check_map = create_check_map(task_graphs, j);
-
-		if(check_map.size() > 1) { divergence_out(check_map, j); }
-	}
-
-	clear(min_hash_count);
-
-	return false;
-}
-
-void divergence_block_chain::divergence_out(const divergence_map& check_map, const int task_num) {
-	if(m_local_nid == 0) { log_node_divergences(check_map, task_num); }
-
-	// sleep for local_nid * 100 ms such that we have a no lock synchronized output
-	std::this_thread::sleep_for(std::chrono::milliseconds(m_local_nid * 100));
-
-	log_task_record_once(check_map, task_num);
-
-	m_communicator->barrier();
-
-	throw std::runtime_error("Divergence in task graph detected");
-}
-
 void divergence_block_chain::add_new_task(const task_record& task) { //
 	std::lock_guard<std::mutex> lock(m_task_records_mutex);
 	// make copy of task record so that we can access it later
 	m_task_records.emplace_back(task);
+}
+
+task_record divergence_block_chain::thread_save_get_task_record(const size_t task_num) {
+	std::lock_guard<std::mutex> lock(m_task_records_mutex);
+	return m_task_records[task_num];
 }
 } // namespace celerity::detail::divergence_checker_detail

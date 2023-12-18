@@ -1,4 +1,5 @@
 #pragma once
+
 #include <memory>
 
 #include <mpi.h>
@@ -11,6 +12,8 @@ class mpi_communicator : public communicator {
 	mpi_communicator(MPI_Comm comm) : m_comm(comm) {}
 
   private:
+	MPI_Comm m_comm;
+
 	void allgather_inplace_impl(std::byte* sendrecvbuf, const int sendrecvcount) override {
 		MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, sendrecvbuf, sendrecvcount, MPI_BYTE, m_comm);
 	};
@@ -32,7 +35,5 @@ class mpi_communicator : public communicator {
 		MPI_Comm_rank(m_comm, &rank);
 		return static_cast<node_id>(rank);
 	}
-
-	MPI_Comm m_comm;
 };
 } // namespace celerity::detail

@@ -132,3 +132,7 @@ if(rand() > 1337) {
     celerity::buffer<float, 2> my_buffer(...);
 }
 ```
+
+> Diverging Host-Execution can be detected at runtime by enabling the
+> `CELERITY_DIVERGENCE_CHECK` CMake option at the cost of some runtime
+> overhead (enabled by default in debug builds).

@@ -201,7 +201,12 @@ namespace detail {
 			const auto has_dry_run_nodes = parsed_and_validated_envs.get(env_dry_run_nodes);
 			if(has_dry_run_nodes) { m_dry_run_nodes = *has_dry_run_nodes; }
 
+#if CELERITY_DIVERGENCE_CHECK
+			// divergence checker needs recording
+			m_recording = true;
+#else
 			m_recording = parsed_and_validated_envs.get_or(env_recording, false);
+#endif
 			m_horizon_step = parsed_and_validated_envs.get(env_horizon_step);
 			m_horizon_max_parallelism = parsed_and_validated_envs.get(env_horizon_max_para);
 

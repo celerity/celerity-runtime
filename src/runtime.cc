@@ -177,12 +177,18 @@ namespace detail {
 		m_schdlr = std::make_unique<scheduler>(is_dry_run(), std::move(dggen), *m_exec);
 		m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
 
-		if(m_cfg->is_recording()) {
-			MPI_Comm comm = nullptr;
-			MPI_Comm_dup(MPI_COMM_WORLD, &comm);
-			m_divergence_check =
-			    std::make_unique<divergence_checker_detail::divergence_checker>(*m_task_recorder, std::make_unique<mpi_communicator>(comm), m_test_mode);
-		}
+
+#if CELERITY_DIVERGENCE_CHECK
+		MPI_Comm comm = nullptr;
+		MPI_Comm_dup(MPI_COMM_WORLD, &comm);
+		m_divergence_check = std::make_unique<divergence_checker>(*m_task_recorder, std::make_unique<mpi_communicator>(comm), m_test_mode);
+#endif
+		// if (m_cfg->is_recording()) {
+		// 	MPI_Comm comm = nullptr;
+		// 	MPI_Comm_dup(MPI_COMM_WORLD, &comm);
+		// 	m_divergence_check =
+		// 		std::make_unique<divergence_checker>(*m_task_recorder, std::make_unique<mpi_communicator>(comm), m_test_mode);
+		// }
 
 		CELERITY_INFO("Celerity runtime version {} running on {}. PID = {}, build type = {}, {}", get_version_string(), get_sycl_version(), get_pid(),
 		    get_build_type(), get_mimalloc_string());
@@ -247,14 +253,18 @@ namespace detail {
 				}
 			}
 
-			if(m_divergence_check != nullptr) {
-				// Sychronize all nodes before reseting shuch that we don't get into a deadlock
-				MPI_Barrier(MPI_COMM_WORLD);
-				m_divergence_check.reset();
-			} else {
-				CELERITY_WARN("Divergence block chain not initialized");
-			}
+			// // Sychronize all nodes before reseting shuch that we don't get into a deadlock
+			// // With this barrier we can be shure that every node is fully finished and all mpi operations are done. (Sending ...)
+			// MPI_Barrier(MPI_COMM_WORLD);
+			// m_divergence_check.reset();
 		}
+
+#if CELERITY_DIVERGENCE_CHECK
+		// Sychronize all nodes before reseting shuch that we don't get into a deadlock
+		// With this barrier we can be shure that every node is fully finished and all mpi operations are done. (Sending ...)
+		MPI_Barrier(MPI_COMM_WORLD);
+		m_divergence_check.reset();
+#endif
 
 		// Shutting down the task_manager will cause all buffers captured inside command group functions to unregister.
 		// Since we check whether the runtime is still active upon unregistering, we have to set this to false first.

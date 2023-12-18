@@ -61,7 +61,6 @@ class task_recorder {
 	void record_task(const task& tsk);
 
 	void add_callback(task_callback callback);
-	void invoke_callbacks(const task_record& tsk) const;
 
 	const task_records& get_tasks() const { return m_recorded_tasks; }
 
@@ -69,6 +68,8 @@ class task_recorder {
 	task_records m_recorded_tasks;
 	std::vector<task_callback> m_callbacks{};
 	const buffer_manager* m_buff_mngr;
+
+	void invoke_callbacks(const task_record& tsk) const;
 };
 
 // Command recording
@@ -104,16 +105,16 @@ struct command_record {
 
 class command_recorder {
   public:
-	using command_record = std::vector<command_record>;
+	using command_records = std::vector<command_record>;
 
 	command_recorder(const task_manager* task_mngr, const buffer_manager* buff_mngr = nullptr) : m_task_mngr(task_mngr), m_buff_mngr(buff_mngr) {}
 
 	void record_command(const abstract_command& com);
 
-	const command_record& get_commands() const { return m_recorded_commands; }
+	const command_records& get_commands() const { return m_recorded_commands; }
 
   private:
-	command_record m_recorded_commands;
+	command_records m_recorded_commands;
 	const task_manager* m_task_mngr;
 	const buffer_manager* m_buff_mngr;
 };

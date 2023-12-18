@@ -21,7 +21,7 @@
 #include "command_graph.h"
 #include "device_queue.h"
 #include "distributed_graph_generator.h"
-#include "divergence_block_chain.h"
+#include "divergence_checker.h"
 #include "graph_serializer.h"
 #include "print_graph.h"
 #include "range_mapper.h"

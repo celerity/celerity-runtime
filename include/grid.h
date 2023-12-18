@@ -271,7 +271,7 @@ template <int Dims>
 struct std::hash<celerity::detail::region<Dims>> {
 	std::size_t operator()(const celerity::detail::region<Dims> r) {
 		std::size_t seed = 0;
-		for(auto box : r.get_boxes()) {
+		for(auto& box : r.get_boxes()) {
 			celerity::detail::utils::hash_combine(seed, std::hash<celerity::detail::box<Dims>>{}(box));
 		}
 		return seed;
