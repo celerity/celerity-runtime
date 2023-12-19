@@ -56,9 +56,7 @@ jobs:
       container-workspace: <placeholder>
       build-dir: /root/build
     container:
-      # We could run this for more than one implementation,
-      # but would likely end up with mostly duplicate diagnostics.
-      image: ghcr.io/celerity/celerity-build/dpcpp:ubuntu22.04-latest
+      image: ghcr.io/celerity/celerity-lint
       volumes:
         - ccache:/ccache
       credentials:
