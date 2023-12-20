@@ -11,6 +11,7 @@
 
 #include <celerity.h>
 
+#include "../divergence_checker_test_utils.h"
 #include "../log_test_utils.h"
 
 namespace celerity {
@@ -476,5 +477,89 @@ namespace detail {
 #endif
 	}
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "Check divergence of different nodes", "[divergence]") {
+#if !CELERITY_DIVERGENCE_CHECK
+		SKIP("Distributed divergence boundary check only enabled when CELERITY_DIVERGENCE_CHECK=ON");
+#endif
+
+		env::scoped_test_environment tenv(recording_enabled_env_setting);
+
+		runtime::init(nullptr, nullptr);
+
+		test_utils::log_capture log_capture;
+
+		size_t n = 0;
+		size_t rank = 0;
+
+		{
+			distr_queue queue;
+
+			n = runtime::get_instance().get_num_nodes();
+			REQUIRE(n > 1);
+
+			auto& div_check = runtime_testspy::get_divergence_block_chain(runtime::get_instance());
+
+			const auto range = celerity::range<1>(10000);
+			celerity::buffer<float, 1> buff(range);
+
+			celerity::debug::set_buffer_name(buff, "mat_a");
+
+			rank = celerity::detail::runtime::get_instance().get_local_nid();
+
+			divergence_block_chain_testspy::call_check_for_divergence(div_check);
+
+			// here we need a divergence which doesn't result in a deadlock, because else we would run into ether a failed test or a incompletable test...
+			if(rank % 2 == 0) {
+				queue.submit([&](celerity::handler& cgh) {
+					celerity::accessor dw{buff, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+					const auto range = buff.get_range();
+					cgh.parallel_for<class kernel_one>(range, [=](celerity::item<1> item) {
+						if(item[0] % 2 == 0) { dw[item] = 2.5; }
+					});
+				});
+			}
+
+			divergence_block_chain_testspy::set_last_cleared(div_check, std::chrono::steady_clock::now() - std::chrono::seconds(10));
+			divergence_block_chain_testspy::call_check_for_divergence(div_check);
+
+			if(rank % 2 == 1) {
+				queue.submit([&](celerity::handler& cgh) {
+					celerity::accessor dw{buff, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+					const auto range = buff.get_range();
+					cgh.parallel_for<class kernel_two>(range, [=](celerity::item<1> item) {
+						if(item[0] % 2 == 0) { dw[item] = 0.5; }
+					});
+				});
+			}
+
+			queue.submit([&](celerity::handler& cgh) {
+				celerity::accessor acc{buff, cgh, celerity::access::all{}, celerity::read_only_host_task};
+				const auto range = buff.get_range();
+				cgh.host_task(celerity::on_master_node, [=] {
+					for(size_t i = 0; i < range.get(0); ++i) {
+						if(acc[i] == 3) { break; }
+					}
+				});
+			});
+
+			CHECK_THROWS(divergence_block_chain_testspy::call_check_for_divergence(div_check));
+		}
+
+		// create the check text
+		std::string check_text = fmt::format("After 10 seconds of waiting, node(s)");
+		std::vector<node_id> stuck_nodes;
+		for(node_id nid = 0; nid < n; ++nid) {
+			// every second node in this test is stuck
+			if(nid % 2 == 1) { stuck_nodes.push_back(nid); }
+		}
+		check_text += fmt::format(" {} ", fmt::join(stuck_nodes, ","));
+		check_text += "did not move to the next task. The runtime might be stuck.";
+
+		if(rank == 0) {
+			const auto log = log_capture.get_log();
+			CHECK_THAT(log, Catch::Matchers::ContainsSubstring(check_text));
+			CHECK_THAT(log, Catch::Matchers::ContainsSubstring("Task record for "));
+		}
+	}
 } // namespace detail
 } // namespace celerity

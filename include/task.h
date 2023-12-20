@@ -14,6 +14,7 @@
 #include "lifetime_extending_state.h"
 #include "range_mapper.h"
 #include "types.h"
+#include "utils.h"
 
 namespace celerity {
 
@@ -291,3 +292,31 @@ namespace detail {
 
 } // namespace detail
 } // namespace celerity
+
+template <>
+struct std::hash<celerity::detail::task_geometry> {
+	std::size_t operator()(const celerity::detail::task_geometry& g) const noexcept {
+		std::size_t seed = 0;
+		celerity::detail::utils::hash_combine(seed, std::hash<int>{}(g.dimensions), std::hash<celerity::range<3>>{}(g.global_size),
+		    std::hash<celerity::id<3>>{}(g.global_offset), std::hash<celerity::range<3>>{}(g.granularity));
+		return seed;
+	};
+};
+
+template <>
+struct fmt::formatter<celerity::detail::task_type> : fmt::formatter<std::string> {
+	static format_context::iterator format(const celerity::detail::task_type& tt, format_context& ctx) {
+		auto out = ctx.out();
+		switch(tt) {
+		case celerity::detail::task_type::epoch: out = std::copy_n("epoch", 5, out); break;
+		case celerity::detail::task_type::host_compute: out = std::copy_n("host-compute", 12, out); break;
+		case celerity::detail::task_type::device_compute: out = std::copy_n("device-compute", 14, out); break;
+		case celerity::detail::task_type::collective: out = std::copy_n("collective", 10, out); break;
+		case celerity::detail::task_type::master_node: out = std::copy_n("master-node", 11, out); break;
+		case celerity::detail::task_type::horizon: out = std::copy_n("horizon", 7, out); break;
+		case celerity::detail::task_type::fence: out = std::copy_n("fence", 5, out); break;
+		default: out = std::copy_n("unknown", 7, out); break;
+		}
+		return out;
+	}
+};

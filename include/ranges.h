@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sycl_wrappers.h"
+#include "utils.h"
 #include "workaround.h"
 
 namespace celerity {
@@ -229,6 +230,17 @@ struct ones_t {
 
 }; // namespace celerity::detail
 
+template <typename Interface, int Dims>
+struct std::hash<celerity::detail::coordinate<Interface, Dims>> {
+	std::size_t operator()(const celerity::detail::coordinate<Interface, Dims>& r) const noexcept {
+		std::size_t seed = 0;
+		for(int i = 0; i < Dims; ++i) {
+			celerity::detail::utils::hash_combine(seed, std::hash<size_t>{}(r[i]));
+		}
+		return seed;
+	};
+};
+
 namespace celerity {
 
 template <int Dims>
@@ -400,6 +412,17 @@ nd_range(range<3> global_range, range<3> local_range, id<3> offset)->nd_range<3>
 nd_range(range<3> global_range, range<3> local_range)->nd_range<3>;
 
 } // namespace celerity
+
+
+template <int Dims>
+struct std::hash<celerity::range<Dims>> {
+	std::size_t operator()(const celerity::range<Dims>& r) const noexcept { return std::hash<celerity::detail::coordinate<celerity::range<Dims>, Dims>>{}(r); };
+};
+
+template <int Dims>
+struct std::hash<celerity::id<Dims>> {
+	std::size_t operator()(const celerity::id<Dims>& r) const noexcept { return std::hash<celerity::detail::coordinate<celerity::id<Dims>, Dims>>{}(r); };
+};
 
 namespace celerity {
 namespace detail {

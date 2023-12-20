@@ -23,9 +23,14 @@ endif()
 
 option(CELERITY_ACCESS_PATTERN_DIAGNOSTICS "Diagnose uninitialized reads and overlapping writes" ${DEFAULT_ENABLE_DEBUG_CHECKS})
 option(CELERITY_ACCESSOR_BOUNDARY_CHECK "Enable accessor boundary check" ${DEFAULT_ENABLE_DEBUG_CHECKS})
+option(CELERITY_DIVERGENCE_CHECK "Enable divergence check" ${DEFAULT_ENABLE_DEBUG_CHECKS})
 
 if(CELERITY_ACCESSOR_BOUNDARY_CHECK AND NOT (CMAKE_BUILD_TYPE STREQUAL "Debug"))
   message(STATUS "Accessor boundary check enabled - this will impact kernel performance")
+endif()
+
+if(CELERITY_DIVERGENCE_CHECK AND NOT (CMAKE_BUILD_TYPE STREQUAL "Debug"))
+  message(STATUS "Divergence checker enabled - this will impact the overall performance")
 endif()
 
 set(CELERITY_CMAKE_DIR "${PROJECT_SOURCE_DIR}/cmake")
@@ -186,6 +191,7 @@ set(SOURCES
   src/command_graph.cc
   src/config.cc
   src/device_queue.cc
+  src/divergence_checker.cc
   src/executor.cc
   src/distributed_graph_generator.cc
   src/graph_serializer.cc
@@ -288,6 +294,7 @@ target_compile_definitions(celerity_runtime PUBLIC
   CELERITY_FEATURE_UNNAMED_KERNELS=$<BOOL:${CELERITY_FEATURE_UNNAMED_KERNELS}>
   CELERITY_DETAIL_HAS_NAMED_THREADS=$<BOOL:${CELERITY_DETAIL_HAS_NAMED_THREADS}>
   CELERITY_ACCESSOR_BOUNDARY_CHECK=$<BOOL:${CELERITY_ACCESSOR_BOUNDARY_CHECK}>
+  CELERITY_DIVERGENCE_CHECK=$<BOOL:${CELERITY_DIVERGENCE_CHECK}>
   CELERITY_ACCESS_PATTERN_DIAGNOSTICS=$<BOOL:${CELERITY_ACCESS_PATTERN_DIAGNOSTICS}>
 )
 
