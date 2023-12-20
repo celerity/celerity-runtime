@@ -122,7 +122,7 @@ Celerity's runtime behavior:
   automatically assign a unique device to each worker on a host.
 - `CELERITY_PROFILE_KERNEL` controls whether SYCL queue profiling information
   should be queried (currently not supported when using hipSYCL).
-- `CELERITY_RECORDING` enables recording of the generated tasks and commands,
-  which allows printing dot graphs for debugging and analysis.
+- `CELERITY_PRINT_GRAPHS` controls whether task and command graphs are logged
+  at the end of execution (requires log level `info` or higher).
 - `CELERITY_DRY_RUN_NODES` takes a number and simulates a run with that many nodes
   without actually executing the commands.

@@ -51,7 +51,7 @@
 namespace celerity {
 namespace detail {
 
-	const std::unordered_map<std::string, std::string> recording_enabled_env_setting{{"CELERITY_RECORDING", "1"}};
+	const std::unordered_map<std::string, std::string> print_graphs_env_setting{{"CELERITY_PRINT_GRAPHS", "1"}};
 
 	struct runtime_testspy {
 		static scheduler& get_schdlr(runtime& rt) { return *rt.m_schdlr; }

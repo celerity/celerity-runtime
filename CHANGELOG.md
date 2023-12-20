@@ -10,6 +10,7 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Add new environment variable `CELERITY_PRINT_GRAPHS` to control whether task and command graphs are logged (#197, #236)
 - Introduce new experimental `for_each_item` utility to iterate over a celerity range (#199)
 - Add new environment variables `CELERITY_HORIZON_STEP` and `CELERITY_HORIZON_MAX_PARALLELISM` to control Horizon generation (#199)
 - Add new `experimental::constrain_split` API to limit how a kernel can be split (#?)
