@@ -149,7 +149,7 @@ namespace detail {
 		m_reduction_mngr = std::make_unique<reduction_manager>();
 		m_host_object_mngr = std::make_unique<host_object_manager>();
 
-		if(m_cfg->is_recording()) m_task_recorder = std::make_unique<task_recorder>(m_buffer_mngr.get());
+		if(m_cfg->should_record()) m_task_recorder = std::make_unique<task_recorder>(m_buffer_mngr.get());
 
 		task_manager::policy_set task_mngr_policy;
 		// Merely _declaring_ an uninitialized read is legitimate as long as the kernel does not actually perform the read at runtime - this might happen in the
@@ -164,7 +164,7 @@ namespace detail {
 		m_exec = std::make_unique<executor>(m_num_nodes, m_local_nid, *m_h_queue, *m_d_queue, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
 
 		m_cdag = std::make_unique<command_graph>();
-		if(m_cfg->is_recording()) m_command_recorder = std::make_unique<command_recorder>(m_task_mngr.get(), m_buffer_mngr.get());
+		if(m_cfg->should_record()) m_command_recorder = std::make_unique<command_recorder>(m_task_mngr.get(), m_buffer_mngr.get());
 
 		distributed_graph_generator::policy_set dggen_policy;
 		// Any uninitialized read that is observed on CDAG generation was already logged on task generation, unless we have a bug.
@@ -224,17 +224,17 @@ namespace detail {
 		m_d_queue->wait();
 		m_h_queue->wait();
 
-		if(spdlog::should_log(log_level::trace) && m_cfg->is_recording()) {
+		if(spdlog::should_log(log_level::info) && m_cfg->should_print_graphs()) {
 			if(m_local_nid == 0) { // It's the same across all nodes
 				assert(m_task_recorder.get() != nullptr);
 				const auto graph_str = detail::print_task_graph(*m_task_recorder);
-				CELERITY_TRACE("Task graph:\n\n{}\n", graph_str);
+				CELERITY_INFO("Task graph:\n\n{}\n", graph_str);
 			}
 			// must be called on all nodes
 			auto cmd_graph = gather_command_graph();
 			if(m_local_nid == 0) {
 				std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Avoid racing on stdout with other nodes (funneled through mpirun)
-				CELERITY_TRACE("Command graph:\n\n{}\n", cmd_graph);
+				CELERITY_INFO("Command graph:\n\n{}\n", cmd_graph);
 			}
 		}
 

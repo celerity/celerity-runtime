@@ -138,7 +138,7 @@ namespace detail {
 	TEST_CASE_METHOD(
 	    test_utils::runtime_fixture, "runtime-shutdown graph printing works in the presence of a finished reduction", "[reductions][print_graph][smoke-test]") {
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
-		env::scoped_test_environment test_env(recording_enabled_env_setting);
+		env::scoped_test_environment test_env(print_graphs_env_setting);
 		// init runtime early so the distr_queue ctor doesn't override the log level set by log_capture
 		runtime::init(nullptr, nullptr);
 
@@ -263,7 +263,7 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "generating same task graph on different nodes", "[task-graph]") {
-		env::scoped_test_environment tenv(recording_enabled_env_setting);
+		env::scoped_test_environment tenv(print_graphs_env_setting);
 		distr_queue q;
 		REQUIRE(runtime::get_instance().get_num_nodes() > 1);
 
@@ -374,7 +374,7 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "command graph can be collected across distributed nodes", "[print_graph]") {
-		env::scoped_test_environment tenv(recording_enabled_env_setting);
+		env::scoped_test_environment tenv(print_graphs_env_setting);
 
 		int global_size = 0;
 		MPI_Comm_size(MPI_COMM_WORLD, &global_size);

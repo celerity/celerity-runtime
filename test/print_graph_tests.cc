@@ -112,7 +112,7 @@ TEST_CASE("command graph printing is unchanged", "[print_graph][command-graph]")
 }
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer debug names show up in the generated graph", "[print_graph]") {
-	env::scoped_test_environment tenv(recording_enabled_env_setting);
+	env::scoped_test_environment tenv(print_graphs_env_setting);
 
 	distr_queue q;
 	celerity::range<1> range(16);
@@ -141,8 +141,8 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer debug names show up in the
 	}
 }
 
-TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY_RECORDING is set", "[print_graph]") {
-	env::scoped_test_environment tenv(recording_enabled_env_setting);
+TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY_PRINT_GRAPHS is set", "[print_graph]") {
+	env::scoped_test_environment tenv(print_graphs_env_setting);
 
 	distr_queue q;
 	celerity::range<1> range(16);

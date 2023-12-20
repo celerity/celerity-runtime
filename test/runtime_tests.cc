@@ -1305,7 +1305,7 @@ namespace detail {
 		    {"CELERITY_DEVICES", "1 1"},
 		    {"CELERITY_PROFILE_KERNEL", "1"},
 		    {"CELERITY_DRY_RUN_NODES", "4"},
-		    {"CELERITY_RECORDING", "true"},
+		    {"CELERITY_PRINT_GRAPHS", "true"},
 		};
 		const auto test_env = env::scoped_test_environment(env_map);
 		auto cfg = config(nullptr, nullptr);
@@ -1319,7 +1319,7 @@ namespace detail {
 		REQUIRE(has_prof.has_value());
 		CHECK((*has_prof) == true);
 		CHECK(cfg.get_dry_run_nodes() == 4);
-		CHECK(cfg.is_recording() == true);
+		CHECK(cfg.should_print_graphs() == true);
 	}
 
 	TEST_CASE_METHOD(test_utils::mpi_fixture, "config reports incorrect environment varibles", "[env-vars][config]") {
