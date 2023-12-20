@@ -106,15 +106,13 @@ void divergence_block_chain::check_for_deadlock() {
 }
 
 void divergence_block_chain::log_node_divergences(const divergence_map& check_map, const int task_id) {
-	std::string error = fmt::format("Divergence detected. Task Nr {} diverges on nodes:\n\n", task_id);
+	// TODO: Can we print task debug label here?
+	std::string error = fmt::format(
+	    "Detected divergence in execution between worker nodes. This is a bug in your program! Task {} has different hashes on these nodes:\n\n", task_id);
 	for(auto& [hash, nodes] : check_map) {
-		error += fmt::format("Following task-hash {:#x} resulted on {} ", hash, nodes.size() > 1 ? "nodes" : "node ");
-		for(auto& node : nodes) {
-			error += fmt::format("{} ", node);
-		}
-		error += "\n";
+		error += fmt::format("{:#x} on {} {}\n", hash, nodes.size() > 1 ? "nodes" : "node", fmt::join(nodes, ","));
 	}
-	CELERITY_ERROR("{}", error);
+	CELERITY_CRITICAL("{}", error);
 }
 
 void divergence_block_chain::log_task_record(const divergence_map& check_map, const task_record& task, const task_hash hash) {

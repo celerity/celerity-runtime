@@ -34,7 +34,6 @@ struct divergence_checker_detail::divergence_block_chain_testspy {
 
 	static bool call_check_for_divergence(divergence_block_chain& div_test) { return div_test.check_for_divergence(); }
 
-
 	static void set_last_cleared(divergence_block_chain& div_test, std::chrono::time_point<std::chrono::steady_clock> time) { div_test.m_last_cleared = time; }
 };
 
@@ -76,7 +75,6 @@ class divergence_test_communicator_provider {
 		}
 
 		void reset() { std::fill(m_was_called.begin(), m_was_called.end(), false); }
-
 
 		std::vector<bool> m_was_called;
 		std::vector<T> m_data;
@@ -123,14 +121,14 @@ class divergence_test_communicator_provider {
 
 		void barrier_impl() override {}
 
-		node_id m_local_nid = 0;
-		size_t m_num_nodes = 1;
+		node_id m_local_nid;
+		size_t m_num_nodes;
 
 		tracker<inplace_data>& m_inplace_data;
 		tracker<gather_data>& m_gather_data;
 	};
 
-	size_t m_num_nodes = 1;
+	size_t m_num_nodes;
 
 	tracker<inplace_data> m_inplace_data{m_num_nodes};
 	tracker<gather_data> m_gather_data{m_num_nodes};

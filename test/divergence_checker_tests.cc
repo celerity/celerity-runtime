@@ -8,10 +8,8 @@
 #include "log_test_utils.h"
 #include "test_utils.h"
 
-
 using namespace celerity;
 using namespace celerity::detail;
-using namespace celerity::test_utils;
 using celerity::access_mode;
 using celerity::access::fixed;
 
@@ -19,7 +17,7 @@ TEST_CASE("test diverged task execution on device tasks", "[divergence]") {
 	test_utils::task_test_context tt = test_utils::task_test_context{};
 	test_utils::task_test_context tt_two = test_utils::task_test_context{};
 
-	divergence_test_communicator_provider provider{2};
+	test_utils::divergence_test_communicator_provider provider{2};
 	std::vector<std::unique_ptr<divergence_block_chain>> div_tests;
 	div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt.trec, provider.create(0)));
 	div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt_two.trec, provider.create(1)));
@@ -35,47 +33,36 @@ TEST_CASE("test diverged task execution on device tasks", "[divergence]") {
 
 	CHECK_THROWS(divergence_block_chain_testspy::call_check_for_divergence_with_pre_post(div_tests));
 
-	CHECK_THAT(log_capture.get_log(), Catch::Matchers::ContainsSubstring("Divergence detected"));
+	CHECK_THAT(log_capture.get_log(), Catch::Matchers::ContainsSubstring("Detected divergence in execution between worker nodes"));
 }
 
 TEST_CASE("test divergence free task execution on device", "[divergence]") {
 	auto tt = test_utils::task_test_context{};
 	auto tt_two = test_utils::task_test_context{};
 
-	{
-		divergence_test_communicator_provider provider{2};
-		std::vector<std::unique_ptr<divergence_block_chain>> div_tests;
-		div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt.trec, provider.create(0)));
-		div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt_two.trec, provider.create(1)));
+	test_utils::divergence_test_communicator_provider provider{2};
+	std::vector<std::unique_ptr<divergence_block_chain>> div_tests;
+	div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt.trec, provider.create(0)));
+	div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt_two.trec, provider.create(1)));
 
-		auto buf = tt.mbf.create_buffer(range<1>(128));
-		auto buf_two = tt_two.mbf.create_buffer(range<1>(128));
+	auto buf = tt.mbf.create_buffer(range<1>(128));
+	auto buf_two = tt_two.mbf.create_buffer(range<1>(128));
 
-		test_utils::add_compute_task<class UKN(task_a)>(tt.tm, [&](handler& cgh) {
-			// manually set the name because SYCL needs the class tag to be unique making the default name different.
-			celerity::debug::set_task_name(cgh, "task_a");
-			buf.get_access<access_mode::discard_write>(cgh, fixed<1>{{0, 64}});
-		});
+	test_utils::add_compute_task(tt.tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, fixed<1>{{0, 64}}); });
+	test_utils::add_compute_task(tt_two.tm, [&](handler& cgh) { buf_two.get_access<access_mode::discard_write>(cgh, fixed<1>{{0, 64}}); });
 
-		test_utils::add_compute_task<class UKN(task_a)>(tt_two.tm, [&](handler& cgh) {
-			// manually set the name because SYCL needs the class tag to be unique making the default name different.
-			celerity::debug::set_task_name(cgh, "task_a");
-			buf_two.get_access<access_mode::discard_write>(cgh, fixed<1>{{0, 64}});
-		});
+	test_utils::log_capture log_capture;
 
-		test_utils::log_capture log_capture;
+	divergence_block_chain_testspy::call_check_for_divergence_with_pre_post(div_tests);
 
-		divergence_block_chain_testspy::call_check_for_divergence_with_pre_post(div_tests);
-
-		CHECK_THAT(log_capture.get_log(), !Catch::Matchers::ContainsSubstring("Divergence detected"));
-	}
+	CHECK_THAT(log_capture.get_log(), !Catch::Matchers::ContainsSubstring("Detected divergence in execution between worker nodes"));
 }
 
 TEST_CASE("test diverged task execution on host task", "[divergence]") {
 	auto tt = test_utils::task_test_context{};
 	auto tt_two = test_utils::task_test_context{};
 
-	divergence_test_communicator_provider provider{2};
+	test_utils::divergence_test_communicator_provider provider{2};
 	std::vector<std::unique_ptr<divergence_block_chain>> div_tests;
 	div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt.trec, provider.create(0)));
 	div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt_two.trec, provider.create(1)));
@@ -91,41 +78,39 @@ TEST_CASE("test diverged task execution on host task", "[divergence]") {
 
 	CHECK_THROWS(divergence_block_chain_testspy::call_check_for_divergence_with_pre_post(div_tests));
 
-	CHECK_THAT(log_capture.get_log(), Catch::Matchers::ContainsSubstring("Divergence detected"));
+	CHECK_THAT(log_capture.get_log(), Catch::Matchers::ContainsSubstring("Detected divergence in execution between worker nodes"));
 }
 
 TEST_CASE("test divergence free task execution on host task", "[divergence]") {
 	auto tt = test_utils::task_test_context{};
 	auto tt_two = test_utils::task_test_context{};
 
-	{
-		divergence_test_communicator_provider provider{2};
-		std::vector<std::unique_ptr<divergence_block_chain>> div_tests;
-		div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt.trec, provider.create(0)));
-		div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt_two.trec, provider.create(1)));
+	test_utils::divergence_test_communicator_provider provider{2};
+	std::vector<std::unique_ptr<divergence_block_chain>> div_tests;
+	div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt.trec, provider.create(0)));
+	div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt_two.trec, provider.create(1)));
 
-		auto buf = tt.mbf.create_buffer(range<1>(128));
-		auto buf_two = tt_two.mbf.create_buffer(range<1>(128));
+	auto buf = tt.mbf.create_buffer(range<1>(128));
+	auto buf_two = tt_two.mbf.create_buffer(range<1>(128));
 
-		test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128})); });
-		test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, fixed<1>({64, 128})); });
+	test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128})); });
+	test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, fixed<1>({64, 128})); });
 
-		test_utils::add_host_task(tt_two.tm, on_master_node, [&](handler& cgh) { buf_two.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128})); });
-		test_utils::add_host_task(tt_two.tm, on_master_node, [&](handler& cgh) { buf_two.get_access<access_mode::discard_write>(cgh, fixed<1>({64, 128})); });
+	test_utils::add_host_task(tt_two.tm, on_master_node, [&](handler& cgh) { buf_two.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128})); });
+	test_utils::add_host_task(tt_two.tm, on_master_node, [&](handler& cgh) { buf_two.get_access<access_mode::discard_write>(cgh, fixed<1>({64, 128})); });
 
-		test_utils::log_capture log_capture;
+	test_utils::log_capture log_capture;
 
-		divergence_block_chain_testspy::call_check_for_divergence_with_pre_post(div_tests);
+	divergence_block_chain_testspy::call_check_for_divergence_with_pre_post(div_tests);
 
-		CHECK_THAT(log_capture.get_log(), !Catch::Matchers::ContainsSubstring("Divergence detected"));
-	}
+	CHECK_THAT(log_capture.get_log(), !Catch::Matchers::ContainsSubstring("Detected divergence in execution between worker nodes"));
 }
 
 TEST_CASE("test deadlock warning for tasks that are stale longer than 10 seconds", "[divergence]") {
 	auto tt = test_utils::task_test_context{};
 	auto tt_two = test_utils::task_test_context{};
 
-	divergence_test_communicator_provider provider{2};
+	test_utils::divergence_test_communicator_provider provider{2};
 	std::vector<std::unique_ptr<divergence_block_chain>> div_tests;
 	div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt.trec, provider.create(0)));
 	div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt_two.trec, provider.create(1)));
@@ -145,20 +130,12 @@ TEST_CASE("test deadlock warning for tasks that are stale longer than 10 seconds
 	    Catch::Matchers::ContainsSubstring("After 10 seconds of waiting, node(s) 1 did not move to the next task. The runtime might be stuck."));
 }
 
-size_t get_hash(const std::vector<task_record>& tasks, size_t start, size_t end) {
-	size_t seed = 0;
-	for(size_t i = start; i <= end; i++) {
-		utils::hash_combine(seed, std::hash<task_record>{}(tasks[i]));
-	}
-	return seed;
-}
-
 TEST_CASE("test correct output of 3 different divergent tasks", "[divergence]") {
 	auto tt = test_utils::task_test_context{};
 	auto tt_two = test_utils::task_test_context{};
 	auto tt_three = test_utils::task_test_context{};
 
-	divergence_test_communicator_provider provider{3};
+	test_utils::divergence_test_communicator_provider provider{3};
 	std::vector<std::unique_ptr<divergence_block_chain>> div_tests;
 	div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt.trec, provider.create(0)));
 	div_tests.emplace_back(std::make_unique<divergence_block_chain>(tt_two.trec, provider.create(1)));
@@ -187,8 +164,8 @@ TEST_CASE("test correct output of 3 different divergent tasks", "[divergence]") 
 
 	CHECK_THROWS(divergence_block_chain_testspy::call_check_for_divergence_with_pre_post(div_tests));
 
-	CHECK_THAT(log_capture.get_log(), Catch::Matchers::ContainsSubstring("Divergence detected. Task Nr 1 diverges on nodes:"));
-	CHECK_THAT(log_capture.get_log(), Catch::Matchers::ContainsSubstring("on node  2"));
-	CHECK_THAT(log_capture.get_log(), Catch::Matchers::ContainsSubstring("on node  1"));
-	CHECK_THAT(log_capture.get_log(), Catch::Matchers::ContainsSubstring("on node  0"));
+	CHECK_THAT(log_capture.get_log(), Catch::Matchers::ContainsSubstring("Task 1 has different hashes on these nodes:"));
+	CHECK_THAT(log_capture.get_log(), Catch::Matchers::ContainsSubstring("on node 2"));
+	CHECK_THAT(log_capture.get_log(), Catch::Matchers::ContainsSubstring("on node 1"));
+	CHECK_THAT(log_capture.get_log(), Catch::Matchers::ContainsSubstring("on node 0"));
 }
