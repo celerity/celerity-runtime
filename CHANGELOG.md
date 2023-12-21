@@ -6,14 +6,22 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic
 Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2023-??-??
+## [0.5.0] - 2023-12-21
+
+We recommend using the following SYCL versions with this release:
+
+- DPC++: 61e51015 or newer
+- hipSYCL: d2bd9fc7 or newer
 
 ### Added
 
 - Add new environment variable `CELERITY_PRINT_GRAPHS` to control whether task and command graphs are logged (#197, #236)
 - Introduce new experimental `for_each_item` utility to iterate over a celerity range (#199)
 - Add new environment variables `CELERITY_HORIZON_STEP` and `CELERITY_HORIZON_MAX_PARALLELISM` to control Horizon generation (#199)
-- Add new `experimental::constrain_split` API to limit how a kernel can be split (#?)
+- Add support for out-of-bounds checking for host accessors (also enabled via `CELERITY_ACCESSOR_BOUNDARY_CHECK`) (#211)
+- Add new `debug::set_task_name` utility for naming tasks to aid debugging (#213)
+- Add new `experimental::constrain_split` API to limit how a kernel can be split (#212)
+- Add GDB pretty-printers for common Celerity types (#207)
 - `distr_queue::fence` and `buffer_snapshot` are now stable, subsuming the `experimental::` APIs of the same name (#225)
 - Celerity now warns at runtime when a task declares reads from uninitialized buffers or writes with overlapping ranges between nodes (#224)
 - Introduce new `experimental::hint` API for providing the runtime with additional information on how to execute a task (#227)
@@ -21,14 +29,19 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Added breadth-triggered Horizons. Improves performance in some scenarios, and prevents programs with many independent tasks from running out of task queue space (#199)
+- Horizons can now also be triggered by graph breadth. This improves performance in some scenarios, and prevents programs with many independent tasks from running out of task queue space (#199)
 
 ### Fixed
 
 - In edge cases, command graph generation would fail to generate await-push commands when re-distributing reduction results (#223)
 - Command graph generation was missing an anti-dependency between push-commands of partial reduction results and the final reduction command (#223)
 - Don't create multiple smaller push-commands instead of a single large one in some rare situations (#229)
-- Unit tests that inspect logs contained a race that would cause spurious failures (??)
+- Unit tests that inspect logs contained a race that would cause spurious failures (#234)
+
+### Internal
+
+- Improve command graph testing infrastructure (#198)
+- Overhaul internal grid region and box representation, remove AllScale dependency (#204)
 
 ## [0.4.1] - 2023-09-08
 
@@ -39,16 +52,16 @@ We recommend using the following SYCL versions with this release:
 
 See our [platform support guide](docs/platform-support.md) for a complete list of all officially supported configurations.
 
+### Removed
+
+- Remove outdated workarounds for unsupported SYCL versions (#200, 85b7479c)
+
 ### Fixed
 
 - Fix the behavior of dry runs (`CELERITY_DRY_RUN_NODES`) in the presence of fences or graph horizons (#196, 069f5029)
 - Compatibility with recent hipSYCL >= d2bd9fc7 (#200, b174df7d)
 - Compatibility with recent versions of Intel oneAPI and Arc-series dedicated GPUs (requires deactivating mimalloc, #203, c1519624)
 - Work around a [bug in DPC++](https://github.com/intel/llvm/issues/10982) that breaks selection of the non-default device (#210, 2b652f8)
-
-### Removed
-
-- Remove outdated workarounds for unsupported SYCL versions (#200, 85b7479c)
 
 ## [0.4.0] - 2023-07-13
 
