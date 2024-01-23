@@ -2,7 +2,7 @@ add_executable(distr_tests distr_tests.cc)
 
 target_link_libraries(distr_tests PRIVATE test_main)
 
-set_property(TARGET distr_tests PROPERTY CXX_STANDARD 17)
+set_property(TARGET distr_tests PROPERTY CXX_STANDARD ${CELERITY_CXX_STANDARD})
 set_property(TARGET distr_tests PROPERTY FOLDER "tests/system")
 
 add_celerity_to_target(TARGET distr_tests SOURCES distr_tests.cc)

@@ -6,7 +6,7 @@ function(add_example NAME)
     "${NAME}/${NAME}.cc"
   )
 
-  set_property(TARGET "${NAME}" PROPERTY CXX_STANDARD 17)
+  set_property(TARGET "${NAME}" PROPERTY CXX_STANDARD "${CELERITY_CXX_STANDARD}")
   set_property(TARGET "${NAME}" PROPERTY RUNTIME_OUTPUT_DIRECTORY "${NAME}")
   set_property(TARGET "${NAME}" PROPERTY FOLDER "examples")
 

@@ -1,0 +1,626 @@
+{
+    "NOTE": "This configuration uses 4x SimSYCL's builtin_device, except that global memory is set to 1GiB for the buffer_manager_tests which allocate a fixed percentage of the global memory",
+    "devices": {
+        "GPU#0": {
+            "address_bits": 64,
+            "aspects": [
+                "gpu",
+                "accelerator",
+                "emulated",
+                "host_debuggable",
+                "fp16",
+                "fp64",
+                "atomic64",
+                "queue_profiling",
+                "usm_device_allocations",
+                "usm_host_allocations",
+                "usm_atomic_host_allocations",
+                "usm_shared_allocations",
+                "usm_atomic_shared_allocations",
+                "usm_system_allocations"
+            ],
+            "atomic_fence_order_capabilities": [
+                "relaxed",
+                "acquire",
+                "release",
+                "acq_rel",
+                "seq_cst"
+            ],
+            "atomic_fence_scope_capabilities": [
+                "work_item",
+                "sub_group",
+                "work_group",
+                "device",
+                "system"
+            ],
+            "atomic_memory_order_capabilities": [
+                "relaxed",
+                "acquire",
+                "release",
+                "acq_rel",
+                "seq_cst"
+            ],
+            "atomic_memory_scope_capabilities": [
+                "work_item",
+                "sub_group",
+                "work_group",
+                "device",
+                "system"
+            ],
+            "backend_version": "",
+            "device_type": "gpu",
+            "double_fp_config": [
+                "denorm",
+                "inf_nan",
+                "fma",
+                "correctly_rounded_divide_sqrt"
+            ],
+            "driver_version": "0.1",
+            "error_correction_support": false,
+            "execution_capabilities": [
+                "exec_kernel"
+            ],
+            "extensions": [
+                "cl_khr_int64_base_atomics",
+                "cl_khr_int64_extended_atomics",
+                "cl_khr_fp16"
+            ],
+            "global_mem_cache_line_size": 64,
+            "global_mem_cache_size": 16777216,
+            "global_mem_cache_type": "read_write",
+            "global_mem_size": 1073741824,
+            "half_fp_config": [
+                "denorm",
+                "inf_nan",
+                "fma",
+                "correctly_rounded_divide_sqrt"
+            ],
+            "host_unified_memory": true,
+            "image2d_max_height": 0,
+            "image2d_max_width": 0,
+            "image3d_max_depth": 0,
+            "image3d_max_height": 0,
+            "image3d_max_width": 0,
+            "image_max_buffer_size": 0,
+            "image_support": false,
+            "is_available": true,
+            "is_compiler_available": false,
+            "is_endian_little": true,
+            "is_linker_available": false,
+            "local_mem_size": 65536,
+            "local_mem_type": "local",
+            "max_clock_frequency": 1000,
+            "max_compute_units": 16,
+            "max_constant_args": 4294967295,
+            "max_constant_buffer_size": 65536,
+            "max_mem_alloc_size": 18446744073709551615,
+            "max_num_sub_groups": 32,
+            "max_parameter_size": 18446744073709551615,
+            "max_read_image_args": 0,
+            "max_samplers": 0,
+            "max_work_group_size": 1024,
+            "max_work_item_dimensions": 3,
+            "max_work_item_sizes<1>": [
+                1024
+            ],
+            "max_work_item_sizes<2>": [
+                1024,
+                1024
+            ],
+            "max_work_item_sizes<3>": [
+                1024,
+                1024,
+                1024
+            ],
+            "max_write_image_args": 0,
+            "mem_base_addr_align": 1024,
+            "name": "SimSYCL virtual GPU #0",
+            "native_vector_width_char": 4,
+            "native_vector_width_double": 1,
+            "native_vector_width_float": 1,
+            "native_vector_width_half": 2,
+            "native_vector_width_int": 1,
+            "native_vector_width_long": 1,
+            "native_vector_width_short": 2,
+            "parent_device_id": null,
+            "partition_affinity_domains": [
+                "not_applicable"
+            ],
+            "partition_max_sub_devices": 0,
+            "partition_properties": [],
+            "partition_type_affinity_domain": "not_applicable",
+            "partition_type_property": "no_partition",
+            "platform_id": "SimSYCL",
+            "preferred_vector_width_char": 4,
+            "preferred_vector_width_double": 1,
+            "preferred_vector_width_float": 1,
+            "preferred_vector_width_half": 2,
+            "preferred_vector_width_int": 1,
+            "preferred_vector_width_long": 1,
+            "preferred_vector_width_short": 2,
+            "printf_buffer_size": 18446744073709551615,
+            "profiling_timer_resolution": 1,
+            "queue_profiling": true,
+            "single_fp_config": [
+                "denorm",
+                "inf_nan",
+                "fma",
+                "correctly_rounded_divide_sqrt"
+            ],
+            "sub_group_sizes": [
+                32
+            ],
+            "vendor": "SimSYCL",
+            "vendor_id": 0,
+            "version": "0.1"
+        },
+        "GPU#1": {
+            "address_bits": 64,
+            "aspects": [
+                "gpu",
+                "accelerator",
+                "emulated",
+                "host_debuggable",
+                "fp16",
+                "fp64",
+                "atomic64",
+                "queue_profiling",
+                "usm_device_allocations",
+                "usm_host_allocations",
+                "usm_atomic_host_allocations",
+                "usm_shared_allocations",
+                "usm_atomic_shared_allocations",
+                "usm_system_allocations"
+            ],
+            "atomic_fence_order_capabilities": [
+                "relaxed",
+                "acquire",
+                "release",
+                "acq_rel",
+                "seq_cst"
+            ],
+            "atomic_fence_scope_capabilities": [
+                "work_item",
+                "sub_group",
+                "work_group",
+                "device",
+                "system"
+            ],
+            "atomic_memory_order_capabilities": [
+                "relaxed",
+                "acquire",
+                "release",
+                "acq_rel",
+                "seq_cst"
+            ],
+            "atomic_memory_scope_capabilities": [
+                "work_item",
+                "sub_group",
+                "work_group",
+                "device",
+                "system"
+            ],
+            "backend_version": "",
+            "device_type": "gpu",
+            "double_fp_config": [
+                "denorm",
+                "inf_nan",
+                "fma",
+                "correctly_rounded_divide_sqrt"
+            ],
+            "driver_version": "0.1",
+            "error_correction_support": false,
+            "execution_capabilities": [
+                "exec_kernel"
+            ],
+            "extensions": [
+                "cl_khr_int64_base_atomics",
+                "cl_khr_int64_extended_atomics",
+                "cl_khr_fp16"
+            ],
+            "global_mem_cache_line_size": 64,
+            "global_mem_cache_size": 16777216,
+            "global_mem_cache_type": "read_write",
+            "global_mem_size": 1073741824,
+            "half_fp_config": [
+                "denorm",
+                "inf_nan",
+                "fma",
+                "correctly_rounded_divide_sqrt"
+            ],
+            "host_unified_memory": true,
+            "image2d_max_height": 0,
+            "image2d_max_width": 0,
+            "image3d_max_depth": 0,
+            "image3d_max_height": 0,
+            "image3d_max_width": 0,
+            "image_max_buffer_size": 0,
+            "image_support": false,
+            "is_available": true,
+            "is_compiler_available": false,
+            "is_endian_little": true,
+            "is_linker_available": false,
+            "local_mem_size": 65536,
+            "local_mem_type": "local",
+            "max_clock_frequency": 1000,
+            "max_compute_units": 16,
+            "max_constant_args": 4294967295,
+            "max_constant_buffer_size": 65536,
+            "max_mem_alloc_size": 18446744073709551615,
+            "max_num_sub_groups": 32,
+            "max_parameter_size": 18446744073709551615,
+            "max_read_image_args": 0,
+            "max_samplers": 0,
+            "max_work_group_size": 1024,
+            "max_work_item_dimensions": 3,
+            "max_work_item_sizes<1>": [
+                1024
+            ],
+            "max_work_item_sizes<2>": [
+                1024,
+                1024
+            ],
+            "max_work_item_sizes<3>": [
+                1024,
+                1024,
+                1024
+            ],
+            "max_write_image_args": 0,
+            "mem_base_addr_align": 1024,
+            "name": "SimSYCL virtual GPU #1",
+            "native_vector_width_char": 4,
+            "native_vector_width_double": 1,
+            "native_vector_width_float": 1,
+            "native_vector_width_half": 2,
+            "native_vector_width_int": 1,
+            "native_vector_width_long": 1,
+            "native_vector_width_short": 2,
+            "parent_device_id": null,
+            "partition_affinity_domains": [
+                "not_applicable"
+            ],
+            "partition_max_sub_devices": 0,
+            "partition_properties": [],
+            "partition_type_affinity_domain": "not_applicable",
+            "partition_type_property": "no_partition",
+            "platform_id": "SimSYCL",
+            "preferred_vector_width_char": 4,
+            "preferred_vector_width_double": 1,
+            "preferred_vector_width_float": 1,
+            "preferred_vector_width_half": 2,
+            "preferred_vector_width_int": 1,
+            "preferred_vector_width_long": 1,
+            "preferred_vector_width_short": 2,
+            "printf_buffer_size": 18446744073709551615,
+            "profiling_timer_resolution": 1,
+            "queue_profiling": true,
+            "single_fp_config": [
+                "denorm",
+                "inf_nan",
+                "fma",
+                "correctly_rounded_divide_sqrt"
+            ],
+            "sub_group_sizes": [
+                32
+            ],
+            "vendor": "SimSYCL",
+            "vendor_id": 0,
+            "version": "0.1"
+        },
+        "GPU#2": {
+            "address_bits": 64,
+            "aspects": [
+                "gpu",
+                "accelerator",
+                "emulated",
+                "host_debuggable",
+                "fp16",
+                "fp64",
+                "atomic64",
+                "queue_profiling",
+                "usm_device_allocations",
+                "usm_host_allocations",
+                "usm_atomic_host_allocations",
+                "usm_shared_allocations",
+                "usm_atomic_shared_allocations",
+                "usm_system_allocations"
+            ],
+            "atomic_fence_order_capabilities": [
+                "relaxed",
+                "acquire",
+                "release",
+                "acq_rel",
+                "seq_cst"
+            ],
+            "atomic_fence_scope_capabilities": [
+                "work_item",
+                "sub_group",
+                "work_group",
+                "device",
+                "system"
+            ],
+            "atomic_memory_order_capabilities": [
+                "relaxed",
+                "acquire",
+                "release",
+                "acq_rel",
+                "seq_cst"
+            ],
+            "atomic_memory_scope_capabilities": [
+                "work_item",
+                "sub_group",
+                "work_group",
+                "device",
+                "system"
+            ],
+            "backend_version": "",
+            "device_type": "gpu",
+            "double_fp_config": [
+                "denorm",
+                "inf_nan",
+                "fma",
+                "correctly_rounded_divide_sqrt"
+            ],
+            "driver_version": "0.1",
+            "error_correction_support": false,
+            "execution_capabilities": [
+                "exec_kernel"
+            ],
+            "extensions": [
+                "cl_khr_int64_base_atomics",
+                "cl_khr_int64_extended_atomics",
+                "cl_khr_fp16"
+            ],
+            "global_mem_cache_line_size": 64,
+            "global_mem_cache_size": 16777216,
+            "global_mem_cache_type": "read_write",
+            "global_mem_size": 1073741824,
+            "half_fp_config": [
+                "denorm",
+                "inf_nan",
+                "fma",
+                "correctly_rounded_divide_sqrt"
+            ],
+            "host_unified_memory": true,
+            "image2d_max_height": 0,
+            "image2d_max_width": 0,
+            "image3d_max_depth": 0,
+            "image3d_max_height": 0,
+            "image3d_max_width": 0,
+            "image_max_buffer_size": 0,
+            "image_support": false,
+            "is_available": true,
+            "is_compiler_available": false,
+            "is_endian_little": true,
+            "is_linker_available": false,
+            "local_mem_size": 65536,
+            "local_mem_type": "local",
+            "max_clock_frequency": 1000,
+            "max_compute_units": 16,
+            "max_constant_args": 4294967295,
+            "max_constant_buffer_size": 65536,
+            "max_mem_alloc_size": 18446744073709551615,
+            "max_num_sub_groups": 32,
+            "max_parameter_size": 18446744073709551615,
+            "max_read_image_args": 0,
+            "max_samplers": 0,
+            "max_work_group_size": 1024,
+            "max_work_item_dimensions": 3,
+            "max_work_item_sizes<1>": [
+                1024
+            ],
+            "max_work_item_sizes<2>": [
+                1024,
+                1024
+            ],
+            "max_work_item_sizes<3>": [
+                1024,
+                1024,
+                1024
+            ],
+            "max_write_image_args": 0,
+            "mem_base_addr_align": 1024,
+            "name": "SimSYCL virtual GPU #2",
+            "native_vector_width_char": 4,
+            "native_vector_width_double": 1,
+            "native_vector_width_float": 1,
+            "native_vector_width_half": 2,
+            "native_vector_width_int": 1,
+            "native_vector_width_long": 1,
+            "native_vector_width_short": 2,
+            "parent_device_id": null,
+            "partition_affinity_domains": [
+                "not_applicable"
+            ],
+            "partition_max_sub_devices": 0,
+            "partition_properties": [],
+            "partition_type_affinity_domain": "not_applicable",
+            "partition_type_property": "no_partition",
+            "platform_id": "SimSYCL",
+            "preferred_vector_width_char": 4,
+            "preferred_vector_width_double": 1,
+            "preferred_vector_width_float": 1,
+            "preferred_vector_width_half": 2,
+            "preferred_vector_width_int": 1,
+            "preferred_vector_width_long": 1,
+            "preferred_vector_width_short": 2,
+            "printf_buffer_size": 18446744073709551615,
+            "profiling_timer_resolution": 1,
+            "queue_profiling": true,
+            "single_fp_config": [
+                "denorm",
+                "inf_nan",
+                "fma",
+                "correctly_rounded_divide_sqrt"
+            ],
+            "sub_group_sizes": [
+                32
+            ],
+            "vendor": "SimSYCL",
+            "vendor_id": 0,
+            "version": "0.1"
+        },
+        "GPU#3": {
+            "address_bits": 64,
+            "aspects": [
+                "gpu",
+                "accelerator",
+                "emulated",
+                "host_debuggable",
+                "fp16",
+                "fp64",
+                "atomic64",
+                "queue_profiling",
+                "usm_device_allocations",
+                "usm_host_allocations",
+                "usm_atomic_host_allocations",
+                "usm_shared_allocations",
+                "usm_atomic_shared_allocations",
+                "usm_system_allocations"
+            ],
+            "atomic_fence_order_capabilities": [
+                "relaxed",
+                "acquire",
+                "release",
+                "acq_rel",
+                "seq_cst"
+            ],
+            "atomic_fence_scope_capabilities": [
+                "work_item",
+                "sub_group",
+                "work_group",
+                "device",
+                "system"
+            ],
+            "atomic_memory_order_capabilities": [
+                "relaxed",
+                "acquire",
+                "release",
+                "acq_rel",
+                "seq_cst"
+            ],
+            "atomic_memory_scope_capabilities": [
+                "work_item",
+                "sub_group",
+                "work_group",
+                "device",
+                "system"
+            ],
+            "backend_version": "",
+            "device_type": "gpu",
+            "double_fp_config": [
+                "denorm",
+                "inf_nan",
+                "fma",
+                "correctly_rounded_divide_sqrt"
+            ],
+            "driver_version": "0.1",
+            "error_correction_support": false,
+            "execution_capabilities": [
+                "exec_kernel"
+            ],
+            "extensions": [
+                "cl_khr_int64_base_atomics",
+                "cl_khr_int64_extended_atomics",
+                "cl_khr_fp16"
+            ],
+            "global_mem_cache_line_size": 64,
+            "global_mem_cache_size": 16777216,
+            "global_mem_cache_type": "read_write",
+            "global_mem_size": 1073741824,
+            "half_fp_config": [
+                "denorm",
+                "inf_nan",
+                "fma",
+                "correctly_rounded_divide_sqrt"
+            ],
+            "host_unified_memory": true,
+            "image2d_max_height": 0,
+            "image2d_max_width": 0,
+            "image3d_max_depth": 0,
+            "image3d_max_height": 0,
+            "image3d_max_width": 0,
+            "image_max_buffer_size": 0,
+            "image_support": false,
+            "is_available": true,
+            "is_compiler_available": false,
+            "is_endian_little": true,
+            "is_linker_available": false,
+            "local_mem_size": 65536,
+            "local_mem_type": "local",
+            "max_clock_frequency": 1000,
+            "max_compute_units": 16,
+            "max_constant_args": 4294967295,
+            "max_constant_buffer_size": 65536,
+            "max_mem_alloc_size": 18446744073709551615,
+            "max_num_sub_groups": 32,
+            "max_parameter_size": 18446744073709551615,
+            "max_read_image_args": 0,
+            "max_samplers": 0,
+            "max_work_group_size": 1024,
+            "max_work_item_dimensions": 3,
+            "max_work_item_sizes<1>": [
+                1024
+            ],
+            "max_work_item_sizes<2>": [
+                1024,
+                1024
+            ],
+            "max_work_item_sizes<3>": [
+                1024,
+                1024,
+                1024
+            ],
+            "max_write_image_args": 0,
+            "mem_base_addr_align": 1024,
+            "name": "SimSYCL virtual GPU #3",
+            "native_vector_width_char": 4,
+            "native_vector_width_double": 1,
+            "native_vector_width_float": 1,
+            "native_vector_width_half": 2,
+            "native_vector_width_int": 1,
+            "native_vector_width_long": 1,
+            "native_vector_width_short": 2,
+            "parent_device_id": null,
+            "partition_affinity_domains": [
+                "not_applicable"
+            ],
+            "partition_max_sub_devices": 0,
+            "partition_properties": [],
+            "partition_type_affinity_domain": "not_applicable",
+            "partition_type_property": "no_partition",
+            "platform_id": "SimSYCL",
+            "preferred_vector_width_char": 4,
+            "preferred_vector_width_double": 1,
+            "preferred_vector_width_float": 1,
+            "preferred_vector_width_half": 2,
+            "preferred_vector_width_int": 1,
+            "preferred_vector_width_long": 1,
+            "preferred_vector_width_short": 2,
+            "printf_buffer_size": 18446744073709551615,
+            "profiling_timer_resolution": 1,
+            "queue_profiling": true,
+            "single_fp_config": [
+                "denorm",
+                "inf_nan",
+                "fma",
+                "correctly_rounded_divide_sqrt"
+            ],
+            "sub_group_sizes": [
+                32
+            ],
+            "vendor": "SimSYCL",
+            "vendor_id": 0,
+            "version": "0.1"
+        }
+    },
+    "platforms": {
+        "SimSYCL": {
+            "extensions": [],
+            "name": "SimSYCL",
+            "profile": "",
+            "vendor": "SimSYCL",
+            "version": "0.1"
+        }
+    }
+}

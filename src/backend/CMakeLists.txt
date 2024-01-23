@@ -1,19 +1,23 @@
 set(CUDA_OR_CUDA_TOOLKIT_FOUND FALSE)
-if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.17")
-  find_package(CUDAToolkit)
-  set(CUDA_OR_CUDA_TOOLKIT_FOUND ${CUDAToolkit_FOUND})
-else()
-  find_package(CUDA)
-  set(CUDA_OR_CUDA_TOOLKIT_FOUND ${CUDA_FOUND})
+if(NOT CELERITY_SYCL_IMPL STREQUAL "SimSYCL")
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.17")
+    find_package(CUDAToolkit)
+    set(CUDA_OR_CUDA_TOOLKIT_FOUND ${CUDAToolkit_FOUND})
+  else()
+    find_package(CUDA)
+    set(CUDA_OR_CUDA_TOOLKIT_FOUND ${CUDA_FOUND})
+  endif()
+  # find_package(LevelZero QUIET) # TODO: Need find module?
+  # find_package(ROCM QUIET) # TODO: Need find module?
 endif()
 
-find_package(CUDAToolkit QUIET)
-# find_package(LevelZero QUIET) # TODO: Need find module?
-# find_package(ROCM QUIET) # TODO: Need find module?
+if(NOT CELERITY_SYCL_IMPL STREQUAL "SimSYCL")
+  option(CELERITY_ENABLE_CUDA_BACKEND "Enable optimized code paths for CUDA backends" ${CUDA_OR_CUDA_TOOLKIT_FOUND})
+else()
+  set(CELERITY_ENABLE_CUDA_BACKEND FALSE)
+endif()
 
-# TODO: Make conditional on CELERITY_SYCL_IMPL?
-option(CELERITY_ENABLE_CUDA_BACKEND "Enable optimized code paths for CUDA backends" ${CUDA_OR_CUDA_TOOLKIT_FOUND})
-if(CELERITY_ENABLE_CUDA_BACKEND AND NOT CUDAToolkit_FOUND)
+if(CELERITY_ENABLE_CUDA_BACKEND AND NOT CUDA_OR_CUDA_TOOLKIT_FOUND)
   # Run find_package again to emit error message
   if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.17")
     find_package(CUDAToolkit REQUIRED)
@@ -23,7 +27,7 @@ if(CELERITY_ENABLE_CUDA_BACKEND AND NOT CUDAToolkit_FOUND)
 endif()
 
 add_library(celerity_backends STATIC backend.cc generic_backend.cc)
-set_property(TARGET celerity_backends PROPERTY CXX_STANDARD 17)
+set_property(TARGET celerity_backends PROPERTY CXX_STANDARD ${CELERITY_CXX_STANDARD})
 # We link against the RT here to get all of its transitive properties (circular linking is allowed for static libraries).
 target_link_libraries(celerity_backends PRIVATE celerity_runtime)
 add_sycl_to_target(TARGET celerity_backends SOURCES)

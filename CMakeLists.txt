@@ -33,7 +33,7 @@ set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CELERITY_CMAKE_DIR}")
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 
-set(CELERITY_SYCL_IMPL "OFF" CACHE STRING "hipSYCL|DPC++")
+set(CELERITY_SYCL_IMPL "OFF" CACHE STRING "hipSYCL|DPC++|SimSYCL")
 
 include("${CELERITY_CMAKE_DIR}/TestDPCXX.cmake")
 test_cxx_compiler_is_dpcpp(CXX_COMPILER_IS_DPCPP)
@@ -48,6 +48,8 @@ elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
   if(NOT CXX_COMPILER_IS_DPCPP)
     message(FATAL_ERROR "CELERITY_SYCL_IMPL set to DPC++, but CXX compiler at ${CMAKE_CXX_COMPILER} is not DPC++")
   endif()
+elseif(CELERITY_SYCL_IMPL STREQUAL "SimSYCL")
+  find_package(SimSYCL CONFIG REQUIRED)
 elseif(NOT "${CELERITY_SYCL_IMPL}x" STREQUAL "OFFx")
   message(FATAL_ERROR "Invalid SYCL implementation ${CELERITY_SYCL_IMPL} specified")
 else()
@@ -61,13 +63,20 @@ else()
     list(APPEND AVAILABLE_SYCL_IMPLS hipSYCL)
   endif()
 
+  find_package(SimSYCL QUIET CONFIG)
+  if(SimSYCL_FOUND)
+    message(STATUS "Found SimSYCL: ${SimSYCL_DIR}")
+    list(APPEND AVAILABLE_SYCL_IMPLS SimSYCL)
+  endif()
+
   list(LENGTH AVAILABLE_SYCL_IMPLS NUM_AVAILABLE_SYCL_IMPLS)
   if(NUM_AVAILABLE_SYCL_IMPLS EQUAL 0)
-    message(FATAL_ERROR "No SYCL implementation found. You might need to add an install path for hipSYCL to CMAKE_PREFIX_PATH.")
+    message(FATAL_ERROR "No SYCL implementation found. You might need to add an install path for hipSYCL "
+    "or SimSYCL to CMAKE_PREFIX_PATH.")
   elseif(NUM_AVAILABLE_SYCL_IMPLS GREATER 1)
     list(JOIN AVAILABLE_SYCL_IMPLS " and " AVAILABLE_SYCL_IMPLS_STR)
     message(FATAL_ERROR "More than one SYCL implementation available: Found ${AVAILABLE_SYCL_IMPLS_STR}. "
-      "Please choose one implementation using -DCELERITY_SYCL_IMPL=hipSYCL|DPC++.")
+      "Please choose one implementation using -DCELERITY_SYCL_IMPL=hipSYCL|DPC++|SimSYCL.")
   else()
     set(CELERITY_SYCL_IMPL "${AVAILABLE_SYCL_IMPLS}")
     message(STATUS "Automatically choosing ${CELERITY_SYCL_IMPL} because it is the only SYCL implementation available")
@@ -103,10 +112,16 @@ endif()
 
 if(CELERITY_SYCL_IMPL STREQUAL hipSYCL AND HIPSYCL_SUPPORTS_SYCL_2020_REDUCTIONS)
   set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
-elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
+elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++" OR CELERITY_SYCL_IMPL STREQUAL "SimSYCL")
   set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
 else()
   set(CELERITY_FEATURE_SCALAR_REDUCTIONS OFF)
+endif()
+
+if(CELERITY_SYCL_IMPL STREQUAL SimSYCL)
+  set(CELERITY_CXX_STANDARD 20)
+else()
+  set(CELERITY_CXX_STANDARD 17)
 endif()
 
 set(CELERITY_RUNTIME_LIBRARY celerity_runtime)
@@ -120,6 +135,11 @@ if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
   # See https://github.com/oneapi-src/unified-runtime/issues/803
   message(STATUS "Not enabling mimalloc by default because it breaks with oneAPI plugin loading")
   set(CELERITY_USE_MIMALLOC_DEFAULT OFF)
+elseif(CELERITY_SYCL_IMPL STREQUAL "SimSYCL" AND SIMSYCL_ENABLE_ASAN)
+  message(STATUS "Not enabling mimalloc by default because SimSYCL is built with AddressSanitizer")
+  set(CELERITY_USE_MIMALLOC_DEFAULT OFF)
+  list(APPEND CELERITY_CXX_FLAGS -fsanitize=address)
+  list(APPEND CELERITY_LINK_FLAGS -fsanitize=address)
 else()
   set(CELERITY_USE_MIMALLOC_DEFAULT ON)
 endif()
@@ -129,13 +149,24 @@ option(CELERITY_USE_MIMALLOC "Use the mimalloc memory allocator" ${CELERITY_USE_
 include(FetchContent)
 
 macro(fetch_content_from_submodule DEPNAME RELPATH)
-  if(NOT EXISTS "${PROJECT_SOURCE_DIR}/${RELPATH}/CMakeLists.txt")
-    message(FATAL_ERROR "The git submodule ${RELPATH} is missing.\nTry running `git submodule update --init`.")
+  # Dependency might already have been satisfied previously by
+  #   - the top-level CMake project including celerity-runtime as a dependency, but not its first one
+  #   - another depencency of celerity-runtime that it transitively shares a depencency with (SimSYCL -> libenvpp)
+  # The top-level CMake project must ensure that there are no conflicts between dependency versions in this case.
+  if(${DEPNAME}_FOUND)
+    message(STATUS "Using system ${DEPNAME} in ${${DEPNAME}_DIR}")
+    set(CELERITY_DETAIL_USE_SYSTEM_${DEPNAME} ON)
+  else()
+    message(STATUS "Fetching ${DEPNAME} from submodule")
+    set(CELERITY_DETAIL_USE_SYSTEM_${DEPNAME} OFF)
+    if(NOT EXISTS "${PROJECT_SOURCE_DIR}/${RELPATH}/CMakeLists.txt")
+      message(FATAL_ERROR "The git submodule ${RELPATH} is missing.\nTry running `git submodule update --init`.")
+    endif()
+    FetchContent_Declare(${DEPNAME}
+      URL "${PROJECT_SOURCE_DIR}/${RELPATH}"
+    )
+    FetchContent_MakeAvailable(${DEPNAME})
   endif()
-  FetchContent_Declare(${DEPNAME}
-    URL "${PROJECT_SOURCE_DIR}/${RELPATH}"
-  )
-  FetchContent_MakeAvailable(${DEPNAME})
 endmacro()
 
 set(FMT_INSTALL ON CACHE BOOL "" FORCE)
@@ -224,7 +255,7 @@ add_library(
   ${INCLUDES}
 )
 
-set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD 17)
+set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD "${CELERITY_CXX_STANDARD}")
 
 target_include_directories(celerity_runtime PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
@@ -241,6 +272,8 @@ if(WIN32 AND CELERITY_SYCL_IMPL STREQUAL "DPC++")
     $<$<CONFIG:Debug>:sycl6d>
     $<$<CONFIG:Release>:sycl6>
   )
+elseif(CELERITY_SYCL_IMPL STREQUAL SimSYCL)
+  set(SYCL_LIB SimSYCL::simsycl)
 endif()
 
 if(CELERITY_USE_MIMALLOC)
@@ -320,6 +353,7 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
 endif()
 
 target_compile_options(celerity_runtime PUBLIC "${CELERITY_CXX_FLAGS}")
+target_link_options(celerity_runtime PUBLIC "${CELERITY_LINK_FLAGS}")
 
 # Examples
 

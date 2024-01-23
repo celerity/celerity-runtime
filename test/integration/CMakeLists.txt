@@ -4,7 +4,7 @@ endif()
 
 function(add_integration_test TARGET SOURCE)
   add_executable(${TARGET} ${SOURCE})
-  set_property(TARGET ${TARGET} PROPERTY CXX_STANDARD 17)
+  set_property(TARGET ${TARGET} PROPERTY CXX_STANDARD ${CELERITY_CXX_STANDARD})
 
   if(MSVC)
     target_compile_options(${TARGET} PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3 /bigobj)

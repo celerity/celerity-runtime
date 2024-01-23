@@ -40,6 +40,9 @@ def run_backend_discovery_and_copy_test(build_dir: str, backend: Optional[Litera
 
     env = os.environ.copy()
     env["CELERITY_LOG_LEVEL"] = "debug"
+    # for unit / system tests, LD_PRELOAD is set by `/root/capture-backtrace.sh`
+    if "CI_LD_PRELOAD" in env:
+        env["LD_PRELOAD"] = env["CI_LD_PRELOAD"]
 
     # Check that optimized backend is available (or not) for matching device
     if backend is not None:

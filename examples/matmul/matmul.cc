@@ -2,7 +2,7 @@
 
 #include <celerity.h>
 
-#if !defined(NDEBUG)
+#if !defined(NDEBUG) || CELERITY_SIMSYCL
 const size_t MAT_SIZE = 128;
 #else
 const size_t MAT_SIZE = 1024;

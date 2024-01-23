@@ -21,6 +21,6 @@ for e in "${!SYSTEM_TESTS[@]}"; do
 
     for n in "${NUM_NODES[@]}"; do
         echo -e "\n\n ---- Running \"$EXE\" on $n node(s) ----\n\n" >&2
-        mpirun --bind-to none -n ${n} bash /root/capture-backtrace.sh ${CMD} || exit 1
+        mpirun --bind-to none -n ${n} bash /root/capture-backtrace.sh "$CMD" || exit 1
     done
 done

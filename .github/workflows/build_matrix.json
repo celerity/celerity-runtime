@@ -8,7 +8,9 @@
         { "sycl": "hipsycl", "sycl-version": "d2bd9fc7", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Debug" },
         { "sycl": "hipsycl", "sycl-version": "d2bd9fc7", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Release" },
         { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "23.04", "platform": "nvidia", "build-type": "Debug" },
-        { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "23.04", "platform": "nvidia", "build-type": "Release" }
+        { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "23.04", "platform": "nvidia", "build-type": "Release" },
+        { "sycl": "simsycl", "sycl-version": "HEAD", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },
+        { "sycl": "simsycl", "sycl-version": "HEAD", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" }
     ],
     "nightly": [
         { "sycl": "dpcpp", "sycl-version": "HEAD", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },

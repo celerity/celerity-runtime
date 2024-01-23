@@ -1,0 +1,10 @@
+# Leaks in third-party libraries we do not control
+leak:libmpi.so
+leak:libpmix.so
+leak:libopen-pal.so
+leak:lib/openmpi
+leak:libfontconfig.so
+leak:libhwloc.so
+leak:libopen-rte.so
+# There is one leak for which the stack trace ends at __vasprintf_internal
+leak:__vasprintf_internal
