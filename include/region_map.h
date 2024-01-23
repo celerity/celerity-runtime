@@ -144,13 +144,13 @@ namespace region_map_detail {
 		using entry = std::pair<box<Dims>, ValueType>;
 
 		struct insert_node_action {
-			box<Dims> box;
+			detail::box<Dims> box;
 			ValueType value;
 			bool processed_locally = false;
 		};
 
 		struct erase_node_action {
-			box<Dims> box;
+			detail::box<Dims> box;
 			bool processed_locally = false;
 		};
 
@@ -683,7 +683,7 @@ namespace region_map_detail {
 			auto child = std::move(std::get<typename types::unique_inner_node_ptr>(m_children[0]));
 			m_children.clear();
 			m_child_boxes.clear();
-			return std::move(child);
+			return child;
 		}
 
 		// NOTE: Not O(1)!

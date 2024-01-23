@@ -12,6 +12,7 @@ namespace detail {
 	template <typename...>
 	constexpr bool constexpr_false = false;
 
+	// TODO get rid of PhantomType; define types as independent structs (will silence GCC warnings about memcpy'ing over privates)
 	template <typename T, typename UniqueName>
 	class PhantomType {
 	  public:

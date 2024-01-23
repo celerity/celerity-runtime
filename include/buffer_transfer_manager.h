@@ -5,10 +5,10 @@
 #include <memory>
 #include <unordered_map>
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wignored-attributes"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wignored-attributes"
 #include <mpi.h>
-#pragma clang diagnostic pop
+#pragma GCC diagnostic pop
 
 #include "buffer_storage.h"
 #include "command.h"

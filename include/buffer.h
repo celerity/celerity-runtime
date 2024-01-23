@@ -96,7 +96,7 @@ class buffer final : public detail::lifetime_extending_state_wrapper {
 
   private:
 	struct impl final : public detail::lifetime_extending_state {
-		impl(range<Dims> rng, const DataT* host_init_ptr) : range(rng) {
+		impl(celerity::range<Dims> rng, const DataT* host_init_ptr) : range(rng) {
 			if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr); }
 			id = detail::runtime::get_instance().get_buffer_manager().register_buffer<DataT, Dims>(detail::range_cast<3>(range), host_init_ptr);
 		}

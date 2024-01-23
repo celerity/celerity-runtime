@@ -47,13 +47,13 @@ struct task_record {
 	const task_geometry geometry;
 	const reduction_list reductions;
 	const access_list accesses;
-	const side_effect_map side_effect_map;
+	const detail::side_effect_map side_effect_map;
 	const task_dependency_list dependencies;
 };
 
 class task_recorder {
   public:
-	using task_record = std::vector<task_record>;
+	using task_record = std::vector<detail::task_record>;
 
 	task_recorder(const buffer_manager* buff_mngr = nullptr) : m_buff_mngr(buff_mngr) {}
 
@@ -74,32 +74,32 @@ struct command_record {
 	const command_id cid;
 	const command_type type;
 
-	const std::optional<epoch_action> epoch_action;
+	const std::optional<detail::epoch_action> epoch_action;
 	const std::optional<subrange<3>> execution_range;
-	const std::optional<reduction_id> reduction_id;
-	const std::optional<buffer_id> buffer_id;
+	const std::optional<detail::reduction_id> reduction_id;
+	const std::optional<detail::buffer_id> buffer_id;
 	const std::string buffer_name;
 	const std::optional<node_id> target;
 	const std::optional<region<3>> await_region;
 	const std::optional<subrange<3>> push_range;
-	const std::optional<transfer_id> transfer_id;
-	const std::optional<task_id> task_id;
-	const std::optional<task_geometry> task_geometry;
+	const std::optional<detail::transfer_id> transfer_id;
+	const std::optional<detail::task_id> task_id;
+	const std::optional<detail::task_geometry> task_geometry;
 	const bool is_reduction_initializer;
 	const std::optional<access_list> accesses;
 	const std::optional<reduction_list> reductions;
 	const std::optional<side_effect_map> side_effects;
 	const command_dependency_list dependencies;
 	const std::string task_name;
-	const std::optional<task_type> task_type;
-	const std::optional<collective_group_id> collective_group_id;
+	const std::optional<detail::task_type> task_type;
+	const std::optional<detail::collective_group_id> collective_group_id;
 
 	command_record(const abstract_command& cmd, const task_manager* task_mngr, const buffer_manager* buff_mngr);
 };
 
 class command_recorder {
   public:
-	using command_record = std::vector<command_record>;
+	using command_record = std::vector<detail::command_record>;
 
 	command_recorder(const task_manager* task_mngr, const buffer_manager* buff_mngr = nullptr) : m_task_mngr(task_mngr), m_buff_mngr(buff_mngr) {}
 

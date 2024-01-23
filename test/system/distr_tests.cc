@@ -82,7 +82,7 @@ namespace detail {
 
 		const int N = 1000;
 
-		buffer<int, 1> sum(range{1});
+		buffer<int, 1> sum(range(1));
 		q.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(kernel)>(range{N}, reduction(sum, cgh, cl::sycl::plus<int>{}, cl::sycl::property::reduction::initialize_to_identity{}),
 			    [=](celerity::item<1> item, auto& sum) { sum += 1; });
@@ -109,7 +109,7 @@ namespace detail {
 
 		const int N = 1000;
 
-		buffer<int, 1> sum(range{1});
+		buffer<int, 1> sum(range(1));
 		q.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(produce)>(range{N}, reduction(sum, cgh, cl::sycl::plus<int>{}, cl::sycl::property::reduction::initialize_to_identity{}),
 			    [=](celerity::item<1> item, auto& sum) { sum += static_cast<int>(item.get_linear_id()); });
@@ -141,7 +141,7 @@ namespace detail {
 
 		{
 			distr_queue q;
-			buffer<int, 1> sum(range{1});
+			buffer<int, 1> sum(range(1));
 			q.submit([&](handler& cgh) {
 				cgh.parallel_for<class UKN(produce)>(range{100},
 				    reduction(sum, cgh, cl::sycl::plus<int>{}, cl::sycl::property::reduction::initialize_to_identity{}),

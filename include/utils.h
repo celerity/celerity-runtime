@@ -145,10 +145,10 @@ template <typename... FmtParams, std::enable_if_t<sizeof...(FmtParams) >= 2, int
 void report_error(const error_policy policy, const std::string& msg);
 
 /// Ignores, logs, or panics on an error depending on the `error_policy`.
-template <typename... FmtParams, std::enable_if_t<sizeof...(FmtParams) >= 2, int> = 0>
-void report_error(const error_policy policy, const FmtParams&... fmt_args) {
+template <typename... FmtParams, std::enable_if_t<sizeof...(FmtParams) >= 1, int> = 0>
+void report_error(const error_policy policy, const fmt::format_string<FmtParams...> fmt_string, FmtParams&&... fmt_args) {
 	// TODO also receive a std::source_location with C++20.
-	if(policy != error_policy::ignore) { report_error(policy, fmt::format(fmt_args...)); }
+	if(policy != error_policy::ignore) { report_error(policy, fmt::format(fmt_string, std::forward<FmtParams>(fmt_args)...)); }
 }
 
 } // namespace celerity::detail::utils

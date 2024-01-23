@@ -200,10 +200,10 @@ namespace detail {
 
 		} else {
 			for(const auto& warn : parsed_and_validated_envs.warnings()) {
-				CELERITY_ERROR(warn.what());
+				CELERITY_ERROR("{}", warn.what());
 			}
 			for(const auto& err : parsed_and_validated_envs.errors()) {
-				CELERITY_ERROR(err.what());
+				CELERITY_ERROR("{}", err.what());
 			}
 			throw std::runtime_error("Failed to parse/validate environment variables.");
 		}
