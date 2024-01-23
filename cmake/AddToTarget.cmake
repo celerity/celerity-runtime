@@ -19,6 +19,20 @@ if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
     target_compile_options(${ADD_SYCL_TARGET} PUBLIC ${DPCPP_FLAGS})
     target_link_options(${ADD_SYCL_TARGET} PUBLIC ${DPCPP_FLAGS})
   endfunction()
+elseif(CELERITY_SYCL_IMPL STREQUAL "SimSYCL")
+  function(add_sycl_to_target)
+    set(options)
+    set(one_value_args TARGET)
+    set(multi_value_args)
+    cmake_parse_arguments(ADD_SYCL
+        "${options}"
+        "${one_value_args}"
+        "${multi_value_args}"
+        ${ARGN}
+    )
+    target_compile_options(${ADD_SYCL_TARGET} PUBLIC -DCELERITY_SIMSYCL=1)
+    target_link_options(${ADD_SYCL_TARGET} PUBLIC -DCELERITY_SIMSYCL=1)
+  endfunction()
 endif()
 
 function(add_celerity_to_target)

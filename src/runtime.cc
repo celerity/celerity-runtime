@@ -98,6 +98,8 @@ namespace detail {
 		return fmt::format("hipSYCL {}.{}.{}", HIPSYCL_VERSION_MAJOR, HIPSYCL_VERSION_MINOR, HIPSYCL_VERSION_PATCH);
 #elif CELERITY_DPCPP
 		return "DPC++ / Clang " __clang_version__;
+#elif CELERITY_SIMSYCL
+		return "SimSYCL " SIMSYCL_VERSION;
 #else
 #error "unknown SYCL implementation"
 #endif

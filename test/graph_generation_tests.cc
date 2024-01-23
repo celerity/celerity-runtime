@@ -203,7 +203,7 @@ TEST_CASE("distributed_graph_generator generates anti-dependencies for execution
 
 	const auto run_test = [&](const node_id writing_node, const node_id other_node) {
 		const auto only_one_writes = [=](chunk<1> chnk) -> subrange<1> {
-			if(chnk.range[0] == test_range) return subrange<1>{writing_node == 0 ? 0 : 64, 64};
+			if(chnk.range[0] == test_range) return subrange<1>{writing_node == 0 ? 0u : 64u, 64};
 			switch(chnk.offset[0]) {
 			case 0: return writing_node == 0 ? chnk : subrange<1>{0, 0};
 			case 64: return writing_node == 1 ? chnk : subrange<1>{0, 0};
@@ -213,7 +213,7 @@ TEST_CASE("distributed_graph_generator generates anti-dependencies for execution
 		};
 
 		// Both nodes write parts of the buffer.
-		const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+		[[maybe_unused]] const auto tid_a = dctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 
 		// Both nodes read the full buffer, but writing_node also writes to it.
 		const auto tid_b = dctx.device_compute<class UKN(task_b)>(test_range).read(buf0, acc::all{}).discard_write(buf0, only_one_writes).submit();

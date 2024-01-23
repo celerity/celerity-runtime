@@ -811,7 +811,6 @@ namespace detail {
 		SECTION("when using device buffers") {
 			const auto range = celerity::range<2>(32, 32);
 			const auto offset = id<2>(32, 0);
-			auto sr = subrange<3>(id_cast<3>(offset), range_cast<3>(range));
 
 			get_device_accessor<size_t, 2, access_mode::discard_write>(bid, {48, 32}, {16, 0});
 			auto acc = get_device_accessor<size_t, 2, access_mode::discard_write>(bid, {32, 32}, {32, 0});
@@ -856,7 +855,6 @@ namespace detail {
 
 		SECTION("when using device buffers") {
 			auto range = celerity::range<1>(32);
-			auto sr = subrange<3>({}, range_cast<3>(range));
 
 			// For device accessors we test this both on host and device
 

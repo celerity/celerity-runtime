@@ -369,15 +369,15 @@ namespace detail {
 		const auto max_para = 3;
 		tt.tm.set_horizon_max_parallelism(max_para);
 
-		const auto buff_size = 128;
-		const auto num_tasks = 9;
-		const auto buff_elem_per_task = buff_size / num_tasks;
+		const size_t buff_size = 128;
+		const size_t num_tasks = 9;
+		const size_t buff_elem_per_task = buff_size / num_tasks;
 		auto buf_a = tt.mbf.create_buffer(range<1>(buff_size), true /* mark_as_host_initialized */);
 
 		auto current_horizon = task_manager_testspy::get_current_horizon(tt.tm);
 		CHECK_FALSE(current_horizon.has_value());
 
-		for(int i = 0; i < num_tasks; ++i) {
+		for(size_t i = 0; i < num_tasks; ++i) {
 			const auto offset = buff_elem_per_task * i;
 			test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
 				buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({offset, buff_elem_per_task}));
@@ -411,7 +411,7 @@ namespace detail {
 		task_id tid_2 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
 			buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({64, 64}));
 		});
-		task_id tid_3 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
+		[[maybe_unused]] task_id tid_3 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
 			buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({32, 64}));
 		});
 		task_id tid_4 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
@@ -422,10 +422,10 @@ namespace detail {
 		CHECK(task_manager_testspy::get_num_horizons(tt.tm) == 1);
 		CHECK(horizon.has_value());
 
-		task_id tid_6 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
+		[[maybe_unused]] task_id tid_6 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
 			buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128}));
 		});
-		task_id tid_7 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
+		[[maybe_unused]] task_id tid_7 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
 			buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128}));
 		});
 
@@ -437,7 +437,7 @@ namespace detail {
 			CHECK(region_map_a.get_region_values(make_region(32, 96)).front().second.value() == tid_4);
 		}
 
-		task_id tid_8 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
+		[[maybe_unused]] task_id tid_8 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
 			buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128}));
 		});
 
@@ -482,8 +482,7 @@ namespace detail {
 			// We need 7 tasks to generate a pseudo-critical path length of 6 (3x2 horizon step size),
 			// and another one that triggers the actual deferred deletion.
 			for(int i = 0; i < 8; ++i) {
-				const auto tid =
-				    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });
+				test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, all{}); });
 				const auto current_horizon = task_manager_testspy::get_current_horizon(tt.tm);
 				if(current_horizon && *current_horizon > last_executed_horizon) {
 					last_executed_horizon = *current_horizon;
@@ -516,7 +515,7 @@ namespace detail {
 		tt.tm.set_horizon_step(2);
 		auto buf = tt.mbf.create_buffer(range<1>(1));
 
-		const auto first_collective = test_utils::add_host_task(tt.tm, experimental::collective, [&](handler& cgh) {});
+		[[maybe_unused]] const auto first_collective = test_utils::add_host_task(tt.tm, experimental::collective, [&](handler& cgh) {});
 
 		// generate exactly two horizons
 		for(int i = 0; i < 4; ++i) {
@@ -605,7 +604,7 @@ namespace detail {
 		tt.tm.set_horizon_step(2);
 		auto ho = tt.mhof.create_host_object();
 
-		const auto first_task =
+		[[maybe_unused]] const auto first_task =
 		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { ho.add_side_effect(cgh, experimental::side_effect_order::sequential); });
 
 		// generate exactly two horizons

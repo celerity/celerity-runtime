@@ -726,8 +726,8 @@ namespace detail {
 		q.submit([&](handler& cgh) {
 			accessor ga{out, cgh, celerity::access::all{}, read_only_host_task};
 			cgh.host_task(on_master_node, [=] {
-				for(size_t i = 0; i < 64; ++i) {
-					CHECK(ga[i] == i / 32 * 32 + (32 - 1 - i % 32));
+				for(int i = 0; i < 64; ++i) {
+					CHECK(ga[static_cast<size_t>(i)] == i / 32 * 32 + (32 - 1 - i % 32));
 				}
 			});
 		});

@@ -77,10 +77,11 @@ installed first.
 
 - A supported SYCL implementation, either
     - [hipSYCL](https://github.com/illuhad/hipsycl),
-    - [DPC++](https://github.com/intel/llvm)
+    - [DPC++](https://github.com/intel/llvm), or
+    - [SimSYCL](https://github.com/celerity/SimSYCL)
 - A MPI 2 implementation (tested with OpenMPI 4.0, MPICH 3.3 should work as well)
 - [CMake](https://www.cmake.org) (3.13 or newer)
-- A C++17 compiler
+- A C++17 compiler (C++20 when working with SimSYCL)
 
 See the [platform support guide](docs/platform-support.md) on which library and OS versions are supported and
 automatically tested.
