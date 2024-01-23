@@ -37,6 +37,8 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "freeing task ring buffer capacity
 	}
 
 	observer.join();
+
+	q.slow_full_sync(); // `reach_ringbuffer_capacity` must not go out of scope before the host task has finished
 }
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "deadlock in task ring buffer due to slot exhaustion is reported", "[task_ring_buffer]") {
