@@ -1,9 +1,12 @@
 #pragma once
 
 #include "grid.h"
+#include "intrusive_graph.h"
 #include "ranges.h"
+#include "types.h"
 
 #include <fmt/format.h>
+
 
 template <typename Interface, int Dims>
 struct fmt::formatter<celerity::detail::coordinate<Interface, Dims>> : fmt::formatter<size_t> {
@@ -69,5 +72,40 @@ struct fmt::formatter<celerity::chunk<Dims>> : fmt::formatter<celerity::subrange
 		out = std::copy_n(" : ", 3, out);
 		out = formatter<celerity::id<Dims>>::format(celerity::id(chunk.global_size), ctx); // cast to id to avoid multiple inheritance
 		return out;
+	}
+};
+
+
+// TODO prefix phantom types like in pretty_printers
+template <typename T, typename UniqueName>
+struct fmt::formatter<celerity::detail::PhantomType<T, UniqueName>> : fmt::formatter<size_t> {};
+
+template <>
+struct fmt::formatter<celerity::detail::dependency_kind> : fmt::formatter<std::string_view> {
+	format_context::iterator format(const celerity::detail::dependency_kind kind, format_context& ctx) const {
+		const auto repr = [=]() -> std::string_view {
+			switch(kind) {
+			case celerity::detail::dependency_kind::anti_dep: return "anti_dep";
+			case celerity::detail::dependency_kind::true_dep: return "true_dep";
+			default: return "???";
+			}
+		}();
+		return std::copy(repr.begin(), repr.end(), ctx.out());
+	}
+};
+
+template <>
+struct fmt::formatter<celerity::detail::dependency_origin> : fmt::formatter<std::string_view> {
+	format_context::iterator format(const celerity::detail::dependency_origin origin, format_context& ctx) const {
+		const auto repr = [=]() -> std::string_view {
+			switch(origin) {
+			case celerity::detail::dependency_origin::dataflow: return "dataflow";
+			case celerity::detail::dependency_origin::collective_group_serialization: return "collective_group_serialization";
+			case celerity::detail::dependency_origin::execution_front: return "execution_front";
+			case celerity::detail::dependency_origin::last_epoch: return "last_epoch";
+			default: return "???";
+			}
+		}();
+		return std::copy(repr.begin(), repr.end(), ctx.out());
 	}
 };

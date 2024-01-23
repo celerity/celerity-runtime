@@ -74,8 +74,8 @@ namespace experimental {
 				void end_section(const std::string& name);
 
 				template <typename... Args>
-				void log(const std::string& format_string, Args&&... args) const {
-					spdlog::default_logger_raw()->log(spdlog::level::info, "[user] " + format_string, std::forward<Args>(args)...);
+				void log(fmt::format_string<Args...> fmt_string, Args&&... args) const {
+					CELERITY_DEBUG("[user] {}", fmt::format(fmt_string, std::forward<Args>(args)...));
 				}
 			};
 

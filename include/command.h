@@ -184,7 +184,7 @@ namespace detail {
 		buffer_id bid;
 		reduction_id rid;
 		transfer_id trid;
-		region<3> region;
+		detail::region<3> region;
 	};
 
 	struct reduction_data {

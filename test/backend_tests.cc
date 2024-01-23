@@ -113,6 +113,9 @@ std::pair<host_or_device, host_or_device> select_source_and_target(const copy_te
 	case copy_test_type::device_to_host: {
 		return std::pair{host_or_device{sycl::queue{devices[0]}}, host_or_device{std::nullopt}};
 	}
+	default: {
+		throw std::runtime_error("Unknown test type");
+	}
 	}
 }
 

@@ -34,7 +34,7 @@ namespace detail {
 
 		task_id await(const task_id min_tid_reached) const {
 			std::unique_lock lock{m_mutex};
-			m_epoch_changed.wait(lock, [=] { return m_this_epoch >= min_tid_reached; });
+			m_epoch_changed.wait(lock, [&] { return m_this_epoch >= min_tid_reached; });
 			return m_this_epoch;
 		}
 

@@ -166,7 +166,7 @@ class markdown_table_printer {
 		// Replaces 'A' in fmt_str with '<','>' or '^'.
 		constexpr auto align_fmt = [](std::string fmt_str, align a) {
 			std::replace(fmt_str.begin(), fmt_str.end(), 'A', static_cast<char>(a));
-			return fmt_str;
+			return fmt::runtime(fmt_str);
 		};
 
 		// Print column headers

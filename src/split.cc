@@ -1,6 +1,7 @@
 #include "split.h"
 
 #include <array>
+#include <cmath>
 #include <tuple>
 
 #include "grid.h"
