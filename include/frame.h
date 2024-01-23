@@ -97,7 +97,9 @@ class unique_frame_ptr : private std::unique_ptr<Frame, unique_frame_delete<Fram
 	static void delete_frame_from_payload(void* const type_erased_payload) {
 		const auto payload = static_cast<typename Frame::payload_type*>(type_erased_payload);
 		const auto frame = reinterpret_cast<Frame*>(payload) - 1; // frame header is located at -sizeof(Frame) bytes (-1 Frame object)
-		delete frame;
+		// ASan: use `operator delete` explicitly instead of delete-expression for symmetry with call to `operator new` above
+		frame->~Frame();
+		operator delete(frame);
 	}
 };
 
