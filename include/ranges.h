@@ -237,8 +237,7 @@ class range : public detail::coordinate<range<Dims>, Dims> {
 	using coordinate = detail::coordinate<range<Dims>, Dims>;
 
   public:
-	template <int D = Dims, typename = std::enable_if_t<D == 0>>
-	constexpr range() noexcept {}
+	constexpr range() noexcept = default;
 
 	template <typename... Values, typename = std::enable_if_t<sizeof...(Values) + 1 == Dims>>
 	constexpr range(const size_t dim_0, const Values... dim_n) : coordinate(dim_0, dim_n...) {}
@@ -278,13 +277,8 @@ class range : public detail::coordinate<range<Dims>, Dims> {
 	}
 
   private:
-	friend class detail::coordinate<range<Dims>, Dims>;
-
 	template <int DimsOut, typename InterfaceIn>
 	friend range<DimsOut> detail::range_cast(const InterfaceIn& in);
-
-	template <typename Default = void, int D = Dims, typename = std::enable_if_t<D != 0>>
-	constexpr range() noexcept {}
 
 	template <typename InterfaceIn, int DimsIn>
 	constexpr range(const detail::make_from_t /* tag */, const detail::coordinate<InterfaceIn, DimsIn>& in)
