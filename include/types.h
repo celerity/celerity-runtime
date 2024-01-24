@@ -2,63 +2,51 @@
 
 #include <cstdlib>
 #include <functional>
-#include <utility>
+#include <type_traits>
 
-namespace celerity {
-namespace detail {
+namespace celerity::detail {
 
-	/// Like `false`, but dependent on one or more template parameters. Use as the condition of always-failing static assertions in overloads, template
-	/// specializations or `if constexpr` branches.
-	template <typename...>
-	constexpr bool constexpr_false = false;
+/// Like `false`, but dependent on one or more template parameters. Use as the condition of always-failing static assertions in overloads, template
+/// specializations or `if constexpr` branches.
+template <typename...>
+constexpr bool constexpr_false = false;
 
-	// TODO get rid of PhantomType; define types as independent structs (will silence GCC warnings about memcpy'ing over privates)
-	template <typename T, typename UniqueName>
-	class PhantomType {
-	  public:
-		using underlying_t = T;
+} // namespace celerity::detail
 
-		constexpr PhantomType() = default;
-		constexpr PhantomType(const T& value) : m_value(value) {}
-		constexpr PhantomType(T&& value) : m_value(std::move(value)) {}
-
-		// Allow implicit conversion to underlying type, otherwise it becomes too annoying to use.
-		// Luckily compilers won't do more than one user-defined conversion, so something like
-		// PhantomType1<T> -> T -> PhantomType2<T>, can't happen. Therefore we still retain
-		// strong typesafety between phantom types with the same underlying type.
-		constexpr operator T&() { return m_value; }
-		constexpr operator const T&() const { return m_value; }
-
-	  private:
-		T m_value;
+/// Defines a POD type with a single member `value` from which and to which it is implicitly convertible. Since C++ only allows a single implicit conversion to
+/// happen when types need to be adjusted, this retains strong type safety between multiple type aliases (e.g. task_id is not implicitly convertible to
+/// node_id), but arithmetic operations will automatically work on the value type.
+#define CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(ALIAS_NAME, VALUE_TYPE)                                                                                       \
+	namespace celerity::detail {                                                                                                                               \
+		struct ALIAS_NAME {                                                                                                                                    \
+			using value_type = VALUE_TYPE;                                                                                                                     \
+			VALUE_TYPE value;                                                                                                                                  \
+			ALIAS_NAME() = default;                                                                                                                            \
+			constexpr ALIAS_NAME(const value_type value) : value(value) {}                                                                                     \
+			constexpr operator value_type&() { return value; }                                                                                                 \
+			constexpr operator const value_type&() const { return value; }                                                                                     \
+		};                                                                                                                                                     \
+	}                                                                                                                                                          \
+	template <>                                                                                                                                                \
+	struct std::hash<celerity::detail::ALIAS_NAME> {                                                                                                           \
+		std::size_t operator()(const celerity::detail::ALIAS_NAME a) const noexcept { return std::hash<VALUE_TYPE>{}(a.value); }                               \
 	};
 
-} // namespace detail
-} // namespace celerity
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(task_id, size_t)
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(buffer_id, size_t)
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(node_id, size_t)
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(command_id, size_t)
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(collective_group_id, size_t)
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(reduction_id, size_t)
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(host_object_id, size_t)
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(hydration_id, size_t)
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(transfer_id, size_t)
 
-#define MAKE_PHANTOM_TYPE(TypeName, UnderlyingT)                                                                                                               \
-	namespace celerity {                                                                                                                                       \
-		namespace detail {                                                                                                                                     \
-			using TypeName = PhantomType<UnderlyingT, class TypeName##_PhantomType>;                                                                           \
-		}                                                                                                                                                      \
-	}                                                                                                                                                          \
-	namespace std {                                                                                                                                            \
-		template <>                                                                                                                                            \
-		struct hash<celerity::detail::TypeName> {                                                                                                              \
-			std::size_t operator()(const celerity::detail::TypeName& t) const noexcept { return std::hash<UnderlyingT>{}(static_cast<UnderlyingT>(t)); }       \
-		};                                                                                                                                                     \
-	}
-
-MAKE_PHANTOM_TYPE(task_id, size_t)
-MAKE_PHANTOM_TYPE(buffer_id, size_t)
-MAKE_PHANTOM_TYPE(node_id, size_t)
-MAKE_PHANTOM_TYPE(command_id, size_t)
-MAKE_PHANTOM_TYPE(collective_group_id, size_t)
-MAKE_PHANTOM_TYPE(reduction_id, size_t)
-MAKE_PHANTOM_TYPE(host_object_id, size_t)
-MAKE_PHANTOM_TYPE(hydration_id, size_t);
-MAKE_PHANTOM_TYPE(transfer_id, size_t)
-
+// verify properties of type conversion as documented for CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS
+static_assert(std::is_standard_layout_v<celerity::detail::hydration_id> && std::is_trivially_default_constructible_v<celerity::detail::hydration_id>);
+static_assert(std::is_convertible_v<celerity::detail::task_id, size_t>);
+static_assert(std::is_convertible_v<size_t, celerity::detail::task_id>);
+static_assert(!std::is_convertible_v<celerity::detail::task_id, celerity::detail::node_id>);
 
 // declared in this header for include-dependency reasons
 namespace celerity::experimental {

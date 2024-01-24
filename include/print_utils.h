@@ -76,9 +76,21 @@ struct fmt::formatter<celerity::chunk<Dims>> : fmt::formatter<celerity::subrange
 };
 
 
-// TODO prefix phantom types like in pretty_printers
-template <typename T, typename UniqueName>
-struct fmt::formatter<celerity::detail::PhantomType<T, UniqueName>> : fmt::formatter<size_t> {};
+// TODO prefix type aliases like in GDB pretty_printers (requires removing explicit prefixes elsewhere in the code)
+#define CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(TYPE_ALIAS)                                                                              \
+	template <>                                                                                                                                                \
+	struct fmt::formatter<celerity::detail::TYPE_ALIAS> : fmt::formatter<celerity::detail::TYPE_ALIAS::value_type> {};
+
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(task_id)
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(buffer_id)
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(node_id)
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(command_id)
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(collective_group_id)
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(reduction_id)
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(host_object_id)
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(hydration_id)
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(transfer_id)
+
 
 template <>
 struct fmt::formatter<celerity::detail::dependency_kind> : fmt::formatter<std::string_view> {
