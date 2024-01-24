@@ -272,7 +272,7 @@ TEST_CASE("region_map handles basic operations in 1D", "[region_map]") {
 	SECTION("update with split") {
 		rm.update_box({32, 96}, 1337);
 		const auto results = rm.get_region_values({0, size});
-		CHECK_RESULTS(results, {{0, 32}, -1}, {{32, 96}, 1337}, {{96, size}, default_value});
+		CHECK_RESULTS(results, {{0, 32}, default_value}, {{32, 96}, 1337}, {{96, size}, default_value});
 	}
 
 	SECTION("update multiple") {
