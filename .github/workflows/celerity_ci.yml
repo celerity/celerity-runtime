@@ -173,6 +173,9 @@ jobs:
           path: ${{ env.build-name }}.log
       - name: Build examples against installed Celerity
         run: bash /root/build-examples.sh ${{ env.container-workspace }}/examples --build-type ${{ matrix.build-type }}
+      - name: Reset coverage counters
+        if: matrix.build-type == 'Debug' && matrix.sycl == 'simsycl' # celerity-build/simsycl image enables --coverage for Debug builds
+        run: fastcov -z -d "${{ env.build-dir }}"
       # For a run with ASan, we need to fake dlclose() so all shared libraries are still mapped when leaks are evaluated
       # - otherwise, we will see "<unknown module>" instead of a proper trace if it originated in an unloaded library
       # (see https://github.com/google/sanitizers/issues/89#issuecomment-406316683). LD_PRELOAD will be set to CI_LD_PRELOAD
@@ -220,6 +223,13 @@ jobs:
         run: |
           echo "${{ matrix.sycl }}-HEAD-${{ matrix.build-type }}-works=1" >> "$GITHUB_OUTPUT"
           echo "${{ matrix.sycl }}-HEAD-ubuntu-version=${{ matrix.ubuntu-version }}" >> "$GITHUB_OUTPUT"
+      - name: Collect & report coverage
+        if: matrix.build-type == 'Debug' && matrix.sycl == 'simsycl' # celerity-build/simsycl image enables --coverage for Debug builds
+        env:
+          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+        run: |
+          "${{ env.container-workspace }}/ci/capture-coverage.sh" "${{ env.container-workspace }}" "${{ env.build-dir }}" -o lcov.info
+          coveralls report lcov.info
 
   # Tag "HEAD" images that built and tested successfully as "latest".
   # This is only done for nightly builds (or when specifying the "tag-latest" option on manually triggered runs).
