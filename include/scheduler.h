@@ -32,8 +32,8 @@ namespace detail {
 		 */
 		void notify_task_created(const task* const tsk) { notify(event_task_available{tsk}); }
 
-		void notify_buffer_registered(const buffer_id bid, const int dims, const range<3>& range, bool host_initialized) {
-			notify(event_buffer_registered{bid, dims, range, host_initialized});
+		void notify_buffer_registered(const buffer_id bid, const range<3>& range, bool host_initialized) {
+			notify(event_buffer_registered{bid, range, host_initialized});
 		}
 
 	  protected:
@@ -53,7 +53,6 @@ namespace detail {
 		};
 		struct event_buffer_registered {
 			buffer_id bid;
-			int dims;
 			celerity::range<3> range;
 			bool host_initialized;
 		};

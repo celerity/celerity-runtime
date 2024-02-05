@@ -81,6 +81,8 @@ class box /* class instead of struct: enforces min <= max invariant */ {
 #endif
 	}
 
+	static box full_range(const range<Dims>& range) { return box(id<Dims>(), id<Dims>(range)); }
+
 	bool empty() const {
 		if constexpr(Dims > 0) {
 			return m_max[0] == 0; // empty boxes are normalized to [0,0,0] - [0,0,0]

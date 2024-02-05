@@ -146,7 +146,7 @@ namespace detail {
 				auto host_factory = [](const celerity::range<3>& r) { return std::make_unique<host_buffer_storage<DataT, Dims>>(range_cast<Dims>(r)); };
 				m_buffer_infos.emplace(
 				    bid, buffer_info{Dims, range, sizeof(DataT), is_host_initialized, {}, std::move(device_factory), std::move(host_factory)});
-				m_newest_data_location.emplace(bid, region_map<data_location>(range, Dims, data_location::nowhere));
+				m_newest_data_location.emplace(bid, region_map<data_location>(range, data_location::nowhere));
 
 #if defined(CELERITY_DETAIL_ENABLE_DEBUG)
 				m_buffer_types.emplace(bid, new buffer_type_guard<DataT, Dims>());

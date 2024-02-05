@@ -507,9 +507,9 @@ class dist_cdag_test_context {
 	test_utils::mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
 		const buffer_id bid = m_next_buffer_id++;
 		const auto buf = test_utils::mock_buffer<Dims>(bid, size);
-		m_tm.add_buffer(bid, Dims, range_cast<3>(size), mark_as_host_initialized);
+		m_tm.add_buffer(bid, range_cast<3>(size), mark_as_host_initialized);
 		for(auto& dggen : m_dggens) {
-			dggen->add_buffer(bid, Dims, range_cast<3>(size), mark_as_host_initialized);
+			dggen->add_buffer(bid, range_cast<3>(size), mark_as_host_initialized);
 		}
 		return buf;
 	}

@@ -810,20 +810,6 @@ namespace region_map_detail {
 		}
 	};
 
-	inline void assert_dimensionality(const box<3>& box, const int dims) {
-#if !defined(NDEBUG)
-		assert(box.get_effective_dims() <= dims);
-#endif
-	}
-
-	inline void assert_dimensionality(const region<3>& reg, const int dims) {
-#if !defined(NDEBUG)
-		for(const auto& box : reg.get_boxes()) {
-			assert_dimensionality(box, dims);
-		}
-#endif
-	}
-
 	/**
 	 * The region map is implemented as a customized R-Tree [Guttman 1984]. In order to maintain
 	 * performance over time, entries with compatible boxes and equal values will be merged.
@@ -845,8 +831,8 @@ namespace region_map_detail {
 		using value_type = ValueType;
 		static constexpr size_t dimensions = Dims;
 
-		region_map_impl(const range<Dims>& extent, ValueType default_value = ValueType{})
-		    : m_extent(subrange<Dims>({}, extent)), m_root(std::make_unique<typename types::inner_node_type>(true, 0)) {
+		region_map_impl(const box<Dims>& extent, const ValueType& default_value = ValueType{})
+		    : m_extent(extent), m_root(std::make_unique<typename types::inner_node_type>(true, 0)) {
 			m_root->insert(this->m_extent, default_value);
 		}
 
@@ -1040,8 +1026,8 @@ namespace region_map_detail {
 		template <typename RegionMap>
 		friend void sanity_check_region_map(const RegionMap& rm);
 
-		// The extent specifies the boundaries for the region map to which all entries are clamped,
-		// and which initially contains the default value. Currently always starts at [0,0,0].
+		// The extent specifies the boundaries for the region map to which all entries are clamped, and which initially contains the default value.
+		// Starts at [0,0,0] if the region_map was constructed from a `range`, and can be non-zero when constructed from a `box`.
 		box<Dims> m_extent;
 
 		std::unique_ptr<typename types::inner_node_type> m_root;
@@ -1162,7 +1148,7 @@ namespace region_map_detail {
 						const auto min = box.get_min();
 						const auto max = box.get_max();
 						std::optional<detail::box<Dims>> other_box;
-						if(min[d] > 0) {
+						if(min[d] > m_extent.get_min()[d]) {
 							auto probe = min;
 							probe[d] -= 1;
 							const auto neighbor = m_root->point_query(probe);
@@ -1225,7 +1211,7 @@ namespace region_map_detail {
 	template <typename ValueType>
 	class region_map_impl<ValueType, 0> {
 	  public:
-		region_map_impl(const range<0>& /* extent */, ValueType default_value) : m_value(default_value) {}
+		region_map_impl(const box<0>& /* extent */, ValueType default_value) : m_value(default_value) {}
 
 		void update_box(const box<1>& /* box */, const ValueType& value) { m_value = value; }
 
@@ -1256,14 +1242,19 @@ class region_map {
 	 * @param extent The extent of the region map defines the set of points for which it can hold values.
 	 *               All update operations and query results are clamped to this extent.
 	 */
-	region_map(range<3> extent, int dims, ValueType default_value = ValueType{}) : m_dims(dims) {
+	region_map(const range<3>& extent, const ValueType& default_value = ValueType{}) : region_map(box(subrange({}, extent)), default_value) {}
+
+	/**
+	 * @param extent The extent of the region map defines the set of points for which it can hold values.
+	 *               All update operations and query results are clamped to this extent.
+	 */
+	region_map(const box<3>& extent, const ValueType& default_value = ValueType{}) : m_dims(extent.get_effective_dims()) {
 		using namespace region_map_detail;
-		assert_dimensionality(box<3>(subrange<3>{id<3>{}, extent}), dims);
 		switch(m_dims) {
-		case 0: m_region_map.template emplace<region_map_impl<ValueType, 0>>(range_cast<0>(extent), default_value); break;
-		case 1: m_region_map.template emplace<region_map_impl<ValueType, 1>>(range_cast<1>(extent), default_value); break;
-		case 2: m_region_map.template emplace<region_map_impl<ValueType, 2>>(range_cast<2>(extent), default_value); break;
-		case 3: m_region_map.template emplace<region_map_impl<ValueType, 3>>(range_cast<3>(extent), default_value); break;
+		case 0: m_region_map.template emplace<region_map_impl<ValueType, 0>>(box_cast<0>(extent), default_value); break;
+		case 1: m_region_map.template emplace<region_map_impl<ValueType, 1>>(box_cast<1>(extent), default_value); break;
+		case 2: m_region_map.template emplace<region_map_impl<ValueType, 2>>(box_cast<2>(extent), default_value); break;
+		case 3: m_region_map.template emplace<region_map_impl<ValueType, 3>>(box_cast<3>(extent), default_value); break;
 		default: assert(false);
 		}
 	}
@@ -1272,7 +1263,7 @@ class region_map {
 	 * Sets a new value for the provided region within the region map.
 	 */
 	void update_region(const region<3>& region, const ValueType& value) {
-		region_map_detail::assert_dimensionality(region, m_dims);
+		assert(region.get_effective_dims() <= m_dims);
 		for(const auto& box : region.get_boxes()) {
 			update_box(box, value);
 		}
@@ -1298,7 +1289,7 @@ class region_map {
 	 * @returns A list of boxes clamped to the request region, and their associated values.
 	 */
 	std::vector<std::pair<box<3>, ValueType>> get_region_values(const region<3>& request) const {
-		region_map_detail::assert_dimensionality(request, m_dims);
+		assert(request.get_effective_dims() <= m_dims);
 		std::vector<std::pair<box<3>, ValueType>> results;
 		for(const auto& box : request.get_boxes()) {
 			const auto r = get_region_values(box);
