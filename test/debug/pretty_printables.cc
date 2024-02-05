@@ -29,7 +29,7 @@ int main() {
 	    celerity::detail::box(celerity::id(21, 2, 3), celerity::id(24, 5, 6)),
 	});
 
-	[[maybe_unused]] celerity::detail::region_map<int> region_map(celerity::range<3>(10, 10, 10), 3);
+	[[maybe_unused]] celerity::detail::region_map<int> region_map(celerity::range<3>(10, 10, 10));
 	region_map.update_region(celerity::detail::box<3>({1, 1, 1}, {5, 5, 5}), 42);
 	region_map.update_region(celerity::detail::box<3>({1, 1, 1}, {3, 3, 3}), 69);
 	region_map.update_region(celerity::detail::box<3>({1, 1, 1}, {2, 2, 2}), 1337);

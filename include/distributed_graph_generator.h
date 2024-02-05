@@ -83,7 +83,7 @@ class distributed_graph_generator {
 	distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm,
 	    detail::command_recorder* recorder, const policy_set& policy = default_policy_set());
 
-	void add_buffer(const buffer_id bid, const int dims, const range<3>& range, bool host_initialized);
+	void add_buffer(const buffer_id bid, const range<3>& range, bool host_initialized);
 
 	std::unordered_set<abstract_command*> build_task(const task& tsk);
 

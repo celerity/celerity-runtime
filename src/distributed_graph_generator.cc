@@ -26,9 +26,8 @@ distributed_graph_generator::distributed_graph_generator(
 	m_epoch_for_new_commands = epoch_cmd->get_cid();
 }
 
-void distributed_graph_generator::add_buffer(const buffer_id bid, const int dims, const range<3>& range, bool host_initialized) {
-	m_buffer_states.emplace(
-	    std::piecewise_construct, std::tuple{bid}, std::tuple{region_map<write_command_state>{range, dims}, region_map<node_bitset>{range, dims}});
+void distributed_graph_generator::add_buffer(const buffer_id bid, const range<3>& range, bool host_initialized) {
+	m_buffer_states.emplace(std::piecewise_construct, std::tuple{bid}, std::tuple{range, range});
 	if(host_initialized && m_policy.uninitialized_read_error != error_policy::ignore) { m_buffer_states.at(bid).initialized_region = box(subrange({}, range)); }
 	// Mark contents as available locally (= don't generate await push commands) and fully replicated (= don't generate push commands).
 	// This is required when tasks access host-initialized or uninitialized buffers.
@@ -263,7 +262,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 				wcs.mark_as_stale();
 				// We just treat this buffer as 1-dimensional, regardless of its actual dimensionality (as it must be unit-sized anyway)
 				post_reduction_buffer_states.emplace(std::piecewise_construct, std::tuple{bid},
-				    std::tuple{region_map<write_command_state>{ones, 1, wcs}, region_map<node_bitset>{ones, 1, node_bitset{}}});
+				    std::tuple{region_map<write_command_state>{ones, wcs}, region_map<node_bitset>{ones, node_bitset{}}});
 			}
 
 			if(is_pending_reduction && !generate_reduction) {

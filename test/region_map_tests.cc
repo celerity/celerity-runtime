@@ -181,7 +181,7 @@ void draw(const region_map_impl<ValueType, 2>& rm) {
 //                  for the next round. This resulted in attempted merges with boxes that no longer existed.
 // NOTE: This test makes assumptions about the order of dimensions in which we probe for merges (dim 0 before dim 1)
 TEST_CASE("region_map::try_merge does not attempt to merge intermediate results that no longer exist", "[region_map]") {
-	region_map_impl<int, 2> rm({99, 99}, -1);
+	region_map_impl<int, 2> rm(box<2>::full_range({99, 99}), -1);
 
 	std::vector<std::pair<box<2>, int>> entries = {
 	    // These first three entries will be merged
@@ -217,7 +217,7 @@ TEST_CASE("region_map::try_merge does not attempt to merge intermediate results 
 TEST_CASE("region_map can be moved", "[region_map]") {
 	constexpr size_t size = 128;
 	const int default_value = -1;
-	region_map_impl<int, 1> rm1{{size}, default_value};
+	region_map_impl<int, 1> rm1{box<1>::full_range({size}), default_value};
 	rm1.update_box({0, size}, 1337);
 	auto results1 = rm1.get_region_values({0, size});
 	CHECK_RESULTS(results1, {{0, size}, 1337});
@@ -226,7 +226,7 @@ TEST_CASE("region_map can be moved", "[region_map]") {
 	auto results2 = rm2.get_region_values({0, size});
 	CHECK_RESULTS(results2, {{0, size}, 1337});
 
-	region_map_impl<int, 1> rm3{{size}, default_value};
+	region_map_impl<int, 1> rm3{box<1>::full_range({size}), default_value};
 	rm3 = std::move(rm2);
 	auto results3 = rm3.get_region_values({0, size});
 	CHECK_RESULTS(results3, {{0, size}, 1337});
@@ -245,7 +245,7 @@ TEST_CASE("region_map handles basic operations in 0D", "[region_map]") {
 TEST_CASE("region_map handles basic operations in 1D", "[region_map]") {
 	constexpr size_t size = 128;
 	const size_t default_value = std::numeric_limits<size_t>::max();
-	region_map_impl<size_t, 1> rm{{size}, default_value};
+	region_map_impl<size_t, 1> rm{box<1>::full_range({size}), default_value};
 
 	SECTION("query default value") {
 		const auto results = rm.get_region_values({0, size});
@@ -302,7 +302,7 @@ TEST_CASE("region_map handles basic operations in 2D", "[region_map]") {
 	constexpr size_t height = 128;
 	constexpr size_t width = 192;
 	constexpr size_t default_value = std::numeric_limits<size_t>::max();
-	region_map_impl<size_t, 2> rm{{height, width}, default_value};
+	region_map_impl<size_t, 2> rm{box<2>::full_range({height, width}), default_value};
 
 	SECTION("query default value") {
 		const auto results = rm.get_region_values({{0, 0}, {height, width}});
@@ -450,7 +450,7 @@ TEST_CASE("region_map handles basic operations in 3D", "[region_map]") {
 	constexpr size_t height = 192;
 	constexpr size_t width = 256;
 	constexpr size_t default_value = std::numeric_limits<size_t>::max();
-	region_map_impl<size_t, 3> rm{{depth, height, width}, default_value};
+	region_map_impl<size_t, 3> rm{box<3>::full_range({depth, height, width}), default_value};
 
 	SECTION("query default value") {
 		const auto results = rm.get_region_values({{0, 0, 0}, {depth, height, width}});
@@ -510,9 +510,8 @@ TEST_CASE("region_map handles basic operations in 3D", "[region_map]") {
 }
 
 TEMPLATE_TEST_CASE_SIG("region_map updates get clamped to extent", "[region_map]", ((int Dims), Dims), 1, 2, 3) {
-	const auto extent = test_utils::truncate_range<Dims>({64, 96, 128});
 	const auto full_box = test_utils::truncate_box<Dims>({{0, 0, 0}, {64, 96, 128}});
-	region_map_impl<size_t, Dims> rm{extent, 0};
+	region_map_impl<size_t, Dims> rm{full_box, 0};
 
 	// TODO boxes based on ids cannot be negative, so we cannot test clamping of the minimum at the moment
 	const auto exceeding_box = box<Dims>({}, test_utils::truncate_range<Dims>({72, 102, 136}));
@@ -524,7 +523,7 @@ TEMPLATE_TEST_CASE_SIG("region_map updates get clamped to extent", "[region_map]
 
 // This doesn't test anything in paticular, more of a smoke test.
 TEST_CASE("region_map correctly handles complex queries", "[region_map]") {
-	region_map_impl<size_t, 2> rm{{5, 9}, 99999};
+	region_map_impl<size_t, 2> rm{box<2>::full_range({5, 9}), 99999};
 
 	const std::initializer_list<box<2>> data = {{{0, 0}, {2, 3}}, {{2, 0}, {5, 2}}, {{2, 2}, {5, 3}}, {{0, 3}, {3, 4}}, {{3, 3}, {4, 4}}, {{4, 3}, {5, 4}},
 	    {{0, 4}, {1, 9}}, {{1, 4}, {3, 9}}, {{3, 4}, {5, 6}}, {{3, 6}, {5, 7}}, {{3, 7}, {4, 9}}, {{4, 7}, {5, 9}}};
@@ -579,7 +578,7 @@ TEST_CASE("region_map correctly handles complex queries", "[region_map]") {
 TEST_CASE("region map merges entries with the same value upon update in 1D", "[region_map]") {
 	constexpr size_t size = 128;
 	constexpr size_t default_value = std::numeric_limits<size_t>::max();
-	region_map_impl<size_t, 1> rm{{size}, default_value};
+	region_map_impl<size_t, 1> rm{box<1>::full_range({size}), default_value};
 
 	SECTION("simple merge") {
 		rm.update_box({0, 64}, 3);
@@ -601,7 +600,7 @@ TEST_CASE("region map merges entries with the same value upon update in 2D", "[r
 	constexpr size_t height = 64;
 	constexpr size_t width = 128;
 	constexpr size_t default_value = std::numeric_limits<size_t>::max();
-	region_map_impl<size_t, 2> rm{{height, width}, default_value};
+	region_map_impl<size_t, 2> rm{box<2>::full_range({height, width}), default_value};
 
 	SECTION("simple merge") {
 		rm.update_box({{0, 0}, {height, 64}}, 3);
@@ -646,7 +645,7 @@ TEST_CASE("region map merges entries with the same value upon update in 3D", "[r
 	constexpr size_t height = 96;
 	constexpr size_t width = 128;
 	constexpr size_t default_value = std::numeric_limits<size_t>::max();
-	region_map_impl<size_t, 3> rm{{depth, height, width}, default_value};
+	region_map_impl<size_t, 3> rm{box<3>::full_range({depth, height, width}), default_value};
 
 	SECTION("simple merge, quasi 1D") {
 		rm.update_box({{0, 0, 0}, {depth, 64, width}}, 3);
@@ -671,7 +670,7 @@ TEST_CASE("region_map merges truncated result boxes with the same value upon que
 	constexpr size_t height = 5;
 	constexpr size_t width = 9;
 	constexpr size_t default_value = std::numeric_limits<size_t>::max();
-	region_map_impl<size_t, 2> rm{{height, width}, default_value};
+	region_map_impl<size_t, 2> rm{box<2>::full_range({height, width}), default_value};
 
 	SECTION("simple merge") {
 		// Set up in such a way that values cannot be merged upon update
@@ -719,7 +718,7 @@ TEST_CASE("region_map merges truncated result boxes with the same value upon que
 	constexpr size_t height = 64;
 	constexpr size_t width = 96;
 	constexpr size_t default_value = std::numeric_limits<size_t>::max();
-	region_map_impl<size_t, 3> rm{{depth, height, width}, default_value};
+	region_map_impl<size_t, 3> rm{box<3>::full_range({depth, height, width}), default_value};
 
 	SECTION("simple merge") {
 		// Setup in such a way that values cannot be merged upon update
@@ -739,7 +738,7 @@ TEST_CASE("region_map merges truncated result boxes with the same value upon que
 TEST_CASE("region_map supports apply_to_values", "[region_map]") {
 	constexpr size_t size = 128;
 	constexpr size_t default_value = std::numeric_limits<size_t>::max();
-	region_map_impl<size_t, 1> rm{{size}, default_value};
+	region_map_impl<size_t, 1> rm{box<1>::full_range({size}), default_value};
 
 	const auto query_and_check = [&](const box<1>& box, size_t expected) {
 		const auto results = rm.get_region_values(box);
@@ -776,7 +775,7 @@ TEST_CASE("inserting consecutive boxes results in zero overlap", "[region_map][p
 
 	const size_t height = 64;
 	const size_t width = 128;
-	region_map_impl<size_t, 2> rm{{height, width}, std::numeric_limits<size_t>::max()};
+	region_map_impl<size_t, 2> rm{box<2>::full_range({height, width}), std::numeric_limits<size_t>::max()};
 
 	const size_t count_sqrt = 4;
 	REQUIRE(height % count_sqrt == 0);
@@ -801,4 +800,10 @@ TEST_CASE("inserting consecutive boxes results in zero overlap", "[region_map][p
 	CHECK(region_map_testspy::get_num_leaf_nodes(rm) == count_sqrt * count_sqrt);
 	CHECK(region_map_testspy::compute_overlap(rm) == 0);
 	draw(rm);
+}
+
+TEST_CASE("query regions are clamped from both sides in region maps with non-zero offset", "[region_map]") {
+	const auto region_box = box<3>({1, 2, 3}, {7, 9, 11});
+	region_map<int> rm(region_box, 42);
+	CHECK(rm.get_region_values(box<3>::full_range({20, 19, 18})) == std::vector{std::pair{region_box, 42}});
 }
