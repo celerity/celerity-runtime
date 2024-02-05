@@ -1213,9 +1213,16 @@ namespace region_map_detail {
 	  public:
 		region_map_impl(const box<0>& /* extent */, ValueType default_value) : m_value(default_value) {}
 
-		void update_box(const box<1>& /* box */, const ValueType& value) { m_value = value; }
+		void update_box(const box<1>& box, const ValueType& value) {
+			assert(detail::box<1>(0, 1).covers(box));
+			if(!box.empty()) { m_value = value; }
+		}
 
-		std::vector<std::pair<box<1>, ValueType>> get_region_values(const box<1>& /* request */) const { return {{box<1>{0, 1}, m_value}}; }
+		std::vector<std::pair<box<1>, ValueType>> get_region_values(const box<1>& request) const {
+			assert(box<1>(0, 1).covers(request));
+			if(!request.empty()) { return {{box<1>{0, 1}, m_value}}; }
+			return {};
+		}
 
 		template <typename Functor>
 		void apply_to_values(const Functor& f) {
