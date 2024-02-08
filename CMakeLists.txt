@@ -262,6 +262,7 @@ target_include_directories(celerity_runtime PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include/celerity>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/matchbox/include>
   $<INSTALL_INTERFACE:include/celerity/vendor>
 )
 
@@ -382,7 +383,9 @@ install(
   DESTINATION include/celerity
 )
 install(
-  FILES ${PROJECT_SOURCE_DIR}/vendor/ctpl_stl.h
+  FILES
+    ${PROJECT_SOURCE_DIR}/vendor/ctpl_stl.h
+    ${PROJECT_SOURCE_DIR}/vendor/matchbox/include/matchbox.hh
   DESTINATION include/celerity/vendor
 )
 install(

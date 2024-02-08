@@ -10,9 +10,9 @@
 #include <vector>
 
 #include <fmt/format.h>
+#include <matchbox.hh>
 
 #include "grid.h"
-#include "utils.h"
 
 // Some toggles that affect performance (but also change the behavior!)
 // TODO: Consider making these template arguments instead (inside some config object), and add these:
@@ -884,7 +884,7 @@ namespace region_map_detail {
 			region<Dims> erased;
 			region<Dims> inserted;
 			for(const auto& a : m_update_actions) {
-				utils::match(
+				matchbox::match(
 				    a,
 				    [&](const typename types::erase_node_action& erase_action) {
 					    assert(region_intersection(erased, erase_action.box).empty());
@@ -899,7 +899,7 @@ namespace region_map_detail {
 #endif
 
 			for(const auto& a : m_update_actions) {
-				utils::match(
+				matchbox::match(
 				    a,
 				    [&](const typename types::erase_node_action& erase_action) {
 					    if(!erase_action.processed_locally) { erase(erase_action.box); }
@@ -1082,7 +1082,7 @@ namespace region_map_detail {
 			assert(did_erase);
 
 			for(auto& o : m_erase_orphans) {
-				utils::match(
+				matchbox::match(
 				    o.second,                                                                                    //
 				    [&](ValueType& v) { insert(o.first, v); },                                                   //
 				    [&](typename types::unique_inner_node_ptr& in) { insert_subtree(o.first, std::move(in)); }); //
