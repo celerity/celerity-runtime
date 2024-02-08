@@ -8,7 +8,8 @@
 #include "ranges.h"
 #include "task.h"
 #include "types.h"
-#include "utils.h"
+
+#include <matchbox.hh>
 
 namespace celerity {
 namespace detail {
@@ -190,7 +191,7 @@ namespace detail {
 
 		std::optional<task_id> get_tid() const {
 			// clang-format off
-			return utils::match(data,
+			return matchbox::match(data,
 				[](const horizon_data& d) { return std::optional{d.tid}; },
 				[](const epoch_data& d) { return std::optional{d.tid}; },
 				[](const execution_data& d) { return std::optional{d.tid}; },
@@ -202,7 +203,7 @@ namespace detail {
 
 		command_type get_command_type() const {
 			// clang-format off
-			return utils::match(data,
+			return matchbox::match(data,
 				[](const std::monostate&) -> command_type {
 					assert(!"calling get_command_type() on an empty command_pkg");
 					std::terminate();

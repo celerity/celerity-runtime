@@ -16,3 +16,6 @@
 [submodule "vendor/mimalloc"]
 	path = vendor/mimalloc
 	url = https://github.com/microsoft/mimalloc.git
+[submodule "vendor/matchbox"]
+	path = vendor/matchbox
+	url = https://github.com/fknorr/matchbox.git

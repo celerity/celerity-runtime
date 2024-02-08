@@ -5,7 +5,8 @@
 #include "frame.h"
 #include "graph_serializer.h"
 #include "named_threads.h"
-#include "utils.h"
+
+#include <matchbox.hh>
 
 namespace celerity {
 namespace detail {
@@ -45,7 +46,7 @@ namespace detail {
 				const auto event = std::move(in_flight_events.front()); // NOLINT(performance-move-const-arg)
 				in_flight_events.pop();
 
-				utils::match(
+				matchbox::match(
 				    event,
 				    [&](const event_task_available& e) {
 					    assert(e.tsk != nullptr);

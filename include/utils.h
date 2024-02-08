@@ -36,17 +36,6 @@ constexpr inline uint32_t popcount(const BitMaskT bit_mask) noexcept {
 	return counter;
 }
 
-template <typename... F>
-struct overload : F... {
-	explicit constexpr overload(F... f) : F(f)... {}
-	using F::operator()...;
-};
-
-template <typename Variant, typename... Arms>
-decltype(auto) match(Variant&& v, Arms&&... arms) {
-	return std::visit(overload{std::forward<Arms>(arms)...}, std::forward<Variant>(v));
-}
-
 // Implementation from Boost.ContainerHash, licensed under the Boost Software License, Version 1.0.
 inline void hash_combine(std::size_t& seed, std::size_t value) { seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2); }
 
