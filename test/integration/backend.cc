@@ -53,12 +53,12 @@ void test_copy(celerity::distr_queue& q) {
 	const auto sr3 = celerity::detail::subrange_cast<3>(sr);
 	q.submit([&](celerity::handler& cgh) {
 		celerity::accessor acc{buf, cgh, celerity::access::fixed<Dims>{sr}, celerity::read_write_host_task};
-		cgh.host_task(celerity::on_master_node, [=]() {
+		cgh.host_task(celerity::on_master_node, [acc, sr3, buf_range = buf.get_range()] {
 			for(size_t k = 0; k < sr3.range[0]; ++k) {
 				for(size_t j = 0; j < sr3.range[1]; ++j) {
 					for(size_t i = 0; i < sr3.range[2]; ++i) {
 						const auto idx = truncate_id<Dims>({sr3.offset[0] + k, sr3.offset[1] + j, sr3.offset[2] + i});
-						const auto linear_id = celerity::detail::get_linear_index(buf.get_range(), idx);
+						const auto linear_id = celerity::detail::get_linear_index(buf_range, idx);
 						ASSERT(acc[idx] == linear_id);
 						acc[idx] *= 2;
 					}
@@ -76,14 +76,14 @@ void test_copy(celerity::distr_queue& q) {
 	// Check everything on host
 	q.submit([&](celerity::handler& cgh) {
 		celerity::accessor acc{buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
-		cgh.host_task(celerity::on_master_node, [=]() {
-			const auto r3 = celerity::detail::range_cast<3>(buf.get_range());
+		cgh.host_task(celerity::on_master_node, [acc, sr, buf_range = buf.get_range()] {
+			const auto r3 = celerity::detail::range_cast<3>(buf_range);
 			for(size_t k = 0; k < r3[0]; ++k) {
 				for(size_t j = 0; j < r3[1]; ++j) {
 					for(size_t i = 0; i < r3[2]; ++i) {
 						const auto idx = truncate_id<Dims>({k, j, i});
 						const auto is_in_sr = (celerity::detail::all_true(idx >= sr.offset) && celerity::detail::all_true(idx < sr.offset + sr.range));
-						const auto linear_id = celerity::detail::get_linear_index(buf.get_range(), idx);
+						const auto linear_id = celerity::detail::get_linear_index(buf_range, idx);
 						if(is_in_sr) {
 							ASSERT(acc[idx] == 2 * linear_id + 1);
 						} else {
