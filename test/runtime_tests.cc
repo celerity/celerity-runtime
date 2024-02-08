@@ -1270,15 +1270,29 @@ namespace detail {
 		distr_queue q;
 		REQUIRE(runtime::get_instance().is_dry_run());
 
-		buffer<bool, 0> buf{false};
-		q.submit([&](handler& cgh) {
-			accessor acc{buf, cgh, all{}, write_only_host_task};
-			cgh.host_task(on_master_node, [=] { acc = true; });
-		});
+		SECTION("for buffers") {
+			buffer<bool, 0> buf{false};
+			q.submit([&](handler& cgh) {
+				accessor acc{buf, cgh, all{}, write_only_host_task};
+				cgh.host_task(on_master_node, [=] { acc = true; });
+			});
 
-		auto ret = q.fence(buf);
-		REQUIRE(ret.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
-		CHECK_FALSE(*ret.get()); // extra check that the task was not actually executed
+			auto ret = q.fence(buf);
+			REQUIRE(ret.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
+			CHECK_FALSE(*ret.get()); // extra check that the task was not actually executed
+		}
+
+		SECTION("for host objects") {
+			experimental::host_object<bool> obj(false);
+			q.submit([&](handler& cgh) {
+				experimental::side_effect eff(obj, cgh);
+				cgh.host_task(on_master_node, [=] { *eff = true; });
+			});
+
+			auto ret = q.fence(obj);
+			REQUIRE(ret.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
+			CHECK_FALSE(ret.get()); // extra check that the task was not actually executed
+		}
 
 		CHECK(test_utils::log_contains_substring(log_level::warn, "Encountered a \"fence\" command while \"CELERITY_DRY_RUN_NODES\" is set"));
 	}
