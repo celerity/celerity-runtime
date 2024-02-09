@@ -50,7 +50,7 @@ struct host_object_tracker : public lifetime_extending_state {
 
 	host_object_tracker() {
 		if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr); }
-		id = detail::runtime::get_instance().get_host_object_manager().create_host_object();
+		id = detail::runtime::get_instance().create_host_object();
 	}
 
 	host_object_tracker(const host_object_tracker&) = delete;
@@ -58,7 +58,7 @@ struct host_object_tracker : public lifetime_extending_state {
 	host_object_tracker& operator=(host_object_tracker&&) = delete;
 	host_object_tracker& operator=(const host_object_tracker&) = delete;
 
-	~host_object_tracker() { detail::runtime::get_instance().get_host_object_manager().destroy_host_object(id); }
+	~host_object_tracker() { detail::runtime::get_instance().destroy_host_object(id); }
 };
 
 // see host_object deduction guides

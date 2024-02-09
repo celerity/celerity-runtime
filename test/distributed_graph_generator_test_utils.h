@@ -491,7 +491,7 @@ class dist_cdag_test_context {
 	    : m_num_nodes(num_nodes), m_tm(num_nodes, nullptr /* host_queue */, &m_task_recorder, policy.tm) {
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			m_cdags.emplace_back(std::make_unique<command_graph>());
-			m_cmd_recorders.emplace_back(std::make_unique<command_recorder>(&m_tm, nullptr));
+			m_cmd_recorders.emplace_back(std::make_unique<command_recorder>());
 			m_dggens.emplace_back(std::make_unique<distributed_graph_generator>(num_nodes, nid, *m_cdags[nid], m_tm, m_cmd_recorders[nid].get(), policy.dggen));
 		}
 	}
@@ -507,25 +507,32 @@ class dist_cdag_test_context {
 	test_utils::mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
 		const buffer_id bid = m_next_buffer_id++;
 		const auto buf = test_utils::mock_buffer<Dims>(bid, size);
-		m_tm.add_buffer(bid, range_cast<3>(size), mark_as_host_initialized);
+		m_tm.create_buffer(bid, range_cast<3>(size), mark_as_host_initialized);
 		for(auto& dggen : m_dggens) {
-			dggen->add_buffer(bid, range_cast<3>(size), mark_as_host_initialized);
+			dggen->create_buffer(bid, range_cast<3>(size), mark_as_host_initialized);
 		}
 		return buf;
 	}
 
-	test_utils::mock_host_object create_host_object() { return test_utils::mock_host_object{m_next_host_object_id++}; }
+	test_utils::mock_host_object create_host_object(const bool owns_instance = true) {
+		const host_object_id hoid = m_next_host_object_id++;
+		m_tm.create_host_object(hoid);
+		for(auto& dggen : m_dggens) {
+			dggen->create_host_object(hoid);
+		}
+		return test_utils::mock_host_object(hoid);
+	}
 
 	// TODO: Do we want to duplicate all step functions here, or have some sort of .task() initial builder?
 
 	template <typename Name = unnamed_kernel, int Dims>
 	auto device_compute(const range<Dims>& global_size, const id<Dims>& global_offset = {}) {
-		return task_builder(*this).device_compute<Name>(global_size, global_offset);
+		return task_builder(*this).template device_compute<Name>(global_size, global_offset);
 	}
 
 	template <typename Name = unnamed_kernel, int Dims>
 	auto device_compute(const nd_range<Dims>& execution_range) {
-		return task_builder(*this).device_compute<Name>(execution_range);
+		return task_builder(*this).template device_compute<Name>(execution_range);
 	}
 
 	template <int Dims>

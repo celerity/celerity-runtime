@@ -112,6 +112,9 @@ std::string get_simplified_type_name() {
 /// Escapes "<", ">", and "&" with their corresponding HTML escape sequences
 std::string escape_for_dot_label(std::string str);
 
+/// Print the buffer id as either 'B1' or 'B1 "name"' (if `name` is non-empty)
+std::string make_buffer_debug_label(const buffer_id bid, const std::string& name = "");
+
 enum class panic_solution {
 	log_and_abort,     ///< default
 	throw_logic_error, ///< enabled in unit tests to detect and recover from panics

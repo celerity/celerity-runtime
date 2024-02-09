@@ -77,7 +77,7 @@ namespace detail {
 			return horizon_counter;
 		}
 
-		static const region_map<std::optional<task_id>>& get_last_writer(task_manager& tm, const buffer_id bid) { return tm.m_buffers_last_writers.at(bid); }
+		static const region_map<std::optional<task_id>>& get_last_writer(task_manager& tm, const buffer_id bid) { return tm.m_buffers.at(bid).last_writers; }
 
 		static int get_max_pseudo_critical_path_length(task_manager& tm) { return tm.get_max_pseudo_critical_path_length(); }
 
@@ -220,9 +220,9 @@ namespace test_utils {
 		mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
 			const detail::buffer_id bid = m_next_buffer_id++;
 			const auto buf = mock_buffer<Dims>(bid, size);
-			if(m_task_mngr != nullptr) { m_task_mngr->add_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
-			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_registered(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
-			if(m_dggen != nullptr) { m_dggen->add_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
+			if(m_task_mngr != nullptr) { m_task_mngr->create_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
+			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
+			if(m_dggen != nullptr) { m_dggen->create_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
 			return buf;
 		}
 
@@ -235,9 +235,20 @@ namespace test_utils {
 
 	class mock_host_object_factory {
 	  public:
-		mock_host_object create_host_object() { return mock_host_object{m_next_id++}; }
+		explicit mock_host_object_factory() = default;
+		explicit mock_host_object_factory(detail::task_manager& tm) : m_task_mngr(&tm) {}
+		explicit mock_host_object_factory(detail::task_manager& tm, detail::abstract_scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
+
+		mock_host_object create_host_object(bool owns_instance = true) {
+			const detail::host_object_id hoid = m_next_id++;
+			if(m_task_mngr != nullptr) { m_task_mngr->create_host_object(hoid); }
+			if(m_schdlr != nullptr) { m_schdlr->notify_host_object_created(hoid); }
+			return mock_host_object(hoid);
+		}
 
 	  private:
+		detail::task_manager* m_task_mngr = nullptr;
+		detail::abstract_scheduler* m_schdlr = nullptr;
 		detail::host_object_id m_next_id = 0;
 	};
 
@@ -382,7 +393,7 @@ namespace test_utils {
 		mock_host_object_factory mhof;
 		mock_reduction_factory mrf;
 
-		explicit task_test_context(const detail::task_manager::policy_set& policy = {}) : tm(1, nullptr, &trec, policy), mbf(tm) {}
+		explicit task_test_context(const detail::task_manager::policy_set& policy = {}) : tm(1, nullptr, &trec, policy), mbf(tm), mhof(tm) {}
 		~task_test_context() { maybe_print_task_graph(trec); }
 	};
 

@@ -20,19 +20,37 @@ distributed_graph_generator::distributed_graph_generator(
 	// Build initial epoch command (this is required to properly handle anti-dependencies on host-initialized buffers).
 	// We manually generate the first command, this will be replaced by applied horizons or explicit epochs down the line (see
 	// set_epoch_for_new_commands).
-	auto* const epoch_cmd = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none);
+	const auto epoch_tsk = tm.get_task(task_manager::initial_epoch_task);
+	auto* const epoch_cmd = cdag.create<epoch_command>(epoch_tsk->get_id(), epoch_action::none);
 	epoch_cmd->mark_as_flushed(); // there is no point in flushing the initial epoch command
-	if(m_recorder != nullptr) m_recorder->record_command(*epoch_cmd);
+	if(m_recorder != nullptr) { *m_recorder << command_record(*epoch_cmd, *epoch_tsk, {}); }
 	m_epoch_for_new_commands = epoch_cmd->get_cid();
 }
 
-void distributed_graph_generator::add_buffer(const buffer_id bid, const range<3>& range, bool host_initialized) {
-	m_buffer_states.emplace(std::piecewise_construct, std::tuple{bid}, std::tuple{range, range});
-	if(host_initialized && m_policy.uninitialized_read_error != error_policy::ignore) { m_buffer_states.at(bid).initialized_region = box(subrange({}, range)); }
+void distributed_graph_generator::create_buffer(const buffer_id bid, const range<3>& range, bool host_initialized) {
+	m_buffers.emplace(std::piecewise_construct, std::tuple{bid}, std::tuple{range, range});
+	if(host_initialized && m_policy.uninitialized_read_error != error_policy::ignore) { m_buffers.at(bid).initialized_region = box(subrange({}, range)); }
 	// Mark contents as available locally (= don't generate await push commands) and fully replicated (= don't generate push commands).
 	// This is required when tasks access host-initialized or uninitialized buffers.
-	m_buffer_states.at(bid).local_last_writer.update_region(subrange<3>({}, range), m_epoch_for_new_commands);
-	m_buffer_states.at(bid).replicated_regions.update_region(subrange<3>({}, range), node_bitset{}.set());
+	m_buffers.at(bid).local_last_writer.update_region(subrange<3>({}, range), m_epoch_for_new_commands);
+	m_buffers.at(bid).replicated_regions.update_region(subrange<3>({}, range), node_bitset{}.set());
+}
+
+void distributed_graph_generator::set_buffer_debug_name(const buffer_id bid, const std::string& debug_name) { m_buffers.at(bid).debug_name = debug_name; }
+
+void distributed_graph_generator::destroy_buffer(const buffer_id bid) {
+	assert(m_buffers.count(bid) != 0);
+	m_buffers.erase(bid);
+}
+
+void distributed_graph_generator::create_host_object(const host_object_id hoid) {
+	assert(m_host_objects.count(hoid) == 0);
+	m_host_objects.emplace(hoid, host_object_state{m_epoch_for_new_commands});
+}
+
+void distributed_graph_generator::destroy_host_object(const host_object_id hoid) {
+	assert(m_host_objects.count(hoid) != 0);
+	m_host_objects.erase(hoid);
 }
 
 using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<access_mode, region<3>>>;
@@ -92,7 +110,11 @@ std::unordered_set<abstract_command*> distributed_graph_generator::build_task(co
 	// If we have a command_recorder, record the current batch of commands
 	if(m_recorder != nullptr) {
 		for(const auto& cmd : m_current_cmd_batch) {
-			m_recorder->record_command(*cmd);
+			buffer_name_map accessed_buffers;
+			for(const auto bid : tsk.get_buffer_access_map().get_accessed_buffers()) {
+				accessed_buffers.emplace(bid, m_buffers.at(bid).debug_name);
+			}
+			*m_recorder << command_record(*cmd, tsk, accessed_buffers);
 		}
 	}
 
@@ -114,7 +136,7 @@ void distributed_graph_generator::report_overlapping_writes(const task& tsk, con
 	if(const auto overlapping_writes = detect_overlapping_writes(tsk, distributed_chunks); !overlapping_writes.empty()) {
 		auto error = fmt::format("{} has overlapping writes between multiple nodes in", print_task_debug_label(tsk, true /* title case */));
 		for(const auto& [bid, overlap] : overlapping_writes) {
-			fmt::format_to(std::back_inserter(error), " B{} {}", bid, overlap);
+			fmt::format_to(std::back_inserter(error), " {} {}", print_buffer_debug_label(bid), overlap);
 		}
 		error += ". Choose a non-overlapping range mapper for the write access or constrain the split to make the access non-overlapping.";
 		utils::report_error(m_policy.overlapping_write_error, "{}", error);
@@ -155,7 +177,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 	// In case we need to push a region that is overwritten in the same task, we have to defer updating the last writer.
 	std::unordered_map<buffer_id, std::vector<std::pair<region<3>, command_id>>> per_buffer_last_writer_update_list;
 	// Buffers that currently are in a pending reduction state will receive a new buffer state after a reduction has been generated.
-	std::unordered_map<buffer_id, buffer_state> post_reduction_buffer_states;
+	std::unordered_map<buffer_id, buffer_state> post_reduction_buffers;
 
 	// Remember all generated pushes for determining intra-task anti-dependencies.
 	std::vector<push_command*> generated_pushes;
@@ -240,7 +262,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 
 		// We use the task id, together with the "chunk id" and the buffer id (stored separately) to match pushes against their corresponding await pushes
 		for(auto& [bid, reqs_by_mode] : requirements) {
-			auto& buffer_state = m_buffer_states.at(bid);
+			auto& buffer = m_buffers.at(bid);
 			std::vector<access_mode> required_modes;
 			for(const auto mode : detail::access::all_modes) {
 				if(auto req_it = reqs_by_mode.find(mode); req_it != reqs_by_mode.end()) {
@@ -251,7 +273,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 
 			// Don't add reduction commands within the loop to make sure there is at most one reduction command
 			// even in the presence of multiple consumer requirements.
-			const bool is_pending_reduction = buffer_state.pending_reduction.has_value();
+			const bool is_pending_reduction = buffer.pending_reduction.has_value();
 			const bool generate_reduction =
 			    is_pending_reduction && std::any_of(required_modes.begin(), required_modes.end(), detail::access::mode_traits::is_consumer);
 			if(generate_reduction) {
@@ -261,7 +283,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 				write_command_state wcs{m_epoch_for_new_commands};
 				wcs.mark_as_stale();
 				// We just treat this buffer as 1-dimensional, regardless of its actual dimensionality (as it must be unit-sized anyway)
-				post_reduction_buffer_states.emplace(std::piecewise_construct, std::tuple{bid},
+				post_reduction_buffers.emplace(std::piecewise_construct, std::tuple{bid},
 				    std::tuple{region_map<write_command_state>{ones, wcs}, region_map<node_bitset>{ones, node_bitset{}}});
 			}
 
@@ -274,8 +296,8 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 				const auto& req = reqs_by_mode.at(mode);
 				if(detail::access::mode_traits::is_consumer(mode)) {
 					if(is_local_chunk && m_policy.uninitialized_read_error != error_policy::ignore
-					    && !bounding_box(buffer_state.initialized_region).covers(bounding_box(req.get_boxes()))) {
-						uninitialized_reads = region_union(uninitialized_reads, region_difference(req, buffer_state.initialized_region));
+					    && !bounding_box(buffer.initialized_region).covers(bounding_box(req.get_boxes()))) {
+						uninitialized_reads = region_union(uninitialized_reads, region_difference(req, buffer.initialized_region));
 					}
 
 					if(is_local_chunk) {
@@ -284,7 +306,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 					}
 
 					if(is_local_chunk && !is_pending_reduction) {
-						const auto local_sources = buffer_state.local_last_writer.get_region_values(req);
+						const auto local_sources = buffer.local_last_writer.get_region_values(req);
 						box_vector<3> missing_part_boxes;
 						for(const auto& [box, wcs] : local_sources) {
 							if(box.empty()) continue;
@@ -301,21 +323,21 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 							assert(m_num_nodes > 1);
 							auto* const ap_cmd = create_command<await_push_command>(transfer_id(tsk.get_id(), bid, no_reduction_id), missing_parts);
 							m_cdag.add_dependency(cmd, ap_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
-							generate_anti_dependencies(tsk.get_id(), bid, buffer_state.local_last_writer, missing_parts, ap_cmd);
+							generate_anti_dependencies(tsk.get_id(), bid, buffer.local_last_writer, missing_parts, ap_cmd);
 							generate_epoch_dependencies(ap_cmd);
 							// Remember that we have this data now
-							buffer_state.local_last_writer.update_region(missing_parts, {ap_cmd->get_cid(), true /* is_replicated */});
+							buffer.local_last_writer.update_region(missing_parts, {ap_cmd->get_cid(), true /* is_replicated */});
 						}
 					} else if(!is_pending_reduction) {
 						// We generate separate push command for each last writer command for now, possibly even multiple for partially already-replicated data.
 						// TODO: Can and/or should we consolidate?
-						const auto local_sources = buffer_state.local_last_writer.get_region_values(req);
+						const auto local_sources = buffer.local_last_writer.get_region_values(req);
 						for(const auto& [local_box, wcs] : local_sources) {
 							if(!wcs.is_fresh() || wcs.is_replicated()) { continue; }
 
 							// Make sure we don't push anything we've already pushed to this node before
 							box_vector<3> non_replicated_boxes;
-							for(const auto& [replicated_box, nodes] : buffer_state.replicated_regions.get_region_values(local_box)) {
+							for(const auto& [replicated_box, nodes] : buffer.replicated_regions.get_region_values(local_box)) {
 								if(nodes.test(nid)) continue;
 								non_replicated_boxes.push_back(replicated_box);
 							}
@@ -334,8 +356,8 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 							}
 
 							// Remember that we've replicated this region
-							for(const auto& [replicated_box, nodes] : buffer_state.replicated_regions.get_region_values(push_region)) {
-								buffer_state.replicated_regions.update_box(replicated_box, node_bitset{nodes}.set(nid));
+							for(const auto& [replicated_box, nodes] : buffer.replicated_regions.get_region_values(push_region)) {
+								buffer.replicated_regions.update_box(replicated_box, node_bitset{nodes}.set(nid));
 							}
 						}
 					}
@@ -345,7 +367,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 					// If we are going to insert a reduction command, we will also create a true-dependency chain to the last writer. The new last writer
 					// cid however is not known at this point because the the reduction command has not been generated yet. Instead, we simply skip
 					// generating anti-dependencies around this requirement. This might not be valid if (multivariate) reductions ever operate on regions.
-					if(!generate_reduction) { generate_anti_dependencies(tsk.get_id(), bid, buffer_state.local_last_writer, req, cmd); }
+					if(!generate_reduction) { generate_anti_dependencies(tsk.get_id(), bid, buffer.local_last_writer, req, cmd); }
 
 					per_buffer_local_writes[bid] = region_union(per_buffer_local_writes[bid], req);
 					per_buffer_last_writer_update_list[bid].push_back({req, cmd->get_cid()});
@@ -354,18 +376,17 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 
 			if(!uninitialized_reads.empty()) {
 				utils::report_error(m_policy.uninitialized_read_error,
-				    "Command C{} on N{}, which executes {} of {}, reads B{} {}, which has not been written by any node.", cmd->get_cid(), m_local_nid,
-				    box(subrange(chunks[i].offset, chunks[i].range)), print_task_debug_label(tsk), bid, detail::region(std::move(uninitialized_reads)));
+				    "Command C{} on N{}, which executes {} of {}, reads {} {}, which has not been written by any node.", cmd->get_cid(), m_local_nid,
+				    box(subrange(chunks[i].offset, chunks[i].range)), print_task_debug_label(tsk), print_buffer_debug_label(bid),
+				    detail::region(std::move(uninitialized_reads)));
 			}
 
 			if(generate_reduction) {
-				if(m_policy.uninitialized_read_error != error_policy::ignore) {
-					post_reduction_buffer_states.at(bid).initialized_region = scalar_reduction_box;
-				}
+				if(m_policy.uninitialized_read_error != error_policy::ignore) { post_reduction_buffers.at(bid).initialized_region = scalar_reduction_box; }
 
-				const auto& reduction = *buffer_state.pending_reduction;
+				const auto& reduction = *buffer.pending_reduction;
 
-				const auto local_last_writer = buffer_state.local_last_writer.get_region_values(scalar_reduction_box);
+				const auto local_last_writer = buffer.local_last_writer.get_region_values(scalar_reduction_box);
 				assert(local_last_writer.size() == 1);
 
 				if(is_local_chunk) {
@@ -383,7 +404,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 					m_cdag.add_dependency(cmd, reduce_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
 
 					// Reduction command becomes the last writer (this may be overriden if this task also writes to the reduction buffer)
-					post_reduction_buffer_states.at(bid).local_last_writer.update_box(scalar_reduction_box, reduce_cmd->get_cid());
+					post_reduction_buffers.at(bid).local_last_writer.update_box(scalar_reduction_box, reduce_cmd->get_cid());
 				} else {
 					// Push an empty range if we don't have any fresh data on this node
 					const bool notification_only = !local_last_writer[0].second.is_fresh();
@@ -401,10 +422,10 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 
 					// Mark the reduction result as replicated so we don't generate data transfers to this node
 					// TODO: We need a way of updating regions in place! E.g. apply_to_values(box, callback)
-					const auto replicated_box = post_reduction_buffer_states.at(bid).replicated_regions.get_region_values(scalar_reduction_box);
+					const auto replicated_box = post_reduction_buffers.at(bid).replicated_regions.get_region_values(scalar_reduction_box);
 					assert(replicated_box.size() == 1);
 					for(const auto& [_, nodes] : replicated_box) {
-						post_reduction_buffer_states.at(bid).replicated_regions.update_box(scalar_reduction_box, node_bitset{nodes}.set(nid));
+						post_reduction_buffers.at(bid).replicated_regions.update_box(scalar_reduction_box, node_bitset{nodes}.set(nid));
 					}
 				}
 			}
@@ -416,37 +437,37 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 
 	// For buffers that were in a pending reduction state and a reduction was generated
 	// (i.e., the result was not discarded), set their new state.
-	for(auto& [bid, new_state] : post_reduction_buffer_states) {
-		m_buffer_states.insert_or_assign(bid, std::move(new_state));
+	for(auto& [bid, new_state] : post_reduction_buffers) {
+		m_buffers.at(bid) = std::move(new_state);
 	}
 
 	// Update per-buffer last writers
-	// This has to happen after applying post_reduction_buffer_states to properly support chained reductions.
+	// This has to happen after applying post_reduction_buffers to properly support chained reductions.
 	for(auto& [bid, updates] : per_buffer_last_writer_update_list) {
-		auto& buffer_state = m_buffer_states.at(bid);
+		auto& buffer = m_buffers.at(bid);
 		for(auto& [req, cid] : updates) {
-			buffer_state.local_last_writer.update_region(req, cid);
-			buffer_state.replicated_regions.update_region(req, node_bitset{});
+			buffer.local_last_writer.update_region(req, cid);
+			buffer.replicated_regions.update_region(req, node_bitset{});
 		}
 		// In case this buffer was in a pending reduction state but the result was discarded, remove the pending reduction.
-		buffer_state.pending_reduction = std::nullopt;
+		buffer.pending_reduction = std::nullopt;
 	}
 
 	// Mark any buffers that now are in a pending reduction state as such.
-	// This has to happen after applying post_reduction_buffer_states and per_buffer_last_writer_update_list
+	// This has to happen after applying post_reduction_buffers and per_buffer_last_writer_update_list
 	// to properly support chained reductions.
 	// If there is only one chunk/command, it already implicitly generates the final reduced value
 	// and the buffer does not need to be flagged as a pending reduction.
 	if(chunks.size() > 1) {
 		for(const auto& reduction : tsk.get_reductions()) {
-			m_buffer_states.at(reduction.bid).pending_reduction = reduction;
+			m_buffers.at(reduction.bid).pending_reduction = reduction;
 
 			// In some cases this node may not actually participate in the computation of the
 			// intermediate reduction result (because there was no chunk). If so, mark the
 			// reduction buffer as stale so we do not use it as input for the final reduction command.
 			if(per_buffer_local_writes.count(reduction.bid) == 0) {
 				[[maybe_unused]] size_t num_entries = 0;
-				m_buffer_states.at(reduction.bid).local_last_writer.apply_to_values([&num_entries](const write_command_state& wcs) {
+				m_buffers.at(reduction.bid).local_last_writer.apply_to_values([&num_entries](const write_command_state& wcs) {
 					num_entries++;
 					write_command_state stale_state{wcs};
 					stale_state.mark_as_stale();
@@ -461,7 +482,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 	// These can happen in rare cases, when the node that pushes a buffer range also writes to that range within the same task.
 	// We cannot do this while generating the push command, as we may not have the writing command recorded at that point.
 	for(auto* push_cmd : generated_pushes) {
-		const auto last_writers = m_buffer_states.at(push_cmd->get_transfer_id().bid).local_last_writer.get_region_values(region(push_cmd->get_range()));
+		const auto last_writers = m_buffers.at(push_cmd->get_transfer_id().bid).local_last_writer.get_region_values(region(push_cmd->get_range()));
 
 		for(const auto& [box, wcs] : last_writers) {
 			assert(!box.empty()); // If we want to push it it cannot be empty
@@ -512,18 +533,16 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 		const auto& local_writes = per_buffer_local_writes[bid];
 		assert(region_difference(local_writes, global_writes).empty()); // Local writes have to be a subset of global writes
 		const auto remote_writes = region_difference(global_writes, local_writes);
-		auto& buffer_state = m_buffer_states.at(bid);
+		auto& buffer = m_buffers.at(bid);
 
-		if(m_policy.uninitialized_read_error != error_policy::ignore) {
-			buffer_state.initialized_region = region_union(buffer_state.initialized_region, global_writes);
-		}
+		if(m_policy.uninitialized_read_error != error_policy::ignore) { buffer.initialized_region = region_union(buffer.initialized_region, global_writes); }
 
 		// TODO: We need a way of updating regions in place! E.g. apply_to_values(box, callback)
-		auto boxes_and_cids = buffer_state.local_last_writer.get_region_values(remote_writes);
+		auto boxes_and_cids = buffer.local_last_writer.get_region_values(remote_writes);
 		for(auto& [box, wcs] : boxes_and_cids) {
 			if(wcs.is_fresh()) {
 				wcs.mark_as_stale();
-				buffer_state.local_last_writer.update_region(box, wcs);
+				buffer.local_last_writer.update_region(box, wcs);
 			}
 		}
 	}
@@ -576,14 +595,16 @@ void distributed_graph_generator::process_task_side_effect_requirements(const ta
 	for(auto* const cmd : m_cdag.task_commands(tid)) {
 		for(const auto& side_effect : tsk.get_side_effect_map()) {
 			const auto [hoid, order] = side_effect;
-			if(const auto last_effect = m_host_object_last_effects.find(hoid); last_effect != m_host_object_last_effects.end()) {
+			auto& host_object = m_host_objects.at(hoid);
+
+			if(host_object.last_side_effect.has_value()) {
 				// TODO once we have different side_effect_orders, their interaction will determine the dependency kind
-				m_cdag.add_dependency(cmd, m_cdag.get(last_effect->second), dependency_kind::true_dep, dependency_origin::dataflow);
+				m_cdag.add_dependency(cmd, m_cdag.get(*host_object.last_side_effect), dependency_kind::true_dep, dependency_origin::dataflow);
 			}
 
 			// Simplification: If there are multiple chunks per node, we generate true-dependencies between them in an arbitrary order, when all we really
 			// need is mutual exclusion (i.e. a bi-directional pseudo-dependency).
-			m_host_object_last_effects.insert_or_assign(hoid, cmd->get_cid());
+			host_object.last_side_effect = cmd->get_cid();
 		}
 	}
 }
@@ -592,7 +613,7 @@ void distributed_graph_generator::set_epoch_for_new_commands(const abstract_comm
 	// both an explicit epoch command and an applied horizon can be effective epochs
 	assert(utils::isa<epoch_command>(epoch_or_horizon) || utils::isa<horizon_command>(epoch_or_horizon));
 
-	for(auto& [bid, bs] : m_buffer_states) {
+	for(auto& [bid, bs] : m_buffers) {
 		bs.local_last_writer.apply_to_values([epoch_or_horizon](const write_command_state& wcs) {
 			auto new_wcs = write_command_state(std::max(epoch_or_horizon->get_cid(), static_cast<command_id>(wcs)), wcs.is_replicated());
 			if(!wcs.is_fresh()) new_wcs.mark_as_stale();
@@ -602,8 +623,8 @@ void distributed_graph_generator::set_epoch_for_new_commands(const abstract_comm
 	for(auto& [cgid, cid] : m_last_collective_commands) {
 		cid = std::max(epoch_or_horizon->get_cid(), cid);
 	}
-	for(auto& [cgid, cid] : m_host_object_last_effects) {
-		cid = std::max(epoch_or_horizon->get_cid(), cid);
+	for(auto& [_, host_object] : m_host_objects) {
+		if(host_object.last_side_effect.has_value()) { host_object.last_side_effect = std::max(epoch_or_horizon->get_cid(), *host_object.last_side_effect); }
 	}
 
 	m_epoch_for_new_commands = epoch_or_horizon->get_cid();
@@ -669,6 +690,10 @@ void distributed_graph_generator::prune_commands_before(const command_id epoch) 
 		});
 		m_epoch_last_pruned_before = epoch;
 	}
+}
+
+std::string distributed_graph_generator::print_buffer_debug_label(const buffer_id bid) const {
+	return utils::make_buffer_debug_label(bid, m_buffers.at(bid).debug_name);
 }
 
 } // namespace celerity::detail

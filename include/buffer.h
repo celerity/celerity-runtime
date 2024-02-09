@@ -4,7 +4,6 @@
 
 #include <CL/sycl.hpp>
 
-#include "buffer_manager.h"
 #include "lifetime_extending_state.h"
 #include "range_mapper.h"
 #include "ranges.h"
@@ -98,13 +97,13 @@ class buffer final : public detail::lifetime_extending_state_wrapper {
 	struct impl final : public detail::lifetime_extending_state {
 		impl(celerity::range<Dims> rng, const DataT* host_init_ptr) : range(rng) {
 			if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr); }
-			id = detail::runtime::get_instance().get_buffer_manager().register_buffer<DataT, Dims>(detail::range_cast<3>(range), host_init_ptr);
+			id = detail::runtime::get_instance().create_buffer<DataT, Dims>(detail::range_cast<3>(range), host_init_ptr);
 		}
 		impl(const impl&) = delete;
 		impl(impl&&) = delete;
 		impl& operator=(const impl&) = delete;
 		impl& operator=(impl&&) = delete;
-		~impl() override { detail::runtime::get_instance().get_buffer_manager().unregister_buffer(id); }
+		~impl() override { detail::runtime::get_instance().destroy_buffer(id); }
 		detail::buffer_id id;
 		celerity::range<Dims> range;
 		std::string debug_name;

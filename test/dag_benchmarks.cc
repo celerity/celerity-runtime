@@ -169,7 +169,7 @@ struct graph_generator_benchmark_context {
 	graph_serializer gser{[](command_pkg&&) {}};
 	task_recorder trec;
 	task_manager tm{num_nodes, nullptr, test_utils::print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
-	command_recorder crec{&tm};
+	command_recorder crec;
 	distributed_graph_generator dggen{
 	    num_nodes, 0 /* local_nid */, cdag, tm, test_utils::print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
 	test_utils::mock_buffer_factory mbf{tm, dggen};

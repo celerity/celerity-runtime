@@ -53,9 +53,9 @@ namespace test_utils {
 	  public:
 		enum class access_target { host, device };
 
-		void initialize(detail::buffer_manager::buffer_lifecycle_callback cb = [](detail::buffer_manager::buffer_lifecycle_event, detail::buffer_id) {}) {
+		void initialize() {
 			assert(!m_bm);
-			m_bm = std::make_unique<detail::buffer_manager>(get_device_queue(), cb);
+			m_bm = std::make_unique<detail::buffer_manager>(get_device_queue());
 			m_bm->enable_test_mode();
 		}
 

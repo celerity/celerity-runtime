@@ -49,12 +49,30 @@ namespace detail {
 				matchbox::match(
 				    event,
 				    [&](const event_task_available& e) {
+					    assert(!shutdown);
 					    assert(e.tsk != nullptr);
 					    const auto cmds = m_dggen->build_task(*e.tsk);
 					    serializer.flush(cmds);
 				    },
-				    [&](const event_buffer_registered& e) { //
-					    m_dggen->add_buffer(e.bid, e.range, e.host_initialized);
+				    [&](const event_buffer_created& e) {
+					    assert(!shutdown);
+					    m_dggen->create_buffer(e.bid, e.range, e.host_initialized);
+				    },
+				    [&](const event_set_buffer_debug_name& e) {
+					    assert(!shutdown);
+					    m_dggen->set_buffer_debug_name(e.bid, e.debug_name);
+				    },
+				    [&](const event_buffer_destroyed& e) {
+					    assert(!shutdown);
+					    m_dggen->destroy_buffer(e.bid);
+				    },
+				    [&](const event_host_object_created& e) {
+					    assert(!shutdown);
+					    m_dggen->create_host_object(e.hoid);
+				    },
+				    [&](const event_host_object_destroyed& e) {
+					    assert(!shutdown);
+					    m_dggen->destroy_host_object(e.hoid);
 				    },
 				    [&](const event_shutdown&) {
 					    assert(in_flight_events.empty());

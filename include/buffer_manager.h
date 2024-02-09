@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstring>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -84,10 +83,6 @@ namespace detail {
 		friend struct buffer_manager_testspy;
 
 	  public:
-		enum class buffer_lifecycle_event { registered, unregistered };
-
-		using buffer_lifecycle_callback = std::function<void(buffer_lifecycle_event, buffer_id)>;
-
 		using device_buffer_factory = std::function<std::unique_ptr<buffer_storage>(const range<3>&, device_queue&)>;
 		using host_buffer_factory = std::function<std::unique_ptr<buffer_storage>(const range<3>&)>;
 
@@ -126,7 +121,7 @@ namespace detail {
 		using buffer_lock_id = size_t;
 
 	  public:
-		buffer_manager(device_queue& queue, buffer_lifecycle_callback lifecycle_cb);
+		explicit buffer_manager(device_queue& queue);
 
 		template <typename DataT, int Dims>
 		buffer_id register_buffer(range<3> range, const DataT* host_init_ptr = nullptr) {
@@ -157,7 +152,6 @@ namespace detail {
 				auto info = access_host_buffer(bid, access_mode::discard_write, {{}, range});
 				std::memcpy(info.ptr, host_init_ptr, range.size() * sizeof(DataT));
 			}
-			m_lifecycle_cb(buffer_lifecycle_event::registered, bid);
 			return bid;
 		}
 
@@ -347,7 +341,6 @@ namespace detail {
 		// Leave some memory for other processes.
 		double m_max_device_global_mem_usage = 0.95;
 		device_queue& m_queue;
-		buffer_lifecycle_callback m_lifecycle_cb;
 		size_t m_buffer_count = 0;
 		mutable std::shared_mutex m_mutex;
 		std::unordered_map<buffer_id, buffer_info> m_buffer_infos;

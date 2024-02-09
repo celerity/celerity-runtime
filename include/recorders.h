@@ -17,6 +17,7 @@ struct access_record {
 	const region<3> req;
 };
 using access_list = std::vector<access_record>;
+using buffer_name_map = std::unordered_map<buffer_id, std::string>;
 
 struct reduction_record {
 	const reduction_id rid;
@@ -38,32 +39,38 @@ struct dependency_record {
 using task_dependency_list = std::vector<dependency_record<task_id>>;
 
 struct task_record {
-	task_record(const task& from, const buffer_manager* buff_mngr);
+	task_record(const task& tsk, const buffer_name_map& accessed_buffer_names);
 
-	const task_id tid;
-	const std::string debug_name;
-	const collective_group_id cgid;
-	const task_type type;
-	const task_geometry geometry;
-	const reduction_list reductions;
-	const access_list accesses;
-	const detail::side_effect_map side_effect_map;
-	const task_dependency_list dependencies;
+	task_id tid;
+	std::string debug_name;
+	collective_group_id cgid;
+	task_type type;
+	task_geometry geometry;
+	reduction_list reductions;
+	access_list accesses;
+	detail::side_effect_map side_effect_map;
+	task_dependency_list dependencies;
 };
 
 class task_recorder {
   public:
-	using task_record = std::vector<detail::task_record>;
+	using task_records = std::vector<detail::task_record>;
 
-	task_recorder(const buffer_manager* buff_mngr = nullptr) : m_buff_mngr(buff_mngr) {}
+	friend task_recorder& operator<<(task_recorder& recorder, task_record&& record) {
+		recorder.m_recorded_tasks.push_back(std::move(record));
+		return recorder;
+	}
 
-	void record_task(const task& tsk);
+	const task_records& get_tasks() const { return m_recorded_tasks; }
 
-	const task_record& get_tasks() const { return m_recorded_tasks; }
+	const task_record& get_task(const task_id tid) const {
+		const auto it = std::find_if(m_recorded_tasks.begin(), m_recorded_tasks.end(), [tid](const task_record& rec) { return rec.tid == tid; });
+		assert(it != m_recorded_tasks.end());
+		return *it;
+	}
 
   private:
-	task_record m_recorded_tasks;
-	const buffer_manager* m_buff_mngr;
+	task_records m_recorded_tasks;
 };
 
 // Command recording
@@ -71,46 +78,51 @@ class task_recorder {
 using command_dependency_list = std::vector<dependency_record<command_id>>;
 
 struct command_record {
-	const command_id cid;
-	const command_type type;
+	command_id cid;
+	command_type type;
 
-	const std::optional<detail::epoch_action> epoch_action;
-	const std::optional<subrange<3>> execution_range;
-	const std::optional<detail::reduction_id> reduction_id;
-	const std::optional<detail::buffer_id> buffer_id;
-	const std::string buffer_name;
-	const std::optional<node_id> target;
-	const std::optional<region<3>> await_region;
-	const std::optional<subrange<3>> push_range;
-	const std::optional<detail::transfer_id> transfer_id;
-	const std::optional<detail::task_id> task_id;
-	const std::optional<detail::task_geometry> task_geometry;
-	const bool is_reduction_initializer;
-	const std::optional<access_list> accesses;
-	const std::optional<reduction_list> reductions;
-	const std::optional<side_effect_map> side_effects;
-	const command_dependency_list dependencies;
-	const std::string task_name;
-	const std::optional<detail::task_type> task_type;
-	const std::optional<detail::collective_group_id> collective_group_id;
+	std::optional<detail::epoch_action> epoch_action;
+	std::optional<subrange<3>> execution_range;
+	std::optional<detail::reduction_id> reduction_id;
+	std::optional<detail::buffer_id> buffer_id;
+	std::string buffer_name;
+	std::optional<node_id> target;
+	std::optional<region<3>> await_region;
+	std::optional<subrange<3>> push_range;
+	std::optional<detail::transfer_id> transfer_id;
+	std::optional<detail::task_id> task_id;
+	std::optional<detail::task_geometry> task_geometry;
+	bool is_reduction_initializer;
+	std::optional<access_list> accesses;
+	std::optional<reduction_list> reductions;
+	std::optional<side_effect_map> side_effects;
+	command_dependency_list dependencies;
+	std::string task_name;
+	std::optional<detail::task_type> task_type;
+	std::optional<detail::collective_group_id> collective_group_id;
 
-	command_record(const abstract_command& cmd, const task_manager* task_mngr, const buffer_manager* buff_mngr);
+	command_record(const abstract_command& cmd, const task& tsk, const buffer_name_map& accessed_buffer_names);
 };
 
 class command_recorder {
   public:
-	using command_record = std::vector<detail::command_record>;
+	using command_records = std::vector<detail::command_record>;
 
-	command_recorder(const task_manager* task_mngr, const buffer_manager* buff_mngr = nullptr) : m_task_mngr(task_mngr), m_buff_mngr(buff_mngr) {}
+	friend command_recorder& operator<<(command_recorder& recorder, command_record&& record) {
+		recorder.m_recorded_commands.push_back(std::move(record));
+		return recorder;
+	}
 
-	void record_command(const abstract_command& com);
+	const command_records& get_commands() const { return m_recorded_commands; }
 
-	const command_record& get_commands() const { return m_recorded_commands; }
+	const command_record& get_command(const command_id cid) const {
+		const auto it = std::find_if(m_recorded_commands.begin(), m_recorded_commands.end(), [cid](const command_record& rec) { return rec.cid == cid; });
+		assert(it != m_recorded_commands.end());
+		return *it;
+	}
 
   private:
-	command_record m_recorded_commands;
-	const task_manager* m_task_mngr;
-	const buffer_manager* m_buff_mngr;
+	command_records m_recorded_commands;
 };
 
 } // namespace celerity::detail

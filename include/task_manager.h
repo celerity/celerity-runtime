@@ -55,7 +55,6 @@ namespace detail {
 
 	class task_manager {
 		friend struct task_manager_testspy;
-		using buffer_writers_map = std::unordered_map<buffer_id, region_map<std::optional<task_id>>>;
 
 	  public:
 		struct policy_set {
@@ -115,7 +114,15 @@ namespace detail {
 		 * @brief Adds a new buffer for dependency tracking
 		 * @param host_initialized Whether this buffer has been initialized using a host pointer (i.e., it contains useful data before any write-task)
 		 */
-		void add_buffer(buffer_id bid, const range<3>& range, bool host_initialized);
+		void create_buffer(buffer_id bid, const range<3>& range, bool host_initialized);
+
+		void set_buffer_debug_name(buffer_id bid, const std::string& name);
+
+		void destroy_buffer(buffer_id bid);
+
+		void create_host_object(host_object_id hoid);
+
+		void destroy_host_object(host_object_id hoid);
 
 		/**
 		 * Returns the specified task if it still exists, nullptr otherwise.
@@ -187,6 +194,17 @@ namespace detail {
 		// initializers, within its surrounding class (Clang)
 		constexpr static policy_set default_policy_set() { return {}; }
 
+		struct buffer_state {
+			std::string debug_name;
+			region_map<std::optional<task_id>> last_writers; ///< nullopt for uninitialized regions
+
+			explicit buffer_state(const range<3>& range) : last_writers(range) {}
+		};
+
+		struct host_object_state {
+			std::optional<task_id> last_side_effect;
+		};
+
 		const size_t m_num_collective_nodes;
 		host_queue* m_queue;
 		policy_set m_policy;
@@ -198,14 +216,11 @@ namespace detail {
 		// To ensure correct ordering, all tasks that have no other true-dependencies depend on this task.
 		task_id m_epoch_for_new_tasks{initial_epoch_task};
 
-		// We store a map of which task last wrote to a certain region of a buffer.
-		// NOTE: This represents the state after the latest task created.
-		buffer_writers_map m_buffers_last_writers;
+		std::unordered_map<buffer_id, buffer_state> m_buffers;
 
 		std::unordered_map<collective_group_id, task_id> m_last_collective_tasks;
 
-		// Stores which host object was last affected by which task.
-		std::unordered_map<host_object_id, task_id> m_host_object_last_effects;
+		std::unordered_map<host_object_id, host_object_state> m_host_objects;
 
 		std::vector<task_callback> m_task_callbacks;
 
@@ -268,6 +283,8 @@ namespace detail {
 
 		// Returns a callback which blocks until any epoch task has executed, freeing new task slots
 		task_ring_buffer::wait_callback await_free_task_slot_callback();
+
+		std::string print_buffer_debug_label(buffer_id bid) const;
 	};
 
 } // namespace detail

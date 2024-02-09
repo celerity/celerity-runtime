@@ -7,7 +7,7 @@
 namespace celerity {
 namespace detail {
 
-	buffer_manager::buffer_manager(device_queue& queue, buffer_lifecycle_callback lifecycle_cb) : m_queue(queue), m_lifecycle_cb(std::move(lifecycle_cb)) {}
+	buffer_manager::buffer_manager(device_queue& queue) : m_queue(queue) {}
 
 	void buffer_manager::unregister_buffer(buffer_id bid) noexcept {
 		{
@@ -27,7 +27,6 @@ namespace detail {
 			m_buffer_types.erase(bid);
 #endif
 		}
-		m_lifecycle_cb(buffer_lifecycle_event::unregistered, bid);
 	}
 
 	void buffer_manager::get_buffer_data(buffer_id bid, const subrange<3>& sr, void* out_linearized) {

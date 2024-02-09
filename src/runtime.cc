@@ -143,18 +143,12 @@ namespace detail {
 		m_d_queue = std::make_unique<device_queue>();
 
 		// Initialize worker classes (but don't start them up yet)
-		m_buffer_mngr = std::make_unique<buffer_manager>(*m_d_queue, [this](buffer_manager::buffer_lifecycle_event event, buffer_id bid) {
-			switch(event) {
-			case buffer_manager::buffer_lifecycle_event::registered: handle_buffer_registered(bid); break;
-			case buffer_manager::buffer_lifecycle_event::unregistered: handle_buffer_unregistered(bid); break;
-			default: assert(false && "Unexpected buffer lifecycle event");
-			}
-		});
+		m_buffer_mngr = std::make_unique<buffer_manager>(*m_d_queue);
 
 		m_reduction_mngr = std::make_unique<reduction_manager>();
 		m_host_object_mngr = std::make_unique<host_object_manager>();
 
-		if(m_cfg->should_record()) m_task_recorder = std::make_unique<task_recorder>(m_buffer_mngr.get());
+		if(m_cfg->should_record()) m_task_recorder = std::make_unique<task_recorder>();
 
 		task_manager::policy_set task_mngr_policy;
 		// Merely _declaring_ an uninitialized read is legitimate as long as the kernel does not actually perform the read at runtime - this might happen in the
@@ -169,7 +163,7 @@ namespace detail {
 		m_exec = std::make_unique<executor>(m_num_nodes, m_local_nid, *m_h_queue, *m_d_queue, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
 
 		m_cdag = std::make_unique<command_graph>();
-		if(m_cfg->should_record()) m_command_recorder = std::make_unique<command_recorder>(m_task_mngr.get(), m_buffer_mngr.get());
+		if(m_cfg->should_record()) m_command_recorder = std::make_unique<command_recorder>();
 
 		distributed_graph_generator::policy_set dggen_policy;
 		// Any uninitialized read that is observed on CDAG generation was already logged on task generation, unless we have a bug.
@@ -262,8 +256,6 @@ namespace detail {
 
 	reduction_manager& runtime::get_reduction_manager() const { return *m_reduction_mngr; }
 
-	host_object_manager& runtime::get_host_object_manager() const { return *m_host_object_mngr; }
-
 	std::string runtime::gather_command_graph() const {
 		assert(m_command_recorder.get() != nullptr);
 		const auto graph_str = print_command_graph(m_local_nid, *m_command_recorder);
@@ -293,13 +285,36 @@ namespace detail {
 		return combine_command_graphs(graphs);
 	}
 
-	void runtime::handle_buffer_registered(buffer_id bid) {
-		const auto& info = m_buffer_mngr->get_buffer_info(bid);
-		m_task_mngr->add_buffer(bid, info.range, info.is_host_initialized);
-		m_schdlr->notify_buffer_registered(bid, info.range, info.is_host_initialized);
+	void runtime::register_buffer(buffer_id bid, const range<3>& range, bool host_initialized) {
+		m_task_mngr->create_buffer(bid, range, host_initialized);
+		m_schdlr->notify_buffer_created(bid, range, host_initialized);
 	}
 
-	void runtime::handle_buffer_unregistered(buffer_id bid) { maybe_destroy_runtime(); }
+	void runtime::set_buffer_debug_name(const buffer_id bid, const std::string& debug_name) {
+		m_buffer_mngr->set_debug_name(bid, debug_name);
+		m_task_mngr->set_buffer_debug_name(bid, debug_name);
+		m_schdlr->set_buffer_debug_name(bid, debug_name);
+	}
+
+	void runtime::destroy_buffer(const buffer_id bid) {
+		m_schdlr->notify_buffer_destroyed(bid);
+		m_task_mngr->destroy_buffer(bid);
+		m_buffer_mngr->unregister_buffer(bid);
+		maybe_destroy_runtime();
+	}
+
+	host_object_id runtime::create_host_object() {
+		const auto hoid = m_host_object_mngr->create_host_object();
+		m_task_mngr->create_host_object(hoid);
+		m_schdlr->notify_host_object_created(hoid);
+		return hoid;
+	}
+
+	void runtime::destroy_host_object(const host_object_id hoid) {
+		m_schdlr->notify_host_object_destroyed(hoid);
+		m_task_mngr->destroy_host_object(hoid);
+		m_host_object_mngr->destroy_host_object(hoid);
+	}
 
 	void runtime::maybe_destroy_runtime() const {
 		if(m_test_active) return;
@@ -314,7 +329,7 @@ namespace detail {
 		assert(m_test_mode && m_test_active);
 		// We need to delete all tasks manually first, b/c objects that have their lifetime
 		// extended by tasks (buffers, host objects) will attempt to shut down the runtime.
-		if(instance != nullptr) { instance->m_task_mngr.reset(); }
+		if(instance != nullptr) { instance->m_task_mngr->shutdown(); }
 		instance.reset();
 		m_test_active = false;
 	}

@@ -6,13 +6,15 @@
 #include <thread>
 #include <variant>
 
+#include "distributed_graph_generator.h"
 #include "ranges.h"
 #include "types.h"
 
 namespace celerity {
 namespace detail {
 
-	class distributed_graph_generator;
+	class command_graph;
+	class command_recorder;
 	class executor;
 	class task;
 
@@ -32,9 +34,17 @@ namespace detail {
 		 */
 		void notify_task_created(const task* const tsk) { notify(event_task_available{tsk}); }
 
-		void notify_buffer_registered(const buffer_id bid, const range<3>& range, bool host_initialized) {
-			notify(event_buffer_registered{bid, range, host_initialized});
+		void notify_buffer_created(const buffer_id bid, const range<3>& range, bool host_initialized) {
+			notify(event_buffer_created{bid, range, host_initialized});
 		}
+
+		void set_buffer_debug_name(const buffer_id bid, const std::string& name) { notify(event_set_buffer_debug_name{bid, name}); }
+
+		void notify_buffer_destroyed(const buffer_id bid) { notify(event_buffer_destroyed{bid}); }
+
+		void notify_host_object_created(const host_object_id hoid) { notify(event_host_object_created{hoid}); }
+
+		void notify_host_object_destroyed(const host_object_id hoid) { notify(event_host_object_destroyed{hoid}); }
 
 	  protected:
 		/**
@@ -51,12 +61,26 @@ namespace detail {
 		struct event_task_available {
 			const task* tsk;
 		};
-		struct event_buffer_registered {
+		struct event_buffer_created {
 			buffer_id bid;
 			celerity::range<3> range;
 			bool host_initialized;
 		};
-		using event = std::variant<event_shutdown, event_task_available, event_buffer_registered>;
+		struct event_set_buffer_debug_name {
+			buffer_id bid;
+			std::string debug_name;
+		};
+		struct event_buffer_destroyed {
+			buffer_id bid;
+		};
+		struct event_host_object_created {
+			host_object_id hoid;
+		};
+		struct event_host_object_destroyed {
+			host_object_id hoid;
+		};
+		using event = std::variant<event_shutdown, event_task_available, event_buffer_created, event_set_buffer_debug_name, event_buffer_destroyed,
+		    event_host_object_created, event_host_object_destroyed>;
 
 		bool m_is_dry_run;
 		std::unique_ptr<distributed_graph_generator> m_dggen;
