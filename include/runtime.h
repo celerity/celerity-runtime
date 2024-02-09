@@ -1,13 +1,11 @@
 #pragma once
 
-#include <deque>
-#include <limits>
 #include <memory>
 
+#include "buffer_manager.h"
 #include "command.h"
 #include "config.h"
 #include "device_queue.h"
-#include "frame.h"
 #include "host_queue.h"
 #include "recorders.h"
 #include "types.h"
@@ -73,7 +71,20 @@ namespace detail {
 
 		reduction_manager& get_reduction_manager() const;
 
-		host_object_manager& get_host_object_manager() const;
+		template <typename DataT, int Dims>
+		buffer_id create_buffer(const range<3>& range, const DataT* host_init_ptr) {
+			const auto bid = m_buffer_mngr->register_buffer<DataT, Dims>(range, host_init_ptr);
+			this->register_buffer(bid, range, host_init_ptr != nullptr);
+			return bid;
+		}
+
+		void set_buffer_debug_name(buffer_id bid, const std::string& debug_name);
+
+		void destroy_buffer(buffer_id bid);
+
+		host_object_id create_host_object();
+
+		void destroy_host_object(host_object_id hoid);
 
 		// returns the combined command graph of all nodes on node 0, an empty string on other nodes
 		std::string gather_command_graph() const;
@@ -118,8 +129,8 @@ namespace detail {
 		runtime(const runtime&) = delete;
 		runtime(runtime&&) = delete;
 
-		void handle_buffer_registered(buffer_id bid);
-		void handle_buffer_unregistered(buffer_id bid);
+		// The outlined non-templated part of create_buffer (so we don't need definitions of task_manager or distributed_graph_generator in this header)
+		void register_buffer(buffer_id bid, const range<3>& range, bool host_initialized);
 
 		/**
 		 * @brief Destroys the runtime if it is no longer active and all buffers have been unregistered.

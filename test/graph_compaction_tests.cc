@@ -31,7 +31,7 @@ struct region_map_testspy {
 
 struct distributed_graph_generator_testspy {
 	static size_t get_last_writer_num_regions(const distributed_graph_generator& dggen, const buffer_id bid) {
-		return region_map_testspy::get_num_unique_values(dggen.m_buffer_states.at(bid).local_last_writer);
+		return region_map_testspy::get_num_unique_values(dggen.m_buffers.at(bid).local_last_writer);
 	}
 
 	static size_t get_command_buffer_reads_size(const distributed_graph_generator& dggen) { return dggen.m_command_buffer_reads.size(); }

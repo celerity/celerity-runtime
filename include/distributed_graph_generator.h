@@ -72,6 +72,13 @@ class distributed_graph_generator {
 		// but mark it as having a pending reduction. The final reduction will then be generated when the buffer
 		// is used in a subsequent read requirement. This avoids generating unnecessary reduction commands.
 		std::optional<reduction_info> pending_reduction;
+
+		std::string debug_name;
+	};
+
+	struct host_object_state {
+		// Side effects on the same host object create true dependencies between task commands, so we track the last effect per host object.
+		std::optional<command_id> last_side_effect;
 	};
 
   public:
@@ -83,7 +90,15 @@ class distributed_graph_generator {
 	distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm,
 	    detail::command_recorder* recorder, const policy_set& policy = default_policy_set());
 
-	void add_buffer(const buffer_id bid, const range<3>& range, bool host_initialized);
+	void create_buffer(buffer_id bid, const range<3>& range, bool host_initialized);
+
+	void set_buffer_debug_name(buffer_id bid, const std::string& debug_name);
+
+	void destroy_buffer(buffer_id bid);
+
+	void create_host_object(host_object_id hoid);
+
+	void destroy_host_object(host_object_id hoid);
 
 	std::unordered_set<abstract_command*> build_task(const task& tsk);
 
@@ -125,18 +140,20 @@ class distributed_graph_generator {
 
   private:
 	using buffer_read_map = std::unordered_map<buffer_id, region<3>>;
-	using side_effect_map = std::unordered_map<host_object_id, command_id>;
 
 	// default-constructs a policy_set - this must be a function because we can't use the implicit default constructor of policy_set, which has member
 	// initializers, within its surrounding class (Clang)
 	constexpr static policy_set default_policy_set() { return {}; }
+
+	std::string print_buffer_debug_label(buffer_id bid) const;
 
 	size_t m_num_nodes;
 	node_id m_local_nid;
 	policy_set m_policy;
 	command_graph& m_cdag;
 	const task_manager& m_task_mngr;
-	std::unordered_map<buffer_id, buffer_state> m_buffer_states;
+	std::unordered_map<buffer_id, buffer_state> m_buffers;
+	std::unordered_map<host_object_id, host_object_state> m_host_objects;
 	command_id m_epoch_for_new_commands = 0;
 	command_id m_epoch_last_pruned_before = 0;
 	command_id m_current_horizon = no_command;
@@ -153,9 +170,6 @@ class distributed_graph_generator {
 	// they are executed in the same order on every node.
 	std::unordered_map<collective_group_id, command_id> m_last_collective_commands;
 
-	// Side effects on the same host object create true dependencies between task commands, so we track the last effect per host object.
-	side_effect_map m_host_object_last_effects;
-
 	// Generated commands will be recorded to this recorder if it is set
 	detail::command_recorder* m_recorder = nullptr;
 };
@@ -167,4 +181,5 @@ template <>
 struct hash<celerity::detail::write_command_state> {
 	size_t operator()(const celerity::detail::write_command_state& wcs) const { return std::hash<size_t>{}(static_cast<celerity::detail::command_id>(wcs)); }
 };
+
 } // namespace std

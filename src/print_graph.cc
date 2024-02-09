@@ -38,12 +38,14 @@ void format_requirements(std::string& label, const reduction_list& reductions, c
 	for(const auto& [rid, bid, buffer_name, init_from_buffer] : reductions) {
 		auto rmode = init_from_buffer ? reduction_init_mode : cl::sycl::access::mode::discard_write;
 		const region scalar_region(box<3>({0, 0, 0}, {1, 1, 1}));
-		fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> {} {}", rid, detail::access::mode_traits::name(rmode), buffer_name, scalar_region);
+		const std::string bl = utils::escape_for_dot_label(utils::make_buffer_debug_label(bid, buffer_name));
+		fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> {} {}", rid, detail::access::mode_traits::name(rmode), bl, scalar_region);
 	}
 
 	for(const auto& [bid, buffer_name, mode, req] : accesses) {
+		const std::string bl = utils::escape_for_dot_label(utils::make_buffer_debug_label(bid, buffer_name));
 		// While uncommon, we do support chunks that don't require access to a particular buffer at all.
-		if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> {} {}", detail::access::mode_traits::name(mode), buffer_name, req); }
+		if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> {} {}", detail::access::mode_traits::name(mode), bl, req); }
 	}
 
 	for(const auto& [hoid, order] : side_effects) {
@@ -54,7 +56,7 @@ void format_requirements(std::string& label, const reduction_list& reductions, c
 std::string get_task_label(const task_record& tsk) {
 	std::string label;
 	fmt::format_to(std::back_inserter(label), "T{}", tsk.tid);
-	if(!tsk.debug_name.empty()) { fmt::format_to(std::back_inserter(label), " \"{}\" ", utils::escape_for_dot_label(tsk.debug_name)); }
+	if(!tsk.debug_name.empty()) { fmt::format_to(std::back_inserter(label), " \"{}\"", utils::escape_for_dot_label(tsk.debug_name)); }
 
 	fmt::format_to(std::back_inserter(label), "<br/><b>{}</b>", task_type_string(tsk.type));
 	if(tsk.type == task_type::host_compute || tsk.type == task_type::device_compute) {
@@ -93,7 +95,8 @@ std::string get_command_label(const node_id local_nid, const command_record& cmd
 	auto add_reduction_id_if_reduction = [&]() {
 		if(cmd.reduction_id.has_value() && cmd.reduction_id != 0) { fmt::format_to(std::back_inserter(label), "(R{}) ", cmd.reduction_id.value()); }
 	};
-	const std::string buffer_label = cmd.buffer_id.has_value() ? cmd.buffer_name : "";
+	const std::string buffer_label =
+	    cmd.buffer_id.has_value() ? utils::escape_for_dot_label(utils::make_buffer_debug_label(cmd.buffer_id.value(), cmd.buffer_name)) : "";
 
 	switch(cmd.type) {
 	case command_type::epoch: {

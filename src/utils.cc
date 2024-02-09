@@ -93,6 +93,12 @@ void report_error(const error_policy policy, const std::string& msg) {
 	}
 }
 
+std::string make_buffer_debug_label(const buffer_id bid, const std::string& name) {
+	// if there is no name defined, the name will be the buffer id.
+	// if there is a name we want "id name"
+	return !name.empty() ? fmt::format("B{} \"{}\"", bid, name) : fmt::format("B{}", bid);
+}
+
 } // namespace celerity::detail::utils
 
 

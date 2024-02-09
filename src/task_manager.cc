@@ -2,6 +2,7 @@
 
 #include "access_modes.h"
 #include "recorders.h"
+#include "utils.h"
 
 namespace celerity {
 namespace detail {
@@ -11,13 +12,28 @@ namespace detail {
 		// We manually generate the initial epoch task, which we treat as if it has been reached immediately.
 		auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
 		auto initial_epoch = task::make_epoch(initial_epoch_task, epoch_action::none);
-		if(m_task_recorder != nullptr) m_task_recorder->record_task(*initial_epoch);
+		if(m_task_recorder != nullptr) { *m_task_recorder << task_record(*initial_epoch, {}); }
 		m_task_buffer.put(std::move(reserve), std::move(initial_epoch));
 	}
 
-	void task_manager::add_buffer(buffer_id bid, const range<3>& range, bool host_initialized) {
-		m_buffers_last_writers.emplace(bid, range);
-		if(host_initialized) { m_buffers_last_writers.at(bid).update_region(subrange<3>({}, range), m_epoch_for_new_tasks); }
+	void task_manager::create_buffer(const buffer_id bid, const range<3>& range, const bool host_initialized) {
+		const auto [iter, inserted] = m_buffers.emplace(bid, range);
+		assert(inserted);
+		auto& buffer = iter->second;
+		if(host_initialized) { buffer.last_writers.update_region(subrange<3>({}, range), m_epoch_for_new_tasks); }
+	}
+
+	void task_manager::set_buffer_debug_name(const buffer_id bid, const std::string& debug_name) { m_buffers.at(bid).debug_name = debug_name; }
+
+	void task_manager::destroy_buffer(const buffer_id bid) {
+		assert(m_buffers.count(bid) != 0);
+		m_buffers.erase(bid);
+	}
+	void task_manager::create_host_object(const host_object_id hoid) { m_host_objects.emplace(hoid, host_object_state()); }
+
+	void task_manager::destroy_host_object(const host_object_id hoid) {
+		assert(m_host_objects.count(hoid) != 0);
+		m_host_objects.erase(hoid);
 	}
 
 	const task* task_manager::find_task(task_id tid) const { return m_task_buffer.find_task(tid); }
@@ -77,6 +93,7 @@ namespace detail {
 		const box<3> scalar_box({0, 0, 0}, {1, 1, 1});
 
 		for(const auto bid : buffers) {
+			auto& buffer = m_buffers.at(bid);
 			const auto modes = access_map.get_access_modes(bid);
 
 			std::optional<reduction_info> reduction;
@@ -96,7 +113,7 @@ namespace detail {
 			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_consumer) || (reduction.has_value() && reduction->init_from_buffer)) {
 				auto read_requirements = get_requirements(tsk, bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
 				if(reduction.has_value()) { read_requirements = region_union(read_requirements, scalar_box); }
-				const auto last_writers = m_buffers_last_writers.at(bid).get_region_values(read_requirements);
+				const auto last_writers = buffer.last_writers.get_region_values(read_requirements);
 
 				box_vector<3> uninitialized_reads;
 				for(const auto& [box, writer] : last_writers) {
@@ -108,10 +125,9 @@ namespace detail {
 					}
 				}
 				if(!uninitialized_reads.empty()) {
-					// TODO this should output the full buffer debug label, but we don't want to pull in buffer_manager for this because its days are numbered
 					utils::report_error(m_policy.uninitialized_read_error,
-					    "{} declares a reading access on uninitialized B{} {}. Make sure to construct the accessor with no_init if possible.",
-					    print_task_debug_label(tsk, true /* title case */), bid, region(std::move(uninitialized_reads)));
+					    "{} declares a reading access on uninitialized {} {}. Make sure to construct the accessor with no_init if possible.",
+					    print_task_debug_label(tsk, true /* title case */), print_buffer_debug_label(bid), region(std::move(uninitialized_reads)));
 				}
 			}
 
@@ -121,7 +137,7 @@ namespace detail {
 				if(reduction.has_value()) { write_requirements = region_union(write_requirements, scalar_box); }
 				if(write_requirements.empty()) continue;
 
-				const auto last_writers = m_buffers_last_writers.at(bid).get_region_values(write_requirements);
+				const auto last_writers = buffer.last_writers.get_region_values(write_requirements);
 				for(auto& p : last_writers) {
 					if(p.second == std::nullopt) continue;
 					task* last_writer = m_task_buffer.get_task(*p.second);
@@ -155,16 +171,17 @@ namespace detail {
 					}
 				}
 
-				m_buffers_last_writers.at(bid).update_region(write_requirements, tsk.get_id());
+				buffer.last_writers.update_region(write_requirements, tsk.get_id());
 			}
 		}
 
 		for(const auto& side_effect : tsk.get_side_effect_map()) {
 			const auto [hoid, order] = side_effect;
-			if(const auto last_effect = m_host_object_last_effects.find(hoid); last_effect != m_host_object_last_effects.end()) {
-				add_dependency(tsk, *m_task_buffer.get_task(last_effect->second), dependency_kind::true_dep, dependency_origin::dataflow);
+			auto& host_object = m_host_objects.at(hoid);
+			if(host_object.last_side_effect.has_value()) {
+				add_dependency(tsk, *m_task_buffer.get_task(*host_object.last_side_effect), dependency_kind::true_dep, dependency_origin::dataflow);
 			}
-			m_host_object_last_effects.insert_or_assign(hoid, tsk.get_id());
+			host_object.last_side_effect = tsk.get_id();
 		}
 
 		if(auto cgid = tsk.get_collective_group_id(); cgid != 0) {
@@ -194,7 +211,13 @@ namespace detail {
 		for(const auto& cb : m_task_callbacks) {
 			cb(tsk);
 		}
-		if(m_task_recorder != nullptr) m_task_recorder->record_task(*tsk);
+		if(m_task_recorder != nullptr) {
+			buffer_name_map accessed_buffers;
+			for(const auto bid : tsk->get_buffer_access_map().get_accessed_buffers()) {
+				accessed_buffers.emplace(bid, m_buffers.at(bid).debug_name);
+			}
+			*m_task_recorder << task_record(*tsk, accessed_buffers);
+		}
 	}
 
 	void task_manager::add_dependency(task& depender, task& dependee, dependency_kind kind, dependency_origin origin) {
@@ -225,17 +248,17 @@ namespace detail {
 
 	void task_manager::set_epoch_for_new_tasks(const task_id epoch) {
 		// apply the new epoch to buffers_last_writers and last_collective_tasks data structs
-		for(auto& [_, buffer_region_map] : m_buffers_last_writers) {
-			buffer_region_map.apply_to_values([epoch](const std::optional<task_id> tid) -> std::optional<task_id> {
+		for(auto& [_, buffer] : m_buffers) {
+			buffer.last_writers.apply_to_values([epoch](const std::optional<task_id> tid) -> std::optional<task_id> {
 				if(!tid) return tid;
 				return {std::max(epoch, *tid)};
 			});
 		}
-		for(auto& [cgid, tid] : m_last_collective_tasks) {
+		for(auto& [_, tid] : m_last_collective_tasks) {
 			tid = std::max(epoch, tid);
 		}
-		for(auto& [hoid, tid] : m_host_object_last_effects) {
-			tid = std::max(epoch, tid);
+		for(auto& [_, host_object] : m_host_objects) {
+			if(host_object.last_side_effect.has_value() && *host_object.last_side_effect < epoch) { host_object.last_side_effect = epoch; }
 		}
 
 		m_epoch_for_new_tasks = epoch;
@@ -310,6 +333,8 @@ namespace detail {
 			m_task_buffer.delete_up_to(reached_epoch);
 		};
 	}
+
+	std::string task_manager::print_buffer_debug_label(const buffer_id bid) const { return utils::make_buffer_debug_label(bid, m_buffers.at(bid).debug_name); }
 
 } // namespace detail
 } // namespace celerity
