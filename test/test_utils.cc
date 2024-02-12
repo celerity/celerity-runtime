@@ -194,6 +194,17 @@ struct global_setup_and_teardown : Catch::EventListenerBase {
 		g_test_log_capture->print_log_if_nonempty(); // if so, this is likely due to a fatal signal
 		g_test_log_capture->clear();
 	}
+
+	void benchmarkPreparing(Catch::StringRef name) override {
+		// Do not include log-capturing in benchmark times (log level would remain at `trace` otherwise).
+		log_level_before_benchmark = spdlog::get_level();
+		spdlog::set_level(spdlog::level::off);
+	}
+
+	void benchmarkEnded(const Catch::BenchmarkStats<>& /* benchmarkStats */) override { spdlog::set_level(log_level_before_benchmark); }
+	void benchmarkFailed(Catch::StringRef error) override { spdlog::set_level(log_level_before_benchmark); }
+
+	spdlog::level::level_enum log_level_before_benchmark = spdlog::level::trace;
 };
 
 } // namespace celerity::test_utils_detail
