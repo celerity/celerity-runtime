@@ -243,6 +243,31 @@ const char* const expected_device_enumeration_warnings_regex =
 
 namespace celerity::test_utils {
 
+detail::instruction_graph_generator::system_info make_system_info(const size_t num_devices, const bool supports_d2d_copies) {
+	using namespace detail;
+	instruction_graph_generator::system_info info;
+	info.devices.resize(num_devices);
+	info.memories.resize(first_device_memory_id + num_devices);
+	info.memories[host_memory_id].copy_peers.set(host_memory_id);
+	info.memories[user_memory_id].copy_peers.set(user_memory_id);
+	info.memories[host_memory_id].copy_peers.set(user_memory_id);
+	info.memories[user_memory_id].copy_peers.set(host_memory_id);
+	for(device_id did = 0; did < num_devices; ++did) {
+		info.devices[did].native_memory = first_device_memory_id + did;
+	}
+	for(memory_id mid = first_device_memory_id; mid < info.memories.size(); ++mid) {
+		info.memories[mid].copy_peers.set(mid);
+		info.memories[mid].copy_peers.set(host_memory_id);
+		info.memories[host_memory_id].copy_peers.set(mid);
+		if(supports_d2d_copies) {
+			for(memory_id peer = first_device_memory_id; peer < info.memories.size(); ++peer) {
+				info.memories[mid].copy_peers.set(peer);
+			}
+		}
+	}
+	return info;
+}
+
 runtime_fixture::runtime_fixture() {
 	detail::runtime::test_case_enter();
 	allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_runtime_init_warnings_regex);

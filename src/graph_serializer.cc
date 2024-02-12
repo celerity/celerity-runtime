@@ -16,7 +16,7 @@ namespace detail {
 		return ecmd && ecmd->get_tid() == task_manager::initial_epoch_task;
 	}
 
-	void graph_serializer::flush(const std::unordered_set<abstract_command*>& cmds) {
+	void graph_serializer::flush(const command_set& cmds) {
 		[[maybe_unused]] task_id check_tid = task_id(-1);
 
 		// Separate push commands from task commands. We flush pushes first to avoid deadlocking the executor.

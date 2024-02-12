@@ -153,7 +153,7 @@ namespace detail {
 
 		void remove_dependency(abstract_command* depender, abstract_command* dependee) { depender->remove_dependency(dependee); }
 
-		const std::unordered_set<abstract_command*>& get_execution_front() const { return m_execution_front; }
+		const command_set& get_execution_front() const { return m_execution_front; }
 
 	  private:
 		command_id m_next_cmd_id = 0;
@@ -161,7 +161,7 @@ namespace detail {
 		std::unordered_map<command_id, std::unique_ptr<abstract_command>> m_commands;
 		std::unordered_map<task_id, std::vector<task_command*>> m_by_task;
 
-		std::unordered_set<abstract_command*> m_execution_front;
+		command_set m_execution_front;
 	};
 
 } // namespace detail

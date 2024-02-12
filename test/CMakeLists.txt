@@ -36,6 +36,11 @@ set(TEST_TARGETS
   grid_tests
   hint_tests
   intrusive_graph_tests
+  instruction_graph_grid_tests
+  instruction_graph_memory_tests
+  instruction_graph_misc_tests
+  instruction_graph_p2p_tests
+  instruction_graph_reduction_tests
   print_graph_tests
   region_map_tests
   range_tests
@@ -72,6 +77,16 @@ foreach(TEST_TARGET ${TEST_TARGETS})
   # problems with ComputeCpp's generated integration headers.
   ParseAndAddCatchTests_ParseFile(${TEST_SOURCE} ${TEST_TARGET})
 endforeach()
+
+# Add instruction_graph_tests executable
+add_executable(instruction_graph_tests
+  $<TARGET_OBJECTS:instruction_graph_grid_tests_OBJ>
+  $<TARGET_OBJECTS:instruction_graph_memory_tests_OBJ>
+  $<TARGET_OBJECTS:instruction_graph_misc_tests_OBJ>
+  $<TARGET_OBJECTS:instruction_graph_p2p_tests_OBJ>
+  $<TARGET_OBJECTS:instruction_graph_reduction_tests_OBJ>)
+target_link_libraries(instruction_graph_tests PRIVATE test_main)
+set_test_target_parameters(instruction_graph_tests "")
 
 # Add all_tests executable
 add_executable(all_tests ${TEST_OBJ_LIST})

@@ -25,6 +25,29 @@ class StrongTypeAliasPrinter:
     def to_string(self) -> str:
         return self.prefix + str(self.value)
 
+
+class AllocationIdPrinter:
+    def __init__(self, val: gdb.Value):
+        self.mid = val['m_mid']
+        self.raid = val['m_raid']
+        self.is_null = self.mid == 0 and self.raid == 0
+
+    def to_string(self) -> str:
+        return 'M{}.A{}'.format(self.mid, self.raid) if not self.is_null else 'null'
+
+
+class AllocationWithOffsetPrinter:
+    def __init__(self, val: gdb.Value):
+        self.id = val['id']
+        self.offset_bytes = int(val['offset_bytes'])
+
+    def to_string(self) -> str:
+        if self.offset_bytes > 0:
+            return '{} + {} bytes'.format(self.id, self.offset_bytes)
+        else:
+            return str(self.id)
+
+
 class TransferIdPrinter:
     def __init__(self, val: gdb.Value):
         self.consumer_tid = val['consumer_tid']
@@ -162,6 +185,13 @@ def build_pretty_printer():
     add_strong_type_alias_printer(pp, 'reduction_id', 'R')
     add_strong_type_alias_printer(pp, 'host_object_id', 'H')
     add_strong_type_alias_printer(pp, 'hydration_id', 'HY')
+    add_strong_type_alias_printer(pp, 'memory_id', 'M')
+    add_strong_type_alias_printer(pp, 'device_id', 'D')
+    add_strong_type_alias_printer(pp, 'raw_allocation_id', 'A')
+    add_strong_type_alias_printer(pp, 'instruction_id', 'I')
+    add_strong_type_alias_printer(pp, 'message_id', 'MSG')
+    pp.add_printer('allocation_id', '^celerity::detail::allocation_id$', AllocationIdPrinter)
+    pp.add_printer('allocation_with_offset', '^celerity::detail::allocation_with_offset$', AllocationWithOffsetPrinter)
     pp.add_printer('id', '^celerity::id<.*>$', CoordinatePrinter)
     pp.add_printer('range', '^celerity::range<.*>$', CoordinatePrinter)
     pp.add_printer('subrange', '^celerity::subrange<.*>$', SubrangePrinter)

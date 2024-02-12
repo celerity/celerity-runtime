@@ -118,12 +118,12 @@ namespace experimental {
 	class collective_group {
 	  public:
 		/// Creates a new collective group with a globally unique id. This must only be called from the main thread.
-		collective_group() noexcept : m_cgid(next_cgid++) {}
+		collective_group() noexcept : m_cgid(s_next_cgid++) {}
 
 	  private:
 		friend class collective_tag_factory;
 		detail::collective_group_id m_cgid;
-		inline static size_t next_cgid = 1;
+		inline static detail::collective_group_id s_next_cgid = detail::root_collective_group_id + 1;
 	};
 
 	/**
@@ -286,7 +286,7 @@ namespace detail {
 
 		const auto rid = detail::runtime::get_instance().get_reduction_manager().create_reduction<DataT, Dims>(bid, op, identity);
 		add_reduction(cgh, reduction_info{rid, bid, include_current_buffer_value});
-		extend_lifetime(cgh, std::move(get_lifetime_extending_state(vars)));
+		extend_lifetime(cgh, get_lifetime_extending_state(vars));
 
 		return detail::reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>{bid, op, identity, include_current_buffer_value};
 #endif

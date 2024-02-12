@@ -1,13 +1,41 @@
 #include "grid_test_utils.h"
+#include "test_utils.h"
+
+#include <random>
 
 #if CELERITY_DETAIL_HAVE_CAIRO
 #include <cairo/cairo.h>
+#include <regex>
 #endif
 
 using namespace celerity;
 using namespace celerity::detail;
 
 namespace celerity::test_utils {
+
+template <int Dims>
+box_vector<Dims> create_random_boxes(const size_t grid_size, const size_t max_box_size, const size_t num_boxes, const uint32_t seed) {
+	std::minstd_rand rng(seed);
+	std::uniform_int_distribution<size_t> offset_dist(0, grid_size - 1);
+	std::binomial_distribution<size_t> range_dist(max_box_size - 1, 0.5);
+	box_vector<Dims> boxes;
+	while(boxes.size() < num_boxes) {
+		subrange<Dims> sr;
+		bool inbounds = true;
+		for(int d = 0; d < Dims; ++d) {
+			sr.offset[d] = offset_dist(rng);
+			sr.range[d] = 1 + range_dist(rng);
+			inbounds &= sr.offset[d] + sr.range[d] <= grid_size;
+		}
+		if(inbounds) { boxes.emplace_back(sr); }
+	}
+	return boxes;
+}
+
+template box_vector<0> create_random_boxes(const size_t grid_size, const size_t max_box_size, const size_t num_boxes, const uint32_t seed);
+template box_vector<1> create_random_boxes(const size_t grid_size, const size_t max_box_size, const size_t num_boxes, const uint32_t seed);
+template box_vector<2> create_random_boxes(const size_t grid_size, const size_t max_box_size, const size_t num_boxes, const uint32_t seed);
+template box_vector<3> create_random_boxes(const size_t grid_size, const size_t max_box_size, const size_t num_boxes, const uint32_t seed);
 
 // input: h as an angle in [0,360] and s,l in [0,1] - output: r,g,b in [0,1]
 std::array<float, 3> hsl2rgb(const float h, const float s, const float l) {

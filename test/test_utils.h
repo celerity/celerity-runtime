@@ -20,6 +20,7 @@
 #include "device_queue.h"
 #include "distributed_graph_generator.h"
 #include "graph_serializer.h"
+#include "instruction_graph_generator.h"
 #include "print_graph.h"
 #include "range_mapper.h"
 #include "region_map.h"
@@ -170,6 +171,7 @@ namespace test_utils {
 	class mock_buffer_factory;
 	class mock_host_object_factory;
 	class dist_cdag_test_context;
+	class idag_test_context;
 
 	template <int Dims>
 	class mock_buffer {
@@ -186,6 +188,7 @@ namespace test_utils {
 	  private:
 		friend class mock_buffer_factory;
 		friend class dist_cdag_test_context;
+		friend class idag_test_context;
 
 		detail::buffer_id m_id;
 		range<Dims> m_size;
@@ -202,6 +205,7 @@ namespace test_utils {
 	  private:
 		friend class mock_host_object_factory;
 		friend class dist_cdag_test_context;
+		friend class idag_test_context;
 
 		detail::host_object_id m_id;
 
@@ -214,15 +218,20 @@ namespace test_utils {
 		explicit mock_buffer_factory() = default;
 		explicit mock_buffer_factory(detail::task_manager& tm) : m_task_mngr(&tm) {}
 		explicit mock_buffer_factory(detail::task_manager& tm, detail::distributed_graph_generator& dggen) : m_task_mngr(&tm), m_dggen(&dggen) {}
+		explicit mock_buffer_factory(detail::task_manager& tm, detail::distributed_graph_generator& dggen, detail::instruction_graph_generator& iggen)
+		    : m_task_mngr(&tm), m_dggen(&dggen), m_iggen(&iggen) {}
 		explicit mock_buffer_factory(detail::task_manager& tm, detail::abstract_scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
 
 		template <int Dims>
 		mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
 			const detail::buffer_id bid = m_next_buffer_id++;
 			const auto buf = mock_buffer<Dims>(bid, size);
+			const auto user_allocation_id =
+			    mark_as_host_initialized ? detail::allocation_id(detail::user_memory_id, m_next_user_allocation_id++) : detail::null_allocation_id;
 			if(m_task_mngr != nullptr) { m_task_mngr->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
 			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
 			if(m_dggen != nullptr) { m_dggen->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
+			if(m_iggen != nullptr) { m_iggen->notify_buffer_created(bid, detail::range_cast<3>(size), sizeof(int), alignof(int), user_allocation_id); }
 			return buf;
 		}
 
@@ -230,7 +239,9 @@ namespace test_utils {
 		detail::task_manager* m_task_mngr = nullptr;
 		detail::abstract_scheduler* m_schdlr = nullptr;
 		detail::distributed_graph_generator* m_dggen = nullptr;
+		detail::instruction_graph_generator* m_iggen = nullptr;
 		detail::buffer_id m_next_buffer_id = 0;
+		detail::raw_allocation_id m_next_user_allocation_id = 1;
 	};
 
 	class mock_host_object_factory {
@@ -319,6 +330,8 @@ namespace test_utils {
 	void add_reduction(handler& cgh, mock_reduction_factory& mrf, const mock_buffer<Dims>& vars, bool include_current_buffer_value) {
 		detail::add_reduction(cgh, mrf.create_reduction(vars.get_id(), include_current_buffer_value));
 	}
+
+	detail::instruction_graph_generator::system_info make_system_info(const size_t num_devices, const bool supports_d2d_copies);
 
 	// This fixture (or a subclass) must be used by all tests that transitively use MPI.
 	class mpi_fixture {
@@ -411,7 +424,7 @@ namespace test_utils {
 	// truncate_*(): unchecked versions of *_cast() with signatures friendly to parameter type inference
 
 	template <int Dims>
-	range<Dims> truncate_range(const range<3>& r3) {
+	constexpr range<Dims> truncate_range(const range<3>& r3) {
 		static_assert(Dims <= 3);
 		range<Dims> r = detail::zeros;
 		for(int d = 0; d < Dims; ++d) {
@@ -421,7 +434,7 @@ namespace test_utils {
 	}
 
 	template <int Dims>
-	id<Dims> truncate_id(const id<3>& i3) {
+	constexpr id<Dims> truncate_id(const id<3>& i3) {
 		static_assert(Dims <= 3);
 		id<Dims> i;
 		for(int d = 0; d < Dims; ++d) {
@@ -436,7 +449,7 @@ namespace test_utils {
 	}
 
 	template <int Dims>
-	subrange<Dims> truncate_chunk(const chunk<3>& ck3) {
+	chunk<Dims> truncate_chunk(const chunk<3>& ck3) {
 		return chunk<Dims>(truncate_id<Dims>(ck3.offset), truncate_range<Dims>(ck3.range), truncate_range<Dims>(ck3.global_size));
 	}
 
@@ -448,6 +461,32 @@ namespace test_utils {
 } // namespace test_utils
 } // namespace celerity
 
+namespace celerity::test_utils::access {
+
+struct reverse_one_to_one {
+	template <int Dims>
+	subrange<Dims> operator()(chunk<Dims> ck) const {
+		subrange<Dims> sr;
+		for(int d = 0; d < Dims; ++d) {
+			sr.offset[d] = ck.global_size[d] - ck.range[d] - ck.offset[d];
+			sr.range[d] = ck.range[d];
+		}
+		return sr;
+	}
+};
+
+template <int Dims>
+static celerity::access::neighborhood<Dims> make_neighborhood(const size_t border) {
+	if constexpr(Dims == 1) {
+		return celerity::access::neighborhood<1>(border);
+	} else if constexpr(Dims == 2) {
+		return celerity::access::neighborhood<2>(border, border);
+	} else if constexpr(Dims == 3) {
+		return celerity::access::neighborhood<3>(border, border, border);
+	}
+}
+
+} // namespace celerity::test_utils::access
 
 namespace Catch {
 
@@ -469,6 +508,8 @@ struct StringMaker<std::optional<T>> {
 		static std::string convert(const Type& v) { return fmt::format("{}", v); }                                                                             \
 	};
 
+CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER(celerity::detail::allocation_id)
+CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER(celerity::detail::allocation_with_offset)
 CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER(celerity::detail::transfer_id)
 
 #define CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER_FOR_DIMS(Type)                                                                                        \

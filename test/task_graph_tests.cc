@@ -6,7 +6,6 @@
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 
-#include <celerity.h>
 #include <iterator>
 #include <set>
 

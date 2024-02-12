@@ -352,6 +352,18 @@ void apply_region_difference(box_vector<StorageDims>& dissected_left, const regi
 namespace celerity::detail {
 
 template <int Dims>
+void merge_connected_boxes(box_vector<Dims>& boxes) {
+	const auto merged_end = grid_detail::dispatch_effective_dims<Dims>(grid_detail::get_effective_dims(boxes.begin(), boxes.end()),
+	    [&](const auto effective_dims) { return grid_detail::merge_connected_boxes<effective_dims.value>(boxes.begin(), boxes.end()); });
+	boxes.erase(merged_end, boxes.end());
+}
+
+template void merge_connected_boxes(box_vector<0>& boxes);
+template void merge_connected_boxes(box_vector<1>& boxes);
+template void merge_connected_boxes(box_vector<2>& boxes);
+template void merge_connected_boxes(box_vector<3>& boxes);
+
+template <int Dims>
 region<Dims>::region(const box& single_box) : region(box_vector{single_box}) {} // still need to normalize in case single_box is empty
 
 template <int Dims>
