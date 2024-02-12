@@ -27,7 +27,7 @@ namespace detail {
 		/**
 		 * Serializes a set of commands. Assumes task commands all belong to the same task.
 		 */
-		void flush(const std::unordered_set<abstract_command*>& cmds);
+		void flush(const command_set& cmds);
 
 	  private:
 		flush_callback m_flush_cb;

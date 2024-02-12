@@ -11,6 +11,7 @@
 #include "hint.h"
 #include "host_queue.h"
 #include "intrusive_graph.h"
+#include "launcher.h"
 #include "lifetime_extending_state.h"
 #include "range_mapper.h"
 #include "types.h"
@@ -35,12 +36,6 @@ namespace detail {
 		none,
 		host,
 		device,
-	};
-
-	enum class epoch_action {
-		none,
-		barrier,
-		shutdown,
 	};
 
 	class command_launcher_storage_base {
@@ -110,6 +105,16 @@ namespace detail {
 
 		box<3> get_requirements_for_nth_access(const size_t n, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const;
 
+		std::vector<const range_mapper_base*> get_range_mappers(const buffer_id bid) const {
+			std::vector<const range_mapper_base*> rms;
+			for(const auto& [a_bid, a_rm] : m_accesses) {
+				if(a_bid == bid) { rms.push_back(a_rm.get()); }
+			}
+			return rms;
+		}
+
+		box_vector<3> get_required_contiguous_boxes(const buffer_id bid, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const;
+
 	  private:
 		std::vector<std::pair<buffer_id, std::unique_ptr<range_mapper_base>>> m_accesses;
 	};
@@ -144,11 +149,12 @@ namespace detail {
 		virtual ~fence_promise() = default;
 
 		virtual void fulfill() = 0;
+		virtual allocation_id get_user_allocation_id() = 0;
 	};
 
 	struct task_geometry {
 		int dimensions = 0;
-		range<3> global_size{0, 0, 0};
+		range<3> global_size{1, 1, 1};
 		id<3> global_offset{};
 		range<3> granularity{1, 1, 1};
 	};
@@ -199,6 +205,11 @@ namespace detail {
 
 		fence_promise* get_fence_promise() const { return m_fence_promise.get(); }
 
+		template <typename Launcher>
+		Launcher get_launcher() const {
+			return {};
+		} // placeholder
+
 		template <typename... Args>
 		auto launch(Args&&... args) const {
 			return (*m_launcher)(std::forward<Args>(args)...);
@@ -218,18 +229,18 @@ namespace detail {
 		}
 
 		static std::unique_ptr<task> make_epoch(task_id tid, detail::epoch_action action) {
-			return std::unique_ptr<task>(new task(tid, task_type::epoch, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, action, nullptr));
+			return std::unique_ptr<task>(new task(tid, task_type::epoch, non_collective_group_id, task_geometry{}, nullptr, {}, {}, {}, action, nullptr));
 		}
 
 		static std::unique_ptr<task> make_host_compute(task_id tid, task_geometry geometry, std::unique_ptr<command_launcher_storage_base> launcher,
 		    buffer_access_map access_map, side_effect_map side_effect_map, reduction_set reductions) {
-			return std::unique_ptr<task>(new task(tid, task_type::host_compute, collective_group_id{}, geometry, std::move(launcher), std::move(access_map),
+			return std::unique_ptr<task>(new task(tid, task_type::host_compute, non_collective_group_id, geometry, std::move(launcher), std::move(access_map),
 			    std::move(side_effect_map), std::move(reductions), {}, nullptr));
 		}
 
 		static std::unique_ptr<task> make_device_compute(task_id tid, task_geometry geometry, std::unique_ptr<command_launcher_storage_base> launcher,
 		    buffer_access_map access_map, reduction_set reductions) {
-			return std::unique_ptr<task>(new task(tid, task_type::device_compute, collective_group_id{}, geometry, std::move(launcher), std::move(access_map),
+			return std::unique_ptr<task>(new task(tid, task_type::device_compute, non_collective_group_id, geometry, std::move(launcher), std::move(access_map),
 			    {}, std::move(reductions), {}, nullptr));
 		}
 
@@ -242,17 +253,17 @@ namespace detail {
 
 		static std::unique_ptr<task> make_master_node(
 		    task_id tid, std::unique_ptr<command_launcher_storage_base> launcher, buffer_access_map access_map, side_effect_map side_effect_map) {
-			return std::unique_ptr<task>(new task(tid, task_type::master_node, collective_group_id{}, task_geometry{}, std::move(launcher),
+			return std::unique_ptr<task>(new task(tid, task_type::master_node, non_collective_group_id, task_geometry{}, std::move(launcher),
 			    std::move(access_map), std::move(side_effect_map), {}, {}, nullptr));
 		}
 
 		static std::unique_ptr<task> make_horizon(task_id tid) {
-			return std::unique_ptr<task>(new task(tid, task_type::horizon, collective_group_id{}, task_geometry{}, nullptr, {}, {}, {}, {}, nullptr));
+			return std::unique_ptr<task>(new task(tid, task_type::horizon, non_collective_group_id, task_geometry{}, nullptr, {}, {}, {}, {}, nullptr));
 		}
 
 		static std::unique_ptr<task> make_fence(
 		    task_id tid, buffer_access_map access_map, side_effect_map side_effect_map, std::unique_ptr<fence_promise> fence_promise) {
-			return std::unique_ptr<task>(new task(tid, task_type::fence, collective_group_id{}, task_geometry{}, nullptr, std::move(access_map),
+			return std::unique_ptr<task>(new task(tid, task_type::fence, non_collective_group_id, task_geometry{}, nullptr, std::move(access_map),
 			    std::move(side_effect_map), {}, {}, std::move(fence_promise)));
 		}
 
@@ -267,6 +278,8 @@ namespace detail {
 		reduction_set m_reductions;
 		std::string m_debug_name;
 		detail::epoch_action m_epoch_action;
+		// TODO I believe that `struct task` should not store command_group_launchers, fence_promise or other state that is related to execution instead of
+		// abstract DAG building. For user-initialized buffers we already notify the runtime -> executor of this state directly. Maybe also do that for these.
 		std::unique_ptr<fence_promise> m_fence_promise;
 		std::vector<std::shared_ptr<lifetime_extending_state>> m_attached_state;
 		std::vector<std::unique_ptr<hint_base>> m_hints;

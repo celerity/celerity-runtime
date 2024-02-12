@@ -1,9 +1,8 @@
 #include "grid_test_utils.h"
+#include "test_utils.h"
 
-#include <algorithm>
-#include <iterator>
-#include <random>
-#include <regex>
+#include <tuple>
+#include <vector>
 
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_template_test_macros.hpp>
@@ -12,25 +11,6 @@
 using namespace celerity;
 using namespace celerity::detail;
 
-template <int Dims>
-box_vector<Dims> create_random_boxes(const size_t grid_size, const size_t max_box_size, const size_t num_boxes, const uint32_t seed) {
-	std::minstd_rand rng(seed);
-	std::uniform_int_distribution<size_t> offset_dist(0, grid_size - 1);
-	std::binomial_distribution<size_t> range_dist(max_box_size - 1, 0.5);
-	box_vector<Dims> boxes;
-	while(boxes.size() < num_boxes) {
-		subrange<Dims> sr;
-		bool inbounds = true;
-		for(int d = 0; d < Dims; ++d) {
-			sr.offset[d] = offset_dist(rng);
-			sr.range[d] = 1 + range_dist(rng);
-			inbounds &= sr.offset[d] + sr.range[d] <= grid_size;
-		}
-		if(inbounds) { boxes.emplace_back(sr); }
-	}
-	return boxes;
-}
-
 TEST_CASE("normalizing randomized box sets - 2d", "[benchmark][group:grid]") {
 	const auto [label, grid_size, max_box_size, num_boxes] = GENERATE(values<std::tuple<const char*, size_t, size_t, size_t>>({
 	    {"small", 10, 5, 4},
@@ -38,7 +18,7 @@ TEST_CASE("normalizing randomized box sets - 2d", "[benchmark][group:grid]") {
 	    {"large", 200, 20, 200},
 	}));
 
-	const auto input_2d = create_random_boxes<2>(grid_size, max_box_size, num_boxes, 42);
+	const auto input_2d = test_utils::create_random_boxes<2>(grid_size, max_box_size, num_boxes, 42);
 	BENCHMARK(fmt::format("{}, native", label)) { return grid_detail::normalize(test_utils::copy(input_2d)); };
 
 	const auto input_3d = boxes_cast<3>(input_2d);
@@ -59,7 +39,7 @@ TEST_CASE("normalizing randomized box sets - 3d", "[benchmark][group:grid]") {
 	    {"large", 200, 20, 200},
 	}));
 
-	const auto input_3d = create_random_boxes<3>(grid_size, max_box_size, num_boxes, 42);
+	const auto input_3d = test_utils::create_random_boxes<3>(grid_size, max_box_size, num_boxes, 42);
 	BENCHMARK(fmt::format("{} - native", label)) { return grid_detail::normalize(test_utils::copy(input_3d)); };
 	test_utils::black_hole(grid_detail::normalize(test_utils::copy(input_3d))); // to attach a profiler
 }
@@ -118,8 +98,8 @@ TEST_CASE("performing set operations between randomized regions - 2d", "[benchma
 	    {"large", 200, 20, 100},
 	}));
 
-	const std::vector inputs_2d{
-	    region(create_random_boxes<2>(grid_size, max_box_size, num_boxes, 13)), region(create_random_boxes<2>(grid_size, max_box_size, num_boxes, 37))};
+	const std::vector inputs_2d{region(test_utils::create_random_boxes<2>(grid_size, max_box_size, num_boxes, 13)),
+	    region(test_utils::create_random_boxes<2>(grid_size, max_box_size, num_boxes, 37))};
 	const std::vector inputs_3d{region_cast<3>(inputs_2d[0]), region_cast<3>(inputs_2d[1])};
 
 	test_utils::render_boxes(inputs_2d[0].get_boxes(), fmt::format("{}-input-a", label));
@@ -155,8 +135,8 @@ TEST_CASE("performing set operations between randomized regions - 3d", "[benchma
 	    {"large", 200, 20, 100},
 	}));
 
-	const std::vector inputs_3d{
-	    region(create_random_boxes<3>(grid_size, max_box_size, num_boxes, 13)), region(create_random_boxes<3>(grid_size, max_box_size, num_boxes, 37))};
+	const std::vector inputs_3d{region(test_utils::create_random_boxes<3>(grid_size, max_box_size, num_boxes, 13)),
+	    region(test_utils::create_random_boxes<3>(grid_size, max_box_size, num_boxes, 37))};
 
 	BENCHMARK(fmt::format("union, {}, native", label)) { return region_union(inputs_3d[0], inputs_3d[1]); };
 	BENCHMARK(fmt::format("intersection, {}, native", label)) { return region_intersection(inputs_3d[0], inputs_3d[1]); };

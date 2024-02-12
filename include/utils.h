@@ -83,6 +83,24 @@ constexpr void tuple_for_each_pair_impl(const Tuple& tuple, const Callback& cb, 
 
 namespace celerity::detail::utils {
 
+/// See `utils::type_switch_t`.
+template <typename Lookup, typename... KVs>
+struct type_switch {};
+
+/// `switch` equivalent of `std::conditional_t`. Use as `utils::type_switch_t<lookup-type, key-type-1(result-type-1), key-type-2(result-type-2), ...>`
+template <typename Lookup, typename... KVs>
+using type_switch_t = typename type_switch<Lookup, KVs...>::type;
+
+template <typename MatchingKey, typename Value, typename... KVs>
+struct type_switch<MatchingKey, MatchingKey(Value), KVs...> {
+	using type = Value;
+};
+
+template <typename NonMatching, typename Key, typename Value, typename... KVs>
+struct type_switch<NonMatching, Key(Value), KVs...> {
+	using type = type_switch_t<NonMatching, KVs...>;
+};
+
 template <typename... Without, typename... Ts>
 constexpr auto tuple_without(const std::tuple<Ts...>& tuple) {
 	if constexpr(sizeof...(Ts) > 0) {
@@ -96,6 +114,11 @@ template <typename Tuple, typename Callback>
 constexpr void tuple_for_each_pair(const Tuple& tuple, const Callback& cb) {
 	static_assert(std::tuple_size_v<Tuple> % 2 == 0, "an even number of entries is required");
 	utils_detail::tuple_for_each_pair_impl(tuple, cb, std::make_index_sequence<std::tuple_size_v<Tuple>>{});
+}
+
+template <typename Variant, typename Alternative>
+Alternative& replace(Variant& variant, Alternative&& alternative) {
+	return std::get<Alternative>(variant = std::forward<Alternative>(alternative));
 }
 
 /// Fiddles out the base name of a (possibly templated) struct or class from a full (possibly mangled) type name.

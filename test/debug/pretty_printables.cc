@@ -15,6 +15,14 @@ int main() {
 	[[maybe_unused]] celerity::detail::hydration_id hyid = 17;
 	[[maybe_unused]] celerity::detail::transfer_id trid{18, 19};
 	[[maybe_unused]] celerity::detail::transfer_id reduction_trid{20, 21, 22};
+	[[maybe_unused]] celerity::detail::memory_id mid = 23;
+	[[maybe_unused]] celerity::detail::raw_allocation_id raid = 24;
+	[[maybe_unused]] celerity::detail::device_id did = 25;
+	[[maybe_unused]] celerity::detail::instruction_id iid = 26;
+	[[maybe_unused]] celerity::detail::allocation_id aid(27, 28);
+	[[maybe_unused]] celerity::detail::allocation_with_offset alloc(celerity::detail::allocation_id(29, 30));
+	[[maybe_unused]] celerity::detail::allocation_with_offset alloc_offset(celerity::detail::allocation_id(31, 32), 33);
+	[[maybe_unused]] celerity::detail::message_id msgid(34);
 
 	[[maybe_unused]] celerity::id<3> id(1, 2, 3);
 	[[maybe_unused]] celerity::range<3> range(1, 2, 3);

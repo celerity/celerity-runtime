@@ -89,6 +89,11 @@ CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(collective_group_i
 CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(reduction_id)
 CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(host_object_id)
 CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(hydration_id)
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(memory_id)
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(device_id)
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(raw_allocation_id)
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(instruction_id)
+CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS(message_id)
 
 #undef CELERITY_DETAIL_IMPLEMENT_FMT_FORMATTER_FOR_STRONG_TYPE_ALIAS
 
@@ -120,6 +125,29 @@ struct fmt::formatter<celerity::detail::dependency_origin> : fmt::formatter<std:
 			}
 		}();
 		return std::copy(repr.begin(), repr.end(), ctx.out());
+	}
+};
+
+template <>
+struct fmt::formatter<celerity::detail::allocation_id> {
+	constexpr format_parse_context::iterator parse(format_parse_context& ctx) { return ctx.begin(); }
+
+	format_context::iterator format(const celerity::detail::allocation_id aid, format_context& ctx) const {
+		if(aid == celerity::detail::null_allocation_id) { return fmt::format_to(ctx.out(), "null"); }
+		return fmt::format_to(ctx.out(), "M{}.A{}", aid.get_memory_id(), aid.get_raw_allocation_id());
+	}
+};
+
+template <>
+struct fmt::formatter<celerity::detail::allocation_with_offset> {
+	constexpr format_parse_context::iterator parse(format_parse_context& ctx) { return ctx.begin(); }
+
+	format_context::iterator format(const celerity::detail::allocation_with_offset& aid, format_context& ctx) const {
+		if(aid.offset_bytes > 0) {
+			return fmt::format_to(ctx.out(), "{} + {} bytes", aid.id, aid.offset_bytes);
+		} else {
+			return fmt::format_to(ctx.out(), "{}", aid.id);
+		}
 	}
 };
 

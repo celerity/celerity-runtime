@@ -9,12 +9,14 @@
 #include <vector>
 
 #include <catch2/catch_message.hpp>
+#include <catch2/internal/catch_context.hpp>
 #include <fmt/format.h>
 
 #include "access_modes.h"
 #include "command_graph.h"
 #include "distributed_graph_generator.h"
 #include "print_graph.h"
+#include "recorders.h"
 #include "task_manager.h"
 #include "types.h"
 #include "utils.h"
@@ -27,18 +29,24 @@ using namespace celerity::detail;
 namespace celerity::test_utils {
 
 class dist_cdag_test_context;
+class idag_test_context;
 
+template <typename TestContext>
 class task_builder {
 	friend class dist_cdag_test_context;
+	friend class idag_test_context;
 
 	using action = std::function<void(handler&)>;
 
 	class step {
 	  public:
-		step(dist_cdag_test_context& dctx, std::deque<action> actions) : m_dctx(dctx), m_actions(std::move(actions)) {}
+		step(TestContext& dctx, action command, std::vector<action> requirements = {})
+		    : m_tctx(dctx), m_command(std::move(command)), m_requirements(std::move(requirements)), m_uncaught_exceptions_before(std::uncaught_exceptions()) {}
 
 		~step() noexcept(false) { // NOLINT(bugprone-exception-escape)
-			if(!m_actions.empty()) { throw std::runtime_error("Found incomplete task build. Did you forget to call submit()?"); }
+			if(std::uncaught_exceptions() == m_uncaught_exceptions_before && (m_command || !m_requirements.empty())) {
+				throw std::runtime_error("Found incomplete task build. Did you forget to call submit()?");
+			}
 		}
 
 		step(const step&) = delete;
@@ -46,7 +54,20 @@ class task_builder {
 		step& operator=(const step&) = delete;
 		step& operator=(step&&) = delete;
 
-		task_id submit();
+		task_id submit() {
+			assert(m_command);
+			const auto tid = m_tctx.submit_command_group([this](handler& cgh) {
+				for(auto& a : m_requirements) {
+					a(cgh);
+				}
+				m_command(cgh);
+			});
+			m_tctx.build_task(tid);
+			m_tctx.maybe_build_horizon();
+			m_command = {};
+			m_requirements = {};
+			return tid;
+		}
 
 		step name(const std::string& name) {
 			return chain<step>([&name](handler& cgh) { celerity::debug::set_task_name(cgh, name); });
@@ -73,7 +94,10 @@ class task_builder {
 		}
 
 		template <typename BufferT>
-		step reduce(BufferT& buf, const bool include_current_buffer_value);
+		inline step reduce(BufferT& buf, const bool include_current_buffer_value) {
+			return chain<step>([this, &buf, include_current_buffer_value](
+			                       handler& cgh) { add_reduction(cgh, m_tctx.create_reduction(buf.get_id(), include_current_buffer_value)); });
+		}
 
 		template <typename HostObjT>
 		step affect(HostObjT& host_obj, experimental::side_effect_order order = experimental::side_effect_order::sequential) {
@@ -91,55 +115,48 @@ class task_builder {
 		}
 
 	  private:
-		dist_cdag_test_context& m_dctx;
-		std::deque<action> m_actions;
+		TestContext& m_tctx;
+		action m_command;
+		std::vector<action> m_requirements;
+		int m_uncaught_exceptions_before;
 
 		template <typename StepT>
 		StepT chain(action a) {
 			static_assert(std::is_base_of_v<step, StepT>);
-			m_actions.push_front(std::move(a));
-			return StepT{m_dctx, std::move(m_actions)};
+			m_requirements.push_back(std::move(a));
+			return StepT{m_tctx, std::move(m_command), std::move(m_requirements)};
 		}
 	};
 
   public:
 	template <typename Name, int Dims>
 	step device_compute(const range<Dims>& global_size, const id<Dims>& global_offset) {
-		std::deque<action> actions;
-		actions.push_front([global_size, global_offset](handler& cgh) { cgh.parallel_for<Name>(global_size, global_offset, [](id<Dims>) {}); });
-		return step(m_dctx, std::move(actions));
+		return step(m_dctx, [global_size, global_offset](handler& cgh) { cgh.parallel_for<Name>(global_size, global_offset, [](id<Dims>) {}); });
 	}
 
 	template <typename Name, int Dims>
 	step device_compute(const nd_range<Dims>& execution_range) {
-		std::deque<action> actions;
-		actions.push_front([execution_range](handler& cgh) { cgh.parallel_for<Name>(execution_range, [](nd_item<Dims>) {}); });
-		return step(m_dctx, std::move(actions));
+		return step(m_dctx, [execution_range](handler& cgh) { cgh.parallel_for<Name>(execution_range, [](nd_item<Dims>) {}); });
 	}
 
 	template <int Dims>
 	step host_task(const range<Dims>& global_size) {
-		std::deque<action> actions;
-		actions.push_front([global_size](handler& cgh) { cgh.host_task(global_size, [](partition<Dims>) {}); });
-		return step(m_dctx, std::move(actions));
+		return step(m_dctx, [global_size](handler& cgh) { cgh.host_task(global_size, [](partition<Dims>) {}); });
 	}
 
 	step master_node_host_task() {
 		std::deque<action> actions;
-		actions.push_front([](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
-		return step(m_dctx, std::move(actions));
+		return step(m_dctx, [](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
 	}
 
 	step collective_host_task(experimental::collective_group group) {
-		std::deque<action> actions;
-		actions.push_front([group](handler& cgh) { cgh.host_task(experimental::collective(group), [](const experimental::collective_partition&) {}); });
-		return step(m_dctx, std::move(actions));
+		return step(m_dctx, [group](handler& cgh) { cgh.host_task(experimental::collective(group), [](const experimental::collective_partition&) {}); });
 	}
 
   private:
-	dist_cdag_test_context& m_dctx;
+	TestContext& m_dctx;
 
-	task_builder(dist_cdag_test_context& dctx) : m_dctx(dctx) {}
+	task_builder(TestContext& dctx) : m_dctx(dctx) {}
 };
 
 template <typename T>
@@ -185,7 +202,7 @@ class command_query {
 					if(utils::as<task_command>(cmd)->get_tid() != *task_filter) continue;
 				}
 				if(type_filter.has_value()) {
-					if(get_type(cmd) != *type_filter) continue;
+					if(cmd->get_type() != *type_filter) continue;
 				}
 				filtered[nid].insert(cmd);
 			}
@@ -292,7 +309,7 @@ class command_query {
 	bool have_type(const command_type expected) const {
 		assert_not_empty(__FUNCTION__);
 		return for_all_commands([expected](const node_id nid, const abstract_command* cmd) {
-			const auto received = get_type(cmd);
+			const auto received = cmd->get_type();
 			if(received != expected) {
 				UNSCOPED_INFO(fmt::format("Expected command {} on node {} to have type '{}' but found type '{}'", cmd->get_cid(), nid, get_type_name(expected),
 				    get_type_name(received)));
@@ -453,17 +470,6 @@ class command_query {
 		return get_optional<T>(std::tuple(ts...));
 	}
 
-	static command_type get_type(const abstract_command* cmd) {
-		if(utils::isa<epoch_command>(cmd)) return command_type::epoch;
-		if(utils::isa<horizon_command>(cmd)) return command_type::horizon;
-		if(utils::isa<execution_command>(cmd)) return command_type::execution;
-		if(utils::isa<push_command>(cmd)) return command_type::push;
-		if(utils::isa<await_push_command>(cmd)) return command_type::await_push;
-		if(utils::isa<reduction_command>(cmd)) return command_type::reduction;
-		if(utils::isa<fence_command>(cmd)) return command_type::fence;
-		throw query_exception("Unknown command type");
-	}
-
 	static std::string get_type_name(const command_type type) {
 		switch(type) {
 		case command_type::epoch: return "epoch";
@@ -478,8 +484,23 @@ class command_query {
 	}
 };
 
+inline std::string make_test_graph_title(const std::string& type) {
+	const auto test_name = Catch::getResultCapture().getCurrentTestName();
+	auto title = fmt::format("<br/>{}", type);
+	if(!test_name.empty()) { fmt::format_to(std::back_inserter(title), "<br/><b>{}</b>", test_name); }
+	return title;
+}
+
+inline std::string make_test_graph_title(
+    const std::string& type, const size_t num_nodes, const node_id local_nid, const std::optional<size_t> num_devices_per_node = std::nullopt) {
+	auto title = make_test_graph_title(type);
+	fmt::format_to(std::back_inserter(title), "<br/>for N{} out of {} nodes", local_nid, num_nodes);
+	if(num_devices_per_node.has_value()) { fmt::format_to(std::back_inserter(title), ", with {} devices / node", *num_devices_per_node); }
+	return title;
+}
+
 class dist_cdag_test_context {
-	friend class task_builder;
+	friend class task_builder<dist_cdag_test_context>;
 
   public:
 	struct policy_set {
@@ -582,8 +603,10 @@ class dist_cdag_test_context {
 
 	distributed_graph_generator& get_graph_generator(node_id nid) { return *m_dggens.at(nid); }
 
-	[[nodiscard]] std::string print_task_graph() { return detail::print_task_graph(m_task_recorder); }
-	[[nodiscard]] std::string print_command_graph(node_id nid) { return detail::print_command_graph(nid, *m_cmd_recorders[nid]); }
+	[[nodiscard]] std::string print_task_graph() { return detail::print_task_graph(m_task_recorder, make_test_graph_title("Task Graph")); }
+	[[nodiscard]] std::string print_command_graph(node_id nid) {
+		return detail::print_command_graph(nid, *m_cmd_recorders[nid], make_test_graph_title("Command Graph"));
+	}
 
   private:
 	size_t m_num_nodes;
@@ -600,6 +623,11 @@ class dist_cdag_test_context {
 
 	reduction_info create_reduction(const buffer_id bid, const bool include_current_buffer_value) {
 		return reduction_info{m_next_reduction_id++, bid, include_current_buffer_value};
+	}
+
+	template <typename CGF, typename... Hints>
+	task_id submit_command_group(CGF cgf, Hints... hints) {
+		return m_tm.submit_command_group(cgf, hints...);
 	}
 
 	void build_task(const task_id tid) {
@@ -635,26 +663,5 @@ class dist_cdag_test_context {
 		return tid;
 	}
 };
-
-inline task_id task_builder::step::submit() {
-	assert(!m_actions.empty());
-	const auto tid = m_dctx.get_task_manager().submit_command_group([this](handler& cgh) {
-		while(!m_actions.empty()) {
-			auto a = m_actions.front();
-			a(cgh);
-			m_actions.pop_front();
-		}
-	});
-	m_dctx.build_task(tid);
-	m_dctx.maybe_build_horizon();
-	m_actions.clear();
-	return tid;
-}
-
-template <typename BufferT>
-inline task_builder::step task_builder::step::reduce(BufferT& buf, const bool include_current_buffer_value) {
-	return chain<step>(
-	    [this, &buf, include_current_buffer_value](handler& cgh) { add_reduction(cgh, m_dctx.create_reduction(buf.get_id(), include_current_buffer_value)); });
-}
 
 } // namespace celerity::test_utils

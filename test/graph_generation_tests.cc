@@ -8,6 +8,7 @@
 
 #include "distributed_graph_generator.h"
 
+
 using namespace celerity;
 using namespace celerity::detail;
 using namespace celerity::test_utils;
@@ -31,9 +32,9 @@ TEST_CASE("command_graph keeps track of created commands", "[command_graph][comm
 
 TEST_CASE("command_graph allows to iterate over all raw command pointers", "[command_graph][command-graph]") {
 	command_graph cdag;
-	std::unordered_set<abstract_command*> cmds;
+	command_set cmds;
 	cmds.insert(cdag.create<execution_command>(0, subrange<3>{}));
-	cmds.insert(cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none));
+	cmds.insert(cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none, std::vector<reduction_id>{}));
 	cmds.insert(cdag.create<push_command>(0, transfer_id(0, 0, 0), subrange<3>{}));
 	for(auto* cmd : cdag.all_commands()) {
 		REQUIRE(cmds.find(cmd) != cmds.end());
@@ -45,7 +46,7 @@ TEST_CASE("command_graph allows to iterate over all raw command pointers", "[com
 TEST_CASE("command_graph keeps track of execution front", "[command_graph][command-graph]") {
 	command_graph cdag;
 
-	std::unordered_set<abstract_command*> expected_front;
+	command_set expected_front;
 
 	auto* const t0 = cdag.create<execution_command>(0, subrange<3>{});
 	expected_front.insert(t0);
@@ -63,7 +64,7 @@ TEST_CASE("command_graph keeps track of execution front", "[command_graph][comma
 
 TEST_CASE("isa<> RTTI helper correctly handles command hierarchies", "[rtti][command-graph]") {
 	command_graph cdag;
-	auto* const np = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none);
+	auto* const np = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none, std::vector<reduction_id>{});
 	REQUIRE(utils::isa<abstract_command>(np));
 	auto* const hec = cdag.create<execution_command>(0, subrange<3>{});
 	REQUIRE(utils::isa<execution_command>(hec));
@@ -520,12 +521,12 @@ TEST_CASE("distributed_graph_generator throws in tests if it detects overlapping
 	SECTION("on all-write") {
 		CHECK_THROWS_WITH((dctx.device_compute(buf.get_range()).discard_write(buf, acc::all()).submit()),
 		    "Device kernel T1 has overlapping writes between multiple nodes in B0 {[0,0,0] - [20,20,1]}. Choose a non-overlapping "
-		    "range mapper for the write access or constrain the split to make the access non-overlapping.");
+		    "range mapper for this write access or constrain the split via experimental::constrain_split to make the access non-overlapping.");
 	}
 
 	SECTION("on neighborhood-write") {
 		CHECK_THROWS_WITH((dctx.host_task(buf.get_range()).name("host neighborhood").discard_write(buf, acc::neighborhood(1, 1)).submit()),
 		    "Host-compute task T1 \"host neighborhood\" has overlapping writes between multiple nodes in B0 {[9,0,0] - [11,20,1]}. Choose a non-overlapping "
-		    "range mapper for the write access or constrain the split to make the access non-overlapping.");
+		    "range mapper for this write access or constrain the split via experimental::constrain_split to make the access non-overlapping.");
 	}
 }

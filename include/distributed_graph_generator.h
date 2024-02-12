@@ -100,7 +100,7 @@ class distributed_graph_generator {
 
 	void notify_host_object_destroyed(host_object_id hoid);
 
-	std::unordered_set<abstract_command*> build_task(const task& tsk);
+	command_set build_task(const task& tsk);
 
 	command_graph& get_command_graph() { return m_cdag; }
 
@@ -159,7 +159,11 @@ class distributed_graph_generator {
 	command_id m_current_horizon = no_command;
 
 	// Batch of commands currently being generated. Returned (and thereby emptied) by build_task().
-	std::unordered_set<abstract_command*> m_current_cmd_batch;
+	command_set m_current_cmd_batch;
+
+	// List of reductions that have either completed globally or whose result has been discarded. This list will be appended to the next horizon to eventually
+	// inform the instruction executor that it can safely garbage-collect runtime info on the reduction operation.
+	std::vector<reduction_id> m_completed_reductions;
 
 	// For proper handling of anti-dependencies we also have to store for each command which buffer regions it reads.
 	// We do this because we cannot reconstruct the requirements from a command within the graph alone (e.g. for compute commands).
@@ -173,6 +177,10 @@ class distributed_graph_generator {
 	// Generated commands will be recorded to this recorder if it is set
 	detail::command_recorder* m_recorder = nullptr;
 };
+
+/// Topologically sort a command-set as returned from distributed_graph_generator::build_task() such that sequential execution satisfies all dependencies.
+/// TODO refactor distributed_graph_generator to intrinsically generate commands in dependency-order.
+std::vector<abstract_command*> sort_topologically(command_set unmarked);
 
 } // namespace celerity::detail
 

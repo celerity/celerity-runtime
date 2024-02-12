@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <list>
 #include <optional>
 #include <type_traits>
 
@@ -16,6 +15,7 @@ namespace detail {
 		true_dep = 1, // True data flow or temporal dependency
 	};
 
+	// TODO this is purely debug info (as is dependency_kind, as it turns out). Move into dependency records and drop `struct dependency`.
 	enum class dependency_origin {
 		dataflow,                       // buffer access dependencies generate task and command dependencies
 		collective_group_serialization, // all nodes must execute kernels within the same collective group in the same order
@@ -130,6 +130,9 @@ namespace detail {
 
 	  private:
 		gch::small_vector<dependency> m_dependencies;
+
+		// TODO This variable can be modified even after a DAG node is final, which easily leads to data races when a DAG is created by one thread and read /
+		// processed by another. Remove this member altogether after refactoring TDAG / CDAG generation to work without it.
 		gch::small_vector<dependent> m_dependents;
 
 		// This only (potentially) grows when adding dependencies,

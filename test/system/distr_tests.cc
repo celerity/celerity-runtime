@@ -139,6 +139,9 @@ namespace detail {
 #if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		env::scoped_test_environment test_env(print_graphs_env_setting);
 
+		runtime::init(nullptr, nullptr);
+		const bool is_node_0 = runtime::get_instance().get_local_nid() == 0; // runtime instance is gone after queue destruction
+
 		{
 			distr_queue q;
 			buffer<int, 1> sum(range(1));
@@ -153,8 +156,8 @@ namespace detail {
 			});
 		} // shutdown runtime and print graph
 
-		if(runtime::get_instance().get_local_nid() == 0) { // We log graphs only on node 0
-			CHECK(test_utils::log_contains_substring(log_level::info, "digraph G{label=\"Command Graph\""));
+		if(is_node_0) { // We log graphs only on node 0
+			CHECK(test_utils::log_contains_substring(log_level::info, "digraph G{label=<Command Graph>"));
 			CHECK(test_utils::log_contains_substring(log_level::info, "(R1) <b>await push</b>"));
 			CHECK(test_utils::log_contains_substring(log_level::info, "<b>reduction</b> R1<br/> B0 {[0,0,0] - [1,1,1]}"));
 		}
@@ -401,15 +404,16 @@ namespace detail {
 			// Smoke test: It is valid for the dot output to change with updates to graph generation. If this test fails, verify that the printed graphs are
 			// sane and complete, and if so, replace the `expected` values with the new dot graph.
 			const std::string expected =
-			    "digraph G{label=\"Command Graph\" subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 (epoch)</font>>;color=darkgray;id_0_0[label=<C0 "
-			    "on N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font color=\"#606060\">T1 "
-			    "(device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [0,0,0] + [8,16,1]<br/><i>discard_write</i> B0 {[0,0,0] - "
-			    "[8,16,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 "
-			    "(horizon)</font>>;color=darkgray;id_0_2[label=<C2 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph cluster_id_0_3{label=<<font "
-			    "color=\"#606060\">T3 (device-compute)</font>>;color=darkgray;id_0_3[label=<C3 on N0<br/><b>execution</b> [0,0,0] + "
-			    "[8,16,1]<br/><i>read_write</i> B0 {[0,0,0] - [8,16,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_4{label=<<font color=\"#606060\">T4 "
-			    "(horizon)</font>>;color=darkgray;id_0_4[label=<C4 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph cluster_id_0_5{label=<<font "
-			    "color=\"#606060\">T5 (epoch)</font>>;color=darkgray;id_0_5[label=<C5 on N0<br/><b>epoch</b> (barrier)> fontcolor=black "
+			    "digraph G{label=<Command Graph>;pad=0.2;subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 "
+			    "(epoch)</font>>;color=darkgray;id_0_0[label=<C0 on N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font "
+			    "color=\"#606060\">T1 (device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [0,0,0] + "
+			    "[8,16,1]<br/><i>discard_write</i> B0 {[0,0,0] - [8,16,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font "
+			    "color=\"#606060\">T2 (horizon)</font>>;color=darkgray;id_0_2[label=<C2 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph "
+			    "cluster_id_0_3{label=<<font color=\"#606060\">T3 (device-compute)</font>>;color=darkgray;id_0_3[label=<C3 on N0<br/><b>execution</b> [0,0,0] "
+			    "+ [8,16,1]<br/><i>read_write</i> B0 {[0,0,0] - [8,16,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_4{label=<<font "
+			    "color=\"#606060\">T4 (horizon)</font>>;color=darkgray;id_0_4[label=<C4 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph "
+			    "cluster_id_0_5{label=<<font color=\"#606060\">T5 (epoch)</font>>;color=darkgray;id_0_5[label=<C5 on N0<br/><b>epoch</b> (barrier)> "
+			    "fontcolor=black "
 			    "shape=box];}id_0_0->id_0_1[color=orchid];id_0_1->id_0_2[color=orange];id_0_1->id_0_3[];id_0_3->id_0_4[color=orange];id_0_2->id_0_4[color="
 			    "orange];id_0_4->id_0_5[color=orange];subgraph cluster_id_1_0{label=<<font color=\"#606060\">T0 "
 			    "(epoch)</font>>;color=darkgray;id_1_0[label=<C0 on N1<br/><b>epoch</b>> fontcolor=crimson shape=box];}subgraph cluster_id_1_1{label=<<font "
@@ -456,8 +460,8 @@ namespace detail {
 
 		q.slow_full_sync();
 
-		const auto error_message = "has overlapping writes between multiple nodes in B0 {[0,0,0] - [1,1,1]}. Choose a non-overlapping range mapper for the "
-		                           "write access or constrain the split to make the access non-overlapping.";
+		const auto error_message = "has overlapping writes between multiple nodes in B0 {[0,0,0] - [1,1,1]}. Choose a non-overlapping range mapper for this "
+		                           "write access or constrain the split via experimental::constrain_split to make the access non-overlapping.";
 		CHECK(test_utils::log_contains_substring(log_level::err, error_message) == CELERITY_ACCESS_PATTERN_DIAGNOSTICS);
 	}
 

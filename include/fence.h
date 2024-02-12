@@ -76,6 +76,8 @@ class host_object_fence_promise final : public detail::fence_promise {
 
 	void fulfill() override { m_promise.set_value(std::as_const(detail::get_host_object_instance(m_host_object))); }
 
+	allocation_id get_user_allocation_id() override { utils::panic("host_object_fence_promise::get_user_allocation_id"); }
+
   private:
 	experimental::host_object<T> m_host_object;
 	std::promise<T> m_promise;
@@ -84,7 +86,8 @@ class host_object_fence_promise final : public detail::fence_promise {
 template <typename DataT, int Dims>
 class buffer_fence_promise final : public detail::fence_promise {
   public:
-	explicit buffer_fence_promise(const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) : m_buffer(buf), m_subrange(sr) {}
+	explicit buffer_fence_promise(const buffer<DataT, Dims>& buf, const subrange<Dims>& sr)
+	    : m_buffer(buf), m_subrange(sr), m_aid(null_allocation_id /* [IDAG placeholder] */) {}
 
 	std::future<buffer_snapshot<DataT, Dims>> get_future() { return m_promise.get_future(); }
 
@@ -98,9 +101,12 @@ class buffer_fence_promise final : public detail::fence_promise {
 		m_promise.set_value(buffer_snapshot<DataT, Dims>(m_subrange, std::move(data)));
 	}
 
+	allocation_id get_user_allocation_id() override { return m_aid; }
+
   private:
 	buffer<DataT, Dims> m_buffer;
 	subrange<Dims> m_subrange;
+	allocation_id m_aid;
 	std::promise<buffer_snapshot<DataT, Dims>> m_promise;
 };
 

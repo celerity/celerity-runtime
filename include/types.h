@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cassert>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <type_traits>
 
@@ -40,6 +42,11 @@ CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(collective_group_id, size_t)
 CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(reduction_id, size_t)
 CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(host_object_id, size_t)
 CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(hydration_id, size_t)
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(memory_id, size_t)
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(device_id, size_t)
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(raw_allocation_id, size_t)
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(instruction_id, size_t)
+CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS(message_id, size_t)
 
 #undef CELERITY_DETAIL_DEFINE_STRONG_TYPE_ALIAS
 
@@ -64,7 +71,54 @@ struct reduction_info {
 	bool init_from_buffer = false;
 };
 
-constexpr node_id master_node_id = 0;
+inline constexpr node_id master_node_id = 0;
+
+/// Uniquely identifies an allocation across all memories on the local node. This is the instruction-graph equivalent of a USM pointer.
+///
+/// As allocation_ids are used extensively within the code but its constituents (memory_id and raw_allocation_id) rarely need to be inspected, it is bit-encoded
+/// into a single integer member.
+class allocation_id {
+  public:
+	constexpr static size_t memory_id_bits = 8;
+	constexpr static size_t max_memory_id = (1 << memory_id_bits) - 1;
+	constexpr static size_t raw_allocation_id_bits = sizeof(size_t) * 8 - memory_id_bits;
+	constexpr static size_t max_raw_allocation_id = (size_t(1) << raw_allocation_id_bits) - 1;
+
+	/// Constructs an allocation_id that does not point to memory (equivalent to `null_allocation_id`).
+	constexpr allocation_id() : m_mid(0), m_raid(0) {}
+
+	constexpr allocation_id(const memory_id mid, const raw_allocation_id raid) : m_mid(mid), m_raid(raid) {
+		assert(mid <= max_memory_id);
+		assert(raid <= max_raw_allocation_id);
+	}
+
+	constexpr memory_id get_memory_id() const { return m_mid; }
+	constexpr raw_allocation_id get_raw_allocation_id() const { return m_raid; }
+
+	friend constexpr bool operator==(const allocation_id& lhs, const allocation_id& rhs) { return lhs.m_mid == rhs.m_mid && lhs.m_raid == rhs.m_raid; }
+	friend constexpr bool operator!=(const allocation_id& lhs, const allocation_id& rhs) { return !(lhs == rhs); }
+
+  private:
+	friend struct std::hash<allocation_id>;
+	size_t m_mid : memory_id_bits;
+	size_t m_raid : raw_allocation_id_bits;
+};
+
+/// Memory id for (unpinned) host memory allocated for or by the user. This memory id is assumed for pointers passed for buffer host-initialization and for the
+/// explicit user-side allocation of a buffer_snapshot that is performed before a buffer fence.
+inline constexpr memory_id user_memory_id = 0;
+
+/// Memory id for (pinned) host memory that the executor will obtain from the backend for buffer allocations and staging buffers.
+inline constexpr memory_id host_memory_id = 1;
+
+/// Memory id for the first device-native memory, if any.
+inline constexpr memory_id first_device_memory_id = 2;
+
+/// allocation_id equivalent of a null pointer.
+inline constexpr allocation_id null_allocation_id{};
+
+inline constexpr collective_group_id non_collective_group_id = 0;
+inline constexpr collective_group_id root_collective_group_id = 1;
 
 inline constexpr reduction_id no_reduction_id = 0;
 
@@ -94,11 +148,23 @@ struct transfer_id {
 	friend bool operator!=(const transfer_id& lhs, const transfer_id& rhs) { return !(lhs == rhs); }
 };
 
-enum class error_policy {
-	ignore,
-	log_warning,
-	log_error,
-	panic,
+/// Instruction-graph equivalent of a USM pointer that permits pointer arithmetic.
+/// The offset will be applied by the executor once the allocation pointer is known.
+struct allocation_with_offset {
+	allocation_id id = null_allocation_id;
+	size_t offset_bytes = 0;
+
+	/// Constructs the equivalent of a null pointer.
+	allocation_with_offset() = default;
+
+	allocation_with_offset(const detail::allocation_id aid, const size_t offset_bytes = 0) : id(aid), offset_bytes(offset_bytes) {}
+
+	friend bool operator==(const allocation_with_offset& lhs, const allocation_with_offset& rhs) {
+		return lhs.id == rhs.id && lhs.offset_bytes == rhs.offset_bytes;
+	}
+	friend bool operator!=(const allocation_with_offset& lhs, const allocation_with_offset& rhs) {
+		return lhs.id == rhs.id && lhs.offset_bytes == rhs.offset_bytes;
+	}
 };
 
 } // namespace celerity::detail
@@ -107,3 +173,30 @@ template <>
 struct std::hash<celerity::detail::transfer_id> {
 	std::size_t operator()(const celerity::detail::transfer_id& t) const noexcept; // defined in utils.cc
 };
+
+template <>
+struct std::hash<celerity::detail::allocation_id> {
+	std::size_t operator()(const celerity::detail::allocation_id aid) const noexcept {
+		static_assert(sizeof(celerity::detail::allocation_id) == sizeof(size_t));
+		size_t hash = 0;
+		memcpy(&hash, &aid, sizeof(size_t));
+		return hash;
+	}
+};
+
+namespace celerity::detail {
+
+enum class error_policy {
+	ignore,
+	log_warning,
+	log_error,
+	panic,
+};
+
+enum class epoch_action {
+	none,
+	barrier,
+	shutdown,
+};
+
+} // namespace celerity::detail

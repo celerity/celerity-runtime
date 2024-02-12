@@ -297,6 +297,9 @@ box<Dims> bounding_box(const region<Dims>& region) {
 }
 
 template <int Dims>
+void merge_connected_boxes(box_vector<Dims>& boxes);
+
+template <int Dims>
 region<Dims> region_union(const region<Dims>& lhs, const region<Dims>& rhs);
 
 template <int Dims>

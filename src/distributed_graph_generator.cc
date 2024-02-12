@@ -20,7 +20,7 @@ distributed_graph_generator::distributed_graph_generator(
 	// Build initial epoch command (this is required to properly handle anti-dependencies on host-initialized buffers).
 	// We manually generate the first command, this will be replaced by applied horizons or explicit epochs down the line (see
 	// set_epoch_for_new_commands).
-	auto* const epoch_cmd = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none);
+	auto* const epoch_cmd = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none, std::vector<reduction_id>{});
 	epoch_cmd->mark_as_flushed(); // there is no point in flushing the initial epoch command
 	if(m_recorder != nullptr) {
 		const auto epoch_tsk = tm.get_task(task_manager::initial_epoch_task);
@@ -72,7 +72,34 @@ static buffer_requirements_map get_buffer_requirements_for_mapped_access(const t
 	return result;
 }
 
-std::unordered_set<abstract_command*> distributed_graph_generator::build_task(const task& tsk) {
+// According to Wikipedia https://en.wikipedia.org/wiki/Topological_sorting#Depth-first_search
+std::vector<abstract_command*> sort_topologically(command_set unmarked) {
+	command_set temporary_marked;
+	command_set permanent_marked;
+	std::vector<abstract_command*> sorted(unmarked.size());
+	auto sorted_front = sorted.rbegin();
+
+	const auto visit = [&](abstract_command* const cmd, auto& visit /* to allow recursion in lambda */) {
+		if(permanent_marked.count(cmd) != 0) return;
+		assert(temporary_marked.count(cmd) == 0 && "cyclic command graph");
+		unmarked.erase(cmd);
+		temporary_marked.insert(cmd);
+		for(const auto dep : cmd->get_dependents()) {
+			visit(dep.node, visit);
+		}
+		temporary_marked.erase(cmd);
+		permanent_marked.insert(cmd);
+		*sorted_front++ = cmd;
+	};
+
+	while(!unmarked.empty()) {
+		visit(*unmarked.begin(), visit);
+	}
+
+	return sorted;
+}
+
+command_set distributed_graph_generator::build_task(const task& tsk) {
 	assert(m_current_cmd_batch.empty());
 	[[maybe_unused]] const auto cmd_count_before = m_cdag.command_count();
 
@@ -138,7 +165,8 @@ void distributed_graph_generator::report_overlapping_writes(const task& tsk, con
 		for(const auto& [bid, overlap] : overlapping_writes) {
 			fmt::format_to(std::back_inserter(error), " {} {}", print_buffer_debug_label(bid), overlap);
 		}
-		error += ". Choose a non-overlapping range mapper for the write access or constrain the split to make the access non-overlapping.";
+		error += ". Choose a non-overlapping range mapper for this write access or constrain the split via experimental::constrain_split to make the access "
+		         "non-overlapping.";
 		utils::report_error(m_policy.overlapping_write_error, "{}", error);
 	}
 }
@@ -390,7 +418,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 				assert(local_last_writer.size() == 1);
 
 				if(is_local_chunk) {
-					auto* const reduce_cmd = create_command<reduction_command>(reduction);
+					auto* const reduce_cmd = create_command<reduction_command>(reduction, local_last_writer[0].second.is_fresh() /* has_local_contribution */);
 
 					// Only generate a true dependency on the last writer if this node participated in the intermediate result computation.
 					if(local_last_writer[0].second.is_fresh()) {
@@ -438,7 +466,9 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 	// For buffers that were in a pending reduction state and a reduction was generated
 	// (i.e., the result was not discarded), set their new state.
 	for(auto& [bid, new_state] : post_reduction_buffers) {
-		m_buffers.at(bid) = std::move(new_state);
+		auto& buffer = m_buffers.at(bid);
+		if(buffer.pending_reduction.has_value()) { m_completed_reductions.push_back(buffer.pending_reduction->rid); }
+		buffer = std::move(new_state);
 	}
 
 	// Update per-buffer last writers
@@ -449,8 +479,12 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 			buffer.local_last_writer.update_region(req, cid);
 			buffer.replicated_regions.update_region(req, node_bitset{});
 		}
+
 		// In case this buffer was in a pending reduction state but the result was discarded, remove the pending reduction.
-		buffer.pending_reduction = std::nullopt;
+		if(buffer.pending_reduction.has_value()) {
+			m_completed_reductions.push_back(buffer.pending_reduction->rid);
+			buffer.pending_reduction = std::nullopt;
+		}
 	}
 
 	// Mark any buffers that now are in a pending reduction state as such.
@@ -458,8 +492,8 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 	// to properly support chained reductions.
 	// If there is only one chunk/command, it already implicitly generates the final reduced value
 	// and the buffer does not need to be flagged as a pending reduction.
-	if(chunks.size() > 1) {
-		for(const auto& reduction : tsk.get_reductions()) {
+	for(const auto& reduction : tsk.get_reductions()) {
+		if(chunks.size() > 1) {
 			m_buffers.at(reduction.bid).pending_reduction = reduction;
 
 			// In some cases this node may not actually participate in the computation of the
@@ -475,6 +509,8 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 				});
 				assert(num_entries == 1);
 			}
+		} else {
+			m_completed_reductions.push_back(reduction.rid);
 		}
 	}
 
@@ -640,7 +676,7 @@ void distributed_graph_generator::reduce_execution_front_to(abstract_command* co
 
 void distributed_graph_generator::generate_epoch_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::epoch);
-	auto* const epoch = create_command<epoch_command>(tsk.get_id(), tsk.get_epoch_action());
+	auto* const epoch = create_command<epoch_command>(tsk.get_id(), tsk.get_epoch_action(), std::move(m_completed_reductions));
 	set_epoch_for_new_commands(epoch);
 	m_current_horizon = no_command;
 	// Make the epoch depend on the previous execution front
@@ -649,7 +685,7 @@ void distributed_graph_generator::generate_epoch_command(const task& tsk) {
 
 void distributed_graph_generator::generate_horizon_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::horizon);
-	auto* const horizon = create_command<horizon_command>(tsk.get_id());
+	auto* const horizon = create_command<horizon_command>(tsk.get_id(), std::move(m_completed_reductions));
 
 	if(m_current_horizon != static_cast<command_id>(no_command)) {
 		// Apply the previous horizon
