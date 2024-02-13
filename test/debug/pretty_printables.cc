@@ -34,6 +34,8 @@ int main() {
 	region_map.update_region(celerity::detail::box<3>({1, 1, 1}, {3, 3, 3}), 69);
 	region_map.update_region(celerity::detail::box<3>({1, 1, 1}, {2, 2, 2}), 1337);
 
+	[[maybe_unused]] celerity::detail::region_map<int> region_map_0d(celerity::range<3>(1, 1, 1), 42);
+
 	[[maybe_unused]] celerity::detail::write_command_state wcs_fresh(celerity::detail::command_id(123));
 	[[maybe_unused]] celerity::detail::write_command_state wcs_stale(celerity::detail::command_id(123));
 	wcs_stale.mark_as_stale();
