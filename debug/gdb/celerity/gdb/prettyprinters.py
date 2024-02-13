@@ -107,13 +107,22 @@ class RegionPrinter:
 class RegionMapPrinter:
     def __init__(self, val: gdb.Value):
         impl = get_variant_content(val['m_region_map'])
-        self.extent = impl['m_extent']
-        self.root = deref_unique_ptr(impl['m_root'])
+        self.dims = int(val['m_dims'])
+        if self.dims == 0:
+            self.extent = '0d'
+            self.value = impl['m_value']
+        else:
+            self.extent = impl['m_extent']
+            self.root = deref_unique_ptr(impl['m_root'])
 
     def to_string(self) -> str:
         return 'region_map({})'.format(self.extent)
 
     def children(self) -> Iterable[Tuple[str, gdb.Value]]:
+        if self.dims == 0:
+            yield from [('value', self.value)]
+            return
+
         def recurse_tree(root: gdb.Value):
             child_boxes = root['m_child_boxes']
             children = root['m_children']
