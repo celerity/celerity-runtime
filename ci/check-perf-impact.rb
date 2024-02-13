@@ -282,8 +282,12 @@ else
   message += "\nRelative execution time per category: (mean of relative medians)\n"
   categories.each do |category|
     category_mean = mean(relative_times_per_category[category])
-    symbol = category_mean > MINOR_THRESHOLD_SLOW ? ":warning:" : (category_mean < MINOR_THRESHOLD_FAST ? ":rocket:" : "")
-    message += "* **#{category}** : **%3.2fx** %s\n" % [category_mean, symbol]
+    if category_mean.nil?
+      message += "* **#{category}** : **new** :star2:\n"
+    else
+      symbol = category_mean > MINOR_THRESHOLD_SLOW ? ":warning:" : (category_mean < MINOR_THRESHOLD_FAST ? ":rocket:" : "")
+      message += "* **#{category}** : **%3.2fx** %s\n" % [category_mean, symbol]
+    end
   end
 end
 puts message
