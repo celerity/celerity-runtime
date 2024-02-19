@@ -1,6 +1,7 @@
 #pragma once
 
 #include "communicator.h"
+#include "mpi_support.h"
 
 #include <memory>
 #include <unordered_map>
@@ -66,8 +67,8 @@ class mpi_communicator final : public communicator {
 		MPI_Request request = MPI_REQUEST_NULL;
 	};
 
-	inline constexpr static int pilot_exchange_tag = 0;
-	inline constexpr static int first_message_tag = 10; // TODO mpi_support.h defines its own tag type for graph printing, unify these
+	inline constexpr static int pilot_exchange_tag = mpi_support::TAG_COMMUNICATOR;
+	inline constexpr static int first_message_tag = pilot_exchange_tag + 1;
 
 	MPI_Comm m_root_comm;
 
