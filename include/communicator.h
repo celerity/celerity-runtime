@@ -8,21 +8,6 @@ namespace celerity::detail {
 
 class communicator {
   public:
-	class collective_group {
-	  public:
-		collective_group(const collective_group&) = delete;
-		collective_group(collective_group&&) = delete;
-		collective_group& operator=(const collective_group&) = delete;
-		collective_group& operator=(collective_group&&) = delete;
-
-		virtual collective_group* clone() = 0;
-		virtual void barrier() = 0;
-
-	  protected:
-		collective_group() = default;
-		~collective_group() = default;
-	};
-
 	struct stride {
 		range<3> allocation;
 		celerity::subrange<3> subrange;
@@ -34,7 +19,11 @@ class communicator {
 		friend bool operator!=(const stride& lhs, const stride& rhs) { return !(lhs == rhs); }
 	};
 
+	communicator() = default;
 	virtual ~communicator() = default;
+
+	communicator(const communicator&) = delete;
+	communicator& operator=(const communicator&) = delete;
 
 	virtual size_t get_num_nodes() const = 0;
 	virtual node_id get_local_node_id() const = 0;
@@ -45,13 +34,11 @@ class communicator {
 	[[nodiscard]] virtual async_event send_payload(node_id to, message_id msgid, const void* base, const stride& stride) = 0;
 	[[nodiscard]] virtual async_event receive_payload(node_id from, message_id msgid, void* base, const stride& stride) = 0;
 
-	virtual collective_group* get_collective_root() = 0;
+	virtual std::unique_ptr<communicator> collective_clone() = 0;
+	virtual void collective_barrier() = 0;
 
   protected:
-	communicator() = default;
-	communicator(const communicator&) = default;
 	communicator(communicator&&) = default;
-	communicator& operator=(const communicator&) = default;
 	communicator& operator=(communicator&&) = default;
 };
 

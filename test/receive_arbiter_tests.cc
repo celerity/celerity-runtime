@@ -52,7 +52,8 @@ class mock_recv_communicator : public communicator {
 		m_pending_recvs.erase(key);
 	}
 
-	collective_group* get_collective_root() override { utils::panic("unimplemented"); }
+	std::unique_ptr<communicator> collective_clone() override { utils::panic("unimplemented"); }
+	void collective_barrier() override { utils::panic("unimplemented"); }
 
   private:
 	using completion_flag = std::shared_ptr<bool>;

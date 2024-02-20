@@ -12,8 +12,15 @@ using namespace celerity;
 using namespace celerity::detail;
 
 
+static MPI_Comm clone_comm_world() {
+	MPI_Comm new_comm = MPI_COMM_NULL;
+	MPI_Comm_dup(MPI_COMM_WORLD, &new_comm);
+	return new_comm;
+}
+
+
 TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator sends and receives pilot messages", "[mpi]") {
-	mpi_communicator comm(MPI_COMM_WORLD);
+	mpi_communicator comm(clone_comm_world());
 	if(comm.get_num_nodes() <= 1) { SKIP("test must be run on at least 2 ranks"); }
 
 	const auto make_pilot_message = [&](const node_id sender, const node_id receiver) {
@@ -48,7 +55,7 @@ TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator sends and receives p
 
 
 TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator sends and receives payloads", "[mpi]") {
-	mpi_communicator comm(MPI_COMM_WORLD);
+	mpi_communicator comm(clone_comm_world());
 	if(comm.get_num_nodes() <= 1) { SKIP("test must be run on at least 2 ranks"); }
 
 	const auto make_msgid = [&](const node_id sender, const node_id receiver) { //
@@ -94,13 +101,14 @@ TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator sends and receives p
 
 
 TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator correctly transfers scalars between strides of different dimensionality", "[mpi]") {
-	mpi_communicator comm(MPI_COMM_WORLD);
-	if(comm.get_num_nodes() <= 1) { SKIP("test must be run on at least 2 ranks"); }
-	if(comm.get_local_node_id() >= 2) return; // needs exactly 2 nodes
-
+	// All GENERATEs must happen before an early-return, otherwise different nodes will execute this test case a different number of times
 	const auto send_dims = GENERATE(values<size_t>({0, 1, 2, 3}));
 	const auto recv_dims = GENERATE(values<size_t>({0, 1, 2, 3}));
 	CAPTURE(send_dims, recv_dims);
+
+	mpi_communicator comm(clone_comm_world());
+	if(comm.get_num_nodes() <= 1) { SKIP("test must be run on at least 2 ranks"); }
+	if(comm.get_local_node_id() >= 2) return; // needs exactly 2 nodes
 
 	constexpr communicator::stride dim_strides[] = {
 	    {{1, 1, 1}, {{0, 0, 0}, {1, 1, 1}}, 4}, // 0-dimensional
@@ -131,12 +139,13 @@ TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator correctly transfers 
 
 
 TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator correctly transfers boxes that map to different subranges on sender and receiver", "[mpi]") {
-	mpi_communicator comm(MPI_COMM_WORLD);
-	if(comm.get_num_nodes() <= 1) { SKIP("test must be run on at least 2 ranks"); }
-	if(comm.get_local_node_id() >= 2) return; // needs exactly 2 nodes
-
+	// All GENERATEs must happen before an early-return, otherwise different nodes will execute this test case a different number of times
 	const auto dims = GENERATE(values<int>({1, 2, 3}));
 	CAPTURE(dims);
+
+	mpi_communicator comm(clone_comm_world());
+	if(comm.get_num_nodes() <= 1) { SKIP("test must be run on at least 2 ranks"); }
+	if(comm.get_local_node_id() >= 2) return; // needs exactly 2 nodes
 
 	range box_range{3, 4, 5};
 	range sender_allocation{10, 7, 11};

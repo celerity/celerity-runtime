@@ -33,8 +33,10 @@ struct instruction_executor::incomplete_instruction_info {
 };
 
 instruction_executor::instruction_executor(std::unique_ptr<backend::queue> backend_queue, std::unique_ptr<communicator> comm, delegate* dlg)
-    : m_delegate(dlg), m_communicator(std::move(comm)), m_backend_queue(std::move(backend_queue)), m_recv_arbiter(*m_communicator),
-      m_thread(&instruction_executor::thread_main, this), m_alloc_pool(4) {
+    : m_delegate(dlg), m_root_communicator(comm.get()), m_backend_queue(std::move(backend_queue)), m_recv_arbiter(*m_root_communicator), m_alloc_pool(4) //
+{
+	m_collective_group_communicators.emplace(root_collective_group_id, std::move(comm));
+	m_thread = std::thread(&instruction_executor::loop, this);
 	set_thread_name(m_thread.native_handle(), "cy-executor");
 }
 
@@ -78,12 +80,9 @@ struct instruction_priority_less {
 
 void instruction_executor::loop() {
 	m_backend_queue->init();
+	m_host_queue.require_collective_group(root_collective_group_id);
 
 	closure_hydrator::make_available();
-
-	m_allocations.emplace(null_allocation_id, nullptr);
-	m_collective_groups.emplace(root_collective_group_id, m_communicator->get_collective_root());
-	m_host_queue.require_collective_group(root_collective_group_id);
 
 	std::vector<submission> loop_submission_queue;
 	std::unordered_map<const instruction*, pending_instruction_info> pending_instructions; // TODO chould be a vector?
@@ -163,7 +162,7 @@ void instruction_executor::loop() {
 					    incomplete_instructions.emplace(incoming_instr->get_id(), incomplete_instruction_info{});
 				    },
 				    [&](const outbound_pilot& pilot) { //
-					    m_communicator->send_outbound_pilot(pilot);
+					    m_root_communicator->send_outbound_pilot(pilot);
 				    },
 				    [&](const user_allocation_announcement& ann) {
 					    assert(ann.aid != null_allocation_id);
@@ -315,14 +314,13 @@ instruction_executor::active_instruction_info instruction_executor::begin_execut
 	    instr,
 	    [&](const clone_collective_group_instruction& ccginstr) {
 		    const auto new_cgid = ccginstr.get_new_collective_group_id();
-		    const auto origin_cgid = ccginstr.get_original_collective_group_id();
+		    const auto original_cgid = ccginstr.get_original_collective_group_id();
 
-		    CELERITY_DEBUG("[executor] I{}: clone collective group CG{} -> CG{}", ccginstr.get_id(), origin_cgid, new_cgid);
+		    CELERITY_DEBUG("[executor] I{}: clone collective group CG{} -> CG{}", ccginstr.get_id(), original_cgid, new_cgid);
 		    CELERITY_DETAIL_TRACY_SCOPED_ZONE("executor::clone_collective_group", Brown, "I{} clone collective", ccginstr.get_id());
 
-		    assert(m_collective_groups.count(new_cgid) == 0);
-		    const auto new_group = m_collective_groups.at(origin_cgid)->clone();
-		    m_collective_groups.emplace(new_cgid, new_group);
+		    assert(m_collective_group_communicators.count(new_cgid) == 0);
+		    m_collective_group_communicators.emplace(new_cgid, m_collective_group_communicators.at(original_cgid)->collective_clone());
 		    m_host_queue.require_collective_group(new_cgid);
 		    return make_complete_event();
 	    },
@@ -427,11 +425,11 @@ instruction_executor::active_instruction_info instruction_executor::begin_execut
 #endif
 		    prepare_accessor_hydration(target::host_task, htinstr.get_access_allocations() CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, oob_info));
 
-		    // TODO executor must not have any direct dependency on MPI!
+		    // TODO executor should not have a direct dependency on MPI!
 		    MPI_Comm mpi_comm = MPI_COMM_NULL;
 		    if(const auto cgid = htinstr.get_collective_group_id(); cgid != non_collective_group_id) {
-			    const auto cg = m_collective_groups.at(htinstr.get_collective_group_id());
-			    mpi_comm = dynamic_cast<mpi_communicator::collective_group&>(*cg).get_mpi_comm();
+			    const auto& cg_comm = *m_collective_group_communicators.at(htinstr.get_collective_group_id());
+			    mpi_comm = dynamic_cast<const mpi_communicator&>(cg_comm).get_mpi_comm();
 		    }
 
 		    const auto& launch = htinstr.get_launcher();
@@ -459,7 +457,7 @@ instruction_executor::active_instruction_info instruction_executor::begin_execut
 		        subrange<3>{sinstr.get_offset_in_source_allocation(), sinstr.get_send_range()},
 		        sinstr.get_element_size(),
 		    };
-		    return m_communicator->send_payload(sinstr.get_dest_node_id(), sinstr.get_message_id(), allocation_base, stride);
+		    return m_root_communicator->send_payload(sinstr.get_dest_node_id(), sinstr.get_message_id(), allocation_base, stride);
 	    },
 	    [&](const receive_instruction& rinstr) {
 		    CELERITY_DEBUG("[executor] I{}: receive {} {} into {} ({}), x{} bytes\n{} bytes total", rinstr.get_id(), rinstr.get_transfer_id(),
@@ -575,7 +573,7 @@ instruction_executor::active_instruction_info instruction_executor::begin_execut
 		    case epoch_action::none: CELERITY_DEBUG("[executor] I{}: epoch", einstr.get_id()); break;
 		    case epoch_action::barrier:
 			    CELERITY_DEBUG("[executor] I{}: epoch (barrier)", einstr.get_id());
-			    m_communicator->get_collective_root()->barrier();
+			    m_root_communicator->collective_barrier();
 			    break;
 		    case epoch_action::shutdown:
 			    CELERITY_DEBUG("[executor] I{}: epoch (shutdown)", einstr.get_id());

@@ -92,7 +92,7 @@ class instruction_executor final : public executor {
 
 	// immutable
 	delegate* m_delegate;
-	std::unique_ptr<communicator> m_communicator;
+	communicator* m_root_communicator;
 
 	// accessed by by main and executor threads
 	double_buffered_queue<submission> m_submission_queue;
@@ -100,9 +100,9 @@ class instruction_executor final : public executor {
 	// accessed by executor thread only (unsynchronized)
 	bool m_expecting_more_submissions = true;
 	std::unique_ptr<backend::queue> m_backend_queue;
-	std::unordered_map<allocation_id, void*> m_allocations;
+	std::unordered_map<allocation_id, void*> m_allocations {{null_allocation_id, nullptr}};
 	std::unordered_map<host_object_id, std::unique_ptr<host_object_instance>> m_host_object_instances;
-	std::unordered_map<collective_group_id, communicator::collective_group*> m_collective_groups;
+	std::unordered_map<collective_group_id, std::unique_ptr<communicator>> m_collective_group_communicators;
 	std::unordered_map<reduction_id, std::unique_ptr<runtime_reduction>> m_reductions;
 	receive_arbiter m_recv_arbiter;
 	host_queue m_host_queue;
