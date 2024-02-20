@@ -20,10 +20,12 @@ distributed_graph_generator::distributed_graph_generator(
 	// Build initial epoch command (this is required to properly handle anti-dependencies on host-initialized buffers).
 	// We manually generate the first command, this will be replaced by applied horizons or explicit epochs down the line (see
 	// set_epoch_for_new_commands).
-	const auto epoch_tsk = tm.get_task(task_manager::initial_epoch_task);
-	auto* const epoch_cmd = cdag.create<epoch_command>(epoch_tsk->get_id(), epoch_action::none);
+	auto* const epoch_cmd = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none);
 	epoch_cmd->mark_as_flushed(); // there is no point in flushing the initial epoch command
-	if(m_recorder != nullptr) { *m_recorder << command_record(*epoch_cmd, *epoch_tsk, {}); }
+	if(m_recorder != nullptr) {
+		const auto epoch_tsk = tm.get_task(task_manager::initial_epoch_task);
+		m_recorder->record(command_record(*epoch_cmd, *epoch_tsk, {}));
+	}
 	m_epoch_for_new_commands = epoch_cmd->get_cid();
 }
 
@@ -112,11 +114,7 @@ std::unordered_set<abstract_command*> distributed_graph_generator::build_task(co
 	// If we have a command_recorder, record the current batch of commands
 	if(m_recorder != nullptr) {
 		for(const auto& cmd : m_current_cmd_batch) {
-			buffer_name_map accessed_buffers;
-			for(const auto bid : tsk.get_buffer_access_map().get_accessed_buffers()) {
-				accessed_buffers.emplace(bid, m_buffers.at(bid).debug_name);
-			}
-			*m_recorder << command_record(*cmd, tsk, accessed_buffers);
+			m_recorder->record(command_record(*cmd, tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }));
 		}
 	}
 

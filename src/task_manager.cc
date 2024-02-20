@@ -12,7 +12,7 @@ namespace detail {
 		// We manually generate the initial epoch task, which we treat as if it has been reached immediately.
 		auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
 		auto initial_epoch = task::make_epoch(initial_epoch_task, epoch_action::none);
-		if(m_task_recorder != nullptr) { *m_task_recorder << task_record(*initial_epoch, {}); }
+		if(m_task_recorder != nullptr) { m_task_recorder->record(task_record(*initial_epoch, {})); }
 		m_task_buffer.put(std::move(reserve), std::move(initial_epoch));
 	}
 
@@ -212,11 +212,7 @@ namespace detail {
 			cb(tsk);
 		}
 		if(m_task_recorder != nullptr) {
-			buffer_name_map accessed_buffers;
-			for(const auto bid : tsk->get_buffer_access_map().get_accessed_buffers()) {
-				accessed_buffers.emplace(bid, m_buffers.at(bid).debug_name);
-			}
-			*m_task_recorder << task_record(*tsk, accessed_buffers);
+			m_task_recorder->record(task_record(*tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }));
 		}
 	}
 

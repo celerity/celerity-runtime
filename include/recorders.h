@@ -3,6 +3,9 @@
 #include "command.h"
 #include "task.h"
 
+#include <functional>
+
+
 namespace celerity::detail {
 
 class buffer_manager;
@@ -17,7 +20,7 @@ struct access_record {
 	const region<3> req;
 };
 using access_list = std::vector<access_record>;
-using buffer_name_map = std::unordered_map<buffer_id, std::string>;
+using buffer_name_map = std::function<std::string(buffer_id)>;
 
 struct reduction_record {
 	const reduction_id rid;
@@ -39,7 +42,7 @@ struct dependency_record {
 using task_dependency_list = std::vector<dependency_record<task_id>>;
 
 struct task_record {
-	task_record(const task& tsk, const buffer_name_map& accessed_buffer_names);
+	task_record(const task& tsk, const buffer_name_map& get_buffer_debug_name);
 
 	task_id tid;
 	std::string debug_name;
@@ -54,14 +57,9 @@ struct task_record {
 
 class task_recorder {
   public:
-	using task_records = std::vector<detail::task_record>;
+	void record(task_record&& record) { m_recorded_tasks.push_back(std::move(record)); }
 
-	friend task_recorder& operator<<(task_recorder& recorder, task_record&& record) {
-		recorder.m_recorded_tasks.push_back(std::move(record));
-		return recorder;
-	}
-
-	const task_records& get_tasks() const { return m_recorded_tasks; }
+	const std::vector<task_record>& get_tasks() const { return m_recorded_tasks; }
 
 	const task_record& get_task(const task_id tid) const {
 		const auto it = std::find_if(m_recorded_tasks.begin(), m_recorded_tasks.end(), [tid](const task_record& rec) { return rec.tid == tid; });
@@ -70,7 +68,7 @@ class task_recorder {
 	}
 
   private:
-	task_records m_recorded_tasks;
+	std::vector<task_record> m_recorded_tasks;
 };
 
 // Command recording
@@ -101,19 +99,14 @@ struct command_record {
 	std::optional<detail::task_type> task_type;
 	std::optional<detail::collective_group_id> collective_group_id;
 
-	command_record(const abstract_command& cmd, const task& tsk, const buffer_name_map& accessed_buffer_names);
+	command_record(const abstract_command& cmd, const task& tsk, const buffer_name_map& get_buffer_debug_name);
 };
 
 class command_recorder {
   public:
-	using command_records = std::vector<detail::command_record>;
+	void record(command_record&& record) { m_recorded_commands.push_back(std::move(record)); }
 
-	friend command_recorder& operator<<(command_recorder& recorder, command_record&& record) {
-		recorder.m_recorded_commands.push_back(std::move(record));
-		return recorder;
-	}
-
-	const command_records& get_commands() const { return m_recorded_commands; }
+	const std::vector<detail::command_record>& get_commands() const { return m_recorded_commands; }
 
 	const command_record& get_command(const command_id cid) const {
 		const auto it = std::find_if(m_recorded_commands.begin(), m_recorded_commands.end(), [cid](const command_record& rec) { return rec.cid == cid; });
@@ -122,7 +115,7 @@ class command_recorder {
 	}
 
   private:
-	command_records m_recorded_commands;
+	std::vector<detail::command_record> m_recorded_commands;
 };
 
 } // namespace celerity::detail
