@@ -114,15 +114,15 @@ namespace detail {
 		 * @brief Adds a new buffer for dependency tracking
 		 * @param host_initialized Whether this buffer has been initialized using a host pointer (i.e., it contains useful data before any write-task)
 		 */
-		void create_buffer(buffer_id bid, const range<3>& range, bool host_initialized);
+		void notify_buffer_created(buffer_id bid, const range<3>& range, bool host_initialized);
 
-		void set_buffer_debug_name(buffer_id bid, const std::string& name);
+		void notify_buffer_debug_name_changed(buffer_id bid, const std::string& name);
 
-		void destroy_buffer(buffer_id bid);
+		void notify_buffer_destroyed(buffer_id bid);
 
-		void create_host_object(host_object_id hoid);
+		void notify_host_object_created(host_object_id hoid);
 
-		void destroy_host_object(host_object_id hoid);
+		void notify_host_object_destroyed(host_object_id hoid);
 
 		/**
 		 * Returns the specified task if it still exists, nullptr otherwise.

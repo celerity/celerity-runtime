@@ -16,22 +16,22 @@ namespace detail {
 		m_task_buffer.put(std::move(reserve), std::move(initial_epoch));
 	}
 
-	void task_manager::create_buffer(const buffer_id bid, const range<3>& range, const bool host_initialized) {
+	void task_manager::notify_buffer_created(const buffer_id bid, const range<3>& range, const bool host_initialized) {
 		const auto [iter, inserted] = m_buffers.emplace(bid, range);
 		assert(inserted);
 		auto& buffer = iter->second;
 		if(host_initialized) { buffer.last_writers.update_region(subrange<3>({}, range), m_epoch_for_new_tasks); }
 	}
 
-	void task_manager::set_buffer_debug_name(const buffer_id bid, const std::string& debug_name) { m_buffers.at(bid).debug_name = debug_name; }
+	void task_manager::notify_buffer_debug_name_changed(const buffer_id bid, const std::string& debug_name) { m_buffers.at(bid).debug_name = debug_name; }
 
-	void task_manager::destroy_buffer(const buffer_id bid) {
+	void task_manager::notify_buffer_destroyed(const buffer_id bid) {
 		assert(m_buffers.count(bid) != 0);
 		m_buffers.erase(bid);
 	}
-	void task_manager::create_host_object(const host_object_id hoid) { m_host_objects.emplace(hoid, host_object_state()); }
+	void task_manager::notify_host_object_created(const host_object_id hoid) { m_host_objects.emplace(hoid, host_object_state()); }
 
-	void task_manager::destroy_host_object(const host_object_id hoid) {
+	void task_manager::notify_host_object_destroyed(const host_object_id hoid) {
 		assert(m_host_objects.count(hoid) != 0);
 		m_host_objects.erase(hoid);
 	}

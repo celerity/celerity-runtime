@@ -220,9 +220,9 @@ namespace test_utils {
 		mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
 			const detail::buffer_id bid = m_next_buffer_id++;
 			const auto buf = mock_buffer<Dims>(bid, size);
-			if(m_task_mngr != nullptr) { m_task_mngr->create_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
+			if(m_task_mngr != nullptr) { m_task_mngr->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
 			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
-			if(m_dggen != nullptr) { m_dggen->create_buffer(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
+			if(m_dggen != nullptr) { m_dggen->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
 			return buf;
 		}
 
@@ -241,7 +241,7 @@ namespace test_utils {
 
 		mock_host_object create_host_object(bool owns_instance = true) {
 			const detail::host_object_id hoid = m_next_id++;
-			if(m_task_mngr != nullptr) { m_task_mngr->create_host_object(hoid); }
+			if(m_task_mngr != nullptr) { m_task_mngr->notify_host_object_created(hoid); }
 			if(m_schdlr != nullptr) { m_schdlr->notify_host_object_created(hoid); }
 			return mock_host_object(hoid);
 		}

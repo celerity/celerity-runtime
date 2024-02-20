@@ -286,33 +286,33 @@ namespace detail {
 	}
 
 	void runtime::register_buffer(buffer_id bid, const range<3>& range, bool host_initialized) {
-		m_task_mngr->create_buffer(bid, range, host_initialized);
+		m_task_mngr->notify_buffer_created(bid, range, host_initialized);
 		m_schdlr->notify_buffer_created(bid, range, host_initialized);
 	}
 
 	void runtime::set_buffer_debug_name(const buffer_id bid, const std::string& debug_name) {
 		m_buffer_mngr->set_debug_name(bid, debug_name);
-		m_task_mngr->set_buffer_debug_name(bid, debug_name);
-		m_schdlr->set_buffer_debug_name(bid, debug_name);
+		m_task_mngr->notify_buffer_debug_name_changed(bid, debug_name);
+		m_schdlr->notify_buffer_debug_name_changed(bid, debug_name);
 	}
 
 	void runtime::destroy_buffer(const buffer_id bid) {
 		m_schdlr->notify_buffer_destroyed(bid);
-		m_task_mngr->destroy_buffer(bid);
+		m_task_mngr->notify_buffer_destroyed(bid);
 		m_buffer_mngr->unregister_buffer(bid);
 		maybe_destroy_runtime();
 	}
 
 	host_object_id runtime::create_host_object() {
 		const auto hoid = m_host_object_mngr->create_host_object();
-		m_task_mngr->create_host_object(hoid);
+		m_task_mngr->notify_host_object_created(hoid);
 		m_schdlr->notify_host_object_created(hoid);
 		return hoid;
 	}
 
 	void runtime::destroy_host_object(const host_object_id hoid) {
 		m_schdlr->notify_host_object_destroyed(hoid);
-		m_task_mngr->destroy_host_object(hoid);
+		m_task_mngr->notify_host_object_destroyed(hoid);
 		m_host_object_mngr->destroy_host_object(hoid);
 	}
 

@@ -90,15 +90,15 @@ class distributed_graph_generator {
 	distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm,
 	    detail::command_recorder* recorder, const policy_set& policy = default_policy_set());
 
-	void create_buffer(buffer_id bid, const range<3>& range, bool host_initialized);
+	void notify_buffer_created(buffer_id bid, const range<3>& range, bool host_initialized);
 
-	void set_buffer_debug_name(buffer_id bid, const std::string& debug_name);
+	void notify_buffer_debug_name_changed(buffer_id bid, const std::string& debug_name);
 
-	void destroy_buffer(buffer_id bid);
+	void notify_buffer_destroyed(buffer_id bid);
 
-	void create_host_object(host_object_id hoid);
+	void notify_host_object_created(host_object_id hoid);
 
-	void destroy_host_object(host_object_id hoid);
+	void notify_host_object_destroyed(host_object_id hoid);
 
 	std::unordered_set<abstract_command*> build_task(const task& tsk);
 
