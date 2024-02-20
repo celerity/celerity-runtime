@@ -27,7 +27,7 @@ distributed_graph_generator::distributed_graph_generator(
 	m_epoch_for_new_commands = epoch_cmd->get_cid();
 }
 
-void distributed_graph_generator::create_buffer(const buffer_id bid, const range<3>& range, bool host_initialized) {
+void distributed_graph_generator::notify_buffer_created(const buffer_id bid, const range<3>& range, bool host_initialized) {
 	m_buffers.emplace(std::piecewise_construct, std::tuple{bid}, std::tuple{range, range});
 	if(host_initialized && m_policy.uninitialized_read_error != error_policy::ignore) { m_buffers.at(bid).initialized_region = box(subrange({}, range)); }
 	// Mark contents as available locally (= don't generate await push commands) and fully replicated (= don't generate push commands).
@@ -36,19 +36,21 @@ void distributed_graph_generator::create_buffer(const buffer_id bid, const range
 	m_buffers.at(bid).replicated_regions.update_region(subrange<3>({}, range), node_bitset{}.set());
 }
 
-void distributed_graph_generator::set_buffer_debug_name(const buffer_id bid, const std::string& debug_name) { m_buffers.at(bid).debug_name = debug_name; }
+void distributed_graph_generator::notify_buffer_debug_name_changed(const buffer_id bid, const std::string& debug_name) {
+	m_buffers.at(bid).debug_name = debug_name;
+}
 
-void distributed_graph_generator::destroy_buffer(const buffer_id bid) {
+void distributed_graph_generator::notify_buffer_destroyed(const buffer_id bid) {
 	assert(m_buffers.count(bid) != 0);
 	m_buffers.erase(bid);
 }
 
-void distributed_graph_generator::create_host_object(const host_object_id hoid) {
+void distributed_graph_generator::notify_host_object_created(const host_object_id hoid) {
 	assert(m_host_objects.count(hoid) == 0);
 	m_host_objects.emplace(hoid, host_object_state{m_epoch_for_new_commands});
 }
 
-void distributed_graph_generator::destroy_host_object(const host_object_id hoid) {
+void distributed_graph_generator::notify_host_object_destroyed(const host_object_id hoid) {
 	assert(m_host_objects.count(hoid) != 0);
 	m_host_objects.erase(hoid);
 }

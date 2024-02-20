@@ -507,18 +507,18 @@ class dist_cdag_test_context {
 	test_utils::mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
 		const buffer_id bid = m_next_buffer_id++;
 		const auto buf = test_utils::mock_buffer<Dims>(bid, size);
-		m_tm.create_buffer(bid, range_cast<3>(size), mark_as_host_initialized);
+		m_tm.notify_buffer_created(bid, range_cast<3>(size), mark_as_host_initialized);
 		for(auto& dggen : m_dggens) {
-			dggen->create_buffer(bid, range_cast<3>(size), mark_as_host_initialized);
+			dggen->notify_buffer_created(bid, range_cast<3>(size), mark_as_host_initialized);
 		}
 		return buf;
 	}
 
 	test_utils::mock_host_object create_host_object(const bool owns_instance = true) {
 		const host_object_id hoid = m_next_host_object_id++;
-		m_tm.create_host_object(hoid);
+		m_tm.notify_host_object_created(hoid);
 		for(auto& dggen : m_dggens) {
-			dggen->create_host_object(hoid);
+			dggen->notify_host_object_created(hoid);
 		}
 		return test_utils::mock_host_object(hoid);
 	}

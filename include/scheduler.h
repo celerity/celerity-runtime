@@ -38,7 +38,7 @@ namespace detail {
 			notify(event_buffer_created{bid, range, host_initialized});
 		}
 
-		void set_buffer_debug_name(const buffer_id bid, const std::string& name) { notify(event_set_buffer_debug_name{bid, name}); }
+		void notify_buffer_debug_name_changed(const buffer_id bid, const std::string& name) { notify(event_buffer_debug_name_changed{bid, name}); }
 
 		void notify_buffer_destroyed(const buffer_id bid) { notify(event_buffer_destroyed{bid}); }
 
@@ -66,7 +66,7 @@ namespace detail {
 			celerity::range<3> range;
 			bool host_initialized;
 		};
-		struct event_set_buffer_debug_name {
+		struct event_buffer_debug_name_changed {
 			buffer_id bid;
 			std::string debug_name;
 		};
@@ -79,7 +79,7 @@ namespace detail {
 		struct event_host_object_destroyed {
 			host_object_id hoid;
 		};
-		using event = std::variant<event_shutdown, event_task_available, event_buffer_created, event_set_buffer_debug_name, event_buffer_destroyed,
+		using event = std::variant<event_shutdown, event_task_available, event_buffer_created, event_buffer_debug_name_changed, event_buffer_destroyed,
 		    event_host_object_created, event_host_object_destroyed>;
 
 		bool m_is_dry_run;

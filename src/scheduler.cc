@@ -56,23 +56,23 @@ namespace detail {
 				    },
 				    [&](const event_buffer_created& e) {
 					    assert(!shutdown);
-					    m_dggen->create_buffer(e.bid, e.range, e.host_initialized);
+					    m_dggen->notify_buffer_created(e.bid, e.range, e.host_initialized);
 				    },
-				    [&](const event_set_buffer_debug_name& e) {
+				    [&](const event_buffer_debug_name_changed& e) {
 					    assert(!shutdown);
-					    m_dggen->set_buffer_debug_name(e.bid, e.debug_name);
+					    m_dggen->notify_buffer_debug_name_changed(e.bid, e.debug_name);
 				    },
 				    [&](const event_buffer_destroyed& e) {
 					    assert(!shutdown);
-					    m_dggen->destroy_buffer(e.bid);
+					    m_dggen->notify_buffer_destroyed(e.bid);
 				    },
 				    [&](const event_host_object_created& e) {
 					    assert(!shutdown);
-					    m_dggen->create_host_object(e.hoid);
+					    m_dggen->notify_host_object_created(e.hoid);
 				    },
 				    [&](const event_host_object_destroyed& e) {
 					    assert(!shutdown);
-					    m_dggen->destroy_host_object(e.hoid);
+					    m_dggen->notify_host_object_destroyed(e.hoid);
 				    },
 				    [&](const event_shutdown&) {
 					    assert(in_flight_events.empty());
