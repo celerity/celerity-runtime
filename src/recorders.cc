@@ -1,35 +1,27 @@
 #include "recorders.h"
 #include "command.h"
-#include "task_manager.h"
 
 namespace celerity::detail {
 
-// Naming
-
-std::string get_buffer_name(const buffer_id bid, const buffer_name_map& accessed_buffer_names) {
-	if(const auto it = accessed_buffer_names.find(bid); it != accessed_buffer_names.end()) { return it->second; }
-	return {};
-}
-
 // Tasks
 
-access_list build_access_list(const task& tsk, const buffer_name_map& accessed_buffer_names, const std::optional<subrange<3>> execution_range = {}) {
+access_list build_access_list(const task& tsk, const buffer_name_map& get_buffer_debug_name, const std::optional<subrange<3>> execution_range = {}) {
 	access_list ret;
 	const auto exec_range = execution_range.value_or(subrange<3>{tsk.get_global_offset(), tsk.get_global_size()});
 	const auto& bam = tsk.get_buffer_access_map();
 	for(const auto bid : bam.get_accessed_buffers()) {
 		for(const auto mode : bam.get_access_modes(bid)) {
 			const auto req = bam.get_mode_requirements(bid, mode, tsk.get_dimensions(), exec_range, tsk.get_global_size());
-			ret.push_back({bid, get_buffer_name(bid, accessed_buffer_names), mode, req});
+			ret.push_back({bid, get_buffer_debug_name(bid), mode, req});
 		}
 	}
 	return ret;
 }
 
-reduction_list build_reduction_list(const task& tsk, const buffer_name_map& accessed_buffer_names) {
+reduction_list build_reduction_list(const task& tsk, const buffer_name_map& get_buffer_debug_name) {
 	reduction_list ret;
 	for(const auto& reduction : tsk.get_reductions()) {
-		ret.push_back({reduction.rid, reduction.bid, get_buffer_name(reduction.bid, accessed_buffer_names), reduction.init_from_buffer});
+		ret.push_back({reduction.rid, reduction.bid, get_buffer_debug_name(reduction.bid), reduction.init_from_buffer});
 	}
 	return ret;
 }
@@ -42,9 +34,9 @@ task_dependency_list build_task_dependency_list(const task& tsk) {
 	return ret;
 }
 
-task_record::task_record(const task& tsk, const buffer_name_map& accessed_buffer_names)
+task_record::task_record(const task& tsk, const buffer_name_map& get_buffer_debug_name)
     : tid(tsk.get_id()), debug_name(tsk.get_debug_name()), cgid(tsk.get_collective_group_id()), type(tsk.get_type()), geometry(tsk.get_geometry()),
-      reductions(build_reduction_list(tsk, accessed_buffer_names)), accesses(build_access_list(tsk, accessed_buffer_names)),
+      reductions(build_reduction_list(tsk, get_buffer_debug_name)), accesses(build_access_list(tsk, get_buffer_debug_name)),
       side_effect_map(tsk.get_side_effect_map()), dependencies(build_task_dependency_list(tsk)) {}
 
 // Commands
@@ -84,8 +76,8 @@ std::optional<buffer_id> get_buffer_id(const abstract_command& cmd) {
 	return {};
 }
 
-std::string get_cmd_buffer_name(const std::optional<buffer_id>& bid, const buffer_name_map& accessed_buffer_names) {
-	if(bid.has_value()) return get_buffer_name(*bid, accessed_buffer_names);
+std::string get_cmd_buffer_name(const std::optional<buffer_id>& bid, const buffer_name_map& get_buffer_debug_name) {
+	if(bid.has_value()) return get_buffer_debug_name(*bid);
 	return {};
 }
 
@@ -137,12 +129,12 @@ command_dependency_list build_command_dependency_list(const abstract_command& cm
 
 std::string get_task_name(const task& tsk) { return tsk.get_debug_name(); } // TODO remove?
 
-command_record::command_record(const abstract_command& cmd, const task& tsk, const buffer_name_map& accessed_buffer_names)
+command_record::command_record(const abstract_command& cmd, const task& tsk, const buffer_name_map& get_buffer_debug_name)
     : cid(cmd.get_cid()), type(get_command_type(cmd)), epoch_action(get_epoch_action(cmd)), execution_range(get_execution_range(cmd)),
-      reduction_id(get_reduction_id(cmd)), buffer_id(get_buffer_id(cmd)), buffer_name(get_cmd_buffer_name(buffer_id, accessed_buffer_names)),
+      reduction_id(get_reduction_id(cmd)), buffer_id(get_buffer_id(cmd)), buffer_name(get_cmd_buffer_name(buffer_id, get_buffer_debug_name)),
       target(get_target(cmd)), await_region(get_await_region(cmd)), push_range(get_push_range(cmd)), transfer_id(get_transfer_id(cmd)),
       task_id(get_task_id(cmd)), task_geometry(tsk.get_geometry()), is_reduction_initializer(get_is_reduction_initializer(cmd)),
-      accesses(build_cmd_access_list(cmd, tsk, accessed_buffer_names)), reductions(build_reduction_list(tsk, accessed_buffer_names)),
+      accesses(build_cmd_access_list(cmd, tsk, get_buffer_debug_name)), reductions(build_reduction_list(tsk, get_buffer_debug_name)),
       side_effects(tsk.get_side_effect_map()), dependencies(build_command_dependency_list(cmd)), task_name(get_task_name(tsk)), task_type(tsk.get_type()),
       collective_group_id(tsk.get_collective_group_id()) {}
 
