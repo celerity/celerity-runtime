@@ -20,7 +20,7 @@ class task_manager;
 
 namespace celerity::detail::instruction_graph_generator_detail {
 
-class impl;
+class generator_impl;
 
 }
 
@@ -144,7 +144,7 @@ class instruction_graph_generator {
 	/// initializers, within its surrounding class (Clang diagnostic).
 	constexpr static policy_set default_policy_set() { return {}; }
 
-	std::unique_ptr<instruction_graph_generator_detail::impl> m_impl;
+	std::unique_ptr<instruction_graph_generator_detail::generator_impl> m_impl;
 };
 
 } // namespace celerity::detail
