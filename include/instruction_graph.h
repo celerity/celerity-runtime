@@ -20,7 +20,7 @@ class fence_promise;
 
 /// The instruction graph (IDAG) provides a static, parallel schedule of operations executed on a single Celerity node. It manages allocation and transfer
 /// operations between host- and all device memories installed in the node and issues kernel launches, inter-node data transfers and reductions. Unlike the
-/// higher-level task and command graphs which track data dependencies in terms of buffers, it operates on the lower level of allocations, which (among ohter
+/// higher-level task and command graphs which track data dependencies in terms of buffers, it operates on the lower level of allocations, which (among other
 /// uses) can back sub-regions of the (virtual) global buffer.
 class instruction
     // Accept visitors to enable matchbox::match() on the instruction inheritance hierarchy
@@ -53,8 +53,8 @@ struct instruction_id_less {
 	bool operator()(const std::unique_ptr<instruction>& lhs, const std::unique_ptr<instruction>& rhs) const { return lhs->get_id() < rhs->get_id(); }
 };
 
-/// Creates a new (MPI) collective group by cloning an existing one. The instuction is issued whenever the first host task on a new collective_group is compiled
-/// and is itself a collective operation is compiled and is itself a collective operation.
+/// Creates a new (MPI) collective group by cloning an existing one. The instuction is issued whenever the first host task on a new collective_group is
+/// compiled, and itself is a collective operation.
 class clone_collective_group_instruction : public matchbox::implement_acceptor<instruction, clone_collective_group_instruction> {
   public:
 	explicit clone_collective_group_instruction(

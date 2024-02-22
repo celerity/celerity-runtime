@@ -50,7 +50,7 @@ class instruction_graph_generator {
 		memory_mask copy_peers;
 	};
 
-	/// All information about the local system that influence the generated instruction graph.
+	/// All information about the local system that influences the generated instruction graph.
 	struct system_info {
 		dense_map<device_id, device_info> devices;
 		dense_map<memory_id, memory_info> memories;
@@ -95,7 +95,7 @@ class instruction_graph_generator {
 		error_policy overlapping_write_error = error_policy::panic;
 	};
 
-	/// Instruction graph generation requires information about the target system. `num_nodes` and `local_nid` effect the generation of communication
+	/// Instruction graph generation requires information about the target system. `num_nodes` and `local_nid` affect the generation of communication
 	/// instructions and reductions, and `system` is used to determine work assignment, memory allocation and data migration between memories.
 	///
 	/// Generated instructions are inserted into (and subsequently owned by) the provided `idag`, and if `dlg` is provided, it is notified about any newly
