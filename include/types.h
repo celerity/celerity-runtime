@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <type_traits>
 
@@ -89,18 +90,20 @@ class allocation_id {
 	constexpr allocation_id(const memory_id mid, const raw_allocation_id raid) {
 		assert(mid <= max_memory_id);
 		assert(raid <= max_raw_allocation_id);
-		m_bits = (mid << raw_allocation_id_bits) | raid;
+		m_mid = mid;
+		m_raid = raid;
 	}
 
-	constexpr memory_id get_memory_id() const { return m_bits >> raw_allocation_id_bits; }
-	constexpr raw_allocation_id get_raw_allocation_id() const { return m_bits & max_raw_allocation_id; }
+	constexpr memory_id get_memory_id() const { return m_mid; }
+	constexpr raw_allocation_id get_raw_allocation_id() const { return m_raid; }
 
-	friend constexpr bool operator==(const allocation_id& lhs, const allocation_id& rhs) { return lhs.m_bits == rhs.m_bits; }
-	friend constexpr bool operator!=(const allocation_id& lhs, const allocation_id& rhs) { return lhs.m_bits != rhs.m_bits; }
+	friend constexpr bool operator==(const allocation_id& lhs, const allocation_id& rhs) { return lhs.m_mid == rhs.m_mid && lhs.m_raid == rhs.m_raid; }
+	friend constexpr bool operator!=(const allocation_id& lhs, const allocation_id& rhs) { return !(lhs == rhs); }
 
   private:
 	friend struct std::hash<allocation_id>;
-	size_t m_bits = 0;
+	size_t m_mid : memory_id_bits;
+	size_t m_raid : raw_allocation_id_bits;
 };
 
 /// Memory id for (unpinned) host memory allocated for or by the user. This memory id is assumed for pointers passed for buffer host-initialization and for the
@@ -182,7 +185,12 @@ struct std::hash<celerity::detail::transfer_id> {
 
 template <>
 struct std::hash<celerity::detail::allocation_id> {
-	std::size_t operator()(const celerity::detail::allocation_id aid) const noexcept { return std::hash<size_t>{}(aid.m_bits); }
+	std::size_t operator()(const celerity::detail::allocation_id aid) const noexcept {
+		static_assert(sizeof(celerity::detail::allocation_id) == sizeof(size_t));
+		size_t hash = 0;
+		memcpy(&hash, &aid, sizeof(size_t));
+		return hash;
+	}
 };
 
 namespace celerity::detail {
