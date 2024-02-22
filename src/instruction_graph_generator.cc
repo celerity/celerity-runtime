@@ -1187,7 +1187,8 @@ void generator_impl::report_task_overlapping_writes(const task& tsk, const std::
 		for(const auto& [bid, overlap] : overlapping_writes) {
 			fmt::format_to(std::back_inserter(error), " {} {}", print_buffer_debug_label(bid), overlap);
 		}
-		error += ". Choose a non-overlapping range mapper for the write access or constrain the split to make the access non-overlapping.";
+		error += ". Choose a non-overlapping range mapper for this write access or constrain the split via experimental::constrain_split to make the access "
+		         "non-overlapping.";
 		utils::report_error(m_policy.overlapping_write_error, "{}", error);
 	}
 }

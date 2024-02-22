@@ -460,8 +460,8 @@ namespace detail {
 
 		q.slow_full_sync();
 
-		const auto error_message = "has overlapping writes between multiple nodes in B0 {[0,0,0] - [1,1,1]}. Choose a non-overlapping range mapper for the "
-		                           "write access or constrain the split to make the access non-overlapping.";
+		const auto error_message = "has overlapping writes between multiple nodes in B0 {[0,0,0] - [1,1,1]}. Choose a non-overlapping range mapper for this "
+		                           "write access or constrain the split via experimental::constrain_split to make the access non-overlapping.";
 		CHECK(test_utils::log_contains_substring(log_level::err, error_message) == CELERITY_ACCESS_PATTERN_DIAGNOSTICS);
 	}
 
