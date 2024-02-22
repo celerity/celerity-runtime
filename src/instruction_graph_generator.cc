@@ -562,9 +562,10 @@ class generator_impl {
 	void commit_pending_region_receive_to_host_memory(
 	    batch& batch, buffer_id bid, const buffer_state::region_receive& receives, const std::vector<region<3>>& concurrent_reads);
 
-	/// To avoid multi-hop copies, all read requirements for one buffer must be satisfied on all memories simultaneously. We deliberately allow multiple,
-	/// potentially-overlapping regions per memory to avoid aggregated copies introducing synchronization points between otherwise independent instructions.
-	void establish_coherence_between_buffer_memories(batch& batch, buffer_id bid, memory_id dest_mid, const std::vector<region<3>>& reads);
+	/// Insert coherence copy instructions where necessary to make `dest_mid` coherent for all `concurrent_reads`. Requires the necessary allocations in
+	/// `dest_mid` to already be present. We deliberately allow overlapping read-regions to avoid aggregated copies introducing synchronization points between
+	/// otherwise independent instructions.
+	void establish_coherence_between_buffer_memories(batch& batch, buffer_id bid, memory_id dest_mid, const std::vector<region<3>>& concurrent_reads);
 
 	/// Issue instructions to create any collective group required by a task.
 	void create_task_collective_groups(batch& command_batch, const task& tsk);
@@ -616,7 +617,6 @@ class generator_impl {
 
 	std::string print_buffer_debug_label(buffer_id bid) const;
 };
-
 
 generator_impl::generator_impl(const task_manager& tm, size_t num_nodes, node_id local_nid, instruction_graph_generator::system_info system,
     instruction_graph& idag, instruction_graph_generator::delegate* dlg, instruction_recorder* const recorder,
@@ -783,12 +783,10 @@ void generator_impl::add_dependencies_on_last_concurrent_accesses(instruction* c
 	}
 }
 
-
 void generator_impl::perform_atomic_write_to_allocation(instruction* const writing_instruction, buffer_allocation_state& allocation, const region<3>& region) {
 	add_dependencies_on_last_concurrent_accesses(writing_instruction, allocation, region, instruction_dependency_origin::write_to_allocation);
 	allocation.track_atomic_write(region, writing_instruction);
 }
-
 
 void generator_impl::apply_epoch(instruction* const epoch) {
 	for(auto& [_, buffer] : m_buffers) {
@@ -803,7 +801,6 @@ void generator_impl::apply_epoch(instruction* const epoch) {
 	m_last_epoch = epoch;
 }
 
-
 void generator_impl::collapse_execution_front_to(instruction* const horizon_or_epoch) {
 	for(const auto iid : m_execution_front) {
 		if(iid == horizon_or_epoch->get_id()) continue;
@@ -816,7 +813,6 @@ void generator_impl::collapse_execution_front_to(instruction* const horizon_or_e
 	m_execution_front.clear();
 	m_execution_front.insert(horizon_or_epoch->get_id());
 }
-
 
 void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id bid, const memory_id mid, box_vector<3>&& required_contiguous_boxes) //
 {
@@ -929,7 +925,6 @@ void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id
 	memory.allocations.insert(memory.allocations.end(), std::make_move_iterator(new_allocations.begin()), std::make_move_iterator(new_allocations.end()));
 }
 
-
 void generator_impl::commit_pending_region_receive_to_host_memory(
     batch& current_batch, const buffer_id bid, const buffer_state::region_receive& receive, const std::vector<region<3>>& concurrent_reads) //
 {
@@ -1011,7 +1006,6 @@ void generator_impl::commit_pending_region_receive_to_host_memory(
 	buffer.original_write_memories.update_region(receive.received_region, host_memory_id);
 	buffer.up_to_date_memories.update_region(receive.received_region, memory_mask().set(host_memory_id));
 }
-
 
 void generator_impl::establish_coherence_between_buffer_memories(
     batch& current_batch, const buffer_id bid, const memory_id dest_mid, const std::vector<region<3>>& concurrent_reads) //
@@ -1102,7 +1096,6 @@ void generator_impl::establish_coherence_between_buffer_memories(
 	}
 }
 
-
 void generator_impl::create_task_collective_groups(batch& command_batch, const task& tsk) {
 	const auto cgid = tsk.get_collective_group_id();
 	if(cgid == non_collective_group_id) return;
@@ -1119,7 +1112,6 @@ void generator_impl::create_task_collective_groups(batch& command_batch, const t
 	add_dependency(clone_cg_isntr, root_cg.last_host_task, instruction_dependency_origin::collective_group_order);
 	root_cg.last_host_task = clone_cg_isntr;
 }
-
 
 std::vector<localized_chunk> generator_impl::split_task_execution_range(const execution_command& ecmd, const task& tsk) {
 	if(tsk.get_execution_target() == execution_target::device && m_system.devices.empty()) { utils::panic("no device on which to execute device kernel"); }
@@ -1176,7 +1168,6 @@ std::vector<localized_chunk> generator_impl::split_task_execution_range(const ex
 	return concurrent_chunks;
 }
 
-
 void generator_impl::report_task_overlapping_writes(const task& tsk, const std::vector<localized_chunk>& concurrent_chunks) const {
 	box_vector<3> concurrent_execution_ranges(concurrent_chunks.size(), box<3>());
 	std::transform(concurrent_chunks.begin(), concurrent_chunks.end(), concurrent_execution_ranges.begin(),
@@ -1192,7 +1183,6 @@ void generator_impl::report_task_overlapping_writes(const task& tsk, const std::
 		utils::report_error(m_policy.overlapping_write_error, "{}", error);
 	}
 }
-
 
 void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, const buffer_id bid, const task& tsk, const subrange<3>& local_execution_range,
     const bool local_node_is_reduction_initializer, const std::vector<localized_chunk>& concurrent_chunks_after_split) //
@@ -1347,7 +1337,6 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 	}
 }
 
-
 local_reduction generator_impl::prepare_task_local_reduction(
     batch& command_batch, const reduction_info& rinfo, const execution_command& ecmd, const task& tsk, const size_t num_concurrent_chunks) //
 {
@@ -1390,7 +1379,6 @@ local_reduction generator_impl::prepare_task_local_reduction(
 	}
 	return red;
 }
-
 
 void generator_impl::finish_task_local_reduction(batch& command_batch, const local_reduction& red, const reduction_info& rinfo, const execution_command& ecmd,
     const task& tsk,
@@ -1444,7 +1432,6 @@ void generator_impl::finish_task_local_reduction(batch& command_batch, const loc
 	add_dependency(gather_free_instr, reduce_instr, instruction_dependency_origin::allocation_lifetime);
 }
 
-
 instruction* generator_impl::launch_task_kernel(batch& command_batch, const execution_command& ecmd, const task& tsk, const localized_chunk& chunk) {
 	const auto& bam = tsk.get_buffer_access_map();
 
@@ -1485,7 +1472,6 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 	if(tsk.get_execution_target() == execution_target::device) {
 		assert(chunk.execution_range.get_area() > 0);
 		assert(chunk.device_id.has_value());
-		assert(chunk.memory_id != host_memory_id);
 		const auto dkinstr =
 		    create<device_kernel_instruction>(command_batch, *chunk.device_id, tsk.get_launcher<device_kernel_launcher>(), chunk.execution_range,
 		        std::move(allocation_map), std::move(reduction_map) CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, tsk.get_id(), tsk.get_debug_name()));
@@ -1506,7 +1492,6 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 		return htinstr;
 	}
 }
-
 
 void generator_impl::perform_task_buffer_accesses(
     const task& tsk, const std::vector<localized_chunk>& concurrent_chunks, const std::vector<instruction*>& command_instructions) //
@@ -1589,7 +1574,6 @@ void generator_impl::perform_task_buffer_accesses(
 	}
 }
 
-
 void generator_impl::perform_task_side_effects(
     const task& tsk, const std::vector<localized_chunk>& concurrent_chunks, const std::vector<instruction*>& command_instructions) //
 {
@@ -1608,7 +1592,6 @@ void generator_impl::perform_task_side_effects(
 	}
 }
 
-
 void generator_impl::perform_task_collective_operations(
     const task& tsk, const std::vector<localized_chunk>& concurrent_chunks, const std::vector<instruction*>& command_instructions) //
 {
@@ -1622,7 +1605,6 @@ void generator_impl::perform_task_collective_operations(
 	add_dependency(command_instructions[0], group.last_host_task, instruction_dependency_origin::collective_group_order);
 	group.last_host_task = command_instructions[0];
 }
-
 
 void generator_impl::compile_execution_command(batch& command_batch, const execution_command& ecmd) {
 	const auto& tsk = *m_tm->get_task(ecmd.get_tid());
@@ -1676,7 +1658,6 @@ void generator_impl::compile_execution_command(batch& command_batch, const execu
 		if(instr->get_dependencies().empty()) { add_dependency(instr, m_last_epoch, instruction_dependency_origin::last_epoch); }
 	}
 }
-
 
 void generator_impl::compile_push_command(batch& command_batch, const push_command& pcmd) {
 	const auto trid = pcmd.get_transfer_id();
@@ -1736,7 +1717,6 @@ void generator_impl::compile_push_command(batch& command_batch, const push_comma
 	}
 }
 
-
 void generator_impl::defer_await_push_command(const await_push_command& apcmd) {
 	// We do not generate instructions for await-push commands immediately upon receiving them; instead, we buffer them and generate
 	// recv-instructions as soon as data is to be read by another instruction. This way, we can split the recv instructions and avoid
@@ -1770,7 +1750,6 @@ void generator_impl::defer_await_push_command(const await_push_command& apcmd) {
 		buffer.pending_gathers.emplace_back(trid.consumer_tid, trid.rid, apcmd.get_region().get_boxes().front());
 	}
 }
-
 
 void generator_impl::compile_reduction_command(batch& command_batch, const reduction_command& rcmd) {
 	// In a single-node setting, global reductions are no-ops, so no reduction commands should ever be issued
@@ -1857,7 +1836,6 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 	// the next horizon or epoch instruction.
 }
 
-
 void generator_impl::compile_fence_command(batch& command_batch, const fence_command& fcmd) {
 	const auto& tsk = *m_tm->get_task(fcmd.get_tid());
 
@@ -1925,7 +1903,6 @@ void generator_impl::compile_fence_command(batch& command_batch, const fence_com
 	}
 }
 
-
 void generator_impl::compile_horizon_command(batch& command_batch, const horizon_command& hcmd) {
 	m_idag->begin_epoch(hcmd.get_tid());
 	instruction_garbage garbage{hcmd.get_completed_reductions(), std::move(m_unreferenced_user_allocations)};
@@ -1937,7 +1914,6 @@ void generator_impl::compile_horizon_command(batch& command_batch, const horizon
 	m_last_horizon = horizon;
 }
 
-
 void generator_impl::compile_epoch_command(batch& command_batch, const epoch_command& ecmd) {
 	m_idag->begin_epoch(ecmd.get_tid());
 	instruction_garbage garbage{ecmd.get_completed_reductions(), std::move(m_unreferenced_user_allocations)};
@@ -1948,7 +1924,6 @@ void generator_impl::compile_epoch_command(batch& command_batch, const epoch_com
 	apply_epoch(epoch);
 	m_last_horizon = nullptr;
 }
-
 
 void generator_impl::flush_batch(batch&& batch) { // NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved) we do move the members of `batch`
 	// sanity check: every instruction except the initial epoch must be temporally anchored through at least one dependency
