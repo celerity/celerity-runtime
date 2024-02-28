@@ -33,7 +33,6 @@ TEST_CASE("a command group without data access compiles to a trivial graph", "[i
 	CHECK(kernel.successors().is_unique<epoch_instruction_record>());
 }
 
-
 TEST_CASE("side-effects introduce dependencies between host-task instructions", "[instruction_graph_generator][instruction-graph]") {
 	test_utils::idag_test_context ictx(1 /* nodes */, 0 /* my nid */, 1 /* devices */);
 	ictx.set_horizon_step(999);
@@ -46,7 +45,7 @@ TEST_CASE("side-effects introduce dependencies between host-task instructions", 
 	ictx.master_node_host_task().name("affect ho1 + ho2").affect(ho1).affect(ho2).submit();
 	ictx.master_node_host_task().name("affect ho1 (c)").affect(ho1).submit();
 	ictx.master_node_host_task().name("affect ho2 (c)").affect(ho2).submit();
-	ictx.finish();
+	ictx.finish(); // destroys all live host objects
 
 	const auto all_instrs = ictx.query_instructions();
 	const auto affect_ho1_a = all_instrs.select_unique<host_task_instruction_record>("affect ho1 (a)");
@@ -56,8 +55,10 @@ TEST_CASE("side-effects introduce dependencies between host-task instructions", 
 	const auto affect_both = all_instrs.select_unique<host_task_instruction_record>("affect ho1 + ho2");
 	const auto affect_ho1_c = all_instrs.select_unique<host_task_instruction_record>("affect ho1 (c)");
 	const auto affect_ho2_c = all_instrs.select_unique<host_task_instruction_record>("affect ho2 (c)");
-	// only ho1 owns its instance, so only one destroy_host_object_instruction is generated
+
+	// only ho1 owns its instance, so only one destroy_host_object_instruction is emitted
 	const auto destroy_ho1 = all_instrs.select_unique<destroy_host_object_instruction_record>();
+	CHECK(destroy_ho1->host_object_id == ho1.get_id());
 
 	CHECK(affect_ho1_a.predecessors().is_unique<epoch_instruction_record>());
 	CHECK(affect_ho2_a.predecessors().is_unique<epoch_instruction_record>());
