@@ -527,10 +527,10 @@ class generator_impl {
 	/// horizon / epoch generation.
 	std::unordered_set<instruction_id> m_execution_front;
 
-	dense_map<memory_id, instruction_graph_generator_detail::memory_state> m_memories;
-	std::unordered_map<buffer_id, instruction_graph_generator_detail::buffer_state> m_buffers;
-	std::unordered_map<host_object_id, instruction_graph_generator_detail::host_object_state> m_host_objects;
-	std::unordered_map<collective_group_id, instruction_graph_generator_detail::collective_group_state> m_collective_groups;
+	dense_map<memory_id, memory_state> m_memories;
+	std::unordered_map<buffer_id, buffer_state> m_buffers;
+	std::unordered_map<host_object_id, host_object_state> m_host_objects;
+	std::unordered_map<collective_group_id, collective_group_state> m_collective_groups;
 
 	/// The instruction executor maintains a mapping of allocation_id -> USM pointer. For IDAG-managed memory, these entries are deleted after executing a
 	/// `free_instruction`, but since user allocations are not deallocated by us, we notify the executor on each horizon or epoch via the `instruction_garbage`
@@ -758,7 +758,7 @@ template <typename Instruction, typename... CtorParamsAndRecordWithFn, size_t...
 Instruction* generator_impl::create_internal(batch& batch, const std::tuple<CtorParamsAndRecordWithFn...>& ctor_args_and_record_with,
     std::index_sequence<CtorParamIndices...> /* ctor_param_indices*/, std::index_sequence<RecordWithFnIndex> /* record_with_fn_index */) {
 	const auto iid = m_next_instruction_id++;
-	const auto priority = batch.base_priority + instruction_graph_generator_detail::instruction_type_priority<Instruction>;
+	const auto priority = batch.base_priority + instruction_type_priority<Instruction>;
 	auto unique_instr = std::make_unique<Instruction>(iid, priority, std::get<CtorParamIndices>(ctor_args_and_record_with)...);
 	const auto instr = unique_instr.get(); // we need to access the raw pointer after moving unique_ptr
 
@@ -1733,7 +1733,7 @@ void generator_impl::compile_push_command(batch& command_batch, const push_comma
 
 	for(const auto& send_region : concurrent_send_regions) {
 		for(const auto& full_send_box : send_region.get_boxes()) {
-			for(const auto& compatible_send_box : instruction_graph_generator_detail::split_into_communicator_compatible_boxes(buffer.range, full_send_box)) {
+			for(const auto& compatible_send_box : split_into_communicator_compatible_boxes(buffer.range, full_send_box)) {
 				const message_id msgid = create_outbound_pilot(command_batch, pcmd.get_target(), trid, compatible_send_box);
 
 				auto& allocation = host_memory.get_contiguous_allocation(compatible_send_box); // we allocate_contiguously above
@@ -1775,8 +1775,7 @@ void generator_impl::defer_await_push_command(const await_push_command& apcmd) {
 #endif
 
 	if(trid.rid == 0) {
-		buffer.pending_receives.emplace_back(
-		    trid.consumer_tid, apcmd.get_region(), instruction_graph_generator_detail::connected_subregion_bounding_boxes(apcmd.get_region()));
+		buffer.pending_receives.emplace_back(trid.consumer_tid, apcmd.get_region(), connected_subregion_bounding_boxes(apcmd.get_region()));
 	} else {
 		assert(apcmd.get_region().get_boxes().size() == 1);
 		buffer.pending_gathers.emplace_back(trid.consumer_tid, trid.rid, apcmd.get_region().get_boxes().front());
