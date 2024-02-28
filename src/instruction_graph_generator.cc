@@ -1402,8 +1402,8 @@ local_reduction generator_impl::prepare_task_local_reduction(
 	red.gather_aid = new_allocation_id(host_memory_id);
 	red.gather_alloc_instr = create<alloc_instruction>(
 	    command_batch, red.gather_aid, red.num_input_chunks * red.chunk_size_bytes, buffer.elem_align, [&](const auto& record_debug_info) {
-		    record_debug_info(alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, scalar_reduction_box},
-		        red.num_input_chunks);
+		    record_debug_info(
+		        alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, scalar_reduction_box}, red.num_input_chunks);
 	    });
 	add_dependency(red.gather_alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 
@@ -1442,10 +1442,9 @@ void generator_impl::finish_task_local_reduction(batch& command_batch, const loc
 		auto& source_allocation = buffer.memories[source_mid].get_contiguous_allocation(scalar_reduction_box);
 
 		// Copy local partial result to gather space
-		const auto copy_instr =
-		    create<copy_instruction>(command_batch, source_allocation.aid, red.gather_aid + (red.current_value_offset + j) * buffer.elem_size,
-		        source_allocation.box, scalar_reduction_box, scalar_reduction_box, buffer.elem_size,
-		        [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::gather, bid, buffer.debug_name); });
+		const auto copy_instr = create<copy_instruction>(command_batch, source_allocation.aid,
+		    red.gather_aid + (red.current_value_offset + j) * buffer.elem_size, source_allocation.box, scalar_reduction_box, scalar_reduction_box,
+		    buffer.elem_size, [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::gather, bid, buffer.debug_name); });
 
 		add_dependency(copy_instr, red.gather_alloc_instr, instruction_dependency_origin::allocation_lifetime);
 		perform_concurrent_read_from_allocation(copy_instr, source_allocation, scalar_reduction_box);
@@ -1803,11 +1802,10 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 
 	const auto gather_aid = new_allocation_id(host_memory_id);
 	const auto node_chunk_size = gather->gather_box.get_area() * buffer.elem_size;
-	const auto gather_alloc_instr =
-	    create<alloc_instruction>(command_batch, gather_aid, m_num_nodes * node_chunk_size, buffer.elem_align, [&](const auto& record_debug_info) {
-		    record_debug_info(
-		        alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, gather->gather_box}, m_num_nodes);
-	    });
+	const auto gather_alloc_instr = create<
+	    alloc_instruction>(command_batch, gather_aid, m_num_nodes * node_chunk_size, buffer.elem_align, [&](const auto& record_debug_info) {
+		record_debug_info(alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, gather->gather_box}, m_num_nodes);
+	});
 	add_dependency(gather_alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 
 	// 2. Fill the gather space with the reduction identity, so that the gather_receive_command can simply ignore empty boxes sent by peers that do not
