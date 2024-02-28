@@ -65,19 +65,22 @@ template <int Dims>
 bool boxes_edge_connected(const box<Dims>& box1, const box<Dims>& box2) {
 	if(box1.empty() || box2.empty()) return false;
 
-	const auto min = id_max(box1.get_min(), box2.get_min());
-	const auto max = id_min(box1.get_max(), box2.get_max());
-	bool touching = false;
+	// boxes can be 2/4/6 connected by either fully overlapping, or by overlapping in Dims-1 dimensions and touching (a.max[d] == b.min[d]) in the remaining one
+	bool disconnected = false;
+	int n_dims_touching = 0;
 	for(int d = 0; d < Dims; ++d) {
-		if(min[d] > max[d]) return false; // fully disconnected, even across corners
-		if(min[d] == max[d]) {
-			// when boxes are touching (but not intersecting) in more than one dimension, they can only be connected via corners
-			if(touching) return false;
-			touching = true;
+		// compute the intersection but without normalizing the box to distinguish the "disconnected" from the "touching" case
+		const auto min = std::max(box1.get_min()[d], box2.get_min()[d]);
+		const auto max = std::min(box1.get_max()[d], box2.get_max()[d]);
+		if(min < max) {
+			// boxes overlap in this dimension
+		} else if(min == max) {
+			n_dims_touching += 1;
+		} else /* min > max */ {
+			disconnected = true;
 		}
 	}
-	// TODO shouldn't this be `return touching`?
-	return true;
+	return !disconnected && n_dims_touching <= 1;
 }
 
 /// Subdivide a region into connected partitions (where connectivity is established by `boxes_edge_connected`) and return the bounding box of each partition.
