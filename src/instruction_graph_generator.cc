@@ -1381,7 +1381,9 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 local_reduction generator_impl::prepare_task_local_reduction(
     batch& command_batch, const reduction_info& rinfo, const execution_command& ecmd, const task& tsk, const size_t num_concurrent_chunks) //
 {
-	const auto [rid, bid, reduction_task_includes_buffer_value] = rinfo;
+	const auto [rid_, bid_, reduction_task_includes_buffer_value] = rinfo;
+	const auto bid = bid_; // allow capturing in lambda
+
 	auto& buffer = m_buffers.at(bid);
 
 	local_reduction red;
@@ -1400,7 +1402,7 @@ local_reduction generator_impl::prepare_task_local_reduction(
 	red.gather_aid = new_allocation_id(host_memory_id);
 	red.gather_alloc_instr = create<alloc_instruction>(
 	    command_batch, red.gather_aid, red.num_input_chunks * red.chunk_size_bytes, buffer.elem_align, [&](const auto& record_debug_info) {
-		    record_debug_info(alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{rinfo.bid, buffer.debug_name, scalar_reduction_box},
+		    record_debug_info(alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, scalar_reduction_box},
 		        red.num_input_chunks);
 	    });
 	add_dependency(red.gather_alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
@@ -1411,7 +1413,7 @@ local_reduction generator_impl::prepare_task_local_reduction(
 		// copy to local gather space
 		const auto current_value_copy_instr = create<copy_instruction>(command_batch, source_allocation.aid, red.gather_aid, source_allocation.box,
 		    scalar_reduction_box, scalar_reduction_box, buffer.elem_size,
-		    [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::gather, rinfo.bid, buffer.debug_name); });
+		    [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::gather, bid, buffer.debug_name); });
 
 		add_dependency(current_value_copy_instr, red.gather_alloc_instr, instruction_dependency_origin::allocation_lifetime);
 		perform_concurrent_read_from_allocation(current_value_copy_instr, source_allocation, scalar_reduction_box);
@@ -1426,7 +1428,9 @@ void generator_impl::finish_task_local_reduction(batch& command_batch, const loc
 	// If the reduction only has a single contribution, its write is already the final result and does not need to be reduced.
 	if(red.num_input_chunks == 1) return;
 
-	const auto [rid, bid, reduction_task_includes_buffer_value] = rinfo;
+	const auto [rid, bid_, reduction_task_includes_buffer_value] = rinfo;
+	const auto bid = bid_; // allow capturing in lambda
+
 	auto& buffer = m_buffers.at(bid);
 	auto& host_memory = buffer.memories[host_memory_id];
 
@@ -1441,7 +1445,7 @@ void generator_impl::finish_task_local_reduction(batch& command_batch, const loc
 		const auto copy_instr =
 		    create<copy_instruction>(command_batch, source_allocation.aid, red.gather_aid + (red.current_value_offset + j) * buffer.elem_size,
 		        source_allocation.box, scalar_reduction_box, scalar_reduction_box, buffer.elem_size,
-		        [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::gather, rinfo.bid, buffer.debug_name); });
+		        [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::gather, bid, buffer.debug_name); });
 
 		add_dependency(copy_instr, red.gather_alloc_instr, instruction_dependency_origin::allocation_lifetime);
 		perform_concurrent_read_from_allocation(copy_instr, source_allocation, scalar_reduction_box);
@@ -1453,7 +1457,7 @@ void generator_impl::finish_task_local_reduction(batch& command_batch, const loc
 	auto& dest_allocation = host_memory.get_contiguous_allocation(scalar_reduction_box);
 	const auto reduce_instr =
 	    create<reduce_instruction>(command_batch, rid, red.gather_aid, red.num_input_chunks, dest_allocation.aid, [&](const auto& record_debug_info) {
-		    record_debug_info(std::nullopt, rinfo.bid, buffer.debug_name, scalar_reduction_box, reduce_instruction_record::reduction_scope::local);
+		    record_debug_info(std::nullopt, bid, buffer.debug_name, scalar_reduction_box, reduce_instruction_record::reduction_scope::local);
 	    });
 
 	for(auto& copy_instr : gather_copy_instrs) {
@@ -1783,8 +1787,9 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 	// In a single-node setting, global reductions are no-ops, so no reduction commands should ever be issued
 	assert(m_num_nodes > 1 && "received a reduction command in a single-node configuration");
 
-	const auto& rinfo = rcmd.get_reduction_info();
-	const auto [rid, bid, init_from_buffer] = rinfo;
+	const auto [rid_, bid_, init_from_buffer] = rcmd.get_reduction_info();
+	const auto rid = rid_; // allow capturing in lambda
+	const auto bid = bid_; // allow capturing in lambda
 
 	auto& buffer = m_buffers.at(bid);
 
@@ -1798,10 +1803,11 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 
 	const auto gather_aid = new_allocation_id(host_memory_id);
 	const auto node_chunk_size = gather->gather_box.get_area() * buffer.elem_size;
-	const auto gather_alloc_instr = create<
-	    alloc_instruction>(command_batch, gather_aid, m_num_nodes * node_chunk_size, buffer.elem_align, [&](const auto& record_debug_info) {
-		record_debug_info(alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, gather->gather_box}, m_num_nodes);
-	});
+	const auto gather_alloc_instr =
+	    create<alloc_instruction>(command_batch, gather_aid, m_num_nodes * node_chunk_size, buffer.elem_align, [&](const auto& record_debug_info) {
+		    record_debug_info(
+		        alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, gather->gather_box}, m_num_nodes);
+	    });
 	add_dependency(gather_alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 
 	// 2. Fill the gather space with the reduction identity, so that the gather_receive_command can simply ignore empty boxes sent by peers that do not
@@ -1914,11 +1920,11 @@ void generator_impl::compile_fence_command(batch& command_batch, const fence_com
 
 	// host-object fences encode their host-object id in the task side effect map (which is also very ugly)
 	if(!sem.empty()) {
-		const auto [hoid, _] = *sem.begin();
+		const auto hoid = sem.begin()->first;
 
 		auto& obj = m_host_objects.at(hoid);
 		const auto fence_instr = create<fence_instruction>(
-		    command_batch, tsk.get_fence_promise(), [&](const auto& record_debug_info) { record_debug_info(tsk.get_id(), fcmd.get_cid(), hoid); });
+		    command_batch, tsk.get_fence_promise(), [&, hoid = hoid](const auto& record_debug_info) { record_debug_info(tsk.get_id(), fcmd.get_cid(), hoid); });
 
 		add_dependency(fence_instr, obj.last_side_effect, instruction_dependency_origin::side_effect);
 		obj.last_side_effect = fence_instr;
