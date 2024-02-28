@@ -400,6 +400,7 @@ struct buffer_state {
 		// This is an opportune point to verify that all await-pushes are fully consumed eventually. On epoch application,
 		// original_writers[*].await_receives potentially points to instructions before the new epoch, but when compiling a horizon or epoch command, all
 		// previous await-pushes should have been consumed by the task command they were generated for.
+		// TODO This assumes that tasks do not overlap within the sequence of commands fed to compile() - either improve this assertion or rectify the API.
 		assert(pending_receives.empty());
 		assert(pending_gathers.empty());
 	}
@@ -1399,8 +1400,8 @@ local_reduction generator_impl::prepare_task_local_reduction(
 	red.gather_aid = new_allocation_id(host_memory_id);
 	red.gather_alloc_instr = create<alloc_instruction>(
 	    command_batch, red.gather_aid, red.num_input_chunks * red.chunk_size_bytes, buffer.elem_align, [&](const auto& record_debug_info) {
-		    record_debug_info(
-		        alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, scalar_reduction_box}, red.num_input_chunks);
+		    record_debug_info(alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{rinfo.bid, buffer.debug_name, scalar_reduction_box},
+		        red.num_input_chunks);
 	    });
 	add_dependency(red.gather_alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 
@@ -1410,7 +1411,7 @@ local_reduction generator_impl::prepare_task_local_reduction(
 		// copy to local gather space
 		const auto current_value_copy_instr = create<copy_instruction>(command_batch, source_allocation.aid, red.gather_aid, source_allocation.box,
 		    scalar_reduction_box, scalar_reduction_box, buffer.elem_size,
-		    [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::gather, bid, buffer.debug_name); });
+		    [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::gather, rinfo.bid, buffer.debug_name); });
 
 		add_dependency(current_value_copy_instr, red.gather_alloc_instr, instruction_dependency_origin::allocation_lifetime);
 		perform_concurrent_read_from_allocation(current_value_copy_instr, source_allocation, scalar_reduction_box);
@@ -1437,9 +1438,10 @@ void generator_impl::finish_task_local_reduction(batch& command_batch, const loc
 		auto& source_allocation = buffer.memories[source_mid].get_contiguous_allocation(scalar_reduction_box);
 
 		// Copy local partial result to gather space
-		const auto copy_instr = create<copy_instruction>(command_batch, source_allocation.aid,
-		    red.gather_aid + (red.current_value_offset + j) * buffer.elem_size, source_allocation.box, scalar_reduction_box, scalar_reduction_box,
-		    buffer.elem_size, [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::gather, bid, buffer.debug_name); });
+		const auto copy_instr =
+		    create<copy_instruction>(command_batch, source_allocation.aid, red.gather_aid + (red.current_value_offset + j) * buffer.elem_size,
+		        source_allocation.box, scalar_reduction_box, scalar_reduction_box, buffer.elem_size,
+		        [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::gather, rinfo.bid, buffer.debug_name); });
 
 		add_dependency(copy_instr, red.gather_alloc_instr, instruction_dependency_origin::allocation_lifetime);
 		perform_concurrent_read_from_allocation(copy_instr, source_allocation, scalar_reduction_box);
@@ -1451,7 +1453,7 @@ void generator_impl::finish_task_local_reduction(batch& command_batch, const loc
 	auto& dest_allocation = host_memory.get_contiguous_allocation(scalar_reduction_box);
 	const auto reduce_instr =
 	    create<reduce_instruction>(command_batch, rid, red.gather_aid, red.num_input_chunks, dest_allocation.aid, [&](const auto& record_debug_info) {
-		    record_debug_info(std::nullopt, bid, buffer.debug_name, scalar_reduction_box, reduce_instruction_record::reduction_scope::local);
+		    record_debug_info(std::nullopt, rinfo.bid, buffer.debug_name, scalar_reduction_box, reduce_instruction_record::reduction_scope::local);
 	    });
 
 	for(auto& copy_instr : gather_copy_instrs) {
@@ -1781,22 +1783,25 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 	// In a single-node setting, global reductions are no-ops, so no reduction commands should ever be issued
 	assert(m_num_nodes > 1 && "received a reduction command in a single-node configuration");
 
-	const auto [rid, bid, init_from_buffer] = rcmd.get_reduction_info();
+	const auto& rinfo = rcmd.get_reduction_info();
+	const auto [rid, bid, init_from_buffer] = rinfo;
 
 	auto& buffer = m_buffers.at(bid);
 
-	assert(buffer.pending_gathers.size() == 1 && "received reduction command that is not preceded by an appropriate await-push");
-	const auto& gather = buffer.pending_gathers.front();
-	assert(gather.gather_box == scalar_reduction_box);
+	const auto gather = std::find_if(buffer.pending_gathers.begin(), buffer.pending_gathers.end(), [&](const buffer_state::gather_receive& g) {
+		return g.rid == rid; // assume that g.consumer_tid is correct because there cannot be multiple concurrent reductions for a single task
+	});
+	assert(gather != buffer.pending_gathers.end() && "received reduction command that is not preceded by an appropriate await-push");
+	assert(gather->gather_box == scalar_reduction_box);
 
 	// 1. Create a host-memory allocation to gather the array of partial results
 
 	const auto gather_aid = new_allocation_id(host_memory_id);
-	const auto node_chunk_size = gather.gather_box.get_area() * buffer.elem_size;
-	const auto gather_alloc_instr =
-	    create<alloc_instruction>(command_batch, gather_aid, m_num_nodes * node_chunk_size, buffer.elem_align, [&](const auto& record_debug_info) {
-		    record_debug_info(alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, gather.gather_box}, m_num_nodes);
-	    });
+	const auto node_chunk_size = gather->gather_box.get_area() * buffer.elem_size;
+	const auto gather_alloc_instr = create<
+	    alloc_instruction>(command_batch, gather_aid, m_num_nodes * node_chunk_size, buffer.elem_align, [&](const auto& record_debug_info) {
+		record_debug_info(alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, gather->gather_box}, m_num_nodes);
+	});
 	add_dependency(gather_alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 
 	// 2. Fill the gather space with the reduction identity, so that the gather_receive_command can simply ignore empty boxes sent by peers that do not
@@ -1824,9 +1829,9 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 
 	// 4. Gather remote contributions to the partial result array
 
-	const transfer_id trid(gather.consumer_tid, bid, gather.rid);
+	const transfer_id trid(gather->consumer_tid, bid, gather->rid);
 	const auto gather_recv_instr = create<gather_receive_instruction>(command_batch, trid, gather_aid, node_chunk_size,
-	    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name, gather.gather_box, m_num_nodes); });
+	    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name, gather->gather_box, m_num_nodes); });
 	add_dependency(gather_recv_instr, fill_identity_instr, instruction_dependency_origin::write_to_allocation);
 
 	// 5. Perform the global reduction on the host by reading the array of inputs from the gather space and writing to the buffer's host allocation that covers
