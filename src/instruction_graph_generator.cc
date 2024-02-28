@@ -83,6 +83,12 @@ bool boxes_edge_connected(const box<Dims>& box1, const box<Dims>& box2) {
 	return !disconnected && n_dims_touching <= 1;
 }
 
+// explicit instantiations for tests
+template bool boxes_edge_connected(const box<0>& box1, const box<0>& box2);
+template bool boxes_edge_connected(const box<1>& box1, const box<1>& box2);
+template bool boxes_edge_connected(const box<2>& box1, const box<2>& box2);
+template bool boxes_edge_connected(const box<3>& box1, const box<3>& box2);
+
 /// Subdivide a region into connected partitions (where connectivity is established by `boxes_edge_connected`) and return the bounding box of each partition.
 /// Note that the returned boxes are not necessarily disjoint event through the partitions always are.
 ///
@@ -93,7 +99,7 @@ box_vector<Dims> connected_subregion_bounding_boxes(const region<Dims>& region) 
 	auto boxes = region.get_boxes();
 	auto begin = boxes.begin();
 	auto end = boxes.end();
-	box_vector<3> bounding_boxes;
+	box_vector<Dims> bounding_boxes;
 	while(begin != end) {
 		auto connected_end = std::next(begin);
 		auto connected_bounding_box = *begin; // optimization: skip connectivity checks if bounding box is disconnected
@@ -111,6 +117,12 @@ box_vector<Dims> connected_subregion_bounding_boxes(const region<Dims>& region) 
 	}
 	return bounding_boxes;
 }
+
+// explicit instantiations for tests
+template box_vector<0> connected_subregion_bounding_boxes(const region<0>& region);
+template box_vector<1> connected_subregion_bounding_boxes(const region<1>& region);
+template box_vector<2> connected_subregion_bounding_boxes(const region<2>& region);
+template box_vector<3> connected_subregion_bounding_boxes(const region<3>& region);
 
 /// Iteratively replaces each pair of overlapping boxes by their bounding box such that in the modified set of boxes, no two boxes overlap, but all original
 /// input boxes are covered.
@@ -133,22 +145,12 @@ restart:
 	}
 }
 
-/// Returns whether an iterator range of instruction pointers is topologically sorted, i.e. sequential execution would satisfy all internal dependencies.
-template <typename Iterator>
-bool is_topologically_sorted(Iterator begin, Iterator end) {
-	for(auto check = begin; check != end; ++check) {
-		for(const auto dep : (*check)->get_dependencies()) {
-			if(std::find_if(std::next(check), end, [dep](const auto& node) { return node->get_id() == dep; }) != end) return false;
-		}
-	}
-	return true;
-}
-
 /// In a set of potentially overlapping regions, removes the overlap between any two regions {A, B} by replacing them with {A ∖ B, A ∩ B, B ∖ A}.
 ///
 /// This is used when generating copy and receive-instructions such that every data item is only copied or received once, but the following device kernels /
 /// host tasks have their dependencies satisfied as soon as their subset of input data is available.
-void symmetrically_split_overlapping_regions(std::vector<region<3>>& regions) {
+template <int Dims>
+void symmetrically_split_overlapping_regions(std::vector<region<Dims>>& regions) {
 restart:
 	for(size_t i = 0; i < regions.size(); ++i) {
 		for(size_t j = i + 1; j < regions.size(); ++j) {
@@ -158,11 +160,22 @@ restart:
 				regions[j] = region_difference(regions[j], intersection);
 				regions.push_back(std::move(intersection));
 				// if intersections above are actually subsets, we will end up with empty regions
-				regions.erase(std::remove_if(regions.begin(), regions.end(), std::mem_fn(&region<3>::empty)), regions.end());
+				regions.erase(std::remove_if(regions.begin(), regions.end(), std::mem_fn(&region<Dims>::empty)), regions.end());
 				goto restart; // NOLINT(cppcoreguidelines-avoid-goto)
 			}
 		}
 	}
+}
+
+/// Returns whether an iterator range of instruction pointers is topologically sorted, i.e. sequential execution would satisfy all internal dependencies.
+template <typename Iterator>
+bool is_topologically_sorted(Iterator begin, Iterator end) {
+	for(auto check = begin; check != end; ++check) {
+		for(const auto dep : (*check)->get_dependencies()) {
+			if(std::find_if(std::next(check), end, [dep](const auto& node) { return node->get_id() == dep; }) != end) return false;
+		}
+	}
+	return true;
 }
 
 constexpr auto max_num_memories = instruction_graph_generator::max_num_memories;

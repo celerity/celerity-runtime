@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dense_map.h"
+#include "grid.h"
 #include "ranges.h"
 #include "types.h"
 
@@ -148,3 +149,16 @@ class instruction_graph_generator {
 };
 
 } // namespace celerity::detail
+
+
+// forward declaration for tests
+
+namespace celerity::detail::instruction_graph_generator_detail {
+
+template <int Dims>
+bool boxes_edge_connected(const box<Dims>& box1, const box<Dims>& box2);
+
+template <int Dims>
+box_vector<Dims> connected_subregion_bounding_boxes(const region<Dims>& region);
+
+} // namespace celerity::detail::instruction_graph_generator_detail
