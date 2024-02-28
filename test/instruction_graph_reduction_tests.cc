@@ -6,6 +6,8 @@
 #include "instruction_graph_test_utils.h"
 #include "test_utils.h"
 
+#include <set>
+
 
 using namespace celerity;
 using namespace celerity::detail;
@@ -82,7 +84,9 @@ TEST_CASE("single-node single-device reductions locally include the initial buff
 TEST_CASE("reduction accesses on a single-node multi-device setup generate local reduce-instructions only",
     "[instruction_graph_generator][instruction-graph][reduction]") //
 {
-	const size_t num_devices = 2;
+	const auto num_devices = GENERATE(values<size_t>({2, 4}));
+	CAPTURE(num_devices);
+
 	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices);
 
 	auto buf = ictx.create_buffer<int, 1>(1);
@@ -132,16 +136,15 @@ TEST_CASE("reduction accesses on a single-node multi-device setup generate local
 TEST_CASE("reduction accesses on a multi-node single-device setup generate global reduce-instructions only",
     "[instruction_graph_generator][instruction-graph][reduction]") //
 {
-	const size_t num_nodes = 2;
+	const auto num_nodes = GENERATE(values<size_t>({2, 4}));
 	const auto local_nid = GENERATE(values<node_id>({0, 1}));
-	const node_id peer_nid = 1 - local_nid;
-	CAPTURE(local_nid, peer_nid);
+	CAPTURE(num_nodes, local_nid);
 
 	test_utils::idag_test_context ictx(num_nodes, local_nid, 1 /* num devices */);
 
 	auto buf = ictx.create_buffer<1>(1);
 	ictx.device_compute(range(256)).name("writer").reduce(buf, false /* include_current_buffer_value */).submit();
-	ictx.device_compute(range(256)).name("reader").read(buf, acc::all()).submit();
+	const auto reader_tid = ictx.device_compute(range(256)).name("reader").read(buf, acc::all()).submit();
 	ictx.finish();
 
 	const auto all_instrs = ictx.query_instructions();
@@ -154,14 +157,22 @@ TEST_CASE("reduction accesses on a multi-node single-device setup generate globa
 	CHECK(reduce->buffer_id == buf.get_id());
 	CHECK(reduce->box == box<3>(zeros, ones));
 
-	// we send partial results to the peer - this operation anti-depends on the reduce operation, which will overwrite its buffer
-	const auto send_to_peer = all_instrs.select_unique<send_instruction_record>();
-	CHECK(reduce.predecessors().contains(send_to_peer));
-	CHECK(send_to_peer->offset_in_buffer == zeros);
-	CHECK(send_to_peer->send_range == ones);
-	CHECK(send_to_peer->dest_node_id == peer_nid);
-	CHECK(send_to_peer->transfer_id.rid == reduce->reduction_id);
-	CHECK(send_to_peer->transfer_id.bid == buf.get_id());
+	// we send partial results to peers - this operation anti-depends on the reduce operation, which will overwrite its buffer
+	const auto all_sends_to_peers = all_instrs.select_all<send_instruction_record>();
+	CHECK(all_sends_to_peers.all_concurrent());
+
+	std::set<node_id> peers_sent_to;
+	for(const auto& send_to_peer : all_sends_to_peers.iterate()) {
+		CHECK(reduce.predecessors().contains(send_to_peer));
+		CHECK(send_to_peer->offset_in_buffer == zeros);
+		CHECK(send_to_peer->send_range == ones);
+		CHECK(send_to_peer->dest_node_id != local_nid);
+		CHECK(peers_sent_to.find(send_to_peer->dest_node_id) == peers_sent_to.end());
+		peers_sent_to.insert(send_to_peer->dest_node_id);
+		CHECK(send_to_peer->transfer_id.rid == reduce->reduction_id);
+		CHECK(send_to_peer->transfer_id.bid == buf.get_id());
+	}
+	CHECK(peers_sent_to.size() == num_nodes - 1);
 
 	// fill the gather-buffer before initiating the gather-receive because if the peer decides to not send a payload (but an empty pilot), the gather-recv can
 	// simply skip writing to the appropriate position in the gather buffer.
@@ -188,23 +199,24 @@ TEST_CASE("reduction accesses on a multi-node single-device setup generate globa
 	CHECK(gather_recv->gather_box == box<3>(zeros, ones));
 	CHECK(gather_recv->num_nodes == num_nodes);
 	CHECK(gather_recv->allocation_id == gather_copy->dest_allocation.id);
-	CHECK(gather_recv->transfer_id == send_to_peer->transfer_id);
+	CHECK(gather_recv->transfer_id.bid == buf.get_id());
+	CHECK(gather_recv->transfer_id.consumer_tid == reader_tid);
+	CHECK(gather_recv->transfer_id.rid == reduce->reduction_id);
 }
 
 TEST_CASE("reduction accesses on a multi-node multi-device setup generate global and local reduce-instructions",
     "[instruction_graph_generator][instruction-graph][reduction]") //
 {
-	const size_t num_nodes = 2;
-	const size_t num_devices = 2;
+	const size_t num_nodes = GENERATE(values<size_t>({2, 4}));
 	const auto local_nid = GENERATE(values<node_id>({0, 1}));
-	const node_id peer_nid = 1 - local_nid;
-	CAPTURE(local_nid, peer_nid);
+	const size_t num_devices = GENERATE(values<size_t>({2, 4}));
+	CAPTURE(num_nodes, local_nid, num_devices);
 
 	test_utils::idag_test_context ictx(num_nodes, local_nid, num_devices);
 
 	auto buf = ictx.create_buffer<1>(1);
 	ictx.device_compute(range(256)).name("writer").reduce(buf, false /* include_current_buffer_value */).submit();
-	ictx.device_compute(range(256)).name("reader").read(buf, acc::all()).submit();
+	const auto reader_tid = ictx.device_compute(range(256)).name("reader").read(buf, acc::all()).submit();
 	ictx.finish();
 
 	const auto all_instrs = ictx.query_instructions();
@@ -240,14 +252,22 @@ TEST_CASE("reduction accesses on a multi-node multi-device setup generate global
 	CHECK(global_reduce->num_source_values == num_nodes);
 
 	// we transmit the output of the local reduction, i.e. the partial result from local_nid, to our peers
-	const auto send_to_peer = all_instrs.select_unique<send_instruction_record>();
-	CHECK(global_reduce.predecessors().contains(send_to_peer));
-	CHECK(send_to_peer.predecessors() == local_reduce);
-	CHECK(send_to_peer->offset_in_buffer == zeros);
-	CHECK(send_to_peer->send_range == ones);
-	CHECK(send_to_peer->dest_node_id == peer_nid);
-	CHECK(send_to_peer->transfer_id.rid == global_reduce->reduction_id);
-	CHECK(send_to_peer->transfer_id.bid == buf.get_id());
+	const auto all_sends_to_peers = all_instrs.select_all<send_instruction_record>();
+	CHECK(all_sends_to_peers.all_concurrent());
+
+	std::set<node_id> peers_sent_to;
+	for(const auto& send_to_peer : all_sends_to_peers.iterate()) {
+		CHECK(global_reduce.predecessors().contains(send_to_peer));
+		CHECK(send_to_peer.predecessors() == local_reduce);
+		CHECK(send_to_peer->offset_in_buffer == zeros);
+		CHECK(send_to_peer->send_range == ones);
+		CHECK(send_to_peer->dest_node_id != local_nid);
+		CHECK(peers_sent_to.find(send_to_peer->dest_node_id) == peers_sent_to.end());
+		peers_sent_to.insert(send_to_peer->dest_node_id);
+		CHECK(send_to_peer->transfer_id.rid == global_reduce->reduction_id);
+		CHECK(send_to_peer->transfer_id.bid == buf.get_id());
+	}
+	CHECK(peers_sent_to.size() == num_nodes - 1);
 
 	// since we don't know how many non-empty contributions we receive from peers, we initialize the gather buffer with the reduction identity
 	const auto fill_identity = all_instrs.select_unique<fill_identity_instruction_record>();
@@ -266,7 +286,9 @@ TEST_CASE("reduction accesses on a multi-node multi-device setup generate global
 	CHECK(gather_recv.predecessors() == fill_identity);
 	CHECK(gather_recv->gather_box == box<3>(zeros, ones));
 	CHECK(gather_recv->num_nodes == num_nodes);
-	CHECK(gather_recv->transfer_id == send_to_peer->transfer_id);
+	CHECK(gather_recv->transfer_id.bid == buf.get_id());
+	CHECK(gather_recv->transfer_id.consumer_tid == reader_tid);
+	CHECK(gather_recv->transfer_id.rid == global_reduce->reduction_id);
 
 	// the local reduction could directly write to the global gather buffer, so we do not explicitly enumerate any copy-instructions between the two.
 	CHECK(global_reduce.transitive_predecessors_across<copy_instruction_record>().contains(local_reduce));
