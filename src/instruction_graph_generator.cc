@@ -532,7 +532,7 @@ class generator_impl {
 	std::unordered_map<collective_group_id, instruction_graph_generator_detail::collective_group_state> m_collective_groups;
 
 	/// The instruction executor maintains a mapping of allocation_id -> USM pointer. For IDAG-managed memory, these entries are deleted after executing a
-	/// `free_instruction`, but since user allocations are not deallocated by us, we notify the executor on each horizon or epoch  via the `instruction_garbage`
+	/// `free_instruction`, but since user allocations are not deallocated by us, we notify the executor on each horizon or epoch via the `instruction_garbage`
 	/// struct about entries that will no longer be used and can therefore be collected. We include user allocations for buffer fences immediately after
 	/// emitting the fence, and buffer host-initialization user allocations after the buffer has been destroyed.
 	std::vector<allocation_id> m_unreferenced_user_allocations;

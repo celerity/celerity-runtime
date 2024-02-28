@@ -210,8 +210,8 @@ TEST_CASE("reduction accesses on a multi-node multi-device setup generate global
 	const auto all_instrs = ictx.query_instructions();
 	CHECK(all_instrs.count<reduce_instruction_record>() == 2);
 
-	// at the writing o this test, the local reduction is generated eagerly and writes to a buffer host allocation. Its results are then fed into the global
-	// reduction one that command is compiled.
+	// At the time of writing this test, the local reduction is generated eagerly and writes to a buffer host allocation. Its results are then fed into the
+	// global reduction once that command is compiled.
 	const auto local_reduce = all_instrs.select_unique<reduce_instruction_record>(
 	    [](const reduce_instruction_record& rinstr) { return rinstr.scope == reduce_instruction_record::reduction_scope::local; });
 	CHECK(local_reduce->buffer_id == buf.get_id());

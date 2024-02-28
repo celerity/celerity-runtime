@@ -117,7 +117,7 @@ class instruction_query {
 		}
 	};
 
-	/// Check if `this` and `other` are concurrent, i.e. either is a transitive predecessor of the other.
+	/// Check if `this` and `other` are concurrent, i.e. neither is a transitive predecessor of the other.
 	bool is_concurrent_with(const instruction_query<>& other) const {
 		return !transitive_predecessors().contains(other) && !transitive_successors().contains(other);
 	}
@@ -517,7 +517,7 @@ class idag_test_context {
 
 	static memory_id get_native_memory(const device_id did) { return first_device_memory_id + did; }
 
-	/// Call this after issuing all submissions in order to triger the shutdown epoch together with all cleanup instructions.
+	/// Call this after issuing all submissions in order to trigger the shutdown epoch together with all cleanup instructions.
 	void finish() {
 		if(m_finished) return;
 

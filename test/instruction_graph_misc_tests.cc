@@ -243,7 +243,7 @@ TEST_CASE("epochs notify the executor of unreferenced user allocations after a b
 
 	test_utils::idag_test_context ictx(1 /* nodes */, 0 /* my nid */, 1 /* devices */);
 	(void)ictx.create_buffer<int>(range(256), host_initialized);
-	ictx.finish();
+	ictx.finish(); // destroys all live buffers
 
 	const auto all_instrs = ictx.query_instructions();
 	const auto shutdown_epoch = all_instrs.select_unique<epoch_instruction_record>(
@@ -345,7 +345,7 @@ TEST_CASE("epochs serialize execution and compact dependency tracking", "[instru
 	CHECK(barrier_epoch.transitive_successors() == union_of(host_alloc, d2h_copy, consumer, all_frees, destroy_ho, shutdown_epoch));
 
 	// there can be no dependencies from instructions after the epoch
-	CHECK(union_of(all_device_allocs, all_producers, barrier_epoch).contains(union_of(init_epoch, all_device_allocs, all_producers).successors()));
+	CHECK(union_of(all_device_allocs, all_producers, barrier_epoch) == union_of(init_epoch, all_device_allocs, all_producers).successors());
 
 	// there can be no dependencies to instructions before the epoch
 	CHECK(union_of(barrier_epoch, host_alloc, d2h_copy, consumer, all_frees, destroy_ho)
@@ -476,6 +476,8 @@ TEST_CASE("instruction_graph_generator throws in tests if it detects overlapping
 	}
 }
 
+// If there is no local last writer nor a pending await push for a buffer region being read, instruction_graph_generator should treat the memory being read from
+// as coherent and the alloc_instruction (or the horizon / epoch that subsumes it) as the last writer for establishing dependencies.
 TEST_CASE("instruction_graph_generator gracefully handles uninitialized reads when check is disabled", "[instruction_graph_generator]") {
 	test_utils::idag_test_context::policy_set policy;
 	policy.tm.uninitialized_read_error = error_policy::ignore;
