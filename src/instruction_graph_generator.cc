@@ -1990,10 +1990,7 @@ void generator_impl::compile(const abstract_command& cmd) {
 	flush_batch(std::move(command_batch));
 }
 
-std::string generator_impl::print_buffer_debug_label(const buffer_id bid) const {
-	const auto& debug_name = m_buffers.at(bid).debug_name;
-	return !debug_name.empty() ? fmt::format("B{} \"{}\"", bid, debug_name) : fmt::format("B{}", bid);
-}
+std::string generator_impl::print_buffer_debug_label(const buffer_id bid) const { return utils::make_buffer_debug_label(bid, m_buffers.at(bid).debug_name); }
 
 } // namespace celerity::detail::instruction_graph_generator_detail
 
