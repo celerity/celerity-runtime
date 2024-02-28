@@ -28,10 +28,9 @@ class StrongTypeAliasPrinter:
 
 class AllocationIdPrinter:
     def __init__(self, val: gdb.Value):
-        bits = int(val['m_bits'])
-        self.is_null = bits == 0
-        self.mid = (bits >> 56)
-        self.raid = (bits & 0x00ff_ffff_ffff_ffff)
+        self.mid = val['m_mid']
+        self.raid = val['m_raid']
+        self.is_null = self.mid == 0 and self.raid == 0
 
     def to_string(self) -> str:
         return 'M{}.A{}'.format(self.mid, self.raid) if not self.is_null else 'null'
