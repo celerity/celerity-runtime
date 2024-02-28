@@ -85,13 +85,11 @@ class allocation_id {
 	constexpr static size_t max_raw_allocation_id = (size_t(1) << raw_allocation_id_bits) - 1;
 
 	/// Constructs an allocation_id that does not point to memory (equivalent to `null_allocation_id`).
-	allocation_id() = default;
+	constexpr allocation_id() : m_mid(0), m_raid(0) {}
 
-	constexpr allocation_id(const memory_id mid, const raw_allocation_id raid) {
+	constexpr allocation_id(const memory_id mid, const raw_allocation_id raid) : m_mid(mid), m_raid(raid) {
 		assert(mid <= max_memory_id);
 		assert(raid <= max_raw_allocation_id);
-		m_mid = mid;
-		m_raid = raid;
 	}
 
 	constexpr memory_id get_memory_id() const { return m_mid; }
