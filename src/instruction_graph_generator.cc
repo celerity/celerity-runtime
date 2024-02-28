@@ -772,7 +772,8 @@ Instruction* generator_impl::create_internal(batch& batch, const std::tuple<Ctor
 		bool recorded = false;
 #endif
 		record_with([&](auto&&... debug_info) {
-			m_recorder->record(record_type_for_t<Instruction>(std::as_const(*instr), std::forward<decltype(debug_info)>(debug_info)...));
+			m_recorder->record_instruction(
+			    std::make_unique<record_type_for_t<Instruction>>(std::as_const(*instr), std::forward<decltype(debug_info)>(debug_info)...));
 #ifndef NDEBUG
 			recorded = true;
 #endif
@@ -796,13 +797,13 @@ message_id generator_impl::create_outbound_pilot(batch& current_batch, const nod
 	const message_id msgid = m_next_message_id++;
 	const outbound_pilot pilot{target, pilot_message{msgid, trid, box}};
 	current_batch.generated_pilots.push_back(pilot);
-	if(is_recording()) { m_recorder->record(pilot); }
+	if(is_recording()) { m_recorder->record_outbound_pilot(pilot); }
 	return msgid;
 }
 
 void generator_impl::add_dependency(instruction* const from, instruction* const to, const instruction_dependency_origin record_origin) {
 	from->add_dependency(to->get_id());
-	if(is_recording()) { m_recorder->record(instruction_dependency_record(to->get_id(), from->get_id(), record_origin)); }
+	if(is_recording()) { m_recorder->record_dependency(instruction_dependency_record(to->get_id(), from->get_id(), record_origin)); }
 	m_execution_front.erase(to->get_id());
 }
 
@@ -857,7 +858,7 @@ void generator_impl::collapse_execution_front_to(instruction* const horizon_or_e
 		// we can't use instruction_graph_generator::add_dependency since it modifies the m_execution_front which we're iterating over here
 		horizon_or_epoch->add_dependency(iid);
 		if(is_recording()) {
-			m_recorder->record(instruction_dependency_record(iid, horizon_or_epoch->get_id(), instruction_dependency_origin::execution_front));
+			m_recorder->record_dependency(instruction_dependency_record(iid, horizon_or_epoch->get_id(), instruction_dependency_origin::execution_front));
 		}
 	}
 	m_execution_front.clear();

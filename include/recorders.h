@@ -420,14 +420,11 @@ class instruction_recorder {
   public:
 	void record_await_push_command_id(const transfer_id& trid, const command_id cid);
 
-	template <typename InstructionRecord, std::enable_if_t<std::is_base_of_v<instruction_record, std::remove_reference_t<InstructionRecord>>, int> = 0>
-	void record(InstructionRecord&& record) {
-		m_recorded_instructions.push_back(std::make_unique<InstructionRecord>(std::forward<InstructionRecord>(record)));
-	}
+	void record_instruction(std::unique_ptr<instruction_record> record) { m_recorded_instructions.push_back(std::move(record)); }
 
-	void record(const outbound_pilot& pilot) { m_recorded_pilots.push_back(pilot); }
+	void record_outbound_pilot(const outbound_pilot& pilot) { m_recorded_pilots.push_back(pilot); }
 
-	void record(const instruction_dependency_record& dependency) { m_recorded_dependencies.push_back(dependency); }
+	void record_dependency(const instruction_dependency_record& dependency) { m_recorded_dependencies.push_back(dependency); }
 
 	const std::vector<std::unique_ptr<instruction_record>>& get_instructions() const { return m_recorded_instructions; }
 
