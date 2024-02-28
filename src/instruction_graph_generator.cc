@@ -86,8 +86,8 @@ bool boxes_edge_connected(const box<Dims>& box1, const box<Dims>& box2) {
 /// Subdivide a region into connected partitions (where connectivity is established by `boxes_edge_connected`) and return the bounding box of each partition.
 /// Note that the returned boxes are not necessarily disjoint event through the partitions always are.
 ///
-/// This logic is employed to find connected subregions that might be satisfied by a peer through a single `send_instruction` and thus requires a contiguous
-/// backing allocation.
+/// This logic is employed to find connected subregions in a pending-receive that might be satisfied by a peer through a single send operation and thus requires
+/// a contiguous backing allocation.
 template <int Dims>
 box_vector<Dims> connected_subregion_bounding_boxes(const region<Dims>& region) {
 	auto boxes = region.get_boxes();
