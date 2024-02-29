@@ -18,19 +18,12 @@ class async_event_base {
 	virtual ~async_event_base() = default;
 
 	virtual bool is_complete() const = 0;
-	virtual std::any take_result() { return {}; }
 };
 
 class complete_event final : public async_event_base {
   public:
 	complete_event() = default;
-	complete_event(std::any result) : m_result(std::move(result)) {}
-
 	bool is_complete() const override { return true; }
-	std::any take_result() override { return std::move(m_result); }
-
-  private:
-	std::any m_result;
 };
 
 class [[nodiscard]] async_event {
@@ -41,12 +34,6 @@ class [[nodiscard]] async_event {
 	bool is_complete() const {
 		assert(m_impl != nullptr);
 		return m_impl->is_complete();
-	}
-
-	std::any take_result() {
-		assert(m_impl != nullptr);
-		assert(m_impl->is_complete());
-		return m_impl->take_result();
 	}
 
   private:
