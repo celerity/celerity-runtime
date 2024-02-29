@@ -34,7 +34,7 @@ struct instruction_executor::incomplete_instruction_info {
 
 instruction_executor::instruction_executor(std::unique_ptr<backend::queue> backend_queue, std::unique_ptr<communicator> comm, delegate* dlg)
     : m_delegate(dlg), m_communicator(std::move(comm)), m_backend_queue(std::move(backend_queue)), m_recv_arbiter(*m_communicator),
-      m_thread(&instruction_executor::loop, this), m_alloc_pool(4) {
+      m_thread(&instruction_executor::thread_main, this), m_alloc_pool(4) {
 	set_thread_name(m_thread.native_handle(), "cy-executor");
 }
 
