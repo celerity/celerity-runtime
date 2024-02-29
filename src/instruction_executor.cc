@@ -76,24 +76,6 @@ struct instruction_priority_less {
 	bool operator()(const instruction* lhs, const instruction* rhs) const { return lhs->get_priority() < rhs->get_priority(); }
 };
 
-// TODO dupe of host_queue::future_event
-template <typename Result = void>
-class future_event final : public async_event_base {
-  public:
-	future_event(std::future<Result> future) : m_future(std::move(future)) {}
-
-	bool is_complete() const override { return m_future.wait_for(std::chrono::seconds(0)) == std::future_status::ready; }
-
-	std::any take_result() override {
-		if constexpr(!std::is_void_v<Result>) { return m_future.get(); }
-		return std::any();
-	}
-
-  private:
-	std::future<Result> m_future;
-};
-
-
 void instruction_executor::loop() {
 	m_backend_queue->init();
 
