@@ -17,10 +17,7 @@
 #include "accessor.h"
 #include "command.h"
 #include "command_graph.h"
-#include "device_queue.h"
 #include "distributed_graph_generator.h"
-#include "graph_serializer.h"
-#include "instruction_graph_generator.h"
 #include "print_graph.h"
 #include "range_mapper.h"
 #include "region_map.h"
@@ -45,20 +42,49 @@
  */
 #define REQUIRE_LOOP(...) CELERITY_DETAIL_REQUIRE_LOOP(__VA_ARGS__)
 
-#define SKIP_BECAUSE_NO_SCALAR_REDUCTIONS SKIP("CELERITY_FEATURE_SCALAR_REDUCTIONS == 0");
-
 namespace celerity {
 namespace detail {
 
 	const std::unordered_map<std::string, std::string> print_graphs_env_setting{{"CELERITY_PRINT_GRAPHS", "1"}};
 
+	struct scheduler_testspy {
+		static std::thread& get_thread(scheduler& schdlr) { return schdlr.m_thread; }
+
+		static void wait_idle(scheduler& schdlr) {
+			std::atomic<bool> idle = false;
+			schdlr.notify(scheduler::test_event_signal_idle{&idle});
+			while(!idle) {} // busy-wait
+		}
+
+		static size_t get_command_count(scheduler& schdlr) {
+			wait_idle(schdlr);
+			return schdlr.m_cdag->command_count();
+		}
+
+		static size_t get_live_instruction_count(scheduler& schdlr) {
+			wait_idle(schdlr);
+			return schdlr.m_idag->get_live_instruction_count();
+		}
+	};
+
 	struct runtime_testspy {
 		static scheduler& get_schdlr(runtime& rt) { return *rt.m_schdlr; }
 		static executor& get_exec(runtime& rt) { return *rt.m_exec; }
-		static size_t get_command_count(runtime& rt) { return rt.m_cdag->command_count(); }
-		static command_graph& get_cdag(runtime& rt) { return *rt.m_cdag; }
-		static std::string print_task_graph(runtime& rt) { return detail::print_task_graph(*rt.m_task_recorder); }
-		static std::string print_command_graph(const node_id local_nid, runtime& rt) { return detail::print_command_graph(local_nid, *rt.m_command_recorder); }
+
+		static std::string print_task_graph(runtime& rt) {
+			scheduler_testspy::wait_idle(get_schdlr(rt));
+			return detail::print_task_graph(*rt.m_task_recorder);
+		}
+
+		static std::string print_command_graph(const node_id local_nid, runtime& rt) {
+			scheduler_testspy::wait_idle(get_schdlr(rt));
+			return detail::print_command_graph(local_nid, *rt.m_command_recorder);
+		}
+
+		static std::string print_instruction_graph(runtime& rt) {
+			scheduler_testspy::wait_idle(get_schdlr(rt));
+			return detail::print_instruction_graph(*rt.m_instruction_recorder, *rt.m_command_recorder, *rt.m_task_recorder);
+		}
 	};
 
 	struct task_ring_buffer_testspy {
@@ -88,9 +114,7 @@ namespace detail {
 	};
 
 	struct config_testspy {
-		static void set_mock_device_cfg(config& cfg, const device_config& d_cfg) { cfg.m_device_cfg = d_cfg; }
 		static void set_mock_host_cfg(config& cfg, const host_config& h_cfg) { cfg.m_host_cfg = h_cfg; }
-		static std::optional<device_config> get_device_config(config& cfg) { return cfg.m_device_cfg; }
 	};
 
 
@@ -229,7 +253,7 @@ namespace test_utils {
 			const auto user_allocation_id =
 			    mark_as_host_initialized ? detail::allocation_id(detail::user_memory_id, m_next_user_allocation_id++) : detail::null_allocation_id;
 			if(m_task_mngr != nullptr) { m_task_mngr->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
-			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
+			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_created(bid, detail::range_cast<3>(size), sizeof(int), alignof(int), user_allocation_id); }
 			if(m_dggen != nullptr) { m_dggen->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
 			if(m_iggen != nullptr) { m_iggen->notify_buffer_created(bid, detail::range_cast<3>(size), sizeof(int), alignof(int), user_allocation_id); }
 			return buf;
@@ -253,7 +277,7 @@ namespace test_utils {
 		mock_host_object create_host_object(bool owns_instance = true) {
 			const detail::host_object_id hoid = m_next_id++;
 			if(m_task_mngr != nullptr) { m_task_mngr->notify_host_object_created(hoid); }
-			if(m_schdlr != nullptr) { m_schdlr->notify_host_object_created(hoid); }
+			if(m_schdlr != nullptr) { m_schdlr->notify_host_object_created(hoid, owns_instance); }
 			return mock_host_object(hoid);
 		}
 
@@ -358,46 +382,31 @@ namespace test_utils {
 	template <int>
 	struct runtime_fixture_dims : test_utils::runtime_fixture {};
 
-	class device_queue_fixture : public mpi_fixture { // mpi_fixture for config
+	class sycl_queue_fixture {
 	  public:
-		device_queue_fixture() = default;
-		device_queue_fixture(const device_queue_fixture&) = delete;
-		device_queue_fixture(device_queue_fixture&&) = delete;
-		device_queue_fixture& operator=(const device_queue_fixture&) = delete;
-		device_queue_fixture& operator=(device_queue_fixture&&) = delete;
-		~device_queue_fixture();
+		sycl_queue_fixture() {
+			try {
+				m_queue = sycl::queue(sycl::gpu_selector_v);
+			} catch(sycl::exception&) { SKIP("no GPUs available"); }
+		}
 
-		detail::device_queue& get_device_queue();
-
-	  private:
-		std::unique_ptr<detail::config> m_cfg;
-		std::unique_ptr<detail::device_queue> m_dq;
-	};
-
-	class sycl_queue_fixture : public device_queue_fixture {
-	  public:
-		sycl::queue& get_sycl_queue() { return get_device_queue().get_sycl_queue(); }
+		sycl::queue& get_sycl_queue() { return m_queue; }
 
 		// Convenience function for submitting parallel_for with global offset without having to create a CGF
 		template <int Dims, typename KernelFn>
 		void parallel_for(const range<Dims>& global_range, const id<Dims>& global_offset, KernelFn fn) {
-			get_sycl_queue().submit([=](sycl::handler& cgh) {
+			m_queue.submit([=](sycl::handler& cgh) {
 				cgh.parallel_for(sycl::range<Dims>{global_range}, detail::bind_simple_kernel(fn, global_range, global_offset, global_offset));
 			});
-			get_sycl_queue().wait_and_throw();
+			m_queue.wait_and_throw();
 		}
+
+	  private:
+		sycl::queue m_queue;
 	};
 
 	// Printing of graphs can be enabled using the "--print-graphs" command line flag
-	inline bool print_graphs = false;
-
-	inline void maybe_print_task_graph(const detail::task_recorder& trec) {
-		if(print_graphs) { CELERITY_INFO("Task graph:\n\n{}\n", detail::print_task_graph(trec)); }
-	}
-
-	inline void maybe_print_command_graph(const detail::node_id local_nid, const detail::command_recorder& crec) {
-		if(print_graphs) { CELERITY_INFO("Command graph:\n\n{}\n", detail::print_command_graph(local_nid, crec)); }
-	}
+	extern bool g_print_graphs;
 
 	struct task_test_context {
 		detail::task_recorder trec;
@@ -406,8 +415,12 @@ namespace test_utils {
 		mock_host_object_factory mhof;
 		mock_reduction_factory mrf;
 
-		explicit task_test_context(const detail::task_manager::policy_set& policy = {}) : tm(1, nullptr, &trec, policy), mbf(tm), mhof(tm) {}
-		~task_test_context() { maybe_print_task_graph(trec); }
+		explicit task_test_context(const detail::task_manager::policy_set& policy = {}) : tm(1, &trec, policy), mbf(tm), mhof(tm) {}
+		task_test_context(const task_test_context&) = delete;
+		task_test_context(task_test_context&&) = delete;
+		task_test_context& operator=(const task_test_context&) = delete;
+		task_test_context& operator=(task_test_context&&) = delete;
+		~task_test_context();
 	};
 
 	// explicitly invoke a copy constructor without repeating the type
@@ -463,28 +476,28 @@ namespace test_utils {
 
 namespace celerity::test_utils::access {
 
-struct reverse_one_to_one {
-	template <int Dims>
-	subrange<Dims> operator()(chunk<Dims> ck) const {
-		subrange<Dims> sr;
-		for(int d = 0; d < Dims; ++d) {
-			sr.offset[d] = ck.global_size[d] - ck.range[d] - ck.offset[d];
-			sr.range[d] = ck.range[d];
+	struct reverse_one_to_one {
+		template <int Dims>
+		subrange<Dims> operator()(chunk<Dims> ck) const {
+			subrange<Dims> sr;
+			for(int d = 0; d < Dims; ++d) {
+				sr.offset[d] = ck.global_size[d] - ck.range[d] - ck.offset[d];
+				sr.range[d] = ck.range[d];
+			}
+			return sr;
 		}
-		return sr;
-	}
-};
+	};
 
-template <int Dims>
-static celerity::access::neighborhood<Dims> make_neighborhood(const size_t border) {
-	if constexpr(Dims == 1) {
-		return celerity::access::neighborhood<1>(border);
-	} else if constexpr(Dims == 2) {
-		return celerity::access::neighborhood<2>(border, border);
-	} else if constexpr(Dims == 3) {
-		return celerity::access::neighborhood<3>(border, border, border);
+	template <int Dims>
+	static celerity::access::neighborhood<Dims> make_neighborhood(const size_t border) {
+		if constexpr(Dims == 1) {
+			return celerity::access::neighborhood<1>(border);
+		} else if constexpr(Dims == 2) {
+			return celerity::access::neighborhood<2>(border, border);
+		} else if constexpr(Dims == 3) {
+			return celerity::access::neighborhood<3>(border, border, border);
+		}
 	}
-}
 
 } // namespace celerity::test_utils::access
 

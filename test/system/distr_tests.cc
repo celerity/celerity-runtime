@@ -21,7 +21,6 @@ namespace detail {
 	};
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "simple reductions produce the expected results", "[reductions]") {
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		size_t N = 1000;
 		buffer<size_t, 1> sum_buf{{1}};
 		buffer<size_t, 1> max_buf{{1}};
@@ -46,18 +45,14 @@ namespace detail {
 				CHECK(max_acc[0] == N);
 			});
 		});
-#else
-		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
-#endif
 	}
 
 	// Regression test: The host -> device transfer previously caused an illegal nested sycl::queue::submit call which deadlocks
 	// Distributed test, since the single-node case optimizes the reduction command away
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "reduction commands perform host -> device transfers if necessary", "[reductions]") {
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		distr_queue q;
 
-		REQUIRE(runtime::get_instance().get_num_nodes() > 1);
+		// TODO skip for single-node single-device
 
 		const int N = 1000;
 		const int init = 42;
@@ -71,13 +66,9 @@ namespace detail {
 			accessor acc{sum, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			cgh.host_task(on_master_node, [=] { CHECK(acc[0] == N + init); });
 		});
-#else
-		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
-#endif
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "multiple chained reductions produce correct results", "[reductions]") {
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		distr_queue q;
 
 		const int N = 1000;
@@ -97,14 +88,10 @@ namespace detail {
 			accessor acc{sum, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			cgh.host_task(on_master_node, [=] { CHECK(acc[0] == 3 * N); });
 		});
-#else
-		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
-#endif
 	}
 
 	TEST_CASE_METHOD(
 	    test_utils::runtime_fixture, "subsequently requiring reduction results on different subsets of nodes produces correct data flow", "[reductions]") {
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		distr_queue q;
 
 		const int N = 1000;
@@ -129,17 +116,14 @@ namespace detail {
 				CHECK(acc[0] == expected);
 			});
 		});
-#else
-		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
-#endif
 	}
 
 	TEST_CASE_METHOD(
 	    test_utils::runtime_fixture, "runtime-shutdown graph printing works in the presence of a finished reduction", "[reductions][print_graph][smoke-test]") {
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		env::scoped_test_environment test_env(print_graphs_env_setting);
-
+		// init runtime early so the distr_queue ctor doesn't override the log level set by log_capture
 		runtime::init(nullptr, nullptr);
+
 		const bool is_node_0 = runtime::get_instance().get_local_nid() == 0; // runtime instance is gone after queue destruction
 
 		{
@@ -161,9 +145,6 @@ namespace detail {
 			CHECK(test_utils::log_contains_substring(log_level::info, "(R1) <b>await push</b>"));
 			CHECK(test_utils::log_contains_substring(log_level::info, "<b>reduction</b> R1<br/> B0 {[0,0,0] - [1,1,1]}"));
 		}
-#else
-		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
-#endif
 	}
 
 	template <int Dims>

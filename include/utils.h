@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <typeinfo>
 #include <variant>

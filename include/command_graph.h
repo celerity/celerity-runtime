@@ -1,8 +1,6 @@
 #pragma once
 
 #include <memory>
-#include <optional>
-#include <string>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
@@ -10,12 +8,11 @@
 
 #include "command.h"
 #include "types.h"
+#include "utils.h"
 
 namespace celerity {
 namespace detail {
 
-	class buffer_manager;
-	class reduction_manager;
 	class task_manager;
 
 	// TODO: Could be extended (using SFINAE) to support additional iterator types (e.g. random access)

@@ -43,9 +43,8 @@ class side_effect {
   private:
 	instance_type* m_instance;
 
-	side_effect(ctor_internal_tag /* tag */, const host_object<T>& object, handler& cgh) : m_instance{&detail::get_host_object_instance(object)} {
+	side_effect(ctor_internal_tag /* tag */, const host_object<T>& object, handler& cgh) : m_instance{detail::get_host_object_instance(object)} {
 		detail::add_requirement(cgh, detail::get_host_object_id(object), order, false);
-		detail::extend_lifetime(cgh, detail::get_lifetime_extending_state(object));
 	}
 };
 
@@ -55,10 +54,7 @@ class side_effect<void, Order> {
 	using instance_type = typename host_object<void>::instance_type;
 	constexpr static inline side_effect_order order = Order;
 
-	explicit side_effect(const host_object<void>& object, handler& cgh) {
-		detail::add_requirement(cgh, detail::get_host_object_id(object), order, true);
-		detail::extend_lifetime(cgh, detail::get_lifetime_extending_state(object));
-	}
+	explicit side_effect(const host_object<void>& object, handler& cgh) { detail::add_requirement(cgh, detail::get_host_object_id(object), order, true); }
 
 	// Note: We don't register the side effect with CGF diagnostics b/c it makes little sense to capture void side effects.
 };

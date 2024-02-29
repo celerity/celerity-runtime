@@ -111,7 +111,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	const auto device_idx = std::atoi(argv[1]);
-	celerity::distr_queue q{all_devices[device_idx]};
+	celerity::distr_queue q{{all_devices[device_idx]}};
 
 	test_copy<1>(q);
 	test_copy<2>(q);

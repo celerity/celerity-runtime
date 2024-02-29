@@ -1,112 +1,47 @@
 #pragma once
 
-#include <chrono>
-#include <thread>
+#include "types.h"
 
-#include "buffer_transfer_manager.h"
-#include "command.h"
-#include "worker_job.h"
+#include <memory>
 
-namespace celerity {
+namespace celerity::detail {
 
-namespace detail {
+struct host_object_instance;
+class instruction;
+struct outbound_pilot;
+class runtime_reduction;
 
-	class host_queue;
-	class device_queue;
-	class task_manager;
-	class buffer_manager;
-
-	class duration_metric {
-	  public:
-		void resume();
-		void pause();
-		bool is_running() const { return m_running; }
-		std::chrono::microseconds get() const { return m_duration; }
-
-	  private:
-		bool m_running = false;
-		std::chrono::steady_clock m_clock;
-		std::chrono::time_point<std::chrono::steady_clock> m_current_start;
-		std::chrono::microseconds m_duration = {};
-	};
-
-	struct executor_metrics {
-		// How much time occurs before the first job is started
-		duration_metric initial_idle;
-		// How much is spent not executing any device compute job
-		duration_metric device_idle;
-		// How much time is spent without any jobs (excluding initial idle)
-		duration_metric starvation;
-	};
-
-	class executor {
-		friend struct executor_testspy;
+class executor {
+  public:
+	class delegate {
+	  protected:
+		delegate() = default;
+		delegate(const delegate&) = default;
+		delegate(delegate&&) = default;
+		delegate& operator=(const delegate&) = default;
+		delegate& operator=(delegate&&) = default;
+		~delegate() = default; // do not allow destruction through base pointer
 
 	  public:
-		// TODO: Try to decouple this more.
-		executor(const size_t num_nodes, const node_id local_nid, host_queue& h_queue, device_queue& d_queue, task_manager& tm, buffer_manager& buffer_mngr,
-		    reduction_manager& reduction_mngr);
-
-		void startup();
-
-		void enqueue(command_pkg&& pkg) {
-			std::scoped_lock lk(m_command_queue_mutex);
-			m_command_queue.push(std::move(pkg));
-		}
-
-		/**
-		 * @brief Waits until all commands have been processed, and the SHUTDOWN command has been received.
-		 */
-		void shutdown();
-
-	  private:
-		node_id m_local_nid;
-		host_queue& m_h_queue;
-		device_queue& m_d_queue;
-		task_manager& m_task_mngr;
-		// FIXME: We currently need this for buffer locking in some jobs, which is a bit of a band-aid fix. Get rid of this at some point.
-		buffer_manager& m_buffer_mngr;
-		reduction_manager& m_reduction_mngr;
-		std::unique_ptr<buffer_transfer_manager> m_btm;
-		std::thread m_exec_thrd;
-		size_t m_running_device_compute_jobs = 0;
-
-		std::mutex m_command_queue_mutex;
-		std::queue<command_pkg> m_command_queue;
-
-		// Jobs are identified by the command id they're processing
-
-		struct job_handle {
-			std::unique_ptr<worker_job> job;
-			command_type cmd;
-			std::vector<command_id> dependents;
-			size_t unsatisfied_dependencies;
-		};
-
-		std::unordered_map<command_id, job_handle> m_jobs;
-
-		executor_metrics m_metrics;
-		bool m_first_command_received = false;
-
-		template <typename Job, typename... Args>
-		void create_job(const command_pkg& pkg, Args&&... args) {
-			m_jobs[pkg.cid] = {std::make_unique<Job>(pkg, std::forward<Args>(args)...), pkg.get_command_type(), {}, 0};
-
-			// If job doesn't exist we assume it has already completed.
-			// This is true as long as we're respecting task-graph (anti-)dependencies when processing tasks.
-			for(const auto dcid : pkg.dependencies) {
-				if(const auto it = m_jobs.find(dcid); it != m_jobs.end()) {
-					it->second.dependents.push_back(pkg.cid);
-					m_jobs[pkg.cid].unsatisfied_dependencies++;
-				}
-			}
-		}
-
-		void run();
-		bool handle_command(const command_pkg& pkg);
-
-		void update_metrics();
+		virtual void horizon_reached(task_id tid) = 0;
+		virtual void epoch_reached(task_id tid) = 0;
 	};
 
-} // namespace detail
-} // namespace celerity
+	executor() = default;
+	executor(const executor&) = delete;
+	executor(executor&&) = delete;
+	executor& operator=(const executor&) = delete;
+	executor& operator=(executor&&) = delete;
+	virtual ~executor() = default;
+
+	virtual void wait() = 0;
+
+	virtual void submit_instruction(const instruction* instr) = 0;
+	virtual void submit_pilot(const outbound_pilot& pilot) = 0;
+
+	virtual void announce_user_allocation(allocation_id aid, void* ptr) = 0;
+	virtual void announce_host_object_instance(host_object_id hoid, std::unique_ptr<host_object_instance> instance) = 0;
+	virtual void announce_reduction(reduction_id rid, std::unique_ptr<runtime_reduction> reduction) = 0;
+};
+
+} // namespace celerity::detail

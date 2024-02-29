@@ -55,3 +55,99 @@
 #else
 #define CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(...)
 #endif
+
+
+#if CELERITY_WORKAROUND(HIPSYCL)
+
+namespace hipsycl::sycl::detail {
+
+template <class T>
+struct element_type {
+	using type = T;
+};
+
+template <class T, int Dim>
+struct element_type<vec<T, Dim>> {
+	using type = T;
+};
+
+template <typename T>
+using element_type_t = typename element_type<T>::type;
+
+template <typename BinaryOperation, typename AccumulatorT, typename Enable = void>
+struct known_identity_trait {
+	static constexpr bool has_known_identity = false;
+};
+
+template <typename T, typename Enable = void>
+struct minmax_identity {
+	inline static constexpr T max_id = static_cast<T>(std::numeric_limits<T>::lowest());
+	inline static constexpr T min_id = static_cast<T>(std::numeric_limits<T>::max());
+};
+
+template <typename T>
+struct minmax_identity<T, std::enable_if_t<std::numeric_limits<T>::has_infinity>> {
+	inline static constexpr T max_id = static_cast<T>(-std::numeric_limits<T>::infinity());
+	inline static constexpr T min_id = static_cast<T>(std::numeric_limits<T>::infinity());
+};
+
+#define HIPSYCL_DEFINE_IDENTITY(op, cond, identity)                                                                                                            \
+	template <typename T, typename U>                                                                                                                          \
+	struct known_identity_trait<op<T>, U, std::enable_if_t<cond>> {                                                                                            \
+		inline static constexpr bool has_known_identity = true;                                                                                                \
+		inline static constexpr std::remove_cv_t<T> known_identity = (identity);                                                                               \
+	};                                                                                                                                                         \
+	template <typename T>                                                                                                                                      \
+	struct known_identity_trait<op<void>, T, std::enable_if_t<cond>> {                                                                                         \
+		inline static constexpr bool has_known_identity = true;                                                                                                \
+		inline static constexpr std::remove_cv_t<T> known_identity = (identity);                                                                               \
+	}
+
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wbool-operation" // allow ~bool, bool & bool
+#endif
+
+HIPSYCL_DEFINE_IDENTITY(plus, std::is_arithmetic_v<element_type_t<T>>, T{});
+HIPSYCL_DEFINE_IDENTITY(multiplies, std::is_arithmetic_v<element_type_t<T>>, T{static_cast<element_type_t<T>>(1)});
+HIPSYCL_DEFINE_IDENTITY(bit_or, std::is_integral_v<element_type_t<T>>, T{});
+HIPSYCL_DEFINE_IDENTITY(bit_and, std::is_integral_v<element_type_t<T>>, T{static_cast<element_type_t<T>>(~element_type_t<T>{})});
+HIPSYCL_DEFINE_IDENTITY(bit_xor, std::is_integral_v<element_type_t<T>>, T{});
+HIPSYCL_DEFINE_IDENTITY(logical_or, (std::is_same_v<element_type_t<std::remove_cv_t<T>>, bool>), T{false});
+HIPSYCL_DEFINE_IDENTITY(logical_and, (std::is_same_v<element_type_t<std::remove_cv_t<T>>, bool>), T{true});
+HIPSYCL_DEFINE_IDENTITY(minimum, std::is_arithmetic_v<element_type_t<T>>, T{minmax_identity<element_type_t<std::remove_cv_t<T>>>::min_id});
+HIPSYCL_DEFINE_IDENTITY(maximum, std::is_arithmetic_v<element_type_t<T>>, T{minmax_identity<element_type_t<std::remove_cv_t<T>>>::max_id});
+
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
+
+#undef HIPSYCL_DEFINE_IDENTITY
+
+} // namespace hipsycl::sycl::detail
+
+namespace hipsycl::sycl {
+
+template <typename BinaryOperation, typename AccumulatorT>
+struct known_identity {
+	static constexpr AccumulatorT value = detail::known_identity_trait<BinaryOperation, AccumulatorT>::known_identity;
+};
+
+template <typename BinaryOperation, typename AccumulatorT>
+inline constexpr AccumulatorT known_identity_v = known_identity<BinaryOperation, AccumulatorT>::value;
+
+template <typename BinaryOperation, typename AccumulatorT>
+struct has_known_identity {
+	static constexpr bool value = detail::known_identity_trait<BinaryOperation, AccumulatorT>::has_known_identity;
+};
+
+template <typename BinaryOperation, typename AccumulatorT>
+inline constexpr bool has_known_identity_v = has_known_identity<BinaryOperation, AccumulatorT>::value;
+
+} // namespace hipsycl::sycl
+
+namespace hipsycl::sycl::property::reduction {
+class initialize_to_identity : public hipsycl::sycl::detail::property {};
+} // namespace hipsycl::sycl::property::reduction
+
+#endif

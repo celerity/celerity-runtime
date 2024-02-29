@@ -7,6 +7,7 @@
 #include "split.h"
 #include "task.h"
 #include "task_manager.h"
+#include "tracy.h"
 
 namespace celerity::detail {
 
@@ -21,7 +22,6 @@ distributed_graph_generator::distributed_graph_generator(
 	// We manually generate the first command, this will be replaced by applied horizons or explicit epochs down the line (see
 	// set_epoch_for_new_commands).
 	auto* const epoch_cmd = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none, std::vector<reduction_id>{});
-	epoch_cmd->mark_as_flushed(); // there is no point in flushing the initial epoch command
 	if(m_recorder != nullptr) {
 		const auto epoch_tsk = tm.get_task(task_manager::initial_epoch_task);
 		m_recorder->record(command_record(*epoch_cmd, *epoch_tsk, {}));
@@ -100,6 +100,9 @@ std::vector<abstract_command*> sort_topologically(command_set unmarked) {
 }
 
 command_set distributed_graph_generator::build_task(const task& tsk) {
+	CELERITY_DETAIL_TRACY_SCOPED_ZONE("cdag::build", WebMaroon, "CDAG");
+	CELERITY_DETAIL_TRACY_ZONE_TEXT("build T{}", tsk.get_id());
+
 	assert(m_current_cmd_batch.empty());
 	[[maybe_unused]] const auto cmd_count_before = m_cdag.command_count();
 

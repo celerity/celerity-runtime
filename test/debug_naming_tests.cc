@@ -47,12 +47,11 @@ TEST_CASE("debug names can be set and retrieved from tasks", "[debug]") {
 	}
 }
 
-TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer_manager allows to set buffer debug names on  buffers", "[buffer_manager]") {
+TEST_CASE_METHOD(test_utils::runtime_fixture, "buffers allow setting and retrieving debug names", "[debug]") {
 	celerity::buffer<int, 1> buff_a(16);
 	std::string buff_name{"my_buffer"};
-	std::string buffer_label{fmt::format("B{} \"{}\"", detail::get_buffer_id(buff_a), buff_name)};
-	celerity::detail::runtime::get_instance().get_buffer_manager().set_debug_name(celerity::detail::get_buffer_id(buff_a), buff_name);
-	CHECK(detail::runtime::get_instance().get_buffer_manager().get_debug_label(detail::get_buffer_id(buff_a)) == buffer_label);
+	debug::set_buffer_name(buff_a, buff_name);
+	CHECK(debug::get_buffer_name(buff_a) == buff_name);
 }
 
 
@@ -64,7 +63,7 @@ template <typename T>
 class MyThirdKernel;
 
 TEST_CASE("device_compute tasks derive debug name from kernel name", "[task]") {
-	auto tm = celerity::detail::task_manager(1, nullptr, {});
+	auto tm = celerity::detail::task_manager(1, nullptr);
 	const auto t1 = tm.get_task(tm.submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(range<1>{1}, [](id<1>) {}); }));
 	const auto t2 = tm.get_task(tm.submit_command_group([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(range<1>{1}, [](id<1>) {}); }));
 	const auto t3 = tm.get_task(tm.submit_command_group([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(range<1>{1}, [](id<1>) {}); }));

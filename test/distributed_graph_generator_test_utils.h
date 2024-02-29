@@ -1,7 +1,5 @@
 #pragma once
 
-#include <deque>
-#include <exception>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -508,8 +506,7 @@ class dist_cdag_test_context {
 		distributed_graph_generator::policy_set dggen;
 	};
 
-	dist_cdag_test_context(const size_t num_nodes, const policy_set& policy = {})
-	    : m_num_nodes(num_nodes), m_tm(num_nodes, nullptr /* host_queue */, &m_task_recorder, policy.tm) {
+	dist_cdag_test_context(const size_t num_nodes, const policy_set& policy = {}) : m_num_nodes(num_nodes), m_tm(num_nodes, &m_task_recorder, policy.tm) {
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			m_cdags.emplace_back(std::make_unique<command_graph>());
 			m_cmd_recorders.emplace_back(std::make_unique<command_recorder>());
@@ -614,7 +611,6 @@ class dist_cdag_test_context {
 	host_object_id m_next_host_object_id = 0;
 	reduction_id m_next_reduction_id = 1; // Start from 1 as rid 0 designates "no reduction" in push commands
 	std::optional<task_id> m_most_recently_built_horizon;
-	reduction_manager m_rm;
 	task_recorder m_task_recorder;
 	task_manager m_tm;
 	std::vector<std::unique_ptr<command_graph>> m_cdags;
@@ -646,13 +642,16 @@ class dist_cdag_test_context {
 	}
 
 	void maybe_log_graphs() {
-		if(test_utils::print_graphs) {
-			CELERITY_INFO("Task graph:\n\n{}\n", print_task_graph());
+		if(test_utils::g_print_graphs) {
+			fmt::print("{}\n", std::string(79, '-'));
+			if(const auto capture = Catch::getCurrentContext().getResultCapture()) { fmt::print("DAGs for [{}]\n", capture->getCurrentTestName()); }
+			fmt::print("\n{}\n", print_task_graph());
 			std::vector<std::string> graphs;
 			for(node_id nid = 0; nid < m_num_nodes; ++nid) {
 				graphs.push_back(print_command_graph(nid));
 			}
-			CELERITY_INFO("Command graph:\n\n{}\n", combine_command_graphs(graphs));
+			fmt::print("\n{}\n", combine_command_graphs(graphs, make_test_graph_title("Command Graph")));
+			fmt::print("\n{}\n\n", std::string(79, '-'));
 		}
 	}
 

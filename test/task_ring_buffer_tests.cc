@@ -15,8 +15,9 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "freeing task ring buffer capacity
 
 	std::atomic<bool> reached_ringbuffer_capacity = false;
 
+	auto& tm = runtime::get_instance().get_task_manager(); // we promise using task_manager in a thread safe manner
 	auto observer = std::thread([&] {
-		while(runtime::get_instance().get_task_manager().get_total_task_count() < task_ringbuffer_size)
+		while(tm.get_total_task_count() < task_ringbuffer_size)
 			;
 		reached_ringbuffer_capacity = true;
 	});

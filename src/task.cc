@@ -1,7 +1,5 @@
 #include "task.h"
-
 #include "access_modes.h"
-#include "utils.h"
 
 
 namespace celerity {

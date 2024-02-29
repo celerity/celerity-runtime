@@ -33,6 +33,7 @@ int main(int argc, char* argv[]) {
 	bool valid = true;
 	for(size_t i = 0; i < buf_size; i++) {
 		if(host_buf[i] != 2 * i) {
+			CELERITY_ERROR("got {}, expected {}", host_buf[i], 2 * i);
 			valid = false;
 			break;
 		}

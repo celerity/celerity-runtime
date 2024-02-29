@@ -8,7 +8,6 @@
 #include <unordered_map>
 
 #include "handler.h"
-#include "host_queue.h"
 #include "region_map.h"
 #include "task.h"
 #include "task_ring_buffer.h"
@@ -63,7 +62,7 @@ namespace detail {
 
 		constexpr inline static task_id initial_epoch_task = 0;
 
-		task_manager(size_t num_collective_nodes, host_queue* queue, detail::task_recorder* recorder, const policy_set& policy = default_policy_set());
+		task_manager(size_t num_collective_nodes, detail::task_recorder* recorder, const policy_set& policy = default_policy_set());
 
 		virtual ~task_manager() = default;
 
@@ -76,11 +75,6 @@ namespace detail {
 			cgf(cgh);
 
 			auto unique_tsk = into_task(std::move(cgh));
-
-			// Require the collective group before inserting the task into the ring buffer, otherwise the executor will try to schedule the collective host
-			// task on a collective-group thread that does not yet exist.
-			// The queue pointer will be null in non-runtime tests.
-			if(m_queue) m_queue->require_collective_group(unique_tsk->get_collective_group_id());
 
 			auto& tsk = register_task_internal(std::move(reservation), std::move(unique_tsk));
 			compute_dependencies(tsk);
@@ -149,6 +143,7 @@ namespace detail {
 
 		/**
 		 * @brief Shuts down the task_manager, freeing all stored tasks.
+		 TODO remove, runtime calls the destructor instead
 		 */
 		void shutdown() { m_task_buffer.clear(); }
 
@@ -206,7 +201,6 @@ namespace detail {
 		};
 
 		const size_t m_num_collective_nodes;
-		host_queue* m_queue;
 		policy_set m_policy;
 
 		task_ring_buffer m_task_buffer;

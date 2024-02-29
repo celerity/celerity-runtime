@@ -37,13 +37,11 @@ using cl::sycl::property_list;
 
 namespace property {
 	using cl::sycl::property::no_init;
+}
 
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
-	namespace reduction {
-		using cl::sycl::property::reduction::initialize_to_identity;
-	}
-#endif
-} // namespace property
+namespace property::reduction {
+	using cl::sycl::property::reduction::initialize_to_identity;
+}
 
 inline const property::no_init no_init;
 

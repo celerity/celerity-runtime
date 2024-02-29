@@ -92,32 +92,6 @@ if(WIN32)
   list(APPEND CELERITY_CXX_FLAGS -D_CRT_SECURE_NO_WARNINGS)
 endif()
 
-if(CELERITY_SYCL_IMPL STREQUAL hipSYCL)
-  macro(test_hipsycl_feature VAR NAME FEATURE)
-    try_compile("${VAR}"
-      "${PROJECT_BINARY_DIR}/hipsycl_feature_test" # bindir
-      "${PROJECT_SOURCE_DIR}/cmake/hipsycl_feature_test" # srcdir
-      hipsycl_test # projectName
-      "${NAME}" # targetName
-      CMAKE_FLAGS "-DhipSYCL_DIR=${hipSYCL_DIR}"
-    )
-    if("${${VAR}}")
-      message(STATUS "hipSYCL supports ${FEATURE}")
-    else()
-      message(STATUS "hipSYCL does NOT support ${FEATURE}")
-    endif()
-  endmacro()
-  test_hipsycl_feature(HIPSYCL_SUPPORTS_SYCL_2020_REDUCTIONS hipsycl_reduction_test "SYCL 2020 reductions")
-endif()
-
-if(CELERITY_SYCL_IMPL STREQUAL hipSYCL AND HIPSYCL_SUPPORTS_SYCL_2020_REDUCTIONS)
-  set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
-elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++" OR CELERITY_SYCL_IMPL STREQUAL "SimSYCL")
-  set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
-else()
-  set(CELERITY_FEATURE_SCALAR_REDUCTIONS OFF)
-endif()
-
 if(CELERITY_SYCL_IMPL STREQUAL SimSYCL)
   set(CELERITY_CXX_STANDARD 20)
 else()
@@ -144,6 +118,8 @@ else()
   set(CELERITY_USE_MIMALLOC_DEFAULT ON)
 endif()
 option(CELERITY_USE_MIMALLOC "Use the mimalloc memory allocator" ${CELERITY_USE_MIMALLOC_DEFAULT})
+
+option(CELERITY_ENABLE_TRACY "Enable Tracy profiler integration" OFF)
 
 # 3rdparty dependencies
 include(FetchContent)
@@ -198,6 +174,16 @@ if(CELERITY_USE_MIMALLOC)
   fetch_content_from_submodule(mimalloc vendor/mimalloc)
 endif()
 
+if(CELERITY_ENABLE_TRACY)
+  set(TRACY_FIBERS ON CACHE BOOL "" FORCE)
+  set(TRACY_STATIC ON CACHE BOOL "" FORCE)
+  # set(TRACY_DELAYED_INIT ON CACHE BOOL "" FORCE)
+  # set(TRACY_MANUAL_LIFETIME ON CACHE BOOL "" FORCE)
+  set(TRACY_NO_SAMPLING ON CACHE BOOL "" FORCE)
+  set(TRACY_NO_SYSTEM_TRACING ON CACHE BOOL "" FORCE)
+  fetch_content_from_submodule(tracy vendor/tracy)
+endif()
+
 configure_file(include/version.h.in include/version.h @ONLY)
 
 # Add includes to library so they show up in IDEs
@@ -211,27 +197,26 @@ if(CMAKE_GENERATOR STREQUAL "Ninja")
 endif()
 
 set(SOURCES
-  src/buffer_manager.cc
-  src/buffer_storage.cc
-  src/buffer_transfer_manager.cc
   src/command_graph.cc
   src/config.cc
-  src/device_queue.cc
-  src/executor.cc
   src/distributed_graph_generator.cc
-  src/graph_serializer.cc
+  src/dry_run_executor.cc
   src/grid.cc
+  src/instruction_executor.cc
   src/instruction_graph_generator.cc
+  src/mpi_communicator.cc
   src/print_graph.cc
   src/recorders.cc
+  src/receive_arbiter.cc
   src/runtime.cc
   src/scheduler.cc
   src/split.cc
   src/task.cc
   src/task_manager.cc
+  src/tracy.h
+  src/tracy.cc
   src/user_bench.cc
   src/utils.cc
-  src/worker_job.cc
   "${CMAKE_CURRENT_BINARY_DIR}/src/version.cc"
 )
 
@@ -282,6 +267,10 @@ if(CELERITY_USE_MIMALLOC)
   target_link_libraries(celerity_runtime PUBLIC mimalloc)
 endif()
 
+if(CELERITY_ENABLE_TRACY)
+  target_link_libraries(celerity_runtime PUBLIC Tracy::TracyClient)
+endif()
+
 target_link_libraries(celerity_runtime PUBLIC
   Threads::Threads
   MPI::MPI_CXX
@@ -296,7 +285,8 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/backend)
 target_link_libraries(celerity_runtime PUBLIC celerity_backends)
 
 # Deprecated feature flags
-set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS ${CELERITY_FEATURE_SCALAR_REDUCTIONS})
+set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
+set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS ON)
 set(CELERITY_FEATURE_LOCAL_ACCESSOR ON)
 set(CELERITY_FEATURE_UNNAMED_KERNELS ON)
 
@@ -324,6 +314,7 @@ target_compile_definitions(celerity_runtime PUBLIC
   CELERITY_DETAIL_HAS_NAMED_THREADS=$<BOOL:${CELERITY_DETAIL_HAS_NAMED_THREADS}>
   CELERITY_ACCESSOR_BOUNDARY_CHECK=$<BOOL:${CELERITY_ACCESSOR_BOUNDARY_CHECK}>
   CELERITY_ACCESS_PATTERN_DIAGNOSTICS=$<BOOL:${CELERITY_ACCESS_PATTERN_DIAGNOSTICS}>
+  CELERITY_ENABLE_TRACY=$<BOOL:${CELERITY_ENABLE_TRACY}>
 )
 
 # Collect version information from git in src/version.cc. This target is always out of date, but the timestamp

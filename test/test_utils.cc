@@ -233,11 +233,14 @@ namespace celerity::test_utils_detail {
 
 // These error and warning messages will appear depending on the system the (runtime) tests are executed on, so we must not fail tests because of them.
 
-const char* const expected_runtime_init_warnings_regex = "Celerity has detected that only .* logical cores are available to this process.*";
+// NOCOMMIT why are these separate definitions? Can we inline them into runtime_fixture()?
+const char* const expected_runtime_init_warnings_regex = "Celerity has detected that only .* logical cores are available to this process.*|"
+                                                         "Celerity detected more than one node \\(MPI rank\\) on this host, which is not recommended.*|"
+                                                         "\\[executor\\] no progress for .* seconds, potentially stuck.*";
 
-const char* const expected_device_enumeration_warnings_regex =
-    "Selected devices are of different type and/or do not belong to the same platform.*|No suitable platform found that can provide.*|No backend "
-    "specialization available for selected platform.*|Selected platform .* is compatible with specialized .* backend, but it has not been compiled.*";
+const char* const expected_device_enumeration_warnings_regex = "Found fewer devices .* than local nodes .*, multiple nodes will use the same device.*|"
+                                                               "No backend specialization available for selected platform.*|"
+                                                               "Selected platform .* is compatible with specialized .* backend, but it has not been compiled.*";
 
 } // namespace celerity::test_utils_detail
 
@@ -279,16 +282,15 @@ runtime_fixture::~runtime_fixture() {
 	detail::runtime::test_case_exit();
 }
 
-device_queue_fixture::~device_queue_fixture() { get_device_queue().get_sycl_queue().wait_and_throw(); }
+bool g_print_graphs = false;
 
-detail::device_queue& device_queue_fixture::get_device_queue() {
-	if(!m_dq) {
-		allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_device_enumeration_warnings_regex);
-		m_cfg = std::make_unique<detail::config>(nullptr, nullptr);
-		m_dq = std::make_unique<detail::device_queue>();
-		m_dq->init(*m_cfg, detail::auto_select_device{});
+task_test_context::~task_test_context() {
+	if(g_print_graphs) {
+		fmt::print("{}\n", std::string(79, '-'));
+		if(const auto capture = Catch::getCurrentContext().getResultCapture()) { fmt::print("DAGs for [{}]\n", capture->getCurrentTestName()); }
+		fmt::print("\n{}\n", detail::print_task_graph(trec));
+		fmt::print("\n{}\n\n", std::string(79, '-'));
 	}
-	return *m_dq;
 }
 
 } // namespace celerity::test_utils

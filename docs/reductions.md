@@ -42,11 +42,3 @@ Currently, the SYCL standard only mandates scalar reductions, i.e. reductions th
 While that is useful for synchronization work like terminating a loop on a stopping criterion, it is not enough for
 other common operations like histogram construction. Since Celerity delegates to SYCL for intra-node reductions,
 higher-dimensional reduction outputs will only become available once SYCL supports them.
-
-### No Broad Support Across SYCL Implementations
-
-Currently only DPC++ provides an implementation of SYCL 2020 reduction variables that Celerity can build upon.
-
-Celerity provides the `CELERITY_FEATURE_SCALAR_REDUCTIONS` feature-detection
-macro for reduction support, both in CMake (`ON` or `OFF`) and as C++ macros
-(always defined to `0` or `1`).

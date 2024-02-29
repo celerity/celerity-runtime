@@ -160,7 +160,7 @@ TEST_CASE("0-dimensional ranges are empty types", "[range]") {
 
 TEST_CASE("for_each_item behaves as expected", "[host_utils]") {
 	SECTION("for 0-dimensional partitions") {
-		const auto test_partition_0d = detail::make_0d_partition();
+		const auto test_partition_0d = detail::make_partition(range<0>(), subrange<0>());
 		int call_count = 0;
 		experimental::for_each_item(test_partition_0d, [&](const item<0> item) { call_count++; });
 		CHECK(call_count == 1);

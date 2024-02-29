@@ -26,7 +26,6 @@ file(GLOB_RECURSE TEST_INCLUDES *.h)
 set(TEST_TARGETS
   accessor_tests
   backend_tests
-  buffer_manager_tests
   debug_naming_tests
   graph_generation_tests
   graph_gen_granularity_tests
@@ -36,14 +35,16 @@ set(TEST_TARGETS
   grid_tests
   hint_tests
   intrusive_graph_tests
-  instruction_graph_grid_tests
+instruction_graph_grid_tests
   instruction_graph_memory_tests
   instruction_graph_misc_tests
   instruction_graph_p2p_tests
   instruction_graph_reduction_tests
+  nd_memory_tests
   print_graph_tests
   region_map_tests
   range_tests
+  receive_arbiter_tests
   runtime_tests
   runtime_deprecation_tests
   sycl_tests
@@ -80,7 +81,7 @@ endforeach()
 
 # Add instruction_graph_tests executable
 add_executable(instruction_graph_tests
-  $<TARGET_OBJECTS:instruction_graph_grid_tests_OBJ>
+$<TARGET_OBJECTS:instruction_graph_grid_tests_OBJ>
   $<TARGET_OBJECTS:instruction_graph_memory_tests_OBJ>
   $<TARGET_OBJECTS:instruction_graph_misc_tests_OBJ>
   $<TARGET_OBJECTS:instruction_graph_p2p_tests_OBJ>
@@ -92,6 +93,11 @@ set_test_target_parameters(instruction_graph_tests "")
 add_executable(all_tests ${TEST_OBJ_LIST})
 target_link_libraries(all_tests PRIVATE test_main)
 set_test_target_parameters(all_tests "")
+
+# MPI test executable
+add_executable(mpi_tests mpi_tests.cc)
+target_link_libraries(mpi_tests PRIVATE test_main)
+set_test_target_parameters(mpi_tests mpi_tests.cc)
 
 # Unit benchmark executable
 add_executable(benchmarks dag_benchmarks.cc grid_benchmarks.cc system_benchmarks.cc benchmark_reporters.cc)

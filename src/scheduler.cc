@@ -1,38 +1,28 @@
 #include "scheduler.h"
 
 #include "distributed_graph_generator.h"
-#include "executor.h"
-#include "frame.h"
-#include "graph_serializer.h"
+#include "instruction_graph.h"
+#include "instruction_graph_generator.h"
 #include "named_threads.h"
+#include "recorders.h"
+#include "task.h"
+#include "tracy.h"
 
-#include <matchbox.hh>
 
 namespace celerity {
 namespace detail {
 
-	abstract_scheduler::abstract_scheduler(bool is_dry_run, std::unique_ptr<distributed_graph_generator> dggen, executor& exec)
-	    : m_is_dry_run(is_dry_run), m_dggen(std::move(dggen)), m_exec(&exec) {
-		assert(m_dggen != nullptr);
-	}
+	abstract_scheduler::abstract_scheduler(const size_t num_nodes, const node_id local_node_id, instruction_graph_generator::system_info system_info,
+	    const task_manager& tm, delegate* const delegate, command_recorder* const crec, instruction_recorder* const irec, const policy_set& policy)
+	    : m_cdag(std::make_unique<command_graph>()), m_crec(crec),
+	      m_dggen(std::make_unique<distributed_graph_generator>(num_nodes, local_node_id, *m_cdag, tm, crec, policy.command_graph_generator)),
+	      m_idag(std::make_unique<instruction_graph>()), m_irec(irec), //
+	      m_iggen(std::make_unique<instruction_graph_generator>(
+	          tm, num_nodes, local_node_id, std::move(system_info), *m_idag, delegate, irec, policy.instruction_graph_generator)) {}
 
-	void abstract_scheduler::shutdown() { notify(event_shutdown{}); }
+	abstract_scheduler::~abstract_scheduler() = default;
 
 	void abstract_scheduler::schedule() {
-		graph_serializer serializer([this](command_pkg&& pkg) {
-			if(m_is_dry_run && pkg.get_command_type() != command_type::epoch && pkg.get_command_type() != command_type::horizon
-			    && pkg.get_command_type() != command_type::fence) {
-				// in dry runs, skip everything except epochs, horizons and fences
-				return;
-			}
-			if(m_is_dry_run && pkg.get_command_type() == command_type::fence) {
-				CELERITY_WARN("Encountered a \"fence\" command while \"CELERITY_DRY_RUN_NODES\" is set. "
-				              "The result of this operation will not match the expected output of an actual run.");
-			}
-			// Executor may not be set during tests / benchmarks
-			if(m_exec != nullptr) { m_exec->enqueue(std::move(pkg)); }
-		});
-
 		std::queue<event> in_flight_events;
 		bool shutdown = false;
 		while(!shutdown) {
@@ -51,32 +41,54 @@ namespace detail {
 				    [&](const event_task_available& e) {
 					    assert(!shutdown);
 					    assert(e.tsk != nullptr);
-					    const auto cmds = m_dggen->build_task(*e.tsk);
-					    serializer.flush(cmds);
+					    const auto commands = m_dggen->build_task(*e.tsk);
+
+					    for(const auto cmd : sort_topologically(commands)) {
+						    m_iggen->compile(*cmd);
+
+						    if(e.tsk->get_type() == task_type::epoch && e.tsk->get_epoch_action() == epoch_action::shutdown) {
+							    shutdown = true;
+							    // m_iggen.delegate must be considered dangling as soon as the instructions for the shutdown epoch have been emitted
+						    }
+					    }
 				    },
 				    [&](const event_buffer_created& e) {
 					    assert(!shutdown);
-					    m_dggen->notify_buffer_created(e.bid, e.range, e.host_initialized);
+					    m_dggen->notify_buffer_created(e.bid, e.range, e.user_allocation_id != null_allocation_id);
+					    m_iggen->notify_buffer_created(e.bid, e.range, e.elem_size, e.elem_align, e.user_allocation_id);
 				    },
 				    [&](const event_buffer_debug_name_changed& e) {
 					    assert(!shutdown);
 					    m_dggen->notify_buffer_debug_name_changed(e.bid, e.debug_name);
+					    m_iggen->notify_buffer_debug_name_changed(e.bid, e.debug_name);
 				    },
 				    [&](const event_buffer_destroyed& e) {
 					    assert(!shutdown);
 					    m_dggen->notify_buffer_destroyed(e.bid);
+					    m_iggen->notify_buffer_destroyed(e.bid);
 				    },
 				    [&](const event_host_object_created& e) {
 					    assert(!shutdown);
 					    m_dggen->notify_host_object_created(e.hoid);
+					    m_iggen->notify_host_object_created(e.hoid, e.owns_instance);
 				    },
 				    [&](const event_host_object_destroyed& e) {
 					    assert(!shutdown);
 					    m_dggen->notify_host_object_destroyed(e.hoid);
+					    m_iggen->notify_host_object_destroyed(e.hoid);
 				    },
-				    [&](const event_shutdown&) {
+				    [&](const event_epoch_reached& e) { //
+					    // The dggen automatically prunes the CDAG on generation, which is safe because it's not used across threads.
+					    // We might want to refactor this to match the IDAG behavior in the future.
+					    m_idag->prune_before_epoch(e.tid);
+				    },
+				    [&](const test_event_signal_idle& e) {
+					    // No thread must submit more events until signal has been awaited and all test inspections of the scheduler have taken place.
+					    // This check only catches some violations of that synchronization requirement; the test application must ensure that no thread
+					    // interacts with the scheduler until all inspections have completed.
 					    assert(in_flight_events.empty());
-					    shutdown = true;
+
+					    *e.idle = true;
 				    });
 			}
 		}
@@ -90,14 +102,25 @@ namespace detail {
 		m_events_cv.notify_one();
 	}
 
-	void scheduler::startup() {
-		m_worker_thread = std::thread(&scheduler::schedule, this);
-		set_thread_name(m_worker_thread.native_handle(), "cy-scheduler");
+	scheduler::scheduler(const size_t num_nodes, const node_id local_node_id, instruction_graph_generator::system_info system_info, const task_manager& tm,
+	    delegate* const delegate, command_recorder* const crec, instruction_recorder* const irec, const policy_set& policy)
+	    : abstract_scheduler(num_nodes, local_node_id, std::move(system_info), tm, delegate, crec, irec, policy), m_thread(&scheduler::thread_main, this) {
+		set_thread_name(m_thread.native_handle(), "cy-scheduler");
 	}
 
-	void scheduler::shutdown() {
-		abstract_scheduler::shutdown();
-		if(m_worker_thread.joinable()) { m_worker_thread.join(); }
+	scheduler::~scheduler() {
+		// schedule() will exit as soon as it has processed the shutdown epoch
+		m_thread.join();
+	}
+
+	void scheduler::thread_main() {
+		CELERITY_DETAIL_TRACY_SET_CURRENT_THREAD_NAME("cy-scheduler")
+		try {
+			schedule();
+		} catch(const std::exception& e) {
+			CELERITY_CRITICAL("[scheduler] {}", e.what());
+			std::abort();
+		}
 	}
 
 } // namespace detail

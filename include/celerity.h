@@ -1,7 +1,6 @@
 #ifndef RUNTIME_INCLUDE_ENTRY_CELERITY
 #define RUNTIME_INCLUDE_ENTRY_CELERITY
 
-#include "device_queue.h"
 #include "runtime.h"
 
 #include "accessor.h"
@@ -19,22 +18,21 @@ namespace runtime {
 	/**
 	 * @brief Initializes the Celerity runtime.
 	 */
-	inline void init(int* argc, char** argv[]) { detail::runtime::init(argc, argv, detail::auto_select_device{}); }
+	inline void init(int* argc, char** argv[]) { detail::runtime::init(argc, argv, detail::auto_select_devices{}); }
 
 	/**
-	 * @brief Initializes the Celerity runtime and instructs it to use a particular device.
+	 * @brief Initializes the Celerity runtime and instructs it to use a particular set of devices.
 	 *
-	 * @param device The device to be used on the current node. This can vary between nodes.
+	 * @param devices The devices to be used on the current node. This can vary between nodes.
+	 *                If there are multiple nodes running on the same host, the list of devices must be the same across nodes on the same host.
 	 */
-	[[deprecated("Use the overload with device selector instead, this will be removed in future release")]] inline void init(
-	    int* argc, char** argv[], sycl::device& device) {
-		detail::runtime::init(argc, argv, device);
-	}
+	inline void init(int* argc, char** argv[], const std::vector<sycl::device>& devices) { detail::runtime::init(argc, argv, devices); }
 
 	/**
-	 * @brief Initializes the Celerity runtime and instructs it to use a particular device.
+	 * @brief Initializes the Celerity runtime and instructs it to use a a particular set of devices.
 	 *
 	 * @param device_selector The device selector to be used on the current node. This can vary between nodes.
+	 *                        If there are multiple nodes running on the same host, the selector must be the same across nodes on the same host.
 	 */
 	inline void init(int* argc, char** argv[], const detail::device_selector& device_selector) { detail::runtime::init(argc, argv, device_selector); }
 } // namespace runtime

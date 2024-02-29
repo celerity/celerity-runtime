@@ -140,7 +140,7 @@ class distributed_graph_generator {
 
   private:
 	using buffer_read_map = std::unordered_map<buffer_id, region<3>>;
-
+	
 	// default-constructs a policy_set - this must be a function because we can't use the implicit default constructor of policy_set, which has member
 	// initializers, within its surrounding class (Clang)
 	constexpr static policy_set default_policy_set() { return {}; }

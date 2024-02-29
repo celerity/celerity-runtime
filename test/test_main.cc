@@ -10,7 +10,7 @@ int main(int argc, char* argv[]) {
 	Catch::Session session;
 
 	using namespace Catch::Clara;
-	const auto cli = session.cli() | Opt(celerity::test_utils::print_graphs)["--print-graphs"]("print graphs (GraphViz)");
+	const auto cli = session.cli() | Opt(celerity::test_utils::g_print_graphs)["--print-graphs"]("print graphs (GraphViz)");
 
 	session.cli(cli);
 

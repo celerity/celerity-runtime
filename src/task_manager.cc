@@ -2,13 +2,12 @@
 
 #include "access_modes.h"
 #include "recorders.h"
-#include "utils.h"
 
 namespace celerity {
 namespace detail {
 
-	task_manager::task_manager(size_t num_collective_nodes, host_queue* queue, detail::task_recorder* recorder, const policy_set& error_policy)
-	    : m_num_collective_nodes(num_collective_nodes), m_queue(queue), m_policy(error_policy), m_task_recorder(recorder) {
+	task_manager::task_manager(size_t num_collective_nodes, detail::task_recorder* recorder, const policy_set& error_policy)
+	    : m_num_collective_nodes(num_collective_nodes), m_policy(error_policy), m_task_recorder(recorder) {
 		// We manually generate the initial epoch task, which we treat as if it has been reached immediately.
 		auto reserve = m_task_buffer.reserve_task_entry(await_free_task_slot_callback());
 		auto initial_epoch = task::make_epoch(initial_epoch_task, epoch_action::none);

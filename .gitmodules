@@ -19,3 +19,6 @@
 [submodule "vendor/matchbox"]
 	path = vendor/matchbox
 	url = https://github.com/fknorr/matchbox.git
+[submodule "vendor/tracy"]
+	path = vendor/tracy
+	url = https://github.com/wolfpld/tracy
