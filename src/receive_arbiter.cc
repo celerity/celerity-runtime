@@ -1,12 +1,12 @@
 #include "receive_arbiter.h"
 #include "grid.h"
-#include "instruction_graph.h"
+
+#include <matchbox.hh>
 
 #include <exception>
 #include <memory>
 
 namespace celerity::detail {
-
 
 receive_arbiter::receive_arbiter(communicator& comm) : m_comm(&comm), m_num_nodes(comm.get_num_nodes()) { assert(m_num_nodes > 0); }
 

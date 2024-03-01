@@ -1,4 +1,5 @@
 #include "mpi_communicator.h"
+#include "mpi_support.h"
 #include "log.h"
 #include "ranges.h"
 

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "communicator.h"
-#include "mpi_support.h"
 
 #include <memory>
 #include <unordered_map>

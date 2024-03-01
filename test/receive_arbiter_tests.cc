@@ -1,7 +1,6 @@
 #include "host_utils.h"
 #include "nd_memory.h"
 #include "receive_arbiter.h"
-#include "test_utils.h"
 
 #include <algorithm>
 #include <map>
