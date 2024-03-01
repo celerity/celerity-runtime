@@ -18,10 +18,10 @@ class mpi_communicator final : public communicator {
   public:
 	explicit mpi_communicator(collective_clone_from_tag tag, MPI_Comm mpi_comm);
 
-	mpi_communicator(mpi_communicator&&) = default;
-	mpi_communicator& operator=(mpi_communicator&&) = default;
 	mpi_communicator(const mpi_communicator&) = delete;
+	mpi_communicator(mpi_communicator&&) = delete;
 	mpi_communicator& operator=(const mpi_communicator&) = delete;
+	mpi_communicator& operator=(mpi_communicator&&) = delete;
 	~mpi_communicator() override;
 
 	size_t get_num_nodes() const override;
@@ -49,7 +49,7 @@ class mpi_communicator final : public communicator {
 		MPI_Request request = MPI_REQUEST_NULL;
 	};
 
-	MPI_Comm m_mpi_comm;
+	MPI_Comm m_mpi_comm = MPI_COMM_NULL;
 
 	in_flight_pilot m_inbound_pilot;
 	std::vector<in_flight_pilot> m_outbound_pilots;

@@ -20,10 +20,11 @@ class communicator {
 	};
 
 	communicator() = default;
-	virtual ~communicator() = default;
-
 	communicator(const communicator&) = delete;
+	communicator(communicator&&) = delete;
 	communicator& operator=(const communicator&) = delete;
+	communicator& operator=(communicator&&) = delete;
+	virtual ~communicator() = default;
 
 	virtual size_t get_num_nodes() const = 0;
 	virtual node_id get_local_node_id() const = 0;
@@ -36,10 +37,6 @@ class communicator {
 
 	virtual std::unique_ptr<communicator> collective_clone() = 0;
 	virtual void collective_barrier() = 0;
-
-  protected:
-	communicator(communicator&&) = default;
-	communicator& operator=(communicator&&) = default;
 };
 
 } // namespace celerity::detail

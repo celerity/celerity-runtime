@@ -36,8 +36,10 @@ class event final : public async_event_base {
 constexpr int pilot_exchange_tag = mpi_support::TAG_COMMUNICATOR;
 constexpr int first_message_tag = pilot_exchange_tag + 1;
 
-constexpr int message_id_to_tag(const message_id msgid) {
-	assert(msgid <= static_cast<message_id>(INT_MAX - first_message_tag));
+constexpr int message_id_to_tag(message_id msgid) {
+	// If the resulting tag would overflow INT_MAX in a long-running program with many nodes, we wrap around to `first_message_tag` instead - assuming that
+	// there will never be a way to cause temporal ambiguity between transfers that are 2^31 message ids apart.
+	msgid %= static_cast<message_id>(INT_MAX - first_message_tag);
 	return first_message_tag + static_cast<int>(msgid);
 }
 
@@ -55,16 +57,19 @@ constexpr node_id rank_to_node_id(const int rank) {
 
 namespace celerity::detail {
 
-mpi_communicator::mpi_communicator(collective_clone_from_tag /* tag */, MPI_Comm mpi_comm) {
+mpi_communicator::mpi_communicator(collective_clone_from_tag /* tag */, MPI_Comm mpi_comm) : m_mpi_comm(MPI_COMM_NULL) {
 	assert(mpi_comm != MPI_COMM_NULL);
 #if MPI_VERSION < 3
+	// MPI 2 only has Comm_dup - we assume that the user has not done any obscure things to MPI_COMM_WORLD
 	MPI_Comm_dup(mpi_comm, &m_mpi_comm);
 #else
+	// MPI >= 3.0 provides MPI_Comm_dup_with_info, which allows us to reset all implementation hints on the communicator to our liking
 	MPI_Info info;
 	MPI_Info_create(&info);
-	MPI_Info_set(info, "mpi_assert_no_any_tag", "true");
-	MPI_Info_set(info, "mpi_assert_exact_length", "true");
-	MPI_Info_set(info, "mpi_assert_allow_overtaking", "true");
+	// See the OpenMPI manpage for MPI_Comm_set_info for keys and values
+	MPI_Info_set(info, "mpi_assert_no_any_tag", "true");       // promise never to use MPI_ANY_TAG (we _do_ use MPI_ANY_SOURCE)
+	MPI_Info_set(info, "mpi_assert_exact_length", "true");     // promise to exactly match sizes between corresponding MPI_Send and MPI_Recv calls
+	MPI_Info_set(info, "mpi_assert_allow_overtaking", "true"); // we do not care about message ordering since we fully disambiguate by tag
 	MPI_Comm_dup_with_info(mpi_comm, info, &m_mpi_comm);
 	MPI_Info_free(&info);
 #endif
@@ -103,28 +108,28 @@ void mpi_communicator::send_outbound_pilot(const outbound_pilot& pilot) {
 	assert(pilot.to < get_num_nodes());
 	assert(pilot.to != get_local_node_id());
 
-	// initiate Isend as early as possible
+	// Initiate Isend as early as possible to hide latency.
 	in_flight_pilot newly_in_flight;
 	newly_in_flight.message = std::make_unique<pilot_message>(pilot.message);
 	MPI_Isend(newly_in_flight.message.get(), sizeof *newly_in_flight.message, MPI_BYTE, mpi_detail::node_id_to_rank(pilot.to), mpi_detail::pilot_exchange_tag,
 	    m_mpi_comm, &newly_in_flight.request);
 
-	// collect finished sends (TODO rate-limit this to avoid quadratic behavior)
-	for(auto& already_in_flight : m_outbound_pilots) {
+	// Collect finished sends (TODO rate-limit this to avoid quadratic behavior)
+	constexpr auto pilot_send_finished = [](in_flight_pilot& already_in_flight) {
 		int flag = -1;
 		MPI_Test(&already_in_flight.request, &flag, MPI_STATUS_IGNORE);
-	}
-	const auto last_incomplete_outbound_pilot = std::remove_if(m_outbound_pilots.begin(), m_outbound_pilots.end(),
-	    [](const in_flight_pilot& already_in_flight) { return already_in_flight.request == MPI_REQUEST_NULL; });
-	m_outbound_pilots.erase(last_incomplete_outbound_pilot, m_outbound_pilots.end());
+		return already_in_flight.request == MPI_REQUEST_NULL;
+	};
+	m_outbound_pilots.erase(std::remove_if(m_outbound_pilots.begin(), m_outbound_pilots.end(), pilot_send_finished), m_outbound_pilots.end());
 
-	// keep allocation until Isend has completed
+	// Keep allocation until Isend has completed
 	m_outbound_pilots.push_back(std::move(newly_in_flight));
 }
 
 std::vector<inbound_pilot> mpi_communicator::poll_inbound_pilots() {
 	if(m_inbound_pilot.request == MPI_REQUEST_NULL) {
-		// this is the first call to poll_inbound_pilots
+		// This is the first call to poll_inbound_pilots, spin up the pilot-receiving machinery - we don't do this unconditionally in the constructor because
+		// communicators for collective groups do not deal with pilots
 		begin_receiving_pilot();
 	}
 

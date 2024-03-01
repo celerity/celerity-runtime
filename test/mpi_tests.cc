@@ -4,12 +4,15 @@
 #include "test_utils.h"
 #include "types.h"
 
+#include <thread>
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators_range.hpp>
 
 
 using namespace celerity;
 using namespace celerity::detail;
+using namespace std::chrono_literals;
 
 
 TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator sends and receives pilot messages", "[mpi]") {
@@ -45,7 +48,6 @@ TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator sends and receives p
 	}
 	CHECK(num_pilots_received == comm.get_num_nodes() - 1);
 }
-
 
 TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator sends and receives payloads", "[mpi]") {
 	mpi_communicator comm(collective_clone_from, MPI_COMM_WORLD);
@@ -92,7 +94,6 @@ TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator sends and receives p
 	}
 }
 
-
 TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator correctly transfers scalars between strides of different dimensionality", "[mpi]") {
 	// All GENERATEs must happen before an early-return, otherwise different nodes will execute this test case a different number of times
 	const auto send_dims = GENERATE(values<size_t>({0, 1, 2, 3}));
@@ -129,7 +130,6 @@ TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator correctly transfers 
 		CHECK(buf == expected);
 	}
 }
-
 
 TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator correctly transfers boxes that map to different subranges on sender and receiver", "[mpi]") {
 	// All GENERATEs must happen before an early-return, otherwise different nodes will execute this test case a different number of times
@@ -176,4 +176,56 @@ TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator correctly transfers 
 		});
 		CHECK(recv_buf == expected);
 	}
+}
+
+TEST_CASE_METHOD(test_utils::mpi_fixture, "collectives are concurrent between distinct mpi_communicators", "[mpi]") {
+	constexpr static size_t concurrency = 16;
+
+	// create a bunch of communicators that we can then operate on from concurrent threads
+	std::vector<std::unique_ptr<communicator>> roots;
+	for(size_t i = 0; i < concurrency; ++i) {
+		roots.push_back(std::make_unique<mpi_communicator>(collective_clone_from, MPI_COMM_WORLD));
+	}
+
+	// for each communicator, spawn a thread that creates more communicators
+	std::vector<std::vector<std::unique_ptr<communicator>>> concurrent_clones(concurrency);
+	std::vector<std::thread> concurrent_threads(concurrency);
+	for(size_t i = 0; i < concurrency; ++i) {
+		concurrent_threads[i] = std::thread([&, i] {
+			for(size_t j = 0; j < concurrency; ++j) {
+				concurrent_clones[i].push_back(roots[i]->collective_clone());
+				std::this_thread::sleep_for(10ms); // make sure the OS doesn't serialize all threads by chance
+			}
+		});
+	}
+	for(size_t i = 0; i < concurrency; ++i) {
+		concurrent_threads[i].join();
+	}
+
+	// flip the iteration order and issue a barrier from each new collective group
+	for(size_t i = 0; i < concurrency; ++i) {
+		concurrent_threads[i] = std::thread([&, i] {
+			for(size_t j = 0; j < concurrency; ++j) {
+				concurrent_clones[j][i]->collective_barrier();
+				std::this_thread::sleep_for(10ms); // make sure the OS doesn't serialize all threads by chance
+			}
+		});
+	}
+	for(size_t i = 0; i < concurrency; ++i) {
+		concurrent_threads[i].join();
+	}
+
+	// ~mpi_communicator is also a collective operation; and it shouldn't matter if we destroy parents before their children
+	roots.clear();
+
+	for(size_t i = 0; i < concurrency; ++i) {
+		concurrent_threads[i] = std::thread([&, i] {
+			concurrent_clones[i].clear(); // ~mpi_communicator is a collective operation
+		});
+	}
+	for(size_t i = 0; i < concurrency; ++i) {
+		concurrent_threads[i].join();
+	}
+
+	SUCCEED("it didn't deadlock or crash 🎉");
 }
