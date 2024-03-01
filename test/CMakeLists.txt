@@ -35,7 +35,7 @@ set(TEST_TARGETS
   grid_tests
   hint_tests
   intrusive_graph_tests
-instruction_graph_grid_tests
+  instruction_graph_grid_tests
   instruction_graph_memory_tests
   instruction_graph_misc_tests
   instruction_graph_p2p_tests
@@ -93,11 +93,6 @@ set_test_target_parameters(instruction_graph_tests "")
 add_executable(all_tests ${TEST_OBJ_LIST})
 target_link_libraries(all_tests PRIVATE test_main)
 set_test_target_parameters(all_tests "")
-
-# MPI test executable
-add_executable(mpi_tests mpi_tests.cc)
-target_link_libraries(mpi_tests PRIVATE test_main)
-set_test_target_parameters(mpi_tests mpi_tests.cc)
 
 # Unit benchmark executable
 add_executable(benchmarks dag_benchmarks.cc grid_benchmarks.cc system_benchmarks.cc benchmark_reporters.cc)

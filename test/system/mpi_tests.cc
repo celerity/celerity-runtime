@@ -1,7 +1,8 @@
+#include "../test_utils.h"
+
 #include "communicator.h"
 #include "host_utils.h"
 #include "mpi_communicator.h"
-#include "test_utils.h"
 #include "types.h"
 
 #include <thread>
