@@ -12,15 +12,8 @@ using namespace celerity;
 using namespace celerity::detail;
 
 
-static MPI_Comm clone_comm_world() {
-	MPI_Comm new_comm = MPI_COMM_NULL;
-	MPI_Comm_dup(MPI_COMM_WORLD, &new_comm);
-	return new_comm;
-}
-
-
 TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator sends and receives pilot messages", "[mpi]") {
-	mpi_communicator comm(clone_comm_world());
+	mpi_communicator comm(collective_clone_from, MPI_COMM_WORLD);
 	if(comm.get_num_nodes() <= 1) { SKIP("test must be run on at least 2 ranks"); }
 
 	const auto make_pilot_message = [&](const node_id sender, const node_id receiver) {
@@ -55,7 +48,7 @@ TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator sends and receives p
 
 
 TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator sends and receives payloads", "[mpi]") {
-	mpi_communicator comm(clone_comm_world());
+	mpi_communicator comm(collective_clone_from, MPI_COMM_WORLD);
 	if(comm.get_num_nodes() <= 1) { SKIP("test must be run on at least 2 ranks"); }
 
 	const auto make_msgid = [&](const node_id sender, const node_id receiver) { //
@@ -106,7 +99,7 @@ TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator correctly transfers 
 	const auto recv_dims = GENERATE(values<size_t>({0, 1, 2, 3}));
 	CAPTURE(send_dims, recv_dims);
 
-	mpi_communicator comm(clone_comm_world());
+	mpi_communicator comm(collective_clone_from, MPI_COMM_WORLD);
 	if(comm.get_num_nodes() <= 1) { SKIP("test must be run on at least 2 ranks"); }
 	if(comm.get_local_node_id() >= 2) return; // needs exactly 2 nodes
 
@@ -143,7 +136,7 @@ TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator correctly transfers 
 	const auto dims = GENERATE(values<int>({1, 2, 3}));
 	CAPTURE(dims);
 
-	mpi_communicator comm(clone_comm_world());
+	mpi_communicator comm(collective_clone_from, MPI_COMM_WORLD);
 	if(comm.get_num_nodes() <= 1) { SKIP("test must be run on at least 2 ranks"); }
 	if(comm.get_local_node_id() >= 2) return; // needs exactly 2 nodes
 
@@ -184,6 +177,3 @@ TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator correctly transfers 
 		CHECK(recv_buf == expected);
 	}
 }
-
-
-// TODO implement and test transfers > 2Gi elements

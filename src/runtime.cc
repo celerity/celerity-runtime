@@ -225,10 +225,9 @@ namespace detail {
 		if(m_cfg->is_dry_run()) {
 			m_exec = std::make_unique<dry_run_executor>(static_cast<executor::delegate*>(this));
 		} else {
-			MPI_Comm runtime_comm = MPI_COMM_NULL;
-			MPI_Comm_dup(MPI_COMM_WORLD, &runtime_comm);
-			m_exec = std::make_unique<instruction_executor>(backend::make_queue(backend_type, backend_devices),
-			    std::make_unique<mpi_communicator>(runtime_comm /* transfers ownership */), static_cast<executor::delegate*>(this));
+			auto backend_queue = backend::make_queue(backend_type, backend_devices);
+			auto comm = std::make_unique<mpi_communicator>(collective_clone_from, MPI_COMM_WORLD);
+			m_exec = std::make_unique<instruction_executor>(std::move(backend_queue), std::move(comm), static_cast<executor::delegate*>(this));
 		}
 
 		scheduler::policy_set schdlr_policy;

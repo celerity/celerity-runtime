@@ -31,13 +31,10 @@ class mpi_event final : public async_event_base {
 	mutable MPI_Request m_req;
 };
 
-std::unique_ptr<communicator> mpi_communicator::collective_clone() {
-	MPI_Comm new_comm = MPI_COMM_NULL;
-	MPI_Comm_dup(m_mpi_comm, &new_comm);
-	return std::make_unique<mpi_communicator>(new_comm);
+mpi_communicator::mpi_communicator(collective_clone_from_tag /* tag */, MPI_Comm mpi_comm) {
+	assert(mpi_comm != MPI_COMM_NULL);
+	MPI_Comm_dup(mpi_comm, &m_mpi_comm);
 }
-
-void mpi_communicator::collective_barrier() { MPI_Barrier(m_mpi_comm); }
 
 mpi_communicator::~mpi_communicator() {
 	for(auto& outbound : m_outbound_pilots) {
@@ -93,7 +90,7 @@ void mpi_communicator::send_outbound_pilot(const outbound_pilot& pilot) {
 std::vector<inbound_pilot> mpi_communicator::poll_inbound_pilots() {
 	if(m_inbound_pilot.request == MPI_REQUEST_NULL) {
 		// this is the first call to poll_inbound_pilots
-		begin_receive_pilot();
+		begin_receiving_pilot();
 	}
 
 	std::vector<inbound_pilot> received_pilots; // vector: MPI might have received and buffered multiple inbound pilots, collect them
@@ -104,7 +101,7 @@ std::vector<inbound_pilot> mpi_communicator::poll_inbound_pilots() {
 		if(flag == 0) return received_pilots;
 
 		const inbound_pilot pilot{static_cast<node_id>(status.MPI_SOURCE), *m_inbound_pilot.message};
-		begin_receive_pilot(); // immediately initiate the next receive
+		begin_receiving_pilot(); // immediately initiate the next receive
 
 		CELERITY_DEBUG("[mpi] pilot <- N{} (MSG{}, {} {})", pilot.from, pilot.message.id, pilot.message.transfer_id, pilot.message.box);
 		received_pilots.push_back(pilot);
@@ -135,7 +132,11 @@ async_event mpi_communicator::receive_payload(const node_id from, const message_
 	return make_async_event<mpi_event>(req);
 }
 
-void mpi_communicator::begin_receive_pilot() {
+std::unique_ptr<communicator> mpi_communicator::collective_clone() { return std::make_unique<mpi_communicator>(collective_clone_from, m_mpi_comm); }
+
+void mpi_communicator::collective_barrier() { MPI_Barrier(m_mpi_comm); }
+
+void mpi_communicator::begin_receiving_pilot() {
 	assert(m_inbound_pilot.request == MPI_REQUEST_NULL);
 	if(m_inbound_pilot.message == nullptr) { m_inbound_pilot.message = std::make_unique<pilot_message>(); }
 	MPI_Irecv(

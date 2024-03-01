@@ -11,9 +11,12 @@
 
 namespace celerity::detail {
 
+struct collective_clone_from_tag {
+} inline constexpr collective_clone_from{};
+
 class mpi_communicator final : public communicator {
   public:
-	explicit mpi_communicator(MPI_Comm mpi_comm): m_mpi_comm(mpi_comm) {}
+	explicit mpi_communicator(collective_clone_from_tag tag, MPI_Comm mpi_comm);
 
 	mpi_communicator(mpi_communicator&&) = default;
 	mpi_communicator& operator=(mpi_communicator&&) = default;
@@ -33,7 +36,7 @@ class mpi_communicator final : public communicator {
 	[[nodiscard]] std::unique_ptr<communicator> collective_clone() override;
 	void collective_barrier() override;
 
-	MPI_Comm get_mpi_comm() const { return m_mpi_comm; }
+	MPI_Comm get_native() const { return m_mpi_comm; }
 
   private:
 	struct datatype_deleter {
@@ -57,7 +60,7 @@ class mpi_communicator final : public communicator {
 	std::unordered_map<size_t, unique_datatype> m_scalar_type_cache;
 	std::unordered_map<stride, unique_datatype> m_array_type_cache;
 
-	void begin_receive_pilot();
+	void begin_receiving_pilot();
 
 	MPI_Datatype get_scalar_type(size_t bytes);
 	MPI_Datatype get_array_type(const stride& stride);

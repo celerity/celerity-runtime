@@ -429,7 +429,7 @@ instruction_executor::active_instruction_info instruction_executor::begin_execut
 		    MPI_Comm mpi_comm = MPI_COMM_NULL;
 		    if(const auto cgid = htinstr.get_collective_group_id(); cgid != non_collective_group_id) {
 			    const auto& cg_comm = *m_collective_group_communicators.at(htinstr.get_collective_group_id());
-			    mpi_comm = dynamic_cast<const mpi_communicator&>(cg_comm).get_mpi_comm();
+			    mpi_comm = dynamic_cast<const mpi_communicator&>(cg_comm).get_native();
 		    }
 
 		    const auto& launch = htinstr.get_launcher();
