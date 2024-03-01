@@ -6,16 +6,18 @@
 
 #include <mpi.h>
 
-namespace celerity::detail {
+namespace celerity::detail::mpi_detail {
 
-class mpi_event final : public async_event_base {
+class event final : public async_event_base {
   public:
-	mpi_event(MPI_Request req) : m_req(req) {}
-	mpi_event(const async_event&) = delete;
-	mpi_event(async_event&&) = delete;
-	mpi_event& operator=(const async_event&) = delete;
-	mpi_event& operator=(async_event&&) = delete;
-	~mpi_event() override {
+	explicit event(MPI_Request req) : m_req(req) {}
+
+	event(const event&) = delete;
+	event(event&&) = delete;
+	event& operator=(const event&) = delete;
+	event& operator=(event&&) = delete;
+
+	~event() override {
 		// MPI_Request_free is always incorrect for our use case: events originate from an Isend or Irecv, which must ensure that the user-provided buffer
 		// remains until the operation has completed.
 		MPI_Wait(&m_req, MPI_STATUS_IGNORE);
@@ -31,9 +33,41 @@ class mpi_event final : public async_event_base {
 	mutable MPI_Request m_req;
 };
 
+constexpr int pilot_exchange_tag = mpi_support::TAG_COMMUNICATOR;
+constexpr int first_message_tag = pilot_exchange_tag + 1;
+
+constexpr int message_id_to_tag(const message_id msgid) {
+	assert(msgid <= static_cast<message_id>(INT_MAX - first_message_tag));
+	return first_message_tag + static_cast<int>(msgid);
+}
+
+constexpr int node_id_to_rank(const node_id nid) {
+	assert(nid <= static_cast<node_id>(INT_MAX));
+	return static_cast<int>(nid);
+}
+
+constexpr node_id rank_to_node_id(const int rank) {
+	assert(rank >= 0);
+	return static_cast<node_id>(rank);
+}
+
+} // namespace celerity::detail::mpi_detail
+
+namespace celerity::detail {
+
 mpi_communicator::mpi_communicator(collective_clone_from_tag /* tag */, MPI_Comm mpi_comm) {
 	assert(mpi_comm != MPI_COMM_NULL);
+#if MPI_VERSION < 3
 	MPI_Comm_dup(mpi_comm, &m_mpi_comm);
+#else
+	MPI_Info info;
+	MPI_Info_create(&info);
+	MPI_Info_set(info, "mpi_assert_no_any_tag", "true");
+	MPI_Info_set(info, "mpi_assert_exact_length", "true");
+	MPI_Info_set(info, "mpi_assert_allow_overtaking", "true");
+	MPI_Comm_dup_with_info(mpi_comm, info, &m_mpi_comm);
+	MPI_Info_free(&info);
+#endif
 }
 
 mpi_communicator::~mpi_communicator() {
@@ -53,13 +87,14 @@ mpi_communicator::~mpi_communicator() {
 size_t mpi_communicator::get_num_nodes() const {
 	int size = -1;
 	MPI_Comm_size(m_mpi_comm, &size);
+	assert(size > 0);
 	return static_cast<size_t>(size);
 }
 
 node_id mpi_communicator::get_local_node_id() const {
 	int rank = -1;
 	MPI_Comm_rank(m_mpi_comm, &rank);
-	return static_cast<node_id>(rank);
+	return mpi_detail::rank_to_node_id(rank);
 }
 
 void mpi_communicator::send_outbound_pilot(const outbound_pilot& pilot) {
@@ -71,8 +106,8 @@ void mpi_communicator::send_outbound_pilot(const outbound_pilot& pilot) {
 	// initiate Isend as early as possible
 	in_flight_pilot newly_in_flight;
 	newly_in_flight.message = std::make_unique<pilot_message>(pilot.message);
-	MPI_Isend(newly_in_flight.message.get(), sizeof *newly_in_flight.message, MPI_BYTE, static_cast<int>(pilot.to), pilot_exchange_tag, m_mpi_comm,
-	    &newly_in_flight.request);
+	MPI_Isend(newly_in_flight.message.get(), sizeof *newly_in_flight.message, MPI_BYTE, mpi_detail::node_id_to_rank(pilot.to), mpi_detail::pilot_exchange_tag,
+	    m_mpi_comm, &newly_in_flight.request);
 
 	// collect finished sends (TODO rate-limit this to avoid quadratic behavior)
 	for(auto& already_in_flight : m_outbound_pilots) {
@@ -100,7 +135,7 @@ std::vector<inbound_pilot> mpi_communicator::poll_inbound_pilots() {
 		MPI_Test(&m_inbound_pilot.request, &flag, &status);
 		if(flag == 0) return received_pilots;
 
-		const inbound_pilot pilot{static_cast<node_id>(status.MPI_SOURCE), *m_inbound_pilot.message};
+		const inbound_pilot pilot{mpi_detail::rank_to_node_id(status.MPI_SOURCE), *m_inbound_pilot.message};
 		begin_receiving_pilot(); // immediately initiate the next receive
 
 		CELERITY_DEBUG("[mpi] pilot <- N{} (MSG{}, {} {})", pilot.from, pilot.message.id, pilot.message.transfer_id, pilot.message.box);
@@ -116,8 +151,8 @@ async_event mpi_communicator::send_payload(const node_id to, const message_id ms
 
 	MPI_Request req = MPI_REQUEST_NULL;
 	// TODO normalize stride and adjust base in order to re-use more datatypes
-	MPI_Isend(base, 1, get_array_type(stride), static_cast<int>(to), first_message_tag + static_cast<int>(msgid), m_mpi_comm, &req);
-	return make_async_event<mpi_event>(req);
+	MPI_Isend(base, 1, get_array_type(stride), mpi_detail::node_id_to_rank(to), mpi_detail::message_id_to_tag(msgid), m_mpi_comm, &req);
+	return make_async_event<mpi_detail::event>(req);
 }
 
 async_event mpi_communicator::receive_payload(const node_id from, const message_id msgid, void* const base, const stride& stride) {
@@ -128,8 +163,8 @@ async_event mpi_communicator::receive_payload(const node_id from, const message_
 
 	MPI_Request req = MPI_REQUEST_NULL;
 	// TODO normalize stride and adjust base in order to re-use more datatypes
-	MPI_Irecv(base, 1, get_array_type(stride), static_cast<int>(from), first_message_tag + static_cast<int>(msgid), m_mpi_comm, &req);
-	return make_async_event<mpi_event>(req);
+	MPI_Irecv(base, 1, get_array_type(stride), mpi_detail::node_id_to_rank(from), mpi_detail::message_id_to_tag(msgid), m_mpi_comm, &req);
+	return make_async_event<mpi_detail::event>(req);
 }
 
 std::unique_ptr<communicator> mpi_communicator::collective_clone() { return std::make_unique<mpi_communicator>(collective_clone_from, m_mpi_comm); }
@@ -139,14 +174,15 @@ void mpi_communicator::collective_barrier() { MPI_Barrier(m_mpi_comm); }
 void mpi_communicator::begin_receiving_pilot() {
 	assert(m_inbound_pilot.request == MPI_REQUEST_NULL);
 	if(m_inbound_pilot.message == nullptr) { m_inbound_pilot.message = std::make_unique<pilot_message>(); }
-	MPI_Irecv(
-	    m_inbound_pilot.message.get(), sizeof *m_inbound_pilot.message, MPI_BYTE, MPI_ANY_SOURCE, pilot_exchange_tag, m_mpi_comm, &m_inbound_pilot.request);
+	MPI_Irecv(m_inbound_pilot.message.get(), sizeof *m_inbound_pilot.message, MPI_BYTE, MPI_ANY_SOURCE, mpi_detail::pilot_exchange_tag, m_mpi_comm,
+	    &m_inbound_pilot.request);
 }
 
 MPI_Datatype mpi_communicator::get_scalar_type(const size_t bytes) {
 	if(const auto it = m_scalar_type_cache.find(bytes); it != m_scalar_type_cache.end()) { return it->second.get(); }
 
-	assert(bytes <= INT_MAX);
+	assert(bytes > 0);
+	assert(bytes <= static_cast<size_t>(INT_MAX));
 	MPI_Datatype type = MPI_DATATYPE_NULL;
 	MPI_Type_contiguous(static_cast<int>(bytes), MPI_BYTE, &type);
 	MPI_Type_commit(&type);
@@ -162,7 +198,6 @@ MPI_Datatype mpi_communicator::get_array_type(const stride& stride) {
 
 	if(dims == 0) { return get_scalar_type(stride.element_size); }
 
-	// TODO - for 1D, use pointer adjustment and MPI_Type_contiguous to allow pointing inside allocations with > INT_MAX extents
 	// TODO - for any dimensionality, do pointer adjustment to re-use MPI data types
 	// TODO - can we get runaway behavior by constructing too many MPI data types?
 	// TODO - have an explicit call for creating cached MPI types? These can be invoked whenever we send or receive a pilot
@@ -171,18 +206,19 @@ MPI_Datatype mpi_communicator::get_array_type(const stride& stride) {
 	int subsize_array[3];
 	int start_array[3];
 	for(int d = 0; d < 3; ++d) {
-		// TODO support transfers > 2Gi elements, at least in the 1d case - either through typing magic here, or by splitting sends / recvs in the iggen
-		assert(stride.allocation[d] <= INT_MAX);
+		// The instruction graph generator should only ever emit transfers which can be described with an "integer" stride
+		assert(stride.allocation[d] <= static_cast<size_t>(INT_MAX));
+		assert(stride.subrange.range[d] <= static_cast<size_t>(INT_MAX));
+		assert(stride.subrange.offset[d] <= static_cast<size_t>(INT_MAX));
 		size_array[d] = static_cast<int>(stride.allocation[d]);
-		assert(stride.subrange.range[d] <= INT_MAX);
 		subsize_array[d] = static_cast<int>(stride.subrange.range[d]);
-		assert(stride.subrange.offset[d] <= INT_MAX);
 		start_array[d] = static_cast<int>(stride.subrange.offset[d]);
 	}
 
 	MPI_Datatype type = MPI_DATATYPE_NULL;
 	MPI_Type_create_subarray(dims, size_array, subsize_array, start_array, MPI_ORDER_C, get_scalar_type(stride.element_size), &type);
 	MPI_Type_commit(&type);
+
 	m_array_type_cache.emplace(stride, unique_datatype(type));
 	return type;
 }

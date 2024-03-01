@@ -49,9 +49,6 @@ class mpi_communicator final : public communicator {
 		MPI_Request request = MPI_REQUEST_NULL;
 	};
 
-	inline constexpr static int pilot_exchange_tag = mpi_support::TAG_COMMUNICATOR;
-	inline constexpr static int first_message_tag = pilot_exchange_tag + 1;
-
 	MPI_Comm m_mpi_comm;
 
 	in_flight_pilot m_inbound_pilot;
