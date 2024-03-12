@@ -222,8 +222,10 @@ set(SOURCES
   src/graph_serializer.cc
   src/grid.cc
   src/instruction_graph_generator.cc
+  src/mpi_communicator.cc
   src/print_graph.cc
   src/recorders.cc
+  src/receive_arbiter.cc
   src/runtime.cc
   src/scheduler.cc
   src/split.cc

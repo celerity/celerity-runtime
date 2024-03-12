@@ -20,4 +20,10 @@ struct outbound_pilot {
 	pilot_message message;
 };
 
+/// A pilot message as packaged on the receiver side.
+struct inbound_pilot {
+	node_id from = -1;
+	pilot_message message;
+};
+
 } // namespace celerity::detail

@@ -8,6 +8,7 @@ constexpr int TAG_CMD = 0;
 constexpr int TAG_DATA_TRANSFER = 1;
 constexpr int TAG_TELEMETRY = 2;
 constexpr int TAG_PRINT_GRAPH = 3;
+constexpr int TAG_COMMUNICATOR = 4;
 
 class data_type {
   public:

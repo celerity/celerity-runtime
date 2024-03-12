@@ -13,6 +13,7 @@ NUM_NODES=("$@")
 
 SYSTEM_TESTS=(
     "distr_tests"
+    "mpi_tests"
 )
 
 for e in "${!SYSTEM_TESTS[@]}"; do
