@@ -184,6 +184,51 @@ namespace detail {
 		}
 	}
 
+	TEST_CASE("kernel_dim built-in range mapper behaves as expected", "[range-mapper]") {
+		using celerity::access::kernel_dim;
+		{
+			range_mapper rm{kernel_dim(0), cl::sycl::access::mode::read, range<1>{128}};
+			auto sr = rm.map_1(chunk<1>{{1}, {4}, {7}});
+			CHECK(sr.offset == id<1>{1});
+			CHECK(sr.range == range<1>{4});
+		}
+		{
+			range_mapper rm{kernel_dim(1), cl::sycl::access::mode::read, range<1>{128}};
+			auto sr = rm.map_1(chunk<3>{{1, 2, 3}, {4, 5, 6}, {7, 8, 9}});
+			CHECK(sr.offset == id<1>{2});
+			CHECK(sr.range == range<1>{5});
+		}
+	}
+
+	TEST_CASE("components built-in range mapper behaves as expected", "[range-mapper]") {
+		using celerity::access::components;
+		using celerity::access::kernel_dim;
+		{
+			range_mapper rm{components(all(), all(), all()), cl::sycl::access::mode::read, range<3>{128, 128, 128}};
+			auto sr = rm.map_3(chunk<3>{{1, 2, 3}, {40, 50, 60}, {70, 80, 90}});
+			CHECK(sr.offset == id<3>{0, 0, 0});
+			CHECK(sr.range == range<3>{128, 128, 128});
+		}
+		{
+			range_mapper rm{components(fixed(subrange<1>(19, 31)), fixed(subrange<1>(15, 44))), cl::sycl::access::mode::read, range<2>{128, 128}};
+			auto sr = rm.map_2(chunk<3>{{1, 2, 3}, {40, 50, 60}, {70, 80, 90}});
+			CHECK(sr.offset == id<2>{19, 15});
+			CHECK(sr.range == range<2>{31, 44});
+		}
+		{
+			range_mapper rm{components(kernel_dim(2), kernel_dim(0), kernel_dim(1)), cl::sycl::access::mode::read, range<3>{128, 128, 128}};
+			auto sr = rm.map_3(chunk<3>{{1, 2, 3}, {40, 50, 60}, {70, 80, 90}});
+			CHECK(sr.offset == id<3>{3, 1, 2});
+			CHECK(sr.range == range<3>{60, 40, 50});
+		}
+		{
+			range_mapper rm{components(kernel_dim(0), kernel_dim(0)), cl::sycl::access::mode::read, range<2>{128, 128}};
+			auto sr = rm.map_2(chunk<1>{{1}, {40}, {70}});
+			CHECK(sr.offset == id<2>{1, 1});
+			CHECK(sr.range == range<2>{40, 40});
+		}
+	}
+
 	TEST_CASE("even_split built-in range mapper behaves as expected", "[range-mapper]") {
 		{
 			range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, range<3>{128, 345, 678}};
