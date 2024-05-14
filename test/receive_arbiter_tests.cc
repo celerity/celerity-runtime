@@ -314,6 +314,62 @@ TEST_CASE("receive_arbiter can complete await-receives through differently-shape
 	CHECK(allocation == expected_allocation);
 }
 
+TEST_CASE("receive_arbiter immediately completes await-receives for which all corresponding fragments have already been received", "[receive_arbiter]") {
+	static const transfer_id trid(task_id(1), buffer_id(420), no_reduction_id);
+	static const box<3> alloc_box = {{2, 1, 0}, {19, 20, 1}};
+	static const std::vector<region<3>> requested_regions{
+	    box<3>{{4, 1, 0}, {19, 18, 1}},
+	};
+	static const std::vector<region<3>> awaited_regions{
+	    region<3>{{{{4, 1, 0}, {14, 10, 1}}, {{14, 1, 0}, {19, 18, 1}}}},
+	    box<3>{{4, 10, 0}, {14, 18, 1}},
+	};
+	static const std::vector<box<3>> incoming_fragments{
+	    box<3>{{4, 1, 0}, {14, 18, 1}},
+	    box<3>{{14, 1, 0}, {19, 18, 1}},
+	};
+	static const size_t elem_size = sizeof(int);
+
+	mock_recv_communicator comm(2, 0);
+	receive_arbiter ra(comm);
+
+	const node_id peer = 1;
+
+	std::vector<int> allocation(alloc_box.get_range().size());
+	region<3> region_received;
+
+	const auto receive_fragment = [&](const size_t which) {
+		const message_id msgid = 10 + which;
+		comm.push_inbound_pilot(inbound_pilot{peer, pilot_message{msgid, trid, incoming_fragments[which]}});
+		ra.poll_communicator();
+		std::vector<int> fragment(incoming_fragments[which].get_range().size(), static_cast<int>(1 + which));
+		comm.complete_receiving_payload(peer, msgid, fragment.data(), incoming_fragments[which].get_range());
+		ra.poll_communicator();
+		region_received = region_union(region_received, incoming_fragments[which]);
+	};
+
+	ra.begin_split_receive(trid, requested_regions[0], allocation.data(), alloc_box, elem_size);
+	receive_fragment(0);
+
+	auto await0 = ra.await_split_receive_subregion(trid, awaited_regions[0]);
+	CHECK_FALSE(await0.is_complete());
+	auto await1 = ra.await_split_receive_subregion(trid, awaited_regions[1]);
+	CHECK(await1.is_complete());
+
+	receive_fragment(1);
+	CHECK(await0.is_complete());
+
+	std::vector<int> expected_allocation(alloc_box.get_range().size());
+	for(size_t which = 0; which < incoming_fragments.size(); ++which) {
+		const auto& box = incoming_fragments[which];
+		test_utils::for_each_in_range(box.get_range(), box.get_offset() - alloc_box.get_offset(), [&](const id<3>& id_in_allocation) {
+			const auto linear_index = get_linear_index(alloc_box.get_range(), id_in_allocation);
+			expected_allocation[linear_index] = static_cast<int>(1 + which);
+		});
+	}
+	CHECK(allocation == expected_allocation);
+}
+
 TEST_CASE("receive_arbiter handles multiple receive instructions for the same transfer id", "[receive_arbiter]") {
 	static const transfer_id trid(task_id(1), buffer_id(420), no_reduction_id);
 	static const box<3> alloc_box = {{0, 0, 0}, {20, 20, 1}};
