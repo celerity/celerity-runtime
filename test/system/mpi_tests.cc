@@ -125,7 +125,7 @@ TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator sends and receives p
 	}
 }
 
-// We require that it's well-defined to send a scalar from a n-dimensional stride and receive it in an m-dimensional stride, since stride dimensionality is
+// We require that it's well-defined to send a scalar from an n-dimensional stride and receive it in an m-dimensional stride, since stride dimensionality is
 // determined from effective allocation dimensionality, which can vary between participating nodes depending on the size of their buffer host allocations.
 TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator correctly transfers scalars between strides of different dimensionality", "[mpi]") {
 	// All GENERATEs must happen before an early-return, otherwise different nodes will execute this test case different numbers of times
@@ -220,7 +220,7 @@ TEST_CASE_METHOD(test_utils::mpi_fixture, "mpi_communicator correctly transfers 
 	}
 }
 
-TEST_CASE_METHOD(test_utils::mpi_fixture, "collectives are concurrent between distinct mpi_communicators", "[mpi]") {
+TEST_CASE_METHOD(test_utils::mpi_fixture, "collectives are concurrent between distinct mpi_communicators", "[mpi][smoke-test]") {
 	constexpr static size_t concurrency = 16;
 
 	// create a bunch of communicators that we can then operate on from concurrent threads
