@@ -162,11 +162,12 @@ async_event receive_arbiter::await_split_receive_subregion(const transfer_id& tr
 	return make_async_event<subregion_receive_event>(*req_it, subregion);
 }
 
-async_event receive_arbiter::receive(const transfer_id& trid, const region<3>& request, void* allocation, const box<3>& allocated_box, size_t elem_size) {
+async_event receive_arbiter::receive(
+    const transfer_id& trid, const region<3>& request, void* const allocation, const box<3>& allocated_box, const size_t elem_size) {
 	return make_async_event<region_receive_event>(initiate_region_request(trid, request, allocation, allocated_box, elem_size));
 }
 
-async_event receive_arbiter::gather_receive(const transfer_id& trid, void* allocation, size_t node_chunk_size) {
+async_event receive_arbiter::gather_receive(const transfer_id& trid, void* const allocation, const size_t node_chunk_size) {
 	auto gr = std::make_shared<gather_request>(allocation, node_chunk_size, m_num_nodes - 1 /* number of peers */);
 
 	if(const auto entry = m_transfers.find(trid); entry != m_transfers.end()) {

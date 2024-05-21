@@ -58,7 +58,7 @@ constexpr node_id mpi_rank_to_node_id(const int rank) {
 
 /// Strides that only differ e.g. in their dim0 allocation size are equivalent when adjusting the base pointer. This not only improves mpi_communicator type
 /// cache efficiency, but is in fact necessary to make sure all boxes that instruction_graph_generator emits for send instructions and inbound pilots
-/// representable in the 32-bit integer world of MPI.
+/// are representable in the 32-bit integer world of MPI.
 /// @tparam Void Either `void` or `const void`.
 template <typename Void>
 constexpr std::tuple<Void*, communicator::stride> normalize_strided_pointer(Void* ptr, communicator::stride stride) {
@@ -90,7 +90,7 @@ constexpr std::tuple<Void*, communicator::stride> normalize_strided_pointer(Void
 
 namespace celerity::detail {
 
-mpi_communicator::mpi_communicator(collective_clone_from_tag /* tag */, MPI_Comm mpi_comm) : m_mpi_comm(MPI_COMM_NULL) {
+mpi_communicator::mpi_communicator(const collective_clone_from_tag /* tag */, const MPI_Comm mpi_comm) : m_mpi_comm(MPI_COMM_NULL) {
 	assert(mpi_comm != MPI_COMM_NULL);
 #if MPI_VERSION < 3
 	// MPI 2 only has Comm_dup - we assume that the user has not done any obscure things to MPI_COMM_WORLD

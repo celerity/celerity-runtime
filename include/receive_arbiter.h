@@ -80,7 +80,7 @@ using transfer = std::variant<unassigned_transfer, multi_region_transfer, gather
 
 namespace celerity::detail {
 
-/// Matches receive instructions to inbound pilots and trigger in-place payload receives on the communicator.
+/// Matches receive instructions to inbound pilots and triggers in-place payload receives on the communicator.
 ///
 /// For scalability reasons, distributed command graph generation only yields exact destinations and buffer sub-ranges for push commands, while await-pushes do
 /// not carry such information - they just denote the full region to be received. Sender nodes later communicate the exact ranges to the receiver during
