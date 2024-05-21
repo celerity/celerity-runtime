@@ -18,6 +18,7 @@ using namespace std::chrono_literals;
 namespace celerity::detail {
 
 struct mpi_communicator_testspy {
+	static size_t get_num_active_outbound_pilots(const mpi_communicator& comm) { return comm.m_outbound_pilots.size(); }
 	static size_t get_num_cached_array_types(const mpi_communicator& comm) { return comm.m_array_type_cache.size(); }
 	static size_t get_num_cached_scalar_types(const mpi_communicator& comm) { return comm.m_scalar_type_cache.size(); }
 };
@@ -324,4 +325,36 @@ TEST_CASE("mpi_communicator normalizes strides to cache and re-uses MPI data typ
 
 	CHECK(mpi_communicator_testspy::get_num_cached_array_types(comm) == 1);  // all strides we sent/received were equivalent under normalization
 	CHECK(mpi_communicator_testspy::get_num_cached_scalar_types(comm) == 1); // only scalar type used was int
+}
+
+TEST_CASE("successfully sent pilots are garbage-collected by communicator", "[mpi]") {
+	mpi_communicator comm(collective_clone_from, MPI_COMM_WORLD);
+	const auto num_nodes = comm.get_num_nodes();
+	const auto self = comm.get_local_node_id();
+	CAPTURE(num_nodes, self);
+
+	if(num_nodes <= 1) { SKIP("test must be run on at least 2 ranks"); }
+
+	const bool participate = self < 2; // needs exactly 2 participating nodes
+	const node_id peer = 1 - self;
+
+	if(participate) {
+		for(int i = 0; i < 3; ++i) {
+			comm.send_outbound_pilot(outbound_pilot{peer, pilot_message{0, transfer_id{0, 0, 0}, box<3>{id{0, 0, 0}, id{1, 1, 1}}}});
+		}
+		CHECK(mpi_communicator_testspy::get_num_active_outbound_pilots(comm) <= 3);
+
+		size_t num_received_pilots = 0;
+		while(num_received_pilots < 3) {
+			num_received_pilots += comm.poll_inbound_pilots().size();
+		}
+	}
+
+	comm.collective_barrier(); // hope that this also means all p2p transfers have complete...
+
+	if(participate) {
+		// send_outbound_pilot will garbage-collect all finished pilot-sends
+		comm.send_outbound_pilot(outbound_pilot{peer, pilot_message{0, transfer_id{0, 0, 0}, box<3>{id{0, 0, 0}, id{1, 1, 1}}}});
+		CHECK(mpi_communicator_testspy::get_num_active_outbound_pilots(comm) <= 1);
+	}
 }
