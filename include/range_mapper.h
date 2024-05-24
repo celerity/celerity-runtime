@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdexcept>
+#include <tuple>
 #include <type_traits>
 
 #include <CL/sycl.hpp>
@@ -159,7 +160,7 @@ namespace access {
 		fixed(const subrange<BufferDims>& sr) : m_sr(sr) {}
 
 		template <int KernelDims>
-		subrange<BufferDims> operator()(const chunk<KernelDims>&) const {
+		subrange<BufferDims> operator()(const chunk<KernelDims>& /* chnk */) const {
 			return m_sr;
 		}
 
@@ -215,6 +216,49 @@ namespace access {
 	neighborhood(size_t)->neighborhood<1>;
 	neighborhood(size_t, size_t)->neighborhood<2>;
 	neighborhood(size_t, size_t, size_t)->neighborhood<3>;
+
+	struct kernel_dim {
+		explicit kernel_dim(const int d) : m_dim(d) {}
+
+		template <int KernelDims>
+		subrange<1> operator()(const chunk<KernelDims>& chnk) const {
+			return {chnk.offset[m_dim], chnk.range[m_dim]};
+		};
+
+	  private:
+		int m_dim;
+	};
+
+	template <typename... ComponentMappers>
+	struct components {
+		constexpr static int buffer_dims = sizeof...(ComponentMappers);
+
+		explicit components(const ComponentMappers&... components) : m_mappers{components...} {}
+
+		template <int KernelDims>
+		subrange<buffer_dims> operator()(const chunk<KernelDims>& chnk, const range<buffer_dims>& buffer_size) const {
+			return apply(chnk, buffer_size, std::make_integer_sequence<int, buffer_dims>());
+		}
+
+	  private:
+		std::tuple<ComponentMappers...> m_mappers;
+
+		template <int Dim, int KernelDims>
+		void apply_component(const chunk<KernelDims>& chnk, const range<buffer_dims>& buffer_size, subrange<buffer_dims>& out_sr) const {
+			static_assert(Dim < buffer_dims);
+			const auto component_sr = detail::invoke_range_mapper_for_kernel(std::get<Dim>(m_mappers), chnk, range<1>(buffer_size[Dim]));
+			out_sr.offset[Dim] = component_sr.offset[0];
+			out_sr.range[Dim] = component_sr.range[0];
+		}
+
+		template <int KernelDims, int... BufferDims>
+		subrange<buffer_dims> apply(
+		    const chunk<KernelDims>& chnk, const range<buffer_dims>& buffer_size, std::integer_sequence<int, BufferDims...> /* seq */) const {
+			subrange<buffer_dims> sr;
+			(apply_component<BufferDims>(chnk, buffer_size, sr), ...);
+			return sr;
+		}
+	};
 
 } // namespace access
 
