@@ -23,6 +23,7 @@ endif()
 
 option(CELERITY_ACCESS_PATTERN_DIAGNOSTICS "Diagnose uninitialized reads and overlapping writes" ${DEFAULT_ENABLE_DEBUG_CHECKS})
 option(CELERITY_ACCESSOR_BOUNDARY_CHECK "Enable accessor boundary check" ${DEFAULT_ENABLE_DEBUG_CHECKS})
+option(CELERITY_USE_MIMALLOC "Use the mimalloc memory allocator" ON)
 
 if(CELERITY_ACCESSOR_BOUNDARY_CHECK AND NOT (CMAKE_BUILD_TYPE STREQUAL "Debug"))
   message(STATUS "Accessor boundary check enabled - this will impact kernel performance")
@@ -134,16 +135,12 @@ endif()
 if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
   # See https://github.com/oneapi-src/unified-runtime/issues/803
   message(STATUS "Not enabling mimalloc by default because it breaks with oneAPI plugin loading")
-  set(CELERITY_USE_MIMALLOC_DEFAULT OFF)
 elseif(CELERITY_SYCL_IMPL STREQUAL "SimSYCL" AND SIMSYCL_ENABLE_ASAN)
   message(STATUS "Not enabling mimalloc by default because SimSYCL is built with AddressSanitizer")
-  set(CELERITY_USE_MIMALLOC_DEFAULT OFF)
   list(APPEND CELERITY_CXX_FLAGS -fsanitize=address)
   list(APPEND CELERITY_LINK_FLAGS -fsanitize=address)
 else()
-  set(CELERITY_USE_MIMALLOC_DEFAULT ON)
 endif()
-option(CELERITY_USE_MIMALLOC "Use the mimalloc memory allocator" ${CELERITY_USE_MIMALLOC_DEFAULT})
 
 # 3rdparty dependencies
 include(FetchContent)
