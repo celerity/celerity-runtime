@@ -92,27 +92,7 @@ if(WIN32)
   list(APPEND CELERITY_CXX_FLAGS -D_CRT_SECURE_NO_WARNINGS)
 endif()
 
-if(CELERITY_SYCL_IMPL STREQUAL hipSYCL)
-  macro(test_hipsycl_feature VAR NAME FEATURE)
-    try_compile("${VAR}"
-      "${PROJECT_BINARY_DIR}/hipsycl_feature_test" # bindir
-      "${PROJECT_SOURCE_DIR}/cmake/hipsycl_feature_test" # srcdir
-      hipsycl_test # projectName
-      "${NAME}" # targetName
-      CMAKE_FLAGS "-DhipSYCL_DIR=${hipSYCL_DIR}"
-    )
-    if("${${VAR}}")
-      message(STATUS "hipSYCL supports ${FEATURE}")
-    else()
-      message(STATUS "hipSYCL does NOT support ${FEATURE}")
-    endif()
-  endmacro()
-  test_hipsycl_feature(HIPSYCL_SUPPORTS_SYCL_2020_REDUCTIONS hipsycl_reduction_test "SYCL 2020 reductions")
-endif()
-
-if(CELERITY_SYCL_IMPL STREQUAL hipSYCL AND HIPSYCL_SUPPORTS_SYCL_2020_REDUCTIONS)
-  set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
-elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++" OR CELERITY_SYCL_IMPL STREQUAL "SimSYCL")
+if(CELERITY_SYCL_IMPL STREQUAL "DPC++" OR CELERITY_SYCL_IMPL STREQUAL "SimSYCL")
   set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
 else()
   set(CELERITY_FEATURE_SCALAR_REDUCTIONS OFF)
