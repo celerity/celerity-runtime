@@ -1,11 +1,12 @@
 #pragma once
 
+#include <cassert>
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <typeinfo>
-#include <variant>
 
 #include <fmt/format.h>
 
@@ -122,11 +123,6 @@ constexpr void tuple_for_each_pair(const Tuple& tuple, const Callback& cb) {
 	utils_detail::tuple_for_each_pair_impl(tuple, cb, std::make_index_sequence<std::tuple_size_v<Tuple>>{});
 }
 
-template <typename Variant, typename Alternative>
-Alternative& replace(Variant& variant, Alternative&& alternative) {
-	return std::get<Alternative>(variant = std::forward<Alternative>(alternative));
-}
-
 /// Fiddles out the base name of a (possibly templated) struct or class from a full (possibly mangled) type name.
 /// The input parameter should be `typeid(Struct*)`, i.e. a _pointer_ to the desired struct type.
 std::string get_simplified_type_name_from_pointer(const std::type_info& pointer_type_info);
@@ -144,6 +140,8 @@ std::string escape_for_dot_label(std::string str);
 /// Print the buffer id as either 'B1' or 'B1 "name"' (if `name` is non-empty)
 std::string make_buffer_debug_label(const buffer_id bid, const std::string& name = "");
 
+[[noreturn]] void unreachable();
+
 enum class panic_solution {
 	log_and_abort,     ///< default
 	throw_logic_error, ///< enabled in unit tests to detect and recover from panics
@@ -156,10 +154,10 @@ void set_panic_solution(panic_solution solution);
 [[noreturn]] void panic(const std::string& msg);
 
 /// Either throws or aborts with a message, depending on the global `panic_solution` setting.
-template <typename... FmtParams, std::enable_if_t<sizeof...(FmtParams) >= 2, int> = 0>
-[[noreturn]] void panic(const FmtParams&... fmt_args) {
+template <typename... FmtParams>
+[[noreturn]] void panic(fmt::format_string<FmtParams...> fmt_string, FmtParams&&... fmt_args) {
 	// TODO also receive a std::source_location with C++20.
-	panic(fmt::format(fmt_args...));
+	panic(fmt::format(fmt_string, std::forward<FmtParams>(fmt_args)...));
 }
 
 /// Ignores, logs, or panics on an error depending on the `error_policy`.

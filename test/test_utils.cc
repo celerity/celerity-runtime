@@ -243,9 +243,9 @@ const char* const expected_device_enumeration_warnings_regex =
 
 namespace celerity::test_utils {
 
-detail::instruction_graph_generator::system_info make_system_info(const size_t num_devices, const bool supports_d2d_copies) {
+detail::system_info make_system_info(const size_t num_devices, const bool supports_d2d_copies) {
 	using namespace detail;
-	instruction_graph_generator::system_info info;
+	system_info info;
 	info.devices.resize(num_devices);
 	info.memories.resize(first_device_memory_id + num_devices);
 	info.memories[host_memory_id].copy_peers.set(host_memory_id);

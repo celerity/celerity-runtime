@@ -104,16 +104,6 @@ class allocation_id {
 	size_t m_raid : raw_allocation_id_bits;
 };
 
-/// Memory id for (unpinned) host memory allocated for or by the user. This memory id is assumed for pointers passed for buffer host-initialization and for the
-/// explicit user-side allocation of a buffer_snapshot that is performed before a buffer fence.
-inline constexpr memory_id user_memory_id = 0;
-
-/// Memory id for (pinned) host memory that the executor will obtain from the backend for buffer allocations and staging buffers.
-inline constexpr memory_id host_memory_id = 1;
-
-/// Memory id for the first device-native memory, if any.
-inline constexpr memory_id first_device_memory_id = 2;
-
 /// allocation_id equivalent of a null pointer.
 inline constexpr allocation_id null_allocation_id{};
 

@@ -61,6 +61,11 @@ std::string escape_for_dot_label(std::string str) {
 	return str;
 }
 
+[[noreturn]] void unreachable() {
+	assert(!"executed unreachable code");
+	abort();
+}
+
 // The panic solution defaults to `log_and_abort`, but is set to `throw_logic_error` in test binaries. Since panics are triggered from celerity library code, we
 // manage it in a global and decide which path to take at runtime. We have also considered deciding this at link time by defining a weak symbol (GCC
 // __attribute__((weak))) in the library which is overwritten by a strong symbol in the test library, but decided against this because there is no equivalent in
