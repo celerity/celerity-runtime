@@ -203,6 +203,7 @@ set(SOURCES
   src/grid.cc
   src/instruction_graph_generator.cc
   src/mpi_communicator.cc
+  src/out_of_order_engine.cc
   src/print_graph.cc
   src/recorders.cc
   src/receive_arbiter.cc

@@ -1,11 +1,9 @@
 #pragma once
 
-#include "dense_map.h"
 #include "grid.h"
 #include "ranges.h"
 #include "types.h"
 
-#include <bitset>
 #include <limits>
 
 
@@ -16,6 +14,7 @@ class instruction;
 class instruction_graph;
 class instruction_recorder;
 struct outbound_pilot;
+struct system_info;
 class task_manager;
 
 } // namespace celerity::detail
@@ -36,32 +35,6 @@ namespace celerity::detail {
 /// coherence between devices and distribute work among the devices on the local system.
 class instruction_graph_generator {
   public:
-	static constexpr size_t max_num_memories = 64;
-	using memory_mask = std::bitset<max_num_memories>;
-
-	/// Information about a single device in the local system.
-	struct device_info {
-		/// Before accessing any memory on a device, instruction_graph_generator will prepare a corresponding allocation on its `native_memory`. Multiple
-		/// devices can share the same native memory. No attempts at reading from peer or shared memory to elide copies are currently made, but could be in the
-		/// future.
-		memory_id native_memory;
-	};
-
-	/// Information about a single memory in the local system.
-	struct memory_info {
-		/// This mask contains a 1-bit for every memory_id that the associated backend queue can copy data from or to directly. instruction_graph_generator
-		/// expects this mapping to be reflexive, i.e. `system_info::memories[a].copy_peers[b] == system_info::memories[b].copy_peers[a]`.
-		/// Further, copies must always be possible between `host_memory_id` and `user_memory_id` as well as between `host_memory_id` and every other memory.
-		/// instruction_graph_generator will create a staging copy in host memory if data must be transferred between two memories that are not copy peers.
-		memory_mask copy_peers;
-	};
-
-	/// All information about the local system that influences the generated instruction graph.
-	struct system_info {
-		dense_map<device_id, device_info> devices;
-		dense_map<memory_id, memory_info> memories;
-	};
-
 	/// Implement this as the owner of instruction_graph_generator to receive callbacks on generated instructions and pilot messages.
 	class delegate {
 	  protected:
@@ -113,7 +86,7 @@ class instruction_graph_generator {
 	/// Specify a non-default `policy` to influence what user-errors are detected at runtime and how they are reported. The default is is to throw exceptions
 	/// which catch errors early in tests, but users of this class will want to ease these settings. Any policy set to a value other than
 	/// `error_policy::ignore` will have a performance penalty.
-	explicit instruction_graph_generator(const task_manager& tm, size_t num_nodes, node_id local_nid, system_info system, instruction_graph& idag,
+	explicit instruction_graph_generator(const task_manager& tm, size_t num_nodes, node_id local_nid, const system_info& system, instruction_graph& idag,
 	    delegate* dlg = nullptr, instruction_recorder* recorder = nullptr, const policy_set& policy = default_policy_set());
 
 	instruction_graph_generator(const instruction_graph_generator&) = delete;

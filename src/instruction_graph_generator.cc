@@ -7,11 +7,11 @@
 #include "recorders.h"
 #include "region_map.h"
 #include "split.h"
+#include "system_info.h"
 #include "task.h"
 #include "task_manager.h"
 #include "types.h"
 
-#include <bitset>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -200,9 +200,6 @@ bool is_topologically_sorted(Iterator begin, Iterator end) {
 	}
 	return true;
 }
-
-constexpr auto max_num_memories = instruction_graph_generator::max_num_memories;
-using memory_mask = instruction_graph_generator::memory_mask;
 
 /// Starting from `first` (inclusive), selects the next memory_id which is set in `location`.
 memory_id next_location(const memory_mask& location, memory_id first) {
@@ -399,7 +396,7 @@ struct buffer_state {
 	dense_map<memory_id, buffer_memory_state> memories;
 
 	/// Contains a mask for every memory_id that either was written to by the original-producer instruction or that has already been made coherent previously.
-	region_map<instruction_graph_generator::memory_mask> up_to_date_memories;
+	region_map<memory_mask> up_to_date_memories;
 
 	/// Tracks the instruction that initially produced each buffer element on the local node - this can be a kernel, host task, region-receive or
 	/// reduce-instruction, or - in case of a host-initialized buffer - an epoch. It is different from `buffer_allocation_state::last_writers` in that it never
@@ -532,7 +529,7 @@ using record_type_for_t = utils::type_switch_t<Instruction, clone_collective_gro
 
 class generator_impl {
   public:
-	generator_impl(const task_manager& tm, size_t num_nodes, node_id local_nid, instruction_graph_generator::system_info system, instruction_graph& idag,
+	generator_impl(const task_manager& tm, size_t num_nodes, node_id local_nid, const system_info& system, instruction_graph& idag,
 	    instruction_graph_generator::delegate* dlg, instruction_recorder* recorder, const instruction_graph_generator::policy_set& policy);
 
 	void notify_buffer_created(buffer_id bid, const range<3>& range, size_t elem_size, size_t elem_align, allocation_id user_aid = null_allocation_id);
@@ -550,7 +547,7 @@ class generator_impl {
 	const task_manager* m_tm; // TODO commands should reference tasks by pointer, not id - then we wouldn't need this member.
 	size_t m_num_nodes;
 	node_id m_local_nid;
-	instruction_graph_generator::system_info m_system;
+	system_info m_system;
 	instruction_graph_generator::delegate* m_delegate;
 	instruction_recorder* m_recorder;
 	instruction_graph_generator::policy_set m_policy;
@@ -683,16 +680,15 @@ class generator_impl {
 	std::string print_buffer_debug_label(buffer_id bid) const;
 };
 
-generator_impl::generator_impl(const task_manager& tm, const size_t num_nodes, const node_id local_nid, instruction_graph_generator::system_info system,
-    instruction_graph& idag, instruction_graph_generator::delegate* const dlg, instruction_recorder* const recorder,
-    const instruction_graph_generator::policy_set& policy)
-    : m_idag(&idag), m_tm(&tm), m_num_nodes(num_nodes), m_local_nid(local_nid), m_system(std::move(system)), m_delegate(dlg), m_recorder(recorder),
-      m_policy(policy), m_memories(m_system.memories.size()) //
+generator_impl::generator_impl(const task_manager& tm, const size_t num_nodes, const node_id local_nid, const system_info& system, instruction_graph& idag,
+    instruction_graph_generator::delegate* const dlg, instruction_recorder* const recorder, const instruction_graph_generator::policy_set& policy)
+    : m_idag(&idag), m_tm(&tm), m_num_nodes(num_nodes), m_local_nid(local_nid), m_system(system), m_delegate(dlg), m_recorder(recorder), m_policy(policy),
+      m_memories(m_system.memories.size()) //
 {
 #ifndef NDEBUG
 	assert(m_system.memories.size() <= max_num_memories);
-	assert(std::all_of(m_system.devices.begin(), m_system.devices.end(),
-	    [&](const instruction_graph_generator::device_info& device) { return device.native_memory < m_system.memories.size(); }));
+	assert(std::all_of(
+	    m_system.devices.begin(), m_system.devices.end(), [&](const device_info& device) { return device.native_memory < m_system.memories.size(); }));
 	for(memory_id mid_a = 0; mid_a < m_system.memories.size(); ++mid_a) {
 		assert(m_system.memories[mid_a].copy_peers[mid_a]);
 		for(memory_id mid_b = mid_a + 1; mid_b < m_system.memories.size(); ++mid_b) {
@@ -2036,9 +2032,9 @@ std::string generator_impl::print_buffer_debug_label(const buffer_id bid) const 
 
 namespace celerity::detail {
 
-instruction_graph_generator::instruction_graph_generator(const task_manager& tm, const size_t num_nodes, const node_id local_nid, system_info system,
+instruction_graph_generator::instruction_graph_generator(const task_manager& tm, const size_t num_nodes, const node_id local_nid, const system_info& system,
     instruction_graph& idag, delegate* dlg, instruction_recorder* const recorder, const policy_set& policy)
-    : m_impl(new instruction_graph_generator_detail::generator_impl(tm, num_nodes, local_nid, std::move(system), idag, dlg, recorder, policy)) {}
+    : m_impl(new instruction_graph_generator_detail::generator_impl(tm, num_nodes, local_nid, system, idag, dlg, recorder, policy)) {}
 
 instruction_graph_generator::~instruction_graph_generator() = default;
 

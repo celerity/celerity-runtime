@@ -14,7 +14,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <celerity.h>
 
-#include "accessor.h"
 #include "command.h"
 #include "command_graph.h"
 #include "device_queue.h"
@@ -26,6 +25,7 @@
 #include "region_map.h"
 #include "runtime.h"
 #include "scheduler.h"
+#include "system_info.h"
 #include "task_manager.h"
 #include "types.h"
 
@@ -331,7 +331,7 @@ namespace test_utils {
 		detail::add_reduction(cgh, mrf.create_reduction(vars.get_id(), include_current_buffer_value));
 	}
 
-	detail::instruction_graph_generator::system_info make_system_info(const size_t num_devices, const bool supports_d2d_copies);
+	detail::system_info make_system_info(const size_t num_devices, const bool supports_d2d_copies);
 
 	// This fixture (or a subclass) must be used by all tests that transitively use MPI.
 	class mpi_fixture {
