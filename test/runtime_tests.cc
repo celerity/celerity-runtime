@@ -1002,36 +1002,44 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "tasks behind the deletion horizon are deleted", "[task_manager][task-graph][task-horizon]") {
 		using namespace cl::sycl::access;
 
+		constexpr int horizon_step_size = 2;
+
 		distr_queue q;
 		auto& tm = runtime::get_instance().get_task_manager();
-		tm.set_horizon_step(2);
+		tm.set_horizon_step(horizon_step_size);
 
-		constexpr int extents = 16;
-
-		buffer<int, 1> buf_a(extents);
-		q.submit([&](handler& cgh) {
-			accessor acc{buf_a, cgh, celerity::access::all{}, celerity::write_only_host_task, celerity::no_init};
-			cgh.host_task(on_master_node, [=] { (void)acc; });
-		});
+		const int init = 42;
+		buffer<int, 0> buf_a(&init, {});
 
 		SECTION("in a simple linear chain of tasks") {
-			constexpr int chain_length = 1000;
-			constexpr int task_limit = 15;
+			std::mutex m;
+			int completed_step = -1;
+			std::condition_variable cv;
 
+			constexpr int chain_length = 1000;
 			for(int i = 0; i < chain_length; ++i) {
 				q.submit([&](handler& cgh) {
 					accessor acc{buf_a, cgh, celerity::access::all{}, celerity::read_write_host_task};
-					cgh.host_task(on_master_node, [=] { (void)acc; });
+					cgh.host_task(on_master_node, [&, acc, i] {
+						(void)acc;
+						std::lock_guard lock(m);
+						completed_step = i;
+						cv.notify_all();
+					});
 				});
 
-				// we need to wait in each iteration, so that tasks are still generated after some have already been executed
-				// (and after they therefore triggered their horizons)
-				q.slow_full_sync();
+				// We need to wait in each iteration, so that tasks are still generated after some have already been executed (and after they therefore
+				// triggered their horizons). We can't use slow_full_sync for this as it will begin a new epoch and force-prune the task graph itself.
+				std::unique_lock lock(m);
+				cv.wait(lock, [&] { return completed_step == i; });
 			}
 
-			// need to wait for commands to actually be executed, otherwise no tasks are deleted
-			q.slow_full_sync();
-			CHECK(tm.get_current_task_count() < task_limit);
+			// There are 2 sets of `horizon_step_size` host tasks after the current effective epoch, 2 horizon tasks, plus up to `horizon_step_size` additional
+			// host tasks that will be deleted on the next submission.
+			constexpr int visible_horizons = 2;
+			constexpr int max_visible_host_tasks = (visible_horizons + 1) * horizon_step_size;
+			constexpr int task_limit = max_visible_host_tasks + visible_horizons;
+			CHECK(tm.get_current_task_count() <= task_limit);
 		}
 	}
 
