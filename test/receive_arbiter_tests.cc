@@ -65,7 +65,7 @@ class mock_recv_communicator : public communicator {
 	class mock_event final : public async_event_impl {
 	  public:
 		explicit mock_event(const completion_flag& flag) : m_flag(flag) {}
-		bool is_complete() const override { return *m_flag; }
+		bool is_complete() override { return *m_flag; }
 
 	  private:
 		completion_flag m_flag;
