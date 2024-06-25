@@ -26,14 +26,14 @@ class mpi_event final : public async_event_impl {
 		MPI_Wait(&m_req, MPI_STATUS_IGNORE);
 	}
 
-	bool is_complete() const override {
+	bool is_complete() override {
 		int flag = -1;
 		MPI_Test(&m_req, &flag, MPI_STATUS_IGNORE);
 		return flag != 0;
 	}
 
   private:
-	mutable MPI_Request m_req;
+	MPI_Request m_req;
 };
 
 constexpr int pilot_exchange_tag = mpi_support::TAG_COMMUNICATOR;
