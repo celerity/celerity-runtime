@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <functional>
@@ -86,6 +87,15 @@ constexpr void tuple_for_each_pair_impl(const Tuple& tuple, const Callback& cb, 
 	tuple_for_each_pair_impl(tuple, cb, std::index_sequence<Is...>{});
 }
 
+template <typename Container, typename Key, typename Enable = void>
+struct has_member_find : std::false_type {};
+
+template <typename Container, typename Key>
+struct has_member_find<Container, Key, std::void_t<decltype(std::declval<const Container&>().find(std::declval<const Key&>()))>> : std::true_type {};
+
+template <typename Container, typename Key>
+inline constexpr bool has_member_find_v = has_member_find<Container, Key>::value;
+
 } // namespace celerity::detail::utils_detail
 
 namespace celerity::detail::utils {
@@ -168,6 +178,26 @@ template <typename... FmtParams, std::enable_if_t<sizeof...(FmtParams) >= 1, int
 void report_error(const error_policy policy, const fmt::format_string<FmtParams...> fmt_string, FmtParams&&... fmt_args) {
 	// TODO also receive a std::source_location with C++20.
 	if(policy != error_policy::ignore) { report_error(policy, fmt::format(fmt_string, std::forward<FmtParams>(fmt_args)...)); }
+}
+
+template <typename Container>
+Container set_intersection(const Container& lhs, const Container& rhs) {
+	using std::begin, std::end;
+	assert(std::is_sorted(begin(lhs), end(lhs)));
+	assert(std::is_sorted(begin(rhs), end(rhs)));
+	Container intersection;
+	std::set_intersection(begin(lhs), end(lhs), begin(rhs), end(rhs), std::back_inserter(intersection));
+	return intersection;
+}
+
+template <typename Container, typename Key>
+bool contains(const Container& container, const Key& key) {
+	using std::begin, std::end;
+	if constexpr(utils_detail::has_member_find_v<Container, Key>) {
+		return container.find(key) != end(container);
+	} else {
+		return std::find(begin(container), end(container), key) != end(container);
+	}
 }
 
 } // namespace celerity::detail::utils
