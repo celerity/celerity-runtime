@@ -14,6 +14,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <celerity.h>
 
+#include "async_event.h"
 #include "command.h"
 #include "command_graph.h"
 #include "device_queue.h"
@@ -456,6 +457,11 @@ namespace test_utils {
 	template <int Dims>
 	detail::box<Dims> truncate_box(const detail::box<3>& b3) {
 		return detail::box<Dims>(truncate_id<Dims>(b3.get_min()), truncate_id<Dims>(b3.get_max()));
+	}
+
+	inline void* await(const celerity::detail::async_event& evt) {
+		while(!evt.is_complete()) {}
+		return evt.get_result();
 	}
 
 } // namespace test_utils

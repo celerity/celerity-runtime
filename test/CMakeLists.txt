@@ -28,6 +28,7 @@ set(TEST_TARGETS
   backend_tests
   buffer_manager_tests
   debug_naming_tests
+  double_buffered_queue_tests
   graph_generation_tests
   graph_gen_granularity_tests
   graph_gen_reduction_tests
@@ -54,6 +55,7 @@ set(TEST_TARGETS
   task_graph_tests
   task_ring_buffer_tests
   test_utils_tests
+  thread_queue_tests
   utils_tests
   device_selection_tests
 )
