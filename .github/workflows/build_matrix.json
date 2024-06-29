@@ -1,12 +1,11 @@
 {
     "NOTE": "Make sure to keep this in sync with docs/platform-support.md and benchmark.yml. Also ensure that the 'ubuntu-version' between 'HEAD' and 'latest' builds remains the same.",
     "default": [
-        { "sycl": "dpcpp", "sycl-version": "61e51015", "ubuntu-version": "20.04", "platform": "intel", "build-type": "Debug" },
+        { "sycl": "dpcpp", "sycl-version": "89327e0a", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },
         { "sycl": "dpcpp", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Debug" },
         { "sycl": "dpcpp", "sycl-version": "latest", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },
-        { "sycl": "hipsycl", "sycl-version": "d2bd9fc7", "ubuntu-version": "20.04", "platform": "nvidia", "build-type": "Debug" },
-        { "sycl": "hipsycl", "sycl-version": "d2bd9fc7", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Debug" },
-        { "sycl": "hipsycl", "sycl-version": "d2bd9fc7", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Release" },
+        { "sycl": "hipsycl", "sycl-version": "2636e1ff", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Debug" },
+        { "sycl": "hipsycl", "sycl-version": "2636e1ff", "ubuntu-version": "22.04", "platform": "nvidia", "build-type": "Release" },
         { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "23.04", "platform": "nvidia", "build-type": "Debug" },
         { "sycl": "hipsycl", "sycl-version": "latest", "ubuntu-version": "23.04", "platform": "nvidia", "build-type": "Release" },
         { "sycl": "simsycl", "sycl-version": "HEAD", "ubuntu-version": "22.04", "platform": "intel", "build-type": "Release" },
