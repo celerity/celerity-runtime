@@ -2002,9 +2002,8 @@ void generator_impl::flush_batch(batch&& batch) { // NOLINT(cppcoreguidelines-rv
 		}) != m_recorder->get_instructions().end();
 	}));
 
-	if(m_delegate != nullptr) {
-		if(!batch.generated_instructions.empty()) { m_delegate->flush_instructions(std::move(batch.generated_instructions)); }
-		if(!batch.generated_pilots.empty()) { m_delegate->flush_outbound_pilots(std::move(batch.generated_pilots)); }
+	if(m_delegate != nullptr && (!batch.generated_instructions.empty() || !batch.generated_pilots.empty())) {
+		m_delegate->flush(std::move(batch.generated_instructions), std::move(batch.generated_pilots));
 	}
 
 #ifndef NDEBUG // ~batch() checks if it has been flushed, which we want to acknowledge even if m_delegate == nullptr
