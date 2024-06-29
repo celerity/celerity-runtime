@@ -65,12 +65,6 @@ enum class side_effect_order { sequential };
 
 namespace celerity::detail {
 
-struct reduction_info {
-	reduction_id rid = 0;
-	buffer_id bid = 0;
-	bool init_from_buffer = false;
-};
-
 inline constexpr node_id master_node_id = 0;
 
 /// Uniquely identifies an allocation across all memories on the local node. This is the instruction-graph equivalent of a USM pointer.

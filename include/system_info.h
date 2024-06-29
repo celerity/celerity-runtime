@@ -25,7 +25,7 @@ struct device_info {
 	/// Before accessing any memory on a device, instruction_graph_generator will prepare a corresponding allocation on its `native_memory`. Multiple
 	/// devices can share the same native memory. No attempts at reading from peer or shared memory to elide copies are currently made, but could be in the
 	/// future.
-	memory_id native_memory;
+	memory_id native_memory = -1;
 };
 
 /// Information about a single memory in the local system.

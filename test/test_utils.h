@@ -12,9 +12,11 @@
 
 #include <catch2/benchmark/catch_optimizer.hpp> // for keep_memory()
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <celerity.h>
 
 #include "async_event.h"
+#include "backend/sycl_backend.h"
 #include "command.h"
 #include "command_graph.h"
 #include "device_queue.h"
@@ -345,6 +347,12 @@ namespace test_utils {
 		~mpi_fixture() = default;
 	};
 
+	// Allow "falling back to generic backend" warnings to appear in log
+	void allow_backend_fallback_warnings();
+
+	// Allow "fence in dry run" warning to appear in log
+	void allow_dry_run_executor_warnings();
+
 	// This fixture (or a subclass) must be used by all tests that transitively instantiate the runtime.
 	class runtime_fixture : public mpi_fixture {
 	  public:
@@ -459,6 +467,23 @@ namespace test_utils {
 		return detail::box<Dims>(truncate_id<Dims>(b3.get_min()), truncate_id<Dims>(b3.get_max()));
 	}
 
+	template <typename T>
+	class vector_generator final : public Catch::Generators::IGenerator<T> {
+	  public:
+		explicit vector_generator(std::vector<T>&& values) : m_values(std::move(values)) {}
+		const T& get() const override { return m_values[m_idx]; }
+		bool next() override { return ++m_idx < m_values.size(); }
+
+	  private:
+		std::vector<T> m_values;
+		size_t m_idx = 0;
+	};
+
+	template <typename T>
+	Catch::Generators::GeneratorWrapper<T> from_vector(std::vector<T> values) {
+		return Catch::Generators::GeneratorWrapper<T>(Catch::Detail::make_unique<vector_generator<T>>(std::move(values)));
+	}
+
 	inline void* await(const celerity::detail::async_event& evt) {
 		while(!evt.is_complete()) {}
 		return evt.get_result();
@@ -517,6 +542,7 @@ struct StringMaker<std::optional<T>> {
 CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER(celerity::detail::allocation_id)
 CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER(celerity::detail::allocation_with_offset)
 CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER(celerity::detail::transfer_id)
+CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER(celerity::detail::sycl_backend_type)
 
 #define CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER_FOR_DIMS(Type)                                                                                        \
 	template <int Dims>                                                                                                                                        \

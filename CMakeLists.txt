@@ -199,8 +199,10 @@ set(SOURCES
   src/device_queue.cc
   src/legacy_executor.cc
   src/distributed_graph_generator.cc
+  src/dry_run_executor.cc
   src/graph_serializer.cc
   src/grid.cc
+  src/live_executor.cc
   src/instruction_graph_generator.cc
   src/mpi_communicator.cc
   src/out_of_order_engine.cc
@@ -277,6 +279,9 @@ target_link_libraries(celerity_runtime PUBLIC
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/legacy_backend)
 target_link_libraries(celerity_runtime PUBLIC celerity_legacy_backends)
+
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/backend)
+target_link_libraries(celerity_runtime PUBLIC celerity_backends)
 
 # Deprecated feature flags
 set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS ${CELERITY_FEATURE_SCALAR_REDUCTIONS})
@@ -373,7 +378,7 @@ install(
   DESTINATION include/celerity/vendor
 )
 install(
-  TARGETS celerity_runtime celerity_legacy_backends
+  TARGETS celerity_runtime celerity_backends celerity_legacy_backends
   EXPORT install_exports
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib

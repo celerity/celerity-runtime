@@ -21,7 +21,7 @@ def run_backend_discovery_and_copy_test(build_dir: str, backend: Optional[Litera
 
     # Run once without arguments to get list of available devices
     output = subprocess.check_output(exe).decode()
-    print("\nAvailable devices:\n", output)
+    print("\nAvailable devices:\n" + output)
     devices = [line.strip() for line in output.split("\n") if line.strip()]
 
     # Try to find a device for the backend as well as an unrelated device

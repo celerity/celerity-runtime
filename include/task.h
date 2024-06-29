@@ -14,6 +14,7 @@
 #include "launcher.h"
 #include "lifetime_extending_state.h"
 #include "range_mapper.h"
+#include "reduction.h"
 #include "types.h"
 
 namespace celerity {
