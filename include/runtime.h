@@ -23,7 +23,7 @@ namespace detail {
 	class graph_serializer;
 	class command_graph;
 	class scheduler;
-	class executor;
+	class legacy_executor;
 	class task_manager;
 	class host_object_manager;
 
@@ -120,7 +120,7 @@ namespace detail {
 		std::unique_ptr<reduction_manager> m_reduction_mngr;
 		std::unique_ptr<host_object_manager> m_host_object_mngr;
 		std::unique_ptr<task_manager> m_task_mngr;
-		std::unique_ptr<executor> m_exec;
+		std::unique_ptr<legacy_executor> m_exec;
 
 		std::unique_ptr<detail::task_recorder> m_task_recorder;
 		std::unique_ptr<detail::command_recorder> m_command_recorder;

@@ -1,6 +1,6 @@
-#include "backend/backend.h"
+#include "legacy_backend/backend.h"
 
-namespace celerity::detail::backend {
+namespace celerity::detail::legacy_backend {
 
 type get_type(const sycl::device& device) {
 #if defined(__HIPSYCL__) && defined(SYCL_EXT_HIPSYCL_BACKEND_CUDA)
@@ -22,4 +22,4 @@ type get_effective_type(const sycl::device& device) {
 	return type::generic;
 }
 
-} // namespace celerity::detail::backend
+} // namespace celerity::detail::legacy_backend

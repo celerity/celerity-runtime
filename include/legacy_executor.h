@@ -39,13 +39,13 @@ namespace detail {
 		duration_metric starvation;
 	};
 
-	class executor {
+	class legacy_executor {
 		friend struct executor_testspy;
 
 	  public:
 		// TODO: Try to decouple this more.
-		executor(const size_t num_nodes, const node_id local_nid, host_queue& h_queue, device_queue& d_queue, task_manager& tm, buffer_manager& buffer_mngr,
-		    reduction_manager& reduction_mngr);
+		legacy_executor(const size_t num_nodes, const node_id local_nid, host_queue& h_queue, device_queue& d_queue, task_manager& tm,
+		    buffer_manager& buffer_mngr, reduction_manager& reduction_mngr);
 
 		void startup();
 

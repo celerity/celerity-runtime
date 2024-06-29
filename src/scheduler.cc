@@ -1,9 +1,9 @@
 #include "scheduler.h"
 
 #include "distributed_graph_generator.h"
-#include "executor.h"
 #include "frame.h"
 #include "graph_serializer.h"
+#include "legacy_executor.h"
 #include "named_threads.h"
 
 #include <matchbox.hh>
@@ -11,7 +11,7 @@
 namespace celerity {
 namespace detail {
 
-	abstract_scheduler::abstract_scheduler(bool is_dry_run, std::unique_ptr<distributed_graph_generator> dggen, executor& exec)
+	abstract_scheduler::abstract_scheduler(bool is_dry_run, std::unique_ptr<distributed_graph_generator> dggen, legacy_executor& exec)
 	    : m_is_dry_run(is_dry_run), m_dggen(std::move(dggen)), m_exec(&exec) {
 		assert(m_dggen != nullptr);
 	}
