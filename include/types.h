@@ -183,6 +183,22 @@ enum class error_policy {
 	panic,
 };
 
+enum class task_type {
+	epoch,          ///< task epoch (graph-level serialization point)
+	host_compute,   ///< host task with explicit global size and celerity-defined split
+	device_compute, ///< device compute task
+	collective,     ///< host task with implicit 1d global size = #ranks and fixed split
+	master_node,    ///< zero-dimensional host task
+	horizon,        ///< task horizon
+	fence,          ///< promise-side of an async experimental::fence
+};
+
+enum class execution_target {
+	none,
+	host,
+	device,
+};
+
 enum class epoch_action {
 	none,
 	barrier,

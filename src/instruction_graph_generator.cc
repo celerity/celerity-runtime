@@ -1547,7 +1547,8 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 		assert(chunk.execution_range.get_area() > 0);
 		assert(chunk.device_id.has_value());
 		return create<device_kernel_instruction>(command_batch, *chunk.device_id, tsk.get_launcher<device_kernel_launcher>(), chunk.execution_range,
-		    std::move(allocation_map), std::move(reduction_map) CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, tsk.get_id(), tsk.get_debug_name()),
+		    std::move(allocation_map),
+		    std::move(reduction_map) CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, tsk.get_type(), tsk.get_id(), tsk.get_debug_name()),
 		    [&](const auto& record_debug_info) {
 			    record_debug_info(ecmd.get_tid(), ecmd.get_cid(), tsk.get_debug_name(), buffer_memory_access_map, buffer_memory_reduction_map);
 		    });
@@ -1556,7 +1557,8 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 		assert(chunk.memory_id == host_memory_id);
 		assert(reduction_map.empty());
 		return create<host_task_instruction>(command_batch, tsk.get_launcher<host_task_launcher>(), chunk.execution_range, tsk.get_global_size(),
-		    std::move(allocation_map), tsk.get_collective_group_id() CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, tsk.get_id(), tsk.get_debug_name()),
+		    std::move(allocation_map),
+		    tsk.get_collective_group_id() CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, tsk.get_type(), tsk.get_id(), tsk.get_debug_name()),
 		    [&](const auto& record_debug_info) { record_debug_info(ecmd.get_tid(), ecmd.get_cid(), tsk.get_debug_name(), buffer_memory_access_map); });
 	}
 }
@@ -1898,8 +1900,8 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 
 	buffer.pending_gathers.clear();
 
-	// The associated `runtime_reduction` info will be garbage-collected form the executor as we pass the reduction id on via the instruction_garbage member of
-	// the next horizon or epoch instruction.
+	// The associated reducer will be garbage-collected form the executor as we pass the reduction id on via the instruction_garbage member of the next horizon
+	// or epoch instruction.
 }
 
 void generator_impl::compile_fence_command(batch& command_batch, const fence_command& fcmd) {
