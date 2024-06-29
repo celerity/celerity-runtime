@@ -151,11 +151,12 @@ class device_kernel_instruction final : public matchbox::implement_acceptor<inst
   public:
 	explicit device_kernel_instruction(const instruction_id iid, const int priority, const device_id did, device_kernel_launcher launcher,
 	    const box<3>& execution_range, buffer_access_allocation_map access_allocations,
-	    buffer_access_allocation_map reduction_allocations CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, const task_id oob_task_id, std::string oob_task_name))
+	    buffer_access_allocation_map reduction_allocations CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(
+	        , const task_type oob_task_type, const task_id oob_task_id, std::string oob_task_name))
 	    : acceptor_base(iid, priority), m_device_id(did), m_launcher(std::move(launcher)), m_execution_range(execution_range),
-	      m_access_allocations(std::move(access_allocations)),
-	      m_reduction_allocations(std::move(reduction_allocations))
-	          CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, m_oob_task_id(oob_task_id), m_oob_task_name(std::move(oob_task_name))) {}
+	      m_access_allocations(std::move(access_allocations)), m_reduction_allocations(std::move(reduction_allocations))                                      //
+	      CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, m_oob_task_type(oob_task_type), m_oob_task_id(oob_task_id), m_oob_task_name(std::move(oob_task_name))) //
+	{}
 
 	device_id get_device_id() const { return m_device_id; }
 	const device_kernel_launcher& get_launcher() const { return m_launcher; }
@@ -164,6 +165,7 @@ class device_kernel_instruction final : public matchbox::implement_acceptor<inst
 	const buffer_access_allocation_map& get_reduction_allocations() const { return m_reduction_allocations; }
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
+	task_type get_oob_task_type() const { return m_oob_task_type; }
 	task_id get_oob_task_id() const { return m_oob_task_id; }
 	const std::string& get_oob_task_name() const { return m_oob_task_name; }
 #endif
@@ -176,6 +178,7 @@ class device_kernel_instruction final : public matchbox::implement_acceptor<inst
 	buffer_access_allocation_map m_reduction_allocations;
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
+	task_type m_oob_task_type;
 	task_id m_oob_task_id;
 	std::string m_oob_task_name;
 #endif
@@ -186,10 +189,12 @@ class host_task_instruction final : public matchbox::implement_acceptor<instruct
   public:
 	host_task_instruction(const instruction_id iid, const int priority, host_task_launcher launcher, const box<3>& execution_range,
 	    const range<3>& global_range, buffer_access_allocation_map access_allocations,
-	    const collective_group_id cgid CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, const task_id oob_task_id, std::string oob_task_name))
+	    const collective_group_id cgid CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(
+	        , const task_type oob_task_type, const task_id oob_task_id, std::string oob_task_name))
 	    : acceptor_base(iid, priority), m_launcher(std::move(launcher)), m_global_range(global_range), m_execution_range(execution_range),
-	      m_access_allocations(std::move(access_allocations)),
-	      m_cgid(cgid) CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, m_oob_task_id(oob_task_id), m_oob_task_name(std::move(oob_task_name))) {}
+	      m_access_allocations(std::move(access_allocations)), m_cgid(cgid)                                                                                   //
+	      CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, m_oob_task_type(oob_task_type), m_oob_task_id(oob_task_id), m_oob_task_name(std::move(oob_task_name))) //
+	{}
 
 	const range<3>& get_global_range() const { return m_global_range; }
 	const host_task_launcher& get_launcher() const { return m_launcher; }
@@ -198,6 +203,7 @@ class host_task_instruction final : public matchbox::implement_acceptor<instruct
 	const buffer_access_allocation_map& get_access_allocations() const { return m_access_allocations; }
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
+	task_type get_oob_task_type() const { return m_oob_task_type; }
 	task_id get_oob_task_id() const { return m_oob_task_id; }
 	const std::string& get_oob_task_name() const { return m_oob_task_name; }
 #endif
@@ -210,6 +216,7 @@ class host_task_instruction final : public matchbox::implement_acceptor<instruct
 	collective_group_id m_cgid;
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
+	task_type m_oob_task_type;
 	task_id m_oob_task_id;
 	std::string m_oob_task_name;
 #endif
