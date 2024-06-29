@@ -14,7 +14,12 @@ def deref_unique_ptr(unique_ptr: gdb.Value) -> gdb.Value:
 
 
 def get_variant_content(variant: gdb.Value) -> gdb.Value:
-    return gdb.default_visualizer(variant).contained_value
+    vis = gdb.default_visualizer(variant)
+    # iterating over children() would dereference the contained value twice
+    if hasattr(vis, 'contained_value'):
+        return vis.contained_value
+    else:
+        return vis._contained_value
 
 
 class StrongTypeAliasPrinter:

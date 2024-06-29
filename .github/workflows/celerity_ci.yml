@@ -188,7 +188,7 @@ jobs:
           echo "ASAN_OPTIONS=detect_leaks=1" >> $GITHUB_ENV
           echo "LSAN_OPTIONS=suppressions=$GITHUB_WORKSPACE/ci/lsan.suppressions" >> $GITHUB_ENV
           echo "int dlclose(void *p) { return 0; }" | cc -x c -shared -o libfake_dlclose.so -
-          echo "CI_LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libasan.so.6:$(pwd)/libfake_dlclose.so" >> $GITHUB_ENV
+          echo "CI_LD_PRELOAD=$(echo /usr/lib/x86_64-linux-gnu/libasan.so.?):$(pwd)/libfake_dlclose.so" >> $GITHUB_ENV
           echo "HWLOC_COMPONENTS=-cuda,-opencl,-rsmi" >> $GITHUB_ENV
       - name: Run unit tests
         timeout-minutes: 5

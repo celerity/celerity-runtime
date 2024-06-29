@@ -29,25 +29,6 @@ namespace detail {
 		return nd_item<Dims>{sycl_item, global_range, global_offset, chunk_offset, group_range, group_offset};
 	}
 
-
-	// SYCL 1.2.1: group::get_id(), SYCL 2020: group::get_group_id()
-	// hipSYCL switched from the 1.2.1 interface between releases, so we currently don't have a reliable CELERITY_WORKAROUND_LESS_OR_EQUAL macro for this.
-
-	template <typename Group, typename Enable = void>
-	struct sycl_group_has_get_group_id : public std::false_type {};
-
-	template <typename Group>
-	struct sycl_group_has_get_group_id<Group, std::void_t<decltype(std::declval<Group>().get_group_id())>> : public std::true_type {};
-
-	template <int Dims>
-	celerity::id<Dims> get_sycl_group_id(const sycl::group<Dims>& grp) {
-		if constexpr(sycl_group_has_get_group_id<sycl::group<Dims>>::value) {
-			return grp.get_group_id();
-		} else {
-			return grp.get_id();
-		}
-	}
-
 	template <int Dims>
 	inline sycl::nd_item<std::max(1, Dims)>& get_sycl_item(nd_item<Dims>& nd_item) {
 		return nd_item.m_sycl_item;
@@ -288,7 +269,7 @@ class nd_item {
 	explicit nd_item(const sycl::nd_item<std::max(1, Dims)>& sycl_item, const range<Dims>& global_range, const id<Dims>& global_offset,
 	    const id<Dims>& chunk_offset, const range<Dims>& group_range, const id<Dims>& group_offset)
 	    : m_sycl_item(sycl_item), m_global_id(chunk_offset + detail::id_cast<Dims>(celerity::id(sycl_item.get_global_id()))), m_global_offset(global_offset),
-	      m_global_range(global_range), m_group_id(group_offset + detail::id_cast<Dims>(detail::get_sycl_group_id(sycl_item.get_group()))),
+	      m_global_range(global_range), m_group_id(group_offset + detail::id_cast<Dims>(celerity::id(sycl_item.get_group().get_group_id()))),
 	      m_group_range(group_range) {}
 };
 
