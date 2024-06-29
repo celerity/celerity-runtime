@@ -17,7 +17,7 @@ class region_receive_event final : public async_event_impl {
   public:
 	explicit region_receive_event(const stable_region_request& rr) : m_request(rr) {}
 
-	bool is_complete() const override { return m_request.expired(); }
+	bool is_complete() override { return m_request.expired(); }
 
   private:
 	weak_region_request m_request;
@@ -29,7 +29,7 @@ class subregion_receive_event final : public async_event_impl {
 	explicit subregion_receive_event(const stable_region_request& rr, const region<3>& awaited_subregion)
 	    : m_request(rr), m_awaited_region(awaited_subregion) {}
 
-	bool is_complete() const override {
+	bool is_complete() override {
 		const auto rr = m_request.lock();
 		return rr == nullptr || region_intersection(rr->incomplete_region, m_awaited_region).empty();
 	}
@@ -44,7 +44,7 @@ class gather_receive_event final : public async_event_impl {
   public:
 	explicit gather_receive_event(const stable_gather_request& gr) : m_request(gr) {}
 
-	bool is_complete() const override { return m_request.expired(); }
+	bool is_complete() override { return m_request.expired(); }
 
   private:
 	weak_gather_request m_request;
