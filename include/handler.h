@@ -18,6 +18,7 @@
 #include "item.h"
 #include "range_mapper.h"
 #include "ranges.h"
+#include "reduction.h"
 #include "reduction_manager.h"
 #include "task.h"
 #include "types.h"

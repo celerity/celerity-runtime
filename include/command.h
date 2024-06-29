@@ -6,6 +6,7 @@
 #include "intrusive_graph.h"
 #include "mpi_support.h"
 #include "ranges.h"
+#include "reduction.h"
 #include "task.h"
 #include "types.h"
 

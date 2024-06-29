@@ -1,9 +1,12 @@
 #pragma once
 
+#include "backend/sycl_backend.h"
 #include "grid.h"
 #include "intrusive_graph.h"
 #include "ranges.h"
 #include "types.h"
+
+#include <chrono>
 
 #include <fmt/format.h>
 
@@ -164,5 +167,45 @@ struct fmt::formatter<celerity::detail::transfer_id> {
 			out = fmt::format_to(out, "T{}.B{}", tid, bid);
 		}
 		return ctx.out();
+	}
+};
+
+template <>
+struct fmt::formatter<celerity::detail::sycl_backend_type> : fmt::formatter<std::string_view> {
+	format_context::iterator format(const celerity::detail::sycl_backend_type type, format_context& ctx) const {
+		const auto repr = [=]() -> std::string_view {
+			switch(type) {
+			case celerity::detail::sycl_backend_type::generic: return "generic";
+			case celerity::detail::sycl_backend_type::cuda: return "CUDA";
+			default: abort();
+			}
+		}();
+		return std::copy(repr.begin(), repr.end(), ctx.out());
+	}
+};
+
+namespace celerity::detail {
+
+/// Wrap a `std::chrono::duration` in this to auto-format it as seconds, milliseconds, microseconds, or nanoseconds.
+struct as_sub_second {
+	template <typename Rep, typename Period>
+	as_sub_second(const std::chrono::duration<Rep, Period>& duration) : seconds(std::chrono::duration_cast<std::chrono::duration<double>>(duration)) {}
+	std::chrono::duration<double> seconds;
+};
+
+} // namespace celerity::detail
+
+template <>
+struct fmt::formatter<celerity::detail::as_sub_second> : fmt::formatter<double> {
+	format_context::iterator format(const celerity::detail::as_sub_second ss, format_context& ctx) const {
+		std::string_view unit = " s";
+		double unit_time = ss.seconds.count();
+		if(unit_time != 0.0) {
+			if(std::abs(unit_time) < 1.0) { unit_time *= 1000.0, unit = " ms"; }
+			if(std::abs(unit_time) < 1.0) { unit_time *= 1000.0, unit = " µs"; }
+			if(std::abs(unit_time) < 1.0) { unit_time *= 1000.0, unit = " ns"; }
+		}
+		auto out = fmt::formatter<double>::format(unit_time, ctx);
+		return std::copy(unit.begin(), unit.end(), out);
 	}
 };

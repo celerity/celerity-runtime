@@ -20,6 +20,12 @@
 #define CELERITY_WORKAROUND_HIPSYCL 0
 #endif
 
+#if defined(CELERITY_SIMSYCL)
+#define CELERITY_WORKAROUND_SIMSYCL 1
+#else
+#define CELERITY_WORKAROUND_SIMSYCL 0
+#endif
+
 #define CELERITY_WORKAROUND_VERSION_LESS_OR_EQUAL_1(major) (CELERITY_WORKAROUND_VERSION_MAJOR <= major)
 #define CELERITY_WORKAROUND_VERSION_LESS_OR_EQUAL_2(major, minor)                                                                                              \
 	(CELERITY_WORKAROUND_VERSION_MAJOR < major) || (CELERITY_WORKAROUND_VERSION_MAJOR == major && CELERITY_WORKAROUND_VERSION_MINOR <= minor)

@@ -239,6 +239,13 @@ const char* const expected_device_enumeration_warnings_regex =
     "Selected devices are of different type and/or do not belong to the same platform.*|No suitable platform found that can provide.*|No backend "
     "specialization available for selected platform.*|Selected platform .* is compatible with specialized .* backend, but it has not been compiled.*";
 
+const char* const expected_backend_fallback_warnings_regex =
+    "No common backend specialization available for all selected devices, falling back to .*\\. Performance may be degraded\\.|"
+    "All selected devices are compatible with specialized .* backend, but it has not been compiled\\. Performance may be degraded\\.";
+
+const char* const expected_dry_run_executor_warnings_regex = "Encountered a \"fence\" command while \"CELERITY_DRY_RUN_NODES\" is set. The result of this "
+                                                             "operation will not match the expected output of an actual run.";
+
 } // namespace celerity::test_utils_detail
 
 namespace celerity::test_utils {
@@ -280,6 +287,10 @@ runtime_fixture::~runtime_fixture() {
 }
 
 device_queue_fixture::~device_queue_fixture() { get_device_queue().get_sycl_queue().wait_and_throw(); }
+
+void allow_backend_fallback_warnings() { allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_backend_fallback_warnings_regex); }
+
+void allow_dry_run_executor_warnings() { allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_dry_run_executor_warnings_regex); }
 
 detail::device_queue& device_queue_fixture::get_device_queue() {
 	if(!m_dq) {

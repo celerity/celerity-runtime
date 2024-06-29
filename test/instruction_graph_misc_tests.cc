@@ -301,7 +301,7 @@ TEST_CASE("epochs serialize execution and compact dependency tracking", "[instru
 	ictx.master_node_host_task().name("consumer").read(buf, acc::all()).affect(ho).submit();
 	ictx.finish();
 
-	// this test is very explicit about each instuction in the graph - things might easily break when touching IDAG generation.
+	// this test is very explicit about each instruction in the graph - things might easily break when touching IDAG generation.
 	const auto all_instrs = ictx.query_instructions();
 
 	// we expect an init epoch + optional barrier epoch + shutdown epoch
@@ -383,7 +383,7 @@ TEST_CASE("horizon application serializes execution and compacts dependency trac
 	ictx.master_node_host_task().name("consumer").read(buf, acc::all()).affect(test_ho).affect(age_ho).submit();
 	ictx.finish();
 
-	// this test is very explicit about each instuction in the graph - things might easily break when touching IDAG generation.
+	// this test is very explicit about each instruction in the graph - things might easily break when touching IDAG generation.
 	const auto all_instrs = ictx.query_instructions();
 
 	const auto all_horizons = all_instrs.select_all<horizon_instruction_record>();

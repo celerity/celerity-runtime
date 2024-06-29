@@ -15,7 +15,7 @@ type get_type(const sycl::device& device) {
 type get_effective_type(const sycl::device& device) {
 	[[maybe_unused]] const auto b = get_type(device);
 
-#if defined(CELERITY_DETAIL_BACKEND_CUDA_ENABLED)
+#if CELERITY_DETAIL_BACKEND_CUDA_ENABLED
 	if(b == type::cuda) return b;
 #endif
 

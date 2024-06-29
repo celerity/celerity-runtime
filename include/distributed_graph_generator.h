@@ -5,6 +5,7 @@
 
 #include "command_graph.h"
 #include "ranges.h"
+#include "reduction.h"
 #include "region_map.h"
 #include "types.h"
 

@@ -150,6 +150,8 @@ std::string escape_for_dot_label(std::string str);
 /// Print the buffer id as either 'B1' or 'B1 "name"' (if `name` is non-empty)
 std::string make_buffer_debug_label(const buffer_id bid, const std::string& name = "");
 
+std::string make_task_debug_label(const task_type tt, const task_id tid, const std::string& debug_name, bool title_case = false);
+
 [[noreturn]] void unreachable();
 
 enum class panic_solution {
@@ -198,6 +200,12 @@ bool contains(const Container& container, const Key& key) {
 	} else {
 		return std::find(begin(container), end(container), key) != end(container);
 	}
+}
+
+template <typename Container, typename Predicate>
+void erase_if(Container& container, const Predicate& predicate) {
+	using std::begin, std::end;
+	container.erase(std::remove_if(begin(container), end(container), predicate), end(container));
 }
 
 } // namespace celerity::detail::utils

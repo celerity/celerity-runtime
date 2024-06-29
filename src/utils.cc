@@ -104,6 +104,26 @@ std::string make_buffer_debug_label(const buffer_id bid, const std::string& name
 	return !name.empty() ? fmt::format("B{} \"{}\"", bid, name) : fmt::format("B{}", bid);
 }
 
+std::string make_task_debug_label(const task_type tt, const task_id tid, const std::string& debug_name, bool title_case) {
+	const auto type_string = [tt] {
+		switch(tt) {
+		case task_type::epoch: return "epoch";
+		case task_type::host_compute: return "host-compute task";
+		case task_type::device_compute: return "device kernel";
+		case task_type::collective: return "collective host task";
+		case task_type::master_node: return "master-node host task";
+		case task_type::horizon: return "horizon";
+		case task_type::fence: return "fence";
+		default: return "unknown task";
+		}
+	}();
+
+	auto label = fmt::format("{} T{}", type_string, tid);
+	if(title_case) { label[0] = static_cast<char>(std::toupper(label[0])); }
+	if(!debug_name.empty()) { fmt::format_to(std::back_inserter(label), " \"{}\"", debug_name); }
+	return label;
+}
+
 } // namespace celerity::detail::utils
 
 

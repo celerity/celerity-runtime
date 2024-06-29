@@ -44,6 +44,17 @@ class host_object_manager {
 	std::unordered_set<host_object_id> m_objects;
 };
 
+/// Host objects that own their instance (i.e. not host_object<T&> nor host_object<void>) wrap it in a type deriving from this struct in order to pass it to
+/// the executor for (virtual) destruction from within the instruction graph.
+struct host_object_instance {
+	host_object_instance() = default;
+	host_object_instance(const host_object_instance&) = delete;
+	host_object_instance(host_object_instance&&) = delete;
+	host_object_instance& operator=(host_object_instance&&) = delete;
+	host_object_instance& operator=(const host_object_instance&) = delete;
+	virtual ~host_object_instance() = default;
+};
+
 // Base for `state` structs in all host_object specializations: registers and unregisters host_objects with the host_object_manager.
 struct host_object_tracker : public lifetime_extending_state {
 	detail::host_object_id id{};
