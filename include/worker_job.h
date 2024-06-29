@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "buffer_transfer_manager.h"
+#include "closure_hydrator.h"
 #include "command.h"
 #include "host_queue.h"
 #include "log.h"
@@ -157,7 +158,7 @@ namespace detail {
 		bool m_submitted = false;
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-		std::vector<std::vector<id<3>>> m_oob_indices_per_accessor;
+		std::vector<std::unique_ptr<oob_bounding_box>> m_oob_indices_per_accessor;
 #endif
 
 		bool execute(const command_pkg& pkg) override;
@@ -185,7 +186,7 @@ namespace detail {
 		bool m_submitted = false;
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-		std::vector<id<3>*> m_oob_indices_per_accessor;
+		std::vector<oob_bounding_box*> m_oob_indices_per_accessor;
 #endif
 
 		bool execute(const command_pkg& pkg) override;
