@@ -161,6 +161,23 @@ jobs:
           path: ${{ env.build-name }}.log
       - name: Build examples against installed Celerity
         run: bash /root/build-examples.sh ${{ env.container-workspace }}/examples --build-type ${{ matrix.build-type }}
+      - name: Reset coverage counters
+        if: matrix.build-type == 'Debug' && matrix.sycl == 'simsycl' # celerity-build/simsycl image enables --coverage for Debug builds
+        run: fastcov -z -d "${{ env.build-dir }}"
+      # For a run with ASan, we need to fake dlclose() so all shared libraries are still mapped when leaks are evaluated
+      # - otherwise, we will see "<unknown module>" instead of a proper trace if it originated in an unloaded library
+      # (see https://github.com/google/sanitizers/issues/89#issuecomment-406316683). LD_PRELOAD will be set to CI_LD_PRELOAD
+      # by /root/capture-backtrace.sh (otherwise we would also preload for other processes like bash, which we don't want to do).
+      # Also, hwloc (used by OpenMPI) will attempt to dlopen(RTLD_DEEPBIND) for GPU backend discovery which is incompatible
+      # with sanitizers but also irrelevant for a SimSYCL build, so we set HWLOC_COMPONENTS accordingly.
+      - name: Prepare Sanitizer run
+        if: matrix.sycl == 'simsycl' && matrix.build-type == 'Debug'
+        run: |
+          echo "ASAN_OPTIONS=detect_leaks=1" >> $GITHUB_ENV
+          echo "LSAN_OPTIONS=suppressions=$GITHUB_WORKSPACE/ci/lsan.suppressions" >> $GITHUB_ENV
+          echo "int dlclose(void *p) { return 0; }" | cc -x c -shared -o libfake_dlclose.so -
+          echo "CI_LD_PRELOAD=$(echo /usr/lib/x86_64-linux-gnu/libasan.so.?):$(pwd)/libfake_dlclose.so" >> $GITHUB_ENV
+          echo "HWLOC_COMPONENTS=-cuda,-opencl,-rsmi" >> $GITHUB_ENV
       - name: Run unit tests
         timeout-minutes: 5
         working-directory: ${{ env.build-dir }}
