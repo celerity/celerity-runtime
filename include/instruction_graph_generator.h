@@ -46,18 +46,15 @@ class instruction_graph_generator {
 		~delegate() = default; // do not allow destruction through base pointer
 
 	  public:
-		/// Called whenever new instructions have been generated and inserted into the instruction graph.
+		/// Called whenever new instructions have been generated and inserted into the instruction graph, and / or new pilot messages have been generated that
+		/// must be transmitted to peer nodes before they can accept data transmitted through `send_instruction`s originating from the local node.
 		///
 		/// The vector of instructions is in topological order of dependencies, and so is the concatenation of all vectors that are passed through this
-		/// function. Topological order here means that sequential execution in that order would fulfill all internal dependencies.
+		/// function. Topological order here means that sequential execution in that order would fulfill all internal dependencies. The instruction graph
+		/// generator guarantees that instruction pointers are stable and the pointed-to instructions are both immutable and safe to read from other threads.
 		///
-		/// The instruction graph generator guarantees that these pointers are stable and the pointed-to instructions are both immutable and safe to read from
-		/// other threads.
-		virtual void flush_instructions(std::vector<const instruction*> instrs) = 0;
-
-		/// Called whenever new pilot messages have been generated that must be transmitted to peer nodes before they can accept data transmitted through
-		/// `send_instruction`s originating from the local node.
-		virtual void flush_outbound_pilots(std::vector<outbound_pilot> pilots) = 0;
+		/// This is exposed as a single function on vectors to minimize lock contention in a threaded delegate implementations.
+		virtual void flush(std::vector<const instruction*> instructions, std::vector<outbound_pilot> pilots) = 0;
 	};
 
 	struct policy_set {
