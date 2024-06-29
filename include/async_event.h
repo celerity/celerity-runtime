@@ -38,7 +38,6 @@ class complete_event final : public async_event_impl {
 	explicit complete_event(void* const result) : m_result(result) {}
 	bool is_complete() override { return true; }
 	void* get_result() override { return m_result; }
-	std::optional<std::chrono::nanoseconds> get_native_execution_time() override { return std::chrono::nanoseconds(0); }
 
   private:
 	void* m_result = nullptr;
