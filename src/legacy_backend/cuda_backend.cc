@@ -1,4 +1,4 @@
-#include "backend/cuda_backend.h"
+#include "legacy_backend/cuda_backend.h"
 
 #include <cuda_runtime.h>
 
@@ -13,7 +13,7 @@
 		abort();                                                                                                                                               \
 	}
 
-namespace celerity::detail::backend_detail {
+namespace celerity::detail::legacy_backend_detail {
 
 void memcpy_strided_device_cuda(sycl::queue& queue, const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const range<0>& /* source_range */,
     const id<0>& /* source_offset */, const range<0>& /* target_range */, const id<0>& /* target_offset */, const range<0>& /* copy_range */) {
@@ -61,4 +61,4 @@ void memcpy_strided_device_cuda(sycl::queue& queue, const void* source_base_ptr,
 	CELERITY_CUDA_CHECK(cudaStreamSynchronize, 0);
 }
 
-} // namespace celerity::detail::backend_detail
+} // namespace celerity::detail::legacy_backend_detail

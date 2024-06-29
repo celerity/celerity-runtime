@@ -551,7 +551,7 @@ namespace detail {
 		const id<3> allocation_offset_in_buffer(4, 8, 12);
 		const range<3> allocation_range(5, 7, 9);
 		const box<3> box = subrange(allocation_offset_in_buffer, allocation_range);
-		const std::vector<closure_hydrator::accessor_info> infos{{allocation, box.get_range(), box.get_offset(), box}};
+		const std::vector<closure_hydrator::accessor_info> infos{{allocation, box, box}};
 
 		SECTION("host accessor") {
 			auto acc = accessor_testspy::make_host_accessor<size_t, 3, access_mode::discard_write>(
@@ -586,7 +586,7 @@ namespace detail {
 		auto create_accessor = [&](const test_utils::mock_buffer<1>& buf) {
 			const auto allocation = reinterpret_cast<void*>(0x12345abc000 + buf.get_id());
 			const subrange<1> sr(0, 10);
-			infos.push_back({allocation, range_cast<3>(sr.range), id_cast<3>(sr.offset), subrange_cast<3>(sr)});
+			infos.push_back({allocation, subrange_cast<3>(sr), subrange_cast<3>(sr)});
 			auto acc = accessor_testspy::make_host_accessor<size_t, 1, access_mode::discard_write>(sr, next_hid++, sr.offset, sr.range, buf.get_range());
 			return std::pair{acc, allocation};
 		};
@@ -671,8 +671,7 @@ namespace detail {
 		});
 		q.slow_full_sync();
 
-		const auto attempted_sr =
-		    subrange<3>{id_cast<3>(oob_idx_lo), range_cast<3>(oob_idx_hi - oob_idx_lo + id_cast<Dims>(range<Dims>(ones))) - range_cast<3>(range<Dims>(zeros))};
+		const auto attempted_sr = box(id_cast<3>(oob_idx_lo), id_cast<3>(oob_idx_hi) + ones).get_subrange();
 		const auto unnamed_error_message =
 		    fmt::format("Out-of-bounds access in kernel 'acc_out_of_bounds_kernel<...>' detected: Accessor 0 for buffer B0 attempted to "
 		                "access indices between {} which are outside of mapped subrange {}",
@@ -718,8 +717,7 @@ namespace detail {
 
 		q.slow_full_sync();
 
-		const auto attempted_sr =
-		    subrange<3>{id_cast<3>(oob_idx_lo), range_cast<3>(oob_idx_hi - oob_idx_lo + id_cast<Dims>(range<Dims>(ones))) - range_cast<3>(range<Dims>(zeros))};
+		const auto attempted_sr = box(id_cast<3>(oob_idx_lo), id_cast<3>(oob_idx_hi) + ones).get_subrange();
 		const auto unnamed_error_message = fmt::format("Out-of-bounds access in host task detected: Accessor 0 for buffer B0 attempted to "
 		                                               "access indices between {} which are outside of mapped subrange {}",
 		    attempted_sr, subrange_cast<3>(accessible_sr));

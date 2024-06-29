@@ -1,15 +1,23 @@
 #pragma once
 
-#include <numeric>
 #include <optional>
 #include <vector>
 
-#include "log.h"
+#include "grid.h"
 #include "ranges.h"
 #include "sycl_wrappers.h"
 #include "types.h"
 
 namespace celerity::detail {
+
+#if CELERITY_ACCESSOR_BOUNDARY_CHECK
+struct oob_bounding_box {
+	id<3> min{SIZE_MAX, SIZE_MAX, SIZE_MAX};
+	id<3> max{0, 0, 0};
+
+	box<3> into_box() const { return min[0] < max[0] && min[1] < max[1] && min[2] < max[2] ? box(min, max) : box<3>(); }
+};
+#endif
 
 // To avoid additional register pressure, we embed hydration IDs into pointers for
 // accessors, with the assumption that a real pointer will never be in the
@@ -59,12 +67,11 @@ class closure_hydrator {
   public:
 	struct accessor_info {
 		void* ptr;
-		range<3> backing_buffer_range;
-		id<3> backing_buffer_offset;
-		subrange<3> accessed_virtual_subrange;
+		box<3> allocated_box_in_buffer;
+		box<3> accessed_box_in_buffer;
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-		id<3>* out_of_bounds_indices = nullptr;
+		oob_bounding_box* out_of_bounds_indices = nullptr;
 #endif
 	};
 

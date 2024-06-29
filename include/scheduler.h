@@ -15,13 +15,13 @@ namespace detail {
 
 	class command_graph;
 	class command_recorder;
-	class executor;
+	class legacy_executor;
 	class task;
 
 	// Abstract base class to allow different threading implementation in tests
 	class abstract_scheduler {
 	  public:
-		abstract_scheduler(const bool is_dry_run, std::unique_ptr<distributed_graph_generator> dggen, executor& exec);
+		abstract_scheduler(const bool is_dry_run, std::unique_ptr<distributed_graph_generator> dggen, legacy_executor& exec);
 
 		virtual ~abstract_scheduler() = default;
 
@@ -84,7 +84,7 @@ namespace detail {
 
 		bool m_is_dry_run;
 		std::unique_ptr<distributed_graph_generator> m_dggen;
-		executor* m_exec; // Pointer instead of reference so we can omit for tests / benchmarks
+		legacy_executor* m_exec; // Pointer instead of reference so we can omit for tests / benchmarks
 
 		std::queue<event> m_available_events;
 		std::queue<event> m_in_flight_events;

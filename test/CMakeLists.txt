@@ -25,7 +25,6 @@ file(GLOB_RECURSE TEST_INCLUDES *.h)
 
 set(TEST_TARGETS
   accessor_tests
-  backend_tests
   buffer_manager_tests
   debug_naming_tests
   graph_generation_tests
@@ -41,6 +40,7 @@ set(TEST_TARGETS
   instruction_graph_misc_tests
   instruction_graph_p2p_tests
   instruction_graph_reduction_tests
+  legacy_backend_tests
   out_of_order_engine_tests
   print_graph_tests
   region_map_tests

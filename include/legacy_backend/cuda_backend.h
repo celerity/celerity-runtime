@@ -1,10 +1,10 @@
 #pragma once
 
-#include "backend/operations.h"
-#include "backend/type.h"
+#include "legacy_backend/operations.h"
+#include "legacy_backend/type.h"
 #include "ranges.h"
 
-namespace celerity::detail::backend_detail {
+namespace celerity::detail::legacy_backend_detail {
 
 void memcpy_strided_device_cuda(sycl::queue& queue, const void* source_base_ptr, void* target_base_ptr, size_t elem_size, const range<0>& source_range,
     const id<0>& source_offset, const range<0>& target_range, const id<0>& target_offset, const range<0>& copy_range);
@@ -19,11 +19,11 @@ void memcpy_strided_device_cuda(sycl::queue& queue, const void* source_base_ptr,
     const id<3>& source_offset, const range<3>& target_range, const id<3>& target_offset, const range<3>& copy_range);
 
 template <>
-struct backend_operations<backend::type::cuda> {
+struct backend_operations<legacy_backend::type::cuda> {
 	template <typename... Args>
 	static void memcpy_strided_device(Args&&... args) {
 		memcpy_strided_device_cuda(args...);
 	}
 };
 
-} // namespace celerity::detail::backend_detail
+} // namespace celerity::detail::legacy_backend_detail

@@ -6,8 +6,8 @@
 
 #include <CL/sycl.hpp>
 
-#include "backend/backend.h"
 #include "device_queue.h"
+#include "legacy_backend/backend.h"
 #include "payload.h"
 #include "ranges.h"
 #include "workaround.h"
@@ -142,7 +142,7 @@ namespace detail {
 			assert_copy_is_in_range(range_cast<3>(m_device_buf.get_range()), sr.range, sr.offset, id<3>{}, sr.range);
 
 			// TODO: Ideally we'd make this non-blocking and return some sort of async handle that can be waited upon
-			backend::memcpy_strided_device(m_owning_queue, m_device_buf.get_pointer(), out_linearized, sizeof(DataT), m_device_buf.get_range(),
+			legacy_backend::memcpy_strided_device(m_owning_queue, m_device_buf.get_pointer(), out_linearized, sizeof(DataT), m_device_buf.get_range(),
 			    id_cast<Dims>(sr.offset), range_cast<Dims>(sr.range), id<Dims>{}, range_cast<Dims>(sr.range));
 		}
 
@@ -153,8 +153,8 @@ namespace detail {
 			assert_copy_is_in_range(sr.range, range_cast<3>(m_device_buf.get_range()), id<3>{}, sr.offset, sr.range);
 
 			// TODO: Ideally we'd make this non-blocking and return some sort of async handle that can be waited upon
-			backend::memcpy_strided_device(m_owning_queue, in_linearized, m_device_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(sr.range), id<Dims>{},
-			    m_device_buf.get_range(), id_cast<Dims>(sr.offset), range_cast<Dims>(sr.range));
+			legacy_backend::memcpy_strided_device(m_owning_queue, in_linearized, m_device_buf.get_pointer(), sizeof(DataT), range_cast<Dims>(sr.range),
+			    id<Dims>{}, m_device_buf.get_range(), id_cast<Dims>(sr.offset), range_cast<Dims>(sr.range));
 		}
 
 		void copy(const buffer_storage& source, id<3> source_offset, id<3> target_offset, range<3> copy_range) override;
@@ -207,7 +207,7 @@ namespace detail {
 
 		if(source.get_type() == buffer_type::device_buffer) {
 			auto& device_source = dynamic_cast<const device_buffer_storage<DataT, Dims>&>(source);
-			backend::memcpy_strided_device(m_owning_queue, device_source.m_device_buf.get_pointer(), m_device_buf.get_pointer(), sizeof(DataT),
+			legacy_backend::memcpy_strided_device(m_owning_queue, device_source.m_device_buf.get_pointer(), m_device_buf.get_pointer(), sizeof(DataT),
 			    device_source.m_device_buf.get_range(), id_cast<Dims>(source_offset), m_device_buf.get_range(), id_cast<Dims>(target_offset),
 			    range_cast<Dims>(copy_range));
 		}

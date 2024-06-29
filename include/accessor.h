@@ -6,7 +6,6 @@
 
 #include "access_modes.h"
 #include "buffer.h"
-#include "buffer_storage.h"
 #include "cgf_diagnostics.h"
 #include "closure_hydrator.h"
 #include "handler.h"
@@ -186,12 +185,13 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		// We currently don't support boundary checking for accessors created using accessor_testspy::make_device_accessor,
 		// which does not set m_oob_indices.
 		if(m_oob_indices != nullptr) {
-			const bool is_within_bounds_lo = all_true(index >= m_accessed_virtual_subrange.offset);
-			const bool is_within_bounds_hi = all_true(index < (m_accessed_virtual_subrange.offset + m_accessed_virtual_subrange.range));
+			const bool is_within_bounds_lo = all_true(index >= m_accessed_buffer_subrange.offset);
+			const bool is_within_bounds_hi = all_true(index < (m_accessed_buffer_subrange.offset + m_accessed_buffer_subrange.range));
 			if((!is_within_bounds_lo || !is_within_bounds_hi)) {
-				for(int d = 0; d < Dims; ++d) {
-					sycl::atomic_ref<size_t, sycl::memory_order::relaxed, sycl::memory_scope::device>{m_oob_indices[0][d]}.fetch_min(index[d]);
-					sycl::atomic_ref<size_t, sycl::memory_order::relaxed, sycl::memory_scope::device>{m_oob_indices[1][d]}.fetch_max(index[d] + 1);
+				for(int d = 0; d < 3; ++d) {
+					const size_t component = d < Dims ? index[d] : 0;
+					sycl::atomic_ref<size_t, sycl::memory_order::relaxed, sycl::memory_scope::device>{m_oob_indices->min[d]}.fetch_min(component);
+					sycl::atomic_ref<size_t, sycl::memory_order::relaxed, sycl::memory_scope::device>{m_oob_indices->max[d]}.fetch_max(component + 1);
 				}
 				return m_oob_fallback_value;
 			}
@@ -238,19 +238,18 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 
 	friend bool operator==(const accessor& lhs, const accessor& rhs) {
-		return lhs.m_device_ptr == rhs.m_device_ptr && lhs.m_backing_buffer_range == rhs.m_backing_buffer_range
-		       && lhs.m_backing_buffer_offset == rhs.m_backing_buffer_offset;
+		return lhs.m_device_ptr == rhs.m_device_ptr && lhs.m_allocation_range == rhs.m_allocation_range && lhs.m_allocation_offset == rhs.m_allocation_offset;
 	}
 
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
   private:
 	DataT* m_device_ptr = nullptr;
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_backing_buffer_offset;
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_backing_buffer_range = detail::zeros;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_allocation_offset;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_allocation_range = detail::zeros;
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-	id<3>* m_oob_indices = nullptr;
-	subrange<Dims> m_accessed_virtual_subrange = {};
+	detail::oob_bounding_box* m_oob_indices = nullptr;
+	subrange<Dims> m_accessed_buffer_subrange = {};
 	// This value (or a reference to it) is returned for all out-of-bounds accesses.
 	mutable DataT m_oob_fallback_value = DataT{};
 #endif
@@ -264,8 +263,8 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 
 	// Constructor for tests, called through accessor_testspy.
-	accessor(DataT* const ptr, const id<Dims>& backing_buffer_offset, const range<Dims>& backing_buffer_range)
-	    : m_device_ptr(ptr), m_backing_buffer_offset(backing_buffer_offset), m_backing_buffer_range(backing_buffer_range) {
+	accessor(DataT* const ptr, const id<Dims>& allocation_offset, const range<Dims>& allocation_range)
+	    : m_device_ptr(ptr), m_allocation_offset(allocation_offset), m_allocation_range(allocation_range) {
 #if defined(__SYCL_DEVICE_ONLY__)
 #if CELERITY_WORKAROUND_HIPSYCL // hipSYCL does not yet implement is_device_copyable_v
 		static_assert(std::is_trivially_copyable_v<accessor>);
@@ -276,16 +275,16 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 
 	// Constructor for tests, called through accessor_testspy.
-	accessor(const detail::hydration_id hid, const id<Dims>& backing_buffer_offset, const range<Dims>& backing_buffer_range)
-	    : accessor(detail::embed_hydration_id<DataT*>(hid), backing_buffer_offset, backing_buffer_range) {}
+	accessor(const detail::hydration_id hid, const id<Dims>& allocation_offset, const range<Dims>& allocation_range)
+	    : accessor(detail::embed_hydration_id<DataT*>(hid), allocation_offset, allocation_range) {}
 
 	void copy_and_hydrate(const accessor& other) {
 		m_device_ptr = other.m_device_ptr;
-		m_backing_buffer_offset = other.m_backing_buffer_offset;
-		m_backing_buffer_range = other.m_backing_buffer_range;
+		m_allocation_offset = other.m_allocation_offset;
+		m_allocation_range = other.m_allocation_range;
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 		m_oob_indices = other.m_oob_indices;
-		m_accessed_virtual_subrange = other.m_accessed_virtual_subrange;
+		m_accessed_buffer_subrange = other.m_accessed_buffer_subrange;
 #endif
 
 #if !defined(__SYCL_DEVICE_ONLY__)
@@ -297,18 +296,18 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 			if(detail::closure_hydrator::is_available() && detail::closure_hydrator::get_instance().is_hydrating()) {
 				const auto info = detail::closure_hydrator::get_instance().get_accessor_info<target::device>(detail::extract_hydration_id(m_device_ptr));
 				m_device_ptr = static_cast<DataT*>(info.ptr);
-				m_backing_buffer_offset = detail::id_cast<Dims>(info.backing_buffer_offset);
-				m_backing_buffer_range = detail::range_cast<Dims>(info.backing_buffer_range);
+				m_allocation_offset = detail::id_cast<Dims>(info.allocated_box_in_buffer.get_offset());
+				m_allocation_range = detail::range_cast<Dims>(info.allocated_box_in_buffer.get_range());
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 				m_oob_indices = info.out_of_bounds_indices;
-				m_accessed_virtual_subrange = detail::subrange_cast<Dims>(info.accessed_virtual_subrange);
+				m_accessed_buffer_subrange = detail::subrange_cast<Dims>(info.accessed_box_in_buffer.get_subrange());
 #endif
 			}
 		}
 #endif
 	}
 
-	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_backing_buffer_range, index - m_backing_buffer_offset); }
+	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_allocation_range, index - m_allocation_offset); }
 };
 
 template <typename DataT, int Dims, access_mode Mode>
@@ -408,14 +407,15 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	inline std::enable_if_t<detail::access::mode_traits::is_producer(M), DataT&> operator[](const id<Dims>& index) const {
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 		if(m_oob_indices != nullptr) {
-			const bool is_within_bounds_lo = all_true(index >= m_accessed_virtual_subrange.offset);
-			const bool is_within_bounds_hi = all_true(index < (m_accessed_virtual_subrange.offset + m_accessed_virtual_subrange.range));
+			const bool is_within_bounds_lo = all_true(index >= m_accessed_buffer_subrange.offset);
+			const bool is_within_bounds_hi = all_true(index < (m_accessed_buffer_subrange.offset + m_accessed_buffer_subrange.range));
 
 			if((!is_within_bounds_lo || !is_within_bounds_hi)) {
 				std::lock_guard<std::mutex> guard(m_oob_mutex);
-				for(int d = 0; d < Dims; ++d) {
-					m_oob_indices[0][d] = std::min(m_oob_indices[0][d], index[d]);
-					m_oob_indices[1][d] = std::max(m_oob_indices[1][d], index[d] + 1);
+				for(int d = 0; d < 3; ++d) {
+					const size_t component = d < Dims ? index[d] : 0;
+					m_oob_indices->min[d] = std::min(m_oob_indices->min[d], component);
+					m_oob_indices->max[d] = std::max(m_oob_indices->max[d], component + 1);
 				}
 				return m_oob_fallback_value;
 			}
@@ -481,18 +481,18 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	 */
 	DataT* get_pointer() const {
 		bool illegal_access = false;
-		if(m_backing_buffer_offset != detail::id_cast<Dims>(id<3>{0, 0, 0})) { illegal_access = true; }
+		if(m_allocation_offset != id<Dims>(detail::zeros)) { illegal_access = true; }
 		// We can be a bit more lenient for 1D buffers, in that the backing buffer doesn't have to have the full size.
 		// (Dereferencing the pointer outside of the requested range is UB anyways).
-		if(Dims > 1 && m_backing_buffer_range != m_virtual_buffer_range) { illegal_access = true; }
+		if(Dims > 1 && m_allocation_range != m_buffer_range) { illegal_access = true; }
 		if(illegal_access) { throw std::logic_error("Buffer cannot be accessed with expected stride"); }
 		return m_host_ptr;
 	}
 
 	friend bool operator==(const accessor& lhs, const accessor& rhs) {
-		return lhs.m_host_ptr == rhs.m_host_ptr && lhs.m_accessed_virtual_subrange == rhs.m_accessed_virtual_subrange
-		       && lhs.m_backing_buffer_range == rhs.m_backing_buffer_range && lhs.m_virtual_buffer_range == rhs.m_virtual_buffer_range
-		       && lhs.m_backing_buffer_offset == rhs.m_backing_buffer_offset;
+		return lhs.m_host_ptr == rhs.m_host_ptr && lhs.m_accessed_buffer_subrange == rhs.m_accessed_buffer_subrange
+		       && lhs.m_allocation_range == rhs.m_allocation_range && lhs.m_buffer_range == rhs.m_buffer_range
+		       && lhs.m_allocation_offset == rhs.m_allocation_offset;
 	}
 
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
@@ -511,34 +511,34 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 
 		return {
 		    m_host_ptr,
-		    m_virtual_buffer_range,
-		    m_backing_buffer_range,
-		    m_accessed_virtual_subrange.range,
-		    m_backing_buffer_offset,
-		    m_accessed_virtual_subrange.offset,
+		    m_buffer_range,
+		    m_allocation_range,
+		    m_accessed_buffer_subrange.range,
+		    m_allocation_offset,
+		    m_accessed_buffer_subrange.offset,
 		};
 	}
 
   private:
 	// Subange of the accessor, as set by the range mapper or requested by the user (master node host tasks only).
 	// This does not necessarily correspond to the backing buffer's range.
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS subrange<Dims> m_accessed_virtual_subrange;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS subrange<Dims> m_accessed_buffer_subrange;
 
-	// Offset of the backing buffer relative to the virtual buffer.
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_backing_buffer_offset;
+	// Offset of the backing allocation relative to the buffer.
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_allocation_offset;
 
-	// Range of the backing buffer.
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_backing_buffer_range = detail::zeros;
+	// Range of the backing allocation.
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_allocation_range = detail::zeros;
 
 	// The range of the Celerity buffer as created by the user.
 	// We only need this to check whether it is safe to call get_pointer() or not.
-	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_virtual_buffer_range = detail::zeros;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_buffer_range = detail::zeros;
 
 	// m_host_ptr must be defined *last* for it to overlap with the sequence of range and id members in the 0-dimensional case
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS DataT* m_host_ptr = nullptr;
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-	id<3>* m_oob_indices = nullptr;
+	detail::oob_bounding_box* m_oob_indices = nullptr;
 	// This mutex has to be inline static, since accessors are copyable making the mutex otherwise useless.
 	// It is a workaround until atomic_ref() can be used on m_oob_indices in c++20.
 	inline static std::mutex m_oob_mutex;
@@ -548,7 +548,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 #endif
 
 	template <target Target = target::host_task, typename Functor>
-	accessor(ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) : m_virtual_buffer_range(buff.get_range()) {
+	accessor(ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) : m_buffer_range(buff.get_range()) {
 		using range_mapper = detail::range_mapper<Dims, std::decay_t<Functor>>; // decay function type to function pointer
 		const auto hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), std::make_unique<range_mapper>(rmfn, Mode, buff.get_range()));
 		detail::extend_lifetime(cgh, detail::get_lifetime_extending_state(buff));
@@ -556,22 +556,22 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	}
 
 	// Constructor for tests, called through accessor_testspy.
-	accessor(const subrange<Dims> accessed_virtual_subrange, DataT* const ptr, const id<Dims>& backing_buffer_offset, const range<Dims>& backing_buffer_range,
-	    const range<Dims>& virtual_buffer_range)
-	    : m_accessed_virtual_subrange(accessed_virtual_subrange), m_backing_buffer_offset(backing_buffer_offset), m_backing_buffer_range(backing_buffer_range),
-	      m_virtual_buffer_range(virtual_buffer_range), m_host_ptr(ptr) {}
+	accessor(const subrange<Dims> accessed_buffer_subrange, DataT* const ptr, const id<Dims>& allocation_offset, const range<Dims>& allocation_range,
+	    const range<Dims>& buffer_range)
+	    : m_accessed_buffer_subrange(accessed_buffer_subrange), m_allocation_offset(allocation_offset), m_allocation_range(allocation_range),
+	      m_buffer_range(buffer_range), m_host_ptr(ptr) {}
 
 	// Constructor for tests, called through accessor_testspy.
-	accessor(const subrange<Dims>& accessed_virtual_subrange, const detail::hydration_id hid, const id<Dims>& backing_buffer_offset,
-	    const range<Dims>& backing_buffer_range, range<Dims> virtual_buffer_range)
-	    : accessor(accessed_virtual_subrange, detail::embed_hydration_id<DataT*>(hid), backing_buffer_offset, backing_buffer_range, virtual_buffer_range) {}
+	accessor(const subrange<Dims>& accessed_buffer_subrange, const detail::hydration_id hid, const id<Dims>& allocation_offset,
+	    const range<Dims>& allocation_range, range<Dims> buffer_range)
+	    : accessor(accessed_buffer_subrange, detail::embed_hydration_id<DataT*>(hid), allocation_offset, allocation_range, buffer_range) {}
 
 	void copy_and_hydrate(const accessor& other) {
-		m_accessed_virtual_subrange = other.m_accessed_virtual_subrange;
+		m_accessed_buffer_subrange = other.m_accessed_buffer_subrange;
 		m_host_ptr = other.m_host_ptr;
-		m_backing_buffer_offset = other.m_backing_buffer_offset;
-		m_backing_buffer_range = other.m_backing_buffer_range;
-		m_virtual_buffer_range = other.m_virtual_buffer_range;
+		m_allocation_offset = other.m_allocation_offset;
+		m_allocation_range = other.m_allocation_range;
+		m_buffer_range = other.m_buffer_range;
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 		m_oob_indices = other.m_oob_indices;
@@ -585,9 +585,9 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 			if(detail::closure_hydrator::is_available() && detail::closure_hydrator::get_instance().is_hydrating()) {
 				const auto info = detail::closure_hydrator::get_instance().get_accessor_info<target::host_task>(detail::extract_hydration_id(m_host_ptr));
 				m_host_ptr = static_cast<DataT*>(info.ptr);
-				m_backing_buffer_offset = detail::id_cast<Dims>(info.backing_buffer_offset);
-				m_backing_buffer_range = detail::range_cast<Dims>(info.backing_buffer_range);
-				m_accessed_virtual_subrange = detail::subrange_cast<Dims>(info.accessed_virtual_subrange);
+				m_allocation_offset = detail::id_cast<Dims>(info.allocated_box_in_buffer.get_offset());
+				m_allocation_range = detail::range_cast<Dims>(info.allocated_box_in_buffer.get_range());
+				m_accessed_buffer_subrange = detail::subrange_cast<Dims>(info.accessed_box_in_buffer.get_subrange());
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 				m_oob_indices = info.out_of_bounds_indices;
@@ -596,7 +596,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		}
 	}
 
-	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_backing_buffer_range, index - m_backing_buffer_offset); }
+	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_allocation_range, index - m_allocation_offset); }
 };
 
 #undef CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR
