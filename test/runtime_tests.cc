@@ -18,7 +18,7 @@
 #include <celerity.h>
 
 #include "affinity.h"
-#include "executor.h"
+#include "legacy_executor.h"
 #include "named_threads.h"
 #include "ranges.h"
 
@@ -39,7 +39,7 @@ namespace detail {
 	};
 
 	struct executor_testspy {
-		static std::thread& get_exec_thrd(executor& exec) { return exec.m_exec_thrd; }
+		static std::thread& get_exec_thrd(legacy_executor& exec) { return exec.m_exec_thrd; }
 	};
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "only a single distr_queue can be created", "[distr_queue][lifetime][dx]") {

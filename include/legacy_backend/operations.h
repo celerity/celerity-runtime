@@ -2,11 +2,11 @@
 
 #include <stdexcept>
 
-#include "backend/type.h"
+#include "legacy_backend/type.h"
 
-namespace celerity::detail::backend_detail {
+namespace celerity::detail::legacy_backend_detail {
 
-template <backend::type Type>
+template <legacy_backend::type Type>
 struct backend_operations {
 	template <typename... Args>
 	static void memcpy_strided_device(Args&&... args) {
@@ -14,4 +14,4 @@ struct backend_operations {
 	}
 };
 
-} // namespace celerity::detail::backend_detail
+} // namespace celerity::detail::legacy_backend_detail

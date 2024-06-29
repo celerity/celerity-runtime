@@ -23,8 +23,8 @@
 #include "cgf_diagnostics.h"
 #include "command_graph.h"
 #include "distributed_graph_generator.h"
-#include "executor.h"
 #include "host_object.h"
+#include "legacy_executor.h"
 #include "log.h"
 #include "mpi_support.h"
 #include "named_threads.h"
@@ -160,7 +160,7 @@ namespace detail {
 		if(m_cfg->get_horizon_step()) m_task_mngr->set_horizon_step(m_cfg->get_horizon_step().value());
 		if(m_cfg->get_horizon_max_parallelism()) m_task_mngr->set_horizon_max_parallelism(m_cfg->get_horizon_max_parallelism().value());
 
-		m_exec = std::make_unique<executor>(m_num_nodes, m_local_nid, *m_h_queue, *m_d_queue, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
+		m_exec = std::make_unique<legacy_executor>(m_num_nodes, m_local_nid, *m_h_queue, *m_d_queue, *m_task_mngr, *m_buffer_mngr, *m_reduction_mngr);
 
 		m_cdag = std::make_unique<command_graph>();
 		if(m_cfg->should_record()) m_command_recorder = std::make_unique<command_recorder>();

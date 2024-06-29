@@ -55,7 +55,7 @@ namespace detail {
 
 	struct runtime_testspy {
 		static scheduler& get_schdlr(runtime& rt) { return *rt.m_schdlr; }
-		static executor& get_exec(runtime& rt) { return *rt.m_exec; }
+		static legacy_executor& get_exec(runtime& rt) { return *rt.m_exec; }
 		static size_t get_command_count(runtime& rt) { return rt.m_cdag->command_count(); }
 		static command_graph& get_cdag(runtime& rt) { return *rt.m_cdag; }
 		static std::string print_task_graph(runtime& rt) { return detail::print_task_graph(*rt.m_task_recorder); }
