@@ -157,12 +157,12 @@ TEMPLATE_TEST_CASE_SIG("memcpy_strided_device allows to copy between the same de
 
 	// Note: This may also be the generic backend
 	SECTION("using automatically selected backend") {
-		backend::memcpy_strided_device(
+		legacy_backend::memcpy_strided_device(
 		    get_a_queue(src, tgt), src.ptr, tgt.ptr, sizeof(size_t), cp.source_range, cp.source_offset, cp.target_range, cp.target_offset, cp.copy_range);
 	}
 
 	SECTION("using generic backend") {
-		backend_detail::backend_operations<backend::type::generic>::memcpy_strided_device(
+		legacy_backend_detail::backend_operations<legacy_backend::type::generic>::memcpy_strided_device(
 		    get_a_queue(src, tgt), src.ptr, tgt.ptr, sizeof(size_t), cp.source_range, cp.source_offset, cp.target_range, cp.target_offset, cp.copy_range);
 	}
 

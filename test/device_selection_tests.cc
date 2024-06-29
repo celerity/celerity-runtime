@@ -509,7 +509,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints informat
 	std::optional<sycl::device> cuda_device;
 
 	for(const auto& d : devices) {
-		if(backend::get_type(d) == backend::type::cuda) {
+		if(legacy_backend::get_type(d) == legacy_backend::type::cuda) {
 			cuda_device = d;
 		} else {
 			generic_device = d;
@@ -529,7 +529,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints informat
 	}
 
 	SECTION("informs user when using specialized backend") {
-		if(!cuda_device.has_value() || !backend_detail::is_enabled_v<backend::type::cuda>) {
+		if(!cuda_device.has_value() || !legacy_backend_detail::is_enabled_v<legacy_backend::type::cuda>) {
 			SKIP("No CUDA device available or CUDA backend not enabled");
 		} else {
 			pick_device(cfg, *cuda_device, std::vector<sycl::platform>{});
@@ -539,7 +539,7 @@ TEST_CASE_METHOD(celerity::test_utils::mpi_fixture, "pick_device prints informat
 	}
 
 	SECTION("warns when specialized backend is not enabled") {
-		if(!cuda_device.has_value() || backend_detail::is_enabled_v<backend::type::cuda>) {
+		if(!cuda_device.has_value() || legacy_backend_detail::is_enabled_v<legacy_backend::type::cuda>) {
 			SKIP("No CUDA device available or CUDA backend is enabled");
 		} else {
 			celerity::test_utils::allow_max_log_level(celerity::detail::log_level::warn);

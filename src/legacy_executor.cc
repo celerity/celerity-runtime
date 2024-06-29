@@ -1,4 +1,4 @@
-#include "executor.h"
+#include "legacy_executor.h"
 
 #include <queue>
 
@@ -26,26 +26,26 @@ namespace detail {
 		m_running = false;
 	}
 
-	executor::executor(const size_t num_nodes, const node_id local_nid, host_queue& h_queue, device_queue& d_queue, task_manager& tm,
+	legacy_executor::legacy_executor(const size_t num_nodes, const node_id local_nid, host_queue& h_queue, device_queue& d_queue, task_manager& tm,
 	    buffer_manager& buffer_mngr, reduction_manager& reduction_mngr)
 	    : m_local_nid(local_nid), m_h_queue(h_queue), m_d_queue(d_queue), m_task_mngr(tm), m_buffer_mngr(buffer_mngr), m_reduction_mngr(reduction_mngr) {
 		m_btm = std::make_unique<buffer_transfer_manager>(num_nodes);
 		m_metrics.initial_idle.resume();
 	}
 
-	void executor::startup() {
-		m_exec_thrd = std::thread(&executor::run, this);
+	void legacy_executor::startup() {
+		m_exec_thrd = std::thread(&legacy_executor::run, this);
 		set_thread_name(m_exec_thrd.native_handle(), "cy-executor");
 	}
 
-	void executor::shutdown() {
+	void legacy_executor::shutdown() {
 		if(m_exec_thrd.joinable()) { m_exec_thrd.join(); }
 
 		CELERITY_DEBUG("Executor initial idle time = {}us, compute idle time = {}us, starvation time = {}us", m_metrics.initial_idle.get().count(),
 		    m_metrics.device_idle.get().count(), m_metrics.starvation.get().count());
 	}
 
-	void executor::run() {
+	void legacy_executor::run() {
 		closure_hydrator::make_available();
 		bool done = false;
 
@@ -135,7 +135,7 @@ namespace detail {
 		closure_hydrator::teardown();
 	}
 
-	bool executor::handle_command(const command_pkg& pkg) {
+	bool legacy_executor::handle_command(const command_pkg& pkg) {
 		// A worker might receive a task command before creating the corresponding task graph node
 		if(const auto tid = pkg.get_tid()) {
 			if(!m_task_mngr.has_task(*tid)) { return false; }
@@ -160,7 +160,7 @@ namespace detail {
 		return true;
 	}
 
-	void executor::update_metrics() {
+	void legacy_executor::update_metrics() {
 		if(m_running_device_compute_jobs == 0) {
 			if(!m_metrics.device_idle.is_running()) { m_metrics.device_idle.resume(); }
 		} else {
