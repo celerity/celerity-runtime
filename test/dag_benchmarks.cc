@@ -152,7 +152,7 @@ static constexpr instruction_graph_generator::policy_set benchmark_instruction_g
 struct task_manager_benchmark_context {
 	const size_t num_nodes = 1;
 	task_recorder trec;
-	task_manager tm{1, nullptr, test_utils::print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
+	task_manager tm{1, nullptr, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
 	test_utils::mock_buffer_factory mbf{tm};
 
 	task_manager_benchmark_context() = default;
@@ -179,10 +179,10 @@ struct command_graph_generator_benchmark_context {
 	command_graph cdag;
 	graph_serializer gser{[](command_pkg&&) {}};
 	task_recorder trec;
-	task_manager tm{num_nodes, nullptr, test_utils::print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
+	task_manager tm{num_nodes, nullptr, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
 	command_recorder crec;
 	distributed_graph_generator dggen{
-	    num_nodes, 0 /* local_nid */, cdag, tm, test_utils::print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
+	    num_nodes, 0 /* local_nid */, cdag, tm, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
 	test_utils::mock_buffer_factory mbf{tm, dggen};
 
 	explicit command_graph_generator_benchmark_context(const size_t num_nodes) : num_nodes(num_nodes) {
@@ -215,14 +215,14 @@ struct instruction_graph_generator_benchmark_context {
 	const size_t num_devices;
 	command_graph cdag;
 	task_recorder trec;
-	task_manager tm{num_nodes, nullptr /* host_queue */, test_utils::print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
+	task_manager tm{num_nodes, nullptr /* host_queue */, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
 	command_recorder crec;
 	distributed_graph_generator dggen{
-	    num_nodes, 0 /* local_nid */, cdag, tm, test_utils::print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
+	    num_nodes, 0 /* local_nid */, cdag, tm, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
 	instruction_recorder irec;
 	instruction_graph idag;
 	instruction_graph_generator iggen{tm, num_nodes, 0 /* local nid */, test_utils::make_system_info(num_devices, true /* allow d2d copies */), idag,
-	    nullptr /* delegate */, test_utils::print_graphs ? &irec : nullptr, benchmark_instruction_graph_generator_policy};
+	    nullptr /* delegate */, test_utils::g_print_graphs ? &irec : nullptr, benchmark_instruction_graph_generator_policy};
 	test_utils::mock_buffer_factory mbf{tm, dggen, iggen};
 
 	explicit instruction_graph_generator_benchmark_context(const size_t num_nodes, const size_t num_devices) : num_nodes(num_nodes), num_devices(num_devices) {
