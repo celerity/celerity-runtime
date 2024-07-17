@@ -507,7 +507,7 @@ class idag_test_context {
 	~idag_test_context() {
 		// instruction-graph-generator has no exception guarantees, so we must not call further member functions if one of them threw an exception
 		if(m_uncaught_exceptions_before == std::uncaught_exceptions()) { finish(); }
-		maybe_log_graphs();
+		maybe_print_graphs();
 	}
 
 	idag_test_context(const idag_test_context&) = delete;
@@ -693,14 +693,11 @@ class idag_test_context {
 		m_most_recently_built_horizon = current_horizon;
 	}
 
-	void maybe_log_graphs() {
-		if(test_utils::print_graphs) {
-			fmt::print("{}\n", std::string(79, '-'));
-			if(const auto capture = Catch::getCurrentContext().getResultCapture()) { fmt::print("DAGs for [{}]\n", capture->getCurrentTestName()); }
+	void maybe_print_graphs() {
+		if(test_utils::g_print_graphs) {
 			fmt::print("\n{}\n", print_task_graph());
 			fmt::print("\n{}\n", print_command_graph());
 			fmt::print("\n{}\n", print_instruction_graph());
-			fmt::print("\n{}\n\n", std::string(79, '-'));
 		}
 	}
 

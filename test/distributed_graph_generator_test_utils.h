@@ -484,21 +484,6 @@ class command_query {
 	}
 };
 
-inline std::string make_test_graph_title(const std::string& type) {
-	const auto test_name = Catch::getResultCapture().getCurrentTestName();
-	auto title = fmt::format("<br/>{}", type);
-	if(!test_name.empty()) { fmt::format_to(std::back_inserter(title), "<br/><b>{}</b>", test_name); }
-	return title;
-}
-
-inline std::string make_test_graph_title(
-    const std::string& type, const size_t num_nodes, const node_id local_nid, const std::optional<size_t> num_devices_per_node = std::nullopt) {
-	auto title = make_test_graph_title(type);
-	fmt::format_to(std::back_inserter(title), "<br/>for N{} out of {} nodes", local_nid, num_nodes);
-	if(num_devices_per_node.has_value()) { fmt::format_to(std::back_inserter(title), ", with {} devices / node", *num_devices_per_node); }
-	return title;
-}
-
 class dist_cdag_test_context {
 	friend class task_builder<dist_cdag_test_context>;
 
@@ -517,7 +502,7 @@ class dist_cdag_test_context {
 		}
 	}
 
-	~dist_cdag_test_context() { maybe_log_graphs(); }
+	~dist_cdag_test_context() { maybe_print_graphs(); }
 
 	dist_cdag_test_context(const dist_cdag_test_context&) = delete;
 	dist_cdag_test_context(dist_cdag_test_context&&) = delete;
@@ -604,7 +589,9 @@ class dist_cdag_test_context {
 	distributed_graph_generator& get_graph_generator(node_id nid) { return *m_dggens.at(nid); }
 
 	[[nodiscard]] std::string print_task_graph() { return detail::print_task_graph(m_task_recorder, make_test_graph_title("Task Graph")); }
+
 	[[nodiscard]] std::string print_command_graph(node_id nid) {
+		// Don't include node id in title: All CDAG printouts must have identical preambles for combine_command_graphs to work
 		return detail::print_command_graph(nid, *m_cmd_recorders[nid], make_test_graph_title("Command Graph"));
 	}
 
@@ -645,14 +632,14 @@ class dist_cdag_test_context {
 		m_most_recently_built_horizon = current_horizon;
 	}
 
-	void maybe_log_graphs() {
-		if(test_utils::print_graphs) {
-			CELERITY_INFO("Task graph:\n\n{}\n", print_task_graph());
+	void maybe_print_graphs() {
+		if(test_utils::g_print_graphs) {
+			fmt::print("\n{}\n", print_task_graph());
 			std::vector<std::string> graphs;
 			for(node_id nid = 0; nid < m_num_nodes; ++nid) {
 				graphs.push_back(print_command_graph(nid));
 			}
-			CELERITY_INFO("Command graph:\n\n{}\n", combine_command_graphs(graphs));
+			fmt::print("\n{}\n", combine_command_graphs(graphs, make_test_graph_title("Command Graph")));
 		}
 	}
 
