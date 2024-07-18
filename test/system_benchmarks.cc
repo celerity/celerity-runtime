@@ -23,12 +23,14 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 #endif
 
 	celerity::distr_queue queue;
-	celerity::buffer<size_t, 2> buffer(celerity::range<2>(items_per_task, num_tasks));
+
+	const auto size = celerity::range<2>(items_per_task, num_tasks);
+	celerity::buffer<size_t, 2> buffer(size);
 
 	// initialize buffer
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor w{buffer, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-		cgh.parallel_for(buffer.get_range(), [=](celerity::item<2> item) { w[item] = item.get_linear_id(); });
+		cgh.parallel_for(size, [=](celerity::item<2> item) { w[item] = item.get_linear_id(); });
 	});
 	queue.slow_full_sync();
 
@@ -55,8 +57,8 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor r{buffer, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		celerity::accessor succ{success_buffer, cgh, celerity::access::all{}, celerity::write_only_host_task};
-		cgh.host_task(celerity::on_master_node, [=]() {
-			celerity::experimental::for_each_item(buffer.get_range(), [=](celerity::item<2> item) {
+		cgh.host_task(celerity::on_master_node, [=] {
+			celerity::experimental::for_each_item(size, [=](celerity::item<2> item) {
 				size_t expected = item.get_linear_id() + (num_repeats * bench_repeats);
 				if(r[item] != expected) {
 					fmt::print("Mismatch at {}: {} != {}\n", item.get_linear_id(), r[item], expected);
@@ -124,8 +126,8 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor r{buffer_a, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		celerity::accessor succ{success_buffer, cgh, celerity::access::all{}, celerity::write_only_host_task};
-		cgh.host_task(celerity::on_master_node, [=]() {
-			celerity::experimental::for_each_item(buffer_a.get_range(), [=](celerity::item<2> item) {
+		cgh.host_task(celerity::on_master_node, [=] {
+			celerity::experimental::for_each_item(size, [=](celerity::item<2> item) {
 				constexpr float expected = 0.5f;
 				constexpr float epsilon = 0.01f;
 				if(std::fabs(r[item] - expected) > epsilon) {
