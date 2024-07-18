@@ -362,13 +362,16 @@ incomplete_instruction_state* engine_impl::pop_assignable() {
 			assert(node.num_incomplete_predecessors > 0); // otherwise this would be an immediately_assignable_state
 			assert(eagerly_assignable_when_pushed->expected_last_submission_on_lane != nullptr);
 			const auto& lane = get_lane_state(node.target, eagerly_assignable_when_pushed->device, eagerly_assignable_when_pushed->lane);
-			if(lane.last_incomplete_submission == nullptr
-			    || lane.last_incomplete_submission == eagerly_assignable_when_pushed->expected_last_submission_on_lane) {
+			if(lane.last_incomplete_submission == eagerly_assignable_when_pushed->expected_last_submission_on_lane) {
 				// Our preferred lane is still in the required state to go through with eager assignment
 				return &node;
 			} else {
-				// A third instruction has been submitted to our preferred lane since, so we drop eager assignment and don't need to attempt it again, since
-				// none of our dependencies can now end up last in the queue anymore.
+				// One of two conditions is met:
+				// a) lane.last_incomplete_submission != nullptr: A third instruction has been submitted to our preferred lane since, so we drop eager
+				//    assignment and don't need to attempt it again, since none of our dependencies can now end up last in the queue anymore.
+				// b) lane.last_incomplete_submission == nullptr: We have been overtaken by a higher-priority instruction which has since completed. This rare
+				//    case transitively means that all our predecessors have completed as well, but since we still await a call to complete(), we abort eager
+				//    assignment to avoid dealing with the special case of an unconditional_assignable_state with num_incomplete_predecessors > 0.
 				node.assignment.emplace<unassigned_state>().probe_for_eager_assignment = false;
 				continue;
 			}

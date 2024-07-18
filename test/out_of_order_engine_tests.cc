@@ -585,3 +585,32 @@ TEST_CASE("eager assignment is only attempted when the one incomplete dependency
 	CHECK(iq_12.assignment_for(k1).lane != iq_3.assignment_for(k3).lane);
 	CHECK(iq_12.assignment_for(k2).lane != iq_3.assignment_for(k3).lane);
 }
+
+TEST_CASE("multiple conditional-eagerly-assignable instructions with the same predecessor can be re-ordered on assignment",
+    "[out_of_order_engine][regression]") //
+{
+	out_of_order_test_context octx(1);
+	const auto k1 = octx.device_kernel({}, device_id(0));
+
+	const auto iq_k1 = octx.assign_one();
+	REQUIRE(iq_k1.has_value());
+	CHECK(iq_k1->instruction == k1);
+
+	const auto k2 = octx.device_kernel({k1}, device_id(0));      // conditional_eagerly_assignable with expected_last_submission == k1
+	const auto k3 = octx.device_kernel({k1}, device_id(0), 100); // same, but with higher priority
+
+	const auto iq_k3 = octx.assign_one(); // k3 overtakes k2
+	REQUIRE(iq_k3.has_value());
+	CHECK(iq_k3->instruction == k3);
+
+	octx.complete(k3); // complete k3 => lane.last_incomplete_submission == nullptr
+
+	const auto iq_fail = octx.assign_one(); // This would trigger an assertion expecting last_incomplete_submission != nullptr...
+	CHECK_FALSE(iq_fail.has_value());       // ... but we cancel eager assignment if we detect we have been overtaken instead.
+
+	octx.complete(k1);
+
+	const auto iq_k2 = octx.assign_one(); // after the common predecessor completes, the overtaken instruction is assigned normally
+	REQUIRE(iq_k2.has_value());
+	CHECK(iq_k2->instruction == k2);
+}
