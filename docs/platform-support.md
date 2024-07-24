@@ -8,7 +8,7 @@ The most recent version of Celerity aims to support the following environments.
 
 ## SYCL Implementations
 
-* hipSYCL ≥ revision [`2636e1ff`](https://github.com/illuhad/hipSYCL/commit/2636e1ff), with
+* hipSYCL ≥ revision [`db000681`](https://github.com/illuhad/hipSYCL/commit/db000681), with
   * CUDA ≥ 11.0
   * Clang ≥ 14.0 for CUDA &lt; 12.0, Clang ≥ 16.0 for CUDA ≥ 12.0
   * on NVIDIA hardware with compute capability ≥ 7.0
@@ -39,7 +39,7 @@ Those are (CRT = Intel Compute Runtime, L0 = oneAPI Level Zero):
 |------------|--------------------------------------------------------------------------------------------|--------------|-----------------|----------------|
 | DPC++      | [`89327e0a`](https://github.com/intel/llvm/commit/89327e0a) (CRT 24.13.29138.7, L0 1.17.0) | Ubuntu 22.04 | Intel Arc A770  | Debug, Release |
 | DPC++      | [`HEAD`](https://github.com/intel/llvm/) (CRT 24.13.29138.7, L0 1.17.0)                    | Ubuntu 24.04 | Intel Arc A770  | Debug, Release |
-| hipSYCL    | [`2636e1ff`](https://github.com/illuhad/hipSYCL/commit/d2bd9fc7) (Clang 14.0, CUDA 11.8.0) | Ubuntu 22.04 | NVIDIA RTX 2070 | Debug, Release |
+| hipSYCL    | [`db000681`](https://github.com/illuhad/hipSYCL/commit/db000681) (Clang 14.0, CUDA 11.8.0) | Ubuntu 22.04 | NVIDIA RTX 2070 | Debug, Release |
 | hipSYCL    | [`HEAD`](https://github.com/illuhad/hipSYCL) (Clang 18.0, CUDA 12.5.0)\*                   | Ubuntu 24.04 | NVIDIA RTX 2070 | Debug, Release |
 | SimSYCL    | [`HEAD`](https://github.com/celerity/SimSYCL) (GCC 13.2)                                   | Ubuntu 24.04 | (None)          | Debug, Release |
 
