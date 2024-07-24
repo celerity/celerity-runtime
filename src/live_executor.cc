@@ -125,6 +125,7 @@ executor_impl::executor_impl(std::unique_ptr<detail::backend> backend, communica
 void executor_impl::run() {
 	closure_hydrator::make_available();
 
+	uint8_t check_overflow_counter = 0;
 	for(;;) {
 		if(engine.is_idle()) {
 			if(!expecting_more_submissions) break; // shutdown complete
@@ -136,7 +137,11 @@ void executor_impl::run() {
 		poll_in_flight_async_instructions();
 		poll_submission_queue();
 		try_issue_one_instruction(); // potentially expensive, so only issue one per loop to continue checking for async completion in between
-		check_progress();
+
+		if(++check_overflow_counter == 0) { // once every 256 iterations
+			backend->check_async_errors();
+			check_progress();
+		}
 	}
 
 	assert(in_flight_async_instructions.empty());

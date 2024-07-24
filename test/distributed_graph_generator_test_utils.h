@@ -493,8 +493,7 @@ class dist_cdag_test_context {
 		distributed_graph_generator::policy_set dggen;
 	};
 
-	dist_cdag_test_context(const size_t num_nodes, const policy_set& policy = {})
-	    : m_num_nodes(num_nodes), m_tm(num_nodes, nullptr /* host_queue */, &m_task_recorder, policy.tm) {
+	dist_cdag_test_context(const size_t num_nodes, const policy_set& policy = {}) : m_num_nodes(num_nodes), m_tm(num_nodes, &m_task_recorder, policy.tm) {
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			m_cdags.emplace_back(std::make_unique<command_graph>());
 			m_cmd_recorders.emplace_back(std::make_unique<command_recorder>());
@@ -601,7 +600,6 @@ class dist_cdag_test_context {
 	host_object_id m_next_host_object_id = 0;
 	reduction_id m_next_reduction_id = 1; // Start from 1 as rid 0 designates "no reduction" in push commands
 	std::optional<task_id> m_most_recently_built_horizon;
-	reduction_manager m_rm;
 	task_recorder m_task_recorder;
 	task_manager m_tm;
 	std::vector<std::unique_ptr<command_graph>> m_cdags;

@@ -92,12 +92,6 @@ if(WIN32)
   list(APPEND CELERITY_CXX_FLAGS -D_CRT_SECURE_NO_WARNINGS)
 endif()
 
-if(CELERITY_SYCL_IMPL STREQUAL "DPC++" OR CELERITY_SYCL_IMPL STREQUAL "SimSYCL")
-  set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
-else()
-  set(CELERITY_FEATURE_SCALAR_REDUCTIONS OFF)
-endif()
-
 if(CELERITY_SYCL_IMPL STREQUAL SimSYCL)
   set(CELERITY_CXX_STANDARD 20)
 else()
@@ -109,6 +103,10 @@ include("${CMAKE_CURRENT_LIST_DIR}/cmake/AddToTarget.cmake")
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)
+endif()
+
+if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
+  list(APPEND CELERITY_CXX_FLAGS -DACPP_ALLOW_INSTANT_SUBMISSION=1)
 endif()
 
 if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
@@ -191,16 +189,10 @@ if(CMAKE_GENERATOR STREQUAL "Ninja")
 endif()
 
 set(SOURCES
-  src/buffer_manager.cc
-  src/buffer_storage.cc
-  src/buffer_transfer_manager.cc
   src/command_graph.cc
   src/config.cc
-  src/device_queue.cc
-  src/legacy_executor.cc
   src/distributed_graph_generator.cc
   src/dry_run_executor.cc
-  src/graph_serializer.cc
   src/grid.cc
   src/live_executor.cc
   src/instruction_graph_generator.cc
@@ -216,7 +208,6 @@ set(SOURCES
   src/task_manager.cc
   src/user_bench.cc
   src/utils.cc
-  src/worker_job.cc
   "${CMAKE_CURRENT_BINARY_DIR}/src/version.cc"
 )
 
@@ -277,14 +268,12 @@ target_link_libraries(celerity_runtime PUBLIC
   ${SYCL_LIB}
 )
 
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/legacy_backend)
-target_link_libraries(celerity_runtime PUBLIC celerity_legacy_backends)
-
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/backend)
 target_link_libraries(celerity_runtime PUBLIC celerity_backends)
 
 # Deprecated feature flags
-set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS ${CELERITY_FEATURE_SCALAR_REDUCTIONS})
+set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
+set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS ON)
 set(CELERITY_FEATURE_LOCAL_ACCESSOR ON)
 set(CELERITY_FEATURE_UNNAMED_KERNELS ON)
 
@@ -373,12 +362,11 @@ install(
 )
 install(
   FILES
-    ${PROJECT_SOURCE_DIR}/vendor/ctpl_stl.h
     ${PROJECT_SOURCE_DIR}/vendor/matchbox/include/matchbox.hh
   DESTINATION include/celerity/vendor
 )
 install(
-  TARGETS celerity_runtime celerity_backends celerity_legacy_backends
+  TARGETS celerity_runtime celerity_backends
   EXPORT install_exports
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib

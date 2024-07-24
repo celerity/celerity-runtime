@@ -1,12 +1,9 @@
 #pragma once
 
 #include <memory>
-#include <mutex>
 #include <type_traits>
-#include <unordered_set>
 #include <utility>
 
-#include "lifetime_extending_state.h"
 #include "runtime.h"
 
 namespace celerity::experimental {
@@ -17,32 +14,6 @@ class host_object;
 } // namespace celerity::experimental
 
 namespace celerity::detail {
-
-class host_object_manager {
-  public:
-	host_object_id create_host_object() {
-		const std::lock_guard lock{m_mutex};
-		const auto id = m_next_id++;
-		m_objects.emplace(id);
-		return id;
-	}
-
-	void destroy_host_object(const host_object_id id) {
-		const std::lock_guard lock{m_mutex};
-		m_objects.erase(id);
-	}
-
-	// true-result only reliable if no calls to create_host_object() are pending
-	bool has_active_objects() const {
-		const std::lock_guard lock{m_mutex};
-		return !m_objects.empty();
-	}
-
-  private:
-	mutable std::mutex m_mutex;
-	host_object_id m_next_id = 0;
-	std::unordered_set<host_object_id> m_objects;
-};
 
 /// Host objects that own their instance (i.e. not host_object<T&> nor host_object<void>) wrap it in a type deriving from this struct in order to pass it to
 /// the executor for (virtual) destruction from within the instruction graph.
@@ -55,13 +26,14 @@ struct host_object_instance {
 	virtual ~host_object_instance() = default;
 };
 
-// Base for `state` structs in all host_object specializations: registers and unregisters host_objects with the host_object_manager.
-struct host_object_tracker : public lifetime_extending_state {
+/// A `tacker` instance is shared by all copies of any `host_object` via a `std::shared_ptr` to implement (SYCL) reference semantics.
+/// It notifies the runtime of host object creation and destruction.
+struct host_object_tracker {
 	detail::host_object_id id{};
 
-	host_object_tracker() {
-		if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr); }
-		id = detail::runtime::get_instance().create_host_object();
+	explicit host_object_tracker(std::unique_ptr<host_object_instance> instance) {
+		if(!detail::runtime::has_instance()) { detail::runtime::init(nullptr, nullptr); }
+		id = detail::runtime::get_instance().create_host_object(std::move(instance));
 	}
 
 	host_object_tracker(const host_object_tracker&) = delete;
@@ -85,12 +57,16 @@ using assert_host_object_ctor_param_is_rvalue_t = typename assert_host_object_ct
 
 template <typename T>
 host_object_id get_host_object_id(const experimental::host_object<T>& ho) {
-	return ho.get_id();
+	assert(ho.m_tracker != nullptr);
+	return ho.m_tracker->id;
 }
 
 template <typename T>
-typename experimental::host_object<T>::instance_type& get_host_object_instance(const experimental::host_object<T>& ho) {
-	return ho.get_instance();
+typename experimental::host_object<T>::instance_type* get_host_object_instance(const experimental::host_object<T>& ho) {
+	// By attaching `instance` to `tracker` instead of `host_object` directly, we guarantee that a pointer returned by get_host_object_instance (for an owning
+	// host_object) can never be dangling even if the `host_object` (reference-type) has been moved from.
+	assert(ho.m_tracker != nullptr);
+	return ho.m_tracker->instance;
 }
 
 
@@ -109,96 +85,85 @@ namespace celerity::experimental {
  * - `host_object<void>` does not carry internal state and can be used to track access to global variables or functions like `printf()`.
  */
 template <typename T>
-class host_object final : public detail::lifetime_extending_state_wrapper {
+class host_object {
 	static_assert(std::is_object_v<T>); // disallow host_object<T&&> and host_object<function-type>
 
   public:
 	using instance_type = T;
 
-	host_object() : m_shared_state(std::make_shared<state>(std::in_place)) {}
-
-	explicit host_object(const T& obj) : m_shared_state(std::make_shared<state>(std::in_place, obj)) {}
-
-	explicit host_object(T&& obj) : m_shared_state(std::make_shared<state>(std::in_place, std::move(obj))) {}
+	host_object() : host_object(std::in_place) {}
+	explicit host_object(const instance_type& obj) : host_object(std::in_place, obj) {}
+	explicit host_object(instance_type&& obj) : host_object(std::in_place, std::move(obj)) {}
 
 	/// Constructs the object in-place with the given constructor arguments.
 	template <typename... CtorParams>
-	explicit host_object(const std::in_place_t /* tag */, CtorParams&&... ctor_args) // requiring std::in_place avoids overriding copy and move constructors
-	    : m_shared_state(std::make_shared<state>(std::in_place, std::forward<CtorParams>(ctor_args)...)) {}
-
-  protected:
-	std::shared_ptr<detail::lifetime_extending_state> get_lifetime_extending_state() const override { return m_shared_state; }
+	explicit host_object(const std::in_place_t /* tag */, CtorParams&&... ctor_args)
+	    : m_tracker(std::make_shared<tracker>(std::make_unique<instance>(std::in_place, std::forward<CtorParams>(ctor_args)...))) {}
 
   private:
+	struct instance : detail::host_object_instance {
+		instance_type value;
+
+		template <typename... CtorParams>
+		explicit instance(const std::in_place_t /* do not override copy / move ctors */, CtorParams&&... ctor_args)
+		    : value(std::forward<CtorParams>(ctor_args)...) {}
+	};
+
+	struct tracker : detail::host_object_tracker {
+		instance_type* instance = nullptr; // owned by host_object_instance (executor)
+
+		explicit tracker(std::unique_ptr<struct instance> instance) : tracker(&instance->value, instance) {} // delegate to read .value before moving instance
+		explicit tracker(instance_type* const ref, std::unique_ptr<struct instance>& owned) : detail::host_object_tracker(std::move(owned)), instance(ref) {}
+	};
+
 	template <typename U>
 	friend detail::host_object_id detail::get_host_object_id(const experimental::host_object<U>& ho);
 
 	template <typename U>
-	friend typename experimental::host_object<U>::instance_type& detail::get_host_object_instance(const experimental::host_object<U>& ho);
+	friend typename experimental::host_object<U>::instance_type* detail::get_host_object_instance(const experimental::host_object<U>& ho);
 
-	struct state : detail::host_object_tracker {
-		T instance;
-
-		template <typename... CtorParams>
-		explicit state(const std::in_place_t /* tag */, CtorParams&&... ctor_args) : instance(std::forward<CtorParams>(ctor_args)...) {}
-	};
-
-	detail::host_object_id get_id() const { return m_shared_state->id; }
-	T& get_instance() const { return m_shared_state->instance; }
-
-	std::shared_ptr<state> m_shared_state;
+	std::shared_ptr<tracker> m_tracker;
 };
 
 template <typename T>
-class host_object<T&> final : public detail::lifetime_extending_state_wrapper {
+class host_object<T&> {
   public:
 	using instance_type = T;
 
-	explicit host_object(T& obj) : m_shared_state(std::make_shared<state>(obj)) {}
-
-	explicit host_object(const std::reference_wrapper<T> ref) : m_shared_state(std::make_shared<state>(ref.get())) {}
-
-  protected:
-	std::shared_ptr<detail::lifetime_extending_state> get_lifetime_extending_state() const override { return m_shared_state; }
+	explicit host_object(instance_type& obj) : m_tracker(std::make_shared<tracker>(&obj)) {}
+	explicit host_object(const std::reference_wrapper<instance_type> ref) : host_object(ref.get()) {}
 
   private:
+	struct tracker : detail::host_object_tracker {
+		instance_type* instance = nullptr; // owned by user
+		explicit tracker(instance_type* const ref) : detail::host_object_tracker(nullptr /* no owned instance */), instance(ref) {}
+	};
+
 	template <typename U>
 	friend detail::host_object_id detail::get_host_object_id(const experimental::host_object<U>& ho);
 
 	template <typename U>
-	friend typename experimental::host_object<U>::instance_type& detail::get_host_object_instance(const experimental::host_object<U>& ho);
+	friend typename experimental::host_object<U>::instance_type* detail::get_host_object_instance(const experimental::host_object<U>& ho);
 
-	struct state final : detail::host_object_tracker {
-		T& instance;
-
-		explicit state(T& instance) : instance{instance} {}
-	};
-
-	detail::host_object_id get_id() const { return m_shared_state->id; }
-	T& get_instance() const { return m_shared_state->instance; }
-
-	std::shared_ptr<state> m_shared_state;
+	std::shared_ptr<tracker> m_tracker;
 };
 
 template <>
-class host_object<void> final : public detail::lifetime_extending_state_wrapper {
+class host_object<void> {
   public:
 	using instance_type = void;
 
-	explicit host_object() : m_shared_state(std::make_shared<state>()) {}
-
-  protected:
-	std::shared_ptr<detail::lifetime_extending_state> get_lifetime_extending_state() const override { return m_shared_state; }
+	explicit host_object() : m_tracker(std::make_shared<tracker>()) {}
 
   private:
+	struct tracker : detail::host_object_tracker {
+		tracker() : detail::host_object_tracker(nullptr /* no owned instance */) {}
+	};
+
 	template <typename U>
 	friend detail::host_object_id detail::get_host_object_id(const experimental::host_object<U>& ho);
 
-	struct state final : detail::host_object_tracker {};
-
-	detail::host_object_id get_id() const { return m_shared_state->id; }
-
-	std::shared_ptr<state> m_shared_state;
+	std::shared_ptr<tracker> m_tracker;
 };
 
 // The universal reference parameter T&& matches U& as well as U&& for object types U, but we don't want to implicitly invoke a copy constructor: the user

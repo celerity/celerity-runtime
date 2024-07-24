@@ -69,6 +69,9 @@ class backend {
 	/// to any other asynchronous device operation on `device` and `device_lane`.
 	virtual async_event enqueue_device_copy(device_id device, size_t device_lane, const void* source_base, void* dest_base, const box<3>& source_box,
 	    const box<3>& dest_box, const region<3>& copy_region, size_t elem_size) = 0;
+
+	/// Check internal queues and panic if any asynchronous errors occurred.
+	virtual void check_async_errors() = 0;
 };
 
 } // namespace celerity::detail

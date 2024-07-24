@@ -78,15 +78,6 @@ constexpr auto tuple_without_impl(const std::tuple<ToKeep...>& to_keep, const st
 	}
 }
 
-template <typename Tuple, typename Callback>
-constexpr void tuple_for_each_pair_impl(const Tuple&, Callback&&, std::index_sequence<>) {}
-
-template <typename Tuple, size_t I1, size_t I2, size_t... Is, typename Callback>
-constexpr void tuple_for_each_pair_impl(const Tuple& tuple, const Callback& cb, std::index_sequence<I1, I2, Is...>) {
-	cb(std::get<I1>(tuple), std::get<I2>(tuple));
-	tuple_for_each_pair_impl(tuple, cb, std::index_sequence<Is...>{});
-}
-
 template <typename Container, typename Key, typename Enable = void>
 struct has_member_find : std::false_type {};
 
@@ -125,12 +116,6 @@ constexpr auto tuple_without(const std::tuple<Ts...>& tuple) {
 	} else {
 		return tuple;
 	}
-}
-
-template <typename Tuple, typename Callback>
-constexpr void tuple_for_each_pair(const Tuple& tuple, const Callback& cb) {
-	static_assert(std::tuple_size_v<Tuple> % 2 == 0, "an even number of entries is required");
-	utils_detail::tuple_for_each_pair_impl(tuple, cb, std::make_index_sequence<std::tuple_size_v<Tuple>>{});
 }
 
 /// Fiddles out the base name of a (possibly templated) struct or class from a full (possibly mangled) type name.

@@ -1,6 +1,5 @@
 #include "mpi_communicator.h"
 #include "log.h"
-#include "mpi_support.h"
 #include "ranges.h"
 
 #include <climits>
@@ -36,8 +35,8 @@ class mpi_event final : public async_event_impl {
 	MPI_Request m_req;
 };
 
-constexpr int pilot_exchange_tag = mpi_support::TAG_COMMUNICATOR;
-constexpr int first_message_tag = pilot_exchange_tag + 1;
+constexpr int pilot_exchange_tag = 0;
+constexpr int first_message_tag = 1;
 
 constexpr int message_id_to_mpi_tag(message_id msgid) {
 	// If the resulting tag would overflow INT_MAX in a long-running program with many nodes, we wrap around to `first_message_tag` instead, assuming that
@@ -143,7 +142,7 @@ node_id mpi_communicator::get_local_node_id() const {
 }
 
 void mpi_communicator::send_outbound_pilot(const outbound_pilot& pilot) {
-	CELERITY_DEBUG("[mpi] pilot -> N{} (MSG{}, {}, {})", pilot.to, pilot.message.id, pilot.message.transfer_id, pilot.message.box);
+	CELERITY_TRACE("[mpi] pilot -> N{} (MSG{}, {}, {})", pilot.to, pilot.message.id, pilot.message.transfer_id, pilot.message.box);
 
 	assert(pilot.to < get_num_nodes());
 	assert(pilot.to != get_local_node_id());
@@ -195,13 +194,13 @@ std::vector<inbound_pilot> mpi_communicator::poll_inbound_pilots() {
 		const inbound_pilot pilot{mpi_detail::mpi_rank_to_node_id(status.MPI_SOURCE), *m_inbound_pilot.message};
 		begin_receiving_next_pilot(); // initiate the next receive asap
 
-		CELERITY_DEBUG("[mpi] pilot <- N{} (MSG{}, {} {})", pilot.from, pilot.message.id, pilot.message.transfer_id, pilot.message.box);
+		CELERITY_TRACE("[mpi] pilot <- N{} (MSG{}, {} {})", pilot.from, pilot.message.id, pilot.message.transfer_id, pilot.message.box);
 		received_pilots.push_back(pilot);
 	}
 }
 
 async_event mpi_communicator::send_payload(const node_id to, const message_id msgid, const void* const base, const stride& stride) {
-	CELERITY_DEBUG("[mpi] payload -> N{} (MSG{}) from {} ({}) {}x{}", to, msgid, base, stride.allocation_range, stride.transfer, stride.element_size);
+	CELERITY_TRACE("[mpi] payload -> N{} (MSG{}) from {} ({}) {}x{} bytes", to, msgid, base, stride.allocation_range, stride.transfer, stride.element_size);
 
 	assert(to < get_num_nodes());
 	assert(to != get_local_node_id());
@@ -214,7 +213,7 @@ async_event mpi_communicator::send_payload(const node_id to, const message_id ms
 }
 
 async_event mpi_communicator::receive_payload(const node_id from, const message_id msgid, void* const base, const stride& stride) {
-	CELERITY_DEBUG("[mpi] payload <- N{} (MSG{}) into {} ({}) {}x{}", from, msgid, base, stride.allocation_range, stride.transfer, stride.element_size);
+	CELERITY_TRACE("[mpi] payload <- N{} (MSG{}) into {} ({}) {}x{} bytes", from, msgid, base, stride.allocation_range, stride.transfer, stride.element_size);
 
 	assert(from < get_num_nodes());
 	assert(from != get_local_node_id());

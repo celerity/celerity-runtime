@@ -1,6 +1,5 @@
-#include <array>
-#include <cmath>
 #include <fstream>
+#include <iostream>
 #include <vector>
 
 #include <celerity.h>

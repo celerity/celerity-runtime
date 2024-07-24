@@ -1,5 +1,6 @@
 #pragma once
 
+#include <future>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -19,10 +20,7 @@
 #include "backend/sycl_backend.h"
 #include "command.h"
 #include "command_graph.h"
-#include "device_queue.h"
 #include "distributed_graph_generator.h"
-#include "graph_serializer.h"
-#include "instruction_graph_generator.h"
 #include "print_graph.h"
 #include "range_mapper.h"
 #include "region_map.h"
@@ -48,20 +46,54 @@
  */
 #define REQUIRE_LOOP(...) CELERITY_DETAIL_REQUIRE_LOOP(__VA_ARGS__)
 
-#define SKIP_BECAUSE_NO_SCALAR_REDUCTIONS SKIP("CELERITY_FEATURE_SCALAR_REDUCTIONS == 0");
-
 namespace celerity {
 namespace detail {
 
 	const std::unordered_map<std::string, std::string> print_graphs_env_setting{{"CELERITY_PRINT_GRAPHS", "1"}};
 
+	struct scheduler_testspy {
+		static std::thread& get_thread(scheduler& schdlr) { return schdlr.m_thread; }
+
+		template <typename F>
+		static auto inspect_thread(scheduler& schdlr, F&& f) {
+			using return_t = decltype(f());
+			std::promise<return_t> channel;
+			schdlr.notify(scheduler::event_test_inspect{[&] { channel.set_value(f()); }});
+			return channel.get_future().get();
+		}
+
+		static size_t get_command_count(scheduler& schdlr) {
+			return inspect_thread(schdlr, [&] { return schdlr.m_cdag->command_count(); });
+		}
+
+		static size_t get_live_instruction_count(scheduler& schdlr) {
+			return inspect_thread(schdlr, [&] { return schdlr.m_idag->get_live_instruction_count(); });
+		}
+	};
+
 	struct runtime_testspy {
+		static node_id get_local_nid(const runtime& rt) { return rt.m_local_nid; }
+		static size_t get_num_nodes(const runtime& rt) { return rt.m_num_nodes; }
+		static size_t get_num_local_devices(const runtime& rt) { return rt.m_num_local_devices; }
+
 		static scheduler& get_schdlr(runtime& rt) { return *rt.m_schdlr; }
-		static legacy_executor& get_exec(runtime& rt) { return *rt.m_exec; }
-		static size_t get_command_count(runtime& rt) { return rt.m_cdag->command_count(); }
-		static command_graph& get_cdag(runtime& rt) { return *rt.m_cdag; }
-		static std::string print_task_graph(runtime& rt) { return detail::print_task_graph(*rt.m_task_recorder); }
-		static std::string print_command_graph(const node_id local_nid, runtime& rt) { return detail::print_command_graph(local_nid, *rt.m_command_recorder); }
+		static executor& get_exec(runtime& rt) { return *rt.m_exec; }
+
+		static std::string print_task_graph(runtime& rt) {
+			return detail::print_task_graph(*rt.m_task_recorder); // task recorder is mutated by task manager (application / test thread)
+		}
+
+		static std::string print_command_graph(const node_id local_nid, runtime& rt) {
+			return scheduler_testspy::inspect_thread(get_schdlr(rt), [&] { // command_recorder is mutated by scheduler thread
+				return detail::print_command_graph(local_nid, *rt.m_command_recorder);
+			});
+		}
+
+		static std::string print_instruction_graph(runtime& rt) {
+			return scheduler_testspy::inspect_thread(get_schdlr(rt), [&] { // instruction recorder is mutated by scheduler thread
+				return detail::print_instruction_graph(*rt.m_instruction_recorder, *rt.m_command_recorder, *rt.m_task_recorder);
+			});
+		}
 	};
 
 	struct task_ring_buffer_testspy {
@@ -89,13 +121,6 @@ namespace detail {
 
 		static void create_task_slot(task_manager& tm) { task_ring_buffer_testspy::create_task_slot(tm.m_task_buffer); }
 	};
-
-	struct config_testspy {
-		static void set_mock_device_cfg(config& cfg, const device_config& d_cfg) { cfg.m_device_cfg = d_cfg; }
-		static void set_mock_host_cfg(config& cfg, const host_config& h_cfg) { cfg.m_host_cfg = h_cfg; }
-		static std::optional<device_config> get_device_config(config& cfg) { return cfg.m_device_cfg; }
-	};
-
 
 	inline bool has_dependency(const task_manager& tm, task_id dependent, task_id dependency, dependency_kind kind = dependency_kind::true_dep) {
 		for(auto dep : tm.get_task(dependent)->get_dependencies()) {
@@ -232,7 +257,7 @@ namespace test_utils {
 			const auto user_allocation_id =
 			    mark_as_host_initialized ? detail::allocation_id(detail::user_memory_id, m_next_user_allocation_id++) : detail::null_allocation_id;
 			if(m_task_mngr != nullptr) { m_task_mngr->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
-			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
+			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_created(bid, detail::range_cast<3>(size), sizeof(int), alignof(int), user_allocation_id); }
 			if(m_dggen != nullptr) { m_dggen->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
 			if(m_iggen != nullptr) { m_iggen->notify_buffer_created(bid, detail::range_cast<3>(size), sizeof(int), alignof(int), user_allocation_id); }
 			return buf;
@@ -256,7 +281,7 @@ namespace test_utils {
 		mock_host_object create_host_object(bool owns_instance = true) {
 			const detail::host_object_id hoid = m_next_id++;
 			if(m_task_mngr != nullptr) { m_task_mngr->notify_host_object_created(hoid); }
-			if(m_schdlr != nullptr) { m_schdlr->notify_host_object_created(hoid); }
+			if(m_schdlr != nullptr) { m_schdlr->notify_host_object_created(hoid, owns_instance); }
 			return mock_host_object(hoid);
 		}
 
@@ -367,34 +392,27 @@ namespace test_utils {
 	template <int>
 	struct runtime_fixture_dims : test_utils::runtime_fixture {};
 
-	class device_queue_fixture : public mpi_fixture { // mpi_fixture for config
+	class sycl_queue_fixture {
 	  public:
-		device_queue_fixture() = default;
-		device_queue_fixture(const device_queue_fixture&) = delete;
-		device_queue_fixture(device_queue_fixture&&) = delete;
-		device_queue_fixture& operator=(const device_queue_fixture&) = delete;
-		device_queue_fixture& operator=(device_queue_fixture&&) = delete;
-		~device_queue_fixture();
+		sycl_queue_fixture() {
+			try {
+				m_queue = sycl::queue(sycl::gpu_selector_v, sycl::property::queue::in_order{});
+			} catch(sycl::exception&) { SKIP("no GPUs available"); }
+		}
 
-		detail::device_queue& get_device_queue();
-
-	  private:
-		std::unique_ptr<detail::config> m_cfg;
-		std::unique_ptr<detail::device_queue> m_dq;
-	};
-
-	class sycl_queue_fixture : public device_queue_fixture {
-	  public:
-		sycl::queue& get_sycl_queue() { return get_device_queue().get_sycl_queue(); }
+		sycl::queue& get_sycl_queue() { return m_queue; }
 
 		// Convenience function for submitting parallel_for with global offset without having to create a CGF
 		template <int Dims, typename KernelFn>
 		void parallel_for(const range<Dims>& global_range, const id<Dims>& global_offset, KernelFn fn) {
-			get_sycl_queue().submit([=](sycl::handler& cgh) {
+			m_queue.submit([=](sycl::handler& cgh) {
 				cgh.parallel_for(sycl::range<Dims>{global_range}, detail::bind_simple_kernel(fn, global_range, global_offset, global_offset));
 			});
-			get_sycl_queue().wait_and_throw();
+			m_queue.wait_and_throw();
 		}
+
+	  private:
+		sycl::queue m_queue;
 	};
 
 	// Printing of graphs can be enabled using the "--print-graphs" command line flag
@@ -411,7 +429,7 @@ namespace test_utils {
 		mock_host_object_factory mhof;
 		mock_reduction_factory mrf;
 
-		explicit task_test_context(const detail::task_manager::policy_set& policy = {}) : tm(1, nullptr, &trec, policy), mbf(tm), mhof(tm) {}
+		explicit task_test_context(const detail::task_manager::policy_set& policy = {}) : tm(1, &trec, policy), mbf(tm), mhof(tm) {}
 		task_test_context(const task_test_context&) = delete;
 		task_test_context(task_test_context&&) = delete;
 		task_test_context& operator=(const task_test_context&) = delete;

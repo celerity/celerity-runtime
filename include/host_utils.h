@@ -1,7 +1,7 @@
 #pragma once
 
-#include "host_queue.h"
 #include "item.h"
+#include "partition.h"
 
 namespace celerity::experimental {
 
