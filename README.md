@@ -116,11 +116,6 @@ Celerity's runtime behavior:
 
 - `CELERITY_LOG_LEVEL` controls the logging output level. One of `trace`, `debug`,
   `info`, `warn`, `err`, `critical`, or `off`.
-- `CELERITY_DEVICES` can be used to assign different compute devices to Celerity worker
-  nodes on a single host. The syntax is as follows:
-  `CELERITY_DEVICES="<platform_id> <first device_id> <second device_id> ... <nth device_id>"`.
-  Note that this should normally not be required, as Celerity will attempt to
-  automatically assign a unique device to each worker on a host.
 - `CELERITY_PROFILE_KERNEL` controls whether SYCL queue profiling information
   should be queried (currently not supported when using hipSYCL).
 - `CELERITY_PRINT_GRAPHS` controls whether task and command graphs are logged

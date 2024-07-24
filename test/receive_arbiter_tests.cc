@@ -1,4 +1,4 @@
-#include "buffer_storage.h" // for memcpy_strided_host
+#include "nd_memory.h"
 #include "receive_arbiter.h"
 #include "test_utils.h"
 
@@ -51,7 +51,7 @@ class mock_recv_communicator : public communicator {
 		const auto key = std::pair(from, msgid);
 		const auto [dest, stride, flag] = m_pending_recvs.at(key);
 		REQUIRE(src_range == stride.transfer.range);
-		memcpy_strided_host(src, dest, stride.element_size, src_range, zeros, stride.allocation_range, stride.transfer.offset, stride.transfer.range);
+		nd_copy_host(src, dest, src_range, stride.allocation_range, zeros, stride.transfer.offset, stride.transfer.range, stride.element_size);
 		*flag = true;
 		m_pending_recvs.erase(key);
 	}

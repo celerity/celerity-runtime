@@ -249,6 +249,8 @@ class mock_backend final : public backend {
 		return make_complete_event();
 	}
 
+	void check_async_errors() override {}
+
   private:
 	system_info m_system;
 	uintptr_t m_last_mock_alloc_address = 0;

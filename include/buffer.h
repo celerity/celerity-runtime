@@ -4,58 +4,59 @@
 
 #include <CL/sycl.hpp>
 
-#include "lifetime_extending_state.h"
-#include "range_mapper.h"
 #include "ranges.h"
 #include "runtime.h"
 #include "sycl_wrappers.h"
+
 
 namespace celerity {
 
 template <typename DataT, int Dims = 1>
 class buffer;
 
-namespace detail {
+}
 
-	template <typename T, int D>
-	buffer_id get_buffer_id(const buffer<T, D>& buff);
+namespace celerity::detail {
 
-	template <typename DataT, int Dims>
-	void set_buffer_name(const celerity::buffer<DataT, Dims>& buff, const std::string& debug_name) {
-		buff.m_impl->debug_name = debug_name;
-	};
-	template <typename DataT, int Dims>
-	std::string get_buffer_name(const celerity::buffer<DataT, Dims>& buff) {
-		return buff.m_impl->debug_name;
-	};
+template <typename T, int D>
+buffer_id get_buffer_id(const buffer<T, D>& buff) {
+	assert(buff.m_tracker != nullptr);
+	return buff.m_tracker->id;
+}
 
-} // namespace detail
+template <typename DataT, int Dims>
+void set_buffer_name(const celerity::buffer<DataT, Dims>& buff, const std::string& debug_name) {
+	assert(buff.m_tracker != nullptr);
+	buff.m_tracker->debug_name = debug_name;
+}
+
+template <typename DataT, int Dims>
+std::string get_buffer_name(const celerity::buffer<DataT, Dims>& buff) {
+	assert(buff.m_tracker != nullptr);
+	return buff.m_tracker->debug_name;
+}
+
+} // namespace celerity::detail
+
+namespace celerity {
 
 template <typename DataT, int Dims, access_mode Mode, target Target>
 class accessor;
 
 template <typename DataT, int Dims>
-class buffer final : public detail::lifetime_extending_state_wrapper {
+class buffer {
   public:
 	static_assert(Dims <= 3);
 
 	template <int D = Dims, typename = std::enable_if_t<D == 0>>
 	buffer() : buffer(nullptr, {}) {}
 
-	explicit buffer(const DataT* host_ptr, range<Dims> range) : m_impl(std::make_shared<impl>(range, host_ptr)) {}
+	explicit buffer(const DataT* host_ptr, const range<Dims>& range) : m_tracker(std::make_shared<tracker>(range, host_ptr)) {}
 
-	explicit buffer(range<Dims> range) : buffer(nullptr, range) {}
+	explicit buffer(const range<Dims>& range) : buffer(nullptr, range) {}
 
 	template <int D = Dims, typename = std::enable_if_t<D == 0>>
 	buffer(const DataT& value) : buffer(&value, {}) {}
-
-	buffer(const buffer&) = default;
-	buffer(buffer&&) = default;
-
-	buffer<DataT, Dims>& operator=(const buffer&) = default;
-	buffer<DataT, Dims>& operator=(buffer&&) = default;
-
-	~buffer() {}
 
 	template <access_mode Mode, typename Functor, int D = Dims, std::enable_if_t<(D > 0), int> = 0>
 	accessor<DataT, Dims, Mode, target::device> get_access(handler& cgh, Functor rmfn) {
@@ -88,28 +89,38 @@ class buffer final : public detail::lifetime_extending_state_wrapper {
 		return accessor<DataT, Dims, Mode, Target>(*this, cgh, rmfn);
 	}
 
-	const range<Dims>& get_range() const { return m_impl->range; }
-
-  protected:
-	std::shared_ptr<detail::lifetime_extending_state> get_lifetime_extending_state() const override { return m_impl; }
+	const range<Dims>& get_range() const {
+		assert(m_tracker != nullptr);
+		return m_tracker->range;
+	}
 
   private:
-	struct impl final : public detail::lifetime_extending_state {
-		impl(celerity::range<Dims> rng, const DataT* host_init_ptr) : range(rng) {
-			if(!detail::runtime::is_initialized()) { detail::runtime::init(nullptr, nullptr); }
-			id = detail::runtime::get_instance().create_buffer<DataT, Dims>(detail::range_cast<3>(range), host_init_ptr);
+	/// A `tacker` instance is shared by all shallow copies of this `buffer` via a `std::shared_ptr` to implement (SYCL) reference semantics.
+	/// It notifies the runtime of buffer creation and destruction and also persists changes of the buffer debug name.
+	struct tracker {
+		tracker(const celerity::range<Dims>& range, const void* const host_init_ptr) : range(range) {
+			if(!detail::runtime::has_instance()) { detail::runtime::init(nullptr, nullptr); }
+			auto user_aid = detail::null_allocation_id;
+			if(host_init_ptr != nullptr) {
+				const auto user_ptr = const_cast<void*>(host_init_ptr); // promise: instruction_graph_generator will never issue a write to this allocation
+				user_aid = detail::runtime::get_instance().create_user_allocation(user_ptr);
+			}
+			id = detail::runtime::get_instance().create_buffer(detail::range_cast<3>(range), sizeof(DataT), alignof(DataT), user_aid);
 		}
-		impl(const impl&) = delete;
-		impl(impl&&) = delete;
-		impl& operator=(const impl&) = delete;
-		impl& operator=(impl&&) = delete;
-		~impl() override { detail::runtime::get_instance().destroy_buffer(id); }
+
+		tracker(const tracker&) = delete;
+		tracker(tracker&&) = delete;
+		tracker& operator=(const tracker&) = delete;
+		tracker& operator=(tracker&&) = delete;
+
+		~tracker() { detail::runtime::get_instance().destroy_buffer(id); }
+
 		detail::buffer_id id;
 		celerity::range<Dims> range;
 		std::string debug_name;
 	};
 
-	std::shared_ptr<impl> m_impl = nullptr;
+	std::shared_ptr<tracker> m_tracker;
 
 	template <typename T, int D>
 	friend detail::buffer_id detail::get_buffer_id(const buffer<T, D>& buff);
@@ -118,14 +129,5 @@ class buffer final : public detail::lifetime_extending_state_wrapper {
 	template <typename T, int D>
 	friend std::string detail::get_buffer_name(const celerity::buffer<T, D>& buff);
 };
-
-namespace detail {
-
-	template <typename T, int D>
-	buffer_id get_buffer_id(const buffer<T, D>& buff) {
-		return buff.m_impl->id;
-	}
-
-} // namespace detail
 
 } // namespace celerity

@@ -21,7 +21,6 @@ namespace detail {
 	};
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "simple reductions produce the expected results", "[reductions]") {
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		size_t N = 1000;
 		buffer<size_t, 1> sum_buf{{1}};
 		buffer<size_t, 1> max_buf{{1}};
@@ -46,18 +45,14 @@ namespace detail {
 				CHECK(max_acc[0] == N);
 			});
 		});
-#else
-		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
-#endif
 	}
 
 	// Regression test: The host -> device transfer previously caused an illegal nested sycl::queue::submit call which deadlocks
 	// Distributed test, since the single-node case optimizes the reduction command away
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "reduction commands perform host -> device transfers if necessary", "[reductions]") {
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		distr_queue q;
-
-		REQUIRE(runtime::get_instance().get_num_nodes() > 1);
+		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance());
+		if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
 
 		const int N = 1000;
 		const int init = 42;
@@ -71,13 +66,9 @@ namespace detail {
 			accessor acc{sum, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			cgh.host_task(on_master_node, [=] { CHECK(acc[0] == N + init); });
 		});
-#else
-		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
-#endif
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "multiple chained reductions produce correct results", "[reductions]") {
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		distr_queue q;
 
 		const int N = 1000;
@@ -97,14 +88,10 @@ namespace detail {
 			accessor acc{sum, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			cgh.host_task(on_master_node, [=] { CHECK(acc[0] == 3 * N); });
 		});
-#else
-		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
-#endif
 	}
 
 	TEST_CASE_METHOD(
 	    test_utils::runtime_fixture, "subsequently requiring reduction results on different subsets of nodes produces correct data flow", "[reductions]") {
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		distr_queue q;
 
 		const int N = 1000;
@@ -129,18 +116,19 @@ namespace detail {
 				CHECK(acc[0] == expected);
 			});
 		});
-#else
-		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
-#endif
 	}
 
-	TEST_CASE_METHOD(
-	    test_utils::runtime_fixture, "runtime-shutdown graph printing works in the presence of a finished reduction", "[reductions][print_graph][smoke-test]") {
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime-shutdown graph printing works in the presence of a finished reduction",
+	    "[reductions][print_graph][smoke-test]") //
+	{
 		env::scoped_test_environment test_env(print_graphs_env_setting);
-
+		// init runtime early so the distr_queue ctor doesn't override the log level set by log_capture
 		runtime::init(nullptr, nullptr);
-		const bool is_node_0 = runtime::get_instance().get_local_nid() == 0; // runtime instance is gone after queue destruction
+
+		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance());
+		if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
+
+		const bool is_node_0 = runtime_testspy::get_local_nid(runtime::get_instance()) == 0; // runtime instance is gone after queue destruction
 
 		{
 			distr_queue q;
@@ -161,9 +149,6 @@ namespace detail {
 			CHECK(test_utils::log_contains_substring(log_level::info, "(R1) <b>await push</b>"));
 			CHECK(test_utils::log_contains_substring(log_level::info, "<b>reduction</b> R1<br/> B0 {[0,0,0] - [1,1,1]}"));
 		}
-#else
-		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
-#endif
 	}
 
 	template <int Dims>
@@ -197,11 +182,12 @@ namespace detail {
 	TEMPLATE_TEST_CASE_METHOD_SIG(
 	    dimension_runtime_fixture, "nd_item and group return correct execution space geometry", "[item]", ((int Dims), Dims), 1, 2, 3) {
 		distr_queue q;
-		auto n = runtime::get_instance().get_num_nodes();
+		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance());
+		if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
 
 		// Note: We assume a local range size of 165 here, this may not be supported by all devices.
 
-		const auto global_range = test_utils::truncate_range<Dims>({n * 4 * 3, 3 * 5, 2 * 11});
+		const auto global_range = test_utils::truncate_range<Dims>({num_nodes * 4 * 3, 3 * 5, 2 * 11});
 		const auto local_range = test_utils::truncate_range<Dims>({3, 5, 11});
 		const auto group_range = global_range / local_range;
 
@@ -260,7 +246,8 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "generating same task graph on different nodes", "[task-graph]") {
 		env::scoped_test_environment tenv(print_graphs_env_setting);
 		distr_queue q;
-		REQUIRE(runtime::get_instance().get_num_nodes() > 1);
+		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance());
+		if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
 
 		constexpr int N = 1000;
 
@@ -325,8 +312,8 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "nodes do not receive commands for empty chunks", "[command-graph]") {
 		distr_queue q;
-		auto n = runtime::get_instance().get_num_nodes();
-		REQUIRE(n > 1);
+		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance());
+		if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
 
 		buffer<float, 2> buf{{1, 100}};
 
@@ -368,68 +355,22 @@ namespace detail {
 		CHECK(host_rank == global_rank);
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "command graph can be collected across distributed nodes", "[print_graph]") {
-		env::scoped_test_environment tenv(print_graphs_env_setting);
+	TEST_CASE_METHOD(test_utils::mpi_fixture, "command graph can be collected across distributed nodes", "[print_graph]") {
+		int num_nodes = -1;
+		int local_nid = -1;
+		MPI_Comm_size(MPI_COMM_WORLD, &num_nodes);
+		MPI_Comm_rank(MPI_COMM_WORLD, &local_nid);
+		if(num_nodes != 2) { SKIP("can only perform this test when invoked for exactly 2 participating nodes"); }
 
-		int global_size = 0;
-		MPI_Comm_size(MPI_COMM_WORLD, &global_size);
-		if(global_size != 2) { SKIP("can only perform this test when invoked for exactly 2 participating nodes"); }
+		const std::string my_cdag = local_nid == 0 //
+		                                ? "digraph G{label=<Command Graph>;pad=0.2;subgraph cluster_id_0_0{label=<l>;id_0_0[label=<C0 on N0>;shape=box];}}"
+		                                : "digraph G{label=<Command Graph>;pad=0.2;subgraph cluster_id_1_0{label=<l>;id_1_0[label=<C0 on N1>;shape=box];}}";
+		const auto combined_cdag = gather_command_graph(my_cdag, static_cast<size_t>(num_nodes), static_cast<node_id>(local_nid));
 
-		distr_queue q;
-		celerity::range<2> range(16, 16);
-		celerity::buffer<float, 2> buff_a(range);
-
-		// set small horizon step size so that we do not need to generate a very large graph to test this functionality
-		auto& tm = celerity::detail::runtime::get_instance().get_task_manager();
-		tm.set_horizon_step(1);
-
-		q.submit([&](handler& cgh) {
-			celerity::accessor acc_a{buff_a, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-			cgh.parallel_for(range, [=](item<2> item) { (void)acc_a; });
-		});
-
-		q.submit([&](handler& cgh) {
-			celerity::accessor acc_a{buff_a, cgh, celerity::access::one_to_one{}, celerity::read_write};
-			cgh.parallel_for(range, [=](item<2> item) { (void)acc_a; });
-		});
-
-		q.slow_full_sync();
-
-		const auto dot = celerity::detail::runtime::get_instance().gather_command_graph();
-
-		// only check on master node, since that is where the graph is gathered
-		int global_rank = 0;
-		MPI_Comm_rank(MPI_COMM_WORLD, &global_rank);
-		if(global_rank == 0) {
-			// Smoke test: It is valid for the dot output to change with updates to graph generation. If this test fails, verify that the printed graphs are
-			// sane and complete, and if so, replace the `expected` values with the new dot graph.
-			const std::string expected =
-			    "digraph G{label=<Command Graph>;pad=0.2;subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 "
-			    "(epoch)</font>>;color=darkgray;id_0_0[label=<C0 on N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font "
-			    "color=\"#606060\">T1 (device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [0,0,0] + "
-			    "[8,16,1]<br/><i>discard_write</i> B0 {[0,0,0] - [8,16,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font "
-			    "color=\"#606060\">T2 (horizon)</font>>;color=darkgray;id_0_2[label=<C2 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph "
-			    "cluster_id_0_3{label=<<font color=\"#606060\">T3 (device-compute)</font>>;color=darkgray;id_0_3[label=<C3 on N0<br/><b>execution</b> [0,0,0] "
-			    "+ [8,16,1]<br/><i>read_write</i> B0 {[0,0,0] - [8,16,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_4{label=<<font "
-			    "color=\"#606060\">T4 (horizon)</font>>;color=darkgray;id_0_4[label=<C4 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph "
-			    "cluster_id_0_5{label=<<font color=\"#606060\">T5 (epoch)</font>>;color=darkgray;id_0_5[label=<C5 on N0<br/><b>epoch</b> (barrier)> "
-			    "fontcolor=black "
-			    "shape=box];}id_0_0->id_0_1[color=orchid];id_0_1->id_0_2[color=orange];id_0_1->id_0_3[];id_0_3->id_0_4[color=orange];id_0_2->id_0_4[color="
-			    "orange];id_0_4->id_0_5[color=orange];subgraph cluster_id_1_0{label=<<font color=\"#606060\">T0 "
-			    "(epoch)</font>>;color=darkgray;id_1_0[label=<C0 on N1<br/><b>epoch</b>> fontcolor=crimson shape=box];}subgraph cluster_id_1_1{label=<<font "
-			    "color=\"#606060\">T1 (device-compute)</font>>;color=darkgray;id_1_1[label=<C1 on N1<br/><b>execution</b> [8,0,0] + "
-			    "[8,16,1]<br/><i>discard_write</i> B0 {[8,0,0] - [16,16,1]}> fontcolor=crimson shape=box];}subgraph cluster_id_1_2{label=<<font "
-			    "color=\"#606060\">T2 (horizon)</font>>;color=darkgray;id_1_2[label=<C2 on N1<br/><b>horizon</b>> fontcolor=crimson shape=box];}subgraph "
-			    "cluster_id_1_3{label=<<font color=\"#606060\">T3 (device-compute)</font>>;color=darkgray;id_1_3[label=<C3 on N1<br/><b>execution</b> [8,0,0] "
-			    "+ [8,16,1]<br/><i>read_write</i> B0 {[8,0,0] - [16,16,1]}> fontcolor=crimson shape=box];}subgraph cluster_id_1_4{label=<<font "
-			    "color=\"#606060\">T4 (horizon)</font>>;color=darkgray;id_1_4[label=<C4 on N1<br/><b>horizon</b>> fontcolor=crimson shape=box];}subgraph "
-			    "cluster_id_1_5{label=<<font color=\"#606060\">T5 (epoch)</font>>;color=darkgray;id_1_5[label=<C5 on N1<br/><b>epoch</b> (barrier)> "
-			    "fontcolor=crimson "
-			    "shape=box];}id_1_0->id_1_1[color=orchid];id_1_1->id_1_2[color=orange];id_1_1->id_1_3[];id_1_3->id_1_4[color=orange];id_1_2->id_1_4[color="
-			    "orange];id_1_4->id_1_5[color=orange];}";
-
-			CHECK(dot == expected);
-			if(dot != expected) { fmt::print("\n{}:\n\ngot:\n\n{}\n\nexpected:\n\n{}\n\n", Catch::getResultCapture().getCurrentTestName(), dot, expected); }
+		if(local_nid == 0) {
+			const auto expected = "digraph G{label=<Command Graph>;pad=0.2;subgraph cluster_id_0_0{label=<l>;id_0_0[label=<C0 on N0>;shape=box];}subgraph "
+			                      "cluster_id_1_0{label=<l>;id_1_0[label=<C0 on N1>;shape=box];}}";
+			CHECK(combined_cdag == expected);
 		}
 	}
 
@@ -439,7 +380,7 @@ namespace detail {
 		test_utils::allow_max_log_level(detail::log_level::err);
 
 		distr_queue q;
-		const auto num_nodes = runtime::get_instance().get_num_nodes();
+		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance());
 		if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
 
 		buffer<int, 1> buf(1);
@@ -463,6 +404,43 @@ namespace detail {
 		const auto error_message = "has overlapping writes between multiple nodes in B0 {[0,0,0] - [1,1,1]}. Choose a non-overlapping range mapper for this "
 		                           "write access or constrain the split via experimental::constrain_split to make the access non-overlapping.";
 		CHECK(test_utils::log_contains_substring(log_level::err, error_message) == CELERITY_ACCESS_PATTERN_DIAGNOSTICS);
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer transfers are performed correctly on transposed access patterns", "[runtime]") {
+		const bool oversubscribed_producer = GENERATE(values<int>({false, true}));
+		const bool oversubscribed_consumer = GENERATE(values<int>({false, true}));
+		CAPTURE(oversubscribed_producer, oversubscribed_consumer);
+
+		// This test covers split/await-receive operations. Assumes a 1d split along dim0.
+		distr_queue q;
+
+		// 1. Write with row/col transposed access, such that each device owns a column of data.
+		buffer<id<2>, 2> transposed_buf(range(1024, 1024));
+		q.submit([&](handler& cgh) {
+			const auto transposed = [](const celerity::chunk<2> in) -> subrange<2> { return {{in.offset[1], in.offset[0]}, {in.range[1], in.range[0]}}; };
+			accessor acc(transposed_buf, cgh, transposed, write_only, no_init);
+			if(oversubscribed_producer) { experimental::hint(cgh, experimental::hints::oversubscribe(2)); }
+			cgh.parallel_for(transposed_buf.get_range(), [=](item<2> item) {
+				const id transposed_id(item[1], item[0]);
+				acc[transposed_id] = transposed_id;
+			});
+		});
+
+		// 2. Read with 1:1 access such that each device must collect one row of data. On a multi-device system this will generate a split_receive_instruction,
+		// since it is not known on the consumer side how the producer will subdivide its pushes.
+		buffer<id<2>, 2> copy_buf(transposed_buf.get_range());
+		q.submit([&](handler& cgh) {
+			accessor acc_in(transposed_buf, cgh, celerity::access::one_to_one(), read_only);
+			accessor acc_out(copy_buf, cgh, celerity::access::one_to_one(), write_only, no_init);
+			if(oversubscribed_consumer) { experimental::hint(cgh, experimental::hints::oversubscribe(2)); }
+			cgh.parallel_for(copy_buf.get_range(), [=](item<2> item) { acc_out[item] = acc_in[item]; });
+		});
+
+		// 3. Verify the result
+		auto result = q.fence(copy_buf).get();
+		experimental::for_each_item(copy_buf.get_range(), [&](const item<2>& item) {
+			REQUIRE_LOOP(result[item] == item.get_id()); //
+		});
 	}
 
 } // namespace detail

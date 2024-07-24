@@ -18,7 +18,7 @@
 #include <celerity.h>
 
 #include "affinity.h"
-#include "legacy_executor.h"
+#include "live_executor.h"
 #include "named_threads.h"
 #include "ranges.h"
 
@@ -34,12 +34,8 @@ namespace detail {
 	using celerity::access::slice;
 	using celerity::experimental::access::even_split;
 
-	struct scheduler_testspy {
-		static std::thread& get_worker_thread(scheduler& schdlr) { return schdlr.m_worker_thread; }
-	};
-
 	struct executor_testspy {
-		static std::thread& get_exec_thrd(legacy_executor& exec) { return exec.m_exec_thrd; }
+		static std::thread& get_thread(live_executor& exec) { return exec.m_thread; }
 	};
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "only a single distr_queue can be created", "[distr_queue][lifetime][dx]") {
@@ -49,9 +45,9 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "distr_queue implicitly initializes the runtime", "[distr_queue][lifetime]") {
-		REQUIRE_FALSE(runtime::is_initialized());
+		REQUIRE_FALSE(runtime::has_instance());
 		distr_queue queue;
-		REQUIRE(runtime::is_initialized());
+		REQUIRE(runtime::has_instance());
 	}
 
 #pragma GCC diagnostic push
@@ -61,22 +57,22 @@ namespace detail {
 		cl::sycl::device device{selector};
 
 		SECTION("before the runtime is initialized") {
-			REQUIRE_FALSE(runtime::is_initialized());
-			REQUIRE_NOTHROW(distr_queue{device});
+			REQUIRE_FALSE(runtime::has_instance());
+			REQUIRE_NOTHROW(distr_queue{std::vector{device}});
 		}
 
 		SECTION("but not once the runtime has been initialized") {
-			REQUIRE_FALSE(runtime::is_initialized());
+			REQUIRE_FALSE(runtime::has_instance());
 			runtime::init(nullptr, nullptr);
-			REQUIRE_THROWS_WITH(distr_queue{device}, "Passing explicit device not possible, runtime has already been initialized.");
+			REQUIRE_THROWS_WITH(distr_queue{std::vector{device}}, "Passing explicit device list not possible, runtime has already been initialized.");
 		}
 	}
 #pragma GCC diagnostic pop
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer implicitly initializes the runtime", "[distr_queue][lifetime]") {
-		REQUIRE_FALSE(runtime::is_initialized());
+		REQUIRE_FALSE(runtime::has_instance());
 		buffer<float, 1> buf(range<1>{1});
-		REQUIRE(runtime::is_initialized());
+		REQUIRE(runtime::has_instance());
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer can be copied", "[distr_queue][lifetime]") {
@@ -230,7 +226,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager invokes callback upon task creation", "[task_manager]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		size_t call_counter = 0;
 		tm.register_task_callback([&call_counter](const task*) { call_counter++; });
 		range<2> gs = {1, 1};
@@ -242,7 +238,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][device_compute_task]") {
-		task_manager tm{1, nullptr, nullptr};
+		task_manager tm{1, nullptr};
 		test_utils::mock_buffer_factory mbf(tm);
 		auto buf_a = mbf.create_buffer(range<2>(64, 152), true /* host_initialized */);
 		auto buf_b = mbf.create_buffer(range<3>(7, 21, 99));
@@ -317,117 +313,18 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE("memcpy_strided correctly copies") {
-		SECTION("strided 1D data") {
-			const range<1> source_range{128};
-			const id<1> source_offset{32};
-			const range<1> target_range{64};
-			const id<1> target_offset{16};
-			const range<1> copy_range{32};
-			const auto source_buffer = std::make_unique<size_t[]>(source_range.size());
-			const auto target_buffer = std::make_unique<size_t[]>(target_range.size());
-			for(size_t i = 0; i < copy_range[0]; ++i) {
-				source_buffer[source_offset[0] + i] = source_offset[0] + i;
-			}
-			memcpy_strided_host(source_buffer.get(), target_buffer.get(), sizeof(size_t), source_range, source_offset, target_range, target_offset, copy_range);
-			for(size_t i = 0; i < copy_range[0]; ++i) {
-				REQUIRE_LOOP(target_buffer[target_offset[0] + i] == source_offset[0] + i);
-			}
-		}
-
-		SECTION("strided 2D data") {
-			const range<2> source_range{128, 96};
-			const id<2> source_offset{32, 24};
-			const range<2> target_range{64, 48};
-			const id<2> target_offset{16, 32};
-			const range<2> copy_range{32, 8};
-			const auto source_buffer = std::make_unique<size_t[]>(source_range.size());
-			const auto target_buffer = std::make_unique<size_t[]>(target_range.size());
-			for(size_t i = 0; i < copy_range[0]; ++i) {
-				for(size_t j = 0; j < copy_range[1]; ++j) {
-					const auto id = source_offset + celerity::id<2>{i, j};
-					source_buffer[get_linear_index(source_range, id)] = id[0] * 10000 + id[1];
-				}
-			}
-			memcpy_strided_host(source_buffer.get(), target_buffer.get(), sizeof(size_t), source_range, source_offset, target_range, target_offset, copy_range);
-			for(size_t i = 0; i < copy_range[0]; ++i) {
-				for(size_t j = 0; j < copy_range[1]; ++j) {
-					const auto id = target_offset + celerity::id<2>{i, j};
-					const auto source_id = source_offset + celerity::id<2>{i, j};
-					REQUIRE_LOOP(target_buffer[get_linear_index(target_range, id)] == source_id[0] * 10000 + source_id[1]);
-				}
-			}
-		}
-
-		SECTION("strided 3D data") {
-			const range<3> source_range{128, 96, 48};
-			const id<3> source_offset{32, 24, 16};
-			const range<3> target_range{64, 48, 24};
-			const id<3> target_offset{16, 32, 4};
-			const range<3> copy_range{32, 8, 16};
-			const auto source_buffer = std::make_unique<size_t[]>(source_range.size());
-			const auto target_buffer = std::make_unique<size_t[]>(target_range.size());
-			for(size_t i = 0; i < copy_range[0]; ++i) {
-				for(size_t j = 0; j < copy_range[1]; ++j) {
-					for(size_t k = 0; k < copy_range[2]; ++k) {
-						const auto id = source_offset + celerity::id<3>{i, j, k};
-						source_buffer[get_linear_index(source_range, id)] = id[0] * 10000 + id[1] * 100 + id[2];
-					}
-				}
-			}
-			memcpy_strided_host(source_buffer.get(), target_buffer.get(), sizeof(size_t), source_range, source_offset, target_range, target_offset, copy_range);
-			for(size_t i = 0; i < copy_range[0]; ++i) {
-				for(size_t j = 0; j < copy_range[1]; ++j) {
-					for(size_t k = 0; k < copy_range[2]; ++k) {
-						const auto id = target_offset + celerity::id<3>{i, j, k};
-						const auto source_id = source_offset + celerity::id<3>{i, j, k};
-						CAPTURE(
-						    id[0], id[1], id[2], target_buffer[get_linear_index(target_range, id)], source_id[0] * 10000 + source_id[1] * 100 + source_id[2]);
-						REQUIRE_LOOP(target_buffer[get_linear_index(target_range, id)] == source_id[0] * 10000 + source_id[1] * 100 + source_id[2]);
-					}
-				}
-			}
-		}
-	}
-
-	TEST_CASE("linearize_subrange works as expected") {
-		const range<3> data1_range{3, 5, 7};
-		std::vector<size_t> data1(data1_range.size());
-
-		for(size_t i = 0; i < data1_range[0]; ++i) {
-			for(size_t j = 0; j < data1_range[1]; ++j) {
-				for(size_t k = 0; k < data1_range[2]; ++k) {
-					data1[i * data1_range[1] * data1_range[2] + j * data1_range[2] + k] = i * 100 + j * 10 + k;
-				}
-			}
-		}
-
-		const range<3> data2_range{2, 2, 4};
-		const id<3> data2_offset{1, 2, 2};
-		std::vector<size_t> data2(data2_range.size());
-		linearize_subrange(data1.data(), data2.data(), sizeof(size_t), data1_range, {data2_offset, data2_range});
-
-		for(size_t i = 0; i < 2; ++i) {
-			for(size_t j = 0; j < 2; ++j) {
-				for(size_t k = 0; k < 4; ++k) {
-					REQUIRE_LOOP(data2[i * data2_range[1] * data2_range[2] + j * data2_range[2] + k]
-					             == (i + data2_offset[0]) * 100 + (j + data2_offset[1]) * 10 + (k + data2_offset[2]));
-				}
-			}
-		}
-	}
-
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "collective host_task produces one item per rank", "[task]") {
-		distr_queue{}.submit([=](handler& cgh) {
+		distr_queue q;
+		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance()); // capture here since runtime destructor will run before the host_task
+		q.submit([=](handler& cgh) {
 			cgh.host_task(experimental::collective, [=](experimental::collective_partition part) {
-				CHECK(part.get_global_size().size() == runtime::get_instance().get_num_nodes());
+				CHECK(part.get_global_size().size() == num_nodes);
 				CHECK_NOTHROW(part.get_collective_mpi_comm());
 			});
 		});
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "collective host_task share MPI communicator & thread iff they are on the same collective_group", "[task]") {
-		std::thread::id default1_thread, default2_thread, primary1_thread, primary2_thread, secondary1_thread, secondary2_thread;
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "collective host_task share MPI a communicator iff they are on the same collective_group", "[task]") {
 		MPI_Comm default1_comm, default2_comm, primary1_comm, primary2_comm, secondary1_comm, secondary2_comm;
 
 		{
@@ -437,54 +334,47 @@ namespace detail {
 
 			q.submit([&](handler& cgh) {
 				cgh.host_task(experimental::collective, [&](experimental::collective_partition part) {
-					default1_thread = std::this_thread::get_id();
-					default1_comm = part.get_collective_mpi_comm();
+					default1_comm = part.get_collective_mpi_comm(); //
 				});
 			});
 			q.submit([&](handler& cgh) {
 				cgh.host_task(experimental::collective(primary_group), [&](experimental::collective_partition part) {
-					primary1_thread = std::this_thread::get_id();
-					primary1_comm = part.get_collective_mpi_comm();
+					primary1_comm = part.get_collective_mpi_comm(); //
 				});
 			});
 			q.submit([&](handler& cgh) {
 				cgh.host_task(experimental::collective(secondary_group), [&](experimental::collective_partition part) {
-					secondary1_thread = std::this_thread::get_id();
-					secondary1_comm = part.get_collective_mpi_comm();
+					secondary1_comm = part.get_collective_mpi_comm(); //
 				});
 			});
 			q.submit([&](handler& cgh) {
 				cgh.host_task(experimental::collective, [&](experimental::collective_partition part) {
-					default2_thread = std::this_thread::get_id();
-					default2_comm = part.get_collective_mpi_comm();
+					default2_comm = part.get_collective_mpi_comm(); //
 				});
 			});
 			q.submit([&](handler& cgh) {
 				cgh.host_task(experimental::collective(primary_group), [&](experimental::collective_partition part) {
-					primary2_thread = std::this_thread::get_id();
-					primary2_comm = part.get_collective_mpi_comm();
+					primary2_comm = part.get_collective_mpi_comm(); //
 				});
 			});
 			q.submit([&](handler& cgh) {
 				cgh.host_task(experimental::collective(secondary_group), [&](experimental::collective_partition part) {
-					secondary2_thread = std::this_thread::get_id();
-					secondary2_comm = part.get_collective_mpi_comm();
+					secondary2_comm = part.get_collective_mpi_comm(); //
 				});
 			});
 		}
 
-		CHECK(default1_thread == default2_thread);
-		CHECK(primary1_thread == primary2_thread);
-		CHECK(primary1_thread != default1_thread);
-		CHECK(secondary1_thread == secondary2_thread);
-		CHECK(secondary1_thread != default1_thread);
-		CHECK(secondary1_thread != primary1_thread);
 		CHECK(default1_comm == default2_comm);
 		CHECK(primary1_comm == primary2_comm);
 		CHECK(primary1_comm != default1_comm);
 		CHECK(secondary1_comm == secondary2_comm);
 		CHECK(secondary1_comm != default1_comm);
 		CHECK(secondary1_comm != primary1_comm);
+
+		// Celerity must also ensure that no non-deterministic, artificial dependency chains are introduced by submitting independent tasks from multiple
+		// collective groups onto the same backend thread in-order. If that were to happen, an inter-node mismatch between execution orders nodes would cause
+		// deadlocks in the user-provided collective operations. An earlier version of the runtime ensured this by spawning a separate thread per collective
+		// group, whereas currently, we allow unbounded concurrency between host instructions to provide the same guarantees.
 	}
 
 	template <typename T>
@@ -594,7 +484,7 @@ namespace detail {
 
 	TEMPLATE_TEST_CASE_METHOD_SIG(
 	    dimension_runtime_fixture, "item::get_id() includes global offset, item::get_linear_id() does not", "[item]", ((int Dims), Dims), 1, 2, 3) {
-		distr_queue q;
+		distr_queue q{std::vector{sycl::device{sycl::default_selector_v}}}; // Initialize runtime with a single device so we don't get multiple chunks
 
 		const int n = 3;
 		const auto global_offset = test_utils::truncate_id<Dims>({4, 5, 6});
@@ -624,8 +514,7 @@ namespace detail {
 		});
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "attempting a reduction on buffers with size != 1 throws", "[task-manager]") {
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "attempting a reduction on buffers with size != 1 throws", "[task-manager][reduction]") {
 		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
 
 		runtime::init(nullptr, nullptr);
@@ -666,9 +555,6 @@ namespace detail {
 			cgh.parallel_for<class UKN(ok_size_3)>(range<3>{1, 1, 1},
 			    reduction(buf_6, cgh, cl::sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<3>, auto&) {});
 		}));
-#else
-		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
-#endif
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler::parallel_for accepts nd_range", "[handler]") {
@@ -733,24 +619,20 @@ namespace detail {
 		});
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "reductions can be passed into nd_range kernels", "[handler]") {
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "reductions can be passed into nd_range kernels", "[handler][reduction]") {
 		// Note: We assume a local range size of 16 here, this should be supported by most devices.
 
 		buffer<int, 1> b{range<1>{1}};
 		distr_queue{}.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(kernel)>(celerity::nd_range{range<2>{8, 8}, range<2>{4, 4}},
-			    reduction(b, cgh, cl::sycl::plus<int>{}, property::reduction::initialize_to_identity()),
+			cgh.parallel_for(celerity::nd_range{range<2>{8, 8}, range<2>{4, 4}},
+			    reduction(b, cgh, sycl::plus<int>(), property::reduction::initialize_to_identity()),
 			    [](nd_item<2> item, auto& sum) { sum += static_cast<int>(item.get_global_linear_id()); });
 		});
-#else
-		SKIP_BECAUSE_NO_SCALAR_REDUCTIONS
-#endif
 	}
 
 #if CELERITY_FEATURE_UNNAMED_KERNELS
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler::parallel_for kernel names are optional", "[handler]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler::parallel_for kernel names are optional", "[handler][reduction]") {
 		distr_queue q;
 
 		// Note: We assume a local range size of 32 here, this should be supported by most devices.
@@ -758,7 +640,6 @@ namespace detail {
 		// without name
 		q.submit([](handler& cgh) { cgh.parallel_for(range<1>{64}, [](item<1> item) {}); });
 		q.submit([=](handler& cgh) { cgh.parallel_for(celerity::nd_range<1>{64, 32}, [](nd_item<1> item) {}); });
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		buffer<int> b{{1}};
 		q.submit([&](handler& cgh) {
 			cgh.parallel_for(range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}, property::reduction::initialize_to_identity()),
@@ -768,12 +649,10 @@ namespace detail {
 			cgh.parallel_for(celerity::nd_range<1>{64, 32}, reduction(b, cgh, cl::sycl::plus<int>{}),
 			    [=](nd_item<1> item, auto& r) { r += static_cast<int>(item.get_global_linear_id()); });
 		});
-#endif
 
 		// with name
 		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(simple_kernel_with_name)>(range<1>{64}, [=](item<1> item) {}); });
 		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(nd_range_kernel_with_name)>(celerity::nd_range<1>{64, 32}, [=](nd_item<1> item) {}); });
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		q.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(simple_kernel_with_name_and_reductions)>(
 			    range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
@@ -782,7 +661,6 @@ namespace detail {
 			cgh.parallel_for<class UKN(nd_range_kernel_with_name_and_reductions)>(celerity::nd_range<1>{64, 32}, reduction(b, cgh, cl::sycl::plus<int>{}),
 			    [=](nd_item<1> item, auto& r) { r += static_cast<int>(item.get_global_linear_id()); });
 		});
-#endif
 	}
 
 #endif
@@ -1043,74 +921,6 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "tasks extend the lifetime of buffers and host objects", "[task_manager]") {
-		std::weak_ptr<lifetime_extending_state> buffer_state_1;
-		std::weak_ptr<lifetime_extending_state> buffer_state_2;
-		std::weak_ptr<lifetime_extending_state> buffer_state_3;
-		std::weak_ptr<lifetime_extending_state> host_object_state;
-
-		distr_queue q;
-		auto& tm = runtime::get_instance().get_task_manager();
-		tm.set_horizon_step(2);
-
-		std::promise<void> wait_for_this;
-
-		const size_t have_reduction = CELERITY_FEATURE_SCALAR_REDUCTIONS;
-
-		{
-			// Buffers and host object go out of scope before tasks has completed
-			buffer<size_t, 1> buf_1{32};
-			buffer<size_t, 1> buf_2{32};
-			buffer<size_t, 1> buf_3{1};
-			experimental::host_object<size_t> ho;
-			buffer_state_1 = get_lifetime_extending_state(buf_1);
-			buffer_state_2 = get_lifetime_extending_state(buf_2);
-			buffer_state_3 = get_lifetime_extending_state(buf_3);
-			host_object_state = get_lifetime_extending_state(ho);
-			q.submit([&](handler& cgh) {
-				accessor acc{buf_1, cgh, celerity::access::all{}, celerity::write_only_host_task, celerity::no_init};
-				experimental::side_effect se{ho, cgh};
-				cgh.host_task(on_master_node, [=, &wait_for_this] {
-					(void)acc;
-					(void)se;
-					wait_for_this.get_future().wait();
-				});
-			});
-			q.submit([&](handler& cgh) {
-				accessor acc_1{buf_1, cgh, celerity::access::one_to_one{}, celerity::read_only};
-				accessor acc_2{buf_2, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
-				auto red = reduction(buf_3, cgh, std::plus<>(), property::reduction::initialize_to_identity{});
-				cgh.parallel_for(range<1>{32}, red, [=](item<1>, auto&) {
-#else
-				cgh.parallel_for(range<1>{32}, [=](item<1>) {
-#endif
-					(void)acc_1;
-					(void)acc_2;
-				});
-			});
-			CHECK(buffer_state_1.use_count() == 3);
-			CHECK(buffer_state_2.use_count() == 2);
-			CHECK(buffer_state_3.use_count() == 1 + have_reduction);
-			CHECK(host_object_state.use_count() == 2);
-		}
-
-		CHECK(buffer_state_1.use_count() == 2);
-		CHECK(buffer_state_2.use_count() == 1);
-		CHECK(buffer_state_3.use_count() == have_reduction);
-		CHECK(host_object_state.use_count() == 1);
-		wait_for_this.set_value();
-		// Now trigger deletion of the task (which should then also delete the buffer and host object).
-		q.slow_full_sync();
-		// We currently only delete tasks when submitting new tasks (and not when creating epochs), so we have to submit a no-op here.
-		q.submit([](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
-		q.slow_full_sync();
-		CHECK(buffer_state_1.use_count() == 0);
-		CHECK(buffer_state_2.use_count() == 0);
-		CHECK(buffer_state_3.use_count() == 0);
-		CHECK(host_object_state.use_count() == 0);
-	}
-
 #ifndef __APPLE__
 	class restore_process_affinity_fixture {
 		restore_process_affinity_fixture(const restore_process_affinity_fixture&) = delete;
@@ -1215,17 +1025,17 @@ namespace detail {
 
 		auto& rt = runtime::get_instance();
 		auto& schdlr = runtime_testspy::get_schdlr(rt);
-		auto& exec = runtime_testspy::get_exec(rt);
+		auto& exec = *utils::as<live_executor>(&runtime_testspy::get_exec(rt));
 
-		const auto scheduler_thread_name = get_thread_name(scheduler_testspy::get_worker_thread(schdlr).native_handle());
+		const auto scheduler_thread_name = get_thread_name(scheduler_testspy::get_thread(schdlr).native_handle());
 		CHECK(scheduler_thread_name == "cy-scheduler");
 
-		const auto executor_thread_name = get_thread_name(executor_testspy::get_exec_thrd(exec).native_handle());
+		const auto executor_thread_name = get_thread_name(executor_testspy::get_thread(exec).native_handle());
 		CHECK(executor_thread_name == "cy-executor");
 
 		q.submit([](handler& cgh) {
 			cgh.host_task(experimental::collective, [&](experimental::collective_partition) {
-				const auto base_name = std::string("cy-worker-");
+				const auto base_name = std::string("cy-host-");
 				const auto worker_thread_name = get_thread_name(get_current_thread_handle());
 				CHECK_THAT(worker_thread_name, Catch::Matchers::StartsWith(base_name));
 			});
@@ -1236,10 +1046,14 @@ namespace detail {
 
 	const std::string dryrun_envvar_name = "CELERITY_DRY_RUN_NODES";
 
-	void dry_run_with_nodes(const size_t num_nodes) {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "dry run generates commands for an arbitrary number of simulated worker nodes", "[dryrun]") {
+		test_utils::allow_max_log_level(detail::log_level::warn); // dry run unconditionally warns when enabled
+
+		const size_t num_nodes = GENERATE(values({4, 8, 16}));
+
 		env::scoped_test_environment ste(std::unordered_map<std::string, std::string>{{dryrun_envvar_name, std::to_string(num_nodes)}});
 
-		distr_queue q;
+		distr_queue q{std::vector{sycl::device{sycl::default_selector_v}}}; // Initialize runtime with a single device so we don't get multiple chunks
 
 		auto& rt = runtime::get_instance();
 		auto& tm = rt.get_task_manager();
@@ -1256,18 +1070,10 @@ namespace detail {
 			accessor acc{buf, cgh, all{}, read_only_host_task};
 			cgh.host_task(range<1>{num_nodes * 2}, [=](partition<1>) { (void)acc; });
 		});
-		q.slow_full_sync();
 
-		// intial epoch + master-node task + 1 push per node + host task + sync epoch
+		// intial epoch + master-node task + 1 push per node + host task
 		// (dry runs currently always simulate node 0, hence the master-node task)
-		CHECK(runtime_testspy::get_command_count(rt) == 4 + num_nodes);
-	}
-
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "dry run generates commands for an arbitrary number of simulated worker nodes", "[dryrun]") {
-		test_utils::allow_max_log_level(detail::log_level::warn); // dry run unconditionally warns when enabled
-
-		const size_t num_nodes = GENERATE(values({4, 8, 16}));
-		dry_run_with_nodes(num_nodes);
+		CHECK(scheduler_testspy::get_command_count(runtime_testspy::get_schdlr(rt)) == 3 + num_nodes);
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "dry run proceeds on fences", "[dryrun]") {
@@ -1339,7 +1145,6 @@ namespace detail {
 
 		const std::unordered_map<std::string, std::string> env_map{
 		    {"CELERITY_LOG_LEVEL", "debug"},
-		    {"CELERITY_DEVICES", "1 1"},
 		    {"CELERITY_PROFILE_KERNEL", "1"},
 		    {"CELERITY_DRY_RUN_NODES", "4"},
 		    {"CELERITY_PRINT_GRAPHS", "true"},
@@ -1348,10 +1153,6 @@ namespace detail {
 		auto cfg = config(nullptr, nullptr);
 
 		CHECK(cfg.get_log_level() == spdlog::level::debug);
-		const auto dev_cfg = config_testspy::get_device_config(cfg);
-		REQUIRE(dev_cfg != std::nullopt);
-		CHECK(dev_cfg->platform_id == 1);
-		CHECK(dev_cfg->device_id == 1);
 		const auto has_prof = cfg.get_enable_device_profiling();
 		REQUIRE(has_prof.has_value());
 		CHECK((*has_prof) == true);
@@ -1529,6 +1330,53 @@ namespace detail {
 		q.slow_full_sync();
 
 		CHECK(test_utils::log_contains_exact(log_level::warn, expected_warning_message) == CELERITY_ACCESS_PATTERN_DIAGNOSTICS);
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime logs errors on overlapping writes between instructions iff access pattern diagnostics are enabled",
+	    "[runtime]") //
+	{
+		test_utils::allow_max_log_level(log_level::err);
+
+		distr_queue q;
+		const auto num_devices = runtime_testspy::get_num_local_devices(runtime::get_instance());
+		if(num_devices < 2) { SKIP("Test needs at least 2 devices"); }
+
+		buffer<int, 1> buf(1);
+		q.submit([&](handler& cgh) {
+			accessor acc(buf, cgh, celerity::access::all(), write_only, no_init);
+			cgh.parallel_for(range(num_devices), [=](item<1>) { (void)acc; });
+		});
+		q.slow_full_sync();
+
+		const auto expected_error_message =
+		    "Device kernel T1 has overlapping writes on N0 in B0 {[0,0,0] - [1,1,1]}. Choose a non-overlapping range mapper "
+		    "for this write access or constrain the split via experimental::constrain_split to make the access non-overlapping.";
+		CHECK(test_utils::log_contains_exact(log_level::err, expected_error_message) == CELERITY_ACCESS_PATTERN_DIAGNOSTICS);
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime types throw when used from the wrong thread", "[runtime]") {
+		distr_queue q;
+		buffer<int, 1> buf(range<1>(1));
+		experimental::host_object<int> ho(42);
+
+		constexpr auto what = "Celerity runtime, distr_queue, handler, buffer and host_object types must only be constructed, used, and destroyed from the "
+		                      "application thread. Make sure that you did not accidentally capture one of these types in a host_task.";
+		std::thread([&] {
+			CHECK_THROWS_WITH((distr_queue{}), what);
+			CHECK_THROWS_WITH((buffer<int, 1>{range<1>{1}}), what);
+			CHECK_THROWS_WITH((experimental::host_object<int>{}), what);
+
+			CHECK_THROWS_WITH(q.submit([&](handler& cgh) { (void)cgh; }), what);
+			CHECK_THROWS_WITH(q.slow_full_sync(), what);
+			CHECK_THROWS_WITH(q.fence(buf), what);
+			CHECK_THROWS_WITH(q.fence(ho), what);
+
+			// We can't easily test whether `~distr_queue()` et al. throw, because that would require marking the entire stack of destructors noexcept(false)
+			// including the ~shared_ptr we use internally for reference semantics. Instead we verify that the runtime operations their trackers call throw.
+			CHECK_THROWS_WITH(detail::runtime::get_instance().destroy_queue(), what);
+			CHECK_THROWS_WITH(detail::runtime::get_instance().destroy_buffer(get_buffer_id(buf)), what);
+			CHECK_THROWS_WITH(detail::runtime::get_instance().destroy_host_object(get_host_object_id(ho)), what);
+		}).join();
 	}
 
 } // namespace detail

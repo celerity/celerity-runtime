@@ -72,7 +72,7 @@ TEST_CASE("benchmark task handling", "[benchmark][group:task-graph]") {
 
 	auto initialization_lambda = [&] {
 		highest_tid = 0;
-		tm = std::make_unique<task_manager>(1, nullptr, nullptr);
+		tm = std::make_unique<task_manager>(1, nullptr);
 		// we use this trick to force horizon creation without introducing dependency overhead in this microbenchmark
 		tm->set_horizon_step(0);
 	};
@@ -152,7 +152,7 @@ static constexpr instruction_graph_generator::policy_set benchmark_instruction_g
 struct task_manager_benchmark_context {
 	const size_t num_nodes = 1;
 	task_recorder trec;
-	task_manager tm{1, nullptr, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
+	task_manager tm{1, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
 	test_utils::mock_buffer_factory mbf{tm};
 
 	task_manager_benchmark_context() = default;
@@ -177,20 +177,15 @@ struct task_manager_benchmark_context {
 struct command_graph_generator_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
-	graph_serializer gser{[](command_pkg&&) {}};
 	task_recorder trec;
-	task_manager tm{num_nodes, nullptr, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
+	task_manager tm{num_nodes, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
 	command_recorder crec;
 	distributed_graph_generator dggen{
 	    num_nodes, 0 /* local_nid */, cdag, tm, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
 	test_utils::mock_buffer_factory mbf{tm, dggen};
 
 	explicit command_graph_generator_benchmark_context(const size_t num_nodes) : num_nodes(num_nodes) {
-		tm.register_task_callback([this](const task* tsk) {
-			const auto cmds = dggen.build_task(*tsk);
-
-			gser.flush(cmds);
-		});
+		tm.register_task_callback([this](const task* tsk) { const auto cmds = dggen.build_task(*tsk); });
 	}
 
 	command_graph_generator_benchmark_context(const command_graph_generator_benchmark_context&) = delete;
@@ -215,13 +210,13 @@ struct instruction_graph_generator_benchmark_context {
 	const size_t num_devices;
 	command_graph cdag;
 	task_recorder trec;
-	task_manager tm{num_nodes, nullptr /* host_queue */, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
+	task_manager tm{num_nodes, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
 	command_recorder crec;
 	distributed_graph_generator dggen{
 	    num_nodes, 0 /* local_nid */, cdag, tm, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
 	instruction_recorder irec;
 	instruction_graph idag;
-	instruction_graph_generator iggen{tm, num_nodes, 0 /* local nid */, test_utils::make_system_info(num_devices, true /* allow d2d copies */), idag,
+	instruction_graph_generator iggen{tm, num_nodes, 0 /* local nid */, test_utils::make_system_info(num_devices, true /* supports d2d copies */), idag,
 	    nullptr /* delegate */, test_utils::g_print_graphs ? &irec : nullptr, benchmark_instruction_graph_generator_policy};
 	test_utils::mock_buffer_factory mbf{tm, dggen, iggen};
 
@@ -307,41 +302,50 @@ class restartable_thread {
 
 class benchmark_scheduler final : public abstract_scheduler {
   public:
-	benchmark_scheduler(restartable_thread& worker_thread, std::unique_ptr<distributed_graph_generator> dggen)
-	    : abstract_scheduler(false, std::move(dggen)), m_worker_thread(worker_thread) {}
-
-	void startup() override {
-		m_worker_thread.start([this] { schedule(); });
+	benchmark_scheduler(restartable_thread& thread, const size_t num_nodes, const node_id local_node_id, const system_info& system_info, const task_manager& tm,
+	    delegate* const delegate, command_recorder* const crec, instruction_recorder* const irec)
+	    : abstract_scheduler(num_nodes, local_node_id, system_info, tm, delegate, crec, irec), m_thread(&thread) {
+		m_thread->start([this] { schedule(); });
 	}
 
-	void shutdown() override {
-		abstract_scheduler::shutdown();
-		m_worker_thread.join();
+	benchmark_scheduler(const benchmark_scheduler&) = delete;
+	benchmark_scheduler(benchmark_scheduler&&) = delete;
+	benchmark_scheduler& operator=(const benchmark_scheduler&) = delete;
+	benchmark_scheduler& operator=(benchmark_scheduler&&) = delete;
+
+	~benchmark_scheduler() override {
+		// schedule() will exit as soon as it has acknowledged the shutdown epoch
+		m_thread->join();
 	}
 
   private:
-	restartable_thread& m_worker_thread;
+	restartable_thread* m_thread;
 };
 
 struct scheduler_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
-	task_manager tm{num_nodes, nullptr, {}, benchmark_task_manager_policy};
+	task_manager tm{num_nodes, nullptr, benchmark_task_manager_policy};
 	benchmark_scheduler schdlr;
 	test_utils::mock_buffer_factory mbf;
 
-	explicit scheduler_benchmark_context(restartable_thread& thrd, size_t num_nodes)
-	    : num_nodes{num_nodes}, schdlr{thrd, std::make_unique<distributed_graph_generator>(
-	                                             num_nodes, 0 /* local_nid */, cdag, tm, nullptr, benchmark_command_graph_generator_policy)},
-	      mbf{tm, schdlr} {
+	explicit scheduler_benchmark_context(restartable_thread& thrd, const size_t num_nodes, const size_t num_devices_per_node)
+	    : num_nodes(num_nodes), schdlr(thrd, num_nodes, 0 /* local_nid */, test_utils::make_system_info(num_devices_per_node, true /* supports d2d copies */),
+	                                tm, nullptr /* delegate */, nullptr /* crec */, nullptr /* irec */),
+	      mbf(tm, schdlr) //
+	{
 		tm.register_task_callback([this](const task* tsk) { schdlr.notify_task_created(tsk); });
-		schdlr.startup();
 	}
 
+	scheduler_benchmark_context(const scheduler_benchmark_context&) = delete;
+	scheduler_benchmark_context(scheduler_benchmark_context&&) = delete;
+	scheduler_benchmark_context& operator=(const scheduler_benchmark_context&) = delete;
+	scheduler_benchmark_context& operator=(scheduler_benchmark_context&&) = delete;
+
 	~scheduler_benchmark_context() {
-		tm.generate_epoch_task(celerity::detail::epoch_action::shutdown);
-		// scheduler operates in a FIFO manner, so awaiting shutdown will await processing of all pending tasks first
-		schdlr.shutdown();
+		const auto tid = tm.generate_epoch_task(celerity::detail::epoch_action::shutdown);
+		// There is no executor thread and notifications are processed in-order, so we can immediately notify the scheduler about shutdown-epoch completion
+		schdlr.notify_epoch_reached(tid);
 	}
 
 	template <int KernelDims, typename CGF>
@@ -515,21 +519,23 @@ TEMPLATE_TEST_CASE_SIG(
 	run_benchmarks([] { return instruction_graph_generator_benchmark_context(num_nodes, NumDevices); });
 }
 
-TEMPLATE_TEST_CASE_SIG(
-    "building command graphs in a dedicated scheduler thread for N nodes", "[benchmark][group:scheduler]", ((size_t NumNodes), NumNodes), 1, 4) {
+TEMPLATE_TEST_CASE_SIG("building command- and instruction graphs in a dedicated scheduler thread for N nodes", "[benchmark][group:scheduler]",
+    ((size_t NumNodes), NumNodes), 1, 4) //
+{
+	constexpr static size_t num_devices = 1;
 	SECTION("reference: single-threaded immediate graph generation") {
 		run_benchmarks([&] { return command_graph_generator_benchmark_context(NumNodes); });
 	}
 	SECTION("immediate submission to a scheduler thread") {
 		restartable_thread thrd;
-		run_benchmarks([&] { return scheduler_benchmark_context{thrd, NumNodes}; });
+		run_benchmarks([&] { return scheduler_benchmark_context(thrd, NumNodes, num_devices); });
 	}
 	SECTION("reference: throttled single-threaded graph generation at 10 us per task") {
 		run_benchmarks([] { return submission_throttle_benchmark_context<command_graph_generator_benchmark_context>(10us, NumNodes); });
 	}
 	SECTION("throttled submission to a scheduler thread at 10 us per task") {
 		restartable_thread thrd;
-		run_benchmarks([&] { return submission_throttle_benchmark_context<scheduler_benchmark_context>{10us, thrd, NumNodes}; });
+		run_benchmarks([&] { return submission_throttle_benchmark_context<scheduler_benchmark_context>(10us, thrd, NumNodes, num_devices); });
 	}
 }
 

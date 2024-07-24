@@ -50,11 +50,11 @@ def run_backend_discovery_and_copy_test(build_dir: str, backend: Optional[Litera
                                 env=env, check=True).stdout.decode()
         print(output)
         if enabled:
-            if f"Using {backend} backend for selected platform" not in output:
+            if f"Using {backend} backend for the selected devices" not in output:
                 raise RuntimeError(
                     f"Optimized {backend} backend was not selected for device '{devices[backend_device_idx]}'")
         else:
-            if f"is compatible with specialized {backend} backend, but it has not been compiled" not in output:
+            if f"are compatible with specialized {backend} backend, but it has not been compiled" not in output:
                 raise RuntimeError(f"Did not receive warning about {backend} not being available")
 
     # Check that no optimized backend is available for other device (if one exists)
@@ -62,7 +62,7 @@ def run_backend_discovery_and_copy_test(build_dir: str, backend: Optional[Litera
         output = subprocess.run([exe, str(other_device_idx)], stdout=subprocess.PIPE,
                                 env=env, check=True).stdout.decode()
         print(output)
-        if "No backend specialization available" not in output:
+        if "No common backend specialization available" not in output:
             raise RuntimeError("Did not receive warning about no backend specialization being available")
 
 

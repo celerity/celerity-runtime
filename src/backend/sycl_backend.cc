@@ -1,11 +1,8 @@
 #include "backend/sycl_backend.h"
 
 #include "closure_hydrator.h"
-#include "communicator.h"
 #include "dense_map.h"
-#include "log.h"
 #include "nd_memory.h"
-#include "ranges.h"
 #include "system_info.h"
 #include "thread_queue.h"
 #include "types.h"
@@ -48,7 +45,11 @@ void report_errors(const sycl::exception_list& errors) {
 		}
 	}
 
-	utils::panic("asynchronous SYCL error(s): {}", fmt::join(what, "; "));
+	// Errors usually manifest on calls to sycl::event::get_info(), not their actual origin, and therefore will contain many duplicates
+	std::sort(what.begin(), what.end());
+	what.erase(std::unique(what.begin(), what.end()), what.end());
+
+	utils::panic("asynchronous SYCL errors:\n\t{}", fmt::join(what, "\n\t"));
 }
 // LCOV_EXCL_STOP
 
@@ -170,7 +171,7 @@ async_event sycl_backend::enqueue_device_alloc(const device_id device, const siz
 #if CELERITY_DETAIL_ENABLE_DEBUG
 		sycl::queue(d.sycl_context, d.sycl_device, sycl::async_handler(sycl_backend_detail::report_errors), sycl::property::queue::in_order{})
 		    .fill(ptr, sycl_backend_detail::uninitialized_memory_pattern, size)
-		    .wait();
+		    .wait_and_throw();
 #endif
 		return ptr;
 	});
@@ -211,6 +212,14 @@ async_event sycl_backend::enqueue_host_copy(size_t host_lane, const void* const 
     const box<3>& dest_box, const region<3>& copy_region, const size_t elem_size) //
 {
 	return m_impl->get_host_queue(host_lane).submit([=] { nd_copy_host(source_base, dest_base, source_box, dest_box, copy_region, elem_size); });
+}
+
+void sycl_backend::check_async_errors() {
+	for(auto& device : m_impl->devices) {
+		for(auto& queue : device.queues) {
+			queue.throw_asynchronous();
+		}
+	}
 }
 
 sycl::queue& sycl_backend::get_device_queue(device_id device, size_t lane) { return m_impl->get_device_queue(device, lane); }

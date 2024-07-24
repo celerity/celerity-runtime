@@ -1,103 +1,120 @@
 #include "scheduler.h"
 
 #include "distributed_graph_generator.h"
-#include "frame.h"
-#include "graph_serializer.h"
-#include "legacy_executor.h"
+#include "instruction_graph_generator.h"
+#include "log.h"
 #include "named_threads.h"
+#include "recorders.h"
 
 #include <matchbox.hh>
+
 
 namespace celerity {
 namespace detail {
 
-	abstract_scheduler::abstract_scheduler(bool is_dry_run, std::unique_ptr<distributed_graph_generator> dggen, legacy_executor& exec)
-	    : m_is_dry_run(is_dry_run), m_dggen(std::move(dggen)), m_exec(&exec) {
-		assert(m_dggen != nullptr);
-	}
+	abstract_scheduler::abstract_scheduler(const size_t num_nodes, const node_id local_node_id, const system_info& system, const task_manager& tm,
+	    delegate* const delegate, command_recorder* const crec, instruction_recorder* const irec, const policy_set& policy)
+	    : m_cdag(std::make_unique<command_graph>()), m_crec(crec),
+	      m_dggen(std::make_unique<distributed_graph_generator>(num_nodes, local_node_id, *m_cdag, tm, crec, policy.command_graph_generator)),
+	      m_idag(std::make_unique<instruction_graph>()), m_irec(irec), //
+	      m_iggen(std::make_unique<instruction_graph_generator>(
+	          tm, num_nodes, local_node_id, system, *m_idag, delegate, irec, policy.instruction_graph_generator)) {}
 
-	void abstract_scheduler::shutdown() { notify(event_shutdown{}); }
+	abstract_scheduler::~abstract_scheduler() = default;
 
 	void abstract_scheduler::schedule() {
-		graph_serializer serializer([this](command_pkg&& pkg) {
-			if(m_is_dry_run && pkg.get_command_type() != command_type::epoch && pkg.get_command_type() != command_type::horizon
-			    && pkg.get_command_type() != command_type::fence) {
-				// in dry runs, skip everything except epochs, horizons and fences
-				return;
-			}
-			if(m_is_dry_run && pkg.get_command_type() == command_type::fence) {
-				CELERITY_WARN("Encountered a \"fence\" command while \"CELERITY_DRY_RUN_NODES\" is set. "
-				              "The result of this operation will not match the expected output of an actual run.");
-			}
-			// Executor may not be set during tests / benchmarks
-			if(m_exec != nullptr) { m_exec->enqueue(std::move(pkg)); }
-		});
+		std::optional<task_id> shutdown_epoch_emitted = std::nullopt;
+		bool shutdown_epoch_reached = false;
 
-		std::queue<event> in_flight_events;
-		bool shutdown = false;
-		while(!shutdown) {
-			{
-				std::unique_lock lk(m_events_mutex);
-				m_events_cv.wait(lk, [this] { return !m_available_events.empty(); });
-				std::swap(m_available_events, in_flight_events);
-			}
+		while(!shutdown_epoch_reached) {
+			// We can frequently suspend / resume the scheduler thread without adding latency as long as the executor queue remains non-empty
+			m_event_queue.wait_while_empty();
 
-			while(!in_flight_events.empty()) {
-				const auto event = std::move(in_flight_events.front()); // NOLINT(performance-move-const-arg)
-				in_flight_events.pop();
-
+			for(auto& event : m_event_queue.pop_all()) {
 				matchbox::match(
 				    event,
 				    [&](const event_task_available& e) {
-					    assert(!shutdown);
+					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
 					    assert(e.tsk != nullptr);
-					    const auto cmds = m_dggen->build_task(*e.tsk);
-					    serializer.flush(cmds);
+					    auto& tsk = *e.tsk;
+
+					    const auto commands = sort_topologically(m_dggen->build_task(tsk));
+					    for(const auto cmd : commands) {
+						    // If there are multiple commands, the shutdown epoch must come last. m_iggen.delegate must be considered dangling after receiving
+						    // the corresponding instruction, as runtime will begin destroying the executor after it has observed the epoch to be reached.
+						    assert(!shutdown_epoch_emitted);
+
+						    m_iggen->compile(*cmd);
+
+						    if(tsk.get_type() == task_type::epoch && tsk.get_epoch_action() == epoch_action::shutdown) {
+							    shutdown_epoch_emitted = tsk.get_id();
+						    }
+					    }
 				    },
 				    [&](const event_buffer_created& e) {
-					    assert(!shutdown);
-					    m_dggen->notify_buffer_created(e.bid, e.range, e.host_initialized);
+					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
+					    m_dggen->notify_buffer_created(e.bid, e.range, e.user_allocation_id != null_allocation_id);
+					    m_iggen->notify_buffer_created(e.bid, e.range, e.elem_size, e.elem_align, e.user_allocation_id);
 				    },
 				    [&](const event_buffer_debug_name_changed& e) {
-					    assert(!shutdown);
+					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
 					    m_dggen->notify_buffer_debug_name_changed(e.bid, e.debug_name);
+					    m_iggen->notify_buffer_debug_name_changed(e.bid, e.debug_name);
 				    },
 				    [&](const event_buffer_destroyed& e) {
-					    assert(!shutdown);
+					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
 					    m_dggen->notify_buffer_destroyed(e.bid);
+					    m_iggen->notify_buffer_destroyed(e.bid);
 				    },
 				    [&](const event_host_object_created& e) {
-					    assert(!shutdown);
+					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
 					    m_dggen->notify_host_object_created(e.hoid);
+					    m_iggen->notify_host_object_created(e.hoid, e.owns_instance);
 				    },
 				    [&](const event_host_object_destroyed& e) {
-					    assert(!shutdown);
+					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
 					    m_dggen->notify_host_object_destroyed(e.hoid);
+					    m_iggen->notify_host_object_destroyed(e.hoid);
 				    },
-				    [&](const event_shutdown&) {
-					    assert(in_flight_events.empty());
-					    shutdown = true;
+				    [&](const event_epoch_reached& e) { //
+					    assert(!shutdown_epoch_reached);
+					    // The dggen automatically prunes the CDAG on generation, which is safe because commands are not shared across threads.
+					    // We might want to refactor this to match the IDAG behavior in the future.
+					    m_idag->prune_before_epoch(e.tid);
+
+					    // The scheduler will receive the shutdown-epoch completion event via the runtime even if executor destruction has already begun.
+					    if(shutdown_epoch_emitted && e.tid == *shutdown_epoch_emitted) { shutdown_epoch_reached = true; }
+				    },
+				    [&](const event_test_inspect& e) { //
+					    e.inspect();
 				    });
 			}
 		}
 	}
 
-	void abstract_scheduler::notify(const event& evt) {
-		{
-			std::lock_guard lk(m_events_mutex);
-			m_available_events.push(evt);
+	void abstract_scheduler::notify(event&& evt) { m_event_queue.push(std::move(evt)); }
+
+	scheduler::scheduler(const size_t num_nodes, const node_id local_node_id, const system_info& system, const task_manager& tm, delegate* const delegate,
+	    command_recorder* const crec, instruction_recorder* const irec, const policy_set& policy)
+	    : abstract_scheduler(num_nodes, local_node_id, system, tm, delegate, crec, irec, policy), m_thread(&scheduler::thread_main, this) {
+		set_thread_name(m_thread.native_handle(), "cy-scheduler");
+	}
+
+	scheduler::~scheduler() {
+		// schedule() will exit as soon as it has processed the shutdown epoch
+		m_thread.join();
+	}
+
+	void scheduler::thread_main() {
+		try {
+			schedule();
 		}
-		m_events_cv.notify_one();
-	}
-
-	void scheduler::startup() {
-		m_worker_thread = std::thread(&scheduler::schedule, this);
-		set_thread_name(m_worker_thread.native_handle(), "cy-scheduler");
-	}
-
-	void scheduler::shutdown() {
-		abstract_scheduler::shutdown();
-		if(m_worker_thread.joinable()) { m_worker_thread.join(); }
+		// LCOV_EXCL_START
+		catch(const std::exception& e) {
+			CELERITY_CRITICAL("[scheduler] {}", e.what());
+			std::abort();
+		}
+		// LCOV_EXCL_STOP
 	}
 
 } // namespace detail

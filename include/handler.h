@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-#include <regex>
 #include <type_traits>
 #include <typeinfo>
 #include <utility>
@@ -11,15 +10,10 @@
 
 #include "buffer.h"
 #include "cgf_diagnostics.h"
-#include "closure_hydrator.h"
-#include "device_queue.h"
-#include "hint.h"
-#include "host_queue.h"
 #include "item.h"
+#include "partition.h"
 #include "range_mapper.h"
 #include "ranges.h"
-#include "reduction.h"
-#include "reduction_manager.h"
 #include "task.h"
 #include "types.h"
 #include "workaround.h"
@@ -55,7 +49,6 @@ void constrain_split(handler& cgh, const range<Dims>& constraint);
 namespace celerity {
 
 namespace detail {
-	class device_queue;
 	class task_manager;
 
 	handler make_command_group_handler(const task_id tid, const size_t num_collective_nodes);
@@ -63,7 +56,6 @@ namespace detail {
 	hydration_id add_requirement(handler& cgh, const buffer_id bid, std::unique_ptr<range_mapper_base> rm);
 	void add_requirement(handler& cgh, const host_object_id hoid, const experimental::side_effect_order order, const bool is_void);
 	void add_reduction(handler& cgh, const reduction_info& rinfo);
-	void extend_lifetime(handler& cgh, std::shared_ptr<detail::lifetime_extending_state> state);
 
 	void set_task_name(handler& cgh, const std::string& debug_name);
 
@@ -228,18 +220,12 @@ namespace detail {
 	class reduction_descriptor;
 
 	template <typename DataT, int Dims, typename BinaryOperation, bool WithExplicitIdentity>
-	auto make_sycl_reduction(const reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>& d, void* ptr, const bool is_initializer) {
-#if !CELERITY_FEATURE_SCALAR_REDUCTIONS
-		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
-#else
-		cl::sycl::property_list props;
-		if(!d.m_include_current_buffer_value || !is_initializer) { props = {cl::sycl::property::reduction::initialize_to_identity{}}; }
+	auto make_sycl_reduction(const reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>& d, void* ptr) {
 		if constexpr(WithExplicitIdentity) {
-			return sycl::reduction(static_cast<DataT*>(ptr), d.m_identity, d.m_op, props);
+			return sycl::reduction(static_cast<DataT*>(ptr), d.m_identity, d.m_op, sycl::property_list{sycl::property::reduction::initialize_to_identity{}});
 		} else {
-			return sycl::reduction(static_cast<DataT*>(ptr), d.m_op, props);
+			return sycl::reduction(static_cast<DataT*>(ptr), d.m_op, sycl::property_list{sycl::property::reduction::initialize_to_identity{}});
 		}
-#endif
 	}
 
 	template <typename DataT, int Dims, typename BinaryOperation>
@@ -249,7 +235,7 @@ namespace detail {
 		    : m_bid(bid), m_op(combiner), m_include_current_buffer_value(include_current_buffer_value) {}
 
 	  private:
-		friend auto make_sycl_reduction<DataT, Dims, BinaryOperation, false>(const reduction_descriptor&, void*, const bool);
+		friend auto make_sycl_reduction<DataT, Dims, BinaryOperation, false>(const reduction_descriptor&, void*);
 
 		buffer_id m_bid;
 		BinaryOperation m_op;
@@ -263,7 +249,7 @@ namespace detail {
 		    : m_bid(bid), m_op(combiner), m_identity(identity), m_include_current_buffer_value(include_current_buffer_value) {}
 
 	  private:
-		friend auto make_sycl_reduction<DataT, Dims, BinaryOperation, true>(const reduction_descriptor&, void*, const bool);
+		friend auto make_sycl_reduction<DataT, Dims, BinaryOperation, true>(const reduction_descriptor&, void*);
 
 		buffer_id m_bid;
 		BinaryOperation m_op;
@@ -273,9 +259,6 @@ namespace detail {
 
 	template <bool WithExplicitIdentity, typename DataT, int Dims, typename BinaryOperation>
 	auto make_reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation op, DataT identity, const cl::sycl::property_list& prop_list) {
-#if !CELERITY_FEATURE_SCALAR_REDUCTIONS
-		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
-#else
 		if(vars.get_range().size() != 1) {
 			// Like SYCL 2020, Celerity only supports reductions to unit-sized buffers. This allows us to avoid tracking different parts of the buffer
 			// as distributed_state and pending_reduction_state.
@@ -285,12 +268,10 @@ namespace detail {
 		const auto bid = detail::get_buffer_id(vars);
 		const auto include_current_buffer_value = !prop_list.has_property<celerity::property::reduction::initialize_to_identity>();
 
-		const auto rid = detail::runtime::get_instance().get_reduction_manager().create_reduction<DataT, Dims>(bid, op, identity);
+		const auto rid = detail::runtime::get_instance().create_reduction(detail::make_reducer(op, identity));
 		add_reduction(cgh, reduction_info{rid, bid, include_current_buffer_value});
-		extend_lifetime(cgh, get_lifetime_extending_state(vars));
 
 		return detail::reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>{bid, op, identity, include_current_buffer_value};
-#endif
 	}
 
 } // namespace detail
@@ -394,9 +375,7 @@ class handler {
 	template <int Dims>
 	friend void experimental::constrain_split(handler& cgh, const range<Dims>& constraint);
 	template <typename Hint>
-	friend void experimental::hint(handler& cgh, Hint&& h);
-	friend void detail::extend_lifetime(handler& cgh, std::shared_ptr<detail::lifetime_extending_state> state);
-
+	friend void experimental::hint(handler& cgh, Hint&& hint);
 	friend void detail::set_task_name(handler& cgh, const std::string& debug_name);
 
 	detail::task_id m_tid;
@@ -407,7 +386,6 @@ class handler {
 	std::unique_ptr<detail::task> m_task = nullptr;
 	size_t m_num_collective_nodes;
 	detail::hydration_id m_next_accessor_hydration_id = 1;
-	std::vector<std::shared_ptr<detail::lifetime_extending_state>> m_attached_state;
 	std::optional<std::string> m_usr_def_task_name;
 	range<3> m_split_constraint = detail::ones;
 	std::vector<std::unique_ptr<detail::hint_base>> m_hints;
@@ -427,10 +405,6 @@ class handler {
 	template <typename KernelFlavor, typename KernelName, int Dims, typename Kernel, typename... Reductions>
 	void parallel_for_kernel_and_reductions(range<Dims> global_range, id<Dims> global_offset,
 	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel&& kernel, Reductions&... reductions) {
-		if constexpr(!CELERITY_FEATURE_SCALAR_REDUCTIONS && sizeof...(reductions) > 0) {
-			static_assert(detail::constexpr_false<Kernel>, "Reductions are not supported by your SYCL implementation");
-		}
-
 		range<3> granularity = {1, 1, 1};
 		if constexpr(detail::kernel_flavor_traits<KernelFlavor, Dims>::has_local_size) {
 			for(int d = 0; d < Dims; ++d) {
@@ -460,8 +434,6 @@ class handler {
 		assert(m_task == nullptr);
 		m_reductions.push_back(rinfo);
 	}
-
-	void extend_lifetime(std::shared_ptr<detail::lifetime_extending_state> state) { m_attached_state.emplace_back(std::move(state)); }
 
 	template <int Dims>
 	void experimental_constrain_split(const range<Dims>& constraint) {
@@ -497,7 +469,7 @@ class handler {
 		return result;
 	}
 
-	void create_host_compute_task(detail::task_geometry geometry, std::unique_ptr<detail::command_launcher_storage_base> launcher) {
+	void create_host_compute_task(const detail::task_geometry& geometry, detail::host_task_launcher launcher) {
 		assert(m_task == nullptr);
 		if(geometry.global_size.size() == 0) {
 			// TODO this can be easily supported by not creating a task in case the execution range is empty
@@ -509,7 +481,7 @@ class handler {
 		m_task->set_debug_name(m_usr_def_task_name.value_or(""));
 	}
 
-	void create_device_compute_task(detail::task_geometry geometry, std::string debug_name, std::unique_ptr<detail::command_launcher_storage_base> launcher) {
+	void create_device_compute_task(const detail::task_geometry& geometry, const std::string& debug_name, detail::device_kernel_launcher launcher) {
 		assert(m_task == nullptr);
 		if(geometry.global_size.size() == 0) {
 			// TODO unless reductions are involved, this can be easily supported by not creating a task in case the execution range is empty.
@@ -525,14 +497,14 @@ class handler {
 		m_task->set_debug_name(m_usr_def_task_name.value_or(debug_name));
 	}
 
-	void create_collective_task(detail::collective_group_id cgid, std::unique_ptr<detail::command_launcher_storage_base> launcher) {
+	void create_collective_task(const detail::collective_group_id cgid, detail::host_task_launcher launcher) {
 		assert(m_task == nullptr);
 		m_task = detail::task::make_collective(m_tid, cgid, m_num_collective_nodes, std::move(launcher), std::move(m_access_map), std::move(m_side_effects));
 
 		m_task->set_debug_name(m_usr_def_task_name.value_or(""));
 	}
 
-	void create_master_node_task(std::unique_ptr<detail::command_launcher_storage_base> launcher) {
+	void create_master_node_task(detail::host_task_launcher launcher) {
 		assert(m_task == nullptr);
 		m_task = detail::task::make_master_node(m_tid, std::move(launcher), std::move(m_access_map), std::move(m_side_effects));
 
@@ -540,7 +512,7 @@ class handler {
 	}
 
 	template <typename KernelFlavor, typename KernelName, int Dims, typename Kernel, size_t... ReductionIndices, typename... Reductions>
-	auto make_device_kernel_launcher(const range<Dims>& global_range, const id<Dims>& global_offset,
+	detail::device_kernel_launcher make_device_kernel_launcher(const range<Dims>& global_range, const id<Dims>& global_offset,
 	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel&& kernel,
 	    std::index_sequence<ReductionIndices...> /* indices */, Reductions... reductions) {
 		static_assert(std::is_copy_constructible_v<std::decay_t<Kernel>>, "Kernel functor must be copyable"); // Required for hydration
@@ -549,34 +521,28 @@ class handler {
 		// Although the diagnostics should always be available, we currently disable them for some test cases.
 		if(detail::cgf_diagnostics::is_available()) { detail::cgf_diagnostics::get_instance().check<target::device>(kernel, m_access_map); }
 
-		auto fn = [=](detail::device_queue& q, const subrange<3> execution_sr, const std::vector<void*>& reduction_ptrs, const bool is_reduction_initializer) {
-			return q.submit([&](sycl::handler& cgh) {
-				constexpr int sycl_dims = std::max(1, Dims);
-				// Copy once to hydrate accessors
-				auto hydrated_kernel = detail::closure_hydrator::get_instance().hydrate<target::device>(cgh, kernel);
-				if constexpr(std::is_same_v<KernelFlavor, detail::simple_kernel_flavor>) {
-					const auto sycl_global_range = sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(execution_sr.range));
-					detail::invoke_sycl_parallel_for<KernelName>(cgh, sycl_global_range,
-					    detail::make_sycl_reduction(reductions, reduction_ptrs[ReductionIndices], is_reduction_initializer)...,
-					    detail::bind_simple_kernel(hydrated_kernel, global_range, global_offset, detail::id_cast<Dims>(execution_sr.offset)));
-				} else if constexpr(std::is_same_v<KernelFlavor, detail::nd_range_kernel_flavor>) {
-					const auto sycl_global_range = sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(execution_sr.range));
-					const auto sycl_local_range = sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(local_range));
-					detail::invoke_sycl_parallel_for<KernelName>(cgh, cl::sycl::nd_range{sycl_global_range, sycl_local_range},
-					    detail::make_sycl_reduction(reductions, reduction_ptrs[ReductionIndices], is_reduction_initializer)...,
-					    detail::bind_nd_range_kernel(hydrated_kernel, global_range, global_offset, detail::id_cast<Dims>(execution_sr.offset),
-					        global_range / local_range, detail::id_cast<Dims>(execution_sr.offset) / local_range));
-				} else {
-					static_assert(detail::constexpr_false<KernelFlavor>);
-				}
-			});
+		return [=](sycl::handler& sycl_cgh, const detail::box<3>& execution_range, const std::vector<void*>& reduction_ptrs) {
+			constexpr int sycl_dims = std::max(1, Dims);
+			if constexpr(std::is_same_v<KernelFlavor, detail::simple_kernel_flavor>) {
+				const auto sycl_global_range = sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(execution_range.get_range()));
+				detail::invoke_sycl_parallel_for<KernelName>(sycl_cgh, sycl_global_range,
+				    detail::make_sycl_reduction(reductions, reduction_ptrs[ReductionIndices])...,
+				    detail::bind_simple_kernel(kernel, global_range, global_offset, detail::id_cast<Dims>(execution_range.get_offset())));
+			} else if constexpr(std::is_same_v<KernelFlavor, detail::nd_range_kernel_flavor>) {
+				const auto sycl_global_range = sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(execution_range.get_range()));
+				const auto sycl_local_range = sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(local_range));
+				detail::invoke_sycl_parallel_for<KernelName>(sycl_cgh, cl::sycl::nd_range{sycl_global_range, sycl_local_range},
+				    detail::make_sycl_reduction(reductions, reduction_ptrs[ReductionIndices])...,
+				    detail::bind_nd_range_kernel(kernel, global_range, global_offset, detail::id_cast<Dims>(execution_range.get_offset()),
+				        global_range / local_range, detail::id_cast<Dims>(execution_range.get_offset()) / local_range));
+			} else {
+				static_assert(detail::constexpr_false<KernelFlavor>);
+			}
 		};
-
-		return std::make_unique<detail::command_launcher_storage<decltype(fn)>>(std::move(fn));
 	}
 
 	template <int Dims, bool Collective, typename Kernel>
-	auto make_host_task_launcher(const range<3>& global_range, const detail::collective_group_id cgid, Kernel&& kernel) {
+	detail::host_task_launcher make_host_task_launcher(const range<3>& global_range, const detail::collective_group_id cgid, Kernel&& kernel) {
 		static_assert(Collective || std::is_invocable_v<Kernel> || std::is_invocable_v<Kernel, const partition<Dims>>,
 		    "Kernel for host task must be invocable with either no arguments or a celerity::partition<Dims>");
 		static_assert(!Collective || std::is_invocable_v<Kernel> || std::is_invocable_v<Kernel, const experimental::collective_partition>,
@@ -590,38 +556,33 @@ class handler {
 			detail::cgf_diagnostics::get_instance().check<target::host_task>(kernel, m_access_map, m_non_void_side_effects_count);
 		}
 
-		auto fn = [kernel, cgid, global_range](detail::host_queue& q, const subrange<3>& execution_sr) {
-			auto hydrated_kernel = detail::closure_hydrator::get_instance().hydrate<target::host_task>(kernel);
-			return q.submit(cgid, [hydrated_kernel, global_range, execution_sr](MPI_Comm comm) {
-				(void)global_range;
-				if constexpr(Dims > 0) {
-					if constexpr(Collective) {
-						static_assert(Dims == 1);
-						const auto part = detail::make_collective_partition(detail::range_cast<1>(global_range), detail::subrange_cast<1>(execution_sr), comm);
-						hydrated_kernel(part);
-					} else {
-						const auto part = detail::make_partition<Dims>(detail::range_cast<Dims>(global_range), detail::subrange_cast<Dims>(execution_sr));
-						hydrated_kernel(part);
-					}
-				} else if constexpr(std::is_invocable_v<Kernel, const partition<0>&>) {
-					(void)execution_sr;
-					const auto part = detail::make_0d_partition();
-					hydrated_kernel(part);
+		return [kernel, global_range](const detail::box<3>& execution_range, const detail::communicator* collective_comm) {
+			(void)global_range;
+			(void)collective_comm;
+			if constexpr(Dims > 0) {
+				if constexpr(Collective) {
+					static_assert(Dims == 1);
+					assert(collective_comm != nullptr);
+					const auto part =
+					    detail::make_collective_partition(detail::range_cast<1>(global_range), detail::box_cast<1>(execution_range), *collective_comm);
+					kernel(part);
 				} else {
-					(void)execution_sr;
-					hydrated_kernel();
+					const auto part = detail::make_partition<Dims>(detail::range_cast<Dims>(global_range), detail::box_cast<Dims>(execution_range));
+					kernel(part);
 				}
-			});
+			} else if constexpr(std::is_invocable_v<Kernel, const partition<0>&>) {
+				(void)execution_range;
+				const auto part = detail::make_partition<0>(range<0>(), subrange<0>());
+				kernel(part);
+			} else {
+				(void)execution_range;
+				kernel();
+			}
 		};
-
-		return std::make_unique<detail::command_launcher_storage<decltype(fn)>>(std::move(fn));
 	}
 
 	std::unique_ptr<detail::task> into_task() && {
 		assert(m_task != nullptr);
-		for(auto state : m_attached_state) {
-			m_task->extend_lifetime(std::move(state));
-		}
 		for(auto& h : m_hints) {
 			m_task->add_hint(std::move(h));
 		}
@@ -645,32 +606,22 @@ namespace detail {
 
 	inline void add_reduction(handler& cgh, const detail::reduction_info& rinfo) { return cgh.add_reduction(rinfo); }
 
-	inline void extend_lifetime(handler& cgh, std::shared_ptr<detail::lifetime_extending_state> state) { cgh.extend_lifetime(std::move(state)); }
-
 	inline void set_task_name(handler& cgh, const std::string& debug_name) { cgh.m_usr_def_task_name = {debug_name}; }
 
 	// TODO: The _impl functions in detail only exist during the grace period for deprecated reductions on const buffers; move outside again afterwards.
 	template <typename DataT, int Dims, typename BinaryOperation>
 	auto reduction_impl(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
-#if !CELERITY_FEATURE_SCALAR_REDUCTIONS
-		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
-#else
 		static_assert(cl::sycl::has_known_identity_v<BinaryOperation, DataT>,
 		    "Celerity does not currently support reductions without an identity. Either specialize "
 		    "cl::sycl::known_identity or use the reduction() overload taking an identity at runtime");
 		return detail::make_reduction<false>(vars, cgh, combiner, cl::sycl::known_identity_v<BinaryOperation, DataT>, prop_list);
-#endif
 	}
 
 	template <typename DataT, int Dims, typename BinaryOperation>
 	auto reduction_impl(
 	    const buffer<DataT, Dims>& vars, handler& cgh, const DataT identity, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
-#if !CELERITY_FEATURE_SCALAR_REDUCTIONS
-		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
-#else
 		static_assert(!cl::sycl::has_known_identity_v<BinaryOperation, DataT>, "Identity is known to SYCL, remove the identity parameter from reduction()");
 		return detail::make_reduction<true>(vars, cgh, combiner, identity, prop_list);
-#endif
 	}
 
 } // namespace detail

@@ -8,6 +8,7 @@
 
 #include "config.h"
 #include "log.h"
+#include "utils.h"
 
 #include <sycl/sycl.hpp>
 

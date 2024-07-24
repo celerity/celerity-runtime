@@ -1,31 +1,20 @@
 // This diagnostic must be disabled here, because ComputeCpp appears to override it when specified on the command line.
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 
-#include "sycl_wrappers.h"
-
-#include <algorithm>
-#include <memory>
-#include <random>
+#include "ranges.h"
+#include "test_utils.h"
 
 #include <catch2/catch_test_macros.hpp>
-
-#include <celerity.h>
-
-#include "ranges.h"
-
-#include "buffer_manager_test_utils.h"
 
 namespace celerity {
 namespace detail {
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture,
 	    "distr_queue::submit(allow_by_ref_t, ...) and creation of accessors/side-effects/reductions from const buffers/host-objects continues to work",
-	    "[handler][deprecated]") {
+	    "[handler][deprecated][reduction]") {
 		distr_queue q;
 		buffer<size_t, 1> buf{32};
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
 		buffer<size_t, 1> reduction_buf{1};
-#endif
 		experimental::host_object<size_t> ho;
 		int my_int = 33;
 		q.submit(allow_by_ref, [= /* capture buffer/host-object by value */, &my_int](handler& cgh) {
@@ -39,12 +28,8 @@ namespace detail {
 		});
 		q.submit([= /* capture by value */](handler& cgh) {
 			accessor acc{buf, cgh, celerity::access::one_to_one{}, celerity::read_only};
-#if CELERITY_FEATURE_SCALAR_REDUCTIONS
-			cgh.parallel_for(range<1>(32), reduction(reduction_buf, cgh, std::plus<size_t>{}, property::reduction::initialize_to_identity{}),
+			cgh.parallel_for(range<1>(32), reduction(reduction_buf, cgh, sycl::plus<size_t>{}, property::reduction::initialize_to_identity{}),
 			    [=](item<1>, auto&) { (void)acc; });
-#else
-			cgh.parallel_for(range<1>(32), [=](item<1>) { (void)acc; });
-#endif
 		});
 		q.slow_full_sync(); // `my_int` must not go out of scope before host task finishes executing
 		CHECK(my_int == 42);

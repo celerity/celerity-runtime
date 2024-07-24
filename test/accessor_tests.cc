@@ -6,14 +6,42 @@
 
 #include <celerity.h>
 
-#include "ranges.h"
-
-#include "buffer_manager_test_utils.h"
-
-// NOTE: There are some additional accessor tests in buffer_manager_tests.cc
+#include "test_utils.h"
 
 namespace celerity {
 namespace detail {
+
+	struct accessor_testspy {
+		template <typename DataT, int Dims, access_mode Mode, typename... Args>
+		static accessor<DataT, Dims, Mode, target::device> make_device_accessor(Args&&... args) {
+			return {std::forward<Args>(args)...};
+		}
+
+		template <typename DataT, int Dims, access_mode Mode, typename... Args>
+		static accessor<DataT, Dims, Mode, target::host_task> make_host_accessor(Args&&... args) {
+			return {std::forward<Args>(args)...};
+		}
+
+		// It appears to be impossible to make a private member type visible through a typedef here, so we opt for a declval-like function declaration instead
+		template <typename LocalAccessor>
+		static typename LocalAccessor::sycl_accessor declval_sycl_accessor() {
+			static_assert(constexpr_false<LocalAccessor>, "declval_sycl_accessor cannot be used in an evaluated context");
+		}
+
+		template <typename DataT, int Dims, typename... Args>
+		static local_accessor<DataT, Dims> make_local_accessor(Args&&... args) {
+			return local_accessor<DataT, Dims>{std::forward<Args>(args)...};
+		}
+
+		template <typename DataT, int Dims, access_mode Mode, target Tgt>
+		static DataT* get_pointer(const accessor<DataT, Dims, Mode, Tgt>& acc) {
+			if constexpr(Tgt == target::device) {
+				return acc.m_device_ptr;
+			} else {
+				return acc.m_host_ptr;
+			}
+		}
+	};
 
 	using celerity::access::all;
 	using celerity::access::fixed;
@@ -636,9 +664,6 @@ namespace detail {
 		sycl::free(result, get_sycl_queue());
 	}
 
-	template <int>
-	class acc_out_of_bounds_kernel {};
-
 	TEMPLATE_TEST_CASE_METHOD_SIG(
 	    test_utils::runtime_fixture_dims, "device accessor reports out-of-bounds accesses", "[accessor][oob]", ((int Dims), Dims), 1, 2, 3) {
 #if !CELERITY_ACCESSOR_BOUNDARY_CHECK
@@ -653,15 +678,17 @@ namespace detail {
 		const auto accessible_sr = test_utils::truncate_subrange<Dims>({{5, 10, 15}, {1, 2, 3}});
 		const auto oob_idx_lo = test_utils::truncate_id<Dims>({1, 2, 3});
 		const auto oob_idx_hi = test_utils::truncate_id<Dims>({7, 13, 25});
-		const auto buffer_name = "oob";
+		const auto buffer_name = "oob_buffer";
+		const auto task_name = "oob_task";
 
 		celerity::debug::set_buffer_name(named_buff, buffer_name);
 
 		q.submit([&](handler& cgh) {
+			debug::set_task_name(cgh, task_name);
 			accessor unnamed_acc(unnamed_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only, celerity::no_init);
 			accessor named_acc(named_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only, celerity::no_init);
 
-			cgh.parallel_for<acc_out_of_bounds_kernel<Dims>>(range<Dims>(ones), [=](item<Dims>) {
+			cgh.parallel_for(range<Dims>(ones), [=](item<Dims>) {
 				unnamed_acc[oob_idx_lo] = 0;
 				unnamed_acc[oob_idx_hi] = 0;
 
@@ -671,16 +698,16 @@ namespace detail {
 		});
 		q.slow_full_sync();
 
-		const auto attempted_sr = box(id_cast<3>(oob_idx_lo), id_cast<3>(oob_idx_hi) + ones).get_subrange();
-		const auto unnamed_error_message =
-		    fmt::format("Out-of-bounds access in kernel 'acc_out_of_bounds_kernel<...>' detected: Accessor 0 for buffer B0 attempted to "
-		                "access indices between {} which are outside of mapped subrange {}",
-		        attempted_sr, subrange_cast<3>(accessible_sr));
+		const auto accessible_box = box(subrange_cast<3>(accessible_sr));
+		const auto attempted_box = box_cast<3>(box(oob_idx_lo, oob_idx_hi + id<Dims>(ones)));
+		const auto unnamed_error_message = fmt::format("Out-of-bounds access detected in device kernel T1 \"{}\": accessor 0 attempted to access buffer B0 "
+		                                               "indicies between {} and outside the declared range {}.",
+		    task_name, attempted_box, accessible_box);
 		CHECK(test_utils::log_contains_substring(log_level::err, unnamed_error_message));
 
-		const auto named_error_message = fmt::format("Out-of-bounds access in kernel 'acc_out_of_bounds_kernel<...>' detected: Accessor 1 for buffer B1 \"{}\" "
-		                                             "attempted to access indices between {} which are outside of mapped subrange {}",
-		    buffer_name, attempted_sr, subrange_cast<3>(accessible_sr));
+		const auto named_error_message = fmt::format("Out-of-bounds access detected in device kernel T1 \"{}\": accessor 1 attempted to access buffer B1 "
+		                                             "\"{}\" indicies between {} and outside the declared range {}.",
+		    task_name, buffer_name, attempted_box, accessible_box);
 		CHECK(test_utils::log_contains_substring(log_level::err, named_error_message));
 	}
 
@@ -698,11 +725,13 @@ namespace detail {
 		const auto accessible_sr = test_utils::truncate_subrange<Dims>({{5, 10, 15}, {1, 2, 3}});
 		const auto oob_idx_lo = test_utils::truncate_id<Dims>({1, 2, 3});
 		const auto oob_idx_hi = test_utils::truncate_id<Dims>({7, 13, 25});
-		const auto buffer_name = "oob";
+		const auto buffer_name = "oob_buffer";
+		const auto task_name = "oob_task";
 
 		celerity::debug::set_buffer_name(named_buff, buffer_name);
 
 		q.submit([&](handler& cgh) {
+			debug::set_task_name(cgh, task_name);
 			accessor unnamed_acc(unnamed_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only_host_task, celerity::no_init);
 			accessor nambed_acc(named_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only_host_task, celerity::no_init);
 
@@ -717,15 +746,16 @@ namespace detail {
 
 		q.slow_full_sync();
 
-		const auto attempted_sr = box(id_cast<3>(oob_idx_lo), id_cast<3>(oob_idx_hi) + ones).get_subrange();
-		const auto unnamed_error_message = fmt::format("Out-of-bounds access in host task detected: Accessor 0 for buffer B0 attempted to "
-		                                               "access indices between {} which are outside of mapped subrange {}",
-		    attempted_sr, subrange_cast<3>(accessible_sr));
+		const auto accessible_box = box(subrange_cast<3>(accessible_sr));
+		const auto attempted_box = box_cast<3>(box(oob_idx_lo, oob_idx_hi + id<Dims>(ones)));
+		const auto unnamed_error_message = fmt::format("Out-of-bounds access detected in host-compute task T1 \"{}\": accessor 0 attempted to access buffer B0 "
+		                                               "indicies between {} and outside the declared range {}.",
+		    task_name, attempted_box, accessible_box);
 		CHECK(test_utils::log_contains_substring(log_level::err, unnamed_error_message));
 
-		const auto named_error_message = fmt::format("Out-of-bounds access in host task detected: Accessor 1 for buffer B1 \"{}\" attempted to "
-		                                             "access indices between {} which are outside of mapped subrange {}",
-		    buffer_name, attempted_sr, subrange_cast<3>(accessible_sr));
+		const auto named_error_message = fmt::format("Out-of-bounds access detected in host-compute task T1 \"{}\": accessor 1 attempted to access buffer B1 "
+		                                             "\"{}\" indicies between {} and outside the declared range {}.",
+		    task_name, buffer_name, attempted_box, accessible_box);
 		CHECK(test_utils::log_contains_substring(log_level::err, named_error_message));
 	}
 
