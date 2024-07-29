@@ -67,7 +67,7 @@ TEST_CASE("double_buffered_queue provides ordered communication between threads"
 		for(;;) {
 			const auto& got = dbq.pop_all();
 			CHECK(std::is_sorted(got.begin(), got.end()));
-			if(got.back() == 3) break;
+			if(!got.empty() && got.back() == 3) break;
 		}
 
 		post_state(1);
