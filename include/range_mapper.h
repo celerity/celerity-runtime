@@ -3,8 +3,8 @@
 #include <stdexcept>
 #include <type_traits>
 
-#include <CL/sycl.hpp>
 #include <fmt/format.h>
+#include <sycl/sycl.hpp>
 
 #include "ranges.h"
 
@@ -77,11 +77,11 @@ namespace detail {
 
 	class range_mapper_base {
 	  public:
-		explicit range_mapper_base(cl::sycl::access::mode am) : m_access_mode(am) {}
+		explicit range_mapper_base(sycl::access::mode am) : m_access_mode(am) {}
 		range_mapper_base(const range_mapper_base& other) = delete;
 		range_mapper_base(range_mapper_base&& other) = delete;
 
-		cl::sycl::access::mode get_access_mode() const { return m_access_mode; }
+		sycl::access::mode get_access_mode() const { return m_access_mode; }
 
 		virtual int get_buffer_dimensions() const = 0;
 
@@ -101,14 +101,13 @@ namespace detail {
 		virtual ~range_mapper_base() = default;
 
 	  private:
-		cl::sycl::access::mode m_access_mode;
+		sycl::access::mode m_access_mode;
 	};
 
 	template <int BufferDims, typename Functor>
 	class range_mapper : public range_mapper_base {
 	  public:
-		range_mapper(Functor rmfn, cl::sycl::access::mode am, range<BufferDims> buffer_size)
-		    : range_mapper_base(am), m_rmfn(rmfn), m_buffer_size(buffer_size) {}
+		range_mapper(Functor rmfn, sycl::access::mode am, range<BufferDims> buffer_size) : range_mapper_base(am), m_rmfn(rmfn), m_buffer_size(buffer_size) {}
 
 		int get_buffer_dimensions() const override { return BufferDims; }
 

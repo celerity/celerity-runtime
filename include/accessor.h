@@ -2,7 +2,7 @@
 
 #include <type_traits>
 
-#include <CL/sycl.hpp>
+#include <sycl/sycl.hpp>
 
 #include "access_modes.h"
 #include "buffer.h"
@@ -633,7 +633,7 @@ class local_accessor {
   private:
 	constexpr static int sycl_dims = std::max(1, Dims);
 
-	using sycl_accessor = cl::sycl::local_accessor<DataT, sycl_dims>;
+	using sycl_accessor = sycl::local_accessor<DataT, sycl_dims>;
 
   public:
 	using value_type = DataT;

@@ -35,7 +35,3 @@ namespace runtime {
 	inline void init(int* argc, char** argv[], const detail::device_selector& device_selector) { detail::runtime::init(argc, argv, device_selector); }
 } // namespace runtime
 } // namespace celerity
-
-// Celerity includes <CL/sycl.hpp> internally, but we want to expose the SYCL 2020 ::sycl namespace to Celerity users.
-// TODO: Remove this once Celerity includes <sycl/sycl.hpp> internally.
-#include <sycl/sycl.hpp>
