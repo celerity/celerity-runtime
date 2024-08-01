@@ -162,6 +162,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+      # In SimSYCL images, /root/celerity-options.sh automatically enables coverage for Debug builds, and Tracy support for Release builds
       - name: Build and install Celerity
         run: bash -o pipefail -c "bash /root/build-celerity.sh ${{ env.container-workspace }} --build-type ${{ matrix.build-type }} --target install 2>&1 | tee ${{ env.build-name }}.log"
       # Upload build log for report step

@@ -127,6 +127,8 @@ else()
 endif()
 option(CELERITY_USE_MIMALLOC "Use the mimalloc memory allocator" ${CELERITY_USE_MIMALLOC_DEFAULT})
 
+option(CELERITY_TRACY_SUPPORT "Enable Tracy profiler integration" OFF)
+
 # 3rdparty dependencies
 include(FetchContent)
 
@@ -178,6 +180,14 @@ if(CELERITY_USE_MIMALLOC)
   set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
   set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
   fetch_content_from_submodule(mimalloc vendor/mimalloc)
+endif()
+
+if(CELERITY_TRACY_SUPPORT)
+  set(TRACY_FIBERS ON CACHE BOOL "" FORCE)
+  set(TRACY_STATIC ON CACHE BOOL "" FORCE)
+  set(TRACY_NO_SAMPLING ON CACHE BOOL "" FORCE)
+  set(TRACY_NO_SYSTEM_TRACING ON CACHE BOOL "" FORCE)
+  fetch_content_from_submodule(Tracy vendor/tracy)
 endif()
 
 configure_file(include/version.h.in include/version.h @ONLY)
@@ -261,6 +271,10 @@ if(CELERITY_USE_MIMALLOC)
   target_link_libraries(celerity_runtime PUBLIC mimalloc)
 endif()
 
+if(CELERITY_TRACY_SUPPORT)
+  target_link_libraries(celerity_runtime PUBLIC Tracy::TracyClient)
+endif()
+
 target_link_libraries(celerity_runtime PUBLIC
   Threads::Threads
   MPI::MPI_CXX
@@ -304,6 +318,7 @@ target_compile_definitions(celerity_runtime PUBLIC
   CELERITY_DETAIL_HAS_NAMED_THREADS=$<BOOL:${CELERITY_DETAIL_HAS_NAMED_THREADS}>
   CELERITY_ACCESSOR_BOUNDARY_CHECK=$<BOOL:${CELERITY_ACCESSOR_BOUNDARY_CHECK}>
   CELERITY_ACCESS_PATTERN_DIAGNOSTICS=$<BOOL:${CELERITY_ACCESS_PATTERN_DIAGNOSTICS}>
+  CELERITY_TRACY_SUPPORT=$<BOOL:${CELERITY_TRACY_SUPPORT}>
 )
 
 # Collect version information from git in src/version.cc. This target is always out of date, but the timestamp

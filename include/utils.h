@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <typeinfo>
@@ -12,6 +13,10 @@
 #include <fmt/format.h>
 
 #include "types.h"
+
+
+#define CELERITY_DETAIL_UTILS_CAT_2(a, b) a##b
+#define CELERITY_DETAIL_UTILS_CAT(a, b) CELERITY_DETAIL_UTILS_CAT_2(a, b)
 
 
 namespace celerity::detail::utils {
@@ -192,5 +197,8 @@ void erase_if(Container& container, const Predicate& predicate) {
 	using std::begin, std::end;
 	container.erase(std::remove_if(begin(container), end(container), predicate), end(container));
 }
+
+/// Replaces all occurrences of `pattern` in `in` with `with`. If `pattern` is empty, returns the input string unchanged.
+std::string replace_all(const std::string_view& input, const std::string_view& pattern, const std::string_view& replacement);
 
 } // namespace celerity::detail::utils

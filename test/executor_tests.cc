@@ -1,5 +1,3 @@
-#include "backend/backend.h"
-#include "communicator.h"
 #include "dry_run_executor.h"
 #include "executor.h"
 #include "live_executor.h"
@@ -191,6 +189,8 @@ class mock_backend final : public backend {
 
 	const system_info& get_system_info() const override { return m_system; }
 
+	void init() override {}
+
 	void* debug_alloc(size_t size) override { return malloc(size); }
 	void debug_free(void* ptr) override { free(ptr); }
 
@@ -372,8 +372,8 @@ class executor_test_context final : private executor::delegate {
 	}
 
 	void device_kernel(const device_id did, const box<3>& execution_range, buffer_access_allocation_map amap, buffer_access_allocation_map rmap) {
-		submit<device_kernel_instruction>(did, device_kernel_launcher{}, execution_range, std::move(amap),
-		    std::move(rmap) CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, task_type::device_compute, task_id(1), "task_name"));
+		submit<device_kernel_instruction>(did, device_kernel_launcher{}, execution_range, std::move(amap), std::move(rmap),
+		    0 CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, task_type::device_compute, task_id(1), "task_name"));
 	}
 
 	void copy(const allocation_with_offset& source_alloc, const allocation_with_offset& dest_alloc, const box<3>& source_box, const box<3>& dest_box,

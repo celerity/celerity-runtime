@@ -49,3 +49,15 @@ TEST_CASE("name strings are correctly extracted from types", "[utils][get_simpli
 TEST_CASE("escaping of invalid characters for dot labels", "[utils][escape_for_dot_label]") {
 	CHECK(utils::escape_for_dot_label("hello<bla&>") == "hello&lt;bla&amp;&gt;");
 }
+
+TEST_CASE("replace_all replaces all occurrences of a pattern in string", "[utils][replace_all]") {
+	CHECK(utils::replace_all("hello world", " ", "_") == "hello_world");
+	CHECK(utils::replace_all("hello world", "l", "") == "heo word");
+	CHECK(utils::replace_all("hello world", " ", "<-->") == "hello<-->world");
+	CHECK(utils::replace_all("hello world", "l", "_") == "he__o wor_d");
+	CHECK(utils::replace_all("hello world", "o", "<->") == "hell<-> w<->rld");
+	CHECK(utils::replace_all("hello world", "foo", "bar") == "hello world");
+	CHECK(utils::replace_all("hello world", "", "bar") == "hello world");
+	CHECK(utils::replace_all("", "", "bar") == "");
+	CHECK(utils::replace_all("", "", "bar") == "");
+}

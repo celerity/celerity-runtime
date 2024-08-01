@@ -45,6 +45,7 @@ set(TEST_TARGETS
   nd_memory_tests
   out_of_order_engine_tests
   print_graph_tests
+  print_utils_tests
   region_map_tests
   range_tests
   receive_arbiter_tests

@@ -28,6 +28,9 @@ class backend {
 	/// Returns metadata about the system as it appears to the backend implementation.
 	virtual const system_info& get_system_info() const = 0;
 
+	/// Performs (possibly latency-intensive) backend initialization. Separate from the constructor to allow this function to be called from a different thread.
+	virtual void init() = 0;
+
 	/// Synchronously allocates device-accessible host memory. This is slow and meant for debugging purposes only.
 	virtual void* debug_alloc(size_t size) = 0;
 

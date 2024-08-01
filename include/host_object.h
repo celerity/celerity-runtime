@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "runtime.h"
+#include "tracy.h"
 
 namespace celerity::experimental {
 
@@ -32,6 +33,7 @@ struct host_object_tracker {
 	detail::host_object_id id{};
 
 	explicit host_object_tracker(std::unique_ptr<host_object_instance> instance) {
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("host_object::host_object", DarkSlateBlue);
 		if(!detail::runtime::has_instance()) { detail::runtime::init(nullptr, nullptr); }
 		id = detail::runtime::get_instance().create_host_object(std::move(instance));
 	}
@@ -41,7 +43,10 @@ struct host_object_tracker {
 	host_object_tracker& operator=(host_object_tracker&&) = delete;
 	host_object_tracker& operator=(const host_object_tracker&) = delete;
 
-	~host_object_tracker() { detail::runtime::get_instance().destroy_host_object(id); }
+	~host_object_tracker() {
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("~host_object::host_object", DarkCyan);
+		detail::runtime::get_instance().destroy_host_object(id);
+	}
 };
 
 // see host_object deduction guides

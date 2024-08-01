@@ -1140,24 +1140,27 @@ namespace detail {
 		CHECK(latest_hor.has_value());
 	}
 
-	TEST_CASE_METHOD(test_utils::mpi_fixture, "Config reads environment variables correctly", "[env-vars][config]") {
+	TEST_CASE("Config reads environment variables correctly", "[env-vars][config]") {
 		test_utils::allow_max_log_level(detail::log_level::warn); // setting CELERITY_DRY_RUN_NODES unconditionally warns
+
+		const auto [tracy_str, expected_tracy_mode] =
+		    GENERATE(values({std::pair{"off", tracy_mode::off}, std::pair{"fast", tracy_mode::fast}, std::pair{"full", tracy_mode::full}}));
 
 		const std::unordered_map<std::string, std::string> env_map{
 		    {"CELERITY_LOG_LEVEL", "debug"},
 		    {"CELERITY_PROFILE_KERNEL", "1"},
 		    {"CELERITY_DRY_RUN_NODES", "4"},
 		    {"CELERITY_PRINT_GRAPHS", "true"},
+		    {"CELERITY_TRACY", tracy_str},
 		};
 		const auto test_env = env::scoped_test_environment(env_map);
 		auto cfg = config(nullptr, nullptr);
 
 		CHECK(cfg.get_log_level() == spdlog::level::debug);
-		const auto has_prof = cfg.get_enable_device_profiling();
-		REQUIRE(has_prof.has_value());
-		CHECK((*has_prof) == true);
+		CHECK(cfg.should_enable_device_profiling()); // true independent of PROFILE_KERNEL if TRACY=full!
 		CHECK(cfg.get_dry_run_nodes() == 4);
 		CHECK(cfg.should_print_graphs() == true);
+		CHECK(cfg.get_tracy_mode() == expected_tracy_mode);
 	}
 
 	TEST_CASE_METHOD(test_utils::mpi_fixture, "config reports incorrect environment varibles", "[env-vars][config]") {
@@ -1201,6 +1204,12 @@ namespace detail {
 
 		{
 			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_PROFILE_OCL", "a"}};
+			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
+		}
+
+		{
+			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_TRACY", "foo"}};
 			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
 			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
 		}
