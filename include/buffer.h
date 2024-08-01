@@ -2,7 +2,7 @@
 
 #include <memory>
 
-#include <CL/sycl.hpp>
+#include <sycl/sycl.hpp>
 
 #include "lifetime_extending_state.h"
 #include "range_mapper.h"

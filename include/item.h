@@ -132,22 +132,22 @@ class group {
 	bool leader() const { return m_sycl_item.get_local_id() == id<Dims>{}; }
 
 	template <typename T>
-	cl::sycl::device_event async_work_group_copy(decorated_local_ptr<T> dest, decorated_global_ptr<T> src, size_t num_elements) const {
+	sycl::device_event async_work_group_copy(decorated_local_ptr<T> dest, decorated_global_ptr<T> src, size_t num_elements) const {
 		return m_sycl_item.async_work_group_copy(dest, src, num_elements);
 	}
 
 	template <typename T>
-	cl::sycl::device_event async_work_group_copy(decorated_global_ptr<T> dest, decorated_local_ptr<T> src, size_t num_elements) const {
+	sycl::device_event async_work_group_copy(decorated_global_ptr<T> dest, decorated_local_ptr<T> src, size_t num_elements) const {
 		return m_sycl_item.async_work_group_copy(dest, src, num_elements);
 	}
 
 	template <typename T>
-	cl::sycl::device_event async_work_group_copy(decorated_local_ptr<T> dest, decorated_global_ptr<T> src, size_t num_elements, size_t src_stride) const {
+	sycl::device_event async_work_group_copy(decorated_local_ptr<T> dest, decorated_global_ptr<T> src, size_t num_elements, size_t src_stride) const {
 		return m_sycl_item.async_work_group_copy(dest, src, num_elements, src_stride);
 	}
 
 	template <typename T>
-	cl::sycl::device_event async_work_group_copy(decorated_global_ptr<T> dest, decorated_local_ptr<T> src, size_t num_elements, size_t dest_stride) const {
+	sycl::device_event async_work_group_copy(decorated_global_ptr<T> dest, decorated_local_ptr<T> src, size_t num_elements, size_t dest_stride) const {
 		return m_sycl_item.async_work_group_copy(dest, src, num_elements, dest_stride);
 	}
 
@@ -161,12 +161,12 @@ class group {
 
 	// We capture SYCL `item` instead of `group` to provide celerity::group_barrier based on SYCL 1.2.1 nd_item.barrier()
 	// TODO consider capturing `group` once ComputeCpp resolves this issue (if that benefits us e.g. wrt. struct size)
-	cl::sycl::nd_item<sycl_dims> m_sycl_item;
+	sycl::nd_item<sycl_dims> m_sycl_item;
 	id<Dims> m_group_id;
 	range<Dims> m_group_range;
 
 	template <int D>
-	friend group<D> celerity::detail::make_group(const cl::sycl::nd_item<std::max(1, D)>& sycl_item, const id<D>& group_id, const range<D>& group_range);
+	friend group<D> celerity::detail::make_group(const sycl::nd_item<std::max(1, D)>& sycl_item, const id<D>& group_id, const range<D>& group_range);
 
 	template <int D>
 	friend sycl::nd_item<std::max(1, D)>& celerity::detail::get_sycl_item(group<D>&);
@@ -249,7 +249,7 @@ class nd_item {
   private:
 	constexpr static int sycl_dims = std::max(1, Dims);
 
-	cl::sycl::nd_item<sycl_dims> m_sycl_item;
+	sycl::nd_item<sycl_dims> m_sycl_item;
 	id<Dims> m_global_id;
 	id<Dims> m_global_offset;
 	range<Dims> m_global_range;
@@ -258,13 +258,13 @@ class nd_item {
 
 	template <int D>
 	friend nd_item<D> celerity::detail::make_nd_item(
-	    const cl::sycl::nd_item<std::max(1, D)>&, const range<D>&, const id<D>&, const id<D>&, const range<D>&, const id<D>&);
+	    const sycl::nd_item<std::max(1, D)>&, const range<D>&, const id<D>&, const id<D>&, const range<D>&, const id<D>&);
 
 	template <int D>
-	friend cl::sycl::nd_item<std::max(1, D)>& celerity::detail::get_sycl_item(group<D>& nd_item);
+	friend sycl::nd_item<std::max(1, D)>& celerity::detail::get_sycl_item(group<D>& nd_item);
 
 	template <int D>
-	friend const cl::sycl::nd_item<std::max(1, D)>& celerity::detail::get_sycl_item(const group<D>& nd_item);
+	friend const sycl::nd_item<std::max(1, D)>& celerity::detail::get_sycl_item(const group<D>& nd_item);
 
 	explicit nd_item(const sycl::nd_item<std::max(1, Dims)>& sycl_item, const range<Dims>& global_range, const id<Dims>& global_offset,
 	    const id<Dims>& chunk_offset, const range<Dims>& group_range, const id<Dims>& group_offset)
@@ -274,196 +274,196 @@ class nd_item {
 };
 
 
-using cl::sycl::group_barrier;
+using sycl::group_barrier;
 
 template <int Dims>
 void group_barrier(const group<Dims>& g, memory_scope scope = memory_scope_work_group) {
-	cl::sycl::group_barrier(detail::get_sycl_item(g).get_group(), static_cast<cl::sycl::memory_scope>(scope)); // identical representation
+	sycl::group_barrier(detail::get_sycl_item(g).get_group(), static_cast<sycl::memory_scope>(scope)); // identical representation
 }
 
-using cl::sycl::group_broadcast;
+using sycl::group_broadcast;
 
 template <int Dims, typename T>
 inline T group_broadcast(const group<Dims>& g, T x) {
-	return cl::sycl::group_broadcast(detail::get_sycl_item(g).get_group(), x);
+	return sycl::group_broadcast(detail::get_sycl_item(g).get_group(), x);
 }
 
 template <int Dims, typename T>
 inline T group_broadcast(const group<Dims>& g, T x, size_t local_linear_id) {
-	return cl::sycl::group_broadcast(detail::get_sycl_item(g).get_group(), x, local_linear_id);
+	return sycl::group_broadcast(detail::get_sycl_item(g).get_group(), x, local_linear_id);
 }
 
 template <int Dims, typename T>
 inline T group_broadcast(const group<Dims>& g, T x, const id<Dims>& local_id) {
-	return cl::sycl::group_broadcast(detail::get_sycl_item(g).get_group(), x, sycl::id<Dims>(local_id));
+	return sycl::group_broadcast(detail::get_sycl_item(g).get_group(), x, sycl::id<Dims>(local_id));
 };
 
 
-using cl::sycl::joint_any_of;
+using sycl::joint_any_of;
 
 template <int Dims, typename Ptr, typename Predicate>
 bool joint_any_of(const group<Dims>& g, Ptr first, Ptr last, Predicate pred) {
-	return cl::sycl::joint_any_of(detail::get_sycl_item(g).get_group(), first, last, pred);
+	return sycl::joint_any_of(detail::get_sycl_item(g).get_group(), first, last, pred);
 }
 
 
-using cl::sycl::any_of_group;
+using sycl::any_of_group;
 
 template <int Dims, typename T, typename Predicate>
 bool any_of_group(const group<Dims>& g, T x, Predicate pred) {
-	return cl::sycl::any_of_group(detail::get_sycl_item(g).get_group(), x, pred);
+	return sycl::any_of_group(detail::get_sycl_item(g).get_group(), x, pred);
 }
 
 template <int Dims>
 bool any_of_group(const group<Dims>& g, bool pred) {
-	return cl::sycl::any_of_group(detail::get_sycl_item(g).get_group(), pred);
+	return sycl::any_of_group(detail::get_sycl_item(g).get_group(), pred);
 }
 
 
-using cl::sycl::joint_all_of;
+using sycl::joint_all_of;
 
 template <int Dims, typename Ptr, typename Predicate>
 bool joint_all_of(const group<Dims>& g, Ptr first, Ptr last, Predicate pred) {
-	return cl::sycl::joint_all_of(detail::get_sycl_item(g).get_group(), first, last, pred);
+	return sycl::joint_all_of(detail::get_sycl_item(g).get_group(), first, last, pred);
 }
 
 
-using cl::sycl::all_of_group;
+using sycl::all_of_group;
 
 template <int Dims, typename T, typename Predicate>
 bool all_of_group(const group<Dims>& g, T x, Predicate pred) {
-	return cl::sycl::all_of_group(detail::get_sycl_item(g).get_group(), x, pred);
+	return sycl::all_of_group(detail::get_sycl_item(g).get_group(), x, pred);
 }
 
 template <int Dims>
 bool all_of_group(const group<Dims>& g, bool pred) {
-	return cl::sycl::all_of_group(detail::get_sycl_item(g).get_group(), pred);
+	return sycl::all_of_group(detail::get_sycl_item(g).get_group(), pred);
 }
 
 
-using cl::sycl::joint_none_of;
+using sycl::joint_none_of;
 
 template <int Dims, typename Ptr, typename Predicate>
 bool joint_none_of(const group<Dims>& g, Ptr first, Ptr last, Predicate pred) {
-	return cl::sycl::joint_none_of(detail::get_sycl_item(g).get_group(), first, last, pred);
+	return sycl::joint_none_of(detail::get_sycl_item(g).get_group(), first, last, pred);
 }
 
 
-using cl::sycl::none_of_group;
+using sycl::none_of_group;
 
 template <int Dims, typename T, typename Predicate>
 bool none_of_group(const group<Dims>& g, T x, Predicate pred) {
-	return cl::sycl::none_of_group(detail::get_sycl_item(g).get_group(), x, pred);
+	return sycl::none_of_group(detail::get_sycl_item(g).get_group(), x, pred);
 }
 
 template <int Dims>
 bool none_of_group(const group<Dims>& g, bool pred) {
-	return cl::sycl::none_of_group(detail::get_sycl_item(g).get_group(), pred);
+	return sycl::none_of_group(detail::get_sycl_item(g).get_group(), pred);
 }
 
 
-using cl::sycl::permute_group_by_xor;
-using cl::sycl::shift_group_left;
-using cl::sycl::shift_group_right;
+using sycl::permute_group_by_xor;
+using sycl::shift_group_left;
+using sycl::shift_group_right;
 
 template <int Dims, typename T>
 T shift_group_left(const group<Dims>& g, T x, size_t delta = 1) {
-	return cl::sycl::shift_group_left(detail::get_sycl_item(g).get_group(), x, delta);
+	return sycl::shift_group_left(detail::get_sycl_item(g).get_group(), x, delta);
 }
 
 template <int Dims, typename T>
 T shift_group_right(const group<Dims>& g, T x, size_t delta = 1) {
-	return cl::sycl::shift_group_right(detail::get_sycl_item(g).get_group(), x, delta);
+	return sycl::shift_group_right(detail::get_sycl_item(g).get_group(), x, delta);
 }
 
 template <int Dims, typename T>
 T permute_group_by_xor(const group<Dims>& g, T x, size_t mask) {
-	return cl::sycl::permute_group_by_xor(detail::get_sycl_item(g).get_group(), x, mask);
+	return sycl::permute_group_by_xor(detail::get_sycl_item(g).get_group(), x, mask);
 }
 
 
-using cl::sycl::select_from_group;
+using sycl::select_from_group;
 
 template <int Dims, typename T>
 T select_from_group(const group<Dims>& g, T x, size_t remote_local_id) {
-	return cl::sycl::select_from_group(detail::get_sycl_item(g).get_group(), x, sycl::id<Dims>(remote_local_id));
+	return sycl::select_from_group(detail::get_sycl_item(g).get_group(), x, sycl::id<Dims>(remote_local_id));
 }
 
 
-using cl::sycl::joint_reduce;
+using sycl::joint_reduce;
 
 template <int Dims, typename Ptr, typename BinaryOperation>
 typename std::iterator_traits<Ptr>::value_type joint_reduce(const group<Dims>& g, Ptr first, Ptr last, BinaryOperation binary_op) {
-	return cl::sycl::joint_reduce(detail::get_sycl_item(g).get_group(), first, last, binary_op);
+	return sycl::joint_reduce(detail::get_sycl_item(g).get_group(), first, last, binary_op);
 }
 
 template <int Dims, typename Ptr, typename T, typename BinaryOperation>
 T joint_reduce(const group<Dims>& g, Ptr first, Ptr last, T init, BinaryOperation binary_op) {
-	return cl::sycl::joint_reduce(detail::get_sycl_item(g).get_group(), first, last, init, binary_op);
+	return sycl::joint_reduce(detail::get_sycl_item(g).get_group(), first, last, init, binary_op);
 }
 
 
-using cl::sycl::reduce_over_group;
+using sycl::reduce_over_group;
 
 template <int Dims, typename T, typename BinaryOperation>
 T reduce_over_group(const group<Dims>& g, T x, BinaryOperation binary_op) {
-	return cl::sycl::reduce_over_group(detail::get_sycl_item(g).get_group(), x, binary_op);
+	return sycl::reduce_over_group(detail::get_sycl_item(g).get_group(), x, binary_op);
 }
 
 template <int Dims, typename V, typename T, typename BinaryOperation>
 T reduce_over_group(const group<Dims>& g, V x, T init, BinaryOperation binary_op) {
-	return cl::sycl::reduce_over_group(detail::get_sycl_item(g).get_group(), x, init, binary_op);
+	return sycl::reduce_over_group(detail::get_sycl_item(g).get_group(), x, init, binary_op);
 }
 
 
-using cl::sycl::joint_exclusive_scan;
+using sycl::joint_exclusive_scan;
 
 template <int Dims, typename InPtr, typename OutPtr, typename BinaryOperation>
 OutPtr joint_exclusive_scan(const group<Dims>& g, InPtr first, InPtr last, OutPtr result, BinaryOperation binary_op) {
-	return cl::sycl::joint_exclusive_scan(detail::get_sycl_item(g).get_group(), first, last, result, binary_op);
+	return sycl::joint_exclusive_scan(detail::get_sycl_item(g).get_group(), first, last, result, binary_op);
 }
 
 template <int Dims, typename InPtr, typename OutPtr, typename T, typename BinaryOperation>
 T joint_exclusive_scan(const group<Dims>& g, InPtr first, InPtr last, OutPtr result, T init, BinaryOperation binary_op) {
-	return cl::sycl::joint_exclusive_scan(detail::get_sycl_item(g).get_group(), first, last, result, init, binary_op);
+	return sycl::joint_exclusive_scan(detail::get_sycl_item(g).get_group(), first, last, result, init, binary_op);
 }
 
 
-using cl::sycl::exclusive_scan_over_group;
+using sycl::exclusive_scan_over_group;
 
 template <int Dims, typename T, typename BinaryOperation>
 T exclusive_scan_over_group(const group<Dims>& g, T x, BinaryOperation binary_op) {
-	return cl::sycl::exclusive_scan_over_group(detail::get_sycl_item(g).get_group(), x, binary_op);
+	return sycl::exclusive_scan_over_group(detail::get_sycl_item(g).get_group(), x, binary_op);
 }
 
 template <int Dims, typename V, typename T, typename BinaryOperation>
 T exclusive_scan_over_group(const group<Dims>& g, V x, T init, BinaryOperation binary_op) {
-	return cl::sycl::exclusive_scan_over_group(detail::get_sycl_item(g).get_group(), x, init, binary_op);
+	return sycl::exclusive_scan_over_group(detail::get_sycl_item(g).get_group(), x, init, binary_op);
 }
 
 
-using cl::sycl::joint_inclusive_scan;
+using sycl::joint_inclusive_scan;
 
 template <int Dims, typename InPtr, typename OutPtr, typename BinaryOperation>
 OutPtr joint_inclusive_scan(const group<Dims>& g, InPtr first, InPtr last, OutPtr result, BinaryOperation binary_op) {
-	return cl::sycl::joint_inclusive_scan(detail::get_sycl_item(g).get_group(), first, last, result, binary_op);
+	return sycl::joint_inclusive_scan(detail::get_sycl_item(g).get_group(), first, last, result, binary_op);
 }
 
 template <int Dims, typename InPtr, typename OutPtr, typename T, typename BinaryOperation>
 T joint_inclusive_scan(const group<Dims>& g, InPtr first, InPtr last, OutPtr result, BinaryOperation binary_op, T init) {
-	return cl::sycl::joint_inclusive_scan(detail::get_sycl_item(g).get_group(), first, last, result, binary_op, init);
+	return sycl::joint_inclusive_scan(detail::get_sycl_item(g).get_group(), first, last, result, binary_op, init);
 }
 
 template <int Dims, typename T, typename BinaryOperation>
 T inclusive_scan_over_group(const group<Dims>& g, T x, BinaryOperation binary_op) {
-	return cl::sycl::inclusive_scan_over_group(detail::get_sycl_item(g).get_group(), x, binary_op);
+	return sycl::inclusive_scan_over_group(detail::get_sycl_item(g).get_group(), x, binary_op);
 }
 
-using cl::sycl::inclusive_scan_over_group;
+using sycl::inclusive_scan_over_group;
 
 template <int Dims, typename V, typename T, typename BinaryOperation>
 T inclusive_scan_over_group(const group<Dims>& g, V x, BinaryOperation binary_op, T init) {
-	return cl::sycl::inclusive_scan_over_group(detail::get_sycl_item(g).get_group(), x, binary_op, init);
+	return sycl::inclusive_scan_over_group(detail::get_sycl_item(g).get_group(), x, binary_op, init);
 }
 
 } // namespace celerity

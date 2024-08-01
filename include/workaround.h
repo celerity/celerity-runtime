@@ -2,7 +2,6 @@
 
 #include <cassert>
 
-#include <CL/sycl.hpp>
 #include <sycl/sycl.hpp>
 
 #if defined(CELERITY_DPCPP)

@@ -2,34 +2,34 @@
 
 #include <array>
 
-#include <CL/sycl.hpp>
+#include <sycl/sycl.hpp>
 
 namespace celerity::detail::access {
 
-constexpr std::array<cl::sycl::access::mode, 6> all_modes = {cl::sycl::access::mode::atomic, cl::sycl::access::mode::discard_read_write,
-    cl::sycl::access::mode::discard_write, cl::sycl::access::mode::read, cl::sycl::access::mode::read_write, cl::sycl::access::mode::write};
+constexpr std::array<sycl::access::mode, 6> all_modes = {sycl::access::mode::atomic, sycl::access::mode::discard_read_write, sycl::access::mode::discard_write,
+    sycl::access::mode::read, sycl::access::mode::read_write, sycl::access::mode::write};
 
-constexpr std::array<cl::sycl::access::mode, 4> consumer_modes = {
-    cl::sycl::access::mode::atomic, cl::sycl::access::mode::read, cl::sycl::access::mode::read_write, cl::sycl::access::mode::write};
+constexpr std::array<sycl::access::mode, 4> consumer_modes = {
+    sycl::access::mode::atomic, sycl::access::mode::read, sycl::access::mode::read_write, sycl::access::mode::write};
 
-constexpr std::array<cl::sycl::access::mode, 5> producer_modes = {cl::sycl::access::mode::atomic, cl::sycl::access::mode::discard_read_write,
-    cl::sycl::access::mode::discard_write, cl::sycl::access::mode::read_write, cl::sycl::access::mode::write};
+constexpr std::array<sycl::access::mode, 5> producer_modes = {sycl::access::mode::atomic, sycl::access::mode::discard_read_write,
+    sycl::access::mode::discard_write, sycl::access::mode::read_write, sycl::access::mode::write};
 
 struct mode_traits {
-	static constexpr bool is_producer(cl::sycl::access::mode m) {
-		using namespace cl::sycl::access;
+	static constexpr bool is_producer(sycl::access::mode m) {
+		using namespace sycl::access;
 		return m != mode::read;
 	}
 
-	static constexpr bool is_consumer(cl::sycl::access::mode m) {
-		using namespace cl::sycl::access;
+	static constexpr bool is_consumer(sycl::access::mode m) {
+		using namespace sycl::access;
 		return m != mode::discard_read_write && m != mode::discard_write;
 	}
 
-	static constexpr bool is_pure_consumer(cl::sycl::access::mode m) { return is_consumer(m) && !is_producer(m); }
+	static constexpr bool is_pure_consumer(sycl::access::mode m) { return is_consumer(m) && !is_producer(m); }
 
-	static constexpr const char* name(cl::sycl::access::mode m) {
-		using cl::sycl::access::mode;
+	static constexpr const char* name(sycl::access::mode m) {
+		using sycl::access::mode;
 		switch(m) {
 		case mode::atomic: return "atomic";
 		case mode::discard_read_write: return "discard_read_write";

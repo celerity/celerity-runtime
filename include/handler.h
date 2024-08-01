@@ -6,8 +6,8 @@
 #include <typeinfo>
 #include <utility>
 
-#include <CL/sycl.hpp>
 #include <fmt/format.h>
+#include <sycl/sycl.hpp>
 
 #include "buffer.h"
 #include "cgf_diagnostics.h"
@@ -183,7 +183,7 @@ namespace detail {
 	}
 
 	template <typename Kernel, int Dims, typename... Reducers>
-	inline void invoke_kernel(const Kernel& kernel, const cl::sycl::nd_item<std::max(1, Dims)>& s_item, const range<Dims>& global_range,
+	inline void invoke_kernel(const Kernel& kernel, const sycl::nd_item<std::max(1, Dims)>& s_item, const range<Dims>& global_range,
 	    const id<Dims>& global_offset, const id<Dims>& chunk_offset, const range<Dims>& group_range, const id<Dims>& group_offset, Reducers&... reducers) {
 		kernel(make_nd_item<Dims>(s_item, global_range, global_offset, chunk_offset, group_range, group_offset), reducers...);
 	}
@@ -200,7 +200,7 @@ namespace detail {
 			} else {
 				// Explicit item constructor: ComputeCpp does not pass a sycl::item, but an implicitly convertible sycl::item_base (?) which does not have
 				// `sycl::id<> get_id()`
-				invoke_kernel(kernel, cl::sycl::item<sycl_dims>{s_item_or_id}.get_id(), global_range, global_offset, chunk_offset, reducers...);
+				invoke_kernel(kernel, sycl::item<sycl_dims>{s_item_or_id}.get_id(), global_range, global_offset, chunk_offset, reducers...);
 			}
 		};
 	}
@@ -216,7 +216,7 @@ namespace detail {
 	}
 
 	template <typename KernelName, typename... Params>
-	inline void invoke_sycl_parallel_for(cl::sycl::handler& cgh, Params&&... args) {
+	inline void invoke_sycl_parallel_for(sycl::handler& cgh, Params&&... args) {
 		static_assert(CELERITY_FEATURE_UNNAMED_KERNELS || !is_unnamed_kernel<KernelName>,
 		    "Your SYCL implementation does not support unnamed kernels, add a kernel name template parameter to this parallel_for invocation");
 		if constexpr(detail::is_unnamed_kernel<KernelName>) {
@@ -276,7 +276,7 @@ namespace detail {
 	};
 
 	template <bool WithExplicitIdentity, typename DataT, int Dims, typename BinaryOperation>
-	auto make_reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation op, DataT identity, const cl::sycl::property_list& prop_list) {
+	auto make_reduction(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation op, DataT identity, const sycl::property_list& prop_list) {
 #if !CELERITY_FEATURE_SCALAR_REDUCTIONS
 		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
@@ -585,7 +585,7 @@ class handler {
 				} else if constexpr(std::is_same_v<KernelFlavor, detail::nd_range_kernel_flavor>) {
 					const auto sycl_global_range = sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(execution_sr.range));
 					const auto sycl_local_range = sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(local_range));
-					detail::invoke_sycl_parallel_for<KernelName>(cgh, cl::sycl::nd_range{sycl_global_range, sycl_local_range},
+					detail::invoke_sycl_parallel_for<KernelName>(cgh, sycl::nd_range{sycl_global_range, sycl_local_range},
 					    detail::make_sycl_reduction(reductions, reduction_ptrs[ReductionIndices], is_reduction_initializer)...,
 					    detail::bind_nd_range_kernel(hydrated_kernel, global_range, global_offset, detail::id_cast<Dims>(execution_sr.offset),
 					        global_range / local_range, detail::id_cast<Dims>(execution_sr.offset) / local_range));
@@ -674,24 +674,24 @@ namespace detail {
 
 	// TODO: The _impl functions in detail only exist during the grace period for deprecated reductions on const buffers; move outside again afterwards.
 	template <typename DataT, int Dims, typename BinaryOperation>
-	auto reduction_impl(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
+	auto reduction_impl(const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation combiner, const sycl::property_list& prop_list = {}) {
 #if !CELERITY_FEATURE_SCALAR_REDUCTIONS
 		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
-		static_assert(cl::sycl::has_known_identity_v<BinaryOperation, DataT>,
+		static_assert(sycl::has_known_identity_v<BinaryOperation, DataT>,
 		    "Celerity does not currently support reductions without an identity. Either specialize "
-		    "cl::sycl::known_identity or use the reduction() overload taking an identity at runtime");
-		return detail::make_reduction<false>(vars, cgh, combiner, cl::sycl::known_identity_v<BinaryOperation, DataT>, prop_list);
+		    "sycl::known_identity or use the reduction() overload taking an identity at runtime");
+		return detail::make_reduction<false>(vars, cgh, combiner, sycl::known_identity_v<BinaryOperation, DataT>, prop_list);
 #endif
 	}
 
 	template <typename DataT, int Dims, typename BinaryOperation>
 	auto reduction_impl(
-	    const buffer<DataT, Dims>& vars, handler& cgh, const DataT identity, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
+	    const buffer<DataT, Dims>& vars, handler& cgh, const DataT identity, BinaryOperation combiner, const sycl::property_list& prop_list = {}) {
 #if !CELERITY_FEATURE_SCALAR_REDUCTIONS
 		static_assert(detail::constexpr_false<BinaryOperation>, "Reductions are not supported by your SYCL implementation");
 #else
-		static_assert(!cl::sycl::has_known_identity_v<BinaryOperation, DataT>, "Identity is known to SYCL, remove the identity parameter from reduction()");
+		static_assert(!sycl::has_known_identity_v<BinaryOperation, DataT>, "Identity is known to SYCL, remove the identity parameter from reduction()");
 		return detail::make_reduction<true>(vars, cgh, combiner, identity, prop_list);
 #endif
 	}
@@ -699,24 +699,24 @@ namespace detail {
 } // namespace detail
 
 template <typename DataT, int Dims, typename BinaryOperation>
-auto reduction(buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
+auto reduction(buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation combiner, const sycl::property_list& prop_list = {}) {
 	return detail::reduction_impl(vars, cgh, combiner, prop_list);
 }
 
 template <typename DataT, int Dims, typename BinaryOperation>
-auto reduction(buffer<DataT, Dims>& vars, handler& cgh, const DataT identity, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
+auto reduction(buffer<DataT, Dims>& vars, handler& cgh, const DataT identity, BinaryOperation combiner, const sycl::property_list& prop_list = {}) {
 	return detail::reduction_impl(vars, cgh, identity, combiner, prop_list);
 }
 
 template <typename DataT, int Dims, typename BinaryOperation>
 [[deprecated("Creating reduction from const buffer is deprecated, capture buffer by reference instead")]] auto reduction(
-    const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
+    const buffer<DataT, Dims>& vars, handler& cgh, BinaryOperation combiner, const sycl::property_list& prop_list = {}) {
 	return detail::reduction_impl(vars, cgh, combiner, prop_list);
 }
 
 template <typename DataT, int Dims, typename BinaryOperation>
 [[deprecated("Creating reduction from const buffer is deprecated, capture buffer by reference instead")]] auto reduction(
-    const buffer<DataT, Dims>& vars, handler& cgh, const DataT identity, BinaryOperation combiner, const cl::sycl::property_list& prop_list = {}) {
+    const buffer<DataT, Dims>& vars, handler& cgh, const DataT identity, BinaryOperation combiner, const sycl::property_list& prop_list = {}) {
 	return detail::reduction_impl(vars, cgh, identity, combiner, prop_list);
 }
 
