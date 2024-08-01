@@ -10,7 +10,7 @@ jobs:
       container-workspace: /__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}
       build-dir: /root/build
     container:
-      image: ghcr.io/celerity/celerity-build/hipsycl:ubuntu22.04-db000681
+      image: ghcr.io/celerity/celerity-build/hipsycl:ubuntu22.04-v24.06.0
       volumes:
         - ccache:/ccache
     steps:
