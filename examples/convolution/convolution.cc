@@ -4,14 +4,11 @@
 
 #include <celerity.h>
 
-// Conditional shouldn't really be required, but ComputeCpp 2.8.0 Experimental fails trying to compile SSE intrinsics in device code
-#ifndef __SYCL_DEVICE_ONLY__
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#endif
-
 #include "stb/stb_image.h"
 #include "stb/stb_image_write.h"
+
 
 bool is_on_boundary(celerity::range<2> range, size_t filter_size, celerity::id<2> id) {
 	return (id[0] < (filter_size / 2) || id[1] < (filter_size / 2) || id[0] > range[0] - (filter_size / 2) - 1 || id[1] > range[1] - (filter_size / 2) - 1);
