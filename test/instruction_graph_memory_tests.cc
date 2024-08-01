@@ -635,3 +635,36 @@ TEST_CASE("overlapping accessors with read + discard_write modes are equivalent 
 	CHECK(read_discard_write_kernel.transitive_predecessors_across<copy_instruction_record>().contains(both_alloc_kernels));
 	CHECK(consume_kernel.predecessors() == read_discard_write_kernel);
 }
+
+TEST_CASE("device kernels report global memory traffic estimate based on range mappers", "[instruction_graph_generator][instruction-graph][memory]") {
+	constexpr size_t num_devices = 2;
+	constexpr size_t buffer_size = 1024;
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices);
+	auto buf_1 = ictx.create_buffer<float, 1>(buffer_size, true /* host initialized */);
+	auto buf_2 = ictx.create_buffer<float, 1>(buffer_size, true /* host initialized */);
+	ictx.device_compute(range(buffer_size)).name("all read").read(buf_1, acc::all()).submit();
+	ictx.device_compute(range(buffer_size)).name("1:1 read").read(buf_1, acc::one_to_one()).submit();
+	ictx.device_compute(range(buffer_size)).name("1:1 read_write").read_write(buf_1, acc::one_to_one()).submit();
+	ictx.device_compute(range(buffer_size)).name("1:1 discard_write + all_read").discard_write(buf_1, acc::one_to_one()).read(buf_1, acc::all()).submit();
+	ictx.device_compute(range(buffer_size)).name("reduce").reduce(buf_2, false /* include_current_buffer_value */).submit();
+	ictx.finish();
+
+	const auto all_instrs = ictx.query_instructions();
+
+	for(const auto& all_read : all_instrs.select_all<device_kernel_instruction_record>("all_read").iterate()) {
+		CHECK(all_read->estimated_global_memory_traffic_bytes == buffer_size * sizeof(float));
+	}
+	for(const auto& o2o_read : all_instrs.select_all<device_kernel_instruction_record>("1:1 read").iterate()) {
+		CHECK(o2o_read->estimated_global_memory_traffic_bytes == buffer_size / num_devices * sizeof(float));
+	}
+	for(const auto& o2o_read_write : all_instrs.select_all<device_kernel_instruction_record>("1:1 read_write").iterate()) {
+		CHECK(o2o_read_write->estimated_global_memory_traffic_bytes == buffer_size / num_devices * 2 * sizeof(float));
+	}
+	for(const auto& write_plus_read : all_instrs.select_all<device_kernel_instruction_record>("1:1 discard_write + all_read").iterate()) {
+		CHECK(write_plus_read->estimated_global_memory_traffic_bytes == (buffer_size / num_devices + buffer_size) * sizeof(float));
+	}
+	for(const auto& reduce : all_instrs.select_all<device_kernel_instruction_record>("reduce").iterate()) {
+		CHECK(reduce->estimated_global_memory_traffic_bytes == buffer_size / num_devices * sizeof(float));
+	}
+}

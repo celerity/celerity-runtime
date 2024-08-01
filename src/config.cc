@@ -1,10 +1,7 @@
 #include "config.h"
 
 #include <cstdlib>
-#include <iterator>
-#include <sstream>
 #include <string_view>
-#include <thread>
 
 #include <mpi.h>
 
@@ -15,6 +12,7 @@
 #include <libenvpp/env.hpp>
 
 namespace env {
+
 template <>
 struct default_parser<celerity::detail::log_level> {
 	celerity::detail::log_level operator()(const std::string_view str) const {
@@ -46,6 +44,22 @@ struct default_parser<celerity::detail::log_level> {
 		return lvl;
 	}
 };
+
+template <>
+struct default_parser<celerity::detail::tracy_mode> {
+	celerity::detail::tracy_mode operator()(const std::string_view str) const {
+		if(str == "off") {
+			return celerity::detail::tracy_mode::off;
+		} else if(str == "fast") {
+			return celerity::detail::tracy_mode::fast;
+		} else if(str == "full") {
+			return celerity::detail::tracy_mode::full;
+		} else {
+			throw parser_error{"Unable to parse '{}'. Possible values are: off, fast, full."};
+		}
+	}
+};
+
 } // namespace env
 
 namespace {
@@ -58,9 +72,6 @@ bool parse_validate_profile_kernel(const std::string_view str) {
 
 size_t parse_validate_dry_run_nodes(const std::string_view str) {
 	const size_t drn = env::default_parser<size_t>{}(str);
-	int world_size = 0;
-	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-	if(world_size != 1) throw std::runtime_error("In order to run with CELERITY_DRY_RUN_NODES a single MPI process/rank must be used.");
 	CELERITY_WARN("Performing a dry run with {} simulated nodes", drn);
 	return drn;
 }
@@ -73,30 +84,6 @@ namespace detail {
 	config::config(int* argc, char** argv[]) {
 		// TODO: At some point we might want to parse arguments from argv as well
 
-		// Determine the "host config", i.e., how many nodes are spawned on this host,
-		// and what this node's local rank is. We do this by finding all world-ranks
-		// that can use a shared-memory transport (if running on OpenMPI, use the
-		// per-host split instead).
-#ifdef OPEN_MPI
-#define SPLIT_TYPE OMPI_COMM_TYPE_HOST
-#else
-		// TODO: Assert that shared memory is available (i.e. not explicitly disabled)
-#define SPLIT_TYPE MPI_COMM_TYPE_SHARED
-#endif
-		MPI_Comm host_comm = nullptr;
-		MPI_Comm_split_type(MPI_COMM_WORLD, SPLIT_TYPE, 0, MPI_INFO_NULL, &host_comm);
-
-		int local_rank = 0;
-		MPI_Comm_rank(host_comm, &local_rank);
-
-		int node_count = 0;
-		MPI_Comm_size(host_comm, &node_count);
-
-		m_host_cfg.local_rank = local_rank;
-		m_host_cfg.node_count = node_count;
-
-		MPI_Comm_free(&host_comm);
-
 		auto pref = env::prefix("CELERITY");
 		const auto env_log_level = pref.register_option<log_level>(
 		    "LOG_LEVEL", {log_level::trace, log_level::debug, log_level::info, log_level::warn, log_level::err, log_level::critical, log_level::off});
@@ -106,6 +93,7 @@ namespace detail {
 		constexpr int horizon_max = 1024 * 64;
 		const auto env_horizon_step = pref.register_range<int>("HORIZON_STEP", 1, horizon_max);
 		const auto env_horizon_max_para = pref.register_range<int>("HORIZON_MAX_PARALLELISM", 1, horizon_max);
+		const auto env_tracy_mode = pref.register_option<tracy_mode>("TRACY", {tracy_mode::off, tracy_mode::fast, tracy_mode::full});
 
 		pref.register_deprecated("FORCE_WG", "Support for CELERITY_FORCE_WG has been removed with Celerity 0.3.0.");
 		pref.register_deprecated("PROFILE_OCL", "CELERITY_PROFILE_OCL has been renamed to CELERITY_PROFILE_KERNEL with Celerity 0.3.0.");
@@ -137,7 +125,7 @@ namespace detail {
 			m_should_print_graphs = parsed_and_validated_envs.get_or(env_print_graphs, false);
 			m_horizon_step = parsed_and_validated_envs.get(env_horizon_step);
 			m_horizon_max_parallelism = parsed_and_validated_envs.get(env_horizon_max_para);
-
+			m_tracy_mode = parsed_and_validated_envs.get_or(env_tracy_mode, tracy_mode::off);
 		} else {
 			for(const auto& warn : parsed_and_validated_envs.warnings()) {
 				CELERITY_ERROR("{}", warn.what());

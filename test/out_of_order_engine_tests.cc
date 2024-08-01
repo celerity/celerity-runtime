@@ -116,9 +116,9 @@ class out_of_order_test_context {
 	}
 
 	const instruction* device_kernel(const std::vector<const instruction*>& dependencies, const device_id did, const int priority = 0) {
-		return create<device_kernel_instruction>(
-		    dependencies, priority, did, device_kernel_launcher{}, box<3>(), buffer_access_allocation_map{},
-		    buffer_access_allocation_map {} //
+		return create<device_kernel_instruction>(dependencies, priority, did, device_kernel_launcher{}, box<3>(), buffer_access_allocation_map{},
+		    buffer_access_allocation_map{},
+		    0 //
 		    CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, task_type::device_compute, task_id(0), "task"));
 	}
 

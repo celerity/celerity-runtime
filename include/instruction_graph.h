@@ -150,11 +150,12 @@ using buffer_access_allocation_map = std::vector<buffer_access_allocation>;
 class device_kernel_instruction final : public matchbox::implement_acceptor<instruction, device_kernel_instruction> {
   public:
 	explicit device_kernel_instruction(const instruction_id iid, const int priority, const device_id did, device_kernel_launcher launcher,
-	    const box<3>& execution_range, buffer_access_allocation_map access_allocations,
-	    buffer_access_allocation_map reduction_allocations CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(
-	        , const task_type oob_task_type, const task_id oob_task_id, std::string oob_task_name))
+	    const box<3>& execution_range, buffer_access_allocation_map access_allocations, buffer_access_allocation_map reduction_allocations,
+	    const size_t global_memory_traffic_estimate_bytes //
+	        CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, const task_type oob_task_type, const task_id oob_task_id, std::string oob_task_name))
 	    : acceptor_base(iid, priority), m_device_id(did), m_launcher(std::move(launcher)), m_execution_range(execution_range),
-	      m_access_allocations(std::move(access_allocations)), m_reduction_allocations(std::move(reduction_allocations))                                      //
+	      m_access_allocations(std::move(access_allocations)), m_reduction_allocations(std::move(reduction_allocations)),
+	      m_estimated_global_memory_traffic_bytes(global_memory_traffic_estimate_bytes)                                                                       //
 	      CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, m_oob_task_type(oob_task_type), m_oob_task_id(oob_task_id), m_oob_task_name(std::move(oob_task_name))) //
 	{}
 
@@ -163,6 +164,7 @@ class device_kernel_instruction final : public matchbox::implement_acceptor<inst
 	const box<3>& get_execution_range() const { return m_execution_range; }
 	const buffer_access_allocation_map& get_access_allocations() const { return m_access_allocations; }
 	const buffer_access_allocation_map& get_reduction_allocations() const { return m_reduction_allocations; }
+	size_t get_estimated_global_memory_traffic_bytes() const { return m_estimated_global_memory_traffic_bytes; }
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 	task_type get_oob_task_type() const { return m_oob_task_type; }
@@ -176,6 +178,7 @@ class device_kernel_instruction final : public matchbox::implement_acceptor<inst
 	box<3> m_execution_range;
 	buffer_access_allocation_map m_access_allocations;
 	buffer_access_allocation_map m_reduction_allocations;
+	size_t m_estimated_global_memory_traffic_bytes;
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 	task_type m_oob_task_type;

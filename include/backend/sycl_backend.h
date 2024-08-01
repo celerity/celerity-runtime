@@ -48,6 +48,8 @@ class sycl_backend : public backend {
 
 	const system_info& get_system_info() const override;
 
+	void init() override;
+
 	void* debug_alloc(size_t size) override;
 
 	void debug_free(void* ptr) override;

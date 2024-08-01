@@ -20,6 +20,7 @@ See our [platform support guide](docs/platform-support.md) for a complete list o
 
 - Add support for SimSYCL as a SYCL implementation (#238)
 - Extend compiler support to GCC (optionally with sanitizers) and C++20 code bases (#238)
+- Add support for profiling with [Tracy](https://github.com/wolfpld/tracy), via `CELERITY_TRACY_SUPPORT` and environment variable `CELERITY_TRACY` (#267)
 
 ### Changed
 
