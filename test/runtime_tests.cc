@@ -53,8 +53,8 @@ namespace detail {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "an explicit device can be provided to distr_queue", "[distr_queue][lifetime]") {
-		cl::sycl::default_selector selector;
-		cl::sycl::device device{selector};
+		sycl::default_selector selector;
+		sycl::device device{selector};
 
 		SECTION("before the runtime is initialized") {
 			REQUIRE_FALSE(runtime::has_instance());
@@ -88,30 +88,30 @@ namespace detail {
 		buffer<float, 2> buf_a{init.data(), range};
 		auto& tm = runtime::get_instance().get_task_manager();
 		const auto tid = test_utils::add_compute_task<class get_access_const>(
-		    tm, [&](handler& cgh) { buf_a.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{}); }, range);
+		    tm, [&](handler& cgh) { buf_a.get_access<sycl::access::mode::read>(cgh, one_to_one{}); }, range);
 		const auto tsk = tm.get_task(tid);
 		const auto bufs = tsk->get_buffer_access_map().get_accessed_buffers();
 		REQUIRE(bufs.size() == 1);
-		REQUIRE(tsk->get_buffer_access_map().get_access_modes(0).count(cl::sycl::access::mode::read) == 1);
+		REQUIRE(tsk->get_buffer_access_map().get_access_modes(0).count(sycl::access::mode::read) == 1);
 	}
 
 	TEST_CASE("range mapper results are clamped to buffer range", "[range-mapper]") {
 		const auto rmfn = [](chunk<3>) { return subrange<3>{{0, 100, 127}, {256, 64, 32}}; };
-		range_mapper rm{rmfn, cl::sycl::access::mode::read, range<3>{128, 128, 128}};
+		range_mapper rm{rmfn, sycl::access::mode::read, range<3>{128, 128, 128}};
 		auto sr = rm.map_3(chunk<3>{});
 		REQUIRE(sr.offset == id<3>{0, 100, 127});
 		REQUIRE(sr.range == range<3>{128, 28, 1});
 	}
 
 	TEST_CASE("one_to_one built-in range mapper behaves as expected", "[range-mapper]") {
-		range_mapper rm{one_to_one{}, cl::sycl::access::mode::read, range<2>{128, 128}};
+		range_mapper rm{one_to_one{}, sycl::access::mode::read, range<2>{128, 128}};
 		auto sr = rm.map_2(chunk<2>{{64, 32}, {32, 4}, {128, 128}});
 		REQUIRE(sr.offset == id<2>{64, 32});
 		REQUIRE(sr.range == range<2>{32, 4});
 	}
 
 	TEST_CASE("fixed built-in range mapper behaves as expected", "[range-mapper]") {
-		range_mapper rm{fixed<1>({{3}, {97}}), cl::sycl::access::mode::read, range<1>{128}};
+		range_mapper rm{fixed<1>({{3}, {97}}), sycl::access::mode::read, range<1>{128}};
 		auto sr = rm.map_1(chunk<2>{{64, 32}, {32, 4}, {128, 128}});
 		REQUIRE(sr.offset == id<1>{3});
 		REQUIRE(sr.range == range<1>{97});
@@ -119,19 +119,19 @@ namespace detail {
 
 	TEST_CASE("slice built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper rm{slice<3>(0), cl::sycl::access::mode::read, range<3>{128, 128, 128}};
+			range_mapper rm{slice<3>(0), sycl::access::mode::read, range<3>{128, 128, 128}};
 			auto sr = rm.map_3(chunk<3>{{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
 			REQUIRE(sr.offset == id<3>{0, 32, 32});
 			REQUIRE(sr.range == range<3>{128, 32, 32});
 		}
 		{
-			range_mapper rm{slice<3>(1), cl::sycl::access::mode::read, range<3>{128, 128, 128}};
+			range_mapper rm{slice<3>(1), sycl::access::mode::read, range<3>{128, 128, 128}};
 			auto sr = rm.map_3(chunk<3>{{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
 			REQUIRE(sr.offset == id<3>{32, 0, 32});
 			REQUIRE(sr.range == range<3>{32, 128, 32});
 		}
 		{
-			range_mapper rm{slice<3>(2), cl::sycl::access::mode::read, range<3>{128, 128, 128}};
+			range_mapper rm{slice<3>(2), sycl::access::mode::read, range<3>{128, 128, 128}};
 			auto sr = rm.map_3(chunk<3>{{32, 32, 32}, {32, 32, 32}, {128, 128, 128}});
 			REQUIRE(sr.offset == id<3>{32, 32, 0});
 			REQUIRE(sr.range == range<3>{32, 32, 128});
@@ -140,19 +140,19 @@ namespace detail {
 
 	TEST_CASE("all built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper rm{all{}, cl::sycl::access::mode::read, range<1>{128}};
+			range_mapper rm{all{}, sycl::access::mode::read, range<1>{128}};
 			auto sr = rm.map_1(chunk<1>{});
 			REQUIRE(sr.offset == id<1>{0});
 			REQUIRE(sr.range == range<1>{128});
 		}
 		{
-			range_mapper rm{all{}, cl::sycl::access::mode::read, range<2>{128, 64}};
+			range_mapper rm{all{}, sycl::access::mode::read, range<2>{128, 64}};
 			auto sr = rm.map_2(chunk<1>{});
 			REQUIRE(sr.offset == id<2>{0, 0});
 			REQUIRE(sr.range == range<2>{128, 64});
 		}
 		{
-			range_mapper rm{all{}, cl::sycl::access::mode::read, range<3>{128, 64, 32}};
+			range_mapper rm{all{}, sycl::access::mode::read, range<3>{128, 64, 32}};
 			auto sr = rm.map_3(chunk<1>{});
 			REQUIRE(sr.offset == id<3>{0, 0, 0});
 			REQUIRE(sr.range == range<3>{128, 64, 32});
@@ -161,19 +161,19 @@ namespace detail {
 
 	TEST_CASE("neighborhood built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper rm{neighborhood<1>(10), cl::sycl::access::mode::read, range<1>{128}};
+			range_mapper rm{neighborhood<1>(10), sycl::access::mode::read, range<1>{128}};
 			auto sr = rm.map_1(chunk<1>{{15}, {10}, {128}});
 			REQUIRE(sr.offset == id<1>{5});
 			REQUIRE(sr.range == range<1>{30});
 		}
 		{
-			range_mapper rm{neighborhood<2>(10, 10), cl::sycl::access::mode::read, range<2>{128, 128}};
+			range_mapper rm{neighborhood<2>(10, 10), sycl::access::mode::read, range<2>{128, 128}};
 			auto sr = rm.map_2(chunk<2>{{5, 100}, {10, 20}, {128, 128}});
 			REQUIRE(sr.offset == id<2>{0, 90});
 			REQUIRE(sr.range == range<2>{25, 38});
 		}
 		{
-			range_mapper rm{neighborhood<3>(3, 4, 5), cl::sycl::access::mode::read, range<3>{128, 128, 128}};
+			range_mapper rm{neighborhood<3>(3, 4, 5), sycl::access::mode::read, range<3>{128, 128, 128}};
 			auto sr = rm.map_3(chunk<3>{{3, 4, 5}, {1, 1, 1}, {128, 128, 128}});
 			REQUIRE(sr.offset == id<3>{0, 0, 0});
 			REQUIRE(sr.range == range<3>{7, 9, 11});
@@ -182,43 +182,43 @@ namespace detail {
 
 	TEST_CASE("even_split built-in range mapper behaves as expected", "[range-mapper]") {
 		{
-			range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, range<3>{128, 345, 678}};
+			range_mapper rm{even_split<3>(), sycl::access::mode::read, range<3>{128, 345, 678}};
 			auto sr = rm.map_3(chunk<1>{{0}, {1}, {8}});
 			REQUIRE(sr.offset == id<3>{0, 0, 0});
 			REQUIRE(sr.range == range<3>{16, 345, 678});
 		}
 		{
-			range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, range<3>{128, 345, 678}};
+			range_mapper rm{even_split<3>(), sycl::access::mode::read, range<3>{128, 345, 678}};
 			auto sr = rm.map_3(chunk<1>{{4}, {2}, {8}});
 			REQUIRE(sr.offset == id<3>{64, 0, 0});
 			REQUIRE(sr.range == range<3>{32, 345, 678});
 		}
 		{
-			range_mapper rm{even_split<3>(), cl::sycl::access::mode::read, range<3>{131, 992, 613}};
+			range_mapper rm{even_split<3>(), sycl::access::mode::read, range<3>{131, 992, 613}};
 			auto sr = rm.map_3(chunk<1>{{5}, {2}, {7}});
 			REQUIRE(sr.offset == id<3>{95, 0, 0});
 			REQUIRE(sr.range == range<3>{36, 992, 613});
 		}
 		{
-			range_mapper rm{even_split<3>(range<3>(10, 1, 1)), cl::sycl::access::mode::read, range<3>{128, 345, 678}};
+			range_mapper rm{even_split<3>(range<3>(10, 1, 1)), sycl::access::mode::read, range<3>{128, 345, 678}};
 			auto sr = rm.map_3(chunk<1>{{0}, {1}, {8}});
 			REQUIRE(sr.offset == id<3>{0, 0, 0});
 			REQUIRE(sr.range == range<3>{20, 345, 678});
 		}
 		{
-			range_mapper rm{even_split<3>(range<3>(10, 1, 1)), cl::sycl::access::mode::read, range<3>{131, 992, 613}};
+			range_mapper rm{even_split<3>(range<3>(10, 1, 1)), sycl::access::mode::read, range<3>{131, 992, 613}};
 			auto sr = rm.map_3(chunk<1>{{0}, {1}, {7}});
 			REQUIRE(sr.offset == id<3>{0, 0, 0});
 			REQUIRE(sr.range == range<3>{20, 992, 613});
 		}
 		{
-			range_mapper rm{even_split<3>(range<3>(10, 1, 1)), cl::sycl::access::mode::read, range<3>{131, 992, 613}};
+			range_mapper rm{even_split<3>(range<3>(10, 1, 1)), sycl::access::mode::read, range<3>{131, 992, 613}};
 			auto sr = rm.map_3(chunk<1>{{5}, {2}, {7}});
 			REQUIRE(sr.offset == id<3>{100, 0, 0});
 			REQUIRE(sr.range == range<3>{31, 992, 613});
 		}
 		{
-			range_mapper rm{even_split<3>(range<3>(10, 1, 1)), cl::sycl::access::mode::read, range<3>{236, 992, 613}};
+			range_mapper rm{even_split<3>(range<3>(10, 1, 1)), sycl::access::mode::read, range<3>{236, 992, 613}};
 			auto sr = rm.map_3(chunk<1>{{6}, {1}, {7}});
 			REQUIRE(sr.offset == id<3>{200, 0, 0});
 			REQUIRE(sr.range == range<3>{36, 992, 613});
@@ -245,8 +245,8 @@ namespace detail {
 		const auto tid = test_utils::add_compute_task(
 		    tm,
 		    [&](handler& cgh) {
-			    buf_a.get_access<cl::sycl::access::mode::read>(cgh, one_to_one{});
-			    buf_b.get_access<cl::sycl::access::mode::discard_read_write>(cgh, fixed{subrange<3>{{}, {5, 18, 74}}});
+			    buf_a.get_access<sycl::access::mode::read>(cgh, one_to_one{});
+			    buf_b.get_access<sycl::access::mode::discard_read_write>(cgh, fixed{subrange<3>{{}, {5, 18, 74}}});
 		    },
 		    range<2>{32, 128}, id<2>{32, 24});
 		const auto tsk = tm.get_task(tid);
@@ -260,27 +260,27 @@ namespace detail {
 		REQUIRE(bufs.size() == 2);
 		REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_a.get_id()) != bufs.cend());
 		REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_b.get_id()) != bufs.cend());
-		REQUIRE(bam.get_access_modes(buf_a.get_id()).count(cl::sycl::access::mode::read) == 1);
-		REQUIRE(bam.get_access_modes(buf_b.get_id()).count(cl::sycl::access::mode::discard_read_write) == 1);
+		REQUIRE(bam.get_access_modes(buf_a.get_id()).count(sycl::access::mode::read) == 1);
+		REQUIRE(bam.get_access_modes(buf_b.get_id()).count(sycl::access::mode::discard_read_write) == 1);
 		const auto reqs_a = bam.get_mode_requirements(
-		    buf_a.get_id(), cl::sycl::access::mode::read, tsk->get_dimensions(), {tsk->get_global_offset(), tsk->get_global_size()}, tsk->get_global_size());
+		    buf_a.get_id(), sycl::access::mode::read, tsk->get_dimensions(), {tsk->get_global_offset(), tsk->get_global_size()}, tsk->get_global_size());
 		REQUIRE(reqs_a == box(subrange<3>({32, 24, 0}, {32, 128, 1})));
-		const auto reqs_b = bam.get_mode_requirements(buf_b.get_id(), cl::sycl::access::mode::discard_read_write, tsk->get_dimensions(),
+		const auto reqs_b = bam.get_mode_requirements(buf_b.get_id(), sycl::access::mode::discard_read_write, tsk->get_dimensions(),
 		    {tsk->get_global_offset(), tsk->get_global_size()}, tsk->get_global_size());
 		REQUIRE(reqs_b == box(subrange<3>({}, {5, 18, 74})));
 	}
 
 	TEST_CASE("buffer_access_map merges multiple accesses with the same mode", "[task][device_compute_task]") {
 		buffer_access_map bam;
-		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{3, 0}, {10, 20}}, cl::sycl::access::mode::read, range<2>{30, 30}));
-		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{10, 0}, {7, 20}}, cl::sycl::access::mode::read, range<2>{30, 30}));
-		const auto req = bam.get_mode_requirements(0, cl::sycl::access::mode::read, 2, subrange<3>({0, 0, 0}, {100, 100, 1}), {100, 100, 1});
+		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{3, 0}, {10, 20}}, sycl::access::mode::read, range<2>{30, 30}));
+		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{10, 0}, {7, 20}}, sycl::access::mode::read, range<2>{30, 30}));
+		const auto req = bam.get_mode_requirements(0, sycl::access::mode::read, 2, subrange<3>({0, 0, 0}, {100, 100, 1}), {100, 100, 1});
 		REQUIRE(req == box(subrange<3>({3, 0, 0}, {14, 20, 1})));
 	}
 
 	TEST_CASE("tasks gracefully handle get_requirements() calls for buffers they don't access", "[task]") {
 		buffer_access_map bam;
-		const auto req = bam.get_mode_requirements(0, cl::sycl::access::mode::read, 3, subrange<3>({0, 0, 0}, {100, 1, 1}), {100, 1, 1});
+		const auto req = bam.get_mode_requirements(0, sycl::access::mode::read, 3, subrange<3>({0, 0, 0}, {100, 1, 1}), {100, 1, 1});
 		REQUIRE(req == box<3>());
 	}
 
@@ -292,12 +292,12 @@ namespace detail {
 		std::vector<int> host_buff(N);
 
 		q.submit([&](handler& cgh) {
-			auto b = buff.get_access<cl::sycl::access::mode::discard_write>(cgh, one_to_one{});
+			auto b = buff.get_access<sycl::access::mode::discard_write>(cgh, one_to_one{});
 			cgh.parallel_for<class sync_test>(range<1>(N), [=](celerity::item<1> item) { b[item] = item.get_linear_id(); });
 		});
 
 		q.submit([&](handler& cgh) {
-			auto b = buff.get_access<cl::sycl::access::mode::read, target::host_task>(cgh, celerity::access::fixed<1>{{{}, buff.get_range()}});
+			auto b = buff.get_access<sycl::access::mode::read, target::host_task>(cgh, celerity::access::fixed<1>{{{}, buff.get_range()}});
 			cgh.host_task(on_master_node, [=, &host_buff] {
 				std::this_thread::sleep_for(std::chrono::milliseconds(10)); // give the synchronization more time to fail
 				for(int i = 0; i < N; i++) {
@@ -447,31 +447,31 @@ namespace detail {
 		buffer<int, 2> buf{{10, 10}};
 
 		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
-			auto acc = buf.get_access<cl::sycl::access::mode::discard_write>(cgh, one_to_one{});
+			auto acc = buf.get_access<sycl::access::mode::discard_write>(cgh, one_to_one{});
 			cgh.parallel_for<class UKN(kernel)>(range<1>{10}, [=](celerity::item<1>) { (void)acc; });
 		}),
 		    "Invalid range mapper dimensionality: 1-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<1> nor "
 		    "(chunk<1>, range<2>) to produce subrange<2>");
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			auto acc = buf.get_access<cl::sycl::access::mode::discard_write>(cgh, one_to_one{});
+			auto acc = buf.get_access<sycl::access::mode::discard_write>(cgh, one_to_one{});
 			cgh.parallel_for<class UKN(kernel)>(range<2>{10, 10}, [=](celerity::item<2>) { (void)acc; });
 		}));
 
 		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
-			auto acc = buf.get_access<cl::sycl::access::mode::discard_write>(cgh, one_to_one{});
+			auto acc = buf.get_access<sycl::access::mode::discard_write>(cgh, one_to_one{});
 			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
 		}),
 		    "Invalid range mapper dimensionality: 3-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<3> nor "
 		    "(chunk<3>, range<2>) to produce subrange<2>");
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			auto acc = buf.get_access<cl::sycl::access::mode::read>(cgh, all{});
+			auto acc = buf.get_access<sycl::access::mode::read>(cgh, all{});
 			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
 		}));
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			auto acc = buf.get_access<cl::sycl::access::mode::read>(cgh, all{});
+			auto acc = buf.get_access<sycl::access::mode::read>(cgh, all{});
 			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
 		}));
 	}
@@ -523,37 +523,37 @@ namespace detail {
 		buffer<float, 1> buf_1{range<1>{2}};
 		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(wrong_size_1)>(
-			    range<1>{1}, reduction(buf_1, cgh, cl::sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<1>, auto&) {});
+			    range<1>{1}, reduction(buf_1, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<1>, auto&) {});
 		}));
 
 		buffer<float, 1> buf_4{range<1>{1}};
 		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(ok_size_1)>(
-			    range<1>{1}, reduction(buf_4, cgh, cl::sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<1>, auto&) {});
+			    range<1>{1}, reduction(buf_4, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<1>, auto&) {});
 		}));
 
 		buffer<float, 2> buf_2{range<2>{1, 2}};
 		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(wrong_size_2)>(range<2>{1, 1},
-			    reduction(buf_2, cgh, cl::sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<2>, auto&) {});
+			cgh.parallel_for<class UKN(wrong_size_2)>(
+			    range<2>{1, 1}, reduction(buf_2, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<2>, auto&) {});
 		}));
 
 		buffer<float, 3> buf_3{range<3>{1, 2, 1}};
 		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(wrong_size_3)>(range<3>{1, 1, 1},
-			    reduction(buf_3, cgh, cl::sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<3>, auto&) {});
+			cgh.parallel_for<class UKN(wrong_size_3)>(
+			    range<3>{1, 1, 1}, reduction(buf_3, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<3>, auto&) {});
 		}));
 
 		buffer<float, 2> buf_5{range<2>{1, 1}};
 		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_2)>(range<2>{1, 1},
-			    reduction(buf_5, cgh, cl::sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<2>, auto&) {});
+			cgh.parallel_for<class UKN(ok_size_2)>(
+			    range<2>{1, 1}, reduction(buf_5, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<2>, auto&) {});
 		}));
 
 		buffer<float, 3> buf_6{range<3>{1, 1, 1}};
 		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_3)>(range<3>{1, 1, 1},
-			    reduction(buf_6, cgh, cl::sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<3>, auto&) {});
+			cgh.parallel_for<class UKN(ok_size_3)>(
+			    range<3>{1, 1, 1}, reduction(buf_6, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<3>, auto&) {});
 		}));
 	}
 
@@ -642,11 +642,11 @@ namespace detail {
 		q.submit([=](handler& cgh) { cgh.parallel_for(celerity::nd_range<1>{64, 32}, [](nd_item<1> item) {}); });
 		buffer<int> b{{1}};
 		q.submit([&](handler& cgh) {
-			cgh.parallel_for(range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}, property::reduction::initialize_to_identity()),
+			cgh.parallel_for(range<1>{64}, reduction(b, cgh, sycl::plus<int>{}, property::reduction::initialize_to_identity()),
 			    [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
 		});
 		q.submit([&](handler& cgh) {
-			cgh.parallel_for(celerity::nd_range<1>{64, 32}, reduction(b, cgh, cl::sycl::plus<int>{}),
+			cgh.parallel_for(celerity::nd_range<1>{64, 32}, reduction(b, cgh, sycl::plus<int>{}),
 			    [=](nd_item<1> item, auto& r) { r += static_cast<int>(item.get_global_linear_id()); });
 		});
 
@@ -655,10 +655,10 @@ namespace detail {
 		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(nd_range_kernel_with_name)>(celerity::nd_range<1>{64, 32}, [=](nd_item<1> item) {}); });
 		q.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(simple_kernel_with_name_and_reductions)>(
-			    range<1>{64}, reduction(b, cgh, cl::sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
+			    range<1>{64}, reduction(b, cgh, sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
 		});
 		q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(nd_range_kernel_with_name_and_reductions)>(celerity::nd_range<1>{64, 32}, reduction(b, cgh, cl::sycl::plus<int>{}),
+			cgh.parallel_for<class UKN(nd_range_kernel_with_name_and_reductions)>(celerity::nd_range<1>{64, 32}, reduction(b, cgh, sycl::plus<int>{}),
 			    [=](nd_item<1> item, auto& r) { r += static_cast<int>(item.get_global_linear_id()); });
 		});
 	}
@@ -878,7 +878,7 @@ namespace detail {
 
 	// This test case requires actual command execution, which is why it is not in graph_compaction_tests
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "tasks behind the deletion horizon are deleted", "[task_manager][task-graph][task-horizon]") {
-		using namespace cl::sycl::access;
+		using namespace sycl::access;
 
 		constexpr int horizon_step_size = 2;
 

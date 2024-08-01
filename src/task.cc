@@ -15,8 +15,8 @@ namespace detail {
 		return result;
 	}
 
-	std::unordered_set<cl::sycl::access::mode> buffer_access_map::get_access_modes(buffer_id bid) const {
-		std::unordered_set<cl::sycl::access::mode> result;
+	std::unordered_set<sycl::access::mode> buffer_access_map::get_access_modes(buffer_id bid) const {
+		std::unordered_set<sycl::access::mode> result;
 		for(const auto& [b, rm] : m_accesses) {
 			if(b == bid) { result.insert(rm->get_access_mode()); }
 		}

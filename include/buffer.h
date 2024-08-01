@@ -2,7 +2,7 @@
 
 #include <memory>
 
-#include <CL/sycl.hpp>
+#include <sycl/sycl.hpp>
 
 #include "ranges.h"
 #include "runtime.h"

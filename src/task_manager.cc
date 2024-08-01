@@ -68,7 +68,7 @@ namespace detail {
 
 	void task_manager::await_epoch(task_id epoch) { m_latest_epoch_reached.await(epoch); }
 
-	region<3> get_requirements(const task& tsk, buffer_id bid, const std::vector<cl::sycl::access::mode>& modes) {
+	region<3> get_requirements(const task& tsk, buffer_id bid, const std::vector<sycl::access::mode>& modes) {
 		const auto& access_map = tsk.get_buffer_access_map();
 		const subrange<3> full_range{tsk.get_global_offset(), tsk.get_global_size()};
 		box_vector<3> boxes;
@@ -80,7 +80,7 @@ namespace detail {
 	}
 
 	void task_manager::compute_dependencies(task& tsk) {
-		using namespace cl::sycl::access;
+		using namespace sycl::access;
 
 		const auto& access_map = tsk.get_buffer_access_map();
 

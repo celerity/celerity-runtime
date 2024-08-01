@@ -19,7 +19,7 @@ namespace detail {
 	using celerity::access::fixed;
 
 	TEST_CASE("task_manager does not create multiple dependencies between the same tasks", "[task_manager][task-graph]") {
-		using namespace cl::sycl::access;
+		using namespace sycl::access;
 
 		auto tt = test_utils::task_test_context{};
 		auto buf_a = tt.mbf.create_buffer(range<1>(128));
@@ -92,7 +92,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager respects range mapper results for finding dependencies", "[task_manager][task-graph]") {
-		using namespace cl::sycl::access;
+		using namespace sycl::access;
 
 		auto tt = test_utils::task_test_context{};
 		auto buf = tt.mbf.create_buffer(range<1>(128), true /* mark_as_host_initialized */);
@@ -110,7 +110,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager correctly generates anti-dependencies", "[task_manager][task-graph]") {
-		using namespace cl::sycl::access;
+		using namespace sycl::access;
 
 		auto tt = test_utils::task_test_context{};
 		auto buf = tt.mbf.create_buffer(range<1>(128));
@@ -137,7 +137,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager correctly handles host-initialized buffers", "[task_manager][task-graph]") {
-		using namespace cl::sycl::access;
+		using namespace sycl::access;
 
 		// we explicitly test reading from non_host_init_buf
 		task_manager::policy_set tm_policy;
@@ -173,8 +173,8 @@ namespace detail {
 	}
 
 	template <int Dims, typename Handler, typename Functor>
-	void dispatch_get_access(test_utils::mock_buffer<Dims>& mb, Handler& handler, cl::sycl::access::mode mode, Functor rmfn) {
-		using namespace cl::sycl::access;
+	void dispatch_get_access(test_utils::mock_buffer<Dims>& mb, Handler& handler, sycl::access::mode mode, Functor rmfn) {
+		using namespace sycl::access;
 		switch(mode) {
 		case mode::read: mb.template get_access<mode::read>(handler, rmfn); break;
 		case mode::write: mb.template get_access<mode::write>(handler, rmfn); break;
@@ -187,7 +187,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager correctly handles dependencies for R/W modes", "[task_manager][task-graph]") {
-		using namespace cl::sycl::access;
+		using namespace sycl::access;
 		// A read-write access can also be implicitly created using a separate write and read, which is why we operate on "mode sets" here.
 		const std::vector<std::vector<mode>> rw_mode_sets = {{mode::discard_read_write}, {mode::read_write}, {mode::atomic}, {mode::discard_write, mode::read}};
 
@@ -208,7 +208,7 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager handles all producer/consumer combinations correctly", "[task_manager][task-graph]") {
-		using namespace cl::sycl::access;
+		using namespace sycl::access;
 		for(const auto& consumer_mode : detail::access::consumer_modes) {
 			for(const auto& producer_mode : detail::access::producer_modes) {
 				CAPTURE(consumer_mode);

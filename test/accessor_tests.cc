@@ -52,12 +52,12 @@ namespace detail {
 		std::vector mem_a{42};
 		buffer<int, 1> buf_a(mem_a.data(), range<1>{1});
 		q.submit([&](handler& cgh) {
-			auto a = buf_a.get_access<cl::sycl::access::mode::read_write, target::host_task>(cgh, fixed<1>({0, 1}));
+			auto a = buf_a.get_access<sycl::access::mode::read_write, target::host_task>(cgh, fixed<1>({0, 1}));
 			cgh.host_task(on_master_node, [=] { ++a[0]; });
 		});
 		int out = 0;
 		q.submit([&](handler& cgh) {
-			auto a = buf_a.get_access<cl::sycl::access::mode::read, target::host_task>(cgh, fixed<1>({0, 1}));
+			auto a = buf_a.get_access<sycl::access::mode::read, target::host_task>(cgh, fixed<1>({0, 1}));
 			cgh.host_task(on_master_node, [=, &out] { out = a[0]; });
 		});
 		q.slow_full_sync();

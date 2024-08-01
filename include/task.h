@@ -26,7 +26,7 @@ namespace detail {
 		void add_access(buffer_id bid, std::unique_ptr<range_mapper_base>&& rm) { m_accesses.emplace_back(bid, std::move(rm)); }
 
 		std::unordered_set<buffer_id> get_accessed_buffers() const;
-		std::unordered_set<cl::sycl::access::mode> get_access_modes(buffer_id bid) const;
+		std::unordered_set<sycl::access::mode> get_access_modes(buffer_id bid) const;
 		size_t get_num_accesses() const { return m_accesses.size(); }
 		std::pair<buffer_id, access_mode> get_nth_access(const size_t n) const {
 			const auto& [bid, rm] = m_accesses[n];

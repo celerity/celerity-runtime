@@ -46,7 +46,7 @@ const char* task_type_string(const task_type tt) {
 void format_requirements(std::string& label, const reduction_list& reductions, const access_list& accesses, const side_effect_map& side_effects,
     const access_mode reduction_init_mode) {
 	for(const auto& [rid, bid, buffer_name, init_from_buffer] : reductions) {
-		auto rmode = init_from_buffer ? reduction_init_mode : cl::sycl::access::mode::discard_write;
+		auto rmode = init_from_buffer ? reduction_init_mode : sycl::access::mode::discard_write;
 		const region scalar_region(box<3>({0, 0, 0}, {1, 1, 1}));
 		const std::string bl = utils::escape_for_dot_label(utils::make_buffer_debug_label(bid, buffer_name));
 		fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> {} {}", rid, detail::access::mode_traits::name(rmode), bl, scalar_region);
@@ -151,7 +151,7 @@ std::string get_command_label(const node_id local_nid, const command_record& cmd
 	}
 
 	if(cmd.task_id.has_value() && cmd.task_geometry.has_value()) {
-		auto reduction_init_mode = cmd.is_reduction_initializer ? cl::sycl::access::mode::read_write : access_mode::discard_write;
+		auto reduction_init_mode = cmd.is_reduction_initializer ? sycl::access::mode::read_write : access_mode::discard_write;
 
 		format_requirements(label, cmd.reductions.value_or(reduction_list{}), cmd.accesses.value_or(access_list{}),
 		    cmd.side_effects.value_or(side_effect_map{}), reduction_init_mode);

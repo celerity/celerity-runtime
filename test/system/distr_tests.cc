@@ -26,10 +26,10 @@ namespace detail {
 		buffer<size_t, 1> max_buf{{1}};
 
 		distr_queue q;
-		const auto initialize_to_identity = cl::sycl::property::reduction::initialize_to_identity{};
+		const auto initialize_to_identity = sycl::property::reduction::initialize_to_identity{};
 
 		q.submit([&](handler& cgh) {
-			auto sum_r = reduction(sum_buf, cgh, cl::sycl::plus<size_t>{}, initialize_to_identity);
+			auto sum_r = reduction(sum_buf, cgh, sycl::plus<size_t>{}, initialize_to_identity);
 			auto max_r = reduction(max_buf, cgh, size_t{0}, unknown_identity_maximum<size_t>{}, initialize_to_identity);
 			cgh.parallel_for<class UKN(kernel)>(range{N}, id{1}, sum_r, max_r, [=](celerity::item<1> item, auto& sum, auto& max) {
 				sum += item.get_id(0);
@@ -59,7 +59,7 @@ namespace detail {
 		buffer<int, 1> sum(&init, range{1});
 		q.submit([&](handler& cgh) {
 			cgh.parallel_for<class UKN(kernel)>(
-			    range{N}, reduction(sum, cgh, cl::sycl::plus<int>{} /* don't initialize to identity */), [=](celerity::item<1> item, auto& sum) { sum += 1; });
+			    range{N}, reduction(sum, cgh, sycl::plus<int>{} /* don't initialize to identity */), [=](celerity::item<1> item, auto& sum) { sum += 1; });
 		});
 
 		q.submit([&](handler& cgh) {
@@ -75,13 +75,13 @@ namespace detail {
 
 		buffer<int, 1> sum(range(1));
 		q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(kernel)>(range{N}, reduction(sum, cgh, cl::sycl::plus<int>{}, cl::sycl::property::reduction::initialize_to_identity{}),
+			cgh.parallel_for<class UKN(kernel)>(range{N}, reduction(sum, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
 			    [=](celerity::item<1> item, auto& sum) { sum += 1; });
 		});
 
 		q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(kernel)>(range{N}, reduction(sum, cgh, cl::sycl::plus<int>{} /* include previous reduction result */),
-			    [=](celerity::item<1> item, auto& sum) { sum += 2; });
+			cgh.parallel_for<class UKN(kernel)>(
+			    range{N}, reduction(sum, cgh, sycl::plus<int>{} /* include previous reduction result */), [=](celerity::item<1> item, auto& sum) { sum += 2; });
 		});
 
 		q.submit([&](handler& cgh) {
@@ -98,7 +98,7 @@ namespace detail {
 
 		buffer<int, 1> sum(range(1));
 		q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(produce)>(range{N}, reduction(sum, cgh, cl::sycl::plus<int>{}, cl::sycl::property::reduction::initialize_to_identity{}),
+			cgh.parallel_for<class UKN(produce)>(range{N}, reduction(sum, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
 			    [=](celerity::item<1> item, auto& sum) { sum += static_cast<int>(item.get_linear_id()); });
 		});
 
@@ -134,8 +134,7 @@ namespace detail {
 			distr_queue q;
 			buffer<int, 1> sum(range(1));
 			q.submit([&](handler& cgh) {
-				cgh.parallel_for<class UKN(produce)>(range{100},
-				    reduction(sum, cgh, cl::sycl::plus<int>{}, cl::sycl::property::reduction::initialize_to_identity{}),
+				cgh.parallel_for<class UKN(produce)>(range{100}, reduction(sum, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
 				    [](celerity::item<1> item, auto& sum) {});
 			});
 			q.submit([&](handler& cgh) {
