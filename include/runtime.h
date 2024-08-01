@@ -39,7 +39,7 @@ namespace detail {
 
 		~runtime();
 
-		void sync(detail::epoch_action action);
+		task_id sync(detail::epoch_action action);
 
 		task_manager& get_task_manager() const;
 

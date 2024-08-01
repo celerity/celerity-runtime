@@ -259,6 +259,7 @@ struct device_kernel_instruction_record : matchbox::implement_acceptor<instructi
 	box<3> execution_range;
 	std::vector<buffer_access_allocation_record> access_map;
 	std::vector<buffer_reduction_allocation_record> reduction_map;
+	size_t estimated_global_memory_traffic_bytes;
 	task_id command_group_task_id;
 	command_id execution_command_id;
 	std::string debug_name;

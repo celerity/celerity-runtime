@@ -3,6 +3,7 @@
 #include "log.h"
 #include "nd_memory.h"
 #include "ranges.h"
+#include "tracy.h"
 #include "types.h"
 
 namespace celerity::detail::sycl_backend_detail {
@@ -19,6 +20,7 @@ async_event nd_copy_device_generic(sycl::queue& queue, const void* const source_
 		const auto layout = layout_nd_copy(source_box.get_range(), dest_box.get_range(), copy_box.get_offset() - source_box.get_offset(),
 		    copy_box.get_offset() - dest_box.get_offset(), copy_box.get_range(), elem_size);
 		for_each_contiguous_chunk(layout, [&](const size_t chunk_offset_in_source, const size_t chunk_offset_in_dest, const size_t chunk_size) {
+			CELERITY_DETAIL_TRACY_ZONE_SCOPED("sycl::submit", Orange2);
 			last = queue.memcpy(
 			    static_cast<std::byte*>(dest_base) + chunk_offset_in_dest, static_cast<const std::byte*>(source_base) + chunk_offset_in_source, chunk_size);
 			if(enable_profiling && !first.has_value()) { first = last; }

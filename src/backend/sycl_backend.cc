@@ -146,6 +146,14 @@ sycl_backend::~sycl_backend() = default;
 
 const system_info& sycl_backend::get_system_info() const { return m_impl->system; }
 
+void sycl_backend::init() {
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("sycl::init", Orange2);
+	// Instantiate the first in-order queue on each device. At least for CUDA systems this will perform device initialization, which can take > 100 ms / device.
+	for(device_id did = 0; did < m_impl->system.devices.size(); ++did) {
+		(void)m_impl->get_device_queue(did, 0 /* lane */);
+	}
+}
+
 void* sycl_backend::debug_alloc(const size_t size) {
 	const auto ptr = sycl::malloc_host(size, m_impl->host.sycl_context);
 #if CELERITY_DETAIL_ENABLE_DEBUG
@@ -200,6 +208,7 @@ async_event sycl_backend::enqueue_device_kernel(const device_id device, const si
     std::vector<closure_hydrator::accessor_info> accessor_infos, const box<3>& execution_range, const std::vector<void*>& reduction_ptrs) //
 {
 	auto& queue = m_impl->get_device_queue(device, lane);
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("sycl::submit", Orange2);
 	auto event = queue.submit([&](sycl::handler& sycl_cgh) {
 		auto& hydrator = closure_hydrator::get_instance();
 		hydrator.arm(target::device, std::move(accessor_infos));

@@ -8,6 +8,7 @@
 #include "host_object.h"
 #include "runtime.h"
 #include "task_manager.h"
+#include "tracy.h"
 
 namespace celerity::detail {
 
@@ -109,23 +110,30 @@ namespace celerity {
 template <typename T>
 std::future<T> distr_queue::fence(const experimental::host_object<T>& obj) {
 	static_assert(std::is_object_v<T>, "host_object<T&> and host_object<void> are not allowed as parameters to fence()");
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::fence", Green2);
 
 	detail::side_effect_map side_effects;
 	side_effects.add_side_effect(detail::get_host_object_id(obj), experimental::side_effect_order::sequential);
 	auto promise = std::make_unique<detail::host_object_fence_promise<T>>(detail::get_host_object_instance(obj));
 	auto future = promise->get_future();
-	detail::runtime::get_instance().get_task_manager().generate_fence_task({}, std::move(side_effects), std::move(promise));
+	[[maybe_unused]] const auto tid = detail::runtime::get_instance().get_task_manager().generate_fence_task({}, std::move(side_effects), std::move(promise));
+
+	CELERITY_DETAIL_TRACY_ZONE_NAME("T{} fence", tid);
 	return future;
 }
 
 template <typename DataT, int Dims>
 std::future<buffer_snapshot<DataT, Dims>> distr_queue::fence(const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) {
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::fence", Green2);
+
 	detail::buffer_access_map access_map;
 	access_map.add_access(detail::get_buffer_id(buf),
 	    std::make_unique<detail::range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), access_mode::read, buf.get_range()));
 	auto promise = std::make_unique<detail::buffer_fence_promise<DataT, Dims>>(sr);
 	auto future = promise->get_future();
-	detail::runtime::get_instance().get_task_manager().generate_fence_task(std::move(access_map), {}, std::move(promise));
+	[[maybe_unused]] const auto tid = detail::runtime::get_instance().get_task_manager().generate_fence_task(std::move(access_map), {}, std::move(promise));
+
+	CELERITY_DETAIL_TRACY_ZONE_NAME("T{} fence", tid);
 	return future;
 }
 

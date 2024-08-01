@@ -2,6 +2,7 @@
 #include "dense_map.h"
 #include "instruction_graph.h"
 #include "system_info.h"
+#include "tracy.h"
 #include "utils.h"
 
 #include <queue>
@@ -135,7 +136,7 @@ target_state& engine_impl::get_target_state(const target tgt, const std::optiona
 	switch(tgt) {
 	case target::host_queue: assert(!device.has_value()); return host_queue_target_state;
 	case target::device_queue: assert(device.has_value()); return device_queue_target_states[*device];
-	default: utils::unreachable(); // LCOV_EXCL_LINE
+	default: utils::unreachable();
 	}
 }
 
@@ -223,6 +224,8 @@ void engine_impl::try_mark_for_assignment(incomplete_instruction_state& node) {
 }
 
 void engine_impl::submit(const instruction* const instr) {
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("out_of_order_engine::submit", Blue3);
+
 	const auto iid = instr->get_id();
 	auto [node_it, inserted] = incomplete_instructions.emplace(iid, incomplete_instruction_state(instr));
 	assert(inserted);
@@ -305,6 +308,8 @@ void engine_impl::submit(const instruction* const instr) {
 }
 
 void engine_impl::complete(const instruction_id iid) {
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("out_of_order_engine::complete", Blue3);
+
 	const auto node_it = incomplete_instructions.find(iid);
 	assert(node_it != incomplete_instructions.end());
 	auto deleted_node = std::move(node_it->second); // move so we can access members / iterate successors after erasure
@@ -386,6 +391,9 @@ incomplete_instruction_state* engine_impl::pop_assignable() {
 }
 
 std::optional<assignment> engine_impl::assign_one() {
+	if(assignment_queue.empty()) return std::nullopt; // Don't begin a Tracy zone if there is nothing to assign
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("out_of_order_engine::assign", Blue3);
+
 	const auto node_ptr = pop_assignable();
 	if(node_ptr == nullptr) return std::nullopt;
 
@@ -440,6 +448,7 @@ namespace celerity::detail {
 out_of_order_engine::out_of_order_engine(const system_info& system) : m_impl(new out_of_order_engine_detail::engine_impl(system)) {}
 out_of_order_engine::~out_of_order_engine() = default;
 bool out_of_order_engine::is_idle() const { return m_impl->is_idle(); }
+size_t out_of_order_engine::get_assignment_queue_length() const { return m_impl->assignment_queue.size(); }
 void out_of_order_engine::submit(const instruction* const instr) { m_impl->submit(instr); }
 void out_of_order_engine::complete_assigned(const instruction_id iid) { m_impl->complete(iid); }
 std::optional<out_of_order_engine::assignment> out_of_order_engine::assign_one() { return m_impl->assign_one(); }

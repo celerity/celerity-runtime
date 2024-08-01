@@ -3,6 +3,7 @@
 #include "async_event.h"
 #include "double_buffered_queue.h"
 #include "named_threads.h"
+#include "tracy.h"
 #include "utils.h"
 
 #include <chrono>
@@ -140,6 +141,7 @@ class thread_queue {
 
 		void thread_main(const std::string& name) {
 			set_thread_name(get_current_thread_handle(), name);
+			CELERITY_DETAIL_TRACY_SET_THREAD_NAME_AND_ORDER(tracy_detail::leak_name(name), tracy_detail::thread_order::thread_queue);
 
 			try {
 				loop();
