@@ -17,17 +17,6 @@ std::optional<std::chrono::nanoseconds> sycl_event::get_native_execution_time() 
 	                                - m_first->get_profiling_info<sycl::info::event_profiling::command_start>());
 }
 
-void flush(sycl::queue& queue) {
-#if CELERITY_WORKAROUND(HIPSYCL)
-	// hipSYCL does not guarantee that command groups are actually scheduled until an explicit await operation, which we cannot insert without
-	// blocking the executor loop (see https://github.com/illuhad/hipSYCL/issues/599). Instead, we explicitly flush the queue to be able to continue
-	// using our polling-based approach.
-	queue.get_context().AdaptiveCpp_runtime()->dag().flush_async();
-#else
-	(void)queue;
-#endif
-}
-
 // LCOV_EXCL_START
 void report_errors(const sycl::exception_list& errors) {
 	if(errors.size() == 0) return;
@@ -204,7 +193,6 @@ async_event sycl_backend::enqueue_device_kernel(const device_id device, const si
 		const auto launch_hydrated = hydrator.hydrate<target::device>(sycl_cgh, launch);
 		launch_hydrated(sycl_cgh, execution_range, reduction_ptrs);
 	});
-	sycl_backend_detail::flush(queue);
 	return make_async_event<sycl_backend_detail::sycl_event>(std::move(event), m_impl->enable_profiling);
 }
 

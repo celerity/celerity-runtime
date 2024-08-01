@@ -152,7 +152,6 @@ async_event nd_copy_device_cuda(sycl::queue& queue, const void* const source_bas
 		const auto stream = handle.get_native_queue<sycl::backend::cuda>();
 		cuda_backend_detail::nd_copy_device_async(stream, source_base, dest_base, source_box, dest_box, copy_region, elem_size);
 	});
-	sycl_backend_detail::flush(queue);
 	return make_async_event<sycl_event>(std::move(event), enable_profiling);
 #elif defined(CELERITY_DPCPP)
 	// With DPC++, we must submit from the executor thread - see the comment on cuda_native_event above.

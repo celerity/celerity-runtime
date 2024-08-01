@@ -24,7 +24,6 @@ async_event nd_copy_device_generic(sycl::queue& queue, const void* const source_
 			if(enable_profiling && !first.has_value()) { first = last; }
 		});
 	}
-	flush(queue);
 	return make_async_event<sycl_event>(std::move(first), std::move(last));
 }
 

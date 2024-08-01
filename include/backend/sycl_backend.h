@@ -23,9 +23,6 @@ class sycl_event final : public async_event_impl {
 	sycl::event m_last;
 };
 
-/// Ensure that all operations previously submitted to the SYCL queue begin executing even when not explicitly awaited.
-void flush(sycl::queue& queue);
-
 #if CELERITY_DETAIL_ENABLE_DEBUG
 inline constexpr uint8_t uninitialized_memory_pattern = 0xff; // floats and doubles filled with this pattern show up as "-nan"
 #endif
