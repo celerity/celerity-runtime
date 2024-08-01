@@ -385,7 +385,6 @@ class nd_range {
 };
 
 // Non-templated deduction guides allow construction of nd_range from range initializer lists like so: nd_range{{1, 2}, {3, 4}}
-// ... except, currently, for ComputeCpp which uses an outdated Clang (TODO)
 nd_range(range<1> global_range, range<1> local_range, id<1> offset)->nd_range<1>;
 nd_range(range<1> global_range, range<1> local_range)->nd_range<1>;
 nd_range(range<2> global_range, range<2> local_range, id<2> offset)->nd_range<2>;
