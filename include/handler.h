@@ -179,16 +179,13 @@ namespace detail {
 	template <typename Kernel, int Dims>
 	auto bind_simple_kernel(const Kernel& kernel, const range<Dims>& global_range, const id<Dims>& global_offset, const id<Dims>& chunk_offset) {
 		return [=](auto s_item_or_id, auto&... reducers) {
-			constexpr int sycl_dims = std::max(1, Dims);
 			static_assert(std::is_invocable_v<Kernel, celerity::item<Dims>, decltype(reducers)...>,
 			    "Kernel function must be invocable with celerity::item<Dims> and as many reducer objects as reductions passed to parallel_for");
 			if constexpr(CELERITY_WORKAROUND(DPCPP) && std::is_same_v<sycl::id<Dims>, decltype(s_item_or_id)>) {
 				// CELERITY_WORKAROUND_LESS_OR_EQUAL: DPC++ passes a sycl::id instead of a sycl::item to kernels alongside reductions
 				invoke_kernel(kernel, s_item_or_id, global_range, global_offset, chunk_offset, reducers...);
 			} else {
-				// Explicit item constructor: ComputeCpp does not pass a sycl::item, but an implicitly convertible sycl::item_base (?) which does not have
-				// `sycl::id<> get_id()`
-				invoke_kernel(kernel, sycl::item<sycl_dims>{s_item_or_id}.get_id(), global_range, global_offset, chunk_offset, reducers...);
+				invoke_kernel(kernel, s_item_or_id.get_id(), global_range, global_offset, chunk_offset, reducers...);
 			}
 		};
 	}

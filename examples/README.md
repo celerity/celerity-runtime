@@ -27,14 +27,6 @@ cmake -B build \
     -DHIPSYCL_TARGETS=cuda:sm_75
 ```
 
-### With ComputeCpp (exemplary)
-
-```shell
-cd my-project
-cmake -B build \
-    -DCMAKE_PREFIX_PATH="../celerity-runtime-install"
-```
-
 ### With DPC++ (exemplary)
 
 ```shell
