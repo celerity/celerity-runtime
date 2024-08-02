@@ -9,7 +9,6 @@
 #include "fence.h"
 #include "host_utils.h"
 #include "side_effect.h"
-#include "user_bench.h"
 #include "version.h"
 
 namespace celerity {
