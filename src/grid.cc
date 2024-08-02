@@ -1,4 +1,5 @@
 #include "grid.h"
+#include "utils.h"
 
 namespace celerity::detail::grid_detail {
 
@@ -260,7 +261,7 @@ decltype(auto) dispatch_effective_dims(int effective_dims, F&& f) {
 	case 1: if constexpr(StorageDims >= 1) { return f(std::integral_constant<int, 1>()); } [[fallthrough]];
 	case 2: if constexpr(StorageDims >= 2) { return f(std::integral_constant<int, 2>()); } [[fallthrough]];
 	case 3: if constexpr(StorageDims >= 3) { return f(std::integral_constant<int, 3>()); } [[fallthrough]];
-	default: abort(); // unreachable with the explicit instantiations in this file
+	default: utils::unreachable(); // with the explicit instantiations in this file - LCOV_EXCL_LINE
 	}
 	// clang-format on
 }

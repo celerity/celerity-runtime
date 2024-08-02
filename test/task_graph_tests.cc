@@ -182,7 +182,7 @@ namespace detail {
 		case mode::discard_write: mb.template get_access<mode::discard_write>(handler, rmfn); break;
 		case mode::discard_read_write: mb.template get_access<mode::discard_read_write>(handler, rmfn); break;
 		case mode::atomic: mb.template get_access<mode::atomic>(handler, rmfn); break;
-		default: assert(false);
+		default: utils::unreachable(); // LCOV_EXCL_LINE
 		}
 	}
 
