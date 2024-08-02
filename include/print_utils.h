@@ -5,6 +5,7 @@
 #include "intrusive_graph.h"
 #include "ranges.h"
 #include "types.h"
+#include "utils.h"
 
 #include <chrono>
 
@@ -177,7 +178,7 @@ struct fmt::formatter<celerity::detail::sycl_backend_type> : fmt::formatter<std:
 			switch(type) {
 			case celerity::detail::sycl_backend_type::generic: return "generic";
 			case celerity::detail::sycl_backend_type::cuda: return "CUDA";
-			default: abort();
+			default: celerity::detail::utils::unreachable(); // LCOV_EXCL_LINE
 			}
 		}();
 		return std::copy(repr.begin(), repr.end(), ctx.out());

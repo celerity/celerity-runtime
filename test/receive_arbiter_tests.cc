@@ -100,7 +100,7 @@ struct Catch::StringMaker<receive_event> {
 		case receive_event::call_to_receive: return fmt::format("call_to_receive[{}]", event.which);
 		case receive_event::incoming_pilot: return fmt::format("incoming_pilot[{}]", event.which);
 		case receive_event::incoming_data: return fmt::format("incoming_data[{}]", event.which);
-		default: abort();
+		default: utils::unreachable();
 		}
 	}
 };
@@ -132,7 +132,7 @@ std::vector<std::vector<receive_event>> enumerate_all_event_orders(
 		for(size_t i = 0; i < current_permutation.size(); ++i) {
 			if(current_permutation[i].transition == event.transition && current_permutation[i].which == event.which) return i;
 		}
-		abort();
+		utils::unreachable();
 	};
 
 	// collect all legal permutations (i.e. pilots are received before data, and calls to receive() also happen before receiving data)
