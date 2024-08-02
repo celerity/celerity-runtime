@@ -30,7 +30,7 @@ namespace detail {
 		case 1: return subrange_cast<3>(rm->map_1(chnk));
 		case 2: return subrange_cast<3>(rm->map_2(chnk));
 		case 3: return rm->map_3(chnk);
-		default: assert(false); return subrange<3>{};
+		default: utils::unreachable(); // LCOV_EXCL_LINE
 		}
 	}
 
@@ -40,7 +40,7 @@ namespace detail {
 		case 1: return apply_range_mapper<1>(rm, chunk_cast<1>(chnk));
 		case 2: return apply_range_mapper<2>(rm, chunk_cast<2>(chnk));
 		case 3: return apply_range_mapper<3>(rm, chunk_cast<3>(chnk));
-		default: assert(!"Unreachable"); return subrange<3>{};
+		default: utils::unreachable(); // LCOV_EXCL_LINE
 		}
 	}
 

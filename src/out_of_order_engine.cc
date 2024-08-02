@@ -135,7 +135,7 @@ target_state& engine_impl::get_target_state(const target tgt, const std::optiona
 	switch(tgt) {
 	case target::host_queue: assert(!device.has_value()); return host_queue_target_state;
 	case target::device_queue: assert(device.has_value()); return device_queue_target_states[*device];
-	default: utils::unreachable();
+	default: utils::unreachable(); // LCOV_EXCL_LINE
 	}
 }
 

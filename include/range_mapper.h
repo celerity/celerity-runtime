@@ -7,6 +7,7 @@
 #include <fmt/format.h>
 
 #include "ranges.h"
+#include "utils.h"
 
 namespace celerity {
 
@@ -70,7 +71,7 @@ namespace detail {
 		case 1: sr = invoke_range_mapper_for_kernel(fn, chunk_cast<1>(chunk), buffer_size); break;
 		case 2: sr = invoke_range_mapper_for_kernel(fn, chunk_cast<2>(chunk), buffer_size); break;
 		case 3: sr = invoke_range_mapper_for_kernel(fn, chunk_cast<3>(chunk), buffer_size); break;
-		default: assert(!"Unreachable"); return {};
+		default: utils::unreachable(); // LCOV_EXCL_LINE
 		}
 		return clamp_subrange_to_buffer_size(sr, buffer_size);
 	}

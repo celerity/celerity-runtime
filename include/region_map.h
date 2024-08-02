@@ -13,6 +13,7 @@
 #include <matchbox.hh>
 
 #include "grid.h"
+#include "utils.h"
 
 // Some toggles that affect performance (but also change the behavior!)
 // TODO: Consider making these template arguments instead (inside some config object), and add these:
@@ -1262,7 +1263,7 @@ class region_map {
 		case 1: m_region_map.template emplace<region_map_impl<ValueType, 1>>(box_cast<1>(extent), default_value); break;
 		case 2: m_region_map.template emplace<region_map_impl<ValueType, 2>>(box_cast<2>(extent), default_value); break;
 		case 3: m_region_map.template emplace<region_map_impl<ValueType, 3>>(box_cast<3>(extent), default_value); break;
-		default: assert(false);
+		default: utils::unreachable(); // LCOV_EXCL_LINE
 		}
 	}
 
@@ -1286,7 +1287,7 @@ class region_map {
 		case 1: get_map<1>().update_box(box_cast<1>(box), value); break;
 		case 2: get_map<2>().update_box(box_cast<2>(box), value); break;
 		case 3: get_map<3>().update_box(box_cast<3>(box), value); break;
-		default: assert(false);
+		default: utils::unreachable(); // LCOV_EXCL_LINE
 		}
 	}
 
@@ -1336,7 +1337,7 @@ class region_map {
 		case 3: {
 			results = get_map<3>().get_region_values(box_cast<3>(request));
 		} break;
-		default: assert(false);
+		default: utils::unreachable(); // LCOV_EXCL_LINE
 		}
 		return results;
 	}
@@ -1353,7 +1354,7 @@ class region_map {
 		case 1: get_map<1>().apply_to_values(f); break;
 		case 2: get_map<2>().apply_to_values(f); break;
 		case 3: get_map<3>().apply_to_values(f); break;
-		default: assert(false);
+		default: utils::unreachable(); // LCOV_EXCL_LINE
 		}
 	}
 

@@ -61,10 +61,12 @@ std::string escape_for_dot_label(std::string str) {
 	return str;
 }
 
+// LCOV_EXCL_START
 [[noreturn]] void unreachable() {
 	assert(!"executed unreachable code");
 	abort();
 }
+// LCOV_EXCL_STOP
 
 // The panic solution defaults to `log_and_abort`, but is set to `throw_logic_error` in test binaries. Since panics are triggered from celerity library code, we
 // manage it in a global and decide which path to take at runtime. We have also considered deciding this at link time by defining a weak symbol (GCC
@@ -75,17 +77,16 @@ std::atomic<panic_solution> g_panic_solution = panic_solution::log_and_abort; //
 void set_panic_solution(panic_solution solution) { g_panic_solution.store(solution, std::memory_order_relaxed); }
 
 [[noreturn]] void panic(const std::string& msg) {
-	switch(g_panic_solution.load(std::memory_order_relaxed)) {
-	case celerity::detail::utils::panic_solution::throw_logic_error: {
+	const auto solution = g_panic_solution.load(std::memory_order_relaxed);
+	if(solution == panic_solution::throw_logic_error) {
 		throw std::logic_error(msg);
-	}
-	case celerity::detail::utils::panic_solution::log_and_abort:
-	default: {
+	} else /* panic_solution::log_and_abort */ {
+		// LCOV_EXCL_START
 		// Print directly instead of logging: The abort message must not be hidden by log level setting, and in tests would be captured without the logging
 		// infrastructure having a chance of dumping the logs due to the abort.
 		fmt::print(stderr, "celerity-runtime panic: {}\n", msg);
 		std::abort();
-	}
+		// LCOV_EXCL_STOP
 	}
 }
 

@@ -298,6 +298,7 @@ struct Catch::StringMaker<executor_type> {
 		switch(value) {
 		case executor_type::dry_run: return "dry_run";
 		case executor_type::live: return "live";
+		default: utils::unreachable();
 		}
 	}
 };

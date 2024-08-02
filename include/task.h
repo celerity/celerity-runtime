@@ -180,7 +180,7 @@ namespace detail {
 			case task_type::master_node: return execution_target::host;
 			case task_type::horizon:
 			case task_type::fence: return execution_target::none;
-			default: assert(!"Unhandled task type"); return execution_target::none;
+			default: utils::unreachable(); // LCOV_EXCL_LINE
 			}
 		}
 

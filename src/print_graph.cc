@@ -104,7 +104,7 @@ const char* print_epoch_label(epoch_action action) {
 	case epoch_action::none: return "<b>epoch</b>";
 	case epoch_action::barrier: return "<b>epoch</b> (barrier)";
 	case epoch_action::shutdown: return "<b>epoch</b> (shutdown)";
-	default: abort();
+	default: utils::unreachable(); // LCOV_EXCL_LINE
 	}
 }
 
@@ -147,7 +147,7 @@ std::string get_command_label(const node_id local_nid, const command_record& cmd
 	case command_type::fence: {
 		label += "<b>fence</b>";
 	} break;
-	default: assert(!"Unkown command"); label += "<b>unknown</b>";
+	default: utils::unreachable(); // LCOV_EXCL_LINE
 	}
 
 	if(cmd.task_id.has_value() && cmd.task_geometry.has_value()) {
@@ -250,7 +250,7 @@ std::string instruction_dependency_style(const instruction_dependency_origin ori
 	case instruction_dependency_origin::last_epoch: return "color=orchid";
 	case instruction_dependency_origin::execution_front: return "color=orange";
 	case instruction_dependency_origin::split_receive: return "color=gray";
-	default: abort();
+	default: utils::unreachable(); // LCOV_EXCL_LINE
 	}
 }
 
