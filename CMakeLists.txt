@@ -206,7 +206,6 @@ set(SOURCES
   src/split.cc
   src/task.cc
   src/task_manager.cc
-  src/user_bench.cc
   src/utils.cc
   "${CMAKE_CURRENT_BINARY_DIR}/src/version.cc"
 )

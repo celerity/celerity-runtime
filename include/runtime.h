@@ -12,10 +12,6 @@
 
 namespace celerity {
 
-namespace experimental::bench::detail {
-	class user_benchmarker;
-} // namespace experimental::bench::detail
-
 namespace detail {
 
 	class host_queue;
@@ -46,8 +42,6 @@ namespace detail {
 		void sync(detail::epoch_action action);
 
 		task_manager& get_task_manager() const;
-
-		experimental::bench::detail::user_benchmarker& get_user_benchmarker() const { return *m_user_bench; }
 
 		void create_queue();
 
@@ -86,7 +80,6 @@ namespace detail {
 		std::thread::id m_application_thread;
 
 		std::unique_ptr<config> m_cfg;
-		std::unique_ptr<experimental::bench::detail::user_benchmarker> m_user_bench;
 		size_t m_num_nodes = 0;
 		node_id m_local_nid = 0;
 		size_t m_num_local_devices = 0;
