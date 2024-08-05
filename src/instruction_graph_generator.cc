@@ -1282,7 +1282,7 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 		if(concurrent_chunks_after_split.size() > 1 || include_current_value) {
 			// We insert a host-side reduce-instruction in the multi-chunk scenario; its result will end up in the host buffer allocation.
 			// If the user did not specify `initialize_to_identity`, we treat the existing buffer contents as an additional reduction chunk, so we can always
-			// perform SYCL reductions with `initialize_to_identity` semantics. This is unavoidable since hipSYCL does not support reduction properties.
+			// perform SYCL reductions with `initialize_to_identity` semantics.
 			required_contiguous_allocations[host_memory_id].push_back(scalar_reduction_box);
 		}
 		accessed_boxes.push_back(scalar_reduction_box);

@@ -18,9 +18,9 @@ std::optional<std::chrono::nanoseconds> sycl_event::get_native_execution_time() 
 }
 
 void flush(sycl::queue& queue) {
-#if CELERITY_WORKAROUND(HIPSYCL)
-	// hipSYCL does not guarantee that command groups are actually scheduled until an explicit await operation, which we cannot insert without
-	// blocking the executor loop (see https://github.com/illuhad/hipSYCL/issues/599). Instead, we explicitly flush the queue to be able to continue
+#if CELERITY_WORKAROUND(ACPP)
+	// AdaptiveCpp does not guarantee that command groups are actually scheduled until an explicit await operation, which we cannot insert without
+	// blocking the executor loop (see https://github.com/AdaptiveCpp/AdaptiveCpp/issues/599). Instead, we explicitly flush the queue to be able to continue
 	// using our polling-based approach.
 	queue.get_context().AdaptiveCpp_runtime()->dag().flush_async();
 #else
@@ -230,7 +230,7 @@ bool sycl_backend::is_profiling_enabled() const { return m_impl->enable_profilin
 
 std::vector<sycl_backend_type> sycl_backend_enumerator::compatible_backends(const sycl::device& device) const {
 	std::vector<backend_type> backends{backend_type::generic};
-#if CELERITY_WORKAROUND(HIPSYCL) && defined(SYCL_EXT_HIPSYCL_BACKEND_CUDA)
+#if CELERITY_WORKAROUND(ACPP) && defined(SYCL_EXT_HIPSYCL_BACKEND_CUDA)
 	if(device.get_backend() == sycl::backend::cuda) { backends.push_back(sycl_backend_type::cuda); }
 #elif CELERITY_WORKAROUND(DPCPP)
 	if(device.get_backend() == sycl::backend::ext_oneapi_cuda) { backends.push_back(sycl_backend_type::cuda); }

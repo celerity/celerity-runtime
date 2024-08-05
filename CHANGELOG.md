@@ -11,8 +11,8 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 We recommend using the following SYCL versions with this release:
 
 - DPC++: ???
-- hipSYCL++: ???
-- SimSYCL++: ???
+- AdaptiveCpp (formerly hipSYCL): v24.06
+- SimSYCL: ???
 
 See our [platform support guide](docs/platform-support.md) for a complete list of all officially supported configurations.
 

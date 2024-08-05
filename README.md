@@ -76,7 +76,7 @@ installed first.
 ### Dependencies
 
 - A supported SYCL implementation, either
-    - [hipSYCL](https://github.com/illuhad/hipsycl),
+    - [AdaptiveCpp](https://github.com/AdaptiveCpp/AdaptiveCpp),
     - [DPC++](https://github.com/intel/llvm), or
     - [SimSYCL](https://github.com/celerity/SimSYCL)
 - A MPI 2 implementation (tested with OpenMPI 4.0, MPICH 3.3 should work as well)
@@ -116,8 +116,7 @@ Celerity's runtime behavior:
 
 - `CELERITY_LOG_LEVEL` controls the logging output level. One of `trace`, `debug`,
   `info`, `warn`, `err`, `critical`, or `off`.
-- `CELERITY_PROFILE_KERNEL` controls whether SYCL queue profiling information
-  should be queried (currently not supported when using hipSYCL).
+- `CELERITY_PROFILE_KERNEL` controls whether SYCL queue profiling information should be queried.
 - `CELERITY_PRINT_GRAPHS` controls whether task and command graphs are logged
   at the end of execution (requires log level `info` or higher).
 - `CELERITY_DRY_RUN_NODES` takes a number and simulates a run with that many nodes

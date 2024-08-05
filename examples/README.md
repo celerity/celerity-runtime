@@ -18,13 +18,13 @@ Configure the project with CMake and make sure Celerity can be found by setting
 to include the Celerity installation directory. Depending on your SYCL implementation,
 you may also have to specify additional target options.
 
-### With hipSYCL (exemplary)
+### With AdaptiveCpp (exemplary)
 
 ```shell
 cd my-project
 cmake -B build \
     -DCMAKE_PREFIX_PATH="../celerity-runtime-install" \
-    -DHIPSYCL_TARGETS=cuda:sm_75
+    -DACPP_TARGETS=cuda:sm_75
 ```
 
 ### With DPC++ (exemplary)
