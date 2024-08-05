@@ -75,7 +75,7 @@ for e in "${!EXAMPLES[@]}"; do
                 expected_checksum=$(md5sum "$ARTIFACT")
             else
                 # We don't check whether tests with outputs produce the exact same result for every
-                # configuration (debug/release, hipSYCL/DPC++, etc) because they don't. Instead
+                # configuration (debug/release, AdaptiveCpp/DPC++, etc) because they don't. Instead
                 # we just check whether they produce the same result across runs with different nodes.
                 if [[ $(md5sum "$ARTIFACT") != "$expected_checksum" ]]; then
                     echo "$NAME: Wrong ARTIFACT checksum after running with $n nodes." >&2

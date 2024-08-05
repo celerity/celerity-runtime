@@ -101,7 +101,8 @@ int main(int argc, char* argv[]) {
 			for(int i = 0; i < 3; ++i) {
 				rgb[i] = (rgb[i] - min) / (max - min);
 			}
-			srgb_255_acc[item] = sycl::round((rgb_to_srgb(rgb) * 255.0f)).convert<unsigned char>();
+			// we want to sycl::round() here, but this causes a segfault in CUDA 12.1 with AdaptiveCpp
+			srgb_255_acc[item] = (rgb_to_srgb(rgb) * 255.0f).convert<unsigned char>();
 		});
 	});
 

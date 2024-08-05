@@ -147,7 +147,7 @@ async_event nd_copy_device_cuda(sycl::queue& queue, const void* const source_bas
     const region<3>& copy_region, const size_t elem_size, bool enable_profiling) //
 {
 #if defined(__HIPSYCL__)
-	// hipSYCL provides first-class custom backend op submission without a host round-trip like sycl::queue::host_task would require.
+	// AdaptiveCpp provides first-class custom backend op submission without a host round-trip like sycl::queue::host_task would require.
 	auto event = queue.AdaptiveCpp_enqueue_custom_operation([=](sycl::interop_handle handle) {
 		const auto stream = handle.get_native_queue<sycl::backend::cuda>();
 		cuda_backend_detail::nd_copy_device_async(stream, source_base, dest_base, source_box, dest_box, copy_region, elem_size);

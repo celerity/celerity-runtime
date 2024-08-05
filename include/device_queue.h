@@ -50,13 +50,13 @@ namespace detail {
 		template <typename Fn>
 		cl::sycl::event submit(Fn&& fn) {
 			auto evt = m_sycl_queue->submit([fn = std::forward<Fn>(fn)](cl::sycl::handler& sycl_handler) { fn(sycl_handler); });
-#if CELERITY_WORKAROUND(HIPSYCL)
+#if CELERITY_WORKAROUND(ACPP)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 			// hipSYCL does not guarantee that command groups are actually scheduled until an explicit await operation, which we cannot insert without
 			// blocking the executor loop (see https://github.com/illuhad/hipSYCL/issues/599). Instead, we explicitly flush the queue to be able to continue
 			// using our polling-based approach.
-			m_sycl_queue->get_context().hipSYCL_runtime()->dag().flush_async();
+			m_sycl_queue->get_context().AdaptiveCpp_runtime()->dag().flush_async();
 #pragma GCC diagnostic pop
 #endif
 			return evt;

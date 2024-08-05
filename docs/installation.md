@@ -23,14 +23,14 @@ simply giving Celerity a try, the choice does not matter all that much. For
 more advanced use cases or specific hardware setups it might however make
 sense to prefer one over the other.
 
-### hipSYCL
+### AdaptiveCpp
 
-[hipSYCL](https://github.com/illuhad/hipsycl) is an open source SYCL
-implementation focused on leveraging existing toolchains such as CUDA or HIP,
-making it a great choice when directly targeting Nvidia CUDA and AMD ROCm
-platforms.
+[AdaptiveCpp](https://github.com/AdaptiveCpp/AdaptiveCpp) is an open source SYCL
+and C++ standard parallelism implementation focused on leveraging existing toolchains
+such as CUDA or HIP, making it a great choice when directly targeting Nvidia CUDA
+and AMD ROCm platforms.
 
-> hipSYCL is currently available on Linux and has experimental/partial support
+> AdaptiveCpp is currently available on Linux and has experimental/partial support
 > for OSX and Windows.
 
 ### DPC++
@@ -61,10 +61,10 @@ platform. Here are a couple of examples:
 
 <!--DOCUSAURUS_CODE_TABS-->
 
-<!--hipSYCL + Ninja -->
+<!-- AdaptiveCpp + Ninja -->
 
 ```
-cmake -G Ninja .. -DCMAKE_PREFIX_PATH="<path-to-hipsycl-install>" -DHIPSYCL_TARGETS="cuda:sm_52" -DCMAKE_INSTALL_PREFIX="<install-path>" -DCMAKE_BUILD_TYPE=Release
+cmake -G Ninja .. -DCMAKE_PREFIX_PATH="<path-to-acpp-install>" -DACPP_TARGETS="cuda:sm_52" -DCMAKE_INSTALL_PREFIX="<install-path>" -DCMAKE_BUILD_TYPE=Release
 ```
 
 <!-- DPC++ + Unix Makefiles-->
@@ -76,7 +76,7 @@ cmake -G "Unix Makefiles" .. -DCMAKE_CXX_COMPILER="/path/to/dpc++/bin/clang++" -
 <!--END_DOCUSAURUS_CODE_TABS-->
 
 In case multiple SYCL implementations are in CMake's search path, you can disambiguate them
-using `-DCELERITY_SYCL_IMPL=hipSYCL|DPC++`.
+using `-DCELERITY_SYCL_IMPL=AdaptiveCpp|DPC++`.
 
 Note that the `CMAKE_PREFIX_PATH` parameter should only be required if you
 installed SYCL in a non-standard location. See the [CMake
