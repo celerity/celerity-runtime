@@ -297,7 +297,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	// Constructor for tests, called through accessor_testspy.
 	accessor(DataT* ptr, id<Dims> index_offset, range<Dims> buffer_range) : m_device_ptr(ptr), m_index_offset(index_offset), m_buffer_range(buffer_range) {
 #if defined(__SYCL_DEVICE_ONLY__) || defined(SYCL_DEVICE_ONLY)
-#if CELERITY_WORKAROUND_HIPSYCL
+#if CELERITY_WORKAROUND(ACPP)
 		static_assert(std::is_trivially_copyable_v<accessor>);
 #else
 		static_assert(sycl::is_device_copyable_v<accessor>);

@@ -79,10 +79,8 @@ namespace detail {
 	}
 
 	static std::string get_sycl_version() {
-#if defined(__COMPUTECPP__)
-		return fmt::format("ComputeCpp {}.{}.{}", COMPUTECPP_VERSION_MAJOR, COMPUTECPP_VERSION_MINOR, COMPUTECPP_VERSION_PATCH);
-#elif defined(__HIPSYCL__) || defined(__HIPSYCL_TRANSFORM__)
-		return fmt::format("hipSYCL {}.{}.{}", HIPSYCL_VERSION_MAJOR, HIPSYCL_VERSION_MINOR, HIPSYCL_VERSION_PATCH);
+#if defined(__HIPSYCL__) || defined(__HIPSYCL_TRANSFORM__)
+		return fmt::format("AdaptiveCpp {}.{}.{}", HIPSYCL_VERSION_MAJOR, HIPSYCL_VERSION_MINOR, HIPSYCL_VERSION_PATCH);
 #elif CELERITY_DPCPP
 		return "DPC++ / Clang " __clang_version__;
 #else

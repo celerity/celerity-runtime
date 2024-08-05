@@ -822,13 +822,16 @@ namespace detail {
 		buffer<size_t, 1> buf0{1};
 		buffer<size_t, 1> buf1{1};
 
-		CHECK_THROWS_WITH(([&] {
-			q.submit([&](handler& cgh) {
-				accessor acc0{buf1, cgh, one_to_one{}, write_only_host_task};
-				accessor acc1{buf0, cgh, one_to_one{}, write_only};
-				cgh.parallel_for(range<1>(1), [=](item<1>) {
-					(void)acc0;
-					(void)acc1;
+		SECTION("capturing host accessor into device kernel") {
+#if !defined(__SYCL_COMPILER_VERSION) // TODO: This may break when using AdaptiveCpp w/ DPC++ as compiler
+			CHECK_THROWS_WITH(([&] {
+				q.submit([&](handler& cgh) {
+					accessor acc0{buf1, cgh, one_to_one{}, write_only_host_task};
+					accessor acc1{buf0, cgh, one_to_one{}, write_only};
+					cgh.parallel_for(range<1>(1), [=](item<1>) {
+						(void)acc0;
+						(void)acc1;
+					});
 				});
 			});
 		})(),
@@ -849,6 +852,7 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when accessing host objects within device tasks", "[handler]") {
 		distr_queue q;
+#if !defined(__SYCL_COMPILER_VERSION) // TODO: This may break when using AdaptiveCpp w/ DPC++ as compiler
 		experimental::host_object<size_t> ho;
 
 		CHECK_THROWS_WITH(([&] {
@@ -871,7 +875,9 @@ namespace detail {
 			q.submit([&](handler& cgh) {
 				accessor acc0{buf0, cgh, one_to_one{}, write_only};
 				accessor acc1{buf1, cgh, one_to_one{}, write_only};
-				cgh.parallel_for(range<1>(1), [acc0, &acc1](item<1>) {
+				// DPC++ has its own compile-time check for this, so we can't actually capture anything by reference
+#if !defined(__SYCL_COMPILER_VERSION) // TODO: This may break when using AdaptiveCpp w/ DPC++ as compiler
+				cgh.parallel_for(range<1>(1), [acc0, &acc1 /* oops */](item<1>) {
 					(void)acc0;
 					(void)acc1;
 				});

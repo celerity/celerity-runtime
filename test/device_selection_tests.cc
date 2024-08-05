@@ -28,7 +28,7 @@ struct mock_device {
 		return *m_platform;
 	}
 
-#if CELERITY_WORKAROUND(HIPSYCL) || CELERITY_WORKAROUND(COMPUTECPP) // old API: device enum
+#if CELERITY_WORKAROUND(ACPP) || CELERITY_WORKAROUND(COMPUTECPP) // old API: device enum
 	template <sycl::info::device Param>
 	auto get_info() const {
 		if constexpr(Param == sycl::info::device::name) { return m_name; }
@@ -85,7 +85,7 @@ struct mock_platform {
 		return m_devices;
 	}
 
-#if CELERITY_WORKAROUND(HIPSYCL) || CELERITY_WORKAROUND(COMPUTECPP) // old API: platform enum
+#if CELERITY_WORKAROUND(ACPP) || CELERITY_WORKAROUND(COMPUTECPP) // old API: platform enum
 	template <sycl::info::platform Param>
 #else // new API: platform tag type
 	template <typename Param>

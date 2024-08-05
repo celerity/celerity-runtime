@@ -305,13 +305,13 @@ bool joint_any_of(const group<Dims>& g, Ptr first, Ptr last, Predicate pred) {
 }
 
 
-#if !CELERITY_WORKAROUND(HIPSYCL)
+#if !CELERITY_WORKAROUND(ACPP)
 using cl::sycl::any_of_group;
 #endif
 
 template <int Dims, typename T, typename Predicate>
 bool any_of_group(const group<Dims>& g, T x, Predicate pred) {
-#if CELERITY_WORKAROUND(HIPSYCL)
+#if CELERITY_WORKAROUND(ACPP)
 	return cl::sycl::group_any_of(detail::get_sycl_item(g).get_group(), x, pred);
 #else
 	return cl::sycl::any_of_group(detail::get_sycl_item(g).get_group(), x, pred);
@@ -320,7 +320,7 @@ bool any_of_group(const group<Dims>& g, T x, Predicate pred) {
 
 template <int Dims>
 bool any_of_group(const group<Dims>& g, bool pred) {
-#if CELERITY_WORKAROUND(HIPSYCL)
+#if CELERITY_WORKAROUND(ACPP)
 	return cl::sycl::group_any_of(detail::get_sycl_item(g).get_group(), pred);
 #else
 	return cl::sycl::any_of_group(detail::get_sycl_item(g).get_group(), pred);
@@ -336,13 +336,13 @@ bool joint_all_of(const group<Dims>& g, Ptr first, Ptr last, Predicate pred) {
 }
 
 
-#if !CELERITY_WORKAROUND(HIPSYCL)
+#if !CELERITY_WORKAROUND(ACPP)
 using cl::sycl::all_of_group;
 #endif
 
 template <int Dims, typename T, typename Predicate>
 bool all_of_group(const group<Dims>& g, T x, Predicate pred) {
-#if CELERITY_WORKAROUND(HIPSYCL)
+#if CELERITY_WORKAROUND(ACPP)
 	return cl::sycl::group_all_of(detail::get_sycl_item(g).get_group(), x, pred);
 #else
 	return cl::sycl::all_of_group(detail::get_sycl_item(g).get_group(), x, pred);
@@ -351,7 +351,7 @@ bool all_of_group(const group<Dims>& g, T x, Predicate pred) {
 
 template <int Dims>
 bool all_of_group(const group<Dims>& g, bool pred) {
-#if CELERITY_WORKAROUND(HIPSYCL)
+#if CELERITY_WORKAROUND(ACPP)
 	return cl::sycl::group_all_of(detail::get_sycl_item(g).get_group(), pred);
 #else
 	return cl::sycl::all_of_group(detail::get_sycl_item(g).get_group(), pred);
@@ -367,13 +367,13 @@ bool joint_none_of(const group<Dims>& g, Ptr first, Ptr last, Predicate pred) {
 }
 
 
-#if !CELERITY_WORKAROUND(HIPSYCL)
+#if !CELERITY_WORKAROUND(ACPP)
 using cl::sycl::none_of_group;
 #endif
 
 template <int Dims, typename T, typename Predicate>
 bool none_of_group(const group<Dims>& g, T x, Predicate pred) {
-#if CELERITY_WORKAROUND(HIPSYCL)
+#if CELERITY_WORKAROUND(ACPP)
 	return cl::sycl::group_none_of(detail::get_sycl_item(g).get_group(), x, pred);
 #else
 	return cl::sycl::none_of_group(detail::get_sycl_item(g).get_group(), x, pred);
@@ -382,7 +382,7 @@ bool none_of_group(const group<Dims>& g, T x, Predicate pred) {
 
 template <int Dims>
 bool none_of_group(const group<Dims>& g, bool pred) {
-#if CELERITY_WORKAROUND(HIPSYCL)
+#if CELERITY_WORKAROUND(ACPP)
 	return cl::sycl::group_none_of(detail::get_sycl_item(g).get_group(), pred);
 #else
 	return cl::sycl::none_of_group(detail::get_sycl_item(g).get_group(), pred);
@@ -390,7 +390,7 @@ bool none_of_group(const group<Dims>& g, bool pred) {
 }
 
 
-#if !CELERITY_WORKAROUND(HIPSYCL) // Not available in hipSYCL 0.9.1, but in the newest upstream version - TODO add feature detection?
+#if !CELERITY_WORKAROUND(ACPP) // Not available in hipSYCL 0.9.1, but in the newest upstream version - TODO add feature detection?
 
 using cl::sycl::permute_group_by_xor;
 using cl::sycl::shift_group_left;
@@ -435,13 +435,13 @@ T joint_reduce(const group<Dims>& g, Ptr first, Ptr last, T init, BinaryOperatio
 }
 
 
-#if !CELERITY_WORKAROUND(HIPSYCL)
+#if !CELERITY_WORKAROUND(ACPP)
 using cl::sycl::reduce_over_group;
 #endif
 
 template <int Dims, typename T, typename BinaryOperation>
 T reduce_over_group(const group<Dims>& g, T x, BinaryOperation binary_op) {
-#if CELERITY_WORKAROUND(HIPSYCL)
+#if CELERITY_WORKAROUND(ACPP)
 	return cl::sycl::group_reduce(detail::get_sycl_item(g).get_group(), x, binary_op);
 #else
 	return cl::sycl::reduce_over_group(detail::get_sycl_item(g).get_group(), x, binary_op);
@@ -450,7 +450,7 @@ T reduce_over_group(const group<Dims>& g, T x, BinaryOperation binary_op) {
 
 template <int Dims, typename V, typename T, typename BinaryOperation>
 T reduce_over_group(const group<Dims>& g, V x, T init, BinaryOperation binary_op) {
-#if CELERITY_WORKAROUND(HIPSYCL)
+#if CELERITY_WORKAROUND(ACPP)
 	return cl::sycl::group_reduce(detail::get_sycl_item(g).get_group(), x, init, binary_op);
 #else
 	return cl::sycl::reduce_over_group(detail::get_sycl_item(g).get_group(), x, init, binary_op);
@@ -471,13 +471,13 @@ T joint_exclusive_scan(const group<Dims>& g, InPtr first, InPtr last, OutPtr res
 }
 
 
-#if !CELERITY_WORKAROUND(HIPSYCL)
+#if !CELERITY_WORKAROUND(ACPP)
 using cl::sycl::exclusive_scan_over_group;
 #endif
 
 template <int Dims, typename T, typename BinaryOperation>
 T exclusive_scan_over_group(const group<Dims>& g, T x, BinaryOperation binary_op) {
-#if CELERITY_WORKAROUND(HIPSYCL)
+#if CELERITY_WORKAROUND(ACPP)
 	return cl::sycl::group_exclusive_scan(detail::get_sycl_item(g).get_group(), x, binary_op);
 #else
 	return cl::sycl::exclusive_scan_over_group(detail::get_sycl_item(g).get_group(), x, binary_op);
@@ -486,7 +486,7 @@ T exclusive_scan_over_group(const group<Dims>& g, T x, BinaryOperation binary_op
 
 template <int Dims, typename V, typename T, typename BinaryOperation>
 T exclusive_scan_over_group(const group<Dims>& g, V x, T init, BinaryOperation binary_op) {
-#if CELERITY_WORKAROUND(HIPSYCL)
+#if CELERITY_WORKAROUND(ACPP)
 	return cl::sycl::group_exclusive_scan(detail::get_sycl_item(g).get_group(), x, init, binary_op);
 #else
 	return cl::sycl::exclusive_scan_over_group(detail::get_sycl_item(g).get_group(), x, init, binary_op);
@@ -508,20 +508,20 @@ T joint_inclusive_scan(const group<Dims>& g, InPtr first, InPtr last, OutPtr res
 
 template <int Dims, typename T, typename BinaryOperation>
 T inclusive_scan_over_group(const group<Dims>& g, T x, BinaryOperation binary_op) {
-#if CELERITY_WORKAROUND(HIPSYCL)
+#if CELERITY_WORKAROUND(ACPP)
 	return cl::sycl::group_inclusive_scan(detail::get_sycl_item(g).get_group(), x, binary_op);
 #else
 	return cl::sycl::inclusive_scan_over_group(detail::get_sycl_item(g).get_group(), x, binary_op);
 #endif
 }
 
-#if !CELERITY_WORKAROUND(HIPSYCL)
+#if !CELERITY_WORKAROUND(ACPP)
 using cl::sycl::inclusive_scan_over_group;
 #endif
 
 template <int Dims, typename V, typename T, typename BinaryOperation>
 T inclusive_scan_over_group(const group<Dims>& g, V x, BinaryOperation binary_op, T init) {
-#if CELERITY_WORKAROUND(HIPSYCL)
+#if CELERITY_WORKAROUND(ACPP)
 	return cl::sycl::group_inclusive_scan(detail::get_sycl_item(g).get_group(), x, binary_op, init);
 #else
 	return cl::sycl::inclusive_scan_over_group(detail::get_sycl_item(g).get_group(), x, binary_op, init);

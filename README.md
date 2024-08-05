@@ -76,9 +76,15 @@ installed first.
 ### Dependencies
 
 - A supported SYCL implementation, either
+<<<<<<< HEAD
     - [hipSYCL](https://github.com/illuhad/hipsycl),
     - [ComputeCpp](https://www.codeplay.com/products/computesuite/computecpp), or
     - [DPC++](https://github.com/intel/llvm)
+=======
+    - [AdaptiveCpp](https://github.com/AdaptiveCpp/AdaptiveCpp),
+    - [DPC++](https://github.com/intel/llvm), or
+    - [SimSYCL](https://github.com/celerity/SimSYCL)
+>>>>>>> dc9ac232 (hipSYCL is now AdaptiveCpp)
 - A MPI 2 implementation (tested with OpenMPI 4.0, MPICH 3.3 should work as well)
 - [CMake](https://www.cmake.org) (3.13 or newer)
 - A C++17 compiler

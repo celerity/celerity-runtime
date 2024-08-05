@@ -15,10 +15,14 @@ set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CELERITY_CMAKE_DIR}")
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 
+set(CELERITY_SYCL_IMPL "OFF" CACHE STRING "AdaptiveCpp|DPC++|SimSYCL")
+
 # TODO: Make optional
 find_package(CUDAToolkit REQUIRED)
 
-set(CELERITY_SYCL_IMPL "OFF" CACHE STRING "hipSYCL|ComputeCpp|DPC++")
+if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
+  set(CELERITY_SYCL_IMPL "AdaptiveCpp" CACHE STRING "" FORCE)
+endif()
 
 include("${CELERITY_CMAKE_DIR}/TestDPCXX.cmake")
 test_cxx_compiler_is_dpcpp(CXX_COMPILER_IS_DPCPP)
@@ -27,11 +31,8 @@ if(CXX_COMPILER_IS_DPCPP)
 endif()
 
 # Find SYCL implementation.
-set(hipSYCL_MIN_VERSION "0.9.1")
-if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
-  find_package(hipSYCL ${hipSYCL_MIN_VERSION} CONFIG REQUIRED)
-elseif(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
-  find_package(ComputeCpp REQUIRED)
+if(CELERITY_SYCL_IMPL STREQUAL "AdaptiveCpp")
+  find_package(AdaptiveCpp CONFIG REQUIRED)
 elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
   if(NOT CXX_COMPILER_IS_DPCPP)
     message(FATAL_ERROR "CELERITY_SYCL_IMPL set to DPC++, but CXX compiler at ${CMAKE_CXX_COMPILER} is not DPC++")
@@ -43,10 +44,10 @@ else()
     list(APPEND AVAILABLE_SYCL_IMPLS DPC++)
   endif()
 
-  find_package(hipSYCL ${hipSYCL_MIN_VERSION} QUIET CONFIG)
-  if(hipSYCL_FOUND)
-    message(STATUS "Found hipSYCL: ${hipSYCL_DIR}")
-    list(APPEND AVAILABLE_SYCL_IMPLS hipSYCL)
+  find_package(AdaptiveCpp QUIET CONFIG)
+  if(AdaptiveCpp_FOUND)
+    message(STATUS "Found AdaptiveCpp: ${AdaptiveCpp_DIR}")
+    list(APPEND AVAILABLE_SYCL_IMPLS AdaptiveCpp)
   endif()
 
   find_package(ComputeCpp QUIET)
@@ -57,12 +58,12 @@ else()
 
   list(LENGTH AVAILABLE_SYCL_IMPLS NUM_AVAILABLE_SYCL_IMPLS)
   if(NUM_AVAILABLE_SYCL_IMPLS EQUAL 0)
-    message(FATAL_ERROR "No SYCL implementation found. You might need to add an install path for hipSYCL or "
-      "ComputeCpp to CMAKE_PREFIX_PATH.")
+    message(FATAL_ERROR "No SYCL implementation found. You might need to add an install path for AdaptiveCpp "
+    "or SimSYCL to CMAKE_PREFIX_PATH.")
   elseif(NUM_AVAILABLE_SYCL_IMPLS GREATER 1)
     list(JOIN AVAILABLE_SYCL_IMPLS " and " AVAILABLE_SYCL_IMPLS_STR)
     message(FATAL_ERROR "More than one SYCL implementation available: Found ${AVAILABLE_SYCL_IMPLS_STR}. "
-      "Please choose one implementation using -DCELERITY_SYCL_IMPL=hipSYCL|ComputeCpp|DPC++.")
+      "Please choose one implementation using -DCELERITY_SYCL_IMPL=AdaptiveCpp|DPC++|SimSYCL.")
   else()
     set(CELERITY_SYCL_IMPL "${AVAILABLE_SYCL_IMPLS}")
     message(STATUS "Automatically chooosing ${CELERITY_SYCL_IMPL} because it is the only SYCL implementation available")
@@ -108,7 +109,7 @@ if(WIN32)
   list(APPEND CELERITY_CXX_FLAGS -D_CRT_SECURE_NO_WARNINGS)
 endif()
 
-if(CELERITY_SYCL_IMPL STREQUAL hipSYCL)
+if(CELERITY_SYCL_IMPL STREQUAL AdaptiveCpp)
   set(CELERITY_FEATURE_SCALAR_REDUCTIONS OFF)
   set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS OFF)
 elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
@@ -343,8 +344,8 @@ if(CELERITY_SYCL_IMPL STREQUAL "ComputeCpp")
 endif()
 
 set(DEVICE_SOURCES "")
-if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
-  # For hipSYCL we have to pass all source files into add_sycl_to_target
+if(CELERITY_SYCL_IMPL STREQUAL "AdaptiveCpp")
+  # For AdaptiveCpp we have to pass all source files into add_sycl_to_target
   # Don't just do it in general (yields better ComputeCpp build performance)
   set(DEVICE_SOURCES ${SOURCES})
 endif()
