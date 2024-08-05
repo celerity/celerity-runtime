@@ -50,12 +50,6 @@ struct default_parser<celerity::detail::log_level> {
 
 namespace {
 
-size_t parse_validate_graph_print_max_verts(const std::string_view str) {
-	throw env::validation_error{"Support for CELERITY_GRAPH_PRINT_MAX_VERTS has been removed with Celerity 0.5.0.\n"
-	                            "Opt into graph printing by setting CELERITY_PRINT_GRAPHS=1."};
-	return 0;
-}
-
 bool parse_validate_profile_kernel(const std::string_view str) {
 	const auto pk = env::default_parser<bool>{}(str);
 	CELERITY_DEBUG("CELERITY_PROFILE_KERNEL={}.", pk ? "on" : "off");
@@ -69,22 +63,6 @@ size_t parse_validate_dry_run_nodes(const std::string_view str) {
 	if(world_size != 1) throw std::runtime_error("In order to run with CELERITY_DRY_RUN_NODES a single MPI process/rank must be used.");
 	CELERITY_WARN("Performing a dry run with {} simulated nodes", drn);
 	return drn;
-}
-
-std::vector<size_t> parse_validate_devices(const std::string_view str, const celerity::detail::host_config host_cfg) {
-	throw env::validation_error{
-	    "Support for CELERITY_DEVICES has been removed with Celerity 0.6.0. Please use SYCL or vendor specific means to limit device visibility."};
-	return {};
-}
-
-bool parse_validate_force_wg(const std::string_view str) {
-	throw env::validation_error{"Support for CELERITY_FORCE_WG has been removed with Celerity 0.3.0."};
-	return false;
-}
-
-bool parse_validate_profile_ocl(const std::string_view str) {
-	throw env::validation_error{"CELERITY_PROFILE_OCL has been renamed to CELERITY_PROFILE_KERNEL with Celerity 0.3.0."};
-	return false;
 }
 
 } // namespace
@@ -122,19 +100,19 @@ namespace detail {
 		auto pref = env::prefix("CELERITY");
 		const auto env_log_level = pref.register_option<log_level>(
 		    "LOG_LEVEL", {log_level::trace, log_level::debug, log_level::info, log_level::warn, log_level::err, log_level::critical, log_level::off});
-		[[maybe_unused]] const auto env_devs =
-		    pref.register_variable<std::vector<size_t>>("DEVICES", [this](const std::string_view str) { return parse_validate_devices(str, m_host_cfg); });
 		const auto env_profile_kernel = pref.register_variable<bool>("PROFILE_KERNEL", parse_validate_profile_kernel);
-		const auto env_dry_run_nodes = pref.register_variable<size_t>("DRY_RUN_NODES", parse_validate_dry_run_nodes);
 		const auto env_print_graphs = pref.register_variable<bool>("PRINT_GRAPHS");
+		const auto env_dry_run_nodes = pref.register_variable<size_t>("DRY_RUN_NODES", parse_validate_dry_run_nodes);
 		constexpr int horizon_max = 1024 * 64;
 		const auto env_horizon_step = pref.register_range<int>("HORIZON_STEP", 1, horizon_max);
 		const auto env_horizon_max_para = pref.register_range<int>("HORIZON_MAX_PARALLELISM", 1, horizon_max);
-		[[maybe_unused]] const auto env_gpmv = pref.register_variable<size_t>("GRAPH_PRINT_MAX_VERTS", parse_validate_graph_print_max_verts);
-		[[maybe_unused]] const auto env_force_wg =
-		    pref.register_variable<bool>("FORCE_WG", [](const std::string_view str) { return parse_validate_force_wg(str); });
-		[[maybe_unused]] const auto env_profile_ocl =
-		    pref.register_variable<bool>("PROFILE_OCL", [](const std::string_view str) { return parse_validate_profile_ocl(str); });
+
+		pref.register_deprecated("FORCE_WG", "Support for CELERITY_FORCE_WG has been removed with Celerity 0.3.0.");
+		pref.register_deprecated("PROFILE_OCL", "CELERITY_PROFILE_OCL has been renamed to CELERITY_PROFILE_KERNEL with Celerity 0.3.0.");
+		pref.register_deprecated("GRAPH_PRINT_MAX_VERTS", "Support for CELERITY_GRAPH_PRINT_MAX_VERTS has been removed with Celerity 0.5.0.\n"
+		                                                  "Opt into graph printing by setting CELERITY_PRINT_GRAPHS=1.");
+		pref.register_deprecated("DEVICES", "Support for CELERITY_DEVICES has been removed with Celerity 0.6.0.\n"
+		                                    "Please use SYCL or vendor specific means to limit device visibility.");
 
 		const auto parsed_and_validated_envs = pref.parse_and_validate();
 		if(parsed_and_validated_envs.ok()) {

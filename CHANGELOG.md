@@ -21,6 +21,12 @@ See our [platform support guide](docs/platform-support.md) for a complete list o
 - Add support for SimSYCL as a SYCL implementation (#238)
 - Extend compiler support to GCC (optionally with sanitizers) and C++20 code bases (#238)
 
+### Changed
+
+- Updated the internal [libenvpp](https://github.com/ph3at/libenvpp) dependency to 1.4.1 and use its new features. (#271)
+
+*Note:* We recommend performing a clean build when updating Celerity so that updated submodule dependencies are properly propagated.
+
 ## [0.5.0] - 2023-12-21
 
 We recommend using the following SYCL versions with this release:
