@@ -16,7 +16,7 @@ on:
         required: true
         default: false
   # We use nightly builds to determine whether CI passes for "HEAD" revisions
-  # of DPC++ and hipSYCL. If so, these revisions are tagged as "latest" and
+  # of DPC++ and AdaptiveCpp. If so, these revisions are tagged as "latest" and
   # used for all subsequent CI runs.
   schedule:
     # Every night at 05:00 UTC
@@ -133,9 +133,9 @@ jobs:
       dpcpp-HEAD-Debug-works: ${{ steps.set-head-results.outputs.dpcpp-HEAD-Debug-works }}
       dpcpp-HEAD-Release-works: ${{ steps.set-head-results.outputs.dpcpp-HEAD-Release-works }}
       dpcpp-HEAD-ubuntu-version: ${{ steps.set-head-results.outputs.dpcpp-HEAD-ubuntu-version }}
-      hipsycl-HEAD-Debug-works: ${{ steps.set-head-results.outputs.hipsycl-HEAD-Debug-works }}
-      hipsycl-HEAD-Release-works: ${{ steps.set-head-results.outputs.hipsycl-HEAD-Release-works }}
-      hipsycl-HEAD-ubuntu-version: ${{ steps.set-head-results.outputs.hipsycl-HEAD-ubuntu-version }}
+      acpp-HEAD-Debug-works: ${{ steps.set-head-results.outputs.acpp-HEAD-Debug-works }}
+      acpp-HEAD-Release-works: ${{ steps.set-head-results.outputs.acpp-HEAD-Release-works }}
+      acpp-HEAD-ubuntu-version: ${{ steps.set-head-results.outputs.acpp-HEAD-ubuntu-version }}
     env:
       build-name: ${{ matrix.platform }}-ubuntu${{ matrix.ubuntu-version }}-${{ matrix.sycl }}-${{ matrix.sycl-version }}-${{ matrix.build-type }}
       container-workspace: <placeholder>
@@ -245,11 +245,11 @@ jobs:
         include:
           - sycl: "dpcpp"
             platform: "intel"
-          - sycl: "hipsycl"
+          - sycl: "acpp"
             platform: "nvidia"
     env:
       image-basename-dpcpp: ghcr.io/celerity/celerity-build/dpcpp:ubuntu${{ needs.build-and-test.outputs.dpcpp-HEAD-ubuntu-version }}
-      image-basename-hipsycl: ghcr.io/celerity/celerity-build/hipsycl:ubuntu${{ needs.build-and-test.outputs.hipsycl-HEAD-ubuntu-version }}
+      image-basename-acpp: ghcr.io/celerity/celerity-build/acpp:ubuntu${{ needs.build-and-test.outputs.acpp-HEAD-ubuntu-version }}
     permissions:
       packages: write
     steps:
@@ -267,11 +267,11 @@ jobs:
           else
             exit 1
           fi
-      - if: matrix.sycl == 'hipsycl'
+      - if: matrix.sycl == 'acpp'
         run: |
-          if [[ "${{ needs.build-and-test.outputs.hipsycl-HEAD-Debug-works }}" -eq 1 ]] && [[ "${{ needs.build-and-test.outputs.hipsycl-HEAD-Release-works }}" -eq 1 ]]; then
-            docker tag ${{ env.image-basename-hipsycl }}-HEAD ${{ env.image-basename-hipsycl }}-latest
-            docker push ${{ env.image-basename-hipsycl }}-latest
+          if [[ "${{ needs.build-and-test.outputs.acpp-HEAD-Debug-works }}" -eq 1 ]] && [[ "${{ needs.build-and-test.outputs.acpp-HEAD-Release-works }}" -eq 1 ]]; then
+            docker tag ${{ env.image-basename-acpp }}-HEAD ${{ env.image-basename-acpp }}-latest
+            docker push ${{ env.image-basename-acpp }}-latest
           else
             exit 1
           fi

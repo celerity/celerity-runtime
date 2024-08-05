@@ -265,7 +265,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	accessor(DataT* const ptr, const id<Dims>& allocation_offset, const range<Dims>& allocation_range)
 	    : m_device_ptr(ptr), m_allocation_offset(allocation_offset), m_allocation_range(allocation_range) {
 #if defined(__SYCL_DEVICE_ONLY__)
-#if CELERITY_WORKAROUND_HIPSYCL // hipSYCL does not yet implement is_device_copyable_v
+#if CELERITY_WORKAROUND_ACPP // AdaptiveCpp does not yet implement is_device_copyable_v
 		static_assert(std::is_trivially_copyable_v<accessor>);
 #else
 		static_assert(sycl::is_device_copyable_v<accessor>);

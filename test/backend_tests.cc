@@ -284,7 +284,7 @@ TEST_CASE("device kernels in a single lane execute in-order", "[backend]") {
 	const auto first = backend->enqueue_device_kernel(device_id(0), lane,
 	    [=](sycl::handler& cgh, const box<3>&, const std::vector<void*>&) {
 		    cgh.single_task([=] {
-			    while(++*dummy < 100'000) {} // busy "wait" - takes ~10ms on hipSYCL debug build with RTX 3090
+			    while(++*dummy < 100'000) {} // busy "wait" - takes ~10ms on AdaptiveCpp debug build with RTX 3090
 		    });
 	    },
 	    {}, box_cast<3>(box<0>()), {});
@@ -401,7 +401,7 @@ TEST_CASE("backends report execution time iff profiling is enabled", "[backend]"
 		event = backend->enqueue_device_kernel(device_id(0), /* lane */ 0,
 		    [=](sycl::handler& cgh, const box<3>&, const std::vector<void*>&) {
 			    cgh.single_task([=] {
-				    while(++*dummy_ptr < 100'000) {} // busy "wait" - takes ~1ms on hipSYCL debug build with RTX 3090
+				    while(++*dummy_ptr < 100'000) {} // busy "wait" - takes ~1ms on AdaptiveCpp debug build with RTX 3090
 			    });
 		    },
 		    {}, box_cast<3>(box<0>()), {});

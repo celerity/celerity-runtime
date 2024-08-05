@@ -710,7 +710,7 @@ namespace detail {
 		buffer<size_t, 1> buf1{1};
 
 		SECTION("capturing host accessor into device kernel") {
-#if !defined(__SYCL_COMPILER_VERSION) // TODO: This may break when using hipSYCL w/ DPC++ as compiler
+#if !defined(__SYCL_COMPILER_VERSION) // TODO: This may break when using AdaptiveCpp w/ DPC++ as compiler
 			CHECK_THROWS_WITH(([&] {
 				q.submit([&](handler& cgh) {
 					accessor acc0{buf1, cgh, one_to_one{}, write_only_host_task};
@@ -746,7 +746,7 @@ namespace detail {
 		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
 
 		distr_queue q;
-#if !defined(__SYCL_COMPILER_VERSION) // TODO: This may break when using hipSYCL w/ DPC++ as compiler
+#if !defined(__SYCL_COMPILER_VERSION) // TODO: This may break when using AdaptiveCpp w/ DPC++ as compiler
 		experimental::host_object<size_t> ho;
 
 		CHECK_THROWS_WITH(([&] {
@@ -775,7 +775,7 @@ namespace detail {
 				accessor acc0{buf0, cgh, one_to_one{}, write_only};
 				accessor acc1{buf1, cgh, one_to_one{}, write_only};
 				// DPC++ has its own compile-time check for this, so we can't actually capture anything by reference
-#if !defined(__SYCL_COMPILER_VERSION) // TODO: This may break when using hipSYCL w/ DPC++ as compiler
+#if !defined(__SYCL_COMPILER_VERSION) // TODO: This may break when using AdaptiveCpp w/ DPC++ as compiler
 				cgh.parallel_for(range<1>(1), [acc0, &acc1 /* oops */](item<1>) {
 					(void)acc0;
 					(void)acc1;

@@ -33,7 +33,11 @@ set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CELERITY_CMAKE_DIR}")
 find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
 
-set(CELERITY_SYCL_IMPL "OFF" CACHE STRING "hipSYCL|DPC++|SimSYCL")
+set(CELERITY_SYCL_IMPL "OFF" CACHE STRING "AdaptiveCpp|DPC++|SimSYCL")
+
+if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
+  set(CELERITY_SYCL_IMPL "AdaptiveCpp" CACHE STRING "" FORCE)
+endif()
 
 include("${CELERITY_CMAKE_DIR}/TestDPCXX.cmake")
 test_cxx_compiler_is_dpcpp(CXX_COMPILER_IS_DPCPP)
@@ -42,8 +46,8 @@ if(CXX_COMPILER_IS_DPCPP)
 endif()
 
 # Find SYCL implementation.
-if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
-  find_package(hipSYCL CONFIG REQUIRED)
+if(CELERITY_SYCL_IMPL STREQUAL "AdaptiveCpp")
+  find_package(AdaptiveCpp CONFIG REQUIRED)
 elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
   if(NOT CXX_COMPILER_IS_DPCPP)
     message(FATAL_ERROR "CELERITY_SYCL_IMPL set to DPC++, but CXX compiler at ${CMAKE_CXX_COMPILER} is not DPC++")
@@ -57,10 +61,10 @@ else()
     list(APPEND AVAILABLE_SYCL_IMPLS DPC++)
   endif()
 
-  find_package(hipSYCL QUIET CONFIG)
-  if(hipSYCL_FOUND)
-    message(STATUS "Found hipSYCL: ${hipSYCL_DIR}")
-    list(APPEND AVAILABLE_SYCL_IMPLS hipSYCL)
+  find_package(AdaptiveCpp QUIET CONFIG)
+  if(AdaptiveCpp_FOUND)
+    message(STATUS "Found AdaptiveCpp: ${AdaptiveCpp_DIR}")
+    list(APPEND AVAILABLE_SYCL_IMPLS AdaptiveCpp)
   endif()
 
   find_package(SimSYCL QUIET CONFIG)
@@ -71,12 +75,12 @@ else()
 
   list(LENGTH AVAILABLE_SYCL_IMPLS NUM_AVAILABLE_SYCL_IMPLS)
   if(NUM_AVAILABLE_SYCL_IMPLS EQUAL 0)
-    message(FATAL_ERROR "No SYCL implementation found. You might need to add an install path for hipSYCL "
+    message(FATAL_ERROR "No SYCL implementation found. You might need to add an install path for AdaptiveCpp "
     "or SimSYCL to CMAKE_PREFIX_PATH.")
   elseif(NUM_AVAILABLE_SYCL_IMPLS GREATER 1)
     list(JOIN AVAILABLE_SYCL_IMPLS " and " AVAILABLE_SYCL_IMPLS_STR)
     message(FATAL_ERROR "More than one SYCL implementation available: Found ${AVAILABLE_SYCL_IMPLS_STR}. "
-      "Please choose one implementation using -DCELERITY_SYCL_IMPL=hipSYCL|DPC++|SimSYCL.")
+      "Please choose one implementation using -DCELERITY_SYCL_IMPL=AdaptiveCpp|DPC++|SimSYCL.")
   else()
     set(CELERITY_SYCL_IMPL "${AVAILABLE_SYCL_IMPLS}")
     message(STATUS "Automatically choosing ${CELERITY_SYCL_IMPL} because it is the only SYCL implementation available")
@@ -105,7 +109,7 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake Build Type" FORCE)
 endif()
 
-if(CELERITY_SYCL_IMPL STREQUAL "hipSYCL")
+if(CELERITY_SYCL_IMPL STREQUAL "AdaptiveCpp")
   list(APPEND CELERITY_CXX_FLAGS -DACPP_ALLOW_INSTANT_SUBMISSION=1)
 endif()
 

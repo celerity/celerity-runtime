@@ -94,7 +94,7 @@ namespace detail {
 
 	static std::string get_sycl_version() {
 #if defined(__HIPSYCL__) || defined(__HIPSYCL_TRANSFORM__)
-		return fmt::format("hipSYCL {}.{}.{}", HIPSYCL_VERSION_MAJOR, HIPSYCL_VERSION_MINOR, HIPSYCL_VERSION_PATCH);
+		return fmt::format("AdaptiveCpp {}.{}.{}", HIPSYCL_VERSION_MAJOR, HIPSYCL_VERSION_MINOR, HIPSYCL_VERSION_PATCH);
 #elif CELERITY_DPCPP
 		return "DPC++ / Clang " __clang_version__;
 #elif CELERITY_SIMSYCL
