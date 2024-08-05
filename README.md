@@ -127,3 +127,6 @@ Celerity's runtime behavior:
   at the end of execution (requires log level `info` or higher).
 - `CELERITY_DRY_RUN_NODES` takes a number and simulates a run with that many nodes
   without actually executing the commands.
+- `CELERITY_HORIZON_STEP` and `CELERITY_HORIZON_MAX_PARALLELISM` determine the
+  maximum number of sequential and parallel tasks, respectively, before a new
+  [horizon task](https://doi.org/10.1007/s42979-024-02749-w) is introduced.
