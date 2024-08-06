@@ -96,11 +96,11 @@ namespace detail {
 	}
 
 	static std::string get_sycl_version() {
-#if defined(__HIPSYCL__) || defined(__HIPSYCL_TRANSFORM__)
+#if CELERITY_SYCL_IS_ACPP
 		return fmt::format("AdaptiveCpp {}.{}.{}", HIPSYCL_VERSION_MAJOR, HIPSYCL_VERSION_MINOR, HIPSYCL_VERSION_PATCH);
-#elif CELERITY_DPCPP
+#elif CELERITY_SYCL_IS_DPCPP
 		return "DPC++ / Clang " __clang_version__;
-#elif CELERITY_SIMSYCL
+#elif CELERITY_SYCL_IS_SIMSYCL
 		return "SimSYCL " SIMSYCL_VERSION;
 #else
 #error "unknown SYCL implementation"

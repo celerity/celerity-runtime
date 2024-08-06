@@ -8,8 +8,7 @@
 #include "system_info.h"
 #include "tracy.h"
 #include "utils.h"
-#include "workaround.h"
-
+#include "version.h"
 
 #define CELERITY_STRINGIFY2(f) #f
 #define CELERITY_STRINGIFY(f) CELERITY_STRINGIFY2(f)
@@ -75,7 +74,7 @@ void nd_copy_device_async(cudaStream_t stream, const void* const source_base, vo
 //   - There are no real thread-safety guarantees. DPC++ currently does not submit kernels from background threads, but if it ever starts doing so, this will
 //     break more-or-less silently.
 // There is an open GitHub issue on the matter: https://github.com/intel/llvm/issues/13706
-#if defined(CELERITY_DPCPP)
+#if CELERITY_SYCL_IS_DPCPP
 
 struct cuda_native_event_deleter {
 	void operator()(const cudaEvent_t evt) const { CELERITY_CUDA_CHECK(cudaEventDestroy, evt); }
@@ -117,7 +116,7 @@ class cuda_event final : public async_event_impl {
 	unique_cuda_native_event m_after;
 };
 
-#endif // defined(CELERITY_DPCPP)
+#endif // CELERITY_SYCL_IS_DPCPP
 
 bool can_enable_peer_access(const int id_device, const int id_peer) {
 	// RTX 30xx and 40xx GPUs do not support peer access, but Nvidia Driver < 550 incorrectly reports that it does, causing kernel panics when enabling it
@@ -151,7 +150,7 @@ namespace celerity::detail::sycl_backend_detail {
 async_event nd_copy_device_cuda(sycl::queue& queue, const void* const source_base, void* const dest_base, const box<3>& source_box, const box<3>& dest_box,
     const region<3>& copy_region, const size_t elem_size, bool enable_profiling) //
 {
-#if defined(__HIPSYCL__)
+#if CELERITY_SYCL_IS_ACPP
 	// AdaptiveCpp provides first-class custom backend op submission without a host round-trip like sycl::queue::host_task would require.
 	auto event = queue.AdaptiveCpp_enqueue_custom_operation([=](sycl::interop_handle handle) {
 		const auto stream = handle.get_native_queue<sycl::backend::cuda>();
@@ -159,7 +158,7 @@ async_event nd_copy_device_cuda(sycl::queue& queue, const void* const source_bas
 	});
 	sycl_backend_detail::flush(queue);
 	return make_async_event<sycl_event>(std::move(event), enable_profiling);
-#elif defined(CELERITY_DPCPP)
+#elif CELERITY_SYCL_IS_DPCPP
 	// With DPC++, we must submit from the executor thread - see the comment on cuda_native_event above.
 	const auto stream = sycl::get_native<sycl::backend::ext_oneapi_cuda>(queue);
 	auto before = enable_profiling ? cuda_backend_detail::record_native_event(stream, enable_profiling) : nullptr;
@@ -171,7 +170,7 @@ async_event nd_copy_device_cuda(sycl::queue& queue, const void* const source_bas
 #endif
 }
 
-#if defined(CELERITY_DPCPP)
+#if CELERITY_SYCL_IS_DPCPP
 constexpr sycl::backend sycl_cuda_backend = sycl::backend::ext_oneapi_cuda;
 #else
 constexpr sycl::backend sycl_cuda_backend = sycl::backend::cuda;

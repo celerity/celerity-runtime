@@ -13,7 +13,6 @@ if(CELERITY_SYCL_IMPL STREQUAL "DPC++")
       -fsycl
       -sycl-std=2020
       "-fsycl-targets=${CELERITY_DPCPP_TARGETS}"
-      -DCELERITY_DPCPP=1
       -Wno-sycl-strict  # -Wsycl-strict produces false-positive warnings in DPC++'s own SYCL headers as of 2022-10-06
     )
     target_compile_options(${ADD_SYCL_TARGET} PUBLIC ${DPCPP_FLAGS})
@@ -30,8 +29,6 @@ elseif(CELERITY_SYCL_IMPL STREQUAL "SimSYCL")
         "${multi_value_args}"
         ${ARGN}
     )
-    target_compile_options(${ADD_SYCL_TARGET} PUBLIC -DCELERITY_SIMSYCL=1)
-    target_link_options(${ADD_SYCL_TARGET} PUBLIC -DCELERITY_SIMSYCL=1)
   endfunction()
 endif()
 
