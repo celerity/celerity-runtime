@@ -4,6 +4,7 @@
 #include "launcher.h"
 #include "ranges.h"
 #include "types.h"
+#include "version.h"
 
 #include <algorithm>
 #include <cstdlib>

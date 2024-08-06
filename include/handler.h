@@ -16,6 +16,7 @@
 #include "ranges.h"
 #include "task.h"
 #include "types.h"
+#include "version.h"
 #include "workaround.h"
 
 namespace celerity {

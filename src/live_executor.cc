@@ -11,6 +11,7 @@
 #include "tracy.h"
 #include "types.h"
 #include "utils.h"
+#include "version.h"
 
 #include <deque>
 #include <memory>

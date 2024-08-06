@@ -80,7 +80,7 @@ namespace detail {
 	}
 
 	static const char* get_build_type() {
-#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
+#if CELERITY_DETAIL_ENABLE_DEBUG
 		return "debug";
 #else
 		return "release";
