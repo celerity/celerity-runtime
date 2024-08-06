@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Print exact SYCL revision used for this CI run
         run: cat /VERSION
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Build Celerity
@@ -27,7 +27,7 @@ jobs:
         run: ${{ env.container-workspace }}/ci/run-benchmarks.sh
       - name: Upload results or stack traces
         if: always()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: Benchmark Results
           path: |

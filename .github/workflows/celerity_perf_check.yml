@@ -6,7 +6,7 @@ jobs:
   check-perf-impact:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: ruby/setup-ruby@v1
       with:
         ruby-version: '3.0'
@@ -15,7 +15,7 @@ jobs:
         sudo apt-get install libmagickwand-dev
         gem install gruff
     - name: Find previous perf comment
-      uses: peter-evans/find-comment@v2
+      uses: peter-evans/find-comment@v3
       id: fc
       with:
         issue-number: ${{ github.event.number }}
