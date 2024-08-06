@@ -17,6 +17,7 @@
 #include <fmt/chrono.h>
 #include <fmt/format.h>
 #include <fmt/ostream.h>
+#include <fmt/ranges.h>
 
 
 // Escape according to RFC 4180 (w/o line break support)
