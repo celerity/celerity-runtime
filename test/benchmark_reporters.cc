@@ -13,9 +13,12 @@
 #include <catch2/catch_test_case_info.hpp>
 #include <catch2/reporters/catch_reporter_registrars.hpp>
 #include <catch2/reporters/catch_reporter_streaming_base.hpp>
-#include <spdlog/fmt/chrono.h>
-#include <spdlog/fmt/fmt.h>
-#include <spdlog/fmt/ostr.h>
+
+#include <fmt/chrono.h>
+#include <fmt/format.h>
+#include <fmt/ostream.h>
+#include <fmt/ranges.h>
+
 
 // Escape according to RFC 4180 (w/o line break support)
 static std::string escape_csv(const std::string& str) {
