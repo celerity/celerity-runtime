@@ -41,7 +41,7 @@ class backend;
 class live_executor final : public executor {
   public:
 	struct policy_set {
-		std::optional<std::chrono::milliseconds> progress_warning_timeout = std::chrono::seconds(3);
+		std::optional<std::chrono::milliseconds> progress_warning_timeout = std::chrono::seconds(20);
 	};
 
 	/// Operations are dispatched to `backend` and `root_comm` or one of its clones.

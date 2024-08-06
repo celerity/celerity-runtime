@@ -277,7 +277,7 @@ void executor_impl::check_progress() {
 				if(!instr_list.empty()) instr_list += ", ";
 				fmt::format_to(std::back_inserter(instr_list), "I{}", in_flight.instr->get_id());
 			}
-			CELERITY_WARN("[executor] no progress for {:.2f}, might be stuck. Active instructions: {}", as_sub_second(elapsed_since_last_progress),
+			CELERITY_WARN("[executor] no progress for {:.0f}, might be stuck. Active instructions: {}", as_sub_second(elapsed_since_last_progress),
 			    in_flight_async_instructions.empty() ? "none" : instr_list);
 			progress_warning_emitted = true;
 		}
