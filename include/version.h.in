@@ -1,5 +1,9 @@
 #pragma once
 
+#cmakedefine01 CELERITY_SYCL_IS_ACPP
+#cmakedefine01 CELERITY_SYCL_IS_DPCPP
+#cmakedefine01 CELERITY_SYCL_IS_SIMSYCL
+
 // CELERITY_DETAIL_ENABLE_DEBUG is specified on the command line
 #cmakedefine01 CELERITY_USE_MIMALLOC
 #cmakedefine01 CELERITY_DETAIL_HAS_NAMED_THREADS

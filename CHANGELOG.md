@@ -20,6 +20,7 @@ See our [platform support guide](docs/platform-support.md) for a complete list o
 
 - Add support for SimSYCL as a SYCL implementation (#238)
 - Extend compiler support to GCC (optionally with sanitizers) and C++20 code bases (#238)
+- The active SYCL implementation can now be queried via `CELERITY_SYCL_IS_*` macros (#??)
 
 ### Changed
 
