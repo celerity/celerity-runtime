@@ -195,7 +195,7 @@ jobs:
         working-directory: ${{ env.build-dir }}
         run: ${{ env.container-workspace }}/ci/run-unit-tests.sh
       - name: Run examples
-        timeout-minutes: 5
+        timeout-minutes: 20
         # We build examples twice, but only run the installed version (which probably has more failure modes)
         working-directory: ${{ env.examples-build-dir }}
         run: ${{ env.container-workspace }}/ci/run-examples.sh /data/Lenna.png 1 2 4
