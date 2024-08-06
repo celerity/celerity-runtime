@@ -7,6 +7,8 @@
 #include "thread_queue.h"
 #include "types.h"
 
+#include <fmt/ranges.h>
+
 namespace celerity::detail::sycl_backend_detail {
 
 bool sycl_event::is_complete() { return m_last.get_info<sycl::info::event::command_execution_status>() == sycl::info::event_command_status::complete; }
