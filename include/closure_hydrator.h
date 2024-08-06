@@ -7,6 +7,7 @@
 #include "ranges.h"
 #include "sycl_wrappers.h"
 #include "types.h"
+#include "version.h"
 
 namespace celerity::detail {
 
