@@ -1,4 +1,5 @@
 #include "named_threads.h"
+#include "version.h"
 
 #include <cassert>
 #include <type_traits>

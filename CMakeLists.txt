@@ -180,11 +180,22 @@ if(CELERITY_USE_MIMALLOC)
   fetch_content_from_submodule(mimalloc vendor/mimalloc)
 endif()
 
-configure_file(include/version.h.in include/version.h @ONLY)
+if(CELERITY_TRACY_SUPPORT)
+  set(TRACY_FIBERS ON CACHE BOOL "" FORCE)
+  set(TRACY_STATIC OFF CACHE BOOL "" FORCE)
+  set(TRACY_NO_SAMPLING ON CACHE BOOL "" FORCE)
+  set(TRACY_NO_SYSTEM_TRACING ON CACHE BOOL "" FORCE)
+  fetch_content_from_submodule(Tracy vendor/tracy)
+endif()
+
+# Deprecated feature flags
+set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
+set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS ON)
+set(CELERITY_FEATURE_LOCAL_ACCESSOR ON)
+set(CELERITY_FEATURE_UNNAMED_KERNELS ON)
 
 # Add includes to library so they show up in IDEs
 file(GLOB_RECURSE INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
-list(APPEND INCLUDES "${CMAKE_CURRENT_BINARY_DIR}/include/version.h")
 
 if(CMAKE_GENERATOR STREQUAL "Ninja")
   # Force colored warnings in Ninja's output, if the compiler has -fdiagnostics-color support.
@@ -228,6 +239,9 @@ elseif(UNIX)
   set(SOURCES ${SOURCES} src/platform_specific/named_threads.unix.cc)
 endif()
 
+configure_file(include/version.h.in include/version.h @ONLY)
+list(APPEND INCLUDES "${CMAKE_CURRENT_BINARY_DIR}/include/version.h")
+
 add_library(
   celerity_runtime
   STATIC
@@ -261,6 +275,10 @@ if(CELERITY_USE_MIMALLOC)
   target_link_libraries(celerity_runtime PUBLIC mimalloc)
 endif()
 
+if(CELERITY_TRACY_SUPPORT)
+  target_link_libraries(celerity_runtime PUBLIC Tracy::TracyClient)
+endif()
+
 target_link_libraries(celerity_runtime PUBLIC
   Threads::Threads
   MPI::MPI_CXX
@@ -273,12 +291,6 @@ target_link_libraries(celerity_runtime PUBLIC
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/backend)
 target_link_libraries(celerity_runtime PUBLIC celerity_backends)
-
-# Deprecated feature flags
-set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
-set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS ON)
-set(CELERITY_FEATURE_LOCAL_ACCESSOR ON)
-set(CELERITY_FEATURE_UNNAMED_KERNELS ON)
 
 # For debug builds, we set the CELERITY_DETAIL_ENABLE_DEBUG preprocessor flag,
 # which allows Celerity to control debug functionality within headers regardless
@@ -294,16 +306,8 @@ target_compile_definitions(celerity_runtime PUBLIC
   # We still mark this as PUBLIC during builds (but not installation),
   # so that the examples and tests receive the correct flag as well.
   $<BUILD_INTERFACE:
-    $<$<CONFIG:Debug>:CELERITY_DETAIL_ENABLE_DEBUG>
+    CELERITY_DETAIL_ENABLE_DEBUG=$<CONFIG:Debug>
   >
-  CELERITY_USE_MIMALLOC=$<BOOL:${CELERITY_USE_MIMALLOC}>
-  CELERITY_FEATURE_SCALAR_REDUCTIONS=$<BOOL:${CELERITY_FEATURE_SCALAR_REDUCTIONS}>
-  CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS=$<BOOL:${CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS}>
-  CELERITY_FEATURE_LOCAL_ACCESSOR=$<BOOL:${CELERITY_FEATURE_LOCAL_ACCESSOR}>
-  CELERITY_FEATURE_UNNAMED_KERNELS=$<BOOL:${CELERITY_FEATURE_UNNAMED_KERNELS}>
-  CELERITY_DETAIL_HAS_NAMED_THREADS=$<BOOL:${CELERITY_DETAIL_HAS_NAMED_THREADS}>
-  CELERITY_ACCESSOR_BOUNDARY_CHECK=$<BOOL:${CELERITY_ACCESSOR_BOUNDARY_CHECK}>
-  CELERITY_ACCESS_PATTERN_DIAGNOSTICS=$<BOOL:${CELERITY_ACCESS_PATTERN_DIAGNOSTICS}>
 )
 
 # Collect version information from git in src/version.cc. This target is always out of date, but the timestamp
@@ -331,7 +335,7 @@ add_sycl_to_target(
 if(MSVC)
   target_compile_options(celerity_runtime PRIVATE /MP /W3)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self)
+  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self -Werror=undef)
 endif()
 
 target_compile_options(celerity_runtime PUBLIC "${CELERITY_CXX_FLAGS}")

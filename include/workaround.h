@@ -1,5 +1,7 @@
 #pragma once
 
+#include "version.h"
+
 #include <cassert>
 
 #include <sycl/sycl.hpp>

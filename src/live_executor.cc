@@ -10,6 +10,7 @@
 #include "system_info.h"
 #include "types.h"
 #include "utils.h"
+#include "version.h"
 
 #include <memory>
 #include <optional>

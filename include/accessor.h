@@ -10,6 +10,7 @@
 #include "closure_hydrator.h"
 #include "handler.h"
 #include "sycl_wrappers.h"
+#include "version.h"
 
 namespace celerity {
 
