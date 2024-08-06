@@ -346,6 +346,10 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self)
 endif()
 
+if(CMAKE_COMPILER_ID STREQUAL "GNU")
+  target_compile_options(celerity_runtime PRIVATE -Wno-array-bounds -Wno-stringop-overflow)  # false positives with GCC 13.2
+endif()
+
 target_compile_options(celerity_runtime PUBLIC "${CELERITY_CXX_FLAGS}")
 target_link_options(celerity_runtime PUBLIC "${CELERITY_LINK_FLAGS}")
 
