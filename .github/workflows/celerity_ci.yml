@@ -68,7 +68,7 @@ jobs:
       # variable contains the path on the container host (but $GITHUB_WORKSPACE is correct).
       - name: Set container workspace environment variable
         run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       # We only want to configure CMake, so we build the "help" target,
@@ -105,7 +105,7 @@ jobs:
     outputs:
       matrix: ${{ steps.read-json-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - id: read-json-matrix
         name: Read build matrix from file
         shell: python
@@ -159,7 +159,7 @@ jobs:
           echo "SIMSYCL_SYSTEM=$GITHUB_WORKSPACE/ci/simsycl-system.json" >> $GITHUB_ENV
       - name: Print exact SYCL revision used for this CI run
         run: cat /VERSION
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Build and install Celerity
@@ -167,7 +167,7 @@ jobs:
       # Upload build log for report step
       - name: Upload build logs
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ env.build-name }}
           path: ${{ env.build-name }}.log
@@ -210,7 +210,7 @@ jobs:
         run: ${{ env.container-workspace }}/test/integration/run-integration-tests.py . ${{ matrix.platform }}
       - name: Upload stack traces (if any)
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ env.build-name }}
           path: |
@@ -290,7 +290,7 @@ jobs:
     steps:
       - name: Set container workspace environment variable
         run: echo "container-workspace=$GITHUB_WORKSPACE" > $GITHUB_ENV
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Check code formatting
         id: formatting
         working-directory: ${{ env.container-workspace }}
