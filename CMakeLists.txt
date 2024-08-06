@@ -241,6 +241,18 @@ elseif(UNIX)
   set(SOURCES ${SOURCES} src/platform_specific/named_threads.unix.cc)
 endif()
 
+# Read by configure_file()
+set(CELERITY_SYCL_IS_ACPP OFF)
+set(CELERITY_SYCL_IS_DPCPP OFF)
+set(CELERITY_SYCL_IS_SIMSYCL OFF)
+if(CELERITY_SYCL_IMPL STREQUAL "AdaptiveCpp")
+  set(CELERITY_SYCL_IS_ACPP ON)
+elseif(CELERITY_SYCL_IMPL STREQUAL "DPC++")
+  set(CELERITY_SYCL_IS_DPCPP ON)
+elseif(CELERITY_SYCL_IMPL STREQUAL "SimSYCL")
+  set(CELERITY_SYCL_IS_SIMSYCL ON)
+endif()
+
 configure_file(include/version.h.in include/version.h @ONLY)
 list(APPEND INCLUDES "${CMAKE_CURRENT_BINARY_DIR}/include/version.h")
 
