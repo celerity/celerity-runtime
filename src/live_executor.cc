@@ -41,7 +41,8 @@ struct boundary_check_info {
 #endif
 
 struct async_instruction_state {
-	const instruction* instr = nullptr;
+	instruction_id iid = -1;
+	allocation_id alloc_aid = null_allocation_id; ///< non-null iff instruction is an alloc_instruction
 	async_event event;
 	CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(std::unique_ptr<boundary_check_info> oob_info;) // unique_ptr: oob_info is optional and rather large
 };
@@ -213,23 +214,21 @@ void executor_impl::retire_async_instruction(async_instruction_state& async) {
 
 	if(spdlog::should_log(spdlog::level::trace)) {
 		if(const auto native_time = async.event.get_native_execution_time(); native_time.has_value()) {
-			CELERITY_TRACE("[executor] retired I{} after {:.2f}", async.instr->get_id(), as_sub_second(*native_time));
+			CELERITY_TRACE("[executor] retired I{} after {:.2f}", async.iid, as_sub_second(*native_time));
 		} else {
-			CELERITY_TRACE("[executor] retired I{}", async.instr->get_id());
+			CELERITY_TRACE("[executor] retired I{}", async.iid);
 		}
 	}
 
-	if(utils::isa<alloc_instruction>(async.instr)) {
-		const auto ainstr = utils::as<alloc_instruction>(async.instr);
+	if(async.alloc_aid != null_allocation_id) {
 		const auto ptr = async.event.get_result();
 		assert(ptr != nullptr && "backend allocation returned nullptr");
-		const auto aid = ainstr->get_allocation_id();
-		CELERITY_TRACE("[executor] {} allocated as {}", aid, ptr);
-		assert(allocations.count(aid) == 0);
-		allocations.emplace(aid, ptr);
+		CELERITY_TRACE("[executor] {} allocated as {}", async.alloc_aid, ptr);
+		assert(allocations.count(async.alloc_aid) == 0);
+		allocations.emplace(async.alloc_aid, ptr);
 	}
 
-	engine.complete_assigned(async.instr);
+	engine.complete_assigned(async.iid);
 }
 
 template <typename Instr>
@@ -239,8 +238,10 @@ auto executor_impl::dispatch(const Instr& instr, const out_of_order_engine::assi
 {
 	assert(assignment.target == out_of_order_engine::target::immediate);
 	assert(!assignment.lane.has_value());
-	issue(instr); // completes immediately
-	engine.complete_assigned(&instr);
+
+	const auto iid = instr.get_id(); // instr may dangle after issue()
+	issue(instr);                    // completes immediately
+	engine.complete_assigned(iid);
 }
 
 template <typename Instr>
@@ -249,7 +250,7 @@ auto executor_impl::dispatch(const Instr& instr, const out_of_order_engine::assi
     -> decltype(issue_async(instr, assignment, std::declval<async_instruction_state&>())) //
 {
 	auto& async = in_flight_async_instructions.emplace_back();
-	async.instr = assignment.instruction;
+	async.iid = assignment.instruction->get_id();
 	issue_async(instr, assignment, async); // stores event in `async` and completes asynchronously
 }
 
@@ -275,7 +276,7 @@ void executor_impl::check_progress() {
 			std::string instr_list;
 			for(auto& in_flight : in_flight_async_instructions) {
 				if(!instr_list.empty()) instr_list += ", ";
-				fmt::format_to(std::back_inserter(instr_list), "I{}", in_flight.instr->get_id());
+				fmt::format_to(std::back_inserter(instr_list), "I{}", in_flight.iid);
 			}
 			CELERITY_WARN("[executor] no progress for {:.2f}, might be stuck. Active instructions: {}", as_sub_second(elapsed_since_last_progress),
 			    in_flight_async_instructions.empty() ? "none" : instr_list);
@@ -328,7 +329,7 @@ void executor_impl::issue(const reduce_instruction& rinstr) {
 	reduction.reduce(dest_allocation, gather_allocation, rinstr.get_num_source_values());
 }
 
-void executor_impl::issue(const fence_instruction& finstr) { // NOLINT(readability-convert-member-functions-to-static)
+void executor_impl::issue(const fence_instruction& finstr) { // NOLINT(readability-make-member-function-const, readability-convert-member-functions-to-static)
 	CELERITY_TRACE("[executor] I{}: fence", finstr.get_id());
 
 	finstr.get_promise()->fulfill();
@@ -382,6 +383,7 @@ void executor_impl::issue_async(const alloc_instruction& ainstr, const out_of_or
 	} else {
 		async.event = backend->enqueue_host_alloc(ainstr.get_size_bytes(), ainstr.get_alignment_bytes());
 	}
+	async.alloc_aid = ainstr.get_allocation_id(); // setting alloc_aid != null will make `retire_async_instruction` insert the result into `allocations`
 }
 
 void executor_impl::issue_async(const free_instruction& finstr, const out_of_order_engine::assignment& assignment, async_instruction_state& async) {

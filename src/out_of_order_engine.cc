@@ -36,7 +36,7 @@ struct unassigned_state {
 struct conditional_eagerly_assignable_state {
 	std::optional<device_id> device;
 	lane_id lane = -1;
-	const instruction* expected_last_submission_on_lane = nullptr;
+	std::optional<instruction_id> expected_last_submission_on_lane; // instruction_id, because past instruction pointers may dangle
 };
 
 /// Instruction is inserted into `assignment_queue` and will be unconditionally assigned after being popped.
@@ -71,7 +71,7 @@ struct incomplete_instruction_state {
 /// State maintained per host thread queue or device in-order queue.
 struct lane_state {
 	size_t num_in_flight_assigned_instructions = 0;
-	const instruction* last_incomplete_submission = nullptr;
+	std::optional<instruction_id> last_incomplete_submission; // instruction_id, because past instruction pointers may dangle
 };
 
 /// State maintained for every "multi-lane" target, i.e., `target::host_queue` and `target::device_queue[num_devices]`.
@@ -119,7 +119,7 @@ struct engine_impl {
 
 	void submit(const instruction* const instr);
 
-	void complete(const instruction* const instr);
+	void complete(const instruction_id iid);
 
 	bool is_idle() const;
 
@@ -205,18 +205,18 @@ void engine_impl::try_mark_for_assignment(incomplete_instruction_state& node) {
 			if(eagerly_assignable_now->lane != dep_assigned.lane) return;     // there are dependencies on multiple lanes
 		} else {
 			assert(dep_assigned.lane.has_value());
-			eagerly_assignable_now = conditional_eagerly_assignable_state{dep_assigned.device, *dep_assigned.lane};
+			eagerly_assignable_now = conditional_eagerly_assignable_state{dep_assigned.device, *dep_assigned.lane, std::nullopt};
 		}
 
 		auto& lane = get_lane_state(node.target, eagerly_assignable_now->device, eagerly_assignable_now->lane);
-		if(lane.last_incomplete_submission == dep.instr) { eagerly_assignable_now->expected_last_submission_on_lane = dep.instr; }
+		if(lane.last_incomplete_submission == dep_iid) { eagerly_assignable_now->expected_last_submission_on_lane = dep_iid; }
 	}
 
 	// If we didn't return early so far (1) all incomplete dependencies are on the same lane
 	assert(eagerly_assignable_now.has_value()); // otherwise num_incomplete_predecessors would have been == 0 above
 
 	// Only if (2) one of the incomplete dependencies was last in the target lane will this be non-null
-	if(eagerly_assignable_now->expected_last_submission_on_lane == nullptr) return;
+	if(!eagerly_assignable_now->expected_last_submission_on_lane.has_value()) return;
 
 	node.assignment = *eagerly_assignable_now;
 	assignment_queue.push(node.instr);
@@ -304,8 +304,8 @@ void engine_impl::submit(const instruction* const instr) {
 	try_mark_for_assignment(node);
 }
 
-void engine_impl::complete(const instruction* const instr) {
-	const auto node_it = incomplete_instructions.find(instr->get_id());
+void engine_impl::complete(const instruction_id iid) {
+	const auto node_it = incomplete_instructions.find(iid);
 	assert(node_it != incomplete_instructions.end());
 	auto deleted_node = std::move(node_it->second); // move so we can access members / iterate successors after erasure
 	incomplete_instructions.erase(node_it);
@@ -317,7 +317,7 @@ void engine_impl::complete(const instruction* const instr) {
 		auto& lane = get_lane_state(deleted_node.target, was_assigned.device, *was_assigned.lane);
 		assert(lane.num_in_flight_assigned_instructions > 0);
 		lane.num_in_flight_assigned_instructions -= 1;
-		if(lane.last_incomplete_submission == instr) { lane.last_incomplete_submission = nullptr; }
+		if(lane.last_incomplete_submission == iid) { lane.last_incomplete_submission = std::nullopt; }
 	}
 
 	for(const auto succ_iid : deleted_node.successors) {
@@ -360,7 +360,7 @@ incomplete_instruction_state* engine_impl::pop_assignable() {
 
 		if(const auto eagerly_assignable_when_pushed = std::get_if<conditional_eagerly_assignable_state>(&node.assignment)) {
 			assert(node.num_incomplete_predecessors > 0); // otherwise this would be an immediately_assignable_state
-			assert(eagerly_assignable_when_pushed->expected_last_submission_on_lane != nullptr);
+			assert(eagerly_assignable_when_pushed->expected_last_submission_on_lane.has_value());
 			const auto& lane = get_lane_state(node.target, eagerly_assignable_when_pushed->device, eagerly_assignable_when_pushed->lane);
 			if(lane.last_incomplete_submission == eagerly_assignable_when_pushed->expected_last_submission_on_lane) {
 				// Our preferred lane is still in the required state to go through with eager assignment
@@ -398,7 +398,7 @@ std::optional<assignment> engine_impl::assign_one() {
 		assigned.device = eagerly_assignable->device;
 		assigned.lane = eagerly_assignable->lane;
 		assert(
-		    assigned.lane.has_value() && eagerly_assignable->expected_last_submission_on_lane != nullptr
+		    assigned.lane.has_value() && eagerly_assignable->expected_last_submission_on_lane.has_value()
 		    && get_lane_state(node.target, assigned.device, *assigned.lane).last_incomplete_submission == eagerly_assignable->expected_last_submission_on_lane);
 	} else {
 		if(!node.eligible_devices.empty()) {
@@ -418,7 +418,7 @@ std::optional<assignment> engine_impl::assign_one() {
 	if(assigned.lane.has_value()) {
 		auto& lane = get_lane_state(node.target, assigned.device, *assigned.lane);
 		lane.num_in_flight_assigned_instructions += 1;
-		lane.last_incomplete_submission = node.instr;
+		lane.last_incomplete_submission = node.instr->get_id();
 	}
 
 	for(const auto successor : node.successors) {
@@ -441,7 +441,7 @@ out_of_order_engine::out_of_order_engine(const system_info& system) : m_impl(new
 out_of_order_engine::~out_of_order_engine() = default;
 bool out_of_order_engine::is_idle() const { return m_impl->is_idle(); }
 void out_of_order_engine::submit(const instruction* const instr) { m_impl->submit(instr); }
-void out_of_order_engine::complete_assigned(const instruction* instr) { m_impl->complete(instr); }
+void out_of_order_engine::complete_assigned(const instruction_id iid) { m_impl->complete(iid); }
 std::optional<out_of_order_engine::assignment> out_of_order_engine::assign_one() { return m_impl->assign_one(); }
 
 } // namespace celerity::detail
