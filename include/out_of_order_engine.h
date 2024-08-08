@@ -77,7 +77,7 @@ class out_of_order_engine {
 
 	/// Call once an instruction that was previously returned from `assign_one` has completed synchronously or asynchronously. For simplicity it is permitted
 	/// to mark assigned instructions as completed in any order, even if that would violate internal dependency order.
-	void complete_assigned(const instruction* instr);
+	void complete_assigned(const instruction_id iid);
 
   private:
 	std::unique_ptr<out_of_order_engine_detail::engine_impl> m_impl;

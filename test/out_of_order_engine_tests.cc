@@ -138,7 +138,7 @@ class out_of_order_test_context {
 		return create<epoch_instruction>(dependencies, priority, task_id(0), epoch_action::none, instruction_garbage{});
 	}
 
-	void complete(const instruction* instr) { m_engine.complete_assigned(instr); }
+	void complete(const instruction* instr) { m_engine.complete_assigned(instr->get_id()); }
 
 	std::optional<out_of_order_engine::assignment> assign_one() {
 		const auto assignment = m_engine.assign_one();
