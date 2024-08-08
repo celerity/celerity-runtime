@@ -1,0 +1,44 @@
+# For use with 🥬doc - https://github.com/celerity/leafy-green-doc
+
+[project]
+name = "Celerity"
+version = "0.5.0"
+
+# Optional, adding this will enable direct links from the documentation
+# to your source code.
+git_repo_url = "https://github.com/celerity/celerity-runtime/"
+git_default_branch = "master"
+
+[paths]
+compile_commands = "compile_commands.json"
+output_dir = "hdoc-output"
+
+[ignore]
+paths = [
+    # various build folders
+    "/build/",
+    "/build_",
+    "/build-",
+    "/_deps/",
+    # other code that should be ignored
+    "test/",
+    "examples/",
+    "vendor/",
+]
+namespaces = [
+    # nothing in these namspaces is relevant for the user
+    "env",
+    "std",
+    "fmt",
+]
+
+[detail]
+namespaces = [
+    "detail",
+]
+
+[pages]
+homepage = "README.md"
+
+[output]
+minimal = true # change this to "false" to generate a full standalone version of the documentation
