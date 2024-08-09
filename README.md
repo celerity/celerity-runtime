@@ -124,3 +124,8 @@ Celerity's runtime behavior:
 - `CELERITY_HORIZON_STEP` and `CELERITY_HORIZON_MAX_PARALLELISM` determine the
   maximum number of sequential and parallel tasks, respectively, before a new
   [horizon task](https://doi.org/10.1007/s42979-024-02749-w) is introduced.
+- `CELERITY_TRACY` controls the Tracy profiler integration. Set to `off` to disable,
+  `fast` for light integration with little runtime overhead, and `full` for
+  integration with extensive performance debug information included in the trace.
+  Only available if integration was enabled enabled at build time through the
+  CMake option `-DCELERITY_TRACY_SUPPORT=ON`. 

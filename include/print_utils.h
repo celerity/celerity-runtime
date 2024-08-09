@@ -1,6 +1,7 @@
 #pragma once
 
 #include "backend/sycl_backend.h"
+#include "command.h"
 #include "grid.h"
 #include "intrusive_graph.h"
 #include "ranges.h"
@@ -8,6 +9,7 @@
 #include "utils.h"
 
 #include <chrono>
+#include <type_traits>
 
 #include <fmt/format.h>
 
@@ -172,6 +174,25 @@ struct fmt::formatter<celerity::detail::transfer_id> {
 };
 
 template <>
+struct fmt::formatter<celerity::detail::command_type> : fmt::formatter<std::string_view> {
+	format_context::iterator format(const celerity::detail::command_type type, format_context& ctx) const {
+		const auto repr = [=]() -> std::string_view {
+			switch(type) {
+			case celerity::detail::command_type::epoch: return "epoch";
+			case celerity::detail::command_type::horizon: return "horizon";
+			case celerity::detail::command_type::execution: return "execution";
+			case celerity::detail::command_type::push: return "push";
+			case celerity::detail::command_type::await_push: return "await push";
+			case celerity::detail::command_type::reduction: return "reduction";
+			case celerity::detail::command_type::fence: return "fence";
+			default: return "???";
+			}
+		}();
+		return std::copy(repr.begin(), repr.end(), ctx.out());
+	}
+};
+
+template <>
 struct fmt::formatter<celerity::detail::sycl_backend_type> : fmt::formatter<std::string_view> {
 	format_context::iterator format(const celerity::detail::sycl_backend_type type, format_context& ctx) const {
 		const auto repr = [=]() -> std::string_view {
@@ -194,6 +215,21 @@ struct as_sub_second {
 	std::chrono::duration<double> seconds;
 };
 
+/// Wrap a byte count in this to auto-format it as KB / MB / etc.
+struct as_decimal_size {
+	template <typename Number, std::enable_if_t<std::is_arithmetic_v<Number>, int> = 0>
+	as_decimal_size(const Number bytes) : bytes(static_cast<double>(bytes)) {}
+	double bytes;
+};
+
+/// Wrap a byte-per-second ratio in this to auto-format it as KB/s, MB/s, ...
+struct as_decimal_throughput {
+	template <typename Rep, typename Period>
+	as_decimal_throughput(size_t bytes, const std::chrono::duration<Rep, Period>& duration)
+	    : bytes_per_sec(static_cast<double>(bytes) / std::chrono::duration_cast<std::chrono::duration<double>>(duration).count()) {}
+	double bytes_per_sec;
+};
+
 } // namespace celerity::detail
 
 template <>
@@ -207,6 +243,29 @@ struct fmt::formatter<celerity::detail::as_sub_second> : fmt::formatter<double> 
 			if(std::abs(unit_time) < 1.0) { unit_time *= 1000.0, unit = " ns"; }
 		}
 		auto out = fmt::formatter<double>::format(unit_time, ctx);
+		return std::copy(unit.begin(), unit.end(), out);
+	}
+};
+
+template <>
+struct fmt::formatter<celerity::detail::as_decimal_size> : fmt::formatter<double> {
+	format_context::iterator format(const celerity::detail::as_decimal_size bs, format_context& ctx) const {
+		std::string_view unit = " bytes";
+		double unit_size = static_cast<double>(bs.bytes);
+		if(unit_size >= 1000) { unit_size /= 1000, unit = " kB"; }
+		if(unit_size >= 1000) { unit_size /= 1000, unit = " MB"; }
+		if(unit_size >= 1000) { unit_size /= 1000, unit = " GB"; }
+		if(unit_size >= 1000) { unit_size /= 1000, unit = " TB"; }
+		auto out = fmt::formatter<double>::format(unit_size, ctx);
+		return std::copy(unit.begin(), unit.end(), out);
+	}
+};
+
+template <>
+struct fmt::formatter<celerity::detail::as_decimal_throughput> : fmt::formatter<celerity::detail::as_decimal_size> {
+	format_context::iterator format(const celerity::detail::as_decimal_throughput bt, format_context& ctx) const {
+		auto out = fmt::formatter<celerity::detail::as_decimal_size>::format(celerity::detail::as_decimal_size(bt.bytes_per_sec), ctx);
+		const std::string_view unit = "/s";
 		return std::copy(unit.begin(), unit.end(), out);
 	}
 };

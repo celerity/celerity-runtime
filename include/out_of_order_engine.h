@@ -67,6 +67,9 @@ class out_of_order_engine {
 	/// True when all submitted instructions have completed.
 	bool is_idle() const;
 
+	/// Returns the number of instructions currently awaiting normal or eager assignment (diagnostic use only).
+	size_t get_assignment_queue_length() const;
+
 	/// Begin tracking an instruction so that it is eventually returned through `assign_one`. Must be called in topological order of dependencies, i.e. no
 	/// instruction must be submitted before one of its predecessors in the graph.
 	void submit(const instruction* instr);

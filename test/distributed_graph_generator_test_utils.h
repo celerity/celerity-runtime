@@ -311,8 +311,7 @@ class command_query {
 		return for_all_commands([expected](const node_id nid, const abstract_command* cmd) {
 			const auto received = cmd->get_type();
 			if(received != expected) {
-				UNSCOPED_INFO(fmt::format("Expected command {} on node {} to have type '{}' but found type '{}'", cmd->get_cid(), nid, get_type_name(expected),
-				    get_type_name(received)));
+				UNSCOPED_INFO(fmt::format("Expected command {} on node {} to have type '{}' but found type '{}'", cmd->get_cid(), nid, expected, received));
 				return false;
 			}
 			return true;
@@ -468,19 +467,6 @@ class command_query {
 	template <typename T, typename... Ts>
 	static constexpr std::optional<T> get_optional(Ts... ts) {
 		return get_optional<T>(std::tuple(ts...));
-	}
-
-	static std::string get_type_name(const command_type type) {
-		switch(type) {
-		case command_type::epoch: return "epoch";
-		case command_type::horizon: return "horizon";
-		case command_type::execution: return "execution";
-		case command_type::push: return "push";
-		case command_type::await_push: return "await_push";
-		case command_type::reduction: return "reduction";
-		case command_type::fence: return "fence";
-		default: return "<unknown>";
-		}
 	}
 };
 

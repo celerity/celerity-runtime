@@ -32,6 +32,7 @@
 #include "scheduler.h"
 #include "system_info.h"
 #include "task_manager.h"
+#include "tracy.h"
 #include "version.h"
 
 namespace celerity {
@@ -40,6 +41,7 @@ namespace detail {
 	std::unique_ptr<runtime> runtime::s_instance = nullptr;
 
 	void runtime::mpi_initialize_once(int* argc, char*** argv) {
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("mpi::init", LightSkyBlue, "MPI_Init");
 		assert(!s_mpi_initialized);
 		int provided;
 		MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
@@ -48,6 +50,7 @@ namespace detail {
 	}
 
 	void runtime::mpi_finalize_once() {
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("mpi::finalize", LightSkyBlue, "MPI_Finalize");
 		assert(s_mpi_initialized && !s_mpi_finalized && (!s_test_mode || !s_instance));
 		MPI_Finalize();
 		s_mpi_finalized = true;
@@ -104,8 +107,42 @@ namespace detail {
 #endif
 	}
 
+	static host_config get_mpi_host_config() {
+		// Determine the "host config", i.e., how many nodes are spawned on this host,
+		// and what this node's local rank is. We do this by finding all world-ranks
+		// that can use a shared-memory transport (if running on OpenMPI, use the
+		// per-host split instead).
+#ifdef OPEN_MPI
+#define SPLIT_TYPE OMPI_COMM_TYPE_HOST
+#else
+		// TODO: Assert that shared memory is available (i.e. not explicitly disabled)
+#define SPLIT_TYPE MPI_COMM_TYPE_SHARED
+#endif
+		MPI_Comm host_comm = nullptr;
+		MPI_Comm_split_type(MPI_COMM_WORLD, SPLIT_TYPE, 0, MPI_INFO_NULL, &host_comm);
+
+		int local_rank = 0;
+		MPI_Comm_rank(host_comm, &local_rank);
+
+		int node_count = 0;
+		MPI_Comm_size(host_comm, &node_count);
+
+		host_config host_cfg;
+		host_cfg.local_rank = local_rank;
+		host_cfg.node_count = node_count;
+
+		MPI_Comm_free(&host_comm);
+
+		return host_cfg;
+	}
+
 	runtime::runtime(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector) {
 		m_application_thread = std::this_thread::get_id();
+
+		m_cfg = std::make_unique<config>(argc, argv);
+
+		CELERITY_DETAIL_IF_TRACY_SUPPORTED(tracy_detail::g_tracy_mode = m_cfg->get_tracy_mode());
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("runtime::startup", DarkGray);
 
 		if(s_test_mode) {
 			assert(s_test_active && "initializing the runtime from a test without a runtime_fixture");
@@ -114,24 +151,27 @@ namespace detail {
 			mpi_initialize_once(argc, argv);
 		}
 
-		m_cfg = std::make_unique<config>(argc, argv);
+		int world_size = -1;
+		int world_rank = -1;
+		MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+		MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
+		host_config host_cfg;
 		if(m_cfg->is_dry_run()) {
+			if(world_size != 1) throw std::runtime_error("In order to run with CELERITY_DRY_RUN_NODES a single MPI process/rank must be used.");
 			m_num_nodes = static_cast<size_t>(m_cfg->get_dry_run_nodes());
 			m_local_nid = 0;
+			host_cfg.node_count = 1;
+			host_cfg.local_rank = 0;
 		} else {
-			int world_size = -1;
-			MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 			m_num_nodes = static_cast<size_t>(world_size);
-
-			int world_rank = -1;
-			MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 			m_local_nid = static_cast<node_id>(world_rank);
+			host_cfg = get_mpi_host_config();
 		}
 
-		if(!s_test_mode) { // do not touch logger settings in tests, where the full (trace) logs are captured
+		// Do not touch logger settings in tests, where the full (trace) logs are captured
+		if(!s_test_mode) {
 			spdlog::set_level(m_cfg->get_log_level());
-			// TODO is the runtime ctor really the right place to set these globals?
 			spdlog::set_pattern(fmt::format("[%Y-%m-%d %H:%M:%S.%e] [{:0{}}] [%^%l%$] %v", m_local_nid, int(ceil(log10(double(m_num_nodes))))));
 		}
 
@@ -146,14 +186,24 @@ namespace detail {
 		}
 #endif
 
+		if(!s_test_mode && m_cfg->get_tracy_mode() != tracy_mode::off) {
+			if constexpr(CELERITY_TRACY_SUPPORT) {
+				CELERITY_WARN("Profiling with Tracy is enabled. Performance may be negatively impacted.");
+			} else {
+				CELERITY_WARN("CELERITY_TRACY is set, but Celerity was compiled without Tracy support. Ignoring.");
+			}
+		}
+
 		cgf_diagnostics::make_available();
 
-		auto devices = std::visit(
-		    [&](const auto& value) { return pick_devices(m_cfg->get_host_config(), value, sycl::platform::get_platforms()); }, user_devices_or_selector);
-		assert(!devices.empty()); // postcondition of pick_devices
+		std::vector<sycl::device> devices;
+		{
+			CELERITY_DETAIL_TRACY_ZONE_SCOPED("runtime::pick_devices", PaleVioletRed);
+			devices = std::visit([&](const auto& value) { return pick_devices(host_cfg, value, sycl::platform::get_platforms()); }, user_devices_or_selector);
+			assert(!devices.empty()); // postcondition of pick_devices
+		}
 
-		const bool enable_profiling = m_cfg->get_enable_device_profiling().value_or(false);
-		auto backend = make_sycl_backend(select_backend(sycl_backend_enumerator{}, devices), devices, enable_profiling);
+		auto backend = make_sycl_backend(select_backend(sycl_backend_enumerator{}, devices), devices, m_cfg->should_enable_device_profiling());
 		const auto system = backend->get_system_info(); // backend is about to be moved
 
 		if(m_cfg->is_dry_run()) {
@@ -213,6 +263,8 @@ namespace detail {
 
 		require_call_from_application_thread();
 
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("runtime::shutdown", DimGray);
+
 		// Create and await the shutdown epoch
 		sync(epoch_action::shutdown);
 
@@ -262,10 +314,12 @@ namespace detail {
 		if(!s_test_mode) { mpi_finalize_once(); }
 	}
 
-	void runtime::sync(epoch_action action) {
+	task_id runtime::sync(epoch_action action) {
 		require_call_from_application_thread();
+
 		const auto epoch = m_task_mngr->generate_epoch_task(action);
 		m_task_mngr->await_epoch(epoch);
+		return epoch;
 	}
 
 	task_manager& runtime::get_task_manager() const {

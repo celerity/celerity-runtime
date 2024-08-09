@@ -7,6 +7,7 @@
 #include "ranges.h"
 #include "runtime.h"
 #include "sycl_wrappers.h"
+#include "tracy.h"
 
 
 namespace celerity {
@@ -99,6 +100,8 @@ class buffer {
 	/// It notifies the runtime of buffer creation and destruction and also persists changes of the buffer debug name.
 	struct tracker {
 		tracker(const celerity::range<Dims>& range, const void* const host_init_ptr) : range(range) {
+			CELERITY_DETAIL_TRACY_ZONE_SCOPED("buffer::buffer", DarkSlateBlue);
+
 			if(!detail::runtime::has_instance()) { detail::runtime::init(nullptr, nullptr); }
 			auto user_aid = detail::null_allocation_id;
 			if(host_init_ptr != nullptr) {
@@ -113,7 +116,10 @@ class buffer {
 		tracker& operator=(const tracker&) = delete;
 		tracker& operator=(tracker&&) = delete;
 
-		~tracker() { detail::runtime::get_instance().destroy_buffer(id); }
+		~tracker() {
+			CELERITY_DETAIL_TRACY_ZONE_SCOPED("buffer::~buffer", DarkCyan);
+			detail::runtime::get_instance().destroy_buffer(id);
+		}
 
 		detail::buffer_id id;
 		celerity::range<Dims> range;

@@ -87,6 +87,10 @@ Celerity comes with several example applications that are built by default.
 If you don't want to build examples, provide `-DCELERITY_BUILD_EXAMPLES=0` as
 an additional parameter to your CMake configuration call.
 
+Celerity supports runtime and application profiling with [Tracy](https://github.com/wolfpld/tracy).
+The integration disabled by default, build it with `-DCELERITY_TRACY_SUPPORT=1`. At runtime,
+it must then be enabled with the `CELERITY_TRACY` environment variable (see [README](../README.md)).
+
 ## Building and Installing
 
 After you have successfully configured CMake, building and installing

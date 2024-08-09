@@ -125,6 +125,22 @@ std::string make_task_debug_label(const task_type tt, const task_id tid, const s
 	return label;
 }
 
+std::string replace_all(const std::string_view& input, const std::string_view& pattern, const std::string_view& replacement) {
+	if(pattern.empty()) return std::string(input);
+
+	std::string output;
+	output.reserve(input.size());
+	size_t last_pos = 0;
+	size_t pos = 0;
+	while((pos = input.find(pattern, last_pos)) != std::string::npos) {
+		output.append(input, last_pos, pos - last_pos);
+		output.append(replacement);
+		last_pos = pos + pattern.size();
+	}
+	output.append(input, last_pos);
+	return output;
+}
+
 } // namespace celerity::detail::utils
 
 
