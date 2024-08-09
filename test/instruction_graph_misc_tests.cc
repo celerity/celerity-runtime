@@ -428,7 +428,7 @@ TEST_CASE("instruction_graph_generator throws in tests if it detects an uninitia
 
 	test_utils::idag_test_context::policy_set policy;
 	policy.tm.uninitialized_read_error = error_policy::ignore;    // otherwise we get task-level errors first
-	policy.dggen.uninitialized_read_error = error_policy::ignore; // otherwise we get command-level errors first
+	policy.cggen.uninitialized_read_error = error_policy::ignore; // otherwise we get command-level errors first
 
 	test_utils::idag_test_context ictx(1, 0, num_devices, true /* supports d2d copies */, policy);
 
@@ -482,7 +482,7 @@ TEST_CASE("instruction_graph_generator throws in tests if it detects overlapping
 TEST_CASE("instruction_graph_generator gracefully handles uninitialized reads when check is disabled", "[instruction_graph_generator]") {
 	test_utils::idag_test_context::policy_set policy;
 	policy.tm.uninitialized_read_error = error_policy::ignore;
-	policy.dggen.uninitialized_read_error = error_policy::ignore;
+	policy.cggen.uninitialized_read_error = error_policy::ignore;
 	policy.iggen.uninitialized_read_error = error_policy::ignore;
 
 	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* local nid */, 1 /* num devices */, true /* supports d2d copies */, policy);
@@ -550,7 +550,7 @@ TEST_CASE("instruction_graph_generator gracefully handles overlapping writes whe
 	}
 
 	test_utils::idag_test_context::policy_set policy;
-	policy.dggen.overlapping_write_error = error_policy::ignore;
+	policy.cggen.overlapping_write_error = error_policy::ignore;
 	policy.iggen.overlapping_write_error = error_policy::ignore;
 
 	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* local nid */, num_devices, true /* supports d2d copies */, policy);

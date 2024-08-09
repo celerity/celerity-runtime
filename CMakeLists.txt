@@ -205,7 +205,7 @@ endif()
 set(SOURCES
   src/command_graph.cc
   src/config.cc
-  src/distributed_graph_generator.cc
+  src/command_graph_generator.cc
   src/dry_run_executor.cc
   src/grid.cc
   src/live_executor.cc

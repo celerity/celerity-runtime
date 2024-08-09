@@ -6,7 +6,7 @@
 
 #include "command_graph.h"
 
-#include "distributed_graph_generator_test_utils.h"
+#include "command_graph_generator_test_utils.h"
 
 using namespace celerity;
 using namespace celerity::detail;

@@ -1,6 +1,6 @@
 #include "scheduler.h"
 
-#include "distributed_graph_generator.h"
+#include "command_graph_generator.h"
 #include "instruction_graph_generator.h"
 #include "log.h"
 #include "named_threads.h"
@@ -16,7 +16,7 @@ namespace detail {
 	abstract_scheduler::abstract_scheduler(const size_t num_nodes, const node_id local_node_id, const system_info& system, const task_manager& tm,
 	    delegate* const delegate, command_recorder* const crec, instruction_recorder* const irec, const policy_set& policy)
 	    : m_cdag(std::make_unique<command_graph>()), m_crec(crec),
-	      m_dggen(std::make_unique<distributed_graph_generator>(num_nodes, local_node_id, *m_cdag, tm, crec, policy.command_graph_generator)),
+	      m_cggen(std::make_unique<command_graph_generator>(num_nodes, local_node_id, *m_cdag, tm, crec, policy.command_graph_generator)),
 	      m_idag(std::make_unique<instruction_graph>()), m_irec(irec), //
 	      m_iggen(std::make_unique<instruction_graph_generator>(
 	          tm, num_nodes, local_node_id, system, *m_idag, delegate, irec, policy.instruction_graph_generator)) {}
@@ -44,7 +44,7 @@ namespace detail {
 						    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::build_task", WebMaroon, "T{} build", tsk.get_id());
 						    CELERITY_DETAIL_TRACY_ZONE_TEXT(utils::make_task_debug_label(tsk.get_type(), tsk.get_id(), tsk.get_debug_name()));
 
-						    commands = sort_topologically(m_dggen->build_task(tsk));
+						    commands = sort_topologically(m_cggen->build_task(tsk));
 					    }
 
 					    for(const auto cmd : commands) {
@@ -65,37 +65,37 @@ namespace detail {
 				    [&](const event_buffer_created& e) {
 					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
 					    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_created", DarkGreen, "B{} create", e.bid);
-					    m_dggen->notify_buffer_created(e.bid, e.range, e.user_allocation_id != null_allocation_id);
+					    m_cggen->notify_buffer_created(e.bid, e.range, e.user_allocation_id != null_allocation_id);
 					    m_iggen->notify_buffer_created(e.bid, e.range, e.elem_size, e.elem_align, e.user_allocation_id);
 				    },
 				    [&](const event_buffer_debug_name_changed& e) {
 					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
 					    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_name_changed", DarkGreen, "B{} set name", e.bid);
-					    m_dggen->notify_buffer_debug_name_changed(e.bid, e.debug_name);
+					    m_cggen->notify_buffer_debug_name_changed(e.bid, e.debug_name);
 					    m_iggen->notify_buffer_debug_name_changed(e.bid, e.debug_name);
 				    },
 				    [&](const event_buffer_destroyed& e) {
 					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
 					    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_destroyed", DarkGreen, "B{} destroy", e.bid);
-					    m_dggen->notify_buffer_destroyed(e.bid);
+					    m_cggen->notify_buffer_destroyed(e.bid);
 					    m_iggen->notify_buffer_destroyed(e.bid);
 				    },
 				    [&](const event_host_object_created& e) {
 					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
 					    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::host_object_created", DarkGreen, "H{} create", e.hoid);
-					    m_dggen->notify_host_object_created(e.hoid);
+					    m_cggen->notify_host_object_created(e.hoid);
 					    m_iggen->notify_host_object_created(e.hoid, e.owns_instance);
 				    },
 				    [&](const event_host_object_destroyed& e) {
 					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
 					    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::host_object_destroyed", DarkGreen, "H{} destroy", e.hoid);
-					    m_dggen->notify_host_object_destroyed(e.hoid);
+					    m_cggen->notify_host_object_destroyed(e.hoid);
 					    m_iggen->notify_host_object_destroyed(e.hoid);
 				    },
 				    [&](const event_epoch_reached& e) { //
 					    assert(!shutdown_epoch_reached);
 					    {
-						    // The dggen automatically prunes the CDAG on generation, which is safe because commands are not shared across threads.
+						    // The cggen automatically prunes the CDAG on generation, which is safe because commands are not shared across threads.
 						    // We might want to refactor this to match the IDAG behavior in the future.
 						    CELERITY_DETAIL_TRACY_ZONE_SCOPED("scheduler::prune_idag", Gray);
 						    m_idag->prune_before_epoch(e.tid);

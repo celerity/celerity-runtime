@@ -3,7 +3,7 @@
 #include <thread>
 #include <variant>
 
-#include "distributed_graph_generator.h"
+#include "command_graph_generator.h"
 #include "double_buffered_queue.h"
 #include "instruction_graph_generator.h"
 #include "ranges.h"
@@ -30,7 +30,7 @@ namespace detail {
 		using delegate = instruction_graph_generator::delegate;
 
 		struct policy_set {
-			detail::distributed_graph_generator::policy_set command_graph_generator;
+			detail::command_graph_generator::policy_set command_graph_generator;
 			detail::instruction_graph_generator::policy_set instruction_graph_generator;
 		};
 
@@ -106,7 +106,7 @@ namespace detail {
 
 		std::unique_ptr<command_graph> m_cdag;
 		command_recorder* m_crec;
-		std::unique_ptr<distributed_graph_generator> m_dggen;
+		std::unique_ptr<command_graph_generator> m_cggen;
 		std::unique_ptr<instruction_graph> m_idag;
 		instruction_recorder* m_irec;
 		std::unique_ptr<instruction_graph_generator> m_iggen;

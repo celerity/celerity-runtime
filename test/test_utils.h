@@ -20,7 +20,7 @@
 #include "backend/sycl_backend.h"
 #include "command.h"
 #include "command_graph.h"
-#include "distributed_graph_generator.h"
+#include "command_graph_generator.h"
 #include "print_graph.h"
 #include "range_mapper.h"
 #include "region_map.h"
@@ -198,7 +198,7 @@ namespace test_utils {
 
 	class mock_buffer_factory;
 	class mock_host_object_factory;
-	class dist_cdag_test_context;
+	class cdag_test_context;
 	class idag_test_context;
 
 	template <int Dims>
@@ -215,7 +215,7 @@ namespace test_utils {
 
 	  private:
 		friend class mock_buffer_factory;
-		friend class dist_cdag_test_context;
+		friend class cdag_test_context;
 		friend class idag_test_context;
 
 		detail::buffer_id m_id;
@@ -232,7 +232,7 @@ namespace test_utils {
 
 	  private:
 		friend class mock_host_object_factory;
-		friend class dist_cdag_test_context;
+		friend class cdag_test_context;
 		friend class idag_test_context;
 
 		detail::host_object_id m_id;
@@ -245,9 +245,9 @@ namespace test_utils {
 	  public:
 		explicit mock_buffer_factory() = default;
 		explicit mock_buffer_factory(detail::task_manager& tm) : m_task_mngr(&tm) {}
-		explicit mock_buffer_factory(detail::task_manager& tm, detail::distributed_graph_generator& dggen) : m_task_mngr(&tm), m_dggen(&dggen) {}
-		explicit mock_buffer_factory(detail::task_manager& tm, detail::distributed_graph_generator& dggen, detail::instruction_graph_generator& iggen)
-		    : m_task_mngr(&tm), m_dggen(&dggen), m_iggen(&iggen) {}
+		explicit mock_buffer_factory(detail::task_manager& tm, detail::command_graph_generator& cggen) : m_task_mngr(&tm), m_cggen(&cggen) {}
+		explicit mock_buffer_factory(detail::task_manager& tm, detail::command_graph_generator& cggen, detail::instruction_graph_generator& iggen)
+		    : m_task_mngr(&tm), m_cggen(&cggen), m_iggen(&iggen) {}
 		explicit mock_buffer_factory(detail::task_manager& tm, detail::abstract_scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
 
 		template <int Dims>
@@ -258,7 +258,7 @@ namespace test_utils {
 			    mark_as_host_initialized ? detail::allocation_id(detail::user_memory_id, m_next_user_allocation_id++) : detail::null_allocation_id;
 			if(m_task_mngr != nullptr) { m_task_mngr->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
 			if(m_schdlr != nullptr) { m_schdlr->notify_buffer_created(bid, detail::range_cast<3>(size), sizeof(int), alignof(int), user_allocation_id); }
-			if(m_dggen != nullptr) { m_dggen->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
+			if(m_cggen != nullptr) { m_cggen->notify_buffer_created(bid, detail::range_cast<3>(size), mark_as_host_initialized); }
 			if(m_iggen != nullptr) { m_iggen->notify_buffer_created(bid, detail::range_cast<3>(size), sizeof(int), alignof(int), user_allocation_id); }
 			return buf;
 		}
@@ -266,7 +266,7 @@ namespace test_utils {
 	  private:
 		detail::task_manager* m_task_mngr = nullptr;
 		detail::abstract_scheduler* m_schdlr = nullptr;
-		detail::distributed_graph_generator* m_dggen = nullptr;
+		detail::command_graph_generator* m_cggen = nullptr;
 		detail::instruction_graph_generator* m_iggen = nullptr;
 		detail::buffer_id m_next_buffer_id = 0;
 		detail::raw_allocation_id m_next_user_allocation_id = 1;

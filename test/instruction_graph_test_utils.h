@@ -1,6 +1,6 @@
 #pragma once
 
-#include "distributed_graph_generator_test_utils.h"
+#include "command_graph_generator_test_utils.h"
 #include "instruction_graph_generator.h"
 
 
@@ -488,7 +488,7 @@ class idag_test_context {
   public:
 	struct policy_set {
 		task_manager::policy_set tm;
-		distributed_graph_generator::policy_set dggen;
+		command_graph_generator::policy_set cggen;
 		instruction_graph_generator::policy_set iggen;
 	};
 
@@ -496,7 +496,7 @@ class idag_test_context {
 	    const size_t num_nodes, const node_id local_nid, const size_t num_devices_per_node, bool supports_d2d_copies = true, const policy_set& policy = {})
 	    : m_num_nodes(num_nodes), m_local_nid(local_nid), m_num_devices_per_node(num_devices_per_node),
 	      m_uncaught_exceptions_before(std::uncaught_exceptions()), m_tm(num_nodes, &m_task_recorder, policy.tm), m_cmd_recorder(), m_cdag(),
-	      m_dggen(num_nodes, local_nid, m_cdag, m_tm, &m_cmd_recorder, policy.dggen), m_instr_recorder(),
+	      m_cggen(num_nodes, local_nid, m_cdag, m_tm, &m_cmd_recorder, policy.cggen), m_instr_recorder(),
 	      m_iggen(m_tm, num_nodes, local_nid, make_system_info(num_devices_per_node, supports_d2d_copies), m_idag, nullptr /* delegate */, &m_instr_recorder,
 	          policy.iggen) //
 	{
@@ -526,12 +526,12 @@ class idag_test_context {
 			    *iter,
 			    [&](const buffer_id bid) {
 				    m_iggen.notify_buffer_destroyed(bid);
-				    m_dggen.notify_buffer_destroyed(bid);
+				    m_cggen.notify_buffer_destroyed(bid);
 				    m_tm.notify_buffer_destroyed(bid);
 			    },
 			    [&](const host_object_id hoid) {
 				    m_iggen.notify_host_object_destroyed(hoid);
-				    m_dggen.notify_host_object_destroyed(hoid);
+				    m_cggen.notify_host_object_destroyed(hoid);
 				    m_tm.notify_host_object_destroyed(hoid);
 			    });
 		}
@@ -547,7 +547,7 @@ class idag_test_context {
 		const buffer_id bid = m_next_buffer_id++;
 		const auto buf = test_utils::mock_buffer<Dims>(bid, size);
 		m_tm.notify_buffer_created(bid, range_cast<3>(size), mark_as_host_initialized);
-		m_dggen.notify_buffer_created(bid, range_cast<3>(size), mark_as_host_initialized);
+		m_cggen.notify_buffer_created(bid, range_cast<3>(size), mark_as_host_initialized);
 		m_iggen.notify_buffer_created(bid, range_cast<3>(size), sizeof(DataT), alignof(DataT),
 		    mark_as_host_initialized ? detail::allocation_id(detail::user_memory_id, m_next_user_allocation_id++) : detail::null_allocation_id);
 		m_managed_objects.emplace_back(bid);
@@ -564,7 +564,7 @@ class idag_test_context {
 		const uncaught_exception_guard guard(this);
 		const host_object_id hoid = m_next_host_object_id++;
 		m_tm.notify_host_object_created(hoid);
-		m_dggen.notify_host_object_created(hoid);
+		m_cggen.notify_host_object_created(hoid);
 		m_iggen.notify_host_object_created(hoid, owns_instance);
 		m_managed_objects.emplace_back(hoid);
 		return test_utils::mock_host_object(hoid);
@@ -622,7 +622,7 @@ class idag_test_context {
 
 	task_manager& get_task_manager() { return m_tm; }
 
-	distributed_graph_generator& get_graph_generator() { return m_dggen; }
+	command_graph_generator& get_graph_generator() { return m_cggen; }
 
 	instruction_query<> query_instructions() const { return instruction_query<>(m_instr_recorder); }
 
@@ -654,7 +654,7 @@ class idag_test_context {
 	task_manager m_tm;
 	command_recorder m_cmd_recorder;
 	command_graph m_cdag;
-	distributed_graph_generator m_dggen;
+	command_graph_generator m_cggen;
 	instruction_graph m_idag;
 	instruction_recorder m_instr_recorder;
 	instruction_graph_generator m_iggen;
@@ -676,7 +676,7 @@ class idag_test_context {
 	void build_task(const task_id tid) {
 		if(m_finished) { FAIL("idag_test_context already finish()ed"); }
 		const uncaught_exception_guard guard(this);
-		const auto commands = detail::sort_topologically(m_dggen.build_task(*m_tm.get_task(tid)));
+		const auto commands = detail::sort_topologically(m_cggen.build_task(*m_tm.get_task(tid)));
 		for(const auto cmd : commands) {
 			m_iggen.compile(*cmd);
 		}

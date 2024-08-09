@@ -1,4 +1,4 @@
-#include "distributed_graph_generator.h"
+#include "command_graph_generator.h"
 #include "grid.h"
 #include "ranges.h"
 #include "region_map.h"

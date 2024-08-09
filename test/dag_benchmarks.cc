@@ -4,7 +4,7 @@
 #include <catch2/generators/catch_generators.hpp>
 
 #include "command_graph.h"
-#include "distributed_graph_generator.h"
+#include "command_graph_generator.h"
 #include "instruction_graph_generator.h"
 #include "intrusive_graph.h"
 #include "task_manager.h"
@@ -139,7 +139,7 @@ TEST_CASE("benchmark task handling", "[benchmark][group:task-graph]") {
 static constexpr task_manager::policy_set benchmark_task_manager_policy = {
     /* uninitialized_read_error */ CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::panic : error_policy::ignore,
 };
-static constexpr distributed_graph_generator::policy_set benchmark_command_graph_generator_policy{
+static constexpr command_graph_generator::policy_set benchmark_command_graph_generator_policy{
     /* uninitialized_read_error */ error_policy::ignore, // uninitialized reads already detected by task manager
     /* overlapping_write_error */ CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::panic : error_policy::ignore,
 };
@@ -180,12 +180,12 @@ struct command_graph_generator_benchmark_context {
 	task_recorder trec;
 	task_manager tm{num_nodes, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
 	command_recorder crec;
-	distributed_graph_generator dggen{
+	command_graph_generator cggen{
 	    num_nodes, 0 /* local_nid */, cdag, tm, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
-	test_utils::mock_buffer_factory mbf{tm, dggen};
+	test_utils::mock_buffer_factory mbf{tm, cggen};
 
 	explicit command_graph_generator_benchmark_context(const size_t num_nodes) : num_nodes(num_nodes) {
-		tm.register_task_callback([this](const task* tsk) { const auto cmds = dggen.build_task(*tsk); });
+		tm.register_task_callback([this](const task* tsk) { const auto cmds = cggen.build_task(*tsk); });
 	}
 
 	command_graph_generator_benchmark_context(const command_graph_generator_benchmark_context&) = delete;
@@ -212,17 +212,17 @@ struct instruction_graph_generator_benchmark_context {
 	task_recorder trec;
 	task_manager tm{num_nodes, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
 	command_recorder crec;
-	distributed_graph_generator dggen{
+	command_graph_generator cggen{
 	    num_nodes, 0 /* local_nid */, cdag, tm, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
 	instruction_recorder irec;
 	instruction_graph idag;
 	instruction_graph_generator iggen{tm, num_nodes, 0 /* local nid */, test_utils::make_system_info(num_devices, true /* supports d2d copies */), idag,
 	    nullptr /* delegate */, test_utils::g_print_graphs ? &irec : nullptr, benchmark_instruction_graph_generator_policy};
-	test_utils::mock_buffer_factory mbf{tm, dggen, iggen};
+	test_utils::mock_buffer_factory mbf{tm, cggen, iggen};
 
 	explicit instruction_graph_generator_benchmark_context(const size_t num_nodes, const size_t num_devices) : num_nodes(num_nodes), num_devices(num_devices) {
 		tm.register_task_callback([this](const task* tsk) {
-			for(const auto cmd : sort_topologically(dggen.build_task(*tsk))) {
+			for(const auto cmd : sort_topologically(cggen.build_task(*tsk))) {
 				iggen.compile(*cmd);
 			}
 		});

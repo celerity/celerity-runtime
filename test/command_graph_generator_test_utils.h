@@ -14,7 +14,7 @@
 
 #include "access_modes.h"
 #include "command_graph.h"
-#include "distributed_graph_generator.h"
+#include "command_graph_generator.h"
 #include "print_graph.h"
 #include "recorders.h"
 #include "task_manager.h"
@@ -28,20 +28,20 @@ using namespace celerity::detail;
 
 namespace celerity::test_utils {
 
-class dist_cdag_test_context;
+class cdag_test_context;
 class idag_test_context;
 
 template <typename TestContext>
 class task_builder {
-	friend class dist_cdag_test_context;
+	friend class cdag_test_context;
 	friend class idag_test_context;
 
 	using action = std::function<void(handler&)>;
 
 	class step {
 	  public:
-		step(TestContext& dctx, action command, std::vector<action> requirements = {})
-		    : m_tctx(dctx), m_command(std::move(command)), m_requirements(std::move(requirements)), m_uncaught_exceptions_before(std::uncaught_exceptions()) {}
+		step(TestContext& tctx, action command, std::vector<action> requirements = {})
+		    : m_tctx(tctx), m_command(std::move(command)), m_requirements(std::move(requirements)), m_uncaught_exceptions_before(std::uncaught_exceptions()) {}
 
 		~step() noexcept(false) { // NOLINT(bugprone-exception-escape)
 			if(std::uncaught_exceptions() == m_uncaught_exceptions_before && (m_command || !m_requirements.empty())) {
@@ -131,32 +131,32 @@ class task_builder {
   public:
 	template <typename Name, int Dims>
 	step device_compute(const range<Dims>& global_size, const id<Dims>& global_offset) {
-		return step(m_dctx, [global_size, global_offset](handler& cgh) { cgh.parallel_for<Name>(global_size, global_offset, [](id<Dims>) {}); });
+		return step(m_tctx, [global_size, global_offset](handler& cgh) { cgh.parallel_for<Name>(global_size, global_offset, [](id<Dims>) {}); });
 	}
 
 	template <typename Name, int Dims>
 	step device_compute(const nd_range<Dims>& execution_range) {
-		return step(m_dctx, [execution_range](handler& cgh) { cgh.parallel_for<Name>(execution_range, [](nd_item<Dims>) {}); });
+		return step(m_tctx, [execution_range](handler& cgh) { cgh.parallel_for<Name>(execution_range, [](nd_item<Dims>) {}); });
 	}
 
 	template <int Dims>
 	step host_task(const range<Dims>& global_size) {
-		return step(m_dctx, [global_size](handler& cgh) { cgh.host_task(global_size, [](partition<Dims>) {}); });
+		return step(m_tctx, [global_size](handler& cgh) { cgh.host_task(global_size, [](partition<Dims>) {}); });
 	}
 
 	step master_node_host_task() {
 		std::deque<action> actions;
-		return step(m_dctx, [](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
+		return step(m_tctx, [](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
 	}
 
 	step collective_host_task(experimental::collective_group group) {
-		return step(m_dctx, [group](handler& cgh) { cgh.host_task(experimental::collective(group), [](const experimental::collective_partition&) {}); });
+		return step(m_tctx, [group](handler& cgh) { cgh.host_task(experimental::collective(group), [](const experimental::collective_partition&) {}); });
 	}
 
   private:
-	TestContext& m_dctx;
+	TestContext& m_tctx;
 
-	task_builder(TestContext& dctx) : m_dctx(dctx) {}
+	task_builder(TestContext& cctx) : m_tctx(cctx) {}
 };
 
 template <typename T>
@@ -167,7 +167,7 @@ constexpr static bool is_dependency_query_filter_v = std::is_same_v<dependency_k
 
 class command_query {
 	friend struct command_query_testspy;
-	friend class dist_cdag_test_context;
+	friend class cdag_test_context;
 
 	class query_exception : public std::runtime_error {
 		using std::runtime_error::runtime_error;
@@ -470,37 +470,37 @@ class command_query {
 	}
 };
 
-class dist_cdag_test_context {
-	friend class task_builder<dist_cdag_test_context>;
+class cdag_test_context {
+	friend class task_builder<cdag_test_context>;
 
   public:
 	struct policy_set {
 		task_manager::policy_set tm;
-		distributed_graph_generator::policy_set dggen;
+		command_graph_generator::policy_set cggen;
 	};
 
-	dist_cdag_test_context(const size_t num_nodes, const policy_set& policy = {}) : m_num_nodes(num_nodes), m_tm(num_nodes, &m_task_recorder, policy.tm) {
+	cdag_test_context(const size_t num_nodes, const policy_set& policy = {}) : m_num_nodes(num_nodes), m_tm(num_nodes, &m_task_recorder, policy.tm) {
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			m_cdags.emplace_back(std::make_unique<command_graph>());
 			m_cmd_recorders.emplace_back(std::make_unique<command_recorder>());
-			m_dggens.emplace_back(std::make_unique<distributed_graph_generator>(num_nodes, nid, *m_cdags[nid], m_tm, m_cmd_recorders[nid].get(), policy.dggen));
+			m_cggens.emplace_back(std::make_unique<command_graph_generator>(num_nodes, nid, *m_cdags[nid], m_tm, m_cmd_recorders[nid].get(), policy.cggen));
 		}
 	}
 
-	~dist_cdag_test_context() { maybe_print_graphs(); }
+	~cdag_test_context() { maybe_print_graphs(); }
 
-	dist_cdag_test_context(const dist_cdag_test_context&) = delete;
-	dist_cdag_test_context(dist_cdag_test_context&&) = delete;
-	dist_cdag_test_context& operator=(const dist_cdag_test_context&) = delete;
-	dist_cdag_test_context& operator=(dist_cdag_test_context&&) = delete;
+	cdag_test_context(const cdag_test_context&) = delete;
+	cdag_test_context(cdag_test_context&&) = delete;
+	cdag_test_context& operator=(const cdag_test_context&) = delete;
+	cdag_test_context& operator=(cdag_test_context&&) = delete;
 
 	template <int Dims>
 	test_utils::mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
 		const buffer_id bid = m_next_buffer_id++;
 		const auto buf = test_utils::mock_buffer<Dims>(bid, size);
 		m_tm.notify_buffer_created(bid, range_cast<3>(size), mark_as_host_initialized);
-		for(auto& dggen : m_dggens) {
-			dggen->notify_buffer_created(bid, range_cast<3>(size), mark_as_host_initialized);
+		for(auto& cggen : m_cggens) {
+			cggen->notify_buffer_created(bid, range_cast<3>(size), mark_as_host_initialized);
 		}
 		return buf;
 	}
@@ -508,8 +508,8 @@ class dist_cdag_test_context {
 	test_utils::mock_host_object create_host_object(const bool owns_instance = true) {
 		const host_object_id hoid = m_next_host_object_id++;
 		m_tm.notify_host_object_created(hoid);
-		for(auto& dggen : m_dggens) {
-			dggen->notify_host_object_created(hoid);
+		for(auto& cggen : m_cggens) {
+			cggen->notify_host_object_created(hoid);
 		}
 		return test_utils::mock_host_object(hoid);
 	}
@@ -571,7 +571,7 @@ class dist_cdag_test_context {
 
 	task_manager& get_task_manager() { return m_tm; }
 
-	distributed_graph_generator& get_graph_generator(node_id nid) { return *m_dggens.at(nid); }
+	command_graph_generator& get_graph_generator(node_id nid) { return *m_cggens.at(nid); }
 
 	[[nodiscard]] std::string print_task_graph() { return detail::print_task_graph(m_task_recorder, make_test_graph_title("Task Graph")); }
 
@@ -589,7 +589,7 @@ class dist_cdag_test_context {
 	task_recorder m_task_recorder;
 	task_manager m_tm;
 	std::vector<std::unique_ptr<command_graph>> m_cdags;
-	std::vector<std::unique_ptr<distributed_graph_generator>> m_dggens;
+	std::vector<std::unique_ptr<command_graph_generator>> m_cggens;
 	std::vector<std::unique_ptr<command_recorder>> m_cmd_recorders;
 
 	reduction_info create_reduction(const buffer_id bid, const bool include_current_buffer_value) {
@@ -602,8 +602,8 @@ class dist_cdag_test_context {
 	}
 
 	void build_task(const task_id tid) {
-		for(auto& dggen : m_dggens) {
-			dggen->build_task(*m_tm.get_task(tid));
+		for(auto& cggen : m_cggens) {
+			cggen->build_task(*m_tm.get_task(tid));
 		}
 	}
 
