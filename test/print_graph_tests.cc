@@ -3,7 +3,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <libenvpp/env.hpp>
 
-#include "distributed_graph_generator_test_utils.h"
+#include "command_graph_generator_test_utils.h"
 #include "instruction_graph_test_utils.h"
 #include "test_utils.h"
 
@@ -20,7 +20,7 @@ TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 	auto buf_0 = tt.mbf.create_buffer(range);
 	auto buf_1 = tt.mbf.create_buffer(celerity::range<1>(1));
 
-	// graph copied from graph_gen_reduction_tests "distributed_graph_generator generates reduction command trees"
+	// graph copied from graph_gen_reduction_tests "command_graph_generator generates reduction command trees"
 
 	test_utils::add_compute_task(
 	    tt.tm, [&](handler& cgh) { buf_1.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
@@ -69,16 +69,16 @@ int count_occurences(const std::string& str, const std::string& substr) {
 
 TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]") {
 	size_t num_nodes = 4;
-	dist_cdag_test_context dctx(num_nodes);
+	cdag_test_context cctx(num_nodes);
 
-	auto buf_0 = dctx.create_buffer(range(1));
-	auto buf_1 = dctx.create_buffer(range(num_nodes));
+	auto buf_0 = cctx.create_buffer(range(1));
+	auto buf_1 = cctx.create_buffer(range(num_nodes));
 
-	dctx.device_compute(range<1>(num_nodes)) //
+	cctx.device_compute(range<1>(num_nodes)) //
 	    .discard_write(buf_1, acc::one_to_one{})
 	    .reduce(buf_0, false)
 	    .submit();
-	dctx.device_compute(range<1>(num_nodes)).read(buf_0, acc::all{}).read_write(buf_1, acc::one_to_one{}).write(buf_1, acc::one_to_one{}).submit();
+	cctx.device_compute(range<1>(num_nodes)).read(buf_0, acc::all{}).read_write(buf_1, acc::one_to_one{}).write(buf_1, acc::one_to_one{}).submit();
 
 	// Smoke test: It is valid for the dot output to change with updates to graph generation. If this test fails, verify that the printed graph is sane and
 	// replace the `expected` value with the new dot graph.
@@ -99,7 +99,7 @@ TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]")
 	    "shape=ellipse];id_0_1->id_0_7[];}";
 
 	// fully check node 0
-	const auto dot0 = dctx.print_command_graph(0);
+	const auto dot0 = cctx.print_command_graph(0);
 	CHECK(dot0 == expected);
 	if(dot0 != expected) { fmt::print("\n{}:\n\ngot:\n\n{}\n\nexpected:\n\n{}\n\n", Catch::getResultCapture().getCurrentTestName(), dot0, expected); }
 
@@ -107,7 +107,7 @@ TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]")
 	const int expected_occurences = count_occurences(expected, "N0");
 	for(node_id nid = 1; nid < num_nodes; ++nid) {
 		CAPTURE(nid);
-		const auto dot_n = dctx.print_command_graph(nid);
+		const auto dot_n = cctx.print_command_graph(nid);
 		CHECK_THAT(dot_n.size(), Catch::Matchers::WithinAbs(expected.size(), 50));
 		CHECK(count_occurences(dot_n, fmt::format("N{}", nid)) == expected_occurences);
 	}

@@ -56,8 +56,8 @@ class write_command_state {
 	command_id m_cid = 0;
 };
 
-class distributed_graph_generator {
-	friend struct distributed_graph_generator_testspy;
+class command_graph_generator {
+	friend struct command_graph_generator_testspy;
 
 	inline static const write_command_state no_command = write_command_state(static_cast<command_id>(-1));
 
@@ -88,8 +88,8 @@ class distributed_graph_generator {
 		error_policy overlapping_write_error = error_policy::panic;
 	};
 
-	distributed_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm,
-	    detail::command_recorder* recorder, const policy_set& policy = default_policy_set());
+	command_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm, detail::command_recorder* recorder,
+	    const policy_set& policy = default_policy_set());
 
 	void notify_buffer_created(buffer_id bid, const range<3>& range, bool host_initialized);
 
@@ -179,8 +179,8 @@ class distributed_graph_generator {
 	detail::command_recorder* m_recorder = nullptr;
 };
 
-/// Topologically sort a command-set as returned from distributed_graph_generator::build_task() such that sequential execution satisfies all dependencies.
-/// TODO refactor distributed_graph_generator to intrinsically generate commands in dependency-order.
+/// Topologically sort a command-set as returned from command_graph_generator::build_task() such that sequential execution satisfies all dependencies.
+/// TODO refactor command_graph_generator to intrinsically generate commands in dependency-order.
 std::vector<abstract_command*> sort_topologically(command_set unmarked);
 
 } // namespace celerity::detail

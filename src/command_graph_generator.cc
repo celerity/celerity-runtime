@@ -1,4 +1,4 @@
-#include "distributed_graph_generator.h"
+#include "command_graph_generator.h"
 
 #include "access_modes.h"
 #include "command.h"
@@ -10,7 +10,7 @@
 
 namespace celerity::detail {
 
-distributed_graph_generator::distributed_graph_generator(
+command_graph_generator::command_graph_generator(
     const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm, detail::command_recorder* recorder, const policy_set& policy)
     : m_num_nodes(num_nodes), m_local_nid(local_nid), m_policy(policy), m_cdag(cdag), m_task_mngr(tm), m_recorder(recorder) {
 	if(m_num_nodes > max_num_nodes) {
@@ -28,7 +28,7 @@ distributed_graph_generator::distributed_graph_generator(
 	m_epoch_for_new_commands = epoch_cmd->get_cid();
 }
 
-void distributed_graph_generator::notify_buffer_created(const buffer_id bid, const range<3>& range, bool host_initialized) {
+void command_graph_generator::notify_buffer_created(const buffer_id bid, const range<3>& range, bool host_initialized) {
 	m_buffers.emplace(std::piecewise_construct, std::tuple{bid}, std::tuple{range, range});
 	if(host_initialized && m_policy.uninitialized_read_error != error_policy::ignore) { m_buffers.at(bid).initialized_region = box(subrange({}, range)); }
 	// Mark contents as available locally (= don't generate await push commands) and fully replicated (= don't generate push commands).
@@ -37,21 +37,21 @@ void distributed_graph_generator::notify_buffer_created(const buffer_id bid, con
 	m_buffers.at(bid).replicated_regions.update_region(subrange<3>({}, range), node_bitset{}.set());
 }
 
-void distributed_graph_generator::notify_buffer_debug_name_changed(const buffer_id bid, const std::string& debug_name) {
+void command_graph_generator::notify_buffer_debug_name_changed(const buffer_id bid, const std::string& debug_name) {
 	m_buffers.at(bid).debug_name = debug_name;
 }
 
-void distributed_graph_generator::notify_buffer_destroyed(const buffer_id bid) {
+void command_graph_generator::notify_buffer_destroyed(const buffer_id bid) {
 	assert(m_buffers.count(bid) != 0);
 	m_buffers.erase(bid);
 }
 
-void distributed_graph_generator::notify_host_object_created(const host_object_id hoid) {
+void command_graph_generator::notify_host_object_created(const host_object_id hoid) {
 	assert(m_host_objects.count(hoid) == 0);
 	m_host_objects.emplace(hoid, host_object_state{m_epoch_for_new_commands});
 }
 
-void distributed_graph_generator::notify_host_object_destroyed(const host_object_id hoid) {
+void command_graph_generator::notify_host_object_destroyed(const host_object_id hoid) {
 	assert(m_host_objects.count(hoid) != 0);
 	m_host_objects.erase(hoid);
 }
@@ -98,7 +98,7 @@ std::vector<abstract_command*> sort_topologically(command_set unmarked) {
 	return sorted;
 }
 
-command_set distributed_graph_generator::build_task(const task& tsk) {
+command_set command_graph_generator::build_task(const task& tsk) {
 	assert(m_current_cmd_batch.empty());
 	[[maybe_unused]] const auto cmd_count_before = m_cdag.command_count();
 
@@ -147,7 +147,7 @@ command_set distributed_graph_generator::build_task(const task& tsk) {
 	return std::move(m_current_cmd_batch);
 }
 
-void distributed_graph_generator::report_overlapping_writes(const task& tsk, const box_vector<3>& local_chunks) const {
+void command_graph_generator::report_overlapping_writes(const task& tsk, const box_vector<3>& local_chunks) const {
 	const chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
 
 	// Since this check is run distributed on every node, we avoid quadratic behavior by only checking for conflicts between all local chunks and the
@@ -170,7 +170,7 @@ void distributed_graph_generator::report_overlapping_writes(const task& tsk, con
 	}
 }
 
-void distributed_graph_generator::generate_distributed_commands(const task& tsk) {
+void command_graph_generator::generate_distributed_commands(const task& tsk) {
 	const chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
 	const size_t num_chunks = m_num_nodes * 1; // TODO Make configurable
 	const auto chunks = ([&] {
@@ -585,7 +585,7 @@ void distributed_graph_generator::generate_distributed_commands(const task& tsk)
 	process_task_side_effect_requirements(tsk);
 }
 
-void distributed_graph_generator::generate_anti_dependencies(
+void command_graph_generator::generate_anti_dependencies(
     task_id tid, buffer_id bid, const region_map<write_command_state>& last_writers_map, const region<3>& write_req, abstract_command* write_cmd) {
 	const auto last_writers = last_writers_map.get_region_values(write_req);
 	for(const auto& [box, wcs] : last_writers) {
@@ -622,7 +622,7 @@ void distributed_graph_generator::generate_anti_dependencies(
 	}
 }
 
-void distributed_graph_generator::process_task_side_effect_requirements(const task& tsk) {
+void command_graph_generator::process_task_side_effect_requirements(const task& tsk) {
 	const task_id tid = tsk.get_id();
 	if(tsk.get_side_effect_map().empty()) return; // skip the loop in the common case
 	if(m_cdag.task_command_count(tid) == 0) return;
@@ -644,7 +644,7 @@ void distributed_graph_generator::process_task_side_effect_requirements(const ta
 	}
 }
 
-void distributed_graph_generator::set_epoch_for_new_commands(const abstract_command* const epoch_or_horizon) {
+void command_graph_generator::set_epoch_for_new_commands(const abstract_command* const epoch_or_horizon) {
 	// both an explicit epoch command and an applied horizon can be effective epochs
 	assert(utils::isa<epoch_command>(epoch_or_horizon) || utils::isa<horizon_command>(epoch_or_horizon));
 
@@ -665,7 +665,7 @@ void distributed_graph_generator::set_epoch_for_new_commands(const abstract_comm
 	m_epoch_for_new_commands = epoch_or_horizon->get_cid();
 }
 
-void distributed_graph_generator::reduce_execution_front_to(abstract_command* const new_front) {
+void command_graph_generator::reduce_execution_front_to(abstract_command* const new_front) {
 	const auto previous_execution_front = m_cdag.get_execution_front();
 	for(auto* const front_cmd : previous_execution_front) {
 		if(front_cmd != new_front) { m_cdag.add_dependency(new_front, front_cmd, dependency_kind::true_dep, dependency_origin::execution_front); }
@@ -673,7 +673,7 @@ void distributed_graph_generator::reduce_execution_front_to(abstract_command* co
 	assert(m_cdag.get_execution_front().size() == 1 && *m_cdag.get_execution_front().begin() == new_front);
 }
 
-void distributed_graph_generator::generate_epoch_command(const task& tsk) {
+void command_graph_generator::generate_epoch_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::epoch);
 	auto* const epoch = create_command<epoch_command>(tsk.get_id(), tsk.get_epoch_action(), std::move(m_completed_reductions));
 	set_epoch_for_new_commands(epoch);
@@ -682,7 +682,7 @@ void distributed_graph_generator::generate_epoch_command(const task& tsk) {
 	reduce_execution_front_to(epoch);
 }
 
-void distributed_graph_generator::generate_horizon_command(const task& tsk) {
+void command_graph_generator::generate_horizon_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::horizon);
 	auto* const horizon = create_command<horizon_command>(tsk.get_id(), std::move(m_completed_reductions));
 
@@ -696,7 +696,7 @@ void distributed_graph_generator::generate_horizon_command(const task& tsk) {
 	reduce_execution_front_to(horizon);
 }
 
-void distributed_graph_generator::generate_epoch_dependencies(abstract_command* cmd) {
+void command_graph_generator::generate_epoch_dependencies(abstract_command* cmd) {
 	// No command must be re-ordered before its last preceding epoch to enforce the barrier semantics of epochs.
 	// To guarantee that each node has a transitive true dependency (=temporal dependency) on the epoch, it is enough to add an epoch -> command dependency
 	// to any command that has no other true dependencies itself and no graph traversal is necessary. This can be verified by a simple induction proof.
@@ -714,7 +714,7 @@ void distributed_graph_generator::generate_epoch_dependencies(abstract_command* 
 	}
 }
 
-void distributed_graph_generator::prune_commands_before(const command_id epoch) {
+void command_graph_generator::prune_commands_before(const command_id epoch) {
 	if(epoch > m_epoch_last_pruned_before) {
 		m_cdag.erase_if([&](abstract_command* cmd) {
 			if(cmd->get_cid() < epoch) {
@@ -727,7 +727,7 @@ void distributed_graph_generator::prune_commands_before(const command_id epoch) 
 	}
 }
 
-std::string distributed_graph_generator::print_buffer_debug_label(const buffer_id bid) const {
+std::string command_graph_generator::print_buffer_debug_label(const buffer_id bid) const {
 	return utils::make_buffer_debug_label(bid, m_buffers.at(bid).debug_name);
 }
 
