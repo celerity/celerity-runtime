@@ -28,13 +28,13 @@ Celerity without much hassle. If you know SYCL already, this will probably
 look very familiar to you:
 
 ```cpp
-celerity::buffer<float> buf{celerity::range<1>{1024}};
-queue.submit([=](celerity::handler& cgh) {
-    celerity::accessor acc{buf, cgh,
-        celerity::access::one_to_one{},               // 1
-        celerity::write_only, celerity::no_init};
-    cgh.parallel_for<class MyKernel>(
-        celerity::range<1>{1024},                     // 2
+celerity::buffer<float> buf(celerity::range(1024));
+queue.submit([&](celerity::handler& cgh) {
+    celerity::accessor acc(buf, cgh,
+        celerity::access::one_to_one(),               // 1
+        celerity::write_only, celerity::no_init);
+    cgh.parallel_for(
+        celerity::range(1024),                        // 2
         [=](celerity::item<1> item) {                 // 3
             acc[item] = sycl::sin(item[0] / 1024.f);  // 4
         });
@@ -128,4 +128,4 @@ Celerity's runtime behavior:
   `fast` for light integration with little runtime overhead, and `full` for
   integration with extensive performance debug information included in the trace.
   Only available if integration was enabled enabled at build time through the
-  CMake option `-DCELERITY_TRACY_SUPPORT=ON`. 
+  CMake option `-DCELERITY_TRACY_SUPPORT=ON`.

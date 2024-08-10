@@ -6,13 +6,21 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic
 Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2024-08-12
+
+This release includes changes that may require adjustments when upgrading:
+- A single Celerity process can now manage multiple devices.
+  This means that on a cluster with 4 GPUs per node, only a single MPI rank needs to be spawned per node.
+- The previous behavior of having a separate process per device is still supported but discouraged, as it incurs additional overhead.
+- It is no longer possible to assign a device to a Celerity process using the `CELERITY_DEVICES` environment variable.
+  Please use vendor-specific mechanisms (such as `CUDA_VISIBLE_DEVICES`) for limiting the set of visible devices instead.
+- We recommend performing a clean build when updating Celerity so that updated submodule dependencies are properly propagated.
 
 We recommend using the following SYCL versions with this release:
 
-- DPC++: ???
+- DPC++: 89327e0a or newer
 - AdaptiveCpp (formerly hipSYCL): v24.06
-- SimSYCL: ???
+- SimSYCL: master
 
 See our [platform support guide](docs/platform-support.md) for a complete list of all officially supported configurations.
 
@@ -20,14 +28,34 @@ See our [platform support guide](docs/platform-support.md) for a complete list o
 
 - Add support for SimSYCL as a SYCL implementation (#238)
 - Extend compiler support to GCC (optionally with sanitizers) and C++20 code bases (#238)
+- `celerity::hints::oversubscribe` can be passed to a command group to increase split granularity and improve computation-communication overlap (#249)
+- Reductions are now unconditionally supported on all SYCL implementations (#265)
 - Add support for profiling with [Tracy](https://github.com/wolfpld/tracy), via `CELERITY_TRACY_SUPPORT` and environment variable `CELERITY_TRACY` (#267)
-- The active SYCL implementation can now be queried via `CELERITY_SYCL_IS_*` macros (#??)
+- The active SYCL implementation can now be queried via `CELERITY_SYCL_IS_*` macros (#277)
 
 ### Changed
 
-- Updated the internal [libenvpp](https://github.com/ph3at/libenvpp) dependency to 1.4.1 and use its new features. (#271)
+- All low-level host / device operations such as memory allocations, copies, and kernel launches are now represented in the single Instruction Graph for improved asynchronicity (#249)
+- Celerity can now maintain multiple disjoint backing allocations per buffer, so disjoint accesses to the same buffer do not trigger bounding-box allocations (#249)
+- The previous implicit size limit of 128 GiB on buffer transfers is lifted (#249, #252)
+- Celerity now manages multiple devices per node / MPI rank. This significantly reduces overhead in multi-GPU setups (#265)
+- Runtime lifetime is extended until destruction of the last queue, buffer, or host object (#265)
+- Host object instances are now destroyed from a runtime background thread instead of the application thread (#265)
+- Collective host tasks in the same collective group continue to execute on the same communicator, but not necessarily on the same background thread anymore (#265)
+- Updated the internal [libenvpp](https://github.com/ph3at/libenvpp) dependency to 1.4.1 and use its new features (#271)
+- Celerity's compile-time feature flags and options are now written to `version.h` instead of being passed on the command line (#277)
 
-*Note:* We recommend performing a clean build when updating Celerity so that updated submodule dependencies are properly propagated.
+### Fixed
+
+- Scheduler tracking structures are now garbage-collected after buffers and host objects go out of scope (#246)
+- The previous requirement to order accessors by access mode is lifted (#265)
+- SYCL reductions to which only some Celerity nodes contribute partial results would read uninitialized data (#265)
+
+### Removed
+
+- Celerity does not attempt to spill device allocations to the host if resizing buffers fails due to an out-of-memory condition (#265)
+- The `CELERITY_DEVICES` environment variable is removed in favor of platform-specific visibility specifiers such as `CUDA_VISIBLE_DEVICES` (#265)
+- The obsolete `experimental::user_benchmarker` infrastructure has been removed (#268).
 
 ## [0.5.0] - 2023-12-21
 
