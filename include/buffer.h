@@ -66,7 +66,7 @@ class buffer {
 
 	template <access_mode Mode, typename Functor, int D = Dims, std::enable_if_t<D == 0, int> = 0>
 	accessor<DataT, Dims, Mode, target::device, Compression> get_access(handler& cgh) {
-		return get_access<Mode, target::device, Functor, Compression>(cgh);
+		return get_access<Mode, target::device, Functor>(cgh);
 	}
 
 	template <access_mode Mode, target Target, typename Functor, int D = Dims, std::enable_if_t<(D > 0), int> = 0>
@@ -82,7 +82,7 @@ class buffer {
 	template <access_mode Mode, typename Functor, int D = Dims, std::enable_if_t<(D > 0), int> = 0>
 	[[deprecated("Calling get_access on a const buffer is deprecated")]] accessor<DataT, Dims, Mode, target::device, Compression> get_access(
 	    handler& cgh, Functor rmfn) const {
-		return get_access<Mode, target::device, Functor, Compression>(cgh, rmfn);
+		return get_access<Mode, target::device, Functor>(cgh, rmfn);
 	}
 
 	template <access_mode Mode, target Target, typename Functor, int D = Dims, std::enable_if_t<(D > 0), int> = 0>
