@@ -59,26 +59,6 @@ void step(
 	});
 }
 
-// // print numbers to file host kernel
-// void print(celerity::distr_queue& queue, celerity::buffer<float, 2, compression_type_a> up) {
-// 	// print numbers on host to file
-// 	queue.submit([&](celerity::handler& cgh) {
-// 		celerity::accessor up_r{up, cgh, celerity::access::all{}, celerity::read_only_host_task};
-// 		const auto range = up.get_range();
-// 		cgh.host_task(celerity::on_master_node, [=] {
-// 			std::ofstream os("test.txt", std::ios_base::app);
-// 			for(size_t i = 0; i < range.get(0); ++i) {
-// 				for(size_t j = 0; j < range.get(1); ++j) {
-// 					os << up_r[{i, j}] << " ";
-// 				}
-// 				os << "\n";
-// 			}
-// 			os << "\n\n";
-// 			os.close();
-// 		});
-// 	});
-// }
-
 void initialize(celerity::distr_queue& queue, celerity::buffer<float, 2, compression_type_a> up, celerity::buffer<float, 2, compression_type_a> u, float dt,
     sycl::float2 delta) {
 	step<float, init_config, class initialize>(queue, up, u, dt, delta);
