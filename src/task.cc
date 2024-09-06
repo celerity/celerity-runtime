@@ -38,13 +38,30 @@ region<3> apply_range_mapper(const range_mapper_base* rm, const chunk<3>& chnk, 
 }
 
 buffer_access_map::buffer_access_map(std::vector<buffer_access>&& accesses, const task_geometry& geometry)
-    : m_accesses(std::move(accesses)), m_task_geometry(geometry) {
+    : m_accesses(std::move(accesses)), m_task_global_size(get_global_size(geometry)), m_task_dimensions(get_dimensions(geometry)) {
 	std::unordered_map<buffer_id, region_builder<3>> consumed_regions;
 	std::unordered_map<buffer_id, region_builder<3>> produced_regions;
 	for(size_t i = 0; i < m_accesses.size(); ++i) {
 		const auto& [bid, mode, rm] = m_accesses[i];
 		m_accessed_buffers.insert(bid);
-		const auto req = apply_range_mapper(rm.get(), chunk<3>{geometry.global_offset, geometry.global_size, geometry.global_size}, geometry.dimensions);
+		const auto req = matchbox::match(
+		    rm,
+		    [&](const std::unique_ptr<range_mapper_base>& rm) {
+			    return matchbox::match(
+			        geometry,
+			        [&](const basic_task_geometry& geo) {
+				        return apply_range_mapper(rm.get(), chunk<3>{geo.global_offset, geo.global_size, geo.global_size}, geo.dimensions);
+			        },
+			        [&](const custom_task_geometry_desc& geo) {
+				        // TODO: Or get "union chunk" from geometry.. directly?
+				        region<3> result;
+				        for(const auto& [chnk, _, _2] : geo.assigned_chunks) {
+					        result = region_union(result, apply_range_mapper(rm.get(), chunk<3>{chnk.offset, chnk.range, geo.global_size}, geo.dimensions));
+				        }
+				        return result;
+			        });
+		    },
+		    [&](const expert_mapper& em) { return em.get_task_requirements(); });
 		auto& cons = consumed_regions[bid]; // allow default-insert
 		auto& prod = produced_regions[bid]; // allow default-insert
 		if(is_consumer_mode(mode)) { cons.add(req); }
@@ -60,7 +77,12 @@ buffer_access_map::buffer_access_map(std::vector<buffer_access>&& accesses, cons
 
 region<3> buffer_access_map::get_requirements_for_nth_access(const size_t n, const box<3>& execution_range) const {
 	const auto sr = execution_range.get_subrange();
-	return apply_range_mapper(m_accesses[n].range_mapper.get(), chunk<3>{sr.offset, sr.range, m_task_geometry.global_size}, m_task_geometry.dimensions);
+	return matchbox::match(
+	    m_accesses[n].range_mapper,
+	    [&](const std::unique_ptr<range_mapper_base>& rm) {
+		    return apply_range_mapper(rm.get(), chunk<3>{sr.offset, sr.range, m_task_global_size}, m_task_dimensions);
+	    },
+	    [&](const expert_mapper& em) { return em.get_chunk_requirements(chunk<3>{sr.offset, sr.range, m_task_global_size}); });
 }
 
 region<3> buffer_access_map::compute_consumed_region(const buffer_id bid, const box<3>& execution_range) const {
@@ -100,21 +122,21 @@ std::unique_ptr<detail::task> make_command_group_task(const detail::task_id tid,
 	switch(cg.task_type.value()) {
 	case detail::task_type::host_compute: {
 		assert(!cg.collective_group_id.has_value());
-		const auto& geometry = cg.geometry.value();
-		if(geometry.global_size.size() == 0) {
+		auto& geometry = cg.geometry.value();
+		if(get_global_size(geometry).size() == 0) {
 			// TODO this can be easily supported by not creating a task in case the execution range is empty
 			throw std::runtime_error{"The execution range of distributed host tasks must have at least one item"};
 		}
 		auto& launcher = std::get<detail::host_task_launcher>(cg.launcher.value());
 		buffer_access_map bam(std::move(cg.buffer_accesses), geometry);
 		side_effect_map sem(cg.side_effects);
-		task = detail::task::make_host_compute(tid, geometry, std::move(launcher), std::move(bam), std::move(sem), std::move(cg.reductions));
+		task = detail::task::make_host_compute(tid, std::move(geometry), std::move(launcher), std::move(bam), std::move(sem), std::move(cg.reductions));
 		break;
 	}
 	case detail::task_type::device_compute: {
 		assert(!cg.collective_group_id.has_value());
-		const auto& geometry = cg.geometry.value();
-		if(geometry.global_size.size() == 0) {
+		auto& geometry = cg.geometry.value();
+		if(get_global_size(geometry).size() == 0) {
 			// TODO unless reductions are involved, this can be easily supported by not creating a task in case the execution range is empty.
 			// Edge case: If the task includes reductions that specify property::reduction::initialize_to_identity, we need to create a task that sets
 			// the buffer state to an empty pending_reduction_state in the graph_generator. This will cause a trivial reduction_command to be generated on
@@ -125,12 +147,12 @@ std::unique_ptr<detail::task> make_command_group_task(const detail::task_id tid,
 		buffer_access_map bam(std::move(cg.buffer_accesses), geometry);
 		// Note that cgf_diagnostics has a similar check, but we don't catch void side effects there.
 		if(!cg.side_effects.empty()) { throw std::runtime_error{"Side effects cannot be used in device kernels"}; }
-		task = detail::task::make_device_compute(tid, geometry, std::move(launcher), std::move(bam), std::move(cg.reductions));
+		task = detail::task::make_device_compute(tid, std::move(geometry), std::move(launcher), std::move(bam), std::move(cg.reductions));
 		break;
 	}
 	case detail::task_type::collective: {
 		assert(!cg.geometry.has_value());
-		const task_geometry geometry{// geometry is dependent on num_collective_nodes, so it is not set in raw_command_group
+		const basic_task_geometry geometry{// geometry is dependent on num_collective_nodes, so it is not set in raw_command_group
 		    .dimensions = 1,
 		    .global_size = detail::range_cast<3>(range(num_collective_nodes)),
 		    .global_offset = zeros,

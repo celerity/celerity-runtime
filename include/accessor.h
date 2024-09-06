@@ -3,6 +3,7 @@
 #include "buffer.h"
 #include "cgf_diagnostics.h"
 #include "closure_hydrator.h"
+#include "expert_mapper.h"
 #include "handler.h"
 #include "range_mapper.h"
 #include "ranges.h"
@@ -280,7 +281,12 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	template <typename Functor>
 	accessor(const ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) {
 		using range_mapper = detail::range_mapper<Dims, std::decay_t<Functor>>; // decay function type to function pointer
-		const auto hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), Mode, std::make_unique<range_mapper>(rmfn, buff.get_range()));
+		detail::hydration_id hid = -1;
+		if constexpr(std::is_same_v<std::remove_cvref_t<Functor>, expert_mapper>) {
+			hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), Mode, rmfn);
+		} else {
+			hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), Mode, std::make_unique<range_mapper>(rmfn, buff.get_range()));
+		}
 		m_device_ptr = detail::embed_hydration_id<DataT*>(hid);
 	}
 

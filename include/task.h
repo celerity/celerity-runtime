@@ -19,6 +19,8 @@
 #include <utility>
 #include <vector>
 
+#include <matchbox.hh>
+
 #include "command_graph.h" // NOCOMMIT For CDAG loop template
 #include "log.h"           // NOCOMMIT Just for debugging
 
@@ -70,7 +72,8 @@ namespace detail {
 	  private:
 		std::vector<buffer_access> m_accesses;
 		std::unordered_set<buffer_id> m_accessed_buffers; ///< Cached set of buffer ids found in m_accesses
-		task_geometry m_task_geometry;
+		range<3> m_task_global_size;
+		int m_task_dimensions = -1;
 		std::unordered_map<buffer_id, region<3>> m_task_consumed_regions;
 		std::unordered_map<buffer_id, region<3>> m_task_produced_regions;
 	};
@@ -120,18 +123,12 @@ namespace detail {
 
 		const task_geometry& get_geometry() const { return m_geometry; }
 
-		int get_dimensions() const { return m_geometry.dimensions; }
-
-		range<3> get_global_size() const { return m_geometry.global_size; }
-
-		id<3> get_global_offset() const { return m_geometry.global_offset; }
-
-		range<3> get_granularity() const { return m_geometry.granularity; }
-
 		void set_debug_name(const std::string& debug_name) { m_debug_name = debug_name; }
 		const std::string& get_debug_name() const { return m_debug_name; }
 
-		bool has_variable_split() const { return m_type == task_type::host_compute || m_type == task_type::device_compute; }
+		bool has_variable_split() const {
+			return (m_type == task_type::host_compute || m_type == task_type::device_compute) && std::holds_alternative<basic_task_geometry>(m_geometry);
+		}
 
 		execution_target get_execution_target() const {
 			switch(m_type) {
@@ -169,41 +166,43 @@ namespace detail {
 		}
 
 		static std::unique_ptr<task> make_epoch(task_id tid, detail::epoch_action action, std::unique_ptr<task_promise> promise) {
-			return std::unique_ptr<task>(new task(tid, task_type::epoch, non_collective_group_id, task_geometry{}, {}, {}, {}, {}, action, std::move(promise)));
+			return std::unique_ptr<task>(
+			    new task(tid, task_type::epoch, non_collective_group_id, basic_task_geometry{}, {}, {}, {}, {}, action, std::move(promise)));
 		}
 
 		static std::unique_ptr<task> make_host_compute(task_id tid, task_geometry geometry, host_task_launcher launcher, buffer_access_map access_map,
 		    side_effect_map side_effect_map, reduction_set reductions) {
-			return std::unique_ptr<task>(new task(tid, task_type::host_compute, non_collective_group_id, geometry, std::move(launcher), std::move(access_map),
-			    std::move(side_effect_map), std::move(reductions), {}, nullptr));
+			return std::unique_ptr<task>(new task(tid, task_type::host_compute, non_collective_group_id, std::move(geometry), std::move(launcher),
+			    std::move(access_map), std::move(side_effect_map), std::move(reductions), {}, nullptr));
 		}
 
 		static std::unique_ptr<task> make_device_compute(
 		    task_id tid, task_geometry geometry, device_kernel_launcher launcher, buffer_access_map access_map, reduction_set reductions) {
-			return std::unique_ptr<task>(new task(tid, task_type::device_compute, non_collective_group_id, geometry, std::move(launcher), std::move(access_map),
-			    {}, std::move(reductions), {}, nullptr));
+			return std::unique_ptr<task>(new task(tid, task_type::device_compute, non_collective_group_id, std::move(geometry), std::move(launcher),
+			    std::move(access_map), {}, std::move(reductions), {}, nullptr));
 		}
 
 		static std::unique_ptr<task> make_collective(task_id tid, task_geometry geometry, collective_group_id cgid, size_t num_collective_nodes,
 		    host_task_launcher launcher, buffer_access_map access_map, side_effect_map side_effect_map) {
 			// The geometry is required to construct the buffer_access_map, so we pass it in here even though it has to have a specific shape
-			assert(geometry.dimensions == 1 && geometry.global_size == detail::range_cast<3>(range(num_collective_nodes)) && geometry.global_offset == zeros);
+			assert(get_dimensions(geometry) == 1 && get_global_size(geometry) == detail::range_cast<3>(range(num_collective_nodes))
+			       && get_global_offset(geometry) == zeros);
 			return std::unique_ptr<task>(
 			    new task(tid, task_type::collective, cgid, geometry, std::move(launcher), std::move(access_map), std::move(side_effect_map), {}, {}, nullptr));
 		}
 
 		static std::unique_ptr<task> make_master_node(task_id tid, host_task_launcher launcher, buffer_access_map access_map, side_effect_map side_effect_map) {
-			return std::unique_ptr<task>(new task(tid, task_type::master_node, non_collective_group_id, task_geometry{}, std::move(launcher),
+			return std::unique_ptr<task>(new task(tid, task_type::master_node, non_collective_group_id, basic_task_geometry{}, std::move(launcher),
 			    std::move(access_map), std::move(side_effect_map), {}, {}, nullptr));
 		}
 
 		static std::unique_ptr<task> make_horizon(task_id tid) {
-			return std::unique_ptr<task>(new task(tid, task_type::horizon, non_collective_group_id, task_geometry{}, {}, {}, {}, {}, {}, nullptr));
+			return std::unique_ptr<task>(new task(tid, task_type::horizon, non_collective_group_id, basic_task_geometry{}, {}, {}, {}, {}, {}, nullptr));
 		}
 
 		static std::unique_ptr<task> make_fence(
 		    task_id tid, buffer_access_map access_map, side_effect_map side_effect_map, std::unique_ptr<task_promise> promise) {
-			return std::unique_ptr<task>(new task(tid, task_type::fence, non_collective_group_id, task_geometry{}, {}, std::move(access_map),
+			return std::unique_ptr<task>(new task(tid, task_type::fence, non_collective_group_id, basic_task_geometry{}, {}, std::move(access_map),
 			    std::move(side_effect_map), {}, {}, std::move(promise)));
 		}
 
@@ -225,7 +224,7 @@ namespace detail {
 		    detail::side_effect_map side_effects, reduction_set reductions, detail::epoch_action epoch_action, std::unique_ptr<task_promise> promise)
 		    : m_tid(tid), m_type(type), m_cgid(cgid), m_geometry(geometry), m_launcher(std::move(launcher)), m_access_map(std::move(access_map)),
 		      m_side_effects(std::move(side_effects)), m_reductions(std::move(reductions)), m_epoch_action(epoch_action), m_promise(std::move(promise)) {
-			assert(type == task_type::host_compute || type == task_type::device_compute || get_granularity().size() == 1);
+			assert(type == task_type::host_compute || type == task_type::device_compute || std::get<basic_task_geometry>(m_geometry).granularity.size() == 1);
 			// Only host tasks can have side effects
 			assert(this->m_side_effects.empty() || type == task_type::host_compute || type == task_type::collective || type == task_type::master_node
 			       || type == task_type::fence);

@@ -8,11 +8,13 @@
 #include <limits>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
 
 #include <fmt/format.h>
 
 
 namespace celerity {
+
 namespace detail {
 
 	template <typename Functor, int BufferDims, int KernelDims>

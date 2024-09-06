@@ -92,7 +92,7 @@ std::string get_task_label(const task_record& tsk) {
 
 	fmt::format_to(std::back_inserter(label), "<br/><b>{}</b>", task_type_string(tsk.type));
 	if(tsk.type == task_type::host_compute || tsk.type == task_type::device_compute) {
-		fmt::format_to(std::back_inserter(label), " {}", subrange<3>{tsk.geometry.global_offset, tsk.geometry.global_size});
+		fmt::format_to(std::back_inserter(label), " {}", subrange<3>{get_global_offset(tsk.geometry), get_global_size(tsk.geometry)});
 	} else if(tsk.type == task_type::collective) {
 		fmt::format_to(std::back_inserter(label), " in CG{}", tsk.cgid);
 	}
@@ -229,7 +229,16 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 		    },
 		    [&](const execution_command_record& ecmd) {
 			    begin_node(ecmd, "box", "darkorange2");
-			    fmt::format_to(back, "<b>execution</b> {}", ecmd.execution_range);
+			    fmt::format_to(back, "<b>execution</b>");
+			    matchbox::match(
+			        ecmd.exec_spec, //
+			        [&](const subrange<3>& sr) { fmt::format_to(back, " {}", sr); },
+			        [&](const std::vector<device_execution_range>& exec_ranges) {
+				        for(const auto& er : exec_ranges) {
+					        fmt::format_to(back, "<br/>{} on D{}", er.range, er.target_device);
+				        }
+				        fmt::format_to(back, "<br/>");
+			        });
 			    auto reduction_init_mode = ecmd.is_reduction_initializer ? access_mode::read_write : access_mode::discard_write;
 			    format_requirements(*output, ecmd.reductions, ecmd.accesses, ecmd.side_effects, reduction_init_mode);
 			    end_node();

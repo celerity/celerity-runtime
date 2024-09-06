@@ -32,10 +32,10 @@ class task_manager;
 // General recording
 
 struct access_record {
-	const buffer_id bid;
-	const std::string buffer_name;
-	const access_mode mode;
-	const region<3> req;
+	buffer_id bid;
+	std::string buffer_name;
+	access_mode mode;
+	region<3> req;
 
 	bool operator==(const access_record&) const = default;
 };
@@ -182,7 +182,7 @@ struct horizon_command_record : matchbox::implement_acceptor<command_record, hor
 };
 
 struct execution_command_record : matchbox::implement_acceptor<command_record, execution_command_record>, task_command_record {
-	subrange<3> execution_range;
+	execution_spec exec_spec;
 	bool is_reduction_initializer;
 	access_list accesses;
 	side_effect_map side_effects;

@@ -80,23 +80,23 @@ TEST_CASE("host_task(once) is equivalent to a host task with unit range", "[hand
 		cg = invoke_command_group_function([](handler& cgh) { cgh.host_task(once, [](partition<0> part) {}); });
 	}
 
-	CHECK(cg.geometry.value().dimensions == 0);
-	CHECK(cg.geometry.value().global_size.size() == 1);
-	CHECK(cg.geometry.value().global_offset == zeros);
-	CHECK(cg.geometry.value().granularity == ones);
+	CHECK(get_dimensions(cg.geometry.value()) == 0);
+	CHECK(get_global_size(cg.geometry.value()).size() == 1);
+	CHECK(get_global_offset(cg.geometry.value()) == zeros);
+	CHECK(std::get<basic_task_geometry>(cg.geometry.value()).granularity == ones);
 	CHECK(cg.task_type == task_type::host_compute); // NOT the magic "master node task" type
 }
 
 TEST_CASE("parallel_for(size_t, ...) acts as a shorthand for parallel_for(range<1>, ...)", "[handler]") {
 	const auto cg = invoke_command_group_function([](handler& cgh) { cgh.parallel_for(10, [](item<1>) {}); });
-	CHECK(cg.geometry.value().global_size == range_cast<3>(range(10)));
-	CHECK(cg.geometry.value().global_offset == zeros);
-	CHECK(cg.geometry.value().granularity == ones);
+	CHECK(get_global_size(cg.geometry.value()) == range_cast<3>(range(10)));
+	CHECK(get_global_offset(cg.geometry.value()) == zeros);
+	CHECK(std::get<basic_task_geometry>(cg.geometry.value()).granularity == ones);
 }
 
 TEST_CASE("parallel_for(size_t, size_t,, ...) acts as a shorthand for parallel_for(range<1>, id<1>,, ...)", "[handler]") {
 	const auto cg = invoke_command_group_function([](handler& cgh) { cgh.parallel_for(10, 11, [](item<1>) {}); });
-	CHECK(cg.geometry.value().global_size == range_cast<3>(range(10)));
-	CHECK(cg.geometry.value().global_offset == id_cast<3>(id(11)));
-	CHECK(cg.geometry.value().granularity == ones);
+	CHECK(get_global_size(cg.geometry.value()) == range_cast<3>(range(10)));
+	CHECK(get_global_offset(cg.geometry.value()) == id_cast<3>(id(11)));
+	CHECK(std::get<basic_task_geometry>(cg.geometry.value()).granularity == ones);
 }

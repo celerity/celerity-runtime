@@ -114,16 +114,30 @@ class horizon_command final : public matchbox::implement_acceptor<task_command, 
 	std::vector<reduction_id> m_completed_reductions;
 };
 
+// TODO Naming
+struct device_execution_range {
+	subrange<3> range;
+	device_id target_device = -1;
+
+	bool operator==(const device_execution_range&) const = default;
+};
+
+using execution_spec = std::variant<subrange<3>, std::vector<device_execution_range>>;
+
 class execution_command final : public matchbox::implement_acceptor<task_command, execution_command> {
   public:
-	explicit execution_command(const command_id cid, const task* const tsk, subrange<3> execution_range, const bool is_reduction_initializer)
-	    : acceptor_base(cid, tsk), m_execution_range(execution_range), m_initialize_reductions(is_reduction_initializer) {}
+	explicit execution_command(const command_id cid, const task* const tsk, execution_spec spec, const bool is_reduction_initializer)
+	    : acceptor_base(cid, tsk), m_execution_spec(spec), m_initialize_reductions(is_reduction_initializer) {
+		// Reductions currently don't support multiple chunks
+		assert(std::holds_alternative<subrange<3>>(m_execution_spec) || std::get<std::vector<device_execution_range>>(m_execution_spec).size() == 1
+		       || !is_reduction_initializer);
+	}
 
-	const subrange<3>& get_execution_range() const { return m_execution_range; }
+	const execution_spec& get_execution_spec() const& { return m_execution_spec; }
 	bool is_reduction_initializer() const { return m_initialize_reductions; }
 
   private:
-	subrange<3> m_execution_range;
+	execution_spec m_execution_spec;
 	bool m_initialize_reductions = false;
 };
 

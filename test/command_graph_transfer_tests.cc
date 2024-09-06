@@ -246,9 +246,9 @@ TEST_CASE("command_graph_generator does not unnecessarily divide push commands d
 	auto buf = cctx.create_buffer(test_range);
 	cctx.device_compute(test_range).name("task a").discard_write(buf, acc::one_to_one{}).submit();
 	// Assuming standard 1D split
-	CHECK(subrange_cast<1>(cctx.query<execution_command_record>("task a").on(0)->execution_range) == subrange<1>{0, 32});
-	CHECK(subrange_cast<1>(cctx.query<execution_command_record>("task a").on(1)->execution_range) == subrange<1>{32, 32});
-	CHECK(subrange_cast<1>(cctx.query<execution_command_record>("task a").on(2)->execution_range) == subrange<1>{64, 32});
+	CHECK(subrange_cast<1>(std::get<subrange<3>>(cctx.query<execution_command_record>("task a").on(0)->exec_spec)) == subrange<1>{0, 32});
+	CHECK(subrange_cast<1>(std::get<subrange<3>>(cctx.query<execution_command_record>("task a").on(1)->exec_spec)) == subrange<1>{32, 32});
+	CHECK(subrange_cast<1>(std::get<subrange<3>>(cctx.query<execution_command_record>("task a").on(2)->exec_spec)) == subrange<1>{64, 32});
 	// Require partial data from nodes 1 and 2
 	cctx.master_node_host_task().read(buf, acc::fixed{subrange<1>{48, 32}}).submit();
 	const auto pushes1 = cctx.query<push_command_record>();

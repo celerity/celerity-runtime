@@ -3,6 +3,7 @@
 #include "buffer.h"
 #include "cgf.h"
 #include "cgf_diagnostics.h"
+#include "expert_mapper.h"
 #include "grid.h"
 #include "hint.h"
 #include "item.h"
@@ -70,6 +71,7 @@ namespace detail {
 	raw_command_group invoke_command_group_function(CGF&& cgf);
 
 	hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, std::unique_ptr<range_mapper_base> rm);
+	hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, expert_mapper em);
 	void add_requirement(handler& cgh, const host_object_id hoid, const experimental::side_effect_order order, const bool is_void);
 	void add_reduction(handler& cgh, const reduction_info& rinfo);
 	void set_task_name(handler& cgh, const std::string& debug_name);
@@ -86,23 +88,6 @@ namespace detail {
 
 	struct simple_kernel_flavor {};
 	struct nd_range_kernel_flavor {};
-
-	template <typename Flavor, int Dims>
-	struct kernel_flavor_traits;
-
-	struct no_local_size {};
-
-	template <int Dims>
-	struct kernel_flavor_traits<simple_kernel_flavor, Dims> {
-		inline static constexpr bool has_local_size = false;
-		using local_size_type = no_local_size;
-	};
-
-	template <int Dims>
-	struct kernel_flavor_traits<nd_range_kernel_flavor, Dims> {
-		inline static constexpr bool has_local_size = true;
-		using local_size_type = range<Dims>;
-	};
 
 	class collective_tag_factory;
 } // namespace detail
@@ -317,20 +302,29 @@ class handler {
 	handler& operator=(handler&&) = delete;
 	~handler() = default;
 
-	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel,
-	    std::enable_if_t<detail::is_reductions_and_kernel_v<ReductionsAndKernel...>, int> = 0>
+	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
 	void parallel_for(range<Dims> global_range, ReductionsAndKernel&&... reductions_and_kernel) {
-		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(global_range, id<Dims>(),
-		    detail::no_local_size{}, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{},
-		    std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
+		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
+		const auto geo = detail::basic_task_geometry{//
+		    .dimensions = Dims,
+		    .global_size = range_cast<3>(global_range),
+		    .global_offset = detail::zeros,
+		    .granularity = range_cast<3>(get_constrained_granularity(global_range, range<Dims>{detail::ones}))};
+		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(
+		    geo, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
 	}
 
 	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel,
 	    std::enable_if_t<detail::is_reductions_and_kernel_v<ReductionsAndKernel...>, int> = 0>
 	void parallel_for(range<Dims> global_range, id<Dims> global_offset, ReductionsAndKernel&&... reductions_and_kernel) {
-		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(global_range, global_offset,
-		    detail::no_local_size{}, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{},
-		    std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
+		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
+		const auto geo = detail::basic_task_geometry{//
+		    .dimensions = Dims,
+		    .global_size = range_cast<3>(global_range),
+		    .global_offset = id_cast<3>(global_offset),
+		    .granularity = range_cast<3>(get_constrained_granularity(global_range, range<Dims>{detail::ones}))};
+		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(
+		    geo, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
 	}
 
 	template <typename KernelName = detail::unnamed_kernel, typename... ReductionsAndKernel,
@@ -348,9 +342,23 @@ class handler {
 	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel,
 	    std::enable_if_t<detail::is_reductions_and_kernel_v<ReductionsAndKernel...>, int> = 0>
 	void parallel_for(celerity::nd_range<Dims> execution_range, ReductionsAndKernel&&... reductions_and_kernel) {
-		parallel_for_reductions_and_kernel<detail::nd_range_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(execution_range.get_global_range(),
-		    execution_range.get_offset(), execution_range.get_local_range(), std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{},
-		    std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
+		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
+		const auto geo = detail::basic_task_geometry{//
+		    .dimensions = Dims,
+		    .global_size = range_cast<3>(execution_range.get_global_range()),
+		    .global_offset = id_cast<3>(execution_range.get_offset()),
+		    .local_size = range_cast<3>(execution_range.get_local_range()),
+		    .granularity = range_cast<3>(get_constrained_granularity(execution_range.get_global_range(), execution_range.get_local_range()))};
+		parallel_for_reductions_and_kernel<detail::nd_range_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(
+		    geo, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
+	}
+
+	// TODO API: Also have this for host_task?
+	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
+	void parallel_for(custom_task_geometry<Dims> geometry, ReductionsAndKernel&&... reductions_and_kernel) {
+		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
+		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(
+		    std::move(geometry), std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
 	}
 
 	/**
@@ -402,7 +410,7 @@ class handler {
 	void host_task(range<Dims> global_range, id<Dims> global_offset, Functor&& task) {
 		assert(!m_cg.task_type.has_value());
 		m_cg.task_type = detail::task_type::host_compute;
-		m_cg.geometry = {//
+		m_cg.geometry = detail::basic_task_geometry{//
 		    .dimensions = Dims,
 		    .global_size = detail::range_cast<3>(global_range),
 		    .global_offset = detail::id_cast<3>(global_offset),
@@ -432,6 +440,7 @@ class handler {
 	friend detail::raw_command_group detail::invoke_command_group_function(CGF&& cgf);
 	friend detail::hydration_id detail::add_requirement(
 	    handler& cgh, const detail::buffer_id bid, const access_mode mode, std::unique_ptr<detail::range_mapper_base> rm);
+	friend detail::hydration_id detail::add_requirement(handler& cgh, const detail::buffer_id bid, const access_mode mode, expert_mapper em);
 	friend void detail::add_requirement(handler& cgh, const detail::host_object_id hoid, const experimental::side_effect_order order, const bool is_void);
 	friend void detail::add_reduction(handler& cgh, const detail::reduction_info& rinfo);
 	template <int Dims>
@@ -448,39 +457,34 @@ class handler {
 	explicit handler(detail::raw_command_group& out_cg) : m_cg(out_cg) {}
 
 	template <typename KernelFlavor, typename KernelName, int Dims, typename... ReductionsAndKernel, size_t... ReductionIndices>
-	void parallel_for_reductions_and_kernel(range<Dims> global_range, id<Dims> global_offset,
-	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_size, std::index_sequence<ReductionIndices...> indices,
-	    ReductionsAndKernel&&... kernel_and_reductions) {
+	void parallel_for_reductions_and_kernel(
+	    detail::task_geometry geo, std::index_sequence<ReductionIndices...> indices, ReductionsAndKernel&&... kernel_and_reductions) {
 		auto args_tuple = std::forward_as_tuple(kernel_and_reductions...);
 		auto&& kernel = std::get<sizeof...(kernel_and_reductions) - 1>(args_tuple);
-		parallel_for_kernel_and_reductions<KernelFlavor, KernelName>(
-		    global_range, global_offset, local_size, std::forward<decltype(kernel)>(kernel), std::get<ReductionIndices>(args_tuple)...);
+		parallel_for_kernel_and_reductions<KernelFlavor, KernelName, Dims>(
+		    std::move(geo), std::forward<decltype(kernel)>(kernel), std::get<ReductionIndices>(args_tuple)...);
 	}
 
 	template <typename KernelFlavor, typename KernelName, int Dims, typename Kernel, typename... Reductions>
-	void parallel_for_kernel_and_reductions(range<Dims> global_range, id<Dims> global_offset,
-	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel&& kernel, Reductions&... reductions) //
-	{
+	void parallel_for_kernel_and_reductions(detail::task_geometry geo, Kernel&& kernel, Reductions&... reductions) {
 		assert(!m_cg.task_type.has_value());
 		m_cg.task_type = detail::task_type::device_compute;
-		range<3> granularity = {1, 1, 1};
-		if constexpr(detail::kernel_flavor_traits<KernelFlavor, Dims>::has_local_size) {
-			for(int d = 0; d < Dims; ++d) {
-				granularity[d] = local_range[d];
-			}
-		}
-		m_cg.geometry = {.dimensions = Dims,
-		    .global_size = detail::range_cast<3>(global_range),
-		    .global_offset = detail::id_cast<3>(global_offset),
-		    .granularity = get_constrained_granularity(global_range, detail::range_cast<Dims>(granularity))};
-		m_cg.launcher = make_device_kernel_launcher<KernelFlavor, KernelName, Dims>(
-		    global_range, global_offset, local_range, std::forward<Kernel>(kernel), std::index_sequence_for<Reductions...>(), reductions...);
+		m_cg.geometry = std::move(geo);
+		m_cg.launcher =
+		    make_device_kernel_launcher<KernelFlavor, KernelName, Dims>(range_cast<Dims>(get_global_size(geo)), id_cast<Dims>(get_global_offset(geo)),
+		        range_cast<Dims>(get_local_size(geo)), std::forward<Kernel>(kernel), std::index_sequence_for<Reductions...>(), reductions...);
 		if(!m_cg.task_name.has_value() && !detail::is_unnamed_kernel<KernelName>) { m_cg.task_name = detail::kernel_debug_name<KernelName>(); }
 	}
 
 	[[nodiscard]] detail::hydration_id add_requirement(const detail::buffer_id bid, const access_mode mode, std::unique_ptr<detail::range_mapper_base> rm) {
 		assert(!m_cg.task_type.has_value());
 		m_cg.buffer_accesses.push_back(detail::buffer_access{bid, mode, std::move(rm)});
+		return m_next_accessor_hydration_id++;
+	}
+
+	[[nodiscard]] detail::hydration_id add_requirement(const detail::buffer_id bid, const access_mode mode, expert_mapper em) {
+		assert(!m_cg.task_type.has_value());
+		m_cg.buffer_accesses.emplace_back(bid, mode, std::move(em));
 		return m_next_accessor_hydration_id++;
 	}
 
@@ -530,9 +534,8 @@ class handler {
 	}
 
 	template <typename KernelFlavor, typename KernelName, int Dims, typename Kernel, size_t... ReductionIndices, typename... Reductions>
-	detail::device_kernel_launcher make_device_kernel_launcher(const range<Dims>& global_range, const id<Dims>& global_offset,
-	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel&& kernel,
-	    std::index_sequence<ReductionIndices...> /* indices */, Reductions... reductions) {
+	detail::device_kernel_launcher make_device_kernel_launcher(const range<Dims>& global_range, const id<Dims>& global_offset, const range<Dims>& local_range,
+	    Kernel&& kernel, std::index_sequence<ReductionIndices...> /* indices */, Reductions... reductions) {
 		static_assert(std::is_copy_constructible_v<std::decay_t<Kernel>>, "Kernel functor must be copyable"); // Required for hydration
 
 		// Check whether all accessors are being captured by value etc.
@@ -612,6 +615,10 @@ namespace detail {
 
 	[[nodiscard]] inline hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, std::unique_ptr<range_mapper_base> rm) {
 		return cgh.add_requirement(bid, mode, std::move(rm));
+	}
+
+	[[nodiscard]] inline hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, expert_mapper em) {
+		return cgh.add_requirement(bid, mode, std::move(em));
 	}
 
 	inline void add_requirement(handler& cgh, const host_object_id hoid, const experimental::side_effect_order order, const bool is_void) {

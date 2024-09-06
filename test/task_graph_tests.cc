@@ -53,9 +53,9 @@ namespace detail {
 
 		const auto tsk = test_utils::get_task(tt.tdag, tid);
 		CHECK(tsk->get_type() == task_type::device_compute);
-		CHECK(tsk->get_dimensions() == 2);
-		CHECK(tsk->get_global_size() == range<3>{32, 128, 1});
-		CHECK(tsk->get_global_offset() == id<3>{32, 24, 0});
+		CHECK(std::get<basic_task_geometry>(tsk->get_geometry()).dimensions == 2);
+		CHECK(std::get<basic_task_geometry>(tsk->get_geometry()).global_size == range<3>{32, 128, 1});
+		CHECK(std::get<basic_task_geometry>(tsk->get_geometry()).global_offset == id<3>{32, 24, 0});
 
 		auto& bam = tsk->get_buffer_access_map();
 		const auto bufs = bam.get_accessed_buffers();
@@ -64,9 +64,9 @@ namespace detail {
 		CHECK(std::find(bufs.cbegin(), bufs.cend(), buf_b.get_id()) != bufs.cend());
 		CHECK(bam.get_nth_access(0) == std::pair{buf_a.get_id(), access_mode::read});
 		CHECK(bam.get_nth_access(1) == std::pair{buf_b.get_id(), access_mode::discard_read_write});
-		const auto reqs_a = bam.compute_consumed_region(buf_a.get_id(), subrange{tsk->get_global_offset(), tsk->get_global_size()});
+		const auto reqs_a = bam.get_task_consumed_region(buf_a.get_id());
 		CHECK(reqs_a == box(subrange<3>({32, 24, 0}, {32, 128, 1})));
-		const auto reqs_b = bam.compute_produced_region(buf_b.get_id(), subrange{tsk->get_global_offset(), tsk->get_global_size()});
+		const auto reqs_b = bam.get_task_produced_region(buf_b.get_id());
 		CHECK(reqs_b == box(subrange<3>({}, {5, 18, 74})));
 	}
 
@@ -74,7 +74,7 @@ namespace detail {
 		std::vector<buffer_access> accs;
 		accs.push_back(buffer_access{0, access_mode::read, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{3, 0}, {10, 20}}, range<2>{30, 30})});
 		accs.push_back(buffer_access{0, access_mode::read, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{10, 0}, {7, 20}}, range<2>{30, 30})});
-		const buffer_access_map bam{std::move(accs), task_geometry{2, {100, 100, 1}, {}, {}}};
+		const buffer_access_map bam{std::move(accs), basic_task_geometry{2, {100, 100, 1}, {}, {}}};
 		const auto req = bam.compute_consumed_region(0, subrange<3>({0, 0, 0}, {100, 100, 1}));
 		CHECK(req == box(subrange<3>({3, 0, 0}, {14, 20, 1})));
 	}

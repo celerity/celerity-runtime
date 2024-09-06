@@ -9,6 +9,8 @@ using namespace celerity::test_utils;
 
 namespace acc = celerity::access;
 
+subrange<3> get_execution_range(const auto& cmd_query) { return std::get<subrange<3>>(cmd_query->exec_spec); }
+
 TEST_CASE("command_graph_generator respects task granularity when splitting", "[command_graph_generator]") {
 	const size_t num_nodes = 4;
 	cdag_test_context cctx(num_nodes);
@@ -26,7 +28,7 @@ TEST_CASE("command_graph_generator respects task granularity when splitting", "[
 	for(auto tid : {simple_1d, simple_2d, simple_3d}) {
 		size_t total_range_dim0 = 0;
 		for(const auto& ecmd : cctx.query<execution_command_record>(tid).iterate_nodes()) {
-			auto range_dim0 = ecmd->execution_range.range[0];
+			auto range_dim0 = get_execution_range(ecmd).range[0];
 			// Don't waste compute resources by creating over- or undersized chunks
 			REQUIRE_LOOP((range_dim0 == 63 || range_dim0 == 64));
 			total_range_dim0 += range_dim0;
@@ -36,14 +38,14 @@ TEST_CASE("command_graph_generator respects task granularity when splitting", "[
 
 	for(auto tid : {perfect_1d, perfect_2d, perfect_3d}) {
 		for(const auto& ecmd : cctx.query<execution_command_record>(tid).iterate_nodes()) {
-			REQUIRE_LOOP(ecmd->execution_range.range[0] == 64); // Can be split perfectly
+			REQUIRE_LOOP(get_execution_range(ecmd).range[0] == 64); // Can be split perfectly
 		}
 	}
 
 	for(auto tid : {rebalance_1d, rebalance_2d, rebalance_3d}) {
 		size_t total_range_dim0 = 0;
 		for(const auto& ecmd : cctx.query<execution_command_record>(tid).iterate_nodes()) {
-			const auto range_dim0 = ecmd->execution_range.range[0];
+			const auto range_dim0 = get_execution_range(ecmd).range[0];
 			// Don't waste compute resources by creating over- or undersized chunks
 			REQUIRE_LOOP((range_dim0 == 64 || range_dim0 == 96));
 			total_range_dim0 += range_dim0;
@@ -59,14 +61,14 @@ TEST_CASE("command_graph_generator respects split constraints", "[command_graph_
 	// Split constraints use the same underlying mechanisms as task granularity (tested above), so we'll keep this brief
 	const auto tid_a = cctx.device_compute<class UKN(task)>(range<1>{128}).constrain_split(range<1>{64}).submit();
 	REQUIRE(cctx.query(tid_a).total_count() == 2);
-	CHECK(cctx.query<execution_command_record>(tid_a).on(0)->execution_range.range == range<3>{64, 1, 1});
-	CHECK(cctx.query<execution_command_record>(tid_a).on(1)->execution_range.range == range<3>{64, 1, 1});
+	CHECK(get_execution_range(cctx.query<execution_command_record>(tid_a).on(0)).range == range<3>{64, 1, 1});
+	CHECK(get_execution_range(cctx.query<execution_command_record>(tid_a).on(1)).range == range<3>{64, 1, 1});
 
 	// The more interesting aspect is that a constrained nd-range kernel uses the least common multiple of the two constraints
 	const auto tid_b = cctx.device_compute<class UKN(task)>(nd_range<1>{{192}, {32}}).constrain_split(range<1>{3}).submit();
 	REQUIRE(cctx.query(tid_b).total_count() == 2);
-	CHECK(cctx.query<execution_command_record>(tid_b).on(0)->execution_range.range == range<3>{96, 1, 1});
-	CHECK(cctx.query<execution_command_record>(tid_b).on(1)->execution_range.range == range<3>{96, 1, 1});
+	CHECK(get_execution_range(cctx.query<execution_command_record>(tid_b).on(0)).range == range<3>{96, 1, 1});
+	CHECK(get_execution_range(cctx.query<execution_command_record>(tid_b).on(1)).range == range<3>{96, 1, 1});
 }
 
 TEST_CASE("command_graph_generator creates 2-dimensional chunks when providing the split_2d hint", "[command_graph_generator][split][task-hints]") {
@@ -75,7 +77,7 @@ TEST_CASE("command_graph_generator creates 2-dimensional chunks when providing t
 	const auto tid_a = cctx.device_compute<class UKN(task)>(range<2>{128, 128}).hint(experimental::hints::split_2d{}).submit();
 	REQUIRE(cctx.query(tid_a).total_count() == 4);
 	for(node_id nid = 0; nid < 4; ++nid) {
-		CHECK(cctx.query<execution_command_record>(tid_a).on(nid)->execution_range.range == range<3>{64, 64, 1});
+		CHECK(get_execution_range(cctx.query<execution_command_record>(tid_a).on(nid)).range == range<3>{64, 64, 1});
 	}
 }
 
@@ -109,7 +111,7 @@ TEMPLATE_TEST_CASE_SIG("command_graph_generator does not create empty chunks", "
 	for(node_id nid = 0; nid < num_nodes - 1; ++nid) {
 		auto split_range = range_cast<3>(task_range);
 		split_range[0] /= 2; // We're assuming a 1D split here
-		CHECK(cmds.on(nid)->execution_range.range == split_range);
+		CHECK(get_execution_range(cmds.on(nid)).range == split_range);
 	}
 }
 

@@ -310,7 +310,7 @@ TEST_CASE("NOCOMMIT CDAG whitebox") {
 
 	const auto& batch4_cmd = dynamic_cast<const execution_command&>(*batch4[0]);
 	const auto& manual_batch_cmd = dynamic_cast<const execution_command&>(*manual_batch[0]);
-	CHECK(manual_batch_cmd.get_execution_range() == batch4_cmd.get_execution_range());
+	CHECK(manual_batch_cmd.get_execution_spec() == batch4_cmd.get_execution_spec());
 	CHECK(batch4_cmd.get_task() == tm_del.tasks.at(4));
 	CHECK(manual_batch_cmd.get_task() == tm_del.tasks.at(5));
 	CHECK(has_dependency(&manual_batch_cmd, &batch4_cmd));

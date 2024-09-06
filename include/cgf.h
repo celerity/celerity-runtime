@@ -1,5 +1,6 @@
 #pragma once
 
+#include "expert_mapper.h"
 #include "grid.h"
 #include "hint.h"
 #include "range_mapper.h"
@@ -13,25 +14,109 @@
 #include <variant>
 #include <vector>
 
+#include <matchbox.hh>
 #include <sycl/sycl.hpp>
+
+
+namespace celerity {
+
+// NOTES ON TASK GEOMETRIES:
+// - Whatever the frontend interface will look like, in the end we will have to pass a list of chunks to the task manager, CGGEN and IGGEN
+// - Chunks may or may not be assigned to nodes and devices
+//		- At first only support fully assigned
+// - Via notes on expert mapper: In theory we don't need to know what the remote chunks are at all. We only need to know which peer
+//   requires data from us. Hmm...
+//		=> WELL: Only if we don't use ANY normal range mappers
+//		=> Make sure to detect this case, i.e., if someone only wants to specify local chunks, they have to somehow explicitly state that there
+//         are no remote chunks (or not use normal ranger mappers). Otherwise throw an error.
+// - Q: What happens when passing a geometry w/ device assignments into a host_task?
+// - Q: How do we specify ND-range kernels?
+// - Q: Should we allow the same chunk / overlapping chunks to be executed on multiple nodes? Not sure what the implications would be, let's say no for now.
+//		=> PROBLEM: I think we need it for the stencil optimization proposed by Peter. BUT: How do we then identify chunks for e.g. data access or scratch
+//         buffers?! Do we need a "chunk id" after all? UGH.
+// - Q: Do we always have to have a "global" domain in which chunks exist?
+//		- If not, we couldn't define global indices - is that a problem?
+//		  Or rather, each chunk would have its own separate index space. In a sense those chunks would be overlapping.
+// - Q: If a custom geometry needs to have a global size, how does that interact with algebraic operations (e.g. removing a boundary from a domain).
+// 		=> Maybe the global size should be implicitly computed from the bounding box of all chunks...?
+// 		   Would this bounding box always start at 0,0? Would anything else make sense..?
+
+// TODO API: Naming
+struct geometry_chunk {
+	// TODO API: Subrange or box? Or both?
+	subrange<3> sr;
+	detail::node_id nid;
+	std::optional<detail::device_id> did;
+
+	bool operator==(const geometry_chunk&) const = default;
+};
+
+// TODO API: Naming
+// TODO API: This should probably use <Dims> ranges/ids
+// TODO: Overlap with basic_task_geometry
+template <int Dims = 1>
+struct custom_task_geometry {
+	range<3> global_size{1, 1, 1};
+	id<3> global_offset;
+	range<3> local_size{1, 1, 1}; // FIXME: Figure out how nd-range kernels work w/ custom geometries
+
+	std::vector<geometry_chunk> assigned_chunks;
+};
+
+class handler;
+
+} // namespace celerity
 
 namespace celerity::detail {
 
 class communicator;
 
-struct task_geometry {
+// FIXME: We need the same thing but w/o template parameter
+struct custom_task_geometry_desc {
+	int dimensions = 0;
+	range<3> global_size;
+	id<3> global_offset;
+	range<3> local_size;
+	std::vector<geometry_chunk> assigned_chunks;
+
+	template <int Dims>
+	explicit(false) custom_task_geometry_desc(custom_task_geometry<Dims> geo)
+	    : dimensions(Dims), global_size(geo.global_size), global_offset(geo.global_offset), local_size(geo.local_size),
+	      assigned_chunks(std::move(geo.assigned_chunks)) {}
+
+	bool operator==(const custom_task_geometry_desc&) const = default;
+};
+
+// TODO: Or "automatic" task geometry?
+struct basic_task_geometry {
 	int dimensions = 0;
 	range<3> global_size{1, 1, 1};
 	id<3> global_offset;
-	range<3> granularity{1, 1, 1};
+	range<3> local_size{1, 1, 1};
+	range<3> granularity{1, 1, 1}; ///< Like local_size, but potentially further constrained
 
-	bool operator==(const task_geometry&) const = default;
+	bool operator==(const basic_task_geometry&) const = default;
 };
+
+using task_geometry = std::variant<basic_task_geometry, custom_task_geometry_desc>;
+
+inline int get_dimensions(const task_geometry& geo) {
+	return matchbox::match(geo, [](auto& g) { return g.dimensions; });
+}
+inline range<3> get_global_size(const task_geometry& geo) {
+	return matchbox::match(geo, [](auto& g) { return g.global_size; });
+}
+inline id<3> get_global_offset(const task_geometry& geo) {
+	return matchbox::match(geo, [](auto& g) { return g.global_offset; });
+}
+inline range<3> get_local_size(const task_geometry& geo) {
+	return matchbox::match(geo, [](auto& g) { return g.local_size; });
+}
 
 struct buffer_access {
 	buffer_id bid = -1;
 	access_mode mode = access_mode::read;
-	std::unique_ptr<range_mapper_base> range_mapper;
+	std::variant<std::unique_ptr<range_mapper_base>, expert_mapper> range_mapper; // NOCOMMIT Naming
 };
 
 struct host_object_effect {

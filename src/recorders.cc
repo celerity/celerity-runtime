@@ -22,7 +22,7 @@ namespace celerity::detail {
 
 access_list build_access_list(const task& tsk, const buffer_name_map& get_buffer_debug_name, const std::optional<subrange<3>> execution_range = {}) {
 	access_list ret;
-	const auto exec_range = execution_range.value_or(subrange<3>{tsk.get_global_offset(), tsk.get_global_size()});
+	const auto exec_range = execution_range.value_or(subrange<3>{get_global_offset(tsk.get_geometry()), get_global_size(tsk.get_geometry())});
 	const auto& bam = tsk.get_buffer_access_map();
 	for(size_t i = 0; i < bam.get_num_accesses(); ++i) {
 		const auto [bid, mode] = bam.get_nth_access(i);
@@ -55,16 +55,34 @@ task_record::task_record(const task& tsk, const buffer_name_map& get_buffer_debu
 
 // Commands
 
-std::optional<subrange<3>> get_execution_range(const command& cmd) {
-	const auto* execution_cmd = dynamic_cast<const execution_command*>(&cmd);
-	return execution_cmd != nullptr ? execution_cmd->get_execution_range() : std::optional<subrange<3>>{};
+std::optional<execution_spec> get_execution_spec(const command& cmd) {
+	if(const auto* execution_cmd = dynamic_cast<const execution_command*>(&cmd); execution_cmd != nullptr) { return execution_cmd->get_execution_spec(); }
+	return std::nullopt;
 }
 
 access_list build_cmd_access_list(const command& cmd, const task& tsk, const buffer_name_map& accessed_buffer_names) {
-	const auto execution_range_a = get_execution_range(cmd);
-	const auto execution_range_b = subrange<3>{tsk.get_global_offset(), tsk.get_global_size()};
-	const auto execution_range = execution_range_a.value_or(execution_range_b);
-	return build_access_list(tsk, accessed_buffer_names, execution_range);
+	const auto exec_spec = get_execution_spec(cmd);
+	if(!exec_spec.has_value()) {
+		return build_access_list(tsk, accessed_buffer_names, subrange<3>{get_global_offset(tsk.get_geometry()), get_global_size(tsk.get_geometry())});
+	}
+	return matchbox::match(
+	    *exec_spec, //
+	    [&](const subrange<3>& sr) { return build_access_list(tsk, accessed_buffer_names, sr); },
+	    [&](const std::vector<device_execution_range>& exec_ranges) {
+		    // NOCOMMIT TODO: Add test for this
+		    access_list ret = build_access_list(tsk, accessed_buffer_names, exec_ranges.at(0).range);
+		    for(size_t i = 1; i < exec_ranges.size(); ++i) {
+			    const auto& er = exec_ranges[i];
+			    const auto al = build_access_list(tsk, accessed_buffer_names, er.range);
+			    for(size_t j = 0; j < al.size(); ++j) {
+				    assert(ret[j].buffer_name == al[j].buffer_name);
+				    assert(ret[j].bid == al[j].bid);
+				    assert(ret[j].mode == al[j].mode);
+				    ret[j].req = region_union(ret[j].req, al[j].req);
+			    }
+		    }
+		    return ret;
+	    });
 }
 
 command_record::command_record(const command& cmd) : id(cmd.get_id()) {}
@@ -92,7 +110,7 @@ horizon_command_record::horizon_command_record(const horizon_command& hcmd, cons
     : acceptor_base(hcmd), task_command_record(tsk), completed_reductions(hcmd.get_completed_reductions()) {}
 
 execution_command_record::execution_command_record(const execution_command& ecmd, const task& tsk, const buffer_name_map& get_buffer_debug_name)
-    : acceptor_base(ecmd), task_command_record(tsk), execution_range(ecmd.get_execution_range()), is_reduction_initializer(ecmd.is_reduction_initializer()),
+    : acceptor_base(ecmd), task_command_record(tsk), exec_spec(ecmd.get_execution_spec()), is_reduction_initializer(ecmd.is_reduction_initializer()),
       accesses(build_cmd_access_list(ecmd, tsk, get_buffer_debug_name)), side_effects(tsk.get_side_effect_map()),
       reductions(build_reduction_list(tsk, get_buffer_debug_name)) {}
 

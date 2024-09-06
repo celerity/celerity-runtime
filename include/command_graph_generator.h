@@ -226,6 +226,7 @@ class command_graph_generator {
 	struct assigned_chunk {
 		node_id executed_on = -1;
 		chunk<3> chnk;
+		std::optional<device_id> target_device;
 	};
 
 	struct buffer_requirements {
@@ -265,6 +266,9 @@ class command_graph_generator {
 	/// This will then be fulfilled by one or more incoming pushes.
 	void generate_await_pushes(batch& current_batch, const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements);
 
+	void generate_local_execution_command(batch& current_batch, const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements,
+	    std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes);
+
 	/// Determine which local data is fresh or stale by comparing global (task-level) and local writes.
 	void update_local_buffer_fresh_regions(const task& tsk, const std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes);
 
@@ -287,7 +291,7 @@ class command_graph_generator {
 
 	void generate_epoch_dependencies(command* cmd);
 
-	void report_overlapping_writes(const task& tsk, const box_vector<3>& local_chunks) const;
+	void report_overlapping_writes(const task& tsk, const std::vector<assigned_chunk>& chunks) const;
 
   private:
 	using buffer_read_map = std::unordered_map<buffer_id, region<3>>;

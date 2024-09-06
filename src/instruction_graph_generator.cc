@@ -709,7 +709,7 @@ class generator_impl {
 	void report_task_overlapping_writes(const task& tsk, const std::vector<localized_chunk>& concurrent_chunks) const;
 
 	/// Allocate memory, apply any pending receives, and issue resize- and coherence copies to prepare all buffer memories for a task's execution.
-	void satisfy_task_buffer_requirements(batch& batch, buffer_id bid, const task& tsk, const subrange<3>& local_execution_range, bool is_reduction_initializer,
+	void satisfy_task_buffer_requirements(batch& batch, buffer_id bid, const task& tsk, const execution_spec& exec_spec, bool is_reduction_initializer,
 	    const std::vector<localized_chunk>& concurrent_chunks_after_split);
 
 	/// Create a gather allocation and optionally save the current buffer value before creating partial reduction results in any kernel.
@@ -1506,19 +1506,25 @@ std::vector<localized_chunk> generator_impl::split_task_execution_range(const ex
 
 	if(tsk.get_execution_target() == execution_target::device && m_system.devices.empty()) { utils::panic("no device on which to execute device kernel"); }
 
-	const bool is_splittable_locally =
-	    tsk.has_variable_split() && tsk.get_side_effect_map().empty() && tsk.get_collective_group_id() == non_collective_group_id;
-	const auto split = tsk.get_hint<experimental::hints::split_2d>() != nullptr ? split_2d : split_1d;
+	const auto& exec_spec = ecmd.get_execution_spec();
 
-	const auto command_chunk = box<3>(ecmd.get_execution_range());
+	const bool is_splittable_locally = tsk.has_variable_split() && tsk.get_side_effect_map().empty() && tsk.get_collective_group_id() == non_collective_group_id
+	                                   && std::holds_alternative<subrange<3>>(exec_spec);
+	const auto split = tsk.get_hint<experimental::hints::split_2d>() != nullptr ? split_2d : split_1d;
 
 	// As a heuristic to keep inter-device communication to a minimum, we split the execution range twice when oversubscription is active: Once to obtain
 	// contiguous chunks per device, and one more (below) to subdivide the ranges on each device (which can help with computation-communication overlap).
 	std::vector<box<3>> coarse_chunks;
 	if(is_splittable_locally && tsk.get_execution_target() == execution_target::device) {
-		coarse_chunks = split(command_chunk, tsk.get_granularity(), m_system.devices.size());
+		coarse_chunks = split(std::get<subrange<3>>(exec_spec), std::get<basic_task_geometry>(tsk.get_geometry()).granularity, m_system.devices.size());
 	} else {
-		coarse_chunks = {command_chunk};
+		matchbox::match(
+		    exec_spec, //
+		    [&](const subrange<3>& command_chunk) { coarse_chunks.push_back(command_chunk); },
+		    [&](const std::vector<device_execution_range>& execution_ranges) {
+			    std::transform(
+			        execution_ranges.begin(), execution_ranges.end(), std::back_inserter(coarse_chunks), [](const auto& er) { return box{er.range}; });
+		    });
 	}
 
 	size_t oversubscribe_factor = 1;
@@ -1542,13 +1548,18 @@ std::vector<localized_chunk> generator_impl::split_task_execution_range(const ex
 	// Split a second time (if oversubscribed) and assign native memory and devices (if the task is a device kernel).
 	std::vector<localized_chunk> concurrent_chunks;
 	for(size_t coarse_idx = 0; coarse_idx < coarse_chunks.size(); ++coarse_idx) {
-		for(const auto& fine_chunk : split(coarse_chunks[coarse_idx], tsk.get_granularity(), oversubscribe_factor)) {
+		const auto granularity =
+		    std::holds_alternative<basic_task_geometry>(tsk.get_geometry()) ? std::get<basic_task_geometry>(tsk.get_geometry()).granularity : range<3>(ones);
+		for(const auto& fine_chunk : split(coarse_chunks[coarse_idx], granularity, oversubscribe_factor)) {
 			auto& localized_chunk = concurrent_chunks.emplace_back();
 			localized_chunk.execution_range = fine_chunk;
 			if(tsk.get_execution_target() == execution_target::device) {
-				assert(coarse_idx < m_system.devices.size());
-				localized_chunk.memory_id = m_system.devices[coarse_idx].native_memory;
-				localized_chunk.device_id = device_id(coarse_idx);
+				const device_id did = std::holds_alternative<std::vector<device_execution_range>>(exec_spec)
+				                          ? std::get<std::vector<device_execution_range>>(exec_spec)[coarse_idx].target_device
+				                          : device_id(coarse_idx);
+				assert(did < m_system.devices.size());
+				localized_chunk.memory_id = m_system.devices[did].native_memory;
+				localized_chunk.device_id = device_id(did);
 			} else {
 				localized_chunk.memory_id = host_memory_id;
 			}
@@ -1573,7 +1584,7 @@ void generator_impl::report_task_overlapping_writes(const task& tsk, const std::
 	}
 }
 
-void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, const buffer_id bid, const task& tsk, const subrange<3>& local_execution_range,
+void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, const buffer_id bid, const task& tsk, const execution_spec& exec_spec,
     const bool local_node_is_reduction_initializer, const std::vector<localized_chunk>& concurrent_chunks_after_split) //
 {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::satisfy_buffer_requirements", iggen_satisfy_buffer_requirements);
@@ -1588,10 +1599,23 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 	region_builder<3> consumed_boxes; // which elements are accessed with a consuming access (these need to be preserved across resizes)
 
 	const auto& bam = tsk.get_buffer_access_map();
-	accessed_boxes.add(bam.compute_produced_region(bid, box<3>(local_execution_range)));
-	const auto reads = bam.compute_consumed_region(bid, box<3>(local_execution_range));
-	accessed_boxes.add(reads);
-	consumed_boxes.add(reads);
+	matchbox::match(
+	    exec_spec,
+	    [&](const subrange<3>& execution_range) {
+		    accessed_boxes.add(bam.compute_produced_region(bid, box<3>(execution_range)));
+		    const auto reads = bam.compute_consumed_region(bid, box<3>(execution_range));
+		    accessed_boxes.add(reads);
+		    consumed_boxes.add(reads);
+	    },
+	    // TODO: This is the same as the chunks above, maybe a bit confusing...
+	    [&](const std::vector<device_execution_range>& execution_ranges) {
+		    for(const auto& [execution_range, _] : execution_ranges) {
+			    accessed_boxes.add(bam.compute_produced_region(bid, box<3>(execution_range)));
+			    const auto reads = bam.compute_consumed_region(bid, box<3>(execution_range));
+			    accessed_boxes.add(reads);
+			    consumed_boxes.add(reads);
+		    }
+	    });
 
 	// reductions can introduce buffer reads if they do not initialize_to_identity (but they cannot be split), so we evaluate them first
 	assert(std::count_if(tsk.get_reductions().begin(), tsk.get_reductions().end(), [=](const reduction_info& r) { return r.bid == bid; }) <= 1
@@ -1860,7 +1884,7 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 		assert(chunk.memory_id == host_memory_id);
 		assert(reduction_map.empty());
 		// We ignore global_memory_access_estimate_bytes for host tasks because they are typically limited by I/O instead
-		return create<host_task_instruction>(command_batch, tsk.get_launcher<host_task_launcher>(), chunk.execution_range, tsk.get_global_size(),
+		return create<host_task_instruction>(command_batch, tsk.get_launcher<host_task_launcher>(), chunk.execution_range, get_global_size(tsk.get_geometry()),
 		    std::move(allocation_map),
 		    tsk.get_collective_group_id() //
 		    CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, tsk.get_type(), tsk.get_id(), tsk.get_debug_name()),
@@ -1915,10 +1939,18 @@ void generator_impl::perform_task_buffer_accesses(const buffer_id bid, const exe
 
 	// Optimization: Quickly verify whether the task has overlapping writes on `bid` to avoid updating allocation last-writers twice.
 	// This is a simpler check than detail::detect_overlapping_writes() which does not allow diagnosing the affected region.
-	const size_t unique_written_elements = bam.compute_produced_region(bid, ecmd.get_execution_range()).get_area();
-	const size_t total_written_elements = std::accumulate(concurrent_writes.begin(), concurrent_writes.end(), size_t(0), //
-	    [](const size_t sum, const region<3>& writes) { return sum + writes.get_area(); });
-	const bool has_overlapping_writes = total_written_elements > unique_written_elements;
+	const bool has_overlapping_writes = ([&] {
+		// We cannot compute `unique_written_elements` in case this is a user-defined list of chunks, because there is no single "union chunk".
+		// The only option is to compute the union of each individual chunk, but this might not be cheap (?).
+		// FIXME: For now we just assume overlapping writes in this case.
+		if(std::holds_alternative<std::vector<device_execution_range>>(ecmd.get_execution_spec())) return true;
+		const size_t unique_written_elements = bam.compute_produced_region(bid, std::get<subrange<3>>(ecmd.get_execution_spec())).get_area();
+		const size_t total_written_elements = std::accumulate(concurrent_writes.begin(), concurrent_writes.end(), size_t(0), //
+		    [](const size_t sum, const region<3>& writes) { return sum + writes.get_area(); });
+		// TODO: This does not account for the fact whether the writes happen within the same or different memories.
+		//       Only the latter case is relevant to the updates below.
+		return total_written_elements > unique_written_elements;
+	})(); // IIFE
 
 	if(has_overlapping_writes) {
 		for(size_t i = 0; i < concurrent_chunks.size(); ++i) {
@@ -1994,7 +2026,7 @@ void generator_impl::compile_execution_command(batch& command_batch, const execu
 		accessed_bids.insert(rinfo.bid);
 	}
 	for(const auto bid : accessed_bids) {
-		satisfy_task_buffer_requirements(command_batch, bid, tsk, ecmd.get_execution_range(), ecmd.is_reduction_initializer(), concurrent_chunks);
+		satisfy_task_buffer_requirements(command_batch, bid, tsk, ecmd.get_execution_spec(), ecmd.is_reduction_initializer(), concurrent_chunks);
 	}
 
 	// 5. If the task contains reductions with more than one local input, create the appropriate gather allocations and (if the local node is the designated
@@ -2235,7 +2267,7 @@ void generator_impl::compile_fence_command(batch& command_batch, const fence_com
 		if(!fence_box.empty()) {
 			// We make the host buffer coherent first in order to apply pending await-pushes.
 			// TODO this enforces a contiguous host-buffer allocation which may cause unnecessary resizes.
-			satisfy_task_buffer_requirements(command_batch, bid, tsk, {}, false /* is_reduction_initializer: irrelevant */,
+			satisfy_task_buffer_requirements(command_batch, bid, tsk, subrange<3>{}, false /* is_reduction_initializer: irrelevant */,
 			    std::vector{localized_chunk{host_memory_id, std::nullopt, box<3>()}} /* local_chunks: irrelevant */);
 
 			auto& host_buffer_allocation = buffer.memories[host_memory_id].get_contiguous_allocation(fence_box);

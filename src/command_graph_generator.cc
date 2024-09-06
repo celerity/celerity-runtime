@@ -24,6 +24,8 @@
 #include <utility>
 #include <vector>
 
+#include <matchbox.hh>
+
 
 namespace celerity::detail {
 
@@ -178,7 +180,7 @@ command* command_graph_generator::clone_command(batch& current_batch, const comm
 	return matchbox::match<command*>(
 	    *cmd,
 	    [&](const execution_command& ecmd) {
-		    return create_command<execution_command>(current_batch, &tsk, ecmd.get_execution_range(), ecmd.is_reduction_initializer(),
+		    return create_command<execution_command>(current_batch, &tsk, ecmd.get_execution_spec(), ecmd.is_reduction_initializer(),
 		        [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
 	    },
 	    [&](const push_command& pcmd) {
@@ -208,19 +210,10 @@ command* command_graph_generator::clone_command(batch& current_batch, const comm
 	    });
 }
 
-void command_graph_generator::report_overlapping_writes(const task& tsk, const box_vector<3>& local_chunks) const {
-	const chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
-
-	// Since this check is run distributed on every node, we avoid quadratic behavior by only checking for conflicts between all local chunks and the
-	// region-union of remote chunks. This way, every conflict will be reported by at least one node.
-	const box<3> global_chunk(subrange(full_chunk.offset, full_chunk.range));
-	auto remote_chunks = region_difference(global_chunk, region(box_vector<3>(local_chunks))).into_boxes();
-
-	// detect_overlapping_writes takes a single box_vector, so we concatenate local and global chunks (the order does not matter)
-	auto distributed_chunks = std::move(remote_chunks);
-	distributed_chunks.insert(distributed_chunks.end(), local_chunks.begin(), local_chunks.end());
-
-	if(const auto overlapping_writes = detect_overlapping_writes(tsk, distributed_chunks); !overlapping_writes.empty()) {
+void command_graph_generator::report_overlapping_writes(const task& tsk, const std::vector<assigned_chunk>& chunks) const {
+	box_vector<3> all_chunks;
+	std::transform(chunks.begin(), chunks.end(), std::back_inserter(all_chunks), [](const auto& ac) { return box<3>(ac.chnk); });
+	if(const auto overlapping_writes = detect_overlapping_writes(tsk, all_chunks); !overlapping_writes.empty()) {
 		auto error = fmt::format("{} has overlapping writes between multiple nodes in", print_task_debug_label(tsk, true /* title case */));
 		for(const auto& [bid, overlap] : overlapping_writes) {
 			fmt::format_to(std::back_inserter(error), " {} {}", print_buffer_debug_label(bid), overlap);
@@ -232,42 +225,53 @@ void command_graph_generator::report_overlapping_writes(const task& tsk, const b
 }
 
 std::vector<command_graph_generator::assigned_chunk> command_graph_generator::split_task_and_assign_chunks(const task& tsk) const {
-	const box<3> full_chunk{subrange<3>(tsk.get_global_offset(), tsk.get_global_size())};
-	const size_t num_chunks = m_num_nodes * m_test_chunk_multiplier;
-	const auto chunks = ([&] {
-		if(tsk.get_type() == task_type::collective || tsk.get_type() == task_type::fence) {
-			std::vector<box<3>> chunks;
-			for(size_t nid = 0; nid < m_num_nodes; ++nid) {
-				const id<1> min = tsk.get_type() == task_type::collective ? nid : 0;
-				const id<1> max = min + 1;
-				chunks.push_back(box_cast<3>(box<1>{min, max}));
-			}
-			return chunks;
-		}
-		if(tsk.has_variable_split()) {
-			if(tsk.get_hint<experimental::hints::split_1d>() != nullptr) {
-				// no-op, keeping this for documentation purposes
-			}
-			if(tsk.get_hint<experimental::hints::split_2d>() != nullptr) { return split_2d(full_chunk, tsk.get_granularity(), num_chunks); }
-			return split_1d(full_chunk, tsk.get_granularity(), num_chunks);
-		}
-		return std::vector<box<3>>{full_chunk};
-	})();
-	assert(chunks.size() <= num_chunks); // We may have created less than requested
-	assert(!chunks.empty());
+	return matchbox::match(
+	    tsk.get_geometry(),
+	    [&](const basic_task_geometry& geo) {
+		    const box<3> full_chunk{subrange<3>(geo.global_offset, geo.global_size)};
+		    const size_t num_chunks = m_num_nodes * m_test_chunk_multiplier;
+		    const auto chunks = ([&] {
+			    if(tsk.get_type() == task_type::collective || tsk.get_type() == task_type::fence) {
+				    std::vector<box<3>> chunks;
+				    for(size_t nid = 0; nid < m_num_nodes; ++nid) {
+					    const id<1> min = tsk.get_type() == task_type::collective ? nid : 0;
+					    const id<1> max = min + 1;
+					    chunks.push_back(box_cast<3>(box<1>{min, max}));
+				    }
+				    return chunks;
+			    }
+			    if(tsk.has_variable_split()) {
+				    if(tsk.get_hint<experimental::hints::split_1d>() != nullptr) {
+					    // no-op, keeping this for documentation purposes
+				    }
+				    if(tsk.get_hint<experimental::hints::split_2d>() != nullptr) { return split_2d(full_chunk, geo.granularity, num_chunks); }
+				    return split_1d(full_chunk, geo.granularity, num_chunks);
+			    }
+			    return std::vector<box<3>>{full_chunk};
+		    })();
+		    assert(chunks.size() <= num_chunks); // We may have created less than requested
+		    assert(!chunks.empty());
 
-	// Assign each chunk to a node
-	// We assign chunks next to each other to the same worker (if there is more chunks than workers), as this is likely to produce less
-	// transfers between tasks than a round-robin assignment (for typical stencil codes).
-	// FIXME: This only works if the number of chunks is an integer multiple of the number of workers, e.g. 3 chunks for 2 workers degrades to RR.
-	const auto chunks_per_node = std::max<size_t>(1, chunks.size() / m_num_nodes);
+		    // Assign each chunk to a node
+		    // We assign chunks next to each other to the same worker (if there is more chunks than workers), as this is likely to produce less
+		    // transfers between tasks than a round-robin assignment (for typical stencil codes).
+		    // FIXME: This only works if the number of chunks is an integer multiple of the number of workers, e.g. 3 chunks for 2 workers degrades to RR.
+		    const auto chunks_per_node = std::max<size_t>(1, chunks.size() / m_num_nodes);
 
-	std::vector<assigned_chunk> assigned_chunks;
-	for(size_t i = 0; i < chunks.size(); ++i) {
-		const node_id nid = (i / chunks_per_node) % m_num_nodes;
-		assigned_chunks.push_back({nid, chunk<3>(chunks[i].get_min(), chunks[i].get_range(), tsk.get_global_size())});
-	}
-	return assigned_chunks;
+		    std::vector<assigned_chunk> assigned_chunks;
+		    for(size_t i = 0; i < chunks.size(); ++i) {
+			    const node_id nid = (i / chunks_per_node) % m_num_nodes;
+			    assigned_chunks.push_back({nid, chunk<3>(chunks[i].get_min(), chunks[i].get_range(), geo.global_size), std::nullopt});
+		    }
+		    return assigned_chunks;
+	    },
+	    [&](const custom_task_geometry_desc& geo) {
+		    std::vector<assigned_chunk> result;
+		    for(auto& [sr, nid, did] : geo.assigned_chunks) {
+			    result.emplace_back(nid, chunk<3>{sr.offset, sr.range, geo.global_size}, did);
+		    }
+		    return result;
+	    });
 }
 
 command_graph_generator::buffer_requirements_list command_graph_generator::get_buffer_requirements_for_mapped_access(
@@ -518,6 +522,127 @@ void command_graph_generator::generate_await_pushes(batch& current_batch, const 
 	}
 }
 
+void command_graph_generator::generate_local_execution_command(batch& current_batch, const task& tsk,
+    const assigned_chunks_with_requirements& chunks_with_requirements, std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes) {
+	if(chunks_with_requirements.local_chunks.empty()) return;
+
+	command* cmd = ([&]() -> command* {
+		if(tsk.get_type() == task_type::fence) {
+			return create_command<fence_command>(current_batch, &tsk,
+			    [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
+		}
+
+		// Go over all reductions that are to be performed *during* the execution of this chunk,
+		// not to be confused with any pending reductions that need to be finalized *before* the
+		// execution of this chunk (those have already been handled by resolve_pending_reductions).
+		// If a reduction reads the previous value of the buffer (i.e. w/o property::reduction::initialize_to_identity),
+		// we have to include it in exactly one of the per-node intermediate reductions.
+		const bool is_reduction_initializer = std::any_of(tsk.get_reductions().begin(), tsk.get_reductions().end(),
+		    [&](const auto& reduction) { return m_local_nid == reduction_initializer_nid && reduction.init_from_buffer; });
+		execution_spec spec;
+		if(chunks_with_requirements.local_chunks.size() == 1) {
+			spec = chunks_with_requirements.local_chunks[0].first.chnk;
+		} else {
+			std::vector<device_execution_range> exec_ranges(chunks_with_requirements.local_chunks.size());
+			for(size_t i = 0; i < chunks_with_requirements.local_chunks.size(); ++i) {
+				const auto& [a_chunk, _] = chunks_with_requirements.local_chunks[i];
+				// NOCOMMIT HACK: We produce multiple chunks if m_test_chunk_multiplier > 1, but those don't have device id.
+				//                We should really just get rid of that multiplier, and change those tests to use custom task geometries.
+				const auto did = a_chunk.target_device.value_or(-1);
+				exec_ranges[i] = {a_chunk.chnk, did};
+			}
+			spec = std::move(exec_ranges);
+		}
+		return create_command<execution_command>(current_batch, &tsk, spec, is_reduction_initializer,
+		    [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
+	})(); // IIFE
+
+	if(tsk.get_type() == task_type::collective) {
+		// Collective host tasks have an implicit dependency on the previous task in the same collective group,
+		// which is required in order to guarantee they are executed in the same order on every node.
+		auto cgid = tsk.get_collective_group_id();
+		if(const auto cg = m_collective_groups.find(cgid); cg != m_collective_groups.end()) {
+			add_dependency(cmd, cg->second.last_collective_command, dependency_kind::true_dep, dependency_origin::collective_group_serialization);
+			cg->second.last_collective_command = cmd;
+		} else {
+			m_collective_groups.emplace(cgid, cmd);
+		}
+	}
+
+	// Resolve local data dependencies
+	// NOCOMMIT TODO: Factor this into a separate function?
+	// Process consuming accesses first, so we don't add dependencies onto our own writes
+	std::unordered_map<buffer_id, region_builder<3>> per_buffer_consumed;
+	for(const auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
+		for(const auto& [bid, consumed, _] : requirements) {
+			if(consumed.empty()) continue;
+			auto& buffer = m_buffers.at(bid);
+
+			for(const auto& [box, wcs] : buffer.local_last_writer.get_region_values(consumed)) {
+				if(box.empty()) continue;
+				assert(wcs.is_fresh() && "Unresolved remote data dependency");
+				add_dependency(cmd, wcs, dependency_kind::true_dep, dependency_origin::dataflow);
+			}
+
+			per_buffer_consumed[bid].add(consumed); // allow default-insert
+			if(m_policy.uninitialized_read_error != error_policy::ignore) {
+				if(const auto uninitialized_reads = region_difference(consumed, buffer.initialized_region); !uninitialized_reads.empty()) {
+					// TODO: Print target device if available
+					utils::report_error(m_policy.uninitialized_read_error,
+					    "Command C{} on N{}, which executes {} of {}, reads {} {}, which has not been written by any node.", cmd->get_id(), m_local_nid,
+					    box(subrange(a_chunk.chnk.offset, a_chunk.chnk.range)), print_task_debug_label(tsk), print_buffer_debug_label(bid),
+					    uninitialized_reads);
+				}
+			}
+		}
+	}
+	for(auto& [bid, builder] : per_buffer_consumed) {
+		// Store the read access for determining anti-dependencies later on
+		m_command_buffer_reads[cmd->get_id()].emplace(bid, std::move(builder).into_region());
+	}
+
+	std::unordered_map<buffer_id, region_builder<3>> per_buffer_produced;
+	for(const auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
+		for(const auto& [bid, _, produced] : requirements) {
+			if(produced.empty()) continue;
+			per_buffer_produced[bid].add(produced); // allow default-insert
+		}
+	}
+	for(auto& [bid, builder] : per_buffer_produced) {
+		auto& buffer = m_buffers.at(bid);
+		auto produced = std::move(builder).into_region();
+		generate_anti_dependencies(tsk, bid, buffer.local_last_writer, produced, cmd);
+
+		// Update last writer
+		buffer.local_last_writer.update_region(produced, cmd);
+		buffer.replicated_regions.update_region(produced, node_bitset{});
+
+		// In case this buffer was in a pending reduction state we discarded the result and need to remove the pending reduction.
+		if(buffer.pending_reduction.has_value()) {
+			m_completed_reductions.push_back(buffer.pending_reduction->rid);
+			buffer.pending_reduction = std::nullopt;
+		}
+
+		per_buffer_local_writes[bid] = std::move(produced);
+	}
+
+	for(const auto& side_effect : tsk.get_side_effect_map()) {
+		const auto [hoid, order] = side_effect;
+		auto& host_object = m_host_objects.at(hoid);
+
+		if(host_object.last_side_effect != nullptr) {
+			// TODO once we have different side_effect_orders, their interaction will determine the dependency kind
+			add_dependency(cmd, host_object.last_side_effect, dependency_kind::true_dep, dependency_origin::dataflow);
+		}
+
+		// Simplification: If there are multiple chunks per node, we generate true-dependencies between them in an arbitrary order, when all we really
+		// need is mutual exclusion (i.e. a bi-directional pseudo-dependency).
+		host_object.last_side_effect = cmd;
+	}
+
+	generate_epoch_dependencies(cmd);
+}
+
 void command_graph_generator::update_local_buffer_fresh_regions(const task& tsk, const std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes) {
 	buffer_requirements_list requirements;
 	for(const auto bid : tsk.get_buffer_access_map().get_accessed_buffers()) {
@@ -535,7 +660,7 @@ void command_graph_generator::update_local_buffer_fresh_regions(const task& tsk,
 		auto& buffer = m_buffers.at(bid);
 		if(m_policy.uninitialized_read_error != error_policy::ignore) { buffer.initialized_region = region_union(buffer.initialized_region, global_writes); }
 
-		const auto remote_writes = ([&, bid = bid] {
+		const auto remote_writes = ([&] {
 			if(auto it = per_buffer_local_writes.find(bid); it != per_buffer_local_writes.end()) {
 				const auto& local_writes = it->second;
 				assert(region_difference(local_writes, global_writes).empty()); // Local writes have to be a subset of global writes
@@ -560,108 +685,14 @@ void command_graph_generator::generate_distributed_commands(batch& current_batch
 	const auto chunks_with_requirements = compute_per_chunk_requirements(tsk, chunks);
 
 	// Check for and report overlapping writes between local chunks, and between local and remote chunks.
-	if(m_policy.overlapping_write_error != error_policy::ignore) {
-		box_vector<3> local_chunks;
-		for(const auto& [a_chunk, _] : chunks_with_requirements.local_chunks) {
-			local_chunks.push_back(box<3>{a_chunk.chnk});
-		}
-		report_overlapping_writes(tsk, local_chunks);
-	}
+	if(m_policy.overlapping_write_error != error_policy::ignore) { report_overlapping_writes(tsk, chunks); }
 
 	resolve_pending_reductions(current_batch, tsk, chunks_with_requirements);
 	generate_pushes(current_batch, tsk, chunks_with_requirements);
 	generate_await_pushes(current_batch, tsk, chunks_with_requirements);
-
 	// Union of all per-buffer writes on this node, used to determine which parts of a buffer are fresh/stale later on.
 	std::unordered_map<buffer_id, region<3>> per_buffer_local_writes;
-
-	// Create command for each local chunk and resolve local data dependencies.
-	for(const auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
-		command* cmd = nullptr;
-		if(tsk.get_type() == task_type::fence) {
-			cmd = create_command<fence_command>(current_batch, &tsk,
-			    [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
-		} else {
-			// Go over all reductions that are to be performed *during* the execution of this chunk,
-			// not to be confused with any pending reductions that need to be finalized *before* the
-			// execution of this chunk (those have already been handled by resolve_pending_reductions).
-			// If a reduction reads the previous value of the buffer (i.e. w/o property::reduction::initialize_to_identity),
-			// we have to include it in exactly one of the per-node intermediate reductions.
-			const bool is_reduction_initializer = std::any_of(tsk.get_reductions().begin(), tsk.get_reductions().end(),
-			    [&](const auto& reduction) { return m_local_nid == reduction_initializer_nid && reduction.init_from_buffer; });
-			cmd = create_command<execution_command>(current_batch, &tsk, subrange{a_chunk.chnk}, is_reduction_initializer,
-			    [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
-		}
-
-		if(tsk.get_type() == task_type::collective) {
-			// Collective host tasks have an implicit dependency on the previous task in the same collective group,
-			// which is required in order to guarantee they are executed in the same order on every node.
-			auto cgid = tsk.get_collective_group_id();
-			if(const auto cg = m_collective_groups.find(cgid); cg != m_collective_groups.end()) {
-				add_dependency(cmd, cg->second.last_collective_command, dependency_kind::true_dep, dependency_origin::collective_group_serialization);
-				cg->second.last_collective_command = cmd;
-			} else {
-				m_collective_groups.emplace(cgid, cmd);
-			}
-		}
-
-		for(const auto& [bid, consumed, produced] : requirements) {
-			auto& buffer = m_buffers.at(bid);
-
-			// Process consuming accesses first, so we don't add dependencies onto our own writes
-			if(!consumed.empty()) {
-				for(const auto& [box, wcs] : buffer.local_last_writer.get_region_values(consumed)) {
-					if(box.empty()) continue;
-					assert(wcs.is_fresh() && "Unresolved remote data dependency");
-					add_dependency(cmd, wcs, dependency_kind::true_dep, dependency_origin::dataflow);
-				}
-
-				// Store the read access for determining anti-dependencies later on
-				m_command_buffer_reads[cmd->get_id()].emplace(bid, consumed);
-			}
-
-			if(!produced.empty()) {
-				generate_anti_dependencies(tsk, bid, buffer.local_last_writer, produced, cmd);
-
-				// Update last writer
-				buffer.local_last_writer.update_region(produced, cmd);
-				buffer.replicated_regions.update_region(produced, node_bitset{});
-
-				// In case this buffer was in a pending reduction state we discarded the result and need to remove the pending reduction.
-				if(buffer.pending_reduction.has_value()) {
-					m_completed_reductions.push_back(buffer.pending_reduction->rid);
-					buffer.pending_reduction = std::nullopt;
-				}
-
-				per_buffer_local_writes.emplace(bid, produced);
-			}
-
-			if(m_policy.uninitialized_read_error != error_policy::ignore) {
-				if(const auto uninitialized_reads = region_difference(consumed, buffer.initialized_region); !uninitialized_reads.empty()) {
-					utils::report_error(m_policy.uninitialized_read_error,
-					    "Command C{} on N{}, which executes {} of {}, reads {} {}, which has not been written by any node.", cmd->get_id(), m_local_nid,
-					    box(subrange(a_chunk.chnk.offset, a_chunk.chnk.range)), print_task_debug_label(tsk), print_buffer_debug_label(bid),
-					    uninitialized_reads);
-				}
-			}
-		}
-
-		for(const auto& side_effect : tsk.get_side_effect_map()) {
-			const auto [hoid, order] = side_effect;
-			auto& host_object = m_host_objects.at(hoid);
-
-			if(host_object.last_side_effect != nullptr) {
-				// TODO once we have different side_effect_orders, their interaction will determine the dependency kind
-				add_dependency(cmd, host_object.last_side_effect, dependency_kind::true_dep, dependency_origin::dataflow);
-			}
-
-			// Simplification: If there are multiple chunks per node, we generate true-dependencies between them in an arbitrary order, when all we really
-			// need is mutual exclusion (i.e. a bi-directional pseudo-dependency).
-			host_object.last_side_effect = cmd;
-		}
-
-		generate_epoch_dependencies(cmd);
-	}
+	generate_local_execution_command(current_batch, tsk, chunks_with_requirements, per_buffer_local_writes);
 
 	// Mark any buffers that now are in a pending reduction state as such.
 	// If there is only one chunk/command, it already implicitly generates the final reduced value
@@ -682,7 +713,8 @@ void command_graph_generator::generate_anti_dependencies(
 	const auto last_writers = last_writers_map.get_region_values(write_req);
 	for(const auto& [box, wcs] : last_writers) {
 		auto* const last_writer_cmd = wcs.get_command();
-		assert(!utils::isa<task_command>(last_writer_cmd) || utils::as<task_command>(last_writer_cmd)->get_task() != &tsk);
+		// NOCOMMIT This breaks for replicated writes with multiple chunks per node
+		// assert(!utils::isa<task_command>(last_writer_cmd) || utils::as<task_command>(last_writer_cmd)->get_task() != &tsk);
 
 		// Add anti-dependencies onto all successors of the writer
 		bool has_successors = false;
