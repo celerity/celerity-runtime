@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.13)
 project(distr_io LANGUAGES CXX)
 
 find_package(Celerity 0.6.0 REQUIRED)
+if(NOT CELERITY_ENABLE_MPI)
+  message(SEND_ERROR "Your Celerity installation is built without MPI support.\nSkip this example.")
+endif()
+
 find_package(PkgConfig REQUIRED)
 pkg_search_module(HDF5 REQUIRED IMPORTED_TARGET hdf5-openmpi hdf5-1.12.0 hdf5)
 

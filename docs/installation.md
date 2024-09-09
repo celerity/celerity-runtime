@@ -91,6 +91,10 @@ Celerity supports runtime and application profiling with [Tracy](https://github.
 The integration is disabled by default, to enable configure the build with `-DCELERITY_TRACY_SUPPORT=1`. At runtime,
 it must then be enabled with the `CELERITY_TRACY` environment variable (see [README](../README.md)).
 
+By default Celerity is built for distributed systems with MPI pre-installed.
+If you intend to run on a single-node system without MPI support, specify
+`-DCELERITY_ENABLE_MPI=0` at configuration time.
+
 ## Building and Installing
 
 After you have successfully configured CMake, building and installing

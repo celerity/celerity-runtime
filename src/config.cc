@@ -3,8 +3,6 @@
 #include <cstdlib>
 #include <string_view>
 
-#include <mpi.h>
-
 #include "log.h"
 
 #include <spdlog/sinks/sink.h>

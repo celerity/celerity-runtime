@@ -104,7 +104,10 @@ add_executable(benchmarks dag_benchmarks.cc grid_benchmarks.cc system_benchmarks
 target_link_libraries(benchmarks PRIVATE test_main)
 set_test_target_parameters(benchmarks dag_benchmarks.cc grid_benchmarks.cc system_benchmarks.cc)
 
-add_subdirectory(system)
+if(CELERITY_ENABLE_MPI)
+  add_subdirectory(system)
+endif()
+
 if(CELERITY_DETAIL_INTEGRATION_TESTING)
   add_subdirectory(integration)
 endif()

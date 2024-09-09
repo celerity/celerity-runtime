@@ -1,3 +1,4 @@
+#include "communicator.h"
 #include "dry_run_executor.h"
 #include "executor.h"
 #include "live_executor.h"

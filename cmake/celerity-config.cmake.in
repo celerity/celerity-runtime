@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.13)
 include(CMakeFindDependencyMacro)
 
 set(CELERITY_INSTALL_LOCATION "@CELERITY_INSTALL_LOCATION@")
+set(CELERITY_ENABLE_MPI "@CELERITY_ENABLE_MPI@")
 set(CELERITY_SYCL_IMPL "@CELERITY_SYCL_IMPL@")
 set(CELERITY_CXX_STANDARD "@CELERITY_CXX_STANDARD@")
 
@@ -13,11 +14,13 @@ include("${CELERITY_CMAKE_DIR}/AddToTarget.cmake")
 set(CELERITY_ORIGINAL_CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}")
 set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CELERITY_CMAKE_DIR}")
 
-if(NOT DEFINED MPI_HOME AND NOT "@MPI_HOME@" STREQUAL "")
-  # FindMPI does not export anything akin to "MPI_DIR" that can be fed back into find_dependency.
-  set(MPI_HOME "@MPI_HOME@")
+if(CELERITY_ENABLE_MPI)
+  if(NOT DEFINED MPI_HOME AND NOT "@MPI_HOME@" STREQUAL "")
+    # FindMPI does not export anything akin to "MPI_DIR" that can be fed back into find_dependency.
+    set(MPI_HOME "@MPI_HOME@")
+  endif()
+  find_dependency(MPI 2.0 REQUIRED)
 endif()
-find_dependency(MPI 2.0 REQUIRED)
 
 find_dependency(Threads REQUIRED)
 find_dependency(fmt REQUIRED)

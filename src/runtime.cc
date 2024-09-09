@@ -9,8 +9,6 @@
 #include <unistd.h>
 #endif
 
-#include <mpi.h>
-
 #if CELERITY_USE_MIMALLOC
 // override default new/delete operators to use the mimalloc memory allocator
 #include <mimalloc-new-delete.h>
@@ -26,7 +24,6 @@
 #include "instruction_graph_generator.h"
 #include "live_executor.h"
 #include "log.h"
-#include "mpi_communicator.h"
 #include "print_graph.h"
 #include "reduction.h"
 #include "scheduler.h"
@@ -35,24 +32,36 @@
 #include "tracy.h"
 #include "version.h"
 
+#if CELERITY_ENABLE_MPI
+#include "mpi_communicator.h"
+#include <mpi.h>
+#else
+#include "local_communicator.h"
+#endif
+
+
 namespace celerity {
 namespace detail {
 
 	std::unique_ptr<runtime> runtime::s_instance = nullptr;
 
 	void runtime::mpi_initialize_once(int* argc, char*** argv) {
+#if CELERITY_ENABLE_MPI
 		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("mpi::init", LightSkyBlue, "MPI_Init");
 		assert(!s_mpi_initialized);
 		int provided;
 		MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
 		assert(provided == MPI_THREAD_MULTIPLE);
+#endif // CELERITY_ENABLE_MPI
 		s_mpi_initialized = true;
 	}
 
 	void runtime::mpi_finalize_once() {
+#if CELERITY_ENABLE_MPI
 		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("mpi::finalize", LightSkyBlue, "MPI_Finalize");
 		assert(s_mpi_initialized && !s_mpi_finalized && (!s_test_mode || !s_instance));
 		MPI_Finalize();
+#endif // CELERITY_ENABLE_MPI
 		s_mpi_finalized = true;
 	}
 
@@ -107,7 +116,21 @@ namespace detail {
 #endif
 	}
 
+	static std::string get_mpi_version() {
+#if CELERITY_ENABLE_MPI
+		char version[MPI_MAX_LIBRARY_VERSION_STRING];
+		int len = -1;
+		MPI_Get_library_version(version, &len);
+		// try shortening the human-readable version string (so far tested on OpenMPI)
+		if(const auto brk = /* find last of */ strpbrk(version, ",;")) { len = static_cast<int>(brk - version); }
+		return std::string(version, static_cast<size_t>(len));
+#else
+		return "single node";
+#endif
+	}
+
 	static host_config get_mpi_host_config() {
+#if CELERITY_ENABLE_MPI
 		// Determine the "host config", i.e., how many nodes are spawned on this host,
 		// and what this node's local rank is. We do this by finding all world-ranks
 		// that can use a shared-memory transport (if running on OpenMPI, use the
@@ -134,6 +157,9 @@ namespace detail {
 		MPI_Comm_free(&host_comm);
 
 		return host_cfg;
+#else  // CELERITY_ENABLE_MPI
+		return host_config{1, 0};
+#endif // CELERITY_ENABLE_MPI
 	}
 
 	runtime::runtime(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector) {
@@ -151,10 +177,12 @@ namespace detail {
 			mpi_initialize_once(argc, argv);
 		}
 
-		int world_size = -1;
-		int world_rank = -1;
+		int world_size = 1;
+		int world_rank = 0;
+#if CELERITY_ENABLE_MPI
 		MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 		MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+#endif
 
 		host_config host_cfg;
 		if(m_cfg->is_dry_run()) {
@@ -175,8 +203,8 @@ namespace detail {
 			spdlog::set_pattern(fmt::format("[%Y-%m-%d %H:%M:%S.%e] [{:0{}}] [%^%l%$] %v", m_local_nid, int(ceil(log10(double(m_num_nodes))))));
 		}
 
-		CELERITY_INFO("Celerity runtime version {} running on {}. PID = {}, build type = {}, {}", get_version_string(), get_sycl_version(), get_pid(),
-		    get_build_type(), get_mimalloc_string());
+		CELERITY_INFO("Celerity runtime version {} running on {} / {}. PID = {}, build type = {}, {}", get_version_string(), get_sycl_version(),
+		    get_mpi_version(), get_pid(), get_build_type(), get_mimalloc_string());
 
 #ifndef __APPLE__
 		if(const uint32_t cores = affinity_cores_available(); cores < min_cores_needed) {
@@ -209,7 +237,11 @@ namespace detail {
 		if(m_cfg->is_dry_run()) {
 			m_exec = std::make_unique<dry_run_executor>(static_cast<executor::delegate*>(this));
 		} else {
+#if CELERITY_ENABLE_MPI
 			auto comm = std::make_unique<mpi_communicator>(collective_clone_from, MPI_COMM_WORLD);
+#else
+			auto comm = std::make_unique<local_communicator>();
+#endif
 			m_exec = std::make_unique<live_executor>(std::move(backend), std::move(comm), static_cast<executor::delegate*>(this));
 		}
 
@@ -328,6 +360,7 @@ namespace detail {
 	}
 
 	std::string gather_command_graph(const std::string& graph_str, const size_t num_nodes, const node_id local_nid) {
+#if CELERITY_ENABLE_MPI
 		const auto comm = MPI_COMM_WORLD;
 		const int tag = 0xCDA6; // aka 'CDAG' - Celerity does not perform any other peer-to-peer communication over MPI_COMM_WORLD
 
@@ -354,6 +387,10 @@ namespace detail {
 			}
 		}
 		return combine_command_graphs(graphs);
+#else  // CELERITY_ENABLE_MPI
+		assert(num_nodes == 1 && local_nid == 0);
+		return graph_str;
+#endif // CELERITY_ENABLE_MPI
 	}
 
 	// scheduler::delegate

@@ -30,8 +30,15 @@ endif()
 
 set(CELERITY_CMAKE_DIR "${PROJECT_SOURCE_DIR}/cmake")
 set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CELERITY_CMAKE_DIR}")
-find_package(MPI 2.0 REQUIRED)
 find_package(Threads REQUIRED)
+
+option(CELERITY_ENABLE_MPI "Enable MPI support" ON)
+if(CELERITY_ENABLE_MPI)
+  find_package(MPI 2.0 REQUIRED)
+  message(STATUS "Found MPI: ${MPI_CXX_COMPILER}")
+else()
+  message(STATUS "Building without MPI support (disabled)")
+endif()
 
 set(CELERITY_SYCL_IMPL "OFF" CACHE STRING "AdaptiveCpp|DPC++|SimSYCL")
 
@@ -211,9 +218,8 @@ set(SOURCES
   src/command_graph_generator.cc
   src/dry_run_executor.cc
   src/grid.cc
-  src/live_executor.cc
   src/instruction_graph_generator.cc
-  src/mpi_communicator.cc
+  src/live_executor.cc
   src/out_of_order_engine.cc
   src/print_graph.cc
   src/recorders.cc
@@ -226,6 +232,10 @@ set(SOURCES
   src/utils.cc
   "${CMAKE_CURRENT_BINARY_DIR}/src/version.cc"
 )
+
+if(CELERITY_ENABLE_MPI)
+  set(SOURCES ${SOURCES} src/mpi_communicator.cc)
+endif()
 
 set(CELERITY_DETAIL_HAS_NAMED_THREADS OFF)
 
@@ -295,13 +305,16 @@ endif()
 
 target_link_libraries(celerity_runtime PUBLIC
   Threads::Threads
-  MPI::MPI_CXX
   fmt::fmt
   spdlog::spdlog
   gch::small_vector
   libenvpp::libenvpp
   ${SYCL_LIB}
 )
+
+if(CELERITY_ENABLE_MPI)
+  target_link_libraries(celerity_runtime PUBLIC MPI::MPI_CXX)
+endif()
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/backend)
 target_link_libraries(celerity_runtime PUBLIC celerity_backends)
