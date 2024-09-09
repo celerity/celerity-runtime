@@ -6,7 +6,7 @@
 int main() {
 	const std::string input_str = "Ifmmp!Xpsme\"\x01";
 
-	celerity::distr_queue queue;
+	celerity::queue queue;
 	celerity::buffer<char> str_buffer(input_str.data(), input_str.size());
 
 	queue.submit([&](celerity::handler& cgh) {

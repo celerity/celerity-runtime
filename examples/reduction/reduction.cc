@@ -55,7 +55,7 @@ int main(int argc, char* argv[]) {
 	std::unique_ptr<uint8_t, decltype((stbi_image_free))> srgb_255_data{stbi_load(argv[1], &image_width, &image_height, &image_channels, 4), stbi_image_free};
 	assert(srgb_255_data != nullptr);
 
-	celerity::distr_queue q;
+	celerity::queue q;
 
 	celerity::range<2> image_size{static_cast<size_t>(image_height), static_cast<size_t>(image_width)};
 	celerity::buffer<sycl::uchar4, 2> srgb_255_buf{reinterpret_cast<const sycl::uchar4*>(srgb_255_data.get()), image_size};

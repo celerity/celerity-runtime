@@ -11,7 +11,7 @@ namespace celerity::detail {
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "freeing task ring buffer capacity via horizons continues execution in runtime", "[task_ring_buffer]") {
 	using namespace std::chrono_literals;
-	celerity::distr_queue q;
+	celerity::queue q;
 
 	std::atomic<bool> reached_ringbuffer_capacity = false;
 
@@ -38,11 +38,11 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "freeing task ring buffer capacity
 
 	observer.join();
 
-	q.slow_full_sync(); // `reach_ringbuffer_capacity` must not go out of scope before the host task has finished
+	q.wait(); // `reach_ringbuffer_capacity` must not go out of scope before the host task has finished
 }
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "deadlock in task ring buffer due to slot exhaustion is reported", "[task_ring_buffer]") {
-	celerity::distr_queue q;
+	celerity::queue q;
 
 	// set a high maximum so that we can actually run out of slots
 	runtime::get_instance().get_task_manager().set_horizon_max_parallelism(task_ringbuffer_size * 16);

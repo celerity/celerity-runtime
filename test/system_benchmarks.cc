@@ -22,7 +22,7 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 	if(N > 100) { SKIP("Skipping larger-scale benchmark in debug build to save CI time"); }
 #endif
 
-	celerity::distr_queue queue;
+	celerity::queue queue;
 
 	const auto size = celerity::range<2>(items_per_task, num_tasks);
 	celerity::buffer<size_t, 2> buffer(size);
@@ -32,7 +32,7 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 		celerity::accessor w{buffer, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for(size, [=](celerity::item<2> item) { w[item] = item.get_linear_id(); });
 	});
-	queue.slow_full_sync();
+	queue.wait();
 
 	size_t bench_repeats = 0;
 	BENCHMARK("task generation") {
@@ -48,7 +48,7 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 				});
 			}
 		}
-		queue.slow_full_sync();
+		queue.wait();
 		bench_repeats++;
 	};
 
@@ -79,7 +79,7 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 	if(N > 50) { SKIP("Skipping larger-scale benchmark in debug build to save CI time"); }
 #endif
 
-	celerity::distr_queue queue;
+	celerity::queue queue;
 
 	const auto size = celerity::range<2>(side_length, side_length);
 	celerity::buffer<float, 2> buffer_a(size);
@@ -93,7 +93,7 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 			w[item] = ((item.get_id(0) % 2) ^ (item.get_id(1) % 2)) == 0 ? 1.f : 0.f;
 		});
 	});
-	queue.slow_full_sync();
+	queue.wait();
 
 	BENCHMARK("iterations") {
 		for(size_t r = 0; r < num_iterations; ++r) {
@@ -118,7 +118,7 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 			});
 			std::swap(buffer_a, buffer_b);
 		}
-		queue.slow_full_sync();
+		queue.wait();
 	};
 
 	// check result

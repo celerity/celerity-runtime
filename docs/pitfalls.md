@@ -22,7 +22,7 @@ where `chunk` is any chunk of the iteration space that contains `item`:
 ```cpp
 // INCORRECT example: access pattern inside the kernel does not follow the range mapper
 celerity::buffer<float, 1> buf({256});
-celerity::distr_queue().submit([&](celerity::handler &cgh) {
+celerity::queue().submit([&](celerity::handler &cgh) {
     celerity::accessor acc(buf, cgh, celerity::access::one_to_one(), celerity::read_write);
     cgh.parallel_for(celerity::range<1>(128), [=](celerity::item<1> item) {
         // OUT-OF-BOUNDS ACCESS: `one_to_one` means `item` must only access `acc[item]`
@@ -45,7 +45,7 @@ The first intuition might be to operate on a single buffer using a `read_write` 
 with a `neighborhood` range mapper like so:
 ```cpp
 // INCORRECT stencil example
-celerity::distr_queue q;
+celerity::queue q;
 celerity::buffer<float, 2> buf({256, 256});
 for (int i = 0; i < N; ++i) {
     q.submit([&](celerity::handler &cgh) {
@@ -63,7 +63,7 @@ Intstead, these patterns must be implemented using a separate `neighborhood` rea
 
 ```cpp
 // correct stencil code
-celerity::distr_queue q;
+celerity::queue q;
 celerity::buffer<float, 2> input({256, 256});
 celerity::buffer<float, 2> output({256, 256}); // double buffering
 for (int i = 0; i < N; ++i) {
@@ -90,7 +90,7 @@ anyway.
 
 ## Illegal Reference Captures in Kernel and Host Task Functions
 
-Celerity tasks submitted to the `celerity::distr_queue` are executed
+Command groups submitted to a `celerity::queue` are executed
 _asynchronously_ at a later point in time. This means that the stack
 surrounding a command function ("kernel") may have been unwound by the time it
 is being invoked.
@@ -105,7 +105,7 @@ that all values that are captured by reference outlive the task:
 ```cpp
 int global_variable = 22;
 
-void some_function(celerity::distr_queue& q) {
+void some_function(celerity::queue& q) {
     int local_variable = 42;
     q.submit([&](celerity::handler& cgh) {
         cgh.host_task([&] {
@@ -117,7 +117,7 @@ void some_function(celerity::distr_queue& q) {
 ```
 
 > Celerity supports APIs that can replace most if not all uses for reference captures.
-> See `celerity::distr_queue::fence`, `celerity::experimental::host_object` and
+> See `celerity::queue::fence`, `celerity::experimental::host_object` and
 > `celerity::experimental::side_effect`.
 
 ## Diverging Host-Execution on Different Nodes

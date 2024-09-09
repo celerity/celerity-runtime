@@ -250,7 +250,7 @@ TEST_CASE("instruction-graph printing is unchanged", "[print_graph][instruction-
 TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer debug names show up in the generated graph", "[print_graph]") {
 	env::scoped_test_environment tenv(print_graphs_env_setting);
 
-	distr_queue q;
+	queue q;
 	celerity::range<1> range(16);
 	celerity::buffer<int, 1> buff_a(range);
 	std::string buff_name{"my_buffer"};
@@ -263,7 +263,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer debug names show up in the
 	});
 
 	// wait for commands to be generated in the scheduler thread
-	q.slow_full_sync();
+	q.wait();
 
 	using Catch::Matchers::ContainsSubstring;
 	const std::string expected_substring = "B0 \"my_buffer\"";
@@ -280,7 +280,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer debug names show up in the
 TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY_PRINT_GRAPHS is set", "[print_graph]") {
 	env::scoped_test_environment tenv(print_graphs_env_setting);
 
-	distr_queue q;
+	queue q;
 	celerity::range<1> range(16);
 	std::vector<int> init(range.size());
 	celerity::buffer<int, 1> buff_a(init.data(), range);
@@ -297,7 +297,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 		});
 	}
 
-	q.slow_full_sync();
+	q.wait();
 
 	// Smoke test: It is valid for the dot output to change with updates to graph generation. If this test fails, verify that the printed graphs are sane and
 	// complete, and if so, replace the `expected` values with the new dot graph.
@@ -332,7 +332,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 		    "color=\"#606060\">T5 (host-compute)</font>>;color=darkgray;id_0_5[label=<C5 on N0<br/><b>execution</b> [0,0,0] + [16,1,1]<br/><i>read_write</i> "
 		    "B0 {[0,0,0] - [16,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_6{label=<<font color=\"#606060\">T6 "
 		    "(horizon)</font>>;color=darkgray;id_0_6[label=<C6 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph cluster_id_0_7{label=<<font "
-		    "color=\"#606060\">T7 (epoch)</font>>;color=darkgray;id_0_7[label=<C7 on N0<br/><b>epoch</b> (barrier)> fontcolor=black "
+		    "color=\"#606060\">T7 (epoch)</font>>;color=darkgray;id_0_7[label=<C7 on N0<br/><b>epoch</b>> fontcolor=black "
 		    "shape=box];}id_0_0->id_0_1[];id_0_1->id_0_2[color=orange];id_0_1->id_0_3[];id_0_3->id_0_4[color=orange];id_0_2->id_0_4[color=orange];id_0_3->id_0_"
 		    "5[];id_0_5->id_0_6[color=orange];id_0_4->id_0_6[color=orange];id_0_6->id_0_7[color=orange];}";
 

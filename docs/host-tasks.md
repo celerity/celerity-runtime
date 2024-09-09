@@ -26,7 +26,7 @@ when constructing an accessor, a `fixed` or `all` range mapper is used to specif
 the `*_host_task` selector must be used for selecting the access mode.
 
 ```cpp
-celerity::distr_queue q;
+celerity::queue q;
 celerity::buffer<float, 1> result;
 q.submit([&](celerity::handler &cgh) {
 	celerity::accessor acc{buffer, cgh, celerity::access::all{},
@@ -62,7 +62,7 @@ computations, ther host kernel will receive _partitions_ of the iteration space.
 this node receives:
 
 ```cpp
-celerity::distr_queue q;
+celerity::queue q;
 q.submit([&](celerity::handler &cgh) {
     cgh.host_task(celerity::range<1>(100), [=](celerity::partition<1> part) {
         printf("This node received %zu items\n", part.get_subrange().range[0]);
@@ -101,7 +101,7 @@ participating nodes, and the single-element subrange on each node is the node in
 `collective_partition` provides access to the MPI communicator for this task:
 
 ```cpp
-celerity::distr_queue q;
+celerity::queue q;
 q.submit([](celerity::handler &cgh) {
     cgh.host_task(celerity::experimental::collective,
             [](celerity::experimental::collective_partition> part) {
@@ -122,7 +122,7 @@ must neither be run concurrently nor be reordered on one node. In case there are
 operations eligible to be run concurrently, Celerity can be notified of this by using _collective groups_:
 
 ```cpp
-celerity::distr_queue q;
+celerity::queue q;
 celerity::experimental::collective_group first_group;
 celerity::experimental::collective_group second_group;
 q.submit([&](celerity::handler &cgh) {
@@ -149,7 +149,7 @@ splitting them along the first (slowest) dimension into contiguous memory portio
 `celerity::accessor::get_allocation_window` can then be used to retrieve the host-local chunk of the buffer:
 
 ```cpp
-celerity::distr_queue q;
+celerity::queue q;
 celerity::buffer<float, 2> buf;
 q.submit([&](celerity::handler& cgh) {
 	celerity::accessor acc{buffer, cgh,

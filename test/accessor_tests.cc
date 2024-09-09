@@ -48,7 +48,7 @@ namespace detail {
 	using celerity::access::one_to_one;
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "accessors behave correctly for 0-dimensional master node kernels", "[accessor]") {
-		distr_queue q;
+		queue q;
 		std::vector mem_a{42};
 		buffer<int, 1> buf_a(mem_a.data(), range<1>{1});
 		q.submit([&](handler& cgh) {
@@ -60,7 +60,7 @@ namespace detail {
 			auto a = buf_a.get_access<sycl::access::mode::read, target::host_task>(cgh, fixed<1>({0, 1}));
 			cgh.host_task(on_master_node, [=, &out] { out = a[0]; });
 		});
-		q.slow_full_sync();
+		q.wait();
 		CHECK(out == 43);
 	}
 
@@ -176,7 +176,7 @@ namespace detail {
 
 	TEMPLATE_TEST_CASE_METHOD_SIG(
 	    test_utils::runtime_fixture_dims, "accessor supports multi-dimensional subscript operator", "[accessor]", ((int Dims), Dims), 2, 3) {
-		distr_queue q;
+		queue q;
 
 		const auto range = test_utils::truncate_range<Dims>({2, 3, 4});
 		buffer<size_t, Dims> buf_in(range);
@@ -267,7 +267,7 @@ namespace detail {
 	class empty_access_kernel;
 
 	template <access_mode Mode>
-	static void test_empty_access(distr_queue& q, buffer<int, 1>& test_buf) {
+	static void test_empty_access(queue& q, buffer<int, 1>& test_buf) {
 		CAPTURE(Mode);
 		bool verified = false;
 		buffer<bool> verify_buf{&verified, 1};
@@ -285,12 +285,12 @@ namespace detail {
 			const accessor verify_acc{verify_buf, cgh, all{}, read_only_host_task};
 			cgh.host_task(on_master_node, [=, &verified] { verified = verify_acc[0]; });
 		});
-		q.slow_full_sync();
+		q.wait();
 		CHECK(verified);
 	};
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "kernels gracefully handle access to empty buffers", "[accessor]") {
-		distr_queue q;
+		queue q;
 		buffer<int> buf{0};
 
 		test_empty_access<access_mode::discard_write>(q, buf);
@@ -299,7 +299,7 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "kernels gracefully handle empty access ranges", "[accessor]") {
-		distr_queue q;
+		queue q;
 		std::optional<buffer<int>> buf;
 
 		int init = 0;
@@ -312,7 +312,7 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "host accessor get_allocation_window produces the correct memory layout", "[task][accessor]") {
-		distr_queue q;
+		queue q;
 
 		std::vector<char> memory1d(10);
 		buffer<char, 1> buf1d(memory1d.data(), range<1>(10));
@@ -394,7 +394,7 @@ namespace detail {
 		buffer<float, 0> buf_0 = value_a;
 		buffer<float, 1> buf_1(100);
 
-		distr_queue q;
+		queue q;
 		q.submit([&](handler& cgh) {
 			accessor acc_0(buf_0, cgh, read_write_host_task);
 			cgh.host_task(on_master_node, [=] {
@@ -436,7 +436,7 @@ namespace detail {
 		buffer<float, 2> buf_2d({10, 10});
 		buffer<float, 3> buf_3d({5, 5, 5});
 
-		distr_queue q;
+		queue q;
 		q.submit([&](handler& cgh) {
 			accessor acc_0d(buf_0d, cgh, all(), write_only, no_init);
 			accessor acc_1d(buf_1d, cgh, all(), write_only, no_init);
@@ -494,7 +494,7 @@ namespace detail {
 
 		buffer<float, 1> buf_1(32);
 
-		distr_queue q;
+		queue q;
 		q.submit([&](handler& cgh) {
 			accessor acc_1(buf_1, cgh, one_to_one(), write_only, no_init);
 			cgh.parallel_for<class UKN(device)>(buf_1.get_range(), [=](item<1> it) { acc_1[it] = value_a; });
@@ -530,7 +530,7 @@ namespace detail {
 		buffer<float, 0> buf_0;
 		buffer<float, 1> buf_1(1);
 
-		distr_queue q;
+		queue q;
 
 		q.submit([&](handler& cgh) {
 			accessor<float, 0, access_mode::discard_write, target::device> device_acc_0;
@@ -671,7 +671,7 @@ namespace detail {
 #endif
 		test_utils::allow_max_log_level(spdlog::level::err);
 
-		distr_queue q;
+		queue q;
 
 		buffer<int, Dims> unnamed_buff(test_utils::truncate_range<Dims>({10, 20, 30}));
 		buffer<int, Dims> named_buff(test_utils::truncate_range<Dims>({10, 20, 30}));
@@ -696,7 +696,7 @@ namespace detail {
 				named_acc[oob_idx_hi] = 0;
 			});
 		});
-		q.slow_full_sync();
+		q.wait();
 
 		const auto accessible_box = box(subrange_cast<3>(accessible_sr));
 		const auto attempted_box = box_cast<3>(box(oob_idx_lo, oob_idx_hi + id<Dims>(ones)));
@@ -718,7 +718,7 @@ namespace detail {
 #endif
 		test_utils::allow_max_log_level(spdlog::level::err);
 
-		distr_queue q;
+		queue q;
 
 		buffer<int, Dims> unnamed_buff(test_utils::truncate_range<Dims>({10, 20, 30}));
 		buffer<int, Dims> named_buff(test_utils::truncate_range<Dims>({10, 20, 30}));
@@ -744,7 +744,7 @@ namespace detail {
 			});
 		});
 
-		q.slow_full_sync();
+		q.wait();
 
 		const auto accessible_box = box(subrange_cast<3>(accessible_sr));
 		const auto attempted_box = box_cast<3>(box(oob_idx_lo, oob_idx_hi + id<Dims>(ones)));

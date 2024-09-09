@@ -6,8 +6,8 @@
 #include "buffer.h"
 #include "debug.h"
 #include "distr_queue.h"
-#include "fence.h"
 #include "host_utils.h"
+#include "queue.h"
 #include "side_effect.h"
 #include "version.h"
 

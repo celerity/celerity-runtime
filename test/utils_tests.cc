@@ -28,14 +28,14 @@ struct space {
 };
 
 template <typename T>
-auto set_identity(distr_queue queue, buffer<T, 2> mat, bool reverse) {
+auto set_identity(queue queue, buffer<T, 2> mat, bool reverse) {
 	return [](handler& cgh) {
 		class set_identity_kernel {};
 		return set_identity_kernel{};
 	};
 }
 
-using set_identity_name = decltype(set_identity(std::declval<distr_queue>(), std::declval<buffer<int, 2>>(), false)(std::declval<handler&>()));
+using set_identity_name = decltype(set_identity(std::declval<queue>(), std::declval<buffer<int, 2>>(), false)(std::declval<handler&>()));
 
 TEST_CASE("name strings are correctly extracted from types", "[utils][get_simplified_type_name]") {
 	CHECK(utils::get_simplified_type_name<class name>() == "name");

@@ -9,7 +9,7 @@ const size_t MAT_SIZE = 1024;
 #endif
 
 template <typename T>
-void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat, bool reverse) {
+void set_identity(celerity::queue queue, celerity::buffer<T, 2> mat, bool reverse) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw{mat, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		const auto range = mat.get_range();
@@ -26,7 +26,7 @@ void set_identity(celerity::distr_queue queue, celerity::buffer<T, 2> mat, bool 
 }
 
 template <typename T>
-void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
+void multiply(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor a{mat_a, cgh, celerity::access::slice<2>(1), celerity::read_only};
 		celerity::accessor b{mat_b, cgh, celerity::access::slice<2>(0), celerity::read_only};
@@ -61,7 +61,7 @@ void multiply(celerity::distr_queue queue, celerity::buffer<T, 2> mat_a, celerit
 
 // TODO this should really reduce into a buffer<bool> on the device, but not all backends currently support reductions
 template <typename T>
-void verify(celerity::distr_queue& queue, celerity::buffer<T, 2> mat_c, celerity::experimental::host_object<bool> passed_obj) {
+void verify(celerity::queue& queue, celerity::buffer<T, 2> mat_c, celerity::experimental::host_object<bool> passed_obj) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task};
 		celerity::experimental::side_effect passed{passed_obj, cgh};
@@ -86,7 +86,7 @@ void verify(celerity::distr_queue& queue, celerity::buffer<T, 2> mat_c, celerity
 }
 
 int main() {
-	celerity::distr_queue queue;
+	celerity::queue queue;
 
 	const auto range = celerity::range<2>(MAT_SIZE, MAT_SIZE);
 	celerity::buffer<float, 2> mat_a_buf(range);

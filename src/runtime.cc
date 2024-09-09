@@ -282,7 +282,7 @@ namespace detail {
 
 	void runtime::require_call_from_application_thread() const {
 		if(std::this_thread::get_id() != m_application_thread) {
-			utils::panic("Celerity runtime, distr_queue, handler, buffer and host_object types must only be constructed, used, and destroyed from the "
+			utils::panic("Celerity runtime, queue, handler, buffer and host_object types must only be constructed, used, and destroyed from the "
 			             "application thread. Make sure that you did not accidentally capture one of these types in a host_task.");
 		}
 	}
@@ -291,7 +291,7 @@ namespace detail {
 		// LCOV_EXCL_START
 		if(!is_unreferenced()) {
 			// this call might originate from static destruction - we cannot assume spdlog to still be around
-			utils::panic("Detected an attempt to destroy runtime while at least one distr_queue, buffer or host_object was still alive. This likely means "
+			utils::panic("Detected an attempt to destroy runtime while at least one queue, buffer or host_object was still alive. This likely means "
 			             "that one of these objects was leaked, or at least its lifetime extended beyond the scope of main(). This is undefined.");
 		}
 		// LCOV_EXCL_STOP
