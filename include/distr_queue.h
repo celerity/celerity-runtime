@@ -112,7 +112,7 @@ class distr_queue {
 
   private:
 	/// A `tacker` instance is shared by all copies of this `distr_queue` via a `std::shared_ptr` to implement (SYCL) reference semantics.
-	/// It notifies the runtime of queue creation and destruction, which might trigger startup or shutdown if it is the only object.
+	/// It notifies the runtime of queue creation and destruction, which might trigger runtime initialization if it is the first such object.
 	struct tracker {
 		tracker(const detail::devices_or_selector& devices_or_selector) {
 			CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::distr_queue", DarkSlateBlue);
@@ -124,7 +124,7 @@ class distr_queue {
 				    std::holds_alternative<detail::device_selector>(devices_or_selector) ? "selector" : "list"));
 			}
 
-			detail::runtime::get_instance().create_queue(); // never throws if this was also the call to runtime::init, so we're not leaking the runtime
+			detail::runtime::get_instance().create_queue();
 		}
 
 		tracker(const tracker&) = delete;
@@ -135,14 +135,10 @@ class distr_queue {
 		~tracker() {
 			CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::~distr_queue", DarkCyan);
 
-			// The destructor of the last queue handle must wait for all submitted work to finish to guarantee implicit synchronization e.g. around host_task
-			// ref-captures. Notifying the runtime of queue destruction might destroy the runtime instance itself, which will issue and wait on the shutdown
-			// epoch, guaranteeing that all previously submitted work has completed.
 			detail::runtime::get_instance().destroy_queue();
 
-			// If any buffers or host objects outlive the queue, the runtime will delay its destruction (and thus the shutdown epoch) to still be able to
-			// issue the appropriate instructions for buffer and host object deallocation. In that case, we insert and wait on another local epoch to guarantee
-			// synchronization. Any later cleanup instructions will be inserted by the scheduler between this and the shutdown epoch.
+			// ~distr_queue() guarantees that all operations on that queue have finished executing, which we simply guarantee by waiting on all operations on
+			// all live queues.
 			if(detail::runtime::has_instance()) { detail::runtime::get_instance().sync(detail::epoch_action::none); }
 		}
 	};

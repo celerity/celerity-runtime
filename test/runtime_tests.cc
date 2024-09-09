@@ -38,10 +38,17 @@ namespace detail {
 		static std::thread& get_thread(live_executor& exec) { return exec.m_thread; }
 	};
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "only a single distr_queue can be created", "[distr_queue][lifetime][dx]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "any number of distr_queues can be created", "[distr_queue][lifetime]") {
 		distr_queue q1;
-		auto q2{q1}; // Copying is allowed
-		REQUIRE_THROWS_WITH(distr_queue{}, "Only one celerity::distr_queue can be created per process (but it can be copied!)");
+		auto q2{q1};    // Copying is allowed
+		distr_queue q3; // so is creating new ones as of Celerity 0.7.0
+		distr_queue q4; // so is creating new ones as of Celerity 0.7.0
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "new distr_queues can be created after the last one has been destroyed", "[distr_queue][lifetime]") {
+		distr_queue{};
+		CHECK(runtime::has_instance()); // ~distr_queue does not shut down the runtime as of Celerity 0.7.0
+		distr_queue{};
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "distr_queue implicitly initializes the runtime", "[distr_queue][lifetime]") {
