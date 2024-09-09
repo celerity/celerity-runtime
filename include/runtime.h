@@ -87,7 +87,7 @@ namespace detail {
 		size_t m_num_local_devices = 0;
 
 		// track all instances of celerity::distr_queue, celerity::buffer and celerity::host_object to know when to destroy s_instance
-		bool m_has_live_queue = false;
+		size_t m_num_live_queues = 0;
 		std::unordered_set<buffer_id> m_live_buffers;
 		std::unordered_set<host_object_id> m_live_host_objects;
 

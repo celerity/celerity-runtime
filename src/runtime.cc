@@ -427,16 +427,14 @@ namespace detail {
 
 	void runtime::create_queue() {
 		require_call_from_application_thread();
-
-		if(m_has_live_queue) { throw std::runtime_error("Only one celerity::distr_queue can be created per process (but it can be copied!)"); }
-		m_has_live_queue = true;
+		++m_num_live_queues;
 	}
 
 	void runtime::destroy_queue() {
 		require_call_from_application_thread();
 
-		assert(m_has_live_queue);
-		m_has_live_queue = false;
+		assert(m_num_live_queues > 0);
+		--m_num_live_queues;
 	}
 
 	allocation_id runtime::create_user_allocation(void* const ptr) {
@@ -503,7 +501,7 @@ namespace detail {
 		return rid;
 	}
 
-	bool runtime::is_unreferenced() const { return !m_has_live_queue && m_live_buffers.empty() && m_live_host_objects.empty(); }
+	bool runtime::is_unreferenced() const { return m_num_live_queues == 0 && m_live_buffers.empty() && m_live_host_objects.empty(); }
 
 } // namespace detail
 } // namespace celerity
