@@ -28,7 +28,7 @@ IS_OPTIONAL=(
     ""
     ""
     ""
-    "yes"
+    ""
 )
 PARAMS=(
     ""
