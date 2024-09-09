@@ -68,12 +68,15 @@ namespace detail {
 	void runtime::init(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector) {
 		assert(!s_instance);
 		s_instance = std::unique_ptr<runtime>(new runtime(argc, argv, user_devices_or_selector));
+		if(!s_test_mode) { atexit(shutdown); }
 	}
 
 	runtime& runtime::get_instance() {
 		if(s_instance == nullptr) { throw std::runtime_error("Runtime has not been initialized"); }
 		return *s_instance;
 	}
+
+	void runtime::shutdown() { s_instance.reset(); }
 
 	static auto get_pid() {
 #ifdef _MSC_VER
@@ -434,7 +437,6 @@ namespace detail {
 
 		assert(m_has_live_queue);
 		m_has_live_queue = false;
-		destroy_instance_if_unreferenced();
 	}
 
 	allocation_id runtime::create_user_allocation(void* const ptr) {
@@ -469,7 +471,6 @@ namespace detail {
 		m_schdlr->notify_buffer_destroyed(bid);
 		m_task_mngr->notify_buffer_destroyed(bid);
 		m_live_buffers.erase(bid);
-		destroy_instance_if_unreferenced();
 	}
 
 	host_object_id runtime::create_host_object(std::unique_ptr<host_object_instance> instance) {
@@ -491,7 +492,6 @@ namespace detail {
 		m_schdlr->notify_host_object_destroyed(hoid);
 		m_task_mngr->notify_host_object_destroyed(hoid);
 		m_live_host_objects.erase(hoid);
-		destroy_instance_if_unreferenced();
 	}
 
 
@@ -504,11 +504,6 @@ namespace detail {
 	}
 
 	bool runtime::is_unreferenced() const { return !m_has_live_queue && m_live_buffers.empty() && m_live_host_objects.empty(); }
-
-	void runtime::destroy_instance_if_unreferenced() {
-		if(s_instance == nullptr) return;
-		if(s_instance->is_unreferenced()) { s_instance.reset(); }
-	}
 
 } // namespace detail
 } // namespace celerity

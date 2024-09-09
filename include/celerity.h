@@ -13,6 +13,7 @@
 
 namespace celerity {
 namespace runtime {
+
 	/**
 	 * @brief Initializes the Celerity runtime.
 	 */
@@ -33,5 +34,15 @@ namespace runtime {
 	 *                        If there are multiple nodes running on the same host, the selector must be the same across nodes on the same host.
 	 */
 	inline void init(int* argc, char** argv[], const detail::device_selector& device_selector) { detail::runtime::init(argc, argv, device_selector); }
+
+	/**
+	 * @brief Manually shuts down the Celerity runtime if it has previously been initialized.
+	 *
+	 * No Celerity object (buffer, queue or host_object) must be live when calling this function, and the runtime cannot be re-initialized afterwards.
+	 *
+	 * Shutdown is also performed automatically on application exit.
+	 */
+	inline void shutdown() { detail::runtime::shutdown(); }
+
 } // namespace runtime
 } // namespace celerity
