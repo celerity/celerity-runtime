@@ -5,7 +5,7 @@
 int main(int argc, char* argv[]) {
 	constexpr size_t buf_size = 512;
 
-	celerity::distr_queue queue;
+	celerity::queue queue;
 	celerity::buffer<size_t, 1> buf(buf_size);
 
 	// Initialize buffer in a distributed device kernel
@@ -27,7 +27,7 @@ int main(int argc, char* argv[]) {
 	});
 
 	// Wait until both tasks have completed
-	queue.slow_full_sync();
+	queue.wait();
 
 	// At this point we can safely interact with host_buf from within the main thread
 	bool valid = true;

@@ -49,7 +49,7 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	celerity::distr_queue queue;
+	celerity::queue queue;
 
 	celerity::buffer<sycl::float3, 2> image_input_buf(image_input.data(), celerity::range<2>(image_height, image_width));
 	celerity::buffer<sycl::float3, 2> image_tmp_buf(celerity::range<2>(image_height, image_width));

@@ -3,16 +3,9 @@
 #include <future>
 #include <memory>
 
+#include "fence.h"
 #include "runtime.h"
-#include "task_manager.h"
 #include "tracy.h"
-
-namespace celerity::experimental {
-
-template <typename T>
-class host_object;
-
-}
 
 namespace celerity {
 
@@ -26,7 +19,7 @@ struct [[deprecated("This tag type is no longer required to capture by reference
 inline constexpr allow_by_ref_t allow_by_ref{};
 #pragma GCC diagnostic pop
 
-class distr_queue {
+class [[deprecated("Use celerity::queue instead")]] distr_queue {
   public:
 	distr_queue() : distr_queue(ctor_internal_tag{}, detail::auto_select_devices{}) {}
 
@@ -88,7 +81,9 @@ class distr_queue {
 	 * fence and wait operations or ensure that other independent command groups are eligible to run while the fence is executed.
 	 */
 	template <typename T>
-	[[nodiscard]] std::future<T> fence(const experimental::host_object<T>& obj);
+	[[nodiscard]] std::future<T> fence(const experimental::host_object<T>& obj) {
+		return detail::fence(obj);
+	}
 
 	/**
 	 * Asynchronously captures the contents of a buffer subrange, introducing the same dependencies as a read-accessor would.
@@ -97,7 +92,9 @@ class distr_queue {
 	 * fence and wait operations or ensure that other independent command groups are eligible to run while the fence is executed.
 	 */
 	template <typename DataT, int Dims>
-	[[nodiscard]] std::future<buffer_snapshot<DataT, Dims>> fence(const buffer<DataT, Dims>& buf, const subrange<Dims>& sr);
+	[[nodiscard]] std::future<buffer_snapshot<DataT, Dims>> fence(const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) {
+		return detail::fence(buf, sr);
+	}
 
 	/**
 	 * Asynchronously captures the contents of an entire buffer, introducing the same dependencies as a read-accessor would.
@@ -107,7 +104,7 @@ class distr_queue {
 	 */
 	template <typename DataT, int Dims>
 	[[nodiscard]] std::future<buffer_snapshot<DataT, Dims>> fence(const buffer<DataT, Dims>& buf) {
-		return fence(buf, {{}, buf.get_range()});
+		return detail::fence(buf, {{}, buf.get_range()});
 	}
 
   private:
@@ -137,8 +134,8 @@ class distr_queue {
 
 			detail::runtime::get_instance().destroy_queue();
 
-			// ~distr_queue() guarantees that all operations on that queue have finished executing, which we simply guarantee by waiting on all operations on
-			// all live queues.
+			// ~distr_queue() guarantees that all operations on that particular queue have finished executing, which we simply guarantee by waiting on all
+			// operations on all live queues.
 			if(detail::runtime::has_instance()) { detail::runtime::get_instance().sync(detail::epoch_action::none); }
 		}
 	};

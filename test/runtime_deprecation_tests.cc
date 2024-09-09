@@ -5,9 +5,46 @@
 #include "test_utils.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_all.hpp>
 
 namespace celerity {
 namespace detail {
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "any number of distr_queues can be created", "[deprecated][distr_queue][lifetime]") {
+		distr_queue q1;
+		auto q2{q1};    // Copying is allowed
+		distr_queue q3; // so is creating new ones as of Celerity 0.7.0
+		distr_queue q4;
+	}
+
+	TEST_CASE_METHOD(
+	    test_utils::runtime_fixture, "new distr_queues can be created after the last one has been destroyed", "[deprecated][distr_queue][lifetime]") {
+		distr_queue{};
+		CHECK(runtime::has_instance()); // ~distr_queue does not shut down the runtime as of Celerity 0.7.0
+		distr_queue{};
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "distr_queue implicitly initializes the runtime", "[deprecated][distr_queue][lifetime]") {
+		REQUIRE_FALSE(runtime::has_instance());
+		distr_queue queue;
+		REQUIRE(runtime::has_instance());
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "an explicit device can be provided to distr_queue", "[deprecated][distr_queue]") {
+		sycl::default_selector selector;
+		sycl::device device{selector};
+
+		SECTION("before the runtime is initialized") {
+			REQUIRE_FALSE(runtime::has_instance());
+			REQUIRE_NOTHROW(distr_queue{std::vector{device}});
+		}
+
+		SECTION("but not once the runtime has been initialized") {
+			REQUIRE_FALSE(runtime::has_instance());
+			runtime::init(nullptr, nullptr);
+			REQUIRE_THROWS_WITH(distr_queue{std::vector{device}}, "Passing explicit device list not possible, runtime has already been initialized.");
+		}
+	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture,
 	    "distr_queue::submit(allow_by_ref_t, ...) and creation of accessors/side-effects/reductions from const buffers/host-objects continues to work",

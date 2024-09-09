@@ -39,7 +39,7 @@ template <typename T, int Dims>
 struct kernel_name {};
 
 template <int Dims>
-void test_copy(celerity::distr_queue& q) {
+void test_copy(celerity::queue& q) {
 	celerity::buffer<size_t, Dims> buf(truncate_range<Dims>({5, 7, 9}));
 
 	// Initialize on device
@@ -111,8 +111,9 @@ int main(int argc, char* argv[]) {
 	}
 
 	const auto device_idx = std::atoi(argv[1]);
-	celerity::distr_queue q{{all_devices[device_idx]}};
+	celerity::runtime::init(&argc, &argv, {all_devices[device_idx]});
 
+	celerity::queue q;
 	test_copy<1>(q);
 	test_copy<2>(q);
 	test_copy<3>(q);

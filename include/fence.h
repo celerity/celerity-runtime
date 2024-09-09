@@ -4,7 +4,6 @@
 #include <memory>
 #include <type_traits>
 
-#include "distr_queue.h"
 #include "host_object.h"
 #include "runtime.h"
 #include "task_manager.h"
@@ -20,7 +19,7 @@ class buffer_fence_promise;
 namespace celerity {
 
 /**
- * Owned representation of buffer contents as captured by celerity::distr_queue::fence.
+ * Owned representation of buffer contents as captured by celerity::queue::fence.
  */
 template <typename T, int Dims>
 class buffer_snapshot {
@@ -103,14 +102,10 @@ class buffer_fence_promise final : public detail::fence_promise {
 	std::promise<buffer_snapshot<DataT, Dims>> m_promise;
 };
 
-} // namespace celerity::detail
-
-namespace celerity {
-
 template <typename T>
-std::future<T> distr_queue::fence(const experimental::host_object<T>& obj) {
+std::future<T> fence(const experimental::host_object<T>& obj) {
 	static_assert(std::is_object_v<T>, "host_object<T&> and host_object<void> are not allowed as parameters to fence()");
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::fence", Green2);
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::fence", Green2);
 
 	detail::side_effect_map side_effects;
 	side_effects.add_side_effect(detail::get_host_object_id(obj), experimental::side_effect_order::sequential);
@@ -123,8 +118,8 @@ std::future<T> distr_queue::fence(const experimental::host_object<T>& obj) {
 }
 
 template <typename DataT, int Dims>
-std::future<buffer_snapshot<DataT, Dims>> distr_queue::fence(const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) {
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::fence", Green2);
+std::future<buffer_snapshot<DataT, Dims>> fence(const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) {
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::fence", Green2);
 
 	detail::buffer_access_map access_map;
 	access_map.add_access(detail::get_buffer_id(buf),
@@ -137,16 +132,33 @@ std::future<buffer_snapshot<DataT, Dims>> distr_queue::fence(const buffer<DataT,
 	return future;
 }
 
-} // namespace celerity
+} // namespace celerity::detail
+
+namespace celerity {
+class distr_queue;
+}
 
 namespace celerity::experimental {
 
 template <typename T, int Dims>
 using buffer_snapshot [[deprecated("buffer_snapshot is no longer experimental, use celerity::buffer_snapshot")]] = celerity::buffer_snapshot<T, Dims>;
 
-template <typename... Params>
-[[deprecated("fence is no longer experimental, use celerity::distr_queue::fence")]] [[nodiscard]] auto fence(celerity::distr_queue& q, const Params&... args) {
-	return q.fence(args...);
+template <typename T, int Dims>
+[[deprecated("fence is no longer experimental, use celerity::queue::fence")]] [[nodiscard]] auto fence(
+    celerity::distr_queue& /* q */, const buffer<T, Dims>& buf, const subrange<Dims>& sr) {
+	return detail::fence(buf, sr);
+}
+
+template <typename T, int Dims>
+[[deprecated("fence is no longer experimental, use celerity::queue::fence")]] [[nodiscard]] auto fence(
+    celerity::distr_queue& /* q */, const buffer<T, Dims>& buf) {
+	return detail::fence(buf, {{}, buf.get_range()});
+}
+
+template <typename T>
+[[deprecated("fence is no longer experimental, use celerity::queue::fence")]] [[nodiscard]] auto fence(
+    celerity::distr_queue& /* q */, const host_object<T>& obj) {
+	return detail::fence(obj);
 }
 
 } // namespace celerity::experimental

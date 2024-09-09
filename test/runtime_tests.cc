@@ -38,51 +38,32 @@ namespace detail {
 		static std::thread& get_thread(live_executor& exec) { return exec.m_thread; }
 	};
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "any number of distr_queues can be created", "[distr_queue][lifetime]") {
-		distr_queue q1;
-		auto q2{q1};    // Copying is allowed
-		distr_queue q3; // so is creating new ones as of Celerity 0.7.0
-		distr_queue q4; // so is creating new ones as of Celerity 0.7.0
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "any number of queues can be created", "[queue][lifetime]") {
+		queue q1;
+		auto q2{q1}; // Copying is allowed
+		queue q3;    // so is creating new ones
+		queue q4;
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "new distr_queues can be created after the last one has been destroyed", "[distr_queue][lifetime]") {
-		distr_queue{};
-		CHECK(runtime::has_instance()); // ~distr_queue does not shut down the runtime as of Celerity 0.7.0
-		distr_queue{};
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "new queues can be created after the last one has been destroyed", "[queue][lifetime]") {
+		queue{};
+		CHECK(runtime::has_instance());
+		queue{};
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "distr_queue implicitly initializes the runtime", "[distr_queue][lifetime]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "queue implicitly initializes the runtime", "[queue][lifetime]") {
 		REQUIRE_FALSE(runtime::has_instance());
-		distr_queue queue;
+		queue queue;
 		REQUIRE(runtime::has_instance());
 	}
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "an explicit device can be provided to distr_queue", "[distr_queue][lifetime]") {
-		sycl::default_selector selector;
-		sycl::device device{selector};
-
-		SECTION("before the runtime is initialized") {
-			REQUIRE_FALSE(runtime::has_instance());
-			REQUIRE_NOTHROW(distr_queue{std::vector{device}});
-		}
-
-		SECTION("but not once the runtime has been initialized") {
-			REQUIRE_FALSE(runtime::has_instance());
-			runtime::init(nullptr, nullptr);
-			REQUIRE_THROWS_WITH(distr_queue{std::vector{device}}, "Passing explicit device list not possible, runtime has already been initialized.");
-		}
-	}
-#pragma GCC diagnostic pop
-
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer implicitly initializes the runtime", "[distr_queue][lifetime]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer implicitly initializes the runtime", "[queue][lifetime]") {
 		REQUIRE_FALSE(runtime::has_instance());
 		buffer<float, 1> buf(range<1>{1});
 		REQUIRE(runtime::has_instance());
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer can be copied", "[distr_queue][lifetime]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer can be copied", "[queue][lifetime]") {
 		buffer<float, 1> buf_a{range<1>{10}};
 		buffer<float, 1> buf_b{range<1>{10}};
 		auto buf_c{buf_a};
@@ -291,10 +272,10 @@ namespace detail {
 		REQUIRE(req == box<3>());
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "basic SYNC command functionality", "[distr_queue][sync][control-flow]") {
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "queue::wait() returns only after all preceding tasks have completed", "[queue][sync][control-flow]") {
 		constexpr int N = 10;
 
-		distr_queue q;
+		queue q;
 		buffer<int, 1> buff(N);
 		std::vector<int> host_buff(N);
 
@@ -313,7 +294,7 @@ namespace detail {
 			});
 		});
 
-		q.slow_full_sync();
+		q.wait();
 
 		for(int i = 0; i < N; i++) {
 			CHECK(host_buff[i] == i);
@@ -321,7 +302,7 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "collective host_task produces one item per rank", "[task]") {
-		distr_queue q;
+		queue q;
 		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance()); // capture here since runtime destructor will run before the host_task
 		q.submit([=](handler& cgh) {
 			cgh.host_task(experimental::collective, [=](experimental::collective_partition part) {
@@ -339,7 +320,7 @@ namespace detail {
 		MPI_Comm default1_comm, default2_comm, primary1_comm, primary2_comm, secondary1_comm, secondary2_comm;
 
 		{
-			distr_queue q;
+			queue q;
 			experimental::collective_group primary_group;
 			experimental::collective_group secondary_group;
 
@@ -458,7 +439,7 @@ namespace detail {
 		static_assert(is_range_mapper_invocable_for_kernel<rmfn4_t, 2, 3>);
 		static_assert(is_range_mapper_invocable_for_kernel<rmfn4_t, 3, 3>);
 
-		distr_queue q;
+		queue q;
 		buffer<int, 2> buf{{10, 10}};
 
 		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
@@ -498,12 +479,15 @@ namespace detail {
 	class dimension_runtime_fixture : public test_utils::runtime_fixture {};
 
 	TEMPLATE_TEST_CASE_METHOD_SIG(
-	    dimension_runtime_fixture, "item::get_id() includes global offset, item::get_linear_id() does not", "[item]", ((int Dims), Dims), 1, 2, 3) {
-		distr_queue q{std::vector{sycl::device{sycl::default_selector_v}}}; // Initialize runtime with a single device so we don't get multiple chunks
+	    dimension_runtime_fixture, "item::get_id() includes global offset, item::get_linear_id() does not", "[item]", ((int Dims), Dims), 1, 2, 3) //
+	{
+		// Initialize runtime with a single device so we don't get multiple chunks
+		runtime::init(nullptr, nullptr, std::vector{sycl::device{sycl::default_selector_v}});
 
 		const int n = 3;
 		const auto global_offset = test_utils::truncate_id<Dims>({4, 5, 6});
 
+		queue q;
 		buffer<size_t, 2> linear_id{{n, Dims + 1}};
 		q.submit([&](handler& cgh) {
 			accessor a{linear_id, cgh, celerity::access::all{}, write_only, no_init}; // all RM is sane because runtime_tests runs single-node
@@ -573,7 +557,7 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler::parallel_for accepts nd_range", "[handler]") {
-		distr_queue q;
+		queue q;
 
 		// Note: We assume a local range size of 64 here, this should be supported by most devices.
 
@@ -609,7 +593,7 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "nd_range kernels support local memory", "[handler]") {
-		distr_queue q;
+		queue q;
 		buffer<int, 1> out{64};
 
 		// Note: We assume a local range size of 32 here, this should be supported by most devices.
@@ -638,7 +622,7 @@ namespace detail {
 		// Note: We assume a local range size of 16 here, this should be supported by most devices.
 
 		buffer<int, 1> b{range<1>{1}};
-		distr_queue{}.submit([&](handler& cgh) {
+		queue{}.submit([&](handler& cgh) {
 			cgh.parallel_for(celerity::nd_range{range<2>{8, 8}, range<2>{4, 4}},
 			    reduction(b, cgh, sycl::plus<int>(), property::reduction::initialize_to_identity()),
 			    [](nd_item<2> item, auto& sum) { sum += static_cast<int>(item.get_global_linear_id()); });
@@ -648,7 +632,7 @@ namespace detail {
 #if CELERITY_FEATURE_UNNAMED_KERNELS
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler::parallel_for kernel names are optional", "[handler][reduction]") {
-		distr_queue q;
+		queue q;
 
 		// Note: We assume a local range size of 32 here, this should be supported by most devices.
 
@@ -682,7 +666,7 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws if effective split constraint does not evenly divide global size", "[handler]") {
 		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
-		distr_queue q;
+		queue q;
 
 		const auto submit = [&q](auto range, auto constraint) {
 			q.submit([&](handler& cgh) {
@@ -720,7 +704,7 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when accessor target does not match command type", "[handler]") {
 		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
 
-		distr_queue q;
+		queue q;
 		buffer<size_t, 1> buf0{1};
 		buffer<size_t, 1> buf1{1};
 
@@ -760,7 +744,7 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when accessing host objects within device tasks", "[handler]") {
 		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
 
-		distr_queue q;
+		queue q;
 #if !defined(__SYCL_COMPILER_VERSION) // TODO: This may break when using AdaptiveCpp w/ DPC++ as compiler
 		experimental::host_object<size_t> ho;
 
@@ -779,7 +763,7 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when not all accessors / side-effects are copied into the kernel", "[handler]") {
 		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
 
-		distr_queue q;
+		queue q;
 
 		buffer<size_t, 1> buf0{1};
 		buffer<size_t, 1> buf1{1};
@@ -833,7 +817,7 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler does not throw when void side effects are not copied into a kernel", "[handler]") {
 		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
 
-		distr_queue q;
+		queue q;
 		experimental::host_object<void> ho;
 
 		CHECK_NOTHROW(([&] {
@@ -850,7 +834,7 @@ namespace detail {
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler recognizes copies of same accessor being captured multiple times", "[handler]") {
 		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
 
-		distr_queue q;
+		queue q;
 		buffer<size_t, 1> buf1{1};
 
 		CHECK_THROWS_WITH(([&] {
@@ -871,7 +855,7 @@ namespace detail {
 	// Since the diagnostic for side effects is based on a simple count, we currently cannot tell whether
 	// a single side effect is copied several times (which is fine), versus another not being copied.
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler recognizes copies of same side-effect being captured multiple times", "[handler][!shouldfail]") {
-		distr_queue q;
+		queue q;
 
 		experimental::host_object<size_t> ho1;
 		experimental::host_object<size_t> ho2;
@@ -897,7 +881,7 @@ namespace detail {
 
 		constexpr int horizon_step_size = 2;
 
-		distr_queue q;
+		queue q;
 		auto& tm = runtime::get_instance().get_task_manager();
 		tm.set_horizon_step(horizon_step_size);
 
@@ -922,7 +906,7 @@ namespace detail {
 				});
 
 				// We need to wait in each iteration, so that tasks are still generated after some have already been executed (and after they therefore
-				// triggered their horizons). We can't use slow_full_sync for this as it will begin a new epoch and force-prune the task graph itself.
+				// triggered their horizons). We can't use queue::wait for this as it will begin a new epoch and force-prune the task graph itself.
 				std::unique_lock lock(m);
 				cv.wait(lock, [&] { return completed_step == i; });
 			}
@@ -996,7 +980,7 @@ namespace detail {
 #endif
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "side_effect API works as expected on a single node", "[side-effect]") {
-		distr_queue q;
+		queue q;
 
 		experimental::host_object owned_ho{std::vector<int>{}};
 		std::vector<int> exterior;
@@ -1028,7 +1012,7 @@ namespace detail {
 			cgh.host_task(on_master_node, [=] { CHECK(*check_owned == std::vector{1, 2}); });
 		});
 
-		q.slow_full_sync();
+		q.wait();
 
 		CHECK(exterior == std::vector{1, 2});
 	}
@@ -1036,7 +1020,7 @@ namespace detail {
 #if CELERITY_DETAIL_HAS_NAMED_THREADS
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "thread names are set", "[threads]") {
-		distr_queue q;
+		queue q;
 
 		auto& rt = runtime::get_instance();
 		auto& schdlr = runtime_testspy::get_schdlr(rt);
@@ -1068,7 +1052,8 @@ namespace detail {
 
 		env::scoped_test_environment ste(std::unordered_map<std::string, std::string>{{dryrun_envvar_name, std::to_string(num_nodes)}});
 
-		distr_queue q{std::vector{sycl::device{sycl::default_selector_v}}}; // Initialize runtime with a single device so we don't get multiple chunks
+		// Initialize runtime with a single device so we don't get multiple chunks
+		runtime::init(nullptr, nullptr, std::vector{sycl::device{sycl::default_selector_v}});
 
 		auto& rt = runtime::get_instance();
 		auto& tm = rt.get_task_manager();
@@ -1076,6 +1061,7 @@ namespace detail {
 
 		REQUIRE(rt.is_dry_run());
 
+		queue q;
 		buffer<int, 1> buf{range<1>(10)};
 		q.submit([&](handler& cgh) {
 			accessor acc{buf, cgh, all{}, write_only_host_task, no_init};
@@ -1096,7 +1082,7 @@ namespace detail {
 
 		env::scoped_test_environment ste(std::unordered_map<std::string, std::string>{{dryrun_envvar_name, "1"}});
 
-		distr_queue q;
+		queue q;
 		REQUIRE(runtime::get_instance().is_dry_run());
 
 		SECTION("for buffers") {
@@ -1131,7 +1117,7 @@ namespace detail {
 
 		env::scoped_test_environment ste(std::unordered_map<std::string, std::string>{{dryrun_envvar_name, "1"}});
 
-		distr_queue q;
+		queue q;
 
 		auto& rt = runtime::get_instance();
 		auto& tm = rt.get_task_manager();
@@ -1144,7 +1130,7 @@ namespace detail {
 
 		q.submit([&](handler& cgh) { cgh.host_task(on_master_node, [=] {}); });
 
-		// we can't slow_full_sync in this test, so we just try until the horizons have been processed
+		// we can't queue::wait in this test, so we just try until the horizons have been processed
 		// 100*10ms is one second in total; if the horizon hasn't happened at that point, it's not happening
 		constexpr int max_num_tries = 100;
 		for(int i = 0; i < max_num_tries; ++i) {
@@ -1232,7 +1218,7 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "fences extract data from host objects", "[runtime][fence]") {
 		experimental::host_object<int> ho{1};
-		distr_queue q;
+		queue q;
 
 		q.submit([&](handler& cgh) {
 			experimental::side_effect e(ho, cgh);
@@ -1252,7 +1238,7 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "fences extract data from buffers", "[runtime][fence]") {
 		buffer<int, 2> buf(range<2>(4, 4));
-		distr_queue q;
+		queue q;
 
 		q.submit([&](handler& cgh) {
 			accessor acc(buf, cgh, one_to_one(), write_only, no_init);
@@ -1277,7 +1263,7 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "fences extract data from 0-dimensional buffers", "[runtime][fence]") {
 		buffer<int, 0> buf;
-		distr_queue q;
+		queue q;
 
 		q.submit([&](handler& cgh) {
 			accessor acc(buf, cgh, write_only, no_init);
@@ -1296,7 +1282,7 @@ namespace detail {
 		buffer<float, 0> buf_b(value_a);
 		buffer<float, 0> buf_c(value_a);
 
-		distr_queue q;
+		queue q;
 
 		q.submit([&](handler& cgh) {
 			accessor acc_a(buf_a, cgh, write_only, no_init);
@@ -1328,7 +1314,7 @@ namespace detail {
 	{
 		test_utils::allow_max_log_level(log_level::warn);
 
-		distr_queue q;
+		queue q;
 		buffer<int, 1> buf(1);
 
 		std::string expected_warning_message;
@@ -1351,7 +1337,7 @@ namespace detail {
 			                           "accessor with no_init if possible.";
 		}
 
-		q.slow_full_sync();
+		q.wait();
 
 		CHECK(test_utils::log_contains_exact(log_level::warn, expected_warning_message) == CELERITY_ACCESS_PATTERN_DIAGNOSTICS);
 	}
@@ -1361,7 +1347,7 @@ namespace detail {
 	{
 		test_utils::allow_max_log_level(log_level::err);
 
-		distr_queue q;
+		queue q;
 		const auto num_devices = runtime_testspy::get_num_local_devices(runtime::get_instance());
 		if(num_devices < 2) { SKIP("Test needs at least 2 devices"); }
 
@@ -1370,7 +1356,7 @@ namespace detail {
 			accessor acc(buf, cgh, celerity::access::all(), write_only, no_init);
 			cgh.parallel_for(range(num_devices), [=](item<1>) { (void)acc; });
 		});
-		q.slow_full_sync();
+		q.wait();
 
 		const auto expected_error_message =
 		    "Device kernel T1 has overlapping writes on N0 in B0 {[0,0,0] - [1,1,1]}. Choose a non-overlapping range mapper "
@@ -1379,23 +1365,23 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime types throw when used from the wrong thread", "[runtime]") {
-		distr_queue q;
+		queue q;
 		buffer<int, 1> buf(range<1>(1));
 		experimental::host_object<int> ho(42);
 
-		constexpr auto what = "Celerity runtime, distr_queue, handler, buffer and host_object types must only be constructed, used, and destroyed from the "
+		constexpr auto what = "Celerity runtime, queue, handler, buffer and host_object types must only be constructed, used, and destroyed from the "
 		                      "application thread. Make sure that you did not accidentally capture one of these types in a host_task.";
 		std::thread([&] {
-			CHECK_THROWS_WITH((distr_queue{}), what);
+			CHECK_THROWS_WITH((queue{}), what);
 			CHECK_THROWS_WITH((buffer<int, 1>{range<1>{1}}), what);
 			CHECK_THROWS_WITH((experimental::host_object<int>{}), what);
 
 			CHECK_THROWS_WITH(q.submit([&](handler& cgh) { (void)cgh; }), what);
-			CHECK_THROWS_WITH(q.slow_full_sync(), what);
+			CHECK_THROWS_WITH(q.wait(), what);
 			CHECK_THROWS_WITH(q.fence(buf), what);
 			CHECK_THROWS_WITH(q.fence(ho), what);
 
-			// We can't easily test whether `~distr_queue()` et al. throw, because that would require marking the entire stack of destructors noexcept(false)
+			// We can't easily test whether `~queue()` et al. throw, because that would require marking the entire stack of destructors noexcept(false)
 			// including the ~shared_ptr we use internally for reference semantics. Instead we verify that the runtime operations their trackers call throw.
 			CHECK_THROWS_WITH(detail::runtime::get_instance().destroy_queue(), what);
 			CHECK_THROWS_WITH(detail::runtime::get_instance().destroy_buffer(get_buffer_id(buf)), what);

@@ -10,7 +10,7 @@ Celerity implements cluster-wide reductions in the spirit of
 The following distributed program computes the sum from 0 to 999 in `sum_buf` using a reduction:
 
 ```c++
-celerity::distr_queue q;
+celerity::queue q;
 celerity::buffer<size_t, 1> sum_buf{{1}};
 q.submit([&](celerity::handler& cgh) {
     auto rd = celerity::reduction(sum_buf, cgh, sycl::plus<size_t>{},

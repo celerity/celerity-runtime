@@ -27,7 +27,7 @@ static std::pair<hid_t, hid_t> allocation_window_to_dataspace(const celerity::bu
 }
 
 
-static void read_hdf5_file(celerity::distr_queue& q, celerity::buffer<float, 2>& buffer, const char* file_name) {
+static void read_hdf5_file(celerity::queue& q, celerity::buffer<float, 2>& buffer, const char* file_name) {
 	q.submit([&](celerity::handler& cgh) {
 		celerity::accessor a{buffer, cgh, celerity::experimental::access::even_split<2>{}, celerity::write_only_host_task, celerity::no_init};
 		cgh.host_task(celerity::experimental::collective, [=](celerity::experimental::collective_partition part) {
@@ -54,7 +54,7 @@ static void read_hdf5_file(celerity::distr_queue& q, celerity::buffer<float, 2>&
 }
 
 
-static void write_hdf5_file(celerity::distr_queue& q, celerity::buffer<float, 2>& buffer, const char* file_name) {
+static void write_hdf5_file(celerity::queue& q, celerity::buffer<float, 2>& buffer, const char* file_name) {
 	q.submit([&](celerity::handler& cgh) {
 		celerity::accessor a{buffer, cgh, celerity::experimental::access::even_split<2>{}, celerity::read_only_host_task};
 		cgh.host_task(celerity::experimental::collective, [=](celerity::experimental::collective_partition part) {
@@ -103,7 +103,7 @@ int main(int argc, char* argv[]) {
 		std::generate(initial.begin(), initial.end(), [&] { return dist(gen); });
 		celerity::buffer<float, 2> out(initial.data(), celerity::range<2>{N, N});
 
-		celerity::distr_queue q;
+		celerity::queue q;
 		write_hdf5_file(q, out, argv[2]);
 		return EXIT_SUCCESS;
 	}
@@ -112,7 +112,7 @@ int main(int argc, char* argv[]) {
 		celerity::buffer<float, 2> in(celerity::range<2>{N, N});
 		celerity::buffer<float, 2> out(celerity::range<2>{N, N});
 
-		celerity::distr_queue q;
+		celerity::queue q;
 
 		read_hdf5_file(q, in, argv[2]);
 
@@ -130,7 +130,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	if(argc == 4 && strcmp(argv[1], "--compare") == 0) {
-		celerity::distr_queue q;
+		celerity::queue q;
 
 		celerity::buffer<float, 2> left(celerity::range<2>{N, N});
 		celerity::buffer<float, 2> right(celerity::range<2>{N, N});

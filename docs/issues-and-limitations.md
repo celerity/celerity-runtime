@@ -26,7 +26,7 @@ example, the branching decision can be made using a [reduction](reductions.md)
 and then observed on the application thread on a `fence`:
 
 ```cpp
-celerity::distr_queue q;
+celerity::queue q;
 celerity::buffer<float, 0> error;
 for (;;) {
     q.submit([&](celerity::handler& cgh) {

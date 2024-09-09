@@ -25,7 +25,7 @@ namespace detail {
 		buffer<size_t, 1> sum_buf{{1}};
 		buffer<size_t, 1> max_buf{{1}};
 
-		distr_queue q;
+		queue q;
 		const auto initialize_to_identity = sycl::property::reduction::initialize_to_identity{};
 
 		q.submit([&](handler& cgh) {
@@ -50,7 +50,7 @@ namespace detail {
 	// Regression test: The host -> device transfer previously caused an illegal nested sycl::queue::submit call which deadlocks
 	// Distributed test, since the single-node case optimizes the reduction command away
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "reduction commands perform host -> device transfers if necessary", "[reductions]") {
-		distr_queue q;
+		queue q;
 		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance());
 		if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
 
@@ -69,7 +69,7 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "multiple chained reductions produce correct results", "[reductions]") {
-		distr_queue q;
+		queue q;
 
 		const int N = 1000;
 
@@ -92,7 +92,7 @@ namespace detail {
 
 	TEST_CASE_METHOD(
 	    test_utils::runtime_fixture, "subsequently requiring reduction results on different subsets of nodes produces correct data flow", "[reductions]") {
-		distr_queue q;
+		queue q;
 
 		const int N = 1000;
 
@@ -122,7 +122,7 @@ namespace detail {
 	    "[reductions][print_graph][smoke-test]") //
 	{
 		env::scoped_test_environment test_env(print_graphs_env_setting);
-		// init runtime early so the distr_queue ctor doesn't override the log level set by log_capture
+		// init runtime early so the queue ctor doesn't override the log level set by log_capture
 		runtime::init(nullptr, nullptr);
 
 		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance());
@@ -131,7 +131,7 @@ namespace detail {
 		const bool is_node_0 = runtime_testspy::get_local_nid(runtime::get_instance()) == 0; // runtime instance is gone after queue destruction
 
 		{
-			distr_queue q;
+			queue q;
 			buffer<int, 1> sum(range(1));
 			q.submit([&](handler& cgh) {
 				cgh.parallel_for<class UKN(produce)>(range{100}, reduction(sum, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
@@ -183,7 +183,7 @@ namespace detail {
 
 	TEMPLATE_TEST_CASE_METHOD_SIG(
 	    dimension_runtime_fixture, "nd_item and group return correct execution space geometry", "[item]", ((int Dims), Dims), 1, 2, 3) {
-		distr_queue q;
+		queue q;
 		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance());
 		if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
 
@@ -247,7 +247,7 @@ namespace detail {
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "generating same task graph on different nodes", "[task-graph]") {
 		env::scoped_test_environment tenv(print_graphs_env_setting);
-		distr_queue q;
+		queue q;
 		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance());
 		if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
 
@@ -284,7 +284,7 @@ namespace detail {
 			cgh.parallel_for<class UKN(write_a_again)>(range<1>{N}, [=](celerity::item<1> item) { (void)write_a; });
 		});
 
-		q.slow_full_sync();
+		q.wait();
 
 		int global_rank;
 		MPI_Comm_rank(MPI_COMM_WORLD, &global_rank);
@@ -313,7 +313,7 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "nodes do not receive commands for empty chunks", "[command-graph]") {
-		distr_queue q;
+		queue q;
 		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance());
 		if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
 
@@ -336,7 +336,7 @@ namespace detail {
 		buffer<int, 3> buf{{5, 4, 7}}; // Use an oddly-sized buffer to test the buffer subrange extraction logic
 		experimental::host_object<int> obj;
 
-		distr_queue q;
+		queue q;
 		q.submit([&](handler& cgh) {
 			experimental::side_effect eff{obj, cgh};
 			cgh.host_task(experimental::collective, [=](experimental::collective_partition p) { *eff = static_cast<int>(p.get_node_index()); });
@@ -381,7 +381,7 @@ namespace detail {
 	{
 		test_utils::allow_max_log_level(detail::log_level::err);
 
-		distr_queue q;
+		queue q;
 		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance());
 		if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
 
@@ -401,7 +401,7 @@ namespace detail {
 			});
 		}
 
-		q.slow_full_sync();
+		q.wait();
 
 		const auto error_message = "has overlapping writes between multiple nodes in B0 {[0,0,0] - [1,1,1]}. Choose a non-overlapping range mapper for this "
 		                           "write access or constrain the split via experimental::constrain_split to make the access non-overlapping.";
@@ -414,7 +414,7 @@ namespace detail {
 		CAPTURE(oversubscribed_producer, oversubscribed_consumer);
 
 		// This test covers split/await-receive operations. Assumes a 1d split along dim0.
-		distr_queue q;
+		queue q;
 
 		// 1. Write with row/col transposed access, such that each device owns a column of data.
 		buffer<id<2>, 2> transposed_buf(range(1024, 1024));
