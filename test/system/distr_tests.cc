@@ -141,7 +141,10 @@ namespace detail {
 				accessor acc{sum, cgh, celerity::access::all{}, celerity::read_only_host_task};
 				cgh.host_task(on_master_node, [=] { (void)acc; });
 			});
-		} // shutdown runtime and print graph
+		}
+
+		// shutdown runtime manually to print the graph
+		runtime::shutdown();
 
 		if(is_node_0) { // We log graphs only on node 0
 			CHECK(test_utils::log_contains_substring(log_level::info, "digraph G{label=<Command Graph>"));

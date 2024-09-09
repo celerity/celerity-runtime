@@ -30,6 +30,8 @@ namespace detail {
 
 		static bool has_instance() { return s_instance != nullptr; }
 
+		static void shutdown();
+
 		static runtime& get_instance();
 
 		runtime(const runtime&) = delete;
@@ -120,11 +122,6 @@ namespace detail {
 
 		/// True when no buffers, host objects or queues are live that keep the runtime alive.
 		bool is_unreferenced() const;
-
-		/**
-		 * @brief Destroys the runtime if it is no longer active and all buffers and host objects have been unregistered.
-		 */
-		static void destroy_instance_if_unreferenced();
 
 		// ------------------------------------------ TESTING UTILS ------------------------------------------
 		// We have to jump through some hoops to be able to re-initialize the runtime for unit testing.
