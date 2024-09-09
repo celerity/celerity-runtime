@@ -107,6 +107,7 @@ class buffer {
 			if(host_init_ptr != nullptr) {
 				const auto user_ptr = const_cast<void*>(host_init_ptr); // promise: instruction_graph_generator will never issue a write to this allocation
 				user_aid = detail::runtime::get_instance().create_user_allocation(user_ptr);
+				references_user_memory = true;
 			}
 			id = detail::runtime::get_instance().create_buffer(detail::range_cast<3>(range), sizeof(DataT), alignof(DataT), user_aid);
 		}
@@ -119,11 +120,15 @@ class buffer {
 		~tracker() {
 			CELERITY_DETAIL_TRACY_ZONE_SCOPED("buffer::~buffer", DarkCyan);
 			detail::runtime::get_instance().destroy_buffer(id);
+			// The user must guarantee liveness of the user pointer only until the buffer instance goes out of scope
+			// TODO This is more synchronization than necessary - consider issuing a fence-like task that does not block concurrent tasks.
+			if(references_user_memory) { detail::runtime::get_instance().sync(detail::epoch_action::none); }
 		}
 
 		detail::buffer_id id;
 		celerity::range<Dims> range;
 		std::string debug_name;
+		bool references_user_memory = false;
 	};
 
 	std::shared_ptr<tracker> m_tracker;
