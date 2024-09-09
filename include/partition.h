@@ -1,10 +1,14 @@
 #pragma once
 
-#include "mpi_communicator.h" // TODO only used for type cast - move that function to .cc file
 #include "ranges.h"
 #include "utils.h"
+#include "version.h"
 
+#if CELERITY_ENABLE_MPI
+#include "mpi_communicator.h" // TODO only used for type cast - move that function to .cc file
 #include <mpi.h>
+#endif
+
 
 namespace celerity {
 template <int Dims>
@@ -59,7 +63,14 @@ namespace celerity::experimental {
  */
 class collective_partition : public partition<1> {
   public:
+#if CELERITY_ENABLE_MPI
 	MPI_Comm get_collective_mpi_comm() const { return detail::utils::as<detail::mpi_communicator>(m_collective_comm)->get_native(); }
+#else
+	template <typename E = void>
+	void get_collective_mpi_comm() const {
+		static_assert(detail::constexpr_false<E> && "MPI support is not enabled (CELERITY_ENABLE_MPI=OFF)");
+	}
+#endif
 
 	size_t get_node_index() const { return get_subrange().offset[0]; }
 

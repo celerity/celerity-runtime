@@ -319,12 +319,16 @@ namespace detail {
 		q.submit([=](handler& cgh) {
 			cgh.host_task(experimental::collective, [=](experimental::collective_partition part) {
 				CHECK(part.get_global_size().size() == num_nodes);
+#if CELERITY_ENABLE_MPI
 				CHECK_NOTHROW(part.get_collective_mpi_comm());
+#endif
 			});
 		});
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "collective host_task share MPI a communicator iff they are on the same collective_group", "[task]") {
+#if CELERITY_ENABLE_MPI
+
 		MPI_Comm default1_comm, default2_comm, primary1_comm, primary2_comm, secondary1_comm, secondary2_comm;
 
 		{
@@ -375,6 +379,10 @@ namespace detail {
 		// collective groups onto the same backend thread in-order. If that were to happen, an inter-node mismatch between execution orders nodes would cause
 		// deadlocks in the user-provided collective operations. An earlier version of the runtime ensured this by spawning a separate thread per collective
 		// group, whereas currently, we allow unbounded concurrency between host instructions to provide the same guarantees.
+
+#else  // CELERITY_ENABLE_MPI
+		SKIP("Celerity is built without MPI support");
+#endif // CELERITY_ENABLE_MPI
 	}
 
 	template <typename T>
