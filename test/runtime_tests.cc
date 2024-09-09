@@ -1414,5 +1414,27 @@ namespace detail {
 		CHECK(tsk->get_type() == task_type::host_compute); // NOT the magic "master node task" type
 	}
 
+	// SYCL guarantees that buffers will not access the user-pointer they were constructed from after the buffer has been destroyed. Since we submit work
+	// asynchronously, this means that we have to wait until all kernels / host tasks accessing
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffers constructed from a user pointer synchronize on destruction", "[runtime]") {
+		queue q;
+		std::atomic<bool> host_task_completed = false;
+
+		{
+			const int init = 42;
+			buffer<int, 1> buf(&init, ones);
+			q.submit([&](handler& cgh) {
+				accessor acc(buf, cgh, all(), read_only_host_task);
+				cgh.host_task(once, [=, &host_task_completed] {
+					(void)acc;
+					std::this_thread::sleep_for(std::chrono::milliseconds(10));
+					host_task_completed = true;
+				});
+			});
+		}
+
+		CHECK(host_task_completed);
+	}
+
 } // namespace detail
 } // namespace celerity

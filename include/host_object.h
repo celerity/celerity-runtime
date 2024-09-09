@@ -31,8 +31,9 @@ struct host_object_instance {
 /// It notifies the runtime of host object creation and destruction.
 struct host_object_tracker {
 	detail::host_object_id id{};
+	bool references_user_object;
 
-	explicit host_object_tracker(std::unique_ptr<host_object_instance> instance) {
+	explicit host_object_tracker(std::unique_ptr<host_object_instance> instance) : references_user_object(instance == nullptr) {
 		CELERITY_DETAIL_TRACY_ZONE_SCOPED("host_object::host_object", DarkSlateBlue);
 		if(!detail::runtime::has_instance()) { detail::runtime::init(nullptr, nullptr); }
 		id = detail::runtime::get_instance().create_host_object(std::move(instance));
@@ -46,6 +47,8 @@ struct host_object_tracker {
 	~host_object_tracker() {
 		CELERITY_DETAIL_TRACY_ZONE_SCOPED("~host_object::host_object", DarkCyan);
 		detail::runtime::get_instance().destroy_host_object(id);
+		// The user must guarantee liveness of the referenced object only until the host_object instance goes out of scope
+		if(references_user_object) { detail::runtime::get_instance().sync(detail::epoch_action::none); }
 	}
 };
 
@@ -88,6 +91,8 @@ namespace celerity::experimental {
  * - The `host_object<T&>` specialization attaches Celerity's tracking and synchronization mechanism to user-managed state. The user guarantees that the
  *   referenced object is not accessed in any way other than through a `side_effect` while the `host_object` is live.
  * - `host_object<void>` does not carry internal state and can be used to track access to global variables or functions like `printf()`.
+ *
+ * When using `host_object<T&>` or `host_object<void>`, the underlying host state must remain live as long as a copy of the `host_object` is in scope.
  */
 template <typename T>
 class host_object {
