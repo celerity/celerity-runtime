@@ -21,8 +21,9 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 - Automatic runtime shutdown, which was previously triggered by the last queue / buffer / host object going out of scope,
   is now postponed until process termination (`atexit()`). This allows multiple non-overlapping sections of Celerity code
   to execute in the same process (#283)
-- Celerity warns when on excessive calls to `queue::wait()` or `distr_queue::slow_full_sync()` in a long running program.
+- Celerity warns on excessive calls to `queue::wait()` or `distr_queue::slow_full_sync()` in a long running program.
   This operation has a much more pronounced performance penalty than its SYCL counterpart (#283)
+- On systems that do not support device-to-device copies, data is now staged in linearized buffers for better performance (#287)
 
 ### Fixed
 

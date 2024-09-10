@@ -74,8 +74,8 @@ TEST_CASE("single-node single-device reductions locally include the initial buff
 	const auto local_reduce = all_instrs.select_unique<reduce_instruction_record>();
 	CHECK(local_reduce->scope == reduce_instruction_record::reduction_scope::local);
 	CHECK(local_reduce->num_source_values == 2);
-	CHECK(local_reduce->source_allocation_id == gather_from_init->dest_allocation.id);
-	CHECK(local_reduce->source_allocation_id == gather_from_writer->dest_allocation.id);
+	CHECK(local_reduce->source_allocation_id == gather_from_init->dest_allocation_id);
+	CHECK(local_reduce->source_allocation_id == gather_from_writer->dest_allocation_id);
 
 	const auto reader = all_instrs.select_unique<device_kernel_instruction_record>("reader");
 	CHECK(reader.transitive_predecessors_across<copy_instruction_record>().contains(local_reduce));
@@ -117,12 +117,12 @@ TEST_CASE("reduction accesses on a single-node multi-device setup generate local
 	for(const auto& gather_copy : all_gather_copies.iterate()) {
 		CAPTURE(gather_copy);
 		CHECK(gather_copy->origin == copy_instruction_record::copy_origin::gather);
-		CHECK(gather_copy->source_allocation.offset_bytes == 0);
-		CHECK(gather_copy->dest_allocation.id == gather_alloc->allocation_id);
+		CHECK(gather_copy->source_layout == region_layout(strided_layout(box<3>(zeros, ones))));
+		CHECK(gather_copy->dest_allocation_id == gather_alloc->allocation_id);
 
 		// the order of reduction inputs must be deterministic because the reduction operator is not necessarily associative
 		const auto writer = intersection_of(all_writers, gather_copy.predecessors());
-		CHECK(gather_copy->dest_allocation.offset_bytes == static_cast<size_t>(writer->device_id) * sizeof(int));
+		CHECK(gather_copy->dest_layout == region_layout(linearized_layout(writer->device_id * sizeof(int))));
 	}
 
 	const auto local_reduce = all_instrs.select_unique<reduce_instruction_record>();
@@ -189,8 +189,8 @@ TEST_CASE("reduction accesses on a multi-node single-device setup generate globa
 	// we (gather-) copy the local partial result to the appropriate position in the gather buffer
 	const auto gather_copy = reduce.predecessors().select_unique<copy_instruction_record>();
 	CHECK(gather_copy->origin == copy_instruction_record::copy_origin::gather);
-	CHECK(gather_copy->source_allocation.offset_bytes == 0);
-	CHECK(gather_copy->dest_allocation.offset_bytes == local_nid * sizeof(int));
+	CHECK(gather_copy->source_layout == region_layout(strided_layout(box<3>(zeros, ones))));
+	CHECK(gather_copy->dest_layout == region_layout(linearized_layout(local_nid * sizeof(int))));
 	CHECK(gather_copy->copy_region == region(box<3>(zeros, ones)));
 
 	// we gather-receive from all peers - this will _not_ write to the position `local_nid`
@@ -198,7 +198,7 @@ TEST_CASE("reduction accesses on a multi-node single-device setup generate globa
 	CHECK(reduce.predecessors().contains(gather_recv));
 	CHECK(gather_recv->gather_box == box<3>(zeros, ones));
 	CHECK(gather_recv->num_nodes == num_nodes);
-	CHECK(gather_recv->allocation_id == gather_copy->dest_allocation.id);
+	CHECK(gather_recv->allocation_id == gather_copy->dest_allocation_id);
 	CHECK(gather_recv->transfer_id.bid == buf.get_id());
 	CHECK(gather_recv->transfer_id.consumer_tid == reader_tid);
 	CHECK(gather_recv->transfer_id.rid == reduce->reduction_id);
@@ -240,8 +240,8 @@ TEST_CASE("reduction accesses on a multi-node multi-device setup generate global
 	for(const auto& gather_copy : gather_copies_to_local.iterate()) {
 		CHECK(gather_copy->origin == copy_instruction_record::copy_origin::gather);
 		CHECK(gather_copy->copy_region == region(box<3>(zeros, ones)));
-		CHECK(gather_copy->dest_allocation.id == local_gather_alloc->allocation_id);
-		CHECK(gather_copy->dest_allocation.id == local_reduce->source_allocation_id);
+		CHECK(gather_copy->dest_allocation_id == local_gather_alloc->allocation_id);
+		CHECK(gather_copy->dest_allocation_id == local_reduce->source_allocation_id);
 	}
 
 	// the global reduction has a single local contribution (the locally-reduced partial result from devices), and `num_nodes - 1` contributions from peers.
@@ -389,12 +389,12 @@ TEST_CASE("local reductions only include values from participating devices", "[i
 		const auto gather_copy = writer.successors().assert_unique<copy_instruction_record>();
 		CHECK(gather_copy->origin == copy_instruction_record::copy_origin::gather);
 
-		CHECK(gather_copy->source_allocation.id == red_acc.allocation_id);
-		CHECK(gather_copy->source_allocation.offset_bytes == 0);
+		CHECK(gather_copy->source_allocation_id == red_acc.allocation_id);
+		CHECK(gather_copy->source_layout == region_layout(strided_layout(box<3>(zeros, ones))));
 
 		// gather-order must be deterministic because the reduction operation is not necessarily associative
-		CHECK(gather_copy->dest_allocation.id == local_reduce->source_allocation_id);
-		CHECK(gather_copy->dest_allocation.offset_bytes == writer->device_id * sizeof(int));
+		CHECK(gather_copy->dest_allocation_id == local_reduce->source_allocation_id);
+		CHECK(gather_copy->dest_layout == region_layout(linearized_layout(writer->device_id * sizeof(int))));
 
 		CHECK(local_reduce.predecessors().contains(gather_copy));
 	}
@@ -437,9 +437,9 @@ TEST_CASE("global reductions without a local contribution do not read stale loca
 		// there is a local contribution, which will be copied to the global gather buffer concurrent with the receive
 		const auto gather_copy = global_reduce.predecessors().select_unique<copy_instruction_record>();
 		CHECK(gather_copy->origin == copy_instruction_record::copy_origin::gather);
-		CHECK(gather_copy->dest_allocation.id == gather_recv->allocation_id);
-		CHECK(gather_copy->dest_allocation.offset_bytes == local_nid * sizeof(int));
-		CHECK(gather_copy->source_allocation.offset_bytes == 0);
+		CHECK(gather_copy->dest_allocation_id == gather_recv->allocation_id);
+		CHECK(gather_copy->dest_layout == region_layout(linearized_layout(local_nid * sizeof(int))));
+		CHECK(gather_copy->source_layout == region_layout(strided_layout(box<3>(zeros, ones))));
 		CHECK(gather_copy->copy_region == region(box<3>(zeros, ones)));
 		CHECK(gather_copy.is_concurrent_with(gather_recv));
 
