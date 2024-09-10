@@ -737,19 +737,19 @@ void executor_impl::issue_async(const copy_instruction& cinstr, const out_of_ord
 	assert((assignment.target == out_of_order_engine::target::device_queue) == assignment.device.has_value());
 	assert(assignment.lane.has_value());
 
-	CELERITY_DETAIL_TRACE_INSTRUCTION(cinstr, "copy {} ({}) -> {} ({}); {}x{} bytes, {} bytes total", cinstr.get_source_allocation(), cinstr.get_source_box(),
-	    cinstr.get_dest_allocation(), cinstr.get_dest_box(), cinstr.get_copy_region(), cinstr.get_element_size(),
+	CELERITY_DETAIL_TRACE_INSTRUCTION(cinstr, "copy {} ({}) -> {} ({}); {}x{} bytes, {} bytes total", cinstr.get_source_allocation_id(),
+	    cinstr.get_source_layout(), cinstr.get_dest_allocation_id(), cinstr.get_dest_layout(), cinstr.get_copy_region(), cinstr.get_element_size(),
 	    cinstr.get_copy_region().get_area() * cinstr.get_element_size());
 
-	const auto source_base = static_cast<const std::byte*>(allocations.at(cinstr.get_source_allocation().id)) + cinstr.get_source_allocation().offset_bytes;
-	const auto dest_base = static_cast<std::byte*>(allocations.at(cinstr.get_dest_allocation().id)) + cinstr.get_dest_allocation().offset_bytes;
+	const auto source_base = allocations.at(cinstr.get_source_allocation_id());
+	const auto dest_base = allocations.at(cinstr.get_dest_allocation_id());
 
 	if(assignment.device.has_value()) {
-		async.event = backend->enqueue_device_copy(*assignment.device, *assignment.lane, source_base, dest_base, cinstr.get_source_box(), cinstr.get_dest_box(),
-		    cinstr.get_copy_region(), cinstr.get_element_size());
+		async.event = backend->enqueue_device_copy(*assignment.device, *assignment.lane, source_base, dest_base, cinstr.get_source_layout(),
+		    cinstr.get_dest_layout(), cinstr.get_copy_region(), cinstr.get_element_size());
 	} else {
-		async.event = backend->enqueue_host_copy(
-		    *assignment.lane, source_base, dest_base, cinstr.get_source_box(), cinstr.get_dest_box(), cinstr.get_copy_region(), cinstr.get_element_size());
+		async.event = backend->enqueue_host_copy(*assignment.lane, source_base, dest_base, cinstr.get_source_layout(), cinstr.get_dest_layout(),
+		    cinstr.get_copy_region(), cinstr.get_element_size());
 	}
 }
 

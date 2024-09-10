@@ -68,8 +68,8 @@ class sycl_backend : public backend {
 	async_event enqueue_device_kernel(device_id device, size_t device_lane, const device_kernel_launcher& launcher,
 	    std::vector<closure_hydrator::accessor_info> accessor_infos, const box<3>& execution_range, const std::vector<void*>& reduction_ptrs) override;
 
-	async_event enqueue_host_copy(size_t host_lane, const void* const source_base, void* const dest_base, const box<3>& source_box, const box<3>& dest_box,
-	    const region<3>& copy_region, const size_t elem_size) override;
+	async_event enqueue_host_copy(size_t host_lane, const void* const source_base, void* const dest_base, const region_layout& source_layout,
+	    const region_layout& dest_layout, const region<3>& copy_region, const size_t elem_size) override;
 
 	void check_async_errors() override;
 
@@ -90,8 +90,8 @@ class sycl_generic_backend final : public sycl_backend {
   public:
 	sycl_generic_backend(const std::vector<sycl::device>& devices, bool enable_profiling);
 
-	async_event enqueue_device_copy(device_id device, size_t device_lane, const void* const source_base, void* const dest_base, const box<3>& source_box,
-	    const box<3>& dest_box, const region<3>& copy_region, const size_t elem_size) override;
+	async_event enqueue_device_copy(device_id device, size_t device_lane, const void* const source_base, void* const dest_base,
+	    const region_layout& source_layout, const region_layout& dest_layout, const region<3>& copy_region, const size_t elem_size) override;
 };
 
 #if CELERITY_DETAIL_BACKEND_CUDA_ENABLED
@@ -100,8 +100,8 @@ class sycl_cuda_backend final : public sycl_backend {
   public:
 	sycl_cuda_backend(const std::vector<sycl::device>& devices, bool enable_profiling);
 
-	async_event enqueue_device_copy(device_id device, size_t device_lane, const void* const source_base, void* const dest_base, const box<3>& source_box,
-	    const box<3>& dest_box, const region<3>& copy_region, const size_t elem_size) override;
+	async_event enqueue_device_copy(device_id device, size_t device_lane, const void* const source_base, void* const dest_base,
+	    const region_layout& source_layout, const region_layout& dest_layout, const region<3>& copy_region, const size_t elem_size) override;
 };
 #endif
 

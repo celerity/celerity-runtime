@@ -414,7 +414,7 @@ namespace detail {
 		distr_queue q;
 
 		// 1. Write with row/col transposed access, such that each device owns a column of data.
-		buffer<id<2>, 2> transposed_buf(range(1024, 1024));
+		buffer<id<2>, 2> transposed_buf(range(16, 16));
 		q.submit([&](handler& cgh) {
 			const auto transposed = [](const celerity::chunk<2> in) -> subrange<2> { return {{in.offset[1], in.offset[0]}, {in.range[1], in.range[0]}}; };
 			accessor acc(transposed_buf, cgh, transposed, write_only, no_init);

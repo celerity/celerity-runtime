@@ -1,5 +1,6 @@
 #include "command_graph_generator.h"
 #include "grid.h"
+#include "nd_memory.h"
 #include "ranges.h"
 #include "region_map.h"
 #include "types.h"
@@ -20,8 +21,6 @@ int main() {
 	[[maybe_unused]] celerity::detail::device_id did = 25;
 	[[maybe_unused]] celerity::detail::instruction_id iid = 26;
 	[[maybe_unused]] celerity::detail::allocation_id aid(27, 28);
-	[[maybe_unused]] celerity::detail::allocation_with_offset alloc(celerity::detail::allocation_id(29, 30));
-	[[maybe_unused]] celerity::detail::allocation_with_offset alloc_offset(celerity::detail::allocation_id(31, 32), 33);
 	[[maybe_unused]] celerity::detail::message_id msgid(34);
 
 	[[maybe_unused]] celerity::id<3> id(1, 2, 3);

@@ -60,12 +60,18 @@ void nd_copy_device_async(cudaStream_t stream, const void* const source_base, vo
 	    copy_box.get_offset() - dest_box.get_offset(), copy_box.get_range(), elem_size);
 }
 
-void nd_copy_device_async(cudaStream_t stream, const void* const source_base, void* const dest_base, const box<3>& source_box, const box<3>& dest_box,
-    const region<3>& copy_region, const size_t elem_size) //
+void nd_copy_device_async(cudaStream_t stream, const void* const source_base, void* const dest_base, const region_layout& source_layout,
+    const region_layout& dest_layout, const region<3>& copy_region, const size_t elem_size) //
 {
-	for(const auto& copy_box : copy_region.get_boxes()) {
-		nd_copy_device_async(stream, source_base, dest_base, source_box, dest_box, copy_box, elem_size);
-	}
+	dispatch_nd_region_copy(
+	    source_base, dest_base, source_layout, dest_layout, copy_region, elem_size,
+	    [stream, elem_size](const void* const source, void* const dest, const box<3>& source_box, const box<3>& dest_box, const box<3>& copy_box) {
+		    nd_copy_device_async(stream, source, dest, source_box, dest_box, copy_box, elem_size);
+	    },
+	    [stream](const void* const source, void* const dest, size_t size_bytes) {
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("cuda::memcpy", ForestGreen, "cudaMemcpyAsync");
+		    CELERITY_CUDA_CHECK(cudaMemcpyAsync, dest, source, size_bytes, cudaMemcpyDefault, stream);
+	    });
 }
 
 // DPC++ dos not have a custom-enqueue primitive, but implements get_native(queue), so we call cudaMemcpy* directly from the executor thread and record native
@@ -147,14 +153,14 @@ void enable_peer_access(const int id_device, const int id_peer) {
 
 namespace celerity::detail::sycl_backend_detail {
 
-async_event nd_copy_device_cuda(sycl::queue& queue, const void* const source_base, void* const dest_base, const box<3>& source_box, const box<3>& dest_box,
-    const region<3>& copy_region, const size_t elem_size, bool enable_profiling) //
+async_event nd_copy_device_cuda(sycl::queue& queue, const void* const source_base, void* const dest_base, const region_layout& source_layout,
+    const region_layout& dest_layout, const region<3>& copy_region, const size_t elem_size, bool enable_profiling) //
 {
 #if CELERITY_SYCL_IS_ACPP
 	// AdaptiveCpp provides first-class custom backend op submission without a host round-trip like sycl::queue::host_task would require.
 	auto event = queue.AdaptiveCpp_enqueue_custom_operation([=](sycl::interop_handle handle) {
 		const auto stream = handle.get_native_queue<sycl::backend::cuda>();
-		cuda_backend_detail::nd_copy_device_async(stream, source_base, dest_base, source_box, dest_box, copy_region, elem_size);
+		cuda_backend_detail::nd_copy_device_async(stream, source_base, dest_base, source_layout, dest_layout, copy_region, elem_size);
 	});
 	sycl_backend_detail::flush(queue);
 	return make_async_event<sycl_event>(std::move(event), enable_profiling);
@@ -162,7 +168,7 @@ async_event nd_copy_device_cuda(sycl::queue& queue, const void* const source_bas
 	// With DPC++, we must submit from the executor thread - see the comment on cuda_native_event above.
 	const auto stream = sycl::get_native<sycl::backend::ext_oneapi_cuda>(queue);
 	auto before = enable_profiling ? cuda_backend_detail::record_native_event(stream, enable_profiling) : nullptr;
-	cuda_backend_detail::nd_copy_device_async(stream, source_base, dest_base, source_box, dest_box, copy_region, elem_size);
+	cuda_backend_detail::nd_copy_device_async(stream, source_base, dest_base, source_layout, dest_layout, copy_region, elem_size);
 	auto after = cuda_backend_detail::record_native_event(stream, enable_profiling);
 	return make_async_event<cuda_backend_detail::cuda_event>(std::move(before), std::move(after));
 #else
@@ -207,10 +213,10 @@ sycl_cuda_backend::sycl_cuda_backend(const std::vector<sycl::device>& devices, c
 }
 
 async_event sycl_cuda_backend::enqueue_device_copy(device_id device, size_t device_lane, const void* const source_base, void* const dest_base,
-    const box<3>& source_box, const box<3>& dest_box, const region<3>& copy_region, const size_t elem_size) //
+    const region_layout& source_layout, const region_layout& dest_layout, const region<3>& copy_region, const size_t elem_size) //
 {
 	return sycl_backend_detail::nd_copy_device_cuda(
-	    get_device_queue(device, device_lane), source_base, dest_base, source_box, dest_box, copy_region, elem_size, is_profiling_enabled());
+	    get_device_queue(device, device_lane), source_base, dest_base, source_layout, dest_layout, copy_region, elem_size, is_profiling_enabled());
 }
 
 } // namespace celerity::detail

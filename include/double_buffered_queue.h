@@ -5,14 +5,9 @@
 #include <mutex>
 #include <vector>
 
-namespace celerity::detail {
+#include "system_info.h"
 
-/// Clang as of 17.0.0 does not expose std::hardware_destructive_interference_size because it has issues around -march / -mcpu flags among others
-/// (see discussion at https://discourse.llvm.org/t/rfc-c-17-hardware-constructive-destructive-interference-size/48674).
-/// To keep it simple we conservatively pick an alignment of 128 bytes to avoid false sharing across all relevant architectures.
-/// Aarch64 and PowerPC64 have 128-byte cache lines; and x86_64 prefetches 64-byte cache lines in pairs starting from Sandy Bridge
-/// (see https://github.com/crossbeam-rs/crossbeam/blob/e7b5922e/crossbeam-utils/src/cache_padded.rs for a detailed enumeration by architecture).
-constexpr size_t hardware_destructive_interference_size = 128;
+namespace celerity::detail {
 
 /// (Thread-safe) multi-producer single-consumer queue that uses double-buffering to avoid lock contention and keep dequeueing latency as low as possible.
 template <typename T>

@@ -2,10 +2,36 @@
 
 #include "grid.h"
 #include "ranges.h"
+#include "utils.h"
 
-#include <string.h>
+#include <cstring>
+#include <variant>
+
 
 namespace celerity::detail {
+
+/// A region is linearized in the given memory location by densely concatenating the content of all boxes.
+struct linearized_layout {
+	size_t offset_bytes = 0;
+
+	explicit linearized_layout(const size_t offset_bytes) : offset_bytes(offset_bytes) {}
+
+	friend bool operator==(const linearized_layout& lhs, const linearized_layout& rhs) { return lhs.offset_bytes == rhs.offset_bytes; }
+	friend bool operator!=(const linearized_layout& lhs, const linearized_layout& rhs) { return !(lhs == rhs); }
+};
+
+/// A region is represented by the placement of n-dimensional boxes within an n-dimensional allocation.
+struct strided_layout {
+	box<3> allocation;
+
+	explicit strided_layout(const box<3>& allocation) : allocation(allocation) {}
+
+	friend bool operator==(const strided_layout& lhs, const strided_layout& rhs) { return lhs.allocation == rhs.allocation; }
+	friend bool operator!=(const strided_layout& lhs, const strided_layout& rhs) { return !(lhs == rhs); }
+};
+
+/// Layout for source and destination of a copy operation.
+using region_layout = std::variant<strided_layout, linearized_layout>;
 
 /// Describes a box-shaped copy operation between two box-shaped allocations in terms of linear offsets and strides.
 struct nd_copy_layout {
@@ -89,6 +115,39 @@ inline void for_each_contiguous_chunk(const nd_copy_layout& layout, F&& f) {
 	}
 }
 
+/// From allocation `source_base` spanning `source_box` to allocation `dest_base` spanning `dest_box`, copy `copy_region` elements of `elem_size` bytes.
+template <typename /* void(const void*, void*, box<3>, box<3>, box<3>, size_t) */ BoxCopyFn, typename /* void(const void*, void*, size_t) */ LinearCopyFn>
+void dispatch_nd_region_copy(const void* const source_base, void* const dest_base, const region_layout& source_layout, const region_layout& dest_layout,
+    const region<3>& copy_region, const size_t elem_size, BoxCopyFn&& box_copy, LinearCopyFn&& linear_copy) //
+{
+	if(std::holds_alternative<strided_layout>(source_layout) && std::holds_alternative<strided_layout>(dest_layout)) {
+		const auto& source_box = std::get<strided_layout>(source_layout).allocation;
+		const auto& dest_box = std::get<strided_layout>(dest_layout).allocation;
+		for(const auto& copy_box : copy_region.get_boxes()) {
+			box_copy(source_base, dest_base, source_box, dest_box, copy_box);
+		}
+	} else if(std::holds_alternative<strided_layout>(source_layout) && std::holds_alternative<linearized_layout>(dest_layout)) {
+		const auto& source_box = std::get<strided_layout>(source_layout).allocation;
+		auto dest_cursor = utils::offset(dest_base, std::get<linearized_layout>(dest_layout).offset_bytes);
+		for(const auto& copy_box : copy_region.get_boxes()) {
+			box_copy(source_base, dest_cursor, source_box, copy_box, copy_box);
+			dest_cursor = utils::offset(dest_cursor, copy_box.get_area() * elem_size);
+		}
+	} else if(std::holds_alternative<linearized_layout>(source_layout) && std::holds_alternative<strided_layout>(dest_layout)) {
+		const auto& dest_box = std::get<strided_layout>(dest_layout).allocation;
+		auto source_cursor = utils::offset(source_base, std::get<linearized_layout>(source_layout).offset_bytes);
+		for(const auto& copy_box : copy_region.get_boxes()) {
+			box_copy(source_cursor, dest_base, copy_box, dest_box, copy_box);
+			source_cursor = utils::offset(source_cursor, copy_box.get_area() * elem_size);
+		}
+	} else /* fast path: both linearized */ {
+		assert(std::holds_alternative<linearized_layout>(source_layout) && std::holds_alternative<linearized_layout>(dest_layout));
+		const auto source_cursor = utils::offset(source_base, std::get<linearized_layout>(source_layout).offset_bytes);
+		const auto dest_cursor = utils::offset(dest_base, std::get<linearized_layout>(dest_layout).offset_bytes);
+		linear_copy(source_cursor, dest_cursor, copy_region.get_area() * elem_size);
+	}
+}
+
 /// From allocation `source_base` sized `source_range` starting at `offset_in_source`, to allocation `dest_base` sized `dest_range` starting at to
 /// `offset_in_dest`, copy `copy_range` elements of `elem_size` bytes.
 inline void nd_copy_host(const void* const source_base, void* const dest_base, const range<3>& source_range, const range<3>& dest_range,
@@ -111,12 +170,15 @@ inline void nd_copy_host(
 }
 
 /// From allocation `source_base` spanning `source_box` to allocation `dest_base` spanning `dest_box`, copy `copy_region` elements of `elem_size` bytes.
-inline void nd_copy_host(const void* const source_base, void* const dest_base, const box<3>& source_box, const box<3>& dest_box, const region<3>& copy_region,
-    const size_t elem_size) //
+inline void nd_copy_host(const void* const source_base, void* const dest_base, const region_layout& source_layout, const region_layout& dest_layout,
+    const region<3>& copy_region, const size_t elem_size) //
 {
-	for(const auto& copy_box : copy_region.get_boxes()) {
-		nd_copy_host(source_base, dest_base, source_box, dest_box, copy_box, elem_size);
-	}
+	dispatch_nd_region_copy(
+	    source_base, dest_base, source_layout, dest_layout, copy_region, elem_size,
+	    [elem_size](const void* source, void* dest, const box<3>& source_box, const box<3>& dest_box, const box<3>& copy_box) {
+		    nd_copy_host(source, dest, source_box, dest_box, copy_box, elem_size);
+	    },
+	    [](const void* const source, void* const dest, const size_t size_bytes) { memcpy(dest, source, size_bytes); });
 }
 
 } // namespace celerity::detail

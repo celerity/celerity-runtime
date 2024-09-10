@@ -23,12 +23,12 @@ void backend_free(backend& backend, const std::optional<device_id>& device, void
 }
 
 void backend_copy(backend& backend, const std::optional<device_id>& source_device, const std::optional<device_id>& dest_device, const void* const source_base,
-    void* const dest_base, const box<3>& source_box, const box<3>& dest_box, const region<3>& copy_region, const size_t elem_size) {
+    void* const dest_base, const region_layout& source_layout, const region_layout& dest_layout, const region<3>& copy_region, const size_t elem_size) {
 	if(source_device.has_value() || dest_device.has_value()) {
 		auto device = source_device.has_value() ? *source_device : *dest_device;
-		test_utils::await(backend.enqueue_device_copy(device, 0, source_base, dest_base, source_box, dest_box, copy_region, elem_size));
+		test_utils::await(backend.enqueue_device_copy(device, 0, source_base, dest_base, source_layout, dest_layout, copy_region, elem_size));
 	} else {
-		test_utils::await(backend.enqueue_host_copy(0, source_base, dest_base, source_box, dest_box, copy_region, elem_size));
+		test_utils::await(backend.enqueue_host_copy(0, source_base, dest_base, source_layout, dest_layout, copy_region, elem_size));
 	}
 }
 
@@ -360,13 +360,14 @@ TEST_CASE("backend copies work correctly on all source- and destination layouts"
 
 		// reference is nd_copy_host (tested in nd_memory_tests)
 		std::vector<int> expected_dest(dest_box.get_area());
-		nd_copy_host(source_template.data(), expected_dest.data(), box_cast<3>(source_box), box_cast<3>(dest_box), box_cast<3>(copy_box), sizeof(int));
+		nd_copy_host(source_template.data(), expected_dest.data(), strided_layout(box_cast<3>(source_box)), strided_layout(box_cast<3>(dest_box)),
+		    box_cast<3>(copy_box), sizeof(int));
 
 		source_sycl_queue.memcpy(source_base, source_template.data(), source_box.get_area() * sizeof(int)).wait();
 		dest_sycl_queue.memset(dest_base, 0, dest_box.get_area() * sizeof(int)).wait();
 
-		backend_copy(
-		    *backend, source_did, dest_did, source_base, dest_base, box_cast<3>(source_box), box_cast<3>(dest_box), box_cast<3>(copy_box), sizeof(int));
+		backend_copy(*backend, source_did, dest_did, source_base, dest_base, strided_layout(box_cast<3>(source_box)), strided_layout(box_cast<3>(dest_box)),
+		    box_cast<3>(copy_box), sizeof(int));
 
 		std::vector<int> actual_dest(dest_box.get_area());
 		dest_sycl_queue.memcpy(actual_dest.data(), dest_base, actual_dest.size() * sizeof(int)).wait();
@@ -422,11 +423,13 @@ TEST_CASE("backends report execution time iff profiling is enabled", "[backend]"
 	const auto unit_box = box_cast<3>(box<0>());
 
 	SECTION("on host copies") {
-		event = backend->enqueue_host_copy(/* lane */ 0, user_alloc.data(), host_ptr, unit_box, unit_box, unit_box, host_device_alloc_size);
+		event =
+		    backend->enqueue_host_copy(/* lane */ 0, user_alloc.data(), host_ptr, linearized_layout(0), linearized_layout(0), unit_box, host_device_alloc_size);
 	}
 
 	SECTION("on device copies") {
-		event = backend->enqueue_device_copy(device_id(0), /* lane */ 0, host_ptr, device_ptr, unit_box, unit_box, unit_box, host_device_alloc_size);
+		event = backend->enqueue_device_copy(
+		    device_id(0), /* lane */ 0, host_ptr, device_ptr, linearized_layout(0), linearized_layout(0), unit_box, host_device_alloc_size);
 	}
 
 	test_utils::await(event);

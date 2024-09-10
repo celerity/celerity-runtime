@@ -164,16 +164,15 @@ TEMPLATE_TEST_CASE_SIG("buffer fences export data to user memory", "[instruction
 	// copy to user memory
 	const auto fence_copy = fence.predecessors().assert_unique<copy_instruction_record>();
 	CHECK(fence_copy->buffer_id == buf.get_id());
-	CHECK(fence_copy->source_allocation.id.get_memory_id() == host_memory_id);
-	CHECK(fence_copy->dest_allocation.id.get_memory_id() == user_memory_id);
-	CHECK(fence_copy->dest_allocation.offset_bytes == 0);
-	CHECK(fence_copy->dest_box == box_cast<3>(box(export_subrange)));
+	CHECK(fence_copy->source_allocation_id.get_memory_id() == host_memory_id);
+	CHECK(fence_copy->dest_allocation_id.get_memory_id() == user_memory_id);
+	CHECK(fence_copy->dest_layout == region_layout(strided_layout(box_cast<3>(box(export_subrange)))));
 	CHECK(fence_copy->copy_region == region_cast<3>(region(box(export_subrange))));
 	CHECK(fence_copy->element_size == sizeof(int));
 
 	// exports are done from host memory, so data needs to be staged from device memory
 	const auto staging_copy = fence_copy.predecessors().assert_unique<copy_instruction_record>();
-	CHECK(staging_copy->dest_allocation == fence_copy->source_allocation);
+	CHECK(staging_copy->dest_allocation_id == fence_copy->source_allocation_id);
 	CHECK(staging_copy->copy_region == fence_copy->copy_region);
 	CHECK(staging_copy->buffer_id == buf.get_id());
 }

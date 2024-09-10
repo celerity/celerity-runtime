@@ -201,4 +201,16 @@ void erase_if(Container& container, const Predicate& predicate) {
 /// Replaces all occurrences of `pattern` in `in` with `with`. If `pattern` is empty, returns the input string unchanged.
 std::string replace_all(const std::string_view& input, const std::string_view& pattern, const std::string_view& replacement);
 
+template <typename Integral>
+[[nodiscard]] constexpr Integral ceil(const Integral quantity, const Integral granularity) {
+	static_assert(std::is_integral_v<Integral>);
+	return (quantity + granularity - 1) / granularity * granularity;
+}
+
+template <typename Void, std::enable_if_t<std::is_void_v<Void>, int> = 0>
+[[nodiscard]] constexpr Void* offset(Void* const ptr, const size_t offset_bytes) {
+	using byte_type = std::conditional_t<std::is_const_v<Void>, const std::byte, std::byte>;
+	return static_cast<byte_type*>(ptr) + offset_bytes;
+}
+
 } // namespace celerity::detail::utils

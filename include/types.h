@@ -132,25 +132,6 @@ struct transfer_id {
 	friend bool operator!=(const transfer_id& lhs, const transfer_id& rhs) { return !(lhs == rhs); }
 };
 
-/// Instruction-graph equivalent of a USM pointer that permits pointer arithmetic.
-/// The offset will be applied by the executor once the allocation pointer is known.
-struct allocation_with_offset {
-	allocation_id id = null_allocation_id;
-	size_t offset_bytes = 0;
-
-	/// Constructs the equivalent of a null pointer.
-	allocation_with_offset() = default;
-
-	allocation_with_offset(const detail::allocation_id aid, const size_t offset_bytes = 0) : id(aid), offset_bytes(offset_bytes) {}
-
-	friend bool operator==(const allocation_with_offset& lhs, const allocation_with_offset& rhs) {
-		return lhs.id == rhs.id && lhs.offset_bytes == rhs.offset_bytes;
-	}
-	friend bool operator!=(const allocation_with_offset& lhs, const allocation_with_offset& rhs) {
-		return lhs.id == rhs.id && lhs.offset_bytes == rhs.offset_bytes;
-	}
-};
-
 } // namespace celerity::detail
 
 template <>

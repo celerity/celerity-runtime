@@ -289,6 +289,7 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 			    switch(ainstr.origin) {
 			    case alloc_instruction_record::alloc_origin::buffer: dot += "buffer "; break;
 			    case alloc_instruction_record::alloc_origin::gather: dot += "gather "; break;
+			    case alloc_instruction_record::alloc_origin::staging: dot += "staging "; break;
 			    }
 			    fmt::format_to(back, "<b>alloc</b> {}", ainstr.allocation_id);
 			    if(ainstr.buffer_allocation.has_value()) {
@@ -318,9 +319,11 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 			    case copy_instruction_record::copy_origin::coherence: dot += "coherence "; break;
 			    case copy_instruction_record::copy_origin::gather: dot += "gather "; break;
 			    case copy_instruction_record::copy_origin::fence: dot += "fence "; break;
+			    case copy_instruction_record::copy_origin::staging: dot += "staging "; break;
 			    }
-			    fmt::format_to(back, "<b>copy</b><br/>from {} ({})<br/>to {} ({})<br/>{} {} x{} bytes", cinstr.source_allocation, cinstr.source_box,
-			        cinstr.dest_allocation, cinstr.dest_box, print_buffer_label(cinstr.buffer_id, cinstr.buffer_name), cinstr.copy_region, cinstr.element_size);
+			    fmt::format_to(back, "<b>copy</b><br/>from {} {}<br/>to {} {}<br/>{} {} x{} bytes", cinstr.source_allocation_id, cinstr.source_layout,
+			        cinstr.dest_allocation_id, cinstr.dest_layout, print_buffer_label(cinstr.buffer_id, cinstr.buffer_name), cinstr.copy_region,
+			        cinstr.element_size);
 			    end_node();
 		    },
 		    [&](const device_kernel_instruction_record& dkinstr) {
