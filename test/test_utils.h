@@ -558,7 +558,6 @@ struct StringMaker<std::optional<T>> {
 	};
 
 CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER(celerity::detail::allocation_id)
-CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER(celerity::detail::allocation_with_offset)
 CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER(celerity::detail::transfer_id)
 CELERITY_TEST_UTILS_IMPLEMENT_CATCH_STRING_MAKER(celerity::detail::sycl_backend_type)
 
@@ -586,6 +585,23 @@ template <>
 struct StringMaker<sycl::platform> {
 	static std::string convert(const sycl::platform& d) {
 		return fmt::format("sycl::platform(vendor=\"{}\", name=\"{}\")", d.get_info<sycl::info::platform::vendor>(), d.get_info<sycl::info::platform::name>());
+	}
+};
+
+template <>
+struct StringMaker<celerity::detail::linearized_layout> {
+	static std::string convert(const celerity::detail::linearized_layout& v) { return fmt::format("linearized_layout({})", v.offset_bytes); }
+};
+
+template <>
+struct StringMaker<celerity::detail::strided_layout> {
+	static std::string convert(const celerity::detail::strided_layout& v) { return fmt::format("strided_layout({})", v.allocation); }
+};
+
+template <>
+struct StringMaker<celerity::detail::region_layout> {
+	static std::string convert(const celerity::detail::region_layout& v) {
+		return matchbox::match(v, [](const auto& a) { return StringMaker<std::decay_t<decltype(a)>>::convert(a); });
 	}
 };
 

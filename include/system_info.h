@@ -7,6 +7,13 @@
 
 namespace celerity::detail {
 
+/// Clang as of 17.0.0 does not expose std::hardware_destructive_interference_size because it has issues around -march / -mcpu flags among others
+/// (see discussion at https://discourse.llvm.org/t/rfc-c-17-hardware-constructive-destructive-interference-size/48674).
+/// To keep it simple we conservatively pick an alignment of 128 bytes to avoid false sharing across all relevant architectures.
+/// Aarch64 and PowerPC64 have 128-byte cache lines; and x86_64 prefetches 64-byte cache lines in pairs starting from Sandy Bridge
+/// (see https://github.com/crossbeam-rs/crossbeam/blob/e7b5922e/crossbeam-utils/src/cache_padded.rs for a detailed enumeration by architecture).
+constexpr size_t hardware_destructive_interference_size = 128;
+
 /// Memory id for (unpinned) host memory allocated for or by the user. This memory id is assumed for pointers passed for buffer host-initialization and for the
 /// explicit user-side allocation of a buffer_snapshot that is performed before a buffer fence.
 inline constexpr memory_id user_memory_id = 0;

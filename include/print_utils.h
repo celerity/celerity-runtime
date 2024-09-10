@@ -4,6 +4,7 @@
 #include "command.h"
 #include "grid.h"
 #include "intrusive_graph.h"
+#include "nd_memory.h"
 #include "ranges.h"
 #include "types.h"
 #include "utils.h"
@@ -145,19 +146,6 @@ struct fmt::formatter<celerity::detail::allocation_id> {
 };
 
 template <>
-struct fmt::formatter<celerity::detail::allocation_with_offset> {
-	constexpr format_parse_context::iterator parse(format_parse_context& ctx) { return ctx.begin(); }
-
-	format_context::iterator format(const celerity::detail::allocation_with_offset& aid, format_context& ctx) const {
-		if(aid.offset_bytes > 0) {
-			return fmt::format_to(ctx.out(), "{} + {} bytes", aid.id, aid.offset_bytes);
-		} else {
-			return fmt::format_to(ctx.out(), "{}", aid.id);
-		}
-	}
-};
-
-template <>
 struct fmt::formatter<celerity::detail::transfer_id> {
 	constexpr format_parse_context::iterator parse(format_parse_context& ctx) { return ctx.begin(); }
 
@@ -267,5 +255,16 @@ struct fmt::formatter<celerity::detail::as_decimal_throughput> : fmt::formatter<
 		auto out = fmt::formatter<celerity::detail::as_decimal_size>::format(celerity::detail::as_decimal_size(bt.bytes_per_sec), ctx);
 		const std::string_view unit = "/s";
 		return std::copy(unit.begin(), unit.end(), out);
+	}
+};
+
+template <>
+struct fmt::formatter<celerity::detail::region_layout> {
+	constexpr format_parse_context::iterator parse(format_parse_context& ctx) { return ctx.begin(); }
+
+	format_context::iterator format(const celerity::detail::region_layout& layout, format_context& ctx) const {
+		return matchbox::match(
+		    layout, [&](const celerity::detail::strided_layout& layout) { return fmt::format_to(ctx.out(), "({})", layout.allocation); },
+		    [&](const celerity::detail::linearized_layout& layout) { return fmt::format_to(ctx.out(), "+{} bytes", layout.offset_bytes); });
 	}
 };

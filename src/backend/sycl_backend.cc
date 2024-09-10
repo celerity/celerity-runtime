@@ -219,10 +219,10 @@ async_event sycl_backend::enqueue_device_kernel(const device_id device, const si
 	return make_async_event<sycl_backend_detail::sycl_event>(std::move(event), m_impl->enable_profiling);
 }
 
-async_event sycl_backend::enqueue_host_copy(size_t host_lane, const void* const source_base, void* const dest_base, const box<3>& source_box,
-    const box<3>& dest_box, const region<3>& copy_region, const size_t elem_size) //
+async_event sycl_backend::enqueue_host_copy(size_t host_lane, const void* const source_base, void* const dest_base, const region_layout& source_layout,
+    const region_layout& dest_layout, const region<3>& copy_region, const size_t elem_size) //
 {
-	return m_impl->get_host_queue(host_lane).submit([=] { nd_copy_host(source_base, dest_base, source_box, dest_box, copy_region, elem_size); });
+	return m_impl->get_host_queue(host_lane).submit([=] { nd_copy_host(source_base, dest_base, source_layout, dest_layout, copy_region, elem_size); });
 }
 
 void sycl_backend::check_async_errors() {

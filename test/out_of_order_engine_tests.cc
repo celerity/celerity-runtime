@@ -124,7 +124,8 @@ class out_of_order_test_context {
 
 	const instruction* copy(const std::vector<const instruction*>& dependencies, const memory_id source, const memory_id dest, const int priority = 0) {
 		const box<3> box(id(0, 0, 0), id(1, 1, 1));
-		return create<copy_instruction>(dependencies, priority, allocation_id(source, 1), allocation_id(dest, 1), box, box, box, sizeof(int));
+		return create<copy_instruction>(
+		    dependencies, priority, allocation_id(source, 1), allocation_id(dest, 1), strided_layout(box), strided_layout(box), box, sizeof(int));
 	}
 
 	const instruction* host_task(const std::vector<const instruction*>& dependencies, const int priority = 0) {
