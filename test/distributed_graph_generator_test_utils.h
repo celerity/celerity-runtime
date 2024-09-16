@@ -123,8 +123,13 @@ class task_builder {
 		template <typename StepT>
 		StepT chain(action a) {
 			static_assert(std::is_base_of_v<step, StepT>);
-			m_requirements.push_back(std::move(a));
-			return StepT{m_tctx, std::move(m_command), std::move(m_requirements)};
+			// move constructing a std::function doesn't guarantee that the source is empty afterwards
+			auto requirements = std::move(m_requirements);
+			requirements.push_back(std::move(a));
+			auto command = std::move(m_command);
+			m_requirements = {};
+			m_command = {};
+			return StepT{m_tctx, std::move(command), std::move(requirements)};
 		}
 	};
 
