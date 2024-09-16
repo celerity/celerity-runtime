@@ -255,21 +255,19 @@ class accessor<DataT, Dims, Mode, Target, compressed<celerity::compression::quan
 	compressed<compression> m_compression;
 };
 
+template <typename DataT, int Dims, typename Intype, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target,
+    template <typename, typename> typename SelectedCompression>
+accessor(const buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>>>& buff, handler& cgh, const Functor& rmfn,
+    const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<DataT, Dims, Mode, Target, compressed<SelectedCompression<Intype, DataT>>>;
 
-template <typename DataT, int Dims, typename Intype, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<Intype, Dims, compressed<celerity::compression::quantization<Intype, DataT>>>& buff, handler& cgh, const Functor& rmfn,
-    const detail::access_tag<Mode, ModeNoInit, Target> tag)
-    -> accessor<DataT, Dims, Mode, Target, compressed<celerity::compression::quantization<Intype, DataT>>>;
-
-template <typename DataT, int Dims, typename Intype, typename Functor, access_mode Mode, access_mode TagMode, target Target>
-accessor(const buffer<Intype, Dims, compressed<celerity::compression::quantization<Intype, DataT>>>& buff, handler& cgh, const Functor& rmfn,
+template <typename DataT, int Dims, typename Intype, typename Functor, access_mode Mode, access_mode TagMode, target Target,
+    template <typename, typename> typename SelectedCompression>
+accessor(const buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>>>& buff, handler& cgh, const Functor& rmfn,
     const detail::access_tag<TagMode, Mode, Target> tag, const property::no_init& prop)
-    -> accessor<DataT, Dims, Mode, Target, compressed<celerity::compression::quantization<Intype, DataT>>>;
+    -> accessor<DataT, Dims, Mode, Target, compressed<SelectedCompression<Intype, DataT>>>;
 
-
-template <typename DataT, int Dims, typename Intype, access_mode TagMode, access_mode TagModeNoInit, target Target>
-accessor(buffer<Intype, Dims, compressed<celerity::compression::quantization<Intype, DataT>>>& buff, handler& cgh,
-    const detail::access_tag<TagMode, TagModeNoInit, Target> tag, const property_list& prop_list)
-    -> accessor<DataT, Dims, TagModeNoInit, Target, compressed<celerity::compression::quantization<Intype, DataT>>>;
-
+template <typename DataT, int Dims, typename Intype, access_mode TagMode, access_mode TagModeNoInit, target Target,
+    template <typename, typename> typename SelectedCompression>
+accessor(buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>>>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, Target> tag,
+    const property_list& prop_list) -> accessor<DataT, Dims, TagModeNoInit, Target, compressed<SelectedCompression<Intype, DataT>>>;
 } // namespace celerity
