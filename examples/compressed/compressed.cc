@@ -8,7 +8,7 @@
 
 using compression_type_a = celerity::compressed<celerity::compression::quantization<float, uint16_t>>;
 
-void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2, compression_type_a> u, sycl::float2 center, float amplitude, sycl::float2 sigma) {
+void setup_wave(celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> u, sycl::float2 center, float amplitude, sycl::float2 sigma) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw_u{u, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for<class setup_wave>(u.get_range(), [=, c = center, a = amplitude, s = sigma](celerity::item<2> item) {
@@ -19,7 +19,7 @@ void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2, compres
 	});
 }
 
-void zero(celerity::distr_queue& queue, celerity::buffer<float, 2, compression_type_a> buf) {
+void zero(celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> buf) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw_buf{buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		cgh.parallel_for<class zero>(buf.get_range(), [=](celerity::item<2> item) { dw_buf[item] = 0.f; });
@@ -40,10 +40,10 @@ struct update_config {
 
 template <typename T, typename Config, typename KernelName>
 void step(
-    celerity::distr_queue& queue, celerity::buffer<T, 2, compression_type_a> up, celerity::buffer<T, 2, compression_type_a> u, float dt, sycl::float2 delta) {
+    celerity::queue& queue, celerity::buffer<T, 2, compression_type_a> up, celerity::buffer<T, 2, compression_type_a> u, float dt, sycl::float2 delta) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor rw_up{up, cgh, celerity::access::one_to_one{}, celerity::read_write};
-		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{1, 1}, celerity::read_only};
+		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{{1, 1}, celerity::neighborhood_shape::along_axes}, celerity::read_only};
 
 		const auto size = up.get_range();
 		cgh.parallel_for<KernelName>(size, [=](celerity::item<2> item) {
@@ -59,17 +59,17 @@ void step(
 	});
 }
 
-void initialize(celerity::distr_queue& queue, celerity::buffer<float, 2, compression_type_a> up, celerity::buffer<float, 2, compression_type_a> u, float dt,
+void initialize(celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> up, celerity::buffer<float, 2, compression_type_a> u, float dt,
     sycl::float2 delta) {
 	step<float, init_config, class initialize>(queue, up, u, dt, delta);
 }
 
-void update(celerity::distr_queue& queue, celerity::buffer<float, 2, compression_type_a> up, celerity::buffer<float, 2, compression_type_a> u, float dt,
+void update(celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> up, celerity::buffer<float, 2, compression_type_a> u, float dt,
     sycl::float2 delta) {
 	step<float, update_config, class update>(queue, up, u, dt, delta);
 }
 
-void stream_open(celerity::distr_queue& queue, size_t N, size_t num_samples, celerity::experimental::host_object<std::ofstream> os) {
+void stream_open(celerity::queue& queue, size_t N, size_t num_samples, celerity::experimental::host_object<std::ofstream> os) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::experimental::side_effect os_eff{os, cgh};
 		cgh.host_task(celerity::on_master_node, [=] {
@@ -81,7 +81,7 @@ void stream_open(celerity::distr_queue& queue, size_t N, size_t num_samples, cel
 }
 
 template <typename T>
-void stream_append(celerity::distr_queue& queue, celerity::buffer<T, 2, compression_type_a> up, celerity::experimental::host_object<std::ofstream> os) {
+void stream_append(celerity::queue& queue, celerity::buffer<T, 2, compression_type_a> up, celerity::experimental::host_object<std::ofstream> os) {
 	const auto range = up.get_range();
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor up_r{up, cgh, celerity::access::all{}, celerity::read_only_host_task};
@@ -91,7 +91,7 @@ void stream_append(celerity::distr_queue& queue, celerity::buffer<T, 2, compress
 	});
 }
 
-void stream_close(celerity::distr_queue& queue, celerity::experimental::host_object<std::ofstream> os) {
+void stream_close(celerity::queue& queue, celerity::experimental::host_object<std::ofstream> os) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::experimental::side_effect os_eff{os, cgh};
 		cgh.host_task(celerity::on_master_node, [=] { os_eff->close(); });
@@ -145,7 +145,7 @@ int main(int argc, char* argv[]) {
 		std::cerr << "Warning: Number of time steps (" << num_steps << ") is not a multiple of the output sample rate (wasted frames)" << std::endl;
 	}
 
-	celerity::distr_queue queue;
+	celerity::queue queue;
 
 	compression_type_a compression_type(1.0f, -0.5f);
 

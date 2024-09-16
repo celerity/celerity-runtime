@@ -228,6 +228,7 @@ set(PUBLIC_HEADERS
   include/cgf_diagnostics.h
   include/cgf.h
   include/closure_hydrator.h
+  include/compression.h
   include/config.h
   include/debug.h
   include/device_selector.h

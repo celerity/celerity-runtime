@@ -25,7 +25,7 @@ std::vector<Compressed> compress_vector(const std::vector<Uncompressed>& data, c
 }
 
 int main() {
-	celerity::distr_queue queue;
+	celerity::queue queue;
 
 	std::vector<float> data(1000);
 	std::iota(data.begin(), data.end(), 0.0f);
@@ -56,7 +56,7 @@ int main() {
 	});
 
 
-	queue.slow_full_sync();
+	queue.wait(celerity::experimental::barrier);
 
 	return EXIT_SUCCESS;
 }

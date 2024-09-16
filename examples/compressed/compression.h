@@ -6,9 +6,6 @@
 #include <numeric>
 
 namespace celerity {
-template <typename T>
-class compressed {};
-
 // Primary template for is_vec
 template <typename T>
 struct is_vec : std::false_type {};
@@ -212,8 +209,7 @@ class accessor<DataT, Dims, Mode, Target, compressed<celerity::compression::quan
 	using compression = celerity::compression::quantization<Intype, DataT>;
 	using quant_type = typename compression::quant_type;
 	using value_type = typename compression::value_type;
-	using retval = std::conditional_t<detail::access::mode_traits::is_producer(Mode), uncompressed_wrapper<Intype, DataT>,
-	    const uncompressed_wrapper_const<Intype, DataT>>;
+	using retval = std::conditional_t<detail::is_producer_mode(Mode), uncompressed_wrapper<Intype, DataT>, const uncompressed_wrapper_const<Intype, DataT>>;
 
 	template <typename T, int D, typename Functor, access_mode ModeNoInit>
 	accessor(buffer<T, D, compressed<compression>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag)
@@ -263,8 +259,8 @@ accessor(const buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT
 template <typename DataT, int Dims, typename Intype, typename Functor, access_mode Mode, access_mode TagMode, target Target,
     template <typename, typename> typename SelectedCompression>
 accessor(const buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>>>& buff, handler& cgh, const Functor& rmfn,
-    const detail::access_tag<TagMode, Mode, Target> tag, const property::no_init& prop)
-    -> accessor<DataT, Dims, Mode, Target, compressed<SelectedCompression<Intype, DataT>>>;
+    const detail::access_tag<TagMode, Mode, Target> tag,
+    const property::no_init& prop) -> accessor<DataT, Dims, Mode, Target, compressed<SelectedCompression<Intype, DataT>>>;
 
 template <typename DataT, int Dims, typename Intype, access_mode TagMode, access_mode TagModeNoInit, target Target,
     template <typename, typename> typename SelectedCompression>
