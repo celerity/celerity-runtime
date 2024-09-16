@@ -11,4 +11,10 @@ struct quantization {
 	using quant_type = Q;
 };
 
+template <typename T, typename Q>
+struct point_cloud {
+	using value_type = T;
+	using compression_type = Q;
+};
+
 } // namespace celerity::compression
