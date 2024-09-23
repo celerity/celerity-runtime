@@ -13,7 +13,6 @@
 #include "tracy.h"
 #include "types.h"
 
-#include <deque>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -1412,8 +1411,8 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 		const auto include_current_value = local_node_is_reduction_initializer && reduction->init_from_buffer;
 		if(concurrent_chunks_after_split.size() > 1 || include_current_value) {
 			// We insert a host-side reduce-instruction in the multi-chunk scenario; its result will end up in the host buffer allocation.
-			// If the user did not specify `initialize_to_identity`, we treat the existing buffer contents as an additional reduction chunk, so we can
-			// always perform SYCL reductions with `initialize_to_identity` semantics.
+			// If the user did not specify `initialize_to_identity`, we treat the existing buffer contents as an additional reduction chunk, so we can always
+			// perform SYCL reductions with `initialize_to_identity` semantics.
 			required_contiguous_allocations[host_memory_id].push_back(scalar_reduction_box);
 		}
 		accessed_boxes.push_back(scalar_reduction_box);
@@ -1477,8 +1476,8 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 		}
 	}
 
-	// Do not preserve any received or overwritten region across receives or buffer resizes later on: allocate_contiguously will insert resize-copy
-	// instructions for all up_to_date regions of allocations that it replaces with larger ones.
+	// Do not preserve any received or overwritten region across receives or buffer resizes later on: allocate_contiguously will insert resize-copy instructions
+	// for all up_to_date regions of allocations that it replaces with larger ones.
 	buffer.up_to_date_memories.update_region(discarded_region, memory_mask());
 
 	// Collect chunk-reads by memory to establish local coherence later
@@ -1546,8 +1545,8 @@ local_reduction generator_impl::prepare_task_local_reduction(
 	add_dependency(red.gather_alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 
 	/// Normally, there is one _reduction chunk_ per _kernel chunk_, unless the local node is the designated reduction initializer and the reduction is not
-	/// `initialize_to_identity`, in which case we add an additional _reduction chunk_ for the current buffer value and insert it in the first position of
-	/// the local gather allocation.
+	/// `initialize_to_identity`, in which case we add an additional _reduction chunk_ for the current buffer value and insert it in the first position of the
+	/// local gather allocation.
 	if(red.include_local_buffer_value) {
 		// The source host allocation is already provided by satisfy_task_buffer_requirements
 		auto& source_allocation = buffer.memories[host_memory_id].get_contiguous_allocation(scalar_reduction_box);
@@ -1717,9 +1716,8 @@ void generator_impl::perform_task_buffer_accesses(
 		}
 	}
 
-	// 2. Insert all true-dependencies for reads and anti-dependencies for writes. We do this en-bloc instead of using
-	// `perform_concurrent_read_from_allocation` or `perform_atomic_write_to_allocation` to avoid incorrect dependencies between our concurrent chunks by
-	// updating tracking structures too early.
+	// 2. Insert all true-dependencies for reads and anti-dependencies for writes. We do this en-bloc instead of using `perform_concurrent_read_from_allocation`
+	// or `perform_atomic_write_to_allocation` to avoid incorrect dependencies between our concurrent chunks by updating tracking structures too early.
 
 	for(size_t i = 0; i < concurrent_chunks.size(); ++i) {
 		for(const auto& [bid, rw] : concurrent_read_write_sets[i]) {
@@ -1734,8 +1732,8 @@ void generator_impl::perform_task_buffer_accesses(
 		}
 	}
 
-	// 3. Clear tracking structures for all regions that are being written to. We gracefully handle overlapping writes by treating the set of all
-	// conflicting writers as last writers of an allocation.
+	// 3. Clear tracking structures for all regions that are being written to. We gracefully handle overlapping writes by treating the set of all conflicting
+	// writers as last writers of an allocation.
 
 	for(size_t i = 0; i < concurrent_chunks.size(); ++i) {
 		for(const auto& [bid, rw] : concurrent_read_write_sets[i]) {
@@ -1798,8 +1796,7 @@ void generator_impl::perform_task_collective_operations(
 void generator_impl::compile_execution_command(batch& command_batch, const execution_command& ecmd) {
 	const auto& tsk = *m_tm->get_task(ecmd.get_tid());
 
-	// 1. If this is a collective host task, we might need to insert a `clone_collective_group_instruction` which the task instruction is later serialized
-	// on.
+	// 1. If this is a collective host task, we might need to insert a `clone_collective_group_instruction` which the task instruction is later serialized on.
 	create_task_collective_groups(command_batch, tsk);
 
 	// 2. Split the task into local chunks and (in case of a device kernel) assign it to devices
@@ -1808,9 +1805,8 @@ void generator_impl::compile_execution_command(batch& command_batch, const execu
 	// 3. Detect and report overlapping writes - is not a fatal error to discover one, we always generate an executable (albeit racy) instruction graph
 	if(m_policy.overlapping_write_error != error_policy::ignore) { report_task_overlapping_writes(tsk, concurrent_chunks); }
 
-	// 4. Perform all necessary receives, allocations, resize- and coherence copies to provide an appropriate set of buffer allocations and data
-	// distribution for all kernels and host tasks of this task. This is done simultaneously for all chunks to optimize the graph and avoid inefficient
-	// copy-chains.
+	// 4. Perform all necessary receives, allocations, resize- and coherence copies to provide an appropriate set of buffer allocations and data distribution
+	// for all kernels and host tasks of this task. This is done simultaneously for all chunks to optimize the graph and avoid inefficient copy-chains.
 	auto accessed_bids = tsk.get_buffer_access_map().get_accessed_buffers();
 	for(const auto& rinfo : tsk.get_reductions()) {
 		accessed_bids.insert(rinfo.bid);
@@ -1837,8 +1833,8 @@ void generator_impl::compile_execution_command(batch& command_batch, const execu
 	perform_task_side_effects(tsk, concurrent_chunks, command_instructions);
 	perform_task_collective_operations(tsk, concurrent_chunks, command_instructions);
 
-	// 8. For any reductions with more than one local input, collect partial results and perform the reduction operation in host memory. This is done
-	// eagerly to avoid ever having to persist partial reduction states in our buffer tracking.
+	// 8. For any reductions with more than one local input, collect partial results and perform the reduction operation in host memory. This is done eagerly to
+	// avoid ever having to persist partial reduction states in our buffer tracking.
 	for(size_t i = 0; i < local_reductions.size(); ++i) {
 		finish_task_local_reduction(command_batch, local_reductions[i], tsk.get_reductions()[i], ecmd, tsk, concurrent_chunks);
 	}
@@ -1853,16 +1849,16 @@ void generator_impl::compile_push_command(batch& command_batch, const push_comma
 	const auto trid = pcmd.get_transfer_id();
 	const auto push_box = box(pcmd.get_range());
 
-	// If not all nodes contribute partial results to a global reductions, the remaining ones need to notify their peers that they should not expect any
-	// data. This is done by announcing an empty box through the pilot message, but not actually performing a send.
+	// If not all nodes contribute partial results to a global reductions, the remaining ones need to notify their peers that they should not expect any data.
+	// This is done by announcing an empty box through the pilot message, but not actually performing a send.
 	if(push_box.empty()) {
 		assert(trid.rid != no_reduction_id);
 		create_outbound_pilot(command_batch, pcmd.get_target(), trid, box<3>());
 		return;
 	}
 
-	// Prioritize all instructions participating in a "push" to hide the latency of establishing local coherence behind the typically much longer latencies
-	// of inter-node communication
+	// Prioritize all instructions participating in a "push" to hide the latency of establishing local coherence behind the typically much longer latencies of
+	// inter-node communication
 	command_batch.base_priority = 10;
 
 	auto& buffer = m_buffers.at(trid.bid);
@@ -1975,9 +1971,9 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 	    create<fill_identity_instruction>(command_batch, rid, gather_aid, m_num_nodes, [](const auto& record_debug_info) { record_debug_info(); });
 	add_dependency(fill_identity_instr, gather_alloc_instr, instruction_dependency_origin::allocation_lifetime);
 
-	// 3. If the local node contributes to the reduction, copy the contribution to the appropriate position in the gather space. Testing
-	// `up_to_date_memories` locally is not enough to establish whether there is a local contribution, since the local node might not have participated in
-	// the task that initiated the reduction. Instead, we are informed about this condition by the command graph.
+	// 3. If the local node contributes to the reduction, copy the contribution to the appropriate position in the gather space. Testing `up_to_date_memories`
+	// locally is not enough to establish whether there is a local contribution, since the local node might not have participated in the task that initiated the
+	// reduction. Instead, we are informed about this condition by the command graph.
 
 	copy_instruction* local_gather_copy_instr = nullptr;
 	if(rcmd.has_local_contribution()) {
@@ -2000,8 +1996,8 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 	    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name, gather->gather_box, m_num_nodes); });
 	add_dependency(gather_recv_instr, fill_identity_instr, instruction_dependency_origin::write_to_allocation);
 
-	// 5. Perform the global reduction on the host by reading the array of inputs from the gather space and writing to the buffer's host allocation that
-	// covers `scalar_reduction_box`.
+	// 5. Perform the global reduction on the host by reading the array of inputs from the gather space and writing to the buffer's host allocation that covers
+	// `scalar_reduction_box`.
 
 	allocate_contiguously(command_batch, bid, host_memory_id, {scalar_reduction_box});
 
@@ -2024,8 +2020,8 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 
 	buffer.pending_gathers.clear();
 
-	// The associated reducer will be garbage-collected form the executor as we pass the reduction id on via the instruction_garbage member of the next
-	// horizon or epoch instruction.
+	// The associated reducer will be garbage-collected form the executor as we pass the reduction id on via the instruction_garbage member of the next horizon
+	// or epoch instruction.
 }
 
 void generator_impl::compile_fence_command(batch& command_batch, const fence_command& fcmd) {
