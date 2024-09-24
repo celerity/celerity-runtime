@@ -611,17 +611,17 @@ TEST_CASE("staging copies to host are deduplicated in case of a scatter pattern"
 	const auto writer = all_instrs.select_unique<device_kernel_instruction_record>("writer");
 	const auto copy_from_source = writer.successors().select_unique<copy_instruction_record>();
 	const auto all_copies_to_dest = copy_from_source.successors().select_all<copy_instruction_record>();
-	const auto all_readers = all_copies_to_dest.successors().select_all<device_kernel_instruction_record>("reader");
+	const auto all_readers = all_instrs.select_all<device_kernel_instruction_record>("reader");
 	const auto stage_free = all_instrs.select_unique<free_instruction_record>(
 	    [](const free_instruction_record& free) { return free.allocation_id.get_memory_id() == host_memory_id; });
 
-	CHECK(copy_from_source.successors() == all_copies_to_dest);
 	CHECK(copy_from_source->dest_allocation_id == stage_alloc->allocation_id);
 	CHECK(copy_from_source->origin == copy_instruction_record::copy_origin::staging);
 	CHECK(copy_from_source->dest_allocation_id.get_memory_id() == host_memory_id);
 	CHECK(copy_from_source->dest_layout == region_layout(linearized_layout(0 /* offset */)));
 
-	CHECK(all_copies_to_dest.count() == num_devices);
+	CHECK(all_copies_to_dest.predecessors().select_all<copy_instruction_record>() == copy_from_source);
+	CHECK(all_copies_to_dest.count() == num_devices - 1);
 	CHECK(all_copies_to_dest.all_concurrent());
 
 	CHECK(all_readers.count() == num_devices);
@@ -636,7 +636,7 @@ TEST_CASE("staging copies to host are deduplicated in case of a scatter pattern"
 	}
 }
 
-TEST_CASE("host staging only updates device allocations that are not yet up to date", "[instruction_graph_generator][instruction-graph][memory]") {
+TEST_CASE("host staging only writes to device allocations that are not yet up to date", "[instruction_graph_generator][instruction-graph][memory]") {
 	const auto buffer_range = range(256);
 	const size_t num_devices = 4;
 
@@ -651,17 +651,27 @@ TEST_CASE("host staging only updates device allocations that are not yet up to d
 	const auto all_reads_1 = all_instrs.select_all<device_kernel_instruction_record>("read 1");
 	const auto all_unstage_copies_1 = all_reads_1.predecessors().select_all<copy_instruction_record>();
 	const auto all_reads_2 = all_instrs.select_all<device_kernel_instruction_record>("read 2");
-	const auto all_unstage_copies_2 = all_reads_2.predecessors().select_all<copy_instruction_record>();
+	const auto all_reads_on_non_writer =
+	    union_of(all_reads_1, all_reads_2) //
+	        .select_all<device_kernel_instruction_record>([](const device_kernel_instruction_record& k) { return k.device_id != device_id(0); });
+	const auto all_unstage_copies = all_instrs.select_all<copy_instruction_record>(
+	    [](const copy_instruction_record& copy) { return copy.origin == copy_instruction_record::copy_origin::coherence; });
+	const auto all_unstage_copies_2 = difference_of(all_unstage_copies, all_unstage_copies_1);
 
 	CHECK(all_unstage_copies_1.count() == 1);
 	CHECK(all_unstage_copies_1->dest_allocation_id.get_memory_id() == first_device_memory_id + 1); // to D2
 
 	CHECK(all_unstage_copies_2.count() == 2);
-	std::array<memory_id, 2> dest_mids = {                          //
+	std::array<memory_id, 2> dest_mids = {                           //
 	    all_unstage_copies_2[0]->dest_allocation_id.get_memory_id(), //
 	    all_unstage_copies_2[1]->dest_allocation_id.get_memory_id()};
 	std::sort(dest_mids.begin(), dest_mids.end());
 	CHECK(dest_mids == std::array<memory_id, 2>{first_device_memory_id + 2, first_device_memory_id + 3});
+
+	CHECK(all_unstage_copies.count() == 3);
+	CHECK(intersection_of(all_unstage_copies_1.successors(), all_reads_1).count() == 1);
+	CHECK(intersection_of(all_unstage_copies_1.successors(), all_reads_2).count() == 1); // "read 2" on D1 depends on the unstage-copy inserted for "read 1"
+	CHECK(intersection_of(all_unstage_copies_2.successors(), all_reads_2).count() == 2);
 }
 
 TEST_CASE("staging allocations are recycled after two horizons", "[instruction_graph_generator][instruction-graph][memory]") {

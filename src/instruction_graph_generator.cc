@@ -1256,6 +1256,15 @@ void generator_impl::establish_coherence_between_buffer_memories(
 
 			// There can be multiple destinations in case of a broadcast pattern
 			for(memory_id dest_mid = first_device_memory_id; dest_mid < concurrent_reads_from_memory.size(); ++dest_mid) {
+				// The region will appear in concurrently_staged_copies if it is outdated on any destination in (1), so we need to query up_to_date_memories a
+				// second time to make sure we don't create unnecessary copies (especially ones back to the source in case of an all-read).
+				const auto boxes_up_to_date = buffer.up_to_date_memories.get_region_values(region);
+				// Because up_to_date_memories maps to a memory_mask, we can end up with multiple boxes, but they must all agree on dest_mid.
+				assert(!boxes_up_to_date.empty() && std::all_of(boxes_up_to_date.begin(), boxes_up_to_date.end(), [&](const auto& box_and_mids) {
+					return box_and_mids.second.test(dest_mid) == boxes_up_to_date.front().second.test(dest_mid);
+				}));
+				if(boxes_up_to_date.front().second.test(dest_mid)) continue;
+
 				for(const auto& dest_memory_region : concurrent_reads_from_memory[dest_mid]) {
 					if(region_intersection(dest_memory_region, region).empty()) continue;
 					assert(region_difference(region, dest_memory_region).empty()); // we split by dest_mid above
