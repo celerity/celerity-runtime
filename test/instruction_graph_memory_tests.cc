@@ -636,6 +636,34 @@ TEST_CASE("staging copies to host are deduplicated in case of a scatter pattern"
 	}
 }
 
+TEST_CASE("host staging only updates device allocations that are not yet up to date", "[instruction_graph_generator][instruction-graph][memory]") {
+	const auto buffer_range = range(256);
+	const size_t num_devices = 4;
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices, false /* supports d2d copies */);
+	auto buf = ictx.create_buffer<int>(buffer_range);
+	ictx.device_compute(range(1)).name("write").discard_write(buf, acc::all()).submit();
+	ictx.device_compute(range(2)).name("read 1").read(buf, acc::all()).submit();
+	ictx.device_compute(range(num_devices)).name("read 2").read(buf, acc::all()).submit();
+	ictx.finish();
+
+	const auto all_instrs = ictx.query_instructions();
+	const auto all_reads_1 = all_instrs.select_all<device_kernel_instruction_record>("read 1");
+	const auto all_unstage_copies_1 = all_reads_1.predecessors().select_all<copy_instruction_record>();
+	const auto all_reads_2 = all_instrs.select_all<device_kernel_instruction_record>("read 2");
+	const auto all_unstage_copies_2 = all_reads_2.predecessors().select_all<copy_instruction_record>();
+
+	CHECK(all_unstage_copies_1.count() == 1);
+	CHECK(all_unstage_copies_1->dest_allocation_id.get_memory_id() == first_device_memory_id + 1); // to D2
+
+	CHECK(all_unstage_copies_2.count() == 2);
+	std::array<memory_id, 2> dest_mids = {                          //
+	    all_unstage_copies_2[0]->dest_allocation_id.get_memory_id(), //
+	    all_unstage_copies_2[1]->dest_allocation_id.get_memory_id()};
+	std::sort(dest_mids.begin(), dest_mids.end());
+	CHECK(dest_mids == std::array<memory_id, 2>{first_device_memory_id + 2, first_device_memory_id + 3});
+}
+
 TEST_CASE("staging allocations are recycled after two horizons", "[instruction_graph_generator][instruction-graph][memory]") {
 	const auto buffer_range = range(256);
 	const size_t num_devices = 2;
