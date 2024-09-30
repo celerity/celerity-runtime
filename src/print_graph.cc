@@ -346,6 +346,8 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 			    case copy_instruction_record::copy_origin::gather: dot += "gather "; break;
 			    case copy_instruction_record::copy_origin::fence: dot += "fence "; break;
 			    case copy_instruction_record::copy_origin::staging: dot += "staging "; break;
+			    case copy_instruction_record::copy_origin::linearizing: dot += "linearizing "; break;
+			    case copy_instruction_record::copy_origin::delinearizing: dot += "delinearizing "; break;
 			    }
 			    fmt::format_to(back, "<b>copy</b><br/>from {} {}<br/>to {} {}<br/>{} {} x{} bytes", cinstr.source_allocation_id, cinstr.source_layout,
 			        cinstr.dest_allocation_id, cinstr.dest_layout, print_buffer_label(cinstr.buffer_id, cinstr.buffer_name), cinstr.copy_region,
