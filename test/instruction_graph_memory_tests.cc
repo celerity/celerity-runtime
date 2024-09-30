@@ -525,6 +525,10 @@ TEST_CASE("copies are staged through host memory for devices that are not peer-c
 	const auto stage_free = all_instrs.select_unique<free_instruction_record>(
 	    [](const free_instruction_record& free) { return free.allocation_id.get_memory_id() == host_memory_id; });
 
+	const auto alloc_instr_for = [&](const allocation_id aid) {
+		return all_instrs.select_unique<alloc_instruction_record>([aid](const alloc_instruction_record& alloc) { return alloc.allocation_id == aid; });
+	};
+
 	CHECK(all_writers.count() == num_devices);
 	CHECK(all_copies_from_source.count() == num_devices);
 	CHECK(all_copies_to_dest.count() == num_devices);
@@ -536,9 +540,11 @@ TEST_CASE("copies are staged through host memory for devices that are not peer-c
 		const auto reader = intersection_of(all_readers, copy_to_dest.successors()).assert_unique();
 
 		CHECK(copy_from_source->origin == copy_instruction_record::copy_origin::staging);
+		CHECK(copy_from_source.transitive_predecessors().contains(alloc_instr_for(copy_from_source->dest_allocation_id)));
 		CHECK(copy_from_source->source_allocation_id.get_memory_id() == ictx.get_native_memory(writer->device_id));
 		CHECK(copy_from_source->dest_allocation_id.get_memory_id() == host_memory_id);
 		CHECK(std::holds_alternative<linearized_layout>(copy_from_source->dest_layout));
+
 		CHECK(copy_to_dest->origin == copy_instruction_record::copy_origin::coherence);
 		CHECK(copy_to_dest->source_allocation_id.get_memory_id() == host_memory_id);
 		CHECK(copy_to_dest->dest_allocation_id.get_memory_id() == ictx.get_native_memory(reader->device_id));
@@ -597,7 +603,7 @@ TEST_CASE("host-staged copies preserve concurrency between multiple readers and 
 	CHECK(byte_offsets_in_staging_buffer == std::vector<size_t>({0 * step, 1 * step, 2 * step, 3 * step}));
 }
 
-TEST_CASE("staging copies to host are deduplicated in case of a scatter pattern", "[instruction_graph_generator][instruction-graph][memory]") {
+TEST_CASE("staging copies to host are deduplicated in case of a broadcast pattern", "[instruction_graph_generator][instruction-graph][memory]") {
 	const auto buffer_range = range(256);
 	const size_t num_devices = 4;
 
@@ -617,6 +623,11 @@ TEST_CASE("staging copies to host are deduplicated in case of a scatter pattern"
 	const auto stage_free = all_instrs.select_unique<free_instruction_record>(
 	    [](const free_instruction_record& free) { return free.allocation_id.get_memory_id() == host_memory_id; });
 
+	const auto alloc_instr_for = [&](const allocation_id aid) {
+		return all_instrs.select_unique<alloc_instruction_record>([aid](const alloc_instruction_record& alloc) { return alloc.allocation_id == aid; });
+	};
+
+	CHECK(copy_from_source.transitive_predecessors().contains(alloc_instr_for(copy_from_source->dest_allocation_id)));
 	CHECK(copy_from_source->dest_allocation_id == stage_alloc->allocation_id);
 	CHECK(copy_from_source->origin == copy_instruction_record::copy_origin::staging);
 	CHECK(copy_from_source->dest_allocation_id.get_memory_id() == host_memory_id);
@@ -759,6 +770,161 @@ TEST_CASE("host copy staging does not introduce dependencies between concurrent 
 	CHECK(read_1_kernels.is_concurrent_with(read_2_kernels));
 	CHECK(read_2_kernels.is_concurrent_with(write_1_kernels));
 	CHECK(read_2_kernels.is_concurrent_with(read_1_kernels));
+}
+
+TEST_CASE("narrow strided data columns are device-linearized before and after host-staging", "[instruction_graph_generator][instruction-graph][memory]") {
+	const auto buffer_range = range(65536, 65536);
+	const size_t num_devices = 4;
+
+	const bool is_column_access = GENERATE(values<int>({false, true})); // rows are already contiguous
+	const size_t ext_width = GENERATE(values<size_t>({1, 4096}));       // Celerity shouldn't attempt to linearize 64k x 4k = 1 GiB "columns"
+	CAPTURE(is_column_access);
+
+	const size_t ext_0 = is_column_access ? 0 : ext_width;
+	const size_t ext_1 = is_column_access ? ext_width : 0;
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices, false /* supports d2d copies */);
+
+	auto buf = ictx.create_buffer<int>(buffer_range);
+	ictx.device_compute(buffer_range).name("writer").discard_write(buf, acc::one_to_one()).hint(experimental::hints::split_2d()).submit();
+	ictx.device_compute(buffer_range).name("reader").read(buf, acc::neighborhood(ext_0, ext_1)).hint(experimental::hints::split_2d()).submit();
+	ictx.finish();
+
+	const auto all_instrs = ictx.query_instructions();
+	const auto all_writers = all_instrs.select_all<device_kernel_instruction_record>("writer");
+	const auto all_resizes_after_write = all_writers.successors().select_all<copy_instruction_record>().assert_all(
+	    [](const copy_instruction_record& copy) { return copy.origin == copy_instruction_record::copy_origin::resize; });
+	const auto all_copies_after_write = all_resizes_after_write.successors().select_all<copy_instruction_record>();
+	const auto all_readers = all_instrs.select_all<device_kernel_instruction_record>("reader");
+
+	const auto alloc_instr_for = [&](const allocation_id aid) {
+		return all_instrs.select_unique<alloc_instruction_record>([aid](const alloc_instruction_record& alloc) { return alloc.allocation_id == aid; });
+	};
+
+	for(auto& resize : all_resizes_after_write.iterate()) {
+		CHECK(resize->dest_allocation_id.get_memory_id() >= first_device_memory_id);
+		CHECK(resize->dest_allocation_id.get_memory_id() == resize->source_allocation_id.get_memory_id());
+		if(is_column_access && ext_width == 1) {
+			for(const auto& linearize_in_source : intersection_of(all_copies_after_write, resize.successors()).iterate()) {
+				CHECK(linearize_in_source.transitive_predecessors().contains(alloc_instr_for(linearize_in_source->dest_allocation_id)));
+				CHECK(linearize_in_source->source_allocation_id == resize->dest_allocation_id);
+				CHECK(std::holds_alternative<strided_layout>(linearize_in_source->source_layout));
+				CHECK(linearize_in_source->dest_allocation_id.get_memory_id() == linearize_in_source->source_allocation_id.get_memory_id());
+				CHECK(std::holds_alternative<linearized_layout>(linearize_in_source->dest_layout));
+
+				const auto copy_to_host = linearize_in_source.successors().select_unique<copy_instruction_record>();
+				CHECK(copy_to_host.transitive_predecessors().contains(alloc_instr_for(copy_to_host->dest_allocation_id)));
+				CHECK(copy_to_host->source_allocation_id == linearize_in_source->dest_allocation_id);
+				CHECK(copy_to_host->source_layout == linearize_in_source->dest_layout);
+				CHECK(copy_to_host->dest_allocation_id.get_memory_id() == host_memory_id);
+				CHECK(std::holds_alternative<linearized_layout>(copy_to_host->dest_layout));
+				CHECK(copy_to_host->copy_region == linearize_in_source->copy_region);
+
+				const auto copy_from_host = copy_to_host.successors().select_unique<copy_instruction_record>();
+				CHECK(copy_from_host.transitive_predecessors().contains(alloc_instr_for(copy_from_host->dest_allocation_id)));
+				CHECK(copy_from_host->source_allocation_id == copy_to_host->dest_allocation_id);
+				CHECK(copy_from_host->source_layout == copy_to_host->dest_layout);
+				CHECK(copy_from_host->dest_allocation_id.get_memory_id() >= first_device_memory_id);
+				CHECK(std::holds_alternative<linearized_layout>(copy_from_host->dest_layout));
+				CHECK(copy_from_host->copy_region == copy_to_host->copy_region);
+
+				const auto delinearize_in_dest = copy_from_host.successors().select_unique<copy_instruction_record>();
+				CHECK(delinearize_in_dest.transitive_predecessors().contains(alloc_instr_for(delinearize_in_dest->dest_allocation_id)));
+				CHECK(delinearize_in_dest->source_allocation_id == copy_from_host->dest_allocation_id);
+				CHECK(delinearize_in_dest->source_layout == copy_from_host->dest_layout);
+				CHECK(delinearize_in_dest->dest_allocation_id.get_memory_id() >= first_device_memory_id);
+				CHECK(delinearize_in_dest->dest_allocation_id.get_memory_id() != linearize_in_source->source_allocation_id.get_memory_id());
+				CHECK(std::holds_alternative<strided_layout>(delinearize_in_dest->dest_layout));
+				CHECK(delinearize_in_dest->copy_region == copy_from_host->copy_region);
+			}
+		} else {
+			for(const auto& copy_to_host : intersection_of(all_copies_after_write, resize.successors()).iterate()) {
+				CHECK(copy_to_host.transitive_predecessors().contains(alloc_instr_for(copy_to_host->dest_allocation_id)));
+				CHECK(copy_to_host->source_allocation_id == resize->dest_allocation_id);
+				CHECK(std::holds_alternative<strided_layout>(copy_to_host->source_layout));
+				CHECK(copy_to_host->dest_allocation_id.get_memory_id() == host_memory_id);
+				CHECK(std::holds_alternative<linearized_layout>(copy_to_host->dest_layout));
+
+				const auto copy_from_host = copy_to_host.successors().select_unique<copy_instruction_record>();
+				CHECK(copy_from_host.transitive_predecessors().contains(alloc_instr_for(copy_from_host->dest_allocation_id)));
+				CHECK(copy_from_host->source_allocation_id == copy_to_host->dest_allocation_id);
+				CHECK(copy_from_host->source_layout == copy_to_host->dest_layout);
+				CHECK(copy_from_host->dest_allocation_id.get_memory_id() >= first_device_memory_id);
+				CHECK(copy_from_host->dest_allocation_id.get_memory_id() != copy_to_host->source_allocation_id.get_memory_id());
+				CHECK(std::holds_alternative<strided_layout>(copy_from_host->dest_layout));
+			}
+		}
+	}
+}
+
+TEST_CASE("instruction_graph_generator device-linearization heuristic behaves as expected", "[instruction_graph_generator]") {
+	using instruction_graph_generator_detail::should_linearize_copy_region;
+
+	const box<3> alloc_box(id(0, 0, 0), id(65536, 65536, 1));
+	const box<3> single_row(id(64, 0, 0), id(65, 65536, 1));
+	const box<3> single_row_2(id(128, 0, 0), id(129, 65536, 1));
+	const box<3> single_column(id(0, 64, 0), id(65536, 65, 1));
+	const box<3> single_column_2(id(0, 128, 0), id(65536, 129, 1));
+	const box<3> multi_rows_small(id(0, 0, 0), id(4, 65536, 1));
+	const box<3> multi_rows_large(id(0, 0, 0), id(16, 65536, 1));
+	const box<3> multi_columns_small(id(0, 0, 0), id(65536, 4, 1));
+	const box<3> multi_columns_large(id(0, 0, 0), id(65536, 16, 1));
+
+	box_vector<3> horizontal_stripe_boxes;
+	box_vector<3> vertical_stripe_boxes;
+	for(size_t i = 0; i < 65536; i += 16) {
+		horizontal_stripe_boxes.push_back(box(id(i, 0, 0), id(i + 4, 65536, 1)));
+		vertical_stripe_boxes.push_back(box(id(0, i, 0), id(65536, i + 4, 1)));
+	}
+	const region horizontal_stripes(std::move(horizontal_stripe_boxes));
+	const region vertical_stripes(std::move(vertical_stripe_boxes));
+
+	const size_t elem_size = sizeof(int);
+
+	SECTION("copies from or to host / user buffer allocations are never linearized") {
+		CHECK_FALSE(should_linearize_copy_region(user_memory_id, alloc_box, single_row, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(user_memory_id, alloc_box, single_column, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(host_memory_id, alloc_box, single_row, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(host_memory_id, alloc_box, single_column, elem_size));
+	}
+
+	SECTION("single columns are linearized on device") {
+		CHECK(should_linearize_copy_region(first_device_memory_id, alloc_box, single_column, elem_size));
+		CHECK(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, single_column, elem_size));
+	}
+
+	SECTION("multiple columns are linearized if their contiguous size fits threshold") {
+		// multi_columns spans 16 columns of 4 bytes each = 64 bytes, which is large enough to not experience slowdown from 2d copies
+		CHECK(should_linearize_copy_region(first_device_memory_id, alloc_box, multi_columns_small, elem_size));
+		CHECK(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, multi_columns_small, elem_size));
+	}
+
+	SECTION("multiple columns are not linearized if their contiguous size exceeds threshold") {
+		// multi_columns spans 16 columns of 4 bytes each = 64 bytes, which is large enough to not experience slowdown from 2d copies
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id, alloc_box, multi_columns_large, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, multi_columns_large, elem_size));
+	}
+
+	SECTION("rows and sets of rows are not linearized on device") {
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id, alloc_box, single_row, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, single_row, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id, alloc_box, region_union(single_row, single_row_2), elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, region_union(single_row, single_row_2), elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id, alloc_box, multi_rows_small, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, multi_rows_small, elem_size));
+	}
+
+	SECTION("unions of single rows and columns are linearized") {
+		CHECK(should_linearize_copy_region(first_device_memory_id, alloc_box, region_union(single_row, single_column), elem_size));
+		CHECK(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, region_union(single_row, single_column), elem_size));
+	}
+
+	SECTION("regions are not linearized if their total area is too large") {
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id, alloc_box, horizontal_stripes, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, horizontal_stripes, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id, alloc_box, vertical_stripes, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, vertical_stripes, elem_size));
+	}
 }
 
 TEST_CASE("oddly-shaped coherence copies generate a single region-copy instruction", "[instruction_graph_generator][instruction-graph][memory]") {

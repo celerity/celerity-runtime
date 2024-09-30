@@ -268,6 +268,8 @@ struct copy_instruction_record : matchbox::implement_acceptor<instruction_record
 		gather,
 		fence,
 		staging,
+		linearizing,
+		delinearizing,
 	};
 
 	allocation_id source_allocation_id;
