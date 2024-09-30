@@ -1147,6 +1147,24 @@ void generator_impl::commit_pending_region_receive_to_host_memory(
 	buffer.up_to_date_memories.update_region(receive.received_region, memory_mask().set(host_memory_id));
 }
 
+bool is_subrange_contiguous(const range<3>& outer, const range<3>& inner) {
+	assert(all_true(outer >= inner));
+	if(inner.size() == 0) return false;
+	bool next_dim_strided = false; // when false, the next-higher non-trivial dimension must insert a stride
+	for(int d = 2; d >= 0; --d) {
+		if(next_dim_strided && inner[d] != 1) { return false; }
+		if(inner[d] != outer[d]) { next_dim_strided = true; }
+	}
+	return true;
+}
+
+bool should_linearize_copy_region(const memory_id alloc_mid, const box<3>& alloc_box, const region<3>& copy_region) {
+	// For simplicity we linearize the entire region or none of it, even if some individual boxes were already contiguous
+	const bool region_contiguous_in_source = std::all_of(copy_region.get_boxes().begin(), copy_region.get_boxes().end(),
+	    [&](const box<3>& box) { return is_subrange_contiguous(alloc_box.get_range(), box.get_range()); });
+	return alloc_mid >= first_device_memory_id && !region_contiguous_in_source; // && TODO
+}
+
 void generator_impl::establish_coherence_between_buffer_memories(
     batch& current_batch, const buffer_id bid, dense_map<memory_id, std::vector<region<3>>>& concurrent_reads_from_memory) //
 {
@@ -1165,7 +1183,6 @@ void generator_impl::establish_coherence_between_buffer_memories(
 	// Some hardware setups require staging device-to-device copies through (pinned) host memory. Instead of keying by source and destination memories like for
 	// direct copies, we re-examine both in (3) to make sure we only copy to host once in case of a 1:n device-to-device broadcast.
 	const auto stage_alignment_bytes = std::lcm(buffer.elem_align, hardware_destructive_interference_size);
-	size_t host_stage_alloc_size_bytes = 0;
 	std::unordered_map<memory_id, std::vector<region<3>>> concurrently_host_staged_copies;
 	for(memory_id dest_mid = 0; dest_mid < concurrent_reads_from_memory.size(); ++dest_mid) {
 		for(auto& dest_region : concurrent_reads_from_memory[dest_mid]) {
@@ -1196,7 +1213,6 @@ void generator_impl::establish_coherence_between_buffer_memories(
 						if(m_system.memories[source_mid].copy_peers.test(dest_mid)) {
 							concurrent_direct_copies[{source_mid, dest_mid}].push_back(std::move(copy_region));
 						} else {
-							host_stage_alloc_size_bytes += utils::ceil(copy_region.get_area() * buffer.elem_size, stage_alignment_bytes);
 							concurrently_host_staged_copies[source_mid].push_back(std::move(copy_region));
 						}
 					}
@@ -1230,21 +1246,19 @@ void generator_impl::establish_coherence_between_buffer_memories(
 	// (3) Insert host-staged copy instruction chains where necessary. These are all fully concurrent with direct copies from (2).
 
 	if(!concurrently_host_staged_copies.empty()) {
-		auto& host_stage_alloc = acquire_staging_allocation(current_batch, host_memory_id, host_stage_alloc_size_bytes, stage_alignment_bytes);
-		access_front reads_from_stage_alloc(access_front::read);
-		size_t host_stage_offset_bytes = 0;
+		std::unordered_map<memory_id, size_t> staging_allocations_sizes_bytes;
 
+		// TODO VERY HACKY copy of below loop - consider finalizing alloc size after the fact?
 		for(auto& [source_mid, concurrent_regions] : concurrently_host_staged_copies) {
 			symmetrically_split_overlapping_regions(concurrent_regions); // ensure copy regions are disjoint
 
 			for(const auto& region : concurrent_regions) { // iterations are independent
 				// We split by source / dest allocations above, so source / dest allocations are unique
 				auto& source_alloc = buffer.memories[source_mid].get_contiguous_allocation(bounding_box(region));
-				const auto copy_from_source_instr = create<copy_instruction>(current_batch, source_alloc.aid, host_stage_alloc.aid,
-				    strided_layout(source_alloc.box), linearized_layout(host_stage_offset_bytes), region, buffer.elem_size,
-				    [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::staging, bid, buffer.debug_name); });
-				add_dependencies_on_access_front(copy_from_source_instr, host_stage_alloc.last_accesses, instruction_dependency_origin::write_to_allocation);
-				perform_concurrent_read_from_allocation(copy_from_source_instr, source_alloc, region);
+
+				if(should_linearize_copy_region(source_mid, source_alloc.box, region)) {
+					staging_allocations_sizes_bytes[source_mid] += utils::ceil(region.get_area() * buffer.elem_size, stage_alignment_bytes);
+				}
 
 				// There can be multiple destinations in case of a broadcast pattern
 				for(memory_id dest_mid = first_device_memory_id; dest_mid < concurrent_reads_from_memory.size(); ++dest_mid) {
@@ -1262,19 +1276,128 @@ void generator_impl::establish_coherence_between_buffer_memories(
 						assert(region_difference(region, dest_memory_region).empty()); // we split by dest_mid above
 
 						auto& dest_alloc = buffer.memories[dest_mid].get_contiguous_allocation(bounding_box(region));
-						const auto copy_to_dest_instr = create<copy_instruction>(current_batch, host_stage_alloc.aid, dest_alloc.aid,
-						    linearized_layout(host_stage_offset_bytes), strided_layout(dest_alloc.box), region, buffer.elem_size,
-						    [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::coherence, bid, buffer.debug_name); });
-						add_dependency(copy_to_dest_instr, copy_from_source_instr, instruction_dependency_origin::read_from_allocation);
-						perform_atomic_write_to_allocation(copy_to_dest_instr, dest_alloc, region);
-						reads_from_stage_alloc.add_instruction(copy_to_dest_instr);
+
+						if(should_linearize_copy_region(dest_mid, dest_alloc.box, region)) {
+							staging_allocations_sizes_bytes[dest_mid] += utils::ceil(region.get_area() * buffer.elem_size, stage_alignment_bytes);
+						}
 					}
 				}
-				host_stage_offset_bytes += utils::ceil(region.get_area() * buffer.elem_size, stage_alignment_bytes);
+
+				staging_allocations_sizes_bytes[host_memory_id] += utils::ceil(region.get_area() * buffer.elem_size, stage_alignment_bytes);
 			}
 		}
 
-		host_stage_alloc.last_accesses = std::move(reads_from_stage_alloc);
+
+		struct staging_alloc_cursor {
+			staging_allocation* alloc = nullptr;
+			access_front reads{access_front::read};
+			size_t offset_bytes = 0;
+		};
+
+		std::unordered_map<memory_id, staging_alloc_cursor> staging_allocs;
+		for(const auto [mid, size] : staging_allocations_sizes_bytes) {
+			staging_allocs[mid] = {&acquire_staging_allocation(current_batch, mid, size, stage_alignment_bytes)};
+		}
+
+		current_batch.base_priority += 10; // TODO HACK
+
+		for(auto& [source_mid, concurrent_regions] : concurrently_host_staged_copies) {
+			symmetrically_split_overlapping_regions(concurrent_regions); // ensure copy regions are disjoint
+
+			for(const auto& region : concurrent_regions) { // iterations are independent
+				// We split by source / dest allocations above, so source / dest allocations are unique
+				auto& source_alloc = buffer.memories[source_mid].get_contiguous_allocation(bounding_box(region));
+
+				// For simplicity we linearize the entire region or none of it, even if some of its boxes were already contiguous
+				copy_instruction* copy_to_host_instr = nullptr;
+
+				auto& host_stage_alloc = staging_allocs.at(host_memory_id);
+				if(should_linearize_copy_region(source_mid, source_alloc.box, region)) {
+					auto& source_stage_alloc = staging_allocs.at(source_mid);
+					const auto linearize_in_source_instr = create<copy_instruction>(current_batch, source_alloc.aid, source_stage_alloc.alloc->aid,
+					    strided_layout(source_alloc.box), linearized_layout(source_stage_alloc.offset_bytes), region, buffer.elem_size,
+					    [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::staging, bid, buffer.debug_name); });
+					add_dependencies_on_access_front(
+					    linearize_in_source_instr, source_stage_alloc.alloc->last_accesses, instruction_dependency_origin::write_to_allocation);
+					perform_concurrent_read_from_allocation(linearize_in_source_instr, source_alloc, region);
+					copy_to_host_instr = create<copy_instruction>(current_batch, source_stage_alloc.alloc->aid, host_stage_alloc.alloc->aid,
+					    linearized_layout(source_stage_alloc.offset_bytes), linearized_layout(host_stage_alloc.offset_bytes), region, buffer.elem_size,
+					    [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::staging, bid, buffer.debug_name); });
+					add_dependencies_on_access_front(
+					    copy_to_host_instr, host_stage_alloc.alloc->last_accesses, instruction_dependency_origin::write_to_allocation);
+					add_dependency(copy_to_host_instr, linearize_in_source_instr, instruction_dependency_origin::read_from_allocation);
+					source_stage_alloc.offset_bytes += utils::ceil(region.get_area() * buffer.elem_size, stage_alignment_bytes);
+					source_stage_alloc.reads.add_instruction(copy_to_host_instr);
+				} else {
+					copy_to_host_instr = create<copy_instruction>(current_batch, source_alloc.aid, host_stage_alloc.alloc->aid,
+					    strided_layout(source_alloc.box), linearized_layout(host_stage_alloc.offset_bytes), region, buffer.elem_size,
+					    [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::staging, bid, buffer.debug_name); });
+					add_dependencies_on_access_front(
+					    copy_to_host_instr, host_stage_alloc.alloc->last_accesses, instruction_dependency_origin::write_to_allocation);
+					perform_concurrent_read_from_allocation(copy_to_host_instr, source_alloc, region);
+				}
+
+				// There can be multiple destinations in case of a broadcast pattern
+				for(memory_id dest_mid = first_device_memory_id; dest_mid < concurrent_reads_from_memory.size(); ++dest_mid) {
+					// The region will appear in concurrently_staged_copies if it is outdated on any destination in (1), so we need to query up_to_date_memories
+					// a second time to make sure we don't create unnecessary copies (especially ones back to the source in case of an all-read).
+					const auto boxes_up_to_date = buffer.up_to_date_memories.get_region_values(region);
+					// Because up_to_date_memories maps to a memory_mask, we can end up with multiple boxes, but they must all agree on dest_mid.
+					assert(!boxes_up_to_date.empty() && std::all_of(boxes_up_to_date.begin(), boxes_up_to_date.end(), [&](const auto& box_and_mids) {
+						return box_and_mids.second.test(dest_mid) == boxes_up_to_date.front().second.test(dest_mid);
+					}));
+					if(boxes_up_to_date.front().second.test(dest_mid)) continue;
+
+					for(const auto& dest_memory_region : concurrent_reads_from_memory[dest_mid]) {
+						if(region_intersection(dest_memory_region, region).empty()) continue;
+						assert(region_difference(region, dest_memory_region).empty()); // we split by dest_mid above
+
+						auto& dest_alloc = buffer.memories[dest_mid].get_contiguous_allocation(bounding_box(region));
+
+						if(should_linearize_copy_region(dest_mid, dest_alloc.box, region)) {
+							auto& dest_stage_alloc = staging_allocs.at(dest_mid);
+							const auto copy_from_host_instr = create<copy_instruction>(current_batch, host_stage_alloc.alloc->aid, dest_stage_alloc.alloc->aid,
+							    linearized_layout(host_stage_alloc.offset_bytes), linearized_layout(dest_stage_alloc.offset_bytes), region, buffer.elem_size,
+							    [&](const auto& record_debug_info) {
+								    record_debug_info(copy_instruction_record::copy_origin::staging, bid, buffer.debug_name);
+							    });
+							add_dependencies_on_access_front(
+							    copy_from_host_instr, dest_stage_alloc.alloc->last_accesses, instruction_dependency_origin::write_to_allocation);
+							add_dependency(copy_from_host_instr, copy_to_host_instr, instruction_dependency_origin::read_from_allocation);
+							host_stage_alloc.reads.add_instruction(copy_from_host_instr);
+
+							const auto delinearize_in_dest_instr = create<copy_instruction>(current_batch, dest_stage_alloc.alloc->aid, dest_alloc.aid,
+							    linearized_layout(dest_stage_alloc.offset_bytes), strided_layout(dest_alloc.box), region, buffer.elem_size,
+							    [&](const auto& record_debug_info) {
+								    record_debug_info(copy_instruction_record::copy_origin::coherence, bid, buffer.debug_name);
+							    });
+							add_dependency(delinearize_in_dest_instr, copy_from_host_instr, instruction_dependency_origin::read_from_allocation);
+							perform_atomic_write_to_allocation(delinearize_in_dest_instr, dest_alloc, region);
+							dest_stage_alloc.offset_bytes += utils::ceil(region.get_area() * buffer.elem_size, stage_alignment_bytes);
+							dest_stage_alloc.reads.add_instruction(delinearize_in_dest_instr);
+						} else {
+							const auto copy_from_host_instr = create<copy_instruction>(current_batch, host_stage_alloc.alloc->aid, dest_alloc.aid,
+							    linearized_layout(host_stage_alloc.offset_bytes), strided_layout(dest_alloc.box), region, buffer.elem_size,
+							    [&](const auto& record_debug_info) {
+								    record_debug_info(copy_instruction_record::copy_origin::coherence, bid, buffer.debug_name);
+							    });
+							add_dependency(copy_from_host_instr, copy_to_host_instr, instruction_dependency_origin::read_from_allocation);
+							perform_atomic_write_to_allocation(copy_from_host_instr, dest_alloc, region);
+							host_stage_alloc.reads.add_instruction(copy_from_host_instr);
+						}
+					}
+				}
+
+				host_stage_alloc.offset_bytes += utils::ceil(region.get_area() * buffer.elem_size, stage_alignment_bytes);
+			}
+		}
+
+		current_batch.base_priority -= 10; // TODO HACK
+
+		for(auto& [mid, stage] : staging_allocs) {
+			stage.alloc->last_accesses = std::move(stage.reads);
+			assert(stage.offset_bytes == staging_allocations_sizes_bytes[mid]);
+		}
 	}
 
 	// (4) Update buffer.up_to_date_memories en-bloc, regardless of which copy instructions were actually emitted.
