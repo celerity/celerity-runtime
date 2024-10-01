@@ -1287,7 +1287,6 @@ void generator_impl::establish_coherence_between_buffer_memories(
 			}
 		}
 
-
 		struct staging_alloc_cursor {
 			staging_allocation* alloc = nullptr;
 			access_front reads{access_front::read};

@@ -10,6 +10,10 @@ int g_oversub = 0;
 void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2> u, sycl::float2 center, float amplitude, sycl::float2 sigma) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw_u{u, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+
+		if(g_split != 0) { celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d()); }
+		if(g_oversub != 0) { celerity::experimental::hint(cgh, celerity::experimental::hints::oversubscribe(g_oversub)); }
+
 		cgh.parallel_for<class setup_wave>(u.get_range(), [=, c = center, a = amplitude, s = sigma](celerity::item<2> item) {
 			const float dx = item[1] - c.x();
 			const float dy = item[0] - c.y();
@@ -21,6 +25,10 @@ void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2> u, sycl
 void zero(celerity::distr_queue& queue, celerity::buffer<float, 2> buf) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw_buf{buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+
+		if(g_split != 0) { celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d()); }
+		if(g_oversub != 0) { celerity::experimental::hint(cgh, celerity::experimental::hints::oversubscribe(g_oversub)); }
+
 		cgh.parallel_for<class zero>(buf.get_range(), [=](celerity::item<2> item) { dw_buf[item] = 0.f; });
 	});
 }
@@ -43,12 +51,8 @@ void step(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::buf
 		celerity::accessor rw_up{up, cgh, celerity::access::one_to_one{}, celerity::read_write};
 		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{1, 1}, celerity::read_only};
 
-		if (g_split != 0) {
-			celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d());
-		}
-		if (g_oversub != 0) {
-			celerity::experimental::hint(cgh, celerity::experimental::hints::oversubscribe(g_oversub));
-		}
+		if(g_split != 0) { celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d()); }
+		if(g_oversub != 0) { celerity::experimental::hint(cgh, celerity::experimental::hints::oversubscribe(g_oversub)); }
 
 		const auto size = up.get_range();
 		cgh.parallel_for<KernelName>(size, [=](celerity::item<2> item) {
@@ -190,7 +194,8 @@ int main(int argc, char* argv[]) {
 	queue.slow_full_sync();
 	const auto end = std::chrono::steady_clock::now();
 
-	fmt::print("{:.2f} GigaCells/s\n", (static_cast<double>(i - 4) * cfg.N * cfg.N * 1e-9) / std::chrono::duration_cast<std::chrono::duration<double>>(end - start).count());
+	fmt::print("{:.2f} GigaCells/s\n",
+	    (static_cast<double>(i - 4) * cfg.N * cfg.N * 1e-9) / std::chrono::duration_cast<std::chrono::duration<double>>(end - start).count());
 
 	if(cfg.output_sample_rate > 0) { stream_close(queue, os); }
 
