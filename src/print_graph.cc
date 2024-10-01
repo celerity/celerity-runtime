@@ -297,7 +297,7 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 				        ainstr.buffer_allocation->box);
 				    if(ainstr.num_chunks.has_value()) { fmt::format_to(back, " x{}", *ainstr.num_chunks); }
 			    }
-			    fmt::format_to(back, "<br/>{}%{} bytes", ainstr.size_bytes, ainstr.alignment_bytes);
+			    fmt::format_to(back, "<br/>{} % {} bytes", fmt::group_digits(ainstr.size_bytes), ainstr.alignment_bytes);
 			    end_node();
 		    },
 		    [&](const free_instruction_record& finstr) {
@@ -308,11 +308,11 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 				    fmt::format_to(back, "<br/>{} {}", print_buffer_label(finstr.buffer_allocation->buffer_id, finstr.buffer_allocation->buffer_name),
 				        finstr.buffer_allocation->box);
 			    }
-			    fmt::format_to(back, " <br/>{} bytes", finstr.size);
+			    fmt::format_to(back, " <br/>{} bytes", fmt::group_digits(finstr.size));
 			    end_node();
 		    },
 		    [&](const copy_instruction_record& cinstr) {
-			    begin_node(cinstr, "ellipse", "green3");
+			    begin_node(cinstr, "ellipse,margin=0", "green3");
 			    fmt::format_to(back, "I{}<br/>", cinstr.id);
 			    switch(cinstr.origin) {
 			    case copy_instruction_record::copy_origin::resize: dot += "resize "; break;
@@ -321,9 +321,9 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 			    case copy_instruction_record::copy_origin::fence: dot += "fence "; break;
 			    case copy_instruction_record::copy_origin::staging: dot += "staging "; break;
 			    }
-			    fmt::format_to(back, "<b>copy</b><br/>from {} {}<br/>to {} {}<br/>{} {} x{} bytes", cinstr.source_allocation_id, cinstr.source_layout,
-			        cinstr.dest_allocation_id, cinstr.dest_layout, print_buffer_label(cinstr.buffer_id, cinstr.buffer_name), cinstr.copy_region,
-			        cinstr.element_size);
+			    fmt::format_to(back, "<b>copy</b><br/>from {} {}<br/>to {} {}<br/>{} {} x{} bytes<br/>{} bytes total", cinstr.source_allocation_id,
+			        cinstr.source_layout, cinstr.dest_allocation_id, cinstr.dest_layout, print_buffer_label(cinstr.buffer_id, cinstr.buffer_name),
+			        cinstr.copy_region, cinstr.element_size, fmt::group_digits(cinstr.copy_region.get_area() * cinstr.element_size));
 			    end_node();
 		    },
 		    [&](const device_kernel_instruction_record& dkinstr) {
@@ -379,6 +379,7 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 			        box(subrange(sinstr.offset_in_buffer, sinstr.send_range)));
 			    fmt::format_to(back, "<br/>via {} {}", sinstr.source_allocation_id, box(subrange(sinstr.offset_in_source_allocation, sinstr.send_range)));
 			    fmt::format_to(back, "<br/>{}x{} bytes", sinstr.send_range, sinstr.element_size);
+			    fmt::format_to(back, "<br/>{} bytes total", fmt::group_digits(sinstr.send_range.size() * sinstr.element_size));
 			    send_instructions_by_message_id.emplace(sinstr.message_id, sinstr.id);
 			    end_node();
 		    },
@@ -389,6 +390,7 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 			    fmt::format_to(back, "<br/>{} {}", print_buffer_label(rinstr.transfer_id.bid, rinstr.buffer_name), rinstr.requested_region);
 			    fmt::format_to(back, "<br/>into {} (B{} {})", rinstr.dest_allocation_id, rinstr.transfer_id.bid, rinstr.allocated_box);
 			    fmt::format_to(back, "<br/>x{} bytes", rinstr.element_size);
+			    fmt::format_to(back, "<br/>{} bytes total", fmt::group_digits(rinstr.requested_region.get_area() * rinstr.element_size));
 			    end_node();
 		    },
 		    [&](const split_receive_instruction_record& srinstr) {
@@ -398,6 +400,7 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 			    fmt::format_to(back, "<br/>{} {}", print_buffer_label(srinstr.transfer_id.bid, srinstr.buffer_name), srinstr.requested_region);
 			    fmt::format_to(back, "<br/>into {} (B{} {})", srinstr.dest_allocation_id, srinstr.transfer_id.bid, srinstr.allocated_box);
 			    fmt::format_to(back, "<br/>x{} bytes", srinstr.element_size);
+			    fmt::format_to(back, "<br/>{} bytes total", fmt::group_digits(srinstr.requested_region.get_area() * srinstr.element_size));
 			    end_node();
 		    },
 		    [&](const await_receive_instruction_record& arinstr) {
@@ -485,7 +488,7 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 
 	for(const auto& pilot : irec.get_outbound_pilots()) {
 		fmt::format_to(back,
-		    "P{}[margin=0.2,shape=cds,color=\"#606060\",label=<<font color=\"#606060\"><b>pilot</b> to N{} MSG{}<br/>{}<br/>for {} {}</font>>];",
+		    "P{}[margin=0.25,shape=cds,color=\"#606060\",label=<<font color=\"#606060\"><b>pilot</b> to N{} MSG{}<br/>{}<br/>for {} {}</font>>];",
 		    pilot.message.id, pilot.to, pilot.message.id, pilot.message.transfer_id, print_buffer_label(pilot.message.transfer_id.bid), pilot.message.box);
 		if(auto it = send_instructions_by_message_id.find(pilot.message.id); it != send_instructions_by_message_id.end()) {
 			fmt::format_to(back, "P{}->I{}[dir=none,style=dashed,color=\"#606060\"];", pilot.message.id, it->second);
