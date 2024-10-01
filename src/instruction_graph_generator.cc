@@ -505,7 +505,6 @@ struct batch { // NOLINT(cppcoreguidelines-special-member-functions) (do not com
 template <typename Instruction> constexpr int instruction_type_priority = 0; // higher means more urgent
 template <> constexpr int instruction_type_priority<free_instruction> = -1; // only free when forced to - nothing except an epoch or horizon will depend on this
 template <> constexpr int instruction_type_priority<alloc_instruction> = 1; // allocations are synchronous and slow, so we postpone them as much as possible
-template <> constexpr int instruction_type_priority<copy_instruction> = 2;
 template <> constexpr int instruction_type_priority<await_receive_instruction> = 2;
 template <> constexpr int instruction_type_priority<split_receive_instruction> = 2;
 template <> constexpr int instruction_type_priority<receive_instruction> = 2;
@@ -515,6 +514,7 @@ template <> constexpr int instruction_type_priority<host_task_instruction> = 4; 
 template <> constexpr int instruction_type_priority<device_kernel_instruction> = 4; 
 template <> constexpr int instruction_type_priority<epoch_instruction> = 5; // epochs and horizons are low-latency and stop the task buffers from reaching capacity
 template <> constexpr int instruction_type_priority<horizon_instruction> = 5;
+template <> constexpr int instruction_type_priority<copy_instruction> = 6; // stalled device-to-device copies can block kernel execution on peer devices
 // clang-format on
 
 /// A chunk of a task's execution space that will be assigned to a device (or the host) and thus knows which memory its instructions will operate on.
@@ -1407,13 +1407,12 @@ void generator_impl::establish_coherence_between_buffer_memories(
 		}
 	};
 
-	current_batch.base_priority += 10; // TODO HACK
+	// Create instructions for all planned copies
 	for(const auto& plan : planned_copies) {
 		for(const auto& dest_hop : plan.source.next) {
 			execute_copy_plan_recursive(plan.region, plan.source, dest_hop, nullptr, execute_copy_plan_recursive);
 		}
 	}
-	current_batch.base_priority -= 10; // TODO HACK
 
 	// Now that all copies have been created, update all staging allocation access fronts accordingly.
 	for(memory_id mid = 0; mid < staging_allocs.size(); ++mid) {
