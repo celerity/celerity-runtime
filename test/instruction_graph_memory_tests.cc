@@ -523,6 +523,10 @@ TEST_CASE("copies are staged through host memory for devices that are not peer-c
 	const auto stage_free = all_instrs.select_unique<free_instruction_record>(
 	    [](const free_instruction_record& free) { return free.allocation_id.get_memory_id() == host_memory_id; });
 
+	const auto alloc_instr_for = [&](const allocation_id aid) {
+		return all_instrs.select_unique<alloc_instruction_record>([aid](const alloc_instruction_record& alloc) { return alloc.allocation_id == aid; });
+	};
+
 	CHECK(all_writers.count() == num_devices);
 	CHECK(all_copies_from_source.count() == num_devices);
 	CHECK(all_copies_to_dest.count() == num_devices);
@@ -534,9 +538,11 @@ TEST_CASE("copies are staged through host memory for devices that are not peer-c
 		const auto reader = intersection_of(all_readers, copy_to_dest.successors()).assert_unique();
 
 		CHECK(copy_from_source->origin == copy_instruction_record::copy_origin::staging);
+		CHECK(copy_from_source.transitive_predecessors().contains(alloc_instr_for(copy_from_source->dest_allocation_id)));
 		CHECK(copy_from_source->source_allocation_id.get_memory_id() == ictx.get_native_memory(writer->device_id));
 		CHECK(copy_from_source->dest_allocation_id.get_memory_id() == host_memory_id);
 		CHECK(std::holds_alternative<linearized_layout>(copy_from_source->dest_layout));
+
 		CHECK(copy_to_dest->origin == copy_instruction_record::copy_origin::coherence);
 		CHECK(copy_to_dest->source_allocation_id.get_memory_id() == host_memory_id);
 		CHECK(copy_to_dest->dest_allocation_id.get_memory_id() == ictx.get_native_memory(reader->device_id));
@@ -615,6 +621,11 @@ TEST_CASE("staging copies to host are deduplicated in case of a broadcast patter
 	const auto stage_free = all_instrs.select_unique<free_instruction_record>(
 	    [](const free_instruction_record& free) { return free.allocation_id.get_memory_id() == host_memory_id; });
 
+	const auto alloc_instr_for = [&](const allocation_id aid) {
+		return all_instrs.select_unique<alloc_instruction_record>([aid](const alloc_instruction_record& alloc) { return alloc.allocation_id == aid; });
+	};
+
+	CHECK(copy_from_source.transitive_predecessors().contains(alloc_instr_for(copy_from_source->dest_allocation_id)));
 	CHECK(copy_from_source->dest_allocation_id == stage_alloc->allocation_id);
 	CHECK(copy_from_source->origin == copy_instruction_record::copy_origin::staging);
 	CHECK(copy_from_source->dest_allocation_id.get_memory_id() == host_memory_id);
@@ -788,17 +799,23 @@ TEST_CASE("narrow strided data columns are device-linearized before and after ho
 	const auto all_copies_after_write = all_resizes_after_write.successors().select_all<copy_instruction_record>();
 	const auto all_readers = all_instrs.select_all<device_kernel_instruction_record>("reader");
 
+	const auto alloc_instr_for = [&](const allocation_id aid) {
+		return all_instrs.select_unique<alloc_instruction_record>([aid](const alloc_instruction_record& alloc) { return alloc.allocation_id == aid; });
+	};
+
 	for(auto& resize : all_resizes_after_write.iterate()) {
 		CHECK(resize->dest_allocation_id.get_memory_id() >= first_device_memory_id);
 		CHECK(resize->dest_allocation_id.get_memory_id() == resize->source_allocation_id.get_memory_id());
 		if(is_column_access && ext_width == 1) {
 			for(const auto& linearize_in_source : intersection_of(all_copies_after_write, resize.successors()).iterate()) {
+				CHECK(linearize_in_source.transitive_predecessors().contains(alloc_instr_for(linearize_in_source->dest_allocation_id)));
 				CHECK(linearize_in_source->source_allocation_id == resize->dest_allocation_id);
 				CHECK(std::holds_alternative<strided_layout>(linearize_in_source->source_layout));
 				CHECK(linearize_in_source->dest_allocation_id.get_memory_id() == linearize_in_source->source_allocation_id.get_memory_id());
 				CHECK(std::holds_alternative<linearized_layout>(linearize_in_source->dest_layout));
 
 				const auto copy_to_host = linearize_in_source.successors().select_unique<copy_instruction_record>();
+				CHECK(copy_to_host.transitive_predecessors().contains(alloc_instr_for(copy_to_host->dest_allocation_id)));
 				CHECK(copy_to_host->source_allocation_id == linearize_in_source->dest_allocation_id);
 				CHECK(copy_to_host->source_layout == linearize_in_source->dest_layout);
 				CHECK(copy_to_host->dest_allocation_id.get_memory_id() == host_memory_id);
@@ -806,6 +823,7 @@ TEST_CASE("narrow strided data columns are device-linearized before and after ho
 				CHECK(copy_to_host->copy_region == linearize_in_source->copy_region);
 
 				const auto copy_from_host = copy_to_host.successors().select_unique<copy_instruction_record>();
+				CHECK(copy_from_host.transitive_predecessors().contains(alloc_instr_for(copy_from_host->dest_allocation_id)));
 				CHECK(copy_from_host->source_allocation_id == copy_to_host->dest_allocation_id);
 				CHECK(copy_from_host->source_layout == copy_to_host->dest_layout);
 				CHECK(copy_from_host->dest_allocation_id.get_memory_id() >= first_device_memory_id);
@@ -813,6 +831,7 @@ TEST_CASE("narrow strided data columns are device-linearized before and after ho
 				CHECK(copy_from_host->copy_region == copy_to_host->copy_region);
 
 				const auto delinearize_in_dest = copy_from_host.successors().select_unique<copy_instruction_record>();
+				CHECK(delinearize_in_dest.transitive_predecessors().contains(alloc_instr_for(delinearize_in_dest->dest_allocation_id)));
 				CHECK(delinearize_in_dest->source_allocation_id == copy_from_host->dest_allocation_id);
 				CHECK(delinearize_in_dest->source_layout == copy_from_host->dest_layout);
 				CHECK(delinearize_in_dest->dest_allocation_id.get_memory_id() >= first_device_memory_id);
@@ -822,12 +841,14 @@ TEST_CASE("narrow strided data columns are device-linearized before and after ho
 			}
 		} else {
 			for(const auto& copy_to_host : intersection_of(all_copies_after_write, resize.successors()).iterate()) {
+				CHECK(copy_to_host.transitive_predecessors().contains(alloc_instr_for(copy_to_host->dest_allocation_id)));
 				CHECK(copy_to_host->source_allocation_id == resize->dest_allocation_id);
 				CHECK(std::holds_alternative<strided_layout>(copy_to_host->source_layout));
 				CHECK(copy_to_host->dest_allocation_id.get_memory_id() == host_memory_id);
 				CHECK(std::holds_alternative<linearized_layout>(copy_to_host->dest_layout));
 
 				const auto copy_from_host = copy_to_host.successors().select_unique<copy_instruction_record>();
+				CHECK(copy_from_host.transitive_predecessors().contains(alloc_instr_for(copy_from_host->dest_allocation_id)));
 				CHECK(copy_from_host->source_allocation_id == copy_to_host->dest_allocation_id);
 				CHECK(copy_from_host->source_layout == copy_to_host->dest_layout);
 				CHECK(copy_from_host->dest_allocation_id.get_memory_id() >= first_device_memory_id);
