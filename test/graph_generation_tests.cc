@@ -233,10 +233,8 @@ TEST_CASE(
 		CHECK(push_w.have_successors(cctx.query(writing_node, tid_b), dependency_kind::anti_dep));
 	};
 
-	// NOTE: These two sections are handled by different mechanisms inside the command_graph_generator:
-	//	   - The first is done by generate_anti_dependencies during the initial sweep.
-	// 	   - The second is done by the "intra-task" loop at the end.
-	// NOTE: This ("before" / "after") assumes that chunks are processed in node id order
+	// UPDATE: Which node writes and which reads is no longer relevant, as pushes are now always generated before execution commands.
+	//         Nevertheless, keeping both cases doesn't hurt either.
 	SECTION("if the push is generated before the execution command") { run_test(1, 0); }
 	SECTION("if the push is generated after the execution command") { run_test(0, 1); }
 }
@@ -502,7 +500,7 @@ TEST_CASE("command_graph_generator throws in tests if it detects an uninitialize
 		auto buf = cctx.create_buffer<1>(node_range);
 		cctx.device_compute(range(1)).discard_write(buf, acc::one_to_one()).submit();
 		CHECK_THROWS_WITH((cctx.device_compute(node_range).read(buf, acc::all()).submit()),
-		    "Command C2 on N0, which executes [0,0,0] - [1,1,1] of device kernel T2, reads B0 {[1,0,0] - [2,1,1]}, which has not been written by any node.");
+		    "Command C3 on N0, which executes [0,0,0] - [1,1,1] of device kernel T2, reads B0 {[1,0,0] - [2,1,1]}, which has not been written by any node.");
 	}
 
 	SECTION("on a partially, remotely initialized buffer") {

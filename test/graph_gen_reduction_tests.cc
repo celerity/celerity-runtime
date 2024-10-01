@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "command_graph_generator_test_utils.h"
 
@@ -240,5 +241,40 @@ TEST_CASE("reduction in a single-node task does not generate a reduction command
 	CHECK(cctx.query(tid_producer).assert_count(1).have_successors(cctx.query(node_id(0), command_type::push).assert_count(2)));
 	for(node_id nid_await : {node_id(1), node_id(2)}) {
 		CHECK(cctx.query(nid_await, command_type::await_push).assert_count(1).have_successors(cctx.query(nid_await, tid_consumer)));
+	}
+}
+
+TEST_CASE("nodes that do not participate in reduction generate await-pushes when reading the result afterwards",
+    "[command_graph_generator][command-graph][reductions]") {
+	const size_t num_nodes = 4;
+	cdag_test_context cctx(num_nodes);
+	auto buf = cctx.create_buffer(range<1>(1));
+
+	const auto tid_producer = cctx.device_compute(range<1>(num_nodes)).reduce(buf, false /* include_current_buffer_value */).submit();
+
+	SECTION("when reducing on a single node") {
+		const auto tid_reducer = cctx.device_compute(range<1>(1)).read(buf, acc::all()).submit();
+		// Theres a push on nodes 1-3
+		CHECK((cctx.query(command_type::push) - cctx.query(node_id(0))).count() == 3);
+
+		const auto tid_consumer = cctx.device_compute(range<1>(num_nodes)).read(buf, acc::all()).submit();
+
+		CHECK(cctx.query(command_type::reduction).count() == 1);
+		CHECK(cctx.query(command_type::reduction).have_successors(cctx.query(tid_reducer)));
+		// Node 0 pushes the result to all other nodes
+		CHECK(cctx.query(command_type::reduction).have_successors(cctx.query(node_id(0), command_type::push).assert_count(3), dependency_kind::true_dep));
+		// There's an await push on nodes 1-3 before the consumer task
+		CHECK((cctx.query(command_type::await_push) - cctx.query(node_id(0)))
+		          .assert_count(3)
+		          .have_successors(cctx.query(tid_consumer) - cctx.query(node_id(0)), dependency_kind::true_dep));
+		// No new pushes have been added on nodes 1-3
+		CHECK((cctx.query(command_type::push) - cctx.query(node_id(0))).count() == 3);
+	}
+
+	// This is currently unsupported
+	SECTION("when reducing on a subset of nodes") {
+		CHECK_THROWS_WITH((cctx.device_compute(range<1>(2)).name("mytask").read(buf, acc::all()).submit()),
+		    "Device kernel T2 \"mytask\" requires a reduction on B0 that is not performed on all nodes. This is currently not supported. Either "
+		    "ensure that all nodes receive a chunk that reads from the buffer, or reduce the data on a single node.");
 	}
 }
