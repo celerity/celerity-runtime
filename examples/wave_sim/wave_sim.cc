@@ -4,16 +4,9 @@
 
 #include <celerity.h>
 
-int g_split = 0;
-int g_oversub = 0;
-
 void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2> u, sycl::float2 center, float amplitude, sycl::float2 sigma) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw_u{u, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-
-		if(g_split != 0) { celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d()); }
-		if(g_oversub != 0) { celerity::experimental::hint(cgh, celerity::experimental::hints::oversubscribe(g_oversub)); }
-
 		cgh.parallel_for<class setup_wave>(u.get_range(), [=, c = center, a = amplitude, s = sigma](celerity::item<2> item) {
 			const float dx = item[1] - c.x();
 			const float dy = item[0] - c.y();
@@ -25,10 +18,6 @@ void setup_wave(celerity::distr_queue& queue, celerity::buffer<float, 2> u, sycl
 void zero(celerity::distr_queue& queue, celerity::buffer<float, 2> buf) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw_buf{buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-
-		if(g_split != 0) { celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d()); }
-		if(g_oversub != 0) { celerity::experimental::hint(cgh, celerity::experimental::hints::oversubscribe(g_oversub)); }
-
 		cgh.parallel_for<class zero>(buf.get_range(), [=](celerity::item<2> item) { dw_buf[item] = 0.f; });
 	});
 }
@@ -50,9 +39,6 @@ void step(celerity::distr_queue& queue, celerity::buffer<T, 2> up, celerity::buf
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor rw_up{up, cgh, celerity::access::one_to_one{}, celerity::read_write};
 		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{1, 1}, celerity::read_only};
-
-		if(g_split != 0) { celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d()); }
-		if(g_oversub != 0) { celerity::experimental::hint(cgh, celerity::experimental::hints::oversubscribe(g_oversub)); }
 
 		const auto size = up.get_range();
 		cgh.parallel_for<KernelName>(size, [=](celerity::item<2> item) {
@@ -81,9 +67,7 @@ void stream_open(celerity::distr_queue& queue, size_t N, size_t num_samples, cel
 		celerity::experimental::side_effect os_eff{os, cgh};
 		cgh.host_task(celerity::on_master_node, [=] {
 			os_eff->open("wave_sim_result.bin", std::ios_base::out | std::ios_base::binary);
-			const struct {
-				uint64_t n, t;
-			} header{N, num_samples};
+			const struct { uint64_t n, t; } header{N, num_samples};
 			os_eff->write(reinterpret_cast<const char*>(&header), sizeof(header));
 		});
 	});
@@ -131,11 +115,6 @@ bool get_cli_arg(const arg_vector& args, const arg_vector::const_iterator& it, c
 }
 
 int main(int argc, char* argv[]) {
-	g_split = atoi(argv[1]);
-	g_oversub = atoi(argv[2]);
-	argv += 2;
-	argc -= 2;
-
 	// Parse command line arguments
 	const wave_sim_config cfg = ([&]() {
 		wave_sim_config result;
@@ -159,7 +138,6 @@ int main(int argc, char* argv[]) {
 	}
 
 	celerity::distr_queue queue;
-	celerity::detail::runtime::get_instance().get_task_manager().set_horizon_step(1);
 
 	celerity::buffer<float, 2> up{celerity::range<2>(cfg.N, cfg.N)}; // next
 	celerity::buffer<float, 2> u{celerity::range<2>(cfg.N, cfg.N)};  // current
@@ -176,26 +154,14 @@ int main(int argc, char* argv[]) {
 
 	auto t = 0.0;
 	size_t i = 0;
-	std::chrono::steady_clock::time_point start;
 	while(t < cfg.T) {
 		update(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
-		if(i == 4) {
-			queue.slow_full_sync();
-			start = std::chrono::steady_clock::now();
-		}
 		if(cfg.output_sample_rate > 0) {
-			if(i % cfg.output_sample_rate == 0) { stream_append(queue, u, os); }
+			if(++i % cfg.output_sample_rate == 0) { stream_append(queue, u, os); }
 		}
 		std::swap(u, up);
 		t += cfg.dt;
-		++i;
 	}
-
-	queue.slow_full_sync();
-	const auto end = std::chrono::steady_clock::now();
-
-	fmt::print("{:.2f} GigaCells/s\n",
-	    (static_cast<double>(i - 4) * cfg.N * cfg.N * 1e-9) / std::chrono::duration_cast<std::chrono::duration<double>>(end - start).count());
 
 	if(cfg.output_sample_rate > 0) { stream_close(queue, os); }
 
