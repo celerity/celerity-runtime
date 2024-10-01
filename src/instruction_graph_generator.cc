@@ -1282,12 +1282,7 @@ void generator_impl::establish_coherence_between_buffer_memories(
 	// (2b) Plan host-staged copy instruction chains where necessary, and heuristically decide whether a strided source or destination should be (de)linearized
 	// on the device. Staged copies are all fully concurrent with direct copies from (2a).
 
-	struct staging_alloc_cursor {
-		staging_allocation* alloc = nullptr;
-		access_front planned_reads{access_front::read};
-	};
-	dense_map<memory_id, staging_alloc_cursor> staging_cursors; // empty when concurrently_host_staged_copies.empty()
-
+	dense_map<memory_id, staging_allocation*> staging_allocs; // empty when concurrently_host_staged_copies.empty()
 	if(!concurrently_host_staged_copies.empty()) {
 		dense_map<memory_id, size_t> staging_allocation_sizes_bytes(m_memories.size());
 		const auto stage_alignment_bytes = std::lcm(buffer.elem_align, hardware_destructive_interference_size);
@@ -1336,33 +1331,34 @@ void generator_impl::establish_coherence_between_buffer_memories(
 			}
 		}
 
-		staging_cursors.resize(m_memories.size());
+		staging_allocs.resize(m_memories.size());
 		for(memory_id mid = 0; mid < m_memories.size(); ++mid) {
 			if(staging_allocation_sizes_bytes[mid] == 0) continue;
-			staging_cursors[mid] = {&acquire_staging_allocation(current_batch, mid, staging_allocation_sizes_bytes[mid], stage_alignment_bytes)};
+			staging_allocs[mid] = &acquire_staging_allocation(current_batch, mid, staging_allocation_sizes_bytes[mid], stage_alignment_bytes);
 		}
 	}
 
-	using copy_location_metadata = std::tuple<allocation_id, buffer_allocation_state*, staging_alloc_cursor*, region_layout>;
+	using copy_location_metadata = std::tuple<allocation_id, buffer_allocation_state*, region_layout>;
 
 	const auto get_copy_location_metadata = [&](const copy_plan::location& location) {
 		return matchbox::match<copy_location_metadata>(
 		    location,
 		    [&](const copy_plan::in_buffer& in_buffer) {
 			    auto& alloc = buffer.memories[in_buffer.aid.get_memory_id()].get_allocation(in_buffer.aid);
-			    return std::tuple(in_buffer.aid, &alloc, nullptr, strided_layout(alloc.box));
+			    return std::tuple(in_buffer.aid, &alloc, strided_layout(alloc.box));
 		    },
 		    [&](const copy_plan::staged& staged) {
-			    auto& alloc = staging_cursors[staged.mid];
-			    assert(alloc.alloc != nullptr);
-			    return std::tuple(alloc.alloc->aid, nullptr, &alloc, linearized_layout(staged.offset_bytes));
+			    assert(staging_allocs[staged.mid] != nullptr);
+			    return std::tuple(staging_allocs[staged.mid]->aid, nullptr, linearized_layout(staged.offset_bytes));
 		    });
 	};
 
+	dense_map<memory_id, access_front> reads_from_staging_allocs(staging_allocs.size(), access_front(access_front::read));
+
 	const auto execute_copy_plan_recursive = [&](const region<3>& region, const copy_plan::hop& source_hop, const copy_plan::hop& dest_hop,
 	                                             instruction* const source_copy_instr, const auto& execute_copy_plan_recursive) -> void {
-		const auto [dest_aid, dest_buffer_alloc, dest_stage_cursor, dest_layout] = get_copy_location_metadata(dest_hop.location);
-		const auto [source_aid, source_buffer_alloc, source_stage_cursor, source_layout] = get_copy_location_metadata(source_hop.location);
+		const auto [dest_aid, dest_buffer_alloc, dest_layout] = get_copy_location_metadata(dest_hop.location);
+		const auto [source_aid, source_buffer_alloc, source_layout] = get_copy_location_metadata(source_hop.location);
 
 		const auto copy_instr = create<copy_instruction>(
 		    current_batch, source_aid, dest_aid, source_layout, dest_layout, region, buffer.elem_size, [&](const auto& record_debug_info) {
@@ -1374,7 +1370,7 @@ void generator_impl::establish_coherence_between_buffer_memories(
 		if(source_buffer_alloc != nullptr) {
 			perform_concurrent_read_from_allocation(copy_instr, *source_buffer_alloc, region);
 		} else {
-			source_stage_cursor->planned_reads.add_instruction(copy_instr);
+			reads_from_staging_allocs[source_aid.get_memory_id()].add_instruction(copy_instr);
 		}
 
 		if(source_copy_instr != nullptr) { add_dependency(copy_instr, source_copy_instr, instruction_dependency_origin::read_from_allocation); }
@@ -1382,7 +1378,8 @@ void generator_impl::establish_coherence_between_buffer_memories(
 		if(dest_buffer_alloc != nullptr) {
 			perform_atomic_write_to_allocation(copy_instr, *dest_buffer_alloc, region);
 		} else {
-			add_dependencies_on_access_front(copy_instr, dest_stage_cursor->alloc->last_accesses, instruction_dependency_origin::write_to_allocation);
+			auto& stage = *staging_allocs[dest_aid.get_memory_id()];
+			add_dependencies_on_access_front(copy_instr, stage.last_accesses, instruction_dependency_origin::write_to_allocation);
 		}
 
 		for(const auto& next_dest_hop : dest_hop.next) {
@@ -1398,9 +1395,9 @@ void generator_impl::establish_coherence_between_buffer_memories(
 	}
 	current_batch.base_priority -= 10; // TODO HACK
 
-	for(memory_id mid = 0; mid < staging_cursors.size(); ++mid) {
-		if(staging_cursors[mid].alloc == nullptr) continue;
-		staging_cursors[mid].alloc->last_accesses = std::move(staging_cursors[mid].planned_reads);
+	for(memory_id mid = 0; mid < staging_allocs.size(); ++mid) {
+		if(staging_allocs[mid] == nullptr) continue;
+		staging_allocs[mid]->last_accesses = std::move(reads_from_staging_allocs[mid]);
 	}
 
 	// (4) Update buffer.up_to_date_memories en-bloc, regardless of which copy instructions were actually emitted.
