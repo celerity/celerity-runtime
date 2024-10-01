@@ -1321,63 +1321,59 @@ void generator_impl::establish_coherence_between_buffer_memories(
 		}
 	}
 
+	using location_metadata = std::tuple<allocation_id, buffer_allocation_state*, staging_alloc_cursor*, region_layout>;
+
+	const auto get_location_metadata = [&](const copy_plan::location& location) {
+		return matchbox::match<location_metadata>(
+		    location,
+		    [&](const allocation_id aid) {
+			    auto& alloc = buffer.memories[aid.get_memory_id()].get_allocation(aid);
+			    return std::tuple(aid, &alloc, nullptr, strided_layout(alloc.box));
+		    },
+		    [&](const copy_plan::staged& staged) {
+			    auto& alloc = staging_allocs[staged.mid];
+			    assert(alloc.alloc != nullptr);
+			    return std::tuple(alloc.alloc->aid, nullptr, &alloc, linearized_layout(staged.offset_bytes));
+		    });
+	};
+
+	const auto recurse_copy_plan = [&](const region<3>& region, const copy_plan::hop& source_hop, const copy_plan::hop& dest_hop,
+	                                   instruction* const source_copy_instr, const auto& recurse_copy_plan) -> void {
+		const auto [dest_aid, dest_buffer_alloc, dest_stage, dest_layout] = get_location_metadata(dest_hop.location);
+		const auto [source_aid, source_buffer_alloc, source_stage, source_layout] = get_location_metadata(source_hop.location);
+
+		const auto copy_instr = create<copy_instruction>(
+		    current_batch, source_aid, dest_aid, source_layout, dest_layout, region, buffer.elem_size, [&](const auto& record_debug_info) {
+			    const auto origin = std::holds_alternative<copy_plan::staged>(dest_hop.location) ? copy_instruction_record::copy_origin::staging
+			                                                                                     : copy_instruction_record::copy_origin::coherence;
+			    record_debug_info(origin, bid, buffer.debug_name);
+		    });
+
+		if(source_buffer_alloc != nullptr) {
+			perform_concurrent_read_from_allocation(copy_instr, *source_buffer_alloc, region);
+		} else {
+			source_stage->reads.add_instruction(copy_instr);
+		}
+
+		if(source_copy_instr != nullptr) { add_dependency(copy_instr, source_copy_instr, instruction_dependency_origin::read_from_allocation); }
+
+		if(dest_buffer_alloc != nullptr) {
+			perform_atomic_write_to_allocation(copy_instr, *dest_buffer_alloc, region);
+		} else {
+			add_dependencies_on_access_front(copy_instr, dest_stage->alloc->last_accesses, instruction_dependency_origin::write_to_allocation);
+		}
+
+		for(const auto& next_dest_hop : dest_hop.next) {
+			recurse_copy_plan(region, dest_hop, next_dest_hop, copy_instr, recurse_copy_plan);
+		}
+	};
+
 	current_batch.base_priority += 10; // TODO HACK
-
 	for(const auto& plan : planned_copies) {
-		using hhhop = std::tuple<allocation_id, buffer_allocation_state*, region_layout>;
-
-		const auto do_plan = [&](const copy_plan::hop& hop, const std::optional<hhhop>& last_hop_meta, instruction* const last_copy_instr,
-		                         const auto& do_plan) -> void {
-			instruction* copy_instr = nullptr;
-
-			auto hop_meta = matchbox::match<hhhop>(
-			    hop.location,
-			    [&](const allocation_id aid) {
-				    auto& alloc = buffer.memories[aid.get_memory_id()].get_allocation(aid);
-				    return std::tuple(aid, &alloc, strided_layout(alloc.box));
-			    },
-			    [&](const copy_plan::staged& staged) {
-				    const auto alloc = staging_allocs[staged.mid].alloc;
-				    assert(alloc != nullptr);
-				    return std::tuple(alloc->aid, nullptr, linearized_layout(staged.offset_bytes));
-			    });
-
-			if(last_hop_meta.has_value()) {
-				const auto [dest_aid, dest_alloc, dest_layout] = hop_meta;
-				const auto [source_aid, source_alloc, source_layout] = *last_hop_meta;
-
-				copy_instr = create<copy_instruction>(
-				    current_batch, source_aid, dest_aid, source_layout, dest_layout, plan.region, buffer.elem_size, [&](const auto& record_debug_info) {
-					    const auto origin = std::holds_alternative<copy_plan::staged>(hop.location) ? copy_instruction_record::copy_origin::staging
-					                                                                                : copy_instruction_record::copy_origin::coherence;
-					    record_debug_info(origin, bid, buffer.debug_name);
-				    });
-
-				if(source_alloc != nullptr) {
-					perform_concurrent_read_from_allocation(copy_instr, *source_alloc, plan.region);
-				} else {
-					auto& stage = staging_allocs[source_aid.get_memory_id()];
-					stage.reads.add_instruction(copy_instr);
-				}
-
-				if(last_copy_instr != nullptr) { add_dependency(copy_instr, last_copy_instr, instruction_dependency_origin::read_from_allocation); }
-
-				if(dest_alloc != nullptr) {
-					perform_atomic_write_to_allocation(copy_instr, *dest_alloc, plan.region);
-				} else {
-					auto& stage = staging_allocs[dest_aid.get_memory_id()];
-					add_dependencies_on_access_front(copy_instr, stage.alloc->last_accesses, instruction_dependency_origin::write_to_allocation);
-				}
-			}
-
-			for(const auto& next : hop.next) {
-				do_plan(next, hop_meta, copy_instr, do_plan);
-			}
-		};
-
-		do_plan(plan.source, std::nullopt, nullptr, do_plan);
+		for(const auto& dest_hop : plan.source.next) {
+			recurse_copy_plan(plan.region, plan.source, dest_hop, nullptr, recurse_copy_plan);
+		}
 	}
-
 	current_batch.base_priority -= 10; // TODO HACK
 
 	for(memory_id mid = 0; mid < staging_allocs.size(); ++mid) {
