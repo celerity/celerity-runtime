@@ -1147,6 +1147,9 @@ void generator_impl::commit_pending_region_receive_to_host_memory(
 	buffer.up_to_date_memories.update_region(receive.received_region, memory_mask().set(host_memory_id));
 }
 
+/// Multi-dimensional host <-> device copies become a severe performance bottleneck on Nvidia devices when the contiguous chunk size is small and the number of
+/// chunks is large (on the order of 1-10 MiB/s copy throughput vs. the available 25 GB/s host memory bandwidth). This function heuristically decides if it is
+/// beneficial to replace the nD host <-> device copy with an nD <-> 1d device (de)linearization step that enables a follow-up fast 1d host <-> device copy.
 bool should_linearize_copy_region(const memory_id alloc_mid, const box<3>& alloc_box, const region<3>& copy_region, const size_t elem_size) {
 	constexpr size_t max_linearized_region_bytes = 64 << 20; // 64 MiB - limit the device memory consumed for staging
 	constexpr size_t max_chunk_size_to_linearize = 64;
