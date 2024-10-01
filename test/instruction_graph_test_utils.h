@@ -134,7 +134,7 @@ class instruction_query {
 
 	/// Returns sub-query containing exactly the `index`-th node in the current query. Nodes keep the order they were recorded in.
 	instruction_query operator[](const size_t index) const {
-		if(index > m_result.size()) {
+		if(index >= m_result.size()) {
 			INFO(fmt::format("query: ", m_trace));
 			INFO(fmt::format("result: {}", *this));
 			FAIL(fmt::format("index {} out of bounds (size: {})", index, m_result.size()));
