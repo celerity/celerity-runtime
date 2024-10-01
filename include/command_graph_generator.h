@@ -114,6 +114,43 @@ class command_graph_generator {
 		return cmd;
 	}
 
+	struct assigned_chunk {
+		node_id executed_on = -1;
+		chunk<3> chnk;
+	};
+
+	using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<access_mode, region<3>>>;
+
+	struct assigned_chunks_with_requirements {
+		using with_requirements = std::pair<assigned_chunk, buffer_requirements_map>;
+
+		// We process both local (to be executed on this node) and remote (to be execute on other nodes) chunks.
+		// The latter are required to determine whether we currently own data that needs to be pushed to other nodes.
+		std::vector<with_requirements> local_chunks;
+		std::vector<with_requirements> remote_chunks;
+	};
+
+	std::vector<assigned_chunk> split_task_and_assign_chunks(const task& tsk) const;
+
+	assigned_chunks_with_requirements compute_per_chunk_requirements(const task& tsk, const std::vector<assigned_chunk>& chunks) const;
+
+	/// Resolve requirements on buffers with pending reductions.
+	/// For local chunks, create a reduction command and a single await_push command that receives the partial reduction results from all other nodes.
+	/// For remote chunks, always create a push command, regardless of whether we own a partial reduction result or not.
+	/// This is required because remote nodes do not know how many partial reduction results there are.
+	void resolve_pending_reductions(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements);
+
+	/// For all remote chunks, find read requirements intersecting with owned buffer regions and generate push commands for those regions.
+	void generate_pushes(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements);
+
+	/// For all local chunks, find read requirements on remote data.
+	/// Generate a single await push command for each buffer that awaits the entire required region.
+	/// This will then be fulfilled by one or more incoming pushes.
+	void generate_await_pushes(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements);
+
+	/// Determine which local data is fresh or stale by comparing global (task-level) and local writes.
+	void update_local_buffer_fresh_regions(const task& tsk, const std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes);
+
 	/**
 	 * Generates command(s) that need to be processed by every node in the system,
 	 * because they may require data transfers.
@@ -145,6 +182,12 @@ class command_graph_generator {
 	// default-constructs a policy_set - this must be a function because we can't use the implicit default constructor of policy_set, which has member
 	// initializers, within its surrounding class (Clang)
 	constexpr static policy_set default_policy_set() { return {}; }
+
+	// In the master/worker model, we used to try and find the node best suited for initializing multiple
+	// reductions that do not initialize_to_identity based on current data distribution.
+	// This is more difficult in a distributed setting, so for now we just hard code it to node 0.
+	// TODO: Revisit this at some point.
+	constexpr static node_id reduction_initializer_nid = 0;
 
 	std::string print_buffer_debug_label(buffer_id bid) const;
 
