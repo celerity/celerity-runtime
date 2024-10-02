@@ -7,6 +7,15 @@
 #include "runtime.h"
 #include "tracy.h"
 
+namespace celerity::detail {
+struct barrier_tag {};
+} // namespace celerity::detail
+
+namespace celerity::experimental {
+/// Pass this tag to `queue::wait` to issue a barrier synchronization across the entire cluster.
+inline constexpr detail::barrier_tag barrier{};
+} // namespace celerity::experimental
+
 namespace celerity {
 
 class queue {
@@ -28,40 +37,46 @@ class queue {
 	/// Waits for all tasks submitted to the queue to complete.
 	///
 	/// Since waiting will stall the scheduling of more work, this should be used sparingly - more so than on a single-node SYCL program.
+	///
+	/// Note that this overload of `wait` does not issue a global barrier, so when using this for simple user-side benchmarking, cluster nodes might disagree on
+	/// start time measurements. Use `wait(experimental::barrier)` instead for benchmarking purposes.
 	void wait() { // NOLINT(readability-convert-member-functions-to-static)
 		CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::wait", Red2);
 		[[maybe_unused]] const auto tid = detail::runtime::get_instance().sync(detail::epoch_action::none);
 		CELERITY_DETAIL_TRACY_ZONE_NAME("T{} wait", tid);
 	}
 
-	/**
-	 * Asynchronously captures the value of a host object by copy, introducing the same dependencies as a side-effect would.
-	 *
-	 * Waiting on the returned future in the application thread can stall scheduling of more work. To hide latency, either submit more command groups between
-	 * fence and wait operations or ensure that other independent command groups are eligible to run while the fence is executed.
-	 */
+	/// Waits for all tasks submitted to the queue to complete, then barrier-synchronizes across the entire cluster.
+	///
+	/// This has an even higher latency than `wait()`, but may be useful for user-side performance measurements.
+	void wait(detail::barrier_tag /* barrier */) { // NOLINT(readability-convert-member-functions-to-static)
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::wait", Red2);
+		[[maybe_unused]] const auto tid = detail::runtime::get_instance().sync(detail::epoch_action::barrier);
+		CELERITY_DETAIL_TRACY_ZONE_NAME("T{} wait (barrier)", tid);
+	}
+
+	/// Asynchronously captures the value of a host object by copy, introducing the same dependencies as a side-effect would.
+	///
+	/// Waiting on the returned future in the application thread can stall scheduling of more work. To hide latency, either submit more command groups between
+	/// fence and wait operations or ensure that other independent command groups are eligible to run while the fence is executed.
 	template <typename T>
 	[[nodiscard]] std::future<T> fence(const experimental::host_object<T>& obj) {
 		return detail::fence(obj);
 	}
 
-	/**
-	 * Asynchronously captures the contents of a buffer subrange, introducing the same dependencies as a read-accessor would.
-	 *
-	 * Waiting on the returned future in the application thread can stall scheduling of more work. To hide latency, either submit more command groups between
-	 * fence and wait operations or ensure that other independent command groups are eligible to run while the fence is executed.
-	 */
+	/// Asynchronously captures the contents of a buffer subrange, introducing the same dependencies as a read-accessor would.
+	///
+	/// Waiting on the returned future in the application thread can stall scheduling of more work. To hide latency, either submit more command groups between
+	/// fence and wait operations or ensure that other independent command groups are eligible to run while the fence is executed.
 	template <typename DataT, int Dims>
 	[[nodiscard]] std::future<buffer_snapshot<DataT, Dims>> fence(const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) {
 		return detail::fence(buf, sr);
 	}
 
-	/**
-	 * Asynchronously captures the contents of an entire buffer, introducing the same dependencies as a read-accessor would.
-	 *
-	 * Waiting on the returned future in the application thread can stall scheduling of more work. To hide latency, either submit more command groups between
-	 * fence and wait operations or ensure that other independent command groups are eligible to run while the fence is executed.
-	 */
+	/// Asynchronously captures the contents of an entire buffer, introducing the same dependencies as a read-accessor would.
+	///
+	/// Waiting on the returned future in the application thread can stall scheduling of more work. To hide latency, either submit more command groups between
+	/// fence and wait operations or ensure that other independent command groups are eligible to run while the fence is executed.
 	template <typename DataT, int Dims>
 	[[nodiscard]] std::future<buffer_snapshot<DataT, Dims>> fence(const buffer<DataT, Dims>& buf) {
 		return detail::fence(buf, {{}, buf.get_range()});

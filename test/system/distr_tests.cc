@@ -122,8 +122,8 @@ namespace detail {
 	    "[reductions][print_graph][smoke-test]") //
 	{
 		env::scoped_test_environment test_env(print_graphs_env_setting);
-		// init runtime early so the queue ctor doesn't override the log level set by log_capture
-		runtime::init(nullptr, nullptr);
+
+		runtime::init(nullptr, nullptr); // init runtime explicitly so we can use runtime_testspy
 
 		const auto num_nodes = runtime_testspy::get_num_nodes(runtime::get_instance());
 		if(num_nodes < 2) { SKIP("Test needs at least 2 participating nodes"); }
