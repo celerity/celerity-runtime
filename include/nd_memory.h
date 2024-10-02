@@ -115,7 +115,8 @@ inline void for_each_contiguous_chunk(const nd_copy_layout& layout, F&& f) {
 	}
 }
 
-/// From allocation `source_base` spanning `source_box` to allocation `dest_base` spanning `dest_box`, copy `copy_region` elements of `elem_size` bytes.
+/// From allocation `source_base` indexed by `source_layout` to allocation `dest_base` indexed by `dest_layout`, copy `copy_region` elements of `elem_size`
+/// bytes.
 template <typename /* void(const void*, void*, box<3>, box<3>, box<3>, size_t) */ BoxCopyFn, typename /* void(const void*, void*, size_t) */ LinearCopyFn>
 void dispatch_nd_region_copy(const void* const source_base, void* const dest_base, const region_layout& source_layout, const region_layout& dest_layout,
     const region<3>& copy_region, const size_t elem_size, BoxCopyFn&& box_copy, LinearCopyFn&& linear_copy) //
@@ -159,7 +160,7 @@ inline void nd_copy_host(const void* const source_base, void* const dest_base, c
 	});
 }
 
-/// From allocation `source_base` spanning `source_box` to allocation `dest_base` spanning `dest_box`, copy `copy_box` elements of `elem_size` bytes.
+/// From allocation `source_base` indexed by `source_layout` to allocation `dest_base` indexed by `dest_layout`, copy `copy_box` elements of `elem_size` bytes.
 inline void nd_copy_host(
     const void* const source_base, void* const dest_base, const box<3>& source_box, const box<3>& dest_box, const box<3>& copy_box, const size_t elem_size) //
 {
@@ -169,7 +170,8 @@ inline void nd_copy_host(
 	    copy_box.get_offset() - dest_box.get_offset(), copy_box.get_range(), elem_size);
 }
 
-/// From allocation `source_base` spanning `source_box` to allocation `dest_base` spanning `dest_box`, copy `copy_region` elements of `elem_size` bytes.
+/// From allocation `source_base` indexed by `source_layout` to allocation `dest_base` indexed by `dest_layout`, copy `copy_region` elements of `elem_size`
+/// bytes.
 inline void nd_copy_host(const void* const source_base, void* const dest_base, const region_layout& source_layout, const region_layout& dest_layout,
     const region<3>& copy_region, const size_t elem_size) //
 {
