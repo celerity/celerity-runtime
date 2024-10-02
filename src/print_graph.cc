@@ -3,7 +3,6 @@
 #include <fmt/format.h>
 
 #include "access_modes.h"
-#include "command.h"
 #include "grid.h"
 #include "instruction_graph.h"
 #include "print_utils.h"
@@ -14,15 +13,12 @@
 #include <map>
 #include <set>
 #include <unordered_map>
-#include <unordered_set>
-
 
 namespace celerity::detail {
 
-template <typename Dependency>
-const char* dependency_style(const Dependency& dep) {
-	if(dep.kind == dependency_kind::anti_dep) return "color=limegreen";
-	switch(dep.origin) {
+const char* dependency_style(const dependency_kind kind, const dependency_origin origin) {
+	if(kind == dependency_kind::anti_dep) return "color=limegreen";
+	switch(origin) {
 	case dependency_origin::collective_group_serialization: return "color=blue";
 	case dependency_origin::execution_front: return "color=orange";
 	case dependency_origin::last_epoch: return "color=orchid";
@@ -91,7 +87,7 @@ std::string print_task_graph(const task_recorder& recorder, const std::string& t
 		const char* shape = tsk.type == task_type::epoch || tsk.type == task_type::horizon ? "ellipse" : "box style=rounded";
 		fmt::format_to(std::back_inserter(dot), "{}[shape={} label=<{}>];", tsk.tid, shape, get_task_label(tsk));
 		for(auto d : tsk.dependencies) {
-			fmt::format_to(std::back_inserter(dot), "{}->{}[{}];", d.node, tsk.tid, dependency_style(d));
+			fmt::format_to(std::back_inserter(dot), "{}->{}[{}];", d.node, tsk.tid, dependency_style(d.kind, d.origin));
 		}
 	}
 
@@ -113,52 +109,54 @@ std::string get_command_label(const node_id local_nid, const command_record& cmd
 
 	std::string label = fmt::format("C{} on N{}<br/>", cid, local_nid);
 
-	auto add_reduction_id_if_reduction = [&]() {
-		if(cmd.reduction_id.has_value() && cmd.reduction_id != 0) { fmt::format_to(std::back_inserter(label), "(R{}) ", cmd.reduction_id.value()); }
+	const auto get_buffer_label = [](const buffer_id bid, const std::string& debug_name) {
+		return utils::escape_for_dot_label(utils::make_buffer_debug_label(bid, debug_name));
 	};
-	const std::string buffer_label =
-	    cmd.buffer_id.has_value() ? utils::escape_for_dot_label(utils::make_buffer_debug_label(cmd.buffer_id.value(), cmd.buffer_name)) : "";
+	const auto add_reduction_id_if_reduction = [&](const transfer_id trid) {
+		if(trid.rid != 0) { fmt::format_to(std::back_inserter(label), "(R{}) ", trid.rid); }
+	};
+	const auto list_completed_reductions = [&](const std::vector<reduction_id>& completed_reductions) {
+		for(const auto rid : completed_reductions) {
+			fmt::format_to(std::back_inserter(label), "<br/>completed R{}", rid);
+		}
+	};
 
-	switch(cmd.type) {
-	case command_type::epoch: {
-		label += print_epoch_label(cmd.epoch_action.value());
-	} break;
-	case command_type::execution: {
-		fmt::format_to(std::back_inserter(label), "<b>execution</b> {}", cmd.execution_range.value());
-	} break;
-	case command_type::push: {
-		add_reduction_id_if_reduction();
-		fmt::format_to(
-		    std::back_inserter(label), "<b>push</b> {} to N{}<br/>{} {}", cmd.transfer_id.value(), cmd.target.value(), buffer_label, cmd.push_range.value());
-	} break;
-	case command_type::await_push: {
-		add_reduction_id_if_reduction();
-		fmt::format_to(std::back_inserter(label), "<b>await push</b> {} <br/>{} {}", //
-		    cmd.transfer_id.value(), buffer_label, cmd.await_region.value());
-	} break;
-	case command_type::reduction: {
-		const region scalar_region(box<3>({0, 0, 0}, {1, 1, 1}));
-		fmt::format_to(std::back_inserter(label), "<b>reduction</b> R{}<br/> {} {}", cmd.reduction_id.value(), buffer_label, scalar_region);
-		if(!cmd.has_local_contribution) { label += "<br/>(no local contribution)"; }
-	} break;
-	case command_type::horizon: {
-		label += "<b>horizon</b>";
-	} break;
-	case command_type::fence: {
-		label += "<b>fence</b>";
-	} break;
-	default: utils::unreachable(); // LCOV_EXCL_LINE
+	matchbox::match(
+	    cmd,
+	    [&](const push_command_record& pcmd) {
+		    add_reduction_id_if_reduction(pcmd.trid);
+		    fmt::format_to(std::back_inserter(label), "<b>push</b> {} to N{}<br/>{} {}", pcmd.trid, pcmd.target,
+		        get_buffer_label(pcmd.trid.bid, pcmd.buffer_name), pcmd.push_range);
+	    },
+	    [&](const await_push_command_record& apcmd) {
+		    add_reduction_id_if_reduction(apcmd.trid);
+		    fmt::format_to(std::back_inserter(label), "<b>await push</b> {} <br/>{} {}", //
+		        apcmd.trid, get_buffer_label(apcmd.trid.bid, apcmd.buffer_name), apcmd.await_region);
+	    },
+	    [&](const reduction_command_record& rcmd) {
+		    const region scalar_region(box<3>({0, 0, 0}, {1, 1, 1}));
+		    fmt::format_to(std::back_inserter(label), "<b>reduction</b> R{}<br/> {} {}", rcmd.rid, get_buffer_label(rcmd.bid, rcmd.buffer_name), scalar_region);
+		    if(!rcmd.has_local_contribution) { label += "<br/>(no local contribution)"; }
+	    },
+	    [&](const epoch_command_record& ecmd) {
+		    label += print_epoch_label(ecmd.action);
+		    list_completed_reductions(ecmd.completed_reductions);
+	    },
+	    [&](const horizon_command_record& hcmd) {
+		    label += "<b>horizon</b>";
+		    list_completed_reductions(hcmd.completed_reductions);
+	    },
+	    [&](const execution_command_record& ecmd) { fmt::format_to(std::back_inserter(label), "<b>execution</b> {}", ecmd.execution_range); },
+	    [&](const fence_command_record& fcmd) { label += "<b>fence</b>"; });
+
+	if(utils::isa<execution_command_record>(&cmd)) {
+		const auto& ecmd = *utils::as<execution_command_record>(&cmd);
+		auto reduction_init_mode = ecmd.is_reduction_initializer ? access_mode::read_write : access_mode::discard_write;
+		format_requirements(label, ecmd.reductions, ecmd.accesses, ecmd.side_effects, reduction_init_mode);
 	}
-
-	if(cmd.task_id.has_value() && cmd.task_geometry.has_value()) {
-		auto reduction_init_mode = cmd.is_reduction_initializer ? sycl::access::mode::read_write : access_mode::discard_write;
-
-		format_requirements(label, cmd.reductions.value_or(reduction_list{}), cmd.accesses.value_or(access_list{}),
-		    cmd.side_effects.value_or(side_effect_map{}), reduction_init_mode);
-	}
-
-	for(const auto rid : cmd.completed_reductions) {
-		fmt::format_to(std::back_inserter(label), "<br/>completed R{}", rid);
+	if(utils::isa<fence_command_record>(&cmd)) {
+		const auto& fcmd = *utils::as<fence_command_record>(&cmd);
+		format_requirements(label, reduction_list{}, fcmd.accesses, fcmd.side_effects, access_mode::discard_write);
 	}
 
 	return label;
@@ -179,42 +177,68 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 		const auto id = local_to_global_id(cmd.cid);
 		const auto label = get_command_label(local_nid, cmd);
 		const auto* const fontcolor = colors[local_nid % (sizeof(colors) / sizeof(char*))];
-		const auto* const shape = cmd.task_id.has_value() ? "box" : "ellipse";
+		const auto* const shape = utils::isa<task_command_record>(&cmd) ? "box" : "ellipse";
 		return fmt::format("{}[label=<{}> fontcolor={} shape={}];", id, label, fontcolor, shape);
 	};
 
 	// we want to iterate over our command records in a sorted order, without moving everything around, and we aren't in C++20 (yet)
 	std::vector<const command_record*> sorted_cmd_pointers;
 	for(const auto& cmd : recorder.get_commands()) {
-		sorted_cmd_pointers.push_back(&cmd);
+		sorted_cmd_pointers.push_back(cmd.get());
 	}
 	std::sort(sorted_cmd_pointers.begin(), sorted_cmd_pointers.end(), [](const auto* a, const auto* b) { return a->cid < b->cid; });
 
 	for(const auto& cmd : sorted_cmd_pointers) {
-		if(cmd->task_id.has_value()) {
-			const auto tid = cmd->task_id.value();
+		if(utils::isa<task_command_record>(cmd)) {
+			const auto& task_cmd = dynamic_cast<const task_command_record&>(*cmd);
 			// Add to subgraph as well
-			if(task_subgraph_dot.count(tid) == 0) {
+			if(task_subgraph_dot.count(task_cmd.tid) == 0) {
 				std::string task_label;
-				fmt::format_to(std::back_inserter(task_label), "T{} ", tid);
-				if(!cmd->task_name.empty()) { fmt::format_to(std::back_inserter(task_label), "\"{}\" ", utils::escape_for_dot_label(cmd->task_name)); }
+				fmt::format_to(std::back_inserter(task_label), "T{} ", task_cmd.tid);
+				if(!task_cmd.debug_name.empty()) {
+					fmt::format_to(std::back_inserter(task_label), "\"{}\" ", utils::escape_for_dot_label(task_cmd.debug_name));
+				}
 				task_label += "(";
-				task_label += task_type_string(cmd->task_type.value());
-				if(cmd->task_type == task_type::collective) { fmt::format_to(std::back_inserter(task_label), " on CG{}", cmd->collective_group_id.value()); }
+				task_label += task_type_string(task_cmd.type);
+				if(task_cmd.type == task_type::collective) { fmt::format_to(std::back_inserter(task_label), " on CG{}", task_cmd.cgid); }
 				task_label += ")";
 
-				task_subgraph_dot.emplace(
-				    tid, fmt::format("subgraph cluster_{}{{label=<<font color=\"#606060\">{}</font>>;color=darkgray;", local_to_global_id(tid), task_label));
+				task_subgraph_dot.emplace(task_cmd.tid, fmt::format("subgraph cluster_{}{{label=<<font color=\"#606060\">{}</font>>;color=darkgray;",
+				                                            local_to_global_id(task_cmd.tid), task_label));
 			}
-			task_subgraph_dot[tid] += print_vertex(*cmd);
+			task_subgraph_dot[task_cmd.tid] += print_vertex(*cmd);
 		} else {
 			main_dot += print_vertex(*cmd);
 		}
+	};
 
-		for(const auto& d : cmd->dependencies) {
-			fmt::format_to(std::back_inserter(main_dot), "{}->{}[{}];", local_to_global_id(d.node), local_to_global_id(cmd->cid), dependency_style(d));
+	// Sort and deduplicate edges
+	struct dependency_edge {
+		command_id predecessor;
+		command_id successor;
+	};
+	struct dependency_edge_order {
+		bool operator()(const dependency_edge& lhs, const dependency_edge& rhs) const {
+			if(lhs.predecessor < rhs.predecessor) return true;
+			if(lhs.predecessor > rhs.predecessor) return false;
+			return lhs.successor < rhs.successor;
 		}
 	};
+	struct dependency_kind_order {
+		bool operator()(const std::pair<dependency_kind, dependency_origin>& lhs, const std::pair<dependency_kind, dependency_origin>& rhs) const {
+			return (lhs.first == dependency_kind::true_dep && rhs.first != dependency_kind::true_dep);
+		}
+	};
+	std::map<dependency_edge, std::set<std::pair<dependency_kind, dependency_origin>, dependency_kind_order>, dependency_edge_order>
+	    dependencies_by_edge; // ordered and unique
+	for(const auto& dep : recorder.get_dependencies()) {
+		dependencies_by_edge[{dep.predecessor, dep.successor}].insert(std::pair{dep.kind, dep.origin});
+	}
+	for(const auto& [edge, meta] : dependencies_by_edge) {
+		// If there's at most two edges, take the first one (likely a true dependency followed by an anti-dependency). If there's more, bail (don't style).
+		const auto style = meta.size() <= 2 ? dependency_style(meta.begin()->first, meta.begin()->second) : std::string{};
+		fmt::format_to(std::back_inserter(main_dot), "{}->{}[{}];", local_to_global_id(edge.predecessor), local_to_global_id(edge.successor), style);
+	}
 
 	std::string result_dot = make_graph_preamble(title);
 	for(auto& [_, sg_dot] : task_subgraph_dot) {
@@ -224,7 +248,7 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 	result_dot += main_dot;
 	result_dot += "}";
 	return result_dot;
-}
+} // namespace celerity::detail
 
 std::string combine_command_graphs(const std::vector<std::string>& graphs, const std::string& title) {
 	const auto preamble = make_graph_preamble(title);

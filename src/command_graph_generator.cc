@@ -18,13 +18,10 @@ command_graph_generator::command_graph_generator(
 	}
 
 	// Build initial epoch command (this is required to properly handle anti-dependencies on host-initialized buffers).
-	// We manually generate the first command, this will be replaced by applied horizons or explicit epochs down the line (see
-	// set_epoch_for_new_commands).
+	// We manually generate the first command so it doesn't get added to the current batch; it will be replaced by applied horizons
+	// or explicit epochs down the line (see set_epoch_for_new_commands).
 	auto* const epoch_cmd = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none, std::vector<reduction_id>{});
-	if(m_recorder != nullptr) {
-		const auto epoch_tsk = tm.get_task(task_manager::initial_epoch_task);
-		m_recorder->record(command_record(*epoch_cmd, *epoch_tsk, {}));
-	}
+	if(is_recording()) { m_recorder->record_command(std::make_unique<epoch_command_record>(*epoch_cmd, *tm.get_task(task_manager::initial_epoch_task))); }
 	m_epoch_for_new_commands = epoch_cmd->get_cid();
 }
 
@@ -138,11 +135,13 @@ command_set command_graph_generator::build_task(const task& tsk) {
 	// If a new epoch was completed in the CDAG before the current task, prune all predecessor commands of that epoch.
 	prune_commands_before(epoch_to_prune_before);
 
-	// If we have a command_recorder, record the current batch of commands
-	if(m_recorder != nullptr) {
-		for(const auto& cmd : m_current_cmd_batch) {
-			m_recorder->record(command_record(*cmd, tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }));
-		}
+	// Check that all commands have been recorded
+	if(is_recording()) {
+		assert(std::all_of(m_current_cmd_batch.begin(), m_current_cmd_batch.end(), [this](const abstract_command* cmd) {
+			return m_recorder->get_commands().end()
+			       != std::find_if(m_recorder->get_commands().begin(), m_recorder->get_commands().end(),
+			           [cmd](const std::unique_ptr<command_record>& rec) { return rec->cid == cmd->get_cid(); });
+		}));
 	}
 
 	return std::move(m_current_cmd_batch);
@@ -293,15 +292,17 @@ void command_graph_generator::resolve_pending_reductions(const task& tsk, const 
 					// NOTE: The number_of_participating_nodes check below relies on this being true
 					assert(chunks_with_requirements.local_chunks.size() == 1);
 
-					auto* const reduce_cmd = create_command<reduction_command>(reduction, local_last_writer[0].second.is_fresh() /* has_local_contribution */);
+					auto* const reduce_cmd = create_command<reduction_command>(reduction, local_last_writer[0].second.is_fresh() /* has_local_contribution */,
+					    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
 
 					// Only generate a true dependency on the last writer if this node participated in the intermediate result computation.
 					if(local_last_writer[0].second.is_fresh()) {
-						m_cdag.add_dependency(reduce_cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
+						add_dependency(reduce_cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
 					}
 
-					auto* const ap_cmd = create_command<await_push_command>(transfer_id(tsk.get_id(), bid, reduction.rid), scalar_reduction_box.get_subrange());
-					m_cdag.add_dependency(reduce_cmd, ap_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
+					auto* const ap_cmd = create_command<await_push_command>(transfer_id(tsk.get_id(), bid, reduction.rid), scalar_reduction_box.get_subrange(),
+					    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
+					add_dependency(reduce_cmd, ap_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
 					generate_epoch_dependencies(ap_cmd);
 
 					generate_anti_dependencies(tsk.get_id(), bid, buffer.local_last_writer, scalar_reduction_box, reduce_cmd);
@@ -315,13 +316,14 @@ void command_graph_generator::resolve_pending_reductions(const task& tsk, const 
 					// other node's receive_arbiter to not expect a send.
 					const auto push_box = notification_only ? empty_reduction_box : scalar_reduction_box;
 
-					auto* const push_cmd = create_command<push_command>(nid, transfer_id(tsk.get_id(), bid, reduction.rid), push_box.get_subrange());
+					auto* const push_cmd = create_command<push_command>(nid, transfer_id(tsk.get_id(), bid, reduction.rid), push_box.get_subrange(),
+					    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
 
 					if(notification_only) {
 						generate_epoch_dependencies(push_cmd);
 					} else {
 						m_command_buffer_reads[push_cmd->get_cid()][bid] = region_union(m_command_buffer_reads[push_cmd->get_cid()][bid], scalar_reduction_box);
-						m_cdag.add_dependency(push_cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
+						add_dependency(push_cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
 					}
 
 					// Mark the reduction result as replicated so we don't generate data transfers to this node
@@ -390,10 +392,11 @@ void command_graph_generator::generate_pushes(const task& tsk, const assigned_ch
 
 					// Merge all connected boxes to determine final set of pushes
 					const auto push_region = region<3>(std::move(non_replicated_boxes));
-					for(auto& push_box : push_region.get_boxes()) {
-						auto* const push_cmd = create_command<push_command>(nid, transfer_id(tsk.get_id(), bid, no_reduction_id), push_box.get_subrange());
+					for(const auto& push_box : push_region.get_boxes()) {
+						auto* const push_cmd = create_command<push_command>(nid, transfer_id(tsk.get_id(), bid, no_reduction_id), push_box.get_subrange(),
+						    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
 						assert(!utils::isa<await_push_command>(m_cdag.get(wcs)) && "Attempting to push non-owned data?!");
-						m_cdag.add_dependency(push_cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
+						add_dependency(push_cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
 
 						// Store the read access for determining anti-dependencies later on
 						m_command_buffer_reads[push_cmd->get_cid()][bid] = push_box;
@@ -427,7 +430,8 @@ void command_graph_generator::generate_await_pushes(const task& tsk, const assig
 				if(!missing_part_boxes.empty()) {
 					const region missing_parts(std::move(missing_part_boxes));
 					assert(m_num_nodes > 1);
-					auto* const ap_cmd = create_command<await_push_command>(transfer_id(tsk.get_id(), bid, no_reduction_id), missing_parts);
+					auto* const ap_cmd = create_command<await_push_command>(transfer_id(tsk.get_id(), bid, no_reduction_id), missing_parts,
+					    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
 					generate_anti_dependencies(tsk.get_id(), bid, buffer.local_last_writer, missing_parts, ap_cmd);
 					generate_epoch_dependencies(ap_cmd);
 					// Remember that we have this data now
@@ -501,9 +505,11 @@ void command_graph_generator::generate_distributed_commands(const task& tsk) {
 	for(const auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
 		abstract_command* cmd = nullptr;
 		if(tsk.get_type() == task_type::fence) {
-			cmd = create_command<fence_command>(tsk.get_id());
+			cmd = create_command<fence_command>(tsk.get_id(),
+			    [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
 		} else {
-			cmd = create_command<execution_command>(tsk.get_id(), subrange{a_chunk.chnk});
+			cmd = create_command<execution_command>(tsk.get_id(), subrange{a_chunk.chnk},
+			    [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
 
 			// Go over all reductions that are to be performed *during* the execution of this chunk,
 			// not to be confused with any pending reductions that need to be finalized *before* the
@@ -523,7 +529,7 @@ void command_graph_generator::generate_distributed_commands(const task& tsk) {
 			// which is required in order to guarantee they are executed in the same order on every node.
 			auto cgid = tsk.get_collective_group_id();
 			if(auto prev = m_last_collective_commands.find(cgid); prev != m_last_collective_commands.end()) {
-				m_cdag.add_dependency(cmd, m_cdag.get(prev->second), dependency_kind::true_dep, dependency_origin::collective_group_serialization);
+				add_dependency(cmd, m_cdag.get(prev->second), dependency_kind::true_dep, dependency_origin::collective_group_serialization);
 				m_last_collective_commands.erase(prev);
 			}
 			m_last_collective_commands.emplace(cgid, cmd->get_cid());
@@ -548,7 +554,7 @@ void command_graph_generator::generate_distributed_commands(const task& tsk) {
 				for(const auto& [box, wcs] : buffer.local_last_writer.get_region_values(all_reads)) {
 					if(box.empty()) continue;
 					assert(wcs.is_fresh() && "Unresolved remote data dependency");
-					m_cdag.add_dependency(cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
+					add_dependency(cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
 				}
 
 				// Store the read access for determining anti-dependencies later on
@@ -626,7 +632,7 @@ void command_graph_generator::generate_anti_dependencies(
 				if(const auto buffer_reads_it = command_reads.find(bid); buffer_reads_it != command_reads.end()) {
 					if(!region_intersection(write_req, buffer_reads_it->second).empty()) {
 						has_successors = true;
-						m_cdag.add_dependency(write_cmd, cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
+						add_dependency(write_cmd, cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
 					}
 				}
 			}
@@ -634,7 +640,7 @@ void command_graph_generator::generate_anti_dependencies(
 
 		// In some cases (horizons, master node host task, weird discard_* constructs...)
 		// the last writer might not have any successors. Just add the anti-dependency onto the writer itself then.
-		if(!has_successors) { m_cdag.add_dependency(write_cmd, last_writer_cmd, dependency_kind::anti_dep, dependency_origin::dataflow); }
+		if(!has_successors) { add_dependency(write_cmd, last_writer_cmd, dependency_kind::anti_dep, dependency_origin::dataflow); }
 	}
 }
 
@@ -650,7 +656,7 @@ void command_graph_generator::process_task_side_effect_requirements(const task& 
 
 			if(host_object.last_side_effect.has_value()) {
 				// TODO once we have different side_effect_orders, their interaction will determine the dependency kind
-				m_cdag.add_dependency(cmd, m_cdag.get(*host_object.last_side_effect), dependency_kind::true_dep, dependency_origin::dataflow);
+				add_dependency(cmd, m_cdag.get(*host_object.last_side_effect), dependency_kind::true_dep, dependency_origin::dataflow);
 			}
 
 			// Simplification: If there are multiple chunks per node, we generate true-dependencies between them in an arbitrary order, when all we really
@@ -684,14 +690,15 @@ void command_graph_generator::set_epoch_for_new_commands(const abstract_command*
 void command_graph_generator::reduce_execution_front_to(abstract_command* const new_front) {
 	const auto previous_execution_front = m_cdag.get_execution_front();
 	for(auto* const front_cmd : previous_execution_front) {
-		if(front_cmd != new_front) { m_cdag.add_dependency(new_front, front_cmd, dependency_kind::true_dep, dependency_origin::execution_front); }
+		if(front_cmd != new_front) { add_dependency(new_front, front_cmd, dependency_kind::true_dep, dependency_origin::execution_front); }
 	}
 	assert(m_cdag.get_execution_front().size() == 1 && *m_cdag.get_execution_front().begin() == new_front);
 }
 
 void command_graph_generator::generate_epoch_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::epoch);
-	auto* const epoch = create_command<epoch_command>(tsk.get_id(), tsk.get_epoch_action(), std::move(m_completed_reductions));
+	auto* const epoch = create_command<epoch_command>(
+	    tsk.get_id(), tsk.get_epoch_action(), std::move(m_completed_reductions), [&](const auto& record_debug_info) { record_debug_info(tsk); });
 	set_epoch_for_new_commands(epoch);
 	m_current_horizon = no_command;
 	// Make the epoch depend on the previous execution front
@@ -700,7 +707,8 @@ void command_graph_generator::generate_epoch_command(const task& tsk) {
 
 void command_graph_generator::generate_horizon_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::horizon);
-	auto* const horizon = create_command<horizon_command>(tsk.get_id(), std::move(m_completed_reductions));
+	auto* const horizon =
+	    create_command<horizon_command>(tsk.get_id(), std::move(m_completed_reductions), [&](const auto& record_debug_info) { record_debug_info(tsk); });
 
 	if(m_current_horizon != static_cast<command_id>(no_command)) {
 		// Apply the previous horizon
@@ -726,7 +734,7 @@ void command_graph_generator::generate_epoch_dependencies(abstract_command* cmd)
 	if(const auto deps = cmd->get_dependencies();
 	    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::true_dep; })) {
 		assert(cmd->get_cid() != m_epoch_for_new_commands);
-		m_cdag.add_dependency(cmd, m_cdag.get(m_epoch_for_new_commands), dependency_kind::true_dep, dependency_origin::last_epoch);
+		add_dependency(cmd, m_cdag.get(m_epoch_for_new_commands), dependency_kind::true_dep, dependency_origin::last_epoch);
 	}
 }
 
