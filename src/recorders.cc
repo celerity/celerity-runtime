@@ -41,77 +41,9 @@ task_record::task_record(const task& tsk, const buffer_name_map& get_buffer_debu
 
 // Commands
 
-std::optional<epoch_action> get_epoch_action(const abstract_command& cmd) {
-	const auto* epoch_cmd = dynamic_cast<const epoch_command*>(&cmd);
-	return epoch_cmd != nullptr ? epoch_cmd->get_epoch_action() : std::optional<epoch_action>{};
-}
-
 std::optional<subrange<3>> get_execution_range(const abstract_command& cmd) {
 	const auto* execution_cmd = dynamic_cast<const execution_command*>(&cmd);
 	return execution_cmd != nullptr ? execution_cmd->get_execution_range() : std::optional<subrange<3>>{};
-}
-
-std::optional<reduction_id> get_reduction_id(const abstract_command& cmd) {
-	if(const auto* push_cmd = dynamic_cast<const push_command*>(&cmd)) return push_cmd->get_transfer_id().rid;
-	if(const auto* await_push_cmd = dynamic_cast<const await_push_command*>(&cmd)) return await_push_cmd->get_transfer_id().rid;
-	if(const auto* reduction_cmd = dynamic_cast<const reduction_command*>(&cmd)) return reduction_cmd->get_reduction_info().rid;
-	return {};
-}
-
-std::optional<buffer_id> get_buffer_id(const abstract_command& cmd) {
-	if(const auto* push_cmd = dynamic_cast<const push_command*>(&cmd)) return push_cmd->get_transfer_id().bid;
-	if(const auto* await_push_cmd = dynamic_cast<const await_push_command*>(&cmd)) return await_push_cmd->get_transfer_id().bid;
-	if(const auto* reduction_cmd = dynamic_cast<const reduction_command*>(&cmd)) return reduction_cmd->get_reduction_info().bid;
-	return {};
-}
-
-std::string get_cmd_buffer_name(const std::optional<buffer_id>& bid, const buffer_name_map& get_buffer_debug_name) {
-	if(bid.has_value()) return get_buffer_debug_name(*bid);
-	return {};
-}
-
-std::optional<node_id> get_target(const abstract_command& cmd) {
-	if(const auto* push_cmd = dynamic_cast<const push_command*>(&cmd)) return push_cmd->get_target();
-	return {};
-}
-
-std::optional<region<3>> get_await_region(const abstract_command& cmd) {
-	if(const auto* await_push_cmd = dynamic_cast<const await_push_command*>(&cmd)) return await_push_cmd->get_region();
-	return {};
-}
-
-std::optional<subrange<3>> get_push_range(const abstract_command& cmd) {
-	if(const auto* push_cmd = dynamic_cast<const push_command*>(&cmd)) return push_cmd->get_range();
-	return {};
-}
-
-std::optional<transfer_id> get_transfer_id(const abstract_command& cmd) {
-	if(const auto* push_cmd = dynamic_cast<const push_command*>(&cmd)) return push_cmd->get_transfer_id();
-	if(const auto* await_push_cmd = dynamic_cast<const await_push_command*>(&cmd)) return await_push_cmd->get_transfer_id();
-	return {};
-}
-
-std::optional<task_id> get_task_id(const abstract_command& cmd) {
-	if(const auto* task_cmd = dynamic_cast<const task_command*>(&cmd)) return task_cmd->get_tid();
-	return {};
-}
-
-bool get_is_reduction_initializer(const abstract_command& cmd) {
-	if(const auto* execution_cmd = dynamic_cast<const execution_command*>(&cmd)) return execution_cmd->is_reduction_initializer();
-	return false;
-}
-
-bool get_has_local_contribution(const abstract_command& cmd) {
-	if(const auto* reduction_cmd = dynamic_cast<const reduction_command*>(&cmd)) return reduction_cmd->has_local_contribution();
-	return false;
-}
-
-std::vector<reduction_id> get_completed_reductions(const abstract_command& cmd) {
-	return matchbox::match(
-	    cmd,                                                                         //
-	    [](const horizon_command& hcmd) { return hcmd.get_completed_reductions(); }, //
-	    [](const epoch_command& ecmd) { return ecmd.get_completed_reductions(); },   //
-	    [](const auto&) { return std::vector<reduction_id>{}; });
 }
 
 access_list build_cmd_access_list(const abstract_command& cmd, const task& tsk, const buffer_name_map& accessed_buffer_names) {
@@ -121,25 +53,35 @@ access_list build_cmd_access_list(const abstract_command& cmd, const task& tsk, 
 	return build_access_list(tsk, accessed_buffer_names, execution_range);
 }
 
-command_dependency_list build_command_dependency_list(const abstract_command& cmd) {
-	command_dependency_list ret;
-	for(const auto& dep : cmd.get_dependencies()) {
-		ret.push_back({dep.node->get_cid(), dep.kind, dep.origin});
-	}
-	return ret;
-}
+command_record::command_record(const abstract_command& cmd) : cid(cmd.get_cid()) {}
 
-std::string get_task_name(const task& tsk) { return tsk.get_debug_name(); } // TODO remove?
+push_command_record::push_command_record(const push_command& pcmd, std::string buffer_name)
+    : acceptor_base(pcmd), target(pcmd.get_target()), trid(pcmd.get_transfer_id()), push_range(pcmd.get_range()), buffer_name(std::move(buffer_name)) {}
 
-command_record::command_record(const abstract_command& cmd, const task& tsk, const buffer_name_map& get_buffer_debug_name)
-    : cid(cmd.get_cid()), type(cmd.get_type()), epoch_action(get_epoch_action(cmd)), execution_range(get_execution_range(cmd)),
-      reduction_id(get_reduction_id(cmd)), buffer_id(get_buffer_id(cmd)), buffer_name(get_cmd_buffer_name(buffer_id, get_buffer_debug_name)),
-      target(get_target(cmd)), await_region(get_await_region(cmd)), push_range(get_push_range(cmd)), transfer_id(get_transfer_id(cmd)),
-      task_id(get_task_id(cmd)), task_geometry(tsk.get_geometry()), is_reduction_initializer(get_is_reduction_initializer(cmd)),
-      has_local_contribution(get_has_local_contribution(cmd)), accesses(build_cmd_access_list(cmd, tsk, get_buffer_debug_name)),
-      reductions(build_reduction_list(tsk, get_buffer_debug_name)), side_effects(tsk.get_side_effect_map()), dependencies(build_command_dependency_list(cmd)),
-      task_name(get_task_name(tsk)), task_type(tsk.get_type()), collective_group_id(tsk.get_collective_group_id()),
-      completed_reductions(get_completed_reductions(cmd)) {}
+await_push_command_record::await_push_command_record(const await_push_command& apcmd, std::string buffer_name)
+    : acceptor_base(apcmd), trid(apcmd.get_transfer_id()), await_region(apcmd.get_region()), buffer_name(std::move(buffer_name)) {}
+
+reduction_command_record::reduction_command_record(const reduction_command& rcmd, std::string buffer_name)
+    : acceptor_base(rcmd), rid(rcmd.get_reduction_info().rid), bid(rcmd.get_reduction_info().bid), buffer_name(std::move(buffer_name)),
+      init_from_buffer(rcmd.get_reduction_info().init_from_buffer), has_local_contribution(rcmd.has_local_contribution()) {}
+
+task_command_record::task_command_record(const task& tsk)
+    : tid(tsk.get_id()), type(tsk.get_type()), debug_name(tsk.get_debug_name()), cgid(tsk.get_collective_group_id()) {}
+
+epoch_command_record::epoch_command_record(const epoch_command& ecmd, const task& tsk)
+    : acceptor_base(ecmd), task_command_record(tsk), action(ecmd.get_epoch_action()), completed_reductions(ecmd.get_completed_reductions()) {}
+
+horizon_command_record::horizon_command_record(const horizon_command& hcmd, const task& tsk)
+    : acceptor_base(hcmd), task_command_record(tsk), completed_reductions(hcmd.get_completed_reductions()) {}
+
+execution_command_record::execution_command_record(const execution_command& ecmd, const task& tsk, const buffer_name_map& get_buffer_debug_name)
+    : acceptor_base(ecmd), task_command_record(tsk), execution_range(ecmd.get_execution_range()), is_reduction_initializer(ecmd.is_reduction_initializer()),
+      accesses(build_cmd_access_list(ecmd, tsk, get_buffer_debug_name)), side_effects(tsk.get_side_effect_map()),
+      reductions(build_reduction_list(tsk, get_buffer_debug_name)) {}
+
+fence_command_record::fence_command_record(const fence_command& fcmd, const task& tsk, const buffer_name_map& get_buffer_debug_name)
+    : acceptor_base(fcmd), task_command_record(tsk), accesses(build_cmd_access_list(fcmd, tsk, get_buffer_debug_name)),
+      side_effects(tsk.get_side_effect_map()) {}
 
 // Instructions
 

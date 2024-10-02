@@ -5,6 +5,7 @@
 
 #include "command_graph.h"
 #include "ranges.h"
+#include "recorders.h"
 #include "reduction.h"
 #include "region_map.h"
 #include "types.h"
@@ -106,12 +107,54 @@ class command_graph_generator {
 	command_graph& get_command_graph() { return m_cdag; }
 
   private:
-	// Wrapper around command_graph::create that adds commands to current batch set.
-	template <typename T, typename... Args>
-	T* create_command(Args&&... args) {
-		auto* const cmd = m_cdag.create<T>(std::forward<Args>(args)...);
+	/// True if a recorder is present and create_command() will call the `record_with` lambda passed as its last parameter.
+	bool is_recording() const { return m_recorder != nullptr; }
+
+	/// Maps command DAG types to their record type.
+	template <typename Command>
+	using record_type_for_t = utils::type_switch_t<Command, push_command(push_command_record), await_push_command(await_push_command_record),
+	    reduction_command(reduction_command_record), epoch_command(epoch_command_record), horizon_command(horizon_command_record),
+	    execution_command(execution_command_record), fence_command(fence_command_record)>;
+
+	template <typename Command, typename... CtorParamsAndRecordWithFn, size_t... CtorParamIndices, size_t RecordWithFnIndex>
+	Command* create_command_internal(std::tuple<CtorParamsAndRecordWithFn...>&& ctor_params_and_record_with,
+	    std::index_sequence<CtorParamIndices...> /* ctor_param_indices */, std::index_sequence<RecordWithFnIndex> /* record_with_fn_index */) {
+		auto* const cmd = m_cdag.create<Command>(std::move(std::get<CtorParamIndices>(ctor_params_and_record_with))...);
 		m_current_cmd_batch.insert(cmd);
+
+		if(is_recording()) {
+			const auto& record_with = std::get<RecordWithFnIndex>(ctor_params_and_record_with);
+			[[maybe_unused]] bool recorded = false;
+			record_with([&](auto&&... debug_info) {
+				m_recorder->record_command(
+				    std::make_unique<record_type_for_t<Command>>(std::as_const(*cmd), std::forward<decltype(debug_info)>(debug_info)...));
+				recorded = true;
+			});
+			assert(recorded && "record_debug_info() not called within recording function");
+		}
 		return cmd;
+	}
+
+	/// Wrapper around command_graph::create that adds commands to the current batch.
+	/// Records the command if a recorder is present.
+	///
+	/// Invoke as
+	/// ```
+	/// create<command-type>(command-ctor-params,
+	///     [&](const auto record_debug_info) { return record_debug_info(command-record-additional-ctor-params)})
+	/// ```
+	template <typename Command, typename... CtorParamsAndRecordWithFn>
+	Command* create_command(CtorParamsAndRecordWithFn&&... args) {
+		constexpr auto n_args = sizeof...(CtorParamsAndRecordWithFn);
+		static_assert(n_args > 0);
+		return create_command_internal<Command>(
+		    std::forward_as_tuple(std::forward<CtorParamsAndRecordWithFn>(args)...), std::make_index_sequence<n_args - 1>{}, std::index_sequence<n_args - 1>{});
+	}
+
+	/// Adds a new dependency between two commands and records it if recording is enabled.
+	void add_dependency(abstract_command* const from, abstract_command* const to, dependency_kind kind, dependency_origin origin) {
+		m_cdag.add_dependency(from, to, kind, origin);
+		if(is_recording()) { m_recorder->record_dependency(command_dependency_record(to->get_cid(), from->get_cid(), kind, origin)); }
 	}
 
 	struct assigned_chunk {
