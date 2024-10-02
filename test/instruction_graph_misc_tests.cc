@@ -323,7 +323,7 @@ TEST_CASE("epochs serialize execution and compact dependency tracking", "[instru
 
 	const auto all_producers = all_instrs.select_all("producer");
 
-	// the barrier epoch (aka slow_full_sync) will transitively depend on all previous instructions
+	// the barrier epoch, aka queue::wait(experimental::barrier) or distr_queue::slow_full_sync(), will transitively depend on all previous instructions
 	const auto barrier_epoch = all_instrs.select_unique<epoch_instruction_record>(barrier_epoch_tid.value());
 	CHECK(barrier_epoch->epoch_action == epoch_action::barrier);
 	CHECK(barrier_epoch.transitive_predecessors() == union_of(init_epoch, all_device_allocs, all_producers));
