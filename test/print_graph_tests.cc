@@ -89,13 +89,12 @@ TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]")
 	    "<i>discard_write</i> B0 {[0,0,0] - [1,1,1]}<br/><i>discard_write</i> B1 {[0,0,0] - [1,1,1]}> fontcolor=black shape=box];}subgraph "
 	    "cluster_id_0_2{label=<<font color=\"#606060\">T2 (device-compute)</font>>;color=darkgray;id_0_7[label=<C7 on N0<br/><b>execution</b> [0,0,0] + "
 	    "[1,1,1]<br/><i>write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read_write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read</i> B0 {[0,0,0] - [1,1,1]}> fontcolor=black "
-	    "shape=box];}id_0_0->id_0_1[color=orchid];id_0_2[label=<C2 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N1<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black "
-	    "shape=ellipse];id_0_1->id_0_2[];id_0_3[label=<C3 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N2<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black "
-	    "shape=ellipse];id_0_1->id_0_3[];id_0_4[label=<C4 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N3<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black "
-	    "shape=ellipse];id_0_1->id_0_4[];id_0_5[label=<C5 on N0<br/><b>reduction</b> R1<br/> B0 {[0,0,0] - [1,1,1]}> fontcolor=black "
-	    "shape=ellipse];id_0_1->id_0_5[];id_0_6->id_0_5[];id_0_2->id_0_5[color=limegreen];id_0_3->id_0_5[color=limegreen];id_0_4->id_0_5[color=limegreen];id_0_"
-	    "6[label=<C6 on N0<br/>(R1) <b>await push</b> T2.B0.R1 <br/>B0 {[0,0,0] - [1,1,1]}> fontcolor=black "
-	    "shape=ellipse];id_0_0->id_0_6[color=orchid];id_0_5->id_0_7[];id_0_1->id_0_7[];}";
+	    "shape=box];}id_0_2[label=<C2 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N1<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_3[label=<C3 on "
+	    "N0<br/>(R1) <b>push</b> T2.B0.R1 to N2<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_4[label=<C4 on N0<br/>(R1) <b>push</b> T2.B0.R1 "
+	    "to N3<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_5[label=<C5 on N0<br/><b>reduction</b> R1<br/> B0 {[0,0,0] - [1,1,1]}> "
+	    "fontcolor=black shape=ellipse];id_0_6[label=<C6 on N0<br/>(R1) <b>await push</b> T2.B0.R1 <br/>B0 {[0,0,0] - [1,1,1]}> fontcolor=black "
+	    "shape=ellipse];id_0_0->id_0_1[color=orchid];id_0_0->id_0_6[color=orchid];id_0_1->id_0_2[];id_0_1->id_0_3[];id_0_1->id_0_4[];id_0_1->id_0_5[];id_0_1->"
+	    "id_0_7[];id_0_2->id_0_5[color=limegreen];id_0_3->id_0_5[color=limegreen];id_0_4->id_0_5[color=limegreen];id_0_5->id_0_7[];id_0_6->id_0_5[];}";
 
 	// fully check node 0
 	const auto dot0 = cctx.print_command_graph(0);
@@ -332,8 +331,8 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 		    "B0 {[0,0,0] - [16,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_6{label=<<font color=\"#606060\">T6 "
 		    "(horizon)</font>>;color=darkgray;id_0_6[label=<C6 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph cluster_id_0_7{label=<<font "
 		    "color=\"#606060\">T7 (epoch)</font>>;color=darkgray;id_0_7[label=<C7 on N0<br/><b>epoch</b>> fontcolor=black "
-		    "shape=box];}id_0_0->id_0_1[];id_0_1->id_0_2[color=orange];id_0_1->id_0_3[];id_0_3->id_0_4[color=orange];id_0_2->id_0_4[color=orange];id_0_3->id_0_"
-		    "5[];id_0_5->id_0_6[color=orange];id_0_4->id_0_6[color=orange];id_0_6->id_0_7[color=orange];}";
+		    "shape=box];}id_0_0->id_0_1[];id_0_1->id_0_2[color=orange];id_0_1->id_0_3[];id_0_2->id_0_4[color=orange];id_0_3->id_0_4[color=orange];id_0_3->id_0_"
+		    "5[];id_0_4->id_0_6[color=orange];id_0_5->id_0_6[color=orange];id_0_6->id_0_7[color=orange];}";
 
 		const auto dot = runtime_testspy::print_command_graph(0, celerity::detail::runtime::get_instance());
 		CHECK(dot == expected);

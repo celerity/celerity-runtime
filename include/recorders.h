@@ -78,49 +78,103 @@ class task_recorder {
 
 using command_dependency_list = std::vector<dependency_record<command_id>>;
 
-struct command_record {
+struct command_dependency_record {
+	command_id predecessor;
+	command_id successor;
+	dependency_kind kind;
+	dependency_origin origin;
+
+	command_dependency_record(const command_id predecessor, const command_id successor, const dependency_kind kind, const dependency_origin origin)
+	    : predecessor(predecessor), successor(successor), kind(kind), origin(origin) {}
+};
+
+struct command_record : matchbox::acceptor<struct push_command_record, struct await_push_command_record, struct reduction_command_record,
+                            struct epoch_command_record, struct horizon_command_record, struct execution_command_record, struct fence_command_record> {
 	command_id cid;
-	command_type type;
 
-	std::optional<detail::epoch_action> epoch_action;
-	std::optional<subrange<3>> execution_range;
-	std::optional<detail::reduction_id> reduction_id;
-	std::optional<detail::buffer_id> buffer_id;
+	explicit command_record(const abstract_command& cmd);
+};
+
+struct push_command_record : matchbox::implement_acceptor<command_record, push_command_record> {
+	node_id target;
+	transfer_id trid;
+	subrange<3> push_range;
 	std::string buffer_name;
-	std::optional<node_id> target;
-	std::optional<region<3>> await_region;
-	std::optional<subrange<3>> push_range;
-	std::optional<detail::transfer_id> transfer_id;
-	std::optional<detail::task_id> task_id;
-	std::optional<detail::task_geometry> task_geometry;
-	bool is_reduction_initializer;
-	bool has_local_contribution;
-	std::optional<access_list> accesses;
-	std::optional<reduction_list> reductions;
-	std::optional<side_effect_map> side_effects;
-	command_dependency_list dependencies;
-	std::string task_name;
-	std::optional<detail::task_type> task_type;
-	std::optional<detail::collective_group_id> collective_group_id;
-	std::vector<detail::reduction_id> completed_reductions;
 
-	command_record(const abstract_command& cmd, const task& tsk, const buffer_name_map& get_buffer_debug_name);
+	explicit push_command_record(const push_command& pcmd, std::string buffer_name);
+};
+
+struct await_push_command_record : matchbox::implement_acceptor<command_record, await_push_command_record> {
+	transfer_id trid;
+	region<3> await_region;
+	std::string buffer_name;
+
+	explicit await_push_command_record(const await_push_command& apcmd, std::string buffer_name);
+};
+
+struct reduction_command_record : matchbox::implement_acceptor<command_record, reduction_command_record> {
+	reduction_id rid;
+	buffer_id bid;
+	std::string buffer_name;
+	bool init_from_buffer;
+	bool has_local_contribution;
+
+	explicit reduction_command_record(const reduction_command& rcmd, std::string buffer_name);
+};
+
+/// Base class for task command records
+struct task_command_record {
+	task_id tid;
+	task_type type;
+	std::string debug_name;
+	collective_group_id cgid;
+
+	explicit task_command_record(const task& tsk);
+};
+
+struct epoch_command_record : matchbox::implement_acceptor<command_record, epoch_command_record>, task_command_record {
+	epoch_action action;
+	std::vector<reduction_id> completed_reductions;
+
+	explicit epoch_command_record(const epoch_command& ecmd, const task& tsk);
+};
+
+struct horizon_command_record : matchbox::implement_acceptor<command_record, horizon_command_record>, task_command_record {
+	std::vector<reduction_id> completed_reductions;
+
+	explicit horizon_command_record(const horizon_command& hcmd, const task& tsk);
+};
+
+struct execution_command_record : matchbox::implement_acceptor<command_record, execution_command_record>, task_command_record {
+	subrange<3> execution_range;
+	bool is_reduction_initializer;
+	access_list accesses;
+	side_effect_map side_effects;
+	reduction_list reductions;
+
+	explicit execution_command_record(const execution_command& ecmd, const task& tsk, const buffer_name_map& get_buffer_debug_name);
+};
+
+struct fence_command_record : matchbox::implement_acceptor<command_record, fence_command_record>, task_command_record {
+	explicit fence_command_record(const fence_command& fcmd, const task& tsk, const buffer_name_map& get_buffer_debug_name);
+
+	access_list accesses;
+	side_effect_map side_effects;
 };
 
 class command_recorder {
   public:
-	void record(command_record&& record) { m_recorded_commands.push_back(std::move(record)); }
+	void record_command(std::unique_ptr<command_record> record) { m_recorded_commands.push_back(std::move(record)); }
 
-	const std::vector<detail::command_record>& get_commands() const { return m_recorded_commands; }
+	void record_dependency(const command_dependency_record& dependency) { m_recorded_dependencies.push_back(dependency); }
 
-	const command_record& get_command(const command_id cid) const {
-		const auto it = std::find_if(m_recorded_commands.begin(), m_recorded_commands.end(), [cid](const command_record& rec) { return rec.cid == cid; });
-		assert(it != m_recorded_commands.end());
-		return *it;
-	}
+	const std::vector<std::unique_ptr<command_record>>& get_commands() const { return m_recorded_commands; }
+
+	const std::vector<command_dependency_record>& get_dependencies() const { return m_recorded_dependencies; }
 
   private:
-	std::vector<detail::command_record> m_recorded_commands;
+	std::vector<std::unique_ptr<command_record>> m_recorded_commands;
+	std::vector<command_dependency_record> m_recorded_dependencies;
 };
 
 // Instruction recording
@@ -431,13 +485,6 @@ class instruction_recorder {
 	const std::vector<std::unique_ptr<instruction_record>>& get_instructions() const { return m_recorded_instructions; }
 
 	const std::vector<instruction_dependency_record>& get_dependencies() const { return m_recorded_dependencies; }
-
-	const instruction_record& get_instruction(const instruction_id iid) const {
-		const auto it = std::find_if(
-		    m_recorded_instructions.begin(), m_recorded_instructions.end(), [=](const std::unique_ptr<instruction_record>& instr) { return instr->id == iid; });
-		assert(it != m_recorded_instructions.end());
-		return **it;
-	}
 
 	const std::vector<outbound_pilot>& get_outbound_pilots() const { return m_recorded_pilots; }
 
