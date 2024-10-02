@@ -323,6 +323,15 @@ class handler {
 		    std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
 	}
 
+	template <typename KernelName = detail::unnamed_kernel, typename GlobalOffsetOrRest, typename... Rest>
+	void parallel_for(const size_t global_range, GlobalOffsetOrRest&& global_offset_or_rest, Rest&&... rest) {
+		if constexpr(std::is_convertible_v<GlobalOffsetOrRest, size_t>) {
+			parallel_for<KernelName>(range<1>(global_range), id<1>(static_cast<size_t>(global_offset_or_rest)), std::forward<Rest>(rest)...);
+		} else {
+			parallel_for<KernelName>(range<1>(global_range), std::forward<GlobalOffsetOrRest>(global_offset_or_rest), std::forward<Rest>(rest)...);
+		}
+	}
+
 	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
 	void parallel_for(celerity::nd_range<Dims> execution_range, ReductionsAndKernel&&... reductions_and_kernel) {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
