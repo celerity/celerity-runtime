@@ -137,3 +137,23 @@ TEST_CASE("host_task(once) is equivalent to a host task with unit range", "[hand
 	CHECK(tsk->get_geometry().granularity == ones);
 	CHECK(tsk->get_type() == task_type::host_compute); // NOT the magic "master node task" type
 }
+
+TEST_CASE("parallel_for(size_t, ...) acts as a shorthand for parallel_for(range<1>, ...)", "[handler]") {
+	auto cgh = detail::make_command_group_handler(task_id(1), 1 /* num_collective_nodes */);
+	cgh.parallel_for(10, [](item<1>) {});
+
+	const auto tsk = into_task(std::move(cgh));
+	CHECK(tsk->get_geometry().global_size == range_cast<3>(range(10)));
+	CHECK(tsk->get_geometry().global_offset == zeros);
+	CHECK(tsk->get_geometry().granularity == ones);
+}
+
+TEST_CASE("parallel_for(size_t, size_t,, ...) acts as a shorthand for parallel_for(range<1>, id<1>,, ...)", "[handler]") {
+	auto cgh = detail::make_command_group_handler(task_id(1), 1 /* num_collective_nodes */);
+	cgh.parallel_for(10, 11, [](item<1>) {});
+
+	const auto tsk = into_task(std::move(cgh));
+	CHECK(tsk->get_geometry().global_size == range_cast<3>(range(10)));
+	CHECK(tsk->get_geometry().global_offset == id_cast<3>(id(11)));
+	CHECK(tsk->get_geometry().granularity == ones);
+}
