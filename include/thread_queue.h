@@ -2,9 +2,9 @@
 
 #include "async_event.h"
 #include "double_buffered_queue.h"
+#include "log.h"
 #include "named_threads.h"
 #include "tracy.h"
-#include "utils.h"
 
 #include <chrono>
 #include <future>
@@ -146,9 +146,11 @@ class thread_queue {
 			try {
 				loop();
 			} catch(std::exception& e) { //
-				utils::panic("exception in {}: {}", name, e.what());
-			} catch(...) { //
-				utils::panic("exception in {}", name);
+				CELERITY_CRITICAL("[{}] {}", name, e.what());
+				throw; // terminate, but preserve backtrace in debugger
+			} catch(...) {
+				CELERITY_CRITICAL("[{}] unknown exception", name);
+				throw; // terminate, but preserve backtrace in debugger
 			}
 		}
 	};

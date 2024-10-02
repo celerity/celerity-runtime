@@ -947,7 +947,7 @@ void live_executor::thread_main(std::unique_ptr<backend> backend, delegate* cons
 	// LCOV_EXCL_START
 	catch(const std::exception& e) {
 		CELERITY_CRITICAL("[executor] {}", e.what());
-		std::abort();
+		throw; // terminate, but preserve backtrace in debugger
 	}
 	// LCOV_EXCL_STOP
 }

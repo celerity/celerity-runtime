@@ -132,7 +132,7 @@ namespace detail {
 		// LCOV_EXCL_START
 		catch(const std::exception& e) {
 			CELERITY_CRITICAL("[scheduler] {}", e.what());
-			std::abort();
+			throw; // terminate, but preserve backtrace in debugger
 		}
 		// LCOV_EXCL_STOP
 	}
