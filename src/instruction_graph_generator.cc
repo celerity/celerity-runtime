@@ -1256,7 +1256,7 @@ void generator_impl::establish_coherence_between_buffer_memories(
 			hop& chain(const copy_plan::location& loc) & { return next.emplace_back(loc); }
 		};
 
-		region<3> region;
+		detail::region<3> region;
 		hop source;
 
 		copy_plan(const detail::region<3>& region, const location& source) : region(region), source(source) {}
