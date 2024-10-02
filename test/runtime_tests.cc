@@ -556,33 +556,6 @@ namespace detail {
 		}));
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler::parallel_for accepts nd_range", "[handler]") {
-		queue q;
-
-		// Note: We assume a local range size of 64 here, this should be supported by most devices.
-
-		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(nd_range_1)>(celerity::nd_range<1>{{256}, {64}}, [](nd_item<1> item) {
-				group_barrier(item.get_group());
-				group_broadcast(item.get_group(), 42);
-			});
-		}));
-
-		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(nd_range_2)>(celerity::nd_range<2>{{64, 64}, {8, 8}}, [](nd_item<2> item) {
-				group_barrier(item.get_group());
-				group_broadcast(item.get_group(), 42, 25);
-			});
-		}));
-
-		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(nd_range_3)>(celerity::nd_range<3>{{16, 16, 16}, {4, 4, 4}}, [](nd_item<3> item) {
-				group_barrier(item.get_group());
-				group_broadcast(item.get_group(), 42, {1, 2, 3});
-			});
-		}));
-	}
-
 	TEST_CASE("nd_range throws on global_range indivisible by local_range", "[types]") {
 		CHECK_THROWS_WITH((celerity::nd_range<1>{{256}, {19}}), "global_range is not divisible by local_range");
 		CHECK_THROWS_WITH((celerity::nd_range<1>{{256}, {0}}), "global_range is not divisible by local_range");
@@ -663,43 +636,6 @@ namespace detail {
 	}
 
 #endif
-
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws if effective split constraint does not evenly divide global size", "[handler]") {
-		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
-		queue q;
-
-		const auto submit = [&q](auto range, auto constraint) {
-			q.submit([&](handler& cgh) {
-				experimental::constrain_split(cgh, constraint);
-				cgh.parallel_for(range, [=](auto) {});
-			});
-		};
-
-		CHECK_THROWS_WITH(submit(range<1>{10}, range<1>{0}), "Split constraint cannot be 0");
-		CHECK_THROWS_WITH(submit(range<2>{10, 10}, range<2>{2, 0}), "Split constraint cannot be 0");
-		CHECK_THROWS_WITH(submit(range<3>{10, 10, 10}, range<3>{2, 2, 0}), "Split constraint cannot be 0");
-
-		CHECK_NOTHROW(submit(range<1>{10}, range<1>{2}));
-		CHECK_NOTHROW(submit(range<2>{10, 8}, range<2>{2, 4}));
-		CHECK_NOTHROW(submit(range<3>{10, 8, 16}, range<3>{2, 4, 8}));
-
-		CHECK_THROWS_WITH(submit(range<1>{10}, range<1>{3}), "The split constraint [3] does not evenly divide the kernel global size [10]");
-		CHECK_THROWS_WITH(submit(range<2>{10, 8}, range<2>{2, 5}), "The split constraint [2,5] does not evenly divide the kernel global size [10,8]");
-		CHECK_THROWS_WITH(
-		    submit(range<3>{10, 8, 16}, range<3>{2, 4, 9}), "The split constraint [2,4,9] does not evenly divide the kernel global size [10,8,16]");
-
-		CHECK_THROWS_WITH(submit(range<1>{10}, range<1>{20}), "The split constraint [20] does not evenly divide the kernel global size [10]");
-
-		CHECK_NOTHROW(submit(nd_range<1>{100, 10}, range<1>{2}));
-		CHECK_NOTHROW(submit(nd_range<2>{{100, 80}, {10, 20}}, range<2>{2, 4}));
-		CHECK_NOTHROW(submit(nd_range<3>{{100, 80, 60}, {1, 2, 30}}, range<3>{2, 4, 20}));
-
-		CHECK_THROWS_WITH(submit(nd_range<1>{100, 10}, range<1>{3}), "The effective split constraint [30] does not evenly divide the kernel global size [100]");
-		CHECK_THROWS_WITH(submit(nd_range<2>{{100, 80}, {10, 20}}, range<2>{2, 3}),
-		    "The effective split constraint [10,60] does not evenly divide the kernel global size [100,80]");
-		CHECK_THROWS_WITH(submit(nd_range<3>{{100, 80, 60}, {1, 2, 30}}, range<3>{1, 2, 40}),
-		    "The effective split constraint [1,2,120] does not evenly divide the kernel global size [100,80,60]");
-	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when accessor target does not match command type", "[handler]") {
 		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
@@ -1387,24 +1323,6 @@ namespace detail {
 			CHECK_THROWS_WITH(detail::runtime::get_instance().destroy_buffer(get_buffer_id(buf)), what);
 			CHECK_THROWS_WITH(detail::runtime::get_instance().destroy_host_object(get_host_object_id(ho)), what);
 		}).join();
-	}
-
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "host_task(once) executes like a host task with unit range", "[runtime]") {
-		auto cgh = detail::make_command_group_handler(task_id(1), 1 /* num_collective_nodes */);
-
-		SECTION("with an argument-less functor") {
-			cgh.host_task(once, [] {});
-		}
-		SECTION("with a unary functor") {
-			cgh.host_task(once, [](partition<0> part) {});
-		}
-
-		auto tsk = detail::into_task(std::move(cgh));
-		CHECK(tsk->get_geometry().dimensions == 0);
-		CHECK(tsk->get_geometry().global_size.size() == 1);
-		CHECK(tsk->get_geometry().global_offset == zeros);
-		CHECK(tsk->get_geometry().granularity == ones);
-		CHECK(tsk->get_type() == task_type::host_compute); // NOT the magic "master node task" type
 	}
 
 	// SYCL guarantees that buffers will not access the user-pointer they were constructed from after the buffer has been destroyed. Since we submit work
