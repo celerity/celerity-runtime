@@ -12,8 +12,9 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 
 - Support builds for single-node multi-device setups without MPI by specifying `-DCELERITY_ENABLE_MPI=0` in CMake (#282)
 - Add `celerity::once` tag type for host tasks (equivalent to `range<0>{}`) as a replacement for `on_master_node` (#282)
-- Replaces `celerity::distr_queue` with `celerity::queue`, which permits multiple instances and aligns closer with SYCL (#283)
+- Replace `celerity::distr_queue` with `celerity::queue`, which permits multiple instances and aligns closer with SYCL (#283)
 - The runtime can be explicitly shut down using `celerity::shutdown()`, complementing `celerity::init()` (#283)
+- `handler::parallel_for(size_t, [size_t,] ...)` now acts as a shorthand for `parallel_for(range<1>, [id<1>,] ...)` (#288)
 
 ### Changed
 
