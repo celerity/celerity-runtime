@@ -1,8 +1,5 @@
 #pragma once
 
-#include <deque>
-#include <exception>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <type_traits>
@@ -21,148 +18,13 @@
 #include "types.h"
 #include "utils.h"
 
+#include "graph_test_utils.h"
 #include "test_utils.h"
 
 using namespace celerity;
 using namespace celerity::detail;
 
 namespace celerity::test_utils {
-
-class cdag_test_context;
-class idag_test_context;
-
-template <typename TestContext>
-class task_builder {
-	friend class cdag_test_context;
-	friend class idag_test_context;
-
-	using action = std::function<void(handler&)>;
-
-	class step {
-	  public:
-		step(TestContext& tctx, action command, std::vector<action> requirements = {})
-		    : m_tctx(tctx), m_command(std::move(command)), m_requirements(std::move(requirements)), m_uncaught_exceptions_before(std::uncaught_exceptions()) {}
-
-		~step() noexcept(false) { // NOLINT(bugprone-exception-escape)
-			if(std::uncaught_exceptions() == m_uncaught_exceptions_before && (m_command || !m_requirements.empty())) {
-				throw std::runtime_error("Found incomplete task build. Did you forget to call submit()?");
-			}
-		}
-
-		step(const step&) = delete;
-		step(step&&) = delete;
-		step& operator=(const step&) = delete;
-		step& operator=(step&&) = delete;
-
-		task_id submit() {
-			assert(m_command);
-			const auto tid = m_tctx.submit_command_group([this](handler& cgh) {
-				for(auto& a : m_requirements) {
-					a(cgh);
-				}
-				m_command(cgh);
-			});
-			m_tctx.build_task(tid);
-			m_tctx.maybe_build_horizon();
-			m_command = {};
-			m_requirements = {};
-			return tid;
-		}
-
-		step name(const std::string& name) {
-			return chain<step>([&name](handler& cgh) { celerity::debug::set_task_name(cgh, name); });
-		}
-
-		template <typename BufferT, typename RangeMapper>
-		step read(BufferT& buf, RangeMapper rmfn) {
-			return chain<step>([&buf, rmfn](handler& cgh) { buf.template get_access<access_mode::read>(cgh, rmfn); });
-		}
-
-		template <typename BufferT, typename RangeMapper>
-		step read_write(BufferT& buf, RangeMapper rmfn) {
-			return chain<step>([&buf, rmfn](handler& cgh) { buf.template get_access<access_mode::read_write>(cgh, rmfn); });
-		}
-
-		template <typename BufferT, typename RangeMapper>
-		step write(BufferT& buf, RangeMapper rmfn) {
-			return chain<step>([&buf, rmfn](handler& cgh) { buf.template get_access<access_mode::write>(cgh, rmfn); });
-		}
-
-		template <typename BufferT, typename RangeMapper>
-		step discard_write(BufferT& buf, RangeMapper rmfn) {
-			return chain<step>([&buf, rmfn](handler& cgh) { buf.template get_access<access_mode::discard_write>(cgh, rmfn); });
-		}
-
-		template <typename BufferT>
-		inline step reduce(BufferT& buf, const bool include_current_buffer_value) {
-			return chain<step>([this, &buf, include_current_buffer_value](
-			                       handler& cgh) { add_reduction(cgh, m_tctx.create_reduction(buf.get_id(), include_current_buffer_value)); });
-		}
-
-		template <typename HostObjT>
-		step affect(HostObjT& host_obj, experimental::side_effect_order order = experimental::side_effect_order::sequential) {
-			return chain<step>([&host_obj, order](handler& cgh) { host_obj.add_side_effect(cgh, order); });
-		}
-
-		template <int Dims>
-		step constrain_split(const range<Dims>& constraint) {
-			return chain<step>([constraint](handler& cgh) { experimental::constrain_split(cgh, constraint); });
-		}
-
-		template <typename Hint>
-		step hint(Hint hint) {
-			return chain<step>([&hint](handler& cgh) { experimental::hint(cgh, hint); });
-		}
-
-	  private:
-		TestContext& m_tctx;
-		action m_command;
-		std::vector<action> m_requirements;
-		int m_uncaught_exceptions_before;
-
-		template <typename StepT>
-		StepT chain(action a) {
-			static_assert(std::is_base_of_v<step, StepT>);
-			// move constructing a std::function doesn't guarantee that the source is empty afterwards
-			auto requirements = std::move(m_requirements);
-			requirements.push_back(std::move(a));
-			auto command = std::move(m_command);
-			m_requirements = {};
-			m_command = {};
-			return StepT{m_tctx, std::move(command), std::move(requirements)};
-		}
-	};
-
-  public:
-	template <typename Name, int Dims>
-	step device_compute(const range<Dims>& global_size, const id<Dims>& global_offset) {
-		return step(m_tctx, [global_size, global_offset](handler& cgh) { cgh.parallel_for<Name>(global_size, global_offset, [](id<Dims>) {}); });
-	}
-
-	template <typename Name, int Dims>
-	step device_compute(const nd_range<Dims>& execution_range) {
-		return step(m_tctx, [execution_range](handler& cgh) { cgh.parallel_for<Name>(execution_range, [](nd_item<Dims>) {}); });
-	}
-
-	template <int Dims>
-	step host_task(const range<Dims>& global_size) {
-		return step(m_tctx, [global_size](handler& cgh) { cgh.host_task(global_size, [](partition<Dims>) {}); });
-	}
-
-	step master_node_host_task() {
-		std::deque<action> actions;
-		return step(m_tctx, [](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
-	}
-
-	step collective_host_task(experimental::collective_group group) {
-		return step(m_tctx, [group](handler& cgh) { cgh.host_task(experimental::collective(group), [](const experimental::collective_partition&) {}); });
-	}
-
-  private:
-	TestContext& m_tctx;
-
-	task_builder(TestContext& cctx) : m_tctx(cctx) {}
-};
 
 template <typename T>
 constexpr static bool is_basic_query_filter_v = std::is_same_v<node_id, T> || std::is_same_v<task_id, T> || std::is_same_v<command_type, T>;
@@ -442,7 +304,7 @@ class command_query {
 
 	template <typename... Filters>
 	command_query find_adjacent(const bool find_predecessors, Filters... filters) const {
-		static_assert(((is_basic_query_filter_v<Filters> || is_dependency_query_filter_v<Filters>)&&...), "Unsupported filter");
+		static_assert(((is_basic_query_filter_v<Filters> || is_dependency_query_filter_v<Filters>) && ...), "Unsupported filter");
 		const auto kind_filter = get_optional<dependency_kind>(filters...);
 		const auto origin_filter = get_optional<dependency_origin>(filters...);
 
