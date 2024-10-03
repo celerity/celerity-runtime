@@ -183,7 +183,7 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 
 	// we want to iterate over our command records in a sorted order, without moving everything around, and we aren't in C++20 (yet)
 	std::vector<const command_record*> sorted_cmd_pointers;
-	for(const auto& cmd : recorder.get_commands()) {
+	for(const auto& cmd : recorder.get_graph_nodes()) {
 		sorted_cmd_pointers.push_back(cmd.get());
 	}
 	std::sort(sorted_cmd_pointers.begin(), sorted_cmd_pointers.end(), [](const auto* a, const auto* b) { return a->cid < b->cid; });
@@ -298,7 +298,7 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 	};
 
 	std::unordered_map<message_id, instruction_id> send_instructions_by_message_id; // for connecting pilot messages to send instructions
-	for(const auto& instr : irec.get_instructions()) {
+	for(const auto& instr : irec.get_graph_nodes()) {
 		matchbox::match(
 		    *instr,
 		    [&](const clone_collective_group_instruction_record& ccginstr) {

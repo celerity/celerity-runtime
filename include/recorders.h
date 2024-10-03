@@ -168,7 +168,7 @@ class command_recorder {
 
 	void record_dependency(const command_dependency_record& dependency) { m_recorded_dependencies.push_back(dependency); }
 
-	const std::vector<std::unique_ptr<command_record>>& get_commands() const { return m_recorded_commands; }
+	const std::vector<std::unique_ptr<command_record>>& get_graph_nodes() const { return m_recorded_commands; }
 
 	const std::vector<command_dependency_record>& get_dependencies() const { return m_recorded_dependencies; }
 
@@ -482,7 +482,7 @@ class instruction_recorder {
 
 	void record_dependency(const instruction_dependency_record& dependency) { m_recorded_dependencies.push_back(dependency); }
 
-	const std::vector<std::unique_ptr<instruction_record>>& get_instructions() const { return m_recorded_instructions; }
+	const std::vector<std::unique_ptr<instruction_record>>& get_graph_nodes() const { return m_recorded_instructions; }
 
 	const std::vector<instruction_dependency_record>& get_dependencies() const { return m_recorded_dependencies; }
 
