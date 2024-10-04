@@ -8,6 +8,7 @@
 #include <catch2/catch_message.hpp>
 #include <catch2/internal/catch_context.hpp>
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 
 #include "access_modes.h"
 #include "command_graph.h"
@@ -16,7 +17,6 @@
 #include "recorders.h"
 #include "task_manager.h"
 #include "types.h"
-#include "utils.h"
 
 #include "graph_test_utils.h"
 #include "test_utils.h"
@@ -26,314 +26,193 @@ using namespace celerity::detail;
 
 namespace celerity::test_utils {
 
-template <typename T>
-constexpr static bool is_basic_query_filter_v = std::is_same_v<node_id, T> || std::is_same_v<task_id, T> || std::is_same_v<command_type, T>;
+template <typename Record>
+struct command_matcher {
+	static bool matches(const Record& cmd, const std::string& debug_name) {
+		return matchbox::match(
+		    cmd,                                                                                 //
+		    [&](const execution_command_record& ecmd) { return ecmd.debug_name == debug_name; }, //
+		    [](const auto& /* other */) { return false; });
+	}
 
-template <typename T>
-constexpr static bool is_dependency_query_filter_v = std::is_same_v<dependency_kind, T> || std::is_same_v<dependency_origin, T>;
+	static bool matches(const Record& cmd, const task_id tid) {
+		if(const auto* tcmd = dynamic_cast<const task_command_record*>(&cmd); tcmd != nullptr) { return tcmd->tid == tid; }
+		return false;
+	}
 
-class command_query {
-	friend struct command_query_testspy;
-	friend class cdag_test_context;
+	static std::string print_filter(const std::string& debug_name) { return fmt::format("\"{}\"", debug_name); }
+	static std::string print_filter(const task_id tid) { return fmt::format("\"T{}\"", tid); }
+};
 
-	class query_exception : public std::runtime_error {
-		using std::runtime_error::runtime_error;
-	};
-
+/// Wrapper type around command_query that adds semantics for command graphs on multiple nodes.
+template <typename Record = command_record>
+class distributed_command_query {
   public:
-	// -------------------------------------------------------------------------------------------------------------------------------------------------------
-	// ------------------------------------------------------------------- Query functions -------------------------------------------------------------------
-	// -------------------------------------------------------------------------------------------------------------------------------------------------------
+	template <typename R>
+	using command_query = graph_query<R, command_record, command_recorder, command_matcher>;
 
-	/**
-	 * Finds all commands within the current set that match a given list of filters.
+	explicit distributed_command_query(std::vector<command_query<Record>>&& queries) : m_queries(std::move(queries)) {}
 
-	 * Currently supported filters are node_id, task_id and command_type.
-	 * Filters are applied conjunctively (AND), hence each type can be specified at most once.
-	 */
-	template <typename... Filters>
-	command_query find_all(Filters... filters) const {
-		assert_not_empty(__FUNCTION__);
-		static_assert((is_basic_query_filter_v<Filters> && ...), "Unsupported filter");
+	// allow upcast
+	template <typename SpecificRecord, std::enable_if_t<std::is_base_of_v<Record, SpecificRecord> && !std::is_same_v<Record, SpecificRecord>, int> = 0>
+	distributed_command_query(const distributed_command_query<SpecificRecord>& other)
+	    : distributed_command_query(std::vector<command_query<Record>>(other.m_queries.begin(), other.m_queries.end())) {}
 
-		const auto node_filter = get_optional<node_id>(filters...);
-		const auto task_filter = get_optional<task_id>(filters...);
-		const auto type_filter = get_optional<command_type>(filters...);
+	// ------------------------- distributed graph interface -------------------------
 
-		std::vector<std::unordered_set<const abstract_command*>> filtered(m_commands_by_node.size());
-		for(node_id nid = 0; nid < m_commands_by_node.size(); ++nid) {
-			if(node_filter.has_value() && *node_filter != nid) continue;
-			for(const auto* cmd : m_commands_by_node[nid]) {
-				if(task_filter.has_value()) {
-					if(!utils::isa<task_command>(cmd)) continue;
-					if(utils::as<task_command>(cmd)->get_tid() != *task_filter) continue;
-				}
-				if(type_filter.has_value()) {
-					if(cmd->get_type() != *type_filter) continue;
-				}
-				filtered[nid].insert(cmd);
-			}
+	command_query<Record> on(const node_id nid) const {
+		REQUIRE(nid < m_queries.size());
+		return m_queries[nid];
+	}
+
+	size_t total_count() const {
+		size_t sum = 0;
+		for(const auto& q : m_queries) {
+			sum += q.count();
 		}
-
-		return command_query{std::move(filtered)};
+		return sum;
 	}
 
-	/**
-	 * Returns a new command_query that contains all commands that precede the current set of commands.
-	 */
-	template <typename... Filters>
-	command_query find_predecessors(Filters... filters) const {
-		assert_not_empty(__FUNCTION__);
-		return find_adjacent(true, filters...);
-	}
-
-	/**
-	 * Returns a new command_query that contains all commands that succeed the current set of commands.
-	 */
-	template <typename... Filters>
-	command_query find_successors(Filters... filters) const {
-		assert_not_empty(__FUNCTION__);
-		return find_adjacent(false, filters...);
-	}
-
-	/**
-	 * Returns the total number of commands across all nodes.
-	 */
-	size_t count() const {
-		return std::accumulate(
-		    m_commands_by_node.begin(), m_commands_by_node.end(), size_t(0), [](size_t current, auto& cmds) { return current + cmds.size(); });
-	}
-
-	/**
-	 * Returns the number of commands per node, if it is the same, throws otherwise.
-	 */
 	size_t count_per_node() const {
-		if(m_commands_by_node.empty()) return 0;
-		const size_t count = m_commands_by_node[0].size();
-		for(size_t i = 1; i < m_commands_by_node.size(); ++i) {
-			if(m_commands_by_node[i].size() != count) {
-				throw query_exception(
-				    fmt::format("Different number of commands across nodes (node 0: {}, node {}: {})", count, i, m_commands_by_node[i].size()));
-			}
+		const size_t expected = m_queries.at(0).count();
+		for(node_id nid = 1; nid < m_queries.size(); ++nid) {
+			REQUIRE(m_queries[nid].count() == expected);
 		}
-		return count;
+		return expected;
 	}
 
-	/**
-	 * Chainable variant of count(), for use as part of larger query expressions.
-	 */
-	command_query assert_count(const size_t expected) const {
-		if(count() != expected) { throw query_exception(fmt::format("Expected {} total command(s), found {}", expected, count())); }
+	const distributed_command_query& assert_total_count(const size_t expected) const {
+		REQUIRE(total_count() == expected);
 		return *this;
 	}
 
-	/**
-	 * Chainable variant of count_per_node(), for use as part of larger query expressions.
-	 */
-	command_query assert_count_per_node(const size_t expected) const {
-		if(count_per_node() != expected) { throw query_exception(fmt::format("Expected {} command(s) per node, found {}", expected, count_per_node())); }
+	const distributed_command_query& assert_count_per_node(const size_t expected) const {
+		for(node_id nid = 0; nid < m_queries.size(); ++nid) {
+			REQUIRE(m_queries[nid].count() == expected);
+		}
 		return *this;
 	}
 
-	bool empty() const { return count() == 0; }
+	const std::vector<command_query<Record>>& iterate_nodes() const& { return m_queries; }
 
-	// --------------------------------------------------------------------------------------------------------------------------------------------------------
-	// -------------------------------------------------------------------- Set operations --------------------------------------------------------------------
-	// --------------------------------------------------------------------------------------------------------------------------------------------------------
+	std::vector<command_query<Record>> iterate_nodes() && { return std::move(m_queries); }
 
-	friend command_query operator-(const command_query& lhs, const command_query& rhs) { return lhs.subtract(rhs); }
-	friend command_query operator+(const command_query& lhs, const command_query& rhs) { return lhs.merge(rhs); }
+	// ---------------------------- graph_query interface ----------------------------
 
-	command_query subtract(const command_query& other) const {
-		assert_not_empty(__FUNCTION__);
-		assert(m_commands_by_node.size() == other.m_commands_by_node.size());
-		std::vector<std::unordered_set<const abstract_command*>> result(m_commands_by_node.size());
-		for(node_id nid = 0; nid < m_commands_by_node.size(); ++nid) {
-			std::copy_if(m_commands_by_node[nid].cbegin(), m_commands_by_node[nid].cend(), std::inserter(result[nid], result[nid].begin()),
-			    [&other, nid](const abstract_command* cmd) { return other.m_commands_by_node[nid].count(cmd) == 0; });
+	template <typename SpecificRecord = Record, typename... Filters>
+	distributed_command_query<SpecificRecord> select_all(const Filters&... filters) const {
+		return apply<SpecificRecord>([&filters...](auto& q) { return q.template select_all<SpecificRecord>(filters...); });
+	}
+
+	template <typename SpecificRecord = Record, typename... Filters>
+	distributed_command_query<SpecificRecord> select_unique(const Filters&... filters) const {
+		return apply<SpecificRecord>([&filters...](auto& q) { return q.template select_unique<SpecificRecord>(filters...); });
+	}
+
+	distributed_command_query<command_record> predecessors() const {
+		return apply<command_record>([](auto& q) { return q.predecessors(); });
+	}
+
+	distributed_command_query<command_record> transitive_predecessors() const {
+		return apply<command_record>([](auto& q) { return q.transitive_predecessors(); });
+	}
+
+	template <typename SpecificRecord = Record, typename... Filters>
+	distributed_command_query<SpecificRecord> transitive_predecessors_across(const Filters&... filters) const {
+		return apply<SpecificRecord>([&filters...](auto& q) { return q.template transitive_predecessors_across<SpecificRecord>(filters...); });
+	}
+
+	distributed_command_query<command_record> successors() const {
+		return apply<command_record>([](auto& q) { return q.successors(); });
+	}
+
+	distributed_command_query<command_record> transitive_successors() const {
+		return apply<command_record>([](auto& q) { return q.transitive_successors(); });
+	}
+
+	template <typename SpecificRecord = Record, typename... Filters>
+	distributed_command_query<SpecificRecord> transitive_successors_across(const Filters&... filters) const {
+		return apply<SpecificRecord>([&filters...](auto& q) { return q.template transitive_successors_across<SpecificRecord>(filters...); });
+	}
+
+	bool is_concurrent_with(const distributed_command_query& other) const {
+		for(node_id nid = 0; nid < m_queries.size(); ++nid) {
+			if(!m_queries[nid].is_concurrent_with(other.on(nid))) return false;
 		}
-		return command_query{std::move(result)};
+		return true;
 	}
 
-	command_query merge(const command_query& other) const {
-		assert_not_empty(__FUNCTION__);
-		assert(m_commands_by_node.size() == other.m_commands_by_node.size());
-		std::vector<std::unordered_set<const abstract_command*>> result(m_commands_by_node.size());
-		for(node_id nid = 0; nid < m_commands_by_node.size(); ++nid) {
-			result[nid].insert(m_commands_by_node[nid].cbegin(), m_commands_by_node[nid].cend());
-			result[nid].insert(other.m_commands_by_node[nid].cbegin(), other.m_commands_by_node[nid].cend());
+	template <typename SpecificRecord = Record, typename... Filters>
+	bool all_match(const Filters&... filters) const {
+		return std::all_of(m_queries.begin(), m_queries.end(), [&filters...](const auto& q) { return q.template all_match<SpecificRecord>(filters...); });
+	}
+
+	template <typename SpecificRecord = Record, typename... Filters>
+	distributed_command_query<SpecificRecord> assert_all(const Filters&... filters) const {
+		return apply<SpecificRecord>([&filters...](auto& q) { return q.template assert_all<SpecificRecord>(filters...); });
+	}
+
+	bool contains(const distributed_command_query& subset) const {
+		for(node_id nid = 0; nid < m_queries.size(); ++nid) {
+			if(!m_queries[nid].contains(subset.on(nid))) return false;
 		}
-		return command_query{std::move(result)};
+		return true;
 	}
 
-	// --------------------------------------------------------------------------------------------------------------------------------------------------------
-	// ---------------------------------------------------------------------- Predicates ----------------------------------------------------------------------
-	// --------------------------------------------------------------------------------------------------------------------------------------------------------
-
-	/**
-	 * Returns whether all commands on all nodes are of the given type.
-	 */
-	bool have_type(const command_type expected) const {
-		assert_not_empty(__FUNCTION__);
-		return for_all_commands([expected](const node_id nid, const abstract_command* cmd) {
-			const auto received = cmd->get_type();
-			if(received != expected) {
-				UNSCOPED_INFO(fmt::format("Expected command {} on node {} to have type '{}' but found type '{}'", cmd->get_cid(), nid, expected, received));
-				return false;
-			}
-			return true;
-		});
-	}
-
-	/**
-	 * Returns whether the current set of commands is succeeded by ALL commands in successors on each node.
-	 *
-	 * Throws if successors is empty or contains commands for nodes not present in the current query.
-	 *
-	 * NOTE: Care has to be taken when using this function in negative assertions. For example the check
-	 *       `CHECK_FALSE(q.find_all(task_a).have_successors(q.find_all(task_b))` can NOT be used to check
-	 *       whether there are no true dependencies between tasks a and b: If there are multiple nodes and
-	 *       for only one of them there is no dependency, the assertion will pass.
-	 */
-	bool have_successors(const command_query& successors, const std::optional<dependency_kind>& kind = std::nullopt,
-	    const std::optional<dependency_origin>& origin = std::nullopt) const {
-		assert_not_empty(__FUNCTION__);
-
-		if(successors.count() == 0) { throw query_exception("Successor set is empty"); }
-
-		assert(m_commands_by_node.size() == successors.m_commands_by_node.size());
-		for(node_id nid = 0; nid < m_commands_by_node.size(); ++nid) {
-			if(m_commands_by_node[nid].empty() && !successors.m_commands_by_node[nid].empty()) {
-				throw query_exception(fmt::format("A.have_successors(B): B contains commands for node {}, whereas A does not", nid));
-			}
+	bool operator==(const distributed_command_query& other) const {
+		if(m_queries.size() != other.m_queries.size()) return false;
+		for(node_id nid = 0; nid < m_queries.size(); ++nid) {
+			if(m_queries[nid] != other.m_queries[nid]) return false;
 		}
-
-		return for_all_commands([&successors, &kind, &origin](const node_id nid, const abstract_command* cmd) {
-			for(const auto* expected : successors.m_commands_by_node[nid]) {
-				bool found = false;
-				for(const auto received : cmd->get_dependents()) {
-					if(received.node == expected) {
-						found = true;
-						if(kind.has_value() && received.kind != *kind) {
-							UNSCOPED_INFO(fmt::format("Expected command {} on node {} to have successor {} with kind {}, but found kind {}", cmd->get_cid(),
-							    nid, expected->get_cid(), *kind, received.kind));
-							return false;
-						}
-						if(origin.has_value() && received.origin != *origin) {
-							UNSCOPED_INFO(fmt::format("Expected command {} on node {} to have successor {} with origin {}, but found origin {}", cmd->get_cid(),
-							    nid, expected->get_cid(), *origin, received.origin));
-							return false;
-						}
-					}
-				}
-				if(!found) {
-					UNSCOPED_INFO(fmt::format("Expected command {} on node {} to have successor {}", cmd->get_cid(), nid, expected->get_cid()));
-					return false;
-				}
-			}
-			return true;
-		});
+		return true;
 	}
+	bool operator!=(const distributed_command_query& other) const { return !(*this == other); }
 
-	// --------------------------------------------------------------------------------------------------------------------------------------------------------
-	// ------------------------------------------------------------------------ Other -------------------------------------------------------------------------
-	// --------------------------------------------------------------------------------------------------------------------------------------------------------
-
-	/**
-	 * Call the provided function once for each node, with a subquery containing commands only for that node.
-	 *
-	 * Using this function is usually not necessary, as all predicates (have_successors, have_types, ...) apply
-	 * simultaneously on all nodes.
-	 */
-	template <typename PerNodeCallback>
-	void for_each_node(PerNodeCallback&& cb) const {
-		assert_not_empty(__FUNCTION__);
-		for(node_id nid = 0; nid < m_commands_by_node.size(); ++nid) {
-			UNSCOPED_INFO(fmt::format("On node {}", nid));
-			cb(find_all(nid));
+	template <typename... DistributedCommandQueries>
+	friend distributed_command_query union_of(const distributed_command_query& head, const DistributedCommandQueries&... tail) {
+		REQUIRE(((head.m_queries.size() == tail.m_queries.size()) && ...));
+		std::vector<command_query<Record>> result;
+		for(node_id nid = 0; nid < head.m_queries.size(); ++nid) {
+			result.push_back(union_of(head.m_queries[nid], tail.m_queries[nid]...));
 		}
+		return distributed_command_query{std::move(result)};
 	}
 
-	/**
-	 * Returns the raw command pointers contained within the query, optionally limited to a given node.
-	 */
-	std::vector<const abstract_command*> get_raw(const std::optional<node_id>& nid = std::nullopt) const {
-		std::vector<const abstract_command*> result;
-		for_all_commands([&result, &nid](const node_id n, const abstract_command* const cmd) {
-			if(nid.has_value() && n != nid) return;
-			result.push_back(cmd);
-		});
-		return result;
+	template <typename... DistributedCommandQueries>
+	friend distributed_command_query intersection_of(const distributed_command_query& head, const DistributedCommandQueries&... tail) {
+		REQUIRE(((head.m_queries.size() == tail.m_queries.size()) && ...));
+		std::vector<command_query<Record>> result;
+		for(node_id nid = 0; nid < head.m_queries.size(); ++nid) {
+			result.push_back(intersection_of(head.m_queries[nid], tail.m_queries[nid]...));
+		}
+		return distributed_command_query{std::move(result)};
+	}
+
+	friend distributed_command_query difference_of(const distributed_command_query& lhs, const distributed_command_query& rhs) {
+		REQUIRE(lhs.m_queries.size() == rhs.m_queries.size());
+		std::vector<command_query<Record>> result;
+		for(node_id nid = 0; nid < lhs.m_queries.size(); ++nid) {
+			result.push_back(difference_of(lhs.m_queries[nid], rhs.m_queries[nid]));
+		}
+		return distributed_command_query{std::move(result)};
 	}
 
   private:
-	std::vector<std::unordered_set<const abstract_command*>> m_commands_by_node;
-	bool m_allow_empty_operations = false;
+	template <typename>
+	friend class distributed_command_query;
 
-	// Constructor for initial top-level query (containing all commands)
-	command_query(const std::vector<std::unique_ptr<command_graph>>& cdags) {
-		for(const auto& cdag : cdags) {
-			m_commands_by_node.push_back({cdag->all_commands().begin(), cdag->all_commands().end()});
+	template <typename, typename, typename>
+	friend struct fmt::formatter;
+
+	std::vector<command_query<Record>> m_queries;
+
+	template <typename SpecificRecord, typename Function>
+	distributed_command_query<SpecificRecord> apply(const Function& fn) const {
+		std::vector<command_query<SpecificRecord>> result;
+		for(auto& q : m_queries) {
+			result.push_back(fn(q));
 		}
-	}
-
-	// Constructor for narrowed-down queries
-	command_query(std::vector<std::unordered_set<const abstract_command*>> commands_by_node) : m_commands_by_node(std::move(commands_by_node)) {}
-
-	void assert_not_empty(const std::string& op_name) const {
-		if(m_allow_empty_operations) return;
-		const bool all_empty = std::all_of(m_commands_by_node.cbegin(), m_commands_by_node.cend(), [](const auto& cmds) { return cmds.empty(); });
-		if(all_empty) { throw query_exception(fmt::format("Operation '{}' not allowed on empty query", op_name)); }
-	}
-
-	template <typename Callback>
-	bool for_all_commands(Callback&& cb) const {
-		bool cont = true;
-		for(node_id nid = 0; cont && nid < m_commands_by_node.size(); ++nid) {
-			for(const auto* cmd : m_commands_by_node[nid]) {
-				if constexpr(std::is_invocable_r_v<bool, Callback, node_id, decltype(cmd)>) {
-					cont &= cb(nid, cmd);
-				} else {
-					cb(nid, cmd);
-				}
-				if(!cont) break;
-			}
-		}
-		return cont;
-	}
-
-	template <typename... Filters>
-	command_query find_adjacent(const bool find_predecessors, Filters... filters) const {
-		static_assert(((is_basic_query_filter_v<Filters> || is_dependency_query_filter_v<Filters>) && ...), "Unsupported filter");
-		const auto kind_filter = get_optional<dependency_kind>(filters...);
-		const auto origin_filter = get_optional<dependency_origin>(filters...);
-
-		std::vector<std::unordered_set<const abstract_command*>> adjacent(m_commands_by_node.size());
-		for_all_commands([&adjacent, find_predecessors, kind_filter, origin_filter](const node_id nid, const abstract_command* cmd) {
-			const auto iterable = find_predecessors ? cmd->get_dependencies() : cmd->get_dependents();
-			for(auto it = iterable.begin(); it != iterable.end(); ++it) {
-				if(kind_filter.has_value() && it->kind != *kind_filter) continue;
-				if(origin_filter.has_value() && it->origin != *origin_filter) continue;
-				adjacent[nid].insert(it->node);
-			}
-		});
-
-		auto query = command_query{std::move(adjacent)};
-		query.m_allow_empty_operations = true;
-		// Filter resulting set of commands, but remove dependency_kind/origin filters (if present)
-		return std::apply(
-		    [&query](auto... fs) { return query.find_all(fs...); }, utils::tuple_without<dependency_kind, dependency_origin>(std::tuple{filters...}));
-	}
-
-	template <typename T, typename... Ts>
-	static constexpr std::optional<T> get_optional(const std::tuple<Ts...>& tuple) {
-		if constexpr((std::is_same_v<T, Ts> || ...)) { return std::get<T>(tuple); }
-		return std::nullopt;
-	}
-
-	template <typename T, typename... Ts>
-	static constexpr std::optional<T> get_optional(Ts... ts) {
-		return get_optional<T>(std::tuple(ts...));
+		return distributed_command_query<SpecificRecord>{std::move(result)};
 	}
 };
 
@@ -381,8 +260,6 @@ class cdag_test_context {
 		return test_utils::mock_host_object(hoid);
 	}
 
-	// TODO: Do we want to duplicate all step functions here, or have some sort of .task() initial builder?
-
 	template <typename Name = unnamed_kernel, int Dims>
 	auto device_compute(const range<Dims>& global_size, const id<Dims>& global_offset = {}) {
 		return task_builder(*this).template device_compute<Name>(global_size, global_offset);
@@ -429,9 +306,13 @@ class cdag_test_context {
 		return tid;
 	}
 
-	template <typename... Filters>
-	command_query query(Filters... filters) {
-		return command_query(m_cdags).find_all(filters...);
+	template <typename SpecificRecord = command_record, typename... Filters>
+	distributed_command_query<SpecificRecord> query(Filters... filters) {
+		std::vector<typename distributed_command_query<>::command_query<command_record>> queries;
+		for(auto& recorder : m_cmd_recorders) {
+			queries.push_back(typename distributed_command_query<>::command_query<command_record>(*recorder));
+		}
+		return distributed_command_query(std::move(queries)).template select_all<SpecificRecord>(std::forward<Filters>(filters)...);
 	}
 
 	void set_horizon_step(const int step) { m_tm.set_horizon_step(step); }
@@ -503,3 +384,17 @@ class cdag_test_context {
 };
 
 } // namespace celerity::test_utils
+
+template <typename Record>
+struct fmt::formatter<celerity::test_utils::distributed_command_query<Record>> : fmt::formatter<size_t> {
+	format_context::iterator format(const celerity::test_utils::distributed_command_query<Record>& dcq, format_context& ctx) const {
+		auto out = ctx.out();
+		fmt::format_to(out, "[{}]", fmt::join(dcq.m_queries, ", "));
+		return out;
+	}
+};
+
+template <typename Record>
+struct Catch::StringMaker<celerity::test_utils::distributed_command_query<Record>> {
+	static std::string convert(const celerity::test_utils::distributed_command_query<Record>& dcq) { return fmt::format("{}", dcq); }
+};

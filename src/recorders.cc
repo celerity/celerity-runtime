@@ -53,7 +53,7 @@ access_list build_cmd_access_list(const abstract_command& cmd, const task& tsk, 
 	return build_access_list(tsk, accessed_buffer_names, execution_range);
 }
 
-command_record::command_record(const abstract_command& cmd) : cid(cmd.get_cid()) {}
+command_record::command_record(const abstract_command& cmd) : id(cmd.get_cid()) {}
 
 push_command_record::push_command_record(const push_command& pcmd, std::string buffer_name)
     : acceptor_base(pcmd), target(pcmd.get_target()), trid(pcmd.get_transfer_id()), push_range(pcmd.get_range()), buffer_name(std::move(buffer_name)) {}

@@ -90,7 +90,7 @@ struct command_dependency_record {
 
 struct command_record : matchbox::acceptor<struct push_command_record, struct await_push_command_record, struct reduction_command_record,
                             struct epoch_command_record, struct horizon_command_record, struct execution_command_record, struct fence_command_record> {
-	command_id cid;
+	command_id id;
 
 	explicit command_record(const abstract_command& cmd);
 };

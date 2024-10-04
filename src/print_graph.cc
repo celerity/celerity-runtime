@@ -105,7 +105,7 @@ const char* print_epoch_label(epoch_action action) {
 }
 
 std::string get_command_label(const node_id local_nid, const command_record& cmd) {
-	const command_id cid = cmd.cid;
+	const command_id cid = cmd.id;
 
 	std::string label = fmt::format("C{} on N{}<br/>", cid, local_nid);
 
@@ -174,7 +174,7 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 	const auto print_vertex = [&](const command_record& cmd) {
 		static const char* const colors[] = {"black", "crimson", "dodgerblue4", "goldenrod", "maroon4", "springgreen2", "tan1", "chartreuse2"};
 
-		const auto id = local_to_global_id(cmd.cid);
+		const auto id = local_to_global_id(cmd.id);
 		const auto label = get_command_label(local_nid, cmd);
 		const auto* const fontcolor = colors[local_nid % (sizeof(colors) / sizeof(char*))];
 		const auto* const shape = utils::isa<task_command_record>(&cmd) ? "box" : "ellipse";
@@ -186,7 +186,7 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 	for(const auto& cmd : recorder.get_graph_nodes()) {
 		sorted_cmd_pointers.push_back(cmd.get());
 	}
-	std::sort(sorted_cmd_pointers.begin(), sorted_cmd_pointers.end(), [](const auto* a, const auto* b) { return a->cid < b->cid; });
+	std::sort(sorted_cmd_pointers.begin(), sorted_cmd_pointers.end(), [](const command_record* a, const command_record* b) { return a->id < b->id; });
 
 	for(const auto& cmd : sorted_cmd_pointers) {
 		if(utils::isa<task_command_record>(cmd)) {

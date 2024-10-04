@@ -138,9 +138,8 @@ command_set command_graph_generator::build_task(const task& tsk) {
 	// Check that all commands have been recorded
 	if(is_recording()) {
 		assert(std::all_of(m_current_cmd_batch.begin(), m_current_cmd_batch.end(), [this](const abstract_command* cmd) {
-			return m_recorder->get_all().end()
-			       != std::find_if(m_recorder->get_all().begin(), m_recorder->get_all().end(),
-			           [cmd](const std::unique_ptr<command_record>& rec) { return rec->cid == cmd->get_cid(); });
+			return std::any_of(m_recorder->get_graph_nodes().begin(), m_recorder->get_graph_nodes().end(),
+			    [cmd](const std::unique_ptr<command_record>& rec) { return rec->id == cmd->get_cid(); });
 		}));
 	}
 
