@@ -26,13 +26,13 @@ file(GLOB_RECURSE TEST_INCLUDES *.h)
 set(TEST_TARGETS
   accessor_tests
   backend_tests
+  command_graph_general_tests
+  command_graph_granularity_tests
+  command_graph_reduction_tests
+  command_graph_transfer_tests
   debug_naming_tests
   double_buffered_queue_tests
   executor_tests
-  graph_generation_tests
-  graph_gen_granularity_tests
-  graph_gen_reduction_tests
-  graph_gen_transfer_tests
   graph_compaction_tests
   grid_tests
   hint_tests
