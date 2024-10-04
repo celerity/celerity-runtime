@@ -16,13 +16,13 @@ TEST_CASE("command_graph_generator generates required data transfer commands", "
 
 	const auto rm = [&](const chunk<1>& chnk) { return subrange(id(test_range[0] - chnk.offset[0] - chnk.range[0]), chnk.range); };
 	const auto tid_a = cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, rm).submit();
-	CHECK(cctx.query(tid_a, command_type::execution).count_per_node() == 1);
+	CHECK(cctx.query<execution_command_record>(tid_a).count_per_node() == 1);
 
 	cctx.device_compute<class UKN(task_b)>(test_range).read(buf, acc::one_to_one{}).submit();
-	CHECK(cctx.query(command_type::push).count() == 4);
-	CHECK(cctx.query(command_type::push).count_per_node() == 1);
-	CHECK(cctx.query(command_type::await_push).count() == 4);
-	CHECK(cctx.query(command_type::await_push).count_per_node() == 1);
+	CHECK(cctx.query<push_command_record>().total_count() == 4);
+	CHECK(cctx.query<push_command_record>().count_per_node() == 1);
+	CHECK(cctx.query<await_push_command_record>().total_count() == 4);
+	CHECK(cctx.query<await_push_command_record>().count_per_node() == 1);
 }
 
 TEST_CASE("command_graph_generator doesn't generate data transfer commands for the same buffer and range more than once",
@@ -36,8 +36,8 @@ TEST_CASE("command_graph_generator doesn't generate data transfer commands for t
 		cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 		// Both of theses are consumer modes, meaning that both have a requirement on the buffer range produced in task_a
 		cctx.master_node_host_task().read(buf0, acc::all{}).write(buf0, acc::all{}).submit();
-		CHECK(cctx.query(command_type::push, node_id(1)).count() == 1);
-		CHECK(cctx.query(command_type::await_push, node_id(0)).count() == 1);
+		CHECK(cctx.query<push_command_record>().on(1).count() == 1);
+		CHECK(cctx.query<await_push_command_record>().on(0).count() == 1);
 	}
 
 	SECTION("when used in the same task by different chunks on the same worker node") {
@@ -49,23 +49,23 @@ TEST_CASE("command_graph_generator doesn't generate data transfer commands for t
 		auto buf1 = cctx.create_buffer(test_range);
 		cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 		cctx.master_node_host_task().read(buf0, acc::all{}).discard_write(buf1, acc::all{}).submit();
-		CHECK(cctx.query(command_type::push, node_id(1)).count() == 1);
-		CHECK(cctx.query(command_type::await_push, node_id(0)).count() == 1);
+		CHECK(cctx.query<push_command_record>().on(1).count() == 1);
+		CHECK(cctx.query<await_push_command_record>().on(0).count() == 1);
 		cctx.master_node_host_task().read(buf0, acc::all{}).read(buf1, acc::all{}).submit();
 		// Assert that the number of pushes / await_pushes hasn't changed
-		CHECK(cctx.query(command_type::push, node_id(1)).count() == 1);
-		CHECK(cctx.query(command_type::await_push, node_id(0)).count() == 1);
+		CHECK(cctx.query<push_command_record>().on(1).count() == 1);
+		CHECK(cctx.query<await_push_command_record>().on(0).count() == 1);
 	}
 
 	SECTION("when used in parallel tasks") {
 		cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 		cctx.master_node_host_task().read(buf0, acc::all{}).submit();
-		CHECK(cctx.query(command_type::push, node_id(1)).count() == 1);
-		CHECK(cctx.query(command_type::await_push, node_id(0)).count() == 1);
+		CHECK(cctx.query<push_command_record>().on(1).count() == 1);
+		CHECK(cctx.query<await_push_command_record>().on(0).count() == 1);
 		cctx.master_node_host_task().read(buf0, acc::all{}).submit();
 		// Assert that the number of pushes / await_pushes hasn't changed
-		CHECK(cctx.query(command_type::push, node_id(1)).count() == 1);
-		CHECK(cctx.query(command_type::await_push, node_id(0)).count() == 1);
+		CHECK(cctx.query<push_command_record>().on(1).count() == 1);
+		CHECK(cctx.query<await_push_command_record>().on(0).count() == 1);
 	}
 }
 
@@ -99,10 +99,10 @@ TEST_CASE(
 		cctx.device_compute<class UKN(task_e)>(test_range).read(buf, full_range_for_single_node(2)).submit();
 	}
 
-	CHECK(cctx.query(node_id(0), command_type::push).count() == 2);
-	CHECK(cctx.query(command_type::push).count() == 2);
-	CHECK(cctx.query(node_id(1), command_type::await_push).count() == 1);
-	CHECK(cctx.query(node_id(2), command_type::await_push).count() == 1);
+	CHECK(cctx.query<push_command_record>().on(0).count() == 2);
+	CHECK(cctx.query<push_command_record>().total_count() == 2);
+	CHECK(cctx.query<await_push_command_record>().on(1).count() == 1);
+	CHECK(cctx.query<await_push_command_record>().on(2).count() == 1);
 }
 
 // NOTE: This behavior changed between master/worker and distributed scheduling; we no longer consolidate pushes.
@@ -129,9 +129,9 @@ TEST_CASE("command_graph_generator consolidates push commands for adjacent subra
 	const auto tid_b = cctx.device_compute<class UKN(task_b)>(range<1>{test_range[0] / 2}, id<1>{test_range[0] / 2}).discard_write(buf, swap_rm).submit();
 	cctx.master_node_host_task().read(buf, acc::all{}).submit();
 
-	CHECK(cctx.query(command_type::push).count() == 1);
-	CHECK(cctx.query(tid_a).have_successors(cctx.query(command_type::push)));
-	CHECK(cctx.query(tid_b).have_successors(cctx.query(command_type::push)));
+	CHECK(cctx.query<push_command_record>().total_count() == 1);
+	CHECK(cctx.query(tid_a).successors().contains(cctx.query<push_command_record>()));
+	CHECK(cctx.query(tid_b).successors().contains(cctx.query<push_command_record>()));
 }
 
 // Regression test: While we generate separate pushes for each last writer (see above), unless a last writer box gets fragmented
@@ -143,23 +143,23 @@ TEST_CASE("command_graph_generator does not unnecessarily divide push commands d
 
 	const range<1> test_range = {96};
 	auto buf = cctx.create_buffer(test_range);
-	cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, acc::one_to_one{}).submit();
+	cctx.device_compute(test_range).name("task a").discard_write(buf, acc::one_to_one{}).submit();
 	// Assuming standard 1D split
-	CHECK(subrange_cast<1>(dynamic_cast<const execution_command&>(*cctx.query().get_raw(0)[0]).get_execution_range()) == subrange<1>{0, 32});
-	CHECK(subrange_cast<1>(dynamic_cast<const execution_command&>(*cctx.query().get_raw(1)[0]).get_execution_range()) == subrange<1>{32, 32});
-	CHECK(subrange_cast<1>(dynamic_cast<const execution_command&>(*cctx.query().get_raw(2)[0]).get_execution_range()) == subrange<1>{64, 32});
+	CHECK(subrange_cast<1>(cctx.query<execution_command_record>("task a").on(0)->execution_range) == subrange<1>{0, 32});
+	CHECK(subrange_cast<1>(cctx.query<execution_command_record>("task a").on(1)->execution_range) == subrange<1>{32, 32});
+	CHECK(subrange_cast<1>(cctx.query<execution_command_record>("task a").on(2)->execution_range) == subrange<1>{64, 32});
 	// Require partial data from nodes 1 and 2
 	cctx.master_node_host_task().read(buf, acc::fixed{subrange<1>{48, 32}}).submit();
-	const auto pushes1 = cctx.query(command_type::push);
-	CHECK(pushes1.count() == 2);
+	const auto pushes1 = cctx.query<push_command_record>();
+	CHECK(pushes1.total_count() == 2);
 	// Now exchange data between nodes 1 and 2. Node 0 doesn't read anything.
 	auto rm = [](const chunk<1>& chnk) {
 		if(chnk.offset[0] + chnk.range[0] >= 64) return subrange<1>{32, 64};
 		return subrange<1>{0, 0};
 	};
 	cctx.device_compute<class UKN(task_c)>(test_range).read(buf, rm).submit();
-	const auto pushes2 = cctx.query(command_type::push) - pushes1;
-	CHECK(pushes2.count() == 2);
+	const auto pushes2 = difference_of(cctx.query<push_command_record>(), pushes1);
+	CHECK(pushes2.total_count() == 2);
 }
 
 TEST_CASE("command_graph_generator generates dependencies for push commands", "[command_graph_generator][command-graph]") {
@@ -170,7 +170,7 @@ TEST_CASE("command_graph_generator generates dependencies for push commands", "[
 
 	const auto tid_a = cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, acc::one_to_one{}).submit();
 	cctx.master_node_host_task().read(buf, acc::all{}).submit();
-	CHECK(cctx.query(tid_a).have_successors(cctx.query(command_type::push)));
+	CHECK(cctx.query(tid_a).successors().contains(cctx.query<push_command_record>()));
 }
 
 TEST_CASE("command_graph_generator generates anti-dependencies for await_push commands", "[command_graph_generator][command-graph]") {
@@ -187,7 +187,7 @@ TEST_CASE("command_graph_generator generates anti-dependencies for await_push co
 		// Node 0 reads it again, generating a transfer
 		cctx.master_node_host_task().read(buf, acc::all{}).submit();
 		// The await_push command has to wait until task_a is complete
-		CHECK(cctx.query(node_id(0), tid_a).have_successors(cctx.query(node_id(0), command_type::await_push), dependency_kind::anti_dep));
+		CHECK(cctx.query(tid_a).on(0).successors().contains(cctx.query<await_push_command_record>().on(0)));
 	}
 
 	SECTION("if writing to region used by push command") {
@@ -199,8 +199,7 @@ TEST_CASE("command_graph_generator generates anti-dependencies for await_push co
 		// Note that in this example the await_push is never at risk of actually running concurrently with the first push to node 0, as they are effectively
 		// in a distributed dependency relationship, however more complex examples could give rise to situations where this can happen.
 		cctx.device_compute<class UKN(task_c)>(test_range).read(buf, acc::one_to_one{}).submit();
-		CHECK(
-		    cctx.query().find_all(node_id(1), command_type::push).have_successors(cctx.query(node_id(1), command_type::await_push), dependency_kind::anti_dep));
+		CHECK(cctx.query<push_command_record>().on(1).successors().contains(cctx.query<await_push_command_record>().on(1)));
 	}
 
 	SECTION("if writing to region written by another await_push command") {
@@ -208,15 +207,15 @@ TEST_CASE("command_graph_generator generates anti-dependencies for await_push co
 		cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, acc::one_to_one{}).submit();
 		// Node 0 reads the whole buffer
 		const auto tid_b = cctx.master_node_host_task().read(buf, acc::all{}).submit();
-		const auto first_await_push = cctx.query(command_type::await_push);
-		CHECK(first_await_push.count() == 1);
+		const auto first_await_push = cctx.query<await_push_command_record>();
+		CHECK(first_await_push.total_count() == 1);
 		// Both nodes write it again
 		cctx.device_compute<class UKN(task_c)>(test_range).discard_write(buf, acc::one_to_one{}).submit();
 		// Node 0 reads it again
 		cctx.master_node_host_task().read(buf, acc::all{}).submit();
-		const auto second_await_push = cctx.query(command_type::await_push) - first_await_push;
+		const auto second_await_push = difference_of(cctx.query<await_push_command_record>(), first_await_push);
 		// The first await push last wrote the data, but the anti-dependency is delegated to the reading successor task
-		CHECK(cctx.query(tid_b).have_successors(second_await_push));
+		CHECK(cctx.query(tid_b).successors().contains(second_await_push));
 	}
 }
 
@@ -235,8 +234,8 @@ TEST_CASE("command_graph_generator generates anti-dependencies with subrange pre
 		const auto tid_c =
 		    cctx.device_compute<class UKN(task_c)>(range<1>(test_range[0] / 2), id<1>(test_range[0] / 2)).discard_write(buf, acc::one_to_one{}).submit();
 		// task_c should not have an anti-dependency onto task_b (or task_a)
-		CHECK_FALSE(cctx.query(tid_a).have_successors(cctx.query(tid_c), dependency_kind::anti_dep));
-		CHECK_FALSE(cctx.query(tid_b).have_successors(cctx.query(tid_c), dependency_kind::anti_dep));
+		CHECK(cctx.query(tid_a).is_concurrent_with(cctx.query(tid_c)));
+		CHECK(cctx.query(tid_b).is_concurrent_with(cctx.query(tid_c)));
 	}
 
 	SECTION("for await_push commands") {
@@ -249,9 +248,9 @@ TEST_CASE("command_graph_generator generates anti-dependencies with subrange pre
 		// task_d reads the first half
 		const auto tid_d = cctx.master_node_host_task().read(buf, acc::fixed<1>{{0, test_range[0] / 2}}).submit();
 		// This should generate an await_push command that does NOT have an anti-dependency onto task_b, only task_a
-		const auto await_push = cctx.query(tid_d).find_predecessors(command_type::await_push);
-		CHECK(await_push.count() == 1);
-		CHECK(cctx.query(node_id(0), tid_a).have_successors(await_push, dependency_kind::anti_dep));
-		CHECK_FALSE(cctx.query(node_id(0), tid_b).have_successors(await_push, dependency_kind::anti_dep));
+		const auto await_push = cctx.query(tid_d).predecessors().select_all<await_push_command_record>();
+		CHECK(await_push.total_count() == 1);
+		CHECK(cctx.query(tid_a).on(0).successors().contains(await_push.on(0)));
+		CHECK(cctx.query(tid_b).on(0).is_concurrent_with(await_push.on(0)));
 	}
 }

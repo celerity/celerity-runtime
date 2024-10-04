@@ -272,6 +272,14 @@ class graph_query {
 	/// Returns the number of records in the query.
 	size_t count() const { return m_result.size(); }
 
+	/// Asserts that the count is equal to the provided value.
+	const graph_query& assert_count(const size_t expected) const {
+		INFO(fmt::format("query: ", m_trace));
+		INFO(fmt::format("result: {}", *this));
+		REQUIRE(count() == expected);
+		return *this;
+	}
+
 	/// Returns the number of records in the query that match all provided filters (and the specified record type, if any)
 	template <typename SpecificRecord = Record, typename... Filters>
 	size_t count(const Filters&... filters) const {
@@ -389,6 +397,12 @@ class graph_query {
 		return head.intersection_with(tail...);
 	}
 
+	/// Returns a query containing all records that are in `first` but not in `second`.
+	friend graph_query difference_of(const graph_query& first, const graph_query& second) {
+		// call through a proper member function, because GCC will not extend friendship with GraphQueries... to inline-friend functions
+		return first.difference_with(second);
+	}
+
   private:
 	template <typename, typename, typename, template <typename> typename>
 	friend class graph_query;
@@ -463,6 +477,18 @@ class graph_query {
 		(((trace += ", ") += tail.m_trace), ...);
 		trace += ")";
 		return graph_query(m_recorder, std::move(intersection_query), std::move(trace));
+	}
+
+	graph_query difference_with(const graph_query& other) const {
+		assert(m_recorder == other.m_recorder);
+
+		// construct difference in recorder-ordering without duplicates - returns the type of `this`
+		std::vector<const Record*> difference_query;
+		for(const auto& rec : m_result) {
+			if(std::find(other.m_result.begin(), other.m_result.end(), rec) == other.m_result.end()) { difference_query.push_back(rec); }
+		}
+
+		return graph_query(m_recorder, std::move(difference_query), fmt::format("difference_of({}, {})", m_trace, other.m_trace));
 	}
 
 	graph_query(const Recorder* recorder, std::vector<const Record*> query, std::string trace)
