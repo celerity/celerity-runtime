@@ -81,7 +81,11 @@ TEST_CASE("horizons prevent tracking data structures from growing indefinitely",
 			REQUIRE_LOOP(command_graph_generator_testspy::get_command_buffer_reads_size(ggen) == expected_reads);
 		}
 
-		REQUIRE_LOOP(cctx.query(command_type::horizon).count() <= 3);
+		size_t horizon_count = 0;
+		for(const auto* cmd : cctx.get_graph_generator(0).get_command_graph().all_commands()) {
+			if(cmd->get_type() == command_type::horizon) { ++horizon_count; }
+		}
+		REQUIRE_LOOP(horizon_count <= 3);
 	}
 }
 
@@ -105,8 +109,8 @@ TEST_CASE("horizons correctly deal with antidependencies", "[horizon][command-gr
 	cctx.device_compute<class UKN(read_b_before_first_horizon)>(full_range).read(buf_b, acc::one_to_one{}).submit();
 
 	// here, the first horizon should have been generated
-	const auto first_horizon = cctx.query(command_type::horizon);
-	CHECK(first_horizon.count() == 1);
+	const auto first_horizon = cctx.query<horizon_command_record>();
+	CHECK(first_horizon.total_count() == 1);
 
 	// do 3 more read/writes on buf_a to generate another horizon and apply the first one
 	task_id buf_a_rw = -1;
@@ -121,8 +125,8 @@ TEST_CASE("horizons correctly deal with antidependencies", "[horizon][command-gr
 	                                       .discard_write(buf_b, acc::one_to_one{})
 	                                       .submit();
 
-	CHECK(cctx.query(buf_a_rw).have_successors(cctx.query(write_b_after_first_horizon), dependency_kind::true_dep));
-	CHECK(first_horizon.have_successors(cctx.query(write_b_after_first_horizon), dependency_kind::anti_dep));
+	CHECK(cctx.query(buf_a_rw).successors().contains(cctx.query(write_b_after_first_horizon)));
+	CHECK(first_horizon.successors().contains(cctx.query(write_b_after_first_horizon)));
 }
 
 TEST_CASE("previous horizons are used as last writers for host-initialized buffers", "[command_graph_generator][horizon][command-graph]") {
@@ -137,10 +141,10 @@ TEST_CASE("previous horizons are used as last writers for host-initialized buffe
 	{
 		auto buf = cctx.create_buffer(buf_range, true /* mark_as_host_initialized */);
 
-		const auto tid = cctx.device_compute<class UKN(access_host_init_buf)>(buf_range).read_write(buf, acc::one_to_one{}).submit();
-		const auto cmds = cctx.query(tid).get_raw();
-		REQUIRE(cmds.size() == 2);
-		initial_last_writer_ids = {cmds[0]->get_cid(), cmds[1]->get_cid()};
+		cctx.device_compute(buf_range).name("access_host_init_buf").read_write(buf, acc::one_to_one{}).submit();
+		const auto cmds = cctx.query<execution_command_record>("access_host_init_buf");
+		REQUIRE(cmds.count_per_node() == 1);
+		initial_last_writer_ids = {cmds.on(0)->id, cmds.on(1)->id};
 	}
 
 	// Create bunch of tasks to trigger horizon cleanup
@@ -160,16 +164,14 @@ TEST_CASE("previous horizons are used as last writers for host-initialized buffe
 	}
 
 	// Check that initial last writers have been deleted
-	// NOTE: We assume that we got the initial last writer commands in order of node id
 	CHECK_FALSE(cctx.get_graph_generator(0).get_command_graph().has(initial_last_writer_ids[0]));
 	CHECK_FALSE(cctx.get_graph_generator(1).get_command_graph().has(initial_last_writer_ids[1]));
 
 	auto buf = cctx.create_buffer(buf_range, true /* mark_as_host_initialized */);
-	const auto tid = cctx.device_compute<class UKN(access_host_init_buf)>(buf_range).read_write(buf, acc::one_to_one{}).submit();
+	cctx.device_compute(buf_range).name("access_host_init_buf").read_write(buf, acc::one_to_one{}).submit();
 
-	const auto new_last_writers = cctx.query(tid).find_predecessors(dependency_kind::true_dep);
-	CHECK(new_last_writers.count() == 2);
-	CHECK(new_last_writers.have_type(command_type::horizon));
+	const auto new_last_writers = cctx.query("access_host_init_buf").predecessors();
+	CHECK(difference_of(new_last_writers, cctx.query<epoch_command_record>()).assert_all<horizon_command_record>().total_count() == 2);
 }
 
 TEST_CASE("commands for collective host tasks do not order-depend on their predecessor if it is shadowed by a horizon",
@@ -190,12 +192,12 @@ TEST_CASE("commands for collective host tasks do not order-depend on their prede
 
 	// This must depend on the first horizon, not first_collective
 	const auto second_collective = cctx.collective_host_task().read(buf, acc::all{}).submit();
-	const auto predecessors = cctx.query(second_collective).find_predecessors();
-	CHECK(predecessors.count() == 2);
-	const auto execution_cmd = predecessors.find_all(command_type::execution);
-	const auto horizon_cmd = predecessors.find_all(command_type::horizon);
-	CHECK(execution_cmd.have_successors(cctx.query(second_collective), dependency_kind::true_dep));
-	CHECK(horizon_cmd.have_successors(cctx.query(second_collective), dependency_kind::true_dep, dependency_origin::collective_group_serialization));
+	const auto predecessors = cctx.query(second_collective).predecessors();
+	CHECK(predecessors.total_count() == 2);
+	const auto execution_cmd = predecessors.select_all<execution_command_record>();
+	const auto horizon_cmd = predecessors.select_all<horizon_command_record>();
+	CHECK(execution_cmd.successors().contains(cctx.query(second_collective)));
+	CHECK(horizon_cmd.successors().contains(cctx.query(second_collective)));
 }
 
 TEST_CASE("side-effect dependencies are correctly subsumed by horizons", "[command_graph_generator][command-graph][horizon]") {
@@ -214,7 +216,7 @@ TEST_CASE("side-effect dependencies are correctly subsumed by horizons", "[comma
 
 	// This must depend on the first horizon, not first_task
 	const auto second_task = cctx.master_node_host_task().affect(ho, experimental::side_effect_order::sequential).submit();
-	CHECK(cctx.query(second_task).find_predecessors().assert_count(1).have_type(command_type::horizon));
+	CHECK(cctx.query(second_task).predecessors().assert_all<horizon_command_record>().total_count() == 1);
 }
 
 TEST_CASE("reaching an epoch will prune all nodes of the preceding task graph", "[task_manager][task-graph][epoch]") {
