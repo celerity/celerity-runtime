@@ -56,7 +56,10 @@ access_list build_cmd_access_list(const abstract_command& cmd, const task& tsk, 
 command_record::command_record(const abstract_command& cmd) : id(cmd.get_cid()) {}
 
 push_command_record::push_command_record(const push_command& pcmd, std::string buffer_name)
-    : acceptor_base(pcmd), target(pcmd.get_target()), trid(pcmd.get_transfer_id()), push_range(pcmd.get_range()), buffer_name(std::move(buffer_name)) {}
+    : acceptor_base(pcmd), trid(pcmd.get_transfer_id()), target_regions(pcmd.get_target_regions()), buffer_name(std::move(buffer_name)) {
+	// Sort regions by node id for easier testing and consistent output in graph printing
+	std::sort(target_regions.begin(), target_regions.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+}
 
 await_push_command_record::await_push_command_record(const await_push_command& apcmd, std::string buffer_name)
     : acceptor_base(apcmd), trid(apcmd.get_transfer_id()), await_region(apcmd.get_region()), buffer_name(std::move(buffer_name)) {}

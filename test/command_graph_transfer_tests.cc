@@ -11,18 +11,108 @@ namespace acc = celerity::access;
 TEST_CASE("command_graph_generator generates required data transfer commands", "[command_graph_generator][command-graph]") {
 	cdag_test_context cctx(4);
 
+	SECTION("when using 1D buffers") {
+		const range<1> test_range = {256};
+		auto buf = cctx.create_buffer(test_range);
+
+		const auto rm = [&](const chunk<1>& chnk) { return subrange(id(test_range[0] - chnk.offset[0] - chnk.range[0]), chnk.range); };
+		cctx.device_compute(test_range).name("init").discard_write(buf, rm).submit();
+		CHECK(cctx.query<execution_command_record>("init").count_per_node() == 1);
+
+		cctx.device_compute(test_range).read(buf, acc::one_to_one{}).submit();
+		CHECK(cctx.query<push_command_record>().total_count() == 4);
+		CHECK(cctx.query<await_push_command_record>().total_count() == 4);
+
+		CHECK(cctx.query<push_command_record>().on(0)->target_regions == push_regions<1>({{3, box<1>{192, 256}}}));
+		CHECK(cctx.query<await_push_command_record>().on(0)->await_region == box_cast<3>(box<1>{0, 64}));
+		CHECK(cctx.query<push_command_record>().on(1)->target_regions == push_regions<1>({{2, box<1>{128, 192}}}));
+		CHECK(cctx.query<await_push_command_record>().on(1)->await_region == box_cast<3>(box<1>{64, 128}));
+		CHECK(cctx.query<push_command_record>().on(2)->target_regions == push_regions<1>({{1, box<1>{64, 128}}}));
+		CHECK(cctx.query<await_push_command_record>().on(2)->await_region == box_cast<3>(box<1>{128, 192}));
+		CHECK(cctx.query<push_command_record>().on(3)->target_regions == push_regions<1>({{0, box<1>{0, 64}}}));
+		CHECK(cctx.query<await_push_command_record>().on(3)->await_region == box_cast<3>(box<1>{192, 256}));
+	}
+
+	const auto run_2d_3d_test = [&](auto dims) {
+		const auto test_range = truncate_range<dims.value>(range<3>{256, 256, 256});
+		auto buf = cctx.create_buffer(test_range);
+
+		// TODO: Revisit once we have split_3d{}
+		cctx.device_compute(test_range).name("init").hint(experimental::hints::split_2d{}).discard_write(buf, acc::one_to_one{}).submit();
+		CHECK(cctx.query<execution_command_record>("init").count_per_node() == 1);
+
+		cctx.device_compute(test_range).read(buf, acc::all{}).submit();
+		CHECK(cctx.query<push_command_record>().total_count() == 4);
+		CHECK(cctx.query<await_push_command_record>().total_count() == 4);
+
+		const auto push0 = truncate_box<dims.value>(box<3>{{0, 0, 0}, {128, 128, 256}});
+		const auto await0 = region_difference(truncate_box<dims.value>(box<3>{{0, 0, 0}, {256, 256, 256}}), push0);
+		CHECK(cctx.query<push_command_record>().on(0)->target_regions == push_regions<dims.value>({{1, push0}, {2, push0}, {3, push0}}));
+		CHECK(cctx.query<await_push_command_record>().on(0)->await_region == region_cast<3>(await0));
+
+		const auto push1 = truncate_box<dims.value>(box<3>{{0, 128, 0}, {128, 256, 256}});
+		const auto await1 = region_difference(truncate_box<dims.value>(box<3>{{0, 0, 0}, {256, 256, 256}}), push1);
+		CHECK(cctx.query<push_command_record>().on(1)->target_regions == push_regions<dims.value>({{0, push1}, {2, push1}, {3, push1}}));
+		CHECK(cctx.query<await_push_command_record>().on(1)->await_region == region_cast<3>(await1));
+
+		const auto push2 = truncate_box<dims.value>(box<3>{{128, 0, 0}, {256, 128, 256}});
+		const auto await2 = region_difference(truncate_box<dims.value>(box<3>{{0, 0, 0}, {256, 256, 256}}), push2);
+		CHECK(cctx.query<push_command_record>().on(2)->target_regions == push_regions<dims.value>({{0, push2}, {1, push2}, {3, push2}}));
+		CHECK(cctx.query<await_push_command_record>().on(2)->await_region == region_cast<3>(await2));
+
+		const auto push3 = truncate_box<dims.value>(box<3>{{128, 128, 0}, {256, 256, 256}});
+		const auto await3 = region_difference(truncate_box<dims.value>(box<3>{{0, 0, 0}, {256, 256, 256}}), push3);
+		CHECK(cctx.query<push_command_record>().on(3)->target_regions == push_regions<dims.value>({{0, push3}, {1, push3}, {2, push3}}));
+		CHECK(cctx.query<await_push_command_record>().on(3)->await_region == region_cast<3>(await3));
+	};
+
+	SECTION("when using 2D buffers") { run_2d_3d_test(std::integral_constant<int, 2>{}); }
+	SECTION("when using 3D buffers") { run_2d_3d_test(std::integral_constant<int, 3>{}); }
+}
+
+TEST_CASE("command_graph_generator generates a single push command for multiple recipients", "[command_graph_generator][command-graph]") {
+	cdag_test_context cctx(4);
+
 	const range<1> test_range = {256};
 	auto buf = cctx.create_buffer(test_range);
 
-	const auto rm = [&](const chunk<1>& chnk) { return subrange(id(test_range[0] - chnk.offset[0] - chnk.range[0]), chnk.range); };
-	const auto tid_a = cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, rm).submit();
-	CHECK(cctx.query<execution_command_record>(tid_a).count_per_node() == 1);
+	// Initialize buffer on node 0
+	cctx.master_node_host_task().discard_write(buf, acc::all{}).submit();
+	// Read buffer on all nodes
+	cctx.device_compute(test_range).read(buf, acc::all{}).submit();
 
-	cctx.device_compute<class UKN(task_b)>(test_range).read(buf, acc::one_to_one{}).submit();
-	CHECK(cctx.query<push_command_record>().total_count() == 4);
-	CHECK(cctx.query<push_command_record>().count_per_node() == 1);
-	CHECK(cctx.query<await_push_command_record>().total_count() == 4);
-	CHECK(cctx.query<await_push_command_record>().count_per_node() == 1);
+	CHECK(cctx.query<push_command_record>().total_count() == 1);
+	CHECK(cctx.query<push_command_record>().on(0)->target_regions == push_regions<1>({{1, box<1>{0, 256}}, {2, box<1>{0, 256}}, {3, box<1>{0, 256}}}));
+}
+
+TEST_CASE("command_graph_generator generates a single push command per buffer and task", "[command_graph_generator][command-graph]") { //
+	cdag_test_context cctx(2);
+
+	const range<1> test_range = {128};
+	auto buf0 = cctx.create_buffer(test_range);
+	auto buf1 = cctx.create_buffer(test_range);
+
+	// Initialize buffers in two separate tasks (= multiple last writers)
+	cctx.device_compute(test_range / 2).discard_write(buf0, acc::one_to_one{}).discard_write(buf1, acc::one_to_one{}).submit();
+	cctx.device_compute(test_range / 2, id_cast<1>(test_range / 2)).discard_write(buf0, acc::one_to_one{}).discard_write(buf1, acc::one_to_one{}).submit();
+
+	// Read entire buffer 0 and first half of buffer 1 on both nodes
+	cctx.device_compute(test_range).read(buf0, acc::all{}).read(buf1, acc::fixed<1>{{0, 64}}).submit();
+	// Read remainder of buffer 1 on both nodes, but split task into 4 chunks each
+	cctx.set_test_chunk_multiplier(4);
+	cctx.device_compute(test_range).read(buf1, acc::fixed<1>{{64, 128}}).submit();
+
+	CHECK(cctx.query<push_command_record>().total_count() == 6);
+
+	// Pushes for first task
+	CHECK(cctx.query<push_command_record>(buf0.get_id()).on(0)[0]->target_regions == push_regions<1>({{1, region<1>{{box<1>{0, 32}, box<1>{64, 96}}}}}));
+	CHECK(cctx.query<push_command_record>(buf1.get_id()).on(0)[0]->target_regions == push_regions<1>({{1, region<1>{{box<1>{0, 32}}}}}));
+	CHECK(cctx.query<push_command_record>(buf0.get_id()).on(1)[0]->target_regions == push_regions<1>({{0, region<1>{{box<1>{32, 64}, box<1>{96, 128}}}}}));
+	CHECK(cctx.query<push_command_record>(buf1.get_id()).on(1)[0]->target_regions == push_regions<1>({{0, region<1>{{box<1>{32, 64}}}}}));
+
+	// Pushes for second task
+	CHECK(cctx.query<push_command_record>(buf1.get_id()).on(0)[1]->target_regions == push_regions<1>({{1, region<1>{{box<1>{64, 96}}}}}));
+	CHECK(cctx.query<push_command_record>(buf1.get_id()).on(1)[1]->target_regions == push_regions<1>({{0, region<1>{{box<1>{96, 128}}}}}));
 }
 
 TEST_CASE("command_graph_generator doesn't generate data transfer commands for the same buffer and range more than once",
@@ -37,12 +127,16 @@ TEST_CASE("command_graph_generator doesn't generate data transfer commands for t
 		// Both of theses are consumer modes, meaning that both have a requirement on the buffer range produced in task_a
 		cctx.master_node_host_task().read(buf0, acc::all{}).write(buf0, acc::all{}).submit();
 		CHECK(cctx.query<push_command_record>().on(1).count() == 1);
+		CHECK(cctx.query<push_command_record>().on(1)->target_regions == push_regions<1>({{0, box<1>{64, 128}}}));
 		CHECK(cctx.query<await_push_command_record>().on(0).count() == 1);
 	}
 
 	SECTION("when used in the same task by different chunks on the same worker node") {
-		// FIXME: Bring this back once we support oversubscription
-		SKIP("Oversubscription NYI");
+		cctx.master_node_host_task().discard_write(buf0, acc::all{}).submit();
+		cctx.set_test_chunk_multiplier(2);
+		cctx.device_compute(test_range).read(buf0, acc::all{}).submit();
+		CHECK(cctx.query<push_command_record>().total_count() == 1);
+		CHECK(cctx.query<push_command_record>().on(0)->target_regions == push_regions<1>({{1, box<1>{0, 128}}}));
 	}
 
 	SECTION("when used in consecutive tasks") {
@@ -69,71 +163,54 @@ TEST_CASE("command_graph_generator doesn't generate data transfer commands for t
 	}
 }
 
-TEST_CASE(
-    "command_graph_generator uses original producer as source for push rather than building dependency chain", "[command_graph_generator][command-graph]") {
+TEST_CASE("only the original producer (owner) of data generates pushes", "[command_graph_generator][command-graph]") {
 	const size_t num_nodes = 3;
 	cdag_test_context cctx(num_nodes);
 
 	const range<1> test_range = {300};
 	auto buf = cctx.create_buffer(test_range);
 
+	// Buffer is initialized on node 0
 	cctx.master_node_host_task().discard_write(buf, acc::all{}).submit();
 
 	SECTION("when distributing a single reading task across nodes") {
-		cctx.device_compute<class UKN(task_b)>(test_range).read(buf, acc::one_to_one{}).submit();
+		cctx.device_compute(test_range).read(buf, acc::one_to_one{}).submit();
+		CHECK(cctx.query<push_command_record>().total_count() == 1);
+		CHECK(cctx.query<push_command_record>().on(0).count() == 1);
 	}
 
 	SECTION("when distributing a single read-write task across nodes") {
-		cctx.device_compute<class UKN(task_c)>(test_range).read_write(buf, acc::one_to_one{}).submit();
+		cctx.device_compute(test_range).read_write(buf, acc::one_to_one{}).submit();
+		CHECK(cctx.query<push_command_record>().total_count() == 1);
+		CHECK(cctx.query<push_command_record>().on(0).count() == 1);
 	}
+
+	auto full_range_for_single_node = [=](node_id node) {
+		return [=](chunk<1> chnk) -> subrange<1> {
+			if(chnk.range == chnk.global_size) return chnk;
+			if(chnk.offset[0] == (test_range.size() / num_nodes) * node) { return {0, test_range}; }
+			return {0, 0};
+		};
+	};
 
 	SECTION("when running multiple reading tasks on separate nodes") {
-		auto full_range_for_single_node = [=](node_id node) {
-			return [=](chunk<1> chnk) -> subrange<1> {
-				if(chnk.range == chnk.global_size) return chnk;
-				if(chnk.offset[0] == (test_range.size() / num_nodes) * node) { return {0, test_range}; }
-				return {0, 0};
-			};
-		};
-		cctx.device_compute<class UKN(task_d)>(test_range).read(buf, full_range_for_single_node(1)).submit();
-		cctx.device_compute<class UKN(task_e)>(test_range).read(buf, full_range_for_single_node(2)).submit();
+		SECTION("one direction") {
+			cctx.device_compute(test_range).read(buf, full_range_for_single_node(1)).submit();
+			cctx.device_compute(test_range).read(buf, full_range_for_single_node(2)).submit();
+		}
+		SECTION("other direction") {
+			cctx.device_compute(test_range).read(buf, full_range_for_single_node(2)).submit();
+			cctx.device_compute(test_range).read(buf, full_range_for_single_node(1)).submit();
+		}
+		CHECK(cctx.query<push_command_record>().total_count() == 2);
+		CHECK(cctx.query<push_command_record>().on(0).count() == 2);
 	}
 
-	CHECK(cctx.query<push_command_record>().on(0).count() == 2);
-	CHECK(cctx.query<push_command_record>().total_count() == 2);
 	CHECK(cctx.query<await_push_command_record>().on(1).count() == 1);
 	CHECK(cctx.query<await_push_command_record>().on(2).count() == 1);
 }
 
-// NOTE: This behavior changed between master/worker and distributed scheduling; we no longer consolidate pushes.
-//       In part this is because of the way data is being tracked (on a per-command last writer basis),
-//       however importantly it also enables better communication/computation overlapping in some cases.
-//       This behavior may change again in the future!
-TEST_CASE("command_graph_generator consolidates push commands for adjacent subranges", "[command_graph_generator][command-graph][!shouldfail]") {
-	cdag_test_context cctx(2);
-
-	const range<1> test_range = {128};
-	auto buf = cctx.create_buffer(test_range);
-
-	const auto tid_a = cctx.device_compute<class UKN(task_a)>(range<1>{test_range[0] / 2}).discard_write(buf, acc::one_to_one{}).submit();
-	// Swap the two chunks so we write a contiguous range on node 1 across tasks a and b
-	const auto swap_rm = [](chunk<1> chnk) -> subrange<1> {
-		if(chnk.range == chnk.global_size) return chnk;
-		switch(chnk.offset[0]) {
-		case 64: return {96, 32};
-		case 96: return {64, 32};
-		default: FAIL("Unexpected offset");
-		}
-		return {};
-	};
-	const auto tid_b = cctx.device_compute<class UKN(task_b)>(range<1>{test_range[0] / 2}, id<1>{test_range[0] / 2}).discard_write(buf, swap_rm).submit();
-	cctx.master_node_host_task().read(buf, acc::all{}).submit();
-
-	CHECK(cctx.query<push_command_record>().total_count() == 1);
-	CHECK(cctx.query(tid_a).successors().contains(cctx.query<push_command_record>()));
-	CHECK(cctx.query(tid_b).successors().contains(cctx.query<push_command_record>()));
-}
-
+// UPDATE: Disregard the comment below, as we now generate a single fat-push command per buffer and task. Keeping for additional coverage.
 // Regression test: While we generate separate pushes for each last writer (see above), unless a last writer box gets fragmented
 // further by subsequent writes, we should only ever generate a single push command. This was not the case, because we additionally have
 // to check whether the data in question has already been (partially) replicated to the target node. Without a subsequent merging step,
@@ -168,9 +245,12 @@ TEST_CASE("command_graph_generator generates dependencies for push commands", "[
 	const range<1> test_range = {128};
 	auto buf = cctx.create_buffer(test_range);
 
-	const auto tid_a = cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf, acc::one_to_one{}).submit();
+	cctx.device_compute(test_range / 2).name("init first half").discard_write(buf, acc::one_to_one{}).submit();
+	cctx.device_compute(test_range / 2, id_cast<1>(test_range / 2)).name("init second half").discard_write(buf, acc::one_to_one{}).submit();
 	cctx.master_node_host_task().read(buf, acc::all{}).submit();
-	CHECK(cctx.query(tid_a).successors().contains(cctx.query<push_command_record>()));
+	CHECK(cctx.query<push_command_record>().on(1).count() == 1);
+	CHECK(cctx.query("init first half").successors().contains(cctx.query<push_command_record>()));
+	CHECK(cctx.query("init second half").successors().contains(cctx.query<push_command_record>()));
 }
 
 TEST_CASE("command_graph_generator generates anti-dependencies for await_push commands", "[command_graph_generator][command-graph]") {

@@ -96,9 +96,8 @@ struct command_record : matchbox::acceptor<struct push_command_record, struct aw
 };
 
 struct push_command_record : matchbox::implement_acceptor<command_record, push_command_record> {
-	node_id target;
 	transfer_id trid;
-	subrange<3> push_range;
+	std::vector<std::pair<node_id, region<3>>> target_regions;
 	std::string buffer_name;
 
 	explicit push_command_record(const push_command& pcmd, std::string buffer_name);
