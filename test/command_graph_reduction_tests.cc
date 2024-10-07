@@ -107,12 +107,10 @@ TEST_CASE("commands overwriting a buffer generate anti-dependencies on preceding
 
 	auto buf0 = cctx.create_buffer(range<1>(1));
 
-	cctx.device_compute<class UKN(reduce_a)>(range<1>(num_nodes)).reduce(buf0, false /* include_current_buffer_value */).submit();
-	const auto tid_b = cctx.device_compute<class UKN(reduce_b)>(range<1>(num_nodes)).reduce(buf0, true /* include_current_buffer_value */).submit();
+	cctx.device_compute(range<1>(num_nodes)).name("reduce a").reduce(buf0, false /* include_current_buffer_value */).submit();
+	cctx.device_compute(range<1>(num_nodes)).name("reduce b").reduce(buf0, true /* include_current_buffer_value */).submit();
 
-	const auto n1_pushes = cctx.query<push_command_record>().on(1);
-	const auto n1_tb_execs = cctx.query(tid_b).on(1);
-	CHECK(n1_pushes.successors().contains(n1_tb_execs));
+	CHECK(cctx.query<push_command_record>().on(1).successors().contains(cctx.query<execution_command_record>("reduce b").on(1)));
 }
 
 TEST_CASE("command_graph_generator forwards final reduction result if required by another node in a later task",
@@ -127,9 +125,10 @@ TEST_CASE("command_graph_generator forwards final reduction result if required b
 	cctx.collective_host_task().read(buf0, acc::all{}).submit();
 
 	// There should only be a single reduction on node 0
-	CHECK(cctx.query<reduction_command_record>().total_count() == 1);
+	CHECK(cctx.query<reduction_command_record>().assert_total_count(1).on(0).count() == 1);
 	// ...and the result is subsequently pushed to all other nodes
-	CHECK(cctx.query<reduction_command_record>().successors().select_all<push_command_record>().total_count() == 3);
+	CHECK(cctx.query<reduction_command_record>().successors().select_all<push_command_record>().on(0)->target_regions
+	      == push_regions<1>({{1, box<1>{0, 1}}, {2, box<1>{0, 1}}, {3, box<1>{0, 1}}}));
 }
 
 TEST_CASE("multiple chained reductions produce appropriate data transfers", "[command_graph_generator][command-graph][reductions]") {
@@ -187,7 +186,7 @@ TEST_CASE("nodes that do not own pending reduction don't include it in final red
 	cctx.master_node_host_task().read(buf0, acc::all{}).submit();
 	const auto pushes = cctx.query<push_command_record>();
 	CHECK(pushes.total_count() == 2);
-	CHECK(pushes.on(2)->push_range.range.size() == 0);
+	CHECK(pushes.on(2)->target_regions == push_regions<1>({{0, box<1>{0, 0}}}));
 	// The push only has a dependency on the initial epoch
 	CHECK(pushes.on(2).predecessors() == cctx.query<epoch_command_record>().on(2));
 }
@@ -229,9 +228,36 @@ TEST_CASE("reduction in a single-node task does not generate a reduction command
 	cctx.device_compute(range<1>(num_nodes)).name("consumer").read(buf, acc::all()).submit();
 
 	CHECK(cctx.query<reduction_command_record>().total_count() == 0);
-	CHECK(cctx.query("producer").assert_total_count(1).on(0).successors().contains(cctx.query<push_command_record>().on(0).assert_count(2)));
+	CHECK(cctx.query("producer").assert_total_count(1).on(0).successors().contains(cctx.query<push_command_record>().on(0)));
+	CHECK(cctx.query<push_command_record>().on(0)->target_regions == push_regions<1>({{1, box<1>{0, 1}}, {2, box<1>{0, 1}}}));
 	CHECK(cctx.query<await_push_command_record>().on(1).assert_count(1).successors().contains(cctx.query("consumer").on(1)));
 	CHECK(cctx.query<await_push_command_record>().on(2).assert_count(1).successors().contains(cctx.query("consumer").on(2)));
+}
+
+TEST_CASE("nodes that do not participate in reduction only push data to those that do", "[command_graph_generator][command-graph][reductions]") {
+	const size_t num_nodes = 4;
+	cdag_test_context cctx(num_nodes);
+	auto buf = cctx.create_buffer(range<1>(1));
+
+	const auto tid_producer = cctx.device_compute(range<1>(num_nodes)).reduce(buf, false /* include_current_buffer_value */).submit();
+
+	SECTION("when reducing on a single node") {
+		const auto tid_reducer = cctx.device_compute(range<1>(1)).read(buf, acc::all()).submit();
+		// Theres a push on nodes 1-3
+		CHECK(cctx.query<push_command_record>().total_count() == 3);
+		CHECK(cctx.query<push_command_record>().on(0).count() == 0);
+		for(auto& push : cctx.query<push_command_record>().iterate_nodes()) {
+			if(push.count() == 0) continue; // node 0
+			CHECK(push->target_regions == push_regions<1>({{0, box<1>{0, 1}}}));
+		}
+	}
+
+	// This is currently unsupported
+	SECTION("when reducing on a subset of nodes") {
+		CHECK_THROWS_WITH((cctx.device_compute(range<1>(2)).name("mytask").read(buf, acc::all()).submit()),
+		    "Device kernel T2 \"mytask\" requires a reduction on B0 that is not performed on all nodes. This is currently not supported. Either "
+		    "ensure that all nodes receive a chunk that reads from the buffer, or reduce the data on a single node.");
+	}
 }
 
 TEST_CASE("nodes that do not participate in reduction generate await-pushes when reading the result afterwards",
@@ -244,16 +270,13 @@ TEST_CASE("nodes that do not participate in reduction generate await-pushes when
 
 	SECTION("when reducing on a single node") {
 		const auto tid_reducer = cctx.device_compute(range<1>(1)).read(buf, acc::all()).submit();
-		// Theres a push on nodes 1-3
-		CHECK(cctx.query<push_command_record>().total_count() == 3);
-		CHECK(cctx.query<push_command_record>().on(0).count() == 0);
-
 		const auto tid_consumer = cctx.device_compute(range<1>(num_nodes)).read(buf, acc::all()).submit();
 
 		CHECK(cctx.query<reduction_command_record>().total_count() == 1);
 		CHECK(cctx.query<reduction_command_record>().successors().contains(cctx.query(tid_reducer)));
 		// Node 0 pushes the result to all other nodes
-		CHECK(cctx.query<reduction_command_record>().on(0).successors().contains(cctx.query<push_command_record>().on(0).assert_count(3)));
+		CHECK(cctx.query<reduction_command_record>().on(0).successors().contains(cctx.query<push_command_record>().on(0)));
+		CHECK(cctx.query<push_command_record>().on(0)->target_regions == push_regions<1>({{1, box<1>{0, 1}}, {2, box<1>{0, 1}}, {3, box<1>{0, 1}}}));
 		// There's an await push on nodes 1-3 before the consumer task
 		for(node_id nid = 1; nid < num_nodes; ++nid) {
 			CHECK(cctx.query<await_push_command_record>().on(nid).assert_count(1).successors().contains(cctx.query(tid_consumer).on(nid)));

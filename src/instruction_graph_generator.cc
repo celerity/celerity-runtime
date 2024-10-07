@@ -1749,57 +1749,58 @@ void generator_impl::compile_execution_command(batch& command_batch, const execu
 
 void generator_impl::compile_push_command(batch& command_batch, const push_command& pcmd) {
 	const auto trid = pcmd.get_transfer_id();
-	const auto push_box = box(pcmd.get_range());
-
-	// If not all nodes contribute partial results to a global reductions, the remaining ones need to notify their peers that they should not expect any data.
-	// This is done by announcing an empty box through the pilot message, but not actually performing a send.
-	if(push_box.empty()) {
-		assert(trid.rid != no_reduction_id);
-		create_outbound_pilot(command_batch, pcmd.get_target(), trid, box<3>());
-		return;
-	}
-
-	// Prioritize all instructions participating in a "push" to hide the latency of establishing local coherence behind the typically much longer latencies of
-	// inter-node communication
-	command_batch.base_priority = 10;
-
-	auto& buffer = m_buffers.at(trid.bid);
-	auto& host_memory = buffer.memories[host_memory_id];
-
-	// We want to generate the fewest number of send instructions possible without introducing new synchronization points between chunks of the same
-	// command that generated the pushed data. This will allow computation-communication overlap, especially in the case of oversubscribed splits.
-	std::vector<region<3>> concurrent_send_regions;
-	// Since we now send boxes individually, we do not need to allocate the entire push_box contiguously.
-	box_vector<3> required_host_allocation;
-	{
-		std::unordered_map<instruction_id, box_vector<3>> individual_send_boxes;
-		for(auto& [box, original_writer] : buffer.original_writers.get_region_values(push_box)) {
-			individual_send_boxes[original_writer->get_id()].push_back(box);
-			required_host_allocation.push_back(box);
+	// TODO: Since we now have a single fat push command, we can be smarter about how we allocate host memory and issue coherence copies.
+	for(const auto& [target, reg] : pcmd.get_target_regions()) {
+		// If not all nodes contribute partial results to a global reductions, the remaining ones need to notify their peers that they should not expect any
+		// data. This is done by announcing an empty box through the pilot message, but not actually performing a send.
+		if(reg.empty()) {
+			assert(trid.rid != no_reduction_id);
+			create_outbound_pilot(command_batch, target, trid, box<3>());
+			continue;
 		}
-		for(auto& [original_writer, boxes] : individual_send_boxes) {
-			concurrent_send_regions.push_back(region(std::move(boxes)));
+
+		// Prioritize all instructions participating in a "push" to hide the latency of establishing local coherence behind the typically much longer latencies
+		// of inter-node communication
+		command_batch.base_priority = 10;
+
+		auto& buffer = m_buffers.at(trid.bid);
+		auto& host_memory = buffer.memories[host_memory_id];
+
+		// We want to generate the fewest number of send instructions possible without introducing new synchronization points between chunks of the same
+		// command that generated the pushed data. This will allow computation-communication overlap, especially in the case of oversubscribed splits.
+		std::vector<region<3>> concurrent_send_regions;
+		// Since we now send boxes individually, we do not need to allocate the entire push_box contiguously.
+		box_vector<3> required_host_allocation;
+		{
+			std::unordered_map<instruction_id, box_vector<3>> individual_send_boxes;
+			for(auto& [box, original_writer] : buffer.original_writers.get_region_values(reg)) {
+				individual_send_boxes[original_writer->get_id()].push_back(box);
+				required_host_allocation.push_back(box);
+			}
+			for(auto& [original_writer, boxes] : individual_send_boxes) {
+				concurrent_send_regions.push_back(region(std::move(boxes)));
+			}
 		}
-	}
 
-	allocate_contiguously(command_batch, trid.bid, host_memory_id, std::move(required_host_allocation));
-	establish_coherence_between_buffer_memories(command_batch, trid.bid, host_memory_id, concurrent_send_regions);
+		allocate_contiguously(command_batch, trid.bid, host_memory_id, std::move(required_host_allocation));
+		establish_coherence_between_buffer_memories(command_batch, trid.bid, host_memory_id, concurrent_send_regions);
 
-	for(const auto& send_region : concurrent_send_regions) {
-		for(const auto& full_send_box : send_region.get_boxes()) {
-			// Splitting must happen on buffer range instead of host allocation range to ensure boxes are also suitable for the receiver, which might have
-			// a differently-shaped backing allocation
-			for(const auto& compatible_send_box : split_into_communicator_compatible_boxes(buffer.range, full_send_box)) {
-				const message_id msgid = create_outbound_pilot(command_batch, pcmd.get_target(), trid, compatible_send_box);
+		for(const auto& send_region : concurrent_send_regions) {
+			for(const auto& full_send_box : send_region.get_boxes()) {
+				// Splitting must happen on buffer range instead of host allocation range to ensure boxes are also suitable for the receiver, which might have
+				// a differently-shaped backing allocation
+				for(const auto& compatible_send_box : split_into_communicator_compatible_boxes(buffer.range, full_send_box)) {
+					const message_id msgid = create_outbound_pilot(command_batch, target, trid, compatible_send_box);
 
-				auto& allocation = host_memory.get_contiguous_allocation(compatible_send_box); // we allocate_contiguously above
+					auto& allocation = host_memory.get_contiguous_allocation(compatible_send_box); // we allocate_contiguously above
 
-				const auto offset_in_allocation = compatible_send_box.get_offset() - allocation.box.get_offset();
-				const auto send_instr = create<send_instruction>(command_batch, pcmd.get_target(), msgid, allocation.aid, allocation.box.get_range(),
-				    offset_in_allocation, compatible_send_box.get_range(), buffer.elem_size,
-				    [&](const auto& record_debug_info) { record_debug_info(pcmd.get_cid(), trid, buffer.debug_name, compatible_send_box.get_offset()); });
+					const auto offset_in_allocation = compatible_send_box.get_offset() - allocation.box.get_offset();
+					const auto send_instr = create<send_instruction>(command_batch, target, msgid, allocation.aid, allocation.box.get_range(),
+					    offset_in_allocation, compatible_send_box.get_range(), buffer.elem_size,
+					    [&](const auto& record_debug_info) { record_debug_info(pcmd.get_cid(), trid, buffer.debug_name, compatible_send_box.get_offset()); });
 
-				perform_concurrent_read_from_allocation(send_instr, allocation, compatible_send_box);
+					perform_concurrent_read_from_allocation(send_instr, allocation, compatible_send_box);
+				}
 			}
 		}
 	}
