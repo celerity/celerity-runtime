@@ -26,6 +26,13 @@ using namespace celerity::detail;
 
 namespace celerity::test_utils {
 
+template <int Dims>
+std::vector<std::pair<node_id, region<3>>> push_regions(const std::vector<std::pair<node_id, region<Dims>>>& regions) {
+	std::vector<std::pair<node_id, region<3>>> result;
+	std::transform(regions.begin(), regions.end(), std::back_inserter(result), [](const auto& p) { return std::make_pair(p.first, region_cast<3>(p.second)); });
+	return result;
+}
+
 template <typename Record>
 struct command_matcher {
 	static bool matches(const Record& cmd, const std::string& debug_name) {
@@ -40,8 +47,17 @@ struct command_matcher {
 		return false;
 	}
 
+	template <typename R = Record, std::enable_if_t<std::is_same_v<R, push_command_record> || std::is_same_v<R, await_push_command_record>, int> = 0>
+	static bool matches(const R& cmd, const buffer_id bid) {
+		return matchbox::match(
+		    cmd,                                                             //
+		    [&](const push_command_record& c) { return c.trid.bid == bid; }, //
+		    [](const auto& /* other */) { return false; });
+	}
+
 	static std::string print_filter(const std::string& debug_name) { return fmt::format("\"{}\"", debug_name); }
 	static std::string print_filter(const task_id tid) { return fmt::format("\"T{}\"", tid); }
+	static std::string print_filter(const buffer_id bid) { return fmt::format("\"B{}\"", bid); }
 };
 
 /// Wrapper type around command_query that adds semantics for command graphs on multiple nodes.
@@ -316,6 +332,12 @@ class cdag_test_context {
 	}
 
 	void set_horizon_step(const int step) { m_tm.set_horizon_step(step); }
+
+	void set_test_chunk_multiplier(const size_t multiplier) {
+		for(auto& cggen : m_cggens) {
+			cggen->test_set_chunk_multiplier(multiplier);
+		}
+	}
 
 	task_manager& get_task_manager() { return m_tm; }
 

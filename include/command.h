@@ -37,20 +37,18 @@ namespace detail {
 
 	class push_command final : public matchbox::implement_acceptor<abstract_command, push_command> {
 		friend class command_graph;
-		push_command(const command_id cid, const node_id target, const transfer_id& trid, const subrange<3>& push_range)
-		    : acceptor_base(cid), m_target(target), m_trid(trid), m_push_range(push_range) {}
+		push_command(const command_id cid, const transfer_id& trid, std::vector<std::pair<node_id, region<3>>> target_regions)
+		    : acceptor_base(cid), m_trid(trid), m_target_regions(std::move(target_regions)) {}
 
 		command_type get_type() const override { return command_type::push; }
 
 	  public:
-		node_id get_target() const { return m_target; }
 		const transfer_id& get_transfer_id() const { return m_trid; }
-		const subrange<3>& get_range() const { return m_push_range; }
+		const std::vector<std::pair<node_id, region<3>>>& get_target_regions() const { return m_target_regions; }
 
 	  private:
-		node_id m_target;
 		transfer_id m_trid;
-		subrange<3> m_push_range;
+		std::vector<std::pair<node_id, region<3>>> m_target_regions;
 	};
 
 	class await_push_command final : public matchbox::implement_acceptor<abstract_command, await_push_command> {

@@ -140,7 +140,7 @@ void command_graph_generator::report_overlapping_writes(const task& tsk, const b
 
 std::vector<command_graph_generator::assigned_chunk> command_graph_generator::split_task_and_assign_chunks(const task& tsk) const {
 	const chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
-	const size_t num_chunks = m_num_nodes * 1; // TODO Make configurable
+	const size_t num_chunks = m_num_nodes * m_test_chunk_multiplier;
 	const auto chunks = ([&] {
 		if(tsk.get_type() == task_type::collective || tsk.get_type() == task_type::fence) {
 			std::vector<chunk<3>> chunks;
@@ -249,7 +249,7 @@ void command_graph_generator::resolve_pending_reductions(const task& tsk, const 
 		buffer_state post_reduction_state{region_map<write_command_state>{ones, wcs}, region_map<node_bitset>{ones, node_bitset{}}};
 		if(m_policy.uninitialized_read_error != error_policy::ignore) { post_reduction_state.initialized_region = scalar_reduction_box; }
 
-		size_t number_of_participating_nodes = 0;
+		node_bitset participating_nodes;
 
 		// Since the local reduction command overwrites the buffer contents that need to be pushed to other nodes, we need to process remote chunks first.
 		for(const auto& [a_chunk, requirements] : chunks_with_requirements.remote_chunks) {
@@ -257,36 +257,37 @@ void command_graph_generator::resolve_pending_reductions(const task& tsk, const 
 				// This chunk doesn't read from the buffer
 				continue;
 			}
-			const node_id nid = a_chunk.executed_on;
-			const bool notification_only = !local_last_writer[0].second.is_fresh();
+			participating_nodes.set(a_chunk.executed_on);
+		}
 
+		// Generate push command to all participating nodes
+		if(participating_nodes.any()) {
 			// Push an empty range if we don't have any fresh data on this node. This will then generate an empty pilot that tells the
 			// other node's receive_arbiter to not expect a send.
+			const bool notification_only = !local_last_writer[0].second.is_fresh();
 			const auto push_box = notification_only ? empty_reduction_box : scalar_reduction_box;
-
-			auto* const push_cmd = create_command<push_command>(nid, transfer_id(tsk.get_id(), bid, reduction.rid), push_box.get_subrange(),
-			    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
-
+			assert(participating_nodes.count() == m_num_nodes - 1 || participating_nodes.count() == 1);
+			std::vector<std::pair<node_id, region<3>>> regions;
+			for(node_id nid = 0; nid < m_num_nodes; ++nid) {
+				if(!participating_nodes.test(nid)) continue;
+				regions.push_back({nid, push_box});
+			}
+			auto* const cmd = create_command<push_command>(transfer_id(tsk.get_id(), bid, reduction.rid), std::move(regions),
+			    [&, bid = bid](const auto& record_debug_info) { record_debug_info(m_buffers.at(bid).debug_name); });
 			if(notification_only) {
-				generate_epoch_dependencies(push_cmd);
+				generate_epoch_dependencies(cmd);
 			} else {
-				m_command_buffer_reads[push_cmd->get_cid()][bid] = region_union(m_command_buffer_reads[push_cmd->get_cid()][bid], scalar_reduction_box);
-				add_dependency(push_cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
+				m_command_buffer_reads[cmd->get_cid()][bid] = region_union(m_command_buffer_reads[cmd->get_cid()][bid], scalar_reduction_box);
+				add_dependency(cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
 			}
 
-			// Mark the reduction result as replicated so we don't generate data transfers to this node
-			// TODO: We need a way of updating regions in place! E.g. apply_to_values(box, callback)
-			const auto replicated_box = post_reduction_state.replicated_regions.get_region_values(scalar_reduction_box);
-			assert(replicated_box.size() == 1);
-			for(const auto& [_, nodes] : replicated_box) {
-				post_reduction_state.replicated_regions.update_box(scalar_reduction_box, node_bitset{nodes}.set(nid));
-			}
-			number_of_participating_nodes++; // This node is participating
+			// Mark the reduction result as replicated so we don't generate data transfers to any of the participating nodes
+			post_reduction_state.replicated_regions.update_box(scalar_reduction_box, participating_nodes);
 		}
 
 		// We currently don't support multiple chunks on a single node for reductions (there is also -- for now -- no way to create multiple chunks,
 		// as oversubscription is handled by the instruction graph).
-		// NOTE: The number_of_participating_nodes check below relies on this being true
+		// NOTE: The participating_nodes.count() check below relies on this being true
 		assert(chunks_with_requirements.local_chunks.size() <= 1);
 		for(const auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
 			if(std::none_of(requirements.begin(), requirements.end(), [&](const buffer_requirements& br) { return br.bid == bid && !br.consumed.empty(); })) {
@@ -309,7 +310,7 @@ void command_graph_generator::resolve_pending_reductions(const task& tsk, const 
 			generate_anti_dependencies(tsk.get_id(), bid, buffer.local_last_writer, scalar_reduction_box, reduce_cmd);
 
 			post_reduction_state.local_last_writer.update_box(scalar_reduction_box, reduce_cmd->get_cid());
-			number_of_participating_nodes++; // We are participating
+			participating_nodes.set(m_local_nid); // We are participating
 		}
 
 		// We currently do not support generating reduction commands on only a subset of nodes, except for the special case of a single command.
@@ -318,7 +319,7 @@ void command_graph_generator::resolve_pending_reductions(const task& tsk, const 
 		//      if the result is subsequently required in other tasks. Since we don't have a good way of detecting this condition however, we currently
 		//      disallow partial reductions altogether.
 		// NOTE: This check relies on the fact that we currently only generate a single chunk per node for reductions (see assertion above).
-		if(number_of_participating_nodes > 1 && number_of_participating_nodes != m_num_nodes) {
+		if(participating_nodes.count() > 1 && participating_nodes.count() != m_num_nodes) {
 			utils::report_error(error_policy::panic,
 			    "{} requires a reduction on {} that is not performed on all nodes. This is currently not supported. Either "
 			    "ensure that all nodes receive a chunk that reads from the buffer, or reduce the data on a single node.",
@@ -327,7 +328,7 @@ void command_graph_generator::resolve_pending_reductions(const task& tsk, const 
 
 		// For buffers that were in a pending reduction state and a reduction was generated
 		// (i.e., the result was not discarded), set their new state.
-		if(number_of_participating_nodes > 0) {
+		if(participating_nodes.count() > 0) {
 			m_completed_reductions.push_back(reduction.rid);
 			buffer = std::move(post_reduction_state);
 		}
@@ -335,6 +336,12 @@ void command_graph_generator::resolve_pending_reductions(const task& tsk, const 
 }
 
 void command_graph_generator::generate_pushes(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements) {
+	struct push_scratch {
+		std::unordered_map<node_id, region<3>> target_regions;
+		std::unordered_set<command_id> depends_on;
+	};
+	std::unordered_map<buffer_id, push_scratch> per_buffer_pushes;
+
 	for(auto& [a_chunk, requirements] : chunks_with_requirements.remote_chunks) {
 		const node_id nid = a_chunk.executed_on;
 
@@ -342,8 +349,6 @@ void command_graph_generator::generate_pushes(const task& tsk, const assigned_ch
 			if(consumed.empty()) continue;
 			auto& buffer = m_buffers.at(bid);
 
-			// We generate separate push command for each last writer command for now, possibly even multiple for partially already-replicated data.
-			// TODO: Can and/or should we consolidate?
 			const auto local_sources = buffer.local_last_writer.get_region_values(consumed);
 			for(const auto& [local_box, wcs] : local_sources) {
 				if(!wcs.is_fresh() || wcs.is_replicated()) { continue; }
@@ -355,27 +360,46 @@ void command_graph_generator::generate_pushes(const task& tsk, const assigned_ch
 					non_replicated_boxes.push_back(replicated_box);
 				}
 
-				// Merge all connected boxes to determine final set of pushes
-				const auto push_region = region<3>(std::move(non_replicated_boxes));
-				for(const auto& push_box : push_region.get_boxes()) {
-					auto* const push_cmd = create_command<push_command>(nid, transfer_id(tsk.get_id(), bid, no_reduction_id), push_box.get_subrange(),
-					    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
+				if(!non_replicated_boxes.empty()) {
 					assert(!utils::isa<await_push_command>(m_cdag.get(wcs)) && "Attempting to push non-owned data?!");
-					add_dependency(push_cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
-
-					// Store the read access for determining anti-dependencies later on
-					m_command_buffer_reads[push_cmd->get_cid()][bid] = push_box;
-				}
-
-				// Remember that we've replicated this region
-				for(const auto& [replicated_box, nodes] : buffer.replicated_regions.get_region_values(push_region)) {
-					buffer.replicated_regions.update_box(replicated_box, node_bitset{nodes}.set(nid));
+					auto push_region = region<3>(std::move(non_replicated_boxes));
+					// Remember that we've replicated this region
+					for(const auto& [replicated_box, nodes] : buffer.replicated_regions.get_region_values(push_region)) {
+						buffer.replicated_regions.update_box(replicated_box, node_bitset{nodes}.set(nid));
+					}
+					auto& scratch = per_buffer_pushes[bid];
+					if(auto it = scratch.target_regions.find(nid); it != scratch.target_regions.end()) {
+						it->second = region_union(it->second, push_region);
+					} else {
+						scratch.target_regions.emplace(nid, std::move(push_region));
+					}
+					scratch.depends_on.insert(wcs);
 				}
 			}
 		}
 	}
+
+	// Generate push command for each buffer
+	for(auto& [bid, scratch] : per_buffer_pushes) {
+		region<3> combined_region;
+		std::vector<std::pair<node_id, region<3>>> target_regions;
+		for(auto& [nid, region] : scratch.target_regions) {
+			combined_region = region_union(combined_region, region);
+			target_regions.push_back({nid, std::move(region)});
+		}
+
+		auto* cmd = create_command<push_command>(transfer_id(tsk.get_id(), bid, no_reduction_id), std::move(target_regions),
+		    [&, bid = bid](const auto& record_debug_info) { record_debug_info(m_buffers.at(bid).debug_name); });
+		for(auto dep : scratch.depends_on) {
+			add_dependency(cmd, m_cdag.get(dep), dependency_kind::true_dep, dependency_origin::dataflow);
+		}
+
+		// Store the read access for determining anti-dependencies
+		m_command_buffer_reads[cmd->get_cid()].emplace(bid, std::move(combined_region));
+	}
 }
 
+// TODO: We currently generate an await push command for each local chunk, whereas we only generate a single push command for all remote chunks
 void command_graph_generator::generate_await_pushes(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements) {
 	for(auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
 		for(auto& [bid, consumed, _] : requirements) {

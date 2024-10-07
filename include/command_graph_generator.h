@@ -110,6 +110,14 @@ class command_graph_generator {
 
 	command_graph& get_command_graph() { return m_cdag; }
 
+	/// Only for testing: Instead of (at most) a single chunk per node, generate `multiplier` chunks per node for each task.
+	/// This is to ensure that CDAG generation logic works for arbitrary numbers of chunks, even though we don't provide
+	/// a way for users to specify more than one chunk per node... yet.
+	void test_set_chunk_multiplier(const size_t multiplier) {
+		assert(multiplier > 0);
+		m_test_chunk_multiplier = multiplier;
+	}
+
   private:
 	/// True if a recorder is present and create_command() will call the `record_with` lambda passed as its last parameter.
 	bool is_recording() const { return m_recorder != nullptr; }
@@ -256,6 +264,8 @@ class command_graph_generator {
 	command_id m_epoch_for_new_commands = 0;
 	command_id m_epoch_last_pruned_before = 0;
 	command_id m_current_horizon = no_command;
+
+	size_t m_test_chunk_multiplier = 1;
 
 	// Batch of commands currently being generated. Returned (and thereby emptied) by build_task().
 	std::vector<abstract_command*> m_current_cmd_batch;

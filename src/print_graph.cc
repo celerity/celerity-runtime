@@ -164,8 +164,14 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 		    [&](const push_command_record& pcmd) {
 			    begin_node(pcmd, "ellipse", "deeppink2");
 			    add_reduction_id_if_reduction(pcmd.trid);
-			    fmt::format_to(
-			        back, "<b>push</b> {} to N{}<br/>{} {}", pcmd.trid, pcmd.target, get_buffer_label(pcmd.trid.bid, pcmd.buffer_name), pcmd.push_range);
+			    fmt::format_to(back, "<b>push</b> {}", pcmd.trid);
+			    if(!pcmd.buffer_name.empty()) { fmt::format_to(back, " {}", utils::escape_for_dot_label(pcmd.buffer_name)); }
+			    fmt::format_to(back, "<br/>");
+			    for(size_t i = 0; i < pcmd.target_regions.size(); ++i) {
+				    const auto& [nid, region] = pcmd.target_regions[i];
+				    fmt::format_to(back, "{} to N{}", region, nid);
+				    if(i < pcmd.target_regions.size() + 1) { *output += "<br/>"; }
+			    }
 			    end_node();
 		    },
 		    [&](const await_push_command_record& apcmd) {

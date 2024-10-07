@@ -1072,9 +1072,9 @@ namespace detail {
 			cgh.host_task(range<1>{num_nodes * 2}, [=](partition<1>) { (void)acc; });
 		});
 
-		// intial epoch + master-node task + 1 push per node + host task
+		// intial epoch + master-node task + push + host task + 1 horizon
 		// (dry runs currently always simulate node 0, hence the master-node task)
-		CHECK(scheduler_testspy::get_command_count(runtime_testspy::get_schdlr(rt)) == 3 + num_nodes);
+		CHECK(scheduler_testspy::get_command_count(runtime_testspy::get_schdlr(rt)) == 5);
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "dry run proceeds on fences", "[dryrun]") {
