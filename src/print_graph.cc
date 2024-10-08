@@ -104,64 +104,6 @@ const char* print_epoch_label(epoch_action action) {
 	}
 }
 
-std::string get_command_label(const node_id local_nid, const command_record& cmd) {
-	const command_id cid = cmd.id;
-
-	std::string label = fmt::format("C{} on N{}<br/>", cid, local_nid);
-
-	const auto get_buffer_label = [](const buffer_id bid, const std::string& debug_name) {
-		return utils::escape_for_dot_label(utils::make_buffer_debug_label(bid, debug_name));
-	};
-	const auto add_reduction_id_if_reduction = [&](const transfer_id trid) {
-		if(trid.rid != 0) { fmt::format_to(std::back_inserter(label), "(R{}) ", trid.rid); }
-	};
-	const auto list_completed_reductions = [&](const std::vector<reduction_id>& completed_reductions) {
-		for(const auto rid : completed_reductions) {
-			fmt::format_to(std::back_inserter(label), "<br/>completed R{}", rid);
-		}
-	};
-
-	matchbox::match(
-	    cmd,
-	    [&](const push_command_record& pcmd) {
-		    add_reduction_id_if_reduction(pcmd.trid);
-		    fmt::format_to(std::back_inserter(label), "<b>push</b> {} to N{}<br/>{} {}", pcmd.trid, pcmd.target,
-		        get_buffer_label(pcmd.trid.bid, pcmd.buffer_name), pcmd.push_range);
-	    },
-	    [&](const await_push_command_record& apcmd) {
-		    add_reduction_id_if_reduction(apcmd.trid);
-		    fmt::format_to(std::back_inserter(label), "<b>await push</b> {} <br/>{} {}", //
-		        apcmd.trid, get_buffer_label(apcmd.trid.bid, apcmd.buffer_name), apcmd.await_region);
-	    },
-	    [&](const reduction_command_record& rcmd) {
-		    const region scalar_region(box<3>({0, 0, 0}, {1, 1, 1}));
-		    fmt::format_to(std::back_inserter(label), "<b>reduction</b> R{}<br/> {} {}", rcmd.rid, get_buffer_label(rcmd.bid, rcmd.buffer_name), scalar_region);
-		    if(!rcmd.has_local_contribution) { label += "<br/>(no local contribution)"; }
-	    },
-	    [&](const epoch_command_record& ecmd) {
-		    label += print_epoch_label(ecmd.action);
-		    list_completed_reductions(ecmd.completed_reductions);
-	    },
-	    [&](const horizon_command_record& hcmd) {
-		    label += "<b>horizon</b>";
-		    list_completed_reductions(hcmd.completed_reductions);
-	    },
-	    [&](const execution_command_record& ecmd) { fmt::format_to(std::back_inserter(label), "<b>execution</b> {}", ecmd.execution_range); },
-	    [&](const fence_command_record& fcmd) { label += "<b>fence</b>"; });
-
-	if(utils::isa<execution_command_record>(&cmd)) {
-		const auto& ecmd = *utils::as<execution_command_record>(&cmd);
-		auto reduction_init_mode = ecmd.is_reduction_initializer ? access_mode::read_write : access_mode::discard_write;
-		format_requirements(label, ecmd.reductions, ecmd.accesses, ecmd.side_effects, reduction_init_mode);
-	}
-	if(utils::isa<fence_command_record>(&cmd)) {
-		const auto& fcmd = *utils::as<fence_command_record>(&cmd);
-		format_requirements(label, reduction_list{}, fcmd.accesses, fcmd.side_effects, access_mode::discard_write);
-	}
-
-	return label;
-}
-
 std::string print_command_graph(const node_id local_nid, const command_recorder& recorder, const std::string& title) {
 	std::string main_dot;
 	std::map<task_id, std::string> task_subgraph_dot; // this map must be ordered!
@@ -171,14 +113,24 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 		return fmt::format("id_{}_{}", local_nid, id);
 	};
 
-	const auto print_vertex = [&](const command_record& cmd) {
-		static const char* const colors[] = {"black", "crimson", "dodgerblue4", "goldenrod", "maroon4", "springgreen2", "tan1", "chartreuse2"};
+	const auto get_subgraph = [&](const task_command_record& task_cmd) {
+		if(!task_subgraph_dot.contains(task_cmd.tid)) {
+			std::string task_label;
+			fmt::format_to(std::back_inserter(task_label), "T{} ", task_cmd.tid);
+			if(!task_cmd.debug_name.empty()) { fmt::format_to(std::back_inserter(task_label), "\"{}\" ", utils::escape_for_dot_label(task_cmd.debug_name)); }
+			task_label += "(";
+			task_label += task_type_string(task_cmd.type);
+			if(task_cmd.type == task_type::collective) { fmt::format_to(std::back_inserter(task_label), " on CG{}", task_cmd.cgid); }
+			task_label += ")";
 
-		const auto id = local_to_global_id(cmd.id);
-		const auto label = get_command_label(local_nid, cmd);
-		const auto* const fontcolor = colors[local_nid % (sizeof(colors) / sizeof(char*))];
-		const auto* const shape = utils::isa<task_command_record>(&cmd) ? "box" : "ellipse";
-		return fmt::format("{}[label=<{}> fontcolor={} shape={}];", id, label, fontcolor, shape);
+			task_subgraph_dot.emplace(task_cmd.tid,
+			    fmt::format("subgraph cluster_{}{{label=<<font color=\"#606060\">{}</font>>;color=darkgray;", local_to_global_id(task_cmd.tid), task_label));
+		}
+		return &task_subgraph_dot[task_cmd.tid];
+	};
+
+	const auto get_buffer_label = [](const buffer_id bid, const std::string& debug_name) {
+		return utils::escape_for_dot_label(utils::make_buffer_debug_label(bid, debug_name));
 	};
 
 	// we want to iterate over our command records in a sorted order, without moving everything around, and we aren't in C++20 (yet)
@@ -189,27 +141,71 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 	std::sort(sorted_cmd_pointers.begin(), sorted_cmd_pointers.end(), [](const command_record* a, const command_record* b) { return a->id < b->id; });
 
 	for(const auto& cmd : sorted_cmd_pointers) {
-		if(utils::isa<task_command_record>(cmd)) {
-			const auto& task_cmd = dynamic_cast<const task_command_record&>(*cmd);
-			// Add to subgraph as well
-			if(task_subgraph_dot.count(task_cmd.tid) == 0) {
-				std::string task_label;
-				fmt::format_to(std::back_inserter(task_label), "T{} ", task_cmd.tid);
-				if(!task_cmd.debug_name.empty()) {
-					fmt::format_to(std::back_inserter(task_label), "\"{}\" ", utils::escape_for_dot_label(task_cmd.debug_name));
-				}
-				task_label += "(";
-				task_label += task_type_string(task_cmd.type);
-				if(task_cmd.type == task_type::collective) { fmt::format_to(std::back_inserter(task_label), " on CG{}", task_cmd.cgid); }
-				task_label += ")";
+		std::string* output = &main_dot;
+		if(utils::isa<task_command_record>(cmd)) { output = get_subgraph(dynamic_cast<const task_command_record&>(*cmd)); }
+		auto back = std::back_inserter(*output);
 
-				task_subgraph_dot.emplace(task_cmd.tid, fmt::format("subgraph cluster_{}{{label=<<font color=\"#606060\">{}</font>>;color=darkgray;",
-				                                            local_to_global_id(task_cmd.tid), task_label));
+		const auto begin_node = [&](const command_record& cmd, const std::string_view& shape, const std::string_view& color) {
+			fmt::format_to(back, "{}[color={},shape={},label=<C{} on N{}<br/>", local_to_global_id(cmd.id), color, shape, cmd.id, local_nid);
+		};
+		const auto end_node = [&] { fmt::format_to(back, ">];"); };
+
+		const auto add_reduction_id_if_reduction = [&](const transfer_id trid) {
+			if(trid.rid != 0) { fmt::format_to(back, "(R{}) ", trid.rid); }
+		};
+		const auto list_completed_reductions = [&](const std::vector<reduction_id>& completed_reductions) {
+			for(const auto rid : completed_reductions) {
+				fmt::format_to(back, "<br/>completed R{}", rid);
 			}
-			task_subgraph_dot[task_cmd.tid] += print_vertex(*cmd);
-		} else {
-			main_dot += print_vertex(*cmd);
-		}
+		};
+
+		matchbox::match(
+		    *cmd,
+		    [&](const push_command_record& pcmd) {
+			    begin_node(pcmd, "ellipse", "deeppink2");
+			    add_reduction_id_if_reduction(pcmd.trid);
+			    fmt::format_to(
+			        back, "<b>push</b> {} to N{}<br/>{} {}", pcmd.trid, pcmd.target, get_buffer_label(pcmd.trid.bid, pcmd.buffer_name), pcmd.push_range);
+			    end_node();
+		    },
+		    [&](const await_push_command_record& apcmd) {
+			    begin_node(apcmd, "ellipse", "deeppink2");
+			    add_reduction_id_if_reduction(apcmd.trid);
+			    fmt::format_to(back, "<b>await push</b> {} <br/>{} {}", apcmd.trid, get_buffer_label(apcmd.trid.bid, apcmd.buffer_name), apcmd.await_region);
+			    end_node();
+		    },
+		    [&](const reduction_command_record& rcmd) {
+			    begin_node(rcmd, "ellipse", "blue");
+			    const region scalar_region(box<3>({0, 0, 0}, {1, 1, 1}));
+			    fmt::format_to(back, "<b>reduction</b> R{}<br/> {} {}", rcmd.rid, get_buffer_label(rcmd.bid, rcmd.buffer_name), scalar_region);
+			    if(!rcmd.has_local_contribution) { *output += "<br/>(no local contribution)"; }
+			    end_node();
+		    },
+		    [&](const epoch_command_record& ecmd) {
+			    begin_node(ecmd, "box", "black");
+			    *output += print_epoch_label(ecmd.action);
+			    list_completed_reductions(ecmd.completed_reductions);
+			    end_node();
+		    },
+		    [&](const horizon_command_record& hcmd) {
+			    begin_node(hcmd, "box", "black");
+			    *output += "<b>horizon</b>";
+			    list_completed_reductions(hcmd.completed_reductions);
+			    end_node();
+		    },
+		    [&](const execution_command_record& ecmd) {
+			    begin_node(ecmd, "box", "darkorange2");
+			    fmt::format_to(back, "<b>execution</b> {}", ecmd.execution_range);
+			    auto reduction_init_mode = ecmd.is_reduction_initializer ? access_mode::read_write : access_mode::discard_write;
+			    format_requirements(*output, ecmd.reductions, ecmd.accesses, ecmd.side_effects, reduction_init_mode);
+			    end_node();
+		    },
+		    [&](const fence_command_record& fcmd) {
+			    begin_node(fcmd, "box", "darkorange");
+			    *output += "<b>fence</b>";
+			    format_requirements(*output, reduction_list{}, fcmd.accesses, fcmd.side_effects, access_mode::discard_write);
+			    end_node();
+		    });
 	};
 
 	// Sort and deduplicate edges
