@@ -79,6 +79,9 @@ TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]")
 	    .reduce(buf_0, false)
 	    .submit();
 	cctx.device_compute(range<1>(num_nodes)).read(buf_0, acc::all{}).read_write(buf_1, acc::one_to_one{}).write(buf_1, acc::one_to_one{}).submit();
+	cctx.collective_host_task().read(buf_1, acc::all{}).submit();
+	cctx.collective_host_task().read(buf_1, acc::all{}).submit();
+	cctx.fence(buf_1);
 
 	// Smoke test: It is valid for the dot output to change with updates to graph generation. If this test fails, verify that the printed graph is sane and
 	// replace the `expected` value with the new dot graph.
@@ -89,24 +92,37 @@ TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]")
 	    "<i>discard_write</i> B0 {[0,0,0] - [1,1,1]}<br/><i>discard_write</i> B1 {[0,0,0] - [1,1,1]}> fontcolor=black shape=box];}subgraph "
 	    "cluster_id_0_2{label=<<font color=\"#606060\">T2 (device-compute)</font>>;color=darkgray;id_0_7[label=<C7 on N0<br/><b>execution</b> [0,0,0] + "
 	    "[1,1,1]<br/><i>write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read_write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read</i> B0 {[0,0,0] - [1,1,1]}> fontcolor=black "
-	    "shape=box];}id_0_2[label=<C2 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N1<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_3[label=<C3 on "
-	    "N0<br/>(R1) <b>push</b> T2.B0.R1 to N2<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_4[label=<C4 on N0<br/>(R1) <b>push</b> T2.B0.R1 "
-	    "to N3<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_5[label=<C5 on N0<br/><b>reduction</b> R1<br/> B0 {[0,0,0] - [1,1,1]}> "
-	    "fontcolor=black shape=ellipse];id_0_6[label=<C6 on N0<br/>(R1) <b>await push</b> T2.B0.R1 <br/>B0 {[0,0,0] - [1,1,1]}> fontcolor=black "
-	    "shape=ellipse];id_0_0->id_0_1[color=orchid];id_0_0->id_0_6[color=orchid];id_0_1->id_0_2[];id_0_1->id_0_3[];id_0_1->id_0_4[];id_0_1->id_0_5[];id_0_1->"
-	    "id_0_7[];id_0_2->id_0_5[color=limegreen];id_0_3->id_0_5[color=limegreen];id_0_4->id_0_5[color=limegreen];id_0_5->id_0_7[];id_0_6->id_0_5[];}";
+	    "shape=box];}subgraph cluster_id_0_3{label=<<font color=\"#606060\">T3 (collective host on CG2)</font>>;color=darkgray;id_0_12[label=<C12 on "
+	    "N0<br/><b>execution</b> [0,0,0] + [1,1,1]<br/><i>read</i> B1 {[0,0,0] - [4,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_4{label=<<font "
+	    "color=\"#606060\">T4 (collective host on CG2)</font>>;color=darkgray;id_0_13[label=<C13 on N0<br/><b>execution</b> [0,0,0] + [1,1,1]<br/><i>read</i> "
+	    "B1 {[0,0,0] - [4,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_5{label=<<font color=\"#606060\">T5 "
+	    "(horizon)</font>>;color=darkgray;id_0_14[label=<C14 on N0<br/><b>horizon</b><br/>completed R1> fontcolor=black shape=box];}subgraph "
+	    "cluster_id_0_6{label=<<font color=\"#606060\">T6 (fence)</font>>;color=darkgray;id_0_15[label=<C15 on N0<br/><b>fence</b><br/><i>read</i> B1 {[0,0,0] "
+	    "- [4,1,1]}> fontcolor=black shape=box];}id_0_2[label=<C2 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N1<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black "
+	    "shape=ellipse];id_0_3[label=<C3 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N2<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_4[label=<C4 "
+	    "on N0<br/>(R1) <b>push</b> T2.B0.R1 to N3<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_5[label=<C5 on N0<br/><b>reduction</b> "
+	    "R1<br/> B0 {[0,0,0] - [1,1,1]}> fontcolor=black shape=ellipse];id_0_6[label=<C6 on N0<br/>(R1) <b>await push</b> T2.B0.R1 <br/>B0 {[0,0,0] - "
+	    "[1,1,1]}> fontcolor=black shape=ellipse];id_0_8[label=<C8 on N0<br/><b>push</b> T3.B1 to N1<br/>B1 [0,0,0] + [1,1,1]> fontcolor=black "
+	    "shape=ellipse];id_0_9[label=<C9 on N0<br/><b>push</b> T3.B1 to N2<br/>B1 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_10[label=<C10 on "
+	    "N0<br/><b>push</b> T3.B1 to N3<br/>B1 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_11[label=<C11 on N0<br/><b>await push</b> T3.B1 <br/>B1 "
+	    "{[1,0,0] - [4,1,1]}> fontcolor=black "
+	    "shape=ellipse];id_0_0->id_0_1[color=orchid];id_0_0->id_0_6[color=orchid];id_0_0->id_0_11[color=orchid];id_0_1->id_0_2[];id_0_1->id_0_3[];id_0_1->id_0_"
+	    "4[];id_0_1->id_0_5[];id_0_1->id_0_7[];id_0_2->id_0_5[color=limegreen];id_0_3->id_0_5[color=limegreen];id_0_4->id_0_5[color=limegreen];id_0_5->id_0_7[]"
+	    ";id_0_6->id_0_5[];id_0_7->id_0_8[];id_0_7->id_0_9[];id_0_7->id_0_10[];id_0_7->id_0_12[];id_0_7->id_0_13[];id_0_7->id_0_15[];id_0_8->id_0_14[color="
+	    "orange];id_0_9->id_0_14[color=orange];id_0_10->id_0_14[color=orange];id_0_11->id_0_12[];id_0_11->id_0_13[];id_0_11->id_0_15[];id_0_12->id_0_13[color="
+	    "blue];id_0_13->id_0_14[color=orange];}";
 
 	// fully check node 0
 	const auto dot0 = cctx.print_command_graph(0);
 	CHECK(dot0 == expected);
 	if(dot0 != expected) { fmt::print("\n{}:\n\ngot:\n\n{}\n\nexpected:\n\n{}\n\n", Catch::getResultCapture().getCurrentTestName(), dot0, expected); }
 
-	// only check the rough string length and occurence count of N1/N2... for other nodes
+	// only check the rough string length and occurrence count of N1/N2... for other nodes
 	const int expected_occurences = count_occurences(expected, "N0");
 	for(node_id nid = 1; nid < num_nodes; ++nid) {
 		CAPTURE(nid);
 		const auto dot_n = cctx.print_command_graph(nid);
-		CHECK_THAT(dot_n.size(), Catch::Matchers::WithinAbs(expected.size(), 50));
+		CHECK_THAT(dot_n.size(), Catch::Matchers::WithinAbs(expected.size(), 150));
 		CHECK(count_occurences(dot_n, fmt::format("N{}", nid)) == expected_occurences);
 	}
 }
