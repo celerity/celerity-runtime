@@ -742,5 +742,24 @@ namespace detail {
 		}
 	}
 
+	TEST_CASE("task_manager warns when when long-running programs frequently epoch-synchronize", "[task_manager]") {
+		test_utils::allow_max_log_level(log_level::warn);
+
+		const auto action = GENERATE(values({epoch_action::none, epoch_action::barrier}));
+
+		task_manager tm(1 /* num collective nodes */, nullptr /* recorder */);
+		for(int i = 0; i <= 25; ++i) {
+			for(int j = 0; j < 5; ++j) {
+				tm.submit_command_group([](handler& cgh) { cgh.host_task(celerity::once, [] {}); });
+			}
+			tm.generate_epoch_task(action);
+		}
+		tm.generate_epoch_task(epoch_action::shutdown);
+
+		CHECK(test_utils::log_contains_exact(log_level::warn,
+		    "Your program appears to call queue::wait() excessively, which may lead to performance degradation. Consider using queue::fence() "
+		    "for data-dependent branching and employ queue::wait() for timing only on a very coarse granularity."));
+	}
+
 } // namespace detail
 } // namespace celerity
