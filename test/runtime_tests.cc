@@ -1531,5 +1531,23 @@ namespace detail {
 		CHECK(test_utils::log_contains_exact(log_level::warn, expected_warning_message) == CELERITY_ACCESS_PATTERN_DIAGNOSTICS);
 	}
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "host_task(once) executes like a host task with unit range", "[runtime]") {
+		auto cgh = detail::make_command_group_handler(task_id(1), 1 /* num_collective_nodes */);
+
+		SECTION("with an argument-less functor") {
+			cgh.host_task(once, [] {});
+		}
+		SECTION("with a unary functor") {
+			cgh.host_task(once, [](partition<0> part) {});
+		}
+
+		auto tsk = detail::into_task(std::move(cgh));
+		CHECK(tsk->get_geometry().dimensions == 0);
+		CHECK(tsk->get_geometry().global_size.size() == 1);
+		CHECK(tsk->get_geometry().global_offset == zeros);
+		CHECK(tsk->get_geometry().granularity == ones);
+		CHECK(tsk->get_type() == task_type::host_compute); // NOT the magic "master node task" type
+	}
+
 } // namespace detail
 } // namespace celerity

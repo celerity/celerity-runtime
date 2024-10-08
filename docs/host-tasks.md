@@ -13,13 +13,12 @@ handler using the `celerity::handler::host_task` family of methods.
 
 Host tasks are executed in a background thread pool on each participating node and may execute concurrently.
 
-## Master-Node Host Tasks
+## Simple Host Tasks
 
-The simplest kind of host task is executed on the master node only. The relevant overload of `host_task` is selected
-with the `on_master_node` tag:
+The simplest kind of host task executes once on exactly one node. It is selected by calling `host_task` with the `once` tag:
 
 ```cpp
-cgh.host_task(celerity::on_master_node, []{ ... });
+cgh.host_task(celerity::once, []{ ... });
 ```
 
 Buffers can be accessed in the usual fashion, although there is no `item` structure passed into the kernel. Instead,
@@ -32,10 +31,20 @@ celerity::buffer<float, 1> result;
 q.submit([&](celerity::handler &cgh) {
 	celerity::accessor acc{buffer, cgh, celerity::access::all{},
 			celerity::read_only_host_task};
-    cgh.host_task(celerity::on_master_node, [=]{
+    cgh.host_task(celerity::once, [=]{
         printf("The result is %g\n", acc[0]);
     });
 });
+```
+
+## Master-Node Host Tasks
+
+By passing `on_master_node` instead of the `once` tag, we can enforce that all invocations of the host task run on the same cluster node
+(MPI rank 0, dubbed the "master node"). This is useful when state other than buffers (such as a host object) is shared between multiple host tasks,
+and we need to guarantee that all tasks access the same object.
+
+```cpp
+cgh.host_task(celerity::on_master_node, []{ ... });
 ```
 
 ## Distributed Host Tasks

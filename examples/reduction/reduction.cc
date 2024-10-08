@@ -88,7 +88,7 @@ int main(int argc, char* argv[]) {
 
 	q.submit([&](celerity::handler& cgh) {
 		celerity::accessor minmax_acc{minmax_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
-		cgh.host_task(celerity::on_master_node, [=] { printf("Before contrast stretch: min = %f, max = %f\n", minmax_acc[0][0], minmax_acc[0][1]); });
+		cgh.host_task(celerity::once, [=] { printf("Before contrast stretch: min = %f, max = %f\n", minmax_acc[0][0], minmax_acc[0][1]); });
 	});
 
 	q.submit([&](celerity::handler& cgh) {
@@ -108,7 +108,7 @@ int main(int argc, char* argv[]) {
 
 	q.submit([&](celerity::handler& cgh) {
 		celerity::accessor srgb_255_acc{srgb_255_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
-		cgh.host_task(celerity::on_master_node, [=] { stbi_write_jpg("output.jpg", image_width, image_height, 4, srgb_255_acc.get_pointer(), 90); });
+		cgh.host_task(celerity::once, [=] { stbi_write_jpg("output.jpg", image_width, image_height, 4, srgb_255_acc.get_pointer(), 90); });
 	});
 
 	return EXIT_SUCCESS;

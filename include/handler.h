@@ -50,6 +50,8 @@ namespace celerity::experimental {
 template <int Dims>
 void constrain_split(handler& cgh, const range<Dims>& constraint);
 
+class collective_group;
+
 } // namespace celerity::experimental
 
 namespace celerity {
@@ -96,21 +98,11 @@ namespace detail {
 		inline static constexpr bool has_local_size = true;
 		using local_size_type = range<Dims>;
 	};
+
+	class collective_tag_factory;
 } // namespace detail
 
-/**
- * Tag type marking a `handler::host_task` as a master-node task. Do not construct this type directly, but use `celerity::on_master_node`.
- */
-class on_master_node_tag {};
-
-/**
- * Pass to `handler::host_task` to select the master-node task overload.
- */
-inline constexpr on_master_node_tag on_master_node;
-
 namespace experimental {
-	class collective_tag_factory;
-
 	/**
 	 * Each collective host task is executed within a collective group. If multiple host tasks are scheduled within the same collective group, they are
 	 * guaranteed to execute in the same order on every node and within a single thread per node. Each group has its own MPI communicator spanning all
@@ -122,10 +114,17 @@ namespace experimental {
 		collective_group() noexcept : m_cgid(s_next_cgid++) {}
 
 	  private:
-		friend class collective_tag_factory;
+		friend class detail::collective_tag_factory;
 		detail::collective_group_id m_cgid;
 		inline static detail::collective_group_id s_next_cgid = detail::root_collective_group_id + 1;
 	};
+} // namespace experimental
+
+namespace detail {
+	/**
+	 * The collective group used in collective host tasks when no group is specified explicitly.
+	 */
+	inline const experimental::collective_group default_collective_group;
 
 	/**
 	 * Tag type marking a `handler::host_task` as a collective task. Do not construct this type directly, but use `celerity::experimental::collective`
@@ -135,24 +134,21 @@ namespace experimental {
 	  private:
 		friend class collective_tag_factory;
 		friend class celerity::handler;
-		collective_tag(detail::collective_group_id cgid) : m_cgid(cgid) {}
-		detail::collective_group_id m_cgid;
+		collective_tag(collective_group_id cgid) : m_cgid(cgid) {}
+		collective_group_id m_cgid;
 	};
-
-	/**
-	 * The collective group used in collective host tasks when no group is specified explicitly.
-	 */
-	inline const collective_group default_collective_group;
 
 	/**
 	 * Tag type construction helper. Do not construct this type directly, use `celerity::experimental::collective` instead.
 	 */
 	class collective_tag_factory {
 	  public:
-		operator experimental::collective_tag() const { return default_collective_group.m_cgid; }
-		experimental::collective_tag operator()(experimental::collective_group cg) const { return cg.m_cgid; }
+		operator collective_tag() const { return default_collective_group.m_cgid; }
+		collective_tag operator()(experimental::collective_group cg) const { return cg.m_cgid; }
 	};
+} // namespace detail
 
+namespace experimental {
 	/**
 	 * Pass to `handler::host_task` to select the collective host task overload.
 	 *
@@ -168,10 +164,18 @@ namespace experimental {
 	 * cgh.host_task(celerity::experimental::collective(my_group), []...);
 	 * ```
 	 */
-	inline constexpr collective_tag_factory collective;
+	inline constexpr detail::collective_tag_factory collective;
 } // namespace experimental
 
 namespace detail {
+
+	/// Tag type marking a `handler::host_task` as a master-node task. Do not construct this type directly, but use `celerity::on_master_node`.
+	class on_master_node_tag {};
+
+	/// Tag type marking a `handler::host_task` as a single-item host task equivalent to `range<0>{}`. Do not construct this type directly, but use
+	/// `celerity::once`.
+	class once_tag {};
+
 	template <typename Kernel, int Dims, typename... Reducers>
 	inline void invoke_kernel(const Kernel& kernel, const sycl::id<std::max(1, Dims)>& s_id, const range<Dims>& global_range, const id<Dims>& global_offset,
 	    const id<Dims>& chunk_offset, Reducers&... reducers) {
@@ -295,6 +299,12 @@ namespace detail {
 
 } // namespace detail
 
+/// Pass to `handler::host_task` to select the master-node task overload.
+inline constexpr detail::on_master_node_tag on_master_node;
+
+/// Equivalent to `range<0>{}` when passed to `handler::host_task`.
+inline constexpr detail::once_tag once;
+
 class handler {
   public:
 	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
@@ -322,67 +332,71 @@ class handler {
 	}
 
 	/**
-	 * Schedules `kernel` to execute on the master node only. Call via `cgh.host_task(celerity::on_master_node, []...)`. The kernel is assumed to be invocable
-	 * with the signature `void(const celerity::partition<0> &)` or `void()`.
+	 * Schedules `task` to execute on the master node only. Call via `cgh.host_task(celerity::on_master_node, []...)`. The task functor is assumed to be
+	 * invocable with the signature `void(const celerity::partition<0> &)` or `void()`.
 	 *
-	 * The kernel is executed in a background thread pool and multiple master node tasks may be executed concurrently if they are independent in the
-	 * task graph, so proper synchronization must be ensured.
-	 *
-	 * **Compatibility note:** This replaces master-access tasks from Celerity 0.1 which were executed on the master node's main thread, so this implementation
-	 * may require different lifetimes for captures. See `celerity::allow_by_ref` for more information on this topic.
+	 * The task is executed in a background thread and multiple master node tasks may be executed concurrently if they are independent in the task graph, so
+	 * proper synchronization must be ensured.
 	 */
 	template <typename Functor>
-	void host_task(on_master_node_tag /* tag */, Functor&& kernel) {
-		auto launcher = make_host_task_launcher<0, false>(detail::zeros, 0, std::forward<Functor>(kernel));
+	void host_task(const detail::on_master_node_tag on_master_node, Functor&& task) {
+		auto launcher = make_host_task_launcher<0, false>(detail::zeros, detail::non_collective_group_id, std::forward<Functor>(task));
 		create_master_node_task(std::move(launcher));
 	}
-
 	/**
-	 * Schedules `kernel` to be executed collectively on all nodes participating in the specified collective group. Call via
+	 * Schedules `task` to be executed collectively on all nodes participating in the specified collective group. Call via
 	 * `cgh.host_task(celerity::experimental::collective, []...)` or  `cgh.host_task(celerity::experimental::collective(group), []...)`.
-	 * The kernel is assumed to be invocable with the signature `void(const celerity::experimental::collective_partition&)`
+	 * The task functor is assumed to be invocable with the signature `void(const celerity::experimental::collective_partition&)`
 	 * or `void(const celerity::partition<1>&)`.
 	 *
 	 * This provides framework to use arbitrary collective MPI operations in a host task, such as performing collective I/O with parallel HDF5.
 	 * The local node id,t the number of participating nodes as well as the group MPI communicator can be obtained from the `collective_partition` passed into
-	 * the kernel.
+	 * the task functor.
 	 *
-	 * All collective tasks within a collective group are guaranteed to be executed in the same order on all nodes, additionally, all internal MPI operations
-	 * and all host kernel invocations are executed in a single thread on each host.
+	 * All collective tasks within a collective group are guaranteed to be executed in the same order on all nodes.
 	 */
 	template <typename Functor>
-	void host_task(experimental::collective_tag tag, Functor&& kernel) {
+	void host_task(const detail::collective_tag collective, Functor&& task) {
 		// FIXME: We should not have to know how the global range is determined for collective tasks to create the launcher
-		auto launcher = make_host_task_launcher<1, true>(range<3>{m_num_collective_nodes, 1, 1}, tag.m_cgid, std::forward<Functor>(kernel));
-		create_collective_task(tag.m_cgid, std::move(launcher));
+		auto launcher = make_host_task_launcher<1, true>(range<3>{m_num_collective_nodes, 1, 1}, collective.m_cgid, std::forward<Functor>(task));
+		create_collective_task(collective.m_cgid, std::move(launcher));
 	}
 
 	/**
-	 * Schedules a distributed execution of `kernel` by splitting the iteration space in a runtime-defined manner. The kernel is assumed to be invocable
+	 * Schedules a distributed execution of `task` by splitting the iteration space in a runtime-defined manner. The task functor is assumed to be invocable
 	 * with the signature `void(const celerity::partition<Dims>&)`.
 	 *
-	 * The kernel is executed in a background thread pool with multiple host tasks being run concurrently if they are independent in the task graph,
-	 * so proper synchronization must be ensured. The partition passed into the kernel describes the split each host receives. It may be used with accessors
-	 * to obtain the per-node portion of a buffer en-bloc, see `celerity::accessor::get_allocation_window` for details.
+	 * The task is executed in a background thread with multiple host tasks being run concurrently if they are independent in the task graph, so proper
+	 * synchronization must be ensured. The partition passed into the task functor describes the split each host receives. It may be used with accessors to
+	 * obtain the per-node portion of a buffer en-bloc, see `celerity::accessor::get_allocation_window` for details.
 	 *
-	 * There are no guarantees with respect to the split size and the order in which host tasks are re-orered between nodes other than
-	 * the restrictions imposed by dependencies in the task graph. Also, the kernel may be invoked multiple times on one node and not be scheduled on
-	 * another node. If you need guarantees about execution order
+	 * There are no guarantees with respect to the split size and the order in which host tasks are reordered between nodes other than
+	 * the restrictions imposed by dependencies in the task graph. Also, the task functor may be invoked multiple times on one node and not be scheduled on
+	 * another node. If you need guarantees about execution order, consider `host_task(experimental::collective)` instead.
 	 */
 	template <int Dims, typename Functor>
-	void host_task(range<Dims> global_range, id<Dims> global_offset, Functor&& kernel) {
+	void host_task(range<Dims> global_range, id<Dims> global_offset, Functor&& task) {
 		const detail::task_geometry geometry{
 		    Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), get_constrained_granularity(global_range, range<Dims>(detail::ones))};
-		auto launcher = make_host_task_launcher<Dims, false>(detail::range_cast<3>(global_range), 0, std::forward<Functor>(kernel));
+		auto launcher = make_host_task_launcher<Dims, false>(detail::range_cast<3>(global_range), 0, std::forward<Functor>(task));
 		create_host_compute_task(geometry, std::move(launcher));
 	}
 
 	/**
-	 * Like `host_task(range<Dims> global_range, id<Dims> global_offset, Functor kernel)`, but with a `global_offset` of zero.
+	 * Like `host_task(range<Dims> global_range, id<Dims> global_offset, Functor task)`, but with a `global_offset` of zero.
 	 */
 	template <int Dims, typename Functor>
-	void host_task(range<Dims> global_range, Functor&& kernel) {
-		host_task(global_range, {}, std::forward<Functor>(kernel));
+	void host_task(range<Dims> global_range, Functor&& task) {
+		host_task(global_range, {}, std::forward<Functor>(task));
+	}
+
+	/**
+	 * Schedules a host task with a single-element iteration space, causing it to be executed exactly once and on a single cluster node.
+	 * Equivalent to `host_task(range<0>{}, ...)`.
+	 */
+	template <typename Functor>
+	void host_task(const detail::once_tag once, Functor&& task) {
+		host_task(range<0>{}, std::forward<Functor>(task));
 	}
 
   private:
