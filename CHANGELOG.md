@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic
 Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Support builds for single-node multi-device setups without MPI by specifying `-DCELERITY_ENABLE_MPI=0` in CMake (#282)
+- Add `celerity::once` tag type for host tasks (equivalent to `range<0>{}`) as a replacement for `on_master_node` (#282)
+
 ## [0.6.0] - 2024-08-12
 
 This release includes changes that may require adjustments when upgrading:
