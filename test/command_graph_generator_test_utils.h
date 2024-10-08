@@ -538,7 +538,7 @@ class cdag_test_context {
 
 	auto master_node_host_task() { return task_builder(*this).master_node_host_task(); }
 
-	auto collective_host_task(experimental::collective_group group = experimental::default_collective_group) {
+	auto collective_host_task(experimental::collective_group group = detail::default_collective_group) {
 		return task_builder(*this).collective_host_task(group);
 	}
 

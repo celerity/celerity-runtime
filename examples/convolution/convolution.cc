@@ -107,7 +107,7 @@ int main(int argc, char* argv[]) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor out{image_output_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
 
-		cgh.host_task(celerity::on_master_node, [=] {
+		cgh.host_task(celerity::once, [=] {
 			std::vector<uint8_t> image_output(image_width * image_height * 3);
 			for(size_t y = 0; y < static_cast<size_t>(image_height); ++y) {
 				for(size_t x = 0; x < static_cast<size_t>(image_width); ++x) {

@@ -249,7 +249,7 @@ your `main()` function:
 ```cpp
 queue.submit([&](celerity::handler& cgh) {
 	celerity::accessor out{edge_buf, cgh, celerity::access::all{}, celerity::read_only_host_task};
-    cgh.host_task(celerity::on_master_node, [=]() {
+    cgh.host_task(celerity::once, [=]() {
         stbi_write_png("result.png", img_width, img_height, 1, out.get_pointer(), 0);
     });
 });
@@ -260,9 +260,9 @@ buffers we want to operate on within this task. Since we need access
 to the entire buffer, we pass an instance of the `all` range mapper.
 
 Then we supply the code to be run on the host as a lambda function to
-`celerity::handler::host_task`. As the tag `celerity::on_master_node`
-implies, we select the overload that calls our host task on a single node
--- the master node. Since the code is executed on the host, we are able to
+`celerity::handler::host_task`. As the tag `celerity::once` implies,
+we select the overload that calls our host task once on a single node.
+Since the code is executed on the host, we are able to
 use it for things such as result verification and I/O. In this case, we call
 `stbi_write_png` to write our resulting image into a file called `result.png`.
 
