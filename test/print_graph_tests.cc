@@ -87,30 +87,31 @@ TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]")
 	// replace the `expected` value with the new dot graph.
 	const std::string expected =
 	    "digraph G{label=<<br/>Command Graph<br/><b>command-graph printing is unchanged</b>>;pad=0.2;subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 "
-	    "(epoch)</font>>;color=darkgray;id_0_0[label=<C0 on N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font "
-	    "color=\"#606060\">T1 (device-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [0,0,0] + [1,1,1]<br/>(R1) "
-	    "<i>discard_write</i> B0 {[0,0,0] - [1,1,1]}<br/><i>discard_write</i> B1 {[0,0,0] - [1,1,1]}> fontcolor=black shape=box];}subgraph "
-	    "cluster_id_0_2{label=<<font color=\"#606060\">T2 (device-compute)</font>>;color=darkgray;id_0_7[label=<C7 on N0<br/><b>execution</b> [0,0,0] + "
-	    "[1,1,1]<br/><i>write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read_write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read</i> B0 {[0,0,0] - [1,1,1]}> fontcolor=black "
-	    "shape=box];}subgraph cluster_id_0_3{label=<<font color=\"#606060\">T3 (collective host on CG2)</font>>;color=darkgray;id_0_12[label=<C12 on "
-	    "N0<br/><b>execution</b> [0,0,0] + [1,1,1]<br/><i>read</i> B1 {[0,0,0] - [4,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_4{label=<<font "
-	    "color=\"#606060\">T4 (collective host on CG2)</font>>;color=darkgray;id_0_13[label=<C13 on N0<br/><b>execution</b> [0,0,0] + [1,1,1]<br/><i>read</i> "
-	    "B1 {[0,0,0] - [4,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_5{label=<<font color=\"#606060\">T5 "
-	    "(horizon)</font>>;color=darkgray;id_0_14[label=<C14 on N0<br/><b>horizon</b><br/>completed R1> fontcolor=black shape=box];}subgraph "
-	    "cluster_id_0_6{label=<<font color=\"#606060\">T6 (fence)</font>>;color=darkgray;id_0_15[label=<C15 on N0<br/><b>fence</b><br/><i>read</i> B1 {[0,0,0] "
-	    "- [4,1,1]}> fontcolor=black shape=box];}id_0_2[label=<C2 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N1<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black "
-	    "shape=ellipse];id_0_3[label=<C3 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N2<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_4[label=<C4 "
-	    "on N0<br/>(R1) <b>push</b> T2.B0.R1 to N3<br/>B0 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_5[label=<C5 on N0<br/><b>reduction</b> "
-	    "R1<br/> B0 {[0,0,0] - [1,1,1]}> fontcolor=black shape=ellipse];id_0_6[label=<C6 on N0<br/>(R1) <b>await push</b> T2.B0.R1 <br/>B0 {[0,0,0] - "
-	    "[1,1,1]}> fontcolor=black shape=ellipse];id_0_8[label=<C8 on N0<br/><b>push</b> T3.B1 to N1<br/>B1 [0,0,0] + [1,1,1]> fontcolor=black "
-	    "shape=ellipse];id_0_9[label=<C9 on N0<br/><b>push</b> T3.B1 to N2<br/>B1 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_10[label=<C10 on "
-	    "N0<br/><b>push</b> T3.B1 to N3<br/>B1 [0,0,0] + [1,1,1]> fontcolor=black shape=ellipse];id_0_11[label=<C11 on N0<br/><b>await push</b> T3.B1 <br/>B1 "
-	    "{[1,0,0] - [4,1,1]}> fontcolor=black "
-	    "shape=ellipse];id_0_0->id_0_1[color=orchid];id_0_0->id_0_6[color=orchid];id_0_0->id_0_11[color=orchid];id_0_1->id_0_2[];id_0_1->id_0_3[];id_0_1->id_0_"
-	    "4[];id_0_1->id_0_5[];id_0_1->id_0_7[];id_0_2->id_0_5[color=limegreen];id_0_3->id_0_5[color=limegreen];id_0_4->id_0_5[color=limegreen];id_0_5->id_0_7[]"
-	    ";id_0_6->id_0_5[];id_0_7->id_0_8[];id_0_7->id_0_9[];id_0_7->id_0_10[];id_0_7->id_0_12[];id_0_7->id_0_13[];id_0_7->id_0_15[];id_0_8->id_0_14[color="
-	    "orange];id_0_9->id_0_14[color=orange];id_0_10->id_0_14[color=orange];id_0_11->id_0_12[];id_0_11->id_0_13[];id_0_11->id_0_15[];id_0_12->id_0_13[color="
-	    "blue];id_0_13->id_0_14[color=orange];}";
+	    "(epoch)</font>>;color=darkgray;id_0_0[color=black,shape=box,label=<C0 on N0<br/><b>epoch</b>>];}subgraph cluster_id_0_1{label=<<font "
+	    "color=\"#606060\">T1 (device-compute)</font>>;color=darkgray;id_0_1[color=darkorange2,shape=box,label=<C1 on N0<br/><b>execution</b> [0,0,0] + "
+	    "[1,1,1]<br/>(R1) <i>discard_write</i> B0 {[0,0,0] - [1,1,1]}<br/><i>discard_write</i> B1 {[0,0,0] - [1,1,1]}>];}subgraph cluster_id_0_2{label=<<font "
+	    "color=\"#606060\">T2 (device-compute)</font>>;color=darkgray;id_0_7[color=darkorange2,shape=box,label=<C7 on N0<br/><b>execution</b> [0,0,0] + "
+	    "[1,1,1]<br/><i>write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read_write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read</i> B0 {[0,0,0] - [1,1,1]}>];}subgraph "
+	    "cluster_id_0_3{label=<<font color=\"#606060\">T3 (collective host on CG2)</font>>;color=darkgray;id_0_12[color=darkorange2,shape=box,label=<C12 on "
+	    "N0<br/><b>execution</b> [0,0,0] + [1,1,1]<br/><i>read</i> B1 {[0,0,0] - [4,1,1]}>];}subgraph cluster_id_0_4{label=<<font color=\"#606060\">T4 "
+	    "(collective host on CG2)</font>>;color=darkgray;id_0_13[color=darkorange2,shape=box,label=<C13 on N0<br/><b>execution</b> [0,0,0] + "
+	    "[1,1,1]<br/><i>read</i> B1 {[0,0,0] - [4,1,1]}>];}subgraph cluster_id_0_5{label=<<font color=\"#606060\">T5 "
+	    "(horizon)</font>>;color=darkgray;id_0_14[color=black,shape=box,label=<C14 on N0<br/><b>horizon</b><br/>completed R1>];}subgraph "
+	    "cluster_id_0_6{label=<<font color=\"#606060\">T6 (fence)</font>>;color=darkgray;id_0_15[color=darkorange,shape=box,label=<C15 on "
+	    "N0<br/><b>fence</b><br/><i>read</i> B1 {[0,0,0] - [4,1,1]}>];}id_0_2[color=deeppink2,shape=ellipse,label=<C2 on N0<br/>(R1) <b>push</b> T2.B0.R1 to "
+	    "N1<br/>B0 [0,0,0] + [1,1,1]>];id_0_3[color=deeppink2,shape=ellipse,label=<C3 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N2<br/>B0 [0,0,0] + "
+	    "[1,1,1]>];id_0_4[color=deeppink2,shape=ellipse,label=<C4 on N0<br/>(R1) <b>push</b> T2.B0.R1 to N3<br/>B0 [0,0,0] + "
+	    "[1,1,1]>];id_0_5[color=blue,shape=ellipse,label=<C5 on N0<br/><b>reduction</b> R1<br/> B0 {[0,0,0] - "
+	    "[1,1,1]}>];id_0_6[color=deeppink2,shape=ellipse,label=<C6 on N0<br/>(R1) <b>await push</b> T2.B0.R1 <br/>B0 {[0,0,0] - "
+	    "[1,1,1]}>];id_0_8[color=deeppink2,shape=ellipse,label=<C8 on N0<br/><b>push</b> T3.B1 to N1<br/>B1 [0,0,0] + "
+	    "[1,1,1]>];id_0_9[color=deeppink2,shape=ellipse,label=<C9 on N0<br/><b>push</b> T3.B1 to N2<br/>B1 [0,0,0] + "
+	    "[1,1,1]>];id_0_10[color=deeppink2,shape=ellipse,label=<C10 on N0<br/><b>push</b> T3.B1 to N3<br/>B1 [0,0,0] + "
+	    "[1,1,1]>];id_0_11[color=deeppink2,shape=ellipse,label=<C11 on N0<br/><b>await push</b> T3.B1 <br/>B1 {[1,0,0] - "
+	    "[4,1,1]}>];id_0_0->id_0_1[color=orchid];id_0_0->id_0_6[color=orchid];id_0_0->id_0_11[color=orchid];id_0_1->id_0_2[];id_0_1->id_0_3[];id_0_1->id_0_4[];"
+	    "id_0_1->id_0_5[];id_0_1->id_0_7[];id_0_2->id_0_5[color=limegreen];id_0_3->id_0_5[color=limegreen];id_0_4->id_0_5[color=limegreen];id_0_5->id_0_7[];id_"
+	    "0_6->id_0_5[];id_0_7->id_0_8[];id_0_7->id_0_9[];id_0_7->id_0_10[];id_0_7->id_0_12[];id_0_7->id_0_13[];id_0_7->id_0_15[];id_0_8->id_0_14[color=orange];"
+	    "id_0_9->id_0_14[color=orange];id_0_10->id_0_14[color=orange];id_0_11->id_0_12[];id_0_11->id_0_13[];id_0_11->id_0_15[];id_0_12->id_0_13[color=blue];id_"
+	    "0_13->id_0_14[color=orange];}";
 
 	// fully check node 0
 	const auto dot0 = cctx.print_command_graph(0);
@@ -122,7 +123,7 @@ TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]")
 	for(node_id nid = 1; nid < num_nodes; ++nid) {
 		CAPTURE(nid);
 		const auto dot_n = cctx.print_command_graph(nid);
-		CHECK_THAT(dot_n.size(), Catch::Matchers::WithinAbs(expected.size(), 150));
+		CHECK_THAT(dot_n.size(), Catch::Matchers::WithinAbs(expected.size(), 50));
 		CHECK(count_occurences(dot_n, fmt::format("N{}", nid)) == expected_occurences);
 	}
 }
@@ -335,20 +336,20 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 
 	SECTION("command graph") {
 		const auto* expected =
-		    "digraph G{label=<Command Graph>;pad=0.2;subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 (epoch)</font>>;color=darkgray;id_0_0[label=<C0 "
-		    "on N0<br/><b>epoch</b>> fontcolor=black shape=box];}subgraph cluster_id_0_1{label=<<font color=\"#606060\">T1 "
-		    "(host-compute)</font>>;color=darkgray;id_0_1[label=<C1 on N0<br/><b>execution</b> [0,0,0] + [16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - "
-		    "[16,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 "
-		    "(horizon)</font>>;color=darkgray;id_0_2[label=<C2 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph cluster_id_0_3{label=<<font "
-		    "color=\"#606060\">T3 (host-compute)</font>>;color=darkgray;id_0_3[label=<C3 on N0<br/><b>execution</b> [0,0,0] + [16,1,1]<br/><i>read_write</i> "
-		    "B0 {[0,0,0] - [16,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_4{label=<<font color=\"#606060\">T4 "
-		    "(horizon)</font>>;color=darkgray;id_0_4[label=<C4 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph cluster_id_0_5{label=<<font "
-		    "color=\"#606060\">T5 (host-compute)</font>>;color=darkgray;id_0_5[label=<C5 on N0<br/><b>execution</b> [0,0,0] + [16,1,1]<br/><i>read_write</i> "
-		    "B0 {[0,0,0] - [16,1,1]}> fontcolor=black shape=box];}subgraph cluster_id_0_6{label=<<font color=\"#606060\">T6 "
-		    "(horizon)</font>>;color=darkgray;id_0_6[label=<C6 on N0<br/><b>horizon</b>> fontcolor=black shape=box];}subgraph cluster_id_0_7{label=<<font "
-		    "color=\"#606060\">T7 (epoch)</font>>;color=darkgray;id_0_7[label=<C7 on N0<br/><b>epoch</b>> fontcolor=black "
-		    "shape=box];}id_0_0->id_0_1[];id_0_1->id_0_2[color=orange];id_0_1->id_0_3[];id_0_2->id_0_4[color=orange];id_0_3->id_0_4[color=orange];id_0_3->id_0_"
-		    "5[];id_0_4->id_0_6[color=orange];id_0_5->id_0_6[color=orange];id_0_6->id_0_7[color=orange];}";
+		    "digraph G{label=<Command Graph>;pad=0.2;subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 "
+		    "(epoch)</font>>;color=darkgray;id_0_0[color=black,shape=box,label=<C0 on N0<br/><b>epoch</b>>];}subgraph cluster_id_0_1{label=<<font "
+		    "color=\"#606060\">T1 (host-compute)</font>>;color=darkgray;id_0_1[color=darkorange2,shape=box,label=<C1 on N0<br/><b>execution</b> [0,0,0] + "
+		    "[16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 "
+		    "(horizon)</font>>;color=darkgray;id_0_2[color=black,shape=box,label=<C2 on N0<br/><b>horizon</b>>];}subgraph cluster_id_0_3{label=<<font "
+		    "color=\"#606060\">T3 (host-compute)</font>>;color=darkgray;id_0_3[color=darkorange2,shape=box,label=<C3 on N0<br/><b>execution</b> [0,0,0] + "
+		    "[16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];}subgraph cluster_id_0_4{label=<<font color=\"#606060\">T4 "
+		    "(horizon)</font>>;color=darkgray;id_0_4[color=black,shape=box,label=<C4 on N0<br/><b>horizon</b>>];}subgraph cluster_id_0_5{label=<<font "
+		    "color=\"#606060\">T5 (host-compute)</font>>;color=darkgray;id_0_5[color=darkorange2,shape=box,label=<C5 on N0<br/><b>execution</b> [0,0,0] + "
+		    "[16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];}subgraph cluster_id_0_6{label=<<font color=\"#606060\">T6 "
+		    "(horizon)</font>>;color=darkgray;id_0_6[color=black,shape=box,label=<C6 on N0<br/><b>horizon</b>>];}subgraph cluster_id_0_7{label=<<font "
+		    "color=\"#606060\">T7 (epoch)</font>>;color=darkgray;id_0_7[color=black,shape=box,label=<C7 on N0<br/><b>epoch</b>"
+		    ">];}id_0_0->id_0_1[];id_0_1->id_0_2[color=orange];id_0_1->id_0_3[];id_0_2->id_0_4[color=orange];id_0_3->id_0_4[color=orange];id_0_3->id_"
+		    "0_5[];id_0_4->id_0_6[color=orange];id_0_5->id_0_6[color=orange];id_0_6->id_0_7[color=orange];}";
 
 		const auto dot = runtime_testspy::print_command_graph(0, celerity::detail::runtime::get_instance());
 		CHECK(dot == expected);
