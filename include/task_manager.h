@@ -88,6 +88,7 @@ namespace detail {
 
 			if(need_new_horizon()) { generate_horizon_task(); }
 
+			++m_num_user_command_groups_submitted;
 			return tid;
 		}
 
@@ -238,6 +239,10 @@ namespace detail {
 
 		// The last epoch task that has been processed by the executor. Behind a monitor to allow awaiting this change from the main thread.
 		epoch_monitor m_latest_epoch_reached{initial_epoch_task};
+
+		// Track the number of user-generated task and epochs to heuristically detect programs that lose performance by frequently calling `queue::wait()`.
+		size_t m_num_user_command_groups_submitted = 0;
+		size_t m_num_user_epochs_generated = 0;
 
 		// Set of tasks with no dependents
 		std::unordered_set<task*> m_execution_front;

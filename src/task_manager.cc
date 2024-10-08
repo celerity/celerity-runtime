@@ -1,6 +1,7 @@
 #include "task_manager.h"
 
 #include "access_modes.h"
+#include "log.h"
 #include "recorders.h"
 
 namespace celerity {
@@ -286,6 +287,15 @@ namespace detail {
 		m_current_horizon_critical_path_length = m_max_pseudo_critical_path_length; // the explicit epoch resets the need to create horizons
 
 		invoke_callbacks(&new_epoch);
+
+		// On shutdown, attempt to detect suspiciously high numbers of previous user-generated epochs
+		if(action != epoch_action::shutdown) {
+			m_num_user_epochs_generated++;
+		} else if(m_num_user_command_groups_submitted > 100 && m_num_user_epochs_generated * 10 >= m_num_user_command_groups_submitted) {
+			CELERITY_WARN("Your program appears to call queue::wait() excessively, which may lead to performance degradation. Consider using queue::fence() "
+			              "for data-dependent branching and employ queue::wait() for timing only on a very coarse granularity.");
+		}
+
 		return tid;
 	}
 
