@@ -143,7 +143,7 @@ int main(int argc, char* argv[]) {
 			celerity::accessor a{left, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			celerity::accessor b{right, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			celerity::accessor e{equal, cgh, celerity::write_only_host_task, celerity::no_init};
-			cgh.host_task(celerity::on_master_node, [=] {
+			cgh.host_task(celerity::once, [=] {
 				*e = true;
 				for(size_t i = 0; i < N; ++i) {
 					for(size_t j = 0; j < N; ++j) {
