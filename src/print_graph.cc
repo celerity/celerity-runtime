@@ -65,6 +65,14 @@ const char* access_mode_string(const access_mode m) {
 	}
 }
 
+// NOCOMMIT TODO: Add a graph printing test
+// TODO: What is a good cutoff? Use number of nodes-1 (i.e., at most one box per peer?)? (still need an additional hard cutoff probably though, maybe 8)
+std::string format_region(const region<3>& reg) {
+	if(reg.get_boxes().size() <= 5) { return fmt::format("{}", reg); }
+	box_vector<3> excerpt{reg.get_boxes().begin(), reg.get_boxes().begin() + 5};
+	return fmt::format("{} [+ {} boxes]", region<3>(std::move(excerpt)), reg.get_boxes().size() - 5);
+}
+
 void format_requirements(std::string& label, const reduction_list& reductions, const access_list& accesses, const side_effect_map& side_effects,
     const access_mode reduction_init_mode) {
 	for(const auto& [rid, bid, buffer_name, init_from_buffer] : reductions) {
@@ -77,7 +85,7 @@ void format_requirements(std::string& label, const reduction_list& reductions, c
 	for(const auto& [bid, buffer_name, mode, req] : accesses) {
 		const std::string bl = utils::escape_for_dot_label(utils::make_buffer_debug_label(bid, buffer_name));
 		// While uncommon, we do support chunks that don't require access to a particular buffer at all.
-		if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> {} {}", access_mode_string(mode), bl, req); }
+		if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> {} {}", access_mode_string(mode), bl, format_region(req)); }
 	}
 
 	for(const auto& [hoid, order] : side_effects) {
@@ -197,7 +205,7 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 			    fmt::format_to(back, "<br/>");
 			    for(size_t i = 0; i < pcmd.target_regions.size(); ++i) {
 				    const auto& [nid, region] = pcmd.target_regions[i];
-				    fmt::format_to(back, "{} to N{}", region, nid);
+				    fmt::format_to(back, "{} to N{}", format_region(region), nid);
 				    if(i < pcmd.target_regions.size() + 1) { *output += "<br/>"; }
 			    }
 			    end_node();
@@ -205,7 +213,8 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 		    [&](const await_push_command_record& apcmd) {
 			    begin_node(apcmd, "ellipse", "deeppink2");
 			    add_reduction_id_if_reduction(apcmd.trid);
-			    fmt::format_to(back, "<b>await push</b> {} <br/>{} {}", apcmd.trid, get_buffer_label(apcmd.trid.bid, apcmd.buffer_name), apcmd.await_region);
+			    fmt::format_to(back, "<b>await push</b> {} <br/>{} {}", apcmd.trid, get_buffer_label(apcmd.trid.bid, apcmd.buffer_name),
+			        format_region(apcmd.await_region));
 			    end_node();
 		    },
 		    [&](const reduction_command_record& rcmd) {
