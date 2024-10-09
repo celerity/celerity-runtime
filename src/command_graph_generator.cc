@@ -244,104 +244,95 @@ command_graph_generator::assigned_chunks_with_requirements command_graph_generat
 }
 
 void command_graph_generator::resolve_pending_reductions(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements) {
-	// Buffers that currently are in a pending reduction state will receive a new buffer state after a reduction has been generated.
-	std::unordered_map<buffer_id, buffer_state> post_reduction_buffers;
+	auto accessed_buffers = tsk.get_buffer_access_map().get_accessed_buffers();
+	// Handle chained reductions (i.e., reductions that combine into a buffer that currently is in a pending reduction state)
+	for(const auto& reduction : tsk.get_reductions()) {
+		accessed_buffers.insert(reduction.bid);
+	}
 
-	std::unordered_map<buffer_id, size_t> number_of_participating_nodes;
-	const auto process_chunks = [&](auto& chunks) {
-		for(auto& [a_chunk, requirements] : chunks) {
-			const node_id nid = a_chunk.executed_on;
-			const bool is_local_chunk = nid == m_local_nid;
+	for(const auto bid : accessed_buffers) {
+		auto& buffer = m_buffers.at(bid);
+		if(!buffer.pending_reduction.has_value()) { continue; }
+		const auto& reduction = *buffer.pending_reduction;
 
-			for(const auto& [bid, consumed, produced] : requirements) {
-				auto& buffer = m_buffers.at(bid);
-				if(!buffer.pending_reduction.has_value()) { continue; }
-				if(consumed.empty()) {
-					// TODO the per-node reduction result is discarded - warn user about dead store
-					continue;
-				}
+		const auto local_last_writer = buffer.local_last_writer.get_region_values(scalar_reduction_box);
+		assert(local_last_writer.size() == 1);
+		// Prepare the buffer state for after the reduction has been performed:
+		// Keep the current last writer, but mark it as stale, so that if we don't generate a reduction command locally,
+		// we'll know to get the data from elsewhere. If we generate a reduction command, this will be overwritten by its command id.
+		write_command_state wcs{static_cast<command_id>(local_last_writer[0].second)};
+		wcs.mark_as_stale();
+		buffer_state post_reduction_state{region_map<write_command_state>{ones, wcs}, region_map<node_bitset>{ones, node_bitset{}}};
+		if(m_policy.uninitialized_read_error != error_policy::ignore) { post_reduction_state.initialized_region = scalar_reduction_box; }
 
-				const auto& reduction = *buffer.pending_reduction;
+		size_t number_of_participating_nodes = 0;
 
-				const auto local_last_writer = buffer.local_last_writer.get_region_values(scalar_reduction_box);
-				assert(local_last_writer.size() == 1);
-
-				// Prepare the buffer state for after the reduction has been performed:
-				// Keep the current last writer, but mark it as stale, so that if we don't generate a reduction command locally,
-				// we'll know to get the data from elsewhere. If we generate a reduction command, this will be overwritten by its command id.
-				write_command_state wcs{static_cast<command_id>(local_last_writer[0].second)};
-				wcs.mark_as_stale();
-
-				auto [it, _] = post_reduction_buffers.emplace(std::piecewise_construct, std::tuple{bid},
-				    std::tuple{region_map<write_command_state>{ones, wcs}, region_map<node_bitset>{ones, node_bitset{}}});
-				auto& post_reduction_buffer = it->second;
-
-				if(m_policy.uninitialized_read_error != error_policy::ignore) { post_reduction_buffers.at(bid).initialized_region = scalar_reduction_box; }
-
-				if(is_local_chunk) {
-					// We currently don't support multiple chunks on a single node for reductions (there is also -- for now -- no way to create multiple chunks,
-					// as oversubscription is handled by the instruction graph).
-					// NOTE: The number_of_participating_nodes check below relies on this being true
-					assert(chunks_with_requirements.local_chunks.size() == 1);
-
-					auto* const reduce_cmd = create_command<reduction_command>(reduction, local_last_writer[0].second.is_fresh() /* has_local_contribution */,
-					    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
-
-					// Only generate a true dependency on the last writer if this node participated in the intermediate result computation.
-					if(local_last_writer[0].second.is_fresh()) {
-						add_dependency(reduce_cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
-					}
-
-					auto* const ap_cmd = create_command<await_push_command>(transfer_id(tsk.get_id(), bid, reduction.rid), scalar_reduction_box.get_subrange(),
-					    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
-					add_dependency(reduce_cmd, ap_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
-					generate_epoch_dependencies(ap_cmd);
-
-					generate_anti_dependencies(tsk.get_id(), bid, buffer.local_last_writer, scalar_reduction_box, reduce_cmd);
-
-					post_reduction_buffer.local_last_writer.update_box(scalar_reduction_box, reduce_cmd->get_cid());
-					number_of_participating_nodes[bid]++; // We are participating
-				} else {
-					const bool notification_only = !local_last_writer[0].second.is_fresh();
-
-					// Push an empty range if we don't have any fresh data on this node. This will then generate an empty pilot that tells the
-					// other node's receive_arbiter to not expect a send.
-					const auto push_box = notification_only ? empty_reduction_box : scalar_reduction_box;
-
-					auto* const push_cmd = create_command<push_command>(nid, transfer_id(tsk.get_id(), bid, reduction.rid), push_box.get_subrange(),
-					    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
-
-					if(notification_only) {
-						generate_epoch_dependencies(push_cmd);
-					} else {
-						m_command_buffer_reads[push_cmd->get_cid()][bid] = region_union(m_command_buffer_reads[push_cmd->get_cid()][bid], scalar_reduction_box);
-						add_dependency(push_cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
-					}
-
-					// Mark the reduction result as replicated so we don't generate data transfers to this node
-					// TODO: We need a way of updating regions in place! E.g. apply_to_values(box, callback)
-					const auto replicated_box = post_reduction_buffer.replicated_regions.get_region_values(scalar_reduction_box);
-					assert(replicated_box.size() == 1);
-					for(const auto& [_, nodes] : replicated_box) {
-						post_reduction_buffer.replicated_regions.update_box(scalar_reduction_box, node_bitset{nodes}.set(nid));
-					}
-					number_of_participating_nodes[bid]++; // This node is participating
-				}
+		// Since the local reduction command overwrites the buffer contents that need to be pushed to other nodes, we need to process remote chunks first.
+		for(const auto& [a_chunk, requirements] : chunks_with_requirements.remote_chunks) {
+			if(std::none_of(requirements.begin(), requirements.end(), [&](const buffer_requirements& br) { return br.bid == bid && !br.consumed.empty(); })) {
+				// This chunk doesn't read from the buffer
+				continue;
 			}
+			const node_id nid = a_chunk.executed_on;
+			const bool notification_only = !local_last_writer[0].second.is_fresh();
+
+			// Push an empty range if we don't have any fresh data on this node. This will then generate an empty pilot that tells the
+			// other node's receive_arbiter to not expect a send.
+			const auto push_box = notification_only ? empty_reduction_box : scalar_reduction_box;
+
+			auto* const push_cmd = create_command<push_command>(nid, transfer_id(tsk.get_id(), bid, reduction.rid), push_box.get_subrange(),
+			    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
+
+			if(notification_only) {
+				generate_epoch_dependencies(push_cmd);
+			} else {
+				m_command_buffer_reads[push_cmd->get_cid()][bid] = region_union(m_command_buffer_reads[push_cmd->get_cid()][bid], scalar_reduction_box);
+				add_dependency(push_cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
+			}
+
+			// Mark the reduction result as replicated so we don't generate data transfers to this node
+			// TODO: We need a way of updating regions in place! E.g. apply_to_values(box, callback)
+			const auto replicated_box = post_reduction_state.replicated_regions.get_region_values(scalar_reduction_box);
+			assert(replicated_box.size() == 1);
+			for(const auto& [_, nodes] : replicated_box) {
+				post_reduction_state.replicated_regions.update_box(scalar_reduction_box, node_bitset{nodes}.set(nid));
+			}
+			number_of_participating_nodes++; // This node is participating
 		}
-	};
 
-	// Since the local reduction command overwrites the buffer contents that need to be pushed to other nodes, we need to process remote chunks first.
-	// TODO: Replace with a C++20 join view once we have upgraded
-	process_chunks(chunks_with_requirements.remote_chunks);
-	process_chunks(chunks_with_requirements.local_chunks);
+		// We currently don't support multiple chunks on a single node for reductions (there is also -- for now -- no way to create multiple chunks,
+		// as oversubscription is handled by the instruction graph).
+		// NOTE: The number_of_participating_nodes check below relies on this being true
+		assert(chunks_with_requirements.local_chunks.size() <= 1);
+		for(const auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
+			if(std::none_of(requirements.begin(), requirements.end(), [&](const buffer_requirements& br) { return br.bid == bid && !br.consumed.empty(); })) {
+				// This chunk doesn't read from the buffer
+				continue;
+			}
 
-	// We currently do not support generating reduction commands on only a subset of nodes, except for the special case of a single command.
-	// This is because it is unclear who owns the final result in this case (normally all nodes "own" the result).
-	//   => I.e., reducing and using the result on the participating nodes is actually not the problem (this works as intended); the issue only arises
-	//      if the result is subsequently required in other tasks. Since we don't have a good way of detecting this condition however, we currently
-	//      disallow partial reductions altogether.
-	for(auto& [bid, number_of_participating_nodes] : number_of_participating_nodes) {
+			auto* const ap_cmd = create_command<await_push_command>(transfer_id(tsk.get_id(), bid, reduction.rid), scalar_reduction_box.get_subrange(),
+			    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
+			generate_epoch_dependencies(ap_cmd);
+
+			auto* const reduce_cmd = create_command<reduction_command>(reduction, local_last_writer[0].second.is_fresh() /* has_local_contribution */,
+			    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
+
+			// Only generate a true dependency on the last writer if this node participated in the intermediate result computation.
+			if(local_last_writer[0].second.is_fresh()) {
+				add_dependency(reduce_cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
+			}
+			add_dependency(reduce_cmd, ap_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
+			generate_anti_dependencies(tsk.get_id(), bid, buffer.local_last_writer, scalar_reduction_box, reduce_cmd);
+
+			post_reduction_state.local_last_writer.update_box(scalar_reduction_box, reduce_cmd->get_cid());
+			number_of_participating_nodes++; // We are participating
+		}
+
+		// We currently do not support generating reduction commands on only a subset of nodes, except for the special case of a single command.
+		// This is because it is unclear who owns the final result in this case (normally all nodes "own" the result).
+		//   => I.e., reducing and using the result on the participating nodes is actually not the problem (this works as intended); the issue only arises
+		//      if the result is subsequently required in other tasks. Since we don't have a good way of detecting this condition however, we currently
+		//      disallow partial reductions altogether.
 		// NOTE: This check relies on the fact that we currently only generate a single chunk per node for reductions (see assertion above).
 		if(number_of_participating_nodes > 1 && number_of_participating_nodes != m_num_nodes) {
 			utils::report_error(error_policy::panic,
@@ -349,14 +340,13 @@ void command_graph_generator::resolve_pending_reductions(const task& tsk, const 
 			    "ensure that all nodes receive a chunk that reads from the buffer, or reduce the data on a single node.",
 			    print_task_debug_label(tsk, true /* title case */), print_buffer_debug_label(bid));
 		}
-	}
 
-	// For buffers that were in a pending reduction state and a reduction was generated
-	// (i.e., the result was not discarded), set their new state.
-	for(auto& [bid, new_state] : post_reduction_buffers) {
-		auto& buffer = m_buffers.at(bid);
-		if(buffer.pending_reduction.has_value()) { m_completed_reductions.push_back(buffer.pending_reduction->rid); }
-		buffer = std::move(new_state);
+		// For buffers that were in a pending reduction state and a reduction was generated
+		// (i.e., the result was not discarded), set their new state.
+		if(number_of_participating_nodes > 0) {
+			m_completed_reductions.push_back(reduction.rid);
+			buffer = std::move(post_reduction_state);
+		}
 	}
 }
 
