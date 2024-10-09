@@ -65,6 +65,19 @@ TEST_CASE(
 	CHECK(cctx.query(tid_reduce).on(0).successors().contains(cctx.query(tid_discard).on(0)));
 }
 
+TEST_CASE("empty accesses do not cause pending reductions to be resolved") {
+	cdag_test_context cctx(4);
+
+	const range<1> test_range = {64};
+	auto buf0 = cctx.create_buffer(range<1>(1));
+
+	cctx.device_compute(test_range).name("reduce").reduce(buf0, false /* include_current_buffer_value */).submit();
+	cctx.device_compute(test_range).name("faux consume").read(buf0, acc::fixed<1>{{}}).submit();
+	CHECK(cctx.query<reduction_command_record>().total_count() == 0);
+	cctx.device_compute(test_range).name("actual consume").read(buf0, acc::all{}).submit();
+	CHECK(cctx.query<reduction_command_record>().count_per_node() == 1);
+}
+
 TEST_CASE("command_graph_generator does not generate multiple reduction commands for redundant requirements",
     "[command_graph_generator][command-graph][reductions]") {
 	cdag_test_context cctx(4);
