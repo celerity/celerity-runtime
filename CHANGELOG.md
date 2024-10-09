@@ -12,6 +12,24 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 
 - Support builds for single-node multi-device setups without MPI by specifying `-DCELERITY_ENABLE_MPI=0` in CMake (#282)
 - Add `celerity::once` tag type for host tasks (equivalent to `range<0>{}`) as a replacement for `on_master_node` (#282)
+- Replaces `celerity::distr_queue` with `celerity::queue`, which permits multiple instances and aligns closer with SYCL (#283)
+- The runtime can be explicitly shut down using `celerity::shutdown()`, complementing `celerity::init()` (#283)
+
+### Changed
+
+- Automatic runtime shutdown, which was previously triggered by the last queue / buffer / host object going out of scope,
+  is now postponed until process termination (`atexit()`). This allows multiple non-overlapping sections of Celerity code
+  to execute in the same process (#283)
+- Celerity warns when on excessive calls to `queue::wait()` or `distr_queue::slow_full_sync()` in a long running program.
+  This operation has a much more pronounced performance penalty than its SYCL counterpart (#283)
+
+### Fixed
+
+- Host-initialized buffers will not read from user-provided memory after the last reference to the buffer has been dropped (#283)
+
+### Deprecated
+
+- `celerity::distr_queue` is deprecated in favor of `celerity::queue` (#283)
 
 ## [0.6.0] - 2024-08-12
 
