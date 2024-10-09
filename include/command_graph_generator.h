@@ -162,10 +162,16 @@ class command_graph_generator {
 		chunk<3> chnk;
 	};
 
-	using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<access_mode, region<3>>>;
+	struct buffer_requirements {
+		buffer_id bid = -1;
+		region<3> consumed;
+		region<3> produced;
+	};
+
+	using buffer_requirements_list = std::vector<buffer_requirements>;
 
 	struct assigned_chunks_with_requirements {
-		using with_requirements = std::pair<assigned_chunk, buffer_requirements_map>;
+		using with_requirements = std::pair<assigned_chunk, buffer_requirements_list>;
 
 		// We process both local (to be executed on this node) and remote (to be execute on other nodes) chunks.
 		// The latter are required to determine whether we currently own data that needs to be pushed to other nodes.
@@ -174,6 +180,8 @@ class command_graph_generator {
 	};
 
 	std::vector<assigned_chunk> split_task_and_assign_chunks(const task& tsk) const;
+
+	buffer_requirements_list get_buffer_requirements_for_mapped_access(const task& tsk, const subrange<3>& sr, const range<3> global_size) const;
 
 	assigned_chunks_with_requirements compute_per_chunk_requirements(const task& tsk, const std::vector<assigned_chunk>& chunks) const;
 
