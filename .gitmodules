@@ -22,3 +22,6 @@
 [submodule "vendor/tracy"]
 	path = vendor/tracy
 	url = https://github.com/wolfpld/tracy.git
+[submodule "vendor/gmsh"]
+	path = vendor/gmsh
+	url = https://gitlab.onelab.info/gmsh/gmsh.git

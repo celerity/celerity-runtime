@@ -50,3 +50,22 @@ add_celerity_to_target(TARGET tilebuffer_tests SOURCES umuguc/tilebuffer_tests.c
 target_link_libraries(tilebuffer_tests PUBLIC Catch2::Catch2WithMain)
 target_include_directories(tilebuffer_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 set_property(TARGET tilebuffer_tests PROPERTY CXX_STANDARD ${CELERITY_CXX_STANDARD})
+
+# Gmsh CMake integration is pretty rough...
+set(ENABLE_BUILD_LIB ON)
+fetch_content_from_submodule(gmsh vendor/gmsh)
+add_example(fvm)
+if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  message(SEND_ERROR "Need CMAKE_CXX_COMPILER=clang++ for OpenMP compatibility")
+endif()
+find_package(OpenMP REQUIRED)
+find_library(gmp gmp REQUIRED)
+target_link_libraries(fvm PRIVATE OpenMP::OpenMP_CXX gmp)
+# NOTE: FOR SOME STUPID REASON, ON FIRST COMPILE "lib" IS NOT FOUND.
+# Solution: Comment the next line out, reconfigure, comment in again, reconfigure - it works ¯\_(ツ)_/¯
+target_link_libraries(fvm PRIVATE lib) # gmsh
+target_include_directories(fvm PRIVATE ${CMAKE_SOURCE_DIR}/vendor/gmsh/api)
+
+# enable asan for fvm
+# target_compile_options(fvm PRIVATE -fsanitize=address)
+# target_link_options(fvm PRIVATE -fsanitize=address)
