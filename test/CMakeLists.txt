@@ -36,6 +36,7 @@ set(TEST_TARGETS
   graph_compaction_tests
   grid_tests
   handler_tests
+  hint_tests
   intrusive_graph_tests
   instruction_graph_grid_tests
   instruction_graph_memory_tests
