@@ -294,6 +294,19 @@ namespace detail {
 #endif
 	}
 
+	template <typename... ReductionsAndKernel>
+	struct is_reductions_and_kernel_object : std::false_type {};
+
+	template <typename Kernel>
+	struct is_reductions_and_kernel_object<Kernel> : std::true_type {};
+
+	template <bool WithExplicitIdentity, typename DataT, int Dims, typename BinaryOperation, typename... ReductionsAndKernel>
+	struct is_reductions_and_kernel_object<reduction_descriptor<DataT, Dims, BinaryOperation, WithExplicitIdentity>, ReductionsAndKernel...>
+	    : is_reductions_and_kernel_object<ReductionsAndKernel...> {};
+
+	template <typename... KernelAndReductions>
+	constexpr bool is_reductions_and_kernel_v = is_reductions_and_kernel_object<std::remove_cv_t<std::remove_reference_t<KernelAndReductions>>...>::value;
+
 } // namespace detail
 
 /// Pass to `handler::host_task` to select the master-node task overload.
@@ -304,34 +317,37 @@ inline constexpr detail::once_tag once;
 
 class handler {
   public:
-	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
+	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel,
+	    std::enable_if_t<detail::is_reductions_and_kernel_v<ReductionsAndKernel...>, int> = 0>
 	void parallel_for(range<Dims> global_range, ReductionsAndKernel&&... reductions_and_kernel) {
-		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
 		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(global_range, id<Dims>(),
 		    detail::no_local_size{}, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{},
 		    std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
 	}
 
-	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
+	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel,
+	    std::enable_if_t<detail::is_reductions_and_kernel_v<ReductionsAndKernel...>, int> = 0>
 	void parallel_for(range<Dims> global_range, id<Dims> global_offset, ReductionsAndKernel&&... reductions_and_kernel) {
-		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
 		parallel_for_reductions_and_kernel<detail::simple_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(global_range, global_offset,
 		    detail::no_local_size{}, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{},
 		    std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
 	}
 
-	template <typename KernelName = detail::unnamed_kernel, typename GlobalOffsetOrRest, typename... Rest>
-	void parallel_for(const size_t global_range, GlobalOffsetOrRest&& global_offset_or_rest, Rest&&... rest) {
-		if constexpr(std::is_convertible_v<GlobalOffsetOrRest, size_t>) {
-			parallel_for<KernelName>(range<1>(global_range), id<1>(static_cast<size_t>(global_offset_or_rest)), std::forward<Rest>(rest)...);
-		} else {
-			parallel_for<KernelName>(range<1>(global_range), std::forward<GlobalOffsetOrRest>(global_offset_or_rest), std::forward<Rest>(rest)...);
-		}
+	template <typename KernelName = detail::unnamed_kernel, typename... ReductionsAndKernel,
+	    std::enable_if_t<detail::is_reductions_and_kernel_v<ReductionsAndKernel...>, int> = 0>
+	void parallel_for(const size_t global_range, ReductionsAndKernel&&... reductions_and_kernel) {
+		parallel_for<KernelName>(range<1>(global_range), std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
 	}
 
-	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
+	template <typename KernelName = detail::unnamed_kernel, typename... ReductionsAndKernel,
+	    std::enable_if_t<detail::is_reductions_and_kernel_v<ReductionsAndKernel...>, int> = 0>
+	void parallel_for(const size_t global_range, const size_t global_offset, ReductionsAndKernel&&... reductions_and_kernel) {
+		parallel_for<KernelName>(range<1>(global_range), id<1>(global_offset), std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
+	}
+
+	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel,
+	    std::enable_if_t<detail::is_reductions_and_kernel_v<ReductionsAndKernel...>, int> = 0>
 	void parallel_for(celerity::nd_range<Dims> execution_range, ReductionsAndKernel&&... reductions_and_kernel) {
-		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
 		parallel_for_reductions_and_kernel<detail::nd_range_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(execution_range.get_global_range(),
 		    execution_range.get_offset(), execution_range.get_local_range(), std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{},
 		    std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
