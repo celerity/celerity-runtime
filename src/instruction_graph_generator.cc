@@ -2017,9 +2017,7 @@ void generator_impl::flush_batch(batch&& batch) { // NOLINT(cppcoreguidelines-rv
 
 	// instructions must be recorded manually after each create<instr>() call; verify that we never flush an unrecorded instruction
 	assert(m_recorder == nullptr || std::all_of(batch.generated_instructions.begin(), batch.generated_instructions.end(), [this](const auto instr) {
-		return std::find_if(m_recorder->get_instructions().begin(), m_recorder->get_instructions().end(), [=](const auto& rec) {
-			return rec->id == instr->get_id();
-		}) != m_recorder->get_instructions().end();
+		return std::any_of(m_recorder->get_all().begin(), m_recorder->get_all().end(), [=](const auto& rec) { return rec->id == instr->get_id(); });
 	}));
 
 	if(m_delegate != nullptr && (!batch.generated_instructions.empty() || !batch.generated_pilots.empty())) {
