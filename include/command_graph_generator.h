@@ -5,6 +5,7 @@
 
 #include "command_graph.h"
 #include "ranges.h"
+#include "recorders.h"
 #include "reduction.h"
 #include "region_map.h"
 #include "types.h"
@@ -105,14 +106,107 @@ class command_graph_generator {
 
 	command_graph& get_command_graph() { return m_cdag; }
 
+	/// Only for testing: Instead of (at most) a single chunk per node, generate `multiplier` chunks per node for each task.
+	/// This is to ensure that CDAG generation logic works for arbitrary numbers of chunks, even though we don't provide
+	/// a way for users to specify more than one chunk per node... yet.
+	void set_test_chunk_multiplier(const size_t multiplier) {
+		assert(multiplier > 0);
+		m_test_chunk_multiplier = multiplier;
+	}
+
   private:
-	// Wrapper around command_graph::create that adds commands to current batch set.
-	template <typename T, typename... Args>
-	T* create_command(Args&&... args) {
-		auto* const cmd = m_cdag.create<T>(std::forward<Args>(args)...);
+	/// True if a recorder is present and create_command() will call the `record_with` lambda passed as its last parameter.
+	bool is_recording() const { return m_recorder != nullptr; }
+
+	/// Maps command DAG types to their record type.
+	template <typename Command>
+	using record_type_for_t = utils::type_switch_t<Command, push_command(push_command_record), await_push_command(await_push_command_record),
+	    reduction_command(reduction_command_record), epoch_command(epoch_command_record), horizon_command(horizon_command_record),
+	    execution_command(execution_command_record), fence_command(fence_command_record)>;
+
+	template <typename Command, typename... CtorParamsAndRecordWithFn, size_t... CtorParamIndices, size_t RecordWithFnIndex>
+	Command* create_command_internal(std::tuple<CtorParamsAndRecordWithFn...>&& ctor_params_and_record_with,
+	    std::index_sequence<CtorParamIndices...> /* ctor_param_indices */, std::index_sequence<RecordWithFnIndex> /* record_with_fn_index */) {
+		auto* const cmd = m_cdag.create<Command>(std::move(std::get<CtorParamIndices>(ctor_params_and_record_with))...);
 		m_current_cmd_batch.insert(cmd);
+
+		if(is_recording()) {
+			const auto& record_with = std::get<RecordWithFnIndex>(ctor_params_and_record_with);
+			[[maybe_unused]] bool recorded = false;
+			record_with([&](auto&&... debug_info) {
+				m_recorder->record_command(
+				    std::make_unique<record_type_for_t<Command>>(std::as_const(*cmd), std::forward<decltype(debug_info)>(debug_info)...));
+				recorded = true;
+			});
+			assert(recorded && "record_debug_info() not called within recording function");
+		}
 		return cmd;
 	}
+
+	/// Wrapper around command_graph::create that adds commands to the current batch.
+	/// Records the command if a recorder is present.
+	///
+	/// Invoke as
+	/// ```
+	/// create<command-type>(command-ctor-params,
+	///     [&](const auto record_debug_info) { return record_debug_info(command-record-additional-ctor-params)})
+	/// ```
+	template <typename Command, typename... CtorParamsAndRecordWithFn>
+	Command* create_command(CtorParamsAndRecordWithFn&&... args) {
+		constexpr auto n_args = sizeof...(CtorParamsAndRecordWithFn);
+		static_assert(n_args > 0);
+		return create_command_internal<Command>(
+		    std::forward_as_tuple(std::forward<CtorParamsAndRecordWithFn>(args)...), std::make_index_sequence<n_args - 1>{}, std::index_sequence<n_args - 1>{});
+	}
+
+	/// Adds a new dependency between two commands and records it if recording is enabled.
+	void add_dependency(abstract_command* const from, abstract_command* const to, dependency_kind kind, dependency_origin origin) {
+		m_cdag.add_dependency(from, to, kind, origin);
+		if(is_recording()) { m_recorder->record_dependency(command_dependency_record(to->get_cid(), from->get_cid(), kind, origin)); }
+	}
+
+	struct assigned_chunk {
+		node_id executed_on = -1;
+		chunk<3> chnk;
+	};
+
+	struct buffer_requirements {
+		buffer_id bid = -1;
+		region<3> consumed;
+		region<3> produced;
+	};
+
+	using buffer_requirements_list = std::vector<buffer_requirements>;
+
+	struct assigned_chunks_with_requirements {
+		using with_requirements = std::pair<assigned_chunk, buffer_requirements_list>;
+
+		std::vector<with_requirements> local_chunks;
+		std::vector<with_requirements> remote_chunks;
+	};
+
+	std::vector<assigned_chunk> split_task_and_assign_chunks(const task& tsk) const;
+
+	buffer_requirements_list get_buffer_requirements_for_mapped_access(const task& tsk, const subrange<3>& sr, const range<3> global_size) const;
+
+	assigned_chunks_with_requirements compute_per_chunk_requirements(const task& tsk, const std::vector<assigned_chunk>& chunks) const;
+
+	/// Resolve requirements on buffers with pending reductions.
+	/// For local chunks, create a reduction command and a single await_push command that receives the partial reduction results from all other nodes.
+	/// For remote chunks, always create a push command, regardless of whether we own a partial reduction result or not.
+	/// This is required because remote nodes do not know how many partial reduction results there are.
+	void resolve_pending_reductions(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements);
+
+	/// For all remote chunks, find read requirements intersecting with owned buffer regions and generate push commands for those regions.
+	void generate_pushes(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements);
+
+	/// For all local chunks, find read requirements on remote data.
+	/// Generate a single await push command for each buffer that awaits the entire required region.
+	/// This will then be fulfilled by one or more incoming pushes.
+	void generate_await_pushes(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements);
+
+	/// Determine which local data is fresh or stale by comparing global (task-level) and local writes.
+	void update_local_buffer_fresh_regions(const task& tsk, const std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes);
 
 	/**
 	 * Generates command(s) that need to be processed by every node in the system,
@@ -146,6 +240,12 @@ class command_graph_generator {
 	// initializers, within its surrounding class (Clang)
 	constexpr static policy_set default_policy_set() { return {}; }
 
+	// In the master/worker model, we used to try and find the node best suited for initializing multiple
+	// reductions that do not initialize_to_identity based on current data distribution.
+	// This is more difficult in a distributed setting, so for now we just hard code it to node 0.
+	// TODO: Revisit this at some point.
+	constexpr static node_id reduction_initializer_nid = 0;
+
 	std::string print_buffer_debug_label(buffer_id bid) const;
 
 	size_t m_num_nodes;
@@ -158,6 +258,8 @@ class command_graph_generator {
 	command_id m_epoch_for_new_commands = 0;
 	command_id m_epoch_last_pruned_before = 0;
 	command_id m_current_horizon = no_command;
+
+	size_t m_test_chunk_multiplier = 1;
 
 	// Batch of commands currently being generated. Returned (and thereby emptied) by build_task().
 	command_set m_current_cmd_batch;

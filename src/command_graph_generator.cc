@@ -18,13 +18,10 @@ command_graph_generator::command_graph_generator(
 	}
 
 	// Build initial epoch command (this is required to properly handle anti-dependencies on host-initialized buffers).
-	// We manually generate the first command, this will be replaced by applied horizons or explicit epochs down the line (see
-	// set_epoch_for_new_commands).
+	// We manually generate the first command so it doesn't get added to the current batch; it will be replaced by applied horizons
+	// or explicit epochs down the line (see set_epoch_for_new_commands).
 	auto* const epoch_cmd = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none, std::vector<reduction_id>{});
-	if(m_recorder != nullptr) {
-		const auto epoch_tsk = tm.get_task(task_manager::initial_epoch_task);
-		m_recorder->record(command_record(*epoch_cmd, *epoch_tsk, {}));
-	}
+	if(is_recording()) { m_recorder->record_command(std::make_unique<epoch_command_record>(*epoch_cmd, *tm.get_task(task_manager::initial_epoch_task))); }
 	m_epoch_for_new_commands = epoch_cmd->get_cid();
 }
 
@@ -56,22 +53,8 @@ void command_graph_generator::notify_host_object_destroyed(const host_object_id 
 	m_host_objects.erase(hoid);
 }
 
-using buffer_requirements_map = std::unordered_map<buffer_id, std::unordered_map<access_mode, region<3>>>;
-
-static buffer_requirements_map get_buffer_requirements_for_mapped_access(const task& tsk, subrange<3> sr, const range<3> global_size) {
-	buffer_requirements_map result;
-	const auto& access_map = tsk.get_buffer_access_map();
-	const auto buffers = access_map.get_accessed_buffers();
-	for(const buffer_id bid : buffers) {
-		const auto modes = access_map.get_access_modes(bid);
-		for(auto m : modes) {
-			result[bid][m] = access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), sr, global_size);
-		}
-	}
-	return result;
-}
-
 // According to Wikipedia https://en.wikipedia.org/wiki/Topological_sorting#Depth-first_search
+// TODO: This may no longer be necessary since different command types are now generated in pre-determined order - revisit
 std::vector<abstract_command*> sort_topologically(command_set unmarked) {
 	command_set temporary_marked;
 	command_set permanent_marked;
@@ -137,11 +120,12 @@ command_set command_graph_generator::build_task(const task& tsk) {
 	// If a new epoch was completed in the CDAG before the current task, prune all predecessor commands of that epoch.
 	prune_commands_before(epoch_to_prune_before);
 
-	// If we have a command_recorder, record the current batch of commands
-	if(m_recorder != nullptr) {
-		for(const auto& cmd : m_current_cmd_batch) {
-			m_recorder->record(command_record(*cmd, tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }));
-		}
+	// Check that all commands have been recorded
+	if(is_recording()) {
+		assert(std::all_of(m_current_cmd_batch.begin(), m_current_cmd_batch.end(), [this](const abstract_command* cmd) {
+			return std::any_of(m_recorder->get_all().begin(), m_recorder->get_all().end(),
+			    [cmd](const std::unique_ptr<command_record>& rec) { return rec->id == cmd->get_cid(); });
+		}));
 	}
 
 	return std::move(m_current_cmd_batch);
@@ -170,9 +154,9 @@ void command_graph_generator::report_overlapping_writes(const task& tsk, const b
 	}
 }
 
-void command_graph_generator::generate_distributed_commands(const task& tsk) {
+std::vector<command_graph_generator::assigned_chunk> command_graph_generator::split_task_and_assign_chunks(const task& tsk) const {
 	const chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
-	const size_t num_chunks = m_num_nodes * 1; // TODO Make configurable
+	const size_t num_chunks = m_num_nodes * m_test_chunk_multiplier;
 	const auto chunks = ([&] {
 		if(tsk.get_type() == task_type::collective || tsk.get_type() == task_type::fence) {
 			std::vector<chunk<3>> chunks;
@@ -199,378 +183,288 @@ void command_graph_generator::generate_distributed_commands(const task& tsk) {
 	// FIXME: This only works if the number of chunks is an integer multiple of the number of workers, e.g. 3 chunks for 2 workers degrades to RR.
 	const auto chunks_per_node = std::max<size_t>(1, chunks.size() / m_num_nodes);
 
-	// Union of all per-buffer writes on this node, used to determine which parts of a buffer are fresh/stale later on.
-	std::unordered_map<buffer_id, region<3>> per_buffer_local_writes;
-	// In case we need to push a region that is overwritten in the same task, we have to defer updating the last writer.
-	std::unordered_map<buffer_id, std::vector<std::pair<region<3>, command_id>>> per_buffer_last_writer_update_list;
-	// Buffers that currently are in a pending reduction state will receive a new buffer state after a reduction has been generated.
-	std::unordered_map<buffer_id, buffer_state> post_reduction_buffers;
-
-	// Remember all generated pushes for determining intra-task anti-dependencies.
-	std::vector<push_command*> generated_pushes;
-
-	// Collect all local chunks for detecting overlapping writes between all local chunks and the union of remote chunks in a distributed manner.
-	box_vector<3> local_chunks;
-
-	// In the master/worker model, we used to try and find the node best suited for initializing multiple
-	// reductions that do not initialize_to_identity based on current data distribution.
-	// This is more difficult in a distributed setting, so for now we just hard code it to node 0.
-	// TODO: Revisit this at some point.
-	const node_id reduction_initializer_nid = 0;
-
-	const box<3> empty_reduction_box({0, 0, 0}, {0, 0, 0});
-	const box<3> scalar_reduction_box({0, 0, 0}, {1, 1, 1});
-
-	// Iterate over all chunks, distinguish between local / remote chunks and normal / reduction access.
-	//
-	// Normal buffer access:
-	// - For local chunks, find read requirements on remote data.
-	//   Generate a single await push command for each buffer that awaits the entire required region.
-	//   This will then be fulfilled by one or more incoming pushes.
-	// - For remote chunks, find read requirements intersecting with owned buffer regions.
-	// 	 Generate push commands for those regions.
-	//
-	// Reduction buffer access:
-	// - For local chunks, create a reduction command and a single await_push command that receives the
-	//   partial reduction results from all other nodes.
-	// - For remote chunks, always create a push command, regardless of whether we have relevant data or not.
-	//   This is required because the remote node does not know how many partial reduction results there are.
+	std::vector<assigned_chunk> assigned_chunks;
 	for(size_t i = 0; i < chunks.size(); ++i) {
 		const node_id nid = (i / chunks_per_node) % m_num_nodes;
-		const bool is_local_chunk = nid == m_local_nid;
+		assigned_chunks.push_back({nid, chunks[i]});
+	}
+	return assigned_chunks;
+}
 
-		auto requirements = get_buffer_requirements_for_mapped_access(tsk, chunks[i], tsk.get_global_size());
+command_graph_generator::buffer_requirements_list command_graph_generator::get_buffer_requirements_for_mapped_access(
+    const task& tsk, const subrange<3>& sr, const range<3> global_size) const {
+	buffer_requirements_list result;
+	const auto& access_map = tsk.get_buffer_access_map();
+	for(const buffer_id bid : access_map.get_accessed_buffers()) {
+		buffer_requirements reqs{bid, {}, {}};
+		for(const auto m : access_map.get_access_modes(bid)) {
+			if(detail::access::mode_traits::is_consumer(m)) {
+				reqs.consumed = region_union(reqs.consumed, access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), sr, global_size));
+			}
+			// Not else: `access_mode::write` is both a consumer and a producer
+			if(detail::access::mode_traits::is_producer(m)) {
+				reqs.produced = region_union(reqs.produced, access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), sr, global_size));
+			}
+		}
+		result.emplace_back(std::move(reqs));
+	}
+	return result;
+}
 
-		// Add requirements for reductions
+const box<3> empty_reduction_box({0, 0, 0}, {0, 0, 0});
+const box<3> scalar_reduction_box({0, 0, 0}, {1, 1, 1});
+
+command_graph_generator::assigned_chunks_with_requirements command_graph_generator::compute_per_chunk_requirements(
+    const task& tsk, const std::vector<assigned_chunk>& assigned_chunks) const {
+	assigned_chunks_with_requirements result;
+
+	for(const auto& a_chunk : assigned_chunks) {
+		const node_id nid = a_chunk.executed_on;
+		auto requirements = get_buffer_requirements_for_mapped_access(tsk, a_chunk.chnk, tsk.get_global_size());
+
+		// Add read/write requirements for reductions performed in this task.
 		for(const auto& reduction : tsk.get_reductions()) {
-			auto rmode = access_mode::discard_write;
-			if(nid == reduction_initializer_nid && reduction.init_from_buffer) { rmode = access_mode::read_write; }
-#ifndef NDEBUG
-			for(auto pmode : access::producer_modes) {
-				assert(requirements[reduction.bid].count(pmode) == 0); // task_manager verifies that there are no reduction <-> write-access conflicts
-			}
-#endif
-			requirements[reduction.bid][rmode] = scalar_reduction_box;
+			// task_manager verifies that there are no reduction <-> write-access conflicts
+			assert(std::none_of(
+			    requirements.begin(), requirements.end(), [&](const buffer_requirements& br) { return br.bid == reduction.bid && !br.produced.empty(); }));
+			auto it = std::find_if(requirements.begin(), requirements.end(), [&](const buffer_requirements& br) { return br.bid == reduction.bid; });
+			if(it == requirements.end()) { it = requirements.insert(requirements.end(), buffer_requirements{reduction.bid, {}, {}}); }
+			it->produced = scalar_reduction_box;
+			if(nid == reduction_initializer_nid && reduction.init_from_buffer) { it->consumed = scalar_reduction_box; }
 		}
 
-		abstract_command* cmd = nullptr;
-		if(is_local_chunk) {
-			if(tsk.get_type() == task_type::fence) {
-				cmd = create_command<fence_command>(tsk.get_id());
-			} else {
-				cmd = create_command<execution_command>(tsk.get_id(), subrange{chunks[i]});
-
-				// Go over all reductions that are to be performed *during* the execution of this chunk,
-				// not to be confused with any pending reductions that need to be finalized *before* the
-				// execution of this chunk.
-				// If a reduction reads the previous value of the buffer (i.e. w/o property::reduction::initialize_to_identity),
-				// we have to include it in exactly one of the per-node intermediate reductions.
-				for(const auto& reduction : tsk.get_reductions()) {
-					if(nid == reduction_initializer_nid && reduction.init_from_buffer) {
-						utils::as<execution_command>(cmd)->set_is_reduction_initializer(true);
-						break;
-					}
-				}
-			}
-
-			if(tsk.get_type() == task_type::collective) {
-				// Collective host tasks have an implicit dependency on the previous task in the same collective group,
-				// which is required in order to guarantee they are executed in the same order on every node.
-				auto cgid = tsk.get_collective_group_id();
-				if(auto prev = m_last_collective_commands.find(cgid); prev != m_last_collective_commands.end()) {
-					m_cdag.add_dependency(cmd, m_cdag.get(prev->second), dependency_kind::true_dep, dependency_origin::collective_group_serialization);
-					m_last_collective_commands.erase(prev);
-				}
-				m_last_collective_commands.emplace(cgid, cmd->get_cid());
-			}
-
-			local_chunks.push_back(subrange(chunks[i].offset, chunks[i].range));
-		}
-
-		// We use the task id, together with the "chunk id" and the buffer id (stored separately) to match pushes against their corresponding await pushes
-		for(auto& [bid, reqs_by_mode] : requirements) {
-			auto& buffer = m_buffers.at(bid);
-			std::vector<access_mode> required_modes;
-			for(const auto mode : detail::access::all_modes) {
-				if(auto req_it = reqs_by_mode.find(mode); req_it != reqs_by_mode.end()) {
-					// While uncommon, we do support chunks that don't require access to a particular buffer at all.
-					if(!req_it->second.empty()) { required_modes.push_back(mode); }
-				}
-			}
-
-			// Don't add reduction commands within the loop to make sure there is at most one reduction command
-			// even in the presence of multiple consumer requirements.
-			const bool is_pending_reduction = buffer.pending_reduction.has_value();
-			const bool generate_reduction =
-			    is_pending_reduction && std::any_of(required_modes.begin(), required_modes.end(), detail::access::mode_traits::is_consumer);
-			if(generate_reduction) {
-				// Prepare the buffer state for after the reduction has been performed:
-				// Set the current epoch as last writer and mark it as stale so that if we don't generate a reduction command,
-				// we'll know to get the data from elsewhere. If we generate a reduction command, this will be overwritten by its command id.
-				write_command_state wcs{m_epoch_for_new_commands};
-				wcs.mark_as_stale();
-				// We just treat this buffer as 1-dimensional, regardless of its actual dimensionality (as it must be unit-sized anyway)
-				post_reduction_buffers.emplace(std::piecewise_construct, std::tuple{bid},
-				    std::tuple{region_map<write_command_state>{ones, wcs}, region_map<node_bitset>{ones, node_bitset{}}});
-			}
-
-			if(is_pending_reduction && !generate_reduction) {
-				// TODO the per-node reduction result is discarded - warn user about dead store
-			}
-
-			region<3> uninitialized_reads;
-			for(const auto mode : required_modes) {
-				const auto& req = reqs_by_mode.at(mode);
-				if(detail::access::mode_traits::is_consumer(mode)) {
-					if(is_local_chunk && m_policy.uninitialized_read_error != error_policy::ignore
-					    && !bounding_box(buffer.initialized_region).covers(bounding_box(req.get_boxes()))) {
-						uninitialized_reads = region_union(uninitialized_reads, region_difference(req, buffer.initialized_region));
-					}
-
-					if(is_local_chunk) {
-						// Store the read access for determining anti-dependencies later on
-						m_command_buffer_reads[cmd->get_cid()][bid] = region_union(m_command_buffer_reads[cmd->get_cid()][bid], req);
-					}
-
-					if(is_local_chunk && !is_pending_reduction) {
-						const auto local_sources = buffer.local_last_writer.get_region_values(req);
-						box_vector<3> missing_part_boxes;
-						for(const auto& [box, wcs] : local_sources) {
-							if(box.empty()) continue;
-							if(!wcs.is_fresh()) {
-								missing_part_boxes.push_back(box);
-								continue;
-							}
-							m_cdag.add_dependency(cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
-						}
-
-						// There is data we don't yet have locally. Generate an await push command for it.
-						if(!missing_part_boxes.empty()) {
-							const region missing_parts(std::move(missing_part_boxes));
-							assert(m_num_nodes > 1);
-							auto* const ap_cmd = create_command<await_push_command>(transfer_id(tsk.get_id(), bid, no_reduction_id), missing_parts);
-							m_cdag.add_dependency(cmd, ap_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
-							generate_anti_dependencies(tsk.get_id(), bid, buffer.local_last_writer, missing_parts, ap_cmd);
-							generate_epoch_dependencies(ap_cmd);
-							// Remember that we have this data now
-							buffer.local_last_writer.update_region(missing_parts, {ap_cmd->get_cid(), true /* is_replicated */});
-						}
-					} else if(!is_pending_reduction) {
-						// We generate separate push command for each last writer command for now, possibly even multiple for partially already-replicated data.
-						// TODO: Can and/or should we consolidate?
-						const auto local_sources = buffer.local_last_writer.get_region_values(req);
-						for(const auto& [local_box, wcs] : local_sources) {
-							if(!wcs.is_fresh() || wcs.is_replicated()) { continue; }
-
-							// Make sure we don't push anything we've already pushed to this node before
-							box_vector<3> non_replicated_boxes;
-							for(const auto& [replicated_box, nodes] : buffer.replicated_regions.get_region_values(local_box)) {
-								if(nodes.test(nid)) continue;
-								non_replicated_boxes.push_back(replicated_box);
-							}
-
-							// Merge all connected boxes to determine final set of pushes
-							const auto push_region = region<3>(std::move(non_replicated_boxes));
-							for(auto& push_box : push_region.get_boxes()) {
-								auto* const push_cmd =
-								    create_command<push_command>(nid, transfer_id(tsk.get_id(), bid, no_reduction_id), push_box.get_subrange());
-								assert(!utils::isa<await_push_command>(m_cdag.get(wcs)) && "Attempting to push non-owned data?!");
-								m_cdag.add_dependency(push_cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
-								generated_pushes.push_back(push_cmd);
-
-								// Store the read access for determining anti-dependencies later on
-								m_command_buffer_reads[push_cmd->get_cid()][bid] = push_box;
-							}
-
-							// Remember that we've replicated this region
-							for(const auto& [replicated_box, nodes] : buffer.replicated_regions.get_region_values(push_region)) {
-								buffer.replicated_regions.update_box(replicated_box, node_bitset{nodes}.set(nid));
-							}
-						}
-					}
-				}
-
-				if(is_local_chunk && detail::access::mode_traits::is_producer(mode)) {
-					// If we are going to insert a reduction command, we will also create a true-dependency chain to the last writer. The new last writer
-					// cid however is not known at this point because the the reduction command has not been generated yet. Instead, we simply skip
-					// generating anti-dependencies around this requirement. This might not be valid if (multivariate) reductions ever operate on regions.
-					if(!generate_reduction) { generate_anti_dependencies(tsk.get_id(), bid, buffer.local_last_writer, req, cmd); }
-
-					per_buffer_local_writes[bid] = region_union(per_buffer_local_writes[bid], req);
-					per_buffer_last_writer_update_list[bid].push_back({req, cmd->get_cid()});
-				}
-			}
-
-			if(!uninitialized_reads.empty()) {
-				utils::report_error(m_policy.uninitialized_read_error,
-				    "Command C{} on N{}, which executes {} of {}, reads {} {}, which has not been written by any node.", cmd->get_cid(), m_local_nid,
-				    box(subrange(chunks[i].offset, chunks[i].range)), print_task_debug_label(tsk), print_buffer_debug_label(bid),
-				    detail::region(std::move(uninitialized_reads)));
-			}
-
-			if(generate_reduction) {
-				if(m_policy.uninitialized_read_error != error_policy::ignore) { post_reduction_buffers.at(bid).initialized_region = scalar_reduction_box; }
-
-				const auto& reduction = *buffer.pending_reduction;
-
-				const auto local_last_writer = buffer.local_last_writer.get_region_values(scalar_reduction_box);
-				assert(local_last_writer.size() == 1);
-
-				if(is_local_chunk) {
-					auto* const reduce_cmd = create_command<reduction_command>(reduction, local_last_writer[0].second.is_fresh() /* has_local_contribution */);
-
-					// Only generate a true dependency on the last writer if this node participated in the intermediate result computation.
-					if(local_last_writer[0].second.is_fresh()) {
-						m_cdag.add_dependency(reduce_cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
-					}
-
-					auto* const ap_cmd = create_command<await_push_command>(transfer_id(tsk.get_id(), bid, reduction.rid), scalar_reduction_box.get_subrange());
-					m_cdag.add_dependency(reduce_cmd, ap_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
-					generate_epoch_dependencies(ap_cmd);
-
-					m_cdag.add_dependency(cmd, reduce_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
-
-					// Reduction command becomes the last writer (this may be overriden if this task also writes to the reduction buffer)
-					post_reduction_buffers.at(bid).local_last_writer.update_box(scalar_reduction_box, reduce_cmd->get_cid());
-				} else {
-					// Push an empty range if we don't have any fresh data on this node
-					const bool notification_only = !local_last_writer[0].second.is_fresh();
-					const auto push_box = notification_only ? empty_reduction_box : scalar_reduction_box;
-
-					auto* const push_cmd = create_command<push_command>(nid, transfer_id(tsk.get_id(), bid, reduction.rid), push_box.get_subrange());
-					generated_pushes.push_back(push_cmd);
-
-					if(notification_only) {
-						generate_epoch_dependencies(push_cmd);
-					} else {
-						m_command_buffer_reads[push_cmd->get_cid()][bid] = region_union(m_command_buffer_reads[push_cmd->get_cid()][bid], scalar_reduction_box);
-						m_cdag.add_dependency(push_cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
-					}
-
-					// Mark the reduction result as replicated so we don't generate data transfers to this node
-					// TODO: We need a way of updating regions in place! E.g. apply_to_values(box, callback)
-					const auto replicated_box = post_reduction_buffers.at(bid).replicated_regions.get_region_values(scalar_reduction_box);
-					assert(replicated_box.size() == 1);
-					for(const auto& [_, nodes] : replicated_box) {
-						post_reduction_buffers.at(bid).replicated_regions.update_box(scalar_reduction_box, node_bitset{nodes}.set(nid));
-					}
-				}
-			}
-		}
-	}
-
-	// Check for and report overlapping writes between local chunks, and between local and remote chunks.
-	if(m_policy.overlapping_write_error != error_policy::ignore) { report_overlapping_writes(tsk, local_chunks); }
-
-	// For buffers that were in a pending reduction state and a reduction was generated
-	// (i.e., the result was not discarded), set their new state.
-	for(auto& [bid, new_state] : post_reduction_buffers) {
-		auto& buffer = m_buffers.at(bid);
-		if(buffer.pending_reduction.has_value()) { m_completed_reductions.push_back(buffer.pending_reduction->rid); }
-		buffer = std::move(new_state);
-	}
-
-	// Update per-buffer last writers
-	// This has to happen after applying post_reduction_buffers to properly support chained reductions.
-	for(auto& [bid, updates] : per_buffer_last_writer_update_list) {
-		auto& buffer = m_buffers.at(bid);
-		for(auto& [req, cid] : updates) {
-			buffer.local_last_writer.update_region(req, cid);
-			buffer.replicated_regions.update_region(req, node_bitset{});
-		}
-
-		// In case this buffer was in a pending reduction state but the result was discarded, remove the pending reduction.
-		if(buffer.pending_reduction.has_value()) {
-			m_completed_reductions.push_back(buffer.pending_reduction->rid);
-			buffer.pending_reduction = std::nullopt;
-		}
-	}
-
-	// Mark any buffers that now are in a pending reduction state as such.
-	// This has to happen after applying post_reduction_buffers and per_buffer_last_writer_update_list
-	// to properly support chained reductions.
-	// If there is only one chunk/command, it already implicitly generates the final reduced value
-	// and the buffer does not need to be flagged as a pending reduction.
-	for(const auto& reduction : tsk.get_reductions()) {
-		if(chunks.size() > 1) {
-			m_buffers.at(reduction.bid).pending_reduction = reduction;
-
-			// In some cases this node may not actually participate in the computation of the
-			// intermediate reduction result (because there was no chunk). If so, mark the
-			// reduction buffer as stale so we do not use it as input for the final reduction command.
-			if(per_buffer_local_writes.count(reduction.bid) == 0) {
-				[[maybe_unused]] size_t num_entries = 0;
-				m_buffers.at(reduction.bid).local_last_writer.apply_to_values([&num_entries](const write_command_state& wcs) {
-					num_entries++;
-					write_command_state stale_state{wcs};
-					stale_state.mark_as_stale();
-					return stale_state;
-				});
-				assert(num_entries == 1);
-			}
+		if(nid == m_local_nid) {
+			result.local_chunks.emplace_back(a_chunk, std::move(requirements));
 		} else {
+			result.remote_chunks.emplace_back(a_chunk, std::move(requirements));
+		}
+	}
+
+	return result;
+}
+
+void command_graph_generator::resolve_pending_reductions(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements) {
+	auto accessed_buffers = tsk.get_buffer_access_map().get_accessed_buffers();
+	// Handle chained reductions (i.e., reductions that combine into a buffer that currently is in a pending reduction state)
+	for(const auto& reduction : tsk.get_reductions()) {
+		accessed_buffers.insert(reduction.bid);
+	}
+
+	for(const auto bid : accessed_buffers) {
+		auto& buffer = m_buffers.at(bid);
+		if(!buffer.pending_reduction.has_value()) { continue; }
+		const auto& reduction = *buffer.pending_reduction;
+
+		const auto local_last_writer = buffer.local_last_writer.get_region_values(scalar_reduction_box);
+		assert(local_last_writer.size() == 1);
+		const bool notification_only = !local_last_writer[0].second.is_fresh();
+		// Prepare the buffer state for after the reduction has been performed:
+		// Keep the current last writer, but mark it as stale, so that if we don't generate a reduction command locally,
+		// we'll know to get the data from elsewhere. If we generate a reduction command, this will be overwritten by its command id.
+		write_command_state wcs{static_cast<command_id>(local_last_writer[0].second)};
+		wcs.mark_as_stale();
+		buffer_state post_reduction_state{region_map<write_command_state>{ones, wcs}, region_map<node_bitset>{ones, node_bitset{}}};
+		if(m_policy.uninitialized_read_error != error_policy::ignore) { post_reduction_state.initialized_region = scalar_reduction_box; }
+
+		node_bitset participating_nodes;
+
+		// Since the local reduction command overwrites the buffer contents that need to be pushed to other nodes, we need to process remote chunks first.
+		for(const auto& [a_chunk, requirements] : chunks_with_requirements.remote_chunks) {
+			if(std::none_of(requirements.begin(), requirements.end(), [&](const buffer_requirements& br) { return br.bid == bid && !br.consumed.empty(); })) {
+				// This chunk doesn't read from the buffer
+				continue;
+			}
+			participating_nodes.set(a_chunk.executed_on);
+		}
+
+		// Generate push command to all participating nodes
+		if(participating_nodes.any()) {
+			// Push an empty range if we don't have any fresh data on this node. This will then generate an empty pilot that tells the
+			// other node's receive_arbiter to not expect a send.
+			const auto push_box = notification_only ? empty_reduction_box : scalar_reduction_box;
+			assert(participating_nodes.count() == m_num_nodes - 1 || participating_nodes.count() == 1);
+			std::vector<std::pair<node_id, region<3>>> regions;
+			for(node_id nid = 0; nid < m_num_nodes; ++nid) {
+				if(!participating_nodes.test(nid)) continue;
+				regions.push_back({nid, push_box});
+			}
+			auto* cmd = create_command<push_command>(transfer_id(tsk.get_id(), bid, reduction.rid), std::move(regions),
+			    [&, bid = bid](const auto& record_debug_info) { record_debug_info(m_buffers.at(bid).debug_name); });
+			if(notification_only) {
+				generate_epoch_dependencies(cmd);
+			} else {
+				m_command_buffer_reads[cmd->get_cid()][bid] = region_union(m_command_buffer_reads[cmd->get_cid()][bid], scalar_reduction_box);
+				add_dependency(cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
+			}
+
+			// Mark the reduction result as replicated so we don't generate data transfers to any of the participating nodes
+			post_reduction_state.replicated_regions.update_box(scalar_reduction_box, participating_nodes);
+		}
+
+		// We currently don't support multiple chunks on a single node for reductions (there is also -- for now -- no way to create multiple chunks,
+		// as oversubscription is handled by the instruction graph).
+		// NOTE: The participating_nodes.count() check below relies on this being true
+		assert(chunks_with_requirements.local_chunks.size() <= 1);
+		for(const auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
+			if(std::none_of(requirements.begin(), requirements.end(), [&](const buffer_requirements& br) { return br.bid == bid && !br.consumed.empty(); })) {
+				// This chunk doesn't read from the buffer
+				continue;
+			}
+
+			auto* const ap_cmd = create_command<await_push_command>(transfer_id(tsk.get_id(), bid, reduction.rid), scalar_reduction_box.get_subrange(),
+			    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
+			generate_epoch_dependencies(ap_cmd);
+
+			auto* const reduce_cmd = create_command<reduction_command>(reduction, local_last_writer[0].second.is_fresh() /* has_local_contribution */,
+			    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
+
+			// Only generate a true dependency on the last writer if this node participated in the intermediate result computation.
+			if(local_last_writer[0].second.is_fresh()) {
+				add_dependency(reduce_cmd, m_cdag.get(local_last_writer[0].second), dependency_kind::true_dep, dependency_origin::dataflow);
+			}
+			add_dependency(reduce_cmd, ap_cmd, dependency_kind::true_dep, dependency_origin::dataflow);
+			generate_anti_dependencies(tsk.get_id(), bid, buffer.local_last_writer, scalar_reduction_box, reduce_cmd);
+
+			post_reduction_state.local_last_writer.update_box(scalar_reduction_box, reduce_cmd->get_cid());
+			participating_nodes.set(m_local_nid); // We are participating
+		}
+
+		// We currently do not support generating reduction commands on only a subset of nodes, except for the special case of a single command.
+		// This is because it is unclear who owns the final result in this case (normally all nodes "own" the result).
+		//   => I.e., reducing and using the result on the participating nodes is actually not the problem (this works as intended); the issue only arises
+		//      if the result is subsequently required in other tasks. Since we don't have a good way of detecting this condition however, we currently
+		//      disallow partial reductions altogether.
+		// NOTE: This check relies on the fact that we currently only generate a single chunk per node for reductions (see assertion above).
+		if(participating_nodes.count() > 1 && participating_nodes.count() != m_num_nodes) {
+			utils::report_error(error_policy::panic,
+			    "{} requires a reduction on {} that is not performed on all nodes. This is currently not supported. Either "
+			    "ensure that all nodes receive a chunk that reads from the buffer, or reduce the data on a single node.",
+			    print_task_debug_label(tsk, true /* title case */), print_buffer_debug_label(bid));
+		}
+
+		// For buffers that were in a pending reduction state and a reduction was generated
+		// (i.e., the result was not discarded), set their new state.
+		if(participating_nodes.count() > 0) {
 			m_completed_reductions.push_back(reduction.rid);
+			buffer = std::move(post_reduction_state);
 		}
 	}
+}
 
-	// Determine potential "intra-task" race conditions.
-	// These can happen in rare cases, when the node that pushes a buffer range also writes to that range within the same task.
-	// We cannot do this while generating the push command, as we may not have the writing command recorded at that point.
-	for(auto* push_cmd : generated_pushes) {
-		const auto last_writers = m_buffers.at(push_cmd->get_transfer_id().bid).local_last_writer.get_region_values(region(push_cmd->get_range()));
+void command_graph_generator::generate_pushes(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements) {
+	struct push_scratch {
+		std::unordered_map<node_id, region<3>> target_regions;
+		std::unordered_set<command_id> depends_on;
+	};
+	std::unordered_map<buffer_id, push_scratch> per_buffer_pushes;
 
-		for(const auto& [box, wcs] : last_writers) {
-			assert(!box.empty()); // If we want to push it it cannot be empty
-			// In general we should only be pushing fresh data.
-			// If the push is for a reduction and the data no longer is fresh, it means
-			// that we did not generate a reduction command on this node and the data becomes
-			// stale after the remote reduction command has been executed.
-			assert(wcs.is_fresh() || push_cmd->get_transfer_id().rid != no_reduction_id);
-			auto* const writer_cmd = m_cdag.get(wcs);
-			assert(writer_cmd != nullptr);
+	for(auto& [a_chunk, requirements] : chunks_with_requirements.remote_chunks) {
+		const node_id nid = a_chunk.executed_on;
 
-			// We're only interested in writes that happen within the same task as the push
-			if(utils::isa<task_command>(writer_cmd) && utils::as<task_command>(writer_cmd)->get_tid() == tsk.get_id()) {
-				// In certain situations the push might have a true dependency on the last writer,
-				// in that case don't add an anti-dependency (as that would cause a cycle).
-				// TODO: Is this still possible? We don't have a unit test exercising this branch...
-				if(push_cmd->has_dependency(writer_cmd, dependency_kind::true_dep)) {
-					// This can currently only happen for await_push commands.
-					assert(utils::isa<await_push_command>(writer_cmd));
-					continue;
+		for(const auto& [bid, consumed, _] : requirements) {
+			if(consumed.empty()) continue;
+			auto& buffer = m_buffers.at(bid);
+
+			const auto local_sources = buffer.local_last_writer.get_region_values(consumed);
+			for(const auto& [local_box, wcs] : local_sources) {
+				if(!wcs.is_fresh() || wcs.is_replicated()) { continue; }
+
+				// Make sure we don't push anything we've already pushed to this node before
+				box_vector<3> non_replicated_boxes;
+				for(const auto& [replicated_box, nodes] : buffer.replicated_regions.get_region_values(local_box)) {
+					if(nodes.test(nid)) continue;
+					non_replicated_boxes.push_back(replicated_box);
 				}
-				m_cdag.add_dependency(writer_cmd, push_cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
-			}
 
-			// reduction commands will overwrite their buffer, so they must anti-depend on their partial-result push-commands
-			if(utils::isa<reduction_command>(writer_cmd)
-			    && utils::as<reduction_command>(writer_cmd)->get_reduction_info().rid == push_cmd->get_transfer_id().rid) {
-				m_cdag.add_dependency(writer_cmd, push_cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
+				if(!non_replicated_boxes.empty()) {
+					assert(!utils::isa<await_push_command>(m_cdag.get(wcs)) && "Attempting to push non-owned data?!");
+					auto push_region = region<3>(std::move(non_replicated_boxes));
+					// Remember that we've replicated this region
+					for(const auto& [replicated_box, nodes] : buffer.replicated_regions.get_region_values(push_region)) {
+						buffer.replicated_regions.update_box(replicated_box, node_bitset{nodes}.set(nid));
+					}
+					auto& scratch = per_buffer_pushes[bid];
+					if(auto it = scratch.target_regions.find(nid); it != scratch.target_regions.end()) {
+						it->second = region_union(it->second, push_region);
+					} else {
+						scratch.target_regions.emplace(nid, std::move(push_region));
+					}
+					scratch.depends_on.insert(wcs);
+				}
 			}
 		}
 	}
 
-	// Determine which local data is fresh/stale based on task-level writes.
+	// Generate push command for each buffer
+	for(auto& [bid, scratch] : per_buffer_pushes) {
+		region<3> combined_region;
+		std::vector<std::pair<node_id, region<3>>> target_regions;
+		for(auto& [nid, region] : scratch.target_regions) {
+			combined_region = region_union(combined_region, region);
+			target_regions.push_back({nid, std::move(region)});
+		}
+
+		auto* cmd = create_command<push_command>(transfer_id(tsk.get_id(), bid, no_reduction_id), std::move(target_regions),
+		    [&, bid = bid](const auto& record_debug_info) { record_debug_info(m_buffers.at(bid).debug_name); });
+		for(auto dep : scratch.depends_on) {
+			add_dependency(cmd, m_cdag.get(dep), dependency_kind::true_dep, dependency_origin::dataflow);
+		}
+
+		// Store the read access for determining anti-dependencies
+		m_command_buffer_reads[cmd->get_cid()].emplace(bid, std::move(combined_region));
+	}
+}
+
+// TODO: We currently generate an await push command for each local chunk, whereas we only generate a single push command for all remote chunks
+void command_graph_generator::generate_await_pushes(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements) {
+	for(auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
+		for(auto& [bid, consumed, _] : requirements) {
+			if(consumed.empty()) continue;
+			auto& buffer = m_buffers.at(bid);
+
+			const auto local_sources = buffer.local_last_writer.get_region_values(consumed);
+			box_vector<3> missing_part_boxes;
+			for(const auto& [box, wcs] : local_sources) {
+				// Note that we initialize all buffers as fresh, so this doesn't trigger for uninitialized reads
+				if(!box.empty() && !wcs.is_fresh()) { missing_part_boxes.push_back(box); }
+			}
+
+			// There is data we don't yet have locally. Generate an await push command for it.
+			if(!missing_part_boxes.empty()) {
+				const region missing_parts(std::move(missing_part_boxes));
+				assert(m_num_nodes > 1);
+				auto* const ap_cmd = create_command<await_push_command>(transfer_id(tsk.get_id(), bid, no_reduction_id), missing_parts,
+				    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
+				generate_anti_dependencies(tsk.get_id(), bid, buffer.local_last_writer, missing_parts, ap_cmd);
+				generate_epoch_dependencies(ap_cmd);
+				// Remember that we have this data now
+				buffer.local_last_writer.update_region(missing_parts, {ap_cmd->get_cid(), true /* is_replicated */});
+			}
+		}
+	}
+}
+
+void command_graph_generator::update_local_buffer_fresh_regions(const task& tsk, const std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes) {
 	auto requirements = get_buffer_requirements_for_mapped_access(tsk, subrange<3>(tsk.get_global_offset(), tsk.get_global_size()), tsk.get_global_size());
 	// Add requirements for reductions
 	for(const auto& reduction : tsk.get_reductions()) {
-		// the actual mode is irrelevant as long as it's a producer - TODO have a better query API for task buffer requirements
-		requirements[reduction.bid][access_mode::write] = scalar_reduction_box;
+		auto it = std::find_if(requirements.begin(), requirements.end(), [&](const buffer_requirements& br) { return br.bid == reduction.bid; });
+		if(it == requirements.end()) { it = requirements.insert(requirements.end(), buffer_requirements{reduction.bid, {}, {}}); }
+		it->produced = scalar_reduction_box;
 	}
-	for(auto& [bid, reqs_by_mode] : requirements) {
-		box_vector<3> global_write_boxes;
-		for(const auto mode : access::producer_modes) {
-			if(reqs_by_mode.count(mode) == 0) continue;
-			const auto& by_mode = reqs_by_mode.at(mode);
-			global_write_boxes.insert(global_write_boxes.end(), by_mode.get_boxes().begin(), by_mode.get_boxes().end());
-		}
-		const region global_writes(std::move(global_write_boxes));
-		const auto& local_writes = per_buffer_local_writes[bid];
-		assert(region_difference(local_writes, global_writes).empty()); // Local writes have to be a subset of global writes
-		const auto remote_writes = region_difference(global_writes, local_writes);
+	for(auto& [bid, _, produced] : requirements) {
+		region global_writes = produced;
 		auto& buffer = m_buffers.at(bid);
-
 		if(m_policy.uninitialized_read_error != error_policy::ignore) { buffer.initialized_region = region_union(buffer.initialized_region, global_writes); }
+
+		const auto remote_writes = ([&, bid = bid] {
+			if(auto it = per_buffer_local_writes.find(bid); it != per_buffer_local_writes.end()) {
+				const auto& local_writes = it->second;
+				assert(region_difference(local_writes, global_writes).empty()); // Local writes have to be a subset of global writes
+				return region_difference(global_writes, local_writes);
+			}
+			return std::move(global_writes);
+		})(); // IIFE
 
 		// TODO: We need a way of updating regions in place! E.g. apply_to_values(box, callback)
 		auto boxes_and_cids = buffer.local_last_writer.get_region_values(remote_writes);
@@ -581,7 +475,115 @@ void command_graph_generator::generate_distributed_commands(const task& tsk) {
 			}
 		}
 	}
+}
 
+void command_graph_generator::generate_distributed_commands(const task& tsk) {
+	const auto chunks = split_task_and_assign_chunks(tsk);
+	const auto chunks_with_requirements = compute_per_chunk_requirements(tsk, chunks);
+
+	// Check for and report overlapping writes between local chunks, and between local and remote chunks.
+	if(m_policy.overlapping_write_error != error_policy::ignore) {
+		box_vector<3> local_chunks;
+		for(const auto& [a_chunk, _] : chunks_with_requirements.local_chunks) {
+			local_chunks.push_back(box<3>{a_chunk.chnk});
+		}
+		report_overlapping_writes(tsk, local_chunks);
+	}
+
+	resolve_pending_reductions(tsk, chunks_with_requirements);
+	generate_pushes(tsk, chunks_with_requirements);
+	generate_await_pushes(tsk, chunks_with_requirements);
+
+	// Union of all per-buffer writes on this node, used to determine which parts of a buffer are fresh/stale later on.
+	std::unordered_map<buffer_id, region<3>> per_buffer_local_writes;
+
+	// Create command for each local chunk and resolve local data dependencies.
+	for(const auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
+		abstract_command* cmd = nullptr;
+		if(tsk.get_type() == task_type::fence) {
+			cmd = create_command<fence_command>(tsk.get_id(),
+			    [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
+		} else {
+			cmd = create_command<execution_command>(tsk.get_id(), subrange{a_chunk.chnk},
+			    [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
+
+			// Go over all reductions that are to be performed *during* the execution of this chunk,
+			// not to be confused with any pending reductions that need to be finalized *before* the
+			// execution of this chunk (those have already been handled by resolve_pending_reductions).
+			// If a reduction reads the previous value of the buffer (i.e. w/o property::reduction::initialize_to_identity),
+			// we have to include it in exactly one of the per-node intermediate reductions.
+			for(const auto& reduction : tsk.get_reductions()) {
+				if(m_local_nid == reduction_initializer_nid && reduction.init_from_buffer) {
+					utils::as<execution_command>(cmd)->set_is_reduction_initializer(true);
+					break;
+				}
+			}
+		}
+
+		if(tsk.get_type() == task_type::collective) {
+			// Collective host tasks have an implicit dependency on the previous task in the same collective group,
+			// which is required in order to guarantee they are executed in the same order on every node.
+			auto cgid = tsk.get_collective_group_id();
+			if(auto prev = m_last_collective_commands.find(cgid); prev != m_last_collective_commands.end()) {
+				add_dependency(cmd, m_cdag.get(prev->second), dependency_kind::true_dep, dependency_origin::collective_group_serialization);
+				m_last_collective_commands.erase(prev);
+			}
+			m_last_collective_commands.emplace(cgid, cmd->get_cid());
+		}
+
+		for(const auto& [bid, consumed, produced] : requirements) {
+			auto& buffer = m_buffers.at(bid);
+
+			// Process consuming accesses first, so we don't add dependencies onto our own writes
+			if(!consumed.empty()) {
+				for(const auto& [box, wcs] : buffer.local_last_writer.get_region_values(consumed)) {
+					if(box.empty()) continue;
+					assert(wcs.is_fresh() && "Unresolved remote data dependency");
+					add_dependency(cmd, m_cdag.get(wcs), dependency_kind::true_dep, dependency_origin::dataflow);
+				}
+
+				// Store the read access for determining anti-dependencies later on
+				m_command_buffer_reads[cmd->get_cid()].emplace(bid, consumed);
+			}
+
+			if(!produced.empty()) {
+				generate_anti_dependencies(tsk.get_id(), bid, buffer.local_last_writer, produced, cmd);
+
+				// Update last writer
+				buffer.local_last_writer.update_region(produced, cmd->get_cid());
+				buffer.replicated_regions.update_region(produced, node_bitset{});
+
+				// In case this buffer was in a pending reduction state we discarded the result and need to remove the pending reduction.
+				if(buffer.pending_reduction.has_value()) {
+					m_completed_reductions.push_back(buffer.pending_reduction->rid);
+					buffer.pending_reduction = std::nullopt;
+				}
+
+				per_buffer_local_writes.emplace(bid, produced);
+			}
+
+			if(m_policy.uninitialized_read_error != error_policy::ignore
+			    && !bounding_box(buffer.initialized_region).covers(bounding_box(consumed.get_boxes()))) {
+				utils::report_error(m_policy.uninitialized_read_error,
+				    "Command C{} on N{}, which executes {} of {}, reads {} {}, which has not been written by any node.", cmd->get_cid(), m_local_nid,
+				    box(subrange(a_chunk.chnk.offset, a_chunk.chnk.range)), print_task_debug_label(tsk), print_buffer_debug_label(bid),
+				    region_difference(consumed, buffer.initialized_region));
+			}
+		}
+	}
+
+	// Mark any buffers that now are in a pending reduction state as such.
+	// If there is only one chunk/command, it already implicitly generates the final reduced value
+	// and the buffer does not need to be flagged as a pending reduction.
+	for(const auto& reduction : tsk.get_reductions()) {
+		if(chunks.size() > 1) {
+			m_buffers.at(reduction.bid).pending_reduction = reduction;
+		} else {
+			m_completed_reductions.push_back(reduction.rid);
+		}
+	}
+
+	update_local_buffer_fresh_regions(tsk, per_buffer_local_writes);
 	process_task_side_effect_requirements(tsk);
 }
 
@@ -610,7 +612,7 @@ void command_graph_generator::generate_anti_dependencies(
 				if(const auto buffer_reads_it = command_reads.find(bid); buffer_reads_it != command_reads.end()) {
 					if(!region_intersection(write_req, buffer_reads_it->second).empty()) {
 						has_successors = true;
-						m_cdag.add_dependency(write_cmd, cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
+						add_dependency(write_cmd, cmd, dependency_kind::anti_dep, dependency_origin::dataflow);
 					}
 				}
 			}
@@ -618,7 +620,7 @@ void command_graph_generator::generate_anti_dependencies(
 
 		// In some cases (horizons, master node host task, weird discard_* constructs...)
 		// the last writer might not have any successors. Just add the anti-dependency onto the writer itself then.
-		if(!has_successors) { m_cdag.add_dependency(write_cmd, last_writer_cmd, dependency_kind::anti_dep, dependency_origin::dataflow); }
+		if(!has_successors) { add_dependency(write_cmd, last_writer_cmd, dependency_kind::anti_dep, dependency_origin::dataflow); }
 	}
 }
 
@@ -634,7 +636,7 @@ void command_graph_generator::process_task_side_effect_requirements(const task& 
 
 			if(host_object.last_side_effect.has_value()) {
 				// TODO once we have different side_effect_orders, their interaction will determine the dependency kind
-				m_cdag.add_dependency(cmd, m_cdag.get(*host_object.last_side_effect), dependency_kind::true_dep, dependency_origin::dataflow);
+				add_dependency(cmd, m_cdag.get(*host_object.last_side_effect), dependency_kind::true_dep, dependency_origin::dataflow);
 			}
 
 			// Simplification: If there are multiple chunks per node, we generate true-dependencies between them in an arbitrary order, when all we really
@@ -668,14 +670,15 @@ void command_graph_generator::set_epoch_for_new_commands(const abstract_command*
 void command_graph_generator::reduce_execution_front_to(abstract_command* const new_front) {
 	const auto previous_execution_front = m_cdag.get_execution_front();
 	for(auto* const front_cmd : previous_execution_front) {
-		if(front_cmd != new_front) { m_cdag.add_dependency(new_front, front_cmd, dependency_kind::true_dep, dependency_origin::execution_front); }
+		if(front_cmd != new_front) { add_dependency(new_front, front_cmd, dependency_kind::true_dep, dependency_origin::execution_front); }
 	}
 	assert(m_cdag.get_execution_front().size() == 1 && *m_cdag.get_execution_front().begin() == new_front);
 }
 
 void command_graph_generator::generate_epoch_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::epoch);
-	auto* const epoch = create_command<epoch_command>(tsk.get_id(), tsk.get_epoch_action(), std::move(m_completed_reductions));
+	auto* const epoch = create_command<epoch_command>(
+	    tsk.get_id(), tsk.get_epoch_action(), std::move(m_completed_reductions), [&](const auto& record_debug_info) { record_debug_info(tsk); });
 	set_epoch_for_new_commands(epoch);
 	m_current_horizon = no_command;
 	// Make the epoch depend on the previous execution front
@@ -684,7 +687,8 @@ void command_graph_generator::generate_epoch_command(const task& tsk) {
 
 void command_graph_generator::generate_horizon_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::horizon);
-	auto* const horizon = create_command<horizon_command>(tsk.get_id(), std::move(m_completed_reductions));
+	auto* const horizon =
+	    create_command<horizon_command>(tsk.get_id(), std::move(m_completed_reductions), [&](const auto& record_debug_info) { record_debug_info(tsk); });
 
 	if(m_current_horizon != static_cast<command_id>(no_command)) {
 		// Apply the previous horizon
@@ -710,7 +714,7 @@ void command_graph_generator::generate_epoch_dependencies(abstract_command* cmd)
 	if(const auto deps = cmd->get_dependencies();
 	    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::true_dep; })) {
 		assert(cmd->get_cid() != m_epoch_for_new_commands);
-		m_cdag.add_dependency(cmd, m_cdag.get(m_epoch_for_new_commands), dependency_kind::true_dep, dependency_origin::last_epoch);
+		add_dependency(cmd, m_cdag.get(m_epoch_for_new_commands), dependency_kind::true_dep, dependency_origin::last_epoch);
 	}
 }
 
