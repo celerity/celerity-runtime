@@ -17,6 +17,7 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Celerity now requires C++20 (#291)
 - Automatic runtime shutdown, which was previously triggered by the last queue / buffer / host object going out of scope,
   is now postponed until process termination (`atexit()`). This allows multiple non-overlapping sections of Celerity code
   to execute in the same process (#283)
