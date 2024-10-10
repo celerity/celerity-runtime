@@ -184,6 +184,7 @@ struct alloc_instruction_record : matchbox::implement_acceptor<instruction_recor
 	enum class alloc_origin {
 		buffer,
 		gather,
+		staging,
 	};
 
 	detail::allocation_id allocation_id;
@@ -213,12 +214,13 @@ struct copy_instruction_record : matchbox::implement_acceptor<instruction_record
 		coherence,
 		gather,
 		fence,
+		staging,
 	};
 
-	allocation_with_offset source_allocation;
-	allocation_with_offset dest_allocation;
-	box<3> source_box;
-	box<3> dest_box;
+	allocation_id source_allocation_id;
+	allocation_id dest_allocation_id;
+	region_layout source_layout;
+	region_layout dest_layout;
 	region<3> copy_region;
 	size_t element_size;
 	copy_origin origin;

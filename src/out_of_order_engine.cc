@@ -253,8 +253,8 @@ void engine_impl::submit(const instruction* const instr) {
 		    add_eligible_devices_by_memory_id(finstr.get_allocation_id().get_memory_id());
 	    },
 	    [&](const copy_instruction& cinstr) {
-		    const auto source_mid = cinstr.get_source_allocation().id.get_memory_id();
-		    const auto dest_mid = cinstr.get_dest_allocation().id.get_memory_id();
+		    const auto source_mid = cinstr.get_source_allocation_id().get_memory_id();
+		    const auto dest_mid = cinstr.get_dest_allocation_id().get_memory_id();
 
 		    // Eligible devices are tried in array-order within `assign_one`. If no other constraints exist, prefer assigning this instruction to the
 		    // dest-memory device to allow eager assignment of a subsequent kernel launch to the same in-order queue.

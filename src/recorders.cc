@@ -159,9 +159,9 @@ free_instruction_record::free_instruction_record(const free_instruction& finstr,
 
 copy_instruction_record::copy_instruction_record(
     const copy_instruction& cinstr, const copy_origin origin, const detail::buffer_id buffer_id, std::string buffer_name)
-    : acceptor_base(cinstr), source_allocation(cinstr.get_source_allocation()), dest_allocation(cinstr.get_dest_allocation()),
-      source_box(cinstr.get_source_box()), dest_box(cinstr.get_dest_box()), copy_region(cinstr.get_copy_region()), element_size(cinstr.get_element_size()),
-      origin(origin), buffer_id(buffer_id), buffer_name(std::move(buffer_name)) {}
+    : acceptor_base(cinstr), source_allocation_id(cinstr.get_source_allocation_id()), dest_allocation_id(cinstr.get_dest_allocation_id()),
+      source_layout(cinstr.get_source_layout()), dest_layout(cinstr.get_dest_layout()), copy_region(cinstr.get_copy_region()),
+      element_size(cinstr.get_element_size()), origin(origin), buffer_id(buffer_id), buffer_name(std::move(buffer_name)) {}
 
 device_kernel_instruction_record::device_kernel_instruction_record(const device_kernel_instruction& dkinstr, const task_id cg_tid,
     const command_id execution_cid, const std::string& debug_name, const std::vector<buffer_memory_record>& buffer_memory_allocation_map,

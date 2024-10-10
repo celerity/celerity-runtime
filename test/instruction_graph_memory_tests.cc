@@ -191,8 +191,8 @@ TEST_CASE("data dependencies across memories introduce coherence copies", "[inst
 
 		// There is one coherence copy per reader kernel, which copies the portion written on the opposite device
 		const auto coherence_copy = intersection_of(coherence_copies, reader.predecessors()).assert_unique();
-		CHECK(coherence_copy->source_allocation.id.get_memory_id() == ictx.get_native_memory(opposite_did));
-		CHECK(coherence_copy->dest_allocation.id.get_memory_id() == ictx.get_native_memory(did));
+		CHECK(coherence_copy->source_allocation_id.get_memory_id() == ictx.get_native_memory(opposite_did));
+		CHECK(coherence_copy->dest_allocation_id.get_memory_id() == ictx.get_native_memory(did));
 		CHECK(coherence_copy->copy_region == region(opposite_writer->access_map.front().accessed_box_in_buffer));
 	}
 
@@ -456,8 +456,8 @@ TEMPLATE_TEST_CASE_SIG("data from user-initialized buffers is copied lazily to m
 		const auto reader = all_instrs.select_unique<host_task_instruction_record>();
 		const auto coherence_copy = all_instrs.select_unique<copy_instruction_record>();
 		CHECK(coherence_copy->copy_region == region(box_cast<3>(buffer_box)));
-		CHECK(coherence_copy->source_allocation.id.get_memory_id() == user_memory_id);
-		CHECK(coherence_copy->dest_allocation.id.get_memory_id() == host_memory_id);
+		CHECK(coherence_copy->source_allocation_id.get_memory_id() == user_memory_id);
+		CHECK(coherence_copy->dest_allocation_id.get_memory_id() == host_memory_id);
 
 		// must not attempt to free user allocation
 		CHECK(all_instrs.count<free_instruction_record>([](const free_instruction_record& finstr) {
@@ -481,8 +481,8 @@ TEMPLATE_TEST_CASE_SIG("data from user-initialized buffers is copied lazily to m
 			REQUIRE(coherence_copy->copy_region.get_boxes().size() == 1);
 			const auto& copy_box = coherence_copy->copy_region.get_boxes().front();
 			CHECK(copy_box.get_range() == range_cast<3>(half_range));
-			CHECK(coherence_copy->source_allocation.id.get_memory_id() == host_memory_id);
-			CHECK(coherence_copy->dest_allocation.id.get_memory_id() == first_device_memory_id);
+			CHECK(coherence_copy->source_allocation_id.get_memory_id() == host_memory_id);
+			CHECK(coherence_copy->dest_allocation_id.get_memory_id() == first_device_memory_id);
 		}
 
 		const auto all_staging_copies = all_coherence_copies.predecessors().select_all<copy_instruction_record>();
@@ -492,8 +492,8 @@ TEMPLATE_TEST_CASE_SIG("data from user-initialized buffers is copied lazily to m
 			REQUIRE(staging_copy->copy_region.get_boxes().size() == 1);
 			const auto& copy_box = staging_copy->copy_region.get_boxes().front();
 			CHECK(copy_box.get_range() == range_cast<3>(half_range));
-			CHECK(staging_copy->source_allocation.id.get_memory_id() == user_memory_id);
-			CHECK(staging_copy->dest_allocation.id.get_memory_id() == host_memory_id);
+			CHECK(staging_copy->source_allocation_id.get_memory_id() == user_memory_id);
+			CHECK(staging_copy->dest_allocation_id.get_memory_id() == host_memory_id);
 		}
 
 		// must not attempt to free user allocation
@@ -514,25 +514,418 @@ TEST_CASE("copies are staged through host memory for devices that are not peer-c
 	ictx.finish();
 
 	const auto all_instrs = ictx.query_instructions();
+	const auto stage_alloc = all_instrs.select_unique<alloc_instruction_record>(
+	    [](const alloc_instruction_record& alloc) { return alloc.allocation_id.get_memory_id() == host_memory_id; });
 	const auto all_writers = all_instrs.select_all<device_kernel_instruction_record>("writer");
-	const auto all_copies_to_host = all_writers.successors().select_all<copy_instruction_record>();
-	const auto all_copies_from_host = all_copies_to_host.successors().select_all<copy_instruction_record>();
-	const auto all_readers = all_copies_from_host.successors().select_all<device_kernel_instruction_record>("reader");
+	const auto all_copies_from_source = all_writers.successors().select_all<copy_instruction_record>();
+	const auto all_copies_to_dest = all_copies_from_source.successors().select_all<copy_instruction_record>();
+	const auto all_readers = all_copies_to_dest.successors().select_all<device_kernel_instruction_record>("reader");
+	const auto stage_free = all_instrs.select_unique<free_instruction_record>(
+	    [](const free_instruction_record& free) { return free.allocation_id.get_memory_id() == host_memory_id; });
+
+	const auto alloc_instr_for = [&](const allocation_id aid) {
+		return all_instrs.select_unique<alloc_instruction_record>([aid](const alloc_instruction_record& alloc) { return alloc.allocation_id == aid; });
+	};
 
 	CHECK(all_writers.count() == num_devices);
-	CHECK(all_copies_to_host.count() == num_devices);
-	CHECK(all_copies_from_host.count() == num_devices);
+	CHECK(all_copies_from_source.count() == num_devices);
+	CHECK(all_copies_to_dest.count() == num_devices);
 	CHECK(all_readers.count() == num_devices);
 
 	for(const auto& writer : all_writers.iterate()) {
-		const auto copy_to_host = intersection_of(all_copies_to_host, writer.successors()).assert_unique();
-		const auto copy_from_host = intersection_of(all_copies_from_host, copy_to_host.successors()).assert_unique();
-		const auto reader = intersection_of(all_readers, copy_from_host.successors()).assert_unique();
+		const auto copy_from_source = intersection_of(all_copies_from_source, writer.successors()).assert_unique();
+		const auto copy_to_dest = intersection_of(all_copies_to_dest, copy_from_source.successors()).assert_unique();
+		const auto reader = intersection_of(all_readers, copy_to_dest.successors()).assert_unique();
 
-		CHECK(copy_to_host->source_allocation.id.get_memory_id() == ictx.get_native_memory(writer->device_id));
-		CHECK(copy_to_host->dest_allocation.id.get_memory_id() == host_memory_id);
-		CHECK(copy_from_host->source_allocation.id.get_memory_id() == host_memory_id);
-		CHECK(copy_from_host->dest_allocation.id.get_memory_id() == ictx.get_native_memory(reader->device_id));
+		CHECK(copy_from_source->origin == copy_instruction_record::copy_origin::staging);
+		CHECK(copy_from_source.transitive_predecessors().contains(alloc_instr_for(copy_from_source->dest_allocation_id)));
+		CHECK(copy_from_source->source_allocation_id.get_memory_id() == ictx.get_native_memory(writer->device_id));
+		CHECK(copy_from_source->dest_allocation_id.get_memory_id() == host_memory_id);
+		CHECK(std::holds_alternative<linearized_layout>(copy_from_source->dest_layout));
+
+		CHECK(copy_to_dest->origin == copy_instruction_record::copy_origin::coherence);
+		CHECK(copy_to_dest->source_allocation_id.get_memory_id() == host_memory_id);
+		CHECK(copy_to_dest->dest_allocation_id.get_memory_id() == ictx.get_native_memory(reader->device_id));
+		CHECK(std::holds_alternative<linearized_layout>(copy_to_dest->source_layout));
+	}
+}
+
+TEST_CASE("host-staged copies preserve concurrency between multiple readers and writers ", "[instruction_graph_generator][instruction-graph][memory]") {
+	const auto buffer_range = range(256);
+	const size_t num_devices = 2;
+	const size_t oversub_factor = 2;
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices, false /* supports d2d copies */);
+	auto buf = ictx.create_buffer<int>(buffer_range);
+	ictx.device_compute(buffer_range) //
+	    .name("writer")
+	    .discard_write(buf, acc::one_to_one())
+	    .hint(experimental::hints::oversubscribe(oversub_factor))
+	    .submit();
+	ictx.device_compute(buffer_range)
+	    .name("reader")
+	    .read(buf, test_utils::access::reverse_one_to_one())
+	    .hint(experimental::hints::oversubscribe(oversub_factor))
+	    .submit();
+	ictx.finish();
+
+	const auto all_instrs = ictx.query_instructions();
+	const auto all_writers = all_instrs.select_all<device_kernel_instruction_record>("writer");
+	const auto all_copies_from_source = all_writers.successors().select_all<copy_instruction_record>();
+	const auto all_copies_to_dest = all_copies_from_source.successors().select_all<copy_instruction_record>();
+	const auto all_readers = all_copies_to_dest.successors().select_all<device_kernel_instruction_record>("reader");
+
+	CHECK(all_writers.count() == num_devices * oversub_factor);
+	CHECK(all_copies_from_source.count() == num_devices * oversub_factor);
+	CHECK(all_copies_from_source.all_concurrent());
+	CHECK(all_copies_to_dest.count() == num_devices * oversub_factor);
+	CHECK(all_copies_to_dest.all_concurrent());
+	CHECK(all_readers.count() == num_devices * oversub_factor);
+
+	std::vector<size_t> byte_offsets_in_staging_buffer;
+	for(const auto& copy_from_source : all_copies_from_source.iterate()) {
+		const auto copy_to_dest = intersection_of(all_copies_to_dest, copy_from_source.successors()).assert_unique();
+
+		CHECK(copy_from_source->origin == copy_instruction_record::copy_origin::staging);
+		CHECK(copy_from_source->dest_allocation_id.get_memory_id() == host_memory_id);
+		CHECK(std::holds_alternative<linearized_layout>(copy_from_source->dest_layout));
+		CHECK(copy_to_dest->origin == copy_instruction_record::copy_origin::coherence);
+		CHECK(copy_to_dest->source_allocation_id == copy_from_source->dest_allocation_id);
+		CHECK(std::holds_alternative<linearized_layout>(copy_to_dest->source_layout));
+
+		byte_offsets_in_staging_buffer.push_back(std::get<linearized_layout>(copy_from_source->dest_layout).offset_bytes);
+	}
+
+	std::sort(byte_offsets_in_staging_buffer.begin(), byte_offsets_in_staging_buffer.end());
+	const size_t step = (buffer_range.size() / (num_devices * oversub_factor)) * sizeof(int);
+	CHECK(byte_offsets_in_staging_buffer == std::vector<size_t>({0 * step, 1 * step, 2 * step, 3 * step}));
+}
+
+TEST_CASE("staging copies to host are deduplicated in case of a broadcast pattern", "[instruction_graph_generator][instruction-graph][memory]") {
+	const auto buffer_range = range(256);
+	const size_t num_devices = 4;
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices, false /* supports d2d copies */);
+	auto buf = ictx.create_buffer<int>(buffer_range);
+	ictx.device_compute(range(1)).name("writer").discard_write(buf, acc::all()).submit();
+	ictx.device_compute(buffer_range).name("reader").read(buf, acc::all()).submit();
+	ictx.finish();
+
+	const auto all_instrs = ictx.query_instructions();
+	const auto stage_alloc = all_instrs.select_unique<alloc_instruction_record>(
+	    [](const alloc_instruction_record& alloc) { return alloc.allocation_id.get_memory_id() == host_memory_id; });
+	const auto writer = all_instrs.select_unique<device_kernel_instruction_record>("writer");
+	const auto copy_from_source = writer.successors().select_unique<copy_instruction_record>();
+	const auto all_copies_to_dest = copy_from_source.successors().select_all<copy_instruction_record>();
+	const auto all_readers = all_instrs.select_all<device_kernel_instruction_record>("reader");
+	const auto stage_free = all_instrs.select_unique<free_instruction_record>(
+	    [](const free_instruction_record& free) { return free.allocation_id.get_memory_id() == host_memory_id; });
+
+	const auto alloc_instr_for = [&](const allocation_id aid) {
+		return all_instrs.select_unique<alloc_instruction_record>([aid](const alloc_instruction_record& alloc) { return alloc.allocation_id == aid; });
+	};
+
+	CHECK(copy_from_source.transitive_predecessors().contains(alloc_instr_for(copy_from_source->dest_allocation_id)));
+	CHECK(copy_from_source->dest_allocation_id == stage_alloc->allocation_id);
+	CHECK(copy_from_source->origin == copy_instruction_record::copy_origin::staging);
+	CHECK(copy_from_source->dest_allocation_id.get_memory_id() == host_memory_id);
+	CHECK(copy_from_source->dest_layout == region_layout(linearized_layout(0 /* offset */)));
+
+	CHECK(all_copies_to_dest.predecessors().select_all<copy_instruction_record>() == copy_from_source);
+	CHECK(all_copies_to_dest.count() == num_devices - 1);
+	CHECK(all_copies_to_dest.all_concurrent());
+
+	CHECK(all_readers.count() == num_devices);
+	CHECK(stage_free->allocation_id == stage_alloc->allocation_id);
+	CHECK(stage_free.predecessors() == all_copies_to_dest);
+
+	std::vector<size_t> byte_offsets_in_staging_buffer;
+	for(const auto& copy_to_dest : all_copies_to_dest.iterate()) {
+		CHECK(copy_to_dest->origin == copy_instruction_record::copy_origin::coherence);
+		CHECK(copy_to_dest->source_allocation_id == copy_from_source->dest_allocation_id);
+		CHECK(copy_to_dest->source_layout == region_layout(linearized_layout(0 /* offset */)));
+	}
+}
+
+TEST_CASE("host staging only writes to device allocations that are not yet up to date", "[instruction_graph_generator][instruction-graph][memory]") {
+	const auto buffer_range = range(256);
+	const size_t num_devices = 4;
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices, false /* supports d2d copies */);
+	auto buf = ictx.create_buffer<int>(buffer_range);
+	ictx.device_compute(range(1)).name("write").discard_write(buf, acc::all()).submit();
+	ictx.device_compute(range(2)).name("read 1").read(buf, acc::all()).submit();
+	ictx.device_compute(range(num_devices)).name("read 2").read(buf, acc::all()).submit();
+	ictx.finish();
+
+	const auto all_instrs = ictx.query_instructions();
+	const auto all_reads_1 = all_instrs.select_all<device_kernel_instruction_record>("read 1");
+	const auto all_unstage_copies_1 = all_reads_1.predecessors().select_all<copy_instruction_record>();
+	const auto all_reads_2 = all_instrs.select_all<device_kernel_instruction_record>("read 2");
+	const auto all_reads_on_non_writer =
+	    union_of(all_reads_1, all_reads_2) //
+	        .select_all<device_kernel_instruction_record>([](const device_kernel_instruction_record& k) { return k.device_id != device_id(0); });
+	const auto all_unstage_copies = all_instrs.select_all<copy_instruction_record>(
+	    [](const copy_instruction_record& copy) { return copy.origin == copy_instruction_record::copy_origin::coherence; });
+	const auto all_unstage_copies_2 = difference_of(all_unstage_copies, all_unstage_copies_1);
+
+	CHECK(all_unstage_copies_1.count() == 1);
+	CHECK(all_unstage_copies_1->dest_allocation_id.get_memory_id() == first_device_memory_id + 1); // to D2
+
+	CHECK(all_unstage_copies_2.count() == 2);
+	std::array<memory_id, 2> dest_mids = {                           //
+	    all_unstage_copies_2[0]->dest_allocation_id.get_memory_id(), //
+	    all_unstage_copies_2[1]->dest_allocation_id.get_memory_id()};
+	std::sort(dest_mids.begin(), dest_mids.end());
+	CHECK(dest_mids == std::array<memory_id, 2>{first_device_memory_id + 2, first_device_memory_id + 3});
+
+	CHECK(all_unstage_copies.count() == 3);
+	CHECK(intersection_of(all_unstage_copies_1.successors(), all_reads_1).count() == 1);
+	CHECK(intersection_of(all_unstage_copies_1.successors(), all_reads_2).count() == 1); // "read 2" on D1 depends on the unstage-copy inserted for "read 1"
+	CHECK(intersection_of(all_unstage_copies_2.successors(), all_reads_2).count() == 2);
+}
+
+TEST_CASE("staging allocations are recycled after two horizons", "[instruction_graph_generator][instruction-graph][memory]") {
+	const auto buffer_range = range(256);
+	const size_t num_devices = 2;
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices, false /* supports d2d copies */);
+	auto buf1 = ictx.create_buffer<int>(buffer_range);
+	auto buf2 = ictx.create_buffer<int>(buffer_range);
+
+	ictx.set_horizon_step(1);
+	ictx.device_compute(buffer_range).name("init").discard_write(buf1, acc::one_to_one()).submit();
+	for(int i = 0; i < 4; ++i) {
+		ictx.device_compute(buffer_range)
+		    .name(fmt::format("r/w {}", i))
+		    .read(buf1, test_utils::access::reverse_one_to_one())
+		    .discard_write(buf2, acc::one_to_one())
+		    .submit();
+		std::swap(buf1, buf2);
+	}
+	ictx.finish();
+
+	const auto all_instrs = ictx.query_instructions();
+	const auto stage_allocs = all_instrs.select_all<alloc_instruction_record>(
+	    [](const alloc_instruction_record& alloc) { return alloc.allocation_id.get_memory_id() == host_memory_id; });
+	const auto init_kernels = all_instrs.select_all<device_kernel_instruction_record>("init");
+	const auto copies_from_source_0 = init_kernels.successors().select_all<copy_instruction_record>();
+	const auto rw_kernels_0 = all_instrs.select_all<device_kernel_instruction_record>("r/w 0");
+	const auto copies_from_source_1 = rw_kernels_0.successors().select_all<copy_instruction_record>();
+	const auto rw_kernels_1 = all_instrs.select_all<device_kernel_instruction_record>("r/w 1");
+	const auto copies_from_source_2 = rw_kernels_1.successors().select_all<copy_instruction_record>();
+	const auto rw_kernels_2 = all_instrs.select_all<device_kernel_instruction_record>("r/w 2");
+	const auto copies_from_source_3 = rw_kernels_2.successors().select_all<copy_instruction_record>();
+	const auto stage_frees = all_instrs.select_all<free_instruction_record>(
+	    [](const free_instruction_record& alloc) { return alloc.allocation_id.get_memory_id() == host_memory_id; });
+
+	// each kernel task triggers a horizon, and after two horizons we re-use the first staging allocation. Within each (task) command, at most one staging
+	// allocation is made and shared between all copies that will traverse host memory.
+	CHECK(stage_allocs.count() == 2 /* horizons */);
+	CHECK(init_kernels.count() == num_devices);
+	CHECK(copies_from_source_0.count() == num_devices);
+	CHECK(copies_from_source_0[0]->dest_allocation_id == stage_allocs[0]->allocation_id);
+	CHECK(copies_from_source_0[1]->dest_allocation_id == stage_allocs[0]->allocation_id);
+	CHECK(rw_kernels_0.count() == num_devices);
+	CHECK(copies_from_source_1.count() == num_devices);
+	CHECK(copies_from_source_1[0]->dest_allocation_id == stage_allocs[1]->allocation_id);
+	CHECK(copies_from_source_1[1]->dest_allocation_id == stage_allocs[1]->allocation_id);
+	CHECK(rw_kernels_1.count() == num_devices);
+	CHECK(copies_from_source_2.count() == num_devices);
+	CHECK(copies_from_source_2[0]->dest_allocation_id == stage_allocs[0]->allocation_id);
+	CHECK(copies_from_source_2[1]->dest_allocation_id == stage_allocs[0]->allocation_id);
+	CHECK(rw_kernels_2.count() == num_devices);
+	CHECK(copies_from_source_3.count() == num_devices);
+	CHECK(copies_from_source_3[0]->dest_allocation_id == stage_allocs[1]->allocation_id);
+	CHECK(copies_from_source_3[1]->dest_allocation_id == stage_allocs[1]->allocation_id);
+	CHECK(stage_frees.count() == 2 /* horizons */);
+}
+
+TEST_CASE("host copy staging does not introduce dependencies between concurrent kernels", "[instruction_graph_generator][instruction-graph][memory]") {
+	const auto buffer_range = range(256);
+	const size_t num_devices = 2;
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices, false /* supports d2d copies */);
+
+	auto buf1 = ictx.create_buffer<int>(buffer_range);
+	ictx.device_compute(buffer_range).name("write 1").discard_write(buf1, acc::one_to_one()).submit();
+	ictx.device_compute(buffer_range).name("read 1").read(buf1, test_utils::access::reverse_one_to_one()).submit();
+
+	auto buf2 = ictx.create_buffer<int>(buffer_range);
+	ictx.device_compute(buffer_range).name("write 2").discard_write(buf2, acc::one_to_one()).submit();
+	ictx.device_compute(buffer_range).name("read 2").read(buf2, test_utils::access::reverse_one_to_one()).submit();
+
+	ictx.finish();
+
+	const auto all_instrs = ictx.query_instructions();
+	const auto write_1_kernels = all_instrs.select_all<device_kernel_instruction_record>("write 1");
+	const auto read_1_kernels = all_instrs.select_all<device_kernel_instruction_record>("read 1");
+	const auto write_2_kernels = all_instrs.select_all<device_kernel_instruction_record>("write 2");
+	const auto read_2_kernels = all_instrs.select_all<device_kernel_instruction_record>("read 2");
+
+	CHECK(write_1_kernels.count() == num_devices);
+	CHECK(read_1_kernels.count() == num_devices);
+	CHECK(write_2_kernels.count() == num_devices);
+	CHECK(read_2_kernels.count() == num_devices);
+
+	CHECK(read_1_kernels.is_concurrent_with(write_2_kernels));
+	CHECK(read_1_kernels.is_concurrent_with(read_2_kernels));
+	CHECK(read_2_kernels.is_concurrent_with(write_1_kernels));
+	CHECK(read_2_kernels.is_concurrent_with(read_1_kernels));
+}
+
+TEST_CASE("narrow strided data columns are device-linearized before and after host-staging", "[instruction_graph_generator][instruction-graph][memory]") {
+	const auto buffer_range = range(65536, 65536);
+	const size_t num_devices = 4;
+
+	const bool is_column_access = GENERATE(values<int>({false, true})); // rows are already contiguous
+	const size_t ext_width = GENERATE(values<size_t>({1, 4096}));       // Celerity shouldn't attempt to linearize 64k x 4k = 1 GiB "columns"
+	CAPTURE(is_column_access);
+
+	const size_t ext_0 = is_column_access ? 0 : ext_width;
+	const size_t ext_1 = is_column_access ? ext_width : 0;
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices, false /* supports d2d copies */);
+
+	auto buf = ictx.create_buffer<int>(buffer_range);
+	ictx.device_compute(buffer_range).name("writer").discard_write(buf, acc::one_to_one()).hint(experimental::hints::split_2d()).submit();
+	ictx.device_compute(buffer_range).name("reader").read(buf, acc::neighborhood(ext_0, ext_1)).hint(experimental::hints::split_2d()).submit();
+	ictx.finish();
+
+	const auto all_instrs = ictx.query_instructions();
+	const auto all_writers = all_instrs.select_all<device_kernel_instruction_record>("writer");
+	const auto all_resizes_after_write = all_writers.successors().select_all<copy_instruction_record>().assert_all(
+	    [](const copy_instruction_record& copy) { return copy.origin == copy_instruction_record::copy_origin::resize; });
+	const auto all_copies_after_write = all_resizes_after_write.successors().select_all<copy_instruction_record>();
+	const auto all_readers = all_instrs.select_all<device_kernel_instruction_record>("reader");
+
+	const auto alloc_instr_for = [&](const allocation_id aid) {
+		return all_instrs.select_unique<alloc_instruction_record>([aid](const alloc_instruction_record& alloc) { return alloc.allocation_id == aid; });
+	};
+
+	for(auto& resize : all_resizes_after_write.iterate()) {
+		CHECK(resize->dest_allocation_id.get_memory_id() >= first_device_memory_id);
+		CHECK(resize->dest_allocation_id.get_memory_id() == resize->source_allocation_id.get_memory_id());
+		if(is_column_access && ext_width == 1) {
+			for(const auto& linearize_in_source : intersection_of(all_copies_after_write, resize.successors()).iterate()) {
+				CHECK(linearize_in_source.transitive_predecessors().contains(alloc_instr_for(linearize_in_source->dest_allocation_id)));
+				CHECK(linearize_in_source->source_allocation_id == resize->dest_allocation_id);
+				CHECK(std::holds_alternative<strided_layout>(linearize_in_source->source_layout));
+				CHECK(linearize_in_source->dest_allocation_id.get_memory_id() == linearize_in_source->source_allocation_id.get_memory_id());
+				CHECK(std::holds_alternative<linearized_layout>(linearize_in_source->dest_layout));
+
+				const auto copy_to_host = linearize_in_source.successors().select_unique<copy_instruction_record>();
+				CHECK(copy_to_host.transitive_predecessors().contains(alloc_instr_for(copy_to_host->dest_allocation_id)));
+				CHECK(copy_to_host->source_allocation_id == linearize_in_source->dest_allocation_id);
+				CHECK(copy_to_host->source_layout == linearize_in_source->dest_layout);
+				CHECK(copy_to_host->dest_allocation_id.get_memory_id() == host_memory_id);
+				CHECK(std::holds_alternative<linearized_layout>(copy_to_host->dest_layout));
+				CHECK(copy_to_host->copy_region == linearize_in_source->copy_region);
+
+				const auto copy_from_host = copy_to_host.successors().select_unique<copy_instruction_record>();
+				CHECK(copy_from_host.transitive_predecessors().contains(alloc_instr_for(copy_from_host->dest_allocation_id)));
+				CHECK(copy_from_host->source_allocation_id == copy_to_host->dest_allocation_id);
+				CHECK(copy_from_host->source_layout == copy_to_host->dest_layout);
+				CHECK(copy_from_host->dest_allocation_id.get_memory_id() >= first_device_memory_id);
+				CHECK(std::holds_alternative<linearized_layout>(copy_from_host->dest_layout));
+				CHECK(copy_from_host->copy_region == copy_to_host->copy_region);
+
+				const auto delinearize_in_dest = copy_from_host.successors().select_unique<copy_instruction_record>();
+				CHECK(delinearize_in_dest.transitive_predecessors().contains(alloc_instr_for(delinearize_in_dest->dest_allocation_id)));
+				CHECK(delinearize_in_dest->source_allocation_id == copy_from_host->dest_allocation_id);
+				CHECK(delinearize_in_dest->source_layout == copy_from_host->dest_layout);
+				CHECK(delinearize_in_dest->dest_allocation_id.get_memory_id() >= first_device_memory_id);
+				CHECK(delinearize_in_dest->dest_allocation_id.get_memory_id() != linearize_in_source->source_allocation_id.get_memory_id());
+				CHECK(std::holds_alternative<strided_layout>(delinearize_in_dest->dest_layout));
+				CHECK(delinearize_in_dest->copy_region == copy_from_host->copy_region);
+			}
+		} else {
+			for(const auto& copy_to_host : intersection_of(all_copies_after_write, resize.successors()).iterate()) {
+				CHECK(copy_to_host.transitive_predecessors().contains(alloc_instr_for(copy_to_host->dest_allocation_id)));
+				CHECK(copy_to_host->source_allocation_id == resize->dest_allocation_id);
+				CHECK(std::holds_alternative<strided_layout>(copy_to_host->source_layout));
+				CHECK(copy_to_host->dest_allocation_id.get_memory_id() == host_memory_id);
+				CHECK(std::holds_alternative<linearized_layout>(copy_to_host->dest_layout));
+
+				const auto copy_from_host = copy_to_host.successors().select_unique<copy_instruction_record>();
+				CHECK(copy_from_host.transitive_predecessors().contains(alloc_instr_for(copy_from_host->dest_allocation_id)));
+				CHECK(copy_from_host->source_allocation_id == copy_to_host->dest_allocation_id);
+				CHECK(copy_from_host->source_layout == copy_to_host->dest_layout);
+				CHECK(copy_from_host->dest_allocation_id.get_memory_id() >= first_device_memory_id);
+				CHECK(copy_from_host->dest_allocation_id.get_memory_id() != copy_to_host->source_allocation_id.get_memory_id());
+				CHECK(std::holds_alternative<strided_layout>(copy_from_host->dest_layout));
+			}
+		}
+	}
+}
+
+TEST_CASE("instruction_graph_generator device-linearization heuristic behaves as expected", "[instruction_graph_generator]") {
+	using instruction_graph_generator_detail::should_linearize_copy_region;
+
+	const box<3> alloc_box(id(0, 0, 0), id(65536, 65536, 1));
+	const box<3> single_row(id(64, 0, 0), id(65, 65536, 1));
+	const box<3> single_row_2(id(128, 0, 0), id(129, 65536, 1));
+	const box<3> single_column(id(0, 64, 0), id(65536, 65, 1));
+	const box<3> single_column_2(id(0, 128, 0), id(65536, 129, 1));
+	const box<3> multi_rows_small(id(0, 0, 0), id(4, 65536, 1));
+	const box<3> multi_rows_large(id(0, 0, 0), id(16, 65536, 1));
+	const box<3> multi_columns_small(id(0, 0, 0), id(65536, 4, 1));
+	const box<3> multi_columns_large(id(0, 0, 0), id(65536, 16, 1));
+
+	box_vector<3> horizontal_stripe_boxes;
+	box_vector<3> vertical_stripe_boxes;
+	for(size_t i = 0; i < 65536; i += 16) {
+		horizontal_stripe_boxes.push_back(box(id(i, 0, 0), id(i + 4, 65536, 1)));
+		vertical_stripe_boxes.push_back(box(id(0, i, 0), id(65536, i + 4, 1)));
+	}
+	const region horizontal_stripes(std::move(horizontal_stripe_boxes));
+	const region vertical_stripes(std::move(vertical_stripe_boxes));
+
+	const size_t elem_size = sizeof(int);
+
+	SECTION("copies from or to host / user buffer allocations are never linearized") {
+		CHECK_FALSE(should_linearize_copy_region(user_memory_id, alloc_box, single_row, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(user_memory_id, alloc_box, single_column, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(host_memory_id, alloc_box, single_row, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(host_memory_id, alloc_box, single_column, elem_size));
+	}
+
+	SECTION("single columns are linearized on device") {
+		CHECK(should_linearize_copy_region(first_device_memory_id, alloc_box, single_column, elem_size));
+		CHECK(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, single_column, elem_size));
+	}
+
+	SECTION("multiple columns are linearized if their contiguous size fits threshold") {
+		// multi_columns spans 16 columns of 4 bytes each = 64 bytes, which is large enough to not experience slowdown from 2d copies
+		CHECK(should_linearize_copy_region(first_device_memory_id, alloc_box, multi_columns_small, elem_size));
+		CHECK(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, multi_columns_small, elem_size));
+	}
+
+	SECTION("multiple columns are not linearized if their contiguous size exceeds threshold") {
+		// multi_columns spans 16 columns of 4 bytes each = 64 bytes, which is large enough to not experience slowdown from 2d copies
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id, alloc_box, multi_columns_large, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, multi_columns_large, elem_size));
+	}
+
+	SECTION("rows and sets of rows are not linearized on device") {
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id, alloc_box, single_row, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, single_row, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id, alloc_box, region_union(single_row, single_row_2), elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, region_union(single_row, single_row_2), elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id, alloc_box, multi_rows_small, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, multi_rows_small, elem_size));
+	}
+
+	SECTION("unions of single rows and columns are linearized") {
+		CHECK(should_linearize_copy_region(first_device_memory_id, alloc_box, region_union(single_row, single_column), elem_size));
+		CHECK(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, region_union(single_row, single_column), elem_size));
+	}
+
+	SECTION("regions are not linearized if their total area is too large") {
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id, alloc_box, horizontal_stripes, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, horizontal_stripes, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id, alloc_box, vertical_stripes, elem_size));
+		CHECK_FALSE(should_linearize_copy_region(first_device_memory_id + 1, alloc_box, vertical_stripes, elem_size));
 	}
 }
 
@@ -610,7 +1003,7 @@ TEST_CASE("resize-copy instructions are only generated from allocations that are
 	const auto alloc_2nd = all_instrs.select_unique<alloc_instruction_record>(
 	    [](const alloc_instruction_record& alloc) { return alloc.buffer_allocation->box == box_cast<3>(box<1>(16, 32)); });
 	const auto resize_copy_from_1st = all_instrs.select_unique<copy_instruction_record>();
-	CHECK(resize_copy_from_1st->source_allocation == alloc_1st->allocation_id);
+	CHECK(resize_copy_from_1st->source_allocation_id == alloc_1st->allocation_id);
 
 	CHECK(all_instrs.select_unique("alloc 2nd").is_concurrent_with(all_instrs.select_unique("resize")));
 }

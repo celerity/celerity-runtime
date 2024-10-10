@@ -134,7 +134,7 @@ class instruction_query {
 
 	/// Returns sub-query containing exactly the `index`-th node in the current query. Nodes keep the order they were recorded in.
 	instruction_query operator[](const size_t index) const {
-		if(index > m_result.size()) {
+		if(index >= m_result.size()) {
 			INFO(fmt::format("query: ", m_trace));
 			INFO(fmt::format("result: {}", *this));
 			FAIL(fmt::format("index {} out of bounds (size: {})", index, m_result.size()));
@@ -239,6 +239,17 @@ class instruction_query {
 	friend instruction_query intersection_of(const instruction_query& head, const InstructionQueries&... tail) {
 		// call through a proper member function, because GCC will not extend friendship with InstructionQueries... to inline-friend functions
 		return head.intersection_with(tail...);
+	}
+
+	/// Returns a query containing the difference of nodes between its two parameters.
+	template <typename InstructionQuery>
+	friend instruction_query difference_of(const instruction_query& first, const InstructionQuery& second) {
+		assert(first.m_recorder == second.m_recorder);
+		std::vector<const Record*> difference_query;
+		for(const auto& instr : first.m_result) {
+			if(std::find(second.m_result.begin(), second.m_result.end(), instr) == second.m_result.end()) { difference_query.push_back(instr); }
+		}
+		return instruction_query(first.m_recorder, std::move(difference_query), fmt::format("difference_of({}, {})", first.m_trace, second.m_trace));
 	}
 
   private:

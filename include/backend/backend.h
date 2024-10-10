@@ -3,6 +3,7 @@
 #include "async_event.h"
 #include "closure_hydrator.h"
 #include "launcher.h"
+#include "nd_memory.h"
 #include "types.h"
 
 #include <vector>
@@ -65,13 +66,13 @@ class backend {
 
 	/// Enqueues an n-dimensional copy between two host allocations (both either device-accessible or user-allocated). The operation will complete
 	/// in-order with respect to any other asynchronous host operation on `host_lane`.
-	virtual async_event enqueue_host_copy(size_t host_lane, const void* source_base, void* dest_base, const box<3>& source_box, const box<3>& dest_box,
-	    const region<3>& copy_region, size_t elem_size) = 0;
+	virtual async_event enqueue_host_copy(size_t host_lane, const void* source_base, void* dest_base, const region_layout& source_layout,
+	    const region_layout& dest_layout, const region<3>& copy_region, size_t elem_size) = 0;
 
 	/// Enqueues an n-dimensional copy between two device-accessible allocations (at least one device-native). The operation will complete in-order with respect
 	/// to any other asynchronous device operation on `device` and `device_lane`.
-	virtual async_event enqueue_device_copy(device_id device, size_t device_lane, const void* source_base, void* dest_base, const box<3>& source_box,
-	    const box<3>& dest_box, const region<3>& copy_region, size_t elem_size) = 0;
+	virtual async_event enqueue_device_copy(device_id device, size_t device_lane, const void* source_base, void* dest_base, const region_layout& source_layout,
+	    const region_layout& dest_layout, const region<3>& copy_region, size_t elem_size) = 0;
 
 	/// Check internal queues and panic if any asynchronous errors occurred.
 	virtual void check_async_errors() = 0;

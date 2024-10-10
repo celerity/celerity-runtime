@@ -705,8 +705,7 @@ void executor_impl::issue_async(const alloc_instruction& ainstr, const out_of_or
 	assert(!assignment.lane.has_value());
 	assert(assignment.device.has_value() == (ainstr.get_allocation_id().get_memory_id() > host_memory_id));
 
-	CELERITY_DETAIL_TRACE_INSTRUCTION(
-	    ainstr, "alloc {}, {} % {} bytes", ainstr.get_id(), ainstr.get_allocation_id(), ainstr.get_size_bytes(), ainstr.get_alignment_bytes());
+	CELERITY_DETAIL_TRACE_INSTRUCTION(ainstr, "alloc {}, {} % {} bytes", ainstr.get_allocation_id(), ainstr.get_size_bytes(), ainstr.get_alignment_bytes());
 
 	if(assignment.device.has_value()) {
 		async.event = backend->enqueue_device_alloc(*assignment.device, ainstr.get_size_bytes(), ainstr.get_alignment_bytes());
@@ -722,7 +721,7 @@ void executor_impl::issue_async(const free_instruction& finstr, const out_of_ord
 	const auto ptr = it->second;
 	allocations.erase(it);
 
-	CELERITY_DETAIL_TRACE_INSTRUCTION(finstr, "free {}", finstr.get_id(), finstr.get_allocation_id());
+	CELERITY_DETAIL_TRACE_INSTRUCTION(finstr, "free {}", finstr.get_allocation_id());
 
 	if(assignment.device.has_value()) {
 		async.event = backend->enqueue_device_free(*assignment.device, ptr);
@@ -738,19 +737,19 @@ void executor_impl::issue_async(const copy_instruction& cinstr, const out_of_ord
 	assert((assignment.target == out_of_order_engine::target::device_queue) == assignment.device.has_value());
 	assert(assignment.lane.has_value());
 
-	CELERITY_DETAIL_TRACE_INSTRUCTION(cinstr, "copy {} ({}) -> {} ({}); {}x{} bytes, {} bytes total", cinstr.get_source_allocation(), cinstr.get_source_box(),
-	    cinstr.get_dest_allocation(), cinstr.get_dest_box(), cinstr.get_copy_region(), cinstr.get_element_size(),
+	CELERITY_DETAIL_TRACE_INSTRUCTION(cinstr, "copy {} ({}) -> {} ({}); {}x{} bytes, {} bytes total", cinstr.get_source_allocation_id(),
+	    cinstr.get_source_layout(), cinstr.get_dest_allocation_id(), cinstr.get_dest_layout(), cinstr.get_copy_region(), cinstr.get_element_size(),
 	    cinstr.get_copy_region().get_area() * cinstr.get_element_size());
 
-	const auto source_base = static_cast<const std::byte*>(allocations.at(cinstr.get_source_allocation().id)) + cinstr.get_source_allocation().offset_bytes;
-	const auto dest_base = static_cast<std::byte*>(allocations.at(cinstr.get_dest_allocation().id)) + cinstr.get_dest_allocation().offset_bytes;
+	const auto source_base = allocations.at(cinstr.get_source_allocation_id());
+	const auto dest_base = allocations.at(cinstr.get_dest_allocation_id());
 
 	if(assignment.device.has_value()) {
-		async.event = backend->enqueue_device_copy(*assignment.device, *assignment.lane, source_base, dest_base, cinstr.get_source_box(), cinstr.get_dest_box(),
-		    cinstr.get_copy_region(), cinstr.get_element_size());
+		async.event = backend->enqueue_device_copy(*assignment.device, *assignment.lane, source_base, dest_base, cinstr.get_source_layout(),
+		    cinstr.get_dest_layout(), cinstr.get_copy_region(), cinstr.get_element_size());
 	} else {
-		async.event = backend->enqueue_host_copy(
-		    *assignment.lane, source_base, dest_base, cinstr.get_source_box(), cinstr.get_dest_box(), cinstr.get_copy_region(), cinstr.get_element_size());
+		async.event = backend->enqueue_host_copy(*assignment.lane, source_base, dest_base, cinstr.get_source_layout(), cinstr.get_dest_layout(),
+		    cinstr.get_copy_region(), cinstr.get_element_size());
 	}
 }
 
@@ -817,7 +816,7 @@ void executor_impl::issue_async(
 {
 	assert(assignment.target == out_of_order_engine::target::immediate);
 
-	CELERITY_DETAIL_TRACE_INSTRUCTION(sinstr, "send {}+{}, {}x{} bytes to N{} (MSG{})", sinstr.get_id(), sinstr.get_source_allocation_id(),
+	CELERITY_DETAIL_TRACE_INSTRUCTION(sinstr, "send {}+{}, {}x{} bytes to N{} (MSG{})", sinstr.get_source_allocation_id(),
 	    sinstr.get_offset_in_source_allocation(), sinstr.get_send_range(), sinstr.get_element_size(), sinstr.get_dest_node_id(), sinstr.get_message_id());
 
 	const auto allocation_base = allocations.at(sinstr.get_source_allocation_id());

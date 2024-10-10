@@ -58,8 +58,8 @@ struct device_kernel {
 struct common_copy {
 	const void* source_base = nullptr;
 	void* dest_base = nullptr;
-	box<3> source_box;
-	box<3> dest_box;
+	region_layout source_layout;
+	region_layout dest_layout;
 	region<3> copy_region;
 	size_t elem_size = 0;
 };
@@ -236,17 +236,17 @@ class mock_backend final : public backend {
 		return make_complete_event();
 	}
 
-	async_event enqueue_host_copy(const size_t host_lane, const void* const source_base, void* const dest_base, const box<3>& source_box,
-	    const box<3>& dest_box, const region<3>& copy_region, const size_t elem_size) override //
+	async_event enqueue_host_copy(const size_t host_lane, const void* const source_base, void* const dest_base, const region_layout& source_layout,
+	    const region_layout& dest_layout, const region<3>& copy_region, const size_t elem_size) override //
 	{
-		m_log->push_back(ops::host_copy{{source_base, dest_base, source_box, dest_box, copy_region, elem_size}, host_lane});
+		m_log->push_back(ops::host_copy{{source_base, dest_base, source_layout, dest_layout, copy_region, elem_size}, host_lane});
 		return make_complete_event();
 	}
 
 	async_event enqueue_device_copy(const device_id device, const size_t device_lane, const void* const source_base, void* const dest_base,
-	    const box<3>& source_box, const box<3>& dest_box, const region<3>& copy_region, const size_t elem_size) override //
+	    const region_layout& source_layout, const region_layout& dest_layout, const region<3>& copy_region, const size_t elem_size) override //
 	{
-		m_log->push_back(ops::device_copy{{source_base, dest_base, source_box, dest_box, copy_region, elem_size}, device, device_lane});
+		m_log->push_back(ops::device_copy{{source_base, dest_base, source_layout, dest_layout, copy_region, elem_size}, device, device_lane});
 		return make_complete_event();
 	}
 
@@ -377,10 +377,10 @@ class executor_test_context final : private executor::delegate {
 		    0 CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, task_type::device_compute, task_id(1), "task_name"));
 	}
 
-	void copy(const allocation_with_offset& source_alloc, const allocation_with_offset& dest_alloc, const box<3>& source_box, const box<3>& dest_box,
+	void copy(const allocation_id source_aid, const allocation_id dest_aid, const region_layout& source_layout, const region_layout& dest_layout,
 	    region<3> copy_region, const size_t elem_size) //
 	{
-		submit<copy_instruction>(source_alloc, dest_alloc, source_box, dest_box, std::move(copy_region), elem_size);
+		submit<copy_instruction>(source_aid, dest_aid, source_layout, dest_layout, std::move(copy_region), elem_size);
 	}
 
 	void destroy_host_object(const host_object_id hoid) { submit<destroy_host_object_instruction>(hoid); }
@@ -778,8 +778,6 @@ TEST_CASE("live_executor passes correct allocation pointers to copy instructions
 	const auto did = device_id(1);
 	const auto source_mid = GENERATE(values({host_memory_id, memory_id(first_device_memory_id + 1)}));
 	const auto dest_mid = GENERATE(values({host_memory_id, memory_id(first_device_memory_id + 1)}));
-	const auto source_offset = GENERATE(values<size_t>({0, 16}));
-	const auto dest_offset = GENERATE(values<size_t>({0, 32}));
 
 	const auto source_aid = allocation_id(source_mid, 1);
 	ectx.alloc(source_aid, 4096, 8);
@@ -791,7 +789,7 @@ TEST_CASE("live_executor passes correct allocation pointers to copy instructions
 	const auto copy_region = region<3>({box<3>({8, 0, 0}, {12, 8, 1}), box<3>({12, 0, 0}, {16, 4, 1})});
 	const auto elem_size = 4;
 
-	ectx.copy(allocation_with_offset(source_aid, source_offset), allocation_with_offset(dest_aid, dest_offset), source_box, dest_box, copy_region, elem_size);
+	ectx.copy(source_aid, dest_aid, strided_layout(source_box), strided_layout(dest_box), copy_region, elem_size);
 
 	ectx.free(source_aid);
 	ectx.free(dest_aid);
@@ -831,10 +829,10 @@ TEST_CASE("live_executor passes correct allocation pointers to copy instructions
 		CHECK(device_copy.device == did);
 		copy = &device_copy;
 	}
-	CHECK(copy->source_base == static_cast<std::byte*>(source_alloc->result) + source_offset);
-	CHECK(copy->dest_base == static_cast<std::byte*>(dest_alloc->result) + dest_offset);
-	CHECK(copy->source_box == source_box);
-	CHECK(copy->dest_box == dest_box);
+	CHECK(copy->source_base == source_alloc->result);
+	CHECK(copy->dest_base == dest_alloc->result);
+	CHECK(copy->source_layout == region_layout(strided_layout(source_box)));
+	CHECK(copy->dest_layout == region_layout(strided_layout(dest_box)));
 	CHECK(copy->copy_region == copy_region);
 	CHECK(copy->elem_size == elem_size);
 

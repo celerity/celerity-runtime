@@ -141,4 +141,6 @@ box_vector<3> split_into_communicator_compatible_boxes(const range<3>& buffer_ra
 template <int Dims>
 void symmetrically_split_overlapping_regions(std::vector<region<Dims>>& regions);
 
+bool should_linearize_copy_region(const memory_id alloc_mid, const box<3>& alloc_box, const region<3>& copy_region, const size_t elem_size);
+
 } // namespace celerity::detail::instruction_graph_generator_detail
