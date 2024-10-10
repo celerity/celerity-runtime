@@ -352,6 +352,7 @@ class nd_range {
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+	template <int D = Dims, typename = std::enable_if_t<D >= 1 && D <= 3>>
 	nd_range(const sycl::nd_range<Dims>& s_range)
 	    : m_global_range(s_range.get_global_range()), m_local_range(s_range.get_local_range()), m_offset(s_range.get_offset()) {}
 #pragma GCC diagnostic pop
@@ -365,7 +366,10 @@ class nd_range {
 #endif
 	}
 
-	operator sycl::nd_range<Dims>() const { return sycl::nd_range<Dims>{m_global_range, m_local_range, m_offset}; }
+	template <int D = Dims, typename = std::enable_if_t<D >= 1 && D <= 3>>
+	operator sycl::nd_range<Dims>() const {
+		return sycl::nd_range<Dims>{m_global_range, m_local_range, m_offset};
+	}
 
 	const range<Dims>& get_global_range() const { return m_global_range; }
 	const range<Dims>& get_local_range() const { return m_local_range; }
