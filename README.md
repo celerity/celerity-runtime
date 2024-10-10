@@ -81,7 +81,7 @@ installed first.
     - [SimSYCL](https://github.com/celerity/SimSYCL)
 - A MPI 2 implementation (tested with OpenMPI 4.0, MPICH 3.3 should work as well)
 - [CMake](https://www.cmake.org) (3.13 or newer)
-- A C++17 compiler (C++20 when working with SimSYCL)
+- A C++20 compiler
 
 See the [platform support guide](docs/platform-support.md) on which library and OS versions are supported and
 automatically tested.

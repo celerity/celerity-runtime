@@ -102,11 +102,7 @@ else()
   set(CELERITY_FEATURE_SCALAR_REDUCTIONS OFF)
 endif()
 
-if(CELERITY_SYCL_IMPL STREQUAL SimSYCL)
-  set(CELERITY_CXX_STANDARD 20)
-else()
-  set(CELERITY_CXX_STANDARD 17)
-endif()
+set(CELERITY_CXX_STANDARD 20)
 
 set(CELERITY_RUNTIME_LIBRARY celerity_runtime)
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/AddToTarget.cmake")
@@ -186,7 +182,6 @@ configure_file(include/version.h.in include/version.h @ONLY)
 
 # Add includes to library so they show up in IDEs
 file(GLOB_RECURSE INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
-list(APPEND INCLUDES "${CMAKE_CURRENT_BINARY_DIR}/include/version.h")
 
 if(CMAKE_GENERATOR STREQUAL "Ninja")
   # Force colored warnings in Ninja's output, if the compiler has -fdiagnostics-color support.
@@ -237,6 +232,9 @@ elseif(UNIX)
   endif()
   set(SOURCES ${SOURCES} src/platform_specific/named_threads.unix.cc)
 endif()
+
+configure_file(include/version.h.in include/version.h @ONLY)
+list(APPEND INCLUDES "${CMAKE_CURRENT_BINARY_DIR}/include/version.h")
 
 add_library(
   celerity_runtime
@@ -306,7 +304,7 @@ target_compile_definitions(celerity_runtime PUBLIC
   # We still mark this as PUBLIC during builds (but not installation),
   # so that the examples and tests receive the correct flag as well.
   $<BUILD_INTERFACE:
-    $<$<CONFIG:Debug>:CELERITY_DETAIL_ENABLE_DEBUG>
+    CELERITY_DETAIL_ENABLE_DEBUG=$<CONFIG:Debug>
   >
   CELERITY_USE_MIMALLOC=$<BOOL:${CELERITY_USE_MIMALLOC}>
   CELERITY_FEATURE_SCALAR_REDUCTIONS=$<BOOL:${CELERITY_FEATURE_SCALAR_REDUCTIONS}>
@@ -343,7 +341,7 @@ add_sycl_to_target(
 if(MSVC)
   target_compile_options(celerity_runtime PRIVATE /MP /W3)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self)
+  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self -Werror=undef)
 endif()
 
 if(CMAKE_COMPILER_ID STREQUAL "GNU")

@@ -4,7 +4,7 @@ title: Getting Started
 sidebar_label: Getting Started
 ---
 
-Celerity is a high-level C++17 API and runtime environment that aims to bring
+Celerity is a high-level C++20 API and runtime environment that aims to bring
 the power and ease of use of [SYCL](https://www.khronos.org/sycl/) to
 distributed-memory accelerator clusters.
 

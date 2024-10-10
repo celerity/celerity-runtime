@@ -146,21 +146,19 @@ auto pick_devices(const host_config& cfg, const DevicesOrSelector& user_devices_
 	return selected_devices;
 }
 
-/*
-template<typename T>
-concept BackendEnumerator = requires(const T &a) {
-    typename T::backend_type;
-    typename T::device_type;
-    {a.compatible_backends(std::declval<typename T::device_type>)} -> std::same_as<std::vector<T::backend_type>>;
-    {a.available_backends()} -> std::same_as<std::vector<T::backend_type>>;
-    {a.is_specialized(std::declval<T::backend_type>())} -> std::same_as<bool>;
-    {a.get_priority(std::declval<T::backend_type>())} -> std::same_as<int>;
+template <typename T>
+concept BackendEnumerator = requires(const T& a) {
+	typename T::backend_type;
+	typename T::device_type;
+	{ a.compatible_backends(std::declval<typename T::device_type>()) } -> std::same_as<std::vector<typename T::backend_type>>;
+	{ a.available_backends() } -> std::same_as<std::vector<typename T::backend_type>>;
+	{ a.is_specialized(std::declval<typename T::backend_type>()) } -> std::same_as<bool>;
+	{ a.get_priority(std::declval<typename T::backend_type>()) } -> std::same_as<int>;
 };
-*/
 
-template <typename BackendEnumerator>
-inline auto select_backend(const BackendEnumerator& enumerator, const std::vector<typename BackendEnumerator::device_type>& devices) {
-	using backend_type = typename BackendEnumerator::backend_type;
+template <BackendEnumerator E>
+inline auto select_backend(const E& enumerator, const std::vector<typename E::device_type>& devices) {
+	using backend_type = typename E::backend_type;
 
 	const auto available_backends = enumerator.available_backends();
 
