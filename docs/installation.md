@@ -9,7 +9,7 @@ Celerity can be built and installed from
 [CMake](https://cmake.org). It requires the following dependencies:
 
 - A MPI 2 implementation (for example [OpenMPI 4](https://www.open-mpi.org))
-- A C++17 compiler
+- A C++20 compiler
 - A supported SYCL implementation (see below)
 
 Note that while Celerity does support compilation and execution on Windows in
