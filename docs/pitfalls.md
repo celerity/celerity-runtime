@@ -50,7 +50,7 @@ celerity::buffer<float, 2> buf({256, 256});
 for (int i = 0; i < N; ++i) {
     q.submit([&](celerity::handler &cgh) {
         // ILLEGAL RANGE MAPPER: `neighborhood` can not be used on a writing access
-        celerity::accessor acc(buf, cgh, celerity::access::neighborhood(1, 1),
+        celerity::accessor acc(buf, cgh, celerity::access::neighborhood({1, 1}),
                 celerity::read_write);
         cgh.parallel_for(buf.get_range(), [=](celerity::item<1> item) {
             acc[item] = acc[...] + acc[...] + /* ... stencil code */;
@@ -68,7 +68,7 @@ celerity::buffer<float, 2> input({256, 256});
 celerity::buffer<float, 2> output({256, 256}); // double buffering
 for (int i = 0; i < N; ++i) {
     q.submit([&](celerity::handler &cgh) {
-        celerity::accessor read(input, cgh, celerity::access::neighborhood(1, 1),
+        celerity::accessor read(input, cgh, celerity::access::neighborhood({1, 1}),
                 celerity::read_only);
         celerity::accessor write(output, cgh, celerity::access::one_to_one(),
                 celerity::write_only, celerity::no_init);

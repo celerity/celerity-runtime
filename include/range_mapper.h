@@ -10,8 +10,8 @@
 #include "ranges.h"
 #include "utils.h"
 
-namespace celerity {
 
+namespace celerity {
 namespace detail {
 
 	template <typename Functor, int BufferDims, int KernelDims>
@@ -126,10 +126,18 @@ namespace detail {
 		}
 	};
 
+	struct range_mapper_testspy;
+
 } // namespace detail
 
 
 // --------------------------- Convenience range mappers ---------------------------
+
+/// Optional parameter to the constructor of `access::neighborhood` to specify in what shape the accessed region should extend from the work item.
+enum class neighborhood_shape {
+	along_axes,   ///< The neighborhood extends along each axis separately, but not diagonally (in 2D, into a "+" shape).
+	bounding_box, ///< The neighborhood extends along in all dimensions simultaneously to produce a single bounding box.
+};
 
 namespace access {
 
@@ -175,32 +183,79 @@ namespace access {
 		}
 	};
 
+	/// Declares a buffer access that extends from the current work item by a symmetric boundary offset, either in all directions in the shape of a bounding
+	/// box (default), or along each axis separately (without "diagonal" boundary elements). Buffer and kernel dimensions must both match the `Dims` parameter.
+	///
+	/// This is typically used in stencil applications. For bounding-box neighborhoods,
+	/// - `neighborhood({1})` declares the read for a 1D 3-point stencil,
+	/// - `neighborhood({1, 1})` for a 2D 9-point stencil, and
+	/// - `neighborhood({1, 1, 1})` for a 3D 27-point stencil.
+	///
+	/// For neighborhoods defined along axes only,
+	/// - `neighborhood({1}, neighborhood_shape::along_axes)` declares the read for a 1D 3-point stencil,
+	/// - `neighborhood({1, 1}, neighborhood_shape::along_axes)` for a 2D 5-point stencil, and
+	/// - `neighborhood({1, 1, 1}, neighborhood_shape::along_axes)` for a 3D 7-point stencil.
+	///
+	/// For reads, `neighborhood_shape::bounding_box` is functionally correct whenever `neighborhood_shape::along_axes` is, but will lead to unnecessary copies
+	/// and transfers between diagonal neighbors in 2D-split work assignments when the application does not actually read from those buffer elements.
 	template <int Dims>
 	struct neighborhood {
-		neighborhood(size_t dim0) : m_dim0(dim0), m_dim1(0), m_dim2(0) {}
+		explicit neighborhood(const range<Dims>& extent, const neighborhood_shape shape = neighborhood_shape::bounding_box)
+		    : m_extent(extent), m_shape(shape) {}
 
-		template <int D = Dims, std::enable_if_t<D >= 2, void*>...>
-		neighborhood(size_t dim0, size_t dim1) : m_dim0(dim0), m_dim1(dim1), m_dim2(0) {}
+		[[deprecated("Use the neighborhood({a, b} [, shape]) instead of neighborhood(a, b)")]]
+		explicit neighborhood(const size_t dim0, const size_t dim1)
+		    requires(Dims == 2)
+		    : neighborhood({dim0, dim1}) {}
 
-		template <int D = Dims, std::enable_if_t<D == 3, void*>...>
-		neighborhood(size_t dim0, size_t dim1, size_t dim2) : m_dim0(dim0), m_dim1(dim1), m_dim2(dim2) {}
+		[[deprecated("Use the neighborhood({a, b, c} [, shape]) instead of neighborhood(a, b, c)")]]
+		explicit neighborhood(const size_t dim0, const size_t dim1, const size_t dim2)
+		    requires(Dims == 3)
+		    : neighborhood({dim0, dim1, dim2}) {}
 
-		subrange<Dims> operator()(const chunk<Dims>& chnk) const {
-			subrange<3> result = {celerity::detail::id_cast<3>(chnk.offset), celerity::detail::range_cast<3>(chnk.range)};
-			const id<3> delta = {m_dim0 < result.offset[0] ? m_dim0 : result.offset[0], m_dim1 < result.offset[1] ? m_dim1 : result.offset[1],
-			    m_dim2 < result.offset[2] ? m_dim2 : result.offset[2]};
-			result.offset -= delta;
-			result.range += range<3>{m_dim0 + delta[0], m_dim1 + delta[1], m_dim2 + delta[2]};
-			return detail::subrange_cast<Dims>(result);
+		detail::region<Dims> operator()(const chunk<Dims>& chnk) const {
+			const detail::box interior(subrange(chnk.offset, chnk.range));
+			detail::box_vector<Dims> boxes;
+			if(m_shape == neighborhood_shape::along_axes) {
+				boxes.push_back(interior);
+				for(int d = 0; d < Dims; ++d) {
+					boxes.push_back(extend_axis(interior, d));
+				}
+			} else {
+				auto& bounding_box = boxes.emplace_back(interior);
+				for(int d = 0; d < Dims; ++d) {
+					bounding_box = extend_axis(bounding_box, d);
+				}
+			}
+			return detail::region(std::move(boxes));
 		}
 
 	  private:
-		size_t m_dim0, m_dim1, m_dim2;
+		friend struct celerity::detail::range_mapper_testspy;
+
+		range<Dims> m_extent;
+		neighborhood_shape m_shape;
+
+		inline detail::box<Dims> extend_axis(const detail::box<Dims>& box, const int d) const {
+			auto min = box.get_min();
+			auto max = box.get_max();
+			min[d] -= std::min(m_extent[d], min[d]);
+			max[d] += std::min(m_extent[d], std::numeric_limits<size_t>::max() - max[d]);
+			return detail::box(min, max);
+		}
 	};
 
 	neighborhood(size_t) -> neighborhood<1>;
 	neighborhood(size_t, size_t) -> neighborhood<2>;
 	neighborhood(size_t, size_t, size_t) -> neighborhood<3>;
+
+	// Explicit CTAD guides allow deducing Dims from `neighborhood{{1, 1}}`.
+	neighborhood(range<1>) -> neighborhood<1>;
+	neighborhood(range<2>) -> neighborhood<2>;
+	neighborhood(range<3>) -> neighborhood<3>;
+	neighborhood(range<1>, neighborhood_shape) -> neighborhood<1>;
+	neighborhood(range<2>, neighborhood_shape) -> neighborhood<2>;
+	neighborhood(range<3>, neighborhood_shape) -> neighborhood<3>;
 
 } // namespace access
 

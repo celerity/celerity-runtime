@@ -49,6 +49,7 @@ set(TEST_TARGETS
   print_utils_tests
   region_map_tests
   range_tests
+  range_mapper_tests
   receive_arbiter_tests
   runtime_tests
   runtime_deprecation_tests

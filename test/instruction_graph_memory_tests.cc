@@ -339,11 +339,7 @@ TEMPLATE_TEST_CASE_SIG("overlapping requirements between chunks of an oversubscr
 	    .name("writer")
 	    .discard_write(buf, acc::all())
 	    .submit();
-	ictx.device_compute(test_range)
-	    .name("reader")
-	    .read(buf, test_utils::access::make_neighborhood<Dims>(1))
-	    .hint(experimental::hints::oversubscribe(4))
-	    .submit();
+	ictx.device_compute(test_range).name("reader").read(buf, acc::neighborhood(range<Dims>(ones))).hint(experimental::hints::oversubscribe(4)).submit();
 	ictx.finish();
 
 	const auto all_instrs = ictx.query_instructions();
@@ -818,7 +814,7 @@ TEST_CASE("narrow strided data columns are device-linearized before and after ho
 
 	auto buf = ictx.create_buffer<int>(buffer_range);
 	ictx.device_compute(buffer_range).name("writer").discard_write(buf, acc::one_to_one()).hint(experimental::hints::split_2d()).submit();
-	ictx.device_compute(buffer_range).name("reader").read(buf, acc::neighborhood(ext_0, ext_1)).hint(experimental::hints::split_2d()).submit();
+	ictx.device_compute(buffer_range).name("reader").read(buf, acc::neighborhood({ext_0, ext_1})).hint(experimental::hints::split_2d()).submit();
 	ictx.finish();
 
 	const auto all_instrs = ictx.query_instructions();
@@ -1089,4 +1085,46 @@ TEST_CASE("device kernels report global memory traffic estimate based on range m
 	for(const auto& reduce : all_instrs.select_all<device_kernel_instruction_record>("reduce").iterate()) {
 		CHECK(reduce->estimated_global_memory_traffic_bytes == buffer_size / num_devices * sizeof(float));
 	}
+}
+
+TEST_CASE("5-point stencil program with 2D split does not exchange boundaries with diagonal neighbor devices",
+    "[instruction_graph_generator][instruction-graph][memory]") //
+{
+	constexpr size_t num_devices = 4;
+	constexpr range<2> buffer_size(256, 256);
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices);
+	auto buf_a = ictx.create_buffer<float, 2>(buffer_size, true /* host initialized */);
+	auto buf_b = ictx.create_buffer<float, 2>(buffer_size);
+
+	// perform 3 iterations to settle allocation sizes
+	for(int i = 0; i < 3; ++i) {
+		ictx.device_compute(range(buffer_size))
+		    .name(fmt::format("iteration {}", i))
+		    .hint(experimental::hints::split_2d())
+		    .read(buf_a, acc::neighborhood({1, 1}, neighborhood_shape::along_axes))
+		    .discard_write(buf_b, acc::one_to_one())
+		    .submit();
+		std::swap(buf_a, buf_b);
+	}
+	ictx.finish();
+
+	const auto all_instrs = ictx.query_instructions();
+	const auto all_resize_iter_kernels = all_instrs.select_all<device_kernel_instruction_record>("iteration 1");
+	const auto all_boundary_exchanges = all_resize_iter_kernels.transitive_successors().select_all<copy_instruction_record>();
+	CHECK(all_boundary_exchanges.count() == 2 * num_devices);
+
+	std::unordered_map<memory_id, size_t> boundary_exchanges_per_source;
+	std::unordered_map<memory_id, size_t> boundary_exchanges_per_dest;
+	for(const auto& boundary_exchange : all_boundary_exchanges.iterate()) {
+		CHECK(boundary_exchange->origin == copy_instruction_record::copy_origin::coherence);
+		++boundary_exchanges_per_source[boundary_exchange->source_allocation_id.get_memory_id()];
+		++boundary_exchanges_per_dest[boundary_exchange->dest_allocation_id.get_memory_id()];
+	}
+
+	CHECK(boundary_exchanges_per_source.size() == num_devices);
+	CHECK(std::all_of(boundary_exchanges_per_source.begin(), boundary_exchanges_per_source.end(), [](const auto& entry) { return entry.second == 2; }));
+
+	CHECK(boundary_exchanges_per_dest.size() == num_devices);
+	CHECK(std::all_of(boundary_exchanges_per_dest.begin(), boundary_exchanges_per_dest.end(), [](const auto& entry) { return entry.second == 2; }));
 }

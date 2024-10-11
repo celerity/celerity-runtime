@@ -150,7 +150,7 @@ TEMPLATE_TEST_CASE_SIG("overlapping requirements generate split-receives with on
 	test_utils::idag_test_context ictx(2 /* nodes */, 1 /* my nid */, 4 /* devices */);
 	auto buf = ictx.create_buffer<int>(test_range);
 	ictx.device_compute(range(1)).name("writer").discard_write(buf, acc::all()).submit();
-	ictx.device_compute(test_range).name("reader").read(buf, test_utils::access::make_neighborhood<Dims>(1)).submit();
+	ictx.device_compute(test_range).name("reader").read(buf, acc::neighborhood(range<Dims>(ones))).submit();
 	ictx.finish();
 
 	const auto all_instrs = ictx.query_instructions();

@@ -123,15 +123,16 @@ codes.
 ```cpp
 template <int Dims>
 struct celerity::access::neighborhood {
-    neighborhood(size_t dim0);
-    /* only available if Dims >= 2 */
-    neighborhood(size_t dim0, size_t dim1);
-    /* only available if Dims == 3 */
-    neighborhood(size_t dim0, size_t dim1, size_t dim2);
+    neighborhood(range<Dims> range, neighborhood_shape shape = neighborhood_shape::bounding_box);
 
     subrange<Dims> operator()(chunk<Dims> chnk) const;
 };
 ```
+
+The `shape` parameter specifies how the accessed space expands from the work
+item position: Either in all directions in the shape of a bounding box
+(the default), or along each axis separately without "diagonal" boundary
+elements, when using `neighborhood_shape::along_axes`.
 
 ### Fixed
 

@@ -470,7 +470,7 @@ TEST_CASE("instruction_graph_generator throws in tests if it detects overlapping
 	}
 
 	SECTION("on neighborhood-write") {
-		CHECK_THROWS_WITH((ictx.device_compute(buf.get_range()).discard_write(buf, acc::neighborhood(1, 1)).submit()),
+		CHECK_THROWS_WITH((ictx.device_compute(buf.get_range()).discard_write(buf, acc::neighborhood({1, 1})).submit()),
 		    "Device kernel T1 has overlapping writes on N0 in B0 {[9,0,0] - [11,20,1]}. Choose a non-overlapping range mapper for this write access or "
 		    "constrain the split via experimental::constrain_split to make the access non-overlapping.");
 	}

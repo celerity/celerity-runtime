@@ -143,6 +143,13 @@ namespace detail {
 		static const std::unordered_set<task*>& get_execution_front(const task_manager& tm) { return tm.m_execution_front; }
 	};
 
+	struct range_mapper_testspy {
+		template <int Dims>
+		static bool neighborhood_equals(const celerity::access::neighborhood<Dims>& lhs, const celerity::access::neighborhood<Dims>& rhs) {
+			return lhs.m_extent == rhs.m_extent && lhs.m_shape == rhs.m_shape;
+		}
+	};
+
 } // namespace detail
 
 namespace test_utils {
@@ -568,17 +575,6 @@ struct reverse_one_to_one {
 		return sr;
 	}
 };
-
-template <int Dims>
-static celerity::access::neighborhood<Dims> make_neighborhood(const size_t border) {
-	if constexpr(Dims == 1) {
-		return celerity::access::neighborhood<1>(border);
-	} else if constexpr(Dims == 2) {
-		return celerity::access::neighborhood<2>(border, border);
-	} else if constexpr(Dims == 3) {
-		return celerity::access::neighborhood<3>(border, border, border);
-	}
-}
 
 } // namespace celerity::test_utils::access
 

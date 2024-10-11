@@ -165,7 +165,7 @@ aforementioned buffer accessors. Let's create these now - replace the TODO
 before the kernel function with the following:
 
 ```cpp
-celerity::accessor r_input{input_buf, cgh, celerity::access::neighborhood{1, 1}, celerity::read_only};
+celerity::accessor r_input{input_buf, cgh, celerity::access::neighborhood{{1, 1}}, celerity::read_only};
 celerity::accessor w_edge{edge_buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 ```
 

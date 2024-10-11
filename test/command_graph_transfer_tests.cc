@@ -334,3 +334,22 @@ TEST_CASE("command_graph_generator generates anti-dependencies with subrange pre
 		CHECK(cctx.query(tid_b).on(0).is_concurrent_with(await_push.on(0)));
 	}
 }
+
+TEST_CASE("5-point stencil program with 2D split does not exchange boundaries with diagonal neighbor nodes", "[command_graph_generator][command-graph]") {
+	cdag_test_context cctx(4 /* num nodes */);
+
+	constexpr range<2> buffer_size(256, 256);
+	auto buf_a = cctx.create_buffer<2>(buffer_size);
+
+	cctx.device_compute(range(buffer_size)).name("init").hint(experimental::hints::split_2d()).discard_write(buf_a, acc::one_to_one()).submit();
+	cctx.device_compute(range(buffer_size))
+	    .name("read")
+	    .hint(experimental::hints::split_2d())
+	    .read(buf_a, acc::neighborhood({1, 1}, neighborhood_shape::along_axes))
+	    .submit();
+
+	const std::vector<std::pair<node_id, node_id>> diagonals{{0, 3}, {1, 2}, {2, 1}, {3, 0}};
+	for(const auto [nid, diag] : diagonals) {
+		CHECK(std::ranges::none_of(cctx.query<push_command_record>().on(nid)->target_regions, [diag = diag](auto& tr) { return tr.first == diag; }));
+	}
+}
