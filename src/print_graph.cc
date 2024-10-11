@@ -364,18 +364,18 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 			    fmt::format_to(back, "<br/>on D{} {}", dkinstr.device_id, dkinstr.execution_range);
 
 			    for(const auto& access : dkinstr.access_map) {
-				    const auto accessed_box_in_allocation = box( //
-				        access.accessed_box_in_buffer.get_min() - access.allocated_box_in_buffer.get_min(),
-				        access.accessed_box_in_buffer.get_max() - access.allocated_box_in_buffer.get_min());
-				    fmt::format_to(back, "<br/>+ access {} {}", print_buffer_label(access.buffer_id, access.buffer_name), access.accessed_box_in_buffer);
-				    fmt::format_to(back, "<br/>via {} {}", access.allocation_id, accessed_box_in_allocation);
+				    const auto accessed_bounding_box_in_allocation = box( //
+				        access.accessed_bounding_box_in_buffer.get_min() - access.allocated_box_in_buffer.get_min(),
+				        access.accessed_bounding_box_in_buffer.get_max() - access.allocated_box_in_buffer.get_min());
+				    fmt::format_to(back, "<br/>+ access {} {}", print_buffer_label(access.buffer_id, access.buffer_name), access.accessed_region_in_buffer);
+				    fmt::format_to(back, "<br/>via {} {}", access.allocation_id, accessed_bounding_box_in_allocation);
 			    }
 			    for(const auto& access : dkinstr.reduction_map) {
 				    const auto accessed_box_in_allocation = box( //
-				        access.accessed_box_in_buffer.get_min() - access.allocated_box_in_buffer.get_min(),
-				        access.accessed_box_in_buffer.get_max() - access.allocated_box_in_buffer.get_min());
+				        access.accessed_bounding_box_in_buffer.get_min() - access.allocated_box_in_buffer.get_min(),
+				        access.accessed_bounding_box_in_buffer.get_max() - access.allocated_box_in_buffer.get_min());
 				    fmt::format_to(back, "<br/>+ (R{}) reduce into {} {}", access.reduction_id, print_buffer_label(access.buffer_id, access.buffer_name),
-				        access.accessed_box_in_buffer);
+				        access.accessed_bounding_box_in_buffer);
 				    fmt::format_to(back, "<br/>via {} {}", access.allocation_id, accessed_box_in_allocation);
 			    }
 			    end_node();
@@ -391,11 +391,11 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 			    fmt::format_to(back, "<br/>on host {}", htinstr.execution_range);
 
 			    for(const auto& access : htinstr.access_map) {
-				    const auto accessed_box_in_allocation = box( //
-				        access.accessed_box_in_buffer.get_min() - access.allocated_box_in_buffer.get_min(),
-				        access.accessed_box_in_buffer.get_max() - access.allocated_box_in_buffer.get_min());
-				    fmt::format_to(back, "<br/>+ access {} {}", print_buffer_label(access.buffer_id, access.buffer_name), access.accessed_box_in_buffer);
-				    fmt::format_to(back, "<br/>via {} {}", access.allocation_id, accessed_box_in_allocation);
+				    const auto accessed_bounding_box_in_allocation = box( //
+				        access.accessed_bounding_box_in_buffer.get_min() - access.allocated_box_in_buffer.get_min(),
+				        access.accessed_bounding_box_in_buffer.get_max() - access.allocated_box_in_buffer.get_min());
+				    fmt::format_to(back, "<br/>+ access {} {}", print_buffer_label(access.buffer_id, access.buffer_name), access.accessed_region_in_buffer);
+				    fmt::format_to(back, "<br/>via {} {}", access.allocation_id, accessed_bounding_box_in_allocation);
 			    }
 			    end_node();
 		    },

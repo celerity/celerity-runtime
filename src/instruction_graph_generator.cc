@@ -1772,18 +1772,19 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 	// map buffer accesses (hydration_ids) to allocations in chunk-memory
 	for(size_t i = 0; i < bam.get_num_accesses(); ++i) {
 		const auto [bid, mode] = bam.get_nth_access(i);
-		const auto accessed_box = bam.get_requirements_for_nth_access(i, tsk.get_dimensions(), chunk.execution_range.get_subrange(), tsk.get_global_size());
 		const auto& buffer = m_buffers.at(bid);
-		if(!accessed_box.empty()) {
-			const auto& alloc = buffer.memories[chunk.memory_id].get_contiguous_allocation(accessed_box);
-			allocation_map[i] = {alloc.aid, alloc.box, accessed_box CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, bid, buffer.debug_name)};
+		const auto accessed_region = bam.get_requirements_for_nth_access(i, tsk.get_dimensions(), chunk.execution_range.get_subrange(), tsk.get_global_size());
+		if(!accessed_region.empty()) {
+			const auto accessed_bounding_box = bounding_box(accessed_region);
+			const auto& alloc = buffer.memories[chunk.memory_id].get_contiguous_allocation(accessed_bounding_box);
+			allocation_map[i] = {alloc.aid, alloc.box, accessed_bounding_box CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, bid, buffer.debug_name)};
 		} else {
 			allocation_map[i] = buffer_access_allocation{null_allocation_id, {}, {} CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, bid, buffer.debug_name)};
 		}
 		global_memory_access_estimate_bytes +=
 		    (static_cast<size_t>(access::mode_traits::is_producer(mode)) + static_cast<size_t>(access::mode_traits::is_consumer(mode)))
-		    * accessed_box.get_area() * buffer.elem_size;
-		if(is_recording()) { buffer_memory_access_map[i] = buffer_memory_record{bid, buffer.debug_name}; }
+		    * accessed_region.get_area() * buffer.elem_size;
+		if(is_recording()) { buffer_memory_access_map[i] = buffer_memory_record{bid, buffer.debug_name, accessed_region}; }
 	}
 
 	// map reduction outputs to allocations in chunk-memory

@@ -41,8 +41,7 @@ TEMPLATE_TEST_CASE_SIG("buffer subranges are sent and received to satisfy push a
 	const auto& write_access = writer->access_map.front();
 	CHECK(send->dest_node_id == peer_nid);
 	CHECK(send->transfer_id == expected_trid);
-	CHECK(send->send_range == write_access.accessed_box_in_buffer.get_range());
-	CHECK(send->offset_in_buffer == write_access.accessed_box_in_buffer.get_offset());
+	CHECK(subrange(send->offset_in_buffer, send->send_range) == write_access.accessed_region_in_buffer);
 	CHECK(send->element_size == sizeof(int));
 
 	// a pilot is attached to the send
@@ -57,8 +56,8 @@ TEMPLATE_TEST_CASE_SIG("buffer subranges are sent and received to satisfy push a
 	const auto& read_access = reader->access_map.front();
 	CHECK(recv->transfer_id == expected_trid);
 	CHECK(recv->element_size == sizeof(int));
-	CHECK(region_intersection(write_access.accessed_box_in_buffer, recv->requested_region).empty());
-	CHECK(region_union(write_access.accessed_box_in_buffer, recv->requested_region) == region(read_access.accessed_box_in_buffer));
+	CHECK(region_intersection(write_access.accessed_region_in_buffer, recv->requested_region).empty());
+	CHECK(region_union(write_access.accessed_region_in_buffer, recv->requested_region) == read_access.accessed_region_in_buffer);
 
 	// the logical dependencies are (writer -> send, writer -> reader, recv -> reader)
 	CHECK(writer.transitive_successors_across<copy_instruction_record>().contains(send));
@@ -106,7 +105,7 @@ TEMPLATE_TEST_CASE_SIG("send and receive instructions are split on multi-device 
 		// the send operates on a (host) allocation that is distinct from the (device) allocation that associated_writer writes to, but both instructions need
 		// to access the same buffer subrange
 		const auto send_box = box(subrange(send->offset_in_buffer, send->send_range));
-		CHECK(send_box == write.accessed_box_in_buffer);
+		CHECK(send_box == write.accessed_region_in_buffer);
 		CHECK(send->element_size == sizeof(int));
 		CHECK(send->transfer_id == expected_trid);
 
@@ -138,7 +137,7 @@ TEMPLATE_TEST_CASE_SIG("send and receive instructions are split on multi-device 
 		REQUIRE(associated_reader->access_map.size() == 1);
 		const auto& read = associated_reader->access_map.front();
 
-		CHECK(await_recv->received_region == region(read.accessed_box_in_buffer));
+		CHECK(await_recv->received_region == read.accessed_region_in_buffer);
 		CHECK(await_recv->transfer_id == expected_trid);
 	}
 }
@@ -188,7 +187,7 @@ TEMPLATE_TEST_CASE_SIG("overlapping requirements generate split-receives with on
 		REQUIRE(reader->access_map.size() == 1);
 		const auto& read = reader->access_map.front();
 		CHECK(read.buffer_id == buf.get_id());
-		CHECK(read.accessed_box_in_buffer == pred_awaited_region);
+		CHECK(read.accessed_region_in_buffer == pred_awaited_region);
 	}
 }
 
