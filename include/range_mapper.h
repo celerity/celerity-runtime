@@ -175,15 +175,18 @@ namespace access {
 		}
 	};
 
+	/// Declares a buffer access that may extend from the current work item in all directions by a neighborhood boundary offset, possibly in multiple directions
+	/// at once (i.e. diagonally).
+	///
+	/// This is typically used in stencil applications: `neighborhood(1)` declares the read for a 1D 3-point stencil, `neighborhood(1, 1)` for a 2D 9-point
+	/// stencil, and `neighborhood(1, 1, 1)` for a 3D 27-point stencil.
+	///
+	/// Buffer and kernel dimensions must match.
 	template <int Dims>
 	struct neighborhood {
-		neighborhood(size_t dim0) : m_dim0(dim0), m_dim1(0), m_dim2(0) {}
-
-		template <int D = Dims, std::enable_if_t<D >= 2, void*>...>
-		neighborhood(size_t dim0, size_t dim1) : m_dim0(dim0), m_dim1(dim1), m_dim2(0) {}
-
-		template <int D = Dims, std::enable_if_t<D == 3, void*>...>
-		neighborhood(size_t dim0, size_t dim1, size_t dim2) : m_dim0(dim0), m_dim1(dim1), m_dim2(dim2) {}
+		neighborhood(const size_t dim0) requires(Dims == 1) : m_dim0(dim0), m_dim1(0), m_dim2(0) {}
+		neighborhood(const size_t dim0, const size_t dim1) requires(Dims == 2) : m_dim0(dim0), m_dim1(dim1), m_dim2(0) {}
+		neighborhood(const size_t dim0, const size_t dim1, const size_t dim2) requires(Dims == 3) : m_dim0(dim0), m_dim1(dim1), m_dim2(dim2) {}
 
 		subrange<Dims> operator()(const chunk<Dims>& chnk) const {
 			subrange<3> result = {celerity::detail::id_cast<3>(chnk.offset), celerity::detail::range_cast<3>(chnk.range)};
@@ -201,6 +204,41 @@ namespace access {
 	neighborhood(size_t)->neighborhood<1>;
 	neighborhood(size_t, size_t)->neighborhood<2>;
 	neighborhood(size_t, size_t, size_t)->neighborhood<3>;
+
+	/// Declares a buffer access that may extend from the current work item in any one direction by a neighborhood boundary offset, but not in multiple
+	/// directions at once (i.e. no diagonal offsets).
+	///
+	/// This is typically used in stencil applications: `direct_neighborhood(1)` declares the read for a 1D 3-point stencil, `direct_neighborhood(1, 1)` for a
+	/// 2D 5-point stencil, and `direct_neighborhood(1, 1, 1)` for a 3D 7-point stencil.
+	///
+	/// Buffer and kernel dimensions must match.
+	template <int Dims>
+	struct direct_neighborhood {
+		direct_neighborhood(const size_t dim0) requires(Dims == 1) : m_extent(dim0) {}
+		direct_neighborhood(const size_t dim0, const size_t dim1) requires(Dims == 2) : m_extent(dim0, dim1) {}
+		direct_neighborhood(const size_t dim0, const size_t dim1, const size_t dim2) requires(Dims == 3) : m_extent(dim0, dim1, dim2) {}
+
+		detail::region<Dims> operator()(const chunk<Dims>& chnk) const {
+			detail::box_vector<Dims> boxes;
+			const detail::box base(subrange(chnk.offset, chnk.range));
+			boxes.push_back(base);
+			for(int d = 0; d < Dims; ++d) {
+				auto min = base.get_min();
+				auto max = base.get_max();
+				min[d] = min[d] - std::min(m_extent[d], min[d]);
+				max[d] = max[d] + std::min(m_extent[d], std::numeric_limits<size_t>::max() - max[d]);
+				boxes.emplace_back(min, max);
+			}
+			return detail::region(std::move(boxes));
+		}
+
+	  private:
+		id<Dims> m_extent;
+	};
+
+	direct_neighborhood(size_t)->direct_neighborhood<1>;
+	direct_neighborhood(size_t, size_t)->direct_neighborhood<2>;
+	direct_neighborhood(size_t, size_t, size_t)->direct_neighborhood<3>;
 
 } // namespace access
 

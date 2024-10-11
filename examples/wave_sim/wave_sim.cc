@@ -38,7 +38,7 @@ template <typename T, typename Config, typename KernelName>
 void step(celerity::queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T, 2> u, float dt, sycl::float2 delta) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor rw_up{up, cgh, celerity::access::one_to_one{}, celerity::read_write};
-		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{1, 1}, celerity::read_only};
+		celerity::accessor r_u{u, cgh, celerity::access::direct_neighborhood{1, 1}, celerity::read_only};
 
 		const auto size = up.get_range();
 		cgh.parallel_for<KernelName>(size, [=](celerity::item<2> item) {
