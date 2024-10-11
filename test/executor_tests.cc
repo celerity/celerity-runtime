@@ -618,10 +618,10 @@ TEST_CASE("live_executor passes correct allocations to host tasks", "[executor]"
 	REQUIRE(host_task.accessor_infos.size() == 2);
 	CHECK(host_task.accessor_infos[0].ptr == alloc1.result);
 	CHECK(host_task.accessor_infos[0].allocated_box_in_buffer == amap[0].allocated_box_in_buffer);
-	CHECK(host_task.accessor_infos[0].accessed_box_in_buffer == amap[0].accessed_box_in_buffer);
+	CHECK(host_task.accessor_infos[0].accessed_box_in_buffer == amap[0].accessed_bounding_box_in_buffer);
 	CHECK(host_task.accessor_infos[1].ptr == alloc2.result);
 	CHECK(host_task.accessor_infos[1].allocated_box_in_buffer == amap[1].allocated_box_in_buffer);
-	CHECK(host_task.accessor_infos[1].accessed_box_in_buffer == amap[1].accessed_box_in_buffer);
+	CHECK(host_task.accessor_infos[1].accessed_box_in_buffer == amap[1].accessed_bounding_box_in_buffer);
 
 	const auto free1 = std::get<ops::host_free>(log[3]);
 	CHECK(free1.ptr == alloc1.result);
@@ -747,10 +747,10 @@ TEST_CASE("live_executor passes correct allocations to device kernels", "[execut
 	REQUIRE(kernel.accessor_infos.size() == 2);
 	CHECK(kernel.accessor_infos[0].ptr == alloc1.result);
 	CHECK(kernel.accessor_infos[0].allocated_box_in_buffer == amap[0].allocated_box_in_buffer);
-	CHECK(kernel.accessor_infos[0].accessed_box_in_buffer == amap[0].accessed_box_in_buffer);
+	CHECK(kernel.accessor_infos[0].accessed_box_in_buffer == amap[0].accessed_bounding_box_in_buffer);
 	CHECK(kernel.accessor_infos[1].ptr == alloc2.result);
 	CHECK(kernel.accessor_infos[1].allocated_box_in_buffer == amap[1].allocated_box_in_buffer);
-	CHECK(kernel.accessor_infos[1].accessed_box_in_buffer == amap[1].accessed_box_in_buffer);
+	CHECK(kernel.accessor_infos[1].accessed_box_in_buffer == amap[1].accessed_bounding_box_in_buffer);
 
 	CHECK(kernel.reduction_ptrs == std::vector{alloc3.result, alloc4.result});
 

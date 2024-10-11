@@ -330,7 +330,7 @@ TEST_CASE("local reductions can be initialized to a buffer value that is not pre
 		REQUIRE(writer->reduction_map.size() == 1);
 		const auto& red_acc = writer->reduction_map.front();
 		CHECK(red_acc.buffer_id == buf.get_id());
-		CHECK(red_acc.accessed_box_in_buffer == box<3>(zeros, ones));
+		CHECK(red_acc.accessed_bounding_box_in_buffer == box<3>(zeros, ones));
 
 		const auto gather_copies = all_instrs.select_all<copy_instruction_record>();
 		for(const auto& copy : gather_copies.iterate()) {
