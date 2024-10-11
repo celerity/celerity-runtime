@@ -2,6 +2,7 @@
 #include "backend/backend.h"
 #include "closure_hydrator.h"
 #include "communicator.h"
+#include "grid.h"
 #include "host_object.h"
 #include "instruction_graph.h"
 #include "named_threads.h"
@@ -760,9 +761,9 @@ std::string format_access_log(const buffer_access_allocation_map& map) {
 	std::string acc_log;
 	for(size_t i = 0; i < map.size(); ++i) {
 		auto& aa = map[i];
-		const auto accessed_box_in_allocation = box(aa.accessed_box_in_buffer.get_min() - aa.allocated_box_in_buffer.get_offset(),
-		    aa.accessed_box_in_buffer.get_max() - aa.allocated_box_in_buffer.get_offset());
-		fmt::format_to(std::back_inserter(acc_log), "{} {} {}", i == 0 ? "; accessing" : ",", aa.allocation_id, accessed_box_in_allocation);
+		const auto accessed_bounding_box_in_allocation = box(aa.accessed_bounding_box_in_buffer.get_min() - aa.allocated_box_in_buffer.get_offset(),
+		    aa.accessed_bounding_box_in_buffer.get_max() - aa.allocated_box_in_buffer.get_offset());
+		fmt::format_to(std::back_inserter(acc_log), "{} {} {}", i == 0 ? "; accessing" : ",", aa.allocation_id, accessed_bounding_box_in_allocation);
 	}
 	return acc_log;
 }
@@ -884,7 +885,7 @@ std::vector<closure_hydrator::accessor_info> executor_impl::make_accessor_infos(
 	std::vector<closure_hydrator::accessor_info> accessor_infos(amap.size());
 	for(size_t i = 0; i < amap.size(); ++i) {
 		const auto ptr = allocations.at(amap[i].allocation_id);
-		accessor_infos[i] = closure_hydrator::accessor_info{ptr, amap[i].allocated_box_in_buffer, amap[i].accessed_box_in_buffer};
+		accessor_infos[i] = closure_hydrator::accessor_info{ptr, amap[i].allocated_box_in_buffer, amap[i].accessed_bounding_box_in_buffer};
 	}
 	return accessor_infos;
 }
@@ -903,7 +904,7 @@ std::unique_ptr<boundary_check_info> executor_impl::attach_boundary_check_info(s
 
 	oob_info->accessors.resize(amap.size());
 	for(size_t i = 0; i < amap.size(); ++i) {
-		oob_info->accessors[i] = boundary_check_info::accessor_info{amap[i].oob_buffer_id, amap[i].oob_buffer_name, amap[i].accessed_box_in_buffer};
+		oob_info->accessors[i] = boundary_check_info::accessor_info{amap[i].oob_buffer_id, amap[i].oob_buffer_name, amap[i].accessed_bounding_box_in_buffer};
 		accessor_infos[i].out_of_bounds_indices = oob_info->illegal_access_bounding_boxes + i;
 	}
 	return oob_info;

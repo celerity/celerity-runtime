@@ -603,7 +603,8 @@ TEMPLATE_TEST_CASE_SIG("hints::split_2d results in a 2d split", "[instruction_gr
 		CHECK(kernel->execution_range.get_range()[1] < range[1]);
 		REQUIRE(kernel->access_map.size() == 1);
 		const auto& write = kernel->access_map.front();
-		CHECK(write.accessed_box_in_buffer == box(kernel->execution_range));
+		CHECK(write.accessed_region_in_buffer == box(kernel->execution_range));
+		CHECK(write.accessed_bounding_box_in_buffer == box(kernel->execution_range));
 		kernel_boxes.push_back(box(kernel->execution_range));
 	}
 	CHECK(region(std::move(kernel_boxes)) == box(subrange(id<3>(), range_cast<3>(range))));
@@ -625,7 +626,8 @@ TEMPLATE_TEST_CASE_SIG("oversubscription splits local chunks recursively", "[ins
 			const auto kernel_box = detail::box(kernel->execution_range);
 			REQUIRE(kernel->access_map.size() == 1);
 			const auto& write = kernel->access_map.front();
-			CHECK(write.accessed_box_in_buffer == kernel_box);
+			CHECK(write.accessed_region_in_buffer == kernel_box);
+			CHECK(write.accessed_bounding_box_in_buffer == kernel_box);
 			kernel_boxes.push_back(kernel_box);
 		}
 		CHECK(region(std::move(kernel_boxes)) == box(subrange(id<3>(), range_cast<3>(buf.get_range()))));

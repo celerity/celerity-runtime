@@ -289,6 +289,7 @@ struct copy_instruction_record : matchbox::implement_acceptor<instruction_record
 struct buffer_memory_record {
 	detail::buffer_id buffer_id;
 	std::string buffer_name;
+	region<3> accessed_region_in_buffer;
 };
 
 /// IDAG debug info for a device-kernel access to a reduction output buffer (not part of the actual graph).

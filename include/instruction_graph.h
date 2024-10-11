@@ -144,7 +144,7 @@ class copy_instruction final : public matchbox::implement_acceptor<instruction, 
 struct buffer_access_allocation {
 	detail::allocation_id allocation_id = null_allocation_id;
 	box<3> allocated_box_in_buffer;
-	box<3> accessed_box_in_buffer;
+	box<3> accessed_bounding_box_in_buffer;
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 	buffer_id oob_buffer_id;
