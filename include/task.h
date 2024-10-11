@@ -45,7 +45,7 @@ namespace detail {
 		region<3> get_mode_requirements(
 		    const buffer_id bid, const access_mode mode, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const;
 
-		box<3> get_requirements_for_nth_access(const size_t n, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const;
+		region<3> get_requirements_for_nth_access(const size_t n, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const;
 
 		std::vector<const range_mapper_base*> get_range_mappers(const buffer_id bid) const {
 			std::vector<const range_mapper_base*> rms;
