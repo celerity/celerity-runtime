@@ -16,6 +16,7 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 - The runtime can be explicitly shut down using `celerity::shutdown()`, complementing `celerity::init()` (#283)
 - `handler::parallel_for(size_t, [size_t,] ...)` now acts as a shorthand for `parallel_for(range<1>, [id<1>,] ...)` (#288)
 - Experimental support for the AdaptiveCpp generic single-pass compiler (#294)
+- Constructor overloads to the `access::neighborhood` range mapper for reads in 3/5/7-point stencil codes (#292)
 
 ### Changed
 
@@ -26,6 +27,7 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 - Celerity warns on excessive calls to `queue::wait()` or `distr_queue::slow_full_sync()` in a long running program.
   This operation has a much more pronounced performance penalty than its SYCL counterpart (#283)
 - On systems that do not support device-to-device copies, data is now staged in linearized buffers for better performance (#287)
+- The `access::neighborhood` built-in range mapper now receives a `range` instead of a coordinate list (#292)
 
 ### Fixed
 
@@ -34,6 +36,7 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 ### Deprecated
 
 - `celerity::distr_queue` is deprecated in favor of `celerity::queue` (#283)
+- The coordinate-list constructors of `access::neighborhood` are deprecated in favor of the `range` overload (#292)
 
 ## [0.6.0] - 2024-08-12
 

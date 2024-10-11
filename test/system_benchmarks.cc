@@ -98,7 +98,7 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 	BENCHMARK("iterations") {
 		for(size_t r = 0; r < num_iterations; ++r) {
 			queue.submit([&](celerity::handler& cgh) {
-				celerity::accessor read{buffer_a, cgh, celerity::access::neighborhood(1, 1), celerity::read_only};
+				celerity::accessor read{buffer_a, cgh, celerity::access::neighborhood({1, 1}), celerity::read_only};
 				celerity::accessor write{buffer_b, cgh, celerity::access::one_to_one(), celerity::write_only, celerity::no_init};
 				cgh.parallel_for(size, [=](celerity::item<2> item) {
 					float sum = 0.f;

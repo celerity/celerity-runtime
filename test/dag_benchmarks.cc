@@ -401,7 +401,7 @@ template <typename BenchmarkContext>
 	const auto step = [&](test_utils::mock_buffer<2> up, test_utils::mock_buffer<2> u) {
 		ctx.create_task(up.get_range(), [&](celerity::handler& cgh) {
 			up.get_access<access_mode::read_write>(cgh, celerity::access::one_to_one{});
-			u.get_access<access_mode::read>(cgh, celerity::access::neighborhood{1, 1});
+			u.get_access<access_mode::read>(cgh, celerity::access::neighborhood{{1, 1}, celerity::neighborhood_shape::along_axes});
 		});
 	};
 

@@ -434,7 +434,7 @@ TEST_CASE("command_graph_generator throws in tests if it detects overlapping wri
 	}
 
 	SECTION("on neighborhood-write") {
-		CHECK_THROWS_WITH((cctx.host_task(buf.get_range()).name("host neighborhood").discard_write(buf, acc::neighborhood(1, 1)).submit()),
+		CHECK_THROWS_WITH((cctx.host_task(buf.get_range()).name("host neighborhood").discard_write(buf, acc::neighborhood({1, 1})).submit()),
 		    "Host-compute task T1 \"host neighborhood\" has overlapping writes between multiple nodes in B0 {[9,0,0] - [11,20,1]}. Choose a non-overlapping "
 		    "range mapper for this write access or constrain the split via experimental::constrain_split to make the access non-overlapping.");
 	}

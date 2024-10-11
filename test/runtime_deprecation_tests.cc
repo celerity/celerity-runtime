@@ -93,5 +93,19 @@ namespace detail {
 		CHECK(ho_value == 42);
 	}
 
+	TEST_CASE("neighborhood range mapper can still be constructed with coordinate-lists", "[deprecated][range-mapper]") {
+		const celerity::access::neighborhood deprecated_n1(1);
+		const celerity::access::neighborhood deprecated_n2(1, 2);
+		const celerity::access::neighborhood deprecated_n3(1, 2, 3);
+
+		const celerity::access::neighborhood new_n1({1});
+		const celerity::access::neighborhood new_n2({1, 2});
+		const celerity::access::neighborhood new_n3({1, 2, 3});
+
+		CHECK(range_mapper_testspy::neighborhood_equals(deprecated_n1, new_n1));
+		CHECK(range_mapper_testspy::neighborhood_equals(deprecated_n2, new_n2));
+		CHECK(range_mapper_testspy::neighborhood_equals(deprecated_n3, new_n3));
+	}
+
 } // namespace detail
 } // namespace celerity
