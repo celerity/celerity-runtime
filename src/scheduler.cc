@@ -43,8 +43,7 @@ namespace detail {
 					    {
 						    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::build_task", WebMaroon, "T{} build", tsk.get_id());
 						    CELERITY_DETAIL_TRACY_ZONE_TEXT(utils::make_task_debug_label(tsk.get_type(), tsk.get_id(), tsk.get_debug_name()));
-
-						    commands = sort_topologically(m_cggen->build_task(tsk));
+						    commands = m_cggen->build_task(tsk);
 					    }
 
 					    for(const auto cmd : commands) {

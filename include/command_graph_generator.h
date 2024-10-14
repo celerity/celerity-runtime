@@ -102,7 +102,11 @@ class command_graph_generator {
 
 	void notify_host_object_destroyed(host_object_id hoid);
 
-	command_set build_task(const task& tsk);
+	/// Generates the set of commands required to execute the given task.
+	/// This includes resolving local data dependencies, generating await push commands for local reads of remote data,
+	/// as well as push commands for remote reads of local data.
+	/// Commands are returned in topologically sorted order, i.e., sequential execution would satisfy all internal dependencies.
+	std::vector<abstract_command*> build_task(const task& tsk);
 
 	command_graph& get_command_graph() { return m_cdag; }
 
@@ -120,7 +124,7 @@ class command_graph_generator {
 	Command* create_command_internal(std::tuple<CtorParamsAndRecordWithFn...>&& ctor_params_and_record_with,
 	    std::index_sequence<CtorParamIndices...> /* ctor_param_indices */, std::index_sequence<RecordWithFnIndex> /* record_with_fn_index */) {
 		auto* const cmd = m_cdag.create<Command>(std::move(std::get<CtorParamIndices>(ctor_params_and_record_with))...);
-		m_current_cmd_batch.insert(cmd);
+		m_current_cmd_batch.push_back(cmd);
 
 		if(is_recording()) {
 			const auto& record_with = std::get<RecordWithFnIndex>(ctor_params_and_record_with);
@@ -254,7 +258,7 @@ class command_graph_generator {
 	command_id m_current_horizon = no_command;
 
 	// Batch of commands currently being generated. Returned (and thereby emptied) by build_task().
-	command_set m_current_cmd_batch;
+	std::vector<abstract_command*> m_current_cmd_batch;
 
 	// List of reductions that have either completed globally or whose result has been discarded. This list will be appended to the next horizon to eventually
 	// inform the instruction executor that it can safely garbage-collect runtime info on the reduction operation.
@@ -272,10 +276,6 @@ class command_graph_generator {
 	// Generated commands will be recorded to this recorder if it is set
 	detail::command_recorder* m_recorder = nullptr;
 };
-
-/// Topologically sort a command-set as returned from command_graph_generator::build_task() such that sequential execution satisfies all dependencies.
-/// TODO refactor command_graph_generator to intrinsically generate commands in dependency-order.
-std::vector<abstract_command*> sort_topologically(command_set unmarked);
 
 } // namespace celerity::detail
 

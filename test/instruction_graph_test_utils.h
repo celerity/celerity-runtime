@@ -365,8 +365,7 @@ class idag_test_context {
 	void build_task(const task_id tid) {
 		if(m_finished) { FAIL("idag_test_context already finish()ed"); }
 		const uncaught_exception_guard guard(this);
-		const auto commands = detail::sort_topologically(m_cggen.build_task(*m_tm.get_task(tid)));
-		for(const auto cmd : commands) {
+		for(const auto cmd : m_cggen.build_task(*m_tm.get_task(tid))) {
 			m_iggen.compile(*cmd);
 		}
 	}
