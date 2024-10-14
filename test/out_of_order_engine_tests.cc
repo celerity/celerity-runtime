@@ -177,6 +177,15 @@ class out_of_order_test_context {
 
 	bool is_idle() const { return m_engine.is_idle(); }
 
+	std::unordered_set<const instruction*> get_execution_front() const {
+		const auto& iid_front = m_engine.get_execution_front();
+		std::unordered_set<const instruction*> instr_front;
+		for(const auto& instr : m_instrs) {
+			if(iid_front.contains(instr->get_id())) { instr_front.insert(instr.get()); }
+		}
+		return instr_front;
+	}
+
   private:
 	instruction_id m_next_iid = 0;
 	std::vector<std::unique_ptr<instruction>> m_instrs;
@@ -204,6 +213,8 @@ TEST_CASE("out_of_order_engine schedules independent chains concurrently", "[out
 	const auto h1 = octx.host_task({h0});
 	const auto h2 = octx.host_task({h0, h1});
 
+	CHECK(octx.get_execution_front().empty());
+
 	{
 		const auto iq = octx.assign_all();
 		CHECK(iq.assigned_instructions_are({d0_k0, d0_k1, d1_k0, d1_k1}));
@@ -216,6 +227,8 @@ TEST_CASE("out_of_order_engine schedules independent chains concurrently", "[out
 		CHECK(iq.assigned_concurrently({d0_k0, d0_k1}, {d1_k0, d1_k1}));
 	}
 
+	CHECK(octx.get_execution_front() == std::unordered_set{d0_k0, d1_k0});
+
 	octx.complete(d0_k0);
 	octx.complete(d0_k1);
 	octx.complete(d1_k0);
@@ -225,13 +238,18 @@ TEST_CASE("out_of_order_engine schedules independent chains concurrently", "[out
 		CHECK(iq.assigned_instructions_are({}));
 	}
 
+	CHECK(octx.get_execution_front() == std::unordered_set{d1_k1});
+
 	octx.complete(d1_k1);
+	CHECK(octx.get_execution_front().empty());
 
 	{
 		const auto iq = octx.assign_all();
 		CHECK(iq.assigned_instructions_are({h0, h1, h2}));
 		CHECK(iq.assigned_in_order({h0, h1, h2}));
 	}
+
+	CHECK(octx.get_execution_front() == std::unordered_set{h0});
 }
 
 TEST_CASE("out_of_order_engine eagerly assigns copy-instructions to the lanes of their dependencies", "[out_of_order_engine]") {
@@ -248,6 +266,8 @@ TEST_CASE("out_of_order_engine eagerly assigns copy-instructions to the lanes of
 
 	CHECK_FALSE(octx.is_idle());
 
+	CHECK(octx.get_execution_front().empty());
+
 	{
 		const auto iq = octx.assign_all();
 		CHECK(iq.assigned_instructions_are({d0_k0, d1_k0, d2_k0, d3_k0, copy_dep0, copy_dep1, copy_dep2, copy_dep3}));
@@ -261,11 +281,18 @@ TEST_CASE("out_of_order_engine eagerly assigns copy-instructions to the lanes of
 		CHECK(iq.assigned_in_order({d3_k0, copy_dep3}));
 	}
 
+	CHECK(octx.get_execution_front() == std::unordered_set{d0_k0, d1_k0, d2_k0, d3_k0});
+
 	octx.complete(d0_k0);
 	octx.complete(d1_k0);
+
+	CHECK(octx.get_execution_front() == std::unordered_set{d2_k0, d3_k0, copy_dep0, copy_dep1});
+
 	octx.complete(d2_k0);
 	octx.complete(d3_k0);
+
 	CHECK_FALSE(octx.is_idle());
+	CHECK(octx.get_execution_front() == std::unordered_set{copy_dep0, copy_dep1, copy_dep2, copy_dep3});
 
 	const auto copy_indep0 = octx.copy({d0_k0 /* already complete */}, first_device_memory_id + 1, first_device_memory_id);
 	const auto copy_indep1 = octx.copy({d1_k0 /* already complete */}, first_device_memory_id, first_device_memory_id + 1);
@@ -362,17 +389,23 @@ TEST_CASE("out_of_order_engine does not attempt to assign instructions more than
 	out_of_order_test_context octx(1);
 	auto k1 = octx.device_kernel({}, device_id(0));
 	auto k2 = octx.device_kernel({k1}, device_id(0));
+	CHECK(octx.get_execution_front().empty());
 
 	const auto assigned = octx.assign_one();
 	REQUIRE(assigned.has_value());
 	CHECK(assigned->instruction == k1);
+	CHECK(octx.get_execution_front() == std::unordered_set{k1});
 
 	octx.complete(k1);
 
+	CHECK(octx.get_execution_front().empty());
+
 	const auto other = octx.assign_all();
 	CHECK(other.assigned_instructions_are({k2}));
+	CHECK(octx.get_execution_front() == std::unordered_set{k2});
 
 	octx.complete(k2);
+	CHECK(octx.get_execution_front().empty());
 	CHECK(octx.is_idle());
 }
 
@@ -382,15 +415,19 @@ TEST_CASE("assigned sets of instructions with internal dependencies can be compl
 	out_of_order_test_context octx(1);
 	auto k1 = octx.device_kernel({}, device_id(0));
 	auto k2 = octx.device_kernel({k1}, device_id(0));
+	CHECK(octx.get_execution_front().empty());
 
 	octx.assign_all();
 	CHECK_FALSE(octx.is_idle());
+	CHECK(octx.get_execution_front() == std::unordered_set{k1});
 
 	octx.complete(k2);
 	CHECK_FALSE(octx.is_idle());
+	CHECK(octx.get_execution_front() == std::unordered_set{k1});
 
 	octx.complete(k1);
 	CHECK(octx.is_idle());
+	CHECK(octx.get_execution_front().empty());
 }
 
 TEST_CASE("concurrent instructions are assigned in decreasing priority", "[out_of_order_engine]") {
