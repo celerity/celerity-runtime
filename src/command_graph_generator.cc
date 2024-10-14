@@ -53,35 +53,18 @@ void command_graph_generator::notify_host_object_destroyed(const host_object_id 
 	m_host_objects.erase(hoid);
 }
 
-// According to Wikipedia https://en.wikipedia.org/wiki/Topological_sorting#Depth-first_search
-// TODO: This may no longer be necessary since different command types are now generated in pre-determined order - revisit
-std::vector<abstract_command*> sort_topologically(command_set unmarked) {
-	command_set temporary_marked;
-	command_set permanent_marked;
-	std::vector<abstract_command*> sorted(unmarked.size());
-	auto sorted_front = sorted.rbegin();
-
-	const auto visit = [&](abstract_command* const cmd, auto& visit /* to allow recursion in lambda */) {
-		if(permanent_marked.count(cmd) != 0) return;
-		assert(temporary_marked.count(cmd) == 0 && "cyclic command graph");
-		unmarked.erase(cmd);
-		temporary_marked.insert(cmd);
-		for(const auto dep : cmd->get_dependents()) {
-			visit(dep.node, visit);
+/// Returns whether an iterator range of commands is topologically sorted, i.e. sequential execution would satisfy all internal dependencies.
+template <typename Iterator>
+bool is_topologically_sorted(Iterator begin, Iterator end) {
+	for(auto check = begin; check != end; ++check) {
+		for(const auto dep : (*check)->get_dependencies()) {
+			if(std::find_if(std::next(check), end, [dep](const auto& node) { return node == dep.node; }) != end) return false;
 		}
-		temporary_marked.erase(cmd);
-		permanent_marked.insert(cmd);
-		*sorted_front++ = cmd;
-	};
-
-	while(!unmarked.empty()) {
-		visit(*unmarked.begin(), visit);
 	}
-
-	return sorted;
+	return true;
 }
 
-command_set command_graph_generator::build_task(const task& tsk) {
+std::vector<abstract_command*> command_graph_generator::build_task(const task& tsk) {
 	assert(m_current_cmd_batch.empty());
 	[[maybe_unused]] const auto cmd_count_before = m_cdag.command_count();
 
@@ -128,6 +111,7 @@ command_set command_graph_generator::build_task(const task& tsk) {
 		}));
 	}
 
+	assert(is_topologically_sorted(m_current_cmd_batch.begin(), m_current_cmd_batch.end()));
 	return std::move(m_current_cmd_batch);
 }
 
