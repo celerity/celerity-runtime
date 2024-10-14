@@ -313,7 +313,6 @@ struct boundary_check_info {
 
 
 struct async_instruction_state {
-	instruction_id iid = -1;
 	allocation_id alloc_aid = null_allocation_id; ///< non-null iff instruction is an alloc_instruction
 	async_event event;
 	CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(std::unique_ptr<boundary_check_info> oob_info;) // unique_ptr: oob_info is optional and rather large
@@ -331,7 +330,7 @@ struct executor_impl {
 	out_of_order_engine engine{backend->get_system_info()};
 
 	bool expecting_more_submissions = true; ///< shutdown epoch has not been executed yet
-	std::vector<async_instruction_state> in_flight_async_instructions;
+	std::unordered_map<instruction_id, async_instruction_state> in_flight_async_instructions;
 	std::unordered_map<allocation_id, void*> allocations{{null_allocation_id, nullptr}}; ///< obtained from alloc_instruction or track_user_allocation
 	std::unordered_map<host_object_id, std::unique_ptr<host_object_instance>> host_object_instances; ///< passed in through track_host_object_instance
 	std::unordered_map<collective_group_id, std::unique_ptr<communicator>> cloned_communicators;     ///< transitive clones of root_communicator
@@ -350,7 +349,7 @@ struct executor_impl {
 	void poll_in_flight_async_instructions();
 	void poll_submission_queue();
 	void try_issue_one_instruction();
-	void retire_async_instruction(async_instruction_state& async);
+	void retire_async_instruction(instruction_id iid, async_instruction_state& async);
 	void check_progress();
 
 	// Instruction types that complete synchronously within the executor.
@@ -437,12 +436,16 @@ void executor_impl::run() {
 }
 
 void executor_impl::poll_in_flight_async_instructions() {
-	utils::erase_if(in_flight_async_instructions, [&](async_instruction_state& async) {
-		if(!async.event.is_complete()) return false;
-		retire_async_instruction(async);
+	// collect completed instruction ids up-front, since retire_async_instruction would alter the execution front
+	std::vector<instruction_id> completed_now; // std::vector because it will be empty in the common case
+	for(const auto iid : engine.get_execution_front()) {
+		if(in_flight_async_instructions.at(iid).event.is_complete()) { completed_now.push_back(iid); }
+	}
+	for(const auto iid : completed_now) {
+		retire_async_instruction(iid, in_flight_async_instructions.at(iid));
+		in_flight_async_instructions.erase(iid);
 		made_progress = true;
-		return true;
-	});
+	}
 
 	CELERITY_DETAIL_IF_TRACY_ENABLED(tracy->assigned_instructions_plot.update(in_flight_async_instructions.size()));
 }
@@ -478,12 +481,12 @@ void executor_impl::poll_submission_queue() {
 	}
 }
 
-void executor_impl::retire_async_instruction(async_instruction_state& async) {
+void executor_impl::retire_async_instruction(const instruction_id iid, async_instruction_state& async) {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::retire", Brown);
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 	if(async.oob_info != nullptr) {
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("executor::oob_check", Red, "I{} bounds check", async.iid);
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("executor::oob_check", Red, "I{} bounds check", iid);
 		const auto& oob_info = *async.oob_info;
 		for(size_t i = 0; i < oob_info.accessors.size(); ++i) {
 			if(const auto oob_box = oob_info.illegal_access_bounding_boxes[i].into_box(); !oob_box.empty()) {
@@ -502,9 +505,9 @@ void executor_impl::retire_async_instruction(async_instruction_state& async) {
 
 	if(spdlog::should_log(spdlog::level::trace)) {
 		if(const auto native_time = async.event.get_native_execution_time(); native_time.has_value()) {
-			CELERITY_TRACE("[executor] retired I{} after {:.2f}", async.iid, as_sub_second(*native_time));
+			CELERITY_TRACE("[executor] retired I{} after {:.2f}", iid, as_sub_second(*native_time));
 		} else {
-			CELERITY_TRACE("[executor] retired I{}", async.iid);
+			CELERITY_TRACE("[executor] retired I{}", iid);
 		}
 	}
 
@@ -518,7 +521,7 @@ void executor_impl::retire_async_instruction(async_instruction_state& async) {
 		allocations.emplace(async.alloc_aid, ptr);
 	}
 
-	engine.complete_assigned(async.iid);
+	engine.complete_assigned(iid);
 
 	CELERITY_DETAIL_IF_TRACY_ENABLED(tracy->assignment_queue_length_plot.update(engine.get_assignment_queue_length()));
 }
@@ -565,8 +568,7 @@ auto executor_impl::dispatch(const Instr& instr, const out_of_order_engine::assi
 	CELERITY_DETAIL_IF_TRACY_SUPPORTED(tracy_integration::instruction_info info);
 	CELERITY_DETAIL_IF_TRACY_ENABLED(info = tracy_integration::make_instruction_info(instr));
 
-	auto& async = in_flight_async_instructions.emplace_back();
-	async.iid = assignment.instruction->get_id();
+	auto& async = in_flight_async_instructions.emplace(assignment.instruction->get_id(), async_instruction_state{}).first->second;
 	issue_async(instr, assignment, async); // stores event in `async` and completes asynchronously
 	// instr may now dangle
 
@@ -599,9 +601,9 @@ void executor_impl::check_progress() {
 		const auto elapsed_since_last_progress = std::chrono::steady_clock::now() - *last_progress_timestamp;
 		if(elapsed_since_last_progress > *policy.progress_warning_timeout && !progress_warning_emitted) {
 			std::string instr_list;
-			for(auto& in_flight : in_flight_async_instructions) {
+			for(auto& [iid, async] : in_flight_async_instructions) {
 				if(!instr_list.empty()) instr_list += ", ";
-				fmt::format_to(std::back_inserter(instr_list), "I{}", in_flight.iid);
+				fmt::format_to(std::back_inserter(instr_list), "I{}", iid);
 			}
 			CELERITY_WARN("[executor] no progress for {:.0f}, might be stuck. Active instructions: {}", as_sub_second(elapsed_since_last_progress),
 			    in_flight_async_instructions.empty() ? "none" : instr_list);

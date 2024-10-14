@@ -94,6 +94,9 @@ struct engine_impl {
 	/// is assumed to have completed earlier (triggering its removal from the map).
 	std::unordered_map<instruction_id, incomplete_instruction_state> incomplete_instructions;
 
+	/// The subset of assigned, incomplete_instructions that to not have incomplete predecessors themselves.
+	std::unordered_set<instruction_id> execution_front;
+
 	/// Queue of all instructions in `conditional_eagerly_assignable_state` and `unconditional_assignable_state`, in decreasing order of instruction priority.
 	std::priority_queue<const instruction*, std::vector<const instruction*>, instruction_priority_less> assignment_queue;
 
@@ -315,6 +318,8 @@ void engine_impl::complete(const instruction_id iid) {
 	auto deleted_node = std::move(node_it->second); // move so we can access members / iterate successors after erasure
 	incomplete_instructions.erase(node_it);
 
+	execution_front.erase(iid);
+
 	auto& was_assigned = std::get<assigned_state>(deleted_node.assignment);
 	if(deleted_node.target == target::host_queue || deleted_node.target == target::device_queue) {
 		// "remove" instruction from assigned lane
@@ -333,7 +338,11 @@ void engine_impl::complete(const instruction_id iid) {
 			auto& successor = succ_it->second;
 			assert(successor.num_incomplete_predecessors > 0);
 			--successor.num_incomplete_predecessors;
-			try_mark_for_assignment(successor);
+			if(!std::holds_alternative<assigned_state>(successor.assignment)) {
+				try_mark_for_assignment(successor);
+			} else if(successor.num_incomplete_predecessors == 0) {
+				execution_front.insert(succ_iid);
+			}
 		}
 	}
 }
@@ -438,7 +447,9 @@ std::optional<assignment> engine_impl::assign_one() {
 		}
 	}
 
-	return assignment{node.instr, node.target, assigned.device, assigned.lane};
+	if(node.num_incomplete_predecessors == 0) { execution_front.insert(node.instr->get_id()); }
+
+	return assignment(node.instr, node.target, assigned.device, assigned.lane);
 }
 
 } // namespace celerity::detail::out_of_order_engine_detail
@@ -448,6 +459,7 @@ namespace celerity::detail {
 out_of_order_engine::out_of_order_engine(const system_info& system) : m_impl(new out_of_order_engine_detail::engine_impl(system)) {}
 out_of_order_engine::~out_of_order_engine() = default;
 bool out_of_order_engine::is_idle() const { return m_impl->is_idle(); }
+const std::unordered_set<instruction_id>& out_of_order_engine::get_execution_front() const { return m_impl->execution_front; }
 size_t out_of_order_engine::get_assignment_queue_length() const { return m_impl->assignment_queue.size(); }
 void out_of_order_engine::submit(const instruction* const instr) { m_impl->submit(instr); }
 void out_of_order_engine::complete_assigned(const instruction_id iid) { m_impl->complete(iid); }
