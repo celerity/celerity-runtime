@@ -42,8 +42,8 @@ namespace detail {
 		    expect_sr_dims, actual_sr_dims, kernel_dims));
 	}
 
-	template <int KernelDims, int BufferDims, typename Functor>
-	region<BufferDims> invoke_range_mapper_for_kernel(Functor&& fn, const celerity::chunk<KernelDims>& chunk, const range<BufferDims>& buffer_size) {
+	template <typename Functor, int KernelDims, int BufferDims>
+	region<BufferDims> invoke_range_mapper(Functor&& fn, const celerity::chunk<KernelDims>& chunk, const range<BufferDims>& buffer_size) {
 		static_assert(KernelDims >= 0 && KernelDims <= 3 && BufferDims >= 0 && BufferDims <= 3);
 		if constexpr(is_range_mapper_invocable_for_chunk_and_global_size<Functor, BufferDims, KernelDims>) {
 			return std::forward<Functor>(fn)(chunk, buffer_size);
@@ -57,20 +57,6 @@ namespace detail {
 	template <int BufferDims>
 	region<BufferDims> clamp_region_to_buffer_size(const region<BufferDims>& r, const range<BufferDims>& buffer_size) {
 		return region_intersection(r, box<BufferDims>::full_range(buffer_size));
-	}
-
-	template <int BufferDims, typename Functor>
-	region<BufferDims> invoke_range_mapper(int kernel_dims, Functor fn, const celerity::chunk<3>& chunk, const range<BufferDims>& buffer_size) {
-		static_assert(is_range_mapper_invocable<Functor, BufferDims>);
-		region<BufferDims> r;
-		switch(kernel_dims) {
-		case 0: r = invoke_range_mapper_for_kernel(fn, chunk_cast<0>(chunk), buffer_size); break;
-		case 1: r = invoke_range_mapper_for_kernel(fn, chunk_cast<1>(chunk), buffer_size); break;
-		case 2: r = invoke_range_mapper_for_kernel(fn, chunk_cast<2>(chunk), buffer_size); break;
-		case 3: r = invoke_range_mapper_for_kernel(fn, chunk_cast<3>(chunk), buffer_size); break;
-		default: utils::unreachable(); // LCOV_EXCL_LINE
-		}
-		return clamp_region_to_buffer_size(r, buffer_size);
 	}
 
 	class range_mapper_base {
@@ -132,7 +118,7 @@ namespace detail {
 		template <int OtherBufferDims, int KernelDims>
 		region<OtherBufferDims> map(const chunk<KernelDims>& chnk) const {
 			if constexpr(OtherBufferDims == BufferDims) {
-				const auto r = invoke_range_mapper_for_kernel(m_rmfn, chnk, m_buffer_size);
+				const auto r = invoke_range_mapper(m_rmfn, chnk, m_buffer_size);
 				return clamp_region_to_buffer_size(r, m_buffer_size);
 			} else {
 				throw_invalid_range_mapper_result(OtherBufferDims, BufferDims, KernelDims);
