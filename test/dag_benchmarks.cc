@@ -208,6 +208,7 @@ struct command_graph_generator_benchmark_context {
 struct instruction_graph_generator_benchmark_context {
 	const size_t num_nodes;
 	const size_t num_devices;
+	const bool supports_d2d_copies;
 	command_graph cdag;
 	task_recorder trec;
 	task_manager tm{num_nodes, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
@@ -216,11 +217,12 @@ struct instruction_graph_generator_benchmark_context {
 	    num_nodes, 0 /* local_nid */, cdag, tm, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
 	instruction_recorder irec;
 	instruction_graph idag;
-	instruction_graph_generator iggen{tm, num_nodes, 0 /* local nid */, test_utils::make_system_info(num_devices, true /* supports d2d copies */), idag,
+	instruction_graph_generator iggen{tm, num_nodes, 0 /* local nid */, test_utils::make_system_info(num_devices, supports_d2d_copies), idag,
 	    nullptr /* delegate */, test_utils::g_print_graphs ? &irec : nullptr, benchmark_instruction_graph_generator_policy};
 	test_utils::mock_buffer_factory mbf{tm, cggen, iggen};
 
-	explicit instruction_graph_generator_benchmark_context(const size_t num_nodes, const size_t num_devices) : num_nodes(num_nodes), num_devices(num_devices) {
+	explicit instruction_graph_generator_benchmark_context(const size_t num_nodes, const size_t num_devices, const bool supports_d2d_copies = true)
+	    : num_nodes(num_nodes), num_devices(num_devices), supports_d2d_copies(supports_d2d_copies) {
 		tm.register_task_callback([this](const task* tsk) {
 			for(const auto cmd : cggen.build_task(*tsk)) {
 				iggen.compile(*cmd);
@@ -517,6 +519,12 @@ TEMPLATE_TEST_CASE_SIG(
     "generating large instruction graphs for N devices", "[benchmark][group:instruction-graph]", ((size_t NumDevices), NumDevices), 1, 4, 16) {
 	constexpr static size_t num_nodes = 2;
 	run_benchmarks([] { return instruction_graph_generator_benchmark_context(num_nodes, NumDevices); });
+}
+
+TEMPLATE_TEST_CASE_SIG("generating large instruction graphs for N devices without d2d copy support", "[benchmark][group:instruction-graph]",
+    ((size_t NumDevices), NumDevices), 1, 4, 16) {
+	constexpr static size_t num_nodes = 2;
+	run_benchmarks([] { return instruction_graph_generator_benchmark_context(num_nodes, NumDevices, false /* supports_d2d_copies */); });
 }
 
 TEMPLATE_TEST_CASE_SIG("building command- and instruction graphs in a dedicated scheduler thread for N nodes", "[benchmark][group:scheduler]",
