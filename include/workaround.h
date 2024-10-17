@@ -51,14 +51,38 @@
 #define CELERITY_DETAIL_NO_UNIQUE_ADDRESS
 #endif
 
-#if CELERITY_DETAIL_ENABLE_DEBUG && !defined(__SYCL_DEVICE_ONLY__)
-#define CELERITY_DETAIL_ASSERT_ON_HOST(...) assert(__VA_ARGS__)
-#else
-#define CELERITY_DETAIL_ASSERT_ON_HOST(...)
-#endif
-
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 #define CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(...) __VA_ARGS__
 #else
 #define CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(...)
+#endif
+
+// SYCL implementations (compiler frontends) provide different means of distinguishing host and device code. Multi-pass compilers define __SYCL_DEVICE_ONLY__ in
+// the device pass, as per the standard. Single-pass compilers however cannot expose this information at preprocessing time or even as a constant expression,
+// since they will only inject that information at code generation (and optimization) time. Below we define a set of implementation-independent macros for both
+// cases. This is primarily used to provide accessor copy constructors conditionally for host-side accessor hydration.
+
+#if CELERITY_SYCL_IS_ACPP && ACPP_LIBKERNEL_IS_UNIFIED_HOST_DEVICE_PASS
+#define CELERITY_DETAIL_COMPILE_TIME_TARGET_DEVICE_ONLY 0
+#define CELERITY_DETAIL_COMPILE_TIME_TARGET_HOST_ONLY 0
+#define CELERITY_DETAIL_IF_RUNTIME_TARGET_DEVICE(...) __acpp_if_target_device(__VA_ARGS__)
+#define CELERITY_DETAIL_IF_RUNTIME_TARGET_HOST(...) __acpp_if_target_host(__VA_ARGS__)
+#elif defined(__SYCL_DEVICE_ONLY__)
+#define CELERITY_DETAIL_COMPILE_TIME_TARGET_DEVICE_ONLY 1
+#define CELERITY_DETAIL_COMPILE_TIME_TARGET_HOST_ONLY 0
+#define CELERITY_DETAIL_IF_RUNTIME_TARGET_DEVICE(...) __VA_ARGS__
+#define CELERITY_DETAIL_IF_RUNTIME_TARGET_HOST(...)
+#else
+#define CELERITY_DETAIL_COMPILE_TIME_TARGET_DEVICE_ONLY 0
+#define CELERITY_DETAIL_COMPILE_TIME_TARGET_HOST_ONLY 1
+#define CELERITY_DETAIL_IF_RUNTIME_TARGET_DEVICE(...)
+#define CELERITY_DETAIL_IF_RUNTIME_TARGET_HOST(...) __VA_ARGS__
+#endif
+
+#define CELERITY_DETAIL_ASSERT_ON_HOST(...) CELERITY_DETAIL_IF_RUNTIME_TARGET_HOST(assert(__VA_ARGS__);)
+
+#if CELERITY_DETAIL_COMPILE_TIME_TARGET_HOST_ONLY
+#define CELERITY_DETAIL_CONSTEXPR_ASSERT_ON_HOST(...) assert(__VA_ARGS__);
+#else
+#define CELERITY_DETAIL_CONSTEXPR_ASSERT_ON_HOST(...)
 #endif

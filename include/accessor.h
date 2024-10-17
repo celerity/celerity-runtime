@@ -154,7 +154,12 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	accessor(accessor&&) noexcept = default;
 	accessor& operator=(accessor&&) noexcept = default;
 
-#if !defined(__SYCL_DEVICE_ONLY__)
+	// On the host, we provide a custom copy constructor that performs accessor hydration before a kernel launch. This code path must not exist on the device
+	// (accesses host global state / thread locals). With DPC++ and ACpp multi-pass compilation we can distinguish these cases at preprocessing time
+	// with CELERITY_DETAIL_COMPILE_TIME_TARGET_DEVICE_ONLY. With the ACpp single-pass compiler this information does not exist before JIT time (runtime
+	// from the C++ perspective), so CELERITY_DETAIL_COMPILE_TIME_TARGET_DEVICE_ONLY is always false and we rely on a branch in copy_and_hydrate(). This works
+	// because fortunately for us ACpp doesn't verify that kernels / accessors are device copyable (= trivially copyable in our case).
+#if !CELERITY_DETAIL_COMPILE_TIME_TARGET_DEVICE_ONLY
 	accessor(const accessor& other) { copy_and_hydrate(other); }
 
 	accessor& operator=(const accessor& other) {
@@ -264,13 +269,10 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
 	// Constructor for tests, called through accessor_testspy.
 	accessor(DataT* const ptr, const id<Dims>& allocation_offset, const range<Dims>& allocation_range)
-	    : m_device_ptr(ptr), m_allocation_offset(allocation_offset), m_allocation_range(allocation_range) {
-#if defined(__SYCL_DEVICE_ONLY__)
-#if CELERITY_WORKAROUND_ACPP // AdaptiveCpp does not yet implement is_device_copyable_v
-		static_assert(std::is_trivially_copyable_v<accessor>);
-#else
+	    : m_device_ptr(ptr), m_allocation_offset(allocation_offset), m_allocation_range(allocation_range) //
+	{
+#if CELERITY_DETAIL_COMPILE_TIME_TARGET_DEVICE_ONLY && !CELERITY_WORKAROUND(ACPP) // AdaptiveCpp does not define is_device_copyable
 		static_assert(sycl::is_device_copyable_v<accessor>);
-#endif
 #endif
 	}
 
@@ -287,24 +289,26 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		m_accessed_buffer_subrange = other.m_accessed_buffer_subrange;
 #endif
 
-#if !defined(__SYCL_DEVICE_ONLY__)
-		if(detail::is_embedded_hydration_id(m_device_ptr)) {
-			if(detail::cgf_diagnostics::is_available() && detail::cgf_diagnostics::get_instance().is_checking()) {
-				detail::cgf_diagnostics::get_instance().register_accessor(detail::extract_hydration_id(m_device_ptr), target::device);
-			}
+		// With single-pass compilers, the target can only be queried with a value that is injected during code generation and thus is not a constant
+		// expression. Those compilers will still ensure that none of the host code accessing the closure_hydrator singleton will end up on the device.
+		CELERITY_DETAIL_IF_RUNTIME_TARGET_HOST({
+			if(detail::is_embedded_hydration_id(m_device_ptr)) {
+				if(detail::cgf_diagnostics::is_available() && detail::cgf_diagnostics::get_instance().is_checking()) {
+					detail::cgf_diagnostics::get_instance().register_accessor(detail::extract_hydration_id(m_device_ptr), target::device);
+				}
 
-			if(detail::closure_hydrator::is_available() && detail::closure_hydrator::get_instance().is_hydrating()) {
-				const auto info = detail::closure_hydrator::get_instance().get_accessor_info<target::device>(detail::extract_hydration_id(m_device_ptr));
-				m_device_ptr = static_cast<DataT*>(info.ptr);
-				m_allocation_offset = detail::id_cast<Dims>(info.allocated_box_in_buffer.get_offset());
-				m_allocation_range = detail::range_cast<Dims>(info.allocated_box_in_buffer.get_range());
+				if(detail::closure_hydrator::is_available() && detail::closure_hydrator::get_instance().is_hydrating()) {
+					const auto info = detail::closure_hydrator::get_instance().get_accessor_info<target::device>(detail::extract_hydration_id(m_device_ptr));
+					m_device_ptr = static_cast<DataT*>(info.ptr);
+					m_allocation_offset = detail::id_cast<Dims>(info.allocated_box_in_buffer.get_offset());
+					m_allocation_range = detail::range_cast<Dims>(info.allocated_box_in_buffer.get_range());
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-				m_oob_indices = info.out_of_bounds_indices;
-				m_accessed_buffer_subrange = detail::subrange_cast<Dims>(info.accessed_box_in_buffer.get_subrange());
+					m_oob_indices = info.out_of_bounds_indices;
+					m_accessed_buffer_subrange = detail::subrange_cast<Dims>(info.accessed_box_in_buffer.get_subrange());
 #endif
+				}
 			}
-		}
-#endif
+		})
 	}
 
 	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_allocation_range, index - m_allocation_offset); }
@@ -642,20 +646,14 @@ class local_accessor {
 	using const_reference = const DataT&;
 	using size_type = size_t;
 
-	local_accessor() : m_sycl_acc{}, m_allocation_size(detail::zeros) {}
+	local_accessor() : m_sycl_acc(), m_allocation_size(detail::zeros) {}
 
 	template <int D = Dims, typename = std::enable_if_t<D == 0>>
 	local_accessor(handler& cgh) : local_accessor(range<0>(), cgh) {}
 
-#if !defined(__SYCL_DEVICE_ONLY__)
-	local_accessor(const range<Dims>& allocation_size, handler& cgh) : m_sycl_acc{}, m_allocation_size(allocation_size) {}
-
-	local_accessor(const local_accessor& other)
-	    : m_sycl_acc(
-	        detail::closure_hydrator::is_available() && detail::closure_hydrator::get_instance().is_hydrating() && other.sycl_allocation_size().size() > 0
-	            ? sycl_accessor{other.sycl_allocation_size(), detail::closure_hydrator::get_instance().get_sycl_handler()}
-	            : other.m_sycl_acc),
-	      m_allocation_size(other.m_allocation_size) {}
+#if !CELERITY_DETAIL_COMPILE_TIME_TARGET_DEVICE_ONLY // see accessor<target::device>::accessor() for why
+	local_accessor(const range<Dims>& allocation_size, handler& cgh) : m_sycl_acc(), m_allocation_size(allocation_size) {}
+	local_accessor(const local_accessor& other) : m_sycl_acc(other.copy_and_hydrate_sycl_accessor()), m_allocation_size(other.m_allocation_size) {}
 #else
 	local_accessor(const range<Dims>& allocation_size, handler& cgh);
 	local_accessor(const local_accessor&) = default;
@@ -721,6 +719,17 @@ class local_accessor {
 	}
 
   private:
+	sycl_accessor copy_and_hydrate_sycl_accessor() const {
+		// see use of CELERITY_DETAIL_IF_RUNTIME_TARGET_HOST above
+		CELERITY_DETAIL_IF_RUNTIME_TARGET_HOST({
+			if(detail::closure_hydrator::is_available() && detail::closure_hydrator::get_instance().is_hydrating() && m_allocation_size.size() > 0) {
+				const auto sycl_allocation_size = sycl::range<sycl_dims>(detail::range_cast<sycl_dims>(m_allocation_size));
+				return sycl_accessor(sycl_allocation_size, detail::closure_hydrator::get_instance().get_sycl_handler());
+			}
+		})
+		/* else */ return m_sycl_acc;
+	}
+
 	sycl_accessor m_sycl_acc;
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_allocation_size;
 
