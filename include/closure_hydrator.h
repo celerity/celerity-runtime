@@ -165,4 +165,4 @@ class closure_hydrator {
 	}
 };
 
-}; // namespace celerity::detail
+} // namespace celerity::detail
