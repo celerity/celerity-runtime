@@ -13,7 +13,7 @@ The most recent version of Celerity aims to support the following environments.
   * Clang ≥ 14.0 for CUDA &lt; 12.0, Clang ≥ 16.0 for CUDA ≥ 12.0
   * on NVIDIA hardware with compute capability ≥ 7.0 (`-DACPP_TARGETS=cuda:*`)
   * or on CPUs via OpenMP (`-DACPP_TARGETS=omp`, implicit)
-  * the `generic` SSCP target cannot be supported yet and must be disabled when building Celerity applications.
+  * any target with the `generic` SSCP compiler (experimental, `-DACPP_TARGETS=generic`, which is the default)
 * DPC++ ≥ revision [`ad494e9d`](https://github.com/intel/llvm/tree/ad494e9d)
   * [Intel Compute Runtime](https://github.com/intel/compute-runtime) ≥ 24.13.29138.7
   * [oneAPI Level Zero](https://github.com/oneapi-src/level-zero) ≥ 1.17.0

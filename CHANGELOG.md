@@ -15,6 +15,7 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 - Replace `celerity::distr_queue` with `celerity::queue`, which permits multiple instances and aligns closer with SYCL (#283)
 - The runtime can be explicitly shut down using `celerity::shutdown()`, complementing `celerity::init()` (#283)
 - `handler::parallel_for(size_t, [size_t,] ...)` now acts as a shorthand for `parallel_for(range<1>, [id<1>,] ...)` (#288)
+- Experimental support for the AdaptiveCpp generic single-pass compiler (#294)
 
 ### Changed
 

@@ -27,12 +27,12 @@ struct make_from_t {
 template <typename Interface, int Dims>
 struct coordinate_storage {
 	constexpr size_t operator[](int dimension) const {
-		CELERITY_DETAIL_ASSERT_ON_HOST(dimension < Dims);
+		CELERITY_DETAIL_CONSTEXPR_ASSERT_ON_HOST(dimension < Dims);
 		return values[dimension];
 	}
 
 	constexpr size_t& operator[](int dimension) {
-		CELERITY_DETAIL_ASSERT_ON_HOST(dimension < Dims);
+		CELERITY_DETAIL_CONSTEXPR_ASSERT_ON_HOST(dimension < Dims);
 		return values[dimension];
 	}
 
@@ -227,7 +227,7 @@ struct zeros_t {
 struct ones_t {
 } inline static constexpr ones;
 
-}; // namespace celerity::detail
+} // namespace celerity::detail
 
 namespace celerity {
 
@@ -359,11 +359,13 @@ class nd_range {
 
 	nd_range(const range<Dims>& global_range, const range<Dims>& local_range, const id<Dims>& offset = {})
 	    : m_global_range(global_range), m_local_range(local_range), m_offset(offset) {
-#ifndef __SYCL_DEVICE_ONLY__
-		for(int d = 0; d < Dims; ++d) {
-			if(local_range[d] == 0 || global_range[d] % local_range[d] != 0) { throw std::invalid_argument("global_range is not divisible by local_range"); }
-		}
-#endif
+		CELERITY_DETAIL_IF_RUNTIME_TARGET_HOST({
+			for(int d = 0; d < Dims; ++d) {
+				if(local_range[d] == 0 || global_range[d] % local_range[d] != 0) {
+					throw std::invalid_argument("global_range is not divisible by local_range");
+				}
+			}
+		})
 	}
 
 	template <int D = Dims, typename = std::enable_if_t<D >= 1 && D <= 3>>
