@@ -82,6 +82,37 @@ TEMPLATE_TEST_CASE_SIG("multiple overlapping accessors trigger allocation of the
 	CHECK(free.predecessors().contains(kernel));
 }
 
+TEMPLATE_TEST_CASE_SIG("accessors with disjoint-region range mappers trigger allocation of their bounding box",
+    "[instruction_graph_generator][instruction-graph][memory]", ((int Dims), Dims), 1, 2, 3) //
+{
+	const auto full_range = test_utils::truncate_range<Dims>({256, 256, 256});
+	const auto accessed_region =
+	    region<Dims>({test_utils::truncate_box<Dims>({{0, 0, 0}, {64, 64, 64}}), test_utils::truncate_box<Dims>({{128, 128, 128}, {192, 192, 192}})});
+	const auto access_bounding_box = bounding_box(accessed_region);
+
+	test_utils::idag_test_context ictx(1 /* nodes */, 0 /* my nid */, 1 /* devices */);
+	auto buf = ictx.create_buffer(full_range);
+	ictx.device_compute(range(1)).discard_write(buf, [=](const auto& /* chnk*/) { return accessed_region; }).submit();
+	ictx.finish();
+
+	const auto all_instrs = ictx.query_instructions();
+	const auto alloc = all_instrs.select_unique<alloc_instruction_record>();
+	const auto kernel = all_instrs.select_unique<device_kernel_instruction_record>();
+
+	CHECK(alloc->allocation_id.get_memory_id() == ictx.get_native_memory(kernel->device_id));
+	CHECK(alloc->buffer_allocation->buffer_id == buf.get_id());
+	CHECK(alloc->buffer_allocation->box == box_cast<3>(access_bounding_box));
+	CHECK(alloc->size_bytes == access_bounding_box.get_area() * sizeof(int));
+	CHECK(alloc.successors().contains(kernel));
+
+	REQUIRE(kernel->access_map.size() == 1);
+	const auto& access = kernel->access_map.front();
+	CHECK(access.allocation_id == alloc->allocation_id);
+	CHECK(access.accessed_region_in_buffer == region_cast<3>(accessed_region));
+	CHECK(access.accessed_bounding_box_in_buffer == box_cast<3>(access_bounding_box));
+	CHECK(access.allocated_box_in_buffer == box_cast<3>(access_bounding_box));
+}
+
 TEMPLATE_TEST_CASE_SIG(
     "allocations and kernels are split between devices", "[instruction_graph_generator][instruction-graph][memory]", ((int Dims), Dims), 1, 2, 3) //
 {
@@ -116,7 +147,7 @@ TEMPLATE_TEST_CASE_SIG(
 		const auto alloc = writer.predecessors().assert_unique<alloc_instruction_record>();
 		CHECK(alloc->allocation_id.get_memory_id() == ictx.get_native_memory(writer->device_id));
 		CHECK(writer->access_map.front().allocation_id == alloc->allocation_id);
-		CHECK(alloc->buffer_allocation.value().box == writer->access_map.front().accessed_box_in_buffer);
+		CHECK(alloc->buffer_allocation.value().box == writer->access_map.front().accessed_bounding_box_in_buffer);
 
 		const auto free = writer.successors().assert_unique<free_instruction_record>();
 		CHECK(free->allocation_id == alloc->allocation_id);
@@ -195,7 +226,7 @@ TEST_CASE("data dependencies across memories introduce coherence copies", "[inst
 		const auto coherence_copy = intersection_of(coherence_copies, reader.predecessors()).assert_unique();
 		CHECK(coherence_copy->source_allocation_id.get_memory_id() == ictx.get_native_memory(opposite_did));
 		CHECK(coherence_copy->dest_allocation_id.get_memory_id() == ictx.get_native_memory(did));
-		CHECK(coherence_copy->copy_region == region(opposite_writer->access_map.front().accessed_box_in_buffer));
+		CHECK(coherence_copy->copy_region == region(opposite_writer->access_map.front().accessed_region_in_buffer));
 	}
 
 	// Coherence copies are not sequenced with respect to each other
@@ -288,7 +319,7 @@ TEMPLATE_TEST_CASE_SIG("local copies are split on writers to facilitate compute-
 
 		const auto& write = writer->access_map.front();
 		CHECK(write.buffer_id == this_copy->buffer_id);
-		CHECK(region(write.accessed_box_in_buffer) == this_copy->copy_region);
+		CHECK(write.accessed_region_in_buffer == this_copy->copy_region);
 		this_copy.successors().contains(reader);
 
 		// each copy can be issued once its writer has completed in order to overlap with the other writer
@@ -347,7 +378,7 @@ TEMPLATE_TEST_CASE_SIG("overlapping requirements between chunks of an oversubscr
 		REQUIRE(reader->access_map.size() == 1);
 		const auto& read = reader->access_map.front();
 		CHECK(read.buffer_id == buf.get_id());
-		CHECK(read.accessed_box_in_buffer == pred_copied_region);
+		CHECK(read.accessed_region_in_buffer == pred_copied_region);
 	}
 }
 
@@ -382,10 +413,10 @@ TEMPLATE_TEST_CASE_SIG("accessing non-overlapping buffer subranges in subsequent
 
 	// the kernels access distinct allocations
 	CHECK(first->access_map.front().allocation_id != second->access_map.front().allocation_id);
-	CHECK(first->access_map.front().accessed_box_in_buffer == first->access_map.front().allocated_box_in_buffer);
+	CHECK(first->access_map.front().accessed_bounding_box_in_buffer == first->access_map.front().allocated_box_in_buffer);
 
 	// the allocations exactly match the accessed subrange
-	CHECK(second->access_map.front().accessed_box_in_buffer == second->access_map.front().allocated_box_in_buffer);
+	CHECK(second->access_map.front().accessed_bounding_box_in_buffer == second->access_map.front().allocated_box_in_buffer);
 
 	// kernels are fully concurrent
 	CHECK(first.predecessors().is_unique<alloc_instruction_record>());
@@ -409,20 +440,20 @@ TEST_CASE("resizing a buffer allocation for a discard-write access preserves onl
 	const auto first_writer = all_instrs.select_unique<device_kernel_instruction_record>("1st writer");
 	REQUIRE(first_writer->access_map.size() == 1);
 	const auto first_alloc = first_writer.predecessors().select_unique<alloc_instruction_record>();
-	const auto first_write_box = first_writer->access_map.front().accessed_box_in_buffer;
-	CHECK(first_alloc->buffer_allocation.value().box == first_write_box);
+	const auto first_write_region = first_writer->access_map.front().accessed_region_in_buffer;
+	CHECK(first_alloc->buffer_allocation.value().box == bounding_box(first_write_region));
 
 	// first and second writer ranges overlap, so the bounding box has to be allocated (and the old allocation freed)
 	const auto second_writer = all_instrs.select_unique<device_kernel_instruction_record>("2nd writer");
 	REQUIRE(second_writer->access_map.size() == 1);
 	const auto second_alloc = second_writer.predecessors().assert_unique<alloc_instruction_record>();
-	const auto second_write_box = second_writer->access_map.front().accessed_box_in_buffer;
-	const auto large_alloc_box = bounding_box(first_write_box, second_write_box);
+	const auto second_write_region = second_writer->access_map.front().accessed_region_in_buffer;
+	const auto large_alloc_box = bounding_box(region_union(first_write_region, second_write_region));
 	CHECK(second_alloc->buffer_allocation.value().box == large_alloc_box);
 
 	// The copy must not attempt to preserve ranges that were not written in the old allocation ([128] - [256]) or that were written but are going to be
 	// overwritten (without being read) in the command for which the resize was generated ([64] - [128]).
-	const auto preserved_region = region_difference(first_write_box, second_write_box);
+	const auto preserved_region = region_difference(first_write_region, second_write_region);
 	REQUIRE(preserved_region.get_boxes().size() == 1);
 	const auto preserved_box = preserved_region.get_boxes().front();
 
@@ -1058,4 +1089,46 @@ TEST_CASE("device kernels report global memory traffic estimate based on range m
 	for(const auto& reduce : all_instrs.select_all<device_kernel_instruction_record>("reduce").iterate()) {
 		CHECK(reduce->estimated_global_memory_traffic_bytes == buffer_size / num_devices * sizeof(float));
 	}
+}
+
+TEST_CASE("5-point stencil program with 2D split does not exchange boundaries with diagonal neighbor devices",
+    "[instruction_graph_generator][instruction-graph][memory]") //
+{
+	constexpr size_t num_devices = 4;
+	constexpr range<2> buffer_size(256, 256);
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices);
+	auto buf_a = ictx.create_buffer<float, 2>(buffer_size, true /* host initialized */);
+	auto buf_b = ictx.create_buffer<float, 2>(buffer_size);
+
+	// perform 3 iterations to settle allocation sizes
+	for(int i = 0; i < 3; ++i) {
+		ictx.device_compute(range(buffer_size))
+		    .name(fmt::format("iteration {}", i))
+		    .hint(experimental::hints::split_2d())
+		    .read(buf_a, acc::direct_neighborhood(1, 1))
+		    .discard_write(buf_b, acc::one_to_one())
+		    .submit();
+		std::swap(buf_a, buf_b);
+	}
+	ictx.finish();
+
+	const auto all_instrs = ictx.query_instructions();
+	const auto all_resize_iter_kernels = all_instrs.select_all<device_kernel_instruction_record>("iteration 1");
+	const auto all_boundary_exchanges = all_resize_iter_kernels.transitive_successors().select_all<copy_instruction_record>();
+	CHECK(all_boundary_exchanges.count() == 2 * num_devices);
+
+	std::unordered_map<memory_id, size_t> boundary_exchanges_per_source;
+	std::unordered_map<memory_id, size_t> boundary_exchanges_per_dest;
+	for(const auto& boundary_exchange : all_boundary_exchanges.iterate()) {
+		CHECK(boundary_exchange->origin == copy_instruction_record::copy_origin::coherence);
+		++boundary_exchanges_per_source[boundary_exchange->source_allocation.id.get_memory_id()];
+		++boundary_exchanges_per_dest[boundary_exchange->dest_allocation.id.get_memory_id()];
+	}
+
+	CHECK(boundary_exchanges_per_source.size() == num_devices);
+	CHECK(std::all_of(boundary_exchanges_per_source.begin(), boundary_exchanges_per_source.end(), [](const auto& entry) { return entry.second == 2; }));
+
+	CHECK(boundary_exchanges_per_dest.size() == num_devices);
+	CHECK(std::all_of(boundary_exchanges_per_dest.begin(), boundary_exchanges_per_dest.end(), [](const auto& entry) { return entry.second == 2; }));
 }

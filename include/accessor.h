@@ -186,8 +186,8 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		// We currently don't support boundary checking for accessors created using accessor_testspy::make_device_accessor,
 		// which does not set m_oob_indices.
 		if(m_oob_indices != nullptr) {
-			const bool is_within_bounds_lo = all_true(index >= m_accessed_buffer_subrange.offset);
-			const bool is_within_bounds_hi = all_true(index < (m_accessed_buffer_subrange.offset + m_accessed_buffer_subrange.range));
+			const bool is_within_bounds_lo = all_true(index >= m_oob_declared_bounds.get_min());
+			const bool is_within_bounds_hi = all_true(index < m_oob_declared_bounds.get_max());
 			if((!is_within_bounds_lo || !is_within_bounds_hi)) {
 				for(int d = 0; d < 3; ++d) {
 					const size_t component = d < Dims ? index[d] : 0;
@@ -250,7 +250,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_allocation_range = detail::zeros;
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 	detail::oob_bounding_box* m_oob_indices = nullptr;
-	subrange<Dims> m_accessed_buffer_subrange = {};
+	detail::box<Dims> m_oob_declared_bounds = {};
 	// This value (or a reference to it) is returned for all out-of-bounds accesses.
 	mutable DataT m_oob_fallback_value = DataT{};
 #endif
@@ -284,7 +284,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		m_allocation_range = other.m_allocation_range;
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 		m_oob_indices = other.m_oob_indices;
-		m_accessed_buffer_subrange = other.m_accessed_buffer_subrange;
+		m_oob_declared_bounds = other.m_oob_declared_bounds;
 #endif
 
 #if !defined(__SYCL_DEVICE_ONLY__)
@@ -300,7 +300,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 				m_allocation_range = detail::range_cast<Dims>(info.allocated_box_in_buffer.get_range());
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 				m_oob_indices = info.out_of_bounds_indices;
-				m_accessed_buffer_subrange = detail::subrange_cast<Dims>(info.accessed_box_in_buffer.get_subrange());
+				m_oob_declared_bounds = box_cast<Dims>(info.accessed_box_in_buffer);
 #endif
 			}
 		}
