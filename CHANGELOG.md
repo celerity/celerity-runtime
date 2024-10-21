@@ -28,6 +28,8 @@ Versioning](http://semver.org/spec/v2.0.0.html).
   This operation has a much more pronounced performance penalty than its SYCL counterpart (#283)
 - On systems that do not support device-to-device copies, data is now staged in linearized buffers for better performance (#287)
 - The `access::neighborhood` built-in range mapper now receives a `range` instead of a coordinate list (#292)
+- Celerity will now queue up several command groups in order to combine allocations and elide resize operations.
+  This behavior can be influenced using the new `experimental::set_lookahead` and `experimental::flush` APIs (#298)
 
 ### Fixed
 

@@ -13,6 +13,7 @@
 #include "task.h"
 #include "tracy.h"
 #include "types.h"
+#include "utils.h"
 
 #include <unordered_map>
 #include <unordered_set>
@@ -323,6 +324,9 @@ struct buffer_memory_state {
 	// TODO evaluate if it ever makes sense to use a region_map here, or if we're better off expecting very few allocations and sticking to a vector here
 	std::vector<buffer_allocation_state> allocations; // disjoint
 
+	// Updated by both anticipate() and allocate_contiguously() to elide buffer resize allocations when possible.
+	box_vector<3> future_allocated_contiguous_boxes;
+
 	const buffer_allocation_state& get_allocation(const allocation_id aid) const {
 		const auto it = std::find_if(allocations.begin(), allocations.end(), [=](const buffer_allocation_state& a) { return a.aid == aid; });
 		assert(it != allocations.end());
@@ -562,6 +566,7 @@ class generator_impl {
 	void notify_buffer_destroyed(buffer_id bid);
 	void notify_host_object_created(host_object_id hoid, bool owns_instance);
 	void notify_host_object_destroyed(host_object_id hoid);
+	instruction_graph_generator::scheduling_hint anticipate(const command& cmd);
 	void compile(const command& cmd);
 
   private:
@@ -974,6 +979,10 @@ void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id
 		return;
 	}
 
+	// As soon as any allocation must be realized, allocate the full set of contiguous boxes anticipate()d up until this point
+	required_contiguous_boxes.insert(
+	    required_contiguous_boxes.end(), memory.future_allocated_contiguous_boxes.begin(), memory.future_allocated_contiguous_boxes.end());
+
 	// We currently only ever *grow* the allocation of buffers on each memory, which means that we must merge (re-size) existing allocations that overlap with
 	// but do not fully contain one of the required contiguous boxes. *Overlapping* here strictly means having a non-empty intersection; two allocations whose
 	// boxes merely touch can continue to co-exist
@@ -982,6 +991,10 @@ void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id
 		contiguous_boxes_after_realloc.push_back(alloc.box);
 	}
 	merge_overlapping_bounding_boxes(contiguous_boxes_after_realloc);
+
+	// In case the current command has not been anticipate()d, ensure that future_allocated_contiguous_boxes is up-to-date regardless
+	memory.future_allocated_contiguous_boxes = contiguous_boxes_after_realloc;
+	merge_connected_boxes(memory.future_allocated_contiguous_boxes);
 
 	// Allocations that are now fully contained in (but not equal to) one of the newly contiguous bounding boxes will be freed at the end of the reallocation
 	// step, because we currently disallow overlapping allocations for simplicity. These will function as sources for resize-copies below.
@@ -999,8 +1012,6 @@ void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id
 
 	// Opportunistically merge connected boxes to keep the number of allocations and the tracking overhead low. This will not introduce artificial
 	// synchronization points because resize-copies are still rooted on the original last-writers.
-	// TODO consider over-allocating to avoid future reallocations, i.e. by using bounding boxes of boxes that have a common boundary but are not "connected" in
-	// the sense that they can simply be merged).
 	merge_connected_boxes(new_alloc_boxes);
 
 	// We collect new allocations in a vector *separate* from memory.allocations as to not invalidate iterators (and to avoid resize-copying from them).
@@ -2284,6 +2295,58 @@ void generator_impl::flush_batch(batch&& batch) { // NOLINT(cppcoreguidelines-rv
 #endif
 }
 
+instruction_graph_generator::scheduling_hint generator_impl::anticipate(const command& cmd) {
+	// Although fence, push and await-push commands currently trigger host buffer allocations, these will be migrated to staging allocations eventually.
+	if(!utils::isa<execution_command>(&cmd)) return instruction_graph_generator::scheduling_hint::is_self_contained;
+
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::anticipate", Teal);
+
+	const auto& ecmd = *utils::as<execution_command>(&cmd);
+	const auto& tsk = *ecmd.get_task();
+	const auto concurrent_chunks = split_task_execution_range(ecmd, tsk);
+
+	std::unordered_map<std::pair<buffer_id, memory_id>, box_vector<3>, utils::pair_hash> new_contiguous_boxes;
+	const auto anticipate_allocated_boxes = [&](const buffer_id bid, const memory_id mid, const box_vector<3>& boxes) {
+		auto& new_boxes = new_contiguous_boxes[{bid, mid}]; // allow default-insert
+		new_boxes.insert(new_boxes.end(), boxes.begin(), boxes.end());
+	};
+
+	// Aggregate required boxes for kernel buffer accesses
+	const auto& bam = tsk.get_buffer_access_map();
+	for(const auto bid : bam.get_accessed_buffers()) {
+		for(const auto& chunk : concurrent_chunks) {
+			anticipate_allocated_boxes(
+			    bid, chunk.memory_id, bam.get_required_contiguous_boxes(bid, tsk.get_dimensions(), chunk.execution_range, tsk.get_global_size()));
+		}
+	}
+
+	// Aggregate required boxes for reduction in- and outputs
+	for(const auto& rinfo : tsk.get_reductions()) {
+		anticipate_allocated_boxes(rinfo.bid, host_memory_id, {scalar_reduction_box});
+		for(const auto& chunk : concurrent_chunks) {
+			anticipate_allocated_boxes(rinfo.bid, chunk.memory_id, {scalar_reduction_box});
+		}
+	}
+
+	// If the set of allocated boxes grows for any buffer since the last call to anticipate(), queueing this command might allow merging those allocations with
+	// future ones to avoid resizes
+	bool would_allocate = false;
+	for(auto& [bid_mid, new_boxes] : new_contiguous_boxes) {
+		const auto [bid, mid] = bid_mid;
+		auto& old_boxes = m_buffers.at(bid).memories[mid].future_allocated_contiguous_boxes;
+		new_boxes.insert(new_boxes.end(), old_boxes.begin(), old_boxes.end());
+		// TODO what is the performance consequence of not doing a region-merge here?
+		merge_overlapping_bounding_boxes(new_boxes);
+		if(std::any_of(new_boxes.begin(), new_boxes.end(), [&](const box<3>& box) { return !utils::contains(old_boxes, box); })) {
+			would_allocate = true;
+			merge_connected_boxes(new_boxes);
+			old_boxes = std::move(new_boxes);
+		}
+	}
+	return would_allocate ? instruction_graph_generator::scheduling_hint::could_merge_with_future_commands
+	                      : instruction_graph_generator::scheduling_hint::is_self_contained;
+}
+
 void generator_impl::compile(const command& cmd) {
 	batch command_batch;
 	matchbox::match(
@@ -2327,6 +2390,8 @@ void instruction_graph_generator::notify_host_object_created(const host_object_i
 }
 
 void instruction_graph_generator::notify_host_object_destroyed(const host_object_id hoid) { m_impl->notify_host_object_destroyed(hoid); }
+
+instruction_graph_generator::scheduling_hint instruction_graph_generator::anticipate(const command& cmd) { return m_impl->anticipate(cmd); }
 
 void instruction_graph_generator::compile(const command& cmd) { m_impl->compile(cmd); }
 

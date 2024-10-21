@@ -637,6 +637,7 @@ namespace detail {
 						cv.notify_all();
 					});
 				});
+				experimental::flush(q);
 
 				// We need to wait in each iteration, so that tasks are still generated after some have already been executed (and after they therefore
 				// triggered their horizons). We can't use queue::wait for this as it will begin a new epoch and force-prune the task graph itself.
@@ -759,7 +760,7 @@ namespace detail {
 		auto& schdlr = runtime_testspy::get_schdlr(rt);
 		auto& exec = *utils::as<live_executor>(&runtime_testspy::get_exec(rt));
 
-		const auto scheduler_thread_name = get_thread_name(scheduler_testspy::get_thread(schdlr).native_handle());
+		const auto scheduler_thread_name = get_thread_name(scheduler_testspy::get_thread(schdlr));
 		CHECK(scheduler_thread_name == "cy-scheduler");
 
 		const auto executor_thread_name = get_thread_name(executor_testspy::get_thread(exec).native_handle());
@@ -807,7 +808,7 @@ namespace detail {
 
 		// intial epoch + master-node task + push + host task + 1 horizon
 		// (dry runs currently always simulate node 0, hence the master-node task)
-		CHECK(scheduler_testspy::get_command_count(runtime_testspy::get_schdlr(rt)) == 5);
+		CHECK(scheduler_testspy::get_live_command_count(runtime_testspy::get_schdlr(rt)) == 5);
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "dry run proceeds on fences", "[dryrun]") {
@@ -851,6 +852,7 @@ namespace detail {
 		env::scoped_test_environment ste(std::unordered_map<std::string, std::string>{{dryrun_envvar_name, "1"}});
 
 		queue q;
+		experimental::set_lookahead(q, experimental::lookahead::none);
 
 		auto& rt = runtime::get_instance();
 		auto& tm = rt.get_task_manager();

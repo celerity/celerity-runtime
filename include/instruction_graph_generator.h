@@ -70,6 +70,12 @@ class instruction_graph_generator {
 		error_policy overlapping_write_error = error_policy::panic;
 	};
 
+	/// Hint returned by instruction_graph_generator::anticipate.
+	enum class scheduling_hint {
+		is_self_contained,                ///< The instructions emitted for this command will not change even when invoking anticipate() on future commands.
+		could_merge_with_future_commands, ///< Queueing this command in anticipation of future commands may produce an optimized instruction graph.
+	};
+
 	/// Instruction graph generation requires information about the target system. `num_nodes` and `local_nid` affect the generation of communication
 	/// instructions and reductions, and `system` is used to determine work assignment, memory allocation and data migration between memories.
 	///
@@ -110,6 +116,10 @@ class instruction_graph_generator {
 
 	/// End tracking the host object with id `hoid`. Emits `destroy_host_object_instruction` if `create_host_object` was called with `owns_instance == true`.
 	void notify_host_object_destroyed(host_object_id hoid);
+
+	/// Inform the graph generator that a command is to follow in the future, without immediately generating any instructions for it. The scheduler will use
+	/// this to inject knowledge about future allocation sizes into the graph generator in order to avoid buffer resizes.
+	scheduling_hint anticipate(const command& cmd);
 
 	/// Compiles a command-graph node into a set of instructions, which are inserted into the shared instruction graph, and updates tracking structures.
 	void compile(const command& cmd);

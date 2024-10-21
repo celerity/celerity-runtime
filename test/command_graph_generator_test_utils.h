@@ -60,6 +60,8 @@ struct command_matcher {
 	static std::string print_filter(const buffer_id bid) { return fmt::format("\"B{}\"", bid); }
 };
 
+using command_query = graph_query<command_record, command_record, command_recorder, command_matcher>;
+
 /// Wrapper type around command_query that adds semantics for command graphs on multiple nodes.
 template <typename Record = command_record>
 class distributed_command_query {
