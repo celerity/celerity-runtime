@@ -77,6 +77,10 @@ namespace detail {
 
 		bool is_dry_run() const { return m_cfg->is_dry_run(); }
 
+		void set_scheduler_lookahead(experimental::lookahead lookahead);
+
+		void flush_scheduler();
+
 	  private:
 		inline static bool s_mpi_initialized = false;
 		inline static bool s_mpi_finalized = false;
@@ -103,6 +107,7 @@ namespace detail {
 		std::unordered_set<buffer_id> m_live_buffers;
 		std::unordered_set<host_object_id> m_live_host_objects;
 
+		// Note: buffer / host object ids must not be re-used even after being freed, since scheduler lookahead may create these objects out-of-order.
 		buffer_id m_next_buffer_id = 0;
 		raw_allocation_id m_next_user_allocation_id = 1;
 		host_object_id m_next_host_object_id = 0;

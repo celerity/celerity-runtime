@@ -300,8 +300,8 @@ namespace detail {
 		schdlr_policy.instruction_graph_generator.unsafe_oversubscription_error = error_policy::log_warning;
 
 		// The scheduler references tasks by pointer, so we make sure its lifetime is shorter than the task_manager's.
-		m_schdlr = std::make_unique<scheduler>(m_num_nodes, m_local_nid, system, static_cast<abstract_scheduler::delegate*>(this), m_command_recorder.get(),
-		    m_instruction_recorder.get(), schdlr_policy);
+		m_schdlr = std::make_unique<scheduler>(
+		    m_num_nodes, m_local_nid, system, static_cast<scheduler::delegate*>(this), m_command_recorder.get(), m_instruction_recorder.get(), schdlr_policy);
 
 		// task_manager will pass generated tasks through its delegate, so generate the init epoch only after the scheduler has been initialized
 		m_task_mngr->generate_epoch_task(epoch_action::init);
@@ -544,13 +544,22 @@ namespace detail {
 		m_live_host_objects.erase(hoid);
 	}
 
-
 	reduction_id runtime::create_reduction(std::unique_ptr<reducer> reducer) {
 		require_call_from_application_thread();
 
 		const auto rid = m_next_reduction_id++;
 		m_exec->track_reducer(rid, std::move(reducer));
 		return rid;
+	}
+
+	void runtime::set_scheduler_lookahead(const experimental::lookahead lookahead) {
+		require_call_from_application_thread();
+		m_schdlr->set_lookahead(lookahead);
+	}
+
+	void runtime::flush_scheduler() {
+		require_call_from_application_thread();
+		m_schdlr->flush_commands();
 	}
 
 	bool runtime::is_unreferenced() const { return m_num_live_queues == 0 && m_live_buffers.empty() && m_live_host_objects.empty(); }

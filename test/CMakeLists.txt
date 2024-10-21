@@ -58,6 +58,7 @@ set(TEST_TARGETS
   receive_arbiter_tests
   runtime_tests
   runtime_deprecation_tests
+  scheduler_tests
   sycl_tests
   split_tests
   task_graph_tests

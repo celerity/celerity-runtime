@@ -3,6 +3,7 @@
 #include <future>
 #include <memory>
 #include <string>
+#include <thread>
 #include <unordered_set>
 
 #ifdef _WIN32
@@ -20,6 +21,7 @@
 #include "backend/sycl_backend.h"
 #include "command_graph.h"
 #include "command_graph_generator.h"
+#include "named_threads.h"
 #include "print_graph.h"
 #include "range_mapper.h"
 #include "region_map.h"
@@ -83,22 +85,36 @@ namespace detail {
 	};
 
 	struct scheduler_testspy {
-		static std::thread& get_thread(scheduler& schdlr) { return schdlr.m_thread; }
+		class threadless_scheduler : public scheduler {
+		  public:
+			threadless_scheduler(const auto&... params) : scheduler(test_threadless_tag(), params...) {}
+			void scheduling_loop() { test_scheduling_loop(); }
+		};
 
 		template <typename F>
 		static auto inspect_thread(scheduler& schdlr, F&& f) {
-			using return_t = decltype(f());
+			using return_t = std::invoke_result_t<F, command_graph, instruction_graph>;
 			std::promise<return_t> channel;
-			schdlr.notify(scheduler::event_test_inspect{[&] { channel.set_value(f()); }});
+			schdlr.test_inspect([&](const command_graph& cdag, const instruction_graph& idag) {
+				if constexpr(std::is_void_v<return_t>) {
+					f(cdag, idag), channel.set_value();
+				} else {
+					channel.set_value(f(cdag, idag));
+				}
+			});
 			return channel.get_future().get();
 		}
 
-		static size_t get_command_count(scheduler& schdlr) {
-			return inspect_thread(schdlr, [&] { return graph_testspy::get_live_node_count(*schdlr.m_cdag); });
+		static std::thread::native_handle_type get_thread(scheduler& schdlr) {
+			return inspect_thread(schdlr, [](const auto&...) { return get_current_thread_handle(); });
+		}
+
+		static size_t get_live_command_count(scheduler& schdlr) {
+			return inspect_thread(schdlr, [](const command_graph& cdag, const instruction_graph& idag) { return graph_testspy::get_live_node_count(cdag); });
 		}
 
 		static size_t get_live_instruction_count(scheduler& schdlr) {
-			return inspect_thread(schdlr, [&] { return graph_testspy::get_live_node_count(*schdlr.m_idag); });
+			return inspect_thread(schdlr, [](const command_graph& cdag, const instruction_graph& idag) { return graph_testspy::get_live_node_count(idag); });
 		}
 	};
 
@@ -119,15 +135,17 @@ namespace detail {
 		}
 
 		static std::string print_command_graph(const node_id local_nid, runtime& rt) {
-			return scheduler_testspy::inspect_thread(get_schdlr(rt), [&] { // command_recorder is mutated by scheduler thread
-				return detail::print_command_graph(local_nid, *rt.m_command_recorder);
-			});
+			// command_recorder is mutated by scheduler thread
+			return scheduler_testspy::inspect_thread(get_schdlr(rt), //
+			    [&](const command_graph&, const instruction_graph&) { return detail::print_command_graph(local_nid, *rt.m_command_recorder); });
 		}
 
 		static std::string print_instruction_graph(runtime& rt) {
-			return scheduler_testspy::inspect_thread(get_schdlr(rt), [&] { // instruction recorder is mutated by scheduler thread
-				return detail::print_instruction_graph(*rt.m_instruction_recorder, *rt.m_command_recorder, *rt.m_task_recorder);
-			});
+			// instruction recorder is mutated by scheduler thread
+			return scheduler_testspy::inspect_thread(get_schdlr(rt), //
+			    [&](const command_graph&, const instruction_graph&) {
+				    return detail::print_instruction_graph(*rt.m_instruction_recorder, *rt.m_command_recorder, *rt.m_task_recorder);
+			    });
 		}
 	};
 
@@ -280,6 +298,7 @@ namespace test_utils {
 		friend class mock_buffer_factory;
 		friend class cdag_test_context;
 		friend class idag_test_context;
+		friend class scheduler_test_context;
 
 		detail::buffer_id m_id;
 		range<Dims> m_size;
@@ -297,6 +316,7 @@ namespace test_utils {
 		friend class mock_host_object_factory;
 		friend class cdag_test_context;
 		friend class idag_test_context;
+		friend class scheduler_test_context;
 
 		detail::host_object_id m_id;
 
@@ -311,7 +331,7 @@ namespace test_utils {
 		explicit mock_buffer_factory(detail::task_manager& tm, detail::command_graph_generator& cggen) : m_task_mngr(&tm), m_cggen(&cggen) {}
 		explicit mock_buffer_factory(detail::task_manager& tm, detail::command_graph_generator& cggen, detail::instruction_graph_generator& iggen)
 		    : m_task_mngr(&tm), m_cggen(&cggen), m_iggen(&iggen) {}
-		explicit mock_buffer_factory(detail::task_manager& tm, detail::abstract_scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
+		explicit mock_buffer_factory(detail::task_manager& tm, detail::scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
 
 		template <int Dims>
 		mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
@@ -328,7 +348,7 @@ namespace test_utils {
 
 	  private:
 		detail::task_manager* m_task_mngr = nullptr;
-		detail::abstract_scheduler* m_schdlr = nullptr;
+		detail::scheduler* m_schdlr = nullptr;
 		detail::command_graph_generator* m_cggen = nullptr;
 		detail::instruction_graph_generator* m_iggen = nullptr;
 		detail::buffer_id m_next_buffer_id = 0;
@@ -339,7 +359,7 @@ namespace test_utils {
 	  public:
 		explicit mock_host_object_factory() = default;
 		explicit mock_host_object_factory(detail::task_manager& tm) : m_task_mngr(&tm) {}
-		explicit mock_host_object_factory(detail::task_manager& tm, detail::abstract_scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
+		explicit mock_host_object_factory(detail::task_manager& tm, detail::scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
 
 		mock_host_object create_host_object(bool owns_instance = true) {
 			const detail::host_object_id hoid = m_next_id++;
@@ -350,7 +370,7 @@ namespace test_utils {
 
 	  private:
 		detail::task_manager* m_task_mngr = nullptr;
-		detail::abstract_scheduler* m_schdlr = nullptr;
+		detail::scheduler* m_schdlr = nullptr;
 		detail::host_object_id m_next_id = 0;
 	};
 
