@@ -17,9 +17,9 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 - `handler::parallel_for(size_t, [size_t,] ...)` now acts as a shorthand for `parallel_for(range<1>, [id<1>,] ...)` (#288)
 - Experimental support for the AdaptiveCpp generic single-pass compiler (#294)
 - Constructor overloads to the `access::neighborhood` range mapper for reads in 3/5/7-point stencil codes (#292)
-- The SYCL backend now uses per-device submission threads to dispatch commands for better performance. 
+- The SYCL backend now uses per-device submission threads to dispatch commands for better performance.
   This new behaviour is enabled by default, and can be disabled via `CELERITY_BACKEND_DEVICE_SUBMISSION_THREADS` (#303)
-- Celerity now has a thread pinning mechanism to control how threads are pinned to CPU cores. 
+- Celerity now has a thread pinning mechanism to control how threads are pinned to CPU cores.
   This can be controlled via the `CELERITY_THREAD_PINNING` environment variable (#309)
 
 ### Changed
@@ -33,6 +33,8 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 - On systems that do not support device-to-device copies, data is now staged in linearized buffers for better performance (#287)
 - The `access::neighborhood` built-in range mapper now receives a `range` instead of a coordinate list (#292)
 - Overhauled the [installation](docs/installation.md) and [configuration](docs/configuration.md) documentation (#309)
+- Celerity will now queue up several command groups in order to combine allocations and elide resize operations.
+  This behavior can be influenced using the new `experimental::set_lookahead` and `experimental::flush` APIs (#298)
 
 ### Fixed
 

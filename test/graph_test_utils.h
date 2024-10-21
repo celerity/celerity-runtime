@@ -13,11 +13,13 @@ namespace celerity::test_utils {
 
 class cdag_test_context;
 class idag_test_context;
+class scheduler_test_context;
 
 template <typename TestContext>
 class task_builder {
 	friend class cdag_test_context;
 	friend class idag_test_context;
+	friend class scheduler_test_context;
 
 	using action = std::function<void(handler&)>;
 
@@ -93,6 +95,13 @@ class task_builder {
 		template <typename Hint>
 		step hint(Hint hint) {
 			return chain<step>([&hint](handler& cgh) { experimental::hint(cgh, hint); });
+		}
+
+		template <typename Hint>
+		step hint_if(const bool condition, Hint hint) {
+			return chain<step>([condition, &hint](handler& cgh) {
+				if(condition) { experimental::hint(cgh, hint); }
+			});
 		}
 
 	  private:

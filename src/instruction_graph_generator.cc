@@ -13,6 +13,7 @@
 #include "task.h"
 #include "tracy.h"
 #include "types.h"
+#include "utils.h"
 
 #include <unordered_map>
 #include <unordered_set>
@@ -323,6 +324,15 @@ struct buffer_memory_state {
 	// TODO evaluate if it ever makes sense to use a region_map here, or if we're better off expecting very few allocations and sticking to a vector here
 	std::vector<buffer_allocation_state> allocations; // disjoint
 
+	// Aggregates boxes that are required to be contiguous but have not yet been allocated in anticipate(). When performing the first (re)allocation on this
+	// memory, allocate_contiguously() will extend its allocations to cover all anticipated_contiguous_boxes, then clear the vector.
+	box_vector<3> anticipated_contiguous_boxes;
+
+	// Track the total number of allocations made during the buffer's lifetime to heuristically detect and warn about frequent re-sizes and split allocations
+	// that could have been merged with proper scheduler lookahead.
+	size_t total_allocations_performed = 0;
+	bool frequent_allocations_warning_emitted = false;
+
 	const buffer_allocation_state& get_allocation(const allocation_id aid) const {
 		const auto it = std::find_if(allocations.begin(), allocations.end(), [=](const buffer_allocation_state& a) { return a.aid == aid; });
 		assert(it != allocations.end());
@@ -562,6 +572,7 @@ class generator_impl {
 	void notify_buffer_destroyed(buffer_id bid);
 	void notify_host_object_created(host_object_id hoid, bool owns_instance);
 	void notify_host_object_destroyed(host_object_id hoid);
+	instruction_graph_generator::scheduling_hint anticipate(const command& cmd);
 	void compile(const command& cmd);
 
   private:
@@ -974,6 +985,10 @@ void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id
 		return;
 	}
 
+	// As soon as any allocation must be realized, allocate the full set of contiguous boxes anticipate()d up until this point
+	required_contiguous_boxes.insert(required_contiguous_boxes.end(), memory.anticipated_contiguous_boxes.begin(), memory.anticipated_contiguous_boxes.end());
+	memory.anticipated_contiguous_boxes.clear();
+
 	// We currently only ever *grow* the allocation of buffers on each memory, which means that we must merge (re-size) existing allocations that overlap with
 	// but do not fully contain one of the required contiguous boxes. *Overlapping* here strictly means having a non-empty intersection; two allocations whose
 	// boxes merely touch can continue to co-exist
@@ -999,8 +1014,6 @@ void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id
 
 	// Opportunistically merge connected boxes to keep the number of allocations and the tracking overhead low. This will not introduce artificial
 	// synchronization points because resize-copies are still rooted on the original last-writers.
-	// TODO consider over-allocating to avoid future reallocations, i.e. by using bounding boxes of boxes that have a common boundary but are not "connected" in
-	// the sense that they can simply be merged).
 	merge_connected_boxes(new_alloc_boxes);
 
 	// We collect new allocations in a vector *separate* from memory.allocations as to not invalidate iterators (and to avoid resize-copying from them).
@@ -1061,8 +1074,20 @@ void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id
 
 	// TODO garbage-collect allocations that are not up-to-date and not written to in this task
 
+	memory.total_allocations_performed += new_allocations.size();
 	memory.allocations.erase(resize_from_begin, memory.allocations.end());
 	memory.allocations.insert(memory.allocations.end(), std::make_move_iterator(new_allocations.begin()), std::make_move_iterator(new_allocations.end()));
+
+	// Heuristically detect excessive resizes, which should all be elided by scheduler lookahead (and iggen::anticipate()) in a well-behaved program.
+	if(!memory.frequent_allocations_warning_emitted && memory.total_allocations_performed >= 10) {
+		// This warning also covers all cases of the buffer_memory_state::allocations vector growing out of control, which quickly degrades scheduler
+		// performance in the current quadratic / cubic implementation of merge_overlapping_bounding_boxes / merge_connected_boxes.
+		CELERITY_WARN("Your program triggers frequent allocations or resizes for buffer {}, which may degrade performance. If possible, avoid "
+		              "celerity::queue::fence(), celerity::queue::wait() and celerity::experimental::flush() between command groups of growing access "
+		              "patterns, or try increasing scheduler lookahead via celerity::experimental::set_lookahead().",
+		    print_buffer_debug_label(bid));
+		memory.frequent_allocations_warning_emitted = true;
+	}
 }
 
 void generator_impl::commit_pending_region_receive_to_host_memory(
@@ -2273,6 +2298,64 @@ void generator_impl::flush_batch(batch&& batch) { // NOLINT(cppcoreguidelines-rv
 #endif
 }
 
+instruction_graph_generator::scheduling_hint generator_impl::anticipate(const command& cmd) {
+	// Although fence, push and await-push commands currently trigger host buffer allocations, these will be migrated to staging allocations eventually.
+	if(!utils::isa<execution_command>(&cmd)) return instruction_graph_generator::scheduling_hint::is_self_contained;
+
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::anticipate", Teal);
+
+	const auto& ecmd = *utils::as<execution_command>(&cmd);
+	const auto& tsk = *ecmd.get_task();
+	const auto concurrent_chunks = split_task_execution_range(ecmd, tsk);
+
+	std::unordered_map<std::pair<buffer_id, memory_id>, box_vector<3>, utils::pair_hash> required_contiguous_boxes;
+	const auto require_contiguous = [&](const buffer_id bid, const memory_id mid, const box_vector<3>& boxes) {
+		auto& new_boxes = required_contiguous_boxes[{bid, mid}]; // allow default-insert
+		new_boxes.insert(new_boxes.end(), boxes.begin(), boxes.end());
+	};
+
+	// Aggregate required boxes for kernel buffer accesses
+	const auto& bam = tsk.get_buffer_access_map();
+	for(const auto bid : bam.get_accessed_buffers()) {
+		for(const auto& chunk : concurrent_chunks) {
+			require_contiguous(bid, chunk.memory_id, bam.compute_required_contiguous_boxes(bid, chunk.execution_range));
+		}
+	}
+
+	// Aggregate required boxes for reduction in- and outputs
+	for(const auto& rinfo : tsk.get_reductions()) {
+		require_contiguous(rinfo.bid, host_memory_id, {scalar_reduction_box});
+		for(const auto& chunk : concurrent_chunks) {
+			require_contiguous(rinfo.bid, chunk.memory_id, {scalar_reduction_box});
+		}
+	}
+
+	// If the set of allocated boxes grows for any buffer since the last call to anticipate(), queueing this command might allow merging those allocations with
+	// future ones to avoid resizes
+	bool would_allocate = false;
+	for(const auto& [bid_mid, required_boxes] : required_contiguous_boxes) {
+		const auto [bid, mid] = bid_mid;
+		auto& memory = m_buffers.at(bid).memories[mid];
+
+		bool would_allocate_in_buffer_memory = false;
+		auto& anticipated_boxes = memory.anticipated_contiguous_boxes;
+		for(const auto& box : required_boxes) {
+			if(memory.is_allocated_contiguously(box)) continue;
+			if(std::any_of(anticipated_boxes.begin(), anticipated_boxes.end(), [&](const detail::box<3>& a) { return a.covers(box); })) continue;
+			memory.anticipated_contiguous_boxes.push_back(box);
+			would_allocate_in_buffer_memory = true;
+		}
+
+		if(would_allocate_in_buffer_memory) {
+			merge_overlapping_bounding_boxes(memory.anticipated_contiguous_boxes);
+			merge_connected_boxes(memory.anticipated_contiguous_boxes);
+			would_allocate = true;
+		}
+	}
+	return would_allocate ? instruction_graph_generator::scheduling_hint::could_merge_with_future_commands
+	                      : instruction_graph_generator::scheduling_hint::is_self_contained;
+}
+
 void generator_impl::compile(const command& cmd) {
 	batch command_batch;
 	matchbox::match(
@@ -2316,6 +2399,8 @@ void instruction_graph_generator::notify_host_object_created(const host_object_i
 }
 
 void instruction_graph_generator::notify_host_object_destroyed(const host_object_id hoid) { m_impl->notify_host_object_destroyed(hoid); }
+
+instruction_graph_generator::scheduling_hint instruction_graph_generator::anticipate(const command& cmd) { return m_impl->anticipate(cmd); }
 
 void instruction_graph_generator::compile(const command& cmd) { m_impl->compile(cmd); }
 

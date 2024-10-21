@@ -6,6 +6,7 @@
 #include "fence.h"
 #include "runtime.h"
 #include "tracy.h"
+#include "types.h"
 
 namespace celerity::detail {
 struct barrier_tag {};
@@ -112,3 +113,23 @@ class queue {
 };
 
 } // namespace celerity
+
+namespace celerity::experimental {
+
+/// Controls the lookahead window size for all future submissions on the queue. The default setting is `lookahead::automatic`.
+///
+/// Use this function if the default configuration either does not eliminate enough buffer resizes in your application (`lookahead::infinite`), or host tasks
+/// and kernels interact with the rest of your application in ways that require immediate flushing of every submitted command group (`lookahead::none`).
+//
+// Attached to the queue to signal that semantics are in-order with other submissions. Still applies to all queues.
+// Experimental: This is only applicable to fully static work assignment, which might not remain the default forever.
+inline void set_lookahead(celerity::queue& /* queue */, const experimental::lookahead lookahead) {
+	detail::runtime::get_instance().set_scheduler_lookahead(lookahead);
+}
+
+/// Flushes all command groups asynchronously enqueued in the scheduler.
+///
+/// This is beneficial only in rare situations where host-side code needs to synchronize with kernels or host tasks in a manner that is opaque to the runtime.
+inline void flush(celerity::queue& /* queue */) { detail::runtime::get_instance().flush_scheduler(); }
+
+} // namespace celerity::experimental

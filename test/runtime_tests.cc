@@ -626,6 +626,7 @@ namespace detail {
 						cv.notify_all();
 					});
 				});
+				experimental::flush(q);
 
 				// We need to wait in each iteration, so that tasks are still generated after some have already been executed (and after they therefore
 				// triggered their horizons). We can't use queue::wait for this as it will begin a new epoch and force-prune the task graph itself.
@@ -689,7 +690,7 @@ namespace detail {
 		auto& schdlr = runtime_testspy::get_schdlr(rt);
 		auto& exec = *utils::as<live_executor>(&runtime_testspy::get_exec(rt));
 
-		const auto scheduler_thread_name = get_thread_name(scheduler_testspy::get_thread(schdlr).native_handle());
+		const auto scheduler_thread_name = get_thread_name(scheduler_testspy::get_thread(schdlr));
 		CHECK(scheduler_thread_name == "cy-scheduler");
 
 		const auto executor_thread_name = get_thread_name(executor_testspy::get_thread(exec).native_handle());
@@ -736,7 +737,7 @@ namespace detail {
 
 		// intial epoch + master-node task + push + host task + 1 horizon
 		// (dry runs currently always simulate node 0, hence the master-node task)
-		CHECK(scheduler_testspy::get_command_count(runtime_testspy::get_schdlr(rt)) == 5);
+		CHECK(scheduler_testspy::get_live_command_count(runtime_testspy::get_schdlr(rt)) == 5);
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "dry run proceeds on fences", "[dryrun]") {
@@ -780,6 +781,7 @@ namespace detail {
 		env::scoped_test_environment ste(std::unordered_map<std::string, std::string>{{dryrun_envvar_name, "1"}});
 
 		queue q;
+		experimental::set_lookahead(q, experimental::lookahead::none);
 
 		auto& rt = runtime::get_instance();
 		runtime_testspy::get_task_manager(rt).set_horizon_step(1); // horizon step 1 to make testing easy and reproducible with config changes
@@ -1074,6 +1076,39 @@ namespace detail {
 		}
 
 		CHECK(host_task_completed);
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "lookahead ensures that a single allocation is used for a growing access pattern", "[runtime][lookahead]") {
+		const auto lookahead = GENERATE(values({experimental::lookahead::none, experimental::lookahead::automatic, experimental::lookahead::infinite}));
+		CAPTURE(lookahead);
+
+		if(lookahead == experimental::lookahead::none) { test_utils::allow_max_log_level(log_level::warn); }
+
+		queue q;
+		experimental::set_lookahead(q, lookahead);
+
+		constexpr size_t n_timesteps = 20;
+		buffer<const void*> pointer_buf(n_timesteps);
+		for(size_t i = 0; i < n_timesteps; ++i) {
+			q.submit([&, i](handler& cgh) {
+				accessor acc(pointer_buf, cgh, fixed<1>({i, 1}), write_only, no_init);
+				cgh.parallel_for(1, [=](item<1> item) { acc[i] = &acc[i]; });
+			});
+		}
+
+		const auto pointers = q.fence(pointer_buf).get();
+		bool is_single_allocation = pointers[0] != nullptr;
+		for(size_t i = 1; i < n_timesteps; ++i) {
+			// assuming that allocations are page-aligned, they cannot end up on consecutive memory addresses
+			is_single_allocation &= (pointers[i] == utils::offset(pointers[i - 1], sizeof(const void*)));
+		}
+		CHECK(is_single_allocation == (lookahead != experimental::lookahead::none));
+
+		const bool allocation_warning_received = test_utils::log_contains_exact(log_level::warn,
+		    "Your program triggers frequent allocations or resizes for buffer B0, which may degrade performance. If possible, avoid "
+		    "celerity::queue::fence(), celerity::queue::wait() and celerity::experimental::flush() between command groups of growing access "
+		    "patterns, or try increasing scheduler lookahead via celerity::experimental::set_lookahead().");
+		CHECK(allocation_warning_received == (lookahead == experimental::lookahead::none));
 	}
 
 } // namespace detail

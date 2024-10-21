@@ -1,146 +1,394 @@
 #include "scheduler.h"
 
 #include "affinity.h"
+#include "command_graph.h"
 #include "command_graph_generator.h"
+#include "double_buffered_queue.h"
 #include "instruction_graph_generator.h"
 #include "log.h"
 #include "named_threads.h"
 #include "print_utils.h"
+#include "ranges.h"
 #include "recorders.h"
 #include "tracy.h"
+#include "types.h"
+#include "utils.h"
+
+#include <cassert>
+#include <cstddef>
+#include <cstdlib>
+#include <deque>
+#include <exception>
+#include <memory>
+#include <optional>
+#include <string>
+#include <thread>
+#include <utility>
+#include <variant>
 
 #include <matchbox.hh>
 
 
-namespace celerity {
-namespace detail {
+namespace celerity::detail::scheduler_detail {
 
-	abstract_scheduler::abstract_scheduler(const size_t num_nodes, const node_id local_node_id, const system_info& system,
-	    abstract_scheduler::delegate* const delegate, command_recorder* const crec, instruction_recorder* const irec, const policy_set& policy)
-	    : m_cdag(std::make_unique<command_graph>()), m_crec(crec),
-	      m_cggen(std::make_unique<command_graph_generator>(num_nodes, local_node_id, *m_cdag, crec, policy.command_graph_generator)),
-	      m_idag(std::make_unique<instruction_graph>()), m_irec(irec), //
-	      m_iggen(
-	          std::make_unique<instruction_graph_generator>(num_nodes, local_node_id, system, *m_idag, delegate, irec, policy.instruction_graph_generator)) {}
+struct event_task_available {
+	const task* tsk;
+};
+struct event_command_available {
+	const command* cmd;
+	std::optional<instruction_graph_generator::scheduling_hint> hint;
+};
+struct event_buffer_created {
+	buffer_id bid;
+	celerity::range<3> range;
+	size_t elem_size;
+	size_t elem_align;
+	allocation_id user_allocation_id;
+};
+struct event_buffer_debug_name_changed {
+	buffer_id bid;
+	std::string debug_name;
+};
+struct event_buffer_destroyed {
+	buffer_id bid;
+};
+struct event_host_object_created {
+	host_object_id hoid;
+	bool owns_instance;
+};
+struct event_host_object_destroyed {
+	host_object_id hoid;
+};
+struct event_epoch_reached {
+	task_id tid;
+};
+struct event_set_lookahead {
+	experimental::lookahead lookahead;
+};
+struct event_flush_commands {};
+struct test_event_inspect {
+	scheduler_detail::test_inspector inspect;
+};
 
-	abstract_scheduler::~abstract_scheduler() = default;
+/// An event passed from task_manager or runtime through the public scheduler interface.
+using task_event = std::variant<event_task_available, event_buffer_created, event_buffer_debug_name_changed, event_buffer_destroyed, event_host_object_created,
+    event_host_object_destroyed, event_epoch_reached, event_set_lookahead, event_flush_commands, test_event_inspect>;
 
-	void abstract_scheduler::schedule() {
-		std::optional<task_id> shutdown_epoch_emitted = std::nullopt;
-		bool shutdown_epoch_reached = false;
+class task_queue {
+  public:
+	void push(task_event&& evt) { m_global_queue.push(std::move(evt)); }
 
-		while(!shutdown_epoch_reached) {
-			// We can frequently suspend / resume the scheduler thread without adding latency as long as the executor queue remains non-empty
-			m_event_queue.wait_while_empty();
+	task_event wait_and_pop() {
+		if(m_local_queue.empty()) {
+			// We can frequently suspend / resume the scheduler thread without adding latency as long as the executor remains busy
+			m_global_queue.wait_while_empty();
+			const auto& batch = m_global_queue.pop_all();
+			m_local_queue.insert(m_local_queue.end(), batch.begin(), batch.end());
+			assert(!m_local_queue.empty());
+		}
+		auto evt = std::move(m_local_queue.front());
+		m_local_queue.pop_front();
+		return evt;
+	}
 
-			for(auto& event : m_event_queue.pop_all()) {
-				matchbox::match(
-				    event,
-				    [&](const event_task_available& e) {
-					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
-					    assert(e.tsk != nullptr);
-					    auto& tsk = *e.tsk;
+	void assert_empty() {
+		assert(m_global_queue.pop_all().empty());
+		assert(m_local_queue.empty());
+	}
 
-					    std::vector<const command*> commands;
-					    {
-						    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::build_task", WebMaroon, "T{} build", tsk.get_id());
-						    CELERITY_DETAIL_TRACY_ZONE_TEXT(utils::make_task_debug_label(tsk.get_type(), tsk.get_id(), tsk.get_debug_name()));
-						    commands = m_cggen->build_task(tsk);
-					    }
+  private:
+	double_buffered_queue<task_event> m_global_queue;
+	std::deque<task_event> m_local_queue; // "triple buffer" here because double_buffered_queue only gives us a temporary reference to its read-end
+};
 
-					    for(const auto cmd : commands) {
-						    // If there are multiple commands, the shutdown epoch must come last. m_iggen.delegate must be considered dangling after receiving
-						    // the corresponding instruction, as runtime will begin destroying the executor after it has observed the epoch to be reached.
-						    assert(!shutdown_epoch_emitted);
+/// An event originating from command_graph_generator, or forwarded from the task_queue because it requires in-order processing with commands.
+using command_event = std::variant<event_command_available, event_buffer_debug_name_changed, event_buffer_destroyed, event_host_object_destroyed,
+    event_flush_commands, event_set_lookahead>;
 
-						    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::compile_command", MidnightBlue, "C{} compile", cmd->get_id());
-						    CELERITY_DETAIL_TRACY_ZONE_TEXT("{}", print_command_type(*cmd));
+class command_queue {
+  public:
+	bool should_dequeue(const experimental::lookahead lookahead) const {
+		if(m_queue.empty()) return false;
+		if(lookahead == experimental::lookahead::none) return true;                        // unconditionally dequeue, and do not inspect scheduling hints
+		if(m_num_flushes_in_queue > 0) return true;                                        // force-dequeue until all flushing events are processed
+		if(!std::holds_alternative<event_command_available>(m_queue.front())) return true; // only commands carry a hint and are thus worth delaying
+		const auto& avail = std::get<event_command_available>(m_queue.front());
+		assert(avail.hint.has_value()); // only nullopt when lookahead == none, which we checked above
+		if(avail.hint == instruction_graph_generator::scheduling_hint::is_self_contained) return true; // don't delay scheduling of self-contained commands
+		if(lookahead == experimental::lookahead::infinite) return false;
+		assert(lookahead == experimental::lookahead::automatic);
+		return m_num_horizons_since_last_mergeable_cmd >= 2; // heuristic: passing two horizons suggests we have arrived at an "allocation steady state"
+	}
 
-						    m_iggen->compile(*cmd);
+	void push(command_event&& evt) {
+		if(is_flush(evt)) m_num_flushes_in_queue += 1;
+		if(const auto avail = std::get_if<event_command_available>(&evt)) {
+			if(utils::isa<horizon_command>(avail->cmd)) { m_num_horizons_since_last_mergeable_cmd += 1; }
+			if(avail->hint == instruction_graph_generator::scheduling_hint::could_merge_with_future_commands) { m_num_horizons_since_last_mergeable_cmd = 0; }
+		}
+		m_queue.push_back(std::move(evt));
+	}
 
-						    if(tsk.get_type() == task_type::epoch && tsk.get_epoch_action() == epoch_action::shutdown) {
-							    shutdown_epoch_emitted = tsk.get_id();
-						    }
-					    }
-				    },
-				    [&](const event_buffer_created& e) {
-					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
-					    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_created", DarkGreen, "B{} create", e.bid);
-					    m_cggen->notify_buffer_created(e.bid, e.range, e.user_allocation_id != null_allocation_id);
-					    m_iggen->notify_buffer_created(e.bid, e.range, e.elem_size, e.elem_align, e.user_allocation_id);
-				    },
-				    [&](const event_buffer_debug_name_changed& e) {
-					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
-					    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_name_changed", DarkGreen, "B{} set name", e.bid);
-					    m_cggen->notify_buffer_debug_name_changed(e.bid, e.debug_name);
-					    m_iggen->notify_buffer_debug_name_changed(e.bid, e.debug_name);
-				    },
-				    [&](const event_buffer_destroyed& e) {
-					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
-					    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_destroyed", DarkGreen, "B{} destroy", e.bid);
-					    m_cggen->notify_buffer_destroyed(e.bid);
-					    m_iggen->notify_buffer_destroyed(e.bid);
-				    },
-				    [&](const event_host_object_created& e) {
-					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
-					    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::host_object_created", DarkGreen, "H{} create", e.hoid);
-					    m_cggen->notify_host_object_created(e.hoid);
-					    m_iggen->notify_host_object_created(e.hoid, e.owns_instance);
-				    },
-				    [&](const event_host_object_destroyed& e) {
-					    assert(!shutdown_epoch_emitted && !shutdown_epoch_reached);
-					    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::host_object_destroyed", DarkGreen, "H{} destroy", e.hoid);
-					    m_cggen->notify_host_object_destroyed(e.hoid);
-					    m_iggen->notify_host_object_destroyed(e.hoid);
-				    },
-				    [&](const event_epoch_reached& e) { //
-					    assert(!shutdown_epoch_reached);
-					    {
-						    // The cggen automatically prunes the CDAG on generation, which is safe because commands are not shared across threads.
-						    // We might want to refactor this to match the IDAG behavior in the future.
-						    CELERITY_DETAIL_TRACY_ZONE_SCOPED("scheduler::prune", Gray);
-						    m_cdag->erase_before_epoch(e.tid);
-						    m_idag->erase_before_epoch(e.tid);
-					    }
+	command_event pop() {
+		assert(!m_queue.empty());
+		auto evt = std::move(m_queue.front());
+		m_queue.pop_front();
+		if(is_flush(evt)) { m_num_flushes_in_queue -= 1; }
+		return evt;
+	}
 
-					    // The scheduler will receive the shutdown-epoch completion event via the runtime even if executor destruction has already begun.
-					    if(shutdown_epoch_emitted && e.tid == *shutdown_epoch_emitted) { shutdown_epoch_reached = true; }
-				    },
-				    [&](const event_test_inspect& e) { //
-					    e.inspect();
-				    });
-			}
+	void assert_empty() { assert(m_queue.empty()); }
+
+  private:
+	std::deque<command_event> m_queue;
+	int m_num_flushes_in_queue = 0;
+	int m_num_horizons_since_last_mergeable_cmd = 0;
+
+	static bool is_flush(const command_event& evt) {
+		if(std::holds_alternative<event_flush_commands>(evt)) return true;
+		// Flushing on all changes to the lookahead setting avoids complicated decisions on when to "anticipate" commands from incoming tasks
+		if(std::holds_alternative<event_set_lookahead>(evt)) return true;
+		if(const auto avail = std::get_if<event_command_available>(&evt)) {
+			return utils::isa<fence_command>(avail->cmd) || utils::isa<epoch_command>(avail->cmd);
+		}
+		return false;
+	}
+};
+
+struct scheduler_impl {
+	command_graph cdag;
+	command_recorder* crec;
+	command_graph_generator cggen;
+	instruction_graph idag;
+	instruction_recorder* irec;
+	instruction_graph_generator iggen;
+
+	experimental::lookahead lookahead = experimental::lookahead::automatic;
+
+	class task_queue task_queue;
+	class command_queue command_queue;
+
+	std::optional<task_id> shutdown_epoch_created = std::nullopt;
+	bool shutdown_epoch_reached = false;
+
+	std::thread thread;
+
+	scheduler_impl(bool start_thread, size_t num_nodes, node_id local_node_id, const system_info& system, scheduler::delegate* dlg, command_recorder* crec,
+	    instruction_recorder* irec, const scheduler::policy_set& policy);
+
+	// immovable: self-referential via `thread`
+	scheduler_impl(const scheduler_impl&) = delete;
+	scheduler_impl(scheduler_impl&&) = delete;
+	scheduler_impl& operator=(const scheduler_impl&) = delete;
+	scheduler_impl& operator=(scheduler_impl&&) = delete;
+
+	~scheduler_impl();
+
+	void process_task_queue_event(const task_event& evt);
+	void process_command_queue_event(const command_event& evt);
+
+	void scheduling_loop();
+	void thread_main();
+};
+
+scheduler_impl::scheduler_impl(const bool start_thread, const size_t num_nodes, const node_id local_node_id, const system_info& system,
+    scheduler::delegate* const dlg, command_recorder* const crec, instruction_recorder* const irec, const scheduler::policy_set& policy)
+    : cdag(), crec(crec), cggen(num_nodes, local_node_id, cdag, crec, policy.command_graph_generator), idag(), irec(irec),
+      iggen(num_nodes, local_node_id, system, idag, dlg, irec, policy.instruction_graph_generator) {
+	if(start_thread) {
+		thread = std::thread(&scheduler_impl::thread_main, this);
+		set_thread_name(thread.native_handle(), "cy-scheduler");
+	}
+}
+
+scheduler_impl::~scheduler_impl() {
+	// schedule() will exit as soon as it has processed the shutdown epoch
+	if(thread.joinable()) { thread.join(); }
+}
+
+void scheduler_impl::process_task_queue_event(const task_event& evt) {
+	matchbox::match(
+	    evt,
+	    [&](const event_task_available& e) {
+		    assert(!shutdown_epoch_created && !shutdown_epoch_reached);
+		    assert(e.tsk != nullptr);
+		    auto& tsk = *e.tsk;
+
+		    const auto commands = [&] {
+			    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::build_task", WebMaroon, "T{} build", tsk.get_id());
+			    CELERITY_DETAIL_TRACY_ZONE_TEXT(utils::make_task_debug_label(tsk.get_type(), tsk.get_id(), tsk.get_debug_name()));
+			    return cggen.build_task(tsk);
+		    }(); // IIFE
+
+		    for(const auto cmd : commands) {
+			    // If there are multiple commands, the shutdown epoch must come last. m_iggen.delegate must be considered dangling after receiving
+			    // the corresponding instruction, as runtime will begin destroying the executor after it has observed the epoch to be reached.
+			    assert(!shutdown_epoch_created);
+			    if(tsk.get_type() == task_type::epoch && tsk.get_epoch_action() == epoch_action::shutdown) { shutdown_epoch_created = tsk.get_id(); }
+
+			    std::optional<instruction_graph_generator::scheduling_hint> hint;
+			    if(lookahead != experimental::lookahead::none) { hint = iggen.anticipate(*cmd); }
+			    command_queue.push(event_command_available{cmd, hint});
+		    }
+	    },
+	    [&](const event_buffer_created& e) {
+		    assert(!shutdown_epoch_created && !shutdown_epoch_reached);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_created", DarkGreen, "B{} create", e.bid);
+		    cggen.notify_buffer_created(e.bid, e.range, e.user_allocation_id != null_allocation_id);
+		    // Buffer creation must be applied immediately (and out-of-order when necessary) so that instruction_graph_generator::anticipate() does not operate
+		    // on unknown buffers. This is fine as buffer creation never has dependencies on other commands and we do not re-use buffer ids.
+		    iggen.notify_buffer_created(e.bid, e.range, e.elem_size, e.elem_align, e.user_allocation_id);
+	    },
+	    [&](const event_buffer_debug_name_changed& e) {
+		    assert(!shutdown_epoch_created && !shutdown_epoch_reached);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_name_changed", DarkGreen, "B{} set name", e.bid);
+		    cggen.notify_buffer_debug_name_changed(e.bid, e.debug_name);
+		    // buffer-name changes are enqueued in-order to ensure that instruction records have the buffer names as they existed at task creation time.
+		    command_queue.push(e);
+	    },
+	    [&](const event_buffer_destroyed& e) {
+		    assert(!shutdown_epoch_created && !shutdown_epoch_reached);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_destroyed", DarkGreen, "B{} destroy", e.bid);
+		    cggen.notify_buffer_destroyed(e.bid);
+		    // host-object destruction must happen in-order, otherwise iggen would need to compile commands on already-deleted buffers.
+		    command_queue.push(e);
+	    },
+	    [&](const event_host_object_created& e) {
+		    assert(!shutdown_epoch_created && !shutdown_epoch_reached);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::host_object_created", DarkGreen, "H{} create", e.hoid);
+		    cggen.notify_host_object_created(e.hoid);
+		    // instruction_graph_generator::anticipate() does not examine host objects (unlike it does with buffers), but it doesn't hurt to create them early
+		    // either since we don't re-use host object ids.
+		    iggen.notify_host_object_created(e.hoid, e.owns_instance);
+	    },
+	    [&](const event_host_object_destroyed& e) {
+		    assert(!shutdown_epoch_created && !shutdown_epoch_reached);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::host_object_destroyed", DarkGreen, "H{} destroy", e.hoid);
+		    cggen.notify_host_object_destroyed(e.hoid);
+		    // host-object destruction must happen in-order, otherwise iggen would need to compile commands on already-deleted host objects.
+		    command_queue.push(e);
+	    },
+	    [&](const event_epoch_reached& e) { //
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED("scheduler::prune", Gray);
+		    cdag.erase_before_epoch(e.tid);
+		    idag.erase_before_epoch(e.tid);
+
+		    // The scheduler will receive the shutdown-epoch completion event via the runtime even if executor destruction has already begun.
+		    assert(!shutdown_epoch_reached);
+		    if(shutdown_epoch_created && e.tid == *shutdown_epoch_created) { shutdown_epoch_reached = true; }
+	    },
+	    [&](const event_set_lookahead& e) { //
+		    command_queue.push(e);
+	    },
+	    [&](const event_flush_commands& e) { //
+		    command_queue.push(e);
+	    },
+	    [&](const test_event_inspect& e) { //
+		    e.inspect(cdag, idag);
+	    });
+}
+
+void scheduler_impl::process_command_queue_event(const command_event& evt) {
+	matchbox::match(
+	    evt, //
+	    [&](const event_command_available& e) {
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::compile_command", MidnightBlue, "C{} compile", e.cmd->get_id());
+		    CELERITY_DETAIL_TRACY_ZONE_TEXT("{}", print_command_type(*e.cmd));
+		    iggen.compile(*e.cmd);
+	    },
+	    [&](const event_buffer_debug_name_changed& e) {
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_name_changed", DarkGreen, "B{} set name", e.bid);
+		    iggen.notify_buffer_debug_name_changed(e.bid, e.debug_name);
+	    },
+	    [&](const event_buffer_destroyed& e) {
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_destroyed", DarkGreen, "B{} destroy", e.bid);
+		    iggen.notify_buffer_destroyed(e.bid);
+	    },
+	    [&](const event_host_object_destroyed& e) {
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::host_object_destroyed", DarkGreen, "H{} destroy", e.hoid);
+		    iggen.notify_host_object_destroyed(e.hoid);
+	    },
+	    [&](const event_set_lookahead& e) {
+		    // setting the lookahead must happen in the command queue, not task queue, to make sure all previous commands are flushed first
+		    this->lookahead = e.lookahead;
+	    },
+	    [&](const event_flush_commands&) {
+		    // no-op, but must still reside in command_queue to ensure a correct num_flushes_in_queue count
+	    });
+}
+
+void scheduler_impl::scheduling_loop() {
+	while(!shutdown_epoch_reached) {
+		process_task_queue_event(task_queue.wait_and_pop());
+		while(command_queue.should_dequeue(lookahead)) {
+			process_command_queue_event(command_queue.pop());
 		}
 	}
+	task_queue.assert_empty();
+	command_queue.assert_empty();
+}
 
-	void abstract_scheduler::notify(event&& evt) { m_event_queue.push(std::move(evt)); }
-
-	scheduler::scheduler(const size_t num_nodes, const node_id local_node_id, const system_info& system, scheduler::delegate* const delegate,
-	    command_recorder* const crec, instruction_recorder* const irec, const policy_set& policy)
-	    : abstract_scheduler(num_nodes, local_node_id, system, delegate, crec, irec, policy), m_thread(&scheduler::thread_main, this) {
-		set_thread_name(m_thread.native_handle(), "cy-scheduler");
+void scheduler_impl::thread_main() {
+	CELERITY_DETAIL_TRACY_SET_THREAD_NAME_AND_ORDER("cy-scheduler", tracy_detail::thread_order::scheduler)
+	thread_pinning::pin_this_thread(thread_pinning::thread_type::scheduler); // TODO don't do this in benchmarks!
+	try {
+		scheduling_loop();
 	}
-
-	scheduler::~scheduler() {
-		// schedule() will exit as soon as it has processed the shutdown epoch
-		m_thread.join();
+	// LCOV_EXCL_START
+	catch(const std::exception& e) {
+		CELERITY_CRITICAL("[scheduler] {}", e.what());
+		std::abort();
 	}
+	// LCOV_EXCL_STOP
+}
 
-	void scheduler::thread_main() {
-		CELERITY_DETAIL_TRACY_SET_THREAD_NAME_AND_ORDER("cy-scheduler", tracy_detail::thread_order::scheduler)
+} // namespace celerity::detail::scheduler_detail
 
-		thread_pinning::pin_this_thread(thread_pinning::thread_type::scheduler);
+using namespace celerity::detail::scheduler_detail;
 
-		try {
-			schedule();
-		}
-		// LCOV_EXCL_START
-		catch(const std::exception& e) {
-			CELERITY_CRITICAL("[scheduler] {}", e.what());
-			std::abort();
-		}
-		// LCOV_EXCL_STOP
-	}
+namespace celerity::detail {
 
-} // namespace detail
-} // namespace celerity
+scheduler::scheduler(const size_t num_nodes, const node_id local_node_id, const system_info& system, delegate* const delegate, command_recorder* const crec,
+    instruction_recorder* const irec, const policy_set& policy)
+    : m_impl(std::make_unique<scheduler_impl>(true /* start_thread */, num_nodes, local_node_id, system, delegate, crec, irec, policy)) {}
+
+scheduler::~scheduler() = default;
+
+void scheduler::notify_task_created(const task* const tsk) { m_impl->task_queue.push(event_task_available{tsk}); }
+
+void scheduler::notify_buffer_created(
+    const buffer_id bid, const range<3>& range, const size_t elem_size, const size_t elem_align, const allocation_id user_allocation_id) {
+	m_impl->task_queue.push(event_buffer_created{bid, range, elem_size, elem_align, user_allocation_id});
+}
+
+void scheduler::notify_buffer_debug_name_changed(const buffer_id bid, const std::string& name) {
+	m_impl->task_queue.push(event_buffer_debug_name_changed{bid, name});
+}
+
+void scheduler::notify_buffer_destroyed(const buffer_id bid) { m_impl->task_queue.push(event_buffer_destroyed{bid}); }
+
+void scheduler::notify_host_object_created(const host_object_id hoid, const bool owns_instance) {
+	m_impl->task_queue.push(event_host_object_created{hoid, owns_instance});
+}
+
+void scheduler::notify_host_object_destroyed(const host_object_id hoid) { m_impl->task_queue.push(event_host_object_destroyed{hoid}); }
+
+void scheduler::notify_epoch_reached(const task_id tid) { m_impl->task_queue.push(event_epoch_reached{tid}); }
+
+void scheduler::set_lookahead(const experimental::lookahead lookahead) { m_impl->task_queue.push(event_set_lookahead{lookahead}); }
+
+void scheduler::flush_commands() { m_impl->task_queue.push(event_flush_commands{}); }
+
+// LCOV_EXCL_START - this is test instrumentation used only in benchmarks and not covered in unit tests
+
+scheduler::scheduler(const test_threadless_tag /* tag */, const size_t num_nodes, const node_id local_node_id, const system_info& system,
+    delegate* const delegate, command_recorder* const crec, instruction_recorder* const irec, const policy_set& policy)
+    : m_impl(std::make_unique<scheduler_impl>(false /* start_thread */, num_nodes, local_node_id, system, delegate, crec, irec, policy)) {}
+
+void scheduler::test_scheduling_loop() { m_impl->scheduling_loop(); }
+
+// LCOV_EXCL_STOP
+
+void scheduler::test_inspect(scheduler_detail::test_inspector inspector) { m_impl->task_queue.push(test_event_inspect{std::move(inspector)}); }
+
+} // namespace celerity::detail
