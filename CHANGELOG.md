@@ -16,6 +16,7 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 - The runtime can be explicitly shut down using `celerity::shutdown()`, complementing `celerity::init()` (#283)
 - `handler::parallel_for(size_t, [size_t,] ...)` now acts as a shorthand for `parallel_for(range<1>, [id<1>,] ...)` (#288)
 - Experimental support for the AdaptiveCpp generic single-pass compiler (#294)
+- Constructor overloads to the `access::neighborhood` range mapper for reads in 3/5/7-point stencil codes (#292)
 
 ### Changed
 

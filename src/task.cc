@@ -24,17 +24,17 @@ namespace detail {
 	}
 
 	template <int KernelDims>
-	subrange<3> apply_range_mapper(const range_mapper_base* rm, const chunk<KernelDims>& chnk) {
+	region<3> apply_range_mapper(const range_mapper_base* rm, const chunk<KernelDims>& chnk) {
 		switch(rm->get_buffer_dimensions()) {
-		case 0: return subrange_cast<3>(subrange<0>());
-		case 1: return subrange_cast<3>(rm->map_1(chnk));
-		case 2: return subrange_cast<3>(rm->map_2(chnk));
+		case 0: return region_cast<3>(region(box<0>()));
+		case 1: return region_cast<3>(rm->map_1(chnk));
+		case 2: return region_cast<3>(rm->map_2(chnk));
 		case 3: return rm->map_3(chnk);
 		default: utils::unreachable(); // LCOV_EXCL_LINE
 		}
 	}
 
-	subrange<3> apply_range_mapper(const range_mapper_base* rm, const chunk<3>& chnk, int kernel_dims) {
+	region<3> apply_range_mapper(const range_mapper_base* rm, const chunk<3>& chnk, int kernel_dims) {
 		switch(kernel_dims) {
 		case 0: return apply_range_mapper<0>(rm, chunk_cast<0>(chnk));
 		case 1: return apply_range_mapper<1>(rm, chunk_cast<1>(chnk));
@@ -46,15 +46,16 @@ namespace detail {
 
 	region<3> buffer_access_map::get_mode_requirements(
 	    const buffer_id bid, const access_mode mode, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const {
-		box_vector<3> boxes;
+		region<3> region;
 		for(size_t i = 0; i < m_accesses.size(); ++i) {
 			if(m_accesses[i].first != bid || m_accesses[i].second->get_access_mode() != mode) continue;
-			boxes.push_back(get_requirements_for_nth_access(i, kernel_dims, sr, global_size));
+			region = region_union(region, get_requirements_for_nth_access(i, kernel_dims, sr, global_size));
 		}
-		return region(std::move(boxes));
+		return region;
 	}
 
-	box<3> buffer_access_map::get_requirements_for_nth_access(const size_t n, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const {
+	region<3> buffer_access_map::get_requirements_for_nth_access(
+	    const size_t n, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const {
 		return apply_range_mapper(m_accesses[n].second.get(), chunk<3>{sr.offset, sr.range, global_size}, kernel_dims);
 	}
 
@@ -63,8 +64,8 @@ namespace detail {
 		box_vector<3> boxes;
 		for(const auto& [a_bid, a_rm] : m_accesses) {
 			if(a_bid == bid) {
-				const auto accessed_box = box(apply_range_mapper(a_rm.get(), chunk<3>{sr.offset, sr.range, global_size}, kernel_dims));
-				if(!accessed_box.empty()) { boxes.push_back(accessed_box); }
+				const auto accessed_region = apply_range_mapper(a_rm.get(), chunk<3>{sr.offset, sr.range, global_size}, kernel_dims);
+				if(!accessed_region.empty()) { boxes.push_back(bounding_box(accessed_region)); }
 			}
 		}
 		return boxes;

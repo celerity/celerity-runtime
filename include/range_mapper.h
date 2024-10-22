@@ -6,6 +6,7 @@
 #include <fmt/format.h>
 #include <sycl/sycl.hpp>
 
+#include "grid.h"
 #include "ranges.h"
 #include "utils.h"
 
@@ -14,11 +15,11 @@ namespace celerity {
 namespace detail {
 
 	template <typename Functor, int BufferDims, int KernelDims>
-	constexpr bool is_range_mapper_invocable_for_chunk_only = std::is_invocable_r_v<subrange<BufferDims>, const Functor&, const celerity::chunk<KernelDims>&>;
+	constexpr bool is_range_mapper_invocable_for_chunk_only = std::is_invocable_r_v<region<BufferDims>, const Functor&, const celerity::chunk<KernelDims>&>;
 
 	template <typename Functor, int BufferDims, int KernelDims>
 	constexpr bool is_range_mapper_invocable_for_chunk_and_global_size =
-	    std::is_invocable_r_v<subrange<BufferDims>, const Functor&, const celerity::chunk<KernelDims>&, const range<BufferDims>&>;
+	    std::is_invocable_r_v<region<BufferDims>, const Functor&, const celerity::chunk<KernelDims>&, const range<BufferDims>&>;
 
 	template <typename Functor, int BufferDims, int KernelDims>
 	constexpr bool is_range_mapper_invocable_for_kernel = is_range_mapper_invocable_for_chunk_only<Functor, BufferDims, KernelDims> //
@@ -41,8 +42,8 @@ namespace detail {
 		    expect_sr_dims, actual_sr_dims, kernel_dims));
 	}
 
-	template <int KernelDims, int BufferDims, typename Functor>
-	subrange<BufferDims> invoke_range_mapper_for_kernel(Functor&& fn, const celerity::chunk<KernelDims>& chunk, const range<BufferDims>& buffer_size) {
+	template <typename Functor, int KernelDims, int BufferDims>
+	region<BufferDims> invoke_range_mapper(Functor&& fn, const celerity::chunk<KernelDims>& chunk, const range<BufferDims>& buffer_size) {
 		static_assert(KernelDims >= 0 && KernelDims <= 3 && BufferDims >= 0 && BufferDims <= 3);
 		if constexpr(is_range_mapper_invocable_for_chunk_and_global_size<Functor, BufferDims, KernelDims>) {
 			return std::forward<Functor>(fn)(chunk, buffer_size);
@@ -54,50 +55,35 @@ namespace detail {
 	}
 
 	template <int BufferDims>
-	subrange<BufferDims> clamp_subrange_to_buffer_size(subrange<BufferDims> sr, range<BufferDims> buffer_size) {
-		auto end = sr.offset + sr.range;
-		if(BufferDims > 0 && end[0] > buffer_size[0]) { sr.range[0] = sr.offset[0] <= buffer_size[0] ? buffer_size[0] - sr.offset[0] : 0; }
-		if(BufferDims > 1 && end[1] > buffer_size[1]) { sr.range[1] = sr.offset[1] <= buffer_size[1] ? buffer_size[1] - sr.offset[1] : 0; }
-		if(BufferDims > 2 && end[2] > buffer_size[2]) { sr.range[2] = sr.offset[2] <= buffer_size[2] ? buffer_size[2] - sr.offset[2] : 0; }
-		return sr;
-	}
-
-	template <int BufferDims, typename Functor>
-	subrange<BufferDims> invoke_range_mapper(int kernel_dims, Functor fn, const celerity::chunk<3>& chunk, const range<BufferDims>& buffer_size) {
-		static_assert(is_range_mapper_invocable<Functor, BufferDims>);
-		subrange<BufferDims> sr;
-		switch(kernel_dims) {
-		case 0: sr = invoke_range_mapper_for_kernel(fn, chunk_cast<0>(chunk), buffer_size); break;
-		case 1: sr = invoke_range_mapper_for_kernel(fn, chunk_cast<1>(chunk), buffer_size); break;
-		case 2: sr = invoke_range_mapper_for_kernel(fn, chunk_cast<2>(chunk), buffer_size); break;
-		case 3: sr = invoke_range_mapper_for_kernel(fn, chunk_cast<3>(chunk), buffer_size); break;
-		default: utils::unreachable(); // LCOV_EXCL_LINE
-		}
-		return clamp_subrange_to_buffer_size(sr, buffer_size);
+	region<BufferDims> clamp_region_to_buffer_size(const region<BufferDims>& r, const range<BufferDims>& buffer_size) {
+		return region_intersection(r, box<BufferDims>::full_range(buffer_size));
 	}
 
 	class range_mapper_base {
 	  public:
 		explicit range_mapper_base(sycl::access::mode am) : m_access_mode(am) {}
+
 		range_mapper_base(const range_mapper_base& other) = delete;
 		range_mapper_base(range_mapper_base&& other) = delete;
+		range_mapper_base& operator=(const range_mapper_base& other) = delete;
+		range_mapper_base& operator=(range_mapper_base&& other) = delete;
 
 		sycl::access::mode get_access_mode() const { return m_access_mode; }
 
 		virtual int get_buffer_dimensions() const = 0;
 
-		virtual subrange<1> map_1(const chunk<0>& chnk) const = 0;
-		virtual subrange<1> map_1(const chunk<1>& chnk) const = 0;
-		virtual subrange<1> map_1(const chunk<2>& chnk) const = 0;
-		virtual subrange<1> map_1(const chunk<3>& chnk) const = 0;
-		virtual subrange<2> map_2(const chunk<0>& chnk) const = 0;
-		virtual subrange<2> map_2(const chunk<1>& chnk) const = 0;
-		virtual subrange<2> map_2(const chunk<2>& chnk) const = 0;
-		virtual subrange<2> map_2(const chunk<3>& chnk) const = 0;
-		virtual subrange<3> map_3(const chunk<0>& chnk) const = 0;
-		virtual subrange<3> map_3(const chunk<1>& chnk) const = 0;
-		virtual subrange<3> map_3(const chunk<2>& chnk) const = 0;
-		virtual subrange<3> map_3(const chunk<3>& chnk) const = 0;
+		virtual region<1> map_1(const chunk<0>& chnk) const = 0;
+		virtual region<1> map_1(const chunk<1>& chnk) const = 0;
+		virtual region<1> map_1(const chunk<2>& chnk) const = 0;
+		virtual region<1> map_1(const chunk<3>& chnk) const = 0;
+		virtual region<2> map_2(const chunk<0>& chnk) const = 0;
+		virtual region<2> map_2(const chunk<1>& chnk) const = 0;
+		virtual region<2> map_2(const chunk<2>& chnk) const = 0;
+		virtual region<2> map_2(const chunk<3>& chnk) const = 0;
+		virtual region<3> map_3(const chunk<0>& chnk) const = 0;
+		virtual region<3> map_3(const chunk<1>& chnk) const = 0;
+		virtual region<3> map_3(const chunk<2>& chnk) const = 0;
+		virtual region<3> map_3(const chunk<3>& chnk) const = 0;
 
 		virtual ~range_mapper_base() = default;
 
@@ -106,34 +92,34 @@ namespace detail {
 	};
 
 	template <int BufferDims, typename Functor>
-	class range_mapper : public range_mapper_base {
+	class range_mapper final : public range_mapper_base {
 	  public:
 		range_mapper(Functor rmfn, sycl::access::mode am, range<BufferDims> buffer_size) : range_mapper_base(am), m_rmfn(rmfn), m_buffer_size(buffer_size) {}
 
 		int get_buffer_dimensions() const override { return BufferDims; }
 
-		subrange<1> map_1(const chunk<0>& chnk) const override { return map<1>(chnk); }
-		subrange<1> map_1(const chunk<1>& chnk) const override { return map<1>(chnk); }
-		subrange<1> map_1(const chunk<2>& chnk) const override { return map<1>(chnk); }
-		subrange<1> map_1(const chunk<3>& chnk) const override { return map<1>(chnk); }
-		subrange<2> map_2(const chunk<0>& chnk) const override { return map<2>(chnk); }
-		subrange<2> map_2(const chunk<1>& chnk) const override { return map<2>(chnk); }
-		subrange<2> map_2(const chunk<2>& chnk) const override { return map<2>(chnk); }
-		subrange<2> map_2(const chunk<3>& chnk) const override { return map<2>(chnk); }
-		subrange<3> map_3(const chunk<0>& chnk) const override { return map<3>(chnk); }
-		subrange<3> map_3(const chunk<1>& chnk) const override { return map<3>(chnk); }
-		subrange<3> map_3(const chunk<2>& chnk) const override { return map<3>(chnk); }
-		subrange<3> map_3(const chunk<3>& chnk) const override { return map<3>(chnk); }
+		region<1> map_1(const chunk<0>& chnk) const override { return map<1>(chnk); }
+		region<1> map_1(const chunk<1>& chnk) const override { return map<1>(chnk); }
+		region<1> map_1(const chunk<2>& chnk) const override { return map<1>(chnk); }
+		region<1> map_1(const chunk<3>& chnk) const override { return map<1>(chnk); }
+		region<2> map_2(const chunk<0>& chnk) const override { return map<2>(chnk); }
+		region<2> map_2(const chunk<1>& chnk) const override { return map<2>(chnk); }
+		region<2> map_2(const chunk<2>& chnk) const override { return map<2>(chnk); }
+		region<2> map_2(const chunk<3>& chnk) const override { return map<2>(chnk); }
+		region<3> map_3(const chunk<0>& chnk) const override { return map<3>(chnk); }
+		region<3> map_3(const chunk<1>& chnk) const override { return map<3>(chnk); }
+		region<3> map_3(const chunk<2>& chnk) const override { return map<3>(chnk); }
+		region<3> map_3(const chunk<3>& chnk) const override { return map<3>(chnk); }
 
 	  private:
 		Functor m_rmfn;
 		range<BufferDims> m_buffer_size;
 
 		template <int OtherBufferDims, int KernelDims>
-		subrange<OtherBufferDims> map(const chunk<KernelDims>& chnk) const {
+		region<OtherBufferDims> map(const chunk<KernelDims>& chnk) const {
 			if constexpr(OtherBufferDims == BufferDims) {
-				auto sr = invoke_range_mapper_for_kernel(m_rmfn, chnk, m_buffer_size);
-				return clamp_subrange_to_buffer_size(sr, m_buffer_size);
+				const auto r = invoke_range_mapper(m_rmfn, chnk, m_buffer_size);
+				return clamp_region_to_buffer_size(r, m_buffer_size);
 			} else {
 				throw_invalid_range_mapper_result(OtherBufferDims, BufferDims, KernelDims);
 			}
@@ -159,7 +145,7 @@ namespace access {
 		fixed(const subrange<BufferDims>& sr) : m_sr(sr) {}
 
 		template <int KernelDims>
-		subrange<BufferDims> operator()(const chunk<KernelDims>&) const {
+		subrange<BufferDims> operator()(const chunk<KernelDims>& /* chnk */) const {
 			return m_sr;
 		}
 
@@ -189,27 +175,63 @@ namespace access {
 		}
 	};
 
+	/// Optional parameter to the `neighborhood` constructor to specify in what shape the accessed region should extend from the work item.
+	enum neighborhood_shape {
+		along_axes,   ///< The neighborhood extends along each axis separately, but not diagonally (in 2D, into a "+" shape).
+		bounding_box, ///< The neighborhood extends along in all dimensions simultaneously to produce a single bounding box.
+	};
+
+	/// Declares a buffer access that extends from the current work item by a symmetric boundary offset, either in all directions in the shape of a bounding
+	/// box (default), or along each axis separately (without "diagonal" boundary elements). Buffer and kernel dimensions must both match the `Dims` parameter.
+	///
+	/// This is typically used in stencil applications. For bounding-box neighborhoods,
+	/// - `neighborhood(1)` declares the read for a 1D 3-point stencil,
+	/// - `neighborhood(1, 1)` for a 2D 9-point stencil, and
+	/// - `neighborhood(1, 1, 1)` for a 3D 27-point stencil.
+	///
+	/// For neighborhoods defined along axes only,
+	/// - `neighborhood(range(1), along_axes)` declares the read for a 1D 3-point stencil,
+	/// - `neighborhood(range(1, 1), along_axes)` for a 2D 5-point stencil, and
+	/// - `neighborhood(range(1, 1, 1), along_axes)` for a 3D 7-point stencil.
+	///
+	/// For reads, `neighborhood_shape::bounding_box` is functionally correct whenever `neighborhood_shape::along_axes` is, but will lead to unnecessary copies
+	/// and transfers between diagonal neighbors in 2D-split work assignments when the application does not actually read from those buffer elements.
 	template <int Dims>
 	struct neighborhood {
-		neighborhood(size_t dim0) : m_dim0(dim0), m_dim1(0), m_dim2(0) {}
+		explicit neighborhood(const range<Dims>& extent, const neighborhood_shape shape = bounding_box) : m_extent(extent), m_shape(shape) {}
 
-		template <int D = Dims, std::enable_if_t<D >= 2, void*>...>
-		neighborhood(size_t dim0, size_t dim1) : m_dim0(dim0), m_dim1(dim1), m_dim2(0) {}
+		explicit neighborhood(const size_t dim0) requires(Dims == 1) : neighborhood(range(dim0)) {}
+		explicit neighborhood(const size_t dim0, const size_t dim1) requires(Dims == 2) : neighborhood(range(dim0, dim1)) {}
+		explicit neighborhood(const size_t dim0, const size_t dim1, const size_t dim2) requires(Dims == 3) : neighborhood(range(dim0, dim1, dim2)) {}
 
-		template <int D = Dims, std::enable_if_t<D == 3, void*>...>
-		neighborhood(size_t dim0, size_t dim1, size_t dim2) : m_dim0(dim0), m_dim1(dim1), m_dim2(dim2) {}
-
-		subrange<Dims> operator()(const chunk<Dims>& chnk) const {
-			subrange<3> result = {celerity::detail::id_cast<3>(chnk.offset), celerity::detail::range_cast<3>(chnk.range)};
-			const id<3> delta = {m_dim0 < result.offset[0] ? m_dim0 : result.offset[0], m_dim1 < result.offset[1] ? m_dim1 : result.offset[1],
-			    m_dim2 < result.offset[2] ? m_dim2 : result.offset[2]};
-			result.offset -= delta;
-			result.range += range<3>{m_dim0 + delta[0], m_dim1 + delta[1], m_dim2 + delta[2]};
-			return detail::subrange_cast<Dims>(result);
+		detail::region<Dims> operator()(const chunk<Dims>& chnk) const {
+			const detail::box interior(subrange(chnk.offset, chnk.range));
+			detail::box_vector<Dims> boxes;
+			if(m_shape == neighborhood_shape::along_axes) {
+				boxes.push_back(interior);
+				for(int d = 0; d < Dims; ++d) {
+					boxes.push_back(extend_axis(interior, d));
+				}
+			} else {
+				auto& bounding_box = boxes.emplace_back(interior);
+				for(int d = 0; d < Dims; ++d) {
+					bounding_box = extend_axis(bounding_box, d);
+				}
+			}
+			return detail::region(std::move(boxes));
 		}
 
 	  private:
-		size_t m_dim0, m_dim1, m_dim2;
+		range<Dims> m_extent;
+		neighborhood_shape m_shape;
+
+		inline detail::box<Dims> extend_axis(const detail::box<Dims>& box, const int d) const {
+			auto min = box.get_min();
+			auto max = box.get_max();
+			min[d] -= std::min(m_extent[d], min[d]);
+			max[d] += std::min(m_extent[d], std::numeric_limits<size_t>::max() - max[d]);
+			return detail::box(min, max);
+		}
 	};
 
 	neighborhood(size_t)->neighborhood<1>;
