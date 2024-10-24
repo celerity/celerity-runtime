@@ -1011,7 +1011,7 @@ namespace detail {
 
 		// intial epoch + master-node task + push + host task + 1 horizon
 		// (dry runs currently always simulate node 0, hence the master-node task)
-		CHECK(scheduler_testspy::get_command_count(runtime_testspy::get_schdlr(rt)) == 5);
+		CHECK(scheduler_testspy::get_live_command_count(runtime_testspy::get_schdlr(rt)) == 5);
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "dry run proceeds on fences", "[dryrun]") {

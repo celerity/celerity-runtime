@@ -273,7 +273,7 @@ namespace detail {
 		    CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::log_error : error_policy::ignore;
 		schdlr_policy.instruction_graph_generator.unsafe_oversubscription_error = error_policy::log_warning;
 
-		m_schdlr = std::make_unique<scheduler>(m_num_nodes, m_local_nid, system, *m_task_mngr, static_cast<abstract_scheduler::delegate*>(this),
+		m_schdlr = std::make_unique<scheduler>(m_num_nodes, m_local_nid, system, *m_task_mngr, static_cast<scheduler::delegate*>(this),
 		    m_command_recorder.get(), m_instruction_recorder.get(), schdlr_policy);
 		m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
 

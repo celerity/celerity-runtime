@@ -302,20 +302,23 @@ class restartable_thread {
 	}
 };
 
-class benchmark_scheduler final : public abstract_scheduler {
+namespace celerity::detail {
+
+class test_benchmark_scheduler : public scheduler {
   public:
-	benchmark_scheduler(restartable_thread& thread, const size_t num_nodes, const node_id local_node_id, const system_info& system_info, const task_manager& tm,
-	    delegate* const delegate, command_recorder* const crec, instruction_recorder* const irec)
-	    : abstract_scheduler(num_nodes, local_node_id, system_info, tm, delegate, crec, irec), m_thread(&thread) {
-		m_thread->start([this] { schedule(); });
+	test_benchmark_scheduler(restartable_thread& thread, const size_t num_nodes, const node_id local_node_id, const system_info& system_info,
+	    const task_manager& tm, delegate* const delegate, command_recorder* const crec, instruction_recorder* const irec)
+	    : scheduler(scheduler::start_idle, num_nodes, local_node_id, system_info, tm, delegate, crec, irec), m_thread(&thread) //
+	{
+		m_thread->start([this] { thread_main(); });
 	}
 
-	benchmark_scheduler(const benchmark_scheduler&) = delete;
-	benchmark_scheduler(benchmark_scheduler&&) = delete;
-	benchmark_scheduler& operator=(const benchmark_scheduler&) = delete;
-	benchmark_scheduler& operator=(benchmark_scheduler&&) = delete;
+	test_benchmark_scheduler(const test_benchmark_scheduler&) = delete;
+	test_benchmark_scheduler(test_benchmark_scheduler&&) = delete;
+	test_benchmark_scheduler& operator=(const test_benchmark_scheduler&) = delete;
+	test_benchmark_scheduler& operator=(test_benchmark_scheduler&&) = delete;
 
-	~benchmark_scheduler() override {
+	~test_benchmark_scheduler() {
 		// schedule() will exit as soon as it has acknowledged the shutdown epoch
 		m_thread->join();
 	}
@@ -324,11 +327,13 @@ class benchmark_scheduler final : public abstract_scheduler {
 	restartable_thread* m_thread;
 };
 
+} // namespace celerity::detail
+
 struct scheduler_benchmark_context {
 	const size_t num_nodes;
 	command_graph cdag;
 	task_manager tm{num_nodes, nullptr, benchmark_task_manager_policy};
-	benchmark_scheduler schdlr;
+	test_benchmark_scheduler schdlr;
 	test_utils::mock_buffer_factory mbf;
 
 	explicit scheduler_benchmark_context(restartable_thread& thrd, const size_t num_nodes, const size_t num_devices_per_node)
@@ -387,9 +392,8 @@ template <typename BenchmarkContext>
 [[gnu::noinline]] BenchmarkContext&& generate_soup_graph(BenchmarkContext&& ctx, const size_t num_tasks) {
 	test_utils::mock_buffer<2> buf = ctx.mbf.create_buffer(range<2>{ctx.num_nodes, num_tasks}, true /* host_initialized */);
 	for(size_t t = 0; t < num_tasks; ++t) {
-		ctx.create_task(range<1>{ctx.num_nodes}, [&](handler& cgh) {
-			buf.get_access<access_mode::read_write>(cgh, [=](chunk<1> ck) { return subrange<2>{{ck.offset[0], t}, {ck.range[0], 1}}; });
-		});
+		ctx.create_task(range<1>{ctx.num_nodes},
+		    [&](handler& cgh) { buf.get_access<access_mode::read_write>(cgh, [=](chunk<1> ck) { return subrange<2>{{ck.offset[0], t}, {ck.range[0], 1}}; }); });
 	}
 
 	return std::forward<BenchmarkContext>(ctx);

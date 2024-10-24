@@ -21,6 +21,7 @@
 #include "command.h"
 #include "command_graph.h"
 #include "command_graph_generator.h"
+#include "named_threads.h"
 #include "print_graph.h"
 #include "range_mapper.h"
 #include "region_map.h"
@@ -62,12 +63,12 @@ namespace detail {
 			return channel.get_future().get();
 		}
 
-		static size_t get_command_count(scheduler& schdlr) {
-			return inspect_thread(schdlr, [&] { return schdlr.m_cdag->command_count(); });
+		static size_t get_live_command_count(scheduler& schdlr) {
+			return inspect_thread(schdlr, [&] { return schdlr.test_get_live_command_count(); });
 		}
 
 		static size_t get_live_instruction_count(scheduler& schdlr) {
-			return inspect_thread(schdlr, [&] { return schdlr.m_idag->get_live_instruction_count(); });
+			return inspect_thread(schdlr, [&] { return schdlr.test_get_live_instruction_count(); });
 		}
 	};
 
@@ -248,7 +249,7 @@ namespace test_utils {
 		explicit mock_buffer_factory(detail::task_manager& tm, detail::command_graph_generator& cggen) : m_task_mngr(&tm), m_cggen(&cggen) {}
 		explicit mock_buffer_factory(detail::task_manager& tm, detail::command_graph_generator& cggen, detail::instruction_graph_generator& iggen)
 		    : m_task_mngr(&tm), m_cggen(&cggen), m_iggen(&iggen) {}
-		explicit mock_buffer_factory(detail::task_manager& tm, detail::abstract_scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
+		explicit mock_buffer_factory(detail::task_manager& tm, detail::scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
 
 		template <int Dims>
 		mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
@@ -265,7 +266,7 @@ namespace test_utils {
 
 	  private:
 		detail::task_manager* m_task_mngr = nullptr;
-		detail::abstract_scheduler* m_schdlr = nullptr;
+		detail::scheduler* m_schdlr = nullptr;
 		detail::command_graph_generator* m_cggen = nullptr;
 		detail::instruction_graph_generator* m_iggen = nullptr;
 		detail::buffer_id m_next_buffer_id = 0;
@@ -276,7 +277,7 @@ namespace test_utils {
 	  public:
 		explicit mock_host_object_factory() = default;
 		explicit mock_host_object_factory(detail::task_manager& tm) : m_task_mngr(&tm) {}
-		explicit mock_host_object_factory(detail::task_manager& tm, detail::abstract_scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
+		explicit mock_host_object_factory(detail::task_manager& tm, detail::scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
 
 		mock_host_object create_host_object(bool owns_instance = true) {
 			const detail::host_object_id hoid = m_next_id++;
@@ -287,7 +288,7 @@ namespace test_utils {
 
 	  private:
 		detail::task_manager* m_task_mngr = nullptr;
-		detail::abstract_scheduler* m_schdlr = nullptr;
+		detail::scheduler* m_schdlr = nullptr;
 		detail::host_object_id m_next_id = 0;
 	};
 

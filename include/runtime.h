@@ -19,7 +19,7 @@ namespace detail {
 	class task_manager;
 	struct host_object_instance;
 
-	class runtime final : private abstract_scheduler::delegate, private executor::delegate {
+	class runtime final : private scheduler::delegate, private executor::delegate {
 		friend struct runtime_testspy;
 
 	  public:
