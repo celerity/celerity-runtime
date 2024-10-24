@@ -3,26 +3,21 @@
 #include "access_modes.h"
 #include "command.h"
 #include "command_graph.h"
+#include "print_utils.h"
 #include "recorders.h"
 #include "split.h"
 #include "task.h"
-#include "task_manager.h"
+#include "task_manager.h" // TODO for initial_epoch_task, remove
+
 
 namespace celerity::detail {
 
 command_graph_generator::command_graph_generator(
-    const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm, detail::command_recorder* recorder, const policy_set& policy)
-    : m_num_nodes(num_nodes), m_local_nid(local_nid), m_policy(policy), m_cdag(cdag), m_task_mngr(tm), m_recorder(recorder) {
+    const size_t num_nodes, const node_id local_nid, command_graph& cdag, detail::command_recorder* recorder, const policy_set& policy)
+    : m_num_nodes(num_nodes), m_local_nid(local_nid), m_policy(policy), m_cdag(cdag), m_recorder(recorder) {
 	if(m_num_nodes > max_num_nodes) {
 		throw std::runtime_error(fmt::format("Number of nodes requested ({}) exceeds compile-time maximum of {}", m_num_nodes, max_num_nodes));
 	}
-
-	// Build initial epoch command (this is required to properly handle anti-dependencies on host-initialized buffers).
-	// We manually generate the first command so it doesn't get added to the current batch; it will be replaced by applied horizons
-	// or explicit epochs down the line (see set_epoch_for_new_commands).
-	auto* const epoch_cmd = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none, std::vector<reduction_id>{});
-	if(is_recording()) { m_recorder->record_command(std::make_unique<epoch_command_record>(*epoch_cmd, *tm.get_task(task_manager::initial_epoch_task))); }
-	m_epoch_for_new_commands = epoch_cmd->get_cid();
 }
 
 void command_graph_generator::notify_buffer_created(const buffer_id bid, const range<3>& range, bool host_initialized) {
@@ -485,10 +480,10 @@ void command_graph_generator::generate_distributed_commands(const task& tsk) {
 	for(const auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
 		abstract_command* cmd = nullptr;
 		if(tsk.get_type() == task_type::fence) {
-			cmd = create_command<fence_command>(tsk.get_id(),
-			    [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
+			cmd = create_command<fence_command>(
+			    &tsk, [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
 		} else {
-			cmd = create_command<execution_command>(tsk.get_id(), subrange{a_chunk.chnk},
+			cmd = create_command<execution_command>(&tsk, subrange{a_chunk.chnk},
 			    [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
 
 			// Go over all reductions that are to be performed *during* the execution of this chunk,
@@ -576,7 +571,7 @@ void command_graph_generator::generate_anti_dependencies(
 	const auto last_writers = last_writers_map.get_region_values(write_req);
 	for(const auto& [box, wcs] : last_writers) {
 		auto* const last_writer_cmd = m_cdag.get(static_cast<command_id>(wcs));
-		assert(!utils::isa<task_command>(last_writer_cmd) || utils::as<task_command>(last_writer_cmd)->get_tid() != tid);
+		assert(!utils::isa<task_command>(last_writer_cmd) || utils::as<task_command>(last_writer_cmd)->get_task()->get_id() != tid);
 
 		// Add anti-dependencies onto all successors of the writer
 		bool has_successors = false;
@@ -587,7 +582,7 @@ void command_graph_generator::generate_anti_dependencies(
 			auto* const cmd = d.node;
 
 			// We might have already generated new commands within the same task that also depend on this; in that case, skip it
-			if(utils::isa<task_command>(cmd) && utils::as<task_command>(cmd)->get_tid() == tid) continue;
+			if(utils::isa<task_command>(cmd) && utils::as<task_command>(cmd)->get_task()->get_id() == tid) continue;
 
 			// So far we don't know whether the dependent actually intersects with the subrange we're writing
 			if(const auto command_reads_it = m_command_buffer_reads.find(cmd->get_cid()); command_reads_it != m_command_buffer_reads.end()) {
@@ -662,7 +657,7 @@ void command_graph_generator::reduce_execution_front_to(abstract_command* const 
 void command_graph_generator::generate_epoch_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::epoch);
 	auto* const epoch = create_command<epoch_command>(
-	    tsk.get_id(), tsk.get_epoch_action(), std::move(m_completed_reductions), [&](const auto& record_debug_info) { record_debug_info(tsk); });
+	    &tsk, tsk.get_epoch_action(), std::move(m_completed_reductions), [&](const auto& record_debug_info) { record_debug_info(tsk); });
 	set_epoch_for_new_commands(epoch);
 	m_current_horizon = no_command;
 	// Make the epoch depend on the previous execution front
@@ -672,7 +667,7 @@ void command_graph_generator::generate_epoch_command(const task& tsk) {
 void command_graph_generator::generate_horizon_command(const task& tsk) {
 	assert(tsk.get_type() == task_type::horizon);
 	auto* const horizon =
-	    create_command<horizon_command>(tsk.get_id(), std::move(m_completed_reductions), [&](const auto& record_debug_info) { record_debug_info(tsk); });
+	    create_command<horizon_command>(&tsk, std::move(m_completed_reductions), [&](const auto& record_debug_info) { record_debug_info(tsk); });
 
 	if(m_current_horizon != static_cast<command_id>(no_command)) {
 		// Apply the previous horizon
@@ -697,8 +692,10 @@ void command_graph_generator::generate_epoch_dependencies(abstract_command* cmd)
 
 	if(const auto deps = cmd->get_dependencies();
 	    std::none_of(deps.begin(), deps.end(), [](const abstract_command::dependency d) { return d.kind == dependency_kind::true_dep; })) {
-		assert(cmd->get_cid() != m_epoch_for_new_commands);
-		add_dependency(cmd, m_cdag.get(m_epoch_for_new_commands), dependency_kind::true_dep, dependency_origin::last_epoch);
+		if (!utils::isa<epoch_command>(cmd) || utils::as<epoch_command>(cmd)->get_task()->get_id() != task_manager::initial_epoch_task) {
+			assert(cmd->get_cid() != m_epoch_for_new_commands);
+			add_dependency(cmd, m_cdag.get(m_epoch_for_new_commands), dependency_kind::true_dep, dependency_origin::last_epoch);
+		}
 	}
 }
 

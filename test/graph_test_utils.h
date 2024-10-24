@@ -45,8 +45,6 @@ class task_builder {
 				}
 				m_command(cgh);
 			});
-			m_tctx.build_task(tid);
-			m_tctx.maybe_build_horizon();
 			m_command = {};
 			m_requirements = {};
 			return tid;

@@ -13,13 +13,13 @@
 namespace celerity {
 namespace detail {
 
-	abstract_scheduler::abstract_scheduler(const size_t num_nodes, const node_id local_node_id, const system_info& system, const task_manager& tm,
+	abstract_scheduler::abstract_scheduler(const size_t num_nodes, const node_id local_node_id, const system_info& system, 
 	    delegate* const delegate, command_recorder* const crec, instruction_recorder* const irec, const policy_set& policy)
 	    : m_cdag(std::make_unique<command_graph>()), m_crec(crec),
-	      m_cggen(std::make_unique<command_graph_generator>(num_nodes, local_node_id, *m_cdag, tm, crec, policy.command_graph_generator)),
+	      m_cggen(std::make_unique<command_graph_generator>(num_nodes, local_node_id, *m_cdag, crec, policy.command_graph_generator)),
 	      m_idag(std::make_unique<instruction_graph>()), m_irec(irec), //
 	      m_iggen(std::make_unique<instruction_graph_generator>(
-	          tm, num_nodes, local_node_id, system, *m_idag, delegate, irec, policy.instruction_graph_generator)) {}
+	          num_nodes, local_node_id, system, *m_idag, delegate, irec, policy.instruction_graph_generator)) {}
 
 	abstract_scheduler::~abstract_scheduler() = default;
 
@@ -112,9 +112,9 @@ namespace detail {
 
 	void abstract_scheduler::notify(event&& evt) { m_event_queue.push(std::move(evt)); }
 
-	scheduler::scheduler(const size_t num_nodes, const node_id local_node_id, const system_info& system, const task_manager& tm, delegate* const delegate,
+	scheduler::scheduler(const size_t num_nodes, const node_id local_node_id, const system_info& system,  delegate* const delegate,
 	    command_recorder* const crec, instruction_recorder* const irec, const policy_set& policy)
-	    : abstract_scheduler(num_nodes, local_node_id, system, tm, delegate, crec, irec, policy), m_thread(&scheduler::thread_main, this) {
+	    : abstract_scheduler(num_nodes, local_node_id, system, delegate, crec, irec, policy), m_thread(&scheduler::thread_main, this) {
 		set_thread_name(m_thread.native_handle(), "cy-scheduler");
 	}
 

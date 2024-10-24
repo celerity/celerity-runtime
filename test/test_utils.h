@@ -96,45 +96,27 @@ namespace detail {
 		}
 	};
 
-	struct task_ring_buffer_testspy {
-		static void create_task_slot(task_ring_buffer& trb) { trb.m_number_of_deleted_tasks += 1; }
-	};
-
 	struct task_manager_testspy {
-		static std::optional<task_id> get_current_horizon(task_manager& tm) { return tm.m_current_horizon; }
+		static const task* get_current_horizon(task_manager& tm) { return tm.m_current_horizon; }
 
 		static std::optional<task_id> get_latest_horizon_reached(task_manager& tm) { return tm.m_latest_horizon_reached; }
 
 		static int get_num_horizons(task_manager& tm) {
 			int horizon_counter = 0;
-			for(auto task_ptr : tm.m_task_buffer) {
-				if(task_ptr->get_type() == task_type::horizon) { horizon_counter++; }
-			}
+			// TODO
+			// for(auto task_ptr : tm.m_task_buffer) {
+			// 	if(task_ptr->get_type() == task_type::horizon) { horizon_counter++; }
+			// }
 			return horizon_counter;
 		}
 
-		static const region_map<std::optional<task_id>>& get_last_writer(task_manager& tm, const buffer_id bid) { return tm.m_buffers.at(bid).last_writers; }
+		static const region_map<task*>& get_last_writer(task_manager& tm, const buffer_id bid) { return tm.m_buffers.at(bid).last_writers; }
 
 		static int get_max_pseudo_critical_path_length(task_manager& tm) { return tm.get_max_pseudo_critical_path_length(); }
 
 		static auto get_execution_front(task_manager& tm) { return tm.get_execution_front(); }
-
-		static void create_task_slot(task_manager& tm) { task_ring_buffer_testspy::create_task_slot(tm.m_task_buffer); }
 	};
 
-	inline bool has_dependency(const task_manager& tm, task_id dependent, task_id dependency, dependency_kind kind = dependency_kind::true_dep) {
-		for(auto dep : tm.get_task(dependent)->get_dependencies()) {
-			if(dep.node->get_id() == dependency && dep.kind == kind) return true;
-		}
-		return false;
-	}
-
-	inline bool has_any_dependency(const task_manager& tm, task_id dependent, task_id dependency) {
-		for(auto dep : tm.get_task(dependent)->get_dependencies()) {
-			if(dep.node->get_id() == dependency) return true;
-		}
-		return false;
-	}
 } // namespace detail
 
 namespace test_utils {
@@ -422,19 +404,43 @@ namespace test_utils {
 	std::string make_test_graph_title(const std::string& type, size_t num_nodes, detail::node_id local_nid);
 	std::string make_test_graph_title(const std::string& type, size_t num_nodes, detail::node_id local_nid, size_t num_devices_per_node);
 
-	struct task_test_context {
+	struct task_test_context : private detail::task_manager::delegate {
+		std::unordered_map<detail::task_id, const detail::task*> task_by_id;
 		detail::task_recorder trec;
 		detail::task_manager tm;
 		mock_buffer_factory mbf;
 		mock_host_object_factory mhof;
 		mock_reduction_factory mrf;
 
-		explicit task_test_context(const detail::task_manager::policy_set& policy = {}) : tm(1, &trec, policy), mbf(tm), mhof(tm) {}
+		explicit task_test_context(const detail::task_manager::policy_set& policy = {}) : tm(1, &trec, this, policy), mbf(tm), mhof(tm) {
+			tm.generate_epoch_task(detail::epoch_action::none);
+		}
+
+		// from task_manager::delegate
+		void task_available(const detail::task* tsk) override { task_by_id.emplace(tsk->get_id(), tsk); }
+
 		task_test_context(const task_test_context&) = delete;
 		task_test_context(task_test_context&&) = delete;
 		task_test_context& operator=(const task_test_context&) = delete;
 		task_test_context& operator=(task_test_context&&) = delete;
 		~task_test_context();
+
+		bool has_task(const detail::task_id tid) const { return task_by_id.contains(tid); }
+		const detail::task* get_task(const detail::task_id tid) const { return task_by_id.at(tid); }
+
+		bool has_dependency(detail::task_id dependent, detail::task_id dependency, detail::dependency_kind kind = detail::dependency_kind::true_dep) const {
+			for(auto dep : get_task(dependent)->get_dependencies()) {
+				if(dep.node->get_id() == dependency && dep.kind == kind) return true;
+			}
+			return false;
+		}
+
+		bool has_any_dependency(detail::task_id dependent, detail::task_id dependency) const {
+			for(auto dep : get_task(dependent)->get_dependencies()) {
+				if(dep.node->get_id() == dependency) return true;
+			}
+			return false;
+		}
 	};
 
 	// explicitly invoke a copy constructor without repeating the type

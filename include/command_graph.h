@@ -97,7 +97,7 @@ namespace detail {
 			auto unique_cmd = std::unique_ptr<T>{new T(m_next_cmd_id++, std::forward<Args>(args)...)}; // new, because ctors are private, but we are friends
 			const auto cmd = unique_cmd.get();
 			m_commands.emplace(std::pair{cmd->get_cid(), std::move(unique_cmd)});
-			if constexpr(std::is_base_of_v<task_command, T>) { m_by_task[cmd->get_tid()].emplace_back(cmd); }
+			if constexpr(std::is_base_of_v<task_command, T>) { m_by_task[cmd->get_task()->get_id()].emplace_back(cmd); }
 			m_execution_front.insert(cmd);
 			return cmd;
 		}

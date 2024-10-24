@@ -55,7 +55,6 @@ set(TEST_TARGETS
   sycl_tests
   split_tests
   task_graph_tests
-  task_ring_buffer_tests
   test_utils_tests
   thread_queue_tests
   utils_tests

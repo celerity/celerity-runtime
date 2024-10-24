@@ -692,7 +692,7 @@ void executor_impl::issue(const epoch_instruction& einstr) {
 		expecting_more_submissions = false;
 		break;
 	}
-	if(delegate != nullptr && einstr.get_epoch_task_id() != 0 /* TODO task_manager doesn't expect us to actually execute the init epoch */) {
+	if(delegate != nullptr) {
 		delegate->epoch_reached(einstr.get_epoch_task_id());
 	}
 	collect(einstr.get_garbage());

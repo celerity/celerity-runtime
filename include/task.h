@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "graph.h"
 #include "grid.h"
 #include "hint.h"
 #include "intrusive_graph.h"
@@ -236,3 +237,15 @@ namespace detail {
 
 } // namespace detail
 } // namespace celerity
+
+namespace celerity::detail {
+
+/// Orders task pointers by instruction id.
+struct task_id_less {
+	bool operator()(const task* const lhs, const task* const rhs) const { return lhs->get_id() < rhs->get_id(); }
+	bool operator()(const std::unique_ptr<task>& lhs, const std::unique_ptr<task>& rhs) const { return lhs->get_id() < rhs->get_id(); }
+};
+
+class task_graph : public graph<task, task_id_less> {};
+
+} // namespace celerity::detail

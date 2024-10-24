@@ -8,18 +8,17 @@
 #include "executor.h"
 #include "recorders.h"
 #include "scheduler.h"
+#include "task_manager.h"
 #include "types.h"
 
 namespace celerity {
-
 namespace detail {
 
 	class host_queue;
 	class reducer;
-	class task_manager;
 	struct host_object_instance;
 
-	class runtime final : private abstract_scheduler::delegate, private executor::delegate {
+	class runtime final : private task_manager::delegate, private abstract_scheduler::delegate, private executor::delegate {
 		friend struct runtime_testspy;
 
 	  public:
@@ -112,6 +111,9 @@ namespace detail {
 		/// Panic when not called from m_application_thread (see that variable for more info on the matter). Since there are thread-safe and non thread-safe
 		/// member functions, we call this check at the beginning of all the non-safe ones.
 		void require_call_from_application_thread() const;
+
+		// task_manager::delegate
+		void task_available(const task* tsk) override;
 
 		// scheduler::delegate
 		void flush(std::vector<const instruction*> instructions, std::vector<outbound_pilot> pilot) override;

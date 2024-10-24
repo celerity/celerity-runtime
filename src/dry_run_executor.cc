@@ -45,8 +45,7 @@ void dry_run_executor::thread_main(delegate* const dlg) {
 			    host_object_instances.erase(dhoinstr.get_host_object_id());
 		    },
 		    [&](const epoch_instruction& einstr) {
-			    // task_manager doesn't expect us to actually execute the init epoch (TODO)
-			    if(dlg != nullptr && einstr.get_epoch_task_id() != 0) { dlg->epoch_reached(einstr.get_epoch_task_id()); }
+			    if(dlg != nullptr) { dlg->epoch_reached(einstr.get_epoch_task_id()); }
 			    shutdown |= einstr.get_epoch_action() == epoch_action::shutdown;
 		    },
 		    [&](const fence_instruction& finstr) {

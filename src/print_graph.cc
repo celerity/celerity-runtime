@@ -5,6 +5,7 @@
 #include "access_modes.h"
 #include "grid.h"
 #include "instruction_graph.h"
+#include "log.h"
 #include "print_utils.h"
 #include "recorders.h"
 #include "task.h"

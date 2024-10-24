@@ -72,7 +72,7 @@ TEST_CASE("benchmark task handling", "[benchmark][group:task-graph]") {
 
 	auto initialization_lambda = [&] {
 		highest_tid = 0;
-		tm = std::make_unique<task_manager>(1, nullptr);
+		tm = std::make_unique<task_manager>(1, nullptr, nullptr);
 		// we use this trick to force horizon creation without introducing dependency overhead in this microbenchmark
 		tm->set_horizon_step(0);
 	};
@@ -91,46 +91,13 @@ TEST_CASE("benchmark task handling", "[benchmark][group:task-graph]") {
 		}
 	};
 
+	// TODO drop extra section, simplify
 	SECTION("without access thread") {
 		highest_tid_to_delete = N * 2; // set sufficiently high to just run through
 		BENCHMARK("generating and deleting tasks") {
 			initialization_lambda();
 			task_creation_lambda();
 		};
-	}
-
-	SECTION("with access thread") {
-		constexpr auto delay_per_call = 20us;
-		auto last_call = std::chrono::steady_clock::now();
-		std::atomic<bool> run_lookups = false;
-		std::atomic<bool> run_thread = true;
-
-		std::thread task_lookup([&] {
-			while(run_thread.load()) {
-				while(run_lookups.load()) {
-					auto htid = highest_tid.load();
-					while((run_lookups.load() && htid > 0 && htid <= highest_tid_to_delete.load()) //
-					      || std::chrono::steady_clock::now() - last_call < delay_per_call)
-						htid = highest_tid.load(); // wait until we are synchronized, and across the minimum delay interval
-					tm->get_task(htid);
-					highest_tid_to_delete = htid;
-				}
-				highest_tid_to_delete = 0;
-			}
-		});
-
-		BENCHMARK("generating and deleting tasks with access thread") {
-			initialization_lambda();
-			highest_tid_to_delete = 0;
-			run_lookups = true;
-			task_creation_lambda(true);
-			run_lookups = false;
-			while(highest_tid_to_delete.load() != 0)
-				; // wait for task lookup thread to finish
-		};
-
-		run_thread = false;
-		task_lookup.join();
 	}
 }
 
@@ -152,10 +119,10 @@ static constexpr instruction_graph_generator::policy_set benchmark_instruction_g
 struct task_manager_benchmark_context {
 	const size_t num_nodes = 1;
 	task_recorder trec;
-	task_manager tm{1, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
+	task_manager tm{1, test_utils::g_print_graphs ? &trec : nullptr, nullptr /* delegate */, benchmark_task_manager_policy};
 	test_utils::mock_buffer_factory mbf{tm};
 
-	task_manager_benchmark_context() = default;
+	task_manager_benchmark_context() { tm.generate_epoch_task(epoch_action::none); }
 
 	task_manager_benchmark_context(const task_manager_benchmark_context&) = delete;
 	task_manager_benchmark_context(task_manager_benchmark_context&&) = delete;
@@ -174,19 +141,18 @@ struct task_manager_benchmark_context {
 };
 
 
-struct command_graph_generator_benchmark_context {
+struct command_graph_generator_benchmark_context : private task_manager::delegate {
 	const size_t num_nodes;
 	command_graph cdag;
 	task_recorder trec;
-	task_manager tm{num_nodes, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
+	task_manager tm{num_nodes, test_utils::g_print_graphs ? &trec : nullptr, this, benchmark_task_manager_policy};
 	command_recorder crec;
-	command_graph_generator cggen{
-	    num_nodes, 0 /* local_nid */, cdag, tm, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
+	command_graph_generator cggen{num_nodes, 0 /* local_nid */, cdag, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
 	test_utils::mock_buffer_factory mbf{tm, cggen};
 
-	explicit command_graph_generator_benchmark_context(const size_t num_nodes) : num_nodes(num_nodes) {
-		tm.register_task_callback([this](const task* tsk) { const auto cmds = cggen.build_task(*tsk); });
-	}
+	explicit command_graph_generator_benchmark_context(const size_t num_nodes) : num_nodes(num_nodes) { tm.generate_epoch_task(epoch_action::none); }
+
+	void task_available(const task* tsk) override { cggen.build_task(*tsk); }
 
 	command_graph_generator_benchmark_context(const command_graph_generator_benchmark_context&) = delete;
 	command_graph_generator_benchmark_context(command_graph_generator_benchmark_context&&) = delete;
@@ -205,29 +171,30 @@ struct command_graph_generator_benchmark_context {
 	}
 };
 
-struct instruction_graph_generator_benchmark_context {
+struct instruction_graph_generator_benchmark_context : private task_manager::delegate {
 	const size_t num_nodes;
 	const size_t num_devices;
 	const bool supports_d2d_copies;
 	command_graph cdag;
 	task_recorder trec;
-	task_manager tm{num_nodes, test_utils::g_print_graphs ? &trec : nullptr, benchmark_task_manager_policy};
+	task_manager tm{num_nodes, test_utils::g_print_graphs ? &trec : nullptr, this, benchmark_task_manager_policy};
 	command_recorder crec;
-	command_graph_generator cggen{
-	    num_nodes, 0 /* local_nid */, cdag, tm, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
+	command_graph_generator cggen{num_nodes, 0 /* local_nid */, cdag, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
 	instruction_recorder irec;
 	instruction_graph idag;
-	instruction_graph_generator iggen{tm, num_nodes, 0 /* local nid */, test_utils::make_system_info(num_devices, supports_d2d_copies), idag,
+	instruction_graph_generator iggen{num_nodes, 0 /* local nid */, test_utils::make_system_info(num_devices, supports_d2d_copies), idag,
 	    nullptr /* delegate */, test_utils::g_print_graphs ? &irec : nullptr, benchmark_instruction_graph_generator_policy};
 	test_utils::mock_buffer_factory mbf{tm, cggen, iggen};
 
 	explicit instruction_graph_generator_benchmark_context(const size_t num_nodes, const size_t num_devices, const bool supports_d2d_copies = true)
 	    : num_nodes(num_nodes), num_devices(num_devices), supports_d2d_copies(supports_d2d_copies) {
-		tm.register_task_callback([this](const task* tsk) {
-			for(const auto cmd : cggen.build_task(*tsk)) {
-				iggen.compile(*cmd);
-			}
-		});
+		tm.generate_epoch_task(epoch_action::none);
+	}
+
+	void task_available(const task* tsk) override {
+		for(const auto cmd : cggen.build_task(*tsk)) {
+			iggen.compile(*cmd);
+		}
 	}
 
 	instruction_graph_generator_benchmark_context(const instruction_graph_generator_benchmark_context&) = delete;
@@ -304,9 +271,9 @@ class restartable_thread {
 
 class benchmark_scheduler final : public abstract_scheduler {
   public:
-	benchmark_scheduler(restartable_thread& thread, const size_t num_nodes, const node_id local_node_id, const system_info& system_info, const task_manager& tm,
+	benchmark_scheduler(restartable_thread& thread, const size_t num_nodes, const node_id local_node_id, const system_info& system_info,
 	    delegate* const delegate, command_recorder* const crec, instruction_recorder* const irec)
-	    : abstract_scheduler(num_nodes, local_node_id, system_info, tm, delegate, crec, irec), m_thread(&thread) {
+	    : abstract_scheduler(num_nodes, local_node_id, system_info, delegate, crec, irec), m_thread(&thread) {
 		m_thread->start([this] { schedule(); });
 	}
 
@@ -324,19 +291,18 @@ class benchmark_scheduler final : public abstract_scheduler {
 	restartable_thread* m_thread;
 };
 
-struct scheduler_benchmark_context {
+struct scheduler_benchmark_context : private task_manager::delegate {
 	const size_t num_nodes;
-	command_graph cdag;
-	task_manager tm{num_nodes, nullptr, benchmark_task_manager_policy};
 	benchmark_scheduler schdlr;
+	task_manager tm{num_nodes, nullptr, this, benchmark_task_manager_policy};
 	test_utils::mock_buffer_factory mbf;
 
 	explicit scheduler_benchmark_context(restartable_thread& thrd, const size_t num_nodes, const size_t num_devices_per_node)
 	    : num_nodes(num_nodes), schdlr(thrd, num_nodes, 0 /* local_nid */, test_utils::make_system_info(num_devices_per_node, true /* supports d2d copies */),
-	                                tm, nullptr /* delegate */, nullptr /* crec */, nullptr /* irec */),
+	                                nullptr /* delegate */, nullptr /* crec */, nullptr /* irec */),
 	      mbf(tm, schdlr) //
 	{
-		tm.register_task_callback([this](const task* tsk) { schdlr.notify_task_created(tsk); });
+		tm.generate_epoch_task(epoch_action::none);
 	}
 
 	scheduler_benchmark_context(const scheduler_benchmark_context&) = delete;
@@ -349,6 +315,8 @@ struct scheduler_benchmark_context {
 		// There is no executor thread and notifications are processed in-order, so we can immediately notify the scheduler about shutdown-epoch completion
 		schdlr.notify_epoch_reached(tid);
 	}
+
+	void task_available(const task* tsk) override { schdlr.notify_task_created(tsk); }
 
 	template <int KernelDims, typename CGF>
 	void create_task(range<KernelDims> global_range, CGF cgf) {

@@ -254,16 +254,6 @@ namespace detail {
 			m_instruction_recorder = std::make_unique<instruction_recorder>();
 		}
 
-		task_manager::policy_set task_mngr_policy;
-		// Merely _declaring_ an uninitialized read is legitimate as long as the kernel does not actually perform the read at runtime - this might happen in the
-		// first iteration of a submit-loop. We could get rid of this case by making access-modes a runtime property of accessors (cf
-		// https://github.com/celerity/meta/issues/74).
-		task_mngr_policy.uninitialized_read_error = CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::log_warning : error_policy::ignore;
-
-		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_task_recorder.get(), task_mngr_policy);
-		if(m_cfg->get_horizon_step()) m_task_mngr->set_horizon_step(m_cfg->get_horizon_step().value());
-		if(m_cfg->get_horizon_max_parallelism()) m_task_mngr->set_horizon_max_parallelism(m_cfg->get_horizon_max_parallelism().value());
-
 		scheduler::policy_set schdlr_policy;
 		// Any uninitialized read that is observed on CDAG generation was already logged on task generation, unless we have a bug.
 		schdlr_policy.command_graph_generator.uninitialized_read_error = error_policy::ignore;
@@ -273,9 +263,19 @@ namespace detail {
 		    CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::log_error : error_policy::ignore;
 		schdlr_policy.instruction_graph_generator.unsafe_oversubscription_error = error_policy::log_warning;
 
-		m_schdlr = std::make_unique<scheduler>(m_num_nodes, m_local_nid, system, *m_task_mngr, static_cast<abstract_scheduler::delegate*>(this),
-		    m_command_recorder.get(), m_instruction_recorder.get(), schdlr_policy);
-		m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
+		m_schdlr = std::make_unique<scheduler>(m_num_nodes, m_local_nid, system, static_cast<abstract_scheduler::delegate*>(this), m_command_recorder.get(),
+		    m_instruction_recorder.get(), schdlr_policy);
+
+		task_manager::policy_set task_mngr_policy;
+		// Merely _declaring_ an uninitialized read is legitimate as long as the kernel does not actually perform the read at runtime - this might happen in the
+		// first iteration of a submit-loop. We could get rid of this case by making access-modes a runtime property of accessors (cf
+		// https://github.com/celerity/meta/issues/74).
+		task_mngr_policy.uninitialized_read_error = CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::log_warning : error_policy::ignore;
+
+		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_task_recorder.get(), static_cast<task_manager::delegate*>(this), task_mngr_policy);
+		if(m_cfg->get_horizon_step()) m_task_mngr->set_horizon_step(m_cfg->get_horizon_step().value());
+		if(m_cfg->get_horizon_max_parallelism()) m_task_mngr->set_horizon_max_parallelism(m_cfg->get_horizon_max_parallelism().value());
+		m_task_mngr->generate_epoch_task(epoch_action::none);
 
 		m_num_local_devices = system.devices.size();
 	}
@@ -394,6 +394,13 @@ namespace detail {
 		assert(num_nodes == 1 && local_nid == 0);
 		return graph_str;
 #endif // CELERITY_ENABLE_MPI
+	}
+
+	// task_manager::delegate
+
+	void runtime::task_available(const task* tsk) {
+		require_call_from_application_thread();
+		m_schdlr->notify_task_created(tsk);
 	}
 
 	// scheduler::delegate
