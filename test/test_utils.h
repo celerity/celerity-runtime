@@ -67,7 +67,7 @@ namespace detail {
 		}
 
 		static size_t get_live_instruction_count(scheduler& schdlr) {
-			return inspect_thread(schdlr, [&] { return schdlr.m_idag->get_live_instruction_count(); });
+			return inspect_thread(schdlr, [&] { return schdlr.m_idag->get_live_node_count(); });
 		}
 	};
 

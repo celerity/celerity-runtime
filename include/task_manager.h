@@ -47,8 +47,8 @@ namespace detail {
 		mutable std::condition_variable m_epoch_changed;
 	};
 
-	template<typename CGF>
-	std::unique_ptr<task> invoke_command_group_function(const task_id tid, size_t num_collective_nodes, CGF &&cgf); // defined in handler.h
+	template <typename CGF>
+	std::unique_ptr<task> invoke_command_group_function(const task_id tid, size_t num_collective_nodes, CGF&& cgf); // defined in handler.h
 
 	class task_manager {
 		friend struct task_manager_testspy;
@@ -75,12 +75,12 @@ namespace detail {
 
 		constexpr inline static task_id initial_epoch_task = 0;
 
-		task_manager(size_t num_collective_nodes, detail::task_recorder* recorder, delegate *dlg, const policy_set& policy = default_policy_set());
+		task_manager(size_t num_collective_nodes, detail::task_recorder* recorder, delegate* dlg, const policy_set& policy = default_policy_set());
 
 		virtual ~task_manager() = default;
 
 		template <typename CGF>
-		task_id submit_command_group(CGF &&cgf) {
+		task_id submit_command_group(CGF&& cgf) {
 			const auto tid = m_next_tid++;
 			auto unique_tsk = invoke_command_group_function(tid, m_num_collective_nodes, std::forward<CGF>(cgf));
 			auto& tsk = register_task_internal(std::move(unique_tsk));
@@ -179,7 +179,7 @@ namespace detail {
 			task* last_side_effect = nullptr;
 		};
 
-		delegate *m_delegate;
+		delegate* m_delegate;
 
 		const size_t m_num_collective_nodes;
 		policy_set m_policy;

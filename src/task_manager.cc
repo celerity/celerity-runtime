@@ -188,7 +188,7 @@ namespace detail {
 	task& task_manager::register_task_internal(std::unique_ptr<task> task) {
 		auto& task_ref = *task;
 		assert(task != nullptr);
-		m_task_graph.push_graph_node(std::move(task));
+		m_task_graph.append(std::move(task));
 		m_execution_front.insert(&task_ref);
 		return task_ref;
 	}

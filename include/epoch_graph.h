@@ -9,7 +9,7 @@ namespace celerity::detail {
 
 /// A `graph` keeps ownership of all graph nodes that have not been pruned by epoch or horizon application.
 template <typename Node, typename NodeIdLess>
-class graph {
+class epoch_graph { // TODO naming? epochized? epoch_based? epoch_partitioned?
   public:
 	// Call this before pushing horizon or epoch node in order to be able to call erase_before_epoch on the same task id later.
 	void begin_epoch(const task_id tid) {
@@ -18,11 +18,11 @@ class graph {
 	}
 
 	// Add a graph node to the current epoch. Its graph node id must be higher than any node inserted into the graph before.
-	void push_graph_node(std::unique_ptr<Node> instr) {
+	void append(std::unique_ptr<Node> graph_node) {
 		assert(!m_epochs.empty());
 		auto& nodes = m_epochs.back().nodes;
-		assert(nodes.empty() || NodeIdLess{}(nodes.back().get(), instr.get()));
-		nodes.push_back(std::move(instr));
+		assert(nodes.empty() || NodeIdLess{}(nodes.back().get(), graph_node.get()));
+		nodes.push_back(std::move(graph_node));
 	}
 
 	// Free all graph nodes that were pushed before begin_epoch(tid) was called.

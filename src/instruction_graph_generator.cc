@@ -820,7 +820,7 @@ Instruction* generator_impl::create_internal(batch& batch, const std::tuple<Ctor
 	auto unique_instr = std::make_unique<Instruction>(iid, priority, std::get<CtorParamIndices>(ctor_args_and_record_with)...);
 	const auto instr = unique_instr.get(); // we need to access the raw pointer after moving unique_ptr
 
-	m_idag->push_instruction(std::move(unique_instr));
+	m_idag->append(std::move(unique_instr));
 	m_execution_front.insert(iid);
 	batch.generated_instructions.push_back(instr);
 
