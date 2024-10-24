@@ -60,6 +60,8 @@ class scheduler {
 
 	void set_lookahead(const experimental::lookahead lookahead);
 
+	void flush_commands();
+
   private:
 	struct test_start_idle_tag {};
 

@@ -67,6 +67,8 @@ namespace detail {
 
 		void set_scheduler_lookahead(experimental::lookahead lookahead);
 
+		void flush_commands();
+
 	  private:
 		inline static bool s_mpi_initialized = false;
 		inline static bool s_mpi_finalized = false;

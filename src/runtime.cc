@@ -505,6 +505,11 @@ namespace detail {
 		m_schdlr->set_lookahead(lookahead);
 	}
 
+	void runtime::flush_commands() {
+		require_call_from_application_thread();
+		m_schdlr->flush_commands();
+	}
+
 	bool runtime::is_unreferenced() const { return m_num_live_queues == 0 && m_live_buffers.empty() && m_live_host_objects.empty(); }
 
 } // namespace detail

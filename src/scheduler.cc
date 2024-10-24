@@ -50,13 +50,14 @@ struct event_epoch_reached {
 struct event_set_lookahead {
 	experimental::lookahead lookahead;
 };
+struct event_flush_commands {};
 struct test_event_inspect {
 	std::function<void()> inspect; // executed inside scheduler thread, making it safe to access scheduler members
 };
 
 struct task_queue {
 	using event = std::variant<event_task_available, event_buffer_created, event_buffer_debug_name_changed, event_buffer_destroyed, event_host_object_created,
-	    event_host_object_destroyed, event_epoch_reached, event_set_lookahead, test_event_inspect>;
+	    event_host_object_destroyed, event_epoch_reached, event_set_lookahead, event_flush_commands, test_event_inspect>;
 
 	double_buffered_queue<event> global_queue;
 	std::deque<event> local_queue;
@@ -81,22 +82,23 @@ struct task_queue {
 
 struct command_queue {
 	using event = std::variant<event_command_available, event_buffer_created, event_buffer_debug_name_changed, event_buffer_destroyed,
-	    event_host_object_created, event_host_object_destroyed, event_set_lookahead>;
+	    event_host_object_created, event_host_object_destroyed, event_flush_commands, event_set_lookahead>;
 
 	std::deque<event> queue;
-	int num_queued_fences_and_epochs = 0;
+	int num_queued_flushes = 0;
 	int num_queued_horizons = 0;
 
 	bool empty() const { return queue.empty(); }
+
 	bool next_is_command() const { return !queue.empty() && std::holds_alternative<event_command_available>(queue.front()); }
 
 	void push(event&& evt) {
-		if(const auto avail = std::get_if<event_command_available>(&evt)) {
-			if(avail->cmd->get_type() == command_type::fence || avail->cmd->get_type() == command_type::epoch) {
-				num_queued_fences_and_epochs += 1;
-			} else if(avail->cmd->get_type() == command_type::horizon) {
-				num_queued_horizons += 1;
-			}
+		const auto avail = std::get_if<event_command_available>(&evt);
+		if(std::holds_alternative<event_flush_commands>(evt)
+		    || (avail != nullptr && (avail->cmd->get_type() == command_type::fence || avail->cmd->get_type() == command_type::epoch))) {
+			num_queued_flushes += 1;
+		} else if(avail != nullptr && avail->cmd->get_type() == command_type::horizon) {
+			num_queued_horizons += 1;
 		}
 		queue.push_back(std::move(evt));
 	}
@@ -105,15 +107,17 @@ struct command_queue {
 		assert(!queue.empty());
 		auto evt = std::move(queue.front());
 		queue.pop_front();
-		if(const auto avail = std::get_if<event_command_available>(&evt)) {
-			if(avail->cmd->get_type() == command_type::fence || avail->cmd->get_type() == command_type::epoch) {
-				assert(num_queued_fences_and_epochs > 0);
-				num_queued_fences_and_epochs -= 1;
-			} else if(avail->cmd->get_type() == command_type::horizon) {
-				assert(num_queued_horizons > 0);
-				num_queued_horizons -= 1;
-			}
+
+		const auto avail = std::get_if<event_command_available>(&evt);
+		if(std::holds_alternative<event_flush_commands>(evt)
+		    || (avail != nullptr && (avail->cmd->get_type() == command_type::fence || avail->cmd->get_type() == command_type::epoch))) {
+			assert(num_queued_flushes > 0);
+			num_queued_flushes -= 1;
+		} else if(avail != nullptr && avail->cmd->get_type() == command_type::horizon) {
+			assert(num_queued_horizons > 0);
+			num_queued_horizons -= 1;
 		}
+
 		return evt;
 	}
 };
@@ -247,6 +251,7 @@ void scheduler_impl::process_task_queue_event(const task_queue::event& evt) {
 	    [&](const event_set_lookahead& e) { //
 		    command_queue.push(e);
 	    },
+	    [&](const event_flush_commands& e) { command_queue.push(e); },
 	    [&](const test_event_inspect& e) { //
 		    e.inspect();
 	    });
@@ -257,7 +262,7 @@ bool scheduler_impl::should_dequeue_more_command_events() const {
 	// always flush set_lookahead() and metadata changes if they are at the front, otherwise set_lookahead(none) after queue creation does not work
 	// TODO evaluate if `q.submit(); q.set_lookahead(none); q.submit()` not flushing immediately is surprising or expected.
 	if(!command_queue.next_is_command()) return true;
-	if(command_queue.num_queued_fences_and_epochs > 0) return true;
+	if(command_queue.num_queued_flushes > 0) return true;
 	switch(lookahead) {
 	case experimental::lookahead::none: return true;
 	case experimental::lookahead::automatic: return command_queue.num_queued_horizons > 1;
@@ -267,13 +272,15 @@ bool scheduler_impl::should_dequeue_more_command_events() const {
 
 void scheduler_impl::process_command_queue_event(const command_queue::event& evt) {
 	matchbox::match(
-	    evt, [&](const event_command_available& e) { compile_command(*e.cmd); },
+	    evt, //
+	    [&](const event_command_available& e) { compile_command(*e.cmd); },
 	    [&](const event_buffer_created& e) { iggen.notify_buffer_created(e.bid, e.range, e.elem_size, e.elem_align, e.user_allocation_id); },
 	    [&](const event_buffer_debug_name_changed& e) { iggen.notify_buffer_debug_name_changed(e.bid, e.debug_name); },
 	    [&](const event_buffer_destroyed& e) { iggen.notify_buffer_destroyed(e.bid); },
 	    [&](const event_host_object_created& e) { iggen.notify_host_object_created(e.hoid, e.owns_instance); },
 	    [&](const event_host_object_destroyed& e) { iggen.notify_host_object_destroyed(e.hoid); },
-	    [&](const event_set_lookahead& e) { lookahead = e.lookahead; });
+	    [&](const event_set_lookahead& e) { lookahead = e.lookahead; }, //
+	    [&](const event_flush_commands& /* e */) {});
 }
 
 void scheduler_impl::thread_main() {
@@ -337,6 +344,8 @@ void scheduler::notify_host_object_destroyed(const host_object_id hoid) { m_impl
 void scheduler::notify_epoch_reached(const task_id tid) { m_impl->task_queue.push(event_epoch_reached{tid}); }
 
 void scheduler::set_lookahead(const experimental::lookahead lookahead) { m_impl->task_queue.push(event_set_lookahead{lookahead}); }
+
+void scheduler::flush_commands() { m_impl->task_queue.push(event_flush_commands{}); }
 
 void scheduler::test_invoke_thread_main() { m_impl->thread_main(); }
 void scheduler::test_inspect(std::function<void()> inspector) { m_impl->task_queue.push(test_event_inspect{std::move(inspector)}); }

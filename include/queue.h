@@ -121,4 +121,6 @@ inline void set_lookahead(celerity::queue& /* queue */, const experimental::look
 	detail::runtime::get_instance().set_scheduler_lookahead(lookahead);
 }
 
+inline void flush(celerity::queue& /* queue */) { detail::runtime::get_instance().flush_commands(); }
+
 } // namespace celerity::experimental
