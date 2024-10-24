@@ -963,7 +963,7 @@ namespace detail {
 		auto& schdlr = runtime_testspy::get_schdlr(rt);
 		auto& exec = *utils::as<live_executor>(&runtime_testspy::get_exec(rt));
 
-		const auto scheduler_thread_name = get_thread_name(scheduler_testspy::get_thread(schdlr).native_handle());
+		const auto scheduler_thread_name = scheduler_testspy::inspect_thread(schdlr, [] { return get_thread_name(get_current_thread_handle()); });
 		CHECK(scheduler_thread_name == "cy-scheduler");
 
 		const auto executor_thread_name = get_thread_name(executor_testspy::get_thread(exec).native_handle());

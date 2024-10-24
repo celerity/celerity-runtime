@@ -53,7 +53,9 @@ namespace detail {
 	const std::unordered_map<std::string, std::string> print_graphs_env_setting{{"CELERITY_PRINT_GRAPHS", "1"}};
 
 	struct scheduler_testspy {
-		static std::thread& get_thread(scheduler& schdlr) { return schdlr.m_thread; }
+		static std::thread::native_handle_type get_thread(scheduler& schdlr) {
+			return inspect_thread(schdlr, [] { return std::thread::native_handle_type{}; });
+		}
 
 		template <typename F>
 		static auto inspect_thread(scheduler& schdlr, F&& f) {
