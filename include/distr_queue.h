@@ -28,7 +28,7 @@ namespace detail {
 
 } // namespace detail
 
-struct [[deprecated("This tag type is no longer required to capture by reference")]] allow_by_ref_t{};
+struct [[deprecated("This tag type is no longer required to capture by reference")]] allow_by_ref_t {};
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"

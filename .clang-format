@@ -1,7 +1,7 @@
 # Clang-format coding style definitions for Celerity
 #
 # Due to some inconsistencies between releases we currently
-# use clang-format 14 as the authoritative version.
+# use clang-format 18 as the authoritative version.
 
 BasedOnStyle: llvm
 
@@ -35,6 +35,6 @@ SpacesInAngles: false
 SpacesInCStyleCastParentheses: false
 SpacesInParentheses: false
 SpacesInSquareBrackets: false
-Standard: Cpp11
+Standard: Auto
 TabWidth: 4
 UseTab: ForIndentation

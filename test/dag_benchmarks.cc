@@ -381,9 +381,8 @@ template <typename BenchmarkContext>
 [[gnu::noinline]] BenchmarkContext&& generate_soup_graph(BenchmarkContext&& ctx, const size_t num_tasks) {
 	test_utils::mock_buffer<2> buf = ctx.mbf.create_buffer(range<2>{ctx.num_nodes, num_tasks}, true /* host_initialized */);
 	for(size_t t = 0; t < num_tasks; ++t) {
-		ctx.create_task(range<1>{ctx.num_nodes}, [&](handler& cgh) {
-			buf.get_access<access_mode::read_write>(cgh, [=](chunk<1> ck) { return subrange<2>{{ck.offset[0], t}, {ck.range[0], 1}}; });
-		});
+		ctx.create_task(range<1>{ctx.num_nodes},
+		    [&](handler& cgh) { buf.get_access<access_mode::read_write>(cgh, [=](chunk<1> ck) { return subrange<2>{{ck.offset[0], t}, {ck.range[0], 1}}; }); });
 	}
 
 	return std::forward<BenchmarkContext>(ctx);

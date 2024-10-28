@@ -22,10 +22,8 @@ TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 
 	// graph copied from graph_gen_reduction_tests "distributed_graph_generator generates reduction command trees"
 
-	test_utils::add_compute_task(
-	    tt.tm, [&](handler& cgh) { buf_1.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
-	test_utils::add_compute_task(
-	    tt.tm, [&](handler& cgh) { buf_0.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
+	test_utils::add_compute_task(tt.tm, [&](handler& cgh) { buf_1.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
+	test_utils::add_compute_task(tt.tm, [&](handler& cgh) { buf_0.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
 	test_utils::add_compute_task(
 	    tt.tm,
 	    [&](handler& cgh) {
@@ -33,12 +31,7 @@ TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 		    test_utils::add_reduction(cgh, tt.mrf, buf_1, true /* include_current_buffer_value */);
 	    },
 	    range);
-	test_utils::add_compute_task(
-	    tt.tm,
-	    [&](handler& cgh) {
-		    buf_1.get_access<access_mode::read>(cgh, acc::fixed<1>({0, 1}));
-	    },
-	    range);
+	test_utils::add_compute_task(tt.tm, [&](handler& cgh) { buf_1.get_access<access_mode::read>(cgh, acc::fixed<1>({0, 1})); }, range);
 
 	// Smoke test: It is valid for the dot output to change with updates to graph generation. If this test fails, verify that the printed graph is sane and
 	// replace the `expected` value with the new dot graph.
@@ -353,8 +346,7 @@ TEST_CASE("task-graph names are escaped", "[print_graph][task-graph][task-name]"
 	auto range = celerity::range<1>(64);
 	auto buf = tt.mbf.create_buffer(range);
 
-	test_utils::add_compute_task<name_class<5>>(
-	    tt.tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
+	test_utils::add_compute_task<name_class<5>>(tt.tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, range);
 
 	const auto* escaped_name = "\"name_class&lt;...&gt;\"";
 	REQUIRE_THAT(print_task_graph(tt.trec), Catch::Matchers::ContainsSubstring(escaped_name));

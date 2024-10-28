@@ -212,9 +212,9 @@ namespace access {
 		size_t m_dim0, m_dim1, m_dim2;
 	};
 
-	neighborhood(size_t)->neighborhood<1>;
-	neighborhood(size_t, size_t)->neighborhood<2>;
-	neighborhood(size_t, size_t, size_t)->neighborhood<3>;
+	neighborhood(size_t) -> neighborhood<1>;
+	neighborhood(size_t, size_t) -> neighborhood<2>;
+	neighborhood(size_t, size_t, size_t) -> neighborhood<3>;
 
 } // namespace access
 
