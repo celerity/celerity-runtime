@@ -68,7 +68,9 @@ void stream_open(celerity::queue& queue, size_t N, size_t num_samples, celerity:
 		// Using `on_master_node` on all host tasks instead of `once` guarantees that all execute on the same cluster node and access the same file handle
 		cgh.host_task(celerity::on_master_node, [=] {
 			os_eff->open("wave_sim_result.bin", std::ios_base::out | std::ios_base::binary);
-			const struct { uint64_t n, t; } header{N, num_samples};
+			const struct {
+				uint64_t n, t;
+			} header{N, num_samples};
 			os_eff->write(reinterpret_cast<const char*>(&header), sizeof(header));
 		});
 	});

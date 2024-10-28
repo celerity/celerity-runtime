@@ -184,6 +184,6 @@ explicit host_object(T&&) -> host_object<detail::assert_host_object_ctor_param_i
 template <typename T>
 explicit host_object(std::reference_wrapper<T>) -> host_object<T&>;
 
-explicit host_object()->host_object<void>;
+explicit host_object() -> host_object<void>;
 
 } // namespace celerity::experimental

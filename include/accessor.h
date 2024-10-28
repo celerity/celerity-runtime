@@ -609,23 +609,23 @@ template <typename T, int D, typename Functor, access_mode Mode, access_mode Mod
 accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, D, Mode, Target>;
 
 template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property::no_init no_init)
-    -> accessor<T, D, ModeNoInit, Target>;
+accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag,
+    const property::no_init no_init) -> accessor<T, D, ModeNoInit, Target>;
 
 template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props)
-    -> accessor<T, D, Mode, Target>;
+accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag,
+    const property_list& props) -> accessor<T, D, Mode, Target>;
 
 template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
 accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, 0, Mode, Target>;
 
 template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property::no_init no_init)
-    -> accessor<T, 0, ModeNoInit, Target>;
+accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag,
+    const property::no_init no_init) -> accessor<T, 0, ModeNoInit, Target>;
 
 template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props)
-    -> accessor<T, 0, Mode, Target>;
+accessor(
+    const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props) -> accessor<T, 0, Mode, Target>;
 
 
 template <typename DataT, int Dims = 1>

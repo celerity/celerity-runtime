@@ -25,7 +25,7 @@ Unfortunately Clang Format frequently has breaking changes with major
 releases (which are tied to the Clang release cycle), which means we have to
 settle on a specific version.
 
-We currently use `clang-format-14`. Please make sure to use the correct
+We currently use `clang-format-18`. Please make sure to use the correct
 version to avoid cluttering your diffs with unrelated format changes.
 
 You can automatically determine whether you've correctly formatted all of

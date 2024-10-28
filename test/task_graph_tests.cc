@@ -97,9 +97,8 @@ namespace detail {
 		auto tt = test_utils::task_test_context{};
 		auto buf = tt.mbf.create_buffer(range<1>(128), true /* mark_as_host_initialized */);
 
-		const auto tid_a = test_utils::add_compute_task<class UKN(task_a)>(tt.tm, [&](handler& cgh) {
-			buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 64}});
-		});
+		const auto tid_a =
+		    test_utils::add_compute_task<class UKN(task_a)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 64}}); });
 		const auto tid_b = test_utils::add_compute_task<class UKN(task_b)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, fixed<1>{{0, 128}}); });
 		CHECK(has_dependency(tt.tm, tid_b, tid_a));
 		CHECK(has_dependency(tt.tm, tid_b, task_manager::initial_epoch_task)); // for read of the host-initialized part
@@ -116,22 +115,19 @@ namespace detail {
 		auto buf = tt.mbf.create_buffer(range<1>(128));
 
 		// Write to the full buffer
-		const auto tid_a = test_utils::add_compute_task<class UKN(task_a)>(tt.tm, [&](handler& cgh) {
-			buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}});
-		});
+		const auto tid_a =
+		    test_utils::add_compute_task<class UKN(task_a)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}}); });
 		// Read the first half of the buffer
 		const auto tid_b = test_utils::add_compute_task<class UKN(task_b)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, fixed<1>{{0, 64}}); });
 		CHECK(has_dependency(tt.tm, tid_b, tid_a));
 		// Overwrite the second half - no anti-dependency onto task_b should exist (but onto task_a)
-		const auto tid_c = test_utils::add_compute_task<class UKN(task_c)>(tt.tm, [&](handler& cgh) {
-			buf.get_access<mode::discard_write>(cgh, fixed<1>{{64, 64}});
-		});
+		const auto tid_c =
+		    test_utils::add_compute_task<class UKN(task_c)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, fixed<1>{{64, 64}}); });
 		REQUIRE(has_dependency(tt.tm, tid_c, tid_a, dependency_kind::anti_dep));
 		REQUIRE_FALSE(has_dependency(tt.tm, tid_c, tid_b, dependency_kind::anti_dep));
 		// Overwrite the first half - now only an anti-dependency onto task_b should exist
-		const auto tid_d = test_utils::add_compute_task<class UKN(task_d)>(tt.tm, [&](handler& cgh) {
-			buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 64}});
-		});
+		const auto tid_d =
+		    test_utils::add_compute_task<class UKN(task_d)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 64}}); });
 		REQUIRE_FALSE(has_dependency(tt.tm, tid_d, tid_a, dependency_kind::anti_dep));
 		REQUIRE(has_dependency(tt.tm, tid_d, tid_b, dependency_kind::anti_dep));
 	}
@@ -161,13 +157,11 @@ namespace detail {
 		});
 		CHECK_FALSE(has_dependency(tt.tm, tid_b, task_manager::initial_epoch_task));
 
-		const auto tid_c = test_utils::add_compute_task<class UKN(task_c)>(tt.tm, [&](handler& cgh) {
-			host_init_buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}});
-		});
+		const auto tid_c = test_utils::add_compute_task<class UKN(task_c)>(
+		    tt.tm, [&](handler& cgh) { host_init_buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}}); });
 		CHECK(has_dependency(tt.tm, tid_c, tid_a, dependency_kind::anti_dep));
-		const auto tid_d = test_utils::add_compute_task<class UKN(task_d)>(tt.tm, [&](handler& cgh) {
-			non_host_init_buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}});
-		});
+		const auto tid_d = test_utils::add_compute_task<class UKN(task_d)>(
+		    tt.tm, [&](handler& cgh) { non_host_init_buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}}); });
 		// Since task b is essentially reading uninitialized garbage, it doesn't make a difference if we write into it concurrently
 		CHECK_FALSE(has_dependency(tt.tm, tid_d, tid_b, dependency_kind::anti_dep));
 	}
@@ -200,9 +194,8 @@ namespace detail {
 					dispatch_get_access(buf, cgh, m, fixed<1>{{0, 128}});
 				}
 			});
-			const auto tid_b = test_utils::add_compute_task<class UKN(task_b)>(tt.tm, [&](handler& cgh) {
-				buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}});
-			});
+			const auto tid_b =
+			    test_utils::add_compute_task<class UKN(task_b)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}}); });
 			REQUIRE(has_dependency(tt.tm, tid_b, tid_a, dependency_kind::anti_dep));
 		}
 	}
@@ -286,19 +279,16 @@ namespace detail {
 		auto tt = test_utils::task_test_context{};
 		auto buf_a = tt.mbf.create_buffer(range<1>(128));
 
-		const auto tid_a = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-			buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
-		});
+		const auto tid_a =
+		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128})); });
 		check_path_length_and_front(tt.tm, 1, {tid_a}); // 1: we always depend on the initial epoch task
 
-		const auto tid_b = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-			buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128}));
-		});
+		const auto tid_b =
+		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128})); });
 		check_path_length_and_front(tt.tm, 2, {tid_b});
 
-		const auto tid_c = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-			buf_a.get_access<access_mode::read>(cgh, fixed<1>({0, 128}));
-		});
+		const auto tid_c =
+		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::read>(cgh, fixed<1>({0, 128})); });
 		check_path_length_and_front(tt.tm, 3, {tid_c});
 
 		const auto tid_d = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {});
@@ -316,9 +306,8 @@ namespace detail {
 		auto current_horizon = task_manager_testspy::get_current_horizon(tt.tm);
 		CHECK_FALSE(current_horizon.has_value());
 
-		const auto tid_c = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-			buf_a.get_access<access_mode::read>(cgh, fixed<1>({0, 128}));
-		});
+		const auto tid_c =
+		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::read>(cgh, fixed<1>({0, 128})); });
 
 		current_horizon = task_manager_testspy::get_current_horizon(tt.tm);
 		REQUIRE(current_horizon.has_value());
@@ -340,9 +329,8 @@ namespace detail {
 		CHECK(task_manager_testspy::get_num_horizons(tt.tm) == 1);
 
 		test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128})); });
-		const auto tid_d = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-			buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128}));
-		});
+		const auto tid_d =
+		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128})); });
 		expected_dependency_ids.insert(tid_d);
 
 		current_horizon = task_manager_testspy::get_current_horizon(tt.tm);
@@ -379,9 +367,8 @@ namespace detail {
 
 		for(size_t i = 0; i < num_tasks; ++i) {
 			const auto offset = buff_elem_per_task * i;
-			test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-				buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({offset, buff_elem_per_task}));
-			});
+			test_utils::add_host_task(
+			    tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({offset, buff_elem_per_task})); });
 		}
 
 		// divided by "max_para - 1" since there is also always the previous horizon in the set
@@ -408,26 +395,21 @@ namespace detail {
 			buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 64}));
 			buf_b.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
 		});
-		task_id tid_2 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-			buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({64, 64}));
-		});
-		[[maybe_unused]] task_id tid_3 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-			buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({32, 64}));
-		});
-		task_id tid_4 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-			buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({32, 64}));
-		});
+		task_id tid_2 =
+		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({64, 64})); });
+		[[maybe_unused]] task_id tid_3 =
+		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({32, 64})); });
+		task_id tid_4 =
+		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({32, 64})); });
 
 		auto horizon = task_manager_testspy::get_current_horizon(tt.tm);
 		CHECK(task_manager_testspy::get_num_horizons(tt.tm) == 1);
 		CHECK(horizon.has_value());
 
-		[[maybe_unused]] task_id tid_6 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-			buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128}));
-		});
-		[[maybe_unused]] task_id tid_7 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-			buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128}));
-		});
+		[[maybe_unused]] task_id tid_6 =
+		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128})); });
+		[[maybe_unused]] task_id tid_7 =
+		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128})); });
 
 		{
 			INFO("check that previous tasks are still last writers before the first horizon is applied");
@@ -437,9 +419,8 @@ namespace detail {
 			CHECK(region_map_a.get_region_values(make_region(32, 96)).front().second.value() == tid_4);
 		}
 
-		[[maybe_unused]] task_id tid_8 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-			buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128}));
-		});
+		[[maybe_unused]] task_id tid_8 =
+		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128})); });
 
 		CHECK(task_manager_testspy::get_num_horizons(tt.tm) == 2);
 
@@ -449,9 +430,8 @@ namespace detail {
 			CHECK(region_map_a.get_region_values(make_region(0, 128)).front().second.value() == *horizon);
 		}
 
-		task_id tid_9 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-			buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({64, 64}));
-		});
+		task_id tid_9 =
+		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({64, 64})); });
 
 		{
 			INFO("check that the previous horizon and task 11 are last writers of buff_a");
@@ -730,9 +710,8 @@ namespace detail {
 
 		SECTION("on a partially initialized buffer") {
 			auto buf = tt.mbf.create_buffer<2>({64, 64});
-			test_utils::add_compute_task<class UKN(uninit_read)>(tt.tm, [&](handler& cgh) {
-				buf.get_access<access_mode::discard_write>(cgh, fixed<2>({{0, 0}, {32, 32}}));
-			});
+			test_utils::add_compute_task<class UKN(uninit_read)>(
+			    tt.tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, fixed<2>({{0, 0}, {32, 32}})); });
 
 			CHECK_THROWS_WITH((test_utils::add_compute_task(
 			                      tt.tm, [&](handler& cgh) { debug::set_task_name(cgh, "uninit_read"), buf.get_access<access_mode::read>(cgh, all{}); })),
