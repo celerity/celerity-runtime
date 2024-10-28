@@ -4,6 +4,7 @@
 #include "instruction_graph_generator.h"
 #include "log.h"
 #include "named_threads.h"
+#include "print_utils.h"
 #include "recorders.h"
 #include "tracy.h"
 
@@ -39,7 +40,7 @@ namespace detail {
 					    assert(e.tsk != nullptr);
 					    auto& tsk = *e.tsk;
 
-					    std::vector<abstract_command*> commands;
+					    std::vector<const command*> commands;
 					    {
 						    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::build_task", WebMaroon, "T{} build", tsk.get_id());
 						    CELERITY_DETAIL_TRACY_ZONE_TEXT(utils::make_task_debug_label(tsk.get_type(), tsk.get_id(), tsk.get_debug_name()));
@@ -51,8 +52,8 @@ namespace detail {
 						    // the corresponding instruction, as runtime will begin destroying the executor after it has observed the epoch to be reached.
 						    assert(!shutdown_epoch_emitted);
 
-						    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::compile_command", MidnightBlue, "C{} compile", cmd->get_cid());
-						    CELERITY_DETAIL_TRACY_ZONE_TEXT("{}", cmd->get_type());
+						    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::compile_command", MidnightBlue, "C{} compile", cmd->get_id());
+						    CELERITY_DETAIL_TRACY_ZONE_TEXT("{}", print_command_type(*cmd));
 
 						    m_iggen->compile(*cmd);
 
@@ -96,7 +97,8 @@ namespace detail {
 					    {
 						    // The cggen automatically prunes the CDAG on generation, which is safe because commands are not shared across threads.
 						    // We might want to refactor this to match the IDAG behavior in the future.
-						    CELERITY_DETAIL_TRACY_ZONE_SCOPED("scheduler::prune_idag", Gray);
+						    CELERITY_DETAIL_TRACY_ZONE_SCOPED("scheduler::prune", Gray);
+						    m_cdag->erase_before_epoch(e.tid);
 						    m_idag->erase_before_epoch(e.tid);
 					    }
 

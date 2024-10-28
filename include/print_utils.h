@@ -1,7 +1,7 @@
 #pragma once
 
 #include "backend/sycl_backend.h"
-#include "command.h"
+#include "command_graph.h"
 #include "grid.h"
 #include "intrusive_graph.h"
 #include "nd_memory.h"
@@ -13,6 +13,7 @@
 #include <type_traits>
 
 #include <fmt/format.h>
+#include <matchbox.hh>
 
 
 template <typename Interface, int Dims>
@@ -162,25 +163,6 @@ struct fmt::formatter<celerity::detail::transfer_id> {
 };
 
 template <>
-struct fmt::formatter<celerity::detail::command_type> : fmt::formatter<std::string_view> {
-	format_context::iterator format(const celerity::detail::command_type type, format_context& ctx) const {
-		const auto repr = [=]() -> std::string_view {
-			switch(type) {
-			case celerity::detail::command_type::epoch: return "epoch";
-			case celerity::detail::command_type::horizon: return "horizon";
-			case celerity::detail::command_type::execution: return "execution";
-			case celerity::detail::command_type::push: return "push";
-			case celerity::detail::command_type::await_push: return "await push";
-			case celerity::detail::command_type::reduction: return "reduction";
-			case celerity::detail::command_type::fence: return "fence";
-			default: return "???";
-			}
-		}();
-		return std::copy(repr.begin(), repr.end(), ctx.out());
-	}
-};
-
-template <>
 struct fmt::formatter<celerity::detail::sycl_backend_type> : fmt::formatter<std::string_view> {
 	format_context::iterator format(const celerity::detail::sycl_backend_type type, format_context& ctx) const {
 		const auto repr = [=]() -> std::string_view {
@@ -195,6 +177,18 @@ struct fmt::formatter<celerity::detail::sycl_backend_type> : fmt::formatter<std:
 };
 
 namespace celerity::detail {
+
+inline const char* print_command_type(const command& cmd) {
+	return matchbox::match(
+	    cmd,                                                    //
+	    [](const epoch_command&) { return "epoch"; },           //
+	    [](const horizon_command&) { return "horizon"; },       //
+	    [](const execution_command&) { return "execution"; },   //
+	    [](const push_command&) { return "push"; },             //
+	    [](const await_push_command&) { return "await push"; }, //
+	    [](const reduction_command&) { return "reduction"; },   //
+	    [](const fence_command&) { return "fence"; });
+}
 
 /// Wrap a `std::chrono::duration` in this to auto-format it as seconds, milliseconds, microseconds, or nanoseconds.
 struct as_sub_second {

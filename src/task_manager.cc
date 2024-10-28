@@ -1,9 +1,9 @@
 #include "task_manager.h"
 
 #include "access_modes.h"
+#include "intrusive_graph.h"
 #include "log.h"
 #include "recorders.h"
-#include "intrusive_graph.h"
 #include "types.h"
 
 #include <algorithm>

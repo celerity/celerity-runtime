@@ -1,19 +1,29 @@
 #pragma once
 
 #include <bitset>
+#include <concepts>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <tuple>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "command_graph.h"
+#include "intrusive_graph.h"
 #include "ranges.h"
 #include "recorders.h"
 #include "reduction.h"
 #include "region_map.h"
 #include "types.h"
+#include "utils.h"
+
 
 namespace celerity::detail {
 
 class task;
-class abstract_command;
+class command;
 class task_recorder;
 class command_recorder;
 
@@ -22,48 +32,52 @@ constexpr size_t max_num_nodes = 256;
 using node_bitset = std::bitset<max_num_nodes>;
 
 /**
- * write_command_state is a command_id with two bits of additional information:
+ * write_command_state is a command pointer with two bits of additional information:
  *   - Whether the data written by this command is globally still the newest version ("fresh" or "stale")
  *   - Whether this data has been replicated from somewhere else, i.e., we are not the original producer
  */
 class write_command_state {
-	constexpr static int64_t stale_bit = 1ll << 63;
-	constexpr static int64_t replicated_bit = 1ll << 62;
-	static_assert(sizeof(stale_bit) == sizeof(command_id));
+	friend struct std::hash<celerity::detail::write_command_state>;
+
+	static_assert(alignof(command) > 0b11); // so we have 2 spare bits to encode the masks below
+	constexpr static uintptr_t stale_bit = 0b01;
+	constexpr static uintptr_t replicated_bit = 0b10;
 
   public:
 	constexpr write_command_state() = default;
 
-	/* explicit(false) */ constexpr write_command_state(command_id cid) : m_cid(cid) {}
+	explicit(false) write_command_state(command* const cmd) : m_bits(reinterpret_cast<uintptr_t>(cmd)) {}
 
-	constexpr write_command_state(command_id cid, bool is_replicated) : m_cid(cid) {
-		if(is_replicated) { m_cid |= replicated_bit; }
+	write_command_state(command* const cmd, bool is_replicated) : m_bits(reinterpret_cast<uintptr_t>(cmd)) {
+		if(is_replicated) { m_bits |= replicated_bit; }
 	}
 
-	bool is_fresh() const { return (m_cid & stale_bit) == 0u; }
+	command* get_command() const { return reinterpret_cast<command*>(m_bits & ~stale_bit & ~replicated_bit); }
 
-	bool is_replicated() const { return (m_cid & replicated_bit) != 0u; }
+	bool is_fresh() const { return (m_bits & stale_bit) == 0u; }
 
-	void mark_as_stale() { m_cid |= stale_bit; }
+	bool is_replicated() const { return (m_bits & replicated_bit) != 0u; }
 
-	operator command_id() const { return m_cid & ~stale_bit & ~replicated_bit; }
+	void mark_as_stale() { m_bits |= stale_bit; }
 
-	friend bool operator==(const write_command_state& lhs, const write_command_state& rhs) { return lhs.m_cid == rhs.m_cid; }
+	operator command*() const { return get_command(); }
 
-	friend bool operator!=(const write_command_state& lhs, const write_command_state& rhs) { return !(lhs == rhs); }
+	friend bool operator==(const write_command_state& lhs, const write_command_state& rhs) { return lhs.m_bits == rhs.m_bits; }
+	friend bool operator==(const write_command_state& lhs, const std::nullptr_t /* rhs */) { return lhs.get_command() == nullptr; }
+	friend bool operator==(const std::nullptr_t /* lhs */, const write_command_state& rhs) { return rhs.get_command() == nullptr; }
 
   private:
-	command_id m_cid = 0;
+	uintptr_t m_bits = 0;
 };
 
 class command_graph_generator {
 	friend struct command_graph_generator_testspy;
 
-	inline static const write_command_state no_command = write_command_state(static_cast<command_id>(-1));
+	inline static const write_command_state no_command = {};
 
 	struct buffer_state {
-		buffer_state(region_map<write_command_state> lw, region_map<std::bitset<max_num_nodes>> rr)
-		    : local_last_writer(std::move(lw)), replicated_regions(std::move(rr)), pending_reduction(std::nullopt) {}
+		explicit buffer_state(const range<3>& range, const write_command_state initial_wcs, const node_bitset& replicated_on_nodes)
+		    : local_last_writer(range, initial_wcs), replicated_regions(range, replicated_on_nodes) {}
 
 		region<3> initialized_region; // for detecting uninitialized reads (only if policies.uninitialized_read != error_policy::ignore)
 		region_map<write_command_state> local_last_writer;
@@ -78,8 +92,18 @@ class command_graph_generator {
 	};
 
 	struct host_object_state {
+		explicit host_object_state(command* const initial_writer) : last_side_effect(initial_writer) {}
+
 		// Side effects on the same host object create true dependencies between task commands, so we track the last effect per host object.
-		std::optional<command_id> last_side_effect;
+		command* last_side_effect;
+	};
+
+	struct collective_group_state {
+		explicit collective_group_state(command* const initial_command) : last_collective_command(initial_command) {}
+
+		// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
+		// they are executed in the same order on every node.
+		command* last_collective_command;
 	};
 
   public:
@@ -105,9 +129,7 @@ class command_graph_generator {
 	/// This includes resolving local data dependencies, generating await push commands for local reads of remote data,
 	/// as well as push commands for remote reads of local data.
 	/// Commands are returned in topologically sorted order, i.e., sequential execution would satisfy all internal dependencies.
-	std::vector<abstract_command*> build_task(const task& tsk);
-
-	command_graph& get_command_graph() { return m_cdag; }
+	std::vector<const command*> build_task(const task& tsk);
 
 	/// Only for testing: Instead of (at most) a single chunk per node, generate `multiplier` chunks per node for each task.
 	/// This is to ensure that CDAG generation logic works for arbitrary numbers of chunks, even though we don't provide
@@ -118,6 +140,8 @@ class command_graph_generator {
 	}
 
   private:
+	using batch = std::vector<const command*>;
+
 	/// True if a recorder is present and create_command() will call the `record_with` lambda passed as its last parameter.
 	bool is_recording() const { return m_recorder != nullptr; }
 
@@ -127,11 +151,15 @@ class command_graph_generator {
 	    reduction_command(reduction_command_record), epoch_command(epoch_command_record), horizon_command(horizon_command_record),
 	    execution_command(execution_command_record), fence_command(fence_command_record)>;
 
-	template <typename Command, typename... CtorParamsAndRecordWithFn, size_t... CtorParamIndices, size_t RecordWithFnIndex>
-	Command* create_command_internal(std::tuple<CtorParamsAndRecordWithFn...>&& ctor_params_and_record_with,
-	    std::index_sequence<CtorParamIndices...> /* ctor_param_indices */, std::index_sequence<RecordWithFnIndex> /* record_with_fn_index */) {
-		auto* const cmd = m_cdag.create<Command>(std::move(std::get<CtorParamIndices>(ctor_params_and_record_with))...);
-		m_current_cmd_batch.push_back(cmd);
+	template <std::derived_from<command> Command, typename... CtorParamsAndRecordWithFn, size_t... CtorParamIndices, size_t RecordWithFnIndex>
+	Command* create_command_internal(batch& current_batch, std::tuple<CtorParamsAndRecordWithFn...>&& ctor_params_and_record_with,
+	    std::index_sequence<CtorParamIndices...> /* ctor_param_indices */, std::index_sequence<RecordWithFnIndex> /* record_with_fn_index */) //
+	{
+		const auto cid = m_next_cid++;
+		auto unique_cmd = std::make_unique<Command>(cid, std::move(std::get<CtorParamIndices>(ctor_params_and_record_with))...);
+		const auto cmd = m_cdag->retain_in_current_epoch(std::move(unique_cmd));
+		m_execution_front.insert(cmd);
+		current_batch.push_back(cmd);
 
 		if(is_recording()) {
 			const auto& record_with = std::get<RecordWithFnIndex>(ctor_params_and_record_with);
@@ -154,18 +182,33 @@ class command_graph_generator {
 	/// create<command-type>(command-ctor-params,
 	///     [&](const auto record_debug_info) { return record_debug_info(command-record-additional-ctor-params)})
 	/// ```
-	template <typename Command, typename... CtorParamsAndRecordWithFn>
-	Command* create_command(CtorParamsAndRecordWithFn&&... args) {
+	template <std::derived_from<command> Command, typename... CtorParamsAndRecordWithFn>
+	Command* create_command(batch& current_batch, CtorParamsAndRecordWithFn&&... args) {
 		constexpr auto n_args = sizeof...(CtorParamsAndRecordWithFn);
 		static_assert(n_args > 0);
-		return create_command_internal<Command>(
-		    std::forward_as_tuple(std::forward<CtorParamsAndRecordWithFn>(args)...), std::make_index_sequence<n_args - 1>{}, std::index_sequence<n_args - 1>{});
+		return create_command_internal<Command>(current_batch, std::forward_as_tuple(std::forward<CtorParamsAndRecordWithFn>(args)...),
+		    std::make_index_sequence<n_args - 1>{}, std::index_sequence<n_args - 1>{});
 	}
 
 	/// Adds a new dependency between two commands and records it if recording is enabled.
-	void add_dependency(abstract_command* const from, abstract_command* const to, dependency_kind kind, dependency_origin origin) {
-		m_cdag.add_dependency(from, to, kind, origin);
-		if(is_recording()) { m_recorder->record_dependency(command_dependency_record(to->get_cid(), from->get_cid(), kind, origin)); }
+	void add_dependency(command* const from, command* const to, dependency_kind kind, dependency_origin origin) {
+		assert(to != from);
+		from->add_dependency({to, kind, origin});
+		m_execution_front.erase(to);
+
+		// Sanity check: For non-dataflow dependencies the commands can only be of specific types
+		if(origin == dependency_origin::execution_front) { assert(utils::isa<epoch_command>(from) || utils::isa<horizon_command>(from)); }
+		if(origin == dependency_origin::collective_group_serialization) {
+			assert(utils::isa<execution_command>(from));
+			// The original execution command may have been subsumed by a horizon / epoch
+			assert(utils::isa<execution_command>(to) || utils::isa<epoch_command>(to) || utils::isa<horizon_command>(to));
+		}
+		if(origin == dependency_origin::last_epoch) { assert(utils::isa<epoch_command>(to) || utils::isa<horizon_command>(to)); }
+
+		// Sanity check for unit tests, where we may have multiple CDAGS
+		// TODO assert(m_commands.at(from->get_id()).get() == depender);
+		// TODO assert(m_commands.at(to->get_id()).get() == dependee);
+		if(is_recording()) { m_recorder->record_dependency(command_dependency_record(to->get_id(), from->get_id(), kind, origin)); }
 	}
 
 	struct assigned_chunk {
@@ -200,15 +243,15 @@ class command_graph_generator {
 	/// For local chunks, create a reduction command and a single await_push command that receives the partial reduction results from all other nodes.
 	/// For remote chunks, always create a push command, regardless of whether we own a partial reduction result or not.
 	/// This is required because remote nodes do not know how many partial reduction results there are.
-	void resolve_pending_reductions(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements);
+	void resolve_pending_reductions(batch& current_batch, const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements);
 
 	/// For all remote chunks, find read requirements intersecting with owned buffer regions and generate push commands for those regions.
-	void generate_pushes(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements);
+	void generate_pushes(batch& current_batch, const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements);
 
 	/// For all local chunks, find read requirements on remote data.
 	/// Generate a single await push command for each buffer that awaits the entire required region.
 	/// This will then be fulfilled by one or more incoming pushes.
-	void generate_await_pushes(const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements);
+	void generate_await_pushes(batch& current_batch, const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements);
 
 	/// Determine which local data is fresh or stale by comparing global (task-level) and local writes.
 	void update_local_buffer_fresh_regions(const task& tsk, const std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes);
@@ -217,24 +260,20 @@ class command_graph_generator {
 	 * Generates command(s) that need to be processed by every node in the system,
 	 * because they may require data transfers.
 	 */
-	void generate_distributed_commands(const task& tsk);
+	void generate_distributed_commands(batch& current_batch, const task& tsk);
 
 	void generate_anti_dependencies(
-	    const task& tsk, buffer_id bid, const region_map<write_command_state>& last_writers_map, const region<3>& write_req, abstract_command* write_cmd);
+	    const task& tsk, buffer_id bid, const region_map<write_command_state>& last_writers_map, const region<3>& write_req, command* write_cmd);
 
-	void process_task_side_effect_requirements(const task& tsk);
+	void set_epoch_for_new_commands(command* const epoch_or_horizon);
 
-	void set_epoch_for_new_commands(const abstract_command* const epoch_or_horizon);
+	void reduce_execution_front_to(command* const new_front);
 
-	void reduce_execution_front_to(abstract_command* const new_front);
+	void generate_epoch_command(batch& current_batch, const task& tsk);
 
-	void generate_epoch_command(const task& tsk);
+	void generate_horizon_command(batch& current_batch, const task& tsk);
 
-	void generate_horizon_command(const task& tsk);
-
-	void generate_epoch_dependencies(abstract_command* cmd);
-
-	void prune_commands_before(const command_id epoch);
+	void generate_epoch_dependencies(command* cmd);
 
 	void report_overlapping_writes(const task& tsk, const box_vector<3>& local_chunks) const;
 
@@ -256,17 +295,20 @@ class command_graph_generator {
 	size_t m_num_nodes;
 	node_id m_local_nid;
 	policy_set m_policy;
-	command_graph& m_cdag;
+
+	command_id m_next_cid = 0;
+	command_graph* m_cdag;
+	command_set m_execution_front;
+
 	std::unordered_map<buffer_id, buffer_state> m_buffers;
 	std::unordered_map<host_object_id, host_object_state> m_host_objects;
-	command_id m_epoch_for_new_commands = 0;
+	std::unordered_map<collective_group_id, collective_group_state> m_collective_groups;
+
+	command* m_epoch_for_new_commands = nullptr;
 	command_id m_epoch_last_pruned_before = 0;
-	command_id m_current_horizon = no_command;
+	command* m_current_horizon = nullptr;
 
 	size_t m_test_chunk_multiplier = 1;
-
-	// Batch of commands currently being generated. Returned (and thereby emptied) by build_task().
-	std::vector<abstract_command*> m_current_cmd_batch;
 
 	// List of reductions that have either completed globally or whose result has been discarded. This list will be appended to the next horizon to eventually
 	// inform the instruction executor that it can safely garbage-collect runtime info on the reduction operation.
@@ -277,10 +319,6 @@ class command_graph_generator {
 	// While we could apply range mappers again etc., that is a bit wasteful. This is basically an optimization.
 	std::unordered_map<command_id, buffer_read_map> m_command_buffer_reads;
 
-	// Collective host tasks have an implicit dependency on the previous task in the same collective group, which is required in order to guarantee
-	// they are executed in the same order on every node.
-	std::unordered_map<collective_group_id, command_id> m_last_collective_commands;
-
 	// Generated commands will be recorded to this recorder if it is set
 	detail::command_recorder* m_recorder = nullptr;
 };
@@ -290,7 +328,7 @@ class command_graph_generator {
 namespace std {
 template <>
 struct hash<celerity::detail::write_command_state> {
-	size_t operator()(const celerity::detail::write_command_state& wcs) const { return std::hash<size_t>{}(static_cast<celerity::detail::command_id>(wcs)); }
+	size_t operator()(const celerity::detail::write_command_state& wcs) const { return std::hash<uintptr_t>{}(wcs.m_bits); }
 };
 
 } // namespace std

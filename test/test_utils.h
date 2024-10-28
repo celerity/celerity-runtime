@@ -18,7 +18,6 @@
 
 #include "async_event.h"
 #include "backend/sycl_backend.h"
-#include "command.h"
 #include "command_graph.h"
 #include "command_graph_generator.h"
 #include "print_graph.h"
@@ -95,7 +94,7 @@ namespace detail {
 		}
 
 		static size_t get_command_count(scheduler& schdlr) {
-			return inspect_thread(schdlr, [&] { return schdlr.m_cdag->command_count(); });
+			return inspect_thread(schdlr, [&] { return graph_testspy::get_live_node_count(*schdlr.m_cdag); });
 		}
 
 		static size_t get_live_instruction_count(scheduler& schdlr) {
@@ -130,6 +129,8 @@ namespace detail {
 
 	struct task_manager_testspy {
 		static const task_graph& get_task_graph(const task_manager& tm) { return tm.m_tdag; }
+
+		static const task* get_epoch_for_new_tasks(const task_manager& tm) { return tm.m_epoch_for_new_tasks; }
 
 		static const task* get_current_horizon(const task_manager& tm) { return tm.m_current_horizon; }
 

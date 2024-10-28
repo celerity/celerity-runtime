@@ -209,7 +209,6 @@ if(CMAKE_GENERATOR STREQUAL "Ninja")
 endif()
 
 set(SOURCES
-  src/command_graph.cc
   src/config.cc
   src/command_graph_generator.cc
   src/dry_run_executor.cc

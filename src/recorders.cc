@@ -1,5 +1,5 @@
 #include "recorders.h"
-#include "command.h"
+#include "command_graph.h"
 
 namespace celerity::detail {
 
@@ -41,19 +41,19 @@ task_record::task_record(const task& tsk, const buffer_name_map& get_buffer_debu
 
 // Commands
 
-std::optional<subrange<3>> get_execution_range(const abstract_command& cmd) {
+std::optional<subrange<3>> get_execution_range(const command& cmd) {
 	const auto* execution_cmd = dynamic_cast<const execution_command*>(&cmd);
 	return execution_cmd != nullptr ? execution_cmd->get_execution_range() : std::optional<subrange<3>>{};
 }
 
-access_list build_cmd_access_list(const abstract_command& cmd, const task& tsk, const buffer_name_map& accessed_buffer_names) {
+access_list build_cmd_access_list(const command& cmd, const task& tsk, const buffer_name_map& accessed_buffer_names) {
 	const auto execution_range_a = get_execution_range(cmd);
 	const auto execution_range_b = subrange<3>{tsk.get_global_offset(), tsk.get_global_size()};
 	const auto execution_range = execution_range_a.value_or(execution_range_b);
 	return build_access_list(tsk, accessed_buffer_names, execution_range);
 }
 
-command_record::command_record(const abstract_command& cmd) : id(cmd.get_cid()) {}
+command_record::command_record(const command& cmd) : id(cmd.get_id()) {}
 
 push_command_record::push_command_record(const push_command& pcmd, std::string buffer_name)
     : acceptor_base(pcmd), trid(pcmd.get_transfer_id()), target_regions(pcmd.get_target_regions()), buffer_name(std::move(buffer_name)) {

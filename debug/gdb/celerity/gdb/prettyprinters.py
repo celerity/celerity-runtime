@@ -165,13 +165,14 @@ class RegionMapPrinter:
 
 class WriteCommandStatePrinter:
     def __init__(self, val: gdb.Value):
-        bits = int(val['m_cid']['value'])
-        self.cid = (bits & 0x3fff_ffff_ffff_ffff)
-        self.fresh = (bits & 0x8000_0000_0000_0000) == 0
-        self.replicated = (bits & 0x4000_0000_0000_0000) != 0
+        bits = int(val['m_bits'])
+        command_ptr_type = gdb.lookup_type('celerity::detail::command').const().pointer()
+        self.cmd = gdb.Value(bits & ~0b11).cast(command_ptr_type)
+        self.fresh = (bits & 0b01) == 0
+        self.replicated = (bits & 0b10) != 0
 
     def to_string(self) -> str:
-        return 'C{} ({}{})'.format(self.cid,
+        return '{} ({}{})'.format(self.cmd.dereference()['m_cid'],
                                    'fresh' if self.fresh else 'stale',
                                    ', replicated' if self.replicated else '')
 

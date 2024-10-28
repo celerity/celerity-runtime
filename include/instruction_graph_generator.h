@@ -9,7 +9,7 @@
 
 namespace celerity::detail {
 
-class abstract_command;
+class command;
 class instruction;
 class instruction_graph;
 class instruction_recorder;
@@ -112,7 +112,7 @@ class instruction_graph_generator {
 	void notify_host_object_destroyed(host_object_id hoid);
 
 	/// Compiles a command-graph node into a set of instructions, which are inserted into the shared instruction graph, and updates tracking structures.
-	void compile(const abstract_command& cmd);
+	void compile(const command& cmd);
 
   private:
 	/// Default-constructs a `policy_set` - this must be a function because we can't use the implicit default constructor of `policy_set`, which has member

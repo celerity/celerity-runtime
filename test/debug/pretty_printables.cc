@@ -4,6 +4,10 @@
 #include "region_map.h"
 #include "types.h"
 
+static const auto epoch_task = celerity::detail::task::make_epoch(celerity::detail::task_id{0}, celerity::detail::epoch_action::none);
+static const auto epoch_cmd = std::make_unique<celerity::detail::epoch_command>(
+    celerity::detail::command_id{123}, epoch_task.get(), celerity::detail::epoch_action::none, std::vector<celerity::detail::reduction_id>());
+
 int main() {
 	[[maybe_unused]] celerity::detail::task_id tid = 10;
 	[[maybe_unused]] celerity::detail::buffer_id bid = 11;
@@ -42,10 +46,10 @@ int main() {
 
 	[[maybe_unused]] celerity::detail::region_map<int> region_map_0d(celerity::range<3>(1, 1, 1), 42);
 
-	[[maybe_unused]] celerity::detail::write_command_state wcs_fresh(celerity::detail::command_id(123));
-	[[maybe_unused]] celerity::detail::write_command_state wcs_stale(celerity::detail::command_id(123));
+	[[maybe_unused]] celerity::detail::write_command_state wcs_fresh(epoch_cmd.get());
+	[[maybe_unused]] celerity::detail::write_command_state wcs_stale(epoch_cmd.get());
 	wcs_stale.mark_as_stale();
-	[[maybe_unused]] celerity::detail::write_command_state wcs_replicated(celerity::detail::command_id(123), true /* replicated */);
+	[[maybe_unused]] celerity::detail::write_command_state wcs_replicated(epoch_cmd.get(), true /* replicated */);
 
 	// tell GDB to break here so we can examine locals
 	__builtin_trap();
