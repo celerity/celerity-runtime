@@ -207,7 +207,8 @@ template <std::integral Integral>
 }
 
 template <typename Void>
-requires(std::is_void_v<Void>) [[nodiscard]] constexpr Void* offset(Void* const ptr, const size_t offset_bytes) {
+    requires(std::is_void_v<Void>)
+[[nodiscard]] constexpr Void* offset(Void* const ptr, const size_t offset_bytes) {
 	using byte_type = std::conditional_t<std::is_const_v<Void>, const std::byte, std::byte>;
 	return static_cast<byte_type*>(ptr) + offset_bytes;
 }

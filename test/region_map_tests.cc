@@ -284,15 +284,13 @@ TEST_CASE("region_map handles basic operations in 1D", "[region_map]") {
 			const auto results = rm.get_region_values({0, size});
 			REQUIRE_LOOP(results.size() == static_cast<size_t>(i + (i < (num_parts - 1) ? 2 : 1)));
 			for(size_t j = 0; j < i + 1; ++j) {
-				REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [j, slice](auto& r) {
-					return r == std::pair{box<1>{j * slice, j * slice + slice}, j};
-				}));
+				REQUIRE_LOOP(
+				    std::any_of(results.begin(), results.end(), [j, slice](auto& r) { return r == std::pair{box<1>{j * slice, j * slice + slice}, j}; }));
 			}
 			if(i < num_parts - 1) {
 				// Check that original value still exists
-				REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [i, slice](auto& r) {
-					return r == std::pair{box<1>{(i + 1) * slice, size}, std::numeric_limits<size_t>::max()};
-				}));
+				REQUIRE_LOOP(std::any_of(results.begin(), results.end(),
+				    [i, slice](auto& r) { return r == std::pair{box<1>{(i + 1) * slice, size}, std::numeric_limits<size_t>::max()}; }));
 			}
 		}
 	}
@@ -355,32 +353,27 @@ TEST_CASE("region_map handles basic operations in 2D", "[region_map]") {
 			// Until the last iteration we have to account for the original value.
 			REQUIRE_LOOP(results.size() == static_cast<size_t>(i + (i < (num_rows - 1) ? 2 : 1)));
 			for(size_t j = 0; j < i + 1; ++j) {
-				REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [j, row_height](auto& r) {
-					return r == std::pair{box<2>{{j * row_height, 0}, {j * row_height + row_height, width}}, j};
-				}));
+				REQUIRE_LOOP(std::any_of(results.begin(), results.end(),
+				    [j, row_height](auto& r) { return r == std::pair{box<2>{{j * row_height, 0}, {j * row_height + row_height, width}}, j}; }));
 			}
 			if(i < num_rows - 1) {
 				// Check that original value still exists
-				CHECK(std::any_of(results.begin(), results.end(), [i, row_height, default_value](auto& r) {
-					return r == std::pair{box<2>{{(i + 1) * row_height, 0}, {height, width}}, default_value};
-				}));
+				CHECK(std::any_of(results.begin(), results.end(),
+				    [i, row_height, default_value](auto& r) { return r == std::pair{box<2>{{(i + 1) * row_height, 0}, {height, width}}, default_value}; }));
 			}
 		}
 
 		// Now drive a center column through all of them
 		rm.update_box(box<2>{{0, 48}, {height, 80}}, std::numeric_limits<size_t>::max() - 2);
 		const auto results = rm.get_region_values({{0, 0}, {height, width}});
-		CHECK(std::any_of(results.begin(), results.end(), [](auto& r) {
-			return r == std::pair{box<2>{{0, 48}, {height, 80}}, std::numeric_limits<size_t>::max() - 2};
-		}));
+		CHECK(std::any_of(
+		    results.begin(), results.end(), [](auto& r) { return r == std::pair{box<2>{{0, 48}, {height, 80}}, std::numeric_limits<size_t>::max() - 2}; }));
 
 		for(size_t i = 0; i < num_rows; ++i) {
-			REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [i, row_height](auto& r) {
-				return r == std::pair{box<2>{{i * row_height, 0}, {i * row_height + row_height, 48}}, i};
-			}));
-			REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [i, row_height](auto& r) {
-				return r == std::pair{box<2>{{i * row_height, 80}, {i * row_height + row_height, width}}, i};
-			}));
+			REQUIRE_LOOP(std::any_of(results.begin(), results.end(),
+			    [i, row_height](auto& r) { return r == std::pair{box<2>{{i * row_height, 0}, {i * row_height + row_height, 48}}, i}; }));
+			REQUIRE_LOOP(std::any_of(results.begin(), results.end(),
+			    [i, row_height](auto& r) { return r == std::pair{box<2>{{i * row_height, 80}, {i * row_height + row_height, width}}, i}; }));
 		}
 	}
 
@@ -398,9 +391,8 @@ TEST_CASE("region_map handles basic operations in 2D", "[region_map]") {
 			REQUIRE_LOOP(results.size() == 2 * (i + 1) + (i < (num_rows / 2 - 1) ? 1 : 0));
 
 			for(size_t j = 0; j < i + 1; ++j) {
-				REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [j, row_height](auto& r) {
-					return r == std::pair{box<2>{{j * row_height, 0}, {j * row_height + row_height, width}}, j};
-				}));
+				REQUIRE_LOOP(std::any_of(results.begin(), results.end(),
+				    [j, row_height](auto& r) { return r == std::pair{box<2>{{j * row_height, 0}, {j * row_height + row_height, width}}, j}; }));
 				REQUIRE_LOOP(std::any_of(results.begin(), results.end(), [j, row_height, num_rows](auto& r) {
 					return r == std::pair{box<2>{{(num_rows - 1 - j) * row_height, 0}, {(num_rows - 1 - j) * row_height + row_height, width}}, num_rows + j};
 				}));
@@ -697,16 +689,10 @@ TEST_CASE("region_map merges truncated result boxes with the same value upon que
 		// One is the non-mergeable default-initialized section
 		CHECK(std::any_of(results.begin(), results.end(), [default_value](auto& r) { return r == std::pair{box<2>{{3, 3}, {height, width}}, default_value}; }));
 		// The other two are either of these two variants
-		const bool variant_1 = std::any_of(results.begin(), results.end(), [](auto& r) {
-			return r == std::pair{box<2>{{1, 1}, {height, 3}}, size_t(3)};
-		}) && std::any_of(results.begin(), results.end(), [](auto& r) {
-			return r == std::pair{box<2>{{1, 3}, {3, width}}, size_t(3)};
-		});
-		const bool variant_2 = std::any_of(results.begin(), results.end(), [](auto& r) {
-			return r == std::pair{box<2>{{1, 1}, {3, width}}, size_t(3)};
-		}) && std::any_of(results.begin(), results.end(), [](auto& r) {
-			return r == std::pair{box<2>{{3, 1}, {height, 3}}, size_t(3)};
-		});
+		const bool variant_1 = std::any_of(results.begin(), results.end(), [](auto& r) { return r == std::pair{box<2>{{1, 1}, {height, 3}}, size_t(3)}; })
+		                       && std::any_of(results.begin(), results.end(), [](auto& r) { return r == std::pair{box<2>{{1, 3}, {3, width}}, size_t(3)}; });
+		const bool variant_2 = std::any_of(results.begin(), results.end(), [](auto& r) { return r == std::pair{box<2>{{1, 1}, {3, width}}, size_t(3)}; })
+		                       && std::any_of(results.begin(), results.end(), [](auto& r) { return r == std::pair{box<2>{{3, 1}, {height, 3}}, size_t(3)}; });
 		CHECK(variant_1 != variant_2);
 	}
 

@@ -117,13 +117,13 @@ class coordinate {
 #undef CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_COPY_LHS_OPERATOR
 
 #define CELERITY_DETAIL_DEFINE_COORDINATE_BINARY_INPLACE_LHS_OPERATOR(op)                                                                                      \
-	friend constexpr Interface& operator op(Interface& lhs, const Interface& rhs) {                                                                            \
+	friend constexpr Interface& operator op(Interface & lhs, const Interface & rhs) {                                                                          \
 		for(int d = 0; d < Dims; ++d) {                                                                                                                        \
 			lhs.m_values[d] op rhs.m_values[d];                                                                                                                \
 		}                                                                                                                                                      \
 		return lhs;                                                                                                                                            \
 	}                                                                                                                                                          \
-	friend constexpr Interface& operator op(Interface& lhs, const size_t& rhs) {                                                                               \
+	friend constexpr Interface& operator op(Interface & lhs, const size_t & rhs) {                                                                             \
 		for(int d = 0; d < Dims; ++d) {                                                                                                                        \
 			lhs.m_values[d] op rhs;                                                                                                                            \
 		}                                                                                                                                                      \
@@ -186,7 +186,7 @@ class coordinate {
 #undef CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_COPY_OPERATOR
 
 #define CELERITY_DETAIL_DEFINE_COORDINATE_UNARY_PREFIX_OPERATOR(op)                                                                                            \
-	friend constexpr Interface& operator op(Interface& rhs) {                                                                                                  \
+	friend constexpr Interface& operator op(Interface & rhs) {                                                                                                 \
 		for(int d = 0; d < Dims; ++d) {                                                                                                                        \
 			op rhs[d];                                                                                                                                         \
 		}                                                                                                                                                      \
@@ -285,10 +285,10 @@ class range : public detail::coordinate<range<Dims>, Dims> {
 	    : coordinate(detail::make_from, in, /* default_value= */ 1) {}
 };
 
-range()->range<0>;
-range(size_t)->range<1>;
-range(size_t, size_t)->range<2>;
-range(size_t, size_t, size_t)->range<3>;
+range() -> range<0>;
+range(size_t) -> range<1>;
+range(size_t, size_t) -> range<2>;
+range(size_t, size_t, size_t) -> range<3>;
 
 template <int Dims>
 class id : public detail::coordinate<id<Dims>, Dims> {
@@ -338,10 +338,10 @@ class id : public detail::coordinate<id<Dims>, Dims> {
 	    : coordinate(detail::make_from, in, /* default_value= */ 0) {}
 };
 
-id()->id<0>;
-id(size_t)->id<1>;
-id(size_t, size_t)->id<2>;
-id(size_t, size_t, size_t)->id<3>;
+id() -> id<0>;
+id(size_t) -> id<1>;
+id(size_t, size_t) -> id<2>;
+id(size_t, size_t, size_t) -> id<3>;
 
 // Celerity nd_range does not deprecate kernel offsets since we can support them at no additional cost in the distributed model.
 template <int Dims>
@@ -391,12 +391,12 @@ class nd_range {
 };
 
 // Non-templated deduction guides allow construction of nd_range from range initializer lists like so: nd_range{{1, 2}, {3, 4}}
-nd_range(range<1> global_range, range<1> local_range, id<1> offset)->nd_range<1>;
-nd_range(range<1> global_range, range<1> local_range)->nd_range<1>;
-nd_range(range<2> global_range, range<2> local_range, id<2> offset)->nd_range<2>;
-nd_range(range<2> global_range, range<2> local_range)->nd_range<2>;
-nd_range(range<3> global_range, range<3> local_range, id<3> offset)->nd_range<3>;
-nd_range(range<3> global_range, range<3> local_range)->nd_range<3>;
+nd_range(range<1> global_range, range<1> local_range, id<1> offset) -> nd_range<1>;
+nd_range(range<1> global_range, range<1> local_range) -> nd_range<1>;
+nd_range(range<2> global_range, range<2> local_range, id<2> offset) -> nd_range<2>;
+nd_range(range<2> global_range, range<2> local_range) -> nd_range<2>;
+nd_range(range<3> global_range, range<3> local_range, id<3> offset) -> nd_range<3>;
+nd_range(range<3> global_range, range<3> local_range) -> nd_range<3>;
 
 } // namespace celerity
 
