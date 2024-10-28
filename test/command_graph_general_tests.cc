@@ -10,72 +10,17 @@ using namespace celerity::test_utils;
 
 namespace acc = celerity::access;
 
-TEST_CASE("command_graph keeps track of created commands", "[command_graph][command-graph]") {
-	command_graph cdag;
-	auto tsk0 = task::make_master_node(0, {}, {}, {});
-	auto tsk1 = task::make_master_node(1, {}, {}, {});
-	auto* const cmd0 = cdag.create<execution_command>(tsk0.get(), subrange<3>{});
-	auto* const cmd1 = cdag.create<execution_command>(tsk1.get(), subrange<3>{});
-	REQUIRE(cmd0->get_cid() != cmd1->get_cid());
-	REQUIRE(cdag.get(cmd0->get_cid()) == cmd0);
-	REQUIRE(cdag.command_count() == 2);
-	REQUIRE(cdag.task_command_count(0) == 1);
-	REQUIRE(cdag.task_command_count(1) == 1);
-
-	cdag.erase(cmd1);
-	REQUIRE(cdag.command_count() == 1);
-	REQUIRE(cdag.task_command_count(1) == 0);
-}
-
-TEST_CASE("command_graph allows to iterate over all raw command pointers", "[command_graph][command-graph]") {
-	command_graph cdag;
-	command_set cmds;
-	auto tsk0 = task::make_master_node(0, {}, {}, {});
-	auto tsk1 = task::make_epoch(1, epoch_action::none);
-	cmds.insert(cdag.create<execution_command>(tsk0.get(), subrange<3>{}));
-	cmds.insert(cdag.create<epoch_command>(tsk1.get(), epoch_action::none, std::vector<reduction_id>{}));
-	cmds.insert(cdag.create<push_command>(transfer_id(0, 0, 0), std::vector<std::pair<node_id, region<3>>>{}));
-	for(auto* cmd : cdag.all_commands()) {
-		REQUIRE(cmds.find(cmd) != cmds.end());
-		cmds.erase(cmd);
-	}
-	REQUIRE(cmds.empty());
-}
-
-TEST_CASE("command_graph keeps track of execution front", "[command_graph][command-graph]") {
-	command_graph cdag;
-
-	command_set expected_front;
-
-	auto tsk0 = task::make_master_node(0, {}, {}, {});
-	auto* const cmd0 = cdag.create<execution_command>(tsk0.get(), subrange<3>{});
-	expected_front.insert(cmd0);
-	REQUIRE(expected_front == cdag.get_execution_front());
-
-	auto tsk1 = task::make_master_node(1, {}, {}, {});
-	expected_front.insert(cdag.create<execution_command>(tsk1.get(), subrange<3>{}));
-	REQUIRE(expected_front == cdag.get_execution_front());
-
-	expected_front.erase(cmd0);
-	auto tsk2 = task::make_master_node(2, {}, {}, {});
-	auto* const cmd2 = cdag.create<execution_command>(tsk2.get(), subrange<3>{});
-	expected_front.insert(cmd2);
-	cdag.add_dependency(cmd2, cmd0, dependency_kind::true_dep, dependency_origin::dataflow);
-	REQUIRE(expected_front == cdag.get_execution_front());
-}
-
 TEST_CASE("isa<> RTTI helper correctly handles command hierarchies", "[rtti][command-graph]") {
-	command_graph cdag;
 	auto tsk0 = task::make_epoch(0, epoch_action::none);
-	auto* const np = cdag.create<epoch_command>(tsk0.get(), epoch_action::none, std::vector<reduction_id>{});
-	REQUIRE(utils::isa<abstract_command>(np));
+	const auto np = std::make_unique<epoch_command>(command_id(), tsk0.get(), epoch_action::none, std::vector<reduction_id>{});
+	REQUIRE(utils::isa<command>(np.get()));
 	auto tsk1 = task::make_master_node(1, {}, {}, {});
-	auto* const hec = cdag.create<execution_command>(tsk1.get(), subrange<3>{});
-	REQUIRE(utils::isa<execution_command>(hec));
-	auto* const pc = cdag.create<push_command>(transfer_id(0, 0, 0), std::vector<std::pair<node_id, region<3>>>{});
-	REQUIRE(utils::isa<abstract_command>(pc));
-	auto* const apc = cdag.create<await_push_command>(transfer_id(0, 0, 0), region<3>{});
-	REQUIRE(utils::isa<abstract_command>(apc));
+	const auto hec = std::make_unique<execution_command>(command_id(), tsk1.get(), subrange<3>{}, false);
+	REQUIRE(utils::isa<execution_command>(hec.get()));
+	const auto pc = std::make_unique<push_command>(command_id(), transfer_id(0, 0, 0), std::vector<std::pair<node_id, region<3>>>{});
+	REQUIRE(utils::isa<command>(pc.get()));
+	const auto apc = std::make_unique<await_push_command>(command_id(), transfer_id(0, 0, 0), region<3>{});
+	REQUIRE(utils::isa<command>(apc.get()));
 }
 
 TEST_CASE("command_graph_generator generates dependencies for execution commands", "[command_graph_generator][command-graph]") {

@@ -1,7 +1,7 @@
 #include "instruction_graph_generator.h"
 
 #include "access_modes.h"
-#include "command.h"
+#include "command_graph.h"
 #include "grid.h"
 #include "instruction_graph.h"
 #include "log.h"
@@ -562,7 +562,7 @@ class generator_impl {
 	void notify_buffer_destroyed(buffer_id bid);
 	void notify_host_object_created(host_object_id hoid, bool owns_instance);
 	void notify_host_object_destroyed(host_object_id hoid);
-	void compile(const abstract_command& cmd);
+	void compile(const command& cmd);
 
   private:
 	inline static const box<3> scalar_reduction_box{zeros, ones};
@@ -1804,7 +1804,7 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 		    global_memory_access_estimate_bytes //
 		        CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, tsk.get_type(), tsk.get_id(), tsk.get_debug_name()),
 		    [&](const auto& record_debug_info) {
-			    record_debug_info(ecmd.get_task()->get_id(), ecmd.get_cid(), tsk.get_debug_name(), buffer_memory_access_map, buffer_memory_reduction_map);
+			    record_debug_info(ecmd.get_task()->get_id(), ecmd.get_id(), tsk.get_debug_name(), buffer_memory_access_map, buffer_memory_reduction_map);
 		    });
 	} else {
 		assert(tsk.get_execution_target() == execution_target::host);
@@ -1816,7 +1816,7 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 		    tsk.get_collective_group_id() //
 		    CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, tsk.get_type(), tsk.get_id(), tsk.get_debug_name()),
 		    [&](const auto& record_debug_info) {
-			    record_debug_info(ecmd.get_task()->get_id(), ecmd.get_cid(), tsk.get_debug_name(), buffer_memory_access_map);
+			    record_debug_info(ecmd.get_task()->get_id(), ecmd.get_id(), tsk.get_debug_name(), buffer_memory_access_map);
 		    });
 	}
 }
@@ -2039,7 +2039,7 @@ void generator_impl::compile_push_command(batch& command_batch, const push_comma
 					const auto offset_in_allocation = compatible_send_box.get_offset() - allocation.box.get_offset();
 					const auto send_instr = create<send_instruction>(command_batch, target, msgid, allocation.aid, allocation.box.get_range(),
 					    offset_in_allocation, compatible_send_box.get_range(), buffer.elem_size,
-					    [&](const auto& record_debug_info) { record_debug_info(pcmd.get_cid(), trid, buffer.debug_name, compatible_send_box.get_offset()); });
+					    [&](const auto& record_debug_info) { record_debug_info(pcmd.get_id(), trid, buffer.debug_name, compatible_send_box.get_offset()); });
 
 					perform_concurrent_read_from_allocation(send_instr, allocation, compatible_send_box);
 				}
@@ -2054,7 +2054,7 @@ void generator_impl::defer_await_push_command(const await_push_command& apcmd) {
 	// unnecessary synchronization points between chunks that can otherwise profit from a computation-communication overlap.
 
 	const auto& trid = apcmd.get_transfer_id();
-	if(is_recording()) { m_recorder->record_await_push_command_id(trid, apcmd.get_cid()); }
+	if(is_recording()) { m_recorder->record_await_push_command_id(trid, apcmd.get_id()); }
 
 	auto& buffer = m_buffers.at(trid.bid);
 
@@ -2149,7 +2149,7 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 	auto& dest_allocation = host_memory.get_contiguous_allocation(scalar_reduction_box);
 
 	const auto reduce_instr = create<reduce_instruction>(command_batch, rid, gather_aid, m_num_nodes, dest_allocation.aid, [&](const auto& record_debug_info) {
-		record_debug_info(rcmd.get_cid(), bid, buffer.debug_name, scalar_reduction_box, reduce_instruction_record::reduction_scope::global);
+		record_debug_info(rcmd.get_id(), bid, buffer.debug_name, scalar_reduction_box, reduce_instruction_record::reduction_scope::global);
 	});
 	add_dependency(reduce_instr, gather_recv_instr, instruction_dependency_origin::read_from_allocation);
 	if(local_gather_copy_instr != nullptr) { add_dependency(reduce_instr, local_gather_copy_instr, instruction_dependency_origin::read_from_allocation); }
@@ -2205,7 +2205,7 @@ void generator_impl::compile_fence_command(batch& command_batch, const fence_com
 		}
 
 		const auto fence_instr = create<fence_instruction>(command_batch, tsk.get_fence_promise(),
-		    [&](const auto& record_debug_info) { record_debug_info(tsk.get_id(), fcmd.get_cid(), bid, buffer.debug_name, fence_box.get_subrange()); });
+		    [&](const auto& record_debug_info) { record_debug_info(tsk.get_id(), fcmd.get_id(), bid, buffer.debug_name, fence_box.get_subrange()); });
 
 		if(copy_instr != nullptr) {
 			add_dependency(fence_instr, copy_instr, instruction_dependency_origin::read_from_allocation);
@@ -2224,7 +2224,7 @@ void generator_impl::compile_fence_command(batch& command_batch, const fence_com
 
 		auto& obj = m_host_objects.at(hoid);
 		const auto fence_instr = create<fence_instruction>(
-		    command_batch, tsk.get_fence_promise(), [&, hoid = hoid](const auto& record_debug_info) { record_debug_info(tsk.get_id(), fcmd.get_cid(), hoid); });
+		    command_batch, tsk.get_fence_promise(), [&, hoid = hoid](const auto& record_debug_info) { record_debug_info(tsk.get_id(), fcmd.get_id(), hoid); });
 
 		add_dependency(fence_instr, obj.last_side_effect, instruction_dependency_origin::side_effect);
 		obj.last_side_effect = fence_instr;
@@ -2235,7 +2235,7 @@ void generator_impl::compile_horizon_command(batch& command_batch, const horizon
 	m_idag->begin_epoch(hcmd.get_task()->get_id());
 	instruction_garbage garbage{hcmd.get_completed_reductions(), std::move(m_unreferenced_user_allocations)};
 	const auto horizon = create<horizon_instruction>(
-	    command_batch, hcmd.get_task()->get_id(), std::move(garbage), [&](const auto& record_debug_info) { record_debug_info(hcmd.get_cid()); });
+	    command_batch, hcmd.get_task()->get_id(), std::move(garbage), [&](const auto& record_debug_info) { record_debug_info(hcmd.get_id()); });
 
 	collapse_execution_front_to(horizon);
 	if(m_last_horizon != nullptr) { apply_epoch(m_last_horizon); }
@@ -2248,7 +2248,7 @@ void generator_impl::compile_epoch_command(batch& command_batch, const epoch_com
 	m_idag->begin_epoch(ecmd.get_task()->get_id());
 	instruction_garbage garbage{ecmd.get_completed_reductions(), std::move(m_unreferenced_user_allocations)};
 	const auto epoch = create<epoch_instruction>(command_batch, ecmd.get_task()->get_id(), ecmd.get_epoch_action(), std::move(garbage),
-	    [&](const auto& record_debug_info) { record_debug_info(ecmd.get_cid()); });
+	    [&](const auto& record_debug_info) { record_debug_info(ecmd.get_id()); });
 
 	collapse_execution_front_to(epoch);
 	apply_epoch(epoch);
@@ -2282,7 +2282,7 @@ void generator_impl::flush_batch(batch&& batch) { // NOLINT(cppcoreguidelines-rv
 #endif
 }
 
-void generator_impl::compile(const abstract_command& cmd) {
+void generator_impl::compile(const command& cmd) {
 	batch command_batch;
 	matchbox::match(
 	    cmd,                                                                                    //
@@ -2326,6 +2326,6 @@ void instruction_graph_generator::notify_host_object_created(const host_object_i
 
 void instruction_graph_generator::notify_host_object_destroyed(const host_object_id hoid) { m_impl->notify_host_object_destroyed(hoid); }
 
-void instruction_graph_generator::compile(const abstract_command& cmd) { m_impl->compile(cmd); }
+void instruction_graph_generator::compile(const command& cmd) { m_impl->compile(cmd); }
 
 } // namespace celerity::detail

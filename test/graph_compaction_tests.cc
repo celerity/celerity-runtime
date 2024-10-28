@@ -53,6 +53,11 @@ TEST_CASE("horizons prevent tracking data structures from growing indefinitely",
 
 	for(int t = 0; t < num_timesteps; ++t) {
 		CAPTURE(t);
+
+		// assume scheduler would have deleted up to the current effective epoch
+		const auto current_epoch_tid = task_manager_testspy::get_epoch_for_new_tasks(cctx.get_task_manager())->get_id();
+		cctx.get_command_graph(0).erase_before_epoch(current_epoch_tid);
+
 		const auto read_accessor = [=](celerity::chunk<1> chnk) {
 			celerity::subrange<2> ret;
 			ret.range = range<2>(t, buffer_width);
@@ -81,10 +86,8 @@ TEST_CASE("horizons prevent tracking data structures from growing indefinitely",
 			REQUIRE_LOOP(command_graph_generator_testspy::get_command_buffer_reads_size(ggen) == expected_reads);
 		}
 
-		size_t horizon_count = 0;
-		for(const auto* cmd : cctx.get_graph_generator(0).get_command_graph().all_commands()) {
-			if(cmd->get_type() == command_type::horizon) { ++horizon_count; }
-		}
+		const auto horizon_count =
+		    graph_testspy::count_nodes_if(cctx.get_command_graph(0), [](const command& cmd) { return utils::isa<horizon_command>(&cmd); });
 		REQUIRE_LOOP(horizon_count <= 3);
 	}
 }
@@ -137,14 +140,16 @@ TEST_CASE("previous horizons are used as last writers for host-initialized buffe
 
 	const auto buf_range = range<1>(100);
 
-	std::array<command_id, 2> initial_last_writer_ids = {-1, -1};
+	dense_map<node_id, command_id> initial_last_writer_ids(num_nodes, -1);
 	{
 		auto buf = cctx.create_buffer(buf_range, true /* mark_as_host_initialized */);
 
 		cctx.device_compute(buf_range).name("access_host_init_buf").read_write(buf, acc::one_to_one{}).submit();
 		const auto cmds = cctx.query<execution_command_record>("access_host_init_buf");
 		REQUIRE(cmds.count_per_node() == 1);
-		initial_last_writer_ids = {cmds.on(0)->id, cmds.on(1)->id};
+		for(node_id nid = 0; nid < num_nodes; ++nid) {
+			initial_last_writer_ids[nid] = cmds.on(nid)->id;
+		}
 	}
 
 	// Create bunch of tasks to trigger horizon cleanup
@@ -163,9 +168,17 @@ TEST_CASE("previous horizons are used as last writers for host-initialized buffe
 		}
 	}
 
-	// Check that initial last writers have been deleted
-	CHECK_FALSE(cctx.get_graph_generator(0).get_command_graph().has(initial_last_writer_ids[0]));
-	CHECK_FALSE(cctx.get_graph_generator(1).get_command_graph().has(initial_last_writer_ids[1]));
+	const auto current_epoch_tid = task_manager_testspy::get_epoch_for_new_tasks(cctx.get_task_manager())->get_id();
+	for(node_id nid = 0; nid < num_nodes; ++nid) {
+		CAPTURE(nid);
+
+		// assume scheduler would have deleted up to the current effective epoch
+		auto& cdag = cctx.get_command_graph(nid);
+		cdag.erase_before_epoch(current_epoch_tid);
+
+		// Check that initial last writers have been deleted
+		CHECK(graph_testspy::find_node_if(cdag, [&](const command& cmd) { return cmd.get_id() == initial_last_writer_ids[nid]; }) == nullptr);
+	}
 
 	auto buf = cctx.create_buffer(buf_range, true /* mark_as_host_initialized */);
 	cctx.device_compute(buf_range).name("access_host_init_buf").read_write(buf, acc::one_to_one{}).submit();

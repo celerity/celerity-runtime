@@ -344,6 +344,8 @@ class cdag_test_context final : private task_manager::delegate {
 
 	task_manager& get_task_manager() { return m_tm; }
 
+	command_graph& get_command_graph(node_id nid) { return *m_cdags.at(nid); }
+
 	command_graph_generator& get_graph_generator(node_id nid) { return *m_cggens.at(nid); }
 
 	task_id get_initial_epoch_task() const { return m_initial_epoch_tid; }

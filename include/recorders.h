@@ -1,6 +1,6 @@
 #pragma once
 
-#include "command.h"
+#include "command_graph.h"
 #include "instruction_graph.h"
 #include "pilot.h"
 #include "task.h"
@@ -92,7 +92,7 @@ struct command_record : matchbox::acceptor<struct push_command_record, struct aw
                             struct epoch_command_record, struct horizon_command_record, struct execution_command_record, struct fence_command_record> {
 	command_id id;
 
-	explicit command_record(const abstract_command& cmd);
+	explicit command_record(const command& cmd);
 };
 
 struct push_command_record : matchbox::implement_acceptor<command_record, push_command_record> {

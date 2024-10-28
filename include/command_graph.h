@@ -1,165 +1,145 @@
 #pragma once
 
-#include <memory>
-#include <type_traits>
-#include <unordered_map>
+#include "graph.h"
+#include "grid.h"
+#include "intrusive_graph.h"
+#include "ranges.h"
+#include "reduction.h"
+#include "task.h"
+#include "types.h"
+
+#include <cstddef>
+#include <functional>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
-#include "command.h"
-#include "types.h"
-#include "utils.h"
+#include <matchbox.hh>
 
-namespace celerity {
-namespace detail {
 
-	class task_manager;
+namespace celerity::detail {
 
-	// TODO: Could be extended (using SFINAE) to support additional iterator types (e.g. random access)
-	template <typename Iterator, typename PredicateFn>
-	class filter_iterator {
-	  public:
-		using value_type = typename std::iterator_traits<Iterator>::value_type;
-		using difference_type = typename std::iterator_traits<Iterator>::difference_type;
-		using reference = typename std::iterator_traits<Iterator>::reference;
-		using pointer = typename std::iterator_traits<Iterator>::pointer;
-		using iterator_category = std::forward_iterator_tag;
+class command : public intrusive_graph_node<command>,
+                // Accept visitors to enable matchbox::match() on the command inheritance hierarchy
+                public matchbox::acceptor<class epoch_command, class horizon_command, class execution_command, class push_command, class await_push_command,
+                    class reduction_command, class fence_command> {
+	friend class command_graph;
 
-		filter_iterator(Iterator begin, Iterator end, PredicateFn fn) : m_it(begin), m_end(end), m_fn(fn) { advance(); }
+  protected:
+	explicit command(const command_id cid) : m_cid(cid) {}
 
-		bool operator!=(const filter_iterator& rhs) { return m_it != rhs.m_it; }
+  public:
+	command_id get_id() const { return m_cid; }
 
-		reference operator*() { return *m_it; }
-		reference operator->() { return *m_it; }
+  private:
+	command_id m_cid;
+};
 
-		filter_iterator& operator++() {
-			if(m_it != m_end) {
-				++m_it;
-				advance();
-			}
-			return *this;
-		}
+class push_command final : public matchbox::implement_acceptor<command, push_command> {
+  public:
+	explicit push_command(const command_id cid, const transfer_id& trid, std::vector<std::pair<node_id, region<3>>> target_regions)
+	    : acceptor_base(cid), m_trid(trid), m_target_regions(std::move(target_regions)) {}
 
-	  private:
-		Iterator m_it;
-		const Iterator m_end;
-		PredicateFn m_fn;
+	const transfer_id& get_transfer_id() const { return m_trid; }
+	const std::vector<std::pair<node_id, region<3>>>& get_target_regions() const { return m_target_regions; }
 
-		void advance() {
-			while(m_it != m_end && !m_fn(*m_it)) {
-				++m_it;
-			}
-		}
-	};
+  private:
+	transfer_id m_trid;
+	std::vector<std::pair<node_id, region<3>>> m_target_regions;
+};
 
-	template <typename Iterator, typename PredicateFn>
-	filter_iterator<Iterator, PredicateFn> make_filter_iterator(Iterator begin, Iterator end, PredicateFn fn) {
-		return filter_iterator<Iterator, PredicateFn>(begin, end, fn);
+class await_push_command final : public matchbox::implement_acceptor<command, await_push_command> {
+  public:
+	explicit await_push_command(const command_id cid, const transfer_id& trid, region<3> region)
+	    : acceptor_base(cid), m_trid(trid), m_region(std::move(region)) {}
+
+	const transfer_id& get_transfer_id() const { return m_trid; }
+	const region<3>& get_region() const { return m_region; }
+
+  private:
+	transfer_id m_trid;
+	region<3> m_region;
+};
+
+class reduction_command final : public matchbox::implement_acceptor<command, reduction_command> {
+  public:
+	explicit reduction_command(command_id cid, const reduction_info& info, const bool has_local_contribution)
+	    : acceptor_base(cid), m_info(info), m_has_local_contribution(has_local_contribution) {}
+
+	const reduction_info& get_reduction_info() const { return m_info; }
+	bool has_local_contribution() const { return m_has_local_contribution; }
+
+  private:
+	reduction_info m_info;
+	bool m_has_local_contribution;
+};
+
+class task_command : public command {
+  protected:
+	explicit task_command(const command_id cid, const task* const tsk) : command(cid), m_task(tsk) {}
+
+  public:
+	const task* get_task() const { return m_task; }
+
+  private:
+	const task* m_task;
+};
+
+class epoch_command final : public matchbox::implement_acceptor<task_command, epoch_command> {
+  public:
+	explicit epoch_command(const command_id cid, const task* const tsk, const epoch_action action, std::vector<reduction_id> completed_reductions)
+	    : acceptor_base(cid, tsk), m_action(action), m_completed_reductions(std::move(completed_reductions)) {}
+
+	epoch_action get_epoch_action() const { return m_action; }
+	const std::vector<reduction_id>& get_completed_reductions() const { return m_completed_reductions; }
+
+  private:
+	epoch_action m_action;
+	std::vector<reduction_id> m_completed_reductions;
+};
+
+class horizon_command final : public matchbox::implement_acceptor<task_command, horizon_command> {
+  public:
+	explicit horizon_command(const command_id cid, const task* const tsk, std::vector<reduction_id> completed_reductions)
+	    : acceptor_base(cid, tsk), m_completed_reductions(std::move(completed_reductions)) {}
+
+	const std::vector<reduction_id>& get_completed_reductions() const { return m_completed_reductions; }
+
+  private:
+	std::vector<reduction_id> m_completed_reductions;
+};
+
+class execution_command final : public matchbox::implement_acceptor<task_command, execution_command> {
+  public:
+	explicit execution_command(const command_id cid, const task* const tsk, subrange<3> execution_range, const bool is_reduction_initializer)
+	    : acceptor_base(cid, tsk), m_execution_range(execution_range), m_initialize_reductions(is_reduction_initializer) {}
+
+	const subrange<3>& get_execution_range() const { return m_execution_range; }
+	bool is_reduction_initializer() const { return m_initialize_reductions; }
+
+  private:
+	subrange<3> m_execution_range;
+	bool m_initialize_reductions = false;
+};
+
+class fence_command final : public matchbox::implement_acceptor<task_command, fence_command> {
+  public:
+	explicit fence_command(const command_id cid, const task* const tsk) : acceptor_base(cid, tsk) {}
+};
+
+/// Hash function for `unordered_sets/maps` of `command *` that is deterministic even as allocation addresses change between application runs.
+struct command_hash_by_id {
+	template <typename Pointer>
+	constexpr size_t operator()(const Pointer instr) const {
+		return std::hash<command_id>()(instr->get_id());
 	}
+};
 
-	// TODO: Could be extended (using SFINAE) to support additional iterator types (e.g. random access)
-	template <typename Iterator, typename TransformFn>
-	class transform_iterator {
-	  public:
-		using value_type = decltype(std::declval<TransformFn>()(std::declval<typename std::iterator_traits<Iterator>::reference>()));
-		using difference_type = typename std::iterator_traits<Iterator>::difference_type;
-		using reference = value_type; // We cannot return a reference (but this is OK according to the standard)
-		using pointer = value_type*;
-		using iterator_category = std::forward_iterator_tag;
+using command_set = std::unordered_set<command*, command_hash_by_id>;
 
-		transform_iterator(Iterator it, TransformFn fn) : m_it(it), m_fn(fn) {}
+/// The command graph (CDAG) provides a static schedule of commands executed on individual nodes, including kernel execution and peer-to-peer data transfers via
+/// push- and await-push commands. It is generated in a distributed fashion, where each cluster node only maintains the subset of commands it will execute
+/// itself.
+class command_graph : public graph<command> {}; // inheritance instead of type alias so we can forward-declare command_graph
 
-		bool operator!=(const transform_iterator& rhs) { return m_it != rhs.m_it; }
-
-		reference operator*() { return m_fn(*m_it); }
-		reference operator->() { return m_fn(*m_it); }
-
-		transform_iterator& operator++() {
-			++m_it;
-			return *this;
-		}
-
-	  private:
-		Iterator m_it;
-		TransformFn m_fn;
-	};
-
-	template <typename Iterator, typename TransformFn>
-	transform_iterator<Iterator, TransformFn> make_transform_iterator(Iterator it, TransformFn fn) {
-		return transform_iterator<Iterator, TransformFn>(it, fn);
-	}
-
-	class command_graph {
-	  public:
-		template <typename T, typename... Args>
-		T* create(Args&&... args) {
-			static_assert(std::is_base_of<abstract_command, T>::value, "T must be derived from abstract_command");
-			auto unique_cmd = std::unique_ptr<T>{new T(m_next_cmd_id++, std::forward<Args>(args)...)}; // new, because ctors are private, but we are friends
-			const auto cmd = unique_cmd.get();
-			m_commands.emplace(std::pair{cmd->get_cid(), std::move(unique_cmd)});
-			if constexpr(std::is_base_of_v<task_command, T>) { m_by_task[cmd->get_task()->get_id()].emplace_back(cmd); }
-			m_execution_front.insert(cmd);
-			return cmd;
-		}
-
-		void erase(abstract_command* cmd);
-
-		void erase_if(std::function<bool(abstract_command*)> condition);
-
-		bool has(command_id cid) const { return m_commands.count(cid) == 1; }
-
-		abstract_command* get(command_id cid) { return m_commands.at(cid).get(); }
-
-		template <typename T>
-		T* get(command_id cid) {
-			// dynamic_cast with reference to force bad_cast to be thrown if type mismatches
-			return &dynamic_cast<T&>(*m_commands.at(cid));
-		}
-
-		size_t command_count() const { return m_commands.size(); }
-		size_t task_command_count(task_id tid) const {
-			if(m_by_task.count(tid) == 0) return 0;
-			return m_by_task.at(tid).size();
-		}
-
-		auto all_commands() const {
-			const auto transform = [](auto& uptr) { return uptr.second.get(); };
-			return iterable_range{make_transform_iterator(m_commands.cbegin(), transform), make_transform_iterator(m_commands.cend(), transform)};
-		}
-
-		auto& task_commands(task_id tid) { return m_by_task.at(tid); }
-
-		void add_dependency(abstract_command* depender, abstract_command* dependee, dependency_kind kind, dependency_origin origin) {
-			assert(dependee != depender);
-			depender->add_dependency({dependee, kind, origin});
-			m_execution_front.erase(dependee);
-
-			// Sanity check: For non-dataflow dependencies the commands can only be of specific types
-			if(origin == dependency_origin::execution_front) { assert(utils::isa<epoch_command>(depender) || utils::isa<horizon_command>(depender)); }
-			if(origin == dependency_origin::collective_group_serialization) {
-				assert(utils::isa<execution_command>(depender));
-				// The original execution command may have been subsumed by a horizon / epoch
-				assert(utils::isa<execution_command>(dependee) || utils::isa<epoch_command>(dependee) || utils::isa<horizon_command>(dependee));
-			}
-			if(origin == dependency_origin::last_epoch) { assert(utils::isa<epoch_command>(dependee) || utils::isa<horizon_command>(dependee)); }
-
-			// Sanity check for unit tests, where we may have multiple CDAGS
-			assert(m_commands.at(depender->get_cid()).get() == depender);
-			assert(m_commands.at(dependee->get_cid()).get() == dependee);
-		}
-
-		void remove_dependency(abstract_command* depender, abstract_command* dependee) { depender->remove_dependency(dependee); }
-
-		const command_set& get_execution_front() const { return m_execution_front; }
-
-	  private:
-		command_id m_next_cmd_id = 0;
-		// TODO: Consider storing commands in a contiguous memory data structure instead
-		std::unordered_map<command_id, std::unique_ptr<abstract_command>> m_commands;
-		std::unordered_map<task_id, std::vector<task_command*>> m_by_task;
-
-		command_set m_execution_front;
-	};
-
-} // namespace detail
-} // namespace celerity
+} // namespace celerity::detail

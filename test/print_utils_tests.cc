@@ -5,16 +5,6 @@
 using namespace celerity;
 using namespace celerity::detail;
 
-TEST_CASE("command_type is correctly stringified", "[print_utils]") {
-	CHECK(fmt::format("{}", command_type::epoch) == "epoch");
-	CHECK(fmt::format("{}", command_type::horizon) == "horizon");
-	CHECK(fmt::format("{}", command_type::execution) == "execution");
-	CHECK(fmt::format("{}", command_type::push) == "push");
-	CHECK(fmt::format("{}", command_type::await_push) == "await push");
-	CHECK(fmt::format("{}", command_type::reduction) == "reduction");
-	CHECK(fmt::format("{}", command_type::fence) == "fence");
-}
-
 TEST_CASE("sycl_backend_type is correctly stringified", "[print_utils]") {
 	CHECK(fmt::format("{}", sycl_backend_type::generic) == "generic");
 	CHECK(fmt::format("{}", sycl_backend_type::cuda) == "CUDA");
