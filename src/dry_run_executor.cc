@@ -45,6 +45,7 @@ void dry_run_executor::thread_main(executor::delegate* const dlg) {
 			    host_object_instances.erase(dhoinstr.get_host_object_id());
 		    },
 		    [&](const epoch_instruction& einstr) {
+			    if(einstr.get_promise() != nullptr) { einstr.get_promise()->fulfill(); }
 			    if(dlg != nullptr) { dlg->epoch_reached(einstr.get_epoch_task_id()); }
 			    shutdown |= einstr.get_epoch_action() == epoch_action::shutdown;
 		    },

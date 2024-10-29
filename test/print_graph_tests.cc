@@ -293,8 +293,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 	celerity::buffer<int, 1> buff_a(init.data(), range);
 
 	// set small horizon step size so that we do not need to generate a very large graph to test this functionality
-	auto& tm = celerity::detail::runtime::get_instance().get_task_manager();
-	tm.set_horizon_step(1);
+	runtime_testspy::get_task_manager(detail::runtime::get_instance()).set_horizon_step(1);
 
 	for(int i = 0; i < 3; ++i) {
 		q.submit([&](handler& cgh) {

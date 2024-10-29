@@ -11,7 +11,7 @@ using namespace celerity::test_utils;
 namespace acc = celerity::access;
 
 TEST_CASE("isa<> RTTI helper correctly handles command hierarchies", "[rtti][command-graph]") {
-	auto tsk0 = task::make_epoch(0, epoch_action::none);
+	auto tsk0 = task::make_epoch(0, epoch_action::none, nullptr);
 	const auto np = std::make_unique<epoch_command>(command_id(), tsk0.get(), epoch_action::none, std::vector<reduction_id>{});
 	REQUIRE(utils::isa<command>(np.get()));
 	auto tsk1 = task::make_master_node(1, {}, {}, {});

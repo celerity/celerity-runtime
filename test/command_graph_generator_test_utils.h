@@ -241,7 +241,8 @@ class cdag_test_context final : private task_manager::delegate {
 		command_graph_generator::policy_set cggen;
 	};
 
-	cdag_test_context(const size_t num_nodes, const policy_set& policy = {}) : m_num_nodes(num_nodes), m_tm(num_nodes, &m_task_recorder, this, policy.tm) {
+	cdag_test_context(const size_t num_nodes, const policy_set& policy = {})
+	    : m_num_nodes(num_nodes), m_tm(num_nodes, m_tdag, &m_task_recorder, this, policy.tm) {
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			m_cdags.emplace_back(std::make_unique<command_graph>());
 			m_cmd_recorders.emplace_back(std::make_unique<command_recorder>());
@@ -342,6 +343,8 @@ class cdag_test_context final : private task_manager::delegate {
 		}
 	}
 
+	task_graph& get_task_graph() { return m_tdag; }
+
 	task_manager& get_task_manager() { return m_tm; }
 
 	command_graph& get_command_graph(node_id nid) { return *m_cdags.at(nid); }
@@ -362,6 +365,7 @@ class cdag_test_context final : private task_manager::delegate {
 	buffer_id m_next_buffer_id = 0;
 	host_object_id m_next_host_object_id = 0;
 	reduction_id m_next_reduction_id = 1; // Start from 1 as rid 0 designates "no reduction" in push commands
+	task_graph m_tdag;
 	task_manager m_tm;
 	task_recorder m_task_recorder;
 	task_id m_initial_epoch_tid = 0;

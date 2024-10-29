@@ -71,10 +71,10 @@ namespace detail {
 		const range<2> range{32, 64};
 		std::vector<float> init(range.size());
 		buffer<float, 2> buf_a{init.data(), range};
-		auto& tm = runtime::get_instance().get_task_manager();
+		auto& tm = runtime_testspy::get_task_manager(runtime::get_instance());
 		const auto tid = test_utils::add_compute_task<class get_access_const>(
 		    tm, [&](handler& cgh) { buf_a.get_access<sycl::access::mode::read>(cgh, one_to_one{}); }, range);
-		const auto tsk = test_utils::get_task(tm, tid);
+		const auto tsk = test_utils::get_task(runtime_testspy::get_task_graph(runtime::get_instance()), tid);
 		const auto bufs = tsk->get_buffer_access_map().get_accessed_buffers();
 		REQUIRE(bufs.size() == 1);
 		REQUIRE(tsk->get_buffer_access_map().get_access_modes(0).count(sycl::access::mode::read) == 1);
@@ -88,7 +88,8 @@ namespace detail {
 		};
 
 		counter_delegate delegate;
-		task_manager tm{1, nullptr, &delegate};
+		task_graph tdag;
+		task_manager tm{1, tdag, nullptr, &delegate};
 		tm.generate_epoch_task(epoch_action::init);
 		CHECK(delegate.counter == 1);
 
@@ -111,7 +112,7 @@ namespace detail {
 			    buf_b.get_access<sycl::access::mode::discard_read_write>(cgh, fixed{subrange<3>{{}, {5, 18, 74}}});
 		    },
 		    range<2>{32, 128}, id<2>{32, 24});
-		const auto tsk = test_utils::get_task(tt.tm, tid);
+		const auto tsk = test_utils::get_task(tt.tdag, tid);
 		REQUIRE(tsk->get_type() == task_type::device_compute);
 		REQUIRE(tsk->get_dimensions() == 2);
 		REQUIRE(tsk->get_global_size() == range<3>{32, 128, 1});
@@ -323,41 +324,40 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "attempting a reduction on buffers with size != 1 throws", "[task-manager][reduction]") {
-		runtime::init(nullptr, nullptr);
-		auto& tm = runtime::get_instance().get_task_manager();
+		queue q;
 
 		buffer<float, 1> buf_1{range<1>{2}};
-		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
+		CHECK_THROWS(q.submit([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(wrong_size_1)>(
 			    range<1>{1}, reduction(buf_1, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<1>, auto&) {});
 		}));
 
 		buffer<float, 1> buf_4{range<1>{1}};
-		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
+		CHECK_NOTHROW(q.submit([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(ok_size_1)>(
 			    range<1>{1}, reduction(buf_4, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<1>, auto&) {});
 		}));
 
 		buffer<float, 2> buf_2{range<2>{1, 2}};
-		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
+		CHECK_THROWS(q.submit([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(wrong_size_2)>(
 			    range<2>{1, 1}, reduction(buf_2, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<2>, auto&) {});
 		}));
 
 		buffer<float, 3> buf_3{range<3>{1, 2, 1}};
-		CHECK_THROWS(tm.submit_command_group([&](handler& cgh) { //
+		CHECK_THROWS(q.submit([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(wrong_size_3)>(
 			    range<3>{1, 1, 1}, reduction(buf_3, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<3>, auto&) {});
 		}));
 
 		buffer<float, 2> buf_5{range<2>{1, 1}};
-		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
+		CHECK_NOTHROW(q.submit([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(ok_size_2)>(
 			    range<2>{1, 1}, reduction(buf_5, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<2>, auto&) {});
 		}));
 
 		buffer<float, 3> buf_6{range<3>{1, 1, 1}};
-		CHECK_NOTHROW(tm.submit_command_group([&](handler& cgh) { //
+		CHECK_NOTHROW(q.submit([&](handler& cgh) { //
 			cgh.parallel_for<class UKN(ok_size_3)>(
 			    range<3>{1, 1, 1}, reduction(buf_6, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<3>, auto&) {});
 		}));
@@ -615,8 +615,7 @@ namespace detail {
 		constexpr int horizon_step_size = 2;
 
 		queue q;
-		auto& tm = runtime::get_instance().get_task_manager();
-		tm.set_horizon_step(horizon_step_size);
+		runtime_testspy::get_task_manager(runtime::get_instance()).set_horizon_step(horizon_step_size);
 
 		const int init = 42;
 		buffer<int, 0> buf_a(&init, {});
@@ -649,7 +648,7 @@ namespace detail {
 			constexpr int visible_horizons = 2;
 			constexpr int max_visible_host_tasks = (visible_horizons + 1) * horizon_step_size;
 			constexpr int task_limit = max_visible_host_tasks + visible_horizons;
-			CHECK(graph_testspy::get_live_node_count(task_manager_testspy::get_task_graph(tm)) <= task_limit);
+			CHECK(graph_testspy::get_live_node_count(runtime_testspy::get_task_graph(runtime::get_instance())) <= task_limit);
 		}
 	}
 
@@ -789,8 +788,7 @@ namespace detail {
 		runtime::init(nullptr, nullptr, std::vector{sycl::device{sycl::default_selector_v}});
 
 		auto& rt = runtime::get_instance();
-		auto& tm = rt.get_task_manager();
-		tm.set_horizon_step(2);
+		runtime_testspy::get_task_manager(rt).set_horizon_step(2);
 
 		REQUIRE(rt.is_dry_run());
 
@@ -853,25 +851,28 @@ namespace detail {
 		queue q;
 
 		auto& rt = runtime::get_instance();
-		auto& tm = rt.get_task_manager();
-		tm.set_horizon_step(1); // horizon step 1 to make testing easy and reproducable with config changes
+		runtime_testspy::get_task_manager(rt).set_horizon_step(1); // horizon step 1 to make testing easy and reproducible with config changes
 
 		REQUIRE(rt.is_dry_run());
 
-		auto latest_hor = task_manager_testspy::get_latest_horizon_reached(tm);
-		CHECK_FALSE(latest_hor.has_value());
+		// we can't query for the latest processed horizon directly since that information is not available in the main thread, so we indirectly go by applied
+		// horizons instead
+		auto latest_epoch = runtime_testspy::get_latest_epoch_reached(runtime::get_instance());
+		CHECK(latest_epoch == task_manager_testspy::initial_epoch_task);
 
+		// each task generates one horizon, the second one causes the first to be applied as an epoch
+		q.submit([&](handler& cgh) { cgh.host_task(on_master_node, [=] {}); });
 		q.submit([&](handler& cgh) { cgh.host_task(on_master_node, [=] {}); });
 
 		// we can't queue::wait in this test, so we just try until the horizons have been processed
 		// 100*10ms is one second in total; if the horizon hasn't happened at that point, it's not happening
 		constexpr int max_num_tries = 100;
 		for(int i = 0; i < max_num_tries; ++i) {
-			latest_hor = task_manager_testspy::get_latest_horizon_reached(tm);
-			if(latest_hor.has_value()) break;
+			latest_epoch = runtime_testspy::get_latest_epoch_reached(runtime::get_instance());
+			if(latest_epoch > task_manager_testspy::initial_epoch_task) break;
 			std::this_thread::sleep_for(std::chrono::milliseconds(10));
 		}
-		CHECK(latest_hor.has_value());
+		CHECK(latest_epoch > task_manager_testspy::initial_epoch_task);
 	}
 
 	TEST_CASE("Config reads environment variables correctly", "[env-vars][config]") {

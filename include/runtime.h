@@ -8,6 +8,7 @@
 #include "executor.h"
 #include "recorders.h"
 #include "scheduler.h"
+#include "task.h"
 #include "task_manager.h"
 #include "types.h"
 
@@ -40,9 +41,17 @@ namespace detail {
 
 		~runtime();
 
-		task_id sync(detail::epoch_action action);
+		template <typename CGF>
+		task_id submit(CGF&& cgf) {
+			// TODO move task-node generation out of handler to avoid task_manager header dependency here
+			require_call_from_application_thread();
+			maybe_prune_task_graph();
+			return m_task_mngr->submit_command_group(std::forward<CGF>(cgf));
+		}
 
-		task_manager& get_task_manager() const;
+		task_id fence(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<task_promise> fence_promise);
+
+		task_id sync(detail::epoch_action action);
 
 		void create_queue();
 
@@ -95,11 +104,14 @@ namespace detail {
 		host_object_id m_next_host_object_id = 0;
 		reduction_id m_next_reduction_id = no_reduction_id + 1;
 
+		task_graph m_tdag;
 		std::unique_ptr<task_manager> m_task_mngr;
 		std::unique_ptr<scheduler> m_schdlr;
 		std::unique_ptr<executor> m_exec;
 
 		std::optional<task_id> m_latest_horizon_reached; // only accessed by executor thread
+		std::atomic<size_t> m_latest_epoch_reached;      // task_id, but cast to size_t to work with std::atomic
+		task_id m_last_epoch_pruned_before = 0;
 
 		std::unique_ptr<detail::task_recorder> m_task_recorder;               // accessed by task manager (application thread)
 		std::unique_ptr<detail::command_recorder> m_command_recorder;         // accessed only by scheduler thread (until shutdown)
@@ -110,6 +122,8 @@ namespace detail {
 		/// Panic when not called from m_application_thread (see that variable for more info on the matter). Since there are thread-safe and non thread-safe
 		/// member functions, we call this check at the beginning of all the non-safe ones.
 		void require_call_from_application_thread() const;
+
+		void maybe_prune_task_graph();
 
 		// task_manager::delegate
 		void task_created(const task* tsk) override;

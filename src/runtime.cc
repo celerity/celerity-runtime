@@ -1,5 +1,7 @@
 #include "runtime.h"
 
+#include <atomic>
+#include <future>
 #include <limits>
 #include <string>
 
@@ -28,9 +30,11 @@
 #include "reduction.h"
 #include "scheduler.h"
 #include "system_info.h"
+#include "task.h"
 #include "task_manager.h"
 #include "tracy.h"
 #include "types.h"
+#include "utils.h"
 #include "version.h"
 
 #if CELERITY_ENABLE_MPI
@@ -43,6 +47,18 @@
 
 namespace celerity {
 namespace detail {
+
+	class epoch_promise final : public task_promise {
+	  public:
+		std::future<void> get_future() { return m_promise.get_future(); }
+
+		void fulfill() override { m_promise.set_value(); }
+
+		allocation_id get_user_allocation_id() override { utils::panic("epoch_promise::get_user_allocation_id"); }
+
+	  private:
+		std::promise<void> m_promise;
+	};
 
 	std::unique_ptr<runtime> runtime::s_instance = nullptr;
 
@@ -261,7 +277,7 @@ namespace detail {
 		// https://github.com/celerity/meta/issues/74).
 		task_mngr_policy.uninitialized_read_error = CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::log_warning : error_policy::ignore;
 
-		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_task_recorder.get(), static_cast<task_manager::delegate*>(this), task_mngr_policy);
+		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_tdag, m_task_recorder.get(), static_cast<task_manager::delegate*>(this), task_mngr_policy);
 		if(m_cfg->get_horizon_step()) m_task_mngr->set_horizon_step(m_cfg->get_horizon_step().value());
 		if(m_cfg->get_horizon_max_parallelism()) m_task_mngr->set_horizon_max_parallelism(m_cfg->get_horizon_max_parallelism().value());
 
@@ -311,14 +327,12 @@ namespace detail {
 		// traffic will occur, and `runtime` can stop functioning as a scheduler_delegate (which would require m_exec to be live).
 		m_exec.reset();
 
+		// task_manager references the scheduler as its delegate, so we destroy it first.
+		m_task_mngr.reset();
+
 		// ~executor() joins its thread after notifying the scheduler that the shutdown epoch has been reached, which means that this notification is
 		// sequenced-before the destructor return, and `runtime` can now stop functioning as an executor_delegate (which would require m_schdlr to be live).
-		// m_schdlr references the task instances managed m_task_mngr, so we destroy it first. m_task_mngr uses m_schdlr as a delegate, but does not call to the
-		// delegate from its destructor.
 		m_schdlr.reset();
-
-		// Since the executor thread is gone, task_manager::epoch_monitor will not be accessed by horizon_reached / epoch_reached across threads anymore.
-		m_task_mngr.reset();
 
 		// With scheduler and executor threads gone, all recorders can be safely accessed from the runtime / application thread
 		if(spdlog::should_log(log_level::info) && m_cfg->should_print_graphs()) {
@@ -355,17 +369,31 @@ namespace detail {
 		if(!s_test_mode) { mpi_finalize_once(); }
 	}
 
+	task_id runtime::fence(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<task_promise> fence_promise) {
+		require_call_from_application_thread();
+		maybe_prune_task_graph();
+		return m_task_mngr->generate_fence_task(std::move(access_map), std::move(side_effects), std::move(fence_promise));
+	}
+
 	task_id runtime::sync(epoch_action action) {
 		require_call_from_application_thread();
 
-		const auto epoch = m_task_mngr->generate_epoch_task(action);
-		m_task_mngr->await_epoch(epoch);
+		maybe_prune_task_graph();
+		auto promise = std::make_unique<epoch_promise>();
+		const auto future = promise->get_future();
+		const auto epoch = m_task_mngr->generate_epoch_task(action, std::move(promise));
+		future.wait();
 		return epoch;
 	}
 
-	task_manager& runtime::get_task_manager() const {
+	void runtime::maybe_prune_task_graph() {
 		require_call_from_application_thread();
-		return *m_task_mngr;
+
+		const auto current_epoch = m_latest_epoch_reached.load(std::memory_order_relaxed);
+		if(current_epoch > m_last_epoch_pruned_before) {
+			m_tdag.erase_before_epoch(current_epoch);
+			m_last_epoch_pruned_before = current_epoch;
+		}
 	}
 
 	std::string gather_command_graph(const std::string& graph_str, const size_t num_nodes, const node_id local_nid) {
@@ -420,20 +448,22 @@ namespace detail {
 	// executor::delegate
 
 	void runtime::horizon_reached(const task_id horizon_tid) {
-		assert(m_task_mngr != nullptr);
-		m_task_mngr->notify_horizon_reached(horizon_tid); // thread-safe
+		assert(!m_latest_horizon_reached || *m_latest_horizon_reached < horizon_tid);
+		assert(m_latest_epoch_reached.load(std::memory_order::relaxed) < horizon_tid); // relaxed: written only by this thread
 
-		// The two-horizon logic is duplicated from task_manager::notify_horizon_reached. TODO move epoch_monitor from task_manager to runtime.
-		assert(m_schdlr != nullptr);
-		if(m_latest_horizon_reached.has_value()) { m_schdlr->notify_epoch_reached(*m_latest_horizon_reached); }
+		if(m_latest_horizon_reached.has_value()) {
+			m_latest_epoch_reached.store(*m_latest_horizon_reached, std::memory_order_relaxed);
+			m_schdlr->notify_epoch_reached(*m_latest_horizon_reached);
+		}
 		m_latest_horizon_reached = horizon_tid;
 	}
 
 	void runtime::epoch_reached(const task_id epoch_tid) {
-		assert(m_task_mngr != nullptr);
-		m_task_mngr->notify_epoch_reached(epoch_tid); // thread-safe
+		// m_latest_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
+		assert(!m_latest_horizon_reached || *m_latest_horizon_reached < epoch_tid);
+		assert(epoch_tid == 0 || m_latest_epoch_reached.load(std::memory_order_relaxed) < epoch_tid);
 
-		assert(m_schdlr != nullptr);
+		m_latest_epoch_reached.store(epoch_tid, std::memory_order_relaxed);
 		m_schdlr->notify_epoch_reached(epoch_tid);
 		m_latest_horizon_reached = std::nullopt; // Any non-applied horizon is now behind the epoch and will therefore never become an epoch itself
 	}

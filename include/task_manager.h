@@ -1,10 +1,7 @@
 #pragma once
 
-#include <condition_variable>
 #include <cstddef>
 #include <memory>
-#include <mutex>
-#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -17,42 +14,11 @@ namespace detail {
 
 	class task_recorder;
 
-	// Allows other threads to await an epoch change in the task manager.
-	// This is worth a separate class to encapsulate the synchronization behavior.
-	class epoch_monitor {
-	  public:
-		explicit epoch_monitor(const task_id epoch) : m_this_epoch(epoch) {}
-
-		task_id get() const {
-			std::lock_guard lock{m_mutex};
-			return m_this_epoch;
-		}
-
-		task_id await(const task_id min_tid_reached) const {
-			std::unique_lock lock{m_mutex};
-			m_epoch_changed.wait(lock, [&] { return m_this_epoch >= min_tid_reached; });
-			return m_this_epoch;
-		}
-
-		void set(const task_id epoch) {
-			{
-				std::lock_guard lock{m_mutex};
-				assert(epoch >= m_this_epoch);
-				m_this_epoch = epoch;
-			}
-			m_epoch_changed.notify_all();
-		}
-
-	  private:
-		task_id m_this_epoch = 0;
-		mutable std::mutex m_mutex;
-		mutable std::condition_variable m_epoch_changed;
-	};
-
 	// definition is in handler.h to avoid circular dependency
 	template <typename CGF>
 	std::unique_ptr<task> invoke_command_group_function(const task_id tid, size_t num_collective_nodes, CGF&& cgf);
 
+	// TODO rename to task_graph_generator eventually
 	class task_manager {
 		friend struct task_manager_testspy;
 
@@ -76,8 +42,15 @@ namespace detail {
 			error_policy uninitialized_read_error = error_policy::panic;
 		};
 
-		task_manager(
-		    size_t num_collective_nodes, detail::task_recorder* recorder, task_manager::delegate* dlg, const policy_set& policy = default_policy_set());
+		task_manager(size_t num_collective_nodes, task_graph& tdag, detail::task_recorder* recorder, task_manager::delegate* dlg,
+		    const policy_set& policy = default_policy_set());
+
+		// TODO pimpl this - ctors are explicitly deleted / defaulted to avoid lint on `m_tdag` reference member
+		task_manager(const task_manager&) = delete;
+		task_manager(task_manager&&) = delete;
+		task_manager& operator=(const task_manager) = delete;
+		task_manager& operator=(task_manager&&) = delete;
+		~task_manager() = default;
 
 		template <typename CGF>
 		task_id submit_command_group(CGF&& cgf) {
@@ -95,9 +68,9 @@ namespace detail {
 		 * Inserts an epoch task that depends on the entire execution front and that immediately becomes the current epoch_for_new_tasks and the last writer
 		 * for all buffers.
 		 */
-		task_id generate_epoch_task(epoch_action action);
+		task_id generate_epoch_task(epoch_action action, std::unique_ptr<task_promise> promise = nullptr);
 
-		task_id generate_fence_task(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<fence_promise> fence_promise);
+		task_id generate_fence_task(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<task_promise> fence_promise);
 
 		/**
 		 * @brief Adds a new buffer for dependency tracking
@@ -113,11 +86,6 @@ namespace detail {
 
 		void notify_host_object_destroyed(host_object_id hoid);
 
-		/**
-		 * Blocks until an epoch task has executed on this node (or all nodes, if the epoch_for_new_tasks was created with `epoch_action::barrier`).
-		 */
-		void await_epoch(task_id epoch);
-
 		void set_horizon_step(const int step) {
 			assert(step >= 0);
 			m_task_horizon_step_size = step;
@@ -127,22 +95,6 @@ namespace detail {
 			assert(para >= 1);
 			m_task_horizon_max_parallelism = para;
 		}
-
-		/**
-		 * @brief Notifies the task manager that the given horizon has been executed (used for task deletion).
-		 *
-		 * notify_horizon_reached and notify_epoch_reached must only ever be called from a single thread, but that thread does not have to be the main
-		 * thread.
-		 */
-		void notify_horizon_reached(task_id horizon_tid);
-
-		/**
-		 * @brief Notifies the task manager that the given epoch has been executed on this node.
-		 *
-		 * notify_horizon_reached and notify_epoch_reached must only ever be called from a single thread, but that thread does not have to be the main
-		 * thread.
-		 */
-		void notify_epoch_reached(task_id epoch_tid);
 
 	  private:
 		// default-constructs a policy_set - this must be a function because we can't use the implicit default constructor of policy_set, which has member
@@ -164,10 +116,10 @@ namespace detail {
 
 		task_manager::delegate* m_delegate;
 
-		const size_t m_num_collective_nodes;
+		size_t m_num_collective_nodes;
 		policy_set m_policy;
 
-		task_graph m_tdag;
+		task_graph& m_tdag;
 		task_id m_next_tid = initial_epoch_task;
 
 		// The active epoch is used as the last writer for host-initialized buffers.
@@ -201,13 +153,6 @@ namespace detail {
 		// The latest horizon task created. Will be applied as the epoch for new tasks once the next horizon is created.
 		task* m_current_horizon = nullptr;
 
-		// The last horizon processed by the executor will become the latest_epoch_reached once the next horizon is completed as well.
-		// Only accessed in task_manager::notify_*, which are always called from the executor thread - no locking needed.
-		std::optional<task_id> m_latest_horizon_reached;
-
-		// The last epoch task that has been processed by the executor. Behind a monitor to allow awaiting this change from the main thread.
-		epoch_monitor m_latest_epoch_reached{initial_epoch_task};
-
 		// Track the number of user-generated task and epochs to heuristically detect programs that lose performance by frequently calling `queue::wait()`.
 		size_t m_num_user_command_groups_submitted = 0;
 		size_t m_num_user_epochs_generated = 0;
@@ -216,7 +161,7 @@ namespace detail {
 		std::unordered_set<task*> m_execution_front;
 
 		// An optional task_recorder which records information about tasks for e.g. printing graphs.
-		mutable detail::task_recorder* m_task_recorder;
+		detail::task_recorder* m_task_recorder;
 
 		task& register_task_internal(std::unique_ptr<task> task);
 

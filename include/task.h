@@ -84,12 +84,14 @@ namespace detail {
 		void add_side_effect(host_object_id hoid, experimental::side_effect_order order);
 	};
 
-	class fence_promise {
+	class task_promise {
 	  public:
-		fence_promise() = default;
-		fence_promise(const fence_promise&) = delete;
-		fence_promise& operator=(const fence_promise&) = delete;
-		virtual ~fence_promise() = default;
+		task_promise() = default;
+		task_promise(const task_promise&) = delete;
+		task_promise(task_promise&&) = delete;
+		task_promise& operator=(const task_promise&) = delete;
+		task_promise& operator=(task_promise&&) = delete;
+		virtual ~task_promise() = default;
 
 		virtual void fulfill() = 0;
 		virtual allocation_id get_user_allocation_id() = 0; // TODO move to struct task instead
@@ -146,7 +148,7 @@ namespace detail {
 
 		epoch_action get_epoch_action() const { return m_epoch_action; }
 
-		fence_promise* get_fence_promise() const { return m_fence_promise.get(); }
+		task_promise* get_task_promise() const { return m_promise.get(); }
 
 		template <typename Launcher>
 		Launcher get_launcher() const {
@@ -164,8 +166,8 @@ namespace detail {
 			return nullptr;
 		}
 
-		static std::unique_ptr<task> make_epoch(task_id tid, detail::epoch_action action) {
-			return std::unique_ptr<task>(new task(tid, task_type::epoch, non_collective_group_id, task_geometry{}, {}, {}, {}, {}, action, nullptr));
+		static std::unique_ptr<task> make_epoch(task_id tid, detail::epoch_action action, std::unique_ptr<task_promise> promise) {
+			return std::unique_ptr<task>(new task(tid, task_type::epoch, non_collective_group_id, task_geometry{}, {}, {}, {}, {}, action, std::move(promise)));
 		}
 
 		static std::unique_ptr<task> make_host_compute(task_id tid, task_geometry geometry, host_task_launcher launcher, buffer_access_map access_map,
@@ -197,9 +199,9 @@ namespace detail {
 		}
 
 		static std::unique_ptr<task> make_fence(
-		    task_id tid, buffer_access_map access_map, side_effect_map side_effect_map, std::unique_ptr<fence_promise> fence_promise) {
+		    task_id tid, buffer_access_map access_map, side_effect_map side_effect_map, std::unique_ptr<task_promise> promise) {
 			return std::unique_ptr<task>(new task(tid, task_type::fence, non_collective_group_id, task_geometry{}, {}, std::move(access_map),
-			    std::move(side_effect_map), {}, {}, std::move(fence_promise)));
+			    std::move(side_effect_map), {}, {}, std::move(promise)));
 		}
 
 	  private:
@@ -213,16 +215,13 @@ namespace detail {
 		reduction_set m_reductions;
 		std::string m_debug_name;
 		detail::epoch_action m_epoch_action;
-		// TODO I believe that `struct task` should not store command_group_launchers, fence_promise or other state that is related to execution instead of
-		// abstract DAG building. For user-initialized buffers we already notify the runtime -> executor of this state directly. Maybe also do that for these.
-		std::unique_ptr<fence_promise> m_fence_promise;
+		std::unique_ptr<task_promise> m_promise; // TODO keep user_allocation_id in struct task instead of inside task_promise
 		std::vector<std::unique_ptr<hint_base>> m_hints;
 
 		task(task_id tid, task_type type, collective_group_id cgid, task_geometry geometry, command_group_launcher launcher, buffer_access_map access_map,
-		    detail::side_effect_map side_effects, reduction_set reductions, detail::epoch_action epoch_action, std::unique_ptr<fence_promise> fence_promise)
+		    detail::side_effect_map side_effects, reduction_set reductions, detail::epoch_action epoch_action, std::unique_ptr<task_promise> promise)
 		    : m_tid(tid), m_type(type), m_cgid(cgid), m_geometry(geometry), m_launcher(std::move(launcher)), m_access_map(std::move(access_map)),
-		      m_side_effects(std::move(side_effects)), m_reductions(std::move(reductions)), m_epoch_action(epoch_action),
-		      m_fence_promise(std::move(fence_promise)) {
+		      m_side_effects(std::move(side_effects)), m_reductions(std::move(reductions)), m_epoch_action(epoch_action), m_promise(std::move(promise)) {
 			assert(type == task_type::host_compute || type == task_type::device_compute || get_granularity().size() == 1);
 			// Only host tasks can have side effects
 			assert(this->m_side_effects.empty() || type == task_type::host_compute || type == task_type::collective || type == task_type::master_node
