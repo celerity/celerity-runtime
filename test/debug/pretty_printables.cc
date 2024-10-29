@@ -4,7 +4,7 @@
 #include "region_map.h"
 #include "types.h"
 
-static const auto epoch_task = celerity::detail::task::make_epoch(celerity::detail::task_id{0}, celerity::detail::epoch_action::none);
+static const auto epoch_task = celerity::detail::task::make_epoch(celerity::detail::task_id{0}, celerity::detail::epoch_action::none, nullptr);
 static const auto epoch_cmd = std::make_unique<celerity::detail::epoch_command>(
     celerity::detail::command_id{123}, epoch_task.get(), celerity::detail::epoch_action::none, std::vector<celerity::detail::reduction_id>());
 

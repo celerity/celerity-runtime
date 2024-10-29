@@ -23,9 +23,9 @@ TEST_CASE("command_graph_generator generates reduction command trees", "[command
 	    cctx.device_compute<class UKN(reduce)>(test_range).read(buf0, acc::one_to_one{}).reduce(buf1, true /* include_current_buffer_value */).submit();
 	const auto tid_consume = cctx.device_compute<class UKN(consume_1)>(test_range).read(buf1, acc::all{}).submit();
 
-	CHECK(has_dependency(cctx.get_task_manager(), tid_reduce, tid_initialize));
-	CHECK(has_dependency(cctx.get_task_manager(), tid_reduce, tid_produce));
-	CHECK(has_dependency(cctx.get_task_manager(), tid_consume, tid_reduce));
+	CHECK(has_dependency(cctx.get_task_graph(), tid_reduce, tid_initialize));
+	CHECK(has_dependency(cctx.get_task_graph(), tid_reduce, tid_produce));
+	CHECK(has_dependency(cctx.get_task_graph(), tid_consume, tid_reduce));
 
 	CHECK(cctx.query(tid_initialize).on(0).successors().contains(cctx.query(tid_reduce).on(0)));
 	CHECK(cctx.query(tid_produce).successors().contains(cctx.query(tid_reduce)));

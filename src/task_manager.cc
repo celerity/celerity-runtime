@@ -14,8 +14,9 @@
 namespace celerity {
 namespace detail {
 
-	task_manager::task_manager(size_t num_collective_nodes, detail::task_recorder* recorder, task_manager::delegate* const dlg, const policy_set& error_policy)
-	    : m_delegate(dlg), m_num_collective_nodes(num_collective_nodes), m_policy(error_policy), m_task_recorder(recorder) {}
+	task_manager::task_manager(
+	    size_t num_collective_nodes, task_graph& tdag, detail::task_recorder* recorder, task_manager::delegate* const dlg, const policy_set& error_policy)
+	    : m_delegate(dlg), m_num_collective_nodes(num_collective_nodes), m_policy(error_policy), m_tdag(tdag), m_task_recorder(recorder) {}
 
 	void task_manager::notify_buffer_created(const buffer_id bid, const range<3>& range, const bool host_initialized) {
 		const auto [iter, inserted] = m_buffers.emplace(bid, range);
@@ -36,29 +37,6 @@ namespace detail {
 		assert(m_host_objects.count(hoid) != 0);
 		m_host_objects.erase(hoid);
 	}
-
-	void task_manager::notify_horizon_reached(task_id horizon_tid) {
-		// m_latest_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
-
-		assert(!m_latest_horizon_reached || *m_latest_horizon_reached < horizon_tid);
-		assert(m_latest_epoch_reached.get() < horizon_tid);
-
-		if(m_latest_horizon_reached) { m_latest_epoch_reached.set(*m_latest_horizon_reached); }
-
-		m_latest_horizon_reached = horizon_tid;
-	}
-
-	void task_manager::notify_epoch_reached(task_id epoch_tid) {
-		// m_latest_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
-
-		assert(!m_latest_horizon_reached || *m_latest_horizon_reached < epoch_tid);
-		assert(epoch_tid == initial_epoch_task || m_latest_epoch_reached.get() < epoch_tid);
-
-		m_latest_epoch_reached.set(epoch_tid);
-		m_latest_horizon_reached = std::nullopt; // Any non-applied horizon is now behind the epoch and will therefore never become an epoch itself
-	}
-
-	void task_manager::await_epoch(task_id epoch) { m_latest_epoch_reached.await(epoch); }
 
 	region<3> get_requirements(const task& tsk, buffer_id bid, const std::vector<sycl::access::mode>& modes) {
 		const auto& access_map = tsk.get_buffer_access_map();
@@ -254,10 +232,6 @@ namespace detail {
 	}
 
 	task_id task_manager::generate_horizon_task() {
-		// This needs to be invoked eventually to avoid the task graph growing indefinitely, but the operation is not for free - so we trigger it every few
-		// tasks by arbitrarily attaching the call to horizon generation.
-		m_tdag.erase_before_epoch(m_latest_epoch_reached.get());
-
 		const auto tid = m_next_tid++;
 		m_tdag.begin_epoch(tid);
 		auto unique_horizon = task::make_horizon(tid);
@@ -273,14 +247,11 @@ namespace detail {
 		return tid;
 	}
 
-	task_id task_manager::generate_epoch_task(epoch_action action) {
-		// A degenerate program wait()ing in a loop would never generate horizons, so we need to prune the task graph on epochs as well.
-		if(m_next_tid != initial_epoch_task) { m_tdag.erase_before_epoch(m_latest_epoch_reached.get()); }
-
+	task_id task_manager::generate_epoch_task(epoch_action action, std::unique_ptr<task_promise> promise) {
 		const auto tid = m_next_tid++;
 		m_tdag.begin_epoch(tid);
 
-		task& new_epoch = reduce_execution_front(task::make_epoch(tid, action));
+		task& new_epoch = reduce_execution_front(task::make_epoch(tid, action, std::move(promise)));
 		compute_dependencies(new_epoch);
 		set_epoch_for_new_tasks(&new_epoch);
 
@@ -300,7 +271,7 @@ namespace detail {
 		return tid;
 	}
 
-	task_id task_manager::generate_fence_task(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<fence_promise> fence_promise) {
+	task_id task_manager::generate_fence_task(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<task_promise> fence_promise) {
 		const auto tid = m_next_tid++;
 		task& tsk = register_task_internal(task::make_fence(tid, std::move(access_map), std::move(side_effects), std::move(fence_promise)));
 		compute_dependencies(tsk);

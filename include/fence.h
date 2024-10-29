@@ -69,7 +69,7 @@ class buffer_snapshot {
 namespace celerity::detail {
 
 template <typename T>
-class host_object_fence_promise final : public detail::fence_promise {
+class host_object_fence_promise final : public detail::task_promise {
   public:
 	explicit host_object_fence_promise(const T* instance) : m_instance(instance) {}
 
@@ -85,7 +85,7 @@ class host_object_fence_promise final : public detail::fence_promise {
 };
 
 template <typename DataT, int Dims>
-class buffer_fence_promise final : public detail::fence_promise {
+class buffer_fence_promise final : public detail::task_promise {
   public:
 	explicit buffer_fence_promise(const subrange<Dims>& sr)
 	    : m_subrange(sr), m_data(std::make_unique<DataT[]>(sr.range.size())), m_aid(runtime::get_instance().create_user_allocation(m_data.get())) {}
@@ -112,7 +112,7 @@ std::future<T> fence(const experimental::host_object<T>& obj) {
 	side_effects.add_side_effect(detail::get_host_object_id(obj), experimental::side_effect_order::sequential);
 	auto promise = std::make_unique<detail::host_object_fence_promise<T>>(detail::get_host_object_instance(obj));
 	auto future = promise->get_future();
-	[[maybe_unused]] const auto tid = detail::runtime::get_instance().get_task_manager().generate_fence_task({}, std::move(side_effects), std::move(promise));
+	[[maybe_unused]] const auto tid = detail::runtime::get_instance().fence({}, std::move(side_effects), std::move(promise));
 
 	CELERITY_DETAIL_TRACY_ZONE_NAME("T{} fence", tid);
 	return future;
@@ -127,7 +127,7 @@ std::future<buffer_snapshot<DataT, Dims>> fence(const buffer<DataT, Dims>& buf, 
 	    std::make_unique<detail::range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), access_mode::read, buf.get_range()));
 	auto promise = std::make_unique<detail::buffer_fence_promise<DataT, Dims>>(sr);
 	auto future = promise->get_future();
-	[[maybe_unused]] const auto tid = detail::runtime::get_instance().get_task_manager().generate_fence_task(std::move(access_map), {}, std::move(promise));
+	[[maybe_unused]] const auto tid = detail::runtime::get_instance().fence(std::move(access_map), {}, std::move(promise));
 
 	CELERITY_DETAIL_TRACY_ZONE_NAME("T{} fence", tid);
 	return future;

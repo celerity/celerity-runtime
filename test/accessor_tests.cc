@@ -229,36 +229,33 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "conflicts between producer-accessors and reductions are reported", "[task-manager]") {
-		runtime::init(nullptr, nullptr);
-		auto& tm = runtime::get_instance().get_task_manager();
-		test_utils::mock_buffer_factory mbf{tm};
-		test_utils::mock_reduction_factory mrf;
+	TEST_CASE("conflicts between producer-accessors and reductions are reported", "[task-manager]") {
+		test_utils::task_test_context tt;
 
-		auto buf_0 = mbf.create_buffer(range<1>{1});
+		auto buf_0 = tt.mbf.create_buffer(range<1>{1});
 
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, mrf, buf_0, false);
-			test_utils::add_reduction(cgh, mrf, buf_0, false);
+		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_conflict)>(tt.tm, [&](handler& cgh) {
+			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
+			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
 		}));
 
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, mrf, buf_0, false);
+		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tt.tm, [&](handler& cgh) {
+			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
 			buf_0.get_access<access_mode::read>(cgh, fixed<1>({0, 1}));
 		}));
 
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, mrf, buf_0, false);
+		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tt.tm, [&](handler& cgh) {
+			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
 			buf_0.get_access<access_mode::write>(cgh, fixed<1>({0, 1}));
 		}));
 
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, mrf, buf_0, false);
+		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tt.tm, [&](handler& cgh) {
+			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
 			buf_0.get_access<access_mode::read_write>(cgh, fixed<1>({0, 1}));
 		}));
 
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, mrf, buf_0, false);
+		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tt.tm, [&](handler& cgh) {
+			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
 			buf_0.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 1}));
 		}));
 	}

@@ -2186,7 +2186,7 @@ void generator_impl::compile_fence_command(batch& command_batch, const fence_com
 		const auto fence_region = bam.get_mode_requirements(bid, access_mode::read, 0, {}, zeros);
 		const auto fence_box = !fence_region.empty() ? fence_region.get_boxes().front() : box<3>();
 
-		const auto user_allocation_id = tsk.get_fence_promise()->get_user_allocation_id();
+		const auto user_allocation_id = tsk.get_task_promise()->get_user_allocation_id();
 		assert(user_allocation_id != null_allocation_id && user_allocation_id.get_memory_id() == user_memory_id);
 
 		auto& buffer = m_buffers.at(bid);
@@ -2206,7 +2206,7 @@ void generator_impl::compile_fence_command(batch& command_batch, const fence_com
 			perform_concurrent_read_from_allocation(copy_instr, host_buffer_allocation, fence_box);
 		}
 
-		const auto fence_instr = create<fence_instruction>(command_batch, tsk.get_fence_promise(),
+		const auto fence_instr = create<fence_instruction>(command_batch, tsk.get_task_promise(),
 		    [&](const auto& record_debug_info) { record_debug_info(tsk.get_id(), fcmd.get_id(), bid, buffer.debug_name, fence_box.get_subrange()); });
 
 		if(copy_instr != nullptr) {
@@ -2226,7 +2226,7 @@ void generator_impl::compile_fence_command(batch& command_batch, const fence_com
 
 		auto& obj = m_host_objects.at(hoid);
 		const auto fence_instr = create<fence_instruction>(
-		    command_batch, tsk.get_fence_promise(), [&, hoid = hoid](const auto& record_debug_info) { record_debug_info(tsk.get_id(), fcmd.get_id(), hoid); });
+		    command_batch, tsk.get_task_promise(), [&, hoid = hoid](const auto& record_debug_info) { record_debug_info(tsk.get_id(), fcmd.get_id(), hoid); });
 
 		add_dependency(fence_instr, obj.last_side_effect, instruction_dependency_origin::side_effect);
 		obj.last_side_effect = fence_instr;
@@ -2249,8 +2249,8 @@ void generator_impl::compile_epoch_command(batch& command_batch, const epoch_com
 
 	m_idag->begin_epoch(ecmd.get_task()->get_id());
 	instruction_garbage garbage{ecmd.get_completed_reductions(), std::move(m_unreferenced_user_allocations)};
-	const auto epoch = create<epoch_instruction>(command_batch, ecmd.get_task()->get_id(), ecmd.get_epoch_action(), std::move(garbage),
-	    [&](const auto& record_debug_info) { record_debug_info(ecmd.get_id()); });
+	const auto epoch = create<epoch_instruction>(command_batch, ecmd.get_task()->get_id(), ecmd.get_epoch_action(), ecmd.get_task()->get_task_promise(),
+	    std::move(garbage), [&](const auto& record_debug_info) { record_debug_info(ecmd.get_id()); });
 
 	collapse_execution_front_to(epoch);
 	apply_epoch(epoch);

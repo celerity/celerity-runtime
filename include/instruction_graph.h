@@ -19,7 +19,7 @@
 
 namespace celerity::detail {
 
-class fence_promise;
+class task_promise;
 
 /// A node in the `instruction_graph`. This is not implemented as an `intrusive_graph` but references its predecessors by id to avoid thread-safety and lifetime
 /// issues.
@@ -377,12 +377,12 @@ class reduce_instruction final : public matchbox::implement_acceptor<instruction
 /// Fulfills a fence promise. Issued directly after a copy_instruction to user memory in case of a buffer fence.
 class fence_instruction final : public matchbox::implement_acceptor<instruction, fence_instruction> {
   public:
-	explicit fence_instruction(const instruction_id iid, const int priority, fence_promise* promise) : acceptor_base(iid, priority), m_promise(promise) {}
+	explicit fence_instruction(const instruction_id iid, const int priority, task_promise* promise) : acceptor_base(iid, priority), m_promise(promise) {}
 
-	fence_promise* get_promise() const { return m_promise; };
+	task_promise* get_promise() const { return m_promise; };
 
   private:
-	fence_promise* m_promise;
+	task_promise* m_promise;
 };
 
 /// Host object instances are owned by the instruction executor, so once the last reference to a host_object goes out of scope in userland, this instruction
@@ -423,16 +423,19 @@ class horizon_instruction final : public matchbox::implement_acceptor<instructio
 /// Instruction-graph equivalent of an epoch task or command.
 class epoch_instruction final : public matchbox::implement_acceptor<instruction, epoch_instruction> {
   public:
-	explicit epoch_instruction(const instruction_id iid, const int priority, const task_id epoch_tid, const epoch_action action, instruction_garbage garbage)
-	    : acceptor_base(iid, priority), m_epoch_tid(epoch_tid), m_epoch_action(action), m_garbage(std::move(garbage)) {}
+	explicit epoch_instruction(const instruction_id iid, const int priority, const task_id epoch_tid, const epoch_action action, task_promise* const promise,
+	    instruction_garbage garbage)
+	    : acceptor_base(iid, priority), m_epoch_tid(epoch_tid), m_epoch_action(action), m_promise(promise), m_garbage(std::move(garbage)) {}
 
 	task_id get_epoch_task_id() const { return m_epoch_tid; }
+	task_promise* get_promise() const { return m_promise; };
 	epoch_action get_epoch_action() const { return m_epoch_action; }
 	const instruction_garbage& get_garbage() const { return m_garbage; }
 
   private:
 	task_id m_epoch_tid;
 	epoch_action m_epoch_action;
+	task_promise* m_promise;
 	instruction_garbage m_garbage;
 };
 

@@ -129,7 +129,7 @@ TEST_CASE("buffer accesses with empty ranges do not generate pushes or data-flow
 	};
 	const auto read_tid = cctx.device_compute<class UKN(read)>(buf_range / 2).read(buf, read_rm).submit();
 
-	CHECK(has_dependency(cctx.get_task_manager(), read_tid, write_tid));
+	CHECK(has_dependency(cctx.get_task_graph(), read_tid, write_tid));
 
 	CHECK(cctx.query(write_tid).is_concurrent_with(cctx.query(read_tid)));
 

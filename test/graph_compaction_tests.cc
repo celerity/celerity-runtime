@@ -162,8 +162,8 @@ TEST_CASE("previous horizons are used as last writers for host-initialized buffe
 			cctx.device_compute<class UKN(generate_horizon)>(buf_range).discard_write(buf, acc::one_to_one{}).submit();
 			const auto current_horizon = task_manager_testspy::get_current_horizon(cctx.get_task_manager());
 			if(current_horizon != nullptr && current_horizon->get_id() > last_horizon_reached) {
+				cctx.get_task_graph().erase_before_epoch(last_horizon_reached);
 				last_horizon_reached = current_horizon->get_id();
-				cctx.get_task_manager().notify_horizon_reached(last_horizon_reached);
 			}
 		}
 	}
@@ -232,16 +232,18 @@ TEST_CASE("side-effect dependencies are correctly subsumed by horizons", "[comma
 	CHECK(cctx.query(second_task).predecessors().assert_all<horizon_command_record>().total_count() == 1);
 }
 
-TEST_CASE("reaching an epoch will prune all nodes of the preceding task graph", "[task_manager][task-graph][epoch]") {
+TEST_CASE_METHOD(test_utils::runtime_fixture, "reaching an epoch will prune all nodes of the preceding task graph", "[runtime][task-graph][epoch]") {
 	constexpr int num_nodes = 2;
 
-	auto tt = test_utils::task_test_context{};
+	detail::runtime::init(nullptr, nullptr);
+	auto& rt = detail::runtime::get_instance();
+	auto& tdag = runtime_testspy::get_task_graph(rt);
 
 	const auto check_task_has_exact_dependencies = [&](const char* info, const task_id dependent,
 	                                                   const std::initializer_list<std::tuple<task_id, dependency_kind, dependency_origin>> dependencies) {
 		INFO(info);
 		CAPTURE(dependent);
-		const auto actual = test_utils::get_task(tt.tm, dependent)->get_dependencies();
+		const auto actual = test_utils::get_task(tdag, dependent)->get_dependencies();
 		CHECK(static_cast<size_t>(std::distance(actual.begin(), actual.end())) == dependencies.size());
 		for(const auto& [tid, kind, origin] : dependencies) {
 			CAPTURE(tid);
@@ -258,57 +260,62 @@ TEST_CASE("reaching an epoch will prune all nodes of the preceding task graph", 
 	};
 
 	const auto node_range = range<1>{num_nodes};
-	const auto init_tid = tt.initial_epoch_task;
+	const auto init_tid = detail::task_manager_testspy::initial_epoch_task;
 
-	auto early_host_initialized_buf = tt.mbf.create_buffer(node_range, true);
-	auto buf_written_from_kernel = tt.mbf.create_buffer(node_range, false);
+	std::vector<int> host_data(num_nodes, 42);
+	buffer<int> early_host_initialized_buf(host_data.data(), node_range);
+	buffer<int> buf_written_from_kernel(node_range);
 
-	const auto writer_tid = test_utils::add_compute_task<class UKN(writer)>(
-	    tt.tm, [&](handler& cgh) { buf_written_from_kernel.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, node_range);
+	const auto writer_tid = rt.submit([&](handler& cgh) {
+		accessor acc_written(buf_written_from_kernel, cgh, acc::one_to_one(), write_only, no_init);
+		cgh.parallel_for(node_range, [=](item<1>) { (void)acc_written; });
+	});
 
-	const auto epoch_tid = tt.tm.generate_epoch_task(epoch_action::none);
-
-	const auto reader_writer_tid = test_utils::add_compute_task<class UKN(reader_writer)>(
-	    tt.tm, [&](handler& cgh) { early_host_initialized_buf.get_access<access_mode::read_write>(cgh, acc::one_to_one{}); }, node_range);
-
-	auto late_host_initialized_buf = tt.mbf.create_buffer(node_range, true);
-
-	const auto late_writer_tid = test_utils::add_compute_task<class UKN(late_writer)>(
-	    tt.tm, [&](handler& cgh) { late_host_initialized_buf.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, node_range);
-
-	REQUIRE(test_utils::has_task(tt.tm, init_tid));
+	REQUIRE(test_utils::has_task(tdag, init_tid));
 	check_task_has_exact_dependencies("initial epoch task", init_tid, {});
-	REQUIRE(test_utils::has_task(tt.tm, writer_tid));
+	REQUIRE(test_utils::has_task(tdag, writer_tid));
 	check_task_has_exact_dependencies("writer", writer_tid, {{init_tid, dependency_kind::true_dep, dependency_origin::last_epoch}});
-	REQUIRE(test_utils::has_task(tt.tm, epoch_tid));
-	check_task_has_exact_dependencies("epoch before", epoch_tid, {{writer_tid, dependency_kind::true_dep, dependency_origin::execution_front}});
 
-	tt.tm.notify_epoch_reached(epoch_tid);
+	const auto first_epoch_tid = rt.sync(epoch_action::none);
+	CHECK(runtime_testspy::get_latest_epoch_reached(rt) == first_epoch_tid);
 
-	const auto reader_tid = test_utils::add_compute_task<class UKN(reader)>(
-	    tt.tm,
-	    [&](handler& cgh) {
-		    early_host_initialized_buf.get_access<access_mode::read>(cgh, acc::one_to_one{});
-		    late_host_initialized_buf.get_access<access_mode::read>(cgh, acc::one_to_one{});
-		    buf_written_from_kernel.get_access<access_mode::discard_write>(cgh, acc::one_to_one{});
-	    },
-	    node_range);
+	const auto reader_writer_tid = rt.submit([&](handler& cgh) {
+		accessor acc_early_init(early_host_initialized_buf, cgh, acc::one_to_one(), read_write);
+		cgh.parallel_for(node_range, [=](item<1>) { (void)acc_early_init; });
+	});
 
-	tt.tm.generate_epoch_task(epoch_action::none); // trigger TDAG pruning
+	buffer<int> late_host_initialized_buf(host_data.data(), node_range);
 
-	CHECK(!test_utils::has_task(tt.tm, init_tid));
-	CHECK(!test_utils::has_task(tt.tm, writer_tid));
-	REQUIRE(test_utils::has_task(tt.tm, epoch_tid));
-	check_task_has_exact_dependencies("epoch after", epoch_tid, {});
-	REQUIRE(test_utils::has_task(tt.tm, reader_writer_tid));
-	check_task_has_exact_dependencies("reader-writer", reader_writer_tid, {{epoch_tid, dependency_kind::true_dep, dependency_origin::dataflow}});
-	REQUIRE(test_utils::has_task(tt.tm, late_writer_tid));
-	check_task_has_exact_dependencies("late writer", late_writer_tid, {{epoch_tid, dependency_kind::true_dep, dependency_origin::last_epoch}});
-	REQUIRE(test_utils::has_task(tt.tm, reader_tid));
-	check_task_has_exact_dependencies("reader", reader_tid,
-	    {
-	        {epoch_tid, dependency_kind::anti_dep, dependency_origin::dataflow},
-	        {reader_writer_tid, dependency_kind::true_dep, dependency_origin::dataflow},
-	        {late_writer_tid, dependency_kind::true_dep, dependency_origin::dataflow},
-	    });
+	const auto late_writer_tid = rt.submit([&](handler& cgh) {
+		accessor acc_late_init(late_host_initialized_buf, cgh, acc::one_to_one(), write_only, no_init);
+		cgh.parallel_for(node_range, [=](item<1>) { (void)acc_late_init; });
+	});
+
+	REQUIRE(test_utils::has_task(tdag, first_epoch_tid));
+	check_task_has_exact_dependencies("epoch after", first_epoch_tid, {});
+	REQUIRE(test_utils::has_task(tdag, reader_writer_tid));
+	check_task_has_exact_dependencies("reader-writer", reader_writer_tid, {{first_epoch_tid, dependency_kind::true_dep, dependency_origin::dataflow}});
+	REQUIRE(test_utils::has_task(tdag, late_writer_tid));
+	check_task_has_exact_dependencies("late writer", late_writer_tid, {{first_epoch_tid, dependency_kind::true_dep, dependency_origin::last_epoch}});
+
+	const auto second_epoch_tid = rt.sync(epoch_action::none);
+	CHECK(runtime_testspy::get_latest_epoch_reached(rt) == second_epoch_tid);
+
+	// next submission will trigger TDAG pruning
+	const auto reader_tid = rt.submit([&](handler& cgh) {
+		accessor acc_early_init(early_host_initialized_buf, cgh, acc::one_to_one(), read_only);
+		accessor acc_late_init(late_host_initialized_buf, cgh, acc::one_to_one(), read_only);
+		accessor acc_written(buf_written_from_kernel, cgh, acc::one_to_one(), write_only, no_init);
+		cgh.parallel_for(node_range, [=](item<1>) { (void)acc_early_init, (void)acc_late_init, (void)acc_written; });
+	});
+
+	CHECK(!test_utils::has_task(tdag, init_tid));
+	CHECK(!test_utils::has_task(tdag, writer_tid));
+	CHECK(!test_utils::has_task(tdag, first_epoch_tid));
+	CHECK(!test_utils::has_task(tdag, reader_writer_tid));
+	CHECK(!test_utils::has_task(tdag, late_writer_tid));
+
+	REQUIRE(test_utils::has_task(tdag, second_epoch_tid));
+	REQUIRE(test_utils::has_task(tdag, reader_tid));
+	check_task_has_exact_dependencies("reader", reader_tid, {{second_epoch_tid, dependency_kind::true_dep, dependency_origin::dataflow}});
 }

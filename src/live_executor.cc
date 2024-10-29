@@ -696,6 +696,7 @@ void executor_impl::issue(const epoch_instruction& einstr) {
 		expecting_more_submissions = false;
 		break;
 	}
+	if(einstr.get_promise() != nullptr) { einstr.get_promise()->fulfill(); }
 	if(delegate != nullptr) { delegate->epoch_reached(einstr.get_epoch_task_id()); }
 	collect(einstr.get_garbage());
 

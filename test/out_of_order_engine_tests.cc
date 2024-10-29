@@ -136,7 +136,7 @@ class out_of_order_test_context {
 	}
 
 	const instruction* epoch(const std::vector<const instruction*>& dependencies, const int priority = 0) {
-		return create<epoch_instruction>(dependencies, priority, task_id(0), epoch_action::none, instruction_garbage{});
+		return create<epoch_instruction>(dependencies, priority, task_id(0), epoch_action::none, nullptr, instruction_garbage{});
 	}
 
 	void complete(const instruction* instr) { m_engine.complete_assigned(instr->get_id()); }

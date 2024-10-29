@@ -128,7 +128,7 @@ class pilot_query {
 	std::vector<outbound_pilot> m_result;
 };
 
-class mock_host_object_fence_promise : public fence_promise {
+class mock_host_object_fence_promise : public task_promise {
   public:
 	void fulfill() override { FAIL("unimplemented"); }
 	allocation_id get_user_allocation_id() override {
@@ -137,7 +137,7 @@ class mock_host_object_fence_promise : public fence_promise {
 	}
 };
 
-class mock_buffer_fence_promise : public fence_promise {
+class mock_buffer_fence_promise : public task_promise {
   public:
 	mock_buffer_fence_promise() = default;
 	explicit mock_buffer_fence_promise(allocation_id user_allocation_id) : m_user_aid(user_allocation_id) {}
@@ -184,7 +184,7 @@ class idag_test_context final : private task_manager::delegate {
 	idag_test_context(
 	    const size_t num_nodes, const node_id local_nid, const size_t num_devices_per_node, bool supports_d2d_copies = true, const policy_set& policy = {})
 	    : m_num_nodes(num_nodes), m_local_nid(local_nid), m_num_devices_per_node(num_devices_per_node),
-	      m_uncaught_exceptions_before(std::uncaught_exceptions()), m_tm(num_nodes, &m_task_recorder, this, policy.tm), m_cmd_recorder(), m_cdag(),
+	      m_uncaught_exceptions_before(std::uncaught_exceptions()), m_tm(num_nodes, m_tdag, &m_task_recorder, this, policy.tm), m_cmd_recorder(), m_cdag(),
 	      m_cggen(num_nodes, local_nid, m_cdag, &m_cmd_recorder, policy.cggen), m_instr_recorder(),
 	      m_iggen(num_nodes, local_nid, make_system_info(num_devices_per_node, supports_d2d_copies), m_idag, nullptr /* delegate */, &m_instr_recorder,
 	          policy.iggen) {
@@ -348,6 +348,7 @@ class idag_test_context final : private task_manager::delegate {
 	detail::raw_allocation_id m_next_user_allocation_id = 1;
 	std::vector<std::variant<buffer_id, host_object_id>> m_managed_objects;
 	task_recorder m_task_recorder;
+	task_graph m_tdag;
 	task_manager m_tm;
 	command_recorder m_cmd_recorder;
 	command_graph m_cdag;
@@ -378,7 +379,7 @@ class idag_test_context final : private task_manager::delegate {
 		}
 	}
 
-	task_id fence(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<fence_promise> promise) {
+	task_id fence(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<task_promise> promise) {
 		if(m_finished) { FAIL("idag_test_context already finish()ed"); }
 		const uncaught_exception_guard guard(this);
 		return m_tm.generate_fence_task(std::move(access_map), std::move(side_effects), std::move(promise));

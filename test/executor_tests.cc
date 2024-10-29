@@ -271,7 +271,7 @@ class mock_backend final : public backend {
 };
 
 /// Minimal mock implementation of fence_promise that allows a test await completion of a fence instruction.
-class mock_fence_promise final : public fence_promise {
+class mock_fence_promise final : public task_promise {
   public:
 	void fulfill() override {
 		std::lock_guard lock(m_mutex);
@@ -344,7 +344,7 @@ class executor_test_context final : private executor::delegate {
 	/// Submit the init epoch instruction. Call before any other submission.
 	task_id init() {
 		const auto tid = m_next_task_id++;
-		submit<epoch_instruction>(tid, epoch_action::init, instruction_garbage{});
+		submit<epoch_instruction>(tid, epoch_action::init, nullptr, instruction_garbage{});
 		return tid;
 	}
 
@@ -356,7 +356,7 @@ class executor_test_context final : private executor::delegate {
 
 	task_id epoch(const epoch_action action, instruction_garbage garbage = {}) {
 		const auto tid = m_next_task_id++;
-		submit<epoch_instruction>(tid, action, std::move(garbage));
+		submit<epoch_instruction>(tid, action, nullptr, std::move(garbage));
 		return tid;
 	}
 
@@ -422,11 +422,15 @@ class executor_test_context final : private executor::delegate {
 		return std::move(m_log);
 	}
 
-	task_id get_last_epoch() { return m_epochs.get(); }
-	task_id get_last_horizon() { return m_horizons.get(); }
+	task_id get_last_epoch() { return m_last_epoch_reached.load(std::memory_order_relaxed); }
+	task_id get_last_horizon() { return m_last_horizon_reached.load(std::memory_order_relaxed); }
 
-	void await_horizon(const task_id tid) { m_horizons.await(tid); }
-	void await_epoch(const task_id tid) { m_epochs.await(tid); }
+	void await_horizon(const task_id tid) {
+		while(get_last_horizon() < tid) {}
+	}
+	void await_epoch(const task_id tid) {
+		while(get_last_epoch() < tid) {}
+	}
 
 	const communicator* get_root_communicator() const { return m_root_comm; }
 
@@ -436,8 +440,8 @@ class executor_test_context final : private executor::delegate {
 	task_id m_next_task_id = 0;
 	std::vector<std::unique_ptr<instruction>> m_instructions; // we need to guarantee liveness as long as the executor thread is around
 	std::unique_ptr<executor> m_executor;
-	epoch_monitor m_horizons{0};
-	epoch_monitor m_epochs{0};
+	std::atomic<size_t> m_last_horizon_reached{0};
+	std::atomic<size_t> m_last_epoch_reached{0};
 	operations_log m_log;                      // mutated by executor thread - do not access before shutdown!
 	const communicator* m_root_comm = nullptr; // always nullptr for dry_run_executor
 
@@ -452,8 +456,8 @@ class executor_test_context final : private executor::delegate {
 		return iid;
 	}
 
-	void horizon_reached(const task_id tid) override { m_horizons.set(tid); }
-	void epoch_reached(const task_id tid) override { m_epochs.set(tid); }
+	void horizon_reached(const task_id tid) override { m_last_horizon_reached.store(tid, std::memory_order_relaxed); }
+	void epoch_reached(const task_id tid) override { m_last_epoch_reached.store(tid, std::memory_order_relaxed); }
 };
 
 

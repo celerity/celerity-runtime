@@ -107,8 +107,12 @@ namespace detail {
 		static size_t get_num_nodes(const runtime& rt) { return rt.m_num_nodes; }
 		static size_t get_num_local_devices(const runtime& rt) { return rt.m_num_local_devices; }
 
+		static task_graph& get_task_graph(runtime& rt) { return rt.m_tdag; }
+		static task_manager& get_task_manager(runtime& rt) { return *rt.m_task_mngr; }
 		static scheduler& get_schdlr(runtime& rt) { return *rt.m_schdlr; }
 		static executor& get_exec(runtime& rt) { return *rt.m_exec; }
+
+		static task_id get_latest_epoch_reached(const runtime& rt) { return rt.m_latest_epoch_reached.load(std::memory_order_relaxed); }
 
 		static std::string print_task_graph(runtime& rt) {
 			return detail::print_task_graph(*rt.m_task_recorder); // task recorder is mutated by task manager (application / test thread)
@@ -128,13 +132,11 @@ namespace detail {
 	};
 
 	struct task_manager_testspy {
-		static const task_graph& get_task_graph(const task_manager& tm) { return tm.m_tdag; }
+		inline static constexpr task_id initial_epoch_task = task_manager::initial_epoch_task;
 
 		static const task* get_epoch_for_new_tasks(const task_manager& tm) { return tm.m_epoch_for_new_tasks; }
 
 		static const task* get_current_horizon(const task_manager& tm) { return tm.m_current_horizon; }
-
-		static std::optional<task_id> get_latest_horizon_reached(const task_manager& tm) { return tm.m_latest_horizon_reached; }
 
 		static const region_map<task*>& get_last_writer(const task_manager& tm, const buffer_id bid) { return tm.m_buffers.at(bid).last_writers; }
 
@@ -154,34 +156,32 @@ namespace detail {
 
 namespace test_utils {
 
-	inline const detail::task* find_task(const detail::task_manager& tm, const detail::task_id tid) {
-		return detail::graph_testspy::find_node_if(
-		    detail::task_manager_testspy::get_task_graph(tm), [tid](const detail::task& tsk) { return tsk.get_id() == tid; });
+	inline const detail::task* find_task(const detail::task_graph& tdag, const detail::task_id tid) {
+		return detail::graph_testspy::find_node_if(tdag, [tid](const detail::task& tsk) { return tsk.get_id() == tid; });
 	}
 
-	inline bool has_task(const detail::task_manager& tm, const detail::task_id tid) { return find_task(tm, tid) != nullptr; }
+	inline bool has_task(const detail::task_graph& tdag, const detail::task_id tid) { return find_task(tdag, tid) != nullptr; }
 
-	inline const detail::task* get_task(const detail::task_manager& tm, const detail::task_id tid) {
-		const auto tsk = find_task(tm, tid);
+	inline const detail::task* get_task(const detail::task_graph& tdag, const detail::task_id tid) {
+		const auto tsk = find_task(tdag, tid);
 		REQUIRE(tsk != nullptr);
 		return tsk;
 	}
 
-	inline size_t get_num_live_horizons(const detail::task_manager& tm) {
-		return detail::graph_testspy::count_nodes_if(
-		    detail::task_manager_testspy::get_task_graph(tm), [](const detail::task& tsk) { return tsk.get_type() == detail::task_type::horizon; });
+	inline size_t get_num_live_horizons(const detail::task_graph& tdag) {
+		return detail::graph_testspy::count_nodes_if(tdag, [](const detail::task& tsk) { return tsk.get_type() == detail::task_type::horizon; });
 	}
 
-	inline bool has_dependency(const detail::task_manager& tm, detail::task_id dependent, detail::task_id dependency,
+	inline bool has_dependency(const detail::task_graph& tdag, detail::task_id dependent, detail::task_id dependency,
 	    detail::dependency_kind kind = detail::dependency_kind::true_dep) {
-		for(auto dep : get_task(tm, dependent)->get_dependencies()) {
+		for(auto dep : get_task(tdag, dependent)->get_dependencies()) {
 			if(dep.node->get_id() == dependency && dep.kind == kind) return true;
 		}
 		return false;
 	}
 
-	inline bool has_any_dependency(const detail::task_manager& tm, detail::task_id dependent, detail::task_id dependency) {
-		for(auto dep : get_task(tm, dependent)->get_dependencies()) {
+	inline bool has_any_dependency(const detail::task_graph& tdag, detail::task_id dependent, detail::task_id dependency) {
+		for(auto dep : get_task(tdag, dependent)->get_dependencies()) {
 			if(dep.node->get_id() == dependency) return true;
 		}
 		return false;
@@ -472,6 +472,7 @@ namespace test_utils {
 	std::string make_test_graph_title(const std::string& type, size_t num_nodes, detail::node_id local_nid, size_t num_devices_per_node);
 
 	struct task_test_context {
+		detail::task_graph tdag;
 		detail::task_recorder trec;
 		detail::task_manager tm;
 		mock_buffer_factory mbf;
@@ -480,7 +481,7 @@ namespace test_utils {
 		detail::task_id initial_epoch_task;
 
 		explicit task_test_context(const detail::task_manager::policy_set& policy = {})
-		    : tm(1, &trec, nullptr /* delegate */, policy), mbf(tm), mhof(tm), initial_epoch_task(tm.generate_epoch_task(detail::epoch_action::init)) {}
+		    : tm(1, tdag, &trec, nullptr /* delegate */, policy), mbf(tm), mhof(tm), initial_epoch_task(tm.generate_epoch_task(detail::epoch_action::init)) {}
 
 		task_test_context(const task_test_context&) = delete;
 		task_test_context(task_test_context&&) = delete;

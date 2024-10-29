@@ -65,7 +65,8 @@ TEST_CASE("benchmark task handling", "[benchmark][group:task-graph]") {
 	constexpr int report_interval = 10;
 
 	BENCHMARK("generating and deleting tasks") {
-		task_manager tm(1, nullptr, nullptr);
+		task_graph tdag;
+		task_manager tm(1, tdag, nullptr, nullptr);
 		// we use this trick to force horizon creation without introducing dependency overhead in this microbenchmark
 		tm.set_horizon_step(0);
 
@@ -74,9 +75,9 @@ TEST_CASE("benchmark task handling", "[benchmark][group:task-graph]") {
 			// create simplest possible host task
 			const auto highest_tid = tm.submit_command_group([](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
 			// start notifying once we've built some tasks
-			if(i % report_interval == 0 && i / report_interval > 1) {
+			if(i % report_interval == 0 && i / report_interval > 2) {
 				// every other generated task is always a horizon (step size 0)
-				tm.notify_horizon_reached(highest_tid + 1);
+				tdag.erase_before_epoch(highest_tid - 1);
 			}
 		}
 	};
@@ -99,8 +100,9 @@ static constexpr instruction_graph_generator::policy_set benchmark_instruction_g
 
 struct task_manager_benchmark_context {
 	const size_t num_nodes = 1;
+	task_graph tdag;
 	task_recorder trec;
-	task_manager tm{1, test_utils::g_print_graphs ? &trec : nullptr, nullptr /* delegate */, benchmark_task_manager_policy};
+	task_manager tm{1, tdag, test_utils::g_print_graphs ? &trec : nullptr, nullptr /* delegate */, benchmark_task_manager_policy};
 	test_utils::mock_buffer_factory mbf{tm};
 
 	task_manager_benchmark_context() { tm.generate_epoch_task(epoch_action::init); }
@@ -124,9 +126,10 @@ struct task_manager_benchmark_context {
 
 struct command_graph_generator_benchmark_context : private task_manager::delegate { // NOLINT(cppcoreguidelines-virtual-class-destructor)
 	const size_t num_nodes;
-	command_graph cdag;
+	task_graph tdag;
 	task_recorder trec;
-	task_manager tm{num_nodes, test_utils::g_print_graphs ? &trec : nullptr, this, benchmark_task_manager_policy};
+	task_manager tm{num_nodes, tdag, test_utils::g_print_graphs ? &trec : nullptr, this, benchmark_task_manager_policy};
+	command_graph cdag;
 	command_recorder crec;
 	command_graph_generator cggen{num_nodes, 0 /* local_nid */, cdag, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
 	test_utils::mock_buffer_factory mbf{tm, cggen};
@@ -156,9 +159,10 @@ struct instruction_graph_generator_benchmark_context final : private task_manage
 	const size_t num_nodes;
 	const size_t num_devices;
 	const bool supports_d2d_copies;
-	command_graph cdag;
+	task_graph tdag;
 	task_recorder trec;
-	task_manager tm{num_nodes, test_utils::g_print_graphs ? &trec : nullptr, this, benchmark_task_manager_policy};
+	task_manager tm{num_nodes, tdag, test_utils::g_print_graphs ? &trec : nullptr, this, benchmark_task_manager_policy};
+	command_graph cdag;
 	command_recorder crec;
 	command_graph_generator cggen{num_nodes, 0 /* local_nid */, cdag, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
 	instruction_recorder irec;
@@ -282,8 +286,9 @@ class benchmark_scheduler final : public abstract_scheduler {
 
 struct scheduler_benchmark_context : private task_manager::delegate { // NOLINT(cppcoreguidelines-virtual-class-destructor)
 	const size_t num_nodes;
+	task_graph tdag;
+	task_manager tm{num_nodes, tdag, nullptr, this, benchmark_task_manager_policy};
 	benchmark_scheduler schdlr;
-	task_manager tm{num_nodes, nullptr, this, benchmark_task_manager_policy};
 	test_utils::mock_buffer_factory mbf;
 
 	explicit scheduler_benchmark_context(restartable_thread& thrd, const size_t num_nodes, const size_t num_devices_per_node)

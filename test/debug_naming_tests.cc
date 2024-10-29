@@ -23,8 +23,8 @@ TEST_CASE("debug names can be set and retrieved from tasks", "[debug]") {
 
 		const auto tid_b = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {});
 
-		CHECK(test_utils::get_task(tt.tm, tid_a)->get_debug_name() == task_name);
-		CHECK(test_utils::get_task(tt.tm, tid_b)->get_debug_name().empty());
+		CHECK(test_utils::get_task(tt.tdag, tid_a)->get_debug_name() == task_name);
+		CHECK(test_utils::get_task(tt.tdag, tid_b)->get_debug_name().empty());
 	}
 
 	SECTION("Compute Task") {
@@ -32,8 +32,8 @@ TEST_CASE("debug names can be set and retrieved from tasks", "[debug]") {
 
 		const auto tid_b = test_utils::add_compute_task<class compute_task_unnamed>(tt.tm, [&](handler& cgh) {});
 
-		CHECK(test_utils::get_task(tt.tm, tid_a)->get_debug_name() == task_name);
-		CHECK_THAT(test_utils::get_task(tt.tm, tid_b)->get_debug_name(), Catch::Matchers::ContainsSubstring("compute_task_unnamed"));
+		CHECK(test_utils::get_task(tt.tdag, tid_a)->get_debug_name() == task_name);
+		CHECK_THAT(test_utils::get_task(tt.tdag, tid_b)->get_debug_name(), Catch::Matchers::ContainsSubstring("compute_task_unnamed"));
 	}
 
 	SECTION("ND Range Task") {
@@ -42,8 +42,8 @@ TEST_CASE("debug names can be set and retrieved from tasks", "[debug]") {
 
 		const auto tid_b = test_utils::add_compute_task<class nd_range_task_unnamed>(tt.tm, [&](handler& cgh) {});
 
-		CHECK(test_utils::get_task(tt.tm, tid_a)->get_debug_name() == task_name);
-		CHECK_THAT(test_utils::get_task(tt.tm, tid_b)->get_debug_name(), Catch::Matchers::ContainsSubstring("nd_range_task_unnamed"));
+		CHECK(test_utils::get_task(tt.tdag, tid_a)->get_debug_name() == task_name);
+		CHECK_THAT(test_utils::get_task(tt.tdag, tid_b)->get_debug_name(), Catch::Matchers::ContainsSubstring("nd_range_task_unnamed"));
 	}
 }
 
@@ -63,11 +63,12 @@ template <typename T>
 class MyThirdKernel;
 
 TEST_CASE("device_compute tasks derive debug name from kernel name", "[task]") {
-	auto tm = celerity::detail::task_manager(1, nullptr, nullptr);
+	task_graph tdag;
+	task_manager tm(1, tdag, nullptr, nullptr);
 	tm.generate_epoch_task(epoch_action::init);
-	const auto t1 = test_utils::get_task(tm, tm.submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(range<1>{1}, [](id<1>) {}); }));
-	const auto t2 = test_utils::get_task(tm, tm.submit_command_group([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(range<1>{1}, [](id<1>) {}); }));
-	const auto t3 = test_utils::get_task(tm, tm.submit_command_group([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(range<1>{1}, [](id<1>) {}); }));
+	const auto t1 = test_utils::get_task(tdag, tm.submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(range<1>{1}, [](id<1>) {}); }));
+	const auto t2 = test_utils::get_task(tdag, tm.submit_command_group([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(range<1>{1}, [](id<1>) {}); }));
+	const auto t3 = test_utils::get_task(tdag, tm.submit_command_group([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(range<1>{1}, [](id<1>) {}); }));
 	CHECK(t1->get_debug_name() == "MyFirstKernel");
 	CHECK(t2->get_debug_name() == "MySecondKernel");
 	CHECK(t3->get_debug_name() == "MyThirdKernel<...>");

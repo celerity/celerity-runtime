@@ -57,7 +57,7 @@ class [[deprecated("Use celerity::queue instead")]] distr_queue {
 	void submit(CGF cgf) { // NOLINT(readability-convert-member-functions-to-static)
 		// (Note while this function could be made static, it must not be! Otherwise we can't be sure the runtime has been initialized.)
 		CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::submit", Orange3);
-		[[maybe_unused]] const auto tid = detail::runtime::get_instance().get_task_manager().submit_command_group(std::move(cgf));
+		[[maybe_unused]] const auto tid = detail::runtime::get_instance().submit(std::move(cgf));
 		CELERITY_DETAIL_TRACY_ZONE_NAME("T{} submit", tid);
 	}
 
