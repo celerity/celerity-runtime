@@ -1,3 +1,7 @@
 ---
 InheritParentConfig: true
-Checks: -readability-function-cognitive-complexity
+# Disable some checks that cause frequent false-positives in tests
+# misc-include-cleaner: Does not understand that celerity.h is the entry point for all public Celerity headers
+Checks: -readability-function-cognitive-complexity,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -misc-include-cleaner

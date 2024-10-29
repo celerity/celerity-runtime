@@ -1,4 +1,5 @@
 #include <random>
+#include <utility>
 
 #if CELERITY_DETAIL_HAVE_CAIRO
 #include <cairo/cairo.h>
