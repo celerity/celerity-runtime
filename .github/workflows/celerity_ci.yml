@@ -38,20 +38,15 @@ jobs:
 
   # Run Clang-Tidy checks
   #
-  # Note:
-  # - The action we use for this (ZedThree/clang-tidy-review) is a Docker action.
-  #   However, to obtain the required compile_commands.json file, we need our own
-  #   Docker container environment. We therefore run this job within a build container
-  #   and manually call the job's Python script.
-  # - This action currently only supports pull_request triggers (as it creates review
-  #   comments), so we have to run it regardless of skip-duplicate-action's outcome
-  #   (as otherwise pull_request triggers will usually be skipped due to the push
-  #   trigger already running).
+  # Note: This action currently only supports pull_request triggers (as it creates review
+  # comments), so we have to run it regardless of skip-duplicate-action's outcome
+  # (as otherwise pull_request triggers will usually be skipped due to the push
+  # trigger already running).
   #
   # TODO: This should be combined with the report (or "lint") step, really
   clang-tidy:
     if: github.event.pull_request
-    runs-on: [ self-hosted, slurm-nvidia ]
+    runs-on: [ self-hosted, slurm-intel ]
     env:
       container-workspace: <placeholder>
       build-dir: /root/build
@@ -71,27 +66,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+      - name: Fetch base branch
+        run: git fetch --no-tags --no-recurse-submodules origin "${{ github.event.pull_request.base.ref }}"
       # We only want to configure CMake, so we build the "help" target,
       # which doesn't actually do anything (other than print all targets).
       - name: Configure CMake
         run: bash -o pipefail -c "bash /root/build-celerity.sh ${{ env.container-workspace }} --build-type Debug --target help"
-      - name: Check clang-tidy
-        working-directory: ${{ env.build-dir }}
-        run: |
-          git clone https://github.com/ZedThree/clang-tidy-review.git
-          cd clang-tidy-review
-          git checkout v0.9.0
-          pip install -r ./requirements.txt
-          cd ${{ env.container-workspace }}
-          python3 ${{ env.build-dir }}/clang-tidy-review/review.py \
-            --clang_tidy_binary=clang-tidy \
-            --token=${{ github.token }} \
-            --repo=${{ github.repository }} \
-            --pr=${{ github.event.pull_request.number }} \
-            --build_dir=${{ env.build-dir }} \
-            --config_file=${{ env.container-workspace }}/.clang-tidy \
-            --include="*.h,*.cc,*.[ch]pp" \
-            --lgtm-comment-body=""
+      - name: Run clang-tidy
+        continue-on-error: true # clang-tidy-diff.py returns 1 if there are any errors; continue in that case (if something actually went wrong, there won't be a fixes file)
+        # -j48 for gpuc5
+        run: git diff -U0 origin/${{ github.event.pull_request.base.ref }} | clang-tidy-diff.py -j48 -p1 -path ${{ env.build-dir }} -export-fixes clang-tidy-fixes.yml
+        shell: bash # enables -o pipefail
+      - name: Create clang-tidy report comments
+        uses: platisd/clang-tidy-pr-comments@v1
+        with:
+          python_path: python3 # Use our own Python installation
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          clang_tidy_fixes: "${{ env.container-workspace }}/clang-tidy-fixes.yml"
+          repo_path_prefix: "/__w"
 
   # We need to jump through some hoops to have different build matrices based on what triggered the workflow.
   # For normal CI runs we want to build and test against everything except the "HEAD" revisions, whereas during
