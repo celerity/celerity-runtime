@@ -7,7 +7,7 @@
 
 namespace celerity::detail {
 
-dry_run_executor::dry_run_executor(delegate* const dlg) : m_thread(&dry_run_executor::thread_main, this, dlg) {
+dry_run_executor::dry_run_executor(executor::delegate* const dlg) : m_thread(&dry_run_executor::thread_main, this, dlg) {
 	set_thread_name(m_thread.native_handle(), "cy-executor");
 }
 
@@ -32,7 +32,7 @@ void dry_run_executor::submit(std::vector<const instruction*> instructions, std:
 	(void)pilots; // ignore;
 }
 
-void dry_run_executor::thread_main(delegate* const dlg) {
+void dry_run_executor::thread_main(executor::delegate* const dlg) {
 	// For simplicity we keep all executor state within this function.
 	std::unordered_map<host_object_id, std::unique_ptr<host_object_instance>> host_object_instances;
 	bool shutdown = false;
@@ -45,8 +45,7 @@ void dry_run_executor::thread_main(delegate* const dlg) {
 			    host_object_instances.erase(dhoinstr.get_host_object_id());
 		    },
 		    [&](const epoch_instruction& einstr) {
-			    // task_manager doesn't expect us to actually execute the init epoch (TODO)
-			    if(dlg != nullptr && einstr.get_epoch_task_id() != 0) { dlg->epoch_reached(einstr.get_epoch_task_id()); }
+			    if(dlg != nullptr) { dlg->epoch_reached(einstr.get_epoch_task_id()); }
 			    shutdown |= einstr.get_epoch_action() == epoch_action::shutdown;
 		    },
 		    [&](const fence_instruction& finstr) {

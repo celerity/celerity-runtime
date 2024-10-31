@@ -633,6 +633,13 @@ namespace detail {
 
 	inline std::unique_ptr<detail::task> into_task(handler&& cgh) { return std::move(cgh).into_task(); }
 
+	template <typename CGF>
+	std::unique_ptr<task> invoke_command_group_function(const task_id tid, size_t num_collective_nodes, CGF&& cgf) {
+		handler cgh = make_command_group_handler(tid, num_collective_nodes);
+		std::invoke(std::forward<CGF>(cgf), cgh);
+		return into_task(std::move(cgh));
+	}
+
 	[[nodiscard]] inline hydration_id add_requirement(handler& cgh, const buffer_id bid, std::unique_ptr<range_mapper_base> rm) {
 		return cgh.add_requirement(bid, std::move(rm));
 	}

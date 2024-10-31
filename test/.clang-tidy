@@ -2,6 +2,10 @@
 InheritParentConfig: true
 # Disable some checks that cause frequent false-positives in tests
 # misc-include-cleaner: Does not understand that celerity.h is the entry point for all public Celerity headers
+# misc-use-anonymous-namespace: Catch2 emits static functions for TEST_CASE()
+# bugprone-chained-comparison: Catch2 uses a comparison operator overloading hack to decompose expressions
 Checks: -readability-function-cognitive-complexity,
   -cppcoreguidelines-avoid-non-const-global-variables,
-  -misc-include-cleaner
+  -misc-include-cleaner,
+  -misc-use-anonymous-namespace,
+  -bugprone-chained-comparison

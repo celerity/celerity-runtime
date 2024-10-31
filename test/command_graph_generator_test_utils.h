@@ -232,7 +232,7 @@ class distributed_command_query {
 	}
 };
 
-class cdag_test_context {
+class cdag_test_context final : private task_manager::delegate {
 	friend class task_builder<cdag_test_context>;
 
   public:
@@ -241,12 +241,13 @@ class cdag_test_context {
 		command_graph_generator::policy_set cggen;
 	};
 
-	cdag_test_context(const size_t num_nodes, const policy_set& policy = {}) : m_num_nodes(num_nodes), m_tm(num_nodes, &m_task_recorder, policy.tm) {
+	cdag_test_context(const size_t num_nodes, const policy_set& policy = {}) : m_num_nodes(num_nodes), m_tm(num_nodes, &m_task_recorder, this, policy.tm) {
 		for(node_id nid = 0; nid < num_nodes; ++nid) {
 			m_cdags.emplace_back(std::make_unique<command_graph>());
 			m_cmd_recorders.emplace_back(std::make_unique<command_recorder>());
-			m_cggens.emplace_back(std::make_unique<command_graph_generator>(num_nodes, nid, *m_cdags[nid], m_tm, m_cmd_recorders[nid].get(), policy.cggen));
+			m_cggens.emplace_back(std::make_unique<command_graph_generator>(num_nodes, nid, *m_cdags[nid], m_cmd_recorders[nid].get(), policy.cggen));
 		}
+		m_initial_epoch_tid = m_tm.generate_epoch_task(epoch_action::init);
 	}
 
 	~cdag_test_context() { maybe_print_graphs(); }
@@ -255,6 +256,12 @@ class cdag_test_context {
 	cdag_test_context(cdag_test_context&&) = delete;
 	cdag_test_context& operator=(const cdag_test_context&) = delete;
 	cdag_test_context& operator=(cdag_test_context&&) = delete;
+
+	void task_created(const task* tsk) override {
+		for(auto& cggen : m_cggens) {
+			cggen->build_task(*tsk);
+		}
+	}
 
 	template <int Dims>
 	test_utils::mock_buffer<Dims> create_buffer(range<Dims> size, bool mark_as_host_initialized = false) {
@@ -316,11 +323,7 @@ class cdag_test_context {
 		return fence(buf, {{}, buf.get_range()});
 	}
 
-	task_id epoch(epoch_action action) {
-		const auto tid = m_tm.generate_epoch_task(action);
-		build_task(tid);
-		return tid;
-	}
+	task_id epoch(epoch_action action) { return m_tm.generate_epoch_task(action); }
 
 	template <typename SpecificRecord = command_record, typename... Filters>
 	distributed_command_query<SpecificRecord> query(Filters... filters) {
@@ -343,6 +346,8 @@ class cdag_test_context {
 
 	command_graph_generator& get_graph_generator(node_id nid) { return *m_cggens.at(nid); }
 
+	task_id get_initial_epoch_task() const { return m_initial_epoch_tid; }
+
 	[[nodiscard]] std::string print_task_graph() { return detail::print_task_graph(m_task_recorder, make_test_graph_title("Task Graph")); }
 
 	[[nodiscard]] std::string print_command_graph(node_id nid) {
@@ -355,9 +360,9 @@ class cdag_test_context {
 	buffer_id m_next_buffer_id = 0;
 	host_object_id m_next_host_object_id = 0;
 	reduction_id m_next_reduction_id = 1; // Start from 1 as rid 0 designates "no reduction" in push commands
-	std::optional<task_id> m_most_recently_built_horizon;
-	task_recorder m_task_recorder;
 	task_manager m_tm;
+	task_recorder m_task_recorder;
+	task_id m_initial_epoch_tid = 0;
 	std::vector<std::unique_ptr<command_graph>> m_cdags;
 	std::vector<std::unique_ptr<command_graph_generator>> m_cggens;
 	std::vector<std::unique_ptr<command_recorder>> m_cmd_recorders;
@@ -369,21 +374,6 @@ class cdag_test_context {
 	template <typename CGF, typename... Hints>
 	task_id submit_command_group(CGF cgf, Hints... hints) {
 		return m_tm.submit_command_group(cgf, hints...);
-	}
-
-	void build_task(const task_id tid) {
-		for(auto& cggen : m_cggens) {
-			cggen->build_task(*m_tm.get_task(tid));
-		}
-	}
-
-	void maybe_build_horizon() {
-		const auto current_horizon = task_manager_testspy::get_current_horizon(m_tm);
-		if(m_most_recently_built_horizon != current_horizon) {
-			assert(current_horizon.has_value());
-			build_task(*current_horizon);
-		}
-		m_most_recently_built_horizon = current_horizon;
 	}
 
 	void maybe_print_graphs() {
@@ -398,10 +388,7 @@ class cdag_test_context {
 	}
 
 	task_id fence(buffer_access_map access_map, side_effect_map side_effects) {
-		const auto tid = m_tm.generate_fence_task(std::move(access_map), std::move(side_effects), nullptr);
-		build_task(tid);
-		maybe_build_horizon();
-		return tid;
+		return m_tm.generate_fence_task(std::move(access_map), std::move(side_effects), nullptr);
 	}
 };
 

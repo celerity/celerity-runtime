@@ -92,7 +92,7 @@ TEST_CASE("collective-group instructions follow a single global total order", "[
 
 	const auto all_instrs = ictx.query_instructions();
 
-	const auto init_epoch = all_instrs.select_unique(task_manager::initial_epoch_task);
+	const auto init_epoch = all_instrs.select_unique(ictx.get_initial_epoch_task());
 	// the default collective group does not use the default communicator (aka MPI_COMM_WORLD) because host tasks are executed on a different thread
 	const auto clone_for_default_group = init_epoch.successors().assert_unique<clone_collective_group_instruction_record>();
 	CHECK(clone_for_default_group->original_collective_group_id == root_collective_group_id);
@@ -188,7 +188,7 @@ TEST_CASE("instruction_graph_generator gracefully handles empty-range buffer fen
 
 	const auto all_instrs = ictx.query_instructions();
 
-	const auto init_epoch = all_instrs.select_unique(task_manager::initial_epoch_task);
+	const auto init_epoch = all_instrs.select_unique(ictx.get_initial_epoch_task());
 	const auto fence = all_instrs.select_unique<fence_instruction_record>();
 	const auto shutdown_epoch = all_instrs.select_unique<epoch_instruction_record>(
 	    [](const epoch_instruction_record& einstr) { return einstr.epoch_action == epoch_action::shutdown; });
@@ -313,7 +313,7 @@ TEST_CASE("epochs serialize execution and compact dependency tracking", "[instru
 		return;
 	}
 
-	const auto init_epoch = all_instrs.select_unique<epoch_instruction_record>(task_manager::initial_epoch_task);
+	const auto init_epoch = all_instrs.select_unique<epoch_instruction_record>(ictx.get_initial_epoch_task());
 	CHECK(init_epoch.predecessors().count() == 0);
 
 	const auto all_device_allocs = all_instrs.select_all<alloc_instruction_record>(

@@ -323,7 +323,7 @@ struct executor_impl {
 	const std::unique_ptr<detail::backend> backend;
 	communicator* const root_communicator;
 	double_buffered_queue<submission>* const submission_queue;
-	live_executor::delegate* const delegate;
+	executor::delegate* const delegate;
 	const live_executor::policy_set policy;
 
 	receive_arbiter recv_arbiter{*root_communicator};
@@ -343,7 +343,7 @@ struct executor_impl {
 	CELERITY_DETAIL_IF_TRACY_SUPPORTED(std::unique_ptr<tracy_integration> tracy;)
 
 	executor_impl(std::unique_ptr<detail::backend> backend, communicator* root_comm, double_buffered_queue<submission>& submission_queue,
-	    live_executor::delegate* dlg, const live_executor::policy_set& policy);
+	    executor::delegate* dlg, const live_executor::policy_set& policy);
 
 	void run();
 	void poll_in_flight_async_instructions();
@@ -394,7 +394,7 @@ struct executor_impl {
 };
 
 executor_impl::executor_impl(std::unique_ptr<detail::backend> backend, communicator* const root_comm, double_buffered_queue<submission>& submission_queue,
-    live_executor::delegate* const dlg, const live_executor::policy_set& policy)
+    executor::delegate* const dlg, const live_executor::policy_set& policy)
     : backend(std::move(backend)), root_communicator(root_comm), submission_queue(&submission_queue), delegate(dlg), policy(policy) //
 {
 	CELERITY_DETAIL_IF_TRACY_ENABLED(tracy = std::make_unique<tracy_integration>();)
@@ -683,6 +683,9 @@ void executor_impl::issue(const epoch_instruction& einstr) {
 	case epoch_action::none: //
 		CELERITY_DETAIL_TRACE_INSTRUCTION(einstr, "epoch");
 		break;
+	case epoch_action::init: //
+		CELERITY_DETAIL_TRACE_INSTRUCTION(einstr, "epoch (init)");
+		break;
 	case epoch_action::barrier: //
 		CELERITY_DETAIL_TRACE_INSTRUCTION(einstr, "epoch (barrier)");
 		root_communicator->collective_barrier();
@@ -692,9 +695,7 @@ void executor_impl::issue(const epoch_instruction& einstr) {
 		expecting_more_submissions = false;
 		break;
 	}
-	if(delegate != nullptr && einstr.get_epoch_task_id() != 0 /* TODO task_manager doesn't expect us to actually execute the init epoch */) {
-		delegate->epoch_reached(einstr.get_epoch_task_id());
-	}
+	if(delegate != nullptr) { delegate->epoch_reached(einstr.get_epoch_task_id()); }
 	collect(einstr.get_garbage());
 
 	CELERITY_DETAIL_IF_TRACY_ENABLED(FrameMarkNamed("Horizon"));
@@ -913,7 +914,7 @@ std::unique_ptr<boundary_check_info> executor_impl::attach_boundary_check_info(s
 
 namespace celerity::detail {
 
-live_executor::live_executor(std::unique_ptr<backend> backend, std::unique_ptr<communicator> root_comm, delegate* const dlg, const policy_set& policy)
+live_executor::live_executor(std::unique_ptr<backend> backend, std::unique_ptr<communicator> root_comm, executor::delegate* const dlg, const policy_set& policy)
     : m_root_comm(std::move(root_comm)), m_thread(&live_executor::thread_main, this, std::move(backend), dlg, policy) //
 {
 	set_thread_name(m_thread.native_handle(), "cy-executor");
@@ -941,7 +942,7 @@ void live_executor::submit(std::vector<const instruction*> instructions, std::ve
 	m_submission_queue.push(live_executor_detail::instruction_pilot_batch{std::move(instructions), std::move(pilots)});
 }
 
-void live_executor::thread_main(std::unique_ptr<backend> backend, delegate* const dlg, const policy_set& policy) {
+void live_executor::thread_main(std::unique_ptr<backend> backend, executor::delegate* const dlg, const policy_set& policy) {
 	CELERITY_DETAIL_TRACY_SET_THREAD_NAME_AND_ORDER("cy-executor", tracy_detail::thread_order::executor);
 	try {
 		live_executor_detail::executor_impl(std::move(backend), m_root_comm.get(), m_submission_queue, dlg, policy).run();

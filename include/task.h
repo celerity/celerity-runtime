@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "graph.h"
 #include "grid.h"
 #include "hint.h"
 #include "intrusive_graph.h"
@@ -233,6 +234,9 @@ namespace detail {
 
 	/// Determines which overlapping regions appear between write accesses when the iteration space of `tsk` is split into `chunks`.
 	std::unordered_map<buffer_id, region<3>> detect_overlapping_writes(const task& tsk, const box_vector<3>& chunks);
+
+	/// The task graph (TDAG) represents all cluster-wide operations, such as command group submissions and fences, and their interdependencies.
+	class task_graph : public graph<task> {}; // inheritance instead of type alias so we can forward declare task_graph
 
 } // namespace detail
 } // namespace celerity

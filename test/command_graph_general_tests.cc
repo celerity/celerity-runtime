@@ -12,8 +12,10 @@ namespace acc = celerity::access;
 
 TEST_CASE("command_graph keeps track of created commands", "[command_graph][command-graph]") {
 	command_graph cdag;
-	auto* const cmd0 = cdag.create<execution_command>(0, subrange<3>{});
-	auto* const cmd1 = cdag.create<execution_command>(1, subrange<3>{});
+	auto tsk0 = task::make_master_node(0, {}, {}, {});
+	auto tsk1 = task::make_master_node(1, {}, {}, {});
+	auto* const cmd0 = cdag.create<execution_command>(tsk0.get(), subrange<3>{});
+	auto* const cmd1 = cdag.create<execution_command>(tsk1.get(), subrange<3>{});
 	REQUIRE(cmd0->get_cid() != cmd1->get_cid());
 	REQUIRE(cdag.get(cmd0->get_cid()) == cmd0);
 	REQUIRE(cdag.command_count() == 2);
@@ -28,8 +30,10 @@ TEST_CASE("command_graph keeps track of created commands", "[command_graph][comm
 TEST_CASE("command_graph allows to iterate over all raw command pointers", "[command_graph][command-graph]") {
 	command_graph cdag;
 	command_set cmds;
-	cmds.insert(cdag.create<execution_command>(0, subrange<3>{}));
-	cmds.insert(cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none, std::vector<reduction_id>{}));
+	auto tsk0 = task::make_master_node(0, {}, {}, {});
+	auto tsk1 = task::make_epoch(1, epoch_action::none);
+	cmds.insert(cdag.create<execution_command>(tsk0.get(), subrange<3>{}));
+	cmds.insert(cdag.create<epoch_command>(tsk1.get(), epoch_action::none, std::vector<reduction_id>{}));
 	cmds.insert(cdag.create<push_command>(transfer_id(0, 0, 0), std::vector<std::pair<node_id, region<3>>>{}));
 	for(auto* cmd : cdag.all_commands()) {
 		REQUIRE(cmds.find(cmd) != cmds.end());
@@ -43,25 +47,30 @@ TEST_CASE("command_graph keeps track of execution front", "[command_graph][comma
 
 	command_set expected_front;
 
-	auto* const t0 = cdag.create<execution_command>(0, subrange<3>{});
-	expected_front.insert(t0);
+	auto tsk0 = task::make_master_node(0, {}, {}, {});
+	auto* const cmd0 = cdag.create<execution_command>(tsk0.get(), subrange<3>{});
+	expected_front.insert(cmd0);
 	REQUIRE(expected_front == cdag.get_execution_front());
 
-	expected_front.insert(cdag.create<execution_command>(1, subrange<3>{}));
+	auto tsk1 = task::make_master_node(1, {}, {}, {});
+	expected_front.insert(cdag.create<execution_command>(tsk1.get(), subrange<3>{}));
 	REQUIRE(expected_front == cdag.get_execution_front());
 
-	expected_front.erase(t0);
-	auto* const t2 = cdag.create<execution_command>(2, subrange<3>{});
-	expected_front.insert(t2);
-	cdag.add_dependency(t2, t0, dependency_kind::true_dep, dependency_origin::dataflow);
+	expected_front.erase(cmd0);
+	auto tsk2 = task::make_master_node(2, {}, {}, {});
+	auto* const cmd2 = cdag.create<execution_command>(tsk2.get(), subrange<3>{});
+	expected_front.insert(cmd2);
+	cdag.add_dependency(cmd2, cmd0, dependency_kind::true_dep, dependency_origin::dataflow);
 	REQUIRE(expected_front == cdag.get_execution_front());
 }
 
 TEST_CASE("isa<> RTTI helper correctly handles command hierarchies", "[rtti][command-graph]") {
 	command_graph cdag;
-	auto* const np = cdag.create<epoch_command>(task_manager::initial_epoch_task, epoch_action::none, std::vector<reduction_id>{});
+	auto tsk0 = task::make_epoch(0, epoch_action::none);
+	auto* const np = cdag.create<epoch_command>(tsk0.get(), epoch_action::none, std::vector<reduction_id>{});
 	REQUIRE(utils::isa<abstract_command>(np));
-	auto* const hec = cdag.create<execution_command>(0, subrange<3>{});
+	auto tsk1 = task::make_master_node(1, {}, {}, {});
+	auto* const hec = cdag.create<execution_command>(tsk1.get(), subrange<3>{});
 	REQUIRE(utils::isa<execution_command>(hec));
 	auto* const pc = cdag.create<push_command>(transfer_id(0, 0, 0), std::vector<std::pair<node_id, region<3>>>{});
 	REQUIRE(utils::isa<abstract_command>(pc));
@@ -326,7 +335,7 @@ TEST_CASE("epochs serialize task commands on every node", "[command_graph_genera
 
 	cdag_test_context cctx(num_nodes);
 
-	const auto tid_init = task_manager::initial_epoch_task;
+	const task_id tid_init = cctx.get_initial_epoch_task();
 	cctx.device_compute(node_range).name("task a").submit();
 	cctx.device_compute(node_range).name("task b").submit();
 	const auto before_epoch = cctx.query();
@@ -362,7 +371,7 @@ TEST_CASE("a sequence of epochs without intermediate commands has defined behavi
 	const size_t num_nodes = 2;
 	cdag_test_context cctx(num_nodes);
 
-	auto tid_before = task_manager::initial_epoch_task;
+	task_id tid_before = cctx.get_initial_epoch_task();
 	for(const auto action : {epoch_action::barrier, epoch_action::shutdown}) {
 		const auto tid = cctx.epoch(action);
 		CAPTURE(tid_before, tid);

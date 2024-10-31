@@ -175,9 +175,10 @@ enum class execution_target {
 };
 
 enum class epoch_action {
-	none,
-	barrier,
-	shutdown,
+	none,     ///< a normal synchronization point, from queue::wait (and sometimes ~buffer) - no special handling required by scheduler or executor
+	init,     ///< the first task emitted - used by cggen / iggen to init data structures that always require a known last epoch
+	barrier,  ///< from queue::wait(experimental::barrier) - will wait on a communicator::barrier (aka MPI_Barrier) in the executor
+	shutdown, ///< the final task emitted - scheduler / executor threads will know to exit after processing this epoch
 };
 
 } // namespace celerity::detail
