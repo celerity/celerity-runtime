@@ -343,8 +343,9 @@ class executor_test_context final : private executor::delegate {
 
 	/// Submit the init epoch instruction. Call before any other submission.
 	task_id init() {
-		submit<epoch_instruction>(task_manager::initial_epoch_task, epoch_action::none, instruction_garbage{});
-		return task_manager::initial_epoch_task;
+		const auto tid = m_next_task_id++;
+		submit<epoch_instruction>(tid, epoch_action::init, instruction_garbage{});
+		return tid;
 	}
 
 	task_id horizon(instruction_garbage garbage = {}) {
@@ -432,7 +433,7 @@ class executor_test_context final : private executor::delegate {
   private:
 	instruction_id m_next_iid = 1;
 	std::optional<instruction_id> m_last_iid; // serialize all instructions for simplicity - we do not test OoO capabilities here
-	task_id m_next_task_id = task_manager::initial_epoch_task + 1;
+	task_id m_next_task_id = 0;
 	std::vector<std::unique_ptr<instruction>> m_instructions; // we need to guarantee liveness as long as the executor thread is around
 	std::unique_ptr<executor> m_executor;
 	epoch_monitor m_horizons{0};

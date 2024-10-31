@@ -1,5 +1,6 @@
 #pragma once
 
+#include "graph.h"
 #include "grid.h"
 #include "launcher.h"
 #include "nd_memory.h"
@@ -441,43 +442,6 @@ class epoch_instruction final : public matchbox::implement_acceptor<instruction,
 /// uses) can back sub-regions of the (virtual) global buffer.
 ///
 /// The `instruction_graph` struct keeps ownership of all instructions that have not yet been pruned by epoch or horizon application.
-class instruction_graph {
-  public:
-	// Call this before pushing horizon or epoch instruction in order to be able to call erase_before_epoch on the same task id later.
-	void begin_epoch(const task_id tid) {
-		assert(m_epochs.empty() || (m_epochs.back().epoch_tid < tid && !m_epochs.back().instructions.empty()));
-		m_epochs.push_back({tid, {}});
-	}
-
-	// Add an instruction to the current epoch. Its instruction id must be higher than any instruction inserted into the graph before.
-	void push_instruction(std::unique_ptr<instruction> instr) {
-		assert(!m_epochs.empty());
-		auto& instructions = m_epochs.back().instructions;
-		assert(instructions.empty() || instruction_id_less{}(instructions.back().get(), instr.get()));
-		instructions.push_back(std::move(instr));
-	}
-
-	// Free all instructions that were pushed before begin_epoch(tid) was called.
-	void prune_before_epoch(const task_id tid) {
-		const auto first_retained =
-		    std::partition_point(m_epochs.begin(), m_epochs.end(), [=](const instruction_epoch& epoch) { return epoch.epoch_tid < tid; });
-		assert(first_retained != m_epochs.end() && first_retained->epoch_tid == tid);
-		m_epochs.erase(m_epochs.begin(), first_retained);
-	}
-
-	// The total number of instructions currently owned and not yet pruned, across all epochs.
-	size_t get_live_instruction_count() const {
-		return std::accumulate(
-		    m_epochs.begin(), m_epochs.end(), size_t{0}, [](const size_t acc, const instruction_epoch& epoch) { return acc + epoch.instructions.size(); });
-	}
-
-  private:
-	struct instruction_epoch {
-		task_id epoch_tid;
-		std::vector<std::unique_ptr<instruction>> instructions; // instruction pointers are stable, so it is safe to hand them to another thread
-	};
-
-	std::vector<instruction_epoch> m_epochs;
-};
+class instruction_graph : public graph<instruction> {}; // inheritance instead of type alias so we can forward declare instruction_graph
 
 } // namespace celerity::detail

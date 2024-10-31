@@ -150,7 +150,7 @@ class mock_buffer_fence_promise : public fence_promise {
 	allocation_id m_user_aid;
 };
 
-class idag_test_context {
+class idag_test_context final : private task_manager::delegate {
 	friend class task_builder<idag_test_context>;
 
   private:
@@ -184,13 +184,13 @@ class idag_test_context {
 	idag_test_context(
 	    const size_t num_nodes, const node_id local_nid, const size_t num_devices_per_node, bool supports_d2d_copies = true, const policy_set& policy = {})
 	    : m_num_nodes(num_nodes), m_local_nid(local_nid), m_num_devices_per_node(num_devices_per_node),
-	      m_uncaught_exceptions_before(std::uncaught_exceptions()), m_tm(num_nodes, &m_task_recorder, policy.tm), m_cmd_recorder(), m_cdag(),
-	      m_cggen(num_nodes, local_nid, m_cdag, m_tm, &m_cmd_recorder, policy.cggen), m_instr_recorder(),
-	      m_iggen(m_tm, num_nodes, local_nid, make_system_info(num_devices_per_node, supports_d2d_copies), m_idag, nullptr /* delegate */, &m_instr_recorder,
-	          policy.iggen) //
-	{
+	      m_uncaught_exceptions_before(std::uncaught_exceptions()), m_tm(num_nodes, &m_task_recorder, this, policy.tm), m_cmd_recorder(), m_cdag(),
+	      m_cggen(num_nodes, local_nid, m_cdag, &m_cmd_recorder, policy.cggen), m_instr_recorder(),
+	      m_iggen(num_nodes, local_nid, make_system_info(num_devices_per_node, supports_d2d_copies), m_idag, nullptr /* delegate */, &m_instr_recorder,
+	          policy.iggen) {
 		REQUIRE(local_nid < num_nodes);
 		REQUIRE(num_devices_per_node > 0);
+		m_initial_epoch_tid = m_tm.generate_epoch_task(epoch_action::init);
 	}
 
 	~idag_test_context() {
@@ -205,6 +205,14 @@ class idag_test_context {
 	idag_test_context& operator=(idag_test_context&&) = delete;
 
 	static memory_id get_native_memory(const device_id did) { return first_device_memory_id + did; }
+
+	void task_created(const task* tsk) override {
+		if(m_finished) { FAIL("idag_test_context already finish()ed"); }
+		const uncaught_exception_guard guard(this);
+		for(const auto cmd : m_cggen.build_task(*tsk)) {
+			m_iggen.compile(*cmd);
+		}
+	}
 
 	/// Call this after issuing all submissions in order to trigger the shutdown epoch together with all cleanup instructions.
 	void finish() {
@@ -224,7 +232,7 @@ class idag_test_context {
 				    m_tm.notify_host_object_destroyed(hoid);
 			    });
 		}
-		build_task(m_tm.generate_epoch_task(epoch_action::shutdown));
+		m_tm.generate_epoch_task(epoch_action::shutdown);
 
 		m_finished = true;
 	}
@@ -302,9 +310,7 @@ class idag_test_context {
 	task_id epoch(epoch_action action) {
 		if(m_finished) { FAIL("idag_test_context already finish()ed"); }
 		const uncaught_exception_guard guard(this);
-		const auto tid = m_tm.generate_epoch_task(action);
-		build_task(tid);
-		return tid;
+		return m_tm.generate_epoch_task(action);
 	}
 
 	void set_horizon_step(const int step) { m_tm.set_horizon_step(step); }
@@ -312,6 +318,8 @@ class idag_test_context {
 	task_manager& get_task_manager() { return m_tm; }
 
 	command_graph_generator& get_graph_generator() { return m_cggen; }
+
+	task_id get_initial_epoch_task() const { return m_initial_epoch_tid; }
 
 	instruction_query query_instructions() const { return instruction_query(m_instr_recorder); }
 
@@ -332,13 +340,13 @@ class idag_test_context {
 	size_t m_num_nodes;
 	node_id m_local_nid;
 	size_t m_num_devices_per_node;
+	bool m_finished = false;
 	int m_uncaught_exceptions_before;
 	buffer_id m_next_buffer_id = 0;
 	host_object_id m_next_host_object_id = 0;
 	reduction_id m_next_reduction_id = no_reduction_id + 1;
 	detail::raw_allocation_id m_next_user_allocation_id = 1;
 	std::vector<std::variant<buffer_id, host_object_id>> m_managed_objects;
-	std::optional<task_id> m_most_recently_built_horizon;
 	task_recorder m_task_recorder;
 	task_manager m_tm;
 	command_recorder m_cmd_recorder;
@@ -347,7 +355,7 @@ class idag_test_context {
 	instruction_graph m_idag;
 	instruction_recorder m_instr_recorder;
 	instruction_graph_generator m_iggen;
-	bool m_finished = false;
+	task_id m_initial_epoch_tid = 0;
 
 	allocation_id create_user_allocation() { return detail::allocation_id(detail::user_memory_id, m_next_user_allocation_id++); }
 
@@ -362,25 +370,6 @@ class idag_test_context {
 		return m_tm.submit_command_group(cgf, hints...);
 	}
 
-	void build_task(const task_id tid) {
-		if(m_finished) { FAIL("idag_test_context already finish()ed"); }
-		const uncaught_exception_guard guard(this);
-		for(const auto cmd : m_cggen.build_task(*m_tm.get_task(tid))) {
-			m_iggen.compile(*cmd);
-		}
-	}
-
-	void maybe_build_horizon() {
-		if(m_finished) { FAIL("idag_test_context already finish()ed"); }
-		const uncaught_exception_guard guard(this);
-		const auto current_horizon = task_manager_testspy::get_current_horizon(m_tm);
-		if(m_most_recently_built_horizon != current_horizon) {
-			assert(current_horizon.has_value());
-			build_task(*current_horizon);
-		}
-		m_most_recently_built_horizon = current_horizon;
-	}
-
 	void maybe_print_graphs() {
 		if(test_utils::g_print_graphs) {
 			fmt::print("\n{}\n", print_task_graph());
@@ -392,10 +381,7 @@ class idag_test_context {
 	task_id fence(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<fence_promise> promise) {
 		if(m_finished) { FAIL("idag_test_context already finish()ed"); }
 		const uncaught_exception_guard guard(this);
-		const auto tid = m_tm.generate_fence_task(std::move(access_map), std::move(side_effects), std::move(promise));
-		build_task(tid);
-		maybe_build_horizon();
-		return tid;
+		return m_tm.generate_fence_task(std::move(access_map), std::move(side_effects), std::move(promise));
 	}
 };
 

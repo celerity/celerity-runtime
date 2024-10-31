@@ -15,7 +15,7 @@ namespace celerity::detail {
 class dry_run_executor final : public executor {
   public:
 	/// `dlg` (optional) receives notifications about reached horizons and epochs from the executor thread.
-	explicit dry_run_executor(delegate* dlg);
+	explicit dry_run_executor(executor::delegate* dlg);
 
 	dry_run_executor(const dry_run_executor&) = delete;
 	dry_run_executor(dry_run_executor&&) = delete;
@@ -37,7 +37,7 @@ class dry_run_executor final : public executor {
 	double_buffered_queue<submission> m_submission_queue;
 	std::thread m_thread;
 
-	void thread_main(delegate* dlg);
+	void thread_main(executor::delegate* dlg);
 };
 
 } // namespace celerity::detail

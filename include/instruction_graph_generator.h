@@ -15,7 +15,6 @@ class instruction_graph;
 class instruction_recorder;
 struct outbound_pilot;
 struct system_info;
-class task_manager;
 
 } // namespace celerity::detail
 
@@ -83,8 +82,8 @@ class instruction_graph_generator {
 	/// Specify a non-default `policy` to influence what user-errors are detected at runtime and how they are reported. The default is is to throw exceptions
 	/// which catch errors early in tests, but users of this class will want to ease these settings. Any policy set to a value other than
 	/// `error_policy::ignore` will have a performance penalty.
-	explicit instruction_graph_generator(const task_manager& tm, size_t num_nodes, node_id local_nid, const system_info& system, instruction_graph& idag,
-	    delegate* dlg = nullptr, instruction_recorder* recorder = nullptr, const policy_set& policy = default_policy_set());
+	explicit instruction_graph_generator(size_t num_nodes, node_id local_nid, const system_info& system, instruction_graph& idag,
+	    instruction_graph_generator::delegate* dlg = nullptr, instruction_recorder* recorder = nullptr, const policy_set& policy = default_policy_set());
 
 	instruction_graph_generator(const instruction_graph_generator&) = delete;
 	instruction_graph_generator(instruction_graph_generator&&) = default;

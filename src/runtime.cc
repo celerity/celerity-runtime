@@ -30,6 +30,7 @@
 #include "system_info.h"
 #include "task_manager.h"
 #include "tracy.h"
+#include "types.h"
 #include "version.h"
 
 #if CELERITY_ENABLE_MPI
@@ -260,7 +261,7 @@ namespace detail {
 		// https://github.com/celerity/meta/issues/74).
 		task_mngr_policy.uninitialized_read_error = CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::log_warning : error_policy::ignore;
 
-		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_task_recorder.get(), task_mngr_policy);
+		m_task_mngr = std::make_unique<task_manager>(m_num_nodes, m_task_recorder.get(), static_cast<task_manager::delegate*>(this), task_mngr_policy);
 		if(m_cfg->get_horizon_step()) m_task_mngr->set_horizon_step(m_cfg->get_horizon_step().value());
 		if(m_cfg->get_horizon_max_parallelism()) m_task_mngr->set_horizon_max_parallelism(m_cfg->get_horizon_max_parallelism().value());
 
@@ -273,9 +274,12 @@ namespace detail {
 		    CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::log_error : error_policy::ignore;
 		schdlr_policy.instruction_graph_generator.unsafe_oversubscription_error = error_policy::log_warning;
 
-		m_schdlr = std::make_unique<scheduler>(m_num_nodes, m_local_nid, system, *m_task_mngr, static_cast<abstract_scheduler::delegate*>(this),
-		    m_command_recorder.get(), m_instruction_recorder.get(), schdlr_policy);
-		m_task_mngr->register_task_callback([this](const task* tsk) { m_schdlr->notify_task_created(tsk); });
+		// The scheduler references tasks by pointer, so we make sure its lifetime is shorter than the task_manager's.
+		m_schdlr = std::make_unique<scheduler>(m_num_nodes, m_local_nid, system, static_cast<abstract_scheduler::delegate*>(this), m_command_recorder.get(),
+		    m_instruction_recorder.get(), schdlr_policy);
+
+		// task_manager will pass generated tasks through its delegate, so generate the init epoch only after the scheduler has been initialized
+		m_task_mngr->generate_epoch_task(epoch_action::init);
 
 		m_num_local_devices = system.devices.size();
 	}
@@ -309,9 +313,11 @@ namespace detail {
 
 		// ~executor() joins its thread after notifying the scheduler that the shutdown epoch has been reached, which means that this notification is
 		// sequenced-before the destructor return, and `runtime` can now stop functioning as an executor_delegate (which would require m_schdlr to be live).
+		// m_schdlr references the task instances managed m_task_mngr, so we destroy it first. m_task_mngr uses m_schdlr as a delegate, but does not call to the
+		// delegate from its destructor.
 		m_schdlr.reset();
 
-		// Since scheduler and executor threads are gone, task_manager::epoch_monitor is not shared across threads anymore
+		// Since the executor thread is gone, task_manager::epoch_monitor will not be accessed by horizon_reached / epoch_reached across threads anymore.
 		m_task_mngr.reset();
 
 		// With scheduler and executor threads gone, all recorders can be safely accessed from the runtime / application thread
@@ -394,6 +400,13 @@ namespace detail {
 		assert(num_nodes == 1 && local_nid == 0);
 		return graph_str;
 #endif // CELERITY_ENABLE_MPI
+	}
+
+	// task_manager::delegate
+
+	void runtime::task_created(const task* tsk) {
+		assert(m_schdlr != nullptr);
+		m_schdlr->notify_task_created(tsk);
 	}
 
 	// scheduler::delegate

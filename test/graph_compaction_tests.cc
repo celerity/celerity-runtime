@@ -150,14 +150,14 @@ TEST_CASE("previous horizons are used as last writers for host-initialized buffe
 	// Create bunch of tasks to trigger horizon cleanup
 	{
 		auto buf = cctx.create_buffer(buf_range);
-		task_id last_horizon_reached = task_manager::initial_epoch_task;
+		task_id last_horizon_reached = cctx.get_initial_epoch_task();
 		// We need 7 tasks to generate a pseudo-critical path length of 6 (3x2 horizon step size),
 		// and another one that triggers the actual deferred deletion.
 		for(int i = 0; i < 8; ++i) {
 			cctx.device_compute<class UKN(generate_horizon)>(buf_range).discard_write(buf, acc::one_to_one{}).submit();
 			const auto current_horizon = task_manager_testspy::get_current_horizon(cctx.get_task_manager());
-			if(current_horizon && *current_horizon > last_horizon_reached) {
-				last_horizon_reached = *current_horizon;
+			if(current_horizon != nullptr && current_horizon->get_id() > last_horizon_reached) {
+				last_horizon_reached = current_horizon->get_id();
 				cctx.get_task_manager().notify_horizon_reached(last_horizon_reached);
 			}
 		}
@@ -228,7 +228,7 @@ TEST_CASE("reaching an epoch will prune all nodes of the preceding task graph", 
 	                                                   const std::initializer_list<std::tuple<task_id, dependency_kind, dependency_origin>> dependencies) {
 		INFO(info);
 		CAPTURE(dependent);
-		const auto actual = tt.tm.get_task(dependent)->get_dependencies();
+		const auto actual = test_utils::get_task(tt.tm, dependent)->get_dependencies();
 		CHECK(static_cast<size_t>(std::distance(actual.begin(), actual.end())) == dependencies.size());
 		for(const auto& [tid, kind, origin] : dependencies) {
 			CAPTURE(tid);
@@ -245,7 +245,7 @@ TEST_CASE("reaching an epoch will prune all nodes of the preceding task graph", 
 	};
 
 	const auto node_range = range<1>{num_nodes};
-	const auto init_tid = task_manager::initial_epoch_task;
+	const auto init_tid = tt.initial_epoch_task;
 
 	auto early_host_initialized_buf = tt.mbf.create_buffer(node_range, true);
 	auto buf_written_from_kernel = tt.mbf.create_buffer(node_range, false);
@@ -263,11 +263,11 @@ TEST_CASE("reaching an epoch will prune all nodes of the preceding task graph", 
 	const auto late_writer_tid = test_utils::add_compute_task<class UKN(late_writer)>(
 	    tt.tm, [&](handler& cgh) { late_host_initialized_buf.get_access<access_mode::discard_write>(cgh, acc::one_to_one{}); }, node_range);
 
-	REQUIRE(tt.tm.has_task(init_tid));
+	REQUIRE(test_utils::has_task(tt.tm, init_tid));
 	check_task_has_exact_dependencies("initial epoch task", init_tid, {});
-	REQUIRE(tt.tm.has_task(writer_tid));
+	REQUIRE(test_utils::has_task(tt.tm, writer_tid));
 	check_task_has_exact_dependencies("writer", writer_tid, {{init_tid, dependency_kind::true_dep, dependency_origin::last_epoch}});
-	REQUIRE(tt.tm.has_task(epoch_tid));
+	REQUIRE(test_utils::has_task(tt.tm, epoch_tid));
 	check_task_has_exact_dependencies("epoch before", epoch_tid, {{writer_tid, dependency_kind::true_dep, dependency_origin::execution_front}});
 
 	tt.tm.notify_epoch_reached(epoch_tid);
@@ -281,15 +281,17 @@ TEST_CASE("reaching an epoch will prune all nodes of the preceding task graph", 
 	    },
 	    node_range);
 
-	CHECK(!tt.tm.has_task(init_tid));
-	CHECK(!tt.tm.has_task(writer_tid));
-	REQUIRE(tt.tm.has_task(epoch_tid));
+	tt.tm.generate_epoch_task(epoch_action::none); // trigger TDAG pruning
+
+	CHECK(!test_utils::has_task(tt.tm, init_tid));
+	CHECK(!test_utils::has_task(tt.tm, writer_tid));
+	REQUIRE(test_utils::has_task(tt.tm, epoch_tid));
 	check_task_has_exact_dependencies("epoch after", epoch_tid, {});
-	REQUIRE(tt.tm.has_task(reader_writer_tid));
+	REQUIRE(test_utils::has_task(tt.tm, reader_writer_tid));
 	check_task_has_exact_dependencies("reader-writer", reader_writer_tid, {{epoch_tid, dependency_kind::true_dep, dependency_origin::dataflow}});
-	REQUIRE(tt.tm.has_task(late_writer_tid));
+	REQUIRE(test_utils::has_task(tt.tm, late_writer_tid));
 	check_task_has_exact_dependencies("late writer", late_writer_tid, {{epoch_tid, dependency_kind::true_dep, dependency_origin::last_epoch}});
-	REQUIRE(tt.tm.has_task(reader_tid));
+	REQUIRE(test_utils::has_task(tt.tm, reader_tid));
 	check_task_has_exact_dependencies("reader", reader_tid,
 	    {
 	        {epoch_tid, dependency_kind::anti_dep, dependency_origin::dataflow},

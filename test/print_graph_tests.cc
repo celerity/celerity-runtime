@@ -80,7 +80,7 @@ TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]")
 	// replace the `expected` value with the new dot graph.
 	const std::string expected =
 	    "digraph G{label=<<br/>Command Graph<br/><b>command-graph printing is unchanged</b>>;pad=0.2;subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 "
-	    "(epoch)</font>>;color=darkgray;id_0_0[color=black,shape=box,label=<C0 on N0<br/><b>epoch</b>>];}subgraph cluster_id_0_1{label=<<font "
+	    "(epoch)</font>>;color=darkgray;id_0_0[color=black,shape=box,label=<C0 on N0<br/><b>epoch</b> (init)>];}subgraph cluster_id_0_1{label=<<font "
 	    "color=\"#606060\">T1 (device-compute)</font>>;color=darkgray;id_0_1[color=darkorange2,shape=box,label=<C1 on N0<br/><b>execution</b> [0,0,0] + "
 	    "[1,1,1]<br/>(R1) <i>discard_write</i> B0 {[0,0,0] - [1,1,1]}<br/><i>discard_write</i> B1 {[0,0,0] - [1,1,1]}>];}subgraph cluster_id_0_2{label=<<font "
 	    "color=\"#606060\">T2 (device-compute)</font>>;color=darkgray;id_0_5[color=darkorange2,shape=box,label=<C5 on N0<br/><b>execution</b> [0,0,0] + "
@@ -152,8 +152,8 @@ TEST_CASE("instruction-graph printing is unchanged", "[print_graph][instruction-
 
 	const std::string expected =
 	    "digraph G{label=<<br/>Instruction Graph<br/><b>instruction-graph printing is unchanged</b><br/>for N1 out of 2 nodes, with 2 devices / "
-	    "node>;pad=0.2;I0[color=black,shape=box,margin=0.2,style=rounded,label=<I0 (T0, "
-	    "C0)<br/><b>epoch</b>>];I1[color=cyan3,shape=ellipse,label=<I1<br/>buffer <b>alloc</b> M1.A1<br/>for B0 [0,0,0] - [1,1,1]<br/>4 % 4 "
+	    "node>;pad=0.2;I0[color=black,shape=box,margin=0.2,style=rounded,label=<I0 (T0, C0)<br/><b>epoch</b> "
+	    "(init)>];I1[color=cyan3,shape=ellipse,label=<I1<br/>buffer <b>alloc</b> M1.A1<br/>for B0 [0,0,0] - [1,1,1]<br/>4 % 4 "
 	    "bytes>];I2[color=cyan3,shape=ellipse,label=<I2<br/>buffer <b>alloc</b> M2.A1<br/>for B0 [0,0,0] - [1,1,1]<br/>4 % 4 "
 	    "bytes>];I3[color=cyan3,shape=ellipse,label=<I3<br/>buffer <b>alloc</b> M3.A1<br/>for B0 [0,0,0] - [1,1,1]<br/>4 % 4 "
 	    "bytes>];I4[color=cyan3,shape=ellipse,label=<I4<br/>buffer <b>alloc</b> M2.A2<br/>for B1 [2,0,0] - [3,1,1]<br/>4 % 4 "
@@ -328,7 +328,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 	SECTION("command graph") {
 		const auto* expected =
 		    "digraph G{label=<Command Graph>;pad=0.2;subgraph cluster_id_0_0{label=<<font color=\"#606060\">T0 "
-		    "(epoch)</font>>;color=darkgray;id_0_0[color=black,shape=box,label=<C0 on N0<br/><b>epoch</b>>];}subgraph cluster_id_0_1{label=<<font "
+		    "(epoch)</font>>;color=darkgray;id_0_0[color=black,shape=box,label=<C0 on N0<br/><b>epoch</b> (init)>];}subgraph cluster_id_0_1{label=<<font "
 		    "color=\"#606060\">T1 (host-compute)</font>>;color=darkgray;id_0_1[color=darkorange2,shape=box,label=<C1 on N0<br/><b>execution</b> [0,0,0] + "
 		    "[16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];}subgraph cluster_id_0_2{label=<<font color=\"#606060\">T2 "
 		    "(horizon)</font>>;color=darkgray;id_0_2[color=black,shape=box,label=<C2 on N0<br/><b>horizon</b>>];}subgraph cluster_id_0_3{label=<<font "

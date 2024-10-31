@@ -5,10 +5,10 @@
 #include "access_modes.h"
 #include "grid.h"
 #include "instruction_graph.h"
+#include "log.h"
 #include "print_utils.h"
 #include "recorders.h"
 #include "task.h"
-#include "task_manager.h"
 
 #include <map>
 #include <set>
@@ -98,6 +98,7 @@ std::string print_task_graph(const task_recorder& recorder, const std::string& t
 const char* print_epoch_label(epoch_action action) {
 	switch(action) {
 	case epoch_action::none: return "<b>epoch</b>";
+	case epoch_action::init: return "<b>epoch</b> (init)";
 	case epoch_action::barrier: return "<b>epoch</b> (barrier)";
 	case epoch_action::shutdown: return "<b>epoch</b> (shutdown)";
 	default: utils::unreachable(); // LCOV_EXCL_LINE

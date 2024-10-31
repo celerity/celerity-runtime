@@ -416,8 +416,8 @@ TEST_CASE("backends report execution time iff profiling is enabled", "[backend]"
 
 	SECTION("on host tasks") {
 		event = backend->enqueue_host_task(
-		    0, // lane
-		    [&](const box<3>&, const communicator*) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); }, {}, box_cast<3>(box<0>()), nullptr);
+		    0 /* lane */, [&](const box<3>&, const communicator*) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); }, {}, box_cast<3>(box<0>()),
+		    nullptr);
 	}
 
 	const auto unit_box = box_cast<3>(box<0>());

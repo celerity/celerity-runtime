@@ -84,19 +84,19 @@ namespace detail {
 
 	class task_command : public abstract_command {
 	  protected:
-		task_command(command_id cid, task_id tid) : abstract_command(cid), m_tid(tid) {}
+		task_command(const command_id cid, const task* const tsk) : abstract_command(cid), m_task(tsk) {}
 
 	  public:
-		task_id get_tid() const { return m_tid; }
+		const task* get_task() const { return m_task; }
 
 	  private:
-		task_id m_tid;
+		const task* m_task;
 	};
 
 	class epoch_command final : public matchbox::implement_acceptor<task_command, epoch_command> {
 		friend class command_graph;
-		epoch_command(const command_id cid, const task_id tid, const epoch_action action, std::vector<reduction_id> completed_reductions)
-		    : acceptor_base(cid, tid), m_action(action), m_completed_reductions(std::move(completed_reductions)) {}
+		epoch_command(const command_id cid, const task* const tsk, const epoch_action action, std::vector<reduction_id> completed_reductions)
+		    : acceptor_base(cid, tsk), m_action(action), m_completed_reductions(std::move(completed_reductions)) {}
 
 		command_type get_type() const override { return command_type::epoch; }
 
@@ -111,8 +111,8 @@ namespace detail {
 
 	class horizon_command final : public matchbox::implement_acceptor<task_command, horizon_command> {
 		friend class command_graph;
-		horizon_command(const command_id cid, const task_id tid, std::vector<reduction_id> completed_reductions)
-		    : acceptor_base(cid, tid), m_completed_reductions(std::move(completed_reductions)) {}
+		horizon_command(const command_id cid, const task* const tsk, std::vector<reduction_id> completed_reductions)
+		    : acceptor_base(cid, tsk), m_completed_reductions(std::move(completed_reductions)) {}
 
 		command_type get_type() const override { return command_type::horizon; }
 
@@ -127,7 +127,8 @@ namespace detail {
 		friend class command_graph;
 
 	  protected:
-		execution_command(command_id cid, task_id tid, subrange<3> execution_range) : acceptor_base(cid, tid), m_execution_range(execution_range) {}
+		execution_command(const command_id cid, const task* const tsk, subrange<3> execution_range)
+		    : acceptor_base(cid, tsk), m_execution_range(execution_range) {}
 
 	  public:
 		command_type get_type() const override { return command_type::execution; }

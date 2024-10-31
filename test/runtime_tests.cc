@@ -77,7 +77,7 @@ namespace detail {
 		auto& tm = runtime::get_instance().get_task_manager();
 		const auto tid = test_utils::add_compute_task<class get_access_const>(
 		    tm, [&](handler& cgh) { buf_a.get_access<sycl::access::mode::read>(cgh, one_to_one{}); }, range);
-		const auto tsk = tm.get_task(tid);
+		const auto tsk = test_utils::get_task(tm, tid);
 		const auto bufs = tsk->get_buffer_access_map().get_accessed_buffers();
 		REQUIRE(bufs.size() == 1);
 		REQUIRE(tsk->get_buffer_access_map().get_access_modes(0).count(sycl::access::mode::read) == 1);
@@ -213,31 +213,37 @@ namespace detail {
 		}
 	}
 
-	TEST_CASE("task_manager invokes callback upon task creation", "[task_manager]") {
-		task_manager tm{1, nullptr};
-		size_t call_counter = 0;
-		tm.register_task_callback([&call_counter](const task*) { call_counter++; });
+	TEST_CASE("task_manager calls into delegate on task creation", "[task_manager]") {
+		struct counter_delegate final : public task_manager::delegate {
+			size_t counter = 0;
+			void task_created(const task* /* tsk */) override { counter++; }
+		};
+
+		counter_delegate delegate;
+		task_manager tm{1, nullptr, &delegate};
+		tm.generate_epoch_task(epoch_action::init);
+		CHECK(delegate.counter == 1);
+
 		range<2> gs = {1, 1};
 		id<2> go = {};
 		tm.submit_command_group([=](handler& cgh) { cgh.parallel_for<class kernel>(gs, go, [](auto) {}); });
-		REQUIRE(call_counter == 1);
+		CHECK(delegate.counter == 2);
 		tm.submit_command_group([](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
-		REQUIRE(call_counter == 2);
+		CHECK(delegate.counter == 3);
 	}
 
 	TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][device_compute_task]") {
-		task_manager tm{1, nullptr};
-		test_utils::mock_buffer_factory mbf(tm);
-		auto buf_a = mbf.create_buffer(range<2>(64, 152), true /* host_initialized */);
-		auto buf_b = mbf.create_buffer(range<3>(7, 21, 99));
+		test_utils::task_test_context tt;
+		auto buf_a = tt.mbf.create_buffer(range<2>(64, 152), true /* host_initialized */);
+		auto buf_b = tt.mbf.create_buffer(range<3>(7, 21, 99));
 		const auto tid = test_utils::add_compute_task(
-		    tm,
+		    tt.tm,
 		    [&](handler& cgh) {
 			    buf_a.get_access<sycl::access::mode::read>(cgh, one_to_one{});
 			    buf_b.get_access<sycl::access::mode::discard_read_write>(cgh, fixed{subrange<3>{{}, {5, 18, 74}}});
 		    },
 		    range<2>{32, 128}, id<2>{32, 24});
-		const auto tsk = tm.get_task(tid);
+		const auto tsk = test_utils::get_task(tt.tm, tid);
 		REQUIRE(tsk->get_type() == task_type::device_compute);
 		REQUIRE(tsk->get_dimensions() == 2);
 		REQUIRE(tsk->get_global_size() == range<3>{32, 128, 1});
@@ -514,8 +520,6 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "attempting a reduction on buffers with size != 1 throws", "[task-manager][reduction]") {
-		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
-
 		runtime::init(nullptr, nullptr);
 		auto& tm = runtime::get_instance().get_task_manager();
 
@@ -638,8 +642,6 @@ namespace detail {
 #endif
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when accessor target does not match command type", "[handler]") {
-		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
-
 		queue q;
 		buffer<size_t, 1> buf0{1};
 		buffer<size_t, 1> buf1{1};
@@ -678,8 +680,6 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when accessing host objects within device tasks", "[handler]") {
-		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
-
 		queue q;
 #if !defined(__SYCL_COMPILER_VERSION) // TODO: This may break when using AdaptiveCpp w/ DPC++ as compiler
 		experimental::host_object<size_t> ho;
@@ -697,8 +697,6 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when not all accessors / side-effects are copied into the kernel", "[handler]") {
-		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
-
 		queue q;
 
 		buffer<size_t, 1> buf0{1};
@@ -751,8 +749,6 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler does not throw when void side effects are not copied into a kernel", "[handler]") {
-		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
-
 		queue q;
 		experimental::host_object<void> ho;
 
@@ -768,8 +764,6 @@ namespace detail {
 	// This test checks that the diagnostic is not simply implemented by counting the number captured of accessors;
 	// instead it can distinguish between different accessors and copies of the same accessor.
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler recognizes copies of same accessor being captured multiple times", "[handler]") {
-		test_utils::allow_max_log_level(detail::log_level::warn); // throwing in submit() will warn about unconsumed task_id reservation
-
 		queue q;
 		buffer<size_t, 1> buf1{1};
 
@@ -852,7 +846,7 @@ namespace detail {
 			constexpr int visible_horizons = 2;
 			constexpr int max_visible_host_tasks = (visible_horizons + 1) * horizon_step_size;
 			constexpr int task_limit = max_visible_host_tasks + visible_horizons;
-			CHECK(tm.get_current_task_count() <= task_limit);
+			CHECK(graph_testspy::get_live_node_count(task_manager_testspy::get_task_graph(tm)) <= task_limit);
 		}
 	}
 

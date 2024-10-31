@@ -4,12 +4,13 @@
 #include "command.h"
 #include "grid.h"
 #include "instruction_graph.h"
+#include "log.h"
+#include "print_utils.h"
 #include "recorders.h"
 #include "region_map.h"
 #include "split.h"
 #include "system_info.h"
 #include "task.h"
-#include "task_manager.h"
 #include "tracy.h"
 #include "types.h"
 
@@ -553,8 +554,8 @@ using record_type_for_t = utils::type_switch_t<Instruction, clone_collective_gro
 
 class generator_impl {
   public:
-	generator_impl(const task_manager& tm, size_t num_nodes, node_id local_nid, const system_info& system, instruction_graph& idag,
-	    instruction_graph_generator::delegate* dlg, instruction_recorder* recorder, const instruction_graph_generator::policy_set& policy);
+	generator_impl(size_t num_nodes, node_id local_nid, const system_info& system, instruction_graph& idag, instruction_graph_generator::delegate* const dlg,
+	    instruction_recorder* recorder, const instruction_graph_generator::policy_set& policy);
 
 	void notify_buffer_created(buffer_id bid, const range<3>& range, size_t elem_size, size_t elem_align, allocation_id user_aid = null_allocation_id);
 	void notify_buffer_debug_name_changed(buffer_id bid, const std::string& name);
@@ -568,7 +569,6 @@ class generator_impl {
 
 	// construction parameters (immutable)
 	instruction_graph* m_idag;
-	const task_manager* m_tm; // TODO commands should reference tasks by pointer, not id - then we wouldn't need this member.
 	size_t m_num_nodes;
 	node_id m_local_nid;
 	system_info m_system;
@@ -714,9 +714,9 @@ class generator_impl {
 	std::string print_buffer_debug_label(buffer_id bid) const;
 };
 
-generator_impl::generator_impl(const task_manager& tm, const size_t num_nodes, const node_id local_nid, const system_info& system, instruction_graph& idag,
+generator_impl::generator_impl(const size_t num_nodes, const node_id local_nid, const system_info& system, instruction_graph& idag,
     instruction_graph_generator::delegate* const dlg, instruction_recorder* const recorder, const instruction_graph_generator::policy_set& policy)
-    : m_idag(&idag), m_tm(&tm), m_num_nodes(num_nodes), m_local_nid(local_nid), m_system(system), m_delegate(dlg), m_recorder(recorder), m_policy(policy),
+    : m_idag(&idag), m_num_nodes(num_nodes), m_local_nid(local_nid), m_system(system), m_delegate(dlg), m_recorder(recorder), m_policy(policy),
       m_memories(m_system.memories.size()) //
 {
 #ifndef NDEBUG
@@ -731,16 +731,6 @@ generator_impl::generator_impl(const task_manager& tm, const size_t num_nodes, c
 		}
 	}
 #endif
-
-	batch init_epoch_batch;
-	m_idag->begin_epoch(task_manager::initial_epoch_task);
-	const auto init_epoch = create<epoch_instruction>(init_epoch_batch, task_manager::initial_epoch_task, epoch_action::none, instruction_garbage{},
-	    [](const auto& record_debug_info) { record_debug_info(command_id(0 /* or so we assume */)); });
-	m_last_epoch = init_epoch;
-	flush_batch(std::move(init_epoch_batch));
-
-	// The root collective group already exists in the runtime, but we must still equip it with a meaningful last_host_task.
-	m_collective_groups.emplace(root_collective_group_id, init_epoch);
 }
 
 void generator_impl::notify_buffer_created(
@@ -827,9 +817,7 @@ Instruction* generator_impl::create_internal(batch& batch, const std::tuple<Ctor
 	const auto iid = m_next_instruction_id++;
 	const auto priority = batch.base_priority + instruction_type_priority<Instruction>;
 	auto unique_instr = std::make_unique<Instruction>(iid, priority, std::get<CtorParamIndices>(ctor_args_and_record_with)...);
-	const auto instr = unique_instr.get(); // we need to access the raw pointer after moving unique_ptr
-
-	m_idag->push_instruction(std::move(unique_instr));
+	const auto instr = m_idag->retain_in_current_epoch(std::move(unique_instr));
 	m_execution_front.insert(iid);
 	batch.generated_instructions.push_back(instr);
 
@@ -1816,7 +1804,7 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 		    global_memory_access_estimate_bytes //
 		        CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, tsk.get_type(), tsk.get_id(), tsk.get_debug_name()),
 		    [&](const auto& record_debug_info) {
-			    record_debug_info(ecmd.get_tid(), ecmd.get_cid(), tsk.get_debug_name(), buffer_memory_access_map, buffer_memory_reduction_map);
+			    record_debug_info(ecmd.get_task()->get_id(), ecmd.get_cid(), tsk.get_debug_name(), buffer_memory_access_map, buffer_memory_reduction_map);
 		    });
 	} else {
 		assert(tsk.get_execution_target() == execution_target::host);
@@ -1827,7 +1815,9 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 		    std::move(allocation_map),
 		    tsk.get_collective_group_id() //
 		    CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, tsk.get_type(), tsk.get_id(), tsk.get_debug_name()),
-		    [&](const auto& record_debug_info) { record_debug_info(ecmd.get_tid(), ecmd.get_cid(), tsk.get_debug_name(), buffer_memory_access_map); });
+		    [&](const auto& record_debug_info) {
+			    record_debug_info(ecmd.get_task()->get_id(), ecmd.get_cid(), tsk.get_debug_name(), buffer_memory_access_map);
+		    });
 	}
 }
 
@@ -1946,7 +1936,7 @@ void generator_impl::perform_task_collective_operations(
 }
 
 void generator_impl::compile_execution_command(batch& command_batch, const execution_command& ecmd) {
-	const auto& tsk = *m_tm->get_task(ecmd.get_tid());
+	const auto& tsk = *ecmd.get_task();
 
 	// 1. If this is a collective host task, we might need to insert a `clone_collective_group_instruction` which the task instruction is later serialized on.
 	create_task_collective_groups(command_batch, tsk);
@@ -2179,7 +2169,7 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 }
 
 void generator_impl::compile_fence_command(batch& command_batch, const fence_command& fcmd) {
-	const auto& tsk = *m_tm->get_task(fcmd.get_tid());
+	const auto& tsk = *fcmd.get_task();
 
 	assert(tsk.get_reductions().empty());
 	assert(tsk.get_collective_group_id() == non_collective_group_id);
@@ -2242,10 +2232,10 @@ void generator_impl::compile_fence_command(batch& command_batch, const fence_com
 }
 
 void generator_impl::compile_horizon_command(batch& command_batch, const horizon_command& hcmd) {
-	m_idag->begin_epoch(hcmd.get_tid());
+	m_idag->begin_epoch(hcmd.get_task()->get_id());
 	instruction_garbage garbage{hcmd.get_completed_reductions(), std::move(m_unreferenced_user_allocations)};
 	const auto horizon = create<horizon_instruction>(
-	    command_batch, hcmd.get_tid(), std::move(garbage), [&](const auto& record_debug_info) { record_debug_info(hcmd.get_cid()); });
+	    command_batch, hcmd.get_task()->get_id(), std::move(garbage), [&](const auto& record_debug_info) { record_debug_info(hcmd.get_cid()); });
 
 	collapse_execution_front_to(horizon);
 	if(m_last_horizon != nullptr) { apply_epoch(m_last_horizon); }
@@ -2255,14 +2245,19 @@ void generator_impl::compile_horizon_command(batch& command_batch, const horizon
 void generator_impl::compile_epoch_command(batch& command_batch, const epoch_command& ecmd) {
 	if(ecmd.get_epoch_action() == epoch_action::shutdown) { free_all_staging_allocations(command_batch); }
 
-	m_idag->begin_epoch(ecmd.get_tid());
+	m_idag->begin_epoch(ecmd.get_task()->get_id());
 	instruction_garbage garbage{ecmd.get_completed_reductions(), std::move(m_unreferenced_user_allocations)};
-	const auto epoch = create<epoch_instruction>(
-	    command_batch, ecmd.get_tid(), ecmd.get_epoch_action(), std::move(garbage), [&](const auto& record_debug_info) { record_debug_info(ecmd.get_cid()); });
+	const auto epoch = create<epoch_instruction>(command_batch, ecmd.get_task()->get_id(), ecmd.get_epoch_action(), std::move(garbage),
+	    [&](const auto& record_debug_info) { record_debug_info(ecmd.get_cid()); });
 
 	collapse_execution_front_to(epoch);
 	apply_epoch(epoch);
 	m_last_horizon = nullptr;
+
+	if(ecmd.get_epoch_action() == epoch_action::init) {
+		// The root collective group already exists in the runtime, but we must still equip it with a meaningful last_host_task.
+		m_collective_groups.emplace(root_collective_group_id, epoch);
+	}
 }
 
 void generator_impl::flush_batch(batch&& batch) { // NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved) we do move the members of `batch`
@@ -2308,9 +2303,9 @@ std::string generator_impl::print_buffer_debug_label(const buffer_id bid) const 
 
 namespace celerity::detail {
 
-instruction_graph_generator::instruction_graph_generator(const task_manager& tm, const size_t num_nodes, const node_id local_nid, const system_info& system,
-    instruction_graph& idag, delegate* dlg, instruction_recorder* const recorder, const policy_set& policy)
-    : m_impl(new instruction_graph_generator_detail::generator_impl(tm, num_nodes, local_nid, system, idag, dlg, recorder, policy)) {}
+instruction_graph_generator::instruction_graph_generator(const size_t num_nodes, const node_id local_nid, const system_info& system, instruction_graph& idag,
+    instruction_graph_generator::delegate* const dlg, instruction_recorder* const recorder, const policy_set& policy)
+    : m_impl(new instruction_graph_generator_detail::generator_impl(num_nodes, local_nid, system, idag, dlg, recorder, policy)) {}
 
 instruction_graph_generator::~instruction_graph_generator() = default;
 

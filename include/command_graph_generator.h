@@ -13,7 +13,6 @@
 namespace celerity::detail {
 
 class task;
-class task_manager;
 class abstract_command;
 class task_recorder;
 class command_recorder;
@@ -89,7 +88,7 @@ class command_graph_generator {
 		error_policy overlapping_write_error = error_policy::panic;
 	};
 
-	command_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, const task_manager& tm, detail::command_recorder* recorder,
+	command_graph_generator(const size_t num_nodes, const node_id local_nid, command_graph& cdag, detail::command_recorder* recorder,
 	    const policy_set& policy = default_policy_set());
 
 	void notify_buffer_created(buffer_id bid, const range<3>& range, bool host_initialized);
@@ -221,7 +220,7 @@ class command_graph_generator {
 	void generate_distributed_commands(const task& tsk);
 
 	void generate_anti_dependencies(
-	    task_id tid, buffer_id bid, const region_map<write_command_state>& last_writers_map, const region<3>& write_req, abstract_command* write_cmd);
+	    const task& tsk, buffer_id bid, const region_map<write_command_state>& last_writers_map, const region<3>& write_req, abstract_command* write_cmd);
 
 	void process_task_side_effect_requirements(const task& tsk);
 
@@ -258,7 +257,6 @@ class command_graph_generator {
 	node_id m_local_nid;
 	policy_set m_policy;
 	command_graph& m_cdag;
-	const task_manager& m_task_mngr;
 	std::unordered_map<buffer_id, buffer_state> m_buffers;
 	std::unordered_map<host_object_id, host_object_state> m_host_objects;
 	command_id m_epoch_for_new_commands = 0;
