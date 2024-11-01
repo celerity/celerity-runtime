@@ -403,6 +403,7 @@ template <int Dims>
 region<Dims> region_intersection(const region<Dims>& lhs, const region<Dims>& rhs) {
 	// shortcut-evaluate trivial cases
 	if(lhs.empty() || rhs.empty()) return {};
+	if(lhs.get_boxes().size() == 1 && rhs.get_boxes().size() == 1) { return box_intersection(lhs.get_boxes().front(), rhs.get_boxes().front()); }
 
 	const auto effective_dims = std::max(lhs.get_effective_dims(), rhs.get_effective_dims());
 	return grid_detail::dispatch_effective_dims<Dims>(effective_dims, [&](const auto effective_dims) { //

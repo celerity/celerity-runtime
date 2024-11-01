@@ -322,11 +322,15 @@ region<Dims> region_intersection(const region<Dims>& lhs, const region<Dims>& rh
 
 template <int Dims>
 region<Dims> region_intersection(const region<Dims>& lhs, const box<Dims>& rhs) {
+	if(lhs.empty() || rhs.empty()) return {};
+	if(lhs.get_boxes().size() == 1) return box_intersection(lhs.get_boxes().front(), rhs);
 	return region_intersection(lhs, region(rhs));
 }
 
 template <int Dims>
 region<Dims> region_intersection(const box<Dims>& lhs, const region<Dims>& rhs) {
+	if(lhs.empty() || rhs.empty()) return {};
+	if(rhs.get_boxes().size() == 1) return box_intersection(lhs, rhs.get_boxes().front());
 	return region_intersection(region(lhs), rhs);
 }
 
