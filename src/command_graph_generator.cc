@@ -538,12 +538,13 @@ void command_graph_generator::generate_distributed_commands(batch& current_batch
 				per_buffer_local_writes.emplace(bid, produced);
 			}
 
-			if(m_policy.uninitialized_read_error != error_policy::ignore
-			    && !bounding_box(buffer.initialized_region).covers(bounding_box(consumed.get_boxes()))) { //!!! TODO!!! bounding box is wrong
-				utils::report_error(m_policy.uninitialized_read_error,
-				    "Command C{} on N{}, which executes {} of {}, reads {} {}, which has not been written by any node.", cmd->get_id(), m_local_nid,
-				    box(subrange(a_chunk.chnk.offset, a_chunk.chnk.range)), print_task_debug_label(tsk), print_buffer_debug_label(bid),
-				    region_difference(consumed, buffer.initialized_region));
+			if(m_policy.uninitialized_read_error != error_policy::ignore) {
+				if(const auto uninitialized_reads = region_difference(consumed, buffer.initialized_region); !uninitialized_reads.empty()) {
+					utils::report_error(m_policy.uninitialized_read_error,
+					    "Command C{} on N{}, which executes {} of {}, reads {} {}, which has not been written by any node.", cmd->get_id(), m_local_nid,
+					    box(subrange(a_chunk.chnk.offset, a_chunk.chnk.range)), print_task_debug_label(tsk), print_buffer_debug_label(bid),
+					    uninitialized_reads);
+				}
 			}
 		}
 
