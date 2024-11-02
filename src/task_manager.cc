@@ -1,9 +1,11 @@
 #include "task_manager.h"
 
 #include "access_modes.h"
+#include "grid.h"
 #include "intrusive_graph.h"
 #include "log.h"
 #include "recorders.h"
+#include "task.h"
 #include "types.h"
 
 #include <algorithm>
@@ -61,12 +63,11 @@ namespace detail {
 	region<3> get_requirements(const task& tsk, buffer_id bid, const std::vector<sycl::access::mode>& modes) {
 		const auto& access_map = tsk.get_buffer_access_map();
 		const subrange<3> full_range{tsk.get_global_offset(), tsk.get_global_size()};
-		box_vector<3> boxes;
+		region_builder<3> boxes;
 		for(auto m : modes) {
-			const auto req = access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), full_range, tsk.get_global_size());
-			boxes.insert(boxes.end(), req.get_boxes().begin(), req.get_boxes().end());
+			boxes.add(access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), full_range, tsk.get_global_size()));
 		}
-		return region(std::move(boxes));
+		return std::move(boxes).into_region();
 	}
 
 	void task_manager::compute_dependencies(task& tsk) {
@@ -104,19 +105,19 @@ namespace detail {
 				if(reduction.has_value()) { read_requirements = region_union(read_requirements, scalar_box); }
 				const auto last_writers = buffer.last_writers.get_region_values(read_requirements);
 
-				box_vector<3> uninitialized_reads;
+				region_builder<3> uninitialized_reads;
 				for(const auto& [box, writer] : last_writers) {
 					// host-initialized buffers are last-written by the current epoch
 					if(writer != nullptr) {
 						add_dependency(tsk, *writer, dependency_kind::true_dep, dependency_origin::dataflow);
 					} else if(m_policy.uninitialized_read_error != error_policy::ignore) {
-						uninitialized_reads.push_back(box);
+						uninitialized_reads.add(box);
 					}
 				}
 				if(!uninitialized_reads.empty()) {
 					utils::report_error(m_policy.uninitialized_read_error,
 					    "{} declares a reading access on uninitialized {} {}. Make sure to construct the accessor with no_init if possible.",
-					    print_task_debug_label(tsk, true /* title case */), print_buffer_debug_label(bid), region(std::move(uninitialized_reads)));
+					    print_task_debug_label(tsk, true /* title case */), print_buffer_debug_label(bid), std::move(uninitialized_reads).into_region());
 				}
 			}
 

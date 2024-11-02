@@ -621,16 +621,17 @@ TEMPLATE_TEST_CASE_SIG("oversubscription splits local chunks recursively", "[ins
 
 	// This code is duck-typing identical for {device_kernel and host_task}_instruction_record, so we use a generic lambda to DRY it
 	const auto check_is_box_tiling = [&](const auto& all_device_kernels_or_host_tasks) {
-		box_vector<3> kernel_boxes;
+		region_builder<3> kernel_boxes;
 		for(const auto& kernel : all_device_kernels_or_host_tasks.iterate()) {
 			const auto kernel_box = detail::box(kernel->execution_range);
 			REQUIRE(kernel->access_map.size() == 1);
 			const auto& write = kernel->access_map.front();
 			CHECK(write.accessed_region_in_buffer == kernel_box);
 			CHECK(write.accessed_bounding_box_in_buffer == kernel_box);
-			kernel_boxes.push_back(kernel_box);
+			kernel_boxes.add(kernel_box);
 		}
-		CHECK(region(std::move(kernel_boxes)) == box(subrange(id<3>(), range_cast<3>(buf.get_range()))));
+		const auto kernel_region = std::move(kernel_boxes).into_region();
+		CHECK(kernel_region == box(subrange(id<3>(), range_cast<3>(buf.get_range()))));
 	};
 
 	SECTION("for device kernels") {

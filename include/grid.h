@@ -257,6 +257,39 @@ class region {
 	region(grid_detail::normalized_t, box_vector&& boxes);
 };
 
+/// Accumulates a set of boxes and regions over time for the purpose of computing their union.
+///
+/// Unlike accumulating manually through calling `region_union` repeatedly, this avoids any unnecessary normalization steps.
+template <int Dims>
+class region_builder {
+  public:
+	void add(const box<Dims>& box) & {
+		if(box.empty()) return;
+		m_normalized = m_boxes.empty();
+		m_boxes.push_back(box);
+	}
+
+	void add(const region<Dims>& region) & {
+		if(region.empty()) return;
+		m_normalized = m_boxes.empty();
+		m_boxes.insert(m_boxes.end(), region.get_boxes().begin(), region.get_boxes().end());
+	}
+
+	bool empty() const { return m_boxes.empty(); }
+
+	region<Dims> into_region() && {
+		if(m_normalized) {
+			return grid_detail::make_region<Dims>(grid_detail::normalized, std::move(m_boxes));
+		} else {
+			return region<Dims>(std::move(m_boxes));
+		}
+	}
+
+  private:
+	box_vector<Dims> m_boxes;
+	bool m_normalized = true;
+};
+
 } // namespace celerity::detail
 
 namespace celerity::detail::grid_detail {

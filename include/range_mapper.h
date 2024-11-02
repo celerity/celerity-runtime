@@ -215,19 +215,20 @@ namespace access {
 
 		detail::region<Dims> operator()(const chunk<Dims>& chnk) const {
 			const detail::box interior(subrange(chnk.offset, chnk.range));
-			detail::box_vector<Dims> boxes;
 			if(m_shape == neighborhood_shape::along_axes) {
-				boxes.push_back(interior);
+				detail::region_builder<Dims> boxes;
+				boxes.add(interior);
 				for(int d = 0; d < Dims; ++d) {
-					boxes.push_back(extend_axis(interior, d));
+					boxes.add(extend_axis(interior, d));
 				}
+				return std::move(boxes).into_region();
 			} else {
-				auto& bounding_box = boxes.emplace_back(interior);
+				auto bounding_box = interior;
 				for(int d = 0; d < Dims; ++d) {
 					bounding_box = extend_axis(bounding_box, d);
 				}
+				return bounding_box;
 			}
-			return detail::region(std::move(boxes));
 		}
 
 	  private:

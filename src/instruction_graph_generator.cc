@@ -1029,15 +1029,15 @@ void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id
 			const auto full_copy_box = box_intersection(new_alloc.box, resize_source_alloc.box);
 			if(full_copy_box.empty()) continue; // not every previous allocation necessarily intersects with every new allocation
 
-			box_vector<3> live_copy_boxes;
+			region_builder<3> live_copy_boxes;
 			for(const auto& [copy_box, location] : buffer.up_to_date_memories.get_region_values(full_copy_box)) {
-				if(location.test(mid)) { live_copy_boxes.push_back(copy_box); }
+				if(location.test(mid)) { live_copy_boxes.add(copy_box); }
 			}
 			// even if allocations intersect, the entire intersection might be overwritten by the task that requested reallocation - in which case the caller
 			// would have reset up_to_date_memories for the corresponding elements
 			if(live_copy_boxes.empty()) continue;
 
-			region<3> live_copy_region(std::move(live_copy_boxes));
+			const auto live_copy_region = std::move(live_copy_boxes).into_region();
 			const auto copy_instr = create<copy_instruction>(current_batch, resize_source_alloc.aid, new_alloc.aid, strided_layout(resize_source_alloc.box),
 			    strided_layout(new_alloc.box), live_copy_region, buffer.elem_size,
 			    [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::resize, bid, buffer.debug_name); });
@@ -1182,19 +1182,19 @@ void generator_impl::establish_coherence_between_buffer_memories(
 		for(auto& dest_region : concurrent_reads_from_memory[dest_mid]) {
 			// up_to_date_memories is a memory_mask, so regions that are up-to-date on one memory can still end up being enumerated as disjoint boxes.
 			// We therefore merge them using a map keyed by original writers and their memories before constructing the final copy regions.
-			std::unordered_map<std::pair<memory_id, instruction_id>, box_vector<3>, utils::pair_hash> source_boxes_by_writer;
+			std::unordered_map<std::pair<memory_id, instruction_id>, region_builder<3>, utils::pair_hash> source_boxes_by_writer;
 			for(const auto& [box, up_to_date_mids] : buffer.up_to_date_memories.get_region_values(dest_region)) {
 				if(up_to_date_mids.any() /* gracefully handle uninitialized read */ && !up_to_date_mids.test(dest_mid)) {
 					for(const auto& [source_memory_box, source_mid] : buffer.original_write_memories.get_region_values(box)) {
 						for(const auto& [source_memory_writer_box, original_writer] : buffer.original_writers.get_region_values(source_memory_box)) {
-							source_boxes_by_writer[{source_mid, original_writer->get_id()}].push_back(source_memory_writer_box);
+							source_boxes_by_writer[{source_mid, original_writer->get_id()}].add(source_memory_writer_box);
 						}
 					}
 				}
 			}
-			for(auto& [source, source_boxes] : source_boxes_by_writer) {
+			for(auto& [source, source_builder] : source_boxes_by_writer) {
 				const auto& [source_mid, _] = source;
-				const region source_region(std::move(source_boxes));
+				const auto source_region = std::move(source_builder).into_region();
 
 				for(auto& source_alloc : buffer.memories[source_mid].allocations) {
 					const auto source_alloc_region = region_intersection(source_region, source_alloc.box);
@@ -1530,14 +1530,14 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 
 	dense_map<memory_id, box_vector<3>> required_contiguous_allocations(m_memories.size());
 
-	box_vector<3> accessed_boxes; // which elements are accessed (to figure out applying receives)
-	box_vector<3> consumed_boxes; // which elements are accessed with a consuming access (these need to be preserved across resizes)
+	region_builder<3> accessed_boxes; // which elements are accessed (to figure out applying receives)
+	region_builder<3> consumed_boxes; // which elements are accessed with a consuming access (these need to be preserved across resizes)
 
 	const auto& bam = tsk.get_buffer_access_map();
 	for(const auto mode : bam.get_access_modes(bid)) {
 		const auto req = bam.get_mode_requirements(bid, mode, tsk.get_dimensions(), local_execution_range, tsk.get_global_size());
-		accessed_boxes.append(req.get_boxes());
-		if(access::mode_traits::is_consumer(mode)) { consumed_boxes.append(req.get_boxes()); }
+		accessed_boxes.add(req);
+		if(access::mode_traits::is_consumer(mode)) { consumed_boxes.add(req); }
 	}
 
 	// reductions can introduce buffer reads if they do not initialize_to_identity (but they cannot be split), so we evaluate them first
@@ -1555,21 +1555,22 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 			// perform SYCL reductions with `initialize_to_identity` semantics.
 			required_contiguous_allocations[host_memory_id].push_back(scalar_reduction_box);
 		}
-		accessed_boxes.push_back(scalar_reduction_box);
+		accessed_boxes.add(scalar_reduction_box);
 		if(include_current_value) {
 			// scalar_reduction_box will be copied into the local-reduction gather buffer ahead of the kernel instruction
-			consumed_boxes.push_back(scalar_reduction_box);
+			consumed_boxes.add(scalar_reduction_box);
 		}
 	}
 
-	const region accessed_region(std::move(accessed_boxes));
-	const region consumed_region(std::move(consumed_boxes));
+	const auto accessed_region = std::move(accessed_boxes).into_region();
+	const auto consumed_region = std::move(consumed_boxes).into_region();
 
 	// Boxes that are accessed but not consumed do not need to be preserved across resizes. This set operation is not equivalent to accumulating all
 	// non-consumer mode accesses above, since a kernel can have both a read_only and a discard_write access for the same buffer element, and Celerity must
 	// treat the overlap as-if it were a read_write access according to the SYCL spec.
 	// We maintain a box_vector here because we also add all received boxes, as these are overwritten by a recv_instruction before being read from the kernel.
-	box_vector<3> discarded_boxes = region_difference(accessed_region, consumed_region).into_boxes();
+	region_builder<3> discarded_boxes;
+	discarded_boxes.add(region_difference(accessed_region, consumed_region));
 
 	// Collect all pending receives (await-push commands) that we must apply before executing this task.
 	std::vector<buffer_state::region_receive> applied_receives;
@@ -1579,7 +1580,7 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 		const auto last_applied_receive = buffer.pending_receives.end();
 		for(auto it = first_applied_receive; it != last_applied_receive; ++it) {
 			// we (re) allocate before receiving, but there's no need to preserve previous data at the receive location
-			discarded_boxes.append(it->received_region.get_boxes());
+			discarded_boxes.add(it->received_region);
 			// split_receive_instruction needs contiguous allocations for the bounding boxes of potentially received fragments
 			required_contiguous_allocations[host_memory_id].insert(
 			    required_contiguous_allocations[host_memory_id].end(), it->required_contiguous_allocations.begin(), it->required_contiguous_allocations.end());
@@ -1599,20 +1600,20 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 		}) && "buffer has an unprocessed await-push into a region that is going to be used as a reduction output");
 	}
 
-	const region discarded_region = region(std::move(discarded_boxes));
+	const auto discarded_region = std::move(discarded_boxes).into_region();
 
 	// Detect and report uninitialized reads
 	if(m_policy.uninitialized_read_error != error_policy::ignore) {
-		box_vector<3> uninitialized_reads;
+		region_builder<3> uninitialized_reads;
 		const auto locally_required_region = region_difference(consumed_region, discarded_region);
 		for(const auto& [box, location] : buffer.up_to_date_memories.get_region_values(locally_required_region)) {
-			if(!location.any()) { uninitialized_reads.push_back(box); }
+			if(!location.any()) { uninitialized_reads.add(box); }
 		}
 		if(!uninitialized_reads.empty()) {
 			// Observing an uninitialized read that is not visible in the TDAG means we have a bug.
 			utils::report_error(m_policy.uninitialized_read_error,
 			    "Instructions for {} are trying to read {} {}, which is neither found locally nor has been await-pushed before.", print_task_debug_label(tsk),
-			    print_buffer_debug_label(bid), detail::region(std::move(uninitialized_reads)));
+			    print_buffer_debug_label(bid), std::move(uninitialized_reads).into_region());
 		}
 	}
 
@@ -1626,12 +1627,11 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 		required_contiguous_allocations[chunk.memory_id].append(
 		    bam.get_required_contiguous_boxes(bid, tsk.get_dimensions(), chunk.execution_range.get_subrange(), tsk.get_global_size()));
 
-		box_vector<3> chunk_read_boxes;
+		region_builder<3> chunk_read_boxes;
 		for(const auto mode : access::consumer_modes) {
-			const auto req = bam.get_mode_requirements(bid, mode, tsk.get_dimensions(), chunk.execution_range.get_subrange(), tsk.get_global_size());
-			chunk_read_boxes.append(req.get_boxes());
+			chunk_read_boxes.add(bam.get_mode_requirements(bid, mode, tsk.get_dimensions(), chunk.execution_range.get_subrange(), tsk.get_global_size()));
 		}
-		if(!chunk_read_boxes.empty()) { concurrent_reads_from_memory[chunk.memory_id].push_back(region(std::move(chunk_read_boxes))); }
+		if(!chunk_read_boxes.empty()) { concurrent_reads_from_memory[chunk.memory_id].push_back(std::move(chunk_read_boxes).into_region()); }
 	}
 	if(local_node_is_reduction_initializer && reduction != tsk.get_reductions().end() && reduction->init_from_buffer) {
 		concurrent_reads_from_memory[host_memory_id].emplace_back(scalar_reduction_box);
@@ -1841,14 +1841,15 @@ void generator_impl::perform_task_buffer_accesses(
 
 	for(const auto bid : bam.get_accessed_buffers()) {
 		for(size_t i = 0; i < concurrent_chunks.size(); ++i) {
-			read_write_sets rw;
+			region_builder<3> read_boxes;
+			region_builder<3> write_boxes;
 			for(const auto mode : bam.get_access_modes(bid)) {
 				const auto req =
 				    bam.get_mode_requirements(bid, mode, tsk.get_dimensions(), concurrent_chunks[i].execution_range.get_subrange(), tsk.get_global_size());
-				if(access::mode_traits::is_consumer(mode)) { rw.reads = region_union(rw.reads, req); }
-				if(access::mode_traits::is_producer(mode)) { rw.writes = region_union(rw.writes, req); }
+				if(access::mode_traits::is_consumer(mode)) { read_boxes.add(req); }
+				if(access::mode_traits::is_producer(mode)) { write_boxes.add(req); }
 			}
-			concurrent_read_write_sets[i].emplace(bid, std::move(rw));
+			concurrent_read_write_sets[i].emplace(bid, read_write_sets{std::move(read_boxes).into_region(), std::move(write_boxes).into_region()});
 		}
 	}
 
@@ -2015,13 +2016,13 @@ void generator_impl::compile_push_command(batch& command_batch, const push_comma
 		// Since we now send boxes individually, we do not need to allocate the entire push_box contiguously.
 		box_vector<3> required_host_allocation;
 		{
-			std::unordered_map<instruction_id, box_vector<3>> individual_send_boxes;
+			std::unordered_map<instruction_id, region_builder<3>> individual_send_boxes;
 			for(auto& [box, original_writer] : buffer.original_writers.get_region_values(reg)) {
-				individual_send_boxes[original_writer->get_id()].push_back(box);
+				individual_send_boxes[original_writer->get_id()].add(box);
 				required_host_allocation.push_back(box);
 			}
 			for(auto& [original_writer, boxes] : individual_send_boxes) {
-				concurrent_send_regions.push_back(region(std::move(boxes)));
+				concurrent_send_regions.push_back(std::move(boxes).into_region());
 			}
 		}
 

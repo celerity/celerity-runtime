@@ -181,17 +181,14 @@ command_graph_generator::buffer_requirements_list command_graph_generator::get_b
 	buffer_requirements_list result;
 	const auto& access_map = tsk.get_buffer_access_map();
 	for(const buffer_id bid : access_map.get_accessed_buffers()) {
-		buffer_requirements reqs{bid, {}, {}};
+		region_builder<3> consumed;
+		region_builder<3> produced;
 		for(const auto m : access_map.get_access_modes(bid)) {
-			if(detail::access::mode_traits::is_consumer(m)) {
-				reqs.consumed = region_union(reqs.consumed, access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), sr, global_size));
-			}
-			// Not else: `access_mode::write` is both a consumer and a producer
-			if(detail::access::mode_traits::is_producer(m)) {
-				reqs.produced = region_union(reqs.produced, access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), sr, global_size));
-			}
+			const auto req = access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), sr, global_size);
+			if(detail::access::mode_traits::is_consumer(m)) { consumed.add(req); }
+			if(detail::access::mode_traits::is_producer(m)) { produced.add(req); } // not else: `access_mode::write` is both a consumer and a producer
 		}
-		result.emplace_back(std::move(reqs));
+		result.push_back(buffer_requirements{bid, std::move(consumed).into_region(), std::move(produced).into_region()});
 	}
 	return result;
 }
@@ -339,7 +336,7 @@ void command_graph_generator::resolve_pending_reductions(
 
 void command_graph_generator::generate_pushes(batch& current_batch, const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements) {
 	struct push_scratch {
-		std::unordered_map<node_id, region<3>> target_regions;
+		std::unordered_map<node_id, region_builder<3>> target_regions;
 		std::unordered_set<command*> depends_on;
 	};
 	std::unordered_map<buffer_id, push_scratch> per_buffer_pushes;
@@ -356,25 +353,21 @@ void command_graph_generator::generate_pushes(batch& current_batch, const task& 
 				if(!wcs.is_fresh() || wcs.is_replicated()) { continue; }
 
 				// Make sure we don't push anything we've already pushed to this node before
-				box_vector<3> non_replicated_boxes;
+				region_builder<3> non_replicated_boxes;
 				for(const auto& [replicated_box, nodes] : buffer.replicated_regions.get_region_values(local_box)) {
 					if(nodes.test(nid)) continue;
-					non_replicated_boxes.push_back(replicated_box);
+					non_replicated_boxes.add(replicated_box);
 				}
 
 				if(!non_replicated_boxes.empty()) {
 					assert(!utils::isa<await_push_command>(wcs.get_command()) && "Attempting to push non-owned data?!");
-					auto push_region = region<3>(std::move(non_replicated_boxes));
+					auto push_region = std::move(non_replicated_boxes).into_region();
 					// Remember that we've replicated this region
 					for(const auto& [replicated_box, nodes] : buffer.replicated_regions.get_region_values(push_region)) {
 						buffer.replicated_regions.update_box(replicated_box, node_bitset{nodes}.set(nid));
 					}
 					auto& scratch = per_buffer_pushes[bid]; // allow default-insert
-					if(auto it = scratch.target_regions.find(nid); it != scratch.target_regions.end()) {
-						it->second = region_union(it->second, push_region);
-					} else {
-						scratch.target_regions.emplace(nid, std::move(push_region));
-					}
+					scratch.target_regions[nid /* allow default-insert */].add(push_region);
 					scratch.depends_on.insert(wcs);
 				}
 			}
@@ -383,10 +376,11 @@ void command_graph_generator::generate_pushes(batch& current_batch, const task& 
 
 	// Generate push command for each buffer
 	for(auto& [bid, scratch] : per_buffer_pushes) {
-		region<3> combined_region;
+		region_builder<3> combined_region;
 		std::vector<std::pair<node_id, region<3>>> target_regions;
-		for(auto& [nid, region] : scratch.target_regions) {
-			combined_region = region_union(combined_region, region);
+		for(auto& [nid, boxes] : scratch.target_regions) {
+			auto region = std::move(boxes).into_region();
+			combined_region.add(region);
 			target_regions.push_back({nid, std::move(region)});
 		}
 
@@ -397,7 +391,7 @@ void command_graph_generator::generate_pushes(batch& current_batch, const task& 
 		}
 
 		// Store the read access for determining anti-dependencies
-		m_command_buffer_reads[cmd->get_id()].emplace(bid, std::move(combined_region));
+		m_command_buffer_reads[cmd->get_id()].emplace(bid, std::move(combined_region).into_region());
 	}
 }
 
@@ -409,15 +403,15 @@ void command_graph_generator::generate_await_pushes(batch& current_batch, const 
 			auto& buffer = m_buffers.at(bid);
 
 			const auto local_sources = buffer.local_last_writer.get_region_values(consumed);
-			box_vector<3> missing_part_boxes;
+			region_builder<3> missing_part_boxes;
 			for(const auto& [box, wcs] : local_sources) {
 				// Note that we initialize all buffers as fresh, so this doesn't trigger for uninitialized reads
-				if(!box.empty() && !wcs.is_fresh()) { missing_part_boxes.push_back(box); }
+				if(!box.empty() && !wcs.is_fresh()) { missing_part_boxes.add(box); }
 			}
 
 			// There is data we don't yet have locally. Generate an await push command for it.
 			if(!missing_part_boxes.empty()) {
-				const region missing_parts(std::move(missing_part_boxes));
+				const auto missing_parts = std::move(missing_part_boxes).into_region();
 				assert(m_num_nodes > 1);
 				auto* const ap_cmd = create_command<await_push_command>(current_batch, transfer_id(tsk.get_id(), bid, no_reduction_id), missing_parts,
 				    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
@@ -545,7 +539,7 @@ void command_graph_generator::generate_distributed_commands(batch& current_batch
 			}
 
 			if(m_policy.uninitialized_read_error != error_policy::ignore
-			    && !bounding_box(buffer.initialized_region).covers(bounding_box(consumed.get_boxes()))) {
+			    && !bounding_box(buffer.initialized_region).covers(bounding_box(consumed.get_boxes()))) { //!!! TODO!!! bounding box is wrong
 				utils::report_error(m_policy.uninitialized_read_error,
 				    "Command C{} on N{}, which executes {} of {}, reads {} {}, which has not been written by any node.", cmd->get_id(), m_local_nid,
 				    box(subrange(a_chunk.chnk.offset, a_chunk.chnk.range)), print_task_debug_label(tsk), print_buffer_debug_label(bid),
