@@ -69,3 +69,5 @@ target_include_directories(fvm PRIVATE ${CMAKE_SOURCE_DIR}/vendor/gmsh/api)
 # enable asan for fvm
 # target_compile_options(fvm PRIVATE -fsanitize=address)
 # target_link_options(fvm PRIVATE -fsanitize=address)
+
+add_example(jacobi)
