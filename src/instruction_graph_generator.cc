@@ -516,7 +516,7 @@ template <> constexpr int instruction_type_priority<receive_instruction> = 2;
 template <> constexpr int instruction_type_priority<send_instruction> = 2;
 template <> constexpr int instruction_type_priority<fence_instruction> = 3;
 template <> constexpr int instruction_type_priority<host_task_instruction> = 4; // we expect kernel launches to have low latency but comparatively long run time
-template <> constexpr int instruction_type_priority<device_kernel_instruction> = 4; 
+template <> constexpr int instruction_type_priority<device_kernel_instruction> = 4;
 template <> constexpr int instruction_type_priority<epoch_instruction> = 5; // epochs and horizons are low-latency and stop the task buffers from reaching capacity
 template <> constexpr int instruction_type_priority<horizon_instruction> = 5;
 template <> constexpr int instruction_type_priority<copy_instruction> = 6; // stalled device-to-device copies can block kernel execution on peer devices
@@ -1534,11 +1534,10 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 	region_builder<3> consumed_boxes; // which elements are accessed with a consuming access (these need to be preserved across resizes)
 
 	const auto& bam = tsk.get_buffer_access_map();
-	for(const auto mode : bam.get_access_modes(bid)) {
-		const auto req = bam.get_mode_requirements(bid, mode, tsk.get_dimensions(), local_execution_range, tsk.get_global_size());
-		accessed_boxes.add(req);
-		if(access::mode_traits::is_consumer(mode)) { consumed_boxes.add(req); }
-	}
+	accessed_boxes.add(bam.compute_produced_region(bid, box<3>(local_execution_range)));
+	const auto reads = bam.compute_consumed_region(bid, box<3>(local_execution_range));
+	accessed_boxes.add(reads);
+	consumed_boxes.add(reads);
 
 	// reductions can introduce buffer reads if they do not initialize_to_identity (but they cannot be split), so we evaluate them first
 	assert(std::count_if(tsk.get_reductions().begin(), tsk.get_reductions().end(), [=](const reduction_info& r) { return r.bid == bid; }) <= 1
@@ -1624,14 +1623,10 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 	// Collect chunk-reads by memory to establish local coherence later
 	dense_map<memory_id, std::vector<region<3>>> concurrent_reads_from_memory(m_memories.size());
 	for(const auto& chunk : concurrent_chunks_after_split) {
-		required_contiguous_allocations[chunk.memory_id].append(
-		    bam.get_required_contiguous_boxes(bid, tsk.get_dimensions(), chunk.execution_range.get_subrange(), tsk.get_global_size()));
+		required_contiguous_allocations[chunk.memory_id].append(bam.compute_required_contiguous_boxes(bid, chunk.execution_range.get_subrange()));
 
-		region_builder<3> chunk_read_boxes;
-		for(const auto mode : access::consumer_modes) {
-			chunk_read_boxes.add(bam.get_mode_requirements(bid, mode, tsk.get_dimensions(), chunk.execution_range.get_subrange(), tsk.get_global_size()));
-		}
-		if(!chunk_read_boxes.empty()) { concurrent_reads_from_memory[chunk.memory_id].push_back(std::move(chunk_read_boxes).into_region()); }
+		auto chunk_reads = bam.compute_consumed_region(bid, chunk.execution_range.get_subrange());
+		if(!chunk_reads.empty()) { concurrent_reads_from_memory[chunk.memory_id].emplace_back(std::move(chunk_reads)); }
 	}
 	if(local_node_is_reduction_initializer && reduction != tsk.get_reductions().end() && reduction->init_from_buffer) {
 		concurrent_reads_from_memory[host_memory_id].emplace_back(scalar_reduction_box);
@@ -1773,7 +1768,7 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 	for(size_t i = 0; i < bam.get_num_accesses(); ++i) {
 		const auto [bid, mode] = bam.get_nth_access(i);
 		const auto& buffer = m_buffers.at(bid);
-		const auto accessed_region = bam.get_requirements_for_nth_access(i, tsk.get_dimensions(), chunk.execution_range.get_subrange(), tsk.get_global_size());
+		const auto accessed_region = bam.get_requirements_for_nth_access(i, chunk.execution_range.get_subrange());
 		if(!accessed_region.empty()) {
 			const auto accessed_bounding_box = bounding_box(accessed_region);
 			const auto& alloc = buffer.memories[chunk.memory_id].get_contiguous_allocation(accessed_bounding_box);
@@ -1841,15 +1836,9 @@ void generator_impl::perform_task_buffer_accesses(
 
 	for(const auto bid : bam.get_accessed_buffers()) {
 		for(size_t i = 0; i < concurrent_chunks.size(); ++i) {
-			region_builder<3> read_boxes;
-			region_builder<3> write_boxes;
-			for(const auto mode : bam.get_access_modes(bid)) {
-				const auto req =
-				    bam.get_mode_requirements(bid, mode, tsk.get_dimensions(), concurrent_chunks[i].execution_range.get_subrange(), tsk.get_global_size());
-				if(access::mode_traits::is_consumer(mode)) { read_boxes.add(req); }
-				if(access::mode_traits::is_producer(mode)) { write_boxes.add(req); }
-			}
-			concurrent_read_write_sets[i].emplace(bid, read_write_sets{std::move(read_boxes).into_region(), std::move(write_boxes).into_region()});
+			const auto sr = concurrent_chunks[i].execution_range.get_subrange();
+			read_write_sets rw{bam.compute_consumed_region(bid, sr), bam.compute_produced_region(bid, sr)};
+			concurrent_read_write_sets[i].emplace(bid, std::move(rw));
 		}
 	}
 
@@ -2183,7 +2172,7 @@ void generator_impl::compile_fence_command(batch& command_batch, const fence_com
 	// buffer fences encode their buffer id and subrange through buffer_access_map with a fixed range mapper (which is rather ugly)
 	if(bam.get_num_accesses() != 0) {
 		const auto bid = *bam.get_accessed_buffers().begin();
-		const auto fence_region = bam.get_mode_requirements(bid, access_mode::read, 0, {}, zeros);
+		const auto fence_region = bam.compute_consumed_region(bid, {});
 		const auto fence_box = !fence_region.empty() ? fence_region.get_boxes().front() : box<3>();
 
 		const auto user_allocation_id = tsk.get_task_promise()->get_user_allocation_id();

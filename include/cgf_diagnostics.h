@@ -29,26 +29,26 @@ class cgf_diagnostics {
 	~cgf_diagnostics() = default;
 
 	template <target Tgt, typename Closure, std::enable_if_t<Tgt == target::device, int> = 0>
-	void check(const Closure& kernel, const buffer_access_map& buffer_accesses) {
+	void check(const Closure& kernel, const std::vector<buffer_access>& buffer_accesses) {
 		static_assert(std::is_copy_constructible_v<std::decay_t<Closure>>);
-		check(target::device, kernel, &buffer_accesses, 0);
+		check(target::device, kernel, buffer_accesses, 0);
 	}
 
 	template <target Tgt, typename Closure, std::enable_if_t<Tgt == target::host_task, int> = 0>
-	void check(const Closure& kernel, const buffer_access_map& buffer_accesses, const size_t non_void_side_effects_count) {
+	void check(const Closure& kernel, const std::vector<buffer_access>& buffer_accesses, const size_t non_void_side_effects_count) {
 		static_assert(std::is_copy_constructible_v<std::decay_t<Closure>>);
-		check(target::host_task, kernel, &buffer_accesses, non_void_side_effects_count);
+		check(target::host_task, kernel, buffer_accesses, non_void_side_effects_count);
 	}
 
 	bool is_checking() const { return m_is_checking; }
 
 	void register_accessor(const hydration_id hid, const target tgt) {
 		assert(m_is_checking);
-		assert(hid - 1 < m_expected_buffer_accesses->get_num_accesses());
+		assert(hid - 1 < m_expected_buffer_accesses->size());
 		if(tgt != m_expected_target) {
-			throw std::runtime_error(fmt::format("Accessor {} for buffer {} has wrong target ('{}' instead of '{}').", hid - 1,
-			    m_expected_buffer_accesses->get_nth_access(hid - 1).first, tgt == target::device ? "device" : "host_task",
-			    m_expected_target == target::device ? "device" : "host_task"));
+			throw std::runtime_error(
+			    fmt::format("Accessor {} for buffer {} has wrong target ('{}' instead of '{}').", hid - 1, m_expected_buffer_accesses->operator[](hid - 1).bid,
+			        tgt == target::device ? "device" : "host_task", m_expected_target == target::device ? "device" : "host_task"));
 		}
 		m_registered_buffer_accesses.at(hid - 1) = true;
 	}
@@ -64,7 +64,7 @@ class cgf_diagnostics {
 
 	bool m_is_checking = false;
 	std::optional<target> m_expected_target = std::nullopt;
-	const buffer_access_map* m_expected_buffer_accesses = nullptr;
+	const std::vector<buffer_access>* m_expected_buffer_accesses = nullptr;
 	std::vector<bool> m_registered_buffer_accesses;
 	size_t m_expected_side_effects_count = 0;
 	size_t m_registered_side_effect_count = 0;
@@ -72,11 +72,11 @@ class cgf_diagnostics {
 	cgf_diagnostics() = default;
 
 	template <typename Closure>
-	void check(const target tgt, const Closure& kernel, const buffer_access_map* const buffer_accesses, const size_t expected_side_effects_count) {
+	void check(const target tgt, const Closure& kernel, const std::vector<buffer_access>& buffer_accesses, const size_t expected_side_effects_count) {
 		m_expected_target = tgt;
-		m_expected_buffer_accesses = buffer_accesses;
+		m_expected_buffer_accesses = &buffer_accesses;
 		m_registered_buffer_accesses.clear();
-		m_registered_buffer_accesses.resize(m_expected_buffer_accesses->get_num_accesses());
+		m_registered_buffer_accesses.resize(m_expected_buffer_accesses->size());
 		m_expected_side_effects_count = expected_side_effects_count;
 		m_registered_side_effect_count = 0;
 
@@ -90,11 +90,11 @@ class cgf_diagnostics {
 		m_is_checking = false;
 		m_expected_target = std::nullopt;
 
-		for(size_t i = 0; i < m_expected_buffer_accesses->get_num_accesses(); ++i) {
+		for(size_t i = 0; i < buffer_accesses.size(); ++i) {
 			if(!m_registered_buffer_accesses[i]) {
 				throw std::runtime_error(fmt::format("Accessor {} for buffer {} is not being copied into the kernel. This indicates a bug. Make sure "
 				                                     "the accessor is captured by value and not by reference, or remove it entirely.",
-				    i, m_expected_buffer_accesses->get_nth_access(i).first));
+				    i, buffer_accesses[i].bid));
 			}
 		}
 

@@ -6,7 +6,7 @@
 using namespace celerity;
 using namespace celerity::detail;
 namespace acc = celerity::access;
-
+using experimental::access::even_split;
 
 template <typename T>
 extern const int range_dims;
@@ -85,21 +85,21 @@ subrange<Dims> rm_result_to_subrange(const region<Dims>& r) {
 
 TEST_CASE("range mapper results are clamped to buffer range", "[range-mapper]") {
 	const auto rmfn = [](chunk<3>) { return subrange<3>{{0, 100, 127}, {256, 64, 32}}; };
-	range_mapper rm{rmfn, access_mode::read, range<3>{128, 128, 128}};
+	range_mapper rm{rmfn, range<3>{128, 128, 128}};
 	auto sr = rm_result_to_subrange(rm.map_3(chunk<3>{}));
 	REQUIRE(sr.offset == id<3>{0, 100, 127});
 	REQUIRE(sr.range == range<3>{128, 28, 1});
 }
 
 TEST_CASE("one_to_one built-in range mapper behaves as expected", "[range-mapper]") {
-	range_mapper rm{acc::one_to_one{}, access_mode::read, range<2>{128, 128}};
+	range_mapper rm{acc::one_to_one{}, range<2>{128, 128}};
 	auto sr = rm_result_to_subrange(rm.map_2(chunk<2>{{64, 32}, {32, 4}, {128, 128}}));
 	REQUIRE(sr.offset == id<2>{64, 32});
 	REQUIRE(sr.range == range<2>{32, 4});
 }
 
 TEST_CASE("fixed built-in range mapper behaves as expected", "[range-mapper]") {
-	range_mapper rm{acc::fixed<1>({{3}, {97}}), access_mode::read, range<1>{128}};
+	range_mapper rm{acc::fixed<1>({{3}, {97}}), range<1>{128}};
 	auto sr = rm_result_to_subrange(rm.map_1(chunk<2>{{64, 32}, {32, 4}, {128, 128}}));
 	REQUIRE(sr.offset == id<1>{3});
 	REQUIRE(sr.range == range<1>{97});
@@ -107,19 +107,19 @@ TEST_CASE("fixed built-in range mapper behaves as expected", "[range-mapper]") {
 
 TEST_CASE("slice built-in range mapper behaves as expected", "[range-mapper]") {
 	{
-		range_mapper rm{acc::slice<3>(0), access_mode::read, range<3>{128, 128, 128}};
+		range_mapper rm{acc::slice<3>(0), range<3>{128, 128, 128}};
 		auto sr = rm_result_to_subrange(rm.map_3(chunk<3>{{32, 32, 32}, {32, 32, 32}, {128, 128, 128}}));
 		REQUIRE(sr.offset == id<3>{0, 32, 32});
 		REQUIRE(sr.range == range<3>{128, 32, 32});
 	}
 	{
-		range_mapper rm{acc::slice<3>(1), access_mode::read, range<3>{128, 128, 128}};
+		range_mapper rm{acc::slice<3>(1), range<3>{128, 128, 128}};
 		auto sr = rm_result_to_subrange(rm.map_3(chunk<3>{{32, 32, 32}, {32, 32, 32}, {128, 128, 128}}));
 		REQUIRE(sr.offset == id<3>{32, 0, 32});
 		REQUIRE(sr.range == range<3>{32, 128, 32});
 	}
 	{
-		range_mapper rm{acc::slice<3>(2), access_mode::read, range<3>{128, 128, 128}};
+		range_mapper rm{acc::slice<3>(2), range<3>{128, 128, 128}};
 		auto sr = rm_result_to_subrange(rm.map_3(chunk<3>{{32, 32, 32}, {32, 32, 32}, {128, 128, 128}}));
 		REQUIRE(sr.offset == id<3>{32, 32, 0});
 		REQUIRE(sr.range == range<3>{32, 32, 128});
@@ -128,19 +128,19 @@ TEST_CASE("slice built-in range mapper behaves as expected", "[range-mapper]") {
 
 TEST_CASE("all built-in range mapper behaves as expected", "[range-mapper]") {
 	{
-		range_mapper rm{acc::all{}, access_mode::read, range<1>{128}};
+		range_mapper rm{acc::all{}, range<1>{128}};
 		auto sr = rm_result_to_subrange(rm.map_1(chunk<1>{}));
 		REQUIRE(sr.offset == id<1>{0});
 		REQUIRE(sr.range == range<1>{128});
 	}
 	{
-		range_mapper rm{acc::all{}, access_mode::read, range<2>{128, 64}};
+		range_mapper rm{acc::all{}, range<2>{128, 64}};
 		auto sr = rm_result_to_subrange(rm.map_2(chunk<1>{}));
 		REQUIRE(sr.offset == id<2>{0, 0});
 		REQUIRE(sr.range == range<2>{128, 64});
 	}
 	{
-		range_mapper rm{acc::all{}, access_mode::read, range<3>{128, 64, 32}};
+		range_mapper rm{acc::all{}, range<3>{128, 64, 32}};
 		auto sr = rm_result_to_subrange(rm.map_3(chunk<1>{}));
 		REQUIRE(sr.offset == id<3>{0, 0, 0});
 		REQUIRE(sr.range == range<3>{128, 64, 32});
@@ -150,17 +150,17 @@ TEST_CASE("all built-in range mapper behaves as expected", "[range-mapper]") {
 TEST_CASE("neighborhood built-in range mapper behaves as expected", "[range-mapper]") {
 	SECTION("with shape = bounding_box") {
 		{
-			range_mapper rm{acc::neighborhood({10}), access_mode::read, range<1>{128}};
+			range_mapper rm{acc::neighborhood({10}), range<1>{128}};
 			const auto r = rm.map_1(chunk<1>{{15}, {10}, {128}});
 			CHECK(r == box<1>(5, 35));
 		}
 		{
-			range_mapper rm{acc::neighborhood({10, 10}), access_mode::read, range<2>{128, 128}};
+			range_mapper rm{acc::neighborhood({10, 10}), range<2>{128, 128}};
 			const auto r = rm.map_2(chunk<2>{{5, 100}, {10, 20}, {128, 128}});
 			CHECK(r == box<2>({0, 90}, {25, 128}));
 		}
 		{
-			range_mapper rm{acc::neighborhood({3, 4, 5}), access_mode::read, range<3>{128, 128, 128}};
+			range_mapper rm{acc::neighborhood({3, 4, 5}), range<3>{128, 128, 128}};
 			const auto r = rm.map_3(chunk<3>{{3, 4, 5}, {1, 1, 1}, {128, 128, 128}});
 			CHECK(r == box<3>({0, 0, 0}, {7, 9, 11}));
 		}
@@ -168,17 +168,17 @@ TEST_CASE("neighborhood built-in range mapper behaves as expected", "[range-mapp
 
 	SECTION("with shape = along_axes") {
 		{
-			range_mapper rm{acc::neighborhood({10}, neighborhood_shape::along_axes), access_mode::read, range<1>{128}};
+			range_mapper rm{acc::neighborhood({10}, neighborhood_shape::along_axes), range<1>{128}};
 			const auto r = rm.map_1(chunk<1>{{15}, {10}, {128}});
 			CHECK(r == box<1>({5}, {35}));
 		}
 		{
-			range_mapper rm{acc::neighborhood({10, 10}, neighborhood_shape::along_axes), access_mode::read, range<2>{128, 128}};
+			range_mapper rm{acc::neighborhood({10, 10}, neighborhood_shape::along_axes), range<2>{128, 128}};
 			const auto r = rm.map_2(chunk<2>{{5, 100}, {10, 20}, {128, 128}});
 			CHECK(r == region<2>({box<2>({0, 100}, {25, 120}), box<2>({5, 90}, {15, 128})}));
 		}
 		{
-			range_mapper rm{acc::neighborhood({3, 4, 5}, neighborhood_shape::along_axes), access_mode::read, range<3>{128, 128, 128}};
+			range_mapper rm{acc::neighborhood({3, 4, 5}, neighborhood_shape::along_axes), range<3>{128, 128, 128}};
 			const auto r = rm.map_3(chunk<3>{{3, 4, 5}, {1, 1, 1}, {128, 128, 128}});
 			CHECK(r == region<3>({box<3>({0, 4, 5}, {7, 5, 6}), box<3>({3, 0, 5}, {4, 9, 6}), box<3>({3, 4, 0}, {4, 5, 11})}));
 		}
@@ -187,43 +187,43 @@ TEST_CASE("neighborhood built-in range mapper behaves as expected", "[range-mapp
 
 TEST_CASE("even_split built-in range mapper behaves as expected", "[range-mapper]") {
 	{
-		range_mapper rm{experimental::access::even_split<3>(), access_mode::read, range<3>{128, 345, 678}};
+		range_mapper rm{even_split<3>(), range<3>{128, 345, 678}};
 		auto sr = rm_result_to_subrange(rm.map_3(chunk<1>{{0}, {1}, {8}}));
 		REQUIRE(sr.offset == id<3>{0, 0, 0});
 		REQUIRE(sr.range == range<3>{16, 345, 678});
 	}
 	{
-		range_mapper rm{experimental::access::even_split<3>(), access_mode::read, range<3>{128, 345, 678}};
+		range_mapper rm{even_split<3>(), range<3>{128, 345, 678}};
 		auto sr = rm_result_to_subrange(rm.map_3(chunk<1>{{4}, {2}, {8}}));
 		REQUIRE(sr.offset == id<3>{64, 0, 0});
 		REQUIRE(sr.range == range<3>{32, 345, 678});
 	}
 	{
-		range_mapper rm{experimental::access::even_split<3>(), access_mode::read, range<3>{131, 992, 613}};
+		range_mapper rm{even_split<3>(), range<3>{131, 992, 613}};
 		auto sr = rm_result_to_subrange(rm.map_3(chunk<1>{{5}, {2}, {7}}));
 		REQUIRE(sr.offset == id<3>{95, 0, 0});
 		REQUIRE(sr.range == range<3>{36, 992, 613});
 	}
 	{
-		range_mapper rm{experimental::access::even_split<3>(range<3>(10, 1, 1)), access_mode::read, range<3>{128, 345, 678}};
+		range_mapper rm{even_split<3>(range<3>(10, 1, 1)), range<3>{128, 345, 678}};
 		auto sr = rm_result_to_subrange(rm.map_3(chunk<1>{{0}, {1}, {8}}));
 		REQUIRE(sr.offset == id<3>{0, 0, 0});
 		REQUIRE(sr.range == range<3>{20, 345, 678});
 	}
 	{
-		range_mapper rm{experimental::access::even_split<3>(range<3>(10, 1, 1)), access_mode::read, range<3>{131, 992, 613}};
+		range_mapper rm{even_split<3>(range<3>(10, 1, 1)), range<3>{131, 992, 613}};
 		auto sr = rm_result_to_subrange(rm.map_3(chunk<1>{{0}, {1}, {7}}));
 		REQUIRE(sr.offset == id<3>{0, 0, 0});
 		REQUIRE(sr.range == range<3>{20, 992, 613});
 	}
 	{
-		range_mapper rm{experimental::access::even_split<3>(range<3>(10, 1, 1)), access_mode::read, range<3>{131, 992, 613}};
+		range_mapper rm{even_split<3>(range<3>(10, 1, 1)), range<3>{131, 992, 613}};
 		auto sr = rm_result_to_subrange(rm.map_3(chunk<1>{{5}, {2}, {7}}));
 		REQUIRE(sr.offset == id<3>{100, 0, 0});
 		REQUIRE(sr.range == range<3>{31, 992, 613});
 	}
 	{
-		range_mapper rm{experimental::access::even_split<3>(range<3>(10, 1, 1)), access_mode::read, range<3>{236, 992, 613}};
+		range_mapper rm{even_split<3>(range<3>(10, 1, 1)), range<3>{236, 992, 613}};
 		auto sr = rm_result_to_subrange(rm.map_3(chunk<1>{{6}, {1}, {7}}));
 		REQUIRE(sr.offset == id<3>{200, 0, 0});
 		REQUIRE(sr.range == range<3>{36, 992, 613});

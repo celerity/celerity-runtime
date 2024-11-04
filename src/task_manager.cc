@@ -8,8 +8,10 @@
 #include "task.h"
 #include "types.h"
 
-#include <algorithm>
+#include <fmt/format.h>
 
+#include <algorithm>
+#include <stdexcept>
 
 namespace celerity {
 namespace detail {
@@ -38,16 +40,6 @@ namespace detail {
 		m_host_objects.erase(hoid);
 	}
 
-	region<3> get_requirements(const task& tsk, buffer_id bid, const std::vector<sycl::access::mode>& modes) {
-		const auto& access_map = tsk.get_buffer_access_map();
-		const subrange<3> full_range{tsk.get_global_offset(), tsk.get_global_size()};
-		region_builder<3> boxes;
-		for(auto m : modes) {
-			boxes.add(access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), full_range, tsk.get_global_size()));
-		}
-		return std::move(boxes).into_region();
-	}
-
 	void task_manager::compute_dependencies(task& tsk) {
 		using namespace sycl::access;
 
@@ -55,6 +47,10 @@ namespace detail {
 
 		auto buffers = access_map.get_accessed_buffers();
 		for(const auto& reduction : tsk.get_reductions()) {
+			if(buffers.contains(reduction.bid)) {
+				throw std::runtime_error(
+				    fmt::format("Buffer {} is both required through an accessor and used as a reduction output in task {}", reduction.bid, tsk.get_id()));
+			}
 			buffers.emplace(reduction.bid);
 		}
 
@@ -62,8 +58,6 @@ namespace detail {
 
 		for(const auto bid : buffers) {
 			auto& buffer = m_buffers.at(bid);
-			const auto modes = access_map.get_access_modes(bid);
-
 			std::optional<reduction_info> reduction;
 			for(const auto& maybe_reduction : tsk.get_reductions()) {
 				if(maybe_reduction.bid == bid) {
@@ -72,14 +66,9 @@ namespace detail {
 				}
 			}
 
-			if(reduction && !modes.empty()) {
-				throw std::runtime_error(
-				    fmt::format("Buffer {} is both required through an accessor and used as a reduction output in task {}", bid, tsk.get_id()));
-			}
-
 			// Determine reader dependencies
-			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_consumer) || (reduction.has_value() && reduction->init_from_buffer)) {
-				auto read_requirements = get_requirements(tsk, bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
+			auto read_requirements = access_map.get_task_consumed_region(bid);
+			if(!read_requirements.empty() || (reduction.has_value() && reduction->init_from_buffer)) {
 				if(reduction.has_value()) { read_requirements = region_union(read_requirements, scalar_box); }
 				const auto last_writers = buffer.last_writers.get_region_values(read_requirements);
 
@@ -100,8 +89,8 @@ namespace detail {
 			}
 
 			// Update last writers and determine anti-dependencies
-			if(std::any_of(modes.cbegin(), modes.cend(), detail::access::mode_traits::is_producer) || reduction.has_value()) {
-				auto write_requirements = get_requirements(tsk, bid, {detail::access::producer_modes.cbegin(), detail::access::producer_modes.cend()});
+			auto write_requirements = tsk.get_buffer_access_map().get_task_produced_region(bid);
+			if(!write_requirements.empty() || reduction.has_value()) {
 				if(reduction.has_value()) { write_requirements = region_union(write_requirements, scalar_box); }
 				if(write_requirements.empty()) continue;
 
@@ -119,8 +108,7 @@ namespace detail {
 							// - if the task itself also needs read access to that buffer (R/W access)
 							continue;
 						}
-						const auto dependent_read_requirements =
-						    get_requirements(*dependent.node, bid, {detail::access::consumer_modes.cbegin(), detail::access::consumer_modes.cend()});
+						const auto dependent_read_requirements = dependent.node->get_buffer_access_map().get_task_consumed_region(bid);
 						// Only add an anti-dependency if we are really writing over the region read by this task
 						if(!region_intersection(write_requirements, dependent_read_requirements).empty()) {
 							add_dependency(tsk, *dependent.node, dependency_kind::anti_dep, dependency_origin::dataflow);

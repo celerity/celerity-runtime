@@ -3,10 +3,14 @@
 #include <future>
 #include <memory>
 #include <type_traits>
+#include <vector>
 
 #include "buffer.h"
 #include "host_object.h"
+#include "range_mapper.h"
 #include "runtime.h"
+#include "sycl_wrappers.h"
+#include "task.h"
 #include "task_manager.h"
 #include "tracy.h"
 
@@ -122,12 +126,13 @@ template <typename DataT, int Dims>
 std::future<buffer_snapshot<DataT, Dims>> fence(const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::fence", Green2);
 
-	detail::buffer_access_map access_map;
-	access_map.add_access(detail::get_buffer_id(buf),
-	    std::make_unique<detail::range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), access_mode::read, buf.get_range()));
+	std::vector<detail::buffer_access> accesses;
+	accesses.push_back(detail::buffer_access{detail::get_buffer_id(buf), access_mode::read,
+	    std::make_unique<detail::range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), buf.get_range())});
 	auto promise = std::make_unique<detail::buffer_fence_promise<DataT, Dims>>(sr);
 	auto future = promise->get_future();
-	[[maybe_unused]] const auto tid = detail::runtime::get_instance().fence(std::move(access_map), {}, std::move(promise));
+	[[maybe_unused]] const auto tid =
+	    detail::runtime::get_instance().fence(detail::buffer_access_map(std::move(accesses), detail::task_geometry{}), {}, std::move(promise));
 
 	CELERITY_DETAIL_TRACY_ZONE_NAME("T{} fence", tid);
 	return future;
