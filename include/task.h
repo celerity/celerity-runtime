@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -12,9 +13,10 @@
 #include "intrusive_graph.h"
 #include "launcher.h"
 #include "range_mapper.h"
+#include "ranges.h"
 #include "reduction.h"
+#include "sycl_wrappers.h"
 #include "types.h"
-
 
 namespace celerity {
 
@@ -22,44 +24,66 @@ class handler;
 
 namespace detail {
 
+	struct task_geometry {
+		int dimensions = 0;
+		range<3> global_size{1, 1, 1};
+		id<3> global_offset;
+		range<3> granularity{1, 1, 1};
+	};
+
+	struct buffer_access {
+		buffer_id bid = -1;
+		access_mode mode = access_mode::atomic;
+		std::unique_ptr<range_mapper_base> range_mapper;
+	};
+
 	class buffer_access_map {
 	  public:
-		void add_access(buffer_id bid, std::unique_ptr<range_mapper_base>&& rm) { m_accesses.emplace_back(bid, std::move(rm)); }
+		/// Default ctor for tasks w/o buffer accesses
+		buffer_access_map() = default;
 
-		std::unordered_set<buffer_id> get_accessed_buffers() const;
-		std::unordered_set<sycl::access::mode> get_access_modes(buffer_id bid) const;
+		buffer_access_map(std::vector<buffer_access>&& accesses, const task_geometry& geometry);
+
+		const std::unordered_set<buffer_id>& get_accessed_buffers() const& { return m_accessed_buffers; }
+
 		size_t get_num_accesses() const { return m_accesses.size(); }
+
 		std::pair<buffer_id, access_mode> get_nth_access(const size_t n) const {
-			const auto& [bid, rm] = m_accesses[n];
-			return {bid, rm->get_access_mode()};
+			const auto& [bid, mode, _] = m_accesses[n];
+			return {bid, mode};
 		}
 
-		/**
-		 * @brief Computes the combined access-region for a given buffer, mode and subrange.
-		 *
-		 * @param bid
-		 * @param mode
-		 * @param sr The subrange to be passed to the range mappers (extended to a chunk using the global size of the task)
-		 *
-		 * @returns The region obtained by merging the results of all range-mappers for this buffer and mode
-		 */
-		region<3> get_mode_requirements(
-		    const buffer_id bid, const access_mode mode, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const;
+		region<3> get_requirements_for_nth_access(const size_t n, const box<3>& execution_range) const;
 
-		region<3> get_requirements_for_nth_access(const size_t n, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const;
-
-		std::vector<const range_mapper_base*> get_range_mappers(const buffer_id bid) const {
-			std::vector<const range_mapper_base*> rms;
-			for(const auto& [a_bid, a_rm] : m_accesses) {
-				if(a_bid == bid) { rms.push_back(a_rm.get()); }
-			}
-			return rms;
+		/// Returns the union of all consumer accesses made across the entire task (conceptually, the
+		/// union of the set of regions obtained by calling get_consumed_region for each chunk).
+		region<3> get_task_consumed_region(const buffer_id bid) const {
+			if(auto it = m_task_consumed_regions.find(bid); it != m_task_consumed_regions.end()) { return it->second; }
+			return {};
 		}
 
-		box_vector<3> get_required_contiguous_boxes(const buffer_id bid, const int kernel_dims, const subrange<3>& sr, const range<3>& global_size) const;
+		/// Returns the union of all producer accesses made across the entire task (conceptually, the
+		/// union of the set of regions obtained by calling get_produced_region for each chunk).
+		region<3> get_task_produced_region(const buffer_id bid) const {
+			if(auto it = m_task_produced_regions.find(bid); it != m_task_produced_regions.end()) { return it->second; }
+			return {};
+		};
+
+		/// Computes the union of all consumed regions (across multiple accesses) for a given execution range.
+		region<3> compute_consumed_region(const buffer_id bid, const box<3>& execution_range) const;
+
+		/// Computes the union of all produced regions (across multiple accesses) for a given execution range.
+		region<3> compute_produced_region(const buffer_id bid, const box<3>& execution_range) const;
+
+		/// Returns a set of bounding boxes, one for each accessed region, that must be allocated contiguously.
+		box_vector<3> compute_required_contiguous_boxes(const buffer_id bid, const box<3>& execution_range) const;
 
 	  private:
-		std::vector<std::pair<buffer_id, std::unique_ptr<range_mapper_base>>> m_accesses;
+		std::vector<buffer_access> m_accesses;
+		std::unordered_set<buffer_id> m_accessed_buffers; ///< Cached set of buffer ids found in m_accesses
+		task_geometry m_task_geometry;
+		std::unordered_map<buffer_id, region<3>> m_task_consumed_regions;
+		std::unordered_map<buffer_id, region<3>> m_task_produced_regions;
 	};
 
 	using reduction_set = std::vector<reduction_info>;
@@ -95,13 +119,6 @@ namespace detail {
 
 		virtual void fulfill() = 0;
 		virtual allocation_id get_user_allocation_id() = 0; // TODO move to struct task instead
-	};
-
-	struct task_geometry {
-		int dimensions = 0;
-		range<3> global_size{1, 1, 1};
-		id<3> global_offset{};
-		range<3> granularity{1, 1, 1};
 	};
 
 	class task : public intrusive_graph_node<task> {
@@ -182,9 +199,10 @@ namespace detail {
 			    {}, std::move(reductions), {}, nullptr));
 		}
 
-		static std::unique_ptr<task> make_collective(task_id tid, collective_group_id cgid, size_t num_collective_nodes, host_task_launcher launcher,
-		    buffer_access_map access_map, side_effect_map side_effect_map) {
-			const task_geometry geometry{1, detail::range_cast<3>(range(num_collective_nodes)), {}, {1, 1, 1}};
+		static std::unique_ptr<task> make_collective(task_id tid, task_geometry geometry, collective_group_id cgid, size_t num_collective_nodes,
+		    host_task_launcher launcher, buffer_access_map access_map, side_effect_map side_effect_map) {
+			// The geometry is required to construct the buffer_access_map, so we pass it in here even though it has to have a specific shape
+			assert(geometry.dimensions == 1 && geometry.global_size == detail::range_cast<3>(range(num_collective_nodes)) && geometry.global_offset == zeros);
 			return std::unique_ptr<task>(
 			    new task(tid, task_type::collective, cgid, geometry, std::move(launcher), std::move(access_map), std::move(side_effect_map), {}, {}, nullptr));
 		}

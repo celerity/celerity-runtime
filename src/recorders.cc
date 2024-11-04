@@ -1,4 +1,7 @@
 #include "recorders.h"
+
+#include <cstddef>
+
 #include "command_graph.h"
 
 namespace celerity::detail {
@@ -9,11 +12,10 @@ access_list build_access_list(const task& tsk, const buffer_name_map& get_buffer
 	access_list ret;
 	const auto exec_range = execution_range.value_or(subrange<3>{tsk.get_global_offset(), tsk.get_global_size()});
 	const auto& bam = tsk.get_buffer_access_map();
-	for(const auto bid : bam.get_accessed_buffers()) {
-		for(const auto mode : bam.get_access_modes(bid)) {
-			const auto req = bam.get_mode_requirements(bid, mode, tsk.get_dimensions(), exec_range, tsk.get_global_size());
-			ret.push_back({bid, get_buffer_debug_name(bid), mode, req});
-		}
+	for(size_t i = 0; i < bam.get_num_accesses(); ++i) {
+		const auto [bid, mode] = bam.get_nth_access(i);
+		const auto req = bam.get_requirements_for_nth_access(i, exec_range);
+		ret.push_back({bid, get_buffer_debug_name(bid), mode, req});
 	}
 	return ret;
 }

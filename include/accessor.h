@@ -263,7 +263,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	template <typename Functor>
 	accessor(const ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) {
 		using range_mapper = detail::range_mapper<Dims, std::decay_t<Functor>>; // decay function type to function pointer
-		const auto hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), std::make_unique<range_mapper>(rmfn, Mode, buff.get_range()));
+		const auto hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), Mode, std::make_unique<range_mapper>(rmfn, buff.get_range()));
 		m_device_ptr = detail::embed_hydration_id<DataT*>(hid);
 	}
 
@@ -554,7 +554,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	template <target Target = target::host_task, typename Functor>
 	accessor(ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) : m_buffer_range(buff.get_range()) {
 		using range_mapper = detail::range_mapper<Dims, std::decay_t<Functor>>; // decay function type to function pointer
-		const auto hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), std::make_unique<range_mapper>(rmfn, Mode, buff.get_range()));
+		const auto hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), Mode, std::make_unique<range_mapper>(rmfn, buff.get_range()));
 		m_host_ptr = detail::embed_hydration_id<DataT*>(hid);
 	}
 

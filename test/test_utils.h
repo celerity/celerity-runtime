@@ -255,7 +255,7 @@ namespace test_utils {
 	  public:
 		template <sycl::access::mode Mode, typename Functor>
 		void get_access(handler& cgh, Functor rmfn) {
-			(void)detail::add_requirement(cgh, m_id, std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, Mode, m_size));
+			(void)detail::add_requirement(cgh, m_id, Mode, std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, m_size));
 		}
 
 		detail::buffer_id get_id() const { return m_id; }
@@ -382,10 +382,10 @@ namespace test_utils {
 
 	template <int Dims>
 	inline detail::task_id add_fence_task(detail::task_manager& tm, mock_buffer<Dims> buf, subrange<Dims> sr) {
-		detail::buffer_access_map access_map;
-		access_map.add_access(buf.get_id(),
-		    std::make_unique<detail::range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), access_mode::read, buf.get_range()));
-		return tm.generate_fence_task(std::move(access_map), {}, nullptr);
+		std::vector<detail::buffer_access> accesses;
+		accesses.push_back(detail::buffer_access{buf.get_id(), access_mode::read,
+		    std::make_unique<detail::range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), buf.get_range())});
+		return tm.generate_fence_task(detail::buffer_access_map(std::move(accesses), detail::task_geometry{}), {}, nullptr);
 	}
 
 	template <int Dims>

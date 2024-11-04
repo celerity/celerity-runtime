@@ -76,10 +76,9 @@ namespace detail {
 		    tm, [&](handler& cgh) { buf_a.get_access<sycl::access::mode::read>(cgh, one_to_one{}); }, range);
 		const auto tsk = test_utils::get_task(runtime_testspy::get_task_graph(runtime::get_instance()), tid);
 		const auto bufs = tsk->get_buffer_access_map().get_accessed_buffers();
-		REQUIRE(bufs.size() == 1);
-		REQUIRE(tsk->get_buffer_access_map().get_access_modes(0).count(sycl::access::mode::read) == 1);
+		CHECK(bufs.size() == 1);
+		CHECK(tsk->get_buffer_access_map().get_nth_access(0) == std::pair{get_buffer_id(buf_a), access_mode::read});
 	}
-
 
 	TEST_CASE("task_manager calls into delegate on task creation", "[task_manager]") {
 		struct counter_delegate final : public task_manager::delegate {
@@ -92,7 +91,6 @@ namespace detail {
 		task_manager tm{1, tdag, nullptr, &delegate};
 		tm.generate_epoch_task(epoch_action::init);
 		CHECK(delegate.counter == 1);
-
 		range<2> gs = {1, 1};
 		id<2> go = {};
 		tm.submit_command_group([=](handler& cgh) { cgh.parallel_for<class kernel>(gs, go, [](auto) {}); });
@@ -112,39 +110,39 @@ namespace detail {
 			    buf_b.get_access<sycl::access::mode::discard_read_write>(cgh, fixed{subrange<3>{{}, {5, 18, 74}}});
 		    },
 		    range<2>{32, 128}, id<2>{32, 24});
+
 		const auto tsk = test_utils::get_task(tt.tdag, tid);
-		REQUIRE(tsk->get_type() == task_type::device_compute);
-		REQUIRE(tsk->get_dimensions() == 2);
-		REQUIRE(tsk->get_global_size() == range<3>{32, 128, 1});
-		REQUIRE(tsk->get_global_offset() == id<3>{32, 24, 0});
+		CHECK(tsk->get_type() == task_type::device_compute);
+		CHECK(tsk->get_dimensions() == 2);
+		CHECK(tsk->get_global_size() == range<3>{32, 128, 1});
+		CHECK(tsk->get_global_offset() == id<3>{32, 24, 0});
 
 		auto& bam = tsk->get_buffer_access_map();
 		const auto bufs = bam.get_accessed_buffers();
-		REQUIRE(bufs.size() == 2);
-		REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_a.get_id()) != bufs.cend());
-		REQUIRE(std::find(bufs.cbegin(), bufs.cend(), buf_b.get_id()) != bufs.cend());
-		REQUIRE(bam.get_access_modes(buf_a.get_id()).count(sycl::access::mode::read) == 1);
-		REQUIRE(bam.get_access_modes(buf_b.get_id()).count(sycl::access::mode::discard_read_write) == 1);
-		const auto reqs_a = bam.get_mode_requirements(
-		    buf_a.get_id(), sycl::access::mode::read, tsk->get_dimensions(), {tsk->get_global_offset(), tsk->get_global_size()}, tsk->get_global_size());
-		REQUIRE(reqs_a == box(subrange<3>({32, 24, 0}, {32, 128, 1})));
-		const auto reqs_b = bam.get_mode_requirements(buf_b.get_id(), sycl::access::mode::discard_read_write, tsk->get_dimensions(),
-		    {tsk->get_global_offset(), tsk->get_global_size()}, tsk->get_global_size());
-		REQUIRE(reqs_b == box(subrange<3>({}, {5, 18, 74})));
+		CHECK(bufs.size() == 2);
+		CHECK(std::find(bufs.cbegin(), bufs.cend(), buf_a.get_id()) != bufs.cend());
+		CHECK(std::find(bufs.cbegin(), bufs.cend(), buf_b.get_id()) != bufs.cend());
+		CHECK(bam.get_nth_access(0) == std::pair{buf_a.get_id(), access_mode::read});
+		CHECK(bam.get_nth_access(1) == std::pair{buf_b.get_id(), access_mode::discard_read_write});
+		const auto reqs_a = bam.compute_consumed_region(buf_a.get_id(), subrange{tsk->get_global_offset(), tsk->get_global_size()});
+		CHECK(reqs_a == box(subrange<3>({32, 24, 0}, {32, 128, 1})));
+		const auto reqs_b = bam.compute_produced_region(buf_b.get_id(), subrange{tsk->get_global_offset(), tsk->get_global_size()});
+		CHECK(reqs_b == box(subrange<3>({}, {5, 18, 74})));
 	}
 
 	TEST_CASE("buffer_access_map merges multiple accesses with the same mode", "[task][device_compute_task]") {
-		buffer_access_map bam;
-		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{3, 0}, {10, 20}}, sycl::access::mode::read, range<2>{30, 30}));
-		bam.add_access(0, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{10, 0}, {7, 20}}, sycl::access::mode::read, range<2>{30, 30}));
-		const auto req = bam.get_mode_requirements(0, sycl::access::mode::read, 2, subrange<3>({0, 0, 0}, {100, 100, 1}), {100, 100, 1});
-		REQUIRE(req == box(subrange<3>({3, 0, 0}, {14, 20, 1})));
+		std::vector<buffer_access> accs;
+		accs.push_back(buffer_access{0, access_mode::read, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{3, 0}, {10, 20}}, range<2>{30, 30})});
+		accs.push_back(buffer_access{0, access_mode::read, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{10, 0}, {7, 20}}, range<2>{30, 30})});
+		buffer_access_map bam{std::move(accs), task_geometry{2, {100, 100, 1}, {}, {}}};
+		const auto req = bam.compute_consumed_region(0, subrange<3>({0, 0, 0}, {100, 100, 1}));
+		CHECK(req == box(subrange<3>({3, 0, 0}, {14, 20, 1})));
 	}
 
 	TEST_CASE("tasks gracefully handle get_requirements() calls for buffers they don't access", "[task]") {
 		buffer_access_map bam;
-		const auto req = bam.get_mode_requirements(0, sycl::access::mode::read, 3, subrange<3>({0, 0, 0}, {100, 1, 1}), {100, 1, 1});
-		REQUIRE(req == box<3>());
+		const auto req = bam.compute_consumed_region(0, subrange<3>({0, 0, 0}, {100, 1, 1}));
+		CHECK(req == box<3>());
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "queue::wait() returns only after all preceding tasks have completed", "[queue][sync][control-flow]") {

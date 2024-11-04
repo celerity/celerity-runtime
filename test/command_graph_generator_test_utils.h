@@ -313,10 +313,10 @@ class cdag_test_context final : private task_manager::delegate {
 
 	template <int Dims>
 	task_id fence(test_utils::mock_buffer<Dims> buf, subrange<Dims> sr) {
-		buffer_access_map access_map;
-		access_map.add_access(buf.get_id(),
-		    std::make_unique<range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), access_mode::read, buf.get_range()));
-		return fence(std::move(access_map), {});
+		std::vector<buffer_access> accesses;
+		accesses.push_back(buffer_access{buf.get_id(), access_mode::read,
+		    std::make_unique<range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), buf.get_range())});
+		return fence(buffer_access_map(std::move(accesses), task_geometry{}), {});
 	}
 
 	template <int Dims>

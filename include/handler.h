@@ -4,6 +4,7 @@
 #include <type_traits>
 #include <typeinfo>
 #include <utility>
+#include <vector>
 
 #include <fmt/format.h>
 #include <sycl/sycl.hpp>
@@ -14,6 +15,7 @@
 #include "partition.h"
 #include "range_mapper.h"
 #include "ranges.h"
+#include "sycl_wrappers.h"
 #include "task.h"
 #include "types.h"
 #include "version.h"
@@ -56,7 +58,7 @@ namespace detail {
 
 	handler make_command_group_handler(const task_id tid, const size_t num_collective_nodes);
 	std::unique_ptr<task> into_task(handler&& cgh);
-	hydration_id add_requirement(handler& cgh, const buffer_id bid, std::unique_ptr<range_mapper_base> rm);
+	hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, std::unique_ptr<range_mapper_base> rm);
 	void add_requirement(handler& cgh, const host_object_id hoid, const experimental::side_effect_order order, const bool is_void);
 	void add_reduction(handler& cgh, const reduction_info& rinfo);
 
@@ -406,7 +408,8 @@ class handler {
   private:
 	friend handler detail::make_command_group_handler(const detail::task_id tid, const size_t num_collective_nodes);
 	friend std::unique_ptr<detail::task> detail::into_task(handler&& cgh);
-	friend detail::hydration_id detail::add_requirement(handler& cgh, const detail::buffer_id bid, std::unique_ptr<detail::range_mapper_base> rm);
+	friend detail::hydration_id detail::add_requirement(
+	    handler& cgh, const detail::buffer_id bid, const access_mode mode, std::unique_ptr<detail::range_mapper_base> rm);
 	friend void detail::add_requirement(handler& cgh, const detail::host_object_id hoid, const experimental::side_effect_order order, const bool is_void);
 	friend void detail::add_reduction(handler& cgh, const detail::reduction_info& rinfo);
 	template <int Dims>
@@ -416,7 +419,7 @@ class handler {
 	friend void detail::set_task_name(handler& cgh, const std::string& debug_name);
 
 	detail::task_id m_tid;
-	detail::buffer_access_map m_access_map;
+	std::vector<detail::buffer_access> m_buffer_accesses;
 	detail::side_effect_map m_side_effects;
 	size_t m_non_void_side_effects_count = 0;
 	detail::reduction_set m_reductions;
@@ -455,9 +458,9 @@ class handler {
 		create_device_compute_task(geometry, detail::kernel_debug_name<KernelName>(), std::move(launcher));
 	}
 
-	[[nodiscard]] detail::hydration_id add_requirement(const detail::buffer_id bid, std::unique_ptr<detail::range_mapper_base> rm) {
+	[[nodiscard]] detail::hydration_id add_requirement(const detail::buffer_id bid, const access_mode mode, std::unique_ptr<detail::range_mapper_base> rm) {
 		assert(m_task == nullptr);
-		m_access_map.add_access(bid, std::move(rm));
+		m_buffer_accesses.push_back(detail::buffer_access{bid, mode, std::move(rm)});
 		return m_next_accessor_hydration_id++;
 	}
 
@@ -512,8 +515,8 @@ class handler {
 			// TODO this can be easily supported by not creating a task in case the execution range is empty
 			throw std::runtime_error{"The execution range of distributed host tasks must have at least one item"};
 		}
-		m_task =
-		    detail::task::make_host_compute(m_tid, geometry, std::move(launcher), std::move(m_access_map), std::move(m_side_effects), std::move(m_reductions));
+		m_task = detail::task::make_host_compute(m_tid, geometry, std::move(launcher), detail::buffer_access_map(std::move(m_buffer_accesses), geometry),
+		    std::move(m_side_effects), std::move(m_reductions));
 
 		m_task->set_debug_name(m_usr_def_task_name.value_or(""));
 	}
@@ -529,22 +532,25 @@ class handler {
 		}
 		// Note that cgf_diagnostics has a similar check, but we don't catch void side effects there.
 		if(!m_side_effects.empty()) { throw std::runtime_error{"Side effects cannot be used in device kernels"}; }
-		m_task = detail::task::make_device_compute(m_tid, geometry, std::move(launcher), std::move(m_access_map), std::move(m_reductions));
+		m_task = detail::task::make_device_compute(
+		    m_tid, geometry, std::move(launcher), detail::buffer_access_map(std::move(m_buffer_accesses), geometry), std::move(m_reductions));
 
 		m_task->set_debug_name(m_usr_def_task_name.value_or(debug_name));
 	}
 
 	void create_collective_task(const detail::collective_group_id cgid, detail::host_task_launcher launcher) {
 		assert(m_task == nullptr);
-		m_task = detail::task::make_collective(m_tid, cgid, m_num_collective_nodes, std::move(launcher), std::move(m_access_map), std::move(m_side_effects));
+		const detail::task_geometry geometry{1, detail::range_cast<3>(range(m_num_collective_nodes)), {}, {1, 1, 1}};
+		m_task = detail::task::make_collective(m_tid, geometry, cgid, m_num_collective_nodes, std::move(launcher),
+		    detail::buffer_access_map(std::move(m_buffer_accesses), geometry), std::move(m_side_effects));
 
 		m_task->set_debug_name(m_usr_def_task_name.value_or(""));
 	}
 
 	void create_master_node_task(detail::host_task_launcher launcher) {
 		assert(m_task == nullptr);
-		m_task = detail::task::make_master_node(m_tid, std::move(launcher), std::move(m_access_map), std::move(m_side_effects));
-
+		m_task = detail::task::make_master_node(
+		    m_tid, std::move(launcher), detail::buffer_access_map(std::move(m_buffer_accesses), detail::task_geometry{}), std::move(m_side_effects));
 		m_task->set_debug_name(m_usr_def_task_name.value_or(""));
 	}
 
@@ -556,7 +562,7 @@ class handler {
 
 		// Check whether all accessors are being captured by value etc.
 		// Although the diagnostics should always be available, we currently disable them for some test cases.
-		if(detail::cgf_diagnostics::is_available()) { detail::cgf_diagnostics::get_instance().check<target::device>(kernel, m_access_map); }
+		if(detail::cgf_diagnostics::is_available()) { detail::cgf_diagnostics::get_instance().check<target::device>(kernel, m_buffer_accesses); }
 
 		return [=](sycl::handler& sycl_cgh, const detail::box<3>& execution_range, const std::vector<void*>& reduction_ptrs) {
 			constexpr int sycl_dims = std::max(1, Dims);
@@ -590,7 +596,7 @@ class handler {
 		// Check whether all accessors are being captured by value etc.
 		// Although the diagnostics should always be available, we currently disable them for some test cases.
 		if(detail::cgf_diagnostics::is_available()) {
-			detail::cgf_diagnostics::get_instance().check<target::host_task>(kernel, m_access_map, m_non_void_side_effects_count);
+			detail::cgf_diagnostics::get_instance().check<target::host_task>(kernel, m_buffer_accesses, m_non_void_side_effects_count);
 		}
 
 		return [kernel, global_range](const detail::box<3>& execution_range, const detail::communicator* collective_comm) {
@@ -640,8 +646,8 @@ namespace detail {
 		return into_task(std::move(cgh));
 	}
 
-	[[nodiscard]] inline hydration_id add_requirement(handler& cgh, const buffer_id bid, std::unique_ptr<range_mapper_base> rm) {
-		return cgh.add_requirement(bid, std::move(rm));
+	[[nodiscard]] inline hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, std::unique_ptr<range_mapper_base> rm) {
+		return cgh.add_requirement(bid, mode, std::move(rm));
 	}
 
 	inline void add_requirement(handler& cgh, const host_object_id hoid, const experimental::side_effect_order order, const bool is_void) {

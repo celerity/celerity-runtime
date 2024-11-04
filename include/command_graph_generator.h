@@ -235,7 +235,7 @@ class command_graph_generator {
 
 	std::vector<assigned_chunk> split_task_and_assign_chunks(const task& tsk) const;
 
-	buffer_requirements_list get_buffer_requirements_for_mapped_access(const task& tsk, const subrange<3>& sr, const range<3> global_size) const;
+	buffer_requirements_list get_buffer_requirements_for_mapped_access(const task& tsk, const subrange<3>& sr) const;
 
 	assigned_chunks_with_requirements compute_per_chunk_requirements(const task& tsk, const std::vector<assigned_chunk>& chunks) const;
 

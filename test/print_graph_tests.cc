@@ -71,7 +71,12 @@ TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]")
 	    .discard_write(buf_1, acc::one_to_one{})
 	    .reduce(buf_0, false)
 	    .submit();
-	cctx.device_compute(range<1>(num_nodes)).read(buf_0, acc::all{}).read_write(buf_1, acc::one_to_one{}).write(buf_1, acc::one_to_one{}).submit();
+	cctx.device_compute(range<1>(num_nodes))
+	    .read(buf_0, acc::all{})
+	    .read(buf_0, acc::all{}) // we print duplicate accesses as-is
+	    .read_write(buf_1, acc::one_to_one{})
+	    .write(buf_1, acc::one_to_one{})
+	    .submit();
 	cctx.collective_host_task().read(buf_1, acc::all{}).submit();
 	cctx.collective_host_task().read(buf_1, acc::all{}).submit();
 	cctx.fence(buf_1);
@@ -84,17 +89,17 @@ TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]")
 	    "color=\"#606060\">T1 (device-compute)</font>>;color=darkgray;id_0_1[color=darkorange2,shape=box,label=<C1 on N0<br/><b>execution</b> [0,0,0] + "
 	    "[1,1,1]<br/>(R1) <i>discard_write</i> B0 {[0,0,0] - [1,1,1]}<br/><i>discard_write</i> B1 {[0,0,0] - [1,1,1]}>];}subgraph cluster_id_0_2{label=<<font "
 	    "color=\"#606060\">T2 (device-compute)</font>>;color=darkgray;id_0_5[color=darkorange2,shape=box,label=<C5 on N0<br/><b>execution</b> [0,0,0] + "
-	    "[1,1,1]<br/><i>write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read_write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read</i> B0 {[0,0,0] - [1,1,1]}>];}subgraph "
-	    "cluster_id_0_3{label=<<font color=\"#606060\">T3 (collective host on CG2)</font>>;color=darkgray;id_0_8[color=darkorange2,shape=box,label=<C8 on "
-	    "N0<br/><b>execution</b> [0,0,0] + [1,1,1]<br/><i>read</i> B1 {[0,0,0] - [4,1,1]}>];}subgraph cluster_id_0_4{label=<<font color=\"#606060\">T4 "
-	    "(collective host on CG2)</font>>;color=darkgray;id_0_9[color=darkorange2,shape=box,label=<C9 on N0<br/><b>execution</b> [0,0,0] + "
-	    "[1,1,1]<br/><i>read</i> B1 {[0,0,0] - [4,1,1]}>];}subgraph cluster_id_0_5{label=<<font color=\"#606060\">T5 "
-	    "(horizon)</font>>;color=darkgray;id_0_10[color=black,shape=box,label=<C10 on N0<br/><b>horizon</b><br/>completed R1>];}subgraph "
-	    "cluster_id_0_6{label=<<font color=\"#606060\">T6 (fence)</font>>;color=darkgray;id_0_11[color=darkorange,shape=box,label=<C11 on "
-	    "N0<br/><b>fence</b><br/><i>read</i> B1 {[0,0,0] - [4,1,1]}>];}id_0_2[color=deeppink2,shape=ellipse,label=<C2 on N0<br/>(R1) <b>push</b> "
-	    "T2.B0.R1<br/>{[0,0,0] - [1,1,1]} to N1<br/>{[0,0,0] - [1,1,1]} to N2<br/>{[0,0,0] - [1,1,1]} to "
-	    "N3<br/>>];id_0_3[color=deeppink2,shape=ellipse,label=<C3 on N0<br/>(R1) <b>await push</b> T2.B0.R1 <br/>B0 {[0,0,0] - "
-	    "[1,1,1]}>];id_0_4[color=blue,shape=ellipse,label=<C4 on N0<br/><b>reduction</b> R1<br/> B0 {[0,0,0] - "
+	    "[1,1,1]<br/><i>read</i> B0 {[0,0,0] - [1,1,1]}<br/><i>read</i> B0 {[0,0,0] - [1,1,1]}<br/><i>read_write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>write</i> "
+	    "B1 {[0,0,0] - [1,1,1]}>];}subgraph cluster_id_0_3{label=<<font color=\"#606060\">T3 (collective host on "
+	    "CG2)</font>>;color=darkgray;id_0_8[color=darkorange2,shape=box,label=<C8 on N0<br/><b>execution</b> [0,0,0] + [1,1,1]<br/><i>read</i> B1 {[0,0,0] - "
+	    "[4,1,1]}>];}subgraph cluster_id_0_4{label=<<font color=\"#606060\">T4 (collective host on "
+	    "CG2)</font>>;color=darkgray;id_0_9[color=darkorange2,shape=box,label=<C9 on N0<br/><b>execution</b> [0,0,0] + [1,1,1]<br/><i>read</i> B1 {[0,0,0] - "
+	    "[4,1,1]}>];}subgraph cluster_id_0_5{label=<<font color=\"#606060\">T5 (horizon)</font>>;color=darkgray;id_0_10[color=black,shape=box,label=<C10 on "
+	    "N0<br/><b>horizon</b><br/>completed R1>];}subgraph cluster_id_0_6{label=<<font color=\"#606060\">T6 "
+	    "(fence)</font>>;color=darkgray;id_0_11[color=darkorange,shape=box,label=<C11 on N0<br/><b>fence</b><br/><i>read</i> B1 {[0,0,0] - "
+	    "[4,1,1]}>];}id_0_2[color=deeppink2,shape=ellipse,label=<C2 on N0<br/>(R1) <b>push</b> T2.B0.R1<br/>{[0,0,0] - [1,1,1]} to N1<br/>{[0,0,0] - [1,1,1]} "
+	    "to N2<br/>{[0,0,0] - [1,1,1]} to N3<br/>>];id_0_3[color=deeppink2,shape=ellipse,label=<C3 on N0<br/>(R1) <b>await push</b> T2.B0.R1 <br/>B0 {[0,0,0] "
+	    "- [1,1,1]}>];id_0_4[color=blue,shape=ellipse,label=<C4 on N0<br/><b>reduction</b> R1<br/> B0 {[0,0,0] - "
 	    "[1,1,1]}>];id_0_6[color=deeppink2,shape=ellipse,label=<C6 on N0<br/><b>push</b> T3.B1<br/>{[0,0,0] - [1,1,1]} to N1<br/>{[0,0,0] - [1,1,1]} to "
 	    "N2<br/>{[0,0,0] - [1,1,1]} to N3<br/>>];id_0_7[color=deeppink2,shape=ellipse,label=<C7 on N0<br/><b>await push</b> T3.B1 <br/>B1 {[1,0,0] - "
 	    "[4,1,1]}>];id_0_0->id_0_1[color=orchid];id_0_0->id_0_3[color=orchid];id_0_0->id_0_7[color=orchid];id_0_1->id_0_2[];id_0_1->id_0_4[];id_0_1->id_0_5[];"

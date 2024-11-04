@@ -177,18 +177,11 @@ std::vector<command_graph_generator::assigned_chunk> command_graph_generator::sp
 }
 
 command_graph_generator::buffer_requirements_list command_graph_generator::get_buffer_requirements_for_mapped_access(
-    const task& tsk, const subrange<3>& sr, const range<3> global_size) const {
+    const task& tsk, const subrange<3>& sr) const {
 	buffer_requirements_list result;
 	const auto& access_map = tsk.get_buffer_access_map();
 	for(const buffer_id bid : access_map.get_accessed_buffers()) {
-		region_builder<3> consumed;
-		region_builder<3> produced;
-		for(const auto m : access_map.get_access_modes(bid)) {
-			const auto req = access_map.get_mode_requirements(bid, m, tsk.get_dimensions(), sr, global_size);
-			if(detail::access::mode_traits::is_consumer(m)) { consumed.add(req); }
-			if(detail::access::mode_traits::is_producer(m)) { produced.add(req); } // not else: `access_mode::write` is both a consumer and a producer
-		}
-		result.push_back(buffer_requirements{bid, std::move(consumed).into_region(), std::move(produced).into_region()});
+		result.push_back(buffer_requirements{bid, access_map.compute_consumed_region(bid, box<3>(sr)), access_map.compute_produced_region(bid, box<3>(sr))});
 	}
 	return result;
 }
@@ -202,7 +195,7 @@ command_graph_generator::assigned_chunks_with_requirements command_graph_generat
 
 	for(const auto& a_chunk : assigned_chunks) {
 		const node_id nid = a_chunk.executed_on;
-		auto requirements = get_buffer_requirements_for_mapped_access(tsk, a_chunk.chnk, tsk.get_global_size());
+		auto requirements = get_buffer_requirements_for_mapped_access(tsk, a_chunk.chnk);
 
 		// Add read/write requirements for reductions performed in this task.
 		for(const auto& reduction : tsk.get_reductions()) {
@@ -425,7 +418,11 @@ void command_graph_generator::generate_await_pushes(batch& current_batch, const 
 }
 
 void command_graph_generator::update_local_buffer_fresh_regions(const task& tsk, const std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes) {
-	auto requirements = get_buffer_requirements_for_mapped_access(tsk, subrange<3>(tsk.get_global_offset(), tsk.get_global_size()), tsk.get_global_size());
+	buffer_requirements_list requirements;
+	for(const auto bid : tsk.get_buffer_access_map().get_accessed_buffers()) {
+		const auto& bam = tsk.get_buffer_access_map();
+		requirements.push_back({bid, bam.get_task_consumed_region(bid), bam.get_task_produced_region(bid)});
+	}
 	// Add requirements for reductions
 	for(const auto& reduction : tsk.get_reductions()) {
 		auto it = std::find_if(requirements.begin(), requirements.end(), [&](const buffer_requirements& br) { return br.bid == reduction.bid; });
