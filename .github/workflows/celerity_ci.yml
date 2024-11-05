@@ -84,6 +84,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           clang_tidy_fixes: "${{ env.container-workspace }}/clang-tidy-fixes.yml"
           repo_path_prefix: "/__w"
+          auto_resolve_conversations: true
 
   # We need to jump through some hoops to have different build matrices based on what triggered the workflow.
   # For normal CI runs we want to build and test against everything except the "HEAD" revisions, whereas during
