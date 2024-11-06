@@ -327,6 +327,10 @@ namespace detail {
 			}
 		}
 
+#if !CELERITY_DETAIL_ENABLE_DEBUG && CELERITY_ACCESSOR_BOUNDARY_CHECK
+		CELERITY_WARN("Celerity was configured with CELERITY_ACCESSOR_BOUNDARY_CHECK=ON. Kernel performance will be negatively impacted.");
+#endif
+
 		cgf_diagnostics::make_available();
 
 		std::vector<sycl::device> devices;
