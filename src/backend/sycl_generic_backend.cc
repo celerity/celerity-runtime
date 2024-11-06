@@ -49,16 +49,18 @@ async_event nd_copy_device_generic(sycl::queue& queue, const void* const source_
 
 namespace celerity::detail {
 
-sycl_generic_backend::sycl_generic_backend(const std::vector<sycl::device>& devices, bool enable_profiling) : sycl_backend(devices, enable_profiling) {
+sycl_generic_backend::sycl_generic_backend(const std::vector<sycl::device>& devices, const sycl_backend::configuration& config)
+    : sycl_backend(devices, config) {
 	if(devices.size() > 1) { CELERITY_DEBUG("Generic backend does not support peer memory access, device-to-device copies will be staged in host memory"); }
 }
 
 async_event sycl_generic_backend::enqueue_device_copy(const device_id device, const size_t device_lane, const void* const source_base, void* const dest_base,
     const region_layout& source_layout, const region_layout& dest_layout, const region<3>& copy_region, const size_t elem_size) //
 {
-	auto& queue = get_device_queue(device, device_lane);
-	return sycl_backend_detail::nd_copy_device_generic(
-	    queue, source_base, dest_base, source_layout, dest_layout, copy_region, elem_size, is_profiling_enabled());
+	return enqueue_device_work(device, device_lane, [=, this](sycl::queue& queue) {
+		return sycl_backend_detail::nd_copy_device_generic(
+		    queue, source_base, dest_base, source_layout, dest_layout, copy_region, elem_size, is_profiling_enabled());
+	});
 }
 
 } // namespace celerity::detail

@@ -61,13 +61,15 @@ std::vector<sycl::device> select_devices_for_backend(sycl_backend_type type) {
 	return backend_devices;
 }
 
-std::tuple<sycl_backend_type, std::unique_ptr<backend>, std::vector<sycl::device>> generate_backends_with_devices(bool enable_profiling = false) {
+std::tuple<sycl_backend_type, std::unique_ptr<backend>, std::vector<sycl::device>> generate_backends_with_devices(
+    bool enable_profiling = false, bool enable_device_submission_threads = true) {
 	const auto backend_type = GENERATE(test_utils::from_vector(sycl_backend_enumerator{}.available_backends()));
 	auto sycl_devices = select_devices_for_backend(backend_type);
 	CAPTURE(backend_type, sycl_devices);
 
 	if(sycl_devices.empty()) { SKIP("No devices available for backend"); }
-	auto backend = make_sycl_backend(backend_type, sycl_devices, enable_profiling);
+	const sycl_backend::configuration be_config{.per_device_submission_threads = enable_device_submission_threads, .profiling = enable_profiling};
+	auto backend = make_sycl_backend(backend_type, sycl_devices, be_config);
 	return {backend_type, std::move(backend), std::move(sycl_devices)};
 }
 
@@ -220,7 +222,7 @@ TEST_CASE("host tasks in a single lane execute in-order", "[backend]") {
 TEST_CASE("device kernel command groups are hydrated and invoked with the correct parameters", "[backend]") {
 	test_utils::allow_backend_fallback_warnings();
 
-	const auto [backend_type, backend, sycl_devices] = generate_backends_with_devices();
+	const auto [backend_type, backend, sycl_devices] = generate_backends_with_devices(false, false);
 	CAPTURE(backend_type, sycl_devices);
 
 	const mock_accessor<target::device> acc1(hydration_id(1));
@@ -273,7 +275,7 @@ TEST_CASE("device kernel command groups are hydrated and invoked with the correc
 TEST_CASE("device kernels in a single lane execute in-order", "[backend]") {
 	test_utils::allow_backend_fallback_warnings();
 
-	const auto [backend_type, backend, sycl_devices] = generate_backends_with_devices();
+	const auto [backend_type, backend, sycl_devices] = generate_backends_with_devices(false, false);
 	CAPTURE(backend_type, sycl_devices);
 
 	const auto dummy = static_cast<volatile int*>(backend->debug_alloc(sizeof(int)));

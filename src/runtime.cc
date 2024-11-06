@@ -251,7 +251,9 @@ namespace detail {
 			assert(!devices.empty()); // postcondition of pick_devices
 		}
 
-		auto backend = make_sycl_backend(select_backend(sycl_backend_enumerator{}, devices), devices, m_cfg->should_enable_device_profiling());
+		const sycl_backend::configuration backend_config = {
+		    .per_device_submission_threads = m_cfg->should_use_backend_device_submission_threads(), .profiling = m_cfg->should_enable_device_profiling()};
+		auto backend = make_sycl_backend(select_backend(sycl_backend_enumerator{}, devices), devices, backend_config);
 		const auto system = backend->get_system_info(); // backend is about to be moved
 
 		if(m_cfg->is_dry_run()) {
