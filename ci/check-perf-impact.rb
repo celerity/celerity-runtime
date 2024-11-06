@@ -46,7 +46,7 @@ MAX_BENCHMARKS_TO_LIST = 3  # if more than this number of benchmarks is affected
 MESSAGE_FN = "#{ENV['GITHUB_WORKSPACE']}/check_perf_message.txt"
 
 # check if the expected files and env variables are present
-if !File.exists?(BENCH_FN)
+if !File.exist?(BENCH_FN)
   puts "Benchmark file #{BENCH_FN} not found.\nExecute this script from the repo root directory."
   exit(-1)
 end
@@ -66,7 +66,7 @@ if /Check-perf-impact results:[^(]*\((.*)\)/ =~ ENV["PREV_COMMENT_BODY"]
 end
 
 # in this case, we are just being invoked again to append the previously uploaded images to the message
-if File.exists?(MESSAGE_FN) 
+if File.exist?(MESSAGE_FN) 
   throw "Expected PLOT_IMG_URLS environment variable to be set" if !ENV.key?("PLOT_IMG_URLS")
   exit if ENV["PLOT_IMG_URLS"].empty? # no images were generated, i.e. there was no change
   img_urls = JSON.parse(ENV["PLOT_IMG_URLS"])
@@ -115,10 +115,10 @@ end
 
 # retrieve current and previous data from respective csv files
 base_ver = ENV['GITHUB_BASE_REF']
-`git fetch origin #{base_ver}`
+`git fetch github #{base_ver}`
 throw "failed git fetch for #{base_ver}!" unless $?.success?
 new_data_map, new_data = get_data_for_version()
-old_data_map, old_data = get_data_for_version("origin/" + base_ver)
+old_data_map, old_data = get_data_for_version("github/" + base_ver)
 
 # build a list of all categories in the new data
 categories = new_data_map.keys.map { |k| k[0] }.uniq.sort

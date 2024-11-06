@@ -1624,8 +1624,9 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 	// Collect chunk-reads by memory to establish local coherence later
 	dense_map<memory_id, std::vector<region<3>>> concurrent_reads_from_memory(m_memories.size());
 	for(const auto& chunk : concurrent_chunks_after_split) {
-		required_contiguous_allocations[chunk.memory_id].append(
-		    bam.get_required_contiguous_boxes(bid, tsk.get_dimensions(), chunk.execution_range.get_subrange(), tsk.get_global_size()));
+
+		    auto rqb = bam.get_required_contiguous_boxes(bid, tsk.get_dimensions(), chunk.execution_range.get_subrange(), tsk.get_global_size());
+		required_contiguous_allocations[chunk.memory_id].insert(required_contiguous_allocations[chunk.memory_id].end(), rqb.begin(), rqb.end());
 
 		region_builder<3> chunk_read_boxes;
 		for(const auto mode : access::consumer_modes) {

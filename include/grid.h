@@ -206,7 +206,211 @@ struct box_coordinate_order {
 };
 
 template <int Dims>
-using box_vector = gch::small_vector<box<Dims>>;
+class box_vector {
+  public:
+	using value_type = box<Dims>;
+	using reference = value_type&;
+	using const_reference = const value_type&;
+	using pointer = value_type*;
+	using const_pointer = const value_type*;
+	using iterator = value_type*;
+	using const_iterator = value_type*;
+
+	box_vector() = default;
+
+	box_vector(std::initializer_list<value_type> values) : m_storage(values) {}
+
+	template <typename Iterator>
+	box_vector(Iterator begin, Iterator end) {
+		m_storage.resize(std::distance(begin, end));
+		std::uninitialized_copy_n(begin, m_storage.size(), m_storage.begin());
+	}
+
+	box_vector(size_t count, const value_type& value = {}) { m_storage.resize(count, value); }
+
+	void push_back(const value_type& value) {
+		const auto at = m_storage.size();
+		m_storage.resize(at + 1);
+		m_storage.begin()[at] = value;
+	}
+
+	template <typename... Params>
+	void emplace_back(Params&&... params) {
+		const auto at = m_storage.size();
+		m_storage.resize(at + 1);
+		new(&m_storage.begin()[at]) value_type(std::forward<Params>(params)...);
+	}
+
+	size_t size() const { return m_storage.size(); }
+
+	bool empty() const { return m_storage.empty(); }
+
+	value_type& operator[](const size_t at) {
+		assert(at < m_storage.size());
+		return m_storage.begin()[at];
+	}
+
+	const value_type& operator[](const size_t at) const { return const_cast<box_vector&>(*this)[at]; }
+
+	const value_type& front() const {
+		assert(!m_storage.empty());
+		return begin()[0];
+	}
+	value_type& front() {
+		assert(!m_storage.empty());
+		return begin()[0];
+	}
+
+	const value_type& back() const {
+		assert(!m_storage.empty());
+		return begin()[m_storage.size() - 1];
+	}
+	value_type& back() {
+		assert(!m_storage.empty());
+		return begin()[m_storage.size() - 1];
+	}
+
+	template <typename Iterator>
+	void insert(iterator where, Iterator begin, Iterator end) {
+		assert(where == this->end());
+		const auto at = where - m_storage.begin();
+		m_storage.resize(m_storage.size() + std::distance(begin, end));
+		std::copy(begin, end, m_storage.begin() + at);
+	}
+
+	void erase(iterator begin, iterator end) {
+		assert(end == this->end());
+		m_storage.resize(m_storage.size() - std::distance(begin, end));
+	}
+
+	bool operator==(const box_vector& other) const {
+		if(m_storage.size() != other.m_storage.size()) return false;
+		return std::equal(begin(), end(), other.begin());
+	}
+
+	iterator begin() { return m_storage.begin(); }
+	iterator end() { return m_storage.end(); }
+
+	const_iterator begin() const { return const_cast<storage&>(m_storage).begin(); }
+	const_iterator end() const { return const_cast<storage&>(m_storage).end(); }
+
+	void resize(size_t new_size, const value_type value = {}) { m_storage.resize(new_size, value); }
+	void reserve(size_t new_size) {}
+
+  private:
+	constexpr static size_t tag_empty = ~size_t();
+	constexpr static size_t tag_multiple = ~size_t() - 1;
+
+	union storage {
+		box<Dims> single;
+
+		struct {
+			size_t tag; // will alias with box::min[0]
+			std::vector<value_type> multiple;
+		};
+
+		storage() : tag(tag_empty) {}
+
+		storage(const value_type& single) : single(single) { assert(single.get_min()[0] < tag_multiple); }
+
+		storage(std::initializer_list<value_type> values) {
+			switch(values.size()) {
+			case 0: tag = tag_empty; break;
+			case 1: new(&single) value_type(*values.begin()); break;
+			default: tag = tag_multiple, new(&multiple) std::vector<value_type>(values); break;
+			}
+		}
+
+		storage(const storage& other) {
+			switch(other.tag) {
+			case tag_empty: tag = tag_empty; break;
+			case tag_multiple: tag = tag_multiple, new(&multiple) std::vector<value_type>(other.multiple); break;
+			default: new(&single) value_type(other.single); break;
+			}
+		}
+
+		storage(storage&& other) noexcept {
+			switch(other.tag) {
+			case tag_empty: tag = tag_empty; break;
+			case tag_multiple: tag = tag_multiple, new(&multiple) std::vector<value_type>(std::move(other.multiple)); break;
+			default: new(&single) value_type(other.single); break;
+			}
+		}
+
+		storage& operator=(const storage& other) {
+			if(this == &other) return *this;
+			this->~storage();
+			new(this) storage(other);
+			return *this;
+		}
+
+		storage& operator=(storage&& other) noexcept {
+			if(this == &other) return *this;
+			this->~storage();
+			new(this) storage(std::move(other));
+			return *this;
+		}
+
+		~storage() {
+			if(tag == tag_multiple) { multiple.~vector<value_type>(); }
+		}
+
+		iterator begin() {
+			switch(tag) {
+			case tag_empty: return nullptr;
+			case tag_multiple: return multiple.data();
+			default: return &single;
+			}
+		}
+
+		iterator end() {
+			switch(tag) {
+			case tag_empty: return nullptr;
+			case tag_multiple: return multiple.data() + multiple.size();
+			default: return &single + 1;
+			}
+		}
+
+		bool empty() const { return tag == tag_empty || (tag == tag_multiple && multiple.empty()); }
+
+		size_t size() const {
+			switch(tag) {
+			case tag_empty: return 0;
+			case tag_multiple: return multiple.size();
+			default: return 1;
+			}
+		}
+
+		void resize(size_t new_size, const value_type value = {}) {
+			if (tag == tag_empty) {
+				if(new_size == 1) {
+					new(&single) value_type(value);
+				} else if (new_size > 1) {
+					tag = tag_multiple, new(&multiple) std::vector<value_type>(new_size, value);
+				}
+			} else if (tag == tag_multiple) {
+				multiple.resize(new_size, value);
+			} else {
+				if (new_size == 0) {
+					tag = tag_empty;
+				}
+				else if (new_size > 1) {
+					const auto tmp = single;
+					tag = tag_multiple, new(&multiple) std::vector<value_type>(new_size, value);
+					multiple.front() = tmp;
+				}
+			}
+		}
+	};
+
+	storage m_storage;
+};
+
+template <>
+class box_vector<0> : public std::vector<box<0>> {
+  public:
+	using std::vector<box<0>>::vector;
+};
 
 template <int DimsOut, int DimsIn>
 box_vector<DimsOut> boxes_cast(const box_vector<DimsIn>& in) {
@@ -293,7 +497,6 @@ class region_builder {
 } // namespace celerity::detail
 
 namespace celerity::detail::grid_detail {
-
 // forward-declaration for tests (explicitly instantiated)
 template <int StorageDims>
 void dissect_box(const box<StorageDims>& in_box, const std::vector<std::vector<size_t>>& cuts, box_vector<StorageDims>& out_dissected, int dim);
