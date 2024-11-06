@@ -451,7 +451,7 @@ void command_graph_generator::update_local_buffer_fresh_regions(const task& tsk,
 		for(auto& [box, wcs] : boxes_and_cids) {
 			if(wcs.is_fresh()) {
 				wcs.mark_as_stale();
-				buffer.local_last_writer.update_region(box, wcs);
+				buffer.local_last_writer.update_box(box, wcs);
 			}
 		}
 	}
