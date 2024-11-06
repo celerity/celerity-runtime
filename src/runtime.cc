@@ -2,6 +2,7 @@
 
 #include "affinity.h"
 #include "backend/sycl_backend.h"
+#include "cgf.h"
 #include "cgf_diagnostics.h"
 #include "command_graph_generator.h"
 #include "device_selection.h"
@@ -399,10 +400,23 @@ namespace detail {
 		if(!s_test_mode) { mpi_finalize_once(); }
 	}
 
-	task_id runtime::fence(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<task_promise> fence_promise) {
+	task_id runtime::submit(raw_command_group cg) {
 		require_call_from_application_thread();
 		maybe_prune_task_graph();
-		return m_task_mngr->generate_fence_task(std::move(access_map), std::move(side_effects), std::move(fence_promise));
+		return m_task_mngr->submit_command_group(std::move(cg));
+	}
+
+
+	task_id runtime::fence(buffer_access access, std::unique_ptr<task_promise> fence_promise) {
+		require_call_from_application_thread();
+		maybe_prune_task_graph();
+		return m_task_mngr->generate_fence_task(std::move(access), std::move(fence_promise));
+	}
+
+	task_id runtime::fence(host_object_effect effect, std::unique_ptr<task_promise> fence_promise) {
+		require_call_from_application_thread();
+		maybe_prune_task_graph();
+		return m_task_mngr->generate_fence_task(effect, std::move(fence_promise));
 	}
 
 	task_id runtime::sync(epoch_action action) {

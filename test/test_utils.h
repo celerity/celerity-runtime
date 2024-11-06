@@ -379,10 +379,11 @@ namespace test_utils {
 		// Here and below: Using these functions will cause false-positive CGF diagnostic errors, b/c we are not capturing any accessors.
 		// TODO: For many test cases using these functions it may actually be preferable to circumvent the whole handler mechanism entirely.
 		detail::cgf_diagnostics::teardown();
-		return tm.submit_command_group([&, gs = global_size, go = global_offset](handler& cgh) {
+		auto cg = detail::invoke_command_group_function([&, gs = global_size, go = global_offset](handler& cgh) {
 			cgf(cgh);
 			cgh.parallel_for<KernelName>(gs, go, [](id<KernelDims>) {});
 		});
+		return tm.submit_command_group(std::move(cg));
 		detail::cgf_diagnostics::make_available();
 	}
 
@@ -390,10 +391,11 @@ namespace test_utils {
 	detail::task_id add_nd_range_compute_task(detail::task_manager& tm, CGF cgf, celerity::nd_range<KernelDims> execution_range = {{1, 1}, {1, 1}}) {
 		// (See above).
 		detail::cgf_diagnostics::teardown();
-		return tm.submit_command_group([&, er = execution_range](handler& cgh) {
+		auto cg = detail::invoke_command_group_function([&, er = execution_range](handler& cgh) {
 			cgf(cgh);
 			cgh.parallel_for<KernelName>(er, [](nd_item<KernelDims>) {});
 		});
+		return tm.submit_command_group(std::move(cg));
 		detail::cgf_diagnostics::make_available();
 	}
 
@@ -401,25 +403,24 @@ namespace test_utils {
 	detail::task_id add_host_task(detail::task_manager& tm, Spec spec, CGF cgf) {
 		// (See above).
 		detail::cgf_diagnostics::teardown();
-		return tm.submit_command_group([&](handler& cgh) {
+		auto cg = detail::invoke_command_group_function([&](handler& cgh) {
 			cgf(cgh);
 			cgh.host_task(spec, [](auto...) {});
 		});
+		return tm.submit_command_group(std::move(cg));
 		detail::cgf_diagnostics::make_available();
 	}
 
 	inline detail::task_id add_fence_task(detail::task_manager& tm, mock_host_object ho) {
-		detail::side_effect_map side_effects;
-		side_effects.add_side_effect(ho.get_id(), experimental::side_effect_order::sequential);
-		return tm.generate_fence_task({}, std::move(side_effects), nullptr);
+		const detail::host_object_effect effect{ho.get_id(), experimental::side_effect_order::sequential};
+		return tm.generate_fence_task(effect, nullptr);
 	}
 
 	template <int Dims>
 	inline detail::task_id add_fence_task(detail::task_manager& tm, mock_buffer<Dims> buf, subrange<Dims> sr) {
-		std::vector<detail::buffer_access> accesses;
-		accesses.push_back(detail::buffer_access{buf.get_id(), access_mode::read,
-		    std::make_unique<detail::range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), buf.get_range())});
-		return tm.generate_fence_task(detail::buffer_access_map(std::move(accesses), detail::task_geometry{}), {}, nullptr);
+		detail::buffer_access access{buf.get_id(), access_mode::read,
+		    std::make_unique<detail::range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), buf.get_range())};
+		return tm.generate_fence_task(std::move(access), nullptr);
 	}
 
 	template <int Dims>

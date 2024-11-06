@@ -1,5 +1,4 @@
-#include "task.h"
-#include "task_manager.h"
+#include "cgf.h"
 #include "types.h"
 
 #include <catch2/catch_template_test_macros.hpp>
@@ -63,13 +62,10 @@ template <typename T>
 class MyThirdKernel;
 
 TEST_CASE("device_compute tasks derive debug name from kernel name", "[task]") {
-	task_graph tdag;
-	task_manager tm(1, tdag, nullptr, nullptr);
-	tm.generate_epoch_task(epoch_action::init);
-	const auto t1 = test_utils::get_task(tdag, tm.submit_command_group([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(range<1>{1}, [](id<1>) {}); }));
-	const auto t2 = test_utils::get_task(tdag, tm.submit_command_group([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(range<1>{1}, [](id<1>) {}); }));
-	const auto t3 = test_utils::get_task(tdag, tm.submit_command_group([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(range<1>{1}, [](id<1>) {}); }));
-	CHECK(t1->get_debug_name() == "MyFirstKernel");
-	CHECK(t2->get_debug_name() == "MySecondKernel");
-	CHECK(t3->get_debug_name() == "MyThirdKernel<...>");
+	const auto cg1 = invoke_command_group_function([](handler& cgh) { cgh.parallel_for<class MyFirstKernel>(range<1>{1}, [](id<1>) {}); });
+	const auto cg2 = invoke_command_group_function([](handler& cgh) { cgh.parallel_for<foo::MySecondKernel>(range<1>{1}, [](id<1>) {}); });
+	const auto cg3 = invoke_command_group_function([](handler& cgh) { cgh.parallel_for<MyThirdKernel<int>>(range<1>{1}, [](id<1>) {}); });
+	CHECK(cg1.task_name == "MyFirstKernel");
+	CHECK(cg2.task_name == "MySecondKernel");
+	CHECK(cg3.task_name == "MyThirdKernel<...>");
 }

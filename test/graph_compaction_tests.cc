@@ -266,10 +266,10 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "reaching an epoch will prune all 
 	buffer<int> early_host_initialized_buf(host_data.data(), node_range);
 	buffer<int> buf_written_from_kernel(node_range);
 
-	const auto writer_tid = rt.submit([&](handler& cgh) {
+	const auto writer_tid = rt.submit(invoke_command_group_function([&](handler& cgh) {
 		accessor acc_written(buf_written_from_kernel, cgh, acc::one_to_one(), write_only, no_init);
 		cgh.parallel_for(node_range, [=](item<1>) { (void)acc_written; });
-	});
+	}));
 
 	REQUIRE(test_utils::has_task(tdag, init_tid));
 	check_task_has_exact_dependencies("initial epoch task", init_tid, {});
@@ -279,17 +279,17 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "reaching an epoch will prune all 
 	const auto first_epoch_tid = rt.sync(epoch_action::none);
 	CHECK(runtime_testspy::get_latest_epoch_reached(rt) == first_epoch_tid);
 
-	const auto reader_writer_tid = rt.submit([&](handler& cgh) {
+	const auto reader_writer_tid = rt.submit(invoke_command_group_function([&](handler& cgh) {
 		accessor acc_early_init(early_host_initialized_buf, cgh, acc::one_to_one(), read_write);
 		cgh.parallel_for(node_range, [=](item<1>) { (void)acc_early_init; });
-	});
+	}));
 
 	buffer<int> late_host_initialized_buf(host_data.data(), node_range);
 
-	const auto late_writer_tid = rt.submit([&](handler& cgh) {
+	const auto late_writer_tid = rt.submit(invoke_command_group_function([&](handler& cgh) {
 		accessor acc_late_init(late_host_initialized_buf, cgh, acc::one_to_one(), write_only, no_init);
 		cgh.parallel_for(node_range, [=](item<1>) { (void)acc_late_init; });
-	});
+	}));
 
 	REQUIRE(test_utils::has_task(tdag, first_epoch_tid));
 	check_task_has_exact_dependencies("epoch after", first_epoch_tid, {});
@@ -302,12 +302,12 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "reaching an epoch will prune all 
 	CHECK(runtime_testspy::get_latest_epoch_reached(rt) == second_epoch_tid);
 
 	// next submission will trigger TDAG pruning
-	const auto reader_tid = rt.submit([&](handler& cgh) {
+	const auto reader_tid = rt.submit(invoke_command_group_function([&](handler& cgh) {
 		accessor acc_early_init(early_host_initialized_buf, cgh, acc::one_to_one(), read_only);
 		accessor acc_late_init(late_host_initialized_buf, cgh, acc::one_to_one(), read_only);
 		accessor acc_written(buf_written_from_kernel, cgh, acc::one_to_one(), write_only, no_init);
 		cgh.parallel_for(node_range, [=](item<1>) { (void)acc_early_init, (void)acc_late_init, (void)acc_written; });
-	});
+	}));
 
 	CHECK(!test_utils::has_task(tdag, init_tid));
 	CHECK(!test_utils::has_task(tdag, writer_tid));

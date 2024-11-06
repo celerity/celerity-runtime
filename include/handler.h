@@ -1,18 +1,17 @@
 #pragma once
 
 #include "buffer.h"
+#include "cgf.h"
 #include "cgf_diagnostics.h"
 #include "communicator.h"
 #include "grid.h"
 #include "hint.h"
 #include "item.h"
-#include "launcher.h"
 #include "partition.h"
 #include "range_mapper.h"
 #include "ranges.h"
 #include "reduction.h"
 #include "sycl_wrappers.h"
-#include "task.h"
 #include "types.h"
 #include "version.h"
 #include "workaround.h"
@@ -64,16 +63,14 @@ class collective_group;
 } // namespace celerity::experimental
 
 namespace celerity {
-
 namespace detail {
-	class task_manager;
 
-	handler make_command_group_handler(const task_id tid, const size_t num_collective_nodes);
-	std::unique_ptr<task> into_task(handler&& cgh);
+	template <typename CGF>
+	raw_command_group invoke_command_group_function(CGF&& cgf);
+
 	hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, std::unique_ptr<range_mapper_base> rm);
 	void add_requirement(handler& cgh, const host_object_id hoid, const experimental::side_effect_order order, const bool is_void);
 	void add_reduction(handler& cgh, const reduction_info& rinfo);
-
 	void set_task_name(handler& cgh, const std::string& debug_name);
 
 	struct unnamed_kernel {};
@@ -313,6 +310,12 @@ inline constexpr detail::once_tag once;
 
 class handler {
   public:
+	handler(const handler&) = delete;
+	handler(handler&&) = delete;
+	handler& operator=(const handler&) = delete;
+	handler& operator=(handler&&) = delete;
+	~handler() = default;
+
 	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel,
 	    std::enable_if_t<detail::is_reductions_and_kernel_v<ReductionsAndKernel...>, int> = 0>
 	void parallel_for(range<Dims> global_range, ReductionsAndKernel&&... reductions_and_kernel) {
@@ -358,8 +361,9 @@ class handler {
 	 */
 	template <typename Functor>
 	void host_task(const detail::on_master_node_tag on_master_node, Functor&& task) {
-		auto launcher = make_host_task_launcher<0, false>(detail::zeros, detail::non_collective_group_id, std::forward<Functor>(task));
-		create_master_node_task(std::move(launcher));
+		assert(!m_cg.task_type.has_value());
+		m_cg.task_type = detail::task_type::master_node;
+		m_cg.launcher = make_host_task_launcher<0 /* Dims */, false /* Collective */>(std::forward<Functor>(task));
 	}
 	/**
 	 * Schedules `task` to be executed collectively on all nodes participating in the specified collective group. Call via
@@ -375,9 +379,10 @@ class handler {
 	 */
 	template <typename Functor>
 	void host_task(const detail::collective_tag collective, Functor&& task) {
-		// FIXME: We should not have to know how the global range is determined for collective tasks to create the launcher
-		auto launcher = make_host_task_launcher<1, true>(range<3>{m_num_collective_nodes, 1, 1}, collective.m_cgid, std::forward<Functor>(task));
-		create_collective_task(collective.m_cgid, std::move(launcher));
+		assert(!m_cg.task_type.has_value());
+		m_cg.task_type = detail::task_type::collective;
+		m_cg.collective_group_id = collective.m_cgid;
+		m_cg.launcher = make_host_task_launcher<1 /* Dims */, true /* Collective */>(std::forward<Functor>(task));
 	}
 
 	/**
@@ -394,10 +399,14 @@ class handler {
 	 */
 	template <int Dims, typename Functor>
 	void host_task(range<Dims> global_range, id<Dims> global_offset, Functor&& task) {
-		const detail::task_geometry geometry{
-		    Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset), get_constrained_granularity(global_range, range<Dims>(detail::ones))};
-		auto launcher = make_host_task_launcher<Dims, false>(detail::range_cast<3>(global_range), 0, std::forward<Functor>(task));
-		create_host_compute_task(geometry, std::move(launcher));
+		assert(!m_cg.task_type.has_value());
+		m_cg.task_type = detail::task_type::host_compute;
+		m_cg.geometry = {//
+		    .dimensions = Dims,
+		    .global_size = detail::range_cast<3>(global_range),
+		    .global_offset = detail::id_cast<3>(global_offset),
+		    .granularity = get_constrained_granularity(global_range, range<Dims>(detail::ones))};
+		m_cg.launcher = make_host_task_launcher<Dims, false /* Collective */>(std::forward<Functor>(task));
 	}
 
 	/**
@@ -418,8 +427,8 @@ class handler {
 	}
 
   private:
-	friend handler detail::make_command_group_handler(const detail::task_id tid, const size_t num_collective_nodes);
-	friend std::unique_ptr<detail::task> detail::into_task(handler&& cgh);
+	template <typename CGF>
+	friend detail::raw_command_group detail::invoke_command_group_function(CGF&& cgf);
 	friend detail::hydration_id detail::add_requirement(
 	    handler& cgh, const detail::buffer_id bid, const access_mode mode, std::unique_ptr<detail::range_mapper_base> rm);
 	friend void detail::add_requirement(handler& cgh, const detail::host_object_id hoid, const experimental::side_effect_order order, const bool is_void);
@@ -430,19 +439,12 @@ class handler {
 	friend void experimental::hint(handler& cgh, Hint&& hint);
 	friend void detail::set_task_name(handler& cgh, const std::string& debug_name);
 
-	detail::task_id m_tid;
-	std::vector<detail::buffer_access> m_buffer_accesses;
-	detail::side_effect_map m_side_effects;
-	size_t m_non_void_side_effects_count = 0;
-	detail::reduction_set m_reductions;
-	std::unique_ptr<detail::task> m_task = nullptr;
-	size_t m_num_collective_nodes;
-	detail::hydration_id m_next_accessor_hydration_id = 1;
-	std::optional<std::string> m_usr_def_task_name;
+	detail::raw_command_group& m_cg;
 	range<3> m_split_constraint = detail::ones;
-	std::vector<std::unique_ptr<detail::hint_base>> m_hints;
+	size_t m_non_void_side_effects_count = 0;
+	detail::hydration_id m_next_accessor_hydration_id = 1;
 
-	handler(detail::task_id tid, size_t num_collective_nodes) : m_tid(tid), m_num_collective_nodes(num_collective_nodes) {}
+	explicit handler(detail::raw_command_group& out_cg) : m_cg(out_cg) {}
 
 	template <typename KernelFlavor, typename KernelName, int Dims, typename... ReductionsAndKernel, size_t... ReductionIndices>
 	void parallel_for_reductions_and_kernel(range<Dims> global_range, id<Dims> global_offset,
@@ -456,40 +458,45 @@ class handler {
 
 	template <typename KernelFlavor, typename KernelName, int Dims, typename Kernel, typename... Reductions>
 	void parallel_for_kernel_and_reductions(range<Dims> global_range, id<Dims> global_offset,
-	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel&& kernel, Reductions&... reductions) {
+	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel&& kernel, Reductions&... reductions) //
+	{
+		assert(!m_cg.task_type.has_value());
+		m_cg.task_type = detail::task_type::device_compute;
 		range<3> granularity = {1, 1, 1};
 		if constexpr(detail::kernel_flavor_traits<KernelFlavor, Dims>::has_local_size) {
 			for(int d = 0; d < Dims; ++d) {
 				granularity[d] = local_range[d];
 			}
 		}
-		const detail::task_geometry geometry{Dims, detail::range_cast<3>(global_range), detail::id_cast<3>(global_offset),
-		    get_constrained_granularity(global_range, detail::range_cast<Dims>(granularity))};
-		auto launcher = make_device_kernel_launcher<KernelFlavor, KernelName, Dims>(
+		m_cg.geometry = {.dimensions = Dims,
+		    .global_size = detail::range_cast<3>(global_range),
+		    .global_offset = detail::id_cast<3>(global_offset),
+		    .granularity = get_constrained_granularity(global_range, detail::range_cast<Dims>(granularity))};
+		m_cg.launcher = make_device_kernel_launcher<KernelFlavor, KernelName, Dims>(
 		    global_range, global_offset, local_range, std::forward<Kernel>(kernel), std::index_sequence_for<Reductions...>(), reductions...);
-		create_device_compute_task(geometry, detail::kernel_debug_name<KernelName>(), std::move(launcher));
+		if(!m_cg.task_name.has_value() && !detail::is_unnamed_kernel<KernelName>) { m_cg.task_name = detail::kernel_debug_name<KernelName>(); }
 	}
 
 	[[nodiscard]] detail::hydration_id add_requirement(const detail::buffer_id bid, const access_mode mode, std::unique_ptr<detail::range_mapper_base> rm) {
-		assert(m_task == nullptr);
-		m_buffer_accesses.push_back(detail::buffer_access{bid, mode, std::move(rm)});
+		assert(!m_cg.task_type.has_value());
+		m_cg.buffer_accesses.push_back(detail::buffer_access{bid, mode, std::move(rm)});
 		return m_next_accessor_hydration_id++;
 	}
 
 	void add_requirement(const detail::host_object_id hoid, const experimental::side_effect_order order, const bool is_void) {
-		assert(m_task == nullptr);
-		m_side_effects.add_side_effect(hoid, order);
+		assert(!m_cg.task_type.has_value());
+		m_cg.side_effects.push_back(detail::host_object_effect{hoid, order});
 		if(!is_void) { m_non_void_side_effects_count++; }
 	}
 
 	void add_reduction(const detail::reduction_info& rinfo) {
-		assert(m_task == nullptr);
-		m_reductions.push_back(rinfo);
+		assert(!m_cg.task_type.has_value());
+		m_cg.reductions.push_back(rinfo);
 	}
 
 	template <int Dims>
 	void experimental_constrain_split(const range<Dims>& constraint) {
-		assert(m_task == nullptr);
+		assert(!m_cg.task_type.has_value());
 		m_split_constraint = detail::range_cast<3>(constraint);
 	}
 
@@ -497,13 +504,13 @@ class handler {
 	void experimental_hint(Hint&& hint) {
 		static_assert(std::is_base_of_v<detail::hint_base, std::decay_t<Hint>>, "Hint must extend hint_base");
 		static_assert(std::is_move_constructible_v<Hint>, "Hint must be move-constructible");
-		for(auto& h : m_hints) {
+		for(auto& h : m_cg.hints) {
 			// We currently don't allow more than one hint of the same type for simplicity; this could be loosened in the future.
 			auto& hr = *h; // Need to do this here to avoid -Wpotentially-evaluated-expression
 			if(typeid(hr) == typeid(hint)) { throw std::runtime_error("Providing more than one hint of the same type is not allowed"); }
 			h->validate(hint);
 		}
-		m_hints.emplace_back(std::make_unique<std::decay_t<Hint>>(std::forward<Hint>(hint)));
+		m_cg.hints.emplace_back(std::make_unique<std::decay_t<Hint>>(std::forward<Hint>(hint)));
 	}
 
 	template <int Dims>
@@ -521,51 +528,6 @@ class handler {
 		return result;
 	}
 
-	void create_host_compute_task(const detail::task_geometry& geometry, detail::host_task_launcher launcher) {
-		assert(m_task == nullptr);
-		if(geometry.global_size.size() == 0) {
-			// TODO this can be easily supported by not creating a task in case the execution range is empty
-			throw std::runtime_error{"The execution range of distributed host tasks must have at least one item"};
-		}
-		m_task = detail::task::make_host_compute(m_tid, geometry, std::move(launcher), detail::buffer_access_map(std::move(m_buffer_accesses), geometry),
-		    std::move(m_side_effects), std::move(m_reductions));
-
-		m_task->set_debug_name(m_usr_def_task_name.value_or(""));
-	}
-
-	void create_device_compute_task(const detail::task_geometry& geometry, const std::string& debug_name, detail::device_kernel_launcher launcher) {
-		assert(m_task == nullptr);
-		if(geometry.global_size.size() == 0) {
-			// TODO unless reductions are involved, this can be easily supported by not creating a task in case the execution range is empty.
-			// Edge case: If the task includes reductions that specify property::reduction::initialize_to_identity, we need to create a task that sets
-			// the buffer state to an empty pending_reduction_state in the graph_generator. This will cause a trivial reduction_command to be generated on
-			// each node that reads from the reduction output buffer, initializing it to the identity value locally.
-			throw std::runtime_error{"The execution range of device tasks must have at least one item"};
-		}
-		// Note that cgf_diagnostics has a similar check, but we don't catch void side effects there.
-		if(!m_side_effects.empty()) { throw std::runtime_error{"Side effects cannot be used in device kernels"}; }
-		m_task = detail::task::make_device_compute(
-		    m_tid, geometry, std::move(launcher), detail::buffer_access_map(std::move(m_buffer_accesses), geometry), std::move(m_reductions));
-
-		m_task->set_debug_name(m_usr_def_task_name.value_or(debug_name));
-	}
-
-	void create_collective_task(const detail::collective_group_id cgid, detail::host_task_launcher launcher) {
-		assert(m_task == nullptr);
-		const detail::task_geometry geometry{1, detail::range_cast<3>(range(m_num_collective_nodes)), {}, {1, 1, 1}};
-		m_task = detail::task::make_collective(m_tid, geometry, cgid, m_num_collective_nodes, std::move(launcher),
-		    detail::buffer_access_map(std::move(m_buffer_accesses), geometry), std::move(m_side_effects));
-
-		m_task->set_debug_name(m_usr_def_task_name.value_or(""));
-	}
-
-	void create_master_node_task(detail::host_task_launcher launcher) {
-		assert(m_task == nullptr);
-		m_task = detail::task::make_master_node(
-		    m_tid, std::move(launcher), detail::buffer_access_map(std::move(m_buffer_accesses), detail::task_geometry{}), std::move(m_side_effects));
-		m_task->set_debug_name(m_usr_def_task_name.value_or(""));
-	}
-
 	template <typename KernelFlavor, typename KernelName, int Dims, typename Kernel, size_t... ReductionIndices, typename... Reductions>
 	detail::device_kernel_launcher make_device_kernel_launcher(const range<Dims>& global_range, const id<Dims>& global_offset,
 	    typename detail::kernel_flavor_traits<KernelFlavor, Dims>::local_size_type local_range, Kernel&& kernel,
@@ -574,7 +536,7 @@ class handler {
 
 		// Check whether all accessors are being captured by value etc.
 		// Although the diagnostics should always be available, we currently disable them for some test cases.
-		if(detail::cgf_diagnostics::is_available()) { detail::cgf_diagnostics::get_instance().check<target::device>(kernel, m_buffer_accesses); }
+		if(detail::cgf_diagnostics::is_available()) { detail::cgf_diagnostics::get_instance().check<target::device>(kernel, m_cg.buffer_accesses); }
 
 		return [=](sycl::handler& sycl_cgh, const detail::box<3>& execution_range, const std::vector<void*>& reduction_ptrs) {
 			constexpr int sycl_dims = std::max(1, Dims);
@@ -597,7 +559,7 @@ class handler {
 	}
 
 	template <int Dims, bool Collective, typename Kernel>
-	detail::host_task_launcher make_host_task_launcher(const range<3>& global_range, const detail::collective_group_id cgid, Kernel&& kernel) {
+	detail::host_task_launcher make_host_task_launcher(Kernel&& kernel) {
 		static_assert(Collective || std::is_invocable_v<Kernel> || std::is_invocable_v<Kernel, const partition<Dims>>,
 		    "Kernel for host task must be invocable with either no arguments or a celerity::partition<Dims>");
 		static_assert(!Collective || std::is_invocable_v<Kernel> || std::is_invocable_v<Kernel, const experimental::collective_partition>,
@@ -608,10 +570,10 @@ class handler {
 		// Check whether all accessors are being captured by value etc.
 		// Although the diagnostics should always be available, we currently disable them for some test cases.
 		if(detail::cgf_diagnostics::is_available()) {
-			detail::cgf_diagnostics::get_instance().check<target::host_task>(kernel, m_buffer_accesses, m_non_void_side_effects_count);
+			detail::cgf_diagnostics::get_instance().check<target::host_task>(kernel, m_cg.buffer_accesses, m_non_void_side_effects_count);
 		}
 
-		return [kernel, global_range](const detail::box<3>& execution_range, const detail::communicator* collective_comm) {
+		return [kernel](const range<3>& global_range, const detail::box<3>& execution_range, const detail::communicator* collective_comm) {
 			(void)global_range;
 			(void)collective_comm;
 			if constexpr(Dims > 0) {
@@ -635,27 +597,16 @@ class handler {
 			}
 		};
 	}
-
-	std::unique_ptr<detail::task> into_task() && {
-		assert(m_task != nullptr);
-		for(auto& h : m_hints) {
-			m_task->add_hint(std::move(h));
-		}
-		return std::move(m_task);
-	}
 };
 
 namespace detail {
 
-	inline handler make_command_group_handler(const detail::task_id tid, const size_t num_collective_nodes) { return handler(tid, num_collective_nodes); }
-
-	inline std::unique_ptr<detail::task> into_task(handler&& cgh) { return std::move(cgh).into_task(); }
-
 	template <typename CGF>
-	std::unique_ptr<task> invoke_command_group_function(const task_id tid, size_t num_collective_nodes, CGF&& cgf) {
-		handler cgh = make_command_group_handler(tid, num_collective_nodes);
+	raw_command_group invoke_command_group_function(CGF&& cgf) {
+		raw_command_group cg;
+		handler cgh(cg);
 		std::invoke(std::forward<CGF>(cgf), cgh);
-		return into_task(std::move(cgh));
+		return cg;
 	}
 
 	[[nodiscard]] inline hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, std::unique_ptr<range_mapper_base> rm) {
@@ -668,7 +619,7 @@ namespace detail {
 
 	inline void add_reduction(handler& cgh, const detail::reduction_info& rinfo) { return cgh.add_reduction(rinfo); }
 
-	inline void set_task_name(handler& cgh, const std::string& debug_name) { cgh.m_usr_def_task_name = {debug_name}; }
+	inline void set_task_name(handler& cgh, const std::string& debug_name) { cgh.m_cg.task_name = {debug_name}; }
 
 	// TODO: The _impl functions in detail only exist during the grace period for deprecated reductions on const buffers; move outside again afterwards.
 	template <typename DataT, int Dims, typename BinaryOperation>

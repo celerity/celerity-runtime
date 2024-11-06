@@ -1,6 +1,7 @@
 #include "print_graph.h"
 
 #include "access_modes.h"
+#include "cgf.h"
 #include "grid.h"
 #include "instruction_graph.h"
 #include "intrusive_graph.h"

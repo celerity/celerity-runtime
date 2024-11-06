@@ -815,11 +815,11 @@ void executor_impl::issue_async(const host_task_instruction& htinstr, const out_
 	    accessor_infos, htinstr.get_access_allocations(), htinstr.get_oob_task_type(), htinstr.get_oob_task_id(), htinstr.get_oob_task_name());
 #endif
 
-	const auto& execution_range = htinstr.get_execution_range();
 	const auto collective_comm =
 	    htinstr.get_collective_group_id() != non_collective_group_id ? cloned_communicators.at(htinstr.get_collective_group_id()).get() : nullptr;
 
-	async.event = backend->enqueue_host_task(*assignment.lane, htinstr.get_launcher(), std::move(accessor_infos), execution_range, collective_comm);
+	async.event = backend->enqueue_host_task(
+	    *assignment.lane, htinstr.get_launcher(), std::move(accessor_infos), htinstr.get_global_range(), htinstr.get_execution_range(), collective_comm);
 }
 
 void executor_impl::issue_async(

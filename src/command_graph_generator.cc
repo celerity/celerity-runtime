@@ -1,6 +1,7 @@
 #include "command_graph_generator.h"
 
 #include "access_modes.h"
+#include "cgf.h"
 #include "command_graph.h"
 #include "grid.h"
 #include "intrusive_graph.h"

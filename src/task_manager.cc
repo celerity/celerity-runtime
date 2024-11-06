@@ -1,5 +1,6 @@
 #include "task_manager.h"
 
+#include "cgf.h"
 #include "grid.h"
 #include "intrusive_graph.h"
 #include "log.h"
@@ -267,9 +268,20 @@ namespace detail {
 		return tid;
 	}
 
-	task_id task_manager::generate_fence_task(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<task_promise> fence_promise) {
+	task_id task_manager::generate_fence_task(buffer_access access, std::unique_ptr<task_promise> fence_promise) {
 		const auto tid = m_next_tid++;
-		task& tsk = register_task_internal(task::make_fence(tid, std::move(access_map), std::move(side_effects), std::move(fence_promise)));
+		std::vector<buffer_access> buffer_accesses;
+		buffer_accesses.push_back(std::move(access));
+		buffer_access_map bam({std::move(buffer_accesses)}, task_geometry{});
+		task& tsk = register_task_internal(task::make_fence(tid, std::move(bam), {}, std::move(fence_promise)));
+		compute_dependencies(tsk);
+		invoke_callbacks(&tsk);
+		return tid;
+	}
+
+	task_id task_manager::generate_fence_task(host_object_effect effect, std::unique_ptr<task_promise> fence_promise) {
+		const auto tid = m_next_tid++;
+		task& tsk = register_task_internal(task::make_fence(tid, {}, {{effect}}, std::move(fence_promise)));
 		compute_dependencies(tsk);
 		invoke_callbacks(&tsk);
 		return tid;

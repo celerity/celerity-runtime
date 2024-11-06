@@ -2,10 +2,10 @@
 
 #include "async_event.h"
 #include "backend/backend.h"
+#include "cgf.h"
 #include "closure_hydrator.h"
 #include "dense_map.h"
 #include "grid.h"
-#include "launcher.h"
 #include "named_threads.h"
 #include "nd_memory.h"
 #include "sycl_wrappers.h"
@@ -264,12 +264,13 @@ async_event sycl_backend::enqueue_device_free(const device_id device, void* cons
 }
 
 async_event sycl_backend::enqueue_host_task(size_t host_lane, const host_task_launcher& launcher, std::vector<closure_hydrator::accessor_info> accessor_infos,
-    const box<3>& execution_range, const communicator* collective_comm) //
+    const range<3>& global_range, const box<3>& execution_range, const communicator* collective_comm) //
 {
 	auto& hydrator = closure_hydrator::get_instance();
 	hydrator.arm(target::host_task, std::move(accessor_infos));
 	auto launch_hydrated = hydrator.hydrate<target::host_task>(launcher);
-	return m_impl->get_host_queue(host_lane).submit([=, launch_hydrated = std::move(launch_hydrated)] { launch_hydrated(execution_range, collective_comm); });
+	return m_impl->get_host_queue(host_lane).submit(
+	    [=, launch_hydrated = std::move(launch_hydrated)] { launch_hydrated(global_range, execution_range, collective_comm); });
 }
 
 async_event sycl_backend::enqueue_device_kernel(const device_id device, const size_t lane, const device_kernel_launcher& launch,

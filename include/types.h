@@ -102,7 +102,7 @@ class allocation_id {
 /// allocation_id equivalent of a null pointer.
 inline constexpr allocation_id null_allocation_id{};
 
-inline constexpr collective_group_id non_collective_group_id = 0;
+inline constexpr collective_group_id non_collective_group_id = 0; // TODO replace all uses of this placeholder with std::optional
 inline constexpr collective_group_id root_collective_group_id = 1;
 
 inline constexpr reduction_id no_reduction_id = 0;

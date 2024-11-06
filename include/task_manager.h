@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cgf.h"
 #include "intrusive_graph.h"
 #include "ranges.h"
 #include "region_map.h"
@@ -18,10 +19,6 @@ namespace celerity {
 namespace detail {
 
 	class task_recorder;
-
-	// definition is in handler.h to avoid circular dependency
-	template <typename CGF>
-	std::unique_ptr<task> invoke_command_group_function(const task_id tid, size_t num_collective_nodes, CGF&& cgf);
 
 	// TODO rename to task_graph_generator eventually
 	class task_manager {
@@ -57,10 +54,9 @@ namespace detail {
 		task_manager& operator=(task_manager&&) = delete;
 		~task_manager() = default;
 
-		template <typename CGF>
-		task_id submit_command_group(CGF&& cgf) {
+		task_id submit_command_group(raw_command_group cg) {
 			const auto tid = m_next_tid++;
-			auto unique_tsk = invoke_command_group_function(tid, m_num_collective_nodes, std::forward<CGF>(cgf));
+			auto unique_tsk = make_command_group_task(tid, m_num_collective_nodes, std::move(cg));
 			auto& tsk = register_task_internal(std::move(unique_tsk));
 			compute_dependencies(tsk);
 			invoke_callbacks(&tsk);
@@ -75,7 +71,9 @@ namespace detail {
 		 */
 		task_id generate_epoch_task(epoch_action action, std::unique_ptr<task_promise> promise = nullptr);
 
-		task_id generate_fence_task(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<task_promise> fence_promise);
+		task_id generate_fence_task(buffer_access access, std::unique_ptr<task_promise> fence_promise);
+
+		task_id generate_fence_task(host_object_effect effect, std::unique_ptr<task_promise> fence_promise);
 
 		/**
 		 * @brief Adds a new buffer for dependency tracking
