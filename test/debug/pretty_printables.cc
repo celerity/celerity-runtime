@@ -40,9 +40,9 @@ int main() {
 	});
 
 	[[maybe_unused]] celerity::detail::region_map<int> region_map(celerity::range<3>(10, 10, 10));
-	region_map.update_region(celerity::detail::box<3>({1, 1, 1}, {5, 5, 5}), 42);
-	region_map.update_region(celerity::detail::box<3>({1, 1, 1}, {3, 3, 3}), 69);
-	region_map.update_region(celerity::detail::box<3>({1, 1, 1}, {2, 2, 2}), 1337);
+	region_map.update_box(celerity::detail::box<3>({1, 1, 1}, {5, 5, 5}), 42);
+	region_map.update_box(celerity::detail::box<3>({1, 1, 1}, {3, 3, 3}), 69);
+	region_map.update_box(celerity::detail::box<3>({1, 1, 1}, {2, 2, 2}), 1337);
 
 	[[maybe_unused]] celerity::detail::region_map<int> region_map_0d(celerity::range<3>(1, 1, 1), 42);
 

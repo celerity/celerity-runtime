@@ -277,7 +277,7 @@ struct buffer_allocation_state {
 			} else {
 				front = access_front(instr, access_front::read);
 			}
-			last_concurrent_accesses.update_region(box, front);
+			last_concurrent_accesses.update_box(box, front);
 		}
 	}
 
@@ -305,8 +305,8 @@ struct buffer_allocation_state {
 		for(auto& [box, front] : last_writers.get_region_values(region)) {
 			assert(front.get_mode() == access_front::write && "must call begin_concurrent_writes first");
 			front.add_instruction(instr);
-			last_writers.update_region(box, front);
-			last_concurrent_accesses.update_region(box, front);
+			last_writers.update_box(box, front);
+			last_concurrent_accesses.update_box(box, front);
 		}
 	}
 
@@ -1422,7 +1422,7 @@ void generator_impl::establish_coherence_between_buffer_memories(
 		for(memory_id mid = 0; mid < concurrent_reads_from_memory.size(); ++mid) {
 			for(const auto& region : concurrent_reads_from_memory[mid]) {
 				for(auto& [box, location] : buffer.up_to_date_memories.get_region_values(region)) {
-					buffer.up_to_date_memories.update_region(box, memory_mask(location).set(mid));
+					buffer.up_to_date_memories.update_box(box, memory_mask(location).set(mid));
 				}
 			}
 		}

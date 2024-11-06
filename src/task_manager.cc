@@ -21,7 +21,7 @@ namespace detail {
 		const auto [iter, inserted] = m_buffers.emplace(bid, range);
 		assert(inserted);
 		auto& buffer = iter->second;
-		if(host_initialized) { buffer.last_writers.update_region(subrange<3>({}, range), m_epoch_for_new_tasks); }
+		if(host_initialized) { buffer.last_writers.update_box(box<3>::full_range(range), m_epoch_for_new_tasks); }
 	}
 
 	void task_manager::notify_buffer_debug_name_changed(const buffer_id bid, const std::string& debug_name) { m_buffers.at(bid).debug_name = debug_name; }
