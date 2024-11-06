@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-#include <optional>
 #include <type_traits>
 #include <vector>
 
@@ -10,9 +9,9 @@
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
-#include "access_modes.h"
 #include "command_graph.h"
 #include "command_graph_generator.h"
+#include "handler.h"
 #include "print_graph.h"
 #include "recorders.h"
 #include "task_manager.h"
@@ -308,17 +307,15 @@ class cdag_test_context final : private task_manager::delegate {
 	}
 
 	task_id fence(test_utils::mock_host_object ho) {
-		side_effect_map side_effects;
-		side_effects.add_side_effect(ho.get_id(), experimental::side_effect_order::sequential);
-		return fence({}, std::move(side_effects));
+		host_object_effect effect{ho.get_id(), experimental::side_effect_order::sequential};
+		return m_tm.generate_fence_task(effect, nullptr);
 	}
 
 	template <int Dims>
 	task_id fence(test_utils::mock_buffer<Dims> buf, subrange<Dims> sr) {
-		std::vector<buffer_access> accesses;
-		accesses.push_back(buffer_access{buf.get_id(), access_mode::read,
-		    std::make_unique<range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), buf.get_range())});
-		return fence(buffer_access_map(std::move(accesses), task_geometry{}), {});
+		buffer_access access{buf.get_id(), access_mode::read,
+		    std::make_unique<range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), buf.get_range())};
+		return m_tm.generate_fence_task(std::move(access), nullptr);
 	}
 
 	template <int Dims>
@@ -379,9 +376,9 @@ class cdag_test_context final : private task_manager::delegate {
 		return reduction_info{m_next_reduction_id++, bid, include_current_buffer_value};
 	}
 
-	template <typename CGF, typename... Hints>
-	task_id submit_command_group(CGF cgf, Hints... hints) {
-		return m_tm.submit_command_group(cgf, hints...);
+	template <typename CGF>
+	task_id submit_command_group(CGF cgf) {
+		return m_tm.submit_command_group(invoke_command_group_function(cgf));
 	}
 
 	void maybe_print_graphs() {
@@ -393,10 +390,6 @@ class cdag_test_context final : private task_manager::delegate {
 			}
 			fmt::print("\n{}\n", combine_command_graphs(graphs, make_test_graph_title("Command Graph")));
 		}
-	}
-
-	task_id fence(buffer_access_map access_map, side_effect_map side_effects) {
-		return m_tm.generate_fence_task(std::move(access_map), std::move(side_effects), nullptr);
 	}
 };
 

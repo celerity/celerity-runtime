@@ -1,9 +1,11 @@
 #pragma once
 
-#include "task.h"
+#include "cgf.h"
+#include "print_utils.h"
 
 #include <optional>
 
+#include <fmt/format.h>
 
 namespace celerity::detail {
 

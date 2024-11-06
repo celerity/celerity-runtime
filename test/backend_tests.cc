@@ -153,6 +153,7 @@ TEST_CASE("host task lambdas are hydrated and invoked with the correct parameter
 	        box<3>{{2, 1, 0}, {9, 8, 7}} CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, reinterpret_cast<oob_bounding_box*>(0x1230))}};
 
 	constexpr size_t lane = 0;
+	const range global_range(7, 8, 9);
 	const box<3> execution_range({1, 2, 3}, {4, 5, 6});
 	const auto collective_comm = reinterpret_cast<const communicator*>(0x42000);
 
@@ -161,26 +162,28 @@ TEST_CASE("host task lambdas are hydrated and invoked with the correct parameter
 	// no accessors
 	test_utils::await(backend->enqueue_host_task(
 	    lane,
-	    [&](const box<3>& b, const communicator* c) {
+	    [&](const range<3>& g, const box<3>& b, const communicator* c) {
+		    CHECK(g == global_range);
 		    CHECK(b == execution_range);
 		    CHECK(c == collective_comm);
 		    value += 1;
 	    },
-	    {}, execution_range, collective_comm));
+	    {}, global_range, execution_range, collective_comm));
 
 	// yes accessors
 	test_utils::await(backend->enqueue_host_task(
 	    lane,
-	    [&, acc1, acc2](const box<3>& b, const communicator* c) {
+	    [&, acc1, acc2](const range<3>& g, const box<3>& b, const communicator* c) {
 		    REQUIRE(acc1.info.has_value());
 		    REQUIRE(acc2.info.has_value());
 		    CHECK(accessor_info_equal(*acc1.info, accessor_infos[0]));
 		    CHECK(accessor_info_equal(*acc2.info, accessor_infos[1]));
+		    CHECK(g == global_range);
 		    CHECK(b == execution_range);
 		    CHECK(c == collective_comm);
 		    value += 1;
 	    },
-	    accessor_infos, execution_range, collective_comm));
+	    accessor_infos, global_range, execution_range, collective_comm));
 
 	CHECK(value == 3);
 }
@@ -194,18 +197,18 @@ TEST_CASE("host tasks in a single lane execute in-order", "[backend]") {
 	constexpr size_t lane = 0;
 
 	std::optional<std::thread::id> first_thread_id;
-	const auto first_fn = [&](const box<3>&, const communicator*) {
+	const auto first_fn = [&](const range<3>&, const box<3>&, const communicator*) {
 		first_thread_id = std::this_thread::get_id();
 		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	};
-	const auto first = backend->enqueue_host_task(lane, first_fn, {}, box_cast<3>(box<0>()), nullptr);
+	const auto first = backend->enqueue_host_task(lane, first_fn, {}, ones, box_cast<3>(box<0>()), nullptr);
 
 	std::optional<std::thread::id> second_thread_id;
-	const auto second_fn = [&](const box<3>&, const communicator* /* collective_comm */) {
+	const auto second_fn = [&](const range<3>&, const box<3>&, const communicator* /* collective_comm */) {
 		CHECK(first.is_complete());
 		second_thread_id = std::this_thread::get_id();
 	};
-	const auto second = backend->enqueue_host_task(lane, second_fn, {}, box_cast<3>(box<0>()), nullptr);
+	const auto second = backend->enqueue_host_task(lane, second_fn, {}, ones, box_cast<3>(box<0>()), nullptr);
 
 	for(;;) {
 		if(second.is_complete()) {
@@ -418,8 +421,8 @@ TEST_CASE("backends report execution time iff profiling is enabled", "[backend]"
 
 	SECTION("on host tasks") {
 		event = backend->enqueue_host_task(
-		    0 /* lane */, [&](const box<3>&, const communicator*) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); }, {}, box_cast<3>(box<0>()),
-		    nullptr);
+		    0 /* lane */, [&](const range<3>&, const box<3>&, const communicator*) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); }, {}, ones,
+		    box_cast<3>(box<0>()), nullptr);
 	}
 
 	const auto unit_box = box_cast<3>(box<0>());

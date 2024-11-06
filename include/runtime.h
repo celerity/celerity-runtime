@@ -1,11 +1,11 @@
 #pragma once
 
+#include "cgf.h"
 #include "config.h"
 #include "device_selection.h"
 #include "executor.h"
 #include "recorders.h"
 #include "scheduler.h"
-#include "task.h"
 #include "task_manager.h"
 #include "types.h"
 
@@ -46,15 +46,11 @@ namespace detail {
 
 		~runtime();
 
-		template <typename CGF>
-		task_id submit(CGF&& cgf) {
-			// TODO move task-node generation out of handler to avoid task_manager header dependency here
-			require_call_from_application_thread();
-			maybe_prune_task_graph();
-			return m_task_mngr->submit_command_group(std::forward<CGF>(cgf));
-		}
+		task_id submit(raw_command_group cg);
 
-		task_id fence(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<task_promise> fence_promise);
+		task_id fence(buffer_access access, std::unique_ptr<task_promise> fence_promise);
+
+		task_id fence(host_object_effect effect, std::unique_ptr<task_promise> fence_promise);
 
 		task_id sync(detail::epoch_action action);
 

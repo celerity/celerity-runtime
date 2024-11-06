@@ -5,7 +5,6 @@
 #include "intrusive_graph.h"
 #include "ranges.h"
 #include "reduction.h"
-#include "task.h"
 #include "types.h"
 
 #include <cstddef>
@@ -18,6 +17,8 @@
 
 
 namespace celerity::detail {
+
+class task;
 
 class command : public intrusive_graph_node<command>,
                 // Accept visitors to enable matchbox::match() on the command inheritance hierarchy

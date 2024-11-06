@@ -3,6 +3,7 @@
 #include "buffer.h"
 #include "device_selection.h"
 #include "fence.h"
+#include "handler.h"
 #include "host_object.h"
 #include "ranges.h"
 #include "runtime.h"
@@ -69,7 +70,8 @@ class [[deprecated("Use celerity::queue instead")]] distr_queue {
 	void submit(CGF cgf) { // NOLINT(readability-convert-member-functions-to-static)
 		// (Note while this function could be made static, it must not be! Otherwise we can't be sure the runtime has been initialized.)
 		CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::submit", Orange3);
-		[[maybe_unused]] const auto tid = detail::runtime::get_instance().submit(std::move(cgf));
+		auto cg = detail::invoke_command_group_function(std::move(cgf));
+		[[maybe_unused]] const auto tid = detail::runtime::get_instance().submit(std::move(cg));
 		CELERITY_DETAIL_TRACY_ZONE_NAME("T{} submit", tid);
 	}
 

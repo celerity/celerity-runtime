@@ -1,6 +1,7 @@
 #include "task.h"
 
 #include "access_modes.h"
+#include "cgf.h"
 #include "grid.h"
 #include "range_mapper.h"
 #include "ranges.h"
@@ -95,15 +96,80 @@ box_vector<3> buffer_access_map::compute_required_contiguous_boxes(const buffer_
 	return boxes;
 }
 
+std::unique_ptr<detail::task> make_command_group_task(const detail::task_id tid, const size_t num_collective_nodes, raw_command_group&& cg) {
+	std::unique_ptr<detail::task> task;
+	switch(cg.task_type.value()) {
+	case detail::task_type::host_compute: {
+		assert(!cg.collective_group_id.has_value());
+		const auto& geometry = cg.geometry.value();
+		if(geometry.global_size.size() == 0) {
+			// TODO this can be easily supported by not creating a task in case the execution range is empty
+			throw std::runtime_error{"The execution range of distributed host tasks must have at least one item"};
+		}
+		auto& launcher = std::get<detail::host_task_launcher>(cg.launcher.value());
+		buffer_access_map bam(std::move(cg.buffer_accesses), geometry);
+		side_effect_map sem(cg.side_effects);
+		task = detail::task::make_host_compute(tid, geometry, std::move(launcher), std::move(bam), std::move(sem), std::move(cg.reductions));
+		break;
+	}
+	case detail::task_type::device_compute: {
+		assert(!cg.collective_group_id.has_value());
+		const auto& geometry = cg.geometry.value();
+		if(geometry.global_size.size() == 0) {
+			// TODO unless reductions are involved, this can be easily supported by not creating a task in case the execution range is empty.
+			// Edge case: If the task includes reductions that specify property::reduction::initialize_to_identity, we need to create a task that sets
+			// the buffer state to an empty pending_reduction_state in the graph_generator. This will cause a trivial reduction_command to be generated on
+			// each node that reads from the reduction output buffer, initializing it to the identity value locally.
+			throw std::runtime_error{"The execution range of device tasks must have at least one item"};
+		}
+		auto& launcher = std::get<detail::device_kernel_launcher>(cg.launcher.value());
+		buffer_access_map bam(std::move(cg.buffer_accesses), geometry);
+		// Note that cgf_diagnostics has a similar check, but we don't catch void side effects there.
+		if(!cg.side_effects.empty()) { throw std::runtime_error{"Side effects cannot be used in device kernels"}; }
+		task = detail::task::make_device_compute(tid, geometry, std::move(launcher), std::move(bam), std::move(cg.reductions));
+		break;
+	}
+	case detail::task_type::collective: {
+		assert(!cg.geometry.has_value());
+		const task_geometry geometry{// geometry is dependent on num_collective_nodes, so it is not set in raw_command_group
+		    .dimensions = 1,
+		    .global_size = detail::range_cast<3>(range(num_collective_nodes)),
+		    .global_offset = zeros,
+		    .granularity = ones};
+		const auto cgid = cg.collective_group_id.value();
+		auto& launcher = std::get<detail::host_task_launcher>(cg.launcher.value());
+		buffer_access_map bam(std::move(cg.buffer_accesses), geometry);
+		side_effect_map sem(cg.side_effects);
+		assert(cg.reductions.empty());
+		task = detail::task::make_collective(tid, geometry, cgid, num_collective_nodes, std::move(launcher), std::move(bam), std::move(sem));
+		break;
+	}
+	case detail::task_type::master_node: {
+		assert(!cg.collective_group_id.has_value());
+		assert(!cg.geometry.has_value());
+		auto& launcher = std::get<detail::host_task_launcher>(cg.launcher.value());
+		buffer_access_map bam(std::move(cg.buffer_accesses), task_geometry{});
+		side_effect_map sem(cg.side_effects);
+		assert(cg.reductions.empty());
+		task = detail::task::make_master_node(tid, std::move(launcher), std::move(bam), std::move(sem));
+		break;
+	}
+	case detail::task_type::horizon:
+	case detail::task_type::fence:
+	case detail::task_type::epoch: //
+		detail::utils::unreachable();
+	}
+	for(auto& h : cg.hints) {
+		task->add_hint(std::move(h));
+	}
+	if(cg.task_name.has_value()) { task->set_debug_name(*cg.task_name); }
+	return task;
+}
+
 } // namespace celerity::detail
 
 namespace celerity {
 namespace detail {
-
-	void side_effect_map::add_side_effect(const host_object_id hoid, const experimental::side_effect_order order) {
-		// TODO for multiple side effects on the same hoid, find the weakest order satisfying all of them
-		emplace(hoid, order);
-	}
 
 	std::string print_task_debug_label(const task& tsk, bool title_case) {
 		return utils::make_task_debug_label(tsk.get_type(), tsk.get_id(), tsk.get_debug_name(), title_case);

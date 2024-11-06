@@ -1,3 +1,4 @@
+#include "cgf.h"
 #include "communicator.h"
 #include "dry_run_executor.h"
 #include "executor.h"
@@ -42,6 +43,7 @@ struct device_free : common_free {
 struct host_task {
 	size_t host_lane;
 	std::vector<closure_hydrator::accessor_info> accessor_infos;
+	range<3> global_range;
 	box<3> execution_range;
 	const communicator* collective_comm = nullptr;
 };
@@ -218,12 +220,12 @@ class mock_backend final : public backend {
 	}
 
 	async_event enqueue_host_task(const size_t host_lane, const host_task_launcher& launcher, std::vector<closure_hydrator::accessor_info> accessor_infos,
-	    const box<3>& execution_range, const communicator* const collective_comm) override //
+	    const range<3>& global_range, const box<3>& execution_range, const communicator* const collective_comm) override //
 	{
-		m_log->push_back(ops::host_task{host_lane, std::move(accessor_infos), execution_range, collective_comm});
+		m_log->push_back(ops::host_task{host_lane, std::move(accessor_infos), global_range, execution_range, collective_comm});
 		if(launcher) {
 			// probably a delay task: submit to thread queue so we can return before it completes
-			return m_host_queue.submit([=] { launcher(execution_range, collective_comm); });
+			return m_host_queue.submit([=] { launcher(global_range, execution_range, collective_comm); });
 		} else {
 			return make_complete_event();
 		}
@@ -408,8 +410,8 @@ class executor_test_context final : private executor::delegate {
 
 	/// Submits a host task that sleeps for the given duration.
 	void delay(const std::chrono::milliseconds& duration) {
-		submit<host_task_instruction>(
-		    [=](const box<3>& /* execution_range */, const communicator* /* collective_comm */) { std::this_thread::sleep_for(duration); },
+		submit<host_task_instruction>([=](const range<3>& /* global_range */, const box<3>& /* execution_range */,
+		                                  const communicator* /* collective_comm */) { std::this_thread::sleep_for(duration); },
 		    subrange(id<3>(0, 0, 0), range<3>(1, 1, 1)), range<3>(1, 1, 1), buffer_access_allocation_map{},
 		    collective_group_id(0) CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, task_type::host_compute, task_id(1), "task_name"));
 	}
@@ -618,6 +620,7 @@ TEST_CASE("live_executor passes correct allocations to host tasks", "[executor]"
 
 	const auto host_task = std::get<ops::host_task>(log[2]);
 	CHECK(host_task.collective_comm == nullptr);
+	CHECK(host_task.global_range == range<3>{7, 8, 9});
 	CHECK(host_task.execution_range == box<3>{{0, 1, 2}, {3, 4, 5}});
 
 	REQUIRE(host_task.accessor_infos.size() == 2);

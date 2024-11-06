@@ -27,37 +27,42 @@ class my_other_hint : public detail::hint_base {
 };
 
 TEST_CASE("hints can be attached to and retrieved from tasks", "[handler][task-hints]") {
-	auto cgh = detail::make_command_group_handler(task_id(1), 1 /* num_collective_nodes */);
-	experimental::hint(cgh, my_hint{1337});
-	cgh.parallel_for(range<1>{1}, [](item<1>) {});
-
-	const auto tsk = into_task(std::move(cgh));
+	auto cg = invoke_command_group_function([](handler& cgh) {
+		experimental::hint(cgh, my_hint{1337});
+		cgh.parallel_for(range<1>{1}, [](item<1>) {});
+	});
+	const auto tsk = make_command_group_task(task_id(1), 1 /* num_collective_nodes */, std::move(cg));
 	const auto hint = tsk->get_hint<my_hint>();
 	REQUIRE(hint != nullptr);
 	CHECK(hint->get_value() == 1337);
 }
 
 TEST_CASE("providing a hint of a particular type more than once throws", "[handler][task-hints]") {
-	auto cgh = detail::make_command_group_handler(task_id(1), 1 /* num_collective_nodes */);
-	CHECK_NOTHROW(experimental::hint(cgh, my_hint{1337}));
-	CHECK_NOTHROW(experimental::hint(cgh, my_other_hint{}));
-	CHECK_THROWS_WITH(experimental::hint(cgh, my_hint{1337}), "Providing more than one hint of the same type is not allowed");
+	invoke_command_group_function([](handler& cgh) {
+		CHECK_NOTHROW(experimental::hint(cgh, my_hint{1337}));
+		CHECK_NOTHROW(experimental::hint(cgh, my_other_hint{}));
+		CHECK_THROWS_WITH(experimental::hint(cgh, my_hint{1337}), "Providing more than one hint of the same type is not allowed");
+	});
 }
 
 TEST_CASE("hints can ensure combinations with other hints are valid", "[handler][task-hints]") {
-	auto cgh = detail::make_command_group_handler(task_id(1), 1 /* num_collective_nodes */);
-	CHECK_NOTHROW(experimental::hint(cgh, my_other_hint{}));
-	CHECK_THROWS_WITH(experimental::hint(cgh, my_hint{1336}), "not leet enough");
+	invoke_command_group_function([](handler& cgh) {
+		CHECK_NOTHROW(experimental::hint(cgh, my_other_hint{}));
+		CHECK_THROWS_WITH(experimental::hint(cgh, my_hint{1336}), "not leet enough");
+	});
 }
 
 TEST_CASE("split_1d and split_2d hints cannot be combined", "[handler][task-hints]") {
-	auto cgh = detail::make_command_group_handler(task_id(1), 1 /* num_collective_nodes */);
 	SECTION("1d then 2d") {
-		CHECK_NOTHROW(experimental::hint(cgh, experimental::hints::split_1d{}));
-		CHECK_THROWS_WITH(experimental::hint(cgh, experimental::hints::split_2d{}), "Cannot combine split_1d and split_2d hints");
+		invoke_command_group_function([](handler& cgh) {
+			CHECK_NOTHROW(experimental::hint(cgh, experimental::hints::split_1d{}));
+			CHECK_THROWS_WITH(experimental::hint(cgh, experimental::hints::split_2d{}), "Cannot combine split_1d and split_2d hints");
+		});
 	}
 	SECTION("2d then 1d") {
-		CHECK_NOTHROW(experimental::hint(cgh, experimental::hints::split_2d{}));
-		CHECK_THROWS_WITH(experimental::hint(cgh, experimental::hints::split_1d{}), "Cannot combine split_1d and split_2d hints");
+		invoke_command_group_function([](handler& cgh) {
+			CHECK_NOTHROW(experimental::hint(cgh, experimental::hints::split_2d{}));
+			CHECK_THROWS_WITH(experimental::hint(cgh, experimental::hints::split_1d{}), "Cannot combine split_1d and split_2d hints");
+		});
 	}
 }

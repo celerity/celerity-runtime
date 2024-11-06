@@ -1,11 +1,10 @@
 #pragma once
 
+#include "cgf.h"
 #include "graph.h"
 #include "grid.h"
 #include "hint.h"
 #include "intrusive_graph.h"
-#include "launcher.h"
-#include "range_mapper.h"
 #include "ranges.h"
 #include "reduction.h"
 #include "sycl_wrappers.h"
@@ -23,23 +22,7 @@
 
 
 namespace celerity {
-
-class handler;
-
 namespace detail {
-
-	struct task_geometry {
-		int dimensions = 0;
-		range<3> global_size{1, 1, 1};
-		id<3> global_offset;
-		range<3> granularity{1, 1, 1};
-	};
-
-	struct buffer_access {
-		buffer_id bid = -1;
-		access_mode mode = access_mode::atomic;
-		std::unique_ptr<range_mapper_base> range_mapper;
-	};
 
 	class buffer_access_map {
 	  public:
@@ -103,13 +86,19 @@ namespace detail {
 		using reference = const_reference;
 		using pointer = const_pointer;
 
+		side_effect_map() = default;
+
+		side_effect_map(const std::vector<host_object_effect>& side_effects) {
+			map_base::reserve(side_effects.size());
+			for(const auto& [hoid, order] : side_effects) {
+				map_base::emplace(hoid, order);
+			}
+		}
+
 		using map_base::size, map_base::count, map_base::empty, map_base::cbegin, map_base::cend, map_base::at;
 
 		iterator begin() const { return cbegin(); }
 		iterator end() const { return cend(); }
-		iterator find(host_object_id key) const { return map_base::find(key); }
-
-		void add_side_effect(host_object_id hoid, experimental::side_effect_order order);
 	};
 
 	class task_promise {
@@ -125,6 +114,7 @@ namespace detail {
 		virtual allocation_id get_user_allocation_id() = 0; // TODO move to struct task instead
 	};
 
+	// TODO refactor into an inheritance hierarchy
 	class task : public intrusive_graph_node<task> {
 	  public:
 		task_type get_type() const { return m_type; }
@@ -250,6 +240,8 @@ namespace detail {
 			       || type == task_type::fence);
 		}
 	};
+
+	std::unique_ptr<detail::task> make_command_group_task(const detail::task_id tid, const size_t num_collective_nodes, raw_command_group&& cg);
 
 	[[nodiscard]] std::string print_task_debug_label(const task& tsk, bool title_case = false);
 

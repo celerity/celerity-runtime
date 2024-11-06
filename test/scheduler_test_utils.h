@@ -98,17 +98,15 @@ class scheduler_test_context final : private task_manager::delegate {
 	}
 
 	task_id fence(test_utils::mock_host_object ho) {
-		side_effect_map side_effects;
-		side_effects.add_side_effect(ho.get_id(), experimental::side_effect_order::sequential);
-		return fence({}, std::move(side_effects), std::make_unique<mock_host_object_fence_promise>());
+		host_object_effect effect{ho.get_id(), experimental::side_effect_order::sequential};
+		return fence(effect, std::make_unique<mock_host_object_fence_promise>());
 	}
 
 	template <int Dims>
 	task_id fence(test_utils::mock_buffer<Dims> buf, subrange<Dims> sr) {
-		std::vector<buffer_access> accesses;
-		accesses.push_back(buffer_access{buf.get_id(), access_mode::read,
-		    std::make_unique<range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), buf.get_range())});
-		return fence(buffer_access_map(std::move(accesses), task_geometry{}), {}, std::make_unique<mock_buffer_fence_promise>(create_user_allocation()));
+		buffer_access access{buf.get_id(), access_mode::read,
+		    std::make_unique<range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), buf.get_range())};
+		return fence(std::move(access), std::make_unique<mock_buffer_fence_promise>(create_user_allocation()));
 	}
 
 	template <int Dims>
@@ -175,7 +173,7 @@ class scheduler_test_context final : private task_manager::delegate {
 	template <typename CGF, typename... Hints>
 	task_id submit_command_group(CGF cgf, Hints... hints) {
 		if(m_scheduler == nullptr) { FAIL("scheduler_test_context already finish()ed"); }
-		return m_tm.submit_command_group(cgf, hints...);
+		return m_tm.submit_command_group(invoke_command_group_function(cgf));
 	}
 
 	void task_created(const task* tsk) override {
@@ -206,9 +204,10 @@ class scheduler_test_context final : private task_manager::delegate {
 		}
 	}
 
-	task_id fence(buffer_access_map access_map, side_effect_map side_effects, std::unique_ptr<task_promise> promise) {
+	template <typename T>
+	task_id fence(T info, std::unique_ptr<task_promise> promise) {
 		if(m_scheduler == nullptr) { FAIL("scheduler_test_context already finish()ed"); }
-		return m_tm.generate_fence_task(std::move(access_map), std::move(side_effects), std::move(promise));
+		return m_tm.generate_fence_task(std::move(info), std::move(promise));
 	}
 };
 
