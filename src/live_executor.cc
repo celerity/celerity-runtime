@@ -402,6 +402,8 @@ executor_impl::executor_impl(std::unique_ptr<detail::backend> backend, communica
 }
 
 void executor_impl::run() {
+	// this closure hydrator instantiation is not necessary in normal execution iff device submission threads are enabled,
+	// but it is still required for testing purposes, so always making it available on this thread is the simplest solution
 	closure_hydrator::make_available();
 	backend->init();
 

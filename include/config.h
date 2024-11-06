@@ -25,6 +25,7 @@ namespace detail {
 		log_level get_log_level() const { return m_log_lvl; }
 
 		bool should_enable_device_profiling() const { return m_enable_device_profiling.value_or(m_tracy_mode == tracy_mode::full); }
+		bool should_use_backend_device_submission_threads() const { return m_enable_backend_device_submission_threads; }
 		bool is_dry_run() const { return m_dry_run_nodes > 0; }
 		bool should_print_graphs() const { return m_should_print_graphs; }
 		bool should_record() const {
@@ -39,6 +40,7 @@ namespace detail {
 	  private:
 		log_level m_log_lvl;
 		std::optional<bool> m_enable_device_profiling;
+		bool m_enable_backend_device_submission_threads = true;
 		size_t m_dry_run_nodes = 0;
 		bool m_should_print_graphs = false;
 		std::optional<int> m_horizon_step;

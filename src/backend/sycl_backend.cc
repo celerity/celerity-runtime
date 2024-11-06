@@ -7,6 +7,9 @@
 #include "thread_queue.h"
 #include "types.h"
 
+#include <atomic>
+#include <memory>
+
 #include <fmt/ranges.h>
 
 namespace celerity::detail::sycl_backend_detail {
@@ -17,6 +20,27 @@ std::optional<std::chrono::nanoseconds> sycl_event::get_native_execution_time() 
 	if(!m_first.has_value()) return std::nullopt; // avoid the cost of throwing + catching a sycl exception by when profiling is disabled
 	return std::chrono::nanoseconds(m_last.get_profiling_info<sycl::info::event_profiling::command_end>() //
 	                                - m_first->get_profiling_info<sycl::info::event_profiling::command_start>());
+}
+
+void delayed_async_event::state::set_value(async_event event) {
+	m_event = std::move(event);
+	[[maybe_unused]] bool previously_ready = m_is_ready.exchange(true, std::memory_order_release);
+	assert(!previously_ready && "delayed_async_event::state::set_value() called more than once");
+}
+
+bool delayed_async_event::is_complete() {
+	if(!m_state->m_is_ready.load(std::memory_order_acquire)) return false;
+	return m_state->m_event.is_complete();
+}
+
+void* delayed_async_event::get_result() {
+	assert(m_state->m_is_ready.load(std::memory_order_acquire));
+	return m_state->m_event.get_result();
+}
+
+std::optional<std::chrono::nanoseconds> delayed_async_event::get_native_execution_time() {
+	assert(m_state->m_is_ready.load(std::memory_order_acquire));
+	return m_state->m_event.get_native_execution_time();
 }
 
 void flush(sycl::queue& queue) {
@@ -64,6 +88,8 @@ struct sycl_backend::impl {
 		sycl::device sycl_device;
 		sycl::context sycl_context;
 		std::vector<sycl::queue> queues;
+		std::optional<detail::thread_queue> submission_thread;
+		std::atomic_flag active_async_error_check = false;
 
 		device_state() = default;
 		explicit device_state(const sycl::device& dev) : sycl_device(dev), sycl_context(sycl_device) {}
@@ -86,10 +112,11 @@ struct sycl_backend::impl {
 	system_info system;
 	dense_map<device_id, device_state> devices; // thread-safe for read access (not resized after construction)
 	host_state host;
-	bool enable_profiling;
+	using configuration = sycl_backend::configuration;
+	configuration config;
 
-	impl(const std::vector<sycl::device>& devices, const bool enable_profiling)
-	    : devices(devices.begin(), devices.end()), host(devices, enable_profiling), enable_profiling(enable_profiling) //
+	impl(const std::vector<sycl::device>& devices, const configuration& config)
+	    : devices(devices.begin(), devices.end()), host(devices, config.profiling), config(config) //
 	{
 		// For now, we assume distinct memories per device. TODO some targets, (OpenMP emulated devices), might deviate from that.
 		system.devices.resize(devices.size());
@@ -124,7 +151,7 @@ struct sycl_backend::impl {
 
 	thread_queue& get_host_queue(const size_t lane) {
 		assert(lane <= host.queues.size());
-		if(lane == host.queues.size()) { host.queues.emplace_back(fmt::format("cy-host-{}", lane), enable_profiling); }
+		if(lane == host.queues.size()) { host.queues.emplace_back(fmt::format("cy-host-{}", lane), config.profiling); }
 		return host.queues[lane];
 	}
 
@@ -132,7 +159,7 @@ struct sycl_backend::impl {
 		auto& device = devices[did];
 		assert(lane <= device.queues.size());
 		if(lane == device.queues.size()) {
-			const auto properties = enable_profiling ? sycl::property_list{sycl::property::queue::enable_profiling{}, sycl::property::queue::in_order{}}
+			const auto properties = config.profiling ? sycl::property_list{sycl::property::queue::enable_profiling{}, sycl::property::queue::in_order{}}
 			                                         : sycl::property_list{sycl::property::queue::in_order{}};
 			device.queues.emplace_back(device.sycl_device, sycl::async_handler(sycl_backend_detail::report_errors), properties);
 		}
@@ -140,18 +167,40 @@ struct sycl_backend::impl {
 	}
 };
 
-sycl_backend::sycl_backend(const std::vector<sycl::device>& devices, const bool enable_profiling) : m_impl(new impl(devices, enable_profiling)) {}
+sycl_backend::sycl_backend(const std::vector<sycl::device>& devices, const configuration& config) : m_impl(new impl(devices, config)) {
+	// Initialize a submission thread with hydrator for each device, if they are enabled
+	if(m_impl->config.per_device_submission_threads) {
+		for(device_id did = 0; did < m_impl->system.devices.size(); ++did) {
+			m_impl->devices[did].submission_thread.emplace(fmt::format("cy-be-submission-{}", did.value), m_impl->config.profiling);
+			// no need to wait for the event -> will happen before the first task is submitted
+			(void)m_impl->devices[did].submission_thread->submit([did] {
+				closure_hydrator::make_available();
+				// TODO: Set BE submission thread affinity
+			});
+		}
+	}
+}
 
-sycl_backend::~sycl_backend() = default;
+sycl_backend::~sycl_backend() {
+	// If we are using submission threads, tear down their hydrators before they are destroyed
+	if(m_impl->config.per_device_submission_threads) {
+		for(auto& device : m_impl->devices) {
+			// no need to wait for the event -> destruction will wait for the submission thread to finish
+			(void)device.submission_thread->submit([] { closure_hydrator::teardown(); });
+		}
+	}
+}
 
 const system_info& sycl_backend::get_system_info() const { return m_impl->system; }
 
 void sycl_backend::init() {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("sycl::init", Orange2);
+
 	// Instantiate the first in-order queue on each device. At least for CUDA systems this will perform device initialization, which can take > 100 ms / device.
 	for(device_id did = 0; did < m_impl->system.devices.size(); ++did) {
 		(void)m_impl->get_device_queue(did, 0 /* lane */);
 	}
+	// TODO: Set executor thread affinity
 }
 
 void* sycl_backend::debug_alloc(const size_t size) {
@@ -207,16 +256,17 @@ async_event sycl_backend::enqueue_host_task(size_t host_lane, const host_task_la
 async_event sycl_backend::enqueue_device_kernel(const device_id device, const size_t lane, const device_kernel_launcher& launch,
     std::vector<closure_hydrator::accessor_info> accessor_infos, const box<3>& execution_range, const std::vector<void*>& reduction_ptrs) //
 {
-	auto& queue = m_impl->get_device_queue(device, lane);
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED("sycl::submit", Orange2);
-	auto event = queue.submit([&](sycl::handler& sycl_cgh) {
-		auto& hydrator = closure_hydrator::get_instance();
-		hydrator.arm(target::device, std::move(accessor_infos));
-		const auto launch_hydrated = hydrator.hydrate<target::device>(sycl_cgh, launch);
-		launch_hydrated(sycl_cgh, execution_range, reduction_ptrs);
+	return enqueue_device_work(device, lane, [=, this, acc_infos = std::move(accessor_infos)](sycl::queue& queue) mutable {
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("sycl::submit", Orange2);
+		auto event = queue.submit([&](sycl::handler& sycl_cgh) {
+			auto& hydrator = closure_hydrator::get_instance();
+			hydrator.arm(target::device, std::move(acc_infos));
+			const auto launch_hydrated = hydrator.hydrate<target::device>(sycl_cgh, launch);
+			launch_hydrated(sycl_cgh, execution_range, reduction_ptrs);
+		});
+		sycl_backend_detail::flush(queue);
+		return make_async_event<sycl_backend_detail::sycl_event>(std::move(event), m_impl->config.profiling);
 	});
-	sycl_backend_detail::flush(queue);
-	return make_async_event<sycl_backend_detail::sycl_event>(std::move(event), m_impl->enable_profiling);
 }
 
 async_event sycl_backend::enqueue_host_copy(size_t host_lane, const void* const source_base, void* const dest_base, const region_layout& source_layout,
@@ -226,18 +276,50 @@ async_event sycl_backend::enqueue_host_copy(size_t host_lane, const void* const 
 }
 
 void sycl_backend::check_async_errors() {
-	for(auto& device : m_impl->devices) {
-		for(auto& queue : device.queues) {
-			queue.throw_asynchronous();
+	for(size_t i = 0; i < m_impl->devices.size(); ++i) {
+		auto& device = m_impl->devices[i];
+		if(m_impl->config.per_device_submission_threads) {
+			// Prevent multiple error checks from being enqueued at the same time
+			if(!device.active_async_error_check.test_and_set()) {
+				(void)device.submission_thread->submit([&]() {
+					for(auto& queue : device.queues) {
+						queue.throw_asynchronous();
+					}
+					device.active_async_error_check.clear();
+				});
+			}
+		} else {
+			for(auto& queue : device.queues) {
+				queue.throw_asynchronous();
+			}
 		}
 	}
 }
 
-sycl::queue& sycl_backend::get_device_queue(device_id device, size_t lane) { return m_impl->get_device_queue(device, lane); }
-
 system_info& sycl_backend::get_system_info() { return m_impl->system; }
 
-bool sycl_backend::is_profiling_enabled() const { return m_impl->enable_profiling; }
+async_event celerity::detail::sycl_backend::enqueue_device_work(
+    const device_id device, const size_t lane, const std::function<async_event(sycl::queue&)>& work) {
+	// Basic case: no per-device submission threads
+	if(!m_impl->config.per_device_submission_threads) { return work(m_impl->get_device_queue(device, lane)); }
+
+	auto& device_state = m_impl->devices[device];
+	auto& submission_thread = device_state.submission_thread;
+	assert(submission_thread.has_value());
+
+	// Note: this mechanism is quite similar in principle to a std::future/promise,
+	//       but implementing it with that caused a 50% (!) slowdown in system-level benchmarks
+	sycl_backend_detail::delayed_async_event::shared_state async_event_state = std::make_shared<sycl_backend_detail::delayed_async_event::state>();
+	auto async_event = make_async_event<sycl_backend_detail::delayed_async_event>(async_event_state);
+
+	(void)submission_thread->submit([this, device, lane, work, async_event_state] {
+		auto event = work(m_impl->get_device_queue(device, lane));
+		async_event_state->set_value(std::move(event));
+	});
+	return async_event;
+}
+
+bool sycl_backend::is_profiling_enabled() const { return m_impl->config.profiling; }
 
 std::vector<sycl_backend_type> sycl_backend_enumerator::compatible_backends(const sycl::device& device) const {
 	std::vector<backend_type> backends{backend_type::generic};
@@ -279,17 +361,17 @@ int sycl_backend_enumerator::get_priority(backend_type type) const {
 
 namespace celerity::detail {
 
-std::unique_ptr<backend> make_sycl_backend(const sycl_backend_type type, const std::vector<sycl::device>& devices, const bool enable_profiling) {
+std::unique_ptr<backend> make_sycl_backend(const sycl_backend_type type, const std::vector<sycl::device>& devices, const sycl_backend::configuration& config) {
 	assert(std::all_of(
 	    devices.begin(), devices.end(), [=](const sycl::device& d) { return utils::contains(sycl_backend_enumerator{}.compatible_backends(d), type); }));
 
 	switch(type) {
 	case sycl_backend_type::generic: //
-		return std::make_unique<sycl_generic_backend>(devices, enable_profiling);
+		return std::make_unique<sycl_generic_backend>(devices, config);
 
 	case sycl_backend_type::cuda:
 #if CELERITY_DETAIL_BACKEND_CUDA_ENABLED
-		return std::make_unique<sycl_cuda_backend>(devices, enable_profiling);
+		return std::make_unique<sycl_cuda_backend>(devices, config);
 #else
 		utils::panic("CUDA backend has not been compiled");
 #endif

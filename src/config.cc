@@ -86,6 +86,7 @@ namespace detail {
 		const auto env_log_level = pref.register_option<log_level>(
 		    "LOG_LEVEL", {log_level::trace, log_level::debug, log_level::info, log_level::warn, log_level::err, log_level::critical, log_level::off});
 		const auto env_profile_kernel = pref.register_variable<bool>("PROFILE_KERNEL", parse_validate_profile_kernel);
+		const auto env_backend_device_submission_threads = pref.register_variable<bool>("BACKEND_DEVICE_SUBMISSION_THREADS");
 		const auto env_print_graphs = pref.register_variable<bool>("PRINT_GRAPHS");
 		const auto env_dry_run_nodes = pref.register_variable<size_t>("DRY_RUN_NODES", parse_validate_dry_run_nodes);
 		constexpr int horizon_max = 1024 * 64;
@@ -102,27 +103,32 @@ namespace detail {
 
 		const auto parsed_and_validated_envs = pref.parse_and_validate();
 		if(parsed_and_validated_envs.ok()) {
-			// ------------------------------- CELERITY_LOG_LEVEL ---------------------------------
-
 #if CELERITY_DETAIL_ENABLE_DEBUG
 			m_log_lvl = parsed_and_validated_envs.get_or(env_log_level, log_level::debug);
 #else
 			m_log_lvl = parsed_and_validated_envs.get_or(env_log_level, log_level::info);
 #endif
 
-			// ----------------------------- CELERITY_PROFILE_KERNEL ------------------------------
-
 			const auto has_profile_kernel = parsed_and_validated_envs.get(env_profile_kernel);
 			if(has_profile_kernel) { m_enable_device_profiling = *has_profile_kernel; }
 
-			// -------------------------------- CELERITY_DRY_RUN_NODES ---------------------------------
+			m_enable_backend_device_submission_threads = parsed_and_validated_envs.get_or(env_backend_device_submission_threads, true);
+#if CELERITY_WORKAROUND(SIMSYCL)
+			// SimSYCL is not thread safe
+			if(m_enable_backend_device_submission_threads) {
+				CELERITY_WARN("CELERITY_BACKEND_DEVICE_SUBMISSION_THREADS=on is not supported with SimSYCL. Disabling worker threads.");
+				m_enable_backend_device_submission_threads = false;
+			}
+#endif // CELERITY_WORKAROUND(SIMSYCL)
 
 			const auto has_dry_run_nodes = parsed_and_validated_envs.get(env_dry_run_nodes);
 			if(has_dry_run_nodes) { m_dry_run_nodes = *has_dry_run_nodes; }
 
 			m_should_print_graphs = parsed_and_validated_envs.get_or(env_print_graphs, false);
+
 			m_horizon_step = parsed_and_validated_envs.get(env_horizon_step);
 			m_horizon_max_parallelism = parsed_and_validated_envs.get(env_horizon_max_para);
+
 			m_tracy_mode = parsed_and_validated_envs.get_or(env_tracy_mode, tracy_mode::off);
 		} else {
 			for(const auto& warn : parsed_and_validated_envs.warnings()) {

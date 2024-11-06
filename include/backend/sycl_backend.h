@@ -4,6 +4,11 @@
 
 #include "backend/backend.h"
 
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <vector>
+
 #include <fmt/format.h>
 
 namespace celerity::detail::sycl_backend_detail {
@@ -23,6 +28,30 @@ class sycl_event final : public async_event_impl {
 	sycl::event m_last;
 };
 
+// asynchronous event which can be filled with an actual event from another thread later
+class delayed_async_event final : public async_event_impl {
+  public:
+	class state {
+	  public:
+		void set_value(async_event event);
+		friend class delayed_async_event;
+
+	  private:
+		async_event m_event;
+		std::atomic_bool m_is_ready = false;
+	};
+	using shared_state = std::shared_ptr<state>;
+
+	delayed_async_event(const shared_state& state) : m_state(state) {}
+
+	bool is_complete() override;
+	void* get_result() override;
+	std::optional<std::chrono::nanoseconds> get_native_execution_time() override;
+
+  private:
+	std::shared_ptr<state> m_state;
+};
+
 /// Ensure that all operations previously submitted to the SYCL queue begin executing even when not explicitly awaited.
 void flush(sycl::queue& queue);
 
@@ -39,7 +68,15 @@ namespace celerity::detail {
 /// This abstract class implements all `backend` functions except copies, which not subject to platform-dependent specialization.
 class sycl_backend : public backend {
   public:
-	explicit sycl_backend(const std::vector<sycl::device>& devices, bool enable_profiling);
+	struct configuration {
+		// If `per_device_submission_threads` is true, operations on each device will be enqueued on a separate worker thread.
+		// If false, all operations will be enqueued on the executor thread.
+		bool per_device_submission_threads = true;
+		// If `profiling` is true, events for asynchronous operations will report native execution times.
+		bool profiling = false;
+	};
+
+	explicit sycl_backend(const std::vector<sycl::device>& devices, const configuration& config);
 	sycl_backend(const sycl_backend&) = delete;
 	sycl_backend(sycl_backend&&) = delete;
 	sycl_backend& operator=(const sycl_backend&) = delete;
@@ -74,9 +111,11 @@ class sycl_backend : public backend {
 	void check_async_errors() override;
 
   protected:
-	sycl::queue& get_device_queue(device_id device, size_t lane);
-
 	system_info& get_system_info(); // mutable system_info is filled by sycl_cuda_backend constructor
+
+	// Enqueues a task on the worker thread corresponding to the given device, and provides the task with the device and lane's SYCL queue.
+	// It wraps the async_event returned by the task in a delayed_async_event
+	async_event enqueue_device_work(const device_id device, const size_t lane, const std::function<async_event(sycl::queue&)>& work);
 
 	bool is_profiling_enabled() const;
 
@@ -88,7 +127,7 @@ class sycl_backend : public backend {
 /// Generic implementation of `sycl_backend` providing a fallback implementation for device copies that might be inefficient in the 2D / 3D case.
 class sycl_generic_backend final : public sycl_backend {
   public:
-	sycl_generic_backend(const std::vector<sycl::device>& devices, bool enable_profiling);
+	sycl_generic_backend(const std::vector<sycl::device>& devices, const sycl_backend::configuration& config);
 
 	async_event enqueue_device_copy(device_id device, size_t device_lane, const void* const source_base, void* const dest_base,
 	    const region_layout& source_layout, const region_layout& dest_layout, const region<3>& copy_region, const size_t elem_size) override;
@@ -98,7 +137,7 @@ class sycl_generic_backend final : public sycl_backend {
 /// CUDA specialized implementation of `sycl_backend` that uses native CUDA operations for 2D / 3D copies.
 class sycl_cuda_backend final : public sycl_backend {
   public:
-	sycl_cuda_backend(const std::vector<sycl::device>& devices, bool enable_profiling);
+	sycl_cuda_backend(const std::vector<sycl::device>& devices, const sycl_backend::configuration& config);
 
 	async_event enqueue_device_copy(device_id device, size_t device_lane, const void* const source_base, void* const dest_base,
 	    const region_layout& source_layout, const region_layout& dest_layout, const region<3>& copy_region, const size_t elem_size) override;
@@ -128,7 +167,7 @@ struct sycl_backend_enumerator {
 };
 
 /// Creates a SYCL backend instance of the specified type with the devices listed. Requires that Celerity has been compiled with the given backend and all
-/// devices are compatible with it. If `enable_profiling` is true, events for asynchronous operations will report native execution times.
-std::unique_ptr<backend> make_sycl_backend(const sycl_backend_type type, const std::vector<sycl::device>& devices, bool enable_profiling);
+/// devices are compatible with it.
+std::unique_ptr<backend> make_sycl_backend(const sycl_backend_type type, const std::vector<sycl::device>& devices, const sycl_backend::configuration& config);
 
 } // namespace celerity::detail
