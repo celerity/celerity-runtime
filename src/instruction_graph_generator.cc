@@ -271,14 +271,14 @@ struct buffer_allocation_state {
 	/// Add `instr` to the active set of concurrent reads, or replace the current access front if the last access was not a read.
 	void track_concurrent_read(const region<3>& region, instruction* const instr) {
 		if(region.empty()) return;
-		for(auto& [box, front] : last_concurrent_accesses.get_region_values(region)) {
+		last_concurrent_accesses.apply_to_values(region, [&](access_front front) {
 			if(front.get_mode() == access_front::read) {
 				front.add_instruction(instr);
 			} else {
 				front = access_front(instr, access_front::read);
 			}
-			last_concurrent_accesses.update_box(box, front);
-		}
+			return front;
+		});
 	}
 
 	/// Replace the current access front with a write. The write is treated as "atomic" in the sense that there is never a second, concurrent write operation
@@ -302,12 +302,15 @@ struct buffer_allocation_state {
 	/// track multiple last-writers for the same buffer element.
 	void track_concurrent_write(const region<3>& region, instruction* const instr) {
 		if(region.empty()) return;
-		for(auto& [box, front] : last_writers.get_region_values(region)) {
+		last_writers.apply_to_values(region, [&](access_front front) {
 			assert(front.get_mode() == access_front::write && "must call begin_concurrent_writes first");
 			front.add_instruction(instr);
-			last_writers.update_box(box, front);
-			last_concurrent_accesses.update_box(box, front);
-		}
+			return front;
+		});
+		last_concurrent_accesses.apply_to_values(region, [&](access_front front) {
+			front.add_instruction(instr);
+			return front;
+		});
 	}
 
 	/// Replace all tracked instructions that older than `epoch` with `epoch`.
@@ -1421,9 +1424,10 @@ void generator_impl::establish_coherence_between_buffer_memories(
 	if(!concurrent_direct_copies.empty() || !concurrently_host_staged_copies.empty()) {
 		for(memory_id mid = 0; mid < concurrent_reads_from_memory.size(); ++mid) {
 			for(const auto& region : concurrent_reads_from_memory[mid]) {
-				for(auto& [box, location] : buffer.up_to_date_memories.get_region_values(region)) {
-					buffer.up_to_date_memories.update_box(box, memory_mask(location).set(mid));
-				}
+				buffer.up_to_date_memories.apply_to_values(region, [&](memory_mask location) {
+					location.set(mid);
+					return location;
+				});
 			}
 		}
 	}
@@ -1897,8 +1901,10 @@ void generator_impl::perform_task_buffer_accesses(
 			auto& buffer = m_buffers.at(bid);
 
 			for(auto& alloc : buffer.memories[concurrent_chunks[i].memory_id].allocations) {
-				alloc.track_concurrent_read(region_intersection(alloc.box, rw.reads), command_instructions[i]);
-				alloc.track_concurrent_write(region_intersection(alloc.box, rw.writes), command_instructions[i]);
+				const auto read_region = region_intersection(alloc.box, rw.reads);
+				const auto write_region = region_intersection(alloc.box, rw.writes);
+				alloc.track_concurrent_read(region_difference(read_region, write_region), command_instructions[i]);
+				alloc.track_concurrent_write(write_region, command_instructions[i]);
 			}
 			buffer.track_original_write(rw.writes, command_instructions[i], concurrent_chunks[i].memory_id);
 		}

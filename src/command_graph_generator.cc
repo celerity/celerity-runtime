@@ -363,9 +363,10 @@ void command_graph_generator::generate_pushes(batch& current_batch, const task& 
 					assert(!utils::isa<await_push_command>(wcs.get_command()) && "Attempting to push non-owned data?!");
 					auto push_region = std::move(non_replicated_boxes).into_region();
 					// Remember that we've replicated this region
-					for(const auto& [replicated_box, nodes] : buffer.replicated_regions.get_region_values(push_region)) {
-						buffer.replicated_regions.update_box(replicated_box, node_bitset{nodes}.set(nid));
-					}
+					buffer.replicated_regions.apply_to_values(push_region, [&](node_bitset nodes) {
+						nodes.set(nid);
+						return nodes;
+					});
 					auto& scratch = per_buffer_pushes[bid]; // allow default-insert
 					scratch.target_regions[nid /* allow default-insert */].add(push_region);
 					scratch.depends_on.insert(wcs);
@@ -446,14 +447,10 @@ void command_graph_generator::update_local_buffer_fresh_regions(const task& tsk,
 			return std::move(global_writes);
 		})(); // IIFE
 
-		// TODO: We need a way of updating regions in place! E.g. apply_to_values(box, callback)
-		auto boxes_and_cids = buffer.local_last_writer.get_region_values(remote_writes);
-		for(auto& [box, wcs] : boxes_and_cids) {
-			if(wcs.is_fresh()) {
-				wcs.mark_as_stale();
-				buffer.local_last_writer.update_box(box, wcs);
-			}
-		}
+		buffer.local_last_writer.apply_to_values(remote_writes, [&](write_command_state wcs) {
+			if(wcs.is_fresh()) { wcs.mark_as_stale(); }
+			return wcs;
+		});
 	}
 }
 

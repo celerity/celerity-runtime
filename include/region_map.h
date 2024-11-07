@@ -876,8 +876,18 @@ namespace region_map_detail {
 				// In this case we have to insert the new box.
 				m_update_actions.push_back(typename types::insert_node_action{clamped_box, value});
 			} else {
-				// Otherwise just check whether the in-place updated box can be merged.
-				m_merge_candidates.push_back(std::make_pair(clamped_box, value));
+				// Otherwise just add the in-place updated box to the list of merge candidates.
+				bool needs_insert = true;
+				if(delay_merge_for_bulk_update) {
+					// In case this is a bulk update we also have to check whether we just in-place-updated a previous merge candidate.
+					auto it = std::find_if(
+					    m_merge_candidates.begin(), m_merge_candidates.end(), [&](const auto& candidate) { return candidate.first == clamped_box; });
+					if(it != m_merge_candidates.end()) {
+						it->second = value; // Simply update value here
+						needs_insert = false;
+					}
+				}
+				if(needs_insert) { m_merge_candidates.push_back(std::make_pair(clamped_box, value)); }
 			}
 
 #if !defined(NDEBUG)
@@ -973,7 +983,7 @@ namespace region_map_detail {
 			m_merge_candidates.clear();
 			for(const auto& box : inside_region.get_boxes()) {
 				const auto query_result = get_region_values(box);
-				for(auto& [b, v] : query_result) {
+				for(const auto& [b, v] : query_result) {
 					const auto new_value = f(v);
 					if(new_value != v) { update_box(b, new_value, true); }
 				}
@@ -1278,8 +1288,8 @@ namespace region_map_detail {
 		}
 
 		template <typename Functor>
-		void apply_to_values(const region<0>& /* inside_region */, const Functor& f) {
-			m_value = f(m_value);
+		void apply_to_values(const region<1>& inside_region, const Functor& f) {
+			if(!inside_region.empty()) { m_value = f(m_value); }
 		}
 
 	  private:
@@ -1418,7 +1428,7 @@ class region_map {
 		static_assert(std::is_invocable_r_v<ValueType, Functor, const ValueType&>, "Functor must receive and return a value of type ValueType");
 
 		switch(m_dims) {
-		case 0: get_map<0>().apply_to_values(region_cast<0>(inside_region), f); break;
+		case 0: get_map<0>().apply_to_values(region_cast<1>(inside_region), f); break;
 		case 1: get_map<1>().apply_to_values(region_cast<1>(inside_region), f); break;
 		case 2: get_map<2>().apply_to_values(region_cast<2>(inside_region), f); break;
 		case 3: get_map<3>().apply_to_values(region_cast<3>(inside_region), f); break;

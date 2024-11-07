@@ -818,6 +818,8 @@ TEST_CASE("apply_to_values(region, fn) properly handles invalidated merge candid
 	rm.apply_to_values(reg, [](size_t /* v */) -> size_t { return 3; });
 
 	draw(rm);
+
+	// NOCOMMIT: Add second scenario with in-place update
 }
 
 // TODO: This only works until count_sqrt exceeds per-node value limit.
