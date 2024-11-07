@@ -117,6 +117,7 @@ struct buffer_access {
 	buffer_id bid = -1;
 	access_mode mode = access_mode::read;
 	std::variant<std::unique_ptr<range_mapper_base>, expert_mapper> range_mapper; // NOCOMMIT Naming
+	bool is_replicated = false;
 };
 
 struct host_object_effect {

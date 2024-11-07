@@ -42,7 +42,7 @@ buffer_access_map::buffer_access_map(std::vector<buffer_access>&& accesses, cons
 	std::unordered_map<buffer_id, region_builder<3>> consumed_regions;
 	std::unordered_map<buffer_id, region_builder<3>> produced_regions;
 	for(size_t i = 0; i < m_accesses.size(); ++i) {
-		const auto& [bid, mode, rm] = m_accesses[i];
+		const auto& [bid, mode, rm, _] = m_accesses[i];
 		m_accessed_buffers.insert(bid);
 		const auto req = matchbox::match(
 		    rm,
@@ -88,7 +88,7 @@ region<3> buffer_access_map::get_requirements_for_nth_access(const size_t n, con
 region<3> buffer_access_map::compute_consumed_region(const buffer_id bid, const box<3>& execution_range) const {
 	region_builder<3> builder;
 	for(size_t i = 0; i < m_accesses.size(); ++i) {
-		const auto& [b, m, _] = m_accesses[i];
+		const auto& [b, m, _, _2] = m_accesses[i];
 		if(b != bid || !is_consumer_mode(m)) continue;
 		builder.add(get_requirements_for_nth_access(i, execution_range));
 	}
@@ -98,7 +98,7 @@ region<3> buffer_access_map::compute_consumed_region(const buffer_id bid, const 
 region<3> buffer_access_map::compute_produced_region(const buffer_id bid, const box<3>& execution_range) const {
 	region_builder<3> builder;
 	for(size_t i = 0; i < m_accesses.size(); ++i) {
-		const auto& [b, m, _] = m_accesses[i];
+		const auto& [b, m, _, _2] = m_accesses[i];
 		if(b != bid || !is_producer_mode(m)) continue;
 		builder.add(get_requirements_for_nth_access(i, execution_range));
 	}
@@ -108,7 +108,7 @@ region<3> buffer_access_map::compute_produced_region(const buffer_id bid, const 
 box_vector<3> buffer_access_map::compute_required_contiguous_boxes(const buffer_id bid, const box<3>& execution_range) const {
 	box_vector<3> boxes;
 	for(size_t i = 0; i < m_accesses.size(); ++i) {
-		const auto& [b, a_mode, _] = m_accesses[i];
+		const auto& [b, a_mode, _, _2] = m_accesses[i];
 		if(b == bid) {
 			const auto accessed_region = get_requirements_for_nth_access(i, execution_range);
 			if(!accessed_region.empty()) { boxes.push_back(bounding_box(accessed_region)); }
@@ -207,6 +207,18 @@ namespace detail {
 		std::unordered_map<buffer_id, region<3>> overlapping_writes;
 
 		for(const auto bid : bam.get_accessed_buffers()) {
+			// NOCOMMIT HACK - Need to restructure the entire thing to work in terms of nth access
+			// => We currently skip the check for the entire buffer if one of the accesses is replicated
+			// TODO: Add tests as well
+			bool is_replicated = false;
+			for(size_t i = 0; i < bam.get_num_accesses(); ++i) {
+				if(bam.get_nth_access(i).first == bid && bam.is_replicated(i)) {
+					is_replicated = true;
+					break;
+				}
+			}
+			if(is_replicated) continue;
+
 			for(const auto& ck : chunks) {
 				const auto writes = bam.compute_produced_region(bid, ck.get_subrange());
 				if(!writes.empty()) {

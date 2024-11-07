@@ -40,7 +40,7 @@ namespace detail {
 		using const_reference = const DataT&;
 	};
 
-	template <access_mode Mode, access_mode NoInitMode, target Target>
+	template <access_mode Mode, access_mode NoInitMode, target Target, bool Replicated = false>
 	struct access_tag {};
 
 	struct accessor_testspy;
@@ -101,6 +101,12 @@ inline constexpr detail::access_tag<access_mode::read, access_mode::read, target
 inline constexpr detail::access_tag<access_mode::write, access_mode::discard_write, target::host_task> write_only_host_task;
 inline constexpr detail::access_tag<access_mode::read_write, access_mode::discard_read_write, target::host_task> read_write_host_task;
 
+// TODO API: Should this be a property instead? Right now an overlapping accessor cannot be constructed w/o this tag (i.e., old style). Also add read_write
+// TDOO: Naming - we mean that parts that overlap are replicated, not the whole thing
+inline constexpr detail::access_tag<access_mode::write, access_mode::discard_write, target::device, true> write_only_replicated;
+inline constexpr detail::access_tag<access_mode::read_write, access_mode::discard_read_write, target::device, true> read_write_replicated;
+inline constexpr detail::access_tag<access_mode::write, access_mode::discard_write, target::host_task, true> write_only_host_task_replicated;
+
 #define CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR [[deprecated("Creating accessor from const buffer is deprecated, capture buffer by reference instead")]]
 
 /**
@@ -119,16 +125,17 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	accessor() noexcept = default;
 
 	template <typename Functor>
-	accessor(buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) : accessor(ctor_internal_tag(), buff, cgh, rmfn) {}
+	accessor(buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) : accessor(ctor_internal_tag(), buff, cgh, rmfn, false) {}
 
-	template <typename Functor, access_mode TagModeNoInit>
-	accessor(buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, TagModeNoInit, target::device> /* tag */)
-	    : accessor(ctor_internal_tag(), buff, cgh, rmfn) {}
+	// TODO: Add Replicated for 0D, deprecated ctors (also host task accessor)
+	template <typename Functor, access_mode TagModeNoInit, bool Replicated>
+	accessor(buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, TagModeNoInit, target::device, Replicated> /* tag */)
+	    : accessor(ctor_internal_tag(), buff, cgh, rmfn, Replicated) {}
 
-	template <typename Functor, access_mode TagMode>
-	accessor(buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::device> /* tag */,
+	template <typename Functor, access_mode TagMode, bool Replicated>
+	accessor(buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::device, Replicated> /* tag */,
 	    const property::no_init& /* no_init */)
-	    : accessor(ctor_internal_tag(), buff, cgh, rmfn) {}
+	    : accessor(ctor_internal_tag(), buff, cgh, rmfn, Replicated) {}
 
 	template <int D = Dims, std::enable_if_t<D == 0, int> = 0>
 	accessor(buffer<DataT, Dims>& buff, handler& cgh) : accessor(buff, cgh, access::all()) {}
@@ -147,17 +154,17 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
 	template <typename Functor>
 	CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn)
-	    : accessor(ctor_internal_tag(), buff, cgh, rmfn) {}
+	    : accessor(ctor_internal_tag(), buff, cgh, rmfn, false) {}
 
 	template <typename Functor, access_mode TagModeNoInit>
 	CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR accessor(
 	    const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, TagModeNoInit, target::device> /* tag */)
-	    : accessor(ctor_internal_tag(), buff, cgh, rmfn) {}
+	    : accessor(ctor_internal_tag(), buff, cgh, rmfn, false) {}
 
 	template <typename Functor, access_mode TagMode>
 	CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn,
 	    const detail::access_tag<TagMode, Mode, target::device> /* tag */, const property::no_init& /* no_init */)
-	    : accessor(ctor_internal_tag(), buff, cgh, rmfn) {}
+	    : accessor(ctor_internal_tag(), buff, cgh, rmfn, false) {}
 
 	template <typename Functor, access_mode TagMode, access_mode TagModeNoInit>
 	CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn,
@@ -279,13 +286,14 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 #endif
 
 	template <typename Functor>
-	accessor(const ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) {
+	accessor(const ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const bool replicated) {
+		assert(!replicated || detail::is_producer_mode(Mode));
 		using range_mapper = detail::range_mapper<Dims, std::decay_t<Functor>>; // decay function type to function pointer
 		detail::hydration_id hid = -1;
 		if constexpr(std::is_same_v<std::remove_cvref_t<Functor>, expert_mapper>) {
-			hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), Mode, rmfn);
+			hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), Mode, rmfn, replicated);
 		} else {
-			hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), Mode, std::make_unique<range_mapper>(rmfn, buff.get_range()));
+			hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), Mode, std::make_unique<range_mapper>(rmfn, buff.get_range()), replicated);
 		}
 		m_device_ptr = detail::embed_hydration_id<DataT*>(hid);
 	}
@@ -347,20 +355,21 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	accessor() noexcept = default;
 
 	template <typename Functor>
-	accessor(buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
+	accessor(buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) : accessor(ctor_internal_tag{}, buff, cgh, rmfn, false) {}
 
-	template <typename Functor, access_mode TagModeNoInit>
-	accessor(buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, TagModeNoInit, target::host_task> /* tag */)
-	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
+	template <typename Functor, access_mode TagModeNoInit, bool Replicated>
+	accessor(
+	    buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, TagModeNoInit, target::host_task, Replicated> /* tag */)
+	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn, Replicated) {}
 
 	/**
 	 * TODO: As of ComputeCpp 2.5.0 they do not support no_init prop, hence this constructor is needed along with discard deduction guide.
 	 *    but once they do this should be replace for a constructor that takes a prop list as an argument.
 	 */
-	template <typename Functor, access_mode TagMode, access_mode M = Mode, typename = std::enable_if_t<detail::is_producer_mode(M)>>
-	accessor(buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::host_task> /* tag */,
+	template <typename Functor, access_mode TagMode, access_mode M = Mode, bool Replicated, typename = std::enable_if_t<detail::is_producer_mode(M)>>
+	accessor(buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::host_task, Replicated> /* tag */,
 	    const property::no_init& /* no_init */)
-	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
+	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn, Replicated) {}
 
 	template <int D = Dims, std::enable_if_t<D == 0, int> = 0>
 	accessor(buffer<DataT, Dims>& buff, handler& cgh) : accessor(buff, cgh, access::all()) {}
@@ -379,12 +388,12 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 
 	template <typename Functor>
 	CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn)
-	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
+	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn, false) {}
 
 	template <typename Functor, access_mode TagModeNoInit>
 	CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR accessor(
 	    const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, TagModeNoInit, target::host_task> /* tag */)
-	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
+	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn, false) {}
 
 	/**
 	 * TODO: As of ComputeCpp 2.5.0 they do not support no_init prop, hence this constructor is needed along with discard deduction guide.
@@ -393,7 +402,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	template <typename Functor, access_mode TagMode, access_mode M = Mode, typename = std::enable_if_t<detail::is_producer_mode(M)>>
 	CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn,
 	    const detail::access_tag<TagMode, Mode, target::host_task> /* tag */, const property::no_init& /* no_init */)
-	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
+	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn, false) {}
 
 	template <typename Functor, access_mode TagMode, access_mode TagModeNoInit>
 	CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn,
@@ -569,9 +578,11 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 #endif
 
 	template <target Target = target::host_task, typename Functor>
-	accessor(ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn) : m_buffer_range(buff.get_range()) {
+	accessor(ctor_internal_tag /* tag */, const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const bool replicated)
+	    : m_buffer_range(buff.get_range()) {
+		assert(!replicated || detail::is_producer_mode(Mode));
 		using range_mapper = detail::range_mapper<Dims, std::decay_t<Functor>>; // decay function type to function pointer
-		const auto hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), Mode, std::make_unique<range_mapper>(rmfn, buff.get_range()));
+		const auto hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), Mode, std::make_unique<range_mapper>(rmfn, buff.get_range()), replicated);
 		m_host_ptr = detail::embed_hydration_id<DataT*>(hid);
 	}
 
@@ -622,27 +633,28 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 #undef CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR
 
 // TODO: Make buffer non-const once corresponding (deprecated!) constructor overloads are removed
-template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, D, Mode, Target>;
+template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target, bool Replicated>
+accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn,
+    const detail::access_tag<Mode, ModeNoInit, Target, Replicated> tag) -> accessor<T, D, Mode, Target>;
 
-template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag,
+template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target, bool Replicated>
+accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target, Replicated> tag,
     const property::no_init no_init) -> accessor<T, D, ModeNoInit, Target>;
 
-template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag,
+template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target, bool Replicated>
+accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target, Replicated> tag,
     const property_list& props) -> accessor<T, D, Mode, Target>;
 
-template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, 0, Mode, Target>;
+template <typename T, access_mode Mode, access_mode ModeNoInit, target Target, bool Replicated>
+accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target, Replicated> tag) -> accessor<T, 0, Mode, Target>;
 
-template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag,
+template <typename T, access_mode Mode, access_mode ModeNoInit, target Target, bool Replicated>
+accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target, Replicated> tag,
     const property::no_init no_init) -> accessor<T, 0, ModeNoInit, Target>;
 
-template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(
-    const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props) -> accessor<T, 0, Mode, Target>;
+template <typename T, access_mode Mode, access_mode ModeNoInit, target Target, bool Replicated>
+accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target, Replicated> tag,
+    const property_list& props) -> accessor<T, 0, Mode, Target>;
 
 
 template <typename DataT, int Dims = 1>

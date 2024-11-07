@@ -322,13 +322,12 @@ struct buffer_allocation_state {
 	}
 
 	/// Add an instruction to the current set of concurrent writes. This is used to track writes from device kernels and host tasks and requires
-	/// begin_concurrent_writes to be called beforehand. Multiple concurrent writes will only occur when a task declares overlapping writes and
-	/// overlapping-write detection is disabled via the error policy. In order to still produce an executable (albeit racy instruction graph) in that case, we
-	/// track multiple last-writers for the same buffer element.
+	/// begin_concurrent_writes to be called beforehand. Multiple concurrent writes will only occur when a task declares overlapping writes, multiple chunks
+	/// are executed on a single device (e.g. via oversubscription), and overlapping-write detection is disabled via the error policy.
+	/// In order to still produce an executable (albeit racy) instruction graph in that case, we track multiple last-writers for the same buffer element.
 	void track_concurrent_write(const region<3>& region, instruction* const instr) {
 		if(region.empty()) return;
 		for(auto& [box, front] : last_writers.get_region_values(region)) {
-			assert(front.get_mode() == access_front::write && "must call begin_concurrent_writes first");
 			front.add_instruction(instr);
 			last_writers.update_box(box, front);
 			last_concurrent_accesses.update_box(box, front);
@@ -1973,6 +1972,151 @@ void generator_impl::perform_task_buffer_accesses(const buffer_id bid, const exe
 		}
 		buffer.track_original_write(concurrent_writes[i], command_instructions[i], concurrent_chunks[i].memory_id);
 	}
+
+	// NOCOMMIT TODO Get full_range from region map, OR: add overload to just get all entries? would be better, actually
+	// TODO: Compute centroid instead (also O(N))? Should we only consider boxes that touch the overlapping region?
+	// TODO NAMING: overlapping_writes does not only contain overlapping writes (also 1 and 0 writer)
+	const auto compute_canonical_last_writers = [](const region_map<std::vector<size_t>>& overlapping_writes, const box<3>& full_range,
+	                                                const std::vector<region<3>>& all_writes) {
+		// TODO: Use float type for this..?
+		const auto center = [](const box<3>& b) { return b.get_min() + (b.get_range() / 2); };
+
+		struct vec {
+			int64_t coords[3];
+
+			vec(const int64_t dim0, const int64_t dim1, const int64_t dim2) : coords{dim0, dim1, dim2} {}
+			explicit(false) vec(const id<3>& id) : coords{static_cast<int64_t>(id[0]), static_cast<int64_t>(id[1]), static_cast<int64_t>(id[2])} {}
+
+			vec operator-(const vec& other) const { return {coords[0] - other.coords[0], coords[1] - other.coords[1], coords[2] - other.coords[2]}; }
+			int64_t operator[](const size_t idx) const {
+				assert(idx < 3);
+				return coords[idx];
+			}
+			int64_t length_squared() const { return coords[0] * coords[0] + coords[1] * coords[1] + coords[2] * coords[2]; }
+		};
+
+		std::vector<std::pair<box<3>, size_t>> canonical_last_writers;
+
+		for(const auto& [overlap_box, writers] : overlapping_writes.get_region_values(full_range)) {
+			if(writers.size() <= 1) continue;
+			assert(std::is_sorted(writers.begin(), writers.end()));
+			assert(std::all_of(writers.begin(), writers.end(), [&](const size_t idx) { return idx < all_writes.size(); }));
+			// Mark as replicated so we don't generate data transfers to any of the participating nodes
+			// when they read from the region in subsequent tasks.
+			// TODO: We only need to do this if we are the canonical last writer. Otherwise we won't attempt to push anyway.
+			// buffer.replicated_regions.update_box(overlap_box, nodes);
+
+			// TODO: If all nodes are set, we don't need to find a canonical last writer
+
+			if(writers.size() == 2) {
+				const vec center0 = center(bounding_box(all_writes[writers[0]]));
+				const vec center1 = center(bounding_box(all_writes[writers[1]]));
+
+				// const node_id other_nid = first_bit(writers);
+				// const vec other_center = center(bounding_box(produced_by_node.at(other_nid)));
+				// const vec my_center = center(bounding_box(locally_produced));
+
+				const auto dist = center1 - center0;
+				// Choose largest component as split dimension; prefer splitting along lower dimensions (>=).
+				const auto split_dimension = std::abs(dist[0]) >= std::abs(dist[1]) ? (std::abs(dist[0]) >= std::abs(dist[2]) ? 0 : 2)
+				                                                                    : (std::abs(dist[1]) >= std::abs(dist[2]) ? 1 : 2);
+
+				// NOCOMMIT TODO Handle case where box cannot be split along this dimension (extent 1)
+
+				// NOCOMMIT TODO: Do we need to consider rounding?
+				auto split_point = overlap_box.get_min()[split_dimension] + (overlap_box.get_range()[split_dimension] / 2);
+				auto box1max = overlap_box.get_max();
+				box1max[split_dimension] = split_point;
+				auto box2min = overlap_box.get_min();
+				box2min[split_dimension] = split_point;
+				auto box1 = box<3>{overlap_box.get_min(), box1max};
+				auto box2 = box<3>{box2min, overlap_box.get_max()};
+
+				// TODO: Can we infer this from sign of dist[split_dimension]..?
+				if((vec{center(box1)} - center0).length_squared() > (vec{center(box2)} - center0).length_squared()) { // NOCOMMIT naming from 0 vs 1
+					std::swap(box1, box2);
+				}
+				canonical_last_writers.emplace_back(box1, writers[0]);
+				canonical_last_writers.emplace_back(box2, writers[1]);
+			} else {
+				// If there's more than two participating nodes, we fall back to a simple distance heuristic.
+				// TODO: In case of ties we might want to do a round robin or randomized assignment for better load balancing.
+				// NOCOMMIT: This is wrong, actually. Need have deterministic order in which we process nodes.
+				const vec box_center = center(overlap_box);
+				int64_t min_distance = std::numeric_limits<int64_t>::max();
+				size_t min_distance_idx = -1;
+				for(const auto idx : writers) {
+					const vec idx_center = center(bounding_box(all_writes[idx]));
+					const auto distance = (idx_center - box_center).length_squared();
+					if(distance < min_distance) {
+						min_distance = distance;
+						min_distance_idx = idx;
+					}
+				}
+				assert(min_distance_idx != -1);
+				canonical_last_writers.emplace_back(overlap_box, min_distance_idx);
+			}
+		}
+		return canonical_last_writers;
+	};
+
+	// 5. Handle replicate writes
+	// The last writers of the region have already been updated in the previous step, so we now only need to set the up-to-date memory locations for the region.
+	// NOCOMMIT We are doing some duplicated work here in updating these data structures twice (also in step 4)
+
+	for(size_t j = 0; j < bam.get_num_accesses(); ++j) {
+		if(!bam.is_replicated(j)) continue;
+		const auto [bid, mode] = bam.get_nth_access(j);
+		assert(is_producer_mode(mode));
+		auto& buffer = m_buffers.at(bid);
+
+		region_map<std::vector<size_t /* relative instruction id */>> overlapping_writes(
+		    get_global_size(tsk.get_geometry())); // NOCOMMIT TODO: Does global size make sense here?
+		std::vector<region<3>> written_regions_by_instruction(command_instructions.size());
+		for(size_t i = 0; i < command_instructions.size(); ++i) {
+			auto reqs = bam.get_requirements_for_nth_access(j, concurrent_chunks[i].execution_range);
+			for(auto& [box, instrs] : overlapping_writes.get_region_values(reqs)) {
+				instrs.push_back(i);
+				overlapping_writes.update_box(box, instrs);
+			}
+			written_regions_by_instruction[i] = std::move(reqs);
+		}
+		const auto clws =
+		    compute_canonical_last_writers(overlapping_writes, box<3>::full_range(get_global_size(tsk.get_geometry())), written_regions_by_instruction);
+		for(const auto& [box, idx] : clws) {
+			buffer.track_original_write(box, command_instructions[idx], concurrent_chunks[idx].memory_id);
+		}
+		// Set up_to_date_memories *after* tracking the original write, as the latter clears the former
+		// TODO: Maybe we should update the region maps manually, so up_to_date memories doesn't get reset?
+		for(const auto& [box, writers] : overlapping_writes.get_region_values(box<3>::full_range(get_global_size(tsk.get_geometry()))) /* NOCOMMIT */) {
+			if(writers.size() <= 1) continue;
+			memory_mask writers_mask;
+			for(const auto idx : writers) {
+				writers_mask.set(concurrent_chunks[idx].memory_id);
+			}
+			for(const auto& [box2, locations] : buffer.up_to_date_memories.get_region_values(box)) {
+				assert(locations != writers_mask); // NOCOMMIT Does that make sense?
+				buffer.up_to_date_memories.update_box(box2, writers_mask);
+			}
+		}
+	}
+
+
+	// for(size_t j = 0; j < bam.get_num_accesses(); ++j) {
+	// 	if(!bam.is_replicated(j)) continue;
+	// 	const auto [bid, mode] = bam.get_nth_access(j);
+	// 	assert(access::mode_traits::is_producer(mode));
+	// 	auto& buffer = m_buffers.at(bid);
+	// 	for(size_t i = 0; i < concurrent_chunks.size(); ++i) {
+	// 		auto reqs = bam.get_requirements_for_nth_access(j, concurrent_chunks[i].execution_range);
+	// 		for(auto& [box, location] : buffer.up_to_date_memories.get_region_values(reqs)) {
+	// 			if(!location.test(concurrent_chunks[i].memory_id)) {
+	// 				location.set(concurrent_chunks[i].memory_id);
+	// 				buffer.up_to_date_memories.update_box(box, location);
+	// 			}
+	// 		}
+	// 	}
+	// }
 }
 
 void generator_impl::perform_task_side_effects(

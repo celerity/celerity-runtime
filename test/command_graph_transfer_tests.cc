@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators_range.hpp>
 
 #include "command_graph_generator_test_utils.h"
 
@@ -375,5 +376,67 @@ TEST_CASE("5-point stencil program with 2D split does not exchange boundaries wi
 	const std::vector<std::pair<node_id, node_id>> diagonals{{0, 3}, {1, 2}, {2, 1}, {3, 0}};
 	for(const auto& [nid, diag] : diagonals) {
 		CHECK(std::ranges::none_of(cctx.query<push_command_record>().on(nid)->target_regions, [diag = diag](auto& tr) { return tr.first == diag; }));
+	}
+}
+
+// TODO: Does our heuristic also work for chunks that are not precisely aligned on a single axis? Try two vertically shifted rectangles
+// NOCOMMIT TODO: 2D/3D as well
+// TEST_CASE("replicated writes HEURISTIC SPLIT", "[command_graph_generator][command-graph]") {
+// 	cdag_test_context cctx(2 /* num nodes */);
+
+// 	const range<1> buffer_size(100);
+// 	auto buf_a = cctx.create_buffer<1>(buffer_size);
+
+// 	cctx.device_compute(buffer_size)
+// 	    .name("write overlapping")
+// 	    .hint(experimental::hints::split_2d())
+// 	    .discard_write_replicated(buf_a, acc::neighborhood({1, 1}))
+// 	    .submit();
+
+// 	// TODO: Use task geometry instead, so we don't need to make assumptions about split and assignment
+// 	const std::vector<node_id> owners = {0, 1, 2, 3};
+// 	const std::vector<subrange<2>> quadrants = {{{0, 0}, {128, 128}}, {{0, 128}, {128, 128}}, {{128, 0}, {128, 128}}, {{128, 128}, {128, 128}}};
+
+// 	const auto read_from = GENERATE_COPY(from_range(owners));
+// 	cctx.device_compute(buffer_size).name("read").read(buf_a, acc::fixed<2>{quadrants[read_from]}).submit();
+
+// 	const auto await_pushes = cctx.query<await_push_command_record>();
+// 	const auto pushes = cctx.query<push_command_record>();
+// 	CHECK(await_pushes.total_count() == 3);
+// 	CHECK(pushes.total_count() == 1);
+// 	for(const auto o : owners) {
+// 		CHECK(pushes.on(o).count() == (o == read_from ? 1 : 0));
+// 		CHECK(await_pushes.on(o).count() == (o != read_from ? 1 : 0));
+// 	}
+// }
+
+// NOCOMMIT TODO: Add a basic case as well
+// NOCOMMIT TODO: Also test fallback case w/o along_axes
+TEST_CASE("replicated writes designate canonical last writer based on largest written area", "[command_graph_generator][command-graph]") {
+	cdag_test_context cctx(4 /* num nodes */);
+
+	const range<2> buffer_size(256, 256);
+	auto buf_a = cctx.create_buffer<2>(buffer_size);
+
+	cctx.device_compute(buffer_size)
+	    .name("write overlapping")
+	    .hint(experimental::hints::split_2d())
+	    .discard_write_replicated(buf_a, acc::neighborhood({1, 1}, neighborhood_shape::along_axes))
+	    .submit();
+
+	// TODO: Use task geometry instead, so we don't need to make assumptions about split and assignment
+	const std::vector<node_id> owners = {0, 1, 2, 3};
+	const std::vector<subrange<2>> quadrants = {{{0, 0}, {128, 128}}, {{0, 128}, {128, 128}}, {{128, 0}, {128, 128}}, {{128, 128}, {128, 128}}};
+
+	const auto read_from = GENERATE_COPY(from_range(owners));
+	cctx.device_compute(buffer_size).name("read").read(buf_a, acc::fixed<2>{quadrants[read_from]}).submit();
+
+	const auto await_pushes = cctx.query<await_push_command_record>();
+	const auto pushes = cctx.query<push_command_record>();
+	CHECK(await_pushes.total_count() == 3);
+	CHECK(pushes.total_count() == 1);
+	for(const auto o : owners) {
+		CHECK(pushes.on(o).count() == (o == read_from ? 1 : 0));
+		CHECK(await_pushes.on(o).count() == (o != read_from ? 1 : 0));
 	}
 }

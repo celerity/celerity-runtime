@@ -532,6 +532,92 @@ TEMPLATE_TEST_CASE_SIG("data from user-initialized buffers is copied lazily to m
 	}
 }
 
+// TODO: Do we need to test 2D/3D as well?
+// TODO: Should we allow replicated writes on oversubscribed chunks? Probably not, right? Because it's still a data race, which is bad.
+// TODO: Not an idag thing but what happens if there is a replicated and non-replicated write access to the same buffer that overlaps?
+//       => We should probably simply not allow that.
+// TODO: Update overlapping write detection tests to all include a replicated write access that should NOT trigger.
+// TODO: Add test to check that non-overlapping parts of replicated writes are still tracked correctly.
+TEST_CASE("replicated writes NOCOMMIT", "[instruction_graph_generator][instruction-graph][memory]") {
+	const auto buffer_range = range(256);
+	const size_t num_devices = 2;
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices);
+	auto buf = ictx.create_buffer<int>(buffer_range);
+	ictx.device_compute(buffer_range).name("writer").discard_write_replicated(buf, acc::all()).submit();
+	ictx.device_compute(buffer_range).name("reader").read(buf, acc::one_to_one()).submit();
+	ictx.finish();
+
+	const auto all_instrs = ictx.query_instructions();
+	CHECK(all_instrs.select_all<copy_instruction_record>().count() == 0);
+}
+
+TEST_CASE("replicated writes simple 1D split NOCOMMIT", "[instruction_graph_generator][instruction-graph][memory]") {
+	const auto buffer_range = range<2>(256, 256);
+	const size_t num_devices = 4;
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices);
+	auto buf = ictx.create_buffer<int>(buffer_range);
+	ictx.device_compute(buffer_range).name("writer").discard_write_replicated(buf, acc::neighborhood({1, 1})).submit();
+
+	SECTION("reading box-chunk does not generate copies") {
+		ictx.device_compute(buffer_range).name("reader").read(buf, acc::one_to_one{}).submit();
+		const auto all_instrs = ictx.query_instructions();
+		CHECK(all_instrs.select_all<copy_instruction_record>().count() == 0);
+	}
+
+	SECTION("reading 1-neighborhood does not generate copies") {
+		ictx.device_compute(buffer_range).name("reader").read(buf, acc::neighborhood({1, 1})).submit();
+		const auto all_instrs = ictx.query_instructions();
+		CHECK(all_instrs.select_all<copy_instruction_record>().count() == 0);
+	}
+}
+
+TEST_CASE("replicated writes case 2 NOCOMMIT", "[instruction_graph_generator][instruction-graph][memory]") {
+	const auto buffer_range = range<2>(256, 256);
+	const size_t num_devices = 4;
+
+	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* my nid */, num_devices);
+	auto buf = ictx.create_buffer<int>(buffer_range);
+	ictx.device_compute(buffer_range)
+	    .name("writer")
+	    .hint(experimental::hints::split_2d{})
+	    .discard_write_replicated(buf, acc::neighborhood({1, 1}, neighborhood_shape::along_axes))
+	    .submit();
+
+	SECTION("reading chunk-box does not generate copies") {
+		ictx.device_compute(buffer_range).name("read").hint(experimental::hints::split_2d{}).read(buf, acc::one_to_one{}).submit();
+		CHECK(ictx.query_instructions().select_all<copy_instruction_record>().count() == 0);
+	}
+
+	SECTION("reading 1-neighborhood does not generate copies") {
+		ictx.device_compute(buffer_range)
+		    .name("read")
+		    .hint(experimental::hints::split_2d{})
+		    .read(buf, acc::neighborhood({1, 1}, neighborhood_shape::along_axes))
+		    .submit();
+		CHECK(ictx.query_instructions().select_all<copy_instruction_record>().count() == 0);
+	}
+
+	// SECTION("reading overlapping center box does not generate copies") {
+	// 	ictx.device_compute(buffer_range).name("read").hint(experimental::hints::split_2d{}).read(buf, acc::fixed<2>{{{127, 127}, {2, 2}}}).submit();
+	// 	CHECK(ictx.query_instructions().select_all<copy_instruction_record>().count() == 0);
+	// }
+
+	// TODO: This doesn't work unfortunately, because the IDAG will pick the original writer as the source for the copy, which in this case is simply
+	//       the last chunk that registered the replicated write. This can lead to unnecessary fragmentation of copies.
+	SECTION("reading transposed chunk-box generates one copy per device") {
+		ictx.device_compute(buffer_range).name("read").hint(experimental::hints::split_2d{}).read(buf, test_utils::access::reverse_one_to_one{}).submit();
+		// Don't count resize copies
+		const auto coherence_copies = ictx.query_instructions().select_all<copy_instruction_record>(
+		    [](const copy_instruction_record& cinstr) { return cinstr.origin == copy_instruction_record::copy_origin::coherence; });
+		CHECK(coherence_copies.count() == num_devices);
+
+		// Testing with a single chunk to make it easier to see
+		// ictx.device_compute(buffer_range / 4).name("read").constrain_split(buffer_range / 4).read(buf, acc::fixed<2>{{{128, 0}, {128, 128}}}).submit();
+	}
+}
+
 TEST_CASE("copies are staged through host memory for devices that are not peer-copy capable", "[instruction_graph_generator][instruction-graph][memory]") {
 	const auto buffer_range = range(256);
 	const size_t num_devices = 2;

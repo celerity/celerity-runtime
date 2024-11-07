@@ -240,7 +240,13 @@ namespace test_utils {
 	  public:
 		template <access_mode Mode, typename Functor>
 		void get_access(handler& cgh, Functor rmfn) {
-			(void)detail::add_requirement(cgh, m_id, Mode, std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, m_size));
+			(void)detail::add_requirement(cgh, m_id, Mode, std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, m_size), false);
+		}
+
+		template <access_mode Mode, typename Functor>
+		void get_replicated_access(handler& cgh, Functor rmfn) {
+			static_assert(detail::is_producer_mode(Mode));
+			(void)detail::add_requirement(cgh, m_id, Mode, std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, m_size), true);
 		}
 
 		detail::buffer_id get_id() const { return m_id; }

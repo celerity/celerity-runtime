@@ -40,9 +40,12 @@ namespace detail {
 		size_t get_num_accesses() const { return m_accesses.size(); }
 
 		std::pair<buffer_id, access_mode> get_nth_access(const size_t n) const {
-			const auto& [bid, mode, _] = m_accesses[n];
+			const auto& [bid, mode, _, _2] = m_accesses[n];
 			return {bid, mode};
 		}
+
+		// TODO: This should probably be retunred by get_nth_access instead
+		bool is_replicated(const size_t n) const { return m_accesses[n].is_replicated; }
 
 		region<3> get_requirements_for_nth_access(const size_t n, const box<3>& execution_range) const;
 

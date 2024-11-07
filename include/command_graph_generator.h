@@ -46,7 +46,7 @@ class write_command_state {
 
 	static_assert(alignof(command) > 0b11); // so we have 2 spare bits to encode the masks below
 	constexpr static uintptr_t stale_bit = 0b01;
-	constexpr static uintptr_t replicated_bit = 0b10;
+	constexpr static uintptr_t replicated_bit = 0b10; // NOCOMMIT Consider renaming to owner_bit or similar to avoid confusion with replicated writes
 
   public:
 	constexpr write_command_state() = default;
@@ -81,9 +81,10 @@ class command_graph_generator {
 	inline static const write_command_state no_command = {};
 
 	struct buffer_state {
-		explicit buffer_state(const range<3>& range, const write_command_state initial_wcs, const node_bitset& replicated_on_nodes)
-		    : local_last_writer(range, initial_wcs), replicated_regions(range, replicated_on_nodes) {}
+		explicit buffer_state(const range<3>& size, const write_command_state initial_wcs, const node_bitset& replicated_on_nodes)
+		    : size(size), local_last_writer(size, initial_wcs), replicated_regions(size, replicated_on_nodes) {}
 
+		range<3> size;
 		region<3> initialized_region; // for detecting uninitialized reads (only if policies.uninitialized_read != error_policy::ignore)
 		region_map<write_command_state> local_last_writer;
 		region_map<node_bitset> replicated_regions;
@@ -270,7 +271,8 @@ class command_graph_generator {
 	    std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes);
 
 	/// Determine which local data is fresh or stale by comparing global (task-level) and local writes.
-	void update_local_buffer_fresh_regions(const task& tsk, const std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes);
+	void update_local_buffer_fresh_regions(
+	    const task& tsk, const std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes, const std::vector<assigned_chunk>& chunks);
 
 	/**
 	 * Generates command(s) that need to be processed by every node in the system,

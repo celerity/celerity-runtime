@@ -555,6 +555,8 @@ TEST_CASE("instruction_graph_generator gracefully handles overlapping writes whe
 	test_utils::idag_test_context ictx(1 /* num nodes */, 0 /* local nid */, num_devices, true /* supports d2d copies */, policy);
 	auto buf = ictx.create_buffer<1>({1});
 	ictx.device_compute(range(2)).name("writer").hint(hints::oversubscribe(oversubscription)).discard_write(buf, acc::all()).submit();
+	// NOCOMMIT TODO: For multiple devices this should really test multiple consumers as well (highlighting the fact that one device will be the last writer and
+	// generates unnecessary copies)
 	ictx.device_compute(range(1)).name("reader").read(buf, acc::all()).submit();
 	ictx.finish();
 

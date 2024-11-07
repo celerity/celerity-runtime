@@ -69,6 +69,11 @@ class task_builder {
 		}
 
 		template <typename BufferT, typename RangeMapper>
+		step read_write_replicated(BufferT& buf, RangeMapper rmfn) {
+			return chain<step>([&buf, rmfn](handler& cgh) { buf.template get_replicated_access<access_mode::read_write>(cgh, rmfn); });
+		}
+
+		template <typename BufferT, typename RangeMapper>
 		step write(BufferT& buf, RangeMapper rmfn) {
 			return chain<step>([&buf, rmfn](handler& cgh) { buf.template get_access<access_mode::write>(cgh, rmfn); });
 		}
@@ -76,6 +81,11 @@ class task_builder {
 		template <typename BufferT, typename RangeMapper>
 		step discard_write(BufferT& buf, RangeMapper rmfn) {
 			return chain<step>([&buf, rmfn](handler& cgh) { buf.template get_access<access_mode::discard_write>(cgh, rmfn); });
+		}
+
+		template <typename BufferT, typename RangeMapper>
+		step discard_write_replicated(BufferT& buf, RangeMapper rmfn) {
+			return chain<step>([&buf, rmfn](handler& cgh) { buf.template get_replicated_access<access_mode::discard_write>(cgh, rmfn); });
 		}
 
 		template <typename BufferT>

@@ -70,8 +70,8 @@ namespace detail {
 	template <typename CGF>
 	raw_command_group invoke_command_group_function(CGF&& cgf);
 
-	hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, std::unique_ptr<range_mapper_base> rm);
-	hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, expert_mapper em);
+	hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, std::unique_ptr<range_mapper_base> rm, const bool replicated);
+	hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, expert_mapper em, const bool replicated);
 	void add_requirement(handler& cgh, const host_object_id hoid, const experimental::side_effect_order order, const bool is_void);
 	void add_reduction(handler& cgh, const reduction_info& rinfo);
 	void set_task_name(handler& cgh, const std::string& debug_name);
@@ -439,8 +439,9 @@ class handler {
 	template <typename CGF>
 	friend detail::raw_command_group detail::invoke_command_group_function(CGF&& cgf);
 	friend detail::hydration_id detail::add_requirement(
-	    handler& cgh, const detail::buffer_id bid, const access_mode mode, std::unique_ptr<detail::range_mapper_base> rm);
-	friend detail::hydration_id detail::add_requirement(handler& cgh, const detail::buffer_id bid, const access_mode mode, expert_mapper em);
+	    handler& cgh, const detail::buffer_id bid, const access_mode mode, std::unique_ptr<detail::range_mapper_base> rm, const bool replicated);
+	friend detail::hydration_id detail::add_requirement(
+	    handler& cgh, const detail::buffer_id bid, const access_mode mode, expert_mapper em, const bool replicated);
 	friend void detail::add_requirement(handler& cgh, const detail::host_object_id hoid, const experimental::side_effect_order order, const bool is_void);
 	friend void detail::add_reduction(handler& cgh, const detail::reduction_info& rinfo);
 	template <int Dims>
@@ -476,15 +477,16 @@ class handler {
 		if(!m_cg.task_name.has_value() && !detail::is_unnamed_kernel<KernelName>) { m_cg.task_name = detail::kernel_debug_name<KernelName>(); }
 	}
 
-	[[nodiscard]] detail::hydration_id add_requirement(const detail::buffer_id bid, const access_mode mode, std::unique_ptr<detail::range_mapper_base> rm) {
+	[[nodiscard]] detail::hydration_id add_requirement(
+	    const detail::buffer_id bid, const access_mode mode, std::unique_ptr<detail::range_mapper_base> rm, const bool replicated) {
 		assert(!m_cg.task_type.has_value());
-		m_cg.buffer_accesses.push_back(detail::buffer_access{bid, mode, std::move(rm)});
+		m_cg.buffer_accesses.push_back(detail::buffer_access{bid, mode, std::move(rm), replicated});
 		return m_next_accessor_hydration_id++;
 	}
 
-	[[nodiscard]] detail::hydration_id add_requirement(const detail::buffer_id bid, const access_mode mode, expert_mapper em) {
+	[[nodiscard]] detail::hydration_id add_requirement(const detail::buffer_id bid, const access_mode mode, expert_mapper em, const bool replicated) {
 		assert(!m_cg.task_type.has_value());
-		m_cg.buffer_accesses.emplace_back(bid, mode, std::move(em));
+		m_cg.buffer_accesses.push_back(detail::buffer_access{bid, mode, std::move(em), replicated});
 		return m_next_accessor_hydration_id++;
 	}
 
@@ -613,12 +615,13 @@ namespace detail {
 		return cg;
 	}
 
-	[[nodiscard]] inline hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, std::unique_ptr<range_mapper_base> rm) {
-		return cgh.add_requirement(bid, mode, std::move(rm));
+	[[nodiscard]] inline hydration_id add_requirement(
+	    handler& cgh, const buffer_id bid, const access_mode mode, std::unique_ptr<range_mapper_base> rm, const bool replicated) {
+		return cgh.add_requirement(bid, mode, std::move(rm), replicated);
 	}
 
-	[[nodiscard]] inline hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, expert_mapper em) {
-		return cgh.add_requirement(bid, mode, std::move(em));
+	[[nodiscard]] inline hydration_id add_requirement(handler& cgh, const buffer_id bid, const access_mode mode, expert_mapper em, const bool replicated) {
+		return cgh.add_requirement(bid, mode, std::move(em), replicated);
 	}
 
 	inline void add_requirement(handler& cgh, const host_object_id hoid, const experimental::side_effect_order order, const bool is_void) {

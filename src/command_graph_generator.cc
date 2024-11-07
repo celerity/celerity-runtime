@@ -643,7 +643,8 @@ void command_graph_generator::generate_local_execution_command(batch& current_ba
 	generate_epoch_dependencies(cmd);
 }
 
-void command_graph_generator::update_local_buffer_fresh_regions(const task& tsk, const std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes) {
+void command_graph_generator::update_local_buffer_fresh_regions(
+    const task& tsk, const std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes, const std::vector<assigned_chunk>& chunks) {
 	buffer_requirements_list requirements;
 	for(const auto bid : tsk.get_buffer_access_map().get_accessed_buffers()) {
 		const auto& bam = tsk.get_buffer_access_map();
@@ -678,6 +679,141 @@ void command_graph_generator::update_local_buffer_fresh_regions(const task& tsk,
 			}
 		}
 	}
+
+	// Handle replicated writes
+	// NOCOMMIT TODO: General question - should writes above even include replicated writes? Or do we just override everything again here anyway..?
+	// TODO: What happens if there are multiple replicated writes to the same buffer in a single task? Can/should we allow that?
+	// NOCOMMIT TODO: Add benchmark
+	// TODO: Add some trace logging that heuristic is being used b/c no canonical last writers were provided
+
+	for(size_t i = 0; i < tsk.get_buffer_access_map().get_num_accesses(); ++i) {
+		const auto& [bid, mode] = tsk.get_buffer_access_map().get_nth_access(i);
+		if(!tsk.get_buffer_access_map().is_replicated(i)) continue;
+		assert(is_producer_mode(mode));
+		auto& buffer = m_buffers.at(bid);
+
+		// Compute locally produced region
+		region_builder<3> locally_produced_builder;
+		for(const auto& a_chunk : chunks) {
+			if(a_chunk.executed_on != m_local_nid) continue;
+			locally_produced_builder.add(tsk.get_buffer_access_map().get_requirements_for_nth_access(i, box<3>(a_chunk.chnk)));
+		}
+		const auto locally_produced = std::move(locally_produced_builder).into_region();
+
+		std::unordered_map<node_id, region<3>> produced_by_node;  // TODO: Use builder?
+		region_map<node_bitset> overlapping_regions(buffer.size); // TODO: Can we avoid region map?
+
+		for(const auto& a_chunk : chunks) {
+			if(a_chunk.executed_on == m_local_nid) continue;
+			const auto remote_produced = tsk.get_buffer_access_map().get_requirements_for_nth_access(i, box<3>(a_chunk.chnk));
+			// NOCOMMIT TODO: This might be expensive if we have a lot of chunks. Do broad-phase on bounding boxes first..?
+			const auto intersection = region_intersection(locally_produced, remote_produced);
+			if(!intersection.empty()) {
+				produced_by_node[a_chunk.executed_on] = remote_produced;
+				for(auto& [box, nodes] : overlapping_regions.get_region_values(intersection)) {
+					nodes.set(a_chunk.executed_on);
+					overlapping_regions.update_box(box, nodes);
+				}
+			}
+		}
+
+		const auto for_all_bits = [](const node_bitset& nodes, const auto& f) {
+			uint64_t bitset = nodes.to_ullong();
+			while(bitset != 0) {
+				const uint64_t t = bitset & -bitset;
+				const int r = __builtin_ctzl(bitset);
+				f(r);
+				bitset ^= t;
+			}
+		};
+
+		const auto first_bit = [](const node_bitset& nodes) {
+			const uint64_t bitset = nodes.to_ullong();
+			return __builtin_ctzl(bitset);
+		};
+
+		// TODO: Use float type for this..?
+		const auto center = [](const box<3>& b) { return b.get_min() + (b.get_range() / 2); };
+
+		struct vec {
+			int64_t coords[3];
+
+			vec(const int64_t dim0, const int64_t dim1, const int64_t dim2) : coords{dim0, dim1, dim2} {}
+			explicit(false) vec(const id<3>& id) : coords{static_cast<int64_t>(id[0]), static_cast<int64_t>(id[1]), static_cast<int64_t>(id[2])} {}
+
+			vec operator-(const vec& other) const { return {coords[0] - other.coords[0], coords[1] - other.coords[1], coords[2] - other.coords[2]}; }
+			int64_t operator[](const size_t idx) const {
+				assert(idx < 3);
+				return coords[idx];
+			}
+			int64_t length_squared() const { return coords[0] * coords[0] + coords[1] * coords[1] + coords[2] * coords[2]; }
+		};
+
+		for(const auto& [overlap_box, nodes] : overlapping_regions.get_region_values(box<3>::full_range(buffer.size))) {
+			if(nodes.count() == 0) continue;
+			assert(nodes.count() <= m_num_nodes);
+			// Mark as replicated so we don't generate data transfers to any of the participating nodes
+			// when they read from the region in subsequent tasks.
+			// TODO: We only need to do this if we are the canonical last writer. Otherwise we won't attempt to push anyway.
+			buffer.replicated_regions.update_box(overlap_box, nodes);
+
+			// TODO: If all nodes are set, we don't need to find a canonical last writer
+
+			if(nodes.count() == 1) {
+				const node_id other_nid = first_bit(nodes);
+				// TODO: Compute centroid instead (also O(N))? Should we only consider boxes that touch the overlapping region?
+				const vec other_center = center(bounding_box(produced_by_node.at(other_nid)));
+				const vec my_center = center(bounding_box(locally_produced));
+
+				const auto dist = my_center - other_center;
+				// Choose largest component as split dimension; prefer splitting along lower dimensions (>=).
+				const auto split_dimension = std::abs(dist[0]) >= std::abs(dist[1]) ? (std::abs(dist[0]) >= std::abs(dist[2]) ? 0 : 2)
+				                                                                    : (std::abs(dist[1]) >= std::abs(dist[2]) ? 1 : 2);
+
+				// NOCOMMIT TODO Handle case where box cannot be split along this dimension (extent 1)
+
+				// NOCOMMIT TODO: Do we need to consider rounding?
+				auto split_point = overlap_box.get_min()[split_dimension] + (overlap_box.get_range()[split_dimension] / 2);
+				auto box1max = overlap_box.get_max();
+				box1max[split_dimension] = split_point;
+				auto box2min = overlap_box.get_min();
+				box2min[split_dimension] = split_point;
+				auto box1 = box<3>{overlap_box.get_min(), box1max};
+				auto box2 = box<3>{box2min, overlap_box.get_max()};
+
+				// TODO: Can we infer this from sign of dist[split_dimension]..?
+				if((vec{center(box1)} - my_center).length_squared() > (vec{center(box2)} - my_center).length_squared()) { std::swap(box1, box2); }
+				for(auto& [box, wcs] : buffer.local_last_writer.get_region_values(box2)) {
+					assert(wcs.is_fresh() && !wcs.is_replicated());
+					// fmt::print("SPLIT CASE! I am node {} and I am marking {} as replicated\n", m_local_nid, box);
+					buffer.local_last_writer.update_region(box, write_command_state(wcs.get_command(), true /* is_replicated */));
+				}
+			} else {
+				// If there's more than two participating nodes, we fall back to a simple distance heuristic.
+				// TODO: In case of ties we might want to do a round robin or randomized assignment for better load balancing.
+				// NOCOMMIT: This is wrong, actually. Need have deterministic order in which we process nodes.
+				const vec box_center = center(overlap_box);
+				int64_t min_distance = (vec{center(bounding_box(locally_produced))} - box_center).length_squared();
+				node_id min_distance_nid = m_local_nid;
+				for_all_bits(nodes, [&](const node_id nid) {
+					const vec node_center = center(bounding_box(produced_by_node[nid]));
+					const auto distance = (node_center - box_center).length_squared();
+					if(distance < min_distance) {
+						min_distance = distance;
+						min_distance_nid = nid;
+					}
+				});
+				if(min_distance_nid != m_local_nid) {
+					for(auto& [box, wcs] : buffer.local_last_writer.get_region_values(overlap_box)) {
+						assert(wcs.is_fresh() && !wcs.is_replicated());
+						// fmt::print("DISTANCE CASE! I am node {} and I am marking {} as replicated because canonical last writer is {}\n", m_local_nid, box,
+						//     min_distance_nid);
+						buffer.local_last_writer.update_region(box, write_command_state(wcs.get_command(), true /* is_replicated */));
+					}
+				}
+			}
+		}
+	}
 }
 
 void command_graph_generator::generate_distributed_commands(batch& current_batch, const task& tsk) {
@@ -704,7 +840,7 @@ void command_graph_generator::generate_distributed_commands(batch& current_batch
 			m_completed_reductions.push_back(reduction.rid);
 		}
 	}
-	update_local_buffer_fresh_regions(tsk, per_buffer_local_writes);
+	update_local_buffer_fresh_regions(tsk, per_buffer_local_writes, chunks);
 }
 
 void command_graph_generator::generate_anti_dependencies(
