@@ -8,29 +8,27 @@
 #include "test_utils.h"
 
 using namespace celerity;
+using fixture = test_utils::runtime_fixture;
 
-template <int Dims>
-class bench_runtime_fixture : public test_utils::runtime_fixture {};
+// This benchmark represents a set of parallel tasks working independently on a shared buffer
 
-TEMPLATE_TEST_CASE_METHOD_SIG(
-    bench_runtime_fixture, "benchmark independent task pattern with N tasks", "[benchmark][group:system][indep-tasks]", ((int N), N), 100, 1000, 5000) {
-	constexpr size_t num_tasks = N;
+void run_indep_task_benchmark(const size_t num_tasks) {
+#ifndef NDEBUG
+	if(num_tasks > 100) { SKIP("Skipping larger-scale benchmark in debug build to save CI time"); }
+#endif
+
 	constexpr size_t num_repeats = 2;
 	constexpr size_t items_per_task = 256;
 
-#ifndef NDEBUG
-	if(N > 100) { SKIP("Skipping larger-scale benchmark in debug build to save CI time"); }
-#endif
+	queue queue;
 
-	celerity::queue queue;
-
-	const auto size = celerity::range<2>(items_per_task, num_tasks);
-	celerity::buffer<size_t, 2> buffer(size);
+	const auto size = range<2>(items_per_task, num_tasks);
+	buffer<size_t, 2> buff_a(size);
 
 	// initialize buffer
-	queue.submit([&](celerity::handler& cgh) {
-		celerity::accessor w{buffer, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-		cgh.parallel_for(size, [=](celerity::item<2> item) { w[item] = item.get_linear_id(); });
+	queue.submit([&](handler& cgh) {
+		accessor w{buff_a, cgh, access::one_to_one{}, write_only, no_init};
+		cgh.parallel_for(size, [=](item<2> item) { w[item] = item.get_linear_id(); });
 	});
 	queue.wait();
 
@@ -38,11 +36,9 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 	BENCHMARK("task generation") {
 		for(size_t r = 0; r < num_repeats; ++r) {
 			for(size_t i = 0; i < num_tasks; ++i) {
-				queue.submit([&](celerity::handler& cgh) {
-					celerity::accessor acc{buffer, cgh,
-					    [=](celerity::chunk<1> c) { return celerity::subrange<2>(celerity::id<2>(c.offset.get(0), i), celerity::range<2>(c.range.get(0), 1)); },
-					    celerity::read_write};
-					cgh.parallel_for(celerity::range<1>(items_per_task), [=](celerity::item<1> item) { //
+				queue.submit([&](handler& cgh) {
+					accessor acc{buff_a, cgh, [=](chunk<1> c) { return subrange<2>(id<2>(c.offset.get(0), i), range<2>(c.range.get(0), 1)); }, read_write};
+					cgh.parallel_for(range<1>(items_per_task), [=](item<1> item) { //
 						acc[item[0]][i] += 1;
 					});
 				});
@@ -53,12 +49,12 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 	};
 
 	// check result
-	celerity::buffer<bool, 0> success_buffer = true;
-	queue.submit([&](celerity::handler& cgh) {
-		celerity::accessor r{buffer, cgh, celerity::access::all{}, celerity::read_only_host_task};
-		celerity::accessor succ{success_buffer, cgh, celerity::access::all{}, celerity::write_only_host_task};
-		cgh.host_task(celerity::on_master_node, [=] {
-			celerity::experimental::for_each_item(size, [=](celerity::item<2> item) {
+	buffer<bool, 0> success_buffer = true;
+	queue.submit([&](handler& cgh) {
+		accessor r{buff_a, cgh, access::all{}, read_only_host_task};
+		accessor succ{success_buffer, cgh, access::all{}, write_only_host_task};
+		cgh.host_task(on_master_node, [=] {
+			experimental::for_each_item(size, [=](item<2> item) {
 				size_t expected = item.get_linear_id() + (num_repeats * bench_repeats);
 				if(r[item] != expected) {
 					fmt::print("Mismatch at {}: {} != {}\n", item.get_linear_id(), r[item], expected);
@@ -68,27 +64,32 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 		});
 	});
 	CHECK(*queue.fence(success_buffer).get() == true);
-}
+};
 
-TEMPLATE_TEST_CASE_METHOD_SIG(
-    bench_runtime_fixture, "benchmark stencil pattern with N time steps", "[benchmark][group:system][stencil]", ((int N), N), 50, 1000) {
-	constexpr size_t num_iterations = N;
+const auto indep_task_tags = "[benchmark][group:system][indep-tasks]";
+TEST_CASE_METHOD(fixture, "benchmark independent task pattern with  100 tasks", indep_task_tags) { run_indep_task_benchmark(100); }
+TEST_CASE_METHOD(fixture, "benchmark independent task pattern with  500 tasks", indep_task_tags) { run_indep_task_benchmark(500); }
+TEST_CASE_METHOD(fixture, "benchmark independent task pattern with 2500 tasks", indep_task_tags) { run_indep_task_benchmark(2500); }
+
+
+// This benchmark represents a basic 2D stencil, executed with 1D and 2D splits and varying levels of oversubscription
+
+void run_stencil_benchmark(const size_t num_iter, const bool split2d, const size_t oversub) {
 	constexpr int side_length = 128; // sufficiently small to notice large-scale changes in runtime overhead
-
 #ifndef NDEBUG
-	if(N > 50) { SKIP("Skipping larger-scale benchmark in debug build to save CI time"); }
+	if(num_iter > 50) { SKIP("Skipping larger-scale benchmark in debug build to save CI time"); }
 #endif
 
-	celerity::queue queue;
+	queue queue;
 
-	const auto size = celerity::range<2>(side_length, side_length);
-	celerity::buffer<float, 2> buffer_a(size);
-	celerity::buffer<float, 2> buffer_b(size);
+	const auto size = range<2>(side_length, side_length);
+	buffer<float, 2> buffer_a(size);
+	buffer<float, 2> buffer_b(size);
 
 	// initialize buffer_a
-	queue.submit([&](celerity::handler& cgh) {
-		celerity::accessor w{buffer_a, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-		cgh.parallel_for(size, [=](celerity::item<2> item) {
+	queue.submit([&](handler& cgh) {
+		accessor w{buffer_a, cgh, access::one_to_one{}, write_only, no_init};
+		cgh.parallel_for(size, [=](item<2> item) {
 			// checkerboard
 			w[item] = ((item.get_id(0) % 2) ^ (item.get_id(1) % 2)) == 0 ? 1.f : 0.f;
 		});
@@ -96,11 +97,13 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 	queue.wait();
 
 	BENCHMARK("iterations") {
-		for(size_t r = 0; r < num_iterations; ++r) {
-			queue.submit([&](celerity::handler& cgh) {
-				celerity::accessor read{buffer_a, cgh, celerity::access::neighborhood({1, 1}), celerity::read_only};
-				celerity::accessor write{buffer_b, cgh, celerity::access::one_to_one(), celerity::write_only, celerity::no_init};
-				cgh.parallel_for(size, [=](celerity::item<2> item) {
+		for(size_t r = 0; r < num_iter; ++r) {
+			queue.submit([&](handler& cgh) {
+				accessor read{buffer_a, cgh, access::neighborhood({1, 1}), read_only};
+				accessor write{buffer_b, cgh, access::one_to_one(), write_only, no_init};
+				if(split2d) { experimental::hint(cgh, experimental::hints::split_2d{}); }
+				if(oversub != 1) { experimental::hint(cgh, experimental::hints::oversubscribe{oversub}); }
+				cgh.parallel_for(size, [=](item<2> item) {
 					float sum = 0.f;
 					float included_items = 0.f;
 					for(int i = -1; i <= 1; ++i) {
@@ -122,12 +125,12 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 	};
 
 	// check result
-	celerity::buffer<bool, 0> success_buffer = true;
-	queue.submit([&](celerity::handler& cgh) {
-		celerity::accessor r{buffer_a, cgh, celerity::access::all{}, celerity::read_only_host_task};
-		celerity::accessor succ{success_buffer, cgh, celerity::access::all{}, celerity::write_only_host_task};
-		cgh.host_task(celerity::on_master_node, [=] {
-			celerity::experimental::for_each_item(size, [=](celerity::item<2> item) {
+	buffer<bool, 0> success_buffer = true;
+	queue.submit([&](handler& cgh) {
+		accessor r{buffer_a, cgh, access::all{}, read_only_host_task};
+		accessor succ{success_buffer, cgh, access::all{}, write_only_host_task};
+		cgh.host_task(on_master_node, [=] {
+			experimental::for_each_item(size, [=](item<2> item) {
 				constexpr float expected = 0.5f;
 				constexpr float epsilon = 0.01f;
 				if(std::fabs(r[item] - expected) > epsilon) {
@@ -139,3 +142,118 @@ TEMPLATE_TEST_CASE_METHOD_SIG(
 	});
 	CHECK(*queue.fence(success_buffer).get() == true);
 }
+
+constexpr auto stencil_tags = "[benchmark][group:system][stencil]";
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 1D  50 iters oversub 1", stencil_tags) { run_stencil_benchmark(50, false, 1); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 1D 500 iters oversub 1", stencil_tags) { run_stencil_benchmark(500, false, 1); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 1D  50 iters oversub 3", stencil_tags) { run_stencil_benchmark(50, false, 3); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 1D 500 iters oversub 3", stencil_tags) { run_stencil_benchmark(500, false, 3); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 2D  30 iters oversub 1", stencil_tags) { run_stencil_benchmark(30, true, 1); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 2D 300 iters oversub 1", stencil_tags) { run_stencil_benchmark(300, true, 1); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 2D  30 iters oversub 3", stencil_tags) { run_stencil_benchmark(30, true, 3); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 2D 300 iters oversub 3", stencil_tags) { run_stencil_benchmark(300, true, 3); }
+
+
+// This benchmark represents the core "RSIM" compute step, notable for its growing buffer access pattern
+
+void run_rsim_benchmark(const size_t n_tris, const size_t num_iter) {
+#ifndef NDEBUG
+	if(n_tris > 64 || num_iter > 50) { SKIP("Skipping larger-scale benchmark in debug build to save CI time"); }
+#endif
+
+	queue queue;
+
+	// we simply set kij to all 1s
+	const auto kij_size = range<2>(n_tris, n_tris);
+	std::vector<float> kij_data(n_tris * n_tris, 1.f);
+	buffer<float, 2> kij(kij_data.data(), kij_size);
+
+	// rad starts as all 0s, but we need a new buffer every time the benchmark starts
+	// otherwise we are not actually measuring the growing buffer access pattern
+	const auto rad_size = range<2>(num_iter, n_tris);
+	std::vector<float> rad_data(n_tris * num_iter, 0.f);
+
+	// buffer for storing the verification result
+	buffer<bool, 0> success_buffer = true;
+
+	auto benchmark_run = [&](const bool perform_verification) {
+		// rad buffer allocation and initialization
+		buffer<float, 2> rad(rad_data.data(), rad_size);
+		// set the first line of rad to 1
+		queue.submit([&](handler& cgh) {
+			auto write_rad_mapper = [](chunk<1> chnk) -> subrange<2> {
+				return {
+				    id(0, chnk.offset.get(0)),  // offset
+				    range(1, chnk.range.get(0)) // range
+				};
+			};
+			accessor write_rad{rad, cgh, write_rad_mapper, write_only, no_init};
+			cgh.parallel_for(n_tris, [=](item<1> item) { write_rad[{0, item.get_id(0)}] = 1.f; });
+		});
+
+		// main simulation loop
+		for(size_t t = 1; t < num_iter; ++t) {
+			queue.submit([&](handler& cgh) {
+				// read everything written before the current timestep
+				auto read_rad_mapper = [t](chunk<2> chnk) -> subrange<2> {
+					return {
+					    id(0, 0),                         // offset
+					    range(t, chnk.global_size.get(0)) // range
+					};
+				};
+				// only need to write to radiosities of own triangles in current timestep
+				auto write_rad_mapper = [t](chunk<2> chnk) -> subrange<2> {
+					return {
+					    id(t, chnk.offset.get(0)),  // offset
+					    range(1, chnk.range.get(0)) // range
+					};
+				};
+
+				accessor read_kij{kij, cgh, access::one_to_one(), read_only};
+				accessor write_rad{rad, cgh, write_rad_mapper, write_only, no_init};
+				accessor read_rad{rad, cgh, read_rad_mapper, read_only};
+
+				cgh.parallel_for(kij_size, [=](item<2> item) {
+					float val = 0.f;
+					float included_items = 0.f;
+					for(size_t i = 0; i < t; ++i) {
+						val += read_rad[{i, item.get_id(0)}] * read_kij[{item.get_id(0), item.get_id(1)}];
+					}
+					val /= (float)t;
+					write_rad[{t, item.get_id(0)}] = val;
+				});
+			});
+		}
+
+		if(perform_verification) {
+			queue.submit([&](handler& cgh) {
+				accessor r{rad, cgh, access::all{}, read_only_host_task};
+				accessor succ{success_buffer, cgh, access::all{}, write_only_host_task};
+				cgh.host_task(on_master_node, [=] {
+					experimental::for_each_item(rad_size, [=](item<2> item) {
+						const float expected = 1.f;
+						constexpr float epsilon = 0.01f;
+						if(std::fabs(r[item] - expected) > epsilon) {
+							fmt::print("Mismatch at {}/{}: {} !~= {} +/- {}\n", item.get_id(0), item.get_id(1), r[item], expected, epsilon);
+							succ = false;
+						}
+					});
+				});
+			});
+		}
+		queue.wait();
+	};
+
+	benchmark_run(true);
+
+	BENCHMARK("iterations") { benchmark_run(false); };
+
+	// check result
+	CHECK(*queue.fence(success_buffer).get() == true);
+};
+
+constexpr auto rsim_tags = "[benchmark][group:system][rsim]";
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark rsim:   64 tris  50 iters", rsim_tags) { run_rsim_benchmark(64, 50); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark rsim: 1024 tris  50 iters", rsim_tags) { run_rsim_benchmark(1024, 50); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark rsim:   64 tris 500 iters", rsim_tags) { run_rsim_benchmark(64, 500); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark rsim: 1024 tris 500 iters", rsim_tags) { run_rsim_benchmark(1024, 500); }
