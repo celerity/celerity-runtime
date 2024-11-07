@@ -857,7 +857,7 @@ namespace region_map_detail {
 		 *   3) Attempt to merge the box as well as any other newly created boxes
 		 *      with their surrounding entries.
 		 */
-		void update_box(const box<Dims>& box, const ValueType& value) {
+		void update_box(const box<Dims>& box, const ValueType& value, const bool delay_merge_for_bulk_update = false) {
 			assert(m_root != nullptr && "Moved from?");
 
 			const auto clamped_box = box_intersection(m_extent, box);
@@ -869,7 +869,7 @@ namespace region_map_detail {
 			m_update_actions.clear();
 			m_root->update_box(clamped_box, value, m_update_actions);
 
-			m_merge_candidates.clear();
+			if(!delay_merge_for_bulk_update) { m_merge_candidates.clear(); }
 
 			// If there are any actions it means there was no in-place update.
 			if(!m_update_actions.empty()) {
@@ -904,6 +904,16 @@ namespace region_map_detail {
 				    a,
 				    [&](const typename types::erase_node_action& erase_action) {
 					    if(!erase_action.processed_locally) { erase(erase_action.box); }
+
+					    // If we're collecting merge candidates for a bulk update, we have to check whether we erased a previous candidate.
+					    if(delay_merge_for_bulk_update) {
+						    const auto it = std::find_if(m_merge_candidates.begin(), m_merge_candidates.end(),
+						        [&](const auto& candidate) { return candidate.first == erase_action.box; });
+						    if(it != m_merge_candidates.end()) { m_merge_candidates.erase(it); }
+						    // Sanity check: None of the remaining merge candidates overlaps with the box we just erased.
+						    assert(std::all_of(m_merge_candidates.begin(), m_merge_candidates.end(),
+						        [&](const auto& candidate) { return box_intersection(candidate.first, erase_action.box).empty(); }));
+					    }
 				    },
 				    [&](const typename types::insert_node_action& insert_action) {
 					    if(!insert_action.processed_locally) { insert(insert_action.box, insert_action.value); }
@@ -915,8 +925,21 @@ namespace region_map_detail {
 			sanity_check_region_map(*this);
 
 #if CELERITY_DETAIL_REGION_MAP_MERGE_ON_UPDATE
-			try_merge(std::move(m_merge_candidates));
+			if(!delay_merge_for_bulk_update) {
+				try_merge(std::move(m_merge_candidates));
+				sanity_check_region_map(*this);
+			}
 #endif
+		}
+
+		void update_region(const region<Dims>& reg, const ValueType& value) {
+			assert(m_root != nullptr && "Moved from?");
+
+			m_merge_candidates.clear();
+			for(const auto& box : reg.get_boxes()) {
+				update_box(box, value, true);
+			}
+			try_merge(std::move(m_merge_candidates));
 
 			sanity_check_region_map(*this);
 		}
@@ -937,6 +960,25 @@ namespace region_map_detail {
 			// Now attempt to merge boxes that had their value modified by the functor.
 			try_merge(std::move(m_updated_nodes));
 #endif
+
+			sanity_check_region_map(*this);
+		}
+
+		template <typename Functor>
+		void apply_to_values(const region<Dims>& inside_region, const Functor& f) {
+			assert(m_root != nullptr && "Moved from?");
+
+			static_assert(std::is_same_v<std::invoke_result_t<Functor, ValueType>, ValueType>, "Functor must return value of same type");
+
+			m_merge_candidates.clear();
+			for(const auto& box : inside_region.get_boxes()) {
+				const auto query_result = get_region_values(box);
+				for(auto& [b, v] : query_result) {
+					const auto new_value = f(v);
+					if(new_value != v) { update_box(b, new_value, true); }
+				}
+			}
+			try_merge(std::move(m_merge_candidates));
 
 			sanity_check_region_map(*this);
 		}
@@ -1219,6 +1261,11 @@ namespace region_map_detail {
 			if(!box.empty()) { m_value = value; }
 		}
 
+		void update_region(const region<1>& region, const ValueType& value) {
+			assert(detail::box<1>(0, 1).covers(bounding_box(region)));
+			if(!region.empty()) { m_value = value; }
+		}
+
 		std::vector<std::pair<box<1>, ValueType>> get_region_values(const box<1>& request) const {
 			assert(box<1>(0, 1).covers(request));
 			if(!request.empty()) { return {{box<1>{0, 1}, m_value}}; }
@@ -1227,6 +1274,11 @@ namespace region_map_detail {
 
 		template <typename Functor>
 		void apply_to_values(const Functor& f) {
+			m_value = f(m_value);
+		}
+
+		template <typename Functor>
+		void apply_to_values(const region<0>& /* inside_region */, const Functor& f) {
 			m_value = f(m_value);
 		}
 
@@ -1272,8 +1324,12 @@ class region_map {
 	 */
 	void update_region(const region<3>& region, const ValueType& value) {
 		assert(region.get_effective_dims() <= m_dims);
-		for(const auto& box : region.get_boxes()) {
-			update_box(box, value);
+		switch(m_dims) {
+		case 0: get_map<0>().update_region(region_cast<1>(region), value); break;
+		case 1: get_map<1>().update_region(region_cast<1>(region), value); break;
+		case 2: get_map<2>().update_region(region_cast<2>(region), value); break;
+		case 3: get_map<3>().update_region(region_cast<3>(region), value); break;
+		default: utils::unreachable(); // LCOV_EXCL_LINE
 		}
 	}
 
@@ -1281,7 +1337,6 @@ class region_map {
 	 * Sets a new value for the provided box within the region map.
 	 */
 	void update_box(const box<3>& box, const ValueType& value) {
-		using namespace region_map_detail;
 		switch(m_dims) {
 		case 0: get_map<0>().update_box(box_cast<1>(box), value); break;
 		case 1: get_map<1>().update_box(box_cast<1>(box), value); break;
@@ -1354,6 +1409,19 @@ class region_map {
 		case 1: get_map<1>().apply_to_values(f); break;
 		case 2: get_map<2>().apply_to_values(f); break;
 		case 3: get_map<3>().apply_to_values(f); break;
+		default: utils::unreachable(); // LCOV_EXCL_LINE
+		}
+	}
+
+	template <typename Functor>
+	void apply_to_values(const region<3>& inside_region, const Functor& f) {
+		static_assert(std::is_invocable_r_v<ValueType, Functor, const ValueType&>, "Functor must receive and return a value of type ValueType");
+
+		switch(m_dims) {
+		case 0: get_map<0>().apply_to_values(region_cast<0>(inside_region), f); break;
+		case 1: get_map<1>().apply_to_values(region_cast<1>(inside_region), f); break;
+		case 2: get_map<2>().apply_to_values(region_cast<2>(inside_region), f); break;
+		case 3: get_map<3>().apply_to_values(region_cast<3>(inside_region), f); break;
 		default: utils::unreachable(); // LCOV_EXCL_LINE
 		}
 	}

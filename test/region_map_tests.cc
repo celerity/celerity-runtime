@@ -756,6 +756,70 @@ TEST_CASE("region_map supports apply_to_values", "[region_map]") {
 	}
 }
 
+TEST_CASE("apply_to_values can optionally be scoped to a given region", "[region_map]") {
+	constexpr size_t size = 128;
+	constexpr size_t default_value = std::numeric_limits<size_t>::max();
+	region_map_impl<size_t, 1> rm{box<1>::full_range({size}), default_value};
+
+	const auto query_and_check = [&](const box<1>& box, size_t expected) {
+		const auto results = rm.get_region_values(box);
+		CHECK(results.size() == 1);
+		CHECK(results[0] == std::pair{box, expected});
+	};
+
+	rm.update_box({0, 32}, 2);
+	rm.update_box({32, 64}, 3);
+	rm.update_box({64, 96}, 4);
+	rm.update_box({96, size}, 5);
+
+	SECTION("basic value update") {
+		rm.apply_to_values(box<1>{16, 112}, [](size_t v) { return v * v; });
+		query_and_check({0, 16}, 2);
+		query_and_check({16, 32}, 4);
+		query_and_check({32, 64}, 9);
+		query_and_check({64, 96}, 16);
+		query_and_check({96, 112}, 25);
+		query_and_check({112, size}, 5);
+	}
+
+	SECTION("same values are merged after update") {
+		CHECK(region_map_testspy::get_num_leaf_nodes(rm) == 4);
+		box_vector<1> boxes{{16, 64}, {64, 112}};
+		rm.apply_to_values(region<1>(std::move(boxes)), [](size_t v) -> size_t { return v < 4 ? 42 : 1337; });
+		CHECK(region_map_testspy::get_num_leaf_nodes(rm) == 4);
+		query_and_check({0, 16}, 2);
+		query_and_check({16, 64}, 42);
+		query_and_check({64, 112}, 1337);
+		query_and_check({112, size}, 5);
+	}
+}
+
+// White-box test: apply_to_values(region, fn) only attempts to merge the region map once all boxes have been updated.
+// This can result in situations where updating the values of a box causes merge candidates to be generated (due to a split)
+// that are then in turn overwritten by a subsequent update. This test ensures that those boxes are removed from
+// the list of candidates before merging.
+TEST_CASE("apply_to_values(region, fn) properly handles invalidated merge candidates", "[region_map]") {
+	constexpr size_t size = 128;
+	constexpr size_t default_value = std::numeric_limits<size_t>::max();
+	region_map_impl<size_t, 2> rm{box<2>::full_range({size, size}), default_value};
+
+	// We begin by splitting the domain into two halves
+	rm.update_box({{0, 0}, {size / 2, size}}, 1);
+	rm.update_box({{size / 2, 0}, {size, size}}, 2);
+	CHECK(region_map_testspy::get_num_leaf_nodes(rm) == 2);
+
+	// We now apply a bulk update that does two things:
+	// - First we update a small box inside the upper half, causing it to be split into 5 boxes
+	// - We then update a box overlapping with the lower half plus 3 out of 4 of the newly created boxes of the upper half
+
+	box_vector<2> boxes{{{24, 56}, {40, 72}}, {{40, 0}, {112, 128}}};
+	region<2> reg(std::move(boxes));
+	CHECK(reg.get_boxes()[0] == box<2>{{24, 56}, {40, 72}}); // Make sure that boxes will be processed in the order we expect
+	rm.apply_to_values(reg, [](size_t /* v */) -> size_t { return 3; });
+
+	draw(rm);
+}
+
 // TODO: This only works until count_sqrt exceeds per-node value limit.
 TEST_CASE("inserting consecutive boxes results in zero overlap", "[region_map][performance]") {
 	const bool row_wise_insert = GENERATE(true, false);
