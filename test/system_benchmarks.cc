@@ -12,7 +12,7 @@ using fixture = test_utils::runtime_fixture;
 
 // This benchmark represents a set of parallel tasks working independently on a shared buffer
 
-void run_indep_task_benchmark(size_t num_tasks) {
+void run_indep_task_benchmark(const size_t num_tasks) {
 #ifndef NDEBUG
 	if(num_tasks > 100) { SKIP("Skipping larger-scale benchmark in debug build to save CI time"); }
 #endif
@@ -74,7 +74,7 @@ TEST_CASE_METHOD(fixture, "benchmark independent task pattern with 2500 tasks", 
 
 // This benchmark represents a basic 2D stencil, executed with 1D and 2D splits and varying levels of oversubscription
 
-void run_stencil_benchmark(size_t num_iter, bool split2d, size_t oversub) {
+void run_stencil_benchmark(const size_t num_iter, const bool split2d, const size_t oversub) {
 	constexpr int side_length = 128; // sufficiently small to notice large-scale changes in runtime overhead
 #ifndef NDEBUG
 	if(num_iter > 50) { SKIP("Skipping larger-scale benchmark in debug build to save CI time"); }
@@ -146,17 +146,17 @@ void run_stencil_benchmark(size_t num_iter, bool split2d, size_t oversub) {
 constexpr auto stencil_tags = "[benchmark][group:system][stencil]";
 TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 1D  50 iters oversub 1", stencil_tags) { run_stencil_benchmark(50, false, 1); }
 TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 1D 500 iters oversub 1", stencil_tags) { run_stencil_benchmark(500, false, 1); }
-TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 1D  50 iters oversub 3", stencil_tags) { run_stencil_benchmark(50, false, 2); }
-TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 1D 500 iters oversub 3", stencil_tags) { run_stencil_benchmark(500, false, 2); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 1D  50 iters oversub 3", stencil_tags) { run_stencil_benchmark(50, false, 3); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 1D 500 iters oversub 3", stencil_tags) { run_stencil_benchmark(500, false, 3); }
 TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 2D  30 iters oversub 1", stencil_tags) { run_stencil_benchmark(30, true, 1); }
 TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 2D 300 iters oversub 1", stencil_tags) { run_stencil_benchmark(300, true, 1); }
-TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 2D  30 iters oversub 3", stencil_tags) { run_stencil_benchmark(30, true, 2); }
-TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 2D 300 iters oversub 3", stencil_tags) { run_stencil_benchmark(300, true, 2); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 2D  30 iters oversub 3", stencil_tags) { run_stencil_benchmark(30, true, 3); }
+TEST_CASE_METHOD(test_utils::runtime_fixture, "benchmark stencil: 2D 300 iters oversub 3", stencil_tags) { run_stencil_benchmark(300, true, 3); }
 
 
 // This benchmark represents the core "RSIM" compute step, notable for its growing buffer access pattern
 
-void run_rsim_benchmark(size_t n_tris, size_t num_iter) {
+void run_rsim_benchmark(const size_t n_tris, const size_t num_iter) {
 #ifndef NDEBUG
 	if(n_tris > 64 || num_iter > 50) { SKIP("Skipping larger-scale benchmark in debug build to save CI time"); }
 #endif
@@ -173,10 +173,11 @@ void run_rsim_benchmark(size_t n_tris, size_t num_iter) {
 	const auto rad_size = range<2>(num_iter, n_tris);
 	std::vector<float> rad_data(n_tris * num_iter, 0.f);
 
-	// this is a separate result buffer that survives the benchmark section to allow checking the correctness
-	buffer<float, 2> rad_result(rad_size);
+	// buffer for storing the verification result
+	buffer<bool, 0> success_buffer = true;
 
-	BENCHMARK("iterations") {
+	auto benchmark_run = [&](const bool perform_verification) {
+		// rad buffer allocation and initialization
 		buffer<float, 2> rad(rad_data.data(), rad_size);
 		// set the first line of rad to 1
 		queue.submit([&](handler& cgh) {
@@ -190,6 +191,7 @@ void run_rsim_benchmark(size_t n_tris, size_t num_iter) {
 			cgh.parallel_for(n_tris, [=](item<1> item) { write_rad[{0, item.get_id(0)}] = 1.f; });
 		});
 
+		// main simulation loop
 		for(size_t t = 1; t < num_iter; ++t) {
 			queue.submit([&](handler& cgh) {
 				// read everything written before the current timestep
@@ -215,8 +217,6 @@ void run_rsim_benchmark(size_t n_tris, size_t num_iter) {
 					float val = 0.f;
 					float included_items = 0.f;
 					for(size_t i = 0; i < t; ++i) {
-						// printf("i: %lu, t: %lu, id: %lu/%lu, read_rad: %f, read_kij: %f\n", i, t, item.get_id(0), item.get_id(1), read_rad[{i,
-						// item.get_id(0)}], read_kij[{item.get_id(0), item.get_id(1)}]);
 						val += read_rad[{i, item.get_id(0)}] * read_kij[{item.get_id(0), item.get_id(1)}];
 					}
 					val /= (float)t;
@@ -224,30 +224,31 @@ void run_rsim_benchmark(size_t n_tris, size_t num_iter) {
 				});
 			});
 		}
-		queue.submit([&](handler& cgh) {
-			accessor read_rad{rad, cgh, access::one_to_one(), read_only};
-			accessor write_rad_result{rad_result, cgh, access::one_to_one(), write_only};
-			cgh.parallel_for(rad_size, [=](item<2> item) { write_rad_result[item] = read_rad[item]; });
-		});
+
+		if(perform_verification) {
+			queue.submit([&](handler& cgh) {
+				accessor r{rad, cgh, access::all{}, read_only_host_task};
+				accessor succ{success_buffer, cgh, access::all{}, write_only_host_task};
+				cgh.host_task(on_master_node, [=] {
+					experimental::for_each_item(rad_size, [=](item<2> item) {
+						const float expected = 1.f;
+						constexpr float epsilon = 0.01f;
+						if(std::fabs(r[item] - expected) > epsilon) {
+							fmt::print("Mismatch at {}/{}: {} !~= {} +/- {}\n", item.get_id(0), item.get_id(1), r[item], expected, epsilon);
+							succ = false;
+						}
+					});
+				});
+			});
+		}
 		queue.wait();
 	};
 
+	benchmark_run(true);
+
+	BENCHMARK("iterations") { benchmark_run(false); };
+
 	// check result
-	buffer<bool, 0> success_buffer = true;
-	queue.submit([&](handler& cgh) {
-		accessor r{rad_result, cgh, access::all{}, read_only_host_task};
-		accessor succ{success_buffer, cgh, access::all{}, write_only_host_task};
-		cgh.host_task(on_master_node, [=] {
-			experimental::for_each_item(rad_size, [=](item<2> item) {
-				const float expected = 1.f;
-				constexpr float epsilon = 0.01f;
-				if(std::fabs(r[item] - expected) > epsilon) {
-					fmt::print("Mismatch at {}/{}: {} !~= {} +/- {}\n", item.get_id(0), item.get_id(1), r[item], expected, epsilon);
-					succ = false;
-				}
-			});
-		});
-	});
 	CHECK(*queue.fence(success_buffer).get() == true);
 };
 
