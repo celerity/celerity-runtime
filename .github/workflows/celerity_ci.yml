@@ -2,6 +2,9 @@ name: Celerity CI
 
 on:
   push:
+  # We perform CI on "push" only on master, otherwise it is redundant with the "pull_request" trigger
+    branches:
+      - master
   pull_request:
   workflow_dispatch:
     inputs:
@@ -23,25 +26,9 @@ on:
     - cron: "0 5 * * *"
 
 jobs:
-  find-duplicate-workflows:
-    runs-on: [ self-hosted, slurm ]
-    outputs:
-      should_skip: ${{ steps.skip-check.outputs.should_skip }}
-    steps:
-      - id: skip-check
-        uses: fkirc/skip-duplicate-actions@v5.3.0
-        with:
-          concurrent_skipping: "never"
-          skip_after_successful_duplicate: "false"
-          do_not_skip: '["workflow_dispatch", "schedule"]'
-          cancel_others: "true"
-
   # Run Clang-Tidy checks
   #
-  # Note: This action currently only supports pull_request triggers (as it creates review
-  # comments), so we have to run it regardless of skip-duplicate-action's outcome
-  # (as otherwise pull_request triggers will usually be skipped due to the push
-  # trigger already running).
+  # Note: This action currently only supports pull_request triggers (as it creates review comments)
   #
   # TODO: This should be combined with the report (or "lint") step, really
   clang-tidy:
@@ -91,8 +78,6 @@ jobs:
   #
   # Current workaround is to represent the matrix as a JSON object, which is then deserialized in the next job.
   read-build-matrix:
-    needs: find-duplicate-workflows
-    if: needs.find-duplicate-workflows.outputs.should_skip != 'true'
     runs-on: self-hosted
     outputs:
       matrix: ${{ steps.read-json-matrix.outputs.matrix }}
@@ -114,8 +99,7 @@ jobs:
               print('matrix={ "include":%s }' % json.dumps(matrix), file=fh)
 
   build-and-test:
-    needs: [find-duplicate-workflows, read-build-matrix]
-    if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
+    needs: read-build-matrix
     runs-on: [ self-hosted, "slurm-${{ matrix.platform }}" ]
     strategy:
       fail-fast: false
@@ -233,10 +217,10 @@ jobs:
   # Tag "HEAD" images that built and tested successfully as "latest".
   # This is only done for nightly builds (or when specifying the "tag-latest" option on manually triggered runs).
   tag-latest-containers:
-    needs: [find-duplicate-workflows, build-and-test]
+    needs: build-and-test
     # Run this step regardless of result of `build-and-test` (hence the `always()`),
     # since we always want to tag images that were successful, even if others weren't.
-    if: always() && needs.find-duplicate-workflows.outputs.should_skip != 'true' && (github.event_name == 'schedule' || (inputs.test-head && inputs.tag-latest))
+    if: always() && (github.event_name == 'schedule' || (inputs.test-head && inputs.tag-latest))
     runs-on: slurm-${{ matrix.platform }}
     strategy:
       fail-fast: false
@@ -276,8 +260,7 @@ jobs:
           fi
 
   report:
-    needs: [find-duplicate-workflows, build-and-test]
-    if: ${{ needs.find-duplicate-workflows.outputs.should_skip != 'true' }}
+    needs: [build-and-test]
     runs-on: [ self-hosted, slurm ]
     env:
       container-workspace: <placeholder>
