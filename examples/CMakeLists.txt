@@ -1,9 +1,19 @@
 option(CELERITY_EXAMPLES_REQUIRE_HDF5 "Fail on missing HDF5 dependency instead of skipping the distr_io example" OFF)
 
 function(add_example NAME)
+  if(NOT ARGV1)
+    set(FILEPATH "")
+  else()
+    set(FILEPATH "${ARGV1}")
+  endif()
+
+  if(NOT FILEPATH)
+    set(FILEPATH "${NAME}/${NAME}.cc")
+  endif()
+
   add_executable(
     "${NAME}"
-    "${NAME}/${NAME}.cc"
+    "${FILEPATH}"
   )
 
   set_property(TARGET "${NAME}" PROPERTY CXX_STANDARD "${CELERITY_CXX_STANDARD}")
@@ -26,8 +36,21 @@ add_example(convolution)
 add_example(hello_world)
 add_example(matmul)
 add_example(syncing)
-add_example(wave_sim)
 add_example(reduction)
+
+add_example(wave_sim_float "wave_sim/wave_sim.cc")
+add_example(wave_sim_double "wave_sim/wave_sim.cc")
+target_compile_definitions(wave_sim_float PRIVATE -DDATA_T=float)
+target_compile_definitions(wave_sim_double PRIVATE -DDATA_T=double)
+set_property(TARGET wave_sim_float PROPERTY RUNTIME_OUTPUT_DIRECTORY "wave_sim")
+set_property(TARGET wave_sim_double PROPERTY RUNTIME_OUTPUT_DIRECTORY "wave_sim")
+
+add_example(wave_simple_float "wave_sim/wave_sim.cc")
+add_example(wave_simple_double "wave_sim/wave_sim.cc")
+target_compile_definitions(wave_simple_float PRIVATE -DDATA_T=float -DWAVE_SIMPLE=1)
+target_compile_definitions(wave_simple_double PRIVATE -DDATA_T=double -DWAVE_SIMPLE=1)
+set_property(TARGET wave_simple_float PROPERTY RUNTIME_OUTPUT_DIRECTORY "wave_sim")
+set_property(TARGET wave_simple_double PROPERTY RUNTIME_OUTPUT_DIRECTORY "wave_sim")
 
 if(CELERITY_ENABLE_MPI)
   find_package(PkgConfig QUIET)
