@@ -1,12 +1,4 @@
-#include "sycl_wrappers.h"
-
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <Windows.h>
-#else
 #include <pthread.h>
-#endif
 
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -17,10 +9,10 @@
 
 #include <celerity.h>
 
-#include "affinity.h"
 #include "live_executor.h"
 #include "named_threads.h"
 #include "ranges.h"
+#include "sycl_wrappers.h"
 
 #include "test_utils.h"
 
@@ -649,65 +641,6 @@ namespace detail {
 			CHECK(graph_testspy::get_live_node_count(runtime_testspy::get_task_graph(runtime::get_instance())) <= task_limit);
 		}
 	}
-
-#ifndef __APPLE__
-	class restore_process_affinity_fixture {
-		restore_process_affinity_fixture(const restore_process_affinity_fixture&) = delete;
-		restore_process_affinity_fixture(restore_process_affinity_fixture&&) = delete;
-		restore_process_affinity_fixture& operator=(const restore_process_affinity_fixture&) = delete;
-		restore_process_affinity_fixture& operator=(restore_process_affinity_fixture&&) = delete;
-
-	  public:
-#ifdef _WIN32
-		restore_process_affinity_fixture() {
-			[[maybe_unused]] DWORD_PTR system_mask;
-			const auto ret = GetProcessAffinityMask(GetCurrentProcess(), &process_mask, &system_mask);
-			REQUIRE(ret != FALSE);
-		}
-
-		~restore_process_affinity_fixture() {
-			const auto ret = SetProcessAffinityMask(GetCurrentProcess(), process_mask);
-			REQUIRE(ret != FALSE);
-		}
-
-	  private:
-		DWORD_PTR process_mask;
-#else
-		restore_process_affinity_fixture() {
-			const auto ret = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &m_process_mask);
-			REQUIRE(ret == 0);
-		}
-
-		~restore_process_affinity_fixture() {
-			const auto ret = pthread_setaffinity_np(pthread_self(), sizeof(m_process_mask), &m_process_mask);
-			REQUIRE(ret == 0);
-		}
-
-	  private:
-		cpu_set_t m_process_mask;
-#endif
-	};
-
-	TEST_CASE_METHOD(restore_process_affinity_fixture, "affinity_cores_available works as expected", "[affinity]") {
-#ifdef _WIN32
-		SECTION("in Windows") {
-			DWORD_PTR cpu_mask = 1;
-			const auto ret = SetProcessAffinityMask(GetCurrentProcess(), cpu_mask);
-			REQUIRE(ret != FALSE);
-		}
-#else
-		SECTION("in Posix") {
-			cpu_set_t cpu_mask;
-			CPU_ZERO(&cpu_mask);
-			CPU_SET(0, &cpu_mask);
-			const auto ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_mask), &cpu_mask);
-			REQUIRE(ret == 0);
-		}
-#endif
-		const auto cores = affinity_cores_available();
-		REQUIRE(cores == 1);
-	}
-#endif
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "side_effect API works as expected on a single node", "[side-effect]") {
 		queue q;

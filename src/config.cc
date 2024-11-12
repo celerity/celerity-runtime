@@ -87,6 +87,7 @@ namespace detail {
 		    "LOG_LEVEL", {log_level::trace, log_level::debug, log_level::info, log_level::warn, log_level::err, log_level::critical, log_level::off});
 		const auto env_profile_kernel = pref.register_variable<bool>("PROFILE_KERNEL", parse_validate_profile_kernel);
 		const auto env_backend_device_submission_threads = pref.register_variable<bool>("BACKEND_DEVICE_SUBMISSION_THREADS");
+		const auto env_thread_pinning = pref.register_variable<thread_pinning::environment_configuration>("THREAD_PINNING", thread_pinning::parse_validate_env);
 		const auto env_print_graphs = pref.register_variable<bool>("PRINT_GRAPHS");
 		const auto env_dry_run_nodes = pref.register_variable<size_t>("DRY_RUN_NODES", parse_validate_dry_run_nodes);
 		constexpr int horizon_max = 1024 * 64;
@@ -121,8 +122,10 @@ namespace detail {
 			}
 #endif // CELERITY_WORKAROUND(SIMSYCL)
 
+			m_thread_pinning_config = parsed_and_validated_envs.get_or(env_thread_pinning, {});
+
 			const auto has_dry_run_nodes = parsed_and_validated_envs.get(env_dry_run_nodes);
-			if(has_dry_run_nodes) { m_dry_run_nodes = *has_dry_run_nodes; }
+			if(has_dry_run_nodes) { m_dry_run_nodes = static_cast<int>(*has_dry_run_nodes); }
 
 			m_should_print_graphs = parsed_and_validated_envs.get_or(env_print_graphs, false);
 

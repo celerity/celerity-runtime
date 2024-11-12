@@ -19,6 +19,10 @@ namespace detail {
 	class reducer;
 	struct host_object_instance;
 
+	namespace thread_pinning {
+		class thread_pinner;
+	}
+
 	class runtime final : private task_manager::delegate, private scheduler::delegate, private executor::delegate {
 		friend struct runtime_testspy;
 
@@ -116,6 +120,8 @@ namespace detail {
 		std::unique_ptr<detail::task_recorder> m_task_recorder;               // accessed by task manager (application thread)
 		std::unique_ptr<detail::command_recorder> m_command_recorder;         // accessed only by scheduler thread (until shutdown)
 		std::unique_ptr<detail::instruction_recorder> m_instruction_recorder; // accessed only by scheduler thread (until shutdown)
+
+		std::unique_ptr<detail::thread_pinning::thread_pinner> m_thread_pinner; // thread safe, manages lifetime of thread pinning machinery
 
 		runtime(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector);
 

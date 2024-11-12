@@ -226,14 +226,6 @@ namespace detail {
 		CELERITY_INFO("Celerity runtime version {} running on {} / {}. PID = {}, build type = {}, {}", get_version_string(), get_sycl_version(),
 		    get_mpi_version(), get_pid(), get_build_type(), get_mimalloc_string());
 
-#ifndef __APPLE__
-		if(const uint32_t cores = affinity_cores_available(); cores < min_cores_needed) {
-			CELERITY_WARN("Celerity has detected that only {} logical cores are available to this process. It is recommended to assign at least {} "
-			              "logical cores. Performance may be negatively impacted.",
-			    cores, min_cores_needed);
-		}
-#endif
-
 		if(!s_test_mode && m_cfg->get_tracy_mode() != tracy_mode::off) {
 			if constexpr(CELERITY_TRACY_SUPPORT) {
 				CELERITY_WARN("Profiling with Tracy is enabled. Performance may be negatively impacted.");
@@ -249,6 +241,20 @@ namespace detail {
 			CELERITY_DETAIL_TRACY_ZONE_SCOPED("runtime::pick_devices", PaleVioletRed);
 			devices = std::visit([&](const auto& value) { return pick_devices(host_cfg, value, sycl::platform::get_platforms()); }, user_devices_or_selector);
 			assert(!devices.empty()); // postcondition of pick_devices
+		}
+
+		{
+			const auto& pin_cfg = m_cfg->get_thread_pinning_config();
+			thread_pinning::runtime_configuration thread_pinning_cfg{
+			    .enabled = pin_cfg.enabled,
+			    .num_devices = static_cast<uint32_t>(devices.size()),
+			    .num_legacy_processes = static_cast<uint32_t>(host_cfg.node_count),
+			    .legacy_process_index = static_cast<uint32_t>(host_cfg.local_rank),
+			    .standard_core_start_id = pin_cfg.starting_from_core,
+			    .hardcoded_core_ids = pin_cfg.hardcoded_core_ids,
+			};
+			m_thread_pinner = std::make_unique<thread_pinning::thread_pinner>(thread_pinning_cfg);
+			thread_pinning::pin_this_thread(thread_pinning::thread_type::user);
 		}
 
 		const sycl_backend::configuration backend_config = {
@@ -324,6 +330,9 @@ namespace detail {
 
 		// Create and await the shutdown epoch
 		sync(epoch_action::shutdown);
+
+		// This only affects non-functional behaviour, so we can safely do it first
+		m_thread_pinner.reset();
 
 		// The shutdown epoch is, by definition, the last task (and command / instruction) issued. Since it has now completed, no more scheduler -> executor
 		// traffic will occur, and `runtime` can stop functioning as a scheduler_delegate (which would require m_exec to be live).
