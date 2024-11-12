@@ -1,4 +1,5 @@
 #include "live_executor.h"
+#include "affinity.h"
 #include "backend/backend.h"
 #include "closure_hydrator.h"
 #include "communicator.h"
@@ -952,6 +953,9 @@ void live_executor::submit(std::vector<const instruction*> instructions, std::ve
 
 void live_executor::thread_main(std::unique_ptr<backend> backend, executor::delegate* const dlg, const policy_set& policy) {
 	CELERITY_DETAIL_TRACY_SET_THREAD_NAME_AND_ORDER("cy-executor", tracy_detail::thread_order::executor);
+
+	thread_pinning::pin_this_thread(thread_pinning::thread_type::executor);
+
 	try {
 		live_executor_detail::executor_impl(std::move(backend), m_root_comm.get(), m_submission_queue, dlg, policy).run();
 	}

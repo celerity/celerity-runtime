@@ -216,6 +216,7 @@ if(CMAKE_GENERATOR STREQUAL "Ninja")
 endif()
 
 set(SOURCES
+  src/affinity.cc
   src/config.cc
   src/command_graph_generator.cc
   src/dry_run_executor.cc

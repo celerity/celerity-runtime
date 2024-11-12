@@ -1,5 +1,6 @@
 #include "scheduler.h"
 
+#include "affinity.h"
 #include "command_graph_generator.h"
 #include "instruction_graph_generator.h"
 #include "log.h"
@@ -127,6 +128,9 @@ namespace detail {
 
 	void scheduler::thread_main() {
 		CELERITY_DETAIL_TRACY_SET_THREAD_NAME_AND_ORDER("cy-scheduler", tracy_detail::thread_order::scheduler)
+
+		thread_pinning::pin_this_thread(thread_pinning::thread_type::scheduler);
+
 		try {
 			schedule();
 		}

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <optional>
 
+#include "affinity.h"
 #include "log.h"
 
 namespace celerity {
@@ -26,6 +27,7 @@ namespace detail {
 
 		bool should_enable_device_profiling() const { return m_enable_device_profiling.value_or(m_tracy_mode == tracy_mode::full); }
 		bool should_use_backend_device_submission_threads() const { return m_enable_backend_device_submission_threads; }
+		const thread_pinning::environment_configuration& get_thread_pinning_config() const& { return m_thread_pinning_config; }
 		bool is_dry_run() const { return m_dry_run_nodes > 0; }
 		bool should_print_graphs() const { return m_should_print_graphs; }
 		bool should_record() const {
@@ -41,7 +43,8 @@ namespace detail {
 		log_level m_log_lvl;
 		std::optional<bool> m_enable_device_profiling;
 		bool m_enable_backend_device_submission_threads = true;
-		size_t m_dry_run_nodes = 0;
+		thread_pinning::environment_configuration m_thread_pinning_config;
+		int m_dry_run_nodes = 0;
 		bool m_should_print_graphs = false;
 		std::optional<int> m_horizon_step;
 		std::optional<int> m_horizon_max_parallelism;

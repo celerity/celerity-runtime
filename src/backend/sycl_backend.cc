@@ -1,5 +1,6 @@
 #include "backend/sycl_backend.h"
 
+#include "affinity.h"
 #include "closure_hydrator.h"
 #include "dense_map.h"
 #include "nd_memory.h"
@@ -174,8 +175,8 @@ sycl_backend::sycl_backend(const std::vector<sycl::device>& devices, const confi
 			m_impl->devices[did].submission_thread.emplace(fmt::format("cy-be-submission-{}", did.value), m_impl->config.profiling);
 			// no need to wait for the event -> will happen before the first task is submitted
 			(void)m_impl->devices[did].submission_thread->submit([did] {
+				thread_pinning::pin_this_thread(thread_pinning::thread_type(thread_pinning::thread_type::first_backend_worker + did.value));
 				closure_hydrator::make_available();
-				// TODO: Set BE submission thread affinity
 			});
 		}
 	}
@@ -200,7 +201,6 @@ void sycl_backend::init() {
 	for(device_id did = 0; did < m_impl->system.devices.size(); ++did) {
 		(void)m_impl->get_device_queue(did, 0 /* lane */);
 	}
-	// TODO: Set executor thread affinity
 }
 
 void* sycl_backend::debug_alloc(const size_t size) {
