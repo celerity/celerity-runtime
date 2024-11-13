@@ -7,8 +7,7 @@
 # Note that if you want to test it outside the GitHub action context, you need to provide some
 # result data and a baseline branch name. You probably also want to clean up the generated pngs.
 # Example run:
-# $ cp build_release/bench_test.csv ci/perf/gpuc2_bench.csv
-# $ GITHUB_BASE_REF=master ruby ci/check-perf-impact.rb
+# $ GITHUB_BASE_REF=origin/master ruby ci/check-perf-impact.rb
 # $ rm box_*.png
 
 require 'csv'
@@ -18,10 +17,10 @@ require 'digest'
 
 # information regarding the benchmark file
 BENCH_FN = 'ci/perf/gpuc2_bench.csv'
-NAME_COL_1 = "test case"       # first name column
-NAME_COL_2 = "benchmark name"  # second name column
-TAG_COL = "tags"               # tag column (quoted, comma separated list of tags)
-RAW_DATA_COL = "raw"           # raw data column (array of runs)
+NAME_COL_1 = "test case"         # first name column
+NAME_COL_2 = "benchmark name"    # second name column
+TAG_COL = "tags"                 # tag column (quoted, comma separated list of tags)
+RAW_DATA_COL = "raw"             # raw data column (array of runs)
 
 # customizing chart generation
 MAX_CHARTS_PER_IMAGE = 10   # maximum number of comparisons in a single image
@@ -55,6 +54,14 @@ if !ENV.key?("GITHUB_BASE_REF")
   exit(-1)
 end
 
+# support "remote/branch" format for GITHUB_BASE_REF
+github_remote = "origin"
+github_base_ref = ENV['GITHUB_BASE_REF']
+if github_base_ref =~ /(.*?)\/(.*)/
+  github_remote = $1
+  github_base_ref = $2
+end
+
 # prevent duplicate comments for the same benchmark results (by comparing csv hash)
 bench_file_digest = Digest::MD5.file(BENCH_FN).hexdigest
 if /Check-perf-impact results:[^(]*\((.*)\)/ =~ ENV["PREV_COMMENT_BODY"]
@@ -83,14 +90,15 @@ end
 # helper function which retrieves benchmark data from the csv at a specific git version (or the current one)
 # returns a map from [category,benchmark_name] to raw data array, and the full data set
 def get_data_for_version(version = nil)
-  # if a different version is supplied, check it out
+  csv_file_contents = IO.read(BENCH_FN)
+  # if a different version is supplied, get that data instead
   if version
-    cmd = "git checkout #{version} -- #{BENCH_FN}"
-    `#{cmd}`
+    cmd = "git show #{version}:#{BENCH_FN}"
+    csv_file_contents = `#{cmd}`
     throw "failed git checkout (cmd: #{cmd})!" unless $?.success?
   end
-  # read the data
-  data = CSV.read(BENCH_FN, headers: true)
+  # parse the data
+  data = CSV.parse(csv_file_contents, headers: true)
   bench_data_map = {}
   data.each do |row|
     name = row[NAME_COL_1]+" / "+row[NAME_COL_2]
@@ -105,20 +113,15 @@ def get_data_for_version(version = nil)
     raw_data = row[RAW_DATA_COL].delete_prefix('"').delete_suffix('"').split(",").map(&:to_f)
     bench_data_map[[category,name]] = raw_data
   end
-  # restore the file if it was checked out in a different version
-  if version
-    `git restore --staged #{BENCH_FN}`
-    `git restore #{BENCH_FN}`
-  end
   return bench_data_map, data
 end
 
 # retrieve current and previous data from respective csv files
-base_ver = ENV['GITHUB_BASE_REF']
-`git fetch origin #{base_ver}`
-throw "failed git fetch for #{base_ver}!" unless $?.success?
+
+`git fetch #{github_remote} #{github_base_ref}`
+throw "failed git fetch for #{github_remote}/#{github_base_ref}!" unless $?.success?
 new_data_map, new_data = get_data_for_version()
-old_data_map, old_data = get_data_for_version("origin/" + base_ver)
+old_data_map, old_data = get_data_for_version(github_remote + "/" + github_base_ref)
 
 # build a list of all categories in the new data
 categories = new_data_map.keys.map { |k| k[0] }.uniq.sort
