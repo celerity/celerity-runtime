@@ -87,6 +87,45 @@ class task_recorder {
 
 	const std::vector<std::unique_ptr<task_record>>& get_graph_nodes() const { return m_recorded_tasks; }
 
+	void filter_by_task_id(const task_id tid, const size_t before, const size_t after) {
+		auto it = std::lower_bound(
+		    m_recorded_tasks.begin(), m_recorded_tasks.end(), tid, [](const std::unique_ptr<task_record>& rec, const task_id tid) { return rec->tid < tid; });
+		if(it == m_recorded_tasks.end()) {
+			fprintf(stderr, "Failed to filter by task id: Task with id %zu not found\n", tid.value);
+			return;
+		}
+		std::unordered_set<task_id> tasks_to_keep;
+		tasks_to_keep.insert((*it)->tid);
+
+		const auto get_task = [&](const task_id tid) {
+			auto it = std::lower_bound(m_recorded_tasks.begin(), m_recorded_tasks.end(), tid,
+			    [](const std::unique_ptr<task_record>& rec, const task_id tid) { return rec->tid < tid; });
+			assert(it != m_recorded_tasks.end());
+			return **it;
+		};
+
+		std::unordered_set<std::pair<task_id, size_t>, utils::pair_hash> tasks_to_visit;
+		tasks_to_visit.insert({tid, 0});
+		while(!tasks_to_visit.empty()) {
+			const auto [current_tid, distance] = *tasks_to_visit.begin();
+			tasks_to_visit.erase(tasks_to_visit.begin());
+			const auto& current_task = get_task(current_tid);
+			tasks_to_keep.insert(current_tid);
+			if(distance < before) {
+				for(const auto& dep : current_task.dependencies) {
+					tasks_to_visit.insert({dep.node, distance + 1});
+				}
+			}
+		}
+		// TODO: Implement downward dependencies (we don't store these in records atm)
+
+		std::vector<std::unique_ptr<task_record>> records_to_keep;
+		for(auto& tsk : m_recorded_tasks) {
+			if(tasks_to_keep.contains(tsk->tid)) { records_to_keep.push_back(std::move(tsk)); }
+		}
+		m_recorded_tasks = std::move(records_to_keep);
+	}
+
   private:
 	std::vector<std::unique_ptr<task_record>> m_recorded_tasks;
 };
@@ -228,6 +267,57 @@ class command_recorder {
 	const std::vector<std::unique_ptr<command_record>>& get_graph_nodes() const { return m_recorded_commands; }
 
 	const std::vector<command_dependency_record>& get_dependencies() const { return m_recorded_dependencies; }
+
+	void filter_by_task_id(const task_id tid, const size_t before, const size_t after) {
+		// TODO: Would be nice if we could use binary search here as well - need to skip all non-task commands somehow though
+		auto it = std::find_if(m_recorded_commands.begin(), m_recorded_commands.end(), [tid](const std::unique_ptr<command_record>& rec) {
+			if(utils::isa<task_command_record>(rec.get())) { return dynamic_cast<const task_command_record*>(rec.get())->tid == tid; }
+			return false;
+		});
+		if(it == m_recorded_commands.end()) {
+			fprintf(stderr, "Failed to filter by task id: Execution command for task %zu not found\n", tid.value);
+			return;
+		}
+
+		std::unordered_set<command_id> commands_to_keep;
+		enum class visit_direction { forward, backward };
+		const auto visit_all = [&](const visit_direction dir) {
+			// TODO: We may end up visiting some nodes multiple times. In same cases we have to, b/c we may have found a shorter path.
+			std::unordered_set<std::pair<command_id, size_t>, utils::pair_hash> to_visit;
+			to_visit.insert({(*it)->id, 0});
+			while(!to_visit.empty()) {
+				const auto [id, distance] = *to_visit.begin();
+				to_visit.erase(to_visit.begin());
+				commands_to_keep.insert(id);
+				if(dir == visit_direction::backward && distance < before) {
+					// FIXME: Oof
+					for(const auto& dep : m_recorded_dependencies) {
+						if(dep.successor == id) { to_visit.insert({dep.predecessor, distance + 1}); }
+					}
+				}
+				if(dir == visit_direction::forward && distance < after) {
+					// FIXME: Oof
+					for(const auto& dep : m_recorded_dependencies) {
+						if(dep.predecessor == id) { to_visit.insert({dep.successor, distance + 1}); }
+					}
+				}
+			}
+		};
+		visit_all(visit_direction::forward);
+		visit_all(visit_direction::backward);
+
+		std::vector<std::unique_ptr<command_record>> records_to_keep;
+		for(auto& cmd : m_recorded_commands) {
+			if(commands_to_keep.contains(cmd->id)) { records_to_keep.push_back(std::move(cmd)); }
+		}
+		std::vector<command_dependency_record> dependencies_to_keep;
+		for(const auto& dep : m_recorded_dependencies) {
+			if(commands_to_keep.contains(dep.predecessor) && commands_to_keep.contains(dep.successor)) { dependencies_to_keep.push_back(dep); }
+		}
+
+		m_recorded_commands = std::move(records_to_keep);
+		m_recorded_dependencies = std::move(dependencies_to_keep);
+	}
 
   private:
 	std::vector<std::unique_ptr<command_record>> m_recorded_commands;
@@ -628,6 +718,86 @@ class instruction_recorder {
 	const std::vector<outbound_pilot>& get_outbound_pilots() const { return m_recorded_pilots; }
 
 	command_id get_await_push_command_id(const transfer_id& trid) const;
+
+	void filter_by_task_id(const task_id tid, const size_t before, const size_t after) {
+		std::unordered_set<instruction_id> instructions_to_keep;
+
+		for(const auto& inst : m_recorded_instructions) {
+			matchbox::match(
+			    *inst, //
+			    [&](const device_kernel_instruction_record& dkinstr) {
+				    if(dkinstr.command_group_task_id == tid) { instructions_to_keep.insert(dkinstr.id); }
+			    },
+			    [&](const host_task_instruction_record& hinstr) {
+				    if(hinstr.command_group_task_id == tid) { instructions_to_keep.insert(hinstr.id); }
+			    },
+			    [&](const fence_instruction_record& finstr) {
+				    if(finstr.tid == tid) { instructions_to_keep.insert(finstr.id); }
+			    },
+			    [&](const horizon_instruction_record& hinstr) {
+				    if(hinstr.horizon_task_id == tid) { instructions_to_keep.insert(hinstr.id); }
+			    },
+			    [&](const epoch_instruction_record& einstr) {
+				    if(einstr.epoch_task_id == tid) { instructions_to_keep.insert(einstr.id); }
+			    },
+			    [&](const auto&) {
+				    // nop
+			    });
+		}
+		if(instructions_to_keep.empty()) {
+			fprintf(stderr, "Failed to filter by task id: No instructions for task %zu found\n", tid.value);
+			return;
+		}
+
+		enum class visit_direction { forward, backward };
+		const auto visit_all = [&](const visit_direction dir) {
+			// TODO: We may end up visiting some nodes multiple times. In same cases we have to, b/c we may have found a shorter path.
+			std::unordered_set<std::pair<instruction_id, size_t>, utils::pair_hash> to_visit;
+			for(const auto id : instructions_to_keep) {
+				to_visit.insert({id, 0});
+			}
+			while(!to_visit.empty()) {
+				const auto [id, distance] = *to_visit.begin();
+				to_visit.erase(to_visit.begin());
+				instructions_to_keep.insert(id);
+				if(dir == visit_direction::backward && distance < before) {
+					// FIXME: Oof
+					for(const auto& dep : m_recorded_dependencies) {
+						if(dep.successor == id) { to_visit.insert({dep.predecessor, distance + 1}); }
+					}
+				}
+				if(dir == visit_direction::forward && distance < after) {
+					// FIXME: Oof
+					for(const auto& dep : m_recorded_dependencies) {
+						if(dep.predecessor == id) { to_visit.insert({dep.successor, distance + 1}); }
+					}
+				}
+			}
+		};
+		visit_all(visit_direction::forward);
+		visit_all(visit_direction::backward);
+
+		std::vector<std::unique_ptr<instruction_record>> records_to_keep;
+		std::unordered_set<message_id> message_ids_to_keep;
+		for(auto& instr : m_recorded_instructions) {
+			if(instructions_to_keep.contains(instr->id)) {
+				if(auto sinstr = dynamic_cast<send_instruction_record*>(instr.get())) { message_ids_to_keep.insert(sinstr->message_id); }
+				records_to_keep.push_back(std::move(instr));
+			}
+		}
+		std::vector<instruction_dependency_record> dependencies_to_keep;
+		for(const auto& dep : m_recorded_dependencies) {
+			if(instructions_to_keep.contains(dep.predecessor) && instructions_to_keep.contains(dep.successor)) { dependencies_to_keep.push_back(dep); }
+		}
+		std::vector<outbound_pilot> pilots_to_keep;
+		for(const auto& pilot : m_recorded_pilots) {
+			if(message_ids_to_keep.contains(pilot.message.id)) { pilots_to_keep.push_back(pilot); }
+		}
+
+		m_recorded_instructions = std::move(records_to_keep);
+		m_recorded_dependencies = std::move(dependencies_to_keep);
+		m_recorded_pilots = std::move(pilots_to_keep);
+	}
 
   private:
 	bool m_loop_template_active = false;

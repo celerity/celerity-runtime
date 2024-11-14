@@ -484,13 +484,26 @@ namespace detail {
 
 		// With scheduler and executor threads gone, all recorders can be safely accessed from the runtime / application thread
 		if(spdlog::should_log(log_level::info) && m_cfg->should_print_graphs()) {
+			const auto getoption = [](const std::string_view name) -> std::optional<size_t> {
+				const auto cstr = getenv(name.data());
+				if(cstr == nullptr) return std::nullopt;
+				return atol(cstr);
+			};
+
+			// TODO: In a proper query language we would probably like to specify whether we want only true dependencies or all
+			const auto filter_by_tid = getoption("GRAPH_QUERY_TID");
+			const auto before = getoption("GRAPH_QUERY_BEFORE");
+			const auto after = getoption("GRAPH_QUERY_AFTER");
+
 			if(m_local_nid == 0) { // It's the same across all nodes
 				assert(m_task_recorder.get() != nullptr);
+				if(filter_by_tid.has_value()) { m_task_recorder->filter_by_task_id(*filter_by_tid, before.value_or(0), 0 /* unsupported */); }
 				const auto tdag_str = detail::print_task_graph(*m_task_recorder);
 				CELERITY_INFO("Task graph:\n\n{}\n", tdag_str);
 			}
 
 			assert(m_command_recorder.get() != nullptr);
+			if(filter_by_tid.has_value()) { m_command_recorder->filter_by_task_id(*filter_by_tid, before.value_or(0), after.value_or(0)); }
 			auto cdag_str = print_command_graph(m_local_nid, *m_command_recorder);
 			if(!is_dry_run()) { cdag_str = gather_command_graph(cdag_str, m_num_nodes, m_local_nid); } // must be called on all nodes
 
@@ -503,6 +516,7 @@ namespace detail {
 			// IDAGs become unreadable when all nodes print them at the same time - TODO attempt gathering them as well?
 			if(m_local_nid == 0) {
 				// we are allowed to deref m_instruction_recorder / m_command_recorder because the scheduler thread has exited at this point
+				if(filter_by_tid.has_value()) { m_instruction_recorder->filter_by_task_id(*filter_by_tid, before.value_or(0), after.value_or(0)); }
 				const auto idag_str = detail::print_instruction_graph(*m_instruction_recorder, *m_command_recorder, *m_task_recorder);
 				CELERITY_INFO("Instruction graph on node 0:\n\n{}\n", idag_str);
 			}
