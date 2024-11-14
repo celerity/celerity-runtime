@@ -349,7 +349,7 @@ TEST_CASE("5-point stencil program with 2D split does not exchange boundaries wi
 	    .submit();
 
 	const std::vector<std::pair<node_id, node_id>> diagonals{{0, 3}, {1, 2}, {2, 1}, {3, 0}};
-	for(const auto [nid, diag] : diagonals) {
+	for(const auto& [nid, diag] : diagonals) {
 		CHECK(std::ranges::none_of(cctx.query<push_command_record>().on(nid)->target_regions, [diag = diag](auto& tr) { return tr.first == diag; }));
 	}
 }

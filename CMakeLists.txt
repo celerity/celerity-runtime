@@ -190,7 +190,14 @@ if(CELERITY_TRACY_SUPPORT)
   set(TRACY_STATIC ON CACHE BOOL "" FORCE)
   set(TRACY_NO_SAMPLING ON CACHE BOOL "" FORCE)
   set(TRACY_NO_SYSTEM_TRACING ON CACHE BOOL "" FORCE)
+
+  set(PREVIOUS_CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # Disable warning until we have https://github.com/wolfpld/tracy/pull/924
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-result")
+  endif()
   fetch_content_from_submodule(Tracy vendor/tracy)
+  set(CMAKE_CXX_FLAGS "${PREVIOUS_CMAKE_CXX_FLAGS}")
 endif()
 
 # Deprecated feature flags
@@ -360,7 +367,7 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self -Werror=undef)
 endif()
 
-if(CMAKE_COMPILER_ID STREQUAL "GNU")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   target_compile_options(celerity_runtime PRIVATE -Wno-array-bounds -Wno-stringop-overflow)  # false positives with GCC 13.2
 endif()
 
