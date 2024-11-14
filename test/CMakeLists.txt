@@ -17,6 +17,10 @@ function(set_test_target_parameters TARGET SOURCE)
     target_compile_options(${TARGET} PRIVATE -Wall -Wextra -Wextra -Wno-unused-parameter -Wno-unused-variable)
   endif()
 
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(${TARGET} PRIVATE -Wno-array-bounds -Wno-stringop-overflow)  # false positives with GCC 13.2
+  endif()
+
   add_celerity_to_target(TARGET ${TARGET} SOURCES ${SOURCE})
 endfunction()
 

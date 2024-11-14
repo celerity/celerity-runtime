@@ -239,10 +239,10 @@ TEST_CASE("nodes that do not participate in reduction only push data to those th
 	cdag_test_context cctx(num_nodes);
 	auto buf = cctx.create_buffer(range<1>(1));
 
-	const auto tid_producer = cctx.device_compute(range<1>(num_nodes)).reduce(buf, false /* include_current_buffer_value */).submit();
+	cctx.device_compute(range<1>(num_nodes)).reduce(buf, false /* include_current_buffer_value */).submit();
 
 	SECTION("when reducing on a single node") {
-		const auto tid_reducer = cctx.device_compute(range<1>(1)).read(buf, acc::all()).submit();
+		cctx.device_compute(range<1>(1)).read(buf, acc::all()).submit();
 		// Theres a push on nodes 1-3
 		CHECK(cctx.query<push_command_record>().total_count() == 3);
 		CHECK(cctx.query<push_command_record>().on(0).count() == 0);
@@ -266,7 +266,7 @@ TEST_CASE("nodes that do not participate in reduction generate await-pushes when
 	cdag_test_context cctx(num_nodes);
 	auto buf = cctx.create_buffer(range<1>(1));
 
-	const auto tid_producer = cctx.device_compute(range<1>(num_nodes)).reduce(buf, false /* include_current_buffer_value */).submit();
+	cctx.device_compute(range<1>(num_nodes)).reduce(buf, false /* include_current_buffer_value */).submit();
 
 	SECTION("when reducing on a single node") {
 		const auto tid_reducer = cctx.device_compute(range<1>(1)).read(buf, acc::all()).submit();
