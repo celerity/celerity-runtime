@@ -503,6 +503,12 @@ void command_graph_generator::generate_await_pushes(batch& current_batch, const 
 
 			// There is data we don't yet have locally. Generate an await push command for it.
 			if(!missing_parts_boxes.empty()) {
+				if(tsk.perf_assertions.assert_no_data_movement) {
+					CELERITY_ERROR("Performance assertion at {}:{} failed: Chunk {} of task {} requires region {} of buffer {} from remote nodes",
+					    tsk.perf_assertions.assert_no_data_movement_source_loc.file_name(), tsk.perf_assertions.assert_no_data_movement_source_loc.line(),
+					    a_chunk.chnk, tsk.get_id(), region<3>(box_vector<3>{missing_parts_boxes}), bid);
+				}
+
 				assert(m_num_nodes > 1);
 				auto& required_boxes = per_buffer_required_boxes[bid]; // allow default-insert
 				required_boxes.add(missing_parts_boxes);

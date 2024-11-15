@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <source_location>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -433,6 +434,16 @@ class handler {
 	template <typename Functor>
 	void host_task(const detail::once_tag once, Functor&& task) {
 		host_task(range<0>{}, std::forward<Functor>(task));
+	}
+
+	void assert_no_data_movement(std::source_location loc = std::source_location::current()) {
+		m_cg.perf_assertions.assert_no_data_movement = true;
+		m_cg.perf_assertions.assert_no_data_movement_source_loc = loc;
+	}
+
+	void assert_no_allocations(std::source_location loc = std::source_location::current()) {
+		m_cg.perf_assertions.assert_no_allocations = true;
+		m_cg.perf_assertions.assert_no_allocations_source_loc = loc;
 	}
 
   private:

@@ -13,6 +13,7 @@
 #include <cassert>
 #include <cstddef>
 #include <memory>
+#include <source_location>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -158,6 +159,9 @@ namespace detail {
 		}
 
 		void add_hint(std::unique_ptr<hint_base>&& h) { m_hints.emplace_back(std::move(h)); }
+
+		// NOCOMMIT Hack
+		performance_assertions perf_assertions;
 
 		template <typename Hint>
 		const Hint* get_hint() const {

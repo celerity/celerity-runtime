@@ -123,6 +123,10 @@ void step(celerity::queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T,
 		const auto a2 = Config::a * 2;
 #endif
 
+		// TODO API: Should be behind unified perf assertions namespace or something. Also optionally scope to node/device.
+		// => Maybe also have the reverse, assert that a data movement is required?
+		if(cfg.outset > 0 && current_outset != cfg.outset) { cgh.assert_no_data_movement(); }
+
 		const auto kernel = [=](celerity::item<2> item) {
 			const size_t py = item[0] < size[0] - 1 ? item[0] + 1 : item[0];
 			const size_t my = item[0] > 0 ? item[0] - 1 : item[0];

@@ -184,6 +184,9 @@ std::unique_ptr<detail::task> make_command_group_task(const detail::task_id tid,
 		task->add_hint(std::move(h));
 	}
 	if(cg.task_name.has_value()) { task->set_debug_name(*cg.task_name); }
+	task->perf_assertions = cg.perf_assertions;
+	task->perf_assertions.tid = tid;
+	task->perf_assertions.task_debug_name = task->get_debug_name();
 	return task;
 }
 

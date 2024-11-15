@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <source_location>
 #include <variant>
 #include <vector>
 
@@ -129,6 +130,18 @@ using device_kernel_launcher = std::function<void(sycl::handler& sycl_cgh, const
 using host_task_launcher = std::function<void(const range<3>& global_range, const box<3>& execution_range, const communicator* collective_comm)>;
 using command_group_launcher = std::variant<device_kernel_launcher, host_task_launcher>;
 
+// TODO: Move elsewhere
+struct performance_assertions {
+	task_id tid;                 // HACK
+	std::string task_debug_name; // HACK
+
+	bool assert_no_data_movement = false;
+	std::source_location assert_no_data_movement_source_loc;
+
+	bool assert_no_allocations = false;
+	std::source_location assert_no_allocations_source_loc;
+};
+
 /// Captures the raw contents of a command group function (CGF) invocation as recorded by `celerity::handler`.
 /// This is passed on to `task_manager`, which validates the structure and turns it into a TDAG node.
 struct raw_command_group {
@@ -141,6 +154,7 @@ struct raw_command_group {
 	std::optional<detail::command_group_launcher> launcher;
 	std::optional<std::string> task_name;
 	std::vector<std::unique_ptr<detail::hint_base>> hints;
+	performance_assertions perf_assertions;
 };
 
 class task_promise {

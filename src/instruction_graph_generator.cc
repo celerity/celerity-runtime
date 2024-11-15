@@ -677,7 +677,8 @@ class generator_impl {
 	void collapse_execution_front_to(instruction* const horizon_or_epoch);
 
 	/// Create a new host allocation for copy staging, or re-use a cached staging allocation whose last access is older than the current epoch.
-	staging_allocation& acquire_staging_allocation(batch& current_batch, memory_id mid, size_t size_bytes, size_t align_bytes);
+	staging_allocation& acquire_staging_allocation(
+	    batch& current_batch, memory_id mid, size_t size_bytes, size_t align_bytes, const performance_assertions* const perf_assertions);
 
 	/// Free all cached staging allocations allocated so far.
 	void free_all_staging_allocations(batch& current_batch);
@@ -685,7 +686,8 @@ class generator_impl {
 	/// Ensure that all boxes in `required_contiguous_boxes` have a contiguous allocation on `mid`.
 	/// Re-allocation of one buffer on one memory never interacts with other buffers or other memories backing the same buffer, this function can be called
 	/// in any order of allocation requirements without generating additional dependencies.
-	void allocate_contiguously(batch& batch, buffer_id bid, memory_id mid, box_vector<3>&& required_contiguous_boxes);
+	void allocate_contiguously(
+	    batch& batch, buffer_id bid, memory_id mid, box_vector<3>&& required_contiguous_boxes, const performance_assertions* const perf_assertions);
 
 	/// Insert one or more receive instructions in order to fulfil a pending receive, making the received data available in host_memory_id. This may entail
 	/// receiving a region that is larger than the union of all regions read.
@@ -695,8 +697,8 @@ class generator_impl {
 	/// Insert coherence copy instructions where necessary to make all specified regions coherent on their respective memories. Requires the necessary
 	/// allocations in `dest_mid` to already be present. We deliberately allow overlapping read-regions to avoid aggregated copies introducing synchronization
 	/// points between otherwise independent instructions.
-	void establish_coherence_between_buffer_memories(
-	    batch& current_batch, const buffer_id bid, dense_map<memory_id, std::vector<region<3>>>& concurrent_reads_from_memory);
+	void establish_coherence_between_buffer_memories(batch& current_batch, const buffer_id bid,
+	    dense_map<memory_id, std::vector<region<3>>>& concurrent_reads_from_memory, const performance_assertions* perf_assertions);
 
 	/// Issue instructions to create any collective group required by a task.
 	void create_task_collective_groups(batch& command_batch, const task& tsk);
@@ -709,11 +711,11 @@ class generator_impl {
 
 	/// Allocate memory, apply any pending receives, and issue resize- and coherence copies to prepare all buffer memories for a task's execution.
 	void satisfy_task_buffer_requirements(batch& batch, buffer_id bid, const task& tsk, const execution_spec& exec_spec, bool is_reduction_initializer,
-	    const std::vector<localized_chunk>& concurrent_chunks_after_split);
+	    const std::vector<localized_chunk>& concurrent_chunks_after_split, const performance_assertions* const perf_assertions);
 
 	/// Create a gather allocation and optionally save the current buffer value before creating partial reduction results in any kernel.
-	local_reduction prepare_task_local_reduction(
-	    batch& command_batch, const reduction_info& rinfo, const execution_command& ecmd, const task& tsk, const size_t num_concurrent_chunks);
+	local_reduction prepare_task_local_reduction(batch& command_batch, const reduction_info& rinfo, const execution_command& ecmd, const task& tsk,
+	    const size_t num_concurrent_chunks, const performance_assertions* const perf_assertions);
 
 	/// Combine any partial reduction results computed by local chunks and write it to buffer host memory.
 	void finish_task_local_reduction(batch& command_batch, const local_reduction& red, const reduction_info& rinfo, const execution_command& ecmd,
@@ -961,7 +963,8 @@ void generator_impl::collapse_execution_front_to(instruction* const horizon_or_e
 	m_execution_front.insert(horizon_or_epoch->get_id());
 }
 
-staging_allocation& generator_impl::acquire_staging_allocation(batch& current_batch, const memory_id mid, const size_t size_bytes, const size_t align_bytes) {
+staging_allocation& generator_impl::acquire_staging_allocation(
+    batch& current_batch, const memory_id mid, const size_t size_bytes, const size_t align_bytes, const performance_assertions* const perf_assertions) {
 	assert(size_bytes % align_bytes == 0);
 	auto& memory = m_memories[mid];
 
@@ -977,6 +980,11 @@ staging_allocation& generator_impl::acquire_staging_allocation(batch& current_ba
 	const auto aid = new_allocation_id(mid);
 	const auto alloc_instr = create<alloc_instruction>(current_batch, aid, size_bytes, align_bytes, //
 	    [&](const auto& record_debug_info) { record_debug_info(alloc_instruction_record::alloc_origin::staging, std::nullopt, std::nullopt); });
+	if(perf_assertions != nullptr && perf_assertions->assert_no_allocations) {
+		CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' requires staging allocation of size {} in memory {}",
+		    perf_assertions->assert_no_allocations_source_loc.file_name(), perf_assertions->assert_no_allocations_source_loc.line(), perf_assertions->tid,
+		    perf_assertions->task_debug_name, size_bytes, mid);
+	}
 	add_dependency(alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 	memory.staging_allocation_pool.emplace_back(aid, size_bytes, align_bytes, alloc_instr);
 	return memory.staging_allocation_pool.back();
@@ -993,7 +1001,8 @@ void generator_impl::free_all_staging_allocations(batch& current_batch) {
 	}
 }
 
-void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id bid, const memory_id mid, box_vector<3>&& required_contiguous_boxes) {
+void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id bid, const memory_id mid, box_vector<3>&& required_contiguous_boxes,
+    const performance_assertions* const perf_assertions) {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::allocate", iggen_allocate);
 
 	if(required_contiguous_boxes.empty()) return;
@@ -1051,6 +1060,12 @@ void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id
 		    create<alloc_instruction>(current_batch, aid, new_box.get_area() * buffer.elem_size, buffer.elem_align, [&](const auto& record_debug_info) {
 			    record_debug_info(alloc_instruction_record::alloc_origin::buffer, buffer_allocation_record{bid, buffer.debug_name, new_box}, std::nullopt);
 		    });
+
+		if(perf_assertions != nullptr && perf_assertions->assert_no_allocations) {
+			CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' requires allocation of box {} for buffer {}",
+			    perf_assertions->assert_no_allocations_source_loc.file_name(), perf_assertions->assert_no_allocations_source_loc.line(), perf_assertions->tid,
+			    perf_assertions->task_debug_name, new_box, print_buffer_debug_label(bid));
+		}
 		add_dependency(alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 
 		auto& new_alloc = new_allocations.emplace_back(aid, alloc_instr, new_box, buffer.range);
@@ -1207,8 +1222,8 @@ bool should_linearize_copy_region(const memory_id alloc_mid, const box<3>& alloc
 	return min_discontinuous_chunk_size_bytes < max_chunk_size_to_linearize;
 }
 
-void generator_impl::establish_coherence_between_buffer_memories(
-    batch& current_batch, const buffer_id bid, dense_map<memory_id, std::vector<region<3>>>& concurrent_reads_from_memory) //
+void generator_impl::establish_coherence_between_buffer_memories(batch& current_batch, const buffer_id bid,
+    dense_map<memory_id, std::vector<region<3>>>& concurrent_reads_from_memory, const performance_assertions* const perf_assertions) //
 {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::coherence", iggen_coherence);
 
@@ -1396,7 +1411,7 @@ void generator_impl::establish_coherence_between_buffer_memories(
 		staging_allocs.resize(m_memories.size());
 		for(memory_id mid = 0; mid < m_memories.size(); ++mid) {
 			if(staging_allocation_sizes_bytes[mid] == 0) continue;
-			staging_allocs[mid] = &acquire_staging_allocation(current_batch, mid, staging_allocation_sizes_bytes[mid], stage_alignment_bytes);
+			staging_allocs[mid] = &acquire_staging_allocation(current_batch, mid, staging_allocation_sizes_bytes[mid], stage_alignment_bytes, perf_assertions);
 		}
 	}
 
@@ -1458,6 +1473,12 @@ void generator_impl::establish_coherence_between_buffer_memories(
 			execute_copy_plan_recursive(region, dest_hop, next_dest_hop, copy_instr, execute_copy_plan_recursive);
 		}
 	};
+
+	if(perf_assertions != nullptr && perf_assertions->assert_no_data_movement && !planned_copies.empty()) {
+		CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' has {} planned copies for buffer {} in IDAG",
+		    perf_assertions->assert_no_data_movement_source_loc.file_name(), perf_assertions->assert_no_data_movement_source_loc.line(), perf_assertions->tid,
+		    perf_assertions->task_debug_name, planned_copies.size(), print_buffer_debug_label(bid));
+	}
 
 	// Create instructions for all planned copies
 	for(const auto& plan : planned_copies) {
@@ -1584,7 +1605,8 @@ void generator_impl::report_task_overlapping_writes(const task& tsk, const std::
 }
 
 void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, const buffer_id bid, const task& tsk, const execution_spec& exec_spec,
-    const bool local_node_is_reduction_initializer, const std::vector<localized_chunk>& concurrent_chunks_after_split) //
+    const bool local_node_is_reduction_initializer, const std::vector<localized_chunk>& concurrent_chunks_after_split,
+    const performance_assertions* perf_assertions) //
 {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::satisfy_buffer_requirements", iggen_satisfy_buffer_requirements);
 
@@ -1711,7 +1733,7 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 
 	// Now that we know all required contiguous allocations, issue any required alloc- and resize-copy instructions
 	for(memory_id mid = 0; mid < required_contiguous_allocations.size(); ++mid) {
-		allocate_contiguously(current_batch, bid, mid, std::move(required_contiguous_allocations[mid]));
+		allocate_contiguously(current_batch, bid, mid, std::move(required_contiguous_allocations[mid]), perf_assertions);
 	}
 
 	// Receive all remote data (which overlaps with the accessed region) into host memory
@@ -1724,11 +1746,11 @@ void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, cons
 	}
 
 	// Create the necessary coherence copy instructions to satisfy all remaining requirements locally.
-	establish_coherence_between_buffer_memories(current_batch, bid, concurrent_reads_from_memory);
+	establish_coherence_between_buffer_memories(current_batch, bid, concurrent_reads_from_memory, &tsk.perf_assertions);
 }
 
-local_reduction generator_impl::prepare_task_local_reduction(
-    batch& command_batch, const reduction_info& rinfo, const execution_command& ecmd, const task& tsk, const size_t num_concurrent_chunks) //
+local_reduction generator_impl::prepare_task_local_reduction(batch& command_batch, const reduction_info& rinfo, const execution_command& ecmd, const task& tsk,
+    const size_t num_concurrent_chunks, const performance_assertions* const perf_assertions) //
 {
 	const auto [rid_, bid_, reduction_task_includes_buffer_value] = rinfo;
 	const auto bid = bid_; // allow capturing in lambda
@@ -1754,6 +1776,11 @@ local_reduction generator_impl::prepare_task_local_reduction(
 		    record_debug_info(
 		        alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, scalar_reduction_box}, red.num_input_chunks);
 	    });
+	if(perf_assertions != nullptr && perf_assertions->assert_no_allocations) {
+		CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' requires gather allocation for local reduction",
+		    perf_assertions->assert_no_allocations_source_loc.file_name(), perf_assertions->assert_no_allocations_source_loc.line(), perf_assertions->tid,
+		    perf_assertions->task_debug_name);
+	}
 	add_dependency(red.gather_alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 
 	/// Normally, there is one _reduction chunk_ per _kernel chunk_, unless the local node is the designated reduction initializer and the reduction is not
@@ -2170,14 +2197,15 @@ void generator_impl::compile_execution_command(batch& command_batch, const execu
 		accessed_bids.insert(rinfo.bid);
 	}
 	for(const auto bid : accessed_bids) {
-		satisfy_task_buffer_requirements(command_batch, bid, tsk, ecmd.get_execution_spec(), ecmd.is_reduction_initializer(), concurrent_chunks);
+		satisfy_task_buffer_requirements(
+		    command_batch, bid, tsk, ecmd.get_execution_spec(), ecmd.is_reduction_initializer(), concurrent_chunks, &tsk.perf_assertions);
 	}
 
 	// 5. If the task contains reductions with more than one local input, create the appropriate gather allocations and (if the local node is the designated
 	// reduction initializer) copies the current buffer value into the new gather space.
 	std::vector<local_reduction> local_reductions(tsk.get_reductions().size());
 	for(size_t i = 0; i < local_reductions.size(); ++i) {
-		local_reductions[i] = prepare_task_local_reduction(command_batch, tsk.get_reductions()[i], ecmd, tsk, concurrent_chunks.size());
+		local_reductions[i] = prepare_task_local_reduction(command_batch, tsk.get_reductions()[i], ecmd, tsk, concurrent_chunks.size(), &tsk.perf_assertions);
 	}
 
 	// 6. Issue instructions to launch all concurrent kernels / host tasks.
@@ -2242,8 +2270,8 @@ void generator_impl::compile_push_command(batch& command_batch, const push_comma
 			}
 		}
 
-		allocate_contiguously(command_batch, trid.bid, host_memory_id, std::move(required_host_allocation));
-		establish_coherence_between_buffer_memories(command_batch, trid.bid, concurrent_send_source_regions);
+		allocate_contiguously(command_batch, trid.bid, host_memory_id, std::move(required_host_allocation), nullptr /* NOCOMMIT perf assertions? */);
+		establish_coherence_between_buffer_memories(command_batch, trid.bid, concurrent_send_source_regions, nullptr);
 
 		for(const auto& send_region : concurrent_send_regions) {
 			for(const auto& full_send_box : send_region.get_boxes()) {
@@ -2324,6 +2352,7 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 		    record_debug_info(
 		        alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, gather->gather_box}, m_num_nodes);
 	    });
+	// NOCOMMIT TODO: Allocation performance assertion?
 	add_dependency(gather_alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 
 	// 2. Fill the gather space with the reduction identity, so that the gather_receive_command can simply ignore empty boxes sent by peers that do not
@@ -2361,7 +2390,7 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 	// 5. Perform the global reduction on the host by reading the array of inputs from the gather space and writing to the buffer's host allocation that covers
 	// `scalar_reduction_box`.
 
-	allocate_contiguously(command_batch, bid, host_memory_id, {scalar_reduction_box});
+	allocate_contiguously(command_batch, bid, host_memory_id, {scalar_reduction_box}, nullptr /* NOCOMMIT perf assertions? */);
 
 	auto& host_memory = buffer.memories[host_memory_id];
 	auto& dest_allocation = host_memory.get_contiguous_allocation(scalar_reduction_box);
@@ -2412,7 +2441,7 @@ void generator_impl::compile_fence_command(batch& command_batch, const fence_com
 			// We make the host buffer coherent first in order to apply pending await-pushes.
 			// TODO this enforces a contiguous host-buffer allocation which may cause unnecessary resizes.
 			satisfy_task_buffer_requirements(command_batch, bid, tsk, subrange<3>{}, false /* is_reduction_initializer: irrelevant */,
-			    std::vector{localized_chunk{host_memory_id, std::nullopt, box<3>()}} /* local_chunks: irrelevant */);
+			    std::vector{localized_chunk{host_memory_id, std::nullopt, box<3>()}} /* local_chunks: irrelevant */, &tsk.perf_assertions);
 
 			auto& host_buffer_allocation = buffer.memories[host_memory_id].get_contiguous_allocation(fence_box);
 			copy_instr = create<copy_instruction>(command_batch, host_buffer_allocation.aid, user_allocation_id, strided_layout(host_buffer_allocation.box),
