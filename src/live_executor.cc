@@ -696,8 +696,12 @@ void executor_impl::issue(const epoch_instruction& einstr) {
 		expecting_more_submissions = false;
 		break;
 	}
-	if(einstr.get_promise() != nullptr) { einstr.get_promise()->fulfill(); }
+
+	// Update the runtime last-epoch *before* fulfilling the promise to ensure that the new state can be observed as soon as runtime::sync returns.
+	// This in turn allows the TDAG to be pruned before any new work is submitted after the epoch.
 	if(delegate != nullptr) { delegate->epoch_reached(einstr.get_epoch_task_id()); }
+
+	if(einstr.get_promise() != nullptr) { einstr.get_promise()->fulfill(); }
 	collect(einstr.get_garbage());
 
 	CELERITY_DETAIL_IF_TRACY_ENABLED(FrameMarkNamed("Horizon"));
