@@ -206,14 +206,50 @@ set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS ON)
 set(CELERITY_FEATURE_LOCAL_ACCESSOR ON)
 set(CELERITY_FEATURE_UNNAMED_KERNELS ON)
 
-# Add includes to library so they show up in IDEs
-file(GLOB_RECURSE INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
+# Add header files to library so they show up in IDEs
+file(GLOB_RECURSE ALL_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
 
 if(CMAKE_GENERATOR STREQUAL "Ninja")
   # Force colored warnings in Ninja's output, if the compiler has -fdiagnostics-color support.
   # Rationale in https://github.com/ninja-build/ninja/issues/814
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
 endif()
+
+# TODO move all non-public headers from "include" to "src"
+set(PUBLIC_HEADERS
+  include/access_modes.h
+  include/accessor.h
+  include/buffer.h
+  include/celerity.h
+  include/cgf_diagnostics.h
+  include/cgf.h
+  include/closure_hydrator.h
+  include/config.h
+  include/debug.h
+  include/device_selector.h
+  include/distr_queue.h
+  include/fence.h
+  include/grid.h
+  include/handler.h
+  include/hint.h
+  include/host_object.h
+  include/host_utils.h
+  include/item.h
+  include/log.h
+  include/partition.h
+  include/print_utils.h
+  include/queue.h
+  include/range_mapper.h
+  include/ranges.h
+  include/reduction.h
+  include/runtime.h
+  include/side_effect.h
+  include/sycl_wrappers.h
+  include/tracy.h
+  include/types.h
+  include/utils.h
+  include/workaround.h
+)
 
 set(SOURCES
   src/affinity.cc
@@ -268,13 +304,14 @@ elseif(CELERITY_SYCL_IMPL STREQUAL "SimSYCL")
 endif()
 
 configure_file(include/version.h.in include/version.h @ONLY)
-list(APPEND INCLUDES "${CMAKE_CURRENT_BINARY_DIR}/include/version.h")
+list(APPEND ALL_HEADERS "${CMAKE_CURRENT_BINARY_DIR}/include/version.h")
+list(APPEND PUBLIC_HEADERS "${CMAKE_CURRENT_BINARY_DIR}/include/version.h")
 
 add_library(
   celerity_runtime
   STATIC
   ${SOURCES}
-  ${INCLUDES}
+  ${ALL_HEADERS}
 )
 
 set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD "${CELERITY_CXX_STANDARD}")
@@ -394,9 +431,8 @@ include(CMakePackageConfigHelpers)
 
 # Install celerity
 install(
-  DIRECTORY ${PROJECT_SOURCE_DIR}/include/
+  FILES ${PUBLIC_HEADERS}
   DESTINATION include/celerity
-  PATTERN *.in EXCLUDE
 )
 install(
   DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include/
