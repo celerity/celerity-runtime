@@ -45,8 +45,10 @@ void dry_run_executor::thread_main(executor::delegate* const dlg) {
 			    host_object_instances.erase(dhoinstr.get_host_object_id());
 		    },
 		    [&](const epoch_instruction& einstr) {
-			    if(einstr.get_promise() != nullptr) { einstr.get_promise()->fulfill(); }
+			    // Update the runtime last-epoch *before* fulfilling the promise to ensure that the new state can be observed as soon as runtime::sync returns.
+			    // This in turn allows the TDAG to be pruned before any new work is submitted after the epoch.
 			    if(dlg != nullptr) { dlg->epoch_reached(einstr.get_epoch_task_id()); }
+			    if(einstr.get_promise() != nullptr) { einstr.get_promise()->fulfill(); }
 			    shutdown |= einstr.get_epoch_action() == epoch_action::shutdown;
 		    },
 		    [&](const fence_instruction& finstr) {
