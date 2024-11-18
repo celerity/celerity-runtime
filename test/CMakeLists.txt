@@ -29,6 +29,7 @@ file(GLOB_RECURSE TEST_INCLUDES *.h)
 
 set(TEST_TARGETS
   accessor_tests
+  affinity_tests
   backend_tests
   command_graph_general_tests
   command_graph_granularity_tests

@@ -127,7 +127,7 @@ class test_log_capture {
 
 	std::string format_error_message_for_exceeding_max_level() const {
 		return fmt::format("Observed a log message exceeding the expected maximum of \"{}\". If this is correct, increase the expected log level through "
-		                   "test_utils::expect_max_log_level().",
+		                   "test_utils::allow_max_log_level().",
 		    spdlog::level::to_string_view(m_max_expected_level));
 	}
 
