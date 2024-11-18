@@ -5,6 +5,8 @@
 
 #include <celerity.h>
 
+#include <fmt/ranges.h>
+
 // TODO: Export from celerity.h
 #include "geometry_builder.h"
 
@@ -208,6 +210,156 @@ bool get_cli_arg(const arg_vector& args, const arg_vector::const_iterator& it, c
 }
 
 int main(int argc, char* argv[]) {
+#if 0
+
+	const int num_nodes = argc > 1 ? atoi(argv[1]) : 2;
+	const int num_elements = argc > 2 ? atoi(argv[2]) : 1000;
+	const int max_value = argc > 3 ? atoi(argv[3]) : 99;
+	int seed = argc > 4 ? atoi(argv[4]) : -1;
+
+	if(seed == -1) {
+		std::random_device rd;
+		seed = rd();
+		fmt::print("Using random seed {}\n", seed);
+	}
+	std::mt19937 gen(seed);
+	std::uniform_int_distribution<> jitter_dist(0, num_elements * 0.1);
+	std::uniform_int_distribution<> num_dist(0, max_value); // TODO: Also try normal distribution
+
+	struct node_state {
+		std::vector<int> all_my_numbers;
+		std::vector<int>::iterator begin;
+		std::vector<int>::iterator pivot;
+		std::vector<int>::iterator end;
+	};
+
+	std::vector<node_state> nodes(num_nodes);
+	std::vector<int> all_numbers_global;
+	for(int i = 0; i < num_nodes; ++i) {
+		int num_elements_local = num_elements / num_nodes + jitter_dist(gen);
+		auto& node = nodes[i];
+		for(int j = 0; j < num_elements_local; ++j) {
+			const int number = num_dist(gen);
+			node.all_my_numbers.push_back(number);
+			all_numbers_global.push_back(number);
+		}
+		node.begin = node.all_my_numbers.begin();
+		node.end = node.all_my_numbers.end();
+	}
+
+	fmt::print("All numbers: {}\n", fmt::join(all_numbers_global, ","));
+	std::ranges::sort(all_numbers_global);
+	fmt::print("Sorted: {}\n", fmt::join(all_numbers_global, ","));
+	const int true_median = all_numbers_global[all_numbers_global.size() / 2];
+	const int other_true_median = all_numbers_global.size() % 2 == 0 ? all_numbers_global[all_numbers_global.size() / 2 - 1] : true_median;
+	fmt::print("True median is {} (or {})\n", true_median, other_true_median);
+
+	bool use_median_of_medians = true;
+	int previous_pivot = -1;
+	const auto select_pivot = [&]() {
+		// NOTE: Using the median of means can lead to "livelock" situations, where the chosen pivot no longer guarantees progress.
+		// For example on 3 nodes, with elements 58,59 / 57 / 57, resulting in median of medians 57.
+		// This pivot causes all elements to be moved to the right, resulting in the same situation again.
+		// If e.g. k = 1, nothing changes and we're stuck in an endless loop.
+
+		if(use_median_of_medians) { // Use median of medians
+			std::vector<int> medians;
+			for(const auto& node : nodes) {
+				const auto num_elements = std::distance(node.begin, node.end);
+				if(num_elements == 0) continue;
+				auto median_it = node.begin + num_elements / 2;
+				std::nth_element(node.begin, median_it, node.end);
+				medians.push_back(*median_it);
+			}
+			fmt::print("Computing median of medians: {} => ", fmt::join(medians, ","));
+			std::nth_element(medians.begin(), medians.begin() + medians.size() / 2, medians.end());
+			const auto pivot = medians[medians.size() / 2];
+			fmt::print("{}\n", pivot);
+
+			if(pivot == previous_pivot) {
+				fmt::print("Pivot is the same as last time, switching to random\n");
+				use_median_of_medians = false;
+			}
+			previous_pivot = pivot;
+
+			return pivot;
+		} else { // Random
+			while(true) {
+				std::uniform_int_distribution<> node_dist(0, nodes.size() - 1);
+				const auto& node = nodes[node_dist(gen)];
+				const auto remaining = std::distance(node.begin, node.end);
+				if(remaining == 0) continue;
+				std::uniform_int_distribution<> element_dist(0, remaining - 1);
+				return *(node.begin + element_dist(gen));
+			}
+		}
+	};
+
+	// Search k-largest element (k=1 finds the maximum)
+	int k = std::round(all_numbers_global.size() / 2.f);
+	fmt::print("Total number of elements is {}. Looking for {}-th element from the right\n", all_numbers_global.size(), k);
+	int pivot = -1;
+	for(int s = 1; true; ++s) {
+		pivot = select_pivot();
+		fmt::print("\nPivot is {}, k={}\n", pivot, k);
+
+		uint64_t sum_right = 0;
+		uint64_t equal_to_pivot = 0;
+		for(int i = 0; i < num_nodes; ++i) {
+			auto& node = nodes[i];
+			// move all elements that are larger or equal to pivot to one side
+			node.pivot = std::partition(node.begin, node.end, [&](int x) {
+				return x < pivot;
+			});
+			const auto etp = std::count(node.pivot, node.end, pivot);
+			fmt::print(
+			    "Node {} left: {}, right: {}, equal to pivot: {}\n", i, fmt::join(node.begin, node.pivot, ","), fmt::join(node.pivot, node.end, ","), etp);
+			equal_to_pivot += etp;
+			sum_right += std::distance(node.pivot, node.end);
+		}
+
+		// if(sum_right == 0 && k == (sum_left / nodes_with_nonzero_left)) {
+		// 	fmt::print("SPECIAL SAUCE: All remaining nodes have the same value?!\n");
+		// 	fmt::print("Pivot should be {} => {}\n", pivot, (pivot == true_median || pivot == other_true_median) ? "YAY" : "NAY");
+		// 	break;
+		// }
+
+		if(sum_right - equal_to_pivot + 1 > k) {
+			fmt::print("Sum of larger elements w/o duplicates of pivot ({}) is {} > k={}. dropping left side.\n", equal_to_pivot - 1,
+			    sum_right - equal_to_pivot + 1, k);
+			for(int i = 0; i < num_nodes; ++i) {
+				auto& node = nodes[i];
+				node.begin = node.pivot;
+			}
+		} else if(sum_right < k) {
+			fmt::print("Sum of larger elements including duplicates of pivot ({}) is {} < k={}. dropping right side. New k={}\n", equal_to_pivot - 1, sum_right,
+			    k, k - sum_right);
+			k -= sum_right;
+			for(int i = 0; i < num_nodes; ++i) {
+				auto& node = nodes[i];
+				node.end = node.pivot;
+			}
+		} else /* sum_larger == k */ {
+			fmt::print("Found median after {} steps: {}\n", s, pivot);
+			if(pivot != true_median && pivot != other_true_median) {
+				fmt::print("ERROR: Found median is incorrect\n");
+			} else {
+				fmt::print("ITS A MATCH!\n");
+			}
+			break;
+		}
+
+		if(s > 30) {
+			fmt::print("Aborting after {} steps\n", s);
+			break;
+		}
+	}
+
+
+	return 0;
+#endif
+
+
 	// Parse command line arguments
 	const wave_sim_config cfg = ([&]() {
 		wave_sim_config result;

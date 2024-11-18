@@ -341,8 +341,8 @@ class idag_test_context final : private task_manager::delegate {
 		return detail::print_command_graph(m_local_nid, m_cmd_recorder, make_test_graph_title("Command Graph", m_num_nodes, m_local_nid));
 	}
 	[[nodiscard]] std::string print_instruction_graph() {
-		return detail::print_instruction_graph(
-		    m_instr_recorder, m_cmd_recorder, m_task_recorder, make_test_graph_title("Instruction Graph", m_num_nodes, m_local_nid, m_num_devices_per_node));
+		return detail::print_instruction_graph(m_instr_recorder, m_cmd_recorder, m_task_recorder, nullptr,
+		    make_test_graph_title("Instruction Graph", m_num_nodes, m_local_nid, m_num_devices_per_node));
 	}
 
   private:

@@ -180,9 +180,10 @@ namespace detail {
 		std::atomic<size_t> m_latest_epoch_reached;      // task_id, but cast to size_t to work with std::atomic
 		task_id m_last_epoch_pruned_before = 0;
 
-		std::unique_ptr<detail::task_recorder> m_task_recorder;               // accessed by task manager (application thread)
-		std::unique_ptr<detail::command_recorder> m_command_recorder;         // accessed only by scheduler thread (until shutdown)
-		std::unique_ptr<detail::instruction_recorder> m_instruction_recorder; // accessed only by scheduler thread (until shutdown)
+		std::unique_ptr<detail::task_recorder> m_task_recorder;                                       // accessed by task manager (application thread)
+		std::unique_ptr<detail::command_recorder> m_command_recorder;                                 // accessed only by scheduler thread (until shutdown)
+		std::unique_ptr<detail::instruction_recorder> m_instruction_recorder;                         // accessed only by scheduler thread (until shutdown)
+		std::unique_ptr<detail::instruction_performance_recorder> m_instruction_performance_recorder; // accessed only by executor thread (until shutdown)
 
 		std::unique_ptr<detail::thread_pinning::thread_pinner> m_thread_pinner; // thread safe, manages lifetime of thread pinning machinery
 
@@ -360,6 +361,15 @@ namespace detail {
 		CELERITY_WARN("Celerity was configured with CELERITY_ACCESSOR_BOUNDARY_CHECK=ON. Kernel performance will be negatively impacted.");
 #endif
 
+		if(m_cfg->should_record()) {
+			m_task_recorder = std::make_unique<task_recorder>();
+			m_command_recorder = std::make_unique<command_recorder>();
+			m_instruction_recorder = std::make_unique<instruction_recorder>();
+			if(m_cfg->should_report_instruction_performance()) {
+				m_instruction_performance_recorder = std::make_unique<instruction_performance_recorder>(m_num_nodes, m_local_nid);
+			}
+		}
+
 		cgf_diagnostics::make_available();
 
 		std::vector<sycl::device> devices;
@@ -398,13 +408,8 @@ namespace detail {
 #else
 			auto comm = std::make_unique<local_communicator>();
 #endif
-			m_exec = std::make_unique<live_executor>(std::move(backend), std::move(comm), static_cast<executor::delegate*>(this));
-		}
-
-		if(m_cfg->should_record()) {
-			m_task_recorder = std::make_unique<task_recorder>();
-			m_command_recorder = std::make_unique<command_recorder>();
-			m_instruction_recorder = std::make_unique<instruction_recorder>();
+			m_exec = std::make_unique<live_executor>(
+			    std::move(backend), std::move(comm), static_cast<executor::delegate*>(this), m_instruction_performance_recorder.get());
 		}
 
 		task_manager::policy_set task_mngr_policy;
@@ -482,6 +487,14 @@ namespace detail {
 		// sequenced-before the destructor return, and `runtime` can now stop functioning as an executor_delegate (which would require m_schdlr to be live).
 		m_schdlr.reset();
 
+		// TODO: Add env var to control whether this is happening
+		// TODO: Collect across all nodes?
+		// Do this before filtering the records!
+		if(m_cfg->should_report_instruction_performance()) {
+			assert(m_instruction_recorder != nullptr);
+			m_instruction_performance_recorder->print_summary(*m_instruction_recorder, *m_task_recorder);
+		}
+
 		// With scheduler and executor threads gone, all recorders can be safely accessed from the runtime / application thread
 		if(spdlog::should_log(log_level::info) && m_cfg->should_print_graphs()) {
 			const auto getoption = [](const std::string_view name) -> std::optional<size_t> {
@@ -517,7 +530,8 @@ namespace detail {
 			if(m_local_nid == 0) {
 				// we are allowed to deref m_instruction_recorder / m_command_recorder because the scheduler thread has exited at this point
 				if(filter_by_tid.has_value()) { m_instruction_recorder->filter_by_task_id(*filter_by_tid, before.value_or(0), after.value_or(0)); }
-				const auto idag_str = detail::print_instruction_graph(*m_instruction_recorder, *m_command_recorder, *m_task_recorder);
+				const auto idag_str =
+				    detail::print_instruction_graph(*m_instruction_recorder, *m_command_recorder, *m_task_recorder, m_instruction_performance_recorder.get());
 				CELERITY_INFO("Instruction graph on node 0:\n\n{}\n", idag_str);
 			}
 		}

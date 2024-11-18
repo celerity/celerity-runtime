@@ -73,14 +73,34 @@ inline const char* print_command_type(const command& cmd) {
 	    [](const fence_command&) { return "fence"; });
 }
 
+struct default_time_units {
+	static constexpr auto entries = std::array{"s", "ms", "µs", "ns"};
+};
+
+struct right_padded_time_units {
+	static constexpr auto entries = std::array{"s ", "ms", "µs", "ns"};
+};
+
 /// Wrap a `std::chrono::duration` in this to auto-format it as seconds, milliseconds, microseconds, or nanoseconds.
+/// `TimeUnitTable` can optionally be set to change how time units are displayed (e.g. for alignment).
+template <typename TimeUnitTable = default_time_units>
 struct as_sub_second {
 	template <typename Rep, typename Period>
 	as_sub_second(const std::chrono::duration<Rep, Period>& duration) : seconds(std::chrono::duration_cast<std::chrono::duration<double>>(duration)) {}
 	std::chrono::duration<double> seconds;
 };
 
+struct default_byte_size_units {
+	static constexpr auto entries = std::array{"bytes", "kB", "MB", "GB", "TB"};
+};
+
+struct single_digit_right_padded_byte_size_units {
+	static constexpr auto entries = std::array{"B ", "kB", "MB", "GB", "TB"};
+};
+
 /// Wrap a byte count in this to auto-format it as KB / MB / etc.
+/// `ByteSizeUnitTable` can optionally be set to change how byte units are displayed (e.g. for alignment).
+template <typename ByteSizeUnitTable = default_byte_size_units>
 struct as_decimal_size {
 	template <typename Number, std::enable_if_t<std::is_arithmetic_v<Number>, int> = 0>
 	as_decimal_size(const Number bytes) : bytes(static_cast<double>(bytes)) {}
@@ -97,39 +117,45 @@ struct as_decimal_throughput {
 
 } // namespace celerity::detail
 
-template <>
-struct fmt::formatter<celerity::detail::as_sub_second> : fmt::formatter<double> {
-	format_context::iterator format(const celerity::detail::as_sub_second ss, format_context& ctx) const {
-		std::string_view unit = " s";
+// Note that fmt::nested_formatter is undocumented as of fmt 11.0, because there are some issues left to iron out https://github.com/fmtlib/fmt/issues/3860
+template <typename TimeUnitTable>
+struct fmt::formatter<celerity::detail::as_sub_second<TimeUnitTable>> : fmt::nested_formatter<double> {
+	format_context::iterator format(const celerity::detail::as_sub_second<TimeUnitTable> ss, format_context& ctx) const {
+		std::string_view unit = TimeUnitTable::entries[0];
 		double unit_time = ss.seconds.count();
 		if(unit_time != 0.0) {
-			if(std::abs(unit_time) < 1.0) { unit_time *= 1000.0, unit = " ms"; }
-			if(std::abs(unit_time) < 1.0) { unit_time *= 1000.0, unit = " µs"; }
-			if(std::abs(unit_time) < 1.0) { unit_time *= 1000.0, unit = " ns"; }
+			for(size_t i = 1; i < TimeUnitTable::entries.size(); ++i) {
+				if(std::abs(unit_time) < 1.0) {
+					unit_time *= 1000.0;
+					unit = TimeUnitTable::entries[i];
+				} else {
+					break;
+				}
+			}
 		}
-		auto out = fmt::formatter<double>::format(unit_time, ctx);
-		return std::copy(unit.begin(), unit.end(), out);
+		return write_padded(ctx, [&](auto out) { return format_to(out, "{} {}", nested(unit_time), unit); });
 	}
 };
 
-template <>
-struct fmt::formatter<celerity::detail::as_decimal_size> : fmt::formatter<double> {
-	format_context::iterator format(const celerity::detail::as_decimal_size bs, format_context& ctx) const {
-		std::string_view unit = " bytes";
+template <typename ByteSizeUnitTable>
+struct fmt::formatter<celerity::detail::as_decimal_size<ByteSizeUnitTable>> : fmt::nested_formatter<double> {
+	format_context::iterator format(const celerity::detail::as_decimal_size<ByteSizeUnitTable> bs, format_context& ctx) const {
+		std::string_view unit = ByteSizeUnitTable::entries[0];
 		double unit_size = static_cast<double>(bs.bytes);
-		if(unit_size >= 1000) { unit_size /= 1000, unit = " kB"; }
-		if(unit_size >= 1000) { unit_size /= 1000, unit = " MB"; }
-		if(unit_size >= 1000) { unit_size /= 1000, unit = " GB"; }
-		if(unit_size >= 1000) { unit_size /= 1000, unit = " TB"; }
-		auto out = fmt::formatter<double>::format(unit_size, ctx);
-		return std::copy(unit.begin(), unit.end(), out);
+		for(size_t i = 1; i < ByteSizeUnitTable::entries.size(); ++i) {
+			if(std::abs(unit_size) < 1000.0) { break; }
+			unit_size /= 1000.0;
+			unit = ByteSizeUnitTable::entries[i];
+		}
+		return write_padded(ctx, [&](auto out) { return format_to(out, "{} {}", nested(unit_size), unit); });
 	}
 };
 
 template <>
-struct fmt::formatter<celerity::detail::as_decimal_throughput> : fmt::formatter<celerity::detail::as_decimal_size> {
+struct fmt::formatter<celerity::detail::as_decimal_throughput> : fmt::formatter<celerity::detail::as_decimal_size<celerity::detail::default_byte_size_units>> {
 	format_context::iterator format(const celerity::detail::as_decimal_throughput bt, format_context& ctx) const {
-		auto out = fmt::formatter<celerity::detail::as_decimal_size>::format(celerity::detail::as_decimal_size(bt.bytes_per_sec), ctx);
+		auto out = fmt::formatter<celerity::detail::as_decimal_size<celerity::detail::default_byte_size_units>>::format(
+		    celerity::detail::as_decimal_size(bt.bytes_per_sec), ctx);
 		const std::string_view unit = "/s";
 		return std::copy(unit.begin(), unit.end(), out);
 	}

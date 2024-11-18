@@ -43,6 +43,7 @@ namespace detail {
 		const auto env_thread_pinning = pref.register_variable<thread_pinning::environment_configuration>("THREAD_PINNING", thread_pinning::parse_validate_env);
 		const auto env_print_graphs = pref.register_variable<bool>("PRINT_GRAPHS");
 		const auto env_dry_run_num_nodes = pref.register_variable<size_t>("DRY_RUN_NODES", parse_validate_dry_run_nodes);
+		const auto env_report_instruction_perf = pref.register_variable<bool>("REPORT_INSTRUCTION_PERFORMANCE");
 		constexpr int horizon_max = 1024 * 64;
 		const auto env_horizon_step = pref.register_range<int>("HORIZON_STEP", 1, horizon_max);
 		const auto env_horizon_max_para = pref.register_range<int>("HORIZON_MAX_PARALLELISM", 1, horizon_max);
@@ -76,6 +77,7 @@ namespace detail {
 			if(dry_run_num_nodes) { m_dry_run_num_nodes = static_cast<int>(*dry_run_num_nodes); }
 
 			m_should_print_graphs = parsed_and_validated_envs.get_or(env_print_graphs, false);
+			m_should_report_instruction_performance = parsed_and_validated_envs.get_or(env_report_instruction_perf, false);
 
 			m_horizon_step = parsed_and_validated_envs.get(env_horizon_step);
 			m_horizon_max_parallelism = parsed_and_validated_envs.get(env_horizon_max_para);

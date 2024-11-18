@@ -326,7 +326,8 @@ std::string instruction_dependency_style(const instruction_dependency_origin ori
 	}
 }
 
-std::string print_instruction_graph(const instruction_recorder& irec, const command_recorder& crec, const task_recorder& trec, const std::string& title) {
+std::string print_instruction_graph(const instruction_recorder& irec, const command_recorder& crec, const task_recorder& trec,
+    const instruction_performance_recorder* const iprec, const std::string& title) {
 	std::string dot = make_graph_preamble(title);
 	const auto back = std::back_inserter(dot);
 
@@ -424,6 +425,10 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 				    fmt::format_to(back, "<br/>+ (R{}) reduce into {} {}", access.reduction_id, print_buffer_label(access.buffer_id, access.buffer_name),
 				        access.accessed_bounding_box_in_buffer);
 				    fmt::format_to(back, "<br/>via {} {}", access.allocation_id, accessed_box_in_allocation);
+			    }
+			    if(iprec != nullptr) {
+				    // TODO: Print this for all
+				    fmt::format_to(back, "<br/>{:.1f}", as_sub_second(iprec->get_execution_time(dkinstr.id)));
 			    }
 			    end_node();
 		    },

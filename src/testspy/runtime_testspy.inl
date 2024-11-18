@@ -45,7 +45,8 @@ std::string runtime_testspy::print_command_graph(const node_id local_nid, runtim
 std::string runtime_testspy::print_instruction_graph(runtime& rt) {
 	// instruction recorder is mutated by scheduler thread
 	return scheduler_testspy::inspect_thread(get_schdlr(rt), [&](const auto&) {
-		return detail::print_instruction_graph(*rt.m_impl->m_instruction_recorder, *rt.m_impl->m_command_recorder, *rt.m_impl->m_task_recorder);
+		return detail::print_instruction_graph(*rt.m_impl->m_instruction_recorder, *rt.m_impl->m_command_recorder, *rt.m_impl->m_task_recorder,
+		    rt.m_impl->m_instruction_performance_recorder.get());
 	});
 }
 

@@ -29,10 +29,8 @@ namespace detail {
 		bool should_use_backend_device_submission_threads() const { return m_enable_backend_device_submission_threads; }
 		const thread_pinning::environment_configuration& get_thread_pinning_config() const& { return m_thread_pinning_config; }
 		bool should_print_graphs() const { return m_should_print_graphs; }
-		bool should_record() const {
-			// Currently only graph printing requires recording, but this might change in the future.
-			return m_should_print_graphs;
-		}
+		bool should_record() const { return m_should_print_graphs || m_should_report_instruction_performance; }
+		bool should_report_instruction_performance() const { return m_should_report_instruction_performance; }
 		bool is_dry_run() const { return m_dry_run_num_nodes > 0; }
 		int get_dry_run_nodes() const { return m_dry_run_num_nodes; }
 		std::optional<int> get_horizon_step() const { return m_horizon_step; }
@@ -47,6 +45,7 @@ namespace detail {
 		thread_pinning::environment_configuration m_thread_pinning_config;
 		int m_dry_run_num_nodes = 0;
 		bool m_should_print_graphs = false;
+		bool m_should_report_instruction_performance = false;
 		std::optional<int> m_horizon_step;
 		std::optional<int> m_horizon_max_parallelism;
 		experimental::lookahead m_lookahead = experimental::lookahead::automatic;

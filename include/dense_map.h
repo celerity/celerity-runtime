@@ -35,6 +35,11 @@ class dense_map : private std::vector<Value> {
 		assert(key < size());
 		return vector::operator[](static_cast<size_t>(key));
 	}
+
+	void insert(const KeyId key, Value value) {
+		if(key >= size()) { vector::resize(key * 2 + 1); } // +1 for key == 0
+		vector::operator[](static_cast<size_t>(key)) = std::move(value);
+	}
 };
 
 } // namespace celerity::detail

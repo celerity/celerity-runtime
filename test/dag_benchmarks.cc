@@ -700,8 +700,8 @@ TEST_CASE("printing benchmark command graphs", "[.][debug-graphs][command-graph]
 
 TEST_CASE("printing benchmark instruction graphs", "[.][debug-graphs][instruction-graph]") {
 	REQUIRE(test_utils::g_print_graphs); // requires --print-graphs
-	debug_graphs<idag_benchmark_context<>>(
-	    [](auto&& ctx) { fmt::print("{}\n\n", detail::print_instruction_graph(ctx.irec, ctx.crec, ctx.trec)); }, 2 /* num_nodes */, 2 /* num_devices */);
+	debug_graphs<idag_benchmark_context<>>([](auto&& ctx) { fmt::print("{}\n\n", detail::print_instruction_graph(ctx.irec, ctx.crec, ctx.trec, nullptr)); },
+	    2 /* num_nodes */, 2 /* num_devices */);
 }
 
 // NOCOMMIT How can we avoid duplicating this for loop templates? (not all benchmarks support loops)

@@ -333,7 +333,8 @@ class executor_test_context final : private executor::delegate {
 			auto backend = std::make_unique<mock_backend>(system, &m_log);
 			auto root_comm = std::make_unique<mock_exec_communicator>(&m_log);
 			m_root_comm = root_comm.get();
-			m_executor = std::make_unique<live_executor>(std::move(backend), std::move(root_comm), static_cast<executor::delegate*>(this), live_policy);
+			m_executor =
+			    std::make_unique<live_executor>(std::move(backend), std::move(root_comm), static_cast<executor::delegate*>(this), nullptr, live_policy);
 		}
 	}
 

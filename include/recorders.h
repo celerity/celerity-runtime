@@ -1,6 +1,7 @@
 #pragma once
 
 #include "command_graph.h"
+#include "dense_map.h"
 #include "grid.h"
 #include "instruction_graph.h"
 #include "intrusive_graph.h"
@@ -12,8 +13,10 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -700,16 +703,25 @@ class instruction_recorder {
 		m_loop_template_active = false;
 	}
 
+	void record_task_boundary(const task_id tid) {
+		assert((tid <= 1 || m_task_boundaries[tid - 1] != 0) && "Missing previous task boundary");
+		m_task_boundaries.insert(tid, m_highest_recorded_instruction_id + 1);
+	}
+
 	void record_await_push_command_id(const transfer_id& trid, const command_id cid);
 
 	void record_instruction(std::unique_ptr<instruction_record> record) {
 		if(m_loop_template_active) { record->is_cloned = true; }
+		m_highest_recorded_instruction_id++;
+		assert(record->id == m_highest_recorded_instruction_id);
 		m_recorded_instructions.push_back(std::move(record));
 	}
 
 	void record_outbound_pilot(const outbound_pilot& pilot) { m_recorded_pilots.push_back(pilot); }
 
 	void record_dependency(const instruction_dependency_record& dependency) { m_recorded_dependencies.push_back(dependency); }
+
+	const dense_map<task_id, instruction_id>& get_task_boundaries() const { return m_task_boundaries; }
 
 	const std::vector<std::unique_ptr<instruction_record>>& get_graph_nodes() const { return m_recorded_instructions; }
 
@@ -802,9 +814,36 @@ class instruction_recorder {
   private:
 	bool m_loop_template_active = false;
 	std::vector<std::unique_ptr<instruction_record>> m_recorded_instructions;
+	instruction_id m_highest_recorded_instruction_id = std::numeric_limits<instruction_id::value_type>::max(); // overflows on first increment
 	std::vector<instruction_dependency_record> m_recorded_dependencies;
 	std::vector<outbound_pilot> m_recorded_pilots;
 	std::unordered_map<transfer_id, command_id> m_await_push_cids;
+	dense_map<task_id, instruction_id> m_task_boundaries; ///< The first instruction id of each task
+};
+
+class instruction_performance_recorder {
+  public:
+	using duration = std::chrono::steady_clock::duration;
+
+	instruction_performance_recorder(const size_t num_nodes, const node_id local_nid) : m_num_nodes(num_nodes), m_local_nid(local_nid) {
+		// Make some initial space
+		m_execution_times.resize(1000);
+	}
+
+	void record_execution_time(const instruction_id iid, const duration time) {
+		if(iid >= m_execution_times.size()) { m_execution_times.resize(m_execution_times.size() * 2); }
+		m_execution_times[iid] = time;
+	}
+
+	duration get_execution_time(const instruction_id iid) const { return m_execution_times[iid]; }
+
+	// TODO: Move out of recorder
+	void print_summary(const instruction_recorder& irec, const task_recorder& trec) const;
+
+  private:
+	size_t m_num_nodes;
+	node_id m_local_nid;
+	dense_map<instruction_id, duration> m_execution_times;
 };
 
 } // namespace celerity::detail

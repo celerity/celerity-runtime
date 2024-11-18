@@ -2,6 +2,7 @@
 
 #include "double_buffered_queue.h"
 #include "executor.h"
+#include "recorders.h"
 #include "types.h"
 
 #include <chrono>
@@ -52,8 +53,8 @@ class live_executor final : public executor {
 
 	/// Operations are dispatched to `backend` and `root_comm` or one of its clones.
 	/// `dlg` (optional) receives notifications about reached horizons and epochs from the executor thread.
-	explicit live_executor(
-	    std::unique_ptr<backend> backend, std::unique_ptr<communicator> root_comm, executor::delegate* dlg, const policy_set& policy = default_policy_set());
+	explicit live_executor(std::unique_ptr<backend> backend, std::unique_ptr<communicator> root_comm, executor::delegate* dlg,
+	    instruction_performance_recorder* const perf_recorder, const policy_set& policy = default_policy_set());
 
 	live_executor(const live_executor&) = delete;
 	live_executor(live_executor&&) = delete;

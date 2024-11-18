@@ -191,8 +191,8 @@ class scheduler_test_context final : private task_manager::delegate {
 	}
 	[[nodiscard]] std::string print_instruction_graph() const {
 		assert(m_scheduler == nullptr);
-		return detail::print_instruction_graph(
-		    m_instr_recorder, m_cmd_recorder, m_task_recorder, make_test_graph_title("Instruction Graph", m_num_nodes, m_local_nid, m_num_devices_per_node));
+		return detail::print_instruction_graph(m_instr_recorder, m_cmd_recorder, m_task_recorder, nullptr,
+		    make_test_graph_title("Instruction Graph", m_num_nodes, m_local_nid, m_num_devices_per_node));
 	}
 
 	void maybe_print_graphs() const {

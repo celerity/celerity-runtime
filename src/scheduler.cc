@@ -38,6 +38,9 @@ struct event_command_available {
 	const command* cmd;
 	std::optional<instruction_graph_generator::scheduling_hint> hint;
 	loop_template* templ;
+
+	// For instruction recording
+	task_id part_of_tid;
 };
 struct event_buffer_created {
 	buffer_id bid;
@@ -179,6 +182,8 @@ struct scheduler_impl {
 	std::optional<task_id> shutdown_epoch_created = std::nullopt;
 	bool shutdown_epoch_reached = false;
 
+	task_id highest_seen_tid = 0; ///< Used for recording task boundaries
+
 	std::thread thread;
 
 	scheduler_impl(bool start_thread, size_t num_nodes, node_id local_node_id, const system_info& system, scheduler::delegate* dlg, command_recorder* crec,
@@ -234,7 +239,7 @@ void scheduler_impl::process_task_queue_event(const task_event& evt) {
 			    std::optional<instruction_graph_generator::scheduling_hint> hint;
 			    // NOCOMMIT TODO: No need to anticipate when we're currently in an active loop template
 			    if(lookahead != experimental::lookahead::none) { hint = iggen.anticipate(*cmd); }
-			    command_queue.push(event_command_available{.cmd = cmd, .hint = hint, .templ = active_loop_template});
+			    command_queue.push(event_command_available{.cmd = cmd, .hint = hint, .templ = active_loop_template, .part_of_tid = tsk.get_id()});
 		    }
 	    },
 	    [&](const event_buffer_created& e) {
@@ -311,6 +316,10 @@ void scheduler_impl::process_command_queue_event(const command_event& evt) {
 	    [&](const event_command_available& e) {
 		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::compile_command", scheduler_compile_command, "C{} compile", e.cmd->get_id());
 		    CELERITY_DETAIL_TRACY_ZONE_TEXT("{}", print_command_type(*e.cmd));
+		    if(irec != nullptr && (e.part_of_tid == 0 || e.part_of_tid > highest_seen_tid)) {
+			    irec->record_task_boundary(e.part_of_tid);
+			    highest_seen_tid = e.part_of_tid;
+		    }
 		    iggen.compile(*e.cmd, e.templ);
 	    },
 	    [&](const event_buffer_debug_name_changed& e) {

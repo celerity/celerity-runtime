@@ -17,6 +17,7 @@
 #include "utils.h"
 #include "version.h"
 
+#include <chrono>
 #include <deque>
 #include <memory>
 #include <optional>
@@ -324,6 +325,7 @@ struct boundary_check_info {
 struct async_instruction_state {
 	allocation_id alloc_aid = null_allocation_id; ///< non-null iff instruction is an alloc_instruction
 	async_event event;
+	std::chrono::steady_clock::time_point issued_at;
 	CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(std::unique_ptr<boundary_check_info> oob_info;) // unique_ptr: oob_info is optional and rather large
 	CELERITY_DETAIL_IF_TRACY_SUPPORTED(std::optional<tracy_integration::async_lane_cursor> tracy_lane_cursor;)
 };
@@ -334,6 +336,7 @@ struct live_executor::impl {
 	element_wise_double_buffered_queue<submission>* const submission_queue;
 	executor::delegate* const delegate;
 	const live_executor::policy_set policy;
+	instruction_performance_recorder* const perf_recorder;
 
 	receive_arbiter recv_arbiter{*root_communicator};
 	out_of_order_engine engine{backend->get_system_info()};
@@ -356,7 +359,7 @@ struct live_executor::impl {
 	CELERITY_DETAIL_IF_TRACY_SUPPORTED(std::unique_ptr<tracy_integration> tracy;)
 
 	impl(std::unique_ptr<detail::backend> backend, communicator* root_comm, element_wise_double_buffered_queue<submission>& submission_queue,
-	    executor::delegate* dlg, const live_executor::policy_set& policy);
+	    executor::delegate* dlg, instruction_performance_recorder* perf_recorder, const live_executor::policy_set& policy);
 
 	void run();
 	void poll_in_flight_async_instructions();
@@ -407,8 +410,10 @@ struct live_executor::impl {
 };
 
 live_executor::impl::impl(std::unique_ptr<detail::backend> backend, communicator* const root_comm,
-    element_wise_double_buffered_queue<submission>& submission_queue, executor::delegate* const dlg, const live_executor::policy_set& policy)
-    : backend(std::move(backend)), root_communicator(root_comm), submission_queue(&submission_queue), delegate(dlg), policy(policy) //
+    element_wise_double_buffered_queue<submission>& submission_queue, executor::delegate* const dlg, instruction_performance_recorder* const perf_recorder,
+    const live_executor::policy_set& policy)
+    : backend(std::move(backend)), root_communicator(root_comm), submission_queue(&submission_queue), delegate(dlg), policy(policy),
+      perf_recorder(perf_recorder) //
 {
 	CELERITY_DETAIL_IF_TRACY_ENABLED(tracy = std::make_unique<tracy_integration>();)
 }
@@ -536,6 +541,17 @@ void live_executor::impl::retire_async_instruction(const instruction_id iid, asy
 	}
 #endif
 
+	if(perf_recorder != nullptr) {
+		// TODO: Also record native time
+		const auto now = std::chrono::steady_clock::now();
+		const auto native_time = async.event.get_native_execution_time();
+		if(native_time.has_value()) {
+			perf_recorder->record_execution_time(iid, *native_time);
+		} else {
+			perf_recorder->record_execution_time(iid, now - async.issued_at);
+		}
+	}
+
 	if(spdlog::should_log(spdlog::level::trace)) {
 		if(const auto native_time = async.event.get_native_execution_time(); native_time.has_value()) {
 			CELERITY_TRACE("[executor] retired I{} after {:.2f}", iid, as_sub_second(*native_time));
@@ -578,7 +594,10 @@ auto live_executor::impl::dispatch(const Instr& instr, const out_of_order_engine
 		tracy->assigned_instructions_plot.update(in_flight_async_instructions.size() + 1);
 	})
 
+	const auto before = std::chrono::steady_clock::now();
 	issue(instr); // completes immediately - instr may now dangle
+	const auto after = std::chrono::steady_clock::now();
+	if(perf_recorder != nullptr) { perf_recorder->record_execution_time(iid, after - before); }
 
 	CELERITY_DETAIL_IF_TRACY_ENABLED({
 		tracy->end_instruction_zone(ctx, info, tracy->last_instruction_trace);
@@ -602,6 +621,7 @@ auto live_executor::impl::dispatch(const Instr& instr, const out_of_order_engine
 	CELERITY_DETAIL_IF_TRACY_ENABLED(info = tracy_integration::make_instruction_info(instr));
 
 	auto& async = in_flight_async_instructions.emplace(assignment.instruction->get_id(), async_instruction_state{}).first->second;
+	async.issued_at = std::chrono::steady_clock::now();
 	issue_async(instr, assignment, async); // stores event in `async` and completes asynchronously
 	// instr may now dangle
 
@@ -949,8 +969,9 @@ std::unique_ptr<boundary_check_info> live_executor::impl::attach_boundary_check_
 }
 #endif // CELERITY_ACCESSOR_BOUNDARY_CHECK
 
-live_executor::live_executor(std::unique_ptr<backend> backend, std::unique_ptr<communicator> root_comm, executor::delegate* const dlg, const policy_set& policy)
-    : m_root_comm(std::move(root_comm)), m_impl(std::make_unique<impl>(std::move(backend), m_root_comm.get(), m_submission_queue, dlg, policy)),
+live_executor::live_executor(std::unique_ptr<backend> backend, std::unique_ptr<communicator> root_comm, executor::delegate* const dlg,
+    instruction_performance_recorder* const perf_recorder, const policy_set& policy)
+    : m_root_comm(std::move(root_comm)), m_impl(std::make_unique<impl>(std::move(backend), m_root_comm.get(), m_submission_queue, dlg, perf_recorder, policy)),
       m_thread(&live_executor::thread_main, this) {}
 
 live_executor::~live_executor() {
