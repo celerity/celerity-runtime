@@ -5,7 +5,8 @@
 # Celerity Runtime — [![CI Workflow](https://github.com/celerity/celerity-runtime/actions/workflows/celerity_ci.yml/badge.svg)](https://github.com/celerity/celerity-runtime/actions/workflows/celerity_ci.yml) [![Coverage Status](https://coveralls.io/repos/github/celerity/celerity-runtime/badge.svg?branch=master)](https://coveralls.io/github/celerity/celerity-runtime?branch=master) [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/celerity/celerity-runtime/blob/master/LICENSE) [![Semver 2.0](https://img.shields.io/badge/semver-2.0.0-blue)](https://semver.org/spec/v2.0.0.html) [![PRs # Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/celerity/celerity-runtime/blob/master/CONTRIBUTING.md)
 
 The Celerity distributed runtime and API aims to bring the power and ease of
-use of [SYCL](https://sycl.tech) to distributed memory clusters.
+use of [SYCL](https://sycl.tech) to multi-GPU systems and distributed memory 
+clusters, with transparent scaling.
 
 > If you want a step-by-step introduction on how to set up dependencies and
 > implement your first Celerity application, check out the
@@ -47,7 +48,7 @@ queue.submit([&](celerity::handler& cgh) {
 2. Submit a kernel to be executed by 1024 parallel _work items_. This kernel
    may be split across any number of nodes.
 
-3. Kernels can be expressed as C++11 lambda functions, just like in SYCL. In
+3. Kernels can be expressed as C++ lambda functions, just like in SYCL. In
    fact, no changes to your existing kernels are required.
 
 4. Access your buffers as if they reside on a single device -- even though
@@ -55,17 +56,20 @@ queue.submit([&](celerity::handler& cgh) {
 
 ### Run it like any other MPI application
 
-The kernel shown above can be run on a single GPU, just like in SYCL, or on a
-whole cluster -- without having to change anything about the program itself.
+The kernel shown above can be run on a single GPU, just like in SYCL, on 
+multiple GPUs attached to a single shared memory system, or on a whole cluster
+ -- without having to change anything about the program itself.
 
-For example, if we were to run it on two GPUs using `mpirun -n 2 ./my_example`,
-the first GPU might compute the range `0-512` of the kernel, while the second
-one computes `512-1024`. However, as the user, you don't have to care how
+On a cluster with 2 nodes and a single GPU each, `mpirun -n 2 ./my_example`
+might have the first GPU compute the range `0-512` of the kernel, while the 
+second one computes `512-1024`. However, as the user, you don't have to care how
 exactly your computation is being split up.
 
+By default, a Celerity application will use all the attached GPUs, i.e. running
+`./my_example` on a machine with 4 GPUs will automatically use all of them.
+
 To see how you can use the result of your computation, look at some of our
-fully-fledged [examples](examples), or follow the
-[tutorial](docs/tutorial.md)!
+fully-fledged [examples](examples), or follow the [tutorial](docs/tutorial.md)!
 
 ## Building Celerity
 
@@ -79,9 +83,9 @@ installed first.
     - [AdaptiveCpp](https://github.com/AdaptiveCpp/AdaptiveCpp),
     - [DPC++](https://github.com/intel/llvm), or
     - [SimSYCL](https://github.com/celerity/SimSYCL)
-- A MPI 2 implementation (tested with OpenMPI 4.0, MPICH 3.3 should work as well)
 - [CMake](https://www.cmake.org) (3.13 or newer)
 - A C++20 compiler
+- [*optional*] An MPI 2 implementation (tested with OpenMPI 4.0, MPICH 3.3 should work as well)
 
 See the [platform support guide](docs/platform-support.md) on which library and OS versions are supported and
 automatically tested.
@@ -107,25 +111,13 @@ function to set up the required dependencies for a target (no need to link manua
 
 ## Running a Celerity Application
 
-Celerity is built on top of MPI, which means a Celerity application can be
-executed like any other MPI application (i.e., using `mpirun` or equivalent).
-There are several environment variables that you can use to influence
-Celerity's runtime behavior:
+For the single-node case, you can simply run your application and it will
+automatically use all available GPUs -- a simple way to limit this e.g.
+for benchmarking is using the vendor-specific environment variables such
+as `CUDA_VISIBLE_DEVICES`, `HIP_VISIBLE_DEVICES` or `ONEAPI_DEVICE_SELECTOR`.
 
-### Environment Variables
+In the distributed memory cluster case, since celerity is built on top of MPI, a Celerity
+application can be executed like any other MPI application (i.e., using `mpirun` or equivalent).
 
-- `CELERITY_LOG_LEVEL` controls the logging output level. One of `trace`, `debug`,
-  `info`, `warn`, `err`, `critical`, or `off`.
-- `CELERITY_PROFILE_KERNEL` controls whether SYCL queue profiling information should be queried.
-- `CELERITY_PRINT_GRAPHS` controls whether task and command graphs are logged
-  at the end of execution (requires log level `info` or higher).
-- `CELERITY_DRY_RUN_NODES` takes a number and simulates a run with that many nodes
-  without actually executing the commands.
-- `CELERITY_HORIZON_STEP` and `CELERITY_HORIZON_MAX_PARALLELISM` determine the
-  maximum number of sequential and parallel tasks, respectively, before a new
-  [horizon task](https://doi.org/10.1007/s42979-024-02749-w) is introduced.
-- `CELERITY_TRACY` controls the Tracy profiler integration. Set to `off` to disable,
-  `fast` for light integration with little runtime overhead, and `full` for
-  integration with extensive performance debug information included in the trace.
-  Only available if integration was enabled enabled at build time through the
-  CMake option `-DCELERITY_TRACY_SUPPORT=ON`.
+There are also [several environment variables](docs/configuration.md) that you can use to influence
+Celerity's runtime behavior.

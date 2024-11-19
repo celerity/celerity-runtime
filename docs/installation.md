@@ -8,9 +8,9 @@ Celerity can be built and installed from
 [source](https://github.com/celerity/celerity-runtime) using
 [CMake](https://cmake.org). It requires the following dependencies:
 
-- A MPI 2 implementation (for example [OpenMPI 4](https://www.open-mpi.org))
 - A C++20 compiler
 - A supported SYCL implementation (see below)
+- [*optional*] An MPI 2 implementation (for example [OpenMPI 4](https://www.open-mpi.org))
 
 Note that while Celerity does support compilation and execution on Windows in
 principle, in this documentation we focus exclusively on Linux, as it
@@ -18,7 +18,7 @@ represents the de-facto standard in HPC nowadays.
 
 ## Picking a SYCL Implementation
 
-Celerity currently supports two different SYCL implementations. If you're
+Celerity currently supports three different SYCL implementations. If you're
 simply giving Celerity a try, the choice does not matter all that much. For
 more advanced use cases or specific hardware setups it might however make
 sense to prefer one over the other.
@@ -46,9 +46,16 @@ result in mysterious segfaults in the DPC++ SYCL library!)
 
 > Celerity works with DPC++ on Linux.
 
+### SimSYCL
+
+[SimSYCL](https://github.com/celerity/SimSYCL) is a SYCL implementation that
+is focused on development and verification of SYCL applications. Performance
+is not a goal, and only CPUs are supported. It is a great choice for developing,
+debugging, and testing your Celerity applications on small data sets.
+
 Until its discontinuation in July 2023, Celerity also supported ComputeCpp as a SYCL implementation.
 
-## Configuring CMake
+## Configuring Your Build
 
 After installing all of the aforementioned dependencies, clone (we recommend
 using `git clone --recurse-submodules`) or download
@@ -76,24 +83,24 @@ cmake -G "Unix Makefiles" .. -DCMAKE_CXX_COMPILER="/path/to/dpc++/bin/clang++" -
 <!--END_DOCUSAURUS_CODE_TABS-->
 
 In case multiple SYCL implementations are in CMake's search path, you can disambiguate them
-using `-DCELERITY_SYCL_IMPL=AdaptiveCpp|DPC++`.
+using `-DCELERITY_SYCL_IMPL=AdaptiveCpp|DPC++|SimSYCL`.
 
 Note that the `CMAKE_PREFIX_PATH` parameter should only be required if you
 installed SYCL in a non-standard location. See the [CMake
 documentation](https://cmake.org/documentation/) as well as the documentation
 for your SYCL implementation for more information on the other parameters.
 
-Celerity comes with several example applications that are built by default.
-If you don't want to build examples, provide `-DCELERITY_BUILD_EXAMPLES=0` as
-an additional parameter to your CMake configuration call.
+### Additional Configuration Options
 
-Celerity supports runtime and application profiling with [Tracy](https://github.com/wolfpld/tracy).
-The integration is disabled by default, to enable configure the build with `-DCELERITY_TRACY_SUPPORT=1`. At runtime,
-it must then be enabled with the `CELERITY_TRACY` environment variable (see [README](../README.md)).
-
-By default Celerity is built for distributed systems with MPI pre-installed.
-If you intend to run on a single-node system without MPI support, specify
-`-DCELERITY_ENABLE_MPI=0` at configuration time.
+The following additional CMake options are available:
+| Option | Values | Description |
+| --- | --- | --- |
+| CELERITY_ACCESS_PATTERN_DIAGNOSTICS | 0, 1 | Diagnose uninitialized reads and overlapping writes (default: 1 for debug builds, 0 for release builds) |
+| CELERITY_ACCESSOR_BOUNDARY_CHECK | 0, 1 | Enable boundary checks for accessors (default: 1 for debug builds, 0 for release builds) |
+| CELERITY_BUILD_EXAMPLES | 0, 1 | Build the example applications (default: 1) |
+| CELERITY_ENABLE_MPI | 0, 1 | Enable MPI support (default: 1) |
+| CELERITY_TRACY_SUPPORT | 0, 1 | Enable [Tracy](https://github.com/wolfpld/tracy) support. See [Configuration](configuration.md) for runtime options. (default: 0) |
+| CELERITY_USE_MIMALLOC | 0, 1 | Use the [mimalloc](https://github.com/microsoft/mimalloc) memory allocator (default: 1) |
 
 ## Building and Installing
 
@@ -109,11 +116,16 @@ If you have configured CMake to build the Celerity example applications, you
 can now run them from within the build directory. For example, try running:
 
 ```
-mpirun -n 2 ./examples/matmul/matmul
+./examples/matmul/matmul
 ```
 
 > **Tip:** You might also want to try and run the unit tests that come with Celerity.
 > To do so, simply run `ninja test` or `make test`.
+
+## Runtime Configuration
+
+Celerity comes with a number of runtime configuration options that can be
+set via environment variables. Learn more about them [here](configuration.md).
 
 ## Bootstrap your own Application
 
@@ -121,3 +133,4 @@ All projects in the `examples/` directory are stand-alone Celerity programs
 – if you like a template for getting started, just copy one of them to
 bootstrap on your own Celerity application. You can find out more about that
 [here](https://github.com/celerity/celerity-runtime/blob/master/examples).
+
