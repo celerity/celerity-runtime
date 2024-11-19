@@ -3,6 +3,7 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 #include <pthread.h>
 #include <sched.h>

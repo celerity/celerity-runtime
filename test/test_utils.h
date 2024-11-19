@@ -156,6 +156,20 @@ namespace detail {
 
 namespace test_utils {
 
+	// Pin the benchmark threads (even in absence of a runtime) for more consistent results
+	struct benchmark_thread_pinner {
+		benchmark_thread_pinner() {
+			const detail::thread_pinning::runtime_configuration cfg{
+			    .enabled = true,
+			    .use_backend_device_submission_threads = false,
+			};
+			m_thread_pinner.emplace(cfg);
+			detail::thread_pinning::pin_this_thread(detail::thread_pinning::thread_type::application);
+		}
+
+		std::optional<detail::thread_pinning::thread_pinner> m_thread_pinner;
+	};
+
 	inline const detail::task* find_task(const detail::task_graph& tdag, const detail::task_id tid) {
 		return detail::graph_testspy::find_node_if(tdag, [tid](const detail::task& tsk) { return tsk.get_id() == tid; });
 	}

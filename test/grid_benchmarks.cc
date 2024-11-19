@@ -12,6 +12,7 @@ using namespace celerity;
 using namespace celerity::detail;
 
 TEST_CASE("normalizing randomized box sets - 2d", "[benchmark][group:grid]") {
+	test_utils::benchmark_thread_pinner pinner;
 	const auto [label, grid_size, max_box_size, num_boxes] = GENERATE(values<std::tuple<const char*, size_t, size_t, size_t>>({
 	    {"small", 10, 5, 4},
 	    {"medium", 50, 1, 50},
@@ -33,6 +34,7 @@ TEST_CASE("normalizing randomized box sets - 2d", "[benchmark][group:grid]") {
 }
 
 TEST_CASE("normalizing randomized box sets - 3d", "[benchmark][group:grid]") {
+	test_utils::benchmark_thread_pinner pinner;
 	const auto [label, grid_size, max_box_size, num_boxes] = GENERATE(values<std::tuple<const char*, size_t, size_t, size_t>>({
 	    {"small", 10, 5, 4},
 	    {"medium", 50, 1, 50},
@@ -66,6 +68,7 @@ box_vector<Dims> create_box_tiling(const size_t n_per_side) {
 }
 
 TEMPLATE_TEST_CASE_SIG("normalizing a fully mergeable tiling of boxes", "[benchmark][group:grid]", ((int Dims), Dims), 1, 2, 3) {
+	test_utils::benchmark_thread_pinner pinner;
 	const auto [label, n] = GENERATE(values<std::tuple<const char*, size_t>>({
 	    {"small", 4},
 	    {"medium", 50},
@@ -92,6 +95,7 @@ TEMPLATE_TEST_CASE_SIG("normalizing a fully mergeable tiling of boxes", "[benchm
 }
 
 TEST_CASE("performing set operations between randomized regions - 2d", "[benchmark][group:grid]") {
+	test_utils::benchmark_thread_pinner pinner;
 	const auto [label, grid_size, max_box_size, num_boxes] = GENERATE(values<std::tuple<const char*, size_t, size_t, size_t>>({
 	    {"small", 10, 5, 4},
 	    {"medium", 50, 1, 50},
@@ -129,6 +133,7 @@ TEST_CASE("performing set operations between randomized regions - 2d", "[benchma
 }
 
 TEST_CASE("performing set operations between randomized regions - 3d", "[benchmark][group:grid]") {
+	test_utils::benchmark_thread_pinner pinner;
 	const auto [label, grid_size, max_box_size, num_boxes] = GENERATE(values<std::tuple<const char*, size_t, size_t, size_t>>({
 	    {"small", 10, 5, 4},
 	    {"medium", 50, 1, 50},
@@ -158,6 +163,7 @@ box_vector<2> create_interlocking_boxes(const size_t num_boxes_per_side) {
 }
 
 TEST_CASE("normalizing a fully mergeable, complex tiling of boxes - 2d", "[benchmark][group:grid]") {
+	test_utils::benchmark_thread_pinner pinner;
 	const auto [label, n] = GENERATE(values<std::tuple<const char*, size_t>>({
 	    {"small", 10},
 	    {"large", 200},

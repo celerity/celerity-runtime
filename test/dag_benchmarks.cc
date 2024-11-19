@@ -18,6 +18,7 @@ struct bench_graph_node : intrusive_graph_node<bench_graph_node> {};
 
 // try to cover the dependency counts we'll see in practice
 TEMPLATE_TEST_CASE_SIG("benchmark intrusive graph dependency handling with N nodes", "[benchmark][group:graph-nodes]", ((int N), N), 1, 10, 100) {
+	test_utils::benchmark_thread_pinner pinner;
 	// note that bench_graph_nodes are created/destroyed *within* the BENCHMARK
 	// in the first two cases while the latter 2 cases only operate on already
 	// existing nodes -- this is intentional; both cases are relevant in practise
@@ -61,6 +62,7 @@ TEMPLATE_TEST_CASE_SIG("benchmark intrusive graph dependency handling with N nod
 }
 
 TEST_CASE("benchmark task handling", "[benchmark][group:task-graph]") {
+	test_utils::benchmark_thread_pinner pinner;
 	constexpr int N = 10000;
 	constexpr int report_interval = 10;
 
@@ -96,7 +98,6 @@ static constexpr instruction_graph_generator::policy_set benchmark_instruction_g
     /* uninitialized_read_error */ error_policy::ignore, // uninitialized reads already detected by task manager
     /* overlapping_write_error */ CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::panic : error_policy::ignore,
 };
-
 
 struct task_manager_benchmark_context {
 	const size_t num_nodes = 1;
@@ -242,6 +243,8 @@ class restartable_thread {
 	std::thread m_thread{&restartable_thread::main, this};
 
 	void main() {
+		// This thread is used for scheduling, so pin it to the scheduler core
+		detail::thread_pinning::pin_this_thread(detail::thread_pinning::thread_type::scheduler);
 		std::unique_lock lk{m_mutex};
 		for(;;) {
 			m_update.wait(lk, [this] { return !std::holds_alternative<empty>(m_next); });
@@ -470,21 +473,25 @@ void run_benchmarks(BenchmarkContextFactory&& make_ctx) {
 }
 
 TEST_CASE("generating large task graphs", "[benchmark][group:task-graph]") {
+	test_utils::benchmark_thread_pinner pinner;
 	run_benchmarks([] { return task_manager_benchmark_context{}; });
 }
 
 TEMPLATE_TEST_CASE_SIG("generating large command graphs for N nodes", "[benchmark][group:command-graph]", ((size_t NumNodes), NumNodes), 1, 4, 16) {
+	test_utils::benchmark_thread_pinner pinner;
 	run_benchmarks([] { return command_graph_generator_benchmark_context{NumNodes}; });
 }
 
 TEMPLATE_TEST_CASE_SIG(
     "generating large instruction graphs for N devices", "[benchmark][group:instruction-graph]", ((size_t NumDevices), NumDevices), 1, 4, 16) {
+	test_utils::benchmark_thread_pinner pinner;
 	constexpr static size_t num_nodes = 2;
 	run_benchmarks([] { return instruction_graph_generator_benchmark_context(num_nodes, NumDevices); });
 }
 
 TEMPLATE_TEST_CASE_SIG("generating large instruction graphs for N devices without d2d copy support", "[benchmark][group:instruction-graph]",
     ((size_t NumDevices), NumDevices), 1, 4, 16) {
+	test_utils::benchmark_thread_pinner pinner;
 	constexpr static size_t num_nodes = 2;
 	run_benchmarks([] { return instruction_graph_generator_benchmark_context(num_nodes, NumDevices, false /* supports_d2d_copies */); });
 }
@@ -492,6 +499,7 @@ TEMPLATE_TEST_CASE_SIG("generating large instruction graphs for N devices withou
 TEMPLATE_TEST_CASE_SIG("building command- and instruction graphs in a dedicated scheduler thread for N nodes", "[benchmark][group:scheduler]",
     ((size_t NumNodes), NumNodes), 1, 4) //
 {
+	test_utils::benchmark_thread_pinner pinner;
 	constexpr static size_t num_devices = 1;
 	SECTION("reference: single-threaded immediate graph generation") {
 		run_benchmarks([&] { return command_graph_generator_benchmark_context(NumNodes); });
