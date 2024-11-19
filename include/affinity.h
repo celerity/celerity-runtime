@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -20,11 +21,12 @@ constexpr uint32_t thread_type_step = 10000;
 // The threads Celerity interacts with ("user") and creates (everything else), identified for the purpose of pinning.
 // Note: this is not an enum class to make interactions such as specifying `first_backend_worker+i` easier
 enum thread_type : uint32_t {
-	user = 0 * thread_type_step,
+	application = 0 * thread_type_step,
 	scheduler = 1 * thread_type_step,
 	executor = 2 * thread_type_step,
 	first_backend_worker = 3 * thread_type_step,
 	first_host_queue = 4 * thread_type_step,
+	max = 5 * thread_type_step,
 };
 std::string thread_type_to_string(const thread_type t_type);
 
@@ -49,6 +51,8 @@ struct runtime_configuration {
 
 	// Number of devices that will need corresponding threads
 	uint32_t num_devices = 1;
+	// Whether backend device submission threads are used and need to have cores allocated to them
+	bool use_backend_device_submission_threads = true;
 
 	// Number of processes running in legacy mode
 	uint32_t num_legacy_processes = 1;

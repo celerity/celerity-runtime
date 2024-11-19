@@ -8,4 +8,4 @@ Checks: -readability-function-cognitive-complexity,
   -cppcoreguidelines-avoid-non-const-global-variables,
   -misc-include-cleaner,
   -misc-use-anonymous-namespace,
-  -bugprone-chained-comparison
+  -bugprone-chained-comparison,

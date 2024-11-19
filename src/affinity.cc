@@ -1,10 +1,10 @@
 // non-platform-specific code for thread pinning
 
 #include "affinity.h"
-#include "log.h"
 
+#include <cstddef>
 #include <cstdint>
-#include <ranges>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -14,7 +14,7 @@ namespace celerity::detail::thread_pinning {
 
 std::string thread_type_to_string(const thread_type t_type) {
 	switch(t_type) {
-	case thread_type::user: return "user";
+	case thread_type::application: return "application";
 	case thread_type::scheduler: return "scheduler";
 	case thread_type::executor: return "executor";
 	default: break;
@@ -22,8 +22,8 @@ std::string thread_type_to_string(const thread_type t_type) {
 	if(t_type >= thread_type::first_backend_worker && t_type < thread_type::first_host_queue) {
 		return fmt::format("backend_worker_{}", t_type - thread_type::first_backend_worker);
 	}
-	if(t_type >= thread_type::first_host_queue) { return fmt::format("host_queue_{}", t_type - thread_type::first_host_queue); }
-	return "unknown";
+	if(t_type >= thread_type::first_host_queue && t_type < thread_type::max) { return fmt::format("host_queue_{}", t_type - thread_type::first_host_queue); }
+	return fmt::format("unknown({})", static_cast<uint32_t>(t_type));
 }
 
 namespace {
@@ -59,10 +59,7 @@ environment_configuration parse_validate_env(const std::string_view str) {
 		try {
 			const auto from = env::default_parser<uint32_t>{}(std::string(str.substr(from_prefix.size())));
 			return {true, from, {}};
-		} catch(const env::parser_error& e) {
-			CELERITY_ERROR(error_msg, e.what());
-			return {};
-		}
+		} catch(const env::parser_error& e) { throw env::parser_error{fmt::format(error_msg, e.what())}; }
 	}
 
 	// core list case
@@ -71,10 +68,7 @@ environment_configuration parse_validate_env(const std::string_view str) {
 		for(auto cs : split(str, ',')) {
 			try {
 				core_ids.push_back(env::default_parser<uint32_t>{}(std::string(cs.begin(), cs.end())));
-			} catch(const env::parser_error& e) {
-				CELERITY_ERROR(error_msg, e.what());
-				return {};
-			}
+			} catch(const env::parser_error& e) { throw env::parser_error{fmt::format(error_msg, e.what())}; }
 		}
 		return {true, 0, core_ids};
 	}
@@ -82,7 +76,7 @@ environment_configuration parse_validate_env(const std::string_view str) {
 	// if all else fails, assume we have a boolean
 	try {
 		return {env::default_parser<bool>{}(str), auto_start_from_core, {}};
-	} catch(const env::parser_error& e) { CELERITY_ERROR(error_msg, e.what()); }
+	} catch(const env::parser_error& e) { throw env::parser_error{fmt::format(error_msg, e.what())}; }
 	return {};
 }
 

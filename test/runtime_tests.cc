@@ -786,8 +786,8 @@ namespace detail {
 
 		REQUIRE(rt.is_dry_run());
 
-		// we can't query for the latest processed horizon directly since that information is not available in the main thread, so we indirectly go by applied
-		// horizons instead
+		// we can't query for the latest processed horizon directly since that information is not available in the application thread, so we indirectly go by
+		// applied horizons instead
 		auto latest_epoch = runtime_testspy::get_latest_epoch_reached(runtime::get_instance());
 		CHECK(latest_epoch == task_manager_testspy::initial_epoch_task);
 

@@ -248,13 +248,14 @@ namespace detail {
 			thread_pinning::runtime_configuration thread_pinning_cfg{
 			    .enabled = pin_cfg.enabled,
 			    .num_devices = static_cast<uint32_t>(devices.size()),
+			    .use_backend_device_submission_threads = m_cfg->should_use_backend_device_submission_threads(),
 			    .num_legacy_processes = static_cast<uint32_t>(host_cfg.node_count),
 			    .legacy_process_index = static_cast<uint32_t>(host_cfg.local_rank),
 			    .standard_core_start_id = pin_cfg.starting_from_core,
 			    .hardcoded_core_ids = pin_cfg.hardcoded_core_ids,
 			};
 			m_thread_pinner = std::make_unique<thread_pinning::thread_pinner>(thread_pinning_cfg);
-			thread_pinning::pin_this_thread(thread_pinning::thread_type::user);
+			thread_pinning::pin_this_thread(thread_pinning::thread_type::application);
 		}
 
 		const sycl_backend::configuration backend_config = {
@@ -330,9 +331,6 @@ namespace detail {
 
 		// Create and await the shutdown epoch
 		sync(epoch_action::shutdown);
-
-		// This only affects non-functional behaviour, so we can safely do it first
-		m_thread_pinner.reset();
 
 		// The shutdown epoch is, by definition, the last task (and command / instruction) issued. Since it has now completed, no more scheduler -> executor
 		// traffic will occur, and `runtime` can stop functioning as a scheduler_delegate (which would require m_exec to be live).
