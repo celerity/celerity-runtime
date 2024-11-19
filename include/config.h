@@ -28,13 +28,13 @@ namespace detail {
 		bool should_enable_device_profiling() const { return m_enable_device_profiling.value_or(m_tracy_mode == tracy_mode::full); }
 		bool should_use_backend_device_submission_threads() const { return m_enable_backend_device_submission_threads; }
 		const thread_pinning::environment_configuration& get_thread_pinning_config() const& { return m_thread_pinning_config; }
-		bool is_dry_run() const { return m_dry_run_nodes > 0; }
 		bool should_print_graphs() const { return m_should_print_graphs; }
 		bool should_record() const {
 			// Currently only graph printing requires recording, but this might change in the future.
 			return m_should_print_graphs;
 		}
-		int get_dry_run_nodes() const { return m_dry_run_nodes; }
+		bool is_dry_run() const { return m_dry_run_num_nodes > 0; }
+		int get_dry_run_nodes() const { return m_dry_run_num_nodes; }
 		std::optional<int> get_horizon_step() const { return m_horizon_step; }
 		std::optional<int> get_horizon_max_parallelism() const { return m_horizon_max_parallelism; }
 		tracy_mode get_tracy_mode() const { return m_tracy_mode; }
@@ -44,7 +44,7 @@ namespace detail {
 		std::optional<bool> m_enable_device_profiling;
 		bool m_enable_backend_device_submission_threads = true;
 		thread_pinning::environment_configuration m_thread_pinning_config;
-		int m_dry_run_nodes = 0;
+		int m_dry_run_num_nodes = 0;
 		bool m_should_print_graphs = false;
 		std::optional<int> m_horizon_step;
 		std::optional<int> m_horizon_max_parallelism;

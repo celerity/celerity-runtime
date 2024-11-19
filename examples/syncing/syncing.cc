@@ -29,7 +29,7 @@ int main(int argc, char* argv[]) {
 	// Wait until both tasks have completed
 	queue.wait();
 
-	// At this point we can safely interact with host_buf from within the main thread
+	// At this point we can safely interact with host_buf from within the application thread
 	bool valid = true;
 	for(size_t i = 0; i < buf_size; i++) {
 		if(host_buf[i] != 2 * i) {

@@ -105,7 +105,7 @@ namespace experimental {
 	 */
 	class collective_group {
 	  public:
-		/// Creates a new collective group with a globally unique id. This must only be called from the main thread.
+		/// Creates a new collective group with a globally unique id. This must only be called from the application thread.
 		collective_group() noexcept : m_cgid(s_next_cgid++) {}
 
 	  private:
