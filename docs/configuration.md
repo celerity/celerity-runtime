@@ -19,9 +19,9 @@ specifically in development, debugging, and profiling scenarios:
 | Option | Values | Description |
 | --- | --- | --- |
 | `CELERITY_LOG_LEVEL` | `trace`, `debug`, `info`, `warn`, `err`, `critical`, `off` | Controls the logging output level. |
-| `CELERITY_PROFILE_KERNEL` | `on`, `off` | Controls whether SYCL queue profiling information should be queried. |
-| `CELERITY_PRINT_GRAPHS` | `on`, `off` | Controls whether task and command graphs are logged at the end of execution (requires log level `info` or higher). |
-| `CELERITY_DRY_RUN_NODES` | *number* | Simulates a run with the given number of nodes without actually executing the commands. |
+| `CELERITY_PROFILE_KERNEL` | `on`, `off` | Controls whether SYCL queue profiling information should be queried. This typically incurs additional overhead for each kernel launch. |
+| `CELERITY_PRINT_GRAPHS` | `on`, `off` | Controls whether task, command and instruction graphs are logged in Graphviz format at the end of execution (requires log level `info` or higher). Note that these can quickly become quite large, even for small applications. |
+| `CELERITY_DRY_RUN_NODES` | *number* | Simulates a run with the given number of nodes without actually executing any instructions (allocations, kernels, host tasks, etc). Useful for investigating performance characteristics of the runtime itself. |
 | `CELERITY_TRACY` | `off`, `fast`, `full` | Controls the Tracy profiler integration. Set to `off` to disable, `fast` for light integration with little runtime overhead, and `full` for integration with extensive performance debug information included in the trace. Only available if integration was enabled enabled at build time through the CMake option `-DCELERITY_TRACY_SUPPORT=ON`.
 
 ## Environment Variables for Performance Tuning

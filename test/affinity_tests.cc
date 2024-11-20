@@ -62,11 +62,11 @@ class raii_test_runtime {
 	raii_test_runtime& operator=(raii_test_runtime&&) = delete;
 };
 
-constexpr void skip_unsupported_configurations() {
 #ifdef _WIN32
-	SKIP("Affinity is not supported on Windows");
+#define SKIP_UNSUPPORTED() SKIP("Affinity is not supported on Windows");
+#else
+#define SKIP_UNSUPPORTED()
 #endif
-}
 
 core_set get_current_cores() {
 	cpu_set_t mask = {};
@@ -79,20 +79,20 @@ core_set get_current_cores() {
 }
 
 bool have_cores(const core_set& desired_set) {
-	auto current_set = get_current_cores();
-	return std::ranges::all_of(desired_set, [&](uint32_t core) { return current_set.contains(core); });
+	const auto current_set = get_current_cores();
+	return std::ranges::all_of(desired_set, [&](const uint32_t core) { return current_set.contains(core); });
 }
 
 } // namespace
 
 TEST_CASE("semantic thread type enum entries can be turned into strings", "[affinity]") {
 	using namespace detail::thread_pinning;
-	auto to_tt([&](uint32_t t) { return static_cast<thread_type>(t); });
+	const auto to_tt = [&](uint32_t t) { return static_cast<thread_type>(t); };
 	CHECK(thread_type_to_string(thread_type::application) == "application");
 	CHECK(thread_type_to_string(thread_type::scheduler) == "scheduler");
 	CHECK(thread_type_to_string(thread_type::executor) == "executor");
-	CHECK(thread_type_to_string(thread_type::first_backend_worker) == "backend_worker_0");
-	CHECK(thread_type_to_string(to_tt(thread_type::first_backend_worker + 1)) == "backend_worker_1");
+	CHECK(thread_type_to_string(thread_type::first_device_submitter) == "device_submitter_0");
+	CHECK(thread_type_to_string(to_tt(thread_type::first_device_submitter + 1)) == "device_submitter_1");
 	CHECK(thread_type_to_string(thread_type::first_host_queue) == "host_queue_0");
 	CHECK(thread_type_to_string(to_tt(thread_type::first_host_queue + 1)) == "host_queue_1");
 	CHECK(thread_type_to_string(to_tt(3133337)) == "unknown(3133337)");
@@ -136,7 +136,7 @@ TEST_CASE("thread pinning environment is correctly parsed", "[affinity][config]"
 	}
 }
 
-TEST_CASE("thread pinning environment error handling", "[affinity][config]") {
+TEST_CASE("thread pinning environment parsing error handling", "[affinity][config]") {
 	test_utils::allow_max_log_level(detail::log_level::warn);
 	using namespace std::string_view_literals;
 
@@ -150,13 +150,14 @@ TEST_CASE("thread pinning environment error handling", "[affinity][config]") {
 }
 
 TEST_CASE("a warning is emitted if insufficient cores are available", "[affinity]") {
-	skip_unsupported_configurations();
+	SKIP_UNSUPPORTED();
 	test_utils::allow_max_log_level(detail::log_level::warn);
 	raii_affinity_masking mask({0, 1, 2});
 
 	SECTION("if pinning enabled") {
 		detail::thread_pinning::thread_pinner pinner({.enabled = true, .num_devices = 3, .num_legacy_processes = 1});
-		CHECK(test_utils::log_contains_substring(detail::log_level::warn, "Ran out of available cores for thread pinning"));
+		CHECK(test_utils::log_contains_substring(
+		    detail::log_level::warn, "Insufficient logical cores available for thread pinning (required 6 startig from 1, 3 available)"));
 	}
 	SECTION("if pinning disabled") {
 		detail::thread_pinning::thread_pinner pinner({.enabled = false, .num_devices = 3, .num_legacy_processes = 1});
@@ -165,16 +166,25 @@ TEST_CASE("a warning is emitted if insufficient cores are available", "[affinity
 	}
 }
 
+TEST_CASE("a warning is emitted if hardcoded threads are not available to this process", "[affinity]") {
+	SKIP_UNSUPPORTED();
+	test_utils::allow_max_log_level(detail::log_level::warn);
+	raii_affinity_masking mask({0, 1, 2, 3, 4});
+
+	detail::thread_pinning::thread_pinner pinner({.enabled = true, .use_backend_device_submission_threads = false, .hardcoded_core_ids = {4, 5, 6}});
+	CHECK(test_utils::log_contains_substring(detail::log_level::warn, "Not all hardcoded core IDs are available, downgrading to auto-pinning."));
+}
+
 TEST_CASE("do not plan for device submission threads if they are unused", "[affinity]") {
-	skip_unsupported_configurations();
+	SKIP_UNSUPPORTED();
 	raii_affinity_masking mask({1, 2, 3, 4});
 	const detail::thread_pinning::runtime_configuration cfg = {.enabled = true, .num_devices = 10, .use_backend_device_submission_threads = false};
 	detail::thread_pinning::thread_pinner pinner(cfg);
-	// no additional check, a warning will make the test fail if we do not handle this case correctly
+	SUCCEED(); // no additional check, a warning will make the test fail if we do not handle this case correctly
 }
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime warns on manual core list of wrong size", "[affinity][config]") {
-	skip_unsupported_configurations();
+	SKIP_UNSUPPORTED();
 	test_utils::allow_max_log_level(detail::log_level::warn);
 	env::scoped_test_environment ste("CELERITY_THREAD_PINNING", "1,2");
 	{ raii_test_runtime rt(1); }
@@ -184,7 +194,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime warns on manual core list
 // SimSYCL has no backend submission thread support
 #if !CELERITY_SYCL_IS_SIMSYCL
 TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime system claims to pin its threads as desired", "[affinity][runtime]") {
-	skip_unsupported_configurations();
+	SKIP_UNSUPPORTED();
 	auto test = [](const std::vector<uint32_t>& core_ids) {
 		if(!have_cores({core_ids.cbegin(), core_ids.cend()})) {
 			SKIP("Skipping test because not all needed cores are available");
@@ -198,8 +208,8 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime system claims to pin its 
 		CHECK(test_utils::log_contains_substring(detail::log_level::debug, fmt::format(msg_template, "application", core_ids.at(0))));
 		CHECK(test_utils::log_contains_substring(detail::log_level::debug, fmt::format(msg_template, "scheduler", core_ids.at(1))));
 		CHECK(test_utils::log_contains_substring(detail::log_level::debug, fmt::format(msg_template, "executor", core_ids.at(2))));
-		CHECK(test_utils::log_contains_substring(detail::log_level::debug, fmt::format(msg_template, "backend_worker_0", core_ids.at(3))));
-		CHECK(test_utils::log_contains_substring(detail::log_level::debug, fmt::format(msg_template, "backend_worker_1", core_ids.at(4))));
+		CHECK(test_utils::log_contains_substring(detail::log_level::debug, fmt::format(msg_template, "device_submitter_0", core_ids.at(3))));
+		CHECK(test_utils::log_contains_substring(detail::log_level::debug, fmt::format(msg_template, "device_submitter_1", core_ids.at(4))));
 	};
 
 	SECTION("for auto") {
@@ -218,7 +228,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime system claims to pin its 
 #endif // !CELERITY_SYCL_IS_SIMSYCL
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "when pinning disabled: rt warns on insufficient threads and does not pin", "[affinity][runtime]") {
-	skip_unsupported_configurations();
+	SKIP_UNSUPPORTED();
 	env::scoped_test_environment ste("CELERITY_THREAD_PINNING", "false");
 	raii_affinity_masking mask({0});
 
@@ -230,9 +240,10 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "when pinning disabled: rt warns o
 }
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "the application thread is actually pinned when pinning is enabled", "[affinity][runtime]") {
-	skip_unsupported_configurations();
+	SKIP_UNSUPPORTED();
 	env::scoped_test_environment ste("CELERITY_THREAD_PINNING", "auto");
 
+	// By using a custom mask we also validate that the mechanism which only selects cores that are available to the process works correctly
 	const core_set process_mask = {3, 4, 5, 6, 7};
 	if(!have_cores(process_mask)) {
 		SKIP("Skipping test because not all needed cores are available");
@@ -252,7 +263,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "the application thread is actuall
 }
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "when pinning is disabled, no threads are pinned", "[affinity][runtime]") {
-	skip_unsupported_configurations();
+	SKIP_UNSUPPORTED();
 	env::scoped_test_environment ste("CELERITY_THREAD_PINNING", "false");
 	const auto initial_core_set = get_current_cores();
 
@@ -266,7 +277,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "when pinning is disabled, no thre
 }
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "rt warns when the application thread changes pinning unexpectedly", "[affinity][runtime]") {
-	skip_unsupported_configurations();
+	SKIP_UNSUPPORTED();
 	test_utils::allow_max_log_level(detail::log_level::warn);
 	env::scoped_test_environment ste("CELERITY_THREAD_PINNING", "auto");
 
@@ -292,8 +303,8 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "rt warns when the application thr
 	    detail::log_level::warn, fmt::format("Thread affinity of thread {} was changed unexpectedly, skipping restoration.", pthread_self())));
 }
 
-TEST_CASE("multiple subsequent non-overlapping pinning ranges are handled correctly", "[affinity]") {
-	skip_unsupported_configurations();
+TEST_CASE("multiple subsequent non-overlapping pinner lifetimes are handled correctly", "[affinity]") {
+	SKIP_UNSUPPORTED();
 
 	const core_set process_mask = {3, 4, 5, 6, 7};
 	if(!have_cores(process_mask)) {
@@ -306,7 +317,7 @@ TEST_CASE("multiple subsequent non-overlapping pinning ranges are handled correc
 	REQUIRE(get_current_cores() == process_mask);
 
 	{
-		detail::thread_pinning::thread_pinner pinner({.enabled = true, .num_devices = 1, .num_legacy_processes = 1});
+		detail::thread_pinning::thread_pinner pinner({.enabled = true, .num_devices = 1});
 		detail::thread_pinning::pin_this_thread(detail::thread_pinning::thread_type::application);
 		CHECK(get_current_cores() == core_set{3});
 	}
@@ -314,10 +325,42 @@ TEST_CASE("multiple subsequent non-overlapping pinning ranges are handled correc
 	CHECK(get_current_cores() == process_mask);
 
 	{
-		detail::thread_pinning::thread_pinner pinner({.enabled = true, .num_devices = 1, .num_legacy_processes = 1, .standard_core_start_id = 4});
+		detail::thread_pinning::thread_pinner pinner({.enabled = true, .num_devices = 1, .standard_core_start_id = 4});
 		detail::thread_pinning::pin_this_thread(detail::thread_pinning::thread_type::application);
 		CHECK(get_current_cores() == core_set{4});
 	}
 
 	CHECK(get_current_cores() == process_mask);
+}
+
+TEST_CASE("trying to initialize two pinning mechanisms with overlapping lifetime is an error", "[affinity]") {
+	SKIP_UNSUPPORTED();
+	test_utils::allow_max_log_level(detail::log_level::err);
+	detail::thread_pinning::thread_pinner pinner({.enabled = true, .num_devices = 1});
+	detail::thread_pinning::thread_pinner another_pinner({.enabled = true, .num_devices = 1});
+	CHECK(test_utils::log_contains_exact(detail::log_level::err, "Thread pinning already initialized. Ignoring this initialization attempt."));
+}
+
+TEST_CASE("application threads are not pinned if their affinity mask is modified externally", "[affinity]") {
+	SKIP_UNSUPPORTED();
+	test_utils::allow_max_log_level(detail::log_level::warn);
+	const core_set process_mask = {0, 1, 2, 3};
+	if(!have_cores(process_mask)) {
+		SKIP("Skipping test because not all needed cores are available");
+		return;
+	}
+
+	raii_affinity_masking mask(process_mask);
+
+	{
+		detail::thread_pinning::thread_pinner pinner({.enabled = true, .use_backend_device_submission_threads = false});
+		{
+			raii_affinity_masking mask({3});
+			detail::thread_pinning::pin_this_thread(detail::thread_pinning::thread_type::application);
+			CHECK(get_current_cores() == core_set{3});
+		}
+	}
+
+	CHECK(get_current_cores() == process_mask);
+	CHECK(test_utils::log_contains_substring(detail::log_level::warn, "Affinity mask for the application thread was modified, will not pin it."));
 }
