@@ -19,7 +19,7 @@ namespace runtime {
 	/**
 	 * @brief Initializes the Celerity runtime.
 	 */
-	inline void init(int* argc, char** argv[]) { detail::runtime::init(argc, argv, detail::auto_select_devices{}); }
+	inline void init(int* argc, char** argv[], bool init_mpi = true) { detail::runtime::init(argc, argv, detail::auto_select_devices{}, init_mpi); }
 
 	/**
 	 * @brief Initializes the Celerity runtime and instructs it to use a particular set of devices.
@@ -27,7 +27,9 @@ namespace runtime {
 	 * @param devices The devices to be used on the current node. This can vary between nodes.
 	 *                If there are multiple nodes running on the same host, the list of devices must be the same across nodes on the same host.
 	 */
-	inline void init(int* argc, char** argv[], const std::vector<sycl::device>& devices) { detail::runtime::init(argc, argv, devices); }
+	inline void init(int* argc, char** argv[], const std::vector<sycl::device>& devices, bool init_mpi) {
+		detail::runtime::init(argc, argv, devices, init_mpi);
+	}
 
 	/**
 	 * @brief Initializes the Celerity runtime and instructs it to use a particular set of devices.

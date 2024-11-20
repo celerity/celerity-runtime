@@ -87,7 +87,7 @@ namespace detail {
 
 	class runtime::impl final : public runtime, private task_manager::delegate, private scheduler::delegate, private executor::delegate {
 	  public:
-		impl(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector);
+		impl(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector, const bool init_mpi);
 
 		impl(const runtime::impl&) = delete;
 		impl(runtime::impl&&) = delete;
@@ -130,6 +130,8 @@ namespace detail {
 
 	  private:
 		friend struct runtime_testspy;
+
+		bool m_external_mpi_init = false;
 
 		// `runtime` is not thread safe except for its delegate implementations, so we store the id of the thread where it was instantiated (the application
 		// thread) in order to throw if the user attempts to issue a runtime operation from any other thread. One case where this may happen unintentionally
@@ -277,7 +279,7 @@ namespace detail {
 #endif // CELERITY_ENABLE_MPI
 	}
 
-	runtime::impl::impl(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector) {
+	runtime::impl::impl(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector, const bool init_mpi) {
 		m_application_thread = std::this_thread::get_id();
 
 		m_cfg = std::make_unique<config>(argc, argv);
@@ -289,7 +291,16 @@ namespace detail {
 			assert(s_test_active && "initializing the runtime from a test without a runtime_fixture");
 			s_test_runtime_was_instantiated = true;
 		} else {
-			mpi_initialize_once(argc, argv);
+			if(init_mpi) {
+				mpi_initialize_once(argc, argv);
+			} else {
+				m_external_mpi_init = true;
+				int provided = 0;
+				MPI_Query_thread(&provided);
+				if(provided != MPI_THREAD_MULTIPLE) {
+					throw std::runtime_error("MPI was not initialized with the required threading level MPI_THREAD_MULTIPLE");
+				}
+			}
 		}
 
 		int world_size = 1;
@@ -486,7 +497,7 @@ namespace detail {
 
 		cgf_diagnostics::teardown();
 
-		if(!s_test_mode) { mpi_finalize_once(); }
+		if(!s_test_mode && !m_external_mpi_init) { mpi_finalize_once(); }
 	}
 
 	task_id runtime::impl::submit(raw_command_group&& cg) {
@@ -724,9 +735,9 @@ namespace detail {
 		s_mpi_finalized = true;
 	}
 
-	void runtime::init(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector) {
+	void runtime::init(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector, const bool init_mpi) {
 		assert(!has_instance());
-		s_instance.m_impl = std::make_unique<runtime::impl>(argc, argv, user_devices_or_selector);
+		s_instance.m_impl = std::make_unique<runtime::impl>(argc, argv, user_devices_or_selector, init_mpi);
 		if(!s_test_mode) { atexit(shutdown); }
 	}
 

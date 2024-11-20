@@ -53,7 +53,7 @@ class raii_test_runtime {
 	raii_test_runtime(int n) {
 		// devices are default constructible, and we don't care if we use the same more than once
 		const std::vector<sycl::device> devices(n);
-		celerity::runtime::init(nullptr, nullptr, devices);
+		celerity::runtime::init(nullptr, nullptr, devices, true);
 	}
 	~raii_test_runtime() { celerity::runtime::shutdown(); }
 	raii_test_runtime(const raii_test_runtime&) = delete;
