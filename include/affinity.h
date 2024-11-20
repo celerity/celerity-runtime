@@ -18,13 +18,13 @@ namespace celerity::detail::thread_pinning {
 
 constexpr uint32_t thread_type_step = 10000;
 
-// The threads Celerity interacts with ("user") and creates (everything else), identified for the purpose of pinning.
+// The threads Celerity interacts with ("application") and creates (everything else), identified for the purpose of pinning.
 // Note: this is not an enum class to make interactions such as specifying `first_backend_worker+i` easier
 enum thread_type : uint32_t {
 	application = 0 * thread_type_step,
 	scheduler = 1 * thread_type_step,
 	executor = 2 * thread_type_step,
-	first_backend_worker = 3 * thread_type_step,
+	first_device_submitter = 3 * thread_type_step,
 	first_host_queue = 4 * thread_type_step,
 	max = 5 * thread_type_step,
 };
@@ -32,9 +32,9 @@ std::string thread_type_to_string(const thread_type t_type);
 
 // User-level configuration of the thread pinning mechanism (set by the user via environment variables)
 struct environment_configuration {
-	bool enabled = true; // we want thread pinning to be enabled by default
-	uint32_t starting_from_core = 1;
-	std::vector<uint32_t> hardcoded_core_ids;
+	bool enabled = true;                      // we want thread pinning to be enabled by default
+	uint32_t starting_from_core = 1;          // we default to starting from core 1 since core 0 is frequently used by some processes
+	std::vector<uint32_t> hardcoded_core_ids; // starts empty, which means no hardcoded IDs are used
 };
 
 // Parses and validates the environment variable string, returning the corresponding configuration
@@ -43,7 +43,7 @@ environment_configuration parse_validate_env(const std::string_view str);
 // Configures the pinning mechanism
 // For now, only "standard" threads are pinned
 //   these are threads that benefit from rapid communication between each other,
-//   i.e. scheduler -> executor -> backend workers
+//   i.e. application -> scheduler -> executor -> device submission threads
 // Extensible for future use where some threads might benefit from NUMA-aware per-GPU pinning
 struct runtime_configuration {
 	// Whether or not to perform pinning
@@ -54,7 +54,7 @@ struct runtime_configuration {
 	// Whether backend device submission threads are used and need to have cores allocated to them
 	bool use_backend_device_submission_threads = true;
 
-	// Number of processes running in legacy mode
+	// Number of processes running in legacy mode on this machine
 	uint32_t num_legacy_processes = 1;
 	// Process index of current process running in legacy mode
 	uint32_t legacy_process_index = 0;
@@ -78,6 +78,9 @@ class thread_pinner {
 	thread_pinner& operator=(const thread_pinner&) = delete;
 	thread_pinner(thread_pinner&&) = default;
 	thread_pinner& operator=(thread_pinner&&) = default;
+
+  private:
+	bool m_successfully_initialized = false;
 };
 
 // Pins the invoking thread of type `t_type` according to the current configuration

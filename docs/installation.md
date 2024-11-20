@@ -93,14 +93,14 @@ for your SYCL implementation for more information on the other parameters.
 ### Additional Configuration Options
 
 The following additional CMake options are available:
-| Option | Values | Description |
+| Option | Type | Description |
 | --- | --- | --- |
-| CELERITY_ACCESS_PATTERN_DIAGNOSTICS | 0, 1 | Diagnose uninitialized reads and overlapping writes (default: 1 for debug builds, 0 for release builds) |
-| CELERITY_ACCESSOR_BOUNDARY_CHECK | 0, 1 | Enable boundary checks for accessors (default: 1 for debug builds, 0 for release builds) |
-| CELERITY_BUILD_EXAMPLES | 0, 1 | Build the example applications (default: 1) |
-| CELERITY_ENABLE_MPI | 0, 1 | Enable MPI support (default: 1) |
-| CELERITY_TRACY_SUPPORT | 0, 1 | Enable [Tracy](https://github.com/wolfpld/tracy) support. See [Configuration](configuration.md) for runtime options. (default: 0) |
-| CELERITY_USE_MIMALLOC | 0, 1 | Use the [mimalloc](https://github.com/microsoft/mimalloc) memory allocator (default: 1) |
+| CELERITY_ACCESS_PATTERN_DIAGNOSTICS | `BOOL` | Diagnose uninitialized reads and overlapping writes (default: `ON` for debug builds, `OFF` for release builds) |
+| CELERITY_ACCESSOR_BOUNDARY_CHECK | `BOOL` | Enable boundary checks for accessors (default: `ON` for debug builds, `OFF` for release builds) |
+| CELERITY_BUILD_EXAMPLES | `BOOL` | Build the example applications (default: `ON`) |
+| CELERITY_ENABLE_MPI | `BOOL` | Enable MPI support (default: `ON`) |
+| CELERITY_TRACY_SUPPORT | `BOOL` | Enable [Tracy](https://github.com/wolfpld/tracy) support. See [Configuration](configuration.md) for runtime options. (default: `OFF`) |
+| CELERITY_USE_MIMALLOC | `BOOL` | Use the [mimalloc](https://github.com/microsoft/mimalloc) memory allocator (default: `ON`) |
 
 ## Building and Installing
 

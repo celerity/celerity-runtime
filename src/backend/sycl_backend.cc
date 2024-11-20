@@ -172,10 +172,10 @@ sycl_backend::sycl_backend(const std::vector<sycl::device>& devices, const confi
 	// Initialize a submission thread with hydrator for each device, if they are enabled
 	if(m_impl->config.per_device_submission_threads) {
 		for(device_id did = 0; did < m_impl->system.devices.size(); ++did) {
-			m_impl->devices[did].submission_thread.emplace(fmt::format("cy-be-submission-{}", did.value), m_impl->config.profiling);
+			m_impl->devices[did].submission_thread.emplace(fmt::format("cy-be-sub-{}", did.value), m_impl->config.profiling);
 			// no need to wait for the event -> will happen before the first task is submitted
 			(void)m_impl->devices[did].submission_thread->submit([did] {
-				thread_pinning::pin_this_thread(thread_pinning::thread_type(thread_pinning::thread_type::first_backend_worker + did.value));
+				thread_pinning::pin_this_thread(thread_pinning::thread_type(thread_pinning::thread_type::first_device_submitter + did.value));
 				closure_hydrator::make_available();
 			});
 		}

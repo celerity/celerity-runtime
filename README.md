@@ -111,13 +111,15 @@ function to set up the required dependencies for a target (no need to link manua
 
 ## Running a Celerity Application
 
-For the single-node case, you can simply run your application and it will
-automatically use all available GPUs -- a simple way to limit this e.g.
-for benchmarking is using the vendor-specific environment variables such
+When running on a single machine, simply execute your application as you
+normally would -- no special invocation required. By default, the runtime
+will then attempt use all available GPUs. A simple way of limiting this,
+e.g. for benchmarking, is to use vendor-specific environment variables such
 as `CUDA_VISIBLE_DEVICES`, `HIP_VISIBLE_DEVICES` or `ONEAPI_DEVICE_SELECTOR`.
 
-In the distributed memory cluster case, since celerity is built on top of MPI, a Celerity
-application can be executed like any other MPI application (i.e., using `mpirun` or equivalent).
+When targeting distributed memory clusters, a Celerity application can be 
+executed like any other MPI-based application (i.e., using `mpirun` or equivalent).
 
-There are also [several environment variables](docs/configuration.md) that you can use to influence
-Celerity's runtime behavior.
+There are also [several environment variables](docs/configuration.md) which influence
+Celerity's runtime behavior. Tweaking these variables can be useful to tailor
+performance to specific systems, as well as for debugging Celerity applications.

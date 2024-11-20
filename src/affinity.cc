@@ -19,8 +19,8 @@ std::string thread_type_to_string(const thread_type t_type) {
 	case thread_type::executor: return "executor";
 	default: break;
 	}
-	if(t_type >= thread_type::first_backend_worker && t_type < thread_type::first_host_queue) {
-		return fmt::format("backend_worker_{}", t_type - thread_type::first_backend_worker);
+	if(t_type >= thread_type::first_device_submitter && t_type < thread_type::first_host_queue) {
+		return fmt::format("device_submitter_{}", t_type - thread_type::first_device_submitter);
 	}
 	if(t_type >= thread_type::first_host_queue && t_type < thread_type::max) { return fmt::format("host_queue_{}", t_type - thread_type::first_host_queue); }
 	return fmt::format("unknown({})", static_cast<uint32_t>(t_type));
@@ -77,7 +77,6 @@ environment_configuration parse_validate_env(const std::string_view str) {
 	try {
 		return {env::default_parser<bool>{}(str), auto_start_from_core, {}};
 	} catch(const env::parser_error& e) { throw env::parser_error{fmt::format(error_msg, e.what())}; }
-	return {};
 }
 
 } // namespace celerity::detail::thread_pinning
