@@ -83,8 +83,8 @@ namespace detail {
 		task_manager tm{1, tdag, nullptr, &delegate};
 		tm.generate_epoch_task(epoch_action::init);
 		CHECK(delegate.counter == 1);
-		range<2> gs = {1, 1};
-		id<2> go = {};
+		const range<2> gs = {1, 1};
+		const id<2> go = {};
 		tm.submit_command_group([=](handler& cgh) { cgh.parallel_for<class kernel>(gs, go, [](auto) {}); });
 		CHECK(delegate.counter == 2);
 		tm.submit_command_group([](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
@@ -126,13 +126,13 @@ namespace detail {
 		std::vector<buffer_access> accs;
 		accs.push_back(buffer_access{0, access_mode::read, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{3, 0}, {10, 20}}, range<2>{30, 30})});
 		accs.push_back(buffer_access{0, access_mode::read, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{10, 0}, {7, 20}}, range<2>{30, 30})});
-		buffer_access_map bam{std::move(accs), task_geometry{2, {100, 100, 1}, {}, {}}};
+		const buffer_access_map bam{std::move(accs), task_geometry{2, {100, 100, 1}, {}, {}}};
 		const auto req = bam.compute_consumed_region(0, subrange<3>({0, 0, 0}, {100, 100, 1}));
 		CHECK(req == box(subrange<3>({3, 0, 0}, {14, 20, 1})));
 	}
 
 	TEST_CASE("tasks gracefully handle get_requirements() calls for buffers they don't access", "[task]") {
-		buffer_access_map bam;
+		const buffer_access_map bam;
 		const auto req = bam.compute_consumed_region(0, subrange<3>({0, 0, 0}, {100, 1, 1}));
 		CHECK(req == box<3>());
 	}
@@ -836,49 +836,41 @@ namespace detail {
 
 		const std::string error_string{"Failed to parse/validate environment variables."};
 		{
-			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_LOG_LEVEL", "a"}};
-			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			env::scoped_test_environment ste("CELERITY_LOG_LEVEL", "a");
 			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
 		}
 
 		{
-			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_GRAPH_PRINT_MAX_VERTS", "a"}};
-			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			env::scoped_test_environment ste("CELERITY_GRAPH_PRINT_MAX_VERTS", "a");
 			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
 		}
 
 		{
-			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_DEVICES", "a"}};
-			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			env::scoped_test_environment ste("CELERITY_DEVICES", "a");
 			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
 		}
 
 		{
-			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_DRY_RUN_NODES", "a"}};
-			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			env::scoped_test_environment ste("CELERITY_DRY_RUN_NODES", "a");
 			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
 		}
 
 		{
-			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_PROFILE_KERNEL", "a"}};
-			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			env::scoped_test_environment ste("CELERITY_PROFILE_KERNEL", "a");
 			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
 		}
 		{
-			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_FORCE_WG", "a"}};
-			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
-			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
-		}
-
-		{
-			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_PROFILE_OCL", "a"}};
-			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			env::scoped_test_environment ste("CELERITY_FORCE_WG", "a");
 			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
 		}
 
 		{
-			std::unordered_map<std::string, std::string> invalid_test_env_var{{"CELERITY_TRACY", "foo"}};
-			const auto test_env = env::scoped_test_environment(invalid_test_env_var);
+			env::scoped_test_environment ste("CELERITY_PROFILE_OCL", "a");
+			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
+		}
+
+		{
+			env::scoped_test_environment ste("CELERITY_TRACY", "foo");
 			CHECK_THROWS_WITH((celerity::detail::config(nullptr, nullptr)), error_string);
 		}
 	}

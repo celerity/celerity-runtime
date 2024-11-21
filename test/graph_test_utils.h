@@ -140,7 +140,6 @@ class task_builder {
 	}
 
 	step master_node_host_task() {
-		std::deque<action> actions;
 		return step(m_tctx, [](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
 	}
 

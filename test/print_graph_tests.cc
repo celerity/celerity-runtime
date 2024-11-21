@@ -61,7 +61,7 @@ int count_occurences(const std::string& str, const std::string& substr) {
 } // namespace
 
 TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]") {
-	size_t num_nodes = 4;
+	const size_t num_nodes = 4;
 	cdag_test_context cctx(num_nodes);
 
 	auto buf_0 = cctx.create_buffer(range(1));

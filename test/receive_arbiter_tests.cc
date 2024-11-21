@@ -40,7 +40,7 @@ class mock_recv_communicator : public communicator {
 	[[nodiscard]] async_event receive_payload(const node_id from, const message_id msgid, void* const base, const stride& stride) override {
 		const auto key = std::pair(from, msgid);
 		REQUIRE(m_pending_recvs.count(key) == 0);
-		completion_flag flag = std::make_shared<bool>(false);
+		const completion_flag flag = std::make_shared<bool>(false);
 		m_pending_recvs.emplace(key, std::tuple(base, stride, flag));
 		return make_async_event<mock_event>(flag);
 	}

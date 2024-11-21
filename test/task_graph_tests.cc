@@ -391,24 +391,24 @@ namespace detail {
 		auto buf_a = tt.mbf.create_buffer(range<1>(128));
 		auto buf_b = tt.mbf.create_buffer(range<1>(128));
 
-		task_id tid_1 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
+		const task_id tid_1 = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
 			buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 64}));
 			buf_b.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
 		});
-		task_id tid_2 =
+		const task_id tid_2 =
 		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({64, 64})); });
-		[[maybe_unused]] task_id tid_3 =
+		[[maybe_unused]] const task_id tid_3 =
 		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({32, 64})); });
-		task_id tid_4 =
+		const task_id tid_4 =
 		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({32, 64})); });
 
 		const auto horizon = task_manager_testspy::get_current_horizon(tt.tm);
 		CHECK(test_utils::get_num_live_horizons(tt.tdag) == 1);
 		CHECK(horizon != nullptr);
 
-		[[maybe_unused]] task_id tid_6 =
+		[[maybe_unused]] const task_id tid_6 =
 		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128})); });
-		[[maybe_unused]] task_id tid_7 =
+		[[maybe_unused]] const task_id tid_7 =
 		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128})); });
 
 		{
@@ -419,7 +419,7 @@ namespace detail {
 			CHECK(region_map_a.get_region_values(make_region(32, 96)).front().second == test_utils::get_task(tt.tdag, tid_4));
 		}
 
-		[[maybe_unused]] task_id tid_8 =
+		[[maybe_unused]] const task_id tid_8 =
 		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_b.get_access<access_mode::read_write>(cgh, fixed<1>({0, 128})); });
 
 		CHECK(test_utils::get_num_live_horizons(tt.tdag) == 2);
@@ -430,7 +430,7 @@ namespace detail {
 			CHECK(region_map_a.get_region_values(make_region(0, 128)).front().second == horizon);
 		}
 
-		task_id tid_9 =
+		const task_id tid_9 =
 		    test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) { buf_a.get_access<access_mode::read_write>(cgh, fixed<1>({64, 64})); });
 
 		{

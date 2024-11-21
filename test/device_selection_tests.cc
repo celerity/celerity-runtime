@@ -457,7 +457,7 @@ TEST_CASE("select_backend picks highest-priority available specialized backend",
 	    mock_device(0, platform, type_and_name{sycl::info::device_type::gpu, "gpu0"}),
 	    mock_device(1, platform, type_and_name{sycl::info::device_type::gpu, "gpu1"}),
 	};
-	mock_backend_enumerator enumerator{{mock_backend_type::generic1, mock_backend_type::generic2, mock_backend_type::specialized2},
+	const mock_backend_enumerator enumerator{{mock_backend_type::generic1, mock_backend_type::generic2, mock_backend_type::specialized2},
 	    {
 	        {devices.at(0), {mock_backend_type::generic1, mock_backend_type::specialized1, mock_backend_type::specialized2}},
 	        {devices.at(1), {mock_backend_type::generic1, mock_backend_type::specialized1, mock_backend_type::specialized2}},
@@ -479,7 +479,7 @@ TEST_CASE("select_backend picks highest-priority available generic backend if th
 	    mock_device(0, platform, type_and_name{sycl::info::device_type::gpu, "gpu0"}),
 	    mock_device(1, platform, type_and_name{sycl::info::device_type::gpu, "gpu1"}),
 	};
-	mock_backend_enumerator enumerator{
+	const mock_backend_enumerator enumerator{
 	    {mock_backend_type::generic1, mock_backend_type::generic2, mock_backend_type::specialized1, mock_backend_type::specialized2},
 	    {
 	        {devices.at(0), {mock_backend_type::generic1, mock_backend_type::generic2, mock_backend_type::specialized1}},
@@ -501,7 +501,7 @@ TEST_CASE("select_backend picks a generic backend if no compatible specializatio
 	    mock_device(0, platform, type_and_name{sycl::info::device_type::gpu, "gpu0"}),
 	    mock_device(1, platform, type_and_name{sycl::info::device_type::gpu, "gpu1"}),
 	};
-	mock_backend_enumerator enumerator{{mock_backend_type::generic1, mock_backend_type::generic2},
+	const mock_backend_enumerator enumerator{{mock_backend_type::generic1, mock_backend_type::generic2},
 	    {
 	        {devices.at(0), {mock_backend_type::generic2, mock_backend_type::specialized1, mock_backend_type::specialized2}},
 	        {devices.at(1), {mock_backend_type::generic2, mock_backend_type::specialized1, mock_backend_type::specialized2}},

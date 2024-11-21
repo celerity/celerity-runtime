@@ -25,7 +25,7 @@ std::optional<std::chrono::nanoseconds> sycl_event::get_native_execution_time() 
 
 void delayed_async_event::state::set_value(async_event event) {
 	m_event = std::move(event);
-	[[maybe_unused]] bool previously_ready = m_is_ready.exchange(true, std::memory_order_release);
+	[[maybe_unused]] const bool previously_ready = m_is_ready.exchange(true, std::memory_order_release);
 	assert(!previously_ready && "delayed_async_event::state::set_value() called more than once");
 }
 
@@ -309,7 +309,7 @@ async_event celerity::detail::sycl_backend::enqueue_device_work(
 
 	// Note: this mechanism is quite similar in principle to a std::future/promise,
 	//       but implementing it with that caused a 50% (!) slowdown in system-level benchmarks
-	sycl_backend_detail::delayed_async_event::shared_state async_event_state = std::make_shared<sycl_backend_detail::delayed_async_event::state>();
+	const auto async_event_state = std::make_shared<sycl_backend_detail::delayed_async_event::state>();
 	auto async_event = make_async_event<sycl_backend_detail::delayed_async_event>(async_event_state);
 
 	(void)submission_thread->submit([this, device, lane, work, async_event_state] {

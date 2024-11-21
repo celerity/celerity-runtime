@@ -192,12 +192,12 @@ namespace detail {
 				accessor acc_read(buf_in, cgh, one_to_one(), read_only);
 				accessor acc_write(buf_out, cgh, one_to_one(), write_only, no_init);
 				cgh.parallel_for(range, [=](celerity::item<Dims> item) {
-					size_t i = item[0];
-					size_t j = item[1];
+					const size_t i = item[0];
+					const size_t j = item[1];
 					if constexpr(Dims == 2) {
 						acc_write[i][j] = acc_read[i][j];
 					} else {
-						size_t k = item[2];
+						const size_t k = item[2];
 						acc_write[i][j][k] = acc_read[i][j][k];
 					}
 				});
@@ -210,12 +210,12 @@ namespace detail {
 				accessor acc_write(buf_out, cgh, one_to_one(), write_only_host_task, no_init);
 				cgh.host_task(range, [=](celerity::partition<Dims> part) {
 					experimental::for_each_item(range, [&](celerity::item<Dims> item) {
-						size_t i = item[0];
-						size_t j = item[1];
+						const size_t i = item[0];
+						const size_t j = item[1];
 						if constexpr(Dims == 2) {
 							acc_write[i][j] = acc_read[i][j];
 						} else {
-							size_t k = item[2];
+							const size_t k = item[2];
 							acc_write[i][j][k] = acc_read[i][j][k];
 						}
 					});
@@ -299,7 +299,7 @@ namespace detail {
 		queue q;
 		std::optional<buffer<int>> buf;
 
-		int init = 0;
+		const int init = 0;
 		SECTION("when the buffer is uninitialized") { buf = buffer<int>{1}; };
 		SECTION("when the buffer is host-initialized") { buf = buffer<int>{&init, 1}; };
 
