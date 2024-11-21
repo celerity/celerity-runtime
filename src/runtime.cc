@@ -245,7 +245,7 @@ namespace detail {
 
 		{
 			const auto& pin_cfg = m_cfg->get_thread_pinning_config();
-			thread_pinning::runtime_configuration thread_pinning_cfg{
+			const thread_pinning::runtime_configuration thread_pinning_cfg{
 			    .enabled = pin_cfg.enabled,
 			    .num_devices = static_cast<uint32_t>(devices.size()),
 			    .use_backend_device_submission_threads = m_cfg->should_use_backend_device_submission_threads(),

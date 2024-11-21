@@ -31,8 +31,7 @@ namespace detail {
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "an explicit device can be provided to distr_queue", "[deprecated][distr_queue]") {
-		sycl::default_selector selector;
-		sycl::device device{selector};
+		sycl::device device;
 
 		SECTION("before the runtime is initialized") {
 			REQUIRE_FALSE(runtime::has_instance());
@@ -83,7 +82,7 @@ namespace detail {
 
 		experimental::buffer_snapshot<int, 1> full_snapshot = experimental::fence(q, buf).get();
 		experimental::buffer_snapshot<int, 1> partial_snapshot = experimental::fence(q, buf, subrange<1>(8, 8)).get();
-		int ho_value = experimental::fence(q, ho).get();
+		const int ho_value = experimental::fence(q, ho).get();
 
 		CHECK(full_snapshot.get_range() == range<1>(16));
 		CHECK(std::equal(init.begin(), init.end(), full_snapshot.get_data()));

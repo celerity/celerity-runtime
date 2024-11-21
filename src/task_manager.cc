@@ -228,7 +228,7 @@ namespace detail {
 		const auto previous_horizon = m_current_horizon;
 		m_current_horizon = unique_horizon.get();
 
-		task& new_horizon = reduce_execution_front(std::move(unique_horizon));
+		const task& new_horizon = reduce_execution_front(std::move(unique_horizon));
 		if(previous_horizon != nullptr) { set_epoch_for_new_tasks(previous_horizon); }
 
 		invoke_callbacks(&new_horizon);

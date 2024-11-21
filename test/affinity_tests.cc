@@ -52,7 +52,7 @@ class raii_test_runtime {
   public:
 	raii_test_runtime(int n) {
 		// devices are default constructible, and we don't care if we use the same more than once
-		std::vector<sycl::device> devices(n);
+		const std::vector<sycl::device> devices(n);
 		celerity::runtime::init(nullptr, nullptr, devices);
 	}
 	~raii_test_runtime() { celerity::runtime::shutdown(); }

@@ -184,7 +184,7 @@ void draw(const region_map_impl<ValueType, 2>& rm) {
 TEST_CASE("region_map::try_merge does not attempt to merge intermediate results that no longer exist", "[region_map]") {
 	region_map_impl<int, 2> rm(box<2>::full_range({99, 99}), -1);
 
-	std::vector<std::pair<box<2>, int>> entries = {
+	const std::vector<std::pair<box<2>, int>> entries = {
 	    // These first three entries will be merged
 	    {{{0, 0}, {33, 66}}, 1},
 	    {{{33, 0}, {66, 66}}, 1},
@@ -235,7 +235,7 @@ TEST_CASE("region_map can be moved", "[region_map]") {
 
 TEST_CASE("region_map handles basic operations in 0D", "[region_map]") {
 	const int default_value = -1;
-	region_map_impl<int, 0> rm{{}, default_value};
+	const region_map_impl<int, 0> rm{{}, default_value};
 
 	SECTION("query default value") {
 		const auto results = rm.get_region_values({0, 1});
@@ -791,12 +791,12 @@ TEST_CASE("inserting consecutive boxes results in zero overlap", "[region_map][p
 
 TEST_CASE("query regions are clamped from both sides in region maps with non-zero offset", "[region_map]") {
 	const auto region_box = box<3>({1, 2, 3}, {7, 9, 11});
-	region_map<int> rm(region_box, 42);
+	const region_map<int> rm(region_box, 42);
 	CHECK(rm.get_region_values(box<3>::full_range({20, 19, 18})) == std::vector{std::pair{region_box, 42}});
 }
 
 TEMPLATE_TEST_CASE_SIG("get_region_values(<empty-region>) returns no boxes", "[region_map]", ((int Dims), Dims), 0, 1, 2, 3) {
-	region_map<int> rm(range_cast<3>(test_utils::truncate_range<Dims>({2, 3, 4})), -1);
+	const region_map<int> rm(range_cast<3>(test_utils::truncate_range<Dims>({2, 3, 4})), -1);
 	CHECK(rm.get_region_values(box<3>()).empty());
 	CHECK(rm.get_region_values(region<3>()).empty());
 }

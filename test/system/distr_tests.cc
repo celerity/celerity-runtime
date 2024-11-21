@@ -216,7 +216,7 @@ namespace detail {
 					{
 						size_t relative = global_linear_id;
 						for(int nd = 0; nd < Dims; ++nd) {
-							int d = Dims - 1 - nd;
+							const int d = Dims - 1 - nd;
 							global_id[d] = relative % global_range[d];
 							relative /= global_range[d];
 						}

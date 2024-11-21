@@ -215,7 +215,6 @@ void run_rsim_benchmark(const size_t n_tris, const size_t num_iter) {
 
 				cgh.parallel_for(kij_size, [=](item<2> item) {
 					float val = 0.f;
-					float included_items = 0.f;
 					for(size_t i = 0; i < t; ++i) {
 						val += read_rad[{i, item.get_id(0)}] * read_kij[{item.get_id(0), item.get_id(1)}];
 					}
