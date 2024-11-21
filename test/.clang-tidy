@@ -1,7 +1,13 @@
 ---
 InheritParentConfig: true
+
 # Disable some checks that cause frequent false-positives in tests
-# misc-include-cleaner: Does not understand that celerity.h is the entry point for all public Celerity headers
-Checks: -readability-function-cognitive-complexity,
+#   -misc-const-correctness: Would suggest `const accessor` in CGFs
+#   -misc-include-cleaner: Does not understand that celerity.h is the entry point for all public Celerity headers
+#   -misc-use-anonymous-namespace: Catch2 emits static functions for TEST_CASE()
+#   -bugprone-chained-comparison: Catch2 uses a comparison operator overloading hack to decompose expressions
+Checks: -misc-const-correctness,
+  -readability-function-cognitive-complexity,
+  -cppcoreguidelines-avoid-do-while,
   -cppcoreguidelines-avoid-non-const-global-variables,
-  -misc-include-cleaner
+  -bugprone-chained-comparison

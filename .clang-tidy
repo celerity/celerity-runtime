@@ -11,20 +11,29 @@
 #    `git diff -U0 --no-color | clang-tidy-diff.py -p1 -path path/to/compile_commands.json`
 #
 InheritParentConfig: false
+
 # See https://clang.llvm.org/extra/clang-tidy/checks/list.html for a full list of available checks.
-# Note: We would like to enable `misc-const-correctness` (introduced with Clang 15), but it currently
-#       seems to be somewhat buggy still (producing false positives) => revisit at some point.
+# We disable a number of checks that cause frequent false positives, including:
+#   -bugprone-unchecked-optional-access treats std::optional::value as "unchecked"
+#   -misc-include-cleaner can't deal with "interface headers" such as sycl.hpp
+#   -misc-unused-using-decls complains about "using sub_group = sycl::sub_group" (API export)
+#   -readability-convert-member-functions-to-static lints against implementations of fmt::formatter
 Checks: -*,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   -bugprone-lambda-function-name,
   -bugprone-macro-parentheses,
+  -bugprone-unchecked-optional-access,
   misc-*,
-  -misc-const-correctness,
+  -misc-include-cleaner,
+  -misc-misplaced-const,
   -misc-no-recursion,
   -misc-non-private-member-variables-in-classes,
   -misc-unused-parameters,
+  -misc-unused-using-decls,
+  -misc-use-anonymous-namespace,
   clang-analyzer-*,
+  -clang-analyzer-optin.mpi.MPI-Checker,
   clang-diagnostic-*,
   cppcoreguidelines-*,
   -cppcoreguidelines-avoid-c-arrays,
@@ -32,18 +41,27 @@ Checks: -*,
   -cppcoreguidelines-avoid-magic-numbers,
   -cppcoreguidelines-macro-usage,
   -cppcoreguidelines-non-private-member-variables-in-classes,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-const-cast,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
   mpi-*,
   performance-*,
   readability-*,
   -readability-avoid-const-params-in-decls,
+  -readability-convert-member-functions-to-static,
+  -readability-else-after-return,
   -readability-function-cognitive-complexity,
   -readability-identifier-length,
   -readability-magic-numbers,
   -readability-qualified-auto,
+  -readability-redundant-inline-specifier,
   -readability-uppercase-literal-suffix,
 
 CheckOptions:
+  - key: misc-const-correctness.WarnPointersAsValues
+    value: true
   # Naming conventions
   - key: readability-identifier-naming.ClassCase
     value: lower_case
