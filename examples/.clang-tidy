@@ -1,0 +1,6 @@
+---
+InheritParentConfig: true
+
+# We disable some checks that cause false-positives in examples.
+#   -misc-const-correctness: Would suggest `const accessor` in CGFs
+Checks: -misc-const-correctness
