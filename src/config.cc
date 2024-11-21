@@ -54,7 +54,22 @@ struct default_parser<celerity::detail::tracy_mode> {
 		} else if(str == "full") {
 			return celerity::detail::tracy_mode::full;
 		} else {
-			throw parser_error{"Unable to parse '{}'. Possible values are: off, fast, full."};
+			throw parser_error{fmt::format("Unable to parse '{}'. Possible values are: off, fast, full.", str)};
+		}
+	}
+};
+
+template <>
+struct default_parser<celerity::experimental::lookahead> {
+	celerity::experimental::lookahead operator()(const std::string_view str) const {
+		if(str == "none") {
+			return celerity::experimental::lookahead::none;
+		} else if(str == "auto") {
+			return celerity::experimental::lookahead::automatic;
+		} else if(str == "infinite") {
+			return celerity::experimental::lookahead::infinite;
+		} else {
+			throw parser_error{fmt::format("Unable to parse '{}'. Possible values are: none, auto, infinite.", str)};
 		}
 	}
 };
@@ -94,6 +109,8 @@ namespace detail {
 		constexpr int horizon_max = 1024 * 64;
 		const auto env_horizon_step = pref.register_range<int>("HORIZON_STEP", 1, horizon_max);
 		const auto env_horizon_max_para = pref.register_range<int>("HORIZON_MAX_PARALLELISM", 1, horizon_max);
+		const auto env_lookahead = pref.register_option<experimental::lookahead>(
+		    "LOOKAHEAD", {experimental::lookahead::none, experimental::lookahead::automatic, experimental::lookahead::infinite});
 		const auto env_tracy_mode = pref.register_option<tracy_mode>("TRACY", {tracy_mode::off, tracy_mode::fast, tracy_mode::full});
 
 		pref.register_deprecated("FORCE_WG", "Support for CELERITY_FORCE_WG has been removed with Celerity 0.3.0.");
@@ -132,6 +149,7 @@ namespace detail {
 
 			m_horizon_step = parsed_and_validated_envs.get(env_horizon_step);
 			m_horizon_max_parallelism = parsed_and_validated_envs.get(env_horizon_max_para);
+			m_lookahead = parsed_and_validated_envs.get_or(env_lookahead, experimental::lookahead::automatic);
 
 			m_tracy_mode = parsed_and_validated_envs.get_or(env_tracy_mode, tracy_mode::off);
 		} else {

@@ -26,12 +26,13 @@ specifically in development, debugging, and profiling scenarios:
 
 ## Environment Variables for Performance Tuning
 
-The following environment variables can be used to tune Celerity's performance. 
+The following environment variables can be used to tune Celerity's performance.
 Generally, these might need to be changed depending on the specific application and hardware setup to achieve the best possible performance, but the default values should work reasonably well in all cases:
 | Option | Values | Description |
 | --- | --- | --- |
 | `CELERITY_HORIZON_STEP` | *number* | Determines the maximum number of sequential tasks before a new [horizon task](https://doi.org/10.1007/s42979-024-02749-w) is introduced. |
 | `CELERITY_HORIZON_MAX_PARALLELISM` | *number* | Determines the maximum number of parallel tasks before a new horizon task is introduced. |
+| `CELERITY_LOOKAHEAD` | `none`, `auto`, `infinite` | Controls how the scheduler will queue commands to optimize buffer allocations and avoid resizes. `none` will flush all commands immediately, `auto` will queue heuristically based on `CELERITY_HORIZON_STEP` and `CELERITY_HORIZON_MAX_PARALLELISM`, and `infinite` will always queue up to the next synchronization point. |
 | `CELERITY_BACKEND_DEVICE_SUBMISSION_THREADS` | `on`, `off` | Controls whether device commands are submitted in a separate backend thread for each local device. This improves performance particularly in cases where kernel runtimes are very short. (default: `on`) |
 | `CELERITY_THREAD_PINNING` | `off`, `auto`, `from:#`, *core list* | Controls if and how threads are pinned to CPU cores. `off` disables pinning, `auto` lets Celerity decide, `from:#` starts pinning sequentially from the given core, and a core list specifies the exact pinning (see below). (default: `auto`) |
 

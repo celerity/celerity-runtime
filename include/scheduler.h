@@ -15,7 +15,12 @@
 namespace celerity::detail::scheduler_detail {
 
 /// executed inside scheduler thread, making it safe to access scheduler members
-using test_inspector = std::function<void(const command_graph&, const instruction_graph&)>;
+struct test_state {
+	const command_graph* cdag = nullptr;
+	const instruction_graph* idag = nullptr;
+	experimental::lookahead lookahead = experimental::lookahead::automatic;
+};
+using test_inspector = std::function<void(const test_state&)>;
 
 struct scheduler_impl;
 

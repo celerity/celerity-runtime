@@ -37,6 +37,7 @@ namespace detail {
 		int get_dry_run_nodes() const { return m_dry_run_num_nodes; }
 		std::optional<int> get_horizon_step() const { return m_horizon_step; }
 		std::optional<int> get_horizon_max_parallelism() const { return m_horizon_max_parallelism; }
+		experimental::lookahead get_lookahead() { return m_lookahead; }
 		tracy_mode get_tracy_mode() const { return m_tracy_mode; }
 
 	  private:
@@ -48,6 +49,7 @@ namespace detail {
 		bool m_should_print_graphs = false;
 		std::optional<int> m_horizon_step;
 		std::optional<int> m_horizon_max_parallelism;
+		experimental::lookahead m_lookahead = experimental::lookahead::automatic;
 		tracy_mode m_tracy_mode = tracy_mode::off;
 	};
 

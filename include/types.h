@@ -192,12 +192,12 @@ enum class lookahead {
 	/// buffer allocation (and thus problem size) per device.
 	none,
 
-	/// Queue up a window of command groups at the runtime's discretion. This is the default, and will eliminate reallocations and out-of-memory conditions in
-	/// many applications.
+	/// Queue up a window of command groups at the runtime's discretion. This is the default, and will combine buffer allocations and eliminate resizes and
+	/// out-of-memory conditions in most applications.
 	automatic,
 
-	/// Queue up all command groups until the first call to `queue::fence`, `queue::wait` or runtime shutdown. This maximizes throughput at the expense of
-	/// up-front scheduling latency, but reliably avoids buffer resizes.
+	/// Always queue up all command groups until the next synchronization point, i.e. `queue::fence`, `queue::wait` or runtime shutdown. This maximizes
+	/// throughput and avoids suboptimal buffer allocations at the expense of higher up-front scheduling latency.
 	infinite,
 };
 

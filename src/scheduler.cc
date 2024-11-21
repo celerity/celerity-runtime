@@ -284,7 +284,7 @@ void scheduler_impl::process_task_queue_event(const task_event& evt) {
 		    command_queue.push(e);
 	    },
 	    [&](const test_event_inspect& e) { //
-		    e.inspect(cdag, idag);
+		    e.inspect({.cdag = &cdag, .idag = &idag, .lookahead = lookahead});
 	    });
 }
 

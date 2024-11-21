@@ -302,6 +302,7 @@ namespace detail {
 		// The scheduler references tasks by pointer, so we make sure its lifetime is shorter than the task_manager's.
 		m_schdlr = std::make_unique<scheduler>(
 		    m_num_nodes, m_local_nid, system, static_cast<scheduler::delegate*>(this), m_command_recorder.get(), m_instruction_recorder.get(), schdlr_policy);
+		if(m_cfg->get_lookahead() != experimental::lookahead::automatic) { m_schdlr->set_lookahead(m_cfg->get_lookahead()); }
 
 		// task_manager will pass generated tasks through its delegate, so generate the init epoch only after the scheduler has been initialized
 		m_task_mngr->generate_epoch_task(epoch_action::init);
