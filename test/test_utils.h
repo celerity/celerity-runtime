@@ -85,6 +85,8 @@ namespace detail {
 	};
 
 	struct scheduler_testspy {
+		using test_state = scheduler_detail::test_state;
+
 		class threadless_scheduler : public scheduler {
 		  public:
 			threadless_scheduler(const auto&... params) : scheduler(test_threadless_tag(), params...) {}
@@ -93,28 +95,32 @@ namespace detail {
 
 		template <typename F>
 		static auto inspect_thread(scheduler& schdlr, F&& f) {
-			using return_t = std::invoke_result_t<F, command_graph, instruction_graph>;
+			using return_t = std::invoke_result_t<F, const test_state&>;
 			std::promise<return_t> channel;
-			schdlr.test_inspect([&](const command_graph& cdag, const instruction_graph& idag) {
+			schdlr.test_inspect([&](const scheduler_detail::test_state& state) {
 				if constexpr(std::is_void_v<return_t>) {
-					f(cdag, idag), channel.set_value();
+					f(state), channel.set_value();
 				} else {
-					channel.set_value(f(cdag, idag));
+					channel.set_value(f(state));
 				}
 			});
 			return channel.get_future().get();
 		}
 
 		static std::thread::native_handle_type get_thread(scheduler& schdlr) {
-			return inspect_thread(schdlr, [](const auto&...) { return get_current_thread_handle(); });
+			return inspect_thread(schdlr, [](const test_state& /* state */) { return get_current_thread_handle(); });
 		}
 
 		static size_t get_live_command_count(scheduler& schdlr) {
-			return inspect_thread(schdlr, [](const command_graph& cdag, const instruction_graph& idag) { return graph_testspy::get_live_node_count(cdag); });
+			return inspect_thread(schdlr, [](const test_state& state) { return graph_testspy::get_live_node_count(*state.cdag); });
 		}
 
 		static size_t get_live_instruction_count(scheduler& schdlr) {
-			return inspect_thread(schdlr, [](const command_graph& cdag, const instruction_graph& idag) { return graph_testspy::get_live_node_count(idag); });
+			return inspect_thread(schdlr, [](const test_state& state) { return graph_testspy::get_live_node_count(*state.idag); });
+		}
+
+		static experimental::lookahead get_lookahead(scheduler& schdlr) {
+			return inspect_thread(schdlr, [](const test_state& state) { return state.lookahead; });
 		}
 	};
 
@@ -136,16 +142,14 @@ namespace detail {
 
 		static std::string print_command_graph(const node_id local_nid, runtime& rt) {
 			// command_recorder is mutated by scheduler thread
-			return scheduler_testspy::inspect_thread(get_schdlr(rt), //
-			    [&](const command_graph&, const instruction_graph&) { return detail::print_command_graph(local_nid, *rt.m_command_recorder); });
+			return scheduler_testspy::inspect_thread(
+			    get_schdlr(rt), [&](const auto&) { return detail::print_command_graph(local_nid, *rt.m_command_recorder); });
 		}
 
 		static std::string print_instruction_graph(runtime& rt) {
 			// instruction recorder is mutated by scheduler thread
-			return scheduler_testspy::inspect_thread(get_schdlr(rt), //
-			    [&](const command_graph&, const instruction_graph&) {
-				    return detail::print_instruction_graph(*rt.m_instruction_recorder, *rt.m_command_recorder, *rt.m_task_recorder);
-			    });
+			return scheduler_testspy::inspect_thread(get_schdlr(rt),
+			    [&](const auto&) { return detail::print_instruction_graph(*rt.m_instruction_recorder, *rt.m_command_recorder, *rt.m_task_recorder); });
 		}
 	};
 

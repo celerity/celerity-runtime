@@ -1078,6 +1078,20 @@ namespace detail {
 		CHECK(host_task_completed);
 	}
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime applies lookahead setting from environment", "[runtime][config][lookahead]") {
+		const auto [str, lookahead] = GENERATE(values<std::pair<std::string, experimental::lookahead>>({
+		    {"none", experimental::lookahead::none},
+		    {"auto", experimental::lookahead::automatic},
+		    {"infinite", experimental::lookahead::infinite},
+		}));
+		CAPTURE(str);
+
+		env::scoped_test_environment ste("CELERITY_LOOKAHEAD", str);
+		runtime::init(nullptr, nullptr);
+		auto& schdlr = runtime_testspy::get_schdlr(detail::runtime::get_instance());
+		CHECK(scheduler_testspy::get_lookahead(schdlr) == lookahead);
+	}
+
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "lookahead ensures that a single allocation is used for a growing access pattern", "[runtime][lookahead]") {
 		const auto lookahead = GENERATE(values({experimental::lookahead::none, experimental::lookahead::automatic, experimental::lookahead::infinite}));
 		CAPTURE(lookahead);
