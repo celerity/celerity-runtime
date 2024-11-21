@@ -4,16 +4,14 @@
 #include "backend/sycl_backend.h"
 #include "cgf_diagnostics.h"
 #include "command_graph_generator.h"
-#include "config.h"
 #include "device_selection.h"
 #include "dry_run_executor.h"
-#include "executor.h"
 #include "host_object.h"
 #include "instruction_graph_generator.h"
 #include "live_executor.h"
 #include "log.h"
+#include "named_threads.h"
 #include "print_graph.h"
-#include "ranges.h"
 #include "reduction.h"
 #include "scheduler.h"
 #include "system_info.h"
@@ -46,6 +44,7 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <sycl/sycl.hpp>
+
 
 #ifdef _MSC_VER
 #include <process.h>
@@ -276,7 +275,7 @@ namespace detail {
 			    .hardcoded_core_ids = pin_cfg.hardcoded_core_ids,
 			};
 			m_thread_pinner = std::make_unique<thread_pinning::thread_pinner>(thread_pinning_cfg);
-			thread_pinning::pin_this_thread(thread_pinning::thread_type::application);
+			name_and_pin_and_order_this_thread(named_threads::thread_type::application);
 		}
 
 		const sycl_backend::configuration backend_config = {

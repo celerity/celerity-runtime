@@ -1,5 +1,7 @@
 #pragma once
 
+#include "version.h"
+
 #if CELERITY_TRACY_SUPPORT
 
 #include "config.h"
@@ -19,7 +21,7 @@ namespace celerity::detail::tracy_detail {
 // This is intentionally not an atomic, as parts of Celerity (= live_executor) expect it not to change after runtime startup.
 // We start with `full` tracing to see the runtime startup trigger (i.e. buffer / queue construction), and adjust the setting in runtime::runtime() immediately
 // after parsing the config.
-inline tracy_mode g_tracy_mode = tracy_mode::full;
+inline tracy_mode g_tracy_mode = tracy_mode::full; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 /// Tracy is enabled via environment variable, either in fast or full mode.
 inline bool is_enabled() { return g_tracy_mode != tracy_mode::off; }
@@ -72,9 +74,20 @@ enum thread_order : int32_t {
 
 /// Tracy requires thread and fiber names to be live for the duration of the program, so if they are formatted dynamically, we need to leak them.
 inline const char* leak_name(const std::string& name) {
-	auto* leaked = malloc(name.size() + 1);
+	auto* leaked = malloc(name.size() + 1); // NOLINT
 	memcpy(leaked, name.data(), name.size() + 1);
 	return static_cast<const char*>(leaked);
+}
+
+inline void set_thread_name_and_order(const named_threads::thread_type t_type) {
+	const auto name = named_threads::thread_type_to_string(t_type);
+	int32_t order = 0;
+	switch(t_type) {
+	case named_threads::thread_type::scheduler: order = thread_order::scheduler; break;
+	case named_threads::thread_type::executor: order = thread_order::executor; break;
+	default: order = thread_order::thread_queue; break;
+	}
+	::tracy::SetThreadNameWithHint(leak_name(name), order);
 }
 
 } // namespace celerity::detail::tracy_detail
@@ -103,4 +116,5 @@ inline const char* leak_name(const std::string& name) {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED(TAG, COLOR_NAME);                                                                                                        \
 	CELERITY_DETAIL_TRACY_ZONE_NAME(__VA_ARGS__);
 
-#define CELERITY_DETAIL_TRACY_SET_THREAD_NAME_AND_ORDER(NAME, ORDER) CELERITY_DETAIL_IF_TRACY_ENABLED(::tracy::SetThreadNameWithHint(NAME, ORDER))
+#define CELERITY_DETAIL_TRACY_SET_THREAD_NAME_AND_ORDER(THREAD_TYPE)                                                                                           \
+	CELERITY_DETAIL_IF_TRACY_ENABLED(::celerity::detail::tracy_detail::set_thread_name_and_order(THREAD_TYPE))

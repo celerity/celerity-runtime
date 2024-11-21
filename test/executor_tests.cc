@@ -256,7 +256,7 @@ class mock_backend final : public backend {
 	system_info m_system;
 	uintptr_t m_last_mock_alloc_address = 0;
 	operations_log* m_log;
-	thread_queue m_host_queue{"cy-mock-host"}; // for host tasks with in-tact launcher (= delay tasks)
+	thread_queue m_host_queue{named_threads::task_type_test(0)}; // for host tasks with in-tact launcher (= delay tasks)
 
 	/// alloc operations must return a non-null pointer, which we simply conjure from an integer to allow tests to identify allocations in the log.
 	void* mock_alloc(const size_t size, const size_t alignment) {

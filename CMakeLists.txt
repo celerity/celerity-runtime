@@ -223,6 +223,7 @@ set(SOURCES
   src/grid.cc
   src/instruction_graph_generator.cc
   src/live_executor.cc
+  src/named_threads.cc
   src/out_of_order_engine.cc
   src/print_graph.cc
   src/recorders.cc

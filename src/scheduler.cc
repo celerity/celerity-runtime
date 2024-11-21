@@ -1,13 +1,10 @@
 #include "scheduler.h"
 
-#include "affinity.h"
 #include "command_graph.h"
 #include "command_graph_generator.h"
 #include "double_buffered_queue.h"
 #include "instruction_graph_generator.h"
-#include "log.h"
 #include "named_threads.h"
-#include "print_utils.h"
 #include "ranges.h"
 #include "recorders.h"
 #include "tracy.h"
@@ -18,7 +15,6 @@
 #include <cstddef>
 #include <cstdlib>
 #include <deque>
-#include <exception>
 #include <memory>
 #include <optional>
 #include <string>
@@ -195,10 +191,7 @@ scheduler_impl::scheduler_impl(const bool start_thread, const size_t num_nodes, 
     scheduler::delegate* const dlg, command_recorder* const crec, instruction_recorder* const irec, const scheduler::policy_set& policy)
     : cdag(), crec(crec), cggen(num_nodes, local_node_id, cdag, crec, policy.command_graph_generator), idag(), irec(irec),
       iggen(num_nodes, local_node_id, system, idag, dlg, irec, policy.instruction_graph_generator) {
-	if(start_thread) {
-		thread = std::thread(&scheduler_impl::thread_main, this);
-		set_thread_name(thread.native_handle(), "cy-scheduler");
-	}
+	if(start_thread) { thread = std::thread(&scheduler_impl::thread_main, this); }
 }
 
 scheduler_impl::~scheduler_impl() {
@@ -329,17 +322,8 @@ void scheduler_impl::scheduling_loop() {
 }
 
 void scheduler_impl::thread_main() {
-	CELERITY_DETAIL_TRACY_SET_THREAD_NAME_AND_ORDER("cy-scheduler", tracy_detail::thread_order::scheduler)
-	thread_pinning::pin_this_thread(thread_pinning::thread_type::scheduler); // TODO don't do this in benchmarks!
-	try {
-		scheduling_loop();
-	}
-	// LCOV_EXCL_START
-	catch(const std::exception& e) {
-		CELERITY_CRITICAL("[scheduler] {}", e.what());
-		std::abort();
-	}
-	// LCOV_EXCL_STOP
+	name_and_pin_and_order_this_thread(named_threads::thread_type::scheduler);
+	scheduling_loop();
 }
 
 } // namespace celerity::detail::scheduler_detail
