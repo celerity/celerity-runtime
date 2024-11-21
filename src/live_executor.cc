@@ -1,6 +1,4 @@
 #include "live_executor.h"
-
-#include "affinity.h"
 #include "backend/backend.h"
 #include "closure_hydrator.h"
 #include "communicator.h"
@@ -925,10 +923,7 @@ std::unique_ptr<boundary_check_info> executor_impl::attach_boundary_check_info(s
 namespace celerity::detail {
 
 live_executor::live_executor(std::unique_ptr<backend> backend, std::unique_ptr<communicator> root_comm, executor::delegate* const dlg, const policy_set& policy)
-    : m_root_comm(std::move(root_comm)), m_thread(&live_executor::thread_main, this, std::move(backend), dlg, policy) //
-{
-	set_thread_name(m_thread.native_handle(), "cy-executor");
-}
+    : m_root_comm(std::move(root_comm)), m_thread(&live_executor::thread_main, this, std::move(backend), dlg, policy) {}
 
 live_executor::~live_executor() {
 	m_thread.join(); // thread_main will exit only after executing shutdown epoch
@@ -953,19 +948,8 @@ void live_executor::submit(std::vector<const instruction*> instructions, std::ve
 }
 
 void live_executor::thread_main(std::unique_ptr<backend> backend, executor::delegate* const dlg, const policy_set& policy) {
-	CELERITY_DETAIL_TRACY_SET_THREAD_NAME_AND_ORDER("cy-executor", tracy_detail::thread_order::executor);
-
-	thread_pinning::pin_this_thread(thread_pinning::thread_type::executor);
-
-	try {
-		live_executor_detail::executor_impl(std::move(backend), m_root_comm.get(), m_submission_queue, dlg, policy).run();
-	}
-	// LCOV_EXCL_START
-	catch(const std::exception& e) {
-		CELERITY_CRITICAL("[executor] {}", e.what());
-		std::abort();
-	}
-	// LCOV_EXCL_STOP
+	name_and_pin_and_order_this_thread(named_threads::thread_type::executor);
+	live_executor_detail::executor_impl(std::move(backend), m_root_comm.get(), m_submission_queue, dlg, policy).run();
 }
 
 } // namespace celerity::detail

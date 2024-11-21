@@ -48,6 +48,7 @@ set(TEST_TARGETS
   instruction_graph_misc_tests
   instruction_graph_p2p_tests
   instruction_graph_reduction_tests
+  named_threads_tests
   nd_memory_tests
   out_of_order_engine_tests
   print_graph_tests

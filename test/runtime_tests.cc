@@ -9,8 +9,6 @@
 
 #include <celerity.h>
 
-#include "live_executor.h"
-#include "named_threads.h"
 #include "ranges.h"
 #include "sycl_wrappers.h"
 
@@ -22,10 +20,6 @@ namespace detail {
 	using celerity::access::all;
 	using celerity::access::fixed;
 	using celerity::access::one_to_one;
-
-	struct executor_testspy {
-		static std::thread& get_thread(live_executor& exec) { return exec.m_thread; }
-	};
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "any number of queues can be created", "[queue][lifetime]") {
 		queue q1;
@@ -680,32 +674,6 @@ namespace detail {
 
 		CHECK(exterior == std::vector{1, 2});
 	}
-
-#if CELERITY_DETAIL_HAS_NAMED_THREADS
-
-	TEST_CASE_METHOD(test_utils::runtime_fixture, "thread names are set", "[threads]") {
-		queue q;
-
-		auto& rt = runtime::get_instance();
-		auto& schdlr = runtime_testspy::get_schdlr(rt);
-		auto& exec = *utils::as<live_executor>(&runtime_testspy::get_exec(rt));
-
-		const auto scheduler_thread_name = get_thread_name(scheduler_testspy::get_thread(schdlr));
-		CHECK(scheduler_thread_name == "cy-scheduler");
-
-		const auto executor_thread_name = get_thread_name(executor_testspy::get_thread(exec).native_handle());
-		CHECK(executor_thread_name == "cy-executor");
-
-		q.submit([](handler& cgh) {
-			cgh.host_task(experimental::collective, [&](experimental::collective_partition) {
-				const auto base_name = std::string("cy-host-");
-				const auto worker_thread_name = get_thread_name(get_current_thread_handle());
-				CHECK_THAT(worker_thread_name, Catch::Matchers::StartsWith(base_name));
-			});
-		});
-	}
-
-#endif
 
 	const std::string dryrun_envvar_name = "CELERITY_DRY_RUN_NODES";
 

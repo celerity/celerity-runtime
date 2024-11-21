@@ -14,20 +14,6 @@
 
 namespace celerity::detail::thread_pinning {
 
-std::string thread_type_to_string(const thread_type t_type) {
-	switch(t_type) {
-	case thread_type::application: return "application";
-	case thread_type::scheduler: return "scheduler";
-	case thread_type::executor: return "executor";
-	default: break;
-	}
-	if(t_type >= thread_type::first_device_submitter && t_type < thread_type::first_host_queue) {
-		return fmt::format("device_submitter_{}", t_type - thread_type::first_device_submitter);
-	}
-	if(t_type >= thread_type::first_host_queue && t_type < thread_type::max) { return fmt::format("host_queue_{}", t_type - thread_type::first_host_queue); }
-	return fmt::format("unknown({})", static_cast<uint32_t>(t_type));
-}
-
 namespace {
 	// When we no longer need to support compilers without a working std::views::split, get rid of this function
 	std::vector<std::string> split(const std::string_view str, const char delim) {

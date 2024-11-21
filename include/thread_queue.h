@@ -3,8 +3,6 @@
 #include "async_event.h"
 #include "double_buffered_queue.h"
 #include "named_threads.h"
-#include "tracy.h"
-#include "utils.h"
 
 #include <cassert>
 #include <chrono>
@@ -30,7 +28,7 @@ class thread_queue {
 
 	/// Spawns a new thread queue with the given thread name. If `enable_profiling` is set to `true`, completed events from this thread queue will report a
 	/// non-nullopt duration.
-	explicit thread_queue(std::string thread_name, const bool enable_profiling = false) : m_impl(new impl(std::move(thread_name), enable_profiling)) {}
+	explicit thread_queue(const named_threads::thread_type t_type, const bool enable_profiling = false) : m_impl(new impl(t_type, enable_profiling)) {}
 
 	// thread_queue is movable, but not copyable.
 	thread_queue(const thread_queue&) = delete;
@@ -121,7 +119,8 @@ class thread_queue {
 		const bool enable_profiling;
 		std::thread thread;
 
-		explicit impl(std::string name, const bool enable_profiling) : enable_profiling(enable_profiling), thread(&impl::thread_main, this, std::move(name)) {}
+		explicit impl(const named_threads::thread_type t_type, const bool enable_profiling)
+		    : enable_profiling(enable_profiling), thread(&impl::thread_main, this, t_type) {}
 
 		void execute(job& job) const {
 			std::chrono::steady_clock::time_point start;
@@ -147,17 +146,9 @@ class thread_queue {
 			}
 		}
 
-		void thread_main(const std::string& name) {
-			set_thread_name(get_current_thread_handle(), name);
-			CELERITY_DETAIL_TRACY_SET_THREAD_NAME_AND_ORDER(tracy_detail::leak_name(name), tracy_detail::thread_order::thread_queue);
-
-			try {
-				loop();
-			} catch(std::exception& e) { //
-				utils::panic("exception in {}: {}", name, e.what());
-			} catch(...) { //
-				utils::panic("exception in {}", name);
-			}
+		void thread_main(const named_threads::thread_type t_type) {
+			name_and_pin_and_order_this_thread(t_type);
+			loop();
 		}
 	};
 

@@ -8,9 +8,7 @@
 
 namespace celerity::detail {
 
-dry_run_executor::dry_run_executor(executor::delegate* const dlg) : m_thread(&dry_run_executor::thread_main, this, dlg) {
-	set_thread_name(m_thread.native_handle(), "cy-executor");
-}
+dry_run_executor::dry_run_executor(executor::delegate* const dlg) : m_thread(&dry_run_executor::thread_main, this, dlg) {}
 
 dry_run_executor::~dry_run_executor() { m_thread.join(); }
 
@@ -34,6 +32,7 @@ void dry_run_executor::submit(std::vector<const instruction*> instructions, std:
 }
 
 void dry_run_executor::thread_main(executor::delegate* const dlg) {
+	name_and_pin_and_order_this_thread(named_threads::thread_type::executor);
 	// For simplicity we keep all executor state within this function.
 	std::unordered_map<host_object_id, std::unique_ptr<host_object_instance>> host_object_instances;
 	bool shutdown = false;

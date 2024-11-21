@@ -1,14 +1,14 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 #include <string_view>
 #include <vector>
 
+#include "named_threads.h"
 
 // The goal of this thread pinning mechanism, when enabled, is to ensure that threads which benefit from fast communication
 // are pinned to cores that are close to each other in terms of cache hierarchy.
-// It currently accomplishes this by pinning threads to cores in a round-robin fashion according to their order in the `thread_type` enum.
+// It currently accomplishes this by pinning threads to cores in a round-robin fashion according to their order in the `named_threads::thread_type` enum.
 //
 // In terms of interface design, the goal is to provide a very simple entry point (`pin_this_thread`), that is safe to use from any thread at any time,
 // and does not require polluting any other modules with state related to thread pinning. The `thread_pinner` RAII class offers the only way to manage the
@@ -16,20 +16,6 @@
 //
 // TODO: A future extension would be to respect NUMA for threads performing memory operations, but this requires in-depth knowledge of the system's topology.
 namespace celerity::detail::thread_pinning {
-
-constexpr uint32_t thread_type_step = 10000;
-
-// The threads Celerity interacts with ("application") and creates (everything else), identified for the purpose of pinning.
-// Note: this is not an enum class to make interactions such as specifying `first_backend_worker+i` easier
-enum thread_type : uint32_t {
-	application = 0 * thread_type_step,
-	scheduler = 1 * thread_type_step,
-	executor = 2 * thread_type_step,
-	first_device_submitter = 3 * thread_type_step,
-	first_host_queue = 4 * thread_type_step,
-	max = 5 * thread_type_step,
-};
-std::string thread_type_to_string(const thread_type t_type);
 
 // User-level configuration of the thread pinning mechanism (set by the user via environment variables)
 struct environment_configuration {
@@ -86,6 +72,6 @@ class thread_pinner {
 
 // Pins the invoking thread of type `t_type` according to the current configuration
 // This is a no-op if the thread pinning machinery is not currently initialized (by a `thread_pinner` instance)
-void pin_this_thread(const thread_type t_type);
+void pin_this_thread(const named_threads::thread_type t_type);
 
 } // namespace celerity::detail::thread_pinning

@@ -244,7 +244,7 @@ class restartable_scheduler_thread {
 
 	void main() {
 		// This thread is used for scheduling, so pin it to the scheduler core
-		detail::thread_pinning::pin_this_thread(detail::thread_pinning::thread_type::scheduler);
+		name_and_pin_and_order_this_thread(named_threads::thread_type::scheduler);
 		std::unique_lock lk{m_mutex};
 		for(;;) {
 			m_update.wait(lk, [this] { return !std::holds_alternative<empty>(m_next); });

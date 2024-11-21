@@ -107,10 +107,6 @@ namespace detail {
 			return channel.get_future().get();
 		}
 
-		static std::thread::native_handle_type get_thread(scheduler& schdlr) {
-			return inspect_thread(schdlr, [](const test_state& /* state */) { return get_current_thread_handle(); });
-		}
-
 		static size_t get_live_command_count(scheduler& schdlr) {
 			return inspect_thread(schdlr, [](const test_state& state) { return graph_testspy::get_live_node_count(*state.cdag); });
 		}
@@ -186,7 +182,7 @@ namespace test_utils {
 			    .use_backend_device_submission_threads = false,
 			};
 			m_thread_pinner.emplace(cfg);
-			detail::thread_pinning::pin_this_thread(detail::thread_pinning::thread_type::application);
+			name_and_pin_and_order_this_thread(detail::named_threads::thread_type::application);
 		}
 
 		std::optional<detail::thread_pinning::thread_pinner> m_thread_pinner;

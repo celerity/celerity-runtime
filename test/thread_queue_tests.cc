@@ -7,27 +7,8 @@
 using namespace celerity;
 using namespace celerity::detail;
 
-namespace celerity::detail {
-
-struct thread_queue_testspy {
-	static std::thread& get_thread(thread_queue& tq) { return tq.m_impl->thread; }
-};
-
-} // namespace celerity::detail
-
-#if CELERITY_DETAIL_HAS_NAMED_THREADS
-
-TEST_CASE("thread_queue sets its thread name", "[thread_queue]") {
-	thread_queue tq("funny-name");
-	test_utils::await(tq.submit([] {})); // wait for thread to enter loop
-	auto& thread = thread_queue_testspy::get_thread(tq);
-	CHECK(get_thread_name(thread.native_handle()) == "funny-name");
-}
-
-#endif
-
 TEST_CASE("thread_queue forwards job results", "[thread_queue]") {
-	thread_queue tq("cy-test");
+	thread_queue tq(named_threads::thread_type::first_test);
 
 	auto evt1 = tq.submit([] {});
 	auto evt2 = tq.submit([] { return nullptr; });
@@ -48,7 +29,7 @@ TEST_CASE("thread_queue forwards job results", "[thread_queue]") {
 }
 
 TEST_CASE("thread_queue reports execution times when profiling is enabled", "[thread_queue]") {
-	thread_queue tq("cy-test", true /* enable profiling */);
+	thread_queue tq(named_threads::thread_type::first_test, true /* enable profiling */);
 
 	auto evt1 = tq.submit([] {});
 	auto evt2 = tq.submit([] { std::this_thread::sleep_for(std::chrono::milliseconds(99)); });

@@ -85,18 +85,6 @@ bool have_cores(const core_set& desired_set) {
 
 } // namespace
 
-TEST_CASE("semantic thread type enum entries can be turned into strings", "[affinity]") {
-	using namespace detail::thread_pinning;
-	const auto to_tt = [&](uint32_t t) { return static_cast<thread_type>(t); };
-	CHECK(thread_type_to_string(thread_type::application) == "application");
-	CHECK(thread_type_to_string(thread_type::scheduler) == "scheduler");
-	CHECK(thread_type_to_string(thread_type::executor) == "executor");
-	CHECK(thread_type_to_string(thread_type::first_device_submitter) == "device_submitter_0");
-	CHECK(thread_type_to_string(to_tt(thread_type::first_device_submitter + 1)) == "device_submitter_1");
-	CHECK(thread_type_to_string(thread_type::first_host_queue) == "host_queue_0");
-	CHECK(thread_type_to_string(to_tt(thread_type::first_host_queue + 1)) == "host_queue_1");
-	CHECK(thread_type_to_string(to_tt(3133337)) == "unknown(3133337)");
-}
 
 TEST_CASE("thread pinning environment is correctly parsed", "[affinity][config]") {
 	test_utils::allow_max_log_level(detail::log_level::warn);
@@ -157,7 +145,7 @@ TEST_CASE("a warning is emitted if insufficient cores are available", "[affinity
 	SECTION("if pinning enabled") {
 		detail::thread_pinning::thread_pinner pinner({.enabled = true, .num_devices = 3, .num_legacy_processes = 1});
 		CHECK(test_utils::log_contains_substring(
-		    detail::log_level::warn, "Insufficient logical cores available for thread pinning (required 6 startig from 1, 3 available)"));
+		    detail::log_level::warn, "Insufficient logical cores available for thread pinning (required 6 starting from 1, 3 available)"));
 	}
 	SECTION("if pinning disabled") {
 		detail::thread_pinning::thread_pinner pinner({.enabled = false, .num_devices = 3, .num_legacy_processes = 1});
@@ -204,12 +192,14 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime system claims to pin its 
 
 		{ raii_test_runtime rt(2); }
 
+		using namespace detail::named_threads;
 		constexpr auto msg_template = "Affinity: pinned thread '{}' to core {}";
-		CHECK(test_utils::log_contains_substring(detail::log_level::debug, fmt::format(msg_template, "application", core_ids.at(0))));
-		CHECK(test_utils::log_contains_substring(detail::log_level::debug, fmt::format(msg_template, "scheduler", core_ids.at(1))));
-		CHECK(test_utils::log_contains_substring(detail::log_level::debug, fmt::format(msg_template, "executor", core_ids.at(2))));
-		CHECK(test_utils::log_contains_substring(detail::log_level::debug, fmt::format(msg_template, "device_submitter_0", core_ids.at(3))));
-		CHECK(test_utils::log_contains_substring(detail::log_level::debug, fmt::format(msg_template, "device_submitter_1", core_ids.at(4))));
+		const auto dbg = detail::log_level::debug;
+		CHECK(test_utils::log_contains_substring(dbg, fmt::format(msg_template, thread_type_to_string(thread_type::application), core_ids.at(0))));
+		CHECK(test_utils::log_contains_substring(dbg, fmt::format(msg_template, thread_type_to_string(thread_type::scheduler), core_ids.at(1))));
+		CHECK(test_utils::log_contains_substring(dbg, fmt::format(msg_template, thread_type_to_string(thread_type::executor), core_ids.at(2))));
+		CHECK(test_utils::log_contains_substring(dbg, fmt::format(msg_template, thread_type_to_string(task_type_device_submitter(0)), core_ids.at(3))));
+		CHECK(test_utils::log_contains_substring(dbg, fmt::format(msg_template, thread_type_to_string(task_type_device_submitter(1)), core_ids.at(4))));
 	};
 
 	SECTION("for auto") {
@@ -259,7 +249,8 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "the application thread is actuall
 	// check that the application thread was unpinned on shutdown
 	CHECK(get_current_cores() == process_mask);
 
-	CHECK(test_utils::log_contains_substring(detail::log_level::debug, "Affinity: pinned thread 'application' to core 3"));
+	CHECK(test_utils::log_contains_substring(detail::log_level::debug,
+	    fmt::format("Affinity: pinned thread '{}' to core 3", detail::named_threads::thread_type_to_string(detail::named_threads::thread_type::application))));
 }
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "when pinning is disabled, no threads are pinned", "[affinity][runtime]") {
@@ -318,7 +309,7 @@ TEST_CASE("multiple subsequent non-overlapping pinner lifetimes are handled corr
 
 	{
 		detail::thread_pinning::thread_pinner pinner({.enabled = true, .num_devices = 1});
-		detail::thread_pinning::pin_this_thread(detail::thread_pinning::thread_type::application);
+		detail::thread_pinning::pin_this_thread(detail::named_threads::thread_type::application);
 		CHECK(get_current_cores() == core_set{3});
 	}
 
@@ -326,7 +317,7 @@ TEST_CASE("multiple subsequent non-overlapping pinner lifetimes are handled corr
 
 	{
 		detail::thread_pinning::thread_pinner pinner({.enabled = true, .num_devices = 1, .standard_core_start_id = 4});
-		detail::thread_pinning::pin_this_thread(detail::thread_pinning::thread_type::application);
+		detail::thread_pinning::pin_this_thread(detail::named_threads::thread_type::application);
 		CHECK(get_current_cores() == core_set{4});
 	}
 
@@ -356,7 +347,7 @@ TEST_CASE("application threads are not pinned if their affinity mask is modified
 		detail::thread_pinning::thread_pinner pinner({.enabled = true, .use_backend_device_submission_threads = false});
 		{
 			raii_affinity_masking mask({3});
-			detail::thread_pinning::pin_this_thread(detail::thread_pinning::thread_type::application);
+			detail::thread_pinning::pin_this_thread(detail::named_threads::thread_type::application);
 			CHECK(get_current_cores() == core_set{3});
 		}
 	}

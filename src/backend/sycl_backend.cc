@@ -1,12 +1,12 @@
 #include "backend/sycl_backend.h"
 
-#include "affinity.h"
 #include "async_event.h"
 #include "backend/backend.h"
 #include "closure_hydrator.h"
 #include "dense_map.h"
 #include "grid.h"
 #include "launcher.h"
+#include "named_threads.h"
 #include "nd_memory.h"
 #include "sycl_wrappers.h"
 #include "system_info.h"
@@ -129,7 +129,7 @@ struct sycl_backend::impl {
 		    // - TODO assert that all devices belong to the same platform + backend here
 		    // - TODO test Celerity on a (SimSYCL) system without GPUs
 		    : sycl_context(all_devices.at(0)), //
-		      alloc_queue("cy-alloc", enable_profiling) {}
+		      alloc_queue(named_threads::thread_type::alloc, enable_profiling) {}
 	};
 
 	system_info system;
@@ -174,7 +174,7 @@ struct sycl_backend::impl {
 
 	thread_queue& get_host_queue(const size_t lane) {
 		assert(lane <= host.queues.size());
-		if(lane == host.queues.size()) { host.queues.emplace_back(fmt::format("cy-host-{}", lane), config.profiling); }
+		if(lane == host.queues.size()) { host.queues.emplace_back(named_threads::task_type_host_queue(lane), config.profiling); }
 		return host.queues[lane];
 	}
 
@@ -194,12 +194,9 @@ sycl_backend::sycl_backend(const std::vector<sycl::device>& devices, const confi
 	// Initialize a submission thread with hydrator for each device, if they are enabled
 	if(m_impl->config.per_device_submission_threads) {
 		for(device_id did = 0; did < m_impl->system.devices.size(); ++did) {
-			m_impl->devices[did].submission_thread.emplace(fmt::format("cy-be-sub-{}", did.value), m_impl->config.profiling);
+			m_impl->devices[did].submission_thread.emplace(named_threads::task_type_device_submitter(did.value), m_impl->config.profiling);
 			// no need to wait for the event -> will happen before the first task is submitted
-			(void)m_impl->devices[did].submission_thread->submit([did] {
-				thread_pinning::pin_this_thread(thread_pinning::thread_type(thread_pinning::thread_type::first_device_submitter + did.value));
-				closure_hydrator::make_available();
-			});
+			(void)m_impl->devices[did].submission_thread->submit([did] { closure_hydrator::make_available(); });
 		}
 	}
 }

@@ -1,7 +1,5 @@
 #include "affinity.h"
 
-#include "log.h"
-
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -17,10 +15,14 @@
 #include <pthread.h>
 #include <sched.h>
 
+#include "log.h"
+#include "named_threads.h"
+
 
 namespace {
 
 using namespace celerity::detail::thread_pinning;
+using namespace celerity::detail::named_threads;
 
 std::vector<uint32_t> get_available_sequential_cores(const cpu_set_t& available_cores, const uint32_t count, const uint32_t starting_from_core) {
 	std::vector<uint32_t> cores;
@@ -70,7 +72,7 @@ std::vector<thread_type> get_threads_to_pin(const runtime_configuration& cfg) {
 	std::vector<thread_type> threads_to_pin = {thread_type::application, thread_type::scheduler, thread_type::executor};
 	if(cfg.use_backend_device_submission_threads) {
 		for(uint32_t i = 0; i < cfg.num_devices; ++i) {
-			threads_to_pin.push_back(static_cast<thread_type>(thread_type::first_device_submitter + i)); // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
+			threads_to_pin.push_back(task_type_device_submitter(i));
 		}
 	}
 	return threads_to_pin;
@@ -107,7 +109,7 @@ bool initialize(const runtime_configuration& cfg) {
 	}
 	{ // log tracing information about available cores, specifically useful to understand MPI implementation behaviour
 		std::string available_cores_str = {};
-		for(uint32_t i = 0; i < CPU_SETSIZE; ++i) {
+		for(uint32_t i = 0; i < std::min(static_cast<unsigned>(CPU_SETSIZE), std::thread::hardware_concurrency()); ++i) {
 			available_cores_str += CPU_ISSET(i, &g_state.available_cores) ? "1" : "0";
 		}
 		CELERITY_TRACE("Affinity: Initialized, available cores: {}", available_cores_str);
@@ -143,7 +145,7 @@ bool initialize(const runtime_configuration& cfg) {
 			// to the ones next to it in this sequence, so that communication between them is fast
 			selected_core_ids = get_available_sequential_cores(g_state.available_cores, total_threads, cfg.standard_core_start_id);
 			if(selected_core_ids.empty()) {
-				CELERITY_WARN("Insufficient logical cores available for thread pinning (required {} startig from {}, {} available), disabling pinning."
+				CELERITY_WARN("Insufficient logical cores available for thread pinning (required {} starting from {}, {} available), disabling pinning."
 				              " Performance may be negatively impacted.", //
 				    total_threads, cfg.standard_core_start_id, CPU_COUNT(&g_state.available_cores));
 			}
@@ -218,7 +220,13 @@ void pin_this_thread(const thread_type t_type) {
 	// if thread pinning is not initialized or disabled, do nothing
 	if(!g_state.initialized || !g_state.config.enabled) return;
 
-	assert(g_state.thread_pinning_plan.find(t_type) != g_state.thread_pinning_plan.end() && "Trying to pin thread of a type which has no core assigned.");
+	if(!g_state.thread_pinning_plan.contains(t_type)) {
+		// this is fine, not all threads need to be pinned in each plan, but all should call this function for consistency and potential
+		// future (e.g. NUMA-aware) pinning strategies
+		CELERITY_TRACE("Affinity: thread '{}' is not pinned.", thread_type_to_string(t_type));
+		return;
+	}
+
 	assert(g_state.pinned_threads.find(pthread_self()) == g_state.pinned_threads.end() && "Trying to pin a thread which was already pinned.");
 
 	// retrieve current thread affinity for later restoration

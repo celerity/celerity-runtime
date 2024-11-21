@@ -2,12 +2,13 @@
 
 #include <cassert>
 #include <cwchar>
+#include <thread>
 #include <type_traits>
 
 #include <windows.h>
 
 
-namespace celerity::detail {
+namespace celerity::detail::named_threads {
 
 static_assert(std::is_same_v<std::thread::native_handle_type, HANDLE>, "Unexpected native thread handle type");
 
@@ -29,11 +30,9 @@ static inline std::wstring convert_string(const std::string& str) {
 	return dst;
 }
 
-std::thread::native_handle_type get_current_thread_handle() { return GetCurrentThread(); }
-
-void set_thread_name(const std::thread::native_handle_type thread_handle, const std::string& name) {
-	const auto wname = convert_string(name);
-	[[maybe_unused]] const auto res = SetThreadDescription(thread_handle, wname.c_str());
+void set_current_thread_name([[maybe_unused]] const thread_type t_type) {
+	const auto wname = convert_string(thread_type_to_string(t_type));
+	[[maybe_unused]] const auto res = SetThreadDescription(GetCurrentThread(), wname.c_str());
 	assert(SUCCEEDED(res) && "Failed to set thread name");
 }
 
@@ -49,4 +48,6 @@ std::string get_thread_name(const std::thread::native_handle_type thread_handle)
 	return name;
 }
 
-} // namespace celerity::detail
+std::string get_current_thread_name() { return get_thread_name(GetCurrentThread()); }
+
+} // namespace celerity::detail::named_threads
