@@ -1,17 +1,25 @@
 #include "task_manager.h"
 
-#include "access_modes.h"
 #include "grid.h"
 #include "intrusive_graph.h"
 #include "log.h"
+#include "ranges.h"
 #include "recorders.h"
 #include "task.h"
 #include "types.h"
+#include "utils.h"
+
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <utility>
 
 #include <fmt/format.h>
 
-#include <algorithm>
-#include <stdexcept>
 
 namespace celerity {
 namespace detail {

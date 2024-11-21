@@ -4,6 +4,8 @@
 #include "ranges.h"
 #include "utils.h"
 
+#include <cassert>
+#include <cstddef>
 #include <cstring>
 #include <variant>
 

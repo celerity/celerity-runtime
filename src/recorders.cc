@@ -1,8 +1,19 @@
 #include "recorders.h"
 
-#include <cstddef>
-
 #include "command_graph.h"
+#include "grid.h"
+#include "instruction_graph.h"
+#include "ranges.h"
+#include "task.h"
+#include "types.h"
+
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <optional>
+#include <utility>
+#include <vector>
+
 
 namespace celerity::detail {
 

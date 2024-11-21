@@ -1,12 +1,5 @@
 #pragma once
 
-#include <cassert>
-#include <memory>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <vector>
-
 #include "graph.h"
 #include "grid.h"
 #include "hint.h"
@@ -17,6 +10,17 @@
 #include "reduction.h"
 #include "sycl_wrappers.h"
 #include "types.h"
+#include "utils.h"
+
+#include <cassert>
+#include <cstddef>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
 
 namespace celerity {
 

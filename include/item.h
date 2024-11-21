@@ -1,6 +1,14 @@
 #pragma once
 
 #include "ranges.h"
+#include "sycl_wrappers.h"
+
+#include <algorithm>
+#include <cstddef>
+#include <iterator>
+
+#include <sycl/sycl.hpp>
+
 
 namespace celerity {
 

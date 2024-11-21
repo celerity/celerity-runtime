@@ -1,8 +1,9 @@
 #pragma once
 
+#include "task.h"
+
 #include <optional>
 
-#include "task.h"
 
 namespace celerity::detail {
 

@@ -1,8 +1,8 @@
 #pragma once
 
-#include <spdlog/spdlog.h>
-
 #include "print_utils.h" // any translation unit that needs logging probably also wants pretty-printing
+
+#include <spdlog/spdlog.h>
 
 
 #define CELERITY_LOG(level, ...) (::spdlog::should_log(level) ? SPDLOG_LOGGER_CALL(::spdlog::default_logger_raw(), level, __VA_ARGS__) : (void)0)

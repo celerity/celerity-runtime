@@ -4,7 +4,11 @@
 #include "ranges.h"
 #include "types.h"
 
+#include <cstddef>
 #include <limits>
+#include <memory>
+#include <string>
+#include <vector>
 
 
 namespace celerity::detail {

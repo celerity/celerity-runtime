@@ -2,13 +2,14 @@
 
 #include "async_event.h"
 #include "closure_hydrator.h"
+#include "grid.h"
 #include "launcher.h"
 #include "nd_memory.h"
 #include "types.h"
 
+#include <cstddef>
 #include <vector>
 
-#include <sycl/sycl.hpp>
 
 namespace celerity::detail {
 

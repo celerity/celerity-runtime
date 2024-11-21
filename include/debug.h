@@ -1,10 +1,12 @@
-#include <string>
-
 #include "buffer.h"
 #include "handler.h"
 
+#include <string>
+
+
 namespace celerity {
 namespace debug {
+
 	template <typename DataT, int Dims>
 	void set_buffer_name(const celerity::buffer<DataT, Dims>& buff, const std::string& debug_name) {
 		detail::set_buffer_name(buff, debug_name);
@@ -16,5 +18,6 @@ namespace debug {
 	}
 
 	inline void set_task_name(celerity::handler& cgh, const std::string& debug_name) { detail::set_task_name(cgh, debug_name); }
+
 } // namespace debug
 } // namespace celerity

@@ -1,13 +1,29 @@
 #pragma once
 
 #include "command_graph.h"
+#include "grid.h"
 #include "instruction_graph.h"
+#include "intrusive_graph.h"
+#include "nd_memory.h"
 #include "pilot.h"
+#include "ranges.h"
+#include "sycl_wrappers.h"
 #include "task.h"
+#include "types.h"
 
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
 #include <functional>
+#include <memory>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
+
+#include <matchbox.hh>
 
 
 namespace celerity::detail {

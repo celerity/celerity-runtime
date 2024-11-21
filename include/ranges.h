@@ -1,7 +1,13 @@
 #pragma once
 
-#include "sycl_wrappers.h"
 #include "workaround.h"
+
+#include <cstddef>
+#include <stdexcept>
+#include <type_traits>
+
+#include <sycl/sycl.hpp>
+
 
 namespace celerity {
 

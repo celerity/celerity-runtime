@@ -1,5 +1,15 @@
 #include "grid.h"
+
+#include "ranges.h"
 #include "utils.h"
+
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <iterator>
+#include <type_traits>
+#include <vector>
+
 
 namespace celerity::detail::grid_detail {
 

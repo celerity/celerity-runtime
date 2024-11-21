@@ -2,11 +2,17 @@
 
 #include "access_modes.h"
 #include "command_graph.h"
+#include "dense_map.h"
 #include "grid.h"
+#include "hint.h"
 #include "instruction_graph.h"
+#include "launcher.h"
 #include "log.h"
-#include "print_utils.h"
+#include "nd_memory.h"
+#include "pilot.h"
+#include "ranges.h"
 #include "recorders.h"
+#include "reduction.h"
 #include "region_map.h"
 #include "split.h"
 #include "system_info.h"
@@ -14,10 +20,26 @@
 #include "tracy.h"
 #include "types.h"
 #include "utils.h"
+#include "workaround.h"
 
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <exception>
+#include <iterator>
+#include <limits>
+#include <numeric>
+#include <optional>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
+#include <variant>
 #include <vector>
+
+#include <fmt/format.h>
+#include <gch/small_vector.hpp>
+#include <matchbox.hh>
 
 
 namespace celerity::detail::instruction_graph_generator_detail {

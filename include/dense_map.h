@@ -5,6 +5,7 @@
 #include <iterator>
 #include <vector>
 
+
 namespace celerity::detail {
 
 /// Like a simple std::unordered_map, but implemented by indexing into a vector with the integral key type.

@@ -2,8 +2,10 @@
 
 #include "types.h"
 
+#include <cstddef>
 #include <memory>
 #include <numeric>
+
 
 namespace celerity::detail {
 

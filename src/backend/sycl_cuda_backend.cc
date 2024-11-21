@@ -1,14 +1,26 @@
 #include "backend/sycl_backend.h"
 
-#include <cuda_runtime.h>
-
+#include "async_event.h"
+#include "grid.h"
 #include "log.h"
 #include "nd_memory.h"
 #include "ranges.h"
 #include "system_info.h"
 #include "tracy.h"
+#include "types.h"
 #include "utils.h"
 #include "version.h"
+
+#include <cassert>
+#include <cstddef>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include <cuda_runtime.h>
+#include <sycl/sycl.hpp>
+
 
 #define CELERITY_STRINGIFY2(f) #f
 #define CELERITY_STRINGIFY(f) CELERITY_STRINGIFY2(f)

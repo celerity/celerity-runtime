@@ -1,13 +1,13 @@
 #pragma once
 
-#include <memory>
-
-#include <sycl/sycl.hpp>
-
 #include "ranges.h"
 #include "runtime.h"
 #include "sycl_wrappers.h"
 #include "tracy.h"
+
+#include <memory>
+
+#include <sycl/sycl.hpp>
 
 
 namespace celerity {

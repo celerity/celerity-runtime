@@ -2,11 +2,15 @@
 
 #include "double_buffered_queue.h"
 #include "executor.h"
+#include "types.h"
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <thread>
 #include <variant>
+#include <vector>
+
 
 namespace celerity::detail::live_executor_detail {
 

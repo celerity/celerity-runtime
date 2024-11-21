@@ -1,8 +1,11 @@
 #pragma once
 
+#include "communicator.h"
 #include "ranges.h"
 #include "utils.h"
 #include "version.h"
+
+#include <cstddef>
 
 #if CELERITY_ENABLE_MPI
 #include "mpi_communicator.h" // TODO only used for type cast - move that function to .cc file

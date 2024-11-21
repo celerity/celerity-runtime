@@ -1,10 +1,12 @@
 #pragma once
 
+#include "affinity.h"
+#include "log.h"
+#include "types.h"
+
 #include <cstddef>
 #include <optional>
 
-#include "affinity.h"
-#include "log.h"
 
 namespace celerity {
 namespace detail {

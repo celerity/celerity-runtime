@@ -3,6 +3,7 @@
 #include <string>
 #include <thread>
 
+
 namespace celerity::detail {
 
 std::thread::native_handle_type get_current_thread_handle();

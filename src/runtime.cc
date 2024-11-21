@@ -1,9 +1,51 @@
 #include "runtime.h"
 
+#include "affinity.h"
+#include "backend/sycl_backend.h"
+#include "cgf_diagnostics.h"
+#include "command_graph_generator.h"
+#include "config.h"
+#include "device_selection.h"
+#include "dry_run_executor.h"
+#include "executor.h"
+#include "host_object.h"
+#include "instruction_graph_generator.h"
+#include "live_executor.h"
+#include "log.h"
+#include "print_graph.h"
+#include "ranges.h"
+#include "reduction.h"
+#include "scheduler.h"
+#include "system_info.h"
+#include "task.h"
+#include "task_manager.h"
+#include "tracy.h"
+#include "types.h"
+#include "utils.h"
+#include "version.h"
+
 #include <atomic>
+#include <cassert>
+#include <chrono>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <future>
 #include <limits>
+#include <memory>
+#include <optional>
+#include <stdexcept>
 #include <string>
+#include <thread>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+#include <sycl/sycl.hpp>
 
 #ifdef _MSC_VER
 #include <process.h>
@@ -15,27 +57,6 @@
 // override default new/delete operators to use the mimalloc memory allocator
 #include <mimalloc-new-delete.h>
 #endif
-
-#include "affinity.h"
-#include "backend/sycl_backend.h"
-#include "cgf_diagnostics.h"
-#include "command_graph_generator.h"
-#include "device_selection.h"
-#include "dry_run_executor.h"
-#include "host_object.h"
-#include "instruction_graph_generator.h"
-#include "live_executor.h"
-#include "log.h"
-#include "print_graph.h"
-#include "reduction.h"
-#include "scheduler.h"
-#include "system_info.h"
-#include "task.h"
-#include "task_manager.h"
-#include "tracy.h"
-#include "types.h"
-#include "utils.h"
-#include "version.h"
 
 #if CELERITY_ENABLE_MPI
 #include "mpi_communicator.h"

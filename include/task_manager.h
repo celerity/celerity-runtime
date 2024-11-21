@@ -1,13 +1,18 @@
 #pragma once
 
+#include "intrusive_graph.h"
+#include "ranges.h"
+#include "region_map.h"
+#include "task.h"
+#include "types.h"
+
+#include <cassert>
 #include <cstddef>
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
-#include "region_map.h"
-#include "task.h"
-#include "types.h"
 
 namespace celerity {
 namespace detail {

@@ -1,8 +1,5 @@
 #pragma once
 
-#include <memory>
-#include <unordered_set>
-
 #include "config.h"
 #include "device_selection.h"
 #include "executor.h"
@@ -11,6 +8,10 @@
 #include "task.h"
 #include "task_manager.h"
 #include "types.h"
+
+#include <memory>
+#include <unordered_set>
+
 
 namespace celerity {
 namespace detail {

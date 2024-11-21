@@ -1,13 +1,23 @@
 #pragma once
 
-#include <optional>
-#include <vector>
-
 #include "grid.h"
 #include "ranges.h"
 #include "sycl_wrappers.h"
 #include "types.h"
 #include "version.h"
+
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <optional>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#include <sycl/sycl.hpp>
+
 
 namespace celerity::detail {
 

@@ -1,18 +1,32 @@
 #include "print_graph.h"
 
-#include <fmt/format.h>
-
 #include "access_modes.h"
 #include "grid.h"
 #include "instruction_graph.h"
+#include "intrusive_graph.h"
 #include "log.h"
-#include "print_utils.h"
+#include "ranges.h"
 #include "recorders.h"
+#include "sycl_wrappers.h"
 #include "task.h"
+#include "types.h"
+#include "utils.h"
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
 #include <map>
 #include <set>
+#include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include <fmt/format.h>
+#include <matchbox.hh>
+
 
 namespace celerity::detail {
 

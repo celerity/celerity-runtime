@@ -1,14 +1,16 @@
 #pragma once
 
+#include "grid.h"
+#include "ranges.h"
+
+#include <cassert>
+#include <cstddef>
+#include <limits>
 #include <stdexcept>
 #include <type_traits>
 
 #include <fmt/format.h>
 #include <sycl/sycl.hpp>
-
-#include "grid.h"
-#include "ranges.h"
-#include "utils.h"
 
 
 namespace celerity {

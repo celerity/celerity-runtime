@@ -1,8 +1,10 @@
 #pragma once
 
+#include "ranges.h"
+
+#include <cstddef>
 #include <vector>
 
-#include "ranges.h"
 
 namespace celerity::detail {
 

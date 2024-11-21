@@ -1,11 +1,12 @@
 #pragma once
 
+#include "system_info.h"
+
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <vector>
 
-#include "system_info.h"
 
 namespace celerity::detail {
 

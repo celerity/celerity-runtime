@@ -1,10 +1,14 @@
 #include "named_threads.h"
+
 #include "version.h"
 
 #include <cassert>
+#include <string>
+#include <thread>
 #include <type_traits>
 
 #include <pthread.h>
+
 
 namespace celerity::detail {
 

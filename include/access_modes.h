@@ -4,6 +4,7 @@
 
 #include <sycl/sycl.hpp>
 
+
 namespace celerity::detail::access {
 
 constexpr std::array<sycl::access::mode, 6> all_modes = {sycl::access::mode::atomic, sycl::access::mode::discard_read_write, sycl::access::mode::discard_write,

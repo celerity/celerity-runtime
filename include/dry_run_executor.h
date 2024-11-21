@@ -2,9 +2,14 @@
 
 #include "double_buffered_queue.h"
 #include "executor.h"
+#include "types.h"
 
+#include <memory>
 #include <thread>
+#include <utility>
 #include <variant>
+#include <vector>
+
 
 namespace celerity::detail {
 

@@ -1,14 +1,20 @@
 #include "config.h"
 
-#include <cstdlib>
-#include <string_view>
-
 #include "affinity.h"
 #include "log.h"
+#include "types.h"
+#include "workaround.h"
 
-#include <spdlog/sinks/sink.h>
+#include <cstdlib>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
+#include <fmt/format.h>
 #include <libenvpp/env.hpp>
+
 
 namespace env {
 
