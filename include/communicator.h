@@ -2,7 +2,15 @@
 
 #include "async_event.h"
 #include "pilot.h"
+#include "ranges.h"
+#include "types.h"
 #include "utils.h"
+
+#include <cstddef>
+#include <functional>
+#include <memory>
+#include <vector>
+
 
 namespace celerity::detail {
 

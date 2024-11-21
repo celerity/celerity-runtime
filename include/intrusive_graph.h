@@ -2,10 +2,12 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstddef>
 #include <optional>
 #include <type_traits>
 
 #include <gch/small_vector.hpp>
+
 
 namespace celerity {
 namespace detail {

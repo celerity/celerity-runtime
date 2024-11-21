@@ -6,11 +6,19 @@
 #include "tracy.h"
 #include "utils.h"
 
+#include <cassert>
 #include <chrono>
+#include <exception>
+#include <functional>
 #include <future>
+#include <memory>
+#include <optional>
+#include <string>
 #include <thread>
 #include <type_traits>
+#include <utility>
 #include <variant>
+
 
 namespace celerity::detail {
 

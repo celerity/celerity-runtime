@@ -4,6 +4,8 @@
 #include "types.h"
 
 #include <bitset>
+#include <cstddef>
+
 
 namespace celerity::detail {
 

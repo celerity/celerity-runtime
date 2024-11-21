@@ -1,7 +1,14 @@
 #pragma once
 
+#include "async_event.h"
 #include "communicator.h"
+#include "pilot.h"
+#include "types.h"
 #include "utils.h"
+
+#include <cstddef>
+#include <memory>
+#include <vector>
 
 
 namespace celerity::detail {

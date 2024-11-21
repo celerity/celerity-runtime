@@ -7,10 +7,15 @@
 #include "ranges.h"
 #include "types.h"
 #include "version.h"
+#include "workaround.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstdlib>
 #include <memory>
+#include <string>
+#include <utility>
+#include <variant>
 #include <vector>
 
 #include <gch/small_vector.hpp>

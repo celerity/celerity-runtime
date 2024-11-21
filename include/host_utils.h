@@ -2,6 +2,10 @@
 
 #include "item.h"
 #include "partition.h"
+#include "ranges.h"
+
+#include <cstddef>
+
 
 namespace celerity::experimental {
 

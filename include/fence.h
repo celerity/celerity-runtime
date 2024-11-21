@@ -1,10 +1,5 @@
 #pragma once
 
-#include <future>
-#include <memory>
-#include <type_traits>
-#include <vector>
-
 #include "buffer.h"
 #include "host_object.h"
 #include "range_mapper.h"
@@ -13,6 +8,12 @@
 #include "task.h"
 #include "task_manager.h"
 #include "tracy.h"
+
+#include <future>
+#include <memory>
+#include <type_traits>
+#include <vector>
+
 
 namespace celerity::detail {
 

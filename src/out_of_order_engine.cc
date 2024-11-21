@@ -1,4 +1,5 @@
 #include "out_of_order_engine.h"
+
 #include "dense_map.h"
 #include "instruction_graph.h"
 #include "system_info.h"
@@ -11,6 +12,7 @@
 #include <vector>
 
 #include <matchbox.hh>
+
 
 namespace celerity::detail::out_of_order_engine_detail {
 

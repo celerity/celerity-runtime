@@ -11,6 +11,7 @@
 #include "side_effect.h"
 #include "version.h"
 
+
 namespace celerity {
 namespace runtime {
 

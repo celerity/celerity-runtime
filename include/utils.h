@@ -1,7 +1,11 @@
 #pragma once
 
+#include "types.h"
+
 #include <algorithm>
 #include <cassert>
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -9,10 +13,9 @@
 #include <tuple>
 #include <type_traits>
 #include <typeinfo>
+#include <utility>
 
 #include <fmt/format.h>
-
-#include "types.h"
 
 
 #define CELERITY_DETAIL_UTILS_CAT_2(a, b) a##b

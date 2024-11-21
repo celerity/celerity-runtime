@@ -1,16 +1,18 @@
 #include "task.h"
 
-#include <cstddef>
-#include <unordered_map>
-#include <utility>
-#include <vector>
-
 #include "access_modes.h"
 #include "grid.h"
 #include "range_mapper.h"
 #include "ranges.h"
 #include "types.h"
 #include "utils.h"
+
+#include <cstddef>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
 
 namespace celerity::detail {
 

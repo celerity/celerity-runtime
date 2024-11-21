@@ -1,19 +1,23 @@
 #pragma once
 
+#include "grid.h"
+#include "ranges.h"
+#include "utils.h"
+
+#include <cassert>
+#include <cstddef>
 #include <limits>
 #include <memory>
-#include <numeric>
 #include <optional>
 #include <queue>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
 #include <fmt/format.h>
 #include <matchbox.hh>
 
-#include "grid.h"
-#include "utils.h"
 
 // Some toggles that affect performance (but also change the behavior!)
 // TODO: Consider making these template arguments instead (inside some config object), and add these:

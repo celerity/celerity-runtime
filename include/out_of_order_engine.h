@@ -1,8 +1,10 @@
 #include "types.h"
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <unordered_set>
+
 
 namespace celerity::detail::out_of_order_engine_detail {
 struct engine_impl;

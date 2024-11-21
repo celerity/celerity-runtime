@@ -8,6 +8,7 @@
 
 #include <sycl/sycl.hpp>
 
+
 namespace celerity::detail {
 
 class communicator;

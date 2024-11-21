@@ -1,15 +1,25 @@
 #pragma once
 
 #include "async_event.h"
-
 #include "backend/backend.h"
+#include "closure_hydrator.h"
+#include "grid.h"
+#include "launcher.h"
+#include "nd_memory.h"
+#include "types.h"
 
 #include <atomic>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
+#include <utility>
 #include <vector>
 
-#include <fmt/format.h>
+#include <sycl/sycl.hpp>
+
 
 namespace celerity::detail::sycl_backend_detail {
 

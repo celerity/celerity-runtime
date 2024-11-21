@@ -1,17 +1,39 @@
 #include "backend/sycl_backend.h"
 
 #include "affinity.h"
+#include "async_event.h"
+#include "backend/backend.h"
 #include "closure_hydrator.h"
 #include "dense_map.h"
+#include "fmt/format.h"
+#include "grid.h"
+#include "launcher.h"
 #include "nd_memory.h"
+#include "sycl_wrappers.h"
 #include "system_info.h"
 #include "thread_queue.h"
+#include "tracy.h"
 #include "types.h"
+#include "utils.h"
+#include "workaround.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cassert>
+#include <chrono>
+#include <cstddef>
+#include <cstring>
+#include <exception>
+#include <functional>
 #include <memory>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include <fmt/ranges.h>
+#include <sycl/sycl.hpp>
+
 
 namespace celerity::detail::sycl_backend_detail {
 

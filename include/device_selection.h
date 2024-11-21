@@ -1,16 +1,25 @@
 #pragma once
 
+#include "config.h"
+#include "log.h"
+#include "types.h"
+#include "utils.h"
+
+#include <cassert>
+#include <concepts>
+#include <cstddef>
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
-#include "config.h"
-#include "log.h"
-#include "utils.h"
-
+#include <fmt/format.h>
 #include <sycl/sycl.hpp>
+
 
 namespace celerity::detail {
 

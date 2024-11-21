@@ -6,6 +6,7 @@
 
 #include <windows.h>
 
+
 namespace celerity::detail {
 
 static_assert(std::is_same_v<std::thread::native_handle_type, HANDLE>, "Unexpected native thread handle type");

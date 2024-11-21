@@ -1,8 +1,9 @@
 #pragma once
 
-#include "workaround.h"
+#include <type_traits>
 
 #include <sycl/sycl.hpp>
+
 
 namespace celerity {
 

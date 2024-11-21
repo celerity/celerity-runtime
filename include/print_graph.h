@@ -1,9 +1,11 @@
 #pragma once
 
-#include <memory>
-#include <string>
-
 #include "recorders.h"
+#include "types.h"
+
+#include <string>
+#include <vector>
+
 
 namespace celerity::detail {
 

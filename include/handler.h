@@ -1,6 +1,29 @@
 #pragma once
 
+#include "buffer.h"
+#include "cgf_diagnostics.h"
+#include "communicator.h"
+#include "grid.h"
+#include "hint.h"
+#include "item.h"
+#include "launcher.h"
+#include "partition.h"
+#include "range_mapper.h"
+#include "ranges.h"
+#include "reduction.h"
+#include "sycl_wrappers.h"
+#include "task.h"
+#include "types.h"
+#include "version.h"
+#include "workaround.h"
+
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
 #include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <typeinfo>
 #include <utility>
@@ -9,17 +32,6 @@
 #include <fmt/format.h>
 #include <sycl/sycl.hpp>
 
-#include "buffer.h"
-#include "cgf_diagnostics.h"
-#include "item.h"
-#include "partition.h"
-#include "range_mapper.h"
-#include "ranges.h"
-#include "sycl_wrappers.h"
-#include "task.h"
-#include "types.h"
-#include "version.h"
-#include "workaround.h"
 
 namespace celerity {
 class handler;

@@ -1,6 +1,11 @@
+#include "affinity.h"
+
+#include "log.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <iterator>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -12,8 +17,6 @@
 #include <pthread.h>
 #include <sched.h>
 
-#include "affinity.h"
-#include "log.h"
 
 namespace {
 

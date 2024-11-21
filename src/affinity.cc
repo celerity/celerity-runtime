@@ -8,7 +8,9 @@
 #include <string_view>
 #include <vector>
 
+#include <fmt/format.h>
 #include <libenvpp/env.hpp>
+
 
 namespace celerity::detail::thread_pinning {
 

@@ -6,6 +6,7 @@
 
 #include <sycl/sycl.hpp>
 
+
 #if CELERITY_SYCL_IS_DPCPP
 #define CELERITY_WORKAROUND_DPCPP 1
 #else

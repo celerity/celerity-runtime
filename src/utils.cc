@@ -1,9 +1,24 @@
 #include "utils.h"
+
 #include "log.h"
+#include "types.h"
 
 #include <atomic>
+#include <cassert>
+#include <cctype>
+#include <cstddef>
+#include <cstdlib>
+#include <functional>
+#include <iterator>
+#include <memory>
 #include <regex>
 #include <stdexcept>
+#include <stdlib.h>
+#include <string>
+#include <string_view>
+#include <typeinfo>
+
+#include <fmt/format.h>
 
 #if !defined(_MSC_VER)
 // Required for kernel name demangling in Clang

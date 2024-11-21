@@ -1,16 +1,7 @@
 #pragma once
 
-#include <bitset>
-#include <concepts>
-#include <cstddef>
-#include <cstdint>
-#include <functional>
-#include <tuple>
-#include <unordered_map>
-#include <utility>
-#include <vector>
-
 #include "command_graph.h"
+#include "grid.h"
 #include "intrusive_graph.h"
 #include "ranges.h"
 #include "recorders.h"
@@ -18,6 +9,19 @@
 #include "region_map.h"
 #include "types.h"
 #include "utils.h"
+
+#include <bitset>
+#include <cassert>
+#include <concepts>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <optional>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 
 namespace celerity::detail {

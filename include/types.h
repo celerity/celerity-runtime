@@ -6,6 +6,7 @@
 #include <functional>
 #include <type_traits>
 
+
 namespace celerity::detail {
 
 /// Like `false`, but dependent on one or more template parameters. Use as the condition of always-failing static assertions in overloads, template

@@ -1,14 +1,18 @@
 #pragma once
 
+#include "ranges.h"
+#include "workaround.h"
+
 #include <algorithm>
+#include <cassert>
+#include <cstddef>
 #include <iterator>
 #include <limits>
 #include <numeric>
+#include <vector>
 
 #include <gch/small_vector.hpp>
 
-#include "ranges.h"
-#include "workaround.h"
 
 namespace celerity::detail {
 

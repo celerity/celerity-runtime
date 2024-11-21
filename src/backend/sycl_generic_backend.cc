@@ -1,10 +1,21 @@
 #include "backend/sycl_backend.h"
 
+#include "async_event.h"
+#include "grid.h"
 #include "log.h"
 #include "nd_memory.h"
 #include "ranges.h"
 #include "tracy.h"
 #include "types.h"
+
+#include <cassert>
+#include <cstddef>
+#include <optional>
+#include <utility>
+#include <vector>
+
+#include <sycl/sycl.hpp>
+
 
 namespace celerity::detail::sycl_backend_detail {
 

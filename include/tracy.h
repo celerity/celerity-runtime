@@ -13,6 +13,7 @@
 #include <tracy/Tracy.hpp>
 #include <tracy/TracyC.h>
 
+
 namespace celerity::detail::tracy_detail {
 
 // This is intentionally not an atomic, as parts of Celerity (= live_executor) expect it not to change after runtime startup.

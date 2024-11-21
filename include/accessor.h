@@ -1,16 +1,25 @@
 #pragma once
 
-#include <type_traits>
-
-#include <sycl/sycl.hpp>
-
 #include "access_modes.h"
 #include "buffer.h"
 #include "cgf_diagnostics.h"
 #include "closure_hydrator.h"
 #include "handler.h"
+#include "range_mapper.h"
+#include "ranges.h"
 #include "sycl_wrappers.h"
+#include "types.h"
 #include "version.h"
+#include "workaround.h"
+
+#include <algorithm>
+#include <cstddef>
+#include <mutex>
+#include <stdexcept>
+#include <type_traits>
+
+#include <sycl/sycl.hpp>
+
 
 namespace celerity {
 

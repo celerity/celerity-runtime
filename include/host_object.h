@@ -1,11 +1,15 @@
 #pragma once
 
+#include "runtime.h"
+#include "tracy.h"
+#include "types.h"
+
+#include <cassert>
+#include <functional>
 #include <memory>
 #include <type_traits>
 #include <utility>
 
-#include "runtime.h"
-#include "tracy.h"
 
 namespace celerity::experimental {
 
