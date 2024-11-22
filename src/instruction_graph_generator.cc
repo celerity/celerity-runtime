@@ -3,14 +3,11 @@
 #include "access_modes.h"
 #include "command_graph.h"
 #include "dense_map.h"
-#include "fmt/base.h"
-#include "fmt/format.h"
 #include "grid.h"
 #include "hint.h"
 #include "instruction_graph.h"
 #include "launcher.h"
 #include "log.h"
-#include "matchbox.hh"
 #include "nd_memory.h"
 #include "pilot.h"
 #include "ranges.h"
@@ -40,7 +37,9 @@
 #include <variant>
 #include <vector>
 
+#include <fmt/format.h>
 #include <gch/small_vector.hpp>
+#include <matchbox.hh>
 
 
 namespace celerity::detail::instruction_graph_generator_detail {

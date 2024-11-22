@@ -13,14 +13,12 @@
 
 #include <cassert>
 #include <cstddef>
-#include <cuda_runtime_api.h>
-#include <driver_functions.h>
-#include <driver_types.h>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include <cuda_runtime.h>
 #include <sycl/sycl.hpp>
 
 

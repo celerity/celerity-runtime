@@ -5,7 +5,6 @@
 #include "instruction_graph.h"
 #include "intrusive_graph.h"
 #include "log.h"
-#include "matchbox.hh"
 #include "ranges.h"
 #include "recorders.h"
 #include "sycl_wrappers.h"
@@ -26,6 +25,7 @@
 #include <vector>
 
 #include <fmt/format.h>
+#include <matchbox.hh>
 
 
 namespace celerity::detail {

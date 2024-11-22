@@ -5,7 +5,6 @@
 #include "backend/backend.h"
 #include "closure_hydrator.h"
 #include "dense_map.h"
-#include "fmt/format.h"
 #include "grid.h"
 #include "launcher.h"
 #include "nd_memory.h"
@@ -31,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <sycl/sycl.hpp>
 

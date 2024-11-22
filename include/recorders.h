@@ -4,7 +4,6 @@
 #include "grid.h"
 #include "instruction_graph.h"
 #include "intrusive_graph.h"
-#include "matchbox.hh"
 #include "nd_memory.h"
 #include "pilot.h"
 #include "ranges.h"
@@ -23,6 +22,8 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+#include <matchbox.hh>
 
 
 namespace celerity::detail {
