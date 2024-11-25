@@ -9,6 +9,7 @@
 #include "print_utils_internal.h"
 #include "ranges.h"
 #include "recorders.h"
+#include "testspy/scheduler_testspy.h"
 #include "tracy.h"
 #include "types.h"
 #include "utils.h"
@@ -64,13 +65,10 @@ struct event_set_lookahead {
 	experimental::lookahead lookahead;
 };
 struct event_flush_commands {};
-struct test_event_inspect {
-	scheduler_detail::test_inspector inspect;
-};
 
 /// An event passed from task_manager or runtime through the public scheduler interface.
 using task_event = std::variant<event_task_available, event_buffer_created, event_buffer_debug_name_changed, event_buffer_destroyed, event_host_object_created,
-    event_host_object_destroyed, event_epoch_reached, event_set_lookahead, event_flush_commands, test_event_inspect>;
+    event_host_object_destroyed, event_epoch_reached, event_set_lookahead, event_flush_commands, scheduler_testspy::event_inspect>;
 
 class task_queue {
   public:
@@ -278,8 +276,8 @@ void scheduler_impl::process_task_queue_event(const task_event& evt) {
 	    [&](const event_flush_commands& e) { //
 		    command_queue.push(e);
 	    },
-	    [&](const test_event_inspect& e) { //
-		    e.inspect({.cdag = &cdag, .idag = &idag, .lookahead = lookahead});
+	    [&](const scheduler_testspy::event_inspect& e) { //
+		    e.inspector({.cdag = &cdag, .idag = &idag, .lookahead = lookahead});
 	    });
 }
 
@@ -365,16 +363,8 @@ void scheduler::set_lookahead(const experimental::lookahead lookahead) { m_impl-
 
 void scheduler::flush_commands() { m_impl->task_queue.push(event_flush_commands{}); }
 
-// LCOV_EXCL_START - this is test instrumentation used only in benchmarks and not covered in unit tests
-
-scheduler::scheduler(const test_threadless_tag /* tag */, const size_t num_nodes, const node_id local_node_id, const system_info& system,
-    delegate* const delegate, command_recorder* const crec, instruction_recorder* const irec, const policy_set& policy)
-    : m_impl(std::make_unique<scheduler_impl>(false /* start_thread */, num_nodes, local_node_id, system, delegate, crec, irec, policy)) {}
-
-void scheduler::test_scheduling_loop() { m_impl->scheduling_loop(); }
-
-// LCOV_EXCL_STOP
-
-void scheduler::test_inspect(scheduler_detail::test_inspector inspector) { m_impl->task_queue.push(test_event_inspect{std::move(inspector)}); }
-
 } // namespace celerity::detail
+
+
+#define CELERITY_DETAIL_TAIL_INCLUDE
+#include "testspy/scheduler_testspy.inl"

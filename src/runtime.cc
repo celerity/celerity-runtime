@@ -1,4 +1,4 @@
-#include "runtime_impl.h"
+#include "runtime.h"
 
 #include "affinity.h"
 #include "backend/sycl_backend.h"
@@ -21,6 +21,7 @@
 #include "system_info.h"
 #include "task.h"
 #include "task_manager.h"
+#include "testspy/runtime_testspy.h"
 #include "tracy.h"
 #include "types.h"
 #include "utils.h"
@@ -84,40 +85,108 @@ namespace detail {
 		std::promise<void> m_promise;
 	};
 
-	std::unique_ptr<runtime> runtime::s_instance = nullptr;
+	class runtime::impl final : public runtime, private task_manager::delegate, private scheduler::delegate, private executor::delegate {
+	  public:
+		impl(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector);
 
-	void runtime::mpi_initialize_once(int* argc, char*** argv) {
-#if CELERITY_ENABLE_MPI
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("mpi::init", LightSkyBlue, "MPI_Init");
-		assert(!s_mpi_initialized);
-		int provided;
-		MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
-		assert(provided == MPI_THREAD_MULTIPLE);
-#endif // CELERITY_ENABLE_MPI
-		s_mpi_initialized = true;
-	}
+		impl(const runtime::impl&) = delete;
+		impl(runtime::impl&&) = delete;
+		impl& operator=(const runtime::impl&) = delete;
+		impl& operator=(runtime::impl&&) = delete;
 
-	void runtime::mpi_finalize_once() {
-#if CELERITY_ENABLE_MPI
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("mpi::finalize", LightSkyBlue, "MPI_Finalize");
-		assert(s_mpi_initialized && !s_mpi_finalized && (!s_test_mode || !s_instance));
-		MPI_Finalize();
-#endif // CELERITY_ENABLE_MPI
-		s_mpi_finalized = true;
-	}
+		~impl();
 
-	void runtime::init(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector) {
-		assert(!s_instance);
-		s_instance = std::make_unique<runtime_impl>(argc, argv, user_devices_or_selector);
-		if(!s_test_mode) { atexit(shutdown); }
-	}
+		task_id submit(raw_command_group&& cg);
 
-	runtime& runtime::get_instance() {
-		if(s_instance == nullptr) { throw std::runtime_error("Runtime has not been initialized"); }
-		return *s_instance;
-	}
+		task_id fence(buffer_access access, std::unique_ptr<task_promise> fence_promise);
 
-	void runtime::shutdown() { s_instance.reset(); }
+		task_id fence(host_object_effect effect, std::unique_ptr<task_promise> fence_promise);
+
+		task_id sync(detail::epoch_action action);
+
+		void create_queue();
+
+		void destroy_queue();
+
+		allocation_id create_user_allocation(void* ptr);
+
+		buffer_id create_buffer(const range<3>& range, size_t elem_size, size_t elem_align, allocation_id user_aid);
+
+		void set_buffer_debug_name(buffer_id bid, const std::string& debug_name);
+
+		void destroy_buffer(buffer_id bid);
+
+		host_object_id create_host_object(std::unique_ptr<host_object_instance> instance /* optional */);
+
+		void destroy_host_object(host_object_id hoid);
+
+		reduction_id create_reduction(std::unique_ptr<reducer> reducer);
+
+		bool is_dry_run() const;
+
+		void set_scheduler_lookahead(experimental::lookahead lookahead);
+
+		void flush_scheduler();
+
+	  private:
+		friend struct runtime_testspy;
+
+		// `runtime` is not thread safe except for its delegate implementations, so we store the id of the thread where it was instantiated (the application
+		// thread) in order to throw if the user attempts to issue a runtime operation from any other thread. One case where this may happen unintentionally
+		// is capturing a buffer into a host-task by value, where this capture is the last reference to the buffer: The runtime would attempt to destroy itself
+		// from a thread that it also needs to await, which would at least cause a deadlock. This variable is immutable, so reading it from a different thread
+		// for the purpose of the check is safe.
+		std::thread::id m_application_thread;
+
+		std::unique_ptr<config> m_cfg;
+		size_t m_num_nodes = 0;
+		node_id m_local_nid = 0;
+		size_t m_num_local_devices = 0;
+
+		// track all instances of celerity::queue, celerity::buffer and celerity::host_object to sanity-check runtime destruction
+		size_t m_num_live_queues = 0;
+		std::unordered_set<buffer_id> m_live_buffers;
+		std::unordered_set<host_object_id> m_live_host_objects;
+
+		buffer_id m_next_buffer_id = 0;
+		raw_allocation_id m_next_user_allocation_id = 1;
+		host_object_id m_next_host_object_id = 0;
+		reduction_id m_next_reduction_id = no_reduction_id + 1;
+
+		task_graph m_tdag;
+		std::unique_ptr<task_manager> m_task_mngr;
+		std::unique_ptr<scheduler> m_schdlr;
+		std::unique_ptr<executor> m_exec;
+
+		std::optional<task_id> m_latest_horizon_reached; // only accessed by executor thread
+		std::atomic<size_t> m_latest_epoch_reached;      // task_id, but cast to size_t to work with std::atomic
+		task_id m_last_epoch_pruned_before = 0;
+
+		std::unique_ptr<detail::task_recorder> m_task_recorder;               // accessed by task manager (application thread)
+		std::unique_ptr<detail::command_recorder> m_command_recorder;         // accessed only by scheduler thread (until shutdown)
+		std::unique_ptr<detail::instruction_recorder> m_instruction_recorder; // accessed only by scheduler thread (until shutdown)
+
+		std::unique_ptr<detail::thread_pinning::thread_pinner> m_thread_pinner; // thread safe, manages lifetime of thread pinning machinery
+
+		/// Panic when not called from m_application_thread (see that variable for more info on the matter). Since there are thread-safe and non thread-safe
+		/// member functions, we call this check at the beginning of all the non-safe ones.
+		void require_call_from_application_thread() const;
+
+		void maybe_prune_task_graph();
+
+		// task_manager::delegate
+		void task_created(const task* tsk) override;
+
+		// scheduler::delegate
+		void flush(std::vector<const instruction*> instructions, std::vector<outbound_pilot> pilot) override;
+
+		// executor::delegate
+		void horizon_reached(task_id horizon_tid) override;
+		void epoch_reached(task_id epoch_tid) override;
+
+		/// True when no buffers, host objects or queues are live that keep the runtime alive.
+		bool is_unreferenced() const;
+	};
 
 	static auto get_pid() {
 #ifdef _MSC_VER
@@ -206,7 +275,7 @@ namespace detail {
 #endif // CELERITY_ENABLE_MPI
 	}
 
-	runtime_impl::runtime_impl(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector) {
+	runtime::impl::impl(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector) {
 		m_application_thread = std::this_thread::get_id();
 
 		m_cfg = std::make_unique<config>(argc, argv);
@@ -334,16 +403,16 @@ namespace detail {
 		m_num_local_devices = system.devices.size();
 	}
 
-	void runtime_impl::require_call_from_application_thread() const {
+	void runtime::impl::require_call_from_application_thread() const {
 		if(std::this_thread::get_id() != m_application_thread) {
 			utils::panic("Celerity runtime, queue, handler, buffer and host_object types must only be constructed, used, and destroyed from the "
 			             "application thread. Make sure that you did not accidentally capture one of these types in a host_task.");
 		}
 	}
 
-	runtime_impl::~runtime_impl() {
+	runtime::impl::~impl() {
 		// LCOV_EXCL_START
-		if(!is_unreferenced()) {
+		if(m_num_live_queues != 0 || !m_live_buffers.empty() || !m_live_host_objects.empty()) {
 			// this call might originate from static destruction - we cannot assume spdlog to still be around
 			utils::panic("Detected an attempt to destroy runtime while at least one queue, buffer or host_object was still alive. This likely means "
 			             "that one of these objects was leaked, or at least its lifetime extended beyond the scope of main(). This is undefined.");
@@ -403,25 +472,25 @@ namespace detail {
 		if(!s_test_mode) { mpi_finalize_once(); }
 	}
 
-	task_id runtime_impl::submit(raw_command_group&& cg) {
+	task_id runtime::impl::submit(raw_command_group&& cg) {
 		require_call_from_application_thread();
 		maybe_prune_task_graph();
 		return m_task_mngr->generate_command_group_task(std::move(cg));
 	}
 
-	task_id runtime_impl::fence(buffer_access access, std::unique_ptr<task_promise> fence_promise) {
+	task_id runtime::impl::fence(buffer_access access, std::unique_ptr<task_promise> fence_promise) {
 		require_call_from_application_thread();
 		maybe_prune_task_graph();
 		return m_task_mngr->generate_fence_task(std::move(access), std::move(fence_promise));
 	}
 
-	task_id runtime_impl::fence(host_object_effect effect, std::unique_ptr<task_promise> fence_promise) {
+	task_id runtime::impl::fence(host_object_effect effect, std::unique_ptr<task_promise> fence_promise) {
 		require_call_from_application_thread();
 		maybe_prune_task_graph();
 		return m_task_mngr->generate_fence_task(effect, std::move(fence_promise));
 	}
 
-	task_id runtime_impl::sync(epoch_action action) {
+	task_id runtime::impl::sync(epoch_action action) {
 		require_call_from_application_thread();
 
 		maybe_prune_task_graph();
@@ -432,7 +501,7 @@ namespace detail {
 		return epoch;
 	}
 
-	void runtime_impl::maybe_prune_task_graph() {
+	void runtime::impl::maybe_prune_task_graph() {
 		require_call_from_application_thread();
 
 		const auto current_epoch = m_latest_epoch_reached.load(std::memory_order_relaxed);
@@ -478,14 +547,14 @@ namespace detail {
 
 	// task_manager::delegate
 
-	void runtime_impl::task_created(const task* tsk) {
+	void runtime::impl::task_created(const task* tsk) {
 		assert(m_schdlr != nullptr);
 		m_schdlr->notify_task_created(tsk);
 	}
 
 	// scheduler::delegate
 
-	void runtime_impl::flush(std::vector<const instruction*> instructions, std::vector<outbound_pilot> pilots) {
+	void runtime::impl::flush(std::vector<const instruction*> instructions, std::vector<outbound_pilot> pilots) {
 		// thread-safe
 		assert(m_exec != nullptr);
 		m_exec->submit(std::move(instructions), std::move(pilots));
@@ -493,7 +562,7 @@ namespace detail {
 
 	// executor::delegate
 
-	void runtime_impl::horizon_reached(const task_id horizon_tid) {
+	void runtime::impl::horizon_reached(const task_id horizon_tid) {
 		assert(!m_latest_horizon_reached || *m_latest_horizon_reached < horizon_tid);
 		assert(m_latest_epoch_reached.load(std::memory_order::relaxed) < horizon_tid); // relaxed: written only by this thread
 
@@ -504,7 +573,7 @@ namespace detail {
 		m_latest_horizon_reached = horizon_tid;
 	}
 
-	void runtime_impl::epoch_reached(const task_id epoch_tid) {
+	void runtime::impl::epoch_reached(const task_id epoch_tid) {
 		// m_latest_horizon_reached does not need synchronization (see definition), all other accesses are implicitly synchronized.
 		assert(!m_latest_horizon_reached || *m_latest_horizon_reached < epoch_tid);
 		assert(epoch_tid == 0 || m_latest_epoch_reached.load(std::memory_order_relaxed) < epoch_tid);
@@ -514,28 +583,28 @@ namespace detail {
 		m_latest_horizon_reached = std::nullopt; // Any non-applied horizon is now behind the epoch and will therefore never become an epoch itself
 	}
 
-	void runtime_impl::create_queue() {
+	void runtime::impl::create_queue() {
 		require_call_from_application_thread();
 		++m_num_live_queues;
 	}
 
-	void runtime_impl::destroy_queue() {
+	void runtime::impl::destroy_queue() {
 		require_call_from_application_thread();
 
 		assert(m_num_live_queues > 0);
 		--m_num_live_queues;
 	}
 
-	bool runtime_impl::is_dry_run() const { return m_cfg->is_dry_run(); }
+	bool runtime::impl::is_dry_run() const { return m_cfg->is_dry_run(); }
 
-	allocation_id runtime_impl::create_user_allocation(void* const ptr) {
+	allocation_id runtime::impl::create_user_allocation(void* const ptr) {
 		require_call_from_application_thread();
 		const auto aid = allocation_id(user_memory_id, m_next_user_allocation_id++);
 		m_exec->track_user_allocation(aid, ptr);
 		return aid;
 	}
 
-	buffer_id runtime_impl::create_buffer(const range<3>& range, const size_t elem_size, const size_t elem_align, const allocation_id user_aid) {
+	buffer_id runtime::impl::create_buffer(const range<3>& range, const size_t elem_size, const size_t elem_align, const allocation_id user_aid) {
 		require_call_from_application_thread();
 
 		const auto bid = m_next_buffer_id++;
@@ -545,7 +614,7 @@ namespace detail {
 		return bid;
 	}
 
-	void runtime_impl::set_buffer_debug_name(const buffer_id bid, const std::string& debug_name) {
+	void runtime::impl::set_buffer_debug_name(const buffer_id bid, const std::string& debug_name) {
 		require_call_from_application_thread();
 
 		assert(utils::contains(m_live_buffers, bid));
@@ -553,7 +622,7 @@ namespace detail {
 		m_schdlr->notify_buffer_debug_name_changed(bid, debug_name);
 	}
 
-	void runtime_impl::destroy_buffer(const buffer_id bid) {
+	void runtime::impl::destroy_buffer(const buffer_id bid) {
 		require_call_from_application_thread();
 
 		assert(utils::contains(m_live_buffers, bid));
@@ -562,7 +631,7 @@ namespace detail {
 		m_live_buffers.erase(bid);
 	}
 
-	host_object_id runtime_impl::create_host_object(std::unique_ptr<host_object_instance> instance) {
+	host_object_id runtime::impl::create_host_object(std::unique_ptr<host_object_instance> instance) {
 		require_call_from_application_thread();
 
 		const auto hoid = m_next_host_object_id++;
@@ -574,7 +643,7 @@ namespace detail {
 		return hoid;
 	}
 
-	void runtime_impl::destroy_host_object(const host_object_id hoid) {
+	void runtime::impl::destroy_host_object(const host_object_id hoid) {
 		require_call_from_application_thread();
 
 		assert(utils::contains(m_live_host_objects, hoid));
@@ -583,7 +652,7 @@ namespace detail {
 		m_live_host_objects.erase(hoid);
 	}
 
-	reduction_id runtime_impl::create_reduction(std::unique_ptr<reducer> reducer) {
+	reduction_id runtime::impl::create_reduction(std::unique_ptr<reducer> reducer) {
 		require_call_from_application_thread();
 
 		const auto rid = m_next_reduction_id++;
@@ -591,17 +660,97 @@ namespace detail {
 		return rid;
 	}
 
-	void runtime_impl::set_scheduler_lookahead(const experimental::lookahead lookahead) {
+	void runtime::impl::set_scheduler_lookahead(const experimental::lookahead lookahead) {
 		require_call_from_application_thread();
 		m_schdlr->set_lookahead(lookahead);
 	}
 
-	void runtime_impl::flush_scheduler() {
+	void runtime::impl::flush_scheduler() {
 		require_call_from_application_thread();
 		m_schdlr->flush_commands();
 	}
 
-	bool runtime_impl::is_unreferenced() const { return m_num_live_queues == 0 && m_live_buffers.empty() && m_live_host_objects.empty(); }
+	bool runtime::s_mpi_initialized = false;
+	bool runtime::s_mpi_finalized = false;
+
+	runtime runtime::s_instance; // definition of static member
+
+	void runtime::mpi_initialize_once(int* argc, char*** argv) {
+#if CELERITY_ENABLE_MPI
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("mpi::init", LightSkyBlue, "MPI_Init");
+		assert(!s_mpi_initialized);
+		int provided = -1;
+		MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
+		assert(provided == MPI_THREAD_MULTIPLE);
+#endif // CELERITY_ENABLE_MPI
+		s_mpi_initialized = true;
+	}
+
+	void runtime::mpi_finalize_once() {
+#if CELERITY_ENABLE_MPI
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("mpi::finalize", LightSkyBlue, "MPI_Finalize");
+		assert(s_mpi_initialized && !s_mpi_finalized && (!s_test_mode || !has_instance()));
+		MPI_Finalize();
+#endif // CELERITY_ENABLE_MPI
+		s_mpi_finalized = true;
+	}
+
+	void runtime::init(int* argc, char** argv[], const devices_or_selector& user_devices_or_selector) {
+		assert(!has_instance());
+		s_instance.m_impl = std::make_unique<runtime::impl>(argc, argv, user_devices_or_selector);
+		if(!s_test_mode) { atexit(shutdown); }
+	}
+
+	runtime& runtime::get_instance() {
+		if(!has_instance()) { throw std::runtime_error("Runtime has not been initialized"); }
+		return s_instance;
+	}
+
+	void runtime::shutdown() { s_instance.m_impl.reset(); }
+
+	task_id runtime::submit(raw_command_group&& cg) { return m_impl->submit(std::move(cg)); }
+
+	task_id runtime::fence(buffer_access access, std::unique_ptr<task_promise> fence_promise) {
+		return m_impl->fence(std::move(access), std::move(fence_promise));
+	}
+
+	task_id runtime::fence(host_object_effect effect, std::unique_ptr<task_promise> fence_promise) { return m_impl->fence(effect, std::move(fence_promise)); }
+
+	task_id runtime::sync(detail::epoch_action action) { return m_impl->sync(action); }
+
+	void runtime::create_queue() { m_impl->create_queue(); }
+
+	void runtime::destroy_queue() { m_impl->destroy_queue(); }
+
+	allocation_id runtime::create_user_allocation(void* const ptr) { return m_impl->create_user_allocation(ptr); }
+
+	buffer_id runtime::create_buffer(const range<3>& range, const size_t elem_size, const size_t elem_align, const allocation_id user_aid) {
+		return m_impl->create_buffer(range, elem_size, elem_align, user_aid);
+	}
+
+	void runtime::set_buffer_debug_name(const buffer_id bid, const std::string& debug_name) { m_impl->set_buffer_debug_name(bid, debug_name); }
+
+	void runtime::destroy_buffer(const buffer_id bid) { m_impl->destroy_buffer(bid); }
+
+	host_object_id runtime::create_host_object(std::unique_ptr<host_object_instance> instance) { return m_impl->create_host_object(std::move(instance)); }
+
+	void runtime::destroy_host_object(const host_object_id hoid) { m_impl->destroy_host_object(hoid); }
+
+	reduction_id runtime::create_reduction(std::unique_ptr<reducer> reducer) { return m_impl->create_reduction(std::move(reducer)); }
+
+	bool runtime::is_dry_run() const { return m_impl->is_dry_run(); }
+
+	void runtime::set_scheduler_lookahead(const experimental::lookahead lookahead) { m_impl->set_scheduler_lookahead(lookahead); }
+
+	void runtime::flush_scheduler() { m_impl->flush_scheduler(); }
+
+	bool runtime::s_test_mode = false;
+	bool runtime::s_test_active = false;
+	bool runtime::s_test_runtime_was_instantiated = false;
 
 } // namespace detail
 } // namespace celerity
+
+
+#define CELERITY_DETAIL_TAIL_INCLUDE
+#include "testspy/runtime_testspy.inl"

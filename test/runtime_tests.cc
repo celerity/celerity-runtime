@@ -704,9 +704,12 @@ namespace detail {
 			cgh.host_task(range<1>{num_nodes * 2}, [=](partition<1>) { (void)acc; });
 		});
 
+		const auto live_command_count = scheduler_testspy::inspect_thread(runtime_testspy::get_schdlr(rt), //
+		    [](const scheduler_testspy::scheduler_state& state) { return graph_testspy::get_live_node_count(*state.cdag); });
+
 		// intial epoch + master-node task + push + host task + 1 horizon
 		// (dry runs currently always simulate node 0, hence the master-node task)
-		CHECK(scheduler_testspy::get_live_command_count(runtime_testspy::get_schdlr(rt)) == 5);
+		CHECK(live_command_count == 5);
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "dry run proceeds on fences", "[dryrun]") {
@@ -1050,7 +1053,9 @@ namespace detail {
 		env::scoped_test_environment ste("CELERITY_LOOKAHEAD", str);
 		runtime::init(nullptr, nullptr);
 		auto& schdlr = runtime_testspy::get_schdlr(detail::runtime::get_instance());
-		CHECK(scheduler_testspy::get_lookahead(schdlr) == lookahead);
+		const auto actual_lookahead =
+		    scheduler_testspy::inspect_thread(schdlr, [](const scheduler_testspy::scheduler_state& state) { return state.lookahead; });
+		CHECK(actual_lookahead == lookahead);
 	}
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "lookahead ensures that a single allocation is used for a growing access pattern", "[runtime][lookahead]") {

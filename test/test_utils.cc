@@ -279,15 +279,15 @@ detail::system_info make_system_info(const size_t num_devices, const bool suppor
 }
 
 runtime_fixture::runtime_fixture() {
-	detail::runtime::test_case_enter();
+	detail::runtime_testspy::test_case_enter();
 	allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_runtime_init_warnings_regex);
 	allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_device_enumeration_warnings_regex);
 	allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_backend_fallback_warnings_regex);
 }
 
 runtime_fixture::~runtime_fixture() {
-	if(!detail::runtime::test_runtime_was_instantiated()) { WARN("Test specified a runtime_fixture, but did not end up instantiating the runtime"); }
-	detail::runtime::test_case_exit();
+	if(!detail::runtime_testspy::test_runtime_was_instantiated()) { WARN("Test specified a runtime_fixture, but did not end up instantiating the runtime"); }
+	detail::runtime_testspy::test_case_exit();
 }
 
 void allow_backend_fallback_warnings() { allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_backend_fallback_warnings_regex); }

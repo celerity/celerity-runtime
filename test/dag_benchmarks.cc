@@ -269,16 +269,17 @@ struct scheduler_benchmark_context : private task_manager::delegate { // NOLINT(
 	task_graph tdag;
 	task_manager tm{num_nodes, tdag, nullptr, this, benchmark_task_manager_policy};
 	restartable_scheduler_thread* thread;
-	scheduler_testspy::threadless_scheduler schdlr;
+	scheduler schdlr;
 	test_utils::mock_buffer_factory mbf;
 
 	explicit scheduler_benchmark_context(restartable_scheduler_thread& thrd, const size_t num_nodes, const size_t num_devices_per_node)
-	    : num_nodes(num_nodes), thread(&thrd),
-	      schdlr(num_nodes, 0 /* local_nid */, test_utils::make_system_info(num_devices_per_node, true /* supports d2d copies */), nullptr /* delegate */,
-	          nullptr /* crec */, nullptr /* irec */),
+	    : num_nodes(num_nodes), thread(&thrd), //
+	      schdlr(scheduler_testspy::make_threadless_scheduler(num_nodes, 0 /* local_nid */,
+	          test_utils::make_system_info(num_devices_per_node, true /* supports d2d copies */), nullptr /* delegate */, nullptr /* crec */,
+	          nullptr /* irec */)),
 	      mbf(tm, schdlr) //
 	{
-		thread->start([this] { schdlr.scheduling_loop(); });
+		thread->start([this] { scheduler_testspy::run_scheduling_loop(schdlr); });
 		tm.generate_epoch_task(epoch_action::init);
 	}
 

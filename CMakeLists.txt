@@ -207,7 +207,10 @@ set(CELERITY_FEATURE_LOCAL_ACCESSOR ON)
 set(CELERITY_FEATURE_UNNAMED_KERNELS ON)
 
 # Add header files to library so they show up in IDEs
-file(GLOB_RECURSE ALL_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
+file(GLOB_RECURSE ALL_INCLUDES
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.inl")
 
 if(CMAKE_GENERATOR STREQUAL "Ninja")
   # Force colored warnings in Ninja's output, if the compiler has -fdiagnostics-color support.
@@ -304,14 +307,14 @@ elseif(CELERITY_SYCL_IMPL STREQUAL "SimSYCL")
 endif()
 
 configure_file(include/version.h.in include/version.h @ONLY)
-list(APPEND ALL_HEADERS "${CMAKE_CURRENT_BINARY_DIR}/include/version.h")
+list(APPEND ALL_INCLUDES "${CMAKE_CURRENT_BINARY_DIR}/include/version.h")
 list(APPEND PUBLIC_HEADERS "${CMAKE_CURRENT_BINARY_DIR}/include/version.h")
 
 add_library(
   celerity_runtime
   STATIC
   ${SOURCES}
-  ${ALL_HEADERS}
+  ${ALL_INCLUDES}
 )
 
 set_property(TARGET celerity_runtime PROPERTY CXX_STANDARD "${CELERITY_CXX_STANDARD}")

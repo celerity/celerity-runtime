@@ -1,9 +1,8 @@
 #pragma once
 
-#include <future>
 #include <memory>
 #include <string>
-#include <thread>
+#include <type_traits>
 #include <unordered_set>
 
 #ifdef _WIN32
@@ -17,6 +16,7 @@
 #include <catch2/generators/catch_generators.hpp>
 #include <celerity.h>
 
+#include "affinity.h"
 #include "async_event.h"
 #include "backend/sycl_backend.h"
 #include "command_graph.h"
@@ -27,11 +27,11 @@
 #include "print_utils_internal.h"
 #include "range_mapper.h"
 #include "region_map.h"
-#include "runtime.h"
-#include "runtime_impl.h"
 #include "scheduler.h"
 #include "system_info.h"
 #include "task_manager.h"
+#include "testspy/runtime_testspy.h"
+#include "testspy/scheduler_testspy.h"
 #include "types.h"
 
 // To avoid having to come up with tons of unique kernel names, we simply use the CPP counter.
@@ -87,75 +87,6 @@ namespace detail {
 		}
 	};
 
-	struct scheduler_testspy {
-		using test_state = scheduler_detail::test_state;
-
-		class threadless_scheduler : public scheduler {
-		  public:
-			threadless_scheduler(const auto&... params) : scheduler(test_threadless_tag(), params...) {}
-			void scheduling_loop() { test_scheduling_loop(); }
-		};
-
-		template <typename F>
-		static auto inspect_thread(scheduler& schdlr, F&& f) {
-			using return_t = std::invoke_result_t<F, const test_state&>;
-			std::promise<return_t> channel;
-			schdlr.test_inspect([&](const scheduler_detail::test_state& state) {
-				if constexpr(std::is_void_v<return_t>) {
-					f(state), channel.set_value();
-				} else {
-					channel.set_value(f(state));
-				}
-			});
-			return channel.get_future().get();
-		}
-
-		static size_t get_live_command_count(scheduler& schdlr) {
-			return inspect_thread(schdlr, [](const test_state& state) { return graph_testspy::get_live_node_count(*state.cdag); });
-		}
-
-		static size_t get_live_instruction_count(scheduler& schdlr) {
-			return inspect_thread(schdlr, [](const test_state& state) { return graph_testspy::get_live_node_count(*state.idag); });
-		}
-
-		static experimental::lookahead get_lookahead(scheduler& schdlr) {
-			return inspect_thread(schdlr, [](const test_state& state) { return state.lookahead; });
-		}
-	};
-
-	struct runtime_testspy {
-		static const runtime_impl& impl(const runtime& rt) { return dynamic_cast<const runtime_impl&>(rt); }
-		static runtime_impl& impl(runtime& rt) { return dynamic_cast<runtime_impl&>(rt); }
-
-		static node_id get_local_nid(const runtime& rt) { return impl(rt).m_local_nid; }
-		static size_t get_num_nodes(const runtime& rt) { return impl(rt).m_num_nodes; }
-		static size_t get_num_local_devices(const runtime& rt) { return impl(rt).m_num_local_devices; }
-
-		static task_graph& get_task_graph(runtime& rt) { return impl(rt).m_tdag; }
-		static task_manager& get_task_manager(runtime& rt) { return *impl(rt).m_task_mngr; }
-		static scheduler& get_schdlr(runtime& rt) { return *impl(rt).m_schdlr; }
-		static executor& get_exec(runtime& rt) { return *impl(rt).m_exec; }
-
-		static task_id get_latest_epoch_reached(const runtime& rt) { return impl(rt).m_latest_epoch_reached.load(std::memory_order_relaxed); }
-
-		static std::string print_task_graph(runtime& rt) {
-			return detail::print_task_graph(*impl(rt).m_task_recorder); // task recorder is mutated by task manager (application / test thread)
-		}
-
-		static std::string print_command_graph(const node_id local_nid, runtime& rt) {
-			// command_recorder is mutated by scheduler thread
-			return scheduler_testspy::inspect_thread(
-			    get_schdlr(rt), [&](const auto&) { return detail::print_command_graph(local_nid, *impl(rt).m_command_recorder); });
-		}
-
-		static std::string print_instruction_graph(runtime& rt) {
-			// instruction recorder is mutated by scheduler thread
-			return scheduler_testspy::inspect_thread(get_schdlr(rt), [&](const auto&) {
-				return detail::print_instruction_graph(*impl(rt).m_instruction_recorder, *impl(rt).m_command_recorder, *impl(rt).m_task_recorder);
-			});
-		}
-	};
-
 	struct task_manager_testspy {
 		inline static constexpr task_id initial_epoch_task = task_manager::initial_epoch_task;
 
@@ -189,7 +120,7 @@ namespace test_utils {
 			    .use_backend_device_submission_threads = false,
 			};
 			m_thread_pinner.emplace(cfg);
-			name_and_pin_and_order_this_thread(detail::named_threads::thread_type::application);
+			detail::thread_pinning::pin_this_thread(detail::named_threads::thread_type::application);
 		}
 
 		std::optional<detail::thread_pinning::thread_pinner> m_thread_pinner;
@@ -455,7 +386,7 @@ namespace test_utils {
 	// This fixture (or a subclass) must be used by all tests that transitively use MPI.
 	class mpi_fixture {
 	  public:
-		mpi_fixture() { detail::runtime::test_require_mpi(); }
+		mpi_fixture() { detail::runtime_testspy::test_require_mpi(); }
 		mpi_fixture(const mpi_fixture&) = delete;
 		mpi_fixture(mpi_fixture&&) = delete;
 		mpi_fixture& operator=(const mpi_fixture&) = delete;
