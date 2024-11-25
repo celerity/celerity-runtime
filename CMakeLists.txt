@@ -134,7 +134,7 @@ macro(fetch_content_from_submodule DEPNAME RELPATH)
   #   - another depencency of celerity-runtime that it transitively shares a depencency with (SimSYCL -> libenvpp)
   # The top-level CMake project must ensure that there are no conflicts between dependency versions in this case.
   if(${DEPNAME}_FOUND)
-    message(STATUS "Using system ${DEPNAME} in ${${DEPNAME}_DIR}")
+    message(STATUS "Using existing ${DEPNAME} in ${${DEPNAME}_DIR}, please ensure that the version (${${DEPNAME}_VERSION}) is compatible")
     set(CELERITY_DETAIL_USE_SYSTEM_${DEPNAME} ON)
   else()
     message(STATUS "Fetching ${DEPNAME} from submodule")
