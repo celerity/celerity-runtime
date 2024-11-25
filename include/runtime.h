@@ -1,7 +1,7 @@
 #pragma once
 
 #include "cgf.h"
-#include "device_selection.h"
+#include "device_selector.h"
 #include "ranges.h"
 #include "types.h"
 

@@ -173,7 +173,7 @@ class scheduler_test_context final : private task_manager::delegate {
 	template <typename CGF, typename... Hints>
 	task_id submit_command_group(CGF cgf, Hints... hints) {
 		if(m_scheduler == nullptr) { FAIL("scheduler_test_context already finish()ed"); }
-		return m_tm.submit_command_group(invoke_command_group_function(cgf));
+		return m_tm.generate_command_group_task(invoke_command_group_function(cgf));
 	}
 
 	void task_created(const task* tsk) override {

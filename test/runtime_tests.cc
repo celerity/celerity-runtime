@@ -9,6 +9,7 @@
 
 #include <celerity.h>
 
+#include "config.h"
 #include "ranges.h"
 #include "sycl_wrappers.h"
 

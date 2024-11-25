@@ -23,6 +23,8 @@
 #include "command_graph_generator.h"
 #include "named_threads.h"
 #include "print_graph.h"
+#include "print_utils.h"
+#include "print_utils_internal.h"
 #include "range_mapper.h"
 #include "region_map.h"
 #include "runtime.h"

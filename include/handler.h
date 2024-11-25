@@ -3,7 +3,6 @@
 #include "buffer.h"
 #include "cgf.h"
 #include "cgf_diagnostics.h"
-#include "communicator.h"
 #include "grid.h"
 #include "hint.h"
 #include "item.h"
@@ -13,6 +12,7 @@
 #include "reduction.h"
 #include "sycl_wrappers.h"
 #include "types.h"
+#include "utils.h"
 #include "version.h"
 #include "workaround.h"
 
@@ -64,6 +64,7 @@ class collective_group;
 
 namespace celerity {
 namespace detail {
+	class communicator;
 
 	template <typename CGF>
 	raw_command_group invoke_command_group_function(CGF&& cgf);

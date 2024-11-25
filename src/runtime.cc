@@ -5,7 +5,6 @@
 #include "cgf.h"
 #include "cgf_diagnostics.h"
 #include "command_graph_generator.h"
-#include "device_selection.h"
 #include "dry_run_executor.h"
 #include "host_object.h"
 #include "instruction_graph_generator.h"
@@ -13,8 +12,12 @@
 #include "log.h"
 #include "named_threads.h"
 #include "print_graph.h"
+#include "print_utils.h"
+#include "print_utils_internal.h"
+#include "ranges.h"
 #include "reduction.h"
 #include "scheduler.h"
+#include "select_devices.h"
 #include "system_info.h"
 #include "task.h"
 #include "task_manager.h"
@@ -259,9 +262,9 @@ namespace detail {
 
 		std::vector<sycl::device> devices;
 		{
-			CELERITY_DETAIL_TRACY_ZONE_SCOPED("runtime::pick_devices", PaleVioletRed);
-			devices = std::visit([&](const auto& value) { return pick_devices(host_cfg, value, sycl::platform::get_platforms()); }, user_devices_or_selector);
-			assert(!devices.empty()); // postcondition of pick_devices
+			CELERITY_DETAIL_TRACY_ZONE_SCOPED("runtime::select_devices", PaleVioletRed);
+			devices = std::visit([&](const auto& value) { return select_devices(host_cfg, value, sycl::platform::get_platforms()); }, user_devices_or_selector);
+			assert(!devices.empty()); // postcondition of select_devices
 		}
 
 		{

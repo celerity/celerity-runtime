@@ -7,6 +7,7 @@
 #include "runtime.h"
 #include "sycl_wrappers.h"
 #include "tracy.h"
+#include "utils.h"
 
 #include <future>
 #include <memory>
