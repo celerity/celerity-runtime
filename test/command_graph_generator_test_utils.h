@@ -378,7 +378,7 @@ class cdag_test_context final : private task_manager::delegate {
 
 	template <typename CGF>
 	task_id submit_command_group(CGF cgf) {
-		return m_tm.submit_command_group(invoke_command_group_function(cgf));
+		return m_tm.generate_command_group_task(invoke_command_group_function(cgf));
 	}
 
 	void maybe_print_graphs() {

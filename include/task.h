@@ -101,19 +101,6 @@ namespace detail {
 		iterator end() const { return cend(); }
 	};
 
-	class task_promise {
-	  public:
-		task_promise() = default;
-		task_promise(const task_promise&) = delete;
-		task_promise(task_promise&&) = delete;
-		task_promise& operator=(const task_promise&) = delete;
-		task_promise& operator=(task_promise&&) = delete;
-		virtual ~task_promise() = default;
-
-		virtual void fulfill() = 0;
-		virtual allocation_id get_user_allocation_id() = 0; // TODO move to struct task instead
-	};
-
 	// TODO refactor into an inheritance hierarchy
 	class task : public intrusive_graph_node<task> {
 	  public:

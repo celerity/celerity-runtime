@@ -79,9 +79,9 @@ namespace detail {
 		CHECK(delegate.counter == 1);
 		const range<2> gs = {1, 1};
 		const id<2> go = {};
-		tm.submit_command_group(invoke_command_group_function([=](handler& cgh) { cgh.parallel_for<class kernel>(gs, go, [](auto) {}); }));
+		tm.generate_command_group_task(invoke_command_group_function([=](handler& cgh) { cgh.parallel_for<class kernel>(gs, go, [](auto) {}); }));
 		CHECK(delegate.counter == 2);
-		tm.submit_command_group(invoke_command_group_function([](handler& cgh) { cgh.host_task(on_master_node, [] {}); }));
+		tm.generate_command_group_task(invoke_command_group_function([](handler& cgh) { cgh.host_task(on_master_node, [] {}); }));
 		CHECK(delegate.counter == 3);
 	}
 

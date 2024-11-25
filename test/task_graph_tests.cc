@@ -732,7 +732,7 @@ namespace detail {
 		tm.generate_epoch_task(epoch_action::init);
 		for(int i = 0; i <= 25; ++i) {
 			for(int j = 0; j < 5; ++j) {
-				tm.submit_command_group(invoke_command_group_function([](handler& cgh) { cgh.host_task(celerity::once, [] {}); }));
+				tm.generate_command_group_task(invoke_command_group_function([](handler& cgh) { cgh.host_task(celerity::once, [] {}); }));
 			}
 			tm.generate_epoch_task(action);
 		}
