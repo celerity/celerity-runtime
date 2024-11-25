@@ -1,6 +1,6 @@
 #pragma once
 
-#include "version.h"
+#include "version.h" // required for CELERITY_TRACY_SUPPORT
 
 #if CELERITY_TRACY_SUPPORT
 
