@@ -6,11 +6,9 @@
 #include <cassert>
 #include <concepts>
 #include <cstddef>
-#include <cstdint>
 #include <functional>
 #include <string>
 #include <string_view>
-#include <tuple>
 #include <type_traits>
 #include <typeinfo>
 #include <utility>
@@ -20,7 +18,6 @@
 
 #define CELERITY_DETAIL_UTILS_CAT_2(a, b) a##b
 #define CELERITY_DETAIL_UTILS_CAT(a, b) CELERITY_DETAIL_UTILS_CAT_2(a, b)
-
 
 namespace celerity::detail::utils {
 
@@ -41,17 +38,6 @@ auto as(P* p) {
 	return static_cast<std::conditional_t<std::is_const_v<P>, const T*, T*>>(p);
 }
 
-template <typename BitMaskT>
-constexpr inline uint32_t popcount(const BitMaskT bit_mask) noexcept {
-	static_assert(std::is_integral_v<BitMaskT> && std::is_unsigned_v<BitMaskT>, "popcount argument needs to be an unsigned integer type.");
-
-	uint32_t counter = 0;
-	for(auto b = bit_mask; b; b >>= 1) {
-		counter += b & 1;
-	}
-	return counter;
-}
-
 // Implementation from Boost.ContainerHash, licensed under the Boost Software License, Version 1.0.
 inline void hash_combine(std::size_t& seed, std::size_t value) { seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2); }
 
@@ -65,39 +51,6 @@ struct pair_hash {
 	}
 };
 
-} // namespace celerity::detail::utils
-
-namespace celerity::detail::utils_detail {
-
-template <typename... Without, typename... ToKeep, typename T, typename... Ts>
-constexpr auto tuple_without_impl(const std::tuple<ToKeep...>& to_keep, const std::tuple<T, Ts...>& to_check) {
-	if constexpr((std::is_same_v<T, Without> || ...)) {
-		if constexpr(sizeof...(Ts) == 0) {
-			return to_keep;
-		} else {
-			return tuple_without_impl<Without...>(to_keep, std::tuple{std::get<Ts>(to_check)...});
-		}
-	} else {
-		if constexpr(sizeof...(Ts) == 0) {
-			return std::tuple_cat(to_keep, to_check);
-		} else {
-			return tuple_without_impl<Without...>(std::tuple_cat(to_keep, std::tuple{std::get<T>(to_check)}), std::tuple{std::get<Ts>(to_check)...});
-		}
-	}
-}
-
-template <typename Container, typename Key, typename Enable = void>
-struct has_member_find : std::false_type {};
-
-template <typename Container, typename Key>
-struct has_member_find<Container, Key, std::void_t<decltype(std::declval<const Container&>().find(std::declval<const Key&>()))>> : std::true_type {};
-
-template <typename Container, typename Key>
-inline constexpr bool has_member_find_v = has_member_find<Container, Key>::value;
-
-} // namespace celerity::detail::utils_detail
-
-namespace celerity::detail::utils {
 
 /// See `utils::type_switch_t`.
 template <typename Lookup, typename... KVs>
@@ -117,14 +70,6 @@ struct type_switch<NonMatching, Key(Value), KVs...> {
 	using type = type_switch_t<NonMatching, KVs...>;
 };
 
-template <typename... Without, typename... Ts>
-constexpr auto tuple_without(const std::tuple<Ts...>& tuple) {
-	if constexpr(sizeof...(Ts) > 0) {
-		return utils_detail::tuple_without_impl<Without...>({}, tuple);
-	} else {
-		return tuple;
-	}
-}
 
 /// Fiddles out the base name of a (possibly templated) struct or class from a full (possibly mangled) type name.
 /// The input parameter should be `typeid(Struct*)`, i.e. a _pointer_ to the desired struct type.
@@ -144,6 +89,7 @@ std::string escape_for_dot_label(std::string str);
 std::string make_buffer_debug_label(const buffer_id bid, const std::string& name = "");
 
 std::string make_task_debug_label(const task_type tt, const task_id tid, const std::string& debug_name, bool title_case = false);
+
 
 [[noreturn]] void unreachable();
 
@@ -175,30 +121,23 @@ void report_error(const error_policy policy, const fmt::format_string<FmtParams.
 	if(policy != error_policy::ignore) { report_error(policy, fmt::format(fmt_string, std::forward<FmtParams>(fmt_args)...)); }
 }
 
+
 template <typename Container>
 Container set_intersection(const Container& lhs, const Container& rhs) {
-	using std::begin, std::end;
-	assert(std::is_sorted(begin(lhs), end(lhs)));
-	assert(std::is_sorted(begin(rhs), end(rhs)));
+	assert(std::ranges::is_sorted(lhs));
+	assert(std::ranges::is_sorted(rhs));
 	Container intersection;
-	std::set_intersection(begin(lhs), end(lhs), begin(rhs), end(rhs), std::back_inserter(intersection));
+	std::ranges::set_intersection(lhs, rhs, std::back_inserter(intersection));
 	return intersection;
 }
 
 template <typename Container, typename Key>
 bool contains(const Container& container, const Key& key) {
-	using std::begin, std::end;
-	if constexpr(utils_detail::has_member_find_v<Container, Key>) {
-		return container.find(key) != end(container);
+	if constexpr(requires(Container c) { c.find(key); }) {
+		return container.find(key) != std::end(container);
 	} else {
-		return std::find(begin(container), end(container), key) != end(container);
+		return std::ranges::find(container, key) != std::end(container);
 	}
-}
-
-template <typename Container, typename Predicate>
-void erase_if(Container& container, const Predicate& predicate) {
-	using std::begin, std::end;
-	container.erase(std::remove_if(begin(container), end(container), predicate), end(container));
 }
 
 /// Replaces all occurrences of `pattern` in `in` with `with`. If `pattern` is empty, returns the input string unchanged.
