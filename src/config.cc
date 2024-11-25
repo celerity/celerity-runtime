@@ -1,18 +1,12 @@
 #include "config.h"
 
 #include <cstdlib>
-#include <iterator>
-#include <sstream>
+#include <stdexcept>
 #include <string_view>
-#include <thread>
-
-#include <mpi.h>
-
-#include "log.h"
-
-#include <spdlog/sinks/sink.h>
+#include <vector>
 
 #include <libenvpp/env.hpp>
+#include <mpi.h>
 
 static std::vector<std::string> split(const std::string_view str, const char delimiter) {
 	auto result = std::vector<std::string>{};
@@ -23,40 +17,6 @@ static std::vector<std::string> split(const std::string_view str, const char del
 	}
 	return result;
 }
-
-namespace env {
-template <>
-struct default_parser<celerity::detail::log_level> {
-	celerity::detail::log_level operator()(const std::string_view str) const {
-		const std::vector<std::pair<celerity::detail::log_level, std::string>> possible_values = {
-		    {celerity::detail::log_level::trace, "trace"},
-		    {celerity::detail::log_level::debug, "debug"},
-		    {celerity::detail::log_level::info, "info"},
-		    {celerity::detail::log_level::warn, "warn"},
-		    {celerity::detail::log_level::err, "err"},
-		    {celerity::detail::log_level::critical, "critical"},
-		    {celerity::detail::log_level::off, "off"},
-		};
-
-		auto lvl = celerity::detail::log_level::info;
-		bool valid = false;
-		for(const auto& pv : possible_values) {
-			if(str == pv.second) {
-				lvl = pv.first;
-				valid = true;
-				break;
-			}
-		}
-		auto err_msg = fmt::format("Unable to parse '{}'. Possible values are:", str);
-		for(size_t i = 0; i < possible_values.size(); ++i) {
-			err_msg += fmt::format(" {}{}", possible_values[i].second, (i < possible_values.size() - 1 ? ", " : "."));
-		}
-		if(!valid) throw parser_error{err_msg};
-
-		return lvl;
-	}
-};
-} // namespace env
 
 namespace {
 
@@ -133,8 +93,9 @@ namespace detail {
 		MPI_Comm_free(&host_comm);
 
 		auto pref = env::prefix("CELERITY");
-		const auto env_log_level = pref.register_option<log_level>(
-		    "LOG_LEVEL", {log_level::trace, log_level::debug, log_level::info, log_level::warn, log_level::err, log_level::critical, log_level::off});
+		const auto env_log_level = pref.register_option<log_level>("LOG_LEVEL", //
+		    {{"trace", log_level::trace}, {"debug", log_level::debug}, {"info", log_level::info}, {"warn", log_level::warn}, {"err", log_level::err},
+		        {"critical", log_level::critical}, {"off", log_level::off}});
 		const auto env_devs =
 		    pref.register_variable<std::vector<size_t>>("DEVICES", [this](const std::string_view str) { return parse_validate_devices(str, m_host_cfg); });
 		const auto env_profile_kernel = pref.register_variable<bool>("PROFILE_KERNEL", parse_validate_profile_kernel);
