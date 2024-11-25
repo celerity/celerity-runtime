@@ -1,26 +1,16 @@
 #pragma once
 
-#include "command_graph.h"
 #include "command_graph_generator.h"
 #include "instruction_graph_generator.h"
 #include "ranges.h"
 #include "types.h"
 
 #include <cstddef>
-#include <functional>
 #include <memory>
 #include <string>
 
 
 namespace celerity::detail::scheduler_detail {
-
-/// executed inside scheduler thread, making it safe to access scheduler members
-struct test_state {
-	const command_graph* cdag = nullptr;
-	const instruction_graph* idag = nullptr;
-	experimental::lookahead lookahead = experimental::lookahead::automatic;
-};
-using test_inspector = std::function<void(const test_state&)>;
 
 struct scheduler_impl;
 
@@ -77,15 +67,9 @@ class scheduler {
 	void flush_commands();
 
   private:
-	struct test_threadless_tag {};
+	scheduler() = default; // used by scheduler_testspy
 
 	std::unique_ptr<scheduler_detail::scheduler_impl> m_impl;
-
-	// used in scheduler_testspy
-	scheduler(test_threadless_tag, size_t num_nodes, node_id local_node_id, const system_info& system_info, scheduler::delegate* delegate,
-	    command_recorder* crec, instruction_recorder* irec, const policy_set& policy = {});
-	void test_scheduling_loop();
-	void test_inspect(scheduler_detail::test_inspector inspector);
 };
 
 } // namespace celerity::detail

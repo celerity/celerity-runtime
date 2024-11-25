@@ -11,7 +11,7 @@ if [[ ! -x "$(which clang-format)" ]]; then
     exit 1
 fi
 
-SOURCES=$(find examples include src test \( -name "*.h" -o -name "*.cc" \) ! -name "stb*")
+SOURCES=$(find examples include src test \( -name "*.h" -o -name "*.cc" -o -name "*.inl" \) ! -name "stb*")
 
 for s in $SOURCES; do
     # Since clang-format does not provide an option to check whether formatting is required,

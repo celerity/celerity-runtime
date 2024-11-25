@@ -20,8 +20,8 @@ int main(int argc, char* argv[]) {
 	// allow unit tests to catch and recover from panics
 	celerity::detail::utils::set_panic_solution(celerity::detail::utils::panic_solution::throw_logic_error);
 
-	celerity::detail::runtime::test_mode_enter();
+	celerity::detail::runtime_testspy::test_mode_enter();
 	return_code = session.run();
-	celerity::detail::runtime::test_mode_exit();
+	celerity::detail::runtime_testspy::test_mode_exit();
 	return return_code;
 }
