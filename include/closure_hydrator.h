@@ -114,11 +114,12 @@ class closure_hydrator {
 	 * accessor_infos must contain one entry for each hydration id that has been assigned to accessors in the
 	 * closure that is to be hydrated, in matching order.
 	 */
-	void arm(const target tgt, std::vector<accessor_info> accessor_infos) {
+	void arm(const target tgt, std::vector<accessor_info> accessor_infos, subrange<3> execution_range) {
 		assert(!m_armed_for.has_value());
 		assert(accessor_infos.size() < max_hydration_id);
 		m_armed_for = tgt;
 		m_accessor_infos = std::move(accessor_infos);
+		m_execution_range = execution_range;
 	}
 
 	/**
@@ -153,12 +154,17 @@ class closure_hydrator {
 		return *m_sycl_cgh;
 	}
 
+	subrange<3> get_execution_range() { return m_execution_range; }
+
   private:
 	inline static thread_local std::unique_ptr<closure_hydrator> m_instance; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 	std::vector<accessor_info> m_accessor_infos;
 	std::optional<target> m_armed_for = std::nullopt;
 	bool m_is_hydrating = false;
 	sycl::handler* m_sycl_cgh = nullptr;
+
+	// HACKs for scratch_buffer
+	subrange<3> m_execution_range;
 
 	closure_hydrator() = default;
 

@@ -240,6 +240,15 @@ async_event sycl_backend::enqueue_device_alloc(const device_id device, const siz
 	});
 }
 
+async_event sycl_backend::enqueue_device_memset(device_id device, void* ptr, int value, size_t count) {
+	// TODO: Specify lane?
+	return enqueue_device_work(device, 0, [ptr, value, count, this](sycl::queue& queue) {
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("sycl::fill", generic_yellow);
+		auto event = queue.fill(ptr, value, count);
+		return make_async_event<sycl_backend_detail::sycl_event>(std::move(event), m_impl->config.profiling);
+	});
+}
+
 async_event sycl_backend::enqueue_host_free(void* const ptr) {
 	return m_impl->host.alloc_queue.submit([this, ptr] { sycl::free(ptr, m_impl->host.sycl_context); });
 }
@@ -252,7 +261,7 @@ async_event sycl_backend::enqueue_host_task(size_t host_lane, const host_task_la
     const range<3>& global_range, const box<3>& execution_range, const communicator* collective_comm) //
 {
 	auto& hydrator = closure_hydrator::get_instance();
-	hydrator.arm(target::host_task, std::move(accessor_infos));
+	hydrator.arm(target::host_task, std::move(accessor_infos), execution_range.get_subrange());
 	auto launch_hydrated = hydrator.hydrate<target::host_task>(launcher);
 	return m_impl->get_host_queue(host_lane).submit(
 	    [=, launch_hydrated = std::move(launch_hydrated)] { launch_hydrated(global_range, execution_range, collective_comm); });
@@ -265,7 +274,7 @@ async_event sycl_backend::enqueue_device_kernel(const device_id device, const si
 		CELERITY_DETAIL_TRACY_ZONE_SCOPED("sycl::submit", sycl_submit);
 		auto event = queue.submit([&](sycl::handler& sycl_cgh) {
 			auto& hydrator = closure_hydrator::get_instance();
-			hydrator.arm(target::device, std::move(acc_infos));
+			hydrator.arm(target::device, std::move(acc_infos), execution_range.get_subrange());
 			const auto launch_hydrated = hydrator.hydrate<target::device>(sycl_cgh, launch);
 			launch_hydrated(sycl_cgh, execution_range, reduction_ptrs);
 		});

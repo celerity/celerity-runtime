@@ -137,6 +137,11 @@ namespace detail {
 
 		void finalize_loop_template();
 
+		backend* NOCOMMIT_backend_ptr;
+		node_id NOCOMMIT_get_local_nid() const { return m_local_nid; }
+		size_t NOCOMMIT_get_num_nodes() const { return m_num_nodes; }
+		size_t NOCOMMIT_get_num_local_devices() const { return m_num_local_devices; }
+
 	  private:
 		friend struct runtime_testspy;
 
@@ -382,6 +387,7 @@ namespace detail {
 		const sycl_backend::configuration backend_config = {
 		    .per_device_submission_threads = m_cfg->should_use_backend_device_submission_threads(), .profiling = m_cfg->should_enable_device_profiling()};
 		auto backend = make_sycl_backend(select_backend(sycl_backend_enumerator{}, devices), devices, backend_config);
+		NOCOMMIT_backend_ptr = backend.get();
 		const auto system = backend->get_system_info(); // backend is about to be moved
 
 		if(m_cfg->is_dry_run()) {
@@ -836,6 +842,9 @@ namespace detail {
 	void runtime::complete_loop_iteration() { m_impl->complete_loop_iteration(); }
 
 	void runtime::finalize_loop_template() { m_impl->finalize_loop_template(); }
+
+	backend* runtime::NOCOMMIT_get_backend_ptr() const { return m_impl->NOCOMMIT_backend_ptr; };
+	node_id runtime::NOCOMMIT_get_local_nid() const { return m_impl->NOCOMMIT_get_local_nid(); }
 
 	bool runtime::s_test_mode = false;
 	bool runtime::s_test_active = false;

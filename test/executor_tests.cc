@@ -30,6 +30,12 @@ struct device_alloc : common_alloc {
 	device_id device = 0;
 };
 
+struct device_memset {
+	device_id device = 0;
+	int value = 0;
+	size_t count = 0;
+};
+
 struct common_free {
 	void* ptr = nullptr;
 };
@@ -108,8 +114,9 @@ struct collective_barrier {
 
 } // namespace ops
 
-using operation = std::variant<ops::host_alloc, ops::device_alloc, ops::host_free, ops::device_free, ops::host_task, ops::device_kernel, ops::host_copy,
-    ops::device_copy, ops::reduce, ops::fill_identity, ops::send_outbound_pilot, ops::send_payload, ops::collective_clone, ops::collective_barrier>;
+using operation =
+    std::variant<ops::host_alloc, ops::device_alloc, ops::device_memset, ops::host_free, ops::device_free, ops::host_task, ops::device_kernel, ops::host_copy,
+        ops::device_copy, ops::reduce, ops::fill_identity, ops::send_outbound_pilot, ops::send_payload, ops::collective_clone, ops::collective_barrier>;
 using operations_log = std::vector<operation>;
 
 
@@ -207,6 +214,12 @@ class mock_backend final : public backend {
 		const auto ptr = mock_alloc(size, alignment);
 		m_log->push_back(ops::device_alloc{{size, alignment, ptr}, device});
 		return make_complete_event(ptr);
+	}
+
+	// NOCOMMIT Currently unused (IDAG does not issue memsets) - I only implemented the function so that this TU compiles
+	async_event enqueue_device_memset(device_id device, void* ptr, int value, size_t count) override {
+		m_log->push_back(ops::device_memset({device, value, count}));
+		return make_complete_event();
 	}
 
 	async_event enqueue_host_free(void* const ptr) override {

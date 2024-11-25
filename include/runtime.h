@@ -11,6 +11,7 @@
 namespace celerity {
 namespace detail {
 
+	class backend;
 	class host_queue;
 	class reducer;
 	struct host_object_instance;
@@ -75,6 +76,10 @@ namespace detail {
 		void complete_loop_iteration();
 
 		void finalize_loop_template();
+
+		// Hacks for RnD
+		backend* NOCOMMIT_get_backend_ptr() const;
+		node_id NOCOMMIT_get_local_nid() const;
 
 	  private:
 		class impl;

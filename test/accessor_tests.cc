@@ -582,7 +582,7 @@ namespace detail {
 			auto acc = accessor_testspy::make_host_accessor<size_t, 3, access_mode::discard_write>(
 			    box.get_subrange(), hydration_id(1), allocation_offset_in_buffer, allocation_range, buffer_range);
 			CHECK(accessor_testspy::get_pointer(acc) != allocation);
-			closure_hydrator::get_instance().arm(target::host_task, infos);
+			closure_hydrator::get_instance().arm(target::host_task, infos, {});
 			const auto hydrated_closure =
 			    closure_hydrator::get_instance().hydrate<target::host_task>([&, hydrated_acc = acc] { return accessor_testspy::get_pointer(hydrated_acc); });
 			CHECK(hydrated_closure() == allocation);
@@ -593,7 +593,7 @@ namespace detail {
 			    accessor_testspy::make_device_accessor<size_t, 3, access_mode::discard_write>(hydration_id(1), allocation_offset_in_buffer, allocation_range);
 			CHECK(accessor_testspy::get_pointer(acc) != allocation);
 			accessor<size_t, 3, access_mode::discard_write, target::device> hydrated_acc;
-			closure_hydrator::get_instance().arm(target::device, infos);
+			closure_hydrator::get_instance().arm(target::device, infos, {});
 			test_utils::sycl_queue_fixture()
 			    .get_sycl_queue()
 			    .submit([&](sycl::handler& cgh) {
@@ -630,7 +630,7 @@ namespace detail {
 		auto closure = [acc2 = acc2, acc4 = acc4, acc5 = acc5] {
 			return std::tuple{accessor_testspy::get_pointer(acc2), accessor_testspy::get_pointer(acc4), accessor_testspy::get_pointer(acc5)};
 		};
-		closure_hydrator::get_instance().arm(target::host_task, std::move(infos));
+		closure_hydrator::get_instance().arm(target::host_task, std::move(infos), {});
 		auto hydrated_closure = closure_hydrator::get_instance().hydrate<target::host_task>(closure);
 		CHECK(ptr2 == std::get<0>(hydrated_closure()));
 		CHECK(ptr4 == std::get<1>(hydrated_closure()));
@@ -647,7 +647,7 @@ namespace detail {
 			// Write other item's value
 			result[itm.get_local_id(0)] = local_acc[1 - itm.get_local_id(0)];
 		};
-		closure_hydrator::get_instance().arm(target::device, {});
+		closure_hydrator::get_instance().arm(target::device, {}, {});
 		get_sycl_queue()
 		    .submit([&](sycl::handler& cgh) {
 			    auto hydrated_closure = closure_hydrator::get_instance().hydrate<target::device>(cgh, closure);

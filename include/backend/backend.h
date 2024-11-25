@@ -47,6 +47,8 @@ class backend {
 	/// asynchronous `alloc` and `free` operation on the same backend.
 	virtual async_event enqueue_device_alloc(device_id memory_device, size_t size, size_t alignment) = 0;
 
+	virtual async_event enqueue_device_memset(device_id device, void* ptr, int value, size_t count) = 0;
+
 	/// Schedules the release of memory allocated via `enqueue_host_alloc`. The operation will complete in-order with respect to any other asynchronous `alloc`
 	/// and `free` operation on the same backend.
 	virtual async_event enqueue_host_free(void* ptr) = 0;
