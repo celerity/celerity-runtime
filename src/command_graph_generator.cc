@@ -390,32 +390,39 @@ void command_graph_generator::generate_pushes(batch& current_batch, const task& 
 	}
 }
 
-// TODO: We currently generate an await push command for each local chunk, whereas we only generate a single push command for all remote chunks
 void command_graph_generator::generate_await_pushes(batch& current_batch, const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements) {
+	std::unordered_map<buffer_id, region_builder<3>> per_buffer_required_boxes;
+
 	for(auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
 		for(auto& [bid, consumed, _] : requirements) {
 			if(consumed.empty()) continue;
 			auto& buffer = m_buffers.at(bid);
 
 			const auto local_sources = buffer.local_last_writer.get_region_values(consumed);
-			region_builder<3> missing_part_boxes;
+			box_vector<3> missing_parts_boxes;
 			for(const auto& [box, wcs] : local_sources) {
 				// Note that we initialize all buffers as fresh, so this doesn't trigger for uninitialized reads
-				if(!box.empty() && !wcs.is_fresh()) { missing_part_boxes.add(box); }
+				if(!box.empty() && !wcs.is_fresh()) { missing_parts_boxes.push_back(box); }
 			}
 
 			// There is data we don't yet have locally. Generate an await push command for it.
-			if(!missing_part_boxes.empty()) {
-				const auto missing_parts = std::move(missing_part_boxes).into_region();
+			if(!missing_parts_boxes.empty()) {
 				assert(m_num_nodes > 1);
-				auto* const ap_cmd = create_command<await_push_command>(current_batch, transfer_id(tsk.get_id(), bid, no_reduction_id), missing_parts,
-				    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
-				generate_anti_dependencies(tsk, bid, buffer.local_last_writer, missing_parts, ap_cmd);
-				generate_epoch_dependencies(ap_cmd);
-				// Remember that we have this data now
-				buffer.local_last_writer.update_region(missing_parts, {ap_cmd, true /* is_replicated */});
+				auto& required_boxes = per_buffer_required_boxes[bid]; // allow default-insert
+				required_boxes.add(missing_parts_boxes);
 			}
 		}
+	}
+
+	for(auto& [bid, boxes] : per_buffer_required_boxes) {
+		auto& buffer = m_buffers.at(bid);
+		auto region = std::move(boxes).into_region(); // moved-from after next line!
+		auto* const ap_cmd = create_command<await_push_command>(current_batch, transfer_id(tsk.get_id(), bid, no_reduction_id), std::move(region),
+		    [&](const auto& record_debug_info) { record_debug_info(buffer.debug_name); });
+		generate_anti_dependencies(tsk, bid, buffer.local_last_writer, ap_cmd->get_region(), ap_cmd);
+		generate_epoch_dependencies(ap_cmd);
+		// Remember that we have this data now
+		buffer.local_last_writer.update_region(ap_cmd->get_region(), {ap_cmd, true /* is_replicated */});
 	}
 }
 
