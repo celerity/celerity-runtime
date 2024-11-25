@@ -2,8 +2,8 @@
 
 #include "grid.h"
 #include "hint.h"
-#include "ranges.h"
 #include "range_mapper.h"
+#include "ranges.h"
 #include "reduction.h"
 #include "sycl_wrappers.h"
 #include "types.h"
@@ -54,6 +54,19 @@ struct raw_command_group {
 	std::optional<detail::command_group_launcher> launcher;
 	std::optional<std::string> task_name;
 	std::vector<std::unique_ptr<detail::hint_base>> hints;
+};
+
+class task_promise {
+  public:
+	task_promise() = default;
+	task_promise(const task_promise&) = delete;
+	task_promise(task_promise&&) = delete;
+	task_promise& operator=(const task_promise&) = delete;
+	task_promise& operator=(task_promise&&) = delete;
+	virtual ~task_promise() = default;
+
+	virtual void fulfill() = 0;
+	virtual allocation_id get_user_allocation_id() = 0; // TODO move to struct task instead
 };
 
 } // namespace celerity::detail

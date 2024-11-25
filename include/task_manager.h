@@ -54,9 +54,9 @@ namespace detail {
 		task_manager& operator=(task_manager&&) = delete;
 		~task_manager() = default;
 
-		task_id submit_command_group(raw_command_group cg) {
+		task_id generate_command_group_task(raw_command_group&& cg) {
 			const auto tid = m_next_tid++;
-			auto unique_tsk = make_command_group_task(tid, m_num_collective_nodes, std::move(cg));
+			auto unique_tsk = detail::make_command_group_task(tid, m_num_collective_nodes, std::move(cg));
 			auto& tsk = register_task_internal(std::move(unique_tsk));
 			compute_dependencies(tsk);
 			invoke_callbacks(&tsk);

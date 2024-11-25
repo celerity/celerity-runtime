@@ -26,6 +26,7 @@
 #include "range_mapper.h"
 #include "region_map.h"
 #include "runtime.h"
+#include "runtime_impl.h"
 #include "scheduler.h"
 #include "system_info.h"
 #include "task_manager.h"
@@ -121,31 +122,35 @@ namespace detail {
 	};
 
 	struct runtime_testspy {
-		static node_id get_local_nid(const runtime& rt) { return rt.m_local_nid; }
-		static size_t get_num_nodes(const runtime& rt) { return rt.m_num_nodes; }
-		static size_t get_num_local_devices(const runtime& rt) { return rt.m_num_local_devices; }
+		static const runtime_impl& impl(const runtime& rt) { return dynamic_cast<const runtime_impl&>(rt); }
+		static runtime_impl& impl(runtime& rt) { return dynamic_cast<runtime_impl&>(rt); }
 
-		static task_graph& get_task_graph(runtime& rt) { return rt.m_tdag; }
-		static task_manager& get_task_manager(runtime& rt) { return *rt.m_task_mngr; }
-		static scheduler& get_schdlr(runtime& rt) { return *rt.m_schdlr; }
-		static executor& get_exec(runtime& rt) { return *rt.m_exec; }
+		static node_id get_local_nid(const runtime& rt) { return impl(rt).m_local_nid; }
+		static size_t get_num_nodes(const runtime& rt) { return impl(rt).m_num_nodes; }
+		static size_t get_num_local_devices(const runtime& rt) { return impl(rt).m_num_local_devices; }
 
-		static task_id get_latest_epoch_reached(const runtime& rt) { return rt.m_latest_epoch_reached.load(std::memory_order_relaxed); }
+		static task_graph& get_task_graph(runtime& rt) { return impl(rt).m_tdag; }
+		static task_manager& get_task_manager(runtime& rt) { return *impl(rt).m_task_mngr; }
+		static scheduler& get_schdlr(runtime& rt) { return *impl(rt).m_schdlr; }
+		static executor& get_exec(runtime& rt) { return *impl(rt).m_exec; }
+
+		static task_id get_latest_epoch_reached(const runtime& rt) { return impl(rt).m_latest_epoch_reached.load(std::memory_order_relaxed); }
 
 		static std::string print_task_graph(runtime& rt) {
-			return detail::print_task_graph(*rt.m_task_recorder); // task recorder is mutated by task manager (application / test thread)
+			return detail::print_task_graph(*impl(rt).m_task_recorder); // task recorder is mutated by task manager (application / test thread)
 		}
 
 		static std::string print_command_graph(const node_id local_nid, runtime& rt) {
 			// command_recorder is mutated by scheduler thread
 			return scheduler_testspy::inspect_thread(
-			    get_schdlr(rt), [&](const auto&) { return detail::print_command_graph(local_nid, *rt.m_command_recorder); });
+			    get_schdlr(rt), [&](const auto&) { return detail::print_command_graph(local_nid, *impl(rt).m_command_recorder); });
 		}
 
 		static std::string print_instruction_graph(runtime& rt) {
 			// instruction recorder is mutated by scheduler thread
-			return scheduler_testspy::inspect_thread(get_schdlr(rt),
-			    [&](const auto&) { return detail::print_instruction_graph(*rt.m_instruction_recorder, *rt.m_command_recorder, *rt.m_task_recorder); });
+			return scheduler_testspy::inspect_thread(get_schdlr(rt), [&](const auto&) {
+				return detail::print_instruction_graph(*impl(rt).m_instruction_recorder, *impl(rt).m_command_recorder, *impl(rt).m_task_recorder);
+			});
 		}
 	};
 
@@ -383,7 +388,7 @@ namespace test_utils {
 			cgf(cgh);
 			cgh.parallel_for<KernelName>(gs, go, [](id<KernelDims>) {});
 		});
-		return tm.submit_command_group(std::move(cg));
+		return tm.generate_command_group_task(std::move(cg));
 		detail::cgf_diagnostics::make_available();
 	}
 
@@ -395,7 +400,7 @@ namespace test_utils {
 			cgf(cgh);
 			cgh.parallel_for<KernelName>(er, [](nd_item<KernelDims>) {});
 		});
-		return tm.submit_command_group(std::move(cg));
+		return tm.generate_command_group_task(std::move(cg));
 		detail::cgf_diagnostics::make_available();
 	}
 
@@ -407,7 +412,7 @@ namespace test_utils {
 			cgf(cgh);
 			cgh.host_task(spec, [](auto...) {});
 		});
-		return tm.submit_command_group(std::move(cg));
+		return tm.generate_command_group_task(std::move(cg));
 		detail::cgf_diagnostics::make_available();
 	}
 

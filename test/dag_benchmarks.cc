@@ -76,7 +76,7 @@ TEST_CASE("benchmark task handling", "[benchmark][group:task-graph]") {
 		for(int i = 0; i < N; ++i) {
 			// create simplest possible host task
 			auto cg = invoke_command_group_function([](handler& cgh) { cgh.host_task(on_master_node, [] {}); });
-			const auto highest_tid = tm.submit_command_group(std::move(cg));
+			const auto highest_tid = tm.generate_command_group_task(std::move(cg));
 			// start notifying once we've built some tasks
 			if(i % report_interval == 0 && i / report_interval > 2) {
 				// every other generated task is always a horizon (step size 0)
@@ -118,7 +118,7 @@ struct task_manager_benchmark_context {
 
 	template <int KernelDims, typename CGF>
 	void create_task(range<KernelDims> global_range, CGF cgf) {
-		tm.submit_command_group(detail::invoke_command_group_function([=](handler& cgh) {
+		tm.generate_command_group_task(invoke_command_group_function([=](handler& cgh) {
 			cgf(cgh);
 			cgh.host_task(global_range, [](partition<KernelDims>) {});
 		}));
@@ -150,7 +150,7 @@ struct command_graph_generator_benchmark_context : private task_manager::delegat
 	template <int KernelDims, typename CGF>
 	void create_task(range<KernelDims> global_range, CGF cgf) {
 		// note: This ignores communication overhead with the scheduler thread
-		tm.submit_command_group(invoke_command_group_function([=](handler& cgh) {
+		tm.generate_command_group_task(invoke_command_group_function([=](handler& cgh) {
 			cgf(cgh);
 			cgh.parallel_for(global_range, [](item<KernelDims>) {});
 		}));
@@ -194,7 +194,7 @@ struct instruction_graph_generator_benchmark_context final : private task_manage
 	template <int KernelDims, typename CGF>
 	void create_task(range<KernelDims> global_range, CGF cgf) {
 		// note: This ignores communication overhead with the scheduler thread
-		tm.submit_command_group(invoke_command_group_function([=](handler& cgh) {
+		tm.generate_command_group_task(invoke_command_group_function([=](handler& cgh) {
 			cgf(cgh);
 			cgh.host_task(global_range, [](partition<KernelDims>) {});
 		}));
@@ -296,7 +296,7 @@ struct scheduler_benchmark_context : private task_manager::delegate { // NOLINT(
 
 	template <int KernelDims, typename CGF>
 	void create_task(range<KernelDims> global_range, CGF cgf) {
-		tm.submit_command_group(invoke_command_group_function([=](handler& cgh) {
+		tm.generate_command_group_task(invoke_command_group_function([=](handler& cgh) {
 			cgf(cgh);
 			cgh.host_task(global_range, [](partition<KernelDims>) {});
 		}));
