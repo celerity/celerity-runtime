@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "device_selector.h"
 #include "log.h"
 #include "types.h"
 #include "utils.h"
@@ -8,13 +9,11 @@
 #include <cassert>
 #include <concepts>
 #include <cstddef>
-#include <functional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include <fmt/format.h>
@@ -23,11 +22,6 @@
 
 namespace celerity::detail {
 
-// TODO these are required by distr_queue.h, but we don't want to pull all include dependencies of the pick_devices implementation into user code!
-struct auto_select_devices {};
-using device_selector = std::function<int(const sycl::device&)>;
-using devices_or_selector = std::variant<auto_select_devices, std::vector<sycl::device>, device_selector>;
-
 template <typename DeviceT>
 void check_required_device_aspects(const DeviceT& device) {
 	if(!device.has(sycl::aspect::usm_device_allocations)) { throw std::runtime_error("device does not support USM device allocations"); }
@@ -35,7 +29,7 @@ void check_required_device_aspects(const DeviceT& device) {
 }
 
 template <typename DevicesOrSelector, typename PlatformT>
-auto pick_devices(const host_config& cfg, const DevicesOrSelector& user_devices_or_selector, const std::vector<PlatformT>& platforms) {
+auto select_devices(const host_config& cfg, const DevicesOrSelector& user_devices_or_selector, const std::vector<PlatformT>& platforms) {
 	using DeviceT = typename decltype(std::declval<PlatformT&>().get_devices())::value_type;
 	using BackendT = decltype(std::declval<DeviceT&>().get_backend());
 

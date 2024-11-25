@@ -7,6 +7,7 @@
 #include "debug.h"
 #include "distr_queue.h"
 #include "host_utils.h"
+#include "log.h"
 #include "queue.h"
 #include "side_effect.h"
 #include "version.h"

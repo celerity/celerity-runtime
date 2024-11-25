@@ -1,14 +1,11 @@
 #pragma once
 
-#include "communicator.h"
 #include "ranges.h"
-#include "utils.h"
 #include "version.h"
 
 #include <cstddef>
 
 #if CELERITY_ENABLE_MPI
-#include "mpi_communicator.h" // TODO only used for type cast - move that function to .cc file
 #include <mpi.h>
 #endif
 
@@ -23,6 +20,8 @@ class collective_partition;
 }
 
 namespace celerity::detail {
+
+class communicator;
 
 template <int Dims>
 partition<Dims> make_partition(const range<Dims>& global_size, const subrange<Dims>& range) {
@@ -67,7 +66,7 @@ namespace celerity::experimental {
 class collective_partition : public partition<1> {
   public:
 #if CELERITY_ENABLE_MPI
-	MPI_Comm get_collective_mpi_comm() const { return detail::utils::as<detail::mpi_communicator>(m_collective_comm)->get_native(); }
+	MPI_Comm get_collective_mpi_comm() const; // defined in mpi_communicator.cc
 #else
 	template <typename E = void>
 	void get_collective_mpi_comm() const {

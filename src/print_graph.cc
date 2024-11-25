@@ -6,6 +6,8 @@
 #include "instruction_graph.h"
 #include "intrusive_graph.h"
 #include "log.h"
+#include "print_utils.h"
+#include "print_utils_internal.h"
 #include "ranges.h"
 #include "recorders.h"
 #include "sycl_wrappers.h"

@@ -5,6 +5,8 @@
 #include "double_buffered_queue.h"
 #include "instruction_graph_generator.h"
 #include "named_threads.h"
+#include "print_utils.h"
+#include "print_utils_internal.h"
 #include "ranges.h"
 #include "recorders.h"
 #include "tracy.h"

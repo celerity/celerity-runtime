@@ -16,8 +16,6 @@ namespace detail {
 		size_t local_rank = -1;
 	};
 
-	enum class tracy_mode { off, fast, full };
-
 	class config {
 	  public:
 		/**

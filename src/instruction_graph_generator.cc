@@ -10,6 +10,7 @@
 #include "log.h"
 #include "nd_memory.h"
 #include "pilot.h"
+#include "print_utils_internal.h"
 #include "ranges.h"
 #include "recorders.h"
 #include "reduction.h"

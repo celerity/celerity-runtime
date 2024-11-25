@@ -158,7 +158,7 @@ class sycl_cuda_backend final : public sycl_backend {
 enum class sycl_backend_type { generic, cuda };
 
 /// Enumerates the SYCL backends devices are compatible with and that Celerity has been compiled with.
-/// This type implements the (nameless) concept accepted by `pick_devices`.
+/// This type implements the (nameless) concept accepted by `select_devices`.
 struct sycl_backend_enumerator {
 	using backend_type = sycl_backend_type;
 	using device_type = sycl::device;

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "buffer.h"
-#include "device_selection.h"
+#include "device_selector.h"
 #include "fence.h"
 #include "handler.h"
 #include "host_object.h"

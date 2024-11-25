@@ -4,11 +4,12 @@
 
 #if CELERITY_TRACY_SUPPORT
 
-#include "config.h"
+#include "types.h"
 
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <string_view>
 
 #include <fmt/format.h>

@@ -3,9 +3,11 @@
 #include "async_event.h"
 #include "communicator.h"
 #include "log.h"
+#include "partition.h"
 #include "pilot.h"
 #include "ranges.h"
 #include "types.h"
+#include "utils.h"
 
 #include <algorithm>
 #include <cassert>
@@ -292,3 +294,9 @@ void mpi_communicator::datatype_deleter::operator()(MPI_Datatype dtype) const { 
 }
 
 } // namespace celerity::detail
+
+namespace celerity::experimental {
+
+MPI_Comm collective_partition::get_collective_mpi_comm() const { return detail::utils::as<detail::mpi_communicator>(m_collective_comm)->get_native(); }
+
+} // namespace celerity::experimental

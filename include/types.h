@@ -152,6 +152,8 @@ struct std::hash<celerity::detail::allocation_id> {
 
 namespace celerity::detail {
 
+enum class tracy_mode { off, fast, full };
+
 enum class error_policy {
 	ignore,
 	log_warning,

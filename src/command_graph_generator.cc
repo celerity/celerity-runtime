@@ -1,11 +1,10 @@
 #include "command_graph_generator.h"
 
-#include "access_modes.h"
-#include "cgf.h"
 #include "command_graph.h"
 #include "grid.h"
 #include "intrusive_graph.h"
 #include "print_utils.h"
+#include "print_utils_internal.h"
 #include "ranges.h"
 #include "recorders.h"
 #include "region_map.h"
