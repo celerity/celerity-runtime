@@ -7,80 +7,10 @@
 
 #include <cstdlib>
 #include <stdexcept>
-#include <string>
 #include <string_view>
-#include <utility>
-#include <vector>
 
 #include <fmt/format.h>
 #include <libenvpp/env.hpp>
-
-
-namespace env {
-
-template <>
-struct default_parser<celerity::detail::log_level> {
-	celerity::detail::log_level operator()(const std::string_view str) const {
-		const std::vector<std::pair<celerity::detail::log_level, std::string>> possible_values = {
-		    {celerity::detail::log_level::trace, "trace"},
-		    {celerity::detail::log_level::debug, "debug"},
-		    {celerity::detail::log_level::info, "info"},
-		    {celerity::detail::log_level::warn, "warn"},
-		    {celerity::detail::log_level::err, "err"},
-		    {celerity::detail::log_level::critical, "critical"},
-		    {celerity::detail::log_level::off, "off"},
-		};
-
-		auto lvl = celerity::detail::log_level::info;
-		bool valid = false;
-		for(const auto& pv : possible_values) {
-			if(str == pv.second) {
-				lvl = pv.first;
-				valid = true;
-				break;
-			}
-		}
-		auto err_msg = fmt::format("Unable to parse '{}'. Possible values are:", str);
-		for(size_t i = 0; i < possible_values.size(); ++i) {
-			err_msg += fmt::format(" {}{}", possible_values[i].second, (i < possible_values.size() - 1 ? ", " : "."));
-		}
-		if(!valid) throw parser_error{err_msg};
-
-		return lvl;
-	}
-};
-
-template <>
-struct default_parser<celerity::detail::tracy_mode> {
-	celerity::detail::tracy_mode operator()(const std::string_view str) const {
-		if(str == "off") {
-			return celerity::detail::tracy_mode::off;
-		} else if(str == "fast") {
-			return celerity::detail::tracy_mode::fast;
-		} else if(str == "full") {
-			return celerity::detail::tracy_mode::full;
-		} else {
-			throw parser_error{fmt::format("Unable to parse '{}'. Possible values are: off, fast, full.", str)};
-		}
-	}
-};
-
-template <>
-struct default_parser<celerity::experimental::lookahead> {
-	celerity::experimental::lookahead operator()(const std::string_view str) const {
-		if(str == "none") {
-			return celerity::experimental::lookahead::none;
-		} else if(str == "auto") {
-			return celerity::experimental::lookahead::automatic;
-		} else if(str == "infinite") {
-			return celerity::experimental::lookahead::infinite;
-		} else {
-			throw parser_error{fmt::format("Unable to parse '{}'. Possible values are: none, auto, infinite.", str)};
-		}
-	}
-};
-
-} // namespace env
 
 namespace {
 
@@ -105,8 +35,9 @@ namespace detail {
 		// TODO: At some point we might want to parse arguments from argv as well
 
 		auto pref = env::prefix("CELERITY");
-		const auto env_log_level = pref.register_option<log_level>(
-		    "LOG_LEVEL", {log_level::trace, log_level::debug, log_level::info, log_level::warn, log_level::err, log_level::critical, log_level::off});
+		const auto env_log_level = pref.register_option<log_level>("LOG_LEVEL", //
+		    {{"trace", log_level::trace}, {"debug", log_level::debug}, {"info", log_level::info}, {"warn", log_level::warn}, {"err", log_level::err},
+		        {"critical", log_level::critical}, {"off", log_level::off}});
 		const auto env_profile_kernel = pref.register_variable<bool>("PROFILE_KERNEL", parse_validate_profile_kernel);
 		const auto env_backend_device_submission_threads = pref.register_variable<bool>("BACKEND_DEVICE_SUBMISSION_THREADS");
 		const auto env_thread_pinning = pref.register_variable<thread_pinning::environment_configuration>("THREAD_PINNING", thread_pinning::parse_validate_env);
@@ -115,9 +46,10 @@ namespace detail {
 		constexpr int horizon_max = 1024 * 64;
 		const auto env_horizon_step = pref.register_range<int>("HORIZON_STEP", 1, horizon_max);
 		const auto env_horizon_max_para = pref.register_range<int>("HORIZON_MAX_PARALLELISM", 1, horizon_max);
-		const auto env_lookahead = pref.register_option<experimental::lookahead>(
-		    "LOOKAHEAD", {experimental::lookahead::none, experimental::lookahead::automatic, experimental::lookahead::infinite});
-		const auto env_tracy_mode = pref.register_option<tracy_mode>("TRACY", {tracy_mode::off, tracy_mode::fast, tracy_mode::full});
+		const auto env_lookahead = pref.register_option<experimental::lookahead>("LOOKAHEAD", //
+		    {{"none", experimental::lookahead::none}, {"auto", experimental::lookahead::automatic}, {"infinite", experimental::lookahead::infinite}});
+		const auto env_tracy_mode = pref.register_option<tracy_mode>("TRACY", //
+		    {{"off", tracy_mode::off}, {"fast", tracy_mode::fast}, {"full", tracy_mode::full}});
 
 		pref.register_deprecated("FORCE_WG", "Support for CELERITY_FORCE_WG has been removed with Celerity 0.3.0.");
 		pref.register_deprecated("PROFILE_OCL", "CELERITY_PROFILE_OCL has been renamed to CELERITY_PROFILE_KERNEL with Celerity 0.3.0.");
