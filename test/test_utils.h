@@ -314,39 +314,26 @@ namespace test_utils {
 
 	template <typename KernelName = detail::unnamed_kernel, typename CGF, int KernelDims = 2>
 	detail::task_id add_compute_task(detail::task_manager& tm, CGF cgf, range<KernelDims> global_size = {1, 1}, id<KernelDims> global_offset = {}) {
-		// Here and below: Using these functions will cause false-positive CGF diagnostic errors, b/c we are not capturing any accessors.
-		// TODO: For many test cases using these functions it may actually be preferable to circumvent the whole handler mechanism entirely.
-		detail::cgf_diagnostics::teardown();
-		auto cg = detail::invoke_command_group_function([&, gs = global_size, go = global_offset](handler& cgh) {
+		return tm.generate_command_group_task(detail::invoke_command_group_function([&, gs = global_size, go = global_offset](handler& cgh) {
 			cgf(cgh);
 			cgh.parallel_for<KernelName>(gs, go, [](id<KernelDims>) {});
-		});
-		return tm.generate_command_group_task(std::move(cg));
-		detail::cgf_diagnostics::make_available();
+		}));
 	}
 
 	template <typename KernelName = detail::unnamed_kernel, typename CGF, int KernelDims = 2>
 	detail::task_id add_nd_range_compute_task(detail::task_manager& tm, CGF cgf, celerity::nd_range<KernelDims> execution_range = {{1, 1}, {1, 1}}) {
-		// (See above).
-		detail::cgf_diagnostics::teardown();
-		auto cg = detail::invoke_command_group_function([&, er = execution_range](handler& cgh) {
+		return tm.generate_command_group_task(detail::invoke_command_group_function([&, er = execution_range](handler& cgh) {
 			cgf(cgh);
 			cgh.parallel_for<KernelName>(er, [](nd_item<KernelDims>) {});
-		});
-		return tm.generate_command_group_task(std::move(cg));
-		detail::cgf_diagnostics::make_available();
+		}));
 	}
 
 	template <typename Spec, typename CGF>
 	detail::task_id add_host_task(detail::task_manager& tm, Spec spec, CGF cgf) {
-		// (See above).
-		detail::cgf_diagnostics::teardown();
-		auto cg = detail::invoke_command_group_function([&](handler& cgh) {
+		return tm.generate_command_group_task(detail::invoke_command_group_function([&](handler& cgh) {
 			cgf(cgh);
 			cgh.host_task(spec, [](auto...) {});
-		});
-		return tm.generate_command_group_task(std::move(cg));
-		detail::cgf_diagnostics::make_available();
+		}));
 	}
 
 	inline detail::task_id add_fence_task(detail::task_manager& tm, mock_host_object ho) {
