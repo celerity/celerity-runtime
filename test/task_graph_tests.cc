@@ -18,6 +18,72 @@ namespace detail {
 
 	using celerity::access::all;
 	using celerity::access::fixed;
+	using celerity::access::one_to_one;
+
+	TEST_CASE("task_manager calls into delegate on task creation", "[task_manager]") {
+		struct counter_delegate final : public task_manager::delegate {
+			size_t counter = 0;
+			void task_created(const task* /* tsk */) override { counter++; }
+		};
+
+		counter_delegate delegate;
+		task_graph tdag;
+		task_manager tm{1, tdag, nullptr, &delegate};
+		tm.generate_epoch_task(epoch_action::init);
+		CHECK(delegate.counter == 1);
+		const range<2> gs = {1, 1};
+		const id<2> go = {};
+		tm.generate_command_group_task(invoke_command_group_function([=](handler& cgh) { cgh.parallel_for<class kernel>(gs, go, [](auto) {}); }));
+		CHECK(delegate.counter == 2);
+		tm.generate_command_group_task(invoke_command_group_function([](handler& cgh) { cgh.host_task(on_master_node, [] {}); }));
+		CHECK(delegate.counter == 3);
+	}
+
+	TEST_CASE("task_manager correctly records compute task information", "[task_manager][task][device_compute_task]") {
+		test_utils::task_test_context tt;
+		auto buf_a = tt.mbf.create_buffer(range<2>(64, 152), true /* host_initialized */);
+		auto buf_b = tt.mbf.create_buffer(range<3>(7, 21, 99));
+		const auto tid = test_utils::add_compute_task(
+		    tt.tm,
+		    [&](handler& cgh) {
+			    buf_a.get_access<sycl::access::mode::read>(cgh, one_to_one{});
+			    buf_b.get_access<sycl::access::mode::discard_read_write>(cgh, fixed{subrange<3>{{}, {5, 18, 74}}});
+		    },
+		    range<2>{32, 128}, id<2>{32, 24});
+
+		const auto tsk = test_utils::get_task(tt.tdag, tid);
+		CHECK(tsk->get_type() == task_type::device_compute);
+		CHECK(tsk->get_dimensions() == 2);
+		CHECK(tsk->get_global_size() == range<3>{32, 128, 1});
+		CHECK(tsk->get_global_offset() == id<3>{32, 24, 0});
+
+		auto& bam = tsk->get_buffer_access_map();
+		const auto bufs = bam.get_accessed_buffers();
+		CHECK(bufs.size() == 2);
+		CHECK(std::find(bufs.cbegin(), bufs.cend(), buf_a.get_id()) != bufs.cend());
+		CHECK(std::find(bufs.cbegin(), bufs.cend(), buf_b.get_id()) != bufs.cend());
+		CHECK(bam.get_nth_access(0) == std::pair{buf_a.get_id(), access_mode::read});
+		CHECK(bam.get_nth_access(1) == std::pair{buf_b.get_id(), access_mode::discard_read_write});
+		const auto reqs_a = bam.compute_consumed_region(buf_a.get_id(), subrange{tsk->get_global_offset(), tsk->get_global_size()});
+		CHECK(reqs_a == box(subrange<3>({32, 24, 0}, {32, 128, 1})));
+		const auto reqs_b = bam.compute_produced_region(buf_b.get_id(), subrange{tsk->get_global_offset(), tsk->get_global_size()});
+		CHECK(reqs_b == box(subrange<3>({}, {5, 18, 74})));
+	}
+
+	TEST_CASE("buffer_access_map merges multiple accesses with the same mode", "[task][device_compute_task]") {
+		std::vector<buffer_access> accs;
+		accs.push_back(buffer_access{0, access_mode::read, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{3, 0}, {10, 20}}, range<2>{30, 30})});
+		accs.push_back(buffer_access{0, access_mode::read, std::make_unique<range_mapper<2, fixed<2>>>(subrange<2>{{10, 0}, {7, 20}}, range<2>{30, 30})});
+		const buffer_access_map bam{std::move(accs), task_geometry{2, {100, 100, 1}, {}, {}}};
+		const auto req = bam.compute_consumed_region(0, subrange<3>({0, 0, 0}, {100, 100, 1}));
+		CHECK(req == box(subrange<3>({3, 0, 0}, {14, 20, 1})));
+	}
+
+	TEST_CASE("tasks gracefully handle get_requirements() calls for buffers they don't access", "[task]") {
+		const buffer_access_map bam;
+		const auto req = bam.compute_consumed_region(0, subrange<3>({0, 0, 0}, {100, 1, 1}));
+		CHECK(req == box<3>());
+	}
 
 	TEST_CASE("task_manager does not create multiple dependencies between the same tasks", "[task_manager][task-graph]") {
 		using namespace sycl::access;
