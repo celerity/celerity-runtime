@@ -845,6 +845,8 @@ namespace detail {
 
 	backend* runtime::NOCOMMIT_get_backend_ptr() const { return m_impl->NOCOMMIT_backend_ptr; };
 	node_id runtime::NOCOMMIT_get_local_nid() const { return m_impl->NOCOMMIT_get_local_nid(); }
+	size_t runtime::NOCOMMIT_get_num_nodes() const { return m_impl->NOCOMMIT_get_num_nodes(); }
+	size_t runtime::NOCOMMIT_get_num_local_devices() const { return m_impl->NOCOMMIT_get_num_local_devices(); }
 
 	bool runtime::s_test_mode = false;
 	bool runtime::s_test_active = false;
