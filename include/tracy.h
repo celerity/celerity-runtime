@@ -60,16 +60,15 @@ void apply_string(const ApplyFn& apply, const std::string_view& string) {
 }
 
 /// Base for sorting keys for the visual order of threads in Tracy. Higher = further down. Order between duplicate keys is automatic per Tracy terms.
-enum thread_order : int32_t {
-	scheduler = 0x10000,               // scheduler thread (1)
-	executor = 0x10001,                // executor thread (1)
-	thread_queue = 0x10002,            // thread_queue instance (any number, no internal order)
-	immediate_lane = 0x10003,          // immediate pseudo-lane (1)
-	alloc_lane = 0x10004,              // alloc fiber (1)
-	host_first_lane = 0x10100,         // host lane (0..256)
-	first_device_first_lane = 0x10200, // first lane (0.256) of first device (0..256)
-	num_lanes_per_device = 0x100,
-	send_receive_first_lane = 0x21000, // first send/receive pseudo-lane (any number)
+enum lane_order : int32_t {
+	thread = 0,                        // offset by named_threads::thread_type
+	thread_max = 100'000 - 1,          //
+	immediate_lane = 100'000,          // immediate pseudo-lane (1)
+	alloc_lane = 100'001,              // alloc fiber (1)
+	host_first_lane = 110'000,         // host lane (0..100)
+	first_device_first_lane = 120'000, // first lane (0.100) of first device (0..100)
+	num_lanes_per_device = 100,        //
+	send_receive_first_lane = 130'000, // first send/receive pseudo-lane (any number)
 };
 
 /// Tracy requires thread and fiber names to be live for the duration of the program, so if they are formatted dynamically, we need to leak them.
@@ -79,14 +78,9 @@ inline const char* leak_name(const std::string& name) {
 	return static_cast<const char*>(leaked);
 }
 
-inline void set_thread_name_and_order(const named_threads::thread_type t_type) {
-	const auto name = named_threads::thread_type_to_string(t_type);
-	int32_t order = 0;
-	switch(t_type) {
-	case named_threads::thread_type::scheduler: order = thread_order::scheduler; break;
-	case named_threads::thread_type::executor: order = thread_order::executor; break;
-	default: order = thread_order::thread_queue; break;
-	}
+inline void set_thread_name_and_order(const std::string& name, const int32_t index) {
+	const int32_t order = tracy_detail::lane_order::thread + index;
+	assert(order <= static_cast<int32_t>(tracy_detail::lane_order::thread_max));
 	::tracy::SetThreadNameWithHint(leak_name(name), order);
 }
 
@@ -116,5 +110,5 @@ inline void set_thread_name_and_order(const named_threads::thread_type t_type) {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED(TAG, COLOR_NAME);                                                                                                        \
 	CELERITY_DETAIL_TRACY_ZONE_NAME(__VA_ARGS__);
 
-#define CELERITY_DETAIL_TRACY_SET_THREAD_NAME_AND_ORDER(THREAD_TYPE)                                                                                           \
-	CELERITY_DETAIL_IF_TRACY_ENABLED(::celerity::detail::tracy_detail::set_thread_name_and_order(THREAD_TYPE))
+#define CELERITY_DETAIL_SET_CURRENT_THREAD_NAME_AND_ORDER(NAME, ORDER)                                                                                         \
+	CELERITY_DETAIL_IF_TRACY_ENABLED(::celerity::detail::tracy_detail::set_thread_name_and_order(NAME, ORDER))

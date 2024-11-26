@@ -49,7 +49,7 @@ void set_current_thread_name(const thread_type t_type);
 void name_and_pin_and_order_this_thread(const thread_type t_type) {
 	set_current_thread_name(t_type);
 	thread_pinning::pin_this_thread(t_type);
-	CELERITY_DETAIL_TRACY_SET_THREAD_NAME_AND_ORDER(t_type);
+	CELERITY_DETAIL_SET_CURRENT_THREAD_NAME_AND_ORDER(named_threads::thread_type_to_string(t_type), static_cast<int32_t>(t_type));
 }
 
 } // namespace celerity::detail::named_threads
