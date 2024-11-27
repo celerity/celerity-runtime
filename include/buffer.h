@@ -2,12 +2,10 @@
 
 #include "ranges.h"
 #include "runtime.h"
-#include "sycl_wrappers.h"
 #include "tracy.h"
+#include "types.h"
 
 #include <memory>
-
-#include <sycl/sycl.hpp>
 
 
 namespace celerity {

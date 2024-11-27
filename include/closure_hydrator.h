@@ -2,7 +2,6 @@
 
 #include "grid.h"
 #include "ranges.h"
-#include "sycl_wrappers.h"
 #include "types.h"
 #include "version.h"
 

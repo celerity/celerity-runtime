@@ -7,20 +7,6 @@
 using namespace celerity;
 using namespace celerity::detail;
 
-template <access_mode, bool>
-class access_test_kernel;
-
-template <access_mode AccessMode, bool UsingPlaceholderAccessor>
-static auto make_device_accessor(sycl::buffer<int, 1>& buf, sycl::handler& cgh, const subrange<1>& sr) {
-	if constexpr(UsingPlaceholderAccessor) {
-		sycl::accessor<int, 1, AccessMode, sycl::target::device, sycl::access::placeholder::true_t> acc{buf, sr.range, sr.offset};
-		cgh.require(acc);
-		return acc;
-	} else {
-		return buf.get_access<AccessMode>(cgh, sr.range, sr.offset);
-	}
-}
-
 // If this test fails, celerity can't reliably support reductions on the user's combination of backend and hardware
 TEST_CASE_METHOD(test_utils::sycl_queue_fixture, "SYCL has working simple scalar reductions", "[sycl][reductions]") {
 	const size_t N = GENERATE(64, 512, 1024, 4096);

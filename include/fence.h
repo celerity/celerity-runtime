@@ -5,14 +5,13 @@
 #include "host_object.h"
 #include "range_mapper.h"
 #include "runtime.h"
-#include "sycl_wrappers.h"
 #include "tracy.h"
+#include "types.h"
 #include "utils.h"
 
 #include <future>
 #include <memory>
 #include <type_traits>
-#include <vector>
 
 
 namespace celerity::detail {

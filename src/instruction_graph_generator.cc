@@ -1,6 +1,5 @@
 #include "instruction_graph_generator.h"
 
-#include "access_modes.h"
 #include "cgf.h"
 #include "command_graph.h"
 #include "dense_map.h"
@@ -1825,8 +1824,7 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 			allocation_map[i] = buffer_access_allocation{null_allocation_id, {}, {} CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, bid, buffer.debug_name)};
 		}
 		global_memory_access_estimate_bytes +=
-		    (static_cast<size_t>(access::mode_traits::is_producer(mode)) + static_cast<size_t>(access::mode_traits::is_consumer(mode)))
-		    * accessed_region.get_area() * buffer.elem_size;
+		    (static_cast<size_t>(is_producer_mode(mode)) + static_cast<size_t>(is_consumer_mode(mode))) * accessed_region.get_area() * buffer.elem_size;
 		if(is_recording()) { buffer_memory_access_map[i] = buffer_memory_record{bid, buffer.debug_name, accessed_region}; }
 	}
 
