@@ -207,6 +207,26 @@ TEST_CASE("epochs and fences implicitly flush the scheduler queue", "[scheduler]
 	});
 }
 
+TEST_CASE("scheduler lookahead merges host-buffer allocations from all command types", "[scheduler][lookahead]") {
+	test_utils::scheduler_test_context sctx(2 /* num nodes */, 0 /* my nid */, 1 /* num devices */);
+	auto buf = sctx.create_buffer<float>(range(1024, 1024), true /* host initialized */);
+
+	sctx.device_compute(range(2, 1024)).discard_write(buf, acc::one_to_one()).submit();              // N0 writes row 0, N1 writes row 1
+	sctx.device_compute(range(2, 1024)).read(buf, acc::fixed<2>({zeros, range(2, 1024)})).submit();  // N0 pushes row 0 and awaits row 1
+	sctx.host_task(range(1)).read(buf, acc::fixed<2>({id(2, 0), range(1, 1024)})).submit();          // host-read row 2 (copied from user memory)
+	sctx.host_task(range(1)).discard_write(buf, acc::fixed<2>({id(3, 0), range(1, 1024)})).submit(); // host-write row 3
+	sctx.fence(buf, subrange<2>(id(4, 0), range(1, 1024)));                                          // fence row 4
+	sctx.finish();
+
+	sctx.inspect_instructions([&](const test_utils::instruction_query& iq) {
+		const auto alloc = iq.select_unique<alloc_instruction_record>([&](const alloc_instruction_record& ainstr) {
+			return ainstr.allocation_id.get_memory_id() == host_memory_id && ainstr.buffer_allocation->buffer_id == buf.get_id();
+		});
+		CHECK(alloc->buffer_allocation->box == box_cast<3>(box<2>(zeros, {5, 1024})));
+		CHECK(alloc->size_bytes == 5 * 1024 * sizeof(float));
+	});
+}
+
 TEST_CASE("scheduler(lookahead::automatic) avoids reallocations in the wave_sim pattern", "[scheduler][lookahead]") {
 	constexpr size_t num_devices = 4;
 	test_utils::scheduler_test_context sctx(1 /* num nodes */, 0 /* my nid */, num_devices);
