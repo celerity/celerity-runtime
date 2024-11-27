@@ -2322,14 +2322,7 @@ void generator_impl::flush_batch(batch&& batch) { // NOLINT(cppcoreguidelines-rv
 }
 
 instruction_graph_generator::scheduling_hint generator_impl::anticipate(const command& cmd) {
-	// Although fence, push and await-push commands currently trigger host buffer allocations, these will be migrated to staging allocations eventually.
-	if(!utils::isa<execution_command>(&cmd)) return instruction_graph_generator::scheduling_hint::is_self_contained;
-
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::anticipate", Teal);
-
-	const auto& ecmd = *utils::as<execution_command>(&cmd);
-	const auto& tsk = *ecmd.get_task();
-	const auto concurrent_chunks = split_task_execution_range(ecmd, tsk);
 
 	std::unordered_map<std::pair<buffer_id, memory_id>, box_vector<3>, utils::pair_hash> required_contiguous_boxes;
 	const auto require_contiguous = [&](const buffer_id bid, const memory_id mid, const box_vector<3>& boxes) {
@@ -2337,21 +2330,59 @@ instruction_graph_generator::scheduling_hint generator_impl::anticipate(const co
 		new_boxes.insert(new_boxes.end(), boxes.begin(), boxes.end());
 	};
 
-	// Aggregate required boxes for kernel buffer accesses
-	const auto& bam = tsk.get_buffer_access_map();
-	for(const auto bid : bam.get_accessed_buffers()) {
-		for(const auto& chunk : concurrent_chunks) {
-			require_contiguous(bid, chunk.memory_id, bam.compute_required_contiguous_boxes(bid, chunk.execution_range));
-		}
-	}
+	matchbox::match(
+	    cmd,
+	    [&](const execution_command& ecmd) {
+		    // Kernel or host task: We anticipate required boxes from accessors (and reductions)
+		    const auto& tsk = *ecmd.get_task();
+		    const auto concurrent_chunks = split_task_execution_range(ecmd, tsk);
 
-	// Aggregate required boxes for reduction in- and outputs
-	for(const auto& rinfo : tsk.get_reductions()) {
-		require_contiguous(rinfo.bid, host_memory_id, {scalar_reduction_box});
-		for(const auto& chunk : concurrent_chunks) {
-			require_contiguous(rinfo.bid, chunk.memory_id, {scalar_reduction_box});
-		}
-	}
+		    // Aggregate required boxes for kernel buffer accesses
+		    const auto& bam = tsk.get_buffer_access_map();
+		    for(const auto bid : bam.get_accessed_buffers()) {
+			    for(const auto& chunk : concurrent_chunks) {
+				    require_contiguous(bid, chunk.memory_id, bam.compute_required_contiguous_boxes(bid, chunk.execution_range));
+			    }
+		    }
+
+		    // Aggregate required boxes for reduction in- and outputs
+		    for(const auto& rinfo : tsk.get_reductions()) {
+			    require_contiguous(rinfo.bid, host_memory_id, {scalar_reduction_box});
+			    for(const auto& chunk : concurrent_chunks) {
+				    require_contiguous(rinfo.bid, chunk.memory_id, {scalar_reduction_box});
+			    }
+		    }
+	    },
+	    [&](const push_command& pcmd) {
+		    // Pushes are currently staged in the (strided) host-memory allocation and communicated using non-contiguous (MPI) datatypes
+		    // TODO use linearized staging allocations instead, see copy_plan
+		    region_builder<3> full_region_builder;
+		    for(const auto& [target, region] : pcmd.get_target_regions()) {
+			    full_region_builder.add(region);
+		    }
+		    // Compiling a push will perform a producer-split, so allocating bounding boxes is an overestimation but also the best estimate we can get here
+		    const auto full_region = std::move(full_region_builder).into_region();
+		    require_contiguous(pcmd.get_transfer_id().bid, host_memory_id, connected_subregion_bounding_boxes(full_region));
+	    },
+	    [&](const await_push_command& apcmd) {
+		    // Await-pushes are currently staged in the (strided) host-memory allocation and communicated using non-contiguous (MPI) datatypes
+		    // TODO use linearized staging allocations instead, see copy_plan
+		    require_contiguous(apcmd.get_transfer_id().bid, host_memory_id, connected_subregion_bounding_boxes(apcmd.get_region()));
+	    },
+	    [&](const reduction_command& rcmd) {
+		    // Global reductions write their result to the host-buffer allocation
+		    require_contiguous(rcmd.get_reduction_info().bid, host_memory_id, {scalar_reduction_box});
+	    },
+	    [&](const fence_command& fcmd) {
+		    // Fences are staged through the host-buffer allocation and (ab)use buffer_access_map with a fixed range mapper to express their buffer region
+		    // TODO use linearized staging in pinned host memory instead, see copy_plan
+		    const auto& bam = fcmd.get_task()->get_buffer_access_map();
+		    for(const auto bid : bam.get_accessed_buffers()) {
+			    require_contiguous(bid, host_memory_id, bam.compute_required_contiguous_boxes(bid, box<3>()));
+		    }
+	    },
+	    [&](const horizon_command& hcmd) {}, //
+	    [&](const epoch_command& ecmd) {});
 
 	// If the set of allocated boxes grows for any buffer since the last call to anticipate(), queueing this command might allow merging those allocations with
 	// future ones to avoid resizes
@@ -2365,13 +2396,13 @@ instruction_graph_generator::scheduling_hint generator_impl::anticipate(const co
 		for(const auto& box : required_boxes) {
 			if(memory.is_allocated_contiguously(box)) continue;
 			if(std::any_of(anticipated_boxes.begin(), anticipated_boxes.end(), [&](const detail::box<3>& a) { return a.covers(box); })) continue;
-			memory.anticipated_contiguous_boxes.push_back(box);
+			anticipated_boxes.push_back(box);
 			would_allocate_in_buffer_memory = true;
 		}
 
 		if(would_allocate_in_buffer_memory) {
-			merge_overlapping_bounding_boxes(memory.anticipated_contiguous_boxes);
-			merge_connected_boxes(memory.anticipated_contiguous_boxes);
+			merge_overlapping_bounding_boxes(anticipated_boxes);
+			merge_connected_boxes(anticipated_boxes);
 			would_allocate = true;
 		}
 	}
