@@ -12,7 +12,7 @@ exec fastcov \
 	--search-directory "$BUILD_DIR" \
 	--process-gcno \
 	--include "$SOURCE_DIR/include" "$SOURCE_DIR/src" \
-	--exclude "$SOURCE_DIR/src/catch2" \
+	--exclude "$SOURCE_DIR/src/catch2" "$SOURCE_DIR/src/testspy" \
 	--branch-coverage \
 	--exclude-br-lines-starting-with assert CELERITY_DETAIL_ASSERT_ON_HOST \
 	--lcov \
