@@ -150,7 +150,7 @@ class [[deprecated("Use celerity::queue instead")]] distr_queue {
 
 			// ~distr_queue() guarantees that all operations on that particular queue have finished executing, which we simply guarantee by waiting on all
 			// operations on all live queues.
-			if(detail::runtime::has_instance()) { detail::runtime::get_instance().sync(detail::epoch_action::none); }
+			detail::runtime::get_instance().sync(detail::epoch_action::none);
 		}
 	};
 
