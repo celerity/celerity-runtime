@@ -5,7 +5,6 @@
 #include "range_mapper.h"
 #include "ranges.h"
 #include "reduction.h"
-#include "sycl_wrappers.h"
 #include "types.h"
 
 #include <functional>
@@ -29,7 +28,7 @@ struct task_geometry {
 
 struct buffer_access {
 	buffer_id bid = -1;
-	access_mode mode = access_mode::atomic;
+	access_mode mode = access_mode::read;
 	std::unique_ptr<range_mapper_base> range_mapper;
 };
 

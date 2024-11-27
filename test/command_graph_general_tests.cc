@@ -273,8 +273,6 @@ TEST_CASE("side effects generate appropriate command-dependencies", "[command_gr
 }
 
 TEST_CASE("epochs serialize task commands on every node", "[command_graph_generator][command-graph][epoch]") {
-	using namespace sycl::access;
-
 	const size_t num_nodes = 2;
 	const range<1> node_range{num_nodes};
 

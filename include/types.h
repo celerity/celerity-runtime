@@ -205,3 +205,28 @@ enum class lookahead {
 };
 
 } // namespace celerity::experimental
+
+namespace celerity {
+
+enum class access_mode {
+	read,
+	write,
+	read_write,
+	discard_write,
+	discard_read_write,
+};
+
+enum class target {
+	device,
+	host_task,
+};
+
+} // namespace celerity
+
+namespace celerity::detail {
+
+inline constexpr bool is_producer_mode(const access_mode m) { return m != access_mode::read; }
+inline constexpr bool is_consumer_mode(const access_mode m) { return m != access_mode::discard_read_write && m != access_mode::discard_write; }
+inline constexpr bool is_pure_consumer_mode(const access_mode m) { return is_consumer_mode(m) && !is_producer_mode(m); }
+
+} // namespace celerity::detail

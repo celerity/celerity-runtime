@@ -50,8 +50,6 @@ namespace detail {
 	}
 
 	void task_manager::compute_dependencies(task& tsk) {
-		using namespace sycl::access;
-
 		const auto& access_map = tsk.get_buffer_access_map();
 
 		auto buffers = access_map.get_accessed_buffers();

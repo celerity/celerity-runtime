@@ -10,7 +10,6 @@
 #include <type_traits>
 
 #include <fmt/format.h>
-#include <sycl/sycl.hpp>
 
 
 namespace celerity {
