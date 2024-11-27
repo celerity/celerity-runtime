@@ -7,7 +7,6 @@
 #include "intrusive_graph.h"
 #include "ranges.h"
 #include "reduction.h"
-#include "sycl_wrappers.h"
 #include "types.h"
 #include "utils.h"
 

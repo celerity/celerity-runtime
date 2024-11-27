@@ -1,6 +1,5 @@
 #pragma once
 
-#include "access_modes.h"
 #include "buffer.h"
 #include "cgf_diagnostics.h"
 #include "closure_hydrator.h"
@@ -39,6 +38,9 @@ namespace detail {
 		using reference = DataT&;
 		using const_reference = const DataT&;
 	};
+
+	template <access_mode Mode, access_mode NoInitMode, target Target>
+	struct access_tag {};
 
 	struct accessor_testspy;
 
@@ -91,6 +93,13 @@ class buffer_allocation_window {
 	friend class accessor;
 };
 
+inline constexpr detail::access_tag<access_mode::read, access_mode::read, target::device> read_only;
+inline constexpr detail::access_tag<access_mode::write, access_mode::discard_write, target::device> write_only;
+inline constexpr detail::access_tag<access_mode::read_write, access_mode::discard_read_write, target::device> read_write;
+inline constexpr detail::access_tag<access_mode::read, access_mode::read, target::host_task> read_only_host_task;
+inline constexpr detail::access_tag<access_mode::write, access_mode::discard_write, target::host_task> write_only_host_task;
+inline constexpr detail::access_tag<access_mode::read_write, access_mode::discard_read_write, target::host_task> read_write_host_task;
+
 #define CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR [[deprecated("Creating accessor from const buffer is deprecated, capture buffer by reference instead")]]
 
 /**
@@ -106,8 +115,6 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	struct ctor_internal_tag {};
 
   public:
-	static_assert(Mode != access_mode::atomic, "access_mode::atomic is not supported. Please use atomic_ref instead.");
-
 	accessor() noexcept = default;
 
 	template <typename Functor>
@@ -195,7 +202,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	}
 
 	template <access_mode M = Mode>
-	inline std::conditional_t<detail::access::mode_traits::is_producer(M), DataT&, const DataT&> operator[](const id<Dims>& index) const {
+	inline std::conditional_t<detail::is_producer_mode(M), DataT&, const DataT&> operator[](const id<Dims>& index) const {
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 		// We currently don't support boundary checking for accessors created using accessor_testspy::make_device_accessor,
 		// which does not set m_oob_indices.
@@ -220,12 +227,12 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		return detail::subscript<D>(*this, index);
 	}
 
-	template <access_mode M = Mode, std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), int> = 0>
+	template <access_mode M = Mode, std::enable_if_t<Dims == 0 && detail::is_producer_mode(M), int> = 0>
 	inline operator DataT&() const {
 		return *m_device_ptr;
 	}
 
-	template <access_mode M = Mode, std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), int> = 0>
+	template <access_mode M = Mode, std::enable_if_t<Dims == 0 && detail::is_pure_consumer_mode(M), int> = 0>
 	inline operator const DataT&() const {
 		return *m_device_ptr;
 	}
@@ -233,22 +240,22 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	// we provide operator* and operator-> in addition to SYCL's operator reference() as we feel it better represents the pointer semantics of accessors
 
 	template <access_mode M = Mode>
-	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), DataT&> operator*() const {
+	inline std::enable_if_t<Dims == 0 && detail::is_producer_mode(M), DataT&> operator*() const {
 		return *m_device_ptr;
 	}
 
 	template <access_mode M = Mode>
-	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator*() const {
+	inline std::enable_if_t<Dims == 0 && detail::is_pure_consumer_mode(M), const DataT&> operator*() const {
 		return *m_device_ptr;
 	}
 
 	template <access_mode M = Mode>
-	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), DataT*> operator->() const {
+	inline std::enable_if_t<Dims == 0 && detail::is_producer_mode(M), DataT*> operator->() const {
 		return m_device_ptr;
 	}
 
 	template <access_mode M = Mode>
-	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), const DataT*> operator->() const {
+	inline std::enable_if_t<Dims == 0 && detail::is_pure_consumer_mode(M), const DataT*> operator->() const {
 		return m_device_ptr;
 	}
 
@@ -330,8 +337,6 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	struct ctor_internal_tag {};
 
   public:
-	static_assert(Mode != access_mode::atomic, "access_mode::atomic is not supported.");
-
 	accessor() noexcept = default;
 
 	template <typename Functor>
@@ -345,7 +350,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	 * TODO: As of ComputeCpp 2.5.0 they do not support no_init prop, hence this constructor is needed along with discard deduction guide.
 	 *    but once they do this should be replace for a constructor that takes a prop list as an argument.
 	 */
-	template <typename Functor, access_mode TagMode, access_mode M = Mode, typename = std::enable_if_t<detail::access::mode_traits::is_producer(M)>>
+	template <typename Functor, access_mode TagMode, access_mode M = Mode, typename = std::enable_if_t<detail::is_producer_mode(M)>>
 	accessor(buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::host_task> /* tag */,
 	    const property::no_init& /* no_init */)
 	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
@@ -378,7 +383,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	 * TODO: As of ComputeCpp 2.5.0 they do not support no_init prop, hence this constructor is needed along with discard deduction guide.
 	 *    but once they do this should be replace for a constructor that takes a prop list as an argument.
 	 */
-	template <typename Functor, access_mode TagMode, access_mode M = Mode, typename = std::enable_if_t<detail::access::mode_traits::is_producer(M)>>
+	template <typename Functor, access_mode TagMode, access_mode M = Mode, typename = std::enable_if_t<detail::is_producer_mode(M)>>
 	CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR accessor(const buffer<DataT, Dims>& buff, handler& cgh, const Functor& rmfn,
 	    const detail::access_tag<TagMode, Mode, target::host_task> /* tag */, const property::no_init& /* no_init */)
 	    : accessor(ctor_internal_tag{}, buff, cgh, rmfn) {}
@@ -417,7 +422,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	}
 
 	template <access_mode M = Mode>
-	inline std::enable_if_t<detail::access::mode_traits::is_producer(M), DataT&> operator[](const id<Dims>& index) const {
+	inline std::enable_if_t<detail::is_producer_mode(M), DataT&> operator[](const id<Dims>& index) const {
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 		if(m_oob_indices != nullptr) {
 			const bool is_within_bounds_lo = all_true(index >= m_accessed_buffer_subrange.offset);
@@ -439,7 +444,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	}
 
 	template <access_mode M = Mode>
-	inline std::enable_if_t<detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator[](const id<Dims>& index) const {
+	inline std::enable_if_t<detail::is_pure_consumer_mode(M), const DataT&> operator[](const id<Dims>& index) const {
 		return m_host_ptr[get_linear_offset(index)];
 	}
 
@@ -448,12 +453,12 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		return detail::subscript<D>(*this, index);
 	}
 
-	template <access_mode M = Mode, std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), int> = 0>
+	template <access_mode M = Mode, std::enable_if_t<Dims == 0 && detail::is_producer_mode(M), int> = 0>
 	inline operator DataT&() const {
 		return *m_host_ptr;
 	}
 
-	template <access_mode M = Mode, std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), int> = 0>
+	template <access_mode M = Mode, std::enable_if_t<Dims == 0 && detail::is_pure_consumer_mode(M), int> = 0>
 	inline operator const DataT&() const {
 		return *m_host_ptr;
 	}
@@ -461,22 +466,22 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	// we provide operator* and operator-> in addition to SYCL's operator reference() as we feel it better represents the pointer semantics of accessors
 
 	template <access_mode M = Mode>
-	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), DataT&> operator*() const {
+	inline std::enable_if_t<Dims == 0 && detail::is_producer_mode(M), DataT&> operator*() const {
 		return *m_host_ptr;
 	}
 
 	template <access_mode M = Mode>
-	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), const DataT&> operator*() const {
+	inline std::enable_if_t<Dims == 0 && detail::is_pure_consumer_mode(M), const DataT&> operator*() const {
 		return *m_host_ptr;
 	}
 
 	template <access_mode M = Mode>
-	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_producer(M), DataT*> operator->() const {
+	inline std::enable_if_t<Dims == 0 && detail::is_producer_mode(M), DataT*> operator->() const {
 		return m_host_ptr;
 	}
 
 	template <access_mode M = Mode>
-	inline std::enable_if_t<Dims == 0 && detail::access::mode_traits::is_pure_consumer(M), const DataT*> operator->() const {
+	inline std::enable_if_t<Dims == 0 && detail::is_pure_consumer_mode(M), const DataT*> operator->() const {
 		return m_host_ptr;
 	}
 
