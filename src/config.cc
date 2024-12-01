@@ -70,14 +70,6 @@ namespace detail {
 			if(has_profile_kernel) { m_enable_device_profiling = *has_profile_kernel; }
 
 			m_enable_backend_device_submission_threads = parsed_and_validated_envs.get_or(env_backend_device_submission_threads, true);
-#if CELERITY_WORKAROUND(SIMSYCL)
-			// SimSYCL is not thread safe
-			if(m_enable_backend_device_submission_threads) {
-				CELERITY_WARN("CELERITY_BACKEND_DEVICE_SUBMISSION_THREADS=on is not supported with SimSYCL. Disabling worker threads.");
-				m_enable_backend_device_submission_threads = false;
-			}
-#endif // CELERITY_WORKAROUND(SIMSYCL)
-
 			m_thread_pinning_config = parsed_and_validated_envs.get_or(env_thread_pinning, {});
 
 			const auto dry_run_num_nodes = parsed_and_validated_envs.get(env_dry_run_num_nodes);
