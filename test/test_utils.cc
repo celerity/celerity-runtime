@@ -233,12 +233,10 @@ namespace celerity::test_utils_detail {
 
 // These error and warning messages will appear depending on the system the (runtime) tests are executed on, so we must not fail tests because of them.
 
-const char* const expected_runtime_init_warnings_regex =
-    "Celerity has detected that only .* logical cores are available to this process.*|"
-    "Celerity detected more than one node \\(MPI rank\\) on this host, which is not recommended.*|"
-    "Instrumentation for profiling with Tracy is enabled\\. Performance may be negatively impacted\\.|"
-    "\\[executor\\] no progress for .* seconds, potentially stuck.*|"
-    "CELERITY_BACKEND_DEVICE_SUBMISSION_THREADS=on is not supported with SimSYCL\\. Disabling worker threads\\.";
+const char* const expected_runtime_init_warnings_regex = "Celerity has detected that only .* logical cores are available to this process.*|"
+                                                         "Celerity detected more than one node \\(MPI rank\\) on this host, which is not recommended.*|"
+                                                         "Instrumentation for profiling with Tracy is enabled\\. Performance may be negatively impacted\\.|"
+                                                         "\\[executor\\] no progress for .* seconds, potentially stuck.*";
 
 const char* const expected_device_enumeration_warnings_regex = "Found fewer devices .* than local nodes .*, multiple nodes will use the same device.*";
 
