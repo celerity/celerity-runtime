@@ -80,7 +80,8 @@ struct update_config {
 };
 
 template <typename T, typename Config, typename KernelName>
-void step(celerity::queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T, 2> u, const wave_sim_config& cfg, const size_t current_outset) {
+void step(celerity::queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T, 2> u, const wave_sim_config& cfg, const size_t current_outset,
+    const bool is_warmup = false) {
 	celerity::geometry_builder<2> gb{u.get_range()};
 	if(cfg.tiled) {
 		gb.split_2d_but_recursive_and_only_for_local_chunks();
@@ -127,7 +128,10 @@ void step(celerity::queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T,
 
 		// TODO API: Should be behind unified perf assertions namespace or something. Also optionally scope to node/device.
 		// => Maybe also have the reverse, assert that a data movement is required?
-		if(cfg.outset > 0 && current_outset != cfg.outset) { cgh.assert_no_data_movement(); }
+		if(!is_warmup) {
+			cgh.assert_no_allocations();
+			if(cfg.outset > 0 && current_outset != cfg.outset) { cgh.assert_no_data_movement(); }
+		}
 
 		const auto kernel = [=](celerity::item<2> item) {
 			const size_t py = item[0] < size[0] - 1 ? item[0] + 1 : item[0];
@@ -159,11 +163,14 @@ void step(celerity::queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T,
 }
 
 void initialize(celerity::queue& queue, celerity::buffer<DataT, 2> up, celerity::buffer<DataT, 2> u, const wave_sim_config& cfg) {
-	step<DataT, init_config, class initialize>(queue, up, u, cfg, 0);
+	step<DataT, init_config, class initialize>(queue, up, u, cfg, 0, true);
 }
 
-void update(celerity::queue& queue, celerity::buffer<DataT, 2> up, celerity::buffer<DataT, 2> u, const wave_sim_config& cfg, const size_t current_outset) {
-	step<DataT, update_config, class update>(queue, up, u, cfg, current_outset);
+template <typename Name = class update>
+void update(celerity::queue& queue, celerity::buffer<DataT, 2> up, celerity::buffer<DataT, 2> u, const wave_sim_config& cfg, const size_t current_outset,
+    const bool is_warmup = false) //
+{
+	step<DataT, update_config, Name>(queue, up, u, cfg, current_outset, is_warmup);
 }
 
 void stream_open(celerity::queue& queue, size_t N, size_t num_samples, celerity::experimental::host_object<std::ofstream> os) {
@@ -308,9 +315,7 @@ int main(int argc, char* argv[]) {
 		for(int i = 0; i < num_nodes; ++i) {
 			auto& node = nodes[i];
 			// move all elements that are larger or equal to pivot to one side
-			node.pivot = std::partition(node.begin, node.end, [&](int x) {
-				return x < pivot;
-			});
+			node.pivot = std::partition(node.begin, node.end, [&](int x) { return x < pivot; });
 			const auto etp = std::count(node.pivot, node.end, pivot);
 			fmt::print(
 			    "Node {} left: {}, right: {}, equal to pivot: {}\n", i, fmt::join(node.begin, node.pivot, ","), fmt::join(node.pivot, node.end, ","), etp);
@@ -402,9 +407,23 @@ int main(int argc, char* argv[]) {
 	celerity::buffer<DataT, 2> up{celerity::range<2>(cfg.N, cfg.N)}; // next
 	celerity::buffer<DataT, 2> u{celerity::range<2>(cfg.N, cfg.N)};  // current
 
-	setup_wave(queue, u, {cfg.N / 4.f, cfg.N / 4.f}, 1, {cfg.N / 8.f, cfg.N / 8.f}, cfg);
-	zero(queue, up, cfg);
-	initialize(queue, up, u, cfg);
+	const auto init = [&]() {
+		setup_wave(queue, u, {cfg.N / 4.f, cfg.N / 4.f}, 1, {cfg.N / 8.f, cfg.N / 8.f}, cfg);
+		zero(queue, up, cfg);
+		initialize(queue, up, u, cfg);
+	};
+
+	init();
+
+	const size_t warmup = std::max<size_t>(10, 2ull * cfg.outset);
+	fprintf(stderr, "Doing %zu warmup iterations\n", warmup);
+	for(size_t i = 0; i < warmup; ++i) {
+		const size_t current_outset = cfg.outset - i % (cfg.outset + 1);
+		update<class warmup>(queue, up, u, cfg, current_outset, true /*	is_warmup */);
+		std::swap(u, up);
+	}
+
+	init();
 
 	const celerity::experimental::host_object<std::ofstream> os;
 	if(cfg.output_sample_rate > 0) {
@@ -414,13 +433,9 @@ int main(int argc, char* argv[]) {
 
 	auto t = 0.0;
 	size_t i = 0;
-	const size_t warmup = 10;
-	std::chrono::steady_clock::time_point start;
+	queue.wait(celerity::experimental::barrier);
+	std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 	while(t < cfg.T) {
-		if(i == warmup - 1) {
-			queue.wait(celerity::experimental::barrier);
-			start = std::chrono::steady_clock::now();
-		}
 		const size_t current_outset = cfg.outset - i % (cfg.outset + 1);
 		update(queue, up, u, cfg, current_outset);
 		if(cfg.output_sample_rate > 0) {
@@ -434,7 +449,7 @@ int main(int argc, char* argv[]) {
 	const auto end = std::chrono::steady_clock::now();
 
 	const auto computation_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-	const size_t iterations = (cfg.T / cfg.dt) - warmup;
+	const size_t iterations = cfg.T / cfg.dt;
 	const double bytes = cfg.N * cfg.N * sizeof(DataT) * iterations;
 	const double gbps = bytes / computation_time / 1000.0;
 	fprintf(stderr, "Computation time: %8.2lf ms (%.2lf GB/s) (%.2lf GigaCells/s)\n", computation_time / 1000.0, gbps,
