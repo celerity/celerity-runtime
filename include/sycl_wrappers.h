@@ -5,34 +5,13 @@
 #include <sycl/sycl.hpp>
 
 
-namespace celerity {
-
-using access_mode = sycl::access::mode;
-
-enum class target {
-	device,
-	host_task,
-};
-
-} // namespace celerity
-
 namespace celerity::detail {
-
-template <access_mode Mode, access_mode NoInitMode, target Target>
-struct access_tag {};
 
 using memory_scope_ut = std::underlying_type_t<sycl::memory_scope>;
 
 } // namespace celerity::detail
 
 namespace celerity {
-
-inline constexpr detail::access_tag<access_mode::read, access_mode::read, target::device> read_only;
-inline constexpr detail::access_tag<access_mode::write, access_mode::discard_write, target::device> write_only;
-inline constexpr detail::access_tag<access_mode::read_write, access_mode::discard_read_write, target::device> read_write;
-inline constexpr detail::access_tag<access_mode::read, access_mode::read, target::host_task> read_only_host_task;
-inline constexpr detail::access_tag<access_mode::write, access_mode::discard_write, target::host_task> write_only_host_task;
-inline constexpr detail::access_tag<access_mode::read_write, access_mode::discard_read_write, target::host_task> read_write_host_task;
 
 using sycl::property_list;
 
@@ -64,4 +43,5 @@ using decorated_global_ptr = sycl::global_ptr<T>;
 
 template <typename T>
 using decorated_local_ptr = sycl::local_ptr<T>;
+
 } // namespace celerity

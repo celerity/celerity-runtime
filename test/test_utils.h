@@ -223,7 +223,7 @@ namespace test_utils {
 	template <int Dims>
 	class mock_buffer {
 	  public:
-		template <sycl::access::mode Mode, typename Functor>
+		template <access_mode Mode, typename Functor>
 		void get_access(handler& cgh, Functor rmfn) {
 			(void)detail::add_requirement(cgh, m_id, Mode, std::make_unique<detail::range_mapper<Dims, Functor>>(rmfn, m_size));
 		}

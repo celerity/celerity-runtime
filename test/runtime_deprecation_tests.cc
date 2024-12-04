@@ -76,7 +76,7 @@ namespace detail {
 		std::vector<float> init(range.size());
 		buffer<float, 2> buf_a{init.data(), range};
 		const auto cg = invoke_command_group_function([&](handler& cgh) {
-			auto acc = std::as_const(buf_a).get_access<sycl::access::mode::read>(cgh, celerity::access::one_to_one{});
+			auto acc = std::as_const(buf_a).get_access<access_mode::read>(cgh, celerity::access::one_to_one{});
 			cgh.parallel_for(range, [=](item<2>) { (void)acc; });
 		});
 		CHECK(cg.buffer_accesses.size() == 1);

@@ -8,7 +8,6 @@
 #include "grid.h"
 #include "named_threads.h"
 #include "nd_memory.h"
-#include "sycl_wrappers.h"
 #include "system_info.h"
 #include "thread_queue.h"
 #include "tracy.h"

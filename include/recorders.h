@@ -7,7 +7,6 @@
 #include "nd_memory.h"
 #include "pilot.h"
 #include "ranges.h"
-#include "sycl_wrappers.h"
 #include "task.h"
 #include "types.h"
 

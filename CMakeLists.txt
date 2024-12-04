@@ -220,7 +220,6 @@ endif()
 
 # TODO move all non-public headers from "include" to "src"
 set(PUBLIC_HEADERS
-  include/access_modes.h
   include/accessor.h
   include/buffer.h
   include/celerity.h
