@@ -1263,6 +1263,10 @@ void generator_impl::establish_coherence_between_buffer_memories(
 		}
 	}
 
+
+	// Common case for constant buffers: All input data is already in the right place
+	if(concurrent_direct_copies.empty() && concurrently_host_staged_copies.empty()) return;
+
 	// (2) Plan an abstract tree of copy operations necessary to establish full coherence. Staged or source-linearized copies will manifest as proper
 	// instruction trees rather than chains in case of broadcast-like producer-consumer patterns. The explicit planning structure avoids the introduction of
 	// temporary region maps to track dependencies across staging allocations by exploiting the fact that (1) results in a full producer-consumer split, meaning
@@ -1465,12 +1469,10 @@ void generator_impl::establish_coherence_between_buffer_memories(
 
 	// (4) Update buffer.up_to_date_memories en-bloc, regardless of which copy instructions were actually emitted.
 
-	if(!concurrent_direct_copies.empty() || !concurrently_host_staged_copies.empty()) {
-		for(memory_id mid = 0; mid < concurrent_reads_from_memory.size(); ++mid) {
-			for(const auto& region : concurrent_reads_from_memory[mid]) {
-				for(auto& [box, location] : buffer.up_to_date_memories.get_region_values(region)) {
-					buffer.up_to_date_memories.update_box(box, memory_mask(location).set(mid));
-				}
+	for(memory_id mid = 0; mid < concurrent_reads_from_memory.size(); ++mid) {
+		for(const auto& region : concurrent_reads_from_memory[mid]) {
+			for(auto& [box, location] : buffer.up_to_date_memories.get_region_values(region)) {
+				buffer.up_to_date_memories.update_box(box, memory_mask(location).set(mid));
 			}
 		}
 	}
