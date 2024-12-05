@@ -178,7 +178,7 @@ namespace detail {
 	void task_manager::invoke_callbacks(const task* tsk) const {
 		if(m_delegate != nullptr) { m_delegate->task_created(tsk); }
 		if(m_task_recorder != nullptr) {
-			m_task_recorder->record(task_record(*tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }));
+			m_task_recorder->record(std::make_unique<task_record>(*tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }));
 		}
 	}
 

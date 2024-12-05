@@ -75,18 +75,12 @@ struct task_record {
 
 class task_recorder {
   public:
-	void record(task_record&& record) { m_recorded_tasks.push_back(std::move(record)); }
+	void record(std::unique_ptr<task_record> record) { m_recorded_tasks.push_back(std::move(record)); }
 
-	const std::vector<task_record>& get_tasks() const { return m_recorded_tasks; }
-
-	const task_record& get_task(const task_id tid) const {
-		const auto it = std::find_if(m_recorded_tasks.begin(), m_recorded_tasks.end(), [tid](const task_record& rec) { return rec.tid == tid; });
-		assert(it != m_recorded_tasks.end());
-		return *it;
-	}
+	const std::vector<std::unique_ptr<task_record>>& get_graph_nodes() const { return m_recorded_tasks; }
 
   private:
-	std::vector<task_record> m_recorded_tasks;
+	std::vector<std::unique_ptr<task_record>> m_recorded_tasks;
 };
 
 // Command recording

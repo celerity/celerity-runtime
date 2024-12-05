@@ -107,13 +107,13 @@ std::string make_graph_preamble(const std::string& title) { return fmt::format("
 std::string print_task_graph(const task_recorder& recorder, const std::string& title) {
 	std::string dot = make_graph_preamble(title);
 
-	CELERITY_DEBUG("print_task_graph, {} entries", recorder.get_tasks().size());
+	CELERITY_DEBUG("print_task_graph, {} entries", recorder.get_graph_nodes().size());
 
-	for(const auto& tsk : recorder.get_tasks()) {
-		const char* shape = tsk.type == task_type::epoch || tsk.type == task_type::horizon ? "ellipse" : "box style=rounded";
-		fmt::format_to(std::back_inserter(dot), "{}[shape={} label=<{}>];", tsk.tid, shape, get_task_label(tsk));
-		for(auto d : tsk.dependencies) {
-			fmt::format_to(std::back_inserter(dot), "{}->{}[{}];", d.node, tsk.tid, dependency_style(d.kind, d.origin));
+	for(const auto& tsk : recorder.get_graph_nodes()) {
+		const char* shape = tsk->type == task_type::epoch || tsk->type == task_type::horizon ? "ellipse" : "box style=rounded";
+		fmt::format_to(std::back_inserter(dot), "{}[shape={} label=<{}>];", tsk->tid, shape, get_task_label(*tsk));
+		for(auto d : tsk->dependencies) {
+			fmt::format_to(std::back_inserter(dot), "{}->{}[{}];", d.node, tsk->tid, dependency_style(d.kind, d.origin));
 		}
 	}
 
