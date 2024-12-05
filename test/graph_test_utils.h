@@ -11,12 +11,14 @@ using namespace celerity::detail;
 
 namespace celerity::test_utils {
 
+class tdag_test_context;
 class cdag_test_context;
 class idag_test_context;
 class scheduler_test_context;
 
 template <typename TestContext>
 class task_builder {
+	friend class tdag_test_context;
 	friend class cdag_test_context;
 	friend class idag_test_context;
 	friend class scheduler_test_context;

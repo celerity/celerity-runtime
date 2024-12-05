@@ -37,11 +37,10 @@ TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
 	// replace the `expected` value with the new dot graph.
 	const std::string expected =
 	    "digraph G{label=<Task Graph>;pad=0.2;0[shape=ellipse label=<T0<br/><b>epoch</b>>];1[shape=box style=rounded label=<T1<br/><b>device-compute</b> "
-	    "[0,0,0] + [64,1,1]<br/><i>discard_write</i> B1 {[0,0,0] - [1,1,1]}>];0->1[color=orchid];2[shape=box style=rounded label=<T2<br/><b>device-compute</b> "
-	    "[0,0,0] + [64,1,1]<br/><i>discard_write</i> B0 {[0,0,0] - [64,1,1]}>];0->2[color=orchid];3[shape=box style=rounded "
-	    "label=<T3<br/><b>device-compute</b> [0,0,0] + [64,1,1]<br/>(R1) <i>read_write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read</i> B0 {[0,0,0] - "
-	    "[64,1,1]}>];1->3[];2->3[];4[shape=box style=rounded label=<T4<br/><b>device-compute</b> [0,0,0] + [64,1,1]<br/><i>read</i> B1 {[0,0,0] - "
-	    "[1,1,1]}>];3->4[];}";
+	    "[0,0,0] + [64,1,1]<br/><i>discard_write</i> B1 {[0,0,0] - [1,1,1]}>];2[shape=box style=rounded label=<T2<br/><b>device-compute</b> [0,0,0] + "
+	    "[64,1,1]<br/><i>discard_write</i> B0 {[0,0,0] - [64,1,1]}>];3[shape=box style=rounded label=<T3<br/><b>device-compute</b> [0,0,0] + [64,1,1]<br/>(R1) "
+	    "<i>read_write</i> B1 {[0,0,0] - [1,1,1]}<br/><i>read</i> B0 {[0,0,0] - [64,1,1]}>];4[shape=box style=rounded label=<T4<br/><b>device-compute</b> "
+	    "[0,0,0] + [64,1,1]<br/><i>read</i> B1 {[0,0,0] - [1,1,1]}>];0->1[color=orchid];0->2[color=orchid];1->3[];2->3[];3->4[];}";
 
 	const auto dot = print_task_graph(tt.trec);
 	CHECK(dot == expected);
@@ -316,12 +315,12 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY
 	SECTION("task graph") {
 		const auto* expected =
 		    "digraph G{label=<Task Graph>;pad=0.2;0[shape=ellipse label=<T0<br/><b>epoch</b>>];1[shape=box style=rounded label=<T1<br/><b>host-compute</b> "
-		    "[0,0,0] + [16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];0->1[];2[shape=ellipse "
-		    "label=<T2<br/><b>horizon</b>>];1->2[color=orange];3[shape=box style=rounded label=<T3<br/><b>host-compute</b> [0,0,0] + "
-		    "[16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];1->3[];4[shape=ellipse "
-		    "label=<T4<br/><b>horizon</b>>];3->4[color=orange];2->4[color=orange];5[shape=box style=rounded label=<T5<br/><b>host-compute</b> [0,0,0] + "
-		    "[16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];3->5[];6[shape=ellipse "
-		    "label=<T6<br/><b>horizon</b>>];5->6[color=orange];4->6[color=orange];7[shape=ellipse label=<T7<br/><b>epoch</b>>];6->7[color=orange];}";
+		    "[0,0,0] + [16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];2[shape=ellipse label=<T2<br/><b>horizon</b>>];3[shape=box style=rounded "
+		    "label=<T3<br/><b>host-compute</b> [0,0,0] + [16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - [16,1,1]}>];4[shape=ellipse "
+		    "label=<T4<br/><b>horizon</b>>];5[shape=box style=rounded label=<T5<br/><b>host-compute</b> [0,0,0] + [16,1,1]<br/><i>read_write</i> B0 {[0,0,0] - "
+		    "[16,1,1]}>];6[shape=ellipse label=<T6<br/><b>horizon</b>>];7[shape=ellipse "
+		    "label=<T7<br/><b>epoch</"
+		    "b>>];0->1[];1->2[color=orange];1->3[];2->4[color=orange];3->4[color=orange];3->5[];4->6[color=orange];5->6[color=orange];6->7[color=orange];}";
 
 		const auto dot = runtime_testspy::print_task_graph(celerity::detail::runtime::get_instance());
 		CHECK(dot == expected);

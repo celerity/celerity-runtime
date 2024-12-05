@@ -39,18 +39,10 @@ reduction_list build_reduction_list(const task& tsk, const buffer_name_map& get_
 	return ret;
 }
 
-task_dependency_list build_task_dependency_list(const task& tsk) {
-	task_dependency_list ret;
-	for(const auto& dep : tsk.get_dependencies()) {
-		ret.push_back({dep.node->get_id(), dep.kind, dep.origin});
-	}
-	return ret;
-}
-
 task_record::task_record(const task& tsk, const buffer_name_map& get_buffer_debug_name)
-    : tid(tsk.get_id()), debug_name(tsk.get_debug_name()), cgid(tsk.get_collective_group_id()), type(tsk.get_type()), geometry(tsk.get_geometry()),
+    : id(tsk.get_id()), debug_name(tsk.get_debug_name()), cgid(tsk.get_collective_group_id()), type(tsk.get_type()), geometry(tsk.get_geometry()),
       reductions(build_reduction_list(tsk, get_buffer_debug_name)), accesses(build_access_list(tsk, get_buffer_debug_name)),
-      side_effect_map(tsk.get_side_effect_map()), dependencies(build_task_dependency_list(tsk)) {}
+      side_effect_map(tsk.get_side_effect_map()) {}
 
 // Commands
 

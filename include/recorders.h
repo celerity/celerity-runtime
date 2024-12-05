@@ -50,19 +50,24 @@ using reduction_list = std::vector<reduction_record>;
 
 template <typename IdType>
 struct dependency_record {
-	const IdType node;
-	const dependency_kind kind;
-	const dependency_origin origin;
+	IdType predecessor;
+	IdType successor;
+	dependency_kind kind;
+	dependency_origin origin;
+
+	dependency_record(const IdType predecessor, const IdType successor, const dependency_kind kind, const dependency_origin origin)
+	    : predecessor(predecessor), successor(successor), kind(kind), origin(origin) {}
 };
 
 // Task recording
 
-using task_dependency_list = std::vector<dependency_record<task_id>>;
+using task_dependency_record = dependency_record<task_id>;
 
+// TODO: Switch to hierarchy like for CDAG/IDAG
 struct task_record {
 	task_record(const task& tsk, const buffer_name_map& get_buffer_debug_name);
 
-	task_id tid;
+	task_id id;
 	std::string debug_name;
 	collective_group_id cgid;
 	task_type type;
@@ -70,38 +75,26 @@ struct task_record {
 	reduction_list reductions;
 	access_list accesses;
 	detail::side_effect_map side_effect_map;
-	task_dependency_list dependencies;
 };
 
 class task_recorder {
   public:
-	void record(task_record&& record) { m_recorded_tasks.push_back(std::move(record)); }
+	void record(std::unique_ptr<task_record> record) { m_recorded_tasks.push_back(std::move(record)); }
 
-	const std::vector<task_record>& get_tasks() const { return m_recorded_tasks; }
+	void record_dependency(const task_dependency_record& dependency) { m_recorded_dependencies.push_back(dependency); }
 
-	const task_record& get_task(const task_id tid) const {
-		const auto it = std::find_if(m_recorded_tasks.begin(), m_recorded_tasks.end(), [tid](const task_record& rec) { return rec.tid == tid; });
-		assert(it != m_recorded_tasks.end());
-		return *it;
-	}
+	const std::vector<std::unique_ptr<task_record>>& get_graph_nodes() const { return m_recorded_tasks; }
+
+	const std::vector<task_dependency_record>& get_dependencies() const { return m_recorded_dependencies; }
 
   private:
-	std::vector<task_record> m_recorded_tasks;
+	std::vector<std::unique_ptr<task_record>> m_recorded_tasks;
+	std::vector<task_dependency_record> m_recorded_dependencies;
 };
 
 // Command recording
 
-using command_dependency_list = std::vector<dependency_record<command_id>>;
-
-struct command_dependency_record {
-	command_id predecessor;
-	command_id successor;
-	dependency_kind kind;
-	dependency_origin origin;
-
-	command_dependency_record(const command_id predecessor, const command_id successor, const dependency_kind kind, const dependency_origin origin)
-	    : predecessor(predecessor), successor(successor), kind(kind), origin(origin) {}
-};
+using command_dependency_record = dependency_record<command_id>;
 
 struct command_record : matchbox::acceptor<struct push_command_record, struct await_push_command_record, struct reduction_command_record,
                             struct epoch_command_record, struct horizon_command_record, struct execution_command_record, struct fence_command_record> {
