@@ -245,6 +245,7 @@ namespace test_utils {
 
 	  private:
 		friend class mock_buffer_factory;
+		friend class tdag_test_context;
 		friend class cdag_test_context;
 		friend class idag_test_context;
 		friend class scheduler_test_context;
@@ -263,6 +264,7 @@ namespace test_utils {
 
 	  private:
 		friend class mock_host_object_factory;
+		friend class tdag_test_context;
 		friend class cdag_test_context;
 		friend class idag_test_context;
 		friend class scheduler_test_context;
@@ -449,6 +451,7 @@ namespace test_utils {
 	std::string make_test_graph_title(const std::string& type, size_t num_nodes, detail::node_id local_nid);
 	std::string make_test_graph_title(const std::string& type, size_t num_nodes, detail::node_id local_nid, size_t num_devices_per_node);
 
+	// DEPRECATED: Use tdag_test_context in task_graph_test_utils.h instead
 	struct task_test_context {
 		detail::task_graph tdag;
 		detail::task_recorder trec;
