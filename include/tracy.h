@@ -4,7 +4,7 @@
 #include <optional>
 #include <vector>
 
-#include <spdlog/fmt/fmt.h>
+#include <fmt/format.h>
 #include <tracy/Tracy.hpp>
 #include <tracy/TracyC.h>
 

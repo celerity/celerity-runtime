@@ -296,7 +296,7 @@ int main(int argc, char* argv[]) {
 	fmt::print("Time: {}ms ({:.2f} GB/s) ({:.2f} GigaCells/s)\n", dt / 1000, gbs, (cfg.N * cfg.N * (cfg.T / cfg.dt) / 1000.0) / dt);
 
 	if(cfg.N * cfg.N * sizeof(DataT) < 10ull * 1024 * 1024 * 1024) {
-		queue.submit([=](celerity::handler& cgh) {
+		queue.submit([&](celerity::handler& cgh) {
 			celerity::accessor acc{u, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			cgh.host_task(celerity::on_master_node, [=]() {
 				hasher hsh;

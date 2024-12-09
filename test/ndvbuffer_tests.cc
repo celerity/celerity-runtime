@@ -274,8 +274,8 @@ TEST_CASE("WIP: why are returned pointers not 'UVA pointers' ?!") {
 
 		fmt::print("Attributes of pointer {}:\n", ptr);
 		fmt::print("\tcontext = {}\n", (void*)ctx);
-		fmt::print("\tmemtype = {}\n", memtype);
-		fmt::print("\tdevptr = {}\n", devptr);
+		fmt::print("\tmemtype = {}\n", (int)memtype);
+		fmt::print("\tdevptr = {}\n", (void*)devptr);
 		// fmt::print("\thostptr = {}\n", hostptr);
 		fmt::print("\tis_managed = {}\n", is_managed);
 		fmt::print("\tdevice = {}\n", device_ordinal);

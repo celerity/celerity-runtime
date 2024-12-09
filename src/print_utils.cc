@@ -2,7 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
-#include <spdlog/fmt/ostr.h>
+#include <fmt/format.h>
 
 namespace celerity {
 namespace detail {

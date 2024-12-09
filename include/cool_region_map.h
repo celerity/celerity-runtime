@@ -20,9 +20,7 @@
 
 #include "grid.h"
 
-// NOCOMMIT
-#define FMT_HEADER_ONLY
-#include <spdlog/fmt/fmt.h>
+#include <fmt/format.h>
 
 namespace celerity {
 namespace detail {

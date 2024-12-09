@@ -6,7 +6,7 @@
 #include <utility>
 #include <variant>
 
-#include <spdlog/fmt/ostr.h> // Enable formatting of types that support operator<<(std::ostream&, T)
+#include <fmt/ostream.h>
 #include <spdlog/spdlog.h>
 
 #include "print_utils.h"
@@ -81,7 +81,7 @@ struct fmt::formatter<celerity::detail::log_map<Es...>> {
 	constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
 
 	template <typename FormatContext>
-	auto format(const celerity::detail::log_map<Es...>& map, FormatContext& ctx) {
+	auto format(const celerity::detail::log_map<Es...>& map, FormatContext& ctx) const {
 		auto&& out = ctx.out();
 		int i = 0;
 		tuple_for_each_pair(map.entries, [&i, &out](auto& a, auto& b) {

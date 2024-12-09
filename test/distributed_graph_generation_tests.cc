@@ -229,7 +229,7 @@ class command_query {
 						found = true;
 						if(kind.has_value() && received.kind != *kind) {
 							UNSCOPED_INFO(fmt::format("Expected command {} on node {} to have successor {} with kind {}, but found kind {}", cmd->get_cid(),
-							    nid, expected->get_cid(), *kind, received.kind));
+							    nid, expected->get_cid(), (int) *kind, (int) received.kind));
 							return false;
 						}
 					}

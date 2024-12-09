@@ -6,6 +6,8 @@
 
 #include "ranges.h"
 
+#include <fmt/ostream.h>
+
 namespace celerity {
 namespace detail {
 
@@ -53,3 +55,8 @@ namespace detail {
 
 } // namespace detail
 } // namespace celerity
+
+
+template <size_t Dims> struct fmt::formatter<celerity::detail::GridPoint<Dims>> : ostream_formatter {};
+template <size_t Dims> struct fmt::formatter<celerity::detail::GridBox<Dims>> : ostream_formatter {};
+template <size_t Dims> struct fmt::formatter<celerity::detail::GridRegion<Dims>> : ostream_formatter {};

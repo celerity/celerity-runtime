@@ -1,6 +1,6 @@
 #include "worker_job.h"
 
-#include <spdlog/fmt/fmt.h>
+#include <fmt/format.h>
 
 #include "buffer_manager.h"
 #include "device_queue.h"

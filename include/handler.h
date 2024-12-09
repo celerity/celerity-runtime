@@ -6,7 +6,7 @@
 #include <typeinfo>
 
 #include <CL/sycl.hpp>
-#include <spdlog/fmt/fmt.h>
+#include <fmt/format.h>
 
 #include "buffer.h"
 #include "cgf_diagnostics.h"
