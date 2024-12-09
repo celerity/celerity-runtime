@@ -1,6 +1,5 @@
 #include "print_graph.h"
 
-#include "access_modes.h"
 #include "cgf.h"
 #include "grid.h"
 #include "instruction_graph.h"
@@ -10,7 +9,6 @@
 #include "print_utils_internal.h"
 #include "ranges.h"
 #include "recorders.h"
-#include "sycl_wrappers.h"
 #include "task.h"
 #include "types.h"
 #include "utils.h"
@@ -52,23 +50,34 @@ const char* task_type_string(const task_type tt) {
 	case task_type::master_node: return "master-node host";
 	case task_type::horizon: return "horizon";
 	case task_type::fence: return "fence";
-	default: return "unknown";
+	default: utils::unreachable(); // LCOV_EXCL_LINE
+	}
+}
+
+const char* access_mode_string(const access_mode m) {
+	switch(m) {
+	case access_mode::read: return "read";
+	case access_mode::write: return "write";
+	case access_mode::read_write: return "read_write";
+	case access_mode::discard_write: return "discard_write";
+	case access_mode::discard_read_write: return "discard_read_write";
+	default: utils::unreachable(); // LCOV_EXCL_LINE
 	}
 }
 
 void format_requirements(std::string& label, const reduction_list& reductions, const access_list& accesses, const side_effect_map& side_effects,
     const access_mode reduction_init_mode) {
 	for(const auto& [rid, bid, buffer_name, init_from_buffer] : reductions) {
-		auto rmode = init_from_buffer ? reduction_init_mode : sycl::access::mode::discard_write;
+		auto rmode = init_from_buffer ? reduction_init_mode : access_mode::discard_write;
 		const region scalar_region(box<3>({0, 0, 0}, {1, 1, 1}));
 		const std::string bl = utils::escape_for_dot_label(utils::make_buffer_debug_label(bid, buffer_name));
-		fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> {} {}", rid, detail::access::mode_traits::name(rmode), bl, scalar_region);
+		fmt::format_to(std::back_inserter(label), "<br/>(R{}) <i>{}</i> {} {}", rid, access_mode_string(rmode), bl, scalar_region);
 	}
 
 	for(const auto& [bid, buffer_name, mode, req] : accesses) {
 		const std::string bl = utils::escape_for_dot_label(utils::make_buffer_debug_label(bid, buffer_name));
 		// While uncommon, we do support chunks that don't require access to a particular buffer at all.
-		if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> {} {}", detail::access::mode_traits::name(mode), bl, req); }
+		if(!req.empty()) { fmt::format_to(std::back_inserter(label), "<br/><i>{}</i> {} {}", access_mode_string(mode), bl, req); }
 	}
 
 	for(const auto& [hoid, order] : side_effects) {

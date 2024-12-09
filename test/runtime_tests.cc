@@ -59,7 +59,7 @@ namespace detail {
 		std::vector<float> init(range.size());
 		buffer<float, 2> buf_a{init.data(), range};
 		const auto cg = invoke_command_group_function([&](handler& cgh) {
-			auto acc = buf_a.get_access<sycl::access::mode::read>(cgh, one_to_one{});
+			auto acc = buf_a.get_access<access_mode::read>(cgh, one_to_one{});
 			cgh.parallel_for(range, [=](item<2>) { (void)acc; });
 		});
 		CHECK(cg.buffer_accesses.size() == 1);
@@ -75,12 +75,12 @@ namespace detail {
 		std::vector<int> host_buff(N);
 
 		q.submit([&](handler& cgh) {
-			auto b = buff.get_access<sycl::access::mode::discard_write>(cgh, one_to_one{});
+			auto b = buff.get_access<access_mode::discard_write>(cgh, one_to_one{});
 			cgh.parallel_for<class sync_test>(range<1>(N), [=](celerity::item<1> item) { b[item] = item.get_linear_id(); });
 		});
 
 		q.submit([&](handler& cgh) {
-			auto b = buff.get_access<sycl::access::mode::read, target::host_task>(cgh, celerity::access::fixed<1>{{{}, buff.get_range()}});
+			auto b = buff.get_access<access_mode::read, target::host_task>(cgh, celerity::access::fixed<1>{{{}, buff.get_range()}});
 			cgh.host_task(on_master_node, [=, &host_buff] {
 				std::this_thread::sleep_for(std::chrono::milliseconds(10)); // give the synchronization more time to fail
 				for(int i = 0; i < N; i++) {
@@ -173,31 +173,31 @@ namespace detail {
 		buffer<int, 2> buf{{10, 10}};
 
 		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
-			auto acc = buf.get_access<sycl::access::mode::discard_write>(cgh, one_to_one{});
+			auto acc = buf.get_access<access_mode::discard_write>(cgh, one_to_one{});
 			cgh.parallel_for<class UKN(kernel)>(range<1>{10}, [=](celerity::item<1>) { (void)acc; });
 		}),
 		    "Invalid range mapper dimensionality: 1-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<1> nor "
 		    "(chunk<1>, range<2>) to produce subrange<2>");
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			auto acc = buf.get_access<sycl::access::mode::discard_write>(cgh, one_to_one{});
+			auto acc = buf.get_access<access_mode::discard_write>(cgh, one_to_one{});
 			cgh.parallel_for<class UKN(kernel)>(range<2>{10, 10}, [=](celerity::item<2>) { (void)acc; });
 		}));
 
 		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
-			auto acc = buf.get_access<sycl::access::mode::discard_write>(cgh, one_to_one{});
+			auto acc = buf.get_access<access_mode::discard_write>(cgh, one_to_one{});
 			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
 		}),
 		    "Invalid range mapper dimensionality: 3-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<3> nor "
 		    "(chunk<3>, range<2>) to produce subrange<2>");
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			auto acc = buf.get_access<sycl::access::mode::read>(cgh, all{});
+			auto acc = buf.get_access<access_mode::read>(cgh, all{});
 			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
 		}));
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
-			auto acc = buf.get_access<sycl::access::mode::read>(cgh, all{});
+			auto acc = buf.get_access<access_mode::read>(cgh, all{});
 			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
 		}));
 	}
@@ -530,8 +530,6 @@ namespace detail {
 
 	// This test case requires actual command execution, which is why it is not in graph_compaction_tests
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "tasks behind the deletion horizon are deleted", "[task_manager][task-graph][task-horizon]") {
-		using namespace sycl::access;
-
 		constexpr int horizon_step_size = 2;
 
 		queue q;

@@ -1,6 +1,5 @@
 #include "task.h"
 
-#include "access_modes.h"
 #include "cgf.h"
 #include "grid.h"
 #include "range_mapper.h"
@@ -48,8 +47,8 @@ buffer_access_map::buffer_access_map(std::vector<buffer_access>&& accesses, cons
 		const auto req = apply_range_mapper(rm.get(), chunk<3>{geometry.global_offset, geometry.global_size, geometry.global_size}, geometry.dimensions);
 		auto& cons = consumed_regions[bid]; // allow default-insert
 		auto& prod = produced_regions[bid]; // allow default-insert
-		if(access::mode_traits::is_consumer(mode)) { cons.add(req); }
-		if(access::mode_traits::is_producer(mode)) { prod.add(req); }
+		if(is_consumer_mode(mode)) { cons.add(req); }
+		if(is_producer_mode(mode)) { prod.add(req); }
 	}
 	for(auto& [bid, builder] : consumed_regions) {
 		m_task_consumed_regions.emplace(bid, std::move(builder).into_region());
@@ -68,7 +67,7 @@ region<3> buffer_access_map::compute_consumed_region(const buffer_id bid, const 
 	region_builder<3> builder;
 	for(size_t i = 0; i < m_accesses.size(); ++i) {
 		const auto& [b, m, _] = m_accesses[i];
-		if(b != bid || !access::mode_traits::is_consumer(m)) continue;
+		if(b != bid || !is_consumer_mode(m)) continue;
 		builder.add(get_requirements_for_nth_access(i, execution_range));
 	}
 	return std::move(builder).into_region();
@@ -78,7 +77,7 @@ region<3> buffer_access_map::compute_produced_region(const buffer_id bid, const 
 	region_builder<3> builder;
 	for(size_t i = 0; i < m_accesses.size(); ++i) {
 		const auto& [b, m, _] = m_accesses[i];
-		if(b != bid || !access::mode_traits::is_producer(m)) continue;
+		if(b != bid || !is_producer_mode(m)) continue;
 		builder.add(get_requirements_for_nth_access(i, execution_range));
 	}
 	return std::move(builder).into_region();

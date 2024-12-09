@@ -46,8 +46,8 @@ namespace detail {
 		const auto tid = test_utils::add_compute_task(
 		    tt.tm,
 		    [&](handler& cgh) {
-			    buf_a.get_access<sycl::access::mode::read>(cgh, one_to_one{});
-			    buf_b.get_access<sycl::access::mode::discard_read_write>(cgh, fixed{subrange<3>{{}, {5, 18, 74}}});
+			    buf_a.get_access<access_mode::read>(cgh, one_to_one{});
+			    buf_b.get_access<access_mode::discard_read_write>(cgh, fixed{subrange<3>{{}, {5, 18, 74}}});
 		    },
 		    range<2>{32, 128}, id<2>{32, 24});
 
@@ -86,20 +86,18 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager does not create multiple dependencies between the same tasks", "[task_manager][task-graph]") {
-		using namespace sycl::access;
-
 		auto tt = test_utils::task_test_context{};
 		auto buf_a = tt.mbf.create_buffer(range<1>(128));
 		auto buf_b = tt.mbf.create_buffer(range<1>(128));
 
 		SECTION("true dependencies") {
 			const auto tid_a = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-				buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
-				buf_b.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
+				buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
+				buf_b.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
 			});
 			const auto tid_b = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-				buf_a.get_access<mode::read>(cgh, fixed<1>({0, 128}));
-				buf_b.get_access<mode::read>(cgh, fixed<1>({0, 128}));
+				buf_a.get_access<access_mode::read>(cgh, fixed<1>({0, 128}));
+				buf_b.get_access<access_mode::read>(cgh, fixed<1>({0, 128}));
 			});
 			CHECK(test_utils::has_dependency(tt.tdag, tid_b, tid_a));
 
@@ -109,12 +107,12 @@ namespace detail {
 
 		SECTION("anti-dependencies") {
 			const auto tid_a = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-				buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
-				buf_b.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
+				buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
+				buf_b.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
 			});
 			const auto tid_b = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-				buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
-				buf_b.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
+				buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
+				buf_b.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
 			});
 			CHECK(test_utils::has_dependency(tt.tdag, tid_b, tid_a, dependency_kind::anti_dep));
 
@@ -126,12 +124,12 @@ namespace detail {
 		SECTION("true and anti-dependencies combined") {
 			SECTION("if true is declared first") {
 				const auto tid_a = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-					buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
-					buf_b.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
+					buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
+					buf_b.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
 				});
 				const auto tid_b = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-					buf_a.get_access<mode::read>(cgh, fixed<1>({0, 128}));
-					buf_b.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
+					buf_a.get_access<access_mode::read>(cgh, fixed<1>({0, 128}));
+					buf_b.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
 				});
 				CHECK(test_utils::has_dependency(tt.tdag, tid_b, tid_a));
 				CHECK_FALSE(test_utils::has_dependency(tt.tdag, tid_b, tid_a, dependency_kind::anti_dep));
@@ -142,12 +140,12 @@ namespace detail {
 
 			SECTION("if anti is declared first") {
 				const auto tid_a = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-					buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
-					buf_b.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
+					buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
+					buf_b.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
 				});
 				const auto tid_b = test_utils::add_host_task(tt.tm, on_master_node, [&](handler& cgh) {
-					buf_a.get_access<mode::discard_write>(cgh, fixed<1>({0, 128}));
-					buf_b.get_access<mode::read>(cgh, fixed<1>({0, 128}));
+					buf_a.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 128}));
+					buf_b.get_access<access_mode::read>(cgh, fixed<1>({0, 128}));
 				});
 				CHECK(test_utils::has_dependency(tt.tdag, tid_b, tid_a));
 				CHECK_FALSE(test_utils::has_dependency(tt.tdag, tid_b, tid_a, dependency_kind::anti_dep));
@@ -159,49 +157,46 @@ namespace detail {
 	}
 
 	TEST_CASE("task_manager respects range mapper results for finding dependencies", "[task_manager][task-graph]") {
-		using namespace sycl::access;
-
 		auto tt = test_utils::task_test_context{};
 		auto buf = tt.mbf.create_buffer(range<1>(128), true /* mark_as_host_initialized */);
 
 		const auto tid_a =
-		    test_utils::add_compute_task<class UKN(task_a)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 64}}); });
-		const auto tid_b = test_utils::add_compute_task<class UKN(task_b)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, fixed<1>{{0, 128}}); });
+		    test_utils::add_compute_task<class UKN(task_a)>(tt.tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, fixed<1>{{0, 64}}); });
+		const auto tid_b =
+		    test_utils::add_compute_task<class UKN(task_b)>(tt.tm, [&](handler& cgh) { buf.get_access<access_mode::read>(cgh, fixed<1>{{0, 128}}); });
 		CHECK(test_utils::has_dependency(tt.tdag, tid_b, tid_a));
 		CHECK(test_utils::has_dependency(tt.tdag, tid_b, tt.initial_epoch_task)); // for read of the host-initialized part
 
-		const auto tid_c = test_utils::add_compute_task<class UKN(task_c)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, fixed<1>{{64, 128}}); });
+		const auto tid_c =
+		    test_utils::add_compute_task<class UKN(task_c)>(tt.tm, [&](handler& cgh) { buf.get_access<access_mode::read>(cgh, fixed<1>{{64, 128}}); });
 		CHECK_FALSE(test_utils::has_dependency(tt.tdag, tid_c, tid_a));
 		CHECK(test_utils::has_dependency(tt.tdag, tid_c, tt.initial_epoch_task)); // for read of the host-initialized part
 	}
 
 	TEST_CASE("task_manager correctly generates anti-dependencies", "[task_manager][task-graph]") {
-		using namespace sycl::access;
-
 		auto tt = test_utils::task_test_context{};
 		auto buf = tt.mbf.create_buffer(range<1>(128));
 
 		// Write to the full buffer
 		const auto tid_a =
-		    test_utils::add_compute_task<class UKN(task_a)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}}); });
+		    test_utils::add_compute_task<class UKN(task_a)>(tt.tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, fixed<1>{{0, 128}}); });
 		// Read the first half of the buffer
-		const auto tid_b = test_utils::add_compute_task<class UKN(task_b)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::read>(cgh, fixed<1>{{0, 64}}); });
+		const auto tid_b =
+		    test_utils::add_compute_task<class UKN(task_b)>(tt.tm, [&](handler& cgh) { buf.get_access<access_mode::read>(cgh, fixed<1>{{0, 64}}); });
 		CHECK(test_utils::has_dependency(tt.tdag, tid_b, tid_a));
 		// Overwrite the second half - no anti-dependency onto task_b should exist (but onto task_a)
 		const auto tid_c =
-		    test_utils::add_compute_task<class UKN(task_c)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, fixed<1>{{64, 64}}); });
+		    test_utils::add_compute_task<class UKN(task_c)>(tt.tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, fixed<1>{{64, 64}}); });
 		REQUIRE(test_utils::has_dependency(tt.tdag, tid_c, tid_a, dependency_kind::anti_dep));
 		REQUIRE_FALSE(test_utils::has_dependency(tt.tdag, tid_c, tid_b, dependency_kind::anti_dep));
 		// Overwrite the first half - now only an anti-dependency onto task_b should exist
 		const auto tid_d =
-		    test_utils::add_compute_task<class UKN(task_d)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 64}}); });
+		    test_utils::add_compute_task<class UKN(task_d)>(tt.tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, fixed<1>{{0, 64}}); });
 		REQUIRE_FALSE(test_utils::has_dependency(tt.tdag, tid_d, tid_a, dependency_kind::anti_dep));
 		REQUIRE(test_utils::has_dependency(tt.tdag, tid_d, tid_b, dependency_kind::anti_dep));
 	}
 
 	TEST_CASE("task_manager correctly handles host-initialized buffers", "[task_manager][task-graph]") {
-		using namespace sycl::access;
-
 		// we explicitly test reading from non_host_init_buf
 		task_manager::policy_set tm_policy;
 		tm_policy.uninitialized_read_error = error_policy::ignore;
@@ -212,45 +207,43 @@ namespace detail {
 		auto artificial_dependency_buf = tt.mbf.create_buffer(range<1>(1), false /* mark_as_host_initialized */);
 
 		const auto tid_a = test_utils::add_compute_task<class UKN(task_a)>(tt.tm, [&](handler& cgh) {
-			host_init_buf.get_access<mode::read>(cgh, fixed<1>{{0, 128}});
-			artificial_dependency_buf.get_access<mode::discard_write>(cgh, all{});
+			host_init_buf.get_access<access_mode::read>(cgh, fixed<1>{{0, 128}});
+			artificial_dependency_buf.get_access<access_mode::discard_write>(cgh, all{});
 		});
 		CHECK(test_utils::has_dependency(tt.tdag, tid_a, tt.initial_epoch_task));
 
 		const auto tid_b = test_utils::add_compute_task<class UKN(task_b)>(tt.tm, [&](handler& cgh) {
-			non_host_init_buf.get_access<mode::read>(cgh, fixed<1>{{0, 128}});
+			non_host_init_buf.get_access<access_mode::read>(cgh, fixed<1>{{0, 128}});
 			// introduce an arbitrary true-dependency to avoid the fallback epoch dependency that is generated for tasks without other true-dependencies
-			artificial_dependency_buf.get_access<mode::read>(cgh, all{});
+			artificial_dependency_buf.get_access<access_mode::read>(cgh, all{});
 		});
 		CHECK_FALSE(test_utils::has_dependency(tt.tdag, tid_b, tt.initial_epoch_task));
 
 		const auto tid_c = test_utils::add_compute_task<class UKN(task_c)>(
-		    tt.tm, [&](handler& cgh) { host_init_buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}}); });
+		    tt.tm, [&](handler& cgh) { host_init_buf.get_access<access_mode::discard_write>(cgh, fixed<1>{{0, 128}}); });
 		CHECK(test_utils::has_dependency(tt.tdag, tid_c, tid_a, dependency_kind::anti_dep));
 		const auto tid_d = test_utils::add_compute_task<class UKN(task_d)>(
-		    tt.tm, [&](handler& cgh) { non_host_init_buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}}); });
+		    tt.tm, [&](handler& cgh) { non_host_init_buf.get_access<access_mode::discard_write>(cgh, fixed<1>{{0, 128}}); });
 		// Since task b is essentially reading uninitialized garbage, it doesn't make a difference if we write into it concurrently
 		CHECK_FALSE(test_utils::has_dependency(tt.tdag, tid_d, tid_b, dependency_kind::anti_dep));
 	}
 
 	template <int Dims, typename Handler, typename Functor>
-	void dispatch_get_access(test_utils::mock_buffer<Dims>& mb, Handler& handler, sycl::access::mode mode, Functor rmfn) {
-		using namespace sycl::access;
+	void dispatch_get_access(test_utils::mock_buffer<Dims>& mb, Handler& handler, access_mode mode, Functor rmfn) {
 		switch(mode) {
-		case mode::read: mb.template get_access<mode::read>(handler, rmfn); break;
-		case mode::write: mb.template get_access<mode::write>(handler, rmfn); break;
-		case mode::read_write: mb.template get_access<mode::read_write>(handler, rmfn); break;
-		case mode::discard_write: mb.template get_access<mode::discard_write>(handler, rmfn); break;
-		case mode::discard_read_write: mb.template get_access<mode::discard_read_write>(handler, rmfn); break;
-		case mode::atomic: mb.template get_access<mode::atomic>(handler, rmfn); break;
+		case access_mode::read: mb.template get_access<access_mode::read>(handler, rmfn); break;
+		case access_mode::write: mb.template get_access<access_mode::write>(handler, rmfn); break;
+		case access_mode::read_write: mb.template get_access<access_mode::read_write>(handler, rmfn); break;
+		case access_mode::discard_write: mb.template get_access<access_mode::discard_write>(handler, rmfn); break;
+		case access_mode::discard_read_write: mb.template get_access<access_mode::discard_read_write>(handler, rmfn); break;
 		default: utils::unreachable(); // LCOV_EXCL_LINE
 		}
 	}
 
 	TEST_CASE("task_manager correctly handles dependencies for R/W modes", "[task_manager][task-graph]") {
-		using namespace sycl::access;
 		// A read-write access can also be implicitly created using a separate write and read, which is why we operate on "mode sets" here.
-		const std::vector<std::vector<mode>> rw_mode_sets = {{mode::discard_read_write}, {mode::read_write}, {mode::atomic}, {mode::discard_write, mode::read}};
+		const std::vector<std::vector<access_mode>> rw_mode_sets = {
+		    {access_mode::discard_read_write}, {access_mode::read_write}, {access_mode::discard_write, access_mode::read}};
 
 		for(const auto& mode_set : rw_mode_sets) {
 			auto tt = test_utils::task_test_context{};
@@ -261,16 +254,18 @@ namespace detail {
 					dispatch_get_access(buf, cgh, m, fixed<1>{{0, 128}});
 				}
 			});
-			const auto tid_b =
-			    test_utils::add_compute_task<class UKN(task_b)>(tt.tm, [&](handler& cgh) { buf.get_access<mode::discard_write>(cgh, fixed<1>{{0, 128}}); });
+			const auto tid_b = test_utils::add_compute_task<class UKN(task_b)>(
+			    tt.tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, fixed<1>{{0, 128}}); });
 			REQUIRE(test_utils::has_dependency(tt.tdag, tid_b, tid_a, dependency_kind::anti_dep));
 		}
 	}
 
 	TEST_CASE("task_manager handles all producer/consumer combinations correctly", "[task_manager][task-graph]") {
-		using namespace sycl::access;
-		for(const auto& consumer_mode : detail::access::consumer_modes) {
-			for(const auto& producer_mode : detail::access::producer_modes) {
+		constexpr access_mode consumer_modes[] = {access_mode::read, access_mode::read_write, access_mode::write};
+		constexpr access_mode producer_modes[] = {access_mode::discard_read_write, access_mode::discard_write, access_mode::read_write, access_mode::write};
+
+		for(const auto& consumer_mode : consumer_modes) {
+			for(const auto& producer_mode : producer_modes) {
 				CAPTURE(consumer_mode);
 				CAPTURE(producer_mode);
 
@@ -286,8 +281,8 @@ namespace detail {
 
 				const task_id tid_c =
 				    test_utils::add_compute_task<class UKN(task_c)>(tt.tm, [&](handler& cgh) { dispatch_get_access(buf, cgh, producer_mode, all()); });
-				const bool pure_consumer = consumer_mode == mode::read;
-				const bool pure_producer = producer_mode == mode::discard_read_write || producer_mode == mode::discard_write;
+				const bool pure_consumer = consumer_mode == access_mode::read;
+				const bool pure_producer = producer_mode == access_mode::discard_read_write || producer_mode == access_mode::discard_write;
 				CHECK(
 				    test_utils::has_dependency(tt.tdag, tid_c, tid_b, pure_consumer || pure_producer ? dependency_kind::anti_dep : dependency_kind::true_dep));
 			}
