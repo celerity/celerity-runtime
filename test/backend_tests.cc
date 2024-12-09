@@ -114,7 +114,7 @@ TEST_CASE("backend allocations are properly aligned", "[backend]") {
 TEST_CASE("backend allocations are pattern-filled in debug builds", "[backend]") {
 	test_utils::allow_backend_fallback_warnings();
 
-#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
+#if CELERITY_DETAIL_ENABLE_DEBUG
 	const auto [backend_type, backend, sycl_devices] = generate_backends_with_devices();
 	CAPTURE(backend_type, sycl_devices);
 

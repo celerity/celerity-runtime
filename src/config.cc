@@ -114,7 +114,7 @@ namespace detail {
 		if(parsed_and_validated_envs.ok()) {
 			// ------------------------------- CELERITY_LOG_LEVEL ---------------------------------
 
-#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
+#if CELERITY_DETAIL_ENABLE_DEBUG
 			m_log_lvl = parsed_and_validated_envs.get_or(env_log_level, log_level::debug);
 #else
 			m_log_lvl = parsed_and_validated_envs.get_or(env_log_level, log_level::info);

@@ -143,7 +143,7 @@ namespace detail {
 				    bid, buffer_info{Dims, range, sizeof(DataT), is_host_initialized, {}, std::move(device_factory), std::move(host_factory)});
 				m_newest_data_location.emplace(bid, region_map<data_location>(range, data_location::nowhere));
 
-#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
+#if CELERITY_DETAIL_ENABLE_DEBUG
 				m_buffer_types.emplace(bid, new buffer_type_guard<DataT, Dims>());
 #endif
 			}
@@ -217,7 +217,7 @@ namespace detail {
 
 		template <typename DataT, int Dims>
 		access_info access_device_buffer(buffer_id bid, access_mode mode, const subrange<Dims>& sr) {
-#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
+#if CELERITY_DETAIL_ENABLE_DEBUG
 			{
 				std::unique_lock lock(m_mutex);
 				assert((m_buffer_types.at(bid)->has_type<DataT, Dims>()));
@@ -230,7 +230,7 @@ namespace detail {
 
 		template <typename DataT, int Dims>
 		access_info access_host_buffer(buffer_id bid, access_mode mode, const subrange<Dims>& sr) {
-#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
+#if CELERITY_DETAIL_ENABLE_DEBUG
 			{
 				std::unique_lock lock(m_mutex);
 				assert((m_buffer_types.at(bid)->has_type<DataT, Dims>()));
@@ -316,7 +316,7 @@ namespace detail {
 
 		enum class data_location { nowhere, host, device, host_and_device };
 
-#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
+#if CELERITY_DETAIL_ENABLE_DEBUG
 		struct buffer_type_guard_base {
 			virtual ~buffer_type_guard_base(){};
 			template <typename DataT, int Dims>
@@ -351,7 +351,7 @@ namespace detail {
 		std::unordered_map<buffer_id, buffer_lock_info> m_buffer_lock_infos;
 		std::unordered_map<buffer_lock_id, std::vector<buffer_id>> m_buffer_locks_by_id;
 
-#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
+#if CELERITY_DETAIL_ENABLE_DEBUG
 		// Since we store buffers without type information (i.e., its data type and dimensionality),
 		// it is the user's responsibility to only request access to a buffer using the correct type.
 		// In debug builds we can help out a bit by remembering the type and asserting it on every access.

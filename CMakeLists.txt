@@ -304,7 +304,7 @@ target_compile_definitions(celerity_runtime PUBLIC
   # We still mark this as PUBLIC during builds (but not installation),
   # so that the examples and tests receive the correct flag as well.
   $<BUILD_INTERFACE:
-    CELERITY_DETAIL_ENABLE_DEBUG=$<CONFIG:Debug>
+    CELERITY_DETAIL_ENABLE_DEBUG=$<BOOL:${DEFAULT_ENABLE_DEBUG_CHECKS}>
   >
   CELERITY_USE_MIMALLOC=$<BOOL:${CELERITY_USE_MIMALLOC}>
   CELERITY_FEATURE_SCALAR_REDUCTIONS=$<BOOL:${CELERITY_FEATURE_SCALAR_REDUCTIONS}>

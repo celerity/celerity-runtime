@@ -39,7 +39,7 @@ namespace detail {
 		[[maybe_unused]] size_t flush_count = 0;
 		const auto flush_recursive = [this, &check_tid, &flush_count](abstract_command* cmd, auto recurse) -> void {
 			(void)check_tid;
-#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
+#if CELERITY_DETAIL_ENABLE_DEBUG
 			if(utils::isa<task_command>(cmd)) {
 				// Verify that all commands belong to the same task
 				assert(check_tid == task_id(-1) || check_tid == utils::as<task_command>(cmd)->get_tid());

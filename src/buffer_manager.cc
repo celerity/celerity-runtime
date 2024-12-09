@@ -23,7 +23,7 @@ namespace detail {
 			m_buffers.erase(bid);
 			m_buffer_infos.erase(bid);
 
-#if defined(CELERITY_DETAIL_ENABLE_DEBUG)
+#if CELERITY_DETAIL_ENABLE_DEBUG
 			m_buffer_types.erase(bid);
 #endif
 		}
@@ -258,7 +258,7 @@ namespace detail {
 		// Check whether we have any scheduled transfers that overlap with the requested subrange, and if so, apply them.
 		// For this, we are not interested in the retain region (but we need to remember what parts will NOT have to be retained afterwards).
 		auto remaining_region_after_transfers = retain_region;
-#if !defined(CELERITY_DETAIL_ENABLE_DEBUG)
+#if !CELERITY_DETAIL_ENABLE_DEBUG
 		// There should only be queued transfers for this buffer iff this is a consumer mode.
 		// To assert this we check for bogus transfers for other modes in debug builds.
 		if(detail::access::mode_traits::is_consumer(mode))
