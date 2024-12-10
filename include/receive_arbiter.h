@@ -143,6 +143,9 @@ class receive_arbiter {
 	/// the same transfer id that did not temporally overlap with the original ones.
 	std::unordered_map<transfer_id, receive_arbiter_detail::transfer> m_transfers;
 
+	/// Cache for all transfer ids in m_transfers that are not unassigned_transfers. Bounds complexity of iterating to poll all transfer events.
+	std::vector<transfer_id> m_active_transfers;
+
 	/// Initiates a new `region_request` for which the caller can construct events to await either the entire region or sub-regions.
 	receive_arbiter_detail::stable_region_request& initiate_region_request(
 	    const transfer_id& trid, const region<3>& request, void* allocation, const box<3>& allocated_box, size_t elem_size);

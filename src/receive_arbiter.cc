@@ -117,12 +117,17 @@ receive_arbiter_detail::stable_region_request& receive_arbiter::initiate_region_
 	multi_region_transfer* mrt = nullptr;
 	if(const auto entry = m_transfers.find(trid); entry != m_transfers.end()) {
 		matchbox::match(
-		    entry->second, //
-		    [&](unassigned_transfer& ut) { mrt = &entry->second.emplace<multi_region_transfer>(elem_size, utils::take(ut.pilots)); },
+		    entry->second,
+		    [&](unassigned_transfer& ut) {
+			    auto pilots = std::move(ut.pilots);
+			    mrt = &entry->second.emplace<multi_region_transfer>(elem_size, std::move(pilots));
+			    m_active_transfers.push_back(trid);
+		    },
 		    [&](multi_region_transfer& existing_mrt) { mrt = &existing_mrt; },
 		    [&](gather_transfer& gt) { utils::panic("calling receive_arbiter::begin_receive on an active gather transfer"); });
 	} else {
 		mrt = &m_transfers[trid].emplace<multi_region_transfer>(elem_size);
+		m_active_transfers.push_back(trid);
 	}
 
 	// Add a new region_request to the `mrt` (transfers have transfer_id granularity, but there might be multiple receives from independent range mappers
@@ -194,19 +199,20 @@ async_event receive_arbiter::gather_receive(const transfer_id& trid, void* const
 		// Otherwise, we insert the transfer as pending and wait for the first pilots to arrive.
 		m_transfers.emplace(trid, gather_transfer{gr});
 	}
+	m_active_transfers.push_back(trid);
 
 	return make_async_event<gather_receive_event>(gr);
 }
 
 void receive_arbiter::poll_communicator() {
 	// Try completing all pending payload sends / receives by polling their communicator events
-	for(auto entry = m_transfers.begin(); entry != m_transfers.end();) {
-		if(std::visit([](auto& transfer) { return transfer.do_complete(); }, entry->second)) {
-			entry = m_transfers.erase(entry);
-		} else {
-			++entry;
-		}
-	}
+	std::erase_if(m_active_transfers, [&](const transfer_id& trid) {
+		const auto entry = m_transfers.find(trid);
+		assert(entry != m_transfers.end());
+		const bool is_complete = std::visit([](auto& transfer) { return transfer.do_complete(); }, entry->second);
+		if(is_complete) { m_transfers.erase(entry); }
+		return is_complete;
+	});
 
 	for(const auto& pilot : m_comm->poll_inbound_pilots()) {
 		if(const auto entry = m_transfers.find(pilot.message.transfer_id); entry != m_transfers.end()) {
