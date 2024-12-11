@@ -352,7 +352,7 @@ struct executor_impl {
 	void run();
 	void poll_in_flight_async_instructions();
 	void poll_submission_queue();
-	void try_issue_one_instruction();
+	void issue_ready_instructions();
 	void retire_async_instruction(instruction_id iid, async_instruction_state& async);
 	void check_progress();
 
@@ -423,7 +423,7 @@ void executor_impl::run() {
 		recv_arbiter.poll_communicator();
 		poll_in_flight_async_instructions();
 		poll_submission_queue();
-		try_issue_one_instruction(); // potentially expensive, so only issue one per loop to continue checking for async completion in between
+		issue_ready_instructions();
 
 		if(++check_overflow_counter == 0) { // once every 256 iterations
 			backend->check_async_errors();
@@ -584,15 +584,14 @@ auto executor_impl::dispatch(const Instr& instr, const out_of_order_engine::assi
 	})
 }
 
-void executor_impl::try_issue_one_instruction() {
-	auto assignment = engine.assign_one();
-	if(!assignment.has_value()) return;
+void executor_impl::issue_ready_instructions() {
+	while (const auto assignment = engine.assign_one()) {
+		CELERITY_DETAIL_IF_TRACY_ENABLED(tracy->assignment_queue_length_plot.update(engine.get_assignment_queue_length()));
 
-	CELERITY_DETAIL_IF_TRACY_ENABLED(tracy->assignment_queue_length_plot.update(engine.get_assignment_queue_length()));
-
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::issue", Blue);
-	matchbox::match(*assignment->instruction, [&](const auto& instr) { dispatch(instr, *assignment); });
-	made_progress = true;
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::issue", Blue);
+		matchbox::match(*assignment->instruction, [&](const auto& instr) { dispatch(instr, *assignment); });
+		made_progress = true;
+	}
 }
 
 void executor_impl::check_progress() {
