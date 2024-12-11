@@ -20,6 +20,8 @@ namespace celerity::detail::receive_arbiter_detail {
 struct incoming_region_fragment {
 	detail::box<3> box;
 	async_event communication; ///< async communicator event for receiving this fragment
+
+	bool is_complete() const { return communication.is_complete(); }
 };
 
 /// State for a single incomplete `receive` operation or a `begin_split_receive` / `await_split_receive_subregion` tree.
@@ -28,9 +30,11 @@ struct region_request {
 	box<3> allocated_box;
 	region<3> incomplete_region;
 	std::vector<incoming_region_fragment> incoming_fragments;
+	bool may_await_subregion;
 
-	region_request(region<3> requested_region, void* const allocation, const box<3>& allocated_bounding_box)
-	    : allocation(allocation), allocated_box(allocated_bounding_box), incomplete_region(std::move(requested_region)) {}
+	region_request(region<3> requested_region, void* const allocation, const box<3>& allocated_bounding_box, const bool may_await_subregion)
+	    : allocation(allocation), allocated_box(allocated_bounding_box), incomplete_region(std::move(requested_region)),
+	      may_await_subregion(may_await_subregion) {}
 	bool do_complete();
 };
 
@@ -146,9 +150,10 @@ class receive_arbiter {
 	/// Cache for all transfer ids in m_transfers that are not unassigned_transfers. Bounds complexity of iterating to poll all transfer events.
 	std::vector<transfer_id> m_active_transfers;
 
-	/// Initiates a new `region_request` for which the caller can construct events to await either the entire region or sub-regions.
+	/// Initiates a new `region_request` for which the caller can construct events to await either the entire region or sub-regions (may_await_subregion =
+	/// true).
 	receive_arbiter_detail::stable_region_request& initiate_region_request(
-	    const transfer_id& trid, const region<3>& request, void* allocation, const box<3>& allocated_box, size_t elem_size);
+	    const transfer_id& trid, const region<3>& request, void* allocation, const box<3>& allocated_box, size_t elem_size, bool may_await_subregion);
 
 	/// Updates the state of an active `region_request` from receiving an inbound pilot.
 	void handle_region_request_pilot(receive_arbiter_detail::region_request& rr, const inbound_pilot& pilot, size_t elem_size);

@@ -219,9 +219,11 @@ TEST_CASE("receive_arbiter aggregates receives from multiple incoming fragments"
 	REQUIRE(receive.has_value());
 	CHECK(receive->is_complete());
 
-	// it is legal to `await` a transfer that has already been completed and is not tracked by the receive_arbiter anymore
-	CHECK(ra.await_split_receive_subregion(trid, requested_regions[0]).is_complete());
-	CHECK(ra.await_split_receive_subregion(trid, incoming_fragments[0]).is_complete());
+	if(receive_method == "split_await") {
+		// it is legal to `await` a transfer that has already been completed and is not tracked by the receive_arbiter anymore
+		CHECK(ra.await_split_receive_subregion(trid, requested_regions[0]).is_complete());
+		CHECK(ra.await_split_receive_subregion(trid, incoming_fragments[0]).is_complete());
+	}
 
 	std::vector<int> expected_allocation(alloc_box.get_range().size());
 	for(size_t which = 0; which < incoming_fragments.size(); ++which) {
