@@ -64,6 +64,9 @@ class gather_receive_event final : public async_event_impl {
 };
 
 bool region_request::do_complete() {
+	// Fast path: Avoid polling the entire fragment set when we know that neither the request as a whole nor any subregion-request will complete at this time
+	if(!may_await_subregion && !incoming_fragments.empty() && !incoming_fragments.front().communication.is_complete()) return false;
+
 	std::erase_if(incoming_fragments, [&](const incoming_region_fragment& fragment) {
 		if(!fragment.communication.is_complete()) return false;
 		incomplete_region = region_difference(incomplete_region, fragment.box);
@@ -106,8 +109,8 @@ receive_arbiter::receive_arbiter(communicator& comm) : m_comm(&comm), m_num_node
 
 receive_arbiter::~receive_arbiter() { assert(std::uncaught_exceptions() > 0 || m_transfers.empty()); }
 
-receive_arbiter_detail::stable_region_request& receive_arbiter::initiate_region_request(
-    const transfer_id& trid, const region<3>& request, void* const allocation, const box<3>& allocated_box, const size_t elem_size) //
+receive_arbiter_detail::stable_region_request& receive_arbiter::initiate_region_request(const transfer_id& trid, const region<3>& request,
+    void* const allocation, const box<3>& allocated_box, const size_t elem_size, const bool may_await_subregion) //
 {
 	assert(allocated_box.covers(bounding_box(request)));
 
@@ -130,7 +133,7 @@ receive_arbiter_detail::stable_region_request& receive_arbiter::initiate_region_
 	// Add a new region_request to the `mrt` (transfers have transfer_id granularity, but there might be multiple receives from independent range mappers
 	assert(std::all_of(mrt.active_requests.begin(), mrt.active_requests.end(),
 	    [&](const stable_region_request& rr) { return region_intersection(rr->incomplete_region, request).empty(); }));
-	auto& rr = mrt.active_requests.emplace_back(std::make_shared<region_request>(request, allocation, allocated_box));
+	auto& rr = mrt.active_requests.emplace_back(std::make_shared<region_request>(request, allocation, allocated_box, may_await_subregion));
 
 	// If the new region_request matches any of the still-unassigned pilots associated with `mrt`, immediately initiate the appropriate payload-receives
 	std::erase_if(mrt.unassigned_pilots, [&](const inbound_pilot& pilot) {
@@ -148,7 +151,7 @@ receive_arbiter_detail::stable_region_request& receive_arbiter::initiate_region_
 
 void receive_arbiter::begin_split_receive(
     const transfer_id& trid, const region<3>& request, void* const allocation, const box<3>& allocated_box, const size_t elem_size) {
-	initiate_region_request(trid, request, allocation, allocated_box, elem_size);
+	initiate_region_request(trid, request, allocation, allocated_box, elem_size, true /* may_await_subregion */);
 }
 
 async_event receive_arbiter::await_split_receive_subregion(const transfer_id& trid, const region<3>& subregion) {
@@ -169,16 +172,20 @@ async_event receive_arbiter::await_split_receive_subregion(const transfer_id& tr
 #endif
 
 	// If the transfer (by transfer_id) as a whole has not completed yet but the subregion is, this "await" also completes immediately.
-	const auto req_it = std::find_if(mrt.active_requests.begin(), mrt.active_requests.end(),
+	const auto rr_it = std::find_if(mrt.active_requests.begin(), mrt.active_requests.end(),
 	    [&](const stable_region_request& rr) { return !region_intersection(rr->incomplete_region, subregion).empty(); });
-	if(req_it == mrt.active_requests.end()) { return make_complete_event(); }
+	if(rr_it == mrt.active_requests.end()) { return make_complete_event(); }
 
-	return make_async_event<subregion_receive_event>(*req_it, subregion);
+	auto& rr = *rr_it;
+	assert(rr->may_await_subregion && "attempting await_split_receive_subregion() on region that was not initiated with begin_split_receive()");
+	return make_async_event<subregion_receive_event>(rr, subregion);
 }
 
 async_event receive_arbiter::receive(
-    const transfer_id& trid, const region<3>& request, void* const allocation, const box<3>& allocated_box, const size_t elem_size) {
-	return make_async_event<region_receive_event>(initiate_region_request(trid, request, allocation, allocated_box, elem_size));
+    const transfer_id& trid, const region<3>& request, void* const allocation, const box<3>& allocated_box, const size_t elem_size) //
+{
+	auto& rr = initiate_region_request(trid, request, allocation, allocated_box, elem_size, false /* may_await_subregion */);
+	return make_async_event<region_receive_event>(rr);
 }
 
 async_event receive_arbiter::gather_receive(const transfer_id& trid, void* const allocation, const size_t node_chunk_size) {
