@@ -29,12 +29,13 @@ struct region_request {
 	void* allocation;
 	box<3> allocated_box;
 	region<3> incomplete_region;
+	size_t incomplete_area;
 	std::vector<incoming_region_fragment> incoming_fragments;
 	bool may_await_subregion;
 
 	region_request(region<3> requested_region, void* const allocation, const box<3>& allocated_bounding_box, const bool may_await_subregion)
 	    : allocation(allocation), allocated_box(allocated_bounding_box), incomplete_region(std::move(requested_region)),
-	      may_await_subregion(may_await_subregion) {}
+	      incomplete_area(incomplete_region.get_area()), may_await_subregion(may_await_subregion) {}
 	bool do_complete();
 };
 

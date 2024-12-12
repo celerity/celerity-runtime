@@ -69,11 +69,12 @@ bool region_request::do_complete() {
 
 	std::erase_if(incoming_fragments, [&](const incoming_region_fragment& fragment) {
 		if(!fragment.communication.is_complete()) return false;
-		incomplete_region = region_difference(incomplete_region, fragment.box);
+		if(may_await_subregion) { incomplete_region = region_difference(incomplete_region, fragment.box); }
+		incomplete_area -= fragment.box.get_area();
 		return true;
 	});
-	assert(!incomplete_region.empty() || incoming_fragments.empty());
-	return incomplete_region.empty();
+	assert(incomplete_area > 0 || incoming_fragments.empty());
+	return incomplete_area == 0;
 }
 
 bool multi_region_transfer::do_complete() {
