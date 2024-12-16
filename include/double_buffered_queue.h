@@ -65,4 +65,32 @@ class double_buffered_queue {
 	} m_read;
 };
 
+// TODO: Make an adapter instead, that wraps a double_buffered_queue?
+template <typename T>
+class element_wise_double_buffered_queue : private double_buffered_queue<T> {
+  public:
+	using double_buffered_queue<T>::push;
+	using double_buffered_queue<T>::wait_while_empty;
+
+	element_wise_double_buffered_queue() : m_current_queue(&double_buffered_queue<T>::pop_all()), m_current_it(m_current_queue->begin()) {}
+
+	T& pop_one() {
+		assert(!empty());
+		if(m_current_it == m_current_queue->end()) {
+			m_current_queue = &double_buffered_queue<T>::pop_all();
+			m_current_it = m_current_queue->begin();
+		}
+		return *m_current_it++;
+	}
+
+	bool empty() const {
+		if(m_current_it != m_current_queue->end()) return false;
+		return double_buffered_queue<T>::empty();
+	}
+
+  private:
+	std::vector<T>* m_current_queue;
+	std::vector<T>::iterator m_current_it;
+};
+
 } // namespace celerity::detail

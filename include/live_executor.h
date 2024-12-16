@@ -80,7 +80,7 @@ class live_executor final : public executor {
 	struct impl;
 
 	std::unique_ptr<communicator> m_root_comm; // created and destroyed outside of executor thread
-	double_buffered_queue<live_executor_detail::submission> m_submission_queue;
+	element_wise_double_buffered_queue<live_executor_detail::submission> m_submission_queue;
 	std::unique_ptr<impl> m_impl;
 	std::thread m_thread;
 

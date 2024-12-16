@@ -68,6 +68,8 @@ struct incomplete_instruction_state {
 	/// Data that only exist in specific assignment states.
 	std::variant<unassigned_state, conditional_eagerly_assignable_state, unconditional_assignable_state, assigned_state> assignment;
 
+	bool is_horizon = false;
+
 	explicit incomplete_instruction_state(const instruction* instr) : instr(instr), assignment(unassigned_state()) {}
 };
 
@@ -101,6 +103,8 @@ struct engine_impl {
 
 	/// Queue of all instructions in `conditional_eagerly_assignable_state` and `unconditional_assignable_state`, in decreasing order of instruction priority.
 	std::priority_queue<const instruction*, std::vector<const instruction*>, instruction_priority_less> assignment_queue;
+
+	size_t unassigned_horizons = 0;
 
 	explicit engine_impl(const system_info& system);
 
@@ -290,7 +294,11 @@ void engine_impl::submit(const instruction* const instr) {
 	    [&](const reduce_instruction& /* other */) { node.target = target::immediate; },
 	    [&](const fence_instruction& /* other */) { node.target = target::immediate; },
 	    [&](const destroy_host_object_instruction& /* other */) { node.target = target::immediate; },
-	    [&](const horizon_instruction& /* other */) { node.target = target::immediate; },
+	    [&](const horizon_instruction& /* other */) {
+		    node.target = target::immediate;
+		    node.is_horizon = true;
+		    unassigned_horizons++;
+	    },
 	    [&](const epoch_instruction& /* other */) { node.target = target::immediate; });
 
 	auto& unassigned = node.assignment.emplace<unassigned_state>();
@@ -451,6 +459,11 @@ std::optional<assignment> engine_impl::assign_one() {
 
 	if(node.num_incomplete_predecessors == 0) { execution_front.insert(node.instr->get_id()); }
 
+	if(node.is_horizon) {
+		assert(unassigned_horizons > 0);
+		unassigned_horizons--;
+	}
+
 	return assignment(node.instr, node.target, assigned.device, assigned.lane);
 }
 
@@ -463,6 +476,7 @@ out_of_order_engine::~out_of_order_engine() = default;
 bool out_of_order_engine::is_idle() const { return m_impl->is_idle(); }
 const std::unordered_set<instruction_id>& out_of_order_engine::get_execution_front() const { return m_impl->execution_front; }
 size_t out_of_order_engine::get_assignment_queue_length() const { return m_impl->assignment_queue.size(); }
+size_t out_of_order_engine::unassigned_horizons() const { return m_impl->unassigned_horizons; }
 void out_of_order_engine::submit(const instruction* const instr) { m_impl->submit(instr); }
 void out_of_order_engine::complete_assigned(const instruction_id iid) { m_impl->complete(iid); }
 std::optional<out_of_order_engine::assignment> out_of_order_engine::assign_one() { return m_impl->assign_one(); }

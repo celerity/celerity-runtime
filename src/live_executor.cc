@@ -331,7 +331,7 @@ struct async_instruction_state {
 struct live_executor::impl {
 	const std::unique_ptr<detail::backend> backend;
 	communicator* const root_communicator;
-	double_buffered_queue<submission>* const submission_queue;
+	element_wise_double_buffered_queue<submission>* const submission_queue;
 	executor::delegate* const delegate;
 	const live_executor::policy_set policy;
 
@@ -355,8 +355,8 @@ struct live_executor::impl {
 
 	CELERITY_DETAIL_IF_TRACY_SUPPORTED(std::unique_ptr<tracy_integration> tracy;)
 
-	impl(std::unique_ptr<detail::backend> backend, communicator* root_comm, double_buffered_queue<submission>& submission_queue, executor::delegate* dlg,
-	    const live_executor::policy_set& policy);
+	impl(std::unique_ptr<detail::backend> backend, communicator* root_comm, element_wise_double_buffered_queue<submission>& submission_queue,
+	    executor::delegate* dlg, const live_executor::policy_set& policy);
 
 	void run();
 	void poll_in_flight_async_instructions();
@@ -406,8 +406,8 @@ struct live_executor::impl {
 	void collect(const instruction_garbage& garbage);
 };
 
-live_executor::impl::impl(std::unique_ptr<detail::backend> backend, communicator* const root_comm, double_buffered_queue<submission>& submission_queue,
-    executor::delegate* const dlg, const live_executor::policy_set& policy)
+live_executor::impl::impl(std::unique_ptr<detail::backend> backend, communicator* const root_comm,
+    element_wise_double_buffered_queue<submission>& submission_queue, executor::delegate* const dlg, const live_executor::policy_set& policy)
     : backend(std::move(backend)), root_communicator(root_comm), submission_queue(&submission_queue), delegate(dlg), policy(policy) //
 {
 	CELERITY_DETAIL_IF_TRACY_ENABLED(tracy = std::make_unique<tracy_integration>();)
@@ -422,7 +422,7 @@ void live_executor::impl::run() {
 	uint8_t check_overflow_counter = 0;
 	std::optional<std::chrono::steady_clock::time_point> active_since;
 	for(;;) {
-		if(engine.is_idle()) {
+		if(engine.is_idle() && submission_queue->empty()) {
 			if(active_since.has_value()) {
 				total_active_time += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - *active_since).count();
 			}
@@ -444,7 +444,7 @@ void live_executor::impl::run() {
 
 		recv_arbiter.poll_communicator();
 		poll_in_flight_async_instructions();
-		poll_submission_queue();
+		if(engine.unassigned_horizons() < 2) { poll_submission_queue(); }
 		try_issue_one_instruction(); // potentially expensive, so only issue one per loop to continue checking for async completion in between
 
 		if(++check_overflow_counter == 0) { // once every 256 iterations
@@ -479,37 +479,38 @@ void live_executor::impl::poll_in_flight_async_instructions() {
 }
 
 void live_executor::impl::poll_submission_queue() {
-	for(auto& submission : submission_queue->pop_all()) {
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::fetch", executor_fetch);
-		matchbox::match(
-		    submission,
-		    [&](const instruction_pilot_batch& batch) {
-			    for(const auto incoming_instr : batch.instructions) {
-				    engine.submit(incoming_instr);
-			    }
-			    for(const auto& pilot : batch.pilots) {
-				    root_communicator->send_outbound_pilot(pilot);
-			    }
-			    CELERITY_DETAIL_IF_TRACY_ENABLED(tracy->assignment_queue_length_plot.update(engine.get_assignment_queue_length()));
-		    },
-		    [&](const user_allocation_transfer& uat) {
-			    assert(uat.aid != null_allocation_id);
-			    assert(uat.aid.get_memory_id() == user_memory_id);
-			    assert(allocations.count(uat.aid) == 0);
-			    allocations.emplace(uat.aid, uat.ptr);
-		    },
-		    [&](host_object_transfer& hot) {
-			    assert(host_object_instances.count(hot.hoid) == 0);
-			    host_object_instances.emplace(hot.hoid, std::move(hot.instance));
-		    },
-		    [&](reducer_transfer& rt) {
-			    assert(reducers.count(rt.rid) == 0);
-			    reducers.emplace(rt.rid, std::move(rt.reduction));
-		    },
-		    [&](const scheduler_idle_state_change& state) { //
-			    scheduler_is_idle = state.is_idle;
-		    });
-	}
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::fetch", executor_fetch);
+	if(submission_queue->empty()) return;
+	// TODO: Fetch multiple at once? Until we have 2 horizons? At most 10? Figure this out
+	auto& submission = submission_queue->pop_one();
+	matchbox::match(
+	    submission,
+	    [&](const instruction_pilot_batch& batch) {
+		    for(const auto incoming_instr : batch.instructions) {
+			    engine.submit(incoming_instr);
+		    }
+		    for(const auto& pilot : batch.pilots) {
+			    root_communicator->send_outbound_pilot(pilot);
+		    }
+		    CELERITY_DETAIL_IF_TRACY_ENABLED(tracy->assignment_queue_length_plot.update(engine.get_assignment_queue_length()));
+	    },
+	    [&](const user_allocation_transfer& uat) {
+		    assert(uat.aid != null_allocation_id);
+		    assert(uat.aid.get_memory_id() == user_memory_id);
+		    assert(allocations.count(uat.aid) == 0);
+		    allocations.emplace(uat.aid, uat.ptr);
+	    },
+	    [&](host_object_transfer& hot) {
+		    assert(host_object_instances.count(hot.hoid) == 0);
+		    host_object_instances.emplace(hot.hoid, std::move(hot.instance));
+	    },
+	    [&](reducer_transfer& rt) {
+		    assert(reducers.count(rt.rid) == 0);
+		    reducers.emplace(rt.rid, std::move(rt.reduction));
+	    },
+	    [&](const scheduler_idle_state_change& state) { //
+		    scheduler_is_idle = state.is_idle;
+	    });
 }
 
 void live_executor::impl::retire_async_instruction(const instruction_id iid, async_instruction_state& async) {
