@@ -1218,18 +1218,21 @@ void generator_impl::establish_coherence_between_buffer_memories(
 	// boxes in order to produce copy regions that can be serviced by individual `copy_instruction`s.
 
 	// In the fast path, regions can be copied directly from producer to consumer memory.
-	std::unordered_map<std::pair<memory_id, memory_id>, std::vector<region<3>>, utils::pair_hash> concurrent_direct_copies;
+	// NOCOMMIT TODO: Using unordered map for the following three maps can cause problems with loop templates, where some of the subgraphs during warmup have
+	//                different layout in each iteration, because order of copies can change. TODO: What is perf impact of using map here? Use dense_map
+	//                instead?
+	std::map<std::pair<memory_id, memory_id>, std::vector<region<3>>> concurrent_direct_copies;
 
 	// Some hardware setups require staging device-to-device copies through (pinned) host memory. Instead of keying by source and destination memories like for
 	// direct copies, we re-examine both in (3) to make sure we only copy to host once in case of a 1:n device-to-device broadcast.
-	std::unordered_map<memory_id, std::vector<region<3>>> concurrently_host_staged_copies;
+	std::map<memory_id, std::vector<region<3>>> concurrently_host_staged_copies;
 
 	// Instead of planning / creating instructions directly, collect region vectors so (2) can remove overlaps with symmetrically_split_overlapping_regions.
 	for(memory_id dest_mid = 0; dest_mid < concurrent_reads_from_memory.size(); ++dest_mid) {
 		for(auto& dest_region : concurrent_reads_from_memory[dest_mid]) {
 			// up_to_date_memories is a memory_mask, so regions that are up-to-date on one memory can still end up being enumerated as disjoint boxes.
 			// We therefore merge them using a map keyed by original writers and their memories before constructing the final copy regions.
-			std::unordered_map<std::pair<memory_id, instruction_id>, region_builder<3>, utils::pair_hash> source_boxes_by_writer;
+			std::map<std::pair<memory_id, instruction_id>, region_builder<3>> source_boxes_by_writer;
 			for(const auto& [box, up_to_date_mids] : buffer.up_to_date_memories.get_region_values(dest_region)) {
 				if(up_to_date_mids.any() /* gracefully handle uninitialized read */ && !up_to_date_mids.test(dest_mid)) {
 					for(const auto& [source_memory_box, source_mid] : buffer.original_write_memories.get_region_values(box)) {
@@ -2050,7 +2053,7 @@ void generator_impl::compile_push_command(batch& command_batch, const push_comma
 		// Since we now send boxes individually, we do not need to allocate the entire push_box contiguously.
 		box_vector<3> required_host_allocation;
 		{
-			std::unordered_map<instruction_id, region_builder<3>> individual_send_boxes;
+			std::map<instruction_id, region_builder<3>> individual_send_boxes;
 			for(auto& [box, original_writer] : buffer.original_writers.get_region_values(reg)) {
 				individual_send_boxes[original_writer->get_id()].add(box);
 				required_host_allocation.push_back(box);
