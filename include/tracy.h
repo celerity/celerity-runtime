@@ -189,5 +189,8 @@ enum class trace_color : std::underlying_type_t<tracy::Color::ColorType> {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED(TAG, COLOR_NAME);                                                                                                        \
 	CELERITY_DETAIL_TRACY_ZONE_NAME(__VA_ARGS__);
 
+#define CELERITY_DETAIL_TRACY_MESSAGE(__VA_ARGS__)                                                                                                             \
+	CELERITY_DETAIL_IF_TRACY_ENABLED_FULL(::celerity::detail::tracy_detail::apply_string([](const auto& m) { TracyMessage(m.data(), m.size()); }, __VA_ARGS__))
+
 #define CELERITY_DETAIL_SET_CURRENT_THREAD_NAME_AND_ORDER(NAME, ORDER)                                                                                         \
 	CELERITY_DETAIL_IF_TRACY_ENABLED(::celerity::detail::tracy_detail::set_thread_name_and_order(NAME, ORDER))
