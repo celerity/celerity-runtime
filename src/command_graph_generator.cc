@@ -12,6 +12,7 @@
 #include "region_map.h"
 #include "split.h"
 #include "task.h"
+#include "tracy.h"
 #include "types.h"
 #include "utils.h"
 
@@ -318,6 +319,7 @@ command_graph_generator::assigned_chunks_with_requirements command_graph_generat
 
 void command_graph_generator::resolve_pending_reductions(
     batch& current_batch, const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements) {
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("cggen::resolve_pending_reductions", generic_red);
 	auto accessed_buffers = tsk.get_buffer_access_map().get_accessed_buffers();
 	// Handle chained reductions (i.e., reductions that combine into a buffer that currently is in a pending reduction state)
 	for(const auto& reduction : tsk.get_reductions()) {
@@ -426,6 +428,7 @@ void command_graph_generator::resolve_pending_reductions(
 }
 
 void command_graph_generator::generate_pushes(batch& current_batch, const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements) {
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("cggen::generate_pushes", generic_red);
 	struct push_scratch {
 		std::unordered_map<node_id, region_builder<3>> target_regions;
 		std::unordered_set<command*> depends_on;
@@ -487,6 +490,7 @@ void command_graph_generator::generate_pushes(batch& current_batch, const task& 
 }
 
 void command_graph_generator::generate_await_pushes(batch& current_batch, const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements) {
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("cggen::generate_await_pushes", generic_red);
 	std::unordered_map<buffer_id, region_builder<3>> per_buffer_required_boxes;
 
 	for(auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
@@ -530,6 +534,7 @@ void command_graph_generator::generate_await_pushes(batch& current_batch, const 
 
 void command_graph_generator::generate_local_execution_command(batch& current_batch, const task& tsk,
     const assigned_chunks_with_requirements& chunks_with_requirements, std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes) {
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("cggen::generate_local_execution_command", generic_blue);
 	if(chunks_with_requirements.local_chunks.empty()) return;
 
 	command* cmd = ([&]() -> command* {
@@ -651,6 +656,7 @@ void command_graph_generator::generate_local_execution_command(batch& current_ba
 
 void command_graph_generator::update_local_buffer_fresh_regions(
     const task& tsk, const std::unordered_map<buffer_id, region<3>>& per_buffer_local_writes, const std::vector<assigned_chunk>& chunks) {
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("cggen::update_local_buffer_fresh_regions", generic_green);
 	buffer_requirements_list requirements;
 	for(const auto bid : tsk.get_buffer_access_map().get_accessed_buffers()) {
 		const auto& bam = tsk.get_buffer_access_map();
@@ -823,6 +829,7 @@ void command_graph_generator::update_local_buffer_fresh_regions(
 }
 
 void command_graph_generator::generate_distributed_commands(batch& current_batch, const task& tsk) {
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("cggen::generate_distributed_commands", generic_yellow);
 	const auto chunks = split_task_and_assign_chunks(tsk);
 	const auto chunks_with_requirements = compute_per_chunk_requirements(tsk, chunks);
 
