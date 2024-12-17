@@ -157,20 +157,6 @@ struct sycl_backend::impl {
 		}
 	}
 
-	template <typename F>
-	async_event submit_alloc(F&& f) {
-#if CELERITY_WORKAROUND(SIMSYCL)
-		// SimSYCL is not thread safe => skip alloc_queue and complete allocations in executor thread.
-		if constexpr(std::is_void_v<std::invoke_result_t<F>>) {
-			return f(), make_complete_event();
-		} else {
-			return make_complete_event(f());
-		}
-#else
-		return host.alloc_queue.submit(std::forward<F>(f));
-#endif
-	}
-
 	thread_queue& get_host_queue(const size_t lane) {
 		assert(lane <= host.queues.size());
 		if(lane == host.queues.size()) { host.queues.emplace_back(named_threads::task_type_host_queue(lane), config.profiling); }
@@ -232,7 +218,7 @@ void* sycl_backend::debug_alloc(const size_t size) {
 void sycl_backend::debug_free(void* const ptr) { sycl::free(ptr, m_impl->host.sycl_context); }
 
 async_event sycl_backend::enqueue_host_alloc(const size_t size, const size_t alignment) {
-	return m_impl->submit_alloc([this, size, alignment] {
+	return m_impl->host.alloc_queue.submit([this, size, alignment] {
 		const auto ptr = sycl::aligned_alloc_host(alignment, size, m_impl->host.sycl_context);
 #if CELERITY_DETAIL_ENABLE_DEBUG
 		memset(ptr, static_cast<int>(sycl_backend_detail::uninitialized_memory_pattern), size);
@@ -242,7 +228,7 @@ async_event sycl_backend::enqueue_host_alloc(const size_t size, const size_t ali
 }
 
 async_event sycl_backend::enqueue_device_alloc(const device_id device, const size_t size, const size_t alignment) {
-	return m_impl->submit_alloc([this, device, size, alignment] {
+	return m_impl->host.alloc_queue.submit([this, device, size, alignment] {
 		auto& d = m_impl->devices[device];
 		const auto ptr = sycl::aligned_alloc_device(alignment, size, d.sycl_device, d.sycl_context);
 #if CELERITY_DETAIL_ENABLE_DEBUG
@@ -255,11 +241,11 @@ async_event sycl_backend::enqueue_device_alloc(const device_id device, const siz
 }
 
 async_event sycl_backend::enqueue_host_free(void* const ptr) {
-	return m_impl->submit_alloc([this, ptr] { sycl::free(ptr, m_impl->host.sycl_context); });
+	return m_impl->host.alloc_queue.submit([this, ptr] { sycl::free(ptr, m_impl->host.sycl_context); });
 }
 
 async_event sycl_backend::enqueue_device_free(const device_id device, void* const ptr) {
-	return m_impl->submit_alloc([this, device, ptr] { sycl::free(ptr, m_impl->devices[device].sycl_context); });
+	return m_impl->host.alloc_queue.submit([this, device, ptr] { sycl::free(ptr, m_impl->devices[device].sycl_context); });
 }
 
 async_event sycl_backend::enqueue_host_task(size_t host_lane, const host_task_launcher& launcher, std::vector<closure_hydrator::accessor_info> accessor_infos,
