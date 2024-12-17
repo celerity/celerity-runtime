@@ -69,7 +69,7 @@ class [[deprecated("Use celerity::queue instead")]] distr_queue {
 	template <typename CGF>
 	void submit(CGF cgf) { // NOLINT(readability-convert-member-functions-to-static)
 		// (Note while this function could be made static, it must not be! Otherwise we can't be sure the runtime has been initialized.)
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::submit", Orange3);
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::submit", distr_queue_submit);
 		auto cg = detail::invoke_command_group_function(std::move(cgf));
 		[[maybe_unused]] const auto tid = detail::runtime::get_instance().submit(std::move(cg));
 		CELERITY_DETAIL_TRACY_ZONE_NAME("T{} submit", tid);
@@ -83,7 +83,7 @@ class [[deprecated("Use celerity::queue instead")]] distr_queue {
 	 * @warning { This is very slow, as it drains all queues and synchronizes across the entire cluster. }
 	 */
 	void slow_full_sync() { // NOLINT(readability-convert-member-functions-to-static)
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::slow_full_sync", Red2);
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::slow_full_sync", distr_queue_slow_full_sync);
 		[[maybe_unused]] const auto tid = detail::runtime::get_instance().sync(detail::epoch_action::barrier);
 		CELERITY_DETAIL_TRACY_ZONE_NAME("T{} slow_full_sync", tid);
 	}
@@ -126,7 +126,7 @@ class [[deprecated("Use celerity::queue instead")]] distr_queue {
 	/// It notifies the runtime of queue creation and destruction, which might trigger runtime initialization if it is the first such object.
 	struct tracker {
 		tracker(const detail::devices_or_selector& devices_or_selector) {
-			CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::distr_queue", DarkSlateBlue);
+			CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::distr_queue", distr_queue_ctor);
 
 			if(!detail::runtime::has_instance()) {
 				detail::runtime::init(nullptr, nullptr, devices_or_selector);
@@ -144,7 +144,7 @@ class [[deprecated("Use celerity::queue instead")]] distr_queue {
 		tracker& operator=(tracker&&) = delete;
 
 		~tracker() {
-			CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::~distr_queue", DarkCyan);
+			CELERITY_DETAIL_TRACY_ZONE_SCOPED("distr_queue::~distr_queue", distr_queue_dtor);
 
 			detail::runtime::get_instance().destroy_queue();
 

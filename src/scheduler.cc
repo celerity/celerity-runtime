@@ -208,7 +208,7 @@ void scheduler_impl::process_task_queue_event(const task_event& evt) {
 		    auto& tsk = *e.tsk;
 
 		    const auto commands = [&] {
-			    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::build_task", WebMaroon, "T{} build", tsk.get_id());
+			    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::build_task", scheduler_build_task, "T{} build", tsk.get_id());
 			    CELERITY_DETAIL_TRACY_ZONE_TEXT(utils::make_task_debug_label(tsk.get_type(), tsk.get_id(), tsk.get_debug_name()));
 			    return cggen.build_task(tsk);
 		    }(); // IIFE
@@ -226,7 +226,7 @@ void scheduler_impl::process_task_queue_event(const task_event& evt) {
 	    },
 	    [&](const event_buffer_created& e) {
 		    assert(!shutdown_epoch_created && !shutdown_epoch_reached);
-		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_created", DarkGreen, "B{} create", e.bid);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_created", scheduler_buffer_created, "B{} create", e.bid);
 		    cggen.notify_buffer_created(e.bid, e.range, e.user_allocation_id != null_allocation_id);
 		    // Buffer creation must be applied immediately (and out-of-order when necessary) so that instruction_graph_generator::anticipate() does not operate
 		    // on unknown buffers. This is fine as buffer creation never has dependencies on other commands and we do not re-use buffer ids.
@@ -234,21 +234,21 @@ void scheduler_impl::process_task_queue_event(const task_event& evt) {
 	    },
 	    [&](const event_buffer_debug_name_changed& e) {
 		    assert(!shutdown_epoch_created && !shutdown_epoch_reached);
-		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_name_changed", DarkGreen, "B{} set name", e.bid);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_name_changed", scheduler_buffer_name_changed, "B{} set name", e.bid);
 		    cggen.notify_buffer_debug_name_changed(e.bid, e.debug_name);
 		    // buffer-name changes are enqueued in-order to ensure that instruction records have the buffer names as they existed at task creation time.
 		    command_queue.push(e);
 	    },
 	    [&](const event_buffer_destroyed& e) {
 		    assert(!shutdown_epoch_created && !shutdown_epoch_reached);
-		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_destroyed", DarkGreen, "B{} destroy", e.bid);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_destroyed", scheduler_buffer_destroyed, "B{} destroy", e.bid);
 		    cggen.notify_buffer_destroyed(e.bid);
 		    // host-object destruction must happen in-order, otherwise iggen would need to compile commands on already-deleted buffers.
 		    command_queue.push(e);
 	    },
 	    [&](const event_host_object_created& e) {
 		    assert(!shutdown_epoch_created && !shutdown_epoch_reached);
-		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::host_object_created", DarkGreen, "H{} create", e.hoid);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::host_object_created", scheduler_host_object_created, "H{} create", e.hoid);
 		    cggen.notify_host_object_created(e.hoid);
 		    // instruction_graph_generator::anticipate() does not examine host objects (unlike it does with buffers), but it doesn't hurt to create them early
 		    // either since we don't re-use host object ids.
@@ -256,13 +256,13 @@ void scheduler_impl::process_task_queue_event(const task_event& evt) {
 	    },
 	    [&](const event_host_object_destroyed& e) {
 		    assert(!shutdown_epoch_created && !shutdown_epoch_reached);
-		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::host_object_destroyed", DarkGreen, "H{} destroy", e.hoid);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::host_object_destroyed", scheduler_host_object_destroyed, "H{} destroy", e.hoid);
 		    cggen.notify_host_object_destroyed(e.hoid);
 		    // host-object destruction must happen in-order, otherwise iggen would need to compile commands on already-deleted host objects.
 		    command_queue.push(e);
 	    },
 	    [&](const event_epoch_reached& e) { //
-		    CELERITY_DETAIL_TRACY_ZONE_SCOPED("scheduler::prune", Gray);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED("scheduler::prune", scheduler_prune);
 		    cdag.erase_before_epoch(e.tid);
 		    idag.erase_before_epoch(e.tid);
 
@@ -285,20 +285,20 @@ void scheduler_impl::process_command_queue_event(const command_event& evt) {
 	matchbox::match(
 	    evt, //
 	    [&](const event_command_available& e) {
-		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::compile_command", MidnightBlue, "C{} compile", e.cmd->get_id());
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::compile_command", scheduler_compile_command, "C{} compile", e.cmd->get_id());
 		    CELERITY_DETAIL_TRACY_ZONE_TEXT("{}", print_command_type(*e.cmd));
 		    iggen.compile(*e.cmd);
 	    },
 	    [&](const event_buffer_debug_name_changed& e) {
-		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_name_changed", DarkGreen, "B{} set name", e.bid);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_name_changed", scheduler_buffer_name_changed, "B{} set name", e.bid);
 		    iggen.notify_buffer_debug_name_changed(e.bid, e.debug_name);
 	    },
 	    [&](const event_buffer_destroyed& e) {
-		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_destroyed", DarkGreen, "B{} destroy", e.bid);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_destroyed", scheduler_buffer_destroyed, "B{} destroy", e.bid);
 		    iggen.notify_buffer_destroyed(e.bid);
 	    },
 	    [&](const event_host_object_destroyed& e) {
-		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::host_object_destroyed", DarkGreen, "H{} destroy", e.hoid);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::host_object_destroyed", scheduler_host_object_destroyed, "H{} destroy", e.hoid);
 		    iggen.notify_host_object_destroyed(e.hoid);
 	    },
 	    [&](const event_set_lookahead& e) {

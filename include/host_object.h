@@ -38,7 +38,7 @@ struct host_object_tracker {
 	bool references_user_object;
 
 	explicit host_object_tracker(std::unique_ptr<host_object_instance> instance) : references_user_object(instance == nullptr) {
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED("host_object::host_object", DarkSlateBlue);
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("host_object::host_object", host_object_ctor);
 		if(!detail::runtime::has_instance()) { detail::runtime::init(nullptr, nullptr); }
 		id = detail::runtime::get_instance().create_host_object(std::move(instance));
 	}
@@ -49,7 +49,7 @@ struct host_object_tracker {
 	host_object_tracker& operator=(const host_object_tracker&) = delete;
 
 	~host_object_tracker() {
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED("~host_object::host_object", DarkCyan);
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("~host_object::host_object", host_object_dtor);
 		detail::runtime::get_instance().destroy_host_object(id);
 		// The user must guarantee liveness of the referenced object only until the host_object instance goes out of scope
 		if(references_user_object) { detail::runtime::get_instance().sync(detail::epoch_action::none); }

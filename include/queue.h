@@ -36,7 +36,7 @@ class queue {
 	template <typename CGF>
 	void submit(CGF&& cgf) { // NOLINT(readability-convert-member-functions-to-static)
 		// (Note while this function could be made static, it must not be! Otherwise we can't be sure the runtime has been initialized.)
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::submit", Orange3);
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::submit", queue_submit);
 		auto cg = detail::invoke_command_group_function(std::forward<CGF>(cgf));
 		[[maybe_unused]] const auto tid = detail::runtime::get_instance().submit(std::move(cg));
 		CELERITY_DETAIL_TRACY_ZONE_NAME("T{} submit", tid);
@@ -49,7 +49,7 @@ class queue {
 	/// Note that this overload of `wait` does not issue a global barrier, so when using this for simple user-side benchmarking, cluster nodes might disagree on
 	/// start time measurements. Use `wait(experimental::barrier)` instead for benchmarking purposes.
 	void wait() { // NOLINT(readability-convert-member-functions-to-static)
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::wait", Red2);
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::wait", queue_wait);
 		[[maybe_unused]] const auto tid = detail::runtime::get_instance().sync(detail::epoch_action::none);
 		CELERITY_DETAIL_TRACY_ZONE_NAME("T{} wait", tid);
 	}
@@ -58,7 +58,7 @@ class queue {
 	///
 	/// This has an even higher latency than `wait()`, but may be useful for user-side performance measurements.
 	void wait(detail::barrier_tag /* barrier */) { // NOLINT(readability-convert-member-functions-to-static)
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::wait", Red2);
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::wait", queue_wait);
 		[[maybe_unused]] const auto tid = detail::runtime::get_instance().sync(detail::epoch_action::barrier);
 		CELERITY_DETAIL_TRACY_ZONE_NAME("T{} wait (barrier)", tid);
 	}
@@ -95,7 +95,7 @@ class queue {
 	/// It notifies the runtime of queue creation and destruction, which might trigger runtime initialization if it is the first such object.
 	struct tracker {
 		tracker() {
-			CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::queue", DarkSlateBlue);
+			CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::queue", queue_ctor);
 			if(!detail::runtime::has_instance()) { detail::runtime::init(nullptr, nullptr, detail::auto_select_devices{}); }
 			detail::runtime::get_instance().create_queue();
 		}
@@ -106,7 +106,7 @@ class queue {
 		tracker& operator=(tracker&&) = delete;
 
 		~tracker() {
-			CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::~queue", DarkCyan);
+			CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::~queue", queue_ctor);
 
 			detail::runtime::get_instance().destroy_queue();
 
