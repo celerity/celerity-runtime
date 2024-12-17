@@ -616,6 +616,25 @@ void compare_instruction_graphs(const size_t num_nodes, const BuilderCallback& c
 	};
 	cb(normal_ctx, normal_loop_wrapper);
 
+	// NOCOMMIT Just hacking
+	{
+		const auto getoption = [](const std::string_view name) -> std::optional<size_t> {
+			const auto cstr = getenv(name.data());
+			if(cstr == nullptr) return std::nullopt;
+			return atol(cstr);
+		};
+
+		// TODO: In a proper query language we would probably like to specify whether we want only true dependencies or all
+		const auto filter_by_tid = getoption("GRAPH_QUERY_TID");
+		const auto before = getoption("GRAPH_QUERY_BEFORE");
+		const auto after = getoption("GRAPH_QUERY_AFTER");
+
+		const auto& normal_rec = normal_ctx.get_instruction_recorder();
+		const auto& loop_rec = loop_ctx.get_instruction_recorder();
+		const_cast<instruction_recorder&>(normal_rec).filter_by_task_id(*filter_by_tid, before.value_or(0), after.value_or(0));
+		const_cast<instruction_recorder&>(loop_rec).filter_by_task_id(*filter_by_tid, before.value_or(0), after.value_or(0));
+	}
+
 	// NOCOMMIT Here and for TDAG/CDAG: We don't really need raw() when we have get_*_recorder
 	const auto normal_records = normal_ctx.query_instructions().raw();
 	const auto loop_records = loop_ctx.query_instructions().raw();
@@ -726,6 +745,52 @@ TEST_CASE("IDAG stencil pattern") {
 				loop_body();
 			}
 		}
+
+		ictx.finish();
+	});
+}
+
+#include "geometry_builder.h" // NOCOMMIT
+
+TEST_CASE("IDAG outset stencil") {
+	test_utils::allow_max_log_level(log_level::critical); // NOCOMMIT Just for debug output
+
+	// const size_t num_nodes = GENERATE(1, 2, 4);
+	// const size_t num_nodes = 16;
+	const size_t num_nodes = 128;
+	CAPTURE(num_nodes);
+
+	compare_instruction_graphs(num_nodes, [](test_utils::idag_test_context& ictx, auto loop) {
+		auto buf0 = ictx.create_buffer(range<2>(128, 128), true /* host initialized */);
+		auto buf1 = ictx.create_buffer(range<2>(128, 128), true);
+
+		size_t i = 0;
+		loop(7, [&]() {
+			constexpr size_t outset = 2;
+			const size_t inner_iterations = outset % 2 == 0 ? 2 * (outset + 1) : outset + 1;
+
+			for(size_t j = 0; j < inner_iterations; ++j) {
+				{
+					const size_t current_outset = outset - i % (outset + 1);
+					celerity::geometry_builder<2> gb{buf0.get_range()};
+					gb.split_2d_but_recursive_and_only_for_local_chunks_v2_electric_boogaloo(16, 2, 0);
+					gb.outset(current_outset);
+					const auto geo = gb.make();
+					ictx.device_compute(geo).name("ping").read(buf0, acc::neighborhood{{1, 1}}).read_write_replicated(buf1, acc::one_to_one{}).submit();
+				}
+				i++;
+
+				{
+					const size_t current_outset = outset - i % (outset + 1);
+					celerity::geometry_builder<2> gb{buf0.get_range()};
+					gb.split_2d_but_recursive_and_only_for_local_chunks_v2_electric_boogaloo(16, 2, 0);
+					gb.outset(current_outset);
+					const auto geo = gb.make();
+					ictx.device_compute(geo).name("pong").read(buf1, acc::neighborhood{{1, 1}}).read_write_replicated(buf0, acc::one_to_one{}).submit();
+				}
+				i++;
+			}
+		});
 
 		ictx.finish();
 	});
