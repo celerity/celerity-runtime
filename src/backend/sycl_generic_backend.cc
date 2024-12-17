@@ -27,7 +27,7 @@ void nd_copy_device_chunked(sycl::queue& queue, const void* const source_base, v
 	const auto layout = layout_nd_copy(source_box.get_range(), dest_box.get_range(), copy_box.get_offset() - source_box.get_offset(),
 	    copy_box.get_offset() - dest_box.get_offset(), copy_box.get_range(), elem_size);
 	for_each_contiguous_chunk(layout, [&](const size_t chunk_offset_in_source, const size_t chunk_offset_in_dest, const size_t chunk_size) {
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED("sycl::submit", Orange2);
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("sycl::submit", sycl_submit);
 		// first, last: We remember the first and last submission event to report completion time spanning the entire region copy
 		last = queue.memcpy(
 		    static_cast<std::byte*>(dest_base) + chunk_offset_in_dest, static_cast<const std::byte*>(source_base) + chunk_offset_in_source, chunk_size);
@@ -47,7 +47,7 @@ async_event nd_copy_device_generic(sycl::queue& queue, const void* const source_
 	    [&queue, elem_size, enable_profiling, &first, &last](const void* const source, void* const dest, const box<3>& source_box, const box<3>& dest_box,
 	        const box<3>& copy_box) { nd_copy_device_chunked(queue, source, dest, source_box, dest_box, copy_box, elem_size, enable_profiling, first, last); },
 	    [&queue, enable_profiling, &first, &last](const void* const source, void* const dest, size_t size_bytes) {
-		    CELERITY_DETAIL_TRACY_ZONE_SCOPED("sycl::submit", Orange2);
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED("sycl::submit", sycl_submit);
 		    last = queue.memcpy(dest, source, size_bytes);
 		    if(enable_profiling) { first = last; }
 	    });

@@ -100,7 +100,7 @@ class buffer {
 	/// It notifies the runtime of buffer creation and destruction and also persists changes of the buffer debug name.
 	struct tracker {
 		tracker(const celerity::range<Dims>& range, const void* const host_init_ptr) : range(range) {
-			CELERITY_DETAIL_TRACY_ZONE_SCOPED("buffer::buffer", DarkSlateBlue);
+			CELERITY_DETAIL_TRACY_ZONE_SCOPED("buffer::buffer", buffer_ctor);
 
 			if(!detail::runtime::has_instance()) { detail::runtime::init(nullptr, nullptr); }
 			auto user_aid = detail::null_allocation_id;
@@ -118,7 +118,7 @@ class buffer {
 		tracker& operator=(tracker&&) = delete;
 
 		~tracker() {
-			CELERITY_DETAIL_TRACY_ZONE_SCOPED("buffer::~buffer", DarkCyan);
+			CELERITY_DETAIL_TRACY_ZONE_SCOPED("buffer::~buffer", buffer_dtor);
 			detail::runtime::get_instance().destroy_buffer(id);
 			// The user must guarantee liveness of the user pointer only until the buffer instance goes out of scope
 			// TODO This is more synchronization than necessary - consider issuing a fence-like task that does not block concurrent tasks.

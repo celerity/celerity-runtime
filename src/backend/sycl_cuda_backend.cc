@@ -38,17 +38,17 @@ void nd_copy_device_async(const cudaStream_t stream, const void* const source_ba
 	if(layout.contiguous_size == 0) return;
 
 	if(layout.num_complex_strides == 0) {
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("cuda::memcpy_1d", ForestGreen, "cudaMemcpyAsync");
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("cuda::memcpy_1d", cuda_memcpy_1d, "cudaMemcpyAsync");
 		CELERITY_CUDA_CHECK(cudaMemcpyAsync, static_cast<std::byte*>(dest_base) + layout.offset_in_dest,
 		    static_cast<const std::byte*>(source_base) + layout.offset_in_source, layout.contiguous_size, cudaMemcpyDefault, stream);
 	} else if(layout.num_complex_strides == 1) {
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("cuda::memcpy_2d", ForestGreen, "cudaMemcpy2DAsync");
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("cuda::memcpy_2d", cuda_memcpy_2d, "cudaMemcpy2DAsync");
 		CELERITY_CUDA_CHECK(cudaMemcpy2DAsync, static_cast<std::byte*>(dest_base) + layout.offset_in_dest, layout.strides[0].dest_stride,
 		    static_cast<const std::byte*>(source_base) + layout.offset_in_source, layout.strides[0].source_stride, layout.contiguous_size,
 		    layout.strides[0].count, cudaMemcpyDefault, stream);
 	} else {
 		assert(layout.num_complex_strides == 2);
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("cuda::memcpy_3d", ForestGreen, "cudaMemcpy3DAsync");
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("cuda::memcpy_3d", cuda_memcpy_3d, "cudaMemcpy3DAsync");
 		// Arriving in the 3D case means no dimensionality reduction was possible, and cudaMemcpy3D is more closely aligned to the parameters to
 		// nd_copy_device_async than to nd_copy_layout, so we don't compute cudaMemcpy3DParms from `layout`.
 		cudaMemcpy3DParms parms = {};
@@ -81,7 +81,7 @@ void nd_copy_device_async(cudaStream_t stream, const void* const source_base, vo
 		    nd_copy_device_async(stream, source, dest, source_box, dest_box, copy_box, elem_size);
 	    },
 	    [stream](const void* const source, void* const dest, size_t size_bytes) {
-		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("cuda::memcpy", ForestGreen, "cudaMemcpyAsync");
+		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("cuda::memcpy", cuda_memcpy, "cudaMemcpyAsync");
 		    CELERITY_CUDA_CHECK(cudaMemcpyAsync, dest, source, size_bytes, cudaMemcpyDefault, stream);
 	    });
 }
@@ -101,7 +101,7 @@ struct cuda_native_event_deleter {
 using unique_cuda_native_event = std::unique_ptr<std::remove_pointer_t<cudaEvent_t>, cuda_native_event_deleter>;
 
 unique_cuda_native_event record_native_event(const cudaStream_t stream, bool enable_profiling) {
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("cuda::record_event", ForestGreen, "cudaEventRecord")
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("cuda::record_event", cuda_record_event, "cudaEventRecord")
 	cudaEvent_t event;
 	CELERITY_CUDA_CHECK(cudaEventCreateWithFlags, &event, enable_profiling ? cudaEventDefault : cudaEventDisableTiming);
 	CELERITY_CUDA_CHECK(cudaEventRecord, event, stream);
