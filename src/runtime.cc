@@ -281,7 +281,7 @@ namespace detail {
 		m_cfg = std::make_unique<config>(argc, argv);
 
 		CELERITY_DETAIL_IF_TRACY_SUPPORTED(tracy_detail::g_tracy_mode = m_cfg->get_tracy_mode());
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED("runtime::startup", DarkGray);
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("runtime::startup", runtime_startup);
 
 		if(s_test_mode) {
 			assert(s_test_active && "initializing the runtime from a test without a runtime_fixture");
@@ -331,7 +331,7 @@ namespace detail {
 
 		std::vector<sycl::device> devices;
 		{
-			CELERITY_DETAIL_TRACY_ZONE_SCOPED("runtime::select_devices", PaleVioletRed);
+			CELERITY_DETAIL_TRACY_ZONE_SCOPED("runtime::select_devices", runtime_select_devices);
 			devices = std::visit([&](const auto& value) { return select_devices(host_cfg, value, sycl::platform::get_platforms()); }, user_devices_or_selector);
 			assert(!devices.empty()); // postcondition of select_devices
 		}
@@ -421,7 +421,7 @@ namespace detail {
 
 		require_call_from_application_thread();
 
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED("runtime::shutdown", DimGray);
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED("runtime::shutdown", runtime_shutdown);
 
 		// Create and await the shutdown epoch
 		sync(epoch_action::shutdown);
@@ -677,7 +677,7 @@ namespace detail {
 
 	void runtime::mpi_initialize_once(int* argc, char*** argv) {
 #if CELERITY_ENABLE_MPI
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("mpi::init", LightSkyBlue, "MPI_Init");
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("mpi::init", mpi_init, "MPI_Init");
 		assert(!s_mpi_initialized);
 		int provided = -1;
 		MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
@@ -688,7 +688,7 @@ namespace detail {
 
 	void runtime::mpi_finalize_once() {
 #if CELERITY_ENABLE_MPI
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("mpi::finalize", LightSkyBlue, "MPI_Finalize");
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("mpi::finalize", mpi_finalize, "MPI_Finalize");
 		assert(s_mpi_initialized && !s_mpi_finalized && (!s_test_mode || !has_instance()));
 		MPI_Finalize();
 #endif // CELERITY_ENABLE_MPI

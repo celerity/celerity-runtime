@@ -992,7 +992,7 @@ void generator_impl::free_all_staging_allocations(batch& current_batch) {
 }
 
 void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id bid, const memory_id mid, box_vector<3>&& required_contiguous_boxes) {
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::allocate", Teal);
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::allocate", iggen_allocate);
 
 	if(required_contiguous_boxes.empty()) return;
 
@@ -1208,7 +1208,7 @@ bool should_linearize_copy_region(const memory_id alloc_mid, const box<3>& alloc
 void generator_impl::establish_coherence_between_buffer_memories(
     batch& current_batch, const buffer_id bid, dense_map<memory_id, std::vector<region<3>>>& concurrent_reads_from_memory) //
 {
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::coherence", Red2);
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::coherence", iggen_coherence);
 
 	auto& buffer = m_buffers.at(bid);
 
@@ -1494,7 +1494,7 @@ void generator_impl::create_task_collective_groups(batch& command_batch, const t
 }
 
 std::vector<localized_chunk> generator_impl::split_task_execution_range(const execution_command& ecmd, const task& tsk) {
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::split_task", Maroon);
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::split_task", iggen_split_task);
 
 	if(tsk.get_execution_target() == execution_target::device && m_system.devices.empty()) { utils::panic("no device on which to execute device kernel"); }
 
@@ -1569,7 +1569,7 @@ void generator_impl::report_task_overlapping_writes(const task& tsk, const std::
 void generator_impl::satisfy_task_buffer_requirements(batch& current_batch, const buffer_id bid, const task& tsk, const subrange<3>& local_execution_range,
     const bool local_node_is_reduction_initializer, const std::vector<localized_chunk>& concurrent_chunks_after_split) //
 {
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::satisfy_buffer_requirements", ForestGreen);
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::satisfy_buffer_requirements", iggen_satisfy_buffer_requirements);
 
 	assert(!concurrent_chunks_after_split.empty());
 
@@ -1796,7 +1796,7 @@ void generator_impl::finish_task_local_reduction(batch& command_batch, const loc
 }
 
 instruction* generator_impl::launch_task_kernel(batch& command_batch, const execution_command& ecmd, const task& tsk, const localized_chunk& chunk) {
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::launch_kernel", Blue2);
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::launch_kernel", iggen_launch_kernel);
 
 	const auto& bam = tsk.get_buffer_access_map();
 
@@ -1866,7 +1866,7 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 void generator_impl::perform_task_buffer_accesses(
     const task& tsk, const std::vector<localized_chunk>& concurrent_chunks, const std::vector<instruction*>& command_instructions) //
 {
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::perform_buffer_access", Red3);
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::perform_buffer_access", iggen_perform_buffer_access);
 
 	const auto& bam = tsk.get_buffer_access_map();
 	if(bam.get_num_accesses() == 0 && tsk.get_reductions().empty()) return;
@@ -2320,7 +2320,7 @@ void generator_impl::flush_batch(batch&& batch) { // NOLINT(cppcoreguidelines-rv
 }
 
 instruction_graph_generator::scheduling_hint generator_impl::anticipate(const command& cmd) {
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::anticipate", Teal);
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("iggen::anticipate", iggen_anticipate);
 
 	std::unordered_map<std::pair<buffer_id, memory_id>, box_vector<3>, utils::pair_hash> required_contiguous_boxes;
 	const auto require_contiguous = [&](const buffer_id bid, const memory_id mid, const box_vector<3>& boxes) {

@@ -82,10 +82,85 @@ inline const char* leak_name(const std::string& name) {
 inline void set_thread_name_and_order(const std::string& name, const int32_t index) {
 	const int32_t order = tracy_detail::lane_order::thread + index;
 	assert(order <= static_cast<int32_t>(tracy_detail::lane_order::thread_max));
-	::tracy::SetThreadNameWithHint(leak_name(name), order);
+	tracy::SetThreadNameWithHint(leak_name(name), order);
 }
 
 } // namespace celerity::detail::tracy_detail
+
+namespace celerity::detail {
+
+enum class trace_color : std::underlying_type_t<tracy::Color::ColorType> {
+	generic_red = tracy::Color::Red,
+	generic_green = tracy::Color::Green,
+	generic_blue = tracy::Color::Blue,
+	generic_yellow = tracy::Color::Yellow,
+
+	buffer_ctor = tracy::Color::DarkSlateBlue,
+	buffer_dtor = tracy::Color::DarkCyan,
+
+	cuda_memcpy = tracy::Color::ForestGreen,
+	cuda_memcpy_1d = cuda_memcpy,
+	cuda_memcpy_2d = cuda_memcpy,
+	cuda_memcpy_3d = cuda_memcpy,
+	cuda_record_event = tracy::Color::ForestGreen,
+
+	distr_queue_ctor = tracy::Color::DarkSlateBlue,
+	distr_queue_dtor = tracy::Color::DarkCyan,
+	distr_queue_slow_full_sync = tracy::Color::Red2,
+	distr_queue_submit = tracy::Color::Orange3,
+
+	executor_fetch = tracy::Color::Gray,
+	executor_issue = tracy::Color::Blue,
+	executor_issue_copy = tracy::Color::Green4,
+	executor_issue_device_kernel = tracy::Color::Yellow2,
+	executor_make_accessor_info = tracy::Color::Magenta3,
+	executor_oob_check = tracy::Color::Red,
+	executor_oob_init = executor_oob_check,
+	executor_retire = tracy::Color::Brown,
+	executor_starve = tracy::Color::DarkSlateGray,
+
+	host_object_ctor = tracy::Color::DarkSlateBlue,
+	host_object_dtor = tracy::Color::DarkCyan,
+
+	iggen_allocate = tracy::Color::Teal,
+	iggen_anticipate = iggen_allocate,
+	iggen_coherence = tracy::Color::Red2,
+	iggen_launch_kernel = tracy::Color::Blue2,
+	iggen_perform_buffer_access = tracy::Color::Red3,
+	iggen_satisfy_buffer_requirements = tracy::Color::ForestGreen,
+	iggen_split_task = tracy::Color::Maroon,
+
+	mpi_finalize = tracy::Color::LightSkyBlue,
+	mpi_init = tracy::Color::LightSkyBlue,
+
+	out_of_order_engine_assign = tracy::Color::Blue3,
+	out_of_order_engine_complete = tracy::Color::Blue3,
+	out_of_order_engine_submit = tracy::Color::Blue3,
+
+	queue_ctor = distr_queue_ctor,
+	queue_dtor = distr_queue_dtor,
+	queue_fence = tracy::Color::Green2,
+	queue_submit = distr_queue_submit,
+	queue_wait = distr_queue_slow_full_sync,
+
+	runtime_select_devices = tracy::Color::PaleVioletRed,
+	runtime_shutdown = tracy::Color::DimGray,
+	runtime_startup = tracy::Color::DarkGray,
+
+	scheduler_buffer_created = tracy::Color::DarkGreen,
+	scheduler_buffer_destroyed = scheduler_buffer_created,
+	scheduler_buffer_name_changed = tracy::Color::DarkGreen,
+	scheduler_build_task = tracy::Color::WebMaroon,
+	scheduler_compile_command = tracy::Color::MidnightBlue,
+	scheduler_host_object_created = tracy::Color::DarkGreen,
+	scheduler_host_object_destroyed = scheduler_host_object_created,
+	scheduler_prune = tracy::Color::Gray,
+
+	sycl_init = tracy::Color::Orange2,
+	sycl_submit = tracy::Color::Orange2,
+};
+
+}
 
 #define CELERITY_DETAIL_IF_TRACY_SUPPORTED(...) __VA_ARGS__
 
@@ -100,7 +175,9 @@ inline void set_thread_name_and_order(const std::string& name, const int32_t ind
 #define CELERITY_DETAIL_IF_TRACY_ENABLED_FULL(...) CELERITY_DETAIL_IF_TRACY_SUPPORTED(if(::celerity::detail::tracy_detail::is_enabled_full()) { __VA_ARGS__; })
 
 #define CELERITY_DETAIL_TRACY_ZONE_SCOPED(TAG, COLOR_NAME)                                                                                                     \
-	CELERITY_DETAIL_IF_TRACY_SUPPORTED(ZoneNamedNC(___tracy_scoped_zone, TAG, ::tracy::Color::COLOR_NAME, ::celerity::detail::tracy_detail::is_enabled()))
+	CELERITY_DETAIL_IF_TRACY_SUPPORTED(ZoneNamedNC(___tracy_scoped_zone, TAG,                                                                                  \
+	    static_cast<std::underlying_type_t<::celerity::detail::trace_color>>(::celerity::detail::trace_color::COLOR_NAME),                                     \
+	    ::celerity::detail::tracy_detail::is_enabled()))
 
 #define CELERITY_DETAIL_TRACY_ZONE_NAME(...)                                                                                                                   \
 	CELERITY_DETAIL_IF_TRACY_ENABLED_FULL(::celerity::detail::tracy_detail::apply_string([&](const auto& n) { ZoneName(n.data(), n.size()); }, __VA_ARGS__))

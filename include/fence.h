@@ -110,7 +110,7 @@ class buffer_fence_promise final : public detail::task_promise {
 template <typename T>
 std::future<T> fence(const experimental::host_object<T>& obj) {
 	static_assert(std::is_object_v<T>, "host_object<T&> and host_object<void> are not allowed as parameters to fence()");
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::fence", Green2);
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::fence", queue_fence);
 
 	const host_object_effect effect{detail::get_host_object_id(obj), experimental::side_effect_order::sequential};
 	auto promise = std::make_unique<detail::host_object_fence_promise<T>>(detail::get_host_object_instance(obj));
@@ -123,7 +123,7 @@ std::future<T> fence(const experimental::host_object<T>& obj) {
 
 template <typename DataT, int Dims>
 std::future<buffer_snapshot<DataT, Dims>> fence(const buffer<DataT, Dims>& buf, const subrange<Dims>& sr) {
-	CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::fence", Green2);
+	CELERITY_DETAIL_TRACY_ZONE_SCOPED("queue::fence", queue_fence);
 
 	detail::buffer_access access{detail::get_buffer_id(buf), access_mode::read,
 	    std::make_unique<detail::range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), buf.get_range())};
