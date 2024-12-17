@@ -146,6 +146,11 @@ class task_builder {
 		return step(m_tctx, [execution_range](handler& cgh) { cgh.parallel_for<Name>(execution_range, [](nd_item<Dims>) {}); });
 	}
 
+	template <typename Name, int Dims>
+	step device_compute(const custom_task_geometry<Dims>& geo) {
+		return step(m_tctx, [geo](handler& cgh) { cgh.parallel_for<Name>(geo, [](id<Dims>) {}); });
+	}
+
 	template <int Dims>
 	step host_task(const range<Dims>& global_size) {
 		return step(m_tctx, [global_size](handler& cgh) { cgh.host_task(global_size, [](partition<Dims>) {}); });

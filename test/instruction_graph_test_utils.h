@@ -277,6 +277,11 @@ class idag_test_context final : private task_manager::delegate {
 		return task_builder(*this).template device_compute<Name>(execution_range);
 	}
 
+	template <typename Name = unnamed_kernel, int Dims>
+	auto device_compute(const custom_task_geometry<Dims>& geo) {
+		return task_builder(*this).template device_compute<Name>(geo);
+	}
+
 	template <int Dims>
 	auto host_task(const range<Dims>& global_size) {
 		return task_builder(*this).host_task(global_size);
