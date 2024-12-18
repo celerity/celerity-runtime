@@ -22,10 +22,13 @@ namespace celerity::detail {
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 struct oob_bounding_box {
-	id<3> min{SIZE_MAX, SIZE_MAX, SIZE_MAX};
-	id<3> max{0, 0, 0};
+	std::array<ssize_t, 3> min = {std::numeric_limits<ssize_t>::max(), std::numeric_limits<ssize_t>::max(), std::numeric_limits<ssize_t>::max()};
+	std::array<ssize_t, 3> max = {std::numeric_limits<ssize_t>::min(), std::numeric_limits<ssize_t>::min(), std::numeric_limits<ssize_t>::min()};
 
-	box<3> into_box() const { return min[0] < max[0] && min[1] < max[1] && min[2] < max[2] ? box(min, max) : box<3>(); }
+	bool oob_access_detected() const {
+		return std::ranges::any_of(min, [](const ssize_t v) { return v != std::numeric_limits<ssize_t>::max(); })
+		       || std::ranges::any_of(max, [](const ssize_t v) { return v != std::numeric_limits<ssize_t>::min(); });
+	}
 };
 #endif
 
@@ -81,7 +84,7 @@ class closure_hydrator {
 		box<3> accessed_box_in_buffer;
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-		oob_bounding_box* out_of_bounds_indices = nullptr;
+		oob_bounding_box* oob_bbox = nullptr;
 #endif
 	};
 

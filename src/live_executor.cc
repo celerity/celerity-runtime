@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <fmt/ranges.h>
 #include <matchbox.hh>
 
 
@@ -517,12 +518,13 @@ void live_executor::impl::retire_async_instruction(const instruction_id iid, asy
 		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("executor::oob_check", Red, "I{} bounds check", iid);
 		const auto& oob_info = *async.oob_info;
 		for(size_t i = 0; i < oob_info.accessors.size(); ++i) {
-			if(const auto oob_box = oob_info.illegal_access_bounding_boxes[i].into_box(); !oob_box.empty()) {
+			if(const auto oob_bbox = oob_info.illegal_access_bounding_boxes[i]; oob_bbox.oob_access_detected()) {
 				const auto& accessor_info = oob_info.accessors[i];
-				CELERITY_ERROR("Out-of-bounds access detected in {}: accessor {} attempted to access buffer {} indicies between {} and outside the "
+				CELERITY_ERROR("Out-of-bounds access detected in {}: accessor {} attempted to access buffer {} indices between [{}] - [{}] and outside the "
 				               "declared range {}.",
 				    utils::make_task_debug_label(oob_info.task_type, oob_info.task_id, oob_info.task_name), i,
-				    utils::make_buffer_debug_label(accessor_info.buffer_id, accessor_info.buffer_name), oob_box, accessor_info.accessible_box);
+				    utils::make_buffer_debug_label(accessor_info.buffer_id, accessor_info.buffer_name), fmt::join(oob_bbox.min, ","),
+				    fmt::join(oob_bbox.max, ","), accessor_info.accessible_box);
 			}
 		}
 		if(oob_info.illegal_access_bounding_boxes != nullptr /* i.e. there was at least one accessor */) {
@@ -939,7 +941,7 @@ std::unique_ptr<boundary_check_info> live_executor::impl::attach_boundary_check_
 	oob_info->accessors.resize(amap.size());
 	for(size_t i = 0; i < amap.size(); ++i) {
 		oob_info->accessors[i] = boundary_check_info::accessor_info{amap[i].oob_buffer_id, amap[i].oob_buffer_name, amap[i].accessed_bounding_box_in_buffer};
-		accessor_infos[i].out_of_bounds_indices = oob_info->illegal_access_bounding_boxes + i;
+		accessor_infos[i].oob_bbox = oob_info->illegal_access_bounding_boxes + i;
 	}
 	return oob_info;
 }

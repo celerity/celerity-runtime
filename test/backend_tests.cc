@@ -75,7 +75,7 @@ std::tuple<sycl_backend_type, std::unique_ptr<backend>, std::vector<sycl::device
 
 bool accessor_info_equal(const closure_hydrator::accessor_info& lhs, const closure_hydrator::accessor_info& rhs) {
 	bool equal = lhs.ptr == rhs.ptr && lhs.allocated_box_in_buffer == rhs.allocated_box_in_buffer && lhs.accessed_box_in_buffer == rhs.accessed_box_in_buffer;
-	CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(equal &= lhs.out_of_bounds_indices == rhs.out_of_bounds_indices;)
+	CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(equal &= lhs.oob_bbox == rhs.oob_bbox;)
 	return equal;
 }
 
