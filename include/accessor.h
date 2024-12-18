@@ -205,15 +205,16 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	inline std::conditional_t<detail::is_producer_mode(M), DataT&, const DataT&> operator[](const id<Dims>& index) const {
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 		// We currently don't support boundary checking for accessors created using accessor_testspy::make_device_accessor,
-		// which does not set m_oob_indices.
-		if(m_oob_indices != nullptr) {
+		// which does not set m_oob_bbox.
+		if(m_oob_bbox != nullptr) {
 			const bool is_within_bounds_lo = all_true(index >= m_oob_declared_bounds.get_min());
 			const bool is_within_bounds_hi = all_true(index < m_oob_declared_bounds.get_max());
 			if((!is_within_bounds_lo || !is_within_bounds_hi)) {
 				for(int d = 0; d < 3; ++d) {
-					const size_t component = d < Dims ? index[d] : 0;
-					sycl::atomic_ref<size_t, sycl::memory_order::relaxed, sycl::memory_scope::device>{m_oob_indices->min[d]}.fetch_min(component);
-					sycl::atomic_ref<size_t, sycl::memory_order::relaxed, sycl::memory_scope::device>{m_oob_indices->max[d]}.fetch_max(component + 1);
+					// Convert to signed type to correctly handle underflows
+					const ssize_t component = d < Dims ? static_cast<ssize_t>(index[d]) : 0;
+					sycl::atomic_ref<ssize_t, sycl::memory_order::relaxed, sycl::memory_scope::device>{m_oob_bbox->min[d]}.fetch_min(component);
+					sycl::atomic_ref<ssize_t, sycl::memory_order::relaxed, sycl::memory_scope::device>{m_oob_bbox->max[d]}.fetch_max(component + 1);
 				}
 				return m_oob_fallback_value;
 			}
@@ -270,7 +271,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_allocation_offset;
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_allocation_range = detail::zeros;
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-	detail::oob_bounding_box* m_oob_indices = nullptr;
+	detail::oob_bounding_box* m_oob_bbox = nullptr;
 	detail::box<Dims> m_oob_declared_bounds = {};
 	// This value (or a reference to it) is returned for all out-of-bounds accesses.
 	mutable DataT m_oob_fallback_value = DataT{};
@@ -301,7 +302,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		m_allocation_offset = other.m_allocation_offset;
 		m_allocation_range = other.m_allocation_range;
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-		m_oob_indices = other.m_oob_indices;
+		m_oob_bbox = other.m_oob_bbox;
 		m_oob_declared_bounds = other.m_oob_declared_bounds;
 #endif
 
@@ -319,7 +320,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 					m_allocation_offset = detail::id_cast<Dims>(info.allocated_box_in_buffer.get_offset());
 					m_allocation_range = detail::range_cast<Dims>(info.allocated_box_in_buffer.get_range());
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-					m_oob_indices = info.out_of_bounds_indices;
+					m_oob_bbox = info.oob_bbox;
 					m_oob_declared_bounds = box_cast<Dims>(info.accessed_box_in_buffer);
 #endif
 				}
@@ -424,16 +425,17 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	template <access_mode M = Mode>
 	inline std::conditional_t<detail::is_producer_mode(M), DataT&, const DataT&> operator[](const id<Dims>& index) const {
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-		if(m_oob_indices != nullptr) {
+		if(m_oob_bbox != nullptr) {
 			const bool is_within_bounds_lo = all_true(index >= m_accessed_buffer_subrange.offset);
 			const bool is_within_bounds_hi = all_true(index < (m_accessed_buffer_subrange.offset + m_accessed_buffer_subrange.range));
 
 			if((!is_within_bounds_lo || !is_within_bounds_hi)) {
 				std::lock_guard<std::mutex> guard(m_oob_mutex);
 				for(int d = 0; d < 3; ++d) {
-					const size_t component = d < Dims ? index[d] : 0;
-					m_oob_indices->min[d] = std::min(m_oob_indices->min[d], component);
-					m_oob_indices->max[d] = std::max(m_oob_indices->max[d], component + 1);
+					// Convert to signed type to correctly handle underflows
+					const ssize_t component = d < Dims ? static_cast<ssize_t>(index[d]) : 0;
+					m_oob_bbox->min[d] = std::min(m_oob_bbox->min[d], component);
+					m_oob_bbox->max[d] = std::max(m_oob_bbox->max[d], component + 1);
 				}
 				return m_oob_fallback_value;
 			}
@@ -551,7 +553,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS DataT* m_host_ptr = nullptr;
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-	detail::oob_bounding_box* m_oob_indices = nullptr;
+	detail::oob_bounding_box* m_oob_bbox = nullptr;
 	// This mutex has to be inline static, since accessors are copyable making the mutex otherwise useless.
 	// It is a workaround until atomic_ref() can be used on m_oob_indices in c++20.
 	inline static std::mutex m_oob_mutex;
@@ -586,7 +588,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		m_buffer_range = other.m_buffer_range;
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-		m_oob_indices = other.m_oob_indices;
+		m_oob_bbox = other.m_oob_bbox;
 #endif
 
 		if(detail::is_embedded_hydration_id(m_host_ptr)) {
@@ -602,7 +604,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 				m_accessed_buffer_subrange = detail::subrange_cast<Dims>(info.accessed_box_in_buffer.get_subrange());
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-				m_oob_indices = info.out_of_bounds_indices;
+				m_oob_bbox = info.oob_bbox;
 #endif
 			}
 		}

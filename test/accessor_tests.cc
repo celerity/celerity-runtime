@@ -713,12 +713,12 @@ namespace detail {
 			const auto accessible_box = box(subrange_cast<3>(accessible_sr));
 			const auto attempted_box = box_cast<3>(box(oob_idx_lo, oob_idx_hi + id<Dims>(ones)));
 			const auto unnamed_error_message = fmt::format("Out-of-bounds access detected in {} T1 \"{}\": accessor 0 attempted to access buffer B0 "
-			                                               "indicies between {} and outside the declared range {}.",
+			                                               "indices between {} and outside the declared range {}.",
 			    task_type_description, task_name, attempted_box, accessible_box);
 			CHECK(test_utils::log_contains_substring(log_level::err, unnamed_error_message));
 
 			const auto named_error_message = fmt::format("Out-of-bounds access detected in {} T1 \"{}\": accessor 1 attempted to access buffer B1 "
-			                                             "\"{}\" indicies between {} and outside the declared range {}.",
+			                                             "\"{}\" indices between {} and outside the declared range {}.",
 			    task_type_description, task_name, buffer_name, attempted_box, accessible_box);
 			CHECK(test_utils::log_contains_substring(log_level::err, named_error_message));
 		};
@@ -727,6 +727,56 @@ namespace detail {
 		SECTION("for device read access") { run_test.template operator()<true>("device kernel", celerity::read_only); }
 		SECTION("for host write access") { run_test.template operator()<false>("host-compute task", celerity::write_only_host_task, celerity::no_init); }
 		SECTION("for host read access") { run_test.template operator()<false>("host-compute task", celerity::read_only_host_task); }
+	}
+
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "underflowing indexes are correctly handled when reporting out-of-bounds accesses", "[accessor][oob]") {
+#if !CELERITY_ACCESSOR_BOUNDARY_CHECK
+		SKIP("CELERITY_ACCESSOR_BOUNDARY_CHECK=0");
+#endif
+		test_utils::allow_max_log_level(spdlog::level::err);
+
+		const bool on_device = GENERATE(true, false);
+
+		queue q;
+		buffer<int, 3> buf({10, 20, 30});
+
+		const auto run_test = [&](const id<3> idx1, const id<3> idx2, const std::string& expected_message) {
+			q.submit([&](handler& cgh) {
+				if(on_device) {
+					accessor acc(buf, cgh, celerity::access::all{}, celerity::read_only);
+					cgh.parallel_for(buf.get_range(), [=](item<3>) {
+						acc[idx1];
+						acc[idx2];
+					});
+				} else {
+					accessor acc(buf, cgh, celerity::access::all{}, celerity::read_only_host_task);
+					cgh.host_task(buf.get_range(), [=](partition<3>) {
+						acc[idx1];
+						acc[idx2];
+					});
+				}
+			});
+			q.wait();
+			CHECK(test_utils::log_contains_substring(log_level::err, expected_message));
+		};
+
+		SECTION("only underflow") {
+			run_test({size_t(-1), 0, 0}, {}, "indices between [-1,0,0] - [0,1,1]");
+			run_test({size_t(-1), size_t(-2), 0}, {}, "indices between [-1,-2,0] - [0,-1,1]");
+			run_test({size_t(-1), size_t(-2), size_t(-3)}, {}, "indices between [-1,-2,-3] - [0,-1,-2]");
+		}
+
+		SECTION("max within bounds") {
+			run_test({size_t(-1), 0, 0}, {7, 8, 9}, "indices between [-1,0,0] - [0,1,1]");
+			run_test({size_t(-1), size_t(-2), 0}, {7, 8, 9}, "indices between [-1,-2,0] - [0,-1,1]");
+			run_test({size_t(-1), size_t(-2), size_t(-3)}, {7, 8, 9}, "indices between [-1,-2,-3] - [0,-1,-2]");
+		}
+
+		SECTION("max outside bounds") {
+			run_test({size_t(-1), 0, 0}, {10, 20, 30}, "indices between [-1,0,0] - [11,21,31]");
+			run_test({size_t(-1), size_t(-2), 0}, {10, 20, 30}, "indices between [-1,-2,0] - [11,21,31]");
+			run_test({size_t(-1), size_t(-2), size_t(-3)}, {10, 20, 30}, "indices between [-1,-2,-3] - [11,21,31]");
+		}
 	}
 
 	TEST_CASE_METHOD(test_utils::sycl_queue_fixture, "accessor correctly handles backing buffer offsets", "[accessor]") {
