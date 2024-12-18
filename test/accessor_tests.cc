@@ -661,8 +661,7 @@ namespace detail {
 		sycl::free(result, get_sycl_queue());
 	}
 
-	TEMPLATE_TEST_CASE_METHOD_SIG(
-	    test_utils::runtime_fixture_dims, "device accessor reports out-of-bounds accesses", "[accessor][oob]", ((int Dims), Dims), 1, 2, 3) {
+	TEMPLATE_TEST_CASE_METHOD_SIG(test_utils::runtime_fixture_dims, "accessor reports out-of-bounds accesses", "[accessor][oob]", ((int Dims), Dims), 1, 2, 3) {
 #if !CELERITY_ACCESSOR_BOUNDARY_CHECK
 		SKIP("CELERITY_ACCESSOR_BOUNDARY_CHECK=0");
 #endif
@@ -680,80 +679,54 @@ namespace detail {
 
 		celerity::debug::set_buffer_name(named_buff, buffer_name);
 
-		q.submit([&](handler& cgh) {
-			debug::set_task_name(cgh, task_name);
-			accessor unnamed_acc(unnamed_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only, celerity::no_init);
-			accessor named_acc(named_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only, celerity::no_init);
+		const auto invoke_chained_subscript_operator = [](auto& acc, id<Dims> idx) {
+			if constexpr(Dims == 1) {
+				acc[idx[0]];
+			} else if constexpr(Dims == 2) {
+				acc[idx[0]][idx[1]];
+			} else if constexpr(Dims == 3) {
+				acc[idx[0]][idx[1]][idx[2]];
+			}
+		};
 
-			cgh.parallel_for(range<Dims>(ones), [=](item<Dims>) {
-				unnamed_acc[oob_idx_lo] = 0;
-				unnamed_acc[oob_idx_hi] = 0;
+		const auto run_test = [&]<bool OnDevice>(std::string_view task_type_description, auto... mode_specifiers) {
+			q.submit([&](handler& cgh) {
+				debug::set_task_name(cgh, task_name);
+				accessor unnamed_acc(unnamed_buff, cgh, celerity::access::fixed(accessible_sr), mode_specifiers...);
+				accessor named_acc(named_buff, cgh, celerity::access::fixed(accessible_sr), mode_specifiers...);
 
-				named_acc[oob_idx_lo] = 0;
-				named_acc[oob_idx_hi] = 0;
+				const auto body = [=] {
+					unnamed_acc[oob_idx_lo];
+					named_acc[oob_idx_lo];
+					invoke_chained_subscript_operator(unnamed_acc, oob_idx_hi);
+					invoke_chained_subscript_operator(named_acc, oob_idx_hi);
+				};
+
+				if constexpr(OnDevice) {
+					cgh.parallel_for(range<Dims>(ones), [=](item<Dims>) { body(); });
+				} else {
+					cgh.host_task(range<Dims>(ones), [=](partition<Dims>) { body(); });
+				}
 			});
-		});
-		q.wait();
+			q.wait();
 
-		const auto accessible_box = box(subrange_cast<3>(accessible_sr));
-		const auto attempted_box = box_cast<3>(box(oob_idx_lo, oob_idx_hi + id<Dims>(ones)));
-		const auto unnamed_error_message = fmt::format("Out-of-bounds access detected in device kernel T1 \"{}\": accessor 0 attempted to access buffer B0 "
-		                                               "indicies between {} and outside the declared range {}.",
-		    task_name, attempted_box, accessible_box);
-		CHECK(test_utils::log_contains_substring(log_level::err, unnamed_error_message));
+			const auto accessible_box = box(subrange_cast<3>(accessible_sr));
+			const auto attempted_box = box_cast<3>(box(oob_idx_lo, oob_idx_hi + id<Dims>(ones)));
+			const auto unnamed_error_message = fmt::format("Out-of-bounds access detected in {} T1 \"{}\": accessor 0 attempted to access buffer B0 "
+			                                               "indicies between {} and outside the declared range {}.",
+			    task_type_description, task_name, attempted_box, accessible_box);
+			CHECK(test_utils::log_contains_substring(log_level::err, unnamed_error_message));
 
-		const auto named_error_message = fmt::format("Out-of-bounds access detected in device kernel T1 \"{}\": accessor 1 attempted to access buffer B1 "
-		                                             "\"{}\" indicies between {} and outside the declared range {}.",
-		    task_name, buffer_name, attempted_box, accessible_box);
-		CHECK(test_utils::log_contains_substring(log_level::err, named_error_message));
-	}
+			const auto named_error_message = fmt::format("Out-of-bounds access detected in {} T1 \"{}\": accessor 1 attempted to access buffer B1 "
+			                                             "\"{}\" indicies between {} and outside the declared range {}.",
+			    task_type_description, task_name, buffer_name, attempted_box, accessible_box);
+			CHECK(test_utils::log_contains_substring(log_level::err, named_error_message));
+		};
 
-	TEMPLATE_TEST_CASE_METHOD_SIG(
-	    test_utils::runtime_fixture_dims, "host accessor reports out-of-bounds accesses", "[accessor][oob]", ((int Dims), Dims), 1, 2, 3) {
-#if !CELERITY_ACCESSOR_BOUNDARY_CHECK
-		SKIP("CELERITY_ACCESSOR_BOUNDARY_CHECK=0");
-#endif
-		test_utils::allow_max_log_level(spdlog::level::err);
-
-		queue q;
-
-		buffer<int, Dims> unnamed_buff(test_utils::truncate_range<Dims>({10, 20, 30}));
-		buffer<int, Dims> named_buff(test_utils::truncate_range<Dims>({10, 20, 30}));
-		const auto accessible_sr = test_utils::truncate_subrange<Dims>({{5, 10, 15}, {1, 2, 3}});
-		const auto oob_idx_lo = test_utils::truncate_id<Dims>({1, 2, 3});
-		const auto oob_idx_hi = test_utils::truncate_id<Dims>({7, 13, 25});
-		const auto buffer_name = "oob_buffer";
-		const auto task_name = "oob_task";
-
-		celerity::debug::set_buffer_name(named_buff, buffer_name);
-
-		q.submit([&](handler& cgh) {
-			debug::set_task_name(cgh, task_name);
-			accessor unnamed_acc(unnamed_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only_host_task, celerity::no_init);
-			accessor nambed_acc(named_buff, cgh, celerity::access::fixed(accessible_sr), celerity::write_only_host_task, celerity::no_init);
-
-			cgh.host_task(range<Dims>(ones), [=](partition<Dims>) {
-				unnamed_acc[oob_idx_lo] = 0;
-				unnamed_acc[oob_idx_hi] = 0;
-
-				nambed_acc[oob_idx_lo] = 0;
-				nambed_acc[oob_idx_hi] = 0;
-			});
-		});
-
-		q.wait();
-
-		const auto accessible_box = box(subrange_cast<3>(accessible_sr));
-		const auto attempted_box = box_cast<3>(box(oob_idx_lo, oob_idx_hi + id<Dims>(ones)));
-		const auto unnamed_error_message = fmt::format("Out-of-bounds access detected in host-compute task T1 \"{}\": accessor 0 attempted to access buffer B0 "
-		                                               "indicies between {} and outside the declared range {}.",
-		    task_name, attempted_box, accessible_box);
-		CHECK(test_utils::log_contains_substring(log_level::err, unnamed_error_message));
-
-		const auto named_error_message = fmt::format("Out-of-bounds access detected in host-compute task T1 \"{}\": accessor 1 attempted to access buffer B1 "
-		                                             "\"{}\" indicies between {} and outside the declared range {}.",
-		    task_name, buffer_name, attempted_box, accessible_box);
-		CHECK(test_utils::log_contains_substring(log_level::err, named_error_message));
+		SECTION("for device write access") { run_test.template operator()<true>("device kernel", celerity::write_only, celerity::no_init); }
+		SECTION("for device read access") { run_test.template operator()<true>("device kernel", celerity::read_only); }
+		SECTION("for host write access") { run_test.template operator()<false>("host-compute task", celerity::write_only_host_task, celerity::no_init); }
+		SECTION("for host read access") { run_test.template operator()<false>("host-compute task", celerity::read_only_host_task); }
 	}
 
 	TEST_CASE_METHOD(test_utils::sycl_queue_fixture, "accessor correctly handles backing buffer offsets", "[accessor]") {
