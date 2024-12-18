@@ -21,12 +21,6 @@
 
 namespace celerity::detail::utils {
 
-/// Like std::move, but move-constructs the result so it does not reference the argument after returning.
-template <typename T>
-T take(T& from) {
-	return std::move(from);
-}
-
 template <typename T, typename P>
 bool isa(const P* p) {
 	return dynamic_cast<const T*>(p) != nullptr;
