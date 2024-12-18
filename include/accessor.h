@@ -422,7 +422,7 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	}
 
 	template <access_mode M = Mode>
-	inline std::enable_if_t<detail::is_producer_mode(M), DataT&> operator[](const id<Dims>& index) const {
+	inline std::conditional_t<detail::is_producer_mode(M), DataT&, const DataT&> operator[](const id<Dims>& index) const {
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 		if(m_oob_indices != nullptr) {
 			const bool is_within_bounds_lo = all_true(index >= m_accessed_buffer_subrange.offset);
@@ -440,11 +440,6 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 		}
 #endif
 
-		return m_host_ptr[get_linear_offset(index)];
-	}
-
-	template <access_mode M = Mode>
-	inline std::enable_if_t<detail::is_pure_consumer_mode(M), const DataT&> operator[](const id<Dims>& index) const {
 		return m_host_ptr[get_linear_offset(index)];
 	}
 
