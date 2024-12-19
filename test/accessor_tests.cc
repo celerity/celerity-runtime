@@ -712,14 +712,16 @@ namespace detail {
 
 			const auto accessible_box = box(subrange_cast<3>(accessible_sr));
 			const auto attempted_box = box_cast<3>(box(oob_idx_lo, oob_idx_hi + id<Dims>(ones)));
-			const auto unnamed_error_message = fmt::format("Out-of-bounds access detected in {} T1 \"{}\": accessor 0 attempted to access buffer B0 "
-			                                               "indices between {} and outside the declared range {}.",
-			    task_type_description, task_name, attempted_box, accessible_box);
+			const auto unnamed_error_message =
+			    fmt::format("Out-of-bounds access detected in {} T1 \"{}\" while executing {}: accessor 0 attempted to access buffer B0 "
+			                "indices between {} and outside the declared range {}.",
+			        task_type_description, task_name, box<3>({}, ones), attempted_box, accessible_box);
 			CHECK(test_utils::log_contains_substring(log_level::err, unnamed_error_message));
 
-			const auto named_error_message = fmt::format("Out-of-bounds access detected in {} T1 \"{}\": accessor 1 attempted to access buffer B1 "
-			                                             "\"{}\" indices between {} and outside the declared range {}.",
-			    task_type_description, task_name, buffer_name, attempted_box, accessible_box);
+			const auto named_error_message =
+			    fmt::format("Out-of-bounds access detected in {} T1 \"{}\" while executing {}: accessor 1 attempted to access buffer B1 "
+			                "\"{}\" indices between {} and outside the declared range {}.",
+			        task_type_description, task_name, box<3>({}, ones), buffer_name, attempted_box, accessible_box);
 			CHECK(test_utils::log_contains_substring(log_level::err, named_error_message));
 		};
 

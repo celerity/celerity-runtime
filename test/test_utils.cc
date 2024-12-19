@@ -218,11 +218,13 @@ void allow_higher_level_log_messages(const detail::log_level level, const std::s
 }
 
 bool log_contains_exact(const detail::log_level level, const std::string& text) {
+	UNSCOPED_INFO("Checking for exact match: \"" + text << "\"");
 	return test_utils_detail::g_test_log_capture->log_contains_if(
 	    [&](const test_utils_detail::log_message& msg) { return msg.level == level && msg.text == text; });
 }
 
 bool log_contains_substring(const detail::log_level level, const std::string& substring) {
+	UNSCOPED_INFO("Checking for substring: \"" << substring << "\"");
 	return test_utils_detail::g_test_log_capture->log_contains_if(
 	    [&](const test_utils_detail::log_message& msg) { return msg.level == level && msg.text.find(substring) != std::string::npos; });
 }
