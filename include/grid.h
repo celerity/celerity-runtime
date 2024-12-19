@@ -68,7 +68,7 @@ class box /* class instead of struct: enforces min <= max invariant */ {
 		for(int d = 0; d < Dims; ++d) {
 			// Ideally all coordinates would be signed types, but since id and range must be unsigned to conform with SYCL, we trap size_t overflows and
 			// incorrect casts from negative integers in user code in this assertion.
-			CELERITY_DETAIL_ASSERT_ON_HOST(std::max(min[d], max[d]) < std::numeric_limits<size_t>::max() / 2 && "potential integer overflow detected");
+			CELERITY_DETAIL_ASSERT_ON_HOST(std::max(min[d], max[d]) <= std::numeric_limits<size_t>::max() / 2 && "potential integer overflow detected");
 			// Precondition:
 			CELERITY_DETAIL_ASSERT_ON_HOST(min[d] <= max[d]);
 			non_empty &= min[d] < max[d];

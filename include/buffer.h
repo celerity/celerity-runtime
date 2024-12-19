@@ -100,6 +100,13 @@ class buffer {
 		tracker(const celerity::range<Dims>& range, const void* const host_init_ptr) : range(range) {
 			CELERITY_DETAIL_TRACY_ZONE_SCOPED("buffer::buffer", buffer_ctor);
 
+			for(int d = 0; d < Dims; ++d) {
+				// We convert indices to ssize_t for the accessor out of bounds check, which effectively limits the maximum buffer size.
+				if(range[d] > std::numeric_limits<ssize_t>::max()) {
+					throw std::runtime_error(fmt::format("Buffer range must not exceed {} in any dimension", std::numeric_limits<ssize_t>::max()));
+				}
+			}
+
 			if(!detail::runtime::has_instance()) { detail::runtime::init(nullptr, nullptr); }
 			auto user_aid = detail::null_allocation_id;
 			if(host_init_ptr != nullptr) {
