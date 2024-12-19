@@ -89,9 +89,20 @@ namespace detail {
 					}
 				}
 				if(!uninitialized_reads.empty()) {
-					utils::report_error(m_policy.uninitialized_read_error,
-					    "{} declares a reading access on uninitialized {} {}. Make sure to construct the accessor with no_init if possible.",
-					    print_task_debug_label(tsk, true /* title case */), print_buffer_debug_label(bid), std::move(uninitialized_reads).into_region());
+					bool is_pure_consumer_access = true;
+					for(size_t i = 0; i < access_map.get_num_accesses(); ++i) {
+						const auto [b, mode] = access_map.get_nth_access(i);
+						if(b == bid && is_producer_mode(mode)) {
+							is_pure_consumer_access = false;
+							break;
+						}
+					}
+					const auto verb = is_pure_consumer_access ? "reading" : "consuming";
+					const auto advice = is_pure_consumer_access ? "" : " Make sure to construct the accessor with no_init if this was unintentional.";
+
+					utils::report_error(m_policy.uninitialized_read_error, "{} declares a {} access on uninitialized {} {}.{}",
+					    print_task_debug_label(tsk, true /* title case */), verb, print_buffer_debug_label(bid), std::move(uninitialized_reads).into_region(),
+					    advice);
 				}
 			}
 
