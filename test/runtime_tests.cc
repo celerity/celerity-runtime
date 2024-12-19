@@ -67,6 +67,17 @@ namespace detail {
 		CHECK(cg.buffer_accesses[0].mode == access_mode::read);
 	}
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer size cannot exceed ssize_t max in any dimension", "[buffer]") {
+		constexpr size_t max_size = std::numeric_limits<ssize_t>::max();
+		const auto expected_error = fmt::format("Buffer range must not exceed {} in any dimension", max_size);
+		CHECK_NOTHROW(buffer<float, 1>(range<1>{max_size}));
+		CHECK_THROWS_WITH((buffer<float, 1>(range<1>{max_size + 1})), expected_error);
+		CHECK_NOTHROW(buffer<float, 2>(range<2>{max_size, max_size}));
+		CHECK_THROWS_WITH((buffer<float, 2>(range<2>{max_size, max_size + 1})), expected_error);
+		CHECK_NOTHROW(buffer<float, 3>(range<3>{max_size, max_size, max_size}));
+		CHECK_THROWS_WITH((buffer<float, 3>(range<3>{max_size, max_size, max_size + 1})), expected_error);
+	}
+
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "queue::wait() returns only after all preceding tasks have completed", "[queue][sync][control-flow]") {
 		constexpr int N = 10;
 
