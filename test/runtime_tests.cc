@@ -879,22 +879,39 @@ namespace detail {
 
 		std::string expected_warning_message;
 
-		SECTION("in device kernels") {
+		SECTION("in device kernels, pure consumer mode") {
 			q.submit([&](handler& cgh) {
 				accessor acc(buf, cgh, celerity::access::all(), celerity::read_only);
 				cgh.parallel_for(range(1), [=](item<1>) { (void)acc; });
 			});
-			expected_warning_message = "Device kernel T1 declares a reading access on uninitialized B0 {[0,0,0] - [1,1,1]}. Make sure to construct the "
-			                           "accessor with no_init if possible.";
+			expected_warning_message = "Device kernel T1 declares a reading access on uninitialized B0 {[0,0,0] - [1,1,1]}.";
 		}
 
-		SECTION("in host tasks") {
+		SECTION("in device kernels, producer mode") {
+			q.submit([&](handler& cgh) {
+				accessor acc(buf, cgh, celerity::access::all(), celerity::write_only);
+				cgh.parallel_for(range(1), [=](item<1>) { (void)acc; });
+			});
+			expected_warning_message = "Device kernel T1 declares a consuming access on uninitialized B0 {[0,0,0] - [1,1,1]}. Make sure to construct the "
+			                           "accessor with no_init if this was unintentional.";
+		}
+
+		SECTION("in host tasks, pure consumer mode") {
 			q.submit([&](handler& cgh) {
 				accessor acc(buf, cgh, celerity::access::all(), celerity::read_only_host_task);
 				cgh.host_task(on_master_node, [=] { (void)acc; });
 			});
-			expected_warning_message = "Master-node host task T1 declares a reading access on uninitialized B0 {[0,0,0] - [1,1,1]}. Make sure to construct the "
-			                           "accessor with no_init if possible.";
+			expected_warning_message = "Master-node host task T1 declares a reading access on uninitialized B0 {[0,0,0] - [1,1,1]}.";
+		}
+
+		SECTION("in host tasks, producer mode") {
+			q.submit([&](handler& cgh) {
+				accessor acc(buf, cgh, celerity::access::all(), celerity::write_only_host_task);
+				cgh.host_task(on_master_node, [=] { (void)acc; });
+			});
+			expected_warning_message =
+			    "Master-node host task T1 declares a consuming access on uninitialized B0 {[0,0,0] - [1,1,1]}. Make sure to construct the "
+			    "accessor with no_init if this was unintentional.";
 		}
 
 		q.wait();
