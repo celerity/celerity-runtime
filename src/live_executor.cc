@@ -304,11 +304,13 @@ struct boundary_check_info {
 	detail::task_type task_type;
 	detail::task_id task_id;
 	std::string task_name;
+	box<3> execution_range;
 
 	oob_bounding_box* illegal_access_bounding_boxes = nullptr;
 	std::vector<accessor_info> accessors;
 
-	boundary_check_info(detail::task_type tt, detail::task_id tid, const std::string& task_name) : task_type(tt), task_id(tid), task_name(task_name) {}
+	boundary_check_info(detail::task_type tt, detail::task_id tid, const std::string& task_name, const box<3>& execution_range)
+	    : task_type(tt), task_id(tid), task_name(task_name), execution_range(execution_range) {}
 };
 
 #endif // CELERITY_ACCESSOR_BOUNDARY_CHECK
@@ -398,7 +400,7 @@ struct live_executor::impl {
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 	std::unique_ptr<boundary_check_info> attach_boundary_check_info(std::vector<closure_hydrator::accessor_info>& accessor_infos,
-	    const buffer_access_allocation_map& amap, task_type tt, task_id tid, const std::string& task_name) const;
+	    const buffer_access_allocation_map& amap, task_type tt, task_id tid, const std::string& task_name, const box<3>& execution_range) const;
 #endif
 
 	void collect(const instruction_garbage& garbage);
@@ -520,9 +522,9 @@ void live_executor::impl::retire_async_instruction(const instruction_id iid, asy
 		for(size_t i = 0; i < oob_info.accessors.size(); ++i) {
 			if(const auto oob_bbox = oob_info.illegal_access_bounding_boxes[i]; oob_bbox.oob_access_detected()) {
 				const auto& accessor_info = oob_info.accessors[i];
-				CELERITY_ERROR("Out-of-bounds access detected in {}: accessor {} attempted to access buffer {} indices between [{}] - [{}] and outside the "
-				               "declared range {}.",
-				    utils::make_task_debug_label(oob_info.task_type, oob_info.task_id, oob_info.task_name), i,
+				CELERITY_ERROR("Out-of-bounds access detected in {} while executing {}: accessor {} attempted to access buffer {} indices between [{}] - [{}] "
+				               "and outside the declared range {}.",
+				    utils::make_task_debug_label(oob_info.task_type, oob_info.task_id, oob_info.task_name), oob_info.execution_range, i,
 				    utils::make_buffer_debug_label(accessor_info.buffer_id, accessor_info.buffer_name), fmt::join(oob_bbox.min, ","),
 				    fmt::join(oob_bbox.max, ","), accessor_info.accessible_box);
 			}
@@ -817,8 +819,8 @@ void live_executor::impl::issue_async(
 
 	auto accessor_infos = make_accessor_infos(dkinstr.get_access_allocations());
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-	async.oob_info = attach_boundary_check_info(
-	    accessor_infos, dkinstr.get_access_allocations(), dkinstr.get_oob_task_type(), dkinstr.get_oob_task_id(), dkinstr.get_oob_task_name());
+	async.oob_info = attach_boundary_check_info(accessor_infos, dkinstr.get_access_allocations(), dkinstr.get_oob_task_type(), dkinstr.get_oob_task_id(),
+	    dkinstr.get_oob_task_name(), dkinstr.get_execution_range());
 #endif
 
 	const auto& reduction_allocs = dkinstr.get_reduction_allocations();
@@ -840,8 +842,8 @@ void live_executor::impl::issue_async(const host_task_instruction& htinstr, cons
 
 	auto accessor_infos = make_accessor_infos(htinstr.get_access_allocations());
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-	async.oob_info = attach_boundary_check_info(
-	    accessor_infos, htinstr.get_access_allocations(), htinstr.get_oob_task_type(), htinstr.get_oob_task_id(), htinstr.get_oob_task_name());
+	async.oob_info = attach_boundary_check_info(accessor_infos, htinstr.get_access_allocations(), htinstr.get_oob_task_type(), htinstr.get_oob_task_id(),
+	    htinstr.get_oob_task_name(), htinstr.get_execution_range());
 #endif
 
 	const auto collective_comm =
@@ -928,12 +930,12 @@ std::vector<closure_hydrator::accessor_info> live_executor::impl::make_accessor_
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 std::unique_ptr<boundary_check_info> live_executor::impl::attach_boundary_check_info(std::vector<closure_hydrator::accessor_info>& accessor_infos,
-    const buffer_access_allocation_map& amap, task_type tt, task_id tid, const std::string& task_name) const //
+    const buffer_access_allocation_map& amap, task_type tt, task_id tid, const std::string& task_name, const box<3>& execution_range) const //
 {
 	if(amap.empty()) return nullptr;
 
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::oob_init", executor_oob_init);
-	auto oob_info = std::make_unique<boundary_check_info>(tt, tid, task_name);
+	auto oob_info = std::make_unique<boundary_check_info>(tt, tid, task_name, execution_range);
 
 	oob_info->illegal_access_bounding_boxes = static_cast<oob_bounding_box*>(backend->debug_alloc(amap.size() * sizeof(oob_bounding_box)));
 	std::uninitialized_default_construct_n(oob_info->illegal_access_bounding_boxes, amap.size());
