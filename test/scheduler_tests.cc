@@ -287,3 +287,76 @@ TEST_CASE("scheduler(lookahead::automatic) avoids reallocations in the RSim patt
 		CHECK(iq.count<free_instruction_record>() == num_devices);
 	});
 }
+
+TEST_CASE("scheduler reports idle and busy phases") { //
+	struct test_delegate : scheduler::delegate {
+		std::atomic_size_t flush_count = 0;
+		std::atomic_size_t idle_count = 0;
+		std::atomic_size_t busy_count = 0;
+		std::atomic_bool delay_flush = false;
+
+		enum class state { idle, busy };
+		std::vector<state> state_transitions; // unprotected, don't access until shutdown epoch has been reached
+
+		void flush(std::vector<const instruction*> instructions, std::vector<outbound_pilot> pilots) override {
+			// We abuse the flush callback to control how quickly the scheduler can process events
+			while(delay_flush) {}
+			flush_count++;
+		}
+		void on_scheduler_idle() override {
+			idle_count++;
+			state_transitions.push_back(state::idle);
+		}
+		void on_scheduler_busy() override {
+			busy_count++;
+			state_transitions.push_back(state::busy);
+		}
+	};
+
+	test_delegate dlg;
+	auto schdlr = std::make_unique<scheduler>(
+	    1 /* num nodes */, 0 /* local nid */, test_utils::make_system_info(1 /* devices per node */, true /* supports d2d copies */), &dlg, nullptr, nullptr);
+
+	task_id next_task_id = 0;
+	const auto initial_epoch = task::make_epoch(next_task_id++, epoch_action::init, nullptr);
+
+	// Scheduler starts out as idle, so once we submit a task it should notify us that it's busy
+	CHECK(dlg.idle_count == 0);
+	CHECK(dlg.busy_count == 0);
+	schdlr->notify_task_created(initial_epoch.get());
+	test_utils::wait_until([&] { return dlg.busy_count == 1; });
+	// and then immediately becomes idle again
+	test_utils::wait_until([&] { return dlg.idle_count == 1; });
+
+	// While the queue is full the scheduler remains busy
+	dlg.delay_flush = true;
+	const auto tsk_a =
+	    make_command_group_task(next_task_id++, 1, invoke_command_group_function([](handler& cgh) { cgh.parallel_for(range<1>{1}, [](item<1>) {}); }));
+	schdlr->notify_task_created(tsk_a.get());
+	schdlr->notify_buffer_created(0, {8, 8, 8}, 16, 8, null_allocation_id);
+	schdlr->notify_buffer_debug_name_changed(0, "foo");
+	schdlr->notify_buffer_destroyed(0);
+	schdlr->notify_host_object_created(0, false);
+	schdlr->notify_host_object_destroyed(0);
+	schdlr->notify_epoch_reached(initial_epoch->get_id());
+	schdlr->set_lookahead(experimental::lookahead::automatic);
+	dlg.delay_flush = false; // resume processing of queue
+	test_utils::wait_until([&] { return dlg.idle_count == 2; });
+	CHECK(dlg.busy_count == 2);
+
+	const auto shutdown_epoch = task::make_epoch(next_task_id++, epoch_action::shutdown, nullptr);
+	schdlr->notify_task_created(shutdown_epoch.get());
+	test_utils::wait_until([&] { return dlg.idle_count == 3; });
+	CHECK(dlg.busy_count == 3);
+
+	// After shutting down the scheduler remains "busy"; we could special-case this but there is no point, since the executor will already be destroyed
+	schdlr->notify_epoch_reached(shutdown_epoch->get_id());
+	schdlr.reset(); // destroy scheduler
+	CHECK(dlg.idle_count == 3);
+	CHECK(dlg.busy_count == 4);
+
+	// With all said and done we can now safely inspect the state transition order
+	CHECK(dlg.state_transitions
+	      == std::vector<test_delegate::state>({test_delegate::state::busy, test_delegate::state::idle, test_delegate::state::busy, test_delegate::state::idle,
+	          test_delegate::state::busy, test_delegate::state::idle, test_delegate::state::busy}));
+}

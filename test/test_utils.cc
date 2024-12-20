@@ -227,6 +227,13 @@ bool log_contains_substring(const detail::log_level level, const std::string& su
 	    [&](const test_utils_detail::log_message& msg) { return msg.level == level && msg.text.find(substring) != std::string::npos; });
 }
 
+bool log_matches(const detail::log_level level, const std::string& regex) {
+	UNSCOPED_INFO("Matching log against regex: " + regex);
+	const auto re = std::regex(regex);
+	return test_utils_detail::g_test_log_capture->log_contains_if(
+	    [&](const test_utils_detail::log_message& msg) { return msg.level == level && std::regex_match(msg.text, re); });
+}
+
 } // namespace celerity::test_utils
 
 namespace celerity::test_utils_detail {
@@ -246,6 +253,10 @@ const char* const expected_backend_fallback_warnings_regex =
 
 const char* const expected_dry_run_executor_warnings_regex = "Encountered a \"fence\" command while \"CELERITY_DRY_RUN_NODES\" is set. The result of this "
                                                              "operation will not match the expected output of an actual run.";
+
+const char* const expected_starvation_warning_regex =
+    "The executor was starved for instructions for [0-9]+\\.[0-9] .{0,2}s, or [0-9]+\\.[0-9]% of the total active time of [0-9]+\\.[0-9] .{0,2}s. This may "
+    "indicate that your application is scheduler-bound. If you are interleaving Celerity tasks with other work, try flushing the queue.";
 
 } // namespace celerity::test_utils_detail
 
@@ -281,11 +292,22 @@ runtime_fixture::runtime_fixture() {
 	allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_runtime_init_warnings_regex);
 	allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_device_enumeration_warnings_regex);
 	allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_backend_fallback_warnings_regex);
+	allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_starvation_warning_regex);
 }
 
 runtime_fixture::~runtime_fixture() {
-	if(!detail::runtime_testspy::test_runtime_was_instantiated()) { WARN("Test specified a runtime_fixture, but did not end up instantiating the runtime"); }
+	if(!m_runtime_manually_destroyed) {
+		if(!detail::runtime_testspy::test_runtime_was_instantiated()) {
+			WARN("Test specified a runtime_fixture, but did not end up instantiating the runtime");
+		}
+		detail::runtime_testspy::test_case_exit();
+	}
+}
+
+void runtime_fixture::destroy_runtime_now() {
+	if(!detail::runtime_testspy::test_runtime_was_instantiated()) { FAIL("Runtime was not instantiated"); }
 	detail::runtime_testspy::test_case_exit();
+	m_runtime_manually_destroyed = true;
 }
 
 void allow_backend_fallback_warnings() { allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_backend_fallback_warnings_regex); }
