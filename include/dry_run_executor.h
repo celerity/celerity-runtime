@@ -35,6 +35,11 @@ class dry_run_executor final : public executor {
 
 	void submit(std::vector<const instruction*> instructions, std::vector<outbound_pilot> pilots) override;
 
+	void notify_scheduler_idle(bool is_idle) override;
+
+	std::chrono::nanoseconds get_starvation_time() const override;
+	std::chrono::nanoseconds get_active_time() const override;
+
   private:
 	using host_object_transfer = std::pair<host_object_id, std::unique_ptr<host_object_instance>>;
 	using submission = std::variant<std::vector<const instruction*>, host_object_transfer>;

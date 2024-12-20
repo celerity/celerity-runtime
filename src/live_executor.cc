@@ -27,7 +27,9 @@
 #include <matchbox.hh>
 
 
-namespace celerity::detail::live_executor_detail {
+using namespace celerity::detail::live_executor_detail;
+
+namespace celerity::detail {
 
 #if CELERITY_TRACY_SUPPORT
 
@@ -46,7 +48,7 @@ struct tracy_integration {
 		std::string trace;
 	};
 
-	/// References a position in an `async_lane_state::zone_queue` from within `executor_impl::async_instruction_state`
+	/// References a position in an `async_lane_state::zone_queue` from within `live_executor::impl::async_instruction_state`
 	struct async_lane_cursor {
 		size_t global_lane_id = 0;
 		size_t submission_idx_on_lane = 0;
@@ -73,7 +75,7 @@ struct tracy_integration {
 
 	std::vector<async_lane_state> async_lanes; // vector instead of map, because elements need to be referenced to by global lane id
 
-	std::string last_instruction_trace; ///< written by `CELERITY_DETAIL_TRACE_INSTRUCTION()`, read by `executor_impl::dispatch()`
+	std::string last_instruction_trace; ///< written by `CELERITY_DETAIL_TRACE_INSTRUCTION()`, read by `live_executor::impl::dispatch()`
 
 	tracy_detail::plot<int64_t> assigned_instructions_plot{"assigned instructions"};
 	tracy_detail::plot<int64_t> assignment_queue_length_plot{"assignment queue length"};
@@ -323,7 +325,7 @@ struct async_instruction_state {
 	CELERITY_DETAIL_IF_TRACY_SUPPORTED(std::optional<tracy_integration::async_lane_cursor> tracy_lane_cursor;)
 };
 
-struct executor_impl {
+struct live_executor::impl {
 	const std::unique_ptr<detail::backend> backend;
 	communicator* const root_communicator;
 	double_buffered_queue<submission>* const submission_queue;
@@ -344,10 +346,14 @@ struct executor_impl {
 	bool made_progress = false;                                                   ///< progress was made since `last_progress_timestamp`
 	bool progress_warning_emitted = false;                                        ///< no progress was made since warning was emitted
 
+	bool scheduler_is_idle = true;                  ///< scheduler is currently not producing new instructions
+	std::atomic_uint64_t total_starvation_time = 0; ///< total time spent waiting for new instructions while scheduler was busy, in nanoseconds
+	std::atomic_uint64_t total_active_time = 0;     ///< total time spent processing instructions, in nanoseconds
+
 	CELERITY_DETAIL_IF_TRACY_SUPPORTED(std::unique_ptr<tracy_integration> tracy;)
 
-	executor_impl(std::unique_ptr<detail::backend> backend, communicator* root_comm, double_buffered_queue<submission>& submission_queue,
-	    executor::delegate* dlg, const live_executor::policy_set& policy);
+	impl(std::unique_ptr<detail::backend> backend, communicator* root_comm, double_buffered_queue<submission>& submission_queue, executor::delegate* dlg,
+	    const live_executor::policy_set& policy);
 
 	void run();
 	void poll_in_flight_async_instructions();
@@ -397,27 +403,40 @@ struct executor_impl {
 	void collect(const instruction_garbage& garbage);
 };
 
-executor_impl::executor_impl(std::unique_ptr<detail::backend> backend, communicator* const root_comm, double_buffered_queue<submission>& submission_queue,
+live_executor::impl::impl(std::unique_ptr<detail::backend> backend, communicator* const root_comm, double_buffered_queue<submission>& submission_queue,
     executor::delegate* const dlg, const live_executor::policy_set& policy)
     : backend(std::move(backend)), root_communicator(root_comm), submission_queue(&submission_queue), delegate(dlg), policy(policy) //
 {
 	CELERITY_DETAIL_IF_TRACY_ENABLED(tracy = std::make_unique<tracy_integration>();)
 }
 
-void executor_impl::run() {
+void live_executor::impl::run() {
 	// this closure hydrator instantiation is not necessary in normal execution iff device submission threads are enabled,
 	// but it is still required for testing purposes, so always making it available on this thread is the simplest solution
 	closure_hydrator::make_available();
 	backend->init();
 
 	uint8_t check_overflow_counter = 0;
+	std::optional<std::chrono::steady_clock::time_point> active_since;
 	for(;;) {
 		if(engine.is_idle()) {
+			if(active_since.has_value()) {
+				total_active_time += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - *active_since).count();
+			}
 			if(!expecting_more_submissions) break; // shutdown complete
 
-			CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::starve", executor_starve);
-			submission_queue->wait_while_empty(); // we are stalled on the scheduler, suspend thread
-			last_progress_timestamp.reset();      // do not treat suspension as being stuck
+			if(scheduler_is_idle) {
+				CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::idle", executor_idle);
+				submission_queue->wait_while_empty(); // scheduler is idle, suspend thread until new tasks are submitted
+			} else {
+				CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::starve", executor_starve);
+				const auto before = std::chrono::steady_clock::now();
+				submission_queue->wait_while_empty(); // we are being starved by scheduler, suspend thread
+				const auto after = std::chrono::steady_clock::now();
+				total_starvation_time += std::chrono::duration_cast<std::chrono::nanoseconds>(after - before).count();
+			}
+			last_progress_timestamp.reset(); // do not treat suspension as being stuck
+			active_since = std::chrono::steady_clock::now();
 		}
 
 		recv_arbiter.poll_communicator();
@@ -441,7 +460,7 @@ void executor_impl::run() {
 	closure_hydrator::teardown();
 }
 
-void executor_impl::poll_in_flight_async_instructions() {
+void live_executor::impl::poll_in_flight_async_instructions() {
 	// collect completed instruction ids up-front, since retire_async_instruction would alter the execution front
 	std::vector<instruction_id> completed_now; // std::vector because it will be empty in the common case
 	for(const auto iid : engine.get_execution_front()) {
@@ -456,7 +475,7 @@ void executor_impl::poll_in_flight_async_instructions() {
 	CELERITY_DETAIL_IF_TRACY_ENABLED(tracy->assigned_instructions_plot.update(in_flight_async_instructions.size()));
 }
 
-void executor_impl::poll_submission_queue() {
+void live_executor::impl::poll_submission_queue() {
 	for(auto& submission : submission_queue->pop_all()) {
 		CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::fetch", executor_fetch);
 		matchbox::match(
@@ -483,11 +502,14 @@ void executor_impl::poll_submission_queue() {
 		    [&](reducer_transfer& rt) {
 			    assert(reducers.count(rt.rid) == 0);
 			    reducers.emplace(rt.rid, std::move(rt.reduction));
+		    },
+		    [&](const scheduler_idle_state_change& state) { //
+			    scheduler_is_idle = state.is_idle;
 		    });
 	}
 }
 
-void executor_impl::retire_async_instruction(const instruction_id iid, async_instruction_state& async) {
+void live_executor::impl::retire_async_instruction(const instruction_id iid, async_instruction_state& async) {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::retire", executor_retire);
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
@@ -533,7 +555,7 @@ void executor_impl::retire_async_instruction(const instruction_id iid, async_ins
 }
 
 template <typename Instr>
-auto executor_impl::dispatch(const Instr& instr, const out_of_order_engine::assignment& assignment)
+auto live_executor::impl::dispatch(const Instr& instr, const out_of_order_engine::assignment& assignment)
     // SFINAE: there is a (synchronous) `issue` overload above for the concrete Instr type
     -> decltype(issue(instr)) //
 {
@@ -567,7 +589,7 @@ auto executor_impl::dispatch(const Instr& instr, const out_of_order_engine::assi
 }
 
 template <typename Instr>
-auto executor_impl::dispatch(const Instr& instr, const out_of_order_engine::assignment& assignment)
+auto live_executor::impl::dispatch(const Instr& instr, const out_of_order_engine::assignment& assignment)
     // SFINAE: there is an `issue_async` overload above for the concrete Instr type
     -> decltype(issue_async(instr, assignment, std::declval<async_instruction_state&>())) //
 {
@@ -584,7 +606,7 @@ auto executor_impl::dispatch(const Instr& instr, const out_of_order_engine::assi
 	})
 }
 
-void executor_impl::try_issue_one_instruction() {
+void live_executor::impl::try_issue_one_instruction() {
 	auto assignment = engine.assign_one();
 	if(!assignment.has_value()) return;
 
@@ -595,7 +617,7 @@ void executor_impl::try_issue_one_instruction() {
 	made_progress = true;
 }
 
-void executor_impl::check_progress() {
+void live_executor::impl::check_progress() {
 	if(!policy.progress_warning_timeout.has_value()) return;
 
 	if(made_progress) {
@@ -618,7 +640,7 @@ void executor_impl::check_progress() {
 	}
 }
 
-void executor_impl::issue(const clone_collective_group_instruction& ccginstr) {
+void live_executor::impl::issue(const clone_collective_group_instruction& ccginstr) {
 	const auto original_cgid = ccginstr.get_original_collective_group_id();
 	assert(original_cgid != non_collective_group_id);
 	assert(original_cgid == root_collective_group_id || cloned_communicators.count(original_cgid) != 0);
@@ -634,7 +656,7 @@ void executor_impl::issue(const clone_collective_group_instruction& ccginstr) {
 }
 
 
-void executor_impl::issue(const split_receive_instruction& srinstr) {
+void live_executor::impl::issue(const split_receive_instruction& srinstr) {
 	CELERITY_DETAIL_TRACE_INSTRUCTION(srinstr, "split receive {} {}x{} bytes into {} ({}),", srinstr.get_transfer_id(), srinstr.get_requested_region(),
 	    srinstr.get_element_size(), srinstr.get_dest_allocation_id(), srinstr.get_allocated_box());
 
@@ -643,7 +665,7 @@ void executor_impl::issue(const split_receive_instruction& srinstr) {
 	    srinstr.get_transfer_id(), srinstr.get_requested_region(), allocation, srinstr.get_allocated_box(), srinstr.get_element_size());
 }
 
-void executor_impl::issue(const fill_identity_instruction& fiinstr) {
+void live_executor::impl::issue(const fill_identity_instruction& fiinstr) {
 	CELERITY_DETAIL_TRACE_INSTRUCTION(
 	    fiinstr, "fill identity {} x{} values for R{}", fiinstr.get_allocation_id(), fiinstr.get_num_values(), fiinstr.get_reduction_id());
 
@@ -652,7 +674,7 @@ void executor_impl::issue(const fill_identity_instruction& fiinstr) {
 	reduction.fill_identity(allocation, fiinstr.get_num_values());
 }
 
-void executor_impl::issue(const reduce_instruction& rinstr) {
+void live_executor::impl::issue(const reduce_instruction& rinstr) {
 	CELERITY_DETAIL_TRACE_INSTRUCTION(rinstr, "reduce {} x{} values into {} for R{}", rinstr.get_source_allocation_id(), rinstr.get_num_source_values(),
 	    rinstr.get_dest_allocation_id(), rinstr.get_reduction_id());
 
@@ -662,20 +684,21 @@ void executor_impl::issue(const reduce_instruction& rinstr) {
 	reduction.reduce(dest_allocation, gather_allocation, rinstr.get_num_source_values());
 }
 
-void executor_impl::issue(const fence_instruction& finstr) { // NOLINT(readability-make-member-function-const, readability-convert-member-functions-to-static)
+void live_executor::impl::issue(
+    const fence_instruction& finstr) { // NOLINT(readability-make-member-function-const, readability-convert-member-functions-to-static)
 	CELERITY_DETAIL_TRACE_INSTRUCTION(finstr, "fence");
 
 	finstr.get_promise()->fulfill();
 }
 
-void executor_impl::issue(const destroy_host_object_instruction& dhoinstr) {
+void live_executor::impl::issue(const destroy_host_object_instruction& dhoinstr) {
 	assert(host_object_instances.count(dhoinstr.get_host_object_id()) != 0);
 	CELERITY_DETAIL_TRACE_INSTRUCTION(dhoinstr, "destroy H{}", dhoinstr.get_host_object_id());
 
 	host_object_instances.erase(dhoinstr.get_host_object_id());
 }
 
-void executor_impl::issue(const horizon_instruction& hinstr) {
+void live_executor::impl::issue(const horizon_instruction& hinstr) {
 	CELERITY_DETAIL_TRACE_INSTRUCTION(hinstr, "horizon");
 
 	if(delegate != nullptr) { delegate->horizon_reached(hinstr.get_horizon_task_id()); }
@@ -684,7 +707,7 @@ void executor_impl::issue(const horizon_instruction& hinstr) {
 	CELERITY_DETAIL_IF_TRACY_ENABLED(FrameMarkNamed("Horizon"));
 }
 
-void executor_impl::issue(const epoch_instruction& einstr) {
+void live_executor::impl::issue(const epoch_instruction& einstr) {
 	switch(einstr.get_epoch_action()) {
 	case epoch_action::none: //
 		CELERITY_DETAIL_TRACE_INSTRUCTION(einstr, "epoch");
@@ -713,7 +736,7 @@ void executor_impl::issue(const epoch_instruction& einstr) {
 	CELERITY_DETAIL_IF_TRACY_ENABLED(FrameMark); // top-level "Frame"
 }
 
-void executor_impl::issue_async(const alloc_instruction& ainstr, const out_of_order_engine::assignment& assignment, async_instruction_state& async) {
+void live_executor::impl::issue_async(const alloc_instruction& ainstr, const out_of_order_engine::assignment& assignment, async_instruction_state& async) {
 	assert(ainstr.get_allocation_id().get_memory_id() != user_memory_id);
 	assert(assignment.target == out_of_order_engine::target::alloc_queue);
 	assert(!assignment.lane.has_value());
@@ -729,7 +752,7 @@ void executor_impl::issue_async(const alloc_instruction& ainstr, const out_of_or
 	async.alloc_aid = ainstr.get_allocation_id(); // setting alloc_aid != null will make `retire_async_instruction` insert the result into `allocations`
 }
 
-void executor_impl::issue_async(const free_instruction& finstr, const out_of_order_engine::assignment& assignment, async_instruction_state& async) {
+void live_executor::impl::issue_async(const free_instruction& finstr, const out_of_order_engine::assignment& assignment, async_instruction_state& async) {
 	const auto it = allocations.find(finstr.get_allocation_id());
 	assert(it != allocations.end());
 	const auto ptr = it->second;
@@ -744,7 +767,7 @@ void executor_impl::issue_async(const free_instruction& finstr, const out_of_ord
 	}
 }
 
-void executor_impl::issue_async(const copy_instruction& cinstr, const out_of_order_engine::assignment& assignment, async_instruction_state& async) {
+void live_executor::impl::issue_async(const copy_instruction& cinstr, const out_of_order_engine::assignment& assignment, async_instruction_state& async) {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::issue_copy", executor_issue_copy);
 
 	assert(assignment.target == out_of_order_engine::target::host_queue || assignment.target == out_of_order_engine::target::device_queue);
@@ -778,7 +801,8 @@ std::string format_access_log(const buffer_access_allocation_map& map) {
 	return acc_log;
 }
 
-void executor_impl::issue_async(const device_kernel_instruction& dkinstr, const out_of_order_engine::assignment& assignment, async_instruction_state& async) {
+void live_executor::impl::issue_async(
+    const device_kernel_instruction& dkinstr, const out_of_order_engine::assignment& assignment, async_instruction_state& async) {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::issue_device_kernel", executor_issue_device_kernel);
 
 	assert(assignment.target == out_of_order_engine::target::device_queue);
@@ -805,7 +829,7 @@ void executor_impl::issue_async(const device_kernel_instruction& dkinstr, const 
 	    dkinstr.get_device_id(), *assignment.lane, dkinstr.get_launcher(), std::move(accessor_infos), dkinstr.get_execution_range(), reduction_ptrs);
 }
 
-void executor_impl::issue_async(const host_task_instruction& htinstr, const out_of_order_engine::assignment& assignment, async_instruction_state& async) {
+void live_executor::impl::issue_async(const host_task_instruction& htinstr, const out_of_order_engine::assignment& assignment, async_instruction_state& async) {
 	assert(assignment.target == out_of_order_engine::target::host_queue);
 	assert(!assignment.device.has_value());
 	assert(assignment.lane.has_value());
@@ -825,7 +849,7 @@ void executor_impl::issue_async(const host_task_instruction& htinstr, const out_
 	    *assignment.lane, htinstr.get_launcher(), std::move(accessor_infos), htinstr.get_global_range(), htinstr.get_execution_range(), collective_comm);
 }
 
-void executor_impl::issue_async(
+void live_executor::impl::issue_async(
     const send_instruction& sinstr, [[maybe_unused]] const out_of_order_engine::assignment& assignment, async_instruction_state& async) //
 {
 	assert(assignment.target == out_of_order_engine::target::immediate);
@@ -842,7 +866,7 @@ void executor_impl::issue_async(
 	async.event = root_communicator->send_payload(sinstr.get_dest_node_id(), sinstr.get_message_id(), allocation_base, stride);
 }
 
-void executor_impl::issue_async(
+void live_executor::impl::issue_async(
     const receive_instruction& rinstr, [[maybe_unused]] const out_of_order_engine::assignment& assignment, async_instruction_state& async) //
 {
 	assert(assignment.target == out_of_order_engine::target::immediate);
@@ -855,7 +879,7 @@ void executor_impl::issue_async(
 	    recv_arbiter.receive(rinstr.get_transfer_id(), rinstr.get_requested_region(), allocation, rinstr.get_allocated_box(), rinstr.get_element_size());
 }
 
-void executor_impl::issue_async(
+void live_executor::impl::issue_async(
     const await_receive_instruction& arinstr, [[maybe_unused]] const out_of_order_engine::assignment& assignment, async_instruction_state& async) //
 {
 	assert(assignment.target == out_of_order_engine::target::immediate);
@@ -865,7 +889,7 @@ void executor_impl::issue_async(
 	async.event = recv_arbiter.await_split_receive_subregion(arinstr.get_transfer_id(), arinstr.get_received_region());
 }
 
-void executor_impl::issue_async(
+void live_executor::impl::issue_async(
     const gather_receive_instruction& grinstr, [[maybe_unused]] const out_of_order_engine::assignment& assignment, async_instruction_state& async) //
 {
 	assert(assignment.target == out_of_order_engine::target::immediate);
@@ -877,7 +901,7 @@ void executor_impl::issue_async(
 	async.event = recv_arbiter.gather_receive(grinstr.get_transfer_id(), allocation, grinstr.get_node_chunk_size());
 }
 
-void executor_impl::collect(const instruction_garbage& garbage) {
+void live_executor::impl::collect(const instruction_garbage& garbage) {
 	for(const auto rid : garbage.reductions) {
 		assert(reducers.count(rid) != 0);
 		reducers.erase(rid);
@@ -889,7 +913,7 @@ void executor_impl::collect(const instruction_garbage& garbage) {
 	}
 }
 
-std::vector<closure_hydrator::accessor_info> executor_impl::make_accessor_infos(const buffer_access_allocation_map& amap) const {
+std::vector<closure_hydrator::accessor_info> live_executor::impl::make_accessor_infos(const buffer_access_allocation_map& amap) const {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("executor::make_accessor_info", executor_make_accessor_info);
 
 	std::vector<closure_hydrator::accessor_info> accessor_infos(amap.size());
@@ -901,7 +925,7 @@ std::vector<closure_hydrator::accessor_info> executor_impl::make_accessor_infos(
 }
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
-std::unique_ptr<boundary_check_info> executor_impl::attach_boundary_check_info(std::vector<closure_hydrator::accessor_info>& accessor_infos,
+std::unique_ptr<boundary_check_info> live_executor::impl::attach_boundary_check_info(std::vector<closure_hydrator::accessor_info>& accessor_infos,
     const buffer_access_allocation_map& amap, task_type tt, task_id tid, const std::string& task_name) const //
 {
 	if(amap.empty()) return nullptr;
@@ -921,12 +945,9 @@ std::unique_ptr<boundary_check_info> executor_impl::attach_boundary_check_info(s
 }
 #endif // CELERITY_ACCESSOR_BOUNDARY_CHECK
 
-} // namespace celerity::detail::live_executor_detail
-
-namespace celerity::detail {
-
 live_executor::live_executor(std::unique_ptr<backend> backend, std::unique_ptr<communicator> root_comm, executor::delegate* const dlg, const policy_set& policy)
-    : m_root_comm(std::move(root_comm)), m_thread(&live_executor::thread_main, this, std::move(backend), dlg, policy) {}
+    : m_root_comm(std::move(root_comm)), m_impl(std::make_unique<impl>(std::move(backend), m_root_comm.get(), m_submission_queue, dlg, policy)),
+      m_thread(&live_executor::thread_main, this) {}
 
 live_executor::~live_executor() {
 	m_thread.join(); // thread_main will exit only after executing shutdown epoch
@@ -950,9 +971,17 @@ void live_executor::submit(std::vector<const instruction*> instructions, std::ve
 	m_submission_queue.push(live_executor_detail::instruction_pilot_batch{std::move(instructions), std::move(pilots)});
 }
 
-void live_executor::thread_main(std::unique_ptr<backend> backend, executor::delegate* const dlg, const policy_set& policy) {
+void live_executor::notify_scheduler_idle(const bool is_idle) {
+	m_submission_queue.push(live_executor_detail::scheduler_idle_state_change{.is_idle = is_idle});
+}
+
+std::chrono::nanoseconds live_executor::get_starvation_time() const { return std::chrono::nanoseconds(m_impl->total_starvation_time.load()); }
+
+std::chrono::nanoseconds live_executor::get_active_time() const { return std::chrono::nanoseconds(m_impl->total_active_time.load()); }
+
+void live_executor::thread_main() {
 	name_and_pin_and_order_this_thread(named_threads::thread_type::executor);
-	live_executor_detail::executor_impl(std::move(backend), m_root_comm.get(), m_submission_queue, dlg, policy).run();
+	m_impl->run();
 }
 
 } // namespace celerity::detail

@@ -110,6 +110,7 @@ enum class trace_color : std::underlying_type_t<tracy::Color::ColorType> {
 	distr_queue_submit = tracy::Color::Orange3,
 
 	executor_fetch = tracy::Color::Gray,
+	executor_idle = tracy::Color::SlateGray,
 	executor_issue = tracy::Color::Blue,
 	executor_issue_copy = tracy::Color::Green4,
 	executor_issue_device_kernel = tracy::Color::Yellow2,
