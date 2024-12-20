@@ -273,6 +273,13 @@ class region_builder {
 		m_boxes.push_back(box);
 	}
 
+	void add(const box_vector<Dims>& boxes) & {
+		m_boxes.reserve(m_boxes.size() + boxes.size());
+		for(const auto& b : boxes) {
+			add(b);
+		}
+	}
+
 	void add(const region<Dims>& region) & {
 		if(region.empty()) return;
 		m_normalized = m_boxes.empty();

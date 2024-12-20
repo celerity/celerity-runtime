@@ -115,6 +115,30 @@ TEST_CASE("command_graph_generator generates a single push command per buffer an
 	CHECK(cctx.query<push_command_record>(buf1.get_id()).on(1)[1]->target_regions == push_regions<1>({{0, region<1>{{box<1>{96, 128}}}}}));
 }
 
+TEST_CASE("command_graph_generator generates a single await_push command per buffer and task", "[command_graph_generator][command-graph]") { //
+	cdag_test_context cctx(2);
+
+	const range<1> test_range = {128};
+	auto buf0 = cctx.create_buffer(test_range);
+	auto buf1 = cctx.create_buffer(test_range);
+
+	// Initialize buffers across both nodes
+	cctx.device_compute(test_range).name("init").discard_write(buf0, acc::one_to_one{}).discard_write(buf1, acc::one_to_one{}).submit();
+
+	// Read in reverse order, but split task into 4 chunks each
+	cctx.set_test_chunk_multiplier(4);
+	cctx.device_compute(test_range).read(buf0, test_utils::access::reverse_one_to_one{}).read(buf1, test_utils::access::reverse_one_to_one{}).submit();
+
+	CHECK(cctx.query<push_command_record>().count_per_node() == 2);
+	CHECK(cctx.query<await_push_command_record>().count_per_node() == 2);
+
+	// The union of the required regions is just the full other half
+	CHECK(cctx.query<await_push_command_record>().on(0).iterate()[0]->await_region == region_cast<3>(region<1>{box<1>{64, 128}}));
+	CHECK(cctx.query<await_push_command_record>().on(0).iterate()[1]->await_region == region_cast<3>(region<1>{box<1>{64, 128}}));
+	CHECK(cctx.query<await_push_command_record>().on(1).iterate()[0]->await_region == region_cast<3>(region<1>{box<1>{0, 64}}));
+	CHECK(cctx.query<await_push_command_record>().on(1).iterate()[1]->await_region == region_cast<3>(region<1>{box<1>{0, 64}}));
+}
+
 TEST_CASE("command_graph_generator doesn't generate data transfer commands for the same buffer and range more than once",
     "[command_graph_generator][command-graph]") {
 	cdag_test_context cctx(2);
