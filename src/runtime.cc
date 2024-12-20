@@ -179,6 +179,8 @@ namespace detail {
 
 		// scheduler::delegate
 		void flush(std::vector<const instruction*> instructions, std::vector<outbound_pilot> pilot) override;
+		void on_scheduler_idle() override;
+		void on_scheduler_busy() override;
 
 		// executor::delegate
 		void horizon_reached(task_id horizon_tid) override;
@@ -426,6 +428,17 @@ namespace detail {
 		// Create and await the shutdown epoch
 		sync(epoch_action::shutdown);
 
+		const auto starvation_time = m_exec->get_starvation_time();
+		const auto active_time = m_exec->get_active_time();
+		const auto ratio = static_cast<double>(starvation_time.count()) / static_cast<double>(active_time.count());
+		CELERITY_DEBUG(
+		    "Executor active time: {:.1f}. Starvation time: {:.1f} ({:.1f}%).", as_sub_second(active_time), as_sub_second(starvation_time), 100.0 * ratio);
+		if(active_time > std::chrono::milliseconds(5) && ratio > 0.2) {
+			CELERITY_WARN("The executor was starved for instructions for {:.1f}, or {:.1f}% of the total active time of {:.1f}. This may indicate that "
+			              "your application is scheduler-bound. If you are interleaving Celerity tasks with other work, try flushing the queue.",
+			    as_sub_second(starvation_time), 100.0 * ratio, as_sub_second(active_time));
+		}
+
 		// The shutdown epoch is, by definition, the last task (and command / instruction) issued. Since it has now completed, no more scheduler -> executor
 		// traffic will occur, and `runtime` can stop functioning as a scheduler_delegate (which would require m_exec to be live).
 		m_exec.reset();
@@ -558,6 +571,18 @@ namespace detail {
 		// thread-safe
 		assert(m_exec != nullptr);
 		m_exec->submit(std::move(instructions), std::move(pilots));
+	}
+
+	void runtime::impl::on_scheduler_idle() {
+		CELERITY_TRACE("Scheduler is idle");
+		// The executor may have already been destroyed if we are currently shutting down
+		if(m_exec != nullptr) { m_exec->notify_scheduler_idle(true); }
+	}
+
+	void runtime::impl::on_scheduler_busy() {
+		CELERITY_TRACE("Scheduler is busy");
+		// The executor may have already been destroyed if we are currently shutting down
+		if(m_exec != nullptr) { m_exec->notify_scheduler_idle(false); }
 	}
 
 	// executor::delegate

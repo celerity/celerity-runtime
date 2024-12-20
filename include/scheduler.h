@@ -28,7 +28,19 @@ class scheduler {
 	friend struct scheduler_testspy;
 
   public:
-	using delegate = instruction_graph_generator::delegate;
+	class delegate : public instruction_graph_generator::delegate {
+	  protected:
+		delegate() = default;
+		delegate(const delegate&) = default;
+		delegate(delegate&&) = default;
+		delegate& operator=(const delegate&) = default;
+		delegate& operator=(delegate&&) = default;
+		~delegate() = default; // do not allow destruction through base pointer
+
+	  public:
+		virtual void on_scheduler_idle() = 0;
+		virtual void on_scheduler_busy() = 0;
+	};
 
 	struct policy_set {
 		detail::command_graph_generator::policy_set command_graph_generator;
