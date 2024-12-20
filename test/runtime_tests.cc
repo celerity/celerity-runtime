@@ -1043,5 +1043,42 @@ namespace detail {
 		CHECK(allocation_warning_received == (lookahead == experimental::lookahead::none));
 	}
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime prints a warning when executor starvation time is high", "[runtime]") {
+		const auto starve = GENERATE(true, false);
+		CAPTURE(starve);
+		if(starve) { test_utils::allow_max_log_level(log_level::warn); }
+
+		// Create scope so we can safely destroy runtime afterwards
+		{
+			queue q;
+			// We abuse the lookahead mechanism to control starvation time, since the scheduler is considered busy while it is waiting to flush
+			experimental::set_lookahead(q, starve ? experimental::lookahead::infinite : experimental::lookahead::none);
+
+			buffer<int, 1> buf(1);
+			q.submit([&](handler& cgh) {
+				accessor acc(buf, cgh, all{}, write_only_host_task, no_init);
+				cgh.host_task(once, [=]() {
+					acc[0] = 42;
+					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				});
+			});
+			std::this_thread::sleep_for(std::chrono::milliseconds(25)); // we print a warning when starvation time > 10%
+			experimental::flush(q);
+		}
+
+		// Messages are printed on shutdown
+		destroy_runtime_now();
+
+		const bool starvation_warning_received = test_utils::log_matches(log_level::warn,
+		    "The executor was starved for instructions for [0-9]+\\.[0-9] .{0,2}s, or [0-9]+\\.[0-9]% of the total active time of [0-9]+\\.[0-9] .{0,2}s. This "
+		    "may "
+		    "indicate that your application is scheduler-bound. If you are interleaving Celerity tasks with other work, try flushing the queue.");
+		CHECK(starvation_warning_received == starve);
+
+		// We always print a debug message including both active and starvation time
+		CHECK(test_utils::log_matches(
+		    log_level::debug, "Executor active time: [0-9]+\\.[0-9] .{0,2}s. Starvation time: [0-9]+\\.[0-9] .{0,2}s \\([0-9]+\\.[0-9]%\\)\\."));
+	}
+
 } // namespace detail
 } // namespace celerity

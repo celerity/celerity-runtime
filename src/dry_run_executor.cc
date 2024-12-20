@@ -31,6 +31,14 @@ void dry_run_executor::submit(std::vector<const instruction*> instructions, std:
 	(void)pilots; // ignore;
 }
 
+void dry_run_executor::notify_scheduler_idle(const bool is_idle) {
+	(void)is_idle; // ignore
+}
+
+std::chrono::nanoseconds dry_run_executor::get_starvation_time() const { return std::chrono::nanoseconds(0); }
+
+std::chrono::nanoseconds dry_run_executor::get_active_time() const { return std::chrono::nanoseconds(0); }
+
 void dry_run_executor::thread_main(executor::delegate* const dlg) {
 	name_and_pin_and_order_this_thread(named_threads::thread_type::executor);
 	// For simplicity we keep all executor state within this function.

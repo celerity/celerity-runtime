@@ -87,10 +87,7 @@ class task_queue {
 		return evt;
 	}
 
-	void assert_empty() {
-		assert(m_global_queue.pop_all().empty());
-		assert(m_local_queue.empty());
-	}
+	bool empty() const { return m_local_queue.empty() && m_global_queue.empty(); }
 
   private:
 	double_buffered_queue<task_event> m_global_queue;
@@ -133,7 +130,7 @@ class command_queue {
 		return evt;
 	}
 
-	void assert_empty() { assert(m_queue.empty()); }
+	bool empty() const { return m_queue.empty(); }
 
   private:
 	std::deque<command_event> m_queue;
@@ -152,6 +149,7 @@ class command_queue {
 };
 
 struct scheduler_impl {
+	scheduler::delegate* dlg;
 	command_graph cdag;
 	command_recorder* crec;
 	command_graph_generator cggen;
@@ -189,7 +187,7 @@ struct scheduler_impl {
 
 scheduler_impl::scheduler_impl(const bool start_thread, const size_t num_nodes, const node_id local_node_id, const system_info& system,
     scheduler::delegate* const dlg, command_recorder* const crec, instruction_recorder* const irec, const scheduler::policy_set& policy)
-    : cdag(), crec(crec), cggen(num_nodes, local_node_id, cdag, crec, policy.command_graph_generator), idag(), irec(irec),
+    : dlg(dlg), cdag(), crec(crec), cggen(num_nodes, local_node_id, cdag, crec, policy.command_graph_generator), idag(), irec(irec),
       iggen(num_nodes, local_node_id, system, idag, dlg, irec, policy.instruction_graph_generator) {
 	if(start_thread) { thread = std::thread(&scheduler_impl::thread_main, this); }
 }
@@ -311,14 +309,24 @@ void scheduler_impl::process_command_queue_event(const command_event& evt) {
 }
 
 void scheduler_impl::scheduling_loop() {
+	bool is_idle = true;
 	while(!shutdown_epoch_reached) {
-		process_task_queue_event(task_queue.wait_and_pop());
+		if(dlg != nullptr && !is_idle && command_queue.empty() && task_queue.empty()) {
+			dlg->on_scheduler_idle();
+			is_idle = true;
+		}
+		const auto tsk_evt = task_queue.wait_and_pop();
+		if(dlg != nullptr && is_idle) {
+			dlg->on_scheduler_busy();
+			is_idle = false;
+		}
+		process_task_queue_event(tsk_evt);
 		while(command_queue.should_dequeue(lookahead)) {
 			process_command_queue_event(command_queue.pop());
 		}
 	}
-	task_queue.assert_empty();
-	command_queue.assert_empty();
+	assert(task_queue.empty());
+	assert(command_queue.empty());
 }
 
 void scheduler_impl::thread_main() {

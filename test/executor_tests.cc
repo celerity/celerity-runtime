@@ -272,8 +272,8 @@ class mock_backend final : public backend {
 	}
 };
 
-/// Minimal mock implementation of fence_promise that allows a test await completion of a fence instruction.
-class mock_fence_promise final : public task_promise {
+/// Minimal mock implementation of a task promise that allows a test await completion of fence and epoch instructions.
+class mock_task_promise final : public task_promise {
   public:
 	void fulfill() override {
 		std::lock_guard lock(m_mutex);
@@ -389,7 +389,7 @@ class executor_test_context final : private executor::delegate {
 	void destroy_host_object(const host_object_id hoid) { submit<destroy_host_object_instruction>(hoid); }
 
 	void fence_and_wait() {
-		mock_fence_promise fence_promise;
+		mock_task_promise fence_promise;
 		submit<fence_instruction>(&fence_promise);
 		fence_promise.wait();
 	}
@@ -406,6 +406,20 @@ class executor_test_context final : private executor::delegate {
 	    const range<3>& send_range, const size_t elem_size) //
 	{
 		submit<send_instruction>(to_nid, msgid, source_aid, source_alloc_range, offset_in_alloc, send_range, elem_size);
+	}
+
+	void notify_scheduler_idle(const bool is_idle) { m_executor->notify_scheduler_idle(is_idle); }
+
+	std::chrono::nanoseconds get_starvation_time() const { return m_executor->get_starvation_time(); }
+
+	std::chrono::nanoseconds get_active_time() const { return m_executor->get_active_time(); }
+
+	/// Submits a barrier epoch instruction and waits for it to complete.
+	void barrier() {
+		mock_task_promise promise;
+		const auto tid = m_next_task_id++;
+		submit<epoch_instruction>(tid, epoch_action::barrier, &promise, instruction_garbage{});
+		promise.wait();
 	}
 
 	/// Submits a host task that sleeps for the given duration.
@@ -954,4 +968,43 @@ TEST_CASE("live_executor emits progress warning when a task appears stuck", "[ex
 	// no regex search in log, so we test two substrings of the warning message
 	CHECK(test_utils::log_contains_substring(log_level::warn, "[executor] no progress for "));
 	CHECK(test_utils::log_contains_substring(log_level::warn, ", might be stuck. Active instructions: I"));
+}
+
+TEST_CASE("live_executor tracks starvation time", "[executor]") {
+	executor_test_context ectx(executor_type::live);
+
+	SECTION("starvation time is only recorded while scheduler is busy") {
+		ectx.init();
+		ectx.notify_scheduler_idle(false);
+		std::this_thread::sleep_for(std::chrono::milliseconds(100)); // counts since scheduler is busy
+		ectx.notify_scheduler_idle(true);
+		std::this_thread::sleep_for(std::chrono::milliseconds(100)); // does not count
+		const auto st = ectx.get_starvation_time();
+		ectx.finish();
+		// We have to include some tolerance here b/c we don't know when executor received idle state changes
+		// 20-30us should suffice, but let's err on the side of caution
+		CHECK(st > std::chrono::milliseconds(90));
+		CHECK(st < std::chrono::milliseconds(110));
+	}
+
+	SECTION("scheduler is assumed to be idle initially") {
+		ectx.init();
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		const auto st = ectx.get_starvation_time();
+		ectx.finish();
+		CHECK(st == std::chrono::nanoseconds(0));
+	}
+}
+
+TEST_CASE("live_executor tracks active time", "[executor]") {
+	executor_test_context ectx(executor_type::live);
+
+	ectx.init();
+	ectx.delay(std::chrono::milliseconds(100)); // counts
+	ectx.barrier();
+	std::this_thread::sleep_for(std::chrono::milliseconds(100)); // doesn't count
+	const auto at = ectx.get_active_time();
+	ectx.finish();
+	CHECK(at > std::chrono::milliseconds(90));
+	CHECK(at < std::chrono::milliseconds(110));
 }

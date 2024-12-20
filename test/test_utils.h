@@ -197,6 +197,9 @@ namespace test_utils {
 	/// Returns whether the log of the current test so far contains a message with exactly the given log level and a message that contains `substring`.
 	bool log_contains_substring(detail::log_level level, const std::string& substring);
 
+	/// Returns whether the log of the current test so far contains a message with exactly the given log level and a message that matches the given regex.
+	bool log_matches(const detail::log_level level, const std::string& regex);
+
 	template <int Dims, typename F>
 	void for_each_in_range(range<Dims> range, id<Dims> offset, F&& f) {
 		const auto range3 = detail::range_cast<3>(range);
@@ -213,6 +216,14 @@ namespace test_utils {
 	template <int Dims, typename F>
 	void for_each_in_range(range<Dims> range, F&& f) {
 		for_each_in_range(range, {}, f);
+	}
+
+	template <typename Predicate>
+	void wait_until(const Predicate& pred, const std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
+		const auto start = std::chrono::steady_clock::now();
+		while(!pred()) {
+			if(std::chrono::steady_clock::now() - start > timeout) { FAIL("Timeout reached"); }
+		}
 	}
 
 	class mock_buffer_factory;
@@ -396,6 +407,13 @@ namespace test_utils {
 		runtime_fixture& operator=(const runtime_fixture&) = delete;
 		runtime_fixture& operator=(runtime_fixture&&) = delete;
 		~runtime_fixture();
+
+		/// Destroys the runtime immediately, instead of waiting for the destructor to do it.
+		/// Only required when testing shutdown behavior.
+		void destroy_runtime_now();
+
+	  private:
+		bool m_runtime_manually_destroyed = false;
 	};
 
 	template <int>
