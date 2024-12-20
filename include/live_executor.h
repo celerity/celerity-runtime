@@ -30,14 +30,16 @@ struct reducer_transfer {
 	reduction_id rid = 0;
 	std::unique_ptr<reducer> reduction;
 };
-using submission = std::variant<instruction_pilot_batch, user_allocation_transfer, host_object_transfer, reducer_transfer>;
+struct scheduler_idle_state_change {
+	bool is_idle = false;
+};
+using submission = std::variant<instruction_pilot_batch, user_allocation_transfer, host_object_transfer, reducer_transfer, scheduler_idle_state_change>;
 
 } // namespace celerity::detail::live_executor_detail
 
 namespace celerity::detail {
 
 class communicator;
-struct system_info;
 class backend;
 
 /// Executor implementation for a normal (non-dry) run of a Celerity application. Internal instruction dependencies are resolved by means of an
@@ -66,14 +68,23 @@ class live_executor final : public executor {
 
 	void submit(std::vector<const instruction*> instructions, std::vector<outbound_pilot> pilots) override;
 
+	void notify_scheduler_idle(const bool is_idle) override;
+
+	std::chrono::nanoseconds get_starvation_time() const override;
+
+	std::chrono::nanoseconds get_active_time() const override;
+
   private:
 	friend struct executor_testspy;
 
+	struct impl;
+
 	std::unique_ptr<communicator> m_root_comm; // created and destroyed outside of executor thread
 	double_buffered_queue<live_executor_detail::submission> m_submission_queue;
+	std::unique_ptr<impl> m_impl;
 	std::thread m_thread;
 
-	void thread_main(std::unique_ptr<backend> backend, executor::delegate* dlg, const policy_set& policy);
+	void thread_main();
 
 	/// Default-constructs a `policy_set` - this must be a function because we can't use the implicit default constructor of `policy_set`, which has member
 	/// initializers, within its surrounding class (Clang diagnostic).

@@ -39,6 +39,9 @@ class double_buffered_queue {
 		return m_read.queue;
 	}
 
+	/// Returns true if a call to `pop_all` would have returned an empty vector.
+	bool empty() const { return !(m_write.queue_nonempty.load(std::memory_order_relaxed)); }
+
 	/// After this function returns, the result of `pop_all` is non-empty as long as there is only a single reader thread.
 	void wait_while_empty() {
 		if(!m_write.queue_nonempty.load(std::memory_order_relaxed) /* opportunistic */) {

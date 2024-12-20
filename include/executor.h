@@ -2,6 +2,7 @@
 
 #include "types.h"
 
+#include <chrono>
 #include <memory>
 #include <vector>
 
@@ -61,6 +62,15 @@ class executor {
 	/// recipients as soon as possible. Instructions must be in topological order of dependencies, as must be the concatenation of all vectors passed to
 	/// subsequent invocations of this function.
 	virtual void submit(std::vector<const instruction*> instructions, std::vector<outbound_pilot> pilots) = 0;
+
+	/// Informs the executor about a change of the scheduler idle state. Required for tracking starvation time.
+	virtual void notify_scheduler_idle(const bool is_idle) = 0;
+
+	/// Returns the total time the executor has spent idle waiting for instructions while the scheduler was busy.
+	virtual std::chrono::nanoseconds get_starvation_time() const = 0;
+
+	/// Returns the total time the executor has spent processing instructions.
+	virtual std::chrono::nanoseconds get_active_time() const = 0;
 };
 
 } // namespace celerity::detail
