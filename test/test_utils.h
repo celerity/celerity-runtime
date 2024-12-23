@@ -150,13 +150,6 @@ namespace test_utils {
 		return false;
 	}
 
-	inline bool has_any_dependency(const detail::task_graph& tdag, detail::task_id dependent, detail::task_id dependency) {
-		for(auto dep : get_task(tdag, dependent)->get_dependencies()) {
-			if(dep.node->get_id() == dependency) return true;
-		}
-		return false;
-	}
-
 	class require_loop_assertion_registry {
 	  public:
 		static require_loop_assertion_registry& get_instance() {
@@ -263,7 +256,6 @@ namespace test_utils {
 		detail::host_object_id get_id() const { return m_id; }
 
 	  private:
-		friend class mock_host_object_factory;
 		friend class tdag_test_context;
 		friend class cdag_test_context;
 		friend class idag_test_context;
@@ -305,81 +297,6 @@ namespace test_utils {
 		detail::buffer_id m_next_buffer_id = 0;
 		detail::raw_allocation_id m_next_user_allocation_id = 1;
 	};
-
-	class mock_host_object_factory {
-	  public:
-		explicit mock_host_object_factory() = default;
-		explicit mock_host_object_factory(detail::task_manager& tm) : m_task_mngr(&tm) {}
-		explicit mock_host_object_factory(detail::task_manager& tm, detail::scheduler& schdlr) : m_task_mngr(&tm), m_schdlr(&schdlr) {}
-
-		mock_host_object create_host_object(bool owns_instance = true) {
-			const detail::host_object_id hoid = m_next_id++;
-			if(m_task_mngr != nullptr) { m_task_mngr->notify_host_object_created(hoid); }
-			if(m_schdlr != nullptr) { m_schdlr->notify_host_object_created(hoid, owns_instance); }
-			return mock_host_object(hoid);
-		}
-
-	  private:
-		detail::task_manager* m_task_mngr = nullptr;
-		detail::scheduler* m_schdlr = nullptr;
-		detail::host_object_id m_next_id = 0;
-	};
-
-	template <typename KernelName = detail::unnamed_kernel, typename CGF, int KernelDims = 2>
-	detail::task_id add_compute_task(detail::task_manager& tm, CGF cgf, range<KernelDims> global_size = {1, 1}, id<KernelDims> global_offset = {}) {
-		return tm.generate_command_group_task(detail::invoke_command_group_function([&, gs = global_size, go = global_offset](handler& cgh) {
-			cgf(cgh);
-			cgh.parallel_for<KernelName>(gs, go, [](id<KernelDims>) {});
-		}));
-	}
-
-	template <typename KernelName = detail::unnamed_kernel, typename CGF, int KernelDims = 2>
-	detail::task_id add_nd_range_compute_task(detail::task_manager& tm, CGF cgf, celerity::nd_range<KernelDims> execution_range = {{1, 1}, {1, 1}}) {
-		return tm.generate_command_group_task(detail::invoke_command_group_function([&, er = execution_range](handler& cgh) {
-			cgf(cgh);
-			cgh.parallel_for<KernelName>(er, [](nd_item<KernelDims>) {});
-		}));
-	}
-
-	template <typename Spec, typename CGF>
-	detail::task_id add_host_task(detail::task_manager& tm, Spec spec, CGF cgf) {
-		return tm.generate_command_group_task(detail::invoke_command_group_function([&](handler& cgh) {
-			cgf(cgh);
-			cgh.host_task(spec, [](auto...) {});
-		}));
-	}
-
-	inline detail::task_id add_fence_task(detail::task_manager& tm, mock_host_object ho) {
-		const detail::host_object_effect effect{ho.get_id(), experimental::side_effect_order::sequential};
-		return tm.generate_fence_task(effect, nullptr);
-	}
-
-	template <int Dims>
-	inline detail::task_id add_fence_task(detail::task_manager& tm, mock_buffer<Dims> buf, subrange<Dims> sr) {
-		detail::buffer_access access{buf.get_id(), access_mode::read,
-		    std::make_unique<detail::range_mapper<Dims, celerity::access::fixed<Dims>>>(celerity::access::fixed<Dims>(sr), buf.get_range())};
-		return tm.generate_fence_task(std::move(access), nullptr);
-	}
-
-	template <int Dims>
-	inline detail::task_id add_fence_task(detail::task_manager& tm, mock_buffer<Dims> buf) {
-		return add_fence_task(tm, buf, {{}, buf.get_range()});
-	}
-
-	class mock_reduction_factory {
-	  public:
-		detail::reduction_info create_reduction(const detail::buffer_id bid, const bool include_current_buffer_value) {
-			return detail::reduction_info{m_next_id++, bid, include_current_buffer_value};
-		}
-
-	  private:
-		detail::reduction_id m_next_id = 1;
-	};
-
-	template <int Dims>
-	void add_reduction(handler& cgh, mock_reduction_factory& mrf, const mock_buffer<Dims>& vars, bool include_current_buffer_value) {
-		detail::add_reduction(cgh, mrf.create_reduction(vars.get_id(), include_current_buffer_value));
-	}
 
 	detail::system_info make_system_info(const size_t num_devices, const bool supports_d2d_copies);
 
@@ -450,26 +367,6 @@ namespace test_utils {
 	std::string make_test_graph_title(const std::string& type);
 	std::string make_test_graph_title(const std::string& type, size_t num_nodes, detail::node_id local_nid);
 	std::string make_test_graph_title(const std::string& type, size_t num_nodes, detail::node_id local_nid, size_t num_devices_per_node);
-
-	// DEPRECATED: Use tdag_test_context in task_graph_test_utils.h instead
-	struct task_test_context {
-		detail::task_graph tdag;
-		detail::task_recorder trec;
-		detail::task_manager tm;
-		mock_buffer_factory mbf;
-		mock_host_object_factory mhof;
-		mock_reduction_factory mrf;
-		detail::task_id initial_epoch_task;
-
-		explicit task_test_context(const detail::task_manager::policy_set& policy = {})
-		    : tm(1, tdag, &trec, nullptr /* delegate */, policy), mbf(tm), mhof(tm), initial_epoch_task(tm.generate_epoch_task(detail::epoch_action::init)) {}
-
-		task_test_context(const task_test_context&) = delete;
-		task_test_context(task_test_context&&) = delete;
-		task_test_context& operator=(const task_test_context&) = delete;
-		task_test_context& operator=(task_test_context&&) = delete;
-		~task_test_context();
-	};
 
 	// explicitly invoke a copy constructor without repeating the type
 	template <typename T>
