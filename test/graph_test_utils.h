@@ -28,7 +28,7 @@ class task_builder {
 	class step {
 	  public:
 		step(TestContext& tctx, action command, std::vector<action> requirements = {})
-		    : m_tctx(tctx), m_command(std::move(command)), m_requirements(std::move(requirements)), m_uncaught_exceptions_before(std::uncaught_exceptions()) {}
+		    : m_tctx(&tctx), m_command(std::move(command)), m_requirements(std::move(requirements)), m_uncaught_exceptions_before(std::uncaught_exceptions()) {}
 
 		~step() noexcept(false) { // NOLINT(bugprone-exception-escape)
 			if(std::uncaught_exceptions() == m_uncaught_exceptions_before && (m_command || !m_requirements.empty())) {
@@ -37,13 +37,13 @@ class task_builder {
 		}
 
 		step(const step&) = delete;
-		step(step&&) = delete;
+		step(step&&) = default;
 		step& operator=(const step&) = delete;
-		step& operator=(step&&) = delete;
+		step& operator=(step&&) = default;
 
 		task_id submit() {
 			assert(m_command);
-			const auto tid = m_tctx.submit_command_group([this](handler& cgh) {
+			const auto tid = m_tctx->submit_command_group([this](handler& cgh) {
 				for(auto& a : m_requirements) {
 					a(cgh);
 				}
@@ -78,10 +78,15 @@ class task_builder {
 			return chain<step>([&buf, rmfn](handler& cgh) { buf.template get_access<access_mode::discard_write>(cgh, rmfn); });
 		}
 
+		template <typename BufferT, typename RangeMapper>
+		step discard_read_write(BufferT& buf, RangeMapper rmfn) {
+			return chain<step>([&buf, rmfn](handler& cgh) { buf.template get_access<access_mode::discard_read_write>(cgh, rmfn); });
+		}
+
 		template <typename BufferT>
 		inline step reduce(BufferT& buf, const bool include_current_buffer_value) {
 			return chain<step>([this, &buf, include_current_buffer_value](
-			                       handler& cgh) { add_reduction(cgh, m_tctx.create_reduction(buf.get_id(), include_current_buffer_value)); });
+			                       handler& cgh) { add_reduction(cgh, m_tctx->create_reduction(buf.get_id(), include_current_buffer_value)); });
 		}
 
 		template <typename HostObjT>
@@ -107,7 +112,7 @@ class task_builder {
 		}
 
 	  private:
-		TestContext& m_tctx;
+		TestContext* m_tctx;
 		action m_command;
 		std::vector<action> m_requirements;
 		int m_uncaught_exceptions_before;
@@ -121,7 +126,7 @@ class task_builder {
 			auto command = std::move(m_command);
 			m_requirements = {};
 			m_command = {};
-			return StepT{m_tctx, std::move(command), std::move(requirements)};
+			return StepT{*m_tctx, std::move(command), std::move(requirements)};
 		}
 	};
 
