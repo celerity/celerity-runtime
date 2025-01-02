@@ -52,10 +52,7 @@ class mpi_communicator final : public communicator {
   private:
 	friend struct mpi_communicator_testspy;
 
-	struct datatype_deleter {
-		void operator()(MPI_Datatype dtype) const;
-	};
-	using unique_datatype = std::unique_ptr<std::remove_pointer_t<MPI_Datatype>, datatype_deleter>;
+	using unique_datatype = std::unique_ptr<MPI_Datatype>;
 
 	/// Keeps a stable pointer to a `pilot_message` alive during an asynchronous pilot send / receive operation.
 	struct in_flight_pilot {

@@ -245,19 +245,19 @@ std::unique_ptr<communicator> mpi_communicator::collective_clone() { return std:
 void mpi_communicator::collective_barrier() { MPI_Barrier(m_mpi_comm); }
 
 MPI_Datatype mpi_communicator::get_scalar_type(const size_t bytes) {
-	if(const auto it = m_scalar_type_cache.find(bytes); it != m_scalar_type_cache.end()) { return it->second.get(); }
+	if(const auto it = m_scalar_type_cache.find(bytes); it != m_scalar_type_cache.end()) { return *it->second; }
 
 	assert(bytes > 0);
 	assert(bytes <= static_cast<size_t>(INT_MAX));
 	MPI_Datatype type = MPI_DATATYPE_NULL;
 	MPI_Type_contiguous(static_cast<int>(bytes), MPI_BYTE, &type);
 	MPI_Type_commit(&type);
-	m_scalar_type_cache.emplace(bytes, unique_datatype(type));
+	m_scalar_type_cache.emplace(bytes, std::make_unique<MPI_Datatype>(type));
 	return type;
 }
 
 MPI_Datatype mpi_communicator::get_array_type(const stride& stride) {
-	if(const auto it = m_array_type_cache.find(stride); it != m_array_type_cache.end()) { return it->second.get(); }
+	if(const auto it = m_array_type_cache.find(stride); it != m_array_type_cache.end()) { return *it->second; }
 
 	const int dims = detail::get_effective_dims(stride.allocation_range);
 	assert(detail::get_effective_dims(stride.transfer) <= dims);
@@ -285,12 +285,8 @@ MPI_Datatype mpi_communicator::get_array_type(const stride& stride) {
 	MPI_Type_create_subarray(dims, size_array, subsize_array, start_array, MPI_ORDER_C, get_scalar_type(stride.element_size), &type);
 	MPI_Type_commit(&type);
 
-	m_array_type_cache.emplace(stride, unique_datatype(type));
+	m_array_type_cache.emplace(stride, std::make_unique<MPI_Datatype>(type));
 	return type;
-}
-
-void mpi_communicator::datatype_deleter::operator()(MPI_Datatype dtype) const { //
-	MPI_Type_free(&dtype);
 }
 
 } // namespace celerity::detail
