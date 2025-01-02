@@ -328,9 +328,16 @@ struct async_instruction_state {
 	std::chrono::steady_clock::time_point issued_at;
 	CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(std::unique_ptr<boundary_check_info> oob_info;) // unique_ptr: oob_info is optional and rather large
 	CELERITY_DETAIL_IF_TRACY_SUPPORTED(std::optional<tracy_integration::async_lane_cursor> tracy_lane_cursor;)
+
+	bool is_send = false;
+	bool is_receive = false;
+	node_id dest_node = -1;
 };
 
 struct live_executor::impl {
+	size_t long_sends = 0;
+	size_t long_receives = 0;
+
 	const std::unique_ptr<detail::backend> backend;
 	communicator* const root_communicator;
 	element_wise_double_buffered_queue<submission>* const submission_queue;
@@ -465,6 +472,8 @@ void live_executor::impl::run() {
 	// check that for each track_host_object_instance, we executed a destroy_host_object_instruction
 	assert(host_object_instances.empty());
 
+	// CELERITY_CRITICAL("Long sends: {}, Long receives: {}", long_sends, long_receives);
+
 	closure_hydrator::teardown();
 }
 
@@ -558,6 +567,18 @@ void live_executor::impl::retire_async_instruction(const instruction_id iid, asy
 		} else {
 			CELERITY_TRACE("[executor] retired I{}", iid);
 		}
+	}
+
+	const auto now = std::chrono::steady_clock::now();
+	if(const auto dt = now - async.issued_at; dt > std::chrono::milliseconds(10)) {
+		if(async.is_send) {
+			CELERITY_CRITICAL("Send to {} took {:.2f}", async.dest_node, as_sub_second(dt));
+			++long_sends;
+		}
+		// if(async.is_receive) {
+		// 	CELERITY_CRITICAL("Receive took {:.2f}", as_sub_second(dt));
+		// 	++long_receives;
+		// }
 	}
 
 	CELERITY_DETAIL_IF_TRACY_ENABLED(tracy->retire_async_instruction(*async.tracy_lane_cursor, async.event));
@@ -888,6 +909,8 @@ void live_executor::impl::issue_async(
 	    sinstr.get_element_size(),
 	};
 	async.event = root_communicator->send_payload(sinstr.get_dest_node_id(), sinstr.get_message_id(), allocation_base, stride);
+	async.is_send = true;
+	async.dest_node = sinstr.get_dest_node_id();
 }
 
 void live_executor::impl::issue_async(
@@ -901,6 +924,7 @@ void live_executor::impl::issue_async(
 	const auto allocation = allocations.at(rinstr.get_dest_allocation_id());
 	async.event =
 	    recv_arbiter.receive(rinstr.get_transfer_id(), rinstr.get_requested_region(), allocation, rinstr.get_allocated_box(), rinstr.get_element_size());
+	async.is_receive = true;
 }
 
 void live_executor::impl::issue_async(
