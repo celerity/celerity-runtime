@@ -12,8 +12,63 @@
 
 require 'csv'
 require 'gruff'
-require 'json'
 require 'digest'
+
+# Monkey patch Gruff to allow left-aligning labels in the legend; only allow one entry per line.
+module Gruff
+  class Base
+    def draw_legend
+      return if @hide_legend
+
+      legend_labels = store.data.map(&:label)
+      legend_square_width = @legend_box_size # small square with color of this item
+      line_height = [legend_caps_height, legend_square_width].max + @legend_margin
+
+      current_y_offset = begin
+        if @legend_at_bottom
+          @graph_bottom + @legend_margin + labels_caps_height + @label_margin + (@x_axis_label ? (@label_margin * 2) + marker_caps_height : 0)
+        else
+          hide_title? ? @top_margin + @title_margin : @top_margin + @title_margin + title_caps_height
+        end
+      end
+
+      current_x_offset = @left_margin
+
+      legend_labels.each_with_index do |legend_label, index|
+        unless legend_label.empty?
+          legend_label_width = calculate_width(@legend_font, legend_label)
+
+          # Draw label
+          text_renderer = Gruff::Renderer::Text.new(renderer, legend_label, font: @legend_font)
+          text_renderer.add_to_render_queue(legend_label_width,
+                                            legend_square_width,
+                                            current_x_offset + (legend_square_width * 1.7),
+                                            current_y_offset,
+                                            Magick::WestGravity) # Change gravity to Magick::WestGravity for left alignment
+
+          # Now draw box with color of this dataset
+          rect_renderer = Gruff::Renderer::Rectangle.new(renderer, color: store.data[index].color)
+          rect_renderer.render(current_x_offset,
+                               current_y_offset,
+                               current_x_offset + legend_square_width,
+                               current_y_offset + legend_square_width)
+
+          current_y_offset += line_height
+        end
+      end
+    end
+
+    def calculate_legend_height
+      return 0.0 if @hide_legend
+
+      legend_labels = store.data.map(&:label)
+      line_height = [legend_caps_height, @legend_box_size].max
+
+      # Divide by two because we always draw two box plots for each benchmark (before / after); one has an empty label
+      ((line_height * legend_labels.count) + (@legend_margin * (legend_labels.count - 1))) / 2
+    end
+  end
+end
 
 # information regarding the benchmark file
 BENCH_FN = 'ci/perf/gpuc2_bench.csv'
@@ -68,7 +123,7 @@ if /Check-perf-impact results:[^(]*\((.*)\)/ =~ ENV["PREV_COMMENT_BODY"]
   if bench_file_digest == $1
     puts "Same csv already processed, early exit"
     `echo "done=true" >> $GITHUB_OUTPUT`
-    exit 
+    exit
   end
 end
 
@@ -161,13 +216,12 @@ if new_data != old_data
   cur_chart_start_mean = 0
   cur_chart_idx = 0
   cur_img_idx = 0
+  cur_chart_category = nil
+  consecutive_category_count = 1
   g = nil
-  prev_mean = 1
 
   # closure for completing the current in-progress chart
   finish_chart = Proc.new do
-    # generate a usable number of subdivisions
-    g.y_axis_increment = prev_mean / 7
     # generate image
     img = g.to_image()
     # if there was a significant change, add border to image
@@ -183,7 +237,8 @@ if new_data != old_data
     in_chart = false
   end
 
-  old_data_map.sort_by { |k,v| mean(v) }.each do |bench_key, old_bench_raw|
+  # NOCOMMIT TODO: Can we special case old benchmarks by adding "REMOVED" and new ones?
+  old_data_map.each do |bench_key, old_bench_raw|
     # skip deleted benchmarks
     next unless new_data_map.key?(bench_key)
 
@@ -191,32 +246,7 @@ if new_data != old_data
     new_bench_raw = new_data_map[bench_key]
     bench_category = bench_key[0]
     bench_name = bench_key[1]
-
-    # finish the current chart if we have reached the maximum per image
-    # or if the relative y axis difference becomes too large
-    if in_chart && (cur_chart_start_mean < mean(old_bench_raw) / 20 ||
-                    cur_chart_idx >= MAX_CHARTS_PER_IMAGE)
-      finish_chart.()
-    end
-
-    # start a new chart
-    if !in_chart
-      g = Gruff::Box.new(GRAPH_WIDTH)
-      g.theme_pastel
-      g.hide_title = true
-      g.marker_font_size = 15
-      g.legend_at_bottom = true
-      g.legend_font_size = 9
-      g.legend_box_size = 10
-      g.legend_margin = 2
-      g.y_axis_label = "Time (nanoseconds)"
-
-      in_chart = true
-      significant_perf_improvement_in_this_chart = false
-      significant_perf_reduction_in_this_chart = false
-      cur_chart_start_mean = mean(old_bench_raw)
-      cur_chart_idx = 0
-    end
+    old_bench_mean = mean(old_bench_raw)
 
     # check if there was a highly significant difference
     new_median = median(scalar_add(new_bench_raw, FLAT_THRESHOLD_OFFSET))
@@ -235,12 +265,58 @@ if new_data != old_data
 
     # add old and new boxes to chart if they are significant according to the charting thresholds
     if rel_difference > MINOR_THRESHOLD_SLOW || rel_difference < MINOR_THRESHOLD_FAST
+      # finish the current chart if we have reached the maximum per image
+      # or if the relative y axis difference becomes too large
+      ratio = [cur_chart_start_mean, old_bench_mean].max / [cur_chart_start_mean, old_bench_mean].min
+      # NOCOMMIT Clean this up
+      # puts "Bench mean for #{bench_name}: #{'%.2f' % old_bench_mean}. Ratio: #{'%.2f' % ratio}"
+      if in_chart && ratio > 50
+        # puts "Finishing chart for #{bench_category} at #{bench_name} because ratio is #{'%.2f' % ratio}"
+        finish_chart.()
+      end
+
+      if in_chart && cur_chart_idx >= MAX_CHARTS_PER_IMAGE
+        # puts "Finishing chart for #{bench_category} at #{bench_name} because too many benchmarks"
+        finish_chart.()
+      end
+
+      if in_chart && cur_chart_category != bench_category
+        # puts "Finishing chart for #{cur_chart_category} at #{bench_name} because category changed"
+        finish_chart.()
+      end
+
+      # start a new chart if necessary
+      if !in_chart
+        g = Gruff::Box.new(GRAPH_WIDTH)
+        g.theme_pastel
+        g.title = bench_category
+        g.marker_font_size = 15
+        g.legend_at_bottom = true
+        g.legend_font_size = 9
+        g.legend_box_size = 10
+        g.legend_margin = 2
+        g.y_axis_label = "Time (nanoseconds)"
+        g.stroke_width = 0.5
+
+        in_chart = true
+        significant_perf_improvement_in_this_chart = false
+        significant_perf_reduction_in_this_chart = false
+        cur_chart_start_mean = old_bench_mean
+        cur_chart_idx = 0
+        if cur_chart_category == bench_category
+          consecutive_category_count += 1
+          g.title = bench_category + " (#{consecutive_category_count})"
+        else
+          consecutive_category_count = 1
+        end
+        cur_chart_category = bench_category
+      end
+
+      # plot the data
       g.data bench_name, old_bench_raw, get_wheel_color
       g.data nil, new_bench_raw, get_wheel_color
       cur_chart_idx += 1
     end
-
-    prev_mean = mean(old_bench_raw)
   end
   # don't forget to finish the last chart!
   finish_chart.()
@@ -293,7 +369,11 @@ else
     end
   end
 end
-puts message
+puts "\n" + message
 
 # write message to workspace file for subsequent step
-File.write(MESSAGE_FN, message)
+if File.writable?(MESSAGE_FN)
+  File.write(MESSAGE_FN, message)
+else
+  puts "\nCannot write to #{MESSAGE_FN}, skipping message generation"
+end
