@@ -8,7 +8,6 @@ include(ParseAndAddCatchTests)
 function(set_test_target_parameters TARGET SOURCE)
   target_include_directories(${TARGET} PRIVATE "${CMAKE_SOURCE_DIR}/src")
   target_link_libraries(${TARGET} PUBLIC Catch2::Catch2)
-  set_property(TARGET ${TARGET} PROPERTY CXX_STANDARD ${CELERITY_CXX_STANDARD})
   set_property(TARGET ${TARGET} PROPERTY FOLDER "tests")
   set_property(TARGET ${TARGET} PROPERTY POSITION_INDEPENDENT_CODE ON)
 
