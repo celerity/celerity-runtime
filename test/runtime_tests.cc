@@ -1000,19 +1000,25 @@ namespace detail {
 		queue q;
 		experimental::set_lookahead(q, lookahead);
 
+		// We access two distinct buffers in a growing pattern, which means if any of them are reallocated we can be pretty sure that adjacent elements do not
+		// end up at consecutive memory addresses (SimSYCL does not page-align allocations, so we get an alternating <buf1><buf2><buf1>... pattern).
 		constexpr size_t n_timesteps = 20;
 		buffer<const void*> pointer_buf(n_timesteps);
+		buffer<const void*> dummy_buf(n_timesteps);
 		for(size_t i = 0; i < n_timesteps; ++i) {
 			q.submit([&, i](handler& cgh) {
-				accessor acc(pointer_buf, cgh, fixed<1>({i, 1}), write_only, no_init);
-				cgh.parallel_for(1, [=](item<1> item) { acc[i] = &acc[i]; });
+				accessor pointers(pointer_buf, cgh, fixed<1>({i, 1}), write_only, no_init);
+				accessor dummy(dummy_buf, cgh, fixed<1>({i, 1}), write_only, no_init);
+				cgh.parallel_for(1, [=](item<1> item) {
+					pointers[i] = &pointers[i];
+					(void)dummy[i];
+				});
 			});
 		}
 
 		const auto pointers = q.fence(pointer_buf).get();
 		bool is_single_allocation = pointers[0] != nullptr;
 		for(size_t i = 1; i < n_timesteps; ++i) {
-			// assuming that allocations are page-aligned, they cannot end up on consecutive memory addresses
 			is_single_allocation &= (pointers[i] == utils::offset(pointers[i - 1], sizeof(const void*)));
 		}
 		CHECK(is_single_allocation == (lookahead != experimental::lookahead::none));
