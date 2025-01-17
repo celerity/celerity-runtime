@@ -582,6 +582,39 @@ namespace detail {
 		}
 	}
 
+	TEST_CASE_METHOD(test_utils::runtime_fixture, "tasks are not deleted while a loop template is active", "[task_manager][task-graph][task-horizon]") {
+		queue q;
+
+		std::mutex m;
+		int completed_step = -1;
+		std::condition_variable cv;
+
+		int i = 0;
+		size_t prev_live_node_count = graph_testspy::get_live_node_count(runtime_testspy::get_task_graph(runtime::get_instance()));
+		q.loop([&]() {
+			q.submit([&](handler& cgh) {
+				// We don't need a buffer in this case because a horizon is inserted at the start of each iteration
+				cgh.host_task(on_master_node, [&, i] {
+					std::lock_guard lock(m);
+					completed_step = i;
+					cv.notify_all();
+				});
+			});
+
+			std::unique_lock lock(m);
+			cv.wait(lock, [&] { return completed_step == i; });
+
+			const auto live_node_count = graph_testspy::get_live_node_count(runtime_testspy::get_task_graph(runtime::get_instance()));
+			REQUIRE_LOOP(live_node_count == prev_live_node_count + 2); // task + 1 horizon per iteration
+			prev_live_node_count = live_node_count;
+
+			return i++ < 100;
+		});
+
+		// After the loop template is finished, everything should be deleted (we know that we have executed all iterations at this point)
+		CHECK(graph_testspy::get_live_node_count(runtime_testspy::get_task_graph(runtime::get_instance())) == 4);
+	}
+
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "side_effect API works as expected on a single node", "[side-effect]") {
 		queue q;
 

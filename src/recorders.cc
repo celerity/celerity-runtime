@@ -11,6 +11,7 @@
 #include <cassert>
 #include <cstddef>
 #include <optional>
+#include <random>
 #include <utility>
 #include <vector>
 
@@ -141,6 +142,12 @@ device_kernel_instruction_record::device_kernel_instruction_record(const device_
 	}
 }
 
+device_kernel_instruction_record::device_kernel_instruction_record(const device_kernel_instruction& dkinstr, const task_id cg_tid,
+    const command_id execution_cid, const std::string& debug_name, const device_kernel_instruction_record& other)
+    : acceptor_base(dkinstr), device_id(dkinstr.get_device_id()), execution_range(dkinstr.get_execution_range()), access_map(other.access_map),
+      reduction_map(other.reduction_map), estimated_global_memory_traffic_bytes(dkinstr.get_estimated_global_memory_traffic_bytes()),
+      command_group_task_id(cg_tid), execution_command_id(execution_cid), debug_name(debug_name) {}
+
 host_task_instruction_record::host_task_instruction_record(const host_task_instruction& htinstr, const task_id cg_tid, const command_id execution_cid,
     const std::string& debug_name, const std::vector<buffer_memory_record>& buffer_memory_allocation_map)
     : acceptor_base(htinstr), collective_group_id(htinstr.get_collective_group_id()), execution_range(htinstr.get_execution_range()),
@@ -152,6 +159,12 @@ host_task_instruction_record::host_task_instruction_record(const host_task_instr
 		access_map.emplace_back(htinstr.get_access_allocations()[i], buffer_memory_allocation_map[i]);
 	}
 }
+
+host_task_instruction_record::host_task_instruction_record(const host_task_instruction& htinstr, const task_id cg_tid, const command_id execution_cid,
+    const std::string& debug_name, const host_task_instruction_record& other)
+    : acceptor_base(htinstr), collective_group_id(htinstr.get_collective_group_id()), execution_range(htinstr.get_execution_range()),
+      access_map(other.access_map), command_group_task_id(cg_tid), execution_command_id(execution_cid), debug_name(debug_name) //
+{}
 
 send_instruction_record::send_instruction_record(const send_instruction& sinstr, const command_id push_cid, const detail::transfer_id& trid,
     std::string buffer_name, const celerity::id<3>& offset_in_buffer)

@@ -7,6 +7,7 @@
 #include "hint.h"
 #include "instruction_graph.h"
 #include "log.h"
+#include "loop_template.h"
 #include "nd_memory.h"
 #include "pilot.h"
 #include "print_utils_internal.h"
@@ -28,6 +29,7 @@
 #include <exception>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <numeric>
 #include <optional>
 #include <tuple>
@@ -595,7 +597,8 @@ class generator_impl {
 	void notify_host_object_created(host_object_id hoid, bool owns_instance);
 	void notify_host_object_destroyed(host_object_id hoid);
 	instruction_graph_generator::scheduling_hint anticipate(const command& cmd);
-	void compile(const command& cmd);
+	void compile(const command& cmd, loop_template* const templ);
+	void finalize_loop_template(loop_template& templ);
 
   private:
 	inline static const box<3> scalar_reduction_box{zeros, ones};
@@ -2410,19 +2413,344 @@ instruction_graph_generator::scheduling_hint generator_impl::anticipate(const co
 	                      : instruction_graph_generator::scheduling_hint::is_self_contained;
 }
 
-void generator_impl::compile(const command& cmd) {
+void generator_impl::compile(const command& cmd, loop_template* const templ) {
 	batch command_batch;
-	matchbox::match(
-	    cmd,                                                                                    //
-	    [&](const execution_command& ecmd) { compile_execution_command(command_batch, ecmd); }, //
-	    [&](const push_command& pcmd) { compile_push_command(command_batch, pcmd); },           //
-	    [&](const await_push_command& apcmd) { defer_await_push_command(apcmd); },              //
-	    [&](const horizon_command& hcmd) { compile_horizon_command(command_batch, hcmd); },     //
-	    [&](const epoch_command& ecmd) { compile_epoch_command(command_batch, ecmd); },         //
-	    [&](const reduction_command& rcmd) { compile_reduction_command(command_batch, rcmd); }, //
-	    [&](const fence_command& fcmd) { compile_fence_command(command_batch, fcmd); }          //
-	);
+	if(templ != nullptr && templ->idag.is_verified) {
+		std::vector<message_id> message_ids;
+		size_t next_message_id_idx = 0; // NOCOMMIT WHAT A HACK - Figure out a cleaner solution here
+		const auto clone_pilot = [&](const outbound_pilot& pilot) {
+			const auto& pcmd = dynamic_cast<const push_command&>(cmd);
+			const auto msgid = create_outbound_pilot(command_batch, pilot.to, pcmd.get_transfer_id(), pilot.message.box);
+			message_ids.push_back(msgid);
+		};
+
+		// Note that the returned reference is only valid until the next call to instruction_recorder::record_instruction()
+		const auto get_record = [&](const auto type_identity, const instruction_id iid) -> const typename decltype(type_identity)::type& {
+			assert(m_recorder != nullptr);
+			// NOCOMMIT TODO: Use binary search
+			// TODO: Actually, we should be able to just search for the first instruction and then iterate from there for subsequent instructions ?!
+			const auto it = std::ranges::find_if(m_recorder->get_graph_nodes(), [&](const auto& rec) { return rec->id == iid; });
+			assert(it != m_recorder->get_graph_nodes().end());
+			const auto& record = dynamic_cast<const typename decltype(type_identity)::type&>(**it);
+			return record;
+		};
+
+		const auto clone_instruction = [&](const instruction* const instr) -> instruction* {
+			return matchbox::match<instruction*>(
+			    *instr, //
+			    [&](const device_kernel_instruction& dinstr) {
+				    const auto& ecmd = dynamic_cast<const execution_command&>(cmd);
+				    const auto& tsk = *ecmd.get_task();
+				    return create<device_kernel_instruction>(command_batch, dinstr.get_device_id(), tsk.get_launcher<device_kernel_launcher>(),
+				        dinstr.get_execution_range(), dinstr.get_access_allocations(), dinstr.get_reduction_allocations(),
+				        dinstr.get_estimated_global_memory_traffic_bytes() //
+				        CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, tsk.get_type(), tsk.get_id(), tsk.get_debug_name()),
+				        [&](const auto& record_debug_info) {
+					        const auto& record = get_record(std::type_identity<device_kernel_instruction_record>{}, dinstr.get_id());
+					        record_debug_info(tsk.get_id(), ecmd.get_id(), tsk.get_debug_name(), record);
+				        });
+			    },
+			    [&](const host_task_instruction& hinstr) {
+				    const auto& ecmd = dynamic_cast<const execution_command&>(cmd);
+				    const auto& tsk = *ecmd.get_task();
+				    return create<host_task_instruction>(command_batch, tsk.get_launcher<host_task_launcher>(), hinstr.get_execution_range(),
+				        hinstr.get_global_range(), hinstr.get_access_allocations(),
+				        hinstr.get_collective_group_id() //
+				        CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, tsk.get_type(), tsk.get_id(), tsk.get_debug_name()),
+				        [&](const auto& record_debug_info) {
+					        const auto& record = get_record(std::type_identity<host_task_instruction_record>{}, hinstr.get_id());
+					        record_debug_info(tsk.get_id(), ecmd.get_id(), tsk.get_debug_name(), record);
+				        });
+			    },
+			    [&](const copy_instruction& cinstr) {
+				    return create<copy_instruction>(command_batch, cinstr.get_source_allocation_id(), cinstr.get_dest_allocation_id(),
+				        cinstr.get_source_layout(), cinstr.get_dest_layout(), cinstr.get_copy_region(), cinstr.get_element_size(),
+				        [&](const auto& record_debug_info) {
+					        const auto& record = get_record(std::type_identity<copy_instruction_record>{}, cinstr.get_id());
+					        record_debug_info(copy_instruction_record::copy_origin::coherence, record.buffer_id, record.buffer_name);
+				        });
+			    },
+			    [&](const send_instruction& sinstr) {
+				    const auto& pcmd = dynamic_cast<const push_command&>(cmd);
+				    return create<send_instruction>(command_batch, sinstr.get_dest_node_id(), message_ids.at(next_message_id_idx++),
+				        sinstr.get_source_allocation_id(), sinstr.get_source_allocation_range(), sinstr.get_offset_in_source_allocation(),
+				        sinstr.get_send_range(), sinstr.get_element_size(), [&](const auto& record_debug_info) {
+					        const auto& record = get_record(std::type_identity<send_instruction_record>{}, sinstr.get_id());
+					        record_debug_info(pcmd.get_id(), pcmd.get_transfer_id(), record.buffer_name, record.offset_in_buffer);
+				        });
+			    },
+			    [&](const receive_instruction& rinstr) {
+				    // Since we defer await-push commands until the consuming command, we now must be compiling an execution command.
+				    const auto& ecmd = dynamic_cast<const execution_command&>(cmd);
+				    const auto trid = rinstr.get_transfer_id();
+				    return create<receive_instruction>(command_batch, transfer_id(ecmd.get_task()->get_id(), trid.bid, trid.rid), rinstr.get_requested_region(),
+				        rinstr.get_dest_allocation_id(), rinstr.get_allocated_box(), rinstr.get_element_size(), [&](const auto& record_debug_info) {
+					        const auto& record = get_record(std::type_identity<receive_instruction_record>{}, rinstr.get_id());
+					        record_debug_info(record.buffer_name);
+				        });
+			    },
+			    [&](const split_receive_instruction& srinstr) {
+				    // See comment for receive_instruction
+				    const auto& ecmd = dynamic_cast<const execution_command&>(cmd);
+				    const auto trid = srinstr.get_transfer_id();
+				    return create<split_receive_instruction>(command_batch, transfer_id(ecmd.get_task()->get_id(), trid.bid, trid.rid),
+				        srinstr.get_requested_region(), srinstr.get_dest_allocation_id(), srinstr.get_allocated_box(), srinstr.get_element_size(),
+				        [&](const auto& record_debug_info) {
+					        const auto& record = get_record(std::type_identity<split_receive_instruction_record>{}, srinstr.get_id());
+					        record_debug_info(record.buffer_name);
+				        });
+			    },
+			    [&](const await_receive_instruction& arinstr) {
+				    // See comment for receive_instruction
+				    const auto& ecmd = dynamic_cast<const execution_command&>(cmd);
+				    const auto trid = arinstr.get_transfer_id();
+				    return create<await_receive_instruction>(command_batch, transfer_id(ecmd.get_task()->get_id(), trid.bid, trid.rid),
+				        arinstr.get_received_region(), [&](const auto& record_debug_info) {
+					        const auto& record = get_record(std::type_identity<await_receive_instruction_record>{}, arinstr.get_id());
+					        record_debug_info(record.buffer_name);
+				        });
+			    },
+			    [&](const horizon_instruction& hinstr) {
+				    if(!hinstr.get_garbage().reductions.empty()) {
+					    // NOCOMMIT Test this
+					    throw std::runtime_error("Horizon instructions with reduction garbage are NYI");
+				    }
+				    if(!hinstr.get_garbage().user_allocations.empty()) {
+					    // NOCOMMIT Test this
+					    throw std::runtime_error("Horizon instructions with user allocation garbage are NYI");
+				    }
+				    const auto& hcmd = dynamic_cast<const horizon_command&>(cmd);
+				    m_idag->begin_epoch(hcmd.get_task()->get_id()); // NOCOMMIT Test this!
+				    return create<horizon_instruction>(command_batch, hcmd.get_task()->get_id(), instruction_garbage{},
+				        [&](const auto& record_debug_info) { record_debug_info(hcmd.get_id()); });
+			    },
+			    [&](const auto& isntr) {
+				    throw std::runtime_error("Clone: Instruction NYI"); // NOCOMMIT
+				    return nullptr;
+			    });
+		};
+
+		const auto add_dependency = [&](instruction* from, instruction* to, dependency_kind kind, /*NOCOMMIT instruction_*/ dependency_origin origin) {
+			this->add_dependency(from, to, instruction_dependency_origin::execution_front); // NOCOMMIT
+		};
+
+		command_batch.base_priority = templ->idag.get_batch_priority();
+		// NOCOMMIT TODO: Pass command into here for sanity checking?
+		templ->idag.instantiate(clone_instruction, add_dependency, clone_pilot);
+
+		// Await push commands require special handling (NOCOMMIT Ugh)
+		if(auto apcmd = dynamic_cast<const await_push_command*>(&cmd)) {
+			const auto& trid = apcmd->get_transfer_id();
+			if(is_recording()) { m_recorder->record_await_push_command_id(trid, apcmd->get_id()); }
+		}
+
+	} else {
+		matchbox::match(
+		    cmd,                                                                                    //
+		    [&](const execution_command& ecmd) { compile_execution_command(command_batch, ecmd); }, //
+		    [&](const push_command& pcmd) { compile_push_command(command_batch, pcmd); },           //
+		    [&](const await_push_command& apcmd) { defer_await_push_command(apcmd); },              //
+		    [&](const horizon_command& hcmd) { compile_horizon_command(command_batch, hcmd); },     //
+		    [&](const epoch_command& ecmd) { compile_epoch_command(command_batch, ecmd); },         //
+		    [&](const reduction_command& rcmd) { compile_reduction_command(command_batch, rcmd); }, //
+		    [&](const fence_command& fcmd) { compile_fence_command(command_batch, fcmd); }          //
+		);
+
+		if(templ != nullptr) {
+			if(!templ->idag.is_primed) {
+				templ->idag.prime(command_batch.generated_instructions);
+			} else {
+				assert(!templ->idag.is_verified);
+				templ->idag.verify(command_batch.generated_instructions, command_batch.generated_pilots, command_batch.base_priority);
+				if(templ->idag.is_verified && is_recording()) { m_recorder->begin_loop_template(); }
+			}
+		}
+	}
 	flush_batch(std::move(command_batch));
+}
+
+void generator_impl::finalize_loop_template(loop_template& templ) {
+	// CELERITY_CRITICAL("IDAG: Finalizing template!"); //
+
+	// Unfortunately we cannot simply call apply_epoch on the last epoch generated, because that also
+	// replaces the execution front with the epoch. If the epoch is not the last thing that was
+	// instantiated from the emplate, this is wrong. Instead, we have to manually replace all instructions
+	// that are older than the epoch.
+	auto epoch = templ.idag.get_applied_horizon();
+	if(epoch == nullptr) {
+		// Should this be possible? Not with a horizon at the start of each loop + 3 rounds of priming
+		// => BUT if we want to allow CDAG/IDAG templates to not depend on that horizon, it could happen.
+		// NOCOMMIT TEST
+		throw std::runtime_error("No epoch created in loop template");
+	}
+	auto apply_template_epoch = [&](gch::small_vector<instruction*>& instrs) {
+		if(epoch == nullptr) return false;
+		// assert(std::is_sorted(instrs.begin(), instrs.end(), instruction_id_less{}));
+		// assert(!instrs.empty());
+		// if(instrs[0]->get_id() >= epoch->get_id()) {
+		// 	// All instructions are newer than the epoch
+		// 	return false;
+		// }
+		// gch::small_vector<instruction*> replacement;
+		// replacement.push_back(epoch);
+		// for(const auto instr : instrs) {
+		// 	if(instr->get_id() > epoch->get_id()) { replacement.push_back(instr); }
+		// }
+		// std::swap(instrs, replacement);
+		// return true;
+
+		gch::small_vector<instruction*> replacement;
+		bool did_replace = false; // Only push one epoch
+		for(const auto instr : instrs) {
+			if(instr->get_id() <= epoch->get_id()) {
+				if(!did_replace) {
+					replacement.push_back(epoch);
+					did_replace = true;
+				}
+			} else {
+				replacement.push_back(instr);
+			}
+		}
+		std::swap(instrs, replacement);
+		return true;
+	};
+
+	const auto read_repl_map = templ.idag.get_read_replacement_map();
+	const auto repl_map = templ.idag.get_replacement_map();
+
+	// TODO: Could optimize this to only update touched buffers
+	for(auto& [bid, buffer] : m_buffers) {
+		assert(buffer.pending_receives.empty());
+		assert(buffer.pending_gathers.empty());
+
+		for(auto& mem_state : buffer.memories) {
+			for(auto& alloc_state : mem_state.allocations) {
+				alloc_state.last_writers.apply_to_values([&repl_map, &apply_template_epoch](const access_front& front) {
+					auto instrs = front.get_instructions();
+					bool did_replace = false;
+					for(auto& instr : instrs) {
+						const auto it = repl_map.find(instr);
+						if(it != repl_map.end()) {
+							instr = it->second;
+							did_replace = true;
+						}
+					}
+					did_replace = apply_template_epoch(instrs) || did_replace;
+					if(did_replace) {
+						// std::ranges::sort(instrs, instruction_id_less{}); // Instructions in front need to be sorted
+						access_front new_front{front.get_mode()};
+						for(auto instr : instrs) {
+							new_front.add_instruction(instr);
+						}
+						return new_front;
+					} else {
+						return front;
+					}
+				});
+
+				// NOCOMMIT DRY
+				// Also add test => e.g. free instructions look this up
+				alloc_state.last_concurrent_accesses.apply_to_values([&repl_map, &read_repl_map, &apply_template_epoch](const access_front& front) {
+					auto instrs = front.get_instructions();
+					bool did_replace = false;
+
+					// Concurrent reads require special handling!
+					// Since we generate a horizon at the start of each iteration, the access front will contain three instructions: A horizon that subsumed
+					// all earlier reading instructions, one instruction from the second-to-last calibration iteration (A), and one from the last calibration
+					// iteration (B).
+					// We now want to replace the horizon with the last applied horizon (generated in second-to-last instantiation),
+					// replace (A) with the corresponding instruction from the second-to-last instantiation, and (B) with the corresponding instruction from
+					// the last instantiation.
+					// In the special case that we only instantiated a single iteration, we have to ensure that we don't replace the same instruction twice,
+					// as we would otherwise lose the second-to-last instruction (both end up as the latest instruction) and update the horizon to the
+					// latest, not the applied.
+					// NOCOMMIT TODO: This solution REQUIRES that we have a horizon at the start of each iteration. Should we check this somewhere in loop
+					// template?
+					std::vector<bool> already_replaced(instrs.size(), false);
+					if(front.get_mode() == access_front::read) {
+						// This is a reading access front. First perform read replacements, then regular replacements (which also include reads
+						// from the last instantiated interation).
+						for(size_t i = 0; i < instrs.size(); ++i) {
+							const auto it = read_repl_map.find(instrs[i]);
+							if(it != read_repl_map.end()) {
+								instrs[i] = it->second;
+								did_replace = true;
+								already_replaced[i] = true;
+							}
+						}
+					}
+					for(size_t i = 0; i < instrs.size(); ++i) {
+						if(already_replaced[i]) continue;
+						const auto it = repl_map.find(instrs[i]);
+						if(it != repl_map.end()) {
+							instrs[i] = it->second;
+							did_replace = true;
+						}
+					}
+					did_replace = apply_template_epoch(instrs) || did_replace;
+					if(did_replace) {
+						// std::ranges::sort(instrs, instruction_id_less{}); // Instructions in front need to be sorted
+						access_front new_front{front.get_mode()};
+						for(auto instr : instrs) {
+							new_front.add_instruction(instr);
+						}
+						return new_front;
+					} else {
+						return front;
+					}
+				});
+			}
+		}
+
+		buffer.original_writers.apply_to_values([&repl_map](instruction* const instr) {
+			const auto it = repl_map.find(instr);
+			if(it == repl_map.end()) return instr;
+			return it->second;
+		});
+	}
+
+	// NOCOMMIT TEST: Free instructions for staging allocations depend on correct last access (e.g. epoch)
+	for(auto& mem_state : m_memories) {
+		for(auto& staging_alloc : mem_state.staging_allocation_pool) {
+			// NOCOMMIT DRY
+			auto instrs = staging_alloc.last_accesses.get_instructions();
+			bool did_replace = false;
+			for(auto& instr : instrs) {
+				const auto it = repl_map.find(instr);
+				if(it != repl_map.end()) {
+					instr = it->second;
+					did_replace = true;
+				}
+			}
+			did_replace = apply_template_epoch(instrs) || did_replace;
+			if(did_replace) {
+				// std::ranges::sort(instrs, instruction_id_less{}); // Instructions in front need to be sorted
+				access_front new_front{staging_alloc.last_accesses.get_mode()};
+				for(auto instr : instrs) {
+					new_front.add_instruction(instr);
+				}
+				staging_alloc.last_accesses = new_front;
+			}
+		}
+	}
+
+	// NOCOMMIT TODO: Write test that fails if we don't do this
+	// => Also this would break if no horizons are generated as part of the loop..?
+	m_last_horizon = repl_map.at(m_last_horizon);
+
+	// NOCOMMIT TODO: Again, can this really be null?
+	if(epoch != nullptr) { m_last_epoch = epoch; }
+
+	// NOCOMMIT TODO: Write test that fails if we don't do this
+	// NOCOMMIT TODO: Do we need to apply epoch here as well..? Or does replacement fully take care of that?
+	for(const auto [from, to] : repl_map) {
+		if(m_execution_front.contains(from->get_id())) {
+			m_execution_front.erase(from->get_id());
+			m_execution_front.insert(to->get_id());
+		}
+	}
+
+	if(is_recording()) { m_recorder->end_loop_template(); }
 }
 
 std::string generator_impl::print_buffer_debug_label(const buffer_id bid) const { return utils::make_buffer_debug_label(bid, m_buffers.at(bid).debug_name); }
@@ -2456,6 +2784,8 @@ void instruction_graph_generator::notify_host_object_destroyed(const host_object
 
 instruction_graph_generator::scheduling_hint instruction_graph_generator::anticipate(const command& cmd) { return m_impl->anticipate(cmd); }
 
-void instruction_graph_generator::compile(const command& cmd) { m_impl->compile(cmd); }
+void instruction_graph_generator::compile(const command& cmd, loop_template* const templ) { m_impl->compile(cmd, templ); }
+
+void instruction_graph_generator::finalize_loop_template(loop_template& templ) { m_impl->finalize_loop_template(templ); }
 
 } // namespace celerity::detail

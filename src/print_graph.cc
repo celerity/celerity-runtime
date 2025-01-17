@@ -173,7 +173,8 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 		auto back = std::back_inserter(*output);
 
 		const auto begin_node = [&](const command_record& cmd, const std::string_view& shape, const std::string_view& color) {
-			fmt::format_to(back, "{}[color={},shape={},label=<C{} on N{}<br/>", local_to_global_id(cmd.id), color, shape, cmd.id, local_nid);
+			const auto style = cmd.is_cloned ? "style=dashed," : "";
+			fmt::format_to(back, "{}[color={},shape={},{}label=<C{} on N{}<br/>", local_to_global_id(cmd.id), color, shape, style, cmd.id, local_nid);
 		};
 		const auto end_node = [&] { fmt::format_to(back, ">];"); };
 
@@ -312,7 +313,9 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 	const auto back = std::back_inserter(dot);
 
 	const auto begin_node = [&](const instruction_record& instr, const std::string_view& shape, const std::string_view& color) {
-		fmt::format_to(back, "I{}[color={},shape={},label=<", instr.id, color, shape);
+		// Note that this overrides the rounded corners for task instructions, as there unfortunately is no "rounded-dashed" style
+		const auto style = instr.is_cloned ? "style=dashed," : "";
+		fmt::format_to(back, "I{}[color={},shape={},{}label=<", instr.id, color, shape, style);
 	};
 
 	const auto end_node = [&] { fmt::format_to(back, ">];"); };

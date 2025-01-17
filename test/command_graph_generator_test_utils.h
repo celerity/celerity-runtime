@@ -249,6 +249,7 @@ class cdag_test_context final : private task_manager::delegate {
 			m_cmd_recorders.emplace_back(std::make_unique<command_recorder>());
 			m_cggens.emplace_back(std::make_unique<command_graph_generator>(num_nodes, nid, *m_cdags[nid], m_cmd_recorders[nid].get(), policy.cggen));
 		}
+		m_active_loop_templates.resize(num_nodes, nullptr);
 		m_initial_epoch_tid = m_tm.generate_epoch_task(epoch_action::init);
 	}
 
@@ -260,8 +261,8 @@ class cdag_test_context final : private task_manager::delegate {
 	cdag_test_context& operator=(cdag_test_context&&) = delete;
 
 	void task_created(const task* tsk) override {
-		for(auto& cggen : m_cggens) {
-			cggen->build_task(*tsk);
+		for(size_t i = 0; i < m_num_nodes; ++i) {
+			m_cggens[i]->build_task(*tsk, m_active_loop_templates[i]);
 		}
 	}
 
@@ -336,6 +337,19 @@ class cdag_test_context final : private task_manager::delegate {
 
 	void set_horizon_step(const int step) { m_tm.set_horizon_step(step); }
 
+	void set_active_loop_templates(std::vector<loop_template*> templs) {
+		assert(std::all_of(templs.begin(), templs.end(), [](auto* t) { return t != nullptr; })
+		       || std::all_of(templs.begin(), templs.end(), [](auto* t) { return t == nullptr; }));
+		if(m_active_loop_templates[0] != nullptr) {
+			// NOCOMMIT ULTRA HACK: We use templs[0] for task_manager (since we only have one for all CGGENs)
+			m_tm.finalize_loop_template(*m_active_loop_templates[0]);
+			for(size_t i = 0; i < m_num_nodes; ++i) {
+				m_cggens[i]->finalize_loop_template(*m_active_loop_templates[i]);
+			}
+		}
+		m_active_loop_templates = std::move(templs);
+	}
+
 	void set_test_chunk_multiplier(const size_t multiplier) {
 		for(auto& cggen : m_cggens) {
 			cggen->test_set_chunk_multiplier(multiplier);
@@ -349,6 +363,8 @@ class cdag_test_context final : private task_manager::delegate {
 	command_graph& get_command_graph(node_id nid) { return *m_cdags.at(nid); }
 
 	command_graph_generator& get_graph_generator(node_id nid) { return *m_cggens.at(nid); }
+
+	const command_recorder& get_command_recorder(node_id nid) const { return *m_cmd_recorders.at(nid); }
 
 	task_id get_initial_epoch_task() const { return m_initial_epoch_tid; }
 
@@ -371,6 +387,7 @@ class cdag_test_context final : private task_manager::delegate {
 	std::vector<std::unique_ptr<command_graph>> m_cdags;
 	std::vector<std::unique_ptr<command_graph_generator>> m_cggens;
 	std::vector<std::unique_ptr<command_recorder>> m_cmd_recorders;
+	std::vector<loop_template*> m_active_loop_templates;
 
 	reduction_info create_reduction(const buffer_id bid, const bool include_current_buffer_value) {
 		return reduction_info{m_next_reduction_id++, bid, include_current_buffer_value};
@@ -378,7 +395,7 @@ class cdag_test_context final : private task_manager::delegate {
 
 	template <typename CGF>
 	task_id submit_command_group(CGF cgf) {
-		return m_tm.generate_command_group_task(invoke_command_group_function(cgf));
+		return m_tm.generate_command_group_task(invoke_command_group_function(cgf), m_active_loop_templates[0]);
 	}
 
 	void maybe_print_graphs() {

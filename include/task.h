@@ -19,6 +19,9 @@
 #include <utility>
 #include <vector>
 
+#include "command_graph.h" // NOCOMMIT For CDAG loop template
+#include "log.h"           // NOCOMMIT Just for debugging
+
 
 namespace celerity {
 namespace detail {
@@ -98,6 +101,8 @@ namespace detail {
 
 		iterator begin() const { return cbegin(); }
 		iterator end() const { return cend(); }
+
+		bool operator==(const side_effect_map& other) const { return static_cast<const map_base&>(*this) == static_cast<const map_base&>(other); }
 	};
 
 	// TODO refactor into an inheritance hierarchy

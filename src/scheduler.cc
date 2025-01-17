@@ -4,6 +4,7 @@
 #include "command_graph_generator.h"
 #include "double_buffered_queue.h"
 #include "instruction_graph_generator.h"
+#include "loop_template.h"
 #include "named_threads.h"
 #include "print_utils.h"
 #include "print_utils_internal.h"
@@ -36,6 +37,7 @@ struct event_task_available {
 struct event_command_available {
 	const command* cmd;
 	std::optional<instruction_graph_generator::scheduling_hint> hint;
+	loop_template* templ;
 };
 struct event_buffer_created {
 	buffer_id bid;
@@ -65,10 +67,20 @@ struct event_set_lookahead {
 	experimental::lookahead lookahead;
 };
 struct event_flush_commands {};
+struct event_enable_loop_template {
+	loop_template* templ;
+};
+struct event_complete_loop_iteration {
+	loop_template* templ; // NOCOMMIT Only set/used for IDAG - weird
+};
+struct event_finalize_loop_template {
+	loop_template* templ;
+};
 
 /// An event passed from task_manager or runtime through the public scheduler interface.
 using task_event = std::variant<event_task_available, event_buffer_created, event_buffer_debug_name_changed, event_buffer_destroyed, event_host_object_created,
-    event_host_object_destroyed, event_epoch_reached, event_set_lookahead, event_flush_commands, scheduler_testspy::event_inspect>;
+    event_host_object_destroyed, event_epoch_reached, event_set_lookahead, event_flush_commands, event_enable_loop_template, event_complete_loop_iteration,
+    event_finalize_loop_template, scheduler_testspy::event_inspect>;
 
 class task_queue {
   public:
@@ -96,7 +108,7 @@ class task_queue {
 
 /// An event originating from command_graph_generator, or forwarded from the task_queue because it requires in-order processing with commands.
 using command_event = std::variant<event_command_available, event_buffer_debug_name_changed, event_buffer_destroyed, event_host_object_destroyed,
-    event_flush_commands, event_set_lookahead>;
+    event_flush_commands, event_set_lookahead, event_complete_loop_iteration, event_finalize_loop_template>;
 
 class command_queue {
   public:
@@ -159,6 +171,8 @@ struct scheduler_impl {
 
 	experimental::lookahead lookahead = experimental::lookahead::automatic;
 
+	loop_template* active_loop_template = nullptr; // NOCOMMIT Only for commands though - naming?! Or don't store this, but pass it in with each task?
+
 	class task_queue task_queue;
 	class command_queue command_queue;
 
@@ -208,7 +222,7 @@ void scheduler_impl::process_task_queue_event(const task_event& evt) {
 		    const auto commands = [&] {
 			    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::build_task", scheduler_build_task, "T{} build", tsk.get_id());
 			    CELERITY_DETAIL_TRACY_ZONE_TEXT(utils::make_task_debug_label(tsk.get_type(), tsk.get_id(), tsk.get_debug_name()));
-			    return cggen.build_task(tsk);
+			    return cggen.build_task(tsk, active_loop_template);
 		    }(); // IIFE
 
 		    for(const auto cmd : commands) {
@@ -218,8 +232,9 @@ void scheduler_impl::process_task_queue_event(const task_event& evt) {
 			    if(tsk.get_type() == task_type::epoch && tsk.get_epoch_action() == epoch_action::shutdown) { shutdown_epoch_created = tsk.get_id(); }
 
 			    std::optional<instruction_graph_generator::scheduling_hint> hint;
+			    // NOCOMMIT TODO: No need to anticipate when we're currently in an active loop template
 			    if(lookahead != experimental::lookahead::none) { hint = iggen.anticipate(*cmd); }
-			    command_queue.push(event_command_available{cmd, hint});
+			    command_queue.push(event_command_available{.cmd = cmd, .hint = hint, .templ = active_loop_template});
 		    }
 	    },
 	    [&](const event_buffer_created& e) {
@@ -274,6 +289,17 @@ void scheduler_impl::process_task_queue_event(const task_event& evt) {
 	    [&](const event_flush_commands& e) { //
 		    command_queue.push(e);
 	    },
+	    [&](const event_enable_loop_template& e) { active_loop_template = e.templ; },
+	    [&](const event_complete_loop_iteration& e) {
+		    assert(active_loop_template != nullptr);
+		    active_loop_template->cdag.complete_iteration();
+		    command_queue.push(event_complete_loop_iteration{.templ = active_loop_template});
+	    },
+	    [&](const event_finalize_loop_template& e) {
+		    cggen.finalize_loop_template(*e.templ);
+		    active_loop_template = nullptr;
+		    command_queue.push(e);
+	    },
 	    [&](const scheduler_testspy::event_inspect& e) { //
 		    e.inspector({.cdag = &cdag, .idag = &idag, .lookahead = lookahead});
 	    });
@@ -285,7 +311,7 @@ void scheduler_impl::process_command_queue_event(const command_event& evt) {
 	    [&](const event_command_available& e) {
 		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::compile_command", scheduler_compile_command, "C{} compile", e.cmd->get_id());
 		    CELERITY_DETAIL_TRACY_ZONE_TEXT("{}", print_command_type(*e.cmd));
-		    iggen.compile(*e.cmd);
+		    iggen.compile(*e.cmd, e.templ);
 	    },
 	    [&](const event_buffer_debug_name_changed& e) {
 		    CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("scheduler::buffer_name_changed", scheduler_buffer_name_changed, "B{} set name", e.bid);
@@ -305,7 +331,12 @@ void scheduler_impl::process_command_queue_event(const command_event& evt) {
 	    },
 	    [&](const event_flush_commands&) {
 		    // no-op, but must still reside in command_queue to ensure a correct num_flushes_in_queue count
-	    });
+	    },
+	    [&](const event_complete_loop_iteration& e) {
+		    assert(e.templ != nullptr);
+		    e.templ->idag.complete_iteration();
+	    },
+	    [&](const event_finalize_loop_template& e) { iggen.finalize_loop_template(*e.templ); });
 }
 
 void scheduler_impl::scheduling_loop() {
@@ -370,6 +401,12 @@ void scheduler::notify_epoch_reached(const task_id tid) { m_impl->task_queue.pus
 void scheduler::set_lookahead(const experimental::lookahead lookahead) { m_impl->task_queue.push(event_set_lookahead{lookahead}); }
 
 void scheduler::flush_commands() { m_impl->task_queue.push(event_flush_commands{}); }
+
+void scheduler::enable_loop_template(loop_template& templ) { m_impl->task_queue.push(event_enable_loop_template{&templ}); }
+
+void scheduler::complete_loop_iteration() { m_impl->task_queue.push(event_complete_loop_iteration{}); }
+
+void scheduler::finalize_loop_template(loop_template& templ) { m_impl->task_queue.push(event_finalize_loop_template{&templ}); }
 
 } // namespace celerity::detail
 

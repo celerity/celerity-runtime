@@ -42,6 +42,19 @@ class queue {
 		CELERITY_DETAIL_TRACY_ZONE_NAME("T{} submit", tid);
 	}
 
+	template <typename LoopFn>
+	    requires(std::is_invocable_r_v<bool, LoopFn>)
+	void loop(LoopFn&& fn) {
+		detail::runtime::get_instance().initialize_new_loop_template();
+		// Loop until user returns false
+		for(bool keep_going = true; keep_going;) {
+			detail::runtime::get_instance().begin_loop_iteration();
+			keep_going = std::invoke(fn);
+			detail::runtime::get_instance().complete_loop_iteration();
+		}
+		detail::runtime::get_instance().finalize_loop_template();
+	}
+
 	/// Waits for all tasks submitted to the queue to complete.
 	///
 	/// Since waiting will stall the scheduling of more work, this should be used sparingly - more so than on a single-node SYCL program.

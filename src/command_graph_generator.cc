@@ -3,6 +3,8 @@
 #include "command_graph.h"
 #include "grid.h"
 #include "intrusive_graph.h"
+#include "log.h"
+#include "loop_template.h"
 #include "print_utils.h"
 #include "print_utils_internal.h"
 #include "ranges.h"
@@ -73,9 +75,20 @@ bool is_topologically_sorted(Iterator begin, Iterator end) {
 	return true;
 }
 
-std::vector<const command*> command_graph_generator::build_task(const task& tsk) {
+std::vector<const command*> command_graph_generator::build_task(const task& tsk, loop_template* const templ) {
 	const auto epoch_to_prune_before = m_epoch_for_new_commands;
 	batch current_batch;
+
+	if(templ != nullptr && templ->cdag.is_verified) {
+		const auto clone = [&](const command& cmd) { return clone_command(current_batch, &cmd, tsk); };
+		const auto add_dependency = [&](command* from, command* to, dependency_kind kind, dependency_origin origin) {
+			this->add_dependency(from, to, kind, origin);
+		};
+
+		// CELERITY_CRITICAL("CDAG: Applying loop template to task {}!", tsk.get_id()); //
+		templ->cdag.instantiate(clone, add_dependency);
+		return current_batch;
+	}
 
 	switch(tsk.get_type()) {
 	case task_type::epoch: generate_epoch_command(current_batch, tsk); break;
@@ -112,8 +125,87 @@ std::vector<const command*> command_graph_generator::build_task(const task& tsk)
 		}));
 	}
 
+	if(templ != nullptr) {
+		if(!templ->cdag.is_primed) {
+			templ->cdag.prime(current_batch);
+		} else {
+			assert(!templ->cdag.is_verified);
+			templ->cdag.verify(current_batch);
+			if(templ->cdag.is_verified && m_recorder != nullptr) { m_recorder->begin_loop_template(); }
+		}
+	}
+
 	assert(is_topologically_sorted(current_batch.begin(), current_batch.end()));
 	return current_batch;
+}
+
+void command_graph_generator::finalize_loop_template(loop_template& templ) {
+	// CELERITY_CRITICAL("CDAG: Finalizing template!"); //
+
+	const auto repl_map = templ.cdag.get_replacement_map();
+
+	// TODO: Could optimize this to only update touched buffers
+	for(auto& [bid, buffer] : m_buffers) {
+		buffer.local_last_writer.apply_to_values([&repl_map](const write_command_state& wcs) {
+			if(wcs.get_command() == nullptr) return wcs;
+			const auto it = repl_map.find(wcs.get_command());
+			if(it == repl_map.end()) return wcs;
+			write_command_state new_wcs{it->second, wcs.is_replicated()};
+			if(!wcs.is_fresh()) { new_wcs.mark_as_stale(); }
+			return new_wcs;
+		});
+	}
+
+	for(const auto& [from, to] : repl_map) {
+		if(m_execution_front.contains(from)) {
+			m_execution_front.erase(from);
+			m_execution_front.insert(to);
+		}
+
+		if(m_command_buffer_reads.contains(from->get_id())) {
+			m_command_buffer_reads[to->get_id()] = m_command_buffer_reads.at(from->get_id());
+			m_command_buffer_reads.erase(from->get_id());
+		}
+	}
+
+	m_epoch_for_new_commands = repl_map.at(m_epoch_for_new_commands);
+	m_current_horizon = repl_map.at(m_current_horizon);
+
+	if(m_recorder != nullptr) { m_recorder->end_loop_template(); }
+}
+
+command* command_graph_generator::clone_command(batch& current_batch, const command* const cmd, const task& tsk) {
+	return matchbox::match<command*>(
+	    *cmd,
+	    [&](const execution_command& ecmd) {
+		    return create_command<execution_command>(current_batch, &tsk, ecmd.get_execution_range(), ecmd.is_reduction_initializer(),
+		        [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
+	    },
+	    [&](const push_command& pcmd) {
+		    const auto trid = pcmd.get_transfer_id();
+		    if(trid.rid != no_reduction_id) { throw std::runtime_error("Reduction push commands are not supported (yet) in loop templates"); }
+		    return create_command<push_command>(current_batch, transfer_id(tsk.get_id(), trid.bid, trid.rid), pcmd.get_target_regions(),
+		        [&](const auto& record_debug_info) { record_debug_info(m_buffers.at(trid.bid).debug_name); });
+	    },
+	    [&](const await_push_command& apcmd) {
+		    const auto trid = apcmd.get_transfer_id();
+		    if(trid.rid != no_reduction_id) { throw std::runtime_error("Reduction await-push commands are not supported (yet) in loop templates"); }
+		    return create_command<await_push_command>(current_batch, transfer_id(tsk.get_id(), trid.bid, trid.rid), apcmd.get_region(),
+		        [&](const auto& record_debug_info) { record_debug_info(m_buffers.at(trid.bid).debug_name); });
+	    },
+	    [&](const horizon_command& hcmd) {
+		    if(!hcmd.get_completed_reductions().empty()) {
+			    // NOCOMMIT Test this
+			    throw std::runtime_error("Horizon commands with completed reductions are not supported (yet) in loop templates");
+		    }
+		    m_cdag->begin_epoch(tsk.get_id()); // NOCOMMIT Test this!
+		    return create_command<horizon_command>(
+		        current_batch, &tsk, std::vector<reduction_id>{}, [&](const auto& record_debug_info) { record_debug_info(tsk); });
+	    },
+	    [&](const auto& cmd) {
+		    throw std::runtime_error("Command type NYI!");
+		    return nullptr;
+	    });
 }
 
 void command_graph_generator::report_overlapping_writes(const task& tsk, const box_vector<3>& local_chunks) const {

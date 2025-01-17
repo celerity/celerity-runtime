@@ -36,6 +36,8 @@ struct access_record {
 	const std::string buffer_name;
 	const access_mode mode;
 	const region<3> req;
+
+	bool operator==(const access_record&) const = default;
 };
 using access_list = std::vector<access_record>;
 using buffer_name_map = std::function<std::string(buffer_id)>;
@@ -45,6 +47,8 @@ struct reduction_record {
 	const buffer_id bid;
 	const std::string buffer_name;
 	const bool init_from_buffer;
+
+	bool operator==(const reduction_record&) const = default;
 };
 using reduction_list = std::vector<reduction_record>;
 
@@ -53,6 +57,8 @@ struct dependency_record {
 	const IdType node;
 	const dependency_kind kind;
 	const dependency_origin origin;
+
+	bool operator==(const dependency_record&) const = default;
 };
 
 // Task recording
@@ -71,6 +77,8 @@ struct task_record {
 	access_list accesses;
 	detail::side_effect_map side_effect_map;
 	task_dependency_list dependencies;
+
+	bool operator==(const task_record&) const = default;
 };
 
 class task_recorder {
@@ -95,13 +103,21 @@ struct command_dependency_record {
 
 	command_dependency_record(const command_id predecessor, const command_id successor, const dependency_kind kind, const dependency_origin origin)
 	    : predecessor(predecessor), successor(successor), kind(kind), origin(origin) {}
+
+	bool operator==(const command_dependency_record& other) const = default;
 };
 
 struct command_record : matchbox::acceptor<struct push_command_record, struct await_push_command_record, struct reduction_command_record,
                             struct epoch_command_record, struct horizon_command_record, struct execution_command_record, struct fence_command_record> {
 	command_id id;
 
+	// Set by command recorder if a loop template is currently active
+	// NOCOMMIT TODO: Also for TDAG ?
+	bool is_cloned = false;
+
 	explicit command_record(const command& cmd);
+
+	bool operator==(const command_record& other) const { return id == other.id; };
 };
 
 struct push_command_record : matchbox::implement_acceptor<command_record, push_command_record> {
@@ -110,6 +126,8 @@ struct push_command_record : matchbox::implement_acceptor<command_record, push_c
 	std::string buffer_name;
 
 	explicit push_command_record(const push_command& pcmd, std::string buffer_name);
+
+	bool operator==(const push_command_record&) const = default;
 };
 
 struct await_push_command_record : matchbox::implement_acceptor<command_record, await_push_command_record> {
@@ -118,6 +136,8 @@ struct await_push_command_record : matchbox::implement_acceptor<command_record, 
 	std::string buffer_name;
 
 	explicit await_push_command_record(const await_push_command& apcmd, std::string buffer_name);
+
+	bool operator==(const await_push_command_record&) const = default;
 };
 
 struct reduction_command_record : matchbox::implement_acceptor<command_record, reduction_command_record> {
@@ -128,6 +148,8 @@ struct reduction_command_record : matchbox::implement_acceptor<command_record, r
 	bool has_local_contribution;
 
 	explicit reduction_command_record(const reduction_command& rcmd, std::string buffer_name);
+
+	bool operator==(const reduction_command_record&) const = default;
 };
 
 /// Base class for task command records
@@ -138,6 +160,8 @@ struct task_command_record {
 	collective_group_id cgid;
 
 	explicit task_command_record(const task& tsk);
+
+	bool operator==(const task_command_record&) const = default;
 };
 
 struct epoch_command_record : matchbox::implement_acceptor<command_record, epoch_command_record>, task_command_record {
@@ -145,12 +169,16 @@ struct epoch_command_record : matchbox::implement_acceptor<command_record, epoch
 	std::vector<reduction_id> completed_reductions;
 
 	explicit epoch_command_record(const epoch_command& ecmd, const task& tsk);
+
+	bool operator==(const epoch_command_record&) const = default;
 };
 
 struct horizon_command_record : matchbox::implement_acceptor<command_record, horizon_command_record>, task_command_record {
 	std::vector<reduction_id> completed_reductions;
 
 	explicit horizon_command_record(const horizon_command& hcmd, const task& tsk);
+
+	bool operator==(const horizon_command_record&) const = default;
 };
 
 struct execution_command_record : matchbox::implement_acceptor<command_record, execution_command_record>, task_command_record {
@@ -161,6 +189,10 @@ struct execution_command_record : matchbox::implement_acceptor<command_record, e
 	reduction_list reductions;
 
 	explicit execution_command_record(const execution_command& ecmd, const task& tsk, const buffer_name_map& get_buffer_debug_name);
+
+	// NOCOMMIT TODO: Add tests that task/command/instruction records are equality comparable! (and for each class, so we don't accidentally just inherit base
+	// class comparison)
+	bool operator==(const execution_command_record&) const = default;
 };
 
 struct fence_command_record : matchbox::implement_acceptor<command_record, fence_command_record>, task_command_record {
@@ -168,11 +200,28 @@ struct fence_command_record : matchbox::implement_acceptor<command_record, fence
 
 	access_list accesses;
 	side_effect_map side_effects;
+
+	bool operator==(const fence_command_record&) const = default;
 };
 
 class command_recorder {
   public:
-	void record_command(std::unique_ptr<command_record> record) { m_recorded_commands.push_back(std::move(record)); }
+	// NOCOMMIT TODO: Naming - this designates the point where we begin INSTANTIATING a template. This is different from the *GGENs, where we begin a template
+	// w/ priming.
+	void begin_loop_template() {
+		assert(!m_loop_template_active);
+		m_loop_template_active = true;
+	}
+
+	void end_loop_template() {
+		assert(m_loop_template_active);
+		m_loop_template_active = false;
+	}
+
+	void record_command(std::unique_ptr<command_record> record) {
+		if(m_loop_template_active) { record->is_cloned = true; }
+		m_recorded_commands.push_back(std::move(record));
+	}
 
 	void record_dependency(const command_dependency_record& dependency) { m_recorded_dependencies.push_back(dependency); }
 
@@ -183,6 +232,7 @@ class command_recorder {
   private:
 	std::vector<std::unique_ptr<command_record>> m_recorded_commands;
 	std::vector<command_dependency_record> m_recorded_dependencies;
+	bool m_loop_template_active = false;
 };
 
 // Instruction recording
@@ -230,7 +280,12 @@ struct instruction_record
 	instruction_id id;
 	int priority;
 
+	// Set by instruction recorder if a loop template is currently active
+	bool is_cloned = false;
+
 	explicit instruction_record(const instruction& instr);
+
+	bool operator==(const instruction_record& other) const { return id == other.id && priority == other.priority; }
 };
 
 /// IDAG record type for `clone_collective_group_instruction`.
@@ -239,6 +294,8 @@ struct clone_collective_group_instruction_record : matchbox::implement_acceptor<
 	collective_group_id new_collective_group_id;
 
 	explicit clone_collective_group_instruction_record(const clone_collective_group_instruction& ccginstr);
+
+	bool operator==(const clone_collective_group_instruction_record&) const = default;
 };
 
 /// IDAG record type for `alloc_instruction`.
@@ -258,6 +315,8 @@ struct alloc_instruction_record : matchbox::implement_acceptor<instruction_recor
 
 	alloc_instruction_record(
 	    const alloc_instruction& ainstr, alloc_origin origin, std::optional<buffer_allocation_record> buffer_allocation, std::optional<size_t> num_chunks);
+
+	bool operator==(const alloc_instruction_record&) const = default;
 };
 
 /// IDAG record type for `free_instruction`.
@@ -267,6 +326,8 @@ struct free_instruction_record : matchbox::implement_acceptor<instruction_record
 	std::optional<buffer_allocation_record> buffer_allocation;
 
 	free_instruction_record(const free_instruction& finstr, size_t size, std::optional<buffer_allocation_record> buffer_allocation);
+
+	bool operator==(const free_instruction_record&) const = default;
 };
 
 /// IDAG record type for `copy_instruction`.
@@ -292,6 +353,8 @@ struct copy_instruction_record : matchbox::implement_acceptor<instruction_record
 	std::string buffer_name;
 
 	copy_instruction_record(const copy_instruction& cinstr, copy_origin origin, detail::buffer_id buffer_id, std::string buffer_name);
+
+	bool operator==(const copy_instruction_record&) const = default;
 };
 
 /// IDAG debug info for device-kernel / host-task access to a single allocation (not part of the actual graph).
@@ -299,6 +362,8 @@ struct buffer_memory_record {
 	detail::buffer_id buffer_id;
 	std::string buffer_name;
 	region<3> accessed_region_in_buffer;
+
+	bool operator==(const buffer_memory_record&) const = default;
 };
 
 /// IDAG debug info for a device-kernel access to a reduction output buffer (not part of the actual graph).
@@ -306,18 +371,24 @@ struct buffer_reduction_record {
 	detail::buffer_id buffer_id;
 	std::string buffer_name;
 	detail::reduction_id reduction_id;
+
+	bool operator==(const buffer_reduction_record&) const = default;
 };
 
 /// IDAG combined record for a device-kernel / host-task buffer access via a single allocation.
 struct buffer_access_allocation_record : buffer_access_allocation, buffer_memory_record {
 	buffer_access_allocation_record(const buffer_access_allocation& aa, buffer_memory_record mr)
 	    : buffer_access_allocation(aa), buffer_memory_record(std::move(mr)) {}
+
+	bool operator==(const buffer_access_allocation_record&) const = default;
 };
 
 /// IDAG combined record for a device-kernel access to a reduction-output buffer allocation.
 struct buffer_reduction_allocation_record : buffer_access_allocation, buffer_reduction_record {
 	buffer_reduction_allocation_record(const buffer_access_allocation& aa, buffer_reduction_record mrr)
 	    : buffer_access_allocation(aa), buffer_reduction_record(std::move(mrr)) {}
+
+	bool operator==(const buffer_reduction_allocation_record&) const = default;
 };
 
 /// IDAG record type for a `device_kernel_instruction`.
@@ -333,6 +404,12 @@ struct device_kernel_instruction_record : matchbox::implement_acceptor<instructi
 
 	device_kernel_instruction_record(const device_kernel_instruction& dkinstr, task_id cg_tid, command_id execution_cid, const std::string& debug_name,
 	    const std::vector<buffer_memory_record>& buffer_memory_allocation_map, const std::vector<buffer_reduction_record>& buffer_memory_reduction_map);
+
+	// Cloning constructor
+	device_kernel_instruction_record(const device_kernel_instruction& dkinstr, task_id cg_tid, command_id execution_cid, const std::string& debug_name,
+	    const device_kernel_instruction_record& other);
+
+	bool operator==(const device_kernel_instruction_record&) const = default;
 };
 
 /// IDAG record type for a `host_task_instruction`.
@@ -346,6 +423,12 @@ struct host_task_instruction_record : matchbox::implement_acceptor<instruction_r
 
 	host_task_instruction_record(const host_task_instruction& htinstr, task_id cg_tid, command_id execution_cid, const std::string& debug_name,
 	    const std::vector<buffer_memory_record>& buffer_memory_allocation_map);
+
+	// Cloning constructor
+	host_task_instruction_record(const host_task_instruction& htinstr, task_id cg_tid, command_id execution_cid, const std::string& debug_name,
+	    const host_task_instruction_record& other);
+
+	bool operator==(const host_task_instruction_record&) const = default;
 };
 
 /// IDAG record type for a `send_instruction`.
@@ -364,6 +447,8 @@ struct send_instruction_record : matchbox::implement_acceptor<instruction_record
 
 	send_instruction_record(
 	    const send_instruction& sinstr, command_id push_cid, const detail::transfer_id& trid, std::string buffer_name, const celerity::id<3>& offset_in_buffer);
+
+	bool operator==(const send_instruction_record&) const = default;
 };
 
 /// Base implementation for IDAG record types of `receive_instruction` and `split_receive_instruction`.
@@ -376,16 +461,22 @@ struct receive_instruction_record_impl {
 	size_t element_size;
 
 	receive_instruction_record_impl(const receive_instruction_impl& rinstr, std::string buffer_name);
+
+	bool operator==(const receive_instruction_record_impl&) const = default;
 };
 
 /// IDAG record type for a `receive_instruction`.
 struct receive_instruction_record : matchbox::implement_acceptor<instruction_record, receive_instruction_record>, receive_instruction_record_impl {
 	receive_instruction_record(const receive_instruction& rinstr, std::string buffer_name);
+
+	bool operator==(const receive_instruction_record&) const = default;
 };
 
 /// IDAG record type for a `split_receive_instruction`.
 struct split_receive_instruction_record : matchbox::implement_acceptor<instruction_record, split_receive_instruction_record>, receive_instruction_record_impl {
 	split_receive_instruction_record(const split_receive_instruction& srinstr, std::string buffer_name);
+
+	bool operator==(const split_receive_instruction_record&) const = default;
 };
 
 /// IDAG record type for a `await_receive_instruction`.
@@ -395,6 +486,8 @@ struct await_receive_instruction_record : matchbox::implement_acceptor<instructi
 	region<3> received_region;
 
 	await_receive_instruction_record(const await_receive_instruction& arinstr, std::string buffer_name);
+
+	bool operator==(const await_receive_instruction_record&) const = default;
 };
 
 /// IDAG record type for a `gather_receive_instruction`.
@@ -407,6 +500,8 @@ struct gather_receive_instruction_record : matchbox::implement_acceptor<instruct
 	size_t num_nodes;
 
 	gather_receive_instruction_record(const gather_receive_instruction& grinstr, std::string buffer_name, const box<3>& gather_box, size_t num_nodes);
+
+	bool operator==(const gather_receive_instruction_record&) const = default;
 };
 
 /// IDAG record type for a `fill_identity_instruction`.
@@ -416,6 +511,8 @@ struct fill_identity_instruction_record : matchbox::implement_acceptor<instructi
 	size_t num_values;
 
 	fill_identity_instruction_record(const fill_identity_instruction& fiinstr);
+
+	bool operator==(const fill_identity_instruction_record&) const = default;
 };
 
 /// IDAG record type for a `reduce_instruction`.
@@ -437,6 +534,8 @@ struct reduce_instruction_record : matchbox::implement_acceptor<instruction_reco
 
 	reduce_instruction_record(const reduce_instruction& rinstr, std::optional<detail::command_id> reduction_cid, detail::buffer_id bid, std::string buffer_name,
 	    const detail::box<3>& box, reduction_scope scope);
+
+	bool operator==(const reduce_instruction_record&) const = default;
 };
 
 /// IDAG record type for a `fence_instruction`.
@@ -445,9 +544,13 @@ struct fence_instruction_record : matchbox::implement_acceptor<instruction_recor
 		buffer_id bid;
 		std::string name;
 		detail::box<3> box;
+
+		bool operator==(const buffer_variant&) const = default;
 	};
 	struct host_object_variant {
 		host_object_id hoid;
+
+		bool operator==(const host_object_variant&) const = default;
 	};
 
 	task_id tid;
@@ -456,6 +559,8 @@ struct fence_instruction_record : matchbox::implement_acceptor<instruction_recor
 
 	fence_instruction_record(const fence_instruction& finstr, task_id tid, command_id cid, buffer_id bid, std::string buffer_name, const box<3>& box);
 	fence_instruction_record(const fence_instruction& finstr, task_id tid, command_id cid, host_object_id hoid);
+
+	bool operator==(const fence_instruction_record&) const = default;
 };
 
 /// IDAG record type for a `destroy_host_object_instruction`.
@@ -463,6 +568,8 @@ struct destroy_host_object_instruction_record : matchbox::implement_acceptor<ins
 	detail::host_object_id host_object_id;
 
 	explicit destroy_host_object_instruction_record(const destroy_host_object_instruction& dhoinstr);
+
+	bool operator==(const destroy_host_object_instruction_record&) const = default;
 };
 
 /// IDAG record type for a `horizon_instruction`.
@@ -472,6 +579,8 @@ struct horizon_instruction_record : matchbox::implement_acceptor<instruction_rec
 	instruction_garbage garbage;
 
 	horizon_instruction_record(const horizon_instruction& hinstr, command_id horizon_cid);
+
+	bool operator==(const horizon_instruction_record&) const = default;
 };
 
 /// IDAG record type for a `epoch_instruction`.
@@ -482,14 +591,31 @@ struct epoch_instruction_record : matchbox::implement_acceptor<instruction_recor
 	instruction_garbage garbage;
 
 	epoch_instruction_record(const epoch_instruction& einstr, command_id epoch_cid);
+
+	bool operator==(const epoch_instruction_record&) const = default;
 };
 
 /// Records instructions and outbound pilots on instruction-graph generation.
 class instruction_recorder {
   public:
+	// NOCOMMIT TODO: Naming - this designates the point where we begin INSTANTIATING a template. This is different from the *GGENs, where we begin a template
+	// w/ priming.
+	void begin_loop_template() {
+		assert(!m_loop_template_active);
+		m_loop_template_active = true;
+	}
+
+	void end_loop_template() {
+		assert(m_loop_template_active);
+		m_loop_template_active = false;
+	}
+
 	void record_await_push_command_id(const transfer_id& trid, const command_id cid);
 
-	void record_instruction(std::unique_ptr<instruction_record> record) { m_recorded_instructions.push_back(std::move(record)); }
+	void record_instruction(std::unique_ptr<instruction_record> record) {
+		if(m_loop_template_active) { record->is_cloned = true; }
+		m_recorded_instructions.push_back(std::move(record));
+	}
 
 	void record_outbound_pilot(const outbound_pilot& pilot) { m_recorded_pilots.push_back(pilot); }
 
@@ -504,6 +630,7 @@ class instruction_recorder {
 	command_id get_await_push_command_id(const transfer_id& trid) const;
 
   private:
+	bool m_loop_template_active = false;
 	std::vector<std::unique_ptr<instruction_record>> m_recorded_instructions;
 	std::vector<instruction_dependency_record> m_recorded_dependencies;
 	std::vector<outbound_pilot> m_recorded_pilots;

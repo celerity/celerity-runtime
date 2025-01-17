@@ -98,6 +98,11 @@ class tdag_test_context final : private task_manager::delegate {
 
 	void set_horizon_step(const int step) { m_tm.set_horizon_step(step); }
 
+	void set_active_loop_template(loop_template* templ) {
+		if(m_active_loop_template != nullptr) { m_tm.finalize_loop_template(*m_active_loop_template); }
+		m_active_loop_template = templ;
+	}
+
 	task_graph& get_task_graph() { return m_tdag; }
 
 	task_manager& get_task_manager() { return m_tm; }
@@ -114,6 +119,7 @@ class tdag_test_context final : private task_manager::delegate {
 	task_manager m_tm;
 	task_recorder m_task_recorder;
 	task_id m_initial_epoch_tid = 0;
+	loop_template* m_active_loop_template = nullptr;
 
 	reduction_info create_reduction(const buffer_id bid, const bool include_current_buffer_value) {
 		return reduction_info{m_next_reduction_id++, bid, include_current_buffer_value};
@@ -121,7 +127,7 @@ class tdag_test_context final : private task_manager::delegate {
 
 	template <typename CGF>
 	task_id submit_command_group(CGF cgf) {
-		return m_tm.generate_command_group_task(invoke_command_group_function(cgf));
+		return m_tm.generate_command_group_task(invoke_command_group_function(cgf), m_active_loop_template);
 	}
 
 	void maybe_print_graphs() {

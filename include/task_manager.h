@@ -2,6 +2,7 @@
 
 #include "cgf.h"
 #include "intrusive_graph.h"
+#include "loop_template.h" // NOCOMMIT Forward declare and move to impl
 #include "ranges.h"
 #include "region_map.h"
 #include "task.h"
@@ -54,13 +55,59 @@ namespace detail {
 		task_manager& operator=(task_manager&&) = delete;
 		~task_manager() = default;
 
-		task_id generate_command_group_task(raw_command_group&& cg) {
+		void finalize_loop_template(loop_template& loop_templ) {
+			// CELERITY_CRITICAL("TDAG: Finalizing template!"); //
+
+			const auto repl_map = loop_templ.tdag.get_replacement_map();
+
+			// TODO: Could optimize this to only update touched buffers
+			for(auto& [bid, buffer] : m_buffers) {
+				buffer.last_writers.apply_to_values([&repl_map](task* const tsk) -> task* {
+					if(tsk == nullptr) return nullptr;
+					const auto it = repl_map.find(tsk);
+					if(it == repl_map.end()) return tsk;
+					return it->second;
+				});
+			}
+
+			for(const auto& [from, to] : repl_map) {
+				if(m_execution_front.contains(from)) {
+					m_execution_front.erase(from);
+					m_execution_front.insert(to);
+				}
+			}
+		}
+
+		void begin_loop_template_iteration(loop_template& templ) {
+			// NOCOMMIT Do we just ignore horizon step setting while loop template is active? Always generate one horizon at end of loop?
+			// => Makes things more difficult to test though (need to adjust horizon step for ground truth)
+			generate_horizon_task(&templ);
+		}
+
+		// NOCOMMIT TODO: Other task types as well
+		task_id generate_command_group_task(raw_command_group&& cg, loop_template* loop_templ = nullptr) {
 			const auto tid = m_next_tid++;
 			auto unique_tsk = detail::make_command_group_task(tid, m_num_collective_nodes, std::move(cg));
 			auto& tsk = register_task_internal(std::move(unique_tsk));
-			compute_dependencies(tsk);
+
+			if(loop_templ != nullptr) {
+				if(!loop_templ->tdag.is_primed) {
+					compute_dependencies(tsk);
+					loop_templ->tdag.prime(tsk);
+				} else if(!loop_templ->tdag.is_verified) {
+					compute_dependencies(tsk);
+					loop_templ->tdag.verify(tsk);
+				} else {
+					loop_templ->tdag.apply(
+					    tsk, [this](task* from, task* to, dependency_kind kind, dependency_origin origin) { add_dependency(*from, *to, kind, origin); });
+				}
+			} else {
+				compute_dependencies(tsk);
+			}
+
 			invoke_callbacks(&tsk);
-			if(need_new_horizon()) { generate_horizon_task(); }
+			// Only generate a horizon if we are not in a loop template. Otherwise we generate a horizon at the end of the loop.
+			if(need_new_horizon() && loop_templ == nullptr) { generate_horizon_task(); }
 			++m_num_user_command_groups_submitted;
 			return tid;
 		}
@@ -178,7 +225,8 @@ namespace detail {
 
 		void set_epoch_for_new_tasks(task* epoch);
 
-		task_id generate_horizon_task();
+		// NOCOMMIT Figure out a better way than passing the loop template around
+		task_id generate_horizon_task(loop_template* const templ = nullptr);
 
 		void compute_dependencies(task& tsk);
 

@@ -360,3 +360,7 @@ TEST_CASE("scheduler reports idle and busy phases") { //
 	      == std::vector<test_delegate::state>({test_delegate::state::busy, test_delegate::state::idle, test_delegate::state::busy, test_delegate::state::idle,
 	          test_delegate::state::busy, test_delegate::state::idle, test_delegate::state::busy}));
 }
+
+// NOCOMMIT TODO: Add tests that scheduler correctly forwards loop templates to CGGEN / IGGEN
+// NOCOMMIT TODO: Add test that scheduler doesn't prune CDAG/IDAG while a template is active
+//			=> (Actually, maybe it wouldn't be a problem, because we don't actually derefence any of the old pointers, but still, better safe than sorry..?)

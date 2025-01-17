@@ -24,6 +24,8 @@ struct task_geometry {
 	range<3> global_size{1, 1, 1};
 	id<3> global_offset;
 	range<3> granularity{1, 1, 1};
+
+	bool operator==(const task_geometry&) const = default;
 };
 
 struct buffer_access {

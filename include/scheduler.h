@@ -20,6 +20,7 @@ namespace celerity::detail {
 
 class command_recorder;
 class instruction_recorder;
+class loop_template;
 class task;
 
 // Abstract base class to allow different threading implementation in tests
@@ -77,6 +78,12 @@ class scheduler {
 	void set_lookahead(experimental::lookahead lookahead);
 
 	void flush_commands();
+
+	void enable_loop_template(loop_template& templ);
+
+	void complete_loop_iteration();
+
+	void finalize_loop_template(loop_template& templ); // NOCOMMIT Take unique_ptr instead
 
   private:
 	scheduler() = default; // used by scheduler_testspy

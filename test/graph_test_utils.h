@@ -387,6 +387,9 @@ class graph_query {
 		return m_result.front();
 	}
 
+	/// Returns the underlying set of records that make up the current query result.
+	std::vector<const Record*> raw() const { return m_result; }
+
 	// m_result follows m_recorder ordering, so vector-equality is enough
 	friend bool operator==(const graph_query& lhs, const graph_query& rhs) { return lhs.m_result == rhs.m_result; }
 	friend bool operator!=(const graph_query& lhs, const graph_query& rhs) { return lhs.m_result != rhs.m_result; }

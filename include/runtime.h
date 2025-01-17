@@ -68,6 +68,14 @@ namespace detail {
 
 		void flush_scheduler();
 
+		void initialize_new_loop_template();
+
+		void begin_loop_iteration();
+
+		void complete_loop_iteration();
+
+		void finalize_loop_template();
+
 	  private:
 		class impl;
 

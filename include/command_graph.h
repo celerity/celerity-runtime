@@ -32,6 +32,10 @@ class command : public intrusive_graph_node<command>,
   public:
 	command_id get_id() const { return m_cid; }
 
+	// Debugging information to distinguish commands that were instantiated in a loop template
+	// NOCOMMIT Keep as field? Also add for IDAG
+	bool is_template_clone = false;
+
   private:
 	command_id m_cid;
 };

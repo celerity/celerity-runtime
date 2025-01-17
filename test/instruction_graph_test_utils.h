@@ -209,8 +209,8 @@ class idag_test_context final : private task_manager::delegate {
 	void task_created(const task* tsk) override {
 		if(m_finished) { FAIL("idag_test_context already finish()ed"); }
 		const uncaught_exception_guard guard(this);
-		for(const auto cmd : m_cggen.build_task(*tsk)) {
-			m_iggen.compile(*cmd);
+		for(const auto cmd : m_cggen.build_task(*tsk, m_active_loop_template)) {
+			m_iggen.compile(*cmd, m_active_loop_template);
 		}
 	}
 
@@ -313,9 +313,20 @@ class idag_test_context final : private task_manager::delegate {
 
 	void set_horizon_step(const int step) { m_tm.set_horizon_step(step); }
 
+	void set_active_loop_template(loop_template* const templ) {
+		if(m_active_loop_template != nullptr) {
+			m_tm.finalize_loop_template(*m_active_loop_template);
+			m_cggen.finalize_loop_template(*m_active_loop_template);
+			m_iggen.finalize_loop_template(*m_active_loop_template);
+		}
+		m_active_loop_template = templ;
+	}
+
 	task_manager& get_task_manager() { return m_tm; }
 
 	command_graph_generator& get_graph_generator() { return m_cggen; }
+
+	const instruction_recorder& get_instruction_recorder() const { return m_instr_recorder; }
 
 	task_id get_initial_epoch_task() const { return m_initial_epoch_tid; }
 
@@ -355,6 +366,7 @@ class idag_test_context final : private task_manager::delegate {
 	instruction_recorder m_instr_recorder;
 	instruction_graph_generator m_iggen;
 	task_id m_initial_epoch_tid = 0;
+	loop_template* m_active_loop_template = nullptr;
 
 	allocation_id create_user_allocation() { return detail::allocation_id(detail::user_memory_id, m_next_user_allocation_id++); }
 
@@ -366,7 +378,7 @@ class idag_test_context final : private task_manager::delegate {
 	task_id submit_command_group(CGF cgf) {
 		if(m_finished) { FAIL("idag_test_context already finish()ed"); }
 		const uncaught_exception_guard guard(this);
-		return m_tm.generate_command_group_task(invoke_command_group_function(cgf));
+		return m_tm.generate_command_group_task(invoke_command_group_function(cgf), m_active_loop_template);
 	}
 
 	void maybe_print_graphs() {

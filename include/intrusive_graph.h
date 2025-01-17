@@ -25,26 +25,6 @@ namespace detail {
 		last_epoch,                     // nodes without other true-dependencies require an edge to the last epoch for temporal ordering
 	};
 
-	// TODO: Move to utility header..?
-	template <typename Iterator>
-	class iterable_range {
-	  public:
-		iterable_range(Iterator first, Iterator last) : m_first(first), m_last(last) {}
-
-		Iterator begin() const { return m_first; }
-		Iterator end() const { return m_last; }
-		friend Iterator begin(const iterable_range& ir) { return ir.m_first; }
-		friend Iterator end(const iterable_range& ir) { return ir.m_last; }
-
-		auto& front() const { return *m_first; }
-		bool empty() const { return m_first == m_last; }
-		size_t size() const { return std::distance(m_first, m_last); }
-
-	  private:
-		Iterator m_first;
-		Iterator m_last;
-	};
-
 	template <typename T>
 	class intrusive_graph_node {
 	  public:
@@ -125,8 +105,8 @@ namespace detail {
 			return false;
 		}
 
-		auto get_dependencies() const { return iterable_range{m_dependencies.cbegin(), m_dependencies.cend()}; }
-		auto get_dependents() const { return iterable_range{m_dependents.cbegin(), m_dependents.cend()}; }
+		auto& get_dependencies() const { return m_dependencies; }
+		auto& get_dependents() const { return m_dependents; }
 
 		int get_pseudo_critical_path_length() const { return m_pseudo_critical_path_length; }
 

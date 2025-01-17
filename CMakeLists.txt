@@ -405,7 +405,7 @@ add_sycl_to_target(
 if(MSVC)
   target_compile_options(celerity_runtime PRIVATE /MP /W3)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self -Werror=undef)
+  target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self -Werror=undef -Wno-missing-field-initializers)
 endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")

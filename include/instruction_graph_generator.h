@@ -17,6 +17,7 @@ class command;
 class instruction;
 class instruction_graph;
 class instruction_recorder;
+class loop_template;
 struct outbound_pilot;
 struct system_info;
 
@@ -126,7 +127,9 @@ class instruction_graph_generator {
 	scheduling_hint anticipate(const command& cmd);
 
 	/// Compiles a command-graph node into a set of instructions, which are inserted into the shared instruction graph, and updates tracking structures.
-	void compile(const command& cmd);
+	void compile(const command& cmd, loop_template* const templ = nullptr);
+
+	void finalize_loop_template(loop_template& templ);
 
   private:
 	/// Default-constructs a `policy_set` - this must be a function because we can't use the implicit default constructor of `policy_set`, which has member

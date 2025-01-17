@@ -155,6 +155,8 @@ struct buffer_access_allocation {
 	buffer_id oob_buffer_id;
 	std::string oob_buffer_name;
 #endif
+
+	bool operator==(const buffer_access_allocation&) const = default;
 };
 
 /// Allocation-equivalent of a buffer_access_map. The runtime hydration and reduction mechanism are keyed by zero-based indices per instruction.
@@ -409,6 +411,8 @@ class destroy_host_object_instruction final : public matchbox::implement_accepto
 struct instruction_garbage {
 	std::vector<reduction_id> reductions;
 	std::vector<allocation_id> user_allocations;
+
+	bool operator==(const instruction_garbage&) const = default;
 };
 
 /// Instruction-graph equivalent of a horizon task or command.

@@ -226,7 +226,7 @@ namespace detail {
 		m_epoch_for_new_tasks = epoch;
 	}
 
-	task_id task_manager::generate_horizon_task() {
+	task_id task_manager::generate_horizon_task(loop_template* const templ) {
 		const auto tid = m_next_tid++;
 		m_tdag.begin_epoch(tid);
 		auto unique_horizon = task::make_horizon(tid);
@@ -235,10 +235,29 @@ namespace detail {
 		const auto previous_horizon = m_current_horizon;
 		m_current_horizon = unique_horizon.get();
 
-		const task& new_horizon = reduce_execution_front(std::move(unique_horizon));
-		if(previous_horizon != nullptr) { set_epoch_for_new_tasks(previous_horizon); }
+		const auto compute_dependencies = [&]() {
+			reduce_execution_front(std::move(unique_horizon));
+			if(previous_horizon != nullptr) { set_epoch_for_new_tasks(previous_horizon); }
+		};
 
-		invoke_callbacks(&new_horizon);
+		// NOCOMMIT This is atrocious. We need one location where we do this for all task types. Have to consider whether it is even worth doing task templates.
+		if(templ != nullptr) {
+			if(!templ->tdag.is_primed) {
+				compute_dependencies();
+				templ->tdag.prime(*m_current_horizon);
+			} else if(!templ->tdag.is_verified) {
+				compute_dependencies();
+				templ->tdag.verify(*m_current_horizon);
+			} else {
+				register_task_internal(std::move(unique_horizon));
+				templ->tdag.apply(*m_current_horizon,
+				    [this](task* from, task* to, dependency_kind kind, dependency_origin origin) { add_dependency(*from, *to, kind, origin); });
+			}
+		} else {
+			compute_dependencies();
+		}
+
+		invoke_callbacks(m_current_horizon);
 		return tid;
 	}
 

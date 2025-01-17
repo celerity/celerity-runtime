@@ -94,6 +94,10 @@ namespace detail {
 
 		static const task* get_current_horizon(const task_manager& tm) { return tm.m_current_horizon; }
 
+		static void generate_horizon(task_manager& tm) { tm.generate_horizon_task(); }
+
+		static int get_horizon_step(const task_manager& tm) { return tm.m_task_horizon_step_size; }
+
 		static const region_map<task*>& get_last_writer(const task_manager& tm, const buffer_id bid) { return tm.m_buffers.at(bid).last_writers; }
 
 		static int get_max_pseudo_critical_path_length(const task_manager& tm) { return tm.m_max_pseudo_critical_path_length; }

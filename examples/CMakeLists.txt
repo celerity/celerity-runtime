@@ -18,7 +18,7 @@ function(add_example NAME)
   if(MSVC)
     target_compile_options("${NAME}" PRIVATE /D_CRT_SECURE_NO_WARNINGS /MP /W3)
   elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-    target_compile_options("${NAME}" PRIVATE -Wall -Wextra -Wno-unused-parameter)
+    target_compile_options("${NAME}" PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
   endif()
 endfunction()
 

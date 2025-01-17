@@ -10,6 +10,7 @@
 #include "instruction_graph_generator.h"
 #include "live_executor.h"
 #include "log.h"
+#include "loop_template.h"
 #include "named_threads.h"
 #include "print_graph.h"
 #include "print_utils.h"
@@ -128,6 +129,14 @@ namespace detail {
 
 		void flush_scheduler();
 
+		void initialize_new_loop_template();
+
+		void begin_loop_iteration();
+
+		void complete_loop_iteration();
+
+		void finalize_loop_template();
+
 	  private:
 		friend struct runtime_testspy;
 
@@ -154,6 +163,8 @@ namespace detail {
 		raw_allocation_id m_next_user_allocation_id = 1;
 		host_object_id m_next_host_object_id = 0;
 		reduction_id m_next_reduction_id = no_reduction_id + 1;
+
+		std::unique_ptr<loop_template> m_active_loop_template;
 
 		task_graph m_tdag;
 		std::unique_ptr<task_manager> m_task_mngr;
@@ -503,7 +514,7 @@ namespace detail {
 	task_id runtime::impl::submit(raw_command_group&& cg) {
 		require_call_from_application_thread();
 		maybe_prune_task_graph();
-		return m_task_mngr->generate_command_group_task(std::move(cg));
+		return m_task_mngr->generate_command_group_task(std::move(cg), m_active_loop_template.get());
 	}
 
 	task_id runtime::impl::fence(buffer_access access, std::unique_ptr<task_promise> fence_promise) {
@@ -531,6 +542,9 @@ namespace detail {
 
 	void runtime::impl::maybe_prune_task_graph() {
 		require_call_from_application_thread();
+
+		// Don't prune the task graph while there's an active loop template: task pointers must remain valid until the template is finalized.
+		if(m_active_loop_template != nullptr) return;
 
 		const auto current_epoch = m_latest_epoch_reached.load(std::memory_order_relaxed);
 		if(current_epoch > m_last_epoch_pruned_before) {
@@ -710,6 +724,37 @@ namespace detail {
 		m_schdlr->flush_commands();
 	}
 
+	void runtime::impl::initialize_new_loop_template() {
+		require_call_from_application_thread();
+		assert(m_active_loop_template == nullptr);
+		m_active_loop_template = std::make_unique<loop_template>();
+		m_schdlr->enable_loop_template(*m_active_loop_template);
+	}
+
+	void runtime::impl::begin_loop_iteration() {
+		require_call_from_application_thread();
+		assert(m_active_loop_template != nullptr);
+		m_task_mngr->begin_loop_template_iteration(*m_active_loop_template);
+	}
+
+	void runtime::impl::complete_loop_iteration() {
+		require_call_from_application_thread();
+		assert(m_active_loop_template != nullptr);
+		m_active_loop_template->tdag.complete_iteration();
+		m_schdlr->complete_loop_iteration();
+	}
+
+	void runtime::impl::finalize_loop_template() {
+		require_call_from_application_thread();
+		assert(m_active_loop_template != nullptr);
+		m_task_mngr->finalize_loop_template(*m_active_loop_template);
+		// NOCOMMIT TODO: Move unique_ptr into this so scheduler controls lifetime
+		m_schdlr->finalize_loop_template(*m_active_loop_template);
+		m_active_loop_template.release(); // NOCOMMIT LEAKY
+		// We don't prune the task graph while a loop template is active - now is a good time.
+		maybe_prune_task_graph();
+	}
+
 	bool runtime::s_mpi_initialized = false;
 	bool runtime::s_mpi_finalized = false;
 
@@ -783,6 +828,14 @@ namespace detail {
 	void runtime::set_scheduler_lookahead(const experimental::lookahead lookahead) { m_impl->set_scheduler_lookahead(lookahead); }
 
 	void runtime::flush_scheduler() { m_impl->flush_scheduler(); }
+
+	void runtime::initialize_new_loop_template() { m_impl->initialize_new_loop_template(); }
+
+	void runtime::begin_loop_iteration() { m_impl->begin_loop_iteration(); }
+
+	void runtime::complete_loop_iteration() { m_impl->complete_loop_iteration(); }
+
+	void runtime::finalize_loop_template() { m_impl->finalize_loop_template(); }
 
 	bool runtime::s_test_mode = false;
 	bool runtime::s_test_active = false;

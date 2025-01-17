@@ -30,6 +30,7 @@ class task;
 class command;
 class task_recorder;
 class command_recorder;
+class loop_template;
 
 // TODO: Make compile-time configurable
 constexpr size_t max_num_nodes = 256;
@@ -133,7 +134,9 @@ class command_graph_generator {
 	/// This includes resolving local data dependencies, generating await push commands for local reads of remote data,
 	/// as well as push commands for remote reads of local data.
 	/// Commands are returned in topologically sorted order, i.e., sequential execution would satisfy all internal dependencies.
-	std::vector<const command*> build_task(const task& tsk);
+	std::vector<const command*> build_task(const task& tsk, loop_template* const templ = nullptr);
+
+	void finalize_loop_template(loop_template& templ);
 
 	/// Only for testing: Instead of (at most) a single chunk per node, generate `multiplier` chunks per node for each task.
 	/// This is to ensure that CDAG generation logic works for arbitrary numbers of chunks, even though we don't provide
@@ -193,6 +196,11 @@ class command_graph_generator {
 		return create_command_internal<Command>(current_batch, std::forward_as_tuple(std::forward<CtorParamsAndRecordWithFn>(args)...),
 		    std::make_index_sequence<n_args - 1>{}, std::index_sequence<n_args - 1>{});
 	}
+
+	/// "Clones" the given command for use within a new task and adds it to the current batch.
+	/// Returns an identical command of the same type with a new unique id.
+	/// All task-specific information (if any) is replaced to reference the new task instead.
+	command* clone_command(batch& current_batch, const command* const cmd, const task& tsk);
 
 	/// Adds a new dependency between two commands and records it if recording is enabled.
 	void add_dependency(command* const from, command* const to, dependency_kind kind, dependency_origin origin) {
@@ -309,7 +317,6 @@ class command_graph_generator {
 	std::unordered_map<collective_group_id, collective_group_state> m_collective_groups;
 
 	command* m_epoch_for_new_commands = nullptr;
-	command_id m_epoch_last_pruned_before = 0;
 	command* m_current_horizon = nullptr;
 
 	size_t m_test_chunk_multiplier = 1;
