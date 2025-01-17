@@ -42,6 +42,7 @@ struct wave_sim_config {
 	unsigned outset = 0;
 	unsigned oversub = 1;
 	bool tiled = false;
+	bool use_loop = false;
 };
 
 void setup_wave(
@@ -372,7 +373,8 @@ int main(int argc, char* argv[]) {
 		for(auto it = args.cbegin(); it != args.cend(); ++it) {
 			if(get_cli_arg(args, it, "-N", result.N, atoi) || get_cli_arg(args, it, "-T", result.T, atoi) || get_cli_arg(args, it, "--dt", result.dt, atof)
 			    || get_cli_arg(args, it, "--sample-rate", result.output_sample_rate, atoi) || get_cli_arg(args, it, "--outset", result.outset, atoi)
-			    || get_cli_arg(args, it, "--oversub", result.oversub, atoi) || get_cli_arg(args, it, "--tiled", result.tiled, atoi)) {
+			    || get_cli_arg(args, it, "--oversub", result.oversub, atoi) || get_cli_arg(args, it, "--tiled", result.tiled, atoi)
+			    || get_cli_arg(args, it, "--use-loop", result.use_loop, atoi)) {
 				++it;
 				continue;
 			}
@@ -415,12 +417,38 @@ int main(int argc, char* argv[]) {
 
 	init();
 
-	const size_t warmup = std::max<size_t>(10, 2ull * cfg.outset);
-	fprintf(stderr, "Doing %zu warmup iterations\n", warmup);
-	for(size_t i = 0; i < warmup; ++i) {
-		const size_t current_outset = cfg.outset - i % (cfg.outset + 1);
-		update<class warmup>(queue, up, u, cfg, current_outset, true /*	is_warmup */);
-		std::swap(u, up);
+	if(cfg.use_loop == 0) {
+		// TODO: Actual number of required iterations depends on horizon step size
+		// 2 * (outset + 1) covers two full "outset cycles", but that may not be enough
+		// Multiply by 4 to be on the safe side for default horizon step size of 4
+		const size_t warmup = 4 * std::max<size_t>(5, 2ull * (cfg.outset + 1));
+		fprintf(stderr, "Doing %zu warmup iterations\n", warmup);
+		for(size_t i = 0; i < warmup; ++i) {
+			const size_t current_outset = cfg.outset - i % (cfg.outset + 1);
+			update<class warmup>(queue, up, u, cfg, current_outset, true /*	is_warmup */);
+			std::swap(u, up);
+		}
+	} else {
+		fprintf(stderr, "Doing loop warmup\n");
+		// TODO: What's the minimum number of iterations we need..?
+		const size_t warmup = 10;
+		size_t w = 0;
+		queue.loop([&]() {
+			// We have to do two iterations at a time to ensure that loop is the same
+			size_t inner_iterations = 2;
+			if(cfg.outset % 2 == 0) {
+				inner_iterations = 2 * (cfg.outset + 1);
+			} else {
+				inner_iterations = cfg.outset + 1;
+			}
+
+			for(size_t j = 0; j < inner_iterations; ++j) {
+				const size_t current_outset = cfg.outset - j % (cfg.outset + 1);
+				update<class warmup>(queue, up, u, cfg, current_outset, true /*	is_warmup */);
+				std::swap(u, up);
+			}
+			return w++ < warmup;
+		});
 	}
 
 	init();
@@ -435,7 +463,8 @@ int main(int argc, char* argv[]) {
 	size_t i = 0;
 	queue.wait(celerity::experimental::barrier);
 	std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-	while(t < cfg.T) {
+
+	const auto loop_body = [&]() {
 		const size_t current_outset = cfg.outset - i % (cfg.outset + 1);
 		update(queue, up, u, cfg, current_outset);
 		if(cfg.output_sample_rate > 0) {
@@ -444,7 +473,43 @@ int main(int argc, char* argv[]) {
 		std::swap(u, up);
 		t += cfg.dt;
 		i++;
+	};
+
+	if(cfg.use_loop) {
+		if(cfg.output_sample_rate > 0) throw std::runtime_error("loop + sampling are not supported");
+		queue.loop([&]() {
+			// We have to do two iterations at a time to ensure that loop is the same
+			size_t inner_iterations = 2;
+
+			// If we use an outset, we have to do more
+			if(cfg.outset != 0) {
+				if(cfg.outset % 2 == 0) {
+					inner_iterations = 2 * (cfg.outset + 1);
+				} else {
+					inner_iterations = cfg.outset + 1;
+				}
+			}
+			for(size_t j = 0; j < inner_iterations; ++j) {
+				loop_body();
+			}
+
+			if(t + inner_iterations * cfg.dt > cfg.T) {
+				CELERITY_CRITICAL("Require epilogue");
+				return false;
+			}
+
+			return t < cfg.T;
+		});
+		// Process remaining iterations (if any)
+		while(t < cfg.T) {
+			loop_body();
+		}
+	} else {
+		while(t < cfg.T) {
+			loop_body();
+		}
 	}
+
 	queue.wait(celerity::experimental::barrier);
 	const auto end = std::chrono::steady_clock::now();
 
