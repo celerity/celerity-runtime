@@ -572,7 +572,7 @@ void live_executor::impl::retire_async_instruction(const instruction_id iid, asy
 	const auto now = std::chrono::steady_clock::now();
 	if(const auto dt = now - async.issued_at; dt > std::chrono::milliseconds(10)) {
 		if(async.is_send) {
-			CELERITY_CRITICAL("Send to {} took {:.2f}", async.dest_node, as_sub_second(dt));
+			// CELERITY_CRITICAL("Send to {} took {:.2f}", async.dest_node, as_sub_second(dt));
 			++long_sends;
 		}
 		// if(async.is_receive) {

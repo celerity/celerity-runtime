@@ -75,14 +75,25 @@ buffer_access_map::buffer_access_map(std::vector<buffer_access>&& accesses, cons
 	}
 }
 
-region<3> buffer_access_map::get_requirements_for_nth_access(const size_t n, const box<3>& execution_range) const {
-	const auto sr = execution_range.get_subrange();
+region<3> buffer_access_map::get_requirements_for_nth_access(const size_t n, const std::optional<box<3>>& execution_range) const {
 	return matchbox::match(
 	    m_accesses[n].range_mapper,
 	    [&](const std::unique_ptr<range_mapper_base>& rm) {
-		    return apply_range_mapper(rm.get(), chunk<3>{sr.offset, sr.range, m_task_global_size}, m_task_dimensions);
+		    if(execution_range.has_value()) {
+			    const auto sr = execution_range->get_subrange();
+			    return apply_range_mapper(rm.get(), chunk<3>{sr.offset, sr.range, m_task_global_size}, m_task_dimensions);
+		    } else {
+			    return apply_range_mapper(rm.get(), chunk<3>{zeros, m_task_global_size, m_task_global_size}, m_task_dimensions);
+		    }
 	    },
-	    [&](const expert_mapper& em) { return em.get_chunk_requirements(chunk<3>{sr.offset, sr.range, m_task_global_size}); });
+	    [&](const expert_mapper& em) {
+		    if(execution_range.has_value()) {
+			    const auto sr = execution_range->get_subrange();
+			    return em.get_chunk_requirements(chunk<3>{sr.offset, sr.range, m_task_global_size});
+		    } else {
+			    return em.get_task_requirements();
+		    }
+	    });
 }
 
 region<3> buffer_access_map::compute_consumed_region(const buffer_id bid, const box<3>& execution_range) const {

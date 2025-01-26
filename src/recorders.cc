@@ -30,11 +30,10 @@ namespace celerity::detail {
 
 access_list build_access_list(const task& tsk, const buffer_name_map& get_buffer_debug_name, const std::optional<subrange<3>> execution_range = {}) {
 	access_list ret;
-	const auto exec_range = execution_range.value_or(subrange<3>{get_global_offset(tsk.get_geometry()), get_global_size(tsk.get_geometry())});
 	const auto& bam = tsk.get_buffer_access_map();
 	for(size_t i = 0; i < bam.get_num_accesses(); ++i) {
 		const auto [bid, mode] = bam.get_nth_access(i);
-		const auto req = bam.get_requirements_for_nth_access(i, exec_range);
+		const auto req = bam.get_requirements_for_nth_access(i, execution_range);
 		ret.push_back({bid, get_buffer_debug_name(bid), mode, req});
 	}
 	return ret;

@@ -48,7 +48,10 @@ namespace detail {
 		// TODO: This should probably be retunred by get_nth_access instead
 		bool is_replicated(const size_t n) const { return m_accesses[n].is_replicated; }
 
-		region<3> get_requirements_for_nth_access(const size_t n, const box<3>& execution_range) const;
+		/// If no `execution_range` is specified, returns the task-level requirements.
+		// NOCOMMIT TODO: Not sure if optional is the right interface here
+		// NOCOMMIT TODO: TEST
+		region<3> get_requirements_for_nth_access(const size_t n, const std::optional<box<3>>& execution_range) const;
 
 		/// Returns the union of all consumer accesses made across the entire task (conceptually, the
 		/// union of the set of regions obtained by calling get_consumed_region for each chunk).
