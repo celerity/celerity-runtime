@@ -44,8 +44,8 @@ namespace celerity {
 
 // TODO API: Naming
 struct geometry_chunk {
-	// TODO API: Subrange or box? Or both?
-	subrange<3> sr;
+	// TODO: Have to publicly expose box
+	detail::box<3> box;
 	detail::node_id nid;
 	std::optional<detail::device_id> did;
 

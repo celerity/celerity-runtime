@@ -55,8 +55,9 @@ buffer_access_map::buffer_access_map(std::vector<buffer_access>&& accesses, cons
 			        [&](const custom_task_geometry_desc& geo) {
 				        // TODO: Or get "union chunk" from geometry.. directly?
 				        region<3> result;
-				        for(const auto& [chnk, _, _2] : geo.assigned_chunks) {
-					        result = region_union(result, apply_range_mapper(rm.get(), chunk<3>{chnk.offset, chnk.range, geo.global_size}, geo.dimensions));
+				        for(const auto& [box, _, _2] : geo.assigned_chunks) {
+					        const auto sr = box.get_subrange();
+					        result = region_union(result, apply_range_mapper(rm.get(), chunk<3>{sr.offset, sr.range, geo.global_size}, geo.dimensions));
 				        }
 				        return result;
 			        });

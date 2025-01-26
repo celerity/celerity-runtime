@@ -268,7 +268,8 @@ std::vector<command_graph_generator::assigned_chunk> command_graph_generator::sp
 	    },
 	    [&](const custom_task_geometry_desc& geo) {
 		    std::vector<assigned_chunk> result;
-		    for(auto& [sr, nid, did] : geo.assigned_chunks) {
+		    for(auto& [box, nid, did] : geo.assigned_chunks) {
+			    const auto sr = box.get_subrange();
 			    result.emplace_back(nid, chunk<3>{sr.offset, sr.range, geo.global_size}, did);
 		    }
 		    return result;

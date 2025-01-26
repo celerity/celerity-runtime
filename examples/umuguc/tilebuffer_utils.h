@@ -217,8 +217,9 @@ inline std::vector<std::vector<celerity::subrange<3>>> compute_neighborhood_read
 	assert(num_entries_cumulative.size() == num_entries.size());
 
 	std::vector<std::vector<subrange<3>>> per_chunk_neighborhood_reads;
-	for(auto [sr, _, _2] : geometry.assigned_chunks) {
+	for(auto [box, _, _2] : geometry.assigned_chunks) {
 		assert(celerity::detail::get_effective_dims(sr) == 1);
+		const auto sr = box.get_subrange();
 
 		// Find start and end tile for this subrange
 		// upper_bound - 1: We want to find the first tile that contains any elements, because only on those will we
@@ -259,9 +260,11 @@ inline std::vector<std::vector<celerity::subrange<3>>> compute_neighborhood_read
 	assert(num_entries_cumulative.size() == buffer_size.size());
 
 	std::vector<std::vector<subrange<3>>> per_chunk_neighborhood_reads;
-	for(auto [sr, _, _2] : geometry.assigned_chunks) {
+	for(auto [box, _, _2] : geometry.assigned_chunks) {
 		// The split is still in 1D
 		assert(celerity::detail::get_effective_dims(sr) == 1);
+
+		const auto sr = box.get_subrange();
 
 		// Find start and end tile for this subrange
 		// upper_bound - 1: We want to find the first tile that contains any elements, because only on those will we

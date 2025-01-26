@@ -6,6 +6,7 @@
 #include <fmt/format.h>
 
 #include "grid.h"
+#include "print_utils.h"
 
 namespace celerity {
 
@@ -24,16 +25,14 @@ namespace celerity {
 
 
 // TODO API: Naming - not a range mapper (also change file name!)
+// TODO API: Should we make these have dimensionality as well?
 class expert_mapper {
   public:
-	expert_mapper(detail::region<3> union_access, std::vector<std::pair<chunk<3>, std::vector<subrange<3>>>> per_chunk_accesses)
+	expert_mapper(detail::region<3> union_access, std::vector<std::pair<detail::box<3>, detail::region<3>>> per_chunk_accesses)
 	    : m_union_region(std::move(union_access)) {
 		m_per_chunk_accesses.reserve(per_chunk_accesses.size());
-		for(const auto& [chunk, srs] : per_chunk_accesses) {
-			detail::box_vector<3> boxes;
-			boxes.reserve(srs.size());
-			std::transform(srs.begin(), srs.end(), std::back_inserter(boxes), [](const subrange<3>& sr) { return detail::box(sr); });
-			m_per_chunk_accesses.push_back({chunk, detail::region{std::move(boxes)}});
+		for(auto& [chunk, region] : per_chunk_accesses) {
+			m_per_chunk_accesses.push_back({chunk, std::move(region)});
 			// NOTE: We could also compute the union region here, but that means that every rank has to known all other rank's exact accesses.
 			//       In the current variant it only needs to know the union.
 			// TODO API: Have two overloads of the ctor, one that receives the union, and one that computes it?
@@ -47,18 +46,16 @@ class expert_mapper {
 	detail::region<3> get_task_requirements() const { return m_union_region; }
 
   private:
-	std::vector<std::pair<chunk<3>, detail::region<3>>> m_per_chunk_accesses;
+	std::vector<std::pair<detail::box<3>, detail::region<3>>> m_per_chunk_accesses;
 	detail::region<3> m_union_region;
 
 	const detail::region<3>& get_region_for_chunk(const chunk<3>& chnk) const {
 		// TODO: Can we avoid the linear search here? Would need to introduce notion of "chunk index" or similar
 		// => Should we store a map instead? Make chunk hashable?
-		const auto it = std::find_if(m_per_chunk_accesses.begin(), m_per_chunk_accesses.end(),
-		    [&](const auto& p) { return p.first.offset == chnk.offset && p.first.range == chnk.range; });
-		if(it == m_per_chunk_accesses.end()) {
-			// (We're assuming 1D chunks for printing)
-			throw std::runtime_error(fmt::format("No region found for chunk: {} | {} | {}", chnk.offset[0], chnk.range[0], chnk.global_size[0]));
-		}
+		// NOCOMMIT TODO: It is very not ideal that box<> has a ctor that takes min/max id, and range is implicitly convertible to id!!
+		const auto box = detail::box<3>{subrange<3>{chnk.offset, chnk.range}};
+		const auto it = std::find_if(m_per_chunk_accesses.begin(), m_per_chunk_accesses.end(), [&](const auto& p) { return p.first == box; });
+		if(it == m_per_chunk_accesses.end()) { throw std::runtime_error(fmt::format("No region found for chunk: {}", box)); }
 		return it->second;
 	}
 };

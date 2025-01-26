@@ -694,15 +694,15 @@ int main() {
 	using celerity::detail::region;
 	using celerity::detail::subrange_cast;
 
-	std::vector<std::pair<chunk<3>, std::vector<subrange<3>>>> outer_update_read_outer_accesses;
-	std::vector<std::pair<chunk<3>, std::vector<subrange<3>>>> outer_update_read_dyn_accesses;
-	std::vector<std::pair<chunk<3>, std::vector<subrange<3>>>> outer_update_read_transfers_accesses;
-	std::vector<std::pair<chunk<3>, std::vector<subrange<3>>>> outer_update_write_dyn_accesses;
-	std::vector<std::pair<chunk<3>, std::vector<subrange<3>>>> outer_update_write_transfers_accesses;
+	std::vector<std::pair<box<3>, region<3>>> outer_update_read_outer_accesses;
+	std::vector<std::pair<box<3>, region<3>>> outer_update_read_dyn_accesses;
+	std::vector<std::pair<box<3>, region<3>>> outer_update_read_transfers_accesses;
+	std::vector<std::pair<box<3>, region<3>>> outer_update_write_dyn_accesses;
+	std::vector<std::pair<box<3>, region<3>>> outer_update_write_transfers_accesses;
 
-	std::vector<std::pair<chunk<3>, std::vector<subrange<3>>>> inner_update_read_inner_accesses;
-	std::vector<std::pair<chunk<3>, std::vector<subrange<3>>>> inner_update_read_dyn_accesses;
-	std::vector<std::pair<chunk<3>, std::vector<subrange<3>>>> inner_update_write_dyn_accesses;
+	std::vector<std::pair<box<3>, region<3>>> inner_update_read_inner_accesses;
+	std::vector<std::pair<box<3>, region<3>>> inner_update_read_dyn_accesses;
+	std::vector<std::pair<box<3>, region<3>>> inner_update_write_dyn_accesses;
 
 	// Since dynamic elements are interleaved between outer and inner cells across partitions, we need to compute
 	// the "union access" for the expert ranger mappers.
@@ -722,14 +722,13 @@ int main() {
 
 		CELERITY_CRITICAL("Partition {} has {} inner and {} outer cells. Dyn offset = {}", i, num_inner_cells, p.outer_cells.size(), p.dyn_offset);
 
-		const auto outer_chunk = chunk<3>{outer_sr.offset, outer_sr.range, range_cast<3>(range<1>(outer_cells.size()))};
-		outer_update_read_outer_accesses.push_back(std::pair{outer_chunk, std::vector{outer_sr}}); // Same as execution sr
+		const auto outer_chunk = box<3>{outer_sr};
+		outer_update_read_outer_accesses.push_back(std::pair{outer_chunk, box<3>(outer_sr)}); // Same as execution sr
 		// Outer cell update also reads from inner cells
-		outer_update_read_dyn_accesses.push_back(std::pair{outer_chunk, std::vector{subrange_cast<3>(subrange<1>{p.dyn_offset, p.cells.size()})}});
+		outer_update_read_dyn_accesses.push_back(std::pair{outer_chunk, subrange_cast<3>(subrange<1>{p.dyn_offset, p.cells.size()})});
 		// Outer cell's dynamic data is stored after inner cell's
-		outer_update_write_dyn_accesses.push_back(
-		    std::pair{outer_chunk, std::vector{subrange_cast<3>(subrange<1>{p.dyn_offset + num_inner_cells, p.outer_cells.size()})}});
-		outer_update_dyn_writes_union = region_union(outer_update_dyn_writes_union, box<3>{outer_update_write_dyn_accesses.back().second[0]});
+		outer_update_write_dyn_accesses.push_back(std::pair{outer_chunk, subrange_cast<3>(subrange<1>{p.dyn_offset + num_inner_cells, p.outer_cells.size()})});
+		outer_update_dyn_writes_union = region_union(outer_update_dyn_writes_union, outer_update_write_dyn_accesses.back().second);
 		region<1> read_transfers_region;
 		region<1> write_transfers_region;
 		// TODO: It's getting really confusing what a tag is and what an index is - use phantom types?
@@ -746,21 +745,14 @@ int main() {
 		// TODO: Wait - is this even a problem? Don't we have at most N-1 contiguous transfer ranges to read?
 		CELERITY_CRITICAL("Read transfers for partition {}: {}", i, read_transfers_region);
 		CELERITY_CRITICAL("Write transfers for partition {}: {}", i, write_transfers_region);
-		// TODO API: This should just accept a region
-		std::vector<subrange<3>> read_transfers_subranges;
-		std::vector<subrange<3>> write_transfers_subranges;
-		std::transform(read_transfers_region.get_boxes().begin(), read_transfers_region.get_boxes().end(), std::back_inserter(read_transfers_subranges),
-		    [](const auto& box) { return subrange_cast<3>(subrange<1>{box}); });
-		std::transform(write_transfers_region.get_boxes().begin(), write_transfers_region.get_boxes().end(), std::back_inserter(write_transfers_subranges),
-		    [](const auto& box) { return subrange_cast<3>(subrange<1>{box}); });
-		outer_update_read_transfers_accesses.push_back(std::pair{outer_chunk, read_transfers_subranges});
-		outer_update_write_transfers_accesses.push_back(std::pair{outer_chunk, write_transfers_subranges});
+		outer_update_read_transfers_accesses.push_back(std::pair{outer_chunk, region_cast<3>(read_transfers_region)});
+		outer_update_write_transfers_accesses.push_back(std::pair{outer_chunk, region_cast<3>(write_transfers_region)});
 
-		const auto inner_chunk = chunk<3>{inner_sr.offset, inner_sr.range, range_cast<3>(range<1>(inner_cells.size()))};
-		inner_update_read_inner_accesses.push_back(std::pair{inner_chunk, std::vector{inner_sr}}); // Same as execution sr
-		inner_update_read_dyn_accesses.push_back(std::pair{inner_chunk, std::vector{subrange_cast<3>(subrange<1>{p.dyn_offset, p.cells.size()})}});
-		inner_update_write_dyn_accesses.push_back(std::pair{inner_chunk, std::vector{subrange_cast<3>(subrange<1>{p.dyn_offset, num_inner_cells})}});
-		inner_update_dyn_writes_union = region_union(inner_update_dyn_writes_union, box<3>{inner_update_write_dyn_accesses.back().second[0]});
+		const auto inner_chunk = box<3>{inner_sr};
+		inner_update_read_inner_accesses.push_back(std::pair{inner_chunk, inner_sr}); // Same as execution sr
+		inner_update_read_dyn_accesses.push_back(std::pair{inner_chunk, subrange_cast<3>(subrange<1>{p.dyn_offset, p.cells.size()})});
+		inner_update_write_dyn_accesses.push_back(std::pair{inner_chunk, subrange_cast<3>(subrange<1>{p.dyn_offset, num_inner_cells})});
+		inner_update_dyn_writes_union = region_union(inner_update_dyn_writes_union, inner_update_write_dyn_accesses.back().second);
 	}
 
 	celerity::expert_mapper outer_update_read_outer_mapper{subrange_cast<3>(subrange<1>{0, outer_cells.size()}), outer_update_read_outer_accesses};

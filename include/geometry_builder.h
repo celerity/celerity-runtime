@@ -97,7 +97,7 @@ class geometry_builder {
 		std::vector<celerity::detail::region<3>> subtracted_with(m_chunks.size());
 		for(size_t i = 0; i < m_chunks.size(); ++i) {
 			const auto& chunk = m_chunks[i];
-			subtracted_from[i] = celerity::detail::box<3>(m_chunks[i].sr);
+			subtracted_from[i] = m_chunks[i].box;
 			for(const auto& other_chunk : another_one.m_chunks) {
 				// if(chunk.sr == other_chunk.sr) {
 				// 	if(chunk.nid != other_chunk.nid || chunk.did != other_chunk.did) {
@@ -147,18 +147,20 @@ class geometry_builder {
 	void outset(const size_t amount) {
 		if(m_chunks.empty()) throw std::runtime_error("no chunks"); // TODO: Should we start with a single big chunk?
 		for(auto& chunk : m_chunks) {
+			auto sr = chunk.box.get_subrange();
 			for(int d = 0; d < Dims; ++d) {
-				size_t min = chunk.sr.offset[d];
-				size_t max = chunk.sr.offset[d] + chunk.sr.range[d];
-				if(const auto delta = chunk.sr.offset[d]; delta > 0) { //
+				size_t min = sr.offset[d];
+				size_t max = sr.offset[d] + sr.range[d];
+				if(const auto delta = sr.offset[d]; delta > 0) { //
 					min -= std::min(delta, amount);
 				}
-				if(const auto delta = m_global_size[d] - chunk.sr.offset[d] - chunk.sr.range[d]; delta > 0) { //
+				if(const auto delta = m_global_size[d] - sr.offset[d] - sr.range[d]; delta > 0) { //
 					max += std::min(delta, amount);
 				}
-				chunk.sr.offset[d] = min;
-				chunk.sr.range[d] = max - min;
+				sr.offset[d] = min;
+				sr.range[d] = max - min;
 			}
+			chunk.box = sr;
 		}
 	}
 
@@ -175,8 +177,8 @@ class geometry_builder {
 	bool is_overlapping() const {
 		celerity::detail::region<3> current_region;
 		for(const auto& chunk : m_chunks) {
-			if(!celerity::detail::region_intersection(current_region, celerity::detail::box<3>(chunk.sr)).empty()) return true;
-			current_region = celerity::detail::region_union(current_region, celerity::detail::box<3>(chunk.sr));
+			if(!celerity::detail::region_intersection(current_region, chunk.box).empty()) return true;
+			current_region = celerity::detail::region_union(current_region, chunk.box);
 		}
 		return false;
 	}

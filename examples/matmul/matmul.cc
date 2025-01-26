@@ -81,6 +81,7 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 	// We want to apply the same chunking to the data as we did to the kernel. Is that a common thing or a coincidence in this case?
 	//	- Maybe there is an underlying concept here, something like a "partition" that works on arbitrary index spaces?
 	//	- Although the name "partition" implies that there is no overlap.
+	//	- In a sense we would be doing data partitioning in that case
 	// We then want to cycle through these blocks as we submit tasks
 
 	// TODO: Here we could choose to only materialize those chunks that are along the main axes of the local chunk. Because the others don't need any of our
@@ -99,42 +100,33 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 
 	const size_t block_size = mat_size[0] / std::sqrt(num_nodes);
 
-	// HERE WE SHOULD START TO LOOP
-
 	for(size_t K = 0; K < mat_size[0]; K += block_size) {
 		celerity::detail::region<3> union_access_a = celerity::detail::box<3>::full_range(range_cast<3>(mat_a.get_range()));
 		celerity::detail::region<3> union_access_b = celerity::detail::box<3>::full_range(range_cast<3>(mat_b.get_range()));
-		std::vector<std::pair<celerity::chunk<3>, std::vector<celerity::subrange<3>>>> per_chunk_accesses_a;
-		std::vector<std::pair<celerity::chunk<3>, std::vector<celerity::subrange<3>>>> per_chunk_accesses_b;
+		std::vector<std::pair<celerity::detail::box<3>, celerity::detail::region<3>>> per_chunk_accesses_a;
+		std::vector<std::pair<celerity::detail::box<3>, celerity::detail::region<3>>> per_chunk_accesses_b;
 
 		// TODO: Does it make sense to do oversubscription here? I.e., there is no reason to have the same number of blocks as there are nodes, right?
 		//	=> We could always just create N^2 blocks for N nodes..? Would make things easier, and we'd only have to deal with square block matrices
 		for(auto& ac : geo.assigned_chunks) {
-			auto sr_a = ac.sr;
-			auto sr_b = ac.sr;
-			// first iteration, start at 0
+			auto sr_a = ac.box.get_subrange();
+			auto sr_b = ac.box.get_subrange();
 			sr_a.offset[1] = K;
 			sr_b.offset[0] = K;
 
-			// GET RID OF THIS CHUNK BUSINESS
-			celerity::chunk<3> chnk{ac.sr.offset, ac.sr.range, range_cast<3>(mat_a.get_range())};
-			// CELERITY_CRITICAL("K={} CHUNK {} ACCESSES A {} B {}", K, chnk, sr_a, sr_b);
-
-			per_chunk_accesses_a.push_back(std::pair{chnk, std::vector{sr_a}});
-			per_chunk_accesses_b.push_back(std::pair{chnk, std::vector{sr_b}});
+			per_chunk_accesses_a.push_back(std::pair{ac.box, celerity::detail::box{sr_a}});
+			per_chunk_accesses_b.push_back(std::pair{ac.box, celerity::detail::box{sr_b}});
 		}
 
 		// TODO API: We have to do this somehow inside expert_mapper, but how? We don't have the buffer size available. Do it BAM?
-		for(auto& [_, sr] : per_chunk_accesses_a) {
-			if(!celerity::detail::box<2>(celerity::subrange<2>{{}, mat_a.get_range()})
-			        .covers(celerity::detail::box<2>(celerity::detail::subrange_cast<2>(sr[0])))) {
-				throw std::runtime_error(fmt::format("Access {} is out of bounds for matrix A", sr[0]));
+		for(auto& [_, region] : per_chunk_accesses_a) {
+			if(!celerity::detail::box<2>::full_range(mat_a.get_range()).covers(celerity::detail::box_cast<2>(celerity::detail::bounding_box(region)))) {
+				throw std::runtime_error(fmt::format("Access {} is out of bounds for matrix A", region));
 			}
 		}
-		for(auto& [_, sr] : per_chunk_accesses_b) {
-			if(!celerity::detail::box<2>(celerity::subrange<2>{{}, mat_b.get_range()})
-			        .covers(celerity::detail::box<2>(celerity::detail::subrange_cast<2>(sr[0])))) {
-				throw std::runtime_error(fmt::format("Access {} is out of bounds for matrix B", sr[0]));
+		for(auto& [_, region] : per_chunk_accesses_b) {
+			if(!celerity::detail::box<2>::full_range(mat_b.get_range()).covers(celerity::detail::box_cast<2>(celerity::detail::bounding_box(region)))) {
+				throw std::runtime_error(fmt::format("Access {} is out of bounds for matrix B", region));
 			}
 		}
 
@@ -223,6 +215,23 @@ void verify(celerity::queue& queue, celerity::buffer<T, 2> mat_c, celerity::expe
  * - ANOTHER issue: Assuming that each node owns the same chunk in A and B, we could actually run a first multiplication on each
  *                  without requiring any data transfers, if we DON'T start at i/j = 0 for each
  */
+
+
+// NEXT STEPS:
+
+// - Switch from subranges / chunks to boxes (also in UMUGUC / FVM)
+// - Implement nd-range variant of custom geometry (needs to be separate type for nd_item!)
+//   - Implement nd-range kernel
+// - Look into multi-device support
+// - Figure out high-level API
+// - Medium term: We probably want to get rid of the BAM altogether, and move towards a system where
+//   tasks contain geometries that have associated data requirements.
+
+// Disadvantages of having expert_mapper match on chunks:
+// - Does not allow for identical chunks. DO WE NEED THOSE?
+// - Lookup is O(n)
+
+// SHOULD device chunks even be part of this whole thing? Or should they be a separate stage?
 
 int main(int argc, char* argv[]) {
 	const size_t mat_size = argc > 1 ? std::stoul(argv[1]) : default_mat_size;

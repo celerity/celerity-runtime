@@ -309,29 +309,28 @@ int main(int argc, char* argv[]) {
 	// (unless we want to do the whole split ourselves, for which in this case there is no need). We then re-submit this configuration BACK to Celerity,
 	// alongside detailed data access ranges.
 
-	using celerity::chunk;
 	using celerity::subrange;
+	using celerity::detail::box;
+	using celerity::detail::region;
 	using celerity::detail::subrange_cast;
 
-	std::vector<std::pair<chunk<3>, std::vector<subrange<3>>>> per_chunk_accesses;
+	std::vector<std::pair<box<3>, region<3>>> per_chunk_accesses;
 	// std::vector<subrange<3>> my_ranges;
 	// std::transform(written_subranges.begin(), written_subranges.end(), std::back_inserter(my_ranges), [](const auto& sr) { return subrange_cast<3>(sr);
 	// });
 	for(size_t i = 0; i < chunks.size(); ++i) {
-		// TODO API: Use boxes?
-		const chunk<3> chnk = chunk<3>(chunks[i].get_offset(), chunks[i].get_range(), range_cast<3>(points_input.get_range()));
 		// per_chunk_accesses.push_back({chnk, rank == i ? my_ranges : std::vector<subrange<3>>{}});
 		if(i / num_devices == rank) {
-			// TODO API: This should just accept subrange<1> (or box<1>)
-			std::vector<subrange<3>> device_ranges;
-			std::transform(written_subranges_per_device[i % num_devices].begin(), written_subranges_per_device[i % num_devices].end(),
-			    std::back_inserter(device_ranges), [](const auto& sr) { return subrange_cast<3>(sr); });
-			per_chunk_accesses.push_back({chnk, device_ranges});
+			celerity::detail::box_vector<3> device_ranges;
+			for(auto& sr : written_subranges_per_device[i % num_devices]) {
+				device_ranges.push_back(subrange_cast<3>(sr));
+			}
+			per_chunk_accesses.push_back({chunks[i], region<3>{std::move(device_ranges)}});
 		} else {
-			per_chunk_accesses.push_back({chnk, std::vector<subrange<3>>{}});
+			per_chunk_accesses.push_back({chunks[i], {}});
 		}
 	}
-	celerity::expert_mapper tile_accesses{subrange_cast<3>(subrange<1>({}, tiles_storage.get_range())), per_chunk_accesses};
+	celerity::expert_mapper tile_accesses{box_cast<3>(box<1>::full_range(tiles_storage.get_range())), per_chunk_accesses};
 
 	// TODO: Prototype this - can we use the SAME CGF from above for this? (user should only have to write it once)
 	queue.submit([&](celerity::handler& cgh) {
@@ -397,9 +396,9 @@ int main(int argc, char* argv[]) {
 	}
 
 	if(rank == 0) {
-		std::vector<subrange<3>> chunks;
+		std::vector<box<3>> chunks;
 		std::transform(shape_factor_geometry.assigned_chunks.begin(), shape_factor_geometry.assigned_chunks.end(), std::back_inserter(chunks),
-		    [](const auto& cg) { return subrange_cast<3>(cg.sr); });
+		    [](const auto& cg) { return cg.box; });
 		fmt::print("Shape factor kernel chunks: {}\n", fmt::join(chunks, ", "));
 		std::vector<subrange<3>> neighborhoods;
 		std::transform(
@@ -407,11 +406,15 @@ int main(int argc, char* argv[]) {
 		fmt::print("Accessed subranges: {}\n", fmt::join(neighborhoods, ", "));
 	}
 
-	std::vector<std::pair<chunk<3>, std::vector<subrange<3>>>> shape_factors_per_chunk_accesses;
+	std::vector<std::pair<box<3>, region<3>>> shape_factors_per_chunk_accesses;
 	for(size_t i = 0; i < shape_factor_geometry.assigned_chunks.size(); ++i) {
-		const auto& [sr, _, _2] = shape_factor_geometry.assigned_chunks[i];
-		const auto chunk = celerity::chunk<3>{sr.offset, sr.range, celerity::detail::range_cast<3>(tiles_storage.get_range())};
-		shape_factors_per_chunk_accesses.push_back({chunk, per_chunk_neighborhood_reads[i]});
+		const auto& [box, _, _2] = shape_factor_geometry.assigned_chunks[i];
+		// FIXME: compute_neighborhood_reads_2d should just return a region
+		celerity::detail::box_vector<3> read_boxes;
+		for(const auto& sr : per_chunk_neighborhood_reads[i]) {
+			read_boxes.push_back(sr);
+		}
+		shape_factors_per_chunk_accesses.push_back({box, region<3>{std::move(read_boxes)}});
 	}
 
 	celerity::expert_mapper read_tile_neighborhood(
