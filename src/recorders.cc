@@ -672,7 +672,11 @@ void instruction_performance_recorder::print_summary(const instruction_recorder&
 				++instr_it;
 			}
 			++task_it;
-			if(task_it != tids.end()) { until_it = all_instrs.begin() + task_boundaries[*task_it + 1]; }
+			if(task_it != tids.end()) {
+				// TODO: Add test that alternating task names (e.g. "A, B, A, B") are handled correctly!
+				instr_it = all_instrs.begin() + task_boundaries[*task_it];
+				until_it = all_instrs.begin() + task_boundaries[*task_it + 1];
+			}
 		}
 
 		auto local_report =
