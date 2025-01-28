@@ -362,6 +362,13 @@ class handler {
 		    std::move(geometry), std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
 	}
 
+	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
+	void parallel_for(nd_custom_task_geometry<Dims> geometry, ReductionsAndKernel&&... reductions_and_kernel) {
+		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
+		parallel_for_reductions_and_kernel<detail::nd_range_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(
+		    std::move(geometry), std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
+	}
+
 	/**
 	 * Schedules `task` to execute on the master node only. Call via `cgh.host_task(celerity::on_master_node, []...)`. The task functor is assumed to be
 	 * invocable with the signature `void(const celerity::partition<0> &)` or `void()`.

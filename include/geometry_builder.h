@@ -170,6 +170,14 @@ class geometry_builder {
 		return celerity::custom_task_geometry<Dims>{range_cast<3>(m_global_size), celerity::detail::zeros, celerity::detail::ones, m_chunks};
 	}
 
+	celerity::nd_custom_task_geometry<Dims> make_nd(const range<3> local_size) const {
+		if(std::any_of(
+		       m_chunks.begin(), m_chunks.end(), [=](const geometry_chunk& chunk) { return chunk.box.get_range() % local_size != celerity::detail::zeros; })) {
+			throw std::runtime_error("Local size does not divide chunk size");
+		}
+		return celerity::nd_custom_task_geometry<Dims>{range_cast<3>(m_global_size), celerity::detail::zeros, local_size, m_chunks};
+	}
+
   private:
 	celerity::range<2> m_global_size;
 	std::vector<celerity::geometry_chunk> m_chunks;

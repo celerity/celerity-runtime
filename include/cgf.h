@@ -58,9 +58,21 @@ struct geometry_chunk {
 template <int Dims = 1>
 struct custom_task_geometry {
 	range<3> global_size{1, 1, 1};
-	id<3> global_offset;
-	range<3> local_size{1, 1, 1}; // FIXME: Figure out how nd-range kernels work w/ custom geometries
+	id<3> global_offset; // NOCOMMIT TODO: Why even have this?
+	range<3> local_size{1, 1, 1};
 
+	std::vector<geometry_chunk> assigned_chunks;
+};
+
+// TODO API: Naming
+// TODO: Also, instead of making a separate public type, we could have something like custom_task_geometry::as_nd_range()
+template <int Dims = 1>
+struct nd_custom_task_geometry {
+	range<3> global_size{1, 1, 1};
+	id<3> global_offset; // NOCOMMIT TODO: Why even have this?
+	range<3> local_size{1, 1, 1};
+
+	// NOCOMMIT TODO: Verify that chunks are divisible by local size
 	std::vector<geometry_chunk> assigned_chunks;
 };
 
@@ -77,11 +89,18 @@ struct custom_task_geometry_desc {
 	int dimensions = 0;
 	range<3> global_size;
 	id<3> global_offset;
-	range<3> local_size;
+	range<3> local_size; // TODO: Here and for the other types - why do we even store this?
+	                     // => For basic geometry we implicitly store this in granularity, and
+	                     // the task launcher already knows the local size
 	std::vector<geometry_chunk> assigned_chunks;
 
 	template <int Dims>
 	explicit(false) custom_task_geometry_desc(custom_task_geometry<Dims> geo)
+	    : dimensions(Dims), global_size(geo.global_size), global_offset(geo.global_offset), local_size(geo.local_size),
+	      assigned_chunks(std::move(geo.assigned_chunks)) {}
+
+	template <int Dims>
+	explicit(false) custom_task_geometry_desc(nd_custom_task_geometry<Dims> geo)
 	    : dimensions(Dims), global_size(geo.global_size), global_offset(geo.global_offset), local_size(geo.local_size),
 	      assigned_chunks(std::move(geo.assigned_chunks)) {}
 
