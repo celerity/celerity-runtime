@@ -290,7 +290,7 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		assert(!replicated || detail::is_producer_mode(Mode));
 		using range_mapper = detail::range_mapper<Dims, std::decay_t<Functor>>; // decay function type to function pointer
 		detail::hydration_id hid = -1;
-		if constexpr(std::is_same_v<std::remove_cvref_t<Functor>, expert_mapper>) {
+		if constexpr(std::is_convertible_v<std::remove_cvref_t<Functor>, expert_mapper>) {
 			hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), Mode, rmfn, replicated);
 		} else {
 			hid = detail::add_requirement(cgh, detail::get_buffer_id(buff), Mode, std::make_unique<range_mapper>(rmfn, buff.get_range()), replicated);

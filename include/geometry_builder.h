@@ -10,6 +10,127 @@
 
 namespace celerity {
 
+// TODO: Naming - partitioning, domain_partition, domain, cartesian_partition ...?
+//		=> Partition is already used for host tasks...
+// SHOULD BOTH THIS AND GEOMETRY_BUILDER EXIST? I think so. A partition is a subset: Fully covers the domain, no overlap.
+// => Also partitions (I think?) don't have any node/device assignments
+//		=> When assigning we could then choose to only assign to a subset of nodes
+// NOCOMMIT MOVE
+// TODO: Should it also be possible to just create a partition with a given grid size, and unit-sized cells?
+// TODO: It should be possible to go from a 2D partition to a 1D partition (by laying it out row-wise). Vice versa?
+// TODO: It should be possible to scale a partition down or up (e.g. for thread coarsening)
+// => OR: Should this be done in geometry builder? If we do it here we could also apply it in reverse though (for data requirements)
+template <int Dims>
+class cartesian_grid {
+	using box = celerity::detail::box<Dims>;
+
+  public:
+	struct cell {
+		id<Dims> pos;
+		box box;
+	};
+
+	// TODO: Have static factory methods instead? Or a builder?
+	cartesian_grid(box extent) : m_extent(std::move(extent)) {}
+
+	// TODO: Naming - a partition should already be split. Also it should only be possible to call this once.
+	// TODO: Terminology - are these "chunks", "blocks", "tiles", "cells"..?
+	// TODO: Constraint policy - exact (fail if not possible) or pad (create larger/smaller chunks at end)
+	// TODO: Option to specify number of chunks in each dimension (or number of cuts?)
+	void split(const size_t num_cells, const celerity::range<2>& constraints = {1, 1}) {
+		const auto cells = celerity::detail::split_2d(box_cast<3>(m_extent), range_cast<3>(constraints), num_cells);
+		if(cells.size() != num_cells) { throw std::runtime_error("Failed to create requested number of cells - what now?"); }
+
+		// TODO: It's stupid that we have to figure out the grid dimensions from the chunks. split_2d should just tell us.
+		// 	=> The logic below relies on the fact that chunks are returned in "row-major" order
+		// TODO: We don't actually need to compute the boxes themselves. It would suffice to get their number and shape in each dimension.
+		m_cells.reserve(num_cells);
+		static_assert(Dims == 2); // 1D/3D positioning NYI
+		id<2> pos = {};
+		for(const auto& cell : cells) {
+			if(cell.get_min()[1] == m_extent.get_min()[1]) {
+				if(!m_cells.empty()) {
+					pos[0]++;
+					pos[1] = 0;
+				}
+			}
+			m_cells.push_back({pos, box_cast<2>(cell)});
+			pos[1]++;
+		}
+		m_grid_size = range_cast<Dims>(pos + id<2>{1, 0});
+		// TODO: Turn this into an assertion
+		if(m_grid_size.size() != m_cells.size()) { throw std::runtime_error("Chunks are not in the order I expected"); }
+		CELERITY_CRITICAL("Created a grid of size {}", m_grid_size);
+	}
+
+	// TODO: Naming - domain_extent, domain_size..?
+	const box& get_extent() const { return m_extent; }
+
+	// TODO: Naming - grid? get_size?
+	celerity::range<2> get_grid_size() const { return m_grid_size; }
+
+	const std::vector<cell>& get_cells() const { return m_cells; }
+
+	const box& get_cell(const id<Dims>& pos) const {
+		static_assert(Dims == 2); // 1D/3D Linearization NYI
+		const auto idx = pos[0] * m_grid_size[1] + pos[1];
+		if(idx >= m_cells.size()) { throw std::runtime_error("Cell index out of bounds"); }
+		return m_cells[idx].box;
+	}
+
+  private:
+	box m_extent;
+	celerity::range<2> m_grid_size;
+	std::vector<cell> m_cells;
+};
+
+// TODO: This should be the output of the builder (to configure assignment, partial materialization, ...)
+//		=> Probably also to do device splitting/assignments
+template <int Dims>
+class grid_geometry {
+  public:
+	grid_geometry(cartesian_grid<Dims> grid, const range<Dims>& local_size) : m_grid(std::move(grid)), m_local_size(local_size) {
+		for(auto& cell : m_grid.get_cells()) {
+			if(cell.box.get_range() % local_size != detail::zeros) { throw std::runtime_error("Local size does not divide cell size"); }
+		}
+	}
+
+	// TODO: Or inherit from custom_task_geometry?
+	operator custom_task_geometry<Dims>() const {
+		std::vector<geometry_chunk> chunks;
+		for(size_t i = 0; i < m_grid.get_cells().size(); ++i) {
+			const auto& cell = m_grid.get_cells()[i];
+			// NOCOMMIT TODO: Assuming number of nodes matches
+			// NOCOMMIT TODO: Figure out device assignments
+			chunks.push_back({box_cast<3>(cell.box), detail::node_id(i), detail::device_id(0)});
+		}
+		custom_task_geometry<Dims> geo{.global_size = range_cast<3>(m_grid.get_extent().get_range()),
+		    .global_offset = id_cast<3>(m_grid.get_extent().get_offset()),
+		    .local_size = range_cast<3>(m_local_size),
+		    .assigned_chunks = std::move(chunks)};
+		return geo;
+	}
+
+	// NOCOMMIT This is beyond stupid
+	operator nd_custom_task_geometry<Dims>() const {
+		custom_task_geometry geo = this->operator custom_task_geometry<Dims>();
+		return nd_custom_task_geometry<Dims>{.global_size = geo.global_size,
+		    .global_offset = geo.global_offset,
+		    .local_size = geo.local_size,
+		    .assigned_chunks = std::move(geo.assigned_chunks)};
+	}
+
+	const cartesian_grid<Dims>& get_grid() const { return m_grid; }
+
+  private:
+	cartesian_grid<Dims> m_grid;
+	range<Dims> m_local_size;
+	// std::vector<detail::node_id> m_node_assignments;
+};
+
+// TODO: The builder should probably use a chaining pattern so we can control what operations can be done in what order
+// => One potential way of implementing this would be to have a intermediate type with template parameters that indicate what operations have already been done
+//		=> Member functions could then be enabled/disabled based on that
 template <int Dims>
 class geometry_builder {
   public:
@@ -86,7 +207,7 @@ class geometry_builder {
 		}
 	}
 
-	// TODO API: Naming????
+	// TODO API: Naming???? Divide? That's what affinity designer (and illustrator IIRC) calls it
 	void splice(const geometry_builder& another_one) {
 		if(another_one.is_overlapping()) { throw std::runtime_error("Splicing with overlapping geometry - not sure what to do here??"); }
 
@@ -179,6 +300,8 @@ class geometry_builder {
 	}
 
   private:
+	// TODO: Should this be a box, like in partition? We could then pass the offset as global offset into task_geometry.
+	// => Altough it's not clear we even need global_offset (and size, for that matter) in custom_task_geometry at all - see comments there
 	celerity::range<2> m_global_size;
 	std::vector<celerity::geometry_chunk> m_chunks;
 

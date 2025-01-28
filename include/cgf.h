@@ -58,7 +58,9 @@ struct geometry_chunk {
 template <int Dims = 1>
 struct custom_task_geometry {
 	range<3> global_size{1, 1, 1};
-	id<3> global_offset; // NOCOMMIT TODO: Why even have this?
+	id<3> global_offset; // NOCOMMIT TODO: Why even have this? => Same reason we still need global_size - interop w/ range mappers
+	                     // BUT DO WE actually need global_size/offset? Currently BAM applies RMs to all chunks and computes union
+	                     // Using global_size/offset would only be correct if we have a proper partitioning of the domain, no gaps / overlaps
 	range<3> local_size{1, 1, 1};
 
 	std::vector<geometry_chunk> assigned_chunks;

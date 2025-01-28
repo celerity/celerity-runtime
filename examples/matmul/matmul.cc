@@ -1,3 +1,4 @@
+#include "fmt/ranges.h"
 #include <cstdio>
 
 #include <celerity.h>
@@ -16,6 +17,7 @@ void set_identity(celerity::queue queue, celerity::buffer<T, 2> mat, bool revers
 		const auto range = mat.get_range();
 
 		celerity::debug::set_task_name(cgh, "set identity");
+		celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d{});
 		cgh.parallel_for<class set_identity_kernel>(range, [=](celerity::item<2> item) {
 			if(!reverse) {
 				dw[item] = item[0] == item[1];
@@ -31,6 +33,7 @@ void set_zero(celerity::queue queue, celerity::buffer<T, 2> mat) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw{mat, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		celerity::debug::set_task_name(cgh, "set zero");
+		celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d{});
 		cgh.parallel_for(mat.get_range(), [=](celerity::item<2> item) { dw[item] = T{0}; });
 	});
 }
@@ -121,16 +124,78 @@ void multiply(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buf
 	});
 }
 
+// TODO: Naming
+template <int Dims>
+class grid_data_requirements {
+  public:
+	grid_data_requirements(celerity::grid_geometry<Dims> geo) : m_geo(std::move(geo)) { m_requirements.resize(m_geo.get_grid().get_cells().size()); }
+
+	// TODO: Maintain somewhat imprecise terminology from range mappers? Or call "identity"?
+	void add_one_to_one(celerity::cartesian_grid<Dims> grid) {
+		if(grid.get_grid_size() != m_geo.get_grid().get_grid_size()) { throw std::runtime_error("Grid size mismatch"); }
+		for(size_t i = 0; i < grid.get_cells().size(); ++i) {
+			const auto& cell = grid.get_cells()[i];
+			m_requirements[i] = region_union(m_requirements[i], box_cast<3>(cell.box));
+		}
+	}
+
+	// TODO: Add region overload
+	void add(const celerity::id<2>& cell, celerity::detail::box<Dims> box) {
+		const auto linear_idx = cell[0] * m_geo.get_grid().get_grid_size()[1] + cell[1];
+		if(linear_idx >= m_requirements.size()) { throw std::runtime_error("Cell index out of bounds"); }
+		m_requirements[linear_idx] = region_union(m_requirements[linear_idx], box_cast<3>(box));
+	}
+
+	operator celerity::expert_mapper() const {
+		// TODO: We should have an option for the user to provide this, so we don't have to compute it
+		// 			=> Or in the cast of partial materialization, we CANNOT compute it
+		celerity::detail::region<3> union_access;
+		std::vector<std::pair<celerity::detail::box<3>, celerity::detail::region<3>>> per_chunk_accesses;
+		const auto& cells = m_geo.get_grid().get_cells();
+		for(size_t i = 0; i < m_requirements.size(); ++i) {
+			const auto& req = m_requirements[i];
+			union_access = region_union(union_access, req);
+			per_chunk_accesses.push_back({box_cast<3>(cells[i].box), req});
+		}
+		return celerity::expert_mapper{union_access, per_chunk_accesses};
+	}
+
+  private:
+	celerity::grid_geometry<Dims> m_geo;
+	std::vector<celerity::detail::region<3>> m_requirements;
+};
+
 template <typename T>
 void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
 	const size_t group_size = 16;
 
-	// TODO API: Should this maybe be celerity::geometry::make_empty<2>(...)?
-	celerity::geometry_builder<2> gb{mat_c.get_range()};
+	celerity::cartesian_grid<2> matrix_partition(celerity::detail::box<2>::full_range(mat_c.get_range()));
+	// TODO: Obviously we need a better API to split across all nodes
+	matrix_partition.split(celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), {group_size, group_size});
 
-	gb.split_2d_but_recursive_and_only_for_local_chunks();
+	// TODO: Do we even need a builder in this case?
+	// => HERE we could create a 1D geometry from a 2D partition. The key is that we maintain the coordinates!!
+	// celerity::geometry_builder<2> gb2{output_partition};
+	// TODO: Option to do partial materialization here
+	// gb2.assign(); // TODO: ? Policy - round robin, grouped round robin (?), ...
+
+	// THEN: Get all (locally materialized) chunks AND THEIR COORDINATES (how? only works if geometry is based on partition)
+
+	celerity::grid_geometry geo(matrix_partition, celerity::range<2>{group_size, group_size});
+
+	// The key thing we want to achieve is that we can iterate over all chunks and easily select their required data based on coordinates
+
+	grid_data_requirements writes{geo};
+	writes.add_one_to_one(matrix_partition);
+
+	////////////////////
+
+	// TODO API: Should this maybe be celerity::geometry::make_empty<2>(...)?
+	// celerity::geometry_builder<2> gb{mat_c.get_range()};
+
+	// gb.split_2d_but_recursive_and_only_for_local_chunks();
 	// auto geo = gb.make();
-	auto geo = gb.make_nd({group_size, group_size, 1});
+	// auto geo = gb.make_nd({group_size, group_size, 1});
 
 	// We want to apply the same chunking to the data as we did to the kernel. Is that a common thing or a coincidence in this case?
 	//	- Maybe there is an underlying concept here, something like a "partition" that works on arbitrary index spaces?
@@ -156,37 +221,51 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 	const size_t block_size = mat_size[0] / std::sqrt(num_nodes);
 
 	for(size_t K = 0; K < mat_size[0]; K += block_size) {
-		celerity::detail::region<3> union_access_a = celerity::detail::box<3>::full_range(range_cast<3>(mat_a.get_range()));
-		celerity::detail::region<3> union_access_b = celerity::detail::box<3>::full_range(range_cast<3>(mat_b.get_range()));
-		std::vector<std::pair<celerity::detail::box<3>, celerity::detail::region<3>>> per_chunk_accesses_a;
-		std::vector<std::pair<celerity::detail::box<3>, celerity::detail::region<3>>> per_chunk_accesses_b;
+		// celerity::detail::region<3> union_access_a = celerity::detail::box<3>::full_range(range_cast<3>(mat_a.get_range()));
+		// celerity::detail::region<3> union_access_b = celerity::detail::box<3>::full_range(range_cast<3>(mat_b.get_range()));
+		// std::vector<std::pair<celerity::detail::box<3>, celerity::detail::region<3>>> per_chunk_accesses_a;
+		// std::vector<std::pair<celerity::detail::box<3>, celerity::detail::region<3>>> per_chunk_accesses_b;
 
 		// TODO: Does it make sense to do oversubscription here? I.e., there is no reason to have the same number of blocks as there are nodes, right?
 		//	=> We could always just create N^2 blocks for N nodes..? Would make things easier, and we'd only have to deal with square block matrices
-		for(auto& ac : geo.assigned_chunks) {
-			auto sr_a = ac.box.get_subrange();
-			auto sr_b = ac.box.get_subrange();
-			sr_a.offset[1] = K;
-			sr_b.offset[0] = K;
+		// for(auto& ac : geo.assigned_chunks) {
+		// 	auto sr_a = ac.box.get_subrange();
+		// 	auto sr_b = ac.box.get_subrange();
+		// 	sr_a.offset[1] = K;
+		// 	sr_b.offset[0] = K;
 
-			per_chunk_accesses_a.push_back(std::pair{ac.box, celerity::detail::box{sr_a}});
-			per_chunk_accesses_b.push_back(std::pair{ac.box, celerity::detail::box{sr_b}});
-		}
+		// 	per_chunk_accesses_a.push_back(std::pair{ac.box, celerity::detail::box{sr_a}});
+		// 	per_chunk_accesses_b.push_back(std::pair{ac.box, celerity::detail::box{sr_b}});
+		// }
 
 		// TODO API: We have to do this somehow inside expert_mapper, but how? We don't have the buffer size available. Do it BAM?
-		for(auto& [_, region] : per_chunk_accesses_a) {
-			if(!celerity::detail::box<2>::full_range(mat_a.get_range()).covers(celerity::detail::box_cast<2>(celerity::detail::bounding_box(region)))) {
-				throw std::runtime_error(fmt::format("Access {} is out of bounds for matrix A", region));
-			}
-		}
-		for(auto& [_, region] : per_chunk_accesses_b) {
-			if(!celerity::detail::box<2>::full_range(mat_b.get_range()).covers(celerity::detail::box_cast<2>(celerity::detail::bounding_box(region)))) {
-				throw std::runtime_error(fmt::format("Access {} is out of bounds for matrix B", region));
-			}
-		}
+		// for(auto& [_, region] : per_chunk_accesses_a) {
+		// 	if(!celerity::detail::box<2>::full_range(mat_a.get_range()).covers(celerity::detail::box_cast<2>(celerity::detail::bounding_box(region)))) {
+		// 		throw std::runtime_error(fmt::format("Access {} is out of bounds for matrix A", region));
+		// 	}
+		// }
+		// for(auto& [_, region] : per_chunk_accesses_b) {
+		// 	if(!celerity::detail::box<2>::full_range(mat_b.get_range()).covers(celerity::detail::box_cast<2>(celerity::detail::bounding_box(region)))) {
+		// 		throw std::runtime_error(fmt::format("Access {} is out of bounds for matrix B", region));
+		// 	}
+		// }
 
-		celerity::expert_mapper data_reqs_a(union_access_a, per_chunk_accesses_a);
-		celerity::expert_mapper data_reqs_b(union_access_b, per_chunk_accesses_b);
+		// celerity::expert_mapper data_reqs_a(union_access_a, per_chunk_accesses_a);
+		// celerity::expert_mapper data_reqs_b(union_access_b, per_chunk_accesses_b);
+
+		grid_data_requirements<2> data_reqs_a{geo};
+		grid_data_requirements<2> data_reqs_b{geo};
+
+		for(auto& cell : geo.get_grid().get_cells()) {
+			const auto idx = K / block_size;
+			// data_reqs_a.add(cell.pos, matrix_partition.get_cell({cell.pos[0], idx}));
+			// data_reqs_b.add(cell.pos, matrix_partition.get_cell({idx, cell.pos[1]}));
+			// Easy optimization: Instead of starting at 0/0 for each block, we start at with the data that already exists on that node
+			// => THIS REQUIRES THAT INITIALIZATION IS ALSO BLOCKED ALREADY!
+			const auto grid_size = matrix_partition.get_grid_size();
+			data_reqs_a.add(cell.pos, matrix_partition.get_cell({cell.pos[0], (cell.pos[1] + idx) % grid_size[1]}));
+			data_reqs_b.add(cell.pos, matrix_partition.get_cell({(cell.pos[0] + idx) % grid_size[0], cell.pos[1]}));
+		}
 
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::accessor a{mat_a, cgh, data_reqs_a, celerity::read_only};
@@ -198,7 +277,7 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 
 			celerity::debug::set_task_name(cgh, "matmul blocked");
 			// cgh.parallel_for(geo, [=](celerity::item<2> item) {
-			cgh.parallel_for(geo, [=](celerity::nd_item<2> item) {
+			cgh.parallel_for(geo.operator celerity::nd_custom_task_geometry<2>(), [=](celerity::nd_item<2> item) {
 				// T sum{};
 				// for(size_t k = 0; k < block_size; ++k) {
 				// 	sum += a[{item[0], K + k}] * b[{K + k, item[1]}];
@@ -298,6 +377,9 @@ void verify(celerity::queue& queue, celerity::buffer<T, 2> mat_c, celerity::expe
 //		- Requires to split allocations
 //		- Allow access to pointer (how does typing work for this?)
 // - Maybe: Local indexing
+//		- BUT: How useful is it really, when you have e.g. a buffer that is not evenly divisible by number of blocks?
+//             You need to be able to tell whether threads are exceeding the domain or not
+//			=> Maybe pass in global coordinates as extra object? Does not using a kernel parameter create register pressure?
 // - Multi-device support TBD?!
 // - 1D kernel on 2D data: Highly optimized GEMM
 
