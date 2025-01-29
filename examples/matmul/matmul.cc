@@ -28,6 +28,19 @@ void set_identity(celerity::queue queue, celerity::buffer<T, 2> mat, bool revers
 	});
 }
 
+// Fill matrix with something that is not all zeroes but still easy to verify.
+template <typename T>
+void fill_with_range(celerity::queue queue, celerity::buffer<T, 2> mat, const int min, const int max) {
+	queue.submit([&](celerity::handler& cgh) {
+		celerity::accessor dw{mat, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+		const auto range = mat.get_range();
+
+		celerity::debug::set_task_name(cgh, "fill with range");
+		celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d{});
+		cgh.parallel_for<class set_identity_kernel>(range, [=](celerity::item<2> item) { dw[item] = item.get_linear_id() % (max - min) + min; });
+	});
+}
+
 template <typename T>
 void set_zero(celerity::queue queue, celerity::buffer<T, 2> mat) {
 	queue.submit([&](celerity::handler& cgh) {
@@ -258,13 +271,17 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 
 		for(auto& cell : geo.get_grid().get_cells()) {
 			const auto idx = K / block_size;
-			// data_reqs_a.add(cell.pos, matrix_partition.get_cell({cell.pos[0], idx}));
-			// data_reqs_b.add(cell.pos, matrix_partition.get_cell({idx, cell.pos[1]}));
+			data_reqs_a.add(cell.pos, matrix_partition.get_cell({cell.pos[0], idx}));
+			data_reqs_b.add(cell.pos, matrix_partition.get_cell({idx, cell.pos[1]}));
 			// Easy optimization: Instead of starting at 0/0 for each block, we start at with the data that already exists on that node
 			// => THIS REQUIRES THAT INITIALIZATION IS ALSO BLOCKED ALREADY!
-			const auto grid_size = matrix_partition.get_grid_size();
-			data_reqs_a.add(cell.pos, matrix_partition.get_cell({cell.pos[0], (cell.pos[1] + idx) % grid_size[1]}));
-			data_reqs_b.add(cell.pos, matrix_partition.get_cell({(cell.pos[0] + idx) % grid_size[0], cell.pos[1]}));
+			// => Note that this also results in bitwise different results!! (floating point addition not commutative)
+
+			// HOLD UP: This either also requires adjustment in the kernel, or local indexing
+
+			// const auto grid_size = matrix_partition.get_grid_size();
+			// data_reqs_a.add(cell.pos, matrix_partition.get_cell({cell.pos[0], (cell.pos[1] + idx) % grid_size[1]}));
+			// data_reqs_b.add(cell.pos, matrix_partition.get_cell({(cell.pos[0] + idx) % grid_size[0], cell.pos[1]}));
 		}
 
 		queue.submit([&](celerity::handler& cgh) {
@@ -305,19 +322,24 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 }
 
 template <typename T>
-void verify(celerity::queue& queue, celerity::buffer<T, 2> mat_c, celerity::experimental::host_object<bool> passed_obj) {
+void verify(
+    celerity::queue& queue, celerity::buffer<T, 2> mat_c, const int fill_min, const int fill_max, celerity::experimental::host_object<bool> passed_obj) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task};
 		celerity::experimental::side_effect passed{passed_obj, cgh};
 
 		celerity::debug::set_task_name(cgh, "verification");
+		const auto mat_size = mat_c.get_range();
 		cgh.host_task(mat_c.get_range(), [=](celerity::partition<2> part) {
 			*passed = true;
 			const auto& sr = part.get_subrange();
 			for(size_t i = sr.offset[0]; i < sr.offset[0] + sr.range[0]; ++i) {
 				for(size_t j = sr.offset[1]; j < sr.offset[1] + sr.range[1]; ++j) {
 					const float received = c[i][j];
-					const float expected = i == (sr.range[1] - j - 1);
+					// The original matrix was initialized based on its linear id. We expect the result to be flipped horizontally,
+					// so we have to first compute the original global index.
+					const size_t original_global_index = i * mat_size[1] + mat_size[1] - j - 1;
+					const float expected = (original_global_index % (fill_max - fill_min)) + fill_min;
 					if(expected != received) {
 						CELERITY_ERROR("Verification failed for element {},{}: {} (received) != {} (expected)", i, j, received, expected);
 						*passed = false;
@@ -402,9 +424,8 @@ int main(int argc, char* argv[]) {
 
 	// TODO: We should create geometry here and pass it into all functions
 
-	const auto setup = [&] {
-		// TODO: Consider initializing mat_a to something more interesting - still easy to verify
-		set_identity(queue, mat_a_buf, false);
+	const auto setup = [&](const int fill_min, const int fill_max) {
+		fill_with_range(queue, mat_a_buf, fill_min, fill_max);
 		set_identity(queue, mat_b_buf, true);
 		set_zero(queue, mat_c_buf);
 	};
@@ -418,10 +439,10 @@ int main(int argc, char* argv[]) {
 	};
 
 	puts("With warmup");
-	setup();
+	setup(0, 7);
 	run();
 
-	setup();
+	setup(8, 13);
 
 	queue.wait(celerity::experimental::barrier);
 	const auto before = std::chrono::steady_clock::now();
@@ -435,7 +456,7 @@ int main(int argc, char* argv[]) {
 
 	// each node verifies part of the result, so we pass per-node verification results through a host object
 	celerity::experimental::host_object<bool> passed_obj(false);
-	verify(queue, mat_c_buf, passed_obj);
+	verify(queue, mat_c_buf, 8, 13, passed_obj);
 
 	// The value of `passed` can differ between hosts if only part of the verification failed.
 	const bool passed = queue.fence(passed_obj).get();

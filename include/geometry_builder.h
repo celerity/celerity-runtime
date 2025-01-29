@@ -12,6 +12,7 @@ namespace celerity {
 
 // TODO: Naming - partitioning, domain_partition, domain, cartesian_partition ...?
 //		=> Partition is already used for host tasks...
+// 		=> Is this even CARTESIAN, if the cells can be of different size (unequal split?). Or is it RECTILINEAR?
 // SHOULD BOTH THIS AND GEOMETRY_BUILDER EXIST? I think so. A partition is a subset: Fully covers the domain, no overlap.
 // => Also partitions (I think?) don't have any node/device assignments
 //		=> When assigning we could then choose to only assign to a subset of nodes
@@ -86,6 +87,9 @@ class cartesian_grid {
 
 // TODO: This should be the output of the builder (to configure assignment, partial materialization, ...)
 //		=> Probably also to do device splitting/assignments
+// TODO: Should this just have a "view as 1D" functionality? (For optimized GEMM kernel)
+//		=> THE PROBLEM with the current approach is that the chunks won't match what is stored in expert mapper. So we'd have to do this BEFORE creating the
+//         mapper. This could be remedied by switching to chunk indices instead.
 template <int Dims>
 class grid_geometry {
   public:
