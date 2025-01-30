@@ -219,12 +219,8 @@ namespace detail {
 
 	template <typename KernelName, typename... Params>
 	inline void invoke_sycl_parallel_for(sycl::handler& cgh, Params&&... args) {
-		static_assert(CELERITY_FEATURE_UNNAMED_KERNELS || !is_unnamed_kernel<KernelName>,
-		    "Your SYCL implementation does not support unnamed kernels, add a kernel name template parameter to this parallel_for invocation");
 		if constexpr(detail::is_unnamed_kernel<KernelName>) {
-#if CELERITY_FEATURE_UNNAMED_KERNELS // see static_assert above
 			cgh.parallel_for(std::forward<Params>(args)...);
-#endif
 		} else {
 			cgh.parallel_for<KernelName>(std::forward<Params>(args)...);
 		}

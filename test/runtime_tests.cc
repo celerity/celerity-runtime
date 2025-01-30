@@ -329,8 +329,6 @@ namespace detail {
 		});
 	}
 
-#if CELERITY_FEATURE_UNNAMED_KERNELS
-
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler::parallel_for kernel names are optional", "[handler][reduction]") {
 		queue q;
 
@@ -361,8 +359,6 @@ namespace detail {
 			    [=](nd_item<1> item, auto& r) { r += static_cast<int>(item.get_global_linear_id()); });
 		});
 	}
-
-#endif
 
 	TEST_CASE_METHOD(test_utils::runtime_fixture, "handler throws when accessor target does not match command type", "[handler]") {
 		queue q;
