@@ -81,8 +81,8 @@ void multiply(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buf
 #endif
 
 		celerity::debug::set_task_name(cgh, "matrix multiplication");
-		const size_t mat_size = mat_c.get_range()[0];
 #if USE_REGISTER_TILING
+		const size_t mat_size = mat_c.get_range()[0];
 		cgh.parallel_for(celerity::nd_range<2>{mat_c.get_range() / THREAD_TILE_SIZE, {group_size, group_size}}, [=](celerity::nd_item<2> item) {
 			T sums[THREAD_TILE_SIZE * THREAD_TILE_SIZE] = {0};
 			const auto lid = item.get_local_id();
@@ -116,10 +116,11 @@ void multiply(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buf
 			}
 		});
 #else
+		const size_t K = mat_a.get_range()[1];
 		cgh.parallel_for(celerity::nd_range<2>{mat_c.get_range(), {group_size, group_size}}, [=](celerity::nd_item<2> item) {
 			T sum{};
 			const auto lid = item.get_local_id();
-			for(size_t j = 0; j < mat_size; j += group_size) {
+			for(size_t j = 0; j < K; j += group_size) { // TODO: Akward j iterating to K
 				scratch_a[lid] = a[item.get_group(0) * group_size + lid[0]][j + lid[1]];
 				scratch_b[lid] = b[j + lid[0]][item.get_group(1) * group_size + lid[1]];
 				celerity::group_barrier(item.get_group());
@@ -194,12 +195,15 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 
 	// THEN: Get all (locally materialized) chunks AND THEIR COORDINATES (how? only works if geometry is based on partition)
 
+	// TODO: We should also do a non-square example, to be sure this all still makes sense
+
 	celerity::grid_geometry geo(matrix_partition, celerity::range<2>{group_size, group_size});
 
 	// The key thing we want to achieve is that we can iterate over all chunks and easily select their required data based on coordinates
 
-	grid_data_requirements writes{geo};
-	writes.add_one_to_one(matrix_partition);
+	// Or we could just use one_to_one range mapper, as before
+	// grid_data_requirements writes{geo};
+	// writes.add_one_to_one(matrix_partition);
 
 	////////////////////
 
@@ -318,28 +322,70 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 				c[gid] += sum;
 			});
 		});
+
+		// SUBTASKS:
+		// - Would be a huge undertaking
+		// 		- Would require storing multiple task launchers within a single task, for example
+		// - Unclear how accessors would even work (have two levels of accessors, inner level takes outer level as parameter?!)
+		//		- also with respect to CGF diagnostics
+		// - When would subtask lambda be evaluated?! It would have to be early, otherwise we introduce a lot of latency
+		// 		- Most likely during TDAG generation, but that would mean that we need to do chunking in TDAG already
+		// - The big advantage: We could do the same type of chunking as on outer level and have precise control over order of executions
+
+		// ALSO:
+		// - Creating device chunks on the top level is awkward. It's kind of an implementation detail from the perspective of distributed scheduling.
+		// 		- Of course we could submit different tasks for each device on the top level, but that is even more stupid.
+		// - If we want to do blocked matmul on device level within the top-level geometry, we need overlapping chunks, which messes with the whole grid setup.
+		// - Is there some kind of middleground?
+
+		// YES: New plan after talking to peter: If we want to do blocked device matmul, we simply have to submit multiple tasks, one for each step.
+		// The justification is this: A geometry may have overlapping chunks, but writes must be exclusive (unless replicated). If there is a conflict, submit
+		// multiple tasks. This way we can control the order of execution for each device, and do the same optimization as on the top level.
+		//
+		// What we need: Nested cartesian grid, where each cell can contain subcells, that we can iterate over. Only local chunks contain subcells.
+		//
+		// Ad ephemeral storage: This wouldn't work with multiple tasks (because it would've been a property of the accessor).
+		// BUT: We can still do something like buffer:discard_non_owned() hint.
+		// AND: Importantly, Peter (and now I) believe that storage of slices will not be a problem even for weak scaling.
+
+		// => The only downside of this, compared to subtasks, is that we have to assume the same number of devices on each node.
+		//		In a sense, we kind of "leak" the device-level algorithm to the distributed level.
+		//		Different number of devices (or different splits) CAN be supported, but it requires to segregate the distributed chunks into groups as well.
+		// 		I.e., submit a different number of tasks for those nodes that have two devices vs those that have four. Ultimately all nodes need to submit
+		//      all tasks of course, but the global chunks need to be set up in such a way that only the correct set of nodes does something.
 	}
 }
 
+// TODO: Use 2D geometry as well
 template <typename T>
-void verify(
-    celerity::queue& queue, celerity::buffer<T, 2> mat_c, const int fill_min, const int fill_max, celerity::experimental::host_object<bool> passed_obj) {
+void verify(celerity::queue& queue, celerity::buffer<T, 2> mat_c, const size_t K, const int fill_min, const int fill_max,
+    celerity::experimental::host_object<bool> passed_obj) {
+	const size_t M = mat_c.get_range()[1];
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task};
 		celerity::experimental::side_effect passed{passed_obj, cgh};
 
 		celerity::debug::set_task_name(cgh, "verification");
-		const auto mat_size = mat_c.get_range();
 		cgh.host_task(mat_c.get_range(), [=](celerity::partition<2> part) {
 			*passed = true;
 			const auto& sr = part.get_subrange();
 			for(size_t i = sr.offset[0]; i < sr.offset[0] + sr.range[0]; ++i) {
 				for(size_t j = sr.offset[1]; j < sr.offset[1] + sr.range[1]; ++j) {
 					const float received = c[i][j];
-					// The original matrix was initialized based on its linear id. We expect the result to be flipped horizontally,
-					// so we have to first compute the original global index.
-					const size_t original_global_index = i * mat_size[1] + mat_size[1] - j - 1;
-					const float expected = (original_global_index % (fill_max - fill_min)) + fill_min;
+					float expected = 0;
+
+					// If B is identity matrix
+					// if(j < K) {
+					// 	const size_t original_global_index = i * K + j;
+					// 	expected = (original_global_index % (fill_max - fill_min)) + fill_min;
+					// }
+
+					// If B is reverse identity matrix
+					if(M < K || (M >= K && j >= M - K)) {
+						const size_t original_global_index = i * K + M - j - 1;
+						expected = (original_global_index % (fill_max - fill_min)) + fill_min;
+					}
+
 					if(expected != received) {
 						CELERITY_ERROR("Verification failed for element {},{}: {} (received) != {} (expected)", i, j, received, expected);
 						*passed = false;
@@ -406,17 +452,22 @@ void verify(
 // - 1D kernel on 2D data: Highly optimized GEMM
 
 int main(int argc, char* argv[]) {
-	const size_t mat_size = argc > 1 ? std::stoul(argv[1]) : default_mat_size;
-	const bool use_blocked = argc > 2 ? std::stoi(argv[2]) : 0;
+	const bool use_blocked = argc > 1 ? std::stoi(argv[1]) : 0;
+	const size_t N = argc > 2 ? std::stoul(argv[2]) : default_mat_size;
+	if(argc > 3 && argc != 5) {
+		fprintf(stderr, "Usage: %s [<use blocked>] [<N>] [<K> <M>]\n", argv[0]);
+		exit(1);
+	}
+	const size_t K = argc == 5 ? std::stoul(argv[3]) : N;
+	const size_t M = argc == 5 ? std::stoul(argv[4]) : N;
 
-	fmt::print("Matrix size is {}x{}, doing {} multiplication\n", mat_size, mat_size, use_blocked ? "BLOCKED" : "normal");
+	fmt::print("Multiplying {}x{} matrix times {}x{} to produce {}x{}, using {} multiplication\n", N, K, K, M, N, M, use_blocked ? "BLOCKED" : "normal");
 
 	celerity::queue queue;
 
-	const auto range = celerity::range<2>(mat_size, mat_size);
-	celerity::buffer<float, 2> mat_a_buf(range);
-	celerity::buffer<float, 2> mat_b_buf(range);
-	celerity::buffer<float, 2> mat_c_buf(range);
+	celerity::buffer<float, 2> mat_a_buf({N, K});
+	celerity::buffer<float, 2> mat_b_buf({K, M});
+	celerity::buffer<float, 2> mat_c_buf({N, M});
 
 	celerity::debug::set_buffer_name(mat_a_buf, "mat_a");
 	celerity::debug::set_buffer_name(mat_b_buf, "mat_b");
@@ -450,13 +501,13 @@ int main(int argc, char* argv[]) {
 	queue.wait(celerity::experimental::barrier);
 	const auto after = std::chrono::steady_clock::now();
 
-	const double gflops = 2.0 * mat_size * mat_size * mat_size / 1e9;
+	const double gflops = 2.0 * N * K * M / 1e9;
 	const double seconds = std::chrono::duration_cast<std::chrono::duration<double>>(after - before).count();
 	fmt::print("Multiplication took {}ms, {:.1f} GFLOPS/s\n", std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count(), gflops / seconds);
 
 	// each node verifies part of the result, so we pass per-node verification results through a host object
 	celerity::experimental::host_object<bool> passed_obj(false);
-	verify(queue, mat_c_buf, 8, 13, passed_obj);
+	verify(queue, mat_c_buf, K, 8, 13, passed_obj);
 
 	// The value of `passed` can differ between hosts if only part of the verification failed.
 	const bool passed = queue.fence(passed_obj).get();
