@@ -549,24 +549,6 @@ void command_graph_generator::generate_distributed_commands(batch& current_batch
 
         for(const auto& [bid, consumed, produced] : requirements) {
             auto& buffer = m_buffers.at(bid);
-
-            // Process consuming accesses first, so we don't add dependencies onto our own writes
-            if(!consumed.empty()) {
-                for(const auto& [box, wcs] : buffer.local_last_writer.get_region_values(consumed)) {
-                    if(box.empty()) continue;
-                    if (!wcs.is_fresh()) {
-                        utils::report_error(m_policy.uninitialized_read_error,
-                            "Command C{} on N{}, which executes {} of {}, reads {} {}, which has not been written by any node.",
-                            cmd->get_id(), m_local_nid, 
-                            a_chunk.chnk,
-                            print_task_debug_label(tsk), print_buffer_debug_label(bid), box);
-                    }
-                    add_dependency(cmd, wcs, dependency_kind::true_dep, dependency_origin::dataflow);
-                }
-
-                // Store the read access for determining anti-dependencies later on
-                m_command_buffer_reads[cmd->get_id()].emplace(bid, consumed);
-            }
             
             // Process consuming accesses first, so we don't add dependencies onto our own writes
 			if(!consumed.empty()) {
