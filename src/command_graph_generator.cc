@@ -28,38 +28,38 @@ namespace celerity::detail {
 command_graph_generator::command_graph_generator(
     const size_t num_nodes, const node_id local_nid, command_graph& cdag, detail::command_recorder* const recorder, const policy_set& policy)
     : m_num_nodes(num_nodes), m_local_nid(local_nid), m_policy(policy), m_cdag(&cdag), m_recorder(recorder) {
-	if(m_num_nodes > max_num_nodes) {
-		throw std::runtime_error(fmt::format("Number of nodes requested ({}) exceeds compile-time maximum of {}", m_num_nodes, max_num_nodes));
-	}
+    if(m_num_nodes > max_num_nodes) {
+        throw std::runtime_error(fmt::format("Number of nodes requested ({}) exceeds compile-time maximum of {}", m_num_nodes, max_num_nodes));
+    }
 }
 
 void command_graph_generator::notify_buffer_created(const buffer_id bid, const range<3>& range, bool host_initialized) {
-	assert(m_epoch_for_new_commands != nullptr);
-	assert(!m_buffers.contains(bid));
-	// Mark contents as available locally (= don't generate await push commands) and fully replicated (= don't generate push commands).
-	// This is required when tasks access host-initialized or uninitialized buffers.
-	auto& buffer = m_buffers.emplace(std::piecewise_construct, std::tuple(bid), std::tuple(range, m_epoch_for_new_commands, node_bitset().set())).first->second;
-	if(host_initialized && m_policy.uninitialized_read_error != error_policy::ignore) { buffer.initialized_region = box(subrange({}, range)); }
+    assert(m_epoch_for_new_commands != nullptr);
+    assert(!m_buffers.contains(bid));
+    // Mark contents as available locally (= don't generate await push commands) and fully replicated (= don't generate push commands).
+    // This is required when tasks access host-initialized or uninitialized buffers.
+    auto& buffer = m_buffers.emplace(std::piecewise_construct, std::tuple(bid), std::tuple(range, m_epoch_for_new_commands, node_bitset().set())).first->second;
+    if(host_initialized && m_policy.uninitialized_read_error != error_policy::ignore) { buffer.initialized_region = box(subrange({}, range)); }
 }
 
 void command_graph_generator::notify_buffer_debug_name_changed(const buffer_id bid, const std::string& debug_name) {
-	m_buffers.at(bid).debug_name = debug_name;
+    m_buffers.at(bid).debug_name = debug_name;
 }
 
 void command_graph_generator::notify_buffer_destroyed(const buffer_id bid) {
-	assert(m_buffers.contains(bid));
-	m_buffers.erase(bid);
+    assert(m_buffers.contains(bid));
+    m_buffers.erase(bid);
 }
 
 void command_graph_generator::notify_host_object_created(const host_object_id hoid) {
-	assert(m_epoch_for_new_commands != nullptr);
-	assert(!m_host_objects.contains(hoid));
-	m_host_objects.emplace(hoid, m_epoch_for_new_commands);
+    assert(m_epoch_for_new_commands != nullptr);
+    assert(!m_host_objects.contains(hoid));
+    m_host_objects.emplace(hoid, m_epoch_for_new_commands);
 }
 
 void command_graph_generator::notify_host_object_destroyed(const host_object_id hoid) {
-	assert(m_host_objects.contains(hoid));
-	m_host_objects.erase(hoid);
+    assert(m_host_objects.contains(hoid));
+    m_host_objects.erase(hoid);
 }
 
 /// Returns whether an iterator range of commands is topologically sorted, i.e. sequential execution would satisfy all internal dependencies.
@@ -73,47 +73,64 @@ bool is_topologically_sorted(Iterator begin, Iterator end) {
 	return true;
 }
 
+bool command_graph_generator::is_generator_kernel(const task& tsk) const {
+    if (tsk.get_type() != task_type::device_compute) return false;
+    
+    // Check for split hints
+    if (tsk.get_hint<experimental::hints::split_1d>() != nullptr || 
+        tsk.get_hint<experimental::hints::split_2d>() != nullptr) {
+        return false;
+    }
+    
+    const auto& bam = tsk.get_buffer_access_map();
+    if (bam.get_num_accesses() != 1) return false;
+    
+    const auto [bid, mode] = bam.get_nth_access(0);
+    return mode == access_mode::discard_write 
+        && bam.get_task_produced_region(bid) == box(subrange({}, tsk.get_global_size()));
+}
+
 std::vector<const command*> command_graph_generator::build_task(const task& tsk) {
-	const auto epoch_to_prune_before = m_epoch_for_new_commands;
-	batch current_batch;
+    const auto epoch_to_prune_before = m_epoch_for_new_commands;
+    batch current_batch;
 
-	switch(tsk.get_type()) {
-	case task_type::epoch: generate_epoch_command(current_batch, tsk); break;
-	case task_type::horizon: generate_horizon_command(current_batch, tsk); break;
-	case task_type::device_compute:
-	case task_type::host_compute:
-	case task_type::master_node:
-	case task_type::collective:
-	case task_type::fence: generate_distributed_commands(current_batch, tsk); break;
-	default: throw std::runtime_error("Task type NYI");
-	}
+    switch(tsk.get_type()) {
+    case task_type::epoch: generate_epoch_command(current_batch, tsk); break;
+    case task_type::horizon: generate_horizon_command(current_batch, tsk); break;
+    case task_type::device_compute:
+    case task_type::host_compute:
+    case task_type::master_node:
+    case task_type::collective:
+    case task_type::fence: generate_distributed_commands(current_batch, tsk); break;
+    default: throw std::runtime_error("Task type NYI");
+    }
 
-	// It is currently undefined to split reduction-producer tasks into multiple chunks on the same node:
-	//   - Per-node reduction intermediate results are stored with fixed access to a single backing buffer,
-	//     so multiple chunks on the same node will race on this buffer access
-	//   - Inputs to the final reduction command are ordered by origin node ids to guarantee bit-identical results. It is not possible to distinguish
-	//     more than one chunk per node in the serialized commands, so different nodes can produce different final reduction results for non-associative
-	//     or non-commutative operations
-	if(!tsk.get_reductions().empty()) {
-		assert(std::count_if(current_batch.begin(), current_batch.end(), [](const command* cmd) { return utils::isa<task_command>(cmd); }) <= 1);
-	}
+    // It is currently undefined to split reduction-producer tasks into multiple chunks on the same node:
+    //   - Per-node reduction intermediate results are stored with fixed access to a single backing buffer,
+    //     so multiple chunks on the same node will race on this buffer access
+    //   - Inputs to the final reduction command are ordered by origin node ids to guarantee bit-identical results. It is not possible to distinguish
+    //     more than one chunk per node in the serialized commands, so different nodes can produce different final reduction results for non-associative
+    //     or non-commutative operations
+    if(!tsk.get_reductions().empty()) {
+        assert(std::count_if(current_batch.begin(), current_batch.end(), [](const command* cmd) { return utils::isa<task_command>(cmd); }) <= 1);
+    }
 
-	// If a new epoch was completed in the CDAG before the current task, we can erase all tracking information from earlier commands.
-	// After the epoch (or horizon) command has been executed, the scheduler will then delete all obsolete commands from the CDAG.
-	if(epoch_to_prune_before != nullptr) {
-		std::erase_if(m_command_buffer_reads, [=](const auto& cid_reads) { return cid_reads.first < epoch_to_prune_before->get_id(); });
-	}
+    // If a new epoch was completed in the CDAG before the current task, we can erase all tracking information from earlier commands.
+    // After the epoch (or horizon) command has been executed, the scheduler will then delete all obsolete commands from the CDAG.
+    if(epoch_to_prune_before != nullptr) {
+        std::erase_if(m_command_buffer_reads, [=](const auto& cid_reads) { return cid_reads.first < epoch_to_prune_before->get_id(); });
+    }
 
-	// Check that all commands have been recorded
-	if(is_recording()) {
-		assert(std::all_of(current_batch.begin(), current_batch.end(), [this](const command* cmd) {
-			return std::any_of(m_recorder->get_graph_nodes().begin(), m_recorder->get_graph_nodes().end(),
-			    [cmd](const std::unique_ptr<command_record>& rec) { return rec->id == cmd->get_id(); });
-		}));
-	}
+    // Check that all commands have been recorded
+    if(is_recording()) {
+        assert(std::all_of(current_batch.begin(), current_batch.end(), [this](const command* cmd) {
+            return std::any_of(m_recorder->get_graph_nodes().begin(), m_recorder->get_graph_nodes().end(),
+                [cmd](const std::unique_ptr<command_record>& rec) { return rec->id == cmd->get_id(); });
+        }));
+    }
 
-	assert(is_topologically_sorted(current_batch.begin(), current_batch.end()));
-	return current_batch;
+    assert(is_topologically_sorted(current_batch.begin(), current_batch.end()));
+    return current_batch;
 }
 
 void command_graph_generator::report_overlapping_writes(const task& tsk, const box_vector<3>& local_chunks) const {
@@ -455,7 +472,33 @@ void command_graph_generator::update_local_buffer_fresh_regions(const task& tsk,
 }
 
 void command_graph_generator::generate_distributed_commands(batch& current_batch, const task& tsk) {
-	const auto chunks = split_task_and_assign_chunks(tsk);
+    if (is_generator_kernel(tsk)) {
+        const auto [bid, _] = tsk.get_buffer_access_map().get_nth_access(0);
+        auto& buffer = m_buffers.at(bid);
+
+        // Execute the generator kernel for the full range on each node
+        for (node_id nid = 0; nid < m_num_nodes; ++nid) {
+            const auto full_chunk = chunk<3>{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
+            auto* gen_cmd = create_command<execution_command>(current_batch, &tsk, 
+                full_chunk, false,
+                [&](const auto& record_debug_info) { 
+                    record_debug_info(tsk, [this](const buffer_id bid) { 
+                        return m_buffers.at(bid).debug_name; 
+                    }); 
+                });
+            
+            // Update buffer state for each node
+            if (nid == m_local_nid) {
+                buffer.local_last_writer.update_region(box<3>(subrange({}, tsk.get_global_size())), gen_cmd);
+                buffer.initialized_region = box<3>(subrange({}, tsk.get_global_size()));
+            }
+        }
+
+        buffer.generator_task = nullptr; // Clear the generator task after it's been executed
+        return; // Exit early for generator kernels
+    }
+
+    const auto chunks = split_task_and_assign_chunks(tsk);
 	const auto chunks_with_requirements = compute_per_chunk_requirements(tsk, chunks);
 
 	// Check for and report overlapping writes between local chunks, and between local and remote chunks.
@@ -475,7 +518,7 @@ void command_graph_generator::generate_distributed_commands(batch& current_batch
 	std::unordered_map<buffer_id, region<3>> per_buffer_local_writes;
 
 	// Create command for each local chunk and resolve local data dependencies.
-	for(const auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
+    for(const auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
 		command* cmd = nullptr;
 		if(tsk.get_type() == task_type::fence) {
 			cmd = create_command<fence_command>(current_batch, &tsk,
@@ -504,14 +547,38 @@ void command_graph_generator::generate_distributed_commands(batch& current_batch
 			}
 		}
 
-		for(const auto& [bid, consumed, produced] : requirements) {
-			auto& buffer = m_buffers.at(bid);
+        for(const auto& [bid, consumed, produced] : requirements) {
+            auto& buffer = m_buffers.at(bid);
 
-			// Process consuming accesses first, so we don't add dependencies onto our own writes
+            // Process consuming accesses first, so we don't add dependencies onto our own writes
+            if(!consumed.empty()) {
+                for(const auto& [box, wcs] : buffer.local_last_writer.get_region_values(consumed)) {
+                    if(box.empty()) continue;
+                    if (!wcs.is_fresh()) {
+                        utils::report_error(m_policy.uninitialized_read_error,
+                            "Command C{} on N{}, which executes {} of {}, reads {} {}, which has not been written by any node.",
+                            cmd->get_id(), m_local_nid, 
+                            a_chunk.chnk,
+                            print_task_debug_label(tsk), print_buffer_debug_label(bid), box);
+                    }
+                    add_dependency(cmd, wcs, dependency_kind::true_dep, dependency_origin::dataflow);
+                }
+
+                // Store the read access for determining anti-dependencies later on
+                m_command_buffer_reads[cmd->get_id()].emplace(bid, consumed);
+            }
+            
+            // Process consuming accesses first, so we don't add dependencies onto our own writes
 			if(!consumed.empty()) {
 				for(const auto& [box, wcs] : buffer.local_last_writer.get_region_values(consumed)) {
 					if(box.empty()) continue;
-					assert(wcs.is_fresh() && "Unresolved remote data dependency");
+					if (!wcs.is_fresh()) {
+						utils::report_error(m_policy.uninitialized_read_error,
+							"Command C{} on N{}, which executes {} of {}, reads {} {}, which has not been written by any node.",
+							cmd->get_id(), m_local_nid, 
+							a_chunk.chnk,
+							print_task_debug_label(tsk), print_buffer_debug_label(bid), box);
+					}
 					add_dependency(cmd, wcs, dependency_kind::true_dep, dependency_origin::dataflow);
 				}
 
@@ -646,54 +713,54 @@ void command_graph_generator::reduce_execution_front_to(command* const new_front
 }
 
 void command_graph_generator::generate_epoch_command(batch& current_batch, const task& tsk) {
-	assert(tsk.get_type() == task_type::epoch);
-	m_cdag->begin_epoch(tsk.get_id());
-	auto* const epoch = create_command<epoch_command>(
-	    current_batch, &tsk, tsk.get_epoch_action(), std::move(m_completed_reductions), [&](const auto& record_debug_info) { record_debug_info(tsk); });
-	set_epoch_for_new_commands(epoch);
-	m_current_horizon = no_command;
-	// Make the epoch depend on the previous execution front
-	reduce_execution_front_to(epoch);
+    assert(tsk.get_type() == task_type::epoch);
+    m_cdag->begin_epoch(tsk.get_id());
+    auto* const epoch = create_command<epoch_command>(
+        current_batch, &tsk, tsk.get_epoch_action(), std::move(m_completed_reductions), [&](const auto& record_debug_info) { record_debug_info(tsk); });
+    set_epoch_for_new_commands(epoch);
+    m_current_horizon = no_command;
+    // Make the epoch depend on the previous execution front
+    reduce_execution_front_to(epoch);
 }
 
 void command_graph_generator::generate_horizon_command(batch& current_batch, const task& tsk) {
-	assert(tsk.get_type() == task_type::horizon);
-	m_cdag->begin_epoch(tsk.get_id());
-	auto* const new_horizon =
-	    create_command<horizon_command>(current_batch, &tsk, std::move(m_completed_reductions), [&](const auto& record_debug_info) { record_debug_info(tsk); });
+    assert(tsk.get_type() == task_type::horizon);
+    m_cdag->begin_epoch(tsk.get_id());
+    auto* const new_horizon =
+        create_command<horizon_command>(current_batch, &tsk, std::move(m_completed_reductions), [&](const auto& record_debug_info) { record_debug_info(tsk); });
 
-	if(m_current_horizon != nullptr) {
-		// Apply the previous horizon
-		set_epoch_for_new_commands(m_current_horizon);
-	}
-	m_current_horizon = new_horizon;
+    if(m_current_horizon != nullptr) {
+        // Apply the previous horizon
+        set_epoch_for_new_commands(m_current_horizon);
+    }
+    m_current_horizon = new_horizon;
 
-	// Make the horizon depend on the previous execution front
-	reduce_execution_front_to(new_horizon);
+    // Make the horizon depend on the previous execution front
+    reduce_execution_front_to(new_horizon);
 }
 
 void command_graph_generator::generate_epoch_dependencies(command* cmd) {
-	// No command must be re-ordered before its last preceding epoch to enforce the barrier semantics of epochs.
-	// To guarantee that each node has a transitive true dependency (=temporal dependency) on the epoch, it is enough to add an epoch -> command dependency
-	// to any command that has no other true dependencies itself and no graph traversal is necessary. This can be verified by a simple induction proof.
+    // No command must be re-ordered before its last preceding epoch to enforce the barrier semantics of epochs.
+    // To guarantee that each node has a transitive true dependency (=temporal dependency) on the epoch, it is enough to add an epoch -> command dependency
+    // to any command that has no other true dependencies itself and no graph traversal is necessary. This can be verified by a simple induction proof.
 
-	// As long the first epoch is present in the graph, all transitive dependencies will be visible and the initial epoch commands (tid 0) are the only
-	// commands with no true predecessor. As soon as the first epoch is pruned through the horizon mechanism however, more than one node with no true
-	// predecessor can appear (when visualizing the graph). This does not violate the ordering constraint however, because all "free-floating" nodes
-	// in that snapshot had a true-dependency chain to their predecessor epoch at the point they were flushed, which is sufficient for following the
-	// dependency chain from the executor perspective.
+    // As long the first epoch is present in the graph, all transitive dependencies will be visible and the initial epoch commands (tid 0) are the only
+    // commands with no true predecessor. As soon as the first epoch is pruned through the horizon mechanism however, more than one node with no true
+    // predecessor can appear (when visualizing the graph). This does not violate the ordering constraint however, because all "free-floating" nodes
+    // in that snapshot had a true-dependency chain to their predecessor epoch at the point they were flushed, which is sufficient for following the
+    // dependency chain from the executor perspective.
 
-	if(const auto deps = cmd->get_dependencies();
-	    std::none_of(deps.begin(), deps.end(), [](const command::dependency d) { return d.kind == dependency_kind::true_dep; })) {
-		if(!utils::isa<epoch_command>(cmd) || utils::as<epoch_command>(cmd)->get_epoch_action() != epoch_action::init) {
-			assert(cmd != m_epoch_for_new_commands);
-			add_dependency(cmd, m_epoch_for_new_commands, dependency_kind::true_dep, dependency_origin::last_epoch);
-		}
-	}
+    if(const auto deps = cmd->get_dependencies();
+        std::none_of(deps.begin(), deps.end(), [](const command::dependency d) { return d.kind == dependency_kind::true_dep; })) {
+        if(!utils::isa<epoch_command>(cmd) || utils::as<epoch_command>(cmd)->get_epoch_action() != epoch_action::init) {
+            assert(cmd != m_epoch_for_new_commands);
+            add_dependency(cmd, m_epoch_for_new_commands, dependency_kind::true_dep, dependency_origin::last_epoch);
+        }
+    }
 }
 
 std::string command_graph_generator::print_buffer_debug_label(const buffer_id bid) const {
-	return utils::make_buffer_debug_label(bid, m_buffers.at(bid).debug_name);
+    return utils::make_buffer_debug_label(bid, m_buffers.at(bid).debug_name);
 }
 
 } // namespace celerity::detail

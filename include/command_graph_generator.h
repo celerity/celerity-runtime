@@ -93,6 +93,8 @@ class command_graph_generator {
 		std::optional<reduction_info> pending_reduction;
 
 		std::string debug_name;
+
+		const task* generator_task = nullptr;
 	};
 
 	struct host_object_state {
@@ -111,6 +113,7 @@ class command_graph_generator {
 	};
 
   public:
+  	bool is_generator_kernel(const task& tsk) const;
 	struct policy_set {
 		error_policy uninitialized_read_error = error_policy::panic;
 		error_policy overlapping_write_error = error_policy::panic;
