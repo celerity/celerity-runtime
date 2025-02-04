@@ -766,8 +766,7 @@ namespace detail {
 
 			CHECK_THROWS_WITH((test_utils::add_compute_task(
 			                      tt.tm, [&](handler& cgh) { debug::set_task_name(cgh, "uninit_read"), buf.get_access<access_mode::read>(cgh, all{}); })),
-			    "Device kernel T1 \"uninit_read\" declares a reading access on uninitialized B0 {[0,0,0] - [1,1,1]}. Make sure to construct the accessor with "
-			    "no_init if possible.");
+			    "Device kernel T1 \"uninit_read\" declares a reading access on uninitialized B0 {[0,0,0] - [1,1,1]}.");
 		}
 
 		SECTION("on a partially initialized buffer") {
@@ -776,10 +775,9 @@ namespace detail {
 			    tt.tm, [&](handler& cgh) { buf.get_access<access_mode::discard_write>(cgh, fixed<2>({{0, 0}, {32, 32}})); });
 
 			CHECK_THROWS_WITH((test_utils::add_compute_task(
-			                      tt.tm, [&](handler& cgh) { debug::set_task_name(cgh, "uninit_read"), buf.get_access<access_mode::read>(cgh, all{}); })),
-			    "Device kernel T2 \"uninit_read\" declares a reading access on uninitialized B0 {[0,32,0] - [32,64,1], [32,0,0] - [64,64,1]}. Make sure to "
-			    "construct "
-			    "the accessor with no_init if possible.");
+			                      tt.tm, [&](handler& cgh) { debug::set_task_name(cgh, "uninit_read"), buf.get_access<access_mode::write>(cgh, all{}); })),
+			    "Device kernel T2 \"uninit_read\" declares a consuming access on uninitialized B0 {[0,32,0] - [32,64,1], [32,0,0] - [64,64,1]}. Make sure to "
+			    "construct the accessor with no_init if this was unintentional.");
 		}
 	}
 
