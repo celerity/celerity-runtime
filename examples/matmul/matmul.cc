@@ -55,13 +55,32 @@ void set_zero(celerity::queue queue, celerity::buffer<T, 2> mat) {
 template <typename T>
 void multiply(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
 	queue.submit([&](celerity::handler& cgh) {
-#define USE_REGISTER_TILING 0
+#define USE_REGISTER_TILING 1
 
 #if USE_REGISTER_TILING
-		// FIXME: Multi-node / device NYI
-		celerity::accessor a{mat_a, cgh, celerity::access::all(), celerity::read_only};
-		celerity::accessor b{mat_b, cgh, celerity::access::all(), celerity::read_only};
-		celerity::accessor c{mat_c, cgh, celerity::access::all{}, celerity::write_only, celerity::no_init};
+		constexpr int group_size = 16;
+		constexpr int register_tile_size = 4;
+		constexpr int local_memory_tile_size = group_size * register_tile_size;
+
+		const auto coarsened_slice = [](const int dim) {
+			return [dim](celerity::chunk<2> chnk, const celerity::range<2>& buffer_size) {
+				celerity::chunk<2> original_chunk = chnk;
+				original_chunk.offset *= register_tile_size;
+				original_chunk.range *= register_tile_size;
+				return celerity::access::slice<2>(dim)(original_chunk, buffer_size);
+			};
+		};
+
+		const auto coarsened_o2o = [](celerity::chunk<2> chnk, const celerity::range<2>& buffer_size) {
+			celerity::subrange<2> sr = chnk;
+			sr.offset *= register_tile_size;
+			sr.range *= register_tile_size;
+			return sr;
+		};
+
+		celerity::accessor a{mat_a, cgh, coarsened_slice(1), celerity::read_only};
+		celerity::accessor b{mat_b, cgh, coarsened_slice(0), celerity::read_only};
+		celerity::accessor c{mat_c, cgh, coarsened_o2o, celerity::write_only, celerity::no_init};
 #else
 		celerity::accessor a{mat_a, cgh, celerity::access::slice<2>(1), celerity::read_only};
 		celerity::accessor b{mat_b, cgh, celerity::access::slice<2>(0), celerity::read_only};
@@ -69,54 +88,49 @@ void multiply(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buf
 #endif
 
 #if USE_REGISTER_TILING
-		constexpr int TILE_SIZE = 16;
-		constexpr int THREAD_TILE_SIZE = 4;
-		const int group_size = TILE_SIZE;
-		celerity::local_accessor<T, 2> scratch_a{{group_size * THREAD_TILE_SIZE, group_size * THREAD_TILE_SIZE}, cgh};
-		celerity::local_accessor<T, 2> scratch_b{{group_size * THREAD_TILE_SIZE, group_size * THREAD_TILE_SIZE}, cgh};
+		celerity::local_accessor<T, 2> scratch_a{{local_memory_tile_size, local_memory_tile_size}, cgh};
+		celerity::local_accessor<T, 2> scratch_b{{local_memory_tile_size, local_memory_tile_size}, cgh};
 #else
 		const size_t group_size = 16;
 		celerity::local_accessor<T, 2> scratch_a{{group_size, group_size}, cgh};
 		celerity::local_accessor<T, 2> scratch_b{{group_size, group_size}, cgh};
 #endif
 
+		const size_t K = mat_a.get_range()[1];
 		celerity::debug::set_task_name(cgh, "matrix multiplication");
 #if USE_REGISTER_TILING
-		const size_t mat_size = mat_c.get_range()[0];
-		cgh.parallel_for(celerity::nd_range<2>{mat_c.get_range() / THREAD_TILE_SIZE, {group_size, group_size}}, [=](celerity::nd_item<2> item) {
-			T sums[THREAD_TILE_SIZE * THREAD_TILE_SIZE] = {0};
+		cgh.parallel_for(celerity::nd_range<2>{mat_c.get_range() / register_tile_size, {group_size, group_size}}, [=](celerity::nd_item<2> item) {
+			T sums[register_tile_size * register_tile_size] = {0};
 			const auto lid = item.get_local_id();
 			const auto grp = item.get_group();
-			for(size_t K = 0; K < mat_size; K += TILE_SIZE * THREAD_TILE_SIZE) {
-				for(int i = 0; i < THREAD_TILE_SIZE; ++i) {
-					for(int j = 0; j < THREAD_TILE_SIZE; ++j) {
-						scratch_a[lid[0] * THREAD_TILE_SIZE + i][lid[1] * THREAD_TILE_SIZE + j] =
-						    a[{(grp[0] * group_size * THREAD_TILE_SIZE + lid[0] * THREAD_TILE_SIZE + i), K + lid[1] * THREAD_TILE_SIZE + j}];
-						scratch_b[lid[0] * THREAD_TILE_SIZE + i][lid[1] * THREAD_TILE_SIZE + j] =
-						    b[{(K + lid[0] * THREAD_TILE_SIZE + i), (grp[1] * group_size * THREAD_TILE_SIZE + lid[1] * THREAD_TILE_SIZE + j)}];
+			for(size_t k0 = 0; k0 < K; k0 += local_memory_tile_size) {
+				for(int i = 0; i < register_tile_size; ++i) {
+					for(int j = 0; j < register_tile_size; ++j) {
+						scratch_a[i * group_size + lid[0]][j * group_size + lid[1]] =
+						    a[{grp[0] * group_size * register_tile_size + i * group_size + lid[0], k0 + j * group_size + lid[1]}];
+						scratch_b[i * group_size + lid[0]][j * group_size + lid[1]] =
+						    b[{k0 + i * group_size + lid[0], grp[1] * group_size * register_tile_size + j * group_size + lid[1]}];
 					}
 				}
 				celerity::group_barrier(item.get_group());
-				// TODO: Verify that this is correct with two non-identity matrices!!
-				for(size_t k = 0; k < TILE_SIZE * THREAD_TILE_SIZE; ++k) {
-					for(int i = 0; i < THREAD_TILE_SIZE; ++i) {
-						for(int j = 0; j < THREAD_TILE_SIZE; ++j) {
-							sums[i * THREAD_TILE_SIZE + j] += scratch_a[lid[0] * THREAD_TILE_SIZE + i][k] * scratch_b[k][lid[1] * THREAD_TILE_SIZE + j];
+				for(size_t k1 = 0; k1 < local_memory_tile_size; ++k1) {
+					for(int i = 0; i < register_tile_size; ++i) {
+						for(int j = 0; j < register_tile_size; ++j) {
+							sums[i * register_tile_size + j] += scratch_a[lid[0] * register_tile_size + i][k1] * scratch_b[k1][lid[1] * register_tile_size + j];
 						}
 					}
 				}
 				celerity::group_barrier(item.get_group());
 			}
 
-			for(int i = 0; i < THREAD_TILE_SIZE; ++i) {
-				for(int j = 0; j < THREAD_TILE_SIZE; ++j) {
-					c[{(grp[0] * group_size * THREAD_TILE_SIZE + lid[0] * THREAD_TILE_SIZE + i),
-					    +(grp[1] * group_size * THREAD_TILE_SIZE + lid[1] * THREAD_TILE_SIZE + j)}] = sums[i * THREAD_TILE_SIZE + j];
+			for(int i = 0; i < register_tile_size; ++i) {
+				for(int j = 0; j < register_tile_size; ++j) {
+					c[{grp[0] * group_size * register_tile_size + lid[0] * register_tile_size + i,
+					    grp[1] * group_size * register_tile_size + lid[1] * register_tile_size + j}] = sums[i * register_tile_size + j];
 				}
 			}
 		});
 #else
-		const size_t K = mat_a.get_range()[1];
 		celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d{});
 		cgh.parallel_for(celerity::nd_range<2>{mat_c.get_range(), {group_size, group_size}}, [=](celerity::nd_item<2> item) {
 			T sum{};
