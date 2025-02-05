@@ -503,12 +503,21 @@ namespace detail {
 				return atol(cstr);
 			};
 
+			// TODO: Come up with a small DSL for specifying these queries. Something like this?
+			// TODO: Consider using a small parser library for this, such as https://github.com/foonathan/lexy
+			// tdag:t=4{-1,4},6;cdag:c=42{+3}
+
 			// TODO: In a proper query language we would probably like to specify whether we want only true dependencies or all
+			// TODO: Also allow to query by task name
 			const auto filter_by_tid = getoption("GRAPH_QUERY_TID");
 			const auto before = getoption("GRAPH_QUERY_BEFORE");
 			const auto after = getoption("GRAPH_QUERY_AFTER");
+			const auto graphs_to_print = getenv("PRINT_THOSE_GRAPHS");
+			const bool print_tdag = graphs_to_print == nullptr || std::string(graphs_to_print).find('t') != std::string::npos;
+			const bool print_cdag = graphs_to_print == nullptr || std::string(graphs_to_print).find('c') != std::string::npos;
+			const bool print_idag = graphs_to_print == nullptr || std::string(graphs_to_print).find('i') != std::string::npos;
 
-			if(m_local_nid == 0) { // It's the same across all nodes
+			if(m_local_nid == 0 && print_tdag) { // It's the same across all nodes
 				assert(m_task_recorder.get() != nullptr);
 				if(filter_by_tid.has_value()) { m_task_recorder->filter_by_task_id(*filter_by_tid, before.value_or(0), 0 /* unsupported */); }
 				const auto tdag_str = detail::print_task_graph(*m_task_recorder);
@@ -520,14 +529,14 @@ namespace detail {
 			auto cdag_str = print_command_graph(m_local_nid, *m_command_recorder);
 			if(!is_dry_run()) { cdag_str = gather_command_graph(cdag_str, m_num_nodes, m_local_nid); } // must be called on all nodes
 
-			if(m_local_nid == 0) {
+			if(m_local_nid == 0 && print_cdag) {
 				// Avoid racing on stdout with other nodes (funneled through mpirun)
 				if(!is_dry_run()) { std::this_thread::sleep_for(std::chrono::milliseconds(500)); }
 				CELERITY_INFO("Command graph:\n\n{}\n", cdag_str);
 			}
 
 			// IDAGs become unreadable when all nodes print them at the same time - TODO attempt gathering them as well?
-			if(m_local_nid == 0) {
+			if(m_local_nid == 0 && print_idag) {
 				// we are allowed to deref m_instruction_recorder / m_command_recorder because the scheduler thread has exited at this point
 				if(filter_by_tid.has_value()) { m_instruction_recorder->filter_by_task_id(*filter_by_tid, before.value_or(0), after.value_or(0)); }
 				const auto idag_str =
