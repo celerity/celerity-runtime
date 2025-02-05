@@ -1530,7 +1530,9 @@ std::vector<localized_chunk> generator_impl::split_task_execution_range(const ex
 
 	const bool is_splittable_locally = tsk.has_variable_split() && tsk.get_side_effect_map().empty() && tsk.get_collective_group_id() == non_collective_group_id
 	                                   && std::holds_alternative<subrange<3>>(exec_spec);
-	const auto split = tsk.get_hint<experimental::hints::split_2d>() != nullptr ? split_2d : split_1d;
+	const auto split = tsk.get_hint<experimental::hints::split_2d>() != nullptr
+	                       ? static_cast<std::vector<box<3>> (*)(const box<3>&, const range<3>&, size_t)>(split_2d)
+	                       : split_1d;
 
 	// As a heuristic to keep inter-device communication to a minimum, we split the execution range twice when oversubscription is active: Once to obtain
 	// contiguous chunks per device, and one more (below) to subdivide the ranges on each device (which can help with computation-communication overlap).

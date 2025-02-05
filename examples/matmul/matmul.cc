@@ -117,6 +117,7 @@ void multiply(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buf
 		});
 #else
 		const size_t K = mat_a.get_range()[1];
+		celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d{});
 		cgh.parallel_for(celerity::nd_range<2>{mat_c.get_range(), {group_size, group_size}}, [=](celerity::nd_item<2> item) {
 			T sum{};
 			const auto lid = item.get_local_id();
@@ -179,25 +180,67 @@ class grid_data_requirements {
 	std::vector<celerity::detail::region<3>> m_requirements;
 };
 
+
+// We need to partition A, B and C into blocks of some size, chosen by user (e.g. 1024x1024).
+// This partitioning is NOT related to node assignment.
+// However, it likely makes sense to assign neighboring blocks to the same node.
+// It would therefore be elegant if we first partition C into N chunks of arbitrary size, for N nodes.
+// We then subdivide each of those chunks into the desired block size.
+// We then launch the kernel over the nested blocks.
+// HOWEVER: To compute the required input data for each block, we need it to use the same coordinate system as the partitionings of blocks A and B.
+// If the chunks are nested, how would that work?
+//
+// Some options:
+// - Partition C into blocks at top level, then assign multiple blocks somehow
+// - Have a way of getting the "global" coordinates of a block (how would that work though? If we want to be able to do different grids, e.g. 1D split inside 2D
+// grid, that doesn't make sense)
+// - ...?
+
 template <typename T>
 void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
 	const size_t group_size = 16;
+	// The choice of distributed block represents an important tradeoff / tuning parameter:
+	// - Larger blocks are more efficient to execute (less launch overhead to execution time ratio)
+	// 		- Also fewer overall tasks => less launch overhead
+	// - Smaller blocks means more fine-grained data dependencies
+	// 		- First tasks can start earlier
+	// TODO: What is a good size?
+	const size_t distributed_block_size = 1024;
+	static_assert(distributed_block_size % group_size == 0);
 
-	celerity::cartesian_grid<2> matrix_partition(celerity::detail::box<2>::full_range(mat_c.get_range()));
+	celerity::cartesian_grid<2> c_partition(celerity::detail::box<2>::full_range(mat_c.get_range()));
 	// TODO: Obviously we need a better API to split across all nodes
-	matrix_partition.split(celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), {group_size, group_size});
+	// matrix_partition.split(celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), {group_size, group_size});
+	if(mat_c.get_range() % distributed_block_size != celerity::detail::zeros) {
+		throw std::runtime_error(
+		    fmt::format("Matrix C with dimensions {} is not divisible by distributed block size {}", mat_c.get_range(), distributed_block_size));
+	}
+	const auto num_blocks = (mat_c.get_range() / distributed_block_size).size();
+	c_partition.split(num_blocks, {distributed_block_size, distributed_block_size});
+
+	// We now want to split A and B the same way as C
+	celerity::cartesian_grid<2> a_partition(celerity::detail::box<2>::full_range(mat_a.get_range()));
+	celerity::cartesian_grid<2> b_partition(celerity::detail::box<2>::full_range(mat_b.get_range()));
+	a_partition.split(c_partition.get_grid_size(), {distributed_block_size, distributed_block_size});
+	b_partition.split(c_partition.get_grid_size(), {distributed_block_size, distributed_block_size});
 
 	// TODO: Do we even need a builder in this case?
 	// => HERE we could create a 1D geometry from a 2D partition. The key is that we maintain the coordinates!!
 	// celerity::geometry_builder<2> gb2{output_partition};
 	// TODO: Option to do partial materialization here
 	// gb2.assign(); // TODO: ? Policy - round robin, grouped round robin (?), ...
+	// Look into block-cyclic distributions like ScaLAPACK: https://www.netlib.org/utk/papers/factor/node3.html
+	// 	=> Important point: Some algorithms work on successively smaller portions of the matrix, e.g. Gaussian elimination.
+	//  => Here a block-cyclic distribution results in better load balancing
 
 	// THEN: Get all (locally materialized) chunks AND THEIR COORDINATES (how? only works if geometry is based on partition)
 
 	// TODO: We should also do a non-square example, to be sure this all still makes sense
+	// TODO: What about matrices that aren't evenly divisible by block size?
 
-	celerity::grid_geometry geo(matrix_partition, celerity::range<2>{group_size, group_size});
+	celerity::grid_geometry geo(c_partition, celerity::range<2>{group_size, group_size});
+	// NOCOMMIT: This assumes the same number of devices on each node - OTHERWISE UB!!
+	geo.assign(celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices());
 
 	// The key thing we want to achieve is that we can iterate over all chunks and easily select their required data based on coordinates
 
@@ -226,18 +269,20 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 	// BUT: How do we do this in such a way that the data requirements are still correct? Currently we assume all chunks to exist
 
 	// LETS DO THIS MANUALLY FOR NOW
-	const size_t num_nodes = celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes();
-	const size_t num_devices = celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices();
-	if(num_devices != 1) throw std::runtime_error("multi-device NYI");
+	// const size_t num_nodes = celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes();
+	// const size_t num_devices = celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices();
+	// if(num_devices != 1) throw std::runtime_error("multi-device NYI");
 
-	const auto mat_size = mat_c.get_range();
-	if(mat_size[0] != mat_size[1]) throw std::runtime_error("only square matrices supported");
-	if(std::sqrt(num_nodes) != std::floor(std::sqrt(num_nodes))) throw std::runtime_error("number of nodes must be a square number");
-	if(mat_size[0] % size_t(std::sqrt(num_nodes)) != 0) throw std::runtime_error("matrix size must be divisible by square root of number of nodes");
+	// const auto mat_size = mat_c.get_range();
+	// if(mat_size[0] != mat_size[1]) throw std::runtime_error("only square matrices supported");
+	// if(std::sqrt(num_nodes) != std::floor(std::sqrt(num_nodes))) throw std::runtime_error("number of nodes must be a square number");
+	// if(mat_size[0] % size_t(std::sqrt(num_nodes)) != 0) throw std::runtime_error("matrix size must be divisible by square root of number of nodes");
 
-	const size_t block_size = mat_size[0] / std::sqrt(num_nodes);
+	// const size_t block_size = mat_size[0] / std::sqrt(num_nodes);
 
-	for(size_t K = 0; K < mat_size[0]; K += block_size) {
+	const size_t K = mat_a.get_range()[1];
+
+	for(size_t k0 = 0; k0 < K; k0 += distributed_block_size) {
 		// celerity::detail::region<3> union_access_a = celerity::detail::box<3>::full_range(range_cast<3>(mat_a.get_range()));
 		// celerity::detail::region<3> union_access_b = celerity::detail::box<3>::full_range(range_cast<3>(mat_b.get_range()));
 		// std::vector<std::pair<celerity::detail::box<3>, celerity::detail::region<3>>> per_chunk_accesses_a;
@@ -274,18 +319,20 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 		grid_data_requirements<2> data_reqs_b{geo};
 
 		for(auto& cell : geo.get_grid().get_cells()) {
-			const auto idx = K / block_size;
-			data_reqs_a.add(cell.pos, matrix_partition.get_cell({cell.pos[0], idx}));
-			data_reqs_b.add(cell.pos, matrix_partition.get_cell({idx, cell.pos[1]}));
+			const auto idx = k0 / distributed_block_size;
+			data_reqs_a.add(cell.pos, a_partition.get_cell({cell.pos[0], idx}));
+			data_reqs_b.add(cell.pos, b_partition.get_cell({idx, cell.pos[1]}));
 			// Easy optimization: Instead of starting at 0/0 for each block, we start at with the data that already exists on that node
 			// => THIS REQUIRES THAT INITIALIZATION IS ALSO BLOCKED ALREADY!
 			// => Note that this also results in bitwise different results!! (floating point addition not commutative)
 
 			// HOLD UP: This either also requires adjustment in the kernel, or local indexing
+			// TODO: ALSO: Why does this cause a device memory access error with horizon step == 1?!
 
-			// const auto grid_size = matrix_partition.get_grid_size();
-			// data_reqs_a.add(cell.pos, matrix_partition.get_cell({cell.pos[0], (cell.pos[1] + idx) % grid_size[1]}));
-			// data_reqs_b.add(cell.pos, matrix_partition.get_cell({(cell.pos[0] + idx) % grid_size[0], cell.pos[1]}));
+			// NOTE: This is somewhat akin to "Cannon's Algorithm"
+			// const auto grid_size = c_partition.get_grid_size();
+			// data_reqs_a.add(cell.pos, a_partition.get_cell({cell.pos[0], (cell.pos[1] + idx) % grid_size[1]}));
+			// data_reqs_b.add(cell.pos, b_partition.get_cell({(cell.pos[0] + idx) % grid_size[0], cell.pos[1]}));
 		}
 
 		queue.submit([&](celerity::handler& cgh) {
@@ -308,13 +355,13 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 				T sum{};
 				const auto gid = item.get_global_id();
 				const auto lid = item.get_local_id();
-				for(size_t j = 0; j < block_size; j += group_size) {
-					scratch_a[lid] = a[gid[0]][K + j + lid[1]];
-					scratch_b[lid] = b[K + j + lid[0]][gid[1]];
+				for(size_t j = 0; j < distributed_block_size; j += group_size) {
+					scratch_a[lid] = a[gid[0]][k0 + j + lid[1]];
+					scratch_b[lid] = b[k0 + j + lid[0]][gid[1]];
 					celerity::group_barrier(item.get_group());
-					for(size_t k = 0; k < group_size; ++k) {
-						const auto a_ik = scratch_a[lid[0]][k];
-						const auto b_kj = scratch_b[k][lid[1]];
+					for(size_t k1 = 0; k1 < group_size; ++k1) {
+						const auto a_ik = scratch_a[lid[0]][k1];
+						const auto b_kj = scratch_b[k1][lid[1]];
 						sum += a_ik * b_kj;
 					}
 					celerity::group_barrier(item.get_group());
@@ -343,6 +390,7 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 		// multiple tasks. This way we can control the order of execution for each device, and do the same optimization as on the top level.
 		//
 		// What we need: Nested cartesian grid, where each cell can contain subcells, that we can iterate over. Only local chunks contain subcells.
+		// => OR: Have API to tell whether a chunk is a local chunk. Only if it is, descend lower.
 		//
 		// Ad ephemeral storage: This wouldn't work with multiple tasks (because it would've been a property of the accessor).
 		// BUT: We can still do something like buffer:discard_non_owned() hint.
@@ -353,6 +401,10 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 		//		Different number of devices (or different splits) CAN be supported, but it requires to segregate the distributed chunks into groups as well.
 		// 		I.e., submit a different number of tasks for those nodes that have two devices vs those that have four. Ultimately all nodes need to submit
 		//      all tasks of course, but the global chunks need to be set up in such a way that only the correct set of nodes does something.
+
+		// Should we support arbitrarily nested grids?
+		// => Maybe: This way we could easily express oversubscription, first do a normal 2D split, and then recursively split again.
+		// Then launch task over level 1 grid (assuming 0 = coarsest), and express data dependencies in terms of that level as well.
 	}
 }
 

@@ -39,13 +39,23 @@ class cartesian_grid {
 	// TODO: Constraint policy - exact (fail if not possible) or pad (create larger/smaller chunks at end)
 	// TODO: Option to specify number of chunks in each dimension (or number of cuts?)
 	void split(const size_t num_cells, const celerity::range<2>& constraints = {1, 1}) {
-		const auto cells = celerity::detail::split_2d(box_cast<3>(m_extent), range_cast<3>(constraints), num_cells);
-		if(cells.size() != num_cells) { throw std::runtime_error("Failed to create requested number of cells - what now?"); }
+		const auto split_factors = celerity::detail::find_best_split_factors_2d(box_cast<3>(m_extent), range_cast<3>(constraints), num_cells);
+		if(split_factors[0] * split_factors[1] != num_cells) { throw std::runtime_error("Failed to create requested number of cells - what now?"); }
+		split(split_factors, constraints);
+	}
 
-		// TODO: It's stupid that we have to figure out the grid dimensions from the chunks. split_2d should just tell us.
-		// 	=> The logic below relies on the fact that chunks are returned in "row-major" order
+	void split(const std::array<size_t, 2>& num_cells, const celerity::range<2>& constraints = {1, 1}) {
+		if(num_cells[0] * num_cells[1] == 0) { throw std::runtime_error("Number of cells must be greater than zero"); }
+		if(m_extent.get_range() % celerity::range<2>(num_cells[0], num_cells[1]) != celerity::detail::zeros) {
+			throw std::runtime_error("Cell size does not divide extent");
+		}
+		// TODO: Also check that constraints are possible
+		m_grid_size = num_cells;
+		const auto cells = celerity::detail::split_2d(box_cast<3>(m_extent), range_cast<3>(constraints), m_grid_size);
+		assert(m_grid_size[0] * m_grid_size[1] != m_cells.size()); // FIXME 1D/3D
+
 		// TODO: We don't actually need to compute the boxes themselves. It would suffice to get their number and shape in each dimension.
-		m_cells.reserve(num_cells);
+		m_cells.reserve(cells.size());
 		static_assert(Dims == 2); // 1D/3D positioning NYI
 		id<2> pos = {};
 		for(const auto& cell : cells) {
@@ -58,17 +68,14 @@ class cartesian_grid {
 			m_cells.push_back({pos, box_cast<2>(cell)});
 			pos[1]++;
 		}
-		m_grid_size = range_cast<Dims>(pos + id<2>{1, 0});
-		// TODO: Turn this into an assertion
-		if(m_grid_size.size() != m_cells.size()) { throw std::runtime_error("Chunks are not in the order I expected"); }
-		CELERITY_CRITICAL("Created a grid of size {}", m_grid_size);
+		CELERITY_CRITICAL("Created a grid of size {}x{}", m_grid_size[0], m_grid_size[1]);
 	}
 
 	// TODO: Naming - domain_extent, domain_size..?
 	const box& get_extent() const { return m_extent; }
 
 	// TODO: Naming - grid? get_size?
-	celerity::range<2> get_grid_size() const { return m_grid_size; }
+	std::array<size_t, 2> get_grid_size() const { return m_grid_size; }
 
 	const std::vector<cell>& get_cells() const { return m_cells; }
 
@@ -81,7 +88,7 @@ class cartesian_grid {
 
   private:
 	box m_extent;
-	celerity::range<2> m_grid_size;
+	std::array<size_t, 2> m_grid_size;
 	std::vector<cell> m_cells;
 };
 
@@ -99,14 +106,26 @@ class grid_geometry {
 		}
 	}
 
+	// TODO: Can we support a assignment where neighboring blocks are assigned to the same node? Or just use hierarchical for that?
+	void assign(const size_t num_nodes, const size_t devices_per_node) {
+		// Block-cyclic distribution
+		for(size_t i = 0; i < m_grid.get_cells().size(); ++i) {
+			const size_t row = i / m_grid.get_grid_size()[1];
+			const size_t col = i % m_grid.get_grid_size()[1];
+			const size_t node_id = (row * m_grid.get_grid_size()[1] + col) % num_nodes;
+			const size_t device_id = (row * m_grid.get_grid_size()[1] + col) % devices_per_node;
+			m_assignment.push_back({detail::node_id(node_id), detail::device_id(device_id)});
+		}
+	}
+
 	// TODO: Or inherit from custom_task_geometry?
 	operator custom_task_geometry<Dims>() const {
+		if(m_assignment.empty()) { throw std::runtime_error("No assignment has been made"); }
 		std::vector<geometry_chunk> chunks;
 		for(size_t i = 0; i < m_grid.get_cells().size(); ++i) {
 			const auto& cell = m_grid.get_cells()[i];
-			// NOCOMMIT TODO: Assuming number of nodes matches
-			// NOCOMMIT TODO: Figure out device assignments
-			chunks.push_back({box_cast<3>(cell.box), detail::node_id(i), detail::device_id(0)});
+			const auto [nid, did] = m_assignment[i];
+			chunks.push_back({box_cast<3>(cell.box), nid, did});
 		}
 		custom_task_geometry<Dims> geo{.global_size = range_cast<3>(m_grid.get_extent().get_range()),
 		    .global_offset = id_cast<3>(m_grid.get_extent().get_offset()),
@@ -129,7 +148,7 @@ class grid_geometry {
   private:
 	cartesian_grid<Dims> m_grid;
 	range<Dims> m_local_size;
-	// std::vector<detail::node_id> m_node_assignments;
+	std::vector<std::pair<detail::node_id, detail::device_id>> m_assignment;
 };
 
 // TODO: The builder should probably use a chaining pattern so we can control what operations can be done in what order

@@ -125,16 +125,7 @@ std::vector<box<3>> split_1d(const box<3>& full_chunk, const range<3>& granulari
 	return result;
 }
 
-// TODO: Make the split dimensions configurable for 3D chunks?
-std::vector<box<3>> split_2d(const box<3>& full_chunk, const range<3>& granularity, const size_t num_chunks) {
-#ifndef NDEBUG
-	assert(num_chunks > 0);
-	for(int d = 0; d < 3; ++d) {
-		assert(granularity[d] > 0);
-		assert(full_chunk.get_range()[d] % granularity[d] == 0);
-	}
-#endif
-
+std::array<size_t, 2> find_best_split_factors_2d(const box<3>& full_chunk, const range<3>& granularity, const size_t num_chunks) {
 	// Factorize num_chunks
 	// We start out with an initial guess of `factor = floor(sqrt(num_chunks))` (the other one is implicitly given by `num_chunks / factor`),
 	// and work our way down, keeping track of the best factorization we've found so far, until we find a factorization that produces
@@ -151,16 +142,29 @@ std::vector<box<3>> split_2d(const box<3>& full_chunk, const range<3>& granulari
 		if(chunk_counts[0] * chunk_counts[1] == num_chunks) { break; }
 		factor--;
 	}
-	const auto actual_num_chunks = best_chunk_counts;
-	const auto [small_chunk_size, large_chunk_size, num_large_chunks] = compute_small_and_large_chunks<2>(full_chunk, granularity, actual_num_chunks);
+	return best_chunk_counts;
+}
+
+// TODO: Make the split dimensions configurable for 3D chunks?
+std::vector<box<3>> split_2d(const box<3>& full_chunk, const range<3>& granularity, const std::array<size_t, 2>& num_chunks) {
+#ifndef NDEBUG
+	assert(num_chunks[0] > 0 && num_chunks[1] > 0);
+	for(int d = 0; d < 3; ++d) {
+		assert(granularity[d] > 0);
+		assert(full_chunk.get_range()[d] % granularity[d] == 0);
+		if(d <= 1) { assert((full_chunk.get_range()[d] / num_chunks[d]) % granularity[d] == 0); }
+	}
+#endif
+
+	const auto [small_chunk_size, large_chunk_size, num_large_chunks] = compute_small_and_large_chunks<2>(full_chunk, granularity, num_chunks);
 
 	std::vector<box<3>> result;
-	result.reserve(actual_num_chunks[0] * actual_num_chunks[1]);
+	result.reserve(num_chunks[0] * num_chunks[1]);
 	id<3> offset = full_chunk.get_min();
 
-	for(size_t j = 0; j < actual_num_chunks[0]; ++j) {
+	for(size_t j = 0; j < num_chunks[0]; ++j) {
 		range<2> chunk_size = {(j < num_large_chunks[0]) ? large_chunk_size[0] : small_chunk_size[0], 0};
-		for(size_t i = 0; i < actual_num_chunks[1]; ++i) {
+		for(size_t i = 0; i < num_chunks[1]; ++i) {
 			chunk_size[1] = (i < num_large_chunks[1]) ? large_chunk_size[1] : small_chunk_size[1];
 			const id<3> min = offset;
 			id<3> max = full_chunk.get_max();
@@ -178,5 +182,18 @@ std::vector<box<3>> split_2d(const box<3>& full_chunk, const range<3>& granulari
 #endif
 
 	return result;
+}
+
+std::vector<box<3>> split_2d(const box<3>& full_chunk, const range<3>& granularity, const size_t num_chunks) {
+#ifndef NDEBUG
+	assert(num_chunks > 0);
+	for(int d = 0; d < 3; ++d) {
+		assert(granularity[d] > 0);
+		assert(full_chunk.get_range()[d] % granularity[d] == 0);
+	}
+#endif
+
+	const auto actual_num_chunks = find_best_split_factors_2d(full_chunk, granularity, num_chunks);
+	return split_2d(full_chunk, granularity, actual_num_chunks);
 }
 } // namespace celerity::detail

@@ -548,6 +548,24 @@ namespace detail {
 	task_id runtime::impl::submit(raw_command_group&& cg) {
 		require_call_from_application_thread();
 		maybe_prune_task_graph();
+		// Validate custom task geometry
+		// TODO: Only do this in debug builds?
+		if(cg.geometry.has_value() && std::holds_alternative<custom_task_geometry_desc>(*cg.geometry)) {
+			const auto& geo = std::get<custom_task_geometry_desc>(*cg.geometry);
+			for(auto& achnk : geo.assigned_chunks) {
+				if(achnk.nid == m_local_nid) {
+					if(!achnk.did.has_value()) {
+						throw std::runtime_error(
+						    fmt::format("Invalid custom task geometry: Chunk {} on node {} is not assigned to any device", achnk.box, achnk.nid));
+					} else if(achnk.did >= m_num_local_devices) {
+						throw std::runtime_error(
+						    fmt::format("Invalid custom task geometry: Chunk {} on node {} is assigned to device {}, which exceeds the number "
+						                "of devices available on this node ({})",
+						        achnk.box, achnk.nid, *achnk.did, m_num_local_devices));
+					}
+				}
+			}
+		}
 		return m_task_mngr->generate_command_group_task(std::move(cg), m_active_loop_template.get());
 	}
 
