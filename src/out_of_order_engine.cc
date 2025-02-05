@@ -52,6 +52,16 @@ struct assigned_state {
 	std::optional<lane_id> lane;
 };
 
+// HOLD UP: How would constraints work with eager submission?
+// Realistically we can only eager submit if a member of the same constraint group is on the same lane.
+// But even then its unclear how multiple lanes would work (not at all?).
+// Also what about instructions that belong to multiple constraint groups (hypothetical scenario for now).
+struct constraint_group {
+	size_t max_concurrent = 1;
+	size_t currently_assigned = 0;
+	std::vector<instruction_id> waitlist; // TODO: Use priority queue here as well?
+};
+
 /// State maintained for every instruction between its submission and completion.
 struct incomplete_instruction_state {
 	const instruction* instr = nullptr;
@@ -67,6 +77,9 @@ struct incomplete_instruction_state {
 
 	/// Data that only exist in specific assignment states.
 	std::variant<unassigned_state, conditional_eagerly_assignable_state, unconditional_assignable_state, assigned_state> assignment;
+
+	// NOCOMMIT Naming
+	constraint_group* constraint = nullptr;
 
 	bool is_horizon = false;
 
@@ -137,6 +150,11 @@ struct engine_impl {
 	incomplete_instruction_state* pop_assignable();
 
 	std::optional<assignment> assign_one();
+
+	// NOCOMMIT EXPERIMENT: Limit number of in-flight copies between each pair of memories to a certain number
+	// TODO: Use dense_map
+	std::unordered_map<memory_id /* from */, std::unordered_map<memory_id /* to */, constraint_group>> in_flight_copies;
+	std::unordered_map<device_id, constraint_group> concurrent_kernels;
 };
 
 engine_impl::engine_impl(const system_info& system) : system(system), device_queue_target_states(system.devices.size()) {}
@@ -177,6 +195,19 @@ void engine_impl::try_mark_for_assignment(incomplete_instruction_state& node) {
 
 	assert(std::holds_alternative<unassigned_state>(node.assignment));
 	if(node.num_incomplete_predecessors == 0) {
+		if(node.constraint != nullptr) {
+			if(node.constraint->currently_assigned >= node.constraint->max_concurrent) {
+				assert(std::ranges::find(node.constraint->waitlist, node.instr->get_id()) == node.constraint->waitlist.end());
+				// CELERITY_CRITICAL("Adding {} to waitlist for constraint {}", node.instr->get_id(), (void*)&node.constraint);
+				node.constraint->waitlist.push_back(node.instr->get_id());
+				return;
+			} else {
+				node.constraint->currently_assigned++;
+				// CELERITY_CRITICAL("Immediately assigning instruction {} for constraint {}, currently assigned: {}", node.instr->get_id(),
+				//     (void*)&node.constraint, node.constraint->currently_assigned);
+			}
+		}
+
 		node.assignment = unconditional_assignable_state{};
 		assignment_queue.push(node.instr);
 		return;
@@ -276,10 +307,17 @@ void engine_impl::submit(const instruction* const instr) {
 			    assert(source_mid <= host_memory_id && dest_mid <= host_memory_id);
 			    node.target = target::host_queue;
 		    }
+
+		    node.constraint = &in_flight_copies[source_mid][dest_mid]; // allow default-insert
+		    node.constraint->max_concurrent = 4;
 	    },
 	    [&](const device_kernel_instruction& dkinstr) {
 		    node.target = target::device_queue;
 		    node.eligible_devices.push_back(dkinstr.get_device_id());
+
+		    // This seems to always be slightly slower. TODO: Because it disables eager submission?
+		    node.constraint = &concurrent_kernels[dkinstr.get_device_id()]; // allow default-insert
+		    node.constraint->max_concurrent = 2;
 	    },
 	    [&](const host_task_instruction& htinstr) { //
 		    node.target = target::host_queue;
@@ -305,6 +343,9 @@ void engine_impl::submit(const instruction* const instr) {
 	// target::immediate is not backed by an in-order queue, and alloc/free_instructions do not generate dependency chains frequently enough to justify
 	// maintaining an in_order_queue_state
 	unassigned.probe_for_eager_assignment = node.target == target::device_queue || node.target == target::host_queue;
+
+	// NOCOMMIT For simplicity disable eager assignment with constraints for now - revisit
+	if(node.constraint != nullptr) { unassigned.probe_for_eager_assignment = false; }
 
 	for(const auto pred_iid : instr->get_dependencies()) {
 		// If predecessor is not found in `incomplete_instructions`, it has completed previously
@@ -338,6 +379,23 @@ void engine_impl::complete(const instruction_id iid) {
 		assert(lane.num_in_flight_assigned_instructions > 0);
 		lane.num_in_flight_assigned_instructions -= 1;
 		if(lane.last_incomplete_submission == iid) { lane.last_incomplete_submission = std::nullopt; }
+	}
+
+	if(deleted_node.constraint != nullptr) {
+		// CELERITY_CRITICAL("Instruction {} with constraint group {} has finished. Currently assigned: {}, in waitlist: {}", iid,
+		// (void*)deleted_node.constraint, deleted_node.constraint->currently_assigned, deleted_node.constraint->waitlist.size());
+		assert(deleted_node.constraint->currently_assigned > 0);
+		deleted_node.constraint->currently_assigned--;
+		if(!deleted_node.constraint->waitlist.empty()) {
+			const auto iid = deleted_node.constraint->waitlist.front();
+			// CELERITY_CRITICAL("Assigning instruction {} from waitlist for constraint {}", iid, (void*)deleted_node.constraint);
+			deleted_node.constraint->waitlist.erase(deleted_node.constraint->waitlist.begin());
+			auto& node = incomplete_instructions.at(iid);
+			assert(std::holds_alternative<unassigned_state>(node.assignment));
+			assert(node.num_unassigned_predecessors == 0);
+			try_mark_for_assignment(node);
+			assert(std::holds_alternative<unconditional_assignable_state>(node.assignment));
+		}
 	}
 
 	for(const auto succ_iid : deleted_node.successors) {
