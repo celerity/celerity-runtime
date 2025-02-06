@@ -32,7 +32,9 @@ class cartesian_grid {
 	};
 
 	// TODO: Have static factory methods instead? Or a builder?
-	cartesian_grid(box extent) : m_extent(std::move(extent)) {}
+	cartesian_grid(box extent) : m_extent(std::move(extent)) {
+		if(m_extent.get_area() == 0) { throw std::runtime_error("Extent must have non-zero area"); }
+	}
 
 	// TODO: Naming - a partition should already be split. Also it should only be possible to call this once.
 	// TODO: Terminology - are these "chunks", "blocks", "tiles", "cells"..?
@@ -101,6 +103,7 @@ template <int Dims>
 class grid_geometry {
   public:
 	grid_geometry(cartesian_grid<Dims> grid, const range<Dims>& local_size) : m_grid(std::move(grid)), m_local_size(local_size) {
+		if(m_grid.get_cells().empty()) { throw std::runtime_error("Grid has not been split yet"); }
 		for(auto& cell : m_grid.get_cells()) {
 			if(cell.box.get_range() % local_size != detail::zeros) { throw std::runtime_error("Local size does not divide cell size"); }
 		}

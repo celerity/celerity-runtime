@@ -10,6 +10,15 @@ const size_t default_mat_size = 128;
 const size_t default_mat_size = 1024;
 #endif
 
+#define USE_REGISTER_TILING 1
+
+constexpr int group_size = 16;
+
+#if USE_REGISTER_TILING
+constexpr int register_tile_size = 4;
+constexpr int local_memory_tile_size = group_size * register_tile_size;
+#endif
+
 template <typename T>
 void set_identity(celerity::queue queue, celerity::buffer<T, 2> mat, bool reverse) {
 	queue.submit([&](celerity::handler& cgh) {
@@ -55,13 +64,7 @@ void set_zero(celerity::queue queue, celerity::buffer<T, 2> mat) {
 template <typename T>
 void multiply(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
 	queue.submit([&](celerity::handler& cgh) {
-#define USE_REGISTER_TILING 1
-
 #if USE_REGISTER_TILING
-		constexpr int group_size = 16;
-		constexpr int register_tile_size = 4;
-		constexpr int local_memory_tile_size = group_size * register_tile_size;
-
 		const auto coarsened_slice = [](const int dim) {
 			return [dim](celerity::chunk<2> chnk, const celerity::range<2>& buffer_size) {
 				celerity::chunk<2> original_chunk = chnk;
@@ -91,7 +94,6 @@ void multiply(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buf
 		celerity::local_accessor<T, 2> scratch_a{{local_memory_tile_size, local_memory_tile_size}, cgh};
 		celerity::local_accessor<T, 2> scratch_b{{local_memory_tile_size, local_memory_tile_size}, cgh};
 #else
-		const size_t group_size = 16;
 		celerity::local_accessor<T, 2> scratch_a{{group_size, group_size}, cgh};
 		celerity::local_accessor<T, 2> scratch_b{{group_size, group_size}, cgh};
 #endif
@@ -212,14 +214,13 @@ class grid_data_requirements {
 
 template <typename T>
 void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
-	const size_t group_size = 16;
 	// The choice of distributed block represents an important tradeoff / tuning parameter:
 	// - Larger blocks are more efficient to execute (less launch overhead to execution time ratio)
 	// 		- Also fewer overall tasks => less launch overhead
 	// - Smaller blocks means more fine-grained data dependencies
 	// 		- First tasks can start earlier
 	// TODO: What is a good size?
-	const size_t distributed_block_size = 1024;
+	const size_t distributed_block_size = 4096;
 	static_assert(distributed_block_size % group_size == 0);
 
 	celerity::cartesian_grid<2> c_partition(celerity::detail::box<2>::full_range(mat_c.get_range()));
@@ -249,10 +250,21 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 
 	// THEN: Get all (locally materialized) chunks AND THEIR COORDINATES (how? only works if geometry is based on partition)
 
-	// TODO: We should also do a non-square example, to be sure this all still makes sense
 	// TODO: What about matrices that aren't evenly divisible by block size?
 
+#if USE_REGISTER_TILING
+	if(mat_c.get_range() % register_tile_size != celerity::detail::zeros) {
+		throw std::runtime_error(fmt::format("Matrix C with dimensions {} is not divisible by register tile size {}", mat_c.get_range(), register_tile_size));
+	}
+	// Thread coarsening
+	// TODO: Have API for that in builder?
+	celerity::cartesian_grid<2> c_coarse(celerity::detail::box<2>::full_range(mat_c.get_range() / register_tile_size));
+	c_coarse.split(c_partition.get_grid_size(), {distributed_block_size / register_tile_size, distributed_block_size / register_tile_size});
+	celerity::grid_geometry geo(c_coarse, celerity::range<2>{group_size, group_size});
+#else
 	celerity::grid_geometry geo(c_partition, celerity::range<2>{group_size, group_size});
+#endif
+
 	// NOCOMMIT: This assumes the same number of devices on each node - OTHERWISE UB!!
 	geo.assign(celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices());
 
@@ -297,51 +309,23 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 	const size_t K = mat_a.get_range()[1];
 
 	for(size_t k0 = 0; k0 < K; k0 += distributed_block_size) {
-		// celerity::detail::region<3> union_access_a = celerity::detail::box<3>::full_range(range_cast<3>(mat_a.get_range()));
-		// celerity::detail::region<3> union_access_b = celerity::detail::box<3>::full_range(range_cast<3>(mat_b.get_range()));
-		// std::vector<std::pair<celerity::detail::box<3>, celerity::detail::region<3>>> per_chunk_accesses_a;
-		// std::vector<std::pair<celerity::detail::box<3>, celerity::detail::region<3>>> per_chunk_accesses_b;
-
-		// TODO: Does it make sense to do oversubscription here? I.e., there is no reason to have the same number of blocks as there are nodes, right?
-		//	=> We could always just create N^2 blocks for N nodes..? Would make things easier, and we'd only have to deal with square block matrices
-		// for(auto& ac : geo.assigned_chunks) {
-		// 	auto sr_a = ac.box.get_subrange();
-		// 	auto sr_b = ac.box.get_subrange();
-		// 	sr_a.offset[1] = K;
-		// 	sr_b.offset[0] = K;
-
-		// 	per_chunk_accesses_a.push_back(std::pair{ac.box, celerity::detail::box{sr_a}});
-		// 	per_chunk_accesses_b.push_back(std::pair{ac.box, celerity::detail::box{sr_b}});
-		// }
-
-		// TODO API: We have to do this somehow inside expert_mapper, but how? We don't have the buffer size available. Do it BAM?
-		// for(auto& [_, region] : per_chunk_accesses_a) {
-		// 	if(!celerity::detail::box<2>::full_range(mat_a.get_range()).covers(celerity::detail::box_cast<2>(celerity::detail::bounding_box(region)))) {
-		// 		throw std::runtime_error(fmt::format("Access {} is out of bounds for matrix A", region));
-		// 	}
-		// }
-		// for(auto& [_, region] : per_chunk_accesses_b) {
-		// 	if(!celerity::detail::box<2>::full_range(mat_b.get_range()).covers(celerity::detail::box_cast<2>(celerity::detail::bounding_box(region)))) {
-		// 		throw std::runtime_error(fmt::format("Access {} is out of bounds for matrix B", region));
-		// 	}
-		// }
-
-		// celerity::expert_mapper data_reqs_a(union_access_a, per_chunk_accesses_a);
-		// celerity::expert_mapper data_reqs_b(union_access_b, per_chunk_accesses_b);
-
 		grid_data_requirements<2> data_reqs_a{geo};
 		grid_data_requirements<2> data_reqs_b{geo};
+		grid_data_requirements<2> data_reqs_c{geo};
 
 		for(auto& cell : geo.get_grid().get_cells()) {
 			const auto idx = k0 / distributed_block_size;
 			data_reqs_a.add(cell.pos, a_partition.get_cell({cell.pos[0], idx}));
 			data_reqs_b.add(cell.pos, b_partition.get_cell({idx, cell.pos[1]}));
+			// This is just a one to one mapping in case we aren't doing thread coarsening
+			data_reqs_c.add(cell.pos, c_partition.get_cell(cell.pos));
+
 			// Easy optimization: Instead of starting at 0/0 for each block, we start at with the data that already exists on that node
 			// => THIS REQUIRES THAT INITIALIZATION IS ALSO BLOCKED ALREADY!
 			// => Note that this also results in bitwise different results!! (floating point addition not commutative)
 
 			// HOLD UP: This either also requires adjustment in the kernel, or local indexing
-			// TODO: ALSO: Why does this cause a device memory access error with horizon step == 1?!
+			// TODO: ALSO: Why does this cause a device memory access error with horizon step == 1?! => B/c during warmup not all allocations exist yet
 
 			// NOTE: This is somewhat akin to "Cannon's Algorithm"
 			// const auto grid_size = c_partition.get_grid_size();
@@ -350,22 +334,60 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 		}
 
 		queue.submit([&](celerity::handler& cgh) {
+			// NOCOMMIT TODO: We have to check whether data requirements are in bounds. But where? BAM doesn't have buffer dimensions.
 			celerity::accessor a{mat_a, cgh, data_reqs_a, celerity::read_only};
 			celerity::accessor b{mat_b, cgh, data_reqs_b, celerity::read_only};
-			celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::read_write};
+			celerity::accessor c{mat_c, cgh, data_reqs_c, celerity::read_write};
 
+			celerity::debug::set_task_name(cgh, "matmul blocked");
+
+#if USE_REGISTER_TILING
+			celerity::local_accessor<T, 2> scratch_a{{local_memory_tile_size, local_memory_tile_size}, cgh};
+			celerity::local_accessor<T, 2> scratch_b{{local_memory_tile_size, local_memory_tile_size}, cgh};
+
+			// TODO: Can we keep DRY with basic variant? (Needs local indexing probably)
+			// This kernel performs worse than basic variant on RTX 3090 because of the addition of k0 (could be solved with local indexing), and
+			// weirdly, that distributed_block_size is known statically (unrolling gone wrong?).
+			// Workaround for latter ¯\_(ツ)_/¯
+			auto dynamic_dist_block_sz = distributed_block_size;
+			cgh.parallel_for(geo.operator celerity::nd_custom_task_geometry<2>(), [=](celerity::nd_item<2> item) {
+				T sums[register_tile_size * register_tile_size] = {0};
+				const auto lid = item.get_local_id();
+				const auto grp = item.get_group();
+				for(size_t k1 = 0; k1 < dynamic_dist_block_sz; k1 += local_memory_tile_size) {
+					for(int i = 0; i < register_tile_size; ++i) {
+						for(int j = 0; j < register_tile_size; ++j) {
+							scratch_a[i * group_size + lid[0]][j * group_size + lid[1]] =
+							    a[{grp[0] * group_size * register_tile_size + i * group_size + lid[0], k0 + k1 + j * group_size + lid[1]}];
+							scratch_b[i * group_size + lid[0]][j * group_size + lid[1]] =
+							    b[{k0 + k1 + i * group_size + lid[0], grp[1] * group_size * register_tile_size + j * group_size + lid[1]}];
+						}
+					}
+					celerity::group_barrier(item.get_group());
+					for(size_t k2 = 0; k2 < local_memory_tile_size; ++k2) {
+						for(int i = 0; i < register_tile_size; ++i) {
+							for(int j = 0; j < register_tile_size; ++j) {
+								sums[i * register_tile_size + j] +=
+								    scratch_a[lid[0] * register_tile_size + i][k2] * scratch_b[k2][lid[1] * register_tile_size + j];
+							}
+						}
+					}
+					celerity::group_barrier(item.get_group());
+				}
+
+				for(int i = 0; i < register_tile_size; ++i) {
+					for(int j = 0; j < register_tile_size; ++j) {
+						c[{grp[0] * group_size * register_tile_size + lid[0] * register_tile_size + i,
+						    grp[1] * group_size * register_tile_size + lid[1] * register_tile_size + j}] += sums[i * register_tile_size + j];
+					}
+				}
+			});
+
+#else
 			celerity::local_accessor<T, 2> scratch_a{{group_size, group_size}, cgh};
 			celerity::local_accessor<T, 2> scratch_b{{group_size, group_size}, cgh};
 
-			celerity::debug::set_task_name(cgh, "matmul blocked");
-			// cgh.parallel_for(geo, [=](celerity::item<2> item) {
 			cgh.parallel_for(geo.operator celerity::nd_custom_task_geometry<2>(), [=](celerity::nd_item<2> item) {
-				// T sum{};
-				// for(size_t k = 0; k < block_size; ++k) {
-				// 	sum += a[{item[0], K + k}] * b[{K + k, item[1]}];
-				// }
-				// c[item] += sum;
-
 				T sum{};
 				const auto gid = item.get_global_id();
 				const auto lid = item.get_local_id();
@@ -381,7 +403,15 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 					celerity::group_barrier(item.get_group());
 				}
 				c[gid] += sum;
+
+				// Naive matmul
+				// T sum{};
+				// for(size_t k = 0; k < block_size; ++k) {
+				// 	sum += a[{item[0], K + k}] * b[{K + k, item[1]}];
+				// }
+				// c[item] += sum;
 			});
+#endif
 		});
 
 		// SUBTASKS:
@@ -558,6 +588,27 @@ int main(int argc, char* argv[]) {
 	puts("With warmup");
 	setup(0, 7);
 	run();
+
+	// const auto print_mat = [&queue](auto mat) {
+	// 	if(mat.get_range().size() > 256) {
+	// 		fmt::print("Matrix too large to print\n");
+	// 		return;
+	// 	}
+	// 	queue.submit([&](celerity::handler& cgh) {
+	// 		celerity::accessor acc{mat, cgh, celerity::access::all{}, celerity::read_only_host_task};
+	// 		const auto size = mat.get_range();
+	// 		cgh.host_task(celerity::on_master_node, [=] {
+	// 			for(size_t i = 0; i < size[0]; ++i) {
+	// 				for(size_t j = 0; j < size[1]; ++j) {
+	// 					fmt::print("{:2} ", acc[{i, j}]);
+	// 				}
+	// 				fmt::print("\n");
+	// 			}
+	// 		});
+	// 	});
+	// 	queue.wait();
+	// };
+	// print_mat(mat_c_buf);
 
 	setup(8, 13);
 
