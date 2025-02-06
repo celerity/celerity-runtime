@@ -439,9 +439,9 @@ TEST_CASE("command_graph_generator throws in tests if it detects overlapping wri
 }
 
 TEST_CASE("results form generator kernels are never communicated between nodes", "[command_graph_generator][owner-computes]") {
-    cdag_test_context cctx(4);  // 4 nodes, so we can get a true 2D work assignment for the timestep kernel 
-    auto buf = cctx.create_buffer<2>({256, 256});  // a 256x256 buffer
-    cctx.device_compute(buf.get_range()).discard_write(buf, celerity::access::one_to_one()).name("init").submit();
-    cctx.device_compute(buf.get_range()).hint(experimental::hints::split_2d()).read_write(buf, celerity::access::one_to_one()).name("timestep 0").submit();
-    cctx.device_compute(buf.get_range()).hint(experimental::hints::split_2d()).read_write(buf, celerity::access::one_to_one()).name("timestep 1").submit();
+	cdag_test_context cctx(4);                    // 4 nodes, so we can get a true 2D work assignment for the timestep kernel
+	auto buf = cctx.create_buffer<2>({256, 256}); // a 256x256 buffer
+	cctx.device_compute(buf.get_range()).discard_write(buf, celerity::access::one_to_one()).name("init").submit();
+	cctx.device_compute(buf.get_range()).hint(experimental::hints::split_2d()).read_write(buf, celerity::access::one_to_one()).name("timestep 0").submit();
+	cctx.device_compute(buf.get_range()).hint(experimental::hints::split_2d()).read_write(buf, celerity::access::one_to_one()).name("timestep 1").submit();
 }

@@ -113,7 +113,7 @@ class command_graph_generator {
 	};
 
   public:
-  	bool is_generator_kernel(const task& tsk) const;
+	bool is_generator_kernel(const task& tsk) const;
 	struct policy_set {
 		error_policy uninitialized_read_error = error_policy::panic;
 		error_policy overlapping_write_error = error_policy::panic;
