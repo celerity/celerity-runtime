@@ -439,9 +439,58 @@ TEST_CASE("command_graph_generator throws in tests if it detects overlapping wri
 }
 
 TEST_CASE("results form generator kernels are never communicated between nodes", "[command_graph_generator][owner-computes]") {
-	cdag_test_context cctx(4);                    // 4 nodes, so we can get a true 2D work assignment for the timestep kernel
+	const size_t num_nodes = 4;
+
+	cdag_test_context cctx(num_nodes);            // 4 nodes, so we can get a true 2D work assignment for the timestep kernel
 	auto buf = cctx.create_buffer<2>({256, 256}); // a 256x256 buffer
-	cctx.device_compute(buf.get_range()).discard_write(buf, celerity::access::one_to_one()).name("init").submit();
-	cctx.device_compute(buf.get_range()).hint(experimental::hints::split_2d()).read_write(buf, celerity::access::one_to_one()).name("timestep 0").submit();
-	cctx.device_compute(buf.get_range()).hint(experimental::hints::split_2d()).read_write(buf, celerity::access::one_to_one()).name("timestep 1").submit();
+
+	const auto tid_init = cctx.device_compute(buf.get_range()) //
+	                          .discard_write(buf, celerity::access::one_to_one())
+	                          .name("init")
+	                          .submit();
+	const auto tid_ts0 = cctx.device_compute(buf.get_range()) //
+	                         .hint(experimental::hints::split_2d())
+	                         .read_write(buf, celerity::access::one_to_one())
+	                         .name("timestep 0")
+	                         .submit();
+	const auto tid_ts1 = cctx.device_compute(buf.get_range()) //
+	                         .hint(experimental::hints::split_2d())
+	                         .read_write(buf, celerity::access::one_to_one())
+	                         .name("timestep 1")
+	                         .submit();
+
+	CHECK(cctx.query<execution_command_record>().count_per_node() == 3); // one for each task above
+	CHECK(cctx.query<push_command_record>().total_count() == 0);
+	CHECK(cctx.query<await_push_command_record>().total_count() == 0);
+
+	const auto inits = cctx.query<execution_command_record>(tid_init);
+	const auto ts0s = cctx.query<execution_command_record>(tid_ts0);
+	const auto ts1s = cctx.query<execution_command_record>(tid_ts1);
+	CHECK(inits.count_per_node() == 1);
+	CHECK(ts0s.count_per_node() == 1);
+	CHECK(ts1s.count_per_node() == 1);
+
+	for(node_id nid = 0; nid < num_nodes; ++nid) {
+		const auto n_init = inits.on(nid);
+		REQUIRE(n_init->accesses.size() == 1);
+
+		const auto generate = n_init->accesses.front();
+		CHECK(generate.bid == buf.get_id());
+		CHECK(generate.mode == access_mode::discard_write);
+
+		const auto n_ts0 = ts0s.on(nid);
+		CHECK(n_ts0.predecessors().contains(n_init));
+		REQUIRE(n_ts0->accesses.size() == 1);
+
+		const auto consume = n_ts0->accesses.front();
+		CHECK(consume.bid == buf.get_id());
+		CHECK(consume.mode == access_mode::read_write);
+
+		// generator kernel "init" has generated exactly the buffer subrange that is consumed by "timestep 0"
+		CHECK(consume.req == generate.req);
+
+		const auto n_ts1 = ts1s.on(nid);
+		CHECK(n_ts1.predecessors().contains(n_ts0));
+		CHECK_FALSE(n_ts1.predecessors().contains(n_init));
+	}
 }
