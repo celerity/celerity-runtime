@@ -630,6 +630,7 @@ namespace detail {
 		raw_command_group cg;
 		handler cgh(cg);
 		std::invoke(std::forward<CGF>(cgf), cgh);
+		if(!cg.task_type.has_value()) { throw std::runtime_error("Incomplete task submitted - did you forget to call parallel_for or host_task?"); }
 		return cg;
 	}
 
