@@ -14,52 +14,82 @@ const size_t default_mat_size = 1024;
 
 constexpr int group_size = 16;
 
+// The choice of distributed block represents an important tradeoff / tuning parameter:
+// - Larger blocks are more efficient to execute (less launch overhead to execution time ratio)
+// 		- Also fewer overall tasks => less launch overhead
+// - Smaller blocks means more fine-grained data dependencies
+// 		- First tasks can start earlier
+// TODO: What is a good size?
+const size_t distributed_block_size = 2048;
+static_assert(distributed_block_size % group_size == 0);
+
 #if USE_REGISTER_TILING
 constexpr int register_tile_size = 4;
 constexpr int local_memory_tile_size = group_size * register_tile_size;
 #endif
 
 template <typename T>
-void set_identity(celerity::queue queue, celerity::buffer<T, 2> mat, bool reverse) {
+void set_identity(celerity::queue queue, celerity::buffer<T, 2> mat, bool reverse, const std::optional<celerity::custom_task_geometry<2>>& geo) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw{mat, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		const auto range = mat.get_range();
 
 		celerity::debug::set_task_name(cgh, "set identity");
 		celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d{});
-		cgh.parallel_for<class set_identity_kernel>(range, [=](celerity::item<2> item) {
-			if(!reverse) {
-				dw[item] = item[0] == item[1];
-			} else {
-				dw[item] = item[0] == (range[1] - item[1] - 1);
-			}
-		});
+		// NOCOMMIT DRY
+		if(geo.has_value()) {
+			cgh.parallel_for(*geo, [=](celerity::item<2> item) {
+				if(!reverse) {
+					dw[item] = item[0] == item[1];
+				} else {
+					dw[item] = item[0] == (range[1] - item[1] - 1);
+				}
+			});
+		} else {
+			cgh.parallel_for(range, [=](celerity::item<2> item) {
+				if(!reverse) {
+					dw[item] = item[0] == item[1];
+				} else {
+					dw[item] = item[0] == (range[1] - item[1] - 1);
+				}
+			});
+		}
 	});
 }
 
 // Fill matrix with something that is not all zeroes but still easy to verify.
 template <typename T>
-void fill_with_range(celerity::queue queue, celerity::buffer<T, 2> mat, const int min, const int max) {
+void fill_with_range(
+    celerity::queue queue, celerity::buffer<T, 2> mat, const int min, const int max, const std::optional<celerity::custom_task_geometry<2>>& geo) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw{mat, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		const auto range = mat.get_range();
 
 		celerity::debug::set_task_name(cgh, "fill with range");
 		celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d{});
-		cgh.parallel_for<class set_identity_kernel>(range, [=](celerity::item<2> item) { dw[item] = item.get_linear_id() % (max - min) + min; });
+		// NOCOMMIT DRY
+		if(geo.has_value()) {
+			cgh.parallel_for(*geo, [=](celerity::item<2> item) { dw[item] = item.get_linear_id() % (max - min) + min; });
+		} else {
+			cgh.parallel_for(range, [=](celerity::item<2> item) { dw[item] = item.get_linear_id() % (max - min) + min; });
+		}
 	});
 }
 
 template <typename T>
-void set_zero(celerity::queue queue, celerity::buffer<T, 2> mat) {
+void set_zero(celerity::queue queue, celerity::buffer<T, 2> mat, const std::optional<celerity::custom_task_geometry<2>>& geo) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw{mat, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
 		celerity::debug::set_task_name(cgh, "set zero");
 		celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d{});
-		cgh.parallel_for(mat.get_range(), [=](celerity::item<2> item) { dw[item] = T{0}; });
+		// NOCOMMIT DRY
+		if(geo.has_value()) {
+			cgh.parallel_for(*geo, [=](celerity::item<2> item) { dw[item] = T{0}; });
+		} else {
+			cgh.parallel_for(mat.get_range(), [=](celerity::item<2> item) { dw[item] = T{0}; });
+		}
 	});
 }
-
 
 template <typename T>
 void multiply(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
@@ -213,16 +243,7 @@ class grid_data_requirements {
 // - ...?
 
 template <typename T>
-void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
-	// The choice of distributed block represents an important tradeoff / tuning parameter:
-	// - Larger blocks are more efficient to execute (less launch overhead to execution time ratio)
-	// 		- Also fewer overall tasks => less launch overhead
-	// - Smaller blocks means more fine-grained data dependencies
-	// 		- First tasks can start earlier
-	// TODO: What is a good size?
-	const size_t distributed_block_size = 4096;
-	static_assert(distributed_block_size % group_size == 0);
-
+void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c, bool is_warmup) {
 	celerity::cartesian_grid<2> c_partition(celerity::detail::box<2>::full_range(mat_c.get_range()));
 	// TODO: Obviously we need a better API to split across all nodes
 	// matrix_partition.split(celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), {group_size, group_size});
@@ -319,18 +340,6 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 			data_reqs_b.add(cell.pos, b_partition.get_cell({idx, cell.pos[1]}));
 			// This is just a one to one mapping in case we aren't doing thread coarsening
 			data_reqs_c.add(cell.pos, c_partition.get_cell(cell.pos));
-
-			// Easy optimization: Instead of starting at 0/0 for each block, we start at with the data that already exists on that node
-			// => THIS REQUIRES THAT INITIALIZATION IS ALSO BLOCKED ALREADY!
-			// => Note that this also results in bitwise different results!! (floating point addition not commutative)
-
-			// HOLD UP: This either also requires adjustment in the kernel, or local indexing
-			// TODO: ALSO: Why does this cause a device memory access error with horizon step == 1?! => B/c during warmup not all allocations exist yet
-
-			// NOTE: This is somewhat akin to "Cannon's Algorithm"
-			// const auto grid_size = c_partition.get_grid_size();
-			// data_reqs_a.add(cell.pos, a_partition.get_cell({cell.pos[0], (cell.pos[1] + idx) % grid_size[1]}));
-			// data_reqs_b.add(cell.pos, b_partition.get_cell({(cell.pos[0] + idx) % grid_size[0], cell.pos[1]}));
 		}
 
 		queue.submit([&](celerity::handler& cgh) {
@@ -340,6 +349,8 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 			celerity::accessor c{mat_c, cgh, data_reqs_c, celerity::read_write};
 
 			celerity::debug::set_task_name(cgh, "matmul blocked");
+
+			if(!is_warmup) { cgh.assert_no_allocations(); }
 
 #if USE_REGISTER_TILING
 			celerity::local_accessor<T, 2> scratch_a{{local_memory_tile_size, local_memory_tile_size}, cgh};
@@ -569,52 +580,78 @@ int main(int argc, char* argv[]) {
 	celerity::debug::set_buffer_name(mat_b_buf, "mat_b");
 	celerity::debug::set_buffer_name(mat_c_buf, "mat_c");
 
-	// TODO: We should create geometry here and pass it into all functions
+	celerity::cartesian_grid<2> a_partition(celerity::detail::box<2>::full_range(mat_a_buf.get_range()));
+	celerity::cartesian_grid<2> b_partition(celerity::detail::box<2>::full_range(mat_b_buf.get_range()));
+	celerity::cartesian_grid<2> c_partition(celerity::detail::box<2>::full_range(mat_b_buf.get_range()));
+	const auto num_blocks = (mat_c_buf.get_range() / distributed_block_size).size();
+	c_partition.split(num_blocks, {distributed_block_size, distributed_block_size});
+	a_partition.split(c_partition.get_grid_size(), {distributed_block_size, distributed_block_size});
+	b_partition.split(c_partition.get_grid_size(), {distributed_block_size, distributed_block_size});
+
+	celerity::grid_geometry a_geo(a_partition, celerity::range<2>{group_size, group_size});
+	a_geo.assign(
+	    celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices());
+	celerity::grid_geometry b_geo(b_partition, celerity::range<2>{group_size, group_size});
+	b_geo.assign(
+	    celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices());
+	celerity::grid_geometry c_geo(c_partition, celerity::range<2>{group_size, group_size});
+	c_geo.assign(
+	    celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices());
+
+	std::optional<celerity::custom_task_geometry<2>> opt_a_geo;
+	std::optional<celerity::custom_task_geometry<2>> opt_b_geo;
+	std::optional<celerity::custom_task_geometry<2>> opt_c_geo;
+
+	if(use_blocked) {
+		opt_a_geo = a_geo;
+		opt_b_geo = b_geo;
+		opt_c_geo = c_geo;
+	}
 
 	const auto setup = [&](const int fill_min, const int fill_max) {
-		fill_with_range(queue, mat_a_buf, fill_min, fill_max);
-		set_identity(queue, mat_b_buf, true);
-		set_zero(queue, mat_c_buf);
+		fill_with_range(queue, mat_a_buf, fill_min, fill_max, opt_a_geo);
+		set_identity(queue, mat_b_buf, true, opt_b_geo);
+		set_zero(queue, mat_c_buf, opt_c_geo);
 	};
 
-	const auto run = [&] {
+	const auto run = [&](bool is_warmup) {
 		if(use_blocked) {
-			multiply_blocked(queue, mat_a_buf, mat_b_buf, mat_c_buf);
+			multiply_blocked(queue, mat_a_buf, mat_b_buf, mat_c_buf, is_warmup);
 		} else {
 			multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
 		}
 	};
 
+	[[maybe_unused]] const auto print_mat = [&queue](auto mat) {
+		if(mat.get_range().size() > 256) {
+			fmt::print("Matrix too large to print\n");
+			return;
+		}
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::accessor acc{mat, cgh, celerity::access::all{}, celerity::read_only_host_task};
+			const auto size = mat.get_range();
+			cgh.host_task(celerity::on_master_node, [=] {
+				for(size_t i = 0; i < size[0]; ++i) {
+					for(size_t j = 0; j < size[1]; ++j) {
+						fmt::print("{:2} ", acc[{i, j}]);
+					}
+					fmt::print("\n");
+				}
+			});
+		});
+		queue.wait();
+	};
+
 	puts("With warmup");
 	setup(0, 7);
-	run();
-
-	// const auto print_mat = [&queue](auto mat) {
-	// 	if(mat.get_range().size() > 256) {
-	// 		fmt::print("Matrix too large to print\n");
-	// 		return;
-	// 	}
-	// 	queue.submit([&](celerity::handler& cgh) {
-	// 		celerity::accessor acc{mat, cgh, celerity::access::all{}, celerity::read_only_host_task};
-	// 		const auto size = mat.get_range();
-	// 		cgh.host_task(celerity::on_master_node, [=] {
-	// 			for(size_t i = 0; i < size[0]; ++i) {
-	// 				for(size_t j = 0; j < size[1]; ++j) {
-	// 					fmt::print("{:2} ", acc[{i, j}]);
-	// 				}
-	// 				fmt::print("\n");
-	// 			}
-	// 		});
-	// 	});
-	// 	queue.wait();
-	// };
-	// print_mat(mat_c_buf);
+	run(true);
+	verify(queue, mat_c_buf, K, 0, 7, celerity::experimental::host_object<bool>{});
 
 	setup(8, 13);
 
 	queue.wait(celerity::experimental::barrier);
 	const auto before = std::chrono::steady_clock::now();
-	run();
+	run(false);
 	queue.wait(celerity::experimental::barrier);
 	const auto after = std::chrono::steady_clock::now();
 
