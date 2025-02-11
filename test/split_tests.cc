@@ -1,5 +1,3 @@
-#include <unordered_set>
-
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators_range.hpp>
@@ -14,19 +12,18 @@ using namespace celerity::detail;
 namespace {
 
 template <int Dims>
-chunk<3> make_full_chunk(range<Dims> range) {
-	return {id<3>{}, range_cast<3>(range), range_cast<3>(range)};
+box<3> make_full_chunk(range<Dims> range) {
+	return {id<3>{}, range_cast<3>(range)};
 }
 
-void check_1d_split(const chunk<3>& full_chunk, const std::vector<chunk<3>>& split_chunks, const std::vector<size_t>& chunk_ranges) {
+void check_1d_split(const box<3>& full_chunk, const std::vector<box<3>>& split_chunks, const std::vector<size_t>& chunk_ranges) {
 	REQUIRE(split_chunks.size() == chunk_ranges.size());
-	id<3> offset = full_chunk.offset;
+	id<3> offset = full_chunk.get_min();
 	for(size_t i = 0; i < split_chunks.size(); ++i) {
 		const auto& chnk = split_chunks[i];
-		REQUIRE_LOOP(chnk.offset == offset);
-		REQUIRE_LOOP(chnk.range[0] == chunk_ranges[i]);
-		REQUIRE_LOOP(chnk.global_size == full_chunk.global_size);
-		offset[0] += split_chunks[i].range[0];
+		REQUIRE_LOOP(chnk.get_min() == offset);
+		REQUIRE_LOOP(chnk.get_range()[0] == chunk_ranges[i]);
+		offset[0] += chnk.get_range()[0];
 	}
 }
 
@@ -48,21 +45,20 @@ void check_1d_split(const chunk<3>& full_chunk, const std::vector<chunk<3>>& spl
  * to the width of an individual chunk.
  */
 void check_2d_split(
-    const chunk<3>& full_chunk, const std::vector<chunk<3>>& split_chunks, const std::vector<std::pair<size_t, std::vector<size_t>>>& chunk_ranges) {
+    const box<3>& full_chunk, const std::vector<box<3>>& split_chunks, const std::vector<std::pair<size_t, std::vector<size_t>>>& chunk_ranges) {
 	REQUIRE(split_chunks.size() == std::accumulate(chunk_ranges.begin(), chunk_ranges.end(), size_t(0), [](size_t c, auto& p) { return c + p.second.size(); }));
 	REQUIRE(std::all_of(chunk_ranges.begin(), chunk_ranges.end(), [&](auto& p) { return p.second.size() == chunk_ranges[0].second.size(); }));
-	id<3> offset = full_chunk.offset;
+	id<3> offset = full_chunk.get_min();
 	for(size_t j = 0; j < chunk_ranges.size(); ++j) {
 		const auto& [height, widths] = chunk_ranges[j];
 		for(size_t i = 0; i < widths.size(); ++i) {
 			const auto& chnk = split_chunks[j * chunk_ranges[0].second.size() + i];
-			REQUIRE_LOOP(chnk.offset == offset);
-			REQUIRE_LOOP(chnk.range[0] == height);
-			REQUIRE_LOOP(chnk.range[1] == widths[i]);
-			REQUIRE_LOOP(chnk.global_size == full_chunk.global_size);
+			REQUIRE_LOOP(chnk.get_min() == offset);
+			REQUIRE_LOOP(chnk.get_range()[0] == height);
+			REQUIRE_LOOP(chnk.get_range()[1] == widths[i]);
 			offset[1] += widths[i];
 		}
-		offset[1] = full_chunk.offset[1];
+		offset[1] = full_chunk.get_min()[1];
 		offset[0] += height;
 	}
 }
@@ -94,13 +90,13 @@ TEST_CASE("split_1d creates fewer chunks than requested if mandated by granulari
 }
 
 TEST_CASE("split_1d preserves offset of original chunk", "[split]") {
-	const auto full_chunk = chunk<3>{{37, 42, 7}, {128, 1, 1}, {128, 1, 1}};
+	const auto full_chunk = box<3>{subrange<3>({37, 42, 7}, {128, 1, 1})};
 	const auto chunks = split_1d(full_chunk, ones, 4);
 
-	CHECK(chunks[0].offset == id<3>{37 + 0, 42, 7});
-	CHECK(chunks[1].offset == id<3>{37 + 32, 42, 7});
-	CHECK(chunks[2].offset == id<3>{37 + 64, 42, 7});
-	CHECK(chunks[3].offset == id<3>{37 + 96, 42, 7});
+	CHECK(chunks[0].get_min() == id<3>{37 + 0, 42, 7});
+	CHECK(chunks[1].get_min() == id<3>{37 + 32, 42, 7});
+	CHECK(chunks[2].get_min() == id<3>{37 + 64, 42, 7});
+	CHECK(chunks[3].get_min() == id<3>{37 + 96, 42, 7});
 
 	check_1d_split(full_chunk, chunks, {32, 32, 32, 32});
 }
@@ -109,7 +105,7 @@ TEST_CASE("split_1d preserves ranges of original chunk in other dimensions", "[s
 	const auto full_chunk = make_full_chunk<3>({128, 42, 341});
 	const auto chunks = split_1d(full_chunk, ones, 4);
 	for(size_t i = 0; i < 4; ++i) {
-		REQUIRE_LOOP(chunks[0].range == range<3>{32, 42, 341});
+		REQUIRE_LOOP(chunks[0].get_range() == range<3>{32, 42, 341});
 	}
 }
 
@@ -251,19 +247,19 @@ TEST_CASE("split_2d minimizes edge lengths for non-square domains") {
 }
 
 TEST_CASE("split_2d preserves offset of original chunk", "[split]") {
-	const auto full_chunk = chunk<3>{{37, 42, 7}, {64, 64, 1}, {128, 128, 1}};
+	const auto full_chunk = box<3>{subrange<3>({37, 42, 7}, {64, 64, 1})};
 	const auto chunks = split_2d(full_chunk, ones, 4);
-	CHECK(chunks[0].offset == id<3>{37, 42, 7});
-	CHECK(chunks[1].offset == id<3>{37, 42 + 32, 7});
-	CHECK(chunks[2].offset == id<3>{37 + 32, 42 + 0, 7});
-	CHECK(chunks[3].offset == id<3>{37 + 32, 42 + 32, 7});
+	CHECK(chunks[0].get_min() == id<3>{37, 42, 7});
+	CHECK(chunks[1].get_min() == id<3>{37, 42 + 32, 7});
+	CHECK(chunks[2].get_min() == id<3>{37 + 32, 42 + 0, 7});
+	CHECK(chunks[3].get_min() == id<3>{37 + 32, 42 + 32, 7});
 }
 
 TEST_CASE("split_2d preserves ranges of original chunk in other dimensions", "[split]") {
 	const auto full_chunk = make_full_chunk<3>({128, 128, 341});
 	const auto chunks = split_2d(full_chunk, ones, 4);
 	for(size_t i = 0; i < 4; ++i) {
-		REQUIRE_LOOP(chunks[i].range == range<3>{64, 64, 341});
+		REQUIRE_LOOP(chunks[i].get_range() == range<3>{64, 64, 341});
 	}
 }
 
