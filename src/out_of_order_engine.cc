@@ -308,8 +308,8 @@ void engine_impl::submit(const instruction* const instr) {
 			    node.target = target::host_queue;
 		    }
 
-		    node.constraint = &in_flight_copies[source_mid][dest_mid]; // allow default-insert
-		    node.constraint->max_concurrent = 4;
+		    // node.constraint = &in_flight_copies[source_mid][dest_mid]; // allow default-insert
+		    // node.constraint->max_concurrent = 4;
 	    },
 	    [&](const device_kernel_instruction& dkinstr) {
 		    node.target = target::device_queue;

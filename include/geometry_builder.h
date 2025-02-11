@@ -46,6 +46,11 @@ class cartesian_grid {
 		split(split_factors, constraints);
 	}
 
+	// TODO: Get rid of array, too annoying
+	void split(const celerity::range<2>& num_cells, const celerity::range<2>& constraints = {1, 1}) {
+		split(std::array<size_t, 2>{num_cells[0], num_cells[1]}, constraints);
+	}
+
 	void split(const std::array<size_t, 2>& num_cells, const celerity::range<2>& constraints = {1, 1}) {
 		if(num_cells[0] * num_cells[1] == 0) { throw std::runtime_error("Number of cells must be greater than zero"); }
 		if(m_extent.get_range() % celerity::range<2>(num_cells[0], num_cells[1]) != celerity::detail::zeros) {

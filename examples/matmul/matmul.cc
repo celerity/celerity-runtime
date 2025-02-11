@@ -251,14 +251,13 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 		throw std::runtime_error(
 		    fmt::format("Matrix C with dimensions {} is not divisible by distributed block size {}", mat_c.get_range(), distributed_block_size));
 	}
-	const auto num_blocks = (mat_c.get_range() / distributed_block_size).size();
-	c_partition.split(num_blocks, {distributed_block_size, distributed_block_size});
+	c_partition.split(mat_c.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
 
 	// We now want to split A and B the same way as C
 	celerity::cartesian_grid<2> a_partition(celerity::detail::box<2>::full_range(mat_a.get_range()));
 	celerity::cartesian_grid<2> b_partition(celerity::detail::box<2>::full_range(mat_b.get_range()));
-	a_partition.split(c_partition.get_grid_size(), {distributed_block_size, distributed_block_size});
-	b_partition.split(c_partition.get_grid_size(), {distributed_block_size, distributed_block_size});
+	a_partition.split(mat_a.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
+	b_partition.split(mat_b.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
 
 	// TODO: Do we even need a builder in this case?
 	// => HERE we could create a 1D geometry from a 2D partition. The key is that we maintain the coordinates!!
@@ -329,137 +328,166 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 
 	const size_t K = mat_a.get_range()[1];
 
-	for(size_t k0 = 0; k0 < K; k0 += distributed_block_size) {
-		grid_data_requirements<2> data_reqs_a{geo};
-		grid_data_requirements<2> data_reqs_b{geo};
-		grid_data_requirements<2> data_reqs_c{geo};
+	const size_t superblock_size = 4;
+	const auto num_superblocks = mat_c.get_range() / distributed_block_size / superblock_size;
+	CELERITY_CRITICAL("NUM SUPERBLOCKS: {}", num_superblocks);
 
-		for(auto& cell : geo.get_grid().get_cells()) {
-			const auto idx = k0 / distributed_block_size;
-			data_reqs_a.add(cell.pos, a_partition.get_cell({cell.pos[0], idx}));
-			data_reqs_b.add(cell.pos, b_partition.get_cell({idx, cell.pos[1]}));
-			// This is just a one to one mapping in case we aren't doing thread coarsening
-			data_reqs_c.add(cell.pos, c_partition.get_cell(cell.pos));
-		}
+	// TODO XY order - does it matter?
+	for(size_t Y = 0; Y < num_superblocks[0]; ++Y) {
+		for(size_t X = 0; X < num_superblocks[1]; ++X) {
+			for(size_t k0 = 0; k0 < K; k0 += distributed_block_size) {
+				grid_data_requirements<2> data_reqs_a{geo};
+				grid_data_requirements<2> data_reqs_b{geo};
+				grid_data_requirements<2> data_reqs_c{geo};
 
-		queue.submit([&](celerity::handler& cgh) {
-			// NOCOMMIT TODO: We have to check whether data requirements are in bounds. But where? BAM doesn't have buffer dimensions.
-			celerity::accessor a{mat_a, cgh, data_reqs_a, celerity::read_only};
-			celerity::accessor b{mat_b, cgh, data_reqs_b, celerity::read_only};
-			celerity::accessor c{mat_c, cgh, data_reqs_c, celerity::read_write};
+				auto custom_geo = geo.operator celerity::nd_custom_task_geometry<2>();
+				std::erase_if(custom_geo.assigned_chunks, [&](auto& achnk) {
+					for(auto& cell : geo.get_grid().get_cells()) {
+						if(box_cast<3>(cell.box) == achnk.box) {
+							if(cell.pos[0] / superblock_size != X || cell.pos[1] / superblock_size != Y) {
+								// fmt::print("Skipping cell {} b/c not in superblock {}/{}\n", cell.pos, X, Y);
+								return true;
+							}
+							return false;
+						}
+					}
+					return true; // Should not be reached
+				});
 
-			celerity::debug::set_task_name(cgh, "matmul blocked");
+				for(auto& cell : geo.get_grid().get_cells()) {
+					// NOCOMMIT TODO Why is this required?
+					if(std::ranges::none_of(custom_geo.assigned_chunks, [&](auto& achnk) { return box_cast<3>(cell.box) == achnk.box; })) { continue; }
 
-			if(!is_warmup) { cgh.assert_no_allocations(); }
+					const auto idx = k0 / distributed_block_size;
+					data_reqs_a.add(cell.pos, a_partition.get_cell({cell.pos[0], idx}));
+					data_reqs_b.add(cell.pos, b_partition.get_cell({idx, cell.pos[1]}));
+					// This is just a one to one mapping in case we aren't doing thread coarsening
+					data_reqs_c.add(cell.pos, c_partition.get_cell(cell.pos));
+				}
+
+				queue.submit([&](celerity::handler& cgh) {
+					// NOCOMMIT TODO: We have to check whether data requirements are in bounds. But where? BAM doesn't have buffer dimensions.
+					celerity::accessor a{mat_a, cgh, data_reqs_a, celerity::read_only};
+					celerity::accessor b{mat_b, cgh, data_reqs_b, celerity::read_only};
+					celerity::accessor c{mat_c, cgh, data_reqs_c, celerity::read_write};
+
+					celerity::debug::set_task_name(cgh, "matmul blocked");
+
+					if(!is_warmup) { cgh.assert_no_allocations(); }
 
 #if USE_REGISTER_TILING
-			celerity::local_accessor<T, 2> scratch_a{{local_memory_tile_size, local_memory_tile_size}, cgh};
-			celerity::local_accessor<T, 2> scratch_b{{local_memory_tile_size, local_memory_tile_size}, cgh};
+					celerity::local_accessor<T, 2> scratch_a{{local_memory_tile_size, local_memory_tile_size}, cgh};
+					celerity::local_accessor<T, 2> scratch_b{{local_memory_tile_size, local_memory_tile_size}, cgh};
 
-			// TODO: Can we keep DRY with basic variant? (Needs local indexing probably)
-			// This kernel performs worse than basic variant on RTX 3090 because of the addition of k0 (could be solved with local indexing), and
-			// weirdly, that distributed_block_size is known statically (unrolling gone wrong?).
-			// Workaround for latter ¯\_(ツ)_/¯
-			auto dynamic_dist_block_sz = distributed_block_size;
-			cgh.parallel_for(geo.operator celerity::nd_custom_task_geometry<2>(), [=](celerity::nd_item<2> item) {
-				T sums[register_tile_size * register_tile_size] = {0};
-				const auto lid = item.get_local_id();
-				const auto grp = item.get_group();
-				for(size_t k1 = 0; k1 < dynamic_dist_block_sz; k1 += local_memory_tile_size) {
-					for(int i = 0; i < register_tile_size; ++i) {
-						for(int j = 0; j < register_tile_size; ++j) {
-							scratch_a[i * group_size + lid[0]][j * group_size + lid[1]] =
-							    a[{grp[0] * group_size * register_tile_size + i * group_size + lid[0], k0 + k1 + j * group_size + lid[1]}];
-							scratch_b[i * group_size + lid[0]][j * group_size + lid[1]] =
-							    b[{k0 + k1 + i * group_size + lid[0], grp[1] * group_size * register_tile_size + j * group_size + lid[1]}];
+					// TODO: Can we keep DRY with basic variant? (Needs local indexing probably)
+					// This kernel performs worse than basic variant on RTX 3090 because of the addition of k0 (could be solved with local indexing), and
+					// weirdly, that distributed_block_size is known statically (unrolling gone wrong?).
+					// Workaround for latter ¯\_(ツ)_/¯
+					auto dynamic_dist_block_sz = distributed_block_size;
+					cgh.parallel_for(custom_geo, [=](celerity::nd_item<2> item) {
+						T sums[register_tile_size * register_tile_size] = {0};
+						const auto lid = item.get_local_id();
+						const auto grp = item.get_group();
+						for(size_t k1 = 0; k1 < dynamic_dist_block_sz; k1 += local_memory_tile_size) {
+							for(int i = 0; i < register_tile_size; ++i) {
+								for(int j = 0; j < register_tile_size; ++j) {
+									scratch_a[i * group_size + lid[0]][j * group_size + lid[1]] =
+									    a[{grp[0] * group_size * register_tile_size + i * group_size + lid[0], k0 + k1 + j * group_size + lid[1]}];
+									scratch_b[i * group_size + lid[0]][j * group_size + lid[1]] =
+									    b[{k0 + k1 + i * group_size + lid[0], grp[1] * group_size * register_tile_size + j * group_size + lid[1]}];
+								}
+							}
+							celerity::group_barrier(item.get_group());
+							for(size_t k2 = 0; k2 < local_memory_tile_size; ++k2) {
+								for(int i = 0; i < register_tile_size; ++i) {
+									for(int j = 0; j < register_tile_size; ++j) {
+										sums[i * register_tile_size + j] +=
+										    scratch_a[lid[0] * register_tile_size + i][k2] * scratch_b[k2][lid[1] * register_tile_size + j];
+									}
+								}
+							}
+							celerity::group_barrier(item.get_group());
 						}
-					}
-					celerity::group_barrier(item.get_group());
-					for(size_t k2 = 0; k2 < local_memory_tile_size; ++k2) {
+
 						for(int i = 0; i < register_tile_size; ++i) {
 							for(int j = 0; j < register_tile_size; ++j) {
-								sums[i * register_tile_size + j] +=
-								    scratch_a[lid[0] * register_tile_size + i][k2] * scratch_b[k2][lid[1] * register_tile_size + j];
+								c[{grp[0] * group_size * register_tile_size + lid[0] * register_tile_size + i,
+								    grp[1] * group_size * register_tile_size + lid[1] * register_tile_size + j}] += sums[i * register_tile_size + j];
 							}
 						}
-					}
-					celerity::group_barrier(item.get_group());
-				}
-
-				for(int i = 0; i < register_tile_size; ++i) {
-					for(int j = 0; j < register_tile_size; ++j) {
-						c[{grp[0] * group_size * register_tile_size + lid[0] * register_tile_size + i,
-						    grp[1] * group_size * register_tile_size + lid[1] * register_tile_size + j}] += sums[i * register_tile_size + j];
-					}
-				}
-			});
+					});
 
 #else
-			celerity::local_accessor<T, 2> scratch_a{{group_size, group_size}, cgh};
-			celerity::local_accessor<T, 2> scratch_b{{group_size, group_size}, cgh};
+					celerity::local_accessor<T, 2> scratch_a{{group_size, group_size}, cgh};
+					celerity::local_accessor<T, 2> scratch_b{{group_size, group_size}, cgh};
 
-			cgh.parallel_for(geo.operator celerity::nd_custom_task_geometry<2>(), [=](celerity::nd_item<2> item) {
-				T sum{};
-				const auto gid = item.get_global_id();
-				const auto lid = item.get_local_id();
-				for(size_t j = 0; j < distributed_block_size; j += group_size) {
-					scratch_a[lid] = a[gid[0]][k0 + j + lid[1]];
-					scratch_b[lid] = b[k0 + j + lid[0]][gid[1]];
-					celerity::group_barrier(item.get_group());
-					for(size_t k1 = 0; k1 < group_size; ++k1) {
-						const auto a_ik = scratch_a[lid[0]][k1];
-						const auto b_kj = scratch_b[k1][lid[1]];
-						sum += a_ik * b_kj;
-					}
-					celerity::group_barrier(item.get_group());
-				}
-				c[gid] += sum;
+					cgh.parallel_for(geo.operator celerity::nd_custom_task_geometry<2>(), [=](celerity::nd_item<2> item) {
+						T sum{};
+						const auto gid = item.get_global_id();
+						const auto lid = item.get_local_id();
+						for(size_t j = 0; j < distributed_block_size; j += group_size) {
+							scratch_a[lid] = a[gid[0]][k0 + j + lid[1]];
+							scratch_b[lid] = b[k0 + j + lid[0]][gid[1]];
+							celerity::group_barrier(item.get_group());
+							for(size_t k1 = 0; k1 < group_size; ++k1) {
+								const auto a_ik = scratch_a[lid[0]][k1];
+								const auto b_kj = scratch_b[k1][lid[1]];
+								sum += a_ik * b_kj;
+							}
+							celerity::group_barrier(item.get_group());
+						}
+						c[gid] += sum;
 
-				// Naive matmul
-				// T sum{};
-				// for(size_t k = 0; k < block_size; ++k) {
-				// 	sum += a[{item[0], K + k}] * b[{K + k, item[1]}];
-				// }
-				// c[item] += sum;
-			});
+						// Naive matmul
+						// T sum{};
+						// for(size_t k = 0; k < block_size; ++k) {
+						// 	sum += a[{item[0], K + k}] * b[{K + k, item[1]}];
+						// }
+						// c[item] += sum;
+					});
 #endif
-		});
+				});
 
-		// SUBTASKS:
-		// - Would be a huge undertaking
-		// 		- Would require storing multiple task launchers within a single task, for example
-		// - Unclear how accessors would even work (have two levels of accessors, inner level takes outer level as parameter?!)
-		//		- also with respect to CGF diagnostics
-		// - When would subtask lambda be evaluated?! It would have to be early, otherwise we introduce a lot of latency
-		// 		- Most likely during TDAG generation, but that would mean that we need to do chunking in TDAG already
-		// - The big advantage: We could do the same type of chunking as on outer level and have precise control over order of executions
+				// SUBTASKS:
+				// - Would be a huge undertaking
+				// 		- Would require storing multiple task launchers within a single task, for example
+				// - Unclear how accessors would even work (have two levels of accessors, inner level takes outer level as parameter?!)
+				//		- also with respect to CGF diagnostics
+				// - When would subtask lambda be evaluated?! It would have to be early, otherwise we introduce a lot of latency
+				// 		- Most likely during TDAG generation, but that would mean that we need to do chunking in TDAG already
+				// - The big advantage: We could do the same type of chunking as on outer level and have precise control over order of executions
 
-		// ALSO:
-		// - Creating device chunks on the top level is awkward. It's kind of an implementation detail from the perspective of distributed scheduling.
-		// 		- Of course we could submit different tasks for each device on the top level, but that is even more stupid.
-		// - If we want to do blocked matmul on device level within the top-level geometry, we need overlapping chunks, which messes with the whole grid setup.
-		// - Is there some kind of middleground?
+				// ALSO:
+				// - Creating device chunks on the top level is awkward. It's kind of an implementation detail from the perspective of distributed scheduling.
+				// 		- Of course we could submit different tasks for each device on the top level, but that is even more stupid.
+				// - If we want to do blocked matmul on device level within the top-level geometry, we need overlapping chunks, which messes with the whole grid
+				// setup.
+				// - Is there some kind of middleground?
 
-		// YES: New plan after talking to peter: If we want to do blocked device matmul, we simply have to submit multiple tasks, one for each step.
-		// The justification is this: A geometry may have overlapping chunks, but writes must be exclusive (unless replicated). If there is a conflict, submit
-		// multiple tasks. This way we can control the order of execution for each device, and do the same optimization as on the top level.
-		//
-		// What we need: Nested cartesian grid, where each cell can contain subcells, that we can iterate over. Only local chunks contain subcells.
-		// => OR: Have API to tell whether a chunk is a local chunk. Only if it is, descend lower.
-		//
-		// Ad ephemeral storage: This wouldn't work with multiple tasks (because it would've been a property of the accessor).
-		// BUT: We can still do something like buffer:discard_non_owned() hint.
-		// AND: Importantly, Peter (and now I) believe that storage of slices will not be a problem even for weak scaling.
+				// YES: New plan after talking to peter: If we want to do blocked device matmul, we simply have to submit multiple tasks, one for each step.
+				// The justification is this: A geometry may have overlapping chunks, but writes must be exclusive (unless replicated). If there is a conflict,
+				// submit multiple tasks. This way we can control the order of execution for each device, and do the same optimization as on the top level.
+				//
+				// What we need: Nested cartesian grid, where each cell can contain subcells, that we can iterate over. Only local chunks contain subcells.
+				// => OR: Have API to tell whether a chunk is a local chunk. Only if it is, descend lower.
+				//
+				// Ad ephemeral storage: This wouldn't work with multiple tasks (because it would've been a property of the accessor).
+				// BUT: We can still do something like buffer:discard_non_owned() hint.
+				// AND: Importantly, Peter (and now I) believe that storage of slices will not be a problem even for weak scaling.
 
-		// => The only downside of this, compared to subtasks, is that we have to assume the same number of devices on each node.
-		//		In a sense, we kind of "leak" the device-level algorithm to the distributed level.
-		//		Different number of devices (or different splits) CAN be supported, but it requires to segregate the distributed chunks into groups as well.
-		// 		I.e., submit a different number of tasks for those nodes that have two devices vs those that have four. Ultimately all nodes need to submit
-		//      all tasks of course, but the global chunks need to be set up in such a way that only the correct set of nodes does something.
+				// => The only downside of this, compared to subtasks, is that we have to assume the same number of devices on each node.
+				//		In a sense, we kind of "leak" the device-level algorithm to the distributed level.
+				//		Different number of devices (or different splits) CAN be supported, but it requires to segregate the distributed chunks into groups as
+				// well.
+				// 		I.e., submit a different number of tasks for those nodes that have two devices vs those that have four. Ultimately all nodes need to
+				// submit
+				//      all tasks of course, but the global chunks need to be set up in such a way that only the correct set of nodes does something.
 
-		// Should we support arbitrarily nested grids?
-		// => Maybe: This way we could easily express oversubscription, first do a normal 2D split, and then recursively split again.
-		// Then launch task over level 1 grid (assuming 0 = coarsest), and express data dependencies in terms of that level as well.
+				// Should we support arbitrarily nested grids?
+				// => Maybe: This way we could easily express oversubscription, first do a normal 2D split, and then recursively split again.
+				// Then launch task over level 1 grid (assuming 0 = coarsest), and express data dependencies in terms of that level as well.
+			}
+		}
 	}
 }
 
@@ -582,11 +610,10 @@ int main(int argc, char* argv[]) {
 
 	celerity::cartesian_grid<2> a_partition(celerity::detail::box<2>::full_range(mat_a_buf.get_range()));
 	celerity::cartesian_grid<2> b_partition(celerity::detail::box<2>::full_range(mat_b_buf.get_range()));
-	celerity::cartesian_grid<2> c_partition(celerity::detail::box<2>::full_range(mat_b_buf.get_range()));
-	const auto num_blocks = (mat_c_buf.get_range() / distributed_block_size).size();
-	c_partition.split(num_blocks, {distributed_block_size, distributed_block_size});
-	a_partition.split(c_partition.get_grid_size(), {distributed_block_size, distributed_block_size});
-	b_partition.split(c_partition.get_grid_size(), {distributed_block_size, distributed_block_size});
+	celerity::cartesian_grid<2> c_partition(celerity::detail::box<2>::full_range(mat_c_buf.get_range()));
+	c_partition.split(mat_c_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
+	a_partition.split(mat_a_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
+	b_partition.split(mat_b_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
 
 	celerity::grid_geometry a_geo(a_partition, celerity::range<2>{group_size, group_size});
 	a_geo.assign(
@@ -645,7 +672,6 @@ int main(int argc, char* argv[]) {
 	puts("With warmup");
 	setup(0, 7);
 	run(true);
-	verify(queue, mat_c_buf, K, 0, 7, celerity::experimental::host_object<bool>{});
 
 	setup(8, 13);
 
