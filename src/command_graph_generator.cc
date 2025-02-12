@@ -431,7 +431,9 @@ void command_graph_generator::resolve_pending_reductions(
 void command_graph_generator::generate_pushes(batch& current_batch, const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements) {
 	CELERITY_DETAIL_TRACY_ZONE_SCOPED("cggen::generate_pushes", generic_red);
 	struct push_scratch {
-		std::unordered_map<node_id, region_builder<3>> target_regions;
+		// We generate potentially multiple "target regions" for a single node, one for each chunk.
+		// This is so that we do not introduce unnecessary synchronization points between chunks on the same node.
+		std::unordered_map<node_id, std::vector<region_builder<3>>> target_regions;
 		std::unordered_set<command*> depends_on;
 	};
 	std::unordered_map<buffer_id, push_scratch> per_buffer_pushes;
@@ -444,6 +446,7 @@ void command_graph_generator::generate_pushes(batch& current_batch, const task& 
 			auto& buffer = m_buffers.at(bid);
 
 			const auto local_sources = buffer.local_last_writer.get_region_values(consumed);
+			region_builder<3>* builder = nullptr;
 			for(const auto& [local_box, wcs] : local_sources) {
 				if(!wcs.is_fresh() || wcs.is_replicated()) { continue; }
 
@@ -462,7 +465,11 @@ void command_graph_generator::generate_pushes(batch& current_batch, const task& 
 						buffer.replicated_regions.update_box(replicated_box, node_bitset{nodes}.set(nid));
 					}
 					auto& scratch = per_buffer_pushes[bid]; // allow default-insert
-					scratch.target_regions[nid /* allow default-insert */].add(push_region);
+					if(builder == nullptr) {
+						scratch.target_regions[nid /* allow default-insert */].push_back(region_builder<3>{});
+						builder = &scratch.target_regions[nid].back();
+					}
+					builder->add(push_region);
 					scratch.depends_on.insert(wcs);
 				}
 			}
@@ -473,10 +480,12 @@ void command_graph_generator::generate_pushes(batch& current_batch, const task& 
 	for(auto& [bid, scratch] : per_buffer_pushes) {
 		region_builder<3> combined_region;
 		std::vector<std::pair<node_id, region<3>>> target_regions;
-		for(auto& [nid, boxes] : scratch.target_regions) {
-			auto region = std::move(boxes).into_region();
-			combined_region.add(region);
-			target_regions.push_back({nid, std::move(region)});
+		for(auto& [nid, builders] : scratch.target_regions) {
+			for(auto& builder : builders) {
+				auto region = std::move(builder).into_region();
+				combined_region.add(region);
+				target_regions.push_back({nid, std::move(region)});
+			}
 		}
 
 		auto* const cmd = create_command<push_command>(current_batch, transfer_id(tsk.get_id(), bid, no_reduction_id), std::move(target_regions),

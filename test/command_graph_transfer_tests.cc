@@ -116,6 +116,25 @@ TEST_CASE("command_graph_generator generates a single push command per buffer an
 	CHECK(cctx.query<push_command_record>(buf1.get_id()).on(1)[1]->target_regions == push_regions<1>({{0, region<1>{{box<1>{96, 128}}}}}));
 }
 
+// TODO: We need a corresponding IDAG test that ensure we actually generate a separate send instruction for each target region
+TEST_CASE("command_graph_generator generates separate push regions for each consumer chunk", "[command_graph_generator][command-graph]") {
+	cdag_test_context cctx(2);
+
+	const range<1> test_range = {128};
+	auto buf = cctx.create_buffer(test_range);
+
+	// Initialize buffer on node 0
+	cctx.master_node_host_task().discard_write(buf, acc::all{}).submit();
+	// Read buffer on all nodes, but split task into 4 chunks each
+	// TODO: Use custom task geometry instead?
+	cctx.set_test_chunk_multiplier(2);
+	cctx.device_compute(test_range).read(buf, acc::one_to_one{}).submit();
+
+	CHECK(cctx.query<push_command_record>().total_count() == 1);
+	// NOTE: Somewhat brittle since we assume chunks being processed in a particular order
+	CHECK(cctx.query<push_command_record>().on(0)->target_regions == push_regions<1>({{1, box<1>{64, 96}}, {1, box<1>{96, 128}}}));
+}
+
 TEST_CASE("command_graph_generator generates a single await_push command per buffer and task", "[command_graph_generator][command-graph]") { //
 	cdag_test_context cctx(2);
 
