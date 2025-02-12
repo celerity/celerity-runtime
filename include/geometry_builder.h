@@ -121,7 +121,7 @@ class grid_geometry {
 			const size_t row = i / m_grid.get_grid_size()[1];
 			const size_t col = i % m_grid.get_grid_size()[1];
 			const size_t node_id = (row * m_grid.get_grid_size()[1] + col) % num_nodes;
-			const size_t device_id = (row * m_grid.get_grid_size()[1] + col) % devices_per_node;
+			const size_t device_id = ((row * m_grid.get_grid_size()[1] + col) / num_nodes) % devices_per_node;
 			m_assignment.push_back({detail::node_id(node_id), detail::device_id(device_id)});
 		}
 	}

@@ -506,8 +506,8 @@ void verify(celerity::queue& queue, celerity::buffer<T, 2> mat_c, const size_t K
 			const auto& sr = part.get_subrange();
 			for(size_t i = sr.offset[0]; i < sr.offset[0] + sr.range[0]; ++i) {
 				for(size_t j = sr.offset[1]; j < sr.offset[1] + sr.range[1]; ++j) {
-					const float received = c[i][j];
-					float expected = 0;
+					const T received = c[i][j];
+					T expected = 0;
 
 					// If B is identity matrix
 					// if(j < K) {
