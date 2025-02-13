@@ -94,3 +94,7 @@ target_include_directories(fvm PRIVATE ${CMAKE_SOURCE_DIR}/vendor/gmsh/api)
 # target_link_options(fvm PRIVATE -fsanitize=address)
 
 add_example(jacobi)
+
+# NOCOMMIT Move to separate interop example, only enable for CUDA builds
+find_package(CUDAToolkit REQUIRED)
+target_link_libraries(matmul PRIVATE CUDA::cudart CUDA::cublas)

@@ -4,13 +4,36 @@
 #include <celerity.h>
 #include <geometry_builder.h>
 
+#include <cublas_v2.h>
+const char* cublasGetErrorString(cublasStatus_t status) {
+	switch(status) {
+	case CUBLAS_STATUS_SUCCESS: return "CUBLAS_STATUS_SUCCESS";
+	case CUBLAS_STATUS_NOT_INITIALIZED: return "CUBLAS_STATUS_NOT_INITIALIZED";
+	case CUBLAS_STATUS_ALLOC_FAILED: return "CUBLAS_STATUS_ALLOC_FAILED";
+	case CUBLAS_STATUS_INVALID_VALUE: return "CUBLAS_STATUS_INVALID_VALUE";
+	case CUBLAS_STATUS_ARCH_MISMATCH: return "CUBLAS_STATUS_ARCH_MISMATCH";
+	case CUBLAS_STATUS_MAPPING_ERROR: return "CUBLAS_STATUS_MAPPING_ERROR";
+	case CUBLAS_STATUS_EXECUTION_FAILED: return "CUBLAS_STATUS_EXECUTION_FAILED";
+	case CUBLAS_STATUS_INTERNAL_ERROR: return "CUBLAS_STATUS_INTERNAL_ERROR";
+	case CUBLAS_STATUS_NOT_SUPPORTED: return "CUBLAS_STATUS_NOT_SUPPORTED";
+	case CUBLAS_STATUS_LICENSE_ERROR: return "CUBLAS_STATUS_LICENSE_ERROR";
+	}
+	return "unknown error";
+}
+
+#define CUBLAS_CHECK(ret)                                                                                                                                      \
+	do {                                                                                                                                                       \
+		if(ret != CUBLAS_STATUS_SUCCESS) {                                                                                                                     \
+			fprintf(stderr, "cuBLAS call failed with error %s\n", cublasGetErrorString(ret));                                                                  \
+			abort();                                                                                                                                           \
+		}                                                                                                                                                      \
+	} while(0)
+
 #if !defined(NDEBUG) || CELERITY_SYCL_IS_SIMSYCL
 const size_t default_mat_size = 128;
 #else
-const size_t default_mat_size = 1024;
+const size_t default_mat_size = 4096;
 #endif
-
-#define USE_REGISTER_TILING 1
 
 constexpr int group_size = 16;
 
@@ -20,13 +43,42 @@ constexpr int group_size = 16;
 // - Smaller blocks means more fine-grained data dependencies
 // 		- First tasks can start earlier
 // TODO: What is a good size?
+#if !defined(NDEBUG) || CELERITY_SYCL_IS_SIMSYCL
+const size_t distributed_block_size = 64;
+#else
 const size_t distributed_block_size = 2048;
+#endif
 static_assert(distributed_block_size % group_size == 0);
 
-#if USE_REGISTER_TILING
+// For register tiling
 constexpr int register_tile_size = 4;
 constexpr int local_memory_tile_size = group_size * register_tile_size;
-#endif
+
+class per_device_cublas_handles {
+  public:
+	cublasHandle_t get_handle(const cudaStream_t& stream) {
+		int device = -1;
+		cudaGetDevice(&device);
+		auto it = m_per_device_handles.find(device);
+		if(it == m_per_device_handles.end()) {
+			cublasHandle_t handle;
+			CUBLAS_CHECK(cublasCreate(&handle));
+			m_per_device_handles[device] = handle;
+			return handle;
+		} else {
+			return it->second;
+		}
+	}
+
+	~per_device_cublas_handles() {
+		for(auto& [device, handle] : m_per_device_handles) {
+			CUBLAS_CHECK(cublasDestroy(handle));
+		}
+	}
+
+  private:
+	std::unordered_map<int, cublasHandle_t> m_per_device_handles;
+};
 
 template <typename T>
 void set_identity(celerity::queue queue, celerity::buffer<T, 2> mat, bool reverse, const std::optional<celerity::custom_task_geometry<2>>& geo) {
@@ -91,10 +143,148 @@ void set_zero(celerity::queue queue, celerity::buffer<T, 2> mat, const std::opti
 	});
 }
 
+template <bool Accumulate, typename T>
+void kernel_naive(const celerity::item<2>& item, const celerity::accessor<T, 2, celerity::access_mode::read, celerity::target::device>& a,
+    const celerity::accessor<T, 2, celerity::access_mode::read, celerity::target::device>& b,
+    const celerity::accessor<T, 2, Accumulate ? celerity::access_mode::read_write : celerity::access_mode::discard_write, celerity::target::device>& c,
+    const size_t K, const size_t k0 = 0) //
+{
+	T sum{};
+	for(size_t k = 0; k < K; ++k) {
+		sum += a[{item[0], k0 + k}] * b[{k0 + k, item[1]}];
+	}
+	if constexpr(Accumulate) {
+		c[item] += sum;
+	} else {
+		c[item] = sum;
+	}
+}
+
+template <bool Accumulate, typename T>
+void kernel_local(const celerity::nd_item<2>& item, const celerity::accessor<T, 2, celerity::access_mode::read, celerity::target::device>& a,
+    const celerity::accessor<T, 2, celerity::access_mode::read, celerity::target::device>& b,
+    const celerity::accessor<T, 2, Accumulate ? celerity::access_mode::read_write : celerity::access_mode::discard_write, celerity::target::device>& c,
+    const celerity::local_accessor<T, 2>& scratch_a, const celerity::local_accessor<T, 2>& scratch_b, const size_t K, const size_t k0 = 0) //
+{
+	T sum{};
+	const auto gid = item.get_global_id();
+	const auto lid = item.get_local_id();
+	for(size_t k1 = 0; k1 < K; k1 += group_size) {
+		scratch_a[lid] = a[gid[0]][k0 + k1 + lid[1]];
+		scratch_b[lid] = b[k0 + k1 + lid[0]][gid[1]];
+		celerity::group_barrier(item.get_group());
+		for(size_t k2 = 0; k2 < group_size; ++k2) {
+			const auto a_ik = scratch_a[lid[0]][k2];
+			const auto b_kj = scratch_b[k2][lid[1]];
+			sum += a_ik * b_kj;
+		}
+		celerity::group_barrier(item.get_group());
+	}
+	if constexpr(Accumulate) {
+		c[gid] += sum;
+	} else {
+		c[gid] = sum;
+	}
+}
+
+template <bool Accumulate, typename T>
+void kernel_register_tiling(const celerity::nd_item<2>& item, const celerity::accessor<T, 2, celerity::access_mode::read, celerity::target::device>& a,
+    const celerity::accessor<T, 2, celerity::access_mode::read, celerity::target::device>& b,
+    const celerity::accessor<T, 2, Accumulate ? celerity::access_mode::read_write : celerity::access_mode::discard_write, celerity::target::device>& c,
+    const celerity::local_accessor<T, 2>& scratch_a, const celerity::local_accessor<T, 2>& scratch_b, const size_t K, const size_t k0 = 0) //
+{
+	T sums[register_tile_size * register_tile_size] = {0};
+	const auto lid = item.get_local_id();
+	const auto grp = item.get_group();
+
+	for(size_t k1 = 0; k1 < K; k1 += local_memory_tile_size) {
+		for(int i = 0; i < register_tile_size; ++i) {
+			for(int j = 0; j < register_tile_size; ++j) {
+				scratch_a[i * group_size + lid[0]][j * group_size + lid[1]] =
+				    a[{grp[0] * group_size * register_tile_size + i * group_size + lid[0], k0 + k1 + j * group_size + lid[1]}];
+				scratch_b[i * group_size + lid[0]][j * group_size + lid[1]] =
+				    b[{k0 + k1 + i * group_size + lid[0], grp[1] * group_size * register_tile_size + j * group_size + lid[1]}];
+			}
+		}
+		celerity::group_barrier(item.get_group());
+		for(size_t k2 = 0; k2 < local_memory_tile_size; ++k2) {
+			for(int i = 0; i < register_tile_size; ++i) {
+				for(int j = 0; j < register_tile_size; ++j) {
+					sums[i * register_tile_size + j] += scratch_a[lid[0] * register_tile_size + i][k2] * scratch_b[k2][lid[1] * register_tile_size + j];
+				}
+			}
+		}
+		celerity::group_barrier(item.get_group());
+	}
+
+	for(int i = 0; i < register_tile_size; ++i) {
+		for(int j = 0; j < register_tile_size; ++j) {
+			if constexpr(Accumulate) {
+				c[{grp[0] * group_size * register_tile_size + lid[0] * register_tile_size + i,
+				    grp[1] * group_size * register_tile_size + lid[1] * register_tile_size + j}] += sums[i * register_tile_size + j];
+			} else {
+				c[{grp[0] * group_size * register_tile_size + lid[0] * register_tile_size + i,
+				    grp[1] * group_size * register_tile_size + lid[1] * register_tile_size + j}] = sums[i * register_tile_size + j];
+			}
+		}
+	}
+}
+
+// Not actually a kernel function, but you get the idea
+template <bool Accumulate, typename T>
+void kernel_cublas(celerity::interop_handle& ih, const celerity::partition<2>& part, per_device_cublas_handles& cublas_handles,
+    const celerity::accessor<T, 2, celerity::access_mode::read, celerity::target::device>& a,
+    const celerity::accessor<T, 2, celerity::access_mode::read, celerity::target::device>& b,
+    const celerity::accessor<T, 2, Accumulate ? celerity::access_mode::read_write : celerity::access_mode::discard_write, celerity::target::device>& c,
+    const size_t K, const size_t k0 = 0) //
+{
+	const auto a_wnd = ih.get_allocation_window(a);
+	const auto b_wnd = ih.get_allocation_window(b);
+	const auto c_wnd = ih.get_allocation_window(c);
+
+	auto stream = ih.get_native_queue<sycl::backend::cuda>();
+	auto handle = cublas_handles.get_handle(stream);
+	CUBLAS_CHECK(cublasSetStream(handle, stream));
+
+	const T* a_ptr = a_wnd.get_allocation();
+	const auto a_range = a_wnd.get_allocation_range();
+	const auto a_offset = a_wnd.get_allocation_offset_in_buffer();
+	const T* b_ptr = b_wnd.get_allocation();
+	const auto b_range = b_wnd.get_allocation_range();
+	const auto b_offset = b_wnd.get_allocation_offset_in_buffer();
+	T* c_ptr = c_wnd.get_allocation();
+	const auto c_range = c_wnd.get_allocation_range();
+	const auto c_offset = c_wnd.get_allocation_offset_in_buffer();
+
+	const auto sr = part.get_subrange();
+
+	auto submat_a = &a_ptr[(sr.offset[0] - a_offset[0]) * a_range[1] + k0 - a_offset[1]];
+	auto submat_b = &b_ptr[(k0 - b_offset[0]) * b_range[1] + sr.offset[1] - b_offset[1]];
+	auto submat_c = &c_ptr[(sr.offset[0] - c_offset[0]) * c_range[1] + (sr.offset[1] - c_offset[1])];
+
+	const T alpha = 1.f;
+	const T beta = Accumulate ? 1.f : 0.f;
+
+	// cuBLAS expects column major matrices, so we compute B*A instead of A*B
+	if constexpr(std::is_same_v<T, float>) {
+		CUBLAS_CHECK(cublasSgemm(
+		    handle, CUBLAS_OP_N, CUBLAS_OP_N, sr.range[1], sr.range[0], K, &alpha, submat_b, b_range[1], submat_a, a_range[1], &beta, submat_c, c_range[1]));
+	} else {
+		CUBLAS_CHECK(cublasDgemm(
+		    handle, CUBLAS_OP_N, CUBLAS_OP_N, sr.range[1], sr.range[0], K, &alpha, submat_b, b_range[1], submat_a, a_range[1], &beta, submat_c, c_range[1]));
+	}
+}
+
 template <typename T>
-void multiply(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c) {
-	queue.submit([&](celerity::handler& cgh) {
-#if USE_REGISTER_TILING
+void multiply_basic(celerity::queue queue, per_device_cublas_handles& cublas_handles, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b,
+    celerity::buffer<T, 2> mat_c, const std::string& kernel) //
+{
+	using rmfn = std::function<celerity::subrange<2>(const celerity::chunk<2>&, const celerity::range<2>&)>;
+	rmfn a_rm = celerity::access::slice<2>(1);
+	rmfn b_rm = celerity::access::slice<2>(0);
+	rmfn c_rm = [](auto chnk, auto) { return celerity::access::one_to_one{}(chnk); };
+
+	if(kernel == "register") {
 		const auto coarsened_slice = [](const int dim) {
 			return [dim](celerity::chunk<2> chnk, const celerity::range<2>& buffer_size) {
 				celerity::chunk<2> original_chunk = chnk;
@@ -103,85 +293,50 @@ void multiply(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buf
 				return celerity::access::slice<2>(dim)(original_chunk, buffer_size);
 			};
 		};
-
 		const auto coarsened_o2o = [](celerity::chunk<2> chnk, const celerity::range<2>& buffer_size) {
 			celerity::subrange<2> sr = chnk;
 			sr.offset *= register_tile_size;
 			sr.range *= register_tile_size;
 			return sr;
 		};
+		a_rm = coarsened_slice(1);
+		b_rm = coarsened_slice(0);
+		c_rm = coarsened_o2o;
+	}
 
-		celerity::accessor a{mat_a, cgh, coarsened_slice(1), celerity::read_only};
-		celerity::accessor b{mat_b, cgh, coarsened_slice(0), celerity::read_only};
-		celerity::accessor c{mat_c, cgh, coarsened_o2o, celerity::write_only, celerity::no_init};
-#else
-		celerity::accessor a{mat_a, cgh, celerity::access::slice<2>(1), celerity::read_only};
-		celerity::accessor b{mat_b, cgh, celerity::access::slice<2>(0), celerity::read_only};
-		celerity::accessor c{mat_c, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-#endif
+	const size_t K = mat_a.get_range()[1];
+	queue.submit([&](celerity::handler& cgh) {
+		celerity::accessor a{mat_a, cgh, a_rm, celerity::read_only};
+		celerity::accessor b{mat_b, cgh, b_rm, celerity::read_only};
+		celerity::accessor c{mat_c, cgh, c_rm, celerity::write_only, celerity::no_init};
 
-#if USE_REGISTER_TILING
-		celerity::local_accessor<T, 2> scratch_a{{local_memory_tile_size, local_memory_tile_size}, cgh};
-		celerity::local_accessor<T, 2> scratch_b{{local_memory_tile_size, local_memory_tile_size}, cgh};
-#else
-		celerity::local_accessor<T, 2> scratch_a{{group_size, group_size}, cgh};
-		celerity::local_accessor<T, 2> scratch_b{{group_size, group_size}, cgh};
-#endif
-
-		const size_t K = mat_a.get_range()[1];
-		celerity::debug::set_task_name(cgh, "matrix multiplication");
-#if USE_REGISTER_TILING
-		cgh.parallel_for(celerity::nd_range<2>{mat_c.get_range() / register_tile_size, {group_size, group_size}}, [=](celerity::nd_item<2> item) {
-			T sums[register_tile_size * register_tile_size] = {0};
-			const auto lid = item.get_local_id();
-			const auto grp = item.get_group();
-			for(size_t k0 = 0; k0 < K; k0 += local_memory_tile_size) {
-				for(int i = 0; i < register_tile_size; ++i) {
-					for(int j = 0; j < register_tile_size; ++j) {
-						scratch_a[i * group_size + lid[0]][j * group_size + lid[1]] =
-						    a[{grp[0] * group_size * register_tile_size + i * group_size + lid[0], k0 + j * group_size + lid[1]}];
-						scratch_b[i * group_size + lid[0]][j * group_size + lid[1]] =
-						    b[{k0 + i * group_size + lid[0], grp[1] * group_size * register_tile_size + j * group_size + lid[1]}];
-					}
-				}
-				celerity::group_barrier(item.get_group());
-				for(size_t k1 = 0; k1 < local_memory_tile_size; ++k1) {
-					for(int i = 0; i < register_tile_size; ++i) {
-						for(int j = 0; j < register_tile_size; ++j) {
-							sums[i * register_tile_size + j] += scratch_a[lid[0] * register_tile_size + i][k1] * scratch_b[k1][lid[1] * register_tile_size + j];
-						}
-					}
-				}
-				celerity::group_barrier(item.get_group());
-			}
-
-			for(int i = 0; i < register_tile_size; ++i) {
-				for(int j = 0; j < register_tile_size; ++j) {
-					c[{grp[0] * group_size * register_tile_size + lid[0] * register_tile_size + i,
-					    grp[1] * group_size * register_tile_size + lid[1] * register_tile_size + j}] = sums[i * register_tile_size + j];
-				}
-			}
-		});
-#else
 		celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d{});
-		cgh.parallel_for(celerity::nd_range<2>{mat_c.get_range(), {group_size, group_size}}, [=](celerity::nd_item<2> item) {
-			T sum{};
-			const auto lid = item.get_local_id();
-			for(size_t j = 0; j < K; j += group_size) { // TODO: Akward j iterating to K
-				scratch_a[lid] = a[item.get_group(0) * group_size + lid[0]][j + lid[1]];
-				scratch_b[lid] = b[j + lid[0]][item.get_group(1) * group_size + lid[1]];
-				celerity::group_barrier(item.get_group());
+		celerity::debug::set_task_name(cgh, "matmul basic " + kernel);
 
-				for(size_t k = 0; k < group_size; ++k) {
-					const auto a_ik = scratch_a[lid[0]][k];
-					const auto b_kj = scratch_b[k][lid[1]];
-					sum += a_ik * b_kj;
-				}
-				celerity::group_barrier(item.get_group());
-			}
-			c[item.get_global_id()] = sum;
-		});
-#endif
+		if(kernel == "naive") {
+			cgh.parallel_for(mat_c.get_range(), [=](celerity::item<2> item) { //
+				kernel_naive<false>(item, a, b, c, K);
+			});
+		} else if(kernel == "local") {
+			celerity::local_accessor<T, 2> scratch_a{{group_size, group_size}, cgh};
+			celerity::local_accessor<T, 2> scratch_b{{group_size, group_size}, cgh};
+			cgh.parallel_for(celerity::nd_range<2>{mat_c.get_range(), {group_size, group_size}}, [=](celerity::nd_item<2> item) { //
+				kernel_local<false>(item, a, b, c, scratch_a, scratch_b, K);
+			});
+		} else if(kernel == "register") {
+			celerity::local_accessor<T, 2> scratch_a{{local_memory_tile_size, local_memory_tile_size}, cgh};
+			celerity::local_accessor<T, 2> scratch_b{{local_memory_tile_size, local_memory_tile_size}, cgh};
+			cgh.parallel_for(celerity::nd_range<2>{mat_c.get_range() / register_tile_size, {group_size, group_size}},
+			    [=](celerity::nd_item<2> item) { //
+				    kernel_register_tiling<false>(item, a, b, c, scratch_a, scratch_b, K);
+			    });
+		} else if(kernel == "cublas") {
+			cgh.interop_task(mat_c.get_range(), [=, &cublas_handles](celerity::interop_handle& ih, const celerity::partition<2>& part) { //
+				kernel_cublas<false>(ih, part, cublas_handles, a, b, c, K);
+			});
+		} else {
+			throw std::runtime_error("Unsupported kernel: " + kernel);
+		}
 	});
 }
 
@@ -243,7 +398,9 @@ class grid_data_requirements {
 // - ...?
 
 template <typename T>
-void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c, bool is_warmup) {
+void multiply_blocked(celerity::queue queue, per_device_cublas_handles& cublas_handles, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b,
+    celerity::buffer<T, 2> mat_c, const std::string& kernel, const bool is_warmup) //
+{
 	celerity::cartesian_grid<2> c_partition(celerity::detail::box<2>::full_range(mat_c.get_range()));
 	// TODO: Obviously we need a better API to split across all nodes
 	// matrix_partition.split(celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), {group_size, group_size});
@@ -272,18 +429,21 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 
 	// TODO: What about matrices that aren't evenly divisible by block size?
 
-#if USE_REGISTER_TILING
-	if(mat_c.get_range() % register_tile_size != celerity::detail::zeros) {
-		throw std::runtime_error(fmt::format("Matrix C with dimensions {} is not divisible by register tile size {}", mat_c.get_range(), register_tile_size));
-	}
-	// Thread coarsening
-	// TODO: Have API for that in builder?
-	celerity::cartesian_grid<2> c_coarse(celerity::detail::box<2>::full_range(mat_c.get_range() / register_tile_size));
-	c_coarse.split(c_partition.get_grid_size(), {distributed_block_size / register_tile_size, distributed_block_size / register_tile_size});
-	celerity::grid_geometry geo(c_coarse, celerity::range<2>{group_size, group_size});
-#else
-	celerity::grid_geometry geo(c_partition, celerity::range<2>{group_size, group_size});
-#endif
+	celerity::grid_geometry geo = ([&] {
+		if(kernel == "register") {
+			if(mat_c.get_range() % register_tile_size != celerity::detail::zeros) {
+				throw std::runtime_error(
+				    fmt::format("Matrix C with dimensions {} is not divisible by register tile size {}", mat_c.get_range(), register_tile_size));
+			}
+			// Thread coarsening
+			// TODO: Have API for that in builder?
+			celerity::cartesian_grid<2> c_coarse(celerity::detail::box<2>::full_range(mat_c.get_range() / register_tile_size));
+			c_coarse.split(c_partition.get_grid_size(), {distributed_block_size / register_tile_size, distributed_block_size / register_tile_size});
+			return celerity::grid_geometry(c_coarse, celerity::range<2>{group_size, group_size});
+		} else {
+			return celerity::grid_geometry(c_partition, celerity::range<2>{group_size, group_size});
+		}
+	})(); // IIFE
 
 	// NOCOMMIT: This assumes the same number of devices on each node - OTHERWISE UB!!
 	geo.assign(celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices());
@@ -328,9 +488,11 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 
 	const size_t K = mat_a.get_range()[1];
 
-	const size_t superblock_size = 4;
-	const auto num_superblocks = mat_c.get_range() / distributed_block_size / superblock_size;
+	const size_t superblock_size = 2;
+	const auto num_superblocks = celerity::range<2>(geo.get_grid().get_grid_size()[0], geo.get_grid().get_grid_size()[1]) / superblock_size;
+
 	CELERITY_CRITICAL("NUM SUPERBLOCKS: {}", num_superblocks);
+	if(num_superblocks.size() == 0) { throw std::runtime_error("Matrix C too small (or distributed block size too large) - cannot create superblocks"); }
 
 	// TODO XY order - does it matter?
 	for(size_t Y = 0; Y < num_superblocks[0]; ++Y) {
@@ -340,12 +502,12 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 				grid_data_requirements<2> data_reqs_b{geo};
 				grid_data_requirements<2> data_reqs_c{geo};
 
-				auto custom_geo = geo.operator celerity::nd_custom_task_geometry<2>();
-				std::erase_if(custom_geo.assigned_chunks, [&](auto& achnk) {
+				auto superblock_geo = geo.operator celerity::nd_custom_task_geometry<2>();
+				std::erase_if(superblock_geo.assigned_chunks, [&](auto& achnk) {
 					for(auto& cell : geo.get_grid().get_cells()) {
 						if(box_cast<3>(cell.box) == achnk.box) {
-							if(cell.pos[0] / superblock_size != X || cell.pos[1] / superblock_size != Y) {
-								// fmt::print("Skipping cell {} b/c not in superblock {}/{}\n", cell.pos, X, Y);
+							if(cell.pos[0] / superblock_size != Y || cell.pos[1] / superblock_size != X) {
+								// fmt::print("Skipping cell {} b/c not in superblock {}/{}\n", cell.pos, Y, X);
 								return true;
 							}
 							return false;
@@ -356,7 +518,7 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 
 				for(auto& cell : geo.get_grid().get_cells()) {
 					// NOCOMMIT TODO Why is this required?
-					if(std::ranges::none_of(custom_geo.assigned_chunks, [&](auto& achnk) { return box_cast<3>(cell.box) == achnk.box; })) { continue; }
+					if(std::ranges::none_of(superblock_geo.assigned_chunks, [&](auto& achnk) { return box_cast<3>(cell.box) == achnk.box; })) { continue; }
 
 					const auto idx = k0 / distributed_block_size;
 					data_reqs_a.add(cell.pos, a_partition.get_cell({cell.pos[0], idx}));
@@ -371,81 +533,46 @@ void multiply_blocked(celerity::queue queue, celerity::buffer<T, 2> mat_a, celer
 					celerity::accessor b{mat_b, cgh, data_reqs_b, celerity::read_only};
 					celerity::accessor c{mat_c, cgh, data_reqs_c, celerity::read_write};
 
-					celerity::debug::set_task_name(cgh, "matmul blocked");
-
+					// FIXME: Depends on horizon step size
 					if(!is_warmup) { cgh.assert_no_allocations(); }
 
-#if USE_REGISTER_TILING
-					celerity::local_accessor<T, 2> scratch_a{{local_memory_tile_size, local_memory_tile_size}, cgh};
-					celerity::local_accessor<T, 2> scratch_b{{local_memory_tile_size, local_memory_tile_size}, cgh};
+					celerity::debug::set_task_name(cgh, "matmul blocked " + kernel);
 
-					// TODO: Can we keep DRY with basic variant? (Needs local indexing probably)
-					// This kernel performs worse than basic variant on RTX 3090 because of the addition of k0 (could be solved with local indexing), and
-					// weirdly, that distributed_block_size is known statically (unrolling gone wrong?).
-					// Workaround for latter ¯\_(ツ)_/¯
-					auto dynamic_dist_block_sz = distributed_block_size;
-					cgh.parallel_for(custom_geo, [=](celerity::nd_item<2> item) {
-						T sums[register_tile_size * register_tile_size] = {0};
-						const auto lid = item.get_local_id();
-						const auto grp = item.get_group();
-						for(size_t k1 = 0; k1 < dynamic_dist_block_sz; k1 += local_memory_tile_size) {
-							for(int i = 0; i < register_tile_size; ++i) {
-								for(int j = 0; j < register_tile_size; ++j) {
-									scratch_a[i * group_size + lid[0]][j * group_size + lid[1]] =
-									    a[{grp[0] * group_size * register_tile_size + i * group_size + lid[0], k0 + k1 + j * group_size + lid[1]}];
-									scratch_b[i * group_size + lid[0]][j * group_size + lid[1]] =
-									    b[{k0 + k1 + i * group_size + lid[0], grp[1] * group_size * register_tile_size + j * group_size + lid[1]}];
-								}
-							}
-							celerity::group_barrier(item.get_group());
-							for(size_t k2 = 0; k2 < local_memory_tile_size; ++k2) {
-								for(int i = 0; i < register_tile_size; ++i) {
-									for(int j = 0; j < register_tile_size; ++j) {
-										sums[i * register_tile_size + j] +=
-										    scratch_a[lid[0] * register_tile_size + i][k2] * scratch_b[k2][lid[1] * register_tile_size + j];
-									}
-								}
-							}
-							celerity::group_barrier(item.get_group());
-						}
-
-						for(int i = 0; i < register_tile_size; ++i) {
-							for(int j = 0; j < register_tile_size; ++j) {
-								c[{grp[0] * group_size * register_tile_size + lid[0] * register_tile_size + i,
-								    grp[1] * group_size * register_tile_size + lid[1] * register_tile_size + j}] += sums[i * register_tile_size + j];
-							}
-						}
-					});
-
-#else
-					celerity::local_accessor<T, 2> scratch_a{{group_size, group_size}, cgh};
-					celerity::local_accessor<T, 2> scratch_b{{group_size, group_size}, cgh};
-
-					cgh.parallel_for(geo.operator celerity::nd_custom_task_geometry<2>(), [=](celerity::nd_item<2> item) {
-						T sum{};
-						const auto gid = item.get_global_id();
-						const auto lid = item.get_local_id();
-						for(size_t j = 0; j < distributed_block_size; j += group_size) {
-							scratch_a[lid] = a[gid[0]][k0 + j + lid[1]];
-							scratch_b[lid] = b[k0 + j + lid[0]][gid[1]];
-							celerity::group_barrier(item.get_group());
-							for(size_t k1 = 0; k1 < group_size; ++k1) {
-								const auto a_ik = scratch_a[lid[0]][k1];
-								const auto b_kj = scratch_b[k1][lid[1]];
-								sum += a_ik * b_kj;
-							}
-							celerity::group_barrier(item.get_group());
-						}
-						c[gid] += sum;
-
-						// Naive matmul
-						// T sum{};
-						// for(size_t k = 0; k < block_size; ++k) {
-						// 	sum += a[{item[0], K + k}] * b[{K + k, item[1]}];
-						// }
-						// c[item] += sum;
-					});
-#endif
+					if(kernel == "naive") {
+						// FIXME Ugly
+						celerity::custom_task_geometry<2> non_nd_geo;
+						non_nd_geo.assigned_chunks = superblock_geo.assigned_chunks;
+						non_nd_geo.global_size = superblock_geo.global_size;
+						non_nd_geo.global_offset = superblock_geo.global_offset;
+						non_nd_geo.local_size = superblock_geo.local_size;
+						cgh.parallel_for(non_nd_geo, [=](celerity::item<2> item) { //
+							kernel_naive<true>(item, a, b, c, distributed_block_size, k0);
+						});
+					} else if(kernel == "local") {
+						celerity::local_accessor<T, 2> scratch_a{{group_size, group_size}, cgh};
+						celerity::local_accessor<T, 2> scratch_b{{group_size, group_size}, cgh};
+						cgh.parallel_for(superblock_geo, [=](celerity::nd_item<2> item) { //
+							kernel_local<true>(item, a, b, c, scratch_a, scratch_b, distributed_block_size, k0);
+						});
+					} else if(kernel == "register") {
+						celerity::local_accessor<T, 2> scratch_a{{local_memory_tile_size, local_memory_tile_size}, cgh};
+						celerity::local_accessor<T, 2> scratch_b{{local_memory_tile_size, local_memory_tile_size}, cgh};
+						cgh.parallel_for(superblock_geo, [=](celerity::nd_item<2> item) { //
+							kernel_register_tiling<true>(item, a, b, c, scratch_a, scratch_b, distributed_block_size, k0);
+						});
+					} else if(kernel == "cublas") {
+						// FIXME Ugly
+						celerity::custom_task_geometry<2> non_nd_geo;
+						non_nd_geo.assigned_chunks = superblock_geo.assigned_chunks;
+						non_nd_geo.global_size = superblock_geo.global_size;
+						non_nd_geo.global_offset = superblock_geo.global_offset;
+						non_nd_geo.local_size = superblock_geo.local_size;
+						cgh.interop_task(non_nd_geo, [=, &cublas_handles](celerity::interop_handle& ih, const celerity::partition<2>& part) { //
+							kernel_cublas<true>(ih, part, cublas_handles, a, b, c, distributed_block_size, k0);
+						});
+					} else {
+						throw std::runtime_error("Unsupported kernel: " + kernel);
+					}
 				});
 
 				// SUBTASKS:
@@ -587,16 +714,23 @@ void verify(celerity::queue& queue, celerity::buffer<T, 2> mat_c, const size_t K
 // - 1D kernel on 2D data: Highly optimized GEMM
 
 int main(int argc, char* argv[]) {
-	const bool use_blocked = argc > 1 ? std::stoi(argv[1]) : 0;
-	const size_t N = argc > 2 ? std::stoul(argv[2]) : default_mat_size;
-	if(argc > 3 && argc != 5) {
-		fprintf(stderr, "Usage: %s [<use blocked>] [<N>] [<K> <M>]\n", argv[0]);
+	const auto usage = [&] {
+		fprintf(stderr, "Usage: %s <strategy: basic|blocked> <kernel: naive|local|register|cublas> [<N>] [<K> <M>]\n", argv[0]);
 		exit(1);
-	}
-	const size_t K = argc == 5 ? std::stoul(argv[3]) : N;
-	const size_t M = argc == 5 ? std::stoul(argv[4]) : N;
+	};
 
-	fmt::print("Multiplying {}x{} matrix times {}x{} to produce {}x{}, using {} multiplication\n", N, K, K, M, N, M, use_blocked ? "BLOCKED" : "normal");
+	if(argc < 3 || (argc > 4 && argc != 6)) { usage(); }
+
+	const std::string strategy = argv[1];
+	const std::string kernel = argv[2];
+	const size_t N = argc > 3 ? std::stoul(argv[3]) : default_mat_size;
+	const size_t K = argc == 6 ? std::stoul(argv[4]) : N;
+	const size_t M = argc == 6 ? std::stoul(argv[5]) : N;
+
+	if(strategy != "basic" && strategy != "blocked") { usage(); }
+	if(kernel != "naive" && kernel != "local" && kernel != "register" && kernel != "cublas") { usage(); }
+
+	fmt::print("Multiplying {}x{} matrix times {}x{} to produce {}x{}, using '{}' strategy with '{}' kernel\n", N, K, K, M, N, M, strategy, kernel);
 
 	celerity::queue queue;
 
@@ -629,7 +763,7 @@ int main(int argc, char* argv[]) {
 	std::optional<celerity::custom_task_geometry<2>> opt_b_geo;
 	std::optional<celerity::custom_task_geometry<2>> opt_c_geo;
 
-	if(use_blocked) {
+	if(strategy == "blocked") {
 		opt_a_geo = a_geo;
 		opt_b_geo = b_geo;
 		opt_c_geo = c_geo;
@@ -641,11 +775,13 @@ int main(int argc, char* argv[]) {
 		set_zero(queue, mat_c_buf, opt_c_geo);
 	};
 
+	per_device_cublas_handles cublas_handles;
+
 	const auto run = [&](bool is_warmup) {
-		if(use_blocked) {
-			multiply_blocked(queue, mat_a_buf, mat_b_buf, mat_c_buf, is_warmup);
+		if(strategy == "basic") {
+			multiply_basic(queue, cublas_handles, mat_a_buf, mat_b_buf, mat_c_buf, kernel);
 		} else {
-			multiply(queue, mat_a_buf, mat_b_buf, mat_c_buf);
+			multiply_blocked(queue, cublas_handles, mat_a_buf, mat_b_buf, mat_c_buf, kernel, is_warmup);
 		}
 	};
 
