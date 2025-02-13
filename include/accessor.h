@@ -84,7 +84,6 @@ class buffer_allocation_window {
 	id<Dims> m_allocation_offset_in_buffer;
 	id<Dims> m_window_offset_in_buffer;
 
-  public:
 	buffer_allocation_window(T* allocation, const range<Dims>& buffer_range, const range<Dims>& allocation_range, const range<Dims>& window_range,
 	    const id<Dims>& allocation_offset_in_buffer, const id<Dims>& window_offset_in_buffer)
 	    : m_allocation(allocation), m_buffer_range(buffer_range), m_allocation_range(allocation_range), m_window_range(window_range),
@@ -92,6 +91,8 @@ class buffer_allocation_window {
 
 	template <typename, int, access_mode, target>
 	friend class accessor;
+
+	friend class interop_handle;
 };
 
 inline constexpr detail::access_tag<access_mode::read, access_mode::read, target::device> read_only;
@@ -275,6 +276,8 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
   private:
+	friend class interop_handle;
+
 	DataT* m_device_ptr = nullptr;
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_allocation_offset;
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS range<Dims> m_allocation_range = detail::zeros;
@@ -767,5 +770,18 @@ class local_accessor {
 	// Constructor for tests, called through accessor_testspy.
 	explicit local_accessor(const range<Dims>& allocation_size) : m_sycl_acc{}, m_allocation_size(allocation_size) {}
 };
+
+// TODO: Do we even need this with the window below?
+template <typename DataT, int Dims, access_mode Mode>
+DataT* interop_handle::get_native_mem(const accessor<DataT, Dims, Mode, target::device>& acc) {
+	return acc.m_device_ptr;
+}
+
+template <typename DataT, int Dims, access_mode Mode>
+buffer_allocation_window<DataT, Dims> interop_handle::get_allocation_window(const accessor<DataT, Dims, Mode, target::device>& acc) {
+	// NOCOMMIT TODO: We don't have all the necessary information here. Could somehow pass into launcher and forward into interop handle.
+	return buffer_allocation_window<DataT, Dims>(
+	    acc.m_device_ptr, detail::zeros, acc.m_allocation_range, detail::zeros, acc.m_allocation_offset, detail::zeros);
+}
 
 } // namespace celerity

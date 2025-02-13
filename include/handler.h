@@ -295,6 +295,34 @@ inline constexpr detail::on_master_node_tag on_master_node;
 /// Equivalent to `range<0>{}` when passed to `handler::host_task`.
 inline constexpr detail::once_tag once;
 
+// NOCOMMIT MOVE
+template <typename T, int Dims>
+class buffer_allocation_window;
+
+// NOCOMMIT MOVE
+class interop_handle {
+  public:
+	interop_handle(sycl::interop_handle& sycl_ih) : m_sycl_ih(sycl_ih) {} // NOCOMMIT Make private
+
+	template <sycl::backend SyclBackend>
+	auto get_native_queue() {
+		return m_sycl_ih.get_native_queue<SyclBackend>();
+	}
+
+	// TODO: Const correctness
+	// TODO API: Should this also receive a backend, or, since we require USM, we always return a pointer type here anyway?
+	// Defined in accessor.h due to circular dependency
+	template <typename DataT, int Dims, access_mode Mode>
+	DataT* get_native_mem(const accessor<DataT, Dims, Mode, target::device>& acc);
+
+	// Defined in accessor.h due to circular dependency
+	template <typename DataT, int Dims, access_mode Mode>
+	buffer_allocation_window<DataT, Dims> get_allocation_window(const accessor<DataT, Dims, Mode, target::device>& acc);
+
+  private:
+	sycl::interop_handle& m_sycl_ih;
+};
+
 class handler {
   public:
 	handler(const handler&) = delete;
@@ -367,6 +395,28 @@ class handler {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
 		parallel_for_reductions_and_kernel<detail::nd_range_kernel_flavor, KernelName, Dims, ReductionsAndKernel...>(
 		    std::move(geometry), std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
+	}
+
+	// TODO: Move to experimental namespace
+	// TODO: Have overload w/ global offset
+	template <typename Functor, int Dims>
+	void interop_task(const range<Dims>& global_range, Functor&& task) {
+		assert(!m_cg.task_type.has_value());
+		m_cg.task_type = detail::task_type::device_compute; // FIXME
+		m_cg.geometry = detail::basic_task_geometry{        //
+		    .dimensions = Dims,
+		    .global_size = detail::range_cast<3>(global_range),
+		    .global_offset = detail::zeros,
+		    .granularity = get_constrained_granularity(global_range, range<Dims>(detail::ones))};
+		m_cg.launcher = make_interop_task_launcher<Dims>(std::forward<Functor>(task), global_range);
+	}
+
+	template <typename Functor, int Dims>
+	void interop_task(custom_task_geometry<Dims> geometry, Functor&& task) {
+		assert(!m_cg.task_type.has_value());
+		m_cg.task_type = detail::task_type::device_compute; // FIXME
+		m_cg.geometry = std::move(geometry);
+		m_cg.launcher = make_interop_task_launcher<Dims>(std::forward<Functor>(task), range_cast<Dims>(geometry.global_size));
 	}
 
 	/**
@@ -579,6 +629,30 @@ class handler {
 			} else {
 				static_assert(detail::constexpr_false<KernelFlavor>);
 			}
+		};
+	}
+
+	template <int Dims, typename Kernel>
+	detail::device_kernel_launcher make_interop_task_launcher(Kernel&& kernel, const range<Dims>& global_range) {
+		static_assert(std::is_invocable_v<Kernel, interop_handle&, const partition<Dims>>);
+		static_assert(std::is_copy_constructible_v<std::decay_t<Kernel>>, "Kernel functor must be copyable"); // Required for hydration
+		static_assert(Dims >= 0);
+
+		// Check whether all accessors are being captured by value etc.
+		// Although the diagnostics should always be available, we currently disable them for some test cases.
+		if(detail::cgf_diagnostics::is_available()) { detail::cgf_diagnostics::get_instance().check<target::device>(kernel, m_cg.buffer_accesses); }
+
+		return [=](sycl::handler& sycl_cgh, const detail::box<3>& execution_range, const std::vector<void*>& reduction_ptrs) {
+			assert(reduction_ptrs.empty()); // TODO: We should have a dedicated launcher type that doesn't even receive these. Also assert in frontend.
+
+			// NOCOMMIT DPC++
+			sycl_cgh.AdaptiveCpp_enqueue_custom_operation([=](sycl::interop_handle sycl_ih) {
+				// TODO API: For custom geometries "global range" is not well defined.
+				const auto part = detail::make_partition<Dims>(detail::range_cast<Dims>(global_range), detail::box_cast<Dims>(execution_range));
+				// TODO API: Should interop handle be a reference? Look at SYCL interop precedence
+				interop_handle ih{sycl_ih};
+				kernel(ih, part);
+			});
 		};
 	}
 
