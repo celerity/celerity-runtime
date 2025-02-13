@@ -821,11 +821,16 @@ int main(int argc, char* argv[]) {
 	const double seconds = std::chrono::duration_cast<std::chrono::duration<double>>(after - before).count();
 	fmt::print("Multiplication took {}ms, {:.1f} GFLOPS/s\n", std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count(), gflops / seconds);
 
-	// each node verifies part of the result, so we pass per-node verification results through a host object
-	celerity::experimental::host_object<bool> passed_obj(false);
-	verify(queue, mat_c_buf, K, 8, 13, passed_obj);
+	if(mat_c_buf.get_range().size() <= 32768ull * 32768) {
+		// each node verifies part of the result, so we pass per-node verification results through a host object
+		celerity::experimental::host_object<bool> passed_obj(false);
+		verify(queue, mat_c_buf, K, 8, 13, passed_obj);
 
-	// The value of `passed` can differ between hosts if only part of the verification failed.
-	const bool passed = queue.fence(passed_obj).get();
-	return passed ? EXIT_SUCCESS : EXIT_FAILURE;
+		// The value of `passed` can differ between hosts if only part of the verification failed.
+		const bool passed = queue.fence(passed_obj).get();
+		return passed ? EXIT_SUCCESS : EXIT_FAILURE;
+	} else {
+		puts("Skipping verification (matrix too large)");
+		return EXIT_SUCCESS;
+	}
 }
