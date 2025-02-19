@@ -746,34 +746,35 @@ int main(int argc, char* argv[]) {
 	celerity::debug::set_buffer_name(mat_b_buf, "mat_b");
 	celerity::debug::set_buffer_name(mat_c_buf, "mat_c");
 
-	celerity::cartesian_grid<2> a_partition(celerity::detail::box<2>::full_range(mat_a_buf.get_range()));
-	celerity::cartesian_grid<2> b_partition(celerity::detail::box<2>::full_range(mat_b_buf.get_range()));
-	celerity::cartesian_grid<2> c_partition(celerity::detail::box<2>::full_range(mat_c_buf.get_range()));
-	c_partition.split(mat_c_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
-	a_partition.split(mat_a_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
-	b_partition.split(mat_b_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
-
 	// NOCOMMIT: This assumes the same number of devices on each node - OTHERWISE UB!!
 	// TODO API: Should these functions be on the queue instead? This way we might pave the way for cluster partitioning in the future
 	celerity::device_grid dg(
 	    celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices());
-	fmt::print("Device grid: {} nodes, {} devices\n", dg.get_node_arrangement(), dg.get_device_arrangement());
-
-	celerity::grid_geometry a_geo(a_partition, celerity::range<2>{group_size, group_size});
-	a_geo.assign(dg);
-	celerity::grid_geometry b_geo(b_partition, celerity::range<2>{group_size, group_size});
-	b_geo.assign(dg);
-	celerity::grid_geometry c_geo(c_partition, celerity::range<2>{group_size, group_size});
-	c_geo.assign(dg);
 
 	std::optional<celerity::custom_task_geometry<2>> opt_a_geo;
 	std::optional<celerity::custom_task_geometry<2>> opt_b_geo;
 	std::optional<celerity::custom_task_geometry<2>> opt_c_geo;
 
 	if(strategy == "blocked") {
+		celerity::cartesian_grid<2> a_partition(celerity::detail::box<2>::full_range(mat_a_buf.get_range()));
+		celerity::cartesian_grid<2> b_partition(celerity::detail::box<2>::full_range(mat_b_buf.get_range()));
+		celerity::cartesian_grid<2> c_partition(celerity::detail::box<2>::full_range(mat_c_buf.get_range()));
+		c_partition.split(mat_c_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
+		a_partition.split(mat_a_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
+		b_partition.split(mat_b_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
+
+		celerity::grid_geometry a_geo(a_partition, celerity::range<2>{group_size, group_size});
+		a_geo.assign(dg);
+		celerity::grid_geometry b_geo(b_partition, celerity::range<2>{group_size, group_size});
+		b_geo.assign(dg);
+		celerity::grid_geometry c_geo(c_partition, celerity::range<2>{group_size, group_size});
+		c_geo.assign(dg);
+
 		opt_a_geo = a_geo;
 		opt_b_geo = b_geo;
 		opt_c_geo = c_geo;
+
+		fmt::print("Device grid: {} nodes, {} devices\n", dg.get_node_arrangement(), dg.get_device_arrangement());
 	}
 
 	const auto setup = [&](const int fill_min, const int fill_max) {
