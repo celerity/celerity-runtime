@@ -99,6 +99,50 @@ class cartesian_grid {
 	std::vector<cell> m_cells;
 };
 
+} // namespace celerity
+
+namespace celerity::detail {
+inline size_t find_squareish_factorization(const size_t n) {
+	size_t factor = std::floor(std::sqrt(n));
+	while(n % factor != 0) {
+		factor--;
+	}
+	return factor;
+}
+} // namespace celerity::detail
+
+namespace celerity {
+
+// TODO: 1D/3D?
+// TODO: Do we also need a node grid?
+class device_grid {
+  public:
+	// device_grid(const range<2>& node_arrangement, const range<2>& device_arrangement)
+	//     : m_node_arrangement(node_arrangement), m_device_arrangement(device_arrangement) {
+	// 	if(node_arrangement.size() == 0 || device_arrangement.size() == 0) { throw std::runtime_error("Arrangement size must be greater than zero"); }
+	// }
+
+	device_grid(const size_t num_nodes, const size_t devices_per_node, const size_t large_dimension = 0) {
+		if(large_dimension > 1) { throw std::runtime_error("large_dimension must be 0 or 1"); }
+		const size_t nf = detail::find_squareish_factorization(num_nodes);
+		const size_t df = detail::find_squareish_factorization(devices_per_node);
+		m_node_arrangement = {num_nodes / nf, nf};
+		m_device_arrangement = {devices_per_node / df, df};
+		if(large_dimension == 1) {
+			std::swap(m_node_arrangement[0], m_node_arrangement[1]);
+			std::swap(m_device_arrangement[0], m_device_arrangement[1]);
+		}
+	}
+
+	const range<2>& get_node_arrangement() const { return m_node_arrangement; }
+
+	const range<2>& get_device_arrangement() const { return m_device_arrangement; }
+
+  private:
+	range<2> m_node_arrangement;
+	range<2> m_device_arrangement;
+};
+
 // TODO: This should be the output of the builder (to configure assignment, partial materialization, ...)
 //		=> Probably also to do device splitting/assignments
 // TODO: Should this just have a "view as 1D" functionality? (For optimized GEMM kernel)
@@ -122,6 +166,29 @@ class grid_geometry {
 			const size_t col = i % m_grid.get_grid_size()[1];
 			const size_t node_id = (row * m_grid.get_grid_size()[1] + col) % num_nodes;
 			const size_t device_id = ((row * m_grid.get_grid_size()[1] + col) / num_nodes) % devices_per_node;
+			m_assignment.push_back({detail::node_id(node_id), detail::device_id(device_id)});
+		}
+	}
+
+
+	// u = i % node_grid[0]
+	// v = j % node_grid[1]
+	// block.assigned_to = u * node_grid[1] + v
+	// block.resident_on.append(block.assigned_to)
+	// block.assigned_to_device = ((i // node_grid[0]) % device_grid[0]) * device_grid[1] + ((j // node_grid[1]) % device_grid[1])
+
+	// This is the "assign_2d_device_cyclic" function from Jupyter notebook.
+	// TODO: Also implement the other. What is property of grid, what is assignment policy?
+	void assign(const device_grid& dg) {
+		for(size_t i = 0; i < m_grid.get_cells().size(); ++i) {
+			const size_t row = i / m_grid.get_grid_size()[1];
+			const size_t col = i % m_grid.get_grid_size()[1];
+			const size_t nu = row % dg.get_node_arrangement()[0];
+			const size_t nv = col % dg.get_node_arrangement()[1];
+			const size_t du = (row / dg.get_node_arrangement()[0]) % dg.get_device_arrangement()[0];
+			const size_t dv = (col / dg.get_node_arrangement()[1]) % dg.get_device_arrangement()[1];
+			const size_t node_id = nu * dg.get_node_arrangement()[1] + nv;
+			const size_t device_id = du * dg.get_device_arrangement()[1] + dv;
 			m_assignment.push_back({detail::node_id(node_id), detail::device_id(device_id)});
 		}
 	}

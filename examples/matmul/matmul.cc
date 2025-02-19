@@ -398,8 +398,8 @@ class grid_data_requirements {
 // - ...?
 
 template <typename T>
-void multiply_blocked(celerity::queue queue, per_device_cublas_handles& cublas_handles, celerity::buffer<T, 2> mat_a, celerity::buffer<T, 2> mat_b,
-    celerity::buffer<T, 2> mat_c, const std::string& kernel, const bool is_warmup) //
+void multiply_blocked(celerity::queue queue, per_device_cublas_handles& cublas_handles, const celerity::device_grid& dg, celerity::buffer<T, 2> mat_a,
+    celerity::buffer<T, 2> mat_b, celerity::buffer<T, 2> mat_c, const std::string& kernel, const bool is_warmup) //
 {
 	celerity::cartesian_grid<2> c_partition(celerity::detail::box<2>::full_range(mat_c.get_range()));
 	// TODO: Obviously we need a better API to split across all nodes
@@ -445,8 +445,7 @@ void multiply_blocked(celerity::queue queue, per_device_cublas_handles& cublas_h
 		}
 	})(); // IIFE
 
-	// NOCOMMIT: This assumes the same number of devices on each node - OTHERWISE UB!!
-	geo.assign(celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices());
+	geo.assign(dg);
 
 	// The key thing we want to achieve is that we can iterate over all chunks and easily select their required data based on coordinates
 
@@ -532,6 +531,7 @@ void multiply_blocked(celerity::queue queue, per_device_cublas_handles& cublas_h
 
 				queue.submit([&](celerity::handler& cgh) {
 					// NOCOMMIT TODO: We have to check whether data requirements are in bounds. But where? BAM doesn't have buffer dimensions.
+					// => Accessor constructor has both the buffer and the data requirements. We could do it there..?
 					celerity::accessor a{mat_a, cgh, data_reqs_a, celerity::read_only};
 					celerity::accessor b{mat_b, cgh, data_reqs_b, celerity::read_only};
 					celerity::accessor c{mat_c, cgh, data_reqs_c, celerity::read_write};
@@ -753,15 +753,18 @@ int main(int argc, char* argv[]) {
 	a_partition.split(mat_a_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
 	b_partition.split(mat_b_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
 
+	// NOCOMMIT: This assumes the same number of devices on each node - OTHERWISE UB!!
+	// TODO API: Should these functions be on the queue instead? This way we might pave the way for cluster partitioning in the future
+	celerity::device_grid dg(
+	    celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices());
+	fmt::print("Device grid: {} nodes, {} devices\n", dg.get_node_arrangement(), dg.get_device_arrangement());
+
 	celerity::grid_geometry a_geo(a_partition, celerity::range<2>{group_size, group_size});
-	a_geo.assign(
-	    celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices());
+	a_geo.assign(dg);
 	celerity::grid_geometry b_geo(b_partition, celerity::range<2>{group_size, group_size});
-	b_geo.assign(
-	    celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices());
+	b_geo.assign(dg);
 	celerity::grid_geometry c_geo(c_partition, celerity::range<2>{group_size, group_size});
-	c_geo.assign(
-	    celerity::detail::runtime::get_instance().NOCOMMIT_get_num_nodes(), celerity::detail::runtime::get_instance().NOCOMMIT_get_num_local_devices());
+	c_geo.assign(dg);
 
 	std::optional<celerity::custom_task_geometry<2>> opt_a_geo;
 	std::optional<celerity::custom_task_geometry<2>> opt_b_geo;
@@ -785,7 +788,7 @@ int main(int argc, char* argv[]) {
 		if(strategy == "basic") {
 			multiply_basic(queue, cublas_handles, mat_a_buf, mat_b_buf, mat_c_buf, kernel);
 		} else {
-			multiply_blocked(queue, cublas_handles, mat_a_buf, mat_b_buf, mat_c_buf, kernel, is_warmup);
+			multiply_blocked(queue, cublas_handles, dg, mat_a_buf, mat_b_buf, mat_c_buf, kernel, is_warmup);
 		}
 	};
 
