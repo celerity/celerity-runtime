@@ -46,7 +46,7 @@ constexpr int group_size = 16;
 #if !defined(NDEBUG) || CELERITY_SYCL_IS_SIMSYCL
 const size_t distributed_block_size = 64;
 #else
-const size_t distributed_block_size = 2048;
+const size_t distributed_block_size = 4096;
 #endif
 static_assert(distributed_block_size % group_size == 0);
 
@@ -488,8 +488,9 @@ void multiply_blocked(celerity::queue queue, per_device_cublas_handles& cublas_h
 
 	const size_t K = mat_a.get_range()[1];
 
-	const size_t superblock_size = 2;
-	const auto num_superblocks = celerity::range<2>(geo.get_grid().get_grid_size()[0], geo.get_grid().get_grid_size()[1]) / superblock_size;
+	// const size_t superblock_size = 16;
+	// const auto num_superblocks = celerity::range<2>(geo.get_grid().get_grid_size()[0], geo.get_grid().get_grid_size()[1]) / superblock_size;
+	const auto num_superblocks = celerity::range<2>(1, 1);
 
 	CELERITY_CRITICAL("NUM SUPERBLOCKS: {}", num_superblocks);
 	if(num_superblocks.size() == 0) { throw std::runtime_error("Matrix C too small (or distributed block size too large) - cannot create superblocks"); }
@@ -503,18 +504,20 @@ void multiply_blocked(celerity::queue queue, per_device_cublas_handles& cublas_h
 				grid_data_requirements<2> data_reqs_c{geo};
 
 				auto superblock_geo = geo.operator celerity::nd_custom_task_geometry<2>();
+				/*
 				std::erase_if(superblock_geo.assigned_chunks, [&](auto& achnk) {
-					for(auto& cell : geo.get_grid().get_cells()) {
-						if(box_cast<3>(cell.box) == achnk.box) {
-							if(cell.pos[0] / superblock_size != Y || cell.pos[1] / superblock_size != X) {
-								// fmt::print("Skipping cell {} b/c not in superblock {}/{}\n", cell.pos, Y, X);
-								return true;
-							}
-							return false;
-						}
-					}
-					return true; // Should not be reached
+				    for(auto& cell : geo.get_grid().get_cells()) {
+				        if(box_cast<3>(cell.box) == achnk.box) {
+				            if(cell.pos[0] / superblock_size != Y || cell.pos[1] / superblock_size != X) {
+				                // fmt::print("Skipping cell {} b/c not in superblock {}/{}\n", cell.pos, Y, X);
+				                return true;
+				            }
+				            return false;
+				        }
+				    }
+				    return true; // Should not be reached
 				});
+				*/
 
 				for(auto& cell : geo.get_grid().get_cells()) {
 					// NOCOMMIT TODO Why is this required?
@@ -731,6 +734,7 @@ int main(int argc, char* argv[]) {
 	if(kernel != "naive" && kernel != "local" && kernel != "register" && kernel != "cublas") { usage(); }
 
 	fmt::print("Multiplying {}x{} matrix times {}x{} to produce {}x{}, using '{}' strategy with '{}' kernel\n", N, K, K, M, N, M, strategy, kernel);
+	if(strategy == "blocked") { fmt::print("Distributed block size is {}x{}\n", distributed_block_size, distributed_block_size); }
 
 	celerity::queue queue;
 
