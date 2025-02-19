@@ -491,7 +491,7 @@ void multiply_blocked(celerity::queue queue, per_device_cublas_handles& cublas_h
 	// const auto num_superblocks = celerity::range<2>(geo.get_grid().get_grid_size()[0], geo.get_grid().get_grid_size()[1]) / superblock_size;
 	const auto num_superblocks = celerity::range<2>(1, 1);
 
-	CELERITY_CRITICAL("NUM SUPERBLOCKS: {}", num_superblocks);
+	// CELERITY_CRITICAL("NUM SUPERBLOCKS: {}", num_superblocks);
 	if(num_superblocks.size() == 0) { throw std::runtime_error("Matrix C too small (or distributed block size too large) - cannot create superblocks"); }
 
 	// TODO XY order - does it matter?
@@ -762,6 +762,10 @@ int main(int argc, char* argv[]) {
 		c_partition.split(mat_c_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
 		a_partition.split(mat_a_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
 		b_partition.split(mat_b_buf.get_range() / distributed_block_size, {distributed_block_size, distributed_block_size});
+
+		if(c_partition.get_grid_size() % dg.get_size() != celerity::range<2>{0, 0}) {
+			CELERITY_CRITICAL("Block matrix is not evenly divisible by device grid - will result in unfair assignment");
+		}
 
 		celerity::grid_geometry a_geo(a_partition, celerity::range<2>{group_size, group_size});
 		a_geo.assign(dg);

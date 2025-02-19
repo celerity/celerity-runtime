@@ -40,25 +40,18 @@ class cartesian_grid {
 	// TODO: Terminology - are these "chunks", "blocks", "tiles", "cells"..?
 	// TODO: Constraint policy - exact (fail if not possible) or pad (create larger/smaller chunks at end)
 	// TODO: Option to specify number of chunks in each dimension (or number of cuts?)
-	void split(const size_t num_cells, const celerity::range<2>& constraints = {1, 1}) {
-		const auto split_factors = celerity::detail::find_best_split_factors_2d(box_cast<3>(m_extent), range_cast<3>(constraints), num_cells);
+	void split(const size_t num_cells, const range<2>& constraints = {1, 1}) {
+		const auto split_factors = detail::find_best_split_factors_2d(box_cast<3>(m_extent), range_cast<3>(constraints), num_cells);
 		if(split_factors[0] * split_factors[1] != num_cells) { throw std::runtime_error("Failed to create requested number of cells - what now?"); }
-		split(split_factors, constraints);
+		split(range<2>(split_factors[0], split_factors[1]), constraints);
 	}
 
-	// TODO: Get rid of array, too annoying
-	void split(const celerity::range<2>& num_cells, const celerity::range<2>& constraints = {1, 1}) {
-		split(std::array<size_t, 2>{num_cells[0], num_cells[1]}, constraints);
-	}
-
-	void split(const std::array<size_t, 2>& num_cells, const celerity::range<2>& constraints = {1, 1}) {
+	void split(const range<2>& num_cells, const range<2>& constraints = {1, 1}) {
 		if(num_cells[0] * num_cells[1] == 0) { throw std::runtime_error("Number of cells must be greater than zero"); }
-		if(m_extent.get_range() % celerity::range<2>(num_cells[0], num_cells[1]) != celerity::detail::zeros) {
-			throw std::runtime_error("Cell size does not divide extent");
-		}
+		if(m_extent.get_range() % range<2>(num_cells[0], num_cells[1]) != detail::zeros) { throw std::runtime_error("Cell size does not divide extent"); }
 		// TODO: Also check that constraints are possible
 		m_grid_size = num_cells;
-		const auto cells = celerity::detail::split_2d(box_cast<3>(m_extent), range_cast<3>(constraints), m_grid_size);
+		const auto cells = detail::split_2d(box_cast<3>(m_extent), range_cast<3>(constraints), {m_grid_size[0], m_grid_size[1]});
 		assert(m_grid_size[0] * m_grid_size[1] != m_cells.size()); // FIXME 1D/3D
 
 		// TODO: We don't actually need to compute the boxes themselves. It would suffice to get their number and shape in each dimension.
@@ -75,14 +68,14 @@ class cartesian_grid {
 			m_cells.push_back({pos, box_cast<2>(cell)});
 			pos[1]++;
 		}
-		CELERITY_CRITICAL("Created a grid of size {}x{}", m_grid_size[0], m_grid_size[1]);
+		// CELERITY_CRITICAL("Created a grid of size {}x{}", m_grid_size[0], m_grid_size[1]);
 	}
 
 	// TODO: Naming - domain_extent, domain_size..?
 	const box& get_extent() const { return m_extent; }
 
 	// TODO: Naming - grid? get_size?
-	std::array<size_t, 2> get_grid_size() const { return m_grid_size; }
+	range<2> get_grid_size() const { return m_grid_size; }
 
 	const std::vector<cell>& get_cells() const { return m_cells; }
 
@@ -95,7 +88,7 @@ class cartesian_grid {
 
   private:
 	box m_extent;
-	std::array<size_t, 2> m_grid_size;
+	range<2> m_grid_size;
 	std::vector<cell> m_cells;
 };
 
@@ -137,6 +130,8 @@ class device_grid {
 	const range<2>& get_node_arrangement() const { return m_node_arrangement; }
 
 	const range<2>& get_device_arrangement() const { return m_device_arrangement; }
+
+	range<2> get_size() const { return m_node_arrangement * m_device_arrangement; }
 
   private:
 	range<2> m_node_arrangement;
