@@ -25,6 +25,3 @@
 [submodule "vendor/gmsh"]
 	path = vendor/gmsh
 	url = https://gitlab.onelab.info/gmsh/gmsh.git
-[submodule "vendor/memory"]
-	path = vendor/memory
-	url = https://github.com/foonathan/memory

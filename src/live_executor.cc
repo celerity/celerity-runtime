@@ -808,7 +808,7 @@ void live_executor::impl::issue_async(const free_instruction& finstr, const out_
 	if(assignment.device.has_value()) {
 		async.event = backend->enqueue_device_free(*assignment.device, ptr);
 	} else {
-		async.event = backend->enqueue_host_free(ptr, finstr.get_allocation_size());
+		async.event = backend->enqueue_host_free(ptr);
 	}
 }
 

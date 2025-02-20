@@ -817,16 +817,9 @@ int main(int argc, char* argv[]) {
 		queue.wait();
 	};
 
-	{
-		puts("With warmup");
-		setup(0, 7);
-		queue.wait(celerity::experimental::barrier);
-		const auto warmup_before = std::chrono::steady_clock::now();
-		run(true);
-		queue.wait(celerity::experimental::barrier);
-		const auto warmup_after = std::chrono::steady_clock::now();
-		fmt::print("Warmup took {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(warmup_after - warmup_before).count());
-	}
+	puts("With warmup");
+	setup(0, 7);
+	run(true);
 
 	setup(8, 13);
 

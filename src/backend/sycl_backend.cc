@@ -33,8 +33,6 @@
 #include <fmt/ranges.h>
 #include <sycl/sycl.hpp>
 
-#include "host_allocator.h" // FIXME: CUDA specific atm
-
 
 namespace celerity::detail::sycl_backend_detail {
 
@@ -221,18 +219,7 @@ void sycl_backend::debug_free(void* const ptr) { sycl::free(ptr, m_impl->host.sy
 
 async_event sycl_backend::enqueue_host_alloc(const size_t size, const size_t alignment) {
 	return m_impl->host.alloc_queue.submit([this, size, alignment] {
-		void* ptr = nullptr;
-		if(size <= host_allocator::get_instance().get_max_allocation_size()) {
-			const auto before = std::chrono::steady_clock::now();
-			ptr = host_allocator::get_instance().allocate(size);
-			const auto after = std::chrono::steady_clock::now();
-			CELERITY_CRITICAL("Allocation of {} bytes took {} ms", size, std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count());
-		} else {
-			const auto before = std::chrono::steady_clock::now();
-			ptr = sycl::aligned_alloc_host(alignment, size, m_impl->host.sycl_context);
-			const auto after = std::chrono::steady_clock::now();
-			CELERITY_CRITICAL("OLD: Allocation of {} bytes took {} ms", size, std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count());
-		}
+		const auto ptr = sycl::aligned_alloc_host(alignment, size, m_impl->host.sycl_context);
 #if CELERITY_DETAIL_ENABLE_DEBUG
 		memset(ptr, static_cast<int>(sycl_backend_detail::uninitialized_memory_pattern), size);
 #endif
@@ -262,14 +249,8 @@ async_event sycl_backend::enqueue_device_memset(device_id device, void* ptr, int
 	});
 }
 
-async_event sycl_backend::enqueue_host_free(void* const ptr, size_t size) {
-	return m_impl->host.alloc_queue.submit([this, ptr, size] {
-		if(size <= host_allocator::get_instance().get_max_allocation_size()) {
-			host_allocator::get_instance().free(ptr, size);
-		} else {
-			sycl::free(ptr, m_impl->host.sycl_context);
-		}
-	});
+async_event sycl_backend::enqueue_host_free(void* const ptr) {
+	return m_impl->host.alloc_queue.submit([this, ptr] { sycl::free(ptr, m_impl->host.sycl_context); });
 }
 
 async_event sycl_backend::enqueue_device_free(const device_id device, void* const ptr) {
