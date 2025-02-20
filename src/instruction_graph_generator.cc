@@ -599,6 +599,8 @@ class generator_impl {
 	void compile(const command& cmd, loop_template* const templ);
 	void finalize_loop_template(loop_template& templ);
 
+	void leak_memory();
+
   private:
 	inline static const box<3> scalar_reduction_box{zeros, ones};
 
@@ -631,6 +633,8 @@ class generator_impl {
 	/// struct about entries that will no longer be used and can therefore be collected. We include user allocations for buffer fences immediately after
 	/// emitting the fence, and buffer host-initialization user allocations after the buffer has been destroyed.
 	std::vector<allocation_id> m_unreferenced_user_allocations;
+
+	bool m_leak_memory = false;
 
 	/// True if a recorder is present and create() will call the `record_with` lambda passed as its last parameter.
 	bool is_recording() const { return m_recorder != nullptr; }
@@ -806,7 +810,7 @@ void generator_impl::notify_buffer_destroyed(const buffer_id bid) {
 			for(const auto& user_alloc : memory.allocations) {
 				m_unreferenced_user_allocations.push_back(user_alloc.aid);
 			}
-		} else {
+		} else if(!m_leak_memory) {
 			for(auto& allocation : memory.allocations) {
 				const auto free_instr = create<free_instruction>(free_batch, allocation.aid, [&](const auto& record_debug_info) {
 					record_debug_info(allocation.box.get_area() * buffer.elem_size, buffer_allocation_record{bid, buffer.debug_name, allocation.box});
@@ -815,6 +819,7 @@ void generator_impl::notify_buffer_destroyed(const buffer_id bid) {
 				// no need to modify the access front - we're removing the buffer altogether!
 			}
 		}
+		if(m_leak_memory) { CELERITY_CRITICAL("Leaking allocations of buffer {}", bid); }
 	}
 	flush_batch(std::move(free_batch));
 
@@ -2492,7 +2497,9 @@ void generator_impl::compile_horizon_command(batch& command_batch, const horizon
 }
 
 void generator_impl::compile_epoch_command(batch& command_batch, const epoch_command& ecmd) {
-	if(ecmd.get_epoch_action() == epoch_action::shutdown) { free_all_staging_allocations(command_batch); }
+	if(ecmd.get_epoch_action() == epoch_action::shutdown) {
+		if(!m_leak_memory) free_all_staging_allocations(command_batch);
+	}
 
 	m_idag->begin_epoch(ecmd.get_task()->get_id());
 	instruction_garbage garbage{ecmd.get_completed_reductions(), std::move(m_unreferenced_user_allocations)};
@@ -2962,6 +2969,8 @@ void generator_impl::finalize_loop_template(loop_template& templ) {
 
 std::string generator_impl::print_buffer_debug_label(const buffer_id bid) const { return utils::make_buffer_debug_label(bid, m_buffers.at(bid).debug_name); }
 
+void generator_impl::leak_memory() { m_leak_memory = true; }
+
 } // namespace celerity::detail::instruction_graph_generator_detail
 
 namespace celerity::detail {
@@ -2994,5 +3003,7 @@ instruction_graph_generator::scheduling_hint instruction_graph_generator::antici
 void instruction_graph_generator::compile(const command& cmd, loop_template* const templ) { m_impl->compile(cmd, templ); }
 
 void instruction_graph_generator::finalize_loop_template(loop_template& templ) { m_impl->finalize_loop_template(templ); }
+
+void instruction_graph_generator::leak_memory() { m_impl->leak_memory(); }
 
 } // namespace celerity::detail

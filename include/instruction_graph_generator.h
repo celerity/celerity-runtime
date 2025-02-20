@@ -131,6 +131,8 @@ class instruction_graph_generator {
 
 	void finalize_loop_template(loop_template& templ);
 
+	void leak_memory();
+
   private:
 	/// Default-constructs a `policy_set` - this must be a function because we can't use the implicit default constructor of `policy_set`, which has member
 	/// initializers, within its surrounding class (Clang diagnostic).

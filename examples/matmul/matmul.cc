@@ -840,9 +840,11 @@ int main(int argc, char* argv[]) {
 
 		// The value of `passed` can differ between hosts if only part of the verification failed.
 		const bool passed = queue.fence(passed_obj).get();
+		celerity::detail::runtime::get_instance().leak_memory();
 		return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 	} else {
 		puts("Skipping verification (matrix too large)");
+		celerity::detail::runtime::get_instance().leak_memory();
 		return EXIT_SUCCESS;
 	}
 }

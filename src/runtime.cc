@@ -142,6 +142,8 @@ namespace detail {
 		size_t NOCOMMIT_get_num_nodes() const { return m_num_nodes; }
 		size_t NOCOMMIT_get_num_local_devices() const { return m_num_local_devices; }
 
+		void leak_memory();
+
 	  private:
 		friend struct runtime_testspy;
 
@@ -816,6 +818,8 @@ namespace detail {
 		maybe_prune_task_graph();
 	}
 
+	void runtime::impl::leak_memory() { m_schdlr->leak_memory(); }
+
 	bool runtime::s_mpi_initialized = false;
 	bool runtime::s_mpi_finalized = false;
 
@@ -902,6 +906,8 @@ namespace detail {
 	node_id runtime::NOCOMMIT_get_local_nid() const { return m_impl->NOCOMMIT_get_local_nid(); }
 	size_t runtime::NOCOMMIT_get_num_nodes() const { return m_impl->NOCOMMIT_get_num_nodes(); }
 	size_t runtime::NOCOMMIT_get_num_local_devices() const { return m_impl->NOCOMMIT_get_num_local_devices(); }
+
+	void runtime::leak_memory() { m_impl->leak_memory(); }
 
 	bool runtime::s_test_mode = false;
 	bool runtime::s_test_active = false;

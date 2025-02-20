@@ -85,6 +85,8 @@ class scheduler {
 
 	void finalize_loop_template(loop_template& templ); // NOCOMMIT Take unique_ptr instead
 
+	void leak_memory();
+
   private:
 	scheduler() = default; // used by scheduler_testspy
 

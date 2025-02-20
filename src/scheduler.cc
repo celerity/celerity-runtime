@@ -79,11 +79,12 @@ struct event_complete_loop_iteration {
 struct event_finalize_loop_template {
 	loop_template* templ;
 };
+struct event_leak_memory {};
 
 /// An event passed from task_manager or runtime through the public scheduler interface.
 using task_event = std::variant<event_task_available, event_buffer_created, event_buffer_debug_name_changed, event_buffer_destroyed, event_host_object_created,
     event_host_object_destroyed, event_epoch_reached, event_set_lookahead, event_flush_commands, event_enable_loop_template, event_complete_loop_iteration,
-    event_finalize_loop_template, scheduler_testspy::event_inspect>;
+    event_finalize_loop_template, event_leak_memory, scheduler_testspy::event_inspect>;
 
 class task_queue {
   public:
@@ -111,7 +112,7 @@ class task_queue {
 
 /// An event originating from command_graph_generator, or forwarded from the task_queue because it requires in-order processing with commands.
 using command_event = std::variant<event_command_available, event_buffer_debug_name_changed, event_buffer_destroyed, event_host_object_destroyed,
-    event_flush_commands, event_set_lookahead, event_complete_loop_iteration, event_finalize_loop_template>;
+    event_flush_commands, event_set_lookahead, event_complete_loop_iteration, event_finalize_loop_template, event_leak_memory>;
 
 class command_queue {
   public:
@@ -305,6 +306,9 @@ void scheduler_impl::process_task_queue_event(const task_event& evt) {
 		    active_loop_template = nullptr;
 		    command_queue.push(e);
 	    },
+	    [&](const event_leak_memory& e) { //
+		    command_queue.push(e);
+	    },
 	    [&](const scheduler_testspy::event_inspect& e) { //
 		    e.inspector({.cdag = &cdag, .idag = &idag, .lookahead = lookahead});
 	    });
@@ -345,7 +349,10 @@ void scheduler_impl::process_command_queue_event(const command_event& evt) {
 		    assert(e.templ != nullptr);
 		    e.templ->idag.complete_iteration();
 	    },
-	    [&](const event_finalize_loop_template& e) { iggen.finalize_loop_template(*e.templ); });
+	    [&](const event_finalize_loop_template& e) { iggen.finalize_loop_template(*e.templ); },
+	    [&](const event_leak_memory&) { //
+		    iggen.leak_memory();
+	    });
 }
 
 void scheduler_impl::scheduling_loop() {
@@ -416,6 +423,8 @@ void scheduler::enable_loop_template(loop_template& templ) { m_impl->task_queue.
 void scheduler::complete_loop_iteration() { m_impl->task_queue.push(event_complete_loop_iteration{}); }
 
 void scheduler::finalize_loop_template(loop_template& templ) { m_impl->task_queue.push(event_finalize_loop_template{&templ}); }
+
+void scheduler::leak_memory() { m_impl->task_queue.push(event_leak_memory{}); }
 
 } // namespace celerity::detail
 
