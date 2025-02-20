@@ -2262,25 +2262,47 @@ void generator_impl::compile_push_command(batch& command_batch, const push_comma
 		// We want to generate the fewest number of send instructions possible without introducing new synchronization points between chunks of the same
 		// command that generated the pushed data. This will allow computation-communication overlap, especially in the case of oversubscribed splits.
 		dense_map<memory_id, std::vector<region<3>>> concurrent_send_source_regions(host_memory_id + 1); // establish_coherence() takes a dense_map
-		auto& concurrent_send_regions = concurrent_send_source_regions[host_memory_id];
+		auto& concurrent_host_staged_send_regions = concurrent_send_source_regions[host_memory_id];
+
+		dense_map<memory_id, std::vector<box<3>>> direct_device_send_boxes(m_system.memories.size());
 
 		// Since we now send boxes individually, we do not need to allocate the entire push_box contiguously.
 		box_vector<3> required_host_allocation;
 		{
 			std::map<instruction_id, region_builder<3>> individual_send_boxes;
 			for(auto& [box, original_writer] : buffer.original_writers.get_region_values(reg)) {
-				individual_send_boxes[original_writer->get_id()].add(box);
-				required_host_allocation.push_back(box);
+				bool have_direct_device_source = false;
+				for(const auto& [source_memory_box, source_mid] : buffer.original_write_memories.get_region_values(box)) {
+					// TODO: For proper implementation we need a query that says whether memory is accessible from MPI
+					if(source_mid >= first_device_memory_id && source_memory_box == box) {
+						// TODO: Is it guaranteed that a contiguous allocation exists at this point? Or could it have e.g. been written by multiple accessors..?
+						if(auto alloc = buffer.memories[source_mid].find_contiguous_allocation(box); alloc != nullptr) {
+							// TODO: We can relax this requirement to require the box to have no stride within the allocation
+							if(alloc->box == box) {
+								CELERITY_CRITICAL("Found RDMA candidate fr! - DISABLED FOR NOW"); //
+								                                                                  // have_direct_device_source = true;
+								                                                                  // direct_device_send_boxes[source_mid].push_back(box);
+							}
+						} else {
+							CELERITY_CRITICAL("No contiguous allocation found!");
+						}
+					}
+					break; // If there's more than one box we can't use RDMA (TODO: Or can we..?)
+				}
+				if(!have_direct_device_source) {
+					individual_send_boxes[original_writer->get_id()].add(box);
+					required_host_allocation.push_back(box);
+				}
 			}
 			for(auto& [original_writer, boxes] : individual_send_boxes) {
-				concurrent_send_regions.push_back(std::move(boxes).into_region());
+				concurrent_host_staged_send_regions.push_back(std::move(boxes).into_region());
 			}
 		}
 
 		allocate_contiguously(command_batch, trid.bid, host_memory_id, std::move(required_host_allocation), nullptr /* NOCOMMIT perf assertions? */);
 		establish_coherence_between_buffer_memories(command_batch, trid.bid, concurrent_send_source_regions, nullptr);
 
-		for(const auto& send_region : concurrent_send_regions) {
+		for(const auto& send_region : concurrent_host_staged_send_regions) {
 			for(const auto& full_send_box : send_region.get_boxes()) {
 				// Splitting must happen on buffer range instead of host allocation range to ensure boxes are also suitable for the receiver, which might have
 				// a differently-shaped backing allocation
@@ -2296,6 +2318,22 @@ void generator_impl::compile_push_command(batch& command_batch, const push_comma
 
 					perform_concurrent_read_from_allocation(send_instr, allocation, compatible_send_box);
 				}
+			}
+		}
+
+		for(memory_id mid = first_device_memory_id; mid < m_system.memories.size(); ++mid) {
+			// TODO: Communicator compatible boxes - if we need to split, we can't send directly it after all I think
+			for(const auto& box : direct_device_send_boxes[mid]) {
+				const message_id msgid = create_outbound_pilot(command_batch, target, trid, box);
+
+				auto& allocation = buffer.memories[mid].get_contiguous_allocation(box);
+
+				const auto offset_in_allocation = box.get_offset() - allocation.box.get_offset();
+				const auto send_instr =
+				    create<send_instruction>(command_batch, target, msgid, allocation.aid, allocation.box.get_range(), offset_in_allocation, box.get_range(),
+				        buffer.elem_size, [&](const auto& record_debug_info) { record_debug_info(pcmd.get_id(), trid, buffer.debug_name, box.get_offset()); });
+
+				perform_concurrent_read_from_allocation(send_instr, allocation, box);
 			}
 		}
 	}
