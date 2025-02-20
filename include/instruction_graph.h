@@ -100,12 +100,16 @@ class alloc_instruction final : public matchbox::implement_acceptor<instruction,
 /// Returns an allocation made with alloc_instruction to the system.
 class free_instruction final : public matchbox::implement_acceptor<instruction, free_instruction> {
   public:
-	explicit free_instruction(const instruction_id iid, const int priority, const allocation_id aid) : acceptor_base(iid, priority), m_aid(aid) {}
+	explicit free_instruction(const instruction_id iid, const int priority, const allocation_id aid, const size_t allocation_size)
+	    : acceptor_base(iid, priority), m_aid(aid), m_size(allocation_size) {}
 
 	allocation_id get_allocation_id() const { return m_aid; }
 
+	size_t get_allocation_size() const { return m_size; }
+
   private:
 	allocation_id m_aid;
+	size_t m_size;
 };
 
 

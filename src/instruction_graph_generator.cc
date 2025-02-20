@@ -808,9 +808,10 @@ void generator_impl::notify_buffer_destroyed(const buffer_id bid) {
 			}
 		} else {
 			for(auto& allocation : memory.allocations) {
-				const auto free_instr = create<free_instruction>(free_batch, allocation.aid, [&](const auto& record_debug_info) {
-					record_debug_info(allocation.box.get_area() * buffer.elem_size, buffer_allocation_record{bid, buffer.debug_name, allocation.box});
-				});
+				const auto free_instr =
+				    create<free_instruction>(free_batch, allocation.aid, allocation.box.get_area() * buffer.elem_size, [&](const auto& record_debug_info) {
+					    record_debug_info(allocation.box.get_area() * buffer.elem_size, buffer_allocation_record{bid, buffer.debug_name, allocation.box});
+				    });
 				add_dependencies_on_last_concurrent_accesses(free_instr, allocation, allocation.box, instruction_dependency_origin::allocation_lifetime);
 				// no need to modify the access front - we're removing the buffer altogether!
 			}
@@ -993,7 +994,7 @@ staging_allocation& generator_impl::acquire_staging_allocation(
 void generator_impl::free_all_staging_allocations(batch& current_batch) {
 	for(auto& memory : m_memories) {
 		for(const auto& alloc : memory.staging_allocation_pool) {
-			const auto free_instr = create<free_instruction>(current_batch, alloc.aid, //
+			const auto free_instr = create<free_instruction>(current_batch, alloc.aid, alloc.size_bytes, //
 			    [&](const auto& record_debug_info) { record_debug_info(alloc.size_bytes, std::nullopt); });
 			add_dependencies_on_access_front(free_instr, alloc.last_accesses, instruction_dependency_origin::allocation_lifetime);
 		}
@@ -1105,9 +1106,10 @@ void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id
 	for(auto it = resize_from_begin; it != resize_from_end; ++it) {
 		auto& old_alloc = *it;
 
-		const auto free_instr = create<free_instruction>(current_batch, old_alloc.aid, [&](const auto& record_debug_info) {
-			record_debug_info(old_alloc.box.get_area() * buffer.elem_size, buffer_allocation_record{bid, buffer.debug_name, old_alloc.box});
-		});
+		const auto free_instr =
+		    create<free_instruction>(current_batch, old_alloc.aid, old_alloc.box.get_area() * buffer.elem_size, [&](const auto& record_debug_info) {
+			    record_debug_info(old_alloc.box.get_area() * buffer.elem_size, buffer_allocation_record{bid, buffer.debug_name, old_alloc.box});
+		    });
 		add_dependencies_on_last_concurrent_accesses(free_instr, old_alloc, old_alloc.box, instruction_dependency_origin::allocation_lifetime);
 	}
 
@@ -1849,8 +1851,8 @@ void generator_impl::finish_task_local_reduction(batch& command_batch, const loc
 	buffer.track_original_write(scalar_reduction_box, reduce_instr, host_memory_id);
 
 	// Free the gather allocation created in `prepare_task_local_reduction`.
-	const auto gather_free_instr = create<free_instruction>(
-	    command_batch, red.gather_aid, [&](const auto& record_debug_info) { record_debug_info(red.num_input_chunks * red.chunk_size_bytes, std::nullopt); });
+	const auto gather_free_instr = create<free_instruction>(command_batch, red.gather_aid, red.num_input_chunks * red.chunk_size_bytes,
+	    [&](const auto& record_debug_info) { record_debug_info(red.num_input_chunks * red.chunk_size_bytes, std::nullopt); });
 	add_dependency(gather_free_instr, reduce_instr, instruction_dependency_origin::allocation_lifetime);
 }
 
@@ -2407,8 +2409,8 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 
 	// 6. Free the gather space
 
-	const auto gather_free_instr = create<free_instruction>(
-	    command_batch, gather_aid, [&](const auto& record_debug_info) { record_debug_info(m_num_nodes * node_chunk_size, std::nullopt); });
+	const auto gather_free_instr = create<free_instruction>(command_batch, gather_aid, m_num_nodes * node_chunk_size,
+	    [&](const auto& record_debug_info) { record_debug_info(m_num_nodes * node_chunk_size, std::nullopt); });
 	add_dependency(gather_free_instr, reduce_instr, instruction_dependency_origin::allocation_lifetime);
 
 	buffer.pending_gathers.clear();

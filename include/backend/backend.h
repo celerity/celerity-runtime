@@ -51,7 +51,7 @@ class backend {
 
 	/// Schedules the release of memory allocated via `enqueue_host_alloc`. The operation will complete in-order with respect to any other asynchronous `alloc`
 	/// and `free` operation on the same backend.
-	virtual async_event enqueue_host_free(void* ptr) = 0;
+	virtual async_event enqueue_host_free(void* ptr, size_t size) = 0;
 
 	/// Schedules the release of memory allocated via `enqueue_device_alloc`. The operation will complete in-order with respect to any other asynchronous
 	/// `alloc` and `free` operation on the same backend.

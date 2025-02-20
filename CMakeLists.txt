@@ -200,6 +200,11 @@ if(CELERITY_TRACY_SUPPORT)
   set(CMAKE_CXX_FLAGS "${PREVIOUS_CMAKE_CXX_FLAGS}")
 endif()
 
+# foonathan/memory
+# !! CAUTION: This library actually has debug features with non-negligible overhead enabled in RelWithDebInfo builds.
+# TODO: There is an option to disable these - should we?
+fetch_content_from_submodule(memory vendor/memory)
+
 # Deprecated feature flags
 set(CELERITY_FEATURE_SCALAR_REDUCTIONS ON)
 set(CELERITY_FEATURE_SIMPLE_SCALAR_REDUCTIONS ON)
@@ -353,6 +358,7 @@ target_link_libraries(celerity_runtime PUBLIC
   gch::small_vector
   libenvpp::libenvpp
   ${SYCL_LIB}
+  foonathan_memory
 )
 
 if(CELERITY_ENABLE_MPI)

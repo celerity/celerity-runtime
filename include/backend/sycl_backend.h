@@ -107,7 +107,7 @@ class sycl_backend : public backend {
 
 	async_event enqueue_device_memset(device_id device, void* ptr, int value, size_t count) override;
 
-	async_event enqueue_host_free(void* ptr) override;
+	async_event enqueue_host_free(void* ptr, size_t size) override;
 
 	async_event enqueue_device_free(device_id device, void* ptr) override;
 
