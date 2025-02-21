@@ -819,7 +819,7 @@ void generator_impl::notify_buffer_destroyed(const buffer_id bid) {
 				// no need to modify the access front - we're removing the buffer altogether!
 			}
 		}
-		if(m_leak_memory) { CELERITY_CRITICAL("Leaking allocations of buffer {}", bid); }
+		// if(m_leak_memory) { CELERITY_CRITICAL("Leaking allocations of buffer {}", bid); }
 	}
 	flush_batch(std::move(free_batch));
 
@@ -2279,9 +2279,9 @@ void generator_impl::compile_push_command(batch& command_batch, const push_comma
 						if(auto alloc = buffer.memories[source_mid].find_contiguous_allocation(box); alloc != nullptr) {
 							// TODO: We can relax this requirement to require the box to have no stride within the allocation
 							if(alloc->box == box) {
-								CELERITY_CRITICAL("Found RDMA candidate fr! - DISABLED FOR NOW"); //
-								                                                                  // have_direct_device_source = true;
-								                                                                  // direct_device_send_boxes[source_mid].push_back(box);
+								// CELERITY_CRITICAL("Found RDMA candidate fr!");
+								// have_direct_device_source = true;
+								// direct_device_send_boxes[source_mid].push_back(box);
 							}
 						} else {
 							CELERITY_CRITICAL("No contiguous allocation found!");
@@ -2392,11 +2392,10 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 
 	const auto gather_aid = new_allocation_id(host_memory_id);
 	const auto node_chunk_size = gather->gather_box.get_area() * buffer.elem_size;
-	const auto gather_alloc_instr =
-	    create<alloc_instruction>(command_batch, gather_aid, m_num_nodes * node_chunk_size, buffer.elem_align, [&](const auto& record_debug_info) {
-		    record_debug_info(
-		        alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, gather->gather_box}, m_num_nodes);
-	    });
+	const auto gather_alloc_instr = create<
+	    alloc_instruction>(command_batch, gather_aid, m_num_nodes * node_chunk_size, buffer.elem_align, [&](const auto& record_debug_info) {
+		record_debug_info(alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, gather->gather_box}, m_num_nodes);
+	});
 	// NOCOMMIT TODO: Allocation performance assertion?
 	add_dependency(gather_alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 
