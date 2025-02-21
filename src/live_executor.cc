@@ -467,6 +467,7 @@ void live_executor::impl::run() {
 
 	assert(in_flight_async_instructions.empty());
 	// check that for each alloc_instruction, we executed a corresponding free_instruction
+	// FIXME: This is not true if we explicitly leak memory using runtime::leak_memory
 	assert(std::all_of(allocations.begin(), allocations.end(),
 	    [](const std::pair<allocation_id, void*>& p) { return p.first == null_allocation_id || p.first.get_memory_id() == user_memory_id; }));
 	// check that for each track_host_object_instance, we executed a destroy_host_object_instruction
