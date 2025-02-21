@@ -204,6 +204,9 @@ sycl_cuda_backend::sycl_cuda_backend(const std::vector<sycl::device>& devices, c
 	// choose not to consider such GPUs to be copy-peers. There is potential to improve performance by partially overlapping the corresponding D2H and H2D
 	// copies, but this must be expressible in the IDAG (TODO).
 	for(device_id i = 0; i < devices.size(); ++i) {
+		const memory_id mid_i = first_device_memory_id + i;
+		get_system_info().memories[mid_i].capacity = devices[i].get_info<sycl::info::device::global_mem_size>();
+
 		for(device_id j = i + 1; j < devices.size(); ++j) {
 			const int id_i = sycl::get_native<sycl_backend_detail::sycl_cuda_backend>(devices[i]);
 			const int id_j = sycl::get_native<sycl_backend_detail::sycl_cuda_backend>(devices[j]);
@@ -213,7 +216,6 @@ sycl_cuda_backend::sycl_cuda_backend(const std::vector<sycl::device>& devices, c
 				cuda_backend_detail::enable_peer_access(id_i, id_j);
 				cuda_backend_detail::enable_peer_access(id_j, id_i);
 
-				const memory_id mid_i = first_device_memory_id + i;
 				const memory_id mid_j = first_device_memory_id + j;
 				get_system_info().memories[mid_i].copy_peers.set(mid_j);
 				get_system_info().memories[mid_j].copy_peers.set(mid_i);

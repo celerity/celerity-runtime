@@ -287,6 +287,8 @@ struct buffer_allocation_state {
 	region_map<access_front> last_writers;             ///< in buffer coordinates
 	region_map<access_front> last_concurrent_accesses; ///< in buffer coordinates
 
+	instruction_id lru_iid = 0; ///< the last non-epoch instruction that interacted with this allocation
+
 	explicit buffer_allocation_state(const allocation_id aid, alloc_instruction* const ainstr /* optional: null for user allocations */,
 	    const detail::box<3>& allocated_box, const range<3>& buffer_range)
 	    : aid(aid), box(allocated_box), //
@@ -296,6 +298,8 @@ struct buffer_allocation_state {
 	/// Add `instr` to the active set of concurrent reads, or replace the current access front if the last access was not a read.
 	void track_concurrent_read(const region<3>& region, instruction* const instr) {
 		if(region.empty()) return;
+		assert(instr->get_id() > lru_iid); // NOCOMMIT TODO: Is that always true?
+		lru_iid = instr->get_id();
 		for(auto& [box, front] : last_concurrent_accesses.get_region_values(region)) {
 			if(front.get_mode() == access_front::read) {
 				front.add_instruction(instr);
@@ -310,6 +314,7 @@ struct buffer_allocation_state {
 	/// happening simultaneously. This is true for all writes except those from device kernels and host tasks, which might specify overlapping write-accessors.
 	void track_atomic_write(const region<3>& region, instruction* const instr) {
 		if(region.empty()) return;
+		lru_iid = instr->get_id();
 		last_writers.update_region(region, access_front(instr, access_front::write));
 		last_concurrent_accesses.update_region(region, access_front(instr, access_front::write));
 	}
@@ -327,6 +332,7 @@ struct buffer_allocation_state {
 	/// In order to still produce an executable (albeit racy) instruction graph in that case, we track multiple last-writers for the same buffer element.
 	void track_concurrent_write(const region<3>& region, instruction* const instr) {
 		if(region.empty()) return;
+		lru_iid = instr->get_id();
 		for(auto& [box, front] : last_writers.get_region_values(region)) {
 			front.add_instruction(instr);
 			last_writers.update_box(box, front);
@@ -354,7 +360,10 @@ struct buffer_memory_state {
 	// Track the total number of allocations made during the buffer's lifetime to heuristically detect and warn about frequent re-sizes and split allocations
 	// that could have been merged with proper scheduler lookahead.
 	size_t total_allocations_performed = 0;
-	bool frequent_allocations_warning_emitted = false;
+	// NOCOMMIT FIXME: Disabled for now - conditionally disable if "allocate separately" setting (NYI) is enabled for buffer/accessor
+	bool frequent_allocations_warning_emitted = true;
+
+	bool allocation_reuse_warning_emitted = false;
 
 	const buffer_allocation_state& get_allocation(const allocation_id aid) const {
 		const auto it = std::find_if(allocations.begin(), allocations.end(), [=](const buffer_allocation_state& a) { return a.aid == aid; });
@@ -466,6 +475,15 @@ struct buffer_state {
 		// TODO Assumes that the command graph generator issues await-pushes immediately before the commands that need them.
 		assert(pending_receives.empty());
 		assert(pending_gathers.empty());
+	}
+
+	// NOCOMMIT FIXME: This should be cached
+	size_t compute_memory_usage(const memory_id mid) {
+		size_t usage = 0;
+		for(const auto& alloc : memories[mid].allocations) {
+			usage += alloc.box.get_area() * elem_size;
+		}
+		return usage;
 	}
 };
 
@@ -634,6 +652,9 @@ class generator_impl {
 	/// emitting the fence, and buffer host-initialization user allocations after the buffer has been destroyed.
 	std::vector<allocation_id> m_unreferenced_user_allocations;
 
+	// TODO: Should this be part of memory_state?
+	dense_map<memory_id, size_t> m_memory_usage;
+
 	bool m_leak_memory = false;
 
 	/// True if a recorder is present and create() will call the `record_with` lambda passed as its last parameter.
@@ -758,7 +779,7 @@ class generator_impl {
 generator_impl::generator_impl(const size_t num_nodes, const node_id local_nid, const system_info& system, instruction_graph& idag,
     instruction_graph_generator::delegate* const dlg, instruction_recorder* const recorder, const instruction_graph_generator::policy_set& policy)
     : m_idag(&idag), m_num_nodes(num_nodes), m_local_nid(local_nid), m_system(system), m_delegate(dlg), m_recorder(recorder), m_policy(policy),
-      m_memories(m_system.memories.size()) //
+      m_memories(m_system.memories.size()), m_memory_usage(m_system.memories.size()) //
 {
 #ifndef NDEBUG
 	assert(m_system.memories.size() <= max_num_memories);
@@ -1054,54 +1075,171 @@ void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id
 	// synchronization points because resize-copies are still rooted on the original last-writers.
 	merge_connected_boxes(new_alloc_boxes);
 
+	// TODO: Do we have to factor in alignment?
+	const size_t new_alloc_bytes = std::accumulate(
+	    new_alloc_boxes.begin(), new_alloc_boxes.end(), size_t{0}, [&](size_t acc, const box<3>& box) { return acc + box.get_area() * buffer.elem_size; });
+
+	bool try_reuse_existing_allocations = false;
+	// FIXME: We need some headroom because memory usage is currently only re-computed when compiling horizons.
+	//        This means any new allocations made in the meantime are not accounted for yet. We use 90% of the actual capacity for now.
+	// TODO: In general it might be useful to be able to set the maximum memory usage however. Make this configurable.
+	if(m_memory_usage[mid] + new_alloc_bytes > 0.9 * m_system.memories[mid].capacity) {
+		if(mid >= first_device_memory_id) {
+			// T0 implementation: We only attempt to reuse allocations if we are not resizing
+			if(resize_from_begin == resize_from_end) {
+				if(!memory.allocation_reuse_warning_emitted) {
+					CELERITY_WARN("New allocations for buffer {} on memory {} will exceed memory limit. Attempting to reuse allocations.", bid, mid);
+					memory.allocation_reuse_warning_emitted = true;
+				}
+				try_reuse_existing_allocations = true;
+			} else {
+				utils::panic("Memory limit will be exceeded during resize allocation - will not attempt reuse");
+			}
+		} else {
+			// TODO: Also support limit for host memory? While we couldn't reuse/evict, we could at least throw an appropriate error
+		}
+	}
+
 	// We collect new allocations in a vector *separate* from memory.allocations as to not invalidate iterators (and to avoid resize-copying from them).
 	std::vector<buffer_allocation_state> new_allocations;
 	new_allocations.reserve(new_alloc_boxes.size());
 
-	// Create new allocations and initialize them via resize-copies if necessary.
-	for(const auto& new_box : new_alloc_boxes) {
-		const auto aid = new_allocation_id(mid);
-		const auto alloc_instr =
-		    create<alloc_instruction>(current_batch, aid, new_box.get_area() * buffer.elem_size, buffer.elem_align, [&](const auto& record_debug_info) {
-			    record_debug_info(alloc_instruction_record::alloc_origin::buffer, buffer_allocation_record{bid, buffer.debug_name, new_box}, std::nullopt);
-		    });
+	if(!try_reuse_existing_allocations) {
+		// Create new allocations and initialize them via resize-copies if necessary.
+		for(const auto& new_box : new_alloc_boxes) {
+			const auto aid = new_allocation_id(mid);
+			const auto alloc_instr =
+			    create<alloc_instruction>(current_batch, aid, new_box.get_area() * buffer.elem_size, buffer.elem_align, [&](const auto& record_debug_info) {
+				    record_debug_info(alloc_instruction_record::alloc_origin::buffer, buffer_allocation_record{bid, buffer.debug_name, new_box}, std::nullopt);
+			    });
 
-		if(perf_assertions != nullptr && perf_assertions->assert_no_allocations) {
-			CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' requires allocation of box {} for buffer {}",
-			    perf_assertions->assert_no_allocations_source_loc.file_name(), perf_assertions->assert_no_allocations_source_loc.line(), perf_assertions->tid,
-			    perf_assertions->task_debug_name, new_box, print_buffer_debug_label(bid));
-		}
-		add_dependency(alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
-
-		auto& new_alloc = new_allocations.emplace_back(aid, alloc_instr, new_box, buffer.range);
-
-		// Since allocations don't overlap, we copy from those that are about to be freed
-		for(auto source_it = resize_from_begin; source_it != resize_from_end; ++source_it) {
-			auto& resize_source_alloc = *source_it;
-
-			// Only copy those boxes to the new allocation that are still up-to-date in the old allocation. The caller of allocate_contiguously should remove
-			// any region from up_to_date_memories that they intend to discard / overwrite immediately to avoid dead resize copies.
-			// TODO investigate a garbage-collection heuristic that omits these copies if there are other up-to-date memories and we do not expect the region to
-			// be read again on this memory.
-			const auto full_copy_box = box_intersection(new_alloc.box, resize_source_alloc.box);
-			if(full_copy_box.empty()) continue; // not every previous allocation necessarily intersects with every new allocation
-
-			region_builder<3> live_copy_boxes;
-			for(const auto& [copy_box, location] : buffer.up_to_date_memories.get_region_values(full_copy_box)) {
-				if(location.test(mid)) { live_copy_boxes.add(copy_box); }
+			if(perf_assertions != nullptr && perf_assertions->assert_no_allocations) {
+				CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' requires allocation of box {} for buffer {}",
+				    perf_assertions->assert_no_allocations_source_loc.file_name(), perf_assertions->assert_no_allocations_source_loc.line(),
+				    perf_assertions->tid, perf_assertions->task_debug_name, new_box, print_buffer_debug_label(bid));
 			}
-			// even if allocations intersect, the entire intersection might be overwritten by the task that requested reallocation - in which case the caller
-			// would have reset up_to_date_memories for the corresponding elements
-			if(live_copy_boxes.empty()) continue;
+			add_dependency(alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 
-			const auto live_copy_region = std::move(live_copy_boxes).into_region();
-			const auto copy_instr = create<copy_instruction>(current_batch, resize_source_alloc.aid, new_alloc.aid, strided_layout(resize_source_alloc.box),
-			    strided_layout(new_alloc.box), live_copy_region, buffer.elem_size,
-			    [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::resize, bid, buffer.debug_name); });
+			auto& new_alloc = new_allocations.emplace_back(aid, alloc_instr, new_box, buffer.range);
 
-			perform_concurrent_read_from_allocation(copy_instr, resize_source_alloc, live_copy_region);
-			perform_atomic_write_to_allocation(copy_instr, new_alloc, live_copy_region);
+			// Since allocations don't overlap, we copy from those that are about to be freed
+			for(auto source_it = resize_from_begin; source_it != resize_from_end; ++source_it) {
+				auto& resize_source_alloc = *source_it;
+
+				// Only copy those boxes to the new allocation that are still up-to-date in the old allocation. The caller of allocate_contiguously should
+				// remove any region from up_to_date_memories that they intend to discard / overwrite immediately to avoid dead resize copies.
+				// TODO investigate a garbage-collection heuristic that omits these copies if there are other up-to-date memories and we do not expect the
+				// region to be read again on this memory.
+				const auto full_copy_box = box_intersection(new_alloc.box, resize_source_alloc.box);
+				if(full_copy_box.empty()) continue; // not every previous allocation necessarily intersects with every new allocation
+
+				region_builder<3> live_copy_boxes;
+				for(const auto& [copy_box, location] : buffer.up_to_date_memories.get_region_values(full_copy_box)) {
+					if(location.test(mid)) { live_copy_boxes.add(copy_box); }
+				}
+				// even if allocations intersect, the entire intersection might be overwritten by the task that requested reallocation - in which case the
+				// caller would have reset up_to_date_memories for the corresponding elements
+				if(live_copy_boxes.empty()) continue;
+
+				const auto live_copy_region = std::move(live_copy_boxes).into_region();
+				const auto copy_instr = create<copy_instruction>(current_batch, resize_source_alloc.aid, new_alloc.aid, strided_layout(resize_source_alloc.box),
+				    strided_layout(new_alloc.box), live_copy_region, buffer.elem_size,
+				    [&](const auto& record_debug_info) { record_debug_info(copy_instruction_record::copy_origin::resize, bid, buffer.debug_name); });
+
+				perform_concurrent_read_from_allocation(copy_instr, resize_source_alloc, live_copy_region);
+				perform_atomic_write_to_allocation(copy_instr, new_alloc, live_copy_region);
+			}
 		}
+	} else {
+		std::vector<buffer_allocation_state*> reuse_candidates;
+		reuse_candidates.reserve(memory.allocations.size());
+		for(auto& alloc : memory.allocations) {
+			reuse_candidates.push_back(&alloc);
+		}
+		// Sort by LRU order to reuse the oldest allocations first
+		// TODO: LRU is actually not ideal, because it orders original writes first, which are more likely not to be replicated (cannot be reused).
+		// 	=> Maybe we should apply epochs after all?
+		std::ranges::sort(reuse_candidates, [](const auto& a, const auto& b) { return a->lru_iid < b->lru_iid; });
+		for(const auto& new_box : new_alloc_boxes) {
+			// CELERITY_CRITICAL("Attempting to reuse allocations for box {}. {} candidates", new_box, reuse_candidates.size());
+			bool did_reuse = false;
+			for(auto it = reuse_candidates.begin(); it != reuse_candidates.end(); ++it) {
+				auto& alloc = **it;
+				if(alloc.box.get_range() == new_box.get_range()) {
+					bool is_original_writer = false;
+					for(auto& [box, mid] : buffer.original_write_memories.get_region_values(alloc.box)) {
+						if(mid == alloc.aid.get_memory_id()) {
+							is_original_writer = true;
+							break;
+						}
+					}
+					if(is_original_writer) {
+						// CELERITY_CRITICAL("Cannot reuse allocation {} for box {} because it is the original writer", alloc.aid, alloc.box);
+						it = reuse_candidates.erase(it);
+						continue;
+					}
+
+					// TODO: Should we attempt to first reuse allocations that are no longer up-to-date?
+					std::vector<std::pair<box<3>, memory_mask>> boxes_to_update;
+					bool is_unique = false;
+					for(auto& [box, mask] : buffer.up_to_date_memories.get_region_values(alloc.box)) {
+						if(mask.test(mid)) {
+							if(mask.count() == 1) {
+								// T0 implementation: We do not support explicit eviction to host yet. Data must already be replicated somewhere.
+								// => We may need this for matmul though, come to think of it... Unless we throw out reuse candidates that aren't replicated
+								// utils::panic("Evicting allocation to host not yet supported");
+								is_unique = true;
+								break;
+							}
+							// mask.reset(mid);
+							// buffer.up_to_date_memories.update_box(box, mask);
+							mask.reset(mid);
+							boxes_to_update.push_back({box, mask});
+						}
+					}
+
+					// TODO: Can this even be true if is_original_writer is false? For received data..?
+					if(is_unique) {
+						// CELERITY_CRITICAL("Cannot reuse allocation {} for box {} because it is unique", alloc.aid, alloc.box);
+						it = reuse_candidates.erase(it);
+						continue;
+					}
+
+					// TODO: Turn into trace message
+					// CELERITY_CRITICAL("REUSING ALLOCATION {} box {} for new box {}, last used by instruction {}, current instruction counter {}", alloc.aid,
+					//     alloc.box, new_box, alloc.lru_iid, m_next_instruction_id);
+
+					for(const auto& [box, mask] : boxes_to_update) {
+						buffer.up_to_date_memories.update_box(box, mask);
+					}
+
+					// We have to recreate all region maps with the new coordinates
+					// TODO: Do we need to copy the old values for both of those? We only need to be able to create correct anti-dependencies
+					region_map<access_front> new_last_writers(new_box);
+					region_map<access_front> new_last_concurrent_accesses(new_box);
+					for(auto& [_, front] : alloc.last_writers.get_region_values(alloc.box)) {
+						new_last_writers.update_box(new_box, front);
+					}
+					for(auto& [_, front] : alloc.last_concurrent_accesses.get_region_values(alloc.box)) {
+						new_last_concurrent_accesses.update_box(new_box, front);
+					}
+
+					alloc.box = new_box;
+					alloc.last_writers = std::move(new_last_writers);
+					alloc.last_concurrent_accesses = std::move(new_last_concurrent_accesses);
+					did_reuse = true;
+
+					// TODO: Do we also need to handle buffer.original_write_memories?
+					//       If we only reuse allocations with last writers that are behind epoch we probably wouldn't have to.
+					//       That is probably something we should do in general.
+
+					reuse_candidates.erase(it);
+					break;
+				}
+			}
+			if(!did_reuse) { utils::panic("Failed to find allocation to reuse"); }
+		}
+		assert(resize_from_begin == resize_from_end); // We currently don't support allocation reuse for resizing
 	}
 
 	// Free old allocations now that all required resize-copies have been issued.
@@ -2392,10 +2530,11 @@ void generator_impl::compile_reduction_command(batch& command_batch, const reduc
 
 	const auto gather_aid = new_allocation_id(host_memory_id);
 	const auto node_chunk_size = gather->gather_box.get_area() * buffer.elem_size;
-	const auto gather_alloc_instr = create<
-	    alloc_instruction>(command_batch, gather_aid, m_num_nodes * node_chunk_size, buffer.elem_align, [&](const auto& record_debug_info) {
-		record_debug_info(alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, gather->gather_box}, m_num_nodes);
-	});
+	const auto gather_alloc_instr =
+	    create<alloc_instruction>(command_batch, gather_aid, m_num_nodes * node_chunk_size, buffer.elem_align, [&](const auto& record_debug_info) {
+		    record_debug_info(
+		        alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, gather->gather_box}, m_num_nodes);
+	    });
 	// NOCOMMIT TODO: Allocation performance assertion?
 	add_dependency(gather_alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 
@@ -2531,6 +2670,15 @@ void generator_impl::compile_horizon_command(batch& command_batch, const horizon
 	collapse_execution_front_to(horizon);
 	if(m_last_horizon != nullptr) { apply_epoch(m_last_horizon); }
 	m_last_horizon = horizon;
+
+	// UNRELATED: Compute memory usage
+	for(memory_id mid = 0; mid < m_system.memories.size(); ++mid) {
+		m_memory_usage[mid] = 0;
+		for(auto& [_, buf] : m_buffers) {
+			m_memory_usage[mid] += buf.compute_memory_usage(mid);
+		}
+		// CELERITY_CRITICAL("Memory usage of memory {} is {} GB", mid, m_memory_usage[mid] / 1024.0 / 1024.0 / 1024.0);
+	}
 }
 
 void generator_impl::compile_epoch_command(batch& command_batch, const epoch_command& ecmd) {

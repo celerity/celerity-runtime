@@ -44,6 +44,9 @@ struct memory_info {
 	/// Further, copies must always be possible between `host_memory_id` and `user_memory_id` as well as between `host_memory_id` and every other memory.
 	/// instruction_graph_generator will create a staging copy in host memory if data must be transferred between two memories that are not copy peers.
 	memory_mask copy_peers;
+
+	/// The total capacity of the memory in bytes.
+	size_t capacity = 0;
 };
 
 /// All information about the local system that influences the generated instruction graph.
