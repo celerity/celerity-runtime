@@ -13,6 +13,12 @@
 
 
 namespace celerity {
+
+// Forward-declaration so we can detect whether the functor is one_to_one
+namespace access {
+	struct one_to_one;
+}
+
 namespace detail {
 
 	template <typename Functor, int BufferDims, int KernelDims>
@@ -85,6 +91,8 @@ namespace detail {
 		virtual region<3> map_3(const chunk<3>& chnk) const = 0;
 
 		virtual ~range_mapper_base() = default;
+
+		virtual bool is_one_to_one() const { return false; }
 	};
 
 	template <int BufferDims, typename Functor>
@@ -106,6 +114,13 @@ namespace detail {
 		region<3> map_3(const chunk<1>& chnk) const override { return map<3>(chnk); }
 		region<3> map_3(const chunk<2>& chnk) const override { return map<3>(chnk); }
 		region<3> map_3(const chunk<3>& chnk) const override { return map<3>(chnk); }
+
+		// Override the s_one_to_one() to detect if the functor is specifically celerity::access::one_to_one:
+		bool is_one_to_one() const override {
+			// If the Functor is celerity::access::one_to_one, return true
+			if constexpr(std::is_same_v<Functor, celerity::access::one_to_one>) { return true; }
+			return false;
+		}
 
 	  private:
 		Functor m_rmfn;
