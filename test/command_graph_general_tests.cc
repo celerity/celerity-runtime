@@ -439,8 +439,10 @@ TEST_CASE("command_graph_generator throws in tests if it detects overlapping wri
 }
 
 TEST_CASE("results form generator kernels are never communicated between nodes", "[command_graph_generator][owner-computes]") {
-	const size_t num_nodes = 4;
+	const bool split_2d = GENERATE(values({0, 1}));
+	CAPTURE(split_2d);
 
+	const size_t num_nodes = 4;
 	cdag_test_context cctx(num_nodes);            // 4 nodes, so we can get a true 2D work assignment for the timestep kernel
 	auto buf = cctx.create_buffer<2>({256, 256}); // a 256x256 buffer
 
@@ -449,12 +451,12 @@ TEST_CASE("results form generator kernels are never communicated between nodes",
 	                          .name("init")
 	                          .submit();
 	const auto tid_ts0 = cctx.device_compute(buf.get_range()) //
-	                         .hint(experimental::hints::split_2d())
+	                         .hint_if(split_2d, experimental::hints::split_2d())
 	                         .read_write(buf, celerity::access::one_to_one())
 	                         .name("timestep 0")
 	                         .submit();
 	const auto tid_ts1 = cctx.device_compute(buf.get_range()) //
-	                         .hint(experimental::hints::split_2d())
+	                         .hint_if(split_2d, experimental::hints::split_2d())
 	                         .read_write(buf, celerity::access::one_to_one())
 	                         .name("timestep 1")
 	                         .submit();
