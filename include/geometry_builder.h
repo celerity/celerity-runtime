@@ -13,6 +13,9 @@ namespace celerity {
 // TODO: Naming - partitioning, domain_partition, domain, cartesian_partition ...?
 //		=> Partition is already used for host tasks...
 // 		=> Is this even CARTESIAN, if the cells can be of different size (unequal split?). Or is it RECTILINEAR?
+// 		TODO: Should it even be possible to have differently sized cells?!
+//			=> For oddly sized buffers it wouldn't really be an issue to just have a slightly larger grid,
+//             data requirements would then be clamped to buffer dimensions (i.e., last cells would be smaller)
 // SHOULD BOTH THIS AND GEOMETRY_BUILDER EXIST? I think so. A partition is a subset: Fully covers the domain, no overlap.
 // => Also partitions (I think?) don't have any node/device assignments
 //		=> When assigning we could then choose to only assign to a subset of nodes
@@ -21,6 +24,7 @@ namespace celerity {
 // TODO: It should be possible to go from a 2D partition to a 1D partition (by laying it out row-wise). Vice versa?
 // TODO: It should be possible to scale a partition down or up (e.g. for thread coarsening)
 // => OR: Should this be done in geometry builder? If we do it here we could also apply it in reverse though (for data requirements)
+// TODO: In theory we could (in some situations) use the knowledge that buffers are partitioned into a grid to simplify data tracking
 template <int Dims>
 class cartesian_grid {
 	using box = celerity::detail::box<Dims>;

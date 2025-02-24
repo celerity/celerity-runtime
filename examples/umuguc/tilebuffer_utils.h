@@ -218,7 +218,7 @@ inline std::vector<std::vector<celerity::subrange<3>>> compute_neighborhood_read
 
 	std::vector<std::vector<subrange<3>>> per_chunk_neighborhood_reads;
 	for(auto [box, _, _2] : geometry.assigned_chunks) {
-		assert(celerity::detail::get_effective_dims(sr) == 1);
+		assert(box.get_effective_dims() == 1);
 		const auto sr = box.get_subrange();
 
 		// Find start and end tile for this subrange
@@ -262,7 +262,7 @@ inline std::vector<std::vector<celerity::subrange<3>>> compute_neighborhood_read
 	std::vector<std::vector<subrange<3>>> per_chunk_neighborhood_reads;
 	for(auto [box, _, _2] : geometry.assigned_chunks) {
 		// The split is still in 1D
-		assert(celerity::detail::get_effective_dims(sr) == 1);
+		assert(box.get_effective_dims() == 1);
 
 		const auto sr = box.get_subrange();
 
@@ -278,8 +278,6 @@ inline std::vector<std::vector<celerity::subrange<3>>> compute_neighborhood_read
 		const uint32_t start_tile = start_it - num_entries_cumulative.begin();
 		const uint32_t end_tile = end_it != num_entries_cumulative.end() ? end_it - num_entries_cumulative.begin() : num_entries.size();
 
-#if 0 // Doesn't work yet
-
 		// Compute inclusive start and end coordinates in 2D
 		const celerity::id<2> first = {start_tile / buffer_size[1], start_tile % buffer_size[1]};
 		const celerity::id<2> last = celerity::id<2>{(end_tile - 1) / buffer_size[1], (end_tile - 1) % buffer_size[1]};
@@ -287,54 +285,70 @@ inline std::vector<std::vector<celerity::subrange<3>>> compute_neighborhood_read
 		celerity::detail::box_vector<1> read_boxes;
 		const auto add_box = [&](const celerity::id<2>& min, const celerity::id<2>& max) {
 			const uint32_t start_1d = min[0] * buffer_size[1] + min[1];
-			const uint32_t end_1d = max[0] * buffer_size[1] + max[1];
+			const uint32_t end_1d = max[0] * buffer_size[1] + max[1] + 1; // +1: Convert back to exclusive
 			read_boxes.push_back({num_entries_cumulative[start_1d], end_1d < num_entries.size() ? num_entries_cumulative[end_1d] : total_entries});
 		};
 
 		// Add main chunk range + left and right neighbors
 		celerity::id<2> main_neighborhood_start = first;
 		celerity::id<2> main_neighborhood_end = last;
-		if(first[1] > 0) { main_neighborhood_start[0]--; }
-		if(last[1] < buffer_size[1] - 1) { main_neighborhood_end[0]++; }
+		if(first[1] > 0) { main_neighborhood_start[1]--; }
+		if(last[1] < buffer_size[1] - 1) { main_neighborhood_end[1]++; }
 		add_box(main_neighborhood_start, main_neighborhood_end);
 
 		// Add top neighbors
-		if(first[0] > 0) {
-			const celerity::id<2> top_neighborhood_start = {main_neighborhood_start[0] - 1, main_neighborhood_start[1]};
+		if(last[0] > 0) {
+			auto adjusted_start = main_neighborhood_start;
+			if(first[0] == 0) { adjusted_start = {1, 0}; }
+			const celerity::id<2> top_neighborhood_start = {adjusted_start[0] - 1, adjusted_start[1]};
 			const celerity::id<2> top_neighborhood_end = {main_neighborhood_end[0] - 1, main_neighborhood_end[1]};
 			add_box(top_neighborhood_start, top_neighborhood_end);
 		}
 
 		// Add bottom neighbors
-		if(last[0] < buffer_size[0] - 1) {
+		if(first[0] < buffer_size[0] - 1) {
+			auto adjusted_end = main_neighborhood_end;
+			if(last[0] == buffer_size[0] - 1) { adjusted_end = {buffer_size[0] - 2, buffer_size[1] - 1}; }
 			const celerity::id<2> bottom_neighborhood_start = {main_neighborhood_start[0] + 1, main_neighborhood_start[1]};
-			const celerity::id<2> bottom_neighborhood_end = {main_neighborhood_end[0] + 1, main_neighborhood_end[1]};
+			const celerity::id<2> bottom_neighborhood_end = {adjusted_end[0] + 1, adjusted_end[1]};
 			add_box(bottom_neighborhood_start, bottom_neighborhood_end);
 		}
 
-#else // Naive implementation for now: Just iterate over all tiles in range and add their neighborhood
+#if 0 // Naive implementation: Iterate over all tiles in range and add their neighborhood
+		{
+			celerity::detail::box_vector<1> read_boxes_naive;
+			const auto add_single_tile = [&](const celerity::id<2>& coords) {
+				const uint32_t start_1d = coords[0] * buffer_size[1] + coords[1];
+				const uint32_t end_1d = start_1d + 1;
+				read_boxes_naive.push_back({num_entries_cumulative[start_1d], end_1d < num_entries.size() ? num_entries_cumulative[end_1d] : total_entries});
+			};
 
-		celerity::detail::box_vector<1> read_boxes;
-		const auto add_single_tile = [&](const celerity::id<2>& coords) {
-			const uint32_t start_1d = coords[0] * buffer_size[1] + coords[1];
-			const uint32_t end_1d = start_1d + 1;
-			read_boxes.push_back({num_entries_cumulative[start_1d], end_1d < num_entries.size() ? num_entries_cumulative[end_1d] : total_entries});
-		};
-
-		for(uint32_t i = start_tile; i < end_tile; ++i) {
-			const celerity::id<2> tile_coords = {i / buffer_size[1], i % buffer_size[1]};
-			// iterate over all neighboring cells (this includes the center cell as well)
-			for(int dx = -1; dx <= 1; ++dx) {
-				for(int dy = -1; dy <= 1; ++dy) {
-					const celerity::id<2> neighbor_coords = {tile_coords[0] + dy, tile_coords[1] + dx};
-					if(neighbor_coords[0] >= buffer_size[0] || neighbor_coords[1] >= buffer_size[1]) { // only check larger b/c of unsigned underflow
-						continue;
+			for(uint32_t i = start_tile; i < end_tile; ++i) {
+				const celerity::id<2> tile_coords = {i / buffer_size[1], i % buffer_size[1]};
+				// iterate over all neighboring cells (this includes the center cell as well)
+				for(int dx = -1; dx <= 1; ++dx) {
+					for(int dy = -1; dy <= 1; ++dy) {
+						const celerity::id<2> neighbor_coords = {tile_coords[0] + dy, tile_coords[1] + dx};
+						if(neighbor_coords[0] >= buffer_size[0] || neighbor_coords[1] >= buffer_size[1]) { // only check larger b/c of unsigned underflow
+							continue;
+						}
+						add_single_tile(neighbor_coords);
 					}
-					add_single_tile(neighbor_coords);
+				}
+			}
+
+			// Check that naive variant produced same set of boxes
+			{
+				auto read_boxes_copy = read_boxes;
+				auto read_boxes_naive_copy = read_boxes_naive;
+				auto read_boxes_region = celerity::detail::region<1>{std::move(read_boxes_copy)};
+				auto read_boxes_naive_region = celerity::detail::region<1>{std::move(read_boxes_naive_copy)};
+				if(read_boxes_region != read_boxes_naive_region) { //
+					throw std::runtime_error(fmt::format("Naive and optimized neighborhood read computation produced different results. NAIVE: {}, NEW: {}",
+					    read_boxes_naive_region, read_boxes_region));
 				}
 			}
 		}
-
 #endif
 
 		// We collect all reads in a region so overlapping/connected ranges are automatically merged

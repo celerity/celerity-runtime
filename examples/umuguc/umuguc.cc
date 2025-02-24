@@ -10,6 +10,8 @@
 
 #include "eigen_decomposition.hpp"
 
+using clk = std::chrono::steady_clock;
+
 /**
  * How do we get the multi-pass tile buffer into Celerity?
  *
@@ -64,12 +66,53 @@ struct umuguc_point3d {
 	bool operator!=(const umuguc_point3d& other) const { return !(*this == other); }
 };
 
-int main(int argc, char* argv[]) {
-	if(argc != 2) {
-		fmt::print(stderr, "Usage: {} <input_file>\n", argv[0]);
-		return 1;
+void consume_args(const int i, const int n, int* argc, char** argv[]) {
+	assert(i + n <= *argc);
+	for(int j = i; j < *argc - n; ++j) {
+		(*argv)[j] = (*argv)[j + n];
 	}
+	*argc -= n;
+}
+
+bool get_flag(const std::string_view flag, int* argc, char** argv[]) {
+	for(int i = 0; i < *argc; ++i) {
+		if((*argv)[i] == flag) {
+			consume_args(i, 1, argc, argv);
+			return true;
+		}
+	}
+	return false;
+}
+
+template <typename T>
+std::optional<T> get_arg(const std::string_view flag, int* argc, char** argv[]) {
+	for(int i = 0; i < *argc; ++i) {
+		if((*argv)[i] == flag) {
+			if(i + 1 < *argc) {
+				T result;
+				std::istringstream((*argv)[i + 1]) >> result;
+				consume_args(i, 2, argc, argv);
+				return result;
+			}
+			throw std::runtime_error(fmt::format("Missing value for argument {}", flag));
+		}
+	}
+	return std::nullopt;
+}
+
+int main(int argc, char* argv[]) {
+	const auto usage = [&]() {
+		fmt::print(stderr, "Usage: {} <input_file> [--write-output]\n", argv[0]);
+		exit(EXIT_FAILURE);
+	};
+	if(argc < 2) usage();
 	const auto filename = argv[1];
+	consume_args(1, 1, &argc, &argv);
+	const bool write_output = get_flag("--write-output", &argc, &argv);
+	const double tile_size = get_arg<double>("--tile-size", &argc, &argv).value_or(1.0);
+	if(argc != 1) usage();
+
+	fmt::print("Using tile size {:.1f}\n", tile_size);
 
 	std::ifstream input(filename, std::ios::binary);
 	if(!input) {
@@ -91,6 +134,11 @@ int main(int argc, char* argv[]) {
 	// std::vector<umuguc_point3d> points(10'000);
 	// input.read(reinterpret_cast<char*>(points.data()), points.size() * sizeof(umuguc_point3d));
 
+	if(points.size() > std::numeric_limits<uint32_t>::max()) {
+		fmt::print(stderr, "Too many points for 32 bit counting. Time to upgrade!: {}\n", points.size());
+		return 1;
+	}
+
 	umuguc_point3d min = {std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), std::numeric_limits<double>::max()};
 	umuguc_point3d max = {std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest()};
 	for(const auto& p : points) {
@@ -105,7 +153,6 @@ int main(int argc, char* argv[]) {
 	fmt::print("Min: ({:.1f}, {:.1f}, {:.1f}), Max: ({:.1f}, {:.1f}, {:.1f}). Extent: ({:.1f}, {:.1f}, {:.1f})\n", min.x, min.y, min.z, max.x, max.y, max.z,
 	    max.x - min.x, max.y - min.y, max.z - min.z);
 
-	const double tile_size = 5;
 	const celerity::range<2> grid_size = {static_cast<uint32_t>((max.y - min.y) / tile_size), static_cast<uint32_t>((max.x - min.x) / tile_size)};
 	if(grid_size.size() == 0) {
 		CELERITY_CRITICAL("Grid size is {}x{} - try smaller tile size", grid_size[1], grid_size[0]);
@@ -128,6 +175,15 @@ int main(int argc, char* argv[]) {
 	// //           => Ideally we should simply not create per-device chunks for remote nodes
 	const size_t num_devices = rt.NOCOMMIT_get_num_local_devices();
 
+	auto print_delta_time = [&, previous = clk::now()](std::string_view description, std::optional<clk::time_point> against = std::nullopt) mutable {
+		queue.wait(celerity::experimental::barrier);
+		const auto now = clk::now();
+		auto dt = now - previous;
+		if(against.has_value()) { dt = now - against.value(); }
+		if(rank == 0) { fmt::print("{}: {} ms\n", description, std::chrono::duration_cast<std::chrono::milliseconds>(dt).count()); }
+		previous = now;
+	};
+
 	// TODO API: No need to split remote chunks into per-device chunks
 	auto chunks =
 	    celerity::detail::split_1d(box_cast<3>(celerity::detail::box<1>{0, points_input.get_range()}), celerity::detail::ones, num_ranks * num_devices);
@@ -143,9 +199,7 @@ int main(int argc, char* argv[]) {
 	celerity::scratch_buffer<uint32_t, 2> write_offsets_scratch(write_tiles_geometry, grid_size);
 	num_entries_scratch.fill(0); // The other two are initialized from host data later on
 
-	queue.wait(celerity::experimental::barrier);
-	const auto before_count_points = std::chrono::steady_clock::now();
-
+	// WARMUP. TODO: How do we want to handle this in general for this benchmark? Each phase needs new allocations, but we cannot anticipate them in IDAG.
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor read_points(points_input, cgh, celerity::access::one_to_one{}, celerity::read_only);
 		// TODO API: Should this just be a normal accessor? Or simply a pointer?
@@ -165,7 +219,28 @@ int main(int argc, char* argv[]) {
 	});
 
 	queue.wait(celerity::experimental::barrier);
-	const auto before_subrange_calc = std::chrono::steady_clock::now();
+	const auto before_count_points = std::chrono::steady_clock::now();
+	num_entries_scratch.fill(0); // The other two are initialized from host data later on
+
+	queue.submit([&](celerity::handler& cgh) {
+		celerity::accessor read_points(points_input, cgh, celerity::access::one_to_one{}, celerity::read_only);
+		// TODO API: Should this just be a normal accessor? Or simply a pointer?
+		celerity::scratch_accessor write_num_entries_scratch(num_entries_scratch /* TODO write access */);
+		celerity::debug::set_task_name(cgh, "count points");
+
+		// TODO API: How do we launch nd-range kernels with custom geometries? Required for optimized count/write
+		cgh.parallel_for(write_tiles_geometry, [=](celerity::id<1> id) {
+			const auto& p = read_points[id];
+			// grid_size - 1: We divide the domain such the last tile contains the maximum value
+			const auto tile_x = static_cast<uint32_t>((p.x - min.x) / (max.x - min.x) * (grid_size[1] - 1));
+			const auto tile_y = static_cast<uint32_t>((p.y - min.y) / (max.y - min.y) * (grid_size[0] - 1));
+			// Count points in per-chunk scratch buffer
+			sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_num_entries_scratch[{tile_y, tile_x}]};
+			ref++;
+		});
+	});
+
+	print_delta_time("Counting points", before_count_points);
 
 	// Add up counts across ranks
 	// std::vector<celerity::subrange<1>> written_subranges;
@@ -174,7 +249,6 @@ int main(int argc, char* argv[]) {
 	std::vector<uint32_t> num_entries_cumulative(grid_size.size());
 	{
 		MPI_Barrier(MPI_COMM_WORLD);
-		const auto before = std::chrono::steady_clock::now();
 
 		// Get data from per-GPU scratch buffer on this node
 		auto num_entries_per_device = num_entries_scratch.get_data_on_host();
@@ -199,12 +273,22 @@ int main(int argc, char* argv[]) {
 		// 	}
 		// }
 
+		if(rank == 0) {
+			// Compute statistics over tile fill rates
+			const auto minmax = std::minmax_element(num_entries.begin(), num_entries.end());
+			const auto sum = std::accumulate(num_entries.begin(), num_entries.end(), 0);
+			fmt::print("POINTS PER TILE: Min: {}, Max: {}, Avg: {}\n", *minmax.first, *minmax.second, sum / num_entries.size());
+		}
+
 		// Re-initialize for write kernel
 		num_entries_scratch.fill(0);
 
 		// Compute prefix sum
-		// std::vector<uint32_t> write_offsets_for_this_rank(grid_size.size());
+		// TODO: Should we do this on device using e.g. Thrust?
 		std::vector<std::vector<uint32_t>> per_device_write_offsets(num_entries_per_device.size());
+		for(auto& offsets : per_device_write_offsets) {
+			offsets.reserve(grid_size.size());
+		}
 		for(size_t i = 0; i < grid_size.size(); ++i) {
 			if(i > 0) { num_entries_cumulative[i] = num_entries[i - 1] + num_entries_cumulative[i - 1]; }
 			// write_offsets_for_this_rank[i] = num_entries_cumulative[i];
@@ -238,12 +322,12 @@ int main(int argc, char* argv[]) {
 		// fmt::print("Rank {} writes to: {}\n", rank, fmt::join(written_subranges, ", "));
 		celerity::detail::region<1> locally_written_region;
 		for(size_t d = 0; d < num_entries_per_device.size(); ++d) {
-			fmt::print("Rank {} device {} writes to: {}\n", rank, d, fmt::join(written_subranges_per_device[d], ", "));
+			// fmt::print("Rank {} device {} writes to: {}\n", rank, d, fmt::join(written_subranges_per_device[d], ", "));
 			for(const auto& sr : written_subranges_per_device[d]) {
 				locally_written_region = region_union(locally_written_region, celerity::detail::box<1>(sr));
 			}
 		}
-		fmt::print("Rank {} writes to: {}\n", rank, locally_written_region);
+		// fmt::print("Rank {} writes to: {}\n", rank, locally_written_region);
 
 		// TODO: Make this a debug functionality of the expert mapper interface
 		//		=> This is a more expensive variant of what we already do in the graph generators, which is required b/c we don't have
@@ -292,22 +376,11 @@ int main(int argc, char* argv[]) {
 				celerity::detail::utils::panic("Overlapping writes detected: {} is written both locally and by remote nodes", intersection);
 			}
 		};
+		// TODO: Do this only when explicitly enabled via CLI arg
 		verify_written_regions(celerity::detail::box<1>::full_range(points.size()));
-
-		MPI_Barrier(MPI_COMM_WORLD);
-		const auto after = std::chrono::steady_clock::now();
-		if(rank == 0) { fmt::print("Subrange calculation took: {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count()); }
 	}
 
-	queue.wait(celerity::experimental::barrier);
-	const auto before_write_points = std::chrono::steady_clock::now();
-
-	// For the writing kernel, we require that the split is exactly the same; that is the same set of input points is processed by the same nodes (and even
-	// GPUs - will be implemented later).
-	//
-	// This comes back to my idea of "task geometries": I believe we need to get the exact split configuration of the first task FROM Celerity somehow
-	// (unless we want to do the whole split ourselves, for which in this case there is no need). We then re-submit this configuration BACK to Celerity,
-	// alongside detailed data access ranges.
+	print_delta_time("Subrange calculation");
 
 	using celerity::subrange;
 	using celerity::detail::box;
@@ -327,12 +400,11 @@ int main(int argc, char* argv[]) {
 			}
 			per_chunk_accesses.push_back({chunks[i], region<3>{std::move(device_ranges)}});
 		} else {
-			per_chunk_accesses.push_back({chunks[i], {}});
+			per_chunk_accesses.push_back({chunks[i], {}}); // TODO: Do we even need to do this? (Ideally not!)
 		}
 	}
 	celerity::expert_mapper tile_accesses{box_cast<3>(box<1>::full_range(tiles_storage.get_range())), per_chunk_accesses};
 
-	// TODO: Prototype this - can we use the SAME CGF from above for this? (user should only have to write it once)
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor read_points(points_input, cgh, celerity::access::one_to_one{}, celerity::read_only);
 		celerity::accessor write_tiles(tiles_storage, cgh, tile_accesses, celerity::write_only, celerity::no_init);
@@ -352,14 +424,13 @@ int main(int argc, char* argv[]) {
 		});
 	});
 
+	print_delta_time("Writing points");
+
 	// Copy *global* counts back to device for shape factor kernel (currently we again store local counts)
 	// TODO: Should we use two different buffers for this..? It's kinda confusing (this copy missing was a bug!)
 	//       => Or just std::move it to a new name?
-	queue.wait(celerity::experimental::barrier);
 	// TODO: This is now again the same value for all chunks, so we should either use a different scratch buffer w/ node scope, or have a broadcast function
 	num_entries_scratch.set_data_from_host(std::vector<std::vector<unsigned int>>(num_devices, num_entries));
-
-	const auto before_shape_factors = std::chrono::steady_clock::now();
 
 	// =============== Compute shape factors ===============
 	// For this we first have to split up the tile storage into roughly equally sized parts, along tile boundaries (i.e., only distribute whole tiles)
@@ -372,6 +443,7 @@ int main(int argc, char* argv[]) {
 
 	// FIXME: Don't compute per-device chunks for remote nodes
 	/*const*/ auto shape_factor_geometry = compute_task_geometry(num_ranks * num_devices, points.size(), num_entries_cumulative);
+	print_delta_time("Shape factor geometry computation");
 	// FIXME HACK: Have to rewrite assignments b/c compute_task_geometry is not device-aware yet
 	for(size_t i = 0; i < shape_factor_geometry.assigned_chunks.size(); ++i) {
 		shape_factor_geometry.assigned_chunks[i].nid = i / num_devices;
@@ -389,6 +461,7 @@ int main(int argc, char* argv[]) {
 
 	const auto per_chunk_neighborhood_reads =
 	    compute_neighborhood_reads_2d(shape_factor_geometry, grid_size, points.size(), num_entries, num_entries_cumulative);
+	print_delta_time("Neighborhood reads computation");
 
 	if(shape_factor_geometry.assigned_chunks.size() != (size_t)num_ranks * num_devices) {
 		CELERITY_CRITICAL("Failed to create enough chunks for all ranks");
@@ -474,7 +547,7 @@ int main(int argc, char* argv[]) {
 			std::array<std::array<double, 3>, 3> matrix{{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}};
 
 			const int local_search_radius = 1; // NOTE: We also assume this for the neighborhood range calculation!
-			const double radius = 5.0;
+			const double radius = tile_size;   // TODO: Decouple these two parameters. Needs adjustment to compute_neighborhood_reads_2d
 			double sum_fermi = 0.0;
 			for(int j = -local_search_radius; j <= local_search_radius; ++j) {
 				for(int k = -local_search_radius; k <= local_search_radius; ++k) {
@@ -528,58 +601,50 @@ int main(int argc, char* argv[]) {
 		});
 	});
 
-	queue.wait(celerity::experimental::barrier);
-	const auto before_write_output = std::chrono::steady_clock::now();
+	print_delta_time("Shape factor computation");
 
-	queue.submit([&](celerity::handler& cgh) {
-		celerity::accessor read_points(tiles_storage, cgh, celerity::access::all{}, celerity::read_only_host_task);
-		celerity::accessor read_shape_factors(shape_factors, cgh, celerity::access::all{}, celerity::read_only_host_task);
+	if(write_output) {
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::accessor read_points(tiles_storage, cgh, celerity::access::all{}, celerity::read_only_host_task);
+			celerity::accessor read_shape_factors(shape_factors, cgh, celerity::access::all{}, celerity::read_only_host_task);
 
-		cgh.host_task(celerity::on_master_node, [=]() {
-			CELERITY_INFO("Writing output to disk...");
+			cgh.host_task(celerity::on_master_node, [=]() {
+				CELERITY_INFO("Writing output to disk...");
 
-			const auto write_to_file = [&](const std::string& filename, const auto* data) {
-				std::ofstream file(filename, std::ios::binary);
-				for(size_t y = 0; y < grid_size[0]; ++y) {
-					for(size_t x = 0; x < grid_size[1]; ++x) {
-						struct header {
-							int x, y, count;
-						};
+				const auto write_to_file = [&](const std::string& filename, const auto* data) {
+					std::ofstream file(filename, std::ios::binary);
+					for(size_t y = 0; y < grid_size[0]; ++y) {
+						for(size_t x = 0; x < grid_size[1]; ++x) {
+							struct header {
+								int x, y, count;
+							};
 
-						header hdr = {static_cast<int>(x), static_cast<int>(y), static_cast<int>(num_entries[y * grid_size[1] + x])};
-						file.write(reinterpret_cast<const char*>(&hdr), sizeof(header));
-						file.write(reinterpret_cast<const char*>(&data[num_entries_cumulative[y * grid_size[1] + x]]),
-						    num_entries[y * grid_size[1] + x] * sizeof(*data));
+							header hdr = {static_cast<int>(x), static_cast<int>(y), static_cast<int>(num_entries[y * grid_size[1] + x])};
+							file.write(reinterpret_cast<const char*>(&hdr), sizeof(header));
+							file.write(reinterpret_cast<const char*>(&data[num_entries_cumulative[y * grid_size[1] + x]]),
+							    num_entries[y * grid_size[1] + x] * sizeof(*data));
+						}
 					}
+				};
+
+				// since sycl::double3 is padded to 4 * sizeof(double), we have to pack it first
+				std::vector<umuguc_point3d> packed_shape_factors(points.size());
+				for(size_t i = 0; i < points.size(); ++i) {
+					const auto& sf = read_shape_factors[i];
+					packed_shape_factors[i].x = sf.x();
+					packed_shape_factors[i].y = sf.y();
+					packed_shape_factors[i].z = sf.z();
 				}
-			};
-
-			// since sycl::double3 is padded to 4 * sizeof(double), we have to pack it first
-			std::vector<umuguc_point3d> packed_shape_factors(points.size());
-			for(size_t i = 0; i < points.size(); ++i) {
-				const auto& sf = read_shape_factors[i];
-				packed_shape_factors[i].x = sf.x();
-				packed_shape_factors[i].y = sf.y();
-				packed_shape_factors[i].z = sf.z();
-			}
-			write_to_file("umuguc_points_output.bin", read_points.get_pointer());
-			write_to_file("umuguc_shape_factors_output.bin", packed_shape_factors.data());
+				write_to_file("umuguc_points_output.bin", read_points.get_pointer());
+				write_to_file("umuguc_shape_factors_output.bin", packed_shape_factors.data());
+			});
 		});
-	});
-
-	queue.wait(celerity::experimental::barrier);
-
-	if(rank == 0) {
-		const auto after = std::chrono::steady_clock::now();
-		fmt::print("Counting points took: {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(before_subrange_calc - before_count_points).count());
-		fmt::print(
-		    "Subrange calculation took: {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(before_write_points - before_subrange_calc).count());
-		fmt::print("Writing points took: {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(before_shape_factors - before_write_points).count());
-		fmt::print(
-		    "Shape factor computation took: {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(before_write_output - before_shape_factors).count());
-		fmt::print("Writing output took: {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(after - before_write_output).count());
-		fmt::print("TOTAL TIME: {}ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(after - before_count_points).count());
+		queue.wait(celerity::experimental::barrier);
 	}
+
+	if(write_output) print_delta_time("Writing output");
+
+	print_delta_time("TOTAL TIME", before_count_points);
 
 	return 0;
 }

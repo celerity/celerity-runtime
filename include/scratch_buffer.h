@@ -9,6 +9,9 @@
 
 // EXTREMELY HACKY T0 PROOF-OF-CONCEPT IMPLEMENTATION
 
+// T0 implementation: Scratch accessors do not create dependencies within TDAG.
+// User needs to manually ensure that there are no conflicting accesses.
+
 namespace celerity::detail::scratch_buffer_detail {
 
 struct scratch_allocation {
@@ -93,8 +96,8 @@ class scratch_buffer {
 			while(!event.is_complete()) {}
 			auto ptr = event.get_result();
 			allocs.emplace_back(sr, detail::range_cast<3>(range), *did, ptr);
-			CELERITY_CRITICAL("Pointer for scratch buffer of size {} for chunk {} on device {}: {}. Alloc size is {}*{} = {} bytes", range, sr, *did, ptr,
-			    range.size(), sizeof(DataT), range.size() * sizeof(DataT));
+			// CELERITY_CRITICAL("Pointer for scratch buffer of size {} for chunk {} on device {}: {}. Alloc size is {}*{} = {} bytes", range, sr, *did, ptr,
+			//     range.size(), sizeof(DataT), range.size() * sizeof(DataT));
 		}
 
 		m_bid = scratch_buffer_detail::HACK_scratch_buffer_registry::get_instance().register_buffer(std::move(allocs));
@@ -185,7 +188,7 @@ class scratch_accessor {
 			const auto& alloc = detail::scratch_buffer_detail::HACK_scratch_buffer_registry::get_instance().get_allocation(m_bid, sr);
 			m_ptr = static_cast<DataT*>(alloc.ptr);
 			m_allocation_range = detail::range_cast<Dims>(alloc.buffer_range);
-			CELERITY_CRITICAL("HYDRATED scratch_accessor for buffer {} with size {} for chunk {} with ptr {}", m_bid, m_allocation_range, sr, (void*)m_ptr);
+			// CELERITY_CRITICAL("HYDRATED scratch_accessor for buffer {} with size {} for chunk {} with ptr {}", m_bid, m_allocation_range, sr, (void*)m_ptr);
 		}
 #endif
 	}
