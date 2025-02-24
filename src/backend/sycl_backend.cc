@@ -244,7 +244,7 @@ async_event sycl_backend::enqueue_device_memset(device_id device, void* ptr, int
 	// TODO: Specify lane?
 	return enqueue_device_work(device, 0, [ptr, value, count, this](sycl::queue& queue) {
 		CELERITY_DETAIL_TRACY_ZONE_SCOPED("sycl::fill", generic_yellow);
-		auto event = queue.fill(ptr, value, count);
+		auto event = queue.fill<unsigned char>(ptr, value, count);
 		return make_async_event<sycl_backend_detail::sycl_event>(std::move(event), m_impl->config.profiling);
 	});
 }
