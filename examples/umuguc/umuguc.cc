@@ -110,6 +110,10 @@ int main(int argc, char* argv[]) {
 	consume_args(1, 1, &argc, &argv);
 	const bool write_output = get_flag("--write-output", &argc, &argv);
 	const double tile_size = get_arg<double>("--tile-size", &argc, &argv).value_or(1.0);
+	const size_t duplicate_input = get_arg<size_t>("--duplicate-input", &argc, &argv).value_or(1);
+	// We need inputs to be "long" in the 0th dimension for our planned (NYI) prefix sum implementation
+	// to work (somewhat) efficiently; we may have to rotate some files.
+	const bool swap_xy = get_flag("--swap-xy", &argc, &argv);
 	if(argc != 1) usage();
 
 	fmt::print("Using tile size {:.1f}\n", tile_size);
@@ -134,14 +138,17 @@ int main(int argc, char* argv[]) {
 	// std::vector<umuguc_point3d> points(10'000);
 	// input.read(reinterpret_cast<char*>(points.data()), points.size() * sizeof(umuguc_point3d));
 
-	if(points.size() > std::numeric_limits<uint32_t>::max()) {
+	if(points.size() * duplicate_input > std::numeric_limits<uint32_t>::max()) {
 		fmt::print(stderr, "Too many points for 32 bit counting. Time to upgrade!: {}\n", points.size());
 		return 1;
 	}
 
+	// TODO: We should get this from metadata
 	umuguc_point3d min = {std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), std::numeric_limits<double>::max()};
 	umuguc_point3d max = {std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest()};
-	for(const auto& p : points) {
+	for(auto& p : points) {
+		if(swap_xy) { std::swap(p.x, p.y); }
+
 		min.x = std::min(min.x, p.x);
 		min.y = std::min(min.y, p.y);
 		min.z = std::min(min.z, p.z);
@@ -153,19 +160,41 @@ int main(int argc, char* argv[]) {
 	fmt::print("Min: ({:.1f}, {:.1f}, {:.1f}), Max: ({:.1f}, {:.1f}, {:.1f}). Extent: ({:.1f}, {:.1f}, {:.1f})\n", min.x, min.y, min.z, max.x, max.y, max.z,
 	    max.x - min.x, max.y - min.y, max.z - min.z);
 
-	const celerity::range<2> grid_size = {static_cast<uint32_t>((max.y - min.y) / tile_size), static_cast<uint32_t>((max.x - min.x) / tile_size)};
+	// If we are duplicateing the input, we want to ensure that we are splitting it in such a way that we get a realistic level of overlap between GPUs / nodes.
+	// Simply duplicating the input and offsetting it does not achieve this. Instead we want the split to be halfway through the original data set.
+	if(duplicate_input > 1) {
+		const size_t original_size = points.size();
+		points.insert(points.end(), points.begin(), points.end());
+		for(auto& p : points) {
+			p.y += max.y - min.y;
+		}
+		points.erase(points.begin(), points.begin() + original_size / 2);
+		points.erase(points.begin() + original_size, points.end());
+		// Now recompute bounding box
+		min.y = std::numeric_limits<double>::max();
+		max.y = std::numeric_limits<double>::lowest();
+		for(auto& p : points) {
+			min.y = std::min(min.y, p.y);
+			max.y = std::max(max.y, p.y);
+		}
+		fmt::print("NEW BOUNDING BOX: Min: ({:.1f}, {:.1f}, {:.1f}), Max: ({:.1f}, {:.1f}, {:.1f}). Extent: ({:.1f}, {:.1f}, {:.1f})\n", min.x, min.y, min.z,
+		    max.x, max.y, max.z, max.x - min.x, max.y - min.y, max.z - min.z);
+	}
+
+	const umuguc_point3d input_extent = {max.x - min.x, (max.y - min.y) * duplicate_input, max.z - min.z};
+	const celerity::range<2> grid_size = {static_cast<uint32_t>(input_extent.y / tile_size), static_cast<uint32_t>(input_extent.x / tile_size)};
 	if(grid_size.size() == 0) {
 		CELERITY_CRITICAL("Grid size is {}x{} - try smaller tile size", grid_size[1], grid_size[0]);
 		exit(1);
 	}
-	fmt::print(
-	    "Using buffer size: {}x{}, tile size: {:.1f}x{:.1f}\n", grid_size[1], grid_size[0], (max.x - min.x) / grid_size[1], (max.y - min.y) / grid_size[0]);
+	fmt::print("Using buffer size: {}x{}, tile size: {:.1f}x{:.1f}\n", grid_size[1], grid_size[0], (max.x - min.x) / grid_size[1],
+	    (max.y - min.y) * duplicate_input / grid_size[0]);
 
 	celerity::queue queue;
 
-	celerity::buffer<umuguc_point3d, 1> points_input(points.data(), points.size());
+	celerity::buffer<umuguc_point3d, 1> points_input(points.size() * duplicate_input);
 	celerity::debug::set_buffer_name(points_input, "points input");
-	celerity::buffer<umuguc_point3d, 1> tiles_storage(points.size());
+	celerity::buffer<umuguc_point3d, 1> tiles_storage(points.size() * duplicate_input);
 	celerity::debug::set_buffer_name(tiles_storage, "tiles storage");
 
 	auto& rt = celerity::detail::runtime::get_instance();
@@ -175,6 +204,11 @@ int main(int argc, char* argv[]) {
 	// //           => Ideally we should simply not create per-device chunks for remote nodes
 	const size_t num_devices = rt.NOCOMMIT_get_num_local_devices();
 
+	if(duplicate_input % num_ranks != 0) {
+		// This is because we don't want to have to compute an exact bounding box for each rank for arbitrary splits.
+		throw std::runtime_error(fmt::format("Input multiplier ({}) must be divisible by number of ranks ({})", duplicate_input, num_ranks));
+	}
+
 	auto print_delta_time = [&, previous = clk::now()](std::string_view description, std::optional<clk::time_point> against = std::nullopt) mutable {
 		queue.wait(celerity::experimental::barrier);
 		const auto now = clk::now();
@@ -183,6 +217,20 @@ int main(int argc, char* argv[]) {
 		if(rank == 0) { fmt::print("{}: {} ms\n", description, std::chrono::duration_cast<std::chrono::milliseconds>(dt).count()); }
 		previous = now;
 	};
+
+	queue.submit([&](celerity::handler& cgh) {
+		celerity::accessor write_points(points_input, cgh, celerity::access::one_to_one{}, celerity::write_only_host_task, celerity::no_init);
+		cgh.host_task(points_input.get_range(), [=](celerity::partition<1> part) {
+			if(part.get_subrange().offset[0] % points.size() != 0) throw std::runtime_error("Partition offset is not a multiple of input size?");
+			celerity::experimental::for_each_item(part, [&](celerity::item<1> itm) {
+				const size_t offset = itm[0] / points.size();
+				auto pt = points[itm[0] % points.size()];
+				pt.y += (max.y - min.y) * offset;
+				write_points[itm] = pt;
+				if(offset != 0 && itm[0] % points.size() == 0) { fmt::print("Offsetting by {} in y\n", offset * (max.y - min.y)); }
+			});
+		});
+	});
 
 	// TODO API: No need to split remote chunks into per-device chunks
 	auto chunks =
@@ -210,8 +258,8 @@ int main(int argc, char* argv[]) {
 		cgh.parallel_for(write_tiles_geometry, [=](celerity::id<1> id) {
 			const auto& p = read_points[id];
 			// grid_size - 1: We divide the domain such the last tile contains the maximum value
-			const auto tile_x = static_cast<uint32_t>((p.x - min.x) / (max.x - min.x) * (grid_size[1] - 1));
-			const auto tile_y = static_cast<uint32_t>((p.y - min.y) / (max.y - min.y) * (grid_size[0] - 1));
+			const auto tile_x = static_cast<uint32_t>((p.x - min.x) / input_extent.x * (grid_size[1] - 1));
+			const auto tile_y = static_cast<uint32_t>((p.y - min.y) / input_extent.y * (grid_size[0] - 1));
 			// Count points in per-chunk scratch buffer
 			sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_num_entries_scratch[{tile_y, tile_x}]};
 			ref++;
@@ -232,8 +280,8 @@ int main(int argc, char* argv[]) {
 		cgh.parallel_for(write_tiles_geometry, [=](celerity::id<1> id) {
 			const auto& p = read_points[id];
 			// grid_size - 1: We divide the domain such the last tile contains the maximum value
-			const auto tile_x = static_cast<uint32_t>((p.x - min.x) / (max.x - min.x) * (grid_size[1] - 1));
-			const auto tile_y = static_cast<uint32_t>((p.y - min.y) / (max.y - min.y) * (grid_size[0] - 1));
+			const auto tile_x = static_cast<uint32_t>((p.x - min.x) / input_extent.x * (grid_size[1] - 1));
+			const auto tile_y = static_cast<uint32_t>((p.y - min.y) / input_extent.y * (grid_size[0] - 1));
 			// Count points in per-chunk scratch buffer
 			sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_num_entries_scratch[{tile_y, tile_x}]};
 			ref++;
@@ -243,7 +291,7 @@ int main(int argc, char* argv[]) {
 	print_delta_time("Counting points", before_count_points);
 
 	// Add up counts across ranks
-	// std::vector<celerity::subrange<1>> written_subranges;
+	// TODO: This should just be a vector of regions
 	std::vector<std::vector<celerity::subrange<1>>> written_subranges_per_device;
 	std::vector<uint32_t> num_entries(grid_size.size());
 	std::vector<uint32_t> num_entries_cumulative(grid_size.size());
@@ -377,7 +425,7 @@ int main(int argc, char* argv[]) {
 			}
 		};
 		// TODO: Do this only when explicitly enabled via CLI arg
-		verify_written_regions(celerity::detail::box<1>::full_range(points.size()));
+		verify_written_regions(celerity::detail::box<1>::full_range(points_input.get_range().size()));
 	}
 
 	print_delta_time("Subrange calculation");
@@ -416,8 +464,8 @@ int main(int argc, char* argv[]) {
 			// TODO: Keep DRY with above
 			const auto& p = read_points[id];
 			// grid_size - 1: We divide the domain such the last tile contains the maximum value
-			const auto tile_x = static_cast<uint32_t>((p.x - min.x) / (max.x - min.x) * (grid_size[1] - 1));
-			const auto tile_y = static_cast<uint32_t>((p.y - min.y) / (max.y - min.y) * (grid_size[0] - 1));
+			const auto tile_x = static_cast<uint32_t>((p.x - min.x) / input_extent.x * (grid_size[1] - 1));
+			const auto tile_y = static_cast<uint32_t>((p.y - min.y) / input_extent.y * (grid_size[0] - 1));
 			sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_num_entries_scratch[{tile_y, tile_x}]};
 			const uint32_t offset = ref.fetch_add(uint32_t(1));
 			write_tiles[read_write_offsets_scratch[{tile_y, tile_x}] + offset] = p;
@@ -442,7 +490,7 @@ int main(int argc, char* argv[]) {
 	// IMPORTANT: We have to compute the neighborhood reads for all ranks on every rank!
 
 	// FIXME: Don't compute per-device chunks for remote nodes
-	/*const*/ auto shape_factor_geometry = compute_task_geometry(num_ranks * num_devices, points.size(), num_entries_cumulative);
+	/*const*/ auto shape_factor_geometry = compute_task_geometry(num_ranks * num_devices, points_input.get_range().size(), num_entries_cumulative);
 	print_delta_time("Shape factor geometry computation");
 	// FIXME HACK: Have to rewrite assignments b/c compute_task_geometry is not device-aware yet
 	for(size_t i = 0; i < shape_factor_geometry.assigned_chunks.size(); ++i) {
@@ -460,7 +508,7 @@ int main(int argc, char* argv[]) {
 	/////////// EXTREME HACK //////////////
 
 	const auto per_chunk_neighborhood_reads =
-	    compute_neighborhood_reads_2d(shape_factor_geometry, grid_size, points.size(), num_entries, num_entries_cumulative);
+	    compute_neighborhood_reads_2d(shape_factor_geometry, grid_size, points_input.get_range().size(), num_entries, num_entries_cumulative);
 	print_delta_time("Neighborhood reads computation");
 
 	if(shape_factor_geometry.assigned_chunks.size() != (size_t)num_ranks * num_devices) {
@@ -491,7 +539,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	celerity::expert_mapper read_tile_neighborhood(
-	    celerity::detail::subrange_cast<3>(celerity::subrange<1>{{}, points.size()}), shape_factors_per_chunk_accesses);
+	    celerity::detail::subrange_cast<3>(celerity::subrange<1>{{}, points_input.get_range().size()}), shape_factors_per_chunk_accesses);
 
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor read_tiles(tiles_storage, cgh, read_tile_neighborhood, celerity::read_only);
@@ -500,7 +548,7 @@ int main(int argc, char* argv[]) {
 		celerity::scratch_accessor read_num_entries_cumulative_scratch(num_entries_cumulative_scratch_2);
 		celerity::debug::set_task_name(cgh, "compute shape factors");
 
-		cgh.parallel_for(shape_factor_geometry, [=, total_size = points.size()](celerity::id<1> id) {
+		cgh.parallel_for(shape_factor_geometry, [=, total_size = points_input.get_range().size()](celerity::id<1> id) {
 			const auto outer_product = [](const umuguc_point3d& p) {
 				// create the matrix by calculating p * p^T
 				std::array<std::array<double, 3>, 3> matrix;
@@ -628,8 +676,8 @@ int main(int argc, char* argv[]) {
 				};
 
 				// since sycl::double3 is padded to 4 * sizeof(double), we have to pack it first
-				std::vector<umuguc_point3d> packed_shape_factors(points.size());
-				for(size_t i = 0; i < points.size(); ++i) {
+				std::vector<umuguc_point3d> packed_shape_factors(points_input.get_range().size());
+				for(size_t i = 0; i < points_input.get_range().size(); ++i) {
 					const auto& sf = read_shape_factors[i];
 					packed_shape_factors[i].x = sf.x();
 					packed_shape_factors[i].y = sf.y();
