@@ -480,44 +480,26 @@ void command_graph_generator::update_local_buffer_fresh_regions(const task& tsk,
 }
 
 void command_graph_generator::generate_distributed_commands(batch& current_batch, const task& tsk) {
+	// If it's a generator kernel, we generate commands immediately and skip partial generation altogether.
 	if(is_generator_kernel(tsk)) {
-		// Identify the single discard_write buffer
-		const auto [gen_bid, gen_mode] = tsk.get_buffer_access_map().get_nth_access(0);
-
-		// 2D-split the full iteration space
-		const chunk<3> full{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
-		auto splitted = split_2d(full, tsk.get_granularity(), m_num_nodes);
-
-		// Assign each chunk to a node in the same way as split_task_and_assign_chunks:
-		std::vector<assigned_chunk> forced_chunks;
-		forced_chunks.reserve(splitted.size());
-		const auto chunks_per_node = std::max<size_t>(1, splitted.size() / m_num_nodes);
-		for(size_t i = 0; i < splitted.size(); ++i) {
-			const node_id nid = (i / chunks_per_node) % m_num_nodes;
-			forced_chunks.push_back({nid, splitted[i]});
-		}
-
-		// For each assigned_chunk, create a command if it belongs to our node
+		// Identify which buffer is discard-written
+		const auto [gen_bid, _] = tsk.get_buffer_access_map().get_nth_access(0);
 		auto& bstate = m_buffers.at(gen_bid);
-		for(const auto& a_chunk : forced_chunks) {
-			if(a_chunk.executed_on != m_local_nid) continue; // skip remote nodes
+		const auto chunks = split_task_and_assign_chunks(tsk);
 
-			// Create local execution command that covers a_chunk.chnk
-			auto* cmd = create_command<execution_command>(current_batch, &tsk, subrange<3>{a_chunk.chnk}, false, [&](auto&& record_debug_info) {
-				// record debug
-				record_debug_info(tsk, [this](buffer_id b) { return m_buffers.at(b).debug_name; });
-			});
+		// Create a command for each chunk that belongs to our local node.
+		for(const auto& a_chunk : chunks) {
+			if(a_chunk.executed_on != m_local_nid) continue;
+			auto* cmd = create_command<execution_command>(current_batch, &tsk, subrange<3>{a_chunk.chnk}, false,
+			    [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
 
-			// Mark that region as freshly written
-			const auto& off = a_chunk.chnk.offset;
-			const auto& rng = a_chunk.chnk.range;
-			box<3> bx(off, off + rng);
-			region_builder<3> rb;
-			rb.add(bx);
-			auto region_covered = std::move(rb).into_region();
-			bstate.local_last_writer.update_region(region_covered, cmd);
-			bstate.initialized_region = region_union(bstate.initialized_region, region_covered);
+			// Mark that subrange as freshly written, so there’s no “uninitialized read” later.
+			box<3> write_box(a_chunk.chnk.offset, a_chunk.chnk.offset + a_chunk.chnk.range);
+			region<3> written_region{write_box};
+			bstate.local_last_writer.update_region(written_region, cmd);
+			bstate.initialized_region = region_union(bstate.initialized_region, written_region);
 		}
+		// Return here so we skip the normal device-logic below.
 		return;
 	}
 
@@ -571,65 +553,40 @@ void command_graph_generator::generate_distributed_commands(batch& current_batch
 		}
 
 		for(const auto& [bid, consumed, produced] : requirements) {
-			auto& bstate = m_buffers.at(bid);
+			auto& buffer = m_buffers.at(bid);
 
-			// PARTIAL GENERATION: if this buffer belongs to a generator kernel and we read data
-			if(bstate.generator_task != nullptr && !consumed.empty()) {
-				// Which region is still uninitialized?
-				auto missing = region_difference(consumed, bstate.initialized_region);
-				if(!missing.empty()) {
-					auto missing_box = bounding_box(missing);
-
-					// Create partial execution command for the “init” kernel
-					auto* gen_cmd =
-					    create_command<execution_command>(current_batch, bstate.generator_task, subrange<3>{missing_box.get_min(), missing_box.get_range()},
-					        /* is_reduction_init */ false, [&](auto&& record_debug_info) {
-						        // debug info optional
-					        });
-
-					// Mark that region as locally fresh
-					bstate.local_last_writer.update_region(missing, gen_cmd);
-					bstate.initialized_region = region_union(bstate.initialized_region, missing);
-
-					// If you never expect more partial subranges, optionally:
-					// bstate.generator_task = nullptr;
-				}
-			}
-
+			// Process consuming accesses first, so we don't add dependencies onto our own writes
 			if(!consumed.empty()) {
-				for(const auto& [subbox, wcs] : bstate.local_last_writer.get_region_values(consumed)) {
-					if(!subbox.empty() && !wcs.is_fresh()) {
-						utils::report_error(m_policy.uninitialized_read_error, "Command C{} on N{} reads uninitialized region {} of buffer {}", cmd->get_id(),
-						    m_local_nid, subbox, print_buffer_debug_label(bid));
-					}
+				for(const auto& [box, wcs] : buffer.local_last_writer.get_region_values(consumed)) {
+					if(box.empty()) continue;
+					assert(wcs.is_fresh() && "Unresolved remote data dependency");
 					add_dependency(cmd, wcs, dependency_kind::true_dep, dependency_origin::dataflow);
 				}
-				// record these reads
-				m_command_buffer_reads[cmd->get_id()][bid] = region_union(m_command_buffer_reads[cmd->get_id()][bid], consumed);
+
+				// Store the read access for determining anti-dependencies later on
+				m_command_buffer_reads[cmd->get_id()].emplace(bid, consumed);
 			}
 
 			if(!produced.empty()) {
-				generate_anti_dependencies(tsk, bid, bstate.local_last_writer, produced, cmd);
-
-				// Update last writer
-				bstate.local_last_writer.update_region(produced, cmd);
-				bstate.replicated_regions.update_region(produced, node_bitset{});
+				generate_anti_dependencies(tsk, bid, buffer.local_last_writer, produced, cmd);
+				buffer.local_last_writer.update_region(produced, cmd);
+				buffer.replicated_regions.update_region(produced, node_bitset{});
 
 				// In case this buffer was in a pending reduction state we discarded the result and need to remove the pending reduction.
-				if(bstate.pending_reduction.has_value()) {
-					m_completed_reductions.push_back(bstate.pending_reduction->rid);
-					bstate.pending_reduction.reset();
+				if(buffer.pending_reduction.has_value()) {
+					m_completed_reductions.push_back(buffer.pending_reduction->rid);
+					buffer.pending_reduction = std::nullopt;
 				}
 
-				// Track local writes
-				per_buffer_local_writes[bid] = region_union(per_buffer_local_writes[bid], produced);
+				per_buffer_local_writes.emplace(bid, produced);
 			}
 
 			if(m_policy.uninitialized_read_error != error_policy::ignore) {
-				auto uninit = region_difference(consumed, bstate.initialized_region);
-				if(!uninit.empty()) {
-					utils::report_error(m_policy.uninitialized_read_error, "Command C{} on N{} reads region {} of buffer {} that was never written",
-					    cmd->get_id(), m_local_nid, uninit, print_buffer_debug_label(bid));
+				if(const auto uninitialized_reads = region_difference(consumed, buffer.initialized_region); !uninitialized_reads.empty()) {
+					utils::report_error(m_policy.uninitialized_read_error,
+					    "Command C{} on N{}, which executes {} of {}, reads {} {}, which has not been written by any node.", cmd->get_id(), m_local_nid,
+					    box(subrange(a_chunk.chnk.offset, a_chunk.chnk.range)), print_task_debug_label(tsk), print_buffer_debug_label(bid),
+					    uninitialized_reads);
 				}
 			}
 		}
