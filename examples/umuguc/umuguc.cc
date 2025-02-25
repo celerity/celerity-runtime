@@ -2,6 +2,7 @@
 
 #include <celerity.h>
 #include <fmt/ranges.h>
+#include <nccl.h>
 
 // TODO: A proper task geometry API should also offer splitting utilities
 #include "scratch_buffer.h"
@@ -59,6 +60,56 @@ using clk = std::chrono::steady_clock;
  *   semi-related computation shouldn't be done there anyway.
  */
 
+
+/**
+ * FEBRUARY 2025 REVISION
+ *
+ * - We cannot compute the full dense offset/count grid on each node
+ * - We cannot compute the offset/count grid on the host
+ *
+ * - Input is split along duplicated bounding boxes, each node knows its total bounding box
+ * - For simplicity: All devices allocate the full count buffer for the local bounding box
+ *    => We EXTEND the bounding box along the 1-dimension to make the prefix sum calculation easier later on
+ * - Each device computes its count per tile
+ *
+ * - ONE device (e.g. device 0) computes the sum across all local devices (using NCCL)
+ *   - These counts are written into the SLICE for the local node in the 3D counts buffer (using interop task we can directly write to that slice using NCCL?)
+ *
+ * - All nodes exchange their bounding boxes (using MPI, but we should have a utility for that)
+ * - Each node computes the set of nodes that overlap with its bounding box
+ * - Each node launches a task with multiple chunks (all on device 0?) that computes the sum of the per-node counts
+ * 	  => Each node now has the global counts for its bounding box
+ * - Each node computes the prefix sum for its bounding box (Q: In a scratch buffer?)
+ *	  => Parts of the bounding box that overlap between nodes will be computed multiple times
+ * - In a new 1D buffer, the node with the lowest rank that owns a row of the bounding box writes the COUNT per row
+ *    => This can be computed as the difference between the current row and the previous
+ * - Each node reads from the 1D buffer up until the starting coordinate of its bounding box and computes the sum
+ * - Each node adds the previously computed sum to its local prefix sum
+ *	 => At this point, each node now has the full prefix sum for its bounding box
+ *   => NOTE: We may have to write this (again using lowest rank order) to a global buffer for determining shape factor kernel chunks later on
+ *            BIG OOF: How would another node know that a particular node needs this data though?! We can't just read the full thing, that is the whole point
+ *                     (or, at least half the point, we don't want to compute and store the whole thing)
+ *            => I guess we have to start by reading the whole thing on all nodes and then figure something out later. Can't solve everything at once...
+ *
+ * - Repeat previous step for computing sums in overlapping bounding boxes, but now do it only for nodes with a lower rank
+ * - Finally, on each device compute the sum of the rank offset and the count of all lower devices
+ *
+ * - THEN WE ARE READY TO WRITE POINTS. JEEZ.
+ *
+ * =======================
+ *
+ * Q: Can we do a "light" variant first, where we do the partial bounding boxes, but compute everything within host tasks / in main thread?
+ */
+
+#define NCCL_CHECK(cmd)                                                                                                                                        \
+	do {                                                                                                                                                       \
+		ncclResult_t res = cmd;                                                                                                                                \
+		if(res != ncclSuccess) {                                                                                                                               \
+			printf("Failed, NCCL error %s:%d '%s'\n", __FILE__, __LINE__, ncclGetErrorString(res));                                                            \
+			exit(EXIT_FAILURE);                                                                                                                                \
+		}                                                                                                                                                      \
+	} while(0)
+
 struct umuguc_point3d {
 	double x, y, z;
 
@@ -110,6 +161,8 @@ int main(int argc, char* argv[]) {
 	consume_args(1, 1, &argc, &argv);
 	const bool write_output = get_flag("--write-output", &argc, &argv);
 	const double tile_size = get_arg<double>("--tile-size", &argc, &argv).value_or(1.0);
+	// TODO: Consider adding an offset parameter that controls by how many bounding boxes duplicated inputs are offset (default 1)
+	//       This way we could test different levels of overlap between nodes
 	const size_t duplicate_input = get_arg<size_t>("--duplicate-input", &argc, &argv).value_or(1);
 	// We need inputs to be "long" in the 0th dimension for our planned (NYI) prefix sum implementation
 	// to work (somewhat) efficiently; we may have to rotate some files.
@@ -160,14 +213,18 @@ int main(int argc, char* argv[]) {
 	fmt::print("Min: ({:.1f}, {:.1f}, {:.1f}), Max: ({:.1f}, {:.1f}, {:.1f}). Extent: ({:.1f}, {:.1f}, {:.1f})\n", min.x, min.y, min.z, max.x, max.y, max.z,
 	    max.x - min.x, max.y - min.y, max.z - min.z);
 
-	// If we are duplicateing the input, we want to ensure that we are splitting it in such a way that we get a realistic level of overlap between GPUs / nodes.
+	const double original_extent_y = max.y - min.y;
+
+	// If we are duplicating the input, we want to ensure that we are splitting it in such a way that we get a realistic level of overlap between GPUs / nodes.
 	// Simply duplicating the input and offsetting it does not achieve this. Instead we want the split to be halfway through the original data set.
 	if(duplicate_input > 1) {
 		const size_t original_size = points.size();
+		// Insert a copy and move it down by one bounding box
 		points.insert(points.end(), points.begin(), points.end());
-		for(auto& p : points) {
-			p.y += max.y - min.y;
+		for(size_t i = original_size; i < points.size(); ++i) {
+			points[i].y += max.y - min.y;
 		}
+		// Now delete the first half of the original data set, and second half of copy
 		points.erase(points.begin(), points.begin() + original_size / 2);
 		points.erase(points.begin() + original_size, points.end());
 		// Now recompute bounding box
@@ -204,6 +261,11 @@ int main(int argc, char* argv[]) {
 	// //           => Ideally we should simply not create per-device chunks for remote nodes
 	const size_t num_devices = rt.NOCOMMIT_get_num_local_devices();
 
+	std::vector<ncclComm_t> nccl_comms(num_devices);
+	std::vector<int> device_ids(num_devices);
+	std::iota(device_ids.begin(), device_ids.end(), 0);
+	NCCL_CHECK(ncclCommInitAll(nccl_comms.data(), num_devices, device_ids.data()));
+
 	if(duplicate_input % num_ranks != 0) {
 		// This is because we don't want to have to compute an exact bounding box for each rank for arbitrary splits.
 		throw std::runtime_error(fmt::format("Input multiplier ({}) must be divisible by number of ranks ({})", duplicate_input, num_ranks));
@@ -216,21 +278,26 @@ int main(int argc, char* argv[]) {
 		if(against.has_value()) { dt = now - against.value(); }
 		if(rank == 0) { fmt::print("{}: {} ms\n", description, std::chrono::duration_cast<std::chrono::milliseconds>(dt).count()); }
 		previous = now;
+		return now;
 	};
 
+	// TODO: Can we move this to device?
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor write_points(points_input, cgh, celerity::access::one_to_one{}, celerity::write_only_host_task, celerity::no_init);
-		cgh.host_task(points_input.get_range(), [=](celerity::partition<1> part) {
+		cgh.host_task(points_input.get_range(), [=, &points](celerity::partition<1> part) {
 			if(part.get_subrange().offset[0] % points.size() != 0) throw std::runtime_error("Partition offset is not a multiple of input size?");
 			celerity::experimental::for_each_item(part, [&](celerity::item<1> itm) {
 				const size_t offset = itm[0] / points.size();
 				auto pt = points[itm[0] % points.size()];
-				pt.y += (max.y - min.y) * offset;
+				// pt.y += (max.y - min.y) * offset;
+				pt.y += original_extent_y * offset;
 				write_points[itm] = pt;
 				if(offset != 0 && itm[0] % points.size() == 0) { fmt::print("Offsetting by {} in y\n", offset * (max.y - min.y)); }
 			});
 		});
 	});
+
+	print_delta_time("Writing [and duplicating] input to buffer");
 
 	// TODO API: No need to split remote chunks into per-device chunks
 	auto chunks =
@@ -241,13 +308,41 @@ int main(int argc, char* argv[]) {
 		write_tiles_geometry.assigned_chunks.push_back({chunks[i].get_subrange(), (i / num_devices), (i % num_devices)});
 	}
 
-	celerity::scratch_buffer<uint32_t, 2> num_entries_scratch(write_tiles_geometry, grid_size);
+	celerity::scratch_buffer<uint32_t, 2> num_entries_scratch(write_tiles_geometry, grid_size);            // TODO: This should be device scope
 	celerity::scratch_buffer<uint32_t, 2> num_entries_cumulative_scratch(write_tiles_geometry, grid_size); // TODO: This should be node scope
 	// Like num_entries_cumulative_scratch, but includes per-chunk write offset within each tile (= sum of all ranks and chunks that write before it)
-	celerity::scratch_buffer<uint32_t, 2> write_offsets_scratch(write_tiles_geometry, grid_size);
+	celerity::scratch_buffer<uint32_t, 2> write_offsets_scratch(write_tiles_geometry, grid_size); // TODO: This should be device scope
+
 	num_entries_scratch.fill(0); // The other two are initialized from host data later on
 
-	// WARMUP. TODO: How do we want to handle this in general for this benchmark? Each phase needs new allocations, but we cannot anticipate them in IDAG.
+#if 1
+	// Compute bounding box for actual set of points when splitting input for ranks * num_devices (using host task)
+	queue.submit([&](celerity::handler& cgh) {
+		celerity::accessor read_points(points_input, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task);
+		// Use oversub to emulate per-device chunks, host task custom geometry NYI
+		celerity::experimental::hint(cgh, celerity::experimental::hints::oversubscribe{num_devices});
+		cgh.host_task(points_input.get_range(), [=, &points](celerity::partition<1> part) {
+			// if(part.get_subrange().offset[0] % points.size() != 0) throw std::runtime_error("Partition offset is not a multiple of input size?");
+			umuguc_point3d local_min = {std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), std::numeric_limits<double>::max()};
+			umuguc_point3d local_max = {std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest()};
+			celerity::experimental::for_each_item(part, [&](celerity::item<1> itm) {
+				auto pt = read_points[itm];
+				local_min.x = std::min(local_min.x, pt.x);
+				local_min.y = std::min(local_min.y, pt.y);
+				local_min.z = std::min(local_min.z, pt.z);
+				local_max.x = std::max(local_max.x, pt.x);
+				local_max.y = std::max(local_max.y, pt.y);
+				local_max.z = std::max(local_max.z, pt.z);
+			});
+			fmt::print("Local bounding box: Min: ({:.1f}, {:.1f}, {:.1f}), Max: ({:.1f}, {:.1f}, {:.1f}). Extent: ({:.1f}, {:.1f}, {:.1f})\n", local_min.x,
+			    local_min.y, local_min.z, local_max.x, local_max.y, local_max.z, local_max.x - local_min.x, local_max.y - local_min.y,
+			    local_max.z - local_min.z);
+		});
+	});
+#endif
+
+// WARMUP. TODO: How do we want to handle this in general for this benchmark? Each phase needs new allocations, but we cannot anticipate them in IDAG.
+#if 1
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor read_points(points_input, cgh, celerity::access::one_to_one{}, celerity::read_only);
 		// TODO API: Should this just be a normal accessor? Or simply a pointer?
@@ -265,6 +360,7 @@ int main(int argc, char* argv[]) {
 			ref++;
 		});
 	});
+#endif
 
 	queue.wait(celerity::experimental::barrier);
 	const auto before_count_points = std::chrono::steady_clock::now();
@@ -288,7 +384,7 @@ int main(int argc, char* argv[]) {
 		});
 	});
 
-	print_delta_time("Counting points", before_count_points);
+	auto before_subrange_calculation = print_delta_time("Counting points", before_count_points);
 
 	// Add up counts across ranks
 	// TODO: This should just be a vector of regions
@@ -300,12 +396,39 @@ int main(int argc, char* argv[]) {
 
 		// Get data from per-GPU scratch buffer on this node
 		auto num_entries_per_device = num_entries_scratch.get_data_on_host();
-		// Compute total sum across all nodes
+
+// Compute total sum across all devices
+#if 1
+		// HOLD UP: We don't actually need the sum on each device (only up to that device id)
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::scratch_accessor read_num_entries_scratch(num_entries_scratch /* TODO write access */);
+			celerity::scratch_accessor write_write_offsets_scratch(write_offsets_scratch /* TODO write access */);
+			// TODO: We have to reuse the same geometry here, but it feels a bit weird
+			cgh.interop_task(write_tiles_geometry, [=](celerity::interop_handle& ih, celerity::partition<1>) {
+				auto stream = ih.get_native_queue<sycl::backend::cuda>();
+				int device = 0;
+				cudaGetDevice(&device);
+				// TODO: Should we register buffer with NCCL first?
+				ncclAllReduce(
+				    read_num_entries_scratch.m_ptr, write_write_offsets_scratch.m_ptr, grid_size.size(), ncclInt32, ncclSum, nccl_comms[device], stream);
+			});
+		});
+		queue.wait(); // Scratch buffers need manual synchronization for now
+
+		{
+			// FIXME: All devices have the same data at this point, we only need one on host
+			auto write_offsets = write_offsets_scratch.get_data_on_host();
+			num_entries = write_offsets[0];
+		}
+#else
 		for(const auto& data : num_entries_per_device) {
 			for(size_t i = 0; i < grid_size.size(); ++i) {
 				num_entries[i] += data[i];
 			}
 		}
+#endif
+
+		print_delta_time("Compute sum across devices");
 
 		// First do an allgather to get the individual counts from all ranks
 		std::vector<uint32_t> num_entries_by_rank(grid_size.size() * num_ranks);
@@ -321,12 +444,16 @@ int main(int argc, char* argv[]) {
 		// 	}
 		// }
 
+		print_delta_time("Reduce across ranks");
+
 		if(rank == 0) {
 			// Compute statistics over tile fill rates
 			const auto minmax = std::minmax_element(num_entries.begin(), num_entries.end());
 			const auto sum = std::accumulate(num_entries.begin(), num_entries.end(), 0);
 			fmt::print("POINTS PER TILE: Min: {}, Max: {}, Avg: {}\n", *minmax.first, *minmax.second, sum / num_entries.size());
 		}
+
+		print_delta_time("Compute stats");
 
 		// Re-initialize for write kernel
 		num_entries_scratch.fill(0);
@@ -352,30 +479,39 @@ int main(int argc, char* argv[]) {
 		}
 		// if(rank == 0) fmt::print("Cumulative: {}\n", fmt::join(num_entries_cumulative, ","));
 		// fmt::print("Rank {} cumulative: {}\n", rank, fmt::join(write_offsets_for_this_rank, ","));
+		print_delta_time("Compute prefix sums");
 
 		// TODO API: Since this should be a single shared buffer between all local chunks, we should only need to provide a single value
 		// TODO API: Alternatively, consider providing a "broadcast" function (what about differently sized scratch buffers though?)
 		num_entries_cumulative_scratch.set_data_from_host(std::vector<std::vector<uint32_t>>(num_devices, num_entries_cumulative));
 		write_offsets_scratch.set_data_from_host(per_device_write_offsets);
 
+		print_delta_time("Copy to device");
+
 		uint32_t* my_counts = num_entries_by_rank.data() + rank * grid_size.size();
 		const size_t sum_of_my_counts = std::accumulate(my_counts, my_counts + grid_size.size(), 0);
 		fmt::print("Rank {} has {} points\n", rank, sum_of_my_counts);
+
+		print_delta_time("Compute total count");
 
 		// Now compute the set of contiguous ranges written by this rank
 		// written_subranges = compute_written_subranges(rank, num_entries, num_entries_by_rank, num_entries_cumulative);
 		written_subranges_per_device =
 		    compute_written_subranges_per_device(rank, num_entries, num_entries_by_rank, num_entries_cumulative, num_entries_per_device);
 
+		print_delta_time("Compute written subranges");
+
 		// fmt::print("Rank {} writes to: {}\n", rank, fmt::join(written_subranges, ", "));
 		celerity::detail::region<1> locally_written_region;
 		for(size_t d = 0; d < num_entries_per_device.size(); ++d) {
 			// fmt::print("Rank {} device {} writes to: {}\n", rank, d, fmt::join(written_subranges_per_device[d], ", "));
+			fmt::print("Rank {} device {} writes to {} subranges\n", rank, d, written_subranges_per_device[d].size());
 			for(const auto& sr : written_subranges_per_device[d]) {
 				locally_written_region = region_union(locally_written_region, celerity::detail::box<1>(sr));
 			}
 		}
 		// fmt::print("Rank {} writes to: {}\n", rank, locally_written_region);
+		print_delta_time("Convert to region");
 
 		// TODO: Make this a debug functionality of the expert mapper interface
 		//		=> This is a more expensive variant of what we already do in the graph generators, which is required b/c we don't have
@@ -428,7 +564,7 @@ int main(int argc, char* argv[]) {
 		verify_written_regions(celerity::detail::box<1>::full_range(points_input.get_range().size()));
 	}
 
-	print_delta_time("Subrange calculation");
+	print_delta_time("Subrange calculation", before_subrange_calculation);
 
 	using celerity::subrange;
 	using celerity::detail::box;
@@ -693,6 +829,10 @@ int main(int argc, char* argv[]) {
 	if(write_output) print_delta_time("Writing output");
 
 	print_delta_time("TOTAL TIME", before_count_points);
+
+	for(const auto& comm : nccl_comms) {
+		NCCL_CHECK(ncclCommDestroy(comm));
+	}
 
 	return 0;
 }

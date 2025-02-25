@@ -67,7 +67,12 @@ if(CELERITY_ENABLE_MPI)
   endif()
 endif()
 
+set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/umuguc/cmake")
+find_package(NCCL)
 add_example(umuguc)
+target_link_libraries(umuguc PRIVATE ${NCCL_LIBRARIES})
+target_include_directories(umuguc PRIVATE ${NCCL_INCLUDE_DIRS})
+
 add_executable(tilebuffer_tests umuguc/tilebuffer_tests.cc)
 add_celerity_to_target(TARGET tilebuffer_tests SOURCES umuguc/tilebuffer_tests.cc)
 target_link_libraries(tilebuffer_tests PUBLIC Catch2::Catch2WithMain)
