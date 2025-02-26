@@ -382,7 +382,6 @@ class handler {
 		    geo, std::make_index_sequence<sizeof...(reductions_and_kernel) - 1>{}, std::forward<ReductionsAndKernel>(reductions_and_kernel)...);
 	}
 
-	// TODO API: Also have this for host_task?
 	template <typename KernelName = detail::unnamed_kernel, int Dims, typename... ReductionsAndKernel>
 	void parallel_for(custom_task_geometry<Dims> geometry, ReductionsAndKernel&&... reductions_and_kernel) {
 		static_assert(sizeof...(reductions_and_kernel) > 0, "No kernel given");
@@ -482,6 +481,14 @@ class handler {
 	template <int Dims, typename Functor>
 	void host_task(range<Dims> global_range, Functor&& task) {
 		host_task(global_range, {}, std::forward<Functor>(task));
+	}
+
+	template <int Dims, typename Functor>
+	void host_task(custom_task_geometry<Dims> geometry, Functor&& task) {
+		assert(!m_cg.task_type.has_value());
+		m_cg.task_type = detail::task_type::host_compute;
+		m_cg.geometry = std::move(geometry);
+		m_cg.launcher = make_host_task_launcher<Dims, false /* Collective */>(std::forward<Functor>(task));
 	}
 
 	/**

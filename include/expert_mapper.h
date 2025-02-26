@@ -26,6 +26,7 @@ namespace celerity {
 
 // TODO API: Naming - not a range mapper (also change file name!)
 // TODO API: Should we make these have dimensionality as well?
+// TODO API: Should it be possible to use these in conjunction with a non-custom geometry task? Probably not. But where to diagnose this?
 class expert_mapper {
   public:
 	expert_mapper(detail::region<3> union_access, std::vector<std::pair<detail::box<3>, detail::region<3>>> per_chunk_accesses)

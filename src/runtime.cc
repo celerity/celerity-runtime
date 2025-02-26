@@ -142,6 +142,8 @@ namespace detail {
 		size_t NOCOMMIT_get_num_nodes() const { return m_num_nodes; }
 		size_t NOCOMMIT_get_num_local_devices() const { return m_num_local_devices; }
 
+		std::vector<sycl::device> m_selected_devices;
+
 		void leak_memory();
 
 	  private:
@@ -379,6 +381,7 @@ namespace detail {
 			CELERITY_DETAIL_TRACY_ZONE_SCOPED("runtime::select_devices", runtime_select_devices);
 			devices = std::visit([&](const auto& value) { return select_devices(host_cfg, value, sycl::platform::get_platforms()); }, user_devices_or_selector);
 			assert(!devices.empty()); // postcondition of select_devices
+			m_selected_devices = devices;
 		}
 
 		{
@@ -906,6 +909,8 @@ namespace detail {
 	node_id runtime::NOCOMMIT_get_local_nid() const { return m_impl->NOCOMMIT_get_local_nid(); }
 	size_t runtime::NOCOMMIT_get_num_nodes() const { return m_impl->NOCOMMIT_get_num_nodes(); }
 	size_t runtime::NOCOMMIT_get_num_local_devices() const { return m_impl->NOCOMMIT_get_num_local_devices(); }
+
+	const std::vector<sycl::device>& runtime::NOCOMMIT_get_sycl_devices() const { return m_impl->m_selected_devices; }
 
 	void runtime::leak_memory() { m_impl->leak_memory(); }
 

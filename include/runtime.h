@@ -83,6 +83,8 @@ namespace detail {
 		size_t NOCOMMIT_get_num_nodes() const;
 		size_t NOCOMMIT_get_num_local_devices() const;
 
+		const std::vector<sycl::device>& NOCOMMIT_get_sycl_devices() const;
+
 		void leak_memory();
 
 	  private:
