@@ -13,6 +13,8 @@
 
 using clk = std::chrono::steady_clock;
 
+#define USE_NCCL 0 // Disable for now
+
 /**
  * How do we get the multi-pass tile buffer into Celerity?
  *
@@ -234,17 +236,22 @@ int main(int argc, char* argv[]) {
 			min.y = std::min(min.y, p.y);
 			max.y = std::max(max.y, p.y);
 		}
-		fmt::print("NEW BOUNDING BOX: Min: ({:.1f}, {:.1f}, {:.1f}), Max: ({:.1f}, {:.1f}, {:.1f}). Extent: ({:.1f}, {:.1f}, {:.1f})\n", min.x, min.y, min.z,
-		    max.x, max.y, max.z, max.x - min.x, max.y - min.y, max.z - min.z);
+		fmt::print("Min: ({:.1f}, {:.1f}, {:.1f}), Max: ({:.1f}, {:.1f}, {:.1f}). Extent: ({:.1f}, {:.1f}, {:.1f}) <-- Bounding box of duplication pattern\n",
+		    min.x, min.y, min.z, max.x, max.y, max.z, max.x - min.x, max.y - min.y, max.z - min.z);
+
+		// std::filesystem::path path(filename);
+		// std::ofstream output(fmt::format("duplication_pattern_{}", path.filename().c_str()), std::ios::binary);
+		// output.write(reinterpret_cast<const char*>(points.data()), points.size() * sizeof(umuguc_point3d));
 	}
 
-	const umuguc_point3d input_extent = {max.x - min.x, (max.y - min.y) * duplicate_input, max.z - min.z};
+	const umuguc_point3d input_extent = {max.x - min.x, (max.y - min.y) + original_extent_y * (duplicate_input - 1), max.z - min.z};
+	// TODO: Should we round here?
 	const celerity::range<2> grid_size = {static_cast<uint32_t>(input_extent.y / tile_size), static_cast<uint32_t>(input_extent.x / tile_size)};
 	if(grid_size.size() == 0) {
 		CELERITY_CRITICAL("Grid size is {}x{} - try smaller tile size", grid_size[1], grid_size[0]);
 		exit(1);
 	}
-	fmt::print("Using buffer size: {}x{}, tile size: {:.1f}x{:.1f}\n", grid_size[1], grid_size[0], (max.x - min.x) / grid_size[1],
+	fmt::print("Using buffer size: {}x{}, effective tile size: {:.1f}x{:.1f}\n", grid_size[1], grid_size[0], (max.x - min.x) / grid_size[1],
 	    (max.y - min.y) * duplicate_input / grid_size[0]);
 
 	celerity::queue queue;
@@ -261,10 +268,12 @@ int main(int argc, char* argv[]) {
 	// //           => Ideally we should simply not create per-device chunks for remote nodes
 	const size_t num_devices = rt.NOCOMMIT_get_num_local_devices();
 
+#if USE_NCCL
 	std::vector<ncclComm_t> nccl_comms(num_devices);
 	std::vector<int> device_ids(num_devices);
 	std::iota(device_ids.begin(), device_ids.end(), 0);
 	NCCL_CHECK(ncclCommInitAll(nccl_comms.data(), num_devices, device_ids.data()));
+#endif
 
 	if(duplicate_input % num_ranks != 0) {
 		// This is because we don't want to have to compute an exact bounding box for each rank for arbitrary splits.
@@ -281,19 +290,37 @@ int main(int argc, char* argv[]) {
 		return now;
 	};
 
+	umuguc_point3d predicted_local_min = min;
+	umuguc_point3d predicted_local_max = max;
+
 	// TODO: Can we move this to device?
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor write_points(points_input, cgh, celerity::access::one_to_one{}, celerity::write_only_host_task, celerity::no_init);
-		cgh.host_task(points_input.get_range(), [=, &points](celerity::partition<1> part) {
+		cgh.host_task(points_input.get_range(), [=, &points, &predicted_local_min, &predicted_local_max](celerity::partition<1> part) {
 			if(part.get_subrange().offset[0] % points.size() != 0) throw std::runtime_error("Partition offset is not a multiple of input size?");
+			if(part.get_subrange().range[0] % points.size() != 0) throw std::runtime_error("Partition range is not a multiple of input size?");
+
+			const auto offset = part.get_subrange().offset[0] / points.size();
+			const auto count = part.get_subrange().range[0] / points.size();
+			fmt::print("OFFSET IS {}, COUNT IS {}\n", offset, count);
+			predicted_local_min.y = min.y + original_extent_y * offset;
+			predicted_local_max.y = max.y + original_extent_y * (offset + count - 1);
+
 			celerity::experimental::for_each_item(part, [&](celerity::item<1> itm) {
 				const size_t offset = itm[0] / points.size();
 				auto pt = points[itm[0] % points.size()];
-				// pt.y += (max.y - min.y) * offset;
+				// The bounding box of the "duplication pattern" may be different from the original input,
+				// because we split based on point count, not at the geometric center.
+				// Since the pattern is created by offsetting the input by a full bounding box,
+				// we have to use the original extent here for them to seamlessly fit together again.
 				pt.y += original_extent_y * offset;
 				write_points[itm] = pt;
-				if(offset != 0 && itm[0] % points.size() == 0) { fmt::print("Offsetting by {} in y\n", offset * (max.y - min.y)); }
+				if(itm[0] % points.size() == 0) { fmt::print("Offsetting by {:.1f} in y\n", original_extent_y * offset); }
 			});
+
+			// std::filesystem::path path(filename);
+			// std::ofstream output(fmt::format("duplicated_x{}_{}", duplicate_input, path.filename().c_str()), std::ios::binary);
+			// output.write(reinterpret_cast<const char*>(write_points.get_pointer()), part.get_global_size().size() * sizeof(umuguc_point3d));
 		});
 	});
 
@@ -315,13 +342,11 @@ int main(int argc, char* argv[]) {
 
 	num_entries_scratch.fill(0); // The other two are initialized from host data later on
 
+	// Sanity check: Does actual bounding box match predicted bounding box?
 #if 1
-	// Compute bounding box for actual set of points when splitting input for ranks * num_devices (using host task)
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor read_points(points_input, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task);
-		// Use oversub to emulate per-device chunks, host task custom geometry NYI
-		celerity::experimental::hint(cgh, celerity::experimental::hints::oversubscribe{num_devices});
-		cgh.host_task(points_input.get_range(), [=, &points](celerity::partition<1> part) {
+		cgh.host_task(points_input.get_range(), [=](celerity::partition<1> part) {
 			// if(part.get_subrange().offset[0] % points.size() != 0) throw std::runtime_error("Partition offset is not a multiple of input size?");
 			umuguc_point3d local_min = {std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), std::numeric_limits<double>::max()};
 			umuguc_point3d local_max = {std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest()};
@@ -337,6 +362,14 @@ int main(int argc, char* argv[]) {
 			fmt::print("Local bounding box: Min: ({:.1f}, {:.1f}, {:.1f}), Max: ({:.1f}, {:.1f}, {:.1f}). Extent: ({:.1f}, {:.1f}, {:.1f})\n", local_min.x,
 			    local_min.y, local_min.z, local_max.x, local_max.y, local_max.z, local_max.x - local_min.x, local_max.y - local_min.y,
 			    local_max.z - local_min.z);
+
+			fmt::print("predicted min y: {:.1f}, max y: {:.1f}\n", predicted_local_min.y, predicted_local_max.y);
+			fmt::print("actual    min y: {:.1f}, max y: {:.1f}\n", local_min.y, local_max.y);
+			fmt::print("min diff: {:.1f}, max diff: {:.1f}\n", predicted_local_min.y - local_min.y, predicted_local_max.y - local_max.y);
+
+			if(std::abs(predicted_local_min.y - local_min.y) > 1e-6 || std::abs(predicted_local_max.y - local_max.y) > 1e-6) {
+				throw std::runtime_error("Predicted bounding box does not match actual bounding box");
+			}
 		});
 	});
 #endif
@@ -398,7 +431,7 @@ int main(int argc, char* argv[]) {
 		auto num_entries_per_device = num_entries_scratch.get_data_on_host();
 
 // Compute total sum across all devices
-#if 1
+#if USE_NCCL
 		// HOLD UP: We don't actually need the sum on each device (only up to that device id)
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::scratch_accessor read_num_entries_scratch(num_entries_scratch /* TODO write access */);
@@ -830,9 +863,11 @@ int main(int argc, char* argv[]) {
 
 	print_delta_time("TOTAL TIME", before_count_points);
 
+#if USE_NCCL
 	for(const auto& comm : nccl_comms) {
 		NCCL_CHECK(ncclCommDestroy(comm));
 	}
+#endif
 
 	return 0;
 }
