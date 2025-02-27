@@ -478,12 +478,12 @@ void command_graph_generator::generate_pushes(batch& current_batch, const task& 
 
 	// Generate push command for each buffer
 	for(auto& [bid, scratch] : per_buffer_pushes) {
-		region_builder<3> combined_region;
+		region_builder<3> combined_region_builder;
 		std::vector<std::pair<node_id, region<3>>> target_regions;
 		for(auto& [nid, builders] : scratch.target_regions) {
 			for(auto& builder : builders) {
 				auto region = std::move(builder).into_region();
-				combined_region.add(region);
+				combined_region_builder.add(region);
 				target_regions.push_back({nid, std::move(region)});
 			}
 		}
@@ -494,8 +494,17 @@ void command_graph_generator::generate_pushes(batch& current_batch, const task& 
 			add_dependency(cmd, dep, dependency_kind::true_dep, dependency_origin::dataflow);
 		}
 
+		auto combined_region = std::move(combined_region_builder).into_region();
+		if(tsk.perf_assertions.assert_no_data_movement
+		    && (tsk.perf_assertions.assert_no_data_movement_scope == data_movement_scope::any
+		        || tsk.perf_assertions.assert_no_data_movement_scope == data_movement_scope::inter_node)) {
+			CELERITY_ERROR("Performance assertion at {}:{} failed: {} generates push of region {} of buffer {} to remote nodes",
+			    tsk.perf_assertions.assert_no_data_movement_source_loc.file_name(), tsk.perf_assertions.assert_no_data_movement_source_loc.line(),
+			    print_task_debug_label(tsk, true /* title case */), combined_region, bid);
+		}
+
 		// Store the read access for determining anti-dependencies
-		m_command_buffer_reads[cmd->get_id()].emplace(bid, std::move(combined_region).into_region());
+		m_command_buffer_reads[cmd->get_id()].emplace(bid, std::move(combined_region));
 	}
 }
 
@@ -517,7 +526,9 @@ void command_graph_generator::generate_await_pushes(batch& current_batch, const 
 
 			// There is data we don't yet have locally. Generate an await push command for it.
 			if(!missing_parts_boxes.empty()) {
-				if(tsk.perf_assertions.assert_no_data_movement) {
+				if(tsk.perf_assertions.assert_no_data_movement
+				    && (tsk.perf_assertions.assert_no_data_movement_scope == data_movement_scope::any
+				        || tsk.perf_assertions.assert_no_data_movement_scope == data_movement_scope::inter_node)) {
 					CELERITY_ERROR("Performance assertion at {}:{} failed: Chunk {} of task {} requires region {} of buffer {} from remote nodes",
 					    tsk.perf_assertions.assert_no_data_movement_source_loc.file_name(), tsk.perf_assertions.assert_no_data_movement_source_loc.line(),
 					    a_chunk.chnk, tsk.get_id(), region<3>(box_vector<3>{missing_parts_boxes}), bid);

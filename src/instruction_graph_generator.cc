@@ -1007,9 +1007,12 @@ staging_allocation& generator_impl::acquire_staging_allocation(
 	const auto alloc_instr = create<alloc_instruction>(current_batch, aid, size_bytes, align_bytes, //
 	    [&](const auto& record_debug_info) { record_debug_info(alloc_instruction_record::alloc_origin::staging, std::nullopt, std::nullopt); });
 	if(perf_assertions != nullptr && perf_assertions->assert_no_allocations) {
-		CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' requires staging allocation of size {} in memory {}",
-		    perf_assertions->assert_no_allocations_source_loc.file_name(), perf_assertions->assert_no_allocations_source_loc.line(), perf_assertions->tid,
-		    perf_assertions->task_debug_name, size_bytes, mid);
+		if((mid == host_memory_id && perf_assertions->assert_no_allocations_scope == allocation_scope::host)
+		    || (mid >= first_device_memory_id && perf_assertions->assert_no_allocations_scope == allocation_scope::device)) {
+			CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' requires staging allocation of size {} in memory {}",
+			    perf_assertions->assert_no_allocations_source_loc.file_name(), perf_assertions->assert_no_allocations_source_loc.line(), perf_assertions->tid,
+			    perf_assertions->task_debug_name, size_bytes, mid);
+		}
 	}
 	add_dependency(alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 	memory.staging_allocation_pool.emplace_back(aid, size_bytes, align_bytes, alloc_instr);
@@ -1114,9 +1117,12 @@ void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id
 			    });
 
 			if(perf_assertions != nullptr && perf_assertions->assert_no_allocations) {
-				CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' requires allocation of box {} for buffer {}",
-				    perf_assertions->assert_no_allocations_source_loc.file_name(), perf_assertions->assert_no_allocations_source_loc.line(),
-				    perf_assertions->tid, perf_assertions->task_debug_name, new_box, print_buffer_debug_label(bid));
+				if((mid == host_memory_id && perf_assertions->assert_no_allocations_scope == allocation_scope::host)
+				    || (mid >= first_device_memory_id && perf_assertions->assert_no_allocations_scope == allocation_scope::device)) {
+					CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' requires allocation of box {} for buffer {} in memory {}",
+					    perf_assertions->assert_no_allocations_source_loc.file_name(), perf_assertions->assert_no_allocations_source_loc.line(),
+					    perf_assertions->tid, perf_assertions->task_debug_name, new_box, print_buffer_debug_label(bid), mid);
+				}
 			}
 			add_dependency(alloc_instr, m_last_epoch, instruction_dependency_origin::last_epoch);
 
@@ -1617,7 +1623,10 @@ void generator_impl::establish_coherence_between_buffer_memories(batch& current_
 		}
 	};
 
-	if(perf_assertions != nullptr && perf_assertions->assert_no_data_movement && !planned_copies.empty()) {
+	if(perf_assertions != nullptr && perf_assertions->assert_no_data_movement
+	    && (perf_assertions->assert_no_data_movement_scope == data_movement_scope::any
+	        || perf_assertions->assert_no_data_movement_scope == data_movement_scope::intra_node)
+	    && !planned_copies.empty()) {
 		CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' has {} planned copies for buffer {} in IDAG",
 		    perf_assertions->assert_no_data_movement_source_loc.file_name(), perf_assertions->assert_no_data_movement_source_loc.line(), perf_assertions->tid,
 		    perf_assertions->task_debug_name, planned_copies.size(), print_buffer_debug_label(bid));
@@ -1921,7 +1930,7 @@ local_reduction generator_impl::prepare_task_local_reduction(batch& command_batc
 		    record_debug_info(
 		        alloc_instruction_record::alloc_origin::gather, buffer_allocation_record{bid, buffer.debug_name, scalar_reduction_box}, red.num_input_chunks);
 	    });
-	if(perf_assertions != nullptr && perf_assertions->assert_no_allocations) {
+	if(perf_assertions != nullptr && perf_assertions->assert_no_allocations && perf_assertions->assert_no_allocations_scope == allocation_scope::host) {
 		CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' requires gather allocation for local reduction",
 		    perf_assertions->assert_no_allocations_source_loc.file_name(), perf_assertions->assert_no_allocations_source_loc.line(), perf_assertions->tid,
 		    perf_assertions->task_debug_name);

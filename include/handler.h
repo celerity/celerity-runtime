@@ -500,13 +500,16 @@ class handler {
 		host_task(range<0>{}, std::forward<Functor>(task));
 	}
 
-	void assert_no_data_movement(std::source_location loc = std::source_location::current()) {
+	void assert_no_data_movement(
+	    detail::data_movement_scope scope = detail::data_movement_scope::any, std::source_location loc = std::source_location::current()) {
 		m_cg.perf_assertions.assert_no_data_movement = true;
+		m_cg.perf_assertions.assert_no_data_movement_scope = scope;
 		m_cg.perf_assertions.assert_no_data_movement_source_loc = loc;
 	}
 
-	void assert_no_allocations(std::source_location loc = std::source_location::current()) {
+	void assert_no_allocations(detail::allocation_scope scope = detail::allocation_scope::any, std::source_location loc = std::source_location::current()) {
 		m_cg.perf_assertions.assert_no_allocations = true;
+		m_cg.perf_assertions.assert_no_allocations_scope = scope;
 		m_cg.perf_assertions.assert_no_allocations_source_loc = loc;
 	}
 

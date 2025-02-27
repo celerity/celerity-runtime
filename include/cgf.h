@@ -151,15 +151,23 @@ using device_kernel_launcher = std::function<void(sycl::handler& sycl_cgh, const
 using host_task_launcher = std::function<void(const range<3>& global_range, const box<3>& execution_range, const communicator* collective_comm)>;
 using command_group_launcher = std::variant<device_kernel_launcher, host_task_launcher>;
 
+// TODO: Move elsewhere (and into public namespace!)
+// TODO: Should it be "any" or "all"?
+// TODO: Should we also distinguish between intra node host and device, and within same device? Former is tricky because of p2p emulation
+enum class data_movement_scope { any, inter_node, intra_node };
+enum class allocation_scope { any, host, device };
+
 // TODO: Move elsewhere
 struct performance_assertions {
 	task_id tid;                 // HACK
 	std::string task_debug_name; // HACK
 
 	bool assert_no_data_movement = false;
+	data_movement_scope assert_no_data_movement_scope = data_movement_scope::any;
 	std::source_location assert_no_data_movement_source_loc;
 
 	bool assert_no_allocations = false;
+	allocation_scope assert_no_allocations_scope = allocation_scope::any;
 	std::source_location assert_no_allocations_source_loc;
 };
 
