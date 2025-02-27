@@ -199,8 +199,8 @@ TEST_CASE("compute_task_geometry attempts to evenly distribute tiles based on th
 		// Check that chunks do not overlap
 		detail::region<1> region;
 		for(const auto& [chunk, _, _2] : geo.assigned_chunks) {
-			CHECK(region_intersection(region, box{subrange_cast<1>(chunk)}).empty());
-			region = region_union(region, box{subrange_cast<1>(chunk)});
+			CHECK(region_intersection(region, box_cast<1>(chunk)).empty());
+			region = region_union(region, box_cast<1>(chunk));
 		}
 		return geo.assigned_chunks;
 	};
@@ -211,10 +211,10 @@ TEST_CASE("compute_task_geometry attempts to evenly distribute tiles based on th
 		const auto num_entries_cumulative = compute_num_entries_cumulative({10, 10, 10, 10});
 		const auto geo = compute(total_entries, num_entries_cumulative);
 		REQUIRE(geo.size() == 4);
-		CHECK(geo[0].sr == subrange_cast<3>(subrange<1>{0, 10}));
-		CHECK(geo[1].sr == subrange_cast<3>(subrange<1>{10, 10}));
-		CHECK(geo[2].sr == subrange_cast<3>(subrange<1>{20, 10}));
-		CHECK(geo[3].sr == subrange_cast<3>(subrange<1>{30, 10}));
+		CHECK(geo[0].box == box_cast<3>(box<1>{0, 10}));
+		CHECK(geo[1].box == box_cast<3>(box<1>{10, 20}));
+		CHECK(geo[2].box == box_cast<3>(box<1>{20, 30}));
+		CHECK(geo[3].box == box_cast<3>(box<1>{30, 40}));
 	}
 
 	// More complex distribution, same result
@@ -223,10 +223,10 @@ TEST_CASE("compute_task_geometry attempts to evenly distribute tiles based on th
 		const auto num_entries_cumulative = compute_num_entries_cumulative({5, 5, 3, 7, 3, 3, 3, 1, 2, 4, 4});
 		const auto geo = compute(total_entries, num_entries_cumulative);
 		REQUIRE(geo.size() == 4);
-		CHECK(geo[0].sr == subrange_cast<3>(subrange<1>{0, 10}));
-		CHECK(geo[1].sr == subrange_cast<3>(subrange<1>{10, 10}));
-		CHECK(geo[2].sr == subrange_cast<3>(subrange<1>{20, 10}));
-		CHECK(geo[3].sr == subrange_cast<3>(subrange<1>{30, 10}));
+		CHECK(geo[0].box == box_cast<3>(box<1>{0, 10}));
+		CHECK(geo[1].box == box_cast<3>(box<1>{10, 20}));
+		CHECK(geo[2].box == box_cast<3>(box<1>{20, 30}));
+		CHECK(geo[3].box == box_cast<3>(box<1>{30, 40}));
 	}
 
 	// Uneven split towards end
@@ -235,10 +235,10 @@ TEST_CASE("compute_task_geometry attempts to evenly distribute tiles based on th
 		const auto num_entries_cumulative = compute_num_entries_cumulative({10, 10, 9, 4, 7});
 		const auto geo = compute(total_entries, num_entries_cumulative);
 		REQUIRE(geo.size() == 4);
-		CHECK(geo[0].sr == subrange_cast<3>(subrange<1>{0, 10}));
-		CHECK(geo[1].sr == subrange_cast<3>(subrange<1>{10, 10}));
-		CHECK(geo[2].sr == subrange_cast<3>(subrange<1>{20, 13}));
-		CHECK(geo[3].sr == subrange_cast<3>(subrange<1>{33, 7}));
+		CHECK(geo[0].box == box_cast<3>(box<1>{0, 10}));
+		CHECK(geo[1].box == box_cast<3>(box<1>{10, 20}));
+		CHECK(geo[2].box == box_cast<3>(box<1>{20, 33}));
+		CHECK(geo[3].box == box_cast<3>(box<1>{33, 40}));
 	}
 
 	// Suboptimal split
@@ -250,10 +250,10 @@ TEST_CASE("compute_task_geometry attempts to evenly distribute tiles based on th
 		const auto num_entries_cumulative = compute_num_entries_cumulative({10, 9, 9, 11, 1});
 		const auto geo = compute(total_entries, num_entries_cumulative);
 		REQUIRE(geo.size() == 4);
-		CHECK(geo[0].sr == subrange_cast<3>(subrange<1>{0, 10}));
-		CHECK(geo[1].sr == subrange_cast<3>(subrange<1>{10, 18}));
-		CHECK(geo[2].sr == subrange_cast<3>(subrange<1>{28, 11}));
-		CHECK(geo[3].sr == subrange_cast<3>(subrange<1>{39, 1}));
+		CHECK(geo[0].box == box_cast<3>(box<1>{0, 10}));
+		CHECK(geo[1].box == box_cast<3>(box<1>{10, 28}));
+		CHECK(geo[2].box == box_cast<3>(box<1>{28, 39}));
+		CHECK(geo[3].box == box_cast<3>(box<1>{39, 40}));
 	}
 
 	// Fewer chunks than requested
@@ -263,9 +263,9 @@ TEST_CASE("compute_task_geometry attempts to evenly distribute tiles based on th
 		const auto num_entries_cumulative = compute_num_entries_cumulative({10, 9, 9, 1, 11});
 		const auto geo = compute(total_entries, num_entries_cumulative);
 		REQUIRE(geo.size() == 3);
-		CHECK(geo[0].sr == subrange_cast<3>(subrange<1>{0, 10}));
-		CHECK(geo[1].sr == subrange_cast<3>(subrange<1>{10, 18}));
-		CHECK(geo[2].sr == subrange_cast<3>(subrange<1>{28, 12}));
+		CHECK(geo[0].box == box_cast<3>(box<1>{0, 10}));
+		CHECK(geo[1].box == box_cast<3>(box<1>{10, 28}));
+		CHECK(geo[2].box == box_cast<3>(box<1>{28, 40}));
 	}
 }
 
