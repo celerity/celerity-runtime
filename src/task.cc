@@ -47,6 +47,7 @@ buffer_access_map::buffer_access_map(std::vector<buffer_access>&& accesses, cons
 		const auto req = matchbox::match(
 		    rm,
 		    [&](const std::unique_ptr<range_mapper_base>& rm) {
+			    m_options.push_back(std::nullopt);
 			    return matchbox::match(
 			        geometry,
 			        [&](const basic_task_geometry& geo) {
@@ -62,7 +63,10 @@ buffer_access_map::buffer_access_map(std::vector<buffer_access>&& accesses, cons
 				        return result;
 			        });
 		    },
-		    [&](const expert_mapper& em) { return em.get_task_requirements(); });
+		    [&](const expert_mapper& em) {
+			    m_options.push_back(em.options);
+			    return em.get_task_requirements();
+		    });
 		auto& cons = consumed_regions[bid]; // allow default-insert
 		auto& prod = produced_regions[bid]; // allow default-insert
 		if(is_consumer_mode(mode)) { cons.add(req); }

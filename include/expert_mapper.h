@@ -23,6 +23,9 @@ namespace celerity {
 // Q: How do we compute task dependencies going forward? In order to compute them correctly we pretty much have to do a full CDAG-style analysis...
 //    (Not that it matters for the correctness of our execution model)
 
+struct data_requirement_options {
+	bool use_local_indexing = false;
+};
 
 // TODO API: Naming - not a range mapper (also change file name!)
 // TODO API: Should we make these have dimensionality as well?
@@ -45,6 +48,9 @@ class expert_mapper {
 	detail::region<3> get_chunk_requirements(const chunk<3>& chnk) const { return get_region_for_chunk(chnk); }
 
 	detail::region<3> get_task_requirements() const { return m_union_region; }
+
+	// FIXME HACK Prototyping - figure out proper encapsulation
+	data_requirement_options options;
 
   private:
 	std::vector<std::pair<detail::box<3>, detail::region<3>>> m_per_chunk_accesses;

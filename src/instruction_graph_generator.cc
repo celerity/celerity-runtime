@@ -2038,10 +2038,20 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 		const auto [bid, mode] = bam.get_nth_access(i);
 		const auto& buffer = m_buffers.at(bid);
 		const auto accessed_region = bam.get_requirements_for_nth_access(i, chunk.execution_range.get_subrange());
+		const auto options = bam.get_options_for_nth_access(i);
 		if(!accessed_region.empty()) {
 			const auto accessed_bounding_box = bounding_box(accessed_region);
 			const auto& alloc = buffer.memories[chunk.memory_id].get_contiguous_allocation(accessed_bounding_box);
-			allocation_map[i] = {alloc.aid, alloc.box, accessed_bounding_box CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, bid, buffer.debug_name)};
+			if(options.has_value() && options->use_local_indexing) {
+				if(accessed_bounding_box != alloc.box) {
+					// TODO: Implement exact allocation option that ensures this
+					throw std::runtime_error("Cannot use local indexing for access without exact allocation");
+				}
+				const auto local_box = box<3>::full_range(alloc.box.get_range());
+				allocation_map[i] = {alloc.aid, local_box, local_box CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, bid, buffer.debug_name)};
+			} else {
+				allocation_map[i] = {alloc.aid, alloc.box, accessed_bounding_box CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, bid, buffer.debug_name)};
+			}
 		} else {
 			allocation_map[i] = buffer_access_allocation{null_allocation_id, {}, {} CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, bid, buffer.debug_name)};
 		}

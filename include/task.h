@@ -45,6 +45,8 @@ namespace detail {
 			return {bid, mode};
 		}
 
+		std::optional<data_requirement_options> get_options_for_nth_access(const size_t n) const { return m_options[n]; }
+
 		// TODO: This should probably be retunred by get_nth_access instead
 		bool is_replicated(const size_t n) const { return m_accesses[n].is_replicated; }
 
@@ -78,6 +80,7 @@ namespace detail {
 
 	  private:
 		std::vector<buffer_access> m_accesses;
+		std::vector<std::optional<data_requirement_options>> m_options;
 		std::unordered_set<buffer_id> m_accessed_buffers; ///< Cached set of buffer ids found in m_accesses
 		range<3> m_task_global_size;
 		int m_task_dimensions = -1;
