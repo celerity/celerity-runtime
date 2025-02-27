@@ -179,14 +179,25 @@ template <int Dims>
 void merge_overlapping_bounding_boxes(box_vector<Dims>& boxes) {
 restart:
 	for(auto first = boxes.begin(); first != boxes.end(); ++first) {
+		// Optimization for lookahead: If a task requires a large number of small boxes, lookahead will insert a duplicate for each.
+		// This can have a significant performance impact in the order of seconds for just a few hundred boxes.
+		// Since merging with an exact duplicate does not change the bounding box, we do not have to restart the loop.
+		bool bounding_box_changed = false;
 		const auto last = std::remove_if(std::next(first), boxes.end(), [&](const auto& box) {
 			const auto overlapping = !box_intersection(*first, box).empty();
-			if(overlapping) { *first = bounding_box(*first, box); }
+			if(overlapping) {
+				if(*first != box) {
+					bounding_box_changed = true;
+					*first = bounding_box(*first, box);
+				}
+			}
 			return overlapping;
 		});
 		if(last != boxes.end()) {
 			boxes.erase(last, boxes.end());
-			goto restart; // NOLINT(cppcoreguidelines-avoid-goto)
+			if(bounding_box_changed) {
+				goto restart; // NOLINT(cppcoreguidelines-avoid-goto)
+			}
 		}
 	}
 }
