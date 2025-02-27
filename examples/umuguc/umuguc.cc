@@ -74,7 +74,7 @@ using clk = std::chrono::steady_clock;
  *    [ ] => We EXTEND the bounding box along the 1-dimension to make the prefix sum calculation easier later on
  * - [x] Each device computes its count per tile
  *
- * - [ ] Compute the sum across all local devices (using NCCL)
+ * - [x] Compute the sum across all local devices (using NCCL)
  *   - These counts are written into the SLICE for the local node in the 3D counts buffer (using interop task we can directly write to that slice using NCCL?)
  *
  * - [ ] All nodes exchange their bounding boxes (using MPI, but we should have a utility for that)
@@ -103,6 +103,11 @@ using clk = std::chrono::steady_clock;
  * =======================
  *
  * Q: Can we do a "light" variant first, where we do the partial bounding boxes, but compute everything within host tasks / in main thread?
+ *
+ * TODO: SMALL THINGS LEFT TO IMPLEMENT IN CELERITY
+ * - [ ] Exact allocation setting (also needed for matmul)
+ * - [ ] Local indexing setting (requires exact allocation; needed for per-rank and per-device slices of 3D buffers)
+ * - [ ] Initialize allocation setting (to avoid having to manually initialize per-rank and per-device slices)
  */
 
 #define NCCL_CHECK(cmd)                                                                                                                                        \
@@ -430,6 +435,7 @@ int main(int argc, char* argv[]) {
 		celerity::scratch_accessor write_num_entries_scratch(num_entries_scratch /* TODO write access */);
 		celerity::debug::set_task_name(cgh, "count points (scratch)");
 
+		cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
 		// TODO API: How do we launch nd-range kernels with custom geometries? Required for optimized count/write
 		cgh.parallel_for(write_tiles_geometry, [=](celerity::id<1> id) {
 			const auto& p = read_points[id];
@@ -472,6 +478,7 @@ int main(int argc, char* argv[]) {
 		celerity::accessor write_counts(per_device_tile_point_counts, cgh, write_device_count_access, celerity::write_only, celerity::no_init);
 		celerity::debug::set_task_name(cgh, "count points (global)");
 
+		cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
 		// TODO API: How do we launch nd-range kernels with custom geometries? Required for optimized count/write
 		const size_t points_per_device = points_input.get_range().size() / (num_ranks * num_devices);
 		cgh.parallel_for(write_tiles_geometry, [=](celerity::id<1> id) {
@@ -585,18 +592,10 @@ int main(int argc, char* argv[]) {
 			for(size_t i = 0; i < num_ranks; ++i) {
 				const auto chnk_box = box_cast<3>(box<1>(subrange<1>{i, 1}));
 				sanity_check_counts_geo.assigned_chunks.push_back({chnk_box, i, 0});
-				const celerity::id<3> rank_offset = {rank, local_grid_offset[0], local_grid_offset[1]};
+				const celerity::id<3> rank_offset = {i, local_grid_offset[0], local_grid_offset[1]};
 				// This is actually wrong for remote chunks (but it doesn't matter)
 				const celerity::range<3> range = {1, local_grid_size[0], local_grid_size[1]};
-
-				// FIXME: If we add remote reads unconditionally we generate invalid transfers and get stuck - WHY?!
-				// => We should only be reading data that we have already available locally
-				// => Why do the performance assertions not trigger in that case?!
-				if(i == rank) {
-					read_rank_counts_accesses.push_back({chnk_box, box<3>(subrange<3>{rank_offset, range})});
-				} else {
-					read_rank_counts_accesses.push_back({chnk_box, {}});
-				}
+				read_rank_counts_accesses.push_back({chnk_box, box<3>(subrange<3>{rank_offset, range})});
 			}
 			// TODO: We shouldn't have to specify the full read region in this case
 			celerity::expert_mapper read_rank_counts{box<3>::full_range(per_rank_tile_point_counts.get_range()), read_rank_counts_accesses};
@@ -604,8 +603,8 @@ int main(int argc, char* argv[]) {
 			queue.submit([&](celerity::handler& cgh) {
 				celerity::accessor read_counts(per_rank_tile_point_counts, cgh, read_rank_counts, celerity::read_only_host_task);
 				celerity::debug::set_task_name(cgh, "sanity check rank counts");
-				cgh.assert_no_allocations();   // TODO: Shouldn't this fail for host allocation?!
-				cgh.assert_no_data_movement(); // TODO: What we want here is no INTER-node transfer, d2h is fine
+				cgh.assert_no_allocations(celerity::detail::allocation_scope::device);
+				cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
 				cgh.host_task(sanity_check_counts_geo, [=, &num_entries](celerity::partition<1> part) {
 					if(part.get_subrange().offset[0] != rank) throw std::runtime_error("Partition offset is not the rank?");
 					size_t correct_nonzero_tiles = 0;
