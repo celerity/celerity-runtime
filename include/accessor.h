@@ -275,6 +275,10 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
+	// TODO: We use this in UMUGUC example to determine which slice in a 3D "per-node buffer" to read from. Not sure if there's other valid use cases,
+	//       in particular when not using custom task geometries. In any case, it should be made clear that this is an advanced feature.
+	const id<Dims>& experimental_get_allocation_offset() const { return m_allocation_offset; }
+
   private:
 	friend class interop_handle;
 

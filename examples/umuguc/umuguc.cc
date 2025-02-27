@@ -426,6 +426,10 @@ int main(int argc, char* argv[]) {
 	// TODO: Not sure if using 3D buffers is the best idea, since we rarely exercise those code paths in graph generators. Could also just use 2D w/ offset.
 	celerity::buffer<uint32_t, 3> per_device_tile_point_counts({num_ranks * num_devices, global_grid_size[0], global_grid_size[1]});
 	celerity::buffer<uint32_t, 3> per_rank_tile_point_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
+	// Each rank constructs its own copy of the global counts within its local bounding box
+	// This means incorporating counts from all other ranks that have an overlapping bounding box
+	// TODO: Naming
+	celerity::buffer<uint32_t, 3> per_rank_global_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
 
 	queue.wait(celerity::experimental::barrier);
 	const auto before_count_points = std::chrono::steady_clock::now();
@@ -546,6 +550,77 @@ int main(int argc, char* argv[]) {
 #endif
 	}
 
+	// Determine all ranks that have overlapping bounding boxes with this rank
+	// Compute global counts within local bounding box
+	{
+		const box<2> my_bounding_box{subrange<2>{local_grid_offset, local_grid_size}};
+		std::vector<box<2>> bounding_box_by_rank(num_ranks);
+		// TODO: We may want a utility in Celerity to do this (also for regions). Could be useful for synchronizing data requirements across ranks.
+		MPI_Allgather(&my_bounding_box, sizeof(box<2>), MPI_BYTE, bounding_box_by_rank.data(), sizeof(box<2>), MPI_BYTE, MPI_COMM_WORLD);
+
+		// std::vector<box<2>> intersecting_bounding_boxes(num_ranks); // by rank
+		celerity::custom_task_geometry<3> global_sum_geo;
+		global_sum_geo.global_size = celerity::detail::ones; // TODO: Why do we need this again? Can we get rid of this?
+		std::vector<std::pair<box<3>, region<3>>> read_rank_counts_accesses;
+		std::vector<std::pair<box<3>, region<3>>> write_global_counts_accesses;
+		region<3> write_global_counts_union_region;
+		for(size_t i = 0; i < num_ranks; ++i) {
+			if(i == rank) continue;
+			const auto intersection = celerity::detail::box_intersection(my_bounding_box, bounding_box_by_rank[i]);
+			if(!intersection.empty()) {
+				CELERITY_INFO("I have an intersecting bounding box with rank {}: {}", i, intersection);
+
+				// We use a 3D task geometry in this case so we can have the same 2D chunk on two different nodes (in separate slices)
+				// This is not necessary strictly speaking, because we could choose anything for the remote chunk - it just works out neatly
+				const auto sr = intersection.get_subrange();
+				const box<3> my_box = box<3>(subrange<3>{{rank, sr.offset[0], sr.offset[1]}, {1, sr.range[0], sr.range[1]}});
+				const box<3> their_box = box<3>(subrange<3>{{i, sr.offset[0], sr.offset[1]}, {1, sr.range[0], sr.range[1]}});
+				global_sum_geo.assigned_chunks.push_back({my_box, rank, 0});
+				global_sum_geo.assigned_chunks.push_back({their_box, i, 0});
+				CELERITY_INFO("ADDING CHUNKS: {} -> {} and {} -> {}", my_box, rank, their_box, i);
+				// This also works out nicely with the 3D kernel - the slice matches the per-rank counts buffer
+				read_rank_counts_accesses.push_back({my_box, their_box});
+				read_rank_counts_accesses.push_back({their_box, my_box});
+				// For writes we only specify the local write, this data will not be read anywhere else
+				write_global_counts_accesses.push_back({my_box, my_box});
+				write_global_counts_accesses.push_back({their_box, {}});
+				write_global_counts_union_region = region_union(write_global_counts_union_region, region<3>{my_box});
+			}
+		}
+
+		// Initialize global counts with local counts
+		// TODO: Need cgh.copy (although in this case its not clear how one would specify what to copy exactly..?)
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::custom_task_geometry<3> copy_local_counts_geo;
+			copy_local_counts_geo.global_size = celerity::detail::ones;
+			copy_local_counts_geo.assigned_chunks.push_back(
+			    {box<3>(subrange<3>{{rank, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}}), rank, 0});
+			celerity::accessor read_rank_counts(per_rank_tile_point_counts, cgh, celerity::access::one_to_one{}, celerity::read_only);
+			celerity::accessor write_global_counts(per_rank_global_counts, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init);
+			cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
+			celerity::debug::set_task_name(cgh, "copy local counts to global counts buffer");
+			cgh.parallel_for(copy_local_counts_geo, [=](celerity::id<3> id) { write_global_counts[id] = read_rank_counts[id]; });
+		});
+
+		// Compute the global counts within the local bounding box
+		// We currently do everything on device 0 for simplicity
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::accessor read_rank_counts(per_rank_tile_point_counts, cgh,
+			    celerity::expert_mapper(box<3>::full_range(per_rank_tile_point_counts.get_range()), read_rank_counts_accesses), celerity::read_only);
+			// TODO: This may lead to overlapping writes between chunks on the same device; need to tell Celerity somehow that its ok because we use atomics
+			// Since we write only parts of the local buffer, we cannot declare the whole buffer as being written and have to compute the actual union instead
+			// TODO: There should be a constructor for expert_mapper that computes this automatically
+			celerity::accessor write_global_counts(per_rank_global_counts, cgh,
+			    celerity::expert_mapper(write_global_counts_union_region, write_global_counts_accesses), celerity::write_only, celerity::no_init);
+			celerity::debug::set_task_name(cgh, "sum overlapping remote counts");
+			cgh.parallel_for(global_sum_geo, [=](celerity::id<3> id) {
+				const auto source_rank = read_rank_counts.experimental_get_allocation_offset()[0];
+				sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_global_counts[id]};
+				ref += read_rank_counts[source_rank][id[1]][id[2]];
+			});
+		});
+	}
+
 	queue.wait();
 
 	// Add up counts across ranks
@@ -612,8 +687,8 @@ int main(int argc, char* argv[]) {
 							const auto global_y = local_grid_offset[0] + y;
 							const auto idx = global_y * global_grid_size[1] + global_x;
 							if(num_entries[idx] != read_counts[rank][global_y][global_x]) {
-								CELERITY_CRITICAL("Rank {} has mismatch of global count for tile ({}, {}) (local coordinates {}, {}): {} (legacy) vs {} "
-								                  "(global). {} tiles with non-zero "
+								CELERITY_CRITICAL("Rank {} has mismatch of per-rank count for tile ({}, {}) (local coordinates {}, {}): {} (legacy) vs {} "
+								                  "(rank). {} tiles with non-zero "
 								                  "count were correct so far.\n",
 								    rank, global_y, global_x, y, x, num_entries[idx], read_counts[rank][global_y][global_x], correct_nonzero_tiles);
 								if(error_tiles++ > 5) abort();
@@ -639,11 +714,56 @@ int main(int argc, char* argv[]) {
 		// Now compute global sum
 		// TODO: We could also just compute it from num_entries_by_rank - should we?
 		MPI_Allreduce(MPI_IN_PLACE, num_entries.data(), num_entries.size(), MPI_UINT32_T, MPI_SUM, MPI_COMM_WORLD);
-		// for(size_t i = 0; i < grid_size[0]; ++i) {
-		// 	for(size_t j = 0; j < grid_size[1]; ++j) {
-		// 		fmt::print("Rank {} {},{}: {}\n", rank, j, i, num_entries[i * grid_size[0] + j]);
-		// 	}
-		// }
+
+// Sanity check: Compare the per-rank global counts with what we computed here
+// This is exactly the same logic we used for ther per-rank counts above
+#if 1
+		{
+			celerity::custom_task_geometry sanity_global_check_counts_geo;
+			sanity_global_check_counts_geo.global_size = range_cast<3>(celerity::range<1>{num_ranks});
+			std::vector<std::pair<box<3>, region<3>>> read_rank_global_counts_accesses;
+			for(size_t i = 0; i < num_ranks; ++i) {
+				const auto chnk_box = box_cast<3>(box<1>(subrange<1>{i, 1}));
+				sanity_global_check_counts_geo.assigned_chunks.push_back({chnk_box, i, 0});
+				const celerity::id<3> rank_offset = {i, local_grid_offset[0], local_grid_offset[1]};
+				// This is actually wrong for remote chunks (but it doesn't matter)
+				const celerity::range<3> range = {1, local_grid_size[0], local_grid_size[1]};
+				read_rank_global_counts_accesses.push_back({chnk_box, box<3>(subrange<3>{rank_offset, range})});
+			}
+			// TODO: We shouldn't have to specify the full read region in this case
+			celerity::expert_mapper read_rank_global_counts{box<3>::full_range(per_rank_global_counts.get_range()), read_rank_global_counts_accesses};
+
+			queue.submit([&](celerity::handler& cgh) {
+				celerity::accessor read_counts(per_rank_global_counts, cgh, read_rank_global_counts, celerity::read_only_host_task);
+				celerity::debug::set_task_name(cgh, "sanity check rank global counts");
+				cgh.assert_no_allocations(celerity::detail::allocation_scope::device);
+				cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
+				cgh.host_task(sanity_global_check_counts_geo, [=, &num_entries](celerity::partition<1> part) {
+					if(part.get_subrange().offset[0] != rank) throw std::runtime_error("Partition offset is not the rank?");
+					size_t correct_nonzero_tiles = 0;
+					size_t error_tiles = 0;
+					for(size_t y = 0; y < local_grid_size[0]; ++y) {
+						for(size_t x = 0; x < local_grid_size[1]; ++x) {
+							const auto global_x = local_grid_offset[1] + x;
+							const auto global_y = local_grid_offset[0] + y;
+							const auto idx = global_y * global_grid_size[1] + global_x;
+							if(num_entries[idx] != read_counts[rank][global_y][global_x]) {
+								CELERITY_CRITICAL("Rank {} has mismatch of global count for tile ({}, {}) (local coordinates {}, {}): {} (legacy) vs {} "
+								                  "(global). {} tiles with non-zero "
+								                  "count were correct so far.\n",
+								    rank, global_y, global_x, y, x, num_entries[idx], read_counts[rank][global_y][global_x], correct_nonzero_tiles);
+								if(error_tiles++ > 5) abort();
+							} else if(num_entries[idx] != 0) {
+								correct_nonzero_tiles++;
+							}
+						}
+					}
+				});
+			});
+			queue.wait();
+			fmt::print("Sanity check of per-rank GLOBAL counts for rank {} passed\n", rank);
+		}
+#endif
 
 		print_delta_time("Reduce across ranks");
 
