@@ -83,6 +83,7 @@ using clk = std::chrono::steady_clock;
  * - [ ] Each node launches a task with multiple chunks (all on device 0?) that computes the sum of the per-node counts
  *   - [ ] Use atomics to avoid conflicts between chunks
  * 	   => Each node now has the global counts for its bounding box
+ *   - [ ] If a node has the exact same overlapping box with two separate nodes (extremely unlikely), we have a problem (chunks must be unique for now) => error
  * - [ ] Each node computes the prefix sum for its bounding box (Q: In a scratch buffer?)
  *	   => Parts of the bounding box that overlap between nodes will be computed multiple times (from a global perspective)
  * - [ ] In a new 1D buffer, the node with the lowest rank that owns a row of the bounding box writes the COUNT per row
@@ -466,6 +467,7 @@ int main(int argc, char* argv[]) {
 	//       knows that it didn't really write the range, and so will not generate a push (in fact it will believe someone else to be the
 	//       owner). If we wanted to do this correctly, we'd have to pass the local grid size of each node.
 	celerity::expert_mapper write_device_count_access{box<3>::full_range(per_device_tile_point_counts.get_range()), local_device_accesses};
+	write_device_count_access.options.use_local_indexing = true;
 
 // FIXME: We need to initialize the buffer to 0. Where is handler::fill...
 // Easiest solution for now would probably be a "data access property" (like exact allocation, local indexing) that says what to initialize to
@@ -479,20 +481,15 @@ int main(int argc, char* argv[]) {
 		celerity::debug::set_task_name(cgh, "count points (global)");
 
 		cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
-		// TODO API: How do we launch nd-range kernels with custom geometries? Required for optimized count/write
-		const size_t points_per_device = points_input.get_range().size() / (num_ranks * num_devices);
 		cgh.parallel_for(write_tiles_geometry, [=](celerity::id<1> id) {
-			// HACK: We have to determine the global device index manually for now.
-			// TODO: What we would want is local indexing for the write_counts accessor (which implies exact allocation).
-			// I am NOT confident that this is correct near boundaries in all rounding scenarios
-			const auto device_idx = id[0] / points_per_device;
-
 			const auto& p = read_points[id];
 			// grid_size - 1: We divide the domain such the last tile contains the maximum value
 			const auto tile_x = static_cast<uint32_t>((p.x - global_min.x) / global_extent.x * (global_grid_size[1] - 1));
 			const auto tile_y = static_cast<uint32_t>((p.y - global_min.y) / global_extent.y * (global_grid_size[0] - 1));
-			auto device_slice = write_counts[device_idx];
-			sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{device_slice[tile_y][tile_x]};
+			auto device_slice = write_counts[0]; // 0 because we use local indexing
+			const auto local_tile_x = tile_x - local_grid_offset[1];
+			const auto local_tile_y = tile_y - local_grid_offset[0];
+			sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{device_slice[local_tile_y][local_tile_x]};
 			ref++;
 		});
 	});
@@ -991,6 +988,7 @@ int main(int argc, char* argv[]) {
 			celerity::accessor read_points(tiles_storage, cgh, celerity::access::all{}, celerity::read_only_host_task);
 			celerity::accessor read_shape_factors(shape_factors, cgh, celerity::access::all{}, celerity::read_only_host_task);
 
+			const size_t total_point_count = points_input.get_range().size();
 			cgh.host_task(celerity::on_master_node, [=]() {
 				CELERITY_INFO("Writing output to disk...");
 
@@ -1011,8 +1009,8 @@ int main(int argc, char* argv[]) {
 				};
 
 				// since sycl::double3 is padded to 4 * sizeof(double), we have to pack it first
-				std::vector<umuguc_point3d> packed_shape_factors(points_input.get_range().size());
-				for(size_t i = 0; i < points_input.get_range().size(); ++i) {
+				std::vector<umuguc_point3d> packed_shape_factors(total_point_count);
+				for(size_t i = 0; i < total_point_count; ++i) {
 					const auto& sf = read_shape_factors[i];
 					packed_shape_factors[i].x = sf.x();
 					packed_shape_factors[i].y = sf.y();
