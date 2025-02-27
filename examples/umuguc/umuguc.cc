@@ -3,6 +3,8 @@
 #include <celerity.h>
 #include <fmt/ranges.h>
 #include <nccl.h>
+#include <thrust/async/scan.h>
+#include <thrust/device_ptr.h>
 
 // TODO: A proper task geometry API should also offer splitting utilities
 #include "scratch_buffer.h"
@@ -77,26 +79,26 @@ using clk = std::chrono::steady_clock;
  * - [x] Compute the sum across all local devices (using NCCL)
  *   - These counts are written into the SLICE for the local node in the 3D counts buffer (using interop task we can directly write to that slice using NCCL?)
  *
- * - [ ] All nodes exchange their bounding boxes (using MPI, but we should have a utility for that)
+ * - [x] All nodes exchange their bounding boxes (using MPI, but we should have a utility for that)
  *   - [ ] Actually we could do two phases, a broad phase based on bounding boxes, and a narrow phase based on actual regions
- * - [ ] Each node computes the set of nodes that overlap with its bounding box (or regions)
- * - [ ] Each node launches a task with multiple chunks (all on device 0?) that computes the sum of the per-node counts
- *   - [ ] Use atomics to avoid conflicts between chunks
+ * - [x] Each node computes the set of nodes that overlap with its bounding box (or regions)
+ * - [x] Each node launches a task with multiple chunks (all on device 0?) that computes the sum of the per-node counts
+ *   - [x] Use atomics to avoid conflicts between chunks
  * 	   => Each node now has the global counts for its bounding box
  *   - [ ] If a node has the exact same overlapping box with two separate nodes (extremely unlikely), we have a problem (chunks must be unique for now) => error
- * - [ ] Each node computes the prefix sum for its bounding box (Q: In a scratch buffer?)
+ * - [x] Each node computes the prefix sum for its bounding box
  *	   => Parts of the bounding box that overlap between nodes will be computed multiple times (from a global perspective)
- * - [ ] In a new 1D buffer, the node with the lowest rank that owns a row of the bounding box writes the COUNT per row
+ * - [x] In a new 1D buffer, the node with the lowest rank that owns a row of the bounding box writes the COUNT per row
  *     => This can be computed as the difference between the current row and the previous
- * - [ ] Each node reads from the 1D buffer up until the starting coordinate of its bounding box and computes the sum
- * - [ ] Each node adds the previously computed sum to its local prefix sum
+ * - [x] Each node reads from the 1D buffer up until the starting coordinate of its bounding box and computes the sum
+ * - [x] Each node adds the previously computed sum to its local prefix sum
  *	 => At this point, each node now has the full prefix sum for its bounding box
  *   => NOTE: We may have to write this (again using lowest rank order) to a global buffer for determining shape factor kernel chunks later on
  *            BIG OOF: How would another node know that a particular node needs this data though?! We can't just read the full thing, that is the whole point
  *                     (or, at least half the point, we don't want to compute and store the whole thing)
  *            => I guess we have to start by reading the whole thing on all nodes and then figure something out later. Can't solve everything at once...
  *
- * - [ ] Repeat previous step for computing sums in overlapping bounding boxes, but now do it only for nodes with a lower rank
+ * - [x] Repeat previous step for computing sums in overlapping bounding boxes, but now do it only for nodes with a lower rank
  * - [ ] Finally, on each device compute the sum of the rank offset and the count of all lower devices
  *
  * - THEN WE ARE READY TO WRITE POINTS. JEEZ.
@@ -430,6 +432,15 @@ int main(int argc, char* argv[]) {
 	// This means incorporating counts from all other ranks that have an overlapping bounding box
 	// TODO: Naming
 	celerity::buffer<uint32_t, 3> per_rank_global_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
+	// Counts of all ranks that are lower than the given rank (i.e, for rank 0 it will be empty), within the local bounding box
+	// Required for determining the actual write offset on this rank (lower ranks write first)
+	celerity::buffer<uint32_t, 3> per_rank_lower_rank_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
+	// Global prefix sum (within the local bounding box)
+	celerity::buffer<uint32_t, 3> per_rank_cumulative_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
+	// Sum of values in each row of the global bounding box. Required for computing the final global prefix sum on each rank.
+	celerity::buffer<uint32_t, 1> global_row_sums({global_grid_size[0]});
+	// The value that needs to be added to the local prefix sum to complete it. Computed as the sum across all rows above local bounding box.
+	celerity::buffer<uint32_t, 1> per_rank_add_to_prefix_sum({num_ranks});
 
 	queue.wait(celerity::experimental::barrier);
 	const auto before_count_points = std::chrono::steady_clock::now();
@@ -550,8 +561,12 @@ int main(int argc, char* argv[]) {
 #endif
 	}
 
+	// The portion of the global bounding box for which this rank will write the per-row counts
+	// The lowest rank that has a row in its local bounding box is responsible (calculated below)
+	box<2> authoritative_box{subrange<2>{{local_grid_offset[0], 0}, {local_grid_size[0], 1}}};
+
 	// Determine all ranks that have overlapping bounding boxes with this rank
-	// Compute global counts within local bounding box
+	// Compute global counts within local bounding box, and sum of all counts of lower ranks within local bounding box
 	{
 		const box<2> my_bounding_box{subrange<2>{local_grid_offset, local_grid_size}};
 		std::vector<box<2>> bounding_box_by_rank(num_ranks);
@@ -560,15 +575,29 @@ int main(int argc, char* argv[]) {
 
 		// std::vector<box<2>> intersecting_bounding_boxes(num_ranks); // by rank
 		celerity::custom_task_geometry<3> global_sum_geo;
-		global_sum_geo.global_size = celerity::detail::ones; // TODO: Why do we need this again? Can we get rid of this?
 		std::vector<std::pair<box<3>, region<3>>> read_rank_counts_accesses;
 		std::vector<std::pair<box<3>, region<3>>> write_global_counts_accesses;
 		region<3> write_global_counts_union_region;
+
+		celerity::custom_task_geometry<3> lower_rank_sum_geo;
+		std::vector<std::pair<box<3>, region<3>>> read_lower_rank_counts_accesses;
+		std::vector<std::pair<box<3>, region<3>>> write_lower_rank_sum_accesses;
+		region<3> write_lower_rank_sum_union_region;
+
 		for(size_t i = 0; i < num_ranks; ++i) {
 			if(i == rank) continue;
 			const auto intersection = celerity::detail::box_intersection(my_bounding_box, bounding_box_by_rank[i]);
 			if(!intersection.empty()) {
 				CELERITY_INFO("I have an intersecting bounding box with rank {}: {}", i, intersection);
+
+				if(i < rank) {
+					const auto new_authoritative_box = region_difference(authoritative_box, bounding_box_by_rank[i]).get_boxes();
+					if(new_authoritative_box.size() > 1) {
+						// TODO: Can this even happen? Certainly not with duplicated input
+						throw std::runtime_error("Non-contiguous authoritative region?!");
+					}
+					authoritative_box = new_authoritative_box.size() == 1 ? new_authoritative_box[0] : box<2>{};
+				}
 
 				// We use a 3D task geometry in this case so we can have the same 2D chunk on two different nodes (in separate slices)
 				// This is not necessary strictly speaking, because we could choose anything for the remote chunk - it just works out neatly
@@ -585,14 +614,27 @@ int main(int argc, char* argv[]) {
 				write_global_counts_accesses.push_back({my_box, my_box});
 				write_global_counts_accesses.push_back({their_box, {}});
 				write_global_counts_union_region = region_union(write_global_counts_union_region, region<3>{my_box});
+
+				if(i < rank) {
+					lower_rank_sum_geo.assigned_chunks.push_back({my_box, rank, 0});
+					read_lower_rank_counts_accesses.push_back({my_box, their_box});
+					write_lower_rank_sum_accesses.push_back({my_box, my_box});
+					write_lower_rank_sum_union_region = region_union(write_lower_rank_sum_union_region, region<3>{my_box});
+				} else {
+					// TODO: We should actually be able to not specify these, the data is already there from the global sum
+					lower_rank_sum_geo.assigned_chunks.push_back({their_box, i, 0});
+					read_lower_rank_counts_accesses.push_back({their_box, my_box});
+					write_lower_rank_sum_accesses.push_back({their_box, {}});
+				}
 			}
 		}
+
+		CELERITY_INFO("Authoritative box for row sums for this rank: {}", authoritative_box);
 
 		// Initialize global counts with local counts
 		// TODO: Need cgh.copy (although in this case its not clear how one would specify what to copy exactly..?)
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::custom_task_geometry<3> copy_local_counts_geo;
-			copy_local_counts_geo.global_size = celerity::detail::ones;
 			copy_local_counts_geo.assigned_chunks.push_back(
 			    {box<3>(subrange<3>{{rank, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}}), rank, 0});
 			celerity::accessor read_rank_counts(per_rank_tile_point_counts, cgh, celerity::access::one_to_one{}, celerity::read_only);
@@ -618,6 +660,118 @@ int main(int argc, char* argv[]) {
 				sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_global_counts[id]};
 				ref += read_rank_counts[source_rank][id[1]][id[2]];
 			});
+		});
+
+		// Compute sum of counts of all ranks that are lower than the current rank
+		// TODO: Can we combine this with the previous task?
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::accessor read_rank_counts(per_rank_tile_point_counts, cgh,
+			    celerity::expert_mapper(box<3>::full_range(per_rank_tile_point_counts.get_range()), read_lower_rank_counts_accesses), celerity::read_only);
+			celerity::accessor write_lower_rank_sum(per_rank_lower_rank_counts, cgh,
+			    celerity::expert_mapper(write_lower_rank_sum_union_region, write_lower_rank_sum_accesses), celerity::write_only, celerity::no_init);
+			celerity::debug::set_task_name(cgh, "sum lower rank counts");
+			cgh.assert_no_data_movement(); // We already have the data where we need it from the previous task
+			cgh.parallel_for(lower_rank_sum_geo, [=](celerity::id<3> id) {
+				const auto source_rank = read_rank_counts.experimental_get_allocation_offset()[0];
+				sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_lower_rank_sum[id]};
+				ref += read_rank_counts[source_rank][id[1]][id[2]];
+			});
+		});
+	}
+
+	// Compute prefix sum
+	{
+		// Begin by computing the prefix sum within the local bounding box on each rank
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::custom_task_geometry<3> geo;
+			geo.assigned_chunks.push_back(
+			    {box<3>(subrange<3>{{rank, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}}), rank, 0});
+			celerity::accessor read_global_counts(per_rank_global_counts, cgh, celerity::access::one_to_one{}, celerity::read_only);
+			celerity::accessor write_cumulative_counts(
+			    per_rank_cumulative_counts, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init);
+			celerity::debug::set_task_name(cgh, "prefix sum local counts");
+			cgh.assert_no_data_movement();
+			cgh.interop_task(geo, [=](celerity::interop_handle& ih, celerity::partition<3> part) {
+				thrust::device_ptr<uint32_t> global_counts_ptr(ih.get_native_mem(read_global_counts));
+				thrust::device_ptr<uint32_t> cumulative_counts_ptr(ih.get_native_mem(write_cumulative_counts));
+				auto stream = ih.get_native_queue<sycl::backend::cuda>();
+				thrust::async::exclusive_scan(
+				    thrust::device.on(stream), global_counts_ptr, global_counts_ptr + local_grid_size.size(), cumulative_counts_ptr, 0);
+			});
+		});
+
+		// Next, we compute the per-row sum of the cumulative counts for the GLOBAL bounding box
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::custom_task_geometry<1> geo;
+			std::vector<std::pair<box<3>, region<3>>> read_cumulative_counts_accesses;
+			std::vector<std::pair<box<3>, region<3>>> read_global_counts_accesses;
+			std::vector<std::pair<box<3>, region<3>>> write_row_sums_accesses;
+			if(!authoritative_box.empty()) {
+				const auto chnk_box = box_cast<3>(authoritative_box);
+				geo.assigned_chunks.push_back({chnk_box, rank, 0});
+				const celerity::id<3> rank_offset = {rank, local_grid_offset[0], local_grid_offset[1]};
+				const celerity::range<3> range = {1, local_grid_size[0], local_grid_size[1]};
+				// We only need to read from the rows intersecting with the authoritative region, but it doesn't matter if we declare more
+				read_cumulative_counts_accesses.push_back({chnk_box, box<3>(subrange<3>{rank_offset, range})});
+				read_global_counts_accesses.push_back({chnk_box, box<3>(subrange<3>{rank_offset, range})});
+				// We manually declare the access instead of using a one-to-one range mapper so we can declare the full write region without
+				// having to also specify all remote chunks
+				write_row_sums_accesses.push_back({chnk_box, chnk_box});
+			}
+			// TODO API: We need an overload that takes a range as the first argument
+			// FIXME: Passing full range here triggers false positive uninitialized read warnings
+			celerity::accessor read_cumulative_counts(per_rank_cumulative_counts, cgh,
+			    celerity::expert_mapper(box<3>::full_range(per_rank_cumulative_counts.get_range()), read_cumulative_counts_accesses), celerity::read_only);
+			celerity::accessor read_global_counts(per_rank_global_counts, cgh,
+			    celerity::expert_mapper(box<3>::full_range(per_rank_global_counts.get_range()), read_global_counts_accesses), celerity::read_only);
+			celerity::accessor write_row_sums(global_row_sums, cgh,
+			    celerity::expert_mapper(box<3>::full_range(range_cast<3>(global_row_sums.get_range())), write_row_sums_accesses), celerity::write_only,
+			    celerity::no_init);
+			celerity::debug::set_task_name(cgh, "write row sums");
+			cgh.assert_no_data_movement();
+			cgh.parallel_for(geo, [=](celerity::id<1> id) {
+				// Since the prefix sum is exclusive, we we need to add the last element of the row
+				write_row_sums[id] = read_cumulative_counts[rank][id[0]][local_grid_size[1] - 1]
+				                     - read_cumulative_counts[rank][id[0]][local_grid_offset[1] /* must be 0 for this to work*/]
+				                     + read_global_counts[rank][id[0]][local_grid_size[1] - 1];
+			});
+		});
+
+		// Compute the value that needs to be added to the local prefix sum to complete it
+		// TODO: We could do this using interop task and thrust, but it's probably not worth it
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::accessor read_row_sums(global_row_sums, cgh, celerity::access::all{}, celerity::read_only_host_task);
+			celerity::accessor write_add_to_prefix_sum(
+			    per_rank_add_to_prefix_sum, cgh, celerity::access::one_to_one{}, celerity::write_only_host_task, celerity::no_init);
+			celerity::debug::set_task_name(cgh, "compute add to prefix sum");
+			cgh.host_task(celerity::range<1>(num_ranks), [=](celerity::partition<1> part) {
+				if(part.get_subrange().offset[0] != rank) throw std::runtime_error("Partition offset is not the rank?");
+				uint32_t sum = 0;
+				for(size_t i = 0; i < local_grid_offset[0]; ++i) {
+					sum += read_row_sums[i];
+				}
+				write_add_to_prefix_sum[rank] = sum;
+				CELERITY_INFO("Rank {} has to add {} to its local prefix sum", rank, sum);
+			});
+		});
+
+		// Finally, we add the value to the local prefix sum to complete it
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::custom_task_geometry<3> geo;
+			const auto chnk_box = box<3>(subrange<3>{{rank, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}});
+			geo.assigned_chunks.push_back({chnk_box, rank, 0});
+			std::vector<std::pair<box<3>, region<3>>> write_cumulative_counts_accesses;
+			write_cumulative_counts_accesses.push_back({chnk_box, chnk_box});
+			std::vector<std::pair<box<3>, region<3>>> read_add_to_prefix_sum_accesses;
+			read_add_to_prefix_sum_accesses.push_back({chnk_box, box<3>({rank, 0, 0}, {rank + 1, 1, 1})});
+			celerity::accessor read_add_to_prefix_sum(per_rank_add_to_prefix_sum, cgh,
+			    celerity::expert_mapper(box<3>::full_range(range_cast<3>(per_rank_add_to_prefix_sum.get_range())), read_add_to_prefix_sum_accesses),
+			    celerity::read_only);
+			celerity::accessor write_cumulative_counts(per_rank_cumulative_counts, cgh,
+			    celerity::expert_mapper(box<3>::full_range(per_rank_cumulative_counts.get_range()), write_cumulative_counts_accesses), celerity::write_only);
+			celerity::debug::set_task_name(cgh, "add to prefix sum");
+			cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
+			cgh.parallel_for(geo, [=](celerity::id<3> id) { write_cumulative_counts[id] += read_add_to_prefix_sum[rank]; });
 		});
 	}
 
@@ -719,12 +873,12 @@ int main(int argc, char* argv[]) {
 // This is exactly the same logic we used for ther per-rank counts above
 #if 1
 		{
-			celerity::custom_task_geometry sanity_global_check_counts_geo;
-			sanity_global_check_counts_geo.global_size = range_cast<3>(celerity::range<1>{num_ranks});
+			celerity::custom_task_geometry sanity_check_global_counts_geo;
+			sanity_check_global_counts_geo.global_size = range_cast<3>(celerity::range<1>{num_ranks});
 			std::vector<std::pair<box<3>, region<3>>> read_rank_global_counts_accesses;
 			for(size_t i = 0; i < num_ranks; ++i) {
 				const auto chnk_box = box_cast<3>(box<1>(subrange<1>{i, 1}));
-				sanity_global_check_counts_geo.assigned_chunks.push_back({chnk_box, i, 0});
+				sanity_check_global_counts_geo.assigned_chunks.push_back({chnk_box, i, 0});
 				const celerity::id<3> rank_offset = {i, local_grid_offset[0], local_grid_offset[1]};
 				// This is actually wrong for remote chunks (but it doesn't matter)
 				const celerity::range<3> range = {1, local_grid_size[0], local_grid_size[1]};
@@ -738,7 +892,7 @@ int main(int argc, char* argv[]) {
 				celerity::debug::set_task_name(cgh, "sanity check rank global counts");
 				cgh.assert_no_allocations(celerity::detail::allocation_scope::device);
 				cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
-				cgh.host_task(sanity_global_check_counts_geo, [=, &num_entries](celerity::partition<1> part) {
+				cgh.host_task(sanity_check_global_counts_geo, [=, &num_entries](celerity::partition<1> part) {
 					if(part.get_subrange().offset[0] != rank) throw std::runtime_error("Partition offset is not the rank?");
 					size_t correct_nonzero_tiles = 0;
 					size_t error_tiles = 0;
@@ -762,6 +916,30 @@ int main(int argc, char* argv[]) {
 			});
 			queue.wait();
 			fmt::print("Sanity check of per-rank GLOBAL counts for rank {} passed\n", rank);
+		}
+#endif
+
+// Sanity check: Are the global row sums correct?
+#if 1
+		{
+			queue.submit([&](celerity::handler& cgh) {
+				celerity::accessor read_global_row_sums(global_row_sums, cgh, celerity::access::all{}, celerity::read_only_host_task);
+				cgh.host_task(celerity::on_master_node, [=]() {
+					for(size_t i = 0; i < global_grid_size[0]; ++i) {
+						uint32_t expected_sum = 0;
+						for(size_t j = 0; j < global_grid_size[1]; ++j) {
+							expected_sum += num_entries[i * global_grid_size[1] + j];
+						}
+						if(read_global_row_sums[i] != expected_sum) {
+							CELERITY_CRITICAL(
+							    "Incorrect global row sum for row {}: {} (received) vs {} (expected)\n", i, read_global_row_sums[i], expected_sum);
+							if(i > 5) abort();
+						}
+					}
+				});
+			});
+			queue.wait();
+			if(rank == 0) { fmt::print("Sanity check of global row sums passed\n"); }
 		}
 #endif
 
@@ -798,6 +976,56 @@ int main(int argc, char* argv[]) {
 				rank_offset += num_entries_per_device[d][i];
 			}
 		}
+
+// Sanity check: Compare the per-rank cumulative counts with what we computed here
+// This is exactly the same logic we used for ther per-rank counts and per-rank global counts above
+#if 1
+		{
+			celerity::custom_task_geometry sanity_check_cumulative_counts_geo;
+			std::vector<std::pair<box<3>, region<3>>> read_rank_cumulative_counts_accesses;
+			for(size_t i = 0; i < num_ranks; ++i) {
+				const auto chnk_box = box_cast<3>(box<1>(subrange<1>{i, 1}));
+				sanity_check_cumulative_counts_geo.assigned_chunks.push_back({chnk_box, i, 0});
+				const celerity::id<3> rank_offset = {i, local_grid_offset[0], local_grid_offset[1]};
+				// This is actually wrong for remote chunks (but it doesn't matter)
+				const celerity::range<3> range = {1, local_grid_size[0], local_grid_size[1]};
+				read_rank_cumulative_counts_accesses.push_back({chnk_box, box<3>(subrange<3>{rank_offset, range})});
+			}
+			// TODO: We shouldn't have to specify the full read region in this case
+			celerity::expert_mapper read_rank_global_counts{box<3>::full_range(per_rank_cumulative_counts.get_range()), read_rank_cumulative_counts_accesses};
+
+			queue.submit([&](celerity::handler& cgh) {
+				celerity::accessor read_counts(per_rank_cumulative_counts, cgh, read_rank_global_counts, celerity::read_only_host_task);
+				celerity::debug::set_task_name(cgh, "sanity check rank cumulative counts");
+				cgh.assert_no_allocations(celerity::detail::allocation_scope::device);
+				cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
+				cgh.host_task(sanity_check_cumulative_counts_geo, [=, &num_entries_cumulative](celerity::partition<1> part) {
+					if(part.get_subrange().offset[0] != rank) throw std::runtime_error("Partition offset is not the rank?");
+					size_t correct_nonzero_tiles = 0;
+					size_t error_tiles = 0;
+					for(size_t y = 0; y < local_grid_size[0]; ++y) {
+						for(size_t x = 0; x < local_grid_size[1]; ++x) {
+							const auto global_x = local_grid_offset[1] + x;
+							const auto global_y = local_grid_offset[0] + y;
+							const auto idx = global_y * global_grid_size[1] + global_x;
+							if(num_entries_cumulative[idx] != read_counts[rank][global_y][global_x]) {
+								CELERITY_CRITICAL("Rank {} has mismatch of cumulative count for tile ({}, {}) (local coordinates {}, {}): {} (legacy) vs {} "
+								                  "(rank). {} tiles with non-zero "
+								                  "count were correct so far.\n",
+								    rank, global_y, global_x, y, x, num_entries_cumulative[idx], read_counts[rank][global_y][global_x], correct_nonzero_tiles);
+								if(error_tiles++ > 5) abort();
+							} else if(num_entries_cumulative[idx] != 0) {
+								correct_nonzero_tiles++;
+							}
+						}
+					}
+				});
+			});
+			queue.wait();
+			fmt::print("Sanity check of per-rank CUMULATIVE counts for rank {} passed\n", rank);
+		}
+#endif
+
 		// if(rank == 0) fmt::print("Cumulative: {}\n", fmt::join(num_entries_cumulative, ","));
 		// fmt::print("Rank {} cumulative: {}\n", rank, fmt::join(write_offsets_for_this_rank, ","));
 		print_delta_time("Compute prefix sums");
