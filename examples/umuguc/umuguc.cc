@@ -345,10 +345,22 @@ int main(int argc, char* argv[]) {
 	print_delta_time("Writing [and duplicating] input to buffer");
 
 	const umuguc_point3d local_extent = {local_max.x - local_min.x, local_max.y - local_min.y, local_max.z - local_min.z};
-	const celerity::range<2> local_grid_size = {
-	    static_cast<uint32_t>(std::round(local_extent.y / tile_size)), static_cast<uint32_t>(std::round(local_extent.x / tile_size))};
-	const celerity::id<2> local_grid_offset = {
-	    static_cast<uint32_t>((local_min.y - global_min.y) / tile_size), static_cast<uint32_t>((local_min.x - global_min.x) / tile_size)};
+	// For some reason (I don't have time to investigate right now), sizing the local grid exactly to the local extent can sometimes cause
+	// out-of-bounds accesses in the counting kernel. It may just be unfortunate rounding. To remedy this, we simply extend the local grid
+	// size along the Y-axis in both directions by one tile. This is not a problem in practice because we only use the local grid to declare
+	// data requirements, i.e., we at most incur a very small allocation and transfer overhead.
+	const auto [local_grid_size, local_grid_offset] = ([&] {
+		celerity::range<2> size = {
+		    static_cast<uint32_t>(std::round(local_extent.y / tile_size)), static_cast<uint32_t>(std::round(local_extent.x / tile_size))};
+		celerity::id<2> offset = {
+		    static_cast<uint32_t>((local_min.y - global_min.y) / tile_size), static_cast<uint32_t>((local_min.x - global_min.x) / tile_size)};
+		if(offset[0] + size[0] < global_grid_size[0]) size[0]++;
+		if(offset[0] > 0) {
+			offset[0]--;
+			size[0]++;
+		}
+		return std::pair{size, offset};
+	})(); // IIFE
 	if(local_grid_size.size() == 0) {
 		CELERITY_CRITICAL("Local grid size is {}x{} - try smaller tile size", local_grid_size[1], local_grid_size[0]);
 		exit(1);
