@@ -830,6 +830,59 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
+	// Compute per-device written subranges in 1D buffer
+	// Much simpler than what we were doing before!
+	std::vector<std::vector<celerity::subrange<1>>> written_subranges_per_device_new(num_devices); // TODO: Get rid of "_new"
+	{
+		for(size_t i = 0; i < num_devices; ++i) {
+			queue.submit([&](celerity::handler& cgh) {
+				celerity::custom_task_geometry geo;
+				geo.assigned_chunks.push_back({box<3>::full_range(celerity::detail::ones), rank, 0}); // Doesn't matter
+				// TODO: We really need a helper function to generate these, it's the same pattern over and over
+				std::vector<std::pair<box<3>, region<3>>> read_device_slice;
+				read_device_slice.push_back({geo.assigned_chunks.back().box,
+				    box<3>(subrange<3>{{rank * num_devices + i, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}})});
+				celerity::accessor device_counts(per_device_tile_point_counts, cgh, celerity::expert_mapper(read_device_slice), celerity::read_only_host_task);
+				celerity::accessor device_write_offsets(
+				    per_device_write_offsets_buffer, cgh, celerity::expert_mapper(read_device_slice), celerity::read_only_host_task);
+				cgh.host_task(geo, [=, &written_subranges_per_device_new](celerity::partition<1>) {
+					auto counts = device_counts[rank * num_devices + i];
+					auto offsets = device_write_offsets[rank * num_devices + i];
+
+					std::vector<celerity::subrange<1>> written_subranges;
+					std::optional<celerity::subrange<1>> current_sr;
+					for(size_t y = local_grid_offset[0]; y < local_grid_offset[0] + local_grid_size[0]; ++y) {
+						for(size_t x = local_grid_offset[1]; x < local_grid_offset[1] + local_grid_size[1]; ++x) {
+							if(counts[y][x] > 0) {
+								if(!current_sr.has_value()) {
+									current_sr = subrange<1>{offsets[y][x], counts[y][x]};
+								} else {
+									if(current_sr->offset + current_sr->range == offsets[y][x]) {
+										// We are the only writer between the previous and current tile
+										current_sr->range += counts[y][x];
+									} else {
+										// Someone else wrote in between
+										written_subranges.push_back(*current_sr);
+										current_sr = subrange<1>{offsets[y][x], counts[y][x]};
+									}
+								}
+							} else if(current_sr.has_value()) {
+								if(current_sr->offset + current_sr->range != offsets[y][x]) {
+									// Someone else wrote in between
+									written_subranges.push_back(*current_sr);
+									current_sr.reset();
+								}
+							}
+						}
+					}
+					if(current_sr.has_value()) { written_subranges.push_back(*current_sr); }
+					written_subranges_per_device_new[i] = std::move(written_subranges);
+				});
+			});
+		}
+		queue.wait(); // Wait for writes in main thread
+	}
+
 	queue.wait();
 
 	// Add up counts across ranks
@@ -1143,6 +1196,27 @@ int main(int argc, char* argv[]) {
 		// written_subranges = compute_written_subranges(rank, num_entries, num_entries_by_rank, num_entries_cumulative);
 		written_subranges_per_device =
 		    compute_written_subranges_per_device(rank, num_entries, num_entries_by_rank, num_entries_cumulative, num_entries_per_device);
+
+		// Sanity check: Compare written subranges per device
+#if 1
+		{
+			for(size_t i = 0; i < num_devices; ++i) {
+				if(written_subranges_per_device[i].size() != written_subranges_per_device_new[i].size()) {
+					CELERITY_CRITICAL("Rank {} has different number of written subranges for device {}: {} (legacy) vs {} (new)", rank, i,
+					    written_subranges_per_device[i].size(), written_subranges_per_device_new[i].size());
+					abort();
+				}
+				for(size_t j = 0; j < written_subranges_per_device[i].size(); ++j) {
+					if(written_subranges_per_device[i][j] != written_subranges_per_device_new[i][j]) {
+						CELERITY_CRITICAL("Rank {} has different written subrange for device {} at index {}: {} (legacy) vs {} (new)", rank, i, j,
+						    written_subranges_per_device[i][j], written_subranges_per_device_new[i][j]);
+						abort();
+					}
+				}
+			}
+			fmt::print("Sanity check of per-device written subranges for rank {} passed\n", rank);
+		}
+#endif
 
 		print_delta_time("Compute written subranges");
 
