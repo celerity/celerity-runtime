@@ -99,7 +99,7 @@ using clk = std::chrono::steady_clock;
  *            => I guess we have to start by reading the whole thing on all nodes and then figure something out later. Can't solve everything at once...
  *
  * - [x] Repeat previous step for computing sums in overlapping bounding boxes, but now do it only for nodes with a lower rank
- * - [ ] Finally, on each device compute the sum of the rank offset and the count of all lower devices
+ * - [x] Finally, on each device compute the sum of the rank offset and the count of all lower devices
  *
  * - THEN WE ARE READY TO WRITE POINTS. JEEZ.
  *
@@ -441,6 +441,9 @@ int main(int argc, char* argv[]) {
 	celerity::buffer<uint32_t, 1> global_row_sums({global_grid_size[0]});
 	// The value that needs to be added to the local prefix sum to complete it. Computed as the sum across all rows above local bounding box.
 	celerity::buffer<uint32_t, 1> per_rank_add_to_prefix_sum({num_ranks});
+	// The offset each device starts writing at within each tile. Computed as the global prefix sum + the point counts of all lower ranks and devices.
+	// TODO: Rename, _buffer is due to naming conflict with legacy vector below
+	celerity::buffer<uint32_t, 3> per_device_write_offsets_buffer({num_ranks * num_devices, global_grid_size[0], global_grid_size[1]});
 
 	queue.wait(celerity::experimental::barrier);
 	const auto before_count_points = std::chrono::steady_clock::now();
@@ -768,11 +771,71 @@ int main(int argc, char* argv[]) {
 			    celerity::expert_mapper(box<3>::full_range(range_cast<3>(per_rank_add_to_prefix_sum.get_range())), read_add_to_prefix_sum_accesses),
 			    celerity::read_only);
 			celerity::accessor write_cumulative_counts(per_rank_cumulative_counts, cgh,
-			    celerity::expert_mapper(box<3>::full_range(per_rank_cumulative_counts.get_range()), write_cumulative_counts_accesses), celerity::write_only);
+			    celerity::expert_mapper(box<3>::full_range(per_rank_cumulative_counts.get_range()), write_cumulative_counts_accesses), celerity::read_write);
 			celerity::debug::set_task_name(cgh, "add to prefix sum");
 			cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
 			cgh.parallel_for(geo, [=](celerity::id<3> id) { write_cumulative_counts[id] += read_add_to_prefix_sum[rank]; });
 		});
+	}
+
+	// Compute per-device write offset
+	{
+		// We begin by adding up the global prefix sum and lower rank sum on each device
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::custom_task_geometry<3> geo;
+			std::vector<std::pair<box<3>, region<3>>> read_lower_rank_sum_accesses;
+			std::vector<std::pair<box<3>, region<3>>> write_device_write_offsets_accesses;
+			for(size_t i = 0; i < num_devices; ++i) {
+				const auto chnk_box =
+				    box<3>(subrange<3>{{rank * num_devices + i, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}});
+				geo.assigned_chunks.push_back({chnk_box, rank, i});
+				read_lower_rank_sum_accesses.push_back(
+				    {chnk_box, box<3>(subrange<3>{{rank, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}})});
+				write_device_write_offsets_accesses.push_back({chnk_box, chnk_box});
+			}
+			celerity::accessor read_lower_rank_sum(per_rank_lower_rank_counts, cgh,
+			    celerity::expert_mapper(box<3>::full_range(per_rank_lower_rank_counts.get_range()), read_lower_rank_sum_accesses), celerity::read_only);
+			// We just use the same access list
+			// TODO: Rename
+			celerity::accessor read_cumulative_counts(per_rank_cumulative_counts, cgh,
+			    celerity::expert_mapper(box<3>::full_range(per_rank_cumulative_counts.get_range()), read_lower_rank_sum_accesses), celerity::read_only);
+			celerity::accessor write_device_write_offsets(per_device_write_offsets_buffer, cgh,
+			    celerity::expert_mapper(box<3>::full_range(per_device_write_offsets_buffer.get_range()), write_device_write_offsets_accesses),
+			    celerity::write_only, celerity::no_init);
+			celerity::debug::set_task_name(cgh, "copy lower rank sum to device write offsets");
+			cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
+			cgh.parallel_for(geo, [=](celerity::id<3> id) {
+				write_device_write_offsets[id] = read_cumulative_counts[rank][id[1]][id[2]] + read_lower_rank_sum[rank][id[1]][id[2]];
+			});
+		});
+
+		// Now we iteratively sum up the counts of all lower devices
+		for(size_t j = 0; j < num_devices - 1; ++j) {
+			queue.submit([&](celerity::handler& cgh) {
+				celerity::custom_task_geometry<3> geo;
+				std::vector<std::pair<box<3>, region<3>>> read_lower_device_counts_accesses;
+				std::vector<std::pair<box<3>, region<3>>> write_device_write_offsets_accesses;
+				for(size_t i = j + 1; i < num_devices; ++i) {
+					const auto chnk_box =
+					    box<3>(subrange<3>{{rank * num_devices + i, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}});
+					geo.assigned_chunks.push_back({chnk_box, rank, i});
+					read_lower_device_counts_accesses.push_back(
+					    {chnk_box, box<3>(subrange<3>{
+					                   {rank * num_devices + j, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}})});
+					write_device_write_offsets_accesses.push_back({chnk_box, chnk_box});
+				}
+				celerity::accessor read_lower_device_counts(per_rank_lower_rank_counts, cgh,
+				    celerity::expert_mapper(box<3>::full_range(per_device_tile_point_counts.get_range()), read_lower_device_counts_accesses),
+				    celerity::read_only);
+				celerity::accessor write_device_write_offsets(per_device_write_offsets_buffer, cgh,
+				    celerity::expert_mapper(box<3>::full_range(per_device_write_offsets_buffer.get_range()), write_device_write_offsets_accesses),
+				    celerity::read_write);
+				celerity::debug::set_task_name(cgh, fmt::format("add device {} counts", j));
+				cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
+				cgh.parallel_for(
+				    geo, [=](celerity::id<3> id) { write_device_write_offsets[id] += read_lower_device_counts[rank * num_devices + j][id[1]][id[2]]; });
+			});
+		}
 	}
 
 	queue.wait();
@@ -815,6 +878,7 @@ int main(int argc, char* argv[]) {
 			celerity::custom_task_geometry sanity_check_counts_geo;
 			sanity_check_counts_geo.global_size = range_cast<3>(celerity::range<1>{num_ranks});
 			std::vector<std::pair<box<3>, region<3>>> read_rank_counts_accesses;
+			// TODO: No need to specify remote chunks
 			for(size_t i = 0; i < num_ranks; ++i) {
 				const auto chnk_box = box_cast<3>(box<1>(subrange<1>{i, 1}));
 				sanity_check_counts_geo.assigned_chunks.push_back({chnk_box, i, 0});
@@ -876,6 +940,7 @@ int main(int argc, char* argv[]) {
 			celerity::custom_task_geometry sanity_check_global_counts_geo;
 			sanity_check_global_counts_geo.global_size = range_cast<3>(celerity::range<1>{num_ranks});
 			std::vector<std::pair<box<3>, region<3>>> read_rank_global_counts_accesses;
+			// TODO: No need to specify remote chunks
 			for(size_t i = 0; i < num_ranks; ++i) {
 				const auto chnk_box = box_cast<3>(box<1>(subrange<1>{i, 1}));
 				sanity_check_global_counts_geo.assigned_chunks.push_back({chnk_box, i, 0});
@@ -983,6 +1048,7 @@ int main(int argc, char* argv[]) {
 		{
 			celerity::custom_task_geometry sanity_check_cumulative_counts_geo;
 			std::vector<std::pair<box<3>, region<3>>> read_rank_cumulative_counts_accesses;
+			// TODO: No need to specify remote chunks
 			for(size_t i = 0; i < num_ranks; ++i) {
 				const auto chnk_box = box_cast<3>(box<1>(subrange<1>{i, 1}));
 				sanity_check_cumulative_counts_geo.assigned_chunks.push_back({chnk_box, i, 0});
@@ -992,10 +1058,11 @@ int main(int argc, char* argv[]) {
 				read_rank_cumulative_counts_accesses.push_back({chnk_box, box<3>(subrange<3>{rank_offset, range})});
 			}
 			// TODO: We shouldn't have to specify the full read region in this case
-			celerity::expert_mapper read_rank_global_counts{box<3>::full_range(per_rank_cumulative_counts.get_range()), read_rank_cumulative_counts_accesses};
+			celerity::expert_mapper read_rank_cumulative_counts{
+			    box<3>::full_range(per_rank_cumulative_counts.get_range()), read_rank_cumulative_counts_accesses};
 
 			queue.submit([&](celerity::handler& cgh) {
-				celerity::accessor read_counts(per_rank_cumulative_counts, cgh, read_rank_global_counts, celerity::read_only_host_task);
+				celerity::accessor read_counts(per_rank_cumulative_counts, cgh, read_rank_cumulative_counts, celerity::read_only_host_task);
 				celerity::debug::set_task_name(cgh, "sanity check rank cumulative counts");
 				cgh.assert_no_allocations(celerity::detail::allocation_scope::device);
 				cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
@@ -1023,6 +1090,55 @@ int main(int argc, char* argv[]) {
 			});
 			queue.wait();
 			fmt::print("Sanity check of per-rank CUMULATIVE counts for rank {} passed\n", rank);
+		}
+#endif
+
+// Sanity check: Compare the per-device write offsets with what we computed here
+#if 1
+		{
+			celerity::custom_task_geometry sanity_check_device_offsets_geo;
+			std::vector<std::pair<box<3>, region<3>>> read_device_offsets_accesses;
+			const auto chnk_box = box_cast<3>(box<1>(subrange<1>{(size_t)rank, 1}));
+			sanity_check_device_offsets_geo.assigned_chunks.push_back({chnk_box, rank, 0});
+			const celerity::id<3> rank_offset = {rank * num_devices, local_grid_offset[0], local_grid_offset[1]};
+			const celerity::range<3> range = {num_devices, local_grid_size[0], local_grid_size[1]};
+			read_device_offsets_accesses.push_back({chnk_box, box<3>(subrange<3>{rank_offset, range})});
+			// TODO: We shouldn't have to specify the full read region in this case
+			celerity::expert_mapper read_device_offsets{box<3>::full_range(per_device_write_offsets_buffer.get_range()), read_device_offsets_accesses};
+
+			queue.submit([&](celerity::handler& cgh) {
+				celerity::accessor read_offsets(per_device_write_offsets_buffer, cgh, read_device_offsets, celerity::read_only_host_task);
+				celerity::debug::set_task_name(cgh, "sanity check per device write offsets");
+				cgh.assert_no_allocations(celerity::detail::allocation_scope::device);
+				cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
+				cgh.host_task(sanity_check_device_offsets_geo, [=, &per_device_write_offsets](celerity::partition<1> part) {
+					if(part.get_subrange().offset[0] != rank) throw std::runtime_error("Partition offset is not the rank?");
+					size_t correct_nonzero_tiles = 0;
+					size_t error_tiles = 0;
+					for(size_t i = 0; i < num_devices; ++i) {
+						for(size_t y = 0; y < local_grid_size[0]; ++y) {
+							for(size_t x = 0; x < local_grid_size[1]; ++x) {
+								const auto global_x = local_grid_offset[1] + x;
+								const auto global_y = local_grid_offset[0] + y;
+								const auto idx = global_y * global_grid_size[1] + global_x;
+								if(per_device_write_offsets[i][idx] != read_offsets[rank * num_devices + i][global_y][global_x]) {
+									CELERITY_CRITICAL("Rank {} has mismatch of per-device write offset for device {} and tile ({}, {}) (local coordinates {}, "
+									                  "{}): {} (legacy) vs {} "
+									                  "(rank). {} tiles with non-zero "
+									                  "count were correct so far.\n",
+									    rank, i, global_y, global_x, y, x, per_device_write_offsets[i][idx],
+									    read_offsets[rank * num_devices + i][global_y][global_x], correct_nonzero_tiles);
+									if(error_tiles++ > 5) abort();
+								} else if(per_device_write_offsets[i][idx] != 0) {
+									correct_nonzero_tiles++;
+								}
+							}
+						}
+					}
+				});
+			});
+			queue.wait();
+			fmt::print("Sanity check of per-device write offsets for rank {} passed\n", rank);
 		}
 #endif
 
