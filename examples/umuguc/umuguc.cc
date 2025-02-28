@@ -551,8 +551,9 @@ int main(int argc, char* argv[]) {
 				auto device_counts_ptr = ih.get_native_mem(device_counts);
 				auto rank_counts_ptr = ih.get_native_mem(rank_counts);
 				const size_t device_idx = part.get_subrange().offset[0];
-				CELERITY_INFO(
-				    "Hello from interop task for device {}. Device counts: {}, rank counts: {}", device_idx, (void*)device_counts_ptr, (void*)rank_counts_ptr);
+				// CELERITY_INFO(
+				//     "Hello from interop task for device {}. Device counts: {}, rank counts: {}", device_idx, (void*)device_counts_ptr,
+				//     (void*)rank_counts_ptr);
 				auto stream = ih.get_native_queue<sycl::backend::cuda>();
 				static_assert(std::is_same_v<decltype(per_rank_tile_point_counts), celerity::buffer<uint32_t, 3>>); // Adjust NCCL type if this fails
 				// TODO: Can / should we register buffer with NCCL first?
@@ -591,7 +592,7 @@ int main(int argc, char* argv[]) {
 			if(i == rank) continue;
 			const auto intersection = celerity::detail::box_intersection(my_bounding_box, bounding_box_by_rank[i]);
 			if(!intersection.empty()) {
-				CELERITY_INFO("I have an intersecting bounding box with rank {}: {}", i, intersection);
+				// CELERITY_INFO("I have an intersecting bounding box with rank {}: {}", i, intersection);
 
 				if(i < rank) {
 					const auto new_authoritative_box = region_difference(authoritative_box, bounding_box_by_rank[i]).get_boxes();
@@ -609,7 +610,7 @@ int main(int argc, char* argv[]) {
 				const box<3> their_box = box<3>(subrange<3>{{i, sr.offset[0], sr.offset[1]}, {1, sr.range[0], sr.range[1]}});
 				global_sum_geo.assigned_chunks.push_back({my_box, rank, 0});
 				global_sum_geo.assigned_chunks.push_back({their_box, i, 0});
-				CELERITY_INFO("ADDING CHUNKS: {} -> {} and {} -> {}", my_box, rank, their_box, i);
+				// CELERITY_INFO("ADDING CHUNKS: {} -> {} and {} -> {}", my_box, rank, their_box, i);
 				// This also works out nicely with the 3D kernel - the slice matches the per-rank counts buffer
 				read_rank_counts_accesses.push_back({my_box, their_box});
 				read_rank_counts_accesses.push_back({their_box, my_box});
@@ -632,7 +633,7 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
-		CELERITY_INFO("Authoritative box for row sums for this rank: {}", authoritative_box);
+		// CELERITY_INFO("Authoritative box for row sums for this rank: {}", authoritative_box);
 
 		// Initialize global counts with local counts
 		// TODO: Need cgh.copy (although in this case its not clear how one would specify what to copy exactly..?)
@@ -750,7 +751,7 @@ int main(int argc, char* argv[]) {
 					sum += read_row_sums[i];
 				}
 				write_add_to_prefix_sum[rank] = sum;
-				CELERITY_INFO("Rank {} has to add {} to its local prefix sum", rank, sum);
+				// CELERITY_INFO("Rank {} has to add {} to its local prefix sum", rank, sum);
 			});
 		});
 
@@ -817,12 +818,10 @@ int main(int argc, char* argv[]) {
 					                   {rank * num_devices + j, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}})});
 					write_device_write_offsets_accesses.push_back({chnk_box, chnk_box});
 				}
-				celerity::accessor read_lower_device_counts(per_rank_lower_rank_counts, cgh,
-				    celerity::expert_mapper(box<3>::full_range(per_device_tile_point_counts.get_range()), read_lower_device_counts_accesses),
-				    celerity::read_only);
-				celerity::accessor write_device_write_offsets(per_device_write_offsets_buffer, cgh,
-				    celerity::expert_mapper(box<3>::full_range(per_device_write_offsets_buffer.get_range()), write_device_write_offsets_accesses),
-				    celerity::read_write);
+				celerity::accessor read_lower_device_counts(
+				    per_device_tile_point_counts, cgh, celerity::expert_mapper(read_lower_device_counts_accesses), celerity::read_only);
+				celerity::accessor write_device_write_offsets(
+				    per_device_write_offsets_buffer, cgh, celerity::expert_mapper(write_device_write_offsets_accesses), celerity::read_write);
 				celerity::debug::set_task_name(cgh, fmt::format("add device {} counts", j));
 				cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
 				cgh.parallel_for(
