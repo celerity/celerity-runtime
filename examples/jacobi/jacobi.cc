@@ -81,7 +81,7 @@ int main(int argc, char* argv[]) {
 					auto sr = pyramid_chunks[pyramid_idx];
 					sr.offset += j * pyramid_base;
 					if(do_print) CELERITY_CRITICAL("it {}: Assigning upward chunk {} to did {}", i, sr, j);
-					geo.assigned_chunks.push_back(celerity::geometry_chunk{.sr = celerity::detail::subrange_cast<3>(sr), .nid = 0, .did = j});
+					geo.assigned_chunks.push_back(celerity::geometry_chunk{.box = celerity::detail::subrange_cast<3>(sr), .nid = 0, .did = j});
 				}
 				q.submit([&](celerity::handler& cgh) {
 					celerity::accessor read_a{buf_a, cgh, celerity::access::neighborhood{1}, celerity::read_only};
@@ -103,7 +103,7 @@ int main(int argc, char* argv[]) {
 					sr.offset[0] = 0;
 					sr.range[0] /= 2;
 					if(do_print) CELERITY_CRITICAL("it {}: Assigning partial downward chunk {} to did 0", i, sr);
-					geo.assigned_chunks.push_back(celerity::geometry_chunk{.sr = celerity::detail::subrange_cast<3>(sr), .nid = 0, .did = 0});
+					geo.assigned_chunks.push_back(celerity::geometry_chunk{.box = celerity::detail::subrange_cast<3>(sr), .nid = 0, .did = 0});
 				}
 
 				// Assign full pyramids
@@ -115,7 +115,7 @@ int main(int argc, char* argv[]) {
 					// Shift assignment by 1, device 0 does the half pyramids on either side
 					const celerity::detail::device_id did = j + 1;
 					if(do_print) CELERITY_CRITICAL("it {}: Assigning downward chunk {} to did {}", i, sr, did);
-					geo.assigned_chunks.push_back(celerity::geometry_chunk{.sr = celerity::detail::subrange_cast<3>(sr), .nid = 0, .did = did});
+					geo.assigned_chunks.push_back(celerity::geometry_chunk{.box = celerity::detail::subrange_cast<3>(sr), .nid = 0, .did = did});
 				}
 
 				// Assign partial pyramid at end
@@ -129,7 +129,7 @@ int main(int argc, char* argv[]) {
 					// distribution ..?!
 					const celerity::detail::device_id did = 0;
 					if(do_print) CELERITY_CRITICAL("it {}: Assigning partial downward chunk {} to did {}", i, sr, did);
-					geo.assigned_chunks.push_back(celerity::geometry_chunk{.sr = celerity::detail::subrange_cast<3>(sr), .nid = 0, .did = did});
+					geo.assigned_chunks.push_back(celerity::geometry_chunk{.box = celerity::detail::subrange_cast<3>(sr), .nid = 0, .did = did});
 				}
 
 				// std::swap(buf_a, buf_b);

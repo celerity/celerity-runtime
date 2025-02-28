@@ -329,9 +329,9 @@ class geometry_builder {
 					continue;
 				}
 
-				const auto intersection = celerity::detail::region_intersection(subtracted_from[i], celerity::detail::box<3>(other_chunk.sr));
+				const auto intersection = celerity::detail::region_intersection(subtracted_from[i], other_chunk.box);
 				if(!intersection.empty()) {
-					subtracted_from[i] = celerity::detail::region_difference(subtracted_from[i], celerity::detail::box<3>(other_chunk.sr));
+					subtracted_from[i] = celerity::detail::region_difference(subtracted_from[i], other_chunk.box);
 					subtracted_with[i] = celerity::detail::region_union(subtracted_with[i], intersection);
 				}
 			}
