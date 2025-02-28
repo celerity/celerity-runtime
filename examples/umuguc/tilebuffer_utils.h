@@ -363,6 +363,42 @@ inline std::vector<std::vector<celerity::subrange<3>>> compute_neighborhood_read
 	return per_chunk_neighborhood_reads;
 }
 
+// TODO: Make this a Celerity built-in function?
+template <int Dims>
+std::vector<celerity::detail::region<Dims>> allgather_regions(celerity::detail::region<Dims> local_region, const size_t num_ranks, const size_t rank) {
+	const auto& local_box_vector = local_region.get_boxes();
+	std::vector<int> num_boxes_per_rank(num_ranks);
+	num_boxes_per_rank[rank] = local_box_vector.size();
+	MPI_Allgather(MPI_IN_PLACE, 1, MPI_INT, num_boxes_per_rank.data(), 1, MPI_INT, MPI_COMM_WORLD);
+	std::accumulate(num_boxes_per_rank.begin(), num_boxes_per_rank.end(), 0);
+	size_t total_num_boxes = 0;
+	std::vector<int> displs(num_ranks);
+	std::vector<int> recv_counts(num_ranks);
+	for(size_t i = 0; i < num_ranks; ++i) {
+		displs[i] = total_num_boxes * sizeof(celerity::detail::box<Dims>); // displacement is in elements (which is bytes)
+		total_num_boxes += num_boxes_per_rank[i];
+		recv_counts[i] = num_boxes_per_rank[i] * sizeof(celerity::detail::box<Dims>);
+	}
+	celerity::detail::box_vector<Dims> all_boxes(total_num_boxes);
+	MPI_Allgatherv(local_box_vector.data(), local_box_vector.size() * sizeof(celerity::detail::box<Dims>), MPI_BYTE, all_boxes.data(), recv_counts.data(),
+	    displs.data(), MPI_BYTE, MPI_COMM_WORLD);
+	std::vector<celerity::detail::region<Dims>> result(num_ranks);
+	size_t next_rank_start = 0;
+	for(size_t i = 0; i < num_ranks; ++i) {
+		if(i == rank) {
+			result[i] = std::move(local_region);
+			continue;
+		}
+		celerity::detail::region_builder<Dims> builder;
+		for(size_t j = next_rank_start; j < next_rank_start + num_boxes_per_rank[i]; ++j) {
+			builder.add(all_boxes[j]);
+		}
+		result[i] = std::move(builder).into_region();
+		next_rank_start += num_boxes_per_rank[i];
+	}
+	return result;
+}
+
 struct tilebuffer_item {
 	celerity::id<2> slot;
 	uint32_t index = 0;

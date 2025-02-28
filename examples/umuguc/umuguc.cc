@@ -112,6 +112,7 @@ using clk = std::chrono::steady_clock;
  * - [ ] Exact allocation setting (also needed for matmul)
  * - [ ] Local indexing setting (requires exact allocation; needed for per-rank and per-device slices of 3D buffers)
  * - [ ] Initialize allocation setting (to avoid having to manually initialize per-rank and per-device slices)
+ * - [ ] Data requirements (expert mapper) that receives 1D/2D boxes/regions would spare us a lot of casts
  */
 
 #define NCCL_CHECK(cmd)                                                                                                                                        \
@@ -949,7 +950,8 @@ int main(int argc, char* argv[]) {
 	}
 
 	// Compute the neighborhood accesses
-	std::vector<std::vector<celerity::subrange<3>>> neighborhood_reads_per_device(num_devices);
+	std::vector<region<1>> neighborhood_reads_per_device(num_devices); // TODO: Only globally visible for sanity check w/ legacy implementation
+	std::vector<std::pair<box<3>, region<3>>> shape_factor_neighborhood_accesses;
 	{
 		for(size_t i = 1; i < num_devices; ++i) {
 			if(shape_factor_geometry_new.assigned_chunks[i].box.get_min()[0] != shape_factor_geometry_new.assigned_chunks[i - 1].box.get_max()[0]) {
@@ -957,8 +959,8 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
-		const box<1> my_execution_range{id_cast<1>(shape_factor_geometry_new.assigned_chunks.front().box.get_min()),
-		    id_cast<1>(shape_factor_geometry_new.assigned_chunks.back().box.get_max())};
+		const box<1> my_execution_range{box_cast<1>(shape_factor_geometry_new.assigned_chunks.front().box).get_min(),
+		    box_cast<1>(shape_factor_geometry_new.assigned_chunks.back().box).get_max()};
 
 		std::vector<box<1>> execution_range_by_rank(num_ranks);
 		MPI_Allgather(&my_execution_range, sizeof(box<1>), MPI_BYTE, execution_range_by_rank.data(), sizeof(box<1>), MPI_BYTE, MPI_COMM_WORLD);
@@ -1018,9 +1020,9 @@ int main(int argc, char* argv[]) {
 					// do any computations (and thus require a neighborhood read)
 					// Using lower_bound instead returns the first empty tile after the previous chunk, thus overestimating the required reads
 					const auto start_it = std::ranges::upper_bound(counts_linear, sr.offset[0]) - 1;
-					assert(start_it != num_entries_cumulative.end());
+					assert(start_it != counts_linear.end());
 					const auto end_it = std::lower_bound(start_it, counts_linear.end(), sr.offset[0] + sr.range[0]);
-					assert(end_it != num_entries_cumulative.end() || sr.offset[0] + sr.range[0] == total_entries);
+					assert(end_it != counts_linear.end() || sr.offset[0] + sr.range[0] == global_num_points);
 
 					const uint32_t start_tile = start_it - counts_linear.begin();
 					const uint32_t end_tile = end_it != counts_linear.end() ? end_it - counts_linear.begin() : global_grid_size.size();
@@ -1064,20 +1066,31 @@ int main(int argc, char* argv[]) {
 						add_box(bottom_neighborhood_start, bottom_neighborhood_end);
 					}
 
-					// We collect all reads in a region so overlapping/connected ranges are automatically merged
-					// TODO: We should probably just return a region from this function
-					std::vector<subrange<3>> srs;
-					for(auto& box : celerity::detail::region<1>{std::move(read_boxes)}.into_boxes()) {
-						srs.push_back({subrange_cast<3>(box.get_subrange())});
-					}
-					neighborhood_reads_per_device[i] = srs;
+					neighborhood_reads_per_device[i] = celerity::detail::region<1>{std::move(read_boxes)};
 				});
 			});
 		}
 		queue.wait(); // Wait for writes in main thread
 
-		// TODO: Exchange neighborhoods between ranks. If a neighborhood intersects with our local grid, add a remote chunk and read access for the
-		//       shape factor kernel.
+		region<1> local_neighborhood;
+		for(auto& device_region : neighborhood_reads_per_device) {
+			local_neighborhood = region_union(local_neighborhood, device_region);
+		}
+
+		const auto neighborhood_reads_by_rank = allgather_regions(local_neighborhood, num_ranks, rank);
+		for(size_t i = 0; i < num_ranks; ++i) {
+			if(!box_intersection(bounding_box_by_rank[i], bounding_box_by_rank[rank]).empty()) {
+				// This rank may need data from us (let Celerity figure it out)
+				shape_factor_geometry_new.assigned_chunks.push_back({box_cast<3>(execution_range_by_rank[i]), i, 0});
+				shape_factor_neighborhood_accesses.push_back({box_cast<3>(execution_range_by_rank[i]), region_cast<3>(neighborhood_reads_by_rank[i])});
+			}
+		}
+
+		// Don't forget to add our own data requirements
+		for(size_t i = 0; i < num_devices; ++i) {
+			shape_factor_neighborhood_accesses.push_back(
+			    {box_cast<3>(shape_factor_geometry_new.assigned_chunks[i].box), region_cast<3>(neighborhood_reads_per_device[i])});
+		}
 	}
 
 	queue.wait();
@@ -1269,7 +1282,7 @@ int main(int argc, char* argv[]) {
 			if(i > 0) { num_entries_cumulative[i] = num_entries[i - 1] + num_entries_cumulative[i - 1]; }
 			// write_offsets_for_this_rank[i] = num_entries_cumulative[i];
 			uint32_t rank_offset = num_entries_cumulative[i];
-			for(int r = 0; r < rank; ++r) {
+			for(size_t r = 0; r < rank; ++r) {
 				// write_offsets_for_this_rank[i] += num_entries_by_rank[r * grid_size.size() + i];
 				rank_offset += num_entries_by_rank[r * global_grid_size.size() + i];
 			}
@@ -1429,44 +1442,23 @@ int main(int argc, char* argv[]) {
 		// fmt::print("Rank {} writes to: {}\n", rank, locally_written_region);
 		print_delta_time("Convert to region");
 
-		// TODO: Make this a debug functionality of the expert mapper interface
 		//		=> This is a more expensive variant of what we already do in the graph generators, which is required b/c we don't have
 		//         write information for remote nodes.
-		// TODO: Receive region instead of box for all_writes
 		// TODO: Also do for local devices? Or not, because that would be caught by GGENs? (do we always check that, or only for debug builds?)
 		const auto verify_written_regions = [&](const celerity::detail::box<1>& all_writes) {
-			const auto local_box_vector = locally_written_region.get_boxes();
-			std::vector<int> num_boxes_per_rank(num_ranks);
-			num_boxes_per_rank[rank] = local_box_vector.size();
-			MPI_Allgather(MPI_IN_PLACE, 1, MPI_INT, num_boxes_per_rank.data(), 1, MPI_INT, MPI_COMM_WORLD);
-			std::accumulate(num_boxes_per_rank.begin(), num_boxes_per_rank.end(), 0);
-			size_t total_num_boxes = 0;
-			std::vector<int> displs(num_ranks);
-			std::vector<int> recv_counts(num_ranks);
-			for(size_t i = 0; i < num_ranks; ++i) {
-				displs[i] = total_num_boxes * sizeof(celerity::detail::box<1>); // displacement is in elements (which is bytes)
-				total_num_boxes += num_boxes_per_rank[i];
-				recv_counts[i] = num_boxes_per_rank[i] * sizeof(celerity::detail::box<1>);
-			}
-			celerity::detail::box_vector<1> all_boxes(total_num_boxes);
-			MPI_Allgatherv(local_box_vector.data(), local_box_vector.size() * sizeof(celerity::detail::box<1>), MPI_BYTE, all_boxes.data(), recv_counts.data(),
-			    displs.data(), MPI_BYTE, MPI_COMM_WORLD);
+			const auto written_regions_by_rank = allgather_regions(locally_written_region, num_ranks, rank);
 
-			celerity::detail::region_builder<1> builder;
-			size_t offset = 0;
-			for(int r = 0; r < num_ranks; ++r) {
-				if(r != rank) {
-					for(int i = 0; i < num_boxes_per_rank[r]; ++i) {
-						builder.add(all_boxes[offset + i]);
-					}
-				}
-				offset += num_boxes_per_rank[r];
+			celerity::detail::region_builder<1> remote_builder;
+			celerity::detail::region_builder<1> global_builder;
+			for(size_t r = 0; r < num_ranks; ++r) {
+				if(r != rank) { remote_builder.add(written_regions_by_rank[r]); }
+				global_builder.add(written_regions_by_rank[r]);
 			}
-			const auto remote_writes = std::move(builder).into_region();
+			const auto remote_writes = std::move(remote_builder).into_region();
+			const auto global_writes = std::move(global_builder).into_region();
 
-			celerity::detail::region<1> global_region(std::move(all_boxes));
-			if(global_region != all_writes) {
-				celerity::detail::utils::panic("Actual written region union {} does not match declared union written region {}", global_region, all_writes);
+			if(global_writes != all_writes) {
+				celerity::detail::utils::panic("Actual written region union {} does not match declared union written region {}", global_writes, all_writes);
 			}
 
 			const auto intersection = region_intersection(remote_writes, locally_written_region);
@@ -1580,9 +1572,13 @@ int main(int argc, char* argv[]) {
 #if 1
 	{
 		for(size_t i = 0; i < num_devices; ++i) {
-			if(per_chunk_neighborhood_reads[rank * num_devices + i] != neighborhood_reads_per_device[i]) {
-				CELERITY_CRITICAL("Rank {} has different neighborhood reads for device {}: {} (legacy) vs {} (new)", rank, i,
-				    per_chunk_neighborhood_reads[rank * num_devices + i], neighborhood_reads_per_device[i]);
+			region<1> device_region;
+			for(const auto& sr : per_chunk_neighborhood_reads[rank * num_devices + i]) {
+				device_region = region_union(device_region, box<1>(subrange_cast<1>(sr)));
+			}
+			if(device_region != neighborhood_reads_per_device[i]) {
+				CELERITY_CRITICAL("Rank {} has different neighborhood reads for device {}: {} (legacy) vs {} (new)", rank, i, device_region,
+				    neighborhood_reads_per_device[i]);
 				abort();
 			}
 		}
