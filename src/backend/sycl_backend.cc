@@ -165,13 +165,15 @@ struct sycl_backend::impl {
 
 	sycl::queue& get_device_queue(const device_id did, const size_t lane) {
 		auto& device = devices[did];
-		assert(lane <= device.queues.size());
-		if(lane == device.queues.size()) {
+		// FIXME HACK: For DISABLE_COMMUNICATION we don't submit copies, which may lead to some lanes not being created, even though the OOE expects them.
+		// assert(lane <= device.queues.size());
+		// if(lane == device.queues.size()) {
+		while(lane >= device.queues.size()) {
 			const auto properties = config.profiling ? sycl::property_list{sycl::property::queue::enable_profiling{}, sycl::property::queue::in_order{}}
 			                                         : sycl::property_list{sycl::property::queue::in_order{}};
 			device.queues.emplace_back(device.sycl_device, sycl::async_handler(sycl_backend_detail::report_errors), properties);
 		}
-		return device.queues[lane];
+		return device.queues.at(lane);
 	}
 };
 

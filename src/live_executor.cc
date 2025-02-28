@@ -338,6 +338,11 @@ struct live_executor::impl {
 	size_t long_sends = 0;
 	size_t long_receives = 0;
 
+	// HACK: Disable all inter- and intra- node communication to get performance upper bound
+	// Set via DISABLE_COMMUNICATION environment variable (without CELERITY_ prefix)
+	// TODO: Consider doing something like this properly, maybe even on a per-task basis
+	bool hack_disable_communication = false;
+
 	const std::unique_ptr<detail::backend> backend;
 	communicator* const root_communicator;
 	element_wise_double_buffered_queue<submission>* const submission_queue;
@@ -423,6 +428,13 @@ live_executor::impl::impl(std::unique_ptr<detail::backend> backend, communicator
       perf_recorder(perf_recorder) //
 {
 	CELERITY_DETAIL_IF_TRACY_ENABLED(tracy = std::make_unique<tracy_integration>();)
+
+	if(std::getenv("DISABLE_COMMUNICATION") != nullptr) {
+		if(std::atoi(std::getenv("DISABLE_COMMUNICATION")) == 1) {
+			hack_disable_communication = true;
+			CELERITY_CRITICAL("ALL INTER- AND INTRA-NODE COMMUNICATION IS DISABLED");
+		}
+	}
 }
 
 void live_executor::impl::run() {
@@ -824,6 +836,11 @@ void live_executor::impl::issue_async(const copy_instruction& cinstr, const out_
 	    cinstr.get_source_layout(), cinstr.get_dest_allocation_id(), cinstr.get_dest_layout(), cinstr.get_copy_region(), cinstr.get_element_size(),
 	    cinstr.get_copy_region().get_area() * cinstr.get_element_size());
 
+	if(hack_disable_communication) {
+		async.event = make_complete_event();
+		return;
+	}
+
 	const auto source_base = allocations.at(cinstr.get_source_allocation_id());
 	const auto dest_base = allocations.at(cinstr.get_dest_allocation_id());
 
@@ -903,6 +920,11 @@ void live_executor::impl::issue_async(
 	CELERITY_DETAIL_TRACE_INSTRUCTION(sinstr, "send {}+{}, {}x{} bytes to N{} (MSG{})", sinstr.get_source_allocation_id(),
 	    sinstr.get_offset_in_source_allocation(), sinstr.get_send_range(), sinstr.get_element_size(), sinstr.get_dest_node_id(), sinstr.get_message_id());
 
+	if(hack_disable_communication) {
+		async.event = make_complete_event();
+		return;
+	}
+
 	const auto allocation_base = allocations.at(sinstr.get_source_allocation_id());
 	const communicator::stride stride{
 	    sinstr.get_source_allocation_range(),
@@ -922,6 +944,11 @@ void live_executor::impl::issue_async(
 	CELERITY_DETAIL_TRACE_INSTRUCTION(rinstr, "receive {} {}x{} bytes into {} ({})", rinstr.get_transfer_id(), rinstr.get_requested_region(),
 	    rinstr.get_element_size(), rinstr.get_dest_allocation_id(), rinstr.get_allocated_box());
 
+	if(hack_disable_communication) {
+		async.event = make_complete_event();
+		return;
+	}
+
 	const auto allocation = allocations.at(rinstr.get_dest_allocation_id());
 	async.event =
 	    recv_arbiter.receive(rinstr.get_transfer_id(), rinstr.get_requested_region(), allocation, rinstr.get_allocated_box(), rinstr.get_element_size());
@@ -935,6 +962,11 @@ void live_executor::impl::issue_async(
 
 	CELERITY_DETAIL_TRACE_INSTRUCTION(arinstr, "await receive {} {}", arinstr.get_transfer_id(), arinstr.get_received_region());
 
+	if(hack_disable_communication) {
+		async.event = make_complete_event();
+		return;
+	}
+
 	async.event = recv_arbiter.await_split_receive_subregion(arinstr.get_transfer_id(), arinstr.get_received_region());
 }
 
@@ -945,6 +977,11 @@ void live_executor::impl::issue_async(
 
 	CELERITY_DETAIL_TRACE_INSTRUCTION(
 	    grinstr, "gather receive {} into {}, {} bytes / node", grinstr.get_transfer_id(), grinstr.get_dest_allocation_id(), grinstr.get_node_chunk_size());
+
+	if(hack_disable_communication) {
+		async.event = make_complete_event();
+		return;
+	}
 
 	const auto allocation = allocations.at(grinstr.get_dest_allocation_id());
 	async.event = recv_arbiter.gather_receive(grinstr.get_transfer_id(), allocation, grinstr.get_node_chunk_size());
