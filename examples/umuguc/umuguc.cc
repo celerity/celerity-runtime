@@ -721,15 +721,11 @@ int main(int argc, char* argv[]) {
 				// having to also specify all remote chunks
 				write_row_sums_accesses.push_back({chnk_box, chnk_box});
 			}
-			// TODO API: We need an overload that takes a range as the first argument
-			// FIXME: Passing full range here triggers false positive uninitialized read warnings
-			celerity::accessor read_cumulative_counts(per_rank_cumulative_counts, cgh,
-			    celerity::expert_mapper(box<3>::full_range(per_rank_cumulative_counts.get_range()), read_cumulative_counts_accesses), celerity::read_only);
-			celerity::accessor read_global_counts(per_rank_global_counts, cgh,
-			    celerity::expert_mapper(box<3>::full_range(per_rank_global_counts.get_range()), read_global_counts_accesses), celerity::read_only);
+			celerity::accessor read_cumulative_counts(
+			    per_rank_cumulative_counts, cgh, celerity::expert_mapper(read_cumulative_counts_accesses), celerity::read_only);
+			celerity::accessor read_global_counts(per_rank_global_counts, cgh, celerity::expert_mapper(read_global_counts_accesses), celerity::read_only);
 			celerity::accessor write_row_sums(global_row_sums, cgh,
-			    celerity::expert_mapper(box<3>::full_range(range_cast<3>(global_row_sums.get_range())), write_row_sums_accesses), celerity::write_only,
-			    celerity::no_init);
+			    celerity::expert_mapper(range_cast<3>(global_row_sums.get_range()), write_row_sums_accesses), celerity::write_only, celerity::no_init);
 			celerity::debug::set_task_name(cgh, "write row sums");
 			cgh.assert_no_data_movement();
 			cgh.parallel_for(geo, [=](celerity::id<1> id) {
@@ -767,11 +763,10 @@ int main(int argc, char* argv[]) {
 			write_cumulative_counts_accesses.push_back({chnk_box, chnk_box});
 			std::vector<std::pair<box<3>, region<3>>> read_add_to_prefix_sum_accesses;
 			read_add_to_prefix_sum_accesses.push_back({chnk_box, box<3>({rank, 0, 0}, {rank + 1, 1, 1})});
-			celerity::accessor read_add_to_prefix_sum(per_rank_add_to_prefix_sum, cgh,
-			    celerity::expert_mapper(box<3>::full_range(range_cast<3>(per_rank_add_to_prefix_sum.get_range())), read_add_to_prefix_sum_accesses),
-			    celerity::read_only);
-			celerity::accessor write_cumulative_counts(per_rank_cumulative_counts, cgh,
-			    celerity::expert_mapper(box<3>::full_range(per_rank_cumulative_counts.get_range()), write_cumulative_counts_accesses), celerity::read_write);
+			celerity::accessor read_add_to_prefix_sum(
+			    per_rank_add_to_prefix_sum, cgh, celerity::expert_mapper(read_add_to_prefix_sum_accesses), celerity::read_only);
+			celerity::accessor write_cumulative_counts(
+			    per_rank_cumulative_counts, cgh, celerity::expert_mapper(write_cumulative_counts_accesses), celerity::read_write);
 			celerity::debug::set_task_name(cgh, "add to prefix sum");
 			cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
 			cgh.parallel_for(geo, [=](celerity::id<3> id) { write_cumulative_counts[id] += read_add_to_prefix_sum[rank]; });
@@ -783,25 +778,23 @@ int main(int argc, char* argv[]) {
 		// We begin by adding up the global prefix sum and lower rank sum on each device
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::custom_task_geometry<3> geo;
-			std::vector<std::pair<box<3>, region<3>>> read_lower_rank_sum_accesses;
+			// We use the same list of accesses for reading lower rank sums and cumulative counts
+			std::vector<std::pair<box<3>, region<3>>> read_local_bounding_box;
 			std::vector<std::pair<box<3>, region<3>>> write_device_write_offsets_accesses;
 			for(size_t i = 0; i < num_devices; ++i) {
 				const auto chnk_box =
 				    box<3>(subrange<3>{{rank * num_devices + i, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}});
 				geo.assigned_chunks.push_back({chnk_box, rank, i});
-				read_lower_rank_sum_accesses.push_back(
+				read_local_bounding_box.push_back(
 				    {chnk_box, box<3>(subrange<3>{{rank, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}})});
 				write_device_write_offsets_accesses.push_back({chnk_box, chnk_box});
 			}
-			celerity::accessor read_lower_rank_sum(per_rank_lower_rank_counts, cgh,
-			    celerity::expert_mapper(box<3>::full_range(per_rank_lower_rank_counts.get_range()), read_lower_rank_sum_accesses), celerity::read_only);
-			// We just use the same access list
-			// TODO: Rename
-			celerity::accessor read_cumulative_counts(per_rank_cumulative_counts, cgh,
-			    celerity::expert_mapper(box<3>::full_range(per_rank_cumulative_counts.get_range()), read_lower_rank_sum_accesses), celerity::read_only);
-			celerity::accessor write_device_write_offsets(per_device_write_offsets_buffer, cgh,
-			    celerity::expert_mapper(box<3>::full_range(per_device_write_offsets_buffer.get_range()), write_device_write_offsets_accesses),
-			    celerity::write_only, celerity::no_init);
+			// FIXME: We are currently getting a legitimate uninitialized read warning here, because we only write the overlapping parts of the buffer
+			//        => Either initialize to zero explicitly, or implement initialization-upon-allocation option
+			celerity::accessor read_lower_rank_sum(per_rank_lower_rank_counts, cgh, celerity::expert_mapper(read_local_bounding_box), celerity::read_only);
+			celerity::accessor read_cumulative_counts(per_rank_cumulative_counts, cgh, celerity::expert_mapper(read_local_bounding_box), celerity::read_only);
+			celerity::accessor write_device_write_offsets(
+			    per_device_write_offsets_buffer, cgh, celerity::expert_mapper(write_device_write_offsets_accesses), celerity::write_only, celerity::no_init);
 			celerity::debug::set_task_name(cgh, "copy lower rank sum to device write offsets");
 			cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
 			cgh.parallel_for(geo, [=](celerity::id<3> id) {
@@ -940,17 +933,12 @@ int main(int argc, char* argv[]) {
 			celerity::custom_task_geometry sanity_check_global_counts_geo;
 			sanity_check_global_counts_geo.global_size = range_cast<3>(celerity::range<1>{num_ranks});
 			std::vector<std::pair<box<3>, region<3>>> read_rank_global_counts_accesses;
-			// TODO: No need to specify remote chunks
-			for(size_t i = 0; i < num_ranks; ++i) {
-				const auto chnk_box = box_cast<3>(box<1>(subrange<1>{i, 1}));
-				sanity_check_global_counts_geo.assigned_chunks.push_back({chnk_box, i, 0});
-				const celerity::id<3> rank_offset = {i, local_grid_offset[0], local_grid_offset[1]};
-				// This is actually wrong for remote chunks (but it doesn't matter)
-				const celerity::range<3> range = {1, local_grid_size[0], local_grid_size[1]};
-				read_rank_global_counts_accesses.push_back({chnk_box, box<3>(subrange<3>{rank_offset, range})});
-			}
-			// TODO: We shouldn't have to specify the full read region in this case
-			celerity::expert_mapper read_rank_global_counts{box<3>::full_range(per_rank_global_counts.get_range()), read_rank_global_counts_accesses};
+			const auto chnk_box = box_cast<3>(box<1>(subrange<1>{(size_t)rank, 1}));
+			sanity_check_global_counts_geo.assigned_chunks.push_back({chnk_box, rank, 0});
+			const celerity::id<3> rank_offset = {rank, local_grid_offset[0], local_grid_offset[1]};
+			const celerity::range<3> range = {1, local_grid_size[0], local_grid_size[1]};
+			read_rank_global_counts_accesses.push_back({chnk_box, box<3>(subrange<3>{rank_offset, range})});
+			celerity::expert_mapper read_rank_global_counts{read_rank_global_counts_accesses};
 
 			queue.submit([&](celerity::handler& cgh) {
 				celerity::accessor read_counts(per_rank_global_counts, cgh, read_rank_global_counts, celerity::read_only_host_task);
@@ -1048,18 +1036,12 @@ int main(int argc, char* argv[]) {
 		{
 			celerity::custom_task_geometry sanity_check_cumulative_counts_geo;
 			std::vector<std::pair<box<3>, region<3>>> read_rank_cumulative_counts_accesses;
-			// TODO: No need to specify remote chunks
-			for(size_t i = 0; i < num_ranks; ++i) {
-				const auto chnk_box = box_cast<3>(box<1>(subrange<1>{i, 1}));
-				sanity_check_cumulative_counts_geo.assigned_chunks.push_back({chnk_box, i, 0});
-				const celerity::id<3> rank_offset = {i, local_grid_offset[0], local_grid_offset[1]};
-				// This is actually wrong for remote chunks (but it doesn't matter)
-				const celerity::range<3> range = {1, local_grid_size[0], local_grid_size[1]};
-				read_rank_cumulative_counts_accesses.push_back({chnk_box, box<3>(subrange<3>{rank_offset, range})});
-			}
-			// TODO: We shouldn't have to specify the full read region in this case
-			celerity::expert_mapper read_rank_cumulative_counts{
-			    box<3>::full_range(per_rank_cumulative_counts.get_range()), read_rank_cumulative_counts_accesses};
+			const auto chnk_box = box_cast<3>(box<1>(subrange<1>{(size_t)rank, 1}));
+			sanity_check_cumulative_counts_geo.assigned_chunks.push_back({chnk_box, rank, 0});
+			const celerity::id<3> rank_offset = {rank, local_grid_offset[0], local_grid_offset[1]};
+			const celerity::range<3> range = {1, local_grid_size[0], local_grid_size[1]};
+			read_rank_cumulative_counts_accesses.push_back({chnk_box, box<3>(subrange<3>{rank_offset, range})});
+			celerity::expert_mapper read_rank_cumulative_counts{read_rank_cumulative_counts_accesses};
 
 			queue.submit([&](celerity::handler& cgh) {
 				celerity::accessor read_counts(per_rank_cumulative_counts, cgh, read_rank_cumulative_counts, celerity::read_only_host_task);
@@ -1103,8 +1085,7 @@ int main(int argc, char* argv[]) {
 			const celerity::id<3> rank_offset = {rank * num_devices, local_grid_offset[0], local_grid_offset[1]};
 			const celerity::range<3> range = {num_devices, local_grid_size[0], local_grid_size[1]};
 			read_device_offsets_accesses.push_back({chnk_box, box<3>(subrange<3>{rank_offset, range})});
-			// TODO: We shouldn't have to specify the full read region in this case
-			celerity::expert_mapper read_device_offsets{box<3>::full_range(per_device_write_offsets_buffer.get_range()), read_device_offsets_accesses};
+			celerity::expert_mapper read_device_offsets{read_device_offsets_accesses};
 
 			queue.submit([&](celerity::handler& cgh) {
 				celerity::accessor read_offsets(per_device_write_offsets_buffer, cgh, read_device_offsets, celerity::read_only_host_task);
