@@ -121,9 +121,9 @@ void step(celerity::queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T,
 		if(cfg.outset == 0 && cfg.tiled) celerity::experimental::hint(cgh, celerity::experimental::hints::split_2d());
 
 		const auto size = up.get_range();
+#if !WAVE_SIMPLE
 		const DataT step_y = (cfg.dt / cfg.dy) * (cfg.dt / cfg.dy);
 		const DataT step_x = (cfg.dt / cfg.dx) * (cfg.dt / cfg.dx);
-#if !WAVE_SIMPLE
 		const auto a2 = Config::a * 2;
 #endif
 
@@ -140,17 +140,16 @@ void step(celerity::queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T,
 			const size_t px = item[1] < size[1] - 1 ? item[1] + 1 : item[1];
 			const size_t mx = item[1] > 0 ? item[1] - 1 : item[1];
 
+#if WAVE_SIMPLE
+			// Surprise: It's a Jacobi stencil!
+			w_up[item] = 0.25f * (r_u[py][item[1]] + r_u[my][item[1]] + r_u[item[0]][px] + r_u[item[0]][mx]);
+#else
 			const DataT cur = r_u[item];
-
 			DataT lap = 0.f;
 			lap += step_y * (r_u[{py, item[1]}] - cur);
 			lap -= step_y * (cur - r_u[{my, item[1]}]);
 			lap += step_x * (r_u[{item[0], px}] - cur);
 			lap -= step_x * (cur - r_u[{item[0], mx}]);
-
-#if WAVE_SIMPLE
-			w_up[item] = Config::c * lap;
-#else
 			rw_up[item] = a2 * cur - Config::b * rw_up[item] + Config::c * lap;
 #endif
 		};
