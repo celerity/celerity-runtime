@@ -87,6 +87,8 @@ namespace detail {
 
 		void leak_memory();
 
+		void create_horizon();
+
 	  private:
 		class impl;
 

@@ -225,6 +225,7 @@ namespace detail {
 
 		void set_epoch_for_new_tasks(task* epoch);
 
+	  public: // NOCOMMIT For hacky explicit horizons API
 		// NOCOMMIT Figure out a better way than passing the loop template around
 		task_id generate_horizon_task(loop_template* const templ = nullptr);
 

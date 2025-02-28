@@ -616,6 +616,9 @@ void multiply_blocked(celerity::queue queue, per_device_cublas_handles& cublas_h
 				// Should we support arbitrarily nested grids?
 				// => Maybe: This way we could easily express oversubscription, first do a normal 2D split, and then recursively split again.
 				// Then launch task over level 1 grid (assuming 0 = coarsest), and express data dependencies in terms of that level as well.
+
+
+				celerity::detail::runtime::get_instance().create_horizon();
 			}
 		}
 	}

@@ -146,6 +146,8 @@ namespace detail {
 
 		void leak_memory();
 
+		void create_horizon();
+
 	  private:
 		friend struct runtime_testspy;
 
@@ -823,6 +825,10 @@ namespace detail {
 
 	void runtime::impl::leak_memory() { m_schdlr->leak_memory(); }
 
+	void runtime::impl::create_horizon() { //
+		m_task_mngr->generate_horizon_task();
+	}
+
 	bool runtime::s_mpi_initialized = false;
 	bool runtime::s_mpi_finalized = false;
 
@@ -913,6 +919,8 @@ namespace detail {
 	const std::vector<sycl::device>& runtime::NOCOMMIT_get_sycl_devices() const { return m_impl->m_selected_devices; }
 
 	void runtime::leak_memory() { m_impl->leak_memory(); }
+
+	void runtime::create_horizon() { m_impl->create_horizon(); }
 
 	bool runtime::s_test_mode = false;
 	bool runtime::s_test_active = false;
