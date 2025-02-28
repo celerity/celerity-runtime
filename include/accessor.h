@@ -515,6 +515,8 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 	 * This API will be deprecated and subsequently removed in a future version.
 	 *
 	 * @throws Throws a std::logic_error if the buffer cannot be accessed with the expected stride.
+	 *
+	 * TODO: Revisit this for task geometries / expert data requirements
 	 */
 	DataT* get_pointer() const {
 		bool illegal_access = false;

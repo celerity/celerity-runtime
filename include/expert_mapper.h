@@ -24,6 +24,8 @@ namespace celerity {
 //    (Not that it matters for the correctness of our execution model)
 
 struct data_requirement_options {
+	// TODO: This currently doesn't change allocation behavior, it only checks that the allocation is exact
+	bool allocate_exactly = false;
 	bool use_local_indexing = false;
 };
 

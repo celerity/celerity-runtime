@@ -2042,6 +2042,11 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 		if(!accessed_region.empty()) {
 			const auto accessed_bounding_box = bounding_box(accessed_region);
 			const auto& alloc = buffer.memories[chunk.memory_id].get_contiguous_allocation(accessed_bounding_box);
+			// TODO: What this option should actually do is to ensure that the allocation is being made in the right way,
+			//       potentially even splitting an existing allocation (not sure if we'd really want the latter part).
+			if(options.has_value() && options->allocate_exactly && alloc.box != accessed_bounding_box) {
+				throw std::runtime_error("Allocation does not match accessed region");
+			}
 			if(options.has_value() && options->use_local_indexing) {
 				if(accessed_bounding_box != alloc.box) {
 					// TODO: Implement exact allocation option that ensures this
