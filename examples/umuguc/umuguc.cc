@@ -1,3 +1,4 @@
+#include <span>
 #include <vector>
 
 #include <celerity.h>
@@ -277,9 +278,11 @@ int main(int argc, char* argv[]) {
 
 	celerity::queue queue;
 
-	celerity::buffer<umuguc_point3d, 1> points_input(points.size() * duplicate_input);
+	const size_t global_num_points = points.size() * duplicate_input;
+
+	celerity::buffer<umuguc_point3d, 1> points_input(global_num_points);
 	celerity::debug::set_buffer_name(points_input, "points input");
-	celerity::buffer<umuguc_point3d, 1> tiles_storage(points.size() * duplicate_input);
+	celerity::buffer<umuguc_point3d, 1> tiles_storage(global_num_points);
 	celerity::debug::set_buffer_name(tiles_storage, "tiles storage");
 
 	auto& rt = celerity::detail::runtime::get_instance();
@@ -444,6 +447,10 @@ int main(int argc, char* argv[]) {
 	// The offset each device starts writing at within each tile. Computed as the global prefix sum + the point counts of all lower ranks and devices.
 	// TODO: Rename, _buffer is due to naming conflict with legacy vector below
 	celerity::buffer<uint32_t, 3> per_device_write_offsets_buffer({num_ranks * num_devices, global_grid_size[0], global_grid_size[1]});
+	// Same as per_rank_cumulative_counts, but in a single, global view. Required for exchanging counts for neighborhood access calculation.
+	// TODO: Not the most elegant solution
+	// => Turns out we don't need it for a 1-neighborhood (at least with all the current data sets we have)
+	// celerity::buffer<uint32_t, 2> global_cumulative_counts({global_grid_size[0], global_grid_size[1]});
 
 	queue.wait(celerity::experimental::barrier);
 	const auto before_count_points = std::chrono::steady_clock::now();
@@ -565,15 +572,16 @@ int main(int argc, char* argv[]) {
 #endif
 	}
 
-	// The portion of the global bounding box for which this rank will write the per-row counts
-	// The lowest rank that has a row in its local bounding box is responsible (calculated below)
+	// The authoritative box is the portion of the global bounding box for which this rank will write the per-row counts
+	//   => The lowest rank that has a row in its local bounding box is responsible (calculated below)
+	// This box and vector are again needed for neighborhood calculation later on
 	box<2> authoritative_box{subrange<2>{{local_grid_offset[0], 0}, {local_grid_size[0], 1}}};
+	std::vector<box<2>> bounding_box_by_rank(num_ranks);
 
 	// Determine all ranks that have overlapping bounding boxes with this rank
 	// Compute global counts within local bounding box, and sum of all counts of lower ranks within local bounding box
 	{
 		const box<2> my_bounding_box{subrange<2>{local_grid_offset, local_grid_size}};
-		std::vector<box<2>> bounding_box_by_rank(num_ranks);
 		// TODO: We may want a utility in Celerity to do this (also for regions). Could be useful for synchronizing data requirements across ranks.
 		MPI_Allgather(&my_bounding_box, sizeof(box<2>), MPI_BYTE, bounding_box_by_rank.data(), sizeof(box<2>), MPI_BYTE, MPI_COMM_WORLD);
 
@@ -845,6 +853,8 @@ int main(int argc, char* argv[]) {
 				celerity::accessor device_counts(per_device_tile_point_counts, cgh, celerity::expert_mapper(read_device_slice), celerity::read_only_host_task);
 				celerity::accessor device_write_offsets(
 				    per_device_write_offsets_buffer, cgh, celerity::expert_mapper(read_device_slice), celerity::read_only_host_task);
+				celerity::debug::set_task_name(cgh, fmt::format("compute written subranges for device {}", i));
+				cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
 				cgh.host_task(geo, [=, &written_subranges_per_device_new](celerity::partition<1>) {
 					auto counts = device_counts[rank * num_devices + i];
 					auto offsets = device_write_offsets[rank * num_devices + i];
@@ -881,6 +891,193 @@ int main(int argc, char* argv[]) {
 			});
 		}
 		queue.wait(); // Wait for writes in main thread
+	}
+
+	// TODO: Insert writing kernel here
+
+	// Compute task geometry for shape factor calculation
+	// TODO: Overlap this with writing kernel
+	celerity::custom_task_geometry<1> shape_factor_geometry_new; // TODO: Get rid of "_new"
+	shape_factor_geometry_new.assigned_chunks.resize(num_devices);
+	{
+		// We know the number of points that each device should process.
+		// We know the "global id" of each device.
+
+		// For each cell within the local bounding box, we can say whether the cumulative count is larger or smaller
+		// then
+
+		// There may be an edge case here if the local grids do not overlap, but we don't worry about that for now.
+
+		for(size_t i = 0; i < num_devices; ++i) {
+			queue.submit([&](celerity::handler& cgh) {
+				celerity::custom_task_geometry geo;
+				geo.assigned_chunks.push_back({box<3>::full_range(celerity::detail::ones), rank, 0}); // Doesn't matter
+				// TODO: We really need a helper function to generate these, it's the same pattern over and over
+				std::vector<std::pair<box<3>, region<3>>> read_rank_slice;
+				read_rank_slice.push_back({geo.assigned_chunks.back().box,
+				    box<3>(subrange<3>{{rank, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}})});
+				celerity::expert_mapper read_cumulative_counts(read_rank_slice);
+				read_cumulative_counts.options.allocate_exactly = true;
+				celerity::accessor cumulative_counts(per_rank_cumulative_counts, cgh, read_cumulative_counts, celerity::read_only_host_task);
+				celerity::debug::set_task_name(cgh, fmt::format("compute shape factor geometry for device {}", i));
+				cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
+				cgh.host_task(geo, [=, &shape_factor_geometry_new](celerity::partition<1> part) {
+					const auto ptr = cumulative_counts.get_allocation_window(part).get_allocation();
+					const std::span counts_linear(ptr, local_grid_size[0] * local_grid_size[1]);
+					const size_t ideal_points_per_device = global_num_points / (num_ranks * num_devices);
+					const uint32_t device_gid = rank * num_devices + i;
+					const uint32_t device_offset = device_gid * ideal_points_per_device;
+
+					// This only works under the assumption that we have a "contiguous chunk" of counts
+					assert(local_grid_size[1] == global_grid_size[1]);
+
+					const auto start_it = std::ranges::lower_bound(counts_linear, device_offset);
+					const auto end_it = std::ranges::lower_bound(counts_linear, device_offset + ideal_points_per_device);
+					if(start_it == counts_linear.end()) { throw std::runtime_error("Could not find start of per-device tile range?!"); }
+					if(end_it == counts_linear.end() && device_gid != num_ranks * num_devices - 1) {
+						throw std::runtime_error("Could not find end of per-device tile range within local bounding box - this is bad");
+					}
+					const auto start_offset = *start_it;
+					const auto end_offset = end_it != counts_linear.end() ? *end_it : global_num_points;
+
+					// CELERITY_INFO("Device {} (global {}) on rank {} should process points {} to {}", i, device_gid, rank, start_offset, end_offset);
+					shape_factor_geometry_new.assigned_chunks[i] = {box_cast<3>(box<1>{start_offset, end_offset}), rank, i};
+				});
+			});
+		}
+		queue.wait(); // Wait for writes in main thread
+	}
+
+	// Compute the neighborhood accesses
+	std::vector<std::vector<celerity::subrange<3>>> neighborhood_reads_per_device(num_devices);
+	{
+		for(size_t i = 1; i < num_devices; ++i) {
+			if(shape_factor_geometry_new.assigned_chunks[i].box.get_min()[0] != shape_factor_geometry_new.assigned_chunks[i - 1].box.get_max()[0]) {
+				throw std::runtime_error("Per-device ranges are non-contiguous?!");
+			}
+		}
+
+		const box<1> my_execution_range{id_cast<1>(shape_factor_geometry_new.assigned_chunks.front().box.get_min()),
+		    id_cast<1>(shape_factor_geometry_new.assigned_chunks.back().box.get_max())};
+
+		std::vector<box<1>> execution_range_by_rank(num_ranks);
+		MPI_Allgather(&my_execution_range, sizeof(box<1>), MPI_BYTE, execution_range_by_rank.data(), sizeof(box<1>), MPI_BYTE, MPI_COMM_WORLD);
+
+		for(size_t i = 0; i < num_ranks; ++i) {
+			if(i > 0 && execution_range_by_rank[i].get_min() != execution_range_by_rank[i - 1].get_max()) {
+				throw std::runtime_error(fmt::format("Per-rank ranges are non-contiguous?! All ranges: {}", fmt::join(execution_range_by_rank, ", ")));
+			}
+			if(i == rank) continue;
+
+			// NOTE: This needs to be adjusted if we wanted to more than a 1-neighborhood
+			if((execution_range_by_rank[i].get_min()[0] > 0 && execution_range_by_rank[i].get_min()[0] == bounding_box_by_rank[i].get_min()[0])
+			    || (execution_range_by_rank[i].get_max()[0] < global_grid_size[0]
+			        && execution_range_by_rank[i].get_max()[0] == bounding_box_by_rank[i].get_max()[0])) {
+				CELERITY_INFO("Rank {} will need to read outside its local bounding box!", i);
+				// Turns out we don't have this case for any of the data sets, probably because we are extending the local grid in both dimension by one cell.
+				throw std::runtime_error("NOT YET IMPLEMENTED!");
+
+				// Here's what the plan would have been:
+
+				// - Each rank inspects other ranks' execution ranges. If the N-neighborhood (N=1) of another rank exceeds its own local bounding box,
+				//   and we are the authoritative rank for that row, add a read access to the data requirements of the neighborhood calculation task.
+
+				// - Copy the authoritative rows of the cumulative counts buffer into the new global cumulative counts buffer, which all ranks can read from
+				//   => This is a bit ugly because it means that we potentially end up re-transferring counts for overlapping regions (which we are not
+				//   authoritative for), even though we already have them locally. Not sure if there's a way around this.
+
+				// - Compute the neighborhood access by reading from the new cumulative counts buffer, with an extended bounding box
+			}
+		}
+
+		for(size_t i = 0; i < num_devices; ++i) {
+			queue.submit([&](celerity::handler& cgh) {
+				celerity::custom_task_geometry geo;
+				geo.assigned_chunks.push_back({box<3>::full_range(celerity::detail::ones), rank, 0}); // Doesn't matter
+				// TODO: We really need a helper function to generate these, it's the same pattern over and over
+				std::vector<std::pair<box<3>, region<3>>> read_rank_slice;
+				read_rank_slice.push_back({geo.assigned_chunks.back().box,
+				    box<3>(subrange<3>{{rank, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}})});
+				celerity::expert_mapper read_cumulative_counts(read_rank_slice);
+				read_cumulative_counts.options.allocate_exactly = true;
+				celerity::accessor cumulative_counts(per_rank_cumulative_counts, cgh, read_cumulative_counts, celerity::read_only_host_task);
+				celerity::debug::set_task_name(cgh, fmt::format("compute neighborhood reads for device {}", i));
+				// NOTE: This would not be true if we had to read from the global cumulative count buffer
+				cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
+				// TODO: This basically a copy-paste of compute_neighborhood_reads_2d - factor out into separate function again
+				cgh.host_task(geo, [=, &shape_factor_geometry_new, &neighborhood_reads_per_device](celerity::partition<1> part) {
+					const auto ptr = cumulative_counts.get_allocation_window(part).get_allocation();
+					const std::span counts_linear(ptr, local_grid_size[0] * local_grid_size[1]);
+
+					const auto& box = shape_factor_geometry_new.assigned_chunks[i].box;
+					const auto sr = box.get_subrange();
+
+					// Find start and end tile for this subrange
+					// TODO: We actually have this information already when computing the geometry, could retain
+					// upper_bound - 1: We want to find the first tile that contains any elements, because only on those will we
+					// do any computations (and thus require a neighborhood read)
+					// Using lower_bound instead returns the first empty tile after the previous chunk, thus overestimating the required reads
+					const auto start_it = std::ranges::upper_bound(counts_linear, sr.offset[0]) - 1;
+					assert(start_it != num_entries_cumulative.end());
+					const auto end_it = std::lower_bound(start_it, counts_linear.end(), sr.offset[0] + sr.range[0]);
+					assert(end_it != num_entries_cumulative.end() || sr.offset[0] + sr.range[0] == total_entries);
+
+					const uint32_t start_tile = start_it - counts_linear.begin();
+					const uint32_t end_tile = end_it != counts_linear.end() ? end_it - counts_linear.begin() : global_grid_size.size();
+
+					// Compute inclusive start and end coordinates in 2D
+					const celerity::id<2> first = {start_tile / global_grid_size[1], start_tile % global_grid_size[1]};
+					const celerity::id<2> last = celerity::id<2>{(end_tile - 1) / global_grid_size[1], (end_tile - 1) % global_grid_size[1]};
+
+					celerity::detail::box_vector<1> read_boxes;
+					const auto add_box = [&](const celerity::id<2>& min, const celerity::id<2>& max) {
+						// TODO: Couldn't we just index into the 2D accessor?
+						const auto min_local = min - local_grid_offset;
+						const auto max_local = max - local_grid_offset;
+						const uint32_t start_1d = min_local[0] * local_grid_size[1] + min_local[1];
+						const uint32_t end_1d = max_local[0] * local_grid_size[1] + max_local[1] + 1; // +1: Convert back to exclusive
+						read_boxes.push_back({counts_linear[start_1d], end_1d < counts_linear.size() ? counts_linear[end_1d] : global_num_points});
+					};
+
+					// Add main chunk range + left and right neighbors
+					celerity::id<2> main_neighborhood_start = first;
+					celerity::id<2> main_neighborhood_end = last;
+					if(first[1] > 0) { main_neighborhood_start[1]--; }
+					if(last[1] < global_grid_size[1] - 1) { main_neighborhood_end[1]++; }
+					add_box(main_neighborhood_start, main_neighborhood_end);
+
+					// Add top neighbors
+					if(last[0] > 0) {
+						auto adjusted_start = main_neighborhood_start;
+						if(first[0] == 0) { adjusted_start = {1, 0}; }
+						const celerity::id<2> top_neighborhood_start = {adjusted_start[0] - 1, adjusted_start[1]};
+						const celerity::id<2> top_neighborhood_end = {main_neighborhood_end[0] - 1, main_neighborhood_end[1]};
+						add_box(top_neighborhood_start, top_neighborhood_end);
+					}
+
+					// Add bottom neighbors
+					if(first[0] < global_grid_size[0] - 1) {
+						auto adjusted_end = main_neighborhood_end;
+						if(last[0] == global_grid_size[0] - 1) { adjusted_end = {global_grid_size[0] - 2, global_grid_size[1] - 1}; }
+						const celerity::id<2> bottom_neighborhood_start = {main_neighborhood_start[0] + 1, main_neighborhood_start[1]};
+						const celerity::id<2> bottom_neighborhood_end = {adjusted_end[0] + 1, adjusted_end[1]};
+						add_box(bottom_neighborhood_start, bottom_neighborhood_end);
+					}
+
+					// We collect all reads in a region so overlapping/connected ranges are automatically merged
+					// TODO: We should probably just return a region from this function
+					std::vector<subrange<3>> srs;
+					for(auto& box : celerity::detail::region<1>{std::move(read_boxes)}.into_boxes()) {
+						srs.push_back({subrange_cast<3>(box.get_subrange())});
+					}
+					neighborhood_reads_per_device[i] = srs;
+				});
+			});
+		}
+		queue.wait(); // Wait for writes in main thread
+
+		// TODO: Exchange neighborhoods between ranks. If a neighborhood intersects with our local grid, add a remote chunk and read access for the
+		//       shape factor kernel.
 	}
 
 	queue.wait();
@@ -1348,6 +1545,24 @@ int main(int argc, char* argv[]) {
 		shape_factor_geometry.assigned_chunks[i].did = i % num_devices;
 	}
 
+// Sanity check: Shape factor geometry
+#if 1
+	{
+		for(size_t i = 0; i < num_devices; ++i) {
+			if(shape_factor_geometry.assigned_chunks[rank * num_devices + i].box != shape_factor_geometry_new.assigned_chunks[i].box) {
+				// This is not actually an error: The legacy strategy includes the previous rank's (or device)'s count and adds on top the
+				// ideal count for the next. This means if rank 0 has more than the ideal count, the next rank will still have at least the ideal
+				// count, but shift the boundary further, such that ultimately the last device ends up with fewer points.
+				// The new approach tries to always start a device's range at a multiple of the ideal count, which means that in this scenario
+				// rank 1 would potentially receive a smaller range, but then rank 2 would again receive the full range.
+				CELERITY_WARN("Rank {} has different assigned chunk for device {}: {} (legacy) vs {} (new)", rank, i,
+				    shape_factor_geometry.assigned_chunks[rank * num_devices + i].box, shape_factor_geometry_new.assigned_chunks[i].box);
+			}
+		}
+		fmt::print("Sanity check of shape factor geometry for rank {} passed\n", rank);
+	}
+#endif
+
 	/////////// EXTREME HACK //////////////
 	// TODO API: Figure this out: How do we move scratch buffers between tasks with different geometries?
 	// => ACTUALLY: In this case it could simply be "node scope" buffers, so that would work fine...
@@ -1360,6 +1575,20 @@ int main(int argc, char* argv[]) {
 	const auto per_chunk_neighborhood_reads =
 	    compute_neighborhood_reads_2d(shape_factor_geometry, global_grid_size, points_input.get_range().size(), num_entries, num_entries_cumulative);
 	print_delta_time("Neighborhood reads computation");
+
+// Sanity check: Neighborhood reads
+#if 1
+	{
+		for(size_t i = 0; i < num_devices; ++i) {
+			if(per_chunk_neighborhood_reads[rank * num_devices + i] != neighborhood_reads_per_device[i]) {
+				CELERITY_CRITICAL("Rank {} has different neighborhood reads for device {}: {} (legacy) vs {} (new)", rank, i,
+				    per_chunk_neighborhood_reads[rank * num_devices + i], neighborhood_reads_per_device[i]);
+				abort();
+			}
+		}
+		fmt::print("Sanity check of neighborhood reads for rank {} passed\n", rank);
+	}
+#endif
 
 	if(shape_factor_geometry.assigned_chunks.size() != (size_t)num_ranks * num_devices) {
 		CELERITY_CRITICAL("Failed to create enough chunks for all ranks");
@@ -1390,6 +1619,10 @@ int main(int argc, char* argv[]) {
 
 	celerity::expert_mapper read_tile_neighborhood(
 	    celerity::detail::subrange_cast<3>(celerity::subrange<1>{{}, points_input.get_range().size()}), shape_factors_per_chunk_accesses);
+
+	// TODO: There may be cases where we'd want to split chunks that wrap around into a new row into two separate chunks, one per row.
+	// This is because if the second chunk doesn't go all the way to where the previous row starts, we may end up over-allocating by a large
+	// amount due to the neighborhood access. Having multiple chunks would allow for these allocations to be made separately.
 
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor read_tiles(tiles_storage, cgh, read_tile_neighborhood, celerity::read_only);
