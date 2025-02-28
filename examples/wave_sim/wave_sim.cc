@@ -523,7 +523,7 @@ int main(int argc, char* argv[]) {
 	if(cfg.output_sample_rate > 0) { stream_close(queue, os); }
 
 	if(cfg.N * cfg.N * sizeof(DataT) < 4e9) {
-		printf("Computing hash for matrix of size %zu\n", cfg.N * cfg.N * sizeof(DataT));
+		printf("Computing hash for domain of size %zu\n", cfg.N * cfg.N * sizeof(DataT));
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::accessor read_u{u, cgh, celerity::access::all{}, celerity::read_only_host_task};
 			cgh.host_task(celerity::once, [=, r = u.get_range()]() {
@@ -533,7 +533,7 @@ int main(int argc, char* argv[]) {
 			});
 		});
 	} else {
-		puts("Skipping hash (matrix too large)");
+		puts("Skipping hash (domain too large)");
 	}
 
 	return EXIT_SUCCESS;
