@@ -32,18 +32,23 @@ struct data_requirement_options {
 // TODO API: Should it be possible to use these in conjunction with a non-custom geometry task? Probably not. But where to diagnose this?
 class expert_mapper {
   public:
+	// This overload receives the union access explicitly from the user.
+	// Useful if the user does not want to declare all remote chunks and their dependencies explicitly.
 	expert_mapper(detail::region<3> union_access, std::vector<std::pair<detail::box<3>, detail::region<3>>> per_chunk_accesses)
 	    : m_union_region(std::move(union_access)) {
 		m_per_chunk_accesses.reserve(per_chunk_accesses.size());
 		for(auto& [chunk, region] : per_chunk_accesses) {
 			m_per_chunk_accesses.push_back({chunk, std::move(region)});
-			// NOTE: We could also compute the union region here, but that means that every rank has to known all other rank's exact accesses.
-			//       In the current variant it only needs to know the union.
-			// TODO API: Have two overloads of the ctor, one that receives the union, and one that computes it?
-			// m_union_region = detail::region_union(m_union_region, detail::region{std::move(boxes)});
 		}
 		// TODO API: If we are running single node, we should check whether union_region == union(boxes) (not sure where though; CDAG generator?)
 	}
+
+	// Same as above, but union access is specified as a range. Useful if an entire buffer is being accessed.
+	expert_mapper(range<3> union_access, std::vector<std::pair<detail::box<3>, detail::region<3>>> per_chunk_accesses)
+	    : expert_mapper(detail::box<3>::full_range(union_access), std::move(per_chunk_accesses)) {}
+
+	expert_mapper(std::vector<std::pair<detail::box<3>, detail::region<3>>> per_chunk_accesses)
+	    : expert_mapper(compute_union_region(per_chunk_accesses), std::move(per_chunk_accesses)) {}
 
 	detail::region<3> get_chunk_requirements(const chunk<3>& chnk) const { return get_region_for_chunk(chnk); }
 
@@ -55,6 +60,14 @@ class expert_mapper {
   private:
 	std::vector<std::pair<detail::box<3>, detail::region<3>>> m_per_chunk_accesses;
 	detail::region<3> m_union_region;
+
+	static detail::region<3> compute_union_region(const std::vector<std::pair<detail::box<3>, detail::region<3>>>& per_chunk_accesses) {
+		detail::region_builder<3> builder;
+		for(const auto& [_, region] : per_chunk_accesses) {
+			builder.add(region);
+		}
+		return std::move(builder).into_region();
+	}
 
 	const detail::region<3>& get_region_for_chunk(const chunk<3>& chnk) const {
 		// TODO: Can we avoid the linear search here? Would need to introduce notion of "chunk index" or similar
