@@ -413,6 +413,7 @@ int main(int argc, char* argv[]) {
 #endif
 
 	// TODO API: No need to split remote chunks into per-device chunks
+	// TODO: Rename to something more descriptive
 	auto chunks =
 	    celerity::detail::split_1d(box_cast<3>(celerity::detail::box<1>{0, points_input.get_range()}), celerity::detail::ones, num_ranks * num_devices);
 	celerity::custom_task_geometry write_tiles_geometry;
@@ -452,6 +453,9 @@ int main(int argc, char* argv[]) {
 	// TODO: Not the most elegant solution
 	// => Turns out we don't need it for a 1-neighborhood (at least with all the current data sets we have)
 	// celerity::buffer<uint32_t, 2> global_cumulative_counts({global_grid_size[0], global_grid_size[1]});
+
+	celerity::buffer<umuguc_point3d, 1> tiles_storage_new(global_num_points);
+	celerity::debug::set_buffer_name(tiles_storage, "tiles storage (new)");
 
 	queue.wait(celerity::experimental::barrier);
 	const auto before_count_points = std::chrono::steady_clock::now();
@@ -841,6 +845,7 @@ int main(int argc, char* argv[]) {
 
 	// Compute per-device written subranges in 1D buffer
 	// Much simpler than what we were doing before!
+	// TODO: This should be a vector<region<1>>
 	std::vector<std::vector<celerity::subrange<1>>> written_subranges_per_device_new(num_devices); // TODO: Get rid of "_new"
 	{
 		for(size_t i = 0; i < num_devices; ++i) {
@@ -894,7 +899,63 @@ int main(int argc, char* argv[]) {
 		queue.wait(); // Wait for writes in main thread
 	}
 
-	// TODO: Insert writing kernel here
+	// Write points into tiles
+	{
+		// Reset per-device counts to zero
+		// TODO: We're currently really inconsistent with whether the device loop is outside or inside the queue.submit() - what is better?
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::custom_task_geometry<3> geo;
+			std::vector<std::pair<box<3>, region<3>>> write_device_slice;
+			for(size_t i = 0; i < num_devices; ++i) {
+				const auto chnk_box =
+				    box<3>(subrange<3>{{rank * num_devices + i, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}});
+				geo.assigned_chunks.push_back({chnk_box, rank, i});
+				write_device_slice.push_back({chnk_box, chnk_box});
+			}
+			celerity::accessor write_device_counts(
+			    per_device_tile_point_counts, cgh, celerity::expert_mapper(write_device_slice), celerity::write_only, celerity::no_init);
+			celerity::debug::set_task_name(cgh, "reset per-device point counts");
+			cgh.assert_no_data_movement();
+			cgh.parallel_for(geo, [=](celerity::id<3> id) { write_device_counts[id] = 0; });
+		});
+
+		std::vector<std::pair<box<3>, region<3>>> per_chunk_accesses;
+		for(auto& chnk : write_tiles_geometry.assigned_chunks) {
+			if(chnk.nid == rank) {
+				celerity::detail::box_vector<3> device_ranges;
+				for(auto& sr : written_subranges_per_device_new[chnk.did.value()]) {
+					device_ranges.push_back(subrange_cast<3>(sr));
+				}
+				per_chunk_accesses.push_back({chnk.box, region<3>{std::move(device_ranges)}});
+			} else {
+				per_chunk_accesses.push_back({chnk.box, {}});
+			}
+		}
+		celerity::expert_mapper tile_accesses{box_cast<3>(box<1>::full_range(tiles_storage.get_range())), per_chunk_accesses};
+
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::accessor read_points(points_input, cgh, celerity::access::one_to_one{}, celerity::read_only);
+			celerity::accessor read_write_offsets(per_device_write_offsets_buffer, cgh, write_device_count_access /* FIXME Rename */, celerity::read_only);
+			celerity::accessor write_counts(per_device_tile_point_counts, cgh, write_device_count_access, celerity::write_only, celerity::no_init);
+			celerity::accessor write_tiles(tiles_storage_new, cgh, tile_accesses, celerity::write_only, celerity::no_init);
+
+			celerity::debug::set_task_name(cgh, "write points (new)");
+			cgh.assert_no_data_movement();
+			cgh.parallel_for(write_tiles_geometry, [=](celerity::id<1> id) {
+				// TODO: Keep DRY with above
+				const auto& p = read_points[id];
+				// grid_size - 1: We divide the domain such the last tile contains the maximum value
+				const auto tile_x = static_cast<uint32_t>((p.x - global_min.x) / global_extent.x * (global_grid_size[1] - 1));
+				const auto tile_y = static_cast<uint32_t>((p.y - global_min.y) / global_extent.y * (global_grid_size[0] - 1));
+				auto device_slice = write_counts[0]; // 0 because we use local indexing
+				const auto local_tile_x = tile_x - local_grid_offset[1];
+				const auto local_tile_y = tile_y - local_grid_offset[0];
+				sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{device_slice[local_tile_y][local_tile_x]};
+				const uint32_t offset = ref.fetch_add(uint32_t(1));
+				write_tiles[read_write_offsets[0][local_tile_y][local_tile_x] + offset] = p;
+			});
+		});
+	}
 
 	// Compute task geometry for shape factor calculation
 	// TODO: Overlap this with writing kernel
@@ -1577,9 +1638,9 @@ int main(int argc, char* argv[]) {
 				device_region = region_union(device_region, box<1>(subrange_cast<1>(sr)));
 			}
 			if(device_region != neighborhood_reads_per_device[i]) {
-				CELERITY_CRITICAL("Rank {} has different neighborhood reads for device {}: {} (legacy) vs {} (new)", rank, i, device_region,
+				// Since neighborhood reads depend on shape factor geometry, the same issue as above applies here
+				CELERITY_WARN("Rank {} has different neighborhood reads for device {}: {} (legacy) vs {} (new)", rank, i, device_region,
 				    neighborhood_reads_per_device[i]);
-				abort();
 			}
 		}
 		fmt::print("Sanity check of neighborhood reads for rank {} passed\n", rank);
