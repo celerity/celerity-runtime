@@ -1129,7 +1129,8 @@ void generator_impl::allocate_contiguously(batch& current_batch, const buffer_id
 			    });
 
 			if(perf_assertions != nullptr && perf_assertions->assert_no_allocations) {
-				if((mid == host_memory_id && perf_assertions->assert_no_allocations_scope == allocation_scope::host)
+				if(perf_assertions->assert_no_allocations_scope == allocation_scope::any
+				    || (mid == host_memory_id && perf_assertions->assert_no_allocations_scope == allocation_scope::host)
 				    || (mid >= first_device_memory_id && perf_assertions->assert_no_allocations_scope == allocation_scope::device)) {
 					CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' requires allocation of box {} for buffer {} in memory {}",
 					    perf_assertions->assert_no_allocations_source_loc.file_name(), perf_assertions->assert_no_allocations_source_loc.line(),
